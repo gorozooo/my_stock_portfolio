@@ -1,0 +1,35 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ログイン - My Portfolio</title>
+    <link rel="stylesheet" href="{% static 'portfolio/css/style.css' %}">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-box glass-header">
+            <h1 class="app-title">📊 My Portfolio</h1>
+            
+            <form method="post">
+                {% csrf_token %}
+                <label for="id_username">ユーザー名</label>
+                <input type="text" name="username" id="id_username" required>
+                
+                <label for="id_password">パスワード</label>
+                <input type="password" name="password" id="id_password" required>
+                
+                <button type="submit">ログイン</button>
+
+                <!-- ここを追加：エラーがある場合に表示 -->
+                {% if form.errors %}
+                    <p style="color: red; margin-top: 10px;">
+                        ユーザー名またはパスワードが間違っています。
+                    </p>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+</body>
+</html>

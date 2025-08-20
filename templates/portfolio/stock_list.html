@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% load dict_extras %}
+
+{% block title %}株一覧{% endblock %}
+{% block page_icon %}📊{% endblock %}
+{% block page_name %}株一覧{% endblock %}
+{% block last_update %}{{ last_update|date:"Y/m/d H:i:s" }}{% endblock %}
+
+{% block content %}
+<h2>株の一覧ページ</h2>
+<!-- ここに株のテーブルなど -->
+{% endblock %}

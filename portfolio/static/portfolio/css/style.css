@@ -1,0 +1,268 @@
+body {
+    margin: 0;
+    font-family: 'Segoe UI', sans-serif;
+    background: #111;
+    color: #fff;
+}
+
+/* ヘッダー全体（Apple風ガラスUI＋光彩） */
+.glass-header {
+    backdrop-filter: blur(12px);
+    background-color: rgba(0,0,0,0.45);
+    color: #fff;
+    padding: 12px 20px;
+    display: flex;
+    flex-direction: column;
+    text-align: center;
+    box-shadow: 0 0 25px rgba(0,255,255,0.25);
+    border: 1px solid rgba(0,255,255,0.1);
+}
+
+/* アプリタイトル（派手に光る） */
+.header-top .app-title {
+    font-size: 1.8rem;
+    font-weight: bold;
+    color: #0ff;
+    text-shadow: 
+        0 0 5px #0ff,
+        0 0 10px #0ff,
+        0 0 20px #0ff,
+        0 0 30px #0ff,
+        0 0 40px #0ff;
+    animation: glow 1.5s infinite alternate;
+}
+
+@keyframes glow {
+    from { text-shadow: 0 0 5px #0ff, 0 0 10px #0ff; }
+    to   { text-shadow: 0 0 20px #0ff, 0 0 40px #0ff; }
+}
+
+/* ヘッダー下段 */
+.header-bottom {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.95rem;
+    margin-top: 6px;
+}
+
+.username, .last-update {
+    text-align: center;
+}
+
+/* ページ名 強調＆未来感 */
+.page-name {
+    font-size: 1.4em;
+    font-weight: bold;
+    color: #fff;
+    text-shadow: 0 0 8px rgba(0, 200, 255, 0.9), 0 0 15px rgba(0, 200, 255, 0.6);
+    animation: floatGlow 4s ease-in-out infinite;
+    letter-spacing: 1.5px;
+    padding: 3px 10px;
+    border-radius: 8px;
+    background: rgba(0, 200, 255, 0.1); /* 少し背景で浮かせる */
+}
+
+/* 浮遊＋発光アニメーション */
+@keyframes floatGlow {
+    0%, 100% {
+        transform: translateY(0);
+        text-shadow: 0 0 8px rgba(0, 200, 255, 0.9), 0 0 15px rgba(0, 200, 255, 0.6);
+    }
+    50% {
+        transform: translateY(-6px);
+        text-shadow: 0 0 15px rgba(0, 255, 200, 1), 0 0 25px rgba(0, 255, 200, 0.8);
+    }
+}
+
+
+
+/* 下タブ */
+.bottom-tab {
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    background: rgba(0,0,0,0.8);
+    display: flex;
+    justify-content: space-around;
+    padding: 10px 0;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 -2px 10px rgba(0,255,255,0.2);
+}
+
+/* 下タブメニュー：リンクとボタン共通の近未来演出 */
+.bottom-tab a,
+.bottom-tab button {
+    color: #0ff;
+    text-decoration: none;
+    font-size: 1.2rem;
+    background: none;
+    border: none;
+    font: inherit;
+    cursor: pointer;
+    padding: 5px 10px;
+    margin: 0;
+    border-radius: 5px;
+    transition: all 0.3s ease;
+    text-shadow: 0 0 5px rgba(0,255,255,0.5),
+                 0 0 10px rgba(0,255,255,0.3);
+    animation: float-glow-tab 3s ease-in-out infinite alternate;
+}
+
+/* ホバー時の光彩強化 */
+.bottom-tab a:hover,
+.bottom-tab button:hover {
+    color: #fff;
+    text-shadow: 0 0 15px #0ff, 0 0 25px #0ff, 0 0 40px #0ff;
+}
+
+/* 浮遊＋光のアニメーション */
+@keyframes float-glow-tab {
+    0% {
+        transform: translateY(0px);
+        text-shadow: 0 0 5px rgba(0,255,255,0.5),
+                     0 0 10px rgba(0,255,255,0.3);
+    }
+    50% {
+        transform: translateY(-2px);
+        text-shadow: 0 0 10px rgba(0,255,255,0.7),
+                     0 0 20px rgba(0,255,255,0.5);
+    }
+    100% {
+        transform: translateY(0px);
+        text-shadow: 0 0 5px rgba(0,255,255,0.5),
+                     0 0 10px rgba(0,255,255,0.3);
+    }
+}
+
+
+/* ログアウトボタンの見た目もリンクと統一 */
+.logout-button {
+    font: inherit;
+    cursor: pointer;
+    background: none;
+    border: none;
+    color: #0ff;
+    padding: 5px 10px;
+    margin: 0;
+    border-radius: 5px;
+    text-shadow: 0 0 5px rgba(0,255,255,0.5),
+                 0 0 10px rgba(0,255,255,0.3);
+    animation: float-glow-tab 3s ease-in-out infinite alternate;
+}
+
+.logout-button:hover {
+    color: #fff;
+    text-shadow: 0 0 15px #0ff, 0 0 25px #0ff, 0 0 40px #0ff;
+}
+
+
+/* ログイン画面 */
+.login-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background: #111;
+}
+
+.login-box {
+    width: 300px;
+    padding: 30px;
+    border-radius: 15px;
+    backdrop-filter: blur(12px);
+    background-color: rgba(0,0,0,0.6);
+    box-shadow: 0 0 25px rgba(0,255,255,0.3);
+    color: #fff;
+    text-align: center;
+}
+
+.login-box h1.app-title {
+    font-size: 2rem;
+    color: #0ff;
+    text-shadow: 0 0 5px #0ff, 0 0 15px #0ff, 0 0 25px #0ff;
+    animation: glow 1.5s infinite alternate;
+    margin-bottom: 20px;
+}
+
+.login-box label {
+    display: block;
+    text-align: left;
+    margin: 10px 0 5px;
+    font-size: 0.9rem;
+    opacity: 0.8;
+}
+
+.login-box input {
+    width: 100%;
+    padding: 8px 10px;
+    border: none;
+    border-radius: 5px;
+    margin-bottom: 15px;
+    background-color: rgba(255,255,255,0.1);
+    color: #fff;
+}
+
+.login-box input::placeholder {
+    color: rgba(255,255,255,0.5);
+}
+
+.login-box button {
+    width: 100%;
+    padding: 10px;
+    background-color: #0ff;
+    border: none;
+    border-radius: 5px;
+    color: #000;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.login-box button:hover {
+    box-shadow: 0 0 10px #0ff;
+}
+
+/* 下タブサブメニュー*/
+.bottom-tab {
+  position: fixed;
+  bottom: 0;
+  width: 100%;
+  display: flex;
+  background: rgba(255,255,255,0.9);
+  border-top: 1px solid #ccc;
+}
+
+.tab-item {
+  flex: 1;
+  text-align: center;
+  padding: 8px 0;
+  position: relative;
+  cursor: pointer;
+}
+
+.tab-item:hover {
+  background: rgba(0,0,0,0.05);
+}
+
+.submenu {
+  display: none;
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+  z-index: 100;
+  padding: 5px 0;
+}
+
+.submenu-item {
+  padding: 5px 15px;
+  white-space: nowrap;
+}
+
+.submenu-item:hover {
+  background: rgba(0,0,0,0.05);
+}
