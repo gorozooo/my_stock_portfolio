@@ -1,7 +1,5 @@
 <!-- portfolio/templates/base.html -->
-{% load dict_extras %}
 {% load static %}
-
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -11,38 +9,37 @@
     <link rel="stylesheet" href="{% static 'portfolio/css/style.css' %}">
 </head>
 <body>
-    <!-- 上ヘッダー（Apple風ガラスUI） -->
+    <!-- 上ヘッダー（フラット＋光彩） -->
     <header class="glass-header">
-    <div class="header-top">
-        <span class="app-title">📊 My Portfolio</span>
-    </div>
-    <div class="header-bottom">
-        <span class="username">
-            👤 {% if user.is_authenticated %}{{ user.username }}{% else %}ゲスト{% endif %}
-        </span>
-
-        <!-- ページ名（PAGES から参照する） -->
-        {% with page=PAGES|get_item:current_page %}
-<span class="page-name">
-    {{ page.icon }} {{ page.name }}
-</span>
-{% endwith %}
-
-        <span class="last-update">
-            ⏱️ {% block last_update %}{{ last_update|date:"Y.m.d H:i" }}{% endblock %}
-        </span>
-    </div>
-</header>
-
+        <div class="header-top">
+            <span class="app-title">📊 My Portfolio</span>
+        </div>
+        <div class="header-bottom">
+            <span class="username">👤 {% if user.is_authenticated %}{{ user.username }}{% else %}ゲスト{% endif %}</span>
+            
+            <span class="page-name">📈 {% block page_name %}ホーム{% endblock %}</span>
+            
+            <span class="last-update">⏱️ {% block last_update %}{{ last_update|date:"Y.m.d H:i" }}{% endblock %}</span>
+        </div>
+    </header>
 
     <!-- コンテンツ -->
     <main>
         {% block content %}{% endblock %}
     </main>
 
-    <!-- 下タブメニュー（共通化） -->
-    {% include "partials/bottom_nav.html" %}
+    <!-- 下タブメニュー（フラット化） -->
+    <nav class="bottom-tab">
+        <a href="{% url 'main' %}">🏠 ホーム</a>
+        <a href="{% url 'stock_list' %}">📊 株</a>
+        <a href="{% url 'setting' %}">⚙ 設定</a>
 
-<script src="{% static 'js/bottom_nav.js' %}"></script>
+        {% if user.is_authenticated %}
+        <form action="{% url 'logout' %}" method="post" style="display:inline;">
+            {% csrf_token %}
+            <button type="submit" class="logout-button">🚪 ログアウト</button>
+        </form>
+        {% endif %}
+    </nav>
 </body>
 </html>
