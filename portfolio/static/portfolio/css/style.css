@@ -1,138 +1,152 @@
-/* 共通設定 */
+/* portfolio/static/portfolio/css/style.css */
 body {
     margin: 0;
     font-family: 'Segoe UI', sans-serif;
-    background-color: #111;
+    background: #000; /* 真っ黒背景 */
     color: #fff;
 }
 
 /* ---------------------------
-   上ヘッダー（ガラス感＋光彩）
+   上ヘッダー（ガラス＋光彩）
 ---------------------------- */
 .glass-header {
     position: fixed;
     top: 0;
-    left: 0;
     width: 100%;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    background-color: rgba(0,0,0,0.45);
-    padding: 12px 16px;
-    text-align: center;
-    box-shadow: 0 0 20px rgba(0,255,255,0.25);
+    backdrop-filter: blur(14px);
+    background: rgba(0,0,0,0.4);
+    color: #0ff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12px 0;
+    box-shadow: 0 0 25px rgba(0,255,255,0.25);
     border-bottom: 1px solid rgba(0,255,255,0.1);
-    z-index: 1000;
+    z-index: 100;
 }
 
-/* アプリタイトル */
 .header-top .app-title {
-    font-size: 1.6rem;
+    font-size: 1.8rem;
     font-weight: bold;
     color: #0ff;
-    text-shadow: 0 0 5px #0ff, 0 0 10px #0ff, 0 0 20px #0ff;
+    text-shadow: 0 0 5px #0ff, 0 0 15px #0ff, 0 0 25px #0ff;
     animation: float-glow 4s ease-in-out infinite;
 }
 
-/* ヘッダー下段 */
 .header-bottom {
     display: flex;
-    justify-content: space-between;
-    margin-top: 6px;
+    justify-content: space-around;
+    width: 100%;
+    margin-top: 4px;
     font-size: 0.9rem;
-    padding: 0 10px;
 }
 
-/* ページ名 */
 .page-name {
     font-weight: bold;
-    font-size: 1.2rem;
-    color: #fff;
-    background: rgba(0,200,255,0.1);
-    padding: 2px 8px;
-    border-radius: 6px;
-    text-shadow: 0 0 8px rgba(0,200,255,0.9), 0 0 15px rgba(0,200,255,0.6);
+    color: #0ff;
+    text-shadow: 0 0 10px #0ff, 0 0 20px #0ff;
     animation: float-glow 4s ease-in-out infinite;
 }
 
 /* ---------------------------
-   メインコンテンツ余白確保
----------------------------- */
-.main-content {
-    padding-top: 90px; /* ヘッダー分 */
-    padding-bottom: 70px; /* 下タブ分 */
-}
-
-/* ---------------------------
-   下タブ
+   下タブ（スマホ最適化）
 ---------------------------- */
 .bottom-tab {
     position: fixed;
     bottom: 0;
-    left: 0;
     width: 100%;
     display: flex;
     justify-content: space-around;
     align-items: center;
-    padding: 10px 0;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    background-color: rgba(0,0,0,0.45);
+    background: rgba(0,0,0,0.45);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 -2px 25px rgba(0,255,255,0.25);
     border-top: 1px solid rgba(0,255,255,0.1);
-    box-shadow: 0 -2px 20px rgba(0,255,255,0.25);
-    z-index: 1000;
+    padding: 6px 0;
+    z-index: 100;
 }
 
-/* 下タブリンク・ログアウト */
 .bottom-tab a,
 .bottom-tab button {
-    font-size: 1.2rem;
-    font-weight: bold;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     color: #0ff;
-    background: transparent;
-    border: none;
     text-decoration: none;
-    padding: 5px 10px;
-    border-radius: 6px;
-    text-shadow: 0 0 6px rgba(0,200,255,0.7);
+    font-size: 0.85rem;
+    background: none;
+    border: none;
+    text-shadow: 0 0 8px rgba(0,200,255,0.7), 0 0 15px rgba(0,200,255,0.5);
     animation: float-glow 4s ease-in-out infinite;
     cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 8px;
 }
 
-/* ホバー時 */
 .bottom-tab a:hover,
 .bottom-tab button:hover {
     color: #fff;
-    text-shadow: 0 0 15px #0ff, 0 0 25px #0ff;
+    text-shadow: 0 0 20px #0ff, 0 0 40px #0ff;
+}
+
+.bottom-tab .icon {
+    font-size: 1.3rem;
+}
+
+.bottom-tab .label {
+    font-size: 0.7rem;
+    margin-top: 2px;
+}
+
+/* ログアウトボタンも統一 */
+.logout-button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: none;
+    border: none;
+    color: #0ff;
+    cursor: pointer;
 }
 
 /* ---------------------------
-   浮遊＋光彩アニメーション
+   アニメーション
 ---------------------------- */
 @keyframes float-glow {
     0%, 100% {
         transform: translateY(0);
-        text-shadow: 0 0 6px rgba(0,200,255,0.7);
+        text-shadow: 0 0 8px rgba(0,200,255,0.7), 0 0 15px rgba(0,200,255,0.5);
     }
     50% {
         transform: translateY(-3px);
-        text-shadow: 0 0 15px rgba(0,255,200,1);
+        text-shadow: 0 0 18px rgba(0,255,200,1), 0 0 28px rgba(0,255,200,0.7);
     }
 }
 
 /* ---------------------------
-   レスポンシブ微調整
+   レスポンシブ調整（iPhone向け）
 ---------------------------- */
-@media (max-width: 768px) {
+@media (max-width: 480px) {
     .header-top .app-title {
-        font-size: 1.4rem;
+        font-size: 1.5rem;
     }
-    .page-name {
-        font-size: 1rem;
-        padding: 2px 6px;
+    .header-bottom {
+        font-size: 0.8rem;
     }
-    .bottom-tab a,
-    .bottom-tab button {
-        font-size: 1rem;
-        padding: 4px 8px;
+    .bottom-tab .icon {
+        font-size: 1.1rem;
     }
+    .bottom-tab .label {
+        font-size: 0.65rem;
+    }
+    main {
+        padding-top: 80px;
+        padding-bottom: 60px;
+    }
+}
+
+/* main余白確保（ヘッダー・下タブ） */
+main {
+    padding-top: 70px;
+    padding-bottom: 60px;
 }

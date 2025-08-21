@@ -1,3 +1,4 @@
+<!-- portfolio/templates/base.html -->
 {% load static %}
 <!DOCTYPE html>
 <html lang="ja">
@@ -8,7 +9,7 @@
     <link rel="stylesheet" href="{% static 'portfolio/css/style.css' %}">
 </head>
 <body>
-    <!-- 上ヘッダー -->
+    <!-- 上ヘッダー（Apple風ガラス＋光彩） -->
     <header class="glass-header">
         <div class="header-top">
             <span class="app-title">📊 My Portfolio</span>
@@ -20,20 +21,32 @@
         </div>
     </header>
 
-    <!-- メインコンテンツ -->
-    <main class="main-content">
+    <!-- コンテンツ -->
+    <main>
         {% block content %}{% endblock %}
     </main>
 
-    <!-- 下タブ -->
+    <!-- 下タブメニュー -->
     <nav class="bottom-tab">
-        <a href="{% url 'main' %}">🏠 ホーム</a>
-        <a href="{% url 'stock_list' %}">📊 株</a>
-        <a href="{% url 'setting' %}">⚙ 設定</a>
+        <a href="{% url 'main' %}">
+            <span class="icon">🏠</span>
+            <span class="label">ホーム</span>
+        </a>
+        <a href="{% url 'stock_list' %}">
+            <span class="icon">📊</span>
+            <span class="label">株</span>
+        </a>
+        <a href="{% url 'setting' %}">
+            <span class="icon">⚙</span>
+            <span class="label">設定</span>
+        </a>
         {% if user.is_authenticated %}
-        <form action="{% url 'logout' %}" method="post">
+        <form action="{% url 'logout' %}" method="post" style="display:inline;">
             {% csrf_token %}
-            <button type="submit" class="logout-button">🚪 ログアウト</button>
+            <button type="submit" class="logout-button">
+                <span class="icon">🚪</span>
+                <span class="label">ログアウト</span>
+            </button>
         </form>
         {% endif %}
     </nav>
