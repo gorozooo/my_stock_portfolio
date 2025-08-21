@@ -20,8 +20,8 @@
         </div>
     </header>
 
-    <!-- コンテンツ -->
-    <main>
+    <!-- メインコンテンツ -->
+    <main class="main-content">
         {% block content %}{% endblock %}
     </main>
 
@@ -30,9 +30,8 @@
         <a href="{% url 'main' %}">🏠 ホーム</a>
         <a href="{% url 'stock_list' %}">📊 株</a>
         <a href="{% url 'setting' %}">⚙ 設定</a>
-
         {% if user.is_authenticated %}
-        <form action="{% url 'logout' %}" method="post" style="display:inline;">
+        <form action="{% url 'logout' %}" method="post">
             {% csrf_token %}
             <button type="submit" class="logout-button">🚪 ログアウト</button>
         </form>

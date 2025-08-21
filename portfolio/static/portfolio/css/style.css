@@ -1,8 +1,4 @@
-/* portfolio/static/portfolio/css/style.css */
-
-/* ---------------------------
-   全体
----------------------------- */
+/* 共通設定 */
 body {
     margin: 0;
     font-family: 'Segoe UI', sans-serif;
@@ -11,111 +7,132 @@ body {
 }
 
 /* ---------------------------
-   ヘッダー（Apple風ガラス＋光彩）
+   上ヘッダー（ガラス感＋光彩）
 ---------------------------- */
 .glass-header {
     position: fixed;
     top: 0;
+    left: 0;
     width: 100%;
-    backdrop-filter: blur(15px);
-    background-color: rgba(0,0,0,0.5);
-    color: #fff;
-    padding: 10px 15px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    box-shadow: 0 0 25px rgba(0,255,255,0.2);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    background-color: rgba(0,0,0,0.45);
+    padding: 12px 16px;
+    text-align: center;
+    box-shadow: 0 0 20px rgba(0,255,255,0.25);
     border-bottom: 1px solid rgba(0,255,255,0.1);
     z-index: 1000;
 }
 
+/* アプリタイトル */
 .header-top .app-title {
     font-size: 1.6rem;
     font-weight: bold;
     color: #0ff;
-    text-shadow: 0 0 5px #0ff,0 0 15px #0ff,0 0 25px #0ff;
+    text-shadow: 0 0 5px #0ff, 0 0 10px #0ff, 0 0 20px #0ff;
+    animation: float-glow 4s ease-in-out infinite;
 }
 
+/* ヘッダー下段 */
 .header-bottom {
-    width: 100%;
     display: flex;
     justify-content: space-between;
+    margin-top: 6px;
     font-size: 0.9rem;
-    margin-top: 4px;
-    padding: 0 5px;
+    padding: 0 10px;
 }
 
+/* ページ名 */
 .page-name {
     font-weight: bold;
-    font-size: 1rem;
+    font-size: 1.2rem;
     color: #fff;
-    text-shadow: 0 0 8px rgba(0,200,255,0.8),0 0 15px rgba(0,200,255,0.5);
-    background-color: rgba(0,200,255,0.1);
-    padding: 2px 6px;
+    background: rgba(0,200,255,0.1);
+    padding: 2px 8px;
     border-radius: 6px;
-    text-align: center;
-    flex: 1;
+    text-shadow: 0 0 8px rgba(0,200,255,0.9), 0 0 15px rgba(0,200,255,0.6);
+    animation: float-glow 4s ease-in-out infinite;
 }
 
 /* ---------------------------
-   コンテンツ余白
+   メインコンテンツ余白確保
 ---------------------------- */
-main {
-    padding: 90px 15px 70px 15px; /* ヘッダー＆下タブ分の余白 */
+.main-content {
+    padding-top: 90px; /* ヘッダー分 */
+    padding-bottom: 70px; /* 下タブ分 */
 }
 
 /* ---------------------------
-   下タブ（固定・未来感）
+   下タブ
 ---------------------------- */
 .bottom-tab {
     position: fixed;
     bottom: 0;
+    left: 0;
     width: 100%;
     display: flex;
     justify-content: space-around;
     align-items: center;
-    padding: 8px 0;
-    backdrop-filter: blur(15px);
-    background-color: rgba(0,0,0,0.5);
-    box-shadow: 0 -2px 25px rgba(0,255,255,0.2);
+    padding: 10px 0;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    background-color: rgba(0,0,0,0.45);
     border-top: 1px solid rgba(0,255,255,0.1);
+    box-shadow: 0 -2px 20px rgba(0,255,255,0.25);
     z-index: 1000;
 }
 
+/* 下タブリンク・ログアウト */
 .bottom-tab a,
 .bottom-tab button {
-    font-size: 1rem;
+    font-size: 1.2rem;
+    font-weight: bold;
     color: #0ff;
+    background: transparent;
+    border: none;
     text-decoration: none;
     padding: 5px 10px;
     border-radius: 6px;
-    text-shadow: 0 0 6px rgba(0,200,255,0.7),0 0 12px rgba(0,200,255,0.5);
-    background-color: transparent;
-    border: none;
+    text-shadow: 0 0 6px rgba(0,200,255,0.7);
+    animation: float-glow 4s ease-in-out infinite;
     cursor: pointer;
 }
 
-/* ホバー */
+/* ホバー時 */
 .bottom-tab a:hover,
 .bottom-tab button:hover {
     color: #fff;
-    text-shadow: 0 0 15px #0ff,0 0 30px #0ff;
+    text-shadow: 0 0 15px #0ff, 0 0 25px #0ff;
 }
 
 /* ---------------------------
-   レスポンシブ（スマホメイン）
+   浮遊＋光彩アニメーション
+---------------------------- */
+@keyframes float-glow {
+    0%, 100% {
+        transform: translateY(0);
+        text-shadow: 0 0 6px rgba(0,200,255,0.7);
+    }
+    50% {
+        transform: translateY(-3px);
+        text-shadow: 0 0 15px rgba(0,255,200,1);
+    }
+}
+
+/* ---------------------------
+   レスポンシブ微調整
 ---------------------------- */
 @media (max-width: 768px) {
     .header-top .app-title {
         font-size: 1.4rem;
     }
     .page-name {
-        font-size: 0.95rem;
-        padding: 2px 4px;
+        font-size: 1rem;
+        padding: 2px 6px;
     }
     .bottom-tab a,
     .bottom-tab button {
-        font-size: 0.9rem;
+        font-size: 1rem;
         padding: 4px 8px;
     }
 }
