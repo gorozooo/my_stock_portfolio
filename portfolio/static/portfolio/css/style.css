@@ -1,30 +1,40 @@
-/* portfolio/static/portfolio/css/style.css */
-body {
+/* ---------------------------
+   基本
+---------------------------- */
+html, body {
     margin: 0;
+    padding: 0;
+    height: 100%;
     font-family: 'Segoe UI', sans-serif;
-    background: #000; /* 真っ黒背景 */
+    background-color: #000 !important;  /* 背景を強制黒 */
     color: #fff;
 }
 
+/* main の下に余白を作り、下タブ被り防止 */
+main {
+    padding-bottom: 70px;
+}
+
 /* ---------------------------
-   上ヘッダー（ガラス＋光彩）
+   ヘッダー（ガラス感＋光彩）
 ---------------------------- */
 .glass-header {
     position: fixed;
     top: 0;
     width: 100%;
-    backdrop-filter: blur(14px);
-    background: rgba(0,0,0,0.4);
-    color: #0ff;
+    padding: 12px 15px;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    padding: 12px 0;
+    text-align: center;
+    background-color: rgba(0,0,0,0.45); /* 透過黒 fallback */
+    -webkit-backdrop-filter: blur(14px); /* Safari対応 */
+    backdrop-filter: blur(14px);
     box-shadow: 0 0 25px rgba(0,255,255,0.25);
     border-bottom: 1px solid rgba(0,255,255,0.1);
-    z-index: 100;
+    z-index: 1000;
 }
 
+/* アプリタイトル */
 .header-top .app-title {
     font-size: 1.8rem;
     font-weight: bold;
@@ -33,23 +43,29 @@ body {
     animation: float-glow 4s ease-in-out infinite;
 }
 
-.header-bottom {
-    display: flex;
-    justify-content: space-around;
-    width: 100%;
-    margin-top: 4px;
-    font-size: 0.9rem;
+/* ページ名 */
+.page-name {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #fff;
+    text-shadow: 0 0 8px rgba(0,200,255,0.9), 0 0 15px rgba(0,200,255,0.6);
+    animation: float-glow 4s ease-in-out infinite;
+    padding: 3px 10px;
+    border-radius: 8px;
+    background-color: rgba(0,200,255,0.1);
+    margin: 4px 0;
 }
 
-.page-name {
-    font-weight: bold;
-    color: #0ff;
-    text-shadow: 0 0 10px #0ff, 0 0 20px #0ff;
-    animation: float-glow 4s ease-in-out infinite;
+/* ヘッダー下段 */
+.header-bottom {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    margin-top: 6px;
 }
 
 /* ---------------------------
-   下タブ（スマホ最適化）
+   下タブ（ガラス感＋光彩）
 ---------------------------- */
 .bottom-tab {
     position: fixed;
@@ -58,59 +74,40 @@ body {
     display: flex;
     justify-content: space-around;
     align-items: center;
-    background: rgba(0,0,0,0.45);
+    padding: 10px 0;
+    background-color: rgba(0,0,0,0.45); /* 透過黒 */
+    -webkit-backdrop-filter: blur(14px); /* Safari対応 */
     backdrop-filter: blur(14px);
     box-shadow: 0 -2px 25px rgba(0,255,255,0.25);
     border-top: 1px solid rgba(0,255,255,0.1);
-    padding: 6px 0;
-    z-index: 100;
+    z-index: 1000;
 }
 
+/* タブリンク */
 .bottom-tab a,
 .bottom-tab button {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+    font-size: 1.3rem;
+    font-weight: bold;
     color: #0ff;
     text-decoration: none;
-    font-size: 0.85rem;
-    background: none;
+    padding: 6px 12px;
+    border-radius: 0; /* ボタン感を消す */
     border: none;
+    background: none; /* 背景もなしでフラットに */
+    cursor: pointer;
     text-shadow: 0 0 8px rgba(0,200,255,0.7), 0 0 15px rgba(0,200,255,0.5);
     animation: float-glow 4s ease-in-out infinite;
-    cursor: pointer;
-    padding: 4px 6px;
-    border-radius: 8px;
 }
 
+/* ホバー */
 .bottom-tab a:hover,
 .bottom-tab button:hover {
     color: #fff;
     text-shadow: 0 0 20px #0ff, 0 0 40px #0ff;
 }
 
-.bottom-tab .icon {
-    font-size: 1.3rem;
-}
-
-.bottom-tab .label {
-    font-size: 0.7rem;
-    margin-top: 2px;
-}
-
-/* ログアウトボタンも統一 */
-.logout-button {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    background: none;
-    border: none;
-    color: #0ff;
-    cursor: pointer;
-}
-
 /* ---------------------------
-   アニメーション
+   浮遊＋光彩アニメーション
 ---------------------------- */
 @keyframes float-glow {
     0%, 100% {
@@ -119,34 +116,6 @@ body {
     }
     50% {
         transform: translateY(-3px);
-        text-shadow: 0 0 18px rgba(0,255,200,1), 0 0 28px rgba(0,255,200,0.7);
+        text-shadow: 0 0 18px rgba(0,255,200,1), 0 0 30px rgba(0,255,200,0.7);
     }
-}
-
-/* ---------------------------
-   レスポンシブ調整（iPhone向け）
----------------------------- */
-@media (max-width: 480px) {
-    .header-top .app-title {
-        font-size: 1.5rem;
-    }
-    .header-bottom {
-        font-size: 0.8rem;
-    }
-    .bottom-tab .icon {
-        font-size: 1.1rem;
-    }
-    .bottom-tab .label {
-        font-size: 0.65rem;
-    }
-    main {
-        padding-top: 80px;
-        padding-bottom: 60px;
-    }
-}
-
-/* main余白確保（ヘッダー・下タブ） */
-main {
-    padding-top: 70px;
-    padding-bottom: 60px;
 }
