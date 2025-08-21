@@ -1,6 +1,6 @@
-/* ======================================
-   基本スタイル
-====================================== */
+/* ---------------------------
+   共通設定
+---------------------------- */
 body {
     margin: 0;
     font-family: 'Segoe UI', sans-serif;
@@ -8,46 +8,43 @@ body {
     color: #fff;
 }
 
-/* ======================================
-   ヘッダー（Apple風ガラス＋光彩）
-====================================== */
 /* ---------------------------
-   ヘッダー（フラット＋光彩文字のみ）
+   ヘッダー（Apple風ガラス＋光彩）
 ---------------------------- */
 .glass-header {
     backdrop-filter: blur(12px);
-    background-color: rgba(0,0,0,0.45); /* 透明黒 */
+    background-color: rgba(0,0,0,0.45);
     color: #fff;
     padding: 12px 20px;
     display: flex;
     flex-direction: column;
     text-align: center;
-    box-shadow: none;        /* ← 影を削除 */
-    border: none;            /* ← 枠線を削除 */
+    box-shadow: 0 0 25px rgba(0,255,255,0.25);
+    border: 1px solid rgba(0,255,255,0.1);
 }
 
-/* アプリタイトル（光彩＋浮遊アニメ） */
+/* アプリタイトル（光彩＋浮遊） */
 .header-top .app-title {
     font-size: 1.8rem;
     font-weight: bold;
     color: #0ff;
-    text-shadow: 0 0 8px rgba(0,200,255,0.9), 0 0 15px rgba(0,200,255,0.6);
-    animation: float-glow-main 4s ease-in-out infinite;
+    text-shadow: 0 0 5px #0ff, 0 0 10px #0ff, 0 0 20px #0ff;
+    animation: float-glow 4s ease-in-out infinite;
+    background: none; /* ボタン感を消す */
 }
 
-/* ページ名 */
+/* ページ名（光彩＋浮遊） */
 .page-name {
-    font-size: 1.4em;
+    font-size: 1.4rem;
     font-weight: bold;
     color: #fff;
     text-shadow: 0 0 8px rgba(0,200,255,0.9), 0 0 15px rgba(0,200,255,0.6);
-    animation: float-glow-main 4s ease-in-out infinite;
+    animation: float-glow 4s ease-in-out infinite;
     letter-spacing: 1.5px;
     padding: 3px 10px;
-    border-radius: 0;         /* ← 丸角もやめる */
-    background: none;         /* ← 背景色を消す */
+    border-radius: 8px;
+    background: rgba(0,200,255,0.1);
 }
-
 
 /* ヘッダー下段 */
 .header-bottom {
@@ -56,40 +53,39 @@ body {
     font-size: 0.95rem;
     margin-top: 6px;
 }
-
 .username, .last-update {
     text-align: center;
 }
 
-/* ======================================
-   下タブメニュー（ヘッダーと完全統一）
-====================================== */
-/* 下タブ */
+/* ---------------------------
+   下タブメニュー（ヘッダーと統一）
+---------------------------- */
 .bottom-tab {
     position: fixed;
     bottom: 0;
     width: 100%;
-    background-color: rgba(0,0,0,0.45); /* 透明黒 */
+    background-color: rgba(0,0,0,0.45);
     backdrop-filter: blur(12px);
     display: flex;
     justify-content: space-around;
     padding: 10px 0;
-    box-shadow: 0 -2px 25px rgba(0,255,255,0.2);
-    border-top: none; /* 境界線なし */
+    box-shadow: 0 -2px 25px rgba(0,255,255,0.25);
+    border-top: 1px solid rgba(0,255,255,0.1);
 }
 
 /* 下タブリンク */
 .bottom-tab a,
 .bottom-tab button {
-    font-size: 1.3rem;
+    font-size: 1.2rem;
     font-weight: bold;
     color: #0ff;
     text-decoration: none;
-    background: none; /* 背景フラット化 */
-    border: none;     /* ボーダーなし */
-    padding: 0;
+    background: none; /* ボタン感削除 */
+    padding: 5px 0;
+    border: none;
+    cursor: pointer;
     text-shadow: 0 0 8px rgba(0,200,255,0.7), 0 0 15px rgba(0,200,255,0.5);
-    animation: float-glow-main 4s ease-in-out infinite;
+    animation: float-glow 4s ease-in-out infinite;
 }
 
 /* ホバー時 */
@@ -97,17 +93,18 @@ body {
 .bottom-tab button:hover {
     color: #fff;
     text-shadow: 0 0 20px #0ff, 0 0 40px #0ff, 0 0 60px #0ff;
+    background: none;
 }
 
-/* ログアウトボタンもフラット化 */
+/* ログアウトボタン */
 .logout-button {
     background: none;
     border: none;
-    padding: 0;
-    color: #0ff;
     font: inherit;
+    cursor: pointer;
+    color: #0ff;
     text-shadow: 0 0 8px rgba(0,200,255,0.7), 0 0 15px rgba(0,200,255,0.5);
-    animation: float-glow-main 4s ease-in-out infinite;
+    animation: float-glow 4s ease-in-out infinite;
 }
 
 .logout-button:hover {
@@ -115,84 +112,38 @@ body {
     text-shadow: 0 0 20px #0ff, 0 0 40px #0ff, 0 0 60px #0ff;
 }
 
-/* ======================================
-   浮遊＋光彩アニメーション
-====================================== */
+/* ---------------------------
+   浮遊＋光彩アニメーション（共通）
+---------------------------- */
 @keyframes float-glow {
     0%, 100% {
         transform: translateY(0);
-        text-shadow: 0 0 8px rgba(0,200,255,0.7),0 0 15px rgba(0,200,255,0.5);
+        text-shadow: 0 0 8px rgba(0,200,255,0.7), 0 0 15px rgba(0,200,255,0.5);
     }
     50% {
         transform: translateY(-4px);
-        text-shadow: 0 0 18px rgba(0,255,200,1),0 0 30px rgba(0,255,200,0.7);
+        text-shadow: 0 0 18px rgba(0,255,200,1), 0 0 30px rgba(0,255,200,0.7);
     }
 }
 
-/* ======================================
-   ログイン画面
-====================================== */
-.login-container {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
-    background-color: #111;
-}
-
-.login-box {
-    width: 300px;
-    padding: 30px;
-    border-radius: 15px;
-    backdrop-filter: blur(12px);
-    background-color: rgba(0,0,0,0.6);
-    box-shadow: 0 0 25px rgba(0,255,255,0.3);
-    color: #fff;
-    text-align: center;
-}
-
-.login-box h1.app-title {
-    font-size: 2rem;
-    color: #0ff;
-    text-shadow: 0 0 5px #0ff,0 0 15px #0ff,0 0 25px #0ff;
-    animation: float-glow 4s ease-in-out infinite;
-    margin-bottom: 20px;
-}
-
-.login-box label {
-    display: block;
-    text-align: left;
-    margin: 10px 0 5px;
-    font-size: 0.9rem;
-    opacity: 0.8;
-}
-
-.login-box input {
-    width: 100%;
-    padding: 8px 10px;
-    border: none;
-    border-radius: 5px;
-    margin-bottom: 15px;
-    background-color: rgba(255,255,255,0.1);
-    color: #fff;
-}
-
-.login-box input::placeholder {
-    color: rgba(255,255,255,0.5);
-}
-
-.login-box button {
-    width: 100%;
-    padding: 10px;
-    background-color: #0ff;
-    border: none;
-    border-radius: 5px;
-    color: #000;
-    font-weight: bold;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.login-box button:hover {
-    box-shadow: 0 0 10px #0ff;
+/* ---------------------------
+   レスポンシブ（スマホ対応）
+---------------------------- */
+@media (max-width: 480px) {
+    .header-top .app-title {
+        font-size: 1.4rem;
+    }
+    .page-name {
+        font-size: 1.1rem;
+        padding: 2px 6px;
+    }
+    .header-bottom {
+        flex-direction: column;
+        gap: 4px;
+    }
+    .bottom-tab a,
+    .bottom-tab button {
+        font-size: 1rem;
+        padding: 4px 0;
+    }
 }
