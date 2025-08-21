@@ -1,4 +1,3 @@
-<!-- portfolio/templates/base.html -->
 {% load static %}
 <!DOCTYPE html>
 <html lang="ja">
@@ -9,16 +8,14 @@
     <link rel="stylesheet" href="{% static 'portfolio/css/style.css' %}">
 </head>
 <body>
-    <!-- 上ヘッダー（フラット＋光彩） -->
+    <!-- 上ヘッダー -->
     <header class="glass-header">
         <div class="header-top">
             <span class="app-title">📊 My Portfolio</span>
         </div>
         <div class="header-bottom">
             <span class="username">👤 {% if user.is_authenticated %}{{ user.username }}{% else %}ゲスト{% endif %}</span>
-            
             <span class="page-name">📈 {% block page_name %}ホーム{% endblock %}</span>
-            
             <span class="last-update">⏱️ {% block last_update %}{{ last_update|date:"Y.m.d H:i" }}{% endblock %}</span>
         </div>
     </header>
@@ -28,7 +25,7 @@
         {% block content %}{% endblock %}
     </main>
 
-    <!-- 下タブメニュー（フラット化） -->
+    <!-- 下タブ -->
     <nav class="bottom-tab">
         <a href="{% url 'main' %}">🏠 ホーム</a>
         <a href="{% url 'stock_list' %}">📊 株</a>

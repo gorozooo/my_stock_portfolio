@@ -1,5 +1,5 @@
 /* ---------------------------
-   共通設定
+   基本スタイル
 ---------------------------- */
 body {
     margin: 0;
@@ -8,142 +8,132 @@ body {
     color: #fff;
 }
 
+main {
+    padding: 90px 10px 70px; /* ヘッダーと下タブに被らない */
+}
+
 /* ---------------------------
-   ヘッダー（Apple風ガラス＋光彩）
+   ヘッダー（ガラス＋光彩）
 ---------------------------- */
 .glass-header {
+    position: fixed;
+    top: 0;
+    width: 100%;
     backdrop-filter: blur(12px);
     background-color: rgba(0,0,0,0.45);
     color: #fff;
-    padding: 12px 20px;
+    padding: 12px 15px;
     display: flex;
     flex-direction: column;
     text-align: center;
     box-shadow: 0 0 25px rgba(0,255,255,0.25);
-    border: 1px solid rgba(0,255,255,0.1);
+    border-bottom: 1px solid rgba(0,255,255,0.1);
+    z-index: 1000;
 }
 
-/* アプリタイトル（光彩＋浮遊） */
 .header-top .app-title {
-    font-size: 1.8rem;
+    font-size: 1.6rem;
     font-weight: bold;
     color: #0ff;
-    text-shadow: 0 0 5px #0ff, 0 0 10px #0ff, 0 0 20px #0ff;
+    text-shadow: 0 0 5px #0ff, 0 0 15px #0ff, 0 0 25px #0ff;
     animation: float-glow 4s ease-in-out infinite;
-    background: none; /* ボタン感を消す */
 }
 
-/* ページ名（光彩＋浮遊） */
+.header-bottom {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.9rem;
+    margin-top: 6px;
+}
+
 .page-name {
-    font-size: 1.4rem;
+    font-size: 1.2rem;
     font-weight: bold;
     color: #fff;
     text-shadow: 0 0 8px rgba(0,200,255,0.9), 0 0 15px rgba(0,200,255,0.6);
     animation: float-glow 4s ease-in-out infinite;
-    letter-spacing: 1.5px;
-    padding: 3px 10px;
-    border-radius: 8px;
-    background: rgba(0,200,255,0.1);
-}
-
-/* ヘッダー下段 */
-.header-bottom {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.95rem;
-    margin-top: 6px;
-}
-.username, .last-update {
-    text-align: center;
+    letter-spacing: 1px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(0,200,255,0.08); /* 浮かせる */
 }
 
 /* ---------------------------
-   下タブメニュー（ヘッダーと統一）
+   下タブ（ガラス＋未来感統一）
 ---------------------------- */
 .bottom-tab {
     position: fixed;
     bottom: 0;
     width: 100%;
-    background-color: rgba(0,0,0,0.45);
-    backdrop-filter: blur(12px);
     display: flex;
     justify-content: space-around;
-    padding: 10px 0;
+    padding: 8px 0;
+    backdrop-filter: blur(12px);
+    background-color: rgba(0,0,0,0.45);
     box-shadow: 0 -2px 25px rgba(0,255,255,0.25);
     border-top: 1px solid rgba(0,255,255,0.1);
+    z-index: 1000;
 }
 
-/* 下タブリンク */
 .bottom-tab a,
 .bottom-tab button {
     font-size: 1.2rem;
     font-weight: bold;
     color: #0ff;
     text-decoration: none;
-    background: none; /* ボタン感削除 */
-    padding: 5px 0;
+    padding: 5px 10px;
+    border-radius: 6px;
+    background-color: rgba(0,0,0,0.25);
     border: none;
-    cursor: pointer;
-    text-shadow: 0 0 8px rgba(0,200,255,0.7), 0 0 15px rgba(0,200,255,0.5);
+    text-shadow: 0 0 6px rgba(0,200,255,0.7), 0 0 12px rgba(0,200,255,0.5);
     animation: float-glow 4s ease-in-out infinite;
+    transition: all 0.3s ease;
 }
 
-/* ホバー時 */
 .bottom-tab a:hover,
 .bottom-tab button:hover {
     color: #fff;
-    text-shadow: 0 0 20px #0ff, 0 0 40px #0ff, 0 0 60px #0ff;
-    background: none;
+    background-color: rgba(0,255,255,0.12);
+    text-shadow: 0 0 15px #0ff, 0 0 30px #0ff;
 }
 
-/* ログアウトボタン */
 .logout-button {
-    background: none;
+    background-color: rgba(0,0,0,0.25);
     border: none;
-    font: inherit;
-    cursor: pointer;
-    color: #0ff;
-    text-shadow: 0 0 8px rgba(0,200,255,0.7), 0 0 15px rgba(0,200,255,0.5);
-    animation: float-glow 4s ease-in-out infinite;
-}
-
-.logout-button:hover {
-    color: #fff;
-    text-shadow: 0 0 20px #0ff, 0 0 40px #0ff, 0 0 60px #0ff;
+    text-shadow: 0 0 6px rgba(0,200,255,0.7), 0 0 12px rgba(0,200,255,0.5);
 }
 
 /* ---------------------------
-   浮遊＋光彩アニメーション（共通）
+   浮遊＋光彩アニメ
 ---------------------------- */
 @keyframes float-glow {
-    0%, 100% {
+    0%,100% {
         transform: translateY(0);
-        text-shadow: 0 0 8px rgba(0,200,255,0.7), 0 0 15px rgba(0,200,255,0.5);
+        text-shadow: 0 0 6px rgba(0,200,255,0.7),0 0 12px rgba(0,200,255,0.5);
     }
     50% {
-        transform: translateY(-4px);
-        text-shadow: 0 0 18px rgba(0,255,200,1), 0 0 30px rgba(0,255,200,0.7);
+        transform: translateY(-3px);
+        text-shadow: 0 0 12px rgba(0,255,200,1),0 0 24px rgba(0,255,200,0.7);
     }
 }
 
 /* ---------------------------
-   レスポンシブ（スマホ対応）
+   レスポンシブ調整（スマホ最適化）
 ---------------------------- */
-@media (max-width: 480px) {
+@media screen and (max-width: 480px) {
     .header-top .app-title {
         font-size: 1.4rem;
     }
     .page-name {
-        font-size: 1.1rem;
+        font-size: 1rem;
         padding: 2px 6px;
-    }
-    .header-bottom {
-        flex-direction: column;
-        gap: 4px;
     }
     .bottom-tab a,
     .bottom-tab button {
         font-size: 1rem;
-        padding: 4px 0;
+        padding: 4px 8px;
+    }
+    main {
+        padding: 100px 10px 70px;
     }
 }
