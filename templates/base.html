@@ -1,14 +1,15 @@
+<!-- portfolio/templates/base.html -->
 {% load static %}
 <!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>{% block title %}My Portfolio{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'portfolio/css/style.css' %}">
 </head>
 <body>
-    <!-- 上ヘッダー（Apple風ガラスUI） -->
+    <!-- 上ヘッダー（ガラス感＋光彩） -->
     <header class="glass-header">
         <div class="header-top">
             <span class="app-title">📊 My Portfolio</span>
@@ -25,7 +26,7 @@
         {% block content %}{% endblock %}
     </main>
 
-    <!-- 下タブメニュー -->
+    <!-- 下タブメニュー（フロートガラス） -->
     <nav class="bottom-tab">
         <a href="{% url 'main' %}">🏠 ホーム</a>
         <a href="{% url 'stock_list' %}">📊 株</a>
