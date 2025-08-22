@@ -1,14 +1,6 @@
-{% extends "base.html" %}
-
-{% load dict_extras %}
-{% block title %}ホーム{% endblock %}
-{% block page_icon %}🏠{% endblock %}
-{% block page_name %}ホーム{% endblock %}
-{% block page_url %}{% url 'main' %}{% endblock %}
-
+{% extends 'base.html' %}
+{% block title %}Main{% endblock %}
 {% block content %}
-<div class="home-container">
-    <h2>ようこそ {{ user.username }} さん！</h2>
-    <p>ここからポートフォリオ管理を始められます。</p>
-</div>
+<h1>Welcome to My Portfolio</h1>
+<p>ここに未来感UIで情報表示予定</p>
 {% endblock %}
