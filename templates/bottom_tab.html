@@ -1,19 +1,57 @@
-<nav class="bottom-tab">
-  <ul class="tab-list">
+<div class="bottom-tab">
+  <!-- メインタブ -->
+  <ul class="tab-list main-tabs">
     <li class="tab-item">
-      <a href="{% url 'main' %}">🏠 Home</a>
+      <a href="{% url 'stock_list' %}">
+        <i class="fa-solid fa-chart-line"></i>
+        <span>株一覧</span>
+      </a>
     </li>
     <li class="tab-item">
-      <a href="{% url 'stock_list' %}">📈 Stocks</a>
+      <a href="{% url 'cash' %}">
+        <i class="fa-solid fa-wallet"></i>
+        <span>現金</span>
+      </a>
     </li>
     <li class="tab-item">
-      <a href="{% url 'cash' %}">💰 Cash</a>
+      <a href="{% url 'realized' %}">
+        <i class="fa-solid fa-coins"></i>
+        <span>実現損益</span>
+      </a>
     </li>
     <li class="tab-item">
-      <a href="{% url 'realized' %}">📊 Realized</a>
-    </li>
-    <li class="tab-item">
-      <a href="{% url 'settings' %}">⚙️ Settings</a>
+      <a href="#" id="submenu-toggle">
+        <i class="fa-solid fa-ellipsis"></i>
+        <span>その他</span>
+      </a>
     </li>
   </ul>
-</nav>
+
+  <!-- サブメニュー -->
+  <ul class="tab-list sub-tabs" id="sub-menu" style="display:none;">
+    <li class="tab-item">
+      <a href="{% url 'settings' %}">
+        <i class="fa-solid fa-gear"></i>
+        <span>設定</span>
+      </a>
+    </li>
+    <li class="tab-item">
+      <a href="#">
+        <i class="fa-solid fa-user"></i>
+        <span>プロフィール</span>
+      </a>
+    </li>
+    <li class="tab-item">
+      <a href="#">
+        <i class="fa-solid fa-circle-question"></i>
+        <span>ヘルプ</span>
+      </a>
+    </li>
+    <li class="tab-item">
+      <a href="#" id="main-menu-toggle">
+        <i class="fa-solid fa-arrow-left"></i>
+        <span>戻る</span>
+      </a>
+    </li>
+  </ul>
+</div>

@@ -5,8 +5,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}My Portfolio{% endblock %}</title>
-  <link rel="stylesheet" href="{% static 'css/navbar.css' %}">
-  <link rel="stylesheet" href="{% static 'css/bottom_tab.css' %}">
   <script src="{% static 'js/app.js' %}" defer></script>
 </head>
 <body>
@@ -44,5 +42,7 @@
     {% include "common.html" %}
     {% include "bottom_tab.html" %}
   </footer>
+<script src="{% static 'js/bottom_tab.js' %}"></script>
+<link rel="stylesheet" href="{% static 'css/future_ui.css' %}">
 </body>
 </html>
