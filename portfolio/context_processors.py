@@ -1,4 +1,5 @@
 from django.utils import timezone
+from .models import BottomTab
 
 def ui(request):
     menus = [
@@ -13,3 +14,7 @@ def ui(request):
         "MENUS": menus,
         "LAST_UPDATED": formatted_time,
     }
+
+def bottom_tabs(request):
+    tabs = BottomTab.objects.filter(is_active=True)
+    return {'tabs': tabs}

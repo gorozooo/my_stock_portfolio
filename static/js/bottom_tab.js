@@ -3,7 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const toggle = document.getElementById('submenu-toggle');
   const back = document.getElementById('main-menu-toggle');
 
-  // 長押し/右クリックでサブメニュー表示
+  // サブメニュー表示
   toggle.addEventListener('click', (e) => { e.preventDefault(); showSubMenu(); });
   toggle.addEventListener('contextmenu', (e) => { e.preventDefault(); showSubMenu(); });
   toggle.addEventListener('touchstart', handleLongPress);
@@ -27,11 +27,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelector('.main-tabs').style.display = 'flex';
   }
 
-  // 長押し検知
+  // 長押し判定
   let pressTimer;
   function handleLongPress(e) {
     e.preventDefault();
-    pressTimer = setTimeout(showSubMenu, 600); // 0.6秒で長押し
+    pressTimer = setTimeout(showSubMenu, 600);
   }
   toggle.addEventListener('touchend', () => clearTimeout(pressTimer));
 });

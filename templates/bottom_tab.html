@@ -1,10 +1,10 @@
 <div class="bottom-tab">
+  <!-- メインタブ -->
   <ul class="tab-list main-tabs">
     {% for tab in tabs %}
-      {% if not tab.is_submenu and tab.is_active %}
+      {% if not tab.is_submenu %}
       <li class="tab-item">
-        <a href="{% url tab.url_name %}" 
-           data-submenu="{{ tab.is_submenu|yesno:'true,false' }}">
+        <a href="{% url tab.url_name %}" data-submenu="{{ tab.is_submenu|yesno:'true,false' }}">
           <i class="{{ tab.icon_class }}"></i>
           <span>{{ tab.name }}</span>
         </a>
@@ -19,9 +19,10 @@
     </li>
   </ul>
 
+  <!-- サブメニュー -->
   <ul class="tab-list sub-tabs" id="sub-menu" style="display:none;">
     {% for tab in tabs %}
-      {% if tab.is_submenu and tab.is_active %}
+      {% if tab.is_submenu %}
       <li class="tab-item">
         <a href="{% url tab.url_name %}">
           <i class="{{ tab.icon_class }}"></i>

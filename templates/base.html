@@ -5,30 +5,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}My Portfolio{% endblock %}</title>
-  <script src="{% static 'js/app.js' %}" defer></script>
+  <link rel="stylesheet" href="{% static 'css/future_ui.css' %}">
+  <script src="{% static 'js/bottom_tab.js' %}" defer></script>
 </head>
 <body>
   <!-- ナビバー -->
   <header class="navbar">
     <div class="navbar-inner">
-      <!-- 左：ユーザー名 -->
       <div class="navbar-left">
         {% if user.is_authenticated %}
-          <span class="welcome">ようこそ <strong>{{ user.username }}</strong> さん</span>
+          ようこそ <strong>{{ user.username }}</strong> さん
         {% else %}
-          <span class="welcome">ゲストさん</span>
+          ゲストさん
         {% endif %}
       </div>
-
-      <!-- 中央：タイトル -->
-      <div class="navbar-center">
-        <span class="navbar-title">📊 My Portfolio</span>
-      </div>
-
-      <!-- 右：最終更新時間 -->
-      <div class="navbar-right">
-        <span class="last-updated">最終更新: {{ LAST_UPDATED }}</span>
-      </div>
+      <div class="navbar-center">📊 My Portfolio</div>
+      <div class="navbar-right">最終更新: {{ LAST_UPDATED }}</div>
     </div>
   </header>
 
@@ -37,12 +29,7 @@
     {% block content %}{% endblock %}
   </main>
 
-  <!-- フッター（共通部分 & 下タブ） -->
-  <footer>
-    {% include "common.html" %}
-    {% include "bottom_tab.html" %}
-  </footer>
-<script src="{% static 'js/bottom_tab.js' %}"></script>
-<link rel="stylesheet" href="{% static 'css/future_ui.css' %}">
+  <!-- 下タブ -->
+  {% include "bottom_tab.html" %}
 </body>
 </html>
