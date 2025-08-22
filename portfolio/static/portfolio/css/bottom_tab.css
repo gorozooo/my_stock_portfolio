@@ -1,95 +1,70 @@
-/* bottom_tab.css - 未来感UI対応、スマホ固定下タブ */
-
-/* 下タブ全体 */
+/* 下タブ共通スタイル */
 .bottom-tab {
   position: fixed;
   bottom: 0;
-  left: 0;
   width: 100%;
-  backdrop-filter: blur(12px); /* 背景ぼかしでガラス感 */
-  background: rgba(255, 255, 255, 0.1); /* 半透明 */
-  box-shadow: 0 -2px 20px rgba(0, 255, 255, 0.2); /* 光彩 */
+  backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 -2px 20px rgba(0, 255, 255, 0.2);
   border-top: 1px solid rgba(255, 255, 255, 0.3);
-  z-index: 9999;
+  z-index: 999;
   display: flex;
   justify-content: center;
 }
 
-/* 内部コンテナ */
+/* タブ内 */
 .tab-inner {
   display: flex;
   width: 100%;
-  max-width: 480px; /* 中央寄せ */
+  max-width: 480px;
   justify-content: space-around;
   padding: 8px 0;
 }
 
-/* 各リンク */
-.tab-link {
+/* リンク・ボタン共通 */
+.tab-link,
+.logout-form button {
   color: #00ffff;
   text-decoration: none;
   font-size: 12px;
   text-align: center;
-  transition: transform 0.2s ease, color 0.2s ease;
-}
-
-/* ホバー時 */
-.tab-link:hover {
-  color: #ffffff;
-  transform: translateY(-4px);
-}
-
-/* アイコン */
-.tab-link .icon {
-  font-size: 20px;
-  display: block;
-  animation: glow 1.5s infinite alternate; /* 光彩アニメ */
-}
-
-/* ラベル */
-.tab-link .label {
-  display: block;
-  margin-top: 2px;
-}
-
-/* 光彩アニメーション */
-@keyframes glow {
-  0% {
-    text-shadow: 0 0 4px #00ffff, 0 0 8px #00ffff;
-  }
-  50% {
-    text-shadow: 0 0 8px #00ffff, 0 0 16px #00ffff;
-  }
-  100% {
-    text-shadow: 0 0 4px #00ffff, 0 0 8px #00ffff;
-  }
-}
-
-/* ログアウトフォーム用 */
-.logout-form {
-  margin: 0;
-}
-
-.logout-form button {
-  background: none;
-  border: none;
-  color: #00ffff;
-  cursor: pointer;
-  text-align: center;
-  font-size: 12px;
-  padding: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
+  background: none;
+  border: none;
+  cursor: pointer;
   transition: transform 0.2s ease, color 0.2s ease;
 }
 
+.tab-link:hover,
 .logout-form button:hover {
   color: #ffffff;
   transform: translateY(-4px);
 }
 
-/* PCでは下タブを非表示にする */
+/* アイコン */
+.tab-link .icon,
+.logout-form button .icon {
+  font-size: 20px;
+  display: block;
+  animation: glow 1.5s infinite alternate;
+}
+
+/* ラベル */
+.tab-link .label,
+.logout-form button .label {
+  margin-top: 2px;
+}
+
+/* 光彩アニメ */
+@keyframes glow {
+  0% { text-shadow: 0 0 4px #00ffff, 0 0 8px #00ffff; }
+  50% { text-shadow: 0 0 8px #00ffff, 0 0 16px #00ffff; }
+  100% { text-shadow: 0 0 4px #00ffff, 0 0 8px #00ffff; }
+}
+
+/* PCでは非表示にする（スマホのみ表示） */
 @media screen and (min-width: 768px) {
   .bottom-tab {
     display: none;
