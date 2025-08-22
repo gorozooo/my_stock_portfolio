@@ -1,150 +1,61 @@
-/* ---------- 基本 ---------- */
-html, body {
-    margin: 0;
-    padding: 0;
-    background-color: #000 !important; /* 完全黒固定 */
+/* ガラス感（半透明＋ぼかし） */
+.glass {
+    backdrop-filter: blur(12px);
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 15px;
+    border: 1px solid rgba(255,255,255,0.3);
+    box-shadow: 0 0 15px rgba(0, 200, 255, 0.3);
     color: #fff;
-    font-family: 'Segoe UI', sans-serif;
-    -webkit-text-size-adjust: 100%;
 }
 
-/* ---------- 上ヘッダー ---------- */
-.glass-header {
+/* ナビバー固定 */
+.navbar {
     position: fixed;
     top: 0;
     width: 100%;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    background-color: rgba(0,0,0,0.45);
-    color: #fff;
-    padding: 12px 15px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    box-shadow: 0 0 20px rgba(0,255,255,0.25);
-    z-index: 999;
-}
-
-.header-top .app-title {
-    font-size: 1.8rem;
-    font-weight: bold;
-    color: #0ff;
-    text-shadow: 0 0 5px #0ff, 0 0 15px #0ff;
-    animation: float-glow 4s ease-in-out infinite;
-}
-
-.header-bottom {
-    display: flex;
-    justify-content: space-between;
-    width: 100%;
-    margin-top: 6px;
-    font-size: 0.95rem;
-    padding: 0 10px;
-}
-
-.page-name {
-    font-weight: bold;
-    color: #fff;
-    text-shadow: 0 0 8px rgba(0,200,255,0.9), 0 0 15px rgba(0,200,255,0.6);
-    animation: float-glow 4s ease-in-out infinite;
-}
-
-/* ---------- 下タブ ---------- */
-.bottom-tab {
-    position: fixed;
-    bottom: env(safe-area-inset-bottom); /* iPhone セーフエリア対応 */
-    width: 100%;
+    z-index: 100;
+    padding: 10px 0;
     display: flex;
     justify-content: space-around;
-    padding: 10px 0;
+    background: rgba(0,0,0,0.3);
     backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    background-color: rgba(0,0,0,0.45);
-    box-shadow: 0 -2px 20px rgba(0,255,255,0.25);
-    z-index: 999;
+    box-shadow: 0 0 20px rgba(0,200,255,0.3);
 }
 
-.bottom-tab a,
-.bottom-tab button {
-    color: #0ff;
-    text-decoration: none;
-    font-weight: bold;
-    font-size: 1.2rem;
-    background: none; /* ボタン感を排除 */
-    border: none;
-    padding: 5px 8px;
-    text-shadow: 0 0 8px rgba(0,200,255,0.7), 0 0 15px rgba(0,200,255,0.5);
-    animation: float-glow 4s ease-in-out infinite;
-}
-
-.bottom-tab a:hover,
-.bottom-tab button:hover {
-    color: #fff;
-    text-shadow: 0 0 20px #0ff, 0 0 40px #0ff;
-}
-
-.logout-button {
-    background: none;
-    border: none;
-    color: #0ff;
-    padding: 5px 8px;
-    text-shadow: 0 0 8px rgba(0,200,255,0.7), 0 0 15px rgba(0,200,255,0.5);
-    animation: float-glow 4s ease-in-out infinite;
-}
-
-/* ---------- コンテンツ ---------- */
-main {
-    padding: 100px 15px 60px; /* 上ヘッダーと下タブの隙間確保 */
-}
-
-/* ---------- 浮遊光彩アニメ ---------- */
-@keyframes float-glow {
-    0%,100% { transform: translateY(0); text-shadow: 0 0 8px rgba(0,200,255,0.7),0 0 15px rgba(0,200,255,0.5); }
-    50% { transform: translateY(-3px); text-shadow: 0 0 18px rgba(0,255,200,1),0 0 30px rgba(0,255,200,0.7); }
-}
-
-/* ---------- ログイン画面 ---------- */
-.login-container {
+/* 下タブ固定 */
+.bottom-tab {
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    z-index: 100;
+    padding: 8px 0;
     display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
-    background-color: #000;
-}
-.login-box {
-    width: 90%;
-    max-width: 320px;
-    padding: 25px;
-    border-radius: 15px;
+    justify-content: space-around;
+    background: rgba(0,0,0,0.3);
     backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    background-color: rgba(0,0,0,0.6);
+    box-shadow: 0 0 20px rgba(0,200,255,0.3);
+}
+
+/* アイコン＋文字アニメ */
+.tab-item {
     text-align: center;
-    color: #fff;
-    box-shadow: 0 0 20px rgba(0,255,255,0.25);
+    font-size: 12px;
+    transition: transform 0.2s, color 0.2s;
 }
-.login-box h1.app-title {
-    font-size: 1.8rem;
+.tab-item:hover {
+    transform: scale(1.2);
     color: #0ff;
-    text-shadow: 0 0 5px #0ff,0 0 15px #0ff;
-    animation: float-glow 4s ease-in-out infinite;
 }
-.login-box input {
-    width: 100%;
-    padding: 8px 10px;
-    border-radius: 5px;
-    border: none;
-    margin-bottom: 15px;
-    background-color: rgba(255,255,255,0.1);
+
+/* スマホ最適化 */
+body, html {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Arial", sans-serif;
+    background: #111;
     color: #fff;
 }
-.login-box input::placeholder { color: rgba(255,255,255,0.5); }
-.login-box button {
-    width: 100%;
-    padding: 10px;
-    border-radius: 5px;
-    border: none;
-    background-color: #0ff;
-    color: #000;
-    font-weight: bold;
+
+main {
+    padding: 60px 10px 60px 10px; /* ナビバーと下タブの分だけ余白 */
 }
