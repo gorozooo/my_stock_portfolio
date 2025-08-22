@@ -1,11 +1,19 @@
-{% if user.is_authenticated %}
 <nav class="bottom-tab">
-    {% for m in MENUS %}
-        {% if m.bottom %}
-        <a href="{% url m.url_name %}" class="{% if request.resolver_match.url_name == m.url_name %}active{% endif %}">
-            {{ m.icon }}<br>{{ m.name }}
-        </a>
-        {% endif %}
-    {% endfor %}
+  <ul class="tab-list">
+    <li class="tab-item">
+      <a href="{% url 'main' %}">🏠 Home</a>
+    </li>
+    <li class="tab-item">
+      <a href="{% url 'stock_list' %}">📈 Stocks</a>
+    </li>
+    <li class="tab-item">
+      <a href="{% url 'cash' %}">💰 Cash</a>
+    </li>
+    <li class="tab-item">
+      <a href="{% url 'realized' %}">📊 Realized</a>
+    </li>
+    <li class="tab-item">
+      <a href="{% url 'settings' %}">⚙️ Settings</a>
+    </li>
+  </ul>
 </nav>
-{% endif %}

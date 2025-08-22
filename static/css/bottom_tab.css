@@ -1,0 +1,70 @@
+/* ===== 下タブ ===== */
+.bottom-tab {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 70px;
+  background: rgba(26, 115, 232, 0.4); /* ガラス感 */
+  backdrop-filter: blur(12px);
+  box-shadow: 0 -4px 20px rgba(26,115,232,0.6); /* 光彩 */
+  border-top: 1px solid rgba(255,255,255,0.2);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+/* 光彩アニメーション */
+.bottom-tab::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%);
+  animation: glowTab 6s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes glowTab {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* タブリスト横並び */
+.tab-list {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  position: relative;
+  z-index: 1;
+}
+
+/* 各タブ */
+.tab-item a {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  text-decoration: none;
+  font-size: 12px;
+  transition: transform 0.2s, text-shadow 0.3s;
+}
+
+/* タブホバー / 選択時のアニメ */
+.tab-item a:hover,
+.tab-item a:focus,
+.tab-item a.active {
+  transform: scale(1.2);
+  text-shadow: 0 0 8px rgba(255,255,255,0.9), 0 0 12px rgba(26,115,232,0.8);
+}
+
+/* レスポンシブ調整 */
+@media (max-width: 360px) {
+  .tab-item a { font-size: 10px; }
+}
