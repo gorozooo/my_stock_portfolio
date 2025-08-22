@@ -1,0 +1,26 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ログイン</title>
+    <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body class="login-page">
+    <h2>ログイン</h2>
+    {% if messages %}
+        <ul class="messages">
+            {% for message in messages %}
+                <li>{{ message }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+    <form method="post">
+        {% csrf_token %}
+        <input type="text" name="username" placeholder="ユーザー名" required>
+        <input type="password" name="password" placeholder="パスワード" required>
+        <button type="submit">ログイン</button>
+    </form>
+</body>
+</html>

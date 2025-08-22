@@ -1,31 +1,11 @@
-{% load static %}
-<footer class="bottom-tab">
-  <nav class="tab-inner">
-    <a class="tab-link" href="{% url 'main' %}">
-      <div class="icon">🏠</div>
-      <div class="label">Home</div>
-    </a>
-    <a class="tab-link" href="{% url 'stock_list' %}">
-      <div class="icon">📈</div>
-      <div class="label">Stocks</div>
-    </a>
-    <a class="tab-link" href="{% url 'settings' %}">
-      <div class="icon">⚙️</div>
-      <div class="label">Settings</div>
-    </a>
-    {% if user.is_authenticated %}
-      <form method="post" action="{% url 'logout' %}" class="logout-form">
-        {% csrf_token %}
-        <button type="submit">
-          <div class="icon">↩︎</div>
-          <div class="label">Logout</div>
-        </button>
-      </form>
-    {% else %}
-      <a class="tab-link" href="{% url 'login' %}">
-        <div class="icon">→</div>
-        <div class="label">Login</div>
-      </a>
-    {% endif %}
-  </nav>
-</footer>
+{% if user.is_authenticated %}
+<nav class="bottom-tab">
+    {% for m in MENUS %}
+        {% if m.bottom %}
+        <a href="{% url m.url_name %}" class="{% if request.resolver_match.url_name == m.url_name %}active{% endif %}">
+            {{ m.icon }}<br>{{ m.name }}
+        </a>
+        {% endif %}
+    {% endfor %}
+</nav>
+{% endif %}
