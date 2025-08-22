@@ -1,41 +1,17 @@
 <div class="bottom-tab">
-  <!-- メインタブ -->
-  <ul class="tab-list main-tabs">
-    {% for tab in tabs %}
-      {% if not tab.is_submenu %}
-      <li class="tab-item">
-        <a href="{% url tab.url_name %}" data-submenu="{{ tab.is_submenu|yesno:'true,false' }}">
+  <ul class="tab-list">
+    {% for tab in BOTTOM_TABS %}
+      <li class="tab-item" data-tab-id="{{ tab.id }}">
+        <a href="javascript:void(0)">
           <i class="{{ tab.icon_class }}"></i>
           <span>{{ tab.name }}</span>
         </a>
+        <ul class="sub-menu">
+          {% for submenu in tab.submenus.all|dictsort:"order" %}
+            <li><a href="{{ submenu.url }}">{{ submenu.name }}</a></li>
+          {% endfor %}
+        </ul>
       </li>
-      {% endif %}
     {% endfor %}
-    <li class="tab-item">
-      <a href="#" id="submenu-toggle">
-        <i class="fa-solid fa-ellipsis"></i>
-        <span>その他</span>
-      </a>
-    </li>
-  </ul>
-
-  <!-- サブメニュー -->
-  <ul class="tab-list sub-tabs" id="sub-menu" style="display:none;">
-    {% for tab in tabs %}
-      {% if tab.is_submenu %}
-      <li class="tab-item">
-        <a href="{% url tab.url_name %}">
-          <i class="{{ tab.icon_class }}"></i>
-          <span>{{ tab.name }}</span>
-        </a>
-      </li>
-      {% endif %}
-    {% endfor %}
-    <li class="tab-item">
-      <a href="#" id="main-menu-toggle">
-        <i class="fa-solid fa-arrow-left"></i>
-        <span>戻る</span>
-      </a>
-    </li>
   </ul>
 </div>

@@ -16,5 +16,5 @@ def ui(request):
     }
 
 def bottom_tabs(request):
-    tabs = BottomTab.objects.filter(is_active=True)
-    return {'tabs': tabs}
+    tabs = BottomTab.objects.all().order_by('order')
+    return {'BOTTOM_TABS': tabs}

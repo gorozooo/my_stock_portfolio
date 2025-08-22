@@ -124,3 +124,77 @@
   50%{ text-shadow: 0 0 12px #00ffff,0 0 24px #7f7fff,0 0 40px #8a00ff; transform: scale(1.05);}
   100%{ text-shadow: 0 0 6px #00ffff,0 0 12px #7f7fff,0 0 20px #8a00ff; transform: scale(1);}
 }
+
+/* ===== サブメニュー ===== */
+.sub-menu {
+  position: absolute;
+  bottom: 70px;
+  left: 0;
+  background: rgba(0,0,0,0.75);
+  backdrop-filter: blur(20px) saturate(180%);
+  list-style: none;
+  margin: 0;
+  padding: 5px 0;
+  display: none;
+  border-radius: 8px;
+  box-shadow: 0 0 20px rgba(0,255,255,0.4);
+  min-width: 140px;
+  z-index: 1002;
+}
+
+.sub-menu li a {
+  display: block;
+  padding: 8px 12px;
+  color: #00ffff;
+  text-decoration: none;
+  font-size: 14px;
+  transition: background 0.2s, transform 0.2s;
+}
+
+.sub-menu li a:hover {
+  background: rgba(0,255,255,0.15);
+  transform: translateX(3px);
+}
+
+/* ===== サブメニューアニメーション ===== */
+.sub-menu {
+  position: absolute;
+  bottom: 70px;
+  left: 0;
+  background: rgba(0,0,0,0.75);
+  backdrop-filter: blur(20px) saturate(180%);
+  list-style: none;
+  margin: 0;
+  padding: 5px 0;
+  border-radius: 8px;
+  box-shadow: 0 0 20px rgba(0,255,255,0.4);
+  min-width: 140px;
+  z-index: 1002;
+
+  /* アニメ用初期状態 */
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.sub-menu.show {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.sub-menu li a {
+  display: block;
+  padding: 8px 12px;
+  color: #00ffff;
+  text-decoration: none;
+  font-size: 14px;
+  transition: background 0.2s, transform 0.2s, text-shadow 0.3s;
+}
+
+.sub-menu li a:hover {
+  background: rgba(0,255,255,0.15);
+  transform: translateX(3px);
+  text-shadow: 0 0 10px #00ffff, 0 0 20px #00ffea;
+}
