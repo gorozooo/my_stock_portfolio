@@ -13,20 +13,19 @@
       <div class="icon">⚙️</div>
       <div class="label">Settings</div>
     </a>
-
     {% if user.is_authenticated %}
-    <form method="post" action="{% url 'logout' %}" class="logout-form">
-      {% csrf_token %}
-      <button type="submit">
-        <div class="icon">↩︎</div>
-        <div class="label">Logout</div>
-      </button>
-    </form>
+      <form method="post" action="{% url 'logout' %}" class="logout-form">
+        {% csrf_token %}
+        <button type="submit">
+          <div class="icon">↩︎</div>
+          <div class="label">Logout</div>
+        </button>
+      </form>
     {% else %}
-    <a class="tab-link" href="{% url 'login' %}">
-      <div class="icon">→</div>
-      <div class="label">Login</div>
-    </a>
+      <a class="tab-link" href="{% url 'login' %}">
+        <div class="icon">→</div>
+        <div class="label">Login</div>
+      </a>
     {% endif %}
   </nav>
 </footer>

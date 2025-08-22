@@ -3,14 +3,15 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}My Portfolio{% endblock %}</title>
-  <link rel="stylesheet" href="{% static 'portfolio/css/style.css' %}">
-  <script src="{% static 'portfolio/js/script.js' %}" defer></script>
+  <link rel="stylesheet" href="{% static 'portfolio/css/common.css' %}">
+  <link rel="stylesheet" href="{% static 'portfolio/css/bottom_tab.css' %}">
+  <script src="{% static 'portfolio/js/bottom_tab.js' %}"></script>
 </head>
 <body class="ui-root">
-  <!-- 背景（発光グラデ） -->
+
+  <!-- 背景 -->
   <div class="bg-neon"></div>
 
   <!-- ナビバー（上） -->
@@ -20,10 +21,7 @@
       <a class="nav-link" href="{% url 'stock_list' %}">📈 Stocks</a>
       <a class="nav-link" href="{% url 'settings' %}">⚙️ Settings</a>
       {% if user.is_authenticated %}
-        <form method="post" action="{% url 'logout' %}" class="logout-form-inline">
-          {% csrf_token %}
-          <button type="submit">↩︎ Logout</button>
-        </form>
+        <a class="nav-link" href="{% url 'logout' %}">↩︎ Logout</a>
       {% else %}
         <a class="nav-link" href="{% url 'login' %}">→ Login</a>
       {% endif %}
@@ -32,12 +30,11 @@
 
   <!-- コンテンツ -->
   <main class="page" id="app-main">
-    {% block content %}
-    <h1>Welcome to My Portfolio</h1>
-    {% endblock %}
+    {% block content %}{% endblock %}
   </main>
 
   <!-- 下タブ -->
   {% include "bottom_tab.html" %}
+
 </body>
 </html>

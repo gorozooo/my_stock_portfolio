@@ -1,72 +1,63 @@
-/* 下タブ共通スタイル */
 .bottom-tab {
   position: fixed;
   bottom: 0;
   width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
   backdrop-filter: blur(12px);
   background: rgba(255, 255, 255, 0.1);
   box-shadow: 0 -2px 20px rgba(0, 255, 255, 0.2);
   border-top: 1px solid rgba(255, 255, 255, 0.3);
-  z-index: 999;
+  z-index: 1000;
   display: flex;
   justify-content: center;
 }
 
-/* タブ内 */
 .tab-inner {
   display: flex;
   width: 100%;
-  max-width: 480px;
   justify-content: space-around;
   padding: 8px 0;
 }
 
-/* リンク・ボタン共通 */
-.tab-link,
-.logout-form button {
+.tab-link, .logout-form button {
   color: #00ffff;
   text-decoration: none;
   font-size: 12px;
   text-align: center;
+  transition: transform 0.2s ease, color 0.2s ease;
   display: flex;
   flex-direction: column;
   align-items: center;
   background: none;
   border: none;
   cursor: pointer;
-  transition: transform 0.2s ease, color 0.2s ease;
 }
 
-.tab-link:hover,
-.logout-form button:hover {
+.tab-link:hover, .logout-form button:hover {
   color: #ffffff;
   transform: translateY(-4px);
 }
 
-/* アイコン */
-.tab-link .icon,
-.logout-form button .icon {
+.tab-link .icon, .logout-form .icon {
   font-size: 20px;
   display: block;
   animation: glow 1.5s infinite alternate;
 }
 
-/* ラベル */
-.tab-link .label,
-.logout-form button .label {
+.tab-link .label, .logout-form .label {
+  display: block;
   margin-top: 2px;
 }
 
-/* 光彩アニメ */
 @keyframes glow {
-  0% { text-shadow: 0 0 4px #00ffff, 0 0 8px #00ffff; }
-  50% { text-shadow: 0 0 8px #00ffff, 0 0 16px #00ffff; }
-  100% { text-shadow: 0 0 4px #00ffff, 0 0 8px #00ffff; }
-}
-
-/* PCでは非表示にする（スマホのみ表示） */
-@media screen and (min-width: 768px) {
-  .bottom-tab {
-    display: none;
+  0% {
+    text-shadow: 0 0 4px #00ffff, 0 0 8px #00ffff;
+  }
+  50% {
+    text-shadow: 0 0 8px #00ffff, 0 0 16px #00ffff;
+  }
+  100% {
+    text-shadow: 0 0 4px #00ffff, 0 0 8px #00ffff;
   }
 }
