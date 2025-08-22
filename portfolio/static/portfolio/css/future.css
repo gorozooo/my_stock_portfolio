@@ -1,0 +1,152 @@
+:root{
+  --bg:#0a0f1f;
+  --fg:#e8f3ff;
+  --muted:#a9b7c6;
+  --neon:#00e5ff;
+  --neon2:#7af7d3;
+  --danger:#ff4d6d;
+  --radius:16px;
+  --blur:14px;
+  --space-nav:56px;      /* 上ナビ固定高さ */
+  --space-tab:64px;      /* 下タブ固定高さ */
+  --safe-top: env(safe-area-inset-top);
+  --safe-bot: env(safe-area-inset-bottom);
+  --vh: 1vh;             /* iOS 100vh対策はJSで上書き */
+  color-scheme: dark;
+}
+
+*{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+html,body{height:100%;}
+body.ui-root{
+  margin:0;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  overflow-x:hidden;
+}
+
+/* 背景：放射＋ネオングラデ（超軽量） */
+.bg-neon{
+  position:fixed; inset:0; z-index:-1;
+  background:
+    radial-gradient(1200px 800px at 80% 10%, rgba(0,229,255,0.18), transparent 60%),
+    radial-gradient(900px 600px at 10% 90%, rgba(122,247,211,0.14), transparent 60%),
+    linear-gradient(180deg, #0a0f1f 0%, #0a0f1f 100%);
+  filter: saturate(120%);
+}
+
+/* ガラスカードの基本 */
+.glass{
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--radius);
+  -webkit-backdrop-filter: blur(var(--blur));
+  backdrop-filter: blur(var(--blur));
+}
+
+/* 光彩（軽めの外側グロー） */
+.glow{
+  box-shadow: 0 0 24px rgba(0,229,255,0.18), 0 0 2px rgba(255,255,255,0.08) inset;
+}
+.glow.soft{
+  box-shadow: 0 0 16px rgba(0,229,255,0.14), 0 0 1px rgba(255,255,255,0.06) inset;
+}
+
+/* 上ナビ */
+.navbar{
+  position: fixed; top:0; left:0; right:0; z-index:50;
+  height: calc(var(--space-nav) + var(--safe-top));
+  padding-top: calc(8px + var(--safe-top));
+  display:flex; align-items:center;
+}
+.nav-inner{
+  width:100%;
+  display:flex; justify-content:space-around; align-items:center;
+  padding: 6px 10px;
+}
+.nav-link{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:8px 10px; border-radius:12px;
+  color: var(--fg); text-decoration:none; font-size:14px;
+  transition: transform .15s ease, color .15s ease, background .15s ease;
+}
+.nav-link:active{ transform: scale(0.96); }
+.nav-link:hover{ color: var(--neon); background: rgba(0,229,255,0.08); }
+
+/* 下タブ */
+.bottom-tab{
+  position: fixed; bottom:0; left:0; right:0; z-index:50;
+  height: calc(var(--space-tab) + var(--safe-bot));
+  padding-bottom: calc(10px + var(--safe-bot));
+  display:flex; justify-content:space-around; align-items:flex-end;
+}
+.tab-item{
+  flex:1; text-align:center; text-decoration:none; color: var(--fg);
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+  padding:8px 0; border-radius:12px; font-size:12px;
+  transition: transform .15s ease, color .15s ease, background .15s ease;
+}
+.tab-item:active{ transform: translateY(1px) scale(0.98); }
+.tab-ico{ font-size:18px; line-height:1; }
+.tab-item.active, .tab-item:hover{
+  color: var(--neon);
+  background: rgba(0,229,255,0.10);
+  box-shadow: 0 0 20px rgba(0,229,255,0.20);
+}
+
+/* ページ余白（上下固定バーのぶん確保） */
+.page{
+  min-height: calc(100 * var(--vh));
+  padding:
+    calc(var(--space-nav) + 14px + var(--safe-top))
+    14px
+    calc(var(--space-tab) + 18px + var(--safe-bot));
+}
+
+/* レイアウトユーティリティ */
+.center-wrap{ display:grid; place-items:center; min-height: calc(100 * var(--vh)); padding: 14px; }
+.stack{ display:grid; gap:14px; }
+.card{ padding:14px; }
+
+/* フォーム（ログイン用） */
+.label{ display:block; margin:10px 2px 4px; color: var(--muted); font-size:12px; }
+.input{
+  width:100%; padding:12px 14px; border-radius:12px; border:1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.04); color: var(--fg);
+  outline:none;
+  transition: box-shadow .15s ease, border-color .15s ease, background .15s ease;
+}
+.input:focus{
+  border-color: rgba(0,229,255,0.6);
+  box-shadow: 0 0 0 3px rgba(0,229,255,0.22);
+  background: rgba(255,255,255,0.06);
+}
+.btn{
+  width:100%; margin-top:12px; padding:12px 14px; border:0; border-radius:12px;
+  font-weight:700; letter-spacing:.02em; cursor:pointer;
+  background: linear-gradient(180deg, rgba(0,229,255,.9), rgba(0,199,255,.9));
+  color:#001016;
+  transition: transform .12s ease, box-shadow .15s ease, filter .15s ease;
+}
+.btn:active{ transform: translateY(1px) scale(0.99); }
+.btn.primary:hover{ filter: saturate(115%); box-shadow: 0 8px 28px rgba(0,229,255,0.25); }
+
+/* エラー表示（ネオン赤） */
+.alert.neon-red{
+  margin-top:10px; padding:10px 12px; border-radius:12px;
+  color:#fff; background: rgba(255,77,109,0.12);
+  border:1px solid rgba(255,77,109,0.45);
+  box-shadow: 0 0 18px rgba(255,77,109,0.28);
+}
+
+/* 軽い鼓動アニメ（負荷軽） */
+@keyframes pulse {
+  0%,100% { box-shadow: 0 0 16px rgba(0,229,255,0.12); }
+  50%     { box-shadow: 0 0 24px rgba(0,229,255,0.20); }
+}
+.card.glow.soft{ animation: pulse 4s ease-in-out infinite; }
+
+/* 低スペ端末・省エネ */
+@media (prefers-reduced-motion: reduce){
+  *{ animation: none !important; transition: none !important; }
+}

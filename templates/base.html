@@ -2,33 +2,35 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}My Portfolio{% endblock %}</title>
-    <link rel="stylesheet" href="{% static 'css/style.css' %}">
-    <script src="{% static 'js/script.js' %}" defer></script>
+  <meta charset="utf-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}My Portfolio{% endblock %}</title>
+  {% include "common.html" %}
 </head>
-<body>
+<body class="ui-root">
+  <!-- 背景（発光グラデ） -->
+  <div class="bg-neon"></div>
 
-<!-- ナビバー -->
-<div class="navbar glass">
-    <a href="{% url 'main' %}">Home</a>
-    <a href="{% url 'stock_list' %}">Stocks</a>
-    <a href="{% url 'settings' %}">Settings</a>
-    {% if user.is_authenticated %}
-        <a href="{% url 'logout' %}">Logout</a>
-    {% else %}
-        <a href="{% url 'login' %}">Login</a>
-    {% endif %}
-</div>
+  <!-- ナビバー（上） -->
+  <header class="navbar glass glow">
+    <nav class="nav-inner">
+      <a class="nav-link" href="{% url 'main' %}">🏠 Home</a>
+      <a class="nav-link" href="{% url 'stock_list' %}">📈 Stocks</a>
+      <a class="nav-link" href="{% url 'settings' %}">⚙️ Settings</a>
+      {% if user.is_authenticated %}
+        <a class="nav-link" href="{% url 'logout' %}">↩︎ Logout</a>
+      {% else %}
+        <a class="nav-link" href="{% url 'login' %}">→ Login</a>
+      {% endif %}
+    </nav>
+  </header>
 
-<!-- ページコンテンツ -->
-<main>
+  <!-- コンテンツ（上下固定バーのぶん余白を確保） -->
+  <main class="page" id="app-main">
     {% block content %}{% endblock %}
-</main>
+  </main>
 
-<!-- 下タブ -->
-{% include 'bottom.tab.html' %}
-
+  {% include "bottom_tab.html" %}
 </body>
 </html>

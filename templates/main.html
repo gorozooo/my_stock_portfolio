@@ -1,6 +1,10 @@
-{% extends 'base.html' %}
-{% block title %}Main{% endblock %}
+{% extends "base.html" %}
+{% block title %}Main - My Portfolio{% endblock %}
 {% block content %}
-<h1>Welcome to My Portfolio</h1>
-<p>ここに未来感UIで情報表示予定</p>
+<section class="stack">
+  <div class="card glass glow">
+    <h2>ようこそ{% if user.is_authenticated %}、{{ user.username }} さん{% endif %}</h2>
+    <p>未来感UIのテストカードです。</p>
+  </div>
+</section>
 {% endblock %}

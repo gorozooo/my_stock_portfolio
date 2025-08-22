@@ -1,35 +1,24 @@
-{% load static %}
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ログイン - My Portfolio</title>
-    <link rel="stylesheet" href="{% static 'portfolio/css/style.css' %}">
-</head>
-<body>
-    <div class="login-container">
-        <div class="login-box glass-header">
-            <h1 class="app-title">📊 My Portfolio</h1>
-            
-            <form method="post">
-                {% csrf_token %}
-                <label for="id_username">ユーザー名</label>
-                <input type="text" name="username" id="id_username" required>
-                
-                <label for="id_password">パスワード</label>
-                <input type="password" name="password" id="id_password" required>
-                
-                <button type="submit">ログイン</button>
+{% extends "base.html" %}
+{% block title %}ログイン - My Portfolio{% endblock %}
+{% block content %}
+<section class="center-wrap">
+  <div class="card glass glow soft">
+    <h1 class="app-title">📊 My Portfolio</h1>
 
-                <!-- ここを追加：エラーがある場合に表示 -->
-                {% if error %}
-                    <p style="color: red; margin-top: 10px;">
-                        {{ error }}
-                    </p>
-                {% endif %}
-            </form>
-        </div>
-    </div>
-</body>
-</html>
+    <form method="post" class="form">
+      {% csrf_token %}
+      <label class="label" for="id_username">ユーザー名</label>
+      <input class="input" type="text" name="username" id="id_username" required>
+
+      <label class="label" for="id_password">パスワード</label>
+      <input class="input" type="password" name="password" id="id_password" required>
+
+      <button class="btn primary" type="submit">ログイン</button>
+
+      {% if error %}
+        <p class="alert neon-red">{{ error }}</p>
+      {% endif %}
+    </form>
+  </div>
+</section>
+{% endblock %}
