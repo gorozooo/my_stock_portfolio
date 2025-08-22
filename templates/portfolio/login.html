@@ -23,9 +23,9 @@
                 <button type="submit">ログイン</button>
 
                 <!-- ここを追加：エラーがある場合に表示 -->
-                {% if form.errors %}
+                {% if error %}
                     <p style="color: red; margin-top: 10px;">
-                        ユーザー名またはパスワードが間違っています。
+                        {{ error }}
                     </p>
                 {% endif %}
             </form>
