@@ -16,6 +16,7 @@ class BottomTab(models.Model):
     name = models.CharField(max_length=30)
     icon_class = models.CharField(max_length=50, default="fa fa-circle")  # FontAwesomeなど
     order = models.IntegerField(default=0)
+    url_name = models.CharField(max_length=100, default="#") 
 
     def __str__(self):
         return self.name
