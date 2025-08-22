@@ -5,10 +5,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}My Portfolio{% endblock %}</title>
-  <link rel="stylesheet" href="{% static 'css/future_ui.css' %}">
-  <script src="{% static 'js/bottom_tab.js' %}" defer></script>
+  <link rel="stylesheet" href="{% static 'css/future_ui_advanced.css' %}">
+  <script src="{% static 'js/future_ui_advanced.js' %}" defer></script>
+  <script src="{% static 'js/bg_particles.js' %}" defer></script>
 </head>
 <body>
+  <!-- 背景粒子アニメ -->
+  <canvas id="bgCanvas"></canvas>
+
   <!-- ナビバー -->
   <header class="navbar">
     <div class="navbar-inner">
@@ -19,8 +23,12 @@
           ゲストさん
         {% endif %}
       </div>
-      <div class="navbar-center">📊 My Portfolio</div>
-      <div class="navbar-right">最終更新: {{ LAST_UPDATED }}</div>
+      <div class="navbar-center">
+        📊 My Portfolio
+      </div>
+      <div class="navbar-right">
+        最終更新: {{ LAST_UPDATED }}
+      </div>
     </div>
   </header>
 
@@ -30,6 +38,8 @@
   </main>
 
   <!-- 下タブ -->
-  {% include "bottom_tab.html" %}
+  <footer>
+    {% include "bottom_tab.html" %}
+  </footer>
 </body>
 </html>
