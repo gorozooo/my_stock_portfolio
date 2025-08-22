@@ -9,6 +9,7 @@ def main_view(request):
 
 # ログインページ
 def login_view(request):
+    error = None
     if request.method == 'POST':
         username = request.POST['username']
         password = request.POST['password']
@@ -17,9 +18,8 @@ def login_view(request):
             login(request, user)
             return redirect('main')
         else:
-            error = "ユーザー名かパスワードが違います"
-            return render(request, 'login.html', {'error': error})
-    return render(request, 'login.html')
+            error = "ユーザー名またはパスワードが間違っています。"
+    return render(request, 'login.html', {'error': error})
 
 # ログアウト
 @login_required
