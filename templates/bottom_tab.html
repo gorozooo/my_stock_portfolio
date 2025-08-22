@@ -13,6 +13,7 @@
       <div class="icon">⚙️</div>
       <div class="label">Settings</div>
     </a>
+
     {% if user.is_authenticated %}
     <form method="post" action="{% url 'logout' %}" class="logout-form">
       {% csrf_token %}
@@ -29,7 +30,3 @@
     {% endif %}
   </nav>
 </footer>
-
-<!-- CSS & JS を読み込む -->
-<link rel="stylesheet" href="{% static 'portfolio/css/bottom_tab.css' %}">
-<script src="{% static 'portfolio/js/bottom_tab.js' %}"></script>
