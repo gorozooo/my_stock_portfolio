@@ -62,7 +62,6 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                'portfolio.context_processors.last_updated',
             ],
         },
     },
@@ -123,16 +122,9 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# stocksite/settings.py
-
-# ログインしていない場合に飛ばすURL
-LOGIN_URL = '/login/'
-
-# ログイン成功後に飛ばすURL
-LOGIN_REDIRECT_URL = '/'
-
-# ログアウト後に飛ばすURL
-LOGOUT_REDIRECT_URL = '/login/'
+LOGIN_URL = '/login/'  # ログインしてない場合はこのページへ
+LOGIN_REDIRECT_URL = '/'  # ログイン後のリダイレクト
+LOGOUT_REDIRECT_URL = '/login/'  # ログアウト後
 
 
 
