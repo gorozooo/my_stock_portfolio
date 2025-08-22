@@ -14,10 +14,8 @@
       <div class="icon">⚙️</div>
       <div class="label">Settings</div>
     </a>
-
     {% if user.is_authenticated %}
-    <!-- LogoutはPOST形式 -->
-    <form method="post" action="{% url 'logout' %}" class="tab-link logout-form">
+    <form method="post" action="{% url 'logout' %}" class="logout-form">
       {% csrf_token %}
       <button type="submit">
         <div class="icon">↩︎</div>
