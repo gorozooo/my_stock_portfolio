@@ -2,26 +2,46 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}StockSite{% endblock %}</title>
-    <link rel="stylesheet" href="{% static 'css/app.css' %}">
-    <script src="{% static 'js/app.js' %}" defer></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}My Portfolio{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <script src="{% static 'js/app.js' %}" defer></script>
 </head>
 <body>
-    {% include "common.html" %}
-
-    <header class="navbar">
-        <span class="logo">📈 StockSite</span>
+  <!-- ナビバー -->
+  <header class="navbar">
+    <div class="navbar-inner">
+      <!-- 左：ユーザー名 -->
+      <div class="navbar-left">
         {% if user.is_authenticated %}
-        <a href="{% url 'logout' %}">ログアウト</a>
+          <span class="welcome">ようこそ <strong>{{ user.username }}</strong> さん</span>
+        {% else %}
+          <span class="welcome">ゲストさん</span>
         {% endif %}
-    </header>
+      </div>
 
-    <main>
-        {% block content %}{% endblock %}
-    </main>
+      <!-- 中央：タイトル -->
+      <div class="navbar-center">
+        <span class="navbar-title">📊 My Portfolio</span>
+      </div>
 
+      <!-- 右：最終更新時間 -->
+      <div class="navbar-right">
+        <span class="last-updated">最終更新: {{ LAST_UPDATED }}</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- メインコンテンツ -->
+  <main class="main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- フッター（共通部分 & 下タブ） -->
+  <footer>
+    {% include "common.html" %}
     {% include "bottom_tab.html" %}
+  </footer>
 </body>
 </html>
