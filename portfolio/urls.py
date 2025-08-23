@@ -9,5 +9,10 @@ urlpatterns = [
     path('stocks/', views.stock_list_view, name='stock_list'),
     path('cash/', views.cash_view, name='cash'),
     path('realized/', views.realized_view, name='realized'),
-    path('settings/', views.settings_view, name='settings'),
+    path("settings/login/", views.settings_login, name="settings_login"),
+    path('settings/', views.settings_view, name="settings"),
+    path("api/tabs/", views.get_tabs, name="get_tabs"),
+    path("api/tabs/save/", views.save_tab, name="save_tab"),
+    path("api/tabs/<int:tab_id>/delete/", views.delete_tab, name="delete_tab"),
+    path('settings/password/', views.settings_password_edit, name="settings_password_edit"),
 ]
