@@ -1,17 +1,37 @@
+<!-- 下タブ -->
 <div class="bottom-tab">
   <ul class="tab-list">
     {% for tab in BOTTOM_TABS %}
       <li class="tab-item" data-tab-id="{{ tab.id }}">
-        <a href="javascript:void(0)">
-          <i class="{{ tab.icon_class }}"></i>
-          <span>{{ tab.name }}</span>
-        </a>
-        <ul class="sub-menu">
-          {% for submenu in tab.submenus.all|dictsort:"order" %}
-            <li><a href="{{ submenu.url }}">{{ submenu.name }}</a></li>
-          {% endfor %}
-        </ul>
+        {# タブリンクを安全に判定 #}
+        {% if tab.link_type == 'view' and tab.url_name %}
+          <a href="{% url tab.url_name %}" class="tab-link">
+        {% elif tab.link_type == 'url' and tab.url_name %}
+          <a href="{{ tab.url_name }}" target="_blank" class="tab-link">
+        {% else %}
+          <a href="javascript:void(0)" class="tab-link">
+        {% endif %}
+            <i class="{{ tab.icon }}"></i>
+            <span>{{ tab.name }}</span>
+            {% if tab.submenus_list %}<i class="submenu-arrow">&#9662;</i>{% endif %}
+          </a>
+
+        {# サブメニューがある場合 #}
+        {% if tab.submenus_list %}
+          <ul class="sub-menu">
+            {% for submenu in tab.submenus_list %}
+              {% if submenu.link_type == 'view' and submenu.url %}
+                <li><a href="{% url submenu.url %}">{{ submenu.name }}</a></li>
+              {% elif submenu.link_type == 'url' and submenu.url %}
+                <li><a href="{{ submenu.url }}" target="_blank">{{ submenu.name }}</a></li>
+              {% else %}
+                <li><a href="javascript:void(0)">{{ submenu.name }}</a></li>
+              {% endif %}
+            {% endfor %}
+          </ul>
+        {% endif %}
       </li>
     {% endfor %}
   </ul>
 </div>
+

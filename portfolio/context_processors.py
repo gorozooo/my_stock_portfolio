@@ -16,5 +16,7 @@ def ui(request):
     }
 
 def bottom_tabs(request):
-    tabs = BottomTab.objects.all().order_by('order')
-    return {'BOTTOM_TABS': tabs}
+    tabs = BottomTab.objects.all().order_by("order")
+    for tab in tabs:
+        tab.submenus_list = tab.submenus.all().order_by("order")
+    return {"BOTTOM_TABS": tabs}

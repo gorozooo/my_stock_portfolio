@@ -42,6 +42,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'portfolio.context_processors.ui', 
                 'portfolio.context_processors.bottom_tabs',
+                "portfolio.views.bottom_tabs_context",
             ],
         },
     },

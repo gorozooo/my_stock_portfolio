@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}下タブ管理{% endblock %}
+
+{% block head %}
+  <!-- CSS 読込 -->
+  <link rel="stylesheet" href="{% static 'css/settings.css' %}">
+{% endblock %}
+
+{% block content %}
+<h1>下タブ管理画面</h1>
+
+<!-- 新規タブ追加フォーム -->
+<div id="tab-form" class="tab-form">
+  <input type="text" id="tab-name" placeholder="タブ名">
+  <input type="text" id="tab-icon" placeholder="アイコン例: fa-home">
+  <input type="text" id="tab-url" placeholder="URL名例: home または外部URL">
+  <select id="tab-link-type">
+    <option value="view" selected>内部ビュー</option>
+    <option value="url">外部URL</option>
+    <option value="dummy">ダミーリンク (#)</option>
+  </select>
+  <button id="add-tab-btn">タブ追加</button>
+</div>
+
+<div class="tab-container">
+  <!-- 左カラム：既存下タブ -->
+  <div class="tab-column">
+    <h3>既存下タブ</h3>
+    <ul id="tab-list" class="tab-list"></ul>
+  </div>
+
+  <!-- 右カラム：サブメニュー -->
+  <div class="submenu-column">
+    <h3>サブメニュー</h3>
+    <ul id="submenu-list" class="submenu-list"></ul>
+    <button type="button" id="add-submenu-btn" class="add-submenu-btn">サブメニュー追加</button>
+  </div>
+</div>
+
+<!-- CSRF -->
+{% csrf_token %}
+
+<script src="{% static 'js/settings.js' %}"></script>
+{% endblock %}

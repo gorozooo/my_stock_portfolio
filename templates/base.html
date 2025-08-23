@@ -5,9 +5,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}My Portfolio{% endblock %}</title>
+
+  <!-- 共通スタイル -->
   <link rel="stylesheet" href="{% static 'css/future_ui_advanced.css' %}">
+  <!-- ページごとの追加CSS（あれば上書きできるように） -->
+  {% block extra_css %}{% endblock %}
+
+  <!-- 共通スクリプト -->
   <script src="{% static 'js/future_ui_advanced.js' %}" defer></script>
   <script src="{% static 'js/bg_particles.js' %}" defer></script>
+  {% block extra_js %}{% endblock %}
 </head>
 <body>
   <!-- 背景粒子アニメ -->
@@ -27,14 +34,16 @@
         📊 My Portfolio
       </div>
       <div class="navbar-right">
-        最終更新: {{ LAST_UPDATED }}
+        最終更新: {{ LAST_UPDATED|default:"-" }}
       </div>
     </div>
   </header>
 
   <!-- メインコンテンツ -->
-  <main class="main-content">
-    {% block content %}{% endblock %}
+  <main class="main-content" style="padding: 2rem; z-index: 10; position: relative; color: #fff;">
+    {% block content %}
+    <!-- 各ページのコンテンツがここに入る -->
+    {% endblock %}
   </main>
 
   <!-- 下タブ -->
