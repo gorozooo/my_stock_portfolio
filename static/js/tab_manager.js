@@ -19,7 +19,11 @@ document.addEventListener("DOMContentLoaded", function() {
   // --- 既存タブ取得 ---
   fetch("/api/get_tabs/")
     .then(res => res.json())
-    .then(tabs => tabs.forEach(tab => addTabToList(tab)));
+    .then(tabs => {
+      if (Array.isArray(tabs)) {
+        tabs.forEach(tab => addTabToList(tab));
+      }
+    });
 
   // --- タブ作成 ---
   function addTabToList(tab) {
@@ -38,7 +42,7 @@ document.addEventListener("DOMContentLoaded", function() {
     tabList.appendChild(li);
 
     const submenuUl = li.querySelector(".submenus-container");
-    if (tab.submenus) {
+    if (Array.isArray(tab.submenus)) {
       tab.submenus.forEach(sm => {
         const subLi = createSubmenuLi(sm, tab.id);
         submenuUl.appendChild(subLi);
@@ -97,7 +101,7 @@ document.addEventListener("DOMContentLoaded", function() {
     tabLinkTypeSelect.value = tab.link_type;
 
     submenuContainer.innerHTML = "";
-    if (tab.submenus) {
+    if (Array.isArray(tab.submenus)) {
       tab.submenus.forEach(sm => {
         const div = createSubmenuItem(sm.name, sm.url, sm.link_type);
         submenuContainer.appendChild(div);
@@ -127,23 +131,15 @@ document.addEventListener("DOMContentLoaded", function() {
     }).then(res => { if (res.ok) li.remove(); saveOrder(); });
   }
 
-  // --- ドラッグ＆ドロップ（スマホ＋PC対応） ---
+  // --- ドラッグ＆ドロップ（スマホファースト） ---
   function enableDragDrop(el, type) {
-    // PC ドラッグ
-    el.addEventListener("dragstart", e => {
-      dragSrc = e.target; dragType = type; e.dataTransfer.effectAllowed = "move";
-    });
+    el.addEventListener("dragstart", e => { dragSrc = e.target; dragType = type; e.dataTransfer.effectAllowed = "move"; });
     el.addEventListener("dragover", e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; });
     el.addEventListener("drop", e => { e.preventDefault(); handleDrop(e.target.closest("li, .submenu-item")); });
 
-    // タッチ対応
-    el.addEventListener("touchstart", e => {
-      dragSrc = el;
-      dragType = type;
-      dragSrc.classList.add("dragging");
-    });
-    el.addEventListener("touchmove", handleTouchMove);
-    el.addEventListener("touchend", handleTouchEnd);
+    el.addEventListener("touchstart", e => { dragSrc = el; dragType = type; dragSrc.classList.add("dragging"); });
+    el.addEventListener("touchmove", e => handleTouchMove(e));
+    el.addEventListener("touchend", e => handleTouchEnd(e));
   }
 
   function handleDrop(target) {
@@ -168,12 +164,10 @@ document.addEventListener("DOMContentLoaded", function() {
   function handleTouchMove(e) {
     const touch = e.touches[0];
     const target = document.elementFromPoint(touch.clientX, touch.clientY)?.closest("li, .submenu-item");
-    if (target && target !== dragSrc) {
-      document.querySelectorAll("li, .submenu-item").forEach(el => el.style.borderTop = "");
-      target.style.borderTop = "2px dashed #2196f3";
-    }
+    if (target && target !== dragSrc) target.style.borderTop = "2px dashed #2196f3";
 
-    const margin = 80, maxSpeed = 15;
+    const margin = 80;
+    const maxSpeed = 15;
     clearInterval(scrollInterval);
     if (touch.clientY < margin) {
       const speed = Math.ceil((margin - touch.clientY) / 5);
@@ -193,7 +187,6 @@ document.addEventListener("DOMContentLoaded", function() {
     dragSrc = null;
     dragType = null;
     clearInterval(scrollInterval);
-    document.querySelectorAll("li, .submenu-item").forEach(el => el.style.borderTop = "");
   }
 
   // --- 保存 ---
@@ -230,7 +223,7 @@ document.addEventListener("DOMContentLoaded", function() {
       }
       addTabToList(tab);
       saveOrder();
-      closeEditPanel();
+      closeEditPanel(); // 保存後は閉じる
     });
   }
 
