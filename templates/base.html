@@ -8,17 +8,59 @@
 
   <!-- 共通スタイル -->
   <link rel="stylesheet" href="{% static 'css/future_ui_advanced.css' %}">
-  <!-- ページごとの追加CSS（あれば上書きできるように） -->
   {% block extra_css %}{% endblock %}
 
-  <!-- 共通スクリプト -->
-  <script src="{% static 'js/future_ui_advanced.js' %}" defer></script>
-  <script src="{% static 'js/bg_particles.js' %}" defer></script>
-  {% block extra_js %}{% endblock %}
+  <style>
+    /* =====================
+       背景グラデーション＋ライトライン
+    ===================== */
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: repeating-linear-gradient(
+        45deg,
+        rgba(255,255,255,0.05) 0px,
+        rgba(255,255,255,0.05) 2px,
+        transparent 2px,
+        transparent 20px
+      );
+      animation: slide 20s linear infinite;
+      z-index: 0;
+    }
+
+    @keyframes slide {
+      from { transform: translate(0,0); }
+      to { transform: translate(50px,50px); }
+    }
+
+    /* メインコンテンツを浮かせる */
+    .main-content {
+      position: relative;
+      z-index: 10;
+      backdrop-filter: blur(8px);
+      background: rgba(0,0,0,0.5);
+      border-radius: 20px;
+      padding: 2rem;
+      margin: 2rem auto;
+      max-width: 1200px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+      color: #fff;
+    }
+  </style>
 </head>
 <body>
-  <!-- 背景粒子アニメ -->
-  <canvas id="bgCanvas"></canvas>
 
   <!-- ナビバー -->
   <header class="navbar">
@@ -40,15 +82,14 @@
   </header>
 
   <!-- メインコンテンツ -->
-  <main class="main-content" style="padding: 2rem; z-index: 10; position: relative; color: #fff;">
-    {% block content %}
-    <!-- 各ページのコンテンツがここに入る -->
-    {% endblock %}
+  <main class="main-content">
+    {% block content %}{% endblock %}
   </main>
 
   <!-- 下タブ -->
   <footer>
     {% include "bottom_tab.html" %}
   </footer>
+
 </body>
 </html>
