@@ -1,0 +1,115 @@
+/* 背景と全体設定 */
+body.login-page {
+    margin: 0;
+    padding: 0;
+    font-family: 'Segoe UI', sans-serif;
+    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    color: #fff;
+}
+
+/* ログインコンテナ */
+.login-container {
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(12px);
+    padding: 40px 30px;
+    border-radius: 16px;
+    width: 90%;
+    max-width: 360px;
+    text-align: center;
+    box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+    animation: fadeIn 1s ease;
+}
+
+/* タイトル */
+.login-container h2 {
+    margin-bottom: 25px;
+    font-size: 28px;
+    letter-spacing: 1px;
+    color: #00ffff;
+    text-shadow: 0 0 6px #00ffff, 0 0 12px #7f7fff;
+}
+
+/* メッセージ */
+.messages {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 15px 0;
+    color: #ff6b6b;
+}
+
+/* 入力グループ */
+.input-group {
+    margin-bottom: 15px;
+}
+
+.input-group input {
+    width: 100%;
+    padding: 12px 15px;
+    border-radius: 12px;
+    border: none;
+    outline: none;
+    font-size: 16px;
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    transition: all 0.3s ease;
+}
+
+.input-group input::placeholder {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.input-group input:focus {
+    background: rgba(0, 255, 255, 0.15);
+    box-shadow: 0 0 10px #00ffff, 0 0 20px #00ffff inset;
+}
+
+/* ログインボタン */
+.login-button {
+    width: 100%;
+    padding: 12px 0;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: bold;
+    color: #000;
+    background: #00ffff;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 0 10px #00ffff, 0 0 20px #00ffff inset;
+}
+
+.login-button:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 18px #00ffff, 0 0 36px #00ffff inset;
+}
+
+/* アニメーション */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* スマホ対応 */
+@media (max-width: 400px) {
+    .login-container {
+        padding: 30px 20px;
+    }
+
+    .login-container h2 {
+        font-size: 24px;
+    }
+
+    .input-group input {
+        font-size: 14px;
+        padding: 10px 12px;
+    }
+
+    .login-button {
+        font-size: 14px;
+        padding: 10px 0;
+    }
+}
