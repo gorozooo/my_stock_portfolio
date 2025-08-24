@@ -122,8 +122,6 @@ LOGOUT_REDIRECT_URL = '/login/'
 # =============================
 CSRF_TRUSTED_ORIGINS = [
     "http://192.168.1.16:8000",
-    "https://gorozooo.com",
-    "https://www.gorozooo.com",
 ]
 
 # =============================
