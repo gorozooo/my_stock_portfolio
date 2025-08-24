@@ -1,12 +1,10 @@
 from django.utils import timezone
-from .models import BottomTab
+from .utils import get_bottom_tabs
 
 def ui(request):
     menus = [
         {"name": "ホーム", "url_name": "main", "icon": "🏠", "bottom": True},
-        # 今後 stock_list, setting を追加予定
     ]
-    # 現在時刻を日本時間に変換してからフォーマット
     jst_now = timezone.localtime(timezone.now())
     formatted_time = jst_now.strftime("%Y.%m.%d %H:%M")
 
@@ -16,7 +14,5 @@ def ui(request):
     }
 
 def bottom_tabs(request):
-    tabs = BottomTab.objects.all().order_by("order")
-    for tab in tabs:
-        tab.submenus_list = tab.submenus.all().order_by("order")
-    return {"BOTTOM_TABS": tabs}
+    """全ページで共通の下タブを取得"""
+    return {"BOTTOM_TABS": get_bottom_tabs()}
