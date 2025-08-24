@@ -1,9 +1,6 @@
 document.addEventListener("DOMContentLoaded", function() {
-  // ----------------------------
-  // DOM 要素取得
-  // ----------------------------
-  const tabList = document.getElementById("tab-list");                // 下タブ一覧
-  const submenuContainer = document.getElementById("submenu-list");   // サブメニュー編集用
+  const tabList = document.getElementById("tab-list");
+  const submenuContainer = document.getElementById("submenu-container");
   const addTabBtn = document.getElementById("add-tab-btn");
   const addSubmenuBtn = document.getElementById("add-submenu-btn");
   const tabNameInput = document.getElementById("tab-name");
@@ -11,64 +8,60 @@ document.addEventListener("DOMContentLoaded", function() {
   const tabUrlInput = document.getElementById("tab-url");
   const tabLinkTypeSelect = document.getElementById("tab-link-type");
 
-  const sidePanel = document.getElementById("side-panel");
-  const closePanelBtn = document.getElementById("close-panel-btn");
-
   let dragSrc = null;
   let dragType = null;
-  let scrollInterval = null;
 
-  // ----------------------------
-  // 既存タブ取得
-  // ----------------------------
+  // --- 既存タブ取得 ---
   fetch("/api/get_tabs/")
     .then(res => res.json())
-    .then(tabs => tabs.forEach(tab => addTabToList(tab)))
-    .catch(err => console.error("タブ取得エラー:", err));
+    .then(tabs => tabs.forEach(tab => addTabToList(tab)));
 
-  // ----------------------------
-  // タブ生成
-  // ----------------------------
+  // --- タブ追加 ---
+  addTabBtn.addEventListener("click", saveTab);
+
+  // --- サブメニュー追加 ---
+  addSubmenuBtn.addEventListener("click", () => {
+    const div = createSubmenuItem();
+    submenuContainer.appendChild(div);
+  });
+
+  // --- タブ作成・更新 ---
   function addTabToList(tab) {
     const li = document.createElement("li");
     li.dataset.id = tab.id;
-    li.draggable = true;
     li.classList.add("tab-item");
     li.innerHTML = `
-      <div class="tab-header">
-        <span>${tab.name} (${tab.icon}) → ${tab.url_name} [${tab.link_type}]</span>
-        <button class="edit-btn">編集</button>
-        <button class="delete-btn">削除</button>
-      </div>
+      <span>${tab.name} (${tab.icon}) → ${tab.url_name} [${tab.link_type}]</span>
+      <button class="edit-btn">編集</button>
+      <button class="delete-btn">削除</button>
       <ul class="submenus-container"></ul>
     `;
     tabList.appendChild(li);
+    enableDrag(li, "tab");
 
     const submenuUl = li.querySelector(".submenus-container");
-    if (tab.submenus && tab.submenus.length > 0) {
+    if(tab.submenus) {
       tab.submenus.forEach(sm => {
-        submenuUl.appendChild(createSubmenuLi(sm, tab.id));
+        const smLi = createSubmenuLi(sm, tab.id);
+        submenuUl.appendChild(smLi);
       });
     }
 
-    li.querySelector(".edit-btn").addEventListener("click", () => openEditPanel(tab));
+    li.querySelector(".edit-btn").addEventListener("click", () => editTab(tab, li));
     li.querySelector(".delete-btn").addEventListener("click", () => deleteTab(tab.id, li));
-
-    enableDragDrop(li, "tab");
   }
 
   function createSubmenuLi(sm, parentId) {
     const li = document.createElement("li");
-    li.draggable = true;
-    li.classList.add("submenu-li");
-    li.dataset.parentId = parentId;
+    li.textContent = `${sm.name} → ${sm.url} [${sm.link_type}]`;
     li.dataset.smId = sm.id || "";
-    li.innerHTML = `<span>${sm.name} → ${sm.url} [${sm.link_type}]</span>`;
-    enableDragDrop(li, "submenu");
+    li.dataset.parentId = parentId;
+    enableDrag(li, "submenu");
     return li;
   }
 
-  function createSubmenuItem(name = "", url = "", type = "view") {
+  // --- フォーム上のサブメニュー作成 ---
+  function createSubmenuItem(name="", url="", type="view") {
     const div = document.createElement("div");
     div.classList.add("submenu-item");
     div.innerHTML = `
@@ -81,171 +74,159 @@ document.addEventListener("DOMContentLoaded", function() {
       </select>
       <button type="button" class="remove-submenu-btn">削除</button>
     `;
-    div.querySelector(".remove-submenu-btn").addEventListener("click", () => div.remove());
+    div.querySelector(".remove-submenu-btn").addEventListener("click", ()=>div.remove());
+    enableDrag(div, "submenu");
     return div;
   }
 
-  addSubmenuBtn.addEventListener("click", () => {
-    submenuContainer.appendChild(createSubmenuItem());
-  });
-
-  // ----------------------------
-  // サイドパネル開閉
-  // ----------------------------
-  function openEditPanel(tab) {
-    sidePanel.classList.add("open");
+  // --- タブ編集 ---
+  function editTab(tab, li) {
     tabNameInput.value = tab.name;
     tabIconInput.value = tab.icon;
     tabUrlInput.value = tab.url_name;
     tabLinkTypeSelect.value = tab.link_type;
 
     submenuContainer.innerHTML = "";
-    if (tab.submenus && tab.submenus.length > 0) {
+    if(tab.submenus){
       tab.submenus.forEach(sm => {
-        submenuContainer.appendChild(createSubmenuItem(sm.name, sm.url, sm.link_type));
+        const div = createSubmenuItem(sm.name, sm.url, sm.link_type);
+        submenuContainer.appendChild(div);
       });
     }
     addTabBtn.dataset.editId = tab.id;
   }
 
-  function closeEditPanel() {
-    sidePanel.classList.remove("open");
-    addTabBtn.dataset.editId = "";
-    tabNameInput.value = "";
-    tabIconInput.value = "";
-    tabUrlInput.value = "";
-    tabLinkTypeSelect.value = "view";
-    submenuContainer.innerHTML = "";
+  // --- タブ削除 ---
+  function deleteTab(id, li){
+    if(!confirm("削除しますか？")) return;
+    fetch(`/api/delete_tab/${id}/`, { method:"POST", headers:{"X-CSRFToken":getCsrfToken()} })
+      .then(res => { if(res.ok) li.remove(); saveOrder(); });
   }
 
-  closePanelBtn.addEventListener("click", closeEditPanel);
+  // --- ドラッグ＆ドロップ（PC & タッチ対応） ---
+  function enableDrag(el, type){
+    el.draggable = true;
+    el.addEventListener("dragstart", e=>{ dragStart(e,type); });
+    el.addEventListener("dragover", dragOver);
+    el.addEventListener("drop", drop);
 
-  // ----------------------------
-  // タブ削除
-  // ----------------------------
-  function deleteTab(tabId, li) {
-    if (!confirm("本当に削除しますか？")) return;
-    fetch(`/api/delete_tab/${tabId}/`, {
-      method: "POST",
-      headers: { "X-CSRFToken": getCsrfToken() }
-    }).then(res => { if(res.ok) li.remove(); saveOrder(); });
+    // タッチ対応
+    el.addEventListener("touchstart", e=>{ dragStart(e,type,true); });
+    el.addEventListener("touchmove", touchMove);
+    el.addEventListener("touchend", touchEnd);
   }
 
-  // ----------------------------
-  // ドラッグ＆ドロップ (PC + タッチ)
-  // ----------------------------
-  function enableDragDrop(el, type) {
-    el.addEventListener("dragstart", e => { dragSrc = e.target; dragType = type; e.dataTransfer.effectAllowed = "move"; });
-    el.addEventListener("dragover", e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; });
-    el.addEventListener("drop", e => { e.preventDefault(); handleDrop(e.target.closest("li, .submenu-item")); });
-
-    el.addEventListener("touchstart", e => { dragSrc = el; dragType = type; dragSrc.classList.add("dragging"); });
-    el.addEventListener("touchmove", handleTouchMove);
-    el.addEventListener("touchend", handleTouchEnd);
+  function dragStart(e,type,isTouch=false){
+    dragSrc = e.target.closest("li, .submenu-item");
+    dragType = type;
+    if(isTouch) dragSrc.classList.add("dragging");
+    else e.dataTransfer.effectAllowed="move";
   }
 
-  function handleDrop(target) {
-    if (!target || dragSrc===target) return;
-    if (dragType==="tab") {
-      const nodes = Array.from(tabList.children);
-      const srcIndex = nodes.indexOf(dragSrc);
-      const targetIndex = nodes.indexOf(target);
-      if(srcIndex<targetIndex) tabList.insertBefore(dragSrc, target.nextSibling);
-      else tabList.insertBefore(dragSrc, target);
-    } else if(dragType==="submenu") {
-      const parentTabLi = target.closest(".tab-item");
-      if(!parentTabLi) return;
-      parentTabLi.querySelector(".submenus-container").insertBefore(dragSrc, target.nextSibling);
-      dragSrc.dataset.parentId = parentTabLi.dataset.id;
+  function dragOver(e){ e.preventDefault(); }
+
+  function drop(e){
+    e.preventDefault();
+    const target = e.target.closest("li, .submenu-item");
+    if(!target || dragSrc===target) return;
+
+    if(dragType==="tab") tabList.insertBefore(dragSrc,target.nextSibling);
+    else if(dragType==="submenu"){
+      if(target.classList.contains("submenu-item")) {
+        submenuContainer.insertBefore(dragSrc,target.nextSibling);
+      } else {
+        const parentTab = target.closest(".tab-item");
+        if(!parentTab) return;
+        parentTab.querySelector(".submenus-container").insertBefore(dragSrc,target.nextSibling);
+      }
     }
     saveOrder();
   }
 
-  function handleTouchMove(e) {
+  function touchMove(e){
+    e.preventDefault();
     const touch = e.touches[0];
-    const target = document.elementFromPoint(touch.clientX, touch.clientY)?.closest("li, .submenu-item");
-    document.querySelectorAll("li, .submenu-item").forEach(el => el.style.borderTop="");
-    if(target && dragSrc!==target) target.style.borderTop="2px dashed #2196f3";
-
-    const margin=80, maxSpeed=15;
-    clearInterval(scrollInterval);
-    if(touch.clientY<margin) {
-      const speed=Math.ceil((margin-touch.clientY)/5);
-      scrollInterval=setInterval(()=>window.scrollBy(0,-Math.min(speed,maxSpeed)),20);
-    } else if(touch.clientY>window.innerHeight-margin) {
-      const speed=Math.ceil((touch.clientY-(window.innerHeight-margin))/5);
-      scrollInterval=setInterval(()=>window.scrollBy(0,Math.min(speed,maxSpeed)),20);
-    }
+    dragSrc.style.position = "absolute";
+    dragSrc.style.top = touch.clientY+"px";
+    dragSrc.style.left = touch.clientX+"px";
   }
 
-  function handleTouchEnd(e) {
-    const touch = e.changedTouches[0];
-    const target = document.elementFromPoint(touch.clientX, touch.clientY)?.closest("li, .submenu-item");
-    if(target && dragSrc!==target) handleDrop(target);
-    if(dragSrc) dragSrc.classList.remove("dragging");
-    dragSrc=null; dragType=null;
-    clearInterval(scrollInterval);
-    document.querySelectorAll("li, .submenu-item").forEach(el=>el.style.borderTop="");
+  function touchEnd(e){
+    dragSrc.style.position="";
+    dragSrc.style.top="";
+    dragSrc.style.left="";
+    dragSrc.classList.remove("dragging");
   }
 
-  // ----------------------------
-  // タブ保存
-  // ----------------------------
-  function saveTab() {
-    const data={
+  // --- タブ保存 ---
+  function saveTab(){
+    const data = {
       name: tabNameInput.value.trim(),
       icon: tabIconInput.value.trim(),
       url_name: tabUrlInput.value.trim(),
       link_type: tabLinkTypeSelect.value,
-      submenus:[]
+      submenus: []
     };
     if(!data.name || !data.icon || !data.url_name) return alert("全て入力してください");
 
     Array.from(submenuContainer.querySelectorAll(".submenu-item")).forEach(item=>{
-      const name=item.querySelector(".submenu-name").value.trim();
-      const url=item.querySelector(".submenu-url").value.trim();
-      const type=item.querySelector(".submenu-link-type").value;
+      const name = item.querySelector(".submenu-name").value.trim();
+      const url = item.querySelector(".submenu-url").value.trim();
+      const type = item.querySelector(".submenu-link-type").value;
       if(name && url) data.submenus.push({name,url,link_type:type});
     });
 
-    if(addTabBtn.dataset.editId) data.id=addTabBtn.dataset.editId;
+    if(addTabBtn.dataset.editId) data.id = addTabBtn.dataset.editId;
 
-    fetch("/api/save_tab/", {
+    fetch("/api/save_tab/",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-CSRFToken":getCsrfToken()},
       body:JSON.stringify(data)
-    }).then(res=>res.json()).then(tab=>{
+    })
+    .then(res=>res.json())
+    .then(tab=>{
       if(addTabBtn.dataset.editId){
-        const li=tabList.querySelector(`li[data-id='${tab.id}']`);
+        const li = tabList.querySelector(`li[data-id='${tab.id}']`);
         if(li) li.remove();
         delete addTabBtn.dataset.editId;
       }
       addTabToList(tab);
+
+      tabNameInput.value="";
+      tabIconInput.value="";
+      tabUrlInput.value="";
+      tabLinkTypeSelect.value="view";
+      submenuContainer.innerHTML="";
       saveOrder();
-      closeEditPanel();
     });
   }
 
-  function saveOrder() {
-    const orderData=Array.from(tabList.children).map(tabLi=>({
+  // --- 並び順保存 ---
+  function saveOrder(){
+    const orderData = Array.from(tabList.children).map((tabLi,i)=>({
       id: tabLi.dataset.id,
-      order:Array.from(tabList.children).indexOf(tabLi),
-      submenus:Array.from(tabLi.querySelectorAll(".submenus-container li")).map((smLi,i)=>({
-        id: smLi.dataset.smId||null,
+      order: i,
+      submenus: Array.from(tabLi.querySelectorAll(".submenus-container li")).map((smLi,j)=>({
+        id: smLi.dataset.smId || null,
         parent_id: smLi.dataset.parentId,
-        order:i,
+        order: j,
         text: smLi.textContent
       }))
     }));
+
+    const formSubmenus = Array.from(submenuContainer.querySelectorAll(".submenu-item")).map((div,i)=>({
+      name: div.querySelector(".submenu-name").value.trim(),
+      url: div.querySelector(".submenu-url").value.trim(),
+      link_type: div.querySelector(".submenu-link-type").value,
+      order: i
+    }));
+
     fetch("/api/save_order/",{
       method:"POST",
       headers:{"Content-Type":"application/json","X-CSRFToken":getCsrfToken()},
-      body:JSON.stringify(orderData)
+      body:JSON.stringify({tabs:orderData, formSubmenus:formSubmenus})
     });
   }
 
   function getCsrfToken(){ return document.querySelector('[name=csrfmiddlewaretoken]').value; }
-
-  // タブ保存ボタン
-  addTabBtn.addEventListener("click", saveTab);
 });

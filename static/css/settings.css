@@ -1,7 +1,7 @@
 body {
   background-color: #f5f5f5;
   font-family: Arial, sans-serif;
-  margin: 20px;
+  margin: 15px;
   color: #333;
 }
 
@@ -10,46 +10,92 @@ h1 {
   margin-bottom: 30px;
 }
 
-/* ボタンコンテナ */
+/* ==========================
+   ボタンカードコンテナ
+========================== */
 .settings-buttons {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 15px;
+  gap: 20px;
 }
 
-/* 個々のボタン */
+/* ==========================
+   カードボタン
+========================== */
 .settings-buttons button {
-  width: 250px;
-  padding: 15px 20px;
-  border-radius: 10px;
-  border: none;
-  font-size: 1em;
-  font-weight: bold;
-  cursor: pointer;
-  background-color: #4caf50;
+  width: 90%;
+  max-width: 360px;
+  background: linear-gradient(145deg, #4caf50, #43a047);
   color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 20px;
+  cursor: pointer;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 5px;
-  transition: background 0.2s, transform 0.1s;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  box-shadow: 0 6px 12px rgba(0,0,0,0.12);
+  transition: all 0.2s ease-in-out;
 }
 
-/* アイコン */
+/* ==========================
+   ホバー・タップアニメーション
+========================== */
+.settings-buttons button:hover,
+.settings-buttons button:active {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 20px rgba(0,0,0,0.18);
+  background: linear-gradient(145deg, #43a047, #4caf50);
+}
+
+/* ==========================
+   アイコン
+========================== */
 .settings-buttons button i {
-  font-size: 1.4em;
+  font-size: 2em;
+  display: block;
 }
 
-/* ボタン内の説明文 */
-.settings-buttons button small {
-  font-size: 0.8em;
+/* ==========================
+   タイトルと説明
+========================== */
+.settings-buttons button .text-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.settings-buttons button .text-group span.title {
+  font-size: 1.2em;
+  font-weight: bold;
+}
+
+.settings-buttons button .text-group small {
+  font-size: 0.85em;
   font-weight: normal;
-  color: #f0f0f0;
+  color: rgba(255,255,255,0.85);
 }
 
-/* ホバー効果 */
-.settings-buttons button:hover {
-  background-color: #45a049;
-  transform: translateY(-2px);
+/* ==========================
+   スマホレスポンシブ対応
+========================== */
+@media (max-width: 500px) {
+  .settings-buttons button {
+    width: 95%;
+    padding: 18px;
+    gap: 8px;
+  }
+  .settings-buttons button i {
+    font-size: 1.8em;
+  }
+  .settings-buttons button .text-group span.title {
+    font-size: 1.1em;
+  }
+  .settings-buttons button .text-group small {
+    font-size: 0.8em;
+  }
 }

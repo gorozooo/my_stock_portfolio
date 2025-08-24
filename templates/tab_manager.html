@@ -4,11 +4,11 @@
 {% block title %}タブ管理{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{% static 'css/tab_manager.css' %}">
+<link rel="stylesheet" href="{% static 'css/tab_manager.css' %}">
 {% endblock %}
 
 {% block content %}
-<h1>タブ管理画面</h1>
+<h1>下タブ管理画面</h1>
 
 <!-- 新規タブ追加フォーム -->
 <div id="tab-form" class="tab-form">
@@ -24,44 +24,20 @@
 </div>
 
 <div class="tab-container">
-  <!-- 左カラム：既存下タブ -->
+  <!-- 左カラム：既存タブ -->
   <div class="tab-column">
     <h3>既存下タブ</h3>
     <ul id="tab-list" class="tab-list"></ul>
   </div>
 
-  <!-- 右カラム：サブメニュー -->
+  <!-- 右カラム：サブメニュー管理 -->
   <div class="submenu-column">
     <h3>サブメニュー</h3>
-    <div id="submenu-list" class="submenu-list"></div>
+    <div id="submenu-container" class="submenu-container"></div>
     <button type="button" id="add-submenu-btn" class="add-submenu-btn">サブメニュー追加</button>
   </div>
 </div>
 
-<!-- サイドパネル：編集用 -->
-<div id="side-panel" class="side-panel">
-  <h2>タブ編集</h2>
-  <form id="edit-tab-form">
-    {% csrf_token %}
-    <input type="hidden" id="edit-tab-id">
-    <label>タブ名</label>
-    <input type="text" id="edit-tab-name">
-    <label>アイコン</label>
-    <input type="text" id="edit-tab-icon">
-    <label>URL名</label>
-    <input type="text" id="edit-tab-url">
-    <label>リンクタイプ</label>
-    <select id="edit-tab-link-type">
-      <option value="view">内部ビュー</option>
-      <option value="url">外部URL</option>
-      <option value="dummy">ダミーリンク (#)</option>
-    </select>
-    <div style="text-align:center; margin-top:10px;">
-      <button type="submit" id="update-tab-btn">更新</button>
-      <button type="button" id="close-panel-btn" class="close-btn">閉じる</button>
-    </div>
-  </form>
-</div>
-
+{% csrf_token %}
 <script src="{% static 'js/tab_manager.js' %}"></script>
 {% endblock %}
