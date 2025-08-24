@@ -1,46 +1,41 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}下タブ管理{% endblock %}
+{% block title %}設定{% endblock %}
 
 {% block head %}
-  <!-- CSS 読込 -->
   <link rel="stylesheet" href="{% static 'css/settings.css' %}">
+  <!-- Font Awesome アイコン使用 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
 {% endblock %}
 
 {% block content %}
-<h1>下タブ管理画面</h1>
+<h1>設定画面</h1>
 
-<!-- 新規タブ追加フォーム -->
-<div id="tab-form" class="tab-form">
-  <input type="text" id="tab-name" placeholder="タブ名">
-  <input type="text" id="tab-icon" placeholder="アイコン例: fa-home">
-  <input type="text" id="tab-url" placeholder="URL名例: home または外部URL">
-  <select id="tab-link-type">
-    <option value="view" selected>内部ビュー</option>
-    <option value="url">外部URL</option>
-    <option value="dummy">ダミーリンク (#)</option>
-  </select>
-  <button id="add-tab-btn">タブ追加</button>
+<div class="settings-buttons">
+  <button onclick="location.href='{% url 'tab_manager' %}'">
+    <i class="fa-solid fa-table-columns"></i>
+    <span>タブ管理</span>
+    <small>下タブやサブメニューを管理</small>
+  </button>
+
+  <button onclick="location.href='{% url 'theme_settings' %}'">
+    <i class="fa-solid fa-paintbrush"></i>
+    <span>テーマ変更</span>
+    <small>画面の色やスタイルを変更</small>
+  </button>
+
+  <button onclick="location.href='{% url 'notification_settings' %}'">
+    <i class="fa-solid fa-bell"></i>
+    <span>通知設定</span>
+    <small>通知のオン／オフを切替</small>
+  </button>
+
+  <button onclick="location.href='{% url 'settings_password_edit' %}'">
+    <i class="fa-solid fa-lock"></i>
+    <span>パスワード変更</span>
+    <small>ログインパスワードを変更</small>
+  </button>
 </div>
 
-<div class="tab-container">
-  <!-- 左カラム：既存下タブ -->
-  <div class="tab-column">
-    <h3>既存下タブ</h3>
-    <ul id="tab-list" class="tab-list"></ul>
-  </div>
-
-  <!-- 右カラム：サブメニュー -->
-  <div class="submenu-column">
-    <h3>サブメニュー</h3>
-    <ul id="submenu-list" class="submenu-list"></ul>
-    <button type="button" id="add-submenu-btn" class="add-submenu-btn">サブメニュー追加</button>
-  </div>
-</div>
-
-<!-- CSRF -->
-{% csrf_token %}
-
-<script src="{% static 'js/settings.js' %}"></script>
 {% endblock %}

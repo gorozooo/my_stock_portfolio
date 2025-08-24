@@ -113,6 +113,27 @@ def settings_view(request):
     })
 
 # =============================
+# --- 子ページ: 設定系 ---
+# =============================
+@login_required
+def tab_manager_view(request):
+    if not request.session.get("settings_authenticated"):
+        return redirect("settings_login")
+    return render(request, "tab_manager.html", {"BOTTOM_TABS": get_bottom_tabs()})
+
+@login_required
+def theme_settings_view(request):
+    if not request.session.get("settings_authenticated"):
+        return redirect("settings_login")
+    return render(request, "theme_settings.html", {"BOTTOM_TABS": get_bottom_tabs()})
+
+@login_required
+def notification_settings_view(request):
+    if not request.session.get("settings_authenticated"):
+        return redirect("settings_login")
+    return render(request, "notification_settings.html", {"BOTTOM_TABS": get_bottom_tabs()})
+
+# =============================
 # API: タブ一覧取得
 # =============================
 def get_tabs(request):
