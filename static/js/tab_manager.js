@@ -9,8 +9,8 @@ document.addEventListener("DOMContentLoaded", function() {
   const tabLinkTypeSelect = document.getElementById("tab-link-type");
 
   // サイドパネル要素
-  const sidePanel = document.getElementById("side-panel");
-  const closePanelBtn = document.getElementById("close-panel-btn");
+  const sidePanel = document.getElementById("edit-panel");
+  const closePanelBtn = sidePanel.querySelector(".close-btn");
 
   let dragSrc = null;
   let dragType = null;
@@ -127,22 +127,23 @@ document.addEventListener("DOMContentLoaded", function() {
     }).then(res => { if (res.ok) li.remove(); saveOrder(); });
   }
 
-  // --- ドラッグ＆ドロップ（PC＋スマホ対応） ---
+  // --- ドラッグ＆ドロップ（スマホ＋PC対応） ---
   function enableDragDrop(el, type) {
-    // PC用
-    el.addEventListener("dragstart", e => { dragSrc = e.target; dragType = type; e.dataTransfer.effectAllowed = "move"; });
+    // PC ドラッグ
+    el.addEventListener("dragstart", e => {
+      dragSrc = e.target; dragType = type; e.dataTransfer.effectAllowed = "move";
+    });
     el.addEventListener("dragover", e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; });
     el.addEventListener("drop", e => { e.preventDefault(); handleDrop(e.target.closest("li, .submenu-item")); });
 
-    // タッチ用（スマホ）
+    // タッチ対応
     el.addEventListener("touchstart", e => {
       dragSrc = el;
       dragType = type;
       dragSrc.classList.add("dragging");
     });
-
-    el.addEventListener("touchmove", e => handleTouchMove(e));
-    el.addEventListener("touchend", e => handleTouchEnd(e));
+    el.addEventListener("touchmove", handleTouchMove);
+    el.addEventListener("touchend", handleTouchEnd);
   }
 
   function handleDrop(target) {
@@ -167,12 +168,13 @@ document.addEventListener("DOMContentLoaded", function() {
   function handleTouchMove(e) {
     const touch = e.touches[0];
     const target = document.elementFromPoint(touch.clientX, touch.clientY)?.closest("li, .submenu-item");
-    if (target && target !== dragSrc) target.style.borderTop = "2px dashed #2196f3";
+    if (target && target !== dragSrc) {
+      document.querySelectorAll("li, .submenu-item").forEach(el => el.style.borderTop = "");
+      target.style.borderTop = "2px dashed #2196f3";
+    }
 
-    const margin = 80;
-    const maxSpeed = 15;
+    const margin = 80, maxSpeed = 15;
     clearInterval(scrollInterval);
-
     if (touch.clientY < margin) {
       const speed = Math.ceil((margin - touch.clientY) / 5);
       scrollInterval = setInterval(() => window.scrollBy(0, -Math.min(speed, maxSpeed)), 20);
@@ -191,6 +193,7 @@ document.addEventListener("DOMContentLoaded", function() {
     dragSrc = null;
     dragType = null;
     clearInterval(scrollInterval);
+    document.querySelectorAll("li, .submenu-item").forEach(el => el.style.borderTop = "");
   }
 
   // --- 保存 ---
@@ -226,9 +229,8 @@ document.addEventListener("DOMContentLoaded", function() {
         delete addTabBtn.dataset.editId;
       }
       addTabToList(tab);
-
       saveOrder();
-      closeEditPanel(); // 保存後は閉じる
+      closeEditPanel();
     });
   }
 

@@ -1,75 +1,80 @@
-/* 全体 */
-body {
+/* ===== スマホファースト 基本スタイル ===== */
+.tab-manager-container {
   background-color: #f0f0f0;
   font-family: Arial, sans-serif;
-  margin: 20px;
+  padding: 15px;
   color: #333;
 }
 
-h1, h3 {
+/* 見出し */
+.tab-manager-container h1,
+.tab-manager-container h3 {
   text-align: center;
   margin-bottom: 15px;
+  font-weight: bold;
 }
 
 /* フォーム */
 .tab-form {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 10px;
-  justify-content: center;
   margin-bottom: 20px;
 }
-.tab-form input, .tab-form select {
-  padding: 6px 10px;
-  border-radius: 5px;
+.tab-form input,
+.tab-form select,
+.tab-form button {
+  padding: 12px;
+  border-radius: 6px;
   border: 1px solid #ccc;
+  font-size: 1em;
 }
 .tab-form button {
-  padding: 6px 12px;
-  border: none;
-  border-radius: 5px;
   background-color: #4caf50;
   color: white;
+  border: none;
   cursor: pointer;
+  transition: background 0.3s;
 }
-.tab-form button:hover { background-color: #45a049; }
+.tab-form button:hover {
+  background-color: #45a049;
+}
 
-/* カラム */
+/* カラム（スマホは縦並び） */
 .tab-container {
   display: flex;
-  gap: 30px;
-}
-.tab-column, .submenu-column {
-  flex: 1;
+  flex-direction: column;
+  gap: 20px;
 }
 
-/* 下タブ */
+/* 下タブリスト */
 .tab-list {
   list-style: none;
   padding: 10px;
   border: 1px solid #ccc;
-  min-height: 200px;
   background-color: #fff;
+  border-radius: 6px;
+  min-height: 150px;
 }
 .tab-list li {
-  padding: 8px 10px;
-  margin-bottom: 5px;
+  padding: 10px;
+  margin-bottom: 8px;
   background-color: #e0e0e0;
   border-radius: 5px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   cursor: grab;
-  position: relative;
+  transition: background 0.2s;
 }
-.tab-list li:hover { background-color: #d0d0d0; }
+.tab-list li:hover {
+  background-color: #d0d0d0;
+}
 .tab-list li button {
   margin-left: 5px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  border: none;
-  cursor: pointer;
-  font-size: 0.85em;
+  padding: 6px 10px;
+  border-radius: 5px;
+  font-size: 0.9em;
 }
 .tab-list li .edit-btn { background-color: #2196f3; color: white; }
 .tab-list li .edit-btn:hover { background-color: #1976d2; }
@@ -80,35 +85,38 @@ h1, h3 {
 .submenu-list {
   list-style: none;
   padding-left: 20px;
-  border-left: 2px solid #2196f3;
-  min-height: 200px;
+  border-left: 3px solid #2196f3;
   background-color: #fff;
+  border-radius: 6px;
+  min-height: 150px;
 }
 .submenu-list li {
-  padding: 6px 10px;
-  margin-bottom: 5px;
+  padding: 8px;
+  margin-bottom: 6px;
   background-color: #f9f9f9;
-  border-radius: 4px;
+  border-radius: 5px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   cursor: grab;
+  transition: background 0.2s;
   position: relative;
 }
 .submenu-list li::before {
   content: "↳";
   position: absolute;
-  left: -16px;
+  left: -18px;
   color: #2196f3;
   font-weight: bold;
 }
-.submenu-list li:hover { background-color: #f1f1f1; }
+.submenu-list li:hover {
+  background-color: #f1f1f1;
+}
 .submenu-list li button {
   margin-left: 5px;
-  padding: 2px 6px;
+  padding: 4px 8px;
   border-radius: 4px;
-  border: none;
-  font-size: 0.8em;
+  font-size: 0.85em;
   cursor: pointer;
 }
 .submenu-list li .edit-sm-btn { background-color: #ff9800; color: white; }
@@ -120,12 +128,13 @@ h1, h3 {
 .side-panel {
   position: fixed;
   top: 0;
-  right: -400px;
-  width: 400px;
+  right: -100%;
+  width: 100%;
+  max-width: 400px;
   height: 100%;
   background: #fff;
   color: #333;
-  box-shadow: -2px 0 10px rgba(0,0,0,0.3);
+  box-shadow: -2px 0 12px rgba(0,0,0,0.35);
   transition: right 0.3s ease;
   padding: 20px;
   overflow-y: auto;
@@ -142,29 +151,48 @@ h1, h3 {
 .side-panel input,
 .side-panel select {
   width: 100%;
-  margin-bottom: 10px;
-  padding: 8px;
-  border-radius: 5px;
+  margin-bottom: 12px;
+  padding: 10px;
+  border-radius: 6px;
   border: 1px solid #ccc;
+  font-size: 1em;
 }
 .side-panel button {
   width: 100%;
-  padding: 10px;
-  border: none;
-  border-radius: 5px;
-  background: #2196f3;
+  padding: 12px;
+  border-radius: 6px;
+  background-color: #2196f3;
   color: white;
   font-weight: bold;
+  border: none;
   cursor: pointer;
+  margin-top: 6px;
   transition: background 0.3s;
 }
-.side-panel button:hover {
-  background: #1976d2;
-}
+.side-panel button:hover { background-color: #1976d2; }
 .side-panel .close-btn {
-  background: #f44336;
-  margin-top: 10px;
+  background-color: #f44336;
+  margin-top: 12px;
 }
-.side-panel .close-btn:hover {
-  background: #d32f2f;
+.side-panel .close-btn:hover { background-color: #d32f2f; }
+
+/* ===== タブレット以上（幅 > 600px） ===== */
+@media screen and (min-width: 600px) {
+  .tab-container {
+    flex-direction: row;
+  }
+}
+
+/* ===== PC 大画面（幅 > 1024px） ===== */
+@media screen and (min-width: 1024px) {
+  .tab-list li, .submenu-list li {
+    font-size: 1em;
+    padding: 10px 12px;
+  }
+  .tab-form input, .tab-form select, .tab-form button {
+    font-size: 1em;
+  }
+  .side-panel input, .side-panel select, .side-panel button {
+    font-size: 1em;
+  }
 }

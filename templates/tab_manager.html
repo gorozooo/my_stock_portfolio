@@ -33,15 +33,16 @@
   <!-- 右カラム：サブメニュー -->
   <div class="submenu-column">
     <h3>サブメニュー</h3>
-    <ul id="submenu-list" class="submenu-list"></ul>
+    <div id="submenu-list" class="submenu-list"></div>
     <button type="button" id="add-submenu-btn" class="add-submenu-btn">サブメニュー追加</button>
   </div>
 </div>
 
 <!-- サイドパネル：編集用 -->
-<div id="edit-panel" class="side-panel">
+<div id="side-panel" class="side-panel">
   <h2>タブ編集</h2>
   <form id="edit-tab-form">
+    {% csrf_token %}
     <input type="hidden" id="edit-tab-id">
     <label>タブ名</label>
     <input type="text" id="edit-tab-name">
@@ -56,13 +57,11 @@
       <option value="dummy">ダミーリンク (#)</option>
     </select>
     <div style="text-align:center; margin-top:10px;">
-      <button type="submit">更新</button>
-      <button type="button" class="close-btn">閉じる</button>
+      <button type="submit" id="update-tab-btn">更新</button>
+      <button type="button" id="close-panel-btn" class="close-btn">閉じる</button>
     </div>
   </form>
 </div>
-
-{% csrf_token %}
 
 <script src="{% static 'js/tab_manager.js' %}"></script>
 {% endblock %}
