@@ -9,56 +9,6 @@
   <!-- 共通スタイル -->
   <link rel="stylesheet" href="{% static 'css/future_ui_advanced.css' %}">
   {% block extra_css %}{% endblock %}
-
-  <style>
-    /* =====================
-       背景グラデーション＋ライトライン
-    ===================== */
-    body {
-      margin: 0;
-      font-family: 'Segoe UI', sans-serif;
-      background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
-      position: relative;
-      overflow-x: hidden;
-    }
-
-    body::before {
-      content: '';
-      position: fixed;
-      top: -50%;
-      left: -50%;
-      width: 200%;
-      height: 200%;
-      background: repeating-linear-gradient(
-        45deg,
-        rgba(255,255,255,0.05) 0px,
-        rgba(255,255,255,0.05) 2px,
-        transparent 2px,
-        transparent 20px
-      );
-      animation: slide 20s linear infinite;
-      z-index: 0;
-    }
-
-    @keyframes slide {
-      from { transform: translate(0,0); }
-      to { transform: translate(50px,50px); }
-    }
-
-    /* メインコンテンツを浮かせる */
-    .main-content {
-      position: relative;
-      z-index: 10;
-      backdrop-filter: blur(8px);
-      background: rgba(0,0,0,0.5);
-      border-radius: 20px;
-      padding: 2rem;
-      margin: 2rem auto;
-      max-width: 1200px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-      color: #fff;
-    }
-  </style>
 </head>
 <body>
 
@@ -82,7 +32,7 @@
   </header>
 
   <!-- メインコンテンツ -->
-  <main class="main-content">
+  <main class="main-content" style="padding-top: 90px; padding-bottom: 90px; max-width: 1200px; margin: 0 auto; color: #333;">
     {% block content %}{% endblock %}
   </main>
 
@@ -90,6 +40,9 @@
   <footer>
     {% include "bottom_tab.html" %}
   </footer>
+
+  <!-- 共通JS（必要に応じて下タブ用など追加可能） -->
+  {% block extra_js %}{% endblock %}
 
 </body>
 </html>
