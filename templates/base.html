@@ -32,7 +32,7 @@
   </header>
 
   <!-- メインコンテンツ -->
-  <main class="main-content" style="padding-top: 90px; padding-bottom: 90px; max-width: 1200px; margin: 0 auto; color: #333;">
+  <main class="main-content">
     {% block content %}{% endblock %}
   </main>
 
@@ -41,8 +41,8 @@
     {% include "bottom_tab.html" %}
   </footer>
 
-  <!-- 共通JS（必要に応じて下タブ用など追加可能） -->
+  <!-- 共通JS -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   {% block extra_js %}{% endblock %}
-
 </body>
 </html>
