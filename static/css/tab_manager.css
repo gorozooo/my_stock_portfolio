@@ -115,3 +115,56 @@ h1, h3 {
 .submenu-list li .edit-sm-btn:hover { background-color: #f57c00; }
 .submenu-list li .delete-sm-btn { background-color: #e91e63; color: white; }
 .submenu-list li .delete-sm-btn:hover { background-color: #c2185b; }
+
+/* サイドパネル */
+.side-panel {
+  position: fixed;
+  top: 0;
+  right: -400px;
+  width: 400px;
+  height: 100%;
+  background: #fff;
+  color: #333;
+  box-shadow: -2px 0 10px rgba(0,0,0,0.3);
+  transition: right 0.3s ease;
+  padding: 20px;
+  overflow-y: auto;
+  z-index: 1000;
+}
+.side-panel.open {
+  right: 0;
+}
+.side-panel h2 {
+  margin-top: 0;
+  border-bottom: 1px solid #ccc;
+  padding-bottom: 10px;
+}
+.side-panel input,
+.side-panel select {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 8px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+}
+.side-panel button {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 5px;
+  background: #2196f3;
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+.side-panel button:hover {
+  background: #1976d2;
+}
+.side-panel .close-btn {
+  background: #f44336;
+  margin-top: 10px;
+}
+.side-panel .close-btn:hover {
+  background: #d32f2f;
+}

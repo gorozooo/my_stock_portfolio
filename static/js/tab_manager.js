@@ -8,6 +8,10 @@ document.addEventListener("DOMContentLoaded", function() {
   const tabUrlInput = document.getElementById("tab-url");
   const tabLinkTypeSelect = document.getElementById("tab-link-type");
 
+  // サイドパネル要素
+  const sidePanel = document.getElementById("side-panel");
+  const closePanelBtn = document.getElementById("close-panel-btn");
+
   let dragSrc = null;
   let dragType = null;
   let scrollInterval = null;
@@ -41,7 +45,7 @@ document.addEventListener("DOMContentLoaded", function() {
       });
     }
 
-    li.querySelector(".edit-btn").addEventListener("click", () => editTab(tab, li));
+    li.querySelector(".edit-btn").addEventListener("click", () => openEditPanel(tab));
     li.querySelector(".delete-btn").addEventListener("click", () => deleteTab(tab.id, li));
 
     enableDragDrop(li, "tab");
@@ -83,7 +87,10 @@ document.addEventListener("DOMContentLoaded", function() {
 
   addTabBtn.addEventListener("click", () => saveTab());
 
-  function editTab(tab, li) {
+  // --- サイドパネル開閉 ---
+  function openEditPanel(tab) {
+    sidePanel.classList.add("open");
+
     tabNameInput.value = tab.name;
     tabIconInput.value = tab.icon;
     tabUrlInput.value = tab.url_name;
@@ -99,6 +106,19 @@ document.addEventListener("DOMContentLoaded", function() {
     addTabBtn.dataset.editId = tab.id;
   }
 
+  function closeEditPanel() {
+    sidePanel.classList.remove("open");
+    addTabBtn.dataset.editId = "";
+    tabNameInput.value = "";
+    tabIconInput.value = "";
+    tabUrlInput.value = "";
+    tabLinkTypeSelect.value = "view";
+    submenuContainer.innerHTML = "";
+  }
+
+  closePanelBtn.addEventListener("click", closeEditPanel);
+
+  // --- 削除 ---
   function deleteTab(tabId, li) {
     if (!confirm("本当に削除しますか？")) return;
     fetch(`/api/delete_tab/${tabId}/`, {
@@ -173,6 +193,7 @@ document.addEventListener("DOMContentLoaded", function() {
     clearInterval(scrollInterval);
   }
 
+  // --- 保存 ---
   function saveTab() {
     const data = {
       name: tabNameInput.value.trim(),
@@ -206,12 +227,8 @@ document.addEventListener("DOMContentLoaded", function() {
       }
       addTabToList(tab);
 
-      tabNameInput.value = "";
-      tabIconInput.value = "";
-      tabUrlInput.value = "";
-      tabLinkTypeSelect.value = "view";
-      submenuContainer.innerHTML = "";
       saveOrder();
+      closeEditPanel(); // 保存後は閉じる
     });
   }
 
