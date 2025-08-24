@@ -1,26 +1,18 @@
-/* ==============================
-   全体背景とフォント
-============================== */
+/* 全体 */
 body {
-  background-color: #111; /* 黒ベース */
-  color: #fff;
+  background-color: #f0f0f0;
   font-family: Arial, sans-serif;
-  padding: 20px;
+  margin: 20px;
+  color: #333;
 }
 
-/* ==============================
-   タイトル
-============================== */
-h1, h2 {
+/* タイトル */
+h1, h3 {
   text-align: center;
-  margin-bottom: 20px;
-  color: #0ff; /* 光彩風 */
-  text-shadow: 0 0 8px #0ff;
+  margin-bottom: 15px;
 }
 
-/* ==============================
-   フォーム
-============================== */
+/* 新規タブ追加フォーム */
 #tab-form {
   display: flex;
   flex-wrap: wrap;
@@ -29,168 +21,142 @@ h1, h2 {
   margin-bottom: 20px;
 }
 
-#tab-form input,
-#tab-form select {
-  margin: 5px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.2);
-  background: rgba(255,255,255,0.05);
-  color: #fff;
+#tab-form input, #tab-form select {
+  padding: 6px 10px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
 }
 
 #tab-form button {
-  padding: 8px 15px;
+  padding: 6px 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: 5px;
+  background-color: #4caf50;
+  color: white;
   cursor: pointer;
-  font-weight: bold;
-  background: #00ffff;
-  color: #111;
-  transition: background 0.2s, transform 0.2s;
 }
 
 #tab-form button:hover {
-  background: #33ffff;
-  transform: translateY(-2px);
+  background-color: #45a049;
 }
 
-/* アイコンプレビュー */
-#icon-preview {
-  font-size: 1.2em;
-  margin-left: 10px;
-  color: #0ff;
+/* 左右カラム */
+div[style*="display:flex"] {
+  display: flex;
+  gap: 30px;
 }
 
-/* ==============================
-   タブリスト（親タブ＋サブメニュー）
-============================== */
+/* 下タブリスト */
 #tab-list {
   list-style: none;
-  padding: 0;
-  margin-top: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  padding: 10px;
+  border: 1px solid #ccc;
+  min-height: 200px;
+  background-color: #fff;
 }
 
-/* 個々の親タブ */
-#tab-list > li {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(10px); /* ガラス感 */
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 10px 15px;
-  cursor: grab;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-#tab-list > li:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 4px 20px rgba(0, 255, 255, 0.3);
-}
-
-/* タブヘッダー（タイトル＋ボタン） */
-.tab-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 5px;
-}
-
-.tab-header span {
-  font-weight: bold;
-  flex-grow: 1;
-}
-
-/* 削除・編集ボタン */
-#tab-list li button {
-  padding: 4px 8px;
-  border: none;
+#tab-list li {
+  padding: 8px 10px;
+  margin-bottom: 5px;
+  background-color: #e0e0e0;
   border-radius: 5px;
-  cursor: pointer;
-  font-size: 0.9em;
-  transition: background 0.2s;
-}
-
-#tab-list li button.delete-btn {
-  background-color: #ff0040;
-  color: #fff;
-}
-
-#tab-list li button.delete-btn:hover {
-  background-color: #ff3366;
-}
-
-#tab-list li button.edit-btn {
-  background-color: #00ff99;
-  color: #111;
-}
-
-#tab-list li button.edit-btn:hover {
-  background-color: #33ffcc;
-}
-
-/* ==============================
-   サブメニュー（枝分かれ）
-============================== */
-ul.submenus-container {
-  list-style: none;
-  padding-left: 20px;
-  border-left: 2px dashed rgba(255,255,255,0.3);
-  margin-top: 5px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-ul.submenus-container li {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-left: 10px;
-  background: rgba(255,255,255,0.05);
-  border-radius: 8px;
   cursor: grab;
-  transition: transform 0.2s, box-shadow 0.2s;
+  position: relative;
 }
 
-ul.submenus-container li:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 2px 10px rgba(0, 255, 255, 0.2);
+#tab-list li:hover {
+  background-color: #d0d0d0;
 }
 
-ul.submenus-container li span {
-  flex-grow: 1;
+#tab-list li button {
+  margin-left: 5px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85em;
+}
+
+#tab-list li .edit-btn {
+  background-color: #2196f3;
+  color: white;
+}
+
+#tab-list li .edit-btn:hover {
+  background-color: #1976d2;
+}
+
+#tab-list li .delete-btn {
+  background-color: #f44336;
+  color: white;
+}
+
+#tab-list li .delete-btn:hover {
+  background-color: #d32f2f;
+}
+
+/* サブメニューリスト（枝分かれ矢印表示） */
+#submenu-list {
+  list-style: none;
+  padding-left: 20px; /* 左のスペースで枝を表現 */
+  border-left: 2px solid #2196f3; /* 枝ライン */
+  min-height: 200px;
+  background-color: #fff;
+}
+
+#submenu-list li {
+  padding: 6px 10px;
+  margin-bottom: 5px;
+  background-color: #f9f9f9;
+  border-radius: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: grab;
+  position: relative;
+}
+
+/* 左に矢印マークを追加して枝分かれ感 */
+#submenu-list li::before {
+  content: "↳";
+  position: absolute;
+  left: -16px; /* 枝ラインに重ならない位置 */
+  color: #2196f3;
+  font-weight: bold;
+}
+
+/* ホバー時の明暗変化 */
+#submenu-list li:hover {
+  background-color: #f1f1f1;
 }
 
 /* サブメニューボタン */
-ul.submenus-container li button {
+#submenu-list li button {
+  margin-left: 5px;
   padding: 2px 6px;
+  border-radius: 4px;
+  border: none;
   font-size: 0.8em;
+  cursor: pointer;
 }
 
-/* ==============================
-   レスポンシブ（スマホ対応）
-============================== */
-@media (max-width: 768px) {
-  #tab-form {
-    flex-direction: column;
-    align-items: center;
-  }
+#submenu-list li .edit-sm-btn {
+  background-color: #ff9800;
+  color: white;
+}
 
-  #tab-list {
-    gap: 8px;
-  }
+#submenu-list li .edit-sm-btn:hover {
+  background-color: #f57c00;
+}
 
-  #tab-list > li {
-    padding: 8px 12px;
-  }
+#submenu-list li .delete-sm-btn {
+  background-color: #e91e63;
+  color: white;
+}
 
-  ul.submenus-container {
-    padding-left: 15px;
-  }
+#submenu-list li .delete-sm-btn:hover {
+  background-color: #c2185b;
 }
