@@ -8,35 +8,15 @@
 {% endblock %}
 
 {% block content %}
-<h1>タブ管理画面</h1>
+<h1 class="page-title">タブ管理</h1>
 
-<!-- 新規タブ追加フォーム -->
-<div id="tab-form" class="tab-form">
-  <input type="text" id="tab-name" placeholder="タブ名">
-  <input type="text" id="tab-icon" placeholder="アイコン例: fa-home">
-  <input type="text" id="tab-url" placeholder="URL名例: home または外部URL">
-  <select id="tab-link-type">
-    <option value="view" selected>内部ビュー</option>
-    <option value="url">外部URL</option>
-    <option value="dummy">ダミーリンク (#)</option>
-  </select>
-  <button id="add-tab-btn">タブ追加</button>
+<!-- タブ一覧（カードUI） -->
+<div id="tab-list" class="tab-list">
+  <!-- JSでタブカードを追加 -->
 </div>
 
-<div class="tab-container">
-  <!-- 左カラム：既存タブ -->
-  <div class="tab-column">
-    <h3>既存下タブ</h3>
-    <ul id="tab-list" class="tab-list"></ul>
-  </div>
-
-  <!-- 右カラム：サブメニュー管理 -->
-  <div class="submenu-column">
-    <h3>サブメニュー</h3>
-    <div id="submenu-container" class="submenu-container"></div>
-    <button type="button" id="add-submenu-btn" class="add-submenu-btn">サブメニュー追加</button>
-  </div>
-</div>
+<!-- フローティング追加ボタン -->
+<button id="add-tab-fab" class="fab">＋</button>
 
 {% csrf_token %}
 <script src="{% static 'js/tab_manager.js' %}"></script>

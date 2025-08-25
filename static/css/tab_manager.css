@@ -1,101 +1,131 @@
+/* ===== 全体 ===== */
 body {
+  margin: 0;
+  padding: 10px;
   font-family: Arial, sans-serif;
-  margin: 10px;
   background: #f0f2f5;
   color: #333;
 }
 
-/* タイトル */
-h1 {
+.page-title {
   text-align: center;
   margin-bottom: 20px;
+  font-size: 1.5em;
 }
 
-/* カード共通 */
-.card {
-  background: #fff;
-  border-radius: 16px;
-  padding: 15px;
-  margin-bottom: 15px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-}
-
-/* 新規タブフォーム */
-.tab-form h2 {
-  font-size: 1.2em;
-  margin-bottom: 10px;
-}
-
-.tab-form input,
-.tab-form select {
-  width: 100%;
-  padding: 10px;
-  margin-bottom: 10px;
-  border-radius: 10px;
-  border: 1px solid #ccc;
-  font-size: 1em;
-}
-
-.primary-btn {
-  width: 100%;
-  padding: 12px;
-  border: none;
-  border-radius: 12px;
-  background: linear-gradient(145deg, #4caf50, #43a047);
-  color: #fff;
-  font-size: 1em;
-  cursor: pointer;
-  transition: 0.25s all ease-in-out;
-}
-
-.primary-btn:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 6px 12px rgba(0,0,0,0.15);
-}
-
-/* タブ・サブメニュー一覧 */
-.tab-list, .submenu-container {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: 300px;
-  overflow-y: auto;
-  padding-right: 5px;
-}
-
-.tab-list li, .submenu-container .submenu-item {
-  background: #e0f2f1;
-  padding: 10px;
-  border-radius: 10px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.95em;
-  cursor: pointer;
-  transition: 0.2s;
-}
-
-.tab-list li:hover, .submenu-container .submenu-item:hover {
-  background: #b2dfdb;
-}
-
-/* レスポンシブ（スマホファースト） */
-.tab-container {
+/* ===== タブカード ===== */
+.tab-list {
   display: flex;
   flex-direction: column;
   gap: 15px;
 }
 
-.tab-column, .submenu-column {
-  width: 100%;
+.tab-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 12px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  display: flex;
+  flex-direction: column;
 }
 
+.tab-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tab-icon {
+  font-size: 1.5em;
+}
+
+.tab-name {
+  font-weight: bold;
+  flex-grow: 1;
+}
+
+.tab-header button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1em;
+}
+
+/* ===== サブメニュー ===== */
+.submenu-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.submenu-item {
+  background: #e0f2f1;
+  padding: 8px;
+  border-radius: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.95em;
+}
+
+.submenu-item button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+/* サブメニュー追加ボタン */
+.add-submenu-btn {
+  margin-top: 5px;
+  padding: 6px;
+  border-radius: 10px;
+  border: none;
+  background: #43a047;
+  color: #fff;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.add-submenu-btn:hover {
+  background: #4caf50;
+}
+
+/* ===== フローティングボタン ===== */
+.fab {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #4caf50;
+  color: #fff;
+  font-size: 2em;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 6px 12px rgba(0,0,0,0.3);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: 0.25s;
+}
+
+.fab:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 20px rgba(0,0,0,0.35);
+}
+
+/* ===== レスポンシブ ===== */
 @media (min-width: 700px) {
-  .tab-container {
+  .tab-list {
     flex-direction: row;
-    gap: 15px;
+    flex-wrap: wrap;
   }
-  .tab-column, .submenu-column {
-    width: 50%;
+  .tab-card {
+    width: calc(50% - 10px);
   }
 }
