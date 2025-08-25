@@ -16,33 +16,79 @@ document.addEventListener("DOMContentLoaded", () => {
   const modalPrice = document.getElementById("modal-price");
   const modalProfit = document.getElementById("modal-profit");
 
-  let chart;
+  let chartInstance = null;
 
-  // ===== カード生成 =====
   stocks.forEach(stock => {
     const profit = (stock.price - stock.cost) * stock.shares;
     const profitClass = profit >= 0 ? "positive" : "negative";
 
-    const card = document.createElement("div");
-    card.className = "stock-card";
-    card.innerHTML = `
-      <div class="stock-header">
-        <span class="stock-name">${stock.name}</span>
-        <span class="stock-code">${stock.code}</span>
+    const cardWrapper = document.createElement("div");
+    cardWrapper.className = "stock-card-wrapper";
+
+    cardWrapper.innerHTML = `
+      <div class="stock-card">
+        <div class="stock-header">
+          <span class="stock-name">${stock.name}</span>
+          <span class="stock-code">${stock.code}</span>
+        </div>
+        <div class="stock-row"><span>株数</span><span>${stock.shares}</span></div>
+        <div class="stock-row"><span>取得単価</span><span>¥${stock.cost.toLocaleString()}</span></div>
+        <div class="stock-row"><span>現在株価</span><span>¥${stock.price.toLocaleString()}</span></div>
+        <div class="stock-row gain ${profitClass}"><span>損益</span><span>${profit >= 0 ? "+" : ""}${profit.toLocaleString()} 円</span></div>
       </div>
-      <div class="stock-info">
-        <span>株数: ${stock.shares}</span>
-        <span>取得: ¥${stock.cost.toLocaleString()}</span>
-      </div>
-      <div class="stock-info">
-        <span>現在: ¥${stock.price.toLocaleString()}</span>
-      </div>
-      <div class="stock-profit ${profitClass}">
-        ${profit >= 0 ? "+" : ""}${profit.toLocaleString()} 円
-      </div>
+      <button class="sell-btn">売却</button>
     `;
 
-    card.addEventListener("click", () => {
+    const card = cardWrapper.querySelector(".stock-card");
+    const sellBtn = cardWrapper.querySelector(".sell-btn");
+    sellBtn.style.opacity = "0"; // 初期非表示
+    sellBtn.style.pointerEvents = "none"; // 初期クリック無効
+
+    // ===== タッチ・スワイプ検知 =====
+    let startX = 0;
+    let currentX = 0;
+    let isSwiping = false;
+
+    card.addEventListener("touchstart", e => {
+      startX = e.touches[0].clientX;
+      card.style.transition = "none";
+    });
+
+    card.addEventListener("touchmove", e => {
+      currentX = e.touches[0].clientX;
+      const diffX = currentX - startX;
+
+      if (diffX < 0) { // 左スワイプ
+        isSwiping = true;
+        card.style.transform = `translateX(${diffX}px)`;
+        sellBtn.style.opacity = `${Math.min(Math.abs(diffX)/100,1)}`;
+      } else if (diffX > 0 && isSwiping) { // 右スワイプで戻す
+        card.style.transform = `translateX(${diffX-100}px)`;
+        sellBtn.style.opacity = `${Math.max(1 - diffX/100,0)}`;
+      }
+    });
+
+    card.addEventListener("touchend", e => {
+      if (!isSwiping) return;
+      const diffX = currentX - startX;
+      if (diffX < -50) {
+        card.style.transition = "transform 0.3s ease";
+        card.style.transform = "translateX(-100px)";
+        sellBtn.style.opacity = "1";
+        sellBtn.style.pointerEvents = "auto";
+      } else {
+        card.style.transition = "transform 0.3s ease";
+        card.style.transform = "translateX(0)";
+        sellBtn.style.opacity = "0";
+        sellBtn.style.pointerEvents = "none";
+      }
+      isSwiping = false;
+    });
+
+    // ===== カードクリックでモーダル表示 =====
+    card.addEventListener("click", e => {
+      if (e.target === sellBtn || isSwiping) return;
+
       modal.style.display = "block";
       modalName.textContent = stock.name;
       modalCode.textContent = stock.code;
@@ -52,9 +98,9 @@ document.addEventListener("DOMContentLoaded", () => {
       modalProfit.textContent = `${profit >= 0 ? "+" : ""}${profit.toLocaleString()} 円`;
       modalProfit.className = profit >= 0 ? "positive" : "negative";
 
-      if (chart) chart.destroy();
+      if (chartInstance) chartInstance.destroy();
       const ctx = document.getElementById("modal-chart").getContext("2d");
-      chart = new Chart(ctx, {
+      chartInstance = new Chart(ctx, {
         type: "line",
         data: {
           labels: ["1M", "3M", "6M", "1Y"],
@@ -66,8 +112,8 @@ document.addEventListener("DOMContentLoaded", () => {
               stock.price * 0.95,
               stock.price
             ],
-            borderColor: "#007aff",
-            backgroundColor: "rgba(0,122,255,0.2)",
+            borderColor: "#00ffff",
+            backgroundColor: "rgba(0,255,255,0.2)",
             fill: true,
             tension: 0.4
           }]
@@ -80,14 +126,17 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
 
-    container.appendChild(card);
+    // ===== 売却ボタンクリック =====
+    sellBtn.addEventListener("click", () => {
+      alert(`✅ ${stock.name} を売却しました（ダミー処理）`);
+      cardWrapper.remove();
+    });
+
+    container.appendChild(cardWrapper);
   });
 
   // ===== モーダル閉じる =====
-  closeBtn.addEventListener("click", () => {
-    modal.style.display = "none";
-  });
-  window.addEventListener("click", e => {
-    if (e.target === modal) modal.style.display = "none";
-  });
+  closeBtn.addEventListener("click", () => { modal.style.display = "none"; });
+  window.addEventListener("click", e => { if (e.target === modal) modal.style.display = "none"; });
+  modal.addEventListener("touchstart", e => { if (e.target === modal) modal.style.display = "none"; });
 });
