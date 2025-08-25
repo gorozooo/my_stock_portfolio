@@ -1,46 +1,51 @@
-/* 取引履歴ページ用 */
-
+/* ========== スマホファースト ========== */
 .history-container {
-    padding: 20px;
-    animation: fadeIn 0.6s ease-in-out;
+    padding: 15px;
+    animation: fadeIn 0.4s ease-in-out;
 }
 
+h1 {
+    font-size: 20px;
+    margin-bottom: 10px;
+}
+
+/* フィルターバー：スマホは横並びではなく縦並び */
 .filter-bar {
     display: flex;
-    gap: 10px;
-    margin-bottom: 15px;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
 }
 
 .filter-bar select {
-    padding: 6px 10px;
+    padding: 8px 10px;
     border-radius: 8px;
-    border: 1px solid #ccc;
-    background: rgba(255, 255, 255, 0.7);
-    backdrop-filter: blur(5px);
+    border: 1px solid #ddd;
+    font-size: 14px;
+    background: rgba(255, 255, 255, 0.8);
 }
 
 /* 履歴リスト */
 .trade-list {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
 }
 
-/* 個別の取引 */
 .trade-item {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    padding: 12px 15px;
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.25);
+    align-items: flex-start;
+    padding: 12px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.9);
     backdrop-filter: blur(6px);
-    box-shadow: 0 3px 8px rgba(0,0,0,0.1);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
     transition: transform 0.2s ease;
 }
 
 .trade-item:hover {
-    transform: scale(1.02);
+    transform: scale(1.01);
 }
 
 .trade-left {
@@ -49,11 +54,11 @@
 
 .stock-name {
     font-weight: bold;
-    font-size: 16px;
+    font-size: 15px;
 }
 
 .trade-date {
-    font-size: 13px;
+    font-size: 12px;
     color: #666;
 }
 
@@ -63,15 +68,15 @@
 
 .trade-amount {
     font-weight: bold;
-    font-size: 15px;
+    font-size: 14px;
 }
 
 .trade-price {
-    font-size: 13px;
+    font-size: 12px;
     color: #444;
 }
 
-/* 買いと売りの色分け */
+/* 色分け */
 .trade-item.buy .trade-amount {
     color: #e63946; /* 赤 (買い) */
 }
@@ -80,8 +85,37 @@
     color: #2a9d8f; /* 緑 (売り) */
 }
 
+/* ========== PC向け (幅768px以上) ========== */
+@media (min-width: 768px) {
+    .history-container {
+        padding: 20px 40px;
+    }
+
+    .filter-bar {
+        flex-direction: row;
+        justify-content: flex-start;
+        gap: 15px;
+    }
+
+    h1 {
+        font-size: 24px;
+    }
+
+    .trade-item {
+        padding: 15px 20px;
+    }
+
+    .stock-name {
+        font-size: 16px;
+    }
+
+    .trade-amount {
+        font-size: 15px;
+    }
+}
+
 /* アニメーション */
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
+    from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
 }
