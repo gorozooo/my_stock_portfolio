@@ -1,9 +1,69 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="glass-box">
-    <h1>📈 損益一覧</h1>
+<div class="realized-container">
+    <div class="glass-box">
+        <h1>📈 損益一覧</h1>
+    </div>
+
+    <!-- フィルター -->
+    <div class="filter-box">
+        <label>年:</label>
+        <select id="yearFilter">
+            <option value="">すべて</option>
+            <option value="2025">2025</option>
+            <option value="2024">2024</option>
+        </select>
+
+        <label>月:</label>
+        <select id="monthFilter">
+            <option value="">すべて</option>
+            <option value="01">1月</option>
+            <option value="02">2月</option>
+            <option value="03">3月</option>
+            <!-- 必要に応じて追加 -->
+        </select>
+    </div>
+
+    <!-- 損益一覧テーブル -->
+    <div class="table-wrapper">
+        <table id="realizedTable">
+            <thead>
+                <tr>
+                    <th>日付</th>
+                    <th>銘柄</th>
+                    <th>取引区分</th>
+                    <th>数量</th>
+                    <th>損益額</th>
+                    <th>損益率</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- サンプルデータ -->
+                <tr data-date="2025-08-01">
+                    <td>2025-08-01</td>
+                    <td>トヨタ</td>
+                    <td>売却</td>
+                    <td>100</td>
+                    <td class="profit">+50,000</td>
+                    <td class="profit">+12%</td>
+                </tr>
+                <tr data-date="2025-07-15">
+                    <td>2025-07-15</td>
+                    <td>ソニー</td>
+                    <td>売却</td>
+                    <td>50</td>
+                    <td class="loss">-20,000</td>
+                    <td class="loss">-5%</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
 </div>
 
 {% include "bottom_tab.html" %}
+
+<!-- 専用CSSとJS -->
+<link rel="stylesheet" href="{% static 'css/realized.css' %}">
+<script src="{% static 'js/realized.js' %}"></script>
 {% endblock %}
