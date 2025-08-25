@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+<link rel="stylesheet" href="{% static 'css/trade_history.css' %}">
+<script src="{% static 'js/trade_history.js' %}"></script>
+
+<div class="history-container glass-box">
+    <h1>📈 取引履歴</h1>
+
+    <!-- フィルターメニュー -->
+    <div class="filter-bar">
+        <select id="yearFilter">
+            <option value="all">すべての年</option>
+            <option value="2025">2025年</option>
+            <option value="2024">2024年</option>
+        </select>
+        <select id="monthFilter">
+            <option value="all">すべての月</option>
+            <option value="1">1月</option>
+            <option value="2">2月</option>
+            <option value="3">3月</option>
+            <!-- 必要なら12月まで追加 -->
+        </select>
+    </div>
+
+    <!-- 取引履歴リスト -->
+    <div class="trade-list">
+        <div class="trade-item buy">
+            <div class="trade-left">
+                <p class="stock-name">トヨタ自動車</p>
+                <p class="trade-date">2025/08/20</p>
+            </div>
+            <div class="trade-right">
+                <p class="trade-amount">+50株</p>
+                <p class="trade-price">＠2,300円</p>
+            </div>
+        </div>
+
+        <div class="trade-item sell">
+            <div class="trade-left">
+                <p class="stock-name">ソニーG</p>
+                <p class="trade-date">2025/07/10</p>
+            </div>
+            <div class="trade-right">
+                <p class="trade-amount">-20株</p>
+                <p class="trade-price">＠13,500円</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% include "bottom_tab.html" %}
+{% endblock %}
