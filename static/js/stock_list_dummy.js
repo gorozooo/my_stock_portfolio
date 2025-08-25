@@ -4,7 +4,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const dummyStocks = [
     {name:"トヨタ", code:"7203", shares:100, cost:2500, price:2700},
     {name:"ソニー", code:"6758", shares:50, cost:12000, price:11500},
-    {name:"任天堂", code:"7974", shares:30, cost:50000, price:52000}
+    {name:"任天堂", code:"7974", shares:30, cost:50000, price:52000},
+    {name:"キーエンス", code:"6861", shares:20, cost:60000, price:62000},
+    {name:"ファーストリテイリング", code:"9983", shares:10, cost:75000, price:76000}
   ];
 
   const container = document.getElementById("stock-cards-container");
@@ -14,7 +16,6 @@ document.addEventListener("DOMContentLoaded", () => {
     stock.profit_rate = ((stock.price - stock.cost)/stock.cost*100).toFixed(2);
     stock.chart_history = [stock.cost, stock.cost*1.05, stock.cost*0.95, stock.price, stock.price*1.02];
 
-    // カードを作成
     const card = document.createElement("div");
     card.className = "stock-card";
     card.dataset.name = stock.name;
@@ -88,11 +89,8 @@ document.addEventListener("DOMContentLoaded", () => {
     modal.style.display = "block";
   }
 
-  // カードクリック
-  cards.forEach(card => {
-    card.addEventListener("click", openModal);
-    card.addEventListener("touchstart", openModal);
-  });
+  // カードクリックのみ（スクロール優先）
+  cards.forEach(card => card.addEventListener("click", openModal));
 
   // モーダル閉じる
   closeBtn.addEventListener("click", ()=>{ modal.style.display="none"; });
@@ -102,7 +100,8 @@ document.addEventListener("DOMContentLoaded", () => {
   sellBtn.addEventListener("click", ()=>{
     alert(`✅ ${modalName.textContent} を売却しました（ダミー処理）`);
     modal.style.display="none";
-    const cardToRemove = Array.from(cards).find(c=>c.dataset.name===modalName.textContent);
+    const cardToRemove = Array.from(document.querySelectorAll(".stock-card"))
+      .find(c=>c.dataset.name===modalName.textContent);
     if(cardToRemove) cardToRemove.remove();
   });
 
