@@ -13,7 +13,8 @@ urlpatterns = [
     path('stocks/', views.stock_list_view, name='stock_list'),
     path('cash/', views.cash_view, name='cash'),
     path('realized/', views.realized_view, name='realized'),
-
+    path("trade_history/", views.trade_history, name="trade_history"),
+    
     # --- 設定画面（親メニュー） パスワード付き（123）---
     path("settings/login/", views.settings_login, name="settings_login"),
     path('settings/', views.settings_view, name='settings'),
