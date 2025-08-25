@@ -104,3 +104,29 @@
 @media (min-width: 768px) {
   .portfolio-container { max-width: 800px; margin: 0 auto; }
 }
+
+/* 売却ボタン */
+.sell-button {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  margin-top: 16px;
+  background-color: #3b82f6;
+  color: white;
+  font-weight: bold;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.sell-button:hover {
+  background-color: #2563eb;
+}
+
+/* チャートはcanvasに幅100%を適用 */
+.modal-content canvas {
+  width: 100% !important;
+  height: auto !important;
+  margin-top: 12px;
+}

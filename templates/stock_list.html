@@ -2,17 +2,17 @@
 {% load static %}
 
 {% block content %}
-<!-- スマホ対応メタタグ（base.html内になければ追加） -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 
 <link rel="stylesheet" href="{% static 'css/stock_list.css' %}">
 <script src="{% static 'js/stock_list.js' %}" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script> <!-- Chart.js CDN -->
 
 <div class="portfolio-container">
   <h1 class="page-title">📈 保有株一覧</h1>
 
-  <!-- 株カード -->
-  <div class="stock-card" data-name="トヨタ自動車" data-code="7203" data-shares="100株" data-cost="2,000円" data-price="2,200円" data-profit="+20,000円 (+10%)">
+  <!-- 株カード（ダミー） -->
+  <div class="stock-card" data-name="トヨタ自動車" data-code="7203" data-shares="100株" data-cost="2,000円" data-price="2,200円" data-profit="+20,000円 (+10%)" data-chart="[2000,2100,2050,2200,2180]">
     <div class="stock-header">
       <span class="stock-name">トヨタ自動車</span>
       <span class="stock-code">7203</span>
@@ -22,19 +22,6 @@
       <div class="stock-row"><span>取得単価</span><span>2,000円</span></div>
       <div class="stock-row"><span>現在株価</span><span>2,200円</span></div>
       <div class="stock-row gain positive"><span>損益</span><span>+20,000円 (+10%)</span></div>
-    </div>
-  </div>
-
-  <div class="stock-card" data-name="ソニーグループ" data-code="6758" data-shares="50株" data-cost="10,000円" data-price="9,500円" data-profit="-25,000円 (-5%)">
-    <div class="stock-header">
-      <span class="stock-name">ソニーグループ</span>
-      <span class="stock-code">6758</span>
-    </div>
-    <div class="stock-body">
-      <div class="stock-row"><span>株数</span><span>50株</span></div>
-      <div class="stock-row"><span>取得単価</span><span>10,000円</span></div>
-      <div class="stock-row"><span>現在株価</span><span>9,500円</span></div>
-      <div class="stock-row gain negative"><span>損益</span><span>-25,000円 (-5%)</span></div>
     </div>
   </div>
 </div>
@@ -49,6 +36,12 @@
     <p>取得単価: <span id="modal-cost"></span></p>
     <p>現在株価: <span id="modal-price"></span></p>
     <p>損益: <span id="modal-profit"></span></p>
+
+    <!-- チャート表示 -->
+    <canvas id="modal-chart" width="300" height="200"></canvas>
+
+    <!-- 売却ボタン -->
+    <button id="sell-btn" class="sell-button">💰 売却する</button>
   </div>
 </div>
 
