@@ -3,12 +3,12 @@
 }
 
 .stock-card {
-  background: rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.9); /* ほぼ白で文字が読みやすい */
+  backdrop-filter: blur(2px);           /* ぼかし控えめ */
   margin-bottom: 12px;
   border-radius: 12px;
   padding: 12px;
-  box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1); /* 控えめ */
   cursor: pointer;
   transition: transform 0.2s;
   touch-action: pan-y; /* 縦スクロール優先 */
@@ -46,8 +46,8 @@
 }
 
 .modal-content {
-  background: rgba(255,255,255,0.08);
-  backdrop-filter: blur(12px);
+  background: rgba(255,255,255,0.95); /* 白背景で文字はっきり */
+  backdrop-filter: blur(2px);
   margin: 10% auto;
   padding: 20px;
   border-radius: 12px;
