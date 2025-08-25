@@ -8,7 +8,7 @@ from django.views.decorators.http import require_POST
 from django.db import transaction
 import json
 
-from .models import BottomTab, SettingsPassword, SubMenu
+from .models import BottomTab, SettingsPassword, SubMenu, Stock
 from .forms import SettingsPasswordForm
 from .utils import get_bottom_tabs  # utils.py から取り込み
 
@@ -58,7 +58,15 @@ def logout_view(request):
 # =============================
 @login_required
 def stock_list_view(request):
-    return render(request, "stock_list.html")
+    stocks = Stock.objects.all()
+    for stock in stocks:
+        # チャート用の履歴データ（ダミー）
+        stock.chart_history = [stock.cost, stock.cost*1.05, stock.cost*0.95, stock.price, stock.price*1.01]
+        # 損益額と損益率
+        stock.profit_amount = stock.price - stock.cost
+        stock.profit_rate = round((stock.price - stock.cost) / stock.cost * 100, 2)
+    context = {'stocks': stocks}
+    return render(request, 'stock_list.html', context)
 
 
 @login_required
