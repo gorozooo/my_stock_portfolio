@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% load static %} 
+
 {% block content %}
 <div class="portfolio-container" id="stock-cards-container">
-  <!-- ダミー株カードは JS で自動生成 -->
+  <!-- 株カードは JS で自動生成 -->
 </div>
 
 <!-- モーダル -->
@@ -10,11 +11,14 @@
   <div class="modal-content">
     <span class="close">&times;</span>
     <h2 id="modal-name">銘柄名</h2>
-    <p>コード: <span id="modal-code"></span></p>
-    <p>株数: <span id="modal-shares"></span></p>
-    <p>取得単価: <span id="modal-cost"></span></p>
-    <p>現在株価: <span id="modal-price"></span></p>
-    <p>損益: <span id="modal-profit"></span></p>
+    <div class="modal-info">
+      <p>コード: <span id="modal-code"></span></p>
+      <p>株数: <span id="modal-shares"></span></p>
+      <p>取得単価: <span id="modal-cost"></span></p>
+      <p>現在株価: <span id="modal-price"></span></p>
+      <p>評価額: <span id="modal-value"></span></p>
+      <p class="profit-label">損益: <span id="modal-profit"></span></p>
+    </div>
     <canvas id="modal-chart"></canvas>
     <button id="sell-btn" class="sell-button">売却</button>
   </div>
