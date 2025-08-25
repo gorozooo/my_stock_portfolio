@@ -1,4 +1,3 @@
-// ====== 年・月フィルター ======
 document.addEventListener("DOMContentLoaded", function() {
     const yearFilter = document.getElementById("yearFilter");
     const monthFilter = document.getElementById("monthFilter");
