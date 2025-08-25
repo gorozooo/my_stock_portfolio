@@ -1,31 +1,23 @@
 {% extends "base.html" %}
-{% load static %} 
+{% load static %}
 
 {% block content %}
 <div class="realized-container">
-    <!-- タイトル -->
     <div class="glass-box">
         <h1>📈 損益一覧</h1>
     </div>
 
-    <!-- フィルター -->
     <div class="filter-box">
         <select id="yearFilter">
             <option value="">年を選択</option>
             <option value="2025">2025年</option>
-            <option value="2024">2024年</option>
         </select>
-
         <select id="monthFilter">
             <option value="">月を選択</option>
-            <option value="01">1月</option>
-            <option value="02">2月</option>
-            <option value="03">3月</option>
-            <option value="04">4月</option>
+            <option value="08">8月</option>
         </select>
     </div>
 
-    <!-- 損益一覧テーブル（仮データ） -->
     <div class="table-wrapper">
         <table id="realizedTable">
             <thead>
@@ -41,28 +33,40 @@
             <tbody>
                 <tr data-date="2025-08-01">
                     <td>2025-08-01</td>
-                    <td>トヨタ</td>
+                    <td class="stock-name"
+                        data-name="トヨタ"
+                        data-price="9,000"
+                        data-sector="自動車"
+                        data-purchase="8,500"
+                        data-quantity="100"
+                        data-profit="+50,000"
+                        data-rate="+12%">トヨタ</td>
                     <td>売却</td>
                     <td>100</td>
                     <td class="profit">+50,000</td>
                     <td class="profit">+12%</td>
-                </tr>
-                <tr data-date="2025-07-15">
-                    <td>2025-07-15</td>
-                    <td>ソニー</td>
-                    <td>売却</td>
-                    <td>50</td>
-                    <td class="loss">-20,000</td>
-                    <td class="loss">-5%</td>
                 </tr>
             </tbody>
         </table>
     </div>
 </div>
 
+<!-- モーダル -->
+<div id="stockModal" class="modal">
+  <div class="modal-content glass-box">
+    <span class="close">&times;</span>
+    <h2 id="modalName"></h2>
+    <p>株価: <span id="modalPrice"></span></p>
+    <p>セクター: <span id="modalSector"></span></p>
+    <p>取得単価: <span id="modalPurchase"></span></p>
+    <p>数量: <span id="modalQuantity"></span></p>
+    <p>損益額: <span id="modalProfit"></span></p>
+    <p>損益率: <span id="modalRate"></span></p>
+  </div>
+</div>
+
 {% include "bottom_tab.html" %}
 
-<!-- 専用CSSとJS -->
 <link rel="stylesheet" href="{% static 'css/realized.css' %}">
 <script src="{% static 'js/realized.js' %}"></script>
 {% endblock %}
