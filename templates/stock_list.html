@@ -8,8 +8,8 @@
 <div class="portfolio-container">
   <h1 class="page-title">📈 保有株一覧</h1>
 
-  <!-- 株カード（ダミーデータ） -->
-  <div class="stock-card">
+  <!-- 株カード -->
+  <div class="stock-card" data-name="トヨタ自動車" data-code="7203" data-shares="100株" data-cost="2,000円" data-price="2,200円" data-profit="+20,000円 (+10%)">
     <div class="stock-header">
       <span class="stock-name">トヨタ自動車</span>
       <span class="stock-code">7203</span>
@@ -22,7 +22,7 @@
     </div>
   </div>
 
-  <div class="stock-card">
+  <div class="stock-card" data-name="ソニーグループ" data-code="6758" data-shares="50株" data-cost="10,000円" data-price="9,500円" data-profit="-25,000円 (-5%)">
     <div class="stock-header">
       <span class="stock-name">ソニーグループ</span>
       <span class="stock-code">6758</span>
@@ -34,18 +34,18 @@
       <div class="stock-row gain negative"><span>損益</span><span>-25,000円 (-5%)</span></div>
     </div>
   </div>
+</div>
 
-  <div class="stock-card">
-    <div class="stock-header">
-      <span class="stock-name">任天堂</span>
-      <span class="stock-code">7974</span>
-    </div>
-    <div class="stock-body">
-      <div class="stock-row"><span>株数</span><span>30株</span></div>
-      <div class="stock-row"><span>取得単価</span><span>6,000円</span></div>
-      <div class="stock-row"><span>現在株価</span><span>7,500円</span></div>
-      <div class="stock-row gain positive"><span>損益</span><span>+45,000円 (+25%)</span></div>
-    </div>
+<!-- モーダル -->
+<div id="stock-modal" class="modal">
+  <div class="modal-content">
+    <span class="close">&times;</span>
+    <h2 id="modal-name">株名</h2>
+    <p>コード: <span id="modal-code"></span></p>
+    <p>株数: <span id="modal-shares"></span></p>
+    <p>取得単価: <span id="modal-cost"></span></p>
+    <p>現在株価: <span id="modal-price"></span></p>
+    <p>損益: <span id="modal-profit"></span></p>
   </div>
 </div>
 
