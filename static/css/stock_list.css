@@ -1,129 +1,191 @@
-/* ===== 全体レイアウト ===== */
-.portfolio-container {
-  display: flex;
-  flex-direction: column; /* 📱スマホでは縦並び */
-  gap: 12px;
-  padding: 12px;
-  background: #f7f9fc;
+/* ======================================== */
+/* ===== stock_list.css ===== */
+
+/* ===== 変数・テーマ ===== */
+:root {
+  --card-radius: 18px;
+  --card-padding: 16px;
+  --card-bg: rgba(40,40,60,0.85);
+  --card-bg-alt: rgba(60,60,80,0.7);
+  --card-shadow: 0 8px 24px rgba(0,0,0,0.25), 0 0 10px rgba(255,255,255,0.05) inset;
+  --profit-color: #4ade80;
+  --loss-color: #f87171;
 }
 
-/* ===== 株カード ===== */
+/* ======================================== */
+/* ===== カードコンテナ ===== */
+.portfolio-container {
+  padding: 12px;
+}
+
+/* ===== カードラッパー ===== */
+.stock-card-wrapper {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 16px;
+  border-radius: var(--card-radius);
+  background: linear-gradient(145deg, var(--card-bg), var(--card-bg-alt));
+  backdrop-filter: blur(var(--blur));
+  box-shadow: var(--card-shadow);
+  border: 1px solid rgba(255,255,255,0.2);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  animation: fadeInUp 0.5s ease forwards;
+}
+
+/* ===== カードアニメーション ===== */
+@keyframes fadeInUp {
+  0% { opacity: 0; transform: translateY(15px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== カード本体 ===== */
 .stock-card {
-  background: #fff;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-  display: flex;
-  flex-direction: column;
+  padding: var(--card-padding);
+  border-radius: var(--card-radius);
   cursor: pointer;
-  transition: transform 0.2s;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  color: var(--color-neon);
+  text-shadow: 0 0 5px rgba(0,0,0,0.6);
 }
 
 .stock-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 36px rgba(0,0,0,0.3);
 }
 
+/* ===== ヘッダー ===== */
 .stock-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  font-weight: 600;
+  font-size: 1.05rem;
+  margin-bottom: 10px;
+  color: var(--color-neon);
+  text-shadow: 0 0 6px rgba(0,0,0,0.7);
 }
 
-.stock-name {
-  font-size: 1.1rem;
-  font-weight: bold;
-  color: #222;
-}
-
-.stock-code {
-  font-size: 0.9rem;
-  color: #666;
-}
-
-.stock-info {
-  margin-top: 8px;
+/* ===== 本文 ===== */
+.stock-row {
   display: flex;
   justify-content: space-between;
-  font-size: 0.95rem;
+  padding: 4px 0;
+  font-size: 0.92rem;
+  color: #e0e0e0;
 }
 
-.stock-profit {
-  margin-top: 6px;
-  font-size: 1rem;
+.gain.positive { color: var(--profit-color); font-weight: bold; }
+.gain.negative { color: var(--loss-color); font-weight: bold; }
+
+/* ===== 売却ボタン ===== */
+.sell-swipe-button {
+  position: absolute;
+  right: -80px;
+  top: 0;
+  bottom: 0;
+  width: 80px;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: white;
   font-weight: bold;
+  border: none;
+  border-radius: 0 var(--card-radius) var(--card-radius) 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  font-size: 0.95rem;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  transition: right 0.25s ease, background 0.3s ease;
 }
 
-.stock-profit.positive {
-  color: #1a8917;
-}
-.stock-profit.negative {
-  color: #d93025;
+.sell-swipe-button:hover {
+  background: linear-gradient(135deg, #f87171, #ef4444);
 }
 
 /* ===== モーダル ===== */
 .modal {
   display: none;
   position: fixed;
-  z-index: 2000;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
-  overflow-y: auto;
-  background-color: rgba(0,0,0,0.6);
-}
-
-.modal-content {
-  background: #fff;
-  margin: 10% auto;
-  padding: 20px;
-  border-radius: 16px;
-  max-width: 90%;
-  width: 400px;
+  z-index: 200;
+  left:0; top:0;
+  width:100%; height:100%;
+  overflow:auto;
+  background: rgba(0,0,0,0.7);
   animation: fadeIn 0.3s ease;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(30px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; } to { opacity: 1; }
 }
 
-.close {
-  float: right;
-  font-size: 1.5rem;
+.modal-content {
+  background: rgba(25,25,35,0.95);
+  backdrop-filter: blur(var(--blur));
+  margin: 10% auto;
+  padding: 22px;
+  border-radius: var(--card-radius);
+  width: 90%;
+  max-width: 420px;
+  position: relative;
+  max-height: 80vh;
+  overflow-y: auto;
+  color: var(--color-neon);
+  box-shadow: 0 12px 36px rgba(0,0,0,0.4);
+}
+
+.modal-content .close {
+  position: absolute;
+  right: 18px;
+  top: 18px;
+  font-size: 2.2rem;
+  width: 42px;
+  height: 42px;
+  line-height: 42px;
+  text-align: center;
   cursor: pointer;
+  user-select: none;
+  color: var(--color-neon);
 }
 
 .sell-button {
   display: block;
   width: 100%;
-  margin-top: 14px;
-  padding: 12px;
-  background: linear-gradient(90deg, #ff5a5f, #e60023);
+  padding: 14px;
+  margin-top: 18px;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
   color: white;
-  font-size: 1rem;
   font-weight: bold;
   border: none;
-  border-radius: 8px;
+  border-radius: 14px;
+  font-size: 1.02rem;
   cursor: pointer;
-  transition: opacity 0.2s;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
 }
 
 .sell-button:hover {
-  opacity: 0.85;
+  background: linear-gradient(135deg, #60a5fa, #3b82f6);
 }
 
-/* ===== PC向けレイアウト（768px以上で変更） ===== */
-@media (min-width: 768px) {
-  .portfolio-container {
-    flex-direction: row; /* PCでは横並び */
-    flex-wrap: wrap;
-    justify-content: flex-start;
-    gap: 20px;
-    padding: 24px;
-  }
+.modal-content canvas {
+  width: 100% !important;
+  height: auto !important;
+  margin-top: 14px;
+}
 
-  .stock-card {
-    width: calc(33.333% - 20px);
-  }
+/* ===== PC対応 ===== */
+@media (min-width: 768px) {
+  .portfolio-container { max-width: 800px; margin: 0 auto; }
+}
+
+/* ===== スマホレスポンシブ ===== */
+@media (max-width: 480px) {
+  .stock-card { padding: 14px; }
+  .stock-header { font-size: 1rem; }
+  .stock-row { font-size: 0.88rem; }
+  .sell-button { font-size: 0.95rem; }
+}
+
+@media (max-width: 360px) {
+  .stock-header { font-size: 0.95rem; }
+  .stock-row { font-size: 0.82rem; }
 }
