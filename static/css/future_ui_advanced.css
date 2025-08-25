@@ -9,6 +9,8 @@
   --blur: 28px;
   --navbar-height: 70px;
   --tab-height: 70px;
+  --tab-width-pc: 33%;       /* PCは幅1/3 */
+  --tab-width-mobile: 80%;   /* スマホは横幅80% */
   --font-main: 'Helvetica Neue', sans-serif;
 }
 
@@ -93,8 +95,10 @@ body {
 .bottom-tab {
   position: fixed;
   bottom: 0;
-  left: 0;
-  width: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: var(--tab-width-pc);
+  max-width: 300px;
   height: var(--tab-height);
 
   background: linear-gradient(135deg, var(--color-gradient-start), var(--color-gradient-mid), var(--color-gradient-end));
@@ -106,6 +110,7 @@ body {
 
   z-index: 1000;
   overflow: hidden;
+  border-radius: 18px 18px 0 0; /* 上角を丸く */
 }
 
 .tab-list {
@@ -155,8 +160,15 @@ body {
 
 /* ======================================== */
 /* ===== レスポンシブ ===== */
-@media (max-width: 360px) {
+@media (max-width: 480px) {
+  .bottom-tab { width: var(--tab-width-mobile); }
   .navbar-center { font-size: 20px; }
-  .tab-item a span { font-size: 10px; }
+  .tab-item a i { font-size: 24px; }
+  .tab-item a span { font-size: 11px; }
+}
+
+@media (max-width: 360px) {
+  .navbar-center { font-size: 18px; }
   .tab-item a i { font-size: 22px; }
+  .tab-item a span { font-size: 10px; }
 }
