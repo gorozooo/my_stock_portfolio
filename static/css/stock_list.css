@@ -3,7 +3,7 @@
 }
 
 .stock-card-wrapper {
-  position: relative; /* スワイプ用ラッパー */
+  position: relative; 
   overflow: hidden;
   margin-bottom: 12px;
 }
@@ -37,7 +37,7 @@
 /* 売却ボタンスライド */
 .sell-swipe-button {
   position: absolute;
-  right: 0;
+  right: -80px; /* ← 初期はカード外に隠す */
   top: 0;
   bottom: 0;
   width: 80px;
@@ -52,6 +52,7 @@
   cursor: pointer;
   z-index: 10;
   font-size: 0.9rem;
+  transition: right 0.2s ease; /* スムーズ表示 */
 }
 
 /* モーダル */

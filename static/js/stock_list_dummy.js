@@ -47,6 +47,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const sellBtn = document.createElement("button");
     sellBtn.className = "sell-swipe-button";
     sellBtn.textContent = "売却";
+
     wrapper.appendChild(sellBtn);
     wrapper.appendChild(card);
     container.appendChild(wrapper);
@@ -56,19 +57,22 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentX = 0;
     let swiped = false;
 
-    card.addEventListener("touchstart", e=>{ startX = e.touches[0].clientX; });
-    card.addEventListener("touchmove", e=>{
+    card.addEventListener("touchstart", e => { startX = e.touches[0].clientX; });
+    card.addEventListener("touchmove", e => {
       currentX = e.touches[0].clientX - startX;
       if(currentX < 0 && currentX > -100){
         card.style.transform = `translateX(${currentX}px)`;
+        sellBtn.style.right = `${-80 - currentX}px`; // ← スワイプに合わせて表示
       }
     });
-    card.addEventListener("touchend", e=>{
+    card.addEventListener("touchend", e => {
       if(currentX <= -50){
         card.style.transform = "translateX(-80px)";
+        sellBtn.style.right = "0px"; // 完全表示
         swiped = true;
       } else {
         card.style.transform = "translateX(0px)";
+        sellBtn.style.right = "-80px"; // 隠す
         swiped = false;
       }
       currentX = 0;
@@ -120,12 +124,10 @@ document.addEventListener("DOMContentLoaded", () => {
     modal.style.display="block";
   }
 
-  // モーダル閉じる
   closeBtn.addEventListener("click", ()=>{ modal.style.display="none"; });
   window.addEventListener("click", e=>{ if(e.target==modal) modal.style.display="none"; });
   modal.addEventListener("touchstart", e=>{ if(e.target==modal) modal.style.display="none"; });
 
-  // モーダル売却
   sellModalBtn.addEventListener("click", ()=>{
     alert(`✅ ${modalName.textContent} を売却しました（ダミー処理）`);
     modal.style.display="none";
