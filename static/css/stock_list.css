@@ -2,20 +2,20 @@
   padding: 10px;
 }
 
+.stock-card-wrapper {
+  position: relative; /* スワイプ用ラッパー */
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
 .stock-card {
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(2px);
-  margin-bottom: 12px;
   border-radius: 12px;
   padding: 12px;
   box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  transition: transform 0.2s ease;
   cursor: pointer;
-  transition: transform 0.2s;
-  touch-action: pan-y; /* 縦スクロール優先 */
-}
-
-.stock-card:hover {
-  transform: translateY(-2px);
 }
 
 .stock-header {
@@ -33,6 +33,26 @@
 
 .gain.positive { color: #16a34a; }
 .gain.negative { color: #dc2626; }
+
+/* 売却ボタンスライド */
+.sell-swipe-button {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 80px;
+  background-color: #dc2626;
+  color: white;
+  font-weight: bold;
+  border: none;
+  border-radius: 0 12px 12px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  font-size: 0.9rem;
+}
 
 /* モーダル */
 .modal {
@@ -54,11 +74,10 @@
   width: 90%;
   max-width: 400px;
   position: relative;
-  max-height: 80vh; /* モーダルの高さ制限 */
-  overflow-y: auto; /* 中身だけスクロール可能 */
+  max-height: 80vh;
+  overflow-y: auto;
 }
 
-/* 閉じるボタンを大きくしてタップしやすく */
 .modal-content .close {
   position: absolute;
   right: 16px;
