@@ -41,6 +41,7 @@ h1 {
   text-decoration: none; /* 下線消す */
   overflow: hidden;
   z-index: 10;
+  pointer-events: auto; /* スマホで確実に押せるように */
 }
 
 /* ホバー・押下アニメーション */
@@ -93,7 +94,9 @@ h1 {
   color: rgba(255,255,255,0.9);
 }
 
-/* スマホレスポンシブ */
+/* ==========================
+   スマホレスポンシブ
+========================== */
 @media (max-width: 500px) {
   .settings-buttons {
     grid-template-columns: 1fr;
@@ -111,4 +114,12 @@ h1 {
   .settings-buttons a.settings-card .text-group small {
     font-size: 0.8em;
   }
+}
+
+/* ==========================
+   背景アニメーション用 z-index 下げ
+========================== */
+#bgCanvas, .light-line, .particle {
+  z-index: -1;
+  pointer-events: none;
 }
