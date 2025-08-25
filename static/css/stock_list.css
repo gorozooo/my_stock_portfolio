@@ -1,179 +1,129 @@
+/* ===== 全体レイアウト ===== */
 .portfolio-container {
+  display: flex;
+  flex-direction: column; /* 📱スマホでは縦並び */
+  gap: 12px;
   padding: 12px;
+  background: #f7f9fc;
 }
 
-/* カードラッパー */
-.stock-card-wrapper {
-  position: relative;
-  overflow: hidden;
-  margin-bottom: 16px;
-  border-radius: 16px;
-  background: #ffffff;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-  border: 1px solid #f0f0f0;
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
-  animation: fadeInUp 0.5s ease forwards;
-}
-
-/* カードアニメーション */
-@keyframes fadeInUp {
-  0% { opacity: 0; transform: translateY(15px); }
-  100% { opacity: 1; transform: translateY(0); }
-}
-
-/* カード本体 */
+/* ===== 株カード ===== */
 .stock-card {
+  background: #fff;
+  border-radius: 12px;
   padding: 16px;
-  border-radius: 16px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  display: flex;
+  flex-direction: column;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  color: #333;
-  font-size: 0.95rem;
+  transition: transform 0.2s;
 }
 
 .stock-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+  transform: translateY(-2px);
 }
 
-/* ヘッダー部分（銘柄名＋株価） */
 .stock-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 12px;
+  align-items: center;
 }
 
 .stock-name {
   font-size: 1.1rem;
-  font-weight: 600;
-  color: #111;
-}
-
-.stock-price {
-  font-size: 1.05rem;
-  font-weight: 500;
-  color: #111;
-}
-
-/* 情報行（2カラム） */
-.stock-info {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  row-gap: 6px;
-  column-gap: 8px;
-}
-
-.stock-info p {
-  margin: 0;
-  font-size: 0.88rem;
-  color: #555;
-}
-
-.stock-info .label {
-  color: #888;
-  font-size: 0.82rem;
-}
-
-.gain.positive { color: #16a34a; font-weight: 600; }
-.gain.negative { color: #dc2626; font-weight: 600; }
-
-/* 売却スワイプボタン */
-.sell-swipe-button {
-  position: absolute;
-  right: -80px;
-  top: 0;
-  bottom: 0;
-  width: 80px;
-  background: linear-gradient(135deg, #ef4444, #dc2626);
-  color: white;
   font-weight: bold;
-  border: none;
-  border-radius: 0 16px 16px 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  z-index: 10;
+  color: #222;
+}
+
+.stock-code {
   font-size: 0.9rem;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-  transition: right 0.25s ease, background 0.3s ease;
+  color: #666;
 }
 
-.sell-swipe-button:hover {
-  background: linear-gradient(135deg, #f87171, #ef4444);
+.stock-info {
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.95rem;
 }
 
-/* モーダル */
+.stock-profit {
+  margin-top: 6px;
+  font-size: 1rem;
+  font-weight: bold;
+}
+
+.stock-profit.positive {
+  color: #1a8917;
+}
+.stock-profit.negative {
+  color: #d93025;
+}
+
+/* ===== モーダル ===== */
 .modal {
   display: none;
   position: fixed;
-  z-index: 200;
-  left:0; top:0;
-  width:100%; height:100%;
-  overflow:auto;
-  background: rgba(0,0,0,0.6);
-  animation: fadeIn 0.3s ease;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; } to { opacity: 1; }
+  z-index: 2000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  background-color: rgba(0,0,0,0.6);
 }
 
 .modal-content {
   background: #fff;
-  margin: 12% auto;
+  margin: 10% auto;
   padding: 20px;
   border-radius: 16px;
-  width: 90%;
-  max-width: 420px;
-  position: relative;
-  max-height: 80vh;
-  overflow-y: auto;
-  color: #222;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  max-width: 90%;
+  width: 400px;
+  animation: fadeIn 0.3s ease;
 }
 
-.modal-content .close {
-  position: absolute;
-  right: 16px;
-  top: 12px;
-  font-size: 2rem;
-  width: 36px;
-  height: 36px;
-  line-height: 36px;
-  text-align: center;
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.close {
+  float: right;
+  font-size: 1.5rem;
   cursor: pointer;
-  user-select: none;
-  color: #555;
 }
 
 .sell-button {
   display: block;
   width: 100%;
-  padding: 14px;
-  margin-top: 18px;
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  margin-top: 14px;
+  padding: 12px;
+  background: linear-gradient(90deg, #ff5a5f, #e60023);
   color: white;
+  font-size: 1rem;
   font-weight: bold;
   border: none;
-  border-radius: 12px;
-  font-size: 1rem;
+  border-radius: 8px;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.2);
+  transition: opacity 0.2s;
 }
 
 .sell-button:hover {
-  background: linear-gradient(135deg, #60a5fa, #3b82f6);
+  opacity: 0.85;
 }
 
-.modal-content canvas {
-  width: 100% !important;
-  height: auto !important;
-  margin-top: 14px;
-}
-
-/* PC用 */
+/* ===== PC向けレイアウト（768px以上で変更） ===== */
 @media (min-width: 768px) {
-  .portfolio-container { max-width: 800px; margin: 0 auto; }
+  .portfolio-container {
+    flex-direction: row; /* PCでは横並び */
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 20px;
+    padding: 24px;
+  }
+
+  .stock-card {
+    width: calc(33.333% - 20px);
+  }
 }
