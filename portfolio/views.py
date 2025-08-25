@@ -70,6 +70,10 @@ def cash_view(request):
 def realized_view(request):
     return render(request, "realized.html")
 
+@login_required
+def trade_history(request):
+    # 今はダミーデータなので、何も渡さずにHTMLだけ表示
+    return render(request, "trade_history.html")
 
 # =============================
 # 設定画面ログイン（DB保存パスワード）
