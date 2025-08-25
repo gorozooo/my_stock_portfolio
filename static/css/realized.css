@@ -1,9 +1,9 @@
-/* ====== 全体レイアウト（スマホファースト） ====== */
+/* ====== 全体 ====== */
 .realized-container {
   padding: 15px;
   font-family: "Helvetica Neue", sans-serif;
   color: #fff;
-  background: linear-gradient(135deg, #0f2027, #203a43, #2c5364); /* ダーク背景 */
+  background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
   min-height: 100vh;
 }
 
@@ -22,7 +22,7 @@
   margin: 0;
 }
 
-/* ====== フィルター（スマホで押しやすく） ====== */
+/* ====== フィルター ====== */
 .filter-box {
   display: flex;
   justify-content: space-between;
@@ -75,7 +75,7 @@
   font-weight: bold;
 }
 
-/* ====== PC対応（レスポンシブ） ====== */
+/* ====== PC対応 ====== */
 @media (min-width: 768px) {
   .glass-box h1 {
     font-size: 1.6rem;
