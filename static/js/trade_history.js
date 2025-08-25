@@ -1,4 +1,4 @@
-// フィルター処理
+// スマホでも軽快に動くフィルター処理
 document.addEventListener("DOMContentLoaded", function () {
     const yearFilter = document.getElementById("yearFilter");
     const monthFilter = document.getElementById("monthFilter");
@@ -13,7 +13,6 @@ document.addEventListener("DOMContentLoaded", function () {
             const [y, m] = dateText.split("/").map(v => parseInt(v));
 
             let show = true;
-
             if (year !== "all" && y !== parseInt(year)) show = false;
             if (month !== "all" && m !== parseInt(month)) show = false;
 
