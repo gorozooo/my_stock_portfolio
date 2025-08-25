@@ -10,9 +10,30 @@
 {% block content %}
 <h1 class="page-title">タブ管理</h1>
 
-<!-- タブ一覧（カードUI） -->
+<!-- タブ一覧 -->
 <div id="tab-list" class="tab-list">
-  <!-- JSでタブカードを追加 -->
+  {% for tab in tabs %}
+  <div class="tab-card" data-id="{{ tab.id }}">
+    <div class="tab-header">
+      <span class="tab-icon">{{ tab.icon }}</span>
+      <span class="tab-name">{{ tab.name }}</span>
+      <div class="tab-actions">
+        <button class="edit-tab-btn">✏️</button>
+        <button class="delete-tab-btn">🗑️</button>
+      </div>
+    </div>
+    <div class="submenu-list">
+      {% for sub in tab.submenus %}
+      <div class="submenu-item" data-id="{{ sub.id }}">
+        <span>{{ sub.name }}</span>
+        <button class="edit-sub-btn">✏️</button>
+        <button class="delete-sub-btn">🗑️</button>
+      </div>
+      {% endfor %}
+      <button class="add-submenu-btn">＋ サブメニュー追加</button>
+    </div>
+  </div>
+  {% endfor %}
 </div>
 
 <!-- フローティング追加ボタン -->
