@@ -1,4 +1,4 @@
-// スマホでも軽快に動くフィルター処理
+// フィルター機能（ダミーデータ対応）
 document.addEventListener("DOMContentLoaded", function () {
     const yearFilter = document.getElementById("yearFilter");
     const monthFilter = document.getElementById("monthFilter");
