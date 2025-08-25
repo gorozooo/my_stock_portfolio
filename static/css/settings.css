@@ -1,3 +1,6 @@
+/* ==========================
+   基本スタイル
+========================== */
 body {
   background-color: #f0f2f5;
   font-family: Arial, sans-serif;
@@ -40,6 +43,7 @@ h1 {
   min-height: 150px;
   position: relative;
   overflow: hidden;
+  will-change: transform, box-shadow;
 }
 
 /* ==========================
@@ -75,6 +79,12 @@ h1 {
 .settings-buttons button i {
   font-size: 2.5em;
   display: block;
+  color: #00ffff;
+  transition: transform 0.25s ease;
+}
+
+.settings-buttons button:hover i {
+  transform: scale(1.15) rotate(-10deg);
 }
 
 /* ==========================
@@ -96,6 +106,7 @@ h1 {
   font-size: 0.85em;
   font-weight: normal;
   color: rgba(255,255,255,0.9);
+  text-align: center;
 }
 
 /* ==========================
@@ -105,16 +116,22 @@ h1 {
   .settings-buttons {
     grid-template-columns: 1fr;
   }
+
   .settings-buttons button {
     min-height: 140px;
     padding: 18px;
+    border-radius: 16px;
+    gap: 10px;
   }
+
   .settings-buttons button i {
     font-size: 2em;
   }
+
   .settings-buttons button .text-group span.title {
     font-size: 1.1em;
   }
+
   .settings-buttons button .text-group small {
     font-size: 0.8em;
   }
