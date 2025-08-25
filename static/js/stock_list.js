@@ -45,32 +45,30 @@ document.addEventListener("DOMContentLoaded", () => {
     sellBtn.style.opacity = "0";
     sellBtn.style.pointerEvents = "none";
 
-    // ===== タッチ・スワイプ =====
+    // ===== タッチ・スワイプ / PCクリック共通 =====
     let startX = 0;
     let currentX = 0;
     let isSwiping = false;
 
+    // スワイプ開始
     card.addEventListener("touchstart", e => {
       startX = e.touches[0].clientX;
       card.style.transition = "none";
     });
 
+    // スワイプ移動
     card.addEventListener("touchmove", e => {
       currentX = e.touches[0].clientX;
       const diffX = currentX - startX;
-
       if (diffX < 0) {
         isSwiping = true;
         card.style.transform = `translateX(${diffX}px)`;
         sellBtn.style.opacity = `${Math.min(Math.abs(diffX)/100,1)}`;
-      } else if (diffX > 0 && isSwiping) {
-        card.style.transform = `translateX(${diffX-100}px)`;
-        sellBtn.style.opacity = `${Math.max(1 - diffX/100,0)}`;
       }
     });
 
-    card.addEventListener("touchend", e => {
-      if (!isSwiping) return;
+    // スワイプ終了
+    card.addEventListener("touchend", () => {
       const diffX = currentX - startX;
       if (diffX < -50) {
         card.style.transition = "transform 0.3s ease";
@@ -86,7 +84,19 @@ document.addEventListener("DOMContentLoaded", () => {
       isSwiping = false;
     });
 
-    // ===== カードクリックでモーダル表示 =====
+    // PCクリックで売却ボタン表示
+    card.addEventListener("click", e => {
+      if (window.innerWidth >= 768) {
+        if (e.target !== sellBtn) {
+          card.style.transition = "transform 0.3s ease";
+          card.style.transform = "translateX(-100px)";
+          sellBtn.style.opacity = "1";
+          sellBtn.style.pointerEvents = "auto";
+        }
+      }
+    });
+
+    // カードクリックでモーダル表示
     card.addEventListener("click", e => {
       if (e.target === sellBtn || isSwiping) return;
 
@@ -127,8 +137,9 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
 
-    // ===== 売却ボタンクリック =====
-    sellBtn.addEventListener("click", () => {
+    // 売却ボタンクリック
+    sellBtn.addEventListener("click", e => {
+      e.stopPropagation();
       alert(`✅ ${stock.name} を売却しました（ダミー処理）`);
       cardWrapper.remove();
     });
