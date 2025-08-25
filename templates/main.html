@@ -1,5 +1,57 @@
 {% extends "base.html" %}
-{% block title %}メインページ{% endblock %}
+{% block title %}ホーム{% endblock %}
+
 {% block content %}
-<h1>ホーム</h1>
+<div class="container">
+
+  <!-- タイトル -->
+  <h1 class="page-title">マイポートフォリオ</h1>
+
+  <!-- サマリーカード -->
+  <div class="summary-grid">
+    <div class="summary-card glass">
+      <h3>総資産</h3>
+      <p class="value positive">¥1,250,000</p>
+    </div>
+    <div class="summary-card glass">
+      <h3>含み損益</h3>
+      <p class="value positive">+¥85,000</p>
+    </div>
+    <div class="summary-card glass">
+      <h3>実現損益</h3>
+      <p class="value negative">-¥15,000</p>
+    </div>
+  </div>
+
+  <!-- グラフカード -->
+  <div class="chart-card glass">
+    <h3>資産割合</h3>
+    <canvas id="assetChart"></canvas>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const ctx = document.getElementById('assetChart').getContext('2d');
+new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+        labels: ['日本株', '米国株', '現金'],
+        datasets: [{
+            data: [50, 30, 20],
+            backgroundColor: ['#007bff', '#28a745', '#ffc107'],
+            borderWidth: 2,
+            borderColor: '#fff',
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: { position: 'bottom' }
+        }
+    }
+});
+</script>
 {% endblock %}
