@@ -18,6 +18,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let chartInstance = null;
 
+  // ===== カード生成 =====
   stocks.forEach(stock => {
     const profit = (stock.price - stock.cost) * stock.shares;
     const profitClass = profit >= 0 ? "positive" : "negative";
@@ -41,10 +42,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const card = cardWrapper.querySelector(".stock-card");
     const sellBtn = cardWrapper.querySelector(".sell-btn");
-    sellBtn.style.opacity = "0"; // 初期非表示
-    sellBtn.style.pointerEvents = "none"; // 初期クリック無効
+    sellBtn.style.opacity = "0";
+    sellBtn.style.pointerEvents = "none";
 
-    // ===== タッチ・スワイプ検知 =====
+    // ===== タッチ・スワイプ =====
     let startX = 0;
     let currentX = 0;
     let isSwiping = false;
@@ -58,11 +59,11 @@ document.addEventListener("DOMContentLoaded", () => {
       currentX = e.touches[0].clientX;
       const diffX = currentX - startX;
 
-      if (diffX < 0) { // 左スワイプ
+      if (diffX < 0) {
         isSwiping = true;
         card.style.transform = `translateX(${diffX}px)`;
         sellBtn.style.opacity = `${Math.min(Math.abs(diffX)/100,1)}`;
-      } else if (diffX > 0 && isSwiping) { // 右スワイプで戻す
+      } else if (diffX > 0 && isSwiping) {
         card.style.transform = `translateX(${diffX-100}px)`;
         sellBtn.style.opacity = `${Math.max(1 - diffX/100,0)}`;
       }
