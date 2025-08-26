@@ -1,0 +1,158 @@
+/* モバイル優先 */
+:root {
+  --radius: 14px;
+  --space: 14px;
+  --space-lg: 18px;
+  --border: 1px solid rgba(0,0,0,0.08);
+  --shadow: 0 8px 24px rgba(0,0,0,0.08);
+  --bg: #0b0f14;
+  --card: #121722;
+  --text: #e9eef7;
+  --muted: #aab3c5;
+  --primary: #4da3ff;
+  --primary-press: #3a82cc;
+}
+
+.page {
+  padding: 20px 14px 40px;
+  background: linear-gradient(180deg, #0b0f14, #0f1520 40%, #131a28);
+  color: var(--text);
+  min-height: 100svh; /* iPhone Safari対策 */
+}
+
+.page-title {
+  font-size: 1.25rem;
+  margin: 6px 2px 16px;
+  font-weight: 700;
+}
+
+.form-alert {
+  background: #3b1c1c;
+  color: #ffd9d9;
+  border: 1px solid #6a2a2a;
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+form {
+  background: rgba(18, 23, 34, 0.7);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space);
+}
+
+.form-field {
+  display: grid;
+  gap: 6px;
+}
+
+.form-field--full {
+  grid-column: 1 / -1;
+}
+
+label {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+input[type="text"],
+input[type="date"],
+input[type="number"],
+select,
+textarea {
+  width: 100%;
+  border-radius: 12px;
+  border: var(--border);
+  background: #0f1520;
+  color: var(--text);
+  padding: 14px 12px;
+  font-size: 16px; /* iOSズーム防止 */
+  outline: none;
+}
+
+input[readonly] {
+  opacity: 0.85;
+  background: #0d131c;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.field-error {
+  color: #ffb4b4;
+  font-size: 0.8rem;
+  min-height: 1.1em;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: var(--space-lg);
+  justify-content: flex-end;
+}
+
+.btn {
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  padding: 12px 18px;
+  font-weight: 700;
+  font-size: 16px;
+  cursor: pointer;
+  transition: transform .04s ease, background .2s ease, opacity .2s ease;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: #06101a;
+}
+.btn-primary:active {
+  background: var(--primary-press);
+  transform: translateY(1px);
+}
+.btn-secondary {
+  background: #2a3445;
+  color: var(--text);
+}
+.btn-secondary:active {
+  opacity: 0.85;
+  transform: translateY(1px);
+}
+
+/* PC/タブレット: 2列レイアウトに切替 */
+@media (min-width: 768px) {
+  .page {
+    padding: 30px 24px 60px;
+  }
+  .form-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .form-field--full {
+    grid-column: span 2;
+  }
+  form {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 22px;
+  }
+  .page-title {
+    text-align: center;
+    margin-bottom: 22px;
+    font-size: 1.5rem;
+  }
+}
