@@ -67,3 +67,78 @@ document.addEventListener("DOMContentLoaded", () => {
 
   tuneIOS();
 });
+
+// APIのURL (Django側urls.pyに合わせて)
+const API_STOCK_BY_CODE = "/stocks/api/stock_by_code/";
+const API_SUGGEST_NAME  = "/stocks/api/suggest_name/";
+const API_SECTORS       = "/stocks/api/sectors/";
+
+// 33業種をサーバーから取得して datalist にセット
+async function loadSectors() {
+  try {
+    const res = await fetch(API_SECTORS);
+    const sectors = await res.json();
+    const list = document.getElementById("sector-list");
+    list.innerHTML = "";
+    sectors.forEach(sec => {
+      const opt = document.createElement("option");
+      opt.value = sec;
+      list.appendChild(opt);
+    });
+  } catch (err) {
+    console.error("セクター取得失敗", err);
+  }
+}
+
+// 証券コード入力で銘柄・セクター自動補完
+async function fetchByCode(code) {
+  if (!/^\d{4}$/.test(code)) return;
+  try {
+    const res = await fetch(API_STOCK_BY_CODE + "?code=" + code);
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById("name").value = data.name;
+      document.getElementById("sector").value = data.sector;
+    }
+  } catch (err) {
+    console.error("銘柄取得失敗", err);
+  }
+}
+
+// 銘柄名サジェスト（簡易版: コンソール表示 or 自動補完リスト）
+let suggestBox;
+async function suggestName(query) {
+  if (query.length < 2) return;
+  try {
+    const res = await fetch(API_SUGGEST_NAME + "?q=" + encodeURIComponent(query));
+    const data = await res.json();
+
+    // datalistで候補を出す
+    let list = document.getElementById("name-suggest");
+    if (!list) {
+      list = document.createElement("datalist");
+      list.id = "name-suggest";
+      document.body.appendChild(list);
+      document.getElementById("name").setAttribute("list", "name-suggest");
+    }
+    list.innerHTML = "";
+    data.forEach(item => {
+      const opt = document.createElement("option");
+      opt.value = item.name;
+      opt.dataset.code = item.code;
+      list.appendChild(opt);
+    });
+  } catch (err) {
+    console.error("サジェスト失敗", err);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  loadSectors();
+
+  const ticker = document.getElementById("ticker");
+  ticker.addEventListener("blur", () => fetchByCode(ticker.value));
+
+  const nameInput = document.getElementById("name");
+  nameInput.addEventListener("input", () => suggestName(nameInput.value));
+});
