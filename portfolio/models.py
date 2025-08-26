@@ -15,8 +15,6 @@ class StockMaster(models.Model):
 # =============================
 # 保有株モデル
 # =============================
-from django.utils import timezone
-
 class Stock(models.Model):
     purchase_date = models.DateField("購入日")
     ticker = models.CharField("証券コード", max_length=4)
@@ -27,7 +25,7 @@ class Stock(models.Model):
     unit_price = models.FloatField("取得単価")
     total_cost = models.PositiveIntegerField("取得額")
     note = models.TextField("備考", blank=True)
-    created_at = models.DateTimeField("作成日時", auto_now_add=True, default=timezone.now)  # ←追加
+    created_at = models.DateTimeField("作成日時", default=timezone.now)
     updated_at = models.DateTimeField("更新日時", auto_now=True)
 
     def __str__(self):
