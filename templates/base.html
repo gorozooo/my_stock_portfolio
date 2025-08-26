@@ -12,7 +12,6 @@
 </head>
 <body>
 
-
   <!-- ナビバー -->
   <header class="navbar">
     <div class="navbar-inner">
@@ -42,8 +41,22 @@
     {% include "bottom_tab.html" %}
   </footer>
 
+  <!-- 共通モーダル（確認用） -->
+  <div id="confirmModal" class="modal">
+    <div class="modal-content">
+      <p>確認メッセージ</p>
+      <div class="modal-buttons">
+        <button class="btn-cancel">キャンセル</button>
+        <button class="btn-ok">OK</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 共通JS -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="{% static 'js/base.js' %}"></script>
+
   {% block extra_js %}{% endblock %}
+
 </body>
 </html>
