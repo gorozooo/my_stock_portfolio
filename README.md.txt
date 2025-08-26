@@ -73,6 +73,7 @@ git pull origin main
 python manage.py collectstatic --noinput
 
 # マイグレーション反映（必要なら）
+python manage.py makemigrations
 python manage.py migrate
 
 # Gunicorn サービス再起動
