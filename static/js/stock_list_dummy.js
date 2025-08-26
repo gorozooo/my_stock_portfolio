@@ -199,14 +199,14 @@ document.addEventListener("DOMContentLoaded", () => {
     cardElement.style.position = "relative";
     cardElement.appendChild(toast);
 
+    // アニメーション開始
     requestAnimationFrame(()=>{
-      toast.style.opacity = "1";
-      toast.style.transform = "translateX(-50%) translateY(-10px)";
+      toast.classList.add("show");
     });
 
+    // 自動削除
     setTimeout(()=>{
-      toast.style.opacity = "0";
-      toast.style.transform = "translateX(-50%) translateY(0)";
+      toast.classList.remove("show");
       setTimeout(()=> toast.remove(), 300);
     }, 1800);
   }
