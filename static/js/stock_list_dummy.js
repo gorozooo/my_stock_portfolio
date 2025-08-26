@@ -62,37 +62,39 @@ document.addEventListener("DOMContentLoaded", () => {
       currentX = e.touches[0].clientX - startX;
       if(currentX < 0 && currentX > -100){
         card.style.transform = `translateX(${currentX}px)`;
-        sellBtn.style.right = `${-80 - currentX}px`; // ← スワイプに合わせて表示
+        sellBtn.style.right = `${-80 - currentX}px`; // スワイプに合わせて表示
       }
     });
     card.addEventListener("touchend", e => {
       if(currentX <= -50){
         card.style.transform = "translateX(-80px)";
-        sellBtn.style.right = "0px"; // 完全表示
+        sellBtn.style.right = "0px";
         swiped = true;
       } else {
         card.style.transform = "translateX(0px)";
-        sellBtn.style.right = "-80px"; // 隠す
+        sellBtn.style.right = "-80px";
         swiped = false;
       }
       currentX = 0;
     });
 
-    // 売却ボタン
+    // 売却ボタン（共通確認モーダル使用）
     sellBtn.addEventListener("click", ()=>{
-      alert(`✅ ${stock.name} を売却しました（ダミー処理）`);
-      wrapper.remove();
+      openConfirmModal(`✅ ${stock.name} を本当に売却しますか？`, ()=>{
+        wrapper.remove();
+      });
     });
 
-    // カードタップでモーダル
+    // カードタップで詳細モーダル
     card.addEventListener("click", e=>{
       if(swiped) return; // スワイプ後はモーダル開かない
-      openModal(card);
+      openStockModal(card);
     });
 
   });
 
-  // モーダル
+  /* ========================================
+     ===== 株カード詳細モーダル ===== */
   const modal = document.getElementById("stock-modal");
   const closeBtn = modal.querySelector(".close");
   const sellModalBtn = document.getElementById("sell-btn");
@@ -105,7 +107,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const chartCanvas = document.getElementById("modal-chart");
   let chartInstance = null;
 
-  function openModal(card){
+  function openStockModal(card){
     modalName.textContent = card.dataset.name;
     modalCode.textContent = card.dataset.code;
     modalShares.textContent = card.dataset.shares;
@@ -117,8 +119,21 @@ document.addEventListener("DOMContentLoaded", () => {
     if(chartInstance) chartInstance.destroy();
     chartInstance = new Chart(chartCanvas, {
       type: 'line',
-      data: { labels: chartData.map((_,i)=>i+1), datasets:[{label:'株価推移',data:chartData,borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,0.2)',tension:0.3}]},
-      options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:false}}}
+      data: {
+        labels: chartData.map((_,i)=>i+1),
+        datasets:[{
+          label:'株価推移',
+          data:chartData,
+          borderColor:'#3b82f6',
+          backgroundColor:'rgba(59,130,246,0.2)',
+          tension:0.3
+        }]
+      },
+      options:{
+        responsive:true,
+        plugins:{legend:{display:false}},
+        scales:{y:{beginAtZero:false}}
+      }
     });
 
     modal.style.display="block";
@@ -128,12 +143,14 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("click", e=>{ if(e.target==modal) modal.style.display="none"; });
   modal.addEventListener("touchstart", e=>{ if(e.target==modal) modal.style.display="none"; });
 
+  // モーダル内売却ボタンも確認モーダル使用
   sellModalBtn.addEventListener("click", ()=>{
-    alert(`✅ ${modalName.textContent} を売却しました（ダミー処理）`);
-    modal.style.display="none";
-    const wrapperToRemove = Array.from(document.querySelectorAll(".stock-card-wrapper"))
-      .find(w=>w.querySelector(".stock-card").dataset.name===modalName.textContent);
-    if(wrapperToRemove) wrapperToRemove.remove();
+    openConfirmModal(`✅ ${modalName.textContent} を本当に売却しますか？`, ()=>{
+      modal.style.display="none";
+      const wrapperToRemove = Array.from(document.querySelectorAll(".stock-card-wrapper"))
+        .find(w=>w.querySelector(".stock-card").dataset.name===modalName.textContent);
+      if(wrapperToRemove) wrapperToRemove.remove();
+    });
   });
 
 });
