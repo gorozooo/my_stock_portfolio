@@ -62,10 +62,10 @@ document.addEventListener("DOMContentLoaded", () => {
       currentX = e.touches[0].clientX - startX;
       if(currentX < 0 && currentX > -100){
         card.style.transform = `translateX(${currentX}px)`;
-        sellBtn.style.right = `${-80 - currentX}px`; // スワイプに合わせて表示
+        sellBtn.style.right = `${-80 - currentX}px`;
       }
     });
-    card.addEventListener("touchend", e => {
+    card.addEventListener("touchend", () => {
       if(currentX <= -50){
         card.style.transform = "translateX(-80px)";
         sellBtn.style.right = "0px";
@@ -82,12 +82,13 @@ document.addEventListener("DOMContentLoaded", () => {
     sellBtn.addEventListener("click", ()=>{
       openConfirmModal(`✅ ${stock.name} を本当に売却しますか？`, ()=>{
         wrapper.remove();
+        showToast("✅ " + stock.name + " を売却しました");
       });
     });
 
     // カードタップで詳細モーダル
-    card.addEventListener("click", e=>{
-      if(swiped) return; // スワイプ後はモーダル開かない
+    card.addEventListener("click", ()=>{
+      if(swiped) return;
       openStockModal(card);
     });
 
@@ -150,7 +151,76 @@ document.addEventListener("DOMContentLoaded", () => {
       const wrapperToRemove = Array.from(document.querySelectorAll(".stock-card-wrapper"))
         .find(w=>w.querySelector(".stock-card").dataset.name===modalName.textContent);
       if(wrapperToRemove) wrapperToRemove.remove();
+      showToast("✅ " + modalName.textContent + " を売却しました");
     });
   });
+
+  /* ========================================
+     ===== 共通確認モーダル ===== */
+  const confirmModal = document.getElementById("confirm-modal");
+  const confirmMessage = document.getElementById("confirm-message");
+  const btnCancel = document.getElementById("confirm-cancel");
+  const btnOk = document.getElementById("confirm-ok");
+  let confirmCallback = null;
+
+  function openConfirmModal(message, callback){
+    confirmMessage.textContent = message;
+    confirmModal.style.display = "block";
+    confirmCallback = callback;
+  }
+
+  btnCancel.addEventListener("click", ()=>{
+    confirmModal.style.display = "none";
+    confirmCallback = null;
+  });
+
+  btnOk.addEventListener("click", ()=>{
+    if(confirmCallback) confirmCallback();
+    confirmModal.style.display = "none";
+    confirmCallback = null;
+  });
+
+  window.addEventListener("click", e=>{
+    if(e.target == confirmModal){
+      confirmModal.style.display = "none";
+      confirmCallback = null;
+    }
+  });
+
+  /* ========================================
+     ===== トースト通知 ===== */
+  function showToast(message) {
+    let toastContainer = document.getElementById("toast-container");
+    if (!toastContainer) {
+      toastContainer = document.createElement("div");
+      toastContainer.id = "toast-container";
+      toastContainer.style.position = "fixed";
+      toastContainer.style.bottom = "20px";
+      toastContainer.style.right = "20px";
+      toastContainer.style.zIndex = "1000";
+      document.body.appendChild(toastContainer);
+    }
+
+    const toast = document.createElement("div");
+    toast.textContent = message;
+    toast.style.background = "rgba(40,40,40,0.9)";
+    toast.style.color = "#fff";
+    toast.style.padding = "10px 16px";
+    toast.style.marginTop = "8px";
+    toast.style.borderRadius = "6px";
+    toast.style.boxShadow = "0 4px 10px rgba(0,0,0,0.3)";
+    toast.style.fontSize = "0.9rem";
+    toast.style.opacity = "0";
+    toast.style.transition = "opacity 0.3s ease";
+
+    toastContainer.appendChild(toast);
+
+    requestAnimationFrame(() => { toast.style.opacity = "1"; });
+
+    setTimeout(() => {
+      toast.style.opacity = "0";
+      setTimeout(() => { toast.remove(); }, 300);
+    }, 2500);
+  }
 
 });
