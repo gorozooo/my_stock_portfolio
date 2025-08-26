@@ -52,11 +52,11 @@ document.addEventListener("DOMContentLoaded", () => {
     wrapper.appendChild(sellBtn);
     container.appendChild(wrapper);
 
-    // スワイプ検知（タッチ感度調整）
+    // スワイプ検知
     let startX = 0;
     let currentX = 0;
     let swiped = false;
-    const swipeThreshold = 60; // 感度調整
+    const swipeThreshold = 60;
 
     card.addEventListener("touchstart", e => { startX = e.touches[0].clientX; });
     card.addEventListener("touchmove", e => {
@@ -81,7 +81,7 @@ document.addEventListener("DOMContentLoaded", () => {
       currentX = 0;
     });
 
-    // 売却ボタン押下（確認モーダル経由）
+    // スワイプ売却ボタンも確認モーダル経由
     sellBtn.addEventListener("click", () => {
       openConfirmModal(`✅ ${stock.name} を本当に売却しますか？`, () => {
         wrapper.remove();
@@ -94,10 +94,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if(swiped) return;
       openStockModal(card);
     });
+
   });
 
-  /* ========================================
-     ===== 株カード詳細モーダル ===== */
+  // 株詳細モーダル
   const modal = document.getElementById("stock-modal");
   const closeBtn = modal.querySelector(".close");
   const sellModalBtn = document.getElementById("sell-btn");
@@ -122,44 +122,30 @@ document.addEventListener("DOMContentLoaded", () => {
     if(chartInstance) chartInstance.destroy();
     chartInstance = new Chart(chartCanvas, {
       type: 'line',
-      data: {
-        labels: chartData.map((_,i)=>i+1),
-        datasets:[{
-          label:'株価推移',
-          data:chartData,
-          borderColor:'#3b82f6',
-          backgroundColor:'rgba(59,130,246,0.2)',
-          tension:0.3
-        }]
-      },
-      options:{
-        responsive:true,
-        plugins:{legend:{display:false}},
-        scales:{y:{beginAtZero:false}}
-      }
+      data: { labels: chartData.map((_,i)=>i+1), datasets:[{label:'株価推移', data:chartData, borderColor:'#3b82f6', backgroundColor:'rgba(59,130,246,0.2)', tension:0.3}]},
+      options:{responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:false}}}
     });
 
     modal.style.display="block";
-    modal.querySelector(".modal-content").style.marginTop="0%"; // 上寄せ表示
+    modal.querySelector(".modal-content").style.marginTop="0%";
   }
 
   closeBtn.addEventListener("click", ()=>{ modal.style.display="none"; });
   window.addEventListener("click", e=>{ if(e.target==modal) modal.style.display="none"; });
   modal.addEventListener("touchstart", e=>{ if(e.target==modal) modal.style.display="none"; });
 
-  // モーダル内売却ボタンも確認モーダル経由
+  // モーダル内売却も確認モーダル経由
   sellModalBtn.addEventListener("click", ()=> {
+    const wrapperToRemove = Array.from(document.querySelectorAll(".stock-card-wrapper"))
+      .find(w => w.querySelector(".stock-card").dataset.name === modalName.textContent);
     openConfirmModal(`✅ ${modalName.textContent} を本当に売却しますか？`, ()=> {
-      modal.style.display="none";
-      const wrapperToRemove = Array.from(document.querySelectorAll(".stock-card-wrapper"))
-        .find(w => w.querySelector(".stock-card").dataset.name === modalName.textContent);
       if(wrapperToRemove) wrapperToRemove.remove();
+      modal.style.display="none";
       showToast(`${modalName.textContent} を売却しました ✅`);
     });
   });
 
-  /* ========================================
-     ===== 共通確認モーダル ===== */
+  // 共通確認モーダル
   const confirmModal = document.getElementById("confirm-modal");
   const confirmMessage = document.getElementById("confirm-message");
   const btnCancel = document.getElementById("confirm-cancel");
@@ -176,8 +162,7 @@ document.addEventListener("DOMContentLoaded", () => {
   btnOk.addEventListener("click", ()=>{ if(confirmCallback) confirmCallback(); confirmModal.style.display="none"; confirmCallback = null; });
   window.addEventListener("click", e=>{ if(e.target == confirmModal){ confirmModal.style.display="none"; confirmCallback = null; } });
 
-  /* ========================================
-     ===== トースト通知 ===== */
+  // トースト通知
   const toastContainer = document.createElement("div");
   toastContainer.style.position = "fixed";
   toastContainer.style.bottom = "30px";
