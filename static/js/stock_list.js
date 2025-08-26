@@ -45,18 +45,17 @@ document.addEventListener("DOMContentLoaded", () => {
     sellBtn.style.opacity = "0";
     sellBtn.style.pointerEvents = "none";
 
-    // ===== タッチ・スワイプ / PCクリック共通 =====
     let startX = 0;
     let currentX = 0;
     let isSwiping = false;
 
-    // スワイプ開始
+    // ===== スワイプ開始 =====
     card.addEventListener("touchstart", e => {
       startX = e.touches[0].clientX;
       card.style.transition = "none";
     });
 
-    // スワイプ移動
+    // ===== スワイプ移動 =====
     card.addEventListener("touchmove", e => {
       currentX = e.touches[0].clientX;
       const diffX = currentX - startX;
@@ -67,16 +66,15 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
 
-    // スワイプ終了
+    // ===== スワイプ終了 =====
     card.addEventListener("touchend", () => {
       const diffX = currentX - startX;
+      card.style.transition = "transform 0.3s ease";
       if (diffX < -50) {
-        card.style.transition = "transform 0.3s ease";
         card.style.transform = "translateX(-100px)";
         sellBtn.style.opacity = "1";
         sellBtn.style.pointerEvents = "auto";
       } else {
-        card.style.transition = "transform 0.3s ease";
         card.style.transform = "translateX(0)";
         sellBtn.style.opacity = "0";
         sellBtn.style.pointerEvents = "none";
@@ -84,19 +82,24 @@ document.addEventListener("DOMContentLoaded", () => {
       isSwiping = false;
     });
 
-    // PCクリックで売却ボタン表示
+    // ===== PCクリックで売却ボタン表示 =====
     card.addEventListener("click", e => {
-      if (window.innerWidth >= 768) {
-        if (e.target !== sellBtn) {
-          card.style.transition = "transform 0.3s ease";
+      if (window.innerWidth >= 768 && e.target !== sellBtn && !isSwiping) {
+        const visible = sellBtn.style.opacity === "1";
+        card.style.transition = "transform 0.3s ease";
+        if (!visible) {
           card.style.transform = "translateX(-100px)";
           sellBtn.style.opacity = "1";
           sellBtn.style.pointerEvents = "auto";
+        } else {
+          card.style.transform = "translateX(0)";
+          sellBtn.style.opacity = "0";
+          sellBtn.style.pointerEvents = "none";
         }
       }
     });
 
-    // カードクリックでモーダル表示
+    // ===== カードクリックでモーダル表示 =====
     card.addEventListener("click", e => {
       if (e.target === sellBtn || isSwiping) return;
 
@@ -137,7 +140,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
 
-    // 売却ボタンクリック
+    // ===== 売却ボタンクリック =====
     sellBtn.addEventListener("click", e => {
       e.stopPropagation();
       alert(`✅ ${stock.name} を売却しました（ダミー処理）`);
