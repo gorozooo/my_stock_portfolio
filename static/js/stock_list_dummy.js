@@ -85,8 +85,8 @@ document.addEventListener("DOMContentLoaded", () => {
     // スワイプ売却ボタン押下
     sellBtn.addEventListener("click", () => {
       openConfirmModal(`✅ ${stock.name} を本当に売却しますか？`, () => {
-        wrapper.remove();
         showToast(`${stock.name} を売却しました ✅`, card);
+        wrapper.remove();
       });
     });
 
@@ -154,10 +154,13 @@ document.addEventListener("DOMContentLoaded", () => {
     openConfirmModal(`✅ ${modalName.textContent} を本当に売却しますか？`, ()=>{
       const wrapperToRemove = Array.from(document.querySelectorAll(".stock-card-wrapper"))
         .find(w=>w.querySelector(".stock-card").dataset.name===modalName.textContent);
-      if(wrapperToRemove) wrapperToRemove.remove();
+
+      if(wrapperToRemove) {
+        const cardEl = wrapperToRemove.querySelector(".stock-card");
+        showToast(`${modalName.textContent} を売却しました ✅`, cardEl);
+        wrapperToRemove.remove();
+      }
       modal.style.display = "none";
-      showToast(`${modalName.textContent} を売却しました ✅`,
-                wrapperToRemove.querySelector(".stock-card"));
     });
   });
 
