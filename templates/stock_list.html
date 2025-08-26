@@ -6,7 +6,7 @@
   <!-- 株カードは JS で自動生成 -->
 </div>
 
-<!-- モーダル -->
+<!-- 株カード詳細モーダル -->
 <div id="stock-modal" class="modal">
   <div class="modal-content">
     <span class="close">&times;</span>
@@ -16,7 +16,6 @@
       <p>株数: <span id="modal-shares"></span></p>
       <p>取得単価: <span id="modal-cost"></span></p>
       <p>現在株価: <span id="modal-price"></span></p>
-      <p>評価額: <span id="modal-value"></span></p>
       <p class="profit-label">損益: <span id="modal-profit"></span></p>
     </div>
     <canvas id="modal-chart"></canvas>
@@ -25,6 +24,18 @@
 </div>
 
 {% include "bottom_tab.html" %}
+
+<!-- 共通確認モーダル（base.js で制御） -->
+<div id="confirmModal" class="confirm-modal">
+  <div class="confirm-modal-content">
+    <p>確認メッセージ</p>
+    <div class="confirm-modal-buttons">
+      <button class="btn-cancel">キャンセル</button>
+      <button class="btn-ok">OK</button>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block extra_css %}
