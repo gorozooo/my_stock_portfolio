@@ -35,7 +35,7 @@ def main_view(request):
 # =============================
 def login_view(request):
     if request.user.is_authenticated:
-        return redirect("portfolio:main")
+        return redirect("main")
 
     if request.method == "POST":
         username = request.POST.get("username") or ""
@@ -43,7 +43,7 @@ def login_view(request):
         user = authenticate(request, username=username, password=password)
         if user:
             login(request, user)
-            return redirect("portfolio:main")
+            return redirect("main")  # ← 修正済み
         messages.error(request, "ユーザー名またはパスワードが違います。")
 
     return render(request, "auth_login.html")
@@ -51,7 +51,7 @@ def login_view(request):
 
 def logout_view(request):
     logout(request)
-    return redirect("portfolio:login")
+    return redirect("login")  # ← 修正済み
 
 
 # =============================
@@ -83,7 +83,7 @@ def stock_create(request):
             total_cost=float(data.get("total_cost") or 0),
             note=data.get("note", ""),
         )
-        return redirect('portfolio:stock_list')
+        return redirect('stock_list')  # ← 修正済み
     return render(request, "stocks/stock_create.html")
 
 
@@ -116,7 +116,7 @@ def settings_login(request):
         password = request.POST.get("password") or ""
         if password == password_obj.password:
             request.session["settings_authenticated"] = True
-            return redirect("portfolio:settings")
+            return redirect("settings")  # ← 修正済み
         messages.error(request, "パスワードが違います")
 
     return render(request, "settings_login.html")
@@ -128,7 +128,7 @@ def settings_login(request):
 @login_required
 def settings_view(request):
     if not request.session.get("settings_authenticated"):
-        return redirect("portfolio:settings_login")
+        return redirect("settings_login")  # ← 修正済み
     return render(request, "settings.html")
 
 
@@ -138,21 +138,21 @@ def settings_view(request):
 @login_required
 def tab_manager_view(request):
     if not request.session.get("settings_authenticated"):
-        return redirect("portfolio:settings_login")
+        return redirect("settings_login")
     return render(request, "tab_manager.html")
 
 
 @login_required
 def theme_settings_view(request):
     if not request.session.get("settings_authenticated"):
-        return redirect("portfolio:settings_login")
+        return redirect("settings_login")
     return render(request, "theme_settings.html")
 
 
 @login_required
 def notification_settings_view(request):
     if not request.session.get("settings_authenticated"):
-        return redirect("portfolio:settings_login")
+        return redirect("settings_login")
     return render(request, "notification_settings.html")
 
 
@@ -260,7 +260,7 @@ def delete_tab(request, tab_id):
 @login_required
 def settings_password_edit(request):
     if not request.session.get("settings_authenticated"):
-        return redirect("portfolio:settings_login")
+        return redirect("settings_login")  # ← 修正済み
 
     password_obj = SettingsPassword.objects.first()
     if not password_obj:
@@ -271,7 +271,7 @@ def settings_password_edit(request):
         if form.is_valid():
             form.save()
             messages.success(request, "パスワードを更新しました")
-            return redirect("portfolio:settings_password_edit")
+            return redirect("settings_password_edit")  # ← 修正済み
     else:
         form = SettingsPasswordForm(instance=password_obj)
 
