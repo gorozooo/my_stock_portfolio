@@ -42,59 +42,52 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const card = cardWrapper.querySelector(".stock-card");
     const sellBtn = cardWrapper.querySelector(".sell-btn");
-    sellBtn.style.opacity = "0";
-    sellBtn.style.pointerEvents = "none";
 
     let startX = 0;
     let currentX = 0;
     let isSwiping = false;
 
-    // ===== スワイプ開始 =====
+    // ===== スワイプ開始（スマホ） =====
     card.addEventListener("touchstart", e => {
       startX = e.touches[0].clientX;
       card.style.transition = "none";
     });
 
-    // ===== スワイプ移動 =====
+    // ===== スワイプ移動（スマホ） =====
     card.addEventListener("touchmove", e => {
       currentX = e.touches[0].clientX;
       const diffX = currentX - startX;
       if (diffX < 0) {
         isSwiping = true;
         card.style.transform = `translateX(${diffX}px)`;
-        sellBtn.style.opacity = `${Math.min(Math.abs(diffX)/100,1)}`;
       }
     });
 
-    // ===== スワイプ終了 =====
+    // ===== スワイプ終了（スマホ） =====
     card.addEventListener("touchend", () => {
       const diffX = currentX - startX;
       card.style.transition = "transform 0.3s ease";
+
       if (diffX < -50) {
         card.style.transform = "translateX(-100px)";
-        sellBtn.style.opacity = "1";
-        sellBtn.style.pointerEvents = "auto";
+        cardWrapper.classList.add("show-sell");
       } else {
         card.style.transform = "translateX(0)";
-        sellBtn.style.opacity = "0";
-        sellBtn.style.pointerEvents = "none";
+        cardWrapper.classList.remove("show-sell");
       }
       isSwiping = false;
     });
 
-    // ===== PCクリックで売却ボタン表示 =====
+    // ===== PCクリックで売却ボタン表示切替 =====
     card.addEventListener("click", e => {
       if (window.innerWidth >= 768 && e.target !== sellBtn && !isSwiping) {
-        const visible = sellBtn.style.opacity === "1";
-        card.style.transition = "transform 0.3s ease";
-        if (!visible) {
-          card.style.transform = "translateX(-100px)";
-          sellBtn.style.opacity = "1";
-          sellBtn.style.pointerEvents = "auto";
-        } else {
+        const isVisible = cardWrapper.classList.contains("show-sell");
+        if (isVisible) {
           card.style.transform = "translateX(0)";
-          sellBtn.style.opacity = "0";
-          sellBtn.style.pointerEvents = "none";
+          cardWrapper.classList.remove("show-sell");
+        } else {
+          card.style.transform = "translateX(-100px)";
+          cardWrapper.classList.add("show-sell");
         }
       }
     });
@@ -112,6 +105,7 @@ document.addEventListener("DOMContentLoaded", () => {
       modalProfit.textContent = `${profit >= 0 ? "+" : ""}${profit.toLocaleString()} 円`;
       modalProfit.className = profit >= 0 ? "positive" : "negative";
 
+      // ===== チャート描画 =====
       if (chartInstance) chartInstance.destroy();
       const ctx = document.getElementById("modal-chart").getContext("2d");
       chartInstance = new Chart(ctx, {
@@ -151,7 +145,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // ===== モーダル閉じる =====
-  closeBtn.addEventListener("click", () => { modal.style.display = "none"; });
-  window.addEventListener("click", e => { if (e.target === modal) modal.style.display = "none"; });
-  modal.addEventListener("touchstart", e => { if (e.target === modal) modal.style.display = "none"; });
+  const closeModal = () => { modal.style.display = "none"; };
+
+  closeBtn.addEventListener("click", closeModal);
+  window.addEventListener("click", e => { if (e.target === modal) closeModal(); });
+  modal.addEventListener("touchstart", e => { if (e.target === modal) closeModal(); });
 });
