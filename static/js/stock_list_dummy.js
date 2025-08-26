@@ -86,7 +86,7 @@ document.addEventListener("DOMContentLoaded", () => {
     sellBtn.addEventListener("click", () => {
       openConfirmModal(`✅ ${stock.name} を本当に売却しますか？`, () => {
         wrapper.remove();
-        showToast(`${stock.name} を売却しました ✅`);
+        showToast(`${stock.name} を売却しました ✅`, card);
       });
     });
 
@@ -156,7 +156,8 @@ document.addEventListener("DOMContentLoaded", () => {
         .find(w=>w.querySelector(".stock-card").dataset.name===modalName.textContent);
       if(wrapperToRemove) wrapperToRemove.remove();
       modal.style.display = "none";
-      showToast(`${modalName.textContent} を売却しました ✅`);
+      showToast(`${modalName.textContent} を売却しました ✅`,
+                wrapperToRemove.querySelector(".stock-card"));
     });
   });
 
@@ -186,24 +187,24 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   /* ========================================
-     ===== トースト通知 ===== */
-  const toastContainer = document.createElement("div");
-  toastContainer.className = "toast-container";
-  document.body.appendChild(toastContainer);
-
-  function showToast(message){
+     ===== カード連動トースト通知 ===== */
+  function showToast(message, cardElement){
     const toast = document.createElement("div");
-    toast.className = "toast-message";
+    toast.className = "card-toast";
     toast.textContent = message;
-    toastContainer.appendChild(toast);
+
+    cardElement.style.position = "relative";
+    cardElement.appendChild(toast);
+
     requestAnimationFrame(()=>{
-      toast.style.opacity="1";
-      toast.style.transform="translateY(-10px)";
+      toast.style.opacity = "1";
+      toast.style.transform = "translateX(-50%) translateY(-10px)";
     });
+
     setTimeout(()=>{
-      toast.style.opacity="0";
-      toast.style.transform="translateY(0)";
-      setTimeout(()=>toast.remove(), 300);
+      toast.style.opacity = "0";
+      toast.style.transform = "translateX(-50%) translateY(0)";
+      setTimeout(()=> toast.remove(), 300);
     }, 1800);
   }
 

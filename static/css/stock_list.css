@@ -258,6 +258,27 @@
 }
 
 /* ======================================== */
+/* ===== カード連動トースト ===== */
+.card-toast {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%) translateY(0);
+  background: rgba(30,30,50,0.95);
+  color: var(--color-neon);
+  padding: 8px 14px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: bold;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  z-index: 50;
+  white-space: nowrap;
+}
+
+/* ======================================== */
 /* ===== PC対応 ===== */
 @media (min-width: 768px) {
   .portfolio-container { max-width: 800px; margin: 0 auto; }
