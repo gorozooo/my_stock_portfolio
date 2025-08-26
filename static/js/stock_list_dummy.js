@@ -47,17 +47,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const sellBtn = document.createElement("button");
     sellBtn.className = "sell-btn";
     sellBtn.textContent = "売却";
-    sellBtn.style.pointerEvents = "auto"; 
 
     wrapper.appendChild(card);
     wrapper.appendChild(sellBtn);
     container.appendChild(wrapper);
 
-    // スワイプ検知（スマホ向け感度調整）
+    // スワイプ検知
     let startX = 0;
     let currentX = 0;
     let swiped = false;
-    const swipeThreshold = 60; // 感度を低めに調整
+    const swipeThreshold = 80;
 
     card.addEventListener("touchstart", e => { startX = e.touches[0].clientX; });
     card.addEventListener("touchmove", e => {
@@ -82,7 +81,7 @@ document.addEventListener("DOMContentLoaded", () => {
       currentX = 0;
     });
 
-    // 売却ボタン押下
+    // 売却ボタン押下 → 確認モーダル表示
     sellBtn.addEventListener("click", () => {
       openConfirmModal(`✅ ${stock.name} を本当に売却しますか？`, () => {
         wrapper.remove();
@@ -92,13 +91,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // カードタップで詳細モーダル
     card.addEventListener("click", () => {
-      if(swiped) return; 
+      if(swiped) return;
       openStockModal(card);
     });
-
   });
 
-  /* 株カード詳細モーダル */
+  /* ========================================
+     ===== 株カード詳細モーダル ===== */
   const modal = document.getElementById("stock-modal");
   const closeBtn = modal.querySelector(".close");
   const sellModalBtn = document.getElementById("sell-btn");
@@ -141,7 +140,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     modal.style.display="block";
-    modal.querySelector(".modal-content").style.marginTop="5%"; 
+    modal.querySelector(".modal-content").style.marginTop="0%"; // 上寄せ
   }
 
   closeBtn.addEventListener("click", ()=>{ modal.style.display="none"; });
@@ -158,7 +157,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  /* 共通確認モーダル */
+  /* ========================================
+     ===== 共通確認モーダル ===== */
   const confirmModal = document.getElementById("confirm-modal");
   const confirmMessage = document.getElementById("confirm-message");
   const btnCancel = document.getElementById("confirm-cancel");
@@ -189,7 +189,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  /* トースト通知 */
+  /* ========================================
+     ===== トースト通知 ===== */
   const toastContainer = document.createElement("div");
   toastContainer.style.position = "fixed";
   toastContainer.style.bottom = "30px";
