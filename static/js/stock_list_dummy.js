@@ -47,6 +47,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const sellBtn = document.createElement("button");
     sellBtn.className = "sell-btn";
     sellBtn.textContent = "売却";
+    sellBtn.style.pointerEvents = "auto";
 
     wrapper.appendChild(card);
     wrapper.appendChild(sellBtn);
@@ -56,7 +57,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let startX = 0;
     let currentX = 0;
     let swiped = false;
-    const swipeThreshold = 60;
+    const swipeThreshold = 80;
 
     card.addEventListener("touchstart", e => { startX = e.touches[0].clientX; });
     card.addEventListener("touchmove", e => {
@@ -81,7 +82,7 @@ document.addEventListener("DOMContentLoaded", () => {
       currentX = 0;
     });
 
-    // スワイプ売却ボタンも確認モーダル経由
+    // スワイプ売却ボタン押下
     sellBtn.addEventListener("click", () => {
       openConfirmModal(`✅ ${stock.name} を本当に売却しますか？`, () => {
         wrapper.remove();
@@ -91,13 +92,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // カードタップで詳細モーダル
     card.addEventListener("click", () => {
-      if(swiped) return;
+      if(swiped) return; // スワイプ後はモーダルを開かない
       openStockModal(card);
     });
 
   });
 
-  // 株詳細モーダル
+  /* ========================================
+     ===== 株カード詳細モーダル ===== */
   const modal = document.getElementById("stock-modal");
   const closeBtn = modal.querySelector(".close");
   const sellModalBtn = document.getElementById("sell-btn");
@@ -122,30 +124,44 @@ document.addEventListener("DOMContentLoaded", () => {
     if(chartInstance) chartInstance.destroy();
     chartInstance = new Chart(chartCanvas, {
       type: 'line',
-      data: { labels: chartData.map((_,i)=>i+1), datasets:[{label:'株価推移', data:chartData, borderColor:'#3b82f6', backgroundColor:'rgba(59,130,246,0.2)', tension:0.3}]},
-      options:{responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:false}}}
+      data: {
+        labels: chartData.map((_,i)=>i+1),
+        datasets:[{
+          label:'株価推移',
+          data:chartData,
+          borderColor:'#3b82f6',
+          backgroundColor:'rgba(59,130,246,0.2)',
+          tension:0.3
+        }]
+      },
+      options:{
+        responsive:true,
+        plugins:{legend:{display:false}},
+        scales:{y:{beginAtZero:false}}
+      }
     });
 
     modal.style.display="block";
-    modal.querySelector(".modal-content").style.marginTop="0%";
+    modal.querySelector(".modal-content").style.marginTop="0%"; // 上寄せ
   }
 
   closeBtn.addEventListener("click", ()=>{ modal.style.display="none"; });
   window.addEventListener("click", e=>{ if(e.target==modal) modal.style.display="none"; });
   modal.addEventListener("touchstart", e=>{ if(e.target==modal) modal.style.display="none"; });
 
-  // モーダル内売却も確認モーダル経由
-  sellModalBtn.addEventListener("click", ()=> {
-    const wrapperToRemove = Array.from(document.querySelectorAll(".stock-card-wrapper"))
-      .find(w => w.querySelector(".stock-card").dataset.name === modalName.textContent);
-    openConfirmModal(`✅ ${modalName.textContent} を本当に売却しますか？`, ()=> {
+  // モーダル内売却ボタンも確認モーダル経由
+  sellModalBtn.addEventListener("click", ()=>{
+    openConfirmModal(`✅ ${modalName.textContent} を本当に売却しますか？`, ()=>{
+      const wrapperToRemove = Array.from(document.querySelectorAll(".stock-card-wrapper"))
+        .find(w=>w.querySelector(".stock-card").dataset.name===modalName.textContent);
       if(wrapperToRemove) wrapperToRemove.remove();
-      modal.style.display="none";
+      modal.style.display = "none";
       showToast(`${modalName.textContent} を売却しました ✅`);
     });
   });
 
-  // 共通確認モーダル
+  /* ========================================
+     ===== 共通確認モーダル ===== */
   const confirmModal = document.getElementById("confirm-modal");
   const confirmMessage = document.getElementById("confirm-message");
   const btnCancel = document.getElementById("confirm-cancel");
@@ -158,33 +174,37 @@ document.addEventListener("DOMContentLoaded", () => {
     confirmCallback = callback;
   }
 
-  btnCancel.addEventListener("click", ()=>{ confirmModal.style.display="none"; confirmCallback = null; });
-  btnOk.addEventListener("click", ()=>{ if(confirmCallback) confirmCallback(); confirmModal.style.display="none"; confirmCallback = null; });
-  window.addEventListener("click", e=>{ if(e.target == confirmModal){ confirmModal.style.display="none"; confirmCallback = null; } });
+  btnCancel.addEventListener("click", ()=>{ confirmModal.style.display="none"; confirmCallback=null; });
+  btnOk.addEventListener("click", ()=>{
+    if(confirmCallback) confirmCallback();
+    confirmModal.style.display="none";
+    confirmCallback=null;
+  });
 
-  // トースト通知
+  window.addEventListener("click", e=>{
+    if(e.target==confirmModal){ confirmModal.style.display="none"; confirmCallback=null; }
+  });
+
+  /* ========================================
+     ===== トースト通知 ===== */
   const toastContainer = document.createElement("div");
-  toastContainer.style.position = "fixed";
-  toastContainer.style.bottom = "30px";
-  toastContainer.style.left = "50%";
-  toastContainer.style.transform = "translateX(-50%)";
-  toastContainer.style.zIndex = "400";
+  toastContainer.className = "toast-container";
   document.body.appendChild(toastContainer);
 
   function showToast(message){
     const toast = document.createElement("div");
+    toast.className = "toast-message";
     toast.textContent = message;
-    toast.style.background = "rgba(30,30,50,0.95)";
-    toast.style.color = "#00ffff";
-    toast.style.padding = "12px 22px";
-    toast.style.borderRadius = "14px";
-    toast.style.marginTop = "6px";
-    toast.style.boxShadow = "0 4px 14px rgba(0,0,0,0.3)";
-    toast.style.opacity = "0";
-    toast.style.transition = "opacity 0.3s ease, transform 0.3s ease";
     toastContainer.appendChild(toast);
-    requestAnimationFrame(()=>{ toast.style.opacity="1"; toast.style.transform="translateY(-10px)"; });
-    setTimeout(()=>{ toast.style.opacity="0"; toast.style.transform="translateY(0)"; setTimeout(()=>toast.remove(),300); }, 1800);
+    requestAnimationFrame(()=>{
+      toast.style.opacity="1";
+      toast.style.transform="translateY(-10px)";
+    });
+    setTimeout(()=>{
+      toast.style.opacity="0";
+      toast.style.transform="translateY(0)";
+      setTimeout(()=>toast.remove(), 300);
+    }, 1800);
   }
 
 });

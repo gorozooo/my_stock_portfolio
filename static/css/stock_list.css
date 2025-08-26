@@ -133,7 +133,7 @@
 .modal-content {
   background: rgba(25,25,35,0.95);
   backdrop-filter: blur(var(--blur));
-  margin: 10% auto;
+  margin: 0% auto; /* 上寄せ */
   padding: 20px;
   border-radius: var(--card-radius);
   width: 90%;
@@ -207,6 +207,10 @@
   text-align: center;
   box-shadow: 0 8px 24px rgba(0,0,0,0.35);
   animation: fadeIn 0.25s ease;
+}
+
+.confirm-modal.show-center .confirm-modal-content {
+  margin: 20% auto; /* モーダル内売却ボタン押下時は中央寄せ */
 }
 
 .confirm-modal-content p {
