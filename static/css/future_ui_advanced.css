@@ -7,7 +7,7 @@
   --color-gradient-end: #4400aa;
   --color-neon: #00ffff;
   --blur: 28px;
-  --navbar-height: 60px;
+  --navbar-height: 90px;  /* 2段ナビバーなので少し高さを増やす */
   --tab-height: 60px;
   --tab-width-mobile: 80%;   /* スマホ基準 */
   --tab-width-pc: 33%;       /* PCは幅1/3 */
@@ -59,8 +59,8 @@ body {
   width: 100%;
   height: var(--navbar-height);
   display: flex;
+  flex-direction: column;
   justify-content: center;
-  align-items: center;
 
   background: linear-gradient(
     135deg,
@@ -78,12 +78,25 @@ body {
   padding-top: env(safe-area-inset-top);
 }
 
-.navbar-inner {
+/* 上段: 固定アプリタイトル */
+.navbar-title {
+  text-align: center;
+  font-size: 22px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  color: var(--color-neon);
+  animation: neonPulse 8s ease-in-out infinite;
+  padding: 4px 0;
+}
+
+/* 下段: ユーザー / ページタイトル / 最終更新 */
+.navbar-sub {
   display: flex;
-  width: 100%;
-  max-width: 480px;
   justify-content: space-between;
   align-items: center;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
   padding: 0 12px;
 }
 
@@ -99,11 +112,10 @@ body {
 .navbar-center {
   flex: 2;
   text-align: center;
-  font-size: 20px;
+  font-size: 16px;
   font-weight: bold;
   color: var(--color-neon);
   letter-spacing: 1px;
-  animation: neonPulse 8s ease-in-out infinite;
 }
 
 /* ======================================== */
@@ -265,7 +277,8 @@ body {
 /* ======================================== */
 /* ===== PC向け拡張 ===== */
 @media (min-width: 768px) {
-  .navbar-center { font-size: 24px; }
+  .navbar-title { font-size: 26px; }
+  .navbar-center { font-size: 18px; }
   .tab-item a i { font-size: 26px; }
   .tab-item a span { font-size: 12px; }
 
