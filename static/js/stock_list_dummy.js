@@ -52,11 +52,11 @@ document.addEventListener("DOMContentLoaded", () => {
     wrapper.appendChild(sellBtn);
     container.appendChild(wrapper);
 
-    // スワイプ検知
+    // スワイプ検知（タッチ感度調整）
     let startX = 0;
     let currentX = 0;
     let swiped = false;
-    const swipeThreshold = 80;
+    const swipeThreshold = 60; // 感度調整
 
     card.addEventListener("touchstart", e => { startX = e.touches[0].clientX; });
     card.addEventListener("touchmove", e => {
@@ -94,7 +94,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if(swiped) return;
       openStockModal(card);
     });
-
   });
 
   /* ========================================
@@ -148,12 +147,12 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("click", e=>{ if(e.target==modal) modal.style.display="none"; });
   modal.addEventListener("touchstart", e=>{ if(e.target==modal) modal.style.display="none"; });
 
-  // モーダル内売却ボタン（確認モーダル経由）
-  sellModalBtn.addEventListener("click", ()=>{
-    openConfirmModal(`✅ ${modalName.textContent} を本当に売却しますか？`, ()=>{
+  // モーダル内売却ボタンも確認モーダル経由
+  sellModalBtn.addEventListener("click", ()=> {
+    openConfirmModal(`✅ ${modalName.textContent} を本当に売却しますか？`, ()=> {
       modal.style.display="none";
       const wrapperToRemove = Array.from(document.querySelectorAll(".stock-card-wrapper"))
-        .find(w=>w.querySelector(".stock-card").dataset.name===modalName.textContent);
+        .find(w => w.querySelector(".stock-card").dataset.name === modalName.textContent);
       if(wrapperToRemove) wrapperToRemove.remove();
       showToast(`${modalName.textContent} を売却しました ✅`);
     });
@@ -161,10 +160,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* ========================================
      ===== 共通確認モーダル ===== */
-  const confirmModal = document.getElementById("confirmModal"); // HTMLとIDを統一
-  const confirmMessage = confirmModal.querySelector("p");
-  const btnCancel = confirmModal.querySelector(".btn-cancel");
-  const btnOk = confirmModal.querySelector(".btn-ok");
+  const confirmModal = document.getElementById("confirm-modal");
+  const confirmMessage = document.getElementById("confirm-message");
+  const btnCancel = document.getElementById("confirm-cancel");
+  const btnOk = document.getElementById("confirm-ok");
   let confirmCallback = null;
 
   function openConfirmModal(message, callback){
@@ -173,23 +172,9 @@ document.addEventListener("DOMContentLoaded", () => {
     confirmCallback = callback;
   }
 
-  btnCancel.addEventListener("click", ()=>{
-    confirmModal.style.display = "none";
-    confirmCallback = null;
-  });
-
-  btnOk.addEventListener("click", ()=>{
-    if(confirmCallback) confirmCallback();
-    confirmModal.style.display = "none";
-    confirmCallback = null;
-  });
-
-  window.addEventListener("click", e=>{
-    if(e.target == confirmModal){
-      confirmModal.style.display = "none";
-      confirmCallback = null;
-    }
-  });
+  btnCancel.addEventListener("click", ()=>{ confirmModal.style.display="none"; confirmCallback = null; });
+  btnOk.addEventListener("click", ()=>{ if(confirmCallback) confirmCallback(); confirmModal.style.display="none"; confirmCallback = null; });
+  window.addEventListener("click", e=>{ if(e.target == confirmModal){ confirmModal.style.display="none"; confirmCallback = null; } });
 
   /* ========================================
      ===== トースト通知 ===== */
@@ -214,11 +199,7 @@ document.addEventListener("DOMContentLoaded", () => {
     toast.style.transition = "opacity 0.3s ease, transform 0.3s ease";
     toastContainer.appendChild(toast);
     requestAnimationFrame(()=>{ toast.style.opacity="1"; toast.style.transform="translateY(-10px)"; });
-    setTimeout(()=>{
-      toast.style.opacity="0";
-      toast.style.transform="translateY(0)";
-      setTimeout(()=>toast.remove(), 300);
-    }, 1800);
+    setTimeout(()=>{ toast.style.opacity="0"; toast.style.transform="translateY(0)"; setTimeout(()=>toast.remove(),300); }, 1800);
   }
 
 });
