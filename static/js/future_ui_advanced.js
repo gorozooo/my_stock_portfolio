@@ -105,3 +105,35 @@ document.addEventListener("DOMContentLoaded", function() {
     });
   }
 });
+
+// 確認モーダル共通処理
+document.addEventListener("DOMContentLoaded", () => {
+  const modal = document.getElementById("confirmModal");
+  const btnCancel = modal.querySelector(".btn-cancel");
+  const btnOk = modal.querySelector(".btn-ok");
+  let okCallback = null;
+
+  window.openConfirmModal = (message, callback) => {
+    modal.querySelector("p").textContent = message;
+    okCallback = callback;
+    modal.style.display = "block";
+  };
+
+  btnCancel.addEventListener("click", () => {
+    modal.style.display = "none";
+    okCallback = null;
+  });
+
+  btnOk.addEventListener("click", () => {
+    modal.style.display = "none";
+    if (typeof okCallback === "function") okCallback();
+    okCallback = null;
+  });
+
+  modal.addEventListener("click", e => {
+    if (e.target === modal) {
+      modal.style.display = "none";
+      okCallback = null;
+    }
+  });
+});
