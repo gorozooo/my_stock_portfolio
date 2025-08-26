@@ -17,7 +17,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const wrapper = document.createElement("div");
     wrapper.className = "stock-card-wrapper";
-    wrapper.style.position = "relative";
 
     const card = document.createElement("div");
     card.className = "stock-card";
@@ -48,15 +47,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const sellBtn = document.createElement("button");
     sellBtn.className = "sell-btn";
     sellBtn.textContent = "売却";
+    sellBtn.style.pointerEvents = "auto"; 
 
     wrapper.appendChild(card);
     wrapper.appendChild(sellBtn);
     container.appendChild(wrapper);
 
+    // スワイプ検知（スマホ向け感度調整）
     let startX = 0;
     let currentX = 0;
     let swiped = false;
-    let swipeThreshold = 80; // タッチ敏感度調整
+    const swipeThreshold = 60; // 感度を低めに調整
 
     card.addEventListener("touchstart", e => { startX = e.touches[0].clientX; });
     card.addEventListener("touchmove", e => {
@@ -64,40 +65,40 @@ document.addEventListener("DOMContentLoaded", () => {
       if(currentX < 0 && currentX > -swipeThreshold){
         card.style.transform = `translateX(${currentX}px)`;
         sellBtn.style.right = `${-swipeThreshold - currentX}px`;
-        sellBtn.style.opacity = "1";
-        sellBtn.style.pointerEvents = "auto";
       }
     });
     card.addEventListener("touchend", () => {
-      if(currentX <= -swipeThreshold / 2){
+      if(currentX <= -swipeThreshold/2){
         card.style.transform = `translateX(-${swipeThreshold}px)`;
         sellBtn.style.right = "0px";
+        wrapper.classList.add("show-sell");
         swiped = true;
       } else {
         card.style.transform = "translateX(0px)";
         sellBtn.style.right = `-${swipeThreshold}px`;
+        wrapper.classList.remove("show-sell");
         swiped = false;
-        sellBtn.style.opacity = "0";
-        sellBtn.style.pointerEvents = "none";
       }
       currentX = 0;
     });
 
-    sellBtn.addEventListener("click", ()=>{
-      openConfirmModal(`✅ ${stock.name} を本当に売却しますか？`, ()=>{
+    // 売却ボタン押下
+    sellBtn.addEventListener("click", () => {
+      openConfirmModal(`✅ ${stock.name} を本当に売却しますか？`, () => {
         wrapper.remove();
-        showToast("✅ " + stock.name + " を売却しました");
+        showToast(`${stock.name} を売却しました ✅`);
       });
     });
 
-    card.addEventListener("click", ()=>{
-      if(swiped) return;
+    // カードタップで詳細モーダル
+    card.addEventListener("click", () => {
+      if(swiped) return; 
       openStockModal(card);
     });
 
   });
 
-  /* ===== 株詳細モーダル ===== */
+  /* 株カード詳細モーダル */
   const modal = document.getElementById("stock-modal");
   const closeBtn = modal.querySelector(".close");
   const sellModalBtn = document.getElementById("sell-btn");
@@ -122,12 +123,25 @@ document.addEventListener("DOMContentLoaded", () => {
     if(chartInstance) chartInstance.destroy();
     chartInstance = new Chart(chartCanvas, {
       type: 'line',
-      data: { labels: chartData.map((_,i)=>i+1), datasets:[{label:'株価推移',data:chartData,borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,0.2)',tension:0.3}] },
-      options:{ responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:false}} }
+      data: {
+        labels: chartData.map((_,i)=>i+1),
+        datasets:[{
+          label:'株価推移',
+          data:chartData,
+          borderColor:'#3b82f6',
+          backgroundColor:'rgba(59,130,246,0.2)',
+          tension:0.3
+        }]
+      },
+      options:{
+        responsive:true,
+        plugins:{legend:{display:false}},
+        scales:{y:{beginAtZero:false}}
+      }
     });
 
     modal.style.display="block";
-    modal.querySelector(".modal-content").style.marginTop = "5%"; // 上寄せ
+    modal.querySelector(".modal-content").style.marginTop="5%"; 
   }
 
   closeBtn.addEventListener("click", ()=>{ modal.style.display="none"; });
@@ -140,11 +154,11 @@ document.addEventListener("DOMContentLoaded", () => {
       const wrapperToRemove = Array.from(document.querySelectorAll(".stock-card-wrapper"))
         .find(w=>w.querySelector(".stock-card").dataset.name===modalName.textContent);
       if(wrapperToRemove) wrapperToRemove.remove();
-      showToast("✅ " + modalName.textContent + " を売却しました");
+      showToast(`${modalName.textContent} を売却しました ✅`);
     });
   });
 
-  /* ===== 共通確認モーダル ===== */
+  /* 共通確認モーダル */
   const confirmModal = document.getElementById("confirm-modal");
   const confirmMessage = document.getElementById("confirm-message");
   const btnCancel = document.getElementById("confirm-cancel");
@@ -175,39 +189,33 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  /* ===== トースト通知 ===== */
-  function showToast(message) {
-    let toastContainer = document.getElementById("toast-container");
-    if (!toastContainer) {
-      toastContainer = document.createElement("div");
-      toastContainer.id = "toast-container";
-      toastContainer.style.position = "fixed";
-      toastContainer.style.bottom = "20px";
-      toastContainer.style.right = "20px";
-      toastContainer.style.zIndex = "1000";
-      document.body.appendChild(toastContainer);
-    }
+  /* トースト通知 */
+  const toastContainer = document.createElement("div");
+  toastContainer.style.position = "fixed";
+  toastContainer.style.bottom = "30px";
+  toastContainer.style.left = "50%";
+  toastContainer.style.transform = "translateX(-50%)";
+  toastContainer.style.zIndex = "400";
+  document.body.appendChild(toastContainer);
 
+  function showToast(message){
     const toast = document.createElement("div");
     toast.textContent = message;
-    toast.style.background = "rgba(40,40,40,0.9)";
-    toast.style.color = "#fff";
-    toast.style.padding = "10px 16px";
-    toast.style.marginTop = "8px";
-    toast.style.borderRadius = "6px";
-    toast.style.boxShadow = "0 4px 10px rgba(0,0,0,0.3)";
-    toast.style.fontSize = "0.9rem";
+    toast.style.background = "rgba(30,30,50,0.95)";
+    toast.style.color = "#00ffff";
+    toast.style.padding = "12px 22px";
+    toast.style.borderRadius = "14px";
+    toast.style.marginTop = "6px";
+    toast.style.boxShadow = "0 4px 14px rgba(0,0,0,0.3)";
     toast.style.opacity = "0";
-    toast.style.transition = "opacity 0.3s ease";
-
+    toast.style.transition = "opacity 0.3s ease, transform 0.3s ease";
     toastContainer.appendChild(toast);
-
-    requestAnimationFrame(() => { toast.style.opacity = "1"; });
-
-    setTimeout(() => {
-      toast.style.opacity = "0";
-      setTimeout(() => { toast.remove(); }, 300);
-    }, 2500);
+    requestAnimationFrame(()=>{ toast.style.opacity="1"; toast.style.transform="translateY(-10px)"; });
+    setTimeout(()=>{
+      toast.style.opacity="0";
+      toast.style.transform="translateY(0)";
+      setTimeout(()=>toast.remove(), 300);
+    }, 1800);
   }
 
 });

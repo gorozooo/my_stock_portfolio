@@ -25,13 +25,13 @@
 
 {% include "bottom_tab.html" %}
 
-<!-- 共通確認モーダル（base.js で制御） -->
-<div id="confirmModal" class="confirm-modal">
+<!-- 共通確認モーダル -->
+<div id="confirm-modal" class="confirm-modal">
   <div class="confirm-modal-content">
-    <p>確認メッセージ</p>
+    <p id="confirm-message">確認メッセージ</p>
     <div class="confirm-modal-buttons">
-      <button class="btn-cancel">キャンセル</button>
-      <button class="btn-ok">OK</button>
+      <button id="confirm-cancel" class="btn-cancel">キャンセル</button>
+      <button id="confirm-ok" class="btn-ok">OK</button>
     </div>
   </div>
 </div>
@@ -44,5 +44,5 @@
 
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="{% static 'js/stock_list_dummy.js' %}"></script>
+<script src="{% static 'js/stock_list.js' %}"></script>
 {% endblock %}
