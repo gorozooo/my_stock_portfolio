@@ -16,8 +16,7 @@ class StockMaster(models.Model):
 # 保有株モデル
 # =============================
 class Stock(models.Model):
-   class Stock(models.Model):
-    purchase_date = models.DateField("購入日")  # ←必須
+    purchase_date = models.DateField("購入日")  # ← default 付けたほうが安全
     ticker = models.CharField("証券コード", max_length=4)
     name = models.CharField("銘柄名", max_length=100)
     account_type = models.CharField("口座区分", max_length=10, default="現物")
