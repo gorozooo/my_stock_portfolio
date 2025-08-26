@@ -1,5 +1,6 @@
 document.addEventListener("DOMContentLoaded", function() {
-  // ===== 下タブ＆サブメニュー操作 =====
+  /* ========================================
+     ===== 下タブ＆サブメニュー操作 ===== */
   const tabs = document.querySelectorAll('.tab-item');
 
   tabs.forEach(tab => {
@@ -36,7 +37,7 @@ document.addEventListener("DOMContentLoaded", function() {
   function openSubMenu(subMenu, tab) {
     const rect = tab.getBoundingClientRect();
     subMenu.style.left = rect.left + "px"; // タブの左位置に合わせる
-    subMenu.style.bottom = (window.innerHeight - rect.top + 10) + "px"; // タブの上に表示
+    subMenu.style.bottom = (window.innerHeight - rect.top + 10) + "px"; // タブ上に表示
     subMenu.classList.add('show');
   }
 
@@ -44,21 +45,24 @@ document.addEventListener("DOMContentLoaded", function() {
     document.querySelectorAll('.sub-menu').forEach(sm => sm.classList.remove('show'));
   }
 
-  // ===== 背景アニメーション（簡易粒子＋ネオン光彩） =====
+  /* ========================================
+     ===== 背景アニメーション（粒子＋ネオン光彩） ===== */
   const canvas = document.getElementById('bgCanvas');
   if (canvas && canvas.getContext) {
     const ctx = canvas.getContext('2d');
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+    canvas.width = width;
+    canvas.height = height;
 
     const particles = [];
     const PARTICLE_COUNT = 80;
 
-    // パーティクル初期化
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       particles.push({
-        x: Math.random() * canvas.width,
-        y: Math.random() * canvas.height,
+        x: Math.random() * width,
+        y: Math.random() * height,
         vx: (Math.random() - 0.5) * 0.5,
         vy: (Math.random() - 0.5) * 0.5,
         size: Math.random() * 3 + 1,
@@ -67,7 +71,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     function animateParticles() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, width, height);
 
       particles.forEach(p => {
         // 位置更新
@@ -75,8 +79,8 @@ document.addEventListener("DOMContentLoaded", function() {
         p.y += p.vy;
 
         // 画面端で反射
-        if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
-        if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+        if (p.x < 0 || p.x > width) p.vx *= -1;
+        if (p.y < 0 || p.y > height) p.vy *= -1;
 
         // 描画
         ctx.beginPath();
@@ -92,10 +96,12 @@ document.addEventListener("DOMContentLoaded", function() {
 
     animateParticles();
 
-    // 画面リサイズ対応
+    // リサイズ対応
     window.addEventListener('resize', () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      width = window.innerWidth;
+      height = window.innerHeight;
+      canvas.width = width;
+      canvas.height = height;
     });
   }
 });
