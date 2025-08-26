@@ -81,7 +81,7 @@ document.addEventListener("DOMContentLoaded", () => {
       currentX = 0;
     });
 
-    // 売却ボタン押下 → 確認モーダル表示
+    // 売却ボタン押下（確認モーダル経由）
     sellBtn.addEventListener("click", () => {
       openConfirmModal(`✅ ${stock.name} を本当に売却しますか？`, () => {
         wrapper.remove();
@@ -94,6 +94,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if(swiped) return;
       openStockModal(card);
     });
+
   });
 
   /* ========================================
@@ -140,13 +141,14 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     modal.style.display="block";
-    modal.querySelector(".modal-content").style.marginTop="0%"; // 上寄せ
+    modal.querySelector(".modal-content").style.marginTop="0%"; // 上寄せ表示
   }
 
   closeBtn.addEventListener("click", ()=>{ modal.style.display="none"; });
   window.addEventListener("click", e=>{ if(e.target==modal) modal.style.display="none"; });
   modal.addEventListener("touchstart", e=>{ if(e.target==modal) modal.style.display="none"; });
 
+  // モーダル内売却ボタン（確認モーダル経由）
   sellModalBtn.addEventListener("click", ()=>{
     openConfirmModal(`✅ ${modalName.textContent} を本当に売却しますか？`, ()=>{
       modal.style.display="none";
@@ -159,10 +161,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* ========================================
      ===== 共通確認モーダル ===== */
-  const confirmModal = document.getElementById("confirm-modal");
-  const confirmMessage = document.getElementById("confirm-message");
-  const btnCancel = document.getElementById("confirm-cancel");
-  const btnOk = document.getElementById("confirm-ok");
+  const confirmModal = document.getElementById("confirmModal"); // HTMLとIDを統一
+  const confirmMessage = confirmModal.querySelector("p");
+  const btnCancel = confirmModal.querySelector(".btn-cancel");
+  const btnOk = confirmModal.querySelector(".btn-ok");
   let confirmCallback = null;
 
   function openConfirmModal(message, callback){
