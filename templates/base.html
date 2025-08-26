@@ -14,7 +14,12 @@
 
   <!-- ナビバー -->
   <header class="navbar">
-    <div class="navbar-inner">
+    <!-- 上段: 固定タイトル -->
+    <div class="navbar-title">
+      📊 My Portfolio
+    </div>
+    <!-- 下段: ユーザー・ページタイトル・最終更新 -->
+    <div class="navbar-sub">
       <div class="navbar-left">
         {% if user.is_authenticated %}
           ようこそ <strong>{{ user.username }}</strong> さん
@@ -23,7 +28,7 @@
         {% endif %}
       </div>
       <div class="navbar-center">
-        📊 My Portfolio
+        {% block page_title %}ホーム{% endblock %}
       </div>
       <div class="navbar-right">
         最終更新: {{ LAST_UPDATED|default:"-" }}
