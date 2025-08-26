@@ -12,7 +12,7 @@
 </head>
 <body>
 
-  <!-- ナビバー -->
+  <!-- ナビバー（固定） -->
   <header class="navbar">
     <!-- 上段: 固定タイトル -->
     <div class="navbar-title">
@@ -41,13 +41,13 @@
     {% block content %}{% endblock %}
   </main>
 
-  <!-- 下タブ -->
-  <footer>
+  <!-- 下タブ（固定） -->
+  <div class="bottom-tab">
     {% include "bottom_tab.html" %}
-  </footer>
+  </div>
 
   <!-- 共通モーダル（確認用） -->
-  <div id="confirmModal" class="modal">
+  <div id="confirmModal" class="modal-overlay">
     <div class="modal-content">
       <p>確認メッセージ</p>
       <div class="modal-buttons">
