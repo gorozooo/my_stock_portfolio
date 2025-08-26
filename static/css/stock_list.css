@@ -258,24 +258,28 @@
 }
 
 /* ======================================== */
-/* ===== カード連動トースト ===== */
-.card-toast {
+/* ===== トースト通知 ===== */
+.toast {
   position: absolute;
-  top: -10px;
+  top: -10px; /* カードのすぐ上 */
   left: 50%;
-  transform: translateX(-50%) translateY(0);
-  background: rgba(30,30,50,0.95);
-  color: var(--color-neon);
-  padding: 8px 14px;
+  transform: translate(-50%, -100%);
+  background: linear-gradient(135deg, #1e3a8a, #2563eb);
+  color: white;
+  padding: 10px 16px;
   border-radius: 12px;
   font-size: 0.85rem;
   font-weight: bold;
-  box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.3s ease, transform 0.3s ease;
-  z-index: 50;
-  white-space: nowrap;
+  z-index: 400;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, -120%);
 }
 
 /* ======================================== */
@@ -297,10 +301,12 @@
   .sell-button { font-size: 0.9rem; }
   .sell-btn { width: 70px; right: -70px; font-size: 0.85rem; }
   .confirm-modal-content { margin: 35% auto; }
+  .toast { font-size: 0.8rem; padding: 8px 14px; }
 }
 
 @media (max-width: 360px) {
   .stock-header { font-size: 0.9rem; }
   .stock-row { font-size: 0.8rem; }
   .sell-btn { width: 60px; right: -60px; font-size: 0.8rem; }
+  .toast { font-size: 0.75rem; }
 }
