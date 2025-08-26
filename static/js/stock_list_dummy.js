@@ -193,7 +193,7 @@ document.addEventListener("DOMContentLoaded", () => {
      ===== カード連動トースト通知 ===== */
   function showToast(message, cardElement){
     const toast = document.createElement("div");
-    toast.className = "card-toast";
+    toast.className = "toast";
     toast.textContent = message;
 
     cardElement.style.position = "relative";
