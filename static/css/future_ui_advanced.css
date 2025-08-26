@@ -7,7 +7,7 @@
   --color-gradient-end: #4400aa;
   --color-neon: #00ffff;
   --blur: 28px;
-  --navbar-height: 90px;  /* 2段ナビバー用 */
+  --navbar-height: 90px;  /* 2段ナビバーなので少し高さを増やす */
   --tab-height: 60px;
   --tab-width-mobile: 80%;   /* スマホ基準 */
   --tab-width-pc: 33%;       /* PCは幅1/3 */
@@ -48,17 +48,6 @@ body {
   color: var(--color-neon);
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
-
-  /* ナビバーと下タブ固定分の余白確保 */
-  padding-top: calc(var(--navbar-height) + env(safe-area-inset-top));
-  padding-bottom: calc(var(--tab-height) + env(safe-area-inset-bottom));
-}
-
-/* ======================================== */
-/* ===== メインコンテンツ ===== */
-.main-content {
-  min-height: calc(100vh - var(--navbar-height) - var(--tab-height));
-  width: 100%;
 }
 
 /* ======================================== */
@@ -84,7 +73,8 @@ body {
 
   backdrop-filter: blur(var(--blur)) saturate(220%);
   border-bottom: 1px solid rgba(255,255,255,0.1);
-  z-index: 10000; /* 上タブより高く */
+  z-index: 1000;
+
   padding-top: env(safe-area-inset-top);
 }
 
@@ -150,17 +140,13 @@ body {
   backdrop-filter: blur(var(--blur)) saturate(220%);
   border-top: 1px solid rgba(255,255,255,0.1);
 
-  z-index: 9999;
+  z-index: 1000;
   overflow: hidden;
   border-radius: 18px 18px 0 0;
 
   padding-bottom: env(safe-area-inset-bottom);
-  display: flex;
-  justify-content: space-around;
-  align-items: center;
 }
 
-/* タブリスト */
 .tab-list {
   display: flex;
   justify-content: space-around;
@@ -168,7 +154,6 @@ body {
   list-style: none;
   margin: 0;
   padding: 0;
-  width: 100%;
   height: 100%;
 }
 
@@ -200,6 +185,7 @@ body {
   font-size: 11px;
 }
 
+/* ホバー・アクティブ時 */
 .tab-item a:hover i,
 .tab-item a.active i {
   text-shadow: 0 0 18px var(--color-neon), 0 0 36px #7f7fff, 0 0 60px #8a00ff;
@@ -207,15 +193,22 @@ body {
 }
 
 /* ======================================== */
-/* ===== モーダル 共通デザイン ===== */
+/* ===== メインコンテンツ余白 ===== */
+.main-content {
+  padding-top: calc(var(--navbar-height) + 10px);
+  padding-bottom: calc(var(--tab-height) + 10px);
+}
+
+/* ======================================== */
+/* ===== 確認モーダル 共通デザイン ===== */
 .modal-overlay {
-  display: none;
+  display: none; /* 初期は非表示 */
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0,0,0,0.6);
+  background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(5px);
   z-index: 2000;
 }
@@ -225,7 +218,7 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  background: rgba(255,255,255,0.12);
+  background: rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(20px);
   border-radius: 12px;
   padding: 20px;
@@ -235,6 +228,13 @@ body {
   color: #fff;
   box-shadow: 0 0 15px rgba(0, 255, 255, 0.6);
   animation: fadeIn 0.3s ease;
+}
+
+.modal-content h2 {
+  margin-bottom: 10px;
+  font-size: 1.4em;
+  font-weight: bold;
+  color: var(--color-neon);
 }
 
 .modal-buttons {
