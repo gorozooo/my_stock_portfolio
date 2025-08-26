@@ -78,7 +78,7 @@ LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/login/'
 
-#CSRF_TRUSTED_ORIGINS = ["http://192.168.1.16:8000""https://gorozooo.com","https://www.gorozooo.com",]
+CSRF_TRUSTED_ORIGINS = ["http://192.168.1.16:8000""https://gorozooo.com","https://www.gorozooo.com",]
 
 # =============================
 # 本番運用時の追加設定例
