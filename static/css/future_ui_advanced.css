@@ -36,9 +36,18 @@
 body {
   font-family: var(--font-main);
   margin: 0;
-  background: linear-gradient(135deg, var(--color-gradient-start), var(--color-gradient-mid), var(--color-gradient-end));
+  min-height: 100vh;
+  background: linear-gradient(
+    135deg,
+    var(--color-gradient-start),
+    var(--color-gradient-mid),
+    var(--color-gradient-end)
+  );
+  background-size: 400% 400%;
+  animation: liquidFlow 80s linear infinite;
   color: var(--color-neon);
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* ======================================== */
@@ -53,13 +62,20 @@ body {
   justify-content: center;
   align-items: center;
 
-  background: linear-gradient(135deg, var(--color-gradient-start), var(--color-gradient-mid), var(--color-gradient-end));
+  background: linear-gradient(
+    135deg,
+    var(--color-gradient-start),
+    var(--color-gradient-mid),
+    var(--color-gradient-end)
+  );
   background-size: 400% 400%;
   animation: liquidFlow 50s linear infinite;
 
   backdrop-filter: blur(var(--blur)) saturate(220%);
   border-bottom: 1px solid rgba(255,255,255,0.1);
   z-index: 1000;
+
+  padding-top: env(safe-area-inset-top);
 }
 
 .navbar-inner {
@@ -97,10 +113,15 @@ body {
   bottom: 0;
   left: 50%;
   transform: translateX(-50%);
-  width: var(--tab-width-mobile);  /* スマホ基準 */
+  width: var(--tab-width-mobile);
   height: var(--tab-height);
 
-  background: linear-gradient(135deg, var(--color-gradient-start), var(--color-gradient-mid), var(--color-gradient-end));
+  background: linear-gradient(
+    135deg,
+    var(--color-gradient-start),
+    var(--color-gradient-mid),
+    var(--color-gradient-end)
+  );
   background-size: 400% 400%;
   animation: liquidFlow 50s linear infinite;
 
@@ -110,6 +131,8 @@ body {
   z-index: 1000;
   overflow: hidden;
   border-radius: 18px 18px 0 0;
+
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .tab-list {
@@ -119,6 +142,12 @@ body {
   list-style: none;
   margin: 0;
   padding: 0;
+  height: 100%;
+}
+
+.tab-item {
+  flex: 1;
+  height: 100%;
 }
 
 .tab-item a {
@@ -126,6 +155,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  height: 100%;
   color: var(--color-neon);
   text-decoration: none;
   transition: transform 0.3s, text-shadow 0.5s;
@@ -158,10 +188,90 @@ body {
 }
 
 /* ======================================== */
+/* ===== 確認モーダル 共通デザイン ===== */
+.modal-overlay {
+  display: none; /* 初期は非表示 */
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(5px);
+  z-index: 2000;
+}
+
+.modal-content {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(20px);
+  border-radius: 12px;
+  padding: 20px;
+  width: 85%;
+  max-width: 400px;
+  text-align: center;
+  color: #fff;
+  box-shadow: 0 0 15px rgba(0, 255, 255, 0.6);
+  animation: fadeIn 0.3s ease;
+}
+
+.modal-content h2 {
+  margin-bottom: 10px;
+  font-size: 1.4em;
+  font-weight: bold;
+  color: var(--color-neon);
+}
+
+.modal-buttons {
+  margin-top: 20px;
+  display: flex;
+  justify-content: space-around;
+}
+
+.modal-buttons button {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 6px;
+  font-size: 1em;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.modal-buttons .btn-cancel {
+  background: #444;
+  color: #fff;
+}
+.modal-buttons .btn-cancel:hover {
+  background: #666;
+}
+
+.modal-buttons .btn-ok {
+  background: #00cccc;
+  color: #fff;
+}
+.modal-buttons .btn-ok:hover {
+  background: #00ffff;
+  color: #000;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translate(-50%, -60%); }
+  to   { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+/* ======================================== */
 /* ===== PC向け拡張 ===== */
 @media (min-width: 768px) {
   .navbar-center { font-size: 24px; }
   .tab-item a i { font-size: 26px; }
   .tab-item a span { font-size: 12px; }
-  .bottom-tab { width: var(--tab-width-pc); max-width: 300px; }
+
+  .bottom-tab {
+    width: var(--tab-width-pc);
+    max-width: 320px;
+    border-radius: 24px 24px 0 0;
+  }
 }
