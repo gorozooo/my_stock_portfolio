@@ -6,7 +6,32 @@ from .models import Stock, RealizedTrade, Cash, BottomTab, SubMenu, SettingsPass
 # =============================
 @admin.register(Stock)
 class StockAdmin(admin.ModelAdmin):
-    list_display = ('id',)  # とりあえず id のみ
+    # 一覧に表示するカラム
+    list_display = (
+        "id",
+        "purchase_date",
+        "ticker",
+        "name",
+        "account_type",
+        "sector",
+        "shares",
+        "unit_price",
+        "total_cost",
+        "created_at",
+        "updated_at",
+    )
+
+    # 検索対象フィールド
+    search_fields = ("ticker", "name", "sector")
+
+    # 絞り込みフィルター
+    list_filter = ("account_type", "sector", "purchase_date")
+
+    # ソート順
+    ordering = ("-purchase_date",)
+
+    # 管理画面の入力フォームで編集不可にするフィールド
+    readonly_fields = ("created_at", "updated_at")
 
 # =============================
 # RealizedTrade
