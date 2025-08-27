@@ -1,14 +1,47 @@
-/* 全ページ共通の背景 */
-body {
-  margin: 0;
-  height: 100vh;
-  background: linear-gradient(135deg, #000006, #001133, #4400aa);
-  color: #fff;
-  font-family: "Segoe UI", sans-serif;
+/* ======================================== */
+/* ===== 共通背景テーマ (common.css) ===== */
+:root {
+  --color-bg: #000006;
+  --color-gradient-start: #000006;
+  --color-gradient-mid: #001133;
+  --color-gradient-end: #4400aa;
+  --color-neon: #00ffff;
+  --blur: 28px;
+  --font-main: 'Helvetica Neue', sans-serif;
 }
 
-#wrapper {
+/* ===== 背景液体グラデーション ===== */
+@keyframes liquidFlow {
+  0% { background-position: 0% 50%; transform: translateY(0); }
+  25% { background-position: 25% 55%; transform: translateY(-2px); }
+  50% { background-position: 50% 50%; transform: translateY(0); }
+  75% { background-position: 75% 45%; transform: translateY(2px); }
+  100% { background-position: 0% 50%; transform: translateY(0); }
+}
+
+/* ===== 全体の背景適用 ===== */
+body {
+  margin: 0;
   min-height: 100vh;
-  backdrop-filter: blur(28px);
-  background: rgba(0, 0, 0, 0.35); /* 半透明ラッパー */
+  font-family: var(--font-main);
+  color: var(--color-neon);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  background: none; /* 背景は app-wrapper に任せる */
+}
+
+/* ===== ラッパー (全ページ共通の背景) ===== */
+.app-wrapper {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+
+  background: linear-gradient(
+    135deg,
+    var(--color-gradient-start),
+    var(--color-gradient-mid),
+    var(--color-gradient-end)
+  );
+  background-size: 400% 400%;
+  animation: liquidFlow 80s linear infinite;
 }
