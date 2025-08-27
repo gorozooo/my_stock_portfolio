@@ -19,25 +19,33 @@
   100% { background-position: 0% 50%; }
 }
 
-/* ===== 全体の背景適用 ===== */
+/* ===== 全体 ===== */
 body {
   margin: 0;
   min-height: 100vh;
   font-family: var(--font-main);
   color: var(--color-neon);
   overflow-x: hidden;
-  overflow-y: auto; /* fixed に干渉しない */
   -webkit-font-smoothing: antialiased;
-  background: none; /* 背景は app-wrapper に任せる */
+  background: none;
 }
 
-/* ===== ラッパー (全ページ共通の背景) ===== */
+/* ===== ラッパー ===== */
 .app-wrapper {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  position: relative; /* transformしない */
+}
 
-  /* transform を削除して fixed を妨げない */
+/* ===== 背景アニメーションは擬似要素に任せる ===== */
+.app-wrapper::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   background: linear-gradient(
     135deg,
     var(--color-gradient-start),
@@ -46,4 +54,5 @@ body {
   );
   background-size: 400% 400%;
   animation: liquidFlow 80s linear infinite;
+  z-index: -1;
 }
