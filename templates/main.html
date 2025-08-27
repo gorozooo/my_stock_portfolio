@@ -9,10 +9,8 @@
 {% block content %}
 <div class="container">
 
-  <!-- タイトル -->
   <h1 class="page-title">マイポートフォリオ</h1>
 
-  <!-- サマリーカード -->
   <div class="summary-grid">
     <div class="summary-card glass">
       <h3>総資産</h3>
@@ -28,7 +26,6 @@
     </div>
   </div>
 
-  <!-- グラフカード -->
   <div class="chart-card glass">
     <h3>資産割合</h3>
     <canvas id="assetChart"></canvas>
@@ -38,6 +35,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 const ctx = document.getElementById('assetChart').getContext('2d');
 new Chart(ctx, {
@@ -53,9 +51,7 @@ new Chart(ctx, {
     },
     options: {
         responsive: true,
-        plugins: {
-            legend: { position: 'bottom' }
-        }
+        plugins: { legend: { position: 'bottom' } }
     }
 });
 </script>
