@@ -1,4 +1,4 @@
-﻿/* ======================================== */
+/* ======================================== */
 /* ===== 変数・テーマ ===== */
 :root {
   --color-bg: #000006;
@@ -37,6 +37,18 @@ body {
   font-family: var(--font-main);
   margin: 0;
   min-height: 100vh;
+  color: var(--color-neon);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  background: none; /* 背景は wrapper に任せる */
+}
+
+/* ラッパー (全ページ共通の背景) */
+.wrapper {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+
   background: linear-gradient(
     135deg,
     var(--color-gradient-start),
@@ -45,9 +57,6 @@ body {
   );
   background-size: 400% 400%;
   animation: liquidFlow 80s linear infinite;
-  color: var(--color-neon);
-  overflow-x: hidden;
-  -webkit-font-smoothing: antialiased;
 }
 
 /* ======================================== */
@@ -197,6 +206,7 @@ body {
 .main-content {
   padding-top: calc(var(--navbar-height) + 10px);
   padding-bottom: calc(var(--tab-height) + 10px);
+  flex: 1; /* フッター固定しても中身が伸びるように */
 }
 
 /* ======================================== */
