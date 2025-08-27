@@ -1,4 +1,6 @@
-/* モバイル優先 */
+/* =============================
+   共通変数
+============================= */
 :root {
   --radius: 14px;
   --space: 14px;
@@ -13,11 +15,15 @@
   --primary-press: #3a82cc;
 }
 
+/* =============================
+   ページ全体
+============================= */
 .page {
   padding: 20px 14px 40px;
   background: linear-gradient(180deg, #0b0f14, #0f1520 40%, #131a28);
   color: var(--text);
   min-height: 100svh; /* iPhone Safari対策 */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
 }
 
 .page-title {
@@ -26,24 +32,26 @@
   font-weight: 700;
 }
 
-.form-alert {
-  background: #3b1c1c;
-  color: #ffd9d9;
-  border: 1px solid #6a2a2a;
-  border-radius: var(--radius);
-  padding: 12px;
-  margin-bottom: 14px;
-}
-
+/* =============================
+   フォームカード
+============================= */
 form {
-  background: rgba(18, 23, 34, 0.7);
-  backdrop-filter: blur(10px);
+  background: rgba(18, 23, 34, 0.75);
+  backdrop-filter: blur(12px);
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 18px;
-  box-shadow: var(--shadow);
-  padding: 14px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  padding: 16px;
+  transition: box-shadow 0.3s ease;
 }
 
+form:hover {
+  box-shadow: 0 12px 32px rgba(0,0,0,0.2);
+}
+
+/* =============================
+   グリッドレイアウト
+============================= */
 .form-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -59,11 +67,17 @@ form {
   grid-column: 1 / -1;
 }
 
+/* =============================
+   ラベル
+============================= */
 label {
   font-size: 0.9rem;
   color: var(--text);
 }
 
+/* =============================
+   入力欄・セレクト・テキストエリア
+============================= */
 input[type="text"],
 input[type="date"],
 input[type="number"],
@@ -77,6 +91,14 @@ textarea {
   padding: 14px 12px;
   font-size: 16px; /* iOSズーム防止 */
   outline: none;
+  transition: border 0.2s ease, box-shadow 0.2s ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 8px rgba(77,163,255,0.4);
 }
 
 input[readonly] {
@@ -88,6 +110,9 @@ textarea {
   resize: vertical;
 }
 
+/* =============================
+   ヒント・エラー
+============================= */
 .hint {
   color: var(--muted);
   font-size: 0.8rem;
@@ -99,6 +124,9 @@ textarea {
   min-height: 1.1em;
 }
 
+/* =============================
+   フォームアクション
+============================= */
 .form-actions {
   display: flex;
   gap: 10px;
@@ -106,6 +134,9 @@ textarea {
   justify-content: flex-end;
 }
 
+/* =============================
+   ボタン
+============================= */
 .btn {
   appearance: none;
   border: none;
@@ -125,6 +156,7 @@ textarea {
   background: var(--primary-press);
   transform: translateY(1px);
 }
+
 .btn-secondary {
   background: #2a3445;
   color: var(--text);
@@ -134,7 +166,9 @@ textarea {
   transform: translateY(1px);
 }
 
-/* PC/タブレット: 2列レイアウトに切替 */
+/* =============================
+   PC / タブレット対応
+============================= */
 @media (min-width: 768px) {
   .page {
     padding: 30px 24px 60px;
@@ -155,4 +189,11 @@ textarea {
     margin-bottom: 22px;
     font-size: 1.5rem;
   }
+}
+
+/* =============================
+   スマホタッチ向け微調整
+============================= */
+input, select, textarea, .btn {
+  touch-action: manipulation;
 }
