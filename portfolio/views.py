@@ -345,13 +345,16 @@ def save_order(request):
 # API: 証券コード → 銘柄・業種
 # =============================
 def get_stock_by_code(request):
-    code = request.GET.get("code")
+    code = (request.GET.get("code") or "").strip()
+    if not code:
+        return JsonResponse({"success": False})
+    # 4桁ゼロ埋めして検索
+    code = code.zfill(4)
     try:
         stock = StockMaster.objects.get(code=code)
         return JsonResponse({"success": True, "name": stock.name, "sector": stock.sector})
     except StockMaster.DoesNotExist:
         return JsonResponse({"success": False})
-
 
 # =============================
 # API: 銘柄名サジェスト
