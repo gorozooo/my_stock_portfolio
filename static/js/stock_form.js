@@ -37,38 +37,10 @@ function validateTicker() {
 
 // iOSのtype=numberで上下ボタンが邪魔な場合の微調整（任意）
 function tuneIOS() {
-  // ここでは特に何もしないが将来の拡張用
+  // 今は何もしないが、将来必要ならここに処理を追加
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  const shares = document.getElementById("shares");
-  const unitPrice = document.getElementById("unit_price");
-  const ticker = document.getElementById("ticker");
-  const form = document.getElementById("stock-form");
-
-  [shares, unitPrice].forEach(el => {
-    el.addEventListener("input", calcTotalCost);
-    el.addEventListener("change", calcTotalCost);
-  });
-
-  ticker.addEventListener("input", validateTicker);
-  ticker.addEventListener("blur", validateTicker);
-
-  form.addEventListener("submit", (e) => {
-    const okTicker = validateTicker();
-    calcTotalCost();
-
-    // 必須チェック（ブラウザのHTML5検証を尊重）
-    if (!form.checkValidity() || !okTicker) {
-      e.preventDefault();
-      form.reportValidity();
-    }
-  });
-
-  tuneIOS();
-});
-
-// APIのURL (Django側urls.pyに合わせて)
+// ===== APIエンドポイント設定 =====
 const API_STOCK_BY_CODE = "/stocks/api/stock_by_code/";
 const API_SUGGEST_NAME  = "/stocks/api/suggest_name/";
 const API_SECTORS       = "/stocks/api/sectors/";
@@ -99,21 +71,23 @@ async function fetchByCode(code) {
     if (data.success) {
       document.getElementById("name").value = data.name;
       document.getElementById("sector").value = data.sector;
+    } else {
+      // 見つからなければクリア
+      document.getElementById("name").value = "";
+      document.getElementById("sector").value = "";
     }
   } catch (err) {
     console.error("銘柄取得失敗", err);
   }
 }
 
-// 銘柄名サジェスト（簡易版: コンソール表示 or 自動補完リスト）
-let suggestBox;
+// 銘柄名サジェスト（datalist 利用）
 async function suggestName(query) {
   if (query.length < 2) return;
   try {
     const res = await fetch(API_SUGGEST_NAME + "?q=" + encodeURIComponent(query));
     const data = await res.json();
 
-    // datalistで候補を出す
     let list = document.getElementById("name-suggest");
     if (!list) {
       list = document.createElement("datalist");
@@ -133,12 +107,43 @@ async function suggestName(query) {
   }
 }
 
+// ===== 初期化処理 =====
 document.addEventListener("DOMContentLoaded", () => {
-  loadSectors();
-
+  const shares = document.getElementById("shares");
+  const unitPrice = document.getElementById("unit_price");
   const ticker = document.getElementById("ticker");
-  ticker.addEventListener("blur", () => fetchByCode(ticker.value));
-
   const nameInput = document.getElementById("name");
+  const form = document.getElementById("stock-form");
+
+  // 金額自動計算
+  [shares, unitPrice].forEach(el => {
+    el.addEventListener("input", calcTotalCost);
+    el.addEventListener("change", calcTotalCost);
+  });
+
+  // 証券コードバリデーション
+  ticker.addEventListener("input", validateTicker);
+  ticker.addEventListener("blur", () => {
+    if (validateTicker()) {
+      fetchByCode(ticker.value);
+    }
+  });
+
+  // 銘柄サジェスト
   nameInput.addEventListener("input", () => suggestName(nameInput.value));
+
+  // フォーム送信時チェック
+  form.addEventListener("submit", (e) => {
+    const okTicker = validateTicker();
+    calcTotalCost();
+
+    if (!form.checkValidity() || !okTicker) {
+      e.preventDefault();
+      form.reportValidity();
+    }
+  });
+
+  // 初期化
+  loadSectors();
+  tuneIOS();
 });
