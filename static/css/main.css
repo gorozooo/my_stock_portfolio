@@ -1,3 +1,9 @@
+/* メインコンテンツ余白確保（navbar・下タブを避ける） */
+.main-content {
+  padding-top: 90px;   /* navbar の高さ */
+  padding-bottom: 60px; /* bottom-tab の高さ */
+}
+
 /* タイトル */
 .page-title {
   text-align: center;
@@ -18,26 +24,14 @@
   text-align: center;
   transition: transform 0.2s ease-in-out;
 }
-.summary-card:hover {
-  transform: translateY(-5px);
-}
-.summary-card h3 {
-  font-size: 16px;
-  margin-bottom: 10px;
-}
-.value {
-  font-size: 22px;
-  font-weight: bold;
-}
+.summary-card:hover { transform: translateY(-5px); }
+.summary-card h3 { font-size: 16px; margin-bottom: 10px; }
+.value { font-size: 22px; font-weight: bold; }
 .value.positive { color: #28a745; }
 .value.negative { color: #dc3545; }
 
 /* グラフカード */
-.chart-card {
-  margin-top: 30px;
-  padding: 20px;
-  border-radius: 15px;
-}
+.chart-card { margin-top: 30px; padding: 20px; border-radius: 15px; }
 
 /* ガラス感 */
 .glass {
