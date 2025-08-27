@@ -80,6 +80,9 @@ LOGOUT_REDIRECT_URL = '/login/'
 
 CSRF_TRUSTED_ORIGINS = ["http://192.168.1.16:8000""https://gorozooo.com","https://www.gorozooo.com",]
 
+# StockMaster Excel 保存先
+STOCKMASTER_XLSX_PATH = Path(BASE_DIR) / "data" / "StockMaster_latest.xlsx"
+
 # =============================
 # 本番運用時の追加設定例
 # =============================
