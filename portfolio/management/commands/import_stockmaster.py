@@ -1,54 +1,47 @@
-# portfolio/management/commands/import_stockmaster.py
-import csv
 import requests
-from io import StringIO
+import pandas as pd
+from io import BytesIO
 from django.core.management.base import BaseCommand
 from portfolio.models import StockMaster
 
-JPX_CSV_URL = "https://www.jpx.co.jp/listing/stocks/new/csv/TSE_StockList.csv"
+JPX_XLS_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tse-listed-issues.xlsx"
 
 class Command(BaseCommand):
-    help = "東証公式CSVから銘柄マスタ（StockMaster）を更新・追加"
-
-    def add_arguments(self, parser):
-        parser.add_argument(
-            '--local',
-            type=str,
-            help="ローカルCSVファイルパス（指定すると自動ダウンロードせずにこれを使用）"
-        )
+    help = "JPX公式Excelから銘柄マスタ（StockMaster）を更新・追加"
 
     def handle(self, *args, **options):
-        csv_path = options.get('local')
+        self.stdout.write("JPX公式Excelを自動ダウンロード中...")
+        try:
+            resp = requests.get(JPX_XLS_URL)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            self.stdout.write(self.style.ERROR(f"Excelダウンロード失敗: {e}"))
+            return
 
-        if csv_path:
-            self.stdout.write(self.style.NOTICE(f"ローカルCSVを使用: {csv_path}"))
-            with open(csv_path, newline='', encoding='utf-8-sig') as f:
-                csv_data = f.read()
-        else:
-            self.stdout.write(self.style.NOTICE(f"JPX公式CSVを自動ダウンロード中..."))
-            try:
-                r = requests.get(JPX_CSV_URL)
-                r.raise_for_status()
-                csv_data = r.content.decode("utf-8-sig")
-            except Exception as e:
-                self.stderr.write(self.style.ERROR(f"CSVダウンロード失敗: {e}"))
-                return
+        xls = BytesIO(resp.content)
+        df = pd.read_excel(xls, sheet_name=0)
 
-        reader = csv.DictReader(StringIO(csv_data))
+        # Excelの列名に応じて調整
+        # 例: 'コード', '銘柄名', '33業種区分'
+        df = df.rename(columns={
+            'コード': 'code',
+            '銘柄名': 'name',
+            '33業種区分': 'sector'
+        })
+
         updated = 0
         created = 0
+        for _, row in df.iterrows():
+            code = str(row.get('code')).zfill(4)
+            name = str(row.get('name')).strip()
+            sector = str(row.get('sector')).strip() if row.get('sector') else ""
 
-        for row in reader:
-            code = row.get('証券コード') or row.get('Code')
-            name = row.get('銘柄名') or row.get('Name')
-            sector = row.get('33業種') or row.get('Sector')
-            if not (code and name):
-                self.stdout.write(self.style.WARNING(f"不足: {row}"))
+            if not code or not name:
                 continue
 
             obj, created_flag = StockMaster.objects.update_or_create(
-                code=str(code).zfill(4),
-                defaults={'name': name.strip(), 'sector': (sector or "").strip()}
+                code=code,
+                defaults={'name': name, 'sector': sector}
             )
             if created_flag:
                 created += 1
