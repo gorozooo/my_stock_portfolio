@@ -1,23 +1,18 @@
-/* ======================================== */
-/* ===== 変数・テーマ ===== */
 :root {
-  --color-neon: #00ffff;
-  --blur: 28px;
   --navbar-height: 90px;
   --tab-height: 60px;
   --tab-width-mobile: 80%;
   --tab-width-pc: 33%;
 }
 
-/* ===== ネオンパルス ===== */
+/* ネオンパルス */
 @keyframes neonPulse {
   0% { text-shadow: 0 0 6px var(--color-neon), 0 0 12px #7f7fff, 0 0 20px #8a00ff; transform: scale(1); }
   50% { text-shadow: 0 0 12px var(--color-neon), 0 0 24px #7f7fff, 0 0 40px #8a00ff; transform: scale(1.05); }
   100% { text-shadow: 0 0 6px var(--color-neon), 0 0 12px #7f7fff, 0 0 20px #8a00ff; transform: scale(1); }
 }
 
-/* ======================================== */
-/* ===== ナビバー ===== */
+/* ナビバー */
 .navbar {
   position: fixed;
   top: 0;
@@ -27,7 +22,6 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-
   backdrop-filter: blur(var(--blur)) saturate(220%);
   border-bottom: 1px solid rgba(255,255,255,0.1);
   z-index: 1000;
@@ -72,8 +66,7 @@
   letter-spacing: 1px;
 }
 
-/* ======================================== */
-/* ===== 下タブ ===== */
+/* 下タブ */
 .bottom-tab {
   position: fixed;
   bottom: 0;
@@ -81,69 +74,21 @@
   transform: translateX(-50%);
   width: var(--tab-width-mobile);
   height: var(--tab-height);
-
   backdrop-filter: blur(var(--blur)) saturate(220%);
   border-top: 1px solid rgba(255,255,255,0.1);
-
   z-index: 1000;
   overflow: hidden;
   border-radius: 18px 18px 0 0;
-
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-.tab-list {
-  display: flex;
-  justify-content: space-around;
-  align-items: center;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  height: 100%;
-}
-
-.tab-item {
-  flex: 1;
-  height: 100%;
-}
-
-.tab-item a {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: var(--color-neon);
-  text-decoration: none;
-  transition: transform 0.3s, text-shadow 0.5s;
-}
-
-.tab-item a i {
-  font-size: 22px;
-  margin-bottom: 2px;
-  color: var(--color-neon);
-  text-shadow: 0 0 6px var(--color-neon), 0 0 12px #7f7fff, 0 0 20px #8a00ff;
-  animation: neonPulse 8s ease-in-out infinite;
-}
-
-.tab-item a span {
-  font-size: 11px;
-}
-
-.tab-item a:hover i,
-.tab-item a.active i {
-  text-shadow: 0 0 18px var(--color-neon), 0 0 36px #7f7fff, 0 0 60px #8a00ff;
-  transform: scale(1.2) translateY(-2px);
-}
-
-/* ======================================== */
-/* ===== メインコンテンツ余白 ===== */
 .main-content {
   padding-top: calc(var(--navbar-height) + 10px);
   padding-bottom: calc(var(--tab-height) + 10px);
   flex: 1;
 }
 
+/* モーダル省略（上記と同じ） */
 /* ======================================== */
 /* ===== モーダル ===== */
 .modal-overlay {
