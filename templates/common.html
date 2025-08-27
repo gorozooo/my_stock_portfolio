@@ -1,6 +1,14 @@
-{% load static %}
-<!-- 共通head要素（一元管理） -->
-<link rel="stylesheet" href="{% static 'css/future.css' %}">
-<meta name="theme-color" content="#0a0f1f">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<script src="{% static 'js/ui.js' %}" defer></script>
+/* 全ページ共通の背景 */
+body {
+  margin: 0;
+  height: 100vh;
+  background: linear-gradient(135deg, #000006, #001133, #4400aa);
+  color: #fff;
+  font-family: "Segoe UI", sans-serif;
+}
+
+#wrapper {
+  min-height: 100vh;
+  backdrop-filter: blur(28px);
+  background: rgba(0, 0, 0, 0.35); /* 半透明ラッパー */
+}
