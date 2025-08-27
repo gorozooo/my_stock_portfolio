@@ -1,169 +1,47 @@
-:root {
-  --navbar-height: 90px;
-  --tab-height: 60px;
-  --tab-width-mobile: 80%;
-  --tab-width-pc: 33%;
+/* ===== 全体 ===== */
+body {
+  margin: 0;
+  font-family: sans-serif;
 }
 
-/* ネオンパルス */
-@keyframes neonPulse {
-  0% { text-shadow: 0 0 6px var(--color-neon), 0 0 12px #7f7fff, 0 0 20px #8a00ff; transform: scale(1); }
-  50% { text-shadow: 0 0 12px var(--color-neon), 0 0 24px #7f7fff, 0 0 40px #8a00ff; transform: scale(1.05); }
-  100% { text-shadow: 0 0 6px var(--color-neon), 0 0 12px #7f7fff, 0 0 20px #8a00ff; transform: scale(1); }
-}
-
-/* ナビバー */
+/* ===== ナビバー固定 ===== */
 .navbar {
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
-  height: var(--navbar-height);
+  height: 60px;
+  background-color: #111;
+  color: #0ff;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  backdrop-filter: blur(var(--blur)) saturate(220%);
-  border-bottom: 1px solid rgba(255,255,255,0.1);
-  z-index: 1000;
-  padding-top: env(safe-area-inset-top);
-}
-
-.navbar-title {
-  text-align: center;
-  font-size: 22px;
-  font-weight: bold;
-  letter-spacing: 1px;
-  color: var(--color-neon);
-  animation: neonPulse 8s ease-in-out infinite;
-  padding: 4px 0;
-}
-
-.navbar-sub {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  width: 100%;
-  max-width: 480px;
-  margin: 0 auto;
-  padding: 0 12px;
+  justify-content: center;
+  z-index: 1000;
 }
 
-.navbar-left, .navbar-right {
-  flex: 1;
-  font-size: 12px;
-  color: var(--color-neon);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* ===== メインコンテンツ余白 ===== */
+.main-content {
+  margin-top: 60px; /* navbar の高さ分の余白 */
+  padding: 20px;
 }
 
-.navbar-center {
-  flex: 2;
-  text-align: center;
-  font-size: 16px;
-  font-weight: bold;
-  color: var(--color-neon);
-  letter-spacing: 1px;
-}
-
-/* 下タブ */
+/* ===== 下タブ固定 ===== */
 .bottom-tab {
   position: fixed;
   bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: var(--tab-width-mobile);
-  height: var(--tab-height);
-  backdrop-filter: blur(var(--blur)) saturate(220%);
-  border-top: 1px solid rgba(255,255,255,0.1);
-  z-index: 1000;
-  overflow: hidden;
-  border-radius: 18px 18px 0 0;
-  padding-bottom: env(safe-area-inset-bottom);
-}
-
-.main-content {
-  padding-top: calc(var(--navbar-height) + 10px);
-  padding-bottom: calc(var(--tab-height) + 10px);
-  flex: 1;
-}
-
-/* モーダル省略（上記と同じ） */
-/* ======================================== */
-/* ===== モーダル ===== */
-.modal-overlay {
-  display: none;
-  position: fixed;
-  top: 0;
   left: 0;
   width: 100%;
-  height: 100%;
-  background: rgba(0,0,0,0.6);
-  backdrop-filter: blur(5px);
-  z-index: 2000;
-}
-
-.modal-content {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: rgba(255,255,255,0.12);
-  backdrop-filter: blur(20px);
-  border-radius: 12px;
-  padding: 20px;
-  width: 85%;
-  max-width: 400px;
-  text-align: center;
-  color: #fff;
-  box-shadow: 0 0 15px rgba(0, 255, 255, 0.6);
-  animation: fadeIn 0.3s ease;
-}
-
-.modal-content h2 {
-  margin-bottom: 10px;
-  font-size: 1.4em;
-  font-weight: bold;
-  color: var(--color-neon);
-}
-
-.modal-buttons {
-  margin-top: 20px;
+  height: 50px;
+  background-color: #111;
+  color: #0ff;
   display: flex;
-  justify-content: space-around;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
 }
 
-.modal-buttons button {
-  padding: 8px 18px;
-  border: none;
-  border-radius: 6px;
-  font-size: 1em;
-  cursor: pointer;
-  transition: 0.3s;
-}
-
-.modal-buttons .btn-cancel { background: #444; color: #fff; }
-.modal-buttons .btn-cancel:hover { background: #666; }
-
-.modal-buttons .btn-ok { background: #00cccc; color: #fff; }
-.modal-buttons .btn-ok:hover { background: #00ffff; color: #000; }
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translate(-50%, -60%); }
-  to   { opacity: 1; transform: translate(-50%, -50%); }
-}
-
-/* ======================================== */
-/* ===== PC向け拡張 ===== */
-@media (min-width: 768px) {
-  .navbar-title { font-size: 26px; }
-  .navbar-center { font-size: 18px; }
-  .tab-item a i { font-size: 26px; }
-  .tab-item a span { font-size: 12px; }
-
-  .bottom-tab {
-    width: var(--tab-width-pc);
-    max-width: 320px;
-    border-radius: 24px 24px 0 0;
-  }
+/* ===== メインコンテンツのスクロール確認用 ===== */
+.content-box {
+  height: 2000px; /* 適当に長くしてスクロール確認 */
+  background: linear-gradient(#222, #444);
 }
