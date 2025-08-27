@@ -4,24 +4,65 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>固定ナビバーテスト</title>
-    <!-- 共通背景 -->
+  <title>{% block title %}My Portfolio{% endblock %}</title>
+
+  <!-- 共通背景 -->
   <link rel="stylesheet" href="{% static 'css/common.css' %}">
   <!-- ページ個別装飾 -->
   <link rel="stylesheet" href="{% static 'css/future_ui_advanced.css' %}">
+  {% block extra_css %}{% endblock %}
 </head>
 <body>
+  <div class="app-wrapper">
 
-  <!-- 固定ナビバー -->
-  <div class="navbar">固定ナビバー</div>
+    <!-- ナビバー -->
+    <header class="navbar">
+      <div class="navbar-title">
+        📊 My Portfolio
+      </div>
+      <div class="navbar-sub">
+        <div class="navbar-left">
+          {% if user.is_authenticated %}
+            ようこそ <strong>{{ user.username }}</strong> さん
+          {% else %}
+            ゲストさん
+          {% endif %}
+        </div>
+        <div class="navbar-center">
+          {% block page_title %}ホーム{% endblock %}
+        </div>
+        <div class="navbar-right">
+          最終更新: {{ LAST_UPDATED|default:"-" }}
+        </div>
+      </div>
+    </header>
 
-  <!-- メインコンテンツ -->
-  <div class="main-content">
-    <div class="content-box">ここがメインコンテンツ</div>
-  </div>
+    <!-- メインコンテンツ -->
+    <main class="main-content">
+      {% block content %}{% endblock %}
+    </main>
 
-  <!-- 固定下タブ -->
-  <div class="bottom-tab">固定下タブ</div>
+    <!-- 下タブ -->
+    <footer>
+      {% include "bottom_tab.html" %}
+    </footer>
 
+    <!-- 共通モーダル -->
+    <div id="confirmModal" class="modal-overlay">
+      <div class="modal-content">
+        <h2>確認</h2>
+        <p id="confirmMessage">この操作を実行しますか？</p>
+        <div class="modal-buttons">
+          <button class="btn-cancel">キャンセル</button>
+          <button class="btn-ok">OK</button>
+        </div>
+      </div>
+    </div>
+
+  </div> <!-- /.app-wrapper -->
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="{% static 'js/base.js' %}"></script>
+  {% block extra_js %}{% endblock %}
 </body>
 </html>
