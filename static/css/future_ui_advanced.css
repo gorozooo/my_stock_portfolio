@@ -25,6 +25,7 @@ body {
   min-height: 100vh;
   color: var(--color-neon);
   overflow-x: hidden;
+  overflow-y: auto; /* fixed の干渉を防ぐ */
   -webkit-font-smoothing: antialiased;
 }
 
@@ -34,16 +35,17 @@ body {
   position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
+  right: 0;
   height: var(--navbar-height);
   display: flex;
   flex-direction: column;
   justify-content: center;
+  z-index: 1000;
 
   backdrop-filter: blur(var(--blur)) saturate(220%);
   border-bottom: 1px solid rgba(255,255,255,0.1);
-  z-index: 1000;
-  padding-top: env(safe-area-inset-top);
+  padding-top: env(safe-area-inset-top, 0); /* iPhone ノッチ対応 */
+  background: rgba(0,0,0,0.3); /* 透明度付きで固定表示 */
 }
 
 .navbar-title {
@@ -89,7 +91,7 @@ body {
 .bottom-tab {
   position: fixed;
   bottom: 0;
-  left: 10%;
+  left: 50%;
   transform: translateX(-50%);
   width: var(--tab-width-mobile);
   height: var(--tab-height);
@@ -100,8 +102,8 @@ body {
   z-index: 1000;
   overflow: hidden;
   border-radius: 18px 18px 0 0;
-
   padding-bottom: env(safe-area-inset-bottom);
+  background: rgba(0,0,0,0.3);
 }
 
 .tab-list {
@@ -209,20 +211,11 @@ body {
   transition: 0.3s;
 }
 
-.modal-buttons .btn-cancel {
-  background: #444;
-  color: #fff;
-}
+.modal-buttons .btn-cancel { background: #444; color: #fff; }
 .modal-buttons .btn-cancel:hover { background: #666; }
 
-.modal-buttons .btn-ok {
-  background: #00cccc;
-  color: #fff;
-}
-.modal-buttons .btn-ok:hover {
-  background: #00ffff;
-  color: #000;
-}
+.modal-buttons .btn-ok { background: #00cccc; color: #fff; }
+.modal-buttons .btn-ok:hover { background: #00ffff; color: #000; }
 
 @keyframes fadeIn {
   from { opacity: 0; transform: translate(-50%, -60%); }
