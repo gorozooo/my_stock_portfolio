@@ -41,6 +41,8 @@ git a "更新1"
 git add .
 git commit -m "更新①"
 git push origin main
+#ローカルを強制で上書きする
+git push -f origin main. 
 
 # vps側で：
 su - gorozooo
