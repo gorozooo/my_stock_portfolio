@@ -4,65 +4,35 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}My Portfolio{% endblock %}</title>
-
-  <!-- 共通背景 -->
-  <link rel="stylesheet" href="{% static 'css/common.css' %}">
-  <!-- ページ個別装飾 -->
-  <link rel="stylesheet" href="{% static 'css/future_ui_advanced.css' %}">
-  {% block extra_css %}{% endblock %}
+  <title>固定ナビバー・下タブテスト</title>
+  <link rel="stylesheet" href="{% static 'css/fixed_test.css' %}">
 </head>
 <body>
+
   <div class="app-wrapper">
 
-    <!-- ナビバー -->
+    <!-- ナビバー（固定） -->
     <header class="navbar">
-      <div class="navbar-title">
-        📊 My Portfolio
-      </div>
-      <div class="navbar-sub">
-        <div class="navbar-left">
-          {% if user.is_authenticated %}
-            ようこそ <strong>{{ user.username }}</strong> さん
-          {% else %}
-            ゲストさん
-          {% endif %}
-        </div>
-        <div class="navbar-center">
-          {% block page_title %}ホーム{% endblock %}
-        </div>
-        <div class="navbar-right">
-          最終更新: {{ LAST_UPDATED|default:"-" }}
-        </div>
-      </div>
+      固定ナビバー
     </header>
 
     <!-- メインコンテンツ -->
     <main class="main-content">
-      {% block content %}{% endblock %}
+      <div class="content-box">
+        <p>ここがスクロール可能なメインコンテンツです。</p>
+        <p>スクロール確認用に高さを伸ばしています。</p>
+        <p>...</p>
+        <p>いっぱいスクロールしてください。</p>
+        <p style="height:1500px;"></p>
+      </div>
     </main>
 
-    <!-- 下タブ -->
-    <footer>
-      {% include "bottom_tab.html" %}
+    <!-- 下タブ（固定） -->
+    <footer class="bottom-tab">
+      固定下タブ
     </footer>
 
-    <!-- 共通モーダル -->
-    <div id="confirmModal" class="modal-overlay">
-      <div class="modal-content">
-        <h2>確認</h2>
-        <p id="confirmMessage">この操作を実行しますか？</p>
-        <div class="modal-buttons">
-          <button class="btn-cancel">キャンセル</button>
-          <button class="btn-ok">OK</button>
-        </div>
-      </div>
-    </div>
+  </div>
 
-  </div> <!-- /.app-wrapper -->
-
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="{% static 'js/base.js' %}"></script>
-  {% block extra_js %}{% endblock %}
 </body>
 </html>
