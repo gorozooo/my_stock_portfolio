@@ -1,4 +1,4 @@
-# management/commands/import_stockmaster.py
+# portfolio/management/commands/import_stockmaster.py
 import csv
 from django.core.management.base import BaseCommand
 from portfolio.models import StockMaster
@@ -11,23 +11,35 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         path = options['csvfile']
-        updated = 0
-        created = 0
-        with open(path, newline='', encoding='utf-8') as f:
+        updated_count = 0
+        created_count = 0
+
+        # utf-8-sig で BOM 対応
+        with open(path, newline='', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                code = row.get('証券コード') or row.get('Code')
-                name = row.get('銘柄名') or row.get('Name')
-                sector = row.get('33業種') or row.get('Sector')
-                if not (code and name and sector):
-                    self.stdout.write(self.style.WARNING(f"不足: {row}"))
+                code = (row.get('証券コード') or row.get('Code') or "").strip()
+                name = (row.get('銘柄名') or row.get('Name') or "").strip()
+                sector = (row.get('33業種') or row.get('Sector') or "").strip()
+
+                if not (code and name):
+                    self.stdout.write(self.style.WARNING(f"不足データ: {row}"))
                     continue
+
+                # code を 4 桁にゼロ埋め
+                code = code.zfill(4)
+
                 obj, created_flag = StockMaster.objects.update_or_create(
-                    code=code.zfill(4),
-                    defaults={'name': name.strip(), 'sector': sector.strip()}
+                    code=code,
+                    defaults={
+                        'name': name,
+                        'sector': sector
+                    }
                 )
+
                 if created_flag:
-                    created += 1
+                    created_count += 1
                 else:
-                    updated += 1
-        self.stdout.write(self.style.SUCCESS(f"作成 {created} 件、更新 {updated} 件"))
+                    updated_count += 1
+
+        self.stdout.write(self.style.SUCCESS(f"作成 {created_count} 件、更新 {updated_count} 件"))
