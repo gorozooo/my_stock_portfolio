@@ -6,38 +6,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}My Portfolio{% endblock %}</title>
 
-  <!-- 共通スタイル -->
+  <!-- 共通背景 -->
   <link rel="stylesheet" href="{% static 'css/common.css' %}">
-  <!-- ページ固有スタイル -->
+  <!-- ページ個別装飾 -->
   <link rel="stylesheet" href="{% static 'css/future_ui_advanced.css' %}">
   {% block extra_css %}{% endblock %}
 </head>
 <body>
-
-  <!-- ナビバー（wrapper の外に置く） -->
-  <header class="navbar">
-    <div class="navbar-title">
-      📊 My Portfolio
-    </div>
-    <div class="navbar-sub">
-      <div class="navbar-left">
-        {% if user.is_authenticated %}
-          ようこそ <strong>{{ user.username }}</strong> さん
-        {% else %}
-          ゲストさん
-        {% endif %}
-      </div>
-      <div class="navbar-center">
-        {% block page_title %}ホーム{% endblock %}
-      </div>
-      <div class="navbar-right">
-        最終更新: {{ LAST_UPDATED|default:"-" }}
-      </div>
-    </div>
-  </header>
-
-  <!-- 全体ラッパー（背景グラデーション用） -->
   <div class="app-wrapper">
+
+    <!-- ナビバー -->
+    <header class="navbar">
+      <div class="navbar-title">
+        📊 My Portfolio
+      </div>
+      <div class="navbar-sub">
+        <div class="navbar-left">
+          {% if user.is_authenticated %}
+            ようこそ <strong>{{ user.username }}</strong> さん
+          {% else %}
+            ゲストさん
+          {% endif %}
+        </div>
+        <div class="navbar-center">
+          {% block page_title %}ホーム{% endblock %}
+        </div>
+        <div class="navbar-right">
+          最終更新: {{ LAST_UPDATED|default:"-" }}
+        </div>
+      </div>
+    </header>
 
     <!-- メインコンテンツ -->
     <main class="main-content">
@@ -63,10 +61,8 @@
 
   </div> <!-- /.app-wrapper -->
 
-  <!-- 共通JS -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="{% static 'js/base.js' %}"></script>
   {% block extra_js %}{% endblock %}
-
 </body>
 </html>
