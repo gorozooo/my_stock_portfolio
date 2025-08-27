@@ -15,26 +15,22 @@
     {% csrf_token %}
     <div class="form-grid">
 
-      <!-- 購入日 -->
       <div class="form-field">
         <label for="purchase_date">購入日</label>
         <input type="date" id="purchase_date" name="purchase_date" required>
       </div>
 
-      <!-- 証券コード -->
       <div class="form-field">
         <label for="ticker">証券コード</label>
         <input type="text" id="ticker" name="ticker" pattern="^\d{4}$" required>
         <div class="field-error" data-for="ticker"></div>
       </div>
 
-      <!-- 銘柄名 -->
       <div class="form-field">
         <label for="name">銘柄</label>
-        <input type="text" id="name" name="name" required autocomplete="off">
+        <input type="text" id="name" name="name" required>
       </div>
 
-      <!-- 口座区分 -->
       <div class="form-field">
         <label for="account_type">口座区分</label>
         <select id="account_type" name="account_type" required>
@@ -45,33 +41,28 @@
         </select>
       </div>
 
-      <!-- セクター -->
       <div class="form-field">
         <label for="sector">セクター</label>
-        <input list="sector-list" id="sector" name="sector" required autocomplete="off">
+        <input list="sector-list" id="sector" name="sector" required>
         <datalist id="sector-list"></datalist>
       </div>
 
-      <!-- 株数 -->
       <div class="form-field">
         <label for="shares">株数</label>
         <input type="number" id="shares" name="shares" min="1" step="1" required>
       </div>
 
-      <!-- 取得単価 -->
       <div class="form-field">
         <label for="unit_price">取得単価</label>
         <input type="number" id="unit_price" name="unit_price" step="0.01" min="0" required>
       </div>
 
-      <!-- 取得額（自動計算） -->
       <div class="form-field">
         <label for="total_cost">取得額</label>
-        <input type="text" id="total_cost" readonly placeholder="株数×単価">
+        <input type="text" id="total_cost" readonly>
         <input type="hidden" id="total_cost_raw" name="total_cost">
       </div>
 
-      <!-- 備考 -->
       <div class="form-field form-field--full">
         <label for="note">備考</label>
         <textarea id="note" name="note" rows="3"></textarea>
@@ -79,7 +70,6 @@
 
     </div>
 
-    <!-- フォームアクション -->
     <div class="form-actions">
       <a class="btn btn-secondary" href="{% url 'stock_list' %}">戻る</a>
       <button type="submit" class="btn btn-primary">登録する</button>
