@@ -1,6 +1,5 @@
 from django.db import models
 from django.utils import timezone
-from portfolio.models import StockMaster
 
 # =============================
 # 株マスター（証券コード・銘柄・33業種）
