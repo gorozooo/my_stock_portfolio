@@ -6,41 +6,38 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}My Portfolio{% endblock %}</title>
 
-  <!-- 共通背景 -->
+  <!-- 共通スタイル -->
   <link rel="stylesheet" href="{% static 'css/common.css' %}">
-  
-  <!-- ページごとのUI装飾 -->
+  <!-- ページ固有スタイル -->
   <link rel="stylesheet" href="{% static 'css/future_ui_advanced.css' %}">
-  
   {% block extra_css %}{% endblock %}
 </head>
 <body>
-  <!-- 全体ラッパー（背景グラデーション適用用） -->
-  <div class="app-wrapper">
 
-    <!-- ナビバー -->
-    <header class="navbar">
-      <!-- 上段: 固定タイトル -->
-      <div class="navbar-title">
-        📊 My Portfolio
+  <!-- ナビバー（wrapper の外に置く） -->
+  <header class="navbar">
+    <div class="navbar-title">
+      📊 My Portfolio
+    </div>
+    <div class="navbar-sub">
+      <div class="navbar-left">
+        {% if user.is_authenticated %}
+          ようこそ <strong>{{ user.username }}</strong> さん
+        {% else %}
+          ゲストさん
+        {% endif %}
       </div>
-      <!-- 下段: ユーザー・ページタイトル・最終更新 -->
-      <div class="navbar-sub">
-        <div class="navbar-left">
-          {% if user.is_authenticated %}
-            ようこそ <strong>{{ user.username }}</strong> さん
-          {% else %}
-            ゲストさん
-          {% endif %}
-        </div>
-        <div class="navbar-center">
-          {% block page_title %}ホーム{% endblock %}
-        </div>
-        <div class="navbar-right">
-          最終更新: {{ LAST_UPDATED|default:"-" }}
-        </div>
+      <div class="navbar-center">
+        {% block page_title %}ホーム{% endblock %}
       </div>
-    </header>
+      <div class="navbar-right">
+        最終更新: {{ LAST_UPDATED|default:"-" }}
+      </div>
+    </div>
+  </header>
+
+  <!-- 全体ラッパー（背景グラデーション用） -->
+  <div class="app-wrapper">
 
     <!-- メインコンテンツ -->
     <main class="main-content">
@@ -52,7 +49,7 @@
       {% include "bottom_tab.html" %}
     </footer>
 
-    <!-- 共通モーダル（確認用） -->
+    <!-- 共通モーダル -->
     <div id="confirmModal" class="modal-overlay">
       <div class="modal-content">
         <h2>確認</h2>
