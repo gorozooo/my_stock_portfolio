@@ -6,7 +6,8 @@ from django.core.management.base import BaseCommand
 from portfolio.models import StockMaster
 
 # JPXの Excel（公式ページが変わることがあるので変更があればここを更新）
-JPX_XLS_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tse-listed-issues.xlsx"
+# 修正する部分
+JPX_XLS_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
 
 class Command(BaseCommand):
     help = "JPX公式Excelから銘柄マスタ（StockMaster）を更新・追加"
