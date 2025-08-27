@@ -1,27 +1,13 @@
 /* ======================================== */
 /* ===== 変数・テーマ ===== */
 :root {
-  --color-bg: #000006;
-  --color-gradient-start: #000006;
-  --color-gradient-mid: #001133;
-  --color-gradient-end: #4400aa;
   --color-neon: #00ffff;
   --blur: 28px;
-  --navbar-height: 90px;  /* 2段ナビバーなので少し高さを増やす */
+  --navbar-height: 90px;  /* 2段ナビバー */
   --tab-height: 60px;
   --tab-width-mobile: 80%;   /* スマホ基準 */
   --tab-width-pc: 33%;       /* PCは幅1/3 */
   --font-main: 'Helvetica Neue', sans-serif;
-}
-
-/* ======================================== */
-/* ===== 背景液体グラデーション ===== */
-@keyframes liquidFlow {
-  0% { background-position: 0% 50%; transform: translateY(0); }
-  25% { background-position: 25% 55%; transform: translateY(-2px); }
-  50% { background-position: 50% 50%; transform: translateY(0); }
-  75% { background-position: 75% 45%; transform: translateY(2px); }
-  100% { background-position: 0% 50%; transform: translateY(0); }
 }
 
 /* ===== ネオンパルス ===== */
@@ -40,23 +26,6 @@ body {
   color: var(--color-neon);
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
-  background: none; /* 背景は wrapper に任せる */
-}
-
-/* ラッパー (全ページ共通の背景) */
-.wrapper {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-
-  background: linear-gradient(
-    135deg,
-    var(--color-gradient-start),
-    var(--color-gradient-mid),
-    var(--color-gradient-end)
-  );
-  background-size: 400% 400%;
-  animation: liquidFlow 80s linear infinite;
 }
 
 /* ======================================== */
@@ -71,23 +40,12 @@ body {
   flex-direction: column;
   justify-content: center;
 
-  background: linear-gradient(
-    135deg,
-    var(--color-gradient-start),
-    var(--color-gradient-mid),
-    var(--color-gradient-end)
-  );
-  background-size: 400% 400%;
-  animation: liquidFlow 50s linear infinite;
-
   backdrop-filter: blur(var(--blur)) saturate(220%);
   border-bottom: 1px solid rgba(255,255,255,0.1);
   z-index: 1000;
-
   padding-top: env(safe-area-inset-top);
 }
 
-/* 上段: 固定アプリタイトル */
 .navbar-title {
   text-align: center;
   font-size: 22px;
@@ -98,7 +56,6 @@ body {
   padding: 4px 0;
 }
 
-/* 下段: ユーザー / ページタイトル / 最終更新 */
 .navbar-sub {
   display: flex;
   justify-content: space-between;
@@ -136,15 +93,6 @@ body {
   transform: translateX(-50%);
   width: var(--tab-width-mobile);
   height: var(--tab-height);
-
-  background: linear-gradient(
-    135deg,
-    var(--color-gradient-start),
-    var(--color-gradient-mid),
-    var(--color-gradient-end)
-  );
-  background-size: 400% 400%;
-  animation: liquidFlow 50s linear infinite;
 
   backdrop-filter: blur(var(--blur)) saturate(220%);
   border-top: 1px solid rgba(255,255,255,0.1);
@@ -194,7 +142,6 @@ body {
   font-size: 11px;
 }
 
-/* ホバー・アクティブ時 */
 .tab-item a:hover i,
 .tab-item a.active i {
   text-shadow: 0 0 18px var(--color-neon), 0 0 36px #7f7fff, 0 0 60px #8a00ff;
@@ -206,13 +153,13 @@ body {
 .main-content {
   padding-top: calc(var(--navbar-height) + 10px);
   padding-bottom: calc(var(--tab-height) + 10px);
-  flex: 1; /* フッター固定しても中身が伸びるように */
+  flex: 1;
 }
 
 /* ======================================== */
-/* ===== 確認モーダル 共通デザイン ===== */
+/* ===== モーダル 共通デザイン ===== */
 .modal-overlay {
-  display: none; /* 初期は非表示 */
+  display: none;
   position: fixed;
   top: 0;
   left: 0;
@@ -266,9 +213,7 @@ body {
   background: #444;
   color: #fff;
 }
-.modal-buttons .btn-cancel:hover {
-  background: #666;
-}
+.modal-buttons .btn-cancel:hover { background: #666; }
 
 .modal-buttons .btn-ok {
   background: #00cccc;
@@ -291,7 +236,6 @@ body {
   .navbar-center { font-size: 18px; }
   .tab-item a i { font-size: 26px; }
   .tab-item a span { font-size: 12px; }
-
   .bottom-tab {
     width: var(--tab-width-pc);
     max-width: 320px;
