@@ -1,115 +1,72 @@
-// ====================================
-// 株フォーム補助 JS（スマホ対応・金額計算・サジェスト）
-// ====================================
-
-// 数値→カンマ区切り（小数切捨て）表示
+// 数値→カンマ区切り（小数切捨て）
 function formatAmountJPY(value) {
-  if (value === null || value === undefined || isNaN(value)) return "";
-  const floored = Math.floor(Number(value)); // 小数切捨て
-  return floored.toLocaleString("ja-JP");
+  if (isNaN(value) || value === null) return "";
+  return Math.floor(Number(value)).toLocaleString("ja-JP");
 }
 
-// 株数・単価から取得総額を計算して表示
+// 株数×単価→取得額自動計算
 function calcTotalCost() {
-  const shares = Number(document.getElementById("shares")?.value || 0);
-  const unitPrice = Number(document.getElementById("unit_price")?.value || 0);
-  const display = document.getElementById("total_cost");
-  const hidden = document.getElementById("total_cost_raw");
-
-  if (shares > 0 && unitPrice >= 0) {
-    const total = shares * unitPrice;
-    display.value = formatAmountJPY(total);
-    hidden.value = Math.floor(total);
-  } else {
-    display.value = "";
-    hidden.value = "";
-  }
+  const shares = Number(document.getElementById("shares").value || 0);
+  const unitPrice = Number(document.getElementById("unit_price").value || 0);
+  const total = shares * unitPrice;
+  document.getElementById("total_cost").value = shares > 0 ? formatAmountJPY(total) : "";
+  document.getElementById("total_cost_raw").value = shares > 0 ? Math.floor(total) : "";
 }
 
 // 証券コード4桁バリデーション
 function validateTicker() {
   const input = document.getElementById("ticker");
   const err = document.querySelector('.field-error[data-for="ticker"]');
-  const val = (input?.value || "").trim();
+  const val = (input.value || "").trim();
   const ok = /^\d{4}$/.test(val);
-
-  if (err) err.textContent = ok ? "" : "証券コードは4桁の数字です。";
+  err.textContent = ok ? "" : "証券コードは4桁の数字です。";
   return ok;
 }
 
-// iOS type=number 微調整（必要に応じて拡張）
-function tuneIOS() {
-  // 現在は未実装
-}
-
-// ====================================
-// APIエンドポイント
-// ====================================
+// API
 const API_STOCK_BY_CODE = "/stocks/api/stock_by_code/";
 const API_SUGGEST_NAME  = "/stocks/api/suggest_name/";
 const API_SECTORS       = "/stocks/api/sectors/";
 
-// 33業種をサーバーから取得して datalist にセット
+// セクター取得
 async function loadSectors() {
   try {
     const res = await fetch(API_SECTORS);
     const sectors = await res.json();
     const list = document.getElementById("sector-list");
-    if (!list) return;
     list.innerHTML = "";
     sectors.forEach(sec => {
       const opt = document.createElement("option");
       opt.value = sec;
       list.appendChild(opt);
     });
-  } catch (err) {
-    console.error("セクター取得失敗:", err);
-  }
+  } catch (err) { console.error(err); }
 }
 
-// 証券コード入力で銘柄・セクター自動補完
+// 証券コードから銘柄・セクター取得
 async function fetchByCode(code) {
   if (!/^\d{4}$/.test(code)) return;
-
   try {
     const res = await fetch(`${API_STOCK_BY_CODE}?code=${code}`);
     const data = await res.json();
-
-    const nameInput = document.getElementById("name");
-    const sectorInput = document.getElementById("sector");
-
-    if (!nameInput || !sectorInput) return;
-
-    if (data.success) {
-      nameInput.value = data.name;
-      sectorInput.value = data.sector;
-    } else {
-      nameInput.value = "";
-      sectorInput.value = "";
-    }
-  } catch (err) {
-    console.error("銘柄取得失敗:", err);
-  }
+    document.getElementById("name").value = data.success ? data.name : "";
+    document.getElementById("sector").value = data.success ? data.sector : "";
+  } catch (err) { console.error(err); }
 }
 
-// 銘柄名サジェスト（datalist 利用）
+// 銘柄名サジェスト
 async function suggestName(query) {
-  if (!query || query.length < 2) return;
-
+  if (query.length < 2) return;
   try {
     const res = await fetch(`${API_SUGGEST_NAME}?q=${encodeURIComponent(query)}`);
     const data = await res.json();
-
     let list = document.getElementById("name-suggest");
     if (!list) {
       list = document.createElement("datalist");
       list.id = "name-suggest";
       document.body.appendChild(list);
-
-      const nameInput = document.getElementById("name");
-      if (nameInput) nameInput.setAttribute("list", "name-suggest");
+      document.getElementById("name").setAttribute("list","name-suggest");
     }
-
     list.innerHTML = "";
     data.forEach(item => {
       const opt = document.createElement("option");
@@ -117,14 +74,10 @@ async function suggestName(query) {
       opt.dataset.code = item.code;
       list.appendChild(opt);
     });
-  } catch (err) {
-    console.error("サジェスト失敗:", err);
-  }
+  } catch (err) { console.error(err); }
 }
 
-// ====================================
-// 初期化処理
-// ====================================
+// 初期化
 document.addEventListener("DOMContentLoaded", () => {
   const shares = document.getElementById("shares");
   const unitPrice = document.getElementById("unit_price");
@@ -132,40 +85,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const nameInput = document.getElementById("name");
   const form = document.getElementById("stock-form");
 
-  // 金額自動計算
-  [shares, unitPrice].forEach(el => {
-    if (!el) return;
-    el.addEventListener("input", calcTotalCost);
-    el.addEventListener("change", calcTotalCost);
+  [shares, unitPrice].forEach(el => el.addEventListener("input", calcTotalCost));
+  [shares, unitPrice].forEach(el => el.addEventListener("change", calcTotalCost));
+
+  ticker.addEventListener("input", validateTicker);
+  ticker.addEventListener("blur", () => { if (validateTicker()) fetchByCode(ticker.value); });
+
+  nameInput.addEventListener("input", () => suggestName(nameInput.value));
+
+  form.addEventListener("submit", e => {
+    if (!form.checkValidity() || !validateTicker()) { e.preventDefault(); form.reportValidity(); }
   });
 
-  // 証券コードバリデーション & 自動補完
-  if (ticker) {
-    ticker.addEventListener("input", validateTicker);
-    ticker.addEventListener("blur", () => {
-      if (validateTicker()) fetchByCode(ticker.value);
-    });
-  }
-
-  // 銘柄サジェスト
-  if (nameInput) {
-    nameInput.addEventListener("input", () => suggestName(nameInput.value));
-  }
-
-  // フォーム送信時チェック
-  if (form) {
-    form.addEventListener("submit", (e) => {
-      const okTicker = validateTicker();
-      calcTotalCost();
-
-      if (!form.checkValidity() || !okTicker) {
-        e.preventDefault();
-        form.reportValidity();
-      }
-    });
-  }
-
-  // 初期化
   loadSectors();
-  tuneIOS();
 });
