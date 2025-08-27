@@ -1,7 +1,7 @@
 # management/commands/import_stockmaster.py
 import csv
 from django.core.management.base import BaseCommand
-from stocks.models import StockMaster
+from portfolio.models import StockMaster
 
 class Command(BaseCommand):
     help = "東証公式CSVから銘柄マスタ（StockMaster）を更新・追加"
