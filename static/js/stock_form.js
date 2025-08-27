@@ -18,13 +18,22 @@ function calcTotalCost() {
   document.getElementById("total_cost_raw").value = shares > 0 ? Math.floor(total) : "";
 }
 
-// 証券コード4桁バリデーション
+// 証券コードバリデーション（4桁数字 or 数字+英字1文字）
 function validateTicker() {
   const input = document.getElementById("ticker");
   const err = document.querySelector('.field-error[data-for="ticker"]');
-  const val = (input.value || "").trim();
-  const ok = /^\d{4}$/.test(val);
-  err.textContent = ok ? "" : "証券コードは4桁の数字です。";
+  const val = (input.value || "").trim().toUpperCase();
+
+  // パターン:
+  // - 4桁の数字 (例: 7203)
+  // - 3～4桁の数字 + 英字1文字 (例: 167A, 2510B)
+  const ok = /^(\d{4}|\d{3,4}[A-Z])$/.test(val);
+
+  if (ok) {
+    err.textContent = "";
+  } else {
+    err.textContent = "証券コードは「4桁の数字」または「数字＋英字1文字」です。";
+  }
   return ok;
 }
 
@@ -58,9 +67,11 @@ async function loadSectors() {
 // 証券コード入力で銘柄・セクター自動補完
 // ===========================================
 async function fetchByCode(code) {
-  if (!/^\d{4}$/.test(code)) return;
+  const val = (code || "").trim().toUpperCase();
+  if (!/^(\d{4}|\d{3,4}[A-Z])$/.test(val)) return; // 英字付きコードも許可
+
   try {
-    const res = await fetch(`${API_STOCK_BY_CODE}?code=${code}`);
+    const res = await fetch(`${API_STOCK_BY_CODE}?code=${encodeURIComponent(val)}`);
     const data = await res.json();
     document.getElementById("name").value = data.success ? data.name : "";
     document.getElementById("sector").value = data.success ? data.sector : "";
@@ -131,7 +142,7 @@ document.addEventListener("DOMContentLoaded", () => {
     el.addEventListener("change", calcTotalCost);
   });
 
-  // 証券コードバリデーション
+  // 証券コードバリデーション + 自動補完
   ticker.addEventListener("input", validateTicker);
   ticker.addEventListener("blur", () => { if (validateTicker()) fetchByCode(ticker.value); });
 

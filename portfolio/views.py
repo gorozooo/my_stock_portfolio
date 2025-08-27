@@ -159,6 +159,27 @@ def notification_settings_view(request):
 
 
 # -----------------------------
+# 設定画面パスワード編集
+# -----------------------------
+@login_required
+def settings_password_edit(request):
+    if not request.session.get("settings_authenticated"):
+        return redirect("settings_login")
+
+    password_obj = SettingsPassword.objects.first()
+    if request.method == "POST":
+        form = SettingsPasswordForm(request.POST, instance=password_obj)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "パスワードを更新しました。")
+            return redirect("settings_password_edit")
+    else:
+        form = SettingsPasswordForm(instance=password_obj)
+
+    return render(request, "settings_password_edit.html", {"form": form})
+
+
+# -----------------------------
 # API: タブ一覧
 # -----------------------------
 @login_required
@@ -228,10 +249,49 @@ def save_tab(request):
 
 
 # -----------------------------
-# API: 証券コード → 銘柄・業種（スマホ補完対応）
+# API: タブ削除
+# -----------------------------
+@csrf_exempt
+@require_POST
+@transaction.atomic
+@login_required
+def delete_tab(request, tab_id):
+    tab = BottomTab.objects.filter(id=tab_id).first()
+    if not tab:
+        return JsonResponse({"error": "Tab not found"}, status=404)
+    tab.delete()
+    return JsonResponse({"success": True})
+
+
+# -----------------------------
+# API: タブ順序保存
+# -----------------------------
+@csrf_exempt
+@require_POST
+@transaction.atomic
+@login_required
+def save_order(request):
+    try:
+        data = json.loads(request.body or "[]")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON")
+
+    for item in data:
+        tab_id = item.get("id")
+        order = item.get("order")
+        tab = BottomTab.objects.filter(id=tab_id).first()
+        if tab and isinstance(order, int):
+            tab.order = order
+            tab.save()
+
+    return JsonResponse({"success": True})
+
+
+# -----------------------------
+# API: 証券コード → 銘柄・業種
 # -----------------------------
 def get_stock_by_code(request):
-    code = (request.GET.get("code") or "").strip().zfill(4)
+    code = (request.GET.get("code") or "").strip()
     stock = StockMaster.objects.filter(code=code).first()
     if stock:
         return JsonResponse({"success": True, "name": stock.name, "sector": stock.sector})
@@ -242,14 +302,19 @@ def get_stock_by_code(request):
 # API: 銘柄名サジェスト
 # -----------------------------
 def suggest_stock_name(request):
-    q = request.GET.get("q") or ""
+    q = (request.GET.get("q") or "").strip()
     qs = StockMaster.objects.filter(name__icontains=q)[:10]
-    return JsonResponse([{"code": s.code, "name": s.name, "sector": s.sector} for s in qs], safe=False)
-
+    return JsonResponse([
+        {"code": s.code, "name": s.name, "sector": s.sector or ""}
+        for s in qs
+    ], safe=False)
 
 # -----------------------------
 # API: 33業種リスト
 # -----------------------------
 def get_sector_list(request):
-    sectors = list(StockMaster.objects.values_list("sector", flat=True).distinct())
-    return JsonResponse(sectors, safe=False)
+    sectors = list(
+        StockMaster.objects.values_list("sector", flat=True).distinct()
+    )
+    return JsonResponse([s or "" for s in sectors], safe=False)
+

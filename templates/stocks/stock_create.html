@@ -28,7 +28,8 @@
 
       <div class="form-field">
         <label for="name">銘柄</label>
-        <input type="text" id="name" name="name" required>
+        <input type="text" id="name" name="name" required autocomplete="off" list="name-suggest">
+        <datalist id="name-suggest"></datalist>
       </div>
 
       <div class="form-field">
@@ -71,7 +72,6 @@
     </div>
 
     <div class="form-actions">
-      <!-- 名前空間 'portfolio' を付ける -->
       <a class="btn btn-secondary" href="{% url 'stock_list' %}">戻る</a>
       <button type="submit" class="btn btn-primary">登録する</button>
     </div>

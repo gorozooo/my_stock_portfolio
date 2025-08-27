@@ -12,8 +12,10 @@ source venv/bin/activate  # Windowsなら venv\Scripts\activate
 pip install -r requirements.txt
 python manage.py runserver
 
-
-
+#ミグレーション
+python manage.py makemigrations
+python manage.py migrate
+python manage.py createsuperuser
 
 ---
 
@@ -24,12 +26,17 @@ python manage.py runserver
 ```bash
 pip freeze > requirements.txt
 
+#東証データ取得
+"手動更新
+python manage.py import_stockmaster --file tse-listed-issues.xls
+#自動更新
+python manage.py import_stockmaster --auto
 
 
 
 # 作業・修正した後に：
 cd C:\my_stock_portfolio
-git a "更新①"
+git a "更新1"
 
 git add .
 git commit -m "更新①"
@@ -73,7 +80,6 @@ git pull origin main
 python manage.py collectstatic --noinput
 
 # マイグレーション反映（必要なら）
-python manage.py makemigrations
 python manage.py migrate
 
 # Gunicorn サービス再起動
@@ -87,3 +93,5 @@ echo "Update completed."
 実行権限を付与：
 
 chmod +x ~/my_stock_portfolio/update.sh
+
+Apple風ガラスUI＋近未来光彩

@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+
+# Django SQLite DB
+db.sqlite3
+
+# 環境変数ファイル（セキュリティ上重要！）
+.env
+
+# VSCodeなどエディタの設定
+.vscode/
+
+# OSごとの不要ファイル
+.DS_Store
+Thumbs.db
+
+*.pyc
+__pycache__/
+*.sqlite3
+*.log
+*.pot
+*.py[cod]
+env/
+venv/
+myprojectenv/
+db.sqlite3
+.DS_Store
+*.swp
+.env
