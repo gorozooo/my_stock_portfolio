@@ -4,34 +4,33 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}固定ナビバーテスト{% endblock %}</title>
-  <link rel="stylesheet" href="{% static 'css/future_ui_advanced.css' %}">
+  <title>{% block title %}My Portfolio{% endblock %}</title>
+
+  <!-- 共通背景 -->
+  <link rel="stylesheet" href="{% static 'css/common.css' %}">
+  <!-- 固定ナビバー・下タブ -->
+  <link rel="stylesheet" href="{% static 'css/base.css' %}">
+
   {% block extra_css %}{% endblock %}
 </head>
 <body>
-
-  <!-- ナビバー -->
+  <!-- 固定ナビバー -->
   <header class="navbar">
-    <div class="navbar-title">固定ナビバー</div>
+    <h1>ナビバー</h1>
   </header>
 
   <!-- メインコンテンツ -->
   <main class="main-content">
-    {% block content %}
-    <div class="content-box">
-      <p>スクロールテスト用のコンテンツ</p>
-      {% for i in 1|to:50 %}
-        <p>行 {{ i }}</p>
-      {% endfor %}
-    </div>
-    {% endblock %}
+    {% block content %}{% endblock %}
   </main>
 
-  <!-- 下タブ -->
+  <!-- 固定下タブ -->
   <footer class="bottom-tab">
-    固定下タブ
+    <nav>
+      <a href="#">Home</a>
+      <a href="#">Portfolio</a>
+      <a href="#">Settings</a>
+    </nav>
   </footer>
-
-  {% block extra_js %}{% endblock %}
 </body>
 </html>
