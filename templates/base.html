@@ -18,9 +18,21 @@
   <header class="navbar">
     <!-- タイトル（中央表示） -->
     <div class="navbar-title">My Portfolio</div>
-    <!-- 現在ページ名 -->
+
+    <!-- 現在ページ名（下タブから自動取得） -->
     <div class="navbar-current">
-      {% block current_page_name %}{% endblock %}
+      {% comment %} 下タブのアクティブタブ名を表示 {% endcomment %}
+      {% for tab in BOTTOM_TABS %}
+        {% if tab.url_name == request.resolver_match.url_name %}
+          {{ tab.name }}
+        {% elif tab.submenus_list %}
+          {% for submenu in tab.submenus_list %}
+            {% if submenu.url == request.resolver_match.url_name or submenu.url_name == request.resolver_match.url_name %}
+              {{ submenu.name }}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+      {% endfor %}
     </div>
   </header>
 
