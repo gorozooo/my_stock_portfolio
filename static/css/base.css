@@ -9,15 +9,17 @@
   top: 0;
   left: 0;
   width: 100%;
-  height: 64px; /* 高めに確保 */
+  height: 64px;
   background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(14px);
   display: flex;
-  justify-content: space-between; /* タイトル + 現在ページ名 */
+  justify-content: center; /* 中央揃えにしてセンス良く */
   align-items: center;
   padding: 0 16px;
   z-index: 1000;
   box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  flex-direction: column; /* タイトルと現在ページ名を縦に配置 */
+  gap: 2px;
 }
 
 /* タイトルを未来感あるデザインに */
@@ -32,15 +34,17 @@
   text-shadow: 0 0 10px rgba(0,255,255,0.7), 0 0 20px rgba(255,0,255,0.6);
   animation: glow 3s infinite alternate;
   font-family: "Orbitron", sans-serif;
+  line-height: 1.2;
 }
 
-/* 現在ページ名 */
+/* 現在ページ名（タイトル下に小さく表示、未来感＋柔らかめ） */
 .navbar-current {
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   font-weight: 500;
   color: #0ff;
-  text-shadow: 0 0 4px #0ff, 0 0 8px #0ff;
-  white-space: nowrap;
+  text-shadow: 0 0 6px #0ff, 0 0 12px #0ff;
+  letter-spacing: 1px;
+  font-family: "Orbitron", sans-serif;
 }
 
 /* 光彩アニメーション */
@@ -155,15 +159,15 @@
 
 /* ===== mainスクロール ===== */
 main {
-  padding: 80px 16px 88px; /* 上ナビ64+余白, 下タブ72+余白 */
+  padding: 88px 16px 88px; /* 上ナビ+余白, 下タブ72+余白 */
   overflow-y: auto;
-  min-height: calc(100vh - 152px);
+  min-height: calc(100vh - 160px);
 }
 
 /* ===== PC向け拡張 ===== */
 @media (min-width: 768px) {
   .navbar-title { font-size: 1.6rem; }
-  .navbar .menu a { font-size: 1.1rem; }
+  .navbar-current { font-size: 1rem; }
 
   .bottom-tab .tab-link { font-size: 0.9rem; }
   .bottom-tab .tab-link i { font-size: 24px; }
