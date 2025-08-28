@@ -43,13 +43,16 @@
 .last-update-icon {
   position: absolute;
   top: 50%;
-  right: 16px;
   transform: translateY(-50%);
   cursor: pointer;
   font-family: "Orbitron", sans-serif;
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.last-update-icon.left {
+  left: 16px;  /* 左上に固定 */
 }
 
 .last-update-icon i {
