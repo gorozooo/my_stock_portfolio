@@ -1,5 +1,5 @@
 // ===========================================
-// # stock_form.js（完全版）
+// stock_form.js
 // ===========================================
 
 // 数値→カンマ区切り（小数切捨て）
@@ -10,14 +10,20 @@ function formatAmountJPY(value) {
 
 // 株数×単価→取得額自動計算
 function calcTotalCost() {
-  const shares = Number(document.getElementById("shares").value || 0);
-  const unitPrice = Number(document.getElementById("unit_price").value || 0);
+  const sharesInput = document.getElementById("shares");
+  const unitPriceInput = document.getElementById("unit_price");
+  const totalDisplay = document.getElementById("total_cost");
+  const totalHidden = document.getElementById("total_cost_raw");
+
+  if (!sharesInput || !unitPriceInput || !totalDisplay || !totalHidden) return;
+
+  const shares = Number(sharesInput.value || 0);
+  const unitPrice = Number(unitPriceInput.value || 0);
   const total = shares * unitPrice;
 
-  document.getElementById("total_cost").value = formatAmountJPY(total);
-  document.getElementById("total_cost_raw").value = Math.floor(total);
+  totalDisplay.value = shares > 0 ? formatAmountJPY(total) : "";
+  totalHidden.value = shares > 0 ? Math.floor(total) : "";
 }
-
 
 // ===========================================
 // 証券コードバリデーション
