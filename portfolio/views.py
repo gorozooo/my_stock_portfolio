@@ -26,7 +26,10 @@ def bottom_tabs_context(request):
 # -----------------------------
 @login_required
 def main_view(request):
-    return render(request, "main.html")
+    context = {
+        "last_update": timezone.now(),  # 現在日時を渡す
+    }
+    return render(request, "main.html", context)
 
 
 # -----------------------------
