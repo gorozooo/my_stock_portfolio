@@ -42,38 +42,69 @@ main {
   box-sizing: border-box;
 }
 
-/* 上ナビバー */
+/* ========== 固定ナビバー（上） ========== */
 .navbar {
-  height: var(--navbar-height);
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px; /* スマホ標準 */
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(10px);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 1rem;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(10px);
-  position: sticky;
-  top: 0;
-  z-index: 100;
+  z-index: 1000;
+  color: #fff;
 }
 
-/* 下タブバー */
-.tabbar {
-  height: var(--tab-height);
+/* ========== 固定下タブ（下） ========== */
+.bottom-tab {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px; /* スマホ標準 */
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(10px);
   display: flex;
   justify-content: space-around;
   align-items: center;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(10px);
-  position: sticky;
-  bottom: 0;
-  z-index: 100;
+  z-index: 1000;
+  color: #fff;
 }
 
-/* スマホファースト → PC画面で拡張 */
+/* アイコンやテキスト */
+.bottom-tab a {
+  flex: 1;
+  text-align: center;
+  text-decoration: none;
+  color: #fff;
+  font-size: 0.9rem;
+}
+
+/* ========== メイン領域 ========== */
+main {
+  margin-top: 60px;   /* ナビバーの高さ分 */
+  margin-bottom: 60px;/* 下タブの高さ分 */
+  height: calc(100vh - 120px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ========== PC用調整 ========== */
 @media (min-width: 768px) {
+  .navbar {
+    height: 70px;
+    padding: 0 2rem;
+  }
+  .bottom-tab {
+    height: 70px;
+  }
   main {
-    padding: 2rem 3rem;
-    max-width: 1200px;
-    margin: 0 auto;
+    margin-top: 70px;
+    margin-bottom: 70px;
+    height: calc(100vh - 140px);
   }
 }
