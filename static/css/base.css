@@ -58,6 +58,18 @@
   text-shadow: 0 0 6px #00ffff, 0 0 12px #7f7fff;
 }
 
+/* ナビバー右上 */
+.navbar-right {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  transform: translateY(-50%);
+  font-size: 0.8rem;
+  color: #0ff;
+  text-shadow: 0 0 4px #0ff;
+  white-space: nowrap;
+}
+
 /* ===== 下タブ ===== */
 .bottom-tab {
   position: fixed;
