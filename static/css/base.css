@@ -1,27 +1,28 @@
 /* ========================================
    固定ナビバー & 下タブ (base.css)
-   スマホファーストで設計
+   スマホファースト設計
 ======================================== */
 
-/* ナビバー */
+/* ===== ナビバー ===== */
 .navbar {
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
-  height: 64px; /* ←広めに確保 */
+  height: 64px; /* 高めに確保 */
   background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(14px);
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0 16px;
   z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 
 .navbar h1 {
-  font-size: 1.2rem;
-  color: #fff;
+  font-size: 1.3rem;
+  color: #00ffff;
 }
 
 /* ナビ右メニュー */
@@ -33,55 +34,72 @@
   color: #00ffff;
   text-decoration: none;
   font-size: 1rem;
+  transition: 0.3s;
+}
+.navbar .menu a:hover {
+  text-shadow: 0 0 6px #00ffff, 0 0 12px #7f7fff;
 }
 
-/* 下タブ */
+/* ===== 下タブ ===== */
 .bottom-tab {
   position: fixed;
   bottom: 0;
   left: 0;
   width: 100%;
-  height: 70px; /* ←ボタン感を出す高さ */
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(12px);
+  height: 70px;
+  background: rgba(0, 0, 20, 0.6);
+  backdrop-filter: blur(18px);
   display: flex;
   justify-content: space-around;
   align-items: center;
-  padding: 8px 0;
+  padding: 6px 0;
   z-index: 1000;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* タブボタン */
+/* タブリンク */
 .bottom-tab a {
   flex: 1;
-  margin: 0 8px;
-  background: rgba(0, 255, 255, 0.1);
-  border-radius: 12px;
   text-align: center;
-  padding: 10px 0;
-  font-size: 0.9rem;
-  color: #fff;
   text-decoration: none;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
-  transition: 0.2s;
+  color: #aaa;
+  font-size: 0.85rem;
+  position: relative;
+  padding-top: 4px;
+  transition: color 0.3s ease, transform 0.3s ease;
 }
 
-/* 押した感 */
-.bottom-tab a:active {
-  transform: scale(0.95);
-  background: rgba(0, 255, 255, 0.2);
+.bottom-tab a i {
+  display: block;
+  font-size: 22px;
+  margin-bottom: 3px;
+  transition: transform 0.3s ease, text-shadow 0.3s ease;
 }
 
-/* hoverはPC用 */
-@media (hover: hover) {
-  .bottom-tab a:hover {
-    background: rgba(0, 255, 255, 0.25);
-  }
+/* ホバー/アクティブで光らせる */
+.bottom-tab a:hover i,
+.bottom-tab a.active i {
+  color: #00ffff;
+  text-shadow: 0 0 8px #00ffff, 0 0 15px #00ffff;
+  transform: scale(1.2);
+}
+.bottom-tab a:hover,
+.bottom-tab a.active {
+  color: #fff;
 }
 
-/* main部分をスクロール可能に */
+/* ===== mainスクロール ===== */
 main {
-  padding: 80px 16px 90px; /* 上ナビ64 + 余白, 下タブ70 + 余白 */
+  padding: 80px 16px 90px; /* 上ナビ64+余白, 下タブ70+余白 */
   overflow-y: auto;
   min-height: calc(100vh - 150px);
+}
+
+/* ===== PC向け拡張 ===== */
+@media (min-width: 768px) {
+  .navbar h1 { font-size: 1.5rem; }
+  .navbar .menu a { font-size: 1.1rem; }
+
+  .bottom-tab a { font-size: 0.9rem; }
+  .bottom-tab a i { font-size: 24px; }
 }
