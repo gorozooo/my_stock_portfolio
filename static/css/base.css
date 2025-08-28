@@ -1,110 +1,51 @@
-/* ========================================
-   base.css
-   - ページ全体の骨組み
-   - スマホファースト
-======================================== */
+/* レイアウトの骨組み */
 
-/* 変数（テーマカラーとか） */
-:root {
-  --color-bg: #000006;
-  --color-gradient-start: #000006;
-  --color-gradient-mid: #001133;
-  --color-gradient-end: #4400aa;
-  --color-neon: #00ffff;
-
-  --navbar-height: 60px;
-  --tab-height: 60px;
-}
-
-/* ページ全体 */
-html, body {
+body {
   margin: 0;
   padding: 0;
-  height: 100%;
-  background: linear-gradient(
-    to bottom,
-    var(--color-gradient-start),
-    var(--color-gradient-mid),
-    var(--color-gradient-end)
-  );
-  color: white;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  height: 100vh;
   display: flex;
   flex-direction: column;
-  overflow: hidden; /* bodyはスクロールしない */
+  overflow: hidden; /* main以外スクロールさせない */
 }
 
-/* レイアウト構造 */
-main {
-  flex: 1;
-  overflow-y: auto; /* スクロールできるのはmainだけ */
-  padding: 1rem;
-  box-sizing: border-box;
-}
-
-/* ========== 固定ナビバー（上） ========== */
 .navbar {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  height: 60px; /* スマホ標準 */
-  background: rgba(0, 0, 0, 0.8);
+  height: 60px;
+  background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(10px);
+  color: white;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 1rem;
+  justify-content: center;
   z-index: 1000;
-  color: #fff;
 }
 
-/* ========== 固定下タブ（下） ========== */
+main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 70px 10px 70px; /* ナビバーと下タブの分だけ余白 */
+}
+
 .bottom-tab {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
-  height: 60px; /* スマホ標準 */
-  background: rgba(0, 0, 0, 0.8);
+  height: 60px;
+  background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(10px);
   display: flex;
   justify-content: space-around;
   align-items: center;
   z-index: 1000;
-  color: #fff;
 }
 
-/* アイコンやテキスト */
 .bottom-tab a {
-  flex: 1;
-  text-align: center;
+  color: white;
   text-decoration: none;
-  color: #fff;
-  font-size: 0.9rem;
-}
-
-/* ========== メイン領域 ========== */
-main {
-  margin-top: 60px;   /* ナビバーの高さ分 */
-  margin-bottom: 60px;/* 下タブの高さ分 */
-  height: calc(100vh - 120px);
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-/* ========== PC用調整 ========== */
-@media (min-width: 768px) {
-  .navbar {
-    height: 70px;
-    padding: 0 2rem;
-  }
-  .bottom-tab {
-    height: 70px;
-  }
-  main {
-    margin-top: 70px;
-    margin-bottom: 70px;
-    height: calc(100vh - 140px);
-  }
+  font-size: 14px;
 }
