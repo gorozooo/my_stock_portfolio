@@ -35,25 +35,56 @@
 }
 
 @keyframes glow {
-  from {
-    text-shadow: 0 0 8px #00ffff, 0 0 16px #00ffff;
-  }
-  to {
-    text-shadow: 0 0 12px #ff00ff, 0 0 24px #ff00ff;
-  }
+  from { text-shadow: 0 0 8px #00ffff, 0 0 16px #00ffff; }
+  to   { text-shadow: 0 0 12px #ff00ff, 0 0 24px #ff00ff; }
 }
 
-/* ===== 最終更新表示（右上固定） ===== */
-.navbar .last-update {
+/* ===== 最終更新アイコン（右上固定） ===== */
+.navbar .last-update-icon {
   position: absolute;
   top: 50%;
   right: 16px;
   transform: translateY(-50%);
-  font-size: 0.75rem;
+  font-size: 1rem;
   color: #0ff;
-  white-space: nowrap;
-  text-shadow: 0 0 4px #0ff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-family: "Orbitron", sans-serif;
+}
+
+.navbar .last-update-icon i {
+  text-shadow: 0 0 6px #0ff, 0 0 12px #0ff;
+  transition: transform 0.3s ease, text-shadow 0.3s ease, color 0.3s ease;
+}
+
+.navbar .last-update-icon:hover i,
+.navbar .last-update-icon:active i {
+  transform: scale(1.2);
+  text-shadow: 0 0 10px #0ff, 0 0 20px #0ff, 0 0 30px rgba(0,255,255,0.8);
+}
+
+/* ツールチップ表示 */
+.navbar .last-update-icon::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: -28px;
+  right: 0;
+  background: rgba(0,0,30,0.9);
+  color: #0ff;
+  font-size: 0.7rem;
+  padding: 4px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.navbar .last-update-icon:hover::after,
+.navbar .last-update-icon:active::after {
+  opacity: 1;
 }
 
 /* ===== ナビ右メニュー（必要に応じ） ===== */
