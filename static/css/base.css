@@ -13,7 +13,7 @@
   background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(14px);
   display: flex;
-  justify-content: center; /* タイトル中央 */
+  justify-content: space-between; /* タイトル + 現在ページ名 */
   align-items: center;
   padding: 0 16px;
   z-index: 1000;
@@ -34,6 +34,16 @@
   font-family: "Orbitron", sans-serif;
 }
 
+/* 現在ページ名 */
+.navbar-current {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #0ff;
+  text-shadow: 0 0 4px #0ff, 0 0 8px #0ff;
+  white-space: nowrap;
+}
+
+/* 光彩アニメーション */
 @keyframes glow {
   from {
     text-shadow: 0 0 8px #00ffff, 0 0 16px #00ffff;
