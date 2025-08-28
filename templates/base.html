@@ -22,13 +22,23 @@
   <!-- タイトル（中央） -->
   <div class="navbar-title">My Portfolio</div>
 
-  <!-- 現在ページスライダー -->
+  <header class="navbar">
+  <!-- タイトル -->
+  <div class="navbar-title">My Portfolio</div>
+
+  <!-- ページスライダー -->
   <div class="page-slider">
     <div class="slider-track">
-      {% for page in current_pages %}
-        <div class="slider-item">{{ page }}</div>
-      {% endfor %}
+      <span class="slider-item">{{ current_page }}</span>
+      <span class="slider-item">{{ current_page }}</span> <!-- ループ用 -->
     </div>
+  </div>
+
+  <!-- 最終更新 -->
+  <div class="last-update">
+    {% if last_update %}
+      最終更新: {{ last_update|date:"Y.m.d H:i" }}
+    {% endif %}
   </div>
 </header>
 
