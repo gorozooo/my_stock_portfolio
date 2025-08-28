@@ -20,9 +20,26 @@
   box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 
+/* タイトルを未来感あるデザインに */
 .navbar h1 {
-  font-size: 1.3rem;
-  color: #00ffff;
+  font-size: 1.4rem;
+  font-weight: bold;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, #00ffff, #ff00ff, #00ffff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 10px rgba(0,255,255,0.7), 0 0 20px rgba(255,0,255,0.6);
+  animation: glow 3s infinite alternate;
+}
+
+@keyframes glow {
+  from {
+    text-shadow: 0 0 8px #00ffff, 0 0 16px #00ffff;
+  }
+  to {
+    text-shadow: 0 0 12px #ff00ff, 0 0 24px #ff00ff;
+  }
 }
 
 /* ナビ右メニュー */
@@ -149,7 +166,7 @@ main {
 
 /* ===== PC向け拡張 ===== */
 @media (min-width: 768px) {
-  .navbar h1 { font-size: 1.5rem; }
+  .navbar h1 { font-size: 1.6rem; }
   .navbar .menu a { font-size: 1.1rem; }
 
   .bottom-tab .tab-link { font-size: 0.9rem; }
