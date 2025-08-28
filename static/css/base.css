@@ -39,67 +39,44 @@
   to   { text-shadow: 0 0 12px #ff00ff, 0 0 24px #ff00ff; }
 }
 
-/* ===== 最終更新アイコン（右上固定） ===== */
-.navbar .last-update-icon {
+/* ===== 最終更新時計アイコン ===== */
+.last-update-icon {
   position: absolute;
   top: 50%;
   right: 16px;
   transform: translateY(-50%);
-  font-size: 1rem;
-  color: #0ff;
   cursor: pointer;
+  font-family: "Orbitron", sans-serif;
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-family: "Orbitron", sans-serif;
+  gap: 6px;
 }
 
-.navbar .last-update-icon i {
-  text-shadow: 0 0 6px #0ff, 0 0 12px #0ff;
-  transition: transform 0.3s ease, text-shadow 0.3s ease, color 0.3s ease;
-}
-
-.navbar .last-update-icon:hover i,
-.navbar .last-update-icon:active i {
-  transform: scale(1.2);
-  text-shadow: 0 0 10px #0ff, 0 0 20px #0ff, 0 0 30px rgba(0,255,255,0.8);
-}
-
-/* ツールチップ表示 */
-.navbar .last-update-icon::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  top: -28px;
-  right: 0;
-  background: rgba(0,0,30,0.9);
+.last-update-icon i {
+  font-size: 1.2rem;
   color: #0ff;
-  font-size: 0.7rem;
-  padding: 4px 6px;
-  border-radius: 4px;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease;
-}
-
-.navbar .last-update-icon:hover::after,
-.navbar .last-update-icon:active::after {
-  opacity: 1;
-}
-
-/* ===== ナビ右メニュー（必要に応じ） ===== */
-.navbar .menu {
-  display: flex;
-  gap: 16px;
-}
-.navbar .menu a {
-  color: #00ffff;
-  text-decoration: none;
-  font-size: 1rem;
+  text-shadow: 0 0 6px #0ff, 0 0 12px #0ff;
   transition: 0.3s;
 }
-.navbar .menu a:hover {
-  text-shadow: 0 0 6px #00ffff, 0 0 12px #7f7fff;
+
+.last-update-icon:hover i,
+.last-update-icon:active i {
+  text-shadow: 0 0 10px #0ff, 0 0 20px #0ff, 0 0 30px rgba(0,255,255,0.8);
+  transform: scale(1.3);
+}
+
+.last-update-text {
+  display: none;
+  font-size: 0.75rem;
+  color: #0ff;
+  white-space: nowrap;
+  text-shadow: 0 0 4px #0ff;
+}
+
+/* ホバーで表示 */
+.last-update-icon:hover .last-update-text,
+.last-update-icon:active .last-update-text {
+  display: inline-block;
 }
 
 /* ===== 下タブ ===== */
