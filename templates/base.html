@@ -6,9 +6,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}My Portfolio{% endblock %}</title>
 
-  <!-- Font Awesome 読み込み（アイコン用） -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-p1BgnV1J7V9n8nM3XkVYVdJH2n8C1nKp6lK2OJeOqzY6v7L5b7sC+/vAdQ6w5kQ5GfI0y3sXo+y+VZZ0EkZ3g==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-
   <!-- 共通レイアウト -->
   <link rel="stylesheet" href="{% static 'css/base.css' %}">
   <!-- 共通デザイン -->
@@ -19,14 +16,6 @@
 <body>
   <!-- ナビバー -->
   <header class="navbar">
-    <!-- 左上に未来感時計アイコン -->
-    <div class="last-update-icon left">
-      <i class="fas fa-clock"></i>
-      {% if last_update %}
-      <span class="last-update-text">最終更新: {{ last_update|date:"Y.m.d H:i" }}</span>
-      {% endif %}
-    </div>
-
     <!-- タイトル（中央表示） -->
     <div class="navbar-title">My Portfolio</div>
   </header>
