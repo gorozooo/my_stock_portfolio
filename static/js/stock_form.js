@@ -1,5 +1,5 @@
 // ===========================================
-// stock_form.js
+// stock_form.js（完全版）
 // ===========================================
 
 // 数値→カンマ区切り（小数切捨て）
@@ -12,28 +12,25 @@ function formatAmountJPY(value) {
 function calcTotalCost() {
   const sharesInput = document.getElementById("shares");
   const unitPriceInput = document.getElementById("unit_price");
-  const totalDisplay = document.getElementById("total_cost");
-  const totalHidden = document.getElementById("total_cost_raw");
+  const totalCostDisplay = document.getElementById("total_cost");
+  const totalCostRaw = document.getElementById("total_cost_raw");
 
-  if (!sharesInput || !unitPriceInput || !totalDisplay || !totalHidden) return;
+  if (!sharesInput || !unitPriceInput || !totalCostDisplay || !totalCostRaw) return;
 
   const shares = Number(sharesInput.value || 0);
   const unitPrice = Number(unitPriceInput.value || 0);
   const total = shares * unitPrice;
 
-  totalDisplay.value = shares > 0 ? formatAmountJPY(total) : "";
-  totalHidden.value = shares > 0 ? Math.floor(total) : "";
+  totalCostDisplay.value = shares > 0 ? formatAmountJPY(total) : "";
+  totalCostRaw.value = shares > 0 ? Math.floor(total) : "";
 }
 
-// ===========================================
-// 証券コードバリデーション
-// ===========================================
+// 証券コードバリデーション（4桁数字 or 数字+英字1文字）
 function validateTicker() {
   const input = document.getElementById("ticker");
   const err = document.querySelector('.field-error[data-for="ticker"]');
   const val = (input.value || "").trim().toUpperCase();
 
-  // 4桁数字 または 3-4桁数字+英字1文字
   const ok = /^(\d{4}|\d{3,4}[A-Z])$/.test(val);
 
   if (ok) {
@@ -60,7 +57,6 @@ async function loadSectors() {
     const sectors = await res.json();
     const list = document.getElementById("sector-list");
     if (!list) return;
-
     list.innerHTML = "";
     sectors.forEach(sec => {
       const opt = document.createElement("option");
@@ -82,13 +78,8 @@ async function fetchByCode(code) {
   try {
     const res = await fetch(`${API_STOCK_BY_CODE}?code=${encodeURIComponent(val)}`);
     const data = await res.json();
-
-    if (data.success) {
-      const nameInput = document.getElementById("name");
-      const sectorInput = document.getElementById("sector");
-      if (nameInput) nameInput.value = data.name || "";
-      if (sectorInput) sectorInput.value = data.sector || "";
-    }
+    document.getElementById("name").value = data.success ? data.name : "";
+    document.getElementById("sector").value = data.success ? data.sector : "";
   } catch (err) {
     console.error("銘柄取得失敗", err);
   }
@@ -98,19 +89,19 @@ async function fetchByCode(code) {
 // 銘柄名サジェスト（datalist利用）
 // ===========================================
 async function suggestName(query) {
-  if (!query || query.length < 2) return;
-
+  if (query.length < 2) return;
   try {
     const res = await fetch(`${API_SUGGEST_NAME}?q=${encodeURIComponent(query)}`);
     const data = await res.json();
+
     let list = document.getElementById("name-suggest");
     if (!list) {
       list = document.createElement("datalist");
       list.id = "name-suggest";
       document.body.appendChild(list);
-      const nameInput = document.getElementById("name");
-      if (nameInput) nameInput.setAttribute("list","name-suggest");
+      document.getElementById("name").setAttribute("list","name-suggest");
     }
+
     list.innerHTML = "";
     data.forEach(item => {
       const opt = document.createElement("option");
@@ -131,6 +122,7 @@ function addGlowEffects() {
   if (!form) return;
 
   const inputs = form.querySelectorAll("input, select, textarea");
+
   inputs.forEach(input => {
     input.classList.add("glow");
 
@@ -153,7 +145,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const nameInput = document.getElementById("name");
   const form = document.getElementById("stock-form");
 
-  // 金額自動計算
+  // 初回計算
+  calcTotalCost();
+
+  // 入力時に再計算
   [shares, unitPrice].forEach(el => {
     if (el) {
       el.addEventListener("input", calcTotalCost);
@@ -172,7 +167,7 @@ document.addEventListener("DOMContentLoaded", () => {
     nameInput.addEventListener("input", () => suggestName(nameInput.value));
   }
 
-  // 送信時チェック
+  // フォーム送信時チェック
   if (form) {
     form.addEventListener("submit", e => {
       if (!form.checkValidity() || !validateTicker()) {
@@ -184,5 +179,5 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 初期化
   loadSectors();
-  addGlowEffects();
+  addGlowEffects();  // 光彩追加
 });
