@@ -19,28 +19,17 @@
 <body>
   <!-- ナビバー -->
   <header class="navbar">
-  <!-- タイトル（中央） -->
-  <div class="navbar-title">My Portfolio</div>
-
-  <header class="navbar">
-  <!-- タイトル -->
-  <div class="navbar-title">My Portfolio</div>
-
-  <!-- ページスライダー -->
-  <div class="page-slider">
-    <div class="slider-track">
-      <span class="slider-item">{{ current_page }}</span>
-      <span class="slider-item">{{ current_page }}</span> <!-- ループ用 -->
+    <!-- 左上に未来感時計アイコン -->
+    <div class="last-update-icon left">
+      <i class="fas fa-clock"></i>
+      {% if last_update %}
+      <span class="last-update-text">最終更新: {{ last_update|date:"Y.m.d H:i" }}</span>
+      {% endif %}
     </div>
-  </div>
 
-  <!-- 最終更新 -->
-  <div class="last-update">
-    {% if last_update %}
-      最終更新: {{ last_update|date:"Y.m.d H:i" }}
-    {% endif %}
-  </div>
-</header>
+    <!-- タイトル（中央表示） -->
+    <div class="navbar-title">My Portfolio</div>
+  </header>
 
   <!-- メイン -->
   <main>
