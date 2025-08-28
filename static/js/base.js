@@ -145,3 +145,33 @@ document.addEventListener("DOMContentLoaded", function() {
   }
 
 });
+
+// ===========================================
+// 現在ページ名を下タブから自動取得
+// ===========================================
+document.addEventListener("DOMContentLoaded", () => {
+  const currentURL = location.pathname; // 現在ページのパス
+  const currentPageNameEl = document.getElementById("current-page-name");
+  if (!currentPageNameEl) return;
+
+  const tabs = document.querySelectorAll(".tab-item .tab-link");
+  let found = false;
+
+  tabs.forEach(tabLink => {
+    const href = tabLink.getAttribute("href");
+    const nameSpan = tabLink.querySelector("span");
+    if (!href || !nameSpan) return;
+
+    // 現在URLと href が部分一致すればそのタブ名を表示
+    if (currentURL.startsWith(href)) {
+      currentPageNameEl.textContent = nameSpan.textContent;
+      found = true;
+    }
+  });
+
+  // 下タブに該当がなければ URL パスをそのまま表示
+  if (!found) {
+    const trimmed = currentURL.replace(/^\/|\/$/g, "");
+    currentPageNameEl.textContent = trimmed || "ホーム";
+  }
+});
