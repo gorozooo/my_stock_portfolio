@@ -1,15 +1,11 @@
-/* 共通デザイン（テーマカラーや背景） */
+/* ========================================
+   共通背景や色 (common.css)
+======================================== */
 
 body {
-  font-family: "Helvetica Neue", Arial, sans-serif;
+  margin: 0;
+  font-family: sans-serif;
   background: linear-gradient(135deg, #000006, #001133, #4400aa);
-  color: white;
-}
-
-a {
-  transition: color 0.3s;
-}
-
-a:hover {
-  color: cyan;
+  color: #fff;
+  min-height: 100vh;
 }
