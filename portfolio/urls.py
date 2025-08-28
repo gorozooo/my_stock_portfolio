@@ -1,9 +1,6 @@
 from django.urls import path
 from . import views
 
-# --- 名前空間を定義 ---
-
-
 urlpatterns = [
     # --- メインページ ---
     path('', views.main_view, name='main'),
