@@ -46,53 +46,103 @@
   bottom: 0;
   left: 0;
   width: 100%;
-  height: 70px;
-  background: rgba(0, 0, 20, 0.6);
-  backdrop-filter: blur(18px);
+  height: 72px;
+  background: rgba(0, 0, 20, 0.55);
+  backdrop-filter: blur(20px);
   display: flex;
   justify-content: space-around;
   align-items: center;
-  padding: 6px 0;
   z-index: 1000;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 -4px 16px rgba(0, 255, 255, 0.15);
+}
+
+.bottom-tab .tab-list {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bottom-tab .tab-item {
+  flex: 1;
+  text-align: center;
 }
 
 /* タブリンク */
-.bottom-tab a {
-  flex: 1;
-  text-align: center;
+.bottom-tab .tab-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-decoration: none;
-  color: #aaa;
-  font-size: 0.85rem;
-  position: relative;
-  padding-top: 4px;
-  transition: color 0.3s ease, transform 0.3s ease;
+  color: #888;
+  font-size: 0.8rem;
+  transition: color 0.3s ease, text-shadow 0.3s ease, transform 0.3s ease;
+  padding: 6px 0;
 }
 
-.bottom-tab a i {
-  display: block;
+.bottom-tab .tab-link i {
   font-size: 22px;
-  margin-bottom: 3px;
-  transition: transform 0.3s ease, text-shadow 0.3s ease;
+  margin-bottom: 2px;
+  transition: transform 0.3s ease, text-shadow 0.3s ease, color 0.3s ease;
+  color: #aaa;
 }
 
-/* ホバー/アクティブで光らせる */
-.bottom-tab a:hover i,
-.bottom-tab a.active i {
-  color: #00ffff;
-  text-shadow: 0 0 8px #00ffff, 0 0 15px #00ffff;
+/* ホバー・アクティブで光る */
+.bottom-tab .tab-link:hover,
+.bottom-tab .tab-item.active .tab-link {
+  color: #fff;
+  text-shadow: 0 0 6px #0ff, 0 0 12px #0ff;
+}
+
+.bottom-tab .tab-link:hover i,
+.bottom-tab .tab-item.active .tab-link i {
+  color: #0ff;
+  text-shadow: 0 0 8px #0ff, 0 0 18px #0ff;
   transform: scale(1.2);
 }
-.bottom-tab a:hover,
-.bottom-tab a.active {
-  color: #fff;
+
+/* ===== サブメニュー（フローティング） ===== */
+.bottom-tab .sub-menu {
+  position: absolute;
+  bottom: 78px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 15, 30, 0.95);
+  border-radius: 10px;
+  padding: 8px 0;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+  list-style: none;
+  display: none;
+}
+
+.bottom-tab .tab-item:hover .sub-menu {
+  display: block;
+}
+
+.bottom-tab .sub-menu li a {
+  display: block;
+  padding: 8px 16px;
+  color: #aaa;
+  text-decoration: none;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.bottom-tab .sub-menu li a:hover {
+  color: #0ff;
+  text-shadow: 0 0 6px #0ff;
 }
 
 /* ===== mainスクロール ===== */
 main {
-  padding: 80px 16px 90px; /* 上ナビ64+余白, 下タブ70+余白 */
+  padding: 80px 16px 90px; /* 上ナビ64+余白, 下タブ72+余白 */
   overflow-y: auto;
-  min-height: calc(100vh - 150px);
+  min-height: calc(100vh - 152px);
 }
 
 /* ===== PC向け拡張 ===== */
@@ -100,6 +150,6 @@ main {
   .navbar h1 { font-size: 1.5rem; }
   .navbar .menu a { font-size: 1.1rem; }
 
-  .bottom-tab a { font-size: 0.9rem; }
-  .bottom-tab a i { font-size: 24px; }
+  .bottom-tab .tab-link { font-size: 0.9rem; }
+  .bottom-tab .tab-link i { font-size: 24px; }
 }
