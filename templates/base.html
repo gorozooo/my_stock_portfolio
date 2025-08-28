@@ -27,5 +27,10 @@
 
   <!-- 下タブ -->
   {% include "bottom_tab.html" %}
+
+  <!-- 共通JavaScript -->
+  <script src="{% static 'js/base.js' %}"></script>
+  <!-- ページごとのJavaScript -->
+  {% block extra_js %}{% endblock %}
 </body>
 </html>
