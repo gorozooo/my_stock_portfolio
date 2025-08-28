@@ -58,16 +58,25 @@
   text-shadow: 0 0 6px #00ffff, 0 0 12px #7f7fff;
 }
 
-/* ナビバー右上 */
-.navbar-right {
+/* ===== 最終更新アイコン ===== */
+.navbar .update-icon {
   position: absolute;
   top: 50%;
   right: 16px;
   transform: translateY(-50%);
-  font-size: 0.8rem;
+  font-size: 1rem;
   color: #0ff;
-  text-shadow: 0 0 4px #0ff;
-  white-space: nowrap;
+  cursor: default;
+  transition: 0.3s;
+}
+
+.navbar .update-icon i {
+  text-shadow: 0 0 6px #0ff, 0 0 12px #0ff;
+}
+
+.navbar .update-icon:hover i {
+  text-shadow: 0 0 10px #0ff, 0 0 20px #0ff, 0 0 30px rgba(0,255,255,0.8);
+  transform: scale(1.2);
 }
 
 /* ===== 下タブ ===== */
