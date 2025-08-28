@@ -67,6 +67,7 @@ def logout_view(request):
 # -----------------------------
 @login_required
 def stock_list_view(request):
+    print("stock_list_view呼ばれた")  # ここがコンソールに出るか
     stocks = Stock.objects.all()
     for stock in stocks:
         stock.chart_history = [
@@ -83,20 +84,71 @@ def stock_list_view(request):
 
 @login_required
 def stock_create(request):
+    errors = {}  # エラーを格納する辞書
+
     if request.method == "POST":
         data = request.POST
-        Stock.objects.create(
-            purchase_date=data.get("purchase_date") or timezone.now().date(),
-            ticker=data.get("ticker"),
-            name=data.get("name"),
-            account_type=data.get("account_type"),
-            sector=data.get("sector"),
-            shares=int(data.get("shares") or 0),
-            unit_price=float(data.get("unit_price") or 0),
-            total_cost=float(data.get("total_cost") or 0),
-            note=data.get("note", ""),
-        )
-        return redirect("stock_list")
+
+        # 入力値を取得
+        purchase_date = data.get("purchase_date") or timezone.now().date()
+        ticker = data.get("ticker", "").strip()
+        name = data.get("name", "").strip()
+        account_type = data.get("account_type", "").strip()
+        sector = data.get("sector", "").strip()
+        note = data.get("note", "").strip()
+
+        # 数値変換
+        try:
+            shares = int(data.get("shares"))
+            if shares <= 0:
+                errors["shares"] = "株数は1以上を入力してください"
+        except (TypeError, ValueError):
+            shares = 0
+            errors["shares"] = "株数を正しく入力してください"
+
+        try:
+            unit_price = float(data.get("unit_price"))
+            if unit_price < 0:
+                errors["unit_price"] = "取得単価は0以上を入力してください"
+        except (TypeError, ValueError):
+            unit_price = 0
+            errors["unit_price"] = "取得単価を正しく入力してください"
+
+        total_cost = float(data.get("total_cost") or (shares * unit_price))
+
+        # 必須チェック
+        if not ticker:
+            errors["ticker"] = "証券コードを入力してください"
+        if not name:
+            errors["name"] = "銘柄名を入力してください"
+        if not account_type:
+            errors["account_type"] = "口座区分を選択してください"
+        if not sector:
+            errors["sector"] = "セクターを入力してください"
+
+        # エラーがなければ保存
+        if not errors:
+            Stock.objects.create(
+                purchase_date=purchase_date,
+                ticker=ticker,
+                name=name,
+                account_type=account_type,
+                sector=sector,
+                shares=shares,
+                unit_price=unit_price,
+                total_cost=total_cost,
+                note=note,
+            )
+            return redirect("stock_list")
+
+        # エラーがある場合はフォームに返す
+        context = {
+            "errors": errors,
+            "data": data,  # 入力済み値を返してフォームに表示
+        }
+        return render(request, "stocks/stock_create.html", context)
+
+    # GET の場合は空フォーム
     return render(request, "stocks/stock_create.html")
 
 

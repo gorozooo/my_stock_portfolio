@@ -1,5 +1,5 @@
 // ===========================================
-// stock_form.js
+// # stock_form.js（完全版）
 // ===========================================
 
 // 数値→カンマ区切り（小数切捨て）
@@ -14,19 +14,20 @@ function calcTotalCost() {
   const unitPrice = Number(document.getElementById("unit_price").value || 0);
   const total = shares * unitPrice;
 
-  document.getElementById("total_cost").value = shares > 0 ? formatAmountJPY(total) : "";
-  document.getElementById("total_cost_raw").value = shares > 0 ? Math.floor(total) : "";
+  document.getElementById("total_cost").value = formatAmountJPY(total);
+  document.getElementById("total_cost_raw").value = Math.floor(total);
 }
 
-// 証券コードバリデーション（4桁数字 or 数字+英字1文字）
+
+// ===========================================
+// 証券コードバリデーション
+// ===========================================
 function validateTicker() {
   const input = document.getElementById("ticker");
   const err = document.querySelector('.field-error[data-for="ticker"]');
   const val = (input.value || "").trim().toUpperCase();
 
-  // パターン:
-  // - 4桁の数字 (例: 7203)
-  // - 3～4桁の数字 + 英字1文字 (例: 167A, 2510B)
+  // 4桁数字 または 3-4桁数字+英字1文字
   const ok = /^(\d{4}|\d{3,4}[A-Z])$/.test(val);
 
   if (ok) {
@@ -52,6 +53,8 @@ async function loadSectors() {
     const res = await fetch(API_SECTORS);
     const sectors = await res.json();
     const list = document.getElementById("sector-list");
+    if (!list) return;
+
     list.innerHTML = "";
     sectors.forEach(sec => {
       const opt = document.createElement("option");
@@ -68,13 +71,18 @@ async function loadSectors() {
 // ===========================================
 async function fetchByCode(code) {
   const val = (code || "").trim().toUpperCase();
-  if (!/^(\d{4}|\d{3,4}[A-Z])$/.test(val)) return; // 英字付きコードも許可
+  if (!/^(\d{4}|\d{3,4}[A-Z])$/.test(val)) return;
 
   try {
     const res = await fetch(`${API_STOCK_BY_CODE}?code=${encodeURIComponent(val)}`);
     const data = await res.json();
-    document.getElementById("name").value = data.success ? data.name : "";
-    document.getElementById("sector").value = data.success ? data.sector : "";
+
+    if (data.success) {
+      const nameInput = document.getElementById("name");
+      const sectorInput = document.getElementById("sector");
+      if (nameInput) nameInput.value = data.name || "";
+      if (sectorInput) sectorInput.value = data.sector || "";
+    }
   } catch (err) {
     console.error("銘柄取得失敗", err);
   }
@@ -84,7 +92,8 @@ async function fetchByCode(code) {
 // 銘柄名サジェスト（datalist利用）
 // ===========================================
 async function suggestName(query) {
-  if (query.length < 2) return;
+  if (!query || query.length < 2) return;
+
   try {
     const res = await fetch(`${API_SUGGEST_NAME}?q=${encodeURIComponent(query)}`);
     const data = await res.json();
@@ -93,7 +102,8 @@ async function suggestName(query) {
       list = document.createElement("datalist");
       list.id = "name-suggest";
       document.body.appendChild(list);
-      document.getElementById("name").setAttribute("list","name-suggest");
+      const nameInput = document.getElementById("name");
+      if (nameInput) nameInput.setAttribute("list","name-suggest");
     }
     list.innerHTML = "";
     data.forEach(item => {
@@ -112,8 +122,9 @@ async function suggestName(query) {
 // ===========================================
 function addGlowEffects() {
   const form = document.getElementById("stock-form");
-  const inputs = form.querySelectorAll("input, select, textarea");
+  if (!form) return;
 
+  const inputs = form.querySelectorAll("input, select, textarea");
   inputs.forEach(input => {
     input.classList.add("glow");
 
@@ -138,26 +149,34 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 金額自動計算
   [shares, unitPrice].forEach(el => {
-    el.addEventListener("input", calcTotalCost);
-    el.addEventListener("change", calcTotalCost);
-  });
-
-  // 証券コードバリデーション + 自動補完
-  ticker.addEventListener("input", validateTicker);
-  ticker.addEventListener("blur", () => { if (validateTicker()) fetchByCode(ticker.value); });
-
-  // 銘柄サジェスト
-  nameInput.addEventListener("input", () => suggestName(nameInput.value));
-
-  // フォーム送信時チェック
-  form.addEventListener("submit", e => {
-    if (!form.checkValidity() || !validateTicker()) {
-      e.preventDefault();
-      form.reportValidity();
+    if (el) {
+      el.addEventListener("input", calcTotalCost);
+      el.addEventListener("change", calcTotalCost);
     }
   });
 
+  // 証券コードバリデーション + 自動補完
+  if (ticker) {
+    ticker.addEventListener("input", validateTicker);
+    ticker.addEventListener("blur", () => { if (validateTicker()) fetchByCode(ticker.value); });
+  }
+
+  // 銘柄サジェスト
+  if (nameInput) {
+    nameInput.addEventListener("input", () => suggestName(nameInput.value));
+  }
+
+  // 送信時チェック
+  if (form) {
+    form.addEventListener("submit", e => {
+      if (!form.checkValidity() || !validateTicker()) {
+        e.preventDefault();
+        form.reportValidity();
+      }
+    });
+  }
+
   // 初期化
   loadSectors();
-  addGlowEffects();  // 光彩追加
+  addGlowEffects();
 });

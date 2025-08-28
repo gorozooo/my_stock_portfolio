@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% load static %} 
+{% load static %}
 
 {% block content %}
 <div class="portfolio-container" id="stock-cards-container">
-  <!-- 株カードは JS で自動生成 -->
+  <!-- JS が自動生成 -->
 </div>
 
 <!-- 株カード詳細モーダル -->
@@ -23,16 +23,12 @@
   </div>
 </div>
 
-{% include "bottom_tab.html" %}
-
 <!-- 共通確認モーダル -->
-<div id="confirm-modal" class="confirm-modal">
-  <div class="confirm-modal-content">
-    <p id="confirm-message">確認メッセージ</p>
-    <div class="confirm-modal-buttons">
-      <button id="confirm-cancel" class="btn-cancel">キャンセル</button>
-      <button id="confirm-ok" class="btn-ok">OK</button>
-    </div>
+<div id="confirm-modal" class="modal">
+  <div class="modal-content">
+    <p id="confirm-message"></p>
+    <button id="confirm-cancel">キャンセル</button>
+    <button id="confirm-ok">OK</button>
   </div>
 </div>
 
