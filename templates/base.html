@@ -6,31 +6,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}My Portfolio{% endblock %}</title>
 
-  <!-- 共通背景 -->
-  <link rel="stylesheet" href="{% static 'css/common.css' %}">
-  <!-- 固定ナビバー・下タブ -->
+  <!-- 共通レイアウト -->
   <link rel="stylesheet" href="{% static 'css/base.css' %}">
-
+  <!-- 共通デザイン -->
+  <link rel="stylesheet" href="{% static 'css/common.css' %}">
+  <!-- ページごとのCSS -->
   {% block extra_css %}{% endblock %}
 </head>
 <body>
-  <!-- 固定ナビバー -->
+  <!-- ナビバー -->
   <header class="navbar">
-    <h1>ナビバー</h1>
+    <div class="navbar-title">My Portfolio</div>
   </header>
 
-  <!-- メインコンテンツ -->
-  <main class="main-content">
+  <!-- メイン -->
+  <main>
     {% block content %}{% endblock %}
   </main>
 
-  <!-- 固定下タブ -->
-  <footer class="bottom-tab">
-    <nav>
-      <a href="#">Home</a>
-      <a href="#">Portfolio</a>
-      <a href="#">Settings</a>
-    </nav>
-  </footer>
+  <!-- 下タブ -->
+  <nav class="bottom-tab">
+    <a href="/">ホーム</a>
+    <a href="/stocks/">株一覧</a>
+    <a href="/realized/">損益</a>
+    <a href="/settings/">設定</a>
+  </nav>
 </body>
 </html>
