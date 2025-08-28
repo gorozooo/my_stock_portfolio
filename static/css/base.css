@@ -1,51 +1,87 @@
-/* レイアウトの骨組み */
+/* ========================================
+   固定ナビバー & 下タブ (base.css)
+   スマホファーストで設計
+======================================== */
 
-body {
-  margin: 0;
-  padding: 0;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden; /* main以外スクロールさせない */
-}
-
+/* ナビバー */
 .navbar {
   position: fixed;
   top: 0;
   left: 0;
-  right: 0;
-  height: 60px;
+  width: 100%;
+  height: 64px; /* ←広めに確保 */
   background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(10px);
-  color: white;
+  backdrop-filter: blur(12px);
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  justify-content: center;
+  padding: 0 16px;
   z-index: 1000;
 }
 
-main {
-  flex: 1;
-  overflow-y: auto;
-  padding: 70px 10px 70px; /* ナビバーと下タブの分だけ余白 */
+.navbar h1 {
+  font-size: 1.2rem;
+  color: #fff;
 }
 
+/* ナビ右メニュー */
+.navbar .menu {
+  display: flex;
+  gap: 16px;
+}
+.navbar .menu a {
+  color: #00ffff;
+  text-decoration: none;
+  font-size: 1rem;
+}
+
+/* 下タブ */
 .bottom-tab {
   position: fixed;
   bottom: 0;
   left: 0;
-  right: 0;
-  height: 60px;
+  width: 100%;
+  height: 70px; /* ←ボタン感を出す高さ */
   background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
   display: flex;
   justify-content: space-around;
   align-items: center;
+  padding: 8px 0;
   z-index: 1000;
 }
 
+/* タブボタン */
 .bottom-tab a {
-  color: white;
+  flex: 1;
+  margin: 0 8px;
+  background: rgba(0, 255, 255, 0.1);
+  border-radius: 12px;
+  text-align: center;
+  padding: 10px 0;
+  font-size: 0.9rem;
+  color: #fff;
   text-decoration: none;
-  font-size: 14px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  transition: 0.2s;
+}
+
+/* 押した感 */
+.bottom-tab a:active {
+  transform: scale(0.95);
+  background: rgba(0, 255, 255, 0.2);
+}
+
+/* hoverはPC用 */
+@media (hover: hover) {
+  .bottom-tab a:hover {
+    background: rgba(0, 255, 255, 0.25);
+  }
+}
+
+/* main部分をスクロール可能に */
+main {
+  padding: 80px 16px 90px; /* 上ナビ64 + 余白, 下タブ70 + 余白 */
+  overflow-y: auto;
+  min-height: calc(100vh - 150px);
 }
