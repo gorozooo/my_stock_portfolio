@@ -39,6 +39,43 @@
   to   { text-shadow: 0 0 12px #ff00ff, 0 0 24px #ff00ff; }
 }
 
+/* 現在ページスライダー */
+.page-slider {
+  position: absolute;
+  bottom: 4px; /* タイトル下 */
+  width: 100%;
+  overflow: hidden;
+  height: 20px;
+}
+
+.slider-track {
+  display: inline-block;
+  white-space: nowrap;
+  animation: scroll 8s linear infinite;
+}
+
+.slider-item {
+  display: inline-block;
+  margin: 0 24px;
+  font-size: 0.85rem;
+  color: #0ff;
+  font-family: "Orbitron", sans-serif;
+}
+
+/* スライドアニメーション */
+@keyframes scroll {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+
+/* レスポンシブ調整 */
+@media (max-width: 767px) {
+  .slider-item {
+    margin: 0 16px;
+    font-size: 0.8rem;
+  }
+}
+
 /* ===== 最終更新時計アイコン ===== */
 .last-update-icon {
   position: absolute;
