@@ -23,8 +23,11 @@
     <div class="navbar-title">My Portfolio</div>
 
     <!-- 右上に未来感時計アイコン -->
-    <div class="last-update-icon" title="{% if last_update %}最終更新: {{ last_update|date:'Y.m.d H:i' }}{% endif %}">
+    <div class="last-update-icon">
       <i class="fas fa-clock"></i>
+      {% if last_update %}
+      <span class="last-update-text">最終更新: {{ last_update|date:"Y.m.d H:i" }}</span>
+      {% endif %}
     </div>
   </header>
 
