@@ -35,8 +35,25 @@
 }
 
 @keyframes glow {
-  from { text-shadow: 0 0 8px #00ffff, 0 0 16px #00ffff; }
-  to   { text-shadow: 0 0 12px #ff00ff, 0 0 24px #ff00ff; }
+  from {
+    text-shadow: 0 0 8px #00ffff, 0 0 16px #00ffff;
+  }
+  to {
+    text-shadow: 0 0 12px #ff00ff, 0 0 24px #ff00ff;
+  }
+}
+
+/* ===== 最終更新表示（右上固定） ===== */
+.navbar .last-update {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  transform: translateY(-50%);
+  font-size: 0.75rem;
+  color: #0ff;
+  white-space: nowrap;
+  text-shadow: 0 0 4px #0ff;
+  font-family: "Orbitron", sans-serif;
 }
 
 /* ===== ナビ右メニュー（必要に応じ） ===== */
