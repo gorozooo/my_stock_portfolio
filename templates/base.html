@@ -16,20 +16,7 @@
 <body>
   <!-- ナビバー -->
   <header class="navbar">
-    <div class="navbar-left">
-      ようこそ {{ user.username }}
-    </div>
-
-    <div class="navbar-title">
-      My Portfolio
-      <div class="page-title">
-        {% block page_title %}ホーム{% endblock %}
-      </div>
-    </div>
-
-    <div class="navbar-right">
-      最終更新: {{ last_update|date:"Y.m.d H:i" }}
-    </div>
+    <div class="navbar-title">My Portfolio</div>
   </header>
 
   <!-- メイン -->
