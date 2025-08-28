@@ -43,34 +43,6 @@
   }
 }
 
-/* ===== 最終更新表示（右上固定） ===== */
-.navbar .last-update {
-  position: absolute;
-  top: 50%;
-  right: 16px;
-  transform: translateY(-50%);
-  font-size: 0.75rem;
-  color: #0ff;
-  white-space: nowrap;
-  text-shadow: 0 0 4px #0ff;
-  font-family: "Orbitron", sans-serif;
-}
-
-/* ===== ナビ右メニュー（必要に応じ） ===== */
-.navbar .menu {
-  display: flex;
-  gap: 16px;
-}
-.navbar .menu a {
-  color: #00ffff;
-  text-decoration: none;
-  font-size: 1rem;
-  transition: 0.3s;
-}
-.navbar .menu a:hover {
-  text-shadow: 0 0 6px #00ffff, 0 0 12px #7f7fff;
-}
-
 /* ===== 下タブ ===== */
 .bottom-tab {
   position: fixed;
