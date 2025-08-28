@@ -25,19 +25,6 @@
   </main>
 
   <!-- 下タブ -->
-<div class="bottom-tab">
-  <a href="{% url 'main' %}" class="active">
-    <i class="fas fa-home"></i>
-    ホーム
-  </a>
-  <a href="{% url 'trade_history' %}">
-    <i class="fas fa-history"></i>
-    履歴
-  </a>
-  <a href="{% url 'settings' %}">
-    <i class="fas fa-cog"></i>
-    設定
-  </a>
-</div>
+  {% include "bottom_tab.html" %}
 </body>
 </html>
