@@ -1,5 +1,5 @@
 // ===========================================
-// stock_form.js（完全版）
+// stock_form.js（修正版 完全版）
 // ===========================================
 
 // 数値→カンマ区切り（小数切捨て）
@@ -78,10 +78,12 @@ async function fetchByCode(code) {
   try {
     const res = await fetch(`${API_STOCK_BY_CODE}?code=${encodeURIComponent(val)}`);
     const data = await res.json();
-    document.getElementById("name").value = data.success ? data.name : "";
+    document.getElementById("name").value   = data.success ? data.name   : "";
     document.getElementById("sector").value = data.success ? data.sector : "";
   } catch (err) {
     console.error("銘柄取得失敗", err);
+    document.getElementById("name").value = "";
+    document.getElementById("sector").value = "";
   }
 }
 
@@ -158,8 +160,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 証券コードバリデーション + 自動補完
   if (ticker) {
-    ticker.addEventListener("input", validateTicker);
-    ticker.addEventListener("blur", () => { if (validateTicker()) fetchByCode(ticker.value); });
+    ticker.addEventListener("input", () => {
+      if (validateTicker()) {
+        fetchByCode(ticker.value);
+      }
+    });
+
+    // フォーカスアウト時も保険で補完
+    ticker.addEventListener("blur", () => {
+      if (validateTicker()) {
+        fetchByCode(ticker.value);
+      }
+    });
   }
 
   // 銘柄サジェスト
