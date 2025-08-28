@@ -1,15 +1,11 @@
 /* ===== 全体 ===== */
-body, html {
+body {
   margin: 0;
-  padding: 0;
   font-family: sans-serif;
-  height: 100%;
-}
-
-.app-wrapper {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
+  background: #111;
+  color: #0ff;
+  height: 100vh;
+  overflow: hidden; /* body自体はスクロールさせない */
 }
 
 /* ===== ナビバー固定 ===== */
@@ -20,11 +16,21 @@ body, html {
   width: 100%;
   height: 60px;
   background-color: #111;
-  color: #0ff;
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+}
+
+/* ===== メインコンテンツ ===== */
+.main-content {
+  position: absolute;
+  top: 60px; /* navbar 高さ分 */
+  bottom: 50px; /* 下タブ高さ分 */
+  left: 0;
+  right: 0;
+  overflow-y: auto; /* ここだけスクロール可能 */
+  padding: 20px;
 }
 
 /* ===== 下タブ固定 ===== */
@@ -35,22 +41,13 @@ body, html {
   width: 100%;
   height: 50px;
   background-color: #111;
-  color: #0ff;
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
 }
 
-/* ===== メインコンテンツ ===== */
-.main-content {
-  margin-top: 60px; /* navbar高さ分 */
-  margin-bottom: 50px; /* 下タブ高さ分 */
-  padding: 20px;
-}
-
+/* ===== コンテンツの見やすさ ===== */
 .content-box {
-  background: linear-gradient(#222, #444);
-  color: #0ff;
-  min-height: 100vh;
+  height: auto;
 }
