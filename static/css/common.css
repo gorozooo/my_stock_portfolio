@@ -1,8 +1,63 @@
-/* ページ全体の背景（共通） */
-body {
-  margin: 0;
-  font-family: sans-serif;
-  background: linear-gradient(135deg, #000428, #004e92);
-  color: white;
-  min-height: 100vh;
+/* ========================================
+   common.css
+   - 全ページ共通の装飾
+======================================== */
+
+/* ボタン */
+.btn {
+  display: inline-block;
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  background: var(--color-neon);
+  color: black;
+  font-weight: bold;
+  border: none;
+  cursor: pointer;
+  text-align: center;
+  transition: 0.2s;
+}
+
+.btn:hover {
+  opacity: 0.9;
+}
+
+/* テーブル */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+.table th, .table td {
+  padding: 0.6rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* カード */
+.card {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1rem;
+  border-radius: 10px;
+  margin: 0.5rem 0;
+  backdrop-filter: blur(8px);
+}
+
+/* モーダル（共通） */
+.modal {
+  display: none;
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(5px);
+  justify-content: center;
+  align-items: center;
+  z-index: 200;
+}
+
+.modal-content {
+  background: rgba(30, 30, 30, 0.9);
+  padding: 1.5rem;
+  border-radius: 10px;
+  max-width: 90%;
 }
