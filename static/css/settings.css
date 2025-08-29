@@ -1,8 +1,5 @@
 body {
-  background: #0a0a0f;
-  font-family: 'Inter', sans-serif;
-  color: #fff;
-  margin: 0;
+  background: pink !important;
 }
 
 h1 {
