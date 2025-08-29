@@ -1,5 +1,5 @@
 // ===========================================
-// stock_form.js（修正版 完全版）
+// stock_form.js（本番対応 修正版）
 // ===========================================
 
 // 数値→カンマ区切り（小数切捨て）
@@ -42,18 +42,19 @@ function validateTicker() {
 }
 
 // ===========================================
-// API設定
+// API設定（絶対URL対応）
 // ===========================================
-const API_STOCK_BY_CODE = "/stocks/api/stock_by_code/";
-const API_SUGGEST_NAME  = "/stocks/api/suggest_name/";
-const API_SECTORS       = "/stocks/api/sectors/";
+const BASE_URL = window.location.origin; // 本番・開発共通
+const API_STOCK_BY_CODE = `${BASE_URL}/stocks/api/stock_by_code/`;
+const API_SUGGEST_NAME  = `${BASE_URL}/stocks/api/suggest_name/`;
+const API_SECTORS       = `${BASE_URL}/stocks/api/sectors/`;
 
 // ===========================================
-// サーバーから33業種を取得して datalist にセット
+// セクターを取得して datalist にセット
 // ===========================================
 async function loadSectors() {
   try {
-    const res = await fetch(API_SECTORS);
+    const res = await fetch(`${API_SECTORS}?_=${Date.now()}`); // キャッシュ回避
     const sectors = await res.json();
     const list = document.getElementById("sector-list");
     if (!list) return;
@@ -76,26 +77,15 @@ async function fetchByCode(code) {
   if (!/^(\d{4}|\d{3,4}[A-Z])$/.test(val)) return;
 
   try {
-    const res = await fetch(`${API_STOCK_BY_CODE}?code=${encodeURIComponent(val)}`);
-    if (!res.ok) throw new Error("API応答エラー");
+    const res = await fetch(`${API_STOCK_BY_CODE}?code=${encodeURIComponent(val)}&_=${Date.now()}`);
+    if (!res.ok) throw new Error(`API失敗: ${res.status}`);
     const data = await res.json();
-
-    const nameInput = document.getElementById("name");
-    const sectorInput = document.getElementById("sector");
-
-    if (data.success) {
-      if (nameInput) nameInput.value = data.name;
-      if (sectorInput) sectorInput.value = data.sector;
-    } else {
-      if (nameInput) nameInput.value = "";
-      if (sectorInput) sectorInput.value = "";
-    }
+    document.getElementById("name").value   = data.success ? data.name   : "";
+    document.getElementById("sector").value = data.success ? data.sector : "";
   } catch (err) {
     console.error("銘柄取得失敗", err);
-    const nameInput = document.getElementById("name");
-    const sectorInput = document.getElementById("sector");
-    if (nameInput) nameInput.value = "";
-    if (sectorInput) sectorInput.value = "";
+    document.getElementById("name").value = "";
+    document.getElementById("sector").value = "";
   }
 }
 
@@ -105,8 +95,8 @@ async function fetchByCode(code) {
 async function suggestName(query) {
   if (query.length < 2) return;
   try {
-    const res = await fetch(`${API_SUGGEST_NAME}?q=${encodeURIComponent(query)}`);
-    if (!res.ok) throw new Error("サジェストAPIエラー");
+    const res = await fetch(`${API_SUGGEST_NAME}?q=${encodeURIComponent(query)}&_=${Date.now()}`);
+    if (!res.ok) throw new Error(`API失敗: ${res.status}`);
     const data = await res.json();
 
     let list = document.getElementById("name-suggest");
@@ -114,8 +104,7 @@ async function suggestName(query) {
       list = document.createElement("datalist");
       list.id = "name-suggest";
       document.body.appendChild(list);
-      const nameInput = document.getElementById("name");
-      if (nameInput) nameInput.setAttribute("list", "name-suggest");
+      document.getElementById("name").setAttribute("list","name-suggest");
     }
 
     list.innerHTML = "";
@@ -140,12 +129,9 @@ function addGlowEffects() {
   const inputs = form.querySelectorAll("input, select, textarea");
   inputs.forEach(input => {
     input.classList.add("glow");
-
     input.addEventListener("focus", () => form.classList.add("focus-glow"));
     input.addEventListener("blur", () => {
-      if (!form.querySelector(":focus")) {
-        form.classList.remove("focus-glow");
-      }
+      if (!form.querySelector(":focus")) form.classList.remove("focus-glow");
     });
   });
 }
@@ -182,9 +168,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // 銘柄サジェスト
-  if (nameInput) {
-    nameInput.addEventListener("input", () => suggestName(nameInput.value));
-  }
+  if (nameInput) nameInput.addEventListener("input", () => suggestName(nameInput.value));
 
   // フォーム送信時チェック
   if (form) {

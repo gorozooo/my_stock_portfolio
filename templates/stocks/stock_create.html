@@ -35,18 +35,6 @@
         {% if errors.name %}<div class="field-error">{{ errors.name }}</div>{% endif %}
       </div>
 
-      <!-- 口座区分 -->
-      <div class="form-field">
-        <label for="account_type">口座区分</label>
-        <select id="account_type" name="account_type">
-          <option value="" disabled {% if not data.account_type %}selected{% endif %}>選択してください</option>
-          <option value="現物" {% if data.account_type == '現物' %}selected{% endif %}>現物</option>
-          <option value="信用" {% if data.account_type == '信用' %}selected{% endif %}>信用</option>
-          <option value="NISA" {% if data.account_type == 'NISA' %}selected{% endif %}>NISA</option>
-        </select>
-        {% if errors.account_type %}<div class="field-error">{{ errors.account_type }}</div>{% endif %}
-      </div>
-
       <!-- 証券会社 -->
       <div class="form-field" id="broker-field">
         <label for="broker">証券会社</label>
@@ -57,6 +45,18 @@
           {% endfor %}
         </select>
         {% if errors.broker %}<div class="field-error">{{ errors.broker }}</div>{% endif %}
+      </div>
+
+      <!-- 口座区分 -->
+      <div class="form-field">
+        <label for="account_type">口座区分</label>
+        <select id="account_type" name="account_type">
+          <option value="" disabled {% if not data.account_type %}selected{% endif %}>選択してください</option>
+          <option value="現物" {% if data.account_type == '現物' %}selected{% endif %}>現物</option>
+          <option value="信用" {% if data.account_type == '信用' %}selected{% endif %}>信用</option>
+          <option value="NISA" {% if data.account_type == 'NISA' %}selected{% endif %}>NISA</option>
+        </select>
+        {% if errors.account_type %}<div class="field-error">{{ errors.account_type }}</div>{% endif %}
       </div>
 
       <!-- セクター -->
