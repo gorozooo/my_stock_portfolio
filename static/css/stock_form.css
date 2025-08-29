@@ -33,14 +33,16 @@
   background: rgba(18,23,34,0.75);
   backdrop-filter: blur(12px);
   border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 18px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-  padding: 16px;
+  border-radius: 20px; /* 少し丸めを強調 */
+  box-shadow: 0 8px 28px rgba(0,0,0,0.2);
+  padding: 24px;       /* 内側の余白を広げる */
   transition: box-shadow 0.3s ease;
+  max-width: 1100px;   /* 外枠を広げる */
+  margin: 0 auto;
 }
 
 #stock-form:hover {
-  box-shadow: 0 12px 32px rgba(0,0,0,0.25);
+  box-shadow: 0 14px 36px rgba(0,0,0,0.3);
 }
 
 /* グリッド */
@@ -60,13 +62,17 @@ label {
 }
 
 /* 入力欄 */
-input[type="text"], input[type="date"], input[type="number"], select, textarea {
+input[type="text"], 
+input[type="date"], 
+input[type="number"], 
+select, 
+textarea {
   width: 100%;
-  border-radius: 12px;
+  border-radius: 14px;
   border: var(--border);
   background: #101623;
   color: var(--text);
-  padding: 14px 12px;
+  padding: 16px 14px; /* 余裕を持たせる */
   font-size: 16px;
   outline: none;
   transition: border 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
@@ -116,7 +122,7 @@ textarea { resize: vertical; }
   .page { padding: 30px 24px 60px; }
   .form-grid { grid-template-columns: 1fr 1fr; }
   .form-field--full { grid-column: span 2; }
-  #stock-form { max-width: 980px; margin: 0 auto; padding: 22px; }
+  #stock-form { max-width: 1100px; margin: 0 auto; padding: 28px; }
   .page-title { text-align: center; margin-bottom: 22px; font-size: 1.5rem; }
 }
 
