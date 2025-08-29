@@ -96,6 +96,7 @@ def stock_create(request):
         account_type = data.get("account_type", "").strip()
         sector = data.get("sector", "").strip()
         note = data.get("note", "").strip()
+        broker = data.get("broker", "").strip()  # broker追加
 
         # 数値変換
         try:
@@ -125,6 +126,8 @@ def stock_create(request):
             errors["account_type"] = "口座区分を選択してください"
         if not sector:
             errors["sector"] = "セクターを入力してください"
+        if not broker:
+            errors["broker"] = "証券会社を選択してください"  # broker必須
 
         # エラーがなければ保存
         if not errors:
@@ -138,6 +141,7 @@ def stock_create(request):
                 unit_price=unit_price,
                 total_cost=total_cost,
                 note=note,
+                broker=broker,  # 保存
             )
             return redirect("stock_list")
 
