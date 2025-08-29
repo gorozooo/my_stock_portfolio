@@ -25,7 +25,11 @@
         <label for="ticker">証券コード</label>
         <input type="text" id="ticker" name="ticker" pattern="^(\d{4}|\d{3,4}[A-Z])$"
                value="{{ data.ticker|default:'' }}">
-        {% if errors.ticker %}<div class="field-error">{{ errors.ticker }}</div>{% endif %}
+        {% if errors.ticker %}
+          <div class="field-error" data-for="ticker">{{ errors.ticker }}</div>
+        {% else %}
+          <div class="field-error" data-for="ticker"></div>
+        {% endif %}
       </div>
 
       <!-- 銘柄名 -->
@@ -36,7 +40,7 @@
       </div>
 
       <!-- 証券会社 -->
-      <div class="form-field" id="broker-field">
+      <div class="form-field">
         <label for="broker">証券会社</label>
         <select id="broker" name="broker">
           <option value="" disabled {% if not data.broker %}selected{% endif %}>選択してください</option>
