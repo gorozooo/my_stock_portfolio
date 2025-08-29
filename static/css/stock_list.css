@@ -134,7 +134,7 @@
   background: rgba(25,25,35,0.95);
   backdrop-filter: blur(var(--blur));
   margin: 0% auto; /* 上寄せ */
-  padding: 20px;
+  padding: 100px;
   border-radius: var(--card-radius);
   width: 90%;
   max-width: 420px;
