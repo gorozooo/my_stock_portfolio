@@ -83,6 +83,8 @@ CSRF_TRUSTED_ORIGINS = ["http://192.168.1.16:8000""https://gorozooo.com","https:
 # StockMaster Excel 保存先
 STOCKMASTER_XLSX_PATH = Path(BASE_DIR) / "data" / "StockMaster_latest.xlsx"
 
+# キャッシュバスティングのために推奨
+STATICFILES_STORAGE = "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
 # =============================
 # 本番運用時の追加設定例
 # =============================
