@@ -34,9 +34,9 @@ function validateTicker() {
   const ok = /^(\d{4}|\d{3,4}[A-Z])$/.test(val);
 
   if (ok) {
-    err.textContent = "";
+    if (err) err.textContent = "";
   } else {
-    err.textContent = "証券コードは「4桁の数字」または「数字＋英字1文字」です。";
+    if (err) err.textContent = "証券コードは「4桁の数字」または「数字＋英字1文字」です。";
   }
   return ok;
 }
@@ -77,13 +77,25 @@ async function fetchByCode(code) {
 
   try {
     const res = await fetch(`${API_STOCK_BY_CODE}?code=${encodeURIComponent(val)}`);
+    if (!res.ok) throw new Error("API応答エラー");
     const data = await res.json();
-    document.getElementById("name").value   = data.success ? data.name   : "";
-    document.getElementById("sector").value = data.success ? data.sector : "";
+
+    const nameInput = document.getElementById("name");
+    const sectorInput = document.getElementById("sector");
+
+    if (data.success) {
+      if (nameInput) nameInput.value = data.name;
+      if (sectorInput) sectorInput.value = data.sector;
+    } else {
+      if (nameInput) nameInput.value = "";
+      if (sectorInput) sectorInput.value = "";
+    }
   } catch (err) {
     console.error("銘柄取得失敗", err);
-    document.getElementById("name").value = "";
-    document.getElementById("sector").value = "";
+    const nameInput = document.getElementById("name");
+    const sectorInput = document.getElementById("sector");
+    if (nameInput) nameInput.value = "";
+    if (sectorInput) sectorInput.value = "";
   }
 }
 
@@ -94,6 +106,7 @@ async function suggestName(query) {
   if (query.length < 2) return;
   try {
     const res = await fetch(`${API_SUGGEST_NAME}?q=${encodeURIComponent(query)}`);
+    if (!res.ok) throw new Error("サジェストAPIエラー");
     const data = await res.json();
 
     let list = document.getElementById("name-suggest");
@@ -101,7 +114,8 @@ async function suggestName(query) {
       list = document.createElement("datalist");
       list.id = "name-suggest";
       document.body.appendChild(list);
-      document.getElementById("name").setAttribute("list","name-suggest");
+      const nameInput = document.getElementById("name");
+      if (nameInput) nameInput.setAttribute("list", "name-suggest");
     }
 
     list.innerHTML = "";
@@ -124,7 +138,6 @@ function addGlowEffects() {
   if (!form) return;
 
   const inputs = form.querySelectorAll("input, select, textarea");
-
   inputs.forEach(input => {
     input.classList.add("glow");
 
@@ -161,16 +174,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // 証券コードバリデーション + 自動補完
   if (ticker) {
     ticker.addEventListener("input", () => {
-      if (validateTicker()) {
-        fetchByCode(ticker.value);
-      }
+      if (validateTicker()) fetchByCode(ticker.value);
     });
-
-    // フォーカスアウト時も保険で補完
     ticker.addEventListener("blur", () => {
-      if (validateTicker()) {
-        fetchByCode(ticker.value);
-      }
+      if (validateTicker()) fetchByCode(ticker.value);
     });
   }
 
@@ -191,5 +198,5 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 初期化
   loadSectors();
-  addGlowEffects();  // 光彩追加
+  addGlowEffects();
 });
