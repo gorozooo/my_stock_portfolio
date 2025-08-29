@@ -1,157 +1,97 @@
-/* =======================
-   全体の背景とレイアウト
-======================= */
 body {
-  background: linear-gradient(135deg, #ffe6f0, #fff); /* 淡いピンク背景 */
-  font-family: "Segoe UI", sans-serif;
+  background: linear-gradient(180deg, #fdfbfb, #ebedee);
+  font-family: "Helvetica Neue", sans-serif;
   margin: 0;
   padding: 0;
+}
+
+/* ページタイトル */
+.page-title {
+  text-align: center;
+  font-size: 1.5rem;
+  margin: 1rem 0;
   color: #333;
 }
 
-.page-title {
-  text-align: center;
-  font-size: 1.8rem;
-  margin: 20px 0;
-  color: #d6336c;
-  font-weight: bold;
-}
-
-/* =======================
-   タブ一覧カード
-======================= */
-.tab-list {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 16px;
-  padding: 10px;
-}
-
+/* タブカード */
 .tab-card {
-  background: #fff;
+  background: white;
   border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  width: 280px;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  overflow: hidden;
+  padding: 12px;
+  margin: 10px;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.1);
+  transition: 0.3s;
 }
-
 .tab-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+  transform: scale(1.01);
 }
 
-/* =======================
-   タブヘッダー部分
-======================= */
+/* タブヘッダー */
 .tab-header {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  background: #ffe0ec;
-  padding: 10px 14px;
-  border-bottom: 1px solid #f5b7c5;
+  align-items: center;
 }
-
-.tab-icon {
-  font-size: 1.3rem;
-  margin-right: 8px;
-}
-
-.tab-name {
+.tab-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 1.1rem;
-  font-weight: bold;
-  flex-grow: 1;
-  color: #c2185b;
 }
-
+.tab-icon {
+  font-size: 1.4rem;
+}
 .tab-actions button {
   background: none;
   border: none;
-  cursor: pointer;
-  font-size: 1rem;
+  font-size: 1.2rem;
   margin-left: 6px;
-  opacity: 0.6;
-  transition: opacity 0.2s;
+  cursor: pointer;
 }
 
-.tab-actions button:hover {
-  opacity: 1;
-}
-
-/* =======================
-   サブメニュー部分
-======================= */
+/* サブメニュー */
 .submenu-list {
-  padding: 8px 12px;
+  margin-top: 8px;
+  display: none; /* ← 初期は非表示（アコーディオン） */
 }
-
 .submenu-item {
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 8px;
+  margin: 5px 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: #fff5f8;
-  border-radius: 6px;
-  padding: 6px 10px;
-  margin-bottom: 6px;
-  transition: background 0.2s;
 }
-
-.submenu-item:hover {
-  background: #ffe3ed;
-}
-
-.submenu-item button {
+.submenu-actions button {
   background: none;
   border: none;
-  font-size: 0.9rem;
-  cursor: pointer;
-  opacity: 0.7;
+  margin-left: 4px;
+  font-size: 1rem;
 }
-
-.submenu-item button:hover {
-  opacity: 1;
-}
-
-/* サブメニュー追加ボタン */
 .add-submenu-btn {
+  margin-top: 6px;
   width: 100%;
   padding: 8px;
-  margin-top: 6px;
-  border: 1px dashed #c2185b;
-  border-radius: 6px;
-  background: #fff;
-  color: #c2185b;
+  border-radius: 8px;
+  border: none;
+  background: #e0f7fa;
+  font-size: 0.9rem;
   cursor: pointer;
-  transition: background 0.2s, color 0.2s;
 }
 
-.add-submenu-btn:hover {
-  background: #c2185b;
-  color: #fff;
-}
-
-/* =======================
-   フローティング追加ボタン
-======================= */
+/* フローティングボタン */
 .fab {
   position: fixed;
-  right: 24px;
-  bottom: 24px;
-  background: #e91e63;
-  color: #fff;
-  font-size: 1.8rem;
-  border: none;
-  border-radius: 50%;
+  bottom: 16px;
+  right: 16px;
   width: 60px;
   height: 60px;
+  border-radius: 50%;
+  background: #ff4081;
+  color: white;
+  font-size: 2rem;
+  border: none;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
   cursor: pointer;
-  box-shadow: 0 6px 16px rgba(0,0,0,0.25);
-  transition: background 0.2s, transform 0.2s;
-}
-
-.fab:hover {
-  background: #ad1457;
-  transform: scale(1.1);
 }
