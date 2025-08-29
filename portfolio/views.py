@@ -381,3 +381,12 @@ def get_sector_list(request):
     )
     return JsonResponse([s or "" for s in sectors], safe=False)
 
+# views.py
+def settings_view(request):
+    settings_cards = [
+        {"url_name": "tab_manager", "icon": "fa-table-columns", "title": "タブ管理", "description": "下タブやサブメニューを管理", "color":"green", "progress": 80, "badge":"New"},
+        {"url_name": "theme_settings", "icon": "fa-paintbrush", "title": "テーマ変更", "description": "画面の色やスタイルを変更", "color":"blue", "progress": 40, "badge":"未設定"},
+        {"url_name": "notification_settings", "icon": "fa-bell", "title": "通知設定", "description": "通知のオン／オフを切替", "color":"pink", "progress": 100},
+        {"url_name": "settings_password_edit", "icon": "fa-lock", "title": "パスワード変更", "description": "ログインパスワードを変更", "color":"orange", "progress": 50},
+    ]
+    return render(request, "settings.html", {"settings_cards": settings_cards})
