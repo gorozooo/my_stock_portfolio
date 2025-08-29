@@ -121,8 +121,7 @@
   position: fixed;
   z-index: 200;
   left:0; top:0;
-  width:100%;
-  height:100%;
+  width:100%; height:100%;
   background: rgba(0,0,0,0.7);
   animation: fadeIn 0.3s ease;
 }
@@ -131,7 +130,7 @@
   from { opacity: 0; } to { opacity: 1; }
 }
 
-/* ナビバーを考慮した固定位置 + 最大高さ */
+/* ===== モーダル本体（スマホ完全対応） ===== */
 .modal-content {
   background: rgba(25,25,35,0.95);
   backdrop-filter: blur(var(--blur));
@@ -139,12 +138,14 @@
   border-radius: var(--card-radius);
   width: 90%;
   max-width: 420px;
+  
   position: fixed;
-  top: var(--navbar-height, 60px);
+  top: calc(var(--navbar-height, 60px) + 10px);
+  bottom: 10px; /* 下余白 */
   left: 50%;
   transform: translateX(-50%);
-  max-height: calc(100vh - var(--navbar-height, 60px) - 20px);
-  overflow-y: auto;
+  
+  overflow-y: auto; /* 高さ超えたらスクロール */
   color: var(--color-neon);
   box-shadow: 0 12px 36px rgba(0,0,0,0.4);
   z-index: 210;
@@ -208,14 +209,21 @@
   border-radius: var(--card-radius);
   width: 85%;
   max-width: 360px;
-  margin: 25% auto;
+  position: fixed;
+  top: calc(var(--navbar-height, 60px) + 10px);
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  overflow-y: auto;
   text-align: center;
   box-shadow: 0 8px 24px rgba(0,0,0,0.35);
   animation: fadeIn 0.25s ease;
 }
 
 .confirm-modal.show-center .confirm-modal-content {
-  margin: 20% auto;
+  top: 50%;
+  bottom: auto;
+  transform: translate(-50%, -50%); /* 中央寄せ */
 }
 
 .confirm-modal-content p {
@@ -262,4 +270,57 @@
   transform: translateY(-2px);
 }
 
-/* ========================================
+/* ======================================== */
+/* ===== トースト通知 ===== */
+.toast {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translate(-50%, -100%);
+  background: linear-gradient(135deg, #1e3a8a, #2563eb);
+  color: white;
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: bold;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  z-index: 400;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, -120%);
+}
+
+/* ======================================== */
+/* ===== PC対応 ===== */
+@media (min-width: 768px) {
+  .portfolio-container { max-width: 800px; margin: 0 auto; }
+  .stock-header { font-size: 1.05rem; }
+  .stock-row { font-size: 0.95rem; }
+  .sell-btn { right: -100px; width: 100px; font-size: 1rem; }
+  .confirm-modal-content { top: 15%; bottom: auto; transform: translateX(-50%); }
+}
+
+/* ======================================== */
+/* ===== スマホレスポンシブ ===== */
+@media (max-width: 480px) {
+  .stock-card { padding: 12px; }
+  .stock-header { font-size: 0.95rem; }
+  .stock-row { font-size: 0.85rem; }
+  .sell-button { font-size: 0.9rem; }
+  .sell-btn { width: 70px; right: -70px; font-size: 0.85rem; }
+  .confirm-modal-content { top: calc(var(--navbar-height, 60px) + 8px); bottom: 8px; padding: 16px; }
+  .toast { font-size: 0.8rem; padding: 8px 14px; }
+}
+
+@media (max-width: 360px) {
+  .stock-header { font-size: 0.9rem; }
+  .stock-row { font-size: 0.8rem; }
+  .sell-btn { width: 60px; right: -60px; font-size: 0.8rem; }
+  .confirm-modal-content { top: calc(var(--navbar-height, 50px) + 6px); bottom: 6px; padding: 12px; }
+  .toast { font-size: 0.75rem; }
+}
