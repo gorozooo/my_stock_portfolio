@@ -5,7 +5,7 @@
 
 {% block extra_css %}
   <link rel="stylesheet" href="{% static 'css/settings.css' %}">
-  <!-- Font Awesome アイコン使用 -->
+  <!-- Font Awesome アイコン -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
 {% endblock %}
 
@@ -13,47 +13,26 @@
 <h1>設定画面</h1>
 
 <div class="settings-buttons">
-  <!-- タブ管理 -->
-  <a href="{% url 'tab_manager' %}" class="settings-card" data-color="green">
-    <i class="fa-solid fa-table-columns"></i>
+  {% comment %} 各カードを動的生成 {% endcomment %}
+  {% for card in settings_cards %}
+  <a href="{% url card.url_name %}" class="settings-card" data-color="{{ card.color }}">
+    <i class="fa-solid {{ card.icon }}"></i>
     <div class="text-group">
-      <span class="title">タブ管理</span>
-      <small>下タブやサブメニューを管理</small>
+      <span class="title">{{ card.title }}</span>
+      <small>{{ card.description }}</small>
     </div>
-    <div class="progress-bar"><span style="width:80%"></span></div>
-    <div class="status-badge">New</div>
-  </a>
 
-  <!-- テーマ変更 -->
-  <a href="{% url 'theme_settings' %}" class="settings-card" data-color="blue">
-    <i class="fa-solid fa-paintbrush"></i>
-    <div class="text-group">
-      <span class="title">テーマ変更</span>
-      <small>画面の色やスタイルを変更</small>
+    {% if card.progress %}
+    <div class="progress-bar">
+      <span style="width: {{ card.progress }}%;"></span>
     </div>
-    <div class="progress-bar"><span style="width:40%"></span></div>
-    <div class="status-badge">未設定</div>
-  </a>
+    {% endif %}
 
-  <!-- 通知設定 -->
-  <a href="{% url 'notification_settings' %}" class="settings-card" data-color="pink">
-    <i class="fa-solid fa-bell"></i>
-    <div class="text-group">
-      <span class="title">通知設定</span>
-      <small>通知のオン／オフを切替</small>
-    </div>
-    <div class="progress-bar"><span style="width:100%"></span></div>
+    {% if card.badge %}
+    <div class="status-badge">{{ card.badge }}</div>
+    {% endif %}
   </a>
-
-  <!-- パスワード変更 -->
-  <a href="{% url 'settings_password_edit' %}" class="settings-card" data-color="orange">
-    <i class="fa-solid fa-lock"></i>
-    <div class="text-group">
-      <span class="title">パスワード変更</span>
-      <small>ログインパスワードを変更</small>
-    </div>
-    <div class="progress-bar"><span style="width:50%"></span></div>
-  </a>
+  {% endfor %}
 </div>
 
 {% endblock %}
