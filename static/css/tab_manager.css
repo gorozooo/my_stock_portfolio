@@ -1,115 +1,157 @@
+/* =======================
+   全体の背景とレイアウト
+======================= */
 body {
+  background: linear-gradient(135deg, #ffe6f0, #fff); /* 淡いピンク背景 */
+  font-family: "Segoe UI", sans-serif;
   margin: 0;
-  font-family: Arial, sans-serif;
-  background-color: #0a0a1a;
-  color: #fff;
+  padding: 0;
+  color: #333;
 }
 
 .page-title {
   text-align: center;
+  font-size: 1.8rem;
   margin: 20px 0;
+  color: #d6336c;
+  font-weight: bold;
 }
 
-/* タブ一覧カード */
+/* =======================
+   タブ一覧カード
+======================= */
 .tab-list {
   display: flex;
-  flex-direction: column;
-  gap: 15px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
   padding: 10px;
-  z-index: 5;
 }
 
-/* タブカード */
 .tab-card {
-  background: linear-gradient(145deg, #1f1f35, #2c2c50);
-  border-radius: 15px;
-  padding: 15px;
-  position: relative;
-  box-shadow: 0 6px 12px rgba(0,0,0,0.3);
-  transition: transform 0.2s;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  width: 280px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  overflow: hidden;
 }
 
 .tab-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.15);
 }
 
-/* タブヘッダー */
+/* =======================
+   タブヘッダー部分
+======================= */
 .tab-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  background: #ffe0ec;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f5b7c5;
 }
 
 .tab-icon {
-  font-size: 1.8em;
-  margin-right: 10px;
+  font-size: 1.3rem;
+  margin-right: 8px;
 }
 
 .tab-name {
-  font-size: 1.2em;
+  font-size: 1.1rem;
   font-weight: bold;
   flex-grow: 1;
+  color: #c2185b;
 }
 
-/* アクションボタン */
 .tab-actions button {
-  background: transparent;
+  background: none;
   border: none;
-  color: #fff;
   cursor: pointer;
-  font-size: 1.1em;
-  margin-left: 5px;
+  font-size: 1rem;
+  margin-left: 6px;
+  opacity: 0.6;
+  transition: opacity 0.2s;
 }
 
-/* サブメニュー */
+.tab-actions button:hover {
+  opacity: 1;
+}
+
+/* =======================
+   サブメニュー部分
+======================= */
 .submenu-list {
-  margin-top: 10px;
-  padding-left: 25px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  padding: 8px 12px;
 }
 
 .submenu-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  background: #fff5f8;
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  transition: background 0.2s;
 }
 
-/* フローティング追加ボタン */
+.submenu-item:hover {
+  background: #ffe3ed;
+}
+
+.submenu-item button {
+  background: none;
+  border: none;
+  font-size: 0.9rem;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.submenu-item button:hover {
+  opacity: 1;
+}
+
+/* サブメニュー追加ボタン */
+.add-submenu-btn {
+  width: 100%;
+  padding: 8px;
+  margin-top: 6px;
+  border: 1px dashed #c2185b;
+  border-radius: 6px;
+  background: #fff;
+  color: #c2185b;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.add-submenu-btn:hover {
+  background: #c2185b;
+  color: #fff;
+}
+
+/* =======================
+   フローティング追加ボタン
+======================= */
 .fab {
   position: fixed;
-  bottom: 25px;
-  right: 25px;
-  background: #43a047;
+  right: 24px;
+  bottom: 24px;
+  background: #e91e63;
   color: #fff;
+  font-size: 1.8rem;
   border: none;
   border-radius: 50%;
-  width: 55px;
-  height: 55px;
-  font-size: 2em;
+  width: 60px;
+  height: 60px;
   cursor: pointer;
-  box-shadow: 0 6px 12px rgba(0,0,0,0.4);
-  z-index: 10;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+  transition: background 0.2s, transform 0.2s;
 }
 
-/* スマホレスポンシブ */
-@media (max-width: 500px) {
-  .tab-card {
-    padding: 12px;
-  }
-  .tab-icon {
-    font-size: 1.5em;
-  }
-  .tab-name {
-    font-size: 1em;
-  }
-  .tab-actions button {
-    font-size: 1em;
-  }
-  .fab {
-    width: 50px;
-    height: 50px;
-    font-size: 1.8em;
-  }
+.fab:hover {
+  background: #ad1457;
+  transform: scale(1.1);
 }
