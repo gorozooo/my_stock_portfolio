@@ -131,11 +131,10 @@
   from { opacity: 0; } to { opacity: 1; }
 }
 
-/* スマホ対応：ナビバーを考慮した固定位置 + 最大高さ */
+/* ナビバーを考慮した固定位置 + 最大高さ */
 .modal-content {
   background: rgba(25,25,35,0.95);
   backdrop-filter: blur(var(--blur));
-  margin: 0 auto;
   padding: 20px;
   border-radius: var(--card-radius);
   width: 90%;
@@ -148,6 +147,7 @@
   overflow-y: auto;
   color: var(--color-neon);
   box-shadow: 0 12px 36px rgba(0,0,0,0.4);
+  z-index: 210;
 }
 
 .modal-content .close {
@@ -215,7 +215,7 @@
 }
 
 .confirm-modal.show-center .confirm-modal-content {
-  margin: 20% auto; /* モーダル内売却ボタン押下時は中央寄せ */
+  margin: 20% auto;
 }
 
 .confirm-modal-content p {
@@ -262,57 +262,4 @@
   transform: translateY(-2px);
 }
 
-/* ======================================== */
-/* ===== トースト通知 ===== */
-.toast {
-  position: absolute;
-  top: -10px;
-  left: 50%;
-  transform: translate(-50%, -100%);
-  background: linear-gradient(135deg, #1e3a8a, #2563eb);
-  color: white;
-  padding: 10px 16px;
-  border-radius: 12px;
-  font-size: 
-
-  font-weight: bold;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.3s ease, transform 0.3s ease;
-  z-index: 400;
-}
-
-.toast.show {
-  opacity: 1;
-  transform: translate(-50%, -120%);
-}
-
-/* ======================================== */
-/* ===== PC対応 ===== */
-@media (min-width: 768px) {
-  .portfolio-container { max-width: 800px; margin: 0 auto; }
-  .stock-header { font-size: 1.05rem; }
-  .stock-row { font-size: 0.95rem; }
-  .sell-btn { right: -100px; width: 100px; font-size: 1rem; }
-  .confirm-modal-content { margin: 15% auto; }
-}
-
-/* ======================================== */
-/* ===== スマホレスポンシブ ===== */
-@media (max-width: 480px) {
-  .stock-card { padding: 12px; }
-  .stock-header { font-size: 0.95rem; }
-  .stock-row { font-size: 0.85rem; }
-  .sell-button { font-size: 0.9rem; }
-  .sell-btn { width: 70px; right: -70px; font-size: 0.85rem; }
-  .confirm-modal-content { margin: 35% auto; }
-  .toast { font-size: 0.8rem; padding: 8px 14px; }
-}
-
-@media (max-width: 360px) {
-  .stock-header { font-size: 0.9rem; }
-  .stock-row { font-size: 0.8rem; }
-  .sell-btn { width: 60px; right: -60px; font-size: 0.8rem; }
-  .toast { font-size: 0.75rem; }
-}
+/* ========================================
