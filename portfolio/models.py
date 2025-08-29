@@ -16,7 +16,17 @@ class StockMaster(models.Model):
 # =============================
 # 保有株モデル
 # =============================
+# =============================
+# 保有株モデル
+# =============================
 class Stock(models.Model):
+    BROKER_CHOICES = [
+        ("楽天", "楽天"),
+        ("松井", "松井"),
+        ("moomoo", "moomoo"),
+        ("SBI", "SBI"),
+    ]
+
     purchase_date = models.DateField("購入日")
     ticker = models.CharField("証券コード", max_length=4)
     name = models.CharField("銘柄名", max_length=100)
@@ -25,14 +35,13 @@ class Stock(models.Model):
     shares = models.PositiveIntegerField("株数")
     unit_price = models.FloatField("取得単価")
     total_cost = models.PositiveIntegerField("取得額")
-    broker = models.CharField("証券会社", max_length=20, choices=BROKER_CHOICES, default="楽天")
+    broker = models.CharField("証券会社", max_length=20, choices=BROKER_CHOICES, default="楽天")  # ←文字化け修正
     note = models.TextField("備考", blank=True)
     created_at = models.DateTimeField("作成日時", default=timezone.now)
     updated_at = models.DateTimeField("更新日時", auto_now=True)
 
     def __str__(self):
         return f"{self.ticker} {self.name}"
-
 
 # =============================
 # 実現損益
