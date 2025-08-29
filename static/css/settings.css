@@ -25,7 +25,7 @@ h1 {
 }
 
 /* ==========================
-   カードボタン（aタグ版）
+   カードボタン
 ========================== */
 .settings-buttons a.settings-card {
   background: linear-gradient(135deg, #4caf50, #43a047);
@@ -40,7 +40,7 @@ h1 {
   gap: 12px;
   box-shadow: 0 6px 12px rgba(0,255,255,0.1), 0 8px 16px rgba(0,0,0,0.2);
   transition: all 0.3s cubic-bezier(.25,.8,.25,1);
-  min-height: 150px;
+  min-height: 160px;
   position: relative;
   text-decoration: none;
   overflow: hidden;
@@ -49,20 +49,20 @@ h1 {
   perspective: 1000px;
 }
 
-/* カードカラーごとに光彩を変更 */
+/* カードカラー */
 .settings-buttons a.settings-card[data-color="green"] { background: linear-gradient(135deg, #4caf50, #43a047); }
 .settings-buttons a.settings-card[data-color="blue"] { background: linear-gradient(135deg, #2196f3, #1976d2); }
 .settings-buttons a.settings-card[data-color="pink"] { background: linear-gradient(135deg, #e91e63, #d81b60); }
 .settings-buttons a.settings-card[data-color="orange"] { background: linear-gradient(135deg, #ff9800, #f57c00); }
 
-/* ホバー・押下アニメーション */
+/* ホバーアニメーション */
 .settings-buttons a.settings-card:hover,
 .settings-buttons a.settings-card:active {
   transform: translateY(-6px) rotateX(3deg) rotateY(3deg);
   box-shadow: 0 12px 24px rgba(0,255,255,0.25), 0 16px 32px rgba(0,0,0,0.3);
 }
 
-/* 光彩アニメーション */
+/* 光彩 */
 .settings-buttons a.settings-card::after {
   content: '';
   position: absolute;
@@ -89,7 +89,7 @@ h1 {
   transition: transform 0.3s ease, text-shadow 0.3s ease;
 }
 
-/* ホバーで色に応じた光彩 */
+/* ホバー光彩 */
 .settings-buttons a.settings-card[data-color="green"]:hover i { text-shadow: 0 0 12px #4caf50, 0 0 24px #43a047; }
 .settings-buttons a.settings-card[data-color="blue"]:hover i { text-shadow: 0 0 12px #2196f3, 0 0 24px #1976d2; }
 .settings-buttons a.settings-card[data-color="pink"]:hover i { text-shadow: 0 0 12px #e91e63, 0 0 24px #d81b60; }
@@ -120,6 +120,52 @@ h1 {
 }
 
 /* ==========================
+   進行状況バー
+========================== */
+.settings-buttons a.settings-card .progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 6px;
+  width: 100%;
+  background: rgba(255,255,255,0.2);
+  border-radius: 0 0 20px 20px;
+  overflow: hidden;
+}
+
+.settings-buttons a.settings-card .progress-bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: #0ff;
+  transition: width 0.5s ease;
+  border-radius: 0 0 20px 20px;
+}
+
+/* 進行状況バーの色変更 */
+.settings-buttons a.settings-card[data-color="green"] .progress-bar span { background: #4caf50; }
+.settings-buttons a.settings-card[data-color="blue"] .progress-bar span { background: #2196f3; }
+.settings-buttons a.settings-card[data-color="pink"] .progress-bar span { background: #e91e63; }
+.settings-buttons a.settings-card[data-color="orange"] .progress-bar span { background: #ff9800; }
+
+/* ==========================
+   新規・未設定マーク
+========================== */
+.settings-buttons a.settings-card .status-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: #ff3d00;
+  color: #fff;
+  font-size: 0.7em;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+
+/* ==========================
    スマホレスポンシブ
 ========================== */
 @media (max-width: 500px) {
@@ -127,7 +173,7 @@ h1 {
     grid-template-columns: 1fr;
   }
   .settings-buttons a.settings-card {
-    min-height: 140px;
+    min-height: 150px;
     padding: 18px;
   }
   .settings-buttons a.settings-card i {
@@ -139,12 +185,4 @@ h1 {
   .settings-buttons a.settings-card .text-group small {
     font-size: 0.8em;
   }
-}
-
-/* ==========================
-   背景アニメーション用 z-index 下げ
-========================== */
-#bgCanvas, .light-line, .particle {
-  z-index: -1;
-  pointer-events: none;
 }
