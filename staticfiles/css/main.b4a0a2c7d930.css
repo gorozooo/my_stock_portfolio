@@ -1,0 +1,42 @@
+/* メインコンテンツ余白確保（navbar・下タブを避ける） */
+.main-content {
+  padding-top: 90px;   /* navbar の高さ */
+  padding-bottom: 60px; /* bottom-tab の高さ */
+}
+
+/* タイトル */
+.page-title {
+  text-align: center;
+  margin-bottom: 30px;
+  font-size: 28px;
+  color: #222;
+}
+
+/* サマリーカード */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+}
+.summary-card {
+  padding: 20px;
+  border-radius: 15px;
+  text-align: center;
+  transition: transform 0.2s ease-in-out;
+}
+.summary-card:hover { transform: translateY(-5px); }
+.summary-card h3 { font-size: 16px; margin-bottom: 10px; }
+.value { font-size: 22px; font-weight: bold; }
+.value.positive { color: #28a745; }
+.value.negative { color: #dc3545; }
+
+/* グラフカード */
+.chart-card { margin-top: 30px; padding: 20px; border-radius: 15px; }
+
+/* ガラス感 */
+.glass {
+  background: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}

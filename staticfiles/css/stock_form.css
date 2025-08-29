@@ -1,0 +1,110 @@
+/* 共通変数 */
+:root {
+  --radius: 14px;
+  --space: 14px;
+  --space-lg: 18px;
+  --border: 1px solid rgba(0,0,0,0.08);
+  --shadow: 0 8px 24px rgba(0,0,0,0.08);
+  --bg: #0b0f14;
+  --card: #121722;
+  --text: #e9eef7;
+  --muted: #aab3c5;
+  --primary: #4da3ff;
+  --primary-press: #3a82cc;
+}
+
+/* ページ全体 */
+.page {
+  padding: 20px 14px 40px;
+  background: linear-gradient(180deg, #0b0f14, #0f1520 40%, #131a28);
+  color: var(--text);
+  min-height: 100svh;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+
+.page-title {
+  font-size: 1.25rem;
+  margin: 6px 2px 16px;
+  font-weight: 700;
+}
+
+/* フォームカード */
+form {
+  background: rgba(18,23,34,0.75);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 18px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  padding: 16px;
+  transition: box-shadow 0.3s ease;
+}
+
+form:hover {
+  box-shadow: 0 12px 32px rgba(0,0,0,0.2);
+}
+
+/* グリッド */
+.form-grid { display: grid; grid-template-columns: 1fr; gap: var(--space); }
+.form-field { display: grid; gap: 6px; }
+.form-field--full { grid-column: 1 / -1; }
+
+/* ラベル */
+label { font-size: 0.9rem; color: var(--text); }
+
+/* 入力欄 */
+input[type="text"], input[type="date"], input[type="number"], select, textarea {
+  width: 100%;
+  border-radius: 12px;
+  border: var(--border);
+  background: #0f1520;
+  color: var(--text);
+  padding: 14px 12px;
+  font-size: 16px;
+  outline: none;
+  transition: border 0.2s ease, box-shadow 0.2s ease;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 8px rgba(77,163,255,0.4);
+}
+
+input[readonly] { opacity: 0.85; background: #0d131c; }
+textarea { resize: vertical; }
+
+/* エラー・ヒント */
+.hint { color: var(--muted); font-size: 0.8rem; }
+.field-error { color: #ffb4b4; font-size: 0.8rem; min-height: 1.1em; }
+
+/* アクションボタン */
+.form-actions { display: flex; gap: 10px; margin-top: var(--space-lg); justify-content: flex-end; }
+.btn { appearance: none; border: none; border-radius: 999px; padding: 12px 18px; font-weight: 700; font-size: 16px; cursor: pointer; transition: transform .04s ease, background .2s ease, opacity .2s ease; }
+.btn-primary { background: var(--primary); color: #06101a; }
+.btn-primary:active { background: var(--primary-press); transform: translateY(1px); }
+.btn-secondary { background: #2a3445; color: var(--text); }
+.btn-secondary:active { opacity: 0.85; transform: translateY(1px); }
+
+/* PC/タブレット */
+@media (min-width: 768px) {
+  .page { padding: 30px 24px 60px; }
+  .form-grid { grid-template-columns: 1fr 1fr; }
+  .form-field--full { grid-column: span 2; }
+  form { max-width: 980px; margin: 0 auto; padding: 22px; }
+  .page-title { text-align: center; margin-bottom: 22px; font-size: 1.5rem; }
+}
+
+/* タッチ操作微調整 */
+input, select, textarea, .btn { touch-action: manipulation; }
+
+/* 光彩エフェクト用 */
+form.focus-glow {
+  box-shadow: 0 0 16px 4px rgba(77, 163, 255, 0.4), 0 12px 32px rgba(0,0,0,0.25);
+  transition: box-shadow 0.2s ease;
+}
+
+input.glow:focus,
+select.glow:focus,
+textarea.glow:focus {
+  box-shadow: 0 0 8px 2px rgba(77,163,255,0.6);
+  border-color: var(--primary);
+}

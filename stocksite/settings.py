@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -85,6 +86,12 @@ STOCKMASTER_XLSX_PATH = Path(BASE_DIR) / "data" / "StockMaster_latest.xlsx"
 
 # キャッシュバスティングのために推奨
 STATICFILES_STORAGE = "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
+
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+# 本番用静的ファイル出力先
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
 # =============================
 # 本番運用時の追加設定例
 # =============================
