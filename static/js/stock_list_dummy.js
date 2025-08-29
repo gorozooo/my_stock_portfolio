@@ -141,8 +141,10 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
 
-    modal.style.display="block";
-    modal.querySelector(".modal-content").style.marginTop="0%"; // 上寄せ
+    // モバイルでもナビバーにかぶらないよう中央寄せ
+    modal.style.display = "block";
+    modal.style.top = `${window.scrollY + 60}px`; // 上ナビバー分マージン
+    modal.querySelector(".modal-content").style.marginTop = "0";
   }
 
   closeBtn.addEventListener("click", ()=>{ modal.style.display="none"; });
@@ -150,8 +152,8 @@ document.addEventListener("DOMContentLoaded", () => {
   modal.addEventListener("touchstart", e=>{ if(e.target==modal) modal.style.display="none"; });
 
   // モーダル内売却ボタンも確認モーダル経由
-  sellModalBtn.addEventListener("click", ()=>{
-    openConfirmModal(`✅ ${modalName.textContent} を本当に売却しますか？`, ()=>{
+  sellModalBtn.addEventListener("click", ()=> {
+    openConfirmModal(`✅ ${modalName.textContent} を本当に売却しますか？`, ()=> {
       const wrapperToRemove = Array.from(document.querySelectorAll(".stock-card-wrapper"))
         .find(w=>w.querySelector(".stock-card").dataset.name===modalName.textContent);
 
@@ -199,12 +201,8 @@ document.addEventListener("DOMContentLoaded", () => {
     cardElement.style.position = "relative";
     cardElement.appendChild(toast);
 
-    // アニメーション開始
-    requestAnimationFrame(()=>{
-      toast.classList.add("show");
-    });
+    requestAnimationFrame(()=>{ toast.classList.add("show"); });
 
-    // 自動削除
     setTimeout(()=>{
       toast.classList.remove("show");
       setTimeout(()=> toast.remove(), 300);

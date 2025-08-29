@@ -1,5 +1,5 @@
 /* ======================================== */
-/* ===== stock_list.css ===== */
+/* ===== stock_list.css（スマホ完全対応版） ===== */
 
 /* ===== 変数・テーマ ===== */
 :root {
@@ -12,6 +12,7 @@
   --loss-color: #f87171;
   --blur: 28px;
   --color-neon: #00ffff;
+  --navbar-height: 60px; /* ナビバー高さを変数化 */
 }
 
 /* ======================================== */
@@ -120,8 +121,8 @@
   position: fixed;
   z-index: 200;
   left:0; top:0;
-  width:100%; height:100%;
-  overflow:auto;
+  width:100%;
+  height:100%;
   background: rgba(0,0,0,0.7);
   animation: fadeIn 0.3s ease;
 }
@@ -130,16 +131,20 @@
   from { opacity: 0; } to { opacity: 1; }
 }
 
+/* スマホ対応：ナビバーを考慮した固定位置 + 最大高さ */
 .modal-content {
   background: rgba(25,25,35,0.95);
   backdrop-filter: blur(var(--blur));
-  margin: 0% auto; /* 上寄せ */
-  padding: 100px;
+  margin: 0 auto;
+  padding: 20px;
   border-radius: var(--card-radius);
   width: 90%;
   max-width: 420px;
-  position: relative;
-  max-height: 80vh;
+  position: fixed;
+  top: var(--navbar-height, 60px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-height: calc(100vh - var(--navbar-height, 60px) - 20px);
   overflow-y: auto;
   color: var(--color-neon);
   box-shadow: 0 12px 36px rgba(0,0,0,0.4);
@@ -261,14 +266,15 @@
 /* ===== トースト通知 ===== */
 .toast {
   position: absolute;
-  top: -10px; /* カードのすぐ上 */
+  top: -10px;
   left: 50%;
   transform: translate(-50%, -100%);
   background: linear-gradient(135deg, #1e3a8a, #2563eb);
   color: white;
   padding: 10px 16px;
   border-radius: 12px;
-  font-size: 0.85rem;
+  font-size: 
+
   font-weight: bold;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   opacity: 0;
