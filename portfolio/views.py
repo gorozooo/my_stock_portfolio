@@ -376,33 +376,58 @@ def save_order(request):
 # API: 証券コード → 銘柄・業種
 # -----------------------------
 def get_stock_by_code(request):
-    code = (request.GET.get("code") or "").strip()
-    stock = StockMaster.objects.filter(code=code).first()
-    if stock:
-        return JsonResponse({"success": True, "name": stock.name, "sector": stock.sector})
-    return JsonResponse({"success": False})
+    try:
+        code = (request.GET.get("code") or "").strip().upper()
+        stock = StockMaster.objects.filter(code=code).first()
+        if stock:
+            return JsonResponse({
+                "success": True,
+                "name": stock.name or "",
+                "sector": stock.sector or ""
+            })
+    except Exception as e:
+        # ログに残す場合は print ではなく logging も可
+        print("get_stock_by_code error:", e)
+    return JsonResponse({"success": False, "name": "", "sector": ""})
 
 
 # -----------------------------
 # API: 銘柄名サジェスト
 # -----------------------------
 def suggest_stock_name(request):
-    q = (request.GET.get("q") or "").strip()
-    qs = StockMaster.objects.filter(name__icontains=q)[:10]
-    return JsonResponse([
-        {"code": s.code, "name": s.name, "sector": s.sector or ""}
-        for s in qs
-    ], safe=False)
+    try:
+        q = (request.GET.get("q") or "").strip()
+        if not q:
+            return JsonResponse([], safe=False)
+        qs = StockMaster.objects.filter(name__icontains=q)[:10]
+        result = [
+            {
+                "code": s.code,
+                "name": s.name or "",
+                "sector": s.sector or ""
+            }
+            for s in qs
+        ]
+        return JsonResponse(result, safe=False)
+    except Exception as e:
+        print("suggest_stock_name error:", e)
+        return JsonResponse([], safe=False)
+
 
 # -----------------------------
 # API: 33業種リスト
 # -----------------------------
 def get_sector_list(request):
-    sectors = list(
-        StockMaster.objects.values_list("sector", flat=True).distinct()
-    )
-    return JsonResponse([s or "" for s in sectors], safe=False)
-
+    try:
+        sectors = list(
+            StockMaster.objects.values_list("sector", flat=True).distinct()
+        )
+        sectors = [s or "" for s in sectors]  # null を空文字に
+        return JsonResponse(sectors, safe=False)
+    except Exception as e:
+        print("get_sector_list error:", e)
+        return JsonResponse([], safe=False)
+    
 # views.py
 def settings_view(request):
     settings_cards = [
