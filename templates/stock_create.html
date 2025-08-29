@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="{% static 'css/stock_form.css' %}">
 {% endblock %}
 
-{% block content %
+{% block content %}
   <form id="stock-form" method="post" novalidate>
     {% csrf_token %}
     <div class="form-grid">
@@ -39,6 +39,18 @@
           <option value="現物">現物</option>
           <option value="信用">信用</option>
           <option value="NISA">NISA</option>
+        </select>
+      </div>
+
+      <!-- 証券会社 -->
+      <div class="form-field">
+        <label for="broker">証券会社</label>
+        <select id="broker" name="broker" required>
+          <option value="" disabled selected>選択してください</option>
+          <option value="楽天">楽天</option>
+          <option value="松井">松井</option>
+          <option value="moomoo">moomoo</option>
+          <option value="SBI">SBI</option>
         </select>
       </div>
 
@@ -77,28 +89,13 @@
     </div>
 
     <div class="form-actions">
-      <a class="btn btn-secondary" href="{% url 'stock_list' %}">戻る</a>
       <button type="submit" class="btn btn-primary">登録する</button>
+      <a class="btn btn-secondary" href="{% url 'stock_list' %}">戻る</a>
     </div>
   </form>
 </main>
 {% endblock %}
 
 {% block extra_js %}
-<!-- stock_form.js を必ず読み込む（defer 属性で HTML 読み込み後に実行） -->
 <script src="{% static 'js/stock_form.js' %}" defer></script>
-
-<script>
-document.addEventListener("DOMContentLoaded", () => {
-  // JS 読み込み確認用
-  console.log("✅ stock_form.js 読み込み確認");
-
-  if (typeof calcTotalCost === "function") {
-    console.log("✅ calcTotalCost が定義されています。初期計算実行");
-    calcTotalCost();
-  } else {
-    console.error("❌ calcTotalCost が定義されていません。JS 読み込み失敗の可能性あり");
-  }
-});
-</script>
 {% endblock %}
