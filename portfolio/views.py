@@ -82,23 +82,28 @@ def stock_list_view(request):
     return render(request, "stock_list.html", {"stocks": stocks})
 
 
+from django.http import HttpResponse
+from django.template.loader import get_template
+from django.shortcuts import redirect
+from django.utils import timezone
+from django.contrib.auth.decorators import login_required
+from .models import Stock
+
 @login_required
 def stock_create(request):
-    errors = {}  # エラーを格納する辞書
+    errors = {}
+    data = {}
 
     if request.method == "POST":
         data = request.POST
-
-        # 入力値を取得
         purchase_date = data.get("purchase_date") or timezone.now().date()
-        ticker = data.get("ticker", "").strip()
-        name = data.get("name", "").strip()
-        account_type = data.get("account_type", "").strip()
-        sector = data.get("sector", "").strip()
-        note = data.get("note", "").strip()
-        broker = data.get("broker", "").strip()  # broker追加
+        ticker = (data.get("ticker") or "").strip()
+        name = (data.get("name") or "").strip()
+        account_type = (data.get("account_type") or "").strip()
+        broker = (data.get("broker") or "").strip()
+        sector = (data.get("sector") or "").strip()
+        note = (data.get("note") or "").strip()
 
-        # 数値変換
         try:
             shares = int(data.get("shares"))
             if shares <= 0:
@@ -117,43 +122,56 @@ def stock_create(request):
 
         total_cost = float(data.get("total_cost") or (shares * unit_price))
 
-        # 必須チェック
         if not ticker:
             errors["ticker"] = "証券コードを入力してください"
         if not name:
             errors["name"] = "銘柄名を入力してください"
         if not account_type:
             errors["account_type"] = "口座区分を選択してください"
+        if not broker:
+            errors["broker"] = "証券会社を選択してください"
         if not sector:
             errors["sector"] = "セクターを入力してください"
-        if not broker:
-            errors["broker"] = "証券会社を選択してください"  # broker必須
 
-        # エラーがなければ保存
         if not errors:
             Stock.objects.create(
                 purchase_date=purchase_date,
                 ticker=ticker,
                 name=name,
                 account_type=account_type,
+                broker=broker,
                 sector=sector,
                 shares=shares,
                 unit_price=unit_price,
                 total_cost=total_cost,
                 note=note,
-                broker=broker,  # 保存
             )
             return redirect("stock_list")
-
-        # エラーがある場合はフォームに返す
-        context = {
-            "errors": errors,
-            "data": data,  # 入力済み値を返してフォームに表示
+    else:
+        data = {
+            "purchase_date": "",
+            "ticker": "",
+            "name": "",
+            "account_type": "",
+            "broker": "",
+            "sector": "",
+            "shares": "",
+            "unit_price": "",
+            "total_cost": "",
+            "note": "",
         }
-        return render(request, "stocks/stock_create.html", context)
 
-    # GET の場合は空フォーム
-    return render(request, "stocks/stock_create.html")
+    context = {
+        "errors": errors,
+        "data": data,
+        "BROKER_CHOICES": Stock.BROKER_CHOICES,  # ← テンプレに渡す
+    }
+
+    # どのテンプレートを読んでいるかログに出す
+    tpl = get_template("stocks/stock_create.html")
+    print(">>> USING TEMPLATE:", getattr(getattr(tpl, "origin", None), "name", tpl))
+
+    return HttpResponse(tpl.render(context, request))
 
 
 @login_required

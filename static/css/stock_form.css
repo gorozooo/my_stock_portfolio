@@ -3,7 +3,7 @@
   --radius: 14px;
   --space: 14px;
   --space-lg: 18px;
-  --border: 1px solid rgba(0,0,0,0.08);
+  --border: 1px solid rgba(255,255,255,0.08);
   --shadow: 0 8px 24px rgba(0,0,0,0.08);
   --bg: #0b0f14;
   --card: #121722;
@@ -29,7 +29,7 @@
 }
 
 /* フォームカード */
-form {
+#stock-form {
   background: rgba(18,23,34,0.75);
   backdrop-filter: blur(12px);
   border: 1px solid rgba(255,255,255,0.06);
@@ -39,37 +39,50 @@ form {
   transition: box-shadow 0.3s ease;
 }
 
-form:hover {
-  box-shadow: 0 12px 32px rgba(0,0,0,0.2);
+#stock-form:hover {
+  box-shadow: 0 12px 32px rgba(0,0,0,0.25);
 }
 
 /* グリッド */
-.form-grid { display: grid; grid-template-columns: 1fr; gap: var(--space); }
+.form-grid { 
+  display: grid; 
+  grid-template-columns: 1fr; 
+  gap: var(--space); 
+}
 .form-field { display: grid; gap: 6px; }
 .form-field--full { grid-column: 1 / -1; }
 
 /* ラベル */
-label { font-size: 0.9rem; color: var(--text); }
+label { 
+  font-size: 0.9rem; 
+  color: var(--text); 
+  font-weight: 500;
+}
 
 /* 入力欄 */
 input[type="text"], input[type="date"], input[type="number"], select, textarea {
   width: 100%;
   border-radius: 12px;
   border: var(--border);
-  background: #0f1520;
+  background: #101623;
   color: var(--text);
   padding: 14px 12px;
   font-size: 16px;
   outline: none;
-  transition: border 0.2s ease, box-shadow 0.2s ease;
+  transition: border 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
 input:focus, select:focus, textarea:focus {
   border-color: var(--primary);
   box-shadow: 0 0 8px rgba(77,163,255,0.4);
+  background: #0e1a2b;
 }
 
-input[readonly] { opacity: 0.85; background: #0d131c; }
+input[readonly] { 
+  opacity: 0.7; 
+  background: #0d131c; 
+  color: #b0b8c5;
+}
 textarea { resize: vertical; }
 
 /* エラー・ヒント */
@@ -77,8 +90,22 @@ textarea { resize: vertical; }
 .field-error { color: #ffb4b4; font-size: 0.8rem; min-height: 1.1em; }
 
 /* アクションボタン */
-.form-actions { display: flex; gap: 10px; margin-top: var(--space-lg); justify-content: flex-end; }
-.btn { appearance: none; border: none; border-radius: 999px; padding: 12px 18px; font-weight: 700; font-size: 16px; cursor: pointer; transition: transform .04s ease, background .2s ease, opacity .2s ease; }
+.form-actions { 
+  display: flex; 
+  gap: 10px; 
+  margin-top: var(--space-lg); 
+  justify-content: flex-end; 
+}
+.btn { 
+  appearance: none; 
+  border: none; 
+  border-radius: 999px; 
+  padding: 12px 18px; 
+  font-weight: 700; 
+  font-size: 16px; 
+  cursor: pointer; 
+  transition: transform .04s ease, background .2s ease, opacity .2s ease; 
+}
 .btn-primary { background: var(--primary); color: #06101a; }
 .btn-primary:active { background: var(--primary-press); transform: translateY(1px); }
 .btn-secondary { background: #2a3445; color: var(--text); }
@@ -89,7 +116,7 @@ textarea { resize: vertical; }
   .page { padding: 30px 24px 60px; }
   .form-grid { grid-template-columns: 1fr 1fr; }
   .form-field--full { grid-column: span 2; }
-  form { max-width: 980px; margin: 0 auto; padding: 22px; }
+  #stock-form { max-width: 980px; margin: 0 auto; padding: 22px; }
   .page-title { text-align: center; margin-bottom: 22px; font-size: 1.5rem; }
 }
 
@@ -97,8 +124,8 @@ textarea { resize: vertical; }
 input, select, textarea, .btn { touch-action: manipulation; }
 
 /* 光彩エフェクト用 */
-form.focus-glow {
-  box-shadow: 0 0 16px 4px rgba(77, 163, 255, 0.4), 0 12px 32px rgba(0,0,0,0.25);
+#stock-form.focus-glow {
+  box-shadow: 0 0 16px 4px rgba(77, 163, 255, 0.5), 0 12px 32px rgba(0,0,0,0.25);
   transition: box-shadow 0.2s ease;
 }
 

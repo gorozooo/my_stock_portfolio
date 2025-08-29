@@ -12,10 +12,6 @@ class StockMaster(models.Model):
     def __str__(self):
         return f"{self.code} {self.name}"
 
-
-# =============================
-# 保有株モデル
-# =============================
 # =============================
 # 保有株モデル
 # =============================
@@ -35,8 +31,7 @@ class Stock(models.Model):
     shares = models.PositiveIntegerField("株数")
     unit_price = models.FloatField("取得単価")
     total_cost = models.PositiveIntegerField("取得額")
-    broker = models.CharField("証券会社", max_length=20, choices=BROKER_CHOICES, default="楽天")  # ←文字化け修正
-    note = models.TextField("備考", blank=True)
+    broker = models.CharField("証券会社", max_length=20, choices=BROKER_CHOICES, default="楽天") 
     created_at = models.DateTimeField("作成日時", default=timezone.now)
     updated_at = models.DateTimeField("更新日時", auto_now=True)
 
