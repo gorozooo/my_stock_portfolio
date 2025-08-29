@@ -1,4 +1,4 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% load static %}
 
 {% block title %}新規登録 | My株ポートフォリオ{% endblock %}
@@ -7,10 +7,7 @@
 <link rel="stylesheet" href="{% static 'css/stock_form.css' %}">
 {% endblock %}
 
-{% block content %}
-<main class="page">
-  <h1 class="page-title">株の新規登録</h1>
-
+{% block content %
   <form id="stock-form" method="post" novalidate>
     {% csrf_token %}
     <div class="form-grid">
