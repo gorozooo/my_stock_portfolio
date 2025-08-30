@@ -7,7 +7,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const container = document.getElementById("stock-cards-container");
   const modal = document.getElementById("stock-modal");
-  const closeBtn = document.querySelector(".close");
+  const closeBtn = modal.querySelector(".close");
 
   const modalName = document.getElementById("modal-name");
   const modalCode = document.getElementById("modal-code");
@@ -20,17 +20,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ===== トースト表示関数 =====
   function showToast(message, duration = 2000) {
-    let toast = document.querySelector('.toast');
+    let toast = document.querySelector(".toast");
     if (!toast) {
-      toast = document.createElement('div');
-      toast.className = 'toast';
+      toast = document.createElement("div");
+      toast.className = "toast";
       document.body.appendChild(toast);
     }
     toast.textContent = message;
-    toast.classList.add('show');
-    setTimeout(() => {
-      toast.classList.remove('show');
-    }, duration);
+    toast.classList.add("show");
+    setTimeout(() => toast.classList.remove("show"), duration);
   }
 
   // ===== カード生成 =====
@@ -58,9 +56,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const card = cardWrapper.querySelector(".stock-card");
     const sellBtn = cardWrapper.querySelector(".sell-btn");
 
-    let startX = 0;
-    let currentX = 0;
-    let isSwiping = false;
+    let startX = 0, currentX = 0, isSwiping = false;
 
     // ===== スワイプ開始（スマホ） =====
     card.addEventListener("touchstart", e => {
@@ -82,7 +78,6 @@ document.addEventListener("DOMContentLoaded", () => {
     card.addEventListener("touchend", () => {
       const diffX = currentX - startX;
       card.style.transition = "transform 0.3s ease";
-
       if (diffX < -50) {
         card.style.transform = "translateX(-100px)";
         cardWrapper.classList.add("show-sell");
@@ -97,13 +92,8 @@ document.addEventListener("DOMContentLoaded", () => {
     card.addEventListener("click", e => {
       if (window.innerWidth >= 768 && e.target !== sellBtn && !isSwiping) {
         const isVisible = cardWrapper.classList.contains("show-sell");
-        if (isVisible) {
-          card.style.transform = "translateX(0)";
-          cardWrapper.classList.remove("show-sell");
-        } else {
-          card.style.transform = "translateX(-100px)";
-          cardWrapper.classList.add("show-sell");
-        }
+        card.style.transform = isVisible ? "translateX(0)" : "translateX(-100px)";
+        cardWrapper.classList.toggle("show-sell");
       }
     });
 
@@ -129,12 +119,7 @@ document.addEventListener("DOMContentLoaded", () => {
           labels: ["1M", "3M", "6M", "1Y"],
           datasets: [{
             label: stock.name,
-            data: [
-              stock.cost * 0.9,
-              stock.cost,
-              stock.price * 0.95,
-              stock.price
-            ],
+            data: [stock.cost * 0.9, stock.cost, stock.price * 0.95, stock.price],
             borderColor: "#00ffff",
             backgroundColor: "rgba(0,255,255,0.2)",
             fill: true,
@@ -161,7 +146,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ===== モーダル閉じる =====
   const closeModal = () => { modal.style.display = "none"; };
-
   closeBtn.addEventListener("click", closeModal);
   window.addEventListener("click", e => { if (e.target === modal) closeModal(); });
   modal.addEventListener("touchstart", e => { if (e.target === modal) closeModal(); });
