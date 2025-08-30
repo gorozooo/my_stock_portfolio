@@ -95,7 +95,8 @@ sentry_sdk.init(
 )
 
 # キャッシュバスティングのために推奨
-STATICFILES_STORAGE = "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
+#STATICFILES_STORAGE = "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
+
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
