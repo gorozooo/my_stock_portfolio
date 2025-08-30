@@ -5,8 +5,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-)l$5u7#*s5ls885avu*8rpmfiiiczle6vsr+y78%!cutwp%wpl'
 
-DEBUG = False
-
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "gorozooo.com", "www.gorozooo.com", "192.168.1.16"]
 
 INSTALLED_APPS = [
@@ -28,6 +26,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "whitenoise.middleware.WhiteNoiseMiddleware", 
 ]
 
 ROOT_URLCONF = 'stocksite.urls'
@@ -82,15 +81,7 @@ LOGOUT_REDIRECT_URL = '/login/'
 CSRF_TRUSTED_ORIGINS = ["http://192.168.1.16:8000""https://gorozooo.com","https://www.gorozooo.com",]
 
 # StockMaster Excel 保存先
-STOCKMASTER_XLSX_PATH = Path(BASE_DIR) / "data" / "StockMaster_latest.xlsx"
-
-# キャッシュバスティングのために推奨
-STATICFILES_STORAGE = "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
-
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-
-# 本番用静的ファイル出力先
-STATIC_ROOT = BASE_DIR / "staticfiles"
+#STOCKMASTER_XLSX_PATH = Path(BASE_DIR) / "data" / "StockMaster_latest.xlsx"
 
 # 本番用の設定（DEBUG = False のままでもOK）
 import sentry_sdk
@@ -102,6 +93,29 @@ sentry_sdk.init(
     traces_sample_rate=1.0,   # パフォーマンス監視 (0.0〜1.0)
     send_default_pii=True,    # ユーザー情報なども送信（必要な場合）
 )
+
+# キャッシュバスティングのために推奨
+STATICFILES_STORAGE = "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# 静的ファイルのURL
+STATIC_URL = "/static/"
+
+# 開発用: プロジェクト直下の static/ を参照
+STATICFILES_DIRS = [
+    BASE_DIR / "static",
+]
+
+# 本番用: collectstatic でコピーされる場所
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+
+DEBUG = False
+
+#DEBUG = True
 
 # =============================
 # 本番運用時の追加設定例
