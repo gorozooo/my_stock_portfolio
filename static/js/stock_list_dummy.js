@@ -45,18 +45,18 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
     `;
 
-    // スワイプ用の編集・削除ボタン
-    const editBtn = document.createElement("button");
-    editBtn.className = "edit-btn";
-    editBtn.textContent = "編集";
+    // スワイプ用ボタン
+    const swipeEditBtn = document.createElement("button");
+    swipeEditBtn.className = "edit-btn";
+    swipeEditBtn.textContent = "編集";
 
-    const sellBtn = document.createElement("button");
-    sellBtn.className = "sell-btn";
-    sellBtn.textContent = "売却";
+    const swipeSellBtn = document.createElement("button");
+    swipeSellBtn.className = "sell-btn";
+    swipeSellBtn.textContent = "売却";
 
     wrapper.appendChild(card);
-    wrapper.appendChild(editBtn);
-    wrapper.appendChild(sellBtn);
+    wrapper.appendChild(swipeEditBtn);
+    wrapper.appendChild(swipeSellBtn);
     container.appendChild(wrapper);
 
     // ===== スワイプ検知 =====
@@ -68,37 +68,35 @@ document.addEventListener("DOMContentLoaded", () => {
       currentX = e.touches[0].clientX - startX;
       if(currentX < 0 && currentX > -swipeThreshold){
         card.style.transform = `translateX(${currentX}px)`;
-        sellBtn.style.right = `${-swipeThreshold - currentX}px`;
-        editBtn.style.right = `${-swipeThreshold*2 - currentX}px`;
+        swipeSellBtn.style.right = `${-swipeThreshold - currentX}px`;
+        swipeEditBtn.style.right = `${-swipeThreshold*2 - currentX}px`;
       }
     });
     card.addEventListener("touchend", ()=>{
       if(currentX <= -swipeThreshold/2){
         card.style.transform = `translateX(-${swipeThreshold}px)`;
-        sellBtn.style.right = "0px";
-        editBtn.style.right = `-${swipeThreshold}px`;
+        swipeSellBtn.style.right = "0px";
+        swipeEditBtn.style.right = `-${swipeThreshold}px`;
         wrapper.classList.add("show-sell");
         swiped = true;
       } else {
         card.style.transform = "translateX(0px)";
-        sellBtn.style.right = `-${swipeThreshold}px`;
-        editBtn.style.right = `-${swipeThreshold*2}px`;
+        swipeSellBtn.style.right = `-${swipeThreshold}px`;
+        swipeEditBtn.style.right = `-${swipeThreshold*2}px`;
         wrapper.classList.remove("show-sell");
         swiped = false;
       }
       currentX=0;
     });
 
-    // ===== 売却 =====
-    sellBtn.addEventListener("click", ()=>{ 
+    // ===== スワイプボタン動作 =====
+    swipeSellBtn.addEventListener("click", ()=>{ 
       openConfirmModal(`✅ ${stock.name} を本当に売却しますか？`, ()=>{
         showToast(`${stock.name} を売却しました ✅`);
         wrapper.remove();
       }); 
     });
-
-    // ===== 編集 =====
-    editBtn.addEventListener("click", ()=>{ openEditModal(stock, card); });
+    swipeEditBtn.addEventListener("click", ()=>{ openEditModal(stock, card); });
 
     // ===== カードタップで詳細モーダル =====
     card.addEventListener("click", ()=>{ 
@@ -108,7 +106,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   });
 
-  /* ===== 株カード詳細モーダル ===== */
+  /* ===== モーダル内表示 ===== */
   const modal = document.getElementById("stock-modal");
   const closeBtn = modal.querySelector(".close");
   const sellModalBtn = document.getElementById("sell-btn");
@@ -157,7 +155,7 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("click", e=>{ if(e.target==modal) modal.style.display="none"; });
   modal.addEventListener("touchstart", e=>{ if(e.target==modal) modal.style.display="none"; });
 
-  // モーダル内売却
+  // ===== モーダル内ボタン動作 =====
   sellModalBtn.addEventListener("click", ()=>{ 
     openConfirmModal(`✅ ${currentStock.name} を本当に売却しますか？`, ()=>{
       const wrapperToRemove = Array.from(document.querySelectorAll(".stock-card-wrapper"))
@@ -169,15 +167,13 @@ document.addEventListener("DOMContentLoaded", () => {
       modal.style.display="none";
     });
   });
-
-  // モーダル内編集
   editModalBtn.addEventListener("click", ()=>{
     openEditModal(currentStock, Array.from(document.querySelectorAll(".stock-card"))
       .find(c=>c.dataset.name===currentStock.name));
     modal.style.display="none";
   });
 
-  /* ===== 編集モーダル（簡易prompt版） ===== */
+  // ===== 編集処理 =====
   function openEditModal(stock, card){
     const newShares = prompt("株数を入力", stock.shares);
     const newCost = prompt("取得単価を入力", stock.cost);
@@ -190,7 +186,6 @@ document.addEventListener("DOMContentLoaded", () => {
       stock.profit_amount = stock.price - stock.cost;
       stock.profit_rate = ((stock.price - stock.cost)/stock.cost*100).toFixed(2);
 
-      // カードの表示更新
       card.querySelector(".stock-row:nth-child(1) span:nth-child(2)").textContent = stock.shares + "株";
       card.querySelector(".stock-row:nth-child(2) span:nth-child(2)").textContent = stock.cost.toLocaleString() + "円";
       card.querySelector(".stock-row:nth-child(3) span:nth-child(2)").textContent = stock.price.toLocaleString() + "円";
@@ -202,7 +197,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  /* ===== 共通確認モーダル ===== */
+  // ===== 確認モーダル =====
   const confirmModal = document.getElementById("confirm-modal");
   const confirmMessage = document.getElementById("confirm-message");
   const btnCancel = document.getElementById("confirm-cancel");
@@ -224,19 +219,14 @@ document.addEventListener("DOMContentLoaded", () => {
     if(e.target==confirmModal){ confirmModal.style.display="none"; confirmCallback=null; }
   });
 
-  /* ===== トースト通知 ===== */
+  // ===== トースト通知 =====
   function showToast(message){
     const toast = document.createElement("div");
     toast.className = "toast";
     toast.textContent = message;
     toastContainer.appendChild(toast);
-
     requestAnimationFrame(()=>{ toast.classList.add("show"); });
-
-    setTimeout(()=>{
-      toast.classList.remove("show");
-      setTimeout(()=>toast.remove(), 300);
-    }, 3000);
+    setTimeout(()=>{ toast.classList.remove("show"); setTimeout(()=>toast.remove(), 300); }, 3000);
   }
 
 });
