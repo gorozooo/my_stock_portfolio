@@ -68,7 +68,7 @@
   text-align: center;
   color: var(--color-neon);
   text-shadow: 0 0 6px rgba(0,0,0,0.7);
-  margin-left: 70px; /* 左余白を増やす */
+  margin-left: 45px; /* 左余白を増やす */
 }
 
 .stock-header .stock-name {
