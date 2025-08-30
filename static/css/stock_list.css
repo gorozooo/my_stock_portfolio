@@ -130,7 +130,6 @@
   from { opacity: 0; } to { opacity: 1; }
 }
 
-/* ===== モーダル本体（スマホ完全対応） ===== */
 .modal-content {
   background: rgba(25,25,35,0.95);
   backdrop-filter: blur(var(--blur));
@@ -141,11 +140,11 @@
   
   position: fixed;
   top: calc(var(--navbar-height, 60px) + 10px);
-  bottom: 10px; /* 下余白 */
+  bottom: 10px;
   left: 50%;
   transform: translateX(-50%);
   
-  overflow-y: auto; /* 高さ超えたらスクロール */
+  overflow-y: auto;
   color: var(--color-neon);
   box-shadow: 0 12px 36px rgba(0,0,0,0.4);
   z-index: 210;
@@ -223,7 +222,7 @@
 .confirm-modal.show-center .confirm-modal-content {
   top: 50%;
   bottom: auto;
-  transform: translate(-50%, -50%); /* 中央寄せ */
+  transform: translate(-50%, -50%);
 }
 
 .confirm-modal-content p {
@@ -273,10 +272,10 @@
 /* ======================================== */
 /* ===== トースト通知 ===== */
 .toast {
-  position: absolute;
-  top: -10px;
+  position: fixed; /* absolute → fixed に変更 */
+  top: 20px;
   left: 50%;
-  transform: translate(-50%, -100%);
+  transform: translateX(-50%);
   background: linear-gradient(135deg, #1e3a8a, #2563eb);
   color: white;
   padding: 10px 16px;
@@ -287,12 +286,12 @@
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.3s ease, transform 0.3s ease;
-  z-index: 400;
+  z-index: 500;
 }
 
 .toast.show {
   opacity: 1;
-  transform: translate(-50%, -120%);
+  transform: translateX(-50%) translateY(0);
 }
 
 /* ======================================== */
