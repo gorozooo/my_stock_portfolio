@@ -180,15 +180,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* ===== トースト通知 ===== */
   function showToast(message){
-    const toast = document.createElement("div");
-    toast.className = "toast";
-    toast.textContent = message;
-    document.body.appendChild(toast); // ← body に追加
-    requestAnimationFrame(()=>{ toast.classList.add("show"); });
-    setTimeout(()=>{
-      toast.classList.remove("show");
-      setTimeout(()=>toast.remove(),300);
-    },1800);
-  }
+  const container = document.getElementById("toast-container");
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.textContent = message;
+  container.appendChild(toast);
+  requestAnimationFrame(()=>{ toast.classList.add("show"); });
+  setTimeout(()=>{
+    toast.classList.remove("show");
+    setTimeout(()=>toast.remove(),300);
+  },1800);
+}
+
 
 });
