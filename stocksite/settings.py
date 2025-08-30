@@ -5,7 +5,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-)l$5u7#*s5ls885avu*8rpmfiiiczle6vsr+y78%!cutwp%wpl'
 
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "gorozooo.com", "www.gorozooo.com", "192.168.1.16"]
 
@@ -90,7 +90,6 @@ STATICFILES_STORAGE = "django.contrib.staticfiles.storage.ManifestStaticFilesSto
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # 本番用静的ファイル出力先
-DEBUG = False
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # 本番用の設定（DEBUG = False のままでもOK）
