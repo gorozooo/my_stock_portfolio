@@ -62,8 +62,8 @@
 .stock-header {
   display: flex;
   justify-content: center;   /* 中央寄せ */
-  align-items: center;       /* 垂直中央 */
-  gap: 6px;                  /* 銘柄名とコードの間隔 */
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
   margin-bottom: 10px;
   color: var(--color-neon);
@@ -80,6 +80,14 @@
   font-size: 0.85rem;
   opacity: 0.85;
 }
+
+.stock-header .stock-code::before {
+  content: "（";
+}
+.stock-header .stock-code::after {
+  content: "）";
+}
+
 
 /* ===== 本文 ===== */
 .stock-row {
