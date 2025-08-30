@@ -181,18 +181,33 @@ document.addEventListener("DOMContentLoaded", () => {
     if(e.target==confirmModal){ confirmModal.style.display="none"; confirmCallback=null; }
   });
 
-  /* ===== トースト通知 ===== */
   function showToast(message, cardElement){
-    const toast = document.createElement("div");
-    toast.className = "toast";
-    toast.textContent = message;
-    cardElement.style.position="relative";
-    cardElement.appendChild(toast);
-    requestAnimationFrame(()=>{ toast.classList.add("show"); });
-    setTimeout(()=>{
-      toast.classList.remove("show");
-      setTimeout(()=>toast.remove(),300);
-    },1800);
-  }
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.textContent = message;
 
-});
+  // body に追加
+  document.body.appendChild(toast);
+
+  // カードの位置を取得して絶対配置
+  const rect = cardElement.getBoundingClientRect();
+  toast.style.position = "absolute";
+  toast.style.left = `${rect.left + rect.width/2}px`;
+  toast.style.top = `${rect.top - 40 + window.scrollY}px`; // 上に40px浮かす
+  toast.style.transform = "translateX(-50%)";
+  toast.style.opacity = 0;
+
+  // 表示アニメーション
+  requestAnimationFrame(()=>{
+    toast.style.transition = "opacity 0.3s ease, transform 0.3s ease";
+    toast.style.opacity = 1;
+    toast.style.transform = "translateX(-50%) translateY(-10px)";
+  });
+
+  // 自動で消える
+  setTimeout(()=>{
+    toast.style.opacity = 0;
+    toast.style.transform = "translateX(-50%) translateY(-20px)";
+    setTimeout(()=> toast.remove(), 300);
+  }, 1800);
+}
