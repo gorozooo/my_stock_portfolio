@@ -35,7 +35,7 @@
   animation: glow 3s infinite alternate;
   font-family: "Orbitron", sans-serif;
   line-height: 1.2;
-  margin-right: 20px; /* 右余白を増やす */
+  margin-right: 30px; /* 右余白を増やす */
 }
 
 /* 現在ページ名（タイトル下に小さく表示、未来感＋柔らかめ） */
@@ -46,6 +46,7 @@
   text-shadow: 0 0 6px #0ff, 0 0 12px #0ff;
   letter-spacing: 1px;
   font-family: "Orbitron", sans-serif;
+  margin-right: 30px; /* 右余白を増やす */
 }
 
 /* 光彩アニメーション */
