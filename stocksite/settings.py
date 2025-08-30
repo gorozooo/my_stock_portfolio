@@ -90,6 +90,7 @@ STATICFILES_STORAGE = "django.contrib.staticfiles.storage.ManifestStaticFilesSto
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # 本番用静的ファイル出力先
+DEBUG = False
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # =============================
