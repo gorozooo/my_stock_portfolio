@@ -11,12 +11,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const container = document.getElementById("stock-cards-container");
 
   dummyStocks.forEach(stock => {
-    // 損益とチャートデータを計算
     stock.profit_amount = stock.price - stock.cost;
     stock.profit_rate = ((stock.price - stock.cost)/stock.cost*100).toFixed(2);
     stock.chart_history = [stock.cost, stock.cost*1.05, stock.cost*0.95, stock.price, stock.price*1.02];
 
-    // カード作成
     const wrapper = document.createElement("div");
     wrapper.className = "stock-card-wrapper";
 
@@ -85,7 +83,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // ===== 売却ボタン押下 =====
     sellBtn.addEventListener("click", ()=>{
       openConfirmModal(`✅ ${stock.name} を本当に売却しますか？`, ()=>{
-        showToast(`${stock.name} を売却しました ✅`, card);
+        showToast(`${stock.name} を売却しました ✅`);
         wrapper.remove();
       });
     });
@@ -150,8 +148,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const wrapperToRemove = Array.from(document.querySelectorAll(".stock-card-wrapper"))
         .find(w=>w.querySelector(".stock-card").dataset.name===modalName.textContent);
       if(wrapperToRemove){
-        const cardEl = wrapperToRemove.querySelector(".stock-card");
-        showToast(`${modalName.textContent} を売却しました ✅`, cardEl);
+        showToast(`${modalName.textContent} を売却しました ✅`);
         wrapperToRemove.remove();
       }
       modal.style.display="none";
@@ -182,12 +179,11 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   /* ===== トースト通知 ===== */
-  function showToast(message, cardElement){
+  function showToast(message){
     const toast = document.createElement("div");
     toast.className = "toast";
     toast.textContent = message;
-    cardElement.style.position="relative";
-    cardElement.appendChild(toast);
+    document.body.appendChild(toast); // ← body に追加
     requestAnimationFrame(()=>{ toast.classList.add("show"); });
     setTimeout(()=>{
       toast.classList.remove("show");

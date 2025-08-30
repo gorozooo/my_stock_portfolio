@@ -272,10 +272,10 @@
 /* ======================================== */
 /* ===== トースト通知 ===== */
 .toast {
-  position: fixed; /* absolute → fixed に変更 */
+  position: fixed; /* absolute → fixed */
   top: 20px;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) translateY(-10px);
   background: linear-gradient(135deg, #1e3a8a, #2563eb);
   color: white;
   padding: 10px 16px;
