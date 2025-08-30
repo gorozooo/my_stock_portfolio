@@ -18,6 +18,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let chartInstance = null;
 
+  // ===== トースト表示関数 =====
+  function showToast(message, duration = 2000) {
+    let toast = document.querySelector('.toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.className = 'toast';
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.add('show');
+    setTimeout(() => {
+      toast.classList.remove('show');
+    }, duration);
+  }
+
   // ===== カード生成 =====
   stocks.forEach(stock => {
     const profit = (stock.price - stock.cost) * stock.shares;
@@ -137,8 +152,8 @@ document.addEventListener("DOMContentLoaded", () => {
     // ===== 売却ボタンクリック =====
     sellBtn.addEventListener("click", e => {
       e.stopPropagation();
-      alert(`✅ ${stock.name} を売却しました（ダミー処理）`);
       cardWrapper.remove();
+      showToast(`✅ ${stock.name} を売却しました！`);
     });
 
     container.appendChild(cardWrapper);
