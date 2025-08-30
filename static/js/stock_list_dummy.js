@@ -39,7 +39,7 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
     `;
 
-    // カードスワイプ用ボタン
+    // スワイプ用ボタン
     const swipeEditBtn = document.createElement("button");
     swipeEditBtn.className = "edit-btn";
     swipeEditBtn.textContent = "編集";
@@ -57,8 +57,8 @@ document.addEventListener("DOMContentLoaded", () => {
     let startX=0, currentX=0, swiped=false;
     const swipeThreshold=80;
 
-    card.addEventListener("touchstart", e=>{ startX = e.touches[0].clientX; });
-    card.addEventListener("touchmove", e=>{
+    card.addEventListener("touchstart", e => { startX = e.touches[0].clientX; });
+    card.addEventListener("touchmove", e => {
       currentX = e.touches[0].clientX - startX;
       if(currentX < 0 && currentX > -swipeThreshold){
         card.style.transform = `translateX(${currentX}px)`;
@@ -66,7 +66,7 @@ document.addEventListener("DOMContentLoaded", () => {
         swipeEditBtn.style.right = `${-swipeThreshold*2 - currentX}px`;
       }
     });
-    card.addEventListener("touchend", ()=>{
+    card.addEventListener("touchend", () => {
       if(currentX <= -swipeThreshold/2){
         card.style.transform = `translateX(-${swipeThreshold}px)`;
         swipeSellBtn.style.right = "0px";
@@ -84,23 +84,26 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // ===== スワイプボタン動作 =====
-    swipeSellBtn.addEventListener("click", ()=>{ 
-      openConfirmModal(`✅ ${stock.name} を本当に売却しますか？`, ()=>{
+    swipeSellBtn.addEventListener("click", () => {
+      openConfirmModal(`✅ ${stock.name} を本当に売却しますか？`, () => {
         showToast(`${stock.name} を売却しました ✅`);
         wrapper.remove();
-      }); 
+      });
     });
-    swipeEditBtn.addEventListener("click", ()=>{ openEditModal(stock, card); });
 
-    // ===== カードタップでモーダル =====
-    card.addEventListener("click", ()=>{ 
-      if(swiped) return; 
+    swipeEditBtn.addEventListener("click", () => {
+      openEditModal(stock, card);
+    });
+
+    // ===== カードタップでモーダル表示 =====
+    card.addEventListener("click", () => {
+      if(swiped) return;
       openStockModal(stock, wrapper);
     });
 
   });
 
-  // ===== モーダル内表示 =====
+  // ===== モーダル =====
   const modal = document.getElementById("stock-modal");
   const closeBtn = modal.querySelector(".close");
   const sellModalBtn = document.getElementById("sell-btn");
@@ -131,14 +134,8 @@ document.addEventListener("DOMContentLoaded", () => {
     chartInstance = new Chart(chartCanvas, {
       type:'line',
       data:{
-        labels:chartData.map((_,i)=>i+1),
-        datasets:[{
-          label:'株価推移',
-          data:chartData,
-          borderColor:'#3b82f6',
-          backgroundColor:'rgba(59,130,246,0.2)',
-          tension:0.3
-        }]
+        labels: chartData.map((_,i)=>i+1),
+        datasets:[{ label:'株価推移', data:chartData, borderColor:'#3b82f6', backgroundColor:'rgba(59,130,246,0.2)', tension:0.3 }]
       },
       options:{responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:false}}}
     });
@@ -148,11 +145,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   closeBtn.addEventListener("click", ()=>{ modal.style.display="none"; });
-  window.addEventListener("click", e=>{ if(e.target==modal) modal.style.display="none"; });
-  modal.addEventListener("touchstart", e=>{ if(e.target==modal) modal.style.display="none"; });
 
   // ===== モーダル内ボタン =====
-  sellModalBtn.addEventListener("click", ()=>{ 
+  sellModalBtn.addEventListener("click", ()=>{
     if(currentWrapper){
       openConfirmModal(`✅ ${currentStock.name} を本当に売却しますか？`, ()=>{
         showToast(`${currentStock.name} を売却しました ✅`);
@@ -161,6 +156,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
   });
+
   editModalBtn.addEventListener("click", ()=>{
     if(currentWrapper){
       openEditModal(currentStock, currentWrapper.querySelector(".stock-card"));
@@ -204,11 +200,9 @@ document.addEventListener("DOMContentLoaded", () => {
     confirmModal.style.display = "block";
     confirmCallback = callback;
   }
+
   btnCancel.addEventListener("click", ()=>{ confirmModal.style.display="none"; confirmCallback=null; });
-  btnOk.addEventListener("click", ()=>{
-    if(confirmCallback) confirmCallback();
-    confirmModal.style.display="none"; confirmCallback=null;
-  });
+  btnOk.addEventListener("click", ()=>{ if(confirmCallback) confirmCallback(); confirmModal.style.display="none"; confirmCallback=null; });
   window.addEventListener("click", e=>{ if(e.target==confirmModal){ confirmModal.style.display="none"; confirmCallback=null; }});
 
   // ===== トースト通知 =====
