@@ -22,12 +22,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const card = document.createElement("div");
     card.className = "stock-card";
     card.dataset.name = stock.name;
-    card.dataset.code = stock.code;
-    card.dataset.shares = stock.shares;
-    card.dataset.cost = stock.cost;
-    card.dataset.price = stock.price;
-    card.dataset.profit = stock.profit_amount;
-    card.dataset.chart = JSON.stringify(stock.chart_history);
 
     card.innerHTML = `
       <div class="stock-header">
@@ -45,7 +39,7 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
     `;
 
-    // スワイプ用ボタン
+    // カードスワイプ用ボタン
     const swipeEditBtn = document.createElement("button");
     swipeEditBtn.className = "edit-btn";
     swipeEditBtn.textContent = "編集";
@@ -98,15 +92,15 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     swipeEditBtn.addEventListener("click", ()=>{ openEditModal(stock, card); });
 
-    // ===== カードタップで詳細モーダル =====
+    // ===== カードタップでモーダル =====
     card.addEventListener("click", ()=>{ 
       if(swiped) return; 
-      openStockModal(card, stock); 
+      openStockModal(stock, wrapper);
     });
 
   });
 
-  /* ===== モーダル内表示 ===== */
+  // ===== モーダル内表示 =====
   const modal = document.getElementById("stock-modal");
   const closeBtn = modal.querySelector(".close");
   const sellModalBtn = document.getElementById("sell-btn");
@@ -120,9 +114,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const chartCanvas = document.getElementById("modal-chart");
   let chartInstance = null;
   let currentStock = null;
+  let currentWrapper = null;
 
-  function openStockModal(card, stock){
+  function openStockModal(stock, wrapper){
     currentStock = stock;
+    currentWrapper = wrapper;
     modalName.textContent = stock.name;
     modalCode.textContent = stock.code;
     modalShares.textContent = stock.shares + "株";
@@ -155,25 +151,24 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("click", e=>{ if(e.target==modal) modal.style.display="none"; });
   modal.addEventListener("touchstart", e=>{ if(e.target==modal) modal.style.display="none"; });
 
-  // ===== モーダル内ボタン動作 =====
+  // ===== モーダル内ボタン =====
   sellModalBtn.addEventListener("click", ()=>{ 
-    openConfirmModal(`✅ ${currentStock.name} を本当に売却しますか？`, ()=>{
-      const wrapperToRemove = Array.from(document.querySelectorAll(".stock-card-wrapper"))
-        .find(w=>w.querySelector(".stock-card").dataset.name===currentStock.name);
-      if(wrapperToRemove){
+    if(currentWrapper){
+      openConfirmModal(`✅ ${currentStock.name} を本当に売却しますか？`, ()=>{
         showToast(`${currentStock.name} を売却しました ✅`);
-        wrapperToRemove.remove();
-      }
-      modal.style.display="none";
-    });
+        currentWrapper.remove();
+        modal.style.display="none";
+      });
+    }
   });
   editModalBtn.addEventListener("click", ()=>{
-    openEditModal(currentStock, Array.from(document.querySelectorAll(".stock-card"))
-      .find(c=>c.dataset.name===currentStock.name));
-    modal.style.display="none";
+    if(currentWrapper){
+      openEditModal(currentStock, currentWrapper.querySelector(".stock-card"));
+      modal.style.display="none";
+    }
   });
 
-  // ===== 編集処理 =====
+  // ===== 編集 =====
   function openEditModal(stock, card){
     const newShares = prompt("株数を入力", stock.shares);
     const newCost = prompt("取得単価を入力", stock.cost);
@@ -209,15 +204,12 @@ document.addEventListener("DOMContentLoaded", () => {
     confirmModal.style.display = "block";
     confirmCallback = callback;
   }
-
   btnCancel.addEventListener("click", ()=>{ confirmModal.style.display="none"; confirmCallback=null; });
   btnOk.addEventListener("click", ()=>{
     if(confirmCallback) confirmCallback();
     confirmModal.style.display="none"; confirmCallback=null;
   });
-  window.addEventListener("click", e=>{
-    if(e.target==confirmModal){ confirmModal.style.display="none"; confirmCallback=null; }
-  });
+  window.addEventListener("click", e=>{ if(e.target==confirmModal){ confirmModal.style.display="none"; confirmCallback=null; }});
 
   // ===== トースト通知 =====
   function showToast(message){
@@ -226,7 +218,7 @@ document.addEventListener("DOMContentLoaded", () => {
     toast.textContent = message;
     toastContainer.appendChild(toast);
     requestAnimationFrame(()=>{ toast.classList.add("show"); });
-    setTimeout(()=>{ toast.classList.remove("show"); setTimeout(()=>toast.remove(), 300); }, 3000);
+    setTimeout(()=>{ toast.classList.remove("show"); setTimeout(()=>toast.remove(),300); }, 3000);
   }
 
 });
