@@ -45,15 +45,14 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
     `;
 
-    // 売却ボタン
-    const sellBtn = document.createElement("button");
-    sellBtn.className = "sell-btn";
-    sellBtn.textContent = "売却";
-
-    // 編集ボタン
+    // スワイプ用の編集・削除ボタン
     const editBtn = document.createElement("button");
     editBtn.className = "edit-btn";
     editBtn.textContent = "編集";
+
+    const sellBtn = document.createElement("button");
+    sellBtn.className = "sell-btn";
+    sellBtn.textContent = "売却";
 
     wrapper.appendChild(card);
     wrapper.appendChild(editBtn);
@@ -77,10 +76,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if(currentX <= -swipeThreshold/2){
         card.style.transform = `translateX(-${swipeThreshold}px)`;
         sellBtn.style.right = "0px";
-        editBtn.style.right = `${-swipeThreshold}px`;
+        editBtn.style.right = `-${swipeThreshold}px`;
         wrapper.classList.add("show-sell");
         swiped = true;
-      }else{
+      } else {
         card.style.transform = "translateX(0px)";
         sellBtn.style.right = `-${swipeThreshold}px`;
         editBtn.style.right = `-${swipeThreshold*2}px`;
@@ -237,7 +236,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeout(()=>{
       toast.classList.remove("show");
       setTimeout(()=>toast.remove(), 300);
-    }, 3000); // 3秒表示
+    }, 3000);
   }
 
 });
