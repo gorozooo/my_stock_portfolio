@@ -93,12 +93,8 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # 本番用の設定（DEBUG = False のままでもOK）
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'          # Gmailを使う場合
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'coco.louis67@gmail.com'    # 送信元メール
-EMAIL_HOST_PASSWORD = 'Gorozo5656!'        # Gmailの場合はアプリパスワード
+EMAIL_BACKEND = "sendgrid_backend.SendgridBackend"
+SENDGRID_API_KEY = "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"
 
 # エラー通知を受ける管理者
 ADMINS = [
