@@ -11,10 +11,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const container = document.getElementById("stock-cards-container");
 
   dummyStocks.forEach(stock => {
+    // 損益とチャートデータを計算
     stock.profit_amount = stock.price - stock.cost;
     stock.profit_rate = ((stock.price - stock.cost)/stock.cost*100).toFixed(2);
     stock.chart_history = [stock.cost, stock.cost*1.05, stock.cost*0.95, stock.price, stock.price*1.02];
 
+    // カード作成
     const wrapper = document.createElement("div");
     wrapper.className = "stock-card-wrapper";
 
@@ -53,53 +55,50 @@ document.addEventListener("DOMContentLoaded", () => {
     wrapper.appendChild(sellBtn);
     container.appendChild(wrapper);
 
-    // スワイプ検知
-    let startX = 0;
-    let currentX = 0;
-    let swiped = false;
-    const swipeThreshold = 80;
+    // ===== スワイプ検知 =====
+    let startX=0, currentX=0, swiped=false;
+    const swipeThreshold=80;
 
-    card.addEventListener("touchstart", e => { startX = e.touches[0].clientX; });
-    card.addEventListener("touchmove", e => {
+    card.addEventListener("touchstart", e=>{ startX = e.touches[0].clientX; });
+    card.addEventListener("touchmove", e=>{
       currentX = e.touches[0].clientX - startX;
       if(currentX < 0 && currentX > -swipeThreshold){
         card.style.transform = `translateX(${currentX}px)`;
         sellBtn.style.right = `${-swipeThreshold - currentX}px`;
       }
     });
-    card.addEventListener("touchend", () => {
+    card.addEventListener("touchend", ()=>{
       if(currentX <= -swipeThreshold/2){
         card.style.transform = `translateX(-${swipeThreshold}px)`;
         sellBtn.style.right = "0px";
         wrapper.classList.add("show-sell");
         swiped = true;
-      } else {
+      }else{
         card.style.transform = "translateX(0px)";
         sellBtn.style.right = `-${swipeThreshold}px`;
         wrapper.classList.remove("show-sell");
         swiped = false;
       }
-      currentX = 0;
+      currentX=0;
     });
 
-    // スワイプ売却ボタン押下
-    sellBtn.addEventListener("click", () => {
-      openConfirmModal(`✅ ${stock.name} を本当に売却しますか？`, () => {
+    // ===== 売却ボタン押下 =====
+    sellBtn.addEventListener("click", ()=>{
+      openConfirmModal(`✅ ${stock.name} を本当に売却しますか？`, ()=>{
         showToast(`${stock.name} を売却しました ✅`, card);
         wrapper.remove();
       });
     });
 
-    // カードタップで詳細モーダル
-    card.addEventListener("click", () => {
-      if(swiped) return; // スワイプ後はモーダルを開かない
+    // ===== カードタップで詳細モーダル =====
+    card.addEventListener("click", ()=>{
+      if(swiped) return;
       openStockModal(card);
     });
 
   });
 
-  /* ========================================
-     ===== 株カード詳細モーダル ===== */
+  /* ===== 株カード詳細モーダル ===== */
   const modal = document.getElementById("stock-modal");
   const closeBtn = modal.querySelector(".close");
   const sellModalBtn = document.getElementById("sell-btn");
@@ -123,9 +122,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const chartData = JSON.parse(card.dataset.chart);
     if(chartInstance) chartInstance.destroy();
     chartInstance = new Chart(chartCanvas, {
-      type: 'line',
-      data: {
-        labels: chartData.map((_,i)=>i+1),
+      type:'line',
+      data:{
+        labels:chartData.map((_,i)=>i+1),
         datasets:[{
           label:'株価推移',
           data:chartData,
@@ -134,40 +133,32 @@ document.addEventListener("DOMContentLoaded", () => {
           tension:0.3
         }]
       },
-      options:{
-        responsive:true,
-        plugins:{legend:{display:false}},
-        scales:{y:{beginAtZero:false}}
-      }
+      options:{responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:false}}}
     });
 
-    // モバイルでもナビバーにかぶらないよう中央寄せ
     modal.style.display = "block";
-    modal.style.top = `${window.scrollY + 60}px`; // 上ナビバー分マージン
-    modal.querySelector(".modal-content").style.marginTop = "0";
+    modal.style.top = `${window.scrollY + 60}px`;
+    modal.querySelector(".modal-content").style.marginTop="0";
   }
 
   closeBtn.addEventListener("click", ()=>{ modal.style.display="none"; });
   window.addEventListener("click", e=>{ if(e.target==modal) modal.style.display="none"; });
   modal.addEventListener("touchstart", e=>{ if(e.target==modal) modal.style.display="none"; });
 
-  // モーダル内売却ボタンも確認モーダル経由
-  sellModalBtn.addEventListener("click", ()=> {
-    openConfirmModal(`✅ ${modalName.textContent} を本当に売却しますか？`, ()=> {
+  sellModalBtn.addEventListener("click", ()=>{
+    openConfirmModal(`✅ ${modalName.textContent} を本当に売却しますか？`, ()=>{
       const wrapperToRemove = Array.from(document.querySelectorAll(".stock-card-wrapper"))
         .find(w=>w.querySelector(".stock-card").dataset.name===modalName.textContent);
-
-      if(wrapperToRemove) {
+      if(wrapperToRemove){
         const cardEl = wrapperToRemove.querySelector(".stock-card");
         showToast(`${modalName.textContent} を売却しました ✅`, cardEl);
         wrapperToRemove.remove();
       }
-      modal.style.display = "none";
+      modal.style.display="none";
     });
   });
 
-  /* ========================================
-     ===== 共通確認モーダル ===== */
+  /* ===== 共通確認モーダル ===== */
   const confirmModal = document.getElementById("confirm-modal");
   const confirmMessage = document.getElementById("confirm-message");
   const btnCancel = document.getElementById("confirm-cancel");
@@ -186,27 +177,22 @@ document.addEventListener("DOMContentLoaded", () => {
     confirmModal.style.display="none";
     confirmCallback=null;
   });
-
   window.addEventListener("click", e=>{
     if(e.target==confirmModal){ confirmModal.style.display="none"; confirmCallback=null; }
   });
 
-  /* ========================================
-     ===== カード連動トースト通知 ===== */
+  /* ===== トースト通知 ===== */
   function showToast(message, cardElement){
     const toast = document.createElement("div");
     toast.className = "toast";
     toast.textContent = message;
-
-    cardElement.style.position = "relative";
+    cardElement.style.position="relative";
     cardElement.appendChild(toast);
-
     requestAnimationFrame(()=>{ toast.classList.add("show"); });
-
     setTimeout(()=>{
       toast.classList.remove("show");
-      setTimeout(()=> toast.remove(), 300);
-    }, 1800);
+      setTimeout(()=>toast.remove(),300);
+    },1800);
   }
 
 });
