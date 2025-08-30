@@ -185,12 +185,13 @@ document.addEventListener("DOMContentLoaded", () => {
   toast.className = "toast";
   toast.textContent = message;
   container.appendChild(toast);
+
   requestAnimationFrame(()=>{ toast.classList.add("show"); });
+
+  // 3秒表示してからフェードアウト
   setTimeout(()=>{
     toast.classList.remove("show");
-    setTimeout(()=>toast.remove(),300);
-  },1800);
+    setTimeout(()=>toast.remove(), 300);
+  }, 3000);
 }
-
-
 });
