@@ -93,28 +93,15 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # 本番用の設定（DEBUG = False のままでもOK）
-import logging.config
+import sentry_sdk
+from sentry_sdk.integrations.django import DjangoIntegration
 
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "handlers": {
-        "slack": {
-            "level": "ERROR",
-            "class": "logging.handlers.HTTPHandler",
-            "host": "hooks.slack.com",
-            "url": "/services/XXXXXXXXX/XXXXXXXXX/XXXXXXXXXXXXXXXXXXXX",
-            "method": "POST",
-        },
-    },
-    "loggers": {
-        "django": {
-            "handlers": ["slack"],
-            "level": "ERROR",
-            "propagate": True,
-        },
-    },
-}
+sentry_sdk.init(
+    dsn="https://2748d2771c790b721f21334f9a4d8a01@o4509931851481088.ingest.us.sentry.io/4509932914999296",  # ← SentryでコピーしたDSN
+    integrations=[DjangoIntegration()],
+    traces_sample_rate=1.0,   # パフォーマンス監視 (0.0〜1.0)
+    send_default_pii=True,    # ユーザー情報なども送信（必要な場合）
+)
 
 # =============================
 # 本番運用時の追加設定例
