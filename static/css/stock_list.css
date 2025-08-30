@@ -61,26 +61,26 @@
 /* ===== ヘッダー（銘柄名と証券コード 横並び） ===== */
 .stock-header {
   display: flex;
-  justify-content: center; /* 横方向中央寄せ */
-  align-items: center;     /* 縦方向中央揃え */
-  gap: 4px;                /* 銘柄と証券コードの間隔 */
+  justify-content: center;   /* 横並び中央寄せ */
+  align-items: baseline;     /* 下端揃えで高さ差を自然に */
+  gap: 4px;
   margin-bottom: 10px;
   text-align: center;
   color: var(--color-neon);
   text-shadow: 0 0 6px rgba(0,0,0,0.7);
+  margin-left: 20px; /* 左余白を増やす */
 }
 
 .stock-header .stock-name {
-  font-size: 1.1rem;       /* 銘柄名を少し大きく */
+  font-size: 1.05rem;   /* 少し大きめ */
   font-weight: 700;
 }
 
 .stock-header .stock-code {
-  font-size: 0.85rem;      /* 証券コードは少し小さく */
-  font-weight: 500;
-  color: #a0a0a0;          /* 薄めの色で控えめに */
+  font-size: 0.9rem;    /* 少し小さめ */
+  font-weight: 600;
+  opacity: 0.9;
 }
-
 
 .stock-header .stock-code::before { content: "（"; }
 .stock-header .stock-code::after  { content: "）"; }
