@@ -100,6 +100,11 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'coco.louis67@gmail.com'    # 送信元メール
 EMAIL_HOST_PASSWORD = 'Gorozo5656!'        # Gmailの場合はアプリパスワード
 
+# エラー通知を受ける管理者
+ADMINS = [
+    ('gorozooo', 'coco.louis67@gmail.com'),
+]
+
 # =============================
 # 本番運用時の追加設定例
 # =============================
