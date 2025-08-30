@@ -93,13 +93,28 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # 本番用の設定（DEBUG = False のままでもOK）
-EMAIL_BACKEND = "sendgrid_backend.SendgridBackend"
-SENDGRID_API_KEY = "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"
+import logging.config
 
-# エラー通知を受ける管理者
-ADMINS = [
-    ('gorozooo', 'coco.louis67@gmail.com'),
-]
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "slack": {
+            "level": "ERROR",
+            "class": "logging.handlers.HTTPHandler",
+            "host": "hooks.slack.com",
+            "url": "/services/XXXXXXXXX/XXXXXXXXX/XXXXXXXXXXXXXXXXXXXX",
+            "method": "POST",
+        },
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["slack"],
+            "level": "ERROR",
+            "propagate": True,
+        },
+    },
+}
 
 # =============================
 # 本番運用時の追加設定例
