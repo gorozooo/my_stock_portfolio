@@ -159,12 +159,19 @@
   color: var(--color-neon);
 }
 
+/* モーダル内アクションボタンのレイアウト */
+.modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
 /* ===== モーダル内売却・編集ボタン ===== */
 .sell-button, .edit-button {
   display: block;
   width: 100%;
   padding: 14px;
-  margin-top: 12px;
   color: white;
   font-weight: bold;
   border: none;
@@ -184,7 +191,7 @@
 
 /* ======================================== */
 /* ===== 共通確認モーダル ===== */
-.confirm-modal {
+#confirm-modal {
   display: none;
   position: fixed;
   z-index: 300;
@@ -194,7 +201,7 @@
   backdrop-filter: blur(6px);
 }
 
-.confirm-modal-content {
+#confirm-modal .modal-content {
   background: rgba(30,30,50,0.95);
   color: var(--color-neon);
   padding: 22px;
@@ -212,15 +219,15 @@
   animation: fadeIn 0.25s ease;
 }
 
-.confirm-modal-buttons {
+.confirm-buttons {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   margin-top: 12px;
 }
 
-.confirm-modal-buttons .btn-cancel,
-.confirm-modal-buttons .btn-ok {
+.confirm-buttons .btn-cancel,
+.confirm-buttons .btn-ok {
   flex: 1;
   padding: 12px 0;
   border: none;
@@ -275,7 +282,7 @@
   .stock-row { font-size: 0.95rem; }
   .sell-btn { right: -100px; width: 100px; font-size: 1rem; }
   .edit-btn { right: -200px; width: 100px; font-size: 1rem; }
-  .confirm-modal-content { top: 15%; bottom: auto; transform: translateX(-50%); }
+  #confirm-modal .modal-content { top: 15%; bottom: auto; transform: translateX(-50%); }
 }
 
 /* ======================================== */
@@ -287,7 +294,7 @@
   .sell-btn { width: 70px; right: -70px; font-size: 0.85rem; }
   .edit-btn { width: 70px; right: -140px; font-size: 0.85rem; }
   .sell-button, .edit-button { font-size: 0.9rem; padding: 12px; }
-  .confirm-modal-content { top: calc(var(--navbar-height, 60px) + 8px); bottom: 8px; padding: 16px; }
+  #confirm-modal .modal-content { top: calc(var(--navbar-height, 60px) + 8px); bottom: 8px; padding: 16px; }
   .toast { font-size: 0.8rem; padding: 8px 14px; }
 }
 
@@ -296,6 +303,6 @@
   .stock-row { font-size: 0.8rem; }
   .sell-btn { width: 60px; right: -60px; font-size: 0.8rem; }
   .edit-btn { width: 60px; right: -120px; font-size: 0.8rem; }
-  .confirm-modal-content { top: calc(var(--navbar-height, 50px) + 6px); bottom: 6px; padding: 12px; }
+  #confirm-modal .modal-content { top: calc(var(--navbar-height, 50px) + 6px); bottom: 6px; padding: 12px; }
   .toast { font-size: 0.75rem; }
 }

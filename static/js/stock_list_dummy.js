@@ -70,7 +70,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if(currentX <= -swipeThreshold/2){
         card.style.transform = `translateX(-${swipeThreshold}px)`;
         swipeSellBtn.style.right = "0px";
-        swipeEditBtn.style.right = `-${swipeThreshold}px`;
+        swipeEditBtn.style.right = "80px";   // ←修正（横に出す）
         wrapper.classList.add("show-sell");
         swiped = true;
       } else {

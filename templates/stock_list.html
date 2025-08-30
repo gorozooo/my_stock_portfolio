@@ -19,7 +19,10 @@
       <p class="profit-label">損益: <span id="modal-profit"></span></p>
     </div>
     <canvas id="modal-chart"></canvas>
-    <button id="sell-btn" class="sell-button">売却</button>
+    <div class="modal-actions">
+      <button id="edit-btn" class="edit-button">編集</button>
+      <button id="sell-btn" class="sell-button">売却</button>
+    </div>
   </div>
 </div>
 
@@ -27,8 +30,10 @@
 <div id="confirm-modal" class="modal">
   <div class="modal-content">
     <p id="confirm-message"></p>
-    <button id="confirm-cancel">キャンセル</button>
-    <button id="confirm-ok">OK</button>
+    <div class="confirm-buttons">
+      <button id="confirm-cancel" class="btn-cancel">キャンセル</button>
+      <button id="confirm-ok" class="btn-ok">OK</button>
+    </div>
   </div>
 </div>
 
