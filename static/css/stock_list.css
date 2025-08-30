@@ -63,12 +63,12 @@
   display: flex;
   justify-content: center;   /* 横並び中央寄せ */
   align-items: baseline;     /* 下端揃えで高さ差を自然に */
-  gap: 4px;
+  gap: 1px;
   margin-bottom: 10px;
   text-align: center;
   color: var(--color-neon);
   text-shadow: 0 0 6px rgba(0,0,0,0.7);
-  margin-left: 20px; /* 左余白を増やす */
+  margin-left: 30px; /* 左余白を増やす */
 }
 
 .stock-header .stock-name {
