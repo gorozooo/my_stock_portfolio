@@ -9,6 +9,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const modalPrice = document.getElementById("modal-price");
   const modalProfit = document.getElementById("modal-profit");
 
+  const modalSellBtn = document.getElementById("sell-btn-modal");
+  const modalEditBtn = document.getElementById("edit-btn-modal");
+
   let chartInstance = null;
 
   // ===== トースト表示関数 =====
@@ -37,24 +40,8 @@ document.addEventListener("DOMContentLoaded", () => {
     return cookieValue;
   }
 
-  // ===== 株価取得関数 =====
-  async function fetchStockPrice(ticker) {
-    try {
-      const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}.T?interval=1d`);
-      if (!response.ok) return null;
-      const data = await response.json();
-      if (data.chart && data.chart.result && data.chart.result[0] && data.chart.result[0].meta) {
-        return Number(data.chart.result[0].meta.regularMarketPrice);
-      }
-      return null;
-    } catch (error) {
-      console.error("株価取得エラー:", ticker, error);
-      return null;
-    }
-  }
-
   // ===== 各カードにイベントを付与 =====
-  document.querySelectorAll(".stock-card-wrapper").forEach(async wrapper => {
+  document.querySelectorAll(".stock-card-wrapper").forEach(wrapper => {
     const card = wrapper.querySelector(".stock-card");
     const sellBtn = wrapper.querySelector(".sell-btn");
     const editBtn = wrapper.querySelector(".edit-btn");
@@ -70,29 +57,13 @@ document.addEventListener("DOMContentLoaded", () => {
     let chartHistory = [];
     try { chartHistory = JSON.parse(card.dataset.chart || "[]"); } catch { chartHistory = []; }
 
-    // ===== カードにローディング表示 =====
     const priceElem = card.querySelector(".stock-row:nth-child(4) span:last-child");
-    if (priceElem) priceElem.textContent = "取得中…";
+    if (priceElem) priceElem.textContent = `${currentPrice.toLocaleString()}円`;
 
-    // ===== 最新株価を取得してカード表示更新 =====
-    const latestPrice = await fetchStockPrice(ticker);
-    if (latestPrice !== null) {
-      currentPrice = latestPrice;
-      card.dataset.current_price = currentPrice;
-      if (priceElem) priceElem.textContent = `${currentPrice.toLocaleString()}円`;
-
-      // 損益更新
-      const profitAmount = (currentPrice - unitPrice) * shares;
-      const profitRate = unitPrice ? (profitAmount / (unitPrice * shares)) * 100 : 0;
-      card.dataset.profit = profitAmount;
-      card.dataset.profit_rate = profitRate.toFixed(2);
-
-      const profitElem = card.querySelector(".stock-row.gain span:last-child");
-      if (profitElem) profitElem.textContent = `${profitAmount >= 0 ? "+" : ""}${profitAmount.toLocaleString()}円 (${profitRate.toFixed(2)}%)`;
-      card.querySelector(".stock-row.gain").className = `stock-row gain ${profitAmount >= 0 ? "positive" : "negative"}`;
-      profit = profitAmount;
-    } else {
-      if (priceElem) priceElem.textContent = "取得失敗";
+    const profitElem = card.querySelector(".stock-row.gain span:last-child");
+    if (profitElem) {
+      profitElem.textContent = `${profit >= 0 ? "+" : ""}${profit.toLocaleString()}円 (${card.dataset.profit_rate}%)`;
+      card.querySelector(".stock-row.gain").className = `stock-row gain ${profit >= 0 ? "positive" : "negative"}`;
     }
 
     // ===== カードクリックでモーダル表示 =====
@@ -102,7 +73,7 @@ document.addEventListener("DOMContentLoaded", () => {
       modalCode.textContent = ticker;
       modalShares.textContent = `${shares}株`;
       modalCost.textContent = `¥${unitPrice.toLocaleString()}`;
-      modalPrice.textContent = latestPrice !== null ? `¥${currentPrice.toLocaleString()}` : "取得失敗";
+      modalPrice.textContent = `¥${currentPrice.toLocaleString()}`;
       modalProfit.textContent = `${profit >= 0 ? "+" : ""}${profit.toLocaleString()} 円`;
       modalProfit.className = profit >= 0 ? "positive" : "negative";
 
@@ -130,36 +101,52 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
 
-    // ===== モーダル内売却ボタン =====
-    const modalSellBtn = document.getElementById("sell-btn");
-    const modalEditBtn = document.getElementById("edit-btn");
+    // ===== カード内ボタン =====
+    if (sellBtn) {
+      sellBtn.addEventListener("click", async e => {
+        e.stopPropagation();
+        if (!confirm(`${name} を売却しますか？`)) return;
+        try {
+          const response = await fetch(`/stocks/${stockId}/sell/`, {
+            method: "POST",
+            headers: { "X-CSRFToken": getCookie("csrftoken") }
+          });
+          if (response.ok) {
+            wrapper.remove();
+            showToast(`✅ ${name} を売却しました！`);
+          } else showToast("❌ 売却に失敗しました");
+        } catch (err) { console.error(err); showToast("⚠️ 通信エラー"); }
+      });
+    }
 
+    if (editBtn) {
+      editBtn.addEventListener("click", e => {
+        e.stopPropagation();
+        showToast(`✏️ ${name} を編集します（未実装）`);
+      });
+    }
+
+    // ===== モーダル内ボタン =====
     modalSellBtn.addEventListener("click", async () => {
       if (!confirm(`${name} を売却しますか？`)) return;
       try {
         const response = await fetch(`/stocks/${stockId}/sell/`, {
           method: "POST",
-          headers: {
-            "X-CSRFToken": getCookie("csrftoken"),
-            "Content-Type": "application/json"
-          }
+          headers: { "X-CSRFToken": getCookie("csrftoken") }
         });
         if (response.ok) {
           wrapper.remove();
           showToast(`✅ ${name} を売却しました！`);
           modal.style.display = "none";
         } else showToast("❌ 売却に失敗しました");
-      } catch (error) {
-        console.error(error);
-        showToast("⚠️ 通信エラーが発生しました");
-      }
+      } catch (err) { console.error(err); showToast("⚠️ 通信エラー"); }
     });
 
     modalEditBtn.addEventListener("click", () => {
       showToast(`✏️ ${name} を編集します（未実装）`);
     });
 
-    // ===== カードのスワイプ（左右） =====
+    // ===== スワイプ判定 =====
     let startX = 0;
     let startY = 0;
     let moved = false;
@@ -180,9 +167,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!moved) return;
       const endX = e.changedTouches[0].clientX;
       const deltaX = startX - endX;
-
-      if (deltaX > 50) wrapper.classList.add("show-actions");
-      else if (deltaX < -50) wrapper.classList.remove("show-actions");
+      if (deltaX > 40) wrapper.classList.add("show-actions");
+      else if (deltaX < -40) wrapper.classList.remove("show-actions");
     });
   });
 
