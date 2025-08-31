@@ -78,19 +78,14 @@ def stock_list_view(request):
 
     for stock in stocks:
         try:
-            # --- 最新株価を取得してDBに反映 ---
-            ticker_symbol = f"{stock.ticker}.T"  # 日本株は末尾に .T
+            ticker_symbol = f"{stock.ticker}.T"
             ticker = yf.Ticker(ticker_symbol)
 
-            # 今日の株価
+            # 最新株価
             todays_data = ticker.history(period="1d")
-            if not todays_data.empty:
-                latest_price = float(todays_data["Close"].iloc[-1])
-                stock.current_price = latest_price
-            else:
-                stock.current_price = stock.unit_price  # 取得できなければ単価と同じ
+            stock.current_price = float(todays_data["Close"].iloc[-1]) if not todays_data.empty else stock.unit_price
 
-            # --- 過去1か月の株価履歴を取得（ローソク足用） ---
+            # 過去1か月ローソク足
             history = ticker.history(period="1mo")
             ohlc_list = []
             if not history.empty:
@@ -104,13 +99,12 @@ def stock_list_view(request):
                     })
             stock.chart_history = ohlc_list
 
-            # --- 損益計算 ---
+            # 損益
             stock.total_cost = stock.shares * stock.unit_price
             stock.profit_amount = stock.current_price * stock.shares - stock.total_cost
             stock.profit_rate = round(stock.profit_amount / stock.total_cost * 100, 2) if stock.total_cost else 0
 
         except Exception as e:
-            # API取得エラー時は初期化
             stock.chart_history = []
             stock.current_price = stock.unit_price
             stock.total_cost = stock.shares * stock.unit_price
@@ -118,12 +112,10 @@ def stock_list_view(request):
             stock.profit_rate = 0
             print(f"Error fetching data for {stock.ticker}: {e}")
 
-    # テンプレート用にchart_historyをJSON文字列に変換
     for stock in stocks:
-        stock.chart_json = json.dumps(stock.chart_history)  # JSON文字列として安全に渡す
+        stock.chart_json = json.dumps(stock.chart_history)
 
     return render(request, "stock_list.html", {"stocks": stocks})
-    
 @login_required
 def stock_create(request):
     errors = {}
