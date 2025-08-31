@@ -12,7 +12,7 @@ import json
 from .models import BottomTab, SettingsPassword, SubMenu, Stock, StockMaster
 from .forms import SettingsPasswordForm
 from .utils import get_bottom_tabs
-
+from django.template.loader import get_template
 
 # -----------------------------
 # 共通コンテキスト
