@@ -1,8 +1,3 @@
-import { Chart, registerables } from 'chart.js';
-import { CandlestickController, CandlestickElement } from 'chartjs-chart-financial';
-
-Chart.register(...registerables, CandlestickController, CandlestickElement);
-
 document.addEventListener("DOMContentLoaded", () => {
   const modal = document.getElementById("stock-modal");
   const closeBtn = modal.querySelector(".close");
