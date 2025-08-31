@@ -139,12 +139,14 @@
 .modal {
   display: none;
   position: fixed;
-  left:0; top:0;
-  width:100%; height:100%;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   background: rgba(0,0,0,0.7);
-  z-index: 200;
+  z-index: 9999; /* 下タブより前に */
   animation: fadeIn 0.3s ease;
-  overflow-y: auto;  /* ← 背景じゃなくモーダル自体をスクロール対象に */
+  overflow-y: auto; /* モーダル背景全体もスクロール可 */
   -webkit-overflow-scrolling: touch;
 }
 
@@ -156,14 +158,13 @@
   width: 90%;
   max-width: 420px;
   position: relative;
-  top: calc(var(--navbar-height, 60px) + 10px);
-  left: 50%;
-  transform: translateX(-50%);
-  max-height: calc(100vh - var(--navbar-height, 60px) - 20px); /* 上下のマージン分を引く */
-  overflow-y: auto; /* 縦スクロール可能に */
+  margin: 80px auto 40px auto; /* 上下余白を確保して中央寄せ */
+  max-height: calc(100vh - 120px); /* 画面高さから余白を引く */
+  overflow-y: auto; /* モーダル内部だけスクロール可 */
+  -webkit-overflow-scrolling: touch;
   color: var(--color-neon);
   box-shadow: 0 12px 36px rgba(0,0,0,0.4);
-  z-index: 210;
+  z-index: 10000; /* 念のため更に上 */
 }
 .modal-content .close {
   position: absolute;
