@@ -109,34 +109,28 @@ class SettingsPassword(models.Model):
 # =============================
 # 下タブとサブメニュー
 # =============================
-from django.shortcuts import render, redirect
-from django.contrib.auth.decorators import login_required
-from .models import BottomTab
+from django.db import models
 
-@login_required
-def tab_manager_view(request):
-    # セッション認証チェック
-    if not request.session.get("settings_authenticated"):
-        return redirect("settings_login")
+class BottomTab(models.Model):
+    name = models.CharField("タブ名", max_length=50)
+    icon = models.CharField("アイコン", max_length=50, blank=True)
+    order = models.PositiveIntegerField("並び順", default=0)
 
-    # -------------------- DBからタブとサブメニューを取得 --------------------
-    tabs = BottomTab.objects.prefetch_related('submenus').all()
+    class Meta:
+        ordering = ['order']
 
-    # テンプレートに渡すため辞書形式に変換
-    tab_list = []
-    for tab in tabs:
-        tab_list.append({
-            "id": tab.id,
-            "name": tab.name,
-            "icon": tab.icon or "📌",  # アイコンが空ならデフォルト
-            "submenus": [
-                {
-                    "id": sub.id,
-                    "name": sub.name,
-                    "url": sub.url
-                } for sub in tab.submenus.all()
-            ]
-        })
+    def __str__(self):
+        return self.name
 
-    # -------------------- レンダリング --------------------
-    return render(request, "tab_manager.html", {"tabs": tab_list})
+
+class SubMenu(models.Model):
+    tab = models.ForeignKey(BottomTab, on_delete=models.CASCADE, related_name='submenus')
+    name = models.CharField("サブメニュー名", max_length=50)
+    url = models.CharField("URL", max_length=200)
+    order = models.PositiveIntegerField("並び順", default=0)
+
+    class Meta:
+        ordering = ['order']
+
+    def __str__(self):
+        return f"{self.tab.name} -> {self.name}"
