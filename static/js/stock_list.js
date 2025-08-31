@@ -1,6 +1,11 @@
 // ===== stock_list.js =====
-
-
+// ★ Chart.js + candlestick 登録（グローバル版の場合）
+if (typeof Chart !== "undefined" && Chart) {
+  Chart.register(
+    window.CandlestickController,
+    window.CandlestickElement
+  );
+}
 
 document.addEventListener("DOMContentLoaded", () => {
   const modal = document.getElementById("stock-modal");
