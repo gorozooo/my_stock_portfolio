@@ -13,15 +13,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ===== トースト表示関数 =====
   function showToast(message, duration = 2000) {
-    let toast = document.querySelector(".toast");
-    if (!toast) {
-      toast = document.createElement("div");
-      toast.className = "toast";
-      document.body.appendChild(toast);
-    }
+    const container = document.getElementById("toast-container");
+    const toast = document.createElement("div");
+    toast.className = "toast";
     toast.textContent = message;
-    toast.classList.add("show");
-    setTimeout(() => toast.classList.remove("show"), duration);
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), duration);
+  }
+
+  // ===== CSRFトークン取得関数 =====
+  function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== "") {
+      const cookies = document.cookie.split(";");
+      for (let cookie of cookies) {
+        cookie = cookie.trim();
+        if (cookie.startsWith(name + "=")) {
+          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+          break;
+        }
+      }
+    }
+    return cookieValue;
   }
 
   // ===== 各カードにイベントを付与 =====
@@ -32,10 +45,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const stockId = card.dataset.id;
     const name = card.dataset.name;
-    const code = card.dataset.code;
+    const ticker = card.dataset.ticker;
     const shares = card.dataset.shares;
-    const cost = card.dataset.cost;
-    const price = card.dataset.price;
+    const unitPrice = card.dataset.unit_price;
+    const currentPrice = card.dataset.current_price;
     const profit = card.dataset.profit;
     const chartHistory = JSON.parse(card.dataset.chart || "[]");
 
@@ -43,10 +56,10 @@ document.addEventListener("DOMContentLoaded", () => {
     card.addEventListener("click", () => {
       modal.style.display = "block";
       modalName.textContent = name;
-      modalCode.textContent = code;
+      modalCode.textContent = ticker;
       modalShares.textContent = `${shares}株`;
-      modalCost.textContent = `¥${Number(cost).toLocaleString()}`;
-      modalPrice.textContent = `¥${Number(price).toLocaleString()}`;
+      modalCost.textContent = `¥${Number(unitPrice).toLocaleString()}`;
+      modalPrice.textContent = `¥${Number(currentPrice).toLocaleString()}`;
       modalProfit.textContent = `${Number(profit) >= 0 ? "+" : ""}${Number(profit).toLocaleString()} 円`;
       modalProfit.className = Number(profit) >= 0 ? "positive" : "negative";
 
@@ -56,10 +69,10 @@ document.addEventListener("DOMContentLoaded", () => {
       chartInstance = new Chart(ctx, {
         type: "line",
         data: {
-          labels: Array.from({ length: chartHistory.length }, (_, i) => `${i + 1}`),
+          labels: chartHistory.map((_, i) => `T${i + 1}`),
           datasets: [{
             label: name,
-            data: chartHistory,
+            data: chartHistory.length ? chartHistory : [100, 110, 105, 120],
             borderColor: "#00ffff",
             backgroundColor: "rgba(0,255,255,0.2)",
             fill: true,
@@ -92,6 +105,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (response.ok) {
           wrapper.remove();
           showToast(`✅ ${name} を売却しました！`);
+          modal.style.display = "none";
         } else {
           showToast("❌ 売却に失敗しました");
         }
@@ -115,20 +129,4 @@ document.addEventListener("DOMContentLoaded", () => {
   closeBtn.addEventListener("click", closeModal);
   window.addEventListener("click", e => { if (e.target === modal) closeModal(); });
   modal.addEventListener("touchstart", e => { if (e.target === modal) closeModal(); });
-
-  // ===== CSRFトークン取得関数 =====
-  function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== "") {
-      const cookies = document.cookie.split(";");
-      for (let i = 0; i < cookies.length; i++) {
-        const cookie = cookies[i].trim();
-        if (cookie.startsWith(name + "=")) {
-          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-          break;
-        }
-      }
-    }
-    return cookieValue;
-  }
 });
