@@ -66,6 +66,11 @@ def logout_view(request):
 # 株関連ページ
 # -----------------------------
 import yfinance as yf
+from django.shortcuts import render
+from django.contrib.auth.decorators import login_required
+from .models import Stock
+from datetime import datetime, timedelta
+
 
 @login_required
 def stock_list_view(request):
@@ -73,33 +78,34 @@ def stock_list_view(request):
 
     for stock in stocks:
         try:
-            # Yahoo Finance 用のティッカーコードに変換（例: 7203 -> 7203.T）
-            ticker_code = f"{stock.code}.T"
-            ticker = yf.Ticker(ticker_code)
-            price = ticker.history(period="1d")["Close"].iloc[-1]  # 最新終値を取得
+            # --- 最新株価を取得してDBに反映 ---
+            ticker = yf.Ticker(f"{stock.code}.T")  # 日本株は末尾に .T が必要
+            todays_data = ticker.history(period="1d")
+            if not todays_data.empty:
+                latest_price = todays_data["Close"].iloc[-1]
+                stock.unit_price = float(latest_price)  # DB反映
+                stock.save(update_fields=["unit_price"])  # unit_priceのみ保存
+
+            # --- 過去30日分の株価履歴を取得（チャート用） ---
+            history = ticker.history(period="1mo")  # 1か月分
+            if not history.empty:
+                stock.chart_history = list(history["Close"].round(2).values)  # [株価, 株価, 株価, ...]
+            else:
+                stock.chart_history = []
+
+            # --- 損益計算 ---
+            stock.total_cost = stock.shares * stock.purchase_price
+            stock.profit_amount = stock.unit_price * stock.shares - stock.total_cost
+            stock.profit_rate = round(stock.profit_amount / stock.total_cost * 100, 2) if stock.total_cost else 0
+
         except Exception as e:
-            price = stock.unit_price  # 取得できない場合は登録時の単価を代わりに使う
-
-        # 現在株価を保存用に追加
-        stock.current_price = round(price)
-
-        # チャート用ダミーデータ（必要に応じてAPIから取得も可能）
-        stock.chart_history = [
-            stock.total_cost,
-            stock.total_cost * 1.05,
-            stock.total_cost * 0.95,
-            stock.current_price,
-            stock.current_price * 1.01,
-        ]
-
-        # 損益額
-        stock.profit_amount = stock.current_price * stock.shares - stock.total_cost
-
-        # 損益率
-        stock.profit_rate = round(stock.profit_amount / stock.total_cost * 100, 2) if stock.total_cost else 0
+            # APIエラー時はチャート空欄
+            stock.chart_history = []
+            stock.profit_amount = 0
+            stock.profit_rate = 0
+            print(f"Error fetching data for {stock.code}: {e}")
 
     return render(request, "stock_list.html", {"stocks": stocks})
-
 @login_required
 def stock_create(request):
     errors = {}
