@@ -49,6 +49,17 @@ class RealizedTrade(models.Model):
     def __str__(self):
         return self.name
 
+class RealizedProfit(models.Model):
+    stock_name = models.CharField("銘柄名", max_length=100)
+    ticker = models.CharField("証券コード", max_length=10)
+    shares = models.PositiveIntegerField("株数")
+    purchase_price = models.FloatField("取得単価")
+    sell_price = models.FloatField("売却単価")
+    total_profit = models.FloatField("損益額")
+    sold_at = models.DateTimeField("売却日", default=timezone.now)
+
+    def __str__(self):
+        return f"{self.ticker} {self.stock_name} ({self.total_profit})"
 
 # =============================
 # 現金モデル
