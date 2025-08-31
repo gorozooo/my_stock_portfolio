@@ -37,8 +37,22 @@ document.addEventListener("DOMContentLoaded", () => {
     return cookieValue;
   }
 
+  // ===== 株価取得関数 =====
+  async function fetchStockPrice(ticker) {
+    try {
+      const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}.T?interval=1d`);
+      if (!response.ok) return null;
+      const data = await response.json();
+      const price = data.chart.result[0].meta.regularMarketPrice;
+      return Number(price);
+    } catch (error) {
+      console.error("株価取得エラー:", ticker, error);
+      return null;
+    }
+  }
+
   // ===== 各カードにイベントを付与 =====
-  document.querySelectorAll(".stock-card-wrapper").forEach(wrapper => {
+  document.querySelectorAll(".stock-card-wrapper").forEach(async wrapper => {
     const card = wrapper.querySelector(".stock-card");
     const sellBtn = wrapper.querySelector(".sell-btn");
     const editBtn = wrapper.querySelector(".edit-btn");
@@ -46,17 +60,37 @@ document.addEventListener("DOMContentLoaded", () => {
     const stockId = card.dataset.id;
     const name = card.dataset.name;
     const ticker = card.dataset.ticker;
-    const shares = card.dataset.shares;
-    const unitPrice = card.dataset.unitPrice;       // ← camelCase に修正
-    const currentPrice = card.dataset.currentPrice; // ← camelCase に修正
-    const profit = card.dataset.profit;
-    const chartHistory = (() => {
-      try {
-        return JSON.parse(card.dataset.chart || "[]");
-      } catch {
-        return [];
-      }
-    })();
+    const shares = Number(card.dataset.shares) || 0;
+    const unitPrice = Number(card.dataset.unit_price) || 0;
+    let currentPrice = Number(card.dataset.current_price) || 0;
+    const profit = Number(card.dataset.profit) || 0;
+
+    let chartHistory = [];
+    try { chartHistory = JSON.parse(card.dataset.chart || "[]"); } catch { chartHistory = []; }
+
+    // ===== カードにローディング表示 =====
+    const priceElem = card.querySelector(".stock-row:nth-child(4) span:last-child");
+    if (priceElem) priceElem.textContent = "取得中…";
+
+    // ===== 最新株価を取得してカード表示更新 =====
+    const latestPrice = await fetchStockPrice(ticker);
+    if (latestPrice !== null) {
+      currentPrice = latestPrice;
+      card.dataset.current_price = currentPrice;
+      if (priceElem) priceElem.textContent = `${currentPrice.toLocaleString()}円`;
+
+      // 損益更新
+      const profitAmount = (currentPrice - unitPrice) * shares;
+      const profitRate = unitPrice ? (profitAmount / (unitPrice * shares)) * 100 : 0;
+      card.dataset.profit = profitAmount;
+      card.dataset.profit_rate = profitRate.toFixed(2);
+
+      const profitElem = card.querySelector(".stock-row.gain span:last-child");
+      if (profitElem) profitElem.textContent = `${profitAmount >= 0 ? "+" : ""}${profitAmount.toLocaleString()}円 (${profitRate.toFixed(2)}%)`;
+      card.querySelector(".stock-row.gain").className = `stock-row gain ${profitAmount >= 0 ? "positive" : "negative"}`;
+    } else {
+      if (priceElem) priceElem.textContent = "取得失敗";
+    }
 
     // ===== カードクリックでモーダル表示 =====
     card.addEventListener("click", () => {
@@ -64,25 +98,21 @@ document.addEventListener("DOMContentLoaded", () => {
       modalName.textContent = name;
       modalCode.textContent = ticker;
       modalShares.textContent = `${shares}株`;
-      modalCost.textContent = `¥${Number(unitPrice).toLocaleString()}`;
-      modalPrice.textContent = `¥${Number(currentPrice).toLocaleString()}`;
-      modalProfit.textContent = `${Number(profit) >= 0 ? "+" : ""}${Number(profit).toLocaleString()} 円`;
-      modalProfit.className = Number(profit) >= 0 ? "positive" : "negative";
+      modalCost.textContent = `¥${unitPrice.toLocaleString()}`;
+      modalPrice.textContent = latestPrice !== null ? `¥${currentPrice.toLocaleString()}` : "取得失敗";
+      modalProfit.textContent = `${profit >= 0 ? "+" : ""}${profit.toLocaleString()} 円`;
+      modalProfit.className = profit >= 0 ? "positive" : "negative";
 
       // ===== チャート描画 =====
-      if (chartInstance) {
-        chartInstance.destroy();
-      }
+      if (chartInstance) chartInstance.destroy();
       const ctx = document.getElementById("modal-chart").getContext("2d");
       chartInstance = new Chart(ctx, {
         type: "line",
         data: {
-          labels: chartHistory.length
-            ? chartHistory.map((_, i) => `T${i + 1}`)
-            : ["1", "2", "3", "4"],
+          labels: chartHistory.length ? chartHistory.map((_, i) => `T${i + 1}`) : ["1","2","3","4"],
           datasets: [{
             label: name,
-            data: chartHistory.length ? chartHistory : [100, 110, 105, 120],
+            data: chartHistory.length ? chartHistory : [100,110,105,120],
             borderColor: "#00ffff",
             backgroundColor: "rgba(0,255,255,0.2)",
             fill: true,
@@ -100,7 +130,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // ===== 売却ボタン =====
     sellBtn.addEventListener("click", async e => {
       e.stopPropagation();
-
       if (!confirm(`${name} を売却しますか？`)) return;
 
       try {
@@ -135,18 +164,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // ===== 左スワイプでアクションボタン表示 =====
     let startX = 0;
-    card.addEventListener("touchstart", e => {
-      startX = e.touches[0].clientX;
-    });
+    card.addEventListener("touchstart", e => { startX = e.touches[0].clientX; });
     card.addEventListener("touchend", e => {
       const endX = e.changedTouches[0].clientX;
-      if (startX - endX > 50) {
-        // 左にスワイプしたらアクションボタン表示
-        wrapper.classList.add("show-actions");
-      } else if (endX - startX > 50) {
-        // 右スワイプで閉じる
-        wrapper.classList.remove("show-actions");
-      }
+      if (startX - endX > 50) wrapper.classList.add("show-actions");
+      else if (endX - startX > 50) wrapper.classList.remove("show-actions");
     });
   });
 
