@@ -106,6 +106,7 @@ def stock_list_view(request):
             print(f"Error fetching data for {stock.code}: {e}")
 
     return render(request, "stock_list.html", {"stocks": stocks})
+    
 @login_required
 def stock_create(request):
     errors = {}
@@ -190,6 +191,20 @@ def stock_create(request):
 
     return HttpResponse(tpl.render(context, request))
 
+from django.http import JsonResponse
+from django.views.decorators.http import require_POST
+from django.contrib.auth.decorators import login_required
+from .models import Stock
+
+@login_required
+@require_POST
+def sell_stock_view(request, pk):
+    try:
+        stock = Stock.objects.get(pk=pk)
+        stock.delete()
+        return JsonResponse({"status": "ok"})
+    except Stock.DoesNotExist:
+        return JsonResponse({"status": "error", "message": "Stock not found"}, status=404)
 
 @login_required
 def cash_view(request):
