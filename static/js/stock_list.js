@@ -1,5 +1,4 @@
 // ===== stock_list.js =====
-// ★ Chart.js + candlestick プラグインはUMD版を <script> で読み込むので登録不要
 // Chart.js + candlestick プラグイン（UMD版）
 if (typeof Chart !== "undefined" && Chart) {
   if (Chart.CandlestickController && Chart.CandlestickElement) {
@@ -7,11 +6,11 @@ if (typeof Chart !== "undefined" && Chart) {
       Chart.CandlestickController,
       Chart.CandlestickElement
     );
+    console.log("✅ Candlestick プラグイン登録完了");
   } else {
-    console.warn("CandlestickController または CandlestickElement が未定義です。chartjs-chart-financial の読み込み順を確認してください。");
+    console.warn("⚠️ CandlestickController / CandlestickElement が未定義です。読み込み順を確認してください。");
   }
 }
-
 
 document.addEventListener("DOMContentLoaded", () => {
   const modal = document.getElementById("stock-modal");
@@ -87,7 +86,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // ===== カードクリックでモーダル表示 =====
     card.addEventListener("click", () => {
       activeCardWrapper = wrapper;
-      modal.dataset.id = stockId; // モーダルにID保持
+      modal.dataset.id = stockId;
       modal.style.display = "block";
       document.body.style.overflow = "hidden";
 
@@ -103,7 +102,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (chartInstance) chartInstance.destroy();
       const ctx = document.getElementById("modal-chart").getContext("2d");
 
-      if (chartHistory.length > 0) {
+      if (chartHistory.length > 0 && Chart.CandlestickController) {
         const formattedData = chartHistory.map(val => ({
           x: new Date(val.t),
           o: Number(val.o),
@@ -129,7 +128,7 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         });
       } else {
-        showToast("⚠️ チャートデータがありません");
+        showToast("⚠️ チャートデータがありません、またはプラグイン未読み込み");
       }
     });
 
