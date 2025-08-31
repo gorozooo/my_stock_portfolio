@@ -86,7 +86,7 @@ def stock_list_view(request):
             todays_data = ticker.history(period="1d")
             if not todays_data.empty:
                 latest_price = float(todays_data["Close"].iloc[-1])
-                stock.current_price = latest_price  # current_price に反映
+                stock.current_price = latest_price
                 stock.save(update_fields=["current_price"])
             else:
                 stock.current_price = stock.unit_price  # 取得できなければ単価と同じ
@@ -104,15 +104,17 @@ def stock_list_view(request):
             stock.profit_rate = round(stock.profit_amount / stock.total_cost * 100, 2) if stock.total_cost else 0
 
         except Exception as e:
-            # API取得エラー時は初期化
             stock.chart_history = []
             stock.profit_amount = 0
             stock.profit_rate = 0
             stock.current_price = stock.unit_price
             print(f"Error fetching data for {stock.ticker}: {e}")
 
+    # テンプレート用にchart_historyをJSON文字列に変換
+    for stock in stocks:
+        stock.chart_json = json.dumps(stock.chart_history)
+
     return render(request, "stock_list.html", {"stocks": stocks})
-    
 @login_required
 def stock_create(request):
     errors = {}
