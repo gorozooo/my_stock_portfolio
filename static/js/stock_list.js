@@ -70,7 +70,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // ===== カードクリックでモーダル表示 =====
     card.addEventListener("click", () => {
       modal.style.display = "block";
-      document.body.style.overflow = "hidden"; // 背景スクロール禁止
+      document.body.style.overflow = "hidden";
 
       modalName.textContent = name;
       modalCode.textContent = ticker;
@@ -84,34 +84,24 @@ document.addEventListener("DOMContentLoaded", () => {
       if (chartInstance) chartInstance.destroy();
       const ctx = document.getElementById("modal-chart").getContext("2d");
 
-      // chartHistory がローソク足形式（{t, o, h, l, c}）であることを前提
-      const formattedData = chartHistory.length
-        ? chartHistory
-        : [
-            { t: "1", o: 100, h: 110, l: 95, c: 105 },
-            { t: "2", o: 105, h: 115, l: 100, c: 110 },
-            { t: "3", o: 110, h: 120, l: 105, c: 115 },
-            { t: "4", o: 115, h: 125, l: 110, c: 120 },
-          ];
+      // データが空ならダミーのOHLCを設定
+      const formattedData = chartHistory.length ? chartHistory : [
+        { t: "1", o: 100, h: 110, l: 95, c: 105 },
+        { t: "2", o: 105, h: 115, l: 100, c: 110 },
+        { t: "3", o: 110, h: 120, l: 105, c: 115 },
+        { t: "4", o: 115, h: 125, l: 110, c: 120 },
+      ];
 
       chartInstance = new Chart(ctx, {
         type: "candlestick",
-        data: {
-          datasets: [{
-            label: name,
-            data: formattedData,
-            borderColor: "#00ffff",
-            color: {
-              up: "#4ade80",
-              down: "#f87171",
-              unchanged: "#cccccc"
-            }
-          }]
-        },
+        data: { datasets: [{ label: name, data: formattedData }] },
         options: {
           responsive: true,
           plugins: { legend: { display: false } },
-          scales: { x: { display: true }, y: { display: true } }
+          scales: {
+            x: { display: true, title: { display: true, text: "時間" } },
+            y: { display: true, title: { display: true, text: "株価" } }
+          }
         }
       });
 
@@ -194,14 +184,13 @@ document.addEventListener("DOMContentLoaded", () => {
   // ===== モーダル閉じる =====
   function closeModal() {
     modal.style.display = "none";
-    document.body.style.overflow = ""; // 背景スクロール復活
+    document.body.style.overflow = "";
     if (chartInstance) chartInstance.destroy();
   }
 
   closeBtn.addEventListener("click", closeModal);
   window.addEventListener("click", e => { if (e.target === modal) closeModal(); });
 
-  // モーダル内スクロール中に背景が動かないようにする
   modal.addEventListener("touchmove", e => {
     e.stopPropagation();
   }, { passive: false });
