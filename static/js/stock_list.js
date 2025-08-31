@@ -4,13 +4,12 @@
 if (typeof Chart !== "undefined" && Chart) {
   try {
     Chart.register(
-      Chart.FinancialController,
       Chart.CandlestickController,
       Chart.OHLCController,
       Chart.CandlestickElement,
       Chart.OHLCElement
     );
-    console.log("✅ Financial / Candlestick プラグイン登録完了");
+    console.log("✅ Candlestick / OHLC プラグイン登録完了");
   } catch (err) {
     console.warn("⚠️ Chart.js financial プラグインの登録に失敗:", err);
   }
@@ -129,7 +128,7 @@ document.addEventListener("DOMContentLoaded", () => {
               x: {
                 type: "time",
                 time: { unit: "day", tooltipFormat: "yyyy-MM-dd" },
-                adapters: { date: {} }, // アダプタ必須
+                adapters: { date: {} }, // date-fns アダプタ利用
                 title: { display: true, text: "日付" }
               },
               y: { title: { display: true, text: "株価" } }
