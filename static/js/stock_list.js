@@ -21,7 +21,6 @@ document.addEventListener("DOMContentLoaded", () => {
     toast.className = "toast";
     toast.textContent = message;
     container.appendChild(toast);
-    // アニメーション用に少し待ってから表示
     requestAnimationFrame(() => toast.classList.add("show"));
     setTimeout(() => toast.remove(), duration);
   }
@@ -102,7 +101,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       });
 
-      // ===== モーダル内ボタンの個別設定 =====
+      // ===== モーダル内ボタン =====
       modalSellBtn.onclick = async () => {
         if (!confirm(`${name} を売却しますか？`)) return;
         try {
@@ -124,29 +123,25 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // ===== カード内ボタン =====
-    if (sellBtn) {
-      sellBtn.addEventListener("click", async e => {
-        e.stopPropagation();
-        if (!confirm(`${name} を売却しますか？`)) return;
-        try {
-          const response = await fetch(`/stocks/${stockId}/sell/`, {
-            method: "POST",
-            headers: { "X-CSRFToken": getCookie("csrftoken") }
-          });
-          if (response.ok) {
-            wrapper.remove();
-            showToast(`✅ ${name} を売却しました！`);
-          } else showToast("❌ 売却に失敗しました");
-        } catch (err) { console.error(err); showToast("⚠️ 通信エラー"); }
-      });
-    }
+    if (sellBtn) sellBtn.addEventListener("click", async e => {
+      e.stopPropagation();
+      if (!confirm(`${name} を売却しますか？`)) return;
+      try {
+        const response = await fetch(`/stocks/${stockId}/sell/`, {
+          method: "POST",
+          headers: { "X-CSRFToken": getCookie("csrftoken") }
+        });
+        if (response.ok) {
+          wrapper.remove();
+          showToast(`✅ ${name} を売却しました！`);
+        } else showToast("❌ 売却に失敗しました");
+      } catch (err) { console.error(err); showToast("⚠️ 通信エラー"); }
+    });
 
-    if (editBtn) {
-      editBtn.addEventListener("click", e => {
-        e.stopPropagation();
-        showToast(`✏️ ${name} を編集します（未実装）`);
-      });
-    }
+    if (editBtn) editBtn.addEventListener("click", e => {
+      e.stopPropagation();
+      showToast(`✏️ ${name} を編集します（未実装）`);
+    });
 
     // ===== スワイプ判定 =====
     let startX = 0, startY = 0, moved = false, currentTranslate = 0;
@@ -155,28 +150,28 @@ document.addEventListener("DOMContentLoaded", () => {
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       moved = false;
-      wrapper.style.transition = ""; // 移動中はトランジションなし
+      wrapper.style.transition = "";
     });
 
     card.addEventListener("touchmove", e => {
       const dx = e.touches[0].clientX - startX;
       const dy = e.touches[0].clientY - startY;
       if (Math.abs(dx) > Math.abs(dy)) {
-        e.preventDefault(); // 横スクロール抑制
+        e.preventDefault();
         moved = true;
-        currentTranslate = Math.min(0, Math.max(-100, dx)); // 左に最大100px
+        currentTranslate = Math.min(0, Math.max(-160, dx));
         wrapper.style.transform = `translateX(${currentTranslate}px)`;
       }
     }, { passive: false });
 
     card.addEventListener("touchend", e => {
       if (!moved) return;
-      wrapper.style.transition = "transform 0.25s ease"; // 終了後はスムーズに戻る
-      if (currentTranslate < -50) {
-        wrapper.style.transform = `translateX(-100px)`; // アクションボタン表示
-        wrapper.classList.add("show-actions");
+      wrapper.style.transition = "transform 0.25s ease";
+      if (currentTranslate < -80) {
+        wrapper.style.transform = "translateX(-160px)";
+        wrapper.classList.add("show-actions"); // ボタンをカード右端に追従させる
       } else {
-        wrapper.style.transform = `translateX(0)`; // 元に戻す
+        wrapper.style.transform = "translateX(0)";
         wrapper.classList.remove("show-actions");
       }
     });
