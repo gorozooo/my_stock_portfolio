@@ -30,15 +30,22 @@ class Stock(models.Model):
     sector = models.CharField("セクター", max_length=50, default="")
     shares = models.PositiveIntegerField("株数")
     unit_price = models.FloatField("取得単価")
-    total_cost = models.PositiveIntegerField("取得額")
+    total_cost = models.PositiveIntegerField("取得額", editable=False)  # ← ユーザーが編集できないようにした
     broker = models.CharField("証券会社", max_length=20, choices=BROKER_CHOICES, default="楽天") 
     note = models.TextField("メモ", blank=True, default="")
     created_at = models.DateTimeField("作成日時", default=timezone.now)
     updated_at = models.DateTimeField("更新日時", auto_now=True)
 
+    def save(self, *args, **kwargs):
+        """保存時に total_cost を自動計算"""
+        if self.shares and self.unit_price:
+            self.total_cost = int(self.shares * self.unit_price)
+        else:
+            self.total_cost = 0
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.ticker} {self.name}"
-
 # =============================
 # 実現損益
 # =============================
