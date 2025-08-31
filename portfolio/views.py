@@ -111,6 +111,7 @@ def stock_list_view(request):
             print(f"Error fetching data for {stock.ticker}: {e}")
 
     return render(request, "stock_list.html", {"stocks": stocks})
+    
 @login_required
 def stock_create(request):
     errors = {}
