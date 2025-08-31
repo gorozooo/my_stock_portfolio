@@ -1,5 +1,5 @@
 /* ======================================== */
-/* ===== stock_list.css（スマホ完全対応版＋銘柄中央寄せ＋スワイプアニメーション強化） ===== */
+/* ===== stock_list.css（スマホ完全対応版＋銘柄中央寄せ） ===== */
 
 /* ===== 変数・テーマ ===== */
 :root {
@@ -12,9 +12,10 @@
   --loss-color: #f87171;
   --blur: 28px;
   --color-neon: #00ffff;
-  --navbar-height: 60px;
+  --navbar-height: 60px; /* ナビバー高さを変数化 */
 }
 
+/* ======================================== */
 /* ===== カードコンテナ ===== */
 .portfolio-container {
   padding: 12px;
@@ -57,25 +58,26 @@
   box-shadow: 0 12px 36px rgba(0,0,0,0.3);
 }
 
-/* ===== ヘッダー ===== */
+/* ===== ヘッダー（銘柄名と証券コード 横並び） ===== */
 .stock-header {
   display: flex;
-  justify-content: center;
-  align-items: baseline;
+  justify-content: center;   /* 横並び中央寄せ */
+  align-items: baseline;     /* 下端揃えで高さ差を自然に */
   gap: 1px;
   margin-bottom: 10px;
   text-align: center;
   color: var(--color-neon);
   text-shadow: 0 0 6px rgba(0,0,0,0.7);
+  margin-left: 45px; /* 左余白を増やす */
 }
 
 .stock-header .stock-name {
-  font-size: 1.05rem;
+  font-size: 1.05rem;   /* 少し大きめ */
   font-weight: 700;
 }
 
 .stock-header .stock-code {
-  font-size: 0.9rem;
+  font-size: 0.9rem;    /* 少し小さめ */
   font-weight: 600;
   opacity: 0.9;
 }
@@ -95,55 +97,46 @@
 .gain.positive { color: var(--profit-color); font-weight: bold; }
 .gain.negative { color: var(--loss-color); font-weight: bold; }
 
-/* ===== スワイプボタン ===== */
+/* ===== スワイプボタン（編集・売却） ===== */
 .edit-btn, .sell-btn {
   position: absolute;
   top: 0;
   bottom: 0;
   width: 80px;
+  color: white;
+  font-weight: bold;
+  border: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: bold;
-  color: white;
-  font-size: 0.9rem;
-  border: none;
   cursor: pointer;
-  border-radius: 0 var(--card-radius) var(--card-radius) 0;
+  z-index: 2;
+  font-size: 0.9rem;
   box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  transition: right 0.25s ease, opacity 0.25s ease, background 0.3s ease;
   opacity: 0;
   pointer-events: none;
-  transform: translateX(100%);
-  transition: transform 0.3s ease, opacity 0.3s ease, background 0.3s ease;
-  z-index: 2;
+  border-radius: 0 var(--card-radius) var(--card-radius) 0;
 }
 
-.edit-btn { background: linear-gradient(135deg, #f59e0b, #d97706); right: 0; }
-.sell-btn { background: linear-gradient(135deg, #ef4444, #dc2626); right: 0; }
+.edit-btn { background: linear-gradient(135deg, #f59e0b, #d97706); right: -160px; }
+.sell-btn { background: linear-gradient(135deg, #ef4444, #dc2626); right: -80px; }
 
-.stock-card-wrapper.show-actions .edit-btn {
-  transform: translateX(-80px);
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.stock-card-wrapper.show-actions .sell-btn {
-  transform: translateX(0);
-  opacity: 1;
-  pointer-events: auto;
-}
+.stock-card-wrapper.show-sell .edit-btn { right: -80px; opacity: 1; pointer-events: auto; }
+.stock-card-wrapper.show-sell .sell-btn { right: 0; opacity: 1; pointer-events: auto; }
 
 .edit-btn:hover { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
 .sell-btn:hover { background: linear-gradient(135deg, #f87171, #ef4444); }
 
-/* ===== モーダル ===== */
+/* ======================================== */
+/* ===== 株詳細モーダル ===== */
 .modal {
   display: none;
   position: fixed;
+  z-index: 200;
   left:0; top:0;
   width:100%; height:100%;
   background: rgba(0,0,0,0.7);
-  z-index: 200;
   animation: fadeIn 0.3s ease;
 }
 
@@ -166,21 +159,23 @@
   overflow-y: auto;
   color: var(--color-neon);
   box-shadow: 0 12px 36px rgba(0,0,0,0.4);
+  z-index: 210;
 }
 
 .modal-content .close {
   position: absolute;
-  top: 16px;
   right: 16px;
+  top: 16px;
   font-size: 2rem;
   width: 40px; height: 40px;
   line-height: 40px;
   text-align: center;
   cursor: pointer;
+  user-select: none;
   color: var(--color-neon);
 }
 
-/* ===== モーダル内ボタン ===== */
+/* ===== モーダル内売却・編集ボタン ===== */
 .sell-button, .edit-button {
   display: block;
   width: 100%;
@@ -190,26 +185,29 @@
   font-weight: bold;
   border: none;
   border-radius: 14px;
+  font-size: 0.95rem;
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(0,0,0,0.25);
 }
 
 .sell-button { background: linear-gradient(135deg, #3b82f6, #2563eb); }
 .sell-button:hover { background: linear-gradient(135deg, #60a5fa, #3b82f6); }
+
 .edit-button { background: linear-gradient(135deg, #f59e0b, #d97706); }
 .edit-button:hover { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
 
 .modal-content canvas { width: 100% !important; height: auto !important; margin-top: 14px; }
 
-/* ===== 確認モーダル ===== */
+/* ======================================== */
+/* ===== 共通確認モーダル ===== */
 .confirm-modal {
   display: none;
   position: fixed;
+  z-index: 300;
   left:0; top:0;
   width:100%; height:100%;
   background: rgba(0,0,0,0.65);
   backdrop-filter: blur(6px);
-  z-index: 300;
 }
 
 .confirm-modal-content {
@@ -224,37 +222,38 @@
   bottom: 10px;
   left: 50%;
   transform: translateX(-50%);
-  text-align: center;
   overflow-y: auto;
+  text-align: center;
   box-shadow: 0 8px 24px rgba(0,0,0,0.35);
   animation: fadeIn 0.25s ease;
 }
 
-.confirm-buttons {
+.confirm-modal-buttons {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   margin-top: 12px;
 }
 
-.confirm-buttons .btn-cancel,
-.confirm-buttons .btn-ok {
+.confirm-modal-buttons .btn-cancel,
+.confirm-modal-buttons .btn-ok {
   flex: 1;
   padding: 12px 0;
+  border: none;
   border-radius: 10px;
   font-weight: bold;
   cursor: pointer;
-  border: none;
   font-size: 0.9rem;
   box-shadow: 0 3px 8px rgba(0,0,0,0.25);
   transition: transform 0.2s ease, background 0.3s ease;
 }
 
-.btn-cancel { background: linear-gradient(135deg, #6b7280, #4b5563); }
+.btn-cancel { background: linear-gradient(135deg, #6b7280, #4b5563); color: white; }
 .btn-cancel:hover { background: linear-gradient(135deg, #9ca3af, #6b7280); transform: translateY(-2px); }
-.btn-ok { background: linear-gradient(135deg, #10b981, #059669); }
+.btn-ok { background: linear-gradient(135deg, #10b981, #059669); color: white; }
 .btn-ok:hover { background: linear-gradient(135deg, #34d399, #10b981); transform: translateY(-2px); }
 
+/* ======================================== */
 /* ===== トースト通知 ===== */
 #toast-container {
   position: fixed;
@@ -273,4 +272,49 @@
   color: white;
   padding: 12px 20px;
   border-radius: 14px;
-  font-weight:
+  font-size: 0.9rem;
+  font-weight: bold;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+  opacity: 0;
+  transform: translateY(-20px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: auto;
+}
+
+.toast.show { opacity: 1; transform: translateY(0); }
+
+/* ======================================== */
+/* ===== PC対応 ===== */
+@media (min-width: 768px) {
+  .portfolio-container { max-width: 800px; margin: 0 auto; }
+  .stock-header .stock-name { font-size: 1.2rem; }
+  .stock-header .stock-code { font-size: 1rem; }
+  .stock-row { font-size: 0.95rem; }
+  .sell-btn { right: -100px; width: 100px; font-size: 1rem; }
+  .edit-btn { right: -200px; width: 100px; font-size: 1rem; }
+  .confirm-modal-content { top: 15%; bottom: auto; transform: translateX(-50%); }
+}
+
+/* ======================================== */
+/* ===== スマホレスポンシブ ===== */
+@media (max-width: 480px) {
+  .stock-card { padding: 12px; }
+  .stock-header .stock-name { font-size: 1rem; }
+  .stock-header .stock-code { font-size: 0.8rem; }
+  .stock-row { font-size: 0.85rem; }
+  .sell-btn { width: 70px; right: -70px; font-size: 0.85rem; }
+  .edit-btn { width: 70px; right: -140px; font-size: 0.85rem; }
+  .sell-button, .edit-button { font-size: 0.9rem; padding: 12px; }
+  .confirm-modal-content { top: calc(var(--navbar-height, 60px) + 8px); bottom: 8px; padding: 16px; }
+  .toast { font-size: 0.8rem; padding: 8px 14px; }
+}
+
+@media (max-width: 360px) {
+  .stock-header .stock-name { font-size: 0.95rem; }
+  .stock-header .stock-code { font-size: 0.75rem; }
+  .stock-row { font-size: 0.8rem; }
+  .sell-btn { width: 60px; right: -60px; font-size: 0.8rem; }
+  .edit-btn { width: 60px; right: -120px; font-size: 0.8rem; }
+  .confirm-modal-content { top: calc(var(--navbar-height, 50px) + 6px); bottom: 6px; padding: 12px; }
+  .toast { font-size: 0.75rem; }
+}
