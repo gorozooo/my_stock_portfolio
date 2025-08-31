@@ -16,10 +16,14 @@
          data-profit="{{ stock.profit_amount }}"
          data-profit_rate="{{ stock.profit_rate }}"
          data-chart='{{ stock.chart_history|safe }}'>
+      
+      <!-- 銘柄名とコード -->
       <div class="stock-header">
         <span class="stock-name">{{ stock.name }}</span>
         <span class="stock-code">{{ stock.ticker }}</span>
       </div>
+      
+      <!-- 株情報 -->
       <div class="stock-body">
         <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
         <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
@@ -31,10 +35,10 @@
         </div>
       </div>
     </div>
-    <div class="stock-actions">
-      <button class="edit-btn">編集</button>
-      <button class="sell-btn">売却</button>
-    </div>
+
+    <!-- スワイプボタン -->
+    <button class="edit-btn">編集</button>
+    <button class="sell-btn">売却</button>
   </div>
   {% empty %}
   <p>保有株データがありません。</p>
@@ -55,17 +59,17 @@
     </div>
     <canvas id="modal-chart"></canvas>
     <div class="modal-actions">
-      <button id="edit-btn" class="edit-button">編集</button>
-      <button id="sell-btn" class="sell-button">売却</button>
+      <button id="edit-btn-modal" class="edit-button">編集</button>
+      <button id="sell-btn-modal" class="sell-button">売却</button>
     </div>
   </div>
 </div>
 
 <!-- 共通確認モーダル -->
-<div id="confirm-modal" class="modal">
-  <div class="modal-content">
+<div id="confirm-modal" class="confirm-modal">
+  <div class="confirm-modal-content">
     <p id="confirm-message"></p>
-    <div class="confirm-buttons">
+    <div class="confirm-modal-buttons">
       <button id="confirm-cancel" class="btn-cancel">キャンセル</button>
       <button id="confirm-ok" class="btn-ok">OK</button>
     </div>
