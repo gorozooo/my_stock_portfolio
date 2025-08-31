@@ -67,10 +67,10 @@ def logout_view(request):
 # 株関連ページ
 # -----------------------------
 import yfinance as yf
+import json
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from .models import Stock
-from datetime import datetime, timedelta
 
 @login_required
 def stock_list_view(request):
@@ -81,13 +81,12 @@ def stock_list_view(request):
             # --- 最新株価を取得してDBに反映 ---
             ticker_symbol = f"{stock.ticker}.T"  # 日本株は末尾に .T
             ticker = yf.Ticker(ticker_symbol)
-            
+
             # 今日の株価
             todays_data = ticker.history(period="1d")
             if not todays_data.empty:
                 latest_price = float(todays_data["Close"].iloc[-1])
                 stock.current_price = latest_price
-                stock.save(update_fields=["current_price"])
             else:
                 stock.current_price = stock.unit_price  # 取得できなければ単価と同じ
 
@@ -113,14 +112,15 @@ def stock_list_view(request):
         except Exception as e:
             # API取得エラー時は初期化
             stock.chart_history = []
+            stock.current_price = stock.unit_price
+            stock.total_cost = stock.shares * stock.unit_price
             stock.profit_amount = 0
             stock.profit_rate = 0
-            stock.current_price = stock.unit_price
             print(f"Error fetching data for {stock.ticker}: {e}")
 
     # テンプレート用にchart_historyをJSON文字列に変換
     for stock in stocks:
-        stock.chart_json = json.dumps(stock.chart_history)
+        stock.chart_json = json.dumps(stock.chart_history)  # JSON文字列として安全に渡す
 
     return render(request, "stock_list.html", {"stocks": stocks})
     
