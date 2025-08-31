@@ -43,8 +43,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}.T?interval=1d`);
       if (!response.ok) return null;
       const data = await response.json();
-      const price = data.chart.result[0].meta.regularMarketPrice;
-      return Number(price);
+      if (data.chart && data.chart.result && data.chart.result[0] && data.chart.result[0].meta) {
+        return Number(data.chart.result[0].meta.regularMarketPrice);
+      }
+      return null;
     } catch (error) {
       console.error("株価取得エラー:", ticker, error);
       return null;
@@ -128,11 +130,12 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
 
-    // ===== 売却ボタン =====
-    sellBtn.addEventListener("click", async e => {
-      e.stopPropagation();
-      if (!confirm(`${name} を売却しますか？`)) return;
+    // ===== モーダル内売却ボタン =====
+    const modalSellBtn = document.getElementById("sell-btn");
+    const modalEditBtn = document.getElementById("edit-btn");
 
+    modalSellBtn.addEventListener("click", async () => {
+      if (!confirm(`${name} を売却しますか？`)) return;
       try {
         const response = await fetch(`/stocks/${stockId}/sell/`, {
           method: "POST",
@@ -141,37 +144,45 @@ document.addEventListener("DOMContentLoaded", () => {
             "Content-Type": "application/json"
           }
         });
-
         if (response.ok) {
           wrapper.remove();
           showToast(`✅ ${name} を売却しました！`);
           modal.style.display = "none";
-        } else {
-          showToast("❌ 売却に失敗しました");
-        }
+        } else showToast("❌ 売却に失敗しました");
       } catch (error) {
         console.error(error);
         showToast("⚠️ 通信エラーが発生しました");
       }
     });
 
-    // ===== 編集ボタン =====
-    if (editBtn) {
-      editBtn.addEventListener("click", e => {
-        e.stopPropagation();
-        showToast(`✏️ ${name} を編集します（未実装）`);
-      });
-    }
+    modalEditBtn.addEventListener("click", () => {
+      showToast(`✏️ ${name} を編集します（未実装）`);
+    });
 
-    // ===== 左右スワイプでアクションボタン表示 =====
+    // ===== カードのスワイプ（左右） =====
     let startX = 0;
-    card.addEventListener("touchstart", e => { startX = e.touches[0].clientX; });
+    let startY = 0;
+    let moved = false;
+
+    card.addEventListener("touchstart", e => {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      moved = false;
+    });
+
+    card.addEventListener("touchmove", e => {
+      const dx = e.touches[0].clientX - startX;
+      const dy = e.touches[0].clientY - startY;
+      if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) moved = true;
+    });
+
     card.addEventListener("touchend", e => {
+      if (!moved) return;
       const endX = e.changedTouches[0].clientX;
       const deltaX = startX - endX;
 
-      if (deltaX > 40) wrapper.classList.add("show-actions");   // 左スワイプで表示
-      else if (deltaX < -40) wrapper.classList.remove("show-actions"); // 右スワイプで非表示
+      if (deltaX > 50) wrapper.classList.add("show-actions");
+      else if (deltaX < -50) wrapper.classList.remove("show-actions");
     });
   });
 
