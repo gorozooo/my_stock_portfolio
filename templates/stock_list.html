@@ -15,7 +15,7 @@
          data-current_price="{{ stock.current_price|floatformat:0 }}"
          data-profit="{{ stock.profit_amount }}"
          data-profit_rate="{{ stock.profit_rate }}"
-         data-chart='{{ stock.chart_history|json_script:"chart_"|safe }}'> <!-- JSONをJSで安全に扱う -->
+         data-chart='{{ stock.chart_json|safe }}'>  {# chart_jsonを安全にJSで扱う #}
 
       <div class="stock-header">
         <span class="stock-name">{{ stock.name }}</span>
