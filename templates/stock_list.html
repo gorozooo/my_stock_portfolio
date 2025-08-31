@@ -9,11 +9,12 @@
     <div class="stock-card"
          data-id="{{ stock.id }}"
          data-name="{{ stock.name }}"
-         data-code="{{ stock.ticker }}"
+         data-ticker="{{ stock.ticker }}"
          data-shares="{{ stock.shares }}"
-         data-cost="{{ stock.unit_price|floatformat:0 }}"
-         data-price="{{ stock.current_price|floatformat:0 }}"
+         data-unit_price="{{ stock.unit_price|floatformat:0 }}"
+         data-current_price="{{ stock.current_price|floatformat:0 }}"
          data-profit="{{ stock.profit_amount }}"
+         data-profit_rate="{{ stock.profit_rate }}"
          data-chart='{{ stock.chart_history|safe }}'>
       <div class="stock-header">
         <span class="stock-name">{{ stock.name }}</span>
@@ -24,7 +25,6 @@
         <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
         <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
         <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
-        <!-- 損益 -->
         <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
           <span>損益</span>
           <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
