@@ -118,11 +118,11 @@
   z-index: 2;
 }
 
-.edit-btn { background: linear-gradient(135deg, #f59e0b, #d97706); right: 0; }
+.edit-btn { background: linear-gradient(135deg, #f59e0b, #d97706); right: 80px; }
 .sell-btn { background: linear-gradient(135deg, #ef4444, #dc2626); right: 0; }
 
 .stock-card-wrapper.show-actions .edit-btn {
-  transform: translateX(-80px);
+  transform: translateX(0);
   opacity: 1;
   pointer-events: auto;
 }
