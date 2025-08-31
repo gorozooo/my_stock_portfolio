@@ -191,21 +191,36 @@ def stock_create(request):
 
     return HttpResponse(tpl.render(context, request))
 
+from django.shortcuts import get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.contrib.auth.decorators import login_required
-from .models import Stock
+from .models import Stock, RealizedProfit
+from django.utils import timezone
 
 @login_required
 @require_POST
 def sell_stock_view(request, pk):
-    try:
-        stock = Stock.objects.get(pk=pk)
-        stock.delete()
-        return JsonResponse({"status": "ok"})
-    except Stock.DoesNotExist:
-        return JsonResponse({"status": "error", "message": "Stock not found"}, status=404)
+    stock = get_object_or_404(Stock, pk=pk)
 
+    # 損益計算
+    total_profit = (stock.current_price - stock.unit_price) * stock.shares
+
+    # 実現損益レコード作成
+    RealizedProfit.objects.create(
+        stock_name=stock.name,
+        ticker=stock.ticker,
+        shares=stock.shares,
+        purchase_price=stock.unit_price,
+        sell_price=stock.current_price,
+        total_profit=total_profit,
+        sold_at=timezone.now()
+    )
+
+    # 株をDBから削除
+    stock.delete()
+
+    return JsonResponse({"status": "ok"})
 @login_required
 def cash_view(request):
     return render(request, "cash.html")
