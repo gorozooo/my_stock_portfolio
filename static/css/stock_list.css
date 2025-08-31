@@ -144,6 +144,8 @@
   background: rgba(0,0,0,0.7);
   z-index: 200;
   animation: fadeIn 0.3s ease;
+  overflow-y: auto;  /* ← 背景じゃなくモーダル自体をスクロール対象に */
+  -webkit-overflow-scrolling: touch;
 }
 
 .modal-content {
@@ -153,7 +155,7 @@
   border-radius: var(--card-radius);
   width: 90%;
   max-width: 420px;
-  position: fixed;
+  position: relative;
   top: calc(var(--navbar-height, 60px) + 10px);
   left: 50%;
   transform: translateX(-50%);
