@@ -80,26 +80,38 @@ document.addEventListener("DOMContentLoaded", () => {
       modalProfit.textContent = `${profit >= 0 ? "+" : ""}${profit.toLocaleString()} 円`;
       modalProfit.className = profit >= 0 ? "positive" : "negative";
 
-      // ===== チャート描画 =====
+      // ===== ローソク足チャート描画 =====
       if (chartInstance) chartInstance.destroy();
       const ctx = document.getElementById("modal-chart").getContext("2d");
+
+      // chartHistory がローソク足形式（{t, o, h, l, c}）であることを前提
+      const formattedData = chartHistory.length
+        ? chartHistory
+        : [
+            { t: "1", o: 100, h: 110, l: 95, c: 105 },
+            { t: "2", o: 105, h: 115, l: 100, c: 110 },
+            { t: "3", o: 110, h: 120, l: 105, c: 115 },
+            { t: "4", o: 115, h: 125, l: 110, c: 120 },
+          ];
+
       chartInstance = new Chart(ctx, {
-        type: "line",
+        type: "candlestick",
         data: {
-          labels: chartHistory.length ? chartHistory.map((_, i) => `T${i + 1}`) : ["1","2","3","4"],
           datasets: [{
             label: name,
-            data: chartHistory.length ? chartHistory : [100,110,105,120],
+            data: formattedData,
             borderColor: "#00ffff",
-            backgroundColor: "rgba(0,255,255,0.2)",
-            fill: true,
-            tension: 0.4
+            color: {
+              up: "#4ade80",
+              down: "#f87171",
+              unchanged: "#cccccc"
+            }
           }]
         },
         options: {
           responsive: true,
           plugins: { legend: { display: false } },
-          scales: { x: { display: false }, y: { display: false } }
+          scales: { x: { display: true }, y: { display: true } }
         }
       });
 
