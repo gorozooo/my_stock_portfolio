@@ -71,7 +71,6 @@ from django.contrib.auth.decorators import login_required
 from .models import Stock
 from datetime import datetime, timedelta
 
-
 @login_required
 def stock_list_view(request):
     stocks = Stock.objects.all()
@@ -79,34 +78,39 @@ def stock_list_view(request):
     for stock in stocks:
         try:
             # --- 最新株価を取得してDBに反映 ---
-            ticker = yf.Ticker(f"{stock.code}.T")  # 日本株は末尾に .T が必要
+            ticker_symbol = f"{stock.ticker}.T"  # 日本株は末尾に .T
+            ticker = yf.Ticker(ticker_symbol)
+            
+            # 今日の株価
             todays_data = ticker.history(period="1d")
             if not todays_data.empty:
-                latest_price = todays_data["Close"].iloc[-1]
-                stock.unit_price = float(latest_price)  # DB反映
-                stock.save(update_fields=["unit_price"])  # unit_priceのみ保存
+                latest_price = float(todays_data["Close"].iloc[-1])
+                stock.current_price = latest_price  # current_price に反映
+                stock.save(update_fields=["current_price"])
+            else:
+                stock.current_price = stock.unit_price  # 取得できなければ単価と同じ
 
-            # --- 過去30日分の株価履歴を取得（チャート用） ---
-            history = ticker.history(period="1mo")  # 1か月分
+            # --- 過去1か月の株価履歴を取得（チャート用） ---
+            history = ticker.history(period="1mo")
             if not history.empty:
-                stock.chart_history = list(history["Close"].round(2).values)  # [株価, 株価, 株価, ...]
+                stock.chart_history = list(history["Close"].round(2).values)
             else:
                 stock.chart_history = []
 
             # --- 損益計算 ---
-            stock.total_cost = stock.shares * stock.purchase_price
-            stock.profit_amount = stock.unit_price * stock.shares - stock.total_cost
+            stock.total_cost = stock.shares * stock.unit_price
+            stock.profit_amount = stock.current_price * stock.shares - stock.total_cost
             stock.profit_rate = round(stock.profit_amount / stock.total_cost * 100, 2) if stock.total_cost else 0
 
         except Exception as e:
-            # APIエラー時はチャート空欄
+            # API取得エラー時は初期化
             stock.chart_history = []
             stock.profit_amount = 0
             stock.profit_rate = 0
-            print(f"Error fetching data for {stock.code}: {e}")
+            stock.current_price = stock.unit_price
+            print(f"Error fetching data for {stock.ticker}: {e}")
 
     return render(request, "stock_list.html", {"stocks": stocks})
-    
 @login_required
 def stock_create(request):
     errors = {}
