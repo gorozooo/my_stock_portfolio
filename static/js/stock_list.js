@@ -86,28 +86,34 @@ document.addEventListener("DOMContentLoaded", () => {
       if (chartInstance) chartInstance.destroy();
       const ctx = document.getElementById("modal-chart").getContext("2d");
 
-      // データが空ならダミーの OHLC を設定
-      const formattedData = chartHistory.length
-        ? chartHistory.map((val, idx) => ({ x: idx + 1, o: val, h: val*1.02, l: val*0.98, c: val }))
-        : [
-            { x: 1, o: 100, h: 110, l: 95, c: 105 },
-            { x: 2, o: 105, h: 115, l: 100, c: 110 },
-            { x: 3, o: 110, h: 120, l: 105, c: 115 },
-            { x: 4, o: 115, h: 125, l: 110, c: 120 },
-          ];
-
-      chartInstance = new Chart(ctx, {
-        type: "candlestick",
-        data: { datasets: [{ label: name, data: formattedData }] },
-        options: {
-          responsive: true,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { type: 'linear', title: { display: true, text: '時間' } },
-            y: { title: { display: true, text: '株価' } }
+      // chartHistory がある場合のみ描画
+      if (chartHistory.length > 0) {
+        chartInstance = new Chart(ctx, {
+          type: "candlestick",
+          data: {
+            datasets: [{
+              label: name,
+              data: chartHistory.map(val => ({
+                x: val.t, o: val.o, h: val.h, l: val.l, c: val.c
+              }))
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { 
+                type: 'time', 
+                time: { unit: 'day', tooltipFormat: 'YYYY-MM-DD' }, 
+                title: { display: true, text: '日付' } 
+              },
+              y: { 
+                title: { display: true, text: '株価' } 
+              }
+            }
           }
-        }
-      });
+        });
+      }
 
       // ===== モーダル内ボタン =====
       modalSellBtn.onclick = async () => {
