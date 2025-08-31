@@ -55,6 +55,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentPrice = Number(card.dataset.current_price) || 0;
     let profit = Number(card.dataset.profit) || 0;
 
+    // chartHistory を JSON.parse で取得（ローソク足形式を前提）
     let chartHistory = [];
     try { chartHistory = JSON.parse(card.dataset.chart || "[]"); } catch { chartHistory = []; }
 
@@ -84,13 +85,14 @@ document.addEventListener("DOMContentLoaded", () => {
       if (chartInstance) chartInstance.destroy();
       const ctx = document.getElementById("modal-chart").getContext("2d");
 
-      // データが空ならダミーのOHLCを設定
-      const formattedData = chartHistory.length ? chartHistory : [
-        { t: "1", o: 100, h: 110, l: 95, c: 105 },
-        { t: "2", o: 105, h: 115, l: 100, c: 110 },
-        { t: "3", o: 110, h: 120, l: 105, c: 115 },
-        { t: "4", o: 115, h: 125, l: 110, c: 120 },
-      ];
+      const formattedData = chartHistory.length
+        ? chartHistory
+        : [
+            { t: "1", o: 100, h: 110, l: 95, c: 105 },
+            { t: "2", o: 105, h: 115, l: 100, c: 110 },
+            { t: "3", o: 110, h: 120, l: 105, c: 115 },
+            { t: "4", o: 115, h: 125, l: 110, c: 120 },
+          ];
 
       chartInstance = new Chart(ctx, {
         type: "candlestick",
@@ -99,7 +101,7 @@ document.addEventListener("DOMContentLoaded", () => {
           responsive: true,
           plugins: { legend: { display: false } },
           scales: {
-            x: { display: true, title: { display: true, text: "時間" } },
+            x: { display: true, title: { display: true, text: "日付" } },
             y: { display: true, title: { display: true, text: "株価" } }
           }
         }
