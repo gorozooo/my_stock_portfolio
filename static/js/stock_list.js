@@ -1,11 +1,5 @@
 // ===== stock_list.js =====
-// ★ Chart.js + candlestick 登録（グローバル版の場合）
-if (typeof Chart !== "undefined" && Chart) {
-  Chart.register(
-    window.CandlestickController,
-    window.CandlestickElement
-  );
-}
+// ★ Chart.js + candlestick プラグインはUMD版を <script> で読み込むので登録不要
 
 document.addEventListener("DOMContentLoaded", () => {
   const modal = document.getElementById("stock-modal");
@@ -22,6 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const modalEditBtn = document.getElementById("edit-btn-modal");
 
   let chartInstance = null;
+  let activeCardWrapper = null;
 
   // ===== トースト表示関数 =====
   function showToast(message, duration = 2000) {
@@ -67,6 +62,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let chartHistory = [];
     try { chartHistory = JSON.parse(card.dataset.chart || "[]"); } catch { chartHistory = []; }
 
+    // ===== カード内表示更新 =====
     const priceElem = card.querySelector(".stock-row:nth-child(4) span:last-child");
     if (priceElem) priceElem.textContent = `${currentPrice.toLocaleString()}円`;
 
@@ -78,6 +74,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // ===== カードクリックでモーダル表示 =====
     card.addEventListener("click", () => {
+      activeCardWrapper = wrapper;
+      modal.dataset.id = stockId; // モーダルにID保持
       modal.style.display = "block";
       document.body.style.overflow = "hidden";
 
@@ -183,18 +181,35 @@ document.addEventListener("DOMContentLoaded", () => {
     modal.style.display = "none";
     document.body.style.overflow = "";
     if (chartInstance) chartInstance.destroy();
+    activeCardWrapper = null;
   }
 
   closeBtn.addEventListener("click", closeModal);
   window.addEventListener("click", e => { if (e.target === modal) closeModal(); });
   modal.addEventListener("touchmove", e => e.stopPropagation(), { passive: false });
 
-  // ===== モーダル内「売却」「編集」ボタンのイベント（再登録） =====
-  modalSellBtn.addEventListener("click", () => {
-    const card = document.querySelector(`.stock-card[data-id="${modal.dataset.id}"]`);
-    card?.querySelector(".sell-btn")?.click();
-    closeModal();
+  // ===== モーダル内「売却」ボタン =====
+  modalSellBtn.addEventListener("click", async () => {
+    if (!activeCardWrapper) return;
+    const card = activeCardWrapper.querySelector(".stock-card");
+    const stockId = card.dataset.id;
+    if (!confirm(`${card.dataset.name} を売却しますか？`)) return;
+    try {
+      const res = await fetch(`/stocks/${stockId}/sell/`, {
+        method: "POST",
+        headers: { "X-CSRFToken": getCookie("csrftoken") }
+      });
+      if (res.ok) {
+        activeCardWrapper.remove();
+        showToast(`✅ ${card.dataset.name} を売却しました！`);
+        closeModal();
+      } else showToast("❌ 売却に失敗しました");
+    } catch { showToast("⚠️ 通信エラー"); }
   });
 
-  modalEditBtn.addEventListener("click", () => showToast("✏️ 編集機能（未実装）"));
+  // ===== モーダル内「編集」ボタン =====
+  modalEditBtn.addEventListener("click", () => {
+    if (!activeCardWrapper) return;
+    showToast(`✏️ ${activeCardWrapper.querySelector(".stock-card").dataset.name} を編集します（未実装）`);
+  });
 });
