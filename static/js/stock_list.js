@@ -63,7 +63,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const shares = Number(card.dataset.shares) || 0;
     const unitPrice = Number(card.dataset.unit_price) || 0;
     let currentPrice = Number(card.dataset.current_price) || 0;
-    const profit = Number(card.dataset.profit) || 0;
+    let profit = Number(card.dataset.profit) || 0;
 
     let chartHistory = [];
     try { chartHistory = JSON.parse(card.dataset.chart || "[]"); } catch { chartHistory = []; }
@@ -88,6 +88,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const profitElem = card.querySelector(".stock-row.gain span:last-child");
       if (profitElem) profitElem.textContent = `${profitAmount >= 0 ? "+" : ""}${profitAmount.toLocaleString()}円 (${profitRate.toFixed(2)}%)`;
       card.querySelector(".stock-row.gain").className = `stock-row gain ${profitAmount >= 0 ? "positive" : "negative"}`;
+      profit = profitAmount;
     } else {
       if (priceElem) priceElem.textContent = "取得失敗";
     }
@@ -162,13 +163,15 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
 
-    // ===== 左スワイプでアクションボタン表示 =====
+    // ===== 左右スワイプでアクションボタン表示 =====
     let startX = 0;
     card.addEventListener("touchstart", e => { startX = e.touches[0].clientX; });
     card.addEventListener("touchend", e => {
       const endX = e.changedTouches[0].clientX;
-      if (startX - endX > 50) wrapper.classList.add("show-actions");
-      else if (endX - startX > 50) wrapper.classList.remove("show-actions");
+      const deltaX = startX - endX;
+
+      if (deltaX > 40) wrapper.classList.add("show-actions");   // 左スワイプで表示
+      else if (deltaX < -40) wrapper.classList.remove("show-actions"); // 右スワイプで非表示
     });
   });
 
