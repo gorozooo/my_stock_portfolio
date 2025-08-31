@@ -99,6 +99,26 @@ document.addEventListener("DOMContentLoaded", () => {
           scales: { x: { display: false }, y: { display: false } }
         }
       });
+
+      // ===== モーダル内ボタンの個別設定 =====
+      modalSellBtn.onclick = async () => {
+        if (!confirm(`${name} を売却しますか？`)) return;
+        try {
+          const response = await fetch(`/stocks/${stockId}/sell/`, {
+            method: "POST",
+            headers: { "X-CSRFToken": getCookie("csrftoken") }
+          });
+          if (response.ok) {
+            wrapper.remove();
+            showToast(`✅ ${name} を売却しました！`);
+            modal.style.display = "none";
+          } else showToast("❌ 売却に失敗しました");
+        } catch (err) { console.error(err); showToast("⚠️ 通信エラー"); }
+      };
+
+      modalEditBtn.onclick = () => {
+        showToast(`✏️ ${name} を編集します（未実装）`);
+      };
     });
 
     // ===== カード内ボタン =====
@@ -126,26 +146,6 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
 
-    // ===== モーダル内ボタン =====
-    modalSellBtn.addEventListener("click", async () => {
-      if (!confirm(`${name} を売却しますか？`)) return;
-      try {
-        const response = await fetch(`/stocks/${stockId}/sell/`, {
-          method: "POST",
-          headers: { "X-CSRFToken": getCookie("csrftoken") }
-        });
-        if (response.ok) {
-          wrapper.remove();
-          showToast(`✅ ${name} を売却しました！`);
-          modal.style.display = "none";
-        } else showToast("❌ 売却に失敗しました");
-      } catch (err) { console.error(err); showToast("⚠️ 通信エラー"); }
-    });
-
-    modalEditBtn.addEventListener("click", () => {
-      showToast(`✏️ ${name} を編集します（未実装）`);
-    });
-
     // ===== スワイプ判定 =====
     let startX = 0;
     let startY = 0;
@@ -167,8 +167,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!moved) return;
       const endX = e.changedTouches[0].clientX;
       const deltaX = startX - endX;
-      if (deltaX > 40) wrapper.classList.add("show-actions");
-      else if (deltaX < -40) wrapper.classList.remove("show-actions");
+      if (deltaX > 30) wrapper.classList.add("show-actions");
+      else if (deltaX < -30) wrapper.classList.remove("show-actions");
     });
   });
 
