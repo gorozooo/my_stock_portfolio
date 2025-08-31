@@ -32,6 +32,7 @@
   border: 1px solid rgba(255,255,255,0.2);
   transition: transform 0.25s ease, box-shadow 0.25s ease;
   animation: fadeInUp 0.5s ease forwards;
+  touch-action: pan-y; /* 横スワイプ判定を有効化 */
 }
 
 /* ===== カードアニメーション ===== */
@@ -50,6 +51,7 @@
   text-shadow: 0 0 5px rgba(0,0,0,0.6);
   position: relative;
   z-index: 1;
+  background: transparent;
 }
 
 .stock-card:hover {
@@ -121,12 +123,7 @@
 .edit-btn { background: linear-gradient(135deg, #f59e0b, #d97706); right: 80px; }
 .sell-btn { background: linear-gradient(135deg, #ef4444, #dc2626); right: 0; }
 
-.stock-card-wrapper.show-actions .edit-btn {
-  transform: translateX(0);
-  opacity: 1;
-  pointer-events: auto;
-}
-
+.stock-card-wrapper.show-actions .edit-btn,
 .stock-card-wrapper.show-actions .sell-btn {
   transform: translateX(0);
   opacity: 1;
