@@ -1,18 +1,18 @@
 // ===== stock_list.js =====
 
-// Chart.js + chartjs-chart-financial (UMD版)
+// Chart.js + candlestick プラグイン登録
 if (typeof Chart !== "undefined" && Chart) {
   try {
-    // financial系コントローラ・要素をまとめて登録
     Chart.register(
-      Chart.controllers.candlestick,
-      Chart.controllers.ohlc,
-      Chart.elements.Candlestick,
-      Chart.elements.OHLC
+      Chart.FinancialController,
+      Chart.CandlestickController,
+      Chart.OHLCController,
+      Chart.CandlestickElement,
+      Chart.OHLCElement
     );
     console.log("✅ Candlestick / OHLC プラグイン登録完了");
   } catch (err) {
-    console.warn("⚠️ Chart.js financial プラグインの登録に失敗:", err);
+    console.warn("⚠️ Chart.js financial プラグイン登録に失敗:", err);
   }
 }
 
@@ -129,7 +129,6 @@ document.addEventListener("DOMContentLoaded", () => {
               x: {
                 type: "time",
                 time: { unit: "day", tooltipFormat: "yyyy-MM-dd" },
-                adapters: { date: {} }, // date-fns アダプタ利用
                 title: { display: true, text: "日付" }
               },
               y: { title: { display: true, text: "株価" } }
@@ -167,10 +166,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // ===== スワイプ判定（スマホ対応） =====
-    let startX = 0,
-      startY = 0,
-      moved = false,
-      currentTranslate = 0;
+    let startX = 0, startY = 0, moved = false, currentTranslate = 0;
 
     card.addEventListener("touchstart", e => {
       startX = e.touches[0].clientX;
