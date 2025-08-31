@@ -15,7 +15,7 @@
          data-current_price="{{ stock.current_price|floatformat:0 }}"
          data-profit="{{ stock.profit_amount }}"
          data-profit_rate="{{ stock.profit_rate }}"
-         data-chart='{{ stock.chart_json|safe }}'>  {# chart_jsonを安全にJSで扱う #}
+         data-chart='{{ stock.chart_json|safe }}'>
 
       <div class="stock-header">
         <span class="stock-name">{{ stock.name }}</span>
@@ -82,8 +82,8 @@
 {% endblock %}
 
 {% block extra_js %}
-<!-- Chart.js とローソク足プラグイン -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
-<script src="{% static 'js/stock_list.js' %}"></script>
+<!-- Chart.js とローソク足プラグイン (UMD版) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@4.0.0/dist/chartjs-chart-financial.min.js"></script>
+<script src="{% static 'js/stock_list.js' %}" defer></script>
 {% endblock %}
