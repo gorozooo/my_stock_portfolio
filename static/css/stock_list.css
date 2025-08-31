@@ -1,5 +1,5 @@
 /* ======================================== */
-/* ===== stock_list.css（スマホ完全対応版＋銘柄中央寄せ） ===== */
+/* ===== stock_list.css（スマホ完全対応版＋銘柄中央寄せ＋スワイプ対応） ===== */
 
 /* ===== 変数・テーマ ===== */
 :root {
@@ -12,7 +12,7 @@
   --loss-color: #f87171;
   --blur: 28px;
   --color-neon: #00ffff;
-  --navbar-height: 60px; /* ナビバー高さを変数化 */
+  --navbar-height: 60px; /* ナビバー高さ */
 }
 
 /* ======================================== */
@@ -35,7 +35,6 @@
   animation: fadeInUp 0.5s ease forwards;
 }
 
-/* ===== カードアニメーション ===== */
 @keyframes fadeInUp {
   0% { opacity: 0; transform: translateY(15px); }
   100% { opacity: 1; transform: translateY(0); }
@@ -58,26 +57,25 @@
   box-shadow: 0 12px 36px rgba(0,0,0,0.3);
 }
 
-/* ===== ヘッダー（銘柄名と証券コード 横並び） ===== */
+/* ===== ヘッダー ===== */
 .stock-header {
   display: flex;
-  justify-content: center;   /* 横並び中央寄せ */
-  align-items: baseline;     /* 下端揃えで高さ差を自然に */
+  justify-content: center;
+  align-items: baseline;
   gap: 1px;
   margin-bottom: 10px;
   text-align: center;
   color: var(--color-neon);
   text-shadow: 0 0 6px rgba(0,0,0,0.7);
-  margin-left: 45px; /* 左余白を増やす */
 }
 
 .stock-header .stock-name {
-  font-size: 1.05rem;   /* 少し大きめ */
+  font-size: 1.05rem;
   font-weight: 700;
 }
 
 .stock-header .stock-code {
-  font-size: 0.9rem;    /* 少し小さめ */
+  font-size: 0.9rem;
   font-weight: 600;
   opacity: 0.9;
 }
@@ -97,7 +95,7 @@
 .gain.positive { color: var(--profit-color); font-weight: bold; }
 .gain.negative { color: var(--loss-color); font-weight: bold; }
 
-/* ===== スワイプボタン（編集・売却） ===== */
+/* ===== スワイプで出現するボタン ===== */
 .edit-btn, .sell-btn {
   position: absolute;
   top: 0;
@@ -122,14 +120,13 @@
 .edit-btn { background: linear-gradient(135deg, #f59e0b, #d97706); right: -160px; }
 .sell-btn { background: linear-gradient(135deg, #ef4444, #dc2626); right: -80px; }
 
-.stock-card-wrapper.show-sell .edit-btn { right: -80px; opacity: 1; pointer-events: auto; }
-.stock-card-wrapper.show-sell .sell-btn { right: 0; opacity: 1; pointer-events: auto; }
+.stock-card-wrapper.show-actions .edit-btn { right: -80px; opacity: 1; pointer-events: auto; }
+.stock-card-wrapper.show-actions .sell-btn { right: 0; opacity: 1; pointer-events: auto; }
 
 .edit-btn:hover { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
 .sell-btn:hover { background: linear-gradient(135deg, #f87171, #ef4444); }
 
-/* ======================================== */
-/* ===== 株詳細モーダル ===== */
+/* ===== モーダル ===== */
 .modal {
   display: none;
   position: fixed;
@@ -175,7 +172,6 @@
   color: var(--color-neon);
 }
 
-/* ===== モーダル内売却・編集ボタン ===== */
 .sell-button, .edit-button {
   display: block;
   width: 100%;
@@ -198,8 +194,7 @@
 
 .modal-content canvas { width: 100% !important; height: auto !important; margin-top: 14px; }
 
-/* ======================================== */
-/* ===== 共通確認モーダル ===== */
+/* ===== 確認モーダル ===== */
 .confirm-modal {
   display: none;
   position: fixed;
@@ -228,15 +223,15 @@
   animation: fadeIn 0.25s ease;
 }
 
-.confirm-modal-buttons {
+.confirm-buttons {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   margin-top: 12px;
 }
 
-.confirm-modal-buttons .btn-cancel,
-.confirm-modal-buttons .btn-ok {
+.confirm-buttons .btn-cancel,
+.confirm-buttons .btn-ok {
   flex: 1;
   padding: 12px 0;
   border: none;
@@ -253,7 +248,6 @@
 .btn-ok { background: linear-gradient(135deg, #10b981, #059669); color: white; }
 .btn-ok:hover { background: linear-gradient(135deg, #34d399, #10b981); transform: translateY(-2px); }
 
-/* ======================================== */
 /* ===== トースト通知 ===== */
 #toast-container {
   position: fixed;
@@ -283,7 +277,6 @@
 
 .toast.show { opacity: 1; transform: translateY(0); }
 
-/* ======================================== */
 /* ===== PC対応 ===== */
 @media (min-width: 768px) {
   .portfolio-container { max-width: 800px; margin: 0 auto; }
@@ -295,7 +288,6 @@
   .confirm-modal-content { top: 15%; bottom: auto; transform: translateX(-50%); }
 }
 
-/* ======================================== */
 /* ===== スマホレスポンシブ ===== */
 @media (max-width: 480px) {
   .stock-card { padding: 12px; }
