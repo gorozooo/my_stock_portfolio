@@ -1,5 +1,17 @@
 // ===== stock_list.js =====
 // ★ Chart.js + candlestick プラグインはUMD版を <script> で読み込むので登録不要
+// Chart.js + candlestick プラグイン（UMD版）
+if (typeof Chart !== "undefined" && Chart) {
+  if (Chart.CandlestickController && Chart.CandlestickElement) {
+    Chart.register(
+      Chart.CandlestickController,
+      Chart.CandlestickElement
+    );
+  } else {
+    console.warn("CandlestickController または CandlestickElement が未定義です。chartjs-chart-financial の読み込み順を確認してください。");
+  }
+}
+
 
 document.addEventListener("DOMContentLoaded", () => {
   const modal = document.getElementById("stock-modal");
