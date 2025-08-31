@@ -1,14 +1,18 @@
 // ===== stock_list.js =====
+
 // Chart.js + candlestick プラグイン（UMD版）
 if (typeof Chart !== "undefined" && Chart) {
-  if (Chart.CandlestickController && Chart.CandlestickElement) {
+  try {
     Chart.register(
+      Chart.FinancialController,
       Chart.CandlestickController,
-      Chart.CandlestickElement
+      Chart.OHLCController,
+      Chart.CandlestickElement,
+      Chart.OHLCElement
     );
-    console.log("✅ Candlestick プラグイン登録完了");
-  } else {
-    console.warn("⚠️ CandlestickController / CandlestickElement が未定義です。読み込み順を確認してください。");
+    console.log("✅ Financial / Candlestick プラグイン登録完了");
+  } catch (err) {
+    console.warn("⚠️ Chart.js financial プラグインの登録に失敗:", err);
   }
 }
 
@@ -71,7 +75,11 @@ document.addEventListener("DOMContentLoaded", () => {
     let profit = Number(card.dataset.profit) || 0;
 
     let chartHistory = [];
-    try { chartHistory = JSON.parse(card.dataset.chart || "[]"); } catch { chartHistory = []; }
+    try {
+      chartHistory = JSON.parse(card.dataset.chart || "[]");
+    } catch {
+      chartHistory = [];
+    }
 
     // ===== カード内表示更新 =====
     const priceElem = card.querySelector(".stock-row:nth-child(4) span:last-child");
@@ -102,7 +110,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (chartInstance) chartInstance.destroy();
       const ctx = document.getElementById("modal-chart").getContext("2d");
 
-      if (chartHistory.length > 0 && Chart.CandlestickController) {
+      if (chartHistory.length > 0 && Chart.registry.controllers.has("candlestick")) {
         const formattedData = chartHistory.map(val => ({
           x: new Date(val.t),
           o: Number(val.o),
@@ -118,12 +126,13 @@ document.addEventListener("DOMContentLoaded", () => {
             responsive: true,
             plugins: { legend: { display: false } },
             scales: {
-              x: { 
-                type: 'time',
-                time: { unit: 'day', tooltipFormat: 'yyyy-MM-dd' },
-                title: { display: true, text: '日付' } 
+              x: {
+                type: "time",
+                time: { unit: "day", tooltipFormat: "yyyy-MM-dd" },
+                adapters: { date: {} }, // アダプタ必須
+                title: { display: true, text: "日付" }
               },
-              y: { title: { display: true, text: '株価' } }
+              y: { title: { display: true, text: "株価" } }
             }
           }
         });
@@ -144,8 +153,12 @@ document.addEventListener("DOMContentLoaded", () => {
         if (res.ok) {
           wrapper.remove();
           showToast(`✅ ${name} を売却しました！`);
-        } else showToast("❌ 売却に失敗しました");
-      } catch { showToast("⚠️ 通信エラー"); }
+        } else {
+          showToast("❌ 売却に失敗しました");
+        }
+      } catch {
+        showToast("⚠️ 通信エラー");
+      }
     });
 
     editBtn?.addEventListener("click", e => {
@@ -154,7 +167,10 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // ===== スワイプ判定（スマホ対応） =====
-    let startX = 0, startY = 0, moved = false, currentTranslate = 0;
+    let startX = 0,
+      startY = 0,
+      moved = false,
+      currentTranslate = 0;
 
     card.addEventListener("touchstart", e => {
       startX = e.touches[0].clientX;
@@ -163,16 +179,20 @@ document.addEventListener("DOMContentLoaded", () => {
       wrapper.style.transition = "";
     });
 
-    card.addEventListener("touchmove", e => {
-      const dx = e.touches[0].clientX - startX;
-      const dy = e.touches[0].clientY - startY;
-      if (Math.abs(dx) > Math.abs(dy)) {
-        e.preventDefault();
-        moved = true;
-        currentTranslate = Math.min(0, Math.max(-160, dx));
-        wrapper.style.transform = `translateX(${currentTranslate}px)`;
-      }
-    }, { passive: false });
+    card.addEventListener(
+      "touchmove",
+      e => {
+        const dx = e.touches[0].clientX - startX;
+        const dy = e.touches[0].clientY - startY;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          e.preventDefault();
+          moved = true;
+          currentTranslate = Math.min(0, Math.max(-160, dx));
+          wrapper.style.transform = `translateX(${currentTranslate}px)`;
+        }
+      },
+      { passive: false }
+    );
 
     card.addEventListener("touchend", () => {
       if (!moved) return;
@@ -196,7 +216,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   closeBtn.addEventListener("click", closeModal);
-  window.addEventListener("click", e => { if (e.target === modal) closeModal(); });
+  window.addEventListener("click", e => {
+    if (e.target === modal) closeModal();
+  });
   modal.addEventListener("touchmove", e => e.stopPropagation(), { passive: false });
 
   // ===== モーダル内「売却」ボタン =====
@@ -214,8 +236,12 @@ document.addEventListener("DOMContentLoaded", () => {
         activeCardWrapper.remove();
         showToast(`✅ ${card.dataset.name} を売却しました！`);
         closeModal();
-      } else showToast("❌ 売却に失敗しました");
-    } catch { showToast("⚠️ 通信エラー"); }
+      } else {
+        showToast("❌ 売却に失敗しました");
+      }
+    } catch {
+      showToast("⚠️ 通信エラー");
+    }
   });
 
   // ===== モーダル内「編集」ボタン =====
