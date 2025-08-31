@@ -155,15 +155,14 @@
   max-width: 420px;
   position: fixed;
   top: calc(var(--navbar-height, 60px) + 10px);
-  bottom: 10px;
   left: 50%;
   transform: translateX(-50%);
-  overflow-y: auto;
+  max-height: calc(100vh - var(--navbar-height, 60px) - 20px); /* 上下のマージン分を引く */
+  overflow-y: auto; /* 縦スクロール可能に */
   color: var(--color-neon);
   box-shadow: 0 12px 36px rgba(0,0,0,0.4);
   z-index: 210;
 }
-
 .modal-content .close {
   position: absolute;
   right: 16px;
