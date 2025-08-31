@@ -55,10 +55,11 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentPrice = Number(card.dataset.current_price) || 0;
     let profit = Number(card.dataset.profit) || 0;
 
-    // chartHistory を JSON.parse で取得（ローソク足形式を前提）
+    // chartHistory を JSON.parse で取得
     let chartHistory = [];
     try { chartHistory = JSON.parse(card.dataset.chart || "[]"); } catch { chartHistory = []; }
 
+    // ローカル表示更新
     const priceElem = card.querySelector(".stock-row:nth-child(4) span:last-child");
     if (priceElem) priceElem.textContent = `${currentPrice.toLocaleString()}円`;
 
@@ -85,13 +86,14 @@ document.addEventListener("DOMContentLoaded", () => {
       if (chartInstance) chartInstance.destroy();
       const ctx = document.getElementById("modal-chart").getContext("2d");
 
+      // データが空ならダミーの OHLC を設定
       const formattedData = chartHistory.length
-        ? chartHistory
+        ? chartHistory.map((val, idx) => ({ x: idx + 1, o: val, h: val*1.02, l: val*0.98, c: val }))
         : [
-            { t: "1", o: 100, h: 110, l: 95, c: 105 },
-            { t: "2", o: 105, h: 115, l: 100, c: 110 },
-            { t: "3", o: 110, h: 120, l: 105, c: 115 },
-            { t: "4", o: 115, h: 125, l: 110, c: 120 },
+            { x: 1, o: 100, h: 110, l: 95, c: 105 },
+            { x: 2, o: 105, h: 115, l: 100, c: 110 },
+            { x: 3, o: 110, h: 120, l: 105, c: 115 },
+            { x: 4, o: 115, h: 125, l: 110, c: 120 },
           ];
 
       chartInstance = new Chart(ctx, {
@@ -101,8 +103,8 @@ document.addEventListener("DOMContentLoaded", () => {
           responsive: true,
           plugins: { legend: { display: false } },
           scales: {
-            x: { display: true, title: { display: true, text: "日付" } },
-            y: { display: true, title: { display: true, text: "株価" } }
+            x: { type: 'linear', title: { display: true, text: '時間' } },
+            y: { title: { display: true, text: '株価' } }
           }
         }
       });
@@ -193,7 +195,5 @@ document.addEventListener("DOMContentLoaded", () => {
   closeBtn.addEventListener("click", closeModal);
   window.addEventListener("click", e => { if (e.target === modal) closeModal(); });
 
-  modal.addEventListener("touchmove", e => {
-    e.stopPropagation();
-  }, { passive: false });
+  modal.addEventListener("touchmove", e => { e.stopPropagation(); }, { passive: false });
 });
