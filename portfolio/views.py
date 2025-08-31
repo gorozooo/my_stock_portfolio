@@ -278,11 +278,36 @@ def settings_view(request):
 # -----------------------------
 # 設定系子ページ
 # -----------------------------
+from django.shortcuts import render, redirect
+from django.contrib.auth.decorators import login_required
+
 @login_required
 def tab_manager_view(request):
+    # セッション認証チェック
     if not request.session.get("settings_authenticated"):
         return redirect("settings_login")
-    return render(request, "tab_manager.html")
+
+    # テスト用タブデータ（後でDBから取得に置き換え）
+    tabs = [
+        {
+            "id": 1,
+            "name": "テストタブ",
+            "icon": "📌",
+            "submenus": [
+                {"id": 1, "name": "サブ1"},
+                {"id": 2, "name": "サブ2"}
+            ]
+        },
+        {
+            "id": 2,
+            "name": "別タブ",
+            "icon": "📁",
+            "submenus": []
+        }
+    ]
+
+    # タブ管理ページにデータを渡す
+    return render(request, "tab_manager.html", {"tabs": tabs})
 
 
 @login_required
