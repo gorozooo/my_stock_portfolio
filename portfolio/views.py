@@ -65,19 +65,40 @@ def logout_view(request):
 # -----------------------------
 # 株関連ページ
 # -----------------------------
+import yfinance as yf
+
 @login_required
-def stock_list(request):
-    # DBから全ての保有株を取得（更新日時の新しい順などで並べてもOK）
-    stocks = Stock.objects.all().order_by("-updated_at")
+def stock_list_view(request):
+    stocks = Stock.objects.all()
+
+    for stock in stocks:
+        try:
+            # Yahoo Finance 用のティッカーコードに変換（例: 7203 -> 7203.T）
+            ticker_code = f"{stock.code}.T"
+            ticker = yf.Ticker(ticker_code)
+            price = ticker.history(period="1d")["Close"].iloc[-1]  # 最新終値を取得
+        except Exception as e:
+            price = stock.unit_price  # 取得できない場合は登録時の単価を代わりに使う
+
+        # 現在株価を保存用に追加
+        stock.current_price = round(price)
+
+        # チャート用ダミーデータ（必要に応じてAPIから取得も可能）
+        stock.chart_history = [
+            stock.total_cost,
+            stock.total_cost * 1.05,
+            stock.total_cost * 0.95,
+            stock.current_price,
+            stock.current_price * 1.01,
+        ]
+
+        # 損益額
+        stock.profit_amount = stock.current_price * stock.shares - stock.total_cost
+
+        # 損益率
+        stock.profit_rate = round(stock.profit_amount / stock.total_cost * 100, 2) if stock.total_cost else 0
 
     return render(request, "stock_list.html", {"stocks": stocks})
-
-from django.http import HttpResponse
-from django.template.loader import get_template
-from django.shortcuts import redirect
-from django.utils import timezone
-from django.contrib.auth.decorators import login_required
-from .models import Stock
 
 @login_required
 def stock_create(request):
