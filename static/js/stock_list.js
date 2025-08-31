@@ -150,6 +150,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let startX = 0;
     let startY = 0;
     let moved = false;
+    let currentTranslate = 0;
 
     card.addEventListener("touchstart", e => {
       startX = e.touches[0].clientX;
@@ -160,15 +161,21 @@ document.addEventListener("DOMContentLoaded", () => {
     card.addEventListener("touchmove", e => {
       const dx = e.touches[0].clientX - startX;
       const dy = e.touches[0].clientY - startY;
-      if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) moved = true;
-    });
+      if (Math.abs(dx) > Math.abs(dy)) {
+        e.preventDefault(); // 横スクロール抑制
+        moved = true;
+        currentTranslate = Math.min(0, Math.max(-100, dx)); // 左に最大100px
+        wrapper.style.transform = `translateX(${currentTranslate}px)`;
+      }
+    }, { passive: false });
 
     card.addEventListener("touchend", e => {
       if (!moved) return;
-      const endX = e.changedTouches[0].clientX;
-      const deltaX = startX - endX;
-      if (deltaX > 30) wrapper.classList.add("show-actions");
-      else if (deltaX < -30) wrapper.classList.remove("show-actions");
+      if (currentTranslate < -50) {
+        wrapper.style.transform = `translateX(-100px)`; // アクションボタン表示
+      } else {
+        wrapper.style.transform = `translateX(0)`; // 元に戻す
+      }
     });
   });
 
