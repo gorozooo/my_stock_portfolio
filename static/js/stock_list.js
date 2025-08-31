@@ -70,6 +70,8 @@ document.addEventListener("DOMContentLoaded", () => {
     // ===== カードクリックでモーダル表示 =====
     card.addEventListener("click", () => {
       modal.style.display = "block";
+      document.body.style.overflow = "hidden"; // 背景スクロール禁止
+
       modalName.textContent = name;
       modalCode.textContent = ticker;
       modalShares.textContent = `${shares}株`;
@@ -112,7 +114,7 @@ document.addEventListener("DOMContentLoaded", () => {
           if (response.ok) {
             wrapper.remove();
             showToast(`✅ ${name} を売却しました！`);
-            modal.style.display = "none";
+            closeModal();
           } else showToast("❌ 売却に失敗しました");
         } catch (err) { console.error(err); showToast("⚠️ 通信エラー"); }
       };
@@ -164,12 +166,12 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }, { passive: false });
 
-    card.addEventListener("touchend", e => {
+    card.addEventListener("touchend", () => {
       if (!moved) return;
       wrapper.style.transition = "transform 0.25s ease";
       if (currentTranslate < -80) {
         wrapper.style.transform = "translateX(-160px)";
-        wrapper.classList.add("show-actions"); // ボタンをカード右端に追従させる
+        wrapper.classList.add("show-actions");
       } else {
         wrapper.style.transform = "translateX(0)";
         wrapper.classList.remove("show-actions");
@@ -178,11 +180,17 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // ===== モーダル閉じる =====
-  const closeModal = () => { 
-    modal.style.display = "none"; 
+  function closeModal() {
+    modal.style.display = "none";
+    document.body.style.overflow = ""; // 背景スクロール復活
     if (chartInstance) chartInstance.destroy();
-  };
+  }
+
   closeBtn.addEventListener("click", closeModal);
   window.addEventListener("click", e => { if (e.target === modal) closeModal(); });
-  modal.addEventListener("touchstart", e => { if (e.target === modal) closeModal(); });
+
+  // モーダル内スクロール中に背景が動かないようにする
+  modal.addEventListener("touchmove", e => {
+    e.stopPropagation();
+  }, { passive: false });
 });
