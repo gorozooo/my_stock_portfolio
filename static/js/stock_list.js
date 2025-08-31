@@ -1,11 +1,4 @@
 document.addEventListener("DOMContentLoaded", () => {
-  const stocks = [
-    { name: "トヨタ", code: "7203", shares: 100, cost: 2100, price: 2300 },
-    { name: "ソニーG", code: "6758", shares: 50, cost: 12500, price: 11900 },
-    { name: "任天堂", code: "7974", shares: 30, cost: 56000, price: 60000 }
-  ];
-
-  const container = document.getElementById("stock-cards-container");
   const modal = document.getElementById("stock-modal");
   const closeBtn = modal.querySelector(".close");
 
@@ -31,86 +24,35 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeout(() => toast.classList.remove("show"), duration);
   }
 
-  // ===== カード生成 =====
-  stocks.forEach(stock => {
-    const profit = (stock.price - stock.cost) * stock.shares;
-    const profitClass = profit >= 0 ? "positive" : "negative";
+  // ===== 各カードにイベントを付与 =====
+  document.querySelectorAll(".stock-card-wrapper").forEach(wrapper => {
+    const card = wrapper.querySelector(".stock-card");
+    const sellBtn = wrapper.querySelector(".sell-btn");
+    const editBtn = wrapper.querySelector(".edit-btn");
 
-    const cardWrapper = document.createElement("div");
-    cardWrapper.className = "stock-card-wrapper";
-
-    cardWrapper.innerHTML = `
-      <div class="stock-card">
-        <div class="stock-header">
-          <span class="stock-name">${stock.name}</span>
-          <span class="stock-code">${stock.code}</span>
-        </div>
-        <div class="stock-row"><span>株数</span><span>${stock.shares}</span></div>
-        <div class="stock-row"><span>取得単価</span><span>¥${stock.cost.toLocaleString()}</span></div>
-        <div class="stock-row"><span>現在株価</span><span>¥${stock.price.toLocaleString()}</span></div>
-        <div class="stock-row gain ${profitClass}"><span>損益</span><span>${profit >= 0 ? "+" : ""}${profit.toLocaleString()} 円</span></div>
-      </div>
-      <button class="sell-btn">売却</button>
-    `;
-
-    const card = cardWrapper.querySelector(".stock-card");
-    const sellBtn = cardWrapper.querySelector(".sell-btn");
-
-    let startX = 0, currentX = 0, isSwiping = false;
-
-    // ===== スワイプ開始（スマホ） =====
-    card.addEventListener("touchstart", e => {
-      startX = e.touches[0].clientX;
-      card.style.transition = "none";
-    });
-
-    // ===== スワイプ移動（スマホ） =====
-    card.addEventListener("touchmove", e => {
-      currentX = e.touches[0].clientX;
-      const diffX = currentX - startX;
-      if (diffX < 0) {
-        isSwiping = true;
-        card.style.transform = `translateX(${diffX}px)`;
-      }
-    });
-
-    // ===== スワイプ終了（スマホ） =====
-    card.addEventListener("touchend", () => {
-      const diffX = currentX - startX;
-      card.style.transition = "transform 0.3s ease";
-      if (diffX < -50) {
-        card.style.transform = "translateX(-100px)";
-        cardWrapper.classList.add("show-sell");
-      } else {
-        card.style.transform = "translateX(0)";
-        cardWrapper.classList.remove("show-sell");
-      }
-      isSwiping = false;
-    });
-
-    // ===== PCクリックで売却ボタン表示切替 =====
-    card.addEventListener("click", e => {
-      if (window.innerWidth >= 768 && e.target !== sellBtn && !isSwiping) {
-        const isVisible = cardWrapper.classList.contains("show-sell");
-        card.style.transform = isVisible ? "translateX(0)" : "translateX(-100px)";
-        cardWrapper.classList.toggle("show-sell");
-      }
-    });
+    // dataset に id が入っている想定
+    const stockId = card.dataset.id;
 
     // ===== カードクリックでモーダル表示 =====
-    card.addEventListener("click", e => {
-      if (e.target === sellBtn || isSwiping) return;
+    card.addEventListener("click", () => {
+      const name = card.querySelector(".stock-name").textContent;
+      const code = card.querySelector(".stock-code").textContent;
+      const shares = card.querySelector(".stock-row:nth-child(2) span:last-child").textContent;
+      const cost = card.querySelector(".stock-row:nth-child(3) span:last-child").textContent;
+      const price = card.querySelector(".stock-row:nth-child(4) span:last-child").textContent;
+      const profitText = card.querySelector(".gain span:last-child").textContent;
+      const profitClass = card.querySelector(".gain").classList.contains("positive") ? "positive" : "negative";
 
       modal.style.display = "block";
-      modalName.textContent = stock.name;
-      modalCode.textContent = stock.code;
-      modalShares.textContent = stock.shares;
-      modalCost.textContent = `¥${stock.cost.toLocaleString()}`;
-      modalPrice.textContent = `¥${stock.price.toLocaleString()}`;
-      modalProfit.textContent = `${profit >= 0 ? "+" : ""}${profit.toLocaleString()} 円`;
-      modalProfit.className = profit >= 0 ? "positive" : "negative";
+      modalName.textContent = name;
+      modalCode.textContent = code;
+      modalShares.textContent = shares;
+      modalCost.textContent = cost;
+      modalPrice.textContent = price;
+      modalProfit.textContent = profitText;
+      modalProfit.className = profitClass;
 
-      // ===== チャート描画 =====
+      // ===== チャート描画（簡易ダミーデータ） =====
       if (chartInstance) chartInstance.destroy();
       const ctx = document.getElementById("modal-chart").getContext("2d");
       chartInstance = new Chart(ctx, {
@@ -118,8 +60,8 @@ document.addEventListener("DOMContentLoaded", () => {
         data: {
           labels: ["1M", "3M", "6M", "1Y"],
           datasets: [{
-            label: stock.name,
-            data: [stock.cost * 0.9, stock.cost, stock.price * 0.95, stock.price],
+            label: name,
+            data: [100, 120, 110, 130], // ← 実際の履歴データに差し替え可能
             borderColor: "#00ffff",
             backgroundColor: "rgba(0,255,255,0.2)",
             fill: true,
@@ -134,14 +76,20 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
 
-    // ===== 売却ボタンクリック =====
+    // ===== 売却ボタン =====
     sellBtn.addEventListener("click", e => {
       e.stopPropagation();
-      cardWrapper.remove();
-      showToast(`✅ ${stock.name} を売却しました！`);
+      wrapper.remove();
+      showToast(`✅ ${card.querySelector(".stock-name").textContent} を売却しました！`);
     });
 
-    container.appendChild(cardWrapper);
+    // ===== 編集ボタン =====
+    if (editBtn) {
+      editBtn.addEventListener("click", e => {
+        e.stopPropagation();
+        showToast(`✏️ ${card.querySelector(".stock-name").textContent} を編集します（未実装）`);
+      });
+    }
   });
 
   // ===== モーダル閉じる =====
