@@ -1,13 +1,14 @@
 // ===== stock_list.js =====
 
-// Chart.js + candlestick プラグイン（UMD版）
+// Chart.js + chartjs-chart-financial (UMD版)
 if (typeof Chart !== "undefined" && Chart) {
   try {
+    // financial系コントローラ・要素をまとめて登録
     Chart.register(
-      Chart.CandlestickController,
-      Chart.OHLCController,
-      Chart.CandlestickElement,
-      Chart.OHLCElement
+      Chart.controllers.candlestick,
+      Chart.controllers.ohlc,
+      Chart.elements.Candlestick,
+      Chart.elements.OHLC
     );
     console.log("✅ Candlestick / OHLC プラグイン登録完了");
   } catch (err) {
