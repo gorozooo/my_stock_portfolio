@@ -3,6 +3,8 @@
 {% load humanize %}
 
 {% block content %}
+<h2>保有株一覧</h2>
+
 <div class="portfolio-container" id="stock-cards-container">
   {% for stock in stocks %}
   <div class="stock-card-wrapper">
@@ -16,24 +18,26 @@
          data-profit="{{ stock.profit_amount }}"
          data-profit_rate="{{ stock.profit_rate }}"
          data-chart='{{ stock.chart_history|safe }}'>
-      <div class="stock-header">
-        <span class="stock-name">{{ stock.name }}</span>
-        <span class="stock-code">{{ stock.ticker }}</span>
-      </div>
-      <div class="stock-body">
-        <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
-        <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
-        <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
-        <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
-        <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
-          <span>損益</span>
-          <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
+      <div class="card-content">
+        <div class="stock-header">
+          <span class="stock-name">{{ stock.name }}</span>
+          <span class="stock-code">{{ stock.ticker }}</span>
+        </div>
+        <div class="stock-body">
+          <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
+          <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
+          <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
+          <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
+          <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
+            <span>損益</span>
+            <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
+          </div>
         </div>
       </div>
-    </div>
-    <div class="stock-actions">
-      <button class="edit-btn">編集</button>
-      <button class="sell-btn">売却</button>
+      <div class="card-actions">
+        <button class="edit-btn">編集</button>
+        <button class="sell-btn">売却</button>
+      </div>
     </div>
   </div>
   {% empty %}
@@ -41,7 +45,7 @@
   {% endfor %}
 </div>
 
-<!-- 株カード詳細モーダル -->
+<!-- モーダル -->
 <div id="stock-modal" class="modal">
   <div class="modal-content">
     <span class="close">&times;</span>
@@ -54,21 +58,6 @@
       <p class="profit-label">損益: <span id="modal-profit"></span></p>
     </div>
     <canvas id="modal-chart"></canvas>
-    <div class="modal-actions">
-      <button id="edit-btn" class="edit-button">編集</button>
-      <button id="sell-btn" class="sell-button">売却</button>
-    </div>
-  </div>
-</div>
-
-<!-- 共通確認モーダル -->
-<div id="confirm-modal" class="modal">
-  <div class="modal-content">
-    <p id="confirm-message"></p>
-    <div class="confirm-buttons">
-      <button id="confirm-cancel" class="btn-cancel">キャンセル</button>
-      <button id="confirm-ok" class="btn-ok">OK</button>
-    </div>
   </div>
 </div>
 
@@ -78,6 +67,15 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/stock_list.css' %}">
+<style>
+.portfolio-container { display: flex; flex-direction: column; gap: 12px; }
+.stock-card { position: relative; background: #fff; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); overflow: hidden; transition: transform 0.3s ease; }
+.card-content { padding: 15px; }
+.card-actions { position: absolute; top: 0; right: -140px; height: 100%; display: flex; gap: 5px; align-items: center; padding-right: 10px; background: #f8f8f8; transition: right 0.3s ease; }
+.stock-card.swiped .card-actions { right: 0; }
+.edit-btn { background: #007bff; color: #fff; border: none; border-radius: 5px; padding: 8px 12px; cursor: pointer; }
+.sell-btn { background: #dc3545; color: #fff; border: none; border-radius: 5px; padding: 8px 12px; cursor: pointer; }
+</style>
 {% endblock %}
 
 {% block extra_js %}
