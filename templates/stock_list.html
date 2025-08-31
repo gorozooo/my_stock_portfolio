@@ -15,13 +15,13 @@
          data-current_price="{{ stock.current_price|floatformat:0 }}"
          data-profit="{{ stock.profit_amount }}"
          data-profit_rate="{{ stock.profit_rate }}"
-         data-chart='{{ stock.chart_history|safe }}'>  {# chart_historyはOHLC形式のJSON配列 #}
-      
+         data-chart='{{ stock.chart_history|json_script:"chart_"|safe }}'> <!-- JSONをJSで安全に扱う -->
+
       <div class="stock-header">
         <span class="stock-name">{{ stock.name }}</span>
         <span class="stock-code">{{ stock.ticker }}</span>
       </div>
-      
+
       <div class="stock-body">
         <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
         <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
