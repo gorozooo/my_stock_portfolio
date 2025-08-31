@@ -66,20 +66,11 @@ def logout_view(request):
 # 株関連ページ
 # -----------------------------
 @login_required
-def stock_list_view(request):
-    stocks = Stock.objects.all()
-    for stock in stocks:
-        stock.chart_history = [
-            stock.total_cost,
-            stock.total_cost * 1.05,
-            stock.total_cost * 0.95,
-            stock.unit_price,
-            stock.unit_price * 1.01,
-        ]
-        stock.profit_amount = stock.unit_price * stock.shares - stock.total_cost
-        stock.profit_rate = round(stock.profit_amount / stock.total_cost * 100, 2) if stock.total_cost else 0
-    return render(request, "stock_list.html", {"stocks": stocks})
+def stock_list(request):
+    # DBから全ての保有株を取得（更新日時の新しい順などで並べてもOK）
+    stocks = Stock.objects.all().order_by("-updated_at")
 
+    return render(request, "stock_list.html", {"stocks": stocks})
 
 from django.http import HttpResponse
 from django.template.loader import get_template
