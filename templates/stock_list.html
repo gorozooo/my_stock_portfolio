@@ -6,7 +6,15 @@
 <div class="portfolio-container" id="stock-cards-container">
   {% for stock in stocks %}
   <div class="stock-card-wrapper">
-    <div class="stock-card" data-id="{{ stock.id }}">
+    <div class="stock-card"
+         data-id="{{ stock.id }}"
+         data-name="{{ stock.name }}"
+         data-code="{{ stock.ticker }}"
+         data-shares="{{ stock.shares }}"
+         data-cost="{{ stock.unit_price|floatformat:0 }}"
+         data-price="{{ stock.current_price|floatformat:0 }}"
+         data-profit="{{ stock.profit_amount }}"
+         data-chart='{{ stock.chart_history|safe }}'>
       <div class="stock-header">
         <span class="stock-name">{{ stock.name }}</span>
         <span class="stock-code">{{ stock.ticker }}</span>
