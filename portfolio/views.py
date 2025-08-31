@@ -67,7 +67,6 @@ def logout_view(request):
 # -----------------------------
 @login_required
 def stock_list_view(request):
-    print("stock_list_view呼ばれた")  # ここがコンソールに出るか
     stocks = Stock.objects.all()
     for stock in stocks:
         stock.chart_history = [
