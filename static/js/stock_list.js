@@ -30,38 +30,36 @@ document.addEventListener("DOMContentLoaded", () => {
     const sellBtn = wrapper.querySelector(".sell-btn");
     const editBtn = wrapper.querySelector(".edit-btn");
 
-    // dataset に id が入っている想定
     const stockId = card.dataset.id;
+    const name = card.dataset.name;
+    const code = card.dataset.code;
+    const shares = card.dataset.shares;
+    const cost = card.dataset.cost;
+    const price = card.dataset.price;
+    const profit = card.dataset.profit;
+    const chartHistory = JSON.parse(card.dataset.chart || "[]");
 
     // ===== カードクリックでモーダル表示 =====
     card.addEventListener("click", () => {
-      const name = card.querySelector(".stock-name").textContent;
-      const code = card.querySelector(".stock-code").textContent;
-      const shares = card.querySelector(".stock-row:nth-child(2) span:last-child").textContent;
-      const cost = card.querySelector(".stock-row:nth-child(3) span:last-child").textContent;
-      const price = card.querySelector(".stock-row:nth-child(4) span:last-child").textContent;
-      const profitText = card.querySelector(".gain span:last-child").textContent;
-      const profitClass = card.querySelector(".gain").classList.contains("positive") ? "positive" : "negative";
-
       modal.style.display = "block";
       modalName.textContent = name;
       modalCode.textContent = code;
-      modalShares.textContent = shares;
-      modalCost.textContent = cost;
-      modalPrice.textContent = price;
-      modalProfit.textContent = profitText;
-      modalProfit.className = profitClass;
+      modalShares.textContent = `${shares}株`;
+      modalCost.textContent = `¥${Number(cost).toLocaleString()}`;
+      modalPrice.textContent = `¥${Number(price).toLocaleString()}`;
+      modalProfit.textContent = `${Number(profit) >= 0 ? "+" : ""}${Number(profit).toLocaleString()} 円`;
+      modalProfit.className = Number(profit) >= 0 ? "positive" : "negative";
 
-      // ===== チャート描画（簡易ダミーデータ） =====
+      // ===== チャート描画 =====
       if (chartInstance) chartInstance.destroy();
       const ctx = document.getElementById("modal-chart").getContext("2d");
       chartInstance = new Chart(ctx, {
         type: "line",
         data: {
-          labels: ["1M", "3M", "6M", "1Y"],
+          labels: Array.from({ length: chartHistory.length }, (_, i) => `${i + 1}`),
           datasets: [{
             label: name,
-            data: [100, 120, 110, 130], // ← 実際の履歴データに差し替え可能
+            data: chartHistory,
             borderColor: "#00ffff",
             backgroundColor: "rgba(0,255,255,0.2)",
             fill: true,
@@ -77,17 +75,37 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // ===== 売却ボタン =====
-    sellBtn.addEventListener("click", e => {
+    sellBtn.addEventListener("click", async e => {
       e.stopPropagation();
-      wrapper.remove();
-      showToast(`✅ ${card.querySelector(".stock-name").textContent} を売却しました！`);
+
+      if (!confirm(`${name} を売却しますか？`)) return;
+
+      try {
+        const response = await fetch(`/stocks/${stockId}/sell/`, {
+          method: "POST",
+          headers: {
+            "X-CSRFToken": getCookie("csrftoken"),
+            "Content-Type": "application/json"
+          }
+        });
+
+        if (response.ok) {
+          wrapper.remove();
+          showToast(`✅ ${name} を売却しました！`);
+        } else {
+          showToast("❌ 売却に失敗しました");
+        }
+      } catch (error) {
+        console.error(error);
+        showToast("⚠️ 通信エラーが発生しました");
+      }
     });
 
     // ===== 編集ボタン =====
     if (editBtn) {
       editBtn.addEventListener("click", e => {
         e.stopPropagation();
-        showToast(`✏️ ${card.querySelector(".stock-name").textContent} を編集します（未実装）`);
+        showToast(`✏️ ${name} を編集します（未実装）`);
       });
     }
   });
@@ -97,4 +115,20 @@ document.addEventListener("DOMContentLoaded", () => {
   closeBtn.addEventListener("click", closeModal);
   window.addEventListener("click", e => { if (e.target === modal) closeModal(); });
   modal.addEventListener("touchstart", e => { if (e.target === modal) closeModal(); });
+
+  // ===== CSRFトークン取得関数 =====
+  function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== "") {
+      const cookies = document.cookie.split(";");
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.startsWith(name + "=")) {
+          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+          break;
+        }
+      }
+    }
+    return cookieValue;
+  }
 });
