@@ -55,11 +55,11 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentPrice = Number(card.dataset.current_price) || 0;
     let profit = Number(card.dataset.profit) || 0;
 
-    // chartHistory を JSON.parse で取得
+    // ===== chartHistory を JSON.parse で取得 =====
     let chartHistory = [];
     try { chartHistory = JSON.parse(card.dataset.chart || "[]"); } catch { chartHistory = []; }
 
-    // ローカル表示更新
+    // ===== カード内表示更新 =====
     const priceElem = card.querySelector(".stock-row:nth-child(4) span:last-child");
     if (priceElem) priceElem.textContent = `${currentPrice.toLocaleString()}円`;
 
@@ -86,30 +86,28 @@ document.addEventListener("DOMContentLoaded", () => {
       if (chartInstance) chartInstance.destroy();
       const ctx = document.getElementById("modal-chart").getContext("2d");
 
-      // chartHistory がある場合のみ描画
       if (chartHistory.length > 0) {
+        const formattedData = chartHistory.map(val => ({
+          x: new Date(val.t),
+          o: Number(val.o),
+          h: Number(val.h),
+          l: Number(val.l),
+          c: Number(val.c)
+        }));
+
         chartInstance = new Chart(ctx, {
           type: "candlestick",
-          data: {
-            datasets: [{
-              label: name,
-              data: chartHistory.map(val => ({
-                x: val.t, o: val.o, h: val.h, l: val.l, c: val.c
-              }))
-            }]
-          },
+          data: { datasets: [{ label: name, data: formattedData }] },
           options: {
             responsive: true,
             plugins: { legend: { display: false } },
             scales: {
               x: { 
-                type: 'time', 
-                time: { unit: 'day', tooltipFormat: 'YYYY-MM-DD' }, 
+                type: 'time',
+                time: { unit: 'day', tooltipFormat: 'yyyy-MM-dd' },
                 title: { display: true, text: '日付' } 
               },
-              y: { 
-                title: { display: true, text: '株価' } 
-              }
+              y: { title: { display: true, text: '株価' } }
             }
           }
         });
