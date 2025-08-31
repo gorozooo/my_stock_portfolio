@@ -281,33 +281,32 @@ def settings_view(request):
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 
+from django.shortcuts import render, redirect
+from django.contrib.auth.decorators import login_required
+from .models import Tab
+
 @login_required
 def tab_manager_view(request):
     # セッション認証チェック
     if not request.session.get("settings_authenticated"):
         return redirect("settings_login")
 
-    # テスト用タブデータ（後でDBから取得に置き換え）
-    tabs = [
-        {
-            "id": 1,
-            "name": "テストタブ",
-            "icon": "📌",
-            "submenus": [
-                {"id": 1, "name": "サブ1"},
-                {"id": 2, "name": "サブ2"}
-            ]
-        },
-        {
-            "id": 2,
-            "name": "別タブ",
-            "icon": "📁",
-            "submenus": []
-        }
-    ]
+    # -------------------- DBからタブとサブメニューを取得 --------------------
+    # ログインユーザーのタブを取得、サブメニューもまとめて取得
+    tabs = Tab.objects.filter(user=request.user).prefetch_related('submenus').order_by('id')
 
-    # タブ管理ページにデータを渡す
-    return render(request, "tab_manager.html", {"tabs": tabs})
+    # テンプレートに渡すため辞書形式に変換
+    tab_list = []
+    for tab in tabs:
+        tab_list.append({
+            "id": tab.id,
+            "name": tab.name,
+            "icon": tab.icon or "📌",  # アイコンが空ならデフォルト
+            "submenus": [{"id": sub.id, "name": sub.name} for sub in tab.submenus.all()]
+        })
+
+    # -------------------- レンダリング --------------------
+    return render(request, "tab_manager.html", {"tabs": tab_list})
 
 
 @login_required
