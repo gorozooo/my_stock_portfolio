@@ -15,7 +15,8 @@ urlpatterns = [
     path('cash/', views.cash_view, name='cash'),
     path('realized/', views.realized_view, name='realized'),
     path('trade_history/', views.trade_history, name='trade_history'),
-
+    path("stocks/<int:pk>/sell/", views.sell_stock_view, name="sell_stock"),
+    
     # --- 株関連 API ---
     path('stocks/api/stock_by_code/', views.get_stock_by_code, name='stock_by_code'),
     path('stocks/api/suggest_name/', views.suggest_stock_name, name='suggest_name'),
