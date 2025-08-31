@@ -91,12 +91,19 @@ def stock_list_view(request):
             else:
                 stock.current_price = stock.unit_price  # 取得できなければ単価と同じ
 
-            # --- 過去1か月の株価履歴を取得（チャート用） ---
+            # --- 過去1か月の株価履歴を取得（ローソク足用） ---
             history = ticker.history(period="1mo")
+            ohlc_list = []
             if not history.empty:
-                stock.chart_history = list(history["Close"].round(2).values)
-            else:
-                stock.chart_history = []
+                for date, row in history.iterrows():
+                    ohlc_list.append({
+                        "t": date.strftime("%Y-%m-%d"),
+                        "o": round(row["Open"], 2),
+                        "h": round(row["High"], 2),
+                        "l": round(row["Low"], 2),
+                        "c": round(row["Close"], 2),
+                    })
+            stock.chart_history = ohlc_list
 
             # --- 損益計算 ---
             stock.total_cost = stock.shares * stock.unit_price
@@ -104,6 +111,7 @@ def stock_list_view(request):
             stock.profit_rate = round(stock.profit_amount / stock.total_cost * 100, 2) if stock.total_cost else 0
 
         except Exception as e:
+            # API取得エラー時は初期化
             stock.chart_history = []
             stock.profit_amount = 0
             stock.profit_rate = 0
@@ -115,6 +123,7 @@ def stock_list_view(request):
         stock.chart_json = json.dumps(stock.chart_history)
 
     return render(request, "stock_list.html", {"stocks": stocks})
+    
 @login_required
 def stock_create(request):
     errors = {}
