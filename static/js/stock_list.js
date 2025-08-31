@@ -47,10 +47,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const name = card.dataset.name;
     const ticker = card.dataset.ticker;
     const shares = card.dataset.shares;
-    const unitPrice = card.dataset.unit_price;
-    const currentPrice = card.dataset.current_price;
+    const unitPrice = card.dataset.unitPrice;       // ← camelCase に修正
+    const currentPrice = card.dataset.currentPrice; // ← camelCase に修正
     const profit = card.dataset.profit;
-    const chartHistory = JSON.parse(card.dataset.chart || "[]");
+    const chartHistory = (() => {
+      try {
+        return JSON.parse(card.dataset.chart || "[]");
+      } catch {
+        return [];
+      }
+    })();
 
     // ===== カードクリックでモーダル表示 =====
     card.addEventListener("click", () => {
@@ -64,12 +70,16 @@ document.addEventListener("DOMContentLoaded", () => {
       modalProfit.className = Number(profit) >= 0 ? "positive" : "negative";
 
       // ===== チャート描画 =====
-      if (chartInstance) chartInstance.destroy();
+      if (chartInstance) {
+        chartInstance.destroy();
+      }
       const ctx = document.getElementById("modal-chart").getContext("2d");
       chartInstance = new Chart(ctx, {
         type: "line",
         data: {
-          labels: chartHistory.map((_, i) => `T${i + 1}`),
+          labels: chartHistory.length
+            ? chartHistory.map((_, i) => `T${i + 1}`)
+            : ["1", "2", "3", "4"],
           datasets: [{
             label: name,
             data: chartHistory.length ? chartHistory : [100, 110, 105, 120],
@@ -122,6 +132,22 @@ document.addEventListener("DOMContentLoaded", () => {
         showToast(`✏️ ${name} を編集します（未実装）`);
       });
     }
+
+    // ===== 左スワイプでアクションボタン表示 =====
+    let startX = 0;
+    card.addEventListener("touchstart", e => {
+      startX = e.touches[0].clientX;
+    });
+    card.addEventListener("touchend", e => {
+      const endX = e.changedTouches[0].clientX;
+      if (startX - endX > 50) {
+        // 左にスワイプしたらアクションボタン表示
+        wrapper.classList.add("show-actions");
+      } else if (endX - startX > 50) {
+        // 右スワイプで閉じる
+        wrapper.classList.remove("show-actions");
+      }
+    });
   });
 
   // ===== モーダル閉じる =====
