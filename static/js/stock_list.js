@@ -21,6 +21,8 @@ document.addEventListener("DOMContentLoaded", () => {
     toast.className = "toast";
     toast.textContent = message;
     container.appendChild(toast);
+    // アニメーション用に少し待ってから表示
+    requestAnimationFrame(() => toast.classList.add("show"));
     setTimeout(() => toast.remove(), duration);
   }
 
@@ -147,15 +149,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ===== スワイプ判定 =====
-    let startX = 0;
-    let startY = 0;
-    let moved = false;
-    let currentTranslate = 0;
+    let startX = 0, startY = 0, moved = false, currentTranslate = 0;
 
     card.addEventListener("touchstart", e => {
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       moved = false;
+      wrapper.style.transition = ""; // 移動中はトランジションなし
     });
 
     card.addEventListener("touchmove", e => {
@@ -171,16 +171,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
     card.addEventListener("touchend", e => {
       if (!moved) return;
+      wrapper.style.transition = "transform 0.25s ease"; // 終了後はスムーズに戻る
       if (currentTranslate < -50) {
         wrapper.style.transform = `translateX(-100px)`; // アクションボタン表示
+        wrapper.classList.add("show-actions");
       } else {
         wrapper.style.transform = `translateX(0)`; // 元に戻す
+        wrapper.classList.remove("show-actions");
       }
     });
   });
 
   // ===== モーダル閉じる =====
-  const closeModal = () => { modal.style.display = "none"; };
+  const closeModal = () => { 
+    modal.style.display = "none"; 
+    if (chartInstance) chartInstance.destroy();
+  };
   closeBtn.addEventListener("click", closeModal);
   window.addEventListener("click", e => { if (e.target === modal) closeModal(); });
   modal.addEventListener("touchstart", e => { if (e.target === modal) closeModal(); });
