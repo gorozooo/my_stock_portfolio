@@ -15,7 +15,7 @@
          data-current_price="{{ stock.current_price|floatformat:0 }}"
          data-profit="{{ stock.profit_amount }}"
          data-profit_rate="{{ stock.profit_rate }}"
-         data-chart='{{ stock.chart_json|safe }}'>  {# chart_jsonを安全にJSで扱う #}
+         data-chart='{{ stock.chart_json|safe }}'>
 
       <div class="stock-header">
         <span class="stock-name">{{ stock.name }}</span>
@@ -62,17 +62,6 @@
   </div>
 </div>
 
-<!-- 共通確認モーダル -->
-<div id="confirm-modal" class="confirm-modal">
-  <div class="confirm-modal-content">
-    <p id="confirm-message"></p>
-    <div class="confirm-modal-buttons">
-      <button id="confirm-cancel" class="btn-cancel">キャンセル</button>
-      <button id="confirm-ok" class="btn-ok">OK</button>
-    </div>
-  </div>
-</div>
-
 <!-- トースト通知 -->
 <div id="toast-container"></div>
 {% endblock %}
@@ -82,7 +71,6 @@
 {% endblock %}
 
 {% block extra_js %}
-<!-- Chart.js とローソク足プラグイン -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
 <script src="{% static 'js/stock_list.js' %}"></script>
