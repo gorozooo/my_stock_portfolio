@@ -13,6 +13,7 @@ from .models import BottomTab, SettingsPassword, SubMenu, Stock, StockMaster
 from .forms import SettingsPasswordForm
 from .utils import get_bottom_tabs
 from django.template.loader import get_template
+from django.http import HttpResponse
 
 # -----------------------------
 # 共通コンテキスト
