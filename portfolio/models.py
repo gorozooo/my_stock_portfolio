@@ -111,27 +111,38 @@ class SettingsPassword(models.Model):
 # =============================
 from django.db import models
 
+
 class BottomTab(models.Model):
-    name = models.CharField("タブ名", max_length=50)
-    icon = models.CharField("アイコン", max_length=50, blank=True)
-    order = models.PositiveIntegerField("並び順", default=0)
-    url_name = models.CharField(max_length=100, verbose_name="URL名", blank=True, null=True)
-    
-    class Meta:
-        ordering = ['order']
+    LINK_TYPE_CHOICES = [
+        ("url", "URL 直指定"),
+        ("view", "Django view 名"),
+    ]
+
+    name = models.CharField(max_length=100, verbose_name="タブ名")
+    icon = models.CharField(max_length=100, verbose_name="アイコン（CSSクラスなど）")
+    url_name = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="URL 名またはビュー名",
+    )
+    link_type = models.CharField(
+        max_length=10,
+        choices=LINK_TYPE_CHOICES,
+        default="view",
+        verbose_name="リンクの種類",
+    )
+    order = models.PositiveIntegerField(default=0, verbose_name="表示順")
 
     def __str__(self):
         return self.name
 
 
 class SubMenu(models.Model):
-    tab = models.ForeignKey(BottomTab, on_delete=models.CASCADE, related_name='submenus')
-    name = models.CharField("サブメニュー名", max_length=50)
-    url = models.CharField("URL", max_length=200)
-    order = models.PositiveIntegerField("並び順", default=0)
-
-    class Meta:
-        ordering = ['tab', 'order']
+    tab = models.ForeignKey(BottomTab, on_delete=models.CASCADE, related_name="submenus")
+    name = models.CharField(max_length=100, verbose_name="サブメニュー名")
+    url = models.CharField(max_length=200, verbose_name="URL")
+    order = models.PositiveIntegerField(default=0, verbose_name="表示順")
 
     def __str__(self):
-        return f"{self.tab.name} -> {self.name}"
+        return f"{self.tab.name} - {self.name}"
