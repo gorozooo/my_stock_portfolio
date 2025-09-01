@@ -38,10 +38,6 @@
             </div>
           </div>
           {% endfor %}
-        {% else %}
-          <div class="submenu-item submenu-empty">
-            <span>サブメニューなし</span>
-          </div>
         {% endif %}
         <button class="add-submenu-btn">＋ サブメニュー追加</button>
       </div>
@@ -63,6 +59,7 @@
     <span class="modal-close">&times;</span>
     <h2 id="modal-title">タブ編集</h2>
     <form id="tab-form">
+      {% csrf_token %}
       <input type="hidden" name="tab_id" id="tab-id">
       <div class="form-group">
         <label>タブ名</label>
@@ -89,6 +86,7 @@
     <span class="modal-close">&times;</span>
     <h2 id="submenu-modal-title">サブメニュー編集</h2>
     <form id="submenu-form">
+      {% csrf_token %}
       <input type="hidden" name="tab_id" id="submenu-tab-id">
       <input type="hidden" name="submenu_id" id="submenu-id">
       <div class="form-group">
