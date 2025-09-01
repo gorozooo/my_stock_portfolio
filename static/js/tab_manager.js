@@ -1,5 +1,4 @@
 document.addEventListener("DOMContentLoaded", () => {
-
   // -------------------- DOM要素 --------------------
   const tabModal = document.getElementById("tab-modal");
   const submenuModal = document.getElementById("submenu-modal");
@@ -7,6 +6,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const submenuForm = document.getElementById("submenu-form");
   const tabList = document.getElementById("tab-list");
   const addTabFab = document.getElementById("add-tab-fab");
+  const apiConfig = document.getElementById("api-config"); // ← HTML に埋め込んだ設定
+
+  // API エンドポイント
+  const urls = {
+    tabSave: apiConfig.dataset.tabSave,
+    tabDelete: apiConfig.dataset.tabDelete,   // /tabs/delete/{id}/ の {id} を置換して使う
+    tabReorder: apiConfig.dataset.tabReorder,
+    submenuSave: apiConfig.dataset.submenuSave,
+    submenuDelete: apiConfig.dataset.submenuDelete, // /submenus/delete/{id}/
+    submenuReorder: apiConfig.dataset.submenuReorder,
+  };
 
   const openModal = modal => modal.style.display = "block";
   const closeModal = modal => modal.style.display = "none";
@@ -107,21 +117,18 @@ document.addEventListener("DOMContentLoaded", () => {
   // -------------------- モーダル開閉 --------------------
   function openTabModal(tabCard) {
     document.getElementById("modal-title").innerText = tabCard ? "タブ編集" : "新規タブ追加";
-    document.getElementById("tab-id").value = tabCard && tabCard.dataset.id ? tabCard.dataset.id : "";
-    const nameElem = tabCard ? tabCard.querySelector(".tab-name") : null;
-    document.getElementById("tab-name").value = nameElem ? nameElem.textContent : "";
-    const iconElem = tabCard ? tabCard.querySelector(".tab-icon") : null;
-    document.getElementById("tab-icon").value = iconElem ? iconElem.textContent : "📑";
+    document.getElementById("tab-id").value = tabCard?.dataset.id || "";
+    document.getElementById("tab-name").value = tabCard?.querySelector(".tab-name")?.textContent || "";
+    document.getElementById("tab-icon").value = tabCard?.querySelector(".tab-icon")?.textContent || "📑";
     tabModal.currentTabCard = tabCard || null;
     openModal(tabModal);
   }
 
   function openSubmenuModal(subItem, tabCard) {
     document.getElementById("submenu-modal-title").innerText = subItem ? "サブメニュー編集" : "サブメニュー追加";
-    document.getElementById("submenu-tab-id").value = tabCard.dataset.id || "";
-    document.getElementById("submenu-id").value = subItem && subItem.dataset.id ? subItem.dataset.id : "";
-    const nameElem = subItem ? subItem.querySelector("span") : null;
-    document.getElementById("submenu-name").value = nameElem ? nameElem.textContent : "";
+    document.getElementById("submenu-tab-id").value = tabCard?.dataset.id || "";
+    document.getElementById("submenu-id").value = subItem?.dataset.id || "";
+    document.getElementById("submenu-name").value = subItem?.querySelector("span")?.textContent || "";
     submenuModal.currentSubItem = subItem || null;
     submenuModal.currentTabCard = tabCard;
     openModal(submenuModal);
@@ -135,7 +142,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const formData = new FormData(tabForm);
     const isNew = !tabModal.currentTabCard;
 
-    fetch("/tabs/save/", {
+    fetch(urls.tabSave, {
       method: "POST",
       headers: { "X-CSRFToken": getCSRFToken() },
       body: formData
@@ -148,10 +155,8 @@ document.addEventListener("DOMContentLoaded", () => {
           const tabCard = tabModal.currentTabCard;
           if (tabCard) {
             tabCard.dataset.id = data.id;
-            const nameElem = tabCard.querySelector(".tab-name");
-            if (nameElem) nameElem.textContent = data.name;
-            const iconElem = tabCard.querySelector(".tab-icon");
-            if (iconElem) iconElem.textContent = data.icon || "📑";
+            tabCard.querySelector(".tab-name").textContent = data.name;
+            tabCard.querySelector(".tab-icon").textContent = data.icon || "📑";
           }
         }
         closeModal(tabModal);
@@ -169,7 +174,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const formData = new FormData(submenuForm);
     const isNew = !subItem;
 
-    fetch("/submenus/save/", {
+    fetch(urls.submenuSave, {
       method: "POST",
       headers: { "X-CSRFToken": getCSRFToken() },
       body: formData
@@ -178,10 +183,7 @@ document.addEventListener("DOMContentLoaded", () => {
     .then(data => {
       if (data.id) {
         if (isNew && tabCard) tabCard.querySelector(".submenu-list").appendChild(createSubmenuHTML(data));
-        else if (subItem) {
-          const nameElem = subItem.querySelector("span");
-          if (nameElem) nameElem.textContent = data.name;
-        }
+        else if (subItem) subItem.querySelector("span").textContent = data.name;
         closeModal(submenuModal);
         if (tabCard) saveSubmenuOrder({ from: tabCard.querySelector(".submenu-list") });
       } else if (data.error) alert("保存できませんでした: " + data.error);
@@ -192,7 +194,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // -------------------- 削除 --------------------
   function submitTabDelete(tabId, tabCard) {
     if (!tabId || !tabCard) return;
-    fetch(`/tabs/delete/${tabId}/`, {
+    fetch(urls.tabDelete.replace("0", tabId), {
       method: "POST",
       headers: { "X-CSRFToken": getCSRFToken() }
     })
@@ -202,7 +204,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function submitSubmenuDelete(subId, subItem) {
     if (!subId || !subItem) return;
-    fetch(`/submenus/delete/${subId}/`, {
+    fetch(urls.submenuDelete.replace("0", subId), {
       method: "POST",
       headers: { "X-CSRFToken": getCSRFToken() }
     })
@@ -218,7 +220,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function saveTabOrder() {
     if (!tabList) return;
     const order = Array.from(tabList.children).map(tab => tab.dataset.id).filter(id => id);
-    fetch("/tabs/reorder/", {
+    fetch(urls.tabReorder, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-CSRFToken": getCSRFToken() },
       body: JSON.stringify({ order })
@@ -227,10 +229,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function saveSubmenuOrder(evt) {
     const list = evt.from;
-    const tabId = list.closest(".tab-card") ? list.closest(".tab-card").dataset.id : null;
+    const tabId = list.closest(".tab-card")?.dataset.id;
     if (!tabId) return;
     const order = Array.from(list.children).map(sub => sub.dataset.id).filter(id => id);
-    fetch("/submenus/reorder/", {
+    fetch(urls.submenuReorder, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-CSRFToken": getCSRFToken() },
       body: JSON.stringify({ tab_id: tabId, order })
@@ -245,5 +247,4 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // -------------------- 既存タブにイベント付与 --------------------
   tabList.querySelectorAll(".tab-card").forEach(tabCard => attachTabEvents(tabCard));
-
 });
