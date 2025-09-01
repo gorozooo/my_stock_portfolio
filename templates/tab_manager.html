@@ -5,6 +5,7 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/tab_manager.css' %}">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 {% endblock %}
 
 {% block content %}
@@ -39,8 +40,8 @@
           </div>
           {% endfor %}
         {% endif %}
-        <button class="add-submenu-btn">＋ サブメニュー追加</button>
       </div>
+      <button class="add-submenu-btn">＋ サブメニュー追加</button>
     </div>
     {% endfor %}
   {% else %}
@@ -104,7 +105,9 @@
   </div>
 </div>
 
+<!-- Sortable.js -->
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<!-- 修正版JS -->
 <script src="{% static 'js/tab_manager.js' %}"></script>
 
 {% endblock %}
