@@ -1,6 +1,6 @@
-// ===== stock_list.js =====
-
-// Chart.js + candlestick プラグイン登録
+// ==========================
+// Chart.js + Candlestick プラグイン登録
+// ==========================
 if (typeof Chart !== "undefined" && Chart) {
   try {
     Chart.register(
@@ -33,7 +33,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let chartInstance = null;
   let activeCardWrapper = null;
 
-  // ===== トースト表示関数 =====
+  // ===== トースト表示 =====
   function showToast(message, duration = 2000) {
     const container = document.getElementById("toast-container");
     const toast = document.createElement("div");
@@ -44,7 +44,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeout(() => toast.remove(), duration);
   }
 
-  // ===== CSRFトークン取得関数 =====
+  // ===== CSRFトークン取得 =====
   function getCookie(name) {
     let cookieValue = null;
     if (document.cookie && document.cookie !== "") {
@@ -60,7 +60,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return cookieValue;
   }
 
-  // ===== 各カードにイベントを付与 =====
+  // ===== 各株カード処理 =====
   document.querySelectorAll(".stock-card-wrapper").forEach(wrapper => {
     const card = wrapper.querySelector(".stock-card");
     const sellBtn = wrapper.querySelector(".sell-btn");
@@ -74,35 +74,20 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentPrice = Number(card.dataset.current_price) || 0;
     let profit = Number(card.dataset.profit) || 0;
 
-    // ===== チャートデータ読み込み =====
+    // ===== チャートデータ取得 =====
     let chartHistory = [];
-    const chartId = card.dataset.chartId;
-    if (chartId) {
-      const chartScript = document.getElementById(chartId);
-      if (chartScript) {
-        try {
-          chartHistory = JSON.parse(chartScript.textContent);
-        } catch (err) {
-          console.warn(`⚠️ ${name} のチャートJSON解析に失敗:`, err);
-          chartHistory = [];
-        }
+    const chartScript = document.getElementById(card.dataset.chartId);
+    if (chartScript) {
+      try {
+        chartHistory = JSON.parse(chartScript.textContent);
+      } catch {
+        chartHistory = [];
       }
-    }
-
-    // ===== カード内表示更新 =====
-    const priceElem = card.querySelector(".stock-row:nth-child(4) span:last-child");
-    if (priceElem) priceElem.textContent = `${currentPrice.toLocaleString()}円`;
-
-    const profitElem = card.querySelector(".stock-row.gain span:last-child");
-    if (profitElem) {
-      profitElem.textContent = `${profit >= 0 ? "+" : ""}${profit.toLocaleString()}円 (${card.dataset.profit_rate}%)`;
-      card.querySelector(".stock-row.gain").className = `stock-row gain ${profit >= 0 ? "positive" : "negative"}`;
     }
 
     // ===== カードクリックでモーダル表示 =====
     card.addEventListener("click", () => {
       activeCardWrapper = wrapper;
-      modal.dataset.id = stockId;
       modal.style.display = "block";
       document.body.style.overflow = "hidden";
 
@@ -111,16 +96,16 @@ document.addEventListener("DOMContentLoaded", () => {
       modalShares.textContent = `${shares}株`;
       modalCost.textContent = `¥${unitPrice.toLocaleString()}`;
       modalPrice.textContent = `¥${currentPrice.toLocaleString()}`;
-      modalProfit.textContent = `${profit >= 0 ? "+" : ""}${profit.toLocaleString()} 円`;
+      modalProfit.textContent = `${profit >= 0 ? "+" : ""}${profit.toLocaleString()}円`;
       modalProfit.className = profit >= 0 ? "positive" : "negative";
 
-      // ===== ローソク足チャート描画 =====
+      // ===== チャート描画 =====
       if (chartInstance) chartInstance.destroy();
       const ctx = document.getElementById("modal-chart").getContext("2d");
 
       if (chartHistory.length > 0 && Chart.registry.controllers.has("candlestick")) {
-        const formattedData = chartHistory.map(val => ({
-          x: new Date(val.t),
+        const data = chartHistory.map(val => ({
+          x: new Date(val.t + "T00:00:00"),
           o: Number(val.o),
           h: Number(val.h),
           l: Number(val.l),
@@ -129,22 +114,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
         chartInstance = new Chart(ctx, {
           type: "candlestick",
-          data: { datasets: [{ label: name, data: formattedData }] },
+          data: { datasets: [{ label: name, data }] },
           options: {
             responsive: true,
             plugins: { legend: { display: false } },
             scales: {
-              x: {
-                type: "time",
-                time: { unit: "day", tooltipFormat: "yyyy-MM-dd" },
-                title: { display: true, text: "日付" }
-              },
+              x: { type: "time", time: { unit: "day", tooltipFormat: "yyyy-MM-dd" } },
               y: { title: { display: true, text: "株価" } }
             }
           }
         });
       } else {
-        showToast("⚠️ チャートデータがありません、またはプラグイン未読み込み");
+        showToast("⚠️ チャートデータがありません");
       }
     });
 
