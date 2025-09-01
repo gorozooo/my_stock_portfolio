@@ -2,9 +2,11 @@
 .tab-card {
   margin: 8px 16px;
   border-radius: 12px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  border: 1px solid #fff; /* ✅ 白枠を追加 */
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1); /* 少し軽めの影に調整 */
   overflow: hidden;
   transition: all 0.3s;
+  background: transparent; /* ✅ 背景は透過、枠だけ見せる */
 }
 
 /* -------------------- ヘッダー -------------------- */
@@ -33,7 +35,7 @@
 .tab-name {
   font-size: 16px;
   font-weight: 500;
-  color: #333;
+  color: #fff; /* ✅ 白枠と合わせて白文字に */
 }
 
 .tab-actions button {
@@ -42,6 +44,7 @@
   font-size: 16px;
   margin-left: 8px;
   cursor: pointer;
+  color: #fff; /* ✅ ボタンも白系で統一 */
 }
 
 /* -------------------- サブメニュー -------------------- */
@@ -60,9 +63,10 @@
   display: flex;
   justify-content: space-between;
   padding: 8px 12px;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.4); /* ✅ 白系で柔らかい仕切り線 */
   border-radius: 6px;
   margin: 4px 0;
+  color: #fff;
 }
 
 .submenu-actions button {
@@ -71,6 +75,7 @@
   font-size: 14px;
   margin-left: 4px;
   cursor: pointer;
+  color: #fff;
 }
 
 /* サブ追加ボタン */
@@ -81,7 +86,8 @@
   border-radius: 0 0 12px 12px;
   cursor: pointer;
   margin-top: 4px;
-  background: #e0e0e0;
+  background: rgba(255, 255, 255, 0.2); /* ✅ 半透明で控えめに */
+  color: #fff;
 }
 
 /* -------------------- フローティングボタン -------------------- */
