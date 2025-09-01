@@ -72,12 +72,6 @@ def logout_view(request):
 # -----------------------------
 # 株関連ページ
 # -----------------------------
-import yfinance as yf
-import json
-from django.shortcuts import render
-from django.contrib.auth.decorators import login_required
-from .models import Stock
-
 @login_required
 def stock_list_view(request):
     stocks = Stock.objects.all()
@@ -206,13 +200,6 @@ def stock_create(request):
 
     return HttpResponse(tpl.render(context, request))
 
-from django.shortcuts import get_object_or_404
-from django.http import JsonResponse
-from django.views.decorators.http import require_POST
-from django.contrib.auth.decorators import login_required
-from .models import Stock, RealizedProfit
-from django.utils import timezone
-
 @login_required
 @require_POST
 def sell_stock_view(request, pk):
@@ -284,13 +271,6 @@ def settings_view(request):
 # -----------------------------
 # 設定系子ページ
 # -----------------------------
-from django.shortcuts import render, redirect
-from django.contrib.auth.decorators import login_required
-
-from django.shortcuts import render, redirect
-from django.contrib.auth.decorators import login_required
-from .models import Tab
-
 @login_required
 def tab_manager_view(request):
     # セッション認証チェック
