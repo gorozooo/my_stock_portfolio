@@ -49,7 +49,8 @@ document.addEventListener("DOMContentLoaded", () => {
       <button class="add-submenu-btn">＋ サブメニュー追加</button>
     `;
     attachTabEvents(div);
-    // 新規追加時にサブメニューSortableを初期化
+
+    // サブメニューSortable初期化
     const submenuList = div.querySelector(".submenu-list");
     Sortable.create(submenuList, { 
       animation: 150, 
@@ -57,6 +58,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ghostClass: "dragging",
       onEnd: saveSubmenuOrder
     });
+
     return div;
   }
 
@@ -138,6 +140,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     fetch("/tabs/save/", {
       method: "POST",
+      headers: { "X-CSRFToken": getCSRFToken() },
       body: formData
     })
     .then(res => res.json())
@@ -154,7 +157,7 @@ document.addEventListener("DOMContentLoaded", () => {
           tabCard.dataset.url = data.url_name || "";
         }
         closeModal(tabModal);
-        saveTabOrder();  // 保存後に順序更新
+        saveTabOrder();
       } else if(data.error){
         alert("保存できませんでした: " + data.error);
       }
@@ -172,6 +175,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     fetch("/submenus/save/", {
       method: "POST",
+      headers: { "X-CSRFToken": getCSRFToken() },
       body: formData
     })
     .then(res => res.json())
@@ -194,13 +198,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // -------------------- 削除 --------------------
   function submitTabDelete(tabId, tabCard){
-    fetch(`/tabs/delete/${tabId}/`, { method: "POST" })
+    fetch(`/tabs/delete/${tabId}/`, { method: "POST", headers: { "X-CSRFToken": getCSRFToken() } })
       .then(res => res.json())
       .then(data => { if(data.success) tabCard.remove(); });
   }
 
   function submitSubmenuDelete(subId, subItem){
-    fetch(`/submenus/delete/${subId}/`, { method: "POST" })
+    fetch(`/submenus/delete/${subId}/`, { method: "POST", headers: { "X-CSRFToken": getCSRFToken() } })
       .then(res => res.json())
       .then(data => { if(data.success) subItem.remove(); });
   }
@@ -224,21 +228,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // -------------------- 順序保存 --------------------
   function saveTabOrder() {
-    const order = Array.from(tabList.children).map(tab => tab.dataset.id);
+    const order = Array.from(tabList.children).map(tab => tab.dataset.id).filter(id => id);
     fetch("/tabs/reorder/", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": getCSRFToken()
+      },
       body: JSON.stringify({ order })
     });
   }
 
   function saveSubmenuOrder(evt) {
     const list = evt.from;
-    const tabId = list.closest(".tab-card").dataset.id;
-    const order = Array.from(list.children).map(sub => sub.dataset.id);
+    const tabId = list.closest(".tab-card")?.dataset.id;
+    if(!tabId) return;
+    const order = Array.from(list.children).map(sub => sub.dataset.id).filter(id => id);
     fetch("/submenus/reorder/", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": getCSRFToken()
+      },
       body: JSON.stringify({ tab_id: tabId, order })
     });
   }
