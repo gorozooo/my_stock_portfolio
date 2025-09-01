@@ -1,15 +1,15 @@
-/* ==================== タブ管理ページ CSS ==================== */
+/* ==================== タブ管理ページ CSS（スマホファースト） ==================== */
 
 /* -------------------- タブカード -------------------- */
 .tab-card {
-  margin: 8px 16px;
+  margin: 6px 12px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.5); /* 半透明白枠 */
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2); /* 軽めの影 */
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
   overflow: hidden;
   transition: all 0.3s;
-  background: rgba(255,255,255,0.05); /* 透過感 */
-  backdrop-filter: blur(8px); /* ガラス感 */
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(8px);
 }
 
 /* -------------------- タブヘッダー -------------------- */
@@ -17,7 +17,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px;
+  padding: 10px;
   cursor: grab;
   background: rgba(255,255,255,0.05);
 }
@@ -32,12 +32,12 @@
 }
 
 .tab-icon {
-  margin-right: 8px;
-  font-size: 18px;
+  margin-right: 6px;
+  font-size: 16px;
 }
 
 .tab-name {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 500;
   color: #fff;
   text-shadow: 0 1px 3px rgba(0,0,0,0.5);
@@ -46,8 +46,8 @@
 .tab-actions button {
   background: transparent;
   border: none;
-  font-size: 16px;
-  margin-left: 8px;
+  font-size: 14px;
+  margin-left: 6px;
   cursor: pointer;
   color: #fff;
   transition: color 0.2s;
@@ -62,7 +62,7 @@
   max-height: 0;
   overflow: hidden;
   transition: max-height 0.3s ease;
-  padding-left: 24px;
+  padding-left: 20px;
 }
 
 .tab-card.expanded .submenu-list {
@@ -72,7 +72,7 @@
 .submenu-item {
   display: flex;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 6px;
   margin: 4px 0;
@@ -89,7 +89,7 @@
 .submenu-actions button {
   background: transparent;
   border: none;
-  font-size: 14px;
+  font-size: 12px;
   margin-left: 4px;
   cursor: pointer;
   color: #fff;
@@ -102,7 +102,7 @@
 /* -------------------- サブメニュー追加ボタン -------------------- */
 .add-submenu-btn {
   width: 100%;
-  padding: 8px;
+  padding: 6px;
   border: none;
   border-radius: 0 0 12px 12px;
   cursor: pointer;
@@ -120,15 +120,15 @@
 /* -------------------- フローティングボタン -------------------- */
 .fab {
   position: fixed;
-  bottom: 100px; 
-  right: 24px;
-  width: 56px;
-  height: 56px;
+  bottom: 90px; 
+  right: 16px;
+  width: 50px;
+  height: 50px;
   border-radius: 50%;
   border: none;
   background: linear-gradient(135deg, #007bff, #00c6ff);
   color: #fff;
-  font-size: 32px;
+  font-size: 28px;
   font-weight: bold;
   box-shadow: 0 6px 16px rgba(0,0,0,0.4);
   cursor: pointer;
@@ -171,10 +171,10 @@
 
 .modal-content {
   background: rgba(26,26,26,0.95);
-  margin: 10% auto;
-  padding: 20px;
+  margin: 15% auto;
+  padding: 16px;
   border-radius: 12px;
-  width: 90%;
+  width: 95%;
   max-width: 400px;
   color: #fff;
   box-shadow: 0 4px 16px rgba(0,0,0,0.4);
@@ -241,13 +241,13 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* -------------------- スマホ対応 -------------------- */
-@media (max-width: 480px) {
-  .tab-card { margin: 6px 12px; }
-  .tab-header { padding: 10px; }
-  .tab-name { font-size: 14px; }
-  .tab-icon { font-size: 16px; }
-  .submenu-item { padding: 6px 10px; font-size: 14px; }
-  .fab { width: 50px; height: 50px; font-size: 28px; bottom: 90px; right: 16px; }
-  .modal-content { width: 95%; margin: 15% auto; padding: 16px; }
+/* -------------------- PC向け調整 -------------------- */
+@media (min-width: 481px) {
+  .tab-card { margin: 8px 16px; }
+  .tab-header { padding: 12px; }
+  .tab-icon { font-size: 18px; }
+  .tab-name { font-size: 16px; }
+  .submenu-item { padding: 8px 12px; font-size: 14px; }
+  .fab { width: 56px; height: 56px; font-size: 32px; bottom: 100px; right: 24px; }
+  .modal-content { width: 90%; margin: 10% auto; padding: 20px; }
 }
