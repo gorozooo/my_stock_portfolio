@@ -1,6 +1,5 @@
 /* -------------------- タブカード -------------------- */
 .tab-card {
-  background: #fff;
   margin: 8px 16px;
   border-radius: 12px;
   box-shadow: 0 2px 6px rgba(0,0,0,0.15);
@@ -31,6 +30,12 @@
   font-size: 18px;
 }
 
+.tab-name {
+  font-size: 16px;
+  font-weight: 500;
+  color: #333;
+}
+
 .tab-actions button {
   background: transparent;
   border: none;
@@ -45,7 +50,6 @@
   overflow: hidden;
   transition: max-height 0.3s ease;
   padding-left: 24px;
-  background: #f9f9f9;
 }
 
 .tab-card.expanded .submenu-list {
@@ -57,7 +61,6 @@
   justify-content: space-between;
   padding: 8px 12px;
   border-bottom: 1px solid #ddd;
-  background: #fafafa;
   border-radius: 6px;
   margin: 4px 0;
 }
@@ -75,10 +78,10 @@
   width: 100%;
   padding: 8px;
   border: none;
-  background: #e0e0e0;
   border-radius: 0 0 12px 12px;
   cursor: pointer;
   margin-top: 4px;
+  background: #e0e0e0;
 }
 
 /* -------------------- フローティングボタン -------------------- */
