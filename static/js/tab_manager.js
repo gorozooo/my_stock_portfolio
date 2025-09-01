@@ -19,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
     modal.addEventListener("click", e => { if (e.target === modal) closeModal(modal); });
   });
 
-  // -------------------- タブの展開/折りたたみ --------------------
+  // -------------------- タブ展開/折りたたみ --------------------
   function attachToggle(btn) {
     btn.addEventListener("click", () => {
       const tabCard = btn.closest(".tab-card");
@@ -143,7 +143,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const formData = new FormData(tabForm);
     const isNew = !tabModal.currentTabCard;
 
-    fetch("/tabs/save/", { method: "POST", headers: { "X-CSRFToken": getCSRFToken() }, body: formData })
+    // Django テンプレートタグ対応 URL
+    const url = tabModal.currentTabCard ? tabModal.currentTabCard.dataset.url || "/tabs/save/" : "/tabs/save/";
+
+    fetch(url, { method: "POST", headers: { "X-CSRFToken": getCSRFToken() }, body: formData })
       .then(res => res.json())
       .then(data => {
         if (data.id) {
@@ -170,7 +173,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const formData = new FormData(submenuForm);
     const isNew = !subItem;
 
-    fetch("/submenus/save/", { method: "POST", headers: { "X-CSRFToken": getCSRFToken() }, body: formData })
+    const url = subItem ? subItem.dataset.url || "/submenus/save/" : "/submenus/save/";
+
+    fetch(url, { method: "POST", headers: { "X-CSRFToken": getCSRFToken() }, body: formData })
       .then(res => res.json())
       .then(data => {
         if (data.id) {
@@ -188,13 +193,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // -------------------- 削除 --------------------
   function submitTabDelete(tabId, tabCard) {
-    fetch(`/tabs/delete/${tabId}/`, { method: "POST", headers: { "X-CSRFToken": getCSRFToken() } })
+    const url = `/tabs/delete/${tabId}/`;
+    fetch(url, { method: "POST", headers: { "X-CSRFToken": getCSRFToken() } })
       .then(res => res.json())
       .then(data => { if (data.success) tabCard.remove(); });
   }
 
   function submitSubmenuDelete(subId, subItem) {
-    fetch(`/submenus/delete/${subId}/`, { method: "POST", headers: { "X-CSRFToken": getCSRFToken() } })
+    const url = `/submenus/delete/${subId}/`;
+    fetch(url, { method: "POST", headers: { "X-CSRFToken": getCSRFToken() } })
       .then(res => res.json())
       .then(data => { if (data.success) subItem.remove(); });
   }
