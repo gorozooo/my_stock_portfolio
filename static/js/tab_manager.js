@@ -33,7 +33,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!btn) return;
     const toggleFn = () => btn.closest(".tab-card")?.classList.toggle("expanded");
     btn.addEventListener("click", toggleFn);
-    btn.addEventListener("touchstart", toggleFn);
+    btn.addEventListener("touchstart", toggleFn, {passive:true});
   }
 
   // -------------------- タブ生成 --------------------
@@ -58,12 +58,17 @@ document.addEventListener("DOMContentLoaded", () => {
       <button class="add-submenu-btn">＋ サブメニュー追加</button>
     `;
     attachTabEvents(div);
-    Sortable.create(div.querySelector(".submenu-list"), {
+
+    // サブメニュー並び替え対応（スマホ対応）
+    const submenuList = div.querySelector(".submenu-list");
+    Sortable.create(submenuList, {
       animation: 150,
       handle: ".submenu-item",
       ghostClass: "dragging",
+      touchStartThreshold: 5, // タッチ開始感度
       onEnd: saveSubmenuOrder
     });
+
     return div;
   }
 
@@ -203,7 +208,19 @@ document.addEventListener("DOMContentLoaded", () => {
   function getCSRFToken(){ return document.querySelector('[name=csrfmiddlewaretoken]')?.value||""; }
 
   // -------------------- 初期化 --------------------
-  if(tabList) Sortable.create(tabList,{animation:150, handle:".tab-header", ghostClass:"dragging", onEnd:saveTabOrder});
-  tabList.querySelectorAll(".submenu-list").forEach(list => Sortable.create(list,{animation:150, handle:".submenu-item", ghostClass:"dragging", onEnd:saveSubmenuOrder}));
+  if(tabList) Sortable.create(tabList,{
+    animation:150,
+    handle:".tab-header",
+    ghostClass:"dragging",
+    touchStartThreshold:5, // スマホ向け感度調整
+    onEnd:saveTabOrder
+  });
+  tabList.querySelectorAll(".submenu-list").forEach(list => Sortable.create(list,{
+    animation:150,
+    handle:".submenu-item",
+    ghostClass:"dragging",
+    touchStartThreshold:5,
+    onEnd:saveSubmenuOrder
+  }));
   tabList.querySelectorAll(".tab-card").forEach(tabCard => attachTabEvents(tabCard));
 });
