@@ -115,7 +115,8 @@ class BottomTab(models.Model):
     name = models.CharField("タブ名", max_length=50)
     icon = models.CharField("アイコン", max_length=50, blank=True)
     order = models.PositiveIntegerField("並び順", default=0)
-
+    url_name = models.CharField(max_length=100, verbose_name="URL名", blank=True, null=True)
+    
     class Meta:
         ordering = ['order']
 
