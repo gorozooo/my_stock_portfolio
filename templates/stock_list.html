@@ -37,7 +37,7 @@
     <button class="edit-btn">編集</button>
     <button class="sell-btn">売却</button>
 
-    <!-- 銘柄ごとのチャートデータ(JSON)を安全に埋め込む -->
+    <!-- チャートJSON -->
     <script id="chart-{{ stock.id }}" type="application/json">
       {{ stock.chart_json|safe }}
     </script>
@@ -60,8 +60,7 @@
       <p class="profit-label">損益: <span id="modal-profit"></span></p>
     </div>
 
-    <!-- チャート表示領域 -->
-    <canvas id="modal-chart" role="img" aria-label="株価ローソク足チャート"></canvas>
+    <canvas id="modal-chart" style="width:100%; height:300px;" role="img" aria-label="株価ローソク足チャート"></canvas>
 
     <div class="modal-actions">
       <button id="edit-btn-modal" class="edit-button">編集</button>
@@ -90,12 +89,8 @@
 {% endblock %}
 
 {% block extra_js %}
-<!-- Chart.js とローソク足プラグイン -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@4.3.0/dist/chartjs-chart-financial.min.js"></script>
-<!-- 日付スケール用アダプタ -->
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-
-<!-- stock_list.js を defer で読み込み -->
 <script src="{% static 'js/stock_list.js' %}" defer></script>
 {% endblock %}
