@@ -10,6 +10,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const openModal = modal => modal.style.display = "block";
   const closeModal = modal => modal.style.display = "none";
 
+  // モーダル閉じる
   document.querySelectorAll(".modal .modal-close").forEach(btn => {
     btn.addEventListener("click", () => closeModal(btn.closest(".modal")));
   });
@@ -23,13 +24,35 @@ document.addEventListener("DOMContentLoaded", () => {
       tabCard.classList.toggle("expanded");
     });
   }
-  document.querySelectorAll(".toggle-submenu").forEach(attachToggle);
 
-  Sortable.create(tabList, { animation: 150, handle: ".tab-header", ghostClass: "dragging" });
-  document.querySelectorAll(".submenu-list").forEach(list => {
-    Sortable.create(list, { animation: 150, handle: ".submenu-item", ghostClass: "dragging" });
-  });
+  // -------------------- 保存・復元 --------------------
+  function saveToStorage() {
+    const tabsData = Array.from(tabList.children).map(tabCard => ({
+      id: tabCard.dataset.id,
+      name: tabCard.querySelector(".tab-name").innerText,
+      icon: tabCard.querySelector(".tab-icon").innerText,
+      url_name: tabCard.dataset.url,
+      submenus: Array.from(tabCard.querySelectorAll(".submenu-item")).map(sub => ({
+        id: sub.dataset.id,
+        name: sub.querySelector("span").innerText,
+        url: sub.dataset.url
+      }))
+    }));
+    localStorage.setItem("my_tabs", JSON.stringify(tabsData));
+  }
 
+  function loadFromStorage() {
+    const data = JSON.parse(localStorage.getItem("my_tabs") || "[]");
+    data.forEach(tab => {
+      const tabCard = createTabCardHTML(tab);
+      tabList.appendChild(tabCard);
+      tab.submenus.forEach(sub => {
+        tabCard.querySelector(".submenu-list").appendChild(createSubmenuHTML(sub));
+      });
+    });
+  }
+
+  // -------------------- タブ・サブメニュー作成 --------------------
   function createTabCardHTML(tab) {
     const div = document.createElement("div");
     div.className = "tab-card";
@@ -56,37 +79,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function attachTabEvents(tabCard) {
     tabCard.querySelector(".edit-tab-btn").addEventListener("click", () => openTabModal(tabCard));
-    tabCard.querySelector(".delete-tab-btn").addEventListener("click", () => { if(confirm("タブを削除しますか？")) tabCard.remove(); });
+    tabCard.querySelector(".delete-tab-btn").addEventListener("click", () => { 
+      if(confirm("タブを削除しますか？")) { 
+        tabCard.remove(); 
+        saveToStorage();
+      } 
+    });
     attachToggle(tabCard.querySelector(".toggle-submenu"));
     tabCard.querySelector(".add-submenu-btn").addEventListener("click", () => openSubmenuModal(null, tabCard));
   }
-
-  function openTabModal(tabCard) {
-    const id = tabCard.dataset.id || "";
-    document.getElementById("modal-title").innerText = id ? "タブ編集" : "新規タブ追加";
-    document.getElementById("tab-id").value = id;
-    document.getElementById("tab-name").value = tabCard.querySelector(".tab-name")?.innerText || "";
-    document.getElementById("tab-icon").value = tabCard.querySelector(".tab-icon")?.innerText || "";
-    document.getElementById("tab-url").value = tabCard.dataset.url || "";
-    tabModal.currentTabCard = tabCard;
-    openModal(tabModal);
-  }
-
-  addTabFab.addEventListener("click", () => {
-    const newTab = { id: Date.now(), name: "新規タブ", icon: "📑", url_name: "" };
-    const tabCard = createTabCardHTML(newTab);
-    tabList.appendChild(tabCard); // ここで即座に画面に追加
-    openTabModal(tabCard); // モーダルで編集可能
-  });
-
-  tabForm.addEventListener("submit", e => {
-    e.preventDefault();
-    const tabCard = tabModal.currentTabCard;
-    tabCard.querySelector(".tab-name").innerText = document.getElementById("tab-name").value;
-    tabCard.querySelector(".tab-icon").innerText = document.getElementById("tab-icon").value || "📑";
-    tabCard.dataset.url = document.getElementById("tab-url").value;
-    closeModal(tabModal);
-  });
 
   function createSubmenuHTML(sub) {
     const div = document.createElement("div");
@@ -104,7 +105,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function attachSubmenuEvents(subItem) {
     subItem.querySelector(".edit-sub-btn").addEventListener("click", () => openSubmenuModal(subItem, subItem.closest(".tab-card")));
-    subItem.querySelector(".delete-sub-btn").addEventListener("click", () => { if(confirm("サブメニューを削除しますか？")) subItem.remove(); });
+    subItem.querySelector(".delete-sub-btn").addEventListener("click", () => { 
+      if(confirm("サブメニューを削除しますか？")) { 
+        subItem.remove(); 
+        saveToStorage();
+      } 
+    });
+  }
+
+  function openTabModal(tabCard) {
+    const id = tabCard.dataset.id || "";
+    document.getElementById("modal-title").innerText = id ? "タブ編集" : "新規タブ追加";
+    document.getElementById("tab-id").value = id;
+    document.getElementById("tab-name").value = tabCard.querySelector(".tab-name")?.innerText || "";
+    document.getElementById("tab-icon").value = tabCard.querySelector(".tab-icon")?.innerText || "";
+    document.getElementById("tab-url").value = tabCard.dataset.url || "";
+    tabModal.currentTabCard = tabCard;
+    openModal(tabModal);
   }
 
   function openSubmenuModal(subItem, tabCard) {
@@ -118,6 +135,27 @@ document.addEventListener("DOMContentLoaded", () => {
     openModal(submenuModal);
   }
 
+  // -------------------- 新規タブ追加 --------------------
+  addTabFab.addEventListener("click", () => {
+    const newTab = { id: Date.now(), name: "新規タブ", icon: "📑", url_name: "" };
+    const tabCard = createTabCardHTML(newTab);
+    tabList.appendChild(tabCard); 
+    openTabModal(tabCard);
+    saveToStorage();
+  });
+
+  // -------------------- タブ保存 --------------------
+  tabForm.addEventListener("submit", e => {
+    e.preventDefault();
+    const tabCard = tabModal.currentTabCard;
+    tabCard.querySelector(".tab-name").innerText = document.getElementById("tab-name").value;
+    tabCard.querySelector(".tab-icon").innerText = document.getElementById("tab-icon").value || "📑";
+    tabCard.dataset.url = document.getElementById("tab-url").value;
+    closeModal(tabModal);
+    saveToStorage();
+  });
+
+  // -------------------- サブメニュー保存 --------------------
   submenuForm.addEventListener("submit", e => {
     e.preventDefault();
     const subItem = submenuModal.currentSubItem;
@@ -130,10 +168,19 @@ document.addEventListener("DOMContentLoaded", () => {
       subItem.dataset.url = url;
     } else {
       const newSub = { id: Date.now(), name: name, url: url };
-      const submenuList = tabCard.querySelector(".submenu-list");
-      submenuList.appendChild(createSubmenuHTML(newSub));
+      tabCard.querySelector(".submenu-list").appendChild(createSubmenuHTML(newSub));
     }
     closeModal(submenuModal);
+    saveToStorage();
   });
+
+  // -------------------- ドラッグ順序更新 --------------------
+  Sortable.create(tabList, { animation: 150, handle: ".tab-header", ghostClass: "dragging", onEnd: saveToStorage });
+  document.querySelectorAll(".submenu-list").forEach(list => {
+    Sortable.create(list, { animation: 150, handle: ".submenu-item", ghostClass: "dragging", onEnd: saveToStorage });
+  });
+
+  // -------------------- ページロード時復元 --------------------
+  loadFromStorage();
 
 });
