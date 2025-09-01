@@ -1,78 +1,101 @@
 /* スマホファースト設計 、html css jsは分ける*/
 
-{% extends "base.html" %}
-{% load static %}
-{% load humanize %}
+/* 証券会社タブ */
+.broker-tabs-wrapper {
+  display: flex;
+  overflow-x: auto;
+  gap: 8px;
+  padding: 8px;
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.broker-tab {
+  padding: 6px 12px;
+  border: none;
+  background: #eee;
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.broker-tab.active {
+  background: #007bff;
+  color: #fff;
+}
 
-{% block content %}
-<div class="portfolio-container">
+/* 証券会社セクション横スクロール */
+.broker-horizontal-wrapper {
+  display: flex;
+  flex-direction: row;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  gap: 24px;
+  width: 100%;
+}
+.broker-horizontal-wrapper::-webkit-scrollbar { display: none; }
+.broker-horizontal-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
 
-  <!-- 証券会社タブ -->
-  <div class="broker-tabs-wrapper">
-    {% regroup stocks by broker as broker_list %}
-    {% for broker_group in broker_list %}
-    <button class="broker-tab" data-broker-index="{{ forloop.counter0 }}">
-      {{ broker_group.grouper }}
-    </button>
-    {% endfor %}
-  </div>
+/* 証券会社セクション */
+.broker-section {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+}
+.broker-title {
+  font-weight: bold;
+  padding: 8px;
+  background: #f9f9f9;
+  border-bottom: 1px solid #ccc;
+  text-align: center;
+}
 
-  <!-- 証券会社セクション（横スクロール） -->
-  <div class="broker-horizontal-wrapper">
-    {% for broker_group in broker_list %}
-    <div class="broker-section" data-broker-index="{{ forloop.counter0 }}">
-      <h3 class="broker-title">{{ broker_group.grouper }}</h3>
+/* 株カード縦スクロール */
+.broker-cards-wrapper {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  max-height: 400px;
+  gap: 12px;
+  padding: 8px;
+}
+.broker-cards-wrapper::-webkit-scrollbar { width: 6px; }
+.broker-cards-wrapper::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 3px; }
+.broker-cards-wrapper { -ms-overflow-style: none; scrollbar-width: thin; }
 
-      <!-- 株カード縦スクロール -->
-      <div class="broker-cards-wrapper">
-        {% for stock in broker_group.list %}
-        <div class="stock-card-wrapper">
-          <div class="stock-card"
-               data-id="{{ stock.id }}"
-               data-name="{{ stock.name }}"
-               data-ticker="{{ stock.ticker }}"
-               data-shares="{{ stock.shares }}"
-               data-unit_price="{{ stock.unit_price|floatformat:0 }}"
-               data-current_price="{{ stock.current_price|floatformat:0 }}"
-               data-profit="{{ stock.profit_amount }}"
-               data-profit_rate="{{ stock.profit_rate }}">
-            <div class="stock-header">
-              <span class="stock-name">{{ stock.name }}</span>
-              <span class="stock-code">{{ stock.ticker }}</span>
-            </div>
-            <div class="stock-body">
-              <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
-              <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
-              <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
-              <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
-              <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
-                <span>損益</span>
-                <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-    {% endfor %}
-  </div>
+.stock-card-wrapper {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  padding: 8px;
+}
+.stock-card { cursor: pointer; }
+.stock-row.gain.positive span:last-child { color: green; font-weight: bold; }
+.stock-row.gain.negative span:last-child { color: red; font-weight: bold; }
 
-  <!-- モーダル -->
-  <div id="stock-modal" class="modal" aria-hidden="true">
-    <div class="modal-content">
-      <span class="modal-close">&times;</span>
-      <div id="modal-body"></div>
-    </div>
-  </div>
-
-</div>
-{% endblock %}
-
-{% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/stock_list.css' %}">
-{% endblock %}
-
-{% block extra_js %}
-<script src="{% static 'js/stock_list.js' %}"></script>
-{% endblock %}
+/* モーダル */
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 100;
+  left: 0; top: 0;
+  width: 100%; height: 100%;
+  background: rgba(0,0,0,0.6);
+}
+.modal-content {
+  background: #fff;
+  margin: 10% auto;
+  padding: 16px;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 400px;
+  position: relative;
+}
+.modal-close {
+  position: absolute;
+  top: 8px; right: 12px;
+  font-size: 24px;
+  cursor: pointer;
+}
