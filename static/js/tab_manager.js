@@ -20,8 +20,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const closeModal = modal => modal.style.display="none";
 
   // モーダル閉じる
-  document.querySelectorAll(".modal .modal-close").forEach(btn => btn.addEventListener("click", ()=>closeModal(btn.closest(".modal"))));
-  [tabModal, submenuModal].forEach(modal => modal.addEventListener("click", e => {if(e.target===modal) closeModal(modal)}));
+  document.querySelectorAll(".modal .modal-close").forEach(btn =>
+    btn.addEventListener("click", ()=>closeModal(btn.closest(".modal")))
+  );
+  [tabModal, submenuModal].forEach(modal =>
+    modal.addEventListener("click", e => {if(e.target===modal) closeModal(modal)})
+  );
 
   // タブ折りたたみ
   function attachToggle(btn){
@@ -31,7 +35,7 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener("touchstart", fn);
   }
 
-  // タブ・サブメニュー HTML 作成
+  // HTML作成
   function createTabCardHTML(tab){
     const div=document.createElement("div");
     div.className="tab-card";
@@ -73,7 +77,6 @@ document.addEventListener("DOMContentLoaded", () => {
     return div;
   }
 
-  // イベント付与
   function attachTabEvents(tabCard){
     tabCard.querySelector(".edit-tab-btn")?.addEventListener("click", ()=>openTabModal(tabCard));
     tabCard.querySelector(".delete-tab-btn")?.addEventListener("click", ()=>{if(confirm("タブを削除しますか？")) submitTabDelete(tabCard)});
@@ -111,7 +114,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   addTabFab.addEventListener("click", ()=>openTabModal(null));
 
-  // POST 処理
+  // POST処理
   async function postForm(url, formData){
     const res = await fetch(url,{method:"POST",headers:{"X-CSRFToken":getCSRFToken()},body:formData});
     return await res.json();
@@ -156,35 +159,37 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch(err){ alert("通信エラー: "+err); }
   });
 
-  function submitTabDelete(tabCard){
-    const tabId=tabCard?.dataset.id;
+  // 削除
+  const submitTabDelete = (tabCard) => {
+    const tabId = tabCard?.dataset.id;
     if(!tabId) return;
-    const url=urls.tabDeleteBase.replace(/0\/?$/, tabId+"/");
-    fetch(url,{method:"POST",headers:{"X-CSRFToken":getCSRFToken()}}).then(r=>r.json()).then(d=>{if(d.success) tabCard.remove()});
-  }
+    const url = urls.tabDeleteBase.replace(/0\/?$/, `${tabId}/`);
+    fetch(url,{method:"POST",headers:{"X-CSRFToken":getCSRFToken()}})
+      .then(r=>r.json()).then(d=>{if(d.success) tabCard.remove()});
+  };
 
-  function submitSubmenuDelete(subItem){
-    const subId=subItem?.dataset.id;
+  const submitSubmenuDelete = (subItem) => {
+    const subId = subItem?.dataset.id;
     if(!subId) return;
-    const url=urls.submenuDeleteBase.replace(/0\/?$/, subId+"/");
-    fetch(url,{method:"POST",headers:{"X-CSRFToken":getCSRFToken()}}).then(r=>r.json()).then(d=>{if(d.success) subItem.remove()});
-  }
+    const url = urls.submenuDeleteBase.replace(/0\/?$/, `${subId}/`);
+    fetch(url,{method:"POST",headers:{"X-CSRFToken":getCSRFToken()}})
+      .then(r=>r.json()).then(d=>{if(d.success) subItem.remove()});
+  };
 
-  function saveTabOrder(){
-    if(!tabList) return;
+  // 並び順
+  const saveTabOrder = () => {
     const order = Array.from(tabList.children).map(tab=>tab.dataset.id).filter(Boolean);
     fetch(urls.tabReorder,{method:"POST",headers:{"Content-Type":"application/json","X-CSRFToken":getCSRFToken()},body:JSON.stringify({order})});
-  }
+  };
 
-  function saveSubmenuOrder(list){
-    const ul=list;
-    const tabId=ul.closest(".tab-card")?.dataset.id;
+  const saveSubmenuOrder = (ul) => {
+    const tabId = ul.closest(".tab-card")?.dataset.id;
     if(!tabId) return;
     const order = Array.from(ul.children).map(sub=>sub.dataset.id).filter(Boolean);
     fetch(urls.submenuReorder,{method:"POST",headers:{"Content-Type":"application/json","X-CSRFToken":getCSRFToken()},body:JSON.stringify({tab_id:tabId,order})});
-  }
+  };
 
-  function getCSRFToken(){ return document.querySelector('[name=csrfmiddlewaretoken]')?.value||""; }
+  const getCSRFToken = () => document.querySelector('[name=csrfmiddlewaretoken]')?.value||"";
 
   // 初期化 Sortable
   if(tabList) Sortable.create(tabList,{animation:150, handle:".tab-header", ghostClass:"dragging", onEnd:saveTabOrder});
