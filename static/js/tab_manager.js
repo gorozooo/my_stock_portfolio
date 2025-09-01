@@ -32,7 +32,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const div = document.createElement("div");
     div.className = "tab-card";
     div.dataset.id = tab.id;
-    div.dataset.url = tab.url_name || "";
     div.innerHTML = `
       <div class="tab-header">
         <div class="tab-main">
@@ -63,25 +62,20 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function attachTabEvents(tabCard) {
-    // 編集
     const editBtn = tabCard.querySelector(".edit-tab-btn");
     if (editBtn) editBtn.addEventListener("click", () => openTabModal(tabCard));
 
-    // 削除
     const deleteBtn = tabCard.querySelector(".delete-tab-btn");
     if (deleteBtn) deleteBtn.addEventListener("click", () => {
       if (confirm("タブを削除しますか？")) submitTabDelete(tabCard.dataset.id, tabCard);
     });
 
-    // 展開/折りたたみ
     const toggleBtn = tabCard.querySelector(".toggle-submenu");
     if (toggleBtn) attachToggle(toggleBtn);
 
-    // サブメニュー追加
     const addSubBtn = tabCard.querySelector(".add-submenu-btn");
     if (addSubBtn) addSubBtn.addEventListener("click", () => openSubmenuModal(null, tabCard));
 
-    // 既存サブメニューにイベント付与
     tabCard.querySelectorAll(".submenu-item").forEach(sub => attachSubmenuEvents(sub));
   }
 
@@ -90,7 +84,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const div = document.createElement("div");
     div.className = "submenu-item";
     div.dataset.id = sub.id;
-    div.dataset.url = sub.url || "";
     div.innerHTML = `
       <span>${sub.name || "（未設定）"}</span>
       <div class="submenu-actions">
@@ -118,7 +111,6 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("tab-id").value = tabCard?.dataset.id || "";
     document.getElementById("tab-name").value = tabCard?.querySelector(".tab-name")?.innerText || "";
     document.getElementById("tab-icon").value = tabCard?.querySelector(".tab-icon")?.innerText || "📑";
-    document.getElementById("tab-url").value = tabCard?.dataset.url || "";
     tabModal.currentTabCard = tabCard || null;
     openModal(tabModal);
   }
@@ -128,13 +120,11 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("submenu-tab-id").value = tabCard.dataset.id;
     document.getElementById("submenu-id").value = subItem?.dataset.id || "";
     document.getElementById("submenu-name").value = subItem?.querySelector("span")?.innerText || "";
-    document.getElementById("submenu-url").value = subItem?.dataset.url || "";
     submenuModal.currentSubItem = subItem || null;
     submenuModal.currentTabCard = tabCard;
     openModal(submenuModal);
   }
 
-  // -------------------- 新規タブ作成 --------------------
   addTabFab.addEventListener("click", () => openTabModal(null));
 
   // -------------------- タブ保存 --------------------
@@ -143,10 +133,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const formData = new FormData(tabForm);
     const isNew = !tabModal.currentTabCard;
 
-    // Django テンプレートタグ対応 URL
-    const url = tabModal.currentTabCard ? tabModal.currentTabCard.dataset.url || "/tabs/save/" : "/tabs/save/";
-
-    fetch(url, { method: "POST", headers: { "X-CSRFToken": getCSRFToken() }, body: formData })
+    fetch("/tabs/save/", { method: "POST", headers: { "X-CSRFToken": getCSRFToken() }, body: formData })
       .then(res => res.json())
       .then(data => {
         if (data.id) {
@@ -156,7 +143,6 @@ document.addEventListener("DOMContentLoaded", () => {
             tabCard.dataset.id = data.id;
             tabCard.querySelector(".tab-name").innerText = data.name;
             tabCard.querySelector(".tab-icon").innerText = data.icon || "📑";
-            tabCard.dataset.url = data.url_name || "";
           }
           closeModal(tabModal);
           saveTabOrder();
@@ -173,17 +159,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const formData = new FormData(submenuForm);
     const isNew = !subItem;
 
-    const url = subItem ? subItem.dataset.url || "/submenus/save/" : "/submenus/save/";
-
-    fetch(url, { method: "POST", headers: { "X-CSRFToken": getCSRFToken() }, body: formData })
+    fetch("/submenus/save/", { method: "POST", headers: { "X-CSRFToken": getCSRFToken() }, body: formData })
       .then(res => res.json())
       .then(data => {
         if (data.id) {
           if (isNew) tabCard.querySelector(".submenu-list").appendChild(createSubmenuHTML(data));
-          else {
-            subItem.querySelector("span").innerText = data.name;
-            subItem.dataset.url = data.url || "";
-          }
+          else subItem.querySelector("span").innerText = data.name;
           closeModal(submenuModal);
           saveSubmenuOrder({ from: tabCard.querySelector(".submenu-list") });
         } else if (data.error) alert("保存できませんでした: " + data.error);
@@ -193,15 +174,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // -------------------- 削除 --------------------
   function submitTabDelete(tabId, tabCard) {
-    const url = `/tabs/delete/${tabId}/`;
-    fetch(url, { method: "POST", headers: { "X-CSRFToken": getCSRFToken() } })
+    fetch(`/tabs/delete/${tabId}/`, { method: "POST", headers: { "X-CSRFToken": getCSRFToken() } })
       .then(res => res.json())
       .then(data => { if (data.success) tabCard.remove(); });
   }
 
   function submitSubmenuDelete(subId, subItem) {
-    const url = `/submenus/delete/${subId}/`;
-    fetch(url, { method: "POST", headers: { "X-CSRFToken": getCSRFToken() } })
+    fetch(`/submenus/delete/${subId}/`, { method: "POST", headers: { "X-CSRFToken": getCSRFToken() } })
       .then(res => res.json())
       .then(data => { if (data.success) subItem.remove(); });
   }
