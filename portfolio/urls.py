@@ -32,9 +32,11 @@ urlpatterns = [
     path('settings/notification/', views.notification_settings_view, name='notification_settings'),
     path('settings/password/', views.settings_password_edit, name='settings_password_edit'),
 
-    # --- 下タブ管理用 API ---
-    path('api/get_tabs/', views.get_tabs, name='get_tabs'),
-    path('api/save_tab/', views.save_tab, name='save_tab'),               # タブ保存
-    path('api/delete_tab/<int:tab_id>/', views.delete_tab, name='delete_tab'),  # タブ削除
-    path('api/save_order/', views.save_order, name='save_order'),         # 並び順保存
+    # --- 下タブ管理用 API (JS 側 fetch と統一) ---
+    path('tabs/save/', views.save_tab, name='save_tab'),                     # タブ保存
+    path('tabs/delete/<int:tab_id>/', views.delete_tab, name='delete_tab'),  # タブ削除
+    path('tabs/reorder/', views.save_order, name='save_order'),              # 並び順保存
+    path('submenus/save/', views.save_submenu, name='save_submenu'),         # サブメニュー保存
+    path('submenus/delete/<int:sub_id>/', views.delete_submenu, name='delete_submenu'),  # サブ削除
+    path('submenus/reorder/', views.save_submenu_order, name='save_submenu_order'),      # サブ並び順
 ]
