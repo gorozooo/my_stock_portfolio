@@ -1,5 +1,6 @@
 document.addEventListener("DOMContentLoaded", () => {
 
+  // -------------------- DOM要素 --------------------
   const tabModal = document.getElementById("tab-modal");
   const submenuModal = document.getElementById("submenu-modal");
   const tabForm = document.getElementById("tab-form");
@@ -10,7 +11,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const openModal = modal => modal.style.display = "block";
   const closeModal = modal => modal.style.display = "none";
 
-  // モーダル閉じる
+  // -------------------- モーダル閉じる --------------------
   document.querySelectorAll(".modal .modal-close").forEach(btn => {
     btn.addEventListener("click", () => closeModal(btn.closest(".modal")));
   });
@@ -18,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
     modal.addEventListener("click", e => { if(e.target === modal) closeModal(modal); });
   });
 
-  // サブメニュー展開/折りたたみ
+  // -------------------- サブメニュー展開/折りたたみ --------------------
   function attachToggle(btn) {
     btn.addEventListener("click", () => {
       const tabCard = btn.closest(".tab-card");
@@ -26,7 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // -------------------- タブ・サブメニュー作成 --------------------
+  // -------------------- タブHTML生成 --------------------
   function createTabCardHTML(tab) {
     const div = document.createElement("div");
     div.className = "tab-card";
@@ -52,38 +53,36 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function attachTabEvents(tabCard) {
-    // タブ編集
     const editBtn = tabCard.querySelector(".edit-tab-btn");
     if(editBtn) editBtn.addEventListener("click", () => openTabModal(tabCard));
 
-    // タブ削除
     const deleteBtn = tabCard.querySelector(".delete-tab-btn");
     if(deleteBtn) deleteBtn.addEventListener("click", () => {
       if(confirm("タブを削除しますか？")) submitTabDelete(tabCard.dataset.id, tabCard);
     });
 
-    // サブメニュー展開
     const toggleBtn = tabCard.querySelector(".toggle-submenu");
     if(toggleBtn) attachToggle(toggleBtn);
 
-    // サブメニュー追加
     const addSubBtn = tabCard.querySelector(".add-submenu-btn");
     if(addSubBtn) addSubBtn.addEventListener("click", () => openSubmenuModal(null, tabCard));
 
-    // 既存サブメニューイベント
     tabCard.querySelectorAll(".submenu-item").forEach(sub => attachSubmenuEvents(sub));
   }
 
+  // -------------------- サブメニューHTML生成 --------------------
   function createSubmenuHTML(sub) {
     const div = document.createElement("div");
     div.className = "submenu-item";
     div.dataset.id = sub.id;
     div.dataset.url = sub.url || "";
-    div.innerHTML = `<span>${sub.name || "（未設定）"}</span>
+    div.innerHTML = `
+      <span>${sub.name || "（未設定）"}</span>
       <div class="submenu-actions">
         <button class="edit-sub-btn" title="編集">✏️</button>
         <button class="delete-sub-btn" title="削除">🗑️</button>
-      </div>`;
+      </div>
+    `;
     attachSubmenuEvents(div);
     return div;
   }
@@ -136,16 +135,16 @@ document.addEventListener("DOMContentLoaded", () => {
     })
     .then(res => res.json())
     .then(data => {
-      if(data.success){
+      if(data.id){
         if(isNew){
           const newTabCard = createTabCardHTML(data);
           tabList.appendChild(newTabCard);
         } else {
           const tabCard = tabModal.currentTabCard;
-          tabCard.dataset.id = data.tab_id;
+          tabCard.dataset.id = data.id;
           tabCard.querySelector(".tab-name").innerText = data.name;
           tabCard.querySelector(".tab-icon").innerText = data.icon || "📑";
-          tabCard.dataset.url = data.url_name;
+          tabCard.dataset.url = data.url_name || "";
         }
         closeModal(tabModal);
       }
@@ -167,12 +166,12 @@ document.addEventListener("DOMContentLoaded", () => {
     })
     .then(res => res.json())
     .then(data => {
-      if(data.success){
+      if(data.id){
         if(isNew){
           tabCard.querySelector(".submenu-list").appendChild(createSubmenuHTML(data));
         } else {
           subItem.querySelector("span").innerText = data.name;
-          subItem.dataset.url = data.url;
+          subItem.dataset.url = data.url || "";
         }
         closeModal(submenuModal);
       }
