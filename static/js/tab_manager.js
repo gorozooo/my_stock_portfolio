@@ -1,5 +1,28 @@
 document.addEventListener("DOMContentLoaded", () => {
 
+  // -------------------- モーダル操作 --------------------
+  const tabModal = document.getElementById("tab-modal");
+  const submenuModal = document.getElementById("submenu-modal");
+  const tabForm = document.getElementById("tab-form");
+  const submenuForm = document.getElementById("submenu-form");
+
+  const openModal = (modal) => modal.style.display = "block";
+  const closeModal = (modal) => modal.style.display = "none";
+
+  // モーダル閉じるボタン
+  document.querySelectorAll(".modal .modal-close").forEach(btn => {
+    btn.addEventListener("click", () => {
+      closeModal(btn.closest(".modal"));
+    });
+  });
+
+  // モーダル背景クリックで閉じる
+  [tabModal, submenuModal].forEach(modal => {
+    modal.addEventListener("click", e => {
+      if(e.target === modal) closeModal(modal);
+    });
+  });
+
   // -------------------- サブメニュー折りたたみ --------------------
   document.querySelectorAll(".toggle-submenu").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -37,15 +60,26 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // -------------------- タブ編集・削除 --------------------
+  // -------------------- タブ編集 --------------------
   document.querySelectorAll(".edit-tab-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const tabCard = btn.closest(".tab-card");
-      alert("タブ編集: " + tabCard.dataset.id);
-      // TODO: モーダル or インライン編集
+      const id = tabCard.dataset.id;
+      const name = tabCard.querySelector(".tab-name").innerText;
+      const icon = tabCard.querySelector(".tab-icon").innerText;
+      const url_name = tabCard.dataset.url || ""; // data-url 属性あれば
+
+      document.getElementById("modal-title").innerText = "タブ編集";
+      document.getElementById("tab-id").value = id;
+      document.getElementById("tab-name").value = name;
+      document.getElementById("tab-icon").value = icon;
+      document.getElementById("tab-url").value = url_name;
+
+      openModal(tabModal);
     });
   });
 
+  // -------------------- タブ削除 --------------------
   document.querySelectorAll(".delete-tab-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const tabCard = btn.closest(".tab-card");
@@ -56,14 +90,27 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // -------------------- サブメニュー編集・削除 --------------------
+  // -------------------- サブメニュー編集 --------------------
   document.querySelectorAll(".edit-sub-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const subItem = btn.closest(".submenu-item");
-      alert("サブメニュー編集: " + subItem.dataset.id);
+      const tabCard = subItem.closest(".tab-card");
+      const tabId = tabCard.dataset.id;
+      const id = subItem.dataset.id;
+      const name = subItem.querySelector("span").innerText;
+      const url = subItem.dataset.url || "";
+
+      document.getElementById("submenu-modal-title").innerText = "サブメニュー編集";
+      document.getElementById("submenu-tab-id").value = tabId;
+      document.getElementById("submenu-id").value = id;
+      document.getElementById("submenu-name").value = name;
+      document.getElementById("submenu-url").value = url;
+
+      openModal(submenuModal);
     });
   });
 
+  // -------------------- サブメニュー削除 --------------------
   document.querySelectorAll(".delete-sub-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const subItem = btn.closest(".submenu-item");
@@ -76,17 +123,46 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // -------------------- 新規タブ追加 --------------------
   document.getElementById("add-tab-fab").addEventListener("click", () => {
-    alert("新規タブ追加");
-    // TODO: モーダル表示 or Ajax追加
+    document.getElementById("modal-title").innerText = "新規タブ追加";
+    document.getElementById("tab-id").value = "";
+    document.getElementById("tab-name").value = "";
+    document.getElementById("tab-icon").value = "";
+    document.getElementById("tab-url").value = "";
+    openModal(tabModal);
   });
 
   // -------------------- 新規サブメニュー追加 --------------------
   document.querySelectorAll(".add-submenu-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const tabCard = btn.closest(".tab-card");
-      alert("サブメニュー追加: " + tabCard.dataset.id);
-      // TODO: Ajax追加
+      const tabId = tabCard.dataset.id;
+
+      document.getElementById("submenu-modal-title").innerText = "サブメニュー追加";
+      document.getElementById("submenu-tab-id").value = tabId;
+      document.getElementById("submenu-id").value = "";
+      document.getElementById("submenu-name").value = "";
+      document.getElementById("submenu-url").value = "";
+
+      openModal(submenuModal);
     });
+  });
+
+  // -------------------- タブ保存フォーム --------------------
+  tabForm.addEventListener("submit", e => {
+    e.preventDefault();
+    const formData = new FormData(tabForm);
+    console.log("タブ送信データ:", Object.fromEntries(formData.entries()));
+    closeModal(tabModal);
+    // TODO: AjaxでDB保存
+  });
+
+  // -------------------- サブメニュー保存フォーム --------------------
+  submenuForm.addEventListener("submit", e => {
+    e.preventDefault();
+    const formData = new FormData(submenuForm);
+    console.log("サブメニュー送信データ:", Object.fromEntries(formData.entries()));
+    closeModal(submenuModal);
+    // TODO: AjaxでDB保存
   });
 
 });
