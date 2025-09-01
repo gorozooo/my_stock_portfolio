@@ -68,14 +68,25 @@ def logout_view(request):
 # -----------------------------
 # 株関連ページ
 # -----------------------------
+# ===== views.py =====
+import json
+import yfinance as yf
+from django.shortcuts import render
+from django.contrib.auth.decorators import login_required
+from .models import Stock
+
 @login_required
 def stock_list_view(request):
-    # 全保有株を取得
+    """
+    保有株一覧ページ表示ビュー。
+    Chart.js 用にローソク足チャートの JSON を埋め込み、
+    損益計算や現在株価もセットして渡す。
+    """
     stocks = Stock.objects.all()
 
     for stock in stocks:
         try:
-            # Yahoo Finance の日本株用シンボル
+            # Yahoo Finance 日本株シンボル
             ticker_symbol = f"{stock.ticker}.T"
             ticker = yf.Ticker(ticker_symbol)
 
@@ -86,13 +97,13 @@ def stock_list_view(request):
             else:
                 stock.current_price = stock.unit_price
 
-            # ===== 過去1ヶ月のOHLCデータ取得 =====
+            # ===== 過去1か月のOHLCデータ取得 =====
             history = ticker.history(period="1mo")
             ohlc_list = []
             if not history.empty:
                 for date, row in history.iterrows():
                     ohlc_list.append({
-                        "t": date.strftime("%Y-%m-%d"),  # Chart.js用 x軸
+                        "t": date.strftime("%Y-%m-%d"),
                         "o": round(row["Open"], 2),
                         "h": round(row["High"], 2),
                         "l": round(row["Low"], 2),
@@ -106,19 +117,19 @@ def stock_list_view(request):
             stock.profit_rate = round(stock.profit_amount / stock.total_cost * 100, 2) if stock.total_cost else 0
 
         except Exception as e:
-            # 取得失敗時はデフォルト値
-            stock.chart_history = []
+            # データ取得失敗時はデフォルト値
             stock.current_price = stock.unit_price
             stock.total_cost = stock.shares * stock.unit_price
             stock.profit_amount = 0
             stock.profit_rate = 0
+            stock.chart_history = []
             print(f"Error fetching data for {stock.ticker}: {e}")
 
-        # ===== JSON化してHTML埋め込み用 =====
+        # ===== Chart.js 用 JSON に変換 =====
         stock.chart_json = json.dumps(stock.chart_history)
 
     return render(request, "stock_list.html", {"stocks": stocks})
-
+    
 @login_required
 def stock_create(request):
     errors = {}
