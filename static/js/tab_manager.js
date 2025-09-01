@@ -16,10 +16,10 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener("click", () => closeModal(btn.closest(".modal")));
   });
   [tabModal, submenuModal].forEach(modal => {
-    modal.addEventListener("click", e => { if(e.target === modal) closeModal(modal); });
+    modal.addEventListener("click", e => { if (e.target === modal) closeModal(modal); });
   });
 
-  // -------------------- サブメニュー展開/折りたたみ --------------------
+  // -------------------- タブの展開/折りたたみ --------------------
   function attachToggle(btn) {
     btn.addEventListener("click", () => {
       const tabCard = btn.closest(".tab-card");
@@ -52,9 +52,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // サブメニューSortable初期化
     const submenuList = div.querySelector(".submenu-list");
-    Sortable.create(submenuList, { 
-      animation: 150, 
-      handle: ".submenu-item", 
+    Sortable.create(submenuList, {
+      animation: 150,
+      handle: ".submenu-item",
       ghostClass: "dragging",
       onEnd: saveSubmenuOrder
     });
@@ -63,20 +63,25 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function attachTabEvents(tabCard) {
+    // 編集
     const editBtn = tabCard.querySelector(".edit-tab-btn");
-    if(editBtn) editBtn.addEventListener("click", () => openTabModal(tabCard));
+    if (editBtn) editBtn.addEventListener("click", () => openTabModal(tabCard));
 
+    // 削除
     const deleteBtn = tabCard.querySelector(".delete-tab-btn");
-    if(deleteBtn) deleteBtn.addEventListener("click", () => {
-      if(confirm("タブを削除しますか？")) submitTabDelete(tabCard.dataset.id, tabCard);
+    if (deleteBtn) deleteBtn.addEventListener("click", () => {
+      if (confirm("タブを削除しますか？")) submitTabDelete(tabCard.dataset.id, tabCard);
     });
 
+    // 展開/折りたたみ
     const toggleBtn = tabCard.querySelector(".toggle-submenu");
-    if(toggleBtn) attachToggle(toggleBtn);
+    if (toggleBtn) attachToggle(toggleBtn);
 
+    // サブメニュー追加
     const addSubBtn = tabCard.querySelector(".add-submenu-btn");
-    if(addSubBtn) addSubBtn.addEventListener("click", () => openSubmenuModal(null, tabCard));
+    if (addSubBtn) addSubBtn.addEventListener("click", () => openSubmenuModal(null, tabCard));
 
+    // 既存サブメニューにイベント付与
     tabCard.querySelectorAll(".submenu-item").forEach(sub => attachSubmenuEvents(sub));
   }
 
@@ -99,11 +104,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function attachSubmenuEvents(subItem) {
     const editBtn = subItem.querySelector(".edit-sub-btn");
-    if(editBtn) editBtn.addEventListener("click", () => openSubmenuModal(subItem, subItem.closest(".tab-card")));
+    if (editBtn) editBtn.addEventListener("click", () => openSubmenuModal(subItem, subItem.closest(".tab-card")));
 
     const deleteBtn = subItem.querySelector(".delete-sub-btn");
-    if(deleteBtn) deleteBtn.addEventListener("click", () => {
-      if(confirm("サブメニューを削除しますか？")) submitSubmenuDelete(subItem.dataset.id, subItem);
+    if (deleteBtn) deleteBtn.addEventListener("click", () => {
+      if (confirm("サブメニューを削除しますか？")) submitSubmenuDelete(subItem.dataset.id, subItem);
     });
   }
 
@@ -138,31 +143,23 @@ document.addEventListener("DOMContentLoaded", () => {
     const formData = new FormData(tabForm);
     const isNew = !tabModal.currentTabCard;
 
-    fetch("/tabs/save/", {
-      method: "POST",
-      headers: { "X-CSRFToken": getCSRFToken() },
-      body: formData
-    })
-    .then(res => res.json())
-    .then(data => {
-      if(data.id){
-        if(isNew){
-          const newTabCard = createTabCardHTML(data);
-          tabList.appendChild(newTabCard);
-        } else {
-          const tabCard = tabModal.currentTabCard;
-          tabCard.dataset.id = data.id;
-          tabCard.querySelector(".tab-name").innerText = data.name;
-          tabCard.querySelector(".tab-icon").innerText = data.icon || "📑";
-          tabCard.dataset.url = data.url_name || "";
-        }
-        closeModal(tabModal);
-        saveTabOrder();
-      } else if(data.error){
-        alert("保存できませんでした: " + data.error);
-      }
-    })
-    .catch(err => alert("通信エラー: " + err));
+    fetch("/tabs/save/", { method: "POST", headers: { "X-CSRFToken": getCSRFToken() }, body: formData })
+      .then(res => res.json())
+      .then(data => {
+        if (data.id) {
+          if (isNew) tabList.appendChild(createTabCardHTML(data));
+          else {
+            const tabCard = tabModal.currentTabCard;
+            tabCard.dataset.id = data.id;
+            tabCard.querySelector(".tab-name").innerText = data.name;
+            tabCard.querySelector(".tab-icon").innerText = data.icon || "📑";
+            tabCard.dataset.url = data.url_name || "";
+          }
+          closeModal(tabModal);
+          saveTabOrder();
+        } else if (data.error) alert("保存できませんでした: " + data.error);
+      })
+      .catch(err => alert("通信エラー: " + err));
   });
 
   // -------------------- サブメニュー保存 --------------------
@@ -173,85 +170,51 @@ document.addEventListener("DOMContentLoaded", () => {
     const formData = new FormData(submenuForm);
     const isNew = !subItem;
 
-    fetch("/submenus/save/", {
-      method: "POST",
-      headers: { "X-CSRFToken": getCSRFToken() },
-      body: formData
-    })
-    .then(res => res.json())
-    .then(data => {
-      if(data.id){
-        if(isNew){
-          tabCard.querySelector(".submenu-list").appendChild(createSubmenuHTML(data));
-        } else {
-          subItem.querySelector("span").innerText = data.name;
-          subItem.dataset.url = data.url || "";
-        }
-        closeModal(submenuModal);
-        saveSubmenuOrder({ from: tabCard.querySelector(".submenu-list") });
-      } else if(data.error){
-        alert("保存できませんでした: " + data.error);
-      }
-    })
-    .catch(err => alert("通信エラー: " + err));
+    fetch("/submenus/save/", { method: "POST", headers: { "X-CSRFToken": getCSRFToken() }, body: formData })
+      .then(res => res.json())
+      .then(data => {
+        if (data.id) {
+          if (isNew) tabCard.querySelector(".submenu-list").appendChild(createSubmenuHTML(data));
+          else {
+            subItem.querySelector("span").innerText = data.name;
+            subItem.dataset.url = data.url || "";
+          }
+          closeModal(submenuModal);
+          saveSubmenuOrder({ from: tabCard.querySelector(".submenu-list") });
+        } else if (data.error) alert("保存できませんでした: " + data.error);
+      })
+      .catch(err => alert("通信エラー: " + err));
   });
 
   // -------------------- 削除 --------------------
-  function submitTabDelete(tabId, tabCard){
+  function submitTabDelete(tabId, tabCard) {
     fetch(`/tabs/delete/${tabId}/`, { method: "POST", headers: { "X-CSRFToken": getCSRFToken() } })
       .then(res => res.json())
-      .then(data => { if(data.success) tabCard.remove(); });
+      .then(data => { if (data.success) tabCard.remove(); });
   }
 
-  function submitSubmenuDelete(subId, subItem){
+  function submitSubmenuDelete(subId, subItem) {
     fetch(`/submenus/delete/${subId}/`, { method: "POST", headers: { "X-CSRFToken": getCSRFToken() } })
       .then(res => res.json())
-      .then(data => { if(data.success) subItem.remove(); });
+      .then(data => { if (data.success) subItem.remove(); });
   }
 
   // -------------------- ドラッグ順序更新 --------------------
-  const tabSortable = Sortable.create(tabList, { 
-    animation: 150, 
-    handle: ".tab-header", 
-    ghostClass: "dragging",
-    onEnd: saveTabOrder
-  });
-
-  tabList.querySelectorAll(".submenu-list").forEach(list => {
-    Sortable.create(list, { 
-      animation: 150, 
-      handle: ".submenu-item", 
-      ghostClass: "dragging",
-      onEnd: saveSubmenuOrder
-    });
-  });
+  Sortable.create(tabList, { animation: 150, handle: ".tab-header", ghostClass: "dragging", onEnd: saveTabOrder });
+  tabList.querySelectorAll(".submenu-list").forEach(list => Sortable.create(list, { animation: 150, handle: ".submenu-item", ghostClass: "dragging", onEnd: saveSubmenuOrder }));
 
   // -------------------- 順序保存 --------------------
   function saveTabOrder() {
     const order = Array.from(tabList.children).map(tab => tab.dataset.id).filter(id => id);
-    fetch("/tabs/reorder/", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRFToken": getCSRFToken()
-      },
-      body: JSON.stringify({ order })
-    });
+    fetch("/tabs/reorder/", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRFToken": getCSRFToken() }, body: JSON.stringify({ order }) });
   }
 
   function saveSubmenuOrder(evt) {
     const list = evt.from;
     const tabId = list.closest(".tab-card")?.dataset.id;
-    if(!tabId) return;
+    if (!tabId) return;
     const order = Array.from(list.children).map(sub => sub.dataset.id).filter(id => id);
-    fetch("/submenus/reorder/", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRFToken": getCSRFToken()
-      },
-      body: JSON.stringify({ tab_id: tabId, order })
-    });
+    fetch("/submenus/reorder/", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRFToken": getCSRFToken() }, body: JSON.stringify({ tab_id: tabId, order }) });
   }
 
   // -------------------- CSRF取得 --------------------
