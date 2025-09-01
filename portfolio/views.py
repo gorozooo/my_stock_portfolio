@@ -190,8 +190,6 @@ def stock_create(request):
     }
 
     tpl = get_template("stocks/stock_create.html")
-    print(">>> USING TEMPLATE:", getattr(getattr(tpl, "origin", None), "name", tpl))
-
     return HttpResponse(tpl.render(context, request))
 
 
@@ -274,10 +272,8 @@ def tab_manager_view(request):
     if not request.session.get("settings_authenticated"):
         return redirect("settings_login")
 
-    # 全ユーザー共通のタブを取得（order優先）
     tabs_qs = BottomTab.objects.prefetch_related('submenus').order_by('order', 'id')
 
-    # テンプレートが dict 期待なので整形
     tab_list = []
     for tab in tabs_qs:
         tab_list.append({
@@ -335,7 +331,6 @@ def settings_password_edit(request):
 # -----------------------------
 @login_required
 def get_tabs(request):
-    # get_bottom_tabs() 側が現行モデル構成（link_type無）に合わせてある前提
     return JsonResponse(get_bottom_tabs(), safe=False)
 
 
@@ -369,7 +364,6 @@ def save_tab(request):
         tab.icon = icon
         tab.url_name = url_name
         tab.save()
-        # いったん全削除して作り直す（簡便）
         tab.submenus.all().delete()
     else:
         max_tab = BottomTab.objects.order_by("-order").first()
@@ -380,7 +374,6 @@ def save_tab(request):
             order=(max_tab.order + 1) if max_tab else 0,
         )
 
-    # サブメニューの再作成
     for idx, sm in enumerate(submenus):
         tab.submenus.create(
             name=(sm.get("name") or "").strip(),
