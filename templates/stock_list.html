@@ -15,7 +15,7 @@
          data-current_price="{{ stock.current_price|floatformat:0 }}"
          data-profit="{{ stock.profit_amount }}"
          data-profit_rate="{{ stock.profit_rate }}"
-         data-chart-id="chart-{{ stock.id }}">  {# chart JSON は下の script タグに格納 #}
+         data-chart-id="chart-{{ stock.id }}"> 
 
       <div class="stock-header">
         <span class="stock-name">{{ stock.name }}</span>
@@ -37,7 +37,7 @@
     <button class="edit-btn">編集</button>
     <button class="sell-btn">売却</button>
 
-    {# --- 銘柄ごとのチャートデータを安全に埋め込む --- #}
+    <!-- 銘柄ごとのチャートデータを安全に埋め込む -->
     <script id="chart-{{ stock.id }}" type="application/json">
       {{ stock.chart_json|safe }}
     </script>
@@ -60,7 +60,7 @@
       <p class="profit-label">損益: <span id="modal-profit"></span></p>
     </div>
 
-    {# canvas は modal 内で幅いっぱいに表示されるよう CSS 側で対応してください #}
+    <!-- チャート表示領域 -->
     <canvas id="modal-chart" role="img" aria-label="株価ローソク足チャート"></canvas>
 
     <div class="modal-actions">
@@ -93,16 +93,9 @@
 <!-- Chart.js とローソク足プラグイン (UMD版) -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@4.3.0/dist/chartjs-chart-financial.min.js"></script>
-<!-- 日付スケール用アダプタ（time scale を使うなら必須） -->
+<!-- 日付スケール用アダプタ -->
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 
-{# stock_list.js を defer で読み込み（ライブラリ読み込み完了後） #}
+<!-- stock_list.js を defer で読み込み -->
 <script src="{% static 'js/stock_list.js' %}" defer></script>
-
-{# --- 補助コメント（JS 実装の参考）
-    stock_list.js の側では、カードから chart-id を読み取り、
-    const chartScript = document.getElementById(chartId);
-    const chartData = chartScript ? JSON.parse(chartScript.textContent) : [];
-    という流れでローソク足データを取得してください。
---- #}
 {% endblock %}
