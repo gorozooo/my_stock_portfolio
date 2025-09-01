@@ -67,7 +67,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const id = tabCard.dataset.id;
       const name = tabCard.querySelector(".tab-name").innerText;
       const icon = tabCard.querySelector(".tab-icon").innerText;
-      const url_name = tabCard.dataset.url || ""; // data-url 属性あれば
+      const url_name = tabCard.dataset.url || "";
 
       document.getElementById("modal-title").innerText = "タブ編集";
       document.getElementById("tab-id").value = id;
@@ -151,18 +151,46 @@ document.addEventListener("DOMContentLoaded", () => {
   tabForm.addEventListener("submit", e => {
     e.preventDefault();
     const formData = new FormData(tabForm);
-    console.log("タブ送信データ:", Object.fromEntries(formData.entries()));
+    const data = Object.fromEntries(formData.entries());
+
+    console.log("タブ送信データ:", data);
     closeModal(tabModal);
-    // TODO: AjaxでDB保存
+
+    // ---------------- Ajax例 ----------------
+    /*
+    fetch("/save_tab/", {
+      method: "POST",
+      body: formData,
+    })
+    .then(res => res.json())
+    .then(result => {
+      console.log("タブ保存結果:", result);
+      // 保存後に画面更新 or 追加
+    });
+    */
   });
 
   // -------------------- サブメニュー保存フォーム --------------------
   submenuForm.addEventListener("submit", e => {
     e.preventDefault();
     const formData = new FormData(submenuForm);
-    console.log("サブメニュー送信データ:", Object.fromEntries(formData.entries()));
+    const data = Object.fromEntries(formData.entries());
+
+    console.log("サブメニュー送信データ:", data);
     closeModal(submenuModal);
-    // TODO: AjaxでDB保存
+
+    // ---------------- Ajax例 ----------------
+    /*
+    fetch("/save_submenu/", {
+      method: "POST",
+      body: formData,
+    })
+    .then(res => res.json())
+    .then(result => {
+      console.log("サブメニュー保存結果:", result);
+      // 保存後に画面更新 or 追加
+    });
+    */
   });
 
 });
