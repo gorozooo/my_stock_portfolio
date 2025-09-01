@@ -3,70 +3,50 @@
 {% load humanize %}
 
 {% block content %}
-<div class="portfolio-container" id="stock-cards-container">
-  {% for stock in stocks %}
-  <div class="stock-card-wrapper">
-    <div class="stock-card"
-         data-id="{{ stock.id }}"
-         data-name="{{ stock.name }}"
-         data-ticker="{{ stock.ticker }}"
-         data-shares="{{ stock.shares }}"
-         data-unit_price="{{ stock.unit_price|floatformat:0 }}"
-         data-current_price="{{ stock.current_price|floatformat:0 }}"
-         data-profit="{{ stock.profit_amount }}"
-         data-profit_rate="{{ stock.profit_rate }}"
-         data-chart-id="chart-{{ stock.id }}">
+<div class="portfolio-container" id="broker-container">
+  {% regroup stocks by broker as broker_list %}
+  {% for broker_group in broker_list %}
+  <div class="broker-section">
+    <h3 class="broker-title">{{ broker_group.grouper }}</h3>
+    <div class="broker-cards-wrapper">
+      {% for stock in broker_group.list %}
+      <div class="stock-card-wrapper">
+        <div class="stock-card"
+             data-id="{{ stock.id }}"
+             data-name="{{ stock.name }}"
+             data-ticker="{{ stock.ticker }}"
+             data-shares="{{ stock.shares }}"
+             data-unit_price="{{ stock.unit_price|floatformat:0 }}"
+             data-current_price="{{ stock.current_price|floatformat:0 }}"
+             data-profit="{{ stock.profit_amount }}"
+             data-profit_rate="{{ stock.profit_rate }}">
+          
+          <div class="stock-header">
+            <span class="stock-name">{{ stock.name }}</span>
+            <span class="stock-code">{{ stock.ticker }}</span>
+          </div>
 
-      <div class="stock-header">
-        <span class="stock-name">{{ stock.name }}</span>
-        <span class="stock-code">{{ stock.ticker }}</span>
-      </div>
-
-      <div class="stock-body">
-        <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
-        <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
-        <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
-        <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
-        <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
-          <span>損益</span>
-          <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
+          <div class="stock-body">
+            <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
+            <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
+            <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
+            <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
+            <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
+              <span>損益</span>
+              <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
+            </div>
+          </div>
         </div>
+
+        <button class="edit-btn">編集</button>
+        <button class="sell-btn">売却</button>
       </div>
+      {% endfor %}
     </div>
-
-    <button class="edit-btn">編集</button>
-    <button class="sell-btn">売却</button>
-
-    <!-- チャートJSON -->
-    <script id="chart-{{ stock.id }}" type="application/json">
-      {{ stock.chart_json|safe }}
-    </script>
   </div>
   {% empty %}
   <p>保有株データがありません。</p>
   {% endfor %}
-</div>
-
-<!-- 株カード詳細モーダル -->
-<div id="stock-modal" class="modal" aria-hidden="true">
-  <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-name">
-    <button class="close" aria-label="閉じる">&times;</button>
-    <h2 id="modal-name">銘柄名</h2>
-    <div class="modal-info">
-      <p>コード: <span id="modal-code"></span></p>
-      <p>株数: <span id="modal-shares"></span></p>
-      <p>取得単価: <span id="modal-cost"></span></p>
-      <p>現在株価: <span id="modal-price"></span></p>
-      <p class="profit-label">損益: <span id="modal-profit"></span></p>
-    </div>
-
-    <canvas id="modal-chart" style="width:100%; height:300px;" role="img" aria-label="株価ローソク足チャート"></canvas>
-
-    <div class="modal-actions">
-      <button id="edit-btn-modal" class="edit-button">編集</button>
-      <button id="sell-btn-modal" class="sell-button">売却</button>
-    </div>
-  </div>
 </div>
 
 <!-- 共通確認モーダル -->
@@ -86,11 +66,105 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/stock_list.css' %}">
+<style>
+/* 証券会社ごとの横スクロールラッパー */
+.broker-section {
+  margin-bottom: 24px;
+  position: relative;
+}
+.broker-title {
+  font-weight: bold;
+  padding: 8px;
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid #ccc;
+  color: #333;
+}
+.broker-cards-wrapper {
+  display: flex;
+  overflow-x: auto;
+  gap: 12px;
+  padding: 8px;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+.stock-card-wrapper {
+  flex: 0 0 auto;
+  width: 220px;
+  scroll-snap-align: start;
+  background: #f9f9f9;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  padding: 8px;
+}
+.stock-card {
+  cursor: pointer;
+}
+.stock-row.gain.positive span:last-child { color: green; font-weight: bold; }
+.stock-row.gain.negative span:last-child { color: red; font-weight: bold; }
+
+/* スクロールバーを目立たなく */
+.broker-cards-wrapper::-webkit-scrollbar {
+  height: 6px;
+}
+.broker-cards-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.2);
+  border-radius: 3px;
+}
+</style>
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@4.3.0/dist/chartjs-chart-financial.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-<script src="{% static 'js/stock_list.js' %}" defer></script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  // カードクリックで簡易モーダル表示
+  document.querySelectorAll(".stock-card").forEach(card => {
+    card.addEventListener("click", () => {
+      const name = card.dataset.name;
+      const ticker = card.dataset.ticker;
+      const shares = card.dataset.shares;
+      const unitPrice = card.dataset.unit_price;
+      const currentPrice = card.dataset.current_price;
+      const profit = card.dataset.profit;
+      const profitRate = card.dataset.profit_rate;
+
+      alert(`${name} (${ticker})\n株数: ${shares}\n取得単価: ¥${unitPrice}\n現在株価: ¥${currentPrice}\n損益: ¥${profit} (${profitRate}%)`);
+    });
+  });
+
+  // スワイプ操作で左右スクロール（ハイブリッドUI補助）
+  document.querySelectorAll(".broker-cards-wrapper").forEach(wrapper => {
+    let isDown = false, startX, scrollLeft;
+
+    wrapper.addEventListener("mousedown", e => {
+      isDown = true;
+      wrapper.classList.add("active");
+      startX = e.pageX - wrapper.offsetLeft;
+      scrollLeft = wrapper.scrollLeft;
+    });
+    wrapper.addEventListener("mouseleave", () => isDown = false);
+    wrapper.addEventListener("mouseup", () => isDown = false);
+    wrapper.addEventListener("mousemove", e => {
+      if (!isDown) return;
+      e.preventDefault();
+      const x = e.pageX - wrapper.offsetLeft;
+      const walk = (x - startX) * 1; // スクロール速度調整
+      wrapper.scrollLeft = scrollLeft - walk;
+    });
+
+    // タッチ操作対応
+    let startTouchX = 0, startScroll = 0;
+    wrapper.addEventListener("touchstart", e => {
+      startTouchX = e.touches[0].pageX;
+      startScroll = wrapper.scrollLeft;
+    });
+    wrapper.addEventListener("touchmove", e => {
+      const touchX = e.touches[0].pageX;
+      wrapper.scrollLeft = startScroll - (touchX - startTouchX);
+    });
+  });
+});
+</script>
 {% endblock %}
