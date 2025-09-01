@@ -60,4 +60,21 @@ document.addEventListener("DOMContentLoaded", () => {
       wrapper.scrollLeft = startScroll - (touchX - startTouchX);
     });
   });
+
+  // 縦スクロールに応じてタブ自動切替
+  sectionsWrapper.addEventListener("scroll", () => {
+    const wrapperLeft = sectionsWrapper.scrollLeft;
+    let closestIndex = 0;
+    let minDistance = Infinity;
+    sections.forEach((section, index) => {
+      const offset = section.offsetLeft;
+      const distance = Math.abs(wrapperLeft - offset);
+      if(distance < minDistance){
+        minDistance = distance;
+        closestIndex = index;
+      }
+    });
+    tabs.forEach(t => t.classList.remove("active"));
+    tabs[closestIndex].classList.add("active");
+  });
 });
