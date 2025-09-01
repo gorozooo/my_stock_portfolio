@@ -18,6 +18,7 @@ document.addEventListener("DOMContentLoaded", () => {
     modal.addEventListener("click", e => { if(e.target === modal) closeModal(modal); });
   });
 
+  // サブメニュー展開/折りたたみ
   function attachToggle(btn) {
     btn.addEventListener("click", () => {
       const tabCard = btn.closest(".tab-card");
@@ -51,12 +52,26 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function attachTabEvents(tabCard) {
-    tabCard.querySelector(".edit-tab-btn").addEventListener("click", () => openTabModal(tabCard));
-    tabCard.querySelector(".delete-tab-btn").addEventListener("click", () => { 
+    // タブ編集
+    const editBtn = tabCard.querySelector(".edit-tab-btn");
+    if(editBtn) editBtn.addEventListener("click", () => openTabModal(tabCard));
+
+    // タブ削除
+    const deleteBtn = tabCard.querySelector(".delete-tab-btn");
+    if(deleteBtn) deleteBtn.addEventListener("click", () => {
       if(confirm("タブを削除しますか？")) submitTabDelete(tabCard.dataset.id, tabCard);
     });
-    attachToggle(tabCard.querySelector(".toggle-submenu"));
-    tabCard.querySelector(".add-submenu-btn").addEventListener("click", () => openSubmenuModal(null, tabCard));
+
+    // サブメニュー展開
+    const toggleBtn = tabCard.querySelector(".toggle-submenu");
+    if(toggleBtn) attachToggle(toggleBtn);
+
+    // サブメニュー追加
+    const addSubBtn = tabCard.querySelector(".add-submenu-btn");
+    if(addSubBtn) addSubBtn.addEventListener("click", () => openSubmenuModal(null, tabCard));
+
+    // 既存サブメニューイベント
+    tabCard.querySelectorAll(".submenu-item").forEach(sub => attachSubmenuEvents(sub));
   }
 
   function createSubmenuHTML(sub) {
@@ -74,8 +89,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function attachSubmenuEvents(subItem) {
-    subItem.querySelector(".edit-sub-btn").addEventListener("click", () => openSubmenuModal(subItem, subItem.closest(".tab-card")));
-    subItem.querySelector(".delete-sub-btn").addEventListener("click", () => { 
+    const editBtn = subItem.querySelector(".edit-sub-btn");
+    if(editBtn) editBtn.addEventListener("click", () => openSubmenuModal(subItem, subItem.closest(".tab-card")));
+
+    const deleteBtn = subItem.querySelector(".delete-sub-btn");
+    if(deleteBtn) deleteBtn.addEventListener("click", () => {
       if(confirm("サブメニューを削除しますか？")) submitSubmenuDelete(subItem.dataset.id, subItem);
     });
   }
@@ -184,5 +202,8 @@ document.addEventListener("DOMContentLoaded", () => {
   function getCSRFToken() {
     return document.querySelector('[name=csrfmiddlewaretoken]').value;
   }
+
+  // -------------------- 既存タブにイベント付与 --------------------
+  tabList.querySelectorAll(".tab-card").forEach(tabCard => attachTabEvents(tabCard));
 
 });
