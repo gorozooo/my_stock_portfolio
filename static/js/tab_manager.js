@@ -87,9 +87,9 @@ document.addEventListener("DOMContentLoaded", () => {
   function openTabModal(tabCard) {
     document.getElementById("modal-title").innerText = tabCard.dataset.id ? "タブ編集" : "新規タブ追加";
     document.getElementById("tab-id").value = tabCard.dataset.id || "";
-    document.getElementById("tab-name").value = tabCard.querySelector(".tab-name").innerText;
-    document.getElementById("tab-icon").value = tabCard.querySelector(".tab-icon").innerText;
-    document.getElementById("tab-url").value = tabCard.dataset.url;
+    document.getElementById("tab-name").value = tabCard.querySelector(".tab-name")?.innerText || "";
+    document.getElementById("tab-icon").value = tabCard.querySelector(".tab-icon")?.innerText || "📑";
+    document.getElementById("tab-url").value = tabCard.dataset.url || "";
     tabModal.currentTabCard = tabCard;
     openModal(tabModal);
   }
@@ -98,26 +98,29 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("submenu-modal-title").innerText = subItem ? "サブメニュー編集" : "サブメニュー追加";
     document.getElementById("submenu-tab-id").value = tabCard.dataset.id;
     document.getElementById("submenu-id").value = subItem?.dataset.id || "";
-    document.getElementById("submenu-name").value = subItem?.querySelector("span").innerText || "";
+    document.getElementById("submenu-name").value = subItem?.querySelector("span")?.innerText || "";
     document.getElementById("submenu-url").value = subItem?.dataset.url || "";
     submenuModal.currentSubItem = subItem;
     submenuModal.currentTabCard = tabCard;
     openModal(submenuModal);
   }
 
-  // -------------------- 新規タブ追加 --------------------
+  // -------------------- 新規タブ作成（保存前はDOMに追加しない） --------------------
   addTabFab.addEventListener("click", () => {
-    const tempTab = { id: "", name: "", icon: "📑", url_name: "" };
-    const tabCard = createTabCardHTML(tempTab);
-    tabList.appendChild(tabCard);
-    openTabModal(tabCard);
+    tabModal.currentTabCard = null; // 新規作成モード
+    document.getElementById("modal-title").innerText = "新規タブ追加";
+    document.getElementById("tab-id").value = "";
+    document.getElementById("tab-name").value = "";
+    document.getElementById("tab-icon").value = "📑";
+    document.getElementById("tab-url").value = "";
+    openModal(tabModal);
   });
 
-  // -------------------- タブ保存 (DB保存) --------------------
+  // -------------------- タブ保存 (DB保存＋DOM追加) --------------------
   tabForm.addEventListener("submit", e => {
     e.preventDefault();
-    const tabCard = tabModal.currentTabCard;
     const formData = new FormData(tabForm);
+    const isNew = !tabModal.currentTabCard;
 
     fetch("/tabs/save/", {
       method: "POST",
@@ -127,21 +130,28 @@ document.addEventListener("DOMContentLoaded", () => {
     .then(res => res.json())
     .then(data => {
       if(data.success){
-        tabCard.dataset.id = data.tab_id;
-        tabCard.querySelector(".tab-name").innerText = data.name;
-        tabCard.querySelector(".tab-icon").innerText = data.icon || "📑";
-        tabCard.dataset.url = data.url_name;
+        if(isNew){
+          const newTabCard = createTabCardHTML(data);
+          tabList.appendChild(newTabCard);
+        } else {
+          const tabCard = tabModal.currentTabCard;
+          tabCard.dataset.id = data.tab_id;
+          tabCard.querySelector(".tab-name").innerText = data.name;
+          tabCard.querySelector(".tab-icon").innerText = data.icon || "📑";
+          tabCard.dataset.url = data.url_name;
+        }
         closeModal(tabModal);
       }
     });
   });
 
-  // -------------------- サブメニュー保存 (DB保存) --------------------
+  // -------------------- サブメニュー保存 (DB保存＋DOM追加) --------------------
   submenuForm.addEventListener("submit", e => {
     e.preventDefault();
     const subItem = submenuModal.currentSubItem;
     const tabCard = submenuModal.currentTabCard;
     const formData = new FormData(submenuForm);
+    const isNew = !subItem;
 
     fetch("/submenus/save/", {
       method: "POST",
@@ -151,11 +161,11 @@ document.addEventListener("DOMContentLoaded", () => {
     .then(res => res.json())
     .then(data => {
       if(data.success){
-        if(subItem){
+        if(isNew){
+          tabCard.querySelector(".submenu-list").appendChild(createSubmenuHTML(data));
+        } else {
           subItem.querySelector("span").innerText = data.name;
           subItem.dataset.url = data.url;
-        } else {
-          tabCard.querySelector(".submenu-list").appendChild(createSubmenuHTML(data));
         }
         closeModal(submenuModal);
       }
