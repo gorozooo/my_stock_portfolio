@@ -105,9 +105,18 @@
   background: #007bff;
   color: #fff;
   font-size: 32px;
-  box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+  font-weight: bold;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
   cursor: pointer;
-  z-index: 100;
+  z-index: 9999; /* 確実に最前面 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.fab:active {
+  transform: scale(0.95);
 }
 
 /* -------------------- ドラッグ中のアニメーション -------------------- */
@@ -125,7 +134,7 @@
 .modal {
   display: none; /* 初期は非表示 */
   position: fixed;
-  z-index: 999;
+  z-index: 9999; /* フローティングボタンより高い */
   left: 0;
   top: 0;
   width: 100%;
@@ -187,6 +196,7 @@
   color: #fff;
   font-size: 16px;
   cursor: pointer;
+  transition: all 0.2s;
 }
 
 .btn-submit:hover {
