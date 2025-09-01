@@ -1,20 +1,26 @@
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import render, redirect
-from django.http import JsonResponse, HttpResponseBadRequest
+from django.shortcuts import render, redirect, get_object_or_404
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.db import transaction
 from django.utils import timezone
 import json
+import yfinance as yf
 
-from .models import BottomTab, SettingsPassword, SubMenu, Stock, StockMaster
+from .models import (
+    BottomTab,
+    SubMenu,
+    Stock,
+    StockMaster,
+    SettingsPassword,
+    RealizedProfit
+)
 from .forms import SettingsPasswordForm
 from .utils import get_bottom_tabs
 from django.template.loader import get_template
-from django.http import HttpResponse
-
 # -----------------------------
 # 共通コンテキスト
 # -----------------------------
