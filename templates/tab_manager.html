@@ -16,8 +16,20 @@
     <!-- ヘッダー -->
     <div class="tab-header">
       <div class="tab-main">
-        <span class="tab-icon">{{ tab.icon }}</span>
-        <span class="tab-name">{{ tab.name }}</span>
+        <span class="tab-icon">
+          {% if tab.icon %}
+            {{ tab.icon }}
+          {% else %}
+            📑
+          {% endif %}
+        </span>
+        <span class="tab-name">
+          {% if tab.name %}
+            {{ tab.name }}
+          {% else %}
+            （未設定）
+          {% endif %}
+        </span>
       </div>
       <div class="tab-actions">
         <button class="edit-tab-btn">✏️</button>
@@ -28,15 +40,21 @@
 
     <!-- サブメニュー -->
     <div class="submenu-list">
-      {% for sub in tab.submenus %}
-      <div class="submenu-item" data-id="{{ sub.id }}">
-        <span>{{ sub.name }}</span>
-        <div class="submenu-actions">
-          <button class="edit-sub-btn">✏️</button>
-          <button class="delete-sub-btn">🗑️</button>
+      {% if tab.submenus %}
+        {% for sub in tab.submenus %}
+        <div class="submenu-item" data-id="{{ sub.id }}">
+          <span>{{ sub.name }}</span>
+          <div class="submenu-actions">
+            <button class="edit-sub-btn">✏️</button>
+            <button class="delete-sub-btn">🗑️</button>
+          </div>
         </div>
-      </div>
-      {% endfor %}
+        {% endfor %}
+      {% else %}
+        <div class="submenu-item submenu-empty">
+          <span>サブメニューなし</span>
+        </div>
+      {% endif %}
       <button class="add-submenu-btn">＋ サブメニュー追加</button>
     </div>
   </div>
@@ -46,7 +64,6 @@
 <!-- フローティングボタン -->
 <button id="add-tab-fab" class="fab">＋</button>
 
-{% csrf_token %}
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script src="{% static 'js/tab_manager.js' %}"></script>
 {% endblock %}
