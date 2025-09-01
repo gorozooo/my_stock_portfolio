@@ -21,6 +21,8 @@ from .models import (
 from .forms import SettingsPasswordForm
 from .utils import get_bottom_tabs
 from django.template.loader import get_template
+
+
 # -----------------------------
 # 共通コンテキスト
 # -----------------------------
@@ -33,18 +35,12 @@ def bottom_tabs_context(request):
 # -----------------------------
 @login_required
 def main_view(request):
-    # 現在ページ名を設定
     current_page = "ホーム"
-
-    # 最終更新日時（例: 今の時刻）
     last_update = timezone.now()
-
     return render(request, "main.html", {
         "current_page": current_page,
         "last_update": last_update,
     })
-
-
 
 
 # -----------------------------
@@ -81,11 +77,9 @@ def stock_list_view(request):
             ticker_symbol = f"{stock.ticker}.T"
             ticker = yf.Ticker(ticker_symbol)
 
-            # 最新株価
             todays_data = ticker.history(period="1d")
             stock.current_price = float(todays_data["Close"].iloc[-1]) if not todays_data.empty else stock.unit_price
 
-            # 過去1か月ローソク足
             history = ticker.history(period="1mo")
             ohlc_list = []
             if not history.empty:
@@ -99,7 +93,6 @@ def stock_list_view(request):
                     })
             stock.chart_history = ohlc_list
 
-            # 損益
             stock.total_cost = stock.shares * stock.unit_price
             stock.profit_amount = stock.current_price * stock.shares - stock.total_cost
             stock.profit_rate = round(stock.profit_amount / stock.total_cost * 100, 2) if stock.total_cost else 0
@@ -116,6 +109,8 @@ def stock_list_view(request):
         stock.chart_json = json.dumps(stock.chart_history)
 
     return render(request, "stock_list.html", {"stocks": stocks})
+
+
 @login_required
 def stock_create(request):
     errors = {}
@@ -191,24 +186,21 @@ def stock_create(request):
     context = {
         "errors": errors,
         "data": data,
-        "BROKER_CHOICES": Stock.BROKER_CHOICES,  # ← テンプレに渡す
+        "BROKER_CHOICES": Stock.BROKER_CHOICES,
     }
 
-    # どのテンプレートを読んでいるかログに出す
     tpl = get_template("stocks/stock_create.html")
     print(">>> USING TEMPLATE:", getattr(getattr(tpl, "origin", None), "name", tpl))
 
     return HttpResponse(tpl.render(context, request))
 
+
 @login_required
 @require_POST
 def sell_stock_view(request, pk):
     stock = get_object_or_404(Stock, pk=pk)
-
-    # 損益計算
     total_profit = (stock.current_price - stock.unit_price) * stock.shares
 
-    # 実現損益レコード作成
     RealizedProfit.objects.create(
         stock_name=stock.name,
         ticker=stock.ticker,
@@ -218,11 +210,10 @@ def sell_stock_view(request, pk):
         total_profit=total_profit,
         sold_at=timezone.now()
     )
-
-    # 株をDBから削除
     stock.delete()
-
     return JsonResponse({"status": "ok"})
+
+
 @login_required
 def cash_view(request):
     return render(request, "cash.html")
@@ -265,7 +256,14 @@ def settings_login(request):
 def settings_view(request):
     if not request.session.get("settings_authenticated"):
         return redirect("settings_login")
-    return render(request, "settings.html")
+
+    settings_cards = [
+        {"url_name": "tab_manager", "icon": "fa-table-columns", "title": "タブ管理", "description": "下タブやサブメニューを管理", "color": "green", "progress": 80, "badge": "New"},
+        {"url_name": "theme_settings", "icon": "fa-paintbrush", "title": "テーマ変更", "description": "画面の色やスタイルを変更", "color": "blue", "progress": 40, "badge": "未設定"},
+        {"url_name": "notification_settings", "icon": "fa-bell", "title": "通知設定", "description": "通知のオン／オフを切替", "color": "pink", "progress": 100},
+        {"url_name": "settings_password_edit", "icon": "fa-lock", "title": "パスワード変更", "description": "ログインパスワードを変更", "color": "orange", "progress": 50},
+    ]
+    return render(request, "settings.html", {"settings_cards": settings_cards})
 
 
 # -----------------------------
@@ -273,25 +271,21 @@ def settings_view(request):
 # -----------------------------
 @login_required
 def tab_manager_view(request):
-    # セッション認証チェック
     if not request.session.get("settings_authenticated"):
         return redirect("settings_login")
 
-    # -------------------- DBからタブとサブメニューを取得 --------------------
-    # ログインユーザーのタブを取得、サブメニューもまとめて取得
-    tabs = BottomTab.objects.filter(user=request.user).prefetch_related('submenus').order_by('id')
+    # 全ユーザー共通のタブを取得
+    tabs = BottomTab.objects.prefetch_related('submenus').order_by('id')
 
-    # テンプレートに渡すため辞書形式に変換
     tab_list = []
     for tab in tabs:
         tab_list.append({
             "id": tab.id,
             "name": tab.name,
-            "icon": tab.icon or "📌",  # アイコンが空ならデフォルト
+            "icon": tab.icon or "📌",
             "submenus": [{"id": sub.id, "name": sub.name} for sub in tab.submenus.all()]
         })
 
-    # -------------------- レンダリング --------------------
     return render(request, "tab_manager.html", {"tabs": tab_list})
 
 
@@ -447,7 +441,7 @@ def get_stock_by_code(request):
     if stock:
         return JsonResponse(
             {"success": True, "name": stock.name, "sector": stock.sector},
-            json_dumps_params={"ensure_ascii": False}  # ←日本語をUnicodeエスケープせず返す
+            json_dumps_params={"ensure_ascii": False}
         )
     return JsonResponse({"success": False}, json_dumps_params={"ensure_ascii": False})
 
@@ -473,13 +467,3 @@ def get_sector_list(request):
         StockMaster.objects.values_list("sector", flat=True).distinct()
     )
     return JsonResponse([s or "" for s in sectors], safe=False, json_dumps_params={"ensure_ascii": False})
-    
-# views.py
-def settings_view(request):
-    settings_cards = [
-        {"url_name": "tab_manager", "icon": "fa-table-columns", "title": "タブ管理", "description": "下タブやサブメニューを管理", "color":"green", "progress": 80, "badge":"New"},
-        {"url_name": "theme_settings", "icon": "fa-paintbrush", "title": "テーマ変更", "description": "画面の色やスタイルを変更", "color":"blue", "progress": 40, "badge":"未設定"},
-        {"url_name": "notification_settings", "icon": "fa-bell", "title": "通知設定", "description": "通知のオン／オフを切替", "color":"pink", "progress": 100},
-        {"url_name": "settings_password_edit", "icon": "fa-lock", "title": "パスワード変更", "description": "ログインパスワードを変更", "color":"orange", "progress": 50},
-    ]
-    return render(request, "settings.html", {"settings_cards": settings_cards})
