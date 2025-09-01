@@ -1,237 +1,63 @@
-// ==========================
-// Chart.js + Candlestick プラグイン登録
-// ==========================
-if (typeof Chart !== "undefined" && Chart) {
-  try {
-    Chart.register(
-      Chart.FinancialController,
-      Chart.CandlestickController,
-      Chart.OHLCController,
-      Chart.CandlestickElement,
-      Chart.OHLCElement
-    );
-    console.log("✅ Candlestick / OHLC プラグイン登録完了");
-  } catch (err) {
-    console.warn("⚠️ Chart.js financial プラグイン登録に失敗:", err);
-  }
-}
-
 document.addEventListener("DOMContentLoaded", () => {
-  const modal = document.getElementById("stock-modal");
-  const closeBtn = modal.querySelector(".close");
+  const tabs = document.querySelectorAll(".broker-tab");
+  const sectionsWrapper = document.querySelector(".broker-vertical-wrapper");
+  const sections = document.querySelectorAll(".broker-section");
 
-  const modalName = document.getElementById("modal-name");
-  const modalCode = document.getElementById("modal-code");
-  const modalShares = document.getElementById("modal-shares");
-  const modalCost = document.getElementById("modal-cost");
-  const modalPrice = document.getElementById("modal-price");
-  const modalProfit = document.getElementById("modal-profit");
+  // 初期表示：最初の証券会社
+  tabs[0].classList.add("active");
+  sectionsWrapper.scrollLeft = 0;
 
-  const modalSellBtn = document.getElementById("sell-btn-modal");
-  const modalEditBtn = document.getElementById("edit-btn-modal");
+  // タブクリックでスクロール
+  tabs.forEach(tab => {
+    tab.addEventListener("click", () => {
+      tabs.forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      const index = tab.dataset.brokerIndex;
+      const target = sections[index];
+      target.scrollIntoView({ behavior: "smooth", inline: "start" });
+    });
+  });
 
-  let chartInstance = null;
-  let activeCardWrapper = null;
-
-  // ===== トースト表示 =====
-  function showToast(message, duration = 2000) {
-    const container = document.getElementById("toast-container");
-    const toast = document.createElement("div");
-    toast.className = "toast";
-    toast.textContent = message;
-    container.appendChild(toast);
-    requestAnimationFrame(() => toast.classList.add("show"));
-    setTimeout(() => toast.remove(), duration);
-  }
-
-  // ===== CSRFトークン取得 =====
-  function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== "") {
-      const cookies = document.cookie.split(";");
-      for (let cookie of cookies) {
-        cookie = cookie.trim();
-        if (cookie.startsWith(name + "=")) {
-          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-          break;
-        }
-      }
-    }
-    return cookieValue;
-  }
-
-  // ===== 各株カード処理 =====
-  document.querySelectorAll(".stock-card-wrapper").forEach(wrapper => {
-    const card = wrapper.querySelector(".stock-card");
-    const sellBtn = wrapper.querySelector(".sell-btn");
-    const editBtn = wrapper.querySelector(".edit-btn");
-
-    const stockId = card.dataset.id;
-    const name = card.dataset.name;
-    const ticker = card.dataset.ticker;
-    const shares = Number(card.dataset.shares) || 0;
-    const unitPrice = Number(card.dataset.unit_price) || 0;
-    let currentPrice = Number(card.dataset.current_price) || 0;
-    let profit = Number(card.dataset.profit) || 0;
-
-    // ===== チャートデータ取得 =====
-    let chartHistory = [];
-    const chartScript = document.getElementById(card.dataset.chartId);
-    if (chartScript) {
-      try {
-        chartHistory = JSON.parse(chartScript.textContent);
-      } catch {
-        chartHistory = [];
-      }
-    }
-
-    // ===== カードクリックでモーダル表示 =====
+  // 株カードクリック
+  document.querySelectorAll(".stock-card").forEach(card => {
     card.addEventListener("click", () => {
-      activeCardWrapper = wrapper;
-      modal.style.display = "block";
-      document.body.style.overflow = "hidden";
-
-      modalName.textContent = name;
-      modalCode.textContent = ticker;
-      modalShares.textContent = `${shares}株`;
-      modalCost.textContent = `¥${unitPrice.toLocaleString()}`;
-      modalPrice.textContent = `¥${currentPrice.toLocaleString()}`;
-      modalProfit.textContent = `${profit >= 0 ? "+" : ""}${profit.toLocaleString()}円`;
-      modalProfit.className = profit >= 0 ? "positive" : "negative";
-
-      // ===== チャート描画 =====
-      if (chartInstance) chartInstance.destroy();
-      const ctx = document.getElementById("modal-chart").getContext("2d");
-
-      if (chartHistory.length > 0 && Chart.registry.controllers.has("candlestick")) {
-        const data = chartHistory.map(val => ({
-          x: new Date(val.t + "T00:00:00"),
-          o: Number(val.o),
-          h: Number(val.h),
-          l: Number(val.l),
-          c: Number(val.c)
-        }));
-
-        chartInstance = new Chart(ctx, {
-          type: "candlestick",
-          data: { datasets: [{ label: name, data }] },
-          options: {
-            responsive: true,
-            plugins: { legend: { display: false } },
-            scales: {
-              x: { type: "time", time: { unit: "day", tooltipFormat: "yyyy-MM-dd" } },
-              y: { title: { display: true, text: "株価" } }
-            }
-          }
-        });
-      } else {
-        showToast("⚠️ チャートデータがありません");
-      }
-    });
-
-    // ===== カード内「売却」「編集」ボタン =====
-    sellBtn?.addEventListener("click", async e => {
-      e.stopPropagation();
-      if (!confirm(`${name} を売却しますか？`)) return;
-      try {
-        const res = await fetch(`/stocks/${stockId}/sell/`, {
-          method: "POST",
-          headers: { "X-CSRFToken": getCookie("csrftoken") }
-        });
-        if (res.ok) {
-          wrapper.remove();
-          showToast(`✅ ${name} を売却しました！`);
-        } else {
-          showToast("❌ 売却に失敗しました");
-        }
-      } catch {
-        showToast("⚠️ 通信エラー");
-      }
-    });
-
-    editBtn?.addEventListener("click", e => {
-      e.stopPropagation();
-      showToast(`✏️ ${name} を編集します（未実装）`);
-    });
-
-    // ===== スワイプ判定（スマホ対応） =====
-    let startX = 0, startY = 0, moved = false, currentTranslate = 0;
-
-    card.addEventListener("touchstart", e => {
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-      moved = false;
-      wrapper.style.transition = "";
-    });
-
-    card.addEventListener(
-      "touchmove",
-      e => {
-        const dx = e.touches[0].clientX - startX;
-        const dy = e.touches[0].clientY - startY;
-        if (Math.abs(dx) > Math.abs(dy)) {
-          e.preventDefault();
-          moved = true;
-          currentTranslate = Math.min(0, Math.max(-160, dx));
-          wrapper.style.transform = `translateX(${currentTranslate}px)`;
-        }
-      },
-      { passive: false }
-    );
-
-    card.addEventListener("touchend", () => {
-      if (!moved) return;
-      wrapper.style.transition = "transform 0.25s ease";
-      if (currentTranslate < -80) {
-        wrapper.style.transform = "translateX(-160px)";
-        wrapper.classList.add("show-actions");
-      } else {
-        wrapper.style.transform = "translateX(0)";
-        wrapper.classList.remove("show-actions");
-      }
+      const name = card.dataset.name;
+      const ticker = card.dataset.ticker;
+      const shares = card.dataset.shares;
+      const unitPrice = card.dataset.unit_price;
+      const currentPrice = card.dataset.current_price;
+      const profit = card.dataset.profit;
+      const profitRate = card.dataset.profit_rate;
+      alert(`${name} (${ticker})\n株数: ${shares}\n取得単価: ¥${unitPrice}\n現在株価: ¥${currentPrice}\n損益: ¥${profit} (${profitRate}%)`);
     });
   });
 
-  // ===== モーダル閉じる =====
-  function closeModal() {
-    modal.style.display = "none";
-    document.body.style.overflow = "";
-    if (chartInstance) chartInstance.destroy();
-    activeCardWrapper = null;
-  }
+  // 横スクロールカード操作（マウス＆タッチ）
+  document.querySelectorAll(".broker-cards-wrapper").forEach(wrapper => {
+    let isDown = false, startX, scrollLeft;
+    wrapper.addEventListener("mousedown", e => {
+      isDown = true;
+      startX = e.pageX - wrapper.offsetLeft;
+      scrollLeft = wrapper.scrollLeft;
+    });
+    wrapper.addEventListener("mouseleave", () => isDown = false);
+    wrapper.addEventListener("mouseup", () => isDown = false);
+    wrapper.addEventListener("mousemove", e => {
+      if(!isDown) return;
+      e.preventDefault();
+      const x = e.pageX - wrapper.offsetLeft;
+      wrapper.scrollLeft = scrollLeft - (x - startX);
+    });
 
-  closeBtn.addEventListener("click", closeModal);
-  window.addEventListener("click", e => {
-    if (e.target === modal) closeModal();
-  });
-  modal.addEventListener("touchmove", e => e.stopPropagation(), { passive: false });
-
-  // ===== モーダル内「売却」ボタン =====
-  modalSellBtn.addEventListener("click", async () => {
-    if (!activeCardWrapper) return;
-    const card = activeCardWrapper.querySelector(".stock-card");
-    const stockId = card.dataset.id;
-    if (!confirm(`${card.dataset.name} を売却しますか？`)) return;
-    try {
-      const res = await fetch(`/stocks/${stockId}/sell/`, {
-        method: "POST",
-        headers: { "X-CSRFToken": getCookie("csrftoken") }
-      });
-      if (res.ok) {
-        activeCardWrapper.remove();
-        showToast(`✅ ${card.dataset.name} を売却しました！`);
-        closeModal();
-      } else {
-        showToast("❌ 売却に失敗しました");
-      }
-    } catch {
-      showToast("⚠️ 通信エラー");
-    }
-  });
-
-  // ===== モーダル内「編集」ボタン =====
-  modalEditBtn.addEventListener("click", () => {
-    if (!activeCardWrapper) return;
-    showToast(`✏️ ${activeCardWrapper.querySelector(".stock-card").dataset.name} を編集します（未実装）`);
+    // タッチ対応
+    let startTouchX = 0, startScroll = 0;
+    wrapper.addEventListener("touchstart", e => {
+      startTouchX = e.touches[0].pageX;
+      startScroll = wrapper.scrollLeft;
+    });
+    wrapper.addEventListener("touchmove", e => {
+      const touchX = e.touches[0].pageX;
+      wrapper.scrollLeft = startScroll - (touchX - startTouchX);
+    });
   });
 });
