@@ -15,7 +15,7 @@
          data-current_price="{{ stock.current_price|floatformat:0 }}"
          data-profit="{{ stock.profit_amount }}"
          data-profit_rate="{{ stock.profit_rate }}"
-         data-chart-id="chart-{{ stock.id }}"> 
+         data-chart-id="chart-{{ stock.id }}">
 
       <div class="stock-header">
         <span class="stock-name">{{ stock.name }}</span>
@@ -37,7 +37,7 @@
     <button class="edit-btn">編集</button>
     <button class="sell-btn">売却</button>
 
-    <!-- 銘柄ごとのチャートデータを安全に埋め込む -->
+    <!-- 銘柄ごとのチャートデータ(JSON)を安全に埋め込む -->
     <script id="chart-{{ stock.id }}" type="application/json">
       {{ stock.chart_json|safe }}
     </script>
@@ -90,7 +90,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<!-- Chart.js とローソク足プラグイン (UMD版) -->
+<!-- Chart.js とローソク足プラグイン -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@4.3.0/dist/chartjs-chart-financial.min.js"></script>
 <!-- 日付スケール用アダプタ -->
