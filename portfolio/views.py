@@ -68,13 +68,6 @@ def logout_view(request):
 # -----------------------------
 # 株関連ページ
 # -----------------------------
-# ===== views.py =====
-import json
-import yfinance as yf
-from django.shortcuts import render
-from django.contrib.auth.decorators import login_required
-from .models import Stock
-
 @login_required
 def stock_list_view(request):
     """
