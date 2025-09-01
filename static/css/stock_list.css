@@ -1,324 +1,80 @@
-/* ======================================== */
-/* ===== stock_list.css（スマホ完全対応＋銘柄中央寄せ＋スワイプ＆モーダル対応） ===== */
-
-/* ===== 変数・テーマ ===== */
-:root {
-  --card-radius: 18px;
-  --card-padding: 14px;
-  --card-bg: rgba(40,40,60,0.85);
-  --card-bg-alt: rgba(60,60,80,0.7);
-  --card-shadow: 0 8px 24px rgba(0,0,0,0.25), 0 0 10px rgba(255,255,255,0.05) inset;
-  --profit-color: #4ade80;
-  --loss-color: #f87171;
-  --blur: 28px;
-  --color-neon: #00ffff;
-  --navbar-height: 60px;
-}
-
-/* ===== カードコンテナ ===== */
-.portfolio-container {
-  padding: 12px;
-}
-
-/* ===== カードラッパー ===== */
-.stock-card-wrapper {
-  position: relative;
-  overflow: hidden;
-  margin-bottom: 16px;
-  border-radius: var(--card-radius);
-  background: linear-gradient(145deg, var(--card-bg), var(--card-bg-alt));
-  backdrop-filter: blur(var(--blur));
-  box-shadow: var(--card-shadow);
-  border: 1px solid rgba(255,255,255,0.2);
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
-  animation: fadeInUp 0.5s ease forwards;
-  touch-action: pan-y; /* 横スワイプ判定を有効化 */
-}
-
-/* ===== カードアニメーション ===== */
-@keyframes fadeInUp {
-  0% { opacity: 0; transform: translateY(15px); }
-  100% { opacity: 1; transform: translateY(0); }
-}
-
-/* ===== カード本体 ===== */
-.stock-card {
-  padding: var(--card-padding);
-  border-radius: var(--card-radius);
-  cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  color: var(--color-neon);
-  text-shadow: 0 0 5px rgba(0,0,0,0.6);
-  position: relative;
-  z-index: 1;
-  background: transparent;
-}
-
-.stock-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 36px rgba(0,0,0,0.3);
-}
-
-/* ===== ヘッダー（銘柄名と証券コード 横並び） ===== */
-.stock-header {
+/* 証券会社タブ */
+.broker-tabs-wrapper {
   display: flex;
-  justify-content: center;
-  align-items: baseline;
-  gap: 1px;
-  margin-bottom: 10px;
-  text-align: center;
-  color: var(--color-neon);
-  text-shadow: 0 0 6px rgba(0,0,0,0.7);
-}
-
-.stock-header .stock-name {
-  font-size: 1.05rem;
-  font-weight: 700;
-}
-
-.stock-header .stock-code {
-  font-size: 0.9rem;
-  font-weight: 600;
-  opacity: 0.9;
-}
-
-.stock-header .stock-code::before { content: "（"; }
-.stock-header .stock-code::after  { content: "）"; }
-
-/* ===== 本文 ===== */
-.stock-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 4px 0;
-  font-size: 0.9rem;
-  color: #e0e0e0;
-}
-
-.gain.positive { color: var(--profit-color); font-weight: bold; }
-.gain.negative { color: var(--loss-color); font-weight: bold; }
-
-/* ===== スワイプボタン（編集・売却） ===== */
-.edit-btn, .sell-btn {
-  position: absolute;
+  overflow-x: auto;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid #ccc;
+  background: #fff;
+  position: sticky;
   top: 0;
-  bottom: 0;
+  z-index: 20;
+}
+.broker-tab {
+  padding: 6px 12px;
+  border: none;
+  background: #eee;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.broker-tab.active {
+  background: #007bff;
+  color: #fff;
+}
+
+/* 縦スクロールラッパー */
+.broker-vertical-wrapper {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 80px;
-  font-weight: bold;
-  color: white;
-  font-size: 0.9rem;
-  border: none;
-  cursor: pointer;
-  border-radius: 0 var(--card-radius) var(--card-radius) 0;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
-  right: -160px; /* 初期はカード右外に隠す */
-  opacity: 0;
-  pointer-events: none;
-  transition: transform 0.3s ease, opacity 0.3s ease, right 0.3s ease;
-  z-index: 2;
-}
-
-.edit-btn { background: linear-gradient(135deg, #f59e0b, #d97706); }
-.sell-btn { background: linear-gradient(135deg, #ef4444, #dc2626); }
-
-.stock-card-wrapper.show-actions .edit-btn {
-  right: 80px; /* カード右端から出る */
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.stock-card-wrapper.show-actions .sell-btn {
-  right: 0;
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* ===== 株詳細モーダル ===== */
-.modal {
-  display: none;
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0,0,0,0.7);
-  z-index: 9999; /* 下タブより前に */
-  animation: fadeIn 0.3s ease;
-  overflow-y: auto; /* モーダル背景全体もスクロール可 */
+  flex-direction: row; /* ← 横に証券会社を並べる */
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
+  gap: 24px;
 }
 
-.modal-content {
-  background: rgba(25,25,35,0.95);
-  backdrop-filter: blur(var(--blur));
-  padding: 20px;
-  border-radius: var(--card-radius);
-  width: 90%;
-  max-width: 420px;
-  position: relative;
-  margin: 80px auto 40px auto; /* 上下余白を確保して中央寄せ */
-  max-height: calc(100vh - 120px); /* 画面高さから余白を引く */
-  overflow-y: auto; /* モーダル内部だけスクロール可 */
-  -webkit-overflow-scrolling: touch;
-  color: var(--color-neon);
-  box-shadow: 0 12px 36px rgba(0,0,0,0.4);
-  z-index: 10000; /* 念のため更に上 */
-}
-.modal-content .close {
-  position: absolute;
-  right: 16px;
-  top: 16px;
-  font-size: 2rem;
-  width: 40px; height: 40px;
-  line-height: 40px;
-  text-align: center;
-  cursor: pointer;
-  user-select: none;
-  color: var(--color-neon);
-}
-
-.sell-button, .edit-button {
-  display: block;
-  width: 100%;
-  padding: 14px;
-  margin-top: 12px;
-  color: white;
-  font-weight: bold;
-  border: none;
-  border-radius: 14px;
-  font-size: 0.95rem;
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
-}
-
-.sell-button { background: linear-gradient(135deg, #3b82f6, #2563eb); }
-.sell-button:hover { background: linear-gradient(135deg, #60a5fa, #3b82f6); }
-
-.edit-button { background: linear-gradient(135deg, #f59e0b, #d97706); }
-.edit-button:hover { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
-
-.modal-content canvas { width: 100% !important; height: auto !important; margin-top: 14px; }
-
-/* ===== 共通確認モーダル ===== */
-.confirm-modal {
-  display: none;
-  position: fixed;
-  left:0; top:0;
-  width:100%; height:100%;
-  background: rgba(0,0,0,0.65);
-  backdrop-filter: blur(6px);
-  z-index: 300;
-}
-
-.confirm-modal-content {
-  background: rgba(30,30,50,0.95);
-  color: var(--color-neon);
-  padding: 22px;
-  border-radius: var(--card-radius);
-  width: 85%;
-  max-width: 360px;
-  position: fixed;
-  top: calc(var(--navbar-height, 60px) + 10px);
-  bottom: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  overflow-y: auto;
-  text-align: center;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-  animation: fadeIn 0.25s ease;
-}
-
-.confirm-modal-buttons {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 12px;
-}
-
-.confirm-modal-buttons .btn-cancel,
-.confirm-modal-buttons .btn-ok {
-  flex: 1;
-  padding: 12px 0;
-  border: none;
-  border-radius: 10px;
-  font-weight: bold;
-  cursor: pointer;
-  font-size: 0.9rem;
-  box-shadow: 0 3px 8px rgba(0,0,0,0.25);
-  transition: transform 0.2s ease, background 0.3s ease;
-}
-
-.btn-cancel { background: linear-gradient(135deg, #6b7280, #4b5563); color: white; }
-.btn-cancel:hover { background: linear-gradient(135deg, #9ca3af, #6b7280); transform: translateY(-2px); }
-.btn-ok { background: linear-gradient(135deg, #10b981, #059669); color: white; }
-.btn-ok:hover { background: linear-gradient(135deg, #34d399, #10b981); transform: translateY(-2px); }
-
-/* ===== トースト通知 ===== */
-#toast-container {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 9999;
+/* 証券会社セクション */
+.broker-section {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  pointer-events: none;
 }
-
-.toast {
-  background: linear-gradient(135deg, #1e3a8a, #2563eb);
-  color: white;
-  padding: 12px 20px;
-  border-radius: 14px;
-  font-size: 0.9rem;
+.broker-title {
   font-weight: bold;
-  box-shadow: 0 6px 16px rgba(0,0,0,0.35);
-  opacity: 0;
-  transform: translateY(-20px);
-  transition: opacity 0.3s ease, transform 0.3s ease;
-  pointer-events: auto;
+  padding: 8px;
+  background: #f9f9f9;
+  border-bottom: 1px solid #ccc;
 }
 
-.toast.show { opacity: 1; transform: translateY(0); }
-
-/* ===== PC対応 ===== */
-@media (min-width: 768px) {
-  .portfolio-container { max-width: 800px; margin: 0 auto; }
-  .stock-header .stock-name { font-size: 1.2rem; }
-  .stock-header .stock-code { font-size: 1rem; }
-  .stock-row { font-size: 0.95rem; }
-  .sell-btn { width: 100px; right: -100px; font-size: 1rem; }
-  .edit-btn { width: 100px; right: -200px; font-size: 1rem; }
-  .confirm-modal-content { top: 15%; bottom: auto; transform: translateX(-50%); }
+/* 横スクロール株カード */
+.broker-cards-wrapper {
+  display: flex;
+  overflow-x: auto;
+  gap: 12px;
+  padding: 8px;
+  -webkit-overflow-scrolling: touch;
 }
-
-/* ===== スマホレスポンシブ ===== */
-@media (max-width: 480px) {
-  .stock-card { padding: 12px; }
-  .stock-header .stock-name { font-size: 1rem; }
-  .stock-header .stock-code { font-size: 0.8rem; }
-  .stock-row { font-size: 0.85rem; }
-  .sell-btn { width: 70px; right: -70px; font-size: 0.85rem; }
-  .edit-btn { width: 70px; right: -140px; font-size: 0.85rem; }
-  .sell-button, .edit-button { font-size: 0.9rem; padding: 12px; }
-  .confirm-modal-content { top: calc(var(--navbar-height, 60px) + 8px); bottom: 8px; padding: 16px; }
-  .toast { font-size: 0.8rem; padding: 8px 14px; }
+.stock-card-wrapper {
+  flex: 0 0 auto;
+  width: 220px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  padding: 8px;
 }
-
-@media (max-width: 360px) {
-  .stock-header .stock-name { font-size: 0.95rem; }
-  .stock-header .stock-code { font-size: 0.75rem; }
-  .stock-row { font-size: 0.8rem; }
-  .sell-btn { width: 60px; right: -60px; font-size: 0.8rem; }
-  .edit-btn { width: 60px; right: -120px; font-size: 0.8rem; }
-  .confirm-modal-content { top: calc(var(--navbar-height, 50px) + 6px); bottom: 6px; padding: 12px; }
-  .toast { font-size: 0.75rem; }
+.stock-card {
+  cursor: pointer;
 }
+.stock-row.gain.positive span:last-child { color: green; font-weight: bold; }
+.stock-row.gain.negative span:last-child { color: red; font-weight: bold; }
 
-/* ===== モーダルフェードイン ===== */
-@keyframes fadeIn {
-  from { opacity: 0; } to { opacity: 1; }
+/* スクロールバー */
+.broker-vertical-wrapper::-webkit-scrollbar,
+.broker-cards-wrapper::-webkit-scrollbar {
+  height: 6px;
+}
+.broker-vertical-wrapper::-webkit-scrollbar-thumb,
+.broker-cards-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.2);
+  border-radius: 3px;
 }
