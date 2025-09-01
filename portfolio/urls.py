@@ -32,9 +32,9 @@ urlpatterns = [
     path('settings/notification/', views.notification_settings_view, name='notification_settings'),
     path('settings/password/', views.settings_password_edit, name='settings_password_edit'),
 
-    # --- 下タブ管理用API ---
+    # --- 下タブ管理用 API ---
     path('api/get_tabs/', views.get_tabs, name='get_tabs'),
-    path('api/save_tab/', views.save_tab, name='save_tab'),
-    path('api/delete_tab/<int:tab_id>/', views.delete_tab, name='delete_tab'),
-    path('api/save_order/', views.save_order, name='save_order'),
+    path('api/save_tab/', views.save_tab, name='save_tab'),               # タブ保存
+    path('api/delete_tab/<int:tab_id>/', views.delete_tab, name='delete_tab'),  # タブ削除
+    path('api/save_order/', views.save_order, name='save_order'),         # 並び順保存
 ]
