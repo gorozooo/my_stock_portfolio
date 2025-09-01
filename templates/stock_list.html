@@ -5,45 +5,58 @@
 {% block content %}
 <div class="portfolio-container" id="broker-container">
   {% regroup stocks by broker as broker_list %}
-  {% for broker_group in broker_list %}
-  <div class="broker-section">
-    <h3 class="broker-title">{{ broker_group.grouper }}</h3>
-    <div class="broker-cards-wrapper">
-      {% for stock in broker_group.list %}
-      <div class="stock-card-wrapper">
-        <div class="stock-card"
-             data-id="{{ stock.id }}"
-             data-name="{{ stock.name }}"
-             data-ticker="{{ stock.ticker }}"
-             data-shares="{{ stock.shares }}"
-             data-unit_price="{{ stock.unit_price|floatformat:0 }}"
-             data-current_price="{{ stock.current_price|floatformat:0 }}"
-             data-profit="{{ stock.profit_amount }}"
-             data-profit_rate="{{ stock.profit_rate }}">
-          
-          <div class="stock-header">
-            <span class="stock-name">{{ stock.name }}</span>
-            <span class="stock-code">{{ stock.ticker }}</span>
-          </div>
 
-          <div class="stock-body">
-            <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
-            <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
-            <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
-            <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
-            <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
-              <span>損益</span>
-              <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
+  <!-- 証券会社タブ -->
+  <div class="broker-tabs-wrapper">
+    {% for broker_group in broker_list %}
+    <button class="broker-tab" data-broker-index="{{ forloop.counter0 }}">{{ broker_group.grouper }}</button>
+    {% endfor %}
+  </div>
+
+  <!-- 証券会社ごとの株カード縦スクロール -->
+  <div class="broker-vertical-wrapper">
+    {% for broker_group in broker_list %}
+    <div class="broker-section" data-broker-index="{{ forloop.counter0 }}">
+      <h3 class="broker-title">{{ broker_group.grouper }}</h3>
+      <div class="broker-cards-wrapper">
+        {% for stock in broker_group.list %}
+        <div class="stock-card-wrapper">
+          <div class="stock-card"
+               data-id="{{ stock.id }}"
+               data-name="{{ stock.name }}"
+               data-ticker="{{ stock.ticker }}"
+               data-shares="{{ stock.shares }}"
+               data-unit_price="{{ stock.unit_price|floatformat:0 }}"
+               data-current_price="{{ stock.current_price|floatformat:0 }}"
+               data-profit="{{ stock.profit_amount }}"
+               data-profit_rate="{{ stock.profit_rate }}">
+
+            <div class="stock-header">
+              <span class="stock-name">{{ stock.name }}</span>
+              <span class="stock-code">{{ stock.ticker }}</span>
+            </div>
+
+            <div class="stock-body">
+              <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
+              <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
+              <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
+              <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
+              <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
+                <span>損益</span>
+                <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
+              </div>
             </div>
           </div>
-        </div>
 
-        <button class="edit-btn">編集</button>
-        <button class="sell-btn">売却</button>
+          <button class="edit-btn">編集</button>
+          <button class="sell-btn">売却</button>
+        </div>
+        {% endfor %}
       </div>
-      {% endfor %}
     </div>
+    {% endfor %}
   </div>
+
   {% empty %}
   <p>保有株データがありません。</p>
   {% endfor %}
@@ -67,21 +80,49 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/stock_list.css' %}">
 <style>
-/* 証券会社ごとの横スクロールラッパー */
+/* 証券会社タブ */
+.broker-tabs-wrapper {
+  display: flex;
+  overflow-x: auto;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid #ccc;
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.broker-tab {
+  padding: 6px 12px;
+  border: none;
+  background: #eee;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.broker-tab.active {
+  background: #007bff;
+  color: #fff;
+}
+
+/* 縦スクロールラッパー */
+.broker-vertical-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* 証券会社セクション */
 .broker-section {
-  margin-bottom: 24px;
   position: relative;
 }
 .broker-title {
   font-weight: bold;
   padding: 8px;
-  background: #fff;
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  background: #f9f9f9;
   border-bottom: 1px solid #ccc;
-  color: #333;
 }
+
+/* 横スクロール株カード */
 .broker-cards-wrapper {
   display: flex;
   overflow-x: auto;
@@ -94,7 +135,7 @@
   flex: 0 0 auto;
   width: 220px;
   scroll-snap-align: start;
-  background: #f9f9f9;
+  background: #fff;
   border-radius: 12px;
   box-shadow: 0 2px 6px rgba(0,0,0,0.1);
   padding: 8px;
@@ -105,7 +146,7 @@
 .stock-row.gain.positive span:last-child { color: green; font-weight: bold; }
 .stock-row.gain.negative span:last-child { color: red; font-weight: bold; }
 
-/* スクロールバーを目立たなく */
+/* スクロールバー */
 .broker-cards-wrapper::-webkit-scrollbar {
   height: 6px;
 }
@@ -119,7 +160,7 @@
 {% block extra_js %}
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-  // カードクリックで簡易モーダル表示
+  // 株カードクリック
   document.querySelectorAll(".stock-card").forEach(card => {
     card.addEventListener("click", () => {
       const name = card.dataset.name;
@@ -134,27 +175,42 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // スワイプ操作で左右スクロール（ハイブリッドUI補助）
+  // タブ切り替え
+  const tabs = document.querySelectorAll(".broker-tab");
+  const sections = document.querySelectorAll(".broker-section");
+  tabs.forEach(tab => {
+    tab.addEventListener("click", () => {
+      tabs.forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      const index = tab.dataset.brokerIndex;
+      sections.forEach(s => {
+        s.style.display = s.dataset.brokerIndex === index ? "block" : "none";
+      });
+    });
+  });
+
+  // 初期表示：最初の証券会社のみ
+  tabs[0].classList.add("active");
+  sections.forEach((s, i) => s.style.display = i === 0 ? "block" : "none");
+
+  // 横スクロール：タッチ&マウス対応
   document.querySelectorAll(".broker-cards-wrapper").forEach(wrapper => {
     let isDown = false, startX, scrollLeft;
-
     wrapper.addEventListener("mousedown", e => {
       isDown = true;
-      wrapper.classList.add("active");
       startX = e.pageX - wrapper.offsetLeft;
       scrollLeft = wrapper.scrollLeft;
     });
     wrapper.addEventListener("mouseleave", () => isDown = false);
     wrapper.addEventListener("mouseup", () => isDown = false);
     wrapper.addEventListener("mousemove", e => {
-      if (!isDown) return;
+      if(!isDown) return;
       e.preventDefault();
       const x = e.pageX - wrapper.offsetLeft;
-      const walk = (x - startX) * 1; // スクロール速度調整
-      wrapper.scrollLeft = scrollLeft - walk;
+      wrapper.scrollLeft = scrollLeft - (x - startX);
     });
 
-    // タッチ操作対応
+    // タッチ対応
     let startTouchX = 0, startScroll = 0;
     wrapper.addEventListener("touchstart", e => {
       startTouchX = e.touches[0].pageX;
