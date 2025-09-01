@@ -40,7 +40,12 @@ document.addEventListener("DOMContentLoaded", () => {
     onEnd: function(evt) {
       const order = Array.from(tabList.children).map(c => c.dataset.id);
       console.log("新しいタブ順序:", order);
-      // TODO: Ajaxで順序をDBに保存
+      // Ajaxで順序をDBに保存
+      fetch("/save_tab_order/", {
+        method: "POST",
+        headers: { "X-CSRFToken": getCSRFToken() },
+        body: JSON.stringify({ order: order })
+      });
     }
   });
 
@@ -55,28 +60,41 @@ document.addEventListener("DOMContentLoaded", () => {
           .filter(c => c.dataset.id)
           .map(c => c.dataset.id);
         console.log("サブメニュー順序更新:", order);
-        // TODO: AjaxでDBに保存
+        // AjaxでDB保存
+        fetch("/save_submenu_order/", {
+          method: "POST",
+          headers: { "X-CSRFToken": getCSRFToken() },
+          body: JSON.stringify({ order: order })
+        });
       }
     });
   });
 
   // -------------------- タブ編集 --------------------
+  function openTabModal(tabCard) {
+    const id = tabCard.dataset.id;
+    const name = tabCard.querySelector(".tab-name").innerText;
+    const icon = tabCard.querySelector(".tab-icon").innerText;
+    const url_name = tabCard.dataset.url || "";
+
+    document.getElementById("modal-title").innerText = id ? "タブ編集" : "新規タブ追加";
+    document.getElementById("tab-id").value = id || "";
+    document.getElementById("tab-name").value = name || "";
+    document.getElementById("tab-icon").value = icon || "";
+    document.getElementById("tab-url").value = url_name || "";
+
+    openModal(tabModal);
+  }
+
   document.querySelectorAll(".edit-tab-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const tabCard = btn.closest(".tab-card");
-      const id = tabCard.dataset.id;
-      const name = tabCard.querySelector(".tab-name").innerText;
-      const icon = tabCard.querySelector(".tab-icon").innerText;
-      const url_name = tabCard.dataset.url || "";
-
-      document.getElementById("modal-title").innerText = "タブ編集";
-      document.getElementById("tab-id").value = id;
-      document.getElementById("tab-name").value = name;
-      document.getElementById("tab-icon").value = icon;
-      document.getElementById("tab-url").value = url_name;
-
-      openModal(tabModal);
+      openTabModal(tabCard);
     });
+  });
+
+  document.getElementById("add-tab-fab").addEventListener("click", () => {
+    openTabModal({ dataset: {} });
   });
 
   // -------------------- タブ削除 --------------------
@@ -84,29 +102,38 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener("click", () => {
       const tabCard = btn.closest(".tab-card");
       if(confirm("タブを削除しますか？")) {
-        tabCard.remove();
-        // TODO: AjaxでDB削除
+        fetch(`/delete_tab/${tabCard.dataset.id}/`, {
+          method: "POST",
+          headers: { "X-CSRFToken": getCSRFToken() }
+        }).then(res => {
+          if(res.ok) tabCard.remove();
+        });
       }
     });
   });
 
   // -------------------- サブメニュー編集 --------------------
+  function openSubmenuModal(subItem, tabId) {
+    document.getElementById("submenu-modal-title").innerText = subItem ? "サブメニュー編集" : "サブメニュー追加";
+    document.getElementById("submenu-tab-id").value = tabId;
+    document.getElementById("submenu-id").value = subItem ? subItem.dataset.id : "";
+    document.getElementById("submenu-name").value = subItem ? subItem.querySelector("span").innerText : "";
+    document.getElementById("submenu-url").value = subItem ? subItem.dataset.url : "";
+    openModal(submenuModal);
+  }
+
   document.querySelectorAll(".edit-sub-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const subItem = btn.closest(".submenu-item");
       const tabCard = subItem.closest(".tab-card");
-      const tabId = tabCard.dataset.id;
-      const id = subItem.dataset.id;
-      const name = subItem.querySelector("span").innerText;
-      const url = subItem.dataset.url || "";
+      openSubmenuModal(subItem, tabCard.dataset.id);
+    });
+  });
 
-      document.getElementById("submenu-modal-title").innerText = "サブメニュー編集";
-      document.getElementById("submenu-tab-id").value = tabId;
-      document.getElementById("submenu-id").value = id;
-      document.getElementById("submenu-name").value = name;
-      document.getElementById("submenu-url").value = url;
-
-      openModal(submenuModal);
+  document.querySelectorAll(".add-submenu-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const tabCard = btn.closest(".tab-card");
+      openSubmenuModal(null, tabCard.dataset.id);
     });
   });
 
@@ -115,35 +142,13 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener("click", () => {
       const subItem = btn.closest(".submenu-item");
       if(confirm("サブメニューを削除しますか？")) {
-        subItem.remove();
-        // TODO: AjaxでDB削除
+        fetch(`/delete_submenu/${subItem.dataset.id}/`, {
+          method: "POST",
+          headers: { "X-CSRFToken": getCSRFToken() }
+        }).then(res => {
+          if(res.ok) subItem.remove();
+        });
       }
-    });
-  });
-
-  // -------------------- 新規タブ追加 --------------------
-  document.getElementById("add-tab-fab").addEventListener("click", () => {
-    document.getElementById("modal-title").innerText = "新規タブ追加";
-    document.getElementById("tab-id").value = "";
-    document.getElementById("tab-name").value = "";
-    document.getElementById("tab-icon").value = "";
-    document.getElementById("tab-url").value = "";
-    openModal(tabModal);
-  });
-
-  // -------------------- 新規サブメニュー追加 --------------------
-  document.querySelectorAll(".add-submenu-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const tabCard = btn.closest(".tab-card");
-      const tabId = tabCard.dataset.id;
-
-      document.getElementById("submenu-modal-title").innerText = "サブメニュー追加";
-      document.getElementById("submenu-tab-id").value = tabId;
-      document.getElementById("submenu-id").value = "";
-      document.getElementById("submenu-name").value = "";
-      document.getElementById("submenu-url").value = "";
-
-      openModal(submenuModal);
     });
   });
 
@@ -151,46 +156,64 @@ document.addEventListener("DOMContentLoaded", () => {
   tabForm.addEventListener("submit", e => {
     e.preventDefault();
     const formData = new FormData(tabForm);
-    const data = Object.fromEntries(formData.entries());
+    const id = formData.get("tab_id");
 
-    console.log("タブ送信データ:", data);
-    closeModal(tabModal);
-
-    // ---------------- Ajax例 ----------------
-    /*
-    fetch("/save_tab/", {
+    fetch(id ? `/update_tab/${id}/` : "/create_tab/", {
       method: "POST",
-      body: formData,
+      headers: { "X-CSRFToken": getCSRFToken() },
+      body: formData
     })
     .then(res => res.json())
-    .then(result => {
-      console.log("タブ保存結果:", result);
-      // 保存後に画面更新 or 追加
+    .then(data => {
+      if(data.success){
+        if(id){
+          // 編集の場合
+          const tabCard = document.querySelector(`.tab-card[data-id='${id}']`);
+          tabCard.querySelector(".tab-name").innerText = data.tab.name;
+          tabCard.querySelector(".tab-icon").innerText = data.tab.icon || "📑";
+          tabCard.dataset.url = data.tab.url_name || "";
+        } else {
+          // 新規追加
+          tabList.insertAdjacentHTML("beforeend", data.html); // data.htmlはサーバーで生成されたタブカードHTML
+        }
+      }
+      closeModal(tabModal);
     });
-    */
   });
 
   // -------------------- サブメニュー保存フォーム --------------------
   submenuForm.addEventListener("submit", e => {
     e.preventDefault();
     const formData = new FormData(submenuForm);
-    const data = Object.fromEntries(formData.entries());
+    const id = formData.get("submenu_id");
+    const tabId = formData.get("tab_id");
 
-    console.log("サブメニュー送信データ:", data);
-    closeModal(submenuModal);
-
-    // ---------------- Ajax例 ----------------
-    /*
-    fetch("/save_submenu/", {
+    fetch(id ? `/update_submenu/${id}/` : "/create_submenu/", {
       method: "POST",
-      body: formData,
+      headers: { "X-CSRFToken": getCSRFToken() },
+      body: formData
     })
     .then(res => res.json())
-    .then(result => {
-      console.log("サブメニュー保存結果:", result);
-      // 保存後に画面更新 or 追加
+    .then(data => {
+      if(data.success){
+        const tabCard = document.querySelector(`.tab-card[data-id='${tabId}']`);
+        if(id){
+          // 編集
+          const subItem = tabCard.querySelector(`.submenu-item[data-id='${id}'] span`);
+          subItem.innerText = data.submenu.name;
+        } else {
+          // 新規追加
+          const submenuList = tabCard.querySelector(".submenu-list");
+          submenuList.insertAdjacentHTML("beforeend", data.html); // data.htmlはサーバーで生成されたサブメニューHTML
+        }
+      }
+      closeModal(submenuModal);
     });
-    */
   });
+
+  // -------------------- CSRF取得 --------------------
+  function getCSRFToken(){
+    return document.querySelector("[name=csrfmiddlewaretoken]").value;
+  }
 
 });
