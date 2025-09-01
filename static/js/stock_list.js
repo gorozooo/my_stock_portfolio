@@ -82,8 +82,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (chartScript) {
         try {
           chartHistory = JSON.parse(chartScript.textContent);
-        } catch {
-          console.warn(`⚠️ ${name} のチャートJSON解析に失敗`);
+        } catch (err) {
+          console.warn(`⚠️ ${name} のチャートJSON解析に失敗:`, err);
           chartHistory = [];
         }
       }
