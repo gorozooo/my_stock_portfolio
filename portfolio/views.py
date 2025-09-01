@@ -274,16 +274,22 @@ def tab_manager_view(request):
     if not request.session.get("settings_authenticated"):
         return redirect("settings_login")
 
-    # 全ユーザー共通のタブを取得
-    tabs = BottomTab.objects.prefetch_related('submenus').order_by('id')
+    # 全ユーザー共通のタブを取得（order優先）
+    tabs_qs = BottomTab.objects.prefetch_related('submenus').order_by('order', 'id')
 
+    # テンプレートが dict 期待なので整形
     tab_list = []
-    for tab in tabs:
+    for tab in tabs_qs:
         tab_list.append({
             "id": tab.id,
             "name": tab.name,
             "icon": tab.icon or "📌",
-            "submenus": [{"id": sub.id, "name": sub.name} for sub in tab.submenus.all()]
+            "url_name": tab.url_name,
+            "order": tab.order,
+            "submenus": [
+                {"id": sub.id, "name": sub.name, "url": sub.url, "order": sub.order}
+                for sub in tab.submenus.all().order_by('order', 'id')
+            ],
         })
 
     return render(request, "tab_manager.html", {"tabs": tab_list})
@@ -325,10 +331,11 @@ def settings_password_edit(request):
 
 
 # -----------------------------
-# API: タブ一覧
+# API: タブ一覧（下部ナビ用のJSON）
 # -----------------------------
 @login_required
 def get_tabs(request):
+    # get_bottom_tabs() 側が現行モデル構成（link_type無）に合わせてある前提
     return JsonResponse(get_bottom_tabs(), safe=False)
 
 
@@ -338,6 +345,7 @@ def get_tabs(request):
 @csrf_exempt
 @require_POST
 @transaction.atomic
+@login_required
 def save_tab(request):
     try:
         data = json.loads(request.body or "{}")
@@ -347,19 +355,21 @@ def save_tab(request):
     name = (data.get("name") or "").strip()
     icon = (data.get("icon") or "").strip()
     url_name = (data.get("url_name") or "").strip()
-    link_type = (data.get("link_type") or "view").strip()
     submenus = data.get("submenus", [])
     tab_id = data.get("id")
 
-    if not name or not icon or not url_name:
-        return JsonResponse({"error": "必須項目が不足しています。"}, status=400)
+    if not name:
+        return JsonResponse({"error": "タブ名は必須です。"}, status=400)
 
     if tab_id:
         tab = BottomTab.objects.filter(id=tab_id).first()
         if not tab:
             return JsonResponse({"error": "Tab not found"}, status=404)
-        tab.name, tab.icon, tab.url_name, tab.link_type = name, icon, url_name, link_type
+        tab.name = name
+        tab.icon = icon
+        tab.url_name = url_name
         tab.save()
+        # いったん全削除して作り直す（簡便）
         tab.submenus.all().delete()
     else:
         max_tab = BottomTab.objects.order_by("-order").first()
@@ -367,15 +377,14 @@ def save_tab(request):
             name=name,
             icon=icon,
             url_name=url_name,
-            link_type=link_type,
             order=(max_tab.order + 1) if max_tab else 0,
         )
 
+    # サブメニューの再作成
     for idx, sm in enumerate(submenus):
         tab.submenus.create(
             name=(sm.get("name") or "").strip(),
             url=(sm.get("url") or "").strip(),
-            link_type=(sm.get("link_type") or "view").strip(),
             order=idx,
         )
 
@@ -384,11 +393,10 @@ def save_tab(request):
         "name": tab.name,
         "icon": tab.icon,
         "url_name": tab.url_name,
-        "link_type": tab.link_type,
         "order": tab.order,
         "submenus": [
-            {"id": sm.id, "name": sm.name, "url": sm.url, "link_type": sm.link_type, "order": sm.order}
-            for sm in tab.submenus.all().order_by("order")
+            {"id": sm.id, "name": sm.name, "url": sm.url, "order": sm.order}
+            for sm in tab.submenus.all().order_by("order", "id")
         ],
     })
 
@@ -425,7 +433,7 @@ def save_order(request):
         tab_id = item.get("id")
         order = item.get("order")
         tab = BottomTab.objects.filter(id=tab_id).first()
-        if tab and isinstance(order, int):
+        if tab is not None and isinstance(order, int):
             tab.order = order
             tab.save()
 
