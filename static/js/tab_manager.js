@@ -192,10 +192,48 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // -------------------- ドラッグ順序更新 --------------------
-  Sortable.create(tabList, { animation: 150, handle: ".tab-header", ghostClass: "dragging" });
-  document.querySelectorAll(".submenu-list").forEach(list => {
-    Sortable.create(list, { animation: 150, handle: ".submenu-item", ghostClass: "dragging" });
+  const tabSortable = Sortable.create(tabList, { 
+    animation: 150, 
+    handle: ".tab-header", 
+    ghostClass: "dragging",
+    onEnd: saveTabOrder
   });
+
+  document.querySelectorAll(".submenu-list").forEach(list => {
+    Sortable.create(list, { 
+      animation: 150, 
+      handle: ".submenu-item", 
+      ghostClass: "dragging",
+      onEnd: saveSubmenuOrder
+    });
+  });
+
+  // -------------------- 順序保存 --------------------
+  function saveTabOrder() {
+    const order = Array.from(tabList.children).map(tab => tab.dataset.id);
+    fetch("/tabs/reorder/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": getCSRFToken()
+      },
+      body: JSON.stringify({ order })
+    });
+  }
+
+  function saveSubmenuOrder(evt) {
+    const list = evt.from; // 並び替えられたリスト
+    const tabId = list.closest(".tab-card").dataset.id;
+    const order = Array.from(list.children).map(sub => sub.dataset.id);
+    fetch("/submenus/reorder/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": getCSRFToken()
+      },
+      body: JSON.stringify({ tab_id: tabId, order })
+    });
+  }
 
   // -------------------- CSRF取得 --------------------
   function getCSRFToken() {
