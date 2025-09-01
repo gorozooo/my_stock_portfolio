@@ -70,22 +70,29 @@ def logout_view(request):
 # -----------------------------
 @login_required
 def stock_list_view(request):
+    # 全保有株を取得
     stocks = Stock.objects.all()
 
     for stock in stocks:
         try:
+            # Yahoo Finance の日本株用シンボル
             ticker_symbol = f"{stock.ticker}.T"
             ticker = yf.Ticker(ticker_symbol)
 
+            # ===== 現在株価取得 =====
             todays_data = ticker.history(period="1d")
-            stock.current_price = float(todays_data["Close"].iloc[-1]) if not todays_data.empty else stock.unit_price
+            if not todays_data.empty:
+                stock.current_price = float(todays_data["Close"].iloc[-1])
+            else:
+                stock.current_price = stock.unit_price
 
+            # ===== 過去1ヶ月のOHLCデータ取得 =====
             history = ticker.history(period="1mo")
             ohlc_list = []
             if not history.empty:
                 for date, row in history.iterrows():
                     ohlc_list.append({
-                        "t": date.strftime("%Y-%m-%d"),
+                        "t": date.strftime("%Y-%m-%d"),  # Chart.js用 x軸
                         "o": round(row["Open"], 2),
                         "h": round(row["High"], 2),
                         "l": round(row["Low"], 2),
@@ -93,11 +100,13 @@ def stock_list_view(request):
                     })
             stock.chart_history = ohlc_list
 
+            # ===== 損益計算 =====
             stock.total_cost = stock.shares * stock.unit_price
-            stock.profit_amount = stock.current_price * stock.shares - stock.total_cost
+            stock.profit_amount = round(stock.current_price * stock.shares - stock.total_cost)
             stock.profit_rate = round(stock.profit_amount / stock.total_cost * 100, 2) if stock.total_cost else 0
 
         except Exception as e:
+            # 取得失敗時はデフォルト値
             stock.chart_history = []
             stock.current_price = stock.unit_price
             stock.total_cost = stock.shares * stock.unit_price
@@ -105,11 +114,10 @@ def stock_list_view(request):
             stock.profit_rate = 0
             print(f"Error fetching data for {stock.ticker}: {e}")
 
-    for stock in stocks:
+        # ===== JSON化してHTML埋め込み用 =====
         stock.chart_json = json.dumps(stock.chart_history)
 
     return render(request, "stock_list.html", {"stocks": stocks})
-
 
 @login_required
 def stock_create(request):
