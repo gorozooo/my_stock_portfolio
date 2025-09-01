@@ -7,12 +7,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const addTabFab = document.getElementById("add-tab-fab");
   const apiConfig = document.getElementById("api-config");
 
+  // -------------------- URL 設定 --------------------
   const urls = {
     tabSave: apiConfig.dataset.tabSave,
-    tabDelete: apiConfig.dataset.tabDelete,
+    tabDeleteBase: apiConfig.dataset.tabDeleteBase,
     tabReorder: apiConfig.dataset.tabReorder,
     submenuSave: apiConfig.dataset.submenuSave,
-    submenuDelete: apiConfig.dataset.submenuDelete,
+    submenuDeleteBase: apiConfig.dataset.submenuDeleteBase,
     submenuReorder: apiConfig.dataset.submenuReorder,
   };
 
@@ -27,12 +28,15 @@ document.addEventListener("DOMContentLoaded", () => {
     modal.addEventListener("click", e => { if(e.target===modal) closeModal(modal); });
   });
 
+  // -------------------- タブ折りたたみ --------------------
   function attachToggle(btn) {
     if (!btn) return;
-    btn.addEventListener("click", () => btn.closest(".tab-card")?.classList.toggle("expanded"));
-    btn.addEventListener("touchstart", () => btn.closest(".tab-card")?.classList.toggle("expanded"));
+    const toggleFn = () => btn.closest(".tab-card")?.classList.toggle("expanded");
+    btn.addEventListener("click", toggleFn);
+    btn.addEventListener("touchstart", toggleFn);
   }
 
+  // -------------------- タブ生成 --------------------
   function createTabCardHTML(tab) {
     const div = document.createElement("div");
     div.className = "tab-card";
@@ -54,15 +58,12 @@ document.addEventListener("DOMContentLoaded", () => {
       <button class="add-submenu-btn">＋ サブメニュー追加</button>
     `;
     attachTabEvents(div);
-
-    const submenuList = div.querySelector(".submenu-list");
-    Sortable.create(submenuList, {
+    Sortable.create(div.querySelector(".submenu-list"), {
       animation: 150,
       handle: ".submenu-item",
       ghostClass: "dragging",
       onEnd: saveSubmenuOrder
     });
-
     return div;
   }
 
@@ -84,16 +85,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // -------------------- イベント付与 --------------------
   function attachTabEvents(tabCard){
-    tabCard.querySelector(".edit-tab-btn")?.addEventListener("click",()=>openTabModal(tabCard));
-    tabCard.querySelector(".delete-tab-btn")?.addEventListener("click",()=>{if(confirm("タブを削除しますか？")) submitTabDelete(tabCard)});
+    tabCard.querySelector(".edit-tab-btn")?.addEventListener("click", ()=>openTabModal(tabCard));
+    tabCard.querySelector(".delete-tab-btn")?.addEventListener("click", ()=>{if(confirm("タブを削除しますか？")) submitTabDelete(tabCard)});
     attachToggle(tabCard.querySelector(".toggle-submenu"));
-    tabCard.querySelector(".add-submenu-btn")?.addEventListener("click",()=>openSubmenuModal(null,tabCard));
-    tabCard.querySelectorAll(".submenu-item").forEach(sub=>attachSubmenuEvents(sub));
+    tabCard.querySelector(".add-submenu-btn")?.addEventListener("click", ()=>openSubmenuModal(null, tabCard));
+    tabCard.querySelectorAll(".submenu-item").forEach(sub => attachSubmenuEvents(sub));
   }
 
   function attachSubmenuEvents(subItem){
-    subItem.querySelector(".edit-sub-btn")?.addEventListener("click",()=>openSubmenuModal(subItem,subItem.closest(".tab-card")));
-    subItem.querySelector(".delete-sub-btn")?.addEventListener("click",()=>{if(confirm("サブメニューを削除しますか？")) submitSubmenuDelete(subItem)});
+    subItem.querySelector(".edit-sub-btn")?.addEventListener("click", ()=>openSubmenuModal(subItem, subItem.closest(".tab-card")));
+    subItem.querySelector(".delete-sub-btn")?.addEventListener("click", ()=>{if(confirm("サブメニューを削除しますか？")) submitSubmenuDelete(subItem)});
   }
 
   // -------------------- モーダル開閉 --------------------
@@ -118,17 +119,20 @@ document.addEventListener("DOMContentLoaded", () => {
     openModal(submenuModal);
   }
 
-  addTabFab.addEventListener("click",()=>openTabModal(null));
+  addTabFab.addEventListener("click", ()=>openTabModal(null));
 
   // -------------------- 保存 --------------------
+  async function postForm(url, formData) {
+    const res = await fetch(url, {method:"POST", headers:{"X-CSRFToken":getCSRFToken()}, body:formData});
+    return await res.json();
+  }
+
   tabForm.addEventListener("submit", async e=>{
     e.preventDefault();
     const formData = new FormData(tabForm);
     const isNew = !tabModal.currentTabCard;
-
     try {
-      const res = await fetch(urls.tabSave, {method:"POST", headers:{"X-CSRFToken":getCSRFToken()}, body:formData});
-      const data = await res.json();
+      const data = await postForm(urls.tabSave, formData);
       if(data.id){
         if(isNew) tabList.appendChild(createTabCardHTML(data));
         else{
@@ -142,9 +146,7 @@ document.addEventListener("DOMContentLoaded", () => {
         closeModal(tabModal);
         saveTabOrder();
       } else if(data.error) alert("保存できませんでした: "+data.error);
-    } catch(err){
-      alert("通信エラー: "+err);
-    }
+    } catch(err){ alert("通信エラー: "+err); }
   });
 
   submenuForm.addEventListener("submit", async e=>{
@@ -153,27 +155,23 @@ document.addEventListener("DOMContentLoaded", () => {
     const tabCard = submenuModal.currentTabCard;
     const formData = new FormData(submenuForm);
     const isNew = !subItem;
-
     try {
-      const res = await fetch(urls.submenuSave, {method:"POST", headers:{"X-CSRFToken":getCSRFToken()}, body:formData});
-      const data = await res.json();
+      const data = await postForm(urls.submenuSave, formData);
       if(data.id){
         if(isNew && tabCard) tabCard.querySelector(".submenu-list").appendChild(createSubmenuHTML(data));
         else if(subItem) { subItem.querySelector("span").textContent = data.name; subItem.dataset.url = data.url||""; }
         closeModal(submenuModal);
         if(tabCard) saveSubmenuOrder({from: tabCard.querySelector(".submenu-list")});
       } else if(data.error) alert("保存できませんでした: "+data.error);
-    } catch(err){
-      alert("通信エラー: "+err);
-    }
+    } catch(err){ alert("通信エラー: "+err); }
   });
 
   // -------------------- 削除 --------------------
   function submitTabDelete(tabCard){
     const tabId = tabCard?.dataset.id;
     if(!tabId) return;
-    const url = urls.tabDelete.replace("{id}", tabId);
-    fetch(url,{method:"POST",headers:{"X-CSRFToken":getCSRFToken()}})
+    const url = urls.tabDeleteBase + tabId + "/";
+    fetch(url,{method:"POST", headers:{"X-CSRFToken":getCSRFToken()}})
       .then(res=>res.json())
       .then(data=>{ if(data.success) tabCard.remove(); });
   }
@@ -181,8 +179,8 @@ document.addEventListener("DOMContentLoaded", () => {
   function submitSubmenuDelete(subItem){
     const subId = subItem?.dataset.id;
     if(!subId) return;
-    const url = urls.submenuDelete.replace("{id}", subId);
-    fetch(url,{method:"POST",headers:{"X-CSRFToken":getCSRFToken()}})
+    const url = urls.submenuDeleteBase + subId + "/";
+    fetch(url,{method:"POST", headers:{"X-CSRFToken":getCSRFToken()}})
       .then(res=>res.json())
       .then(data=>{ if(data.success) subItem.remove(); });
   }
@@ -205,7 +203,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function getCSRFToken(){ return document.querySelector('[name=csrfmiddlewaretoken]')?.value||""; }
 
   // -------------------- 初期化 --------------------
-  if(tabList) Sortable.create(tabList,{animation:150,handle:".tab-header",ghostClass:"dragging",onEnd:saveTabOrder});
-  tabList.querySelectorAll(".submenu-list").forEach(list=>Sortable.create(list,{animation:150,handle:".submenu-item",ghostClass:"dragging",onEnd:saveSubmenuOrder}));
-  tabList.querySelectorAll(".tab-card").forEach(tabCard=>attachTabEvents(tabCard));
+  if(tabList) Sortable.create(tabList,{animation:150, handle:".tab-header", ghostClass:"dragging", onEnd:saveTabOrder});
+  tabList.querySelectorAll(".submenu-list").forEach(list => Sortable.create(list,{animation:150, handle:".submenu-item", ghostClass:"dragging", onEnd:saveSubmenuOrder}));
+  tabList.querySelectorAll(".tab-card").forEach(tabCard => attachTabEvents(tabCard));
 });
