@@ -74,11 +74,19 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentPrice = Number(card.dataset.current_price) || 0;
     let profit = Number(card.dataset.profit) || 0;
 
+    // ===== チャートデータ読み込み =====
     let chartHistory = [];
-    try {
-      chartHistory = JSON.parse(card.dataset.chart || "[]");
-    } catch {
-      chartHistory = [];
+    const chartId = card.dataset.chartId;
+    if (chartId) {
+      const chartScript = document.getElementById(chartId);
+      if (chartScript) {
+        try {
+          chartHistory = JSON.parse(chartScript.textContent);
+        } catch {
+          console.warn(`⚠️ ${name} のチャートJSON解析に失敗`);
+          chartHistory = [];
+        }
+      }
     }
 
     // ===== カード内表示更新 =====
