@@ -331,7 +331,18 @@ def settings_password_edit(request):
 # -----------------------------
 @login_required
 def get_tabs(request):
-    return JsonResponse(get_bottom_tabs(), safe=False)
+    tabs_qs = BottomTab.objects.prefetch_related("submenus").order_by("order", "id")
+    data = []
+    for tab in tabs_qs:
+        data.append({
+            "id": tab.id,
+            "name": tab.name,
+            "icon": tab.icon,
+            "url_name": tab.url_name,
+            "order": tab.order,
+            "submenus": [{"id": sm.id, "name": sm.name, "url": sm.url, "order": sm.order} for sm in tab.submenus.all().order_by("order", "id")]
+        })
+    return JsonResponse(data, safe=False)
 
 
 # -----------------------------
@@ -429,6 +440,75 @@ def save_order(request):
         if tab is not None and isinstance(order, int):
             tab.order = order
             tab.save()
+
+    return JsonResponse({"success": True})
+
+
+# -----------------------------
+# API: サブメニュー保存
+# -----------------------------
+@csrf_exempt
+@require_POST
+@transaction.atomic
+@login_required
+def save_submenu(request):
+    try:
+        data = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON")
+
+    tab_id = data.get("tab_id")
+    name = (data.get("name") or "").strip()
+    url = (data.get("url") or "").strip()
+
+    if not tab_id or not name:
+        return JsonResponse({"error": "tab_idと名前は必須です"}, status=400)
+
+    tab = BottomTab.objects.filter(id=tab_id).first()
+    if not tab:
+        return JsonResponse({"error": "Tab not found"}, status=404)
+
+    max_order = tab.submenus.aggregate(max_order=models.Max("order"))["max_order"] or 0
+    submenu = tab.submenus.create(name=name, url=url, order=max_order + 1)
+
+    return JsonResponse({"id": submenu.id, "name": submenu.name, "url": submenu.url, "order": submenu.order})
+
+
+# -----------------------------
+# API: サブメニュー削除
+# -----------------------------
+@csrf_exempt
+@require_POST
+@transaction.atomic
+@login_required
+def delete_submenu(request, sub_id):
+    sm = SubMenu.objects.filter(id=sub_id).first()
+    if not sm:
+        return JsonResponse({"error": "SubMenu not found"}, status=404)
+    sm.delete()
+    return JsonResponse({"success": True})
+
+
+# -----------------------------
+# API: サブメニュー順序保存
+# -----------------------------
+@csrf_exempt
+@require_POST
+@transaction.atomic
+@login_required
+def save_submenu_order(request):
+    try:
+        data = json.loads(request.body or "[]")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON")
+
+    for item in data:
+        sub_id = item.get("id")
+        order = item.get("order")
+        sm = SubMenu.objects.filter(id=sub_id).first()
+        if sm is not None and isinstance(order, int):
+            sm.order = order
+            sm.save()
 
     return JsonResponse({"success": True})
 
