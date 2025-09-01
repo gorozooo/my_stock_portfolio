@@ -1,3 +1,5 @@
+/* スマホファースト設計 */
+
 /* 証券会社タブ */
 .broker-tabs-wrapper {
   display: flex;
@@ -16,25 +18,27 @@
   background: #eee;
   border-radius: 6px;
   cursor: pointer;
+  flex-shrink: 0;
 }
 .broker-tab.active {
   background: #007bff;
   color: #fff;
 }
 
-/* 縦スクロールラッパー */
+/* 証券会社セクションラッパー（横スクロール） */
 .broker-vertical-wrapper {
   display: flex;
-  flex-direction: row; /* ← 横に証券会社を並べる */
+  flex-direction: row; /* 横に証券会社を並べる */
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
   gap: 24px;
+  width: 100%;
 }
 
 /* 証券会社セクション */
 .broker-section {
-  flex: 0 0 100%;
+  flex: 0 0 100%; /* 画面幅いっぱい */
   scroll-snap-align: start;
   display: flex;
   flex-direction: column;
@@ -44,19 +48,22 @@
   padding: 8px;
   background: #f9f9f9;
   border-bottom: 1px solid #ccc;
+  text-align: center;
 }
 
-/* 横スクロール株カード */
+/* 株カード横スクロール */
 .broker-cards-wrapper {
   display: flex;
   overflow-x: auto;
   gap: 12px;
   padding: 8px;
   -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
 }
 .stock-card-wrapper {
   flex: 0 0 auto;
   width: 220px;
+  scroll-snap-align: start;
   background: #fff;
   border-radius: 12px;
   box-shadow: 0 2px 6px rgba(0,0,0,0.1);
@@ -68,13 +75,32 @@
 .stock-row.gain.positive span:last-child { color: green; font-weight: bold; }
 .stock-row.gain.negative span:last-child { color: red; font-weight: bold; }
 
-/* スクロールバー */
+/* スクロールバー非表示／スマホ最適化 */
 .broker-vertical-wrapper::-webkit-scrollbar,
 .broker-cards-wrapper::-webkit-scrollbar {
   height: 6px;
+  display: none;
 }
-.broker-vertical-wrapper::-webkit-scrollbar-thumb,
-.broker-cards-wrapper::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.2);
-  border-radius: 3px;
+.broker-vertical-wrapper,
+.broker-cards-wrapper {
+  -ms-overflow-style: none;  /* IE/Edge */
+  scrollbar-width: none;     /* Firefox */
+}
+
+/* タブやカードのレスポンシブ調整 */
+@media (min-width: 768px) {
+  .broker-section {
+    flex: 0 0 50%; /* タブ幅を2分割にしてPCでも見やすく */
+  }
+  .stock-card-wrapper {
+    width: 200px;
+  }
+}
+@media (min-width: 1024px) {
+  .broker-section {
+    flex: 0 0 33.3333%; /* PCで3列表示 */
+  }
+  .stock-card-wrapper {
+    width: 180px;
+  }
 }
