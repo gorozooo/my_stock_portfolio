@@ -5,7 +5,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
-from django.db import transaction
+from django.db import transaction, models
 from django.utils import timezone
 import json
 import yfinance as yf
@@ -433,12 +433,11 @@ def save_order(request):
     except json.JSONDecodeError:
         return HttpResponseBadRequest("Invalid JSON")
 
-    for item in data:
+    for idx, item in enumerate(data):
         tab_id = item.get("id")
-        order = item.get("order")
         tab = BottomTab.objects.filter(id=tab_id).first()
-        if tab is not None and isinstance(order, int):
-            tab.order = order
+        if tab:
+            tab.order = idx
             tab.save()
 
     return JsonResponse({"success": True})
@@ -502,12 +501,11 @@ def save_submenu_order(request):
     except json.JSONDecodeError:
         return HttpResponseBadRequest("Invalid JSON")
 
-    for item in data:
+    for idx, item in enumerate(data):
         sub_id = item.get("id")
-        order = item.get("order")
         sm = SubMenu.objects.filter(id=sub_id).first()
-        if sm is not None and isinstance(order, int):
-            sm.order = order
+        if sm:
+            sm.order = idx
             sm.save()
 
     return JsonResponse({"success": True})
