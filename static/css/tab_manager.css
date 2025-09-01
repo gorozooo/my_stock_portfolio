@@ -96,7 +96,7 @@
 /* -------------------- フローティングボタン -------------------- */
 .fab {
   position: fixed;
-  bottom: 80px; /* 下タブに被らないよう上げる */
+  bottom: 100px; /* 下タブに被らないよう上げる */
   right: 24px;
   width: 56px;
   height: 56px;
@@ -216,6 +216,6 @@
   .tab-name { font-size: 14px; }
   .tab-icon { font-size: 16px; }
   .submenu-item { padding: 6px 10px; font-size: 14px; }
-  .fab { width: 50px; height: 50px; font-size: 28px; bottom: 70px; right: 16px; } /* スマホは少し上げる */
+  .fab { width: 50px; height: 50px; font-size: 28px; bottom: 90px; right: 16px; } /* スマホも上げる */
   .modal-content { width: 95%; margin: 15% auto; padding: 16px; }
 }
