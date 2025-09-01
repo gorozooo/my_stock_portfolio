@@ -109,12 +109,12 @@
 
 <!-- -------------------- API 設定 -------------------- -->
 <div id="api-config"
-     data-tab-save="/tabs/save/"
-     data-tab-delete="/tabs/delete/0/"
-     data-tab-reorder="/tabs/reorder/"
-     data-submenu-save="/submenus/save/"
-     data-submenu-delete="/submenus/delete/0/"
-     data-submenu-reorder="/submenus/reorder/">
+     data-tab-save="{% url 'save_tab' %}"
+     data-tab-delete="{% url 'delete_tab' 0 %}"
+     data-tab-reorder="{% url 'save_order' %}"
+     data-submenu-save="{% url 'save_submenu' %}"
+     data-submenu-delete="{% url 'delete_submenu' 0 %}"
+     data-submenu-reorder="{% url 'save_submenu_order' %}">
 </div>
 
 <!-- -------------------- Sortable.js -------------------- -->
