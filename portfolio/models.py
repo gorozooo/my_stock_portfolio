@@ -130,7 +130,7 @@ class SubMenu(models.Model):
     order = models.PositiveIntegerField("並び順", default=0)
 
     class Meta:
-        ordering = ['order']
+        ordering = ['tab', 'order']
 
     def __str__(self):
         return f"{self.tab.name} -> {self.name}"
