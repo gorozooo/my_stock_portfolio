@@ -5,6 +5,7 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/tab_manager.css' %}">
+<link rel="stylesheet" href="{% static 'css/modal.css' %}"> <!-- モーダル用 -->
 {% endblock %}
 
 {% block content %}
@@ -19,12 +20,8 @@
       <!-- ヘッダー -->
       <div class="tab-header">
         <div class="tab-main">
-          <span class="tab-icon">
-            {{ tab.icon|default:"📑" }}
-          </span>
-          <span class="tab-name">
-            {{ tab.name|default:"（未設定）" }}
-          </span>
+          <span class="tab-icon">{{ tab.icon|default:"📑" }}</span>
+          <span class="tab-name">{{ tab.name|default:"（未設定）" }}</span>
         </div>
         <div class="tab-actions">
           <button class="edit-tab-btn" title="編集">✏️</button>
@@ -61,10 +58,59 @@
   {% endif %}
 </div>
 
-<!-- フローティングボタン -->
+<!-- フローティングボタン（新規タブ作成） -->
 <button id="add-tab-fab" class="fab" title="新規タブ追加">＋</button>
 
+<!-- ----------------- モーダル共通 ----------------- -->
+<div id="tab-modal" class="modal">
+  <div class="modal-content">
+    <span class="modal-close">&times;</span>
+    <h2 id="modal-title">タブ編集</h2>
+    <form id="tab-form">
+      <input type="hidden" name="tab_id" id="tab-id">
+      <div class="form-group">
+        <label>タブ名</label>
+        <input type="text" name="name" id="tab-name" placeholder="例：ホーム" required>
+      </div>
+      <div class="form-group">
+        <label>アイコン</label>
+        <input type="text" name="icon" id="tab-icon" placeholder="例：📌">
+      </div>
+      <div class="form-group">
+        <label>URL 名</label>
+        <input type="text" name="url_name" id="tab-url" placeholder="例：main" required>
+      </div>
+      <div class="form-group">
+        <button type="submit" class="btn-submit">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- モーダルサブメニュー -->
+<div id="submenu-modal" class="modal">
+  <div class="modal-content">
+    <span class="modal-close">&times;</span>
+    <h2 id="submenu-modal-title">サブメニュー編集</h2>
+    <form id="submenu-form">
+      <input type="hidden" name="tab_id" id="submenu-tab-id">
+      <input type="hidden" name="submenu_id" id="submenu-id">
+      <div class="form-group">
+        <label>サブメニュー名</label>
+        <input type="text" name="name" id="submenu-name" placeholder="例：株一覧" required>
+      </div>
+      <div class="form-group">
+        <label>URL</label>
+        <input type="text" name="url" id="submenu-url" placeholder="例：stock_list" required>
+      </div>
+      <div class="form-group">
+        <button type="submit" class="btn-submit">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
-<script src="{% static 'js/tab_manager.js' %}"></script>
+<script src="{% static 'js/tab_manager_modal.js' %}"></script> <!-- モーダル用JS -->
 
 {% endblock %}
