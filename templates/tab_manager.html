@@ -9,12 +9,12 @@
 {% endblock %}
 
 {% block content %}
-<!-- タブ一覧 -->
+<!-- -------------------- タブ一覧 -------------------- -->
 <div id="tab-list" class="tab-list">
   {% if tabs %}
     {% for tab in tabs %}
     <div class="tab-card" data-id="{{ tab.id }}" data-url="{{ tab.url_name|default:'' }}">
-      <!-- ヘッダー -->
+      <!-- タブヘッダー -->
       <div class="tab-header">
         <div class="tab-main">
           <span class="tab-icon">{{ tab.icon|default:"📑" }}</span>
@@ -41,6 +41,8 @@
           {% endfor %}
         {% endif %}
       </div>
+
+      <!-- サブメニュー追加ボタン -->
       <button class="add-submenu-btn">＋ サブメニュー追加</button>
     </div>
     {% endfor %}
@@ -51,10 +53,10 @@
   {% endif %}
 </div>
 
-<!-- フローティングボタン（新規タブ作成） -->
+<!-- -------------------- 新規タブ作成ボタン -------------------- -->
 <button id="add-tab-fab" class="fab" title="新規タブ追加">＋</button>
 
-<!-- ----------------- モーダル タブ ----------------- -->
+<!-- -------------------- モーダル タブ -------------------- -->
 <div id="tab-modal" class="modal">
   <div class="modal-content">
     <span class="modal-close">&times;</span>
@@ -81,7 +83,7 @@
   </div>
 </div>
 
-<!-- ----------------- モーダル サブメニュー ----------------- -->
+<!-- -------------------- モーダル サブメニュー -------------------- -->
 <div id="submenu-modal" class="modal">
   <div class="modal-content">
     <span class="modal-close">&times;</span>
@@ -105,9 +107,10 @@
   </div>
 </div>
 
-<!-- Sortable.js -->
+<!-- -------------------- Sortable.js -------------------- -->
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
-<!-- 修正版JS -->
+
+<!-- -------------------- タブ管理用JS -------------------- -->
 <script src="{% static 'js/tab_manager.js' %}"></script>
 
 {% endblock %}
