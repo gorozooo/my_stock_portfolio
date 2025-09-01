@@ -279,7 +279,7 @@ def tab_manager_view(request):
 
     # -------------------- DBからタブとサブメニューを取得 --------------------
     # ログインユーザーのタブを取得、サブメニューもまとめて取得
-    tabs = Tab.objects.filter(user=request.user).prefetch_related('submenus').order_by('id')
+    tabs = BottomTab.objects.filter(user=request.user).prefetch_related('submenus').order_by('id')
 
     # テンプレートに渡すため辞書形式に変換
     tab_list = []
