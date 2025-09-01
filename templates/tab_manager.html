@@ -9,12 +9,7 @@
 
 {% block content %}
 
-<h1>タブ管理画面</h1>
-
-<!-- デバッグ: tabsの中身を確認 -->
-<pre>
-{{ tabs|default:"tabs is empty"|safe }}
-</pre>
+<h1 class="page-title">📑 タブ管理</h1>
 
 <!-- タブ一覧 -->
 <div id="tab-list" class="tab-list">
@@ -25,24 +20,16 @@
       <div class="tab-header">
         <div class="tab-main">
           <span class="tab-icon">
-            {% if tab.icon %}
-              {{ tab.icon }}
-            {% else %}
-              📑
-            {% endif %}
+            {{ tab.icon|default:"📑" }}
           </span>
           <span class="tab-name">
-            {% if tab.name %}
-              {{ tab.name }}
-            {% else %}
-              （未設定）
-            {% endif %}
+            {{ tab.name|default:"（未設定）" }}
           </span>
         </div>
         <div class="tab-actions">
-          <button class="edit-tab-btn">✏️</button>
-          <button class="delete-tab-btn">🗑️</button>
-          <button class="toggle-submenu">▼</button>
+          <button class="edit-tab-btn" title="編集">✏️</button>
+          <button class="delete-tab-btn" title="削除">🗑️</button>
+          <button class="toggle-submenu" title="サブメニュー切替">▼</button>
         </div>
       </div>
 
@@ -53,8 +40,8 @@
           <div class="submenu-item" data-id="{{ sub.id }}">
             <span>{{ sub.name|default:"（未設定）" }}</span>
             <div class="submenu-actions">
-              <button class="edit-sub-btn">✏️</button>
-              <button class="delete-sub-btn">🗑️</button>
+              <button class="edit-sub-btn" title="編集">✏️</button>
+              <button class="delete-sub-btn" title="削除">🗑️</button>
             </div>
           </div>
           {% endfor %}
@@ -75,7 +62,7 @@
 </div>
 
 <!-- フローティングボタン -->
-<button id="add-tab-fab" class="fab">＋</button>
+<button id="add-tab-fab" class="fab" title="新規タブ追加">＋</button>
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script src="{% static 'js/tab_manager.js' %}"></script>
