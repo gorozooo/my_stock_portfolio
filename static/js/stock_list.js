@@ -1,6 +1,7 @@
 /* ==========================
    スマホファースト設計、HTML/CSS/JS分けて設計
    タブ切替でセクションを中央寄せ
+   リロード時も自動中央寄せ
    ========================== */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -11,34 +12,39 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!wrapper || sections.length === 0) return;
 
   // -------------------------------
-  // 最初のタブをアクティブ＆中央表示
+  // セクションを中央にスクロールする関数
   // -------------------------------
-  const setActiveTab = index => {
-    tabs.forEach(t => t.classList.remove("active"));
-    if (tabs[index]) tabs[index].classList.add("active");
-
+  const scrollToSectionCenter = index => {
     const targetSection = sections[index];
     if (!targetSection) return;
 
-    // セクション全体を中央にスクロール
     const sectionLeft = targetSection.offsetLeft;
     const sectionWidth = targetSection.offsetWidth;
     const wrapperWidth = wrapper.clientWidth;
 
     let scrollLeft = sectionLeft - (wrapperWidth / 2) + (sectionWidth / 2);
 
-    // -------------------------------
-    // ここがポイント：スクロール範囲の制限
-    // 左端より小さくならない、右端より大きくならない
-    // -------------------------------
+    // スクロール可能範囲に収める
     const maxScroll = wrapper.scrollWidth - wrapperWidth;
     scrollLeft = Math.min(Math.max(scrollLeft, 0), maxScroll);
 
     wrapper.scrollTo({ left: scrollLeft, behavior: "smooth" });
   };
 
-  // 初期表示は1番左のタブ
-  setActiveTab(0);
+  // -------------------------------
+  // タブアクティブ設定＆中央寄せ
+  // -------------------------------
+  const setActiveTab = index => {
+    tabs.forEach(t => t.classList.remove("active"));
+    if (tabs[index]) tabs[index].classList.add("active");
+    scrollToSectionCenter(index);
+  };
+
+  // -------------------------------
+  // 初期表示：リロード時も中央寄せ
+  // -------------------------------
+  const initialIndex = 0; // 最初のタブ
+  setActiveTab(initialIndex);
 
   // -------------------------------
   // タブクリック
@@ -138,4 +144,5 @@ document.addEventListener("DOMContentLoaded", () => {
     card.querySelector(".edit-btn").addEventListener("click", e => { e.stopPropagation(); alert("編集画面へ移動します"); });
     card.querySelector(".sell-btn").addEventListener("click", e => { e.stopPropagation(); alert("売却処理を実行します"); });
   });
+
 });
