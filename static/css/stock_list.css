@@ -1,14 +1,20 @@
-/* スマホファースト設計、html css jsは分ける
-   全体の背景色は指定しない（透明のまま）。各カードは白枠で囲む。 */
+/* ==========================
+   スマホファースト設計
+   HTML/CSS/JSを分ける
+   全体背景は透明
+   各カードは白枠で囲む
+   ========================== */
 
-/* ベース */
+/* ベースコンテナ */
 .portfolio-container {
   width: 100%;
   box-sizing: border-box;
   padding: 0;
 }
 
-/* 証券会社タブ */
+/* ==========================
+   証券会社タブ
+   ========================== */
 .broker-tabs-wrapper {
   display: flex;
   overflow-x: auto;
@@ -18,6 +24,7 @@
   top: 0;
   z-index: 20;
   background: transparent;
+  scroll-behavior: smooth;
 }
 .broker-tabs-wrapper::-webkit-scrollbar { display: none; }
 .broker-tabs-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
@@ -31,21 +38,25 @@
   flex-shrink: 0;
   white-space: nowrap;
   font-size: 13px;
+  transition: background 0.2s ease, color 0.2s ease;
 }
 .broker-tab.active {
   background: rgba(0,123,255,0.95);
   color: #fff;
 }
 
-/* 証券会社セクション横スクロール（タブ切替のみ） */
+/* ==========================
+   証券会社セクション横スクロール
+   タブ切替のみ
+   ========================== */
 .broker-horizontal-wrapper {
   display: flex;
   flex-direction: row;
-  overflow-x: hidden; /* 横スクロール禁止、タブ操作のみ */
+  overflow-x: hidden; /* タブ操作のみスクロール */
   gap: 16px;
   width: 100%;
   background: transparent;
-  scroll-behavior: smooth; /* スクロール時にスムーズ */
+  scroll-behavior: smooth;
 }
 .broker-horizontal-wrapper::-webkit-scrollbar { display: none; }
 .broker-horizontal-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
@@ -55,24 +66,26 @@
   flex: 0 0 100vw; /* 幅は画面いっぱい */
   display: flex;
   flex-direction: column;
-  align-items: center; /* セクション内を中央寄せ */
+  align-items: center; /* セクション内中央寄せ */
   gap: 6px;
   padding: 6px 10px;
   box-sizing: border-box;
   background: transparent;
 }
 
-/* 証券会社名を中央表示 */
+/* 証券会社名 */
 .broker-title {
   font-weight: bold;
   padding: 3px 0;
   border-bottom: 1px solid rgba(255,255,255,0.2);
-  text-align: center;   /* 中央寄せ */
+  text-align: center;
   margin: 0 4px;
   font-size: 14px;
 }
 
-/* 株カード縦スクロール */
+/* ==========================
+   株カード縦スクロール
+   ========================== */
 .broker-cards-wrapper {
   display: flex;
   flex-direction: column;
@@ -93,7 +106,9 @@
 }
 .broker-cards-wrapper { -ms-overflow-style: thin; scrollbar-width: thin; }
 
-/* 各カード */
+/* ==========================
+   各カード
+   ========================== */
 .stock-card-wrapper {
   background: transparent;
   border-radius: 10px;
@@ -101,8 +116,8 @@
   box-sizing: border-box;
   width: 100%;
   display: flex;
-  justify-content: center; /* ← 横中央寄せ */
-  align-items: center;     /* ← 縦中央寄せ（必要なら） */
+  justify-content: center; /* 横中央寄せ */
+  align-items: center;     /* 縦中央寄せ */
 }
 .stock-card {
   position: relative;
@@ -114,8 +129,8 @@
   color: inherit;
   cursor: pointer;
   font-size: 12px;
-  width: 160%; /* 幅を広げた */
-  max-width: 480px; /* 最大幅も少し広げた */
+  width: 90%;       /* 横幅調整（中央寄せしやすく） */
+  max-width: 480px;
   box-sizing: border-box;
   overflow: hidden;
   transition: transform 0.3s ease;
@@ -137,38 +152,36 @@
 .stock-row.gain.positive span:last-child { color: #0f0; font-weight: 600; }
 .stock-row.gain.negative span:last-child { color: #f33; font-weight: 600; }
 
-/* 編集・売却ボタン（左スワイプで表示、右スワイプで閉じる） */
+/* ==========================
+   編集・売却ボタン（左スワイプ）
+   ========================== */
 .stock-card .card-actions {
   position: absolute;
   top: 0;
-  right: -120px; /* 初期状態で隠す */
+  right: -120px;
   height: 100%;
   display: flex;
   gap: 5px;
   padding: 5px;
-  background: rgba(248, 248, 248, 0.8); /* 半透明 */
-  backdrop-filter: blur(20px); /* 背景を少しぼかす */
+  background: rgba(248, 248, 248, 0.8);
+  backdrop-filter: blur(20px);
   transition: right 0.3s ease;
 }
-
-.stock-card.swiped .card-actions {
-  right: 0; /* 左スワイプで出す */
-}
+.stock-card.swiped .card-actions { right: 0; }
 
 .card-actions button {
-  background: rgba(0, 123, 255, 0.85); /* 少し透ける青 */
+  background: rgba(0, 123, 255, 0.85);
   color: white;
   border: none;
   padding: 5px 10px;
   border-radius: 4px;
   backdrop-filter: blur(2px);
 }
+.card-actions .sell-btn { background: rgba(220, 53, 69, 0.85); }
 
-.card-actions .sell-btn {
-  background: rgba(220, 53, 69, 0.85); /* 少し透ける赤 */
-}
-
-/* モーダルの外側（背景部分） */
+/* ==========================
+   モーダル
+   ========================== */
 .modal {
   display: none;
   position: fixed;
@@ -177,12 +190,10 @@
   top: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0,0,0,0.6);  /* 半透明の黒 */
-  backdrop-filter: blur(3px);   /* ぼかしも追加 */
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(3px);
   overflow-y: auto;
 }
-
-/* モーダルの中身 */
 .modal-content {
   margin: 10% auto;
   padding: 20px;
@@ -201,14 +212,16 @@
   border: none;
 }
 
-/* レスポンシブ */
+/* ==========================
+   レスポンシブ
+   ========================== */
 @media (min-width: 768px) {
   .broker-section { flex: 0 0 50vw; min-width: 50vw; }
   .broker-cards-wrapper { max-height: 70vh; }
-  .stock-card { padding: 10px; font-size: 13px; max-width: 280px; } /* 幅広げ */
+  .stock-card { padding: 10px; font-size: 13px; max-width: 280px; }
 }
 @media (min-width: 1024px) {
   .broker-section { flex: 0 0 33.333vw; min-width: 33.333vw; }
   .broker-cards-wrapper { max-height: 75vh; }
-  .stock-card { padding: 12px; font-size: 14px; max-width: 300px; } /* 幅広げ */
+  .stock-card { padding: 12px; font-size: 14px; max-width: 300px; }
 }
