@@ -23,7 +23,7 @@
   justify-content: center; /* タブ中央寄せ */
   overflow-x: auto;
   gap: 8px;
-  padding: 6px 0;  /* 上下余白 */
+  padding: 6px 0;
   position: sticky;
   top: 0;
   z-index: 20;
@@ -89,7 +89,6 @@
 
 /* ==========================
    証券会社セクション横スクロール
-   タブ切替のみ
    ========================== */
 .broker-horizontal-wrapper {
   display: flex;
@@ -105,25 +104,15 @@
 
 /* 各セクション */
 .broker-section {
-  flex: 0 0 100%; /* 幅は画面いっぱい */
+  flex: 0 0 100%;
   width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: stretch; /* 子要素も横幅いっぱい */
+  align-items: stretch;
   gap: 6px;
   padding: 0 6px;
   box-sizing: border-box;
   background: transparent;
-}
-
-/* 証券会社名 */
-.broker-title {
-  font-weight: bold;
-  padding: 3px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.2);
-  text-align: center;
-  margin: 0 4px;
-  font-size: 14px;
 }
 
 /* ==========================
@@ -138,7 +127,7 @@
   padding: 0;
   scroll-behavior: smooth;
   background: transparent;
-  align-items: stretch; /* 子カードも横幅いっぱい */
+  align-items: stretch;
 }
 .broker-cards-wrapper::-webkit-scrollbar {
   width: 6px;
