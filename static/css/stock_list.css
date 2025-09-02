@@ -129,8 +129,8 @@
   color: inherit;
   cursor: pointer;
   font-size: 12px;
-  width: 90%;       /* 横幅調整（中央寄せしやすく） */
-  max-width: 480px;
+  width: 95%;       /* 幅を画面幅の95%に調整 */
+  max-width: 480px; /* 最大幅は維持 */
   box-sizing: border-box;
   overflow: hidden;
   transition: transform 0.3s ease;
