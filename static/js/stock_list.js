@@ -11,12 +11,18 @@ document.addEventListener("DOMContentLoaded", () => {
   if (tabs.length > 0) tabs[0].classList.add("active");
 
   // -------------------------------
-  // リロード時に最初のセクションを中央表示
+  // リロード時に最初のセクションのカードを中央表示
   // -------------------------------
   const firstSection = sections[0];
   if (firstSection) {
-    const scrollLeft = firstSection.offsetLeft - (wrapper.clientWidth / 2) + (firstSection.clientWidth / 2);
-    wrapper.scrollLeft = scrollLeft;
+    const cardWrapper = firstSection.querySelector(".broker-cards-wrapper");
+    if (cardWrapper) {
+      const firstCard = cardWrapper.querySelector(".stock-card");
+      if (firstCard) {
+        const scrollLeft = firstCard.offsetLeft - (wrapper.clientWidth / 2) + (firstCard.offsetWidth / 2);
+        wrapper.scrollLeft = scrollLeft;
+      }
+    }
   }
 
   // -------------------------------
@@ -28,10 +34,16 @@ document.addEventListener("DOMContentLoaded", () => {
       tabs.forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
 
-      const target = sections[index];
-      if (target) {
-        const left = target.offsetLeft - (wrapper.clientWidth / 2) + (target.clientWidth / 2);
-        wrapper.scrollTo({ left, behavior: "smooth" });
+      const targetSection = sections[index];
+      if (targetSection) {
+        const cardWrapper = targetSection.querySelector(".broker-cards-wrapper");
+        if (cardWrapper) {
+          const firstCard = cardWrapper.querySelector(".stock-card");
+          if (firstCard) {
+            const left = firstCard.offsetLeft - (wrapper.clientWidth / 2) + (firstCard.offsetWidth / 2);
+            wrapper.scrollTo({ left, behavior: "smooth" });
+          }
+        }
       }
     });
   });
@@ -56,8 +68,19 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       tabs.forEach(t => t.classList.remove("active"));
       if (tabs[nearestIndex]) tabs[nearestIndex].classList.add("active");
-      const targetLeft = sections[nearestIndex].offsetLeft - (wrapper.clientWidth / 2) + (sections[nearestIndex].clientWidth / 2);
-      wrapper.scrollTo({ left: targetLeft, behavior: "smooth" });
+
+      // 中央表示に調整
+      const targetSection = sections[nearestIndex];
+      if (targetSection) {
+        const cardWrapper = targetSection.querySelector(".broker-cards-wrapper");
+        if (cardWrapper) {
+          const firstCard = cardWrapper.querySelector(".stock-card");
+          if (firstCard) {
+            const targetLeft = firstCard.offsetLeft - (wrapper.clientWidth / 2) + (firstCard.offsetWidth / 2);
+            wrapper.scrollTo({ left: targetLeft, behavior: "smooth" });
+          }
+        }
+      }
     }, 120);
   });
 
