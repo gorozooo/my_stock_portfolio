@@ -63,6 +63,13 @@ document.addEventListener("DOMContentLoaded", () => {
   modalClose.addEventListener("click", () => { modal.style.display = "none"; });
   modal.addEventListener("click", e => { if(e.target === modal) modal.style.display = "none"; });
 
+  // 🔹 追加: ESC キーでモーダルを閉じる
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && modal.style.display === "block") {
+      modal.style.display = "none";
+    }
+  });
+
   // 縦スクロール（株カードリスト：マウスドラッグ＆タッチ対応）
   wrapper.querySelectorAll(".broker-section").forEach(section => {
     const cardsWrapper = section.querySelector(".broker-cards-wrapper");
@@ -112,6 +119,11 @@ document.addEventListener("DOMContentLoaded", () => {
   wrapper.addEventListener("mouseup", () => {
     isDragging = false;
     wrapper.classList.remove("dragging");
+
+    // 🔹 追加: スナップ（スクロールが一番近い section に揃う）
+    const sectionWidth = sections[0].offsetWidth;
+    const index = Math.round(wrapper.scrollLeft / sectionWidth);
+    wrapper.scrollTo({ left: index * sectionWidth, behavior: "smooth" });
   });
   wrapper.addEventListener("mousemove", e => {
     if(!isDragging) return;
@@ -125,6 +137,12 @@ document.addEventListener("DOMContentLoaded", () => {
   wrapper.addEventListener("touchstart", e => {
     startTouchX = e.touches[0].pageX;
     startScrollX = wrapper.scrollLeft;
+  });
+  wrapper.addEventListener("touchend", () => {
+    // 🔹 追加: スナップ（タッチでもピタッと止まる）
+    const sectionWidth = sections[0].offsetWidth;
+    const index = Math.round(wrapper.scrollLeft / sectionWidth);
+    wrapper.scrollTo({ left: index * sectionWidth, behavior: "smooth" });
   });
   wrapper.addEventListener("touchmove", e => {
     const touchX = e.touches[0].pageX;
