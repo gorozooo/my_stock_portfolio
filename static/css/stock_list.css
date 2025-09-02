@@ -129,8 +129,8 @@
   color: inherit;
   cursor: pointer;
   font-size: 12px;
-  width: 95%;       /* 幅を画面幅の95%に調整 */
-  max-width: 480px; /* 最大幅は維持 */
+  width: 95%;       /* 画面幅の95%に調整 */
+  max-width: 380px; /* 最大幅を少し狭めに調整 */
   box-sizing: border-box;
   overflow: hidden;
   transition: transform 0.3s ease;
@@ -218,10 +218,10 @@
 @media (min-width: 768px) {
   .broker-section { flex: 0 0 50vw; min-width: 50vw; }
   .broker-cards-wrapper { max-height: 70vh; }
-  .stock-card { padding: 10px; font-size: 13px; max-width: 280px; }
+  .stock-card { padding: 10px; font-size: 13px; max-width: 320px; width: 90%; }
 }
 @media (min-width: 1024px) {
   .broker-section { flex: 0 0 33.333vw; min-width: 33.333vw; }
   .broker-cards-wrapper { max-height: 75vh; }
-  .stock-card { padding: 12px; font-size: 14px; max-width: 300px; }
+  .stock-card { padding: 12px; font-size: 14px; max-width: 360px; width: 85%; }
 }
