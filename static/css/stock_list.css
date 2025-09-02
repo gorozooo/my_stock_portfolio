@@ -178,7 +178,7 @@
 
 /* モーダルの中身（カード部分だけ白くする） */
 .modal-content {
-        /* 白はここだけ */
+  background: #fff;        /* 白はここだけ */
   margin: 10% auto;
   padding: 20px;
   border-radius: 12px;
