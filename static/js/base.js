@@ -128,7 +128,7 @@ document.addEventListener("DOMContentLoaded", function() {
   }
 
   /* ========================================
-     ===== ローディングオーバーレイ ===== */
+     ===== ローディング画面（文字＋ステータスバー） ===== */
   const loadingOverlay = document.createElement('div');
   loadingOverlay.id = 'loading-overlay';
   Object.assign(loadingOverlay.style, {
@@ -147,49 +147,60 @@ document.addEventListener("DOMContentLoaded", function() {
     transition: 'opacity 0.2s ease'
   });
 
+  // Now Loadingテキスト
   const loadingText = document.createElement('div');
   loadingText.textContent = 'Now Loading';
   Object.assign(loadingText.style, {
     color: '#0ff',
     fontFamily: '"Orbitron", sans-serif',
     fontSize: '1.5rem',
-    marginBottom: '20px',
-    textShadow: '0 0 8px #0ff, 0 0 16px #0ff'
+    marginBottom: '10px',
+    textShadow: '0 0 8px #0ff, 0 0 16px #0ff',
+    animation: 'bounceText 1s infinite'
   });
   loadingOverlay.appendChild(loadingText);
 
-  const dotSpinner = document.createElement('div');
-  for (let i = 0; i < 3; i++) {
-    const dot = document.createElement('span');
-    Object.assign(dot.style, {
-      display: 'inline-block',
-      width: '12px',
-      height: '12px',
-      margin: '0 6px',
-      background: '#0ff',
-      borderRadius: '50%',
-      animation: `bounce 1.2s ${i*0.2}s infinite ease-in-out, glowDot 1.5s ${i*0.2}s infinite alternate`
-    });
-    dotSpinner.appendChild(dot);
-  }
-  loadingOverlay.appendChild(dotSpinner);
+  // ステータスバー
+  const loadingBar = document.createElement('div');
+  Object.assign(loadingBar.style, {
+    width: '0%',
+    height: '4px',
+    background: '#0ff',
+    borderRadius: '2px',
+    boxShadow: '0 0 8px #0ff',
+    transition: 'width 0.2s linear'
+  });
+  loadingOverlay.appendChild(loadingBar);
+
   document.body.appendChild(loadingOverlay);
+
+  let loadingInterval;
 
   function showLoading() {
     loadingOverlay.style.display = 'flex';
     requestAnimationFrame(() => {
       loadingOverlay.style.opacity = '1';
     });
+
+    let progress = 0;
+    clearInterval(loadingInterval);
+    loadingInterval = setInterval(() => {
+      progress += Math.random() * 5;
+      if (progress > 95) progress = 95;
+      loadingBar.style.width = progress + '%';
+    }, 100);
   }
 
   function hideLoading() {
     loadingOverlay.style.opacity = '0';
+    clearInterval(loadingInterval);
+    loadingBar.style.width = '0%';
     setTimeout(() => {
       loadingOverlay.style.display = 'none';
     }, 300);
   }
 
-  // ページロード完了時
+  // ページロード完了
   window.addEventListener("load", hideLoading);
   window.addEventListener("pageshow", hideLoading);
 
@@ -208,14 +219,14 @@ document.addEventListener("DOMContentLoaded", function() {
     });
   });
 
-  // フォーム送信でもローディング表示
+  // フォーム送信でも表示
   document.querySelectorAll("form").forEach(form => {
     form.addEventListener("submit", e => {
       showLoading();
     });
   });
 
-  // beforeunloadでもローディング
+  // beforeunload
   window.addEventListener("beforeunload", () => {
     showLoading();
   });
@@ -251,17 +262,13 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 /* ===========================================
-   ローディングドット用アニメーション
+   ===== ローディングテキストアニメーション =====
 =========================================== */
 const style = document.createElement('style');
 style.innerHTML = `
-@keyframes bounce {
-  0%, 80%, 100% { transform: translateY(0); }
+@keyframes bounceText {
+  0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
   40% { transform: translateY(-16px); }
-}
-@keyframes glowDot {
-  0% { box-shadow: 0 0 6px #0ff; }
-  50% { box-shadow: 0 0 12px #0ff; }
-  100% { box-shadow: 0 0 6px #0ff; }
+  60% { transform: translateY(-8px); }
 }`;
 document.head.appendChild(style);
