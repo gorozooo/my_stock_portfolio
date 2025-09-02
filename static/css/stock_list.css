@@ -1,4 +1,12 @@
-/* スマホファースト設計、HTML/CSS/JS分けて設計 */
+/* スマホファースト設計、html css jsは分ける
+   全体の背景色は指定しない（透明のまま）。各カードは白枠で囲む。 */
+
+/* ベース */
+.portfolio-container {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0;
+}
 
 /* 証券会社タブ */
 .broker-tabs-wrapper {
@@ -6,28 +14,26 @@
   overflow-x: auto;
   gap: 8px;
   padding: 8px;
-
   position: sticky;
   top: 0;
   z-index: 20;
-  background: transparent; /* 背景色削除 */
+  background: transparent; /* 背景無し */
 }
 .broker-tabs-wrapper::-webkit-scrollbar { display: none; }
 .broker-tabs-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
 
 .broker-tab {
   padding: 6px 12px;
-  border: 1px solid #ccc; /* 白枠 */
-  background: transparent; /* 背景色削除 */
+  border: none;
+  background: rgba(0,0,0,0.06);
   border-radius: 6px;
   cursor: pointer;
   flex-shrink: 0;
   white-space: nowrap;
 }
 .broker-tab.active {
-  border-color: #007bff; /* アクティブは枠を強調 */
-  color: #007bff;
-  background: transparent;
+  background: rgba(0,123,255,0.95);
+  color: #fff;
 }
 
 /* 証券会社セクション横スクロール */
@@ -39,70 +45,82 @@
   -webkit-overflow-scrolling: touch;
   gap: 24px;
   width: 100%;
-  background: transparent; /* 背景色削除 */
+  background: transparent; /* 全体背景無し */
 }
 .broker-horizontal-wrapper::-webkit-scrollbar { display: none; }
 .broker-horizontal-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* 証券会社セクション */
+/* 各セクションはビューポート幅に合わせる（横スクロールで1ページずつ） */
 .broker-section {
-  flex: 0 0 100%;
+  flex: 0 0 100vw;
+  min-width: 100vw;
   scroll-snap-align: start;
   display: flex;
   flex-direction: column;
-  background: transparent; /* 背景色削除 */
+  gap: 8px;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  background: transparent; /* セクション背景無し */
 }
 .broker-title {
   font-weight: bold;
-  padding: 8px;
-  border-bottom: 1px solid #ccc;
-  text-align: center;
-  background: transparent; /* 背景色削除 */
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  text-align: left;
+  margin: 0 4px;
 }
 
-/* 株カード縦スクロール */
+/* 株カード縦スクロール（各セクション内） */
 .broker-cards-wrapper {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  max-height: 400px;
+  max-height: 60vh; /* 任意：スマホで収まりよく */
   gap: 12px;
-  padding: 8px;
+  padding: 8px 0;
   scroll-behavior: smooth;
-  background: transparent; /* 背景色削除 */
+  background: transparent;
 }
 .broker-cards-wrapper::-webkit-scrollbar {
   width: 6px;
 }
 .broker-cards-wrapper::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,0.2);
+  background: rgba(0,0,0,0.12);
   border-radius: 3px;
 }
 .broker-cards-wrapper { -ms-overflow-style: thin; scrollbar-width: thin; }
 
-/* 株カード */
+/* 各カード：背景は透明、白い枠で囲む */
 .stock-card-wrapper {
-  background: transparent; /* 背景色削除 */
-  border: 1px solid #fff; /* 白枠 */
+  background: transparent;
   border-radius: 12px;
-  padding: 8px;
+  padding: 0;
+  box-sizing: border-box;
 }
-.stock-card { cursor: pointer; }
-
-.stock-row.gain.positive span:last-child {
-  color: green;
-  font-weight: bold;
+.stock-card {
+  display: block;
+  padding: 12px;
+  border: 1px solid #ffffff; /* 白い枠 */
+  border-radius: 10px;
+  background: rgba(255,255,255,0.02); /* ほぼ透明（色を完全に消す場合は transparent に） */
+  color: inherit;
+  cursor: pointer;
 }
-.stock-row.gain.negative span:last-child {
-  color: red;
-  font-weight: bold;
+.stock-header {
+  display:flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
 }
+.stock-row { display:flex; justify-content: space-between; margin: 4px 0; font-size: 14px; }
+.stock-row.gain.positive span:last-child { color: green; font-weight: 600; }
+.stock-row.gain.negative span:last-child { color: red; font-weight: 600; }
 
 /* モーダル */
 .modal {
   display: none;
   position: fixed;
-  z-index: 1000;
+  z-index: 2000;
   left: 0;
   top: 0;
   width: 100%;
@@ -115,9 +133,10 @@
   margin: 10% auto;
   padding: 16px;
   border-radius: 12px;
-  width: 90%;
-  max-width: 400px;
+  width: 92%;
+  max-width: 420px;
   position: relative;
+  box-sizing: border-box;
 }
 .modal-close {
   position: absolute;
@@ -125,14 +144,16 @@
   right: 12px;
   font-size: 24px;
   cursor: pointer;
+  background: none;
+  border: none;
 }
 
-/* レスポンシブ */
+/* レスポンシブ：タブやレイアウト微調整 */
 @media (min-width: 768px) {
-  .broker-section { flex: 0 0 50%; }
-  .stock-card-wrapper { width: 200px; }
+  .broker-section { flex: 0 0 50vw; min-width: 50vw; }
+  .broker-cards-wrapper { max-height: 70vh; }
 }
 @media (min-width: 1024px) {
-  .broker-section { flex: 0 0 33.3333%; }
-  .stock-card-wrapper { width: 180px; }
+  .broker-section { flex: 0 0 33.333vw; min-width: 33.333vw; }
+  .broker-cards-wrapper { max-height: 75vh; }
 }
