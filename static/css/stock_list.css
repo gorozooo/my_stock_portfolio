@@ -6,26 +6,28 @@
   overflow-x: auto;
   gap: 8px;
   padding: 8px;
-  
+
   position: sticky;
   top: 0;
   z-index: 20;
+  background: transparent; /* 背景色削除 */
 }
 .broker-tabs-wrapper::-webkit-scrollbar { display: none; }
 .broker-tabs-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
 
 .broker-tab {
   padding: 6px 12px;
-  border: none;
-  background: #eee;
+  border: 1px solid #ccc; /* 白枠 */
+  background: transparent; /* 背景色削除 */
   border-radius: 6px;
   cursor: pointer;
   flex-shrink: 0;
   white-space: nowrap;
 }
 .broker-tab.active {
-  background: #007bff;
-  color: #fff;
+  border-color: #007bff; /* アクティブは枠を強調 */
+  color: #007bff;
+  background: transparent;
 }
 
 /* 証券会社セクション横スクロール */
@@ -37,6 +39,7 @@
   -webkit-overflow-scrolling: touch;
   gap: 24px;
   width: 100%;
+  background: transparent; /* 背景色削除 */
 }
 .broker-horizontal-wrapper::-webkit-scrollbar { display: none; }
 .broker-horizontal-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
@@ -47,12 +50,14 @@
   scroll-snap-align: start;
   display: flex;
   flex-direction: column;
+  background: transparent; /* 背景色削除 */
 }
 .broker-title {
   font-weight: bold;
   padding: 8px;
   border-bottom: 1px solid #ccc;
   text-align: center;
+  background: transparent; /* 背景色削除 */
 }
 
 /* 株カード縦スクロール */
@@ -64,6 +69,7 @@
   gap: 12px;
   padding: 8px;
   scroll-behavior: smooth;
+  background: transparent; /* 背景色削除 */
 }
 .broker-cards-wrapper::-webkit-scrollbar {
   width: 6px;
@@ -76,9 +82,9 @@
 
 /* 株カード */
 .stock-card-wrapper {
-  background: #fff;
+  background: transparent; /* 背景色削除 */
+  border: 1px solid #fff; /* 白枠 */
   border-radius: 12px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
   padding: 8px;
 }
 .stock-card { cursor: pointer; }
