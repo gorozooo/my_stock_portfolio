@@ -1,151 +1,136 @@
 /* スマホファースト設計、HTML/CSS/JS分けて設計 */
 
 document.addEventListener("DOMContentLoaded", () => {
-  const tabs = document.querySelectorAll(".broker-tab");
-  const wrapper = document.querySelector(".broker-horizontal-wrapper");
-  const sections = document.querySelectorAll(".broker-section");
+  const tabs = Array.from(document.querySelectorAll(".broker-tab"));
+  const wrapper = document.getElementById("broker-horizontal-wrapper");
+  const sections = Array.from(document.querySelectorAll(".broker-section"));
 
-  // 初期表示：最初の証券会社を表示
+  if (!wrapper || sections.length === 0) return;
+
+  // 最初のタブだけ active に
   if (tabs.length > 0) tabs[0].classList.add("active");
-  sections.forEach((s, i) => s.style.display = i === 0 ? "flex" : "none");
 
-  // タブクリックで横スクロール切替
+  // タブクリックで横スクロール切替（セクションを display:none にしない）
   tabs.forEach(tab => {
     tab.addEventListener("click", () => {
-      const index = parseInt(tab.dataset.brokerIndex);
-
-      // タブのアクティブ切替
+      const index = parseInt(tab.dataset.brokerIndex, 10) || 0;
       tabs.forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
 
-      // 証券会社セクションの表示切替
-      sections.forEach((s, i) => s.style.display = i === index ? "flex" : "none");
-
-      // 横スクロールでスムーズ移動
-      sections[index].scrollIntoView({ behavior: "smooth", inline: "start" });
+      // target の left を使って正確にスクロール
+      const target = sections[index];
+      if (target) {
+        const left = target.offsetLeft;
+        wrapper.scrollTo({ left, behavior: "smooth" });
+      }
     });
   });
 
-  // 株カードクリックでモーダル表示
+  // 横スクロール時にアクティブタブを更新（debounce）
+  let scrollTimeout = null;
+  wrapper.addEventListener("scroll", () => {
+    if (scrollTimeout) clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(() => {
+      // 最も近い section を探す
+      const center = wrapper.scrollLeft + wrapper.clientWidth / 2;
+      let nearestIndex = 0;
+      let nearestDist = Infinity;
+      sections.forEach((sec, i) => {
+        const secCenter = sec.offsetLeft + sec.offsetWidth / 2;
+        const dist = Math.abs(secCenter - center);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearestIndex = i;
+        }
+      });
+      tabs.forEach(t => t.classList.remove("active"));
+      if (tabs[nearestIndex]) tabs[nearestIndex].classList.add("active");
+      // スナップ補助（スムーズに近いセクションへ）
+      const targetLeft = sections[nearestIndex].offsetLeft;
+      wrapper.scrollTo({ left: targetLeft, behavior: "smooth" });
+    }, 120);
+  });
+
+  // モーダル関連
   const modal = document.getElementById("stock-modal");
   const modalBody = document.getElementById("modal-body");
   const modalClose = document.querySelector(".modal-close");
 
-  // HTMLエスケープ用ユーティリティ
-  const escapeHTML = str =>
-    String(str).replace(/[&<>"']/g, m => (
-      { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]
-    ));
+  const escapeHTML = str => String(str).replace(/[&<>"']/g, m =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m])
+  );
 
   document.querySelectorAll(".stock-card").forEach(card => {
     card.addEventListener("click", () => {
-      const name = escapeHTML(card.dataset.name);
-      const ticker = escapeHTML(card.dataset.ticker);
-      const shares = escapeHTML(card.dataset.shares);
-      const unitPrice = escapeHTML(card.dataset.unit_price);
-      const currentPrice = escapeHTML(card.dataset.current_price);
-      const profit = escapeHTML(card.dataset.profit);
-      const profitRate = escapeHTML(card.dataset.profit_rate);
+      const name = escapeHTML(card.dataset.name || "");
+      const ticker = escapeHTML(card.dataset.ticker || "");
+      const shares = escapeHTML(card.dataset.shares || "");
+      const unitPrice = escapeHTML(card.dataset.unit_price || "");
+      const currentPrice = escapeHTML(card.dataset.current_price || "");
+      const profit = escapeHTML(card.dataset.profit || "");
+      const profitRate = escapeHTML(card.dataset.profit_rate || "");
 
-      // モーダル内容更新
       modalBody.innerHTML = `
-        <h3>${name} (${ticker})</h3>
+        <h3 id="modal-title">${name} (${ticker})</h3>
         <p>株数: ${shares}</p>
         <p>取得単価: ¥${unitPrice}</p>
         <p>現在株価: ¥${currentPrice}</p>
         <p>損益: ¥${profit} (${profitRate}%)</p>
       `;
       modal.style.display = "block";
+      modal.setAttribute("aria-hidden", "false");
+      // フォーカス管理（簡易）
+      modalClose.focus();
+    });
+
+    // キーボードで開ける（Enter / Space）
+    card.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        card.click();
+      }
     });
   });
 
-  // モーダル閉じる
-  modalClose.addEventListener("click", () => { modal.style.display = "none"; });
-  modal.addEventListener("click", e => { if(e.target === modal) modal.style.display = "none"; });
+  const closeModal = () => {
+    modal.style.display = "none";
+    modal.setAttribute("aria-hidden", "true");
+  };
 
-  // 🔹 追加: ESC キーでモーダルを閉じる
+  modalClose.addEventListener("click", closeModal);
+  modal.addEventListener("click", e => { if (e.target === modal) closeModal(); });
+
+  // ESC で閉じる
   document.addEventListener("keydown", e => {
-    if (e.key === "Escape" && modal.style.display === "block") {
-      modal.style.display = "none";
-    }
+    if (e.key === "Escape" && modal.style.display === "block") closeModal();
   });
 
-  // 縦スクロール（株カードリスト：マウスドラッグ＆タッチ対応）
-  wrapper.querySelectorAll(".broker-section").forEach(section => {
-    const cardsWrapper = section.querySelector(".broker-cards-wrapper");
-    if (!cardsWrapper) return;
-
-    let isDown = false;
-    let startY, scrollTop;
-
-    // マウス操作
-    cardsWrapper.addEventListener("mousedown", e => {
-      isDown = true;
-      startY = e.pageY - cardsWrapper.offsetTop;
-      scrollTop = cardsWrapper.scrollTop;
-    });
-    cardsWrapper.addEventListener("mouseleave", () => isDown = false);
-    cardsWrapper.addEventListener("mouseup", () => isDown = false);
-    cardsWrapper.addEventListener("mousemove", e => {
-      if(!isDown) return;
-      e.preventDefault();
-      const y = e.pageY - cardsWrapper.offsetTop;
-      cardsWrapper.scrollTop = scrollTop - (y - startY);
-    });
-
-    // タッチ操作
-    let startTouchY = 0, startScroll = 0;
-    cardsWrapper.addEventListener("touchstart", e => {
-      startTouchY = e.touches[0].pageY;
-      startScroll = cardsWrapper.scrollTop;
-    });
-    cardsWrapper.addEventListener("touchmove", e => {
-      const touchY = e.touches[0].pageY;
-      cardsWrapper.scrollTop = startScroll - (touchY - startTouchY);
-    });
-  });
-
-  // 横スクロール（broker-horizontal-wrapper：マウスドラッグ＆タッチ対応）
+  // 横スクロールのドラッグ（マウス & タッチ）
   let isDragging = false;
-  let startX, scrollLeft;
-
+  let startX = 0, startScrollLeft = 0;
   wrapper.addEventListener("mousedown", e => {
     isDragging = true;
     startX = e.pageX - wrapper.offsetLeft;
-    scrollLeft = wrapper.scrollLeft;
+    startScrollLeft = wrapper.scrollLeft;
     wrapper.classList.add("dragging");
   });
-  wrapper.addEventListener("mouseleave", () => isDragging = false);
-  wrapper.addEventListener("mouseup", () => {
-    isDragging = false;
-    wrapper.classList.remove("dragging");
-
-    // 🔹 追加: スナップ（スクロールが一番近い section に揃う）
-    const sectionWidth = sections[0].offsetWidth;
-    const index = Math.round(wrapper.scrollLeft / sectionWidth);
-    wrapper.scrollTo({ left: index * sectionWidth, behavior: "smooth" });
-  });
+  wrapper.addEventListener("mouseleave", () => { isDragging = false; wrapper.classList.remove("dragging"); });
+  wrapper.addEventListener("mouseup", () => { isDragging = false; wrapper.classList.remove("dragging"); });
   wrapper.addEventListener("mousemove", e => {
-    if(!isDragging) return;
+    if (!isDragging) return;
     e.preventDefault();
     const x = e.pageX - wrapper.offsetLeft;
-    wrapper.scrollLeft = scrollLeft - (x - startX);
+    wrapper.scrollLeft = startScrollLeft - (x - startX);
   });
 
-  // タッチ操作
-  let startTouchX = 0, startScrollX = 0;
+  // タッチ
+  let touchStartX = 0, touchStartScroll = 0;
   wrapper.addEventListener("touchstart", e => {
-    startTouchX = e.touches[0].pageX;
-    startScrollX = wrapper.scrollLeft;
-  });
-  wrapper.addEventListener("touchend", () => {
-    // 🔹 追加: スナップ（タッチでもピタッと止まる）
-    const sectionWidth = sections[0].offsetWidth;
-    const index = Math.round(wrapper.scrollLeft / sectionWidth);
-    wrapper.scrollTo({ left: index * sectionWidth, behavior: "smooth" });
+    touchStartX = e.touches[0].pageX;
+    touchStartScroll = wrapper.scrollLeft;
   });
   wrapper.addEventListener("touchmove", e => {
-    const touchX = e.touches[0].pageX;
-    wrapper.scrollLeft = startScrollX - (touchX - startTouchX);
+    const x = e.touches[0].pageX;
+    wrapper.scrollLeft = touchStartScroll - (x - touchStartX);
   });
 });
