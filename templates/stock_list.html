@@ -1,8 +1,9 @@
+{# スマホファースト設計、html css jsは分ける #}
+
 {% extends "base.html" %}
 {% load static %}
 {% load humanize %}
 
-{# スマホファースト設計、html css jsは分ける #}
 {% block content %}
 <div class="portfolio-container">
 
@@ -22,8 +23,7 @@
     <div class="broker-horizontal-wrapper" id="broker-horizontal-wrapper" aria-live="polite">
       {% for broker_group in broker_list %}
         <section class="broker-section" data-broker-index="{{ forloop.counter0 }}" aria-label="{{ broker_group.grouper }}">
-          <h3 class="broker-title">{{ broker_group.grouper }}</h3>
-
+          <!-- 証券会社タイトル削除 -->
           <!-- 株カード縦スクロール（各セクション内で縦スクロール可能） -->
           <div class="broker-cards-wrapper">
             {% for stock in broker_group.list %}
