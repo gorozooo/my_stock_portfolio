@@ -41,6 +41,7 @@
 .broker-horizontal-wrapper {
   display: flex;
   flex-direction: row;
+  justify-content: center; /* 横中央寄せ */
   overflow-x: hidden; /* 横スクロール禁止 */
   gap: 16px;
   width: 100%;
@@ -51,8 +52,7 @@
 
 /* 各セクション */
 .broker-section {
-  flex: 0 0 100vw;
-  min-width: 100vw;
+  flex: 0 0 100vw; /* 幅は画面いっぱい */
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -60,12 +60,13 @@
   box-sizing: border-box;
   background: transparent;
 }
+
 /* 証券会社名を中央表示 */
 .broker-title {
   font-weight: bold;
   padding: 3px 0;
   border-bottom: 1px solid rgba(255,255,255,0.2);
-  text-align: center;   /* ← 左寄せから中央寄せに変更 */
+  text-align: center;   /* 中央寄せ */
   margin: 0 4px;
   font-size: 14px;
 }
