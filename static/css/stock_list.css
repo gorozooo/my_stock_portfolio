@@ -41,7 +41,6 @@
 .broker-horizontal-wrapper {
   display: flex;
   flex-direction: row;
-  justify-content: center; /* ← 中央寄せ追加 */
   overflow-x: hidden; /* 横スクロール禁止 */
   gap: 16px;
   width: 100%;
@@ -52,7 +51,8 @@
 
 /* 各セクション */
 .broker-section {
-  flex: 0 0 100%; /* 幅は画面いっぱい */
+  flex: 0 0 100vw;
+  min-width: 100vw;
   display: flex;
   flex-direction: column;
   gap: 6px;
