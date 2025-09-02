@@ -7,81 +7,35 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (!wrapper || sections.length === 0) return;
 
-  // 最初のタブだけ active に
+  // -------------------------------
+  // 最初のタブをアクティブ
+  // -------------------------------
   if (tabs.length > 0) tabs[0].classList.add("active");
 
   // -------------------------------
-  // リロード時に最初のセクションのカードを中央表示
-  // -------------------------------
-  const firstSection = sections[0];
-  if (firstSection) {
-    const cardWrapper = firstSection.querySelector(".broker-cards-wrapper");
-    if (cardWrapper) {
-      const firstCard = cardWrapper.querySelector(".stock-card");
-      if (firstCard) {
-        const scrollLeft = firstCard.offsetLeft - (wrapper.clientWidth / 2) + (firstCard.offsetWidth / 2);
-        wrapper.scrollLeft = scrollLeft;
-      }
-    }
-  }
-
-  // -------------------------------
-  // タブクリックで横スクロール切替
+  // タブクリックで横スクロール切替＆中央表示
   // -------------------------------
   tabs.forEach(tab => {
     tab.addEventListener("click", () => {
       const index = parseInt(tab.dataset.brokerIndex, 10) || 0;
+
+      // タブのアクティブ切替
       tabs.forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
 
+      // 対象セクションの最初のカードを中央にスクロール
       const targetSection = sections[index];
       if (targetSection) {
         const cardWrapper = targetSection.querySelector(".broker-cards-wrapper");
         if (cardWrapper) {
           const firstCard = cardWrapper.querySelector(".stock-card");
           if (firstCard) {
-            const left = firstCard.offsetLeft - (wrapper.clientWidth / 2) + (firstCard.offsetWidth / 2);
-            wrapper.scrollTo({ left, behavior: "smooth" });
+            const scrollLeft = firstCard.offsetLeft - (wrapper.clientWidth / 2) + (firstCard.offsetWidth / 2);
+            wrapper.scrollTo({ left: scrollLeft, behavior: "smooth" });
           }
         }
       }
     });
-  });
-
-  // -------------------------------
-  // 横スクロール時にアクティブタブを更新
-  // -------------------------------
-  let scrollTimeout = null;
-  wrapper.addEventListener("scroll", () => {
-    if (scrollTimeout) clearTimeout(scrollTimeout);
-    scrollTimeout = setTimeout(() => {
-      const center = wrapper.scrollLeft + wrapper.clientWidth / 2;
-      let nearestIndex = 0;
-      let nearestDist = Infinity;
-      sections.forEach((sec, i) => {
-        const secCenter = sec.offsetLeft + sec.offsetWidth / 2;
-        const dist = Math.abs(secCenter - center);
-        if (dist < nearestDist) {
-          nearestDist = dist;
-          nearestIndex = i;
-        }
-      });
-      tabs.forEach(t => t.classList.remove("active"));
-      if (tabs[nearestIndex]) tabs[nearestIndex].classList.add("active");
-
-      // 中央表示に調整
-      const targetSection = sections[nearestIndex];
-      if (targetSection) {
-        const cardWrapper = targetSection.querySelector(".broker-cards-wrapper");
-        if (cardWrapper) {
-          const firstCard = cardWrapper.querySelector(".stock-card");
-          if (firstCard) {
-            const targetLeft = firstCard.offsetLeft - (wrapper.clientWidth / 2) + (firstCard.offsetWidth / 2);
-            wrapper.scrollTo({ left: targetLeft, behavior: "smooth" });
-          }
-        }
-      }
-    }, 120);
   });
 
   // -------------------------------
@@ -97,7 +51,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.querySelectorAll(".stock-card").forEach(card => {
     card.addEventListener("click", () => {
-      if (card.classList.contains("swiped")) return; // スワイプ中はモーダル開かない
+      if (card.classList.contains("swiped")) return;
 
       const name = escapeHTML(card.dataset.name || "");
       const ticker = escapeHTML(card.dataset.ticker || "");
@@ -137,49 +91,17 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("keydown", e => { if (e.key === "Escape" && modal.style.display === "block") closeModal(); });
 
   // -------------------------------
-  // 横スクロール（証券会社エリアのみ）
+  // カード横スワイプ禁止（タブ切替のみ中央表示）
   // -------------------------------
-  let isDragging = false;
-  let startX = 0, startScrollLeft = 0;
-
-  wrapper.addEventListener("mousedown", e => {
-    isDragging = true;
-    startX = e.pageX - wrapper.offsetLeft;
-    startScrollLeft = wrapper.scrollLeft;
-    wrapper.classList.add("dragging");
-  });
-  wrapper.addEventListener("mouseleave", () => { isDragging = false; wrapper.classList.remove("dragging"); });
-  wrapper.addEventListener("mouseup", () => { isDragging = false; wrapper.classList.remove("dragging"); });
-  wrapper.addEventListener("mousemove", e => {
-    if (!isDragging) return;
-    e.preventDefault();
-    const x = e.pageX - wrapper.offsetLeft;
-    wrapper.scrollLeft = startScrollLeft - (x - startX);
-  });
-
-  // タッチ横スクロール（証券会社エリアのみ）
-  let touchStartX = 0, touchStartScroll = 0;
-  wrapper.addEventListener("touchstart", e => {
-    touchStartX = e.touches[0].pageX;
-    touchStartScroll = wrapper.scrollLeft;
-  });
-  wrapper.addEventListener("touchmove", e => {
-    const x = e.touches[0].pageX;
-    wrapper.scrollLeft = touchStartScroll - (x - touchStartX);
-  });
-
-  // カード部分では横スワイプ禁止（完全禁止）
   document.querySelectorAll(".broker-cards-wrapper").forEach(cardsWrapper => {
     cardsWrapper.addEventListener("touchmove", e => {
-      if (Math.abs(e.touches[0].pageX - touchStartX) > 10) {
-        e.stopPropagation();
-        e.preventDefault(); // 横スクロールを完全禁止
-      }
+      e.stopPropagation();
+      e.preventDefault(); // 横スクロール禁止
     }, { passive: false });
   });
 
   // -------------------------------
-  // カードを左スワイプで「編集」「売却」を表示、右スワイプで閉じる
+  // カード左スワイプで「編集」「売却」を表示、右スワイプで閉じる
   // -------------------------------
   document.querySelectorAll(".stock-card").forEach(card => {
     let startX = 0;
@@ -200,8 +122,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const endX = e.changedTouches[0].pageX;
       const deltaX = endX - startX;
 
-      if (deltaX < -50) card.classList.add("swiped"); // 左スワイプ → ボタン表示
-      else if (deltaX > 50) card.classList.remove("swiped"); // 右スワイプ → ボタンを閉じる
+      if (deltaX < -50) card.classList.add("swiped"); 
+      else if (deltaX > 50) card.classList.remove("swiped"); 
     });
 
     card.querySelector(".edit-btn").addEventListener("click", e => { e.stopPropagation(); alert("編集画面へ移動します"); });
