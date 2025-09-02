@@ -99,7 +99,8 @@
   box-sizing: border-box;
   width: 100%;
   display: flex;
-  justify-content: center;
+  justify-content: center; /* ← 横中央寄せ */
+  align-items: center;     /* ← 縦中央寄せ（必要なら） */
 }
 .stock-card {
   position: relative;
