@@ -11,6 +11,7 @@
   box-sizing: border-box;
   padding: 0;
   background: transparent; /* 周囲枠なし */
+  min-height: 0; /* flex子スクロール対策 */
 }
 
 /* ==========================
@@ -88,7 +89,7 @@
 }
 
 /* ==========================
-   証券会社セクション横スクロール
+   証券会社セクション横スクロール（タブ切替のみ）
    ========================== */
 .broker-horizontal-wrapper {
   display: flex;
@@ -98,36 +99,45 @@
   width: 100%;
   background: transparent;
   scroll-behavior: smooth;
+  min-height: 0; /* 子の縦スクロールを許可 */
 }
 .broker-horizontal-wrapper::-webkit-scrollbar { display: none; }
 .broker-horizontal-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* 各セクション */
 .broker-section {
-  flex: 0 0 100%;
+  flex: 0 0 100%; /* 幅は画面いっぱい */
   width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
+  align-items: stretch; /* 子要素も横幅いっぱい */
   gap: 6px;
   padding: 0 6px;
   box-sizing: border-box;
   background: transparent;
+  min-height: 0; /* 子の縦スクロールを許可 */
 }
 
+/* （タイトルは使わないならHTMLから削除OK）
+.broker-title { display:none; }
+*/
+
 /* ==========================
-   株カード縦スクロール
+   株カード縦スクロール（ここだけ縦スクロール）
    ========================== */
 .broker-cards-wrapper {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  max-height: 60vh;
+  max-height: 60vh;              /* ビューポートの6割まで表示 */
   gap: 8px;
   padding: 0;
   scroll-behavior: smooth;
   background: transparent;
-  align-items: stretch;
+  align-items: stretch;           /* 子カードも横幅いっぱい */
+  -webkit-overflow-scrolling: touch; /* iOS慣性スクロール */
+  touch-action: pan-y;            /* 縦スクロール優先 */
+  overscroll-behavior-y: contain; /* バウンスで親に伝播しにくくする */
 }
 .broker-cards-wrapper::-webkit-scrollbar {
   width: 6px;
@@ -148,8 +158,8 @@
   box-sizing: border-box;
   width: 100%;
   display: flex;
-  justify-content: center;
-  align-items: center;
+  justify-content: center; /* 横中央寄せ */
+  align-items: center;     /* 縦中央寄せ */
 }
 .stock-card {
   position: relative;
@@ -161,8 +171,8 @@
   color: inherit;
   cursor: pointer;
   font-size: 12px;
-  width: 95%;
-  max-width: 480px;
+  width: 95%;       /* 親幅の95%で少し余白 */
+  max-width: 480px; /* 最大幅維持 */
   box-sizing: border-box;
   overflow: hidden;
   transition: transform 0.3s ease, box-shadow 0.3s ease;
