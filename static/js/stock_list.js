@@ -147,7 +147,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let startX = 0;
     let isSwiped = false;
 
-    // ボタンエリアを追加
+    // ボタンエリアを追加（非表示のまま）
     if (!card.querySelector(".card-actions")) {
       const actions = document.createElement("div");
       actions.className = "card-actions";
@@ -168,12 +168,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const deltaX = endX - startX;
 
       if (!isSwiped && deltaX < -50) {
-        // 左スワイプ → 開く
+        // 左スワイプ → ボタン表示
         card.classList.add("swiped");
-      } else if (isSwiped && deltaX > 50) {
-        // 右スワイプ → 閉じる
-        card.classList.remove("swiped");
       }
+      // 右スワイプで閉じる処理は削除（証券会社タブのみ右スライド可）
     });
 
     // ボタンのイベント
