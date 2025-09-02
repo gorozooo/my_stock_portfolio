@@ -114,7 +114,7 @@
   cursor: pointer;
   font-size: 12px;
   width: 95%; /* 幅を広げた */
-  max-width: 350px; /* 最大幅も少し広げた */
+  max-width: 420px; /* 最大幅も少し広げた */
   box-sizing: border-box;
   overflow: hidden;
   transition: transform 0.3s ease;
