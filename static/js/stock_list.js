@@ -2,7 +2,6 @@
    スマホファースト設計、HTML/CSS/JS分けて設計
    タブ切替でセクションを中央寄せ
    リロード時も自動中央寄せ
-   タブ切替時にスムーズスクロール＆遅延微調整
    ========================== */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -15,30 +14,25 @@ document.addEventListener("DOMContentLoaded", () => {
   // -------------------------------
   // セクションを中央にスクロールする関数
   // -------------------------------
-  const scrollToSectionCenter = index => {
+  const scrollToSectionCenter = (index, smooth = true) => {
     const targetSection = sections[index];
     if (!targetSection) return;
 
     const wrapperWidth = wrapper.clientWidth;
+    const sectionRect = targetSection.getBoundingClientRect();
+    const wrapperRect = wrapper.getBoundingClientRect();
 
-    // 描画完了後に計算
-    requestAnimationFrame(() => {
-      const sectionRect = targetSection.getBoundingClientRect();
-      const wrapperRect = wrapper.getBoundingClientRect();
+    // wrapper 内の相対位置
+    const sectionLeftRelative = sectionRect.left - wrapperRect.left + wrapper.scrollLeft;
 
-      // wrapper 内の相対位置
-      const sectionLeftRelative = sectionRect.left - wrapperRect.left + wrapper.scrollLeft;
+    // 中央寄せ計算
+    let scrollLeft = sectionLeftRelative - (wrapperWidth / 2) + (sectionRect.width / 2);
 
-      // 中央寄せ計算
-      let scrollLeft = sectionLeftRelative - (wrapperWidth / 2) + (sectionRect.width / 2);
+    // スクロール可能範囲に制限
+    const maxScroll = wrapper.scrollWidth - wrapperWidth;
+    scrollLeft = Math.min(Math.max(scrollLeft, 0), maxScroll);
 
-      // スクロール可能範囲に制限
-      const maxScroll = wrapper.scrollWidth - wrapperWidth;
-      scrollLeft = Math.min(Math.max(scrollLeft, 0), maxScroll);
-
-      // スムーズスクロール
-      wrapper.scrollTo({ left: scrollLeft, behavior: "smooth" });
-    });
+    wrapper.scrollTo({ left: scrollLeft, behavior: smooth ? "smooth" : "auto" });
   };
 
   // -------------------------------
@@ -47,16 +41,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const setActiveTab = index => {
     tabs.forEach(t => t.classList.remove("active"));
     if (tabs[index]) tabs[index].classList.add("active");
-
-    // 少し遅延させて自然にスクロール
-    setTimeout(() => scrollToSectionCenter(index), 50);
+    scrollToSectionCenter(index, true);
   };
 
   // -------------------------------
   // 初期表示：リロード時も中央寄せ
   // -------------------------------
-  const initialIndex = 0;
-  setTimeout(() => setActiveTab(initialIndex), 100); // 少し余裕をもたせて描画完了後に中央寄せ
+  const initialIndex = 0; // 最初のタブ
+  setTimeout(() => setActiveTab(initialIndex), 50);
 
   // -------------------------------
   // タブクリック
@@ -97,7 +89,7 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
       modal.style.display = "block";
       modal.setAttribute("aria-hidden", "false");
-      modalClose.focus();
+      modalClose?.focus();
     });
 
     card.addEventListener("keydown", e => {
@@ -113,25 +105,16 @@ document.addEventListener("DOMContentLoaded", () => {
     modal.setAttribute("aria-hidden", "true");
   };
 
-  modalClose.addEventListener("click", closeModal);
+  modalClose?.addEventListener("click", closeModal);
   modal.addEventListener("click", e => { if (e.target === modal) closeModal(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && modal.style.display === "block") closeModal(); });
 
   // -------------------------------
-  // カード横スワイプ禁止（タブ切替のみ中央表示）
-  // -------------------------------
-  document.querySelectorAll(".broker-cards-wrapper").forEach(cardsWrapper => {
-    cardsWrapper.addEventListener("touchmove", e => {
-      e.stopPropagation();
-      e.preventDefault(); // 横スクロール禁止
-    }, { passive: false });
-  });
-
-  // -------------------------------
-  // カード左スワイプで「編集」「売却」を表示、右スワイプで閉じる
+  // 縦スクロールを妨げないスワイプ判定
+  // （横方向が優勢な時だけ「編集/売却」を開く）
   // -------------------------------
   document.querySelectorAll(".stock-card").forEach(card => {
-    let startX = 0;
+    let startX = 0, startY = 0, isDragging = false;
 
     if (!card.querySelector(".card-actions")) {
       const actions = document.createElement("div");
@@ -143,18 +126,45 @@ document.addEventListener("DOMContentLoaded", () => {
       card.appendChild(actions);
     }
 
-    card.addEventListener("touchstart", e => { startX = e.touches[0].pageX; });
+    card.addEventListener("touchstart", e => {
+      const t = e.touches[0];
+      startX = t.pageX;
+      startY = t.pageY;
+      isDragging = true;
+    }, { passive: true });
+
+    card.addEventListener("touchmove", e => {
+      // ここで preventDefault はしない（縦スクロールを殺さない）
+    }, { passive: true });
 
     card.addEventListener("touchend", e => {
-      const endX = e.changedTouches[0].pageX;
-      const deltaX = endX - startX;
+      if (!isDragging) return;
+      isDragging = false;
 
-      if (deltaX < -50) card.classList.add("swiped"); 
-      else if (deltaX > 50) card.classList.remove("swiped"); 
+      const t = e.changedTouches[0];
+      const deltaX = t.pageX - startX;
+      const deltaY = t.pageY - startY;
+
+      // 縦方向の移動が大きい場合はスワイプ判定しない（縦スクロール優先）
+      if (Math.abs(deltaY) > Math.abs(deltaX)) return;
+
+      if (deltaX < -50) card.classList.add("swiped");     // 左スワイプで開く
+      else if (deltaX > 50) card.classList.remove("swiped"); // 右スワイプで閉じる
+    }, { passive: true });
+
+    card.querySelector(".edit-btn")?.addEventListener("click", e => {
+      e.stopPropagation();
+      alert("編集画面へ移動します");
     });
-
-    card.querySelector(".edit-btn").addEventListener("click", e => { e.stopPropagation(); alert("編集画面へ移動します"); });
-    card.querySelector(".sell-btn").addEventListener("click", e => { e.stopPropagation(); alert("売却処理を実行します"); });
+    card.querySelector(".sell-btn")?.addEventListener("click", e => {
+      e.stopPropagation();
+      alert("売却処理を実行します");
+    });
   });
 
+  // -------------------------------
+  // ★重要★ 以前の「カード横スワイプ禁止」コードは削除
+  //  cardsWrapper.addEventListener('touchmove', e => e.preventDefault());
+  //  これが縦スクロールも殺していました。
+  // -------------------------------
 });
