@@ -25,7 +25,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const sectionWidth = targetSection.offsetWidth;
     const wrapperWidth = wrapper.clientWidth;
 
-    const scrollLeft = sectionLeft - (wrapperWidth / 2) + (sectionWidth / 2);
+    let scrollLeft = sectionLeft - (wrapperWidth / 2) + (sectionWidth / 2);
+
+    // スクロール可能範囲に収める
+    const maxScroll = wrapper.scrollWidth - wrapperWidth;
+    scrollLeft = Math.min(Math.max(scrollLeft, 0), maxScroll);
+
     wrapper.scrollTo({ left: scrollLeft, behavior: "smooth" });
   };
 
