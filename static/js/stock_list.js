@@ -59,6 +59,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.querySelectorAll(".stock-card").forEach(card => {
     card.addEventListener("click", () => {
+      if (card.classList.contains("swiped")) return; // スワイプ中はモーダル開かない
+
       const name = escapeHTML(card.dataset.name || "");
       const ticker = escapeHTML(card.dataset.ticker || "");
       const shares = escapeHTML(card.dataset.shares || "");
@@ -130,17 +132,58 @@ document.addEventListener("DOMContentLoaded", () => {
     wrapper.scrollLeft = touchStartScroll - (x - touchStartX);
   });
 
-  // カード部分では横スワイプ禁止（縦スクロール優先）
+  // カード部分では横スワイプ禁止（完全禁止）
   document.querySelectorAll(".broker-cards-wrapper").forEach(cardsWrapper => {
     cardsWrapper.addEventListener("touchmove", e => {
-      const touch = e.touches[0];
-      if (!touch) return;
-      const deltaX = Math.abs(touch.pageX - touchStartX);
-      const deltaY = Math.abs(touch.pageY - 0); // Y方向は制限なし
-      if (deltaX > deltaY) {
-        // 横方向の動きが大きい場合 → 横スクロール無効化
+      if (Math.abs(e.touches[0].pageX - touchStartX) > 10) {
         e.stopPropagation();
+        e.preventDefault(); // 横スクロールを完全禁止
       }
     }, { passive: false });
+  });
+
+  // カードを左スワイプして「編集」「売却」を表示
+  document.querySelectorAll(".stock-card").forEach(card => {
+    let startX = 0;
+    let isSwiped = false;
+
+    // ボタンエリアを追加
+    if (!card.querySelector(".card-actions")) {
+      const actions = document.createElement("div");
+      actions.className = "card-actions";
+      actions.innerHTML = `
+        <button class="edit-btn">編集</button>
+        <button class="sell-btn">売却</button>
+      `;
+      card.appendChild(actions);
+    }
+
+    card.addEventListener("touchstart", e => {
+      startX = e.touches[0].pageX;
+      isSwiped = card.classList.contains("swiped");
+    });
+
+    card.addEventListener("touchend", e => {
+      const endX = e.changedTouches[0].pageX;
+      const deltaX = endX - startX;
+
+      if (!isSwiped && deltaX < -50) {
+        // 左スワイプ → 開く
+        card.classList.add("swiped");
+      } else if (isSwiped && deltaX > 50) {
+        // 右スワイプ → 閉じる
+        card.classList.remove("swiped");
+      }
+    });
+
+    // ボタンのイベント
+    card.querySelector(".edit-btn").addEventListener("click", e => {
+      e.stopPropagation();
+      alert("編集画面へ移動します");
+    });
+    card.querySelector(".sell-btn").addEventListener("click", e => {
+      e.stopPropagation();
+      alert("売却処理を実行します");
+    });
   });
 });
