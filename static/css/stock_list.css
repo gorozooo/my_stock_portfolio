@@ -178,7 +178,7 @@
   overflow-y: auto;
 }
 
-/* モーダルの中身（カード部分だけ白くする） */
+/* モーダルの中身 */
 .modal-content {
   margin: 10% auto;
   padding: 20px;
