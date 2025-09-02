@@ -114,8 +114,8 @@
   color: inherit;
   cursor: pointer;
   font-size: 12px;
-  width: 130%; /* 幅を広げた */
-  max-width: 500px; /* 最大幅も少し広げた */
+  width: 160%; /* 幅を広げた */
+  max-width: 480px; /* 最大幅も少し広げた */
   box-sizing: border-box;
   overflow: hidden;
   transition: transform 0.3s ease;
