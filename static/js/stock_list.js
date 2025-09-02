@@ -1,4 +1,7 @@
-/* スマホファースト設計、HTML/CSS/JS分けて設計 */
+/* ==========================
+   スマホファースト設計、HTML/CSS/JS分けて設計
+   タブ切替でセクションを中央寄せ
+   ========================== */
 
 document.addEventListener("DOMContentLoaded", () => {
   const tabs = Array.from(document.querySelectorAll(".broker-tab"));
@@ -8,34 +11,32 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!wrapper || sections.length === 0) return;
 
   // -------------------------------
-  // 最初のタブをアクティブ
+  // 最初のタブをアクティブ＆中央表示
   // -------------------------------
-  if (tabs.length > 0) tabs[0].classList.add("active");
+  const setActiveTab = index => {
+    tabs.forEach(t => t.classList.remove("active"));
+    if (tabs[index]) tabs[index].classList.add("active");
+
+    const targetSection = sections[index];
+    if (!targetSection) return;
+
+    // セクション全体を中央にスクロール
+    const sectionLeft = targetSection.offsetLeft;
+    const sectionWidth = targetSection.offsetWidth;
+    const wrapperWidth = wrapper.clientWidth;
+
+    const scrollLeft = sectionLeft - (wrapperWidth / 2) + (sectionWidth / 2);
+    wrapper.scrollTo({ left: scrollLeft, behavior: "smooth" });
+  };
+
+  // 初期表示は1番左のタブ
+  setActiveTab(0);
 
   // -------------------------------
-  // タブクリックで横スクロール切替＆中央表示
+  // タブクリック
   // -------------------------------
-  tabs.forEach(tab => {
-    tab.addEventListener("click", () => {
-      const index = parseInt(tab.dataset.brokerIndex, 10) || 0;
-
-      // タブのアクティブ切替
-      tabs.forEach(t => t.classList.remove("active"));
-      tab.classList.add("active");
-
-      // 対象セクションの最初のカードを中央にスクロール
-      const targetSection = sections[index];
-      if (targetSection) {
-        const cardWrapper = targetSection.querySelector(".broker-cards-wrapper");
-        if (cardWrapper) {
-          const firstCard = cardWrapper.querySelector(".stock-card");
-          if (firstCard) {
-            const scrollLeft = firstCard.offsetLeft - (wrapper.clientWidth / 2) + (firstCard.offsetWidth / 2);
-            wrapper.scrollTo({ left: scrollLeft, behavior: "smooth" });
-          }
-        }
-      }
-    });
+  tabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => setActiveTab(index));
   });
 
   // -------------------------------
