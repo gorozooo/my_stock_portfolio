@@ -27,7 +27,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let scrollLeft = sectionLeft - (wrapperWidth / 2) + (sectionWidth / 2);
 
-    // スクロール可能範囲に収める
+    // -------------------------------
+    // ここがポイント：スクロール範囲の制限
+    // 左端より小さくならない、右端より大きくならない
+    // -------------------------------
     const maxScroll = wrapper.scrollWidth - wrapperWidth;
     scrollLeft = Math.min(Math.max(scrollLeft, 0), maxScroll);
 
