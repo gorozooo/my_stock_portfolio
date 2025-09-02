@@ -95,7 +95,7 @@
   padding: 6px 0;
   scroll-behavior: smooth;
   background: transparent;
-  align-items: center; /* カード中央寄せ */
+  align-items: stretch; /* カード中央寄せ */
 }
 .broker-cards-wrapper::-webkit-scrollbar {
   width: 6px;
@@ -129,8 +129,8 @@
   color: inherit;
   cursor: pointer;
   font-size: 12px;
-  width: 95%;       /* 画面幅の95%に調整 */
-  
+  width: 100%;       /* 画面幅の95%に調整 */
+  max-width: none;  /* 最大幅制限を解除 */
   box-sizing: border-box;
   overflow: hidden;
   transition: transform 0.3s ease;
