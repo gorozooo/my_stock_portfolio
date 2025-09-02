@@ -51,9 +51,9 @@
 .broker-horizontal-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* 各セクション */
+/* 証券会社セクションのカードを中央表示 */
 .broker-section {
-  flex: 0 0 auto;   /* 固定幅ではなくコンテンツに合わせる */
-  min-width: 280px; /* 最低幅を指定 */
+  flex: 0 0 100%; /* 幅は画面いっぱい */
   display: flex;
   flex-direction: column;
   gap: 6px;
