@@ -31,15 +31,21 @@ document.addEventListener("DOMContentLoaded", () => {
   const modalBody = document.getElementById("modal-body");
   const modalClose = document.querySelector(".modal-close");
 
+  // HTMLエスケープ用ユーティリティ
+  const escapeHTML = str =>
+    String(str).replace(/[&<>"']/g, m => (
+      { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]
+    ));
+
   document.querySelectorAll(".stock-card").forEach(card => {
     card.addEventListener("click", () => {
-      const name = card.dataset.name;
-      const ticker = card.dataset.ticker;
-      const shares = card.dataset.shares;
-      const unitPrice = card.dataset.unit_price;
-      const currentPrice = card.dataset.current_price;
-      const profit = card.dataset.profit;
-      const profitRate = card.dataset.profit_rate;
+      const name = escapeHTML(card.dataset.name);
+      const ticker = escapeHTML(card.dataset.ticker);
+      const shares = escapeHTML(card.dataset.shares);
+      const unitPrice = escapeHTML(card.dataset.unit_price);
+      const currentPrice = escapeHTML(card.dataset.current_price);
+      const profit = escapeHTML(card.dataset.profit);
+      const profitRate = escapeHTML(card.dataset.profit_rate);
 
       // モーダル内容更新
       modalBody.innerHTML = `
@@ -57,7 +63,7 @@ document.addEventListener("DOMContentLoaded", () => {
   modalClose.addEventListener("click", () => { modal.style.display = "none"; });
   modal.addEventListener("click", e => { if(e.target === modal) modal.style.display = "none"; });
 
-  // 横スクロール（マウスドラッグ＆タッチ対応）
+  // 縦スクロール（株カードリスト：マウスドラッグ＆タッチ対応）
   wrapper.querySelectorAll(".broker-section").forEach(section => {
     const cardsWrapper = section.querySelector(".broker-cards-wrapper");
     if (!cardsWrapper) return;
@@ -90,5 +96,38 @@ document.addEventListener("DOMContentLoaded", () => {
       const touchY = e.touches[0].pageY;
       cardsWrapper.scrollTop = startScroll - (touchY - startTouchY);
     });
+  });
+
+  // 横スクロール（broker-horizontal-wrapper：マウスドラッグ＆タッチ対応）
+  let isDragging = false;
+  let startX, scrollLeft;
+
+  wrapper.addEventListener("mousedown", e => {
+    isDragging = true;
+    startX = e.pageX - wrapper.offsetLeft;
+    scrollLeft = wrapper.scrollLeft;
+    wrapper.classList.add("dragging");
+  });
+  wrapper.addEventListener("mouseleave", () => isDragging = false);
+  wrapper.addEventListener("mouseup", () => {
+    isDragging = false;
+    wrapper.classList.remove("dragging");
+  });
+  wrapper.addEventListener("mousemove", e => {
+    if(!isDragging) return;
+    e.preventDefault();
+    const x = e.pageX - wrapper.offsetLeft;
+    wrapper.scrollLeft = scrollLeft - (x - startX);
+  });
+
+  // タッチ操作
+  let startTouchX = 0, startScrollX = 0;
+  wrapper.addEventListener("touchstart", e => {
+    startTouchX = e.touches[0].pageX;
+    startScrollX = wrapper.scrollLeft;
+  });
+  wrapper.addEventListener("touchmove", e => {
+    const touchX = e.touches[0].pageX;
+    wrapper.scrollLeft = startScrollX - (touchX - startTouchX);
   });
 });
