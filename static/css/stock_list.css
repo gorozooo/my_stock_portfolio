@@ -130,7 +130,7 @@
   cursor: pointer;
   font-size: 12px;
   width: 95%;       /* 画面幅の95%に調整 */
-  max-width: 380px; /* 最大幅を少し狭めに調整 */
+  
   box-sizing: border-box;
   overflow: hidden;
   transition: transform 0.3s ease;
