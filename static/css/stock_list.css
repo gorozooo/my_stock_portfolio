@@ -82,6 +82,7 @@
   padding: 6px 0;
   scroll-behavior: smooth;
   background: transparent;
+  align-items: center; /* カード中央寄せ */
 }
 .broker-cards-wrapper::-webkit-scrollbar {
   width: 6px;
@@ -98,30 +99,36 @@
   border-radius: 10px;
   padding: 0;
   box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  justify-content: center;
 }
 .stock-card {
   display: block;
-  padding: 10px;
+  padding: 8px;
   border: 1px solid #ffffff;
   border-radius: 8px;
   background: transparent;
   color: inherit;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
+  width: 90%;
+  max-width: 280px; /* カード幅を狭く */
+  box-sizing: border-box;
 }
 .stock-header {
   display:flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 6px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 }
 .stock-row { 
   display:flex; 
   justify-content: space-between; 
   margin: 2px 0; 
-  font-size: 12px; 
+  font-size: 11px; 
 }
 .stock-row.gain.positive span:last-child { color: #0f0; font-weight: 600; }
 .stock-row.gain.negative span:last-child { color: #f33; font-weight: 600; }
@@ -162,10 +169,10 @@
 @media (min-width: 768px) {
   .broker-section { flex: 0 0 50vw; min-width: 50vw; }
   .broker-cards-wrapper { max-height: 70vh; }
-  .stock-card { padding: 12px; font-size: 14px; }
+  .stock-card { padding: 10px; font-size: 13px; max-width: 260px; }
 }
 @media (min-width: 1024px) {
   .broker-section { flex: 0 0 33.333vw; min-width: 33.333vw; }
   .broker-cards-wrapper { max-height: 75vh; }
-  .stock-card { padding: 14px; font-size: 15px; }
+  .stock-card { padding: 12px; font-size: 14px; max-width: 240px; }
 }
