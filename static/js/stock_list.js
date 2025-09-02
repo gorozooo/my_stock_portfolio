@@ -19,13 +19,14 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!targetSection) return;
 
     const wrapperWidth = wrapper.clientWidth;
-    const sectionWidth = targetSection.offsetWidth;
+    const sectionRect = targetSection.getBoundingClientRect();
+    const wrapperRect = wrapper.getBoundingClientRect();
 
-    // セクションの左端を取得
-    const sectionLeft = targetSection.offsetLeft;
+    // wrapper 内の相対位置
+    const sectionLeftRelative = sectionRect.left - wrapperRect.left + wrapper.scrollLeft;
 
     // 中央寄せ計算
-    let scrollLeft = sectionLeft - (wrapperWidth / 2) + (sectionWidth / 2);
+    let scrollLeft = sectionLeftRelative - (wrapperWidth / 2) + (sectionRect.width / 2);
 
     // スクロール可能範囲に制限
     const maxScroll = wrapper.scrollWidth - wrapperWidth;
