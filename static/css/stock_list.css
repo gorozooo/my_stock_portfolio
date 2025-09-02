@@ -16,9 +16,11 @@
 /* ==========================
    証券会社タブ（未来感・光彩＋アニメーション）
    タブだけ枠あり、周囲の背景は透明
+   中央寄せ対応
    ========================== */
 .broker-tabs-wrapper {
   display: flex;
+  justify-content: center; /* タブを中央寄せ */
   overflow-x: auto;
   gap: 6px;
   padding: 6px 0;  /* 上下は少し余白、左右は透明 */
