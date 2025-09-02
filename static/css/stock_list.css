@@ -40,7 +40,6 @@
 /* 証券会社セクション横スクロール禁止（タブのみで切替） */
 .broker-horizontal-wrapper {
   display: flex;
-  justify-content: center; /* 中央寄せ */
   flex-direction: row;
   overflow-x: hidden; /* 横スクロール禁止 */
   gap: 16px;
