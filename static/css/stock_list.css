@@ -104,6 +104,7 @@
   justify-content: center;
 }
 .stock-card {
+  position: relative;
   display: block;
   padding: 8px;
   border: 1px solid #ffffff;
@@ -115,6 +116,7 @@
   width: 90%;
   max-width: 280px; /* カード幅を狭く */
   box-sizing: border-box;
+  overflow: hidden;
 }
 .stock-header {
   display:flex;
@@ -132,6 +134,35 @@
 }
 .stock-row.gain.positive span:last-child { color: #0f0; font-weight: 600; }
 .stock-row.gain.negative span:last-child { color: #f33; font-weight: 600; }
+
+/* 編集・売却ボタン（スワイプ時のみ表示） */
+.stock-card .card-actions {
+  position: absolute;
+  top: 0;
+  right: -110px; /* 初期状態で隠す（ボタン幅分） */
+  height: 100%;
+  display: flex;
+  gap: 5px;
+  padding: 5px;
+  background: #f8f8f8;
+  transition: right 0.3s ease;
+}
+
+.stock-card.swiped .card-actions {
+  right: 0; /* スワイプ時に出す */
+}
+
+.card-actions button {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+}
+
+.card-actions .sell-btn {
+  background: #dc3545;
+}
 
 /* モーダル */
 .modal {
@@ -163,39 +194,6 @@
   cursor: pointer;
   background: none;
   border: none;
-}
-
-.stock-card {
-  position: relative;
-  overflow: hidden;
-  transition: transform 0.3s ease;
-}
-
-.stock-card.swiped {
-  transform: translateX(-100px); /* ボタン幅に応じて調整 */
-}
-
-.stock-card .card-actions {
-  position: absolute;
-  top: 0;
-  right: 0;
-  height: 100%;
-  display: flex;
-  gap: 5px;
-  padding: 5px;
-  background: #f8f8f8;
-}
-
-.card-actions button {
-  background: #007bff;
-  color: white;
-  border: none;
-  padding: 5px 10px;
-  border-radius: 4px;
-}
-
-.card-actions .sell-btn {
-  background: #dc3545;
 }
 
 /* レスポンシブ */
