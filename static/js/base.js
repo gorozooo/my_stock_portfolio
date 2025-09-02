@@ -175,7 +175,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
   let loadingInterval;
 
-  function showLoading() {
+  function showLoading(callback) {
     loadingOverlay.style.display = 'flex';
     requestAnimationFrame(() => loadingOverlay.style.opacity = '1');
 
@@ -184,9 +184,13 @@ document.addEventListener("DOMContentLoaded", function() {
       const resources = performance.getEntriesByType("resource");
       const total = resources.length + 1;
       const loaded = resources.filter(r => r.responseEnd > 0).length + (document.readyState === "complete" ? 1 : 0);
-      let progress = Math.min((loaded / total) * 100, 99);
+      let progress = Math.min((loaded / total) * 100, 95);
       loadingBar.style.width = progress + '%';
     }, 100);
+
+    if (callback) {
+      setTimeout(callback, 50); // リンク遷移用
+    }
   }
 
   function hideLoading() {
@@ -204,16 +208,17 @@ document.addEventListener("DOMContentLoaded", function() {
   window.addEventListener("load", hideLoading);
   window.addEventListener("pageshow", hideLoading);
 
+  // リンククリック時
   document.querySelectorAll("a[href]").forEach(link => {
     link.addEventListener("click", e => {
       const href = link.getAttribute("href");
       if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
       e.preventDefault();
-      showLoading();
-      requestAnimationFrame(() => setTimeout(() => window.location.href = href, 50));
+      showLoading(() => window.location.assign(href));
     });
   });
 
+  // フォーム送信時
   document.querySelectorAll("form").forEach(form => {
     form.addEventListener("submit", e => showLoading());
   });
