@@ -51,7 +51,6 @@
 .broker-horizontal-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* 各セクション */
-/* 証券会社セクションのカードを中央表示 */
 .broker-section {
   flex: 0 0 100%; /* 幅は画面いっぱい */
   display: flex;
@@ -66,7 +65,7 @@
   font-weight: bold;
   padding: 3px 0;
   border-bottom: 1px solid rgba(255,255,255,0.2);
-  text-align: left;   /* ← 左寄せから中央寄せに変更 */
+  text-align: center;   /* ← 左寄せから中央寄せに変更 */
   margin: 0 4px;
   font-size: 14px;
 }
