@@ -178,7 +178,7 @@ main {
   min-height: calc(100vh - 160px);
 }
 
-/* ===== Now Loading ドット跳ね＋光 ===== */
+/* ===== Now Loading 飛び跳ね＋ステータスバー ===== */
 #loading-screen {
   position: fixed;
   top: 0;
@@ -191,7 +191,7 @@ main {
   justify-content: center;
   align-items: center;
   z-index: 9999;
-  transition: opacity 0.5s ease, visibility 0.5s ease;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
 }
 
 #loading-screen.hidden {
@@ -205,36 +205,31 @@ main {
   font-weight: bold;
   color: #00eaff;
   text-shadow: 0 0 12px #00eaff, 0 0 24px #00eaff, 0 0 40px #00eaff;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
+  animation: bounceText 1s infinite ease-in-out;
 }
 
-.dot-spinner {
-  display: flex;
-  gap: 12px;
-}
-
-.dot-spinner span {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #00eaff;
-  box-shadow: 0 0 8px #00eaff, 0 0 16px #00eaff, 0 0 24px #00eaff;
-  animation: bounce 1s infinite ease-in-out, neonPulse 1.5s infinite alternate;
-}
-
-.dot-spinner span:nth-child(1) { animation-delay: 0s, 0s; }
-.dot-spinner span:nth-child(2) { animation-delay: 0.2s, 0.2s; }
-.dot-spinner span:nth-child(3) { animation-delay: 0.4s, 0.4s; }
-
-@keyframes bounce {
+@keyframes bounceText {
   0%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-20px); }
+  40% { transform: translateY(-16px); }
 }
 
-@keyframes neonPulse {
-  0% { box-shadow: 0 0 8px #00eaff, 0 0 16px #00eaff, 0 0 24px #00eaff; }
-  50% { box-shadow: 0 0 20px #00ffff, 0 0 40px #ff00ff, 0 0 60px #00ffff; }
-  100% { box-shadow: 0 0 10px #00eaff, 0 0 20px #ff00ff, 0 0 30px #00eaff; }
+/* ステータスバー */
+#loading-screen .loading-bar-container {
+  width: 80%;
+  max-width: 400px;
+  height: 6px;
+  background: rgba(0,255,255,0.2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+#loading-screen .loading-bar {
+  width: 0%;
+  height: 100%;
+  background: #00eaff;
+  border-radius: 3px;
+  transition: width 0.2s linear;
 }
 
 /* ===== PC向け ===== */
