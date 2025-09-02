@@ -142,10 +142,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }, { passive: false });
   });
 
-  // カードを左スワイプして「編集」「売却」を表示
+  // カードを左スワイプで「編集」「売却」を表示、右スワイプで閉じる
   document.querySelectorAll(".stock-card").forEach(card => {
     let startX = 0;
-    let isSwiped = false;
 
     // ボタンエリアを追加（非表示のまま）
     if (!card.querySelector(".card-actions")) {
@@ -160,18 +159,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     card.addEventListener("touchstart", e => {
       startX = e.touches[0].pageX;
-      isSwiped = card.classList.contains("swiped");
     });
 
     card.addEventListener("touchend", e => {
       const endX = e.changedTouches[0].pageX;
       const deltaX = endX - startX;
 
-      if (!isSwiped && deltaX < -50) {
+      if (deltaX < -50) {
         // 左スワイプ → ボタン表示
         card.classList.add("swiped");
+      } else if (deltaX > 50) {
+        // 右スワイプ → ボタンを閉じる
+        card.classList.remove("swiped");
       }
-      // 右スワイプで閉じる処理は削除（証券会社タブのみ右スライド可）
     });
 
     // ボタンのイベント
