@@ -18,13 +18,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const targetSection = sections[index];
     if (!targetSection) return;
 
-    const sectionLeft = targetSection.offsetLeft;
-    const sectionWidth = targetSection.offsetWidth;
     const wrapperWidth = wrapper.clientWidth;
+    const sectionWidth = targetSection.offsetWidth;
 
+    // セクションの左端を取得
+    const sectionLeft = targetSection.offsetLeft;
+
+    // 中央寄せ計算
     let scrollLeft = sectionLeft - (wrapperWidth / 2) + (sectionWidth / 2);
 
-    // スクロール可能範囲に収める
+    // スクロール可能範囲に制限
     const maxScroll = wrapper.scrollWidth - wrapperWidth;
     scrollLeft = Math.min(Math.max(scrollLeft, 0), maxScroll);
 
@@ -44,7 +47,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // 初期表示：リロード時も中央寄せ
   // -------------------------------
   const initialIndex = 0; // 最初のタブ
-  setActiveTab(initialIndex);
+  // 少し遅延させると正確に中央寄せされやすい
+  setTimeout(() => setActiveTab(initialIndex), 50);
 
   // -------------------------------
   // タブクリック
