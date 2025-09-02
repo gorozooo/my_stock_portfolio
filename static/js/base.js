@@ -144,6 +144,33 @@ document.addEventListener("DOMContentLoaded", function() {
     });
   }
 
+  /* ========================================
+     ===== ローディング画面 ===== */
+  const loadingOverlay = document.createElement('div');
+  loadingOverlay.id = 'loading-overlay';
+  loadingOverlay.style.position = 'fixed';
+  loadingOverlay.style.top = '0';
+  loadingOverlay.style.left = '0';
+  loadingOverlay.style.width = '100%';
+  loadingOverlay.style.height = '100%';
+  loadingOverlay.style.background = 'rgba(0,0,20,0.85)';
+  loadingOverlay.style.display = 'flex';
+  loadingOverlay.style.justifyContent = 'center';
+  loadingOverlay.style.alignItems = 'center';
+  loadingOverlay.style.zIndex = '9999';
+
+  const spinner = document.createElement('div');
+  spinner.className = 'spinner';
+  loadingOverlay.appendChild(spinner);
+
+  document.body.appendChild(loadingOverlay);
+
+  window.addEventListener("load", function() {
+    loadingOverlay.style.opacity = 0;
+    loadingOverlay.style.transition = 'opacity 0.5s ease';
+    setTimeout(() => loadingOverlay.remove(), 500);
+  });
+
 });
 
 // ===========================================
