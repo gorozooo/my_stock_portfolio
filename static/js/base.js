@@ -11,14 +11,12 @@ document.addEventListener("DOMContentLoaded", function() {
 
     let touchTimer;
 
-    // PC右クリックでサブメニュー表示
     tab.addEventListener('contextmenu', e => {
       e.preventDefault();
       closeAllSubMenus();
       openSubMenu(subMenu, tab);
     });
 
-    // スマホ長押しでサブメニュー表示
     tab.addEventListener('touchstart', e => {
       touchTimer = setTimeout(() => {
         closeAllSubMenus();
@@ -47,7 +45,7 @@ document.addEventListener("DOMContentLoaded", function() {
   }
 
   /* ========================================
-     ===== 背景アニメーション（粒子＋ネオン光彩） ===== */
+     ===== 背景アニメーション ===== */
   const canvas = document.getElementById('bgCanvas');
   if (canvas && canvas.getContext) {
     const ctx = canvas.getContext('2d');
@@ -130,50 +128,53 @@ document.addEventListener("DOMContentLoaded", function() {
   }
 
   /* ========================================
-     ===== ローディング画面（光るドット跳ね型） ===== */
+     ===== ローディングオーバーレイ ===== */
   const loadingOverlay = document.createElement('div');
   loadingOverlay.id = 'loading-overlay';
-  loadingOverlay.style.position = 'fixed';
-  loadingOverlay.style.top = '0';
-  loadingOverlay.style.left = '0';
-  loadingOverlay.style.width = '100%';
-  loadingOverlay.style.height = '100%';
-  loadingOverlay.style.background = 'rgba(0,0,20,0.85)';
-  loadingOverlay.style.display = 'flex';
-  loadingOverlay.style.flexDirection = 'column';
-  loadingOverlay.style.justifyContent = 'center';
-  loadingOverlay.style.alignItems = 'center';
-  loadingOverlay.style.zIndex = '9999';
-  loadingOverlay.style.opacity = '0';
-  loadingOverlay.style.transition = 'opacity 0.2s ease';
+  Object.assign(loadingOverlay.style, {
+    position: 'fixed',
+    top: '0',
+    left: '0',
+    width: '100%',
+    height: '100%',
+    background: 'rgba(0,0,20,0.85)',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: '9999',
+    opacity: '0',
+    transition: 'opacity 0.2s ease'
+  });
 
   const loadingText = document.createElement('div');
-  loadingText.className = 'loading-text';
   loadingText.textContent = 'Now Loading';
-  loadingText.style.color = '#0ff';
-  loadingText.style.fontFamily = '"Orbitron", sans-serif';
-  loadingText.style.fontSize = '1.5rem';
-  loadingText.style.marginBottom = '20px';
-  loadingText.style.textShadow = '0 0 8px #0ff, 0 0 16px #0ff';
+  Object.assign(loadingText.style, {
+    color: '#0ff',
+    fontFamily: '"Orbitron", sans-serif',
+    fontSize: '1.5rem',
+    marginBottom: '20px',
+    textShadow: '0 0 8px #0ff, 0 0 16px #0ff'
+  });
   loadingOverlay.appendChild(loadingText);
 
   const dotSpinner = document.createElement('div');
-  dotSpinner.className = 'dot-spinner';
   for (let i = 0; i < 3; i++) {
     const dot = document.createElement('span');
-    dot.style.display = 'inline-block';
-    dot.style.width = '12px';
-    dot.style.height = '12px';
-    dot.style.margin = '0 6px';
-    dot.style.background = '#0ff';
-    dot.style.borderRadius = '50%';
-    dot.style.animation = `bounce 1.2s ${i * 0.2}s infinite ease-in-out, glowDot 1.5s ${i * 0.2}s infinite alternate`;
+    Object.assign(dot.style, {
+      display: 'inline-block',
+      width: '12px',
+      height: '12px',
+      margin: '0 6px',
+      background: '#0ff',
+      borderRadius: '50%',
+      animation: `bounce 1.2s ${i*0.2}s infinite ease-in-out, glowDot 1.5s ${i*0.2}s infinite alternate`
+    });
     dotSpinner.appendChild(dot);
   }
   loadingOverlay.appendChild(dotSpinner);
   document.body.appendChild(loadingOverlay);
 
-  // 関数：ローディング表示
   function showLoading() {
     loadingOverlay.style.display = 'flex';
     requestAnimationFrame(() => {
@@ -181,19 +182,18 @@ document.addEventListener("DOMContentLoaded", function() {
     });
   }
 
-  // 関数：ローディング非表示
   function hideLoading() {
     loadingOverlay.style.opacity = '0';
     setTimeout(() => {
       loadingOverlay.style.display = 'none';
-    }, 500);
+    }, 300);
   }
 
-  // ページ完全ロード時に消す
+  // ページロード完了時
   window.addEventListener("load", hideLoading);
   window.addEventListener("pageshow", hideLoading);
 
-  // リンククリック時に即表示してから遷移
+  // すべてのリンククリックで即表示
   document.querySelectorAll("a[href]").forEach(link => {
     link.addEventListener("click", e => {
       const href = link.getAttribute("href");
@@ -202,13 +202,22 @@ document.addEventListener("DOMContentLoaded", function() {
       e.preventDefault();
       showLoading();
 
-      // 描画更新後に遷移
       requestAnimationFrame(() => {
-        setTimeout(() => {
-          window.location.href = href;
-        }, 50);
+        setTimeout(() => window.location.href = href, 50);
       });
     });
+  });
+
+  // フォーム送信でもローディング表示
+  document.querySelectorAll("form").forEach(form => {
+    form.addEventListener("submit", e => {
+      showLoading();
+    });
+  });
+
+  // beforeunloadでもローディング
+  window.addEventListener("beforeunload", () => {
+    showLoading();
   });
 
 });
@@ -242,7 +251,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 /* ===========================================
-   ===== ローディングドット用アニメーション =====
+   ローディングドット用アニメーション
 =========================================== */
 const style = document.createElement('style');
 style.innerHTML = `
@@ -253,3 +262,6 @@ style.innerHTML = `
 @keyframes glowDot {
   0% { box-shadow: 0 0 6px #0ff; }
   50% { box-shadow: 0 0 12px #0ff; }
+  100% { box-shadow: 0 0 6px #0ff; }
+}`;
+document.head.appendChild(style);
