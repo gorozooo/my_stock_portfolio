@@ -10,7 +10,18 @@ document.addEventListener("DOMContentLoaded", () => {
   // 最初のタブだけ active に
   if (tabs.length > 0) tabs[0].classList.add("active");
 
+  // -------------------------------
+  // リロード時に最初のセクションを中央表示
+  // -------------------------------
+  const firstSection = sections[0];
+  if (firstSection) {
+    const scrollLeft = firstSection.offsetLeft - (wrapper.clientWidth / 2) + (firstSection.clientWidth / 2);
+    wrapper.scrollLeft = scrollLeft;
+  }
+
+  // -------------------------------
   // タブクリックで横スクロール切替
+  // -------------------------------
   tabs.forEach(tab => {
     tab.addEventListener("click", () => {
       const index = parseInt(tab.dataset.brokerIndex, 10) || 0;
@@ -19,13 +30,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const target = sections[index];
       if (target) {
-        const left = target.offsetLeft;
+        const left = target.offsetLeft - (wrapper.clientWidth / 2) + (target.clientWidth / 2);
         wrapper.scrollTo({ left, behavior: "smooth" });
       }
     });
   });
 
+  // -------------------------------
   // 横スクロール時にアクティブタブを更新
+  // -------------------------------
   let scrollTimeout = null;
   wrapper.addEventListener("scroll", () => {
     if (scrollTimeout) clearTimeout(scrollTimeout);
@@ -43,12 +56,14 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       tabs.forEach(t => t.classList.remove("active"));
       if (tabs[nearestIndex]) tabs[nearestIndex].classList.add("active");
-      const targetLeft = sections[nearestIndex].offsetLeft;
+      const targetLeft = sections[nearestIndex].offsetLeft - (wrapper.clientWidth / 2) + (sections[nearestIndex].clientWidth / 2);
       wrapper.scrollTo({ left: targetLeft, behavior: "smooth" });
     }, 120);
   });
 
+  // -------------------------------
   // モーダル関連
+  // -------------------------------
   const modal = document.getElementById("stock-modal");
   const modalBody = document.getElementById("modal-body");
   const modalClose = document.querySelector(".modal-close");
@@ -81,7 +96,6 @@ document.addEventListener("DOMContentLoaded", () => {
       modalClose.focus();
     });
 
-    // キーボード操作で開ける
     card.addEventListener("keydown", e => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
@@ -97,12 +111,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   modalClose.addEventListener("click", closeModal);
   modal.addEventListener("click", e => { if (e.target === modal) closeModal(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && modal.style.display === "block") closeModal(); });
 
-  document.addEventListener("keydown", e => {
-    if (e.key === "Escape" && modal.style.display === "block") closeModal();
-  });
-
+  // -------------------------------
   // 横スクロール（証券会社エリアのみ）
+  // -------------------------------
   let isDragging = false;
   let startX = 0, startScrollLeft = 0;
 
@@ -142,11 +155,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }, { passive: false });
   });
 
+  // -------------------------------
   // カードを左スワイプで「編集」「売却」を表示、右スワイプで閉じる
+  // -------------------------------
   document.querySelectorAll(".stock-card").forEach(card => {
     let startX = 0;
 
-    // ボタンエリアを追加（非表示のまま）
     if (!card.querySelector(".card-actions")) {
       const actions = document.createElement("div");
       actions.className = "card-actions";
@@ -157,31 +171,17 @@ document.addEventListener("DOMContentLoaded", () => {
       card.appendChild(actions);
     }
 
-    card.addEventListener("touchstart", e => {
-      startX = e.touches[0].pageX;
-    });
+    card.addEventListener("touchstart", e => { startX = e.touches[0].pageX; });
 
     card.addEventListener("touchend", e => {
       const endX = e.changedTouches[0].pageX;
       const deltaX = endX - startX;
 
-      if (deltaX < -50) {
-        // 左スワイプ → ボタン表示
-        card.classList.add("swiped");
-      } else if (deltaX > 50) {
-        // 右スワイプ → ボタンを閉じる
-        card.classList.remove("swiped");
-      }
+      if (deltaX < -50) card.classList.add("swiped"); // 左スワイプ → ボタン表示
+      else if (deltaX > 50) card.classList.remove("swiped"); // 右スワイプ → ボタンを閉じる
     });
 
-    // ボタンのイベント
-    card.querySelector(".edit-btn").addEventListener("click", e => {
-      e.stopPropagation();
-      alert("編集画面へ移動します");
-    });
-    card.querySelector(".sell-btn").addEventListener("click", e => {
-      e.stopPropagation();
-      alert("売却処理を実行します");
-    });
+    card.querySelector(".edit-btn").addEventListener("click", e => { e.stopPropagation(); alert("編集画面へ移動します"); });
+    card.querySelector(".sell-btn").addEventListener("click", e => { e.stopPropagation(); alert("売却処理を実行します"); });
   });
 });
