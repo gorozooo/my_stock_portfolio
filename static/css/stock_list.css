@@ -162,7 +162,7 @@
   background: #dc3545;
 }
 
-/* モーダル（背景を半透明黒にして裏が見えるようにする） */
+/* モーダルの外側（背景部分） */
 .modal {
   display: none;
   position: fixed;
@@ -171,18 +171,20 @@
   top: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0,0,0,0.6); /* ← ここだけ修正 */
+  background: rgba(0,0,0,0.6);  /* 半透明の黒 */
+  backdrop-filter: blur(3px);   /* ぼかしも追加 */
   overflow-y: auto;
 }
+
+/* モーダルの中身（カード部分だけ白くする） */
 .modal-content {
-  background: #fff;
-  margin: 12% auto;
-  padding: 14px;
-  border-radius: 10px;
-  width: 92%;
+  background: #fff;       /* 白はここだけ */
+  margin: 10% auto;
+  padding: 20px;
+  border-radius: 12px;
+  width: 90%;
   max-width: 400px;
   position: relative;
-  box-sizing: border-box;
 }
 .modal-close {
   position: absolute;
