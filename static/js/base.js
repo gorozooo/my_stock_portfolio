@@ -115,27 +115,23 @@ document.addEventListener("DOMContentLoaded", function() {
     const btnOk = modal.querySelector(".btn-ok");
     let okCallback = null;
 
-    // モーダル表示関数をグローバルに公開
     window.openConfirmModal = (message, callback) => {
       modal.querySelector("p").textContent = message;
       okCallback = callback;
       modal.style.display = "block";
     };
 
-    // キャンセルボタン
     btnCancel.addEventListener("click", () => {
       modal.style.display = "none";
       okCallback = null;
     });
 
-    // OKボタン
     btnOk.addEventListener("click", () => {
       modal.style.display = "none";
       if (typeof okCallback === "function") okCallback();
       okCallback = null;
     });
 
-    // モーダル背景クリックで閉じる
     modal.addEventListener("click", e => {
       if (e.target === modal) {
         modal.style.display = "none";
@@ -145,7 +141,7 @@ document.addEventListener("DOMContentLoaded", function() {
   }
 
   /* ========================================
-     ===== ローディング画面 ===== */
+     ===== ローディング画面（光るドット跳ね型） ===== */
   const loadingOverlay = document.createElement('div');
   loadingOverlay.id = 'loading-overlay';
   loadingOverlay.style.position = 'fixed';
@@ -155,13 +151,35 @@ document.addEventListener("DOMContentLoaded", function() {
   loadingOverlay.style.height = '100%';
   loadingOverlay.style.background = 'rgba(0,0,20,0.85)';
   loadingOverlay.style.display = 'flex';
+  loadingOverlay.style.flexDirection = 'column';
   loadingOverlay.style.justifyContent = 'center';
   loadingOverlay.style.alignItems = 'center';
   loadingOverlay.style.zIndex = '9999';
 
-  const spinner = document.createElement('div');
-  spinner.className = 'spinner';
-  loadingOverlay.appendChild(spinner);
+  const loadingText = document.createElement('div');
+  loadingText.className = 'loading-text';
+  loadingText.textContent = 'Now Loading';
+  loadingText.style.color = '#0ff';
+  loadingText.style.fontFamily = '"Orbitron", sans-serif';
+  loadingText.style.fontSize = '1.5rem';
+  loadingText.style.marginBottom = '20px';
+  loadingText.style.textShadow = '0 0 8px #0ff, 0 0 16px #0ff';
+  loadingOverlay.appendChild(loadingText);
+
+  const dotSpinner = document.createElement('div');
+  dotSpinner.className = 'dot-spinner';
+  for (let i = 0; i < 3; i++) {
+    const dot = document.createElement('span');
+    dot.style.display = 'inline-block';
+    dot.style.width = '12px';
+    dot.style.height = '12px';
+    dot.style.margin = '0 6px';
+    dot.style.background = '#0ff';
+    dot.style.borderRadius = '50%';
+    dot.style.animation = `bounce 1.2s ${i * 0.2}s infinite ease-in-out, glowDot 1.5s ${i * 0.2}s infinite alternate`;
+    dotSpinner.appendChild(dot);
+  }
+  loadingOverlay.appendChild(dotSpinner);
 
   document.body.appendChild(loadingOverlay);
 
@@ -172,7 +190,7 @@ document.addEventListener("DOMContentLoaded", function() {
     setTimeout(() => loadingOverlay.remove(), 500);
   });
 
-  // リンククリック時にローディング画面を再表示
+  // リンククリック時にローディング表示
   document.querySelectorAll("a[href]").forEach(link => {
     link.addEventListener("click", e => {
       const href = link.getAttribute("href");
@@ -192,11 +210,11 @@ document.addEventListener("DOMContentLoaded", function() {
 
 });
 
-// ===========================================
-// 現在ページ名を下タブから自動取得
-// ===========================================
+/* ===========================================
+   現在ページ名を下タブから自動取得
+=========================================== */
 document.addEventListener("DOMContentLoaded", () => {
-  const currentURL = location.pathname; // 現在ページのパス
+  const currentURL = location.pathname;
   const currentPageNameEl = document.getElementById("current-page-name");
   if (!currentPageNameEl) return;
 
@@ -208,16 +226,30 @@ document.addEventListener("DOMContentLoaded", () => {
     const nameSpan = tabLink.querySelector("span");
     if (!href || !nameSpan) return;
 
-    // 現在URLと href が部分一致すればそのタブ名を表示
     if (currentURL.startsWith(href)) {
       currentPageNameEl.textContent = nameSpan.textContent;
       found = true;
     }
   });
 
-  // 下タブに該当がなければ URL パスをそのまま表示
   if (!found) {
     const trimmed = currentURL.replace(/^\/|\/$/g, "");
     currentPageNameEl.textContent = trimmed || "ホーム";
   }
 });
+
+/* ===========================================
+   ===== ローディングドット用アニメーション =====
+=========================================== */
+const style = document.createElement('style');
+style.innerHTML = `
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-16px); }
+}
+@keyframes glowDot {
+  0% { box-shadow: 0 0 6px #0ff; }
+  50% { box-shadow: 0 0 12px #0ff; }
+  100% { box-shadow: 0 0 6px #0ff; }
+}`;
+document.head.appendChild(style);
