@@ -1,4 +1,4 @@
-// base.js（文字＋進捗バー 完全版）
+// base.js（文字＋ネオン進捗バー 完全版）
 document.addEventListener("DOMContentLoaded", function() {
 
   /* ========================================
@@ -128,7 +128,7 @@ document.addEventListener("DOMContentLoaded", function() {
   }
 
   /* ========================================
-     ===== ローディング画面（文字＋進捗バー） ===== */
+     ===== ローディング画面（文字＋ネオン進捗バー） ===== */
   const loadingOverlay = document.createElement('div');
   Object.assign(loadingOverlay.style, {
     position: 'fixed', top: '0', left: '0',
@@ -154,41 +154,50 @@ document.addEventListener("DOMContentLoaded", function() {
   Object.assign(barContainer.style, {
     width: '80%', maxWidth: '400px',
     height: '6px',
-    background: 'rgba(0,255,255,0.2)',
-    borderRadius: '3px', overflow: 'hidden'
+    background: 'rgba(0,255,255,0.1)',
+    borderRadius: '3px', overflow: 'hidden',
+    boxShadow: '0 0 12px #0ff inset'
   });
 
   const loadingBar = document.createElement('div');
   Object.assign(loadingBar.style, {
     width: '0%', height: '100%',
-    background: '#0ff', borderRadius: '3px',
-    boxShadow: '0 0 8px #0ff', transition: 'width 0.1s linear'
+    background: 'linear-gradient(90deg, #0ff, #0ff, #ff00ff, #0ff)',
+    borderRadius: '3px',
+    boxShadow: '0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #ff00ff',
+    animation: 'neonPulse 1.5s infinite alternate',
+    transition: 'width 0.1s linear'
   });
   barContainer.appendChild(loadingBar);
   loadingOverlay.appendChild(barContainer);
 
   document.body.appendChild(loadingOverlay);
 
+  let loadingInterval;
+
   function showLoading() {
     loadingOverlay.style.display = 'flex';
     requestAnimationFrame(() => loadingOverlay.style.opacity = '1');
 
-    const updateBar = () => {
-      const totalResources = performance.getEntriesByType("resource").length + 1;
-      let loadedResources = document.readyState === "complete" ? totalResources : performance.getEntriesByType("resource").filter(r => r.responseEnd > 0).length;
-      let progress = Math.min((loadedResources / totalResources) * 100, 99);
+    clearInterval(loadingInterval);
+    loadingInterval = setInterval(() => {
+      const resources = performance.getEntriesByType("resource");
+      const total = resources.length + 1;
+      const loaded = resources.filter(r => r.responseEnd > 0).length + (document.readyState === "complete" ? 1 : 0);
+      let progress = Math.min((loaded / total) * 100, 99);
       loadingBar.style.width = progress + '%';
-      if (progress < 99) requestAnimationFrame(updateBar);
-    };
-    requestAnimationFrame(updateBar);
+    }, 100);
   }
 
   function hideLoading() {
+    clearInterval(loadingInterval);
     loadingBar.style.width = '100%';
     setTimeout(() => {
       loadingOverlay.style.opacity = '0';
-      setTimeout(() => loadingOverlay.style.display = 'none', 300);
-      loadingBar.style.width = '0%';
+      setTimeout(() => {
+        loadingOverlay.style.display = 'none';
+        loadingBar.style.width = '0%';
+      }, 300);
     }, 100);
   }
 
@@ -242,13 +251,18 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 /* ===========================================
-   ===== ローディングテキストアニメーション =====
+   ===== ローディングテキスト＋バーアニメーション =====
 =========================================== */
 const style = document.createElement('style');
 style.innerHTML = `
 @keyframes bounceText {
   0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-16px); }
-  60% { transform: translateY(-8px); }
+   40% { transform: translateY(-16px); }
+   60% { transform: translateY(-8px); }
+}
+@keyframes neonPulse {
+  0% { box-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #ff00ff; }
+  50% { box-shadow: 0 0 24px #0ff, 0 0 48px #0ff, 0 0 72px #ff00ff; }
+  100% { box-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #ff00ff; }
 }`;
 document.head.appendChild(style);
