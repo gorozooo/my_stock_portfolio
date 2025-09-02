@@ -7,7 +7,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
   tabs.forEach(tab => {
     const subMenu = tab.querySelector('.sub-menu');
-    if (!subMenu) return; // サブメニューがないタブはスキップ
+    if (!subMenu) return;
 
     let touchTimer;
 
@@ -23,13 +23,12 @@ document.addEventListener("DOMContentLoaded", function() {
       touchTimer = setTimeout(() => {
         closeAllSubMenus();
         openSubMenu(subMenu, tab);
-      }, 500); // 0.5秒長押し
+      }, 500);
     });
     tab.addEventListener('touchend', () => clearTimeout(touchTimer));
     tab.addEventListener('touchcancel', () => clearTimeout(touchTimer));
   });
 
-  // 背景クリックで全サブメニュー閉じる
   document.addEventListener('click', e => {
     if (!e.target.closest('.tab-item')) {
       closeAllSubMenus();
@@ -38,8 +37,8 @@ document.addEventListener("DOMContentLoaded", function() {
 
   function openSubMenu(subMenu, tab) {
     const rect = tab.getBoundingClientRect();
-    subMenu.style.left = rect.left + "px"; // タブの左位置に合わせる
-    subMenu.style.bottom = (window.innerHeight - rect.top + 10) + "px"; // タブ上に表示
+    subMenu.style.left = rect.left + "px";
+    subMenu.style.bottom = (window.innerHeight - rect.top + 10) + "px";
     subMenu.classList.add('show');
   }
 
@@ -52,7 +51,6 @@ document.addEventListener("DOMContentLoaded", function() {
   const canvas = document.getElementById('bgCanvas');
   if (canvas && canvas.getContext) {
     const ctx = canvas.getContext('2d');
-
     let width = window.innerWidth;
     let height = window.innerHeight;
     canvas.width = width;
@@ -74,17 +72,11 @@ document.addEventListener("DOMContentLoaded", function() {
 
     function animateParticles() {
       ctx.clearRect(0, 0, width, height);
-
       particles.forEach(p => {
-        // 位置更新
         p.x += p.vx;
         p.y += p.vy;
-
-        // 画面端で反射
         if (p.x < 0 || p.x > width) p.vx *= -1;
         if (p.y < 0 || p.y > height) p.vy *= -1;
-
-        // 描画
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fillStyle = `hsl(${p.hue}, 100%, 50%)`;
@@ -92,13 +84,10 @@ document.addEventListener("DOMContentLoaded", function() {
         ctx.shadowBlur = 8;
         ctx.fill();
       });
-
       requestAnimationFrame(animateParticles);
     }
-
     animateParticles();
 
-    // リサイズ対応
     window.addEventListener('resize', () => {
       width = window.innerWidth;
       height = window.innerHeight;
@@ -155,6 +144,8 @@ document.addEventListener("DOMContentLoaded", function() {
   loadingOverlay.style.justifyContent = 'center';
   loadingOverlay.style.alignItems = 'center';
   loadingOverlay.style.zIndex = '9999';
+  loadingOverlay.style.opacity = '0';
+  loadingOverlay.style.transition = 'opacity 0.2s ease';
 
   const loadingText = document.createElement('div');
   loadingText.className = 'loading-text';
@@ -180,32 +171,44 @@ document.addEventListener("DOMContentLoaded", function() {
     dotSpinner.appendChild(dot);
   }
   loadingOverlay.appendChild(dotSpinner);
-
   document.body.appendChild(loadingOverlay);
 
-  // ページ完全ロード時に消す
-  window.addEventListener("load", function() {
-    loadingOverlay.style.opacity = 0;
-    loadingOverlay.style.transition = 'opacity 0.5s ease';
-    setTimeout(() => loadingOverlay.remove(), 500);
-  });
+  // 関数：ローディング表示
+  function showLoading() {
+    loadingOverlay.style.display = 'flex';
+    requestAnimationFrame(() => {
+      loadingOverlay.style.opacity = '1';
+    });
+  }
 
-  // リンククリック時にローディング表示
+  // 関数：ローディング非表示
+  function hideLoading() {
+    loadingOverlay.style.opacity = '0';
+    setTimeout(() => {
+      loadingOverlay.style.display = 'none';
+    }, 500);
+  }
+
+  // ページ完全ロード時に消す
+  window.addEventListener("load", hideLoading);
+  window.addEventListener("pageshow", hideLoading);
+
+  // リンククリック時に即表示してから遷移
   document.querySelectorAll("a[href]").forEach(link => {
     link.addEventListener("click", e => {
       const href = link.getAttribute("href");
-      if (href && !href.startsWith("#") && !href.startsWith("javascript:")) {
-        loadingOverlay.style.opacity = 1;
-        loadingOverlay.style.display = "flex";
-      }
-    });
-  });
+      if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
 
-  // 戻る・進むでも表示
-  window.addEventListener("pageshow", () => {
-    loadingOverlay.style.opacity = 0;
-    loadingOverlay.style.transition = 'opacity 0.5s ease';
-    setTimeout(() => loadingOverlay.remove(), 500);
+      e.preventDefault();
+      showLoading();
+
+      // 描画更新後に遷移
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          window.location.href = href;
+        }, 50);
+      });
+    });
   });
 
 });
@@ -250,6 +253,3 @@ style.innerHTML = `
 @keyframes glowDot {
   0% { box-shadow: 0 0 6px #0ff; }
   50% { box-shadow: 0 0 12px #0ff; }
-  100% { box-shadow: 0 0 6px #0ff; }
-}`;
-document.head.appendChild(style);
