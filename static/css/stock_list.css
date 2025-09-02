@@ -14,30 +14,30 @@
 }
 
 /* ==========================
-   証券会社タブ（未来感・光彩＋アニメーション）
+   証券会社タブ（未来感・強め光彩＋アニメーション）
    タブだけ枠あり、周囲の背景は透明
    中央寄せ対応
    ========================== */
 .broker-tabs-wrapper {
   display: flex;
-  justify-content: center; /* タブを中央寄せ */
+  justify-content: center; /* タブ中央寄せ */
   overflow-x: auto;
-  gap: 6px;
-  padding: 6px 0;  /* 上下は少し余白、左右は透明 */
+  gap: 8px;
+  padding: 6px 0;  /* 上下余白 */
   position: sticky;
   top: 0;
   z-index: 20;
-  background: transparent; /* 周囲枠なし */
+  background: transparent;
   scroll-behavior: smooth;
 }
 .broker-tabs-wrapper::-webkit-scrollbar { display: none; }
 .broker-tabs-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
 
 .broker-tab {
-  padding: 6px 12px;
-  border: 1px solid rgba(255,255,255,0.4); /* タブ自体の枠のみ */
-  background: rgba(255,255,255,0.1);
-  border-radius: 12px;
+  padding: 6px 14px;
+  border: 1px solid rgba(255,255,255,0.4);
+  background: linear-gradient(145deg, rgba(255,255,255,0.05), rgba(0,123,255,0.05));
+  border-radius: 14px;
   cursor: pointer;
   flex-shrink: 0;
   white-space: nowrap;
@@ -46,39 +46,45 @@
   color: #fff;
   position: relative;
   overflow: hidden;
-  transition: all 0.3s ease;
+  transition: all 0.3s ease, transform 0.2s ease;
 }
 
-/* アクティブタブの光彩アニメーション */
+/* アクティブタブの強め光彩＋ネオン */
 .broker-tab.active {
-  background: rgba(0,123,255,0.95);
+  background: linear-gradient(135deg, rgba(0,123,255,0.8), rgba(0,255,255,0.6));
   color: #fff;
   border-color: rgba(0,123,255,0.8);
-  box-shadow: 0 0 8px rgba(0, 123, 255, 0.6), 0 0 16px rgba(0, 255, 255, 0.4);
+  box-shadow:
+    0 0 8px rgba(0, 123, 255, 0.8),
+    0 0 16px rgba(0, 255, 255, 0.6),
+    0 0 24px rgba(0, 255, 255, 0.4),
+    0 0 32px rgba(0, 123, 255, 0.2);
+  transform: scale(1.05);
 }
 
 .broker-tab.active::after {
   content: '';
   position: absolute;
   top: 0;
-  left: -50%;
-  width: 200%;
+  left: -60%;
+  width: 220%;
   height: 100%;
-  background: linear-gradient(120deg, rgba(0,255,255,0.2), rgba(255,255,255,0.4), rgba(0,102,255,0.2));
-  transform: skewX(-20deg);
-  animation: shine 2s infinite;
+  background: linear-gradient(120deg, rgba(0,255,255,0.3), rgba(255,255,255,0.5), rgba(0,102,255,0.3));
+  transform: skewX(-25deg);
+  animation: shine-future 1.8s infinite;
   pointer-events: none;
 }
 
-@keyframes shine {
-  0% { left: -50%; }
-  50% { left: 50%; }
-  100% { left: 100%; }
+@keyframes shine-future {
+  0% { left: -60%; }
+  50% { left: 60%; }
+  100% { left: 120%; }
 }
 
 .broker-tab:hover {
-  background: rgba(255,255,255,0.15);
-  transform: translateY(-2px);
+  background: linear-gradient(145deg, rgba(255,255,255,0.1), rgba(0,123,255,0.1));
+  transform: translateY(-2px) scale(1.03);
+  box-shadow: 0 0 10px rgba(0,123,255,0.3), 0 0 20px rgba(0,255,255,0.2);
 }
 
 /* ==========================
@@ -153,8 +159,8 @@
   box-sizing: border-box;
   width: 100%;
   display: flex;
-  justify-content: center; /* 横中央寄せ */
-  align-items: center;     /* 縦中央寄せ */
+  justify-content: center;
+  align-items: center;
 }
 .stock-card {
   position: relative;
@@ -166,15 +172,15 @@
   color: inherit;
   cursor: pointer;
   font-size: 12px;
-  width: 95%;       /* 親幅の95%で少し余白 */
-  max-width: 480px; /* 最大幅維持 */
+  width: 95%;
+  max-width: 480px;
   box-sizing: border-box;
   overflow: hidden;
   transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 .stock-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0,123,255,0.4);
+  box-shadow: 0 6px 18px rgba(0,123,255,0.5);
 }
 
 .stock-header {
