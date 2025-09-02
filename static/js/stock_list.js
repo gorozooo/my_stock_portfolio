@@ -10,14 +10,13 @@ document.addEventListener("DOMContentLoaded", () => {
   // 最初のタブだけ active に
   if (tabs.length > 0) tabs[0].classList.add("active");
 
-  // タブクリックで横スクロール切替（セクションを display:none にしない）
+  // タブクリックで横スクロール切替
   tabs.forEach(tab => {
     tab.addEventListener("click", () => {
       const index = parseInt(tab.dataset.brokerIndex, 10) || 0;
       tabs.forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
 
-      // target の left を使って正確にスクロール
       const target = sections[index];
       if (target) {
         const left = target.offsetLeft;
@@ -26,12 +25,11 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // 横スクロール時にアクティブタブを更新（debounce）
+  // 横スクロール時にアクティブタブを更新
   let scrollTimeout = null;
   wrapper.addEventListener("scroll", () => {
     if (scrollTimeout) clearTimeout(scrollTimeout);
     scrollTimeout = setTimeout(() => {
-      // 最も近い section を探す
       const center = wrapper.scrollLeft + wrapper.clientWidth / 2;
       let nearestIndex = 0;
       let nearestDist = Infinity;
@@ -45,7 +43,6 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       tabs.forEach(t => t.classList.remove("active"));
       if (tabs[nearestIndex]) tabs[nearestIndex].classList.add("active");
-      // スナップ補助（スムーズに近いセクションへ）
       const targetLeft = sections[nearestIndex].offsetLeft;
       wrapper.scrollTo({ left: targetLeft, behavior: "smooth" });
     }, 120);
@@ -79,11 +76,10 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
       modal.style.display = "block";
       modal.setAttribute("aria-hidden", "false");
-      // フォーカス管理（簡易）
       modalClose.focus();
     });
 
-    // キーボードで開ける（Enter / Space）
+    // キーボード操作で開ける
     card.addEventListener("keydown", e => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
@@ -100,14 +96,14 @@ document.addEventListener("DOMContentLoaded", () => {
   modalClose.addEventListener("click", closeModal);
   modal.addEventListener("click", e => { if (e.target === modal) closeModal(); });
 
-  // ESC で閉じる
   document.addEventListener("keydown", e => {
     if (e.key === "Escape" && modal.style.display === "block") closeModal();
   });
 
-  // 横スクロールのドラッグ（マウス & タッチ）
+  // 横スクロール（証券会社エリアのみ）
   let isDragging = false;
   let startX = 0, startScrollLeft = 0;
+
   wrapper.addEventListener("mousedown", e => {
     isDragging = true;
     startX = e.pageX - wrapper.offsetLeft;
@@ -123,7 +119,7 @@ document.addEventListener("DOMContentLoaded", () => {
     wrapper.scrollLeft = startScrollLeft - (x - startX);
   });
 
-  // タッチ
+  // タッチ横スクロール（証券会社エリアのみ）
   let touchStartX = 0, touchStartScroll = 0;
   wrapper.addEventListener("touchstart", e => {
     touchStartX = e.touches[0].pageX;
@@ -132,5 +128,19 @@ document.addEventListener("DOMContentLoaded", () => {
   wrapper.addEventListener("touchmove", e => {
     const x = e.touches[0].pageX;
     wrapper.scrollLeft = touchStartScroll - (x - touchStartX);
+  });
+
+  // カード部分では横スワイプ禁止（縦スクロール優先）
+  document.querySelectorAll(".broker-cards-wrapper").forEach(cardsWrapper => {
+    cardsWrapper.addEventListener("touchmove", e => {
+      const touch = e.touches[0];
+      if (!touch) return;
+      const deltaX = Math.abs(touch.pageX - touchStartX);
+      const deltaY = Math.abs(touch.pageY - 0); // Y方向は制限なし
+      if (deltaX > deltaY) {
+        // 横方向の動きが大きい場合 → 横スクロール無効化
+        e.stopPropagation();
+      }
+    }, { passive: false });
   });
 });
