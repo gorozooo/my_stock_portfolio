@@ -10,22 +10,22 @@
   width: 100%;
   box-sizing: border-box;
   padding: 0;
+  background: transparent; /* 周囲枠なし */
 }
 
 /* ==========================
    証券会社タブ（未来感・光彩＋アニメーション）
+   タブだけ枠あり、周囲の背景は透明
    ========================== */
 .broker-tabs-wrapper {
   display: flex;
   overflow-x: auto;
   gap: 6px;
-  padding: 6px;
+  padding: 6px 0;  /* 上下は少し余白、左右は透明 */
   position: sticky;
   top: 0;
   z-index: 20;
-  background: rgba(255,255,255,0.05);
-  backdrop-filter: blur(10px);
-  border-radius: 20px;
+  background: transparent; /* 周囲枠なし */
   scroll-behavior: smooth;
 }
 .broker-tabs-wrapper::-webkit-scrollbar { display: none; }
@@ -33,7 +33,7 @@
 
 .broker-tab {
   padding: 6px 12px;
-  border: none;
+  border: 1px solid rgba(255,255,255,0.4); /* タブ自体の枠のみ */
   background: rgba(255,255,255,0.1);
   border-radius: 12px;
   cursor: pointer;
@@ -51,6 +51,7 @@
 .broker-tab.active {
   background: rgba(0,123,255,0.95);
   color: #fff;
+  border-color: rgba(0,123,255,0.8);
   box-shadow: 0 0 8px rgba(0, 123, 255, 0.6), 0 0 16px rgba(0, 255, 255, 0.4);
 }
 
