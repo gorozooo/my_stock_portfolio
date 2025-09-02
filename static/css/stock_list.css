@@ -13,7 +13,7 @@
 }
 
 /* ==========================
-   証券会社タブ
+   証券会社タブ（未来感・光彩＋アニメーション）
    ========================== */
 .broker-tabs-wrapper {
   display: flex;
@@ -23,26 +23,59 @@
   position: sticky;
   top: 0;
   z-index: 20;
-  background: transparent;
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
   scroll-behavior: smooth;
 }
 .broker-tabs-wrapper::-webkit-scrollbar { display: none; }
 .broker-tabs-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
 
 .broker-tab {
-  padding: 5px 10px;
+  padding: 6px 12px;
   border: none;
   background: rgba(255,255,255,0.1);
-  border-radius: 6px;
+  border-radius: 12px;
   cursor: pointer;
   flex-shrink: 0;
   white-space: nowrap;
   font-size: 13px;
-  transition: background 0.2s ease, color 0.2s ease;
+  font-weight: 600;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
 }
+
+/* アクティブタブの光彩アニメーション */
 .broker-tab.active {
   background: rgba(0,123,255,0.95);
   color: #fff;
+  box-shadow: 0 0 8px rgba(0, 123, 255, 0.6), 0 0 16px rgba(0, 255, 255, 0.4);
+}
+
+.broker-tab.active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -50%;
+  width: 200%;
+  height: 100%;
+  background: linear-gradient(120deg, rgba(0,255,255,0.2), rgba(255,255,255,0.4), rgba(0,102,255,0.2));
+  transform: skewX(-20deg);
+  animation: shine 2s infinite;
+  pointer-events: none;
+}
+
+@keyframes shine {
+  0% { left: -50%; }
+  50% { left: 50%; }
+  100% { left: 100%; }
+}
+
+.broker-tab:hover {
+  background: rgba(255,255,255,0.15);
+  transform: translateY(-2px);
 }
 
 /* ==========================
@@ -134,8 +167,13 @@
   max-width: 480px; /* 最大幅維持 */
   box-sizing: border-box;
   overflow: hidden;
-  transition: transform 0.3s ease;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
+.stock-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,123,255,0.4);
+}
+
 .stock-header {
   display:flex;
   justify-content: space-between;
