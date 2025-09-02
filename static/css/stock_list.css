@@ -60,11 +60,12 @@
   box-sizing: border-box;
   background: transparent;
 }
+/* 証券会社名を中央表示 */
 .broker-title {
   font-weight: bold;
   padding: 3px 0;
   border-bottom: 1px solid rgba(255,255,255,0.2);
-  text-align: left;
+  text-align: center;   /* ← 左寄せから中央寄せに変更 */
   margin: 0 4px;
   font-size: 14px;
 }
