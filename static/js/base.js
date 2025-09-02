@@ -25,8 +25,8 @@ document.addEventListener("DOMContentLoaded", function() {
         openSubMenu(subMenu, tab);
       }, 500); // 0.5秒長押し
     });
-    tab.addEventListener('touchend', e => clearTimeout(touchTimer));
-    tab.addEventListener('touchcancel', e => clearTimeout(touchTimer));
+    tab.addEventListener('touchend', () => clearTimeout(touchTimer));
+    tab.addEventListener('touchcancel', () => clearTimeout(touchTimer));
   });
 
   // 背景クリックで全サブメニュー閉じる
@@ -165,7 +165,26 @@ document.addEventListener("DOMContentLoaded", function() {
 
   document.body.appendChild(loadingOverlay);
 
+  // ページ完全ロード時に消す
   window.addEventListener("load", function() {
+    loadingOverlay.style.opacity = 0;
+    loadingOverlay.style.transition = 'opacity 0.5s ease';
+    setTimeout(() => loadingOverlay.remove(), 500);
+  });
+
+  // リンククリック時にローディング画面を再表示
+  document.querySelectorAll("a[href]").forEach(link => {
+    link.addEventListener("click", e => {
+      const href = link.getAttribute("href");
+      if (href && !href.startsWith("#") && !href.startsWith("javascript:")) {
+        loadingOverlay.style.opacity = 1;
+        loadingOverlay.style.display = "flex";
+      }
+    });
+  });
+
+  // 戻る・進むでも表示
+  window.addEventListener("pageshow", () => {
     loadingOverlay.style.opacity = 0;
     loadingOverlay.style.transition = 'opacity 0.5s ease';
     setTimeout(() => loadingOverlay.remove(), 500);
