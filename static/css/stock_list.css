@@ -142,7 +142,8 @@
   display: flex;
   gap: 5px;
   padding: 5px;
-  background: #f8f8f8;
+  background: rgba(248, 248, 248, 0.8); /* 半透明に変更 */
+  backdrop-filter: blur(4px); /* 背景を少しぼかす */
   transition: right 0.3s ease;
 }
 
@@ -151,15 +152,16 @@
 }
 
 .card-actions button {
-  background: #007bff;
+  background: rgba(0, 123, 255, 0.85); /* 少し透ける青に変更 */
   color: white;
   border: none;
   padding: 5px 10px;
   border-radius: 4px;
+  backdrop-filter: blur(2px); /* ボタンも軽く透過 */
 }
 
 .card-actions .sell-btn {
-  background: #dc3545;
+  background: rgba(220, 53, 69, 0.85); /* 少し透ける赤に変更 */
 }
 
 /* モーダルの外側（背景部分） */
