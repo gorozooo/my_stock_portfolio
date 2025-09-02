@@ -110,7 +110,7 @@
   color: inherit;
   cursor: pointer;
   font-size: 12px;
-  width: 95%; /* 幅を広げた */
+  width: 100%; /* 幅を広げた */
   max-width: 300px; /* 最大幅も少し広げた */
   box-sizing: border-box;
   overflow: hidden;
