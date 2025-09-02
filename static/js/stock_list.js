@@ -2,6 +2,7 @@
    スマホファースト設計、HTML/CSS/JS分けて設計
    タブ切替でセクションを中央寄せ
    リロード時も自動中央寄せ
+   タブ切替時にスムーズスクロール＆遅延微調整
    ========================== */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -19,20 +20,25 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!targetSection) return;
 
     const wrapperWidth = wrapper.clientWidth;
-    const sectionRect = targetSection.getBoundingClientRect();
-    const wrapperRect = wrapper.getBoundingClientRect();
 
-    // wrapper 内の相対位置
-    const sectionLeftRelative = sectionRect.left - wrapperRect.left + wrapper.scrollLeft;
+    // 描画完了後に計算
+    requestAnimationFrame(() => {
+      const sectionRect = targetSection.getBoundingClientRect();
+      const wrapperRect = wrapper.getBoundingClientRect();
 
-    // 中央寄せ計算
-    let scrollLeft = sectionLeftRelative - (wrapperWidth / 2) + (sectionRect.width / 2);
+      // wrapper 内の相対位置
+      const sectionLeftRelative = sectionRect.left - wrapperRect.left + wrapper.scrollLeft;
 
-    // スクロール可能範囲に制限
-    const maxScroll = wrapper.scrollWidth - wrapperWidth;
-    scrollLeft = Math.min(Math.max(scrollLeft, 0), maxScroll);
+      // 中央寄せ計算
+      let scrollLeft = sectionLeftRelative - (wrapperWidth / 2) + (sectionRect.width / 2);
 
-    wrapper.scrollTo({ left: scrollLeft, behavior: "smooth" });
+      // スクロール可能範囲に制限
+      const maxScroll = wrapper.scrollWidth - wrapperWidth;
+      scrollLeft = Math.min(Math.max(scrollLeft, 0), maxScroll);
+
+      // スムーズスクロール
+      wrapper.scrollTo({ left: scrollLeft, behavior: "smooth" });
+    });
   };
 
   // -------------------------------
@@ -41,15 +47,16 @@ document.addEventListener("DOMContentLoaded", () => {
   const setActiveTab = index => {
     tabs.forEach(t => t.classList.remove("active"));
     if (tabs[index]) tabs[index].classList.add("active");
-    scrollToSectionCenter(index);
+
+    // 少し遅延させて自然にスクロール
+    setTimeout(() => scrollToSectionCenter(index), 50);
   };
 
   // -------------------------------
   // 初期表示：リロード時も中央寄せ
   // -------------------------------
-  const initialIndex = 0; // 最初のタブ
-  // 少し遅延させると正確に中央寄せされやすい
-  setTimeout(() => setActiveTab(initialIndex), 50);
+  const initialIndex = 0;
+  setTimeout(() => setActiveTab(initialIndex), 100); // 少し余裕をもたせて描画完了後に中央寄せ
 
   // -------------------------------
   // タブクリック
