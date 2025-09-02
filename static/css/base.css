@@ -166,6 +166,28 @@ main {
   min-height: calc(100vh - 160px);
 }
 
+/* ===== ページリロード中アニメーション ===== */
+.spinner {
+  width: 80px;
+  height: 80px;
+  border: 6px solid rgba(0,255,255,0.1);
+  border-top: 6px solid #00f6ff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite, glow 1.5s ease-in-out infinite alternate;
+  box-shadow: 0 0 15px #00f6ff, 0 0 30px #00f6ff, 0 0 50px #00f6ff;
+}
+
+@keyframes spin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes glow {
+  0%   { box-shadow: 0 0 10px #00f6ff, 0 0 20px #00f6ff, 0 0 30px #00f6ff; }
+  50%  { box-shadow: 0 0 20px #00f6ff, 0 0 40px #00f6ff, 0 0 60px #00f6ff; }
+  100% { box-shadow: 0 0 15px #00f6ff, 0 0 30px #00f6ff, 0 0 45px #00f6ff; }
+}
+
 /* ===== PC向け拡張 ===== */
 @media (min-width: 768px) {
   .navbar-title { font-size: 1.6rem; }
