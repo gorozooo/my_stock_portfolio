@@ -1,4 +1,4 @@
-// base.js
+// base.js（文字＋進捗バー 完全版）
 document.addEventListener("DOMContentLoaded", function() {
 
   /* ========================================
@@ -128,113 +128,93 @@ document.addEventListener("DOMContentLoaded", function() {
   }
 
   /* ========================================
-     ===== ローディング画面（文字＋ステータスバー） ===== */
+     ===== ローディング画面（文字＋進捗バー） ===== */
   const loadingOverlay = document.createElement('div');
-  loadingOverlay.id = 'loading-overlay';
   Object.assign(loadingOverlay.style, {
-    position: 'fixed',
-    top: '0',
-    left: '0',
-    width: '100%',
-    height: '100%',
+    position: 'fixed', top: '0', left: '0',
+    width: '100%', height: '100%',
     background: 'rgba(0,0,20,0.85)',
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: '9999',
-    opacity: '0',
+    display: 'flex', flexDirection: 'column',
+    justifyContent: 'center', alignItems: 'center',
+    zIndex: '9999', opacity: '0',
     transition: 'opacity 0.2s ease'
   });
 
-  // Now Loadingテキスト
   const loadingText = document.createElement('div');
   loadingText.textContent = 'Now Loading';
   Object.assign(loadingText.style, {
-    color: '#0ff',
-    fontFamily: '"Orbitron", sans-serif',
-    fontSize: '1.5rem',
-    marginBottom: '10px',
+    color: '#0ff', fontFamily: '"Orbitron", sans-serif',
+    fontSize: '1.5rem', marginBottom: '12px',
     textShadow: '0 0 8px #0ff, 0 0 16px #0ff',
     animation: 'bounceText 1s infinite'
   });
   loadingOverlay.appendChild(loadingText);
 
-  // ステータスバー
+  const barContainer = document.createElement('div');
+  Object.assign(barContainer.style, {
+    width: '80%', maxWidth: '400px',
+    height: '6px',
+    background: 'rgba(0,255,255,0.2)',
+    borderRadius: '3px', overflow: 'hidden'
+  });
+
   const loadingBar = document.createElement('div');
   Object.assign(loadingBar.style, {
-    width: '0%',
-    height: '4px',
-    background: '#0ff',
-    borderRadius: '2px',
-    boxShadow: '0 0 8px #0ff',
-    transition: 'width 0.2s linear'
+    width: '0%', height: '100%',
+    background: '#0ff', borderRadius: '3px',
+    boxShadow: '0 0 8px #0ff', transition: 'width 0.1s linear'
   });
-  loadingOverlay.appendChild(loadingBar);
+  barContainer.appendChild(loadingBar);
+  loadingOverlay.appendChild(barContainer);
 
   document.body.appendChild(loadingOverlay);
 
-  let loadingInterval;
-
   function showLoading() {
     loadingOverlay.style.display = 'flex';
-    requestAnimationFrame(() => {
-      loadingOverlay.style.opacity = '1';
-    });
+    requestAnimationFrame(() => loadingOverlay.style.opacity = '1');
 
-    let progress = 0;
-    clearInterval(loadingInterval);
-    loadingInterval = setInterval(() => {
-      progress += Math.random() * 5;
-      if (progress > 95) progress = 95;
+    const updateBar = () => {
+      const totalResources = performance.getEntriesByType("resource").length + 1;
+      let loadedResources = document.readyState === "complete" ? totalResources : performance.getEntriesByType("resource").filter(r => r.responseEnd > 0).length;
+      let progress = Math.min((loadedResources / totalResources) * 100, 99);
       loadingBar.style.width = progress + '%';
-    }, 100);
+      if (progress < 99) requestAnimationFrame(updateBar);
+    };
+    requestAnimationFrame(updateBar);
   }
 
   function hideLoading() {
-    loadingOverlay.style.opacity = '0';
-    clearInterval(loadingInterval);
-    loadingBar.style.width = '0%';
+    loadingBar.style.width = '100%';
     setTimeout(() => {
-      loadingOverlay.style.display = 'none';
-    }, 300);
+      loadingOverlay.style.opacity = '0';
+      setTimeout(() => loadingOverlay.style.display = 'none', 300);
+      loadingBar.style.width = '0%';
+    }, 100);
   }
 
-  // ページロード完了
   window.addEventListener("load", hideLoading);
   window.addEventListener("pageshow", hideLoading);
 
-  // すべてのリンククリックで即表示
   document.querySelectorAll("a[href]").forEach(link => {
     link.addEventListener("click", e => {
       const href = link.getAttribute("href");
       if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
-
       e.preventDefault();
       showLoading();
-
-      requestAnimationFrame(() => {
-        setTimeout(() => window.location.href = href, 50);
-      });
+      requestAnimationFrame(() => setTimeout(() => window.location.href = href, 50));
     });
   });
 
-  // フォーム送信でも表示
   document.querySelectorAll("form").forEach(form => {
-    form.addEventListener("submit", e => {
-      showLoading();
-    });
+    form.addEventListener("submit", e => showLoading());
   });
 
-  // beforeunload
-  window.addEventListener("beforeunload", () => {
-    showLoading();
-  });
+  window.addEventListener("beforeunload", () => showLoading());
 
 });
 
 /* ===========================================
-   現在ページ名を下タブから自動取得
+   ===== 現在ページ名を下タブから自動取得 =====
 =========================================== */
 document.addEventListener("DOMContentLoaded", () => {
   const currentURL = location.pathname;
