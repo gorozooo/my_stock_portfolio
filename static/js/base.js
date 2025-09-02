@@ -1,4 +1,4 @@
-// base.js（文字＋ネオン進捗バー 完全版）
+// base.js（文字＋ネオン進捗バー 完全版＋画面遷移対応）
 document.addEventListener("DOMContentLoaded", function() {
 
   /* ========================================
@@ -166,59 +166,62 @@ document.addEventListener("DOMContentLoaded", function() {
     borderRadius: '3px',
     boxShadow: '0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #ff00ff',
     animation: 'neonPulse 1.5s infinite alternate',
-    transition: 'width 0.1s linear'
+    transition: 'width 0.2s linear'
   });
   barContainer.appendChild(loadingBar);
   loadingOverlay.appendChild(barContainer);
 
   document.body.appendChild(loadingOverlay);
 
+  let loadingProgress = 0;
   let loadingInterval;
 
-  function showLoading() {
+  function startFakeProgress(callback) {
+    loadingProgress = 0;
+    loadingBar.style.width = '0%';
     loadingOverlay.style.display = 'flex';
     requestAnimationFrame(() => loadingOverlay.style.opacity = '1');
 
     clearInterval(loadingInterval);
     loadingInterval = setInterval(() => {
-      const resources = performance.getEntriesByType("resource");
-      const total = resources.length + 1;
-      const loaded = resources.filter(r => r.responseEnd > 0).length + (document.readyState === "complete" ? 1 : 0);
-      let progress = Math.min((loaded / total) * 100, 99);
-      loadingBar.style.width = progress + '%';
-    }, 100);
+      loadingProgress += Math.random() * 5 + 1; // スムーズ増加
+      if (loadingProgress >= 100) loadingProgress = 100;
+      loadingBar.style.width = loadingProgress + '%';
+      if (loadingProgress >= 100) {
+        clearInterval(loadingInterval);
+        setTimeout(() => {
+          loadingOverlay.style.opacity = '0';
+          setTimeout(() => {
+            loadingOverlay.style.display = 'none';
+            loadingBar.style.width = '0%';
+            if (callback) callback();
+          }, 300);
+        }, 200);
+      }
+    }, 50);
   }
 
-  function hideLoading() {
-    clearInterval(loadingInterval);
-    loadingBar.style.width = '100%';
-    setTimeout(() => {
-      loadingOverlay.style.opacity = '0';
-      setTimeout(() => {
-        loadingOverlay.style.display = 'none';
-        loadingBar.style.width = '0%';
-      }, 300);
-    }, 100);
-  }
+  // ページロード時に自動で進捗表示
+  window.addEventListener("load", () => startFakeProgress());
+  window.addEventListener("pageshow", () => startFakeProgress());
 
-  window.addEventListener("load", hideLoading);
-  window.addEventListener("pageshow", hideLoading);
-
+  // リンククリック時に進捗表示＋遷移
   document.querySelectorAll("a[href]").forEach(link => {
     link.addEventListener("click", e => {
       const href = link.getAttribute("href");
       if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
       e.preventDefault();
-      showLoading();
-      requestAnimationFrame(() => setTimeout(() => window.location.href = href, 50));
+      startFakeProgress(() => { window.location.href = href; });
     });
   });
 
+  // フォーム送信時も進捗表示
   document.querySelectorAll("form").forEach(form => {
-    form.addEventListener("submit", e => showLoading());
+    form.addEventListener("submit", e => {
+      e.preventDefault();
+      startFakeProgress(() => form.submit());
+    });
   });
-
-  window.addEventListener("beforeunload", () => showLoading());
 
 });
 
@@ -257,8 +260,8 @@ const style = document.createElement('style');
 style.innerHTML = `
 @keyframes bounceText {
   0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-   40% { transform: translateY(-16px); }
-   60% { transform: translateY(-8px); }
+  40% { transform: translateY(-16px); }
+  60% { transform: translateY(-8px); }
 }
 @keyframes neonPulse {
   0% { box-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #ff00ff; }
