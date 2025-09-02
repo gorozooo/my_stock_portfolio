@@ -165,6 +165,39 @@
   border: none;
 }
 
+.stock-card {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.3s ease;
+}
+
+.stock-card.swiped {
+  transform: translateX(-100px); /* ボタン幅に応じて調整 */
+}
+
+.stock-card .card-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  display: flex;
+  gap: 5px;
+  padding: 5px;
+  background: #f8f8f8;
+}
+
+.card-actions button {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+}
+
+.card-actions .sell-btn {
+  background: #dc3545;
+}
+
 /* レスポンシブ */
 @media (min-width: 768px) {
   .broker-section { flex: 0 0 50vw; min-width: 50vw; }
