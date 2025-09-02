@@ -63,12 +63,13 @@
 
 /* 各セクション */
 .broker-section {
-  flex: 0 0 100vw; /* 幅は画面いっぱい */
+  flex: 0 0 100%; /* 幅は画面いっぱい */
+  width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center; /* セクション内中央寄せ */
+  align-items: stretch; /* 子要素も横幅いっぱい */
   gap: 6px;
-  padding: 6px 10px;
+  padding: 0 6px;
   box-sizing: border-box;
   background: transparent;
 }
@@ -92,10 +93,10 @@
   overflow-y: auto;
   max-height: 60vh;
   gap: 8px;
-  padding: 6px 0;
+  padding: 0;
   scroll-behavior: smooth;
   background: transparent;
-  align-items: stretch; /* カード中央寄せ */
+  align-items: stretch; /* 子カードも横幅いっぱい */
 }
 .broker-cards-wrapper::-webkit-scrollbar {
   width: 6px;
@@ -129,8 +130,8 @@
   color: inherit;
   cursor: pointer;
   font-size: 12px;
-  width: 100%;       /* 画面幅の95%に調整 */
-  max-width: none;  /* 最大幅制限を解除 */
+  width: 95%;       /* 親幅の95%で少し余白 */
+  max-width: 480px; /* 最大幅維持 */
   box-sizing: border-box;
   overflow: hidden;
   transition: transform 0.3s ease;
@@ -216,12 +217,12 @@
    レスポンシブ
    ========================== */
 @media (min-width: 768px) {
-  .broker-section { flex: 0 0 50vw; min-width: 50vw; }
+  .broker-section { flex: 0 0 50%; min-width: 50%; }
   .broker-cards-wrapper { max-height: 70vh; }
   .stock-card { padding: 10px; font-size: 13px; max-width: 320px; width: 90%; }
 }
 @media (min-width: 1024px) {
-  .broker-section { flex: 0 0 33.333vw; min-width: 33.333vw; }
+  .broker-section { flex: 0 0 33.333%; min-width: 33.333%; }
   .broker-cards-wrapper { max-height: 75vh; }
   .stock-card { padding: 12px; font-size: 14px; max-width: 360px; width: 85%; }
 }
