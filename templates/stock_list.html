@@ -1,68 +1,75 @@
-/* スマホファースト設計 、html css jsは分ける*/
-
 {% extends "base.html" %}
 {% load static %}
 {% load humanize %}
 
+{# スマホファースト設計、html css jsは分ける #}
 {% block content %}
 <div class="portfolio-container">
 
-  <!-- 証券会社タブ -->
-  <div class="broker-tabs-wrapper">
+  {% if stocks %}
     {% regroup stocks by broker as broker_list %}
-    {% for broker_group in broker_list %}
-    <button class="broker-tab" data-broker-index="{{ forloop.counter0 }}">
-      {{ broker_group.grouper }}
-    </button>
-    {% endfor %}
-  </div>
 
-  <!-- 証券会社セクション（横スクロール） -->
-  <div class="broker-horizontal-wrapper">
-    {% for broker_group in broker_list %}
-    <div class="broker-section" data-broker-index="{{ forloop.counter0 }}">
-      <h3 class="broker-title">{{ broker_group.grouper }}</h3>
-
-      <!-- 株カード縦スクロール -->
-      <div class="broker-cards-wrapper">
-        {% for stock in broker_group.list %}
-        <div class="stock-card-wrapper">
-          <div class="stock-card"
-               data-id="{{ stock.id }}"
-               data-name="{{ stock.name }}"
-               data-ticker="{{ stock.ticker }}"
-               data-shares="{{ stock.shares }}"
-               data-unit_price="{{ stock.unit_price|floatformat:0 }}"
-               data-current_price="{{ stock.current_price|floatformat:0 }}"
-               data-profit="{{ stock.profit_amount }}"
-               data-profit_rate="{{ stock.profit_rate }}">
-            <div class="stock-header">
-              <span class="stock-name">{{ stock.name }}</span>
-              <span class="stock-code">{{ stock.ticker }}</span>
-            </div>
-            <div class="stock-body">
-              <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
-              <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
-              <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
-              <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
-              <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
-                <span>損益</span>
-                <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        {% endfor %}
-      </div>
+    <!-- 証券会社タブ -->
+    <div class="broker-tabs-wrapper" role="tablist" aria-label="証券会社">
+      {% for broker_group in broker_list %}
+        <button class="broker-tab" data-broker-index="{{ forloop.counter0 }}" role="tab">
+          {{ broker_group.grouper }}
+        </button>
+      {% endfor %}
     </div>
-    {% endfor %}
-  </div>
+
+    <!-- 証券会社セクション（横スクロール） -->
+    <div class="broker-horizontal-wrapper" id="broker-horizontal-wrapper" aria-live="polite">
+      {% for broker_group in broker_list %}
+        <section class="broker-section" data-broker-index="{{ forloop.counter0 }}" aria-label="{{ broker_group.grouper }}">
+          <h3 class="broker-title">{{ broker_group.grouper }}</h3>
+
+          <!-- 株カード縦スクロール（各セクション内で縦スクロール可能） -->
+          <div class="broker-cards-wrapper">
+            {% for stock in broker_group.list %}
+              <article class="stock-card-wrapper">
+                <div class="stock-card"
+                     role="button"
+                     tabindex="0"
+                     data-id="{{ stock.id }}"
+                     data-name="{{ stock.name }}"
+                     data-ticker="{{ stock.ticker }}"
+                     data-shares="{{ stock.shares }}"
+                     data-unit_price="{{ stock.unit_price|floatformat:0 }}"
+                     data-current_price="{{ stock.current_price|floatformat:0 }}"
+                     data-profit="{{ stock.profit_amount }}"
+                     data-profit_rate="{{ stock.profit_rate }}">
+                  <div class="stock-header">
+                    <span class="stock-name">{{ stock.name }}</span>
+                    <span class="stock-code">{{ stock.ticker }}</span>
+                  </div>
+                  <div class="stock-body">
+                    <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
+                    <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
+                    <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
+                    <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
+                    <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
+                      <span>損益</span>
+                      <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+      {% endfor %}
+    </div>
+
+  {% else %}
+    <p>保有株データがありません。</p>
+  {% endif %}
 
   <!-- モーダル -->
   <div id="stock-modal" class="modal" aria-hidden="true">
-    <div class="modal-content">
-      <span class="modal-close">&times;</span>
-      <div id="modal-body"></div>
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <button class="modal-close" aria-label="閉じる">&times;</button>
+      <div id="modal-body" role="document"></div>
     </div>
   </div>
 
@@ -74,5 +81,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/stock_list.js' %}"></script>
+<script src="{% static 'js/stock_list.js' %}" defer></script>
 {% endblock %}
