@@ -57,7 +57,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // -------------------------------
-  // モーダル関連
+  // 株確認モーダル
   // -------------------------------
   const modal = document.getElementById("stock-modal");
   const modalBody = document.getElementById("modal-body");
@@ -115,18 +115,89 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("keydown", e => { if (e.key === "Escape" && modal.style.display === "block") closeModal(); });
 
   // -------------------------------
-  // モーダル内「編集・売却」ボタン
+  // 編集フォームモーダル
+  // -------------------------------
+  const editModal = document.getElementById("edit-modal");
+  const editForm = document.getElementById("edit-form");
+  const editCloseBtn = document.querySelector("#edit-modal .modal-close");
+
+  const openEditModal = stock => {
+    editForm.elements["stock_id"].value = stock.id || "";
+    editForm.elements["name"].value = stock.name || "";
+    editForm.elements["ticker"].value = stock.ticker || "";
+    editForm.elements["shares"].value = stock.shares || "";
+    editForm.elements["unit_price"].value = stock.unit_price || "";
+    editForm.elements["account"].value = stock.account || "";
+    editForm.elements["position"].value = stock.position || "";
+
+    editModal.style.display = "block";
+    editModal.setAttribute("aria-hidden", "false");
+  };
+
+  const closeEditModal = () => {
+    editModal.style.display = "none";
+    editModal.setAttribute("aria-hidden", "true");
+  };
+
+  editCloseBtn?.addEventListener("click", closeEditModal);
+  document.getElementById("edit-cancel-btn")?.addEventListener("click", closeEditModal);
+  editModal.addEventListener("click", e => { if (e.target === editModal) closeEditModal(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && editModal.style.display === "block") closeEditModal(); });
+
+  // -------------------------------
+  // モーダル内「編集」ボタン → 編集フォームモーダル
   // -------------------------------
   modalEditBtn?.addEventListener("click", e => {
     e.stopPropagation();
-    console.log(`モーダル内 編集ボタン押下 ID=${modalEditBtn.dataset.id}`);
-    // TODO: 編集画面へ遷移処理
+    const stockId = modalEditBtn.dataset.id;
+    const card = document.querySelector(`.stock-card[data-id='${stockId}']`);
+    if (!card) return;
+    openEditModal({
+      id: card.dataset.id,
+      name: card.dataset.name,
+      ticker: card.dataset.ticker,
+      shares: card.dataset.shares,
+      unit_price: card.dataset.unit_price,
+      account: card.dataset.account,
+      position: card.dataset.position
+    });
   });
+
+  // -------------------------------
+  // モーダル内「売却」ボタン → 売却フォームモーダル
+  // -------------------------------
+  const sellModal = document.getElementById("sell-modal");
+  const sellCloseBtn = document.querySelector("#sell-modal .modal-close");
+  const sellForm = document.getElementById("sell-form");
+
+  const openSellModal = stock => {
+    sellForm.elements["stock_id"].value = stock.id || "";
+    sellForm.elements["name"].value = stock.name || "";
+    sellForm.elements["shares"].value = stock.shares || "";
+    sellModal.style.display = "block";
+    sellModal.setAttribute("aria-hidden", "false");
+  };
+
+  const closeSellModal = () => {
+    sellModal.style.display = "none";
+    sellModal.setAttribute("aria-hidden", "true");
+  };
+
+  sellCloseBtn?.addEventListener("click", closeSellModal);
+  document.getElementById("sell-cancel-btn")?.addEventListener("click", closeSellModal);
+  sellModal.addEventListener("click", e => { if (e.target === sellModal) closeSellModal(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && sellModal.style.display === "block") closeSellModal(); });
 
   modalSellBtn?.addEventListener("click", e => {
     e.stopPropagation();
-    console.log(`モーダル内 売却ボタン押下 ID=${modalSellBtn.dataset.id}`);
-    // TODO: 売却処理
+    const stockId = modalSellBtn.dataset.id;
+    const card = document.querySelector(`.stock-card[data-id='${stockId}']`);
+    if (!card) return;
+    openSellModal({
+      id: card.dataset.id,
+      name: card.dataset.name,
+      shares: card.dataset.shares
+    });
   });
 
   // -------------------------------
@@ -166,18 +237,48 @@ document.addEventListener("DOMContentLoaded", () => {
       else if (deltaX > 50) card.classList.remove("swiped");
     }, { passive: true });
 
-    // カード内ボタンイベント
+    // カード内「編集」ボタン → 編集フォームモーダル
     card.querySelector(".edit-btn")?.addEventListener("click", e => {
       e.stopPropagation();
-      console.log("カード内 編集ボタン押下");
+      openEditModal({
+        id: card.dataset.id,
+        name: card.dataset.name,
+        ticker: card.dataset.ticker,
+        shares: card.dataset.shares,
+        unit_price: card.dataset.unit_price,
+        account: card.dataset.account,
+        position: card.dataset.position
+      });
     });
+
+    // カード内「売却」ボタン → 売却フォームモーダル
     card.querySelector(".sell-btn")?.addEventListener("click", e => {
       e.stopPropagation();
-      console.log("カード内 売却ボタン押下");
+      openSellModal({
+        id: card.dataset.id,
+        name: card.dataset.name,
+        shares: card.dataset.shares
+      });
     });
   });
+
+  // -------------------------------
+  // 編集フォーム送信
+  // -------------------------------
+  editForm?.addEventListener("submit", e => {
+    e.preventDefault();
+    const formData = new FormData(editForm);
+    console.log("編集フォーム送信:", Object.fromEntries(formData.entries()));
+    closeEditModal();
+  });
+
+  // -------------------------------
+  // 売却フォーム送信
+  // -------------------------------
+  sellForm?.addEventListener("submit", e => {
+    e.preventDefault();
+    const formData = new FormData(sellForm);
+    console.log("売却フォーム送信:", Object.fromEntries(formData.entries()));
+    closeSellModal();
+  });
 });
-
-
-元々あるのは勝手に消すな
-編集と売却だけ変更して
