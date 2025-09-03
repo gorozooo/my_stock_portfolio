@@ -42,13 +42,16 @@ document.addEventListener("DOMContentLoaded", () => {
     tabs.forEach(t => t.classList.remove("active"));
     if (tabs[index]) tabs[index].classList.add("active");
     scrollToSectionCenter(index, true);
+    // 現在のインデックスを保存
+    localStorage.setItem("activeBrokerIndex", index);
   };
 
   // -------------------------------
-  // 初期表示：リロード時も中央寄せ
+  // 初期表示：前回のタブ or 最初のタブ
   // -------------------------------
-  const initialIndex = 0; // 最初のタブ
-  setTimeout(() => setActiveTab(initialIndex), 50);
+  const savedIndex = parseInt(localStorage.getItem("activeBrokerIndex"), 10);
+  const initialIndex = isNaN(savedIndex) ? 0 : savedIndex;
+  setTimeout(() => setActiveTab(initialIndex), 80);
 
   // -------------------------------
   // タブクリック
@@ -89,7 +92,6 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
       modal.style.display = "block";
       modal.setAttribute("aria-hidden", "false");
-      modalClose?.focus();
     });
 
     card.addEventListener("keydown", e => {
@@ -133,10 +135,6 @@ document.addEventListener("DOMContentLoaded", () => {
       isDragging = true;
     }, { passive: true });
 
-    card.addEventListener("touchmove", e => {
-      // ここで preventDefault はしない（縦スクロールを殺さない）
-    }, { passive: true });
-
     card.addEventListener("touchend", e => {
       if (!isDragging) return;
       isDragging = false;
@@ -148,23 +146,19 @@ document.addEventListener("DOMContentLoaded", () => {
       // 縦方向の移動が大きい場合はスワイプ判定しない（縦スクロール優先）
       if (Math.abs(deltaY) > Math.abs(deltaX)) return;
 
-      if (deltaX < -50) card.classList.add("swiped");     // 左スワイプで開く
+      if (deltaX < -50) card.classList.add("swiped");        // 左スワイプで開く
       else if (deltaX > 50) card.classList.remove("swiped"); // 右スワイプで閉じる
     }, { passive: true });
 
     card.querySelector(".edit-btn")?.addEventListener("click", e => {
       e.stopPropagation();
-      alert("編集画面へ移動します");
+      // TODO: 編集画面へ遷移処理
+      console.log("編集ボタン押下");
     });
     card.querySelector(".sell-btn")?.addEventListener("click", e => {
       e.stopPropagation();
-      alert("売却処理を実行します");
+      // TODO: 売却処理
+      console.log("売却ボタン押下");
     });
   });
-
-  // -------------------------------
-  // ★重要★ 以前の「カード横スワイプ禁止」コードは削除
-  //  cardsWrapper.addEventListener('touchmove', e => e.preventDefault());
-  //  これが縦スクロールも殺していました。
-  // -------------------------------
 });
