@@ -16,11 +16,11 @@
 <body>
   <!-- ローディング画面 -->
   <div id="loading-screen">
-  <div class="loading-text">Now Loading...</div>
-  <div class="loading-bar-container">
-    <div class="loading-bar"></div>
+    <div class="loading-text">Now Loading...</div>
+    <div class="loading-bar-container">
+      <div class="loading-bar"></div>
+    </div>
   </div>
-</div>
 
   <!-- ナビバー -->
   <header class="navbar">
@@ -60,7 +60,10 @@
     window.addEventListener('load', () => {
       const loader = document.getElementById('loading-screen');
       if (loader) {
-        loader.classList.add('hidden');
+        // 0.5秒後にフェードアウトして非表示
+        setTimeout(() => {
+          loader.classList.add('hidden');
+        }, 500);
       }
     });
   </script>
