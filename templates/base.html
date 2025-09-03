@@ -6,83 +6,162 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>{% block title %}My Portfolio{% endblock %}</title>
 
-  <!-- ★ クリティカルCSS（“最初の1フレーム”からネオンON＋ゆらめき／二段階発生防止のため、外部CSSより前に読み込む） -->
-  <style>
-    /* ===== Boot Loader（他CSS/JSと衝突しないようスコープを分離） ===== */
-    #boot-loading-screen[data-boot-loader]{
-      position:fixed; inset:0; background:rgba(10,10,20,0.95);
-      display:flex; flex-direction:column; justify-content:center; align-items:center;
-      z-index:9999; transition:opacity .4s ease, visibility .4s ease;
-      /* 初期から表示（後でJSがhiddenを付ける） */
-      opacity:1; visibility:visible; pointer-events:auto;
-      contain:paint;
-    }
-    #boot-loading-screen[data-boot-loader].hidden{
-      opacity:0; visibility:hidden; pointer-events:none;
-    }
-
-    /* テキスト：最初からネオンON＋揺らめき。暗い状態は作らない */
-    #boot-loading-screen .boot-loading-text{
-      font-family:"Orbitron", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans";
-      font-size:26px; font-weight:700; color:#00eaff; margin-bottom:20px;
-      text-shadow: 0 0 8px #0ff, 0 0 16px #0ff, 0 0 32px #0ff, 0 0 48px #f0f;
-      position:relative; will-change:transform, text-shadow; transform:translateZ(0);
-      animation: boot_bounce 1.4s ease-in-out infinite, boot_flicker 1.8s ease-in-out infinite;
-    }
-    /* 初期フレームから確実に発光させる後光レイヤー */
-    #boot-loading-screen .boot-loading-text::before{
-      content: attr(data-text);
-      position:absolute; inset:0; color:transparent; pointer-events:none; z-index:-1;
-      text-shadow: 0 0 10px #0ff, 0 0 20px #0ff, 0 0 40px #0ff, 0 0 80px #f0f;
-      filter: blur(.4px);
-    }
-    @keyframes boot_bounce{
-      0%,20%,50%,80%,100%{ transform:translateZ(0) translateY(0); }
-      40%{ transform:translateZ(0) translateY(-12px); }
-      60%{ transform:translateZ(0) translateY(-6px); }
-    }
-    @keyframes boot_flicker{
-      0%,100%{
-        text-shadow: 0 0 8px #0ff, 0 0 16px #0ff, 0 0 32px #0ff, 0 0 48px #f0f;
-      }
-      50%{
-        text-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 48px #0ff, 0 0 72px #f0f;
-      }
-    }
-
-    /* 進行バー：最初から発光＋常時流れる（幅アニメは使わず、スライドでループ） */
-    #boot-loading-screen .boot-loading-bar-wrap{
-      width:80%; max-width:400px; height:8px; border-radius:4px; overflow:hidden;
-      background:rgba(0,255,255,0.2); box-shadow: inset 0 0 12px #0ff; position:relative; contain:paint;
-    }
-    #boot-loading-screen .boot-loading-bar{
-      height:100%; width:100%; border-radius:4px;
-      background:linear-gradient(90deg, #0ff, #ff00ff, #0ff);
-      box-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #f0f;
-      will-change:transform, box-shadow; transform:translateZ(0) translateX(-100%);
-      animation: boot_slide 2.5s linear infinite, boot_pulse 1.6s ease-in-out infinite;
-    }
-    @keyframes boot_slide{
-      0%  { transform:translateZ(0) translateX(-100%); }
-      100%{ transform:translateZ(0) translateX(100%); }
-    }
-    @keyframes boot_pulse{
-      0%,100%{ box-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #f0f; }
-      50%    { box-shadow: 0 0 18px #0ff, 0 0 36px #0ff, 0 0 60px #f0f; }
-    }
-  </style>
-
-  <!-- 既存の共通CSS（Loaderとはスコープを分離済みなのでOK） -->
+  <!-- 既存の共通CSS（先に読み込む） -->
   <link rel="stylesheet" href="{% static 'css/base.css' %}">
   <link rel="stylesheet" href="{% static 'css/common.css' %}">
   {% block extra_css %}{% endblock %}
+
+  <!-- ★ ローダー専用“上書き”CSS（外部CSSの後）：
+       2段階表示の原因＝あとから外部CSSに再適用・再初期化されること
+       → ここで !important と固有keyframesでロック -->
+  <style>
+    /* ===== Loader 基本 ===== */
+    #loading-screen {
+      position: fixed !important;
+      inset: 0 !important;
+      background: rgba(10,10,20,0.95) !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: center !important;
+      align-items: center !important;
+      z-index: 9999 !important;
+      transition: opacity .4s ease, visibility .4s ease !important;
+      contain: paint !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
+    }
+    #loading-screen.hidden {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
+
+    /* ===== テキスト：最初からネオンON＋ゆらめき（暗くならない） ===== */
+    #loading-screen .loading-text {
+      /* Orbitronが未ロードでも見た目差分が出ないよう太字サンセリフにフォールバック */
+      font-family: "Orbitron", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans" !important;
+      font-size: 26px !important;
+      font-weight: 700 !important;
+      color: #00eaff !important;
+
+      /* 最初の1フレームから強い発光を固定 */
+      text-shadow:
+        0 0 8px  #0ff,
+        0 0 16px #0ff,
+        0 0 32px #0ff,
+        0 0 48px #f0f !important;
+
+      margin-bottom: 20px !important;
+      position: relative !important;
+
+      /* “明→より明” のみ。暗くしない */
+      animation:
+        loader_bounce 1.4s ease-in-out infinite,
+        loader_flicker 1.8s ease-in-out infinite !important;
+
+      /* 再レイアウト起因の二段階化を抑制 */
+      will-change: transform, text-shadow !important;
+      transform: translateZ(0) !important;
+      -webkit-font-smoothing: antialiased !important;
+      text-rendering: optimizeLegibility !important;
+    }
+    /* 後光レイヤー：初期フレームから確実に発光 */
+    #loading-screen .loading-text::before {
+      content: attr(data-text) !important;
+      position: absolute !important;
+      inset: 0 !important;
+      color: transparent !important;
+      pointer-events: none !important;
+      z-index: -1 !important;
+      text-shadow:
+        0 0 10px #0ff,
+        0 0 20px #0ff,
+        0 0 40px #0ff,
+        0 0 80px #f0f !important;
+      filter: blur(.4px) !important;
+    }
+
+    @keyframes loader_bounce {
+      0%,20%,50%,80%,100% { transform: translateZ(0) translateY(0); }
+      40% { transform: translateZ(0) translateY(-12px); }
+      60% { transform: translateZ(0) translateY(-6px); }
+    }
+    @keyframes loader_flicker {
+      0%,100% {
+        text-shadow:
+          0 0 8px  #0ff,
+          0 0 16px #0ff,
+          0 0 32px #0ff,
+          0 0 48px #f0f;
+      }
+      50% {
+        text-shadow:
+          0 0 12px #0ff,
+          0 0 24px #0ff,
+          0 0 48px #0ff,
+          0 0 72px #f0f;
+      }
+    }
+
+    /* ===== バー：最初から発光＋常時流れる（幅ではなくスライド） ===== */
+    #loading-screen .loading-bar-container {
+      width: 80% !important;
+      max-width: 400px !important;
+      height: 8px !important;
+      border-radius: 4px !important;
+      overflow: hidden !important;
+      background: rgba(0,255,255,0.2) !important;
+      box-shadow: inset 0 0 12px #0ff !important;
+      position: relative !important;
+      contain: paint !important;
+    }
+    #loading-screen .loading-bar {
+      height: 100% !important;
+      width: 100% !important;
+      border-radius: 4px !important;
+      background: linear-gradient(90deg, #0ff, #ff00ff, #0ff) !important;
+
+      /* 初期から発光 */
+      box-shadow:
+        0 0 12px #0ff,
+        0 0 24px #0ff,
+        0 0 36px #f0f !important;
+
+      /* 横流れ＋明るさだけ上下（暗くしない） */
+      animation:
+        loader_slide 2.5s linear infinite,
+        loader_pulse 1.6s ease-in-out infinite !important;
+
+      will-change: transform, box-shadow !important;
+      transform: translateZ(0) translateX(-100%) !important;
+    }
+    @keyframes loader_slide {
+      0%   { transform: translateZ(0) translateX(-100%); }
+      100% { transform: translateZ(0) translateX(100%); }
+    }
+    @keyframes loader_pulse {
+      0%,100% {
+        box-shadow:
+          0 0 12px #0ff,
+          0 0 24px #0ff,
+          0 0 36px #f0f;
+      }
+      50% {
+        box-shadow:
+          0 0 18px #0ff,
+          0 0 36px #0ff,
+          0 0 60px #f0f;
+      }
+    }
+  </style>
 </head>
 <body>
-  <!-- ★ 二段階表示を根絶するため、ID/クラスを“boot-”で分離（外部CSSやbase.jsが触れないように） -->
-  <div id="boot-loading-screen" data-boot-loader role="status" aria-live="polite" aria-label="Now Loading">
-    <div class="boot-loading-text" data-text="Now Loading...">Now Loading...</div>
-    <div class="boot-loading-bar-wrap">
-      <div class="boot-loading-bar"></div>
+  <!-- ローディング画面（data-text で ::before と同期） -->
+  <div id="loading-screen" role="status" aria-live="polite" aria-label="Now Loading">
+    <div class="loading-text" data-text="Now Loading...">Now Loading...</div>
+    <div class="loading-bar-container">
+      <div class="loading-bar"></div>
     </div>
   </div>
 
@@ -90,7 +169,6 @@
   <header class="navbar">
     <div class="navbar-title">My Portfolio</div>
     <div class="navbar-current">
-      {% comment %} 下タブのアクティブタブ名を表示 {% endcomment %}
       {% for tab in BOTTOM_TABS %}
         {% if tab.url_name == request.resolver_match.url_name %}
           {{ tab.name }}
@@ -113,15 +191,15 @@
   <!-- 下タブ -->
   {% include "bottom_tab.html" %}
 
-  <!-- 共通JavaScript（既存）。boot-loaderとはIDが違うため干渉しない -->
+  <!-- 共通JavaScript -->
   <script src="{% static 'js/base.js' %}"></script>
 
-  <!-- Loaderの表示/非表示（Safariリロード対策＆bfcache対策込み） -->
+  <!-- Loader の表示/非表示（Safariリロード & bfcache 対応 + 二段階抑止） -->
   <script>
     (function(){
-      const loader = document.getElementById('boot-loading-screen');
+      const loader = document.getElementById('loading-screen');
 
-      // Safariのリロード/離脱時に表示（即座に表示してから遷移）
+      // Safariのリロード/離脱時にも確実に表示（即時ロック）
       window.addEventListener('beforeunload', () => {
         if (!loader) return;
         loader.classList.remove('hidden');
@@ -129,17 +207,15 @@
         loader.style.visibility = 'visible';
       });
 
-      // ページロード完了でフェードアウト
+      // ページロード完了でフェードアウト（短めにして“最後だけ出る感”を抑制）
       window.addEventListener('load', () => {
         if (!loader) return;
-        // アニメが“最後だけ一瞬出る”と感じない程度の待機（好みに応じて0〜500ms）
         setTimeout(() => { loader.classList.add('hidden'); }, 300);
       });
 
-      // bfcache復帰（戻る/進む）時は基本ローダーを隠す
+      // bfcache 復帰はローダー不要
       window.addEventListener('pageshow', (e) => {
-        if (!loader) return;
-        if (e.persisted) loader.classList.add('hidden');
+        if (loader && e.persisted) loader.classList.add('hidden');
       });
     })();
   </script>
