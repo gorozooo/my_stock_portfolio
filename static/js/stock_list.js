@@ -60,19 +60,50 @@ document.addEventListener("DOMContentLoaded", () => {
   // モーダル関連
   // -------------------------------
   const modal = document.getElementById("stock-modal");
-  const modalForm = document.getElementById("stock-edit-form");
+  const modalBody = document.getElementById("modal-body");
   const modalClose = document.querySelector(".modal-close");
-  const modalCancel = document.getElementById("modal-cancel-btn");
+  const modalEditBtn = document.getElementById("edit-stock-btn");
+  const modalSellBtn = document.getElementById("sell-stock-btn");
 
-  const openModal = stockData => {
-    modalForm.stock_id.value = stockData.id;
-    modalForm.name.value = stockData.name;
-    modalForm.shares.value = stockData.shares;
-    modalForm.unit_price.value = stockData.unit_price;
+  const escapeHTML = str => String(str).replace(/[&<>"']/g, m =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m])
+  );
 
-    modal.style.display = "block";
-    modal.setAttribute("aria-hidden", "false");
-  };
+  document.querySelectorAll(".stock-card").forEach(card => {
+    card.addEventListener("click", () => {
+      if (card.classList.contains("swiped")) return;
+
+      const name = escapeHTML(card.dataset.name || "");
+      const ticker = escapeHTML(card.dataset.ticker || "");
+      const shares = escapeHTML(card.dataset.shares || "");
+      const unitPrice = escapeHTML(card.dataset.unit_price || "");
+      const currentPrice = escapeHTML(card.dataset.current_price || "");
+      const profit = escapeHTML(card.dataset.profit || "");
+      const profitRate = escapeHTML(card.dataset.profit_rate || "");
+
+      modalBody.innerHTML = `
+        <h3 id="modal-title">${name} (${ticker})</h3>
+        <p>株数: ${shares}</p>
+        <p>取得単価: ¥${unitPrice}</p>
+        <p>現在株価: ¥${currentPrice}</p>
+        <p>損益: ¥${profit} (${profitRate}%)</p>
+      `;
+
+      modal.style.display = "block";
+      modal.setAttribute("aria-hidden", "false");
+
+      // モーダル内ボタンに株データを渡す
+      modalEditBtn.dataset.id = card.dataset.id;
+      modalSellBtn.dataset.id = card.dataset.id;
+    });
+
+    card.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        card.click();
+      }
+    });
+  });
 
   const closeModal = () => {
     modal.style.display = "none";
@@ -80,53 +111,40 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   modalClose?.addEventListener("click", closeModal);
-  modalCancel?.addEventListener("click", closeModal);
   modal.addEventListener("click", e => { if (e.target === modal) closeModal(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && modal.style.display === "block") closeModal(); });
 
   // -------------------------------
-  // カードクリック＆カード内編集ボタン
+  // モーダル内「編集・売却」ボタン
+  // -------------------------------
+  modalEditBtn?.addEventListener("click", e => {
+    e.stopPropagation();
+    console.log(`モーダル内 編集ボタン押下 ID=${modalEditBtn.dataset.id}`);
+    // TODO: 編集画面へ遷移処理
+  });
+
+  modalSellBtn?.addEventListener("click", e => {
+    e.stopPropagation();
+    console.log(`モーダル内 売却ボタン押下 ID=${modalSellBtn.dataset.id}`);
+    // TODO: 売却処理
+  });
+
+  // -------------------------------
+  // 縦スクロールを妨げないカード横スワイプ判定
   // -------------------------------
   document.querySelectorAll(".stock-card").forEach(card => {
-    const getStockData = () => ({
-      id: card.dataset.id,
-      name: card.dataset.name,
-      shares: card.dataset.shares,
-      unit_price: card.dataset.unit_price
-    });
+    let startX = 0, startY = 0, isDragging = false;
 
-    // カード自体をクリックしたらモーダル表示
-    card.addEventListener("click", e => {
-      if (e.target.closest(".card-actions")) return; // ボタンは別処理
-      openModal(getStockData());
-    });
-
-    // カード内ボタンを生成（スマホスワイプ対応も）
     if (!card.querySelector(".card-actions")) {
       const actions = document.createElement("div");
       actions.className = "card-actions";
       actions.innerHTML = `
-        <button class="edit-btn" type="button">編集</button>
-        <button class="sell-btn" type="button">売却</button>
+        <button class="edit-btn">編集</button>
+        <button class="sell-btn">売却</button>
       `;
       card.appendChild(actions);
     }
 
-    // カード内「編集ボタン」押下でモーダル表示
-    card.querySelector(".edit-btn")?.addEventListener("click", e => {
-      e.stopPropagation();
-      openModal(getStockData());
-    });
-
-    // カード内「売却ボタン」押下
-    card.querySelector(".sell-btn")?.addEventListener("click", e => {
-      e.stopPropagation();
-      console.log(`カード内 売却ボタン押下 ID=${card.dataset.id}`);
-      // TODO: 売却処理
-    });
-
-    // スワイプ判定（横スワイプでカード表示切替など）
-    let startX = 0, startY = 0, isDragging = false;
     card.addEventListener("touchstart", e => {
       const t = e.touches[0];
       startX = t.pageX;
@@ -137,29 +155,27 @@ document.addEventListener("DOMContentLoaded", () => {
     card.addEventListener("touchend", e => {
       if (!isDragging) return;
       isDragging = false;
+
       const t = e.changedTouches[0];
       const deltaX = t.pageX - startX;
       const deltaY = t.pageY - startY;
+
       if (Math.abs(deltaY) > Math.abs(deltaX)) return;
+
       if (deltaX < -50) card.classList.add("swiped");
       else if (deltaX > 50) card.classList.remove("swiped");
     }, { passive: true });
-  });
 
-  // -------------------------------
-  // モーダル内フォーム送信
-  // -------------------------------
-  modalForm?.addEventListener("submit", e => {
-    e.preventDefault();
-    const formData = new FormData(modalForm);
-    const stockId = formData.get("stock_id");
-    const name = formData.get("name");
-    const shares = formData.get("shares");
-    const unit_price = formData.get("unit_price");
-
-    console.log(`編集送信 ID=${stockId}, name=${name}, shares=${shares}, unit_price=${unit_price}`);
-    // TODO: Ajaxで保存 or フォーム送信処理
-
-    closeModal();
+    // カード内ボタンイベント
+    card.querySelector(".edit-btn")?.addEventListener("click", e => {
+      e.stopPropagation();
+      console.log("カード内 編集ボタン押下");
+    });
+    card.querySelector(".sell-btn")?.addEventListener("click", e => {
+      e.stopPropagation();
+      console.log("カード内 売却ボタン押下");
+    });
   });
 });
+
+このコードを対応するように修正して全文送って
