@@ -6,158 +6,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>{% block title %}My Portfolio{% endblock %}</title>
 
-  <!-- 既存の共通CSS（先に読み込む） -->
+  <!-- 共通CSS（分離管理） -->
   <link rel="stylesheet" href="{% static 'css/base.css' %}">
   <link rel="stylesheet" href="{% static 'css/common.css' %}">
+  <!-- ローダー専用CSS（ネオン&バーの見た目・アニメはここで定義） -->
+  <link rel="stylesheet" href="{% static 'css/loader.css' %}">
+
   {% block extra_css %}{% endblock %}
-
-  <!-- ★ ローダー専用“上書き”CSS（外部CSSの後）：
-       2段階表示の原因＝あとから外部CSSに再適用・再初期化されること
-       → ここで !important と固有keyframesでロック -->
-  <style>
-    /* ===== Loader 基本 ===== */
-    #loading-screen {
-      position: fixed !important;
-      inset: 0 !important;
-      background: rgba(10,10,20,0.95) !important;
-      display: flex !important;
-      flex-direction: column !important;
-      justify-content: center !important;
-      align-items: center !important;
-      z-index: 9999 !important;
-      transition: opacity .4s ease, visibility .4s ease !important;
-      contain: paint !important;
-      opacity: 1 !important;
-      visibility: visible !important;
-      pointer-events: auto !important;
-    }
-    #loading-screen.hidden {
-      opacity: 0 !important;
-      visibility: hidden !important;
-      pointer-events: none !important;
-    }
-
-    /* ===== テキスト：最初からネオンON＋ゆらめき（暗くならない） ===== */
-    #loading-screen .loading-text {
-      /* Orbitronが未ロードでも見た目差分が出ないよう太字サンセリフにフォールバック */
-      font-family: "Orbitron", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans" !important;
-      font-size: 26px !important;
-      font-weight: 700 !important;
-      color: #00eaff !important;
-
-      /* 最初の1フレームから強い発光を固定 */
-      text-shadow:
-        0 0 8px  #0ff,
-        0 0 16px #0ff,
-        0 0 32px #0ff,
-        0 0 48px #f0f !important;
-
-      margin-bottom: 20px !important;
-      position: relative !important;
-
-      /* “明→より明” のみ。暗くしない */
-      animation:
-        loader_bounce 1.4s ease-in-out infinite,
-        loader_flicker 1.8s ease-in-out infinite !important;
-
-      /* 再レイアウト起因の二段階化を抑制 */
-      will-change: transform, text-shadow !important;
-      transform: translateZ(0) !important;
-      -webkit-font-smoothing: antialiased !important;
-      text-rendering: optimizeLegibility !important;
-    }
-    /* 後光レイヤー：初期フレームから確実に発光 */
-    #loading-screen .loading-text::before {
-      content: attr(data-text) !important;
-      position: absolute !important;
-      inset: 0 !important;
-      color: transparent !important;
-      pointer-events: none !important;
-      z-index: -1 !important;
-      text-shadow:
-        0 0 10px #0ff,
-        0 0 20px #0ff,
-        0 0 40px #0ff,
-        0 0 80px #f0f !important;
-      filter: blur(.4px) !important;
-    }
-
-    @keyframes loader_bounce {
-      0%,20%,50%,80%,100% { transform: translateZ(0) translateY(0); }
-      40% { transform: translateZ(0) translateY(-12px); }
-      60% { transform: translateZ(0) translateY(-6px); }
-    }
-    @keyframes loader_flicker {
-      0%,100% {
-        text-shadow:
-          0 0 8px  #0ff,
-          0 0 16px #0ff,
-          0 0 32px #0ff,
-          0 0 48px #f0f;
-      }
-      50% {
-        text-shadow:
-          0 0 12px #0ff,
-          0 0 24px #0ff,
-          0 0 48px #0ff,
-          0 0 72px #f0f;
-      }
-    }
-
-    /* ===== バー：最初から発光＋常時流れる（幅ではなくスライド） ===== */
-    #loading-screen .loading-bar-container {
-      width: 80% !important;
-      max-width: 400px !important;
-      height: 8px !important;
-      border-radius: 4px !important;
-      overflow: hidden !important;
-      background: rgba(0,255,255,0.2) !important;
-      box-shadow: inset 0 0 12px #0ff !important;
-      position: relative !important;
-      contain: paint !important;
-    }
-    #loading-screen .loading-bar {
-      height: 100% !important;
-      width: 100% !important;
-      border-radius: 4px !important;
-      background: linear-gradient(90deg, #0ff, #ff00ff, #0ff) !important;
-
-      /* 初期から発光 */
-      box-shadow:
-        0 0 12px #0ff,
-        0 0 24px #0ff,
-        0 0 36px #f0f !important;
-
-      /* 横流れ＋明るさだけ上下（暗くしない） */
-      animation:
-        loader_slide 2.5s linear infinite,
-        loader_pulse 1.6s ease-in-out infinite !important;
-
-      will-change: transform, box-shadow !important;
-      transform: translateZ(0) translateX(-100%) !important;
-    }
-    @keyframes loader_slide {
-      0%   { transform: translateZ(0) translateX(-100%); }
-      100% { transform: translateZ(0) translateX(100%); }
-    }
-    @keyframes loader_pulse {
-      0%,100% {
-        box-shadow:
-          0 0 12px #0ff,
-          0 0 24px #0ff,
-          0 0 36px #f0f;
-      }
-      50% {
-        box-shadow:
-          0 0 18px #0ff,
-          0 0 36px #0ff,
-          0 0 60px #f0f;
-      }
-    }
-  </style>
 </head>
 <body>
-  <!-- ローディング画面（data-text で ::before と同期） -->
+  <!-- ローディング画面（data-textはCSSの::before用。JSでも同期） -->
   <div id="loading-screen" role="status" aria-live="polite" aria-label="Now Loading">
     <div class="loading-text" data-text="Now Loading...">Now Loading...</div>
     <div class="loading-bar-container">
@@ -169,6 +27,7 @@
   <header class="navbar">
     <div class="navbar-title">My Portfolio</div>
     <div class="navbar-current">
+      {% comment %} 下タブのアクティブタブ名を表示 {% endcomment %}
       {% for tab in BOTTOM_TABS %}
         {% if tab.url_name == request.resolver_match.url_name %}
           {{ tab.name }}
@@ -191,34 +50,10 @@
   <!-- 下タブ -->
   {% include "bottom_tab.html" %}
 
-  <!-- 共通JavaScript -->
+  <!-- 共通JS（分離管理） -->
   <script src="{% static 'js/base.js' %}"></script>
-
-  <!-- Loader の表示/非表示（Safariリロード & bfcache 対応 + 二段階抑止） -->
-  <script>
-    (function(){
-      const loader = document.getElementById('loading-screen');
-
-      // Safariのリロード/離脱時にも確実に表示（即時ロック）
-      window.addEventListener('beforeunload', () => {
-        if (!loader) return;
-        loader.classList.remove('hidden');
-        loader.style.opacity = '1';
-        loader.style.visibility = 'visible';
-      });
-
-      // ページロード完了でフェードアウト（短めにして“最後だけ出る感”を抑制）
-      window.addEventListener('load', () => {
-        if (!loader) return;
-        setTimeout(() => { loader.classList.add('hidden'); }, 300);
-      });
-
-      // bfcache 復帰はローダー不要
-      window.addEventListener('pageshow', (e) => {
-        if (loader && e.persisted) loader.classList.add('hidden');
-      });
-    })();
-  </script>
+  <!-- ローダー制御JS（表示/非表示とSafari対策はここで） -->
+  <script src="{% static 'js/loader.js' %}"></script>
 
   {% block extra_js %}{% endblock %}
 </body>
