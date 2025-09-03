@@ -1,4 +1,4 @@
-// base.js（スマホファースト＋サブメニュー上に固定＋アニメーション対応）
+// base.js（スマホファースト＋サブメニュー上に固定＋アニメーション対応＋リンク遷移対応）
 document.addEventListener("DOMContentLoaded", function() {
 
   /* ===== 下タブ＆サブメニュー操作（スマホ/PC両対応） ===== */
@@ -8,18 +8,27 @@ document.addEventListener("DOMContentLoaded", function() {
     const subMenu = tab.querySelector('.sub-menu');
     if (!subMenu) return;
 
-    // サブメニュー内クリックはタブクリックを阻止
-    subMenu.addEventListener('click', e => e.stopPropagation());
-
-    // サブメニュー用初期スタイル
+    // サブメニュー初期スタイル
     subMenu.style.position = 'fixed';
     subMenu.style.opacity = '0';
     subMenu.style.transform = 'translateY(10px)';
     subMenu.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
     subMenu.style.zIndex = '10000'; // 下タブより前面
 
-    // タブ全体のタップ／クリック
+    // サブメニューリンクはそのまま遷移
+    subMenu.querySelectorAll('a').forEach(a => {
+      a.addEventListener('click', e => {
+        const href = a.getAttribute('href');
+        if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
+          e.preventDefault();
+          showLoading(() => window.location.assign(href));
+        }
+      });
+    });
+
+    // タブ全体のクリック/タップ
     tab.addEventListener('click', e => {
+      // サブメニュー内リンククリックは無視
       if (e.target.closest('.sub-menu a')) return;
 
       const isOpen = subMenu.classList.contains('show');
@@ -27,13 +36,16 @@ document.addEventListener("DOMContentLoaded", function() {
       if (!isOpen) openSubMenu(subMenu, tab);
     });
 
-    // タブ長押しでも対応（スマホ向け）
+    // タブ長押し対応（スマホ向け）
     let touchStartTime = 0;
     tab.addEventListener('touchstart', e => { touchStartTime = Date.now(); });
     tab.addEventListener('touchend', e => {
       const touchDuration = Date.now() - touchStartTime;
       if (touchDuration < 500) tab.click();
     });
+
+    // サブメニュークリックはイベント伝播停止
+    subMenu.addEventListener('click', e => e.stopPropagation());
   });
 
   // 外部クリック／タップで閉じる
@@ -49,7 +61,6 @@ document.addEventListener("DOMContentLoaded", function() {
     subMenu.style.left = left + "px";
     subMenu.style.bottom = (window.innerHeight - rect.top + 10) + "px";
 
-    // アニメーション付きで開く
     requestAnimationFrame(() => {
       subMenu.classList.add('show');
       subMenu.style.opacity = '1';
@@ -128,34 +139,34 @@ document.addEventListener("DOMContentLoaded", function() {
   /* ===== ローディング画面 ===== */
   const loadingOverlay = document.createElement('div');
   Object.assign(loadingOverlay.style, {
-    position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
-    background: 'rgba(0,0,20,0.85)', display: 'flex', flexDirection: 'column',
-    justifyContent: 'center', alignItems: 'center', zIndex: '9999', opacity: '0',
-    transition: 'opacity 0.2s ease'
+    position:'fixed',top:'0',left:'0',width:'100%',height:'100%',
+    background:'rgba(0,0,20,0.85)',display:'flex',flexDirection:'column',
+    justifyContent:'center',alignItems:'center',zIndex:'9999',opacity:'0',
+    transition:'opacity 0.2s ease'
   });
 
   const loadingText = document.createElement('div');
   loadingText.textContent = 'Now Loading';
-  Object.assign(loadingText.style, {
-    color: '#0ff', fontFamily: '"Orbitron", sans-serif', fontSize: '1.5rem',
-    marginBottom: '12px', textShadow: '0 0 12px #0ff,0 0 24px #0ff',
-    animation: 'bounceText 1s infinite'
+  Object.assign(loadingText.style,{
+    color:'#0ff',fontFamily:'"Orbitron", sans-serif',fontSize:'1.5rem',
+    marginBottom:'12px',textShadow:'0 0 12px #0ff,0 0 24px #0ff',
+    animation:'bounceText 1s infinite'
   });
   loadingOverlay.appendChild(loadingText);
 
   const barContainer = document.createElement('div');
-  Object.assign(barContainer.style, {
-    width: '80%', maxWidth: '400px', height: '6px', background: 'rgba(0,255,255,0.1)',
-    borderRadius: '3px', overflow: 'hidden', boxShadow: '0 0 12px #0ff inset', position: 'relative'
+  Object.assign(barContainer.style,{
+    width:'80%',maxWidth:'400px',height:'6px',background:'rgba(0,255,255,0.1)',
+    borderRadius:'3px',overflow:'hidden',boxShadow:'0 0 12px #0ff inset',position:'relative'
   });
   const loadingBar = document.createElement('div');
-  Object.assign(loadingBar.style, {
-    width: '200%', height: '100%',
-    background: 'linear-gradient(270deg,#0ff,#ff00ff,#0ff,#ff00ff,#0ff)',
-    backgroundSize: '200% 100%', borderRadius: '3px',
-    boxShadow: '0 0 16px #0ff,0 0 32px #0ff,0 0 48px #ff00ff',
-    filter: 'blur(2px)', animation: 'neonFlow 2s linear infinite',
-    position: 'absolute', left: '0', top: '0'
+  Object.assign(loadingBar.style,{
+    width:'200%',height:'100%',
+    background:'linear-gradient(270deg,#0ff,#ff00ff,#0ff,#ff00ff,#0ff)',
+    backgroundSize:'200% 100%',borderRadius:'3px',
+    boxShadow:'0 0 16px #0ff,0 0 32px #0ff,0 0 48px #ff00ff',
+    filter:'blur(2px)',animation:'neonFlow 2s linear infinite',
+    position:'absolute',left:'0',top:'0'
   });
   barContainer.appendChild(loadingBar);
   loadingOverlay.appendChild(barContainer);
@@ -166,38 +177,46 @@ document.addEventListener("DOMContentLoaded", function() {
   window.addEventListener("load", hideLoading);
   window.addEventListener("pageshow", hideLoading);
 
-  document.querySelectorAll("a[href]").forEach(link=>{link.addEventListener("click",e=>{const href=link.getAttribute("href");if(!href||href.startsWith("#")||href.startsWith("javascript:"))return;e.preventDefault();showLoading(()=>window.location.assign(href));});});
+  document.querySelectorAll("a[href]").forEach(link=>{
+    link.addEventListener("click",e=>{
+      const href=link.getAttribute("href");
+      if(!href||href.startsWith("#")||href.startsWith("javascript:"))return;
+      e.preventDefault();
+      showLoading(()=>window.location.assign(href));
+    });
+  });
+
   document.querySelectorAll("form").forEach(form=>form.addEventListener("submit",()=>showLoading()));
   window.addEventListener("beforeunload",()=>showLoading());
 
   /* ===== 現在ページ名自動取得 ===== */
   const currentURL = location.pathname;
   const currentPageNameEl = document.getElementById("current-page-name");
-  if (currentPageNameEl) {
+  if(currentPageNameEl){
     const tabLinks = document.querySelectorAll(".tab-item .tab-link");
-    let found = false;
-    tabLinks.forEach(tabLink => {
-      const href = tabLink.getAttribute("href");
-      const nameSpan = tabLink.querySelector("span");
-      if (href && nameSpan && currentURL.startsWith(href)) {
-        currentPageNameEl.textContent = nameSpan.textContent;
-        found = true;
+    let found=false;
+    tabLinks.forEach(tabLink=>{
+      const href=tabLink.getAttribute("href");
+      const nameSpan=tabLink.querySelector("span");
+      if(href&&nameSpan&&currentURL.startsWith(href)){
+        currentPageNameEl.textContent=nameSpan.textContent;
+        found=true;
       }
     });
-    if (!found) currentPageNameEl.textContent = currentURL.replace(/^\/|\/$/g, "") || "ホーム";
+    if(!found) currentPageNameEl.textContent=currentURL.replace(/^\/|\/$/g,"")||"ホーム";
   }
 
   /* ===== ローディングバーアニメーション ===== */
   const style = document.createElement('style');
-  style.innerHTML = `
-    @keyframes bounceText {
-      0%,20%,50%,80%,100% { transform: translateY(0); }
-      40% { transform: translateY(-16px); }
-      60% { transform: translateY(-8px); }
+  style.innerHTML=`
+    @keyframes bounceText{
+      0%,20%,50%,80%,100%{transform:translateY(0);}
+      40%{transform:translateY(-16px);}
+      60%{transform:translateY(-8px);}
     }
-    @keyframes neonFlow {
-      0% { background-position:0 0; }
-      100% { background-position:200% 0; }
+    @keyframes neonFlow{
+      0%{background-position:0 0;}
+      100%{background-position:200% 0;}
     }
   `;
   document.head.appendChild(style);
