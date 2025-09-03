@@ -100,48 +100,6 @@ document.addEventListener("DOMContentLoaded", function() {
     });
   }
 
-  /* ===== 背景アニメーション（Canvas） ===== */
-  const canvas = document.getElementById('bgCanvas');
-  if(canvas && canvas.getContext){
-    const ctx = canvas.getContext('2d');
-    let width = window.innerWidth, height = window.innerHeight;
-    canvas.width = width; canvas.height = height;
-
-    const particles = [];
-    const PARTICLE_COUNT = 80;
-    for(let i=0;i<PARTICLE_COUNT;i++){
-      particles.push({
-        x: Math.random()*width,
-        y: Math.random()*height,
-        vx: (Math.random()-0.5)*0.5,
-        vy: (Math.random()-0.5)*0.5,
-        size: Math.random()*3+1,
-        hue: Math.random()*360
-      });
-    }
-
-    function animateParticles(){
-      ctx.clearRect(0,0,width,height);
-      particles.forEach(p=>{
-        p.x += p.vx; p.y += p.vy;
-        if(p.x<0 || p.x>width) p.vx*=-1;
-        if(p.y<0 || p.y>height) p.vy*=-1;
-        ctx.beginPath();
-        ctx.arc(p.x,p.y,p.size,0,Math.PI*2);
-        ctx.fillStyle = `hsl(${p.hue},100%,50%)`;
-        ctx.shadowColor = `hsl(${p.hue},100%,60%)`;
-        ctx.shadowBlur = 8;
-        ctx.fill();
-      });
-      requestAnimationFrame(animateParticles);
-    }
-
-    animateParticles();
-    window.addEventListener('resize', ()=>{
-      width = window.innerWidth; height = window.innerHeight;
-      canvas.width = width; canvas.height = height;
-    });
-  }
 
   /* ===== 共通確認モーダル ===== */
   const modal = document.getElementById("confirmModal");
