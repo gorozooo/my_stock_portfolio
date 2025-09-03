@@ -124,7 +124,14 @@ document.addEventListener("DOMContentLoaded", function() {
     justifyContent:'center',alignItems:'center',zIndex:'9999',opacity:'0',
     transition:'opacity 0.2s ease'
   });
-  loadingOverlay.innerHTML = `<div style="color:white;font-size:20px;">Now Loading...</div>`;
+  loadingOverlay.innerHTML = `
+    <div style="color:white;font-size:22px;font-weight:bold;margin-bottom:20px;animation:bounceText 2s infinite;">
+      Now Loading...
+    </div>
+    <div style="width:120px;height:6px;background:rgba(255,255,255,0.2);border-radius:3px;overflow:hidden;">
+      <div id="loading-bar" style="width:0;height:100%;background:#4af;animation:loadingBar 2s linear infinite;"></div>
+    </div>
+  `;
   document.body.appendChild(loadingOverlay);
 
   function showLoading(cb){
@@ -167,13 +174,17 @@ document.addEventListener("DOMContentLoaded", function() {
     if(!found) currentPageNameEl.textContent=currentURL.replace(/^\/|\/$/g,"")||"ホーム";
   }
 
-  /* ===== ローディングバーアニメーション ===== */
+  /* ===== ローディングアニメーション ===== */
   const style=document.createElement('style');
   style.innerHTML=`
     @keyframes bounceText{
       0%,20%,50%,80%,100%{transform:translateY(0);}
       40%{transform:translateY(-16px);}
       60%{transform:translateY(-8px);}
+    }
+    @keyframes loadingBar{
+      0%{width:0;}
+      100%{width:100%;}
     }
   `;
   document.head.appendChild(style);
