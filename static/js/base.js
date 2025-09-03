@@ -1,7 +1,7 @@
 // base.js（確認モーダル＋文字＋ネオン進捗バー＋残像版＋下タブ 完全対応版）
 document.addEventListener("DOMContentLoaded", function() {
 
-    /* ========================================
+  /* ========================================
      ===== 下タブ＆サブメニュー操作 ===== */
   const tabs = document.querySelectorAll('.tab-item');
 
