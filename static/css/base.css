@@ -148,9 +148,10 @@
   pointer-events: none;
   min-width: 130px;
   transition: all 0.25s ease;
+  z-index: 1100;
 }
 
-.bottom-tab .tab-item:hover .sub-menu {
+.bottom-tab .sub-menu.show {
   opacity: 1;
   pointer-events: auto;
   transform: translateX(-50%) scale(1);
