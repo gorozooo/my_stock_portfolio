@@ -1,22 +1,33 @@
-// base.js（確認モーダル＋文字＋ネオン進捗バー＋残像版＋下タブ修正版 完全クリック対応）
+// base.js（確認モーダル＋文字＋ネオン進捗バー＋残像版＋下タブ 完全対応版）
 document.addEventListener("DOMContentLoaded", function() {
 
-  /* ===== 下タブ＆サブメニュー操作（PC/スマホ両対応） ===== */
+  /* ===== 下タブ＆サブメニュー操作（PC/スマホ完全対応） ===== */
   const tabs = document.querySelectorAll('.tab-item');
 
   tabs.forEach(tab => {
     const subMenu = tab.querySelector('.sub-menu');
     if (!subMenu) return;
 
-    // tab全体をクリック／タップで開閉
-    tab.addEventListener('click', e => {
-      e.stopPropagation(); // 外部クリック検知を防ぐ
+    // PC右クリックでも開く
+    tab.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeAllSubMenus();
+      openSubMenu(subMenu, tab);
+    });
+
+    // タップ・クリック両方に対応
+    const openHandler = e => {
+      e.preventDefault();
+      e.stopPropagation();
       const isOpen = subMenu.classList.contains('show');
       closeAllSubMenus();
-      if(!isOpen){
-        openSubMenu(subMenu, tab);
-      }
-    });
+      if(!isOpen) openSubMenu(subMenu, tab);
+    };
+
+    // PCクリック・スマホタッチ対応
+    tab.addEventListener('pointerdown', openHandler, {passive:false});
+    tab.addEventListener('touchstart', openHandler, {passive:false});
   });
 
   // 外部クリックで閉じる
@@ -85,7 +96,7 @@ document.addEventListener("DOMContentLoaded", function() {
     modal.addEventListener("click", e => { if(e.target===modal){ modal.style.display="none"; okCallback=null; } });
   }
 
-  /* ===== ローディング画面（文字＋流れるネオンバー＋残像効果） ===== */
+  /* ===== ローディング画面 ===== */
   const loadingOverlay = document.createElement('div');
   Object.assign(loadingOverlay.style,{
     position:'fixed',top:'0',left:'0',width:'100%',height:'100%',
