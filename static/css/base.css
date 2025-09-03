@@ -211,8 +211,9 @@ main {
 }
 
 @keyframes bounceText {
-  0%, 80%, 100% { transform: translateY(0); }
+  0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
   40% { transform: translateY(-16px); }
+  60% { transform: translateY(-8px); }
 }
 
 /* ステータスバー */
@@ -224,6 +225,7 @@ main {
   border-radius: 3px;
   overflow: hidden;
   box-shadow: 0 0 12px #0ff inset;
+  position: relative;
 }
 
 #loading-screen .loading-bar {
@@ -233,7 +235,10 @@ main {
   border-radius: 3px;
   box-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #ff00ff;
   animation: neonPulse 1.5s infinite alternate;
-  transition: width 0.2s linear;
+  transition: width 0.1s linear; /* 幅変化を滑らかに */
+  position: absolute;
+  left: 0;
+  top: 0;
 }
 
 @keyframes neonPulse {
