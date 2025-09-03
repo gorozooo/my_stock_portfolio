@@ -3,6 +3,7 @@
    タブ切替でセクションを中央寄せ
    リロード時も自動中央寄せ
    モーダル内の編集・売却ボタンを下部に横並び
+   カード左スワイプでアクション表示、右スワイプで閉じる
    ========================== */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -145,26 +146,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("keydown", e => { if (e.key === "Escape" && editModal.style.display === "block") closeEditModal(); });
 
   // -------------------------------
-  // モーダル内「編集」ボタン → 編集フォームモーダル
-  // -------------------------------
-  modalEditBtn?.addEventListener("click", e => {
-    e.stopPropagation();
-    const stockId = modalEditBtn.dataset.id;
-    const card = document.querySelector(`.stock-card[data-id='${stockId}']`);
-    if (!card) return;
-    openEditModal({
-      id: card.dataset.id,
-      name: card.dataset.name,
-      ticker: card.dataset.ticker,
-      shares: card.dataset.shares,
-      unit_price: card.dataset.unit_price,
-      account: card.dataset.account,
-      position: card.dataset.position
-    });
-  });
-
-  // -------------------------------
-  // モーダル内「売却」ボタン → 売却フォームモーダル
+  // 売却フォームモーダル
   // -------------------------------
   const sellModal = document.getElementById("sell-modal");
   const sellCloseBtn = document.querySelector("#sell-modal .modal-close");
@@ -188,6 +170,22 @@ document.addEventListener("DOMContentLoaded", () => {
   sellModal.addEventListener("click", e => { if (e.target === sellModal) closeSellModal(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && sellModal.style.display === "block") closeSellModal(); });
 
+  modalEditBtn?.addEventListener("click", e => {
+    e.stopPropagation();
+    const stockId = modalEditBtn.dataset.id;
+    const card = document.querySelector(`.stock-card[data-id='${stockId}']`);
+    if (!card) return;
+    openEditModal({
+      id: card.dataset.id,
+      name: card.dataset.name,
+      ticker: card.dataset.ticker,
+      shares: card.dataset.shares,
+      unit_price: card.dataset.unit_price,
+      account: card.dataset.account,
+      position: card.dataset.position
+    });
+  });
+
   modalSellBtn?.addEventListener("click", e => {
     e.stopPropagation();
     const stockId = modalSellBtn.dataset.id;
@@ -201,13 +199,15 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // -------------------------------
-  // 縦スクロールを妨げないカード横スワイプ判定
+  // カード横スワイプ + アクションボタン表示
   // -------------------------------
   document.querySelectorAll(".stock-card").forEach(card => {
-    let startX = 0, startY = 0, isDragging = false;
+    let startX=0, startY=0, isDragging=false;
 
-    if (!card.querySelector(".card-actions")) {
-      const actions = document.createElement("div");
+    // card-actions div
+    let actions = card.querySelector(".card-actions");
+    if (!actions) {
+      actions = document.createElement("div");
       actions.className = "card-actions";
       actions.innerHTML = `
         <button class="edit-btn">編集</button>
@@ -233,11 +233,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (Math.abs(deltaY) > Math.abs(deltaX)) return;
 
-      if (deltaX < -50) card.classList.add("swiped");
-      else if (deltaX > 50) card.classList.remove("swiped");
+      if (deltaX < -50) card.classList.add("swiped"); // 左スワイプ → 表示
+      else if (deltaX > 50) card.classList.remove("swiped"); // 右スワイプ → 非表示
     }, { passive: true });
 
-    // カード内「編集」ボタン → 編集フォームモーダル
+    // カード内「編集」ボタン
     card.querySelector(".edit-btn")?.addEventListener("click", e => {
       e.stopPropagation();
       openEditModal({
@@ -251,7 +251,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
 
-    // カード内「売却」ボタン → 売却フォームモーダル
+    // カード内「売却」ボタン
     card.querySelector(".sell-btn")?.addEventListener("click", e => {
       e.stopPropagation();
       openSellModal({
