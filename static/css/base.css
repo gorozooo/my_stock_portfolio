@@ -196,6 +196,7 @@ main {
   align-items: center;
   z-index: 9999;
   transition: opacity 0.4s ease, visibility 0.4s ease;
+  contain: paint;
 }
 
 #loading-screen.hidden {
@@ -204,37 +205,77 @@ main {
   pointer-events: none;
 }
 
+/* --- ネオン：テキスト --- */
 .loading-text {
   font-family: "Orbitron", sans-serif;
   font-size: 26px;
   font-weight: bold;
   color: #00eaff;
 
-  /* 最初からネオンON */
-  text-shadow: 0 0 16px #0ff, 0 0 32px #0ff, 0 0 48px #f0f;
+  /* 最初から強い発光（固定） */
+  text-shadow:
+    0 0 8px #0ff,
+    0 0 16px #0ff,
+    0 0 32px #0ff,
+    0 0 48px #f0f;
 
   margin-bottom: 20px;
-  animation: bounceText 1.4s infinite ease-in-out,
-             neonFlicker 2s infinite alternate;
+
+  /* ゆらめき＆バウンド（“暗くならない”揺らめき） */
+  animation:
+    bounceText 1.4s ease-in-out infinite,
+    neonFlicker 2s ease-in-out infinite;
+
+  /* 初期フレームから適用を安定化 */
+  will-change: transform, text-shadow, filter;
+  transform: translateZ(0);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  position: relative;
 }
 
+/* 後光レイヤー（初期フレームでもネオンを保証） */
+.loading-text::before {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  color: transparent;
+  text-shadow:
+    0 0 10px #0ff,
+    0 0 20px #0ff,
+    0 0 40px #0ff,
+    0 0 80px #f0f;
+  filter: blur(0.5px);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* バウンド */
 @keyframes bounceText {
-  0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-12px); }
-  60% { transform: translateY(-6px); }
+  0%, 20%, 50%, 80%, 100% { transform: translateZ(0) translateY(0); }
+  40% { transform: translateZ(0) translateY(-12px); }
+  60% { transform: translateZ(0) translateY(-6px); }
 }
 
-/* ネオンの強弱だけ揺らめく */
+/* “明→より明” のゆらめき（暗くしない） */
 @keyframes neonFlicker {
   0%, 100% {
-    text-shadow: 0 0 16px #0ff, 0 0 32px #0ff, 0 0 48px #f0f;
+    text-shadow:
+      0 0 8px #0ff,
+      0 0 16px #0ff,
+      0 0 32px #0ff,
+      0 0 48px #f0f;
   }
   50% {
-    text-shadow: 0 0 8px #0ff, 0 0 16px #0ff, 0 0 24px #f0f;
+    text-shadow:
+      0 0 10px #0ff,
+      0 0 24px #0ff,
+      0 0 48px #0ff,
+      0 0 72px #f0f;
   }
 }
 
-/* ステータスバー */
+/* --- ネオン：バー --- */
 .loading-bar-container {
   width: 80%;
   max-width: 400px;
@@ -244,6 +285,7 @@ main {
   overflow: hidden;
   box-shadow: 0 0 12px #0ff inset;
   position: relative;
+  contain: paint;
 }
 
 .loading-bar {
@@ -252,23 +294,41 @@ main {
   background: linear-gradient(90deg, #0ff, #ff00ff, #0ff);
   border-radius: 4px;
 
-  /* 最初からネオンON */
-  box-shadow: 0 0 16px #0ff, 0 0 32px #f0f;
+  /* 最初から強い発光（固定） */
+  box-shadow:
+    0 0 12px #0ff,
+    0 0 24px #0ff,
+    0 0 36px #f0f;
 
-  animation: slideBar 2.5s linear infinite,
-             neonPulse 1.5s infinite alternate;
-  transform: translateX(-100%);
+  /* 横流れ＋発光の強弱（暗くならない） */
+  animation:
+    slideBar 2.5s linear infinite,
+    neonPulse 1.6s ease-in-out infinite;
+
+  will-change: transform, box-shadow, filter;
+  transform: translateZ(0) translateX(-100%);
 }
 
+/* バーの往復ではなく“流れる”動き */
 @keyframes slideBar {
-  0%   { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
+  0%   { transform: translateZ(0) translateX(-100%); }
+  100% { transform: translateZ(0) translateX(100%); }
 }
 
+/* 発光の強さだけを上下（暗くしない） */
 @keyframes neonPulse {
-  0% { box-shadow: 0 0 16px #0ff, 0 0 32px #f0f; }
-  50% { box-shadow: 0 0 28px #0ff, 0 0 56px #f0f; }
-  100% { box-shadow: 0 0 16px #0ff, 0 0 32px #f0f; }
+  0%, 100% {
+    box-shadow:
+      0 0 12px #0ff,
+      0 0 24px #0ff,
+      0 0 36px #f0f;
+  }
+  50% {
+    box-shadow:
+      0 0 18px #0ff,
+      0 0 36px #0ff,
+      0 0 60px #f0f;
+  }
 }
 
 /* ===== PC向け ===== */
