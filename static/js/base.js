@@ -1,48 +1,46 @@
 // base.js（確認モーダル＋文字＋ネオン進捗バー＋残像版＋下タブ 完全対応版）
 document.addEventListener("DOMContentLoaded", function() {
 
-  /* ===== 下タブ＆サブメニュー操作（PC/スマホ完全対応） ===== */
+    /* ========================================
+     ===== 下タブ＆サブメニュー操作 ===== */
   const tabs = document.querySelectorAll('.tab-item');
 
   tabs.forEach(tab => {
     const subMenu = tab.querySelector('.sub-menu');
     if (!subMenu) return;
 
-    // PC右クリックでも開く
+    let touchTimer;
+
     tab.addEventListener('contextmenu', e => {
       e.preventDefault();
-      e.stopPropagation();
       closeAllSubMenus();
       openSubMenu(subMenu, tab);
     });
 
-    // タップ・クリック両方に対応
-    const openHandler = e => {
-      e.preventDefault();
-      e.stopPropagation();
-      const isOpen = subMenu.classList.contains('show');
-      closeAllSubMenus();
-      if(!isOpen) openSubMenu(subMenu, tab);
-    };
-
-    // PCクリック・スマホタッチ対応
-    tab.addEventListener('pointerdown', openHandler, {passive:false});
-    tab.addEventListener('touchstart', openHandler, {passive:false});
+    tab.addEventListener('touchstart', e => {
+      touchTimer = setTimeout(() => {
+        closeAllSubMenus();
+        openSubMenu(subMenu, tab);
+      }, 500);
+    });
+    tab.addEventListener('touchend', () => clearTimeout(touchTimer));
+    tab.addEventListener('touchcancel', () => clearTimeout(touchTimer));
   });
 
-  // 外部クリックで閉じる
   document.addEventListener('click', e => {
-    if(!e.target.closest('.tab-item')) closeAllSubMenus();
+    if (!e.target.closest('.tab-item')) {
+      closeAllSubMenus();
+    }
   });
 
-  function openSubMenu(subMenu, tab){
+  function openSubMenu(subMenu, tab) {
     const rect = tab.getBoundingClientRect();
     subMenu.style.left = rect.left + "px";
     subMenu.style.bottom = (window.innerHeight - rect.top + 10) + "px";
     subMenu.classList.add('show');
   }
 
-  function closeAllSubMenus(){
+  function closeAllSubMenus() {
     document.querySelectorAll('.sub-menu').forEach(sm => sm.classList.remove('show'));
   }
 
