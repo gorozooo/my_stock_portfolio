@@ -45,8 +45,8 @@
 }
 
 @keyframes glowTitle {
-  from { text-shadow: 0 0 8px #0ff, 0 0 16px #0ff; }
-  to   { text-shadow: 0 0 16px #f0f, 0 0 32px #f0f; }
+  from { text-shadow: 0 0 12px #0ff, 0 0 24px #0ff; }
+  to   { text-shadow: 0 0 20px #f0f, 0 0 40px #f0f; }
 }
 
 /* 現在ページ名 */
@@ -54,7 +54,7 @@
   font-size: 0.85rem;
   font-weight: 500;
   color: #0ff;
-  text-shadow: 0 0 6px #0ff, 0 0 14px #0ff;
+  text-shadow: 0 0 10px #0ff, 0 0 20px #0ff;
   letter-spacing: 1px;
   font-family: "Orbitron", sans-serif;
   margin-right: 30px;
@@ -62,8 +62,8 @@
 }
 
 @keyframes glowCurrent {
-  from { text-shadow: 0 0 6px #0ff, 0 0 12px #0ff; }
-  to   { text-shadow: 0 0 10px #0ff, 0 0 22px #0ff; }
+  from { text-shadow: 0 0 10px #0ff, 0 0 20px #0ff; }
+  to   { text-shadow: 0 0 18px #0ff, 0 0 36px #0ff; }
 }
 
 /* ===== 下タブ ===== */
@@ -209,7 +209,7 @@ main {
   font-size: 26px;
   font-weight: bold;
   color: #00eaff;
-  text-shadow: 0 0 12px #00eaff, 0 0 24px #00eaff, 0 0 40px #00eaff;
+  text-shadow: 0 0 16px #0ff, 0 0 32px #0ff, 0 0 48px #f0f;
   margin-bottom: 20px;
   animation: bounceText 1.4s infinite ease-in-out, neonText 1.5s infinite alternate;
 }
@@ -221,8 +221,8 @@ main {
 }
 
 @keyframes neonText {
-  from { text-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 40px #0ff; }
-  to   { text-shadow: 0 0 16px #f0f, 0 0 32px #f0f, 0 0 48px #f0f; }
+  from { text-shadow: 0 0 16px #0ff, 0 0 32px #0ff, 0 0 48px #f0f; }
+  to   { text-shadow: 0 0 24px #0ff, 0 0 48px #0ff, 0 0 72px #f0f; }
 }
 
 /* ステータスバー */
@@ -244,6 +244,7 @@ main {
   border-radius: 4px;
   animation: slideBar 2.5s linear infinite, neonPulse 1.5s infinite alternate;
   transform: translateX(-100%);
+  box-shadow: 0 0 16px #0ff, 0 0 32px #f0f; /* ← 最初からネオン */
 }
 
 @keyframes slideBar {
@@ -252,9 +253,9 @@ main {
 }
 
 @keyframes neonPulse {
-  0% { box-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #ff00ff; }
-  50% { box-shadow: 0 0 24px #0ff, 0 0 48px #0ff, 0 0 72px #ff00ff; }
-  100% { box-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #ff00ff; }
+  0% { box-shadow: 0 0 16px #0ff, 0 0 32px #f0f; }
+  50% { box-shadow: 0 0 28px #0ff, 0 0 56px #f0f; }
+  100% { box-shadow: 0 0 16px #0ff, 0 0 32px #f0f; }
 }
 
 /* ===== PC向け ===== */
