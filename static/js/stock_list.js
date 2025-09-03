@@ -22,13 +22,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const sectionRect = targetSection.getBoundingClientRect();
     const wrapperRect = wrapper.getBoundingClientRect();
 
-    // wrapper 内の相対位置
     const sectionLeftRelative = sectionRect.left - wrapperRect.left + wrapper.scrollLeft;
 
-    // 中央寄せ計算
     let scrollLeft = sectionLeftRelative - (wrapperWidth / 2) + (sectionRect.width / 2);
 
-    // スクロール可能範囲に制限
     const maxScroll = wrapper.scrollWidth - wrapperWidth;
     scrollLeft = Math.min(Math.max(scrollLeft, 0), maxScroll);
 
@@ -42,7 +39,6 @@ document.addEventListener("DOMContentLoaded", () => {
     tabs.forEach(t => t.classList.remove("active"));
     if (tabs[index]) tabs[index].classList.add("active");
     scrollToSectionCenter(index, true);
-    // 現在のインデックスを保存
     localStorage.setItem("activeBrokerIndex", index);
   };
 
@@ -89,9 +85,26 @@ document.addEventListener("DOMContentLoaded", () => {
         <p>取得単価: ¥${unitPrice}</p>
         <p>現在株価: ¥${currentPrice}</p>
         <p>損益: ¥${profit} (${profitRate}%)</p>
+        <div class="modal-actions">
+          <button class="edit-btn">編集</button>
+          <button class="sell-btn">売却</button>
+        </div>
       `;
       modal.style.display = "block";
       modal.setAttribute("aria-hidden", "false");
+
+      // モーダル内のボタンイベント
+      modalBody.querySelector(".edit-btn")?.addEventListener("click", e => {
+        e.stopPropagation();
+        console.log("モーダル内 編集ボタン押下");
+        // TODO: 編集画面へ遷移処理
+      });
+
+      modalBody.querySelector(".sell-btn")?.addEventListener("click", e => {
+        e.stopPropagation();
+        console.log("モーダル内 売却ボタン押下");
+        // TODO: 売却処理
+      });
     });
 
     card.addEventListener("keydown", e => {
@@ -113,7 +126,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // -------------------------------
   // 縦スクロールを妨げないスワイプ判定
-  // （横方向が優勢な時だけ「編集/売却」を開く）
   // -------------------------------
   document.querySelectorAll(".stock-card").forEach(card => {
     let startX = 0, startY = 0, isDragging = false;
@@ -143,22 +155,19 @@ document.addEventListener("DOMContentLoaded", () => {
       const deltaX = t.pageX - startX;
       const deltaY = t.pageY - startY;
 
-      // 縦方向の移動が大きい場合はスワイプ判定しない（縦スクロール優先）
       if (Math.abs(deltaY) > Math.abs(deltaX)) return;
 
-      if (deltaX < -50) card.classList.add("swiped");        // 左スワイプで開く
-      else if (deltaX > 50) card.classList.remove("swiped"); // 右スワイプで閉じる
+      if (deltaX < -50) card.classList.add("swiped");
+      else if (deltaX > 50) card.classList.remove("swiped");
     }, { passive: true });
 
     card.querySelector(".edit-btn")?.addEventListener("click", e => {
       e.stopPropagation();
-      // TODO: 編集画面へ遷移処理
-      console.log("編集ボタン押下");
+      console.log("カード内 編集ボタン押下");
     });
     card.querySelector(".sell-btn")?.addEventListener("click", e => {
       e.stopPropagation();
-      // TODO: 売却処理
-      console.log("売却ボタン押下");
+      console.log("カード内 売却ボタン押下");
     });
   });
 });
