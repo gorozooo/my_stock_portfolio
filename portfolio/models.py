@@ -1,5 +1,7 @@
 from django.db import models
 from django.utils import timezone
+from django.core.exceptions import ValidationError
+import re
 
 # =============================
 # 株マスター（証券コード・銘柄・33業種）
