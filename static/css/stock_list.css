@@ -195,7 +195,7 @@
 .stock-row.gain.negative span:last-child { color: #f33; font-weight: 600; }
 
 /* ==========================
-   編集・売却ボタン（カード右スライド）
+   編集・売却ボタン（カード右スライド） + 光彩アニメーション
    ========================== */
 .stock-card .card-actions {
   position: absolute;
@@ -203,25 +203,64 @@
   right: -120px;
   height: 100%;
   display: flex;
-  gap: 5px;
-  padding: 5px;
-  background: rgba(248, 248, 248, 0.8);
-  backdrop-filter: blur(20px);
-  transition: right 0.3s ease;
+  gap: 6px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(12px);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+  overflow: hidden;
+  transition: right 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
 }
-.stock-card.swiped .card-actions { right: 0; }
+
+.stock-card.swiped .card-actions {
+  right: 8px;
+}
+
+/* 光彩用の疑似要素 */
+.stock-card .card-actions::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -75%;
+  width: 150%;
+  height: 100%;
+  background: linear-gradient(120deg, rgba(255,255,255,0.2), rgba(255,255,255,0.6), rgba(255,255,255,0.2));
+  transform: skewX(-25deg);
+  animation: shine-card 1.5s infinite;
+  pointer-events: none;
+}
+
+@keyframes shine-card {
+  0% { left: -75%; }
+  50% { left: 75%; }
+  100% { left: 150%; }
+}
 
 .card-actions button {
-  background: rgba(0, 123, 255, 0.85);
-  color: white;
+  position: relative;
+  background: rgba(0, 123, 255, 0.75);
+  color: #fff;
   border: none;
-  padding: 5px 10px;
-  border-radius: 4px;
+  padding: 6px 12px;
+  border-radius: 6px;
   backdrop-filter: blur(2px);
   cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+  overflow: hidden;
 }
-.card-actions .sell-btn { background: rgba(220, 53, 69, 0.85); }
 
+.card-actions button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 10px rgba(0, 123, 255, 0.4);
+}
+
+/* 売却ボタン */
+.card-actions .sell-btn {
+  background: rgba(220, 53, 69, 0.75);
+}
 /* ==========================
    モーダル
    ========================== */
