@@ -209,20 +209,17 @@ main {
   font-size: 26px;
   font-weight: bold;
   color: #00eaff;
-  text-shadow: 0 0 16px #0ff, 0 0 32px #0ff, 0 0 48px #f0f;
+  /* 最初からネオンが効いた状態を固定 */
+  text-shadow: 0 0 24px #0ff, 0 0 48px #0ff, 0 0 72px #f0f;
   margin-bottom: 20px;
-  animation: bounceText 1.4s infinite ease-in-out, neonText 1.5s infinite alternate;
+  /* 動きは bounce だけ残す */
+  animation: bounceText 1.4s infinite ease-in-out;
 }
 
 @keyframes bounceText {
   0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
   40% { transform: translateY(-12px); }
   60% { transform: translateY(-6px); }
-}
-
-@keyframes neonText {
-  from { text-shadow: 0 0 16px #0ff, 0 0 32px #0ff, 0 0 48px #f0f; }
-  to   { text-shadow: 0 0 24px #0ff, 0 0 48px #0ff, 0 0 72px #f0f; }
 }
 
 /* ステータスバー */
@@ -242,20 +239,16 @@ main {
   width: 100%;
   background: linear-gradient(90deg, #0ff, #ff00ff, #0ff);
   border-radius: 4px;
-  animation: slideBar 2.5s linear infinite, neonPulse 1.5s infinite alternate;
+  /* 最初からネオンが効いた状態を固定 */
+  box-shadow: 0 0 20px #0ff, 0 0 40px #f0f, 0 0 60px #0ff;
+  /* 横移動だけアニメーション */
+  animation: slideBar 2.5s linear infinite;
   transform: translateX(-100%);
-  box-shadow: 0 0 16px #0ff, 0 0 32px #f0f; /* ← 最初からネオン */
 }
 
 @keyframes slideBar {
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(100%); }
-}
-
-@keyframes neonPulse {
-  0% { box-shadow: 0 0 16px #0ff, 0 0 32px #f0f; }
-  50% { box-shadow: 0 0 28px #0ff, 0 0 56px #f0f; }
-  100% { box-shadow: 0 0 16px #0ff, 0 0 32px #f0f; }
 }
 
 /* ===== PC向け ===== */
