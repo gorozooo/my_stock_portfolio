@@ -160,7 +160,7 @@
   position: relative;
   display: block;
   padding: 8px;
-  border: 1px solid #ffffff;
+  border: 1px solid #ffffff; /* 白枠 */
   border-radius: 8px;
   background: transparent;
   color: inherit;
@@ -244,6 +244,9 @@
   width: 90%;
   max-width: 400px;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
 }
 .modal-close {
   position: absolute;
@@ -255,21 +258,24 @@
   border: none;
 }
 
-/* モーダル内の編集・売却ボタン */
+/* モーダル内の編集・売却ボタン（中央寄せ、横並び） */
 .modal-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 12px;
+  justify-content: center; /* 中央寄せ */
+  gap: 12px;
+  margin-top: 16px;
 }
 .modal-action-btn {
-  padding: 6px 12px;
-  border-radius: 4px;
-  font-size: 0.9rem;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.95rem;
   cursor: pointer;
   border: none;
   color: #fff;
+  font-weight: 600;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
+.modal-action-btn:hover { transform: scale(1.05); box-shadow: 0 4px 12px rgba(0,123,255,0.4); }
 .modal-action-btn.negative { background-color: #f44336; }
 .modal-action-btn:not(.negative) { background-color: #007bff; }
 
