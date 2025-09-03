@@ -8,14 +8,12 @@ document.addEventListener("DOMContentLoaded", function() {
     const tabLink = tab.querySelector('.tab-link');
 
     if(subMenu){
-      // サブメニュー初期スタイル
       subMenu.style.position = 'fixed';
       subMenu.style.opacity = '0';
       subMenu.style.transform = 'translateY(10px)';
       subMenu.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
       subMenu.style.zIndex = '10000';
 
-      // サブメニューリンククリック時
       subMenu.querySelectorAll('a').forEach(a => {
         a.addEventListener('click', e => {
           e.stopPropagation(); 
@@ -35,7 +33,6 @@ document.addEventListener("DOMContentLoaded", function() {
         });
       });
 
-      // タブクリックでサブメニュー開閉
       tab.addEventListener('click', e => {
         if(e.target.closest('.sub-menu a')) return;
         const isOpen = subMenu.classList.contains('show');
@@ -46,7 +43,6 @@ document.addEventListener("DOMContentLoaded", function() {
       subMenu.addEventListener('click', e => e.stopPropagation());
     }
 
-    // 下タブリンククリック
     if(tabLink){
       tabLink.addEventListener('click', e => {
         if(subMenu && subMenu.classList.contains('show')){
@@ -62,7 +58,6 @@ document.addEventListener("DOMContentLoaded", function() {
       });
     }
 
-    // タブ長押し対応
     let touchStartTime = 0;
     tab.addEventListener('touchstart', e => { touchStartTime = Date.now(); });
     tab.addEventListener('touchend', e => {
@@ -71,7 +66,6 @@ document.addEventListener("DOMContentLoaded", function() {
     });
   });
 
-  // 外部クリックでサブメニュー閉じる
   ['click','touchstart'].forEach(ev => {
     document.addEventListener(ev, e => {
       if(!e.target.closest('.tab-item')) closeAllSubMenus();
@@ -97,7 +91,6 @@ document.addEventListener("DOMContentLoaded", function() {
       sm.style.transform='translateY(10px)';
     });
   }
-
 
   /* ===== 共通確認モーダル ===== */
   const modal = document.getElementById("confirmModal");
@@ -125,11 +118,9 @@ document.addEventListener("DOMContentLoaded", function() {
     transition:'opacity 0.2s ease'
   });
   loadingOverlay.innerHTML = `
-    <div style="color:white;font-size:22px;font-weight:bold;margin-bottom:20px;animation:bounceText 2s infinite;">
-      Now Loading...
-    </div>
+    <div id="loading-text">Now Loading...</div>
     <div style="width:120px;height:6px;background:rgba(255,255,255,0.2);border-radius:3px;overflow:hidden;">
-      <div id="loading-bar" style="width:0;height:100%;background:#4af;animation:loadingBar 2s linear infinite;"></div>
+      <div id="loading-bar"></div>
     </div>
   `;
   document.body.appendChild(loadingOverlay);
@@ -146,13 +137,8 @@ document.addEventListener("DOMContentLoaded", function() {
     setTimeout(()=>{loadingOverlay.style.display='none';},300);
   }
 
-  // ★ ページ最初からローディングを表示
   showLoading();
-
-  // ページロード完了時に非表示
   window.addEventListener("load", hideLoading);
-
-  // Safariリロードや離脱時も必ず表示
   window.addEventListener("beforeunload", function(){
     showLoading();
   });
@@ -174,17 +160,44 @@ document.addEventListener("DOMContentLoaded", function() {
     if(!found) currentPageNameEl.textContent=currentURL.replace(/^\/|\/$/g,"")||"ホーム";
   }
 
-  /* ===== ローディングアニメーション ===== */
+  /* ===== ローディングアニメーションCSS ===== */
   const style=document.createElement('style');
   style.innerHTML=`
-    @keyframes bounceText{
-      0%,20%,50%,80%,100%{transform:translateY(0);}
-      40%{transform:translateY(-16px);}
-      60%{transform:translateY(-8px);}
+    #loading-text {
+      font-size: 22px;
+      font-weight: bold;
+      margin-bottom: 20px;
+      color: #0ff;
+      text-shadow:
+        0 0 5px #0ff,
+        0 0 10px #0ff,
+        0 0 20px #0ff,
+        0 0 40px #0ff;
+      animation: flicker 2s infinite alternate;
     }
-    @keyframes loadingBar{
-      0%{width:0;}
-      100%{width:100%;}
+    #loading-bar {
+      width: 0;
+      height: 100%;
+      background: #4af;
+      animation: loadingBar 2s linear infinite;
+    }
+    @keyframes flicker {
+      0%, 18%, 22%, 25%, 53%, 57%, 100% {
+        text-shadow:
+          0 0 5px #0ff,
+          0 0 10px #0ff,
+          0 0 20px #0ff,
+          0 0 40px #0ff;
+      }
+      20%, 24%, 55% {
+        text-shadow:
+          0 0 2px #0ff,
+          0 0 5px #0ff;
+      }
+    }
+    @keyframes loadingBar {
+      0% { width: 0; }
+      100% { width: 100%; }
     }
   `;
   document.head.appendChild(style);
