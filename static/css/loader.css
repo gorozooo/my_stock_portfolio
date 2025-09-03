@@ -1,0 +1,142 @@
+/* css/loader.css */
+
+/* 画面全体のローダー */
+#loading-screen{
+  position: fixed;
+  inset: 0;
+  background: rgba(10,10,20,0.95);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  transition: opacity .4s ease, visibility .4s ease;
+}
+
+/* 非表示状態（JSで付け外し） */
+#loading-screen.hidden{
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ネオンテキスト：最初から発光ON */
+#loading-screen .loading-text{
+  font-family: "Orbitron", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans";
+  font-size: 26px;
+  font-weight: 700;
+  color: #00eaff;
+  margin-bottom: 20px;
+
+  /* 初期フレームから強い発光 */
+  text-shadow:
+    0 0 8px  #0ff,
+    0 0 16px #0ff,
+    0 0 32px #0ff,
+    0 0 48px #f0f;
+
+  /* “暗くしない”揺らめき & バウンド */
+  animation:
+    loader-bounce 1.4s ease-in-out infinite,
+    loader-flicker 1.8s ease-in-out infinite;
+
+  will-change: transform, text-shadow;
+  transform: translateZ(0);
+  position: relative;
+}
+
+/* 初期フレームからの発光保証レイヤ（::before） */
+#loading-screen .loading-text::before{
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  color: transparent;
+  pointer-events: none;
+  z-index: -1;
+  text-shadow:
+    0 0 10px #0ff,
+    0 0 20px #0ff,
+    0 0 40px #0ff,
+    0 0 80px #f0f;
+  filter: blur(.4px);
+}
+
+/* バウンド */
+@keyframes loader-bounce{
+  0%,20%,50%,80%,100%{ transform: translateZ(0) translateY(0); }
+  40%{ transform: translateZ(0) translateY(-12px); }
+  60%{ transform: translateZ(0) translateY(-6px); }
+}
+
+/* 明→より明（暗くしない） */
+@keyframes loader-flicker{
+  0%,100%{
+    text-shadow:
+      0 0 8px  #0ff,
+      0 0 16px #0ff,
+      0 0 32px #0ff,
+      0 0 48px #f0f;
+  }
+  50%{
+    text-shadow:
+      0 0 12px #0ff,
+      0 0 24px #0ff,
+      0 0 48px #0ff,
+      0 0 72px #f0f;
+  }
+}
+
+/* 進行バーの器 */
+#loading-screen .loading-bar-container{
+  width: 80%;
+  max-width: 400px;
+  height: 8px;
+  background: rgba(0,255,255,0.2);
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: inset 0 0 12px #0ff;
+  position: relative;
+}
+
+/* 進行バー本体：最初から発光ON＋横流れ */
+#loading-screen .loading-bar{
+  height: 100%;
+  width: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #0ff, #ff00ff, #0ff);
+
+  /* 初期から発光 */
+  box-shadow:
+    0 0 12px #0ff,
+    0 0 24px #0ff,
+    0 0 36px #f0f;
+
+  animation:
+    loader-slide 2.5s linear infinite,
+    loader-pulse 1.6s ease-in-out infinite;
+
+  will-change: transform, box-shadow;
+  transform: translateZ(0) translateX(-100%);
+}
+
+/* 横流れ（幅を伸ばすのではなくスライド） */
+@keyframes loader-slide{
+  0%   { transform: translateZ(0) translateX(-100%); }
+  100% { transform: translateZ(0) translateX(100%); }
+}
+
+/* 明るさの強弱のみ（暗くしない） */
+@keyframes loader-pulse{
+  0%,100%{
+    box-shadow:
+      0 0 12px #0ff,
+      0 0 24px #0ff,
+      0 0 36px #f0f;
+  }
+  50%{
+    box-shadow:
+      0 0 18px #0ff,
+      0 0 36px #0ff,
+      0 0 60px #f0f;
+  }
+}
