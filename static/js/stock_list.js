@@ -1,178 +1,128 @@
 /* ==========================
    スマホファースト設計、HTML/CSS/JS分けて設計
-   タブ切替でセクションを中央寄せ
+   タブ切替でセクション中央寄せ
    リロード時も自動中央寄せ
    モーダル内の編集・売却ボタンを下部に横並び
    カード左スワイプでアクション表示、右スワイプで閉じる
-   ========================== */
+========================== */
 
 document.addEventListener("DOMContentLoaded", () => {
+  // -------------------------------
+  // タブ & セクション
+  // -------------------------------
   const tabs = Array.from(document.querySelectorAll(".broker-tab"));
   const wrapper = document.getElementById("broker-horizontal-wrapper");
   const sections = Array.from(document.querySelectorAll(".broker-section"));
-
   if (!wrapper || sections.length === 0) return;
 
-  // -------------------------------
-  // セクションを中央にスクロールする関数
-  // -------------------------------
   const scrollToSectionCenter = (index, smooth = true) => {
-    const targetSection = sections[index];
-    if (!targetSection) return;
-
+    const target = sections[index];
+    if (!target) return;
     const wrapperWidth = wrapper.clientWidth;
-    const sectionRect = targetSection.getBoundingClientRect();
+    const sectionRect = target.getBoundingClientRect();
     const wrapperRect = wrapper.getBoundingClientRect();
-
     const sectionLeftRelative = sectionRect.left - wrapperRect.left + wrapper.scrollLeft;
     let scrollLeft = sectionLeftRelative - (wrapperWidth / 2) + (sectionRect.width / 2);
-
     const maxScroll = wrapper.scrollWidth - wrapperWidth;
     scrollLeft = Math.min(Math.max(scrollLeft, 0), maxScroll);
-
     wrapper.scrollTo({ left: scrollLeft, behavior: smooth ? "smooth" : "auto" });
   };
 
-  // -------------------------------
-  // タブアクティブ設定＆中央寄せ
-  // -------------------------------
   const setActiveTab = index => {
     tabs.forEach(t => t.classList.remove("active"));
     if (tabs[index]) tabs[index].classList.add("active");
-    scrollToSectionCenter(index, true);
+    scrollToSectionCenter(index);
     localStorage.setItem("activeBrokerIndex", index);
   };
 
-  // -------------------------------
-  // 初期表示：前回のタブ or 最初のタブ
-  // -------------------------------
   const savedIndex = parseInt(localStorage.getItem("activeBrokerIndex"), 10);
-  const initialIndex = isNaN(savedIndex) ? 0 : savedIndex;
-  setTimeout(() => setActiveTab(initialIndex), 80);
+  setTimeout(() => setActiveTab(isNaN(savedIndex) ? 0 : savedIndex), 80);
+
+  tabs.forEach((tab, i) => tab.addEventListener("click", () => setActiveTab(i)));
 
   // -------------------------------
-  // タブクリック
+  // モーダル共通関数
   // -------------------------------
-  tabs.forEach((tab, index) => {
-    tab.addEventListener("click", () => setActiveTab(index));
-  });
+  const setupModal = modalId => {
+    const modal = document.getElementById(modalId);
+    const closeBtn = modal?.querySelector(".modal-close");
+    const close = () => modal && (modal.style.display = "none") && modal.setAttribute("aria-hidden", "true");
+    closeBtn?.addEventListener("click", close);
+    modal?.addEventListener("click", e => { if (e.target === modal) close(); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && modal.style.display === "block") close(); });
+    return modal;
+  };
 
-  // -------------------------------
-  // 株確認モーダル
-  // -------------------------------
-  const modal = document.getElementById("stock-modal");
-  const modalBody = document.getElementById("modal-body");
-  const modalClose = document.querySelector(".modal-close");
-  const modalEditBtn = document.getElementById("edit-stock-btn");
-  const modalSellBtn = document.getElementById("sell-stock-btn");
+  const stockModal = setupModal("stock-modal");
+  const editModal = setupModal("edit-modal");
+  const sellModal = setupModal("sell-modal");
 
   const escapeHTML = str => String(str).replace(/[&<>"']/g, m =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m])
   );
 
+  // -------------------------------
+  // 株カードクリック
+  // -------------------------------
   document.querySelectorAll(".stock-card").forEach(card => {
+    const cardId = card.dataset.id;
     card.addEventListener("click", () => {
       if (card.classList.contains("swiped")) return;
-
-      const name = escapeHTML(card.dataset.name || "");
-      const ticker = escapeHTML(card.dataset.ticker || "");
-      const shares = escapeHTML(card.dataset.shares || "");
-      const unitPrice = escapeHTML(card.dataset.unit_price || "");
-      const currentPrice = escapeHTML(card.dataset.current_price || "");
-      const profit = escapeHTML(card.dataset.profit || "");
-      const profitRate = escapeHTML(card.dataset.profit_rate || "");
+      if (!stockModal) return;
+      const modalBody = stockModal.querySelector("#modal-body");
+      const modalEditBtn = stockModal.querySelector("#edit-stock-btn");
+      const modalSellBtn = stockModal.querySelector("#sell-stock-btn");
 
       modalBody.innerHTML = `
-        <h3 id="modal-title">${name} (${ticker})</h3>
-        <p>株数: ${shares}</p>
-        <p>取得単価: ¥${unitPrice}</p>
-        <p>現在株価: ¥${currentPrice}</p>
-        <p>損益: ¥${profit} (${profitRate}%)</p>
+        <h3 id="modal-title">${escapeHTML(card.dataset.name)} (${escapeHTML(card.dataset.ticker)})</h3>
+        <p>株数: ${escapeHTML(card.dataset.shares)}</p>
+        <p>取得単価: ¥${escapeHTML(card.dataset.unit_price)}</p>
+        <p>現在株価: ¥${escapeHTML(card.dataset.current_price)}</p>
+        <p>損益: ¥${escapeHTML(card.dataset.profit)} (${escapeHTML(card.dataset.profit_rate)}%)</p>
       `;
+      stockModal.style.display = "block";
+      stockModal.setAttribute("aria-hidden", "false");
 
-      modal.style.display = "block";
-      modal.setAttribute("aria-hidden", "false");
-
-      // モーダル内ボタンに株データを渡す
-      modalEditBtn.dataset.id = card.dataset.id;
-      modalSellBtn.dataset.id = card.dataset.id;
+      modalEditBtn.dataset.id = cardId;
+      modalSellBtn.dataset.id = cardId;
     });
 
-    card.addEventListener("keydown", e => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        card.click();
-      }
-    });
+    card.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); card.click(); } });
   });
 
-  const closeModal = () => {
-    modal.style.display = "none";
-    modal.setAttribute("aria-hidden", "true");
-  };
-
-  modalClose?.addEventListener("click", closeModal);
-  modal.addEventListener("click", e => { if (e.target === modal) closeModal(); });
-  document.addEventListener("keydown", e => { if (e.key === "Escape" && modal.style.display === "block") closeModal(); });
-
   // -------------------------------
-  // 編集フォームモーダル
+  // 編集・売却モーダル開閉
   // -------------------------------
-  const editModal = document.getElementById("edit-modal");
-  const editForm = document.getElementById("edit-form");
-  const editCloseBtn = document.querySelector("#edit-modal .modal-close");
-
   const openEditModal = stock => {
-    editForm.elements["stock_id"].value = stock.id || "";
-    editForm.elements["name"].value = stock.name || "";
-    editForm.elements["ticker"].value = stock.ticker || "";
-    editForm.elements["shares"].value = stock.shares || "";
-    editForm.elements["unit_price"].value = stock.unit_price || "";
-    editForm.elements["account"].value = stock.account || "";
-    editForm.elements["position"].value = stock.position || "";
-
+    if (!editModal) return;
+    const form = editModal.querySelector("#edit-form");
+    form.elements["stock_id"].value = stock.id || "";
+    form.elements["name"].value = stock.name || "";
+    form.elements["ticker"].value = stock.ticker || "";
+    form.elements["shares"].value = stock.shares || "";
+    form.elements["unit_price"].value = stock.unit_price || "";
+    form.elements["account"].value = stock.account || "";
+    form.elements["position"].value = stock.position || "";
     editModal.style.display = "block";
     editModal.setAttribute("aria-hidden", "false");
   };
 
-  const closeEditModal = () => {
-    editModal.style.display = "none";
-    editModal.setAttribute("aria-hidden", "true");
-  };
-
-  editCloseBtn?.addEventListener("click", closeEditModal);
-  document.getElementById("edit-cancel-btn")?.addEventListener("click", closeEditModal);
-  editModal.addEventListener("click", e => { if (e.target === editModal) closeEditModal(); });
-  document.addEventListener("keydown", e => { if (e.key === "Escape" && editModal.style.display === "block") closeEditModal(); });
-
-  // -------------------------------
-  // 売却フォームモーダル
-  // -------------------------------
-  const sellModal = document.getElementById("sell-modal");
-  const sellCloseBtn = document.querySelector("#sell-modal .modal-close");
-  const sellForm = document.getElementById("sell-form");
-
   const openSellModal = stock => {
-    sellForm.elements["stock_id"].value = stock.id || "";
-    sellForm.elements["name"].value = stock.name || "";
-    sellForm.elements["shares"].value = stock.shares || "";
+    if (!sellModal) return;
+    const form = sellModal.querySelector("#sell-form");
+    form.elements["stock_id"].value = stock.id || "";
+    form.elements["name"].value = stock.name || "";
+    form.elements["shares"].value = stock.shares || "";
     sellModal.style.display = "block";
     sellModal.setAttribute("aria-hidden", "false");
   };
 
-  const closeSellModal = () => {
-    sellModal.style.display = "none";
-    sellModal.setAttribute("aria-hidden", "true");
-  };
-
-  sellCloseBtn?.addEventListener("click", closeSellModal);
-  document.getElementById("sell-cancel-btn")?.addEventListener("click", closeSellModal);
-  sellModal.addEventListener("click", e => { if (e.target === sellModal) closeSellModal(); });
-  document.addEventListener("keydown", e => { if (e.key === "Escape" && sellModal.style.display === "block") closeSellModal(); });
-
-  modalEditBtn?.addEventListener("click", e => {
+  // -------------------------------
+  // モーダル内ボタン
+  // -------------------------------
+  stockModal?.querySelector("#edit-stock-btn")?.addEventListener("click", e => {
     e.stopPropagation();
-    const stockId = modalEditBtn.dataset.id;
+    const stockId = e.target.dataset.id;
     const card = document.querySelector(`.stock-card[data-id='${stockId}']`);
     if (!card) return;
     openEditModal({
@@ -186,9 +136,9 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  modalSellBtn?.addEventListener("click", e => {
+  stockModal?.querySelector("#sell-stock-btn")?.addEventListener("click", e => {
     e.stopPropagation();
-    const stockId = modalSellBtn.dataset.id;
+    const stockId = e.target.dataset.id;
     const card = document.querySelector(`.stock-card[data-id='${stockId}']`);
     if (!card) return;
     openSellModal({
@@ -199,86 +149,44 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // -------------------------------
-  // カード横スワイプ + アクションボタン表示
+  // カード横スワイプ + アクション
   // -------------------------------
   document.querySelectorAll(".stock-card").forEach(card => {
     let startX=0, startY=0, isDragging=false;
-
-    // card-actions div
     let actions = card.querySelector(".card-actions");
     if (!actions) {
       actions = document.createElement("div");
       actions.className = "card-actions";
-      actions.innerHTML = `
-        <button class="edit-btn">編集</button>
-        <button class="sell-btn">売却</button>
-      `;
+      actions.innerHTML = `<button class="edit-btn">編集</button><button class="sell-btn">売却</button>`;
       card.appendChild(actions);
     }
 
-    card.addEventListener("touchstart", e => {
-      const t = e.touches[0];
-      startX = t.pageX;
-      startY = t.pageY;
-      isDragging = true;
-    }, { passive: true });
-
+    card.addEventListener("touchstart", e => { const t = e.touches[0]; startX=t.pageX; startY=t.pageY; isDragging=true; }, { passive:true });
     card.addEventListener("touchend", e => {
       if (!isDragging) return;
-      isDragging = false;
-
+      isDragging=false;
       const t = e.changedTouches[0];
       const deltaX = t.pageX - startX;
       const deltaY = t.pageY - startY;
-
       if (Math.abs(deltaY) > Math.abs(deltaX)) return;
+      if (deltaX < -50) card.classList.add("swiped");
+      else if (deltaX > 50) card.classList.remove("swiped");
+    }, { passive:true });
 
-      if (deltaX < -50) card.classList.add("swiped"); // 左スワイプ → 表示
-      else if (deltaX > 50) card.classList.remove("swiped"); // 右スワイプ → 非表示
-    }, { passive: true });
+    card.querySelector(".edit-btn")?.addEventListener("click", e => { e.stopPropagation(); openEditModal({
+      id: card.dataset.id, name: card.dataset.name, ticker: card.dataset.ticker,
+      shares: card.dataset.shares, unit_price: card.dataset.unit_price,
+      account: card.dataset.account, position: card.dataset.position
+    }); });
 
-    // カード内「編集」ボタン
-    card.querySelector(".edit-btn")?.addEventListener("click", e => {
-      e.stopPropagation();
-      openEditModal({
-        id: card.dataset.id,
-        name: card.dataset.name,
-        ticker: card.dataset.ticker,
-        shares: card.dataset.shares,
-        unit_price: card.dataset.unit_price,
-        account: card.dataset.account,
-        position: card.dataset.position
-      });
-    });
-
-    // カード内「売却」ボタン
-    card.querySelector(".sell-btn")?.addEventListener("click", e => {
-      e.stopPropagation();
-      openSellModal({
-        id: card.dataset.id,
-        name: card.dataset.name,
-        shares: card.dataset.shares
-      });
-    });
+    card.querySelector(".sell-btn")?.addEventListener("click", e => { e.stopPropagation(); openSellModal({
+      id: card.dataset.id, name: card.dataset.name, shares: card.dataset.shares
+    }); });
   });
 
   // -------------------------------
-  // 編集フォーム送信
+  // フォーム送信
   // -------------------------------
-  editForm?.addEventListener("submit", e => {
-    e.preventDefault();
-    const formData = new FormData(editForm);
-    console.log("編集フォーム送信:", Object.fromEntries(formData.entries()));
-    closeEditModal();
-  });
-
-  // -------------------------------
-  // 売却フォーム送信
-  // -------------------------------
-  sellForm?.addEventListener("submit", e => {
-    e.preventDefault();
-    const formData = new FormData(sellForm);
-    console.log("売却フォーム送信:", Object.fromEntries(formData.entries()));
-    closeSellModal();
-  });
+  editForm?.addEventListener("submit", e => { e.preventDefault(); console.log("編集フォーム送信:", Object.fromEntries(new FormData(editForm).entries())); editModal.style.display="none"; });
+  sellForm?.addEventListener("submit", e => { e.preventDefault(); console.log("売却フォーム送信:", Object.fromEntries(new FormData(sellForm).entries())); sellModal.style.display="none"; });
 });
