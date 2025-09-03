@@ -15,56 +15,54 @@ document.addEventListener("DOMContentLoaded", function() {
       subMenu.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
       subMenu.style.zIndex = '10000';
 
-      // サブメニューリンククリック時は必ずページ遷移
+      // サブメニューリンククリック時
       subMenu.querySelectorAll('a').forEach(a => {
         a.addEventListener('click', e => {
-          e.stopPropagation(); // 上位クリック阻止
+          e.stopPropagation(); 
           const href = a.getAttribute('href');
           if(href && !href.startsWith('#') && !href.startsWith('javascript:')){
-            // 即時移行
-            window.location.href = href;
+            e.preventDefault();
+            showLoading(()=> window.location.href = href);
           }
         });
-        // タッチでも確実に移行
         a.addEventListener('touchend', e => {
           e.stopPropagation();
           const href = a.getAttribute('href');
           if(href && !href.startsWith('#') && !href.startsWith('javascript:')){
-            window.location.href = href;
+            e.preventDefault();
+            showLoading(()=> window.location.href = href);
           }
         });
       });
 
       // タブクリックでサブメニュー開閉
       tab.addEventListener('click', e => {
-        if(e.target.closest('.sub-menu a')) return; // サブメニューリンクは無視
+        if(e.target.closest('.sub-menu a')) return;
         const isOpen = subMenu.classList.contains('show');
         closeAllSubMenus();
         if(!isOpen) openSubMenu(subMenu, tab);
       });
 
-      // サブメニュークリックはイベント伝播停止
       subMenu.addEventListener('click', e => e.stopPropagation());
     }
 
-    // 下タブリンククリック（サブメニュー非表示時のみページ遷移）
+    // 下タブリンククリック
     if(tabLink){
       tabLink.addEventListener('click', e => {
         if(subMenu && subMenu.classList.contains('show')){
-          // サブメニューが開いている場合は閉じるだけ
           e.preventDefault();
           closeAllSubMenus();
         } else {
           const href = tabLink.getAttribute('href');
           if(href && !href.startsWith('#') && !href.startsWith('javascript:')){
             e.preventDefault();
-            window.location.href = href;
+            showLoading(()=> window.location.href = href);
           }
         }
       });
     }
 
-    // タブ長押し対応（スマホ向け）
+    // タブ長押し対応
     let touchStartTime = 0;
     tab.addEventListener('touchstart', e => { touchStartTime = Date.now(); });
     tab.addEventListener('touchend', e => {
@@ -128,10 +126,25 @@ document.addEventListener("DOMContentLoaded", function() {
   });
   document.body.appendChild(loadingOverlay);
 
-  function showLoading(cb){loadingOverlay.style.display='flex'; requestAnimationFrame(()=>loadingOverlay.style.opacity='1'); if(cb) setTimeout(cb,50);}
-  function hideLoading(){loadingOverlay.style.opacity='0'; setTimeout(()=>{loadingOverlay.style.display='none';},300);}
+  function showLoading(cb){
+    loadingOverlay.style.display='flex';
+    requestAnimationFrame(()=>{
+      loadingOverlay.style.opacity='1';
+      if(cb) setTimeout(cb,200);
+    });
+  }
+  function hideLoading(){
+    loadingOverlay.style.opacity='0';
+    setTimeout(()=>{loadingOverlay.style.display='none';},300);
+  }
+
+  // ページロード完了時にローディング非表示
   window.addEventListener("load", hideLoading);
-  window.addEventListener("pageshow", hideLoading);
+
+  // Safariリロード・離脱時にローディング表示
+  window.addEventListener("beforeunload", function(){
+    showLoading();
+  });
 
   /* ===== 現在ページ名自動取得 ===== */
   const currentURL = location.pathname;
