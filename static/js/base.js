@@ -1,4 +1,4 @@
-// base.js（スマホファースト完全対応版）
+// base.js（スマホファースト＋サブメニュー上に固定＋アニメーション対応）
 document.addEventListener("DOMContentLoaded", function() {
 
   /* ===== 下タブ＆サブメニュー操作（スマホ/PC両対応） ===== */
@@ -11,9 +11,15 @@ document.addEventListener("DOMContentLoaded", function() {
     // サブメニュー内クリックはタブクリックを阻止
     subMenu.addEventListener('click', e => e.stopPropagation());
 
+    // サブメニュー用初期スタイル
+    subMenu.style.position = 'fixed';
+    subMenu.style.opacity = '0';
+    subMenu.style.transform = 'translateY(10px)';
+    subMenu.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+    subMenu.style.zIndex = '10000'; // 下タブより前面
+
     // タブ全体のタップ／クリック
     tab.addEventListener('click', e => {
-      // サブメニュー内リンクは無視
       if (e.target.closest('.sub-menu a')) return;
 
       const isOpen = subMenu.classList.contains('show');
@@ -23,23 +29,18 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // タブ長押しでも対応（スマホ向け）
     let touchStartTime = 0;
-    tab.addEventListener('touchstart', e => {
-      touchStartTime = Date.now();
-    });
+    tab.addEventListener('touchstart', e => { touchStartTime = Date.now(); });
     tab.addEventListener('touchend', e => {
       const touchDuration = Date.now() - touchStartTime;
-      if (touchDuration < 500) {
-        tab.click(); // 短いタップは通常のクリック扱い
-      }
+      if (touchDuration < 500) tab.click();
     });
   });
 
   // 外部クリック／タップで閉じる
-  document.addEventListener('click', e => {
-    if (!e.target.closest('.tab-item')) closeAllSubMenus();
-  });
-  document.addEventListener('touchstart', e => {
-    if (!e.target.closest('.tab-item')) closeAllSubMenus();
+  ['click','touchstart'].forEach(ev => {
+    document.addEventListener(ev, e => {
+      if (!e.target.closest('.tab-item')) closeAllSubMenus();
+    });
   });
 
   function openSubMenu(subMenu, tab) {
@@ -47,11 +48,21 @@ document.addEventListener("DOMContentLoaded", function() {
     const left = Math.min(rect.left, window.innerWidth - subMenu.offsetWidth - 10);
     subMenu.style.left = left + "px";
     subMenu.style.bottom = (window.innerHeight - rect.top + 10) + "px";
-    subMenu.classList.add('show');
+
+    // アニメーション付きで開く
+    requestAnimationFrame(() => {
+      subMenu.classList.add('show');
+      subMenu.style.opacity = '1';
+      subMenu.style.transform = 'translateY(0)';
+    });
   }
 
   function closeAllSubMenus() {
-    document.querySelectorAll('.sub-menu').forEach(sm => sm.classList.remove('show'));
+    document.querySelectorAll('.sub-menu').forEach(sm => {
+      sm.classList.remove('show');
+      sm.style.opacity = '0';
+      sm.style.transform = 'translateY(10px)';
+    });
   }
 
   /* ===== 背景アニメーション（Canvas） ===== */
@@ -80,7 +91,6 @@ document.addEventListener("DOMContentLoaded", function() {
         p.x += p.vx; p.y += p.vy;
         if (p.x < 0 || p.x > width) p.vx *= -1;
         if (p.y < 0 || p.y > height) p.vy *= -1;
-
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fillStyle = `hsl(${p.hue}, 100%, 50%)`;
@@ -110,7 +120,6 @@ document.addEventListener("DOMContentLoaded", function() {
       okCallback = callback;
       modal.style.display = "block";
     };
-
     btnCancel.addEventListener("click", () => { modal.style.display = "none"; okCallback = null; });
     btnOk.addEventListener("click", () => { modal.style.display = "none"; if(typeof okCallback==="function") okCallback(); okCallback = null; });
     modal.addEventListener("click", e => { if(e.target===modal){ modal.style.display="none"; okCallback=null; } });
@@ -175,10 +184,7 @@ document.addEventListener("DOMContentLoaded", function() {
         found = true;
       }
     });
-    if (!found) {
-      const trimmed = currentURL.replace(/^\/|\/$/g, "");
-      currentPageNameEl.textContent = trimmed || "ホーム";
-    }
+    if (!found) currentPageNameEl.textContent = currentURL.replace(/^\/|\/$/g, "") || "ホーム";
   }
 
   /* ===== ローディングバーアニメーション ===== */
