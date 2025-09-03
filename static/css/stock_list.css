@@ -12,14 +12,13 @@
   width: 100%;
   box-sizing: border-box;
   padding: 0;
-  background: transparent; /* 背景透明 */
-  min-height: 0; /* flex子スクロール対策 */
+  background: transparent;
+  min-height: 0;
 }
 
 /* ==========================
    証券会社タブ
-   未来感・光彩・アニメーション
-   ========================== */
+========================== */
 .broker-tabs-wrapper {
   display: flex;
   justify-content: center;
@@ -90,7 +89,7 @@
 
 /* ==========================
    証券会社セクション横スクロール
-   ========================== */
+========================== */
 .broker-horizontal-wrapper {
   display: flex;
   flex-direction: row;
@@ -119,7 +118,7 @@
 
 /* ==========================
    株カード縦スクロール
-   ========================== */
+========================== */
 .broker-cards-wrapper {
   display: flex;
   flex-direction: column;
@@ -145,7 +144,7 @@
 
 /* ==========================
    各カード
-   ========================== */
+========================== */
 .stock-card-wrapper {
   background: transparent;
   border-radius: 10px;
@@ -160,7 +159,7 @@
   position: relative;
   display: block;
   padding: 8px;
-  border: 1px solid #ffffff; /* 白枠 */
+  border: 1px solid #ffffff;
   border-radius: 8px;
   background: transparent;
   color: inherit;
@@ -171,6 +170,7 @@
   box-sizing: border-box;
   overflow: hidden;
   transition: transform 0.3s ease, box-shadow 0.3s ease;
+  touch-action: pan-y;
 }
 .stock-card:hover {
   transform: translateY(-2px);
@@ -195,12 +195,12 @@
 .stock-row.gain.negative span:last-child { color: #f33; font-weight: 600; }
 
 /* ==========================
-   編集・売却ボタン（カード右スライド） + 個別光彩アニメ
-   ========================== */
+   編集・売却ボタン（カード右スライド）
+========================== */
 .stock-card .card-actions {
   position: absolute;
   top: 0;
-  right: -120px;
+  right: -140px; /* 初期は右に隠す */
   height: 100%;
   display: flex;
   gap: 6px;
@@ -211,15 +211,14 @@
   box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
   overflow: hidden;
   transition: right 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
+  z-index: 10;
 }
 
 .stock-card.swiped .card-actions {
   right: 8px;
 }
 
-/* -------------------------
-   個別ボタン光彩
-------------------------- */
+/* 個別ボタン光彩 */
 .card-actions button {
   position: relative;
   overflow: hidden;
@@ -233,13 +232,8 @@
   background: rgba(0, 123, 255, 0.75);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
+.card-actions .sell-btn { background: rgba(220, 53, 69, 0.75); }
 
-/* 売却ボタン */
-.card-actions .sell-btn {
-  background: rgba(220, 53, 69, 0.75);
-}
-
-/* 光彩疑似要素 */
 .card-actions button::after {
   content: '';
   position: absolute;
@@ -259,7 +253,6 @@
   100% { transform: translateX(200%) rotate(-25deg); }
 }
 
-/* ホバー効果 */
 .card-actions button:hover {
   transform: scale(1.05);
   box-shadow: 0 4px 10px rgba(0,123,255,0.4);
@@ -268,13 +261,9 @@
   box-shadow: 0 4px 10px rgba(220,53,69,0.4);
 }
 
-/* 売却ボタン */
-.card-actions .sell-btn {
-  background: rgba(220, 53, 69, 0.75);
-}
 /* ==========================
    モーダル
-   ========================== */
+========================== */
 .modal {
   display: none;
   position: fixed;
@@ -308,10 +297,9 @@
   border: none;
 }
 
-/* モーダル内の編集・売却ボタン（中央寄せ、横並び） */
 .modal-actions {
   display: flex;
-  justify-content: center; /* 中央寄せ */
+  justify-content: center;
   gap: 12px;
   margin-top: 16px;
 }
@@ -331,7 +319,7 @@
 
 /* ==========================
    レスポンシブ
-   ========================== */
+========================== */
 @media (min-width: 768px) {
   .broker-section { flex: 0 0 50%; min-width: 50%; }
   .broker-cards-wrapper { max-height: 70vh; }
