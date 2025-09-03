@@ -130,7 +130,19 @@ def stock_create(request):
 
     if request.method == "POST":
         data = request.POST
-        purchase_date = data.get("purchase_date") or timezone.now().date()
+
+        # --- 購入日（必須 & 形式チェック YYYY-MM-DD） ---
+        purchase_date = None
+        purchase_date_str = (data.get("purchase_date") or "").strip()
+        if purchase_date_str:
+            try:
+                purchase_date = datetime.date.fromisoformat(purchase_date_str)
+            except ValueError:
+                errors["purchase_date"] = "購入日を正しい形式（YYYY-MM-DD）で入力してください"
+        else:
+            errors["purchase_date"] = "購入日を入力してください"
+
+        # --- 基本項目 ---
         ticker = (data.get("ticker") or "").strip()
         name = (data.get("name") or "").strip()
         account_type = (data.get("account_type") or "").strip()
@@ -138,6 +150,14 @@ def stock_create(request):
         sector = (data.get("sector") or "").strip()
         note = (data.get("note") or "").strip()
 
+        # --- ポジション（必須） ---
+        position = (data.get("position") or "").strip()
+        if not position:
+            errors["position"] = "ポジションを選択してください"
+        elif position not in ("買い", "売り"):
+            errors["position"] = "ポジションの値が不正です（買い／売りから選択してください）"
+
+        # --- 数値項目 ---
         try:
             shares = int(data.get("shares"))
             if shares <= 0:
@@ -154,8 +174,13 @@ def stock_create(request):
             unit_price = 0
             errors["unit_price"] = "取得単価を正しく入力してください"
 
-        total_cost = float(data.get("total_cost") or (shares * unit_price))
+        # 取得額（POSTに来ていなければ shares * unit_price で計算）
+        try:
+            total_cost = float(data.get("total_cost")) if data.get("total_cost") not in (None, "",) else (shares * unit_price)
+        except (TypeError, ValueError):
+            total_cost = shares * unit_price
 
+        # --- 必須チェック ---
         if not ticker:
             errors["ticker"] = "証券コードを入力してください"
         if not name:
@@ -167,6 +192,7 @@ def stock_create(request):
         if not sector:
             errors["sector"] = "セクターを入力してください"
 
+        # --- 保存 ---
         if not errors:
             Stock.objects.create(
                 purchase_date=purchase_date,
@@ -175,13 +201,16 @@ def stock_create(request):
                 account_type=account_type,
                 broker=broker,
                 sector=sector,
+                position=position,          # ← 追加
                 shares=shares,
                 unit_price=unit_price,
                 total_cost=total_cost,
                 note=note,
             )
             return redirect("stock_list")
+
     else:
+        # 初期表示用データ
         data = {
             "purchase_date": "",
             "ticker": "",
@@ -189,6 +218,7 @@ def stock_create(request):
             "account_type": "",
             "broker": "",
             "sector": "",
+            "position": "",     # ← 追加
             "shares": "",
             "unit_price": "",
             "total_cost": "",
@@ -203,7 +233,6 @@ def stock_create(request):
 
     tpl = get_template("stocks/stock_create.html")
     return HttpResponse(tpl.render(context, request))
-
 
 @login_required
 @require_POST
