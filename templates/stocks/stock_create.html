@@ -63,14 +63,6 @@
         {% if errors.account_type %}<div class="field-error">{{ errors.account_type }}</div>{% endif %}
       </div>
 
-      <!-- セクター -->
-      <div class="form-field">
-        <label for="sector">セクター</label>
-        <input list="sector-list" id="sector" name="sector" value="{{ data.sector|default:'' }}">
-        <datalist id="sector-list"></datalist>
-        {% if errors.sector %}<div class="field-error">{{ errors.sector }}</div>{% endif %}
-      </div>
-
       <!-- 株数 -->
       <div class="form-field">
         <label for="shares">株数</label>
@@ -91,7 +83,15 @@
         <input type="text" id="total_cost" readonly value="{{ data.total_cost|default:'' }}">
         <input type="hidden" id="total_cost_raw" name="total_cost" value="{{ data.total_cost|default:'' }}">
       </div>
-
+      
+      <!-- セクター -->
+      <div class="form-field">
+        <label for="sector">セクター</label>
+        <input list="sector-list" id="sector" name="sector" value="{{ data.sector|default:'' }}">
+        <datalist id="sector-list"></datalist>
+        {% if errors.sector %}<div class="field-error">{{ errors.sector }}</div>{% endif %}
+      </div>
+      
       <!-- 備考 -->
       <div class="form-field form-field--full">
         <label for="note">備考</label>
