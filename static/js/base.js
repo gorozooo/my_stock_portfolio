@@ -1,37 +1,24 @@
-// base.js（確認モーダル＋文字＋ネオン進捗バー 流れる＋残像版＋下タブ修正版）
+// base.js（確認モーダル＋文字＋ネオン進捗バー 流れる＋残像版＋下タブ修正版 クリック対応）
 document.addEventListener("DOMContentLoaded", function() {
 
-  /* ===== 下タブ＆サブメニュー操作 ===== */
+  /* ===== 下タブ＆サブメニュー操作（クリックで開く） ===== */
   const tabs = document.querySelectorAll('.tab-item');
 
   tabs.forEach(tab => {
     const subMenu = tab.querySelector('.sub-menu');
     if (!subMenu) return;
-    let touchTimer = null;
 
-    // PC右クリックで開く
-    tab.addEventListener('contextmenu', e => {
+    const tabLink = tab.querySelector('.tab-link');
+    if(!tabLink) return;
+
+    tabLink.addEventListener('click', e => {
       e.preventDefault();
+      e.stopPropagation();
+      const isOpen = subMenu.classList.contains('show');
       closeAllSubMenus();
-      openSubMenu(subMenu, tab);
-    });
-
-    // タッチ長押しで開く（スマホ）
-    tab.addEventListener('touchstart', e => {
-      e.stopPropagation(); // 重要: 他のイベント干渉防止
-      touchTimer = setTimeout(() => {
-        closeAllSubMenus();
+      if(!isOpen){
         openSubMenu(subMenu, tab);
-      }, 500);
-    }, { passive: false });
-
-    tab.addEventListener('touchend', () => {
-      if (touchTimer) clearTimeout(touchTimer);
-      touchTimer = null;
-    });
-    tab.addEventListener('touchcancel', () => {
-      if (touchTimer) clearTimeout(touchTimer);
-      touchTimer = null;
+      }
     });
   });
 
