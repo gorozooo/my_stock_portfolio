@@ -195,7 +195,7 @@
 .stock-row.gain.negative span:last-child { color: #f33; font-weight: 600; }
 
 /* ==========================
-   編集・売却ボタン（カード右スライド） + 光彩アニメーション
+   編集・売却ボタン（カード右スライド） + 個別光彩アニメ
    ========================== */
 .stock-card .card-actions {
   position: absolute;
@@ -217,44 +217,55 @@
   right: 8px;
 }
 
-/* 光彩用の疑似要素 */
-.stock-card .card-actions::after {
+/* -------------------------
+   個別ボタン光彩
+------------------------- */
+.card-actions button {
+  position: relative;
+  overflow: hidden;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  border: none;
+  color: #fff;
+  background: rgba(0, 123, 255, 0.75);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* 売却ボタン */
+.card-actions .sell-btn {
+  background: rgba(220, 53, 69, 0.75);
+}
+
+/* 光彩疑似要素 */
+.card-actions button::after {
   content: '';
   position: absolute;
-  top: 0;
-  left: -75%;
-  width: 150%;
-  height: 100%;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
   background: linear-gradient(120deg, rgba(255,255,255,0.2), rgba(255,255,255,0.6), rgba(255,255,255,0.2));
-  transform: skewX(-25deg);
-  animation: shine-card 1.5s infinite;
+  transform: rotate(-25deg);
+  animation: shine-btn 1.5s infinite;
   pointer-events: none;
 }
 
-@keyframes shine-card {
-  0% { left: -75%; }
-  50% { left: 75%; }
-  100% { left: 150%; }
+@keyframes shine-btn {
+  0% { transform: translateX(-100%) rotate(-25deg); }
+  50% { transform: translateX(100%) rotate(-25deg); }
+  100% { transform: translateX(200%) rotate(-25deg); }
 }
 
-.card-actions button {
-  position: relative;
-  background: rgba(0, 123, 255, 0.75);
-  color: #fff;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 6px;
-  backdrop-filter: blur(2px);
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 0.9rem;
-  transition: all 0.2s ease;
-  overflow: hidden;
-}
-
+/* ホバー効果 */
 .card-actions button:hover {
   transform: scale(1.05);
-  box-shadow: 0 4px 10px rgba(0, 123, 255, 0.4);
+  box-shadow: 0 4px 10px rgba(0,123,255,0.4);
+}
+.card-actions .sell-btn:hover {
+  box-shadow: 0 4px 10px rgba(220,53,69,0.4);
 }
 
 /* 売却ボタン */
