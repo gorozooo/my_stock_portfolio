@@ -1,4 +1,7 @@
-{# スマホファースト設計、html css jsは分ける #}
+{# ==========================
+   スマホファースト設計、HTML/CSS/JSは分離
+   証券会社タブ + 横スクロール + モーダル + 編集/売却ボタン
+========================== #}
 
 {% extends "base.html" %}
 {% load static %}
@@ -13,7 +16,7 @@
     <!-- 証券会社タブ -->
     <div class="broker-tabs-wrapper" role="tablist" aria-label="証券会社">
       {% for broker_group in broker_list %}
-        <button class="broker-tab" data-broker-index="{{ forloop.counter0 }}" role="tab">
+        <button class="broker-tab" data-broker-index="{{ forloop.counter0 }}" role="tab" tabindex="0">
           {{ broker_group.grouper }}
         </button>
       {% endfor %}
@@ -36,7 +39,9 @@
                      data-unit_price="{{ stock.unit_price|floatformat:0 }}"
                      data-current_price="{{ stock.current_price|floatformat:0 }}"
                      data-profit="{{ stock.profit_amount }}"
-                     data-profit_rate="{{ stock.profit_rate }}">
+                     data-profit_rate="{{ stock.profit_rate }}"
+                     data-account="{{ stock.account }}"
+                     data-position="{{ stock.position }}">
                   <div class="stock-header">
                     <span class="stock-name">{{ stock.name }}</span>
                     <span class="stock-code">{{ stock.ticker }}</span>
@@ -63,18 +68,51 @@
     <p>保有株データがありません。</p>
   {% endif %}
 
-  <!-- モーダル -->
+  <!-- 株モーダル -->
   <div id="stock-modal" class="modal" aria-hidden="true">
     <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <button class="modal-close" aria-label="閉じる">&times;</button>
-      <div id="modal-body" role="document">
-        <!-- 株情報をここに挿入 -->
-      </div>
-      <!-- モーダル内の編集・売却ボタン -->
+      <div id="modal-body" role="document"></div>
       <div class="modal-actions">
         <button id="edit-stock-btn" class="modal-action-btn">編集</button>
         <button id="sell-stock-btn" class="modal-action-btn negative">売却</button>
       </div>
+    </div>
+  </div>
+
+  <!-- 編集モーダル -->
+  <div id="edit-modal" class="modal" aria-hidden="true">
+    <div class="modal-content" role="dialog" aria-modal="true">
+      <button class="modal-close" aria-label="閉じる">&times;</button>
+      <form id="edit-form">
+        <input type="hidden" name="stock_id">
+        <div class="form-group"><label>銘柄名<input name="name" type="text"></label></div>
+        <div class="form-group"><label>コード<input name="ticker" type="text"></label></div>
+        <div class="form-group"><label>株数<input name="shares" type="number"></label></div>
+        <div class="form-group"><label>取得単価<input name="unit_price" type="number"></label></div>
+        <div class="form-group"><label>口座<input name="account" type="text"></label></div>
+        <div class="form-group"><label>ポジション<select name="position"><option value="買">買</option><option value="売">売</option></select></label></div>
+        <div class="modal-actions">
+          <button type="submit" class="modal-action-btn">保存</button>
+          <button type="button" id="edit-cancel-btn" class="modal-action-btn negative">キャンセル</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 売却モーダル -->
+  <div id="sell-modal" class="modal" aria-hidden="true">
+    <div class="modal-content" role="dialog" aria-modal="true">
+      <button class="modal-close" aria-label="閉じる">&times;</button>
+      <form id="sell-form">
+        <input type="hidden" name="stock_id">
+        <div class="form-group"><label>銘柄名<input name="name" type="text" readonly></label></div>
+        <div class="form-group"><label>株数<input name="shares" type="number"></label></div>
+        <div class="modal-actions">
+          <button type="submit" class="modal-action-btn negative">売却</button>
+          <button type="button" id="sell-cancel-btn" class="modal-action-btn">キャンセル</button>
+        </div>
+      </form>
     </div>
   </div>
 
