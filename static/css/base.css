@@ -110,6 +110,7 @@
   font-size: 0.8rem;
   transition: all 0.35s ease;
   padding: 6px 0;
+  cursor: pointer;
 }
 
 .bottom-tab .tab-link i {
@@ -235,7 +236,7 @@ main {
   border-radius: 3px;
   box-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #ff00ff;
   animation: neonPulse 1.5s infinite alternate;
-  transition: width 0.1s linear; /* 幅変化を滑らかに */
+  transition: width 0.1s linear;
   position: absolute;
   left: 0;
   top: 0;
