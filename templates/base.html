@@ -58,7 +58,14 @@
   <script src="{% static 'js/base.js' %}"></script>
 
   <!-- Now Loading 非表示処理 -->
- 
+  <script>
+    window.addEventListener('load', () => {
+      const loader = document.getElementById('loading-screen');
+      if (loader) {
+        loader.classList.add('hidden');
+      }
+    });
+  </script>
 
   <!-- ページごとのJavaScript -->
   {% block extra_js %}{% endblock %}
