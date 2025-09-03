@@ -182,79 +182,67 @@ main {
   min-height: calc(100vh - 160px);
 }
 
-/* ===== Now Loading ネオンテキスト＋繰り返し進行バー ===== */
+/* ローディング全体 */
 #loading-screen {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(10,10,20,0.95);
+  inset: 0;
+  background: rgba(0,0,0,0.9);
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   z-index: 9999;
-  transition: opacity 0.4s ease, visibility 0.4s ease;
 }
 
-#loading-screen.hidden {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
+/* ローディングテキスト */
 .loading-text {
-  font-family: "Orbitron", sans-serif;
-  font-size: 26px;
-  font-weight: bold;
-  color: #00eaff;
-  /* 最初からネオンが効いた状態を固定 */
-  text-shadow: 0 0 24px #0ff, 0 0 48px #0ff, 0 0 72px #f0f;
+  font-size: 24px;
+  color: #0ff;
   margin-bottom: 20px;
-  /* 動きは bounce だけ残す */
-  animation: bounceText 1.4s infinite ease-in-out;
+
+  /* 最初からネオンON */
+  text-shadow: 0 0 8px #0ff, 0 0 16px #0ff, 0 0 32px #0ff, 0 0 64px #0ff;
+
+  animation: bounceText 1.4s infinite ease-in-out,
+             neonFlicker 2s infinite alternate;
+  animation-fill-mode: both;
 }
 
-@keyframes bounceText {
-  0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-12px); }
-  60% { transform: translateY(-6px); }
-}
-
-/* ステータスバー */
-.loading-bar-container {
-  width: 80%;
-  max-width: 400px;
-  height: 8px;
-  background: rgba(0,255,255,0.2);
-  border-radius: 4px;
-  overflow: hidden;
-  box-shadow: 0 0 12px #0ff inset;
-  position: relative;
-}
-
+/* バー */
 .loading-bar {
+  width: 80%;
+  height: 6px;
+  background: rgba(0,255,255,0.2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.loading-bar-inner {
+  width: 0;
   height: 100%;
-  width: 100%;
-  background: linear-gradient(90deg, #0ff, #ff00ff, #0ff);
-  border-radius: 4px;
-  /* 最初からネオンが効いた状態を固定 */
-  box-shadow: 0 0 20px #0ff, 0 0 40px #f0f, 0 0 60px #0ff;
-  /* 横移動だけアニメーション */
-  animation: slideBar 2.5s linear infinite;
-  transform: translateX(-100%);
+  background: #0ff;
+  box-shadow: 0 0 10px #0ff, 0 0 20px #0ff, 0 0 40px #0ff;
+  animation: loadingBar 2s infinite;
 }
 
-@keyframes slideBar {
-  0%   { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
+/* テキストの跳ねアニメ */
+@keyframes bounceText {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
 }
 
-/* ===== PC向け ===== */
-@media (min-width: 768px) {
-  .navbar-title { font-size: 1.7rem; }
-  .navbar-current { font-size: 1rem; }
-  .bottom-tab .tab-link { font-size: 0.9rem; }
-  .bottom-tab .tab-link i { font-size: 24px; }
+/* ネオンのゆらめき（最初からONで強弱だけ変化） */
+@keyframes neonFlicker {
+  0%, 100% {
+    text-shadow: 0 0 8px #0ff, 0 0 16px #0ff, 0 0 32px #0ff, 0 0 64px #0ff;
+  }
+  50% {
+    text-shadow: 0 0 4px #0ff, 0 0 8px #0ff, 0 0 16px #0ff, 0 0 24px #0ff;
+  }
+}
+
+/* バーの伸びアニメ */
+@keyframes loadingBar {
+  0%   { width: 0; }
+  50%  { width: 100%; }
+  100% { width: 0; }
 }
