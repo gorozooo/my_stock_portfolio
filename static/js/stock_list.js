@@ -2,6 +2,7 @@
    スマホファースト設計、HTML/CSS/JS分けて設計
    タブ切替でセクションを中央寄せ
    リロード時も自動中央寄せ
+   モーダル内の編集・売却ボタンを下部に横並び
    ========================== */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -23,7 +24,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const wrapperRect = wrapper.getBoundingClientRect();
 
     const sectionLeftRelative = sectionRect.left - wrapperRect.left + wrapper.scrollLeft;
-
     let scrollLeft = sectionLeftRelative - (wrapperWidth / 2) + (sectionRect.width / 2);
 
     const maxScroll = wrapper.scrollWidth - wrapperWidth;
@@ -62,6 +62,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const modal = document.getElementById("stock-modal");
   const modalBody = document.getElementById("modal-body");
   const modalClose = document.querySelector(".modal-close");
+  const modalEditBtn = document.getElementById("edit-stock-btn");
+  const modalSellBtn = document.getElementById("sell-stock-btn");
 
   const escapeHTML = str => String(str).replace(/[&<>"']/g, m =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m])
@@ -85,26 +87,14 @@ document.addEventListener("DOMContentLoaded", () => {
         <p>取得単価: ¥${unitPrice}</p>
         <p>現在株価: ¥${currentPrice}</p>
         <p>損益: ¥${profit} (${profitRate}%)</p>
-        <div class="modal-actions">
-          <button class="edit-btn">編集</button>
-          <button class="sell-btn">売却</button>
-        </div>
       `;
+
       modal.style.display = "block";
       modal.setAttribute("aria-hidden", "false");
 
-      // モーダル内のボタンイベント
-      modalBody.querySelector(".edit-btn")?.addEventListener("click", e => {
-        e.stopPropagation();
-        console.log("モーダル内 編集ボタン押下");
-        // TODO: 編集画面へ遷移処理
-      });
-
-      modalBody.querySelector(".sell-btn")?.addEventListener("click", e => {
-        e.stopPropagation();
-        console.log("モーダル内 売却ボタン押下");
-        // TODO: 売却処理
-      });
+      // モーダル内ボタンに株データを渡す
+      modalEditBtn.dataset.id = card.dataset.id;
+      modalSellBtn.dataset.id = card.dataset.id;
     });
 
     card.addEventListener("keydown", e => {
@@ -125,7 +115,22 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("keydown", e => { if (e.key === "Escape" && modal.style.display === "block") closeModal(); });
 
   // -------------------------------
-  // 縦スクロールを妨げないスワイプ判定
+  // モーダル内「編集・売却」ボタン
+  // -------------------------------
+  modalEditBtn?.addEventListener("click", e => {
+    e.stopPropagation();
+    console.log(`モーダル内 編集ボタン押下 ID=${modalEditBtn.dataset.id}`);
+    // TODO: 編集画面へ遷移処理
+  });
+
+  modalSellBtn?.addEventListener("click", e => {
+    e.stopPropagation();
+    console.log(`モーダル内 売却ボタン押下 ID=${modalSellBtn.dataset.id}`);
+    // TODO: 売却処理
+  });
+
+  // -------------------------------
+  // 縦スクロールを妨げないカード横スワイプ判定
   // -------------------------------
   document.querySelectorAll(".stock-card").forEach(card => {
     let startX = 0, startY = 0, isDragging = false;
@@ -161,6 +166,7 @@ document.addEventListener("DOMContentLoaded", () => {
       else if (deltaX > 50) card.classList.remove("swiped");
     }, { passive: true });
 
+    // カード内ボタンイベント
     card.querySelector(".edit-btn")?.addEventListener("click", e => {
       e.stopPropagation();
       console.log("カード内 編集ボタン押下");
