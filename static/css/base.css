@@ -180,7 +180,7 @@ main {
   min-height: calc(100vh - 160px);
 }
 
-/* ===== Now Loading 飛び跳ね＋ステータスバー ===== */
+/* ===== Now Loading 飛び跳ね＋進行バー ===== */
 #loading-screen {
   position: fixed;
   top: 0;
@@ -193,7 +193,7 @@ main {
   justify-content: center;
   align-items: center;
   z-index: 9999;
-  transition: opacity 0.3s ease, visibility 0.3s ease;
+  transition: opacity 0.4s ease, visibility 0.4s ease;
 }
 
 #loading-screen.hidden {
@@ -203,12 +203,12 @@ main {
 
 .loading-text {
   font-family: "Orbitron", sans-serif;
-  font-size: 24px;
+  font-size: 26px;
   font-weight: bold;
   color: #00eaff;
   text-shadow: 0 0 12px #00eaff, 0 0 24px #00eaff, 0 0 40px #00eaff;
-  margin-bottom: 16px;
-  animation: bounceText 1s infinite ease-in-out;
+  margin-bottom: 20px;
+  animation: bounceText 1.4s infinite ease-in-out;
 }
 
 @keyframes bounceText {
@@ -218,28 +218,28 @@ main {
 }
 
 /* ステータスバー */
-#loading-screen .loading-bar-container {
+.loading-bar-container {
   width: 80%;
   max-width: 400px;
-  height: 6px;
+  height: 8px;
   background: rgba(0,255,255,0.2);
-  border-radius: 3px;
+  border-radius: 4px;
   overflow: hidden;
   box-shadow: 0 0 12px #0ff inset;
   position: relative;
 }
 
-#loading-screen .loading-bar {
-  width: 0%;
+.loading-bar {
   height: 100%;
+  width: 0%;
   background: linear-gradient(90deg, #0ff, #ff00ff, #0ff);
-  border-radius: 3px;
-  box-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #ff00ff;
-  animation: neonPulse 1.5s infinite alternate;
-  transition: width 0.1s linear;
-  position: absolute;
-  left: 0;
-  top: 0;
+  border-radius: 4px;
+  animation: loadProgress 3s linear forwards, neonPulse 1.5s infinite alternate;
+}
+
+@keyframes loadProgress {
+  0% { width: 0%; }
+  100% { width: 100%; }
 }
 
 @keyframes neonPulse {
