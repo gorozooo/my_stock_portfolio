@@ -21,7 +21,15 @@ document.addEventListener("DOMContentLoaded", function() {
           e.stopPropagation(); // 上位クリック阻止
           const href = a.getAttribute('href');
           if(href && !href.startsWith('#') && !href.startsWith('javascript:')){
-            // ページ遷移
+            // 即時移行
+            window.location.href = href;
+          }
+        });
+        // タッチでも確実に移行
+        a.addEventListener('touchend', e => {
+          e.stopPropagation();
+          const href = a.getAttribute('href');
+          if(href && !href.startsWith('#') && !href.startsWith('javascript:')){
             window.location.href = href;
           }
         });
@@ -47,7 +55,6 @@ document.addEventListener("DOMContentLoaded", function() {
           e.preventDefault();
           closeAllSubMenus();
         } else {
-          // サブメニューがない、または閉じている場合は遷移
           const href = tabLink.getAttribute('href');
           if(href && !href.startsWith('#') && !href.startsWith('javascript:')){
             e.preventDefault();
@@ -62,7 +69,7 @@ document.addEventListener("DOMContentLoaded", function() {
     tab.addEventListener('touchstart', e => { touchStartTime = Date.now(); });
     tab.addEventListener('touchend', e => {
       const touchDuration = Date.now() - touchStartTime;
-      if(touchDuration < 500) tab.click();
+      if(touchDuration < 500 && !e.target.closest('.sub-menu a')) tab.click();
     });
   });
 
