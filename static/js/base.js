@@ -1,4 +1,4 @@
-// base.js（文字＋ネオン進捗バー 完全版）
+// base.js（文字＋ネオン進捗バー 完全版・修正版）
 document.addEventListener("DOMContentLoaded", function() {
 
   /* ========================================
@@ -174,22 +174,24 @@ document.addEventListener("DOMContentLoaded", function() {
   document.body.appendChild(loadingOverlay);
 
   let loadingInterval;
+  let progress = 0;
 
   function showLoading(callback) {
     loadingOverlay.style.display = 'flex';
     requestAnimationFrame(() => loadingOverlay.style.opacity = '1');
 
+    progress = 0;
+    loadingBar.style.width = '0%';
+
     clearInterval(loadingInterval);
     loadingInterval = setInterval(() => {
-      const resources = performance.getEntriesByType("resource");
-      const total = resources.length + 1;
-      const loaded = resources.filter(r => r.responseEnd > 0).length + (document.readyState === "complete" ? 1 : 0);
-      let progress = Math.min((loaded / total) * 100, 95);
+      progress += Math.random() * 4; // 1〜4%ずつ進む
+      if (progress >= 90) progress = 90; // 最高90%まで疑似増加
       loadingBar.style.width = progress + '%';
     }, 100);
 
     if (callback) {
-      setTimeout(callback, 50); // リンク遷移用
+      setTimeout(callback, 50);
     }
   }
 
@@ -208,7 +210,6 @@ document.addEventListener("DOMContentLoaded", function() {
   window.addEventListener("load", hideLoading);
   window.addEventListener("pageshow", hideLoading);
 
-  // リンククリック時
   document.querySelectorAll("a[href]").forEach(link => {
     link.addEventListener("click", e => {
       const href = link.getAttribute("href");
@@ -218,7 +219,6 @@ document.addEventListener("DOMContentLoaded", function() {
     });
   });
 
-  // フォーム送信時
   document.querySelectorAll("form").forEach(form => {
     form.addEventListener("submit", e => showLoading());
   });
