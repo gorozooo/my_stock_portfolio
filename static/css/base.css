@@ -180,7 +180,7 @@ main {
   min-height: calc(100vh - 160px);
 }
 
-/* ===== Now Loading 飛び跳ね＋進行バー ===== */
+/* ===== Now Loading ネオンテキスト＋繰り返し進行バー ===== */
 #loading-screen {
   position: fixed;
   top: 0;
@@ -208,13 +208,18 @@ main {
   color: #00eaff;
   text-shadow: 0 0 12px #00eaff, 0 0 24px #00eaff, 0 0 40px #00eaff;
   margin-bottom: 20px;
-  animation: bounceText 1.4s infinite ease-in-out;
+  animation: bounceText 1.4s infinite ease-in-out, neonText 1.5s infinite alternate;
 }
 
 @keyframes bounceText {
   0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
   40% { transform: translateY(-16px); }
   60% { transform: translateY(-8px); }
+}
+
+@keyframes neonText {
+  from { text-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 40px #0ff; }
+  to   { text-shadow: 0 0 16px #f0f, 0 0 32px #f0f, 0 0 48px #f0f; }
 }
 
 /* ステータスバー */
@@ -234,7 +239,7 @@ main {
   width: 0%;
   background: linear-gradient(90deg, #0ff, #ff00ff, #0ff);
   border-radius: 4px;
-  animation: loadProgress 3s linear forwards, neonPulse 1.5s infinite alternate;
+  animation: loadProgress 3s linear infinite, neonPulse 1.5s infinite alternate;
 }
 
 @keyframes loadProgress {
