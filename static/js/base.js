@@ -10,7 +10,9 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // tab全体をクリック／タップで開閉
     tab.addEventListener('click', e => {
-      e.stopPropagation(); // 外部クリック検知を防ぐ
+      // サブメニュー内リンククリック時は無視
+      if (e.target.closest('.sub-menu a')) return;
+
       const isOpen = subMenu.classList.contains('show');
       closeAllSubMenus();
       if (!isOpen) {
@@ -26,7 +28,9 @@ document.addEventListener("DOMContentLoaded", function() {
 
   function openSubMenu(subMenu, tab) {
     const rect = tab.getBoundingClientRect();
-    subMenu.style.left = rect.left + "px";
+    // 横幅調整：画面外にはみ出さない
+    const left = Math.min(rect.left, window.innerWidth - subMenu.offsetWidth - 10);
+    subMenu.style.left = left + "px";
     subMenu.style.bottom = (window.innerHeight - rect.top + 10) + "px";
     subMenu.classList.add('show');
   }
