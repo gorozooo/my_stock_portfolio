@@ -1,4 +1,4 @@
-// base.js（文字＋ネオン進捗バー 完全版・修正版）
+// base.js（確認モーダル＋文字＋ネオン進捗バー 完全版・修正版）
 document.addEventListener("DOMContentLoaded", function() {
 
   /* ========================================
@@ -169,7 +169,7 @@ document.addEventListener("DOMContentLoaded", function() {
     borderRadius: '3px',
     boxShadow: '0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #ff00ff',
     animation: 'neonPulse 1.5s infinite alternate',
-    transition: 'width 0.1s linear',
+    transition: 'width 0.2s linear',
     position: 'absolute',
     left: '0',
     top: '0'
@@ -191,10 +191,10 @@ document.addEventListener("DOMContentLoaded", function() {
 
     clearInterval(loadingInterval);
     loadingInterval = setInterval(() => {
-      progress += Math.random() * 4;
-      if (progress >= 90) progress = 90;
+      progress += Math.random() * 6; // 少し早めに増加
+      if (progress >= 95) progress = 95;
       loadingBar.style.width = progress + '%';
-    }, 100);
+    }, 120);
 
     if (callback) setTimeout(callback, 50);
   }
@@ -208,12 +208,14 @@ document.addEventListener("DOMContentLoaded", function() {
         loadingOverlay.style.display = 'none';
         loadingBar.style.width = '0%';
       }, 300);
-    }, 100);
+    }, 200);
   }
 
+  // ページ完全ロードで終了
   window.addEventListener("load", hideLoading);
   window.addEventListener("pageshow", hideLoading);
 
+  // すべてのリンクに適用
   document.querySelectorAll("a[href]").forEach(link => {
     link.addEventListener("click", e => {
       const href = link.getAttribute("href");
@@ -223,10 +225,12 @@ document.addEventListener("DOMContentLoaded", function() {
     });
   });
 
+  // フォーム送信時
   document.querySelectorAll("form").forEach(form => {
-    form.addEventListener("submit", e => showLoading());
+    form.addEventListener("submit", () => showLoading());
   });
 
+  // ページ離脱時にも表示
   window.addEventListener("beforeunload", () => showLoading());
 
   /* ===========================================
