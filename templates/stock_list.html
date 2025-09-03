@@ -1,3 +1,5 @@
+{# スマホファースト設計、html css jsは分ける #}
+
 {% extends "base.html" %}
 {% load static %}
 {% load humanize %}
@@ -49,8 +51,6 @@
                       <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
                     </div>
                   </div>
-                  <!-- カード編集ボタン -->
-                  <button class="card-edit-btn" type="button">編集</button>
                 </div>
               </article>
             {% endfor %}
@@ -63,37 +63,18 @@
     <p>保有株データがありません。</p>
   {% endif %}
 
-  <!-- モーダル（編集フォーム統合） -->
+  <!-- モーダル -->
   <div id="stock-modal" class="modal" aria-hidden="true">
     <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <button class="modal-close" aria-label="閉じる">&times;</button>
-
-      <h2 id="modal-title">株情報編集</h2>
-
-      <form id="stock-edit-form">
-        <input type="hidden" name="stock_id" id="modal-stock-id">
-
-        <div class="form-row">
-          <label for="modal-stock-name">銘柄名</label>
-          <input type="text" id="modal-stock-name" name="name" required>
-        </div>
-
-        <div class="form-row">
-          <label for="modal-stock-shares">株数</label>
-          <input type="number" id="modal-stock-shares" name="shares" min="1" required>
-        </div>
-
-        <div class="form-row">
-          <label for="modal-stock-unit-price">取得単価</label>
-          <input type="number" id="modal-stock-unit-price" name="unit_price" min="0" required>
-        </div>
-
-        <div class="modal-actions">
-          <button type="submit" class="modal-action-btn">保存</button>
-          <button type="button" class="modal-action-btn negative" id="modal-cancel-btn">キャンセル</button>
-        </div>
-      </form>
-
+      <div id="modal-body" role="document">
+        <!-- 株情報をここに挿入 -->
+      </div>
+      <!-- モーダル内の編集・売却ボタン -->
+      <div class="modal-actions">
+        <button id="edit-stock-btn" class="modal-action-btn">編集</button>
+        <button id="sell-stock-btn" class="modal-action-btn negative">売却</button>
+      </div>
     </div>
   </div>
 
@@ -107,3 +88,5 @@
 {% block extra_js %}
 <script src="{% static 'js/stock_list.js' %}" defer></script>
 {% endblock %}
+
+このコードを修正して全文送って
