@@ -1,19 +1,16 @@
-// base.js（確認モーダル＋文字＋ネオン進捗バー 流れる＋残像版＋下タブ修正版 クリック対応）
+// base.js（確認モーダル＋文字＋ネオン進捗バー＋残像版＋下タブ修正版 完全クリック対応）
 document.addEventListener("DOMContentLoaded", function() {
 
-  /* ===== 下タブ＆サブメニュー操作（クリックで開く） ===== */
+  /* ===== 下タブ＆サブメニュー操作（PC/スマホ両対応） ===== */
   const tabs = document.querySelectorAll('.tab-item');
 
   tabs.forEach(tab => {
     const subMenu = tab.querySelector('.sub-menu');
     if (!subMenu) return;
 
-    const tabLink = tab.querySelector('.tab-link');
-    if(!tabLink) return;
-
-    tabLink.addEventListener('click', e => {
-      e.preventDefault();
-      e.stopPropagation();
+    // tab全体をクリック／タップで開閉
+    tab.addEventListener('click', e => {
+      e.stopPropagation(); // 外部クリック検知を防ぐ
       const isOpen = subMenu.classList.contains('show');
       closeAllSubMenus();
       if(!isOpen){
@@ -24,7 +21,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
   // 外部クリックで閉じる
   document.addEventListener('click', e => {
-    if (!e.target.closest('.tab-item')) closeAllSubMenus();
+    if(!e.target.closest('.tab-item')) closeAllSubMenus();
   });
 
   function openSubMenu(subMenu, tab){
@@ -88,7 +85,7 @@ document.addEventListener("DOMContentLoaded", function() {
     modal.addEventListener("click", e => { if(e.target===modal){ modal.style.display="none"; okCallback=null; } });
   }
 
-  /* ===== ローディング画面（文字＋常に流れるネオンバー＋残像効果） ===== */
+  /* ===== ローディング画面（文字＋流れるネオンバー＋残像効果） ===== */
   const loadingOverlay = document.createElement('div');
   Object.assign(loadingOverlay.style,{
     position:'fixed',top:'0',left:'0',width:'100%',height:'100%',
