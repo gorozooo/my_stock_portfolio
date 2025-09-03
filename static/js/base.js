@@ -124,6 +124,7 @@ document.addEventListener("DOMContentLoaded", function() {
     justifyContent:'center',alignItems:'center',zIndex:'9999',opacity:'0',
     transition:'opacity 0.2s ease'
   });
+  loadingOverlay.innerHTML = `<div style="color:white;font-size:20px;">Now Loading...</div>`;
   document.body.appendChild(loadingOverlay);
 
   function showLoading(cb){
@@ -138,10 +139,13 @@ document.addEventListener("DOMContentLoaded", function() {
     setTimeout(()=>{loadingOverlay.style.display='none';},300);
   }
 
-  // ページロード完了時にローディング非表示
+  // ★ ページ最初からローディングを表示
+  showLoading();
+
+  // ページロード完了時に非表示
   window.addEventListener("load", hideLoading);
 
-  // Safariリロード・離脱時にローディング表示
+  // Safariリロードや離脱時も必ず表示
   window.addEventListener("beforeunload", function(){
     showLoading();
   });
