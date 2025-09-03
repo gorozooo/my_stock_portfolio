@@ -177,5 +177,3 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 });
-
-このコードを対応するように修正して全文送って
