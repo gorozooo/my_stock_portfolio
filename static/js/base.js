@@ -1,4 +1,4 @@
-// base.js（確認モーダル＋文字＋ネオン進捗バー 流れるグラデーション版）
+// base.js（確認モーダル＋文字＋ネオン進捗バー 流れる＋残像版）
 document.addEventListener("DOMContentLoaded", function() {
 
   /* ===== 下タブ＆サブメニュー操作 ===== */
@@ -40,13 +40,13 @@ document.addEventListener("DOMContentLoaded", function() {
     modal.addEventListener("click", e=>{ if(e.target===modal){ modal.style.display="none"; okCallback=null; } });
   }
 
-  /* ===== ローディング画面（文字＋常に流れるネオンバー） ===== */
+  /* ===== ローディング画面（文字＋常に流れるネオンバー＋残像効果） ===== */
   const loadingOverlay=document.createElement('div');
   Object.assign(loadingOverlay.style,{ position:'fixed',top:'0',left:'0',width:'100%',height:'100%',background:'rgba(0,0,20,0.85)',display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',zIndex:'9999',opacity:'0',transition:'opacity 0.2s ease' });
 
   const loadingText=document.createElement('div');
   loadingText.textContent='Now Loading';
-  Object.assign(loadingText.style,{ color:'#0ff', fontFamily:'"Orbitron", sans-serif', fontSize:'1.5rem', marginBottom:'12px', textShadow:'0 0 8px #0ff,0 0 16px #0ff', animation:'bounceText 1s infinite' });
+  Object.assign(loadingText.style,{ color:'#0ff', fontFamily:'"Orbitron", sans-serif', fontSize:'1.5rem', marginBottom:'12px', textShadow:'0 0 12px #0ff,0 0 24px #0ff', animation:'bounceText 1s infinite' });
   loadingOverlay.appendChild(loadingText);
 
   const barContainer=document.createElement('div');
@@ -58,7 +58,8 @@ document.addEventListener("DOMContentLoaded", function() {
     background:'linear-gradient(270deg,#0ff,#ff00ff,#0ff,#ff00ff,#0ff)',
     backgroundSize:'200% 100%',
     borderRadius:'3px',
-    boxShadow:'0 0 12px #0ff,0 0 24px #0ff,0 0 36px #ff00ff',
+    boxShadow:'0 0 16px #0ff,0 0 32px #0ff,0 0 48px #ff00ff', // 光彩強化
+    filter:'blur(2px)', // 少しブラーで残像
     animation:'neonFlow 2s linear infinite',
     position:'absolute', left:'0', top:'0'
   });
