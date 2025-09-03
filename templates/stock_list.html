@@ -23,8 +23,6 @@
     <div class="broker-horizontal-wrapper" id="broker-horizontal-wrapper" aria-live="polite">
       {% for broker_group in broker_list %}
         <section class="broker-section" data-broker-index="{{ forloop.counter0 }}" aria-label="{{ broker_group.grouper }}">
-          <!-- 証券会社タイトル削除 -->
-          <!-- 株カード縦スクロール（各セクション内で縦スクロール可能） -->
           <div class="broker-cards-wrapper">
             {% for stock in broker_group.list %}
               <article class="stock-card-wrapper">
@@ -70,11 +68,12 @@
     <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <button class="modal-close" aria-label="閉じる">&times;</button>
       <div id="modal-body" role="document">
-        <!-- モーダル内に編集・売却ボタン追加 -->
-        <div class="modal-actions">
-          <button id="edit-stock-btn" class="modal-action-btn">編集</button>
-          <button id="sell-stock-btn" class="modal-action-btn negative">売却</button>
-        </div>
+        <!-- 株情報をここに挿入 -->
+      </div>
+      <!-- モーダル内の編集・売却ボタン -->
+      <div class="modal-actions">
+        <button id="edit-stock-btn" class="modal-action-btn">編集</button>
+        <button id="sell-stock-btn" class="modal-action-btn negative">売却</button>
       </div>
     </div>
   </div>
