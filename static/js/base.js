@@ -11,12 +11,14 @@ document.addEventListener("DOMContentLoaded", function() {
 
     let touchTimer;
 
+    // 右クリックでサブメニュー表示（PC用）
     tab.addEventListener('contextmenu', e => {
       e.preventDefault();
       closeAllSubMenus();
       openSubMenu(subMenu, tab);
     });
 
+    // 長押しでサブメニュー表示（タッチ用）
     tab.addEventListener('touchstart', e => {
       touchTimer = setTimeout(() => {
         closeAllSubMenus();
@@ -156,7 +158,8 @@ document.addEventListener("DOMContentLoaded", function() {
     height: '6px',
     background: 'rgba(0,255,255,0.1)',
     borderRadius: '3px', overflow: 'hidden',
-    boxShadow: '0 0 12px #0ff inset'
+    boxShadow: '0 0 12px #0ff inset',
+    position: 'relative'
   });
 
   const loadingBar = document.createElement('div');
@@ -166,7 +169,10 @@ document.addEventListener("DOMContentLoaded", function() {
     borderRadius: '3px',
     boxShadow: '0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #ff00ff',
     animation: 'neonPulse 1.5s infinite alternate',
-    transition: 'width 0.1s linear'
+    transition: 'width 0.1s linear',
+    position: 'absolute',
+    left: '0',
+    top: '0'
   });
   barContainer.appendChild(loadingBar);
   loadingOverlay.appendChild(barContainer);
@@ -185,14 +191,12 @@ document.addEventListener("DOMContentLoaded", function() {
 
     clearInterval(loadingInterval);
     loadingInterval = setInterval(() => {
-      progress += Math.random() * 4; // 1〜4%ずつ進む
-      if (progress >= 90) progress = 90; // 最高90%まで疑似増加
+      progress += Math.random() * 4;
+      if (progress >= 90) progress = 90;
       loadingBar.style.width = progress + '%';
     }, 100);
 
-    if (callback) {
-      setTimeout(callback, 50);
-    }
+    if (callback) setTimeout(callback, 50);
   }
 
   function hideLoading() {
@@ -225,49 +229,43 @@ document.addEventListener("DOMContentLoaded", function() {
 
   window.addEventListener("beforeunload", () => showLoading());
 
-});
-
-/* ===========================================
-   ===== 現在ページ名を下タブから自動取得 =====
-=========================================== */
-document.addEventListener("DOMContentLoaded", () => {
+  /* ===========================================
+     ===== 現在ページ名を下タブから自動取得 =====
+  ============================================ */
   const currentURL = location.pathname;
   const currentPageNameEl = document.getElementById("current-page-name");
-  if (!currentPageNameEl) return;
-
-  const tabs = document.querySelectorAll(".tab-item .tab-link");
-  let found = false;
-
-  tabs.forEach(tabLink => {
-    const href = tabLink.getAttribute("href");
-    const nameSpan = tabLink.querySelector("span");
-    if (!href || !nameSpan) return;
-
-    if (currentURL.startsWith(href)) {
-      currentPageNameEl.textContent = nameSpan.textContent;
-      found = true;
+  if (currentPageNameEl) {
+    const tabLinks = document.querySelectorAll(".tab-item .tab-link");
+    let found = false;
+    tabLinks.forEach(tabLink => {
+      const href = tabLink.getAttribute("href");
+      const nameSpan = tabLink.querySelector("span");
+      if (href && nameSpan && currentURL.startsWith(href)) {
+        currentPageNameEl.textContent = nameSpan.textContent;
+        found = true;
+      }
+    });
+    if (!found) {
+      const trimmed = currentURL.replace(/^\/|\/$/g, "");
+      currentPageNameEl.textContent = trimmed || "ホーム";
     }
-  });
-
-  if (!found) {
-    const trimmed = currentURL.replace(/^\/|\/$/g, "");
-    currentPageNameEl.textContent = trimmed || "ホーム";
   }
-});
 
-/* ===========================================
-   ===== ローディングテキスト＋バーアニメーション =====
-=========================================== */
-const style = document.createElement('style');
-style.innerHTML = `
-@keyframes bounceText {
-  0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-   40% { transform: translateY(-16px); }
-   60% { transform: translateY(-8px); }
-}
-@keyframes neonPulse {
-  0% { box-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #ff00ff; }
-  50% { box-shadow: 0 0 24px #0ff, 0 0 48px #0ff, 0 0 72px #ff00ff; }
-  100% { box-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #ff00ff; }
-}`;
-document.head.appendChild(style);
+  /* ===========================================
+     ===== ローディングテキスト＋バーアニメーション =====
+  ============================================ */
+  const style = document.createElement('style');
+  style.innerHTML = `
+  @keyframes bounceText {
+    0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+    40% { transform: translateY(-16px); }
+    60% { transform: translateY(-8px); }
+  }
+  @keyframes neonPulse {
+    0% { box-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #ff00ff; }
+    50% { box-shadow: 0 0 24px #0ff, 0 0 48px #0ff, 0 0 72px #ff00ff; }
+    100% { box-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #ff00ff; }
+  }`;
+  document.head.appendChild(style);
+
+});
