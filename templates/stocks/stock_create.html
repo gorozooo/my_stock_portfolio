@@ -63,6 +63,17 @@
         {% if errors.account_type %}<div class="field-error">{{ errors.account_type }}</div>{% endif %}
       </div>
 
+      <!-- ポジション（追加） -->
+      <div class="form-field">
+        <label for="position">ポジション</label>
+        <select id="position" name="position">
+          <option value="" disabled {% if not data.position %}selected{% endif %}>選択してください</option>
+          <option value="買い" {% if data.position == '買い' %}selected{% endif %}>買い</option>
+          <option value="売り" {% if data.position == '売り' %}selected{% endif %}>売り</option>
+        </select>
+        {% if errors.position %}<div class="field-error">{{ errors.position }}</div>{% endif %}
+      </div>
+
       <!-- 株数 -->
       <div class="form-field">
         <label for="shares">株数</label>
