@@ -1,391 +1,470 @@
 /* ==========================
    スマホファースト設計
-   HTML/CSS/JSを分ける
-   全体背景は透明
-   各カードは白枠で囲む
-   スクロール計算の安定化対応付き
+   HTML / CSS / JS 分離
+   全体背景は透明・各カードは白枠
+   スクロール計算を安定化（iOS対策含む）
+   視認性アップ（区切り・ハイライト・フォーカス表現）
    ========================== */
 
-/* 可視領域を正しく使うためのCSS変数（JSが --vh を更新します） */
-:root {
-  --vh: 1vh;              /* JSで innerHeight の1%が入る */
-  --navbar-h: 64px;       /* あなたのNavbar高さ */
-  --bottom-tab-h: 72px;   /* あなたの下タブ高さ */
-  --page-pad: 0px;        /* 余白があれば調整 */
+/* --------------------------------
+   可視領域を正しく使うためのCSS変数
+   ※ JSで --vh を更新している前提だが、dvh/svh も併用して更に安定化
+---------------------------------- */
+:root{
+  --vh: 1vh;            /* JS で innerHeight の 1% を反映（古めのiOS対策） */
+  --navbar-h: 64px;     /* ナビバー高さ（環境に合わせて調整） */
+  --bottom-tab-h: 72px; /* 下タブ高さ（環境に合わせて調整） */
+  --page-pad: 0px;      /* ページ余白 */
+  --accent: #00d0ff;    /* アクセント（シアン） */
+  --accent-2: #007bff;  /* アクセント（ブルー） */
+  --text: #fff;         /* 文字色 */
+  --text-dim: rgba(255,255,255,.8);
+  --border: rgba(255,255,255,.5);
+  --border-dim: rgba(255,255,255,.25);
+  --bg-chip: rgba(255,255,255,.06);
+  --bg-panel: rgba(255,255,255,.04);
 }
 
 /* --------------------------
    ベースコンテナ
--------------------------- */
-.portfolio-container {
-  width: 100%;
-  box-sizing: border-box;
-  padding: var(--page-pad);
-  background: transparent;
-  min-height: 0;                 /* ← 子スクロールの邪魔をしない */
-  display: flex;
-  flex-direction: column;
+--------------------------- */
+.portfolio-container{
+  width:100%;
+  box-sizing:border-box;
+  padding:var(--page-pad);
+  background:transparent;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
 }
 
 /* ==========================
    証券会社タブ
 ========================== */
-.broker-tabs-wrapper {
-  display: flex;
-  justify-content: center;
-  overflow-x: auto;
-  gap: 8px;
-  padding: 6px 0;
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  background: transparent;
-  scroll-behavior: smooth;
+.broker-tabs-wrapper{
+  display:flex;
+  justify-content:center;
+  gap:8px;
+  padding:6px 10px;
+  position:sticky;
+  top:0;
+  z-index:20;
+  background:transparent;
+  overflow-x:auto;
+  scroll-behavior:smooth;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
-.broker-tabs-wrapper::-webkit-scrollbar { display: none; }
-.broker-tabs-wrapper { -ms-overflow-style: none; scrollbar-width: none; }
+.broker-tabs-wrapper::-webkit-scrollbar{ display:none; }
+.broker-tabs-wrapper{ -ms-overflow-style:none; scrollbar-width:none; }
 
-.broker-tab {
-  padding: 6px 14px;
-  border: 1px solid rgba(255,255,255,0.4);
-  background: linear-gradient(145deg, rgba(255,255,255,0.05), rgba(0,123,255,0.05));
-  border-radius: 14px;
-  cursor: pointer;
-  flex-shrink: 0;
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 600;
-  color: #fff;
-  position: relative;
-  overflow: hidden;
-  transition: all 0.3s ease, transform 0.2s ease;
+.broker-tab{
+  padding:8px 14px;
+  border:1px solid var(--border);
+  background:linear-gradient(145deg, rgba(255,255,255,0.05), rgba(0,123,255,0.05));
+  border-radius:14px;
+  cursor:pointer;
+  flex-shrink:0;
+  white-space:nowrap;
+  font-size:13px;
+  font-weight:700;
+  color:var(--text);
+  position:relative;
+  overflow:hidden;
+  transition:transform .2s ease, box-shadow .2s ease, background .2s ease;
+  outline:none;
 }
-
-.broker-tab.active {
-  background: linear-gradient(135deg, rgba(0,123,255,0.8), rgba(0,255,255,0.6));
-  color: #fff;
-  border-color: rgba(0,123,255,0.8);
+.broker-tab:hover{
+  transform:translateY(-2px) scale(1.03);
+  box-shadow:0 0 10px rgba(0,123,255,.3), 0 0 20px rgba(0,255,255,.2);
+}
+.broker-tab:focus-visible{
+  box-shadow:0 0 0 3px rgba(0,208,255,.45);
+}
+.broker-tab.active{
+  background:linear-gradient(135deg, rgba(0,123,255,.8), rgba(0,255,255,.6));
+  border-color: rgba(0,123,255,.8);
+  transform:scale(1.03);
+  color:#fff;
   box-shadow:
-    0 0 8px rgba(0, 123, 255, 0.8),
-    0 0 16px rgba(0, 255, 255, 0.6),
-    0 0 24px rgba(0, 255, 255, 0.4),
-    0 0 32px rgba(0, 123, 255, 0.2);
-  transform: scale(1.05);
+    0 0 8px rgba(0,123,255,.8),
+    0 0 16px rgba(0,255,255,.6),
+    0 0 24px rgba(0,255,255,.4);
 }
-
-.broker-tab.active::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -60%;
-  width: 220%;
-  height: 100%;
-  background: linear-gradient(120deg, rgba(0,255,255,0.3), rgba(255,255,255,0.5), rgba(0,102,255,0.3));
-  transform: skewX(-25deg);
-  animation: shine-future 1.8s infinite;
-  pointer-events: none;
+.broker-tab.active::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:linear-gradient(120deg, rgba(0,255,255,.25), rgba(255,255,255,.35), rgba(0,102,255,.25));
+  mix-blend-mode:screen;
+  opacity:.35;
+  animation:shine-future 1.8s infinite;
+  pointer-events:none;
 }
-
-@keyframes shine-future {
-  0% { left: -60%; }
-  50% { left: 60%; }
-  100% { left: 120%; }
-}
-
-.broker-tab:hover {
-  background: linear-gradient(145deg, rgba(255,255,255,0.1), rgba(0,123,255,0.1));
-  transform: translateY(-2px) scale(1.03);
-  box-shadow: 0 0 10px rgba(0,123,255,0.3), 0 0 20px rgba(0,255,255,0.2);
+@keyframes shine-future{
+  0%{ transform:translateX(-60%); }
+  50%{ transform:translateX(60%); }
+  100%{ transform:translateX(120%); }
 }
 
 /* ==========================
-   証券会社セクション横スクロール外枠
-   ※ 高さは「可視領域 − ナビ − 下タブ − 余白」で決まる
+   横スクロール外枠（セクションの親）
+   高さ = 可視領域 - ナビ - 下タブ - 余白
+   ※ dvh / svh / vh の順でフォールバック
 ========================== */
-.broker-horizontal-wrapper {
-  display: flex;
-  flex-direction: row;
-  overflow-x: hidden;
-  gap: 16px;
-  width: 100%;
-  background: transparent;
-  scroll-behavior: smooth;
-  min-height: 0; /* ← 重要：子要素の高さ計算を阻害しない */
-  height: calc((var(--vh) * 100) - var(--navbar-h) - var(--bottom-tab-h) - var(--page-pad));
+.broker-horizontal-wrapper{
+  display:flex;
+  flex-direction:row;
+  gap:16px;
+  width:100%;
+  background:transparent;
+  min-height:0;
+  overflow:hidden;           /* 横スクロールはJS制御。手動横スクロールは隠す */
+  scroll-behavior:smooth;
+  height:calc(100vh - var(--navbar-h) - var(--bottom-tab-h) - var(--page-pad));
+}
+@supports (height: 100dvh){
+  .broker-horizontal-wrapper{
+    height:calc(100dvh - var(--navbar-h) - var(--bottom-tab-h) - var(--page-pad));
+  }
+}
+@supports (height: 100svh){
+  .broker-horizontal-wrapper{
+    height:calc(100svh - var(--navbar-h) - var(--bottom-tab-h) - var(--page-pad));
+  }
 }
 
-/* 各セクションは横に並ぶが、高さは親にフィット */
-.broker-section {
-  flex: 0 0 100%;
-  width: 100%;
-  display: flex;
-  flex-direction: column; /* ← 見出し + リストの縦積み */
-  align-items: stretch;
-  gap: 6px;
-  padding: 0 6px;
-  box-sizing: border-box;
-  background: transparent;
-  min-height: 0; /* ← 子のスクロールを殺さない */
-  height: 100%;  /* ← 親の高さに合わせる */
+/* 各セクションは親の高さにフィットし、縦に「チップ＋リスト」 */
+.broker-section{
+  flex:0 0 100%;
+  width:100%;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  padding:0 8px 8px;
+  box-sizing:border-box;
+  background:transparent;
+  min-height:0;
+  height:100%;
+  /* 横スナップでJSスクロールの居心地UP（必須ではない） */
+  scroll-snap-align:center;
 }
 
-/* 口座区分の見出し */
-.account-heading {
-  margin: 6px 2px 2px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #fff;
-  opacity: .8;
+/* ==========================
+   口座チップ（横スクロールのボタン群）
+   ※ セクション内の上部に固定され、下のリストだけが縦スクロール
+========================== */
+.account-chips{
+  display:flex;
+  gap:6px;
+  overflow-x:auto;
+  padding:6px 4px 4px;
+  margin:2px 0 2px;
+  -webkit-overflow-scrolling:touch;
+  background:transparent;
 }
+.account-chips::-webkit-scrollbar{ display:none; }
+.account-chip{
+  flex:0 0 auto;
+  padding:8px 12px;
+  border:1px solid var(--border-dim);
+  border-radius:999px;
+  font-size:12px;
+  color:var(--text);
+  background:var(--bg-chip);
+  opacity:.9;
+  transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease;
+  outline:none;
+}
+.account-chip:hover{ transform:translateY(-1px); }
+.account-chip:focus-visible{ box-shadow:0 0 0 3px rgba(0,208,255,.45); }
+.account-chip.is-active{
+  border-color:rgba(0,200,255,.9);
+  box-shadow:0 0 8px rgba(0,200,255,.5);
+  opacity:1;
+  background:linear-gradient(135deg, rgba(0,123,255,.25), rgba(0,255,255,.18));
+}
+
+/* 口座見出し＋合計サマリー（視覚的な区切りを強化） */
+.account-heading{
+  margin:10px 2px 6px;
+  font-size:12px;
+  font-weight:800;
+  color:var(--text);
+  opacity:.95;
+  position:relative;
+  padding-left:10px;
+}
+.account-heading::before{
+  content:'';
+  position:absolute;
+  left:0; top:4px; bottom:4px;
+  width:3px;
+  border-radius:3px;
+  background:linear-gradient(180deg, var(--accent), var(--accent-2));
+  opacity:.7;
+}
+
+/* JSが挿入する合計サマリー */
+.account-summary{
+  display:grid;
+  grid-template-columns: auto 1fr;
+  gap:4px 10px;
+  align-items:center;
+  padding:8px 10px;
+  margin:0 2px 4px;
+  border:1px dashed var(--border-dim);
+  border-radius:8px;
+  background:var(--bg-panel);
+  font-size:12px;
+  color:var(--text-dim);
+}
+.account-summary .sum-label{
+  grid-column:1 / -1;
+  font-weight:700;
+  color:var(--text);
+  opacity:.9;
+}
+.account-summary .sum-profit.positive{ color:#6aff6a; font-weight:700; }
+.account-summary .sum-profit.negative{ color:#ff6a6a; font-weight:700; }
 
 /* ==========================
    株カード縦スクロール領域
-   ※ 高さはJSで最終決定（見出し分の高さも差し引くため）
+   ※ 「flex:1; min-height:0」で親高を余さず使い、縦だけスクロール
+   ※ 見出しを揃えやすいよう scroll-snap を弱めに付与
 ========================== */
-.broker-cards-wrapper {
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  gap: 8px;
-  padding: 0;
-  scroll-behavior: smooth;
-  background: transparent;
-  align-items: stretch;
-  -webkit-overflow-scrolling: touch;
-  touch-action: pan-y;
-  overscroll-behavior-y: contain;
-  min-height: 0;          /* ← これがないとSafariで詰まることがある */
-  /* max-height は JS で実測設定 */
+.broker-cards-wrapper{
+  display:flex;
+  flex-direction:column;
+  flex:1 1 auto;     /* ← これで余白分をすべて占有 */
+  min-height:0;      /* ← Safariの子スクロール必須 */
+  overflow-y:auto;
+  gap:8px;
+  padding:0 2px 6px;
+  align-items:stretch;
+  background:transparent;
+  -webkit-overflow-scrolling:touch;
+  touch-action:pan-y;
+  overscroll-behavior-y:contain;
+
+  scroll-snap-type:y proximity; /* 見出しが自然に留まる程度の吸着 */
 }
-.broker-cards-wrapper::-webkit-scrollbar {
-  width: 6px;
+.broker-cards-wrapper::-webkit-scrollbar{ width:6px; }
+.broker-cards-wrapper::-webkit-scrollbar-thumb{
+  background:rgba(255,255,255,.22);
+  border-radius:3px;
 }
-.broker-cards-wrapper::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.2);
-  border-radius: 3px;
-}
-.broker-cards-wrapper { -ms-overflow-style: thin; scrollbar-width: thin; }
+.account-heading{ scroll-snap-align:start; }
 
 /* ==========================
-   各カード
+   各カード（視認性UP）
 ========================== */
-.stock-card-wrapper {
-  background: transparent;
-  border-radius: 10px;
-  padding: 0;
-  box-sizing: border-box;
-  width: 100%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+.stock-card-wrapper{
+  background:transparent;
+  border-radius:12px;
+  padding:0;
+  box-sizing:border-box;
+  width:100%;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+
+  /* 大量リストでも軽く：見える時だけレンダリング（対応ブラウザ） */
+  content-visibility:auto;
+  contain-intrinsic-size: 120px;
 }
-.stock-card {
-  position: relative;
-  display: block;
-  padding: 8px;
-  border: 1px solid #ffffff;
-  border-radius: 8px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font-size: 12px;
-  width: 95%;
-  max-width: 480px;
-  box-sizing: border-box;
-  overflow: hidden;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-  touch-action: pan-y;
+.stock-card{
+  position:relative;
+  display:block;
+  padding:10px;
+  border:1px solid #ffffff;
+  border-radius:10px;
+  background:rgba(255,255,255,.02);
+  color:var(--text);
+  cursor:pointer;
+  font-size:12px;
+  width:96%;
+  max-width:520px;
+  box-sizing:border-box;
+  overflow:hidden;
+  transition:transform .2s ease, box-shadow .2s ease, background .2s ease, border-color .2s ease;
+  touch-action:pan-y;
+  outline:none;
 }
-.stock-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(0,123,255,0.5);
+.stock-card:hover{
+  transform:translateY(-1px);
+  box-shadow:0 6px 18px rgba(0,123,255,.35);
+  background:rgba(255,255,255,.04);
+  border-color:rgba(255,255,255,.85);
+}
+.stock-card:focus-visible{
+  box-shadow:0 0 0 3px rgba(0,208,255,.45);
 }
 
-.stock-header {
+.stock-header{
   display:flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 6px;
-  font-size: 13px;
-  font-weight: 600;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:6px;
+  font-size:13px;
+  font-weight:700;
+  letter-spacing:.2px;
 }
-.stock-row { 
-  display:flex; 
-  justify-content: space-between; 
-  margin: 2px 0; 
-  font-size: 11px; 
+.stock-name{ color:#fff; }
+.stock-code{
+  color:var(--text-dim);
+  font-weight:700;
+  border:1px solid var(--border-dim);
+  border-radius:6px;
+  padding:2px 6px;
 }
-.stock-row.gain.positive span:last-child { color: #0f0; font-weight: 600; }
-.stock-row.gain.negative span:last-child { color: #f33; font-weight: 600; }
+
+.stock-row{
+  display:flex;
+  justify-content:space-between;
+  margin:3px 0;
+  font-size:12px;
+  color:var(--text-dim);
+}
+.stock-row span:first-child{ letter-spacing:.2px; }
+.stock-row span:last-child{ color:#fff; }
+.stock-row.gain.positive span:last-child{ color:#6aff6a; font-weight:700; }
+.stock-row.gain.negative span:last-child{ color:#ff6a6a; font-weight:700; }
 
 /* ==========================
    編集・売却ボタン（カード右スライド）
 ========================== */
-.stock-card .card-actions {
-  position: absolute;
-  top: 0;
-  right: -140px; /* 初期は右に隠す */
-  height: 100%;
-  display: flex;
-  gap: 6px;
-  padding: 6px;
-  background: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(12px);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
-  overflow: hidden;
-  transition: right 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
-  z-index: 10;
+.stock-card .card-actions{
+  position:absolute;
+  top:8px;
+  right:-148px; /* 初期は右に隠す */
+  height:auto;
+  display:flex;
+  gap:6px;
+  padding:6px;
+  background:rgba(0,0,0,.35);
+  backdrop-filter: blur(10px);
+  border-radius:8px;
+  box-shadow:0 4px 12px rgba(0,123,255,.35);
+  overflow:hidden;
+  transition:right .25s ease, background .25s ease, box-shadow .25s ease;
+  z-index:10;
 }
+.stock-card.swiped .card-actions{ right:8px; }
 
-.stock-card.swiped .card-actions {
-  right: 8px;
+/* 個別ボタン */
+.card-actions button{
+  position:relative;
+  overflow:hidden;
+  padding:6px 12px;
+  border-radius:6px;
+  font-weight:700;
+  font-size:.9rem;
+  cursor:pointer;
+  border:1px solid rgba(255,255,255,.3);
+  color:#fff;
+  background:linear-gradient(180deg, rgba(0,123,255,.85), rgba(0,123,255,.6));
+  transition:transform .15s ease, box-shadow .15s ease, background .15s ease;
+  outline:none;
 }
+.card-actions .sell-btn{
+  background:linear-gradient(180deg, rgba(220,53,69,.9), rgba(220,53,69,.65));
+}
+.card-actions button:hover{ transform:translateY(-1px); }
+.card-actions button:focus-visible{ box-shadow:0 0 0 3px rgba(0,208,255,.45); }
 
-/* 個別ボタン光彩 */
-.card-actions button {
-  position: relative;
-  overflow: hidden;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-weight: 600;
-  font-size: 0.9rem;
-  cursor: pointer;
-  border: none;
-  color: #fff;
-  background: rgba(0, 123, 255, 0.75);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+/* ライトの筋 */
+.card-actions button::after{
+  content:'';
+  position:absolute;
+  top:-50%; left:-50%;
+  width:200%; height:200%;
+  background:linear-gradient(120deg, rgba(255,255,255,.15), rgba(255,255,255,.5), rgba(255,255,255,.15));
+  transform:rotate(-25deg);
+  animation:shine-btn 1.6s infinite;
+  pointer-events:none;
+  mix-blend-mode:screen;
 }
-.card-actions .sell-btn { background: rgba(220, 53, 69, 0.75); }
-
-.card-actions button::after {
-  content: '';
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: linear-gradient(120deg, rgba(255,255,255,0.2), rgba(255,255,255,0.6), rgba(255,255,255,0.2));
-  transform: rotate(-25deg);
-  animation: shine-btn 1.5s infinite;
-  pointer-events: none;
-}
-
-@keyframes shine-btn {
-  0% { transform: translateX(-100%) rotate(-25deg); }
-  50% { transform: translateX(100%) rotate(-25deg); }
-  100% { transform: translateX(200%) rotate(-25deg); }
-}
-
-.card-actions button:hover {
-  transform: scale(1.05);
-  box-shadow: 0 4px 10px rgba(0,123,255,0.4);
-}
-.card-actions .sell-btn:hover {
-  box-shadow: 0 4px 10px rgba(220,53,69,0.4);
+@keyframes shine-btn{
+  0%{ transform:translateX(-100%) rotate(-25deg); }
+  50%{ transform:translateX(100%) rotate(-25deg); }
+  100%{ transform:translateX(200%) rotate(-25deg); }
 }
 
 /* ==========================
-   モーダル
+   モーダル（既存）
 ========================== */
-.modal {
-  display: none;
-  position: fixed;
-  z-index: 2000;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0,0,0,0.6);
-  backdrop-filter: blur(3px);
-  overflow-y: auto;
+.modal{
+  display:none;
+  position:fixed;
+  z-index:2000;
+  inset:0;
+  background:rgba(0,0,0,.6);
+  backdrop-filter:blur(3px);
+  overflow-y:auto;
+  padding-bottom: env(safe-area-inset-bottom);
 }
-.modal-content {
-  margin: 10% auto;
-  padding: 20px;
-  border-radius: 12px;
-  width: 90%;
-  max-width: 400px;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
+.modal-content{
+  margin:10% auto;
+  padding:20px;
+  border-radius:12px;
+  width:90%;
+  max-width:420px;
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+  background:rgba(18,18,24,.9);
+  border:1px solid rgba(255,255,255,.18);
 }
-.modal-close {
-  position: absolute;
-  top: 6px;
-  right: 10px;
-  font-size: 22px;
-  cursor: pointer;
-  background: none;
-  border: none;
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-  margin-top: 16px;
-}
-.modal-action-btn {
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 0.95rem;
-  cursor: pointer;
-  border: none;
-  color: #fff;
-  font-weight: 600;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-.modal-action-btn:hover { transform: scale(1.05); box-shadow: 0 4px 12px rgba(0,123,255,0.4); }
-.modal-action-btn.negative { background-color: #f44336; }
-.modal-action-btn:not(.negative) { background-color: #007bff; }
-
-/* 口座チップ（横スクロールの小さなボタン群） */
-.account-chips {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding: 6px 4px 4px;
-  margin: 2px 0 4px;
-  -webkit-overflow-scrolling: touch;
-}
-.account-chips::-webkit-scrollbar { display: none; }
-.account-chip {
-  flex: 0 0 auto;
-  padding: 6px 10px;
-  border: 1px solid rgba(255,255,255,0.25);
-  border-radius: 999px;
-  font-size: 12px;
-  color: #fff;
-  opacity: .85;
-  background: rgba(255,255,255,0.06);
-}
-.account-chip.is-active {
-  border-color: rgba(0, 200, 255, .9);
-  box-shadow: 0 0 8px rgba(0,200,255,.5);
-  opacity: 1;
+.modal-close{
+  position:absolute;
+  top:6px; right:10px;
+  font-size:22px;
+  cursor:pointer;
+  background:none;
+  border:none;
+  color:#fff;
 }
 
-/* 見出し（固定しない＝普通に流れる） */
-.account-heading {
-  margin: 10px 2px 6px;
-  font-size: 12px;
-  font-weight: 800;
-  color: #fff;
-  opacity: .9;
+.modal-actions{
+  display:flex;
+  justify-content:center;
+  gap:12px;
+  margin-top:16px;
 }
-
-/* 1本スクロールに合わせて高さは既存ロジック（JSでmax-height算出）でOK */
+.modal-action-btn{
+  padding:10px 16px;
+  border-radius:8px;
+  font-size:.95rem;
+  cursor:pointer;
+  border:1px solid rgba(255,255,255,.25);
+  color:#fff;
+  font-weight:700;
+  transition:transform .15s ease, box-shadow .15s ease;
+  background:linear-gradient(180deg, rgba(0,123,255,.85), rgba(0,123,255,.6));
+}
+.modal-action-btn:hover{ transform:translateY(-1px); box-shadow:0 4px 12px rgba(0,123,255,.35); }
+.modal-action-btn.negative{ background:linear-gradient(180deg, rgba(244,67,54,.95), rgba(244,67,54,.7)); }
 
 /* ==========================
-   レスポンシブ（任意）
+   アクセシビリティ小改善
 ========================== */
-@media (min-width: 768px) {
-  .broker-section { flex: 0 0 50%; min-width: 50%; }
-  .stock-card { padding: 10px; font-size: 13px; max-width: 420px; width: 92%; }
+.broker-tab:active,
+.account-chip:active,
+.modal-action-btn:active,
+.card-actions button:active{
+  transform:scale(.98);
 }
-@media (min-width: 1024px) {
-  .broker-section { flex: 0 0 33.333%; min-width: 33.333%; }
-  .stock-card { padding: 12px; font-size: 14px; max-width: 480px; width: 88%; }
+
+/* ==========================
+   レスポンシブ
+========================== */
+@media (min-width: 768px){
+  .broker-section{ flex:0 0 50%; min-width:50%; }
+  .stock-card{ padding:12px; font-size:13px; max-width:520px; width:94%; }
+}
+@media (min-width: 1024px){
+  .broker-section{ flex:0 0 33.333%; min-width:33.333%; }
+  .stock-card{ padding:14px; font-size:14px; max-width:560px; width:90%; }
 }
