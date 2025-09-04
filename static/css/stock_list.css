@@ -229,7 +229,7 @@ main{
   height: var(--account-chips-h);  /* 上で定義した高さと同じにする */
 }
 
-/* 口座見出し＋合計サマリー（視覚的な区切りを強化） */
+/* 口座見出し（そのまま） */
 .account-heading{
   margin:10px 2px 6px;
   font-size:12px;
@@ -249,29 +249,72 @@ main{
   opacity:.7;
 }
 
-/* JSが挿入する合計サマリー */
+/* ==========================
+   口座サマリー（見出し直下）
+   - ラベル行 + ピル群の2段構成
+   - ピルは自動折り返しでスマホに最適化
+========================== */
 .account-summary{
-  display:grid;
-  grid-template-columns: auto 1fr;
-  gap:4px 10px;
-  align-items:center;
-  padding:8px 10px;
-  margin:0 2px 4px;
-  border:1px dashed var(--border-dim);
-  border-radius:8px;
-  background:var(--bg-panel);
-  font-size:12px;
-  color:var(--text-dim);
+  display: grid;
+  grid-template-columns: 1fr;     /* 1列レイアウト（スマホ前提） */
+  row-gap: 6px;
+  align-items: start;
+  padding: 8px 10px;
+  margin: 0 2px 8px;
+  border: 1px dashed var(--border-dim);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  font-size: 12px;
+  color: var(--text-dim);
 }
-.account-summary .sum-label{
-  grid-column:1 / -1;
-  font-weight:700;
-  color:var(--text);
-  opacity:.9;
-}
-.account-summary .sum-profit.positive{ color:#6aff6a; font-weight:700; }
-.account-summary .sum-profit.negative{ color:#ff6a6a; font-weight:700; }
 
+/* 左上の見出し（例：合計 / Summaryなど好きに） */
+.account-summary .sum-label{
+  font-weight: 700;
+  color: var(--text);
+  opacity: .95;
+}
+
+/* ピル群のラッパー（自動折り返し） */
+.account-summary .sum-pills{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 個別ピル */
+.summary-pill{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.06);
+  color: var(--text);
+  border: 1px solid var(--border-dim);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* ピル内の値部分を太字にしたい場合 */
+.summary-pill .v{
+  font-weight: 800;
+  color: var(--text);
+}
+
+/* 損益ピルの色分け（好きな方を使ってOK） */
+.summary-pill.profit-pos,
+.account-summary .sum-profit.positive{
+  color: #6aff6a;               /* 文字色 */
+  border-color: rgba(106,255,106,.45);
+  background: rgba(106,255,106,.10);
+}
+.summary-pill.profit-neg,
+.account-summary .sum-profit.negative{
+  color: #ff6a6a;
+  border-color: rgba(255,106,106,.45);
+  background: rgba(255,106,106,.10);
+}
 /* ==========================
    株カード縦スクロール領域
    ※ 「flex:1; min-height:0」で親高を余さず使い、縦だけスクロール
