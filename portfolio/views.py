@@ -65,6 +65,22 @@ def logout_view(request):
     return redirect("login")
 
 
+# views.py
+import datetime
+import json
+from django.db.models import F, Value, Case, When, CharField
+from django.shortcuts import render, redirect, get_object_or_404
+from django.http import JsonResponse, HttpResponse
+from django.template.loader import get_template
+from django.contrib.auth.decorators import login_required
+from django.utils import timezone
+from django.views.decorators.http import require_POST
+
+import yfinance as yf
+
+from .models import Stock, RealizedProfit
+
+
 # -----------------------------
 # 株関連ページ
 # -----------------------------
@@ -72,14 +88,73 @@ def logout_view(request):
 def stock_list_view(request):
     """
     保有株一覧ページ表示ビュー。
-    Chart.js 用にローソク足チャートの JSON を埋め込み、
-    損益計算や現在株価もセットして渡す。
-    """
-    stocks = Stock.objects.all()
 
-    for stock in stocks:
+    【今回の主修正ポイント】
+    - broker が CharField(choices) でも ForeignKey でも「broker_name」に正規化して annotate。
+    - テンプレート側は regroup で broker_name を使えば安定して「証券会社ごと」に表示できる。
+    - さらに order_by('broker_name', ...) で regroup の安定動作を担保。
+    """
+
+    # ---------- 1) broker_name の正規化 ----------
+    # broker フィールドが CharField/choices の場合 → choices のラベルに変換
+    # ForeignKey の場合 → F('broker__name') で名前を拾う
+    #
+    # ※ モデルに BROKER_CHOICES があるなら choices マッピングを生成、
+    #    なければ FK を想定して F('broker__name') を使う。
+    #
+    # どちらでもない構造なら F('broker')（＝文字列）にフォールバック。
+    try:
+        broker_field = Stock._meta.get_field("broker")
+    except Exception:
+        broker_field = None
+
+    qs = Stock.objects.all()
+
+    broker_name_annotation = None
+
+    if broker_field is not None:
+        internal_type = broker_field.get_internal_type()  # 'CharField', 'ForeignKey', etc.
+
+        # --- 1-A) CharField with choices のケース ---
+        if internal_type == "CharField" and getattr(Stock, "BROKER_CHOICES", None):
+            # choices 例: [('sbi', 'SBI証券'), ('rakuten', '楽天証券'), ...]
+            # code → label の変換 CASE を作る
+            whens = []
+            for code, label in Stock.BROKER_CHOICES:
+                whens.append(When(broker=code, then=Value(label)))
+            # マッチしないときは broker の値（そのまま文字列）にフォールバック
+            broker_name_annotation = Case(
+                *whens,
+                default=F("broker"),
+                output_field=CharField(),
+            )
+
+        # --- 1-B) ForeignKey のケース ---
+        elif internal_type == "ForeignKey":
+            # Broker モデルに name がある一般的な構造を想定
+            # （なければ admin 表示名 __str__ などに依存するため、必要に応じて変更）
+            qs = qs.select_related("broker")
+            broker_name_annotation = F("broker__name")
+
+        # --- 1-C) その他：素の CharField（choices 無し）や TextField のケース ---
+        else:
+            broker_name_annotation = F("broker")
+
+    else:
+        # 「broker フィールド自体が存在しない」異例ケース：安全側フォールバック
+        broker_name_annotation = Value("（未設定）", output_field=CharField())
+
+    # 注釈反映
+    qs = qs.annotate(broker_name=broker_name_annotation)
+
+    # regroup は「事前に同じキーでソート」されていることが前提なので明示ソート
+    qs = qs.order_by("broker_name", "name", "ticker")
+
+    # ---------- 2) 表示計算（現在株価・損益・チャートJSON） ----------
+    # ここは従来ロジックを踏襲（必要ならキャッシュ化可）
+    for stock in qs:
         try:
-            # Yahoo Finance 日本株シンボル
+            # Yahoo Finance 日本株シンボル例： 7203 → 7203.T
             ticker_symbol = f"{stock.ticker}.T"
             ticker = yf.Ticker(ticker_symbol)
 
@@ -88,7 +163,8 @@ def stock_list_view(request):
             if not todays_data.empty:
                 stock.current_price = float(todays_data["Close"].iloc[-1])
             else:
-                stock.current_price = stock.unit_price
+                # データ取得失敗時は取得単価で代用
+                stock.current_price = float(stock.unit_price or 0)
 
             # ===== 過去1か月のOHLCデータ取得 =====
             history = ticker.history(period="1mo")
@@ -97,34 +173,48 @@ def stock_list_view(request):
                 for date, row in history.iterrows():
                     ohlc_list.append({
                         "t": date.strftime("%Y-%m-%d"),
-                        "o": round(row["Open"], 2),
-                        "h": round(row["High"], 2),
-                        "l": round(row["Low"], 2),
-                        "c": round(row["Close"], 2),
+                        "o": round(float(row["Open"]), 2),
+                        "h": round(float(row["High"]), 2),
+                        "l": round(float(row["Low"]), 2),
+                        "c": round(float(row["Close"]), 2),
                     })
             stock.chart_history = ohlc_list
 
             # ===== 損益計算 =====
-            stock.total_cost = stock.shares * stock.unit_price
-            stock.profit_amount = round(stock.current_price * stock.shares - stock.total_cost)
-            stock.profit_rate = round(stock.profit_amount / stock.total_cost * 100, 2) if stock.total_cost else 0
+            shares = int(stock.shares or 0)
+            unit_price = float(stock.unit_price or 0)
+            current_price = float(stock.current_price or unit_price)
+            stock.total_cost = shares * unit_price
+            stock.profit_amount = round(current_price * shares - stock.total_cost)
+            stock.profit_rate = round((stock.profit_amount / stock.total_cost * 100), 2) if stock.total_cost else 0.0
 
         except Exception as e:
-            # データ取得失敗時はデフォルト値
-            stock.current_price = stock.unit_price
-            stock.total_cost = stock.shares * stock.unit_price
+            # 失敗時のフォールバック
+            shares = int(stock.shares or 0)
+            unit_price = float(stock.unit_price or 0)
+            stock.current_price = unit_price
+            stock.total_cost = shares * unit_price
             stock.profit_amount = 0
-            stock.profit_rate = 0
+            stock.profit_rate = 0.0
             stock.chart_history = []
             print(f"Error fetching data for {stock.ticker}: {e}")
 
-        # ===== Chart.js 用 JSON に変換 =====
-        stock.chart_json = json.dumps(stock.chart_history)
+        # ===== Chart.js 用 JSON =====
+        stock.chart_json = json.dumps(stock.chart_history, ensure_ascii=False)
 
-    return render(request, "stock_list.html", {"stocks": stocks})
-    
+    # context でテンプレへ。テンプレ側では「broker_name」で regroup すると安定
+    return render(request, "stock_list.html", {"stocks": qs})
+
+
 @login_required
 def stock_create(request):
+    """
+    新規登録ビュー。
+
+    【今回の主修正ポイント】
+    - position の受け入れ幅を拡張（「買／売」「買い／売り」どちらでもOK）
+      → 保存時は「買」「売」に正規化。
+    """
     errors = {}
     data = {}
 
@@ -150,12 +240,17 @@ def stock_create(request):
         sector = (data.get("sector") or "").strip()
         note = (data.get("note") or "").strip()
 
-        # --- ポジション（必須） ---
-        position = (data.get("position") or "").strip()
-        if not position:
+        # --- ポジション（必須）: 「買／売」「買い／売り」を受け入れ、保存は「買」「売」に正規化 ---
+        pos_raw = (data.get("position") or "").strip()
+        normalize_map = {
+            "買": "買", "買い": "買",
+            "売": "売", "売り": "売",
+        }
+        position = normalize_map.get(pos_raw)
+        if not pos_raw:
             errors["position"] = "ポジションを選択してください"
-        elif position not in ("買い", "売り"):
-            errors["position"] = "ポジションの値が不正です（買い／売りから選択してください）"
+        elif position is None:
+            errors["position"] = "ポジションの値が不正です（買／売 から選択してください）"
 
         # --- 数値項目 ---
         try:
@@ -176,7 +271,11 @@ def stock_create(request):
 
         # 取得額（POSTに来ていなければ shares * unit_price で計算）
         try:
-            total_cost = float(data.get("total_cost")) if data.get("total_cost") not in (None, "",) else (shares * unit_price)
+            total_cost = (
+                float(data.get("total_cost"))
+                if data.get("total_cost") not in (None, "",)
+                else (shares * unit_price)
+            )
         except (TypeError, ValueError):
             total_cost = shares * unit_price
 
@@ -199,9 +298,9 @@ def stock_create(request):
                 ticker=ticker,
                 name=name,
                 account_type=account_type,
-                broker=broker,
+                broker=broker,          # CharField/choices or FK の PK/文字列を期待
                 sector=sector,
-                position=position,          # ← 追加
+                position=position,      # ★ 正規化済み（「買」or「売」）
                 shares=shares,
                 unit_price=unit_price,
                 total_cost=total_cost,
@@ -218,7 +317,7 @@ def stock_create(request):
             "account_type": "",
             "broker": "",
             "sector": "",
-            "position": "",     # ← 追加
+            "position": "",     # 初期は未選択
             "shares": "",
             "unit_price": "",
             "total_cost": "",
@@ -228,24 +327,33 @@ def stock_create(request):
     context = {
         "errors": errors,
         "data": data,
-        "BROKER_CHOICES": Stock.BROKER_CHOICES,
+        "BROKER_CHOICES": getattr(Stock, "BROKER_CHOICES", ()),
     }
 
     tpl = get_template("stocks/stock_create.html")
     return HttpResponse(tpl.render(context, request))
 
+
 @login_required
 @require_POST
 def sell_stock_view(request, pk):
+    """
+    売却API相当。既存ロジックを踏襲。
+    """
     stock = get_object_or_404(Stock, pk=pk)
-    total_profit = (stock.current_price - stock.unit_price) * stock.shares
+    # current_price が未計算の場合は unit_price 代用（安全側）
+    current_price = getattr(stock, "current_price", None)
+    if current_price is None:
+        current_price = stock.unit_price
+
+    total_profit = (float(current_price) - float(stock.unit_price or 0)) * int(stock.shares or 0)
 
     RealizedProfit.objects.create(
         stock_name=stock.name,
         ticker=stock.ticker,
         shares=stock.shares,
         purchase_price=stock.unit_price,
-        sell_price=stock.current_price,
+        sell_price=current_price,
         total_profit=total_profit,
         sold_at=timezone.now()
     )
