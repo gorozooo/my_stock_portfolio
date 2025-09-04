@@ -278,3 +278,88 @@ document.addEventListener("DOMContentLoaded", () => {
     sellModal.style.display="none";
   });
 });
+
+// ==========================================
+// 口座チップの自動生成 + スクロール連動（ScrollSpy）
+// ==========================================
+(() => {
+  const sections = Array.from(document.querySelectorAll('.broker-section'));
+  if (!sections.length) return;
+
+  const makeChip = (label, targetId) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'account-chip';
+    b.textContent = label || '—';
+    b.dataset.target = targetId;
+    b.addEventListener('click', () => {
+      const h = document.getElementById(targetId);
+      if (!h) return;
+      // 見出しへスムーススクロール（下タブを考慮してちょい上に止める）
+      const y = h.getBoundingClientRect().top + window.scrollY - 12;
+      h.scrollIntoView({ block: 'nearest' }); // iOS対策の保険
+      window.scrollTo({ top: y, behavior: 'smooth' });
+      // チップだけ先にハイライト
+      const wrap = b.parentElement;
+      wrap.querySelectorAll('.account-chip').forEach(c => c.classList.remove('is-active'));
+      b.classList.add('is-active');
+    });
+    return b;
+  };
+
+  const observers = [];
+
+  sections.forEach((section, sIdx) => {
+    // 見出し一覧を取得
+    const headings = Array.from(section.querySelectorAll('.account-heading'));
+    const chipsWrap = section.querySelector('.account-chips');
+    if (!headings.length || !chipsWrap) return;
+
+    // 既存クリアしてから生成
+    chipsWrap.textContent = '';
+    headings.forEach(h => {
+      const chip = makeChip(h.textContent.trim(), h.id);
+      chipsWrap.appendChild(chip);
+    });
+
+    // ScrollSpy（どの見出しが見えているかでチップをハイライト）
+    const chipMap = new Map(headings.map(h => [h.id, chipsWrap.querySelector(`[data-target="${h.id}"]`)]));
+    const io = new IntersectionObserver((entries) => {
+      // 一番上近くにある heading をアクティブに
+      const visible = entries
+        .filter(e => e.isIntersecting)
+        .sort((a,b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      const top = visible[0];
+      if (!top) return;
+      chipsWrap.querySelectorAll('.account-chip').forEach(c => c.classList.remove('is-active'));
+      chipMap.get(top.target.id)?.classList.add('is-active');
+      // チップバーも自動でスクロールして見えるようにする
+      const active = chipsWrap.querySelector('.account-chip.is-active');
+      if (active) {
+        const cRect = active.getBoundingClientRect();
+        const wRect = chipsWrap.getBoundingClientRect();
+        if (cRect.left < wRect.left || cRect.right > wRect.right) {
+          chipsWrap.scrollBy({ left: cRect.left - wRect.left - 16, behavior: 'smooth' });
+        }
+      }
+    }, {
+      root: section.querySelector('.broker-cards-wrapper') || null, // セクション内スクロールに追従
+      rootMargin: '0px 0px -70% 0px', // 上から少し入ったらアクティブ
+      threshold: [0, 1.0]
+    });
+
+    headings.forEach(h => io.observe(h));
+    observers.push(io);
+  });
+
+  // タブ切替時にScrollSpyを安定させるため高さ再計算後に微調整
+  setTimeout(() => {
+    sections.forEach(section => {
+      const wrap = section.querySelector('.broker-cards-wrapper');
+      if (!wrap) return;
+      // 軽いスクロールでIntersectionObserverをトリガ
+      wrap.scrollTo({ top: wrap.scrollTop + 1 });
+      wrap.scrollTo({ top: wrap.scrollTop });
+    });
+  }, 200);
+})();
