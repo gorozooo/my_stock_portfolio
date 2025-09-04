@@ -1,7 +1,77 @@
 {% extends "base.html" %}
+{% load static %}
+{% load humanize %}
+
+{% block title %}銘柄編集{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/stock_list.css' %}">
+<style>
+  /* ページ固有の軽い調整（必要なら） */
+  .edit-page-container {
+    padding: 12px 10px calc(var(--bottom-tab-h,72px) + 16px);
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  .edit-heading {
+    text-align: center;
+    margin: 8px 0 12px;
+  }
+  .edit-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 800;
+    color: #fff;
+  }
+  .edit-code-chip {
+    border: 1px solid rgba(255,255,255,.25);
+    border-radius: 8px;
+    padding: 2px 8px;
+    font-weight: 800;
+    color: #fff;
+  }
+  .edit-card {
+    border: 1px solid rgba(255,255,255,.25);
+    border-radius: 12px;
+    background: rgba(255,255,255,.03);
+    padding: 12px;
+  }
+  .back-row {
+    margin-bottom: 6px;
+  }
+  .back-link {
+    display:inline-block;
+    padding:6px 10px;
+    border:1px solid rgba(255,255,255,.25);
+    border-radius:8px;
+    color:#fff;
+    text-decoration:none;
+    font-weight:700;
+  }
+</style>
+{% endblock %}
 
 {% block content %}
-  <div class="edit-page-container" style="max-width:600px;margin:0 auto;padding:12px;">
+<div class="edit-page-container">
+  <div class="back-row">
+    <a class="back-link" href="{% url 'stock_list' %}">← 一覧へ戻る</a>
+  </div>
+
+  <div class="edit-heading">
+    <h1 class="edit-title">
+      <span class="edit-name">{{ stock.name }}</span>
+      <span class="edit-code-chip">{{ stock.ticker }}</span>
+    </h1>
+  </div>
+
+  <div class="edit-card">
     {% include "stocks/_edit_form.html" %}
   </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{# 必要ならJSを読み込む #}
 {% endblock %}
