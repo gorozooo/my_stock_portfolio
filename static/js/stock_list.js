@@ -345,3 +345,35 @@ document.addEventListener("DOMContentLoaded", () => {
     if (wrap) wrap.style.display = (e.target.value === 'limit') ? 'block' : 'none';
   });
 });
+
+// 編集ボタン → モーダル表示（部分テンプレートを動的読込）
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-edit-stock-id]");
+  if (!btn) return;
+  const id = btn.getAttribute("data-edit-stock-id");
+  const modal = document.getElementById("edit-modal");
+  const body = document.getElementById("edit-modal-body");
+  body.innerHTML = '<div style="padding:16px">Loading...</div>';
+  modal.style.display = "block";
+  modal.setAttribute("aria-hidden", "false");
+
+  // 部分テンプレート取得
+  const resp = await fetch(`/stocks/${id}/edit/fragment/`, { headers: { "X-Requested-With": "XMLHttpRequest" }});
+  body.innerHTML = await resp.text();
+
+  // モーダル内の「キャンセル」や×で閉じる
+  body.querySelectorAll("[data-close-modal]").forEach(el=>{
+    el.addEventListener("click", ()=> {
+      modal.style.display = "none";
+      modal.setAttribute("aria-hidden", "true");
+    });
+  });
+});
+
+// モーダルの外側クリックで閉じる
+document.getElementById("edit-modal")?.addEventListener("click", (e)=>{
+  if (e.target.id === "edit-modal") {
+    e.currentTarget.style.display = "none";
+    e.currentTarget.setAttribute("aria-hidden", "true");
+  }
+});
