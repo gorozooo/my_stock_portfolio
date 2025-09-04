@@ -341,6 +341,43 @@
 .modal-action-btn.negative { background-color: #f44336; }
 .modal-action-btn:not(.negative) { background-color: #007bff; }
 
+/* 口座チップ（横スクロールの小さなボタン群） */
+.account-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 6px 4px 4px;
+  margin: 2px 0 4px;
+  -webkit-overflow-scrolling: touch;
+}
+.account-chips::-webkit-scrollbar { display: none; }
+.account-chip {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 999px;
+  font-size: 12px;
+  color: #fff;
+  opacity: .85;
+  background: rgba(255,255,255,0.06);
+}
+.account-chip.is-active {
+  border-color: rgba(0, 200, 255, .9);
+  box-shadow: 0 0 8px rgba(0,200,255,.5);
+  opacity: 1;
+}
+
+/* 見出し（固定しない＝普通に流れる） */
+.account-heading {
+  margin: 10px 2px 6px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+  opacity: .9;
+}
+
+/* 1本スクロールに合わせて高さは既存ロジック（JSでmax-height算出）でOK */
+
 /* ==========================
    レスポンシブ（任意）
 ========================== */
