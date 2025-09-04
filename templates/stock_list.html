@@ -12,10 +12,8 @@
 <div class="portfolio-container">
 
   {% if stocks %}
-    {# 1段目：証券会社名でグルーピング（viewで annotate 済みの broker_name を使用） #}
     {% regroup stocks by broker_name as broker_groups %}
 
-    {# ===== 証券会社タブ ===== #}
     <div class="broker-tabs-wrapper" role="tablist" aria-label="証券会社">
       {% for bg in broker_groups %}
         <button class="broker-tab"
@@ -26,23 +24,18 @@
       {% endfor %}
     </div>
 
-    {# ===== 証券会社セクション：横スクロールの外枠 ===== #}
     <div class="broker-horizontal-wrapper" id="broker-horizontal-wrapper" aria-live="polite">
       {% for bg in broker_groups %}
         <section class="broker-section"
                  data-broker-index="{{ forloop.counter0 }}"
                  aria-label="{{ bg.grouper }}">
 
-          {# 2段目：この証券会社の中で口座区分でグルーピング（viewで annotate 済みの account_type_name を使用） #}
           {% regroup bg.list by account_type_name as account_groups %}
 
-          {# 口座チップ：JSが見出しを読み取り自動生成（ここは空のまま） #}
           <div class="account-chips" role="tablist" aria-label="{{ bg.grouper }} の口座区分"></div>
 
-          {# スクロールは1本：見出し（口座）→カード群…を1つのラッパーに連続配置 #}
           <div class="broker-cards-wrapper">
             {% for ag in account_groups %}
-              {# 見出しIDは brokerIndex-accountIndex で一意化 #}
               <h3 class="account-heading" id="account-{{ forloop.parentloop.counter0 }}-{{ forloop.counter0 }}">
                 {{ ag.grouper }}
               </h3>
@@ -68,7 +61,7 @@
                       <span class="stock-code">{{ stock.ticker }}</span>
                     </div>
                     <div class="stock-body">
-                      <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
+                      <div class="stock-row"><span>株数</span><span>{{ stock.shares|intcomma }}株</span></div>
                       <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
                       <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
                       <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
@@ -78,9 +71,6 @@
                       </div>
                     </div>
 
-                    {# === 専用ページへのリンク（編集 / 売却） ===
-                       既存のスワイプUI用CSSに合わせて .card-actions を配置。
-                       左スワイプで表示されるほか、そのままでもタップ可。 #}
                     <div class="card-actions">
                       <a href="{% url 'stock_edit' stock.id %}" class="edit-btn modal-action-btn">編集</a>
                       <a href="{% url 'stock_sell' stock.id %}" class="sell-btn modal-action-btn negative">売却</a>
@@ -97,6 +87,18 @@
     <p>保有株データがありません。</p>
   {% endif %}
 
+  {# 詳細モーダル（カードタップで開く） #}
+  <div id="stock-modal" class="modal" aria-hidden="true">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <button class="modal-close" aria-label="閉じる">&times;</button>
+      <div id="modal-body" role="document"></div>
+      <div class="modal-actions">
+        <a id="modal-edit-link" class="modal-action-btn">編集ページへ</a>
+        <a id="modal-sell-link" class="modal-action-btn negative">売却ページへ</a>
+      </div>
+    </div>
+  </div>
+
 </div>
 {% endblock %}
 
@@ -105,6 +107,6 @@
 {% endblock %}
 
 {% block extra_js %}
-{# 既存のJS（タブ切替やスワイプなど）。モーダル参照があっても null セーフならそのままでOK。 #}
 <script src="{% static 'js/stock_list.js' %}" defer></script>
+
 {% endblock %}
