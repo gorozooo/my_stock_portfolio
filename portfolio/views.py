@@ -382,7 +382,7 @@ def edit_stock_page(request, pk):
 def edit_stock_fragment(request, pk):
     """モーダルで読み込む“フォームだけ”の部分HTMLを返す"""
     stock = get_object_or_404(Stock, pk=pk)
-    return render(request, "stocks/_edit_form.html", {"stock": stock})
+    return render(request, "stocks/edit_form.html", {"stock": stock})
 
 @login_required
 def cash_view(request):
