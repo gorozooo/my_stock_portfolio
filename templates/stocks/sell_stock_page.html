@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>{{ stock.name }} ({{ stock.ticker }}) 売却</h2>
+<form method="post">
+  {% csrf_token %}
+  <label>株数 <input type="number" name="shares" value="{{ stock.shares }}" required></label>
+  <fieldset>
+    <legend>売却方法</legend>
+    <label><input type="radio" name="sell_mode" value="market" checked> 市場価格で売却</label>
+    <label><input type="radio" name="sell_mode" value="limit"> 指値で売却</label>
+  </fieldset>
+  <div id="limit-input" style="display:none;">
+    <label>指値 <input type="number" name="limit_price"></label>
+  </div>
+  <button type="submit" class="negative">売却する</button>
+</form>
+<script>
+document.addEventListener("change", e=>{
+  if(e.target.name==="sell_mode"){
+    document.getElementById("limit-input").style.display =
+      e.target.value==="limit" ? "block" : "none";
+  }
+});
+</script>
+{% endblock %}
