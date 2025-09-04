@@ -87,109 +87,80 @@ from .models import Stock, RealizedProfit
 @login_required
 def stock_list_view(request):
     """
-    保有株一覧ページ表示ビュー。
-
-    【今回の主修正ポイント】
-    - broker が CharField(choices) でも ForeignKey でも「broker_name」に正規化して annotate。
-    - テンプレート側は regroup で broker_name を使えば安定して「証券会社ごと」に表示できる。
-    - さらに order_by('broker_name', ...) で regroup の安定動作を担保。
+    保有株一覧ページ。
+    証券会社（broker）→口座区分（account_type）→銘柄 の二段階グルーピングに対応。
     """
-
-    # ---------- 1) broker_name の正規化 ----------
-    # broker フィールドが CharField/choices の場合 → choices のラベルに変換
-    # ForeignKey の場合 → F('broker__name') で名前を拾う
-    #
-    # ※ モデルに BROKER_CHOICES があるなら choices マッピングを生成、
-    #    なければ FK を想定して F('broker__name') を使う。
-    #
-    # どちらでもない構造なら F('broker')（＝文字列）にフォールバック。
-    try:
-        broker_field = Stock._meta.get_field("broker")
-    except Exception:
-        broker_field = None
 
     qs = Stock.objects.all()
 
-    broker_name_annotation = None
-
-    if broker_field is not None:
-        internal_type = broker_field.get_internal_type()  # 'CharField', 'ForeignKey', etc.
-
-        # --- 1-A) CharField with choices のケース ---
-        if internal_type == "CharField" and getattr(Stock, "BROKER_CHOICES", None):
-            # choices 例: [('sbi', 'SBI証券'), ('rakuten', '楽天証券'), ...]
-            # code → label の変換 CASE を作る
-            whens = []
-            for code, label in Stock.BROKER_CHOICES:
-                whens.append(When(broker=code, then=Value(label)))
-            # マッチしないときは broker の値（そのまま文字列）にフォールバック
-            broker_name_annotation = Case(
-                *whens,
-                default=F("broker"),
-                output_field=CharField(),
-            )
-
-        # --- 1-B) ForeignKey のケース ---
-        elif internal_type == "ForeignKey":
-            # Broker モデルに name がある一般的な構造を想定
-            # （なければ admin 表示名 __str__ などに依存するため、必要に応じて変更）
+    # ---- broker_name の正規化（CharField/choices / FK / 文字列に対応）----
+    broker_name_annot = None
+    try:
+        broker_field = Stock._meta.get_field("broker")
+        broker_type = broker_field.get_internal_type()
+        if broker_type == "CharField" and getattr(Stock, "BROKER_CHOICES", None):
+            whens = [When(broker=code, then=Value(label)) for code, label in Stock.BROKER_CHOICES]
+            broker_name_annot = Case(*whens, default=F("broker"), output_field=CharField())
+        elif broker_type == "ForeignKey":
             qs = qs.select_related("broker")
-            broker_name_annotation = F("broker__name")
-
-        # --- 1-C) その他：素の CharField（choices 無し）や TextField のケース ---
+            # Brokerモデルに name がある想定（なければ適宜変更）
+            broker_name_annot = F("broker__name")
         else:
-            broker_name_annotation = F("broker")
+            broker_name_annot = F("broker")
+    except Exception:
+        broker_name_annot = Value("（未設定）", output_field=CharField())
 
-    else:
-        # 「broker フィールド自体が存在しない」異例ケース：安全側フォールバック
-        broker_name_annotation = Value("（未設定）", output_field=CharField())
+    # ---- account_type_name の正規化（CharField/choices / FK / 文字列に対応）----
+    account_name_annot = None
+    try:
+        at_field = Stock._meta.get_field("account_type")
+        at_type = at_field.get_internal_type()
+        if at_type == "CharField" and getattr(Stock, "ACCOUNT_TYPE_CHOICES", None):
+            whens = [When(account_type=code, then=Value(label)) for code, label in Stock.ACCOUNT_TYPE_CHOICES]
+            account_name_annot = Case(*whens, default=F("account_type"), output_field=CharField())
+        elif at_type == "ForeignKey":
+            qs = qs.select_related("account_type")
+            account_name_annot = F("account_type__name")
+        else:
+            account_name_annot = F("account_type")
+    except Exception:
+        account_name_annot = Value("（未設定）", output_field=CharField())
 
-    # 注釈反映
-    qs = qs.annotate(broker_name=broker_name_annotation)
+    qs = qs.annotate(
+        broker_name=broker_name_annot,
+        account_type_name=account_name_annot,
+    ).order_by("broker_name", "account_type_name", "name", "ticker")
 
-    # regroup は「事前に同じキーでソート」されていることが前提なので明示ソート
-    qs = qs.order_by("broker_name", "name", "ticker")
-
-    # ---------- 2) 表示計算（現在株価・損益・チャートJSON） ----------
-    # ここは従来ロジックを踏襲（必要ならキャッシュ化可）
+    # ---- 現在株価・損益・チャート ----
     for stock in qs:
         try:
-            # Yahoo Finance 日本株シンボル例： 7203 → 7203.T
             ticker_symbol = f"{stock.ticker}.T"
             ticker = yf.Ticker(ticker_symbol)
 
-            # ===== 現在株価取得 =====
-            todays_data = ticker.history(period="1d")
-            if not todays_data.empty:
-                stock.current_price = float(todays_data["Close"].iloc[-1])
-            else:
-                # データ取得失敗時は取得単価で代用
-                stock.current_price = float(stock.unit_price or 0)
+            todays = ticker.history(period="1d")
+            stock.current_price = float(todays["Close"].iloc[-1]) if not todays.empty else float(stock.unit_price or 0)
 
-            # ===== 過去1か月のOHLCデータ取得 =====
-            history = ticker.history(period="1mo")
-            ohlc_list = []
-            if not history.empty:
-                for date, row in history.iterrows():
-                    ohlc_list.append({
-                        "t": date.strftime("%Y-%m-%d"),
+            hist = ticker.history(period="1mo")
+            ohlc = []
+            if not hist.empty:
+                for dt, row in hist.iterrows():
+                    ohlc.append({
+                        "t": dt.strftime("%Y-%m-%d"),
                         "o": round(float(row["Open"]), 2),
                         "h": round(float(row["High"]), 2),
                         "l": round(float(row["Low"]), 2),
                         "c": round(float(row["Close"]), 2),
                     })
-            stock.chart_history = ohlc_list
+            stock.chart_history = ohlc
 
-            # ===== 損益計算 =====
             shares = int(stock.shares or 0)
             unit_price = float(stock.unit_price or 0)
-            current_price = float(stock.current_price or unit_price)
+            current = float(stock.current_price or unit_price)
             stock.total_cost = shares * unit_price
-            stock.profit_amount = round(current_price * shares - stock.total_cost)
+            stock.profit_amount = round(current * shares - stock.total_cost)
             stock.profit_rate = round((stock.profit_amount / stock.total_cost * 100), 2) if stock.total_cost else 0.0
 
         except Exception as e:
-            # 失敗時のフォールバック
             shares = int(stock.shares or 0)
             unit_price = float(stock.unit_price or 0)
             stock.current_price = unit_price
@@ -199,12 +170,9 @@ def stock_list_view(request):
             stock.chart_history = []
             print(f"Error fetching data for {stock.ticker}: {e}")
 
-        # ===== Chart.js 用 JSON =====
         stock.chart_json = json.dumps(stock.chart_history, ensure_ascii=False)
 
-    # context でテンプレへ。テンプレ側では「broker_name」で regroup すると安定
     return render(request, "stock_list.html", {"stocks": qs})
-
 
 @login_required
 def stock_create(request):
