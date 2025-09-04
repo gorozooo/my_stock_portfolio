@@ -1,41 +1,58 @@
-{# templates/stocks/_edit_form.html #}
-<form id="edit-form" method="post" action="{% url 'edit_stock_page' stock.pk %}">
+<form method="post" action="{% url 'stock_edit' stock.id %}" novalidate>
   {% csrf_token %}
-  <input type="hidden" name="stock_id" value="{{ stock.id }}">
 
-  <div class="edit-heading">
-    <h2 class="edit-title">
-      <span class="edit-name">{{ stock.name }}</span>
-      <span class="edit-code-chip">{{ stock.ticker }}</span>
-    </h2>
-  </div>
+  {# name / ticker は編集対象外。送信用に hidden で保持（ビュー側で使うなら） #}
+  <input type="hidden" name="name" value="{{ stock.name }}">
+  <input type="hidden" name="ticker" value="{{ stock.ticker }}">
 
-  <div class="form-grid">
+  <div class="form-grid" style="display:grid; grid-template-columns:1fr; gap:12px;">
     <div class="form-group">
       <label for="edit-shares">株数</label>
-      <input id="edit-shares" name="shares" type="number" inputmode="numeric"
-             min="0" step="1" value="{{ stock.shares }}" required>
+      <input id="edit-shares"
+             name="shares"
+             type="number"
+             inputmode="numeric"
+             min="0"
+             step="1"
+             value="{{ stock.shares }}"
+             placeholder="例: 100"
+             required>
     </div>
+
     <div class="form-group">
       <label for="edit-unit_price">取得単価（円）</label>
-      <input id="edit-unit_price" name="unit_price" type="number" inputmode="numeric"
-             min="0" step="1" value="{{ stock.unit_price }}" required>
+      <input id="edit-unit_price"
+             name="unit_price"
+             type="number"
+             inputmode="numeric"
+             min="0"
+             step="1"
+             value="{{ stock.unit_price }}"
+             placeholder="例: 1,500"
+             required>
     </div>
+
     <div class="form-group">
       <label for="edit-account">口座区分</label>
-      <input id="edit-account" name="account" type="text" value="{{ stock.account|default:'' }}" maxlength="50">
+      <input id="edit-account"
+             name="account"
+             type="text"
+             value="{{ stock.account|default_if_none:'' }}"
+             placeholder="例: 特定 / NISA"
+             maxlength="50">
     </div>
+
     <div class="form-group">
       <label for="edit-position">ポジション</label>
       <select id="edit-position" name="position" required>
-        <option value="買" {% if stock.position == "買" %}selected{% endif %}>買</option>
+        <option value="買" {% if stock.position == "買" or stock.position == "買い" %}selected{% endif %}>買</option>
         <option value="売" {% if stock.position == "売" %}selected{% endif %}>売</option>
       </select>
     </div>
   </div>
 
-  <div class="modal-actions sticky-actions">
+  <div class="modal-actions" style="display:flex; gap:12px; justify-content:center; margin-top:16px;">
     <button type="submit" class="modal-action-btn">保存</button>
-    <button type="button" class="modal-action-btn negative" data-close-modal>キャンセル</button>
+    <a href="{% url 'stock_list' %}" class="modal-action-btn negative" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center;">キャンセル</a>
   </div>
 </form>
