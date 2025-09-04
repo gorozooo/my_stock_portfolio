@@ -1,8 +1,8 @@
-{# ==========================
+<!--{# ==========================
    スマホファースト設計、HTML/CSS/JSは分離
    証券会社タブ + 横スクロール + モーダル + 編集/売却ボタン
    ※ broker_name / account_type_name は view 側で annotate 済み
-========================== #}
+========================== #}-->
 
 {% extends "base.html" %}
 {% load static %}
@@ -39,8 +39,8 @@
           {# 口座チップ：JSが中身（各口座）を自動生成するプレースホルダ #}
           <div class="account-chips" role="tablist" aria-label="{{ bg.grouper }} の口座区分"></div>
 
-          {# ★重要：スクロールを1本にするため、wrapperは1つだけ
-             中に「口座見出し + 各カード」を順番に流し込む #}
+          <!--{# ★ 重要：スクロールを1本にするため、wrapperは1つだけ
+             中に「口座見出し + 各カード」を順番に流し込む #}-->
           <div class="broker-cards-wrapper">
             {% for ag in account_groups %}
               {# 見出しIDは brokerIndex-accountIndex で一意化 #}
