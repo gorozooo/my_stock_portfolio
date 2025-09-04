@@ -16,7 +16,7 @@ urlpatterns = [
     path('realized/', views.realized_view, name='realized'),
     path('trade_history/', views.trade_history, name='trade_history'),
     path("stocks/<int:pk>/sell/", views.sell_stock_view, name="sell_stock"),
-    path("stocks/<int:pk>/sell/", views.sell_stock_page, name="sell_stock_page"),
+    path("stocks/<int:pk>/sell/", views.sell_stock_page, name="sell_stock_view"),
     path("stocks/<int:pk>/edit/", views.edit_stock_page, name="edit_stock_page"),               # 専用ページ
     path("stocks/<int:pk>/edit/fragment/", views.edit_stock_fragment, name="edit_stock_frag"),  # モーダル用(部分HTML)
     
