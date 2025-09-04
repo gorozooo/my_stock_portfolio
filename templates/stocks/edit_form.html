@@ -50,6 +50,18 @@
       </select>
     </div>
   </div>
+  
+  <!-- メモ -->
+    <div class="form-group">
+      <label for="edit-memo">メモ</label>
+      <textarea id="edit-memo"
+                name="memo"
+                rows="3"
+                placeholder="自由入力 (例: 長期保有予定 / 配当狙い)">
+        {{ stock.memo|default_if_none:'' }}
+      </textarea>
+    </div>
+  </div>
 
   <div class="modal-actions" style="display:flex; gap:12px; justify-content:center; margin-top:16px;">
     <button type="submit" class="modal-action-btn">保存</button>
