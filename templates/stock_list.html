@@ -1,10 +1,8 @@
 {# ==========================
    スマホファースト設計、HTML/CSS/JSは分離
    証券会社タブ + 横スクロール + モーダル + 編集/売却ボタン
-   ★修正方針：
-     - regroup は必ず存在する「生フィールド」で：broker / account_type
-     - ラベル表示は {% firstof varA varB %} で get_FOO_display優先に
-     - {% with %} を使わず、ブロックネストの取り違いを根絶
+   ※ broker_name / account_type_name は view 側で annotate 済み
+   ※ Djangoテンプレ：{% with %} は使わない（今回のエラー原因回避）
 ========================== #}
 
 {% extends "base.html" %}
@@ -15,35 +13,34 @@
 <div class="portfolio-container">
 
   {% if stocks %}
-    {# 1段目：証券会社（生フィールド broker）でグルーピング #}
-    {% regroup stocks by broker as broker_groups %}
+    {# 1段目：証券会社でグルーピング（broker_nameでまとめる） #}
+    {% regroup stocks by broker_name as broker_groups %}
 
     <!-- 証券会社タブ -->
     <div class="broker-tabs-wrapper" role="tablist" aria-label="証券会社">
       {% for bg in broker_groups %}
-        {# タブの表示名：choicesがある場合は get_broker_display を優先 #}
         <button class="broker-tab"
                 data-broker-index="{{ forloop.counter0 }}"
                 role="tab" tabindex="0">
-          {% firstof bg.list.0.get_broker_display bg.grouper %}
+          {{ bg.grouper }}
         </button>
       {% endfor %}
     </div>
 
-    <!-- 証券会社セクション（横スクロールの外枠） -->
+    <!-- 横スクロール外枠 -->
     <div class="broker-horizontal-wrapper" id="broker-horizontal-wrapper" aria-live="polite">
+
+      {# 証券会社ごとのセクション #}
       {% for bg in broker_groups %}
         <section class="broker-section"
                  data-broker-index="{{ forloop.counter0 }}"
-                 aria-label="{% firstof bg.list.0.get_broker_display bg.grouper %}">
+                 aria-label="{{ bg.grouper }}">
 
-          {# 2段目：口座区分（生フィールド account_type）でグルーピング #}
-          {% regroup bg.list by account_type as account_groups %}
+          {# 2段目：口座区分でグルーピング（この証券会社の中だけで） #}
+          {% regroup bg.list by account_type_name as account_groups %}
 
           {% for ag in account_groups %}
-            <h3 class="account-heading">
-              {% firstof ag.list.0.get_account_type_display ag.grouper %}
-            </h3>
+            <h3 class="account-heading">{{ ag.grouper }}</h3>
 
             <div class="broker-cards-wrapper">
               {% for stock in ag.list %}
@@ -51,6 +48,7 @@
                   <div class="stock-card"
                        role="button"
                        tabindex="0"
+                       {# --- JSで使うデータ属性（編集/売却モーダルに渡す） --- #}
                        data-id="{{ stock.id }}"
                        data-name="{{ stock.name }}"
                        data-ticker="{{ stock.ticker }}"
@@ -59,18 +57,21 @@
                        data-current_price="{{ stock.current_price|floatformat:0 }}"
                        data-profit="{{ stock.profit_amount }}"
                        data-profit_rate="{{ stock.profit_rate }}"
-                       data-account="{% firstof stock.get_account_type_display stock.account_type %}"
+                       data-account="{{ stock.account_type_name }}"
                        data-position="{{ stock.position }}"
-                       data-broker="{% firstof stock.get_broker_display stock.broker %}">
+                       data-broker="{{ stock.broker_name }}">
                     <div class="stock-header">
                       <span class="stock-name">{{ stock.name }}</span>
                       <span class="stock-code">{{ stock.ticker }}</span>
                     </div>
+
                     <div class="stock-body">
-                      <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
+                      <div class="stock-row"><span>株数</span><span>{{ stock.shares|intcomma }}株</span></div>
                       <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
                       <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
                       <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
+
+                      {# 損益はプラス/マイナスで色分け #}
                       <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
                         <span>損益</span>
                         <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
@@ -84,12 +85,14 @@
         </section>
       {% endfor %}
     </div>
+
   {% else %}
     <p>保有株データがありません。</p>
   {% endif %}
 
-  {# ==== モーダル類：そのまま ==== #}
-  <!-- 株モーダル -->
+  {# ================= モーダル（そのまま） ================ #}
+
+  <!-- 株モーダル（カードタップ→詳細） -->
   <div id="stock-modal" class="modal" aria-hidden="true">
     <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <button class="modal-close" aria-label="閉じる">&times;</button>
@@ -101,7 +104,7 @@
     </div>
   </div>
 
-  <!-- 編集モーダル -->
+  <!-- 編集モーダル（上部中央に銘柄名＋コードを固定表示） -->
   <div id="edit-modal" class="modal" aria-hidden="true">
     <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
       <button class="modal-close" aria-label="閉じる">&times;</button>
@@ -115,6 +118,7 @@
 
       <form id="edit-form" novalidate>
         <input type="hidden" name="stock_id" />
+        {# name/tickerは編集しないが送信用にhiddenで同送 #}
         <input type="hidden" name="name" />
         <input type="hidden" name="ticker" />
 
@@ -148,14 +152,40 @@
     </div>
   </div>
 
-  <!-- 売却モーダル -->
+  <!-- 売却モーダル（市場/指値はJS側で分岐UIにしてPOSTに反映） -->
   <div id="sell-modal" class="modal" aria-hidden="true">
     <div class="modal-content" role="dialog" aria-modal="true">
       <button class="modal-close" aria-label="閉じる">&times;</button>
       <form id="sell-form">
         <input type="hidden" name="stock_id">
-        <div class="form-group"><label>銘柄名<input name="name" type="text" readonly></label></div>
-        <div class="form-group"><label>株数<input name="shares" type="number"></label></div>
+        <div class="form-group">
+          <label>銘柄名
+            <input name="name" type="text" readonly>
+          </label>
+        </div>
+
+        {# ここは「市場 / 指値」の切替UIをJSで注入してOK。
+           バックエンドは views.sell_stock_view で
+           sell_mode=market|limit / limit_price=... を受けます。 #}
+        <div class="form-group">
+          <label>売却方法</label>
+          <div class="sell-mode-group">
+            <label><input type="radio" name="sell_mode" value="market" checked> 市場価格で売却</label>
+            <label><input type="radio" name="sell_mode" value="limit"> 指値で売却</label>
+          </div>
+        </div>
+        <div class="form-group" id="limit-input-wrap" style="display:none;">
+          <label>指値（円）
+            <input name="limit_price" type="number" inputmode="numeric" min="0" step="1" placeholder="例: 1,234">
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label>株数
+            <input name="shares" type="number" min="1" step="1">
+          </label>
+        </div>
+
         <div class="modal-actions">
           <button type="submit" class="modal-action-btn negative">売却</button>
           <button type="button" id="sell-cancel-btn" class="modal-action-btn">キャンセル</button>
@@ -173,4 +203,17 @@
 
 {% block extra_js %}
 <script src="{% static 'js/stock_list.js' %}" defer></script>
+<script>
+  // 売却モードの切替（市場/指値）を簡易実装
+  document.addEventListener('DOMContentLoaded', () => {
+    const sellModal = document.getElementById('sell-modal');
+    if (!sellModal) return;
+    const wrap = sellModal.querySelector('#limit-input-wrap');
+    sellModal.addEventListener('change', (e) => {
+      if (e.target.name === 'sell_mode') {
+        wrap.style.display = (e.target.value === 'limit') ? 'block' : 'none';
+      }
+    });
+  });
+</script>
 {% endblock %}
