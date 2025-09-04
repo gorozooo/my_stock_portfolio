@@ -68,7 +68,7 @@
     <p>保有株データがありません。</p>
   {% endif %}
 
-  <!-- 株モーダル -->
+  <!-- 株モーダル（カードタップ→詳細） -->
   <div id="stock-modal" class="modal" aria-hidden="true">
     <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <button class="modal-close" aria-label="閉じる">&times;</button>
@@ -80,19 +80,53 @@
     </div>
   </div>
 
-  <!-- 編集モーダル -->
+  <!-- 編集モーダル（★修正：タイトル固定＋編集項目のみ） -->
   <div id="edit-modal" class="modal" aria-hidden="true">
-    <div class="modal-content" role="dialog" aria-modal="true">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
       <button class="modal-close" aria-label="閉じる">&times;</button>
-      <form id="edit-form">
-        <input type="hidden" name="stock_id">
-        <div class="form-group"><label>銘柄名<input name="name" type="text"></label></div>
-        <div class="form-group"><label>コード<input name="ticker" type="text"></label></div>
-        <div class="form-group"><label>株数<input name="shares" type="number"></label></div>
-        <div class="form-group"><label>取得単価<input name="unit_price" type="number"></label></div>
-        <div class="form-group"><label>口座<input name="account" type="text"></label></div>
-        <div class="form-group"><label>ポジション<select name="position"><option value="買">買</option><option value="売">売</option></select></label></div>
-        <div class="modal-actions">
+
+      <!-- 上部中央に非編集の銘柄名＋コード（視覚的に強調） -->
+      <div class="edit-heading">
+        <h2 id="edit-modal-title" class="edit-title">
+          <span class="edit-name" id="edit-name">—</span>
+          <span class="edit-code-chip" id="edit-code">—</span>
+        </h2>
+      </div>
+
+      <!-- 編集フォーム（編集するのは以下のみ） -->
+      <form id="edit-form" novalidate>
+        <!-- 送信用の必須ID -->
+        <input type="hidden" name="stock_id" />
+        <!-- name / ticker は編集しないが、バックエンド互換用にhiddenで送る -->
+        <input type="hidden" name="name" />
+        <input type="hidden" name="ticker" />
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="edit-shares">株数</label>
+            <input id="edit-shares" name="shares" type="number" inputmode="numeric" min="0" step="1" placeholder="例: 100" required>
+          </div>
+
+          <div class="form-group">
+            <label for="edit-unit_price">取得単価（円）</label>
+            <input id="edit-unit_price" name="unit_price" type="number" inputmode="numeric" min="0" step="1" placeholder="例: 1,500" required>
+          </div>
+
+          <div class="form-group">
+            <label for="edit-account">口座</label>
+            <input id="edit-account" name="account" type="text" placeholder="例: 特定 / NISA" maxlength="50">
+          </div>
+
+          <div class="form-group">
+            <label for="edit-position">ポジション</label>
+            <select id="edit-position" name="position" required>
+              <option value="買">買</option>
+              <option value="売">売</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="modal-actions sticky-actions">
           <button type="submit" class="modal-action-btn">保存</button>
           <button type="button" id="edit-cancel-btn" class="modal-action-btn negative">キャンセル</button>
         </div>
@@ -100,7 +134,7 @@
     </div>
   </div>
 
-  <!-- 売却モーダル -->
+  <!-- 売却モーダル（既存のまま） -->
   <div id="sell-modal" class="modal" aria-hidden="true">
     <div class="modal-content" role="dialog" aria-modal="true">
       <button class="modal-close" aria-label="閉じる">&times;</button>
