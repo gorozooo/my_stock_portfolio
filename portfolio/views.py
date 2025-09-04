@@ -330,75 +330,37 @@ def stock_create(request):
     return HttpResponse(tpl.render(context, request))
 
 @login_required
-@require_POST
-def sell_stock_view(request, pk):
-    
-    #売却処理（UX対応版）
-    #- 「市場価格で売却」 or 「指値入力で売却」を POST パラメータで分岐
-    #  * sell_mode: 'market' or 'limit'（必須）
-    #  * limit_price: 指値のときのみ必須（0より大）
-    #- 成約価格（sell_price）で実現損益を算出し RealizedProfit に記録
-    #- 現在は“即時約定”想定。将来は「到達時に約定」予約注文に拡張しやすいようコメントを付与
-    
+def sell_stock_page(request, pk):
     stock = get_object_or_404(Stock, pk=pk)
 
-    sell_mode = (request.POST.get("sell_mode") or "").strip().lower()
-    if sell_mode not in ("market", "limit"):
-        return JsonResponse({"status": "error", "message": "sell_mode は 'market' または 'limit' を指定してください。"}, status=400)
+    if request.method == "POST":
+        mode = request.POST.get("sell_mode")
+        shares = int(request.POST.get("shares") or 0)
+        limit_price = request.POST.get("limit_price")
 
-    # --- 価格決定 ---
-    if sell_mode == "market":
-        # 市場価格（キャッシュ経由で当日終値）で即時約定
-        sell_price = _get_current_price_cached(stock.ticker, fallback=stock.unit_price)
-        exec_note = "市場価格で即時売却"
+        if mode == "market":
+            price = stock.current_price or stock.unit_price
+        elif mode == "limit" and limit_price:
+            price = float(limit_price)
+        else:
+            price = stock.unit_price
 
-    else:  # 'limit'
-        # 指値。ここでは「即時にこの価格で売った」として実行する簡易版。
-        # 実運用で「到達したら約定」予約にする場合は、PendingOrderなどのモデルに保存し、
-        # バックグラウンドジョブで条件到達を監視して RealizedProfit 作成に切り替える。
-        try:
-            limit_price = float(request.POST.get("limit_price"))
-        except (TypeError, ValueError):
-            return JsonResponse({"status": "error", "message": "limit_price を数値で指定してください。"}, status=400)
-        if limit_price <= 0:
-            return JsonResponse({"status": "error", "message": "limit_price は 0 より大きい値を指定してください。"}, status=400)
-
-        sell_price = limit_price
-        exec_note = f"指値({limit_price})で売却"
-
-    # --- 実現損益を記録して、該当Stockを削除 ---
-    try:
-        shares = int(stock.shares or 0)
-        unit_price = float(stock.unit_price or 0.0)
-
-        total_profit = (float(sell_price) - unit_price) * shares
+        total_profit = (price - stock.unit_price) * shares
 
         RealizedProfit.objects.create(
             stock_name=stock.name,
             ticker=stock.ticker,
-            shares=stock.shares,
-            purchase_price=unit_price,
-            sell_price=float(sell_price),
+            shares=shares,
+            purchase_price=stock.unit_price,
+            sell_price=price,
             total_profit=total_profit,
             sold_at=timezone.now(),
-            # 将来の分析用にメモを残す（モデルに備考フィールドが無ければ削除OK）
-            # 例: RealizedProfit に notes(CharField/TextField) がある前提のとき:
-            # notes=exec_note,
         )
-
         stock.delete()
-        return JsonResponse({
-            "status": "ok",
-            "message": f"{exec_note} を記録しました。",
-            "result": {
-                "sell_price": float(sell_price),
-                "total_profit": total_profit,
-            }
-        })
-    except Exception as e:
-        logger.exception("Sell failed for stock id=%s: %s", stock.id, e)
-        return JsonResponse({"status": "error", "message": "売却処理に失敗しました。"}, status=500)
+        return redirect("stock_list")
 
+    return render(request, "stocks/sell_stock_page.html", {"stock": stock})
+    
 @login_required
 def cash_view(request):
     return render(request, "cash.html")
