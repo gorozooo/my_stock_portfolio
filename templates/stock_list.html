@@ -13,138 +13,78 @@
 <div class="portfolio-container">
 
   {% if stocks %}
-    {# --- まずは broker.name で regroup 試行（FK想定） --- #}
-    {% regroup stocks by broker.name as broker_list_name %}
-    {% if broker_list_name and broker_list_name.0.grouper %}
-      {% with broker_list=broker_list_name broker_grouper_is_name=True %}
-        {# broker はオブジェクトで .name を持っているケース #}
-        <!-- 証券会社タブ -->
-        <div class="broker-tabs-wrapper" role="tablist" aria-label="証券会社">
-          {% for broker_group in broker_list %}
-            {# タブの見出しは “grouper(=broker.name)” #}
-            <button class="broker-tab"
-                    data-broker-index="{{ forloop.counter0 }}"
-                    data-broker-label="{{ broker_group.grouper }}"
-                    role="tab" tabindex="0">
-              {{ broker_group.grouper }}
-            </button>
-          {% endfor %}
-        </div>
+    {# 1段目：証券会社でグルーピング #}
+    {% regroup stocks by broker_name as broker_groups %}
 
-        <!-- 証券会社セクション（横スクロール） -->
-        <div class="broker-horizontal-wrapper" id="broker-horizontal-wrapper" aria-live="polite">
-          {% for broker_group in broker_list %}
-            <section class="broker-section"
-                     data-broker-index="{{ forloop.counter0 }}"
-                     aria-label="{{ broker_group.grouper }}">
-              <div class="broker-cards-wrapper">
-                {% for stock in broker_group.list %}
-                  <article class="stock-card-wrapper">
-                    <div class="stock-card"
-                         role="button"
-                         tabindex="0"
-                         data-id="{{ stock.id }}"
-                         data-name="{{ stock.name }}"
-                         data-ticker="{{ stock.ticker }}"
-                         data-shares="{{ stock.shares }}"
-                         data-unit_price="{{ stock.unit_price|floatformat:0 }}"
-                         data-current_price="{{ stock.current_price|floatformat:0 }}"
-                         data-profit="{{ stock.profit_amount }}"
-                         data-profit_rate="{{ stock.profit_rate }}"
-                         data-account="{{ stock.account }}"
-                         data-position="{{ stock.position }}"
-                         data-broker="{{ stock.broker.name }}">
-                      <div class="stock-header">
-                        <span class="stock-name">{{ stock.name }}</span>
-                        <span class="stock-code">{{ stock.ticker }}</span>
-                      </div>
-                      <div class="stock-body">
-                        <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
-                        <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
-                        <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
-                        <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
-                        <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
-                          <span>損益</span>
-                          <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
-                        </div>
+    <!-- 証券会社タブ -->
+    <div class="broker-tabs-wrapper" role="tablist" aria-label="証券会社">
+      {% for bg in broker_groups %}
+        <button class="broker-tab"
+                data-broker-index="{{ forloop.counter0 }}"
+                role="tab" tabindex="0">
+          {{ bg.grouper }}
+        </button>
+      {% endfor %}
+    </div>
+
+    <!-- 証券会社セクション（横スクロールの外枠） -->
+    <div class="broker-horizontal-wrapper" id="broker-horizontal-wrapper" aria-live="polite">
+      {% for bg in broker_groups %}
+        <section class="broker-section"
+                 data-broker-index="{{ forloop.counter0 }}"
+                 aria-label="{{ bg.grouper }}">
+
+          {# 2段目：口座区分でグルーピング（この証券会社の中だけで） #}
+          {% regroup bg.list by account_type_name as account_groups %}
+
+          {% for ag in account_groups %}
+            <h3 class="account-heading">{{ ag.grouper }}</h3>
+
+            <div class="broker-cards-wrapper">
+              {% for stock in ag.list %}
+                <article class="stock-card-wrapper">
+                  <div class="stock-card"
+                       role="button"
+                       tabindex="0"
+                       data-id="{{ stock.id }}"
+                       data-name="{{ stock.name }}"
+                       data-ticker="{{ stock.ticker }}"
+                       data-shares="{{ stock.shares }}"
+                       data-unit_price="{{ stock.unit_price|floatformat:0 }}"
+                       data-current_price="{{ stock.current_price|floatformat:0 }}"
+                       data-profit="{{ stock.profit_amount }}"
+                       data-profit_rate="{{ stock.profit_rate }}"
+                       data-account="{{ stock.account_type_name }}"
+                       data-position="{{ stock.position }}"
+                       data-broker="{{ stock.broker_name }}">
+                    <div class="stock-header">
+                      <span class="stock-name">{{ stock.name }}</span>
+                      <span class="stock-code">{{ stock.ticker }}</span>
+                    </div>
+                    <div class="stock-body">
+                      <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
+                      <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
+                      <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
+                      <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
+                      <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
+                        <span>損益</span>
+                        <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
                       </div>
                     </div>
-                  </article>
-                {% endfor %}
-              </div>
-            </section>
+                  </div>
+                </article>
+              {% endfor %}
+            </div>
           {% endfor %}
-        </div>
-      {% endwith %}
-
-    {% else %}
-      {# --- 文字列の broker を想定して regroup をやり直し --- #}
-      {% regroup stocks by broker as broker_list_str %}
-      {% with broker_list=broker_list_str broker_grouper_is_name=False %}
-        <!-- 証券会社タブ -->
-        <div class="broker-tabs-wrapper" role="tablist" aria-label="証券会社">
-          {% for broker_group in broker_list %}
-            <button class="broker-tab"
-                    data-broker-index="{{ forloop.counter0 }}"
-                    data-broker-label="{{ broker_group.grouper }}"
-                    role="tab" tabindex="0">
-              {{ broker_group.grouper }}
-            </button>
-          {% endfor %}
-        </div>
-
-        <!-- 証券会社セクション（横スクロール） -->
-        <div class="broker-horizontal-wrapper" id="broker-horizontal-wrapper" aria-live="polite">
-          {% for broker_group in broker_list %}
-            <section class="broker-section"
-                     data-broker-index="{{ forloop.counter0 }}"
-                     aria-label="{{ broker_group.grouper }}">
-              <div class="broker-cards-wrapper">
-                {% for stock in broker_group.list %}
-                  <article class="stock-card-wrapper">
-                    <div class="stock-card"
-                         role="button"
-                         tabindex="0"
-                         data-id="{{ stock.id }}"
-                         data-name="{{ stock.name }}"
-                         data-ticker="{{ stock.ticker }}"
-                         data-shares="{{ stock.shares }}"
-                         data-unit_price="{{ stock.unit_price|floatformat:0 }}"
-                         data-current_price="{{ stock.current_price|floatformat:0 }}"
-                         data-profit="{{ stock.profit_amount }}"
-                         data-profit_rate="{{ stock.profit_rate }}"
-                         data-account="{{ stock.account }}"
-                         data-position="{{ stock.position }}"
-                         data-broker="{{ stock.broker }}">
-                      <div class="stock-header">
-                        <span class="stock-name">{{ stock.name }}</span>
-                        <span class="stock-code">{{ stock.ticker }}</span>
-                      </div>
-                      <div class="stock-body">
-                        <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
-                        <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
-                        <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
-                        <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
-                        <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
-                          <span>損益</span>
-                          <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
-                        </div>
-                      </div>
-                    </div>
-                  </article>
-                {% endfor %}
-              </div>
-            </section>
-          {% endfor %}
-        </div>
-      {% endwith %}
-    {% endif %}
-
+        </section>
+      {% endfor %}
+    </div>
   {% else %}
     <p>保有株データがありません。</p>
   {% endif %}
 
-  <!-- 株モーダル（カードタップ→詳細） -->
+  {# ==== 既存の各モーダルはそのまま再掲（省略せず可） ==== #}
+  <!-- 株モーダル -->
   <div id="stock-modal" class="modal" aria-hidden="true">
     <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <button class="modal-close" aria-label="閉じる">&times;</button>
@@ -156,12 +96,11 @@
     </div>
   </div>
 
-  <!-- 編集モーダル（タイトル固定＋編集項目のみ） -->
+  <!-- 編集モーダル -->
   <div id="edit-modal" class="modal" aria-hidden="true">
     <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
       <button class="modal-close" aria-label="閉じる">&times;</button>
 
-      <!-- 上部中央に非編集の銘柄名＋コード（視覚的に強調） -->
       <div class="edit-heading">
         <h2 id="edit-modal-title" class="edit-title">
           <span class="edit-name" id="edit-name">—</span>
@@ -169,11 +108,8 @@
         </h2>
       </div>
 
-      <!-- 編集フォーム（編集するのは以下のみ） -->
       <form id="edit-form" novalidate>
-        <!-- 送信用の必須ID -->
         <input type="hidden" name="stock_id" />
-        <!-- name / ticker は編集しないが、バックエンド互換用にhiddenで送る -->
         <input type="hidden" name="name" />
         <input type="hidden" name="ticker" />
 
@@ -182,17 +118,14 @@
             <label for="edit-shares">株数</label>
             <input id="edit-shares" name="shares" type="number" inputmode="numeric" min="0" step="1" placeholder="例: 100" required>
           </div>
-
           <div class="form-group">
             <label for="edit-unit_price">取得単価（円）</label>
             <input id="edit-unit_price" name="unit_price" type="number" inputmode="numeric" min="0" step="1" placeholder="例: 1,500" required>
           </div>
-
           <div class="form-group">
-            <label for="edit-account">口座</label>
+            <label for="edit-account">口座メモ</label>
             <input id="edit-account" name="account" type="text" placeholder="例: 特定 / NISA" maxlength="50">
           </div>
-
           <div class="form-group">
             <label for="edit-position">ポジション</label>
             <select id="edit-position" name="position" required>
@@ -210,7 +143,7 @@
     </div>
   </div>
 
-  <!-- 売却モーダル（既存のまま） -->
+  <!-- 売却モーダル -->
   <div id="sell-modal" class="modal" aria-hidden="true">
     <div class="modal-content" role="dialog" aria-modal="true">
       <button class="modal-close" aria-label="閉じる">&times;</button>
