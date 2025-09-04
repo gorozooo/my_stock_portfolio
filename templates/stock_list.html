@@ -15,75 +15,68 @@
     {# 1段目：証券会社でグルーピング（broker_nameでまとめる） #}
     {% regroup stocks by broker_name as broker_groups %}
 
-    <!-- 証券会社タブ -->
-    <div class="broker-tabs-wrapper" role="tablist" aria-label="証券会社">
-      {% for bg in broker_groups %}
-        <button class="broker-tab"
-                data-broker-index="{{ forloop.counter0 }}"
-                role="tab" tabindex="0">
-          {{ bg.grouper }}
-        </button>
-      {% endfor %}
-    </div>
+    {# ...前略... #}
 
-    <!-- 横スクロール外枠 -->
-    <div class="broker-horizontal-wrapper" id="broker-horizontal-wrapper" aria-live="polite">
+<!-- 証券会社セクション（横スクロールの外枠） -->
+<div class="broker-horizontal-wrapper" id="broker-horizontal-wrapper" aria-live="polite">
+  {% for bg in broker_groups %}
+    <section class="broker-section"
+             data-broker-index="{{ forloop.counter0 }}"
+             aria-label="{{ bg.grouper }}">
 
-      {# 証券会社ごとのセクション #}
-      {% for bg in broker_groups %}
-        <section class="broker-section"
-                 data-broker-index="{{ forloop.counter0 }}"
-                 aria-label="{{ bg.grouper }}">
+      {# ★ ここに「口座チップ」コンテナ（JSが自動で中身を作る） #}
+      <div class="account-chips" role="tablist" aria-label="{{ bg.grouper }} の口座区分"></div>
 
-          {# 2段目：口座区分でグルーピング（この証券会社の中だけで） #}
-          {% regroup bg.list by account_type_name as account_groups %}
+      {# 口座区分でグルーピング #}
+      {% regroup bg.list by account_type_name as account_groups %}
 
-          {% for ag in account_groups %}
-            <h3 class="account-heading">{{ ag.grouper }}</h3>
+      {# ★ 重要：.broker-cards-wrapper は 1 つだけ！中に heading + カード群 を全部並べる #}
+      <div class="broker-cards-wrapper">
+        {% for ag in account_groups %}
+          <h3 class="account-heading" id="account-{{ forloop.parentloop.counter0 }}-{{ forloop.counter0 }}">
+            {{ ag.grouper }}
+          </h3>
 
-            <div class="broker-cards-wrapper">
-              {% for stock in ag.list %}
-                <article class="stock-card-wrapper">
-                  <div class="stock-card"
-                       role="button"
-                       tabindex="0"
-                       {# --- JSで使うデータ属性（編集/売却モーダルに渡す） --- #}
-                       data-id="{{ stock.id }}"
-                       data-name="{{ stock.name }}"
-                       data-ticker="{{ stock.ticker }}"
-                       data-shares="{{ stock.shares }}"
-                       data-unit_price="{{ stock.unit_price|floatformat:0 }}"
-                       data-current_price="{{ stock.current_price|floatformat:0 }}"
-                       data-profit="{{ stock.profit_amount }}"
-                       data-profit_rate="{{ stock.profit_rate }}"
-                       data-account="{{ stock.account_type_name }}"
-                       data-position="{{ stock.position }}"
-                       data-broker="{{ stock.broker_name }}">
-                    <div class="stock-header">
-                      <span class="stock-name">{{ stock.name }}</span>
-                      <span class="stock-code">{{ stock.ticker }}</span>
-                    </div>
-
-                    <div class="stock-body">
-                      <div class="stock-row"><span>株数</span><span>{{ stock.shares|intcomma }}株</span></div>
-                      <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
-                      <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
-                      <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
-
-                      {# 損益はプラス/マイナスで色分け #}
-                      <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
-                        <span>損益</span>
-                        <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
-                      </div>
-                    </div>
+          {% for stock in ag.list %}
+            <article class="stock-card-wrapper">
+              <div class="stock-card"
+                   role="button"
+                   tabindex="0"
+                   data-id="{{ stock.id }}"
+                   data-name="{{ stock.name }}"
+                   data-ticker="{{ stock.ticker }}"
+                   data-shares="{{ stock.shares }}"
+                   data-unit_price="{{ stock.unit_price|floatformat:0 }}"
+                   data-current_price="{{ stock.current_price|floatformat:0 }}"
+                   data-profit="{{ stock.profit_amount }}"
+                   data-profit_rate="{{ stock.profit_rate }}"
+                   data-account="{{ stock.account_type_name }}"
+                   data-position="{{ stock.position }}"
+                   data-broker="{{ stock.broker_name }}">
+                <div class="stock-header">
+                  <span class="stock-name">{{ stock.name }}</span>
+                  <span class="stock-code">{{ stock.ticker }}</span>
+                </div>
+                <div class="stock-body">
+                  <div class="stock-row"><span>株数</span><span>{{ stock.shares }}株</span></div>
+                  <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
+                  <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
+                  <div class="stock-row"><span>現在株価</span><span>{{ stock.current_price|floatformat:0|intcomma }}円</span></div>
+                  <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
+                    <span>損益</span>
+                    <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
                   </div>
-                </article>
-              {% endfor %}
-            </div>
+                </div>
+              </div>
+            </article>
           {% endfor %}
-        </section>
-      {% endfor %}
-    </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endfor %}
+</div>
+
+{# ...後略（モーダルなどはそのまま） #}
 
   {% else %}
     <p>保有株データがありません。</p>
