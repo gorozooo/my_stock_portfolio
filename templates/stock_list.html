@@ -50,7 +50,7 @@
               {% for stock in ag.list %}
                 <article class="stock-card-wrapper">
                   <div class="stock-card"
-                       role="button"
+                       role="group"
                        tabindex="0"
                        data-id="{{ stock.id }}"
                        data-name="{{ stock.name }}"
@@ -77,6 +77,14 @@
                         <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
                       </div>
                     </div>
+
+                    {# === 専用ページへのリンク（編集 / 売却） ===
+                       既存のスワイプUI用CSSに合わせて .card-actions を配置。
+                       左スワイプで表示されるほか、そのままでもタップ可。 #}
+                    <div class="card-actions">
+                      <a href="{% url 'stock_edit' stock.id %}" class="edit-btn modal-action-btn">編集</a>
+                      <a href="{% url 'stock_sell' stock.id %}" class="sell-btn modal-action-btn negative">売却</a>
+                    </div>
                   </div>
                 </article>
               {% endfor %}
@@ -89,108 +97,6 @@
     <p>保有株データがありません。</p>
   {% endif %}
 
-  {# ================= モーダル ================= #}
-
-  {# 株モーダル（カードタップ→詳細） #}
-  <div id="stock-modal" class="modal" aria-hidden="true">
-    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-      <button class="modal-close" aria-label="閉じる">&times;</button>
-      <div id="modal-body" role="document"></div>
-      <div class="modal-actions">
-        <button id="edit-stock-btn" class="modal-action-btn">編集</button>
-        <button id="sell-stock-btn" class="modal-action-btn negative">売却</button>
-      </div>
-    </div>
-  </div>
-
-  {# 編集モーダル（上部中央に銘柄名＋コードを固定表示、他のみ編集） #}
-  <div id="edit-modal" class="modal" aria-hidden="true">
-    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
-      <button class="modal-close" aria-label="閉じる">&times;</button>
-
-      <div class="edit-heading">
-        <h2 id="edit-modal-title" class="edit-title">
-          <span class="edit-name" id="edit-name">—</span>
-          <span class="edit-code-chip" id="edit-code">—</span>
-        </h2>
-      </div>
-
-      <form id="edit-form" novalidate>
-        <input type="hidden" name="stock_id" />
-        <input type="hidden" name="name" />
-        <input type="hidden" name="ticker" />
-
-        <div class="form-grid">
-          <div class="form-group">
-            <label for="edit-shares">株数</label>
-            <input id="edit-shares" name="shares" type="number" inputmode="numeric" min="0" step="1" placeholder="例: 100" required>
-          </div>
-          <div class="form-group">
-            <label for="edit-unit_price">取得単価（円）</label>
-            <input id="edit-unit_price" name="unit_price" type="number" inputmode="numeric" min="0" step="1" placeholder="例: 1,500" required>
-          </div>
-          <div class="form-group">
-            <label for="edit-account">口座メモ</label>
-            <input id="edit-account" name="account" type="text" placeholder="例: 特定 / NISA" maxlength="50">
-          </div>
-          <div class="form-group">
-            <label for="edit-position">ポジション</label>
-            <select id="edit-position" name="position" required>
-              <option value="買">買</option>
-              <option value="売">売</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="modal-actions sticky-actions">
-          <button type="submit" class="modal-action-btn">保存</button>
-          <button type="button" id="edit-cancel-btn" class="modal-action-btn negative">キャンセル</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  {# 売却モーダル（市場/指値モード切替） #}
-  <div id="sell-modal" class="modal" aria-hidden="true">
-    <div class="modal-content" role="dialog" aria-modal="true">
-      <button class="modal-close" aria-label="閉じる">&times;</button>
-      <form id="sell-form">
-        <input type="hidden" name="stock_id">
-
-        <div class="form-group">
-          <label>銘柄名
-            <input name="name" type="text" readonly>
-          </label>
-        </div>
-
-        <div class="form-group">
-          <label>売却方法</label>
-          <div class="sell-mode-group">
-            <label><input type="radio" name="sell_mode" value="market" checked> 市場価格で売却</label>
-            <label><input type="radio" name="sell_mode" value="limit"> 指値で売却</label>
-          </div>
-        </div>
-
-        <div class="form-group" id="limit-input-wrap" style="display:none;">
-          <label>指値（円）
-            <input name="limit_price" type="number" inputmode="numeric" min="0" step="1" placeholder="例: 1,234">
-          </label>
-        </div>
-
-        <div class="form-group">
-          <label>株数
-            <input name="shares" type="number" min="1" step="1">
-          </label>
-        </div>
-
-        <div class="modal-actions">
-          <button type="submit" class="modal-action-btn negative">売却</button>
-          <button type="button" id="sell-cancel-btn" class="modal-action-btn">キャンセル</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
 </div>
 {% endblock %}
 
@@ -199,5 +105,6 @@
 {% endblock %}
 
 {% block extra_js %}
+{# 既存のJS（タブ切替やスワイプなど）。モーダル参照があっても null セーフならそのままでOK。 #}
 <script src="{% static 'js/stock_list.js' %}" defer></script>
 {% endblock %}
