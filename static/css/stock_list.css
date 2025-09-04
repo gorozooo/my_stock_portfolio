@@ -50,8 +50,8 @@ main{
   gap:8px;
   padding:6px 10px;
   position:sticky;
-  top:0;
-  z-index:20;
+  top: var(--navbar-h);            /* ナビ直下に固定 */
+  z-index:150;
   background:transparent;
   overflow-x:auto;
   scroll-behavior:smooth;
@@ -161,7 +161,9 @@ main{
   display:flex;
   gap:6px;
   overflow-x:auto;
+  z-index: 140; /* タブより一段低く */
   position:sticky;
+  top: calc(var(--navbar-h) + var(--broker-tabs-h)); /* タブのすぐ下で固定 */
   padding:6px 4px 4px;
   margin:2px 0 2px;
   -webkit-overflow-scrolling:touch;
