@@ -13,13 +13,6 @@
 <div class="portfolio-container">
 
   {% if stocks %}
-    {# =========================================
-       broker の型が “文字列” か “オブジェクト(FK)” かで表示が変わらないようにする
-       - regroup の by は Dot-lookup が使えるため、まずはオブジェクト想定: broker.name
-       - もし broker が文字列なら .name は存在しない → fallback で broker で regroup を試す
-       - stocks は view で broker / broker__name で order_by 推奨
-    ========================================== #}
-
     {# --- まずは broker.name で regroup 試行（FK想定） --- #}
     {% regroup stocks by broker.name as broker_list_name %}
     {% if broker_list_name and broker_list_name.0.grouper %}
