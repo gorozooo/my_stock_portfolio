@@ -1,371 +1,280 @@
 /* ==========================
    スマホファースト設計、HTML/CSS/JS分離
-   “一部が表示されない”を防ぐための防御実装付き
-   - データ欠落の無害化（safeGet）
-   - ローカルストレージの範囲外をクランプ
-   - 高さ/スクロールの再計算を随所で実施
-   - 例外捕捉でJS停止を防ぐ
+   タブ切替でセクション中央寄せ
+   リロード時も自動中央寄せ
+   モーダル内の編集・売却ボタンを下部に横並び
+   カード左スワイプでアクション表示、右スワイプで閉じる
+   スクロール終端まで届かない問題の対策付き
 ========================== */
 
 document.addEventListener("DOMContentLoaded", () => {
-  const DEBUG = false; // ← true にすると簡易デバッグバッジとログが出ます
-
-  /* -------------------------------
-   * 安全に dataset 文字列を取得する util
-   * ----------------------------- */
-  const safeGet = (el, key, fallback = "") => {
-    if (!el) return fallback;
-    const v = el.dataset?.[key];
-    // "None" や "null" が来た場合も空扱いにする
-    if (v === undefined || v === null) return fallback;
-    if (String(v).toLowerCase() === "none" || String(v).toLowerCase() === "null") return fallback;
-    return String(v);
+  // -------------------------------
+  // 可視領域に合わせたCSS変数 --vh を設定（スマホSafari対策）
+  // -------------------------------
+  const setVHVar = () => {
+    const vh = window.innerHeight * 0.01;
+    document.documentElement.style.setProperty('--vh', `${vh}px`);
   };
+  setVHVar();
+  window.addEventListener('resize', setVHVar);
+  window.addEventListener('orientationchange', setVHVar);
+  window.addEventListener('pageshow', setVHVar);
 
-  /* -------------------------------
-   * タブ & セクション取得
-   * ----------------------------- */
-  const tabs     = Array.from(document.querySelectorAll(".broker-tab"));
-  const wrapper  = document.getElementById("broker-horizontal-wrapper");
+  // -------------------------------
+  // タブ & セクション
+  // -------------------------------
+  const tabs = Array.from(document.querySelectorAll(".broker-tab"));
+  const wrapper = document.getElementById("broker-horizontal-wrapper");
   const sections = Array.from(document.querySelectorAll(".broker-section"));
   if (!wrapper || sections.length === 0) return;
 
-  // ビュー幅に合わせた中央寄せ
   const scrollToSectionCenter = (index, smooth = true) => {
     const target = sections[index];
     if (!target) return;
-    const wrapperWidth   = wrapper.clientWidth;
-    const sectionRect    = target.getBoundingClientRect();
-    const wrapperRect    = wrapper.getBoundingClientRect();
-    const sectionLeftAbs = sectionRect.left - wrapperRect.left + wrapper.scrollLeft;
-    let left = sectionLeftAbs - (wrapperWidth / 2) + (sectionRect.width / 2);
-    const max = wrapper.scrollWidth - wrapperWidth;
-    if (left < 0) left = 0;
-    if (left > max) left = max;
+    const wrapperWidth = wrapper.clientWidth;
+    const sectionRect = target.getBoundingClientRect();
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const sectionLeftRelative = sectionRect.left - wrapperRect.left + wrapper.scrollLeft;
+    let left = sectionLeftRelative - (wrapperWidth / 2) + (sectionRect.width / 2);
+    const maxScroll = wrapper.scrollWidth - wrapperWidth;
+    left = Math.min(Math.max(left, 0), maxScroll);
     wrapper.scrollTo({ left, behavior: smooth ? "smooth" : "auto" });
   };
 
-  const clampIndex = (i) => Math.min(Math.max(i, 0), sections.length - 1);
-
-  const setActiveTab = (index, { scroll = true, smooth = true, save = true } = {}) => {
-    index = clampIndex(index);
-    tabs.forEach(t => t.classList.remove("active"));
-    if (tabs[index]) tabs[index].classList.add("active");
-    if (scroll) scrollToSectionCenter(index, smooth);
-    if (save)   localStorage.setItem("activeBrokerIndex", String(index));
-  };
-
-  // 起動時：保存 index を安全に復元
-  const savedIndexRaw = parseInt(localStorage.getItem("activeBrokerIndex") ?? "0", 10);
-  const savedIndex = isNaN(savedIndexRaw) ? 0 : clampIndex(savedIndexRaw);
-  setTimeout(() => setActiveTab(savedIndex, { scroll: true, smooth: false, save: false }), 80);
-
-  // タブ操作
-  tabs.forEach((tab, i) => {
-    tab.addEventListener("click", () => setActiveTab(i));
-    tab.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setActiveTab(i); }
-      if (e.key === "ArrowRight") setActiveTab(clampIndex(i + 1));
-      if (e.key === "ArrowLeft")  setActiveTab(clampIndex(i - 1));
+  const setActiveTab = index => {
+    tabs.forEach((t, i) => {
+      const active = i === index;
+      t.classList.toggle("active", active);
+      t.setAttribute("aria-selected", active ? "true" : "false");
+      t.setAttribute("tabindex", active ? "0" : "-1");
     });
-  });
-
-  // セクション可視範囲→タブに反映（見切れで「無い」ように見える問題を軽減）
-  const io = new IntersectionObserver((entries) => {
-    const centerX = wrapper.scrollLeft + (wrapper.clientWidth / 2);
-    const visible = entries
-      .filter(e => e.isIntersecting)
-      .map(e => {
-        const el = e.target;
-        const rect = el.getBoundingClientRect();
-        const leftAbs = rect.left - wrapper.getBoundingClientRect().left + wrapper.scrollLeft;
-        const mid = leftAbs + rect.width / 2;
-        return { el, dist: Math.abs(mid - centerX) };
-      })
-      .sort((a, b) => a.dist - b.dist);
-    if (visible.length) {
-      const idx = sections.indexOf(visible[0].el);
-      if (idx >= 0) setActiveTab(idx, { scroll: false, smooth: false, save: true });
-    }
-  }, { root: wrapper, threshold: 0.6 });
-  sections.forEach(sec => io.observe(sec));
-
-  // 画面復帰/リサイズ/向き変更で中央寄せ再計算
-  const reCenter = () => {
-    const idx = clampIndex(parseInt(localStorage.getItem("activeBrokerIndex") ?? "0", 10));
-    scrollToSectionCenter(idx, false);
+    scrollToSectionCenter(index);
+    localStorage.setItem("activeBrokerIndex", String(index));
+    // タブ切替時はカードリストの高さを再計算（見出し位置が変わるため）
+    requestAnimationFrame(applyCardsMaxHeight);
   };
-  window.addEventListener("pageshow", (e) => { if (e.persisted) reCenter(); });
-  window.addEventListener("orientationchange", () => setTimeout(reCenter, 60));
-  let resizeTimer = 0;
-  window.addEventListener("resize", () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(reCenter, 120);
-  });
 
-  /* -------------------------------
-   * モーダル共通（安全に開閉）
-   * ----------------------------- */
-  const stockModal = document.getElementById("stock-modal");
-  const editModal  = document.getElementById("edit-modal");
-  const sellModal  = document.getElementById("sell-modal");
+  const savedIndex = parseInt(localStorage.getItem("activeBrokerIndex") || "0", 10);
+  setTimeout(() => setActiveTab(Number.isNaN(savedIndex) ? 0 : savedIndex), 80);
 
-  const openModal = (modal) => {
-    if (!modal) return;
-    modal.style.display = "block";
-    modal.setAttribute("aria-hidden", "false");
-    const focusable = modal.querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])");
-    (focusable[0] || modal).focus();
-    modal.dataset.open = "1";
+  tabs.forEach((tab, i) => tab.addEventListener("click", () => setActiveTab(i)));
+
+  // -------------------------------
+  // カードリスト（broker-cards-wrapper）の最大高さを実測で設定
+  //  - 見出し(h3)や内側余白のぶんを差し引くため、単純なvh計算ではなく実測に
+  // -------------------------------
+  const getBottomTabHeight = () => {
+    // 下タブがDOMで固定なら、その高さを拾う。なければCSS変数を読む。
+    const bottomTab = document.querySelector('.bottom-tab');
+    if (bottomTab) return bottomTab.getBoundingClientRect().height;
+    // CSS変数 --bottom-tab-h のpx値を取得
+    const varPx = getComputedStyle(document.documentElement).getPropertyValue('--bottom-tab-h').trim();
+    return parseFloat(varPx) || 72;
   };
-  const closeModal = (modal) => {
-    if (!modal) return;
-    modal.style.display = "none";
-    modal.setAttribute("aria-hidden", "true");
-    modal.dataset.open = "";
-  };
-  const setupModal = (modal) => {
-    if (!modal) return;
-    const closeBtn = modal.querySelector(".modal-close");
-    closeBtn?.addEventListener("click", () => closeModal(modal));
-    modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(modal); });
-    modal.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") return closeModal(modal);
-      if (e.key !== "Tab") return;
-      const f = Array.from(modal.querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"))
-        .filter(el => !el.hasAttribute("disabled"));
-      if (!f.length) return;
-      const first = f[0], last = f[f.length - 1];
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+
+  const applyCardsMaxHeight = () => {
+    const viewportH = window.innerHeight;
+    const bottomH = getBottomTabHeight();
+    // 余白のマージン調整（お好みで）
+    const padding = 8;
+
+    document.querySelectorAll('.broker-section').forEach(section => {
+      // 口座見出し + リストの塊ごとに高さを再計算
+      // セクション内の各 .broker-cards-wrapper について、
+      // その上端位置から viewport 下端 - bottomTab までを max-height に設定
+      const wrappers = section.querySelectorAll('.broker-cards-wrapper');
+      wrappers.forEach(wrap => {
+        const rect = wrap.getBoundingClientRect();
+        const top = rect.top; // viewport基準
+        const available = Math.max(120, Math.floor(viewportH - bottomH - top - padding));
+        wrap.style.maxHeight = `${available}px`;
+      });
     });
   };
-  [stockModal, editModal, sellModal].forEach(setupModal);
 
-  /* -------------------------------
-   * カード → 詳細モーダル
-   * ----------------------------- */
+  // 初期化タイミング：フォント読み込み完了後・画面回転後にも再計算
+  applyCardsMaxHeight();
+  window.addEventListener('resize', () => requestAnimationFrame(applyCardsMaxHeight));
+  window.addEventListener('orientationchange', () => setTimeout(applyCardsMaxHeight, 100));
+  // レイアウトが落ち着いた後にもう一度（画像/フォントでズレるのをケア）
+  setTimeout(applyCardsMaxHeight, 300);
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(applyCardsMaxHeight).catch(()=>{});
+  }
+
+  // -------------------------------
+  // モーダル共通関数
+  // -------------------------------
+  const setupModal = modalId => {
+    const modal = document.getElementById(modalId);
+    const closeBtn = modal?.querySelector(".modal-close");
+    const close = () => modal && (modal.style.display = "none") && modal.setAttribute("aria-hidden", "true");
+    closeBtn?.addEventListener("click", close);
+    modal?.addEventListener("click", e => { if (e.target === modal) close(); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && modal.style.display === "block") close(); });
+    return modal;
+  };
+
+  const stockModal = setupModal("stock-modal");
+  const editModal  = setupModal("edit-modal");
+  const sellModal  = setupModal("sell-modal");
+
+  const escapeHTML = str => String(str).replace(/[&<>"']/g, m =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m])
+  );
+
+  // -------------------------------
+  // 株カードクリック → 詳細モーダル
+  // -------------------------------
   document.querySelectorAll(".stock-card").forEach(card => {
-    const cardId = safeGet(card, "id");
+    const cardId = card.dataset.id;
     card.addEventListener("click", () => {
-      try {
-        if (!stockModal) return;
-        if (card.classList.contains("swiped")) return;
-        const modalBody    = stockModal.querySelector("#modal-body");
-        const modalEditBtn = stockModal.querySelector("#edit-stock-btn");
-        const modalSellBtn = stockModal.querySelector("#sell-stock-btn");
+      if (card.classList.contains("swiped")) return;
+      if (!stockModal) return;
+      const modalBody   = stockModal.querySelector("#modal-body");
+      const modalEditBtn= stockModal.querySelector("#edit-stock-btn");
+      const modalSellBtn= stockModal.querySelector("#sell-stock-btn");
 
-        const name          = safeGet(card, "name", "—");
-        const ticker        = safeGet(card, "ticker", "—");
-        const shares        = safeGet(card, "shares", "0");
-        const unit_price    = safeGet(card, "unit_price", "0");
-        const current_price = safeGet(card, "current_price", unit_price);
-        const profit        = safeGet(card, "profit", "0");
-        const profit_rate   = safeGet(card, "profit_rate", "0");
+      modalBody.innerHTML = `
+        <h3 id="modal-title">${escapeHTML(card.dataset.name)} (${escapeHTML(card.dataset.ticker)})</h3>
+        <p>口座区分: ${escapeHTML(card.dataset.account)}</p>
+        <p>株数: ${escapeHTML(card.dataset.shares)}</p>
+        <p>取得単価: ¥${escapeHTML(card.dataset.unit_price)}</p>
+        <p>現在株価: ¥${escapeHTML(card.dataset.current_price)}</p>
+        <p>損益: ¥${escapeHTML(card.dataset.profit)} (${escapeHTML(card.dataset.profit_rate)}%)</p>
+      `;
+      stockModal.style.display = "block";
+      stockModal.setAttribute("aria-hidden", "false");
 
-        modalBody.innerHTML = `
-          <h3 id="modal-title">${escapeHTML(name)} (${escapeHTML(ticker)})</h3>
-          <div class="stock-detail-rows">
-            <p><span>株数</span><span>${escapeHTML(shares)}株</span></p>
-            <p><span>取得単価</span><span>¥${escapeHTML(unit_price)}</span></p>
-            <p><span>現在株価</span><span>¥${escapeHTML(current_price)}</span></p>
-            <p class="${Number(profit) >= 0 ? "positive" : "negative"}">
-              <span>損益</span><span>¥${escapeHTML(profit)} (${escapeHTML(profit_rate)}%)</span>
-            </p>
-          </div>
-        `;
-        if (modalEditBtn) modalEditBtn.dataset.id = cardId;
-        if (modalSellBtn) modalSellBtn.dataset.id = cardId;
-        openModal(stockModal);
-      } catch (err) {
-        console.error("[modal-open] error:", err);
-      }
+      modalEditBtn.dataset.id = cardId;
+      modalSellBtn.dataset.id = cardId;
     });
-    card.addEventListener("keydown", (e) => {
+
+    card.addEventListener("keydown", e => {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); card.click(); }
     });
   });
 
-  /* -------------------------------
-   * 編集/売却モーダル（開く）
-   * ----------------------------- */
-  const editForm = editModal?.querySelector("#edit-form") || null;
-  const sellForm = sellModal?.querySelector("#sell-form") || null;
-
-  const openEditModalWith = (stock) => {
+  // -------------------------------
+  // 編集・売却モーダル開閉
+  // -------------------------------
+  const openEditModal = stock => {
     if (!editModal) return;
-    const hName = editModal.querySelector("#edit-name");
-    const hCode = editModal.querySelector("#edit-code");
-    if (hName) hName.textContent = stock.name || "";
-    if (hCode) hCode.textContent = stock.ticker || "";
-    if (editForm) {
-      editForm.elements["stock_id"].value   = stock.id || "";
-      editForm.elements["name"].value       = stock.name || "";
-      editForm.elements["ticker"].value     = stock.ticker || "";
-      editForm.elements["shares"].value     = stock.shares || "";
-      editForm.elements["unit_price"].value = stock.unit_price || "";
-      editForm.elements["account"].value    = stock.account || "";
-      editForm.elements["position"].value   = stock.position || "買";
-      editForm.elements["shares"]?.focus();
-    }
-    openModal(editModal);
+    const form = editModal.querySelector("#edit-form");
+    // タイトル（非編集）
+    editModal.querySelector("#edit-name").textContent = stock.name || "—";
+    editModal.querySelector("#edit-code").textContent = stock.ticker || "—";
+    // フォーム
+    form.elements["stock_id"].value = stock.id || "";
+    form.elements["name"].value     = stock.name || "";
+    form.elements["ticker"].value   = stock.ticker || "";
+    form.elements["shares"].value   = stock.shares || "";
+    form.elements["unit_price"].value = stock.unit_price || "";
+    form.elements["account"].value  = stock.account || "";
+    form.elements["position"].value = stock.position || "";
+    editModal.style.display = "block";
+    editModal.setAttribute("aria-hidden", "false");
   };
 
-  const openSellModalWith = (stock) => {
-    if (!sellModal || !sellForm) return;
-    sellForm.elements["stock_id"].value = stock.id || "";
-    sellForm.elements["name"].value     = stock.name || "";
-    sellForm.elements["shares"].value   = stock.shares || "";
-    sellForm.elements["shares"]?.focus();
-    openModal(sellModal);
+  const openSellModal = stock => {
+    if (!sellModal) return;
+    const form = sellModal.querySelector("#sell-form");
+    form.elements["stock_id"].value = stock.id || "";
+    form.elements["name"].value     = stock.name || "";
+    form.elements["shares"].value   = stock.shares || "";
+    sellModal.style.display = "block";
+    sellModal.setAttribute("aria-hidden", "false");
   };
 
-  stockModal?.querySelector("#edit-stock-btn")?.addEventListener("click", (e) => {
+  // 詳細モーダル内ボタン
+  stockModal?.querySelector("#edit-stock-btn")?.addEventListener("click", e => {
     e.stopPropagation();
-    const stockId = e.currentTarget.dataset.id;
-    const card = document.querySelector(`.stock-card[data-id='${CSS.escape(stockId)}']`);
+    const stockId = e.target.dataset.id;
+    const card = document.querySelector(`.stock-card[data-id='${stockId}']`);
     if (!card) return;
-    openEditModalWith({
-      id: safeGet(card, "id"),
-      name: safeGet(card, "name"),
-      ticker: safeGet(card, "ticker"),
-      shares: safeGet(card, "shares"),
-      unit_price: safeGet(card, "unit_price"),
-      account: safeGet(card, "account"),
-      position: safeGet(card, "position", "買")
+    openEditModal({
+      id: card.dataset.id,
+      name: card.dataset.name,
+      ticker: card.dataset.ticker,
+      shares: card.dataset.shares,
+      unit_price: card.dataset.unit_price,
+      account: card.dataset.account,
+      position: card.dataset.position
     });
   });
 
-  stockModal?.querySelector("#sell-stock-btn")?.addEventListener("click", (e) => {
+  stockModal?.querySelector("#sell-stock-btn")?.addEventListener("click", e => {
     e.stopPropagation();
-    const stockId = e.currentTarget.dataset.id;
-    const card = document.querySelector(`.stock-card[data-id='${CSS.escape(stockId)}']`);
+    const stockId = e.target.dataset.id;
+    const card = document.querySelector(`.stock-card[data-id='${stockId}']`);
     if (!card) return;
-    openSellModalWith({
-      id: safeGet(card, "id"),
-      name: safeGet(card, "name"),
-      shares: safeGet(card, "shares")
+    openSellModal({
+      id: card.dataset.id,
+      name: card.dataset.name,
+      shares: card.dataset.shares
     });
   });
 
-  /* -------------------------------
-   * カード横スワイプ + アクション
-   * ----------------------------- */
+  // -------------------------------
+  // カード横スワイプ + アクション
+  // -------------------------------
   document.querySelectorAll(".stock-card").forEach(card => {
-    let startX = 0, startY = 0, isDragging = false;
+    let startX=0, startY=0, isDragging=false;
     let actions = card.querySelector(".card-actions");
     if (!actions) {
       actions = document.createElement("div");
       actions.className = "card-actions";
-      actions.innerHTML = `
-        <button class="edit-btn" type="button" aria-label="編集">編集</button>
-        <button class="sell-btn" type="button" aria-label="売却">売却</button>`;
+      actions.innerHTML = `<button class="edit-btn">編集</button><button class="sell-btn">売却</button>`;
       card.appendChild(actions);
     }
 
-    card.addEventListener("touchstart", (e) => {
-      const t = e.touches[0];
-      startX = t.pageX; startY = t.pageY; isDragging = true;
-    }, { passive: true });
+    card.addEventListener("touchstart", e => {
+      const t = e.touches[0]; startX=t.pageX; startY=t.pageY; isDragging=true;
+    }, { passive:true });
 
-    card.addEventListener("touchend", (e) => {
+    card.addEventListener("touchend", e => {
       if (!isDragging) return;
-      isDragging = false;
+      isDragging=false;
       const t = e.changedTouches[0];
       const dx = t.pageX - startX;
       const dy = t.pageY - startY;
-      if (Math.abs(dy) > Math.abs(dx)) return;
-      if (dx < -50) card.classList.add("swiped");
-      else if (dx > 50) card.classList.remove("swiped");
-    }, { passive: true });
+      if (Math.abs(dy) > Math.abs(dx)) return; // 縦スクロール優先
+      if (dx < -50) card.classList.add("swiped");  // 左スワイプで表示
+      else if (dx > 50) card.classList.remove("swiped"); // 右で閉じる
+    }, { passive:true });
 
-    actions.querySelector(".edit-btn")?.addEventListener("click", (e) => {
+    card.querySelector(".edit-btn")?.addEventListener("click", e => {
       e.stopPropagation();
-      openEditModalWith({
-        id: safeGet(card, "id"),
-        name: safeGet(card, "name"),
-        ticker: safeGet(card, "ticker"),
-        shares: safeGet(card, "shares"),
-        unit_price: safeGet(card, "unit_price"),
-        account: safeGet(card, "account"),
-        position: safeGet(card, "position", "買")
+      openEditModal({
+        id: card.dataset.id, name: card.dataset.name, ticker: card.dataset.ticker,
+        shares: card.dataset.shares, unit_price: card.dataset.unit_price,
+        account: card.dataset.account, position: card.dataset.position
       });
     });
 
-    actions.querySelector(".sell-btn")?.addEventListener("click", (e) => {
+    card.querySelector(".sell-btn")?.addEventListener("click", e => {
       e.stopPropagation();
-      openSellModalWith({
-        id: safeGet(card, "id"),
-        name: safeGet(card, "name"),
-        shares: safeGet(card, "shares")
+      openSellModal({
+        id: card.dataset.id, name: card.dataset.name, shares: card.dataset.shares
       });
     });
   });
 
-  /* -------------------------------
-   * 送信（雛形）：fetchに置き換え可能
-   * ----------------------------- */
-  const getCsrf = () => document.querySelector("input[name='csrfmiddlewaretoken']")?.value || "";
+  // -------------------------------
+  // フォーム送信（ここは実運用に合わせてAJAX/POSTに変更してください）
+  // -------------------------------
+  const editForm = document.getElementById("edit-form");
+  const sellForm = document.getElementById("sell-form");
 
-  if (editForm) {
-    editForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      try {
-        // 実運用：fetch(editForm.action, { method:'POST', headers:{'X-CSRFToken': getCsrf()}, body: new FormData(editForm) })
-        const data = Object.fromEntries(new FormData(editForm).entries());
-        closeModal(editModal);
-        // 画面の最低限更新（例外が出てもアプリが止まらないよう try 内で）
-        const card = document.querySelector(`.stock-card[data-id='${CSS.escape(data.stock_id)}']`);
-        if (card) {
-          card.dataset.shares = data.shares ?? "";
-          card.dataset.unit_price = data.unit_price ?? "";
-          // 表示テキストも更新
-          card.querySelectorAll(".stock-row").forEach(row => {
-            const label = row.querySelector("span:first-child")?.textContent?.trim();
-            if (label === "株数")        row.querySelector("span:last-child").textContent = `${data.shares}株`;
-            if (label === "取得単価")    row.querySelector("span:last-child").textContent = `${Number(data.unit_price||0).toLocaleString()}円`;
-          });
-        }
-      } catch (err) {
-        console.error("[edit submit] error:", err);
-        alert("保存に失敗しました。通信環境をご確認ください。");
-      }
-    });
-    editModal?.querySelector("#edit-cancel-btn")?.addEventListener("click", () => closeModal(editModal));
-  }
+  editForm?.addEventListener("submit", e => {
+    e.preventDefault();
+    console.log("編集フォーム送信:", Object.fromEntries(new FormData(editForm).entries()));
+    editModal.style.display="none";
+  });
 
-  if (sellForm) {
-    sellForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      try {
-        // 実運用：fetch(sellForm.action, { method:'POST', headers:{'X-CSRFToken': getCsrf()}, body: new FormData(sellForm) })
-        const data = Object.fromEntries(new FormData(sellForm).entries());
-        closeModal(sellModal);
-        document.querySelector(`.stock-card[data-id='${CSS.escape(data.stock_id)}']`)?.closest(".stock-card-wrapper")?.remove();
-      } catch (err) {
-        console.error("[sell submit] error:", err);
-        alert("売却に失敗しました。通信環境をご確認ください。");
-      }
-    });
-    sellModal?.querySelector("#sell-cancel-btn")?.addEventListener("click", () => closeModal(sellModal));
-  }
-
-  /* -------------------------------
-   * 簡易デバッグ（見えないときの可視化支援）
-   * ----------------------------- */
-  if (DEBUG) {
-    // 各セクションごとのカード枚数をバッジ表示
-    sections.forEach((sec, i) => {
-      const c = sec.querySelectorAll(".stock-card").length;
-      const badge = document.createElement("div");
-      badge.textContent = `#${i} : ${c} cards`;
-      Object.assign(badge.style, {
-        position: "sticky", top: "0", left: "0", zIndex: "5",
-        background: "rgba(0,123,255,.6)", color: "#fff",
-        fontSize: "12px", padding: "2px 6px", borderRadius: "0 0 6px 0"
-      });
-      sec.prepend(badge);
-    });
-    console.log("[DEBUG] sections:", sections.length, "tabs:", tabs.length);
-  }
+  sellForm?.addEventListener("submit", e => {
+    e.preventDefault();
+    console.log("売却フォーム送信:", Object.fromEntries(new FormData(sellForm).entries()));
+    sellModal.style.display="none";
+  });
 });
