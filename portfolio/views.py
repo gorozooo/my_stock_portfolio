@@ -360,7 +360,30 @@ def sell_stock_page(request, pk):
         return redirect("stock_list")
 
     return render(request, "stocks/sell_stock_page.html", {"stock": stock})
-    
+
+# views.py（ポイントだけ）
+from django.shortcuts import render, get_object_or_404, redirect
+from django.views.decorators.http import require_http_methods
+from .models import Stock
+
+@require_http_methods(["GET", "POST"])
+def edit_stock_page(request, pk):
+    stock = get_object_or_404(Stock, pk=pk)
+    if request.method == "POST":
+        stock.shares = int(request.POST.get("shares") or stock.shares)
+        stock.unit_price = float(request.POST.get("unit_price") or stock.unit_price)
+        stock.account = request.POST.get("account") or stock.account
+        stock.position = request.POST.get("position") or stock.position
+        stock.save()
+        return redirect("stock_list")
+    # 専用ページはベースレイアウトで _edit_form.html を読み込む
+    return render(request, "stocks/edit_page.html", {"stock": stock})
+
+def edit_stock_fragment(request, pk):
+    """モーダルで読み込む“フォームだけ”の部分HTMLを返す"""
+    stock = get_object_or_404(Stock, pk=pk)
+    return render(request, "stocks/_edit_form.html", {"stock": stock})
+
 @login_required
 def cash_view(request):
     return render(request, "cash.html")
