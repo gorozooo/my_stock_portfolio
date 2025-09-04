@@ -155,33 +155,44 @@ main{
 
 /* ==========================
    口座チップ（横スクロールのボタン群）
-   ※ セクション内の上部に固定され、下のリストだけが縦スクロール
+   常に画面上部に固定（証券会社タブの直下に並ぶ）
+   ※ このブロックだけ置き換えればOK
 ========================== */
 .account-chips{
-  position: sticky;
-  top: calc(var(--navbar-h) + var(--broker-tabs-h)); /* タブのすぐ下で固定 */
-  z-index: 140; /* 証券会社タブ(150)より低め */
+  /* 画面最上部に“常時固定” */
+  position: fixed;
+  top: calc(var(--navbar-h) + var(--broker-tabs-h)); /* ナビ＋証券会社タブの直下に配置 */
+  left: 0;
+  right: 0;
+  z-index: 140; /* 証券会社タブ(例:150)より一段低くして重なり順を安定 */
 
+  /* レイアウト */
   display: flex;
   align-items: center;
   gap: 8px;
   row-gap: 6px;
-  flex-wrap: wrap;                 /* 多い場合は折り返し */
+  flex-wrap: wrap;                 /* 多い時は折り返しで崩れ防止 */
   overflow-x: auto;
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
 
-  padding: 8px 6px;
-  margin: 0 0 8px;
-
-  /* 背景を半透明＋ぼかしで視認性を確保 */
-  background: rgba(18,18,24,.85);
+  /* 余白と背景（視認性アップ） */
+  padding: 8px 10px;
+  margin: 0;                       /* fixed化に伴い余白は0に */
+  background: rgba(18,18,24,.85);  /* 半透明の暗色でテキストを読みやすく */
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
-
   border-bottom: 1px solid rgba(255,255,255,.12);
+
+  /* 高さを一定化（下コンテンツの押し下げ量計算のため） */
+  --account-chips-h: 48px;         /* 必要に応じて微調整 */
+  min-height: var(--account-chips-h);
 }
 .account-chips::-webkit-scrollbar{ display:none; }
+
+/* 他セクションの .account-chips が同時に表示されないようにする場合、
+   JSで“表示中の証券会社だけ .is-visible を付ける”前提にしておくと安全です。 */
+.account-chips:not(.is-visible){ display: none; }
 
 .account-chip{
   flex: 0 0 auto;
@@ -194,6 +205,7 @@ main{
   opacity: .9;
   transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease;
   outline: none;
+  white-space: nowrap;
 }
 .account-chip:hover{
   transform: translateY(-1px);
@@ -207,6 +219,14 @@ main{
   box-shadow: 0 0 8px rgba(0,200,255,.5);
   opacity: 1;
   background: linear-gradient(135deg, rgba(0,123,255,.25), rgba(0,255,255,.18));
+}
+
+/* ▼ 重要：固定バーのぶんだけ下の内容を押し下げる
+   （このスタイルは broker セクションの直後 or コンテナに追加）
+   既存CSSに .after-account-chips という空divを
+   タブの直後に1つ置くのが一番簡単です。 */
+.after-account-chips{
+  height: var(--account-chips-h);  /* 上で定義した高さと同じにする */
 }
 
 /* 口座見出し＋合計サマリー（視覚的な区切りを強化） */
