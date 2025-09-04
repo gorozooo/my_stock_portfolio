@@ -1,8 +1,13 @@
 <!--{# ==========================
    スマホファースト設計、HTML/CSS/JSは分離
    証券会社タブ + 横スクロール + モーダル + 編集/売却ボタン
-   ※ broker が「文字列」でも「オブジェクト」でも壊れないように対応
-   ※ regroup の by は stocks の並び順に依存するため、view 側で broker で order_by を推奨
+
+   ■修正ポイント（重要）
+   - regroup のキーを “必ず存在する生フィールド” に変更
+     1段目: broker で regroup
+     2段目: account_type で regroup
+   - 表示ラベルは get_FOO_display を使用（なければ生値をフォールバック）
+   - これにより、楽天の「現物 / 信用」が欠けずに表示されます
 ========================== #}-->
 
 {% extends "base.html" %}
@@ -13,35 +18,49 @@
 <div class="portfolio-container">
 
   {% if stocks %}
-    {# 1段目：証券会社でグルーピング #}
-    {% regroup stocks by broker_name as broker_groups %}
+    {# 1段目：証券会社（生フィールド broker）でグルーピング #}
+    {% regroup stocks by broker as broker_groups %}
 
     <!-- 証券会社タブ -->
     <div class="broker-tabs-wrapper" role="tablist" aria-label="証券会社">
       {% for bg in broker_groups %}
-        <button class="broker-tab"
-                data-broker-index="{{ forloop.counter0 }}"
-                role="tab" tabindex="0">
-          {{ bg.grouper }}
-        </button>
+        {# タブに出す表示名：get_broker_display があれば使い、無ければ grouper（= broker 生値） #}
+        {% with broker_label=bg.list.0.get_broker_display|default:bg.grouper %}
+          <button class="broker-tab"
+                  data-broker-index="{{ forloop.counter0 }}"
+                  role="tab" tabindex="0">
+            {{ broker_label }}
+          </button>
+        {% endwith %}
       {% endfor %}
     </div>
 
     <!-- 証券会社セクション（横スクロールの外枠） -->
     <div class="broker-horizontal-wrapper" id="broker-horizontal-wrapper" aria-live="polite">
       {% for bg in broker_groups %}
+
+        {% with broker_label=bg.list.0.get_broker_display|default:bg.grouper %}
         <section class="broker-section"
                  data-broker-index="{{ forloop.counter0 }}"
-                 aria-label="{{ bg.grouper }}">
+                 aria-label="{{ broker_label }}">
 
-          {# 2段目：口座区分でグルーピング（この証券会社の中だけで） #}
-          {% regroup bg.list by account_type_name as account_groups %}
+          {# 2段目：口座区分（生フィールド account_type）でグルーピング #}
+          {% regroup bg.list by account_type as account_groups %}
 
           {% for ag in account_groups %}
-            <h3 class="account-heading">{{ ag.grouper }}</h3>
+            {# 見出しの表示名：get_account_type_display があれば使う #}
+            {% with acct_label=ag.list.0.get_account_type_display|default:ag.grouper %}
+              <h3 class="account-heading">{{ acct_label }}</h3>
+            {% endwith %}
 
             <div class="broker-cards-wrapper">
               {% for stock in ag.list %}
+                {# 各種表示名（データ属性や見栄え用） #}
+                {% with
+                  broker_label=stock.get_broker_display|default:stock.broker
+                  acct_label=stock.get_account_type_display|default:stock.account_type
+                %}
+
                 <article class="stock-card-wrapper">
                   <div class="stock-card"
                        role="button"
@@ -54,9 +73,9 @@
                        data-current_price="{{ stock.current_price|floatformat:0 }}"
                        data-profit="{{ stock.profit_amount }}"
                        data-profit_rate="{{ stock.profit_rate }}"
-                       data-account="{{ stock.account_type_name }}"
+                       data-account="{{ acct_label }}"
                        data-position="{{ stock.position }}"
-                       data-broker="{{ stock.broker_name }}">
+                       data-broker="{{ broker_label }}">
                     <div class="stock-header">
                       <span class="stock-name">{{ stock.name }}</span>
                       <span class="stock-code">{{ stock.ticker }}</span>
@@ -73,17 +92,19 @@
                     </div>
                   </div>
                 </article>
+
+                {% endwith %}
               {% endfor %}
             </div>
           {% endfor %}
         </section>
+        {% endwith %}
       {% endfor %}
     </div>
   {% else %}
     <p>保有株データがありません。</p>
   {% endif %}
 
-  {# ==== 既存の各モーダルはそのまま再掲（省略せず可） ==== #}
   <!-- 株モーダル -->
   <div id="stock-modal" class="modal" aria-hidden="true">
     <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
