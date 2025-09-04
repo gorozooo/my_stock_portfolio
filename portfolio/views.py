@@ -332,14 +332,14 @@ def stock_create(request):
 @login_required
 @require_POST
 def sell_stock_view(request, pk):
-    """
-    売却処理（UX対応版）
-    - 「市場価格で売却」 or 「指値入力で売却」を POST パラメータで分岐
-      * sell_mode: 'market' or 'limit'（必須）
-      * limit_price: 指値のときのみ必須（0より大）
-    - 成約価格（sell_price）で実現損益を算出し RealizedProfit に記録
-    - 現在は“即時約定”想定。将来は「到達時に約定」予約注文に拡張しやすいようコメントを付与
-    """
+    
+    #売却処理（UX対応版）
+    #- 「市場価格で売却」 or 「指値入力で売却」を POST パラメータで分岐
+    #  * sell_mode: 'market' or 'limit'（必須）
+    #  * limit_price: 指値のときのみ必須（0より大）
+    #- 成約価格（sell_price）で実現損益を算出し RealizedProfit に記録
+    #- 現在は“即時約定”想定。将来は「到達時に約定」予約注文に拡張しやすいようコメントを付与
+    
     stock = get_object_or_404(Stock, pk=pk)
 
     sell_mode = (request.POST.get("sell_mode") or "").strip().lower()
