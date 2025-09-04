@@ -158,37 +158,55 @@ main{
    ※ セクション内の上部に固定され、下のリストだけが縦スクロール
 ========================== */
 .account-chips{
-  display:flex;
-  gap:6px;
-  overflow-x:auto;
-  z-index: 140; /* タブより一段低く */
-  position:sticky;
+  position: sticky;
   top: calc(var(--navbar-h) + var(--broker-tabs-h)); /* タブのすぐ下で固定 */
-  padding:6px 4px 4px;
-  margin:2px 0 2px;
-  -webkit-overflow-scrolling:touch;
-  background:transparent;
+  z-index: 140; /* 証券会社タブ(150)より低め */
+
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  row-gap: 6px;
+  flex-wrap: wrap;                 /* 多い場合は折り返し */
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+
+  padding: 8px 6px;
+  margin: 0 0 8px;
+
+  /* 背景を半透明＋ぼかしで視認性を確保 */
+  background: rgba(18,18,24,.85);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+
+  border-bottom: 1px solid rgba(255,255,255,.12);
 }
 .account-chips::-webkit-scrollbar{ display:none; }
+
 .account-chip{
-  flex:0 0 auto;
-  padding:8px 12px;
-  border:1px solid var(--border-dim);
-  border-radius:999px;
-  font-size:12px;
-  color:var(--text);
-  background:var(--bg-chip);
-  opacity:.9;
-  transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease;
-  outline:none;
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border: 1px solid var(--border-dim, rgba(255,255,255,.25));
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text, #fff);
+  background: var(--bg-chip, rgba(255,255,255,.06));
+  opacity: .9;
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease;
+  outline: none;
 }
-.account-chip:hover{ transform:translateY(-1px); }
-.account-chip:focus-visible{ box-shadow:0 0 0 3px rgba(0,208,255,.45); }
+.account-chip:hover{
+  transform: translateY(-1px);
+  background: rgba(0,123,255,.15);
+}
+.account-chip:focus-visible{
+  box-shadow: 0 0 0 3px rgba(0,208,255,.45);
+}
 .account-chip.is-active{
-  border-color:rgba(0,200,255,.9);
-  box-shadow:0 0 8px rgba(0,200,255,.5);
-  opacity:1;
-  background:linear-gradient(135deg, rgba(0,123,255,.25), rgba(0,255,255,.18));
+  border-color: rgba(0,200,255,.9);
+  box-shadow: 0 0 8px rgba(0,200,255,.5);
+  opacity: 1;
+  background: linear-gradient(135deg, rgba(0,123,255,.25), rgba(0,255,255,.18));
 }
 
 /* 口座見出し＋合計サマリー（視覚的な区切りを強化） */
