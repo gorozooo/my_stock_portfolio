@@ -15,17 +15,18 @@ urlpatterns = [
     path('cash/', views.cash_view, name='cash'),
     path('realized/', views.realized_view, name='realized'),
     path('trade_history/', views.trade_history, name='trade_history'),
-    path("stocks/<int:pk>/sell/", views.sell_stock_view, name="sell_stock"),
-    path("stocks/<int:pk>/sell/", views.sell_stock_page, name="sell_stock_view"),
-    path("stocks/<int:pk>/edit/", views.edit_stock_page, name="edit_stock_page"),               # 専用ページ
-    path("stocks/<int:pk>/edit/fragment/", views.edit_stock_fragment, name="edit_stock_frag"),  # モーダル用(部分HTML)
-    
+
+    # --- 株編集・売却（専用ページ） ---
+    path("stocks/<int:pk>/edit/", views.edit_stock_page, name="stock_edit"),   # 編集ページ
+    path("stocks/<int:pk>/edit/fragment/", views.edit_stock_fragment, name="edit_stock_frag"),  # モーダル用
+    path("stocks/<int:pk>/sell/", views.sell_stock_page, name="stock_sell"),   # 売却ページ
+
     # --- 株関連 API ---
     path('stocks/api/stock_by_code/', views.get_stock_by_code, name='stock_by_code'),
     path('stocks/api/suggest_name/', views.suggest_stock_name, name='suggest_name'),
     path('stocks/api/sectors/', views.get_sector_list, name='sector_list'),
 
-    # --- 設定画面（親メニュー） パスワード付き ---
+    # --- 設定画面（親メニュー） ---
     path('settings/login/', views.settings_login, name='settings_login'),
     path('settings/', views.settings_view, name='settings'),
 
@@ -35,7 +36,7 @@ urlpatterns = [
     path('settings/notification/', views.notification_settings_view, name='notification_settings'),
     path('settings/password/', views.settings_password_edit, name='settings_password_edit'),
 
-    # --- 下タブ管理用 API (JS 側 fetch と統一) ---
+    # --- 下タブ管理用 API ---
     path("tabs/save/", views.save_tab, name="save_tab"),
     path("tabs/delete/<int:tab_id>/", views.delete_tab, name="delete_tab"),
     path("tabs/reorder/", views.save_order, name="save_order"),
