@@ -12,7 +12,7 @@
 <div class="portfolio-container">
 
   {% if stocks %}
-    {# 1段目：証券会社でグルーピング（broker_nameでまとめる） #}
+    {# 1段目：証券会社名でグルーピング（viewで annotate 済みの broker_name を使用） #}
     {% regroup stocks by broker_name as broker_groups %}
 
     {# ===== 証券会社タブ ===== #}
@@ -26,21 +26,20 @@
       {% endfor %}
     </div>
 
-    {# ===== 証券会社セクション（横スクロールの外枠） ===== #}
+    {# ===== 証券会社セクション：横スクロールの外枠 ===== #}
     <div class="broker-horizontal-wrapper" id="broker-horizontal-wrapper" aria-live="polite">
       {% for bg in broker_groups %}
         <section class="broker-section"
                  data-broker-index="{{ forloop.counter0 }}"
                  aria-label="{{ bg.grouper }}">
 
-          {# 2段目：この証券会社の中で口座区分でグルーピング #}
+          {# 2段目：この証券会社の中で口座区分でグルーピング（viewで annotate 済みの account_type_name を使用） #}
           {% regroup bg.list by account_type_name as account_groups %}
 
-          {# 口座チップ：JSが中身（各口座）を自動生成するプレースホルダ #}
+          {# 口座チップ：JSが見出しを読み取り自動生成（ここは空のまま） #}
           <div class="account-chips" role="tablist" aria-label="{{ bg.grouper }} の口座区分"></div>
 
-          <!--{# ★ 重要：スクロールを1本にするため、wrapperは1つだけ
-             中に「口座見出し + 各カード」を順番に流し込む #}-->
+          {# スクロールは1本：見出し（口座）→カード群…を1つのラッパーに連続配置 #}
           <div class="broker-cards-wrapper">
             {% for ag in account_groups %}
               {# 見出しIDは brokerIndex-accountIndex で一意化 #}
@@ -118,7 +117,6 @@
 
       <form id="edit-form" novalidate>
         <input type="hidden" name="stock_id" />
-        {# name/ticker は編集しないが、送信用に hidden で同送 #}
         <input type="hidden" name="name" />
         <input type="hidden" name="ticker" />
 
@@ -202,18 +200,4 @@
 
 {% block extra_js %}
 <script src="{% static 'js/stock_list.js' %}" defer></script>
-
-{# 市場/指値のUI切替（最小JS：load後にモーダル内changeを拾う） #}
-<script>
-  document.addEventListener('DOMContentLoaded', () => {
-    const sellModal = document.getElementById('sell-modal');
-    if (!sellModal) return;
-    const wrap = sellModal.querySelector('#limit-input-wrap');
-    sellModal.addEventListener('change', (e) => {
-      if (e.target.name === 'sell_mode') {
-        wrap.style.display = (e.target.value === 'limit') ? 'block' : 'none';
-      }
-    });
-  });
-</script>
 {% endblock %}
