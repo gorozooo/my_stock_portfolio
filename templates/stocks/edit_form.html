@@ -58,7 +58,7 @@
                 name="memo"
                 rows="3"
                 placeholder="自由入力 (例: 長期保有予定 / 配当狙い)">
-        {{ stock.memo|default_if_none:'' }}
+        {{ stock.note|default_if_none:'' }}
       </textarea>
     </div>
   </div>
