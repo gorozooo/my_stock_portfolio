@@ -3,10 +3,10 @@
 
 {% block content %}
 <div class="realized-container">
-  <!-- 上部：KPI / クイック / 年月（ページ上部は固定表示。スクロールは下の表だけ） -->
+  <!-- 上部：KPI / クイック / 年月（固定） -->
   <div class="top-fixed" role="region" aria-label="絞り込みとサマリー">
-    <!-- KPI：件数・勝率・合計損益・平均損益（新デザイン） -->
-    <div class="kpi-grid">
+    <!-- KPI（超コンパクト版） -->
+    <div class="kpi-grid kpi-compact">
       <div class="kpi-card kpi--compact" data-kpi="count">
         <div class="kpi-header">
           <span class="kpi-icon" aria-hidden="true">📄</span>
@@ -40,29 +40,29 @@
       </div>
     </div>
 
-    <!-- クイックフィルタ -->
-    <div class="quick-chips">
+    <!-- クイックフィルタ（コンパクト） -->
+    <div class="quick-chips chips-compact">
       <button type="button" data-range="this-month">今月</button>
       <button type="button" data-range="last-month">先月</button>
       <button type="button" data-range="this-year">今年</button>
       <button type="button" data-range="all">すべて</button>
     </div>
 
-    <!-- 年月フィルタ -->
-    <div class="filter-box">
+    <!-- 年月フィルタ（コンパクト） -->
+    <div class="filter-box filter-compact">
       <select id="yearFilter" aria-label="年フィルタ">
-        <option value="">年を選択</option>
-        <option value="2025">2025年</option>
-        <option value="2024">2024年</option>
+        <option value="">年</option>
+        <option value="2025">2025</option>
+        <option value="2024">2024</option>
       </select>
       <select id="monthFilter" aria-label="月フィルタ">
-        <option value="">月を選択</option>
-        <option value="01">1月</option><option value="02">2月</option>
-        <option value="03">3月</option><option value="04">4月</option>
-        <option value="05">5月</option><option value="06">6月</option>
-        <option value="07">7月</option><option value="08">8月</option>
-        <option value="09">9月</option><option value="10">10月</option>
-        <option value="11">11月</option><option value="12">12月</option>
+        <option value="">月</option>
+        <option value="01">1</option><option value="02">2</option>
+        <option value="03">3</option><option value="04">4</option>
+        <option value="05">5</option><option value="06">6</option>
+        <option value="07">7</option><option value="08">8</option>
+        <option value="09">9</option><option value="10">10</option>
+        <option value="11">11</option><option value="12">12</option>
       </select>
     </div>
   </div>
@@ -142,7 +142,7 @@
   </div>
 </div>
 
-<!-- モーダル（中央表示 & フェード＋スケール） -->
+<!-- モーダル（中央表示） -->
 <div id="stockModal" class="modal" aria-hidden="true" aria-modal="true" role="dialog">
   <div class="modal-content glass-box" role="document">
     <span class="close" aria-label="閉じる">&times;</span>
