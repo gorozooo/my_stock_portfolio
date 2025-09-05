@@ -65,3 +65,24 @@
 @media (max-width: 480px){
   .overview-grid { grid-template-columns: 1fr; }
 }
+
+/* --------------------------
+   旧モーダルのチラ見えを完全ブロック
+   ※ 新詳細モーダルが導入された画面では常時OFFでOK
+--------------------------- */
+#stock-modal,
+#edit-modal,
+#sell-modal {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* 念のため、ボディにクラスを付けた時も確実に隠す（JSで付与/除去） */
+body.hide-legacy-modals #stock-modal,
+body.hide-legacy-modals #edit-modal,
+body.hide-legacy-modals #sell-modal {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
