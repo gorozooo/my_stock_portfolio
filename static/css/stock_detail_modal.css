@@ -1,0 +1,67 @@
+/* 最小限のスタイル。背景グラデは使わない（透明＋薄い面） */
+.detail-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: grid;
+  place-items: center;
+  font-family: inherit;
+}
+.detail-modal__overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  backdrop-filter: blur(2px);
+}
+.detail-modal__dialog {
+  position: relative;
+  width: min(94vw, 720px);
+  max-height: 90vh;
+  overflow: auto;
+  background: rgba(18,18,24,.96);
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 12px;
+  padding: 12px;
+  color: #fff;
+}
+.detail-modal__close {
+  position: absolute;
+  top: 6px; right: 8px;
+  background: none; border: none; color: #fff;
+  font-size: 22px; cursor: pointer;
+}
+.detail-modal__header {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 8px; margin-bottom: 8px;
+}
+.dm-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 800; }
+.dm-code { border: 1px solid rgba(255,255,255,.25); border-radius: 8px; padding: 2px 8px; }
+.dm-cta { display: flex; gap: 8px; }
+.dm-btn { display: inline-flex; align-items: center; justify-content: center;
+  padding: 8px 12px; border-radius: 8px; color: #fff; text-decoration: none;
+  border: 1px solid rgba(255,255,255,.22); background: rgba(255,255,255,.06);}
+.dm-btn--danger { background: linear-gradient(180deg, rgba(244,67,54,.95), rgba(244,67,54,.72)); }
+
+.detail-tabs { display: flex; gap: 8px; margin: 6px 0 10px; overflow-x: auto; }
+.detail-tab { padding: 8px 12px; border: 1px solid rgba(255,255,255,.22); border-radius: 999px; color:#fff; background: rgba(255,255,255,.06); }
+.detail-tab.is-active { border-color: rgba(0,200,255,.9); box-shadow: 0 0 8px rgba(0,200,255,.45); background: rgba(0,123,255,.2); }
+.detail-tab[disabled] { opacity: .5; }
+
+.detail-panels { display: block; }
+.detail-panel { display: none; }
+.detail-panel.is-active { display: block; }
+
+.skeleton { display: grid; gap: 8px; }
+.sk-line { height: 14px; background: linear-gradient(90deg, rgba(255,255,255,.08), rgba(255,255,255,.18), rgba(255,255,255,.08)); border-radius: 6px; }
+.sk-line--w60 { width: 60%; }
+
+.overview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ov-item { border: 1px solid rgba(255,255,255,.14); border-radius: 10px; padding: 10px; background: rgba(255,255,255,.03); }
+.ov-k { font-size: 12px; color: rgba(255,255,255,.8); }
+.ov-v { font-weight: 800; font-size: 14px; color: #fff; }
+.ov-v.pos { color: #6aff6a; }
+.ov-v.neg { color: #ff6a6a; }
+
+@media (max-width: 480px){
+  .overview-grid { grid-template-columns: 1fr; }
+}
