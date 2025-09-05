@@ -14,7 +14,24 @@ class StockMaster(models.Model):
     def __str__(self):
         return f"{self.code} {self.name}"
 
+# portfolio/models.py の一部（Stockモデル）
+import re
+import datetime
+import yfinance as yf
+
+from django.db import models
+from django.core.exceptions import ValidationError
+from django.utils import timezone
+
+
 class Stock(models.Model):
+    """
+    保有株モデル（スマホファーストUIに合わせた表示/集計用の補助も内蔵）
+    - JPティッカーは 4桁なら .T を自動付与して取得（to_yf_symbol）
+    - save() 時に現値/評価額/損益を自動更新（取得失敗時は現値を維持）
+    - 「買/買い」入力のブレをモデル側で吸収（normalize）
+    """
+
     # 証券会社
     BROKER_CHOICES = [
         ("楽天", "楽天"),
@@ -27,34 +44,35 @@ class Stock(models.Model):
     ACCOUNT_TYPE_CHOICES = [
         ("現物", "現物"),
         ("信用", "信用"),
-        ("NISA", "NISA"),
+        ("NISA",  "NISA"),
     ]
 
-    # ポジション（追加）
+    # ポジション
     POSITION_CHOICES = [
         ("買い", "買い"),
         ("売り", "売り"),
     ]
 
     purchase_date = models.DateField("購入日")
-    ticker = models.CharField("証券コード", max_length=20, db_index=True)  # 例: 7203 または 7203.T
-    name = models.CharField("銘柄名", max_length=100)
-    account_type = models.CharField("口座区分", max_length=10, choices=ACCOUNT_TYPE_CHOICES, default="現物")
-    sector = models.CharField("セクター", max_length=50, default="")
-    position = models.CharField("ポジション", max_length=4, choices=POSITION_CHOICES, default="買い")  # ← 追加
-    shares = models.PositiveIntegerField("株数")
+    ticker        = models.CharField("証券コード", max_length=20, db_index=True)  # 例: 7203 または 7203.T
+    name          = models.CharField("銘柄名", max_length=100)
+    account_type  = models.CharField("口座区分", max_length=10, choices=ACCOUNT_TYPE_CHOICES, default="現物", db_index=True)
+    sector        = models.CharField("セクター", max_length=50, default="")
+    position      = models.CharField("ポジション", max_length=4, choices=POSITION_CHOICES, default="買い", db_index=True)
+
+    shares     = models.PositiveIntegerField("株数")
     unit_price = models.FloatField("取得単価")
 
-    # 取得額は整数円で扱いたい要件が多いため PositiveInteger のまま維持
-    # （小数の可能性がある場合は FloatField へ変更してください）
-    total_cost = models.PositiveIntegerField("取得額", editable=False)  # 自動計算
+    # 取得額は整数円で扱う前提（shares * unit_price を四捨五入）
+    total_cost = models.PositiveIntegerField("取得額", editable=False)
 
-    current_price = models.FloatField("現在株価", default=0, editable=False)  # 自動取得
-    market_value = models.FloatField("評価額", default=0, editable=False)   # 自動計算
-    profit_loss = models.FloatField("損益額", default=0, editable=False)     # 自動計算
+    # 現在値/評価額/損益はビューでの一覧・売却画面で利用（自動更新）
+    current_price = models.FloatField("現在株価", default=0, editable=False)
+    market_value  = models.FloatField("評価額",   default=0, editable=False)
+    profit_loss   = models.FloatField("損益額",   default=0, editable=False)
 
-    broker = models.CharField("証券会社", max_length=20, choices=BROKER_CHOICES, default="楽天")
-    note = models.TextField("メモ", blank=True, default="")
+    broker     = models.CharField("証券会社", max_length=20, choices=BROKER_CHOICES, default="楽天", db_index=True)
+    note       = models.TextField("メモ", blank=True, default="")
     created_at = models.DateTimeField("作成日時", default=timezone.now)
     updated_at = models.DateTimeField("更新日時", auto_now=True)
 
@@ -63,42 +81,73 @@ class Stock(models.Model):
         verbose_name = "保有株"
         verbose_name_plural = "保有株"
 
-    # --- バリデーション（モデルレベル） ---
-    def clean(self):
-        super().clean()
-        # 未来日を禁止
-        if self.purchase_date and self.purchase_date > timezone.localdate():
-            raise ValidationError({"purchase_date": "購入日に未来日は指定できません。"})
-        # ポジション選択チェック（保険）
-        if self.position not in dict(self.POSITION_CHOICES):
-            raise ValidationError({"position": "ポジションは『買い』または『売り』を選択してください。"})
-        # 口座区分チェック（保険）
-        if self.account_type not in dict(self.ACCOUNT_TYPE_CHOICES):
-            raise ValidationError({"account_type": "口座区分の値が不正です。"})
+        # よく絞り込むキーに複合インデックス（任意）
+        indexes = [
+            models.Index(fields=["broker", "account_type", "name"]),
+            models.Index(fields=["ticker"]),
+        ]
 
-    # --- ヘルパー：yfinance用ティッカーに正規化 ---
+    # ---------- 正規化ヘルパ ----------
     @staticmethod
     def to_yf_symbol(ticker: str) -> str:
         """
-        入力が 4桁数字 or 4桁数字+拡張なし → 日本株として .T を付与。
-        すでにドット付き(例: 7203.T / AAPL) はそのまま。
+        yfinance 用のティッカーに正規化。
+        - 4桁数字のみ → 東証銘柄として '.T' を付与（例: '7203' → '7203.T'）
+        - 既に拡張子あり（'7203.T', 'AAPL' など）→ そのまま
         """
         t = (ticker or "").strip()
         if not t:
             return t
-        if "." in t:  # 既に拡張子あり
+        if "." in t:
             return t
-        # 4桁の数値のみなら東証銘柄として .T を付与
         if re.fullmatch(r"\d{4}", t):
             return f"{t}.T"
         return t
 
-    def save(self, *args, **kwargs):
-        # 取得額（整数円）を自動計算
-        # shares * unit_price が小数のとき四捨五入して整数円に
-        self.total_cost = int(round(float(self.shares) * float(self.unit_price)))
+    @staticmethod
+    def normalize_position(value: str) -> str:
+        """
+        '買' と '買い' の表記揺れを '買い' に統一（売りはそのまま）。
+        """
+        v = (value or "").strip()
+        if v in ("買", "買い"):
+            return "買い"
+        if v in ("売", "売り"):
+            return "売り"
+        return v
 
-        # 株価取得（失敗時は前回値を維持）
+    # ---------- バリデーション ----------
+    def clean(self):
+        super().clean()
+
+        # 未来日を禁止
+        if self.purchase_date and self.purchase_date > timezone.localdate():
+            raise ValidationError({"purchase_date": "購入日に未来日は指定できません。"})
+
+        # ポジション正規化（フォーム側が '買' を送ってきてもOK）
+        pos = self.normalize_position(self.position)
+        if pos not in dict(self.POSITION_CHOICES):
+            raise ValidationError({"position": "ポジションは『買い』または『売り』を選択してください。"})
+        self.position = pos
+
+        # 口座区分チェック（保険）
+        if self.account_type not in dict(self.ACCOUNT_TYPE_CHOICES):
+            raise ValidationError({"account_type": "口座区分の値が不正です。"})
+
+    # ---------- 保存時の自動計算 ----------
+    def save(self, *args, **kwargs):
+        """
+        - total_cost を shares * unit_price から整数円で自動計算
+        - 可能なら yfinance で現在値を軽く更新（失敗時は現値を維持）
+        - 評価額/損益をポジション別に計算
+        """
+        # 取得額（整数円）を自動計算
+        try:
+            self.total_cost = int(round(float(self.shares) * float(self.unit_price)))
+        except Exception:
+            self.total_cost = 0
+
+        # 現在値の更新（ネットワーク失敗時は既存の current_price を保持）
         try:
             symbol = self.to_yf_symbol(self.ticker)
             if symbol:
@@ -106,29 +155,54 @@ class Stock(models.Model):
                 if len(price_series) > 0:
                     self.current_price = float(price_series.iloc[-1])
         except Exception:
-            # ネットワーク/銘柄未取得等は無視して現値を保持
+            # 取得できない場合は既存値のまま
             pass
 
-        # 評価額と損益（ポジション別）
-        # 買い: 損益 = (現値 * 株数) - 取得額
-        # 売り: 損益 = (取得単価 - 現値) * 株数 （空売りの評価損益）
-        self.market_value = float(self.shares) * float(self.current_price)
-        if self.position == "売り":
-            self.profit_loss = (float(self.unit_price) - float(self.current_price)) * float(self.shares)
-        else:
-            self.profit_loss = self.market_value - float(self.total_cost)
-
-        # 追加の整合チェック（shares や price が NaN/inf にならないよう保険）
-        if not (self.market_value == self.market_value):  # NaNチェック
+        # 評価額
+        try:
+            self.market_value = float(self.shares) * float(self.current_price)
+        except Exception:
             self.market_value = 0.0
-        if not (self.profit_loss == self.profit_loss):
+
+        # 損益（買い: (現値×株数) - 取得額 / 売り: (取得単価 - 現値)×株数）
+        pos = self.normalize_position(self.position)
+        try:
+            if pos == "売り":
+                self.profit_loss = (float(self.unit_price) - float(self.current_price)) * float(self.shares)
+            else:
+                self.profit_loss = self.market_value - float(self.total_cost)
+        except Exception:
             self.profit_loss = 0.0
+
+        # NaN/inf ガード
+        if not (self.market_value == self.market_value):  # NaN
+            self.market_value = 0.0
+        if not (self.profit_loss == self.profit_loss):    # NaN
+            self.profit_loss = 0.0
+
+        # 正規化されたポジションで保存
+        self.position = pos
 
         super().save(*args, **kwargs)
 
+    # ---------- 表示系の小さなヘルパ ----------
+    @property
+    def broker_name(self) -> str:
+        """choices のラベルを返す（テンプレの regroup と整合）。"""
+        return dict(self.BROKER_CHOICES).get(self.broker, self.broker)
+
+    @property
+    def account_type_name(self) -> str:
+        """choices のラベルを返す（テンプレの regroup と整合）。"""
+        return dict(self.ACCOUNT_TYPE_CHOICES).get(self.account_type, self.account_type)
+
+    @property
+    def position_name(self) -> str:
+        """choices のラベルを返す。"""
+        return dict(self.POSITION_CHOICES).get(self.position, self.position)
+
     def __str__(self):
-        return f"{self.ticker} {self.name}"
-# =============================
+        return f"{self.ticker} {self.name}"# =============================
 # 実現損益
 # =============================
 class RealizedTrade(models.Model):
