@@ -7,48 +7,95 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/stock_list.css' %}">
 <style>
-  /* ページ固有の軽い調整（必要なら） */
-  .edit-page-container {
-    padding: 12px 10px calc(var(--bottom-tab-h,72px) + 16px);
-    max-width: 900px;
+  :root{
+    --edit-max-w: 900px;
+    --edit-pad-x: 12px;
+  }
+
+  /* ページ全体（上下に余白、中央寄せ） */
+  .edit-page-container{
+    padding: 12px var(--edit-pad-x) calc(var(--bottom-tab-h,72px) + 16px);
+    max-width: var(--edit-max-w);
     margin: 0 auto;
   }
-  .edit-heading {
-    text-align: center;
-    margin: 8px 0 12px;
-  }
-  .edit-title {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 16px;
-    font-weight: 800;
-    color: #fff;
-  }
-  .edit-code-chip {
-    border: 1px solid rgba(255,255,255,.25);
-    border-radius: 8px;
-    padding: 2px 8px;
-    font-weight: 800;
-    color: #fff;
-  }
-  .edit-card {
-    border: 1px solid rgba(255,255,255,.25);
-    border-radius: 12px;
-    background: rgba(255,255,255,.03);
-    padding: 12px;
-  }
-  .back-row {
-    margin-bottom: 6px;
-  }
-  .back-link {
-    display:inline-block;
+
+  /* 戻るリンク */
+  .back-row{ margin-bottom: 8px; }
+  .back-link{
+    display:inline-flex; align-items:center; gap:6px;
     padding:6px 10px;
     border:1px solid rgba(255,255,255,.25);
     border-radius:8px;
-    color:#fff;
-    text-decoration:none;
-    font-weight:700;
+    color:#fff; text-decoration:none; font-weight:700;
+    background: rgba(255,255,255,.06);
+  }
+  .back-link:hover{ transform: translateY(-1px); }
+
+  /* 見出し（銘柄名 + コード） */
+  .edit-heading{ text-align:center; margin: 8px 0 12px; }
+  .edit-title{
+    display:inline-flex; align-items:center; gap:8px;
+    font-size:16px; font-weight:800; color:#fff;
+  }
+  .edit-code-chip{
+    border:1px solid rgba(255,255,255,.25);
+    border-radius:8px; padding:2px 8px; font-weight:800; color:#fff;
+    background: rgba(255,255,255,.06);
+  }
+
+  /* カード風ボックス */
+  .edit-card{
+    border:1px solid rgba(255,255,255,.25);
+    border-radius:12px;
+    background: rgba(255,255,255,.03);
+    padding: 12px;
+  }
+
+  /* フォーム内のレイアウト改善（include 側の構造に合わせて強化） */
+  .edit-card .form-grid{
+    display:grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .edit-card .form-group label{ display:block; font-weight:700; color:#fff; margin-bottom:6px; }
+  .edit-card input[type="number"],
+  .edit-card input[type="text"],
+  .edit-card textarea,
+  .edit-card select{
+    width:100%; box-sizing:border-box;
+    padding:10px 12px;
+    border:1px solid rgba(255,255,255,.25);
+    border-radius:10px;
+    background: rgba(18,18,24,.85);
+    color:#fff; font-size:14px;
+  }
+  .edit-card textarea{ resize: vertical; }
+
+  /* アクション行（include 側の .modal-actions をページに最適化） */
+  .edit-card .modal-actions{
+    display:flex; gap:12px; justify-content:center; margin-top:16px;
+    position: sticky; bottom: 0;
+    padding: 10px 0 2px;
+    backdrop-filter: blur(4px);
+  }
+  .edit-card .modal-action-btn{
+    padding:10px 16px; border-radius:8px; font-weight:800; color:#fff; cursor:pointer;
+    border:1px solid rgba(255,255,255,.22);
+    background: linear-gradient(180deg, rgba(0,123,255,.85), rgba(0,123,255,.6));
+    text-decoration:none; /* <a>にも効かせる */
+  }
+  .edit-card .modal-action-btn.negative{
+    background: linear-gradient(180deg, rgba(244,67,54,.95), rgba(244,67,54,.72));
+  }
+
+  /* ラベル下に補助テキストを置く場合の見た目（任意） */
+  .form-help{ color: rgba(255,255,255,.7); font-size:12px; margin-top:4px; }
+
+  /* 幅が広い時は2列に（スマホは1列のまま） */
+  @media (min-width: 640px){
+    .edit-card .form-grid{ grid-template-columns: 1fr 1fr; }
+    /* メモは横幅広く */
+    .edit-card .form-group--note{ grid-column: 1 / -1; }
   }
 </style>
 {% endblock %}
@@ -67,11 +114,12 @@
   </div>
 
   <div class="edit-card">
+    {# ここで編集フォーム本体を読み込みます（前のメッセージで渡した edit_form.html） #}
     {% include "stocks/edit_form.html" %}
   </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
-{# 必要ならJSを読み込む #}
+{# 追加でJSが必要ならここに読み込みを書く #}
 {% endblock %}
