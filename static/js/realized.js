@@ -34,7 +34,9 @@ document.addEventListener("DOMContentLoaded", () => {
   setHeights();
   window.addEventListener("resize", setHeights);
   window.addEventListener("orientationchange", setHeights);
-  new MutationObserver(setHeights).observe(topFixed, {childList:true, subtree:true});
+  if (topFixed) {
+    new MutationObserver(setHeights).observe(topFixed, {childList:true, subtree:true});
+  }
 
   /* ===== 数値ユーティリティ ===== */
   const numeric = (t)=> {
@@ -60,8 +62,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const avgPos= pos.length ? posSum / pos.length : 0;
     const avgNeg= neg.length ? negSum / neg.length : 0;
 
+    // ★ ここ修正：バッククォートの閉じミスを修正
     sumCount.textContent  = String(count);
-    winRateEl.textContent = count ? `${Math.round((wins/count)*100)}%` : "0%`;
+    winRateEl.textContent = count ? `${Math.round((wins/count)*100)}%` : "0%";
 
     netProfitEl.textContent = fmt(net);
     netProfitEl.classList.toggle('profit', net > 0);
@@ -97,11 +100,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   yearFilter.addEventListener("change", ()=>{
     chips.forEach(c=>c.classList.remove('active'));
-    filterTable(); setHeights();
+    filterTable();
+    setHeights();
   });
   monthFilter.addEventListener("change", ()=>{
     chips.forEach(c=>c.classList.remove('active'));
-    filterTable(); setHeights();
+    filterTable();
+    setHeights();
   });
 
   /* ===== クイックフィルタ（アクティブ表示） ===== */
@@ -126,7 +131,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       chips.forEach(c=>c.classList.remove('active'));
       b.classList.add('active');
-      filterTable(); setHeights();
+      filterTable();
+      setHeights();
     });
   });
 
