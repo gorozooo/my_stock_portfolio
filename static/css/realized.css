@@ -1,24 +1,26 @@
-/* ★ ページを固定化：これでbody側がスクロールしても影響しない */
-.realized-page{
-  position: fixed;  /* ←最重要 */
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden; /* ←中の .table-wrapper にだけスクロールを委譲 */
-  background: transparent;
-  z-index: 0;       /* モーダルは上に来るのでOK */
+/* ★ ここが超重要：ページ全体の縦スクロールを禁止して、表ラッパーだけに付与 */
+html, body{
+  height:100%;
+  overflow:hidden;                 /* ← ページ全体はスクロールしない */
+  overscroll-behavior: none;
 }
 
-/* ページ骨格：中で縦分割、上はauto、下はスクロール領域 */
+:root{
+  --top-h: 0px;      /* JSで実高さを代入 */
+  --bottom-h: 0px;   /* JSでボトムタブ高さを代入 */
+}
+
 .realized-container{
-  flex: 1 1 auto;
+  height: 100svh;                   /* iOS対策 */
+  height: 100dvh;                   /* 端末UIを除いた実高 */
   display: flex;
   flex-direction: column;
-  min-height: 0;    /* 子のoverflowを効かせるために必須 */
+  overflow: hidden;                 /* ← 子だけスクロールさせる */
   gap: 6px;
   padding: 8px 8px 12px;
   font-family: "Helvetica Neue", system-ui, -apple-system, sans-serif;
   color:#fff;
+  background: transparent;
 }
 
 /* 上部は固定見え（スクロールしない） */
@@ -33,16 +35,17 @@
 
 /* 表ラッパー：ここだけ縦スクロール＆横スクロール可 */
 .table-wrapper{
-  flex: 1 1 auto;   /* ← 余白をすべてここに割り当て */
-  min-height: 0;    /* ← これが無いとスクロールしないことがある */
-  overflow: auto;   /* ← 縦横スクロール */
-  -webkit-overflow-scrolling: touch;
+  flex: 0 0 auto;
+  height: calc(100dvh - var(--top-h) - var(--bottom-h) - 12px); /* 画面高から固定分を差し引く */
+  min-height: 120px;
+  overflow: auto;                     /* ← ここに縦スクロールが付く */
+  -webkit-overflow-scrolling: touch;  /* iOS慣性 */
   border-radius: 10px;
   background: rgba(255,255,255,0.06);
   overscroll-behavior: contain;
 }
 
-/* ===== KPI・フィルタ ===== */
+/* ===== KPI：3行（コンパクト） ===== */
 .kpi-row{ display: grid; gap: 6px; margin-bottom: 4px; }
 .kpi-row1{ grid-template-columns: repeat(3, 1fr); }
 .kpi-row2{ grid-template-columns: repeat(2, 1fr); }
