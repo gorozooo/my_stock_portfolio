@@ -1,11 +1,13 @@
 <form method="post" action="{% url 'stock_edit' stock.id %}" novalidate>
   {% csrf_token %}
 
-  {# name / ticker は編集対象外。送信用に hidden で保持（ビュー側で使うなら） #}
+  {# 編集対象外だが送るなら保持 #}
   <input type="hidden" name="name" value="{{ stock.name }}">
   <input type="hidden" name="ticker" value="{{ stock.ticker }}">
 
   <div class="form-grid" style="display:grid; grid-template-columns:1fr; gap:12px;">
+
+    {# 株数 #}
     <div class="form-group">
       <label for="edit-shares">株数</label>
       <input id="edit-shares"
@@ -19,6 +21,7 @@
              required>
     </div>
 
+    {# 取得単価 #}
     <div class="form-group">
       <label for="edit-unit_price">取得単価（円）</label>
       <input id="edit-unit_price"
@@ -32,39 +35,40 @@
              required>
     </div>
 
+    {# 口座区分（model: account_type / choices: 現物・信用・NISA） #}
     <div class="form-group">
-      <label for="edit-account">口座区分</label>
-      <input id="edit-account"
-             name="account"
-             type="text"
-             value="{{ stock.account|default_if_none:'' }}"
-             placeholder="例: 特定 / NISA"
-             maxlength="50">
+      <label for="edit-account-type">口座区分</label>
+      <select id="edit-account-type" name="account_type" required>
+        <option value="現物" {% if stock.account_type == "現物" %}selected{% endif %}>現物</option>
+        <option value="信用" {% if stock.account_type == "信用" %}selected{% endif %}>信用</option>
+        <option value="NISA" {% if stock.account_type == "NISA" %}selected{% endif %}>NISA</option>
+      </select>
     </div>
 
+    {# ポジション（model: position / choices: 買い・売り）
+       既存データに「買」が混ざっていても拾えるよう条件を両対応 #}
     <div class="form-group">
       <label for="edit-position">ポジション</label>
       <select id="edit-position" name="position" required>
-        <option value="買" {% if stock.position == "買" or stock.position == "買い" %}selected{% endif %}>買</option>
-        <option value="売" {% if stock.position == "売" %}selected{% endif %}>売</option>
+        <option value="買い" {% if stock.position == "買い" or stock.position == "買" %}selected{% endif %}>買い</option>
+        <option value="売り" {% if stock.position == "売り" or stock.position == "売" %}selected{% endif %}>売り</option>
       </select>
     </div>
-  </div>
-  
-  <!-- メモ -->
+
+    {# メモ（model: note） #}
     <div class="form-group">
-      <label for="edit-memo">メモ</label>
-      <textarea id="edit-memo"
-                name="memo"
+      <label for="edit-note">メモ</label>
+      <textarea id="edit-note"
+                name="note"
                 rows="3"
-                placeholder="自由入力 (例: 長期保有予定 / 配当狙い)">
-        {{ stock.note|default_if_none:'' }}
-      </textarea>
+                placeholder="自由入力 (例: 長期保有予定 / 配当狙い)">{% if stock.note %}{{ stock.note }}{% endif %}</textarea>
     </div>
+
   </div>
 
   <div class="modal-actions" style="display:flex; gap:12px; justify-content:center; margin-top:16px;">
     <button type="submit" class="modal-action-btn">保存</button>
-    <a href="{% url 'stock_list' %}" class="modal-action-btn negative" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center;">キャンセル</a>
+    <a href="{% url 'stock_list' %}" class="modal-action-btn negative"
+       style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center;">キャンセル</a>
   </div>
 </form>
