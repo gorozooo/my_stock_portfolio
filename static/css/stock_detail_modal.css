@@ -86,3 +86,43 @@ body.hide-legacy-modals #sell-modal {
   visibility: hidden !important;
   opacity: 0 !important;
 }
+
+/* 初期はDOMにあっても絶対見えない */
+#detail-modal {
+  display: none;
+  visibility: hidden;
+  opacity: 0;
+}
+
+/* JSで .is-open を付けた時だけ見せる（フェードは短め） */
+#detail-modal.is-open {
+  display: block;
+  visibility: visible;
+  opacity: 1;
+  transition: opacity .15s ease;
+}
+
+/* 初期レンダ時のチラ見え防止：is-opening中はトランジション無効 */
+#detail-modal.is-opening {
+  transition: none !important;
+}
+
+/* モーダルの背景ぼかしが重い端末対策：iOSなどで初回の滲みを防ぐ */
+#detail-modal .modal-backdrop {
+  will-change: opacity;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+/* 体感のガタつき対策：bodyをロック中の見た目を安定させる */
+body.modal-open {
+  overflow: hidden;
+  position: fixed;
+  inset: 0;               /* iOSでのずれ防止 */
+  width: 100%;
+}
+
+/* スクロールバー消失による横ズレ対策：JSで padding-right 加算する想定 */
+body.modal-open.has-scrollbar-padding {
+  padding-right: var(--scrollbar-w, 0px);
+}
