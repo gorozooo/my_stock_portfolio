@@ -6,7 +6,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const tbody       = table.querySelector("tbody");
   const allRows     = [...tbody.querySelectorAll("tr")];
   const dataRows    = allRows.filter(r => !r.classList.contains('group-row'));
-  const topFixed    = document.querySelector(".top-fixed");
   const emptyState  = document.getElementById("emptyState");
   const chips       = [...document.querySelectorAll(".quick-chips .chip")];
 
@@ -19,24 +18,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const avgNetEl        = document.getElementById("avgNet");
   const avgProfitOnlyEl = document.getElementById("avgProfitOnly");
   const avgLossOnlyEl   = document.getElementById("avgLossOnly");
-
-  /* ===== 高さ→CSS変数に反映（表だけスクロールのキモ） ===== */
-  function bottomTabHeight(){
-    const el = document.querySelector(".bottom-tab, #bottom-tab");
-    return el ? el.offsetHeight : 0;
-  }
-  function setHeights(){
-    const topH = topFixed ? topFixed.offsetHeight : 0;
-    const bottomH = bottomTabHeight();
-    document.documentElement.style.setProperty('--top-h', `${topH}px`);
-    document.documentElement.style.setProperty('--bottom-h', `${bottomH}px`);
-  }
-  setHeights();
-  window.addEventListener("resize", setHeights);
-  window.addEventListener("orientationchange", setHeights);
-  if (topFixed) {
-    new MutationObserver(setHeights).observe(topFixed, {childList:true, subtree:true});
-  }
 
   /* ===== 数値ユーティリティ ===== */
   const numeric = (t)=> {
@@ -62,7 +43,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const avgPos= pos.length ? posSum / pos.length : 0;
     const avgNeg= neg.length ? negSum / neg.length : 0;
 
-    // ★ ここ修正：バッククォートの閉じミスを修正
     sumCount.textContent  = String(count);
     winRateEl.textContent = count ? `${Math.round((wins/count)*100)}%` : "0%";
 
@@ -101,12 +81,10 @@ document.addEventListener("DOMContentLoaded", () => {
   yearFilter.addEventListener("change", ()=>{
     chips.forEach(c=>c.classList.remove('active'));
     filterTable();
-    setHeights();
   });
   monthFilter.addEventListener("change", ()=>{
     chips.forEach(c=>c.classList.remove('active'));
     filterTable();
-    setHeights();
   });
 
   /* ===== クイックフィルタ（アクティブ表示） ===== */
@@ -132,7 +110,6 @@ document.addEventListener("DOMContentLoaded", () => {
       chips.forEach(c=>c.classList.remove('active'));
       b.classList.add('active');
       filterTable();
-      setHeights();
     });
   });
 
@@ -209,5 +186,4 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* 初期描画 */
   filterTable();
-  setHeights();
 });
