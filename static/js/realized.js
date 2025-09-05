@@ -1,275 +1,339 @@
-/* =========================
-   レイアウト：高さCSS変数を常に最新化
-   ========================= */
-(function layoutHeights(){
-  function $(sel){ return document.querySelector(sel); }
-  function bottomTab(){ return $('.bottom-tab, #bottom-tab'); }
-  function setHeights(){
-    var top    = $('.top-fixed');
-    var topH   = top ? top.offsetHeight : 0;
-    var btm    = bottomTab();
-    var btmH   = btm ? btm.offsetHeight : 0;
-    document.documentElement.style.setProperty('--top-h',  topH + 'px');
-    document.documentElement.style.setProperty('--bottom-h', btmH + 'px');
+document.addEventListener("DOMContentLoaded", () => {
+  // 要素
+  const yearFilter  = document.getElementById("yearFilter");
+  const monthFilter = document.getElementById("monthFilter");
+  const table       = document.getElementById("realizedTable");
+  const tbody       = table.querySelector("tbody");
+  const emptyState  = document.getElementById("emptyState");
+  const chips       = [...document.querySelectorAll(".quick-chips .chip")];
+
+  // ===== デモデータ注入（必要に応じて大量行を追加） =====
+  // 実運用に移るときは false にするか、このブロックを削除してください。
+  const SEED_DEMO_ROWS = true;
+  const MIN_ROWS_FOR_TEST = 60;
+
+  function ymd(date){
+    const y = date.getFullYear();
+    const m = String(date.getMonth()+1).padStart(2,'0');
+    const d = String(date.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+  function monthLabel(date){
+    return `${date.getFullYear()}年 ${date.getMonth()+1}月`;
+  }
+  function addGroupRow(label){
+    const tr = document.createElement('tr');
+    tr.className = 'group-row';
+    const td = document.createElement('td');
+    td.colSpan = 8; // ← 列数に合わせて8
+    td.textContent = label;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
   }
 
-  if (document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', setHeights);
-  } else {
-    setHeights();
+  // デモ用のダミー候補
+  const names   = ['トヨタ','任天堂','ソニー','キーエンス','武田薬品','三菱UFJ','KDDI','リクルート','オリックス','ZHD'];
+  const codes   = ['7203','7974','6758','6861','4502','8306','9433','6098','8591','4689'];
+  const sectors = ['自動車','ゲーム','電機','精密','医薬','銀行','通信','人材','金融','IT'];
+  const brokers = ['SBI','楽天','松井','マネックス','野村'];
+  const accounts= ['特定','一般','NISA'];
+  const trades  = ['売却','配当']; // 表示は「区分」
+
+  function addDataRow({
+    date, name, code, broker, account, tradeType, qty,
+    profit, rate, purchase, sell, fee, sector
+  }){
+    const tr = document.createElement('tr');
+
+    // data-*（モーダル用）
+    tr.dataset.date     = date;
+    tr.dataset.name     = name;
+    tr.dataset.code     = code || '';
+    tr.dataset.broker   = broker || '';
+    tr.dataset.account  = account || '';
+    tr.dataset.type     = tradeType;
+    tr.dataset.quantity = String(qty);
+    tr.dataset.profit   = profit > 0 ? `+${profit.toLocaleString()}` : `${profit.toLocaleString()}`;
+    tr.dataset.rate     = (rate > 0 ? `+${rate}` : `${rate}`) + '%';
+    tr.dataset.purchase = purchase != null ? String(purchase) : '';
+    tr.dataset.sell     = sell != null ? String(sell) : '';
+    tr.dataset.fee      = fee != null ? String(fee) : '';
+    tr.dataset.sector   = sector || '';
+
+    // 表示セル（8列）
+    const tds = [];
+
+    const td0 = document.createElement('td'); td0.textContent = date; tds.push(td0);
+
+    const td1 = document.createElement('td'); td1.className = 'stock-name-cell';
+    const span1 = document.createElement('span'); span1.textContent = name; td1.appendChild(span1); tds.push(td1);
+
+    const td2 = document.createElement('td'); td2.textContent = broker || ''; tds.push(td2);
+    const td3 = document.createElement('td'); td3.textContent = account || ''; tds.push(td3);
+
+    const td4 = document.createElement('td'); td4.className = 'trade-type-cell';
+    const span2 = document.createElement('span'); span2.textContent = tradeType; td4.appendChild(span2); tds.push(td4);
+
+    const td5 = document.createElement('td'); td5.textContent = String(qty); tds.push(td5);
+
+    const td6 = document.createElement('td');
+    td6.textContent = (profit > 0 ? `+${profit.toLocaleString()}` : profit.toLocaleString());
+    td6.className = profit > 0 ? 'profit' : (profit < 0 ? 'loss' : '');
+    tds.push(td6);
+
+    const td7 = document.createElement('td');
+    td7.textContent = (rate > 0 ? `+${rate}` : `${rate}`) + '%';
+    td7.className = rate > 0 ? 'profit' : (rate < 0 ? 'loss' : '');
+    tds.push(td7);
+
+    tds.forEach(td => tr.appendChild(td));
+    tbody.appendChild(tr);
   }
-  window.addEventListener('resize', setHeights, {passive:true});
-  window.addEventListener('orientationchange', setHeights, {passive:true});
 
-  var top = document.querySelector('.top-fixed');
-  if (top && 'MutationObserver' in window){
-    new MutationObserver(setHeights).observe(top, {childList:true, subtree:true});
+  function seedDemoRowsIfNeeded(){
+    const currentDataRows = [...tbody.querySelectorAll('tr')].filter(r => !r.classList.contains('group-row'));
+    if (!SEED_DEMO_ROWS || currentDataRows.length >= MIN_ROWS_FOR_TEST) return;
+
+    const today = new Date();
+    let lastMonth = null;
+    let made = 0;
+
+    for (let i=0; i<160 && made < (MIN_ROWS_FOR_TEST - currentDataRows.length); i+= (Math.random()<0.4?2:1) ){
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const ymdStr = ymd(d);
+
+      const mLabel = monthLabel(d);
+      if (lastMonth !== mLabel){
+        addGroupRow(mLabel);
+        lastMonth = mLabel;
+      }
+
+      const idx = Math.floor(Math.random()*names.length);
+      const name = names[idx];
+      const code = codes[idx];
+      const sector = sectors[idx];
+      const broker = brokers[Math.floor(Math.random()*brokers.length)];
+      const account= accounts[Math.floor(Math.random()*accounts.length)];
+      const tradeType = trades[Math.floor(Math.random()*trades.length)];
+      const qty = [10,20,30,50,100][Math.floor(Math.random()*5)];
+
+      const base = Math.floor( (Math.random()*2-1) * 80000 ); // -80,000〜+80,000
+      const profit = base === 0 ? 5000 : base;
+      const rate   = Math.max(-20, Math.min(20, Math.round((profit/ (qty*1000))*100)));
+      const purchase = Math.floor(Math.random()*2000)+5000;   // 例: 5000〜7000
+      const sell     = purchase + Math.floor((Math.random()*2-1)*1500);
+      const fee      = - Math.floor(Math.random()*250);       // 手数料は負数で持つ
+
+      addDataRow({
+        date: ymdStr, name, code, broker, account, tradeType, qty,
+        profit, rate, purchase, sell, fee, sector
+      });
+      made++;
+    }
   }
+  seedDemoRowsIfNeeded();
 
-  // iOS 初回計測のズレ対策：少し遅れて再実行
-  setTimeout(setHeights, 60);
-  setTimeout(setHeights, 300);
-})();
-
-/* =========================
-   KPI & フィルタ & モーダル
-   ========================= */
-document.addEventListener('DOMContentLoaded', function(){
-  var table       = document.getElementById('realizedTable');
-  var tbody       = table ? table.querySelector('tbody') : null;
-  var yearFilter  = document.getElementById('yearFilter');
-  var monthFilter = document.getElementById('monthFilter');
-  var chips       = Array.prototype.slice.call(document.querySelectorAll('.quick-chips .chip'));
-  var emptyState  = document.getElementById('emptyState');
+  // ===== テーブル行の再取得（デモ追加入りの最新状態）
+  function getAllDataRows(){
+    const rows = [...tbody.querySelectorAll('tr')];
+    return rows.filter(r => !r.classList.contains('group-row'));
+  }
 
   // KPI
-  var sumCountEl      = document.getElementById('sumCount');
-  var winRateEl       = document.getElementById('winRate');
-  var netProfitEl     = document.getElementById('netProfit');
-  var totalProfitEl   = document.getElementById('totalProfit');
-  var totalLossEl     = document.getElementById('totalLoss');
-  var avgNetEl        = document.getElementById('avgNet');
-  var avgProfitOnlyEl = document.getElementById('avgProfitOnly');
-  var avgLossOnlyEl   = document.getElementById('avgLossOnly');
+  const sumCount        = document.getElementById("sumCount");
+  const winRateEl       = document.getElementById("winRate");
+  const netProfitEl     = document.getElementById("netProfit");
+  const totalProfitEl   = document.getElementById("totalProfit");
+  const totalLossEl     = document.getElementById("totalLoss");
+  const avgNetEl        = document.getElementById("avgNet");
+  const avgProfitOnlyEl = document.getElementById("avgProfitOnly");
+  const avgLossOnlyEl   = document.getElementById("avgLossOnly");
 
-  if (!table || !tbody || !sumCountEl || !winRateEl || !netProfitEl) return;
-
-  // 列index（0開始）
-  var COL_PROFIT = 6;
-
-  function toNumber(text){
-    if (text == null) return 0;
-    var s = String(text).replace(/[^\-0-9.]/g, '');
-    var v = parseFloat(s);
+  /* ===== 数値ユーティリティ ===== */
+  const numeric = (t)=> {
+    const v = parseFloat(String(t||"").replace(/[^\-0-9.]/g,""));
     return isNaN(v) ? 0 : v;
-  }
-  function fmtInt(n){ return Math.round(n).toLocaleString('ja-JP'); }
+  };
+  const pad2 = (n)=> n<10 ? "0"+n : ""+n;
+  const fmt  = (n)=> Math.round(n).toLocaleString();
 
-  function allDataRows(){
-    var rows = tbody.querySelectorAll('tr');
-    var out = [];
-    for (var i=0;i<rows.length;i++){
-      if (!rows[i].classList.contains('group-row')) out.push(rows[i]);
-    }
-    return out;
-  }
-  function visibleRows(){
-    var rows = allDataRows(), out=[];
-    for (var i=0;i<rows.length;i++){
-      if (rows[i].style.display !== 'none') out.push(rows[i]);
-    }
-    return out;
-  }
+  /* ===== KPI更新 ===== */
+  const COL_PROFIT = 6; // ← 8列構成で損益額は7列目(0始まりで6)
+  function updateSummary(){
+    const dataRows = getAllDataRows().filter(r => r.style.display !== "none");
+    const vals = dataRows.map(r => numeric((r.children[COL_PROFIT] && r.children[COL_PROFIT].textContent) || '0'));
+    const pos  = vals.filter(v => v > 0);
+    const neg  = vals.filter(v => v < 0);
 
-  function updateKPI(rows){
-    var count = rows.length;
-    var vals = [];
-    for (var i=0;i<rows.length;i++){
-      var cell = rows[i].children[COL_PROFIT];
-      vals.push(toNumber(cell ? cell.textContent : '0'));
-    }
-    var wins=0, net=0, posSum=0, negSum=0;
-    for (var j=0;j<vals.length;j++){
-      var v = vals[j];
-      net += v;
-      if (v>0){ wins++; posSum+=v; }
-      else if (v<0){ negSum+=v; }
-    }
-    var avgNet = count ? net / count : 0;
-    var posCnt=0, negCnt=0;
-    for (var k=0;k<vals.length;k++){ if (vals[k]>0) posCnt++; if (vals[k]<0) negCnt++; }
-    var avgPos = posCnt ? posSum/posCnt : 0;
-    var avgNeg = negCnt ? negSum/negCnt : 0;
+    const count = dataRows.length;
+    const wins  = pos.length;
+    const net   = vals.reduce((a,b)=>a+b,0);
+    const posSum= pos.reduce((a,b)=>a+b,0);
+    const negSum= neg.reduce((a,b)=>a+b,0);
+    const avgNet= count ? net / count : 0;
+    const avgPos= pos.length ? posSum / pos.length : 0;
+    const avgNeg= neg.length ? negSum / neg.length : 0;
 
-    sumCountEl.textContent  = String(count);
-    winRateEl.textContent   = count ? (Math.round((wins/count)*100) + '%') : '0%';
-    netProfitEl.textContent = fmtInt(net);
-    netProfitEl.classList.remove('profit','loss');
-    if (net>0) netProfitEl.classList.add('profit');
-    if (net<0) netProfitEl.classList.add('loss');
+    sumCount.textContent  = String(count);
+    winRateEl.textContent = count ? `${Math.round((wins/count)*100)}%` : "0%";
 
-    if (totalProfitEl) totalProfitEl.textContent = fmtInt(posSum);
-    if (totalLossEl)   totalLossEl.textContent   = fmtInt(negSum);
+    netProfitEl.textContent = fmt(net);
+    netProfitEl.classList.toggle('profit', net > 0);
+    netProfitEl.classList.toggle('loss', net < 0);
+
+    if (totalProfitEl) totalProfitEl.textContent = fmt(posSum);
+    if (totalLossEl)   totalLossEl.textContent   = fmt(negSum);
 
     if (avgNetEl){
-      avgNetEl.textContent = fmtInt(avgNet);
-      avgNetEl.classList.remove('profit','loss');
-      if (avgNet>0) avgNetEl.classList.add('profit');
-      if (avgNet<0) avgNetEl.classList.add('loss');
+      avgNetEl.textContent = fmt(avgNet);
+      avgNetEl.classList.toggle('profit', avgNet > 0);
+      avgNetEl.classList.toggle('loss', avgNet < 0);
     }
-    if (avgProfitOnlyEl) avgProfitOnlyEl.textContent = fmtInt(avgPos);
-    if (avgLossOnlyEl)   avgLossOnlyEl.textContent   = fmtInt(avgNeg);
+    if (avgProfitOnlyEl) avgProfitOnlyEl.textContent = fmt(avgPos);
+    if (avgLossOnlyEl)   avgLossOnlyEl.textContent   = fmt(avgNeg);
   }
 
-  function pad2(n){ return n<10 ? '0'+n : ''+n; }
+  /* ===== 表フィルタ ===== */
+  function filterTable() {
+    const year  = yearFilter.value;
+    const month = monthFilter.value;
 
-  function applyFilter(){
-    var y = yearFilter ? yearFilter.value : '';
-    var m = monthFilter ? monthFilter.value : '';
-    var rows = allDataRows();
-    for (var i=0;i<rows.length;i++){
-      var row  = rows[i];
-      var date = row.getAttribute('data-date') || '';
-      var yy   = date.split('-')[0] || '';
-      var mm   = date.split('-')[1] || '';
-      var show = true;
-      if (y && yy !== y) show = false;
-      if (m && mm !== m) show = false;
-      row.style.display = show ? '' : 'none';
-    }
-    if (emptyState){
-      emptyState.style.display = visibleRows().length ? 'none' : '';
-    }
-    updateKPI(visibleRows());
-  }
-
-  // クイックフィルタ
-  function clearActiveChips(){ for (var i=0;i<chips.length;i++) chips[i].classList.remove('active'); }
-  for (var i=0;i<chips.length;i++){
-    chips[i].addEventListener('click', function(){
-      var now = new Date();
-      var y = now.getFullYear();
-      var m = now.getMonth()+1;
-      var mm = pad2(m);
-      var key = this.getAttribute('data-range');
-
-      if (key === 'this-month'){
-        if (yearFilter)  yearFilter.value  = String(y);
-        if (monthFilter) monthFilter.value = mm;
-      } else if (key === 'last-month'){
-        var d = new Date(y, m-2, 1);
-        if (yearFilter)  yearFilter.value  = String(d.getFullYear());
-        if (monthFilter) monthFilter.value = pad2(d.getMonth()+1);
-      } else if (key === 'this-year'){
-        if (yearFilter)  yearFilter.value  = String(y);
-        if (monthFilter) monthFilter.value = '';
-      } else {
-        if (yearFilter)  yearFilter.value  = '';
-        if (monthFilter) monthFilter.value = '';
-      }
-      clearActiveChips();
-      this.classList.add('active');
-      applyFilter();
+    getAllDataRows().forEach(row => {
+      const date = row.dataset.date || "";
+      const [yy, mm] = date.split("-");
+      let show = true;
+      if (year  && yy !== year)  show = false;
+      if (month && mm !== month) show = false;
+      row.style.display = show ? "" : "none";
     });
-  }
-  if (yearFilter)  yearFilter.addEventListener('change', function(){ clearActiveChips(); applyFilter(); });
-  if (monthFilter) monthFilter.addEventListener('change', function(){ clearActiveChips(); applyFilter(); });
 
-  /* ===== モーダル ===== */
-  var modal         = document.getElementById('stockModal');
-  var modalContent  = modal ? modal.querySelector('.modal-content') : null;
-  var closeBtn      = modal ? modal.querySelector('.close') : null;
-
-  var modalTitle    = document.getElementById('modalTitle');
-  var modalPurchase = document.getElementById('modalPurchase');
-  var modalQuantity = document.getElementById('modalQuantity');
-  var modalBroker   = document.getElementById('modalBroker');
-  var modalAccount  = document.getElementById('modalAccount');
-  var modalSell     = document.getElementById('modalSell');
-  var modalProfit   = document.getElementById('modalProfit');
-  var modalFee      = document.getElementById('modalFee');
-
-  function openModalForRow(row){
-    if (!modal) return;
-    var name  = row.getAttribute('data-name') || '';
-    var code  = row.getAttribute('data-code') || '';
-    var title = name + (code ? '（' + code + '）' : '');
-    if (modalTitle)    modalTitle.textContent    = title;
-    if (modalPurchase) modalPurchase.textContent = row.getAttribute('data-purchase') || '';
-    if (modalQuantity) modalQuantity.textContent = row.getAttribute('data-quantity') || '';
-    if (modalBroker)   modalBroker.textContent   = row.getAttribute('data-broker') || '';
-    if (modalAccount)  modalAccount.textContent  = row.getAttribute('data-account') || '';
-    if (modalSell)     modalSell.textContent     = row.getAttribute('data-sell') || '';
-    if (modalProfit)   modalProfit.textContent   = row.getAttribute('data-profit') || '';
-    if (modalFee)      modalFee.textContent      = row.getAttribute('data-fee') || '';
-    modal.classList.add('show');
-    modal.setAttribute('aria-hidden', 'false');
+    emptyState.style.display = getAllDataRows().some(r => r.style.display !== "none") ? "none" : "";
+    updateSummary();
   }
 
-  function closeModal(){
-    if (!modal) return;
-    modal.classList.remove('show');
-    modal.setAttribute('aria-hidden', 'true');
-  }
-
-  // 3経路で閉じる：X / オーバーレイ / Esc
-  if (closeBtn){
-    closeBtn.addEventListener('click', closeModal);
-    closeBtn.addEventListener('touchend', function(e){ e.preventDefault(); closeModal(); }, {passive:false});
-  }
-  if (modal){
-    // オーバーレイタップ（modal本体をタップした時のみ）
-    modal.addEventListener('click', function(e){ if (e.target === modal) closeModal(); });
-    modal.addEventListener('touchend', function(e){
-      // iOSでの確実化
-      if (e.target === modal){ e.preventDefault(); closeModal(); }
-    }, {passive:false});
-    // モーダル内容はイベントを食い止める（誤閉じ防止）
-    if (modalContent){
-      modalContent.addEventListener('click', function(e){ e.stopPropagation(); });
-      modalContent.addEventListener('touchend', function(e){ e.stopPropagation(); }, {passive:true});
-    }
-  }
-  document.addEventListener('keydown', function(e){
-    if (e.key === 'Escape') closeModal();
+  yearFilter.addEventListener("change", ()=>{
+    chips.forEach(c=>c.classList.remove('active'));
+    filterTable();
+  });
+  monthFilter.addEventListener("change", ()=>{
+    chips.forEach(c=>c.classList.remove('active'));
+    filterTable();
   });
 
-  // 行タップ/クリック（タップ移動をクリックと誤認しない）
-  (function attachRowHandlers(){
-    var rows = allDataRows();
-    for (var i=0;i<rows.length;i++){
-      (function(row){
-        var sx=0, sy=0, st=0, moved=false;
-        var TAP_MAX_MOVE=10, TAP_MAX_TIME=500;
+  /* ===== クイックフィルタ（アクティブ表示） ===== */
+  chips.forEach(b=>{
+    b.addEventListener("click", ()=>{
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth()+1;
+      const mm = pad2(m);
+      const key = b.dataset.range;
 
-        row.addEventListener('touchstart', function(e){
-          var t = e.touches[0]; sx=t.clientX; sy=t.clientY; st=Date.now(); moved=false;
-        }, {passive:true});
+      if (key === "this-month"){
+        yearFilter.value = String(y); monthFilter.value = mm;
+      } else if (key === "last-month"){
+        const d = new Date(y, m-2, 1);
+        yearFilter.value = String(d.getFullYear());
+        monthFilter.value = pad2(d.getMonth()+1);
+      } else if (key === "this-year"){
+        yearFilter.value = String(y); monthFilter.value = "";
+      } else {
+        yearFilter.value = ""; monthFilter.value = "";
+      }
+      chips.forEach(c=>c.classList.remove('active'));
+      b.classList.add('active');
+      filterTable();
+    });
+  });
 
-        row.addEventListener('touchmove', function(e){
-          var t = e.touches[0];
-          if (Math.abs(t.clientX-sx)>TAP_MAX_MOVE || Math.abs(t.clientY-sy)>TAP_MAX_MOVE) moved=true;
-        }, {passive:true});
+  /* ===== ソート（ヘッダークリック） ===== */
+  table.querySelectorAll("thead th").forEach((th, idx)=>{
+    th.addEventListener("click", ()=>{
+      const asc = th.dataset.asc !== "true";
+      th.dataset.asc = asc;
 
-        row.addEventListener('touchend', function(e){
-          var dt = Date.now()-st;
-          if (!moved || dt<=TAP_MAX_TIME){
-            // スクロール中の誤爆を避けるため、縦移動があったら開かない
-            if (Math.abs(e.changedTouches[0].clientY - sy) < TAP_MAX_MOVE && row.style.display!=='none'){
-              e.preventDefault();
-              openModalForRow(row);
-            }
-          }
-        }, {passive:false});
+      const visible = getAllDataRows().filter(r => r.style.display !== "none");
+      const isDate = idx === 0;
 
-        row.addEventListener('click', function(){
-          if (row.style.display!=='none') openModalForRow(row);
-        });
-      })(rows[i]);
-    }
-  })();
+      visible.sort((a,b)=>{
+        let va, vb;
+        if (isDate){
+          va = new Date(a.children[idx].textContent.trim());
+          vb = new Date(b.children[idx].textContent.trim());
+        }else{
+          const na = numeric(a.children[idx].textContent);
+          const nb = numeric(b.children[idx].textContent);
+          va = isNaN(na) ? a.children[idx].textContent : na;
+          vb = isNaN(nb) ? b.children[idx].textContent : nb;
+        }
+        return asc ? (va>vb?1:-1) : (va<vb?1:-1);
+      });
 
-  // 初期描画
-  updateKPI(allDataRows());
-  applyFilter();
+      const hidden = getAllDataRows().filter(r => r.style.display === "none");
+      [...visible, ...hidden].forEach(r => tbody.appendChild(r));
+    });
+  });
+
+  /* ===== モーダル ===== */
+  const modal    = document.getElementById("stockModal");
+  const closeBtn = modal.querySelector(".close");
+
+  // 新モーダルの要素
+  const modalTitle    = document.getElementById("modalTitle");
+  const modalPurchase = document.getElementById("modalPurchase");
+  const modalQuantity = document.getElementById("modalQuantity");
+  const modalBroker   = document.getElementById("modalBroker");
+  const modalAccount  = document.getElementById("modalAccount");
+  const modalSell     = document.getElementById("modalSell");
+  const modalProfit   = document.getElementById("modalProfit");
+  const modalFee      = document.getElementById("modalFee");
+
+  function openModalForRow(row){
+    const name  = row.dataset.name || "";
+    const code  = row.dataset.code || "";
+    const title = code ? `${name}（${code}）` : name;
+
+    if (modalTitle)    modalTitle.textContent    = title;
+    if (modalPurchase) modalPurchase.textContent = row.dataset.purchase || "";
+    if (modalQuantity) modalQuantity.textContent = row.dataset.quantity || "";
+    if (modalBroker)   modalBroker.textContent   = row.dataset.broker || "";
+    if (modalAccount)  modalAccount.textContent  = row.dataset.account || "";
+    if (modalSell)     modalSell.textContent     = row.dataset.sell || "";
+    if (modalProfit)   modalProfit.textContent   = row.dataset.profit || "";
+    if (modalFee)      modalFee.textContent      = row.dataset.fee || "";
+
+    modal.classList.add("show");
+  }
+
+  const TAP_MAX_MOVE = 10, TAP_MAX_TIME = 500;
+  function attachRowHandlers(){
+    getAllDataRows().forEach(row=>{
+      let sx=0, sy=0, st=0, moved=false;
+
+      row.addEventListener("touchstart", e=>{
+        const t = e.touches[0]; sx=t.clientX; sy=t.clientY; st=Date.now(); moved=false;
+      }, {passive:true});
+
+      row.addEventListener("touchmove", e=>{
+        const t = e.touches[0];
+        if (Math.abs(t.clientX-sx)>TAP_MAX_MOVE || Math.abs(t.clientY-sy)>TAP_MAX_MOVE) moved=true;
+      }, {passive:true});
+
+      row.addEventListener("touchend", e=>{
+        const dt = Date.now()-st;
+        if (!moved && dt<=TAP_MAX_TIME && row.style.display!=="none"){ e.preventDefault(); openModalForRow(row); }
+      });
+
+      row.addEventListener("click", ()=>{ if (row.style.display!=="none") openModalForRow(row); });
+    });
+  }
+  attachRowHandlers();
+
+  function closeModal(){ modal.classList.remove("show"); }
+  closeBtn.addEventListener("click", closeModal);
+  window.addEventListener("click", (e)=>{ if (e.target === modal) closeModal(); });
+
+  /* 初期描画 */
+  filterTable();
 });
