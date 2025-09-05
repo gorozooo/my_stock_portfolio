@@ -1,6 +1,11 @@
-/* ===== レイアウト：ページは固定。表だけ縦スクロール ===== */
+:root{
+  --top-h: 0px;       /* JSで実高さを代入 */
+  --bottom-h: 0px;    /* JSでボトムタブ高さを代入 */
+}
+
+/* ページ骨格：表だけスクロール */
 .realized-container{
-  height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -10,7 +15,7 @@
   background: transparent;
 }
 
-/* 上部固定ブロック（KPI/クイック/年月） */
+/* 上部（固定見え） */
 .top-fixed{
   flex: 0 0 auto;
   backdrop-filter: blur(8px);
@@ -20,23 +25,20 @@
   padding: 6px;
 }
 
-/* 表ラッパー：縦横スクロール可（ここだけスクロール） */
+/* 表ラッパー：縦横スクロール（高さをCSSで確定） */
 .table-wrapper{
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;                     /* ← 縦横スクロール許可 */
-  -webkit-overflow-scrolling: touch;  /* ← iOS慣性スクロール */
+  flex: 0 0 auto;
+  height: calc(100dvh - var(--top-h) - var(--bottom-h) - 12px);
+  min-height: 120px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
   border-radius: 10px;
   background: rgba(255,255,255,0.06);
   overscroll-behavior: contain;
 }
 
-/* ===== KPI：3行構成（コンパクト） ===== */
-.kpi-row{
-  display: grid;
-  gap: 6px;
-  margin-bottom: 4px;
-}
+/* KPI（3行・コンパクト） */
+.kpi-row{ display: grid; gap: 6px; margin-bottom: 4px; }
 .kpi-row1{ grid-template-columns: repeat(3, 1fr); }
 .kpi-row2{ grid-template-columns: repeat(2, 1fr); }
 .kpi-row3{ grid-template-columns: repeat(3, 1fr); }
@@ -50,14 +52,6 @@
     linear-gradient(135deg, rgba(0,255,255,.35), rgba(170,0,255,.28)) border-box;
   border: 1px solid transparent;
   box-shadow: 0 6px 18px rgba(0,0,0,.22), inset 0 0 22px rgba(255,255,255,.06);
-  overflow: hidden;
-}
-.kpi-card::after{
-  content:"";
-  position:absolute; inset:-35%;
-  background: radial-gradient(ellipse at top left, rgba(0,255,255,.10), transparent 60%);
-  transform: rotate(8deg);
-  pointer-events:none;
 }
 .kpi-header{ display:flex; align-items:center; gap:4px; opacity:.92; margin-bottom:2px; }
 .kpi-icon{ font-size:.9rem; }
@@ -66,17 +60,11 @@
   font-variant-numeric: tabular-nums;
   font-size: clamp(0.95rem, 3.4vw, 1.15rem);
   font-weight: 800; line-height: 1.05;
-  letter-spacing:.2px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  overflow: hidden;
-  text-shadow: 0 1px 6px rgba(0,255,255,.18);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* クイックフィルタ（アクティブ表示あり） */
-.quick-chips.chips-compact{
-  display:flex; gap:6px; margin:4px 0; flex-wrap:wrap;
-}
+/* クイックフィルタ */
+.quick-chips.chips-compact{ display:flex; gap:6px; margin:4px 0; flex-wrap:wrap; }
 .quick-chips .chip{
   padding:6px 10px; border:none; border-radius:12px;
   background:rgba(255,255,255,.16); color:#fff; cursor:pointer;
@@ -89,7 +77,7 @@
   box-shadow: 0 0 0 1px rgba(0,255,255,.35) inset, 0 6px 16px rgba(0,255,255,.22);
 }
 
-/* 年月フィルタ（コンパクト） */
+/* 年月フィルタ */
 .filter-box.filter-compact{ display:flex; gap:6px; }
 .filter-box.filter-compact select{
   flex:1; background: rgba(255,255,255,0.14);
@@ -97,17 +85,15 @@
   font-size: .95rem; appearance: none; text-align: center;
 }
 
-/* ===== 表（横スクロール可＆バッティング対策） ===== */
+/* 表（横スクロール可） */
 #realizedTable{
   width:100%;
-  min-width: 720px;          /* これ以下は横スクロール */
+  min-width: 720px;
   border-collapse: collapse;
   table-layout: fixed;
 }
 #realizedTable thead th,
-#realizedTable tbody td{
-  padding: 9px 6px; text-align: center; font-size: .9rem;
-}
+#realizedTable tbody td{ padding: 9px 6px; text-align: center; font-size: .9rem; }
 #realizedTable thead th{
   position: sticky; top: 0; z-index: 1;
   background: rgba(255,255,255,0.2);
@@ -117,17 +103,12 @@
 #realizedTable tbody tr{ height: 46px; position: relative; }
 #realizedTable tbody tr:active{ background: rgba(255,255,255,.16); }
 #realizedTable tbody tr::after{
-  content:'›'; position:absolute; right:8px; top:50%;
-  transform:translateY(-50%); opacity:.6; font-size:18px;
+  content:'›'; position:absolute; right:8px; top:50%; transform:translateY(-50%);
+  opacity:.6; font-size:18px;
 }
+.group-row td{ background:rgba(255,255,255,.12); font-weight:700; text-align:left; }
 
-/* 月見出し */
-.group-row td{
-  background:rgba(255,255,255,.12);
-  font-weight:700; text-align:left;
-}
-
-/* カラム幅 */
+/* 幅配分 */
 #realizedTable th:nth-child(1), #realizedTable td:nth-child(1){ width: 8.2em; }
 #realizedTable th:nth-child(2), #realizedTable td:nth-child(2){ width: 38%;  }
 #realizedTable th:nth-child(3), #realizedTable td:nth-child(3){ width: 6.0em; }
@@ -135,39 +116,32 @@
 #realizedTable th:nth-child(5), #realizedTable td:nth-child(5){ width: 7.6em; }
 #realizedTable th:nth-child(6), #realizedTable td:nth-child(6){ width: 6.4em; }
 
-/* 銘柄セル：左寄せ＋省略 */
+/* 省略設定 */
 .stock-name-cell{ text-align: left; }
 .stock-name-cell span{
-  display:inline-block; width:100%;
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  display:inline-block; width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
-.trade-type-cell span{
-  display:inline-block; max-width:100%;
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-}
+.trade-type-cell span{ display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
-/* 損益の色分け */
+/* 損益色 */
 .profit{ color:#26c281; font-weight:700; }
 .loss  { color:#ff6b6b; font-weight:700; }
 
-/* 空状態 */
 .empty-state{ opacity:.85; text-align:center; }
 
-/* ===== モーダル：中央表示（小さめ＆はみ出し防止） ===== */
+/* モーダル（コンパクト & はみ出し防止） */
 .modal{
-  display:none; position:fixed; z-index:100;
-  left:0; top:0; width:100%; height:100%;
+  display:none; position:fixed; inset:0; z-index:100;
   background-color: rgba(0,0,0,0.6);
+  display: none; /* 初期は非表示 */
   justify-content: center; align-items: center;
-  -webkit-overflow-scrolling: touch;
-  padding: 10px;
+  padding: 6px;
 }
 .modal-content{
-  width: 92%;                 /* ← 本体を少し小さく */
-  max-width: 400px;           /* ← 幅の上限縮小 */
-  max-height: 80vh;           /* ← 縦はみ出し防止 */
-  overflow: auto;             /* ← 内容が多い時は内部スクロール */
-  padding: 16px;              /* ← 余白も少し減らす */
+  width: min(92vw, 360px);
+  max-height: min(72vh, 520px);
+  overflow: auto;
+  padding: 14px;
   border-radius: 12px;
   background: rgba(20, 24, 28, 0.78);
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
@@ -176,16 +150,11 @@
   transition: transform .16s ease, opacity .16s ease;
   position: relative;
 }
+.modal.show{ display:flex; }
 .modal.show .modal-content{ transform: scale(1); opacity: 1; }
-.modal .close{
-  position:absolute; top:8px; right:12px; font-size:1.3rem; cursor:pointer; color:#fff;
+.modal .close{ position:absolute; top:8px; right:12px; font-size:1.2rem; cursor:pointer; color:#fff; }
+.modal-grid{ display:grid; grid-template-columns: 1fr 1fr; gap:8px 12px; margin-top:6px; }
+@media (max-width: 360px){
+  .modal-grid{ grid-template-columns: 1fr; } /* 超小画面で1列に */
 }
-.modal-grid{
-  display:grid; grid-template-columns: 1fr 1fr; gap:8px 12px; margin-top:8px;
-}
-.modal-grid .k{ opacity:.85; display:inline-block; margin-right:8px; }
-
-/* PC少し拡大 */
-@media (min-width: 768px){
-  #realizedTable thead th, #realizedTable tbody td{ padding:10px 8px; font-size:.98rem; }
-}
+.modal-grid .k{ opacity:.85; margin-right:8px; }
