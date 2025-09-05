@@ -15,15 +15,32 @@
     return m;
   }
 
+  // 旧モーダルを安全に除去（既存JSのリスナーが残っていても発火元が無くなる）
+  function removeLegacyModals(){
+    ["stock-modal","edit-modal","sell-modal"].forEach(id=>{
+      const el = document.getElementById(id);
+      if(el && el.parentNode){
+        el.parentNode.removeChild(el);
+      }
+    });
+  }
+
   async function openDetail(stockId){
     if(!stockId){ console.warn("stockIdが不明"); return; }
     const mount = ensureMount();
 
+    // 旧モーダルの再出現をブロック
+    removeLegacyModals();
+    document.body.classList.add("hide-legacy-modals");
+
     try{
-      // 1) HTML断片を取得して挿入
+      // HTML断片を取得して挿入
       const htmlRes = await fetch(`/stocks/${stockId}/detail_fragment/`, {credentials:"same-origin"});
       if(!htmlRes.ok){ throw new Error("モーダルの読み込みに失敗しました"); }
       const html = await htmlRes.text();
+
+      // 既存内容を消してから挿入（多重生成防止）
+      mount.innerHTML = "";
       mount.innerHTML = html;
 
       const modal = mount.querySelector("#detail-modal");
@@ -45,7 +62,7 @@
         });
       });
 
-      // 2) 概要JSONを読み込み
+      // 概要JSONを読み込み
       const ovWrap = modal.querySelector('[data-panel="overview"]');
       const res = await fetch(`/stocks/${stockId}/overview.json`, {credentials:"same-origin"});
       if(!res.ok){ throw new Error("概要データの取得に失敗しました"); }
@@ -70,7 +87,6 @@
           </div>
         </div>
       `;
-
     }catch(err){
       console.error(err);
       alert("詳細の読み込みでエラーが発生しました。時間をおいて再度お試しください。");
@@ -81,19 +97,31 @@
   function escCloseOnce(e){
     if(e.key === "Escape"){ closeDetail(); }
   }
+
   function closeDetail(){
+    // 新モーダルを閉じる
     const m = document.getElementById(mountId);
     if(m){ m.innerHTML = ""; }
     document.removeEventListener("keydown", escCloseOnce);
+
+    // 念のため旧モーダルは引き続き隠す（再挿入されるまで表示されない）
+    document.body.classList.add("hide-legacy-modals");
   }
 
   // 一覧のカードに紐づけ（.stock-card の data-id を使う）
   document.addEventListener("DOMContentLoaded", ()=>{
+    // 1) 旧モーダルを物理的に排除（初回ロード時）
+    removeLegacyModals();
+    document.body.classList.add("hide-legacy-modals");
+
+    // 2) カードタップで新モーダルを開く
     document.body.addEventListener("click", (e)=>{
       const card = e.target.closest(".stock-card");
       if(!card) return;
-      // スワイプ時は誤タップ防止：.swiped だったらカード本体クリックで開かない
-      if(card.classList.contains("swiped")) return;
+
+      // 旧仕様の「カード本体クリックで旧モーダルを開く」リスナーが残っていても
+      // 物理的に旧モーダルは消してあるので表示されません。
+      if(card.classList.contains("swiped")) return; // スワイプ中の誤タップ防止
 
       const id = card.dataset.id;
       if(!id || id === "0"){ console.warn("card dataset.id が不正"); return; }
