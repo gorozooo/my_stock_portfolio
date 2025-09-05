@@ -5,47 +5,58 @@
 <div class="realized-container">
   <!-- 上部：KPI / クイック / 年月（固定） -->
   <div class="top-fixed" role="region" aria-label="絞り込みとサマリー">
-    <!-- KPI（超コンパクト版） -->
-    <div class="kpi-grid kpi-compact">
-      <div class="kpi-card kpi--compact" data-kpi="count">
-        <div class="kpi-header">
-          <span class="kpi-icon" aria-hidden="true">📄</span>
-          <span class="kpi-label">件数</span>
-        </div>
+
+    <!-- KPI：3段構成 -->
+    <!-- 1行目：件数・勝率・実現損益 -->
+    <div class="kpi-row kpi-row1">
+      <div class="kpi-card">
+        <div class="kpi-header"><span class="kpi-icon">📄</span><span class="kpi-label">件数</span></div>
         <div class="kpi-value" id="sumCount">--</div>
       </div>
-
-      <div class="kpi-card kpi--compact" data-kpi="winrate">
-        <div class="kpi-header">
-          <span class="kpi-icon" aria-hidden="true">🥇</span>
-          <span class="kpi-label">勝率</span>
-        </div>
+      <div class="kpi-card">
+        <div class="kpi-header"><span class="kpi-icon">🥇</span><span class="kpi-label">勝率</span></div>
         <div class="kpi-value" id="winRate">--%</div>
       </div>
-
-      <div class="kpi-card kpi--wide" data-kpi="total">
-        <div class="kpi-header">
-          <span class="kpi-icon" aria-hidden="true">💰</span>
-          <span class="kpi-label">合計損益</span>
-        </div>
-        <div class="kpi-value" id="sumProfit">--</div>
-      </div>
-
-      <div class="kpi-card kpi--wide" data-kpi="average">
-        <div class="kpi-header">
-          <span class="kpi-icon" aria-hidden="true">📊</span>
-          <span class="kpi-label">平均損益</span>
-        </div>
-        <div class="kpi-value" id="avgProfit">--</div>
+      <div class="kpi-card">
+        <div class="kpi-header"><span class="kpi-icon">💰</span><span class="kpi-label">実現損益</span></div>
+        <div class="kpi-value" id="netProfit">--</div>
       </div>
     </div>
 
-    <!-- クイックフィルタ（コンパクト） -->
+    <!-- 2行目：利益金額合計・損失金額合計 -->
+    <div class="kpi-row kpi-row2">
+      <div class="kpi-card">
+        <div class="kpi-header"><span class="kpi-icon">⬆️</span><span class="kpi-label">利益金額合計</span></div>
+        <div class="kpi-value profit" id="totalProfit">--</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-header"><span class="kpi-icon">⬇️</span><span class="kpi-label">損失金額合計</span></div>
+        <div class="kpi-value loss" id="totalLoss">--</div>
+      </div>
+    </div>
+
+    <!-- 3行目：平均損益・平均利益・平均損失 -->
+    <div class="kpi-row kpi-row3">
+      <div class="kpi-card">
+        <div class="kpi-header"><span class="kpi-icon">📊</span><span class="kpi-label">平均損益</span></div>
+        <div class="kpi-value" id="avgNet">--</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-header"><span class="kpi-icon">🔼</span><span class="kpi-label">平均利益</span></div>
+        <div class="kpi-value profit" id="avgProfitOnly">--</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-header"><span class="kpi-icon">🔽</span><span class="kpi-label">平均損失</span></div>
+        <div class="kpi-value loss" id="avgLossOnly">--</div>
+      </div>
+    </div>
+
+    <!-- クイックフィルタ（アクティブ表示あり） -->
     <div class="quick-chips chips-compact">
-      <button type="button" data-range="this-month">今月</button>
-      <button type="button" data-range="last-month">先月</button>
-      <button type="button" data-range="this-year">今年</button>
-      <button type="button" data-range="all">すべて</button>
+      <button type="button" data-range="this-month" class="chip">今月</button>
+      <button type="button" data-range="last-month" class="chip">先月</button>
+      <button type="button" data-range="this-year" class="chip">今年</button>
+      <button type="button" data-range="all" class="chip active">すべて</button>
     </div>
 
     <!-- 年月フィルタ（コンパクト） -->
