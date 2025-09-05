@@ -1,5 +1,5 @@
-// モーダル内「編集ページへ」「売却ページへ」の href を、クリックしたカードIDで生成して差し込む。
-// 既存の stock_list.js がモーダルの開閉・本文描画を担当していても干渉しない設計。
+// モーダル内の「編集/売却」リンクを、クリックされたカードの data-id で動的に設定。
+// 初期 href は "#" なので、セット前に遷移する事故を防止。
 
 (function () {
   document.addEventListener('DOMContentLoaded', function () {
@@ -9,65 +9,60 @@
     const editLink = document.getElementById('modal-edit-link');
     const sellLink = document.getElementById('modal-sell-link');
 
-    // DjangoでダミーID=0のURLをテンプレートとして埋め込み済み
-    const editTpl = modal.dataset.editUrlTemplate || '';
-    const sellTpl = modal.dataset.sellUrlTemplate || '';
+    const editTpl = modal.dataset.editUrlTemplate || '/stocks/{id}/edit/';
+    const sellTpl = modal.dataset.sellUrlTemplate || '/stocks/{id}/sell/';
 
     let lastCardId = null;
 
-    const toHref = (tpl, realId) => {
-      if (!tpl) return '#';
-      if (tpl.endsWith('/0/')) return tpl.replace(/\/0\/$/, `/${realId}/`);
-      if (tpl.endsWith('/0'))  return tpl.replace(/\/0$/,  `/${realId}`);
-      return tpl.replace(/0(?=\/?$)/, String(realId)); // 念のため
-    };
+    const makeHref = (tpl, id) => String(tpl).replace('{id}', String(id));
 
     const setLinks = (id) => {
-      if (!id) return;
-      editLink.href = toHref(editTpl, id);
-      sellLink.href = toHref(sellTpl, id);
+      lastCardId = id;
+      editLink.setAttribute('href', makeHref(editTpl, id));
+      sellLink.setAttribute('href', makeHref(sellTpl, id));
     };
 
-    // カードクリックで ID を保持 & リンク差し替え
+    // カードからIDを受け取り、モーダルにリンクを差し込む
     document.querySelectorAll('.stock-card').forEach(card => {
       card.addEventListener('click', (e) => {
-        // スワイプアクション領域からのクリックは無視
+        // スワイプボタン領域のクリックは除外
         if (e.target.closest('.card-actions')) return;
-        lastCardId = card.dataset.id;
-        setLinks(lastCardId);
+        const id = card.dataset.id;
+        if (id) setLinks(id);
       });
 
-      // キーボード操作対応
       card.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          lastCardId = card.dataset.id;
-          setLinks(lastCardId);
+          const id = card.dataset.id;
+          if (id) setLinks(id);
         }
       });
     });
 
-    // モーダルが表示状態になった際にも、未設定なら補完
-    const onModalShown = () => {
+    // モーダルが開いた後でも、リンクが未設定なら補完
+    const ensureLinks = () => {
       if (!lastCardId) return;
-      if (!editLink.getAttribute('href') || editLink.getAttribute('href') === '#') {
+      if (editLink.getAttribute('href') === '#' || !editLink.getAttribute('href')) {
         setLinks(lastCardId);
       }
     };
-
-    const mo = new MutationObserver(onModalShown);
+    const mo = new MutationObserver(ensureLinks);
     mo.observe(modal, { attributes: true, attributeFilter: ['style', 'class', 'aria-hidden'] });
 
-    // 安全のための閉じる動作（既存と二重でも悪さしない）
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.style.display = 'none';
-        modal.setAttribute('aria-hidden', 'true');
+    // 念のため、リンククリック時に未設定なら遷移をブロック
+    const guard = (ev) => {
+      const href = ev.currentTarget.getAttribute('href') || '#';
+      if (href === '#' || href.includes('{id}')) {
+        ev.preventDefault();
+        // 直近のカードIDが取れていればその場で差し込み
+        if (lastCardId) {
+          setLinks(lastCardId);
+          // 再クリックで遷移できるようにする（自動遷移したければここで location.assign(href) でもOK）
+        }
       }
-    });
-    modal.querySelector('.modal-close')?.addEventListener('click', () => {
-      modal.style.display = 'none';
-      modal.setAttribute('aria-hidden', 'true');
-    });
+    };
+    editLink.addEventListener('click', guard);
+    sellLink.addEventListener('click', guard);
   });
 })();
