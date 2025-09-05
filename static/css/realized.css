@@ -1,16 +1,16 @@
 /* ===== レイアウト：ページは固定。表だけ縦スクロール ===== */
 .realized-container{
-  height: 100vh;              /* 画面全体 */
+  height: 100vh;
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 10px 10px 16px;
   font-family: "Helvetica Neue", system-ui, -apple-system, sans-serif;
   color:#fff;
-  background: transparent;    /* 背景は透明 */
+  background: transparent;
 }
 
-/* 上部（KPI/クイック/年月）は固定領域として高さ分だけ確保。スクロールしない */
+/* 上部（KPI/クイック/年月）固定 */
 .top-fixed{
   flex: 0 0 auto;
   backdrop-filter: blur(10px);
@@ -20,44 +20,73 @@
   padding: 8px;
 }
 
-/* 表ラッパー：ここだけ縦スクロール＋横スクロール可 */
+/* 表ラッパー：縦横スクロール可（ここだけスクロール） */
 .table-wrapper{
   flex: 1 1 auto;
-  min-height: 0;             /* flex内で正しく縮むため */
-  overflow: auto;            /* 縦横両方のスクロールを許可 */
+  min-height: 0;
+  overflow: auto;
   border-radius: 10px;
   background: rgba(255,255,255,0.06);
   overscroll-behavior: contain;
 }
 
-/* ===== KPI（かっこよく） ===== */
+/* ===== KPI（新デザイン） ===== */
 .kpi-grid{
-  display:grid;
+  display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap:10px;
+  gap: 10px;
   margin-bottom: 8px;
 }
 .kpi-card{
   position: relative;
-  padding: 12px 10px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgba(255,255,255,.12), rgba(255,255,255,.06));
-  box-shadow: 0 10px 25px rgba(0,0,0,.25), inset 0 0 40px rgba(255,255,255,.08);
+  padding: 12px 12px;
+  border-radius: 14px;
+  /* ガラス + グラデ境界線 */
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box,
+    linear-gradient(135deg, rgba(0,255,255,.4), rgba(170,0,255,.35)) border-box;
+  border: 1px solid transparent;
+  box-shadow:
+    0 10px 25px rgba(0,0,0,.25),
+    inset 0 0 32px rgba(255,255,255,.08);
   overflow: hidden;
 }
 .kpi-card::after{
   content:"";
-  position:absolute; left:-20%; top:-60%;
-  width:140%; height:200%;
-  background: radial-gradient(ellipse at top left, rgba(0,255,255,.15), transparent 60%);
+  position:absolute; inset:-30%;
+  background: radial-gradient(ellipse at top left, rgba(0,255,255,.12), transparent 60%);
   transform: rotate(8deg);
   pointer-events:none;
 }
-.kpi-icon{ font-size:1.1rem; opacity:.9; margin-bottom:4px; }
-.kpi-label{ font-size:.78rem; opacity:.85; letter-spacing:.5px; }
+.kpi--compact{ min-width: 0; }
+.kpi--wide{ grid-column: span 2; min-width: 0; } /* 合計/平均は横にワイド */
+
+/* ヘッダ（アイコン＋ラベル） */
+.kpi-header{
+  display:flex; align-items:center; gap:6px;
+  opacity:.92; margin-bottom:4px;
+}
+.kpi-icon{ font-size:1.05rem; }
+.kpi-label{
+  font-size:.8rem; letter-spacing:.3px; opacity:.85;
+}
+
+/* 値（自動縮小＋等幅数字） */
 .kpi-value{
-  font-size:1.6rem; font-weight:900; line-height:1.15; margin-top:4px;
-  text-shadow: 0 2px 10px rgba(0,255,255,.25);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(1.2rem, 5.2vw, 1.8rem);
+  font-weight: 900; line-height: 1.1;
+  letter-spacing:.3px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  text-shadow: 0 2px 10px rgba(0,255,255,.22);
+}
+
+/* すごく狭い幅ではレイアウト変更：合計/平均はぶち抜き */
+@media (max-width: 420px){
+  .kpi-grid{ grid-template-columns: repeat(2, 1fr); }
+  .kpi--wide{ grid-column: span 2; }
 }
 
 /* クイックフィルタ */
@@ -79,12 +108,12 @@
   font-size: 1rem; appearance: none; text-align: center;
 }
 
-/* ===== 表（横スクロール復活＆バッティング対策） ===== */
+/* ===== 表（横スクロール可＆バッティング対策） ===== */
 #realizedTable{
   width:100%;
-  min-width: 720px;          /* これ以下の画面幅は横スクロール */
+  min-width: 720px;          /* これ以下は横スクロール */
   border-collapse: collapse;
-  table-layout: fixed;       /* 省略記号＆カラム制御 */
+  table-layout: fixed;
 }
 #realizedTable thead th,
 #realizedTable tbody td{
@@ -109,9 +138,9 @@
   font-weight:700; text-align:left;
 }
 
-/* カラム幅（衝突防止） */
+/* カラム幅 */
 #realizedTable th:nth-child(1), #realizedTable td:nth-child(1){ width: 8.4em; }  /* 日付 */
-#realizedTable th:nth-child(2), #realizedTable td:nth-child(2){ width: 38%;  }  /* 銘柄（可変） */
+#realizedTable th:nth-child(2), #realizedTable td:nth-child(2){ width: 38%;  }  /* 銘柄 */
 #realizedTable th:nth-child(3), #realizedTable td:nth-child(3){ width: 6.2em; }  /* 区分 */
 #realizedTable th:nth-child(4), #realizedTable td:nth-child(4){ width: 5.4em; }  /* 数量 */
 #realizedTable th:nth-child(5), #realizedTable td:nth-child(5){ width: 7.8em; }  /* 損益額 */
@@ -123,7 +152,6 @@
   display:inline-block; width:100%;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
-/* 区分セルも省略対策 */
 .trade-type-cell span{
   display:inline-block; max-width:100%;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
@@ -141,7 +169,7 @@
   display:none; position:fixed; z-index:100;
   left:0; top:0; width:100%; height:100%;
   background-color: rgba(0,0,0,0.6);
-  justify-content: center; align-items: center;  /* 中央 */
+  justify-content: center; align-items: center;
   -webkit-overflow-scrolling: touch;
   padding: 12px;
 }
@@ -168,6 +196,5 @@
 
 /* PC少し拡大 */
 @media (min-width: 768px){
-  .kpi-value{ font-size:1.8rem; }
   #realizedTable thead th, #realizedTable tbody td{ padding:12px 10px; font-size:1rem; }
 }
