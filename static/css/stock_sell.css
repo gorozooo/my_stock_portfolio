@@ -1,0 +1,119 @@
+/* ==========================
+   売却ページ（スマホ優先）
+========================== */
+
+:root{
+  --pad-x: 12px;
+  --panel-bg: rgba(255,255,255,.04);
+  --panel-bd: rgba(255,255,255,.18);
+  --text: #fff;
+  --text-dim: rgba(255,255,255,.85);
+  --accent: #00b4ff;
+}
+
+.sell-page{
+  padding: 10px var(--pad-x) calc(var(--bottom-tab-h,72px) + 16px);
+  color: var(--text);
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+/* ヘッダー */
+.sell-header{ margin-bottom: 8px; }
+.back-link{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:6px 10px; border:1px solid var(--panel-bd); border-radius:8px;
+  color:var(--text); text-decoration:none; background: var(--panel-bg); font-weight:700;
+}
+.sell-title{
+  margin:10px 0 0; display:flex; align-items:center; gap:8px; font-size:16px; font-weight:800;
+}
+.sell-title .code{
+  border:1px solid var(--panel-bd); border-radius:8px; padding:2px 8px; background: var(--panel-bg); font-weight:800;
+}
+
+/* 概要ピル */
+.sell-summary{
+  display:flex; flex-wrap:wrap; gap:8px;
+  margin:10px 0 12px;
+}
+.pill{
+  display:inline-flex; align-items:center; gap:6px;
+  border:1px solid var(--panel-bd); border-radius:999px; padding:6px 10px; background: var(--panel-bg);
+  font-size:12px; color: var(--text-dim);
+}
+.pill .k{ opacity:.9; }
+.pill .v{ color: var(--text); font-weight:800; }
+
+/* エラー */
+.sell-errors{
+  border:1px solid #ff6a6a; background: rgba(255,106,106,.15);
+  color:#fff; border-radius:8px; padding:10px; margin-bottom:10px; font-size:13px;
+}
+
+/* フォーム */
+.form-section{ margin: 14px 0; }
+.form-label{ display:block; font-weight:800; margin: 0 0 8px; }
+
+/* 数量行 */
+.qty-row{ display:flex; gap:8px; align-items:center; }
+.qty-btn{
+  flex:0 0 auto; padding:10px 12px; border-radius:8px; border:1px solid var(--panel-bd);
+  background: linear-gradient(180deg, rgba(0,123,255,.85), rgba(0,123,255,.6));
+  color:#fff; font-weight:800;
+}
+.qty-input{
+  flex:1 1 auto; min-width: 120px;
+  padding:12px; border-radius:10px; border:1px solid var(--panel-bd);
+  background: rgba(18,18,24,.9); color:#fff; font-size:16px; text-align:center;
+}
+
+.qty-helpers{ margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
+.chip{
+  padding:8px 12px; border-radius:999px; border:1px solid var(--panel-bd);
+  background: var(--panel-bg); color:#fff; font-weight:700; font-size:12px;
+}
+
+/* 売却方法 */
+.mode-row{ display:flex; gap:10px; }
+.mode-item{
+  display:flex; align-items:center; gap:8px; border:1px solid var(--panel-bd); border-radius:10px; padding:10px 12px;
+  background: var(--panel-bg); font-weight:800;
+}
+.mode-item input{ transform: scale(1.2); }
+
+/* 指値 */
+.limit-wrap{ margin-top:10px; }
+.text-input{
+  width:100%; padding:12px; border-radius:10px; border:1px solid var(--panel-bd);
+  background: rgba(18,18,24,.9); color:#fff; font-size:16px;
+}
+.limit-hints{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+
+/* 概算レビュー */
+.review{
+  margin-top:14px; border:1px dashed var(--panel-bd); border-radius:10px; background: var(--panel-bg);
+  padding:10px;
+}
+.review .row{ display:flex; justify-content:space-between; padding:6px 4px; color: var(--text-dim); }
+.review .row .v{ color:#fff; font-weight:800; }
+.review .row .v.pos{ color:#6aff6a; }
+.review .row .v.neg{ color:#ff6a6a; }
+
+/* 下固定アクション */
+.sticky-actions{
+  position: sticky; bottom: 0;
+  display:flex; gap:12px; justify-content:center; padding:12px 0 2px; margin-top:14px;
+  backdrop-filter: blur(4px);
+}
+.btn{
+  padding:12px 16px; border-radius:10px; border:1px solid var(--panel-bd);
+  color:#fff; font-weight:800; text-decoration:none; display:inline-flex; align-items:center; justify-content:center;
+}
+.btn.secondary{ background: var(--panel-bg); }
+.btn.danger{ background: linear-gradient(180deg, rgba(244,67,54,.95), rgba(244,67,54,.72)); }
+
+/* PC幅で中央寄せ */
+@media (min-width: 1024px){
+  .sell-page{ max-width: 900px; }
+}
