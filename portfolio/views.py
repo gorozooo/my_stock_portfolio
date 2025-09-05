@@ -479,7 +479,6 @@ def sell_stock_page(request, pk):
         },
     )
     
-# views.py（ポイントだけ）
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_http_methods
 from .models import Stock
@@ -501,6 +500,47 @@ def edit_stock_fragment(request, pk):
     """モーダルで読み込む“フォームだけ”の部分HTMLを返す"""
     stock = get_object_or_404(Stock, pk=pk)
     return render(request, "stocks/edit_form.html", {"stock": stock})
+
+from django.http import JsonResponse
+from django.template.loader import render_to_string
+from django.views.decorators.http import require_GET
+
+@login_required
+@require_GET
+def stock_detail_fragment(request, pk: int):
+    """
+    詳細モーダルのHTML断片（タブの器＋ボタン類）。最初は「概要」タブだけ中身を動的に入れる。
+    """
+    stock = get_object_or_404(Stock, pk=pk)
+    html = render_to_string("stocks/_detail_modal.html", {"stock": stock}, request=request)
+    # フロントはこのHTMLをそのままDOMに挿入して使う
+    return HttpResponse(html)
+
+@login_required
+@require_GET
+def stock_overview_json(request, pk: int):
+    """
+    概要タブの軽量JSON。重い取得は無し。DBの値だけ返す（十分速い）。
+    """
+    stock = get_object_or_404(Stock, pk=pk)
+    data = {
+        "id": stock.id,
+        "name": stock.name,
+        "ticker": stock.ticker,
+        "broker": stock.broker,
+        "account_type": stock.account_type,
+        "position": stock.position,
+        "purchase_date": stock.purchase_date.isoformat() if stock.purchase_date else None,
+        "shares": int(stock.shares or 0),
+        "unit_price": float(stock.unit_price or 0),
+        "current_price": float(stock.current_price or 0),
+        "total_cost": float(stock.total_cost or 0),
+        "market_value": float(stock.market_value or 0),
+        "profit_loss": float(stock.profit_loss or 0),
+        "note": stock.note or "",
+        "updated_at": stock.updated_at.isoformat() if stock.updated_at else None,
+    }
+    return JsonResponse(data)
 
 @login_required
 def cash_view(request):
