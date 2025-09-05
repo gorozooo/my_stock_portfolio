@@ -89,22 +89,21 @@
   {% endif %}
 
   {# ===== 詳細モーダル（カードタップで開く） ===== #}
-  <div id="stock-modal"
-       class="modal"
-       aria-hidden="true"
-       data-edit-url-template="{% url 'stock_edit' 0 %}"
-       data-sell-url-template="{% url 'stock_sell' 0 %}">
-    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-      <button class="modal-close" aria-label="閉じる">&times;</button>
-      <div id="modal-body" role="document"></div>
-      <div class="modal-actions">
-        <a id="modal-edit-link" class="modal-action-btn" href="#">編集ページへ</a>
-        <a id="modal-sell-link" class="modal-action-btn negative" href="#">売却ページへ</a>
-      </div>
+<div id="stock-modal"
+     class="modal"
+     aria-hidden="true"
+     data-edit-url-template="/stocks/{id}/edit/"
+     data-sell-url-template="/stocks/{id}/sell/">
+  <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <button class="modal-close" aria-label="閉じる">&times;</button>
+    <div id="modal-body" role="document"></div>
+    <div class="modal-actions">
+      <a id="modal-edit-link" class="modal-action-btn" href="#">編集ページへ</a>
+      <a id="modal-sell-link" class="modal-action-btn negative" href="#">売却ページへ</a>
     </div>
   </div>
-
 </div>
+
 {% endblock %}
 
 {% block extra_css %}
@@ -112,8 +111,7 @@
 {% endblock %}
 
 {% block extra_js %}
-{# 既存のUI制御 #}
 <script src="{% static 'js/stock_list.js' %}" defer></script>
-{# モーダル内リンク差し込み専用の分離JS #}
+{# ↓ これがモーダルへのリンク差し替え専用JS #}
 <script src="{% static 'js/stock_list.modal-links.js' %}" defer></script>
 {% endblock %}
