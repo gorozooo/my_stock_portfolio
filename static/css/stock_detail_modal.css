@@ -1,100 +1,11 @@
-/* 最小限のスタイル。背景グラデは使わない（透明＋薄い面） */
-.detail-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 3000;
-  display: grid;
-  place-items: center;
-  font-family: inherit;
-}
-.detail-modal__overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,.55);
-  backdrop-filter: blur(2px);
-}
-.detail-modal__dialog {
-  position: relative;
-  width: min(94vw, 720px);
-  max-height: 90vh;
-  overflow: auto;
-  background: rgba(18,18,24,.96);
-  border: 1px solid rgba(255,255,255,.14);
-  border-radius: 12px;
-  padding: 12px;
-  color: #fff;
-}
-.detail-modal__close {
-  position: absolute;
-  top: 6px; right: 8px;
-  background: none; border: none; color: #fff;
-  font-size: 22px; cursor: pointer;
-}
-.detail-modal__header {
-  display: flex; justify-content: space-between; align-items: center;
-  gap: 8px; margin-bottom: 8px;
-}
-.dm-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 800; }
-.dm-code { border: 1px solid rgba(255,255,255,.25); border-radius: 8px; padding: 2px 8px; }
-.dm-cta { display: flex; gap: 8px; }
-.dm-btn { display: inline-flex; align-items: center; justify-content: center;
-  padding: 8px 12px; border-radius: 8px; color: #fff; text-decoration: none;
-  border: 1px solid rgba(255,255,255,.22); background: rgba(255,255,255,.06);}
-.dm-btn--danger { background: linear-gradient(180deg, rgba(244,67,54,.95), rgba(244,67,54,.72)); }
-
-.detail-tabs { display: flex; gap: 8px; margin: 6px 0 10px; overflow-x: auto; }
-.detail-tab { padding: 8px 12px; border: 1px solid rgba(255,255,255,.22); border-radius: 999px; color:#fff; background: rgba(255,255,255,.06); }
-.detail-tab.is-active { border-color: rgba(0,200,255,.9); box-shadow: 0 0 8px rgba(0,200,255,.45); background: rgba(0,123,255,.2); }
-.detail-tab[disabled] { opacity: .5; }
-
-.detail-panels { display: block; }
-.detail-panel { display: none; }
-.detail-panel.is-active { display: block; }
-
-.skeleton { display: grid; gap: 8px; }
-.sk-line { height: 14px; background: linear-gradient(90deg, rgba(255,255,255,.08), rgba(255,255,255,.18), rgba(255,255,255,.08)); border-radius: 6px; }
-.sk-line--w60 { width: 60%; }
-
-.overview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.ov-item { border: 1px solid rgba(255,255,255,.14); border-radius: 10px; padding: 10px; background: rgba(255,255,255,.03); }
-.ov-k { font-size: 12px; color: rgba(255,255,255,.8); }
-.ov-v { font-weight: 800; font-size: 14px; color: #fff; }
-.ov-v.pos { color: #6aff6a; }
-.ov-v.neg { color: #ff6a6a; }
-
-@media (max-width: 480px){
-  .overview-grid { grid-template-columns: 1fr; }
-}
-
-/* --------------------------
-   旧モーダルのチラ見えを完全ブロック
-   ※ 新詳細モーダルが導入された画面では常時OFFでOK
---------------------------- */
-#stock-modal,
-#edit-modal,
-#sell-modal {
-  display: none !important;
-  visibility: hidden !important;
-  opacity: 0 !important;
-}
-
-/* 念のため、ボディにクラスを付けた時も確実に隠す（JSで付与/除去） */
-body.hide-legacy-modals #stock-modal,
-body.hide-legacy-modals #edit-modal,
-body.hide-legacy-modals #sell-modal {
-  display: none !important;
-  visibility: hidden !important;
-  opacity: 0 !important;
-}
-
-/* 初期はDOMにあっても絶対見えない */
+/* ====== 初期は完全に見えない（チラつき防止） ====== */
 #detail-modal {
   display: none;
   visibility: hidden;
   opacity: 0;
 }
 
-/* JSで .is-open を付けた時だけ見せる（フェードは短め） */
+/* 開いている時だけ表示（フェードは短め） */
 #detail-modal.is-open {
   display: block;
   visibility: visible;
@@ -102,27 +13,128 @@ body.hide-legacy-modals #sell-modal {
   transition: opacity .15s ease;
 }
 
-/* 初期レンダ時のチラ見え防止：is-opening中はトランジション無効 */
+/* 初回描画フレームはトランジション無効（点滅防止） */
 #detail-modal.is-opening {
   transition: none !important;
 }
 
-/* モーダルの背景ぼかしが重い端末対策：iOSなどで初回の滲みを防ぐ */
+/* ====== レイヤ構造 ====== */
+#detail-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 3000; /* タブや他UIより前面 */
+}
+
 #detail-modal .modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
   will-change: opacity;
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
 }
 
-/* 体感のガタつき対策：bodyをロック中の見た目を安定させる */
+#detail-modal .modal-panel {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  transform: translate(-50%, -50%);
+  width: min(92vw, 560px);
+  max-height: 80vh;
+  overflow: auto;
+  background: rgba(18,18,24,.96);
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 12px;
+  color: #fff;
+  box-shadow: 0 20px 40px rgba(0,0,0,.4);
+}
+
+/* ヘッダ */
+#detail-modal .modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255,255,255,.12);
+}
+#detail-modal .title-wrap {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 800; font-size: 16px;
+}
+#detail-modal .code-chip {
+  border: 1px solid rgba(255,255,255,.25);
+  border-radius: 8px;
+  padding: 2px 8px;
+  font-weight: 800;
+}
+#detail-modal .close-btn {
+  background: none; border: none; color:#fff; font-size: 22px; cursor: pointer;
+}
+
+/* 本文 */
+#detail-modal .modal-body {
+  padding: 12px 14px 2px;
+}
+
+/* 行レイアウト（概要ピルっぽく） */
+#detail-modal .pill-group {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;
+}
+#detail-modal .pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 999px;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.22);
+  font-size: 12px;
+}
+#detail-modal .pill .k { opacity:.9; }
+#detail-modal .pill .v { font-weight: 800; }
+
+#detail-modal .row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,.08);
+  font-size: 13px;
+}
+#detail-modal .row:last-child { border-bottom: 0; }
+#detail-modal .row .k { opacity:.85; }
+#detail-modal .row .v { font-weight: 800; }
+
+#detail-modal .profit-pos { color: #6aff6a; }
+#detail-modal .profit-neg { color: #ff6a6a; }
+
+/* フッター（編集/売却ボタン） */
+#detail-modal .modal-footer {
+  display: flex; justify-content: center; gap: 10px; padding: 12px 14px 14px;
+  border-top: 1px solid rgba(255,255,255,.12);
+}
+#detail-modal .btn {
+  padding: 10px 16px; border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.22);
+  color: #fff; font-weight: 800; cursor: pointer;
+  background: linear-gradient(180deg, rgba(0,123,255,.85), rgba(0,123,255,.6));
+  text-decoration: none; display: inline-flex; align-items: center; justify-content: center;
+}
+#detail-modal .btn.danger {
+  background: linear-gradient(180deg, rgba(244,67,54,.95), rgba(244,67,54,.72));
+}
+
+/* ====== ボディスクロールロック ====== */
 body.modal-open {
   overflow: hidden;
   position: fixed;
-  inset: 0;               /* iOSでのずれ防止 */
+  inset: 0;
   width: 100%;
 }
-
-/* スクロールバー消失による横ズレ対策：JSで padding-right 加算する想定 */
 body.modal-open.has-scrollbar-padding {
   padding-right: var(--scrollbar-w, 0px);
+}
+
+/* モバイル最適化 */
+@media (max-width: 420px) {
+  #detail-modal .modal-panel {
+    width: 94vw;
+    max-height: 82vh;
+  }
 }
