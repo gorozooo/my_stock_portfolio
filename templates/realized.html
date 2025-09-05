@@ -2,132 +2,198 @@
 {% load static %}
 
 {% block content %}
-<!-- ★ 固定ラッパ（これでページ全体スクロールを遮断） -->
-<div class="realized-page">
-  <div class="realized-container">
-    <!-- 上部：KPI / クイック / 年月（固定見え・上は動かない） -->
-    <div class="top-fixed" role="region" aria-label="絞り込みとサマリー">
-      <!-- KPI：3段 -->
-      <div class="kpi-row kpi-row1">
-        <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">📄</span><span class="kpi-label">件数</span></div>
-          <div class="kpi-value" id="sumCount">--</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">🥇</span><span class="kpi-label">勝率</span></div>
-          <div class="kpi-value" id="winRate">--%</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">💰</span><span class="kpi-label">実現損益</span></div>
-          <div class="kpi-value" id="netProfit">--</div>
-        </div>
+<div class="realized-container">
+  <!-- 上部：KPI / クイック / 年月 -->
+  <div class="top-fixed" role="region" aria-label="絞り込みとサマリー">
+    <!-- KPI：3段（既存のまま） -->
+    <div class="kpi-row kpi-row1">
+      <div class="kpi-card">
+        <div class="kpi-header"><span class="kpi-icon">📄</span><span class="kpi-label">件数</span></div>
+        <div class="kpi-value" id="sumCount">--</div>
       </div>
-
-      <div class="kpi-row kpi-row2">
-        <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">⬆️</span><span class="kpi-label">利益金額合計</span></div>
-          <div class="kpi-value profit" id="totalProfit">--</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">⬇️</span><span class="kpi-label">損失金額合計</span></div>
-          <div class="kpi-value loss" id="totalLoss">--</div>
-        </div>
+      <div class="kpi-card">
+        <div class="kpi-header"><span class="kpi-icon">🥇</span><span class="kpi-label">勝率</span></div>
+        <div class="kpi-value" id="winRate">--%</div>
       </div>
-
-      <div class="kpi-row kpi-row3">
-        <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">📊</span><span class="kpi-label">平均損益</span></div>
-          <div class="kpi-value" id="avgNet">--</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">🔼</span><span class="kpi-label">平均利益</span></div>
-          <div class="kpi-value profit" id="avgProfitOnly">--</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">🔽</span><span class="kpi-label">平均損失</span></div>
-          <div class="kpi-value loss" id="avgLossOnly">--</div>
-        </div>
-      </div>
-
-      <!-- クイックフィルタ（アクティブ表示） -->
-      <div class="quick-chips chips-compact">
-        <button type="button" data-range="this-month" class="chip">今月</button>
-        <button type="button" data-range="last-month" class="chip">先月</button>
-        <button type="button" data-range="this-year" class="chip">今年</button>
-        <button type="button" data-range="all" class="chip active">すべて</button>
-      </div>
-
-      <!-- 年月フィルタ -->
-      <div class="filter-box filter-compact">
-        <select id="yearFilter" aria-label="年フィルタ">
-          <option value="">年</option>
-          <option value="2025">2025</option>
-          <option value="2024">2024</option>
-        </select>
-        <select id="monthFilter" aria-label="月フィルタ">
-          <option value="">月</option>
-          <option value="01">1</option><option value="02">2</option>
-          <option value="03">3</option><option value="04">4</option>
-          <option value="05">5</option><option value="06">6</option>
-          <option value="07">7</option><option value="08">8</option>
-          <option value="09">9</option><option value="10">10</option>
-          <option value="11">11</option><option value="12">12</option>
-        </select>
+      <div class="kpi-card">
+        <div class="kpi-header"><span class="kpi-icon">💰</span><span class="kpi-label">実現損益</span></div>
+        <div class="kpi-value" id="netProfit">--</div>
       </div>
     </div>
 
-    <!-- 空状態 -->
-    <p id="emptyState" class="empty-state" style="display:none;">該当データがありません</p>
+    <div class="kpi-row kpi-row2">
+      <div class="kpi-card">
+        <div class="kpi-header"><span class="kpi-icon">⬆️</span><span class="kpi-label">利益金額合計</span></div>
+        <div class="kpi-value profit" id="totalProfit">--</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-header"><span class="kpi-icon">⬇️</span><span class="kpi-label">損失金額合計</span></div>
+        <div class="kpi-value loss" id="totalLoss">--</div>
+      </div>
+    </div>
 
-    <!-- 表だけ縦スクロール & 横スクロール可 -->
-    <div class="table-wrapper" id="tableWrapper" aria-label="損益一覧スクロール領域">
-      <table id="realizedTable" aria-label="損益一覧">
-        <thead>
-          <tr>
-            <th scope="col">日付</th>
-            <th scope="col">銘柄</th>
-            <th scope="col">区分</th>
-            <th scope="col">数量</th>
-            <th scope="col">損益額</th>
-            <th scope="col">損益率</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr class="group-row"><td colspan="6">2025年 8月</td></tr>
-          <tr data-date="2025-08-01" data-name="トヨタ" data-price="9,000" data-sector="自動車" data-purchase="8,500" data-quantity="100" data-profit="+50,000" data-rate="+12%">
-            <td>2025-08-01</td><td class="stock-name-cell"><span>トヨタ</span></td><td class="trade-type-cell"><span>売却</span></td><td>100</td><td class="profit">+50,000</td><td class="profit">+12%</td>
-          </tr>
-          <tr data-date="2025-08-12" data-name="任天堂" data-price="52,000" data-sector="ゲーム" data-purchase="50,000" data-quantity="30" data-profit="+60,000" data-rate="+4%">
-            <td>2025-08-12</td><td class="stock-name-cell"><span>任天堂</span></td><td class="trade-type-cell"><span>売却</span></td><td>30</td><td class="profit">+60,000</td><td class="profit">+4%</td>
-          </tr>
+    <div class="kpi-row kpi-row3">
+      <div class="kpi-card">
+        <div class="kpi-header"><span class="kpi-icon">📊</span><span class="kpi-label">平均損益</span></div>
+        <div class="kpi-value" id="avgNet">--</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-header"><span class="kpi-icon">🔼</span><span class="kpi-label">平均利益</span></div>
+        <div class="kpi-value profit" id="avgProfitOnly">--</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-header"><span class="kpi-icon">🔽</span><span class="kpi-label">平均損失</span></div>
+        <div class="kpi-value loss" id="avgLossOnly">--</div>
+      </div>
+    </div>
 
-          <tr class="group-row"><td colspan="6">2025年 7月</td></tr>
-          <tr data-date="2025-07-15" data-name="ソニー" data-price="11,500" data-sector="電機" data-purchase="12,000" data-quantity="50" data-profit="-20,000" data-rate="-5%">
-            <td>2025-07-15</td><td class="stock-name-cell"><span>ソニー</span></td><td class="trade-type-cell"><span>売却</span></td><td>50</td><td class="loss">-20,000</td><td class="loss">-5%</td>
-          </tr>
-        </tbody>
-      </table>
+    <!-- クイックフィルタ -->
+    <div class="quick-chips chips-compact">
+      <button type="button" data-range="this-month" class="chip">今月</button>
+      <button type="button" data-range="last-month" class="chip">先月</button>
+      <button type="button" data-range="this-year" class="chip">今年</button>
+      <button type="button" data-range="all" class="chip active">すべて</button>
+    </div>
+
+    <!-- 年月フィルタ -->
+    <div class="filter-box filter-compact">
+      <select id="yearFilter" aria-label="年フィルタ">
+        <option value="">年</option>
+        <option value="2025">2025</option>
+        <option value="2024">2024</option>
+      </select>
+      <select id="monthFilter" aria-label="月フィルタ">
+        <option value="">月</option>
+        <option value="01">1</option><option value="02">2</option>
+        <option value="03">3</option><option value="04">4</option>
+        <option value="05">5</option><option value="06">6</option>
+        <option value="07">7</option><option value="08">8</option>
+        <option value="09">9</option><option value="10">10</option>
+        <option value="11">11</option><option value="12">12</option>
+      </select>
     </div>
   </div>
 
-  <!-- モーダル（中央・コンパクト） -->
-  <div id="stockModal" class="modal" aria-hidden="true" aria-modal="true" role="dialog">
-    <div class="modal-content glass-box" role="document">
-      <span class="close" aria-label="閉じる">&times;</span>
-      <h2 id="modalName"></h2>
-      <div class="modal-grid">
-        <p><span class="k">株価</span><span id="modalPrice"></span></p>
-        <p><span class="k">セクター</span><span id="modalSector"></span></p>
-        <p><span class="k">取得単価</span><span id="modalPurchase"></span></p>
-        <p><span class="k">数量</span><span id="modalQuantity"></span></p>
-        <p><span class="k">損益額</span><span id="modalProfit"></span></p>
-        <p><span class="k">損益率</span><span id="modalRate"></span></p>
-      </div>
-    </div>
-  </div>
+  <p id="emptyState" class="empty-state" style="display:none;">該当データがありません</p>
 
-  {% include "bottom_tab.html" %}
+  <!-- 表だけ縦スクロール & 横スクロール可 -->
+  <div class="table-wrapper" id="tableWrapper" aria-label="損益一覧スクロール領域">
+    <table id="realizedTable" aria-label="損益一覧">
+      <thead>
+        <tr>
+          <th scope="col">日付</th>
+          <th scope="col">銘柄</th>
+          <th scope="col">証券会社</th>
+          <th scope="col">口座区分</th>
+          <th scope="col">区分</th>
+          <th scope="col">株数</th>
+          <th scope="col">損益額</th>
+          <th scope="col">損益率</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- グループ行（例） -->
+        <tr class="group-row"><td colspan="8">2025年 8月</td></tr>
+        <!-- データ行サンプル -->
+        <tr
+          data-date="2025-08-01"
+          data-name="トヨタ"
+          data-code="7203"
+          data-broker="SBI"
+          data-account="特定"
+          data-type="売却"
+          data-quantity="100"
+          data-profit="+50,000"
+          data-rate="+12%"
+          data-purchase="8,500"
+          data-sell="9,000"
+          data-fee="-120"
+          data-sector="自動車"
+        >
+          <td>2025-08-01</td>
+          <td class="stock-name-cell"><span>トヨタ</span></td>
+          <td>SBI</td>
+          <td>特定</td>
+          <td class="trade-type-cell"><span>売却</span></td>
+          <td>100</td>
+          <td class="profit">+50,000</td>
+          <td class="profit">+12%</td>
+        </tr>
+
+        <tr
+          data-date="2025-08-12"
+          data-name="任天堂"
+          data-code="7974"
+          data-broker="楽天"
+          data-account="NISA"
+          data-type="売却"
+          data-quantity="30"
+          data-profit="+60,000"
+          data-rate="+4%"
+          data-purchase="50,000"
+          data-sell="52,000"
+          data-fee="-99"
+          data-sector="ゲーム"
+        >
+          <td>2025-08-12</td>
+          <td class="stock-name-cell"><span>任天堂</span></td>
+          <td>楽天</td>
+          <td>NISA</td>
+          <td class="trade-type-cell"><span>売却</span></td>
+          <td>30</td>
+          <td class="profit">+60,000</td>
+          <td class="profit">+4%</td>
+        </tr>
+
+        <tr class="group-row"><td colspan="8">2025年 7月</td></tr>
+        <tr
+          data-date="2025-07-15"
+          data-name="ソニー"
+          data-code="6758"
+          data-broker="松井"
+          data-account="一般"
+          data-type="売却"
+          data-quantity="50"
+          data-profit="-20,000"
+          data-rate="-5%"
+          data-purchase="12,000"
+          data-sell="11,500"
+          data-fee="-110"
+          data-sector="電機"
+        >
+          <td>2025-07-15</td>
+          <td class="stock-name-cell"><span>ソニー</span></td>
+          <td>松井</td>
+          <td>一般</td>
+          <td class="trade-type-cell"><span>売却</span></td>
+          <td>50</td>
+          <td class="loss">-20,000</td>
+          <td class="loss">-5%</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
 </div>
+
+<!-- モーダル（中央表示） -->
+<div id="stockModal" class="modal" aria-hidden="true" aria-modal="true" role="dialog">
+  <div class="modal-content glass-box" role="document">
+    <span class="close" aria-label="閉じる">&times;</span>
+    <!-- タイトル：銘柄（証券コード）を中央に -->
+    <h2 id="modalTitle" class="modal-title-center"></h2>
+    <div class="modal-grid">
+      <p><span class="k">取得単価</span><span id="modalPurchase"></span></p>
+      <p><span class="k">株数</span><span id="modalQuantity"></span></p>
+      <p><span class="k">証券会社</span><span id="modalBroker"></span></p>
+      <p><span class="k">口座区分</span><span id="modalAccount"></span></p>
+      <p><span class="k">売却単価</span><span id="modalSell"></span></p>
+      <p><span class="k">損益額</span><span id="modalProfit"></span></p>
+      <p><span class="k">手数料</span><span id="modalFee"></span></p>
+    </div>
+  </div>
+</div>
+
+{% include "bottom_tab.html" %}
 
 <link rel="stylesheet" href="{% static 'css/realized.css' %}">
 <script src="{% static 'js/realized.js' %}"></script>
