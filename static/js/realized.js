@@ -16,11 +16,18 @@ document.addEventListener("DOMContentLoaded", function() {
   // 空状態
   const emptyState  = document.getElementById("emptyState");
 
-  // KPI
-  const sumCount  = document.getElementById("sumCount");
-  const winRateEl = document.getElementById("winRate");
-  const sumProfit = document.getElementById("sumProfit");
-  const avgProfit = document.getElementById("avgProfit");
+  // KPI 要素
+  const sumCount      = document.getElementById("sumCount");
+  const winRateEl     = document.getElementById("winRate");
+  const netProfitEl   = document.getElementById("netProfit");
+  const totalProfitEl = document.getElementById("totalProfit");
+  const totalLossEl   = document.getElementById("totalLoss");
+  const avgNetEl      = document.getElementById("avgNet");
+  const avgProfitOnlyEl = document.getElementById("avgProfitOnly");
+  const avgLossOnlyEl   = document.getElementById("avgLossOnly");
+
+  // クイックフィルタ
+  const chips = [...document.querySelectorAll(".quick-chips .chip")];
 
   /* ====== ページ全体はスクロールさせず、表ラッパーだけ縦スクロール ====== */
   const prevHtmlOverflow = document.documentElement.style.overflow;
@@ -31,12 +38,12 @@ document.addEventListener("DOMContentLoaded", function() {
   function measureBottomTabHeight(){
     const el = document.querySelector(".bottom-tab, #bottom-tab");
     return el ? el.offsetHeight : 0;
-  }
+    }
   function setScrollableHeight(){
     const vh     = window.innerHeight;
     const topH   = topFixed ? topFixed.offsetHeight : 0;
     const bottom = measureBottomTabHeight();
-    const padding = 8; // 余白
+    const padding = 8;
     const maxH  = Math.max(120, vh - topH - bottom - padding);
     tableWrapper.style.maxHeight = maxH + "px";
     tableWrapper.style.overflow = "auto"; // 縦横スクロール可
@@ -52,6 +59,43 @@ document.addEventListener("DOMContentLoaded", function() {
     return isNaN(v) ? 0 : v;
   }
   function pad2(n){ return n < 10 ? "0"+n : ""+n; }
+  function fmt(n){ return Math.round(n).toLocaleString(); }
+
+  /* ====== KPI更新 ====== */
+  function updateSummary(){
+    const vis = dataRows.filter(r => r.style.display !== "none");
+    const vals = vis.map(r => numeric(r.children[4]?.textContent)); // 5列目=損益額
+    const pos  = vals.filter(v => v > 0);
+    const neg  = vals.filter(v => v < 0);
+
+    const count = vis.length;
+    const wins  = pos.length;
+    const net   = vals.reduce((a,b)=>a+b,0);
+    const posSum= pos.reduce((a,b)=>a+b,0);
+    const negSum= neg.reduce((a,b)=>a+b,0);          // 負の値
+    const avgNet= count ? net / count : 0;
+    const avgPos= pos.length ? posSum / pos.length : 0;
+    const avgNeg= neg.length ? negSum / neg.length : 0; // 負の値
+
+    // 件数・勝率・実現損益
+    sumCount.textContent  = String(count);
+    winRateEl.textContent = count ? `${Math.round((wins/count)*100)}%` : "0%";
+    netProfitEl.textContent = fmt(net);
+    netProfitEl.classList.toggle('profit', net > 0);
+    netProfitEl.classList.toggle('loss', net < 0);
+
+    // 利益合計・損失合計
+    totalProfitEl.textContent = fmt(posSum);
+    totalLossEl.textContent   = fmt(negSum); // 負のまま表示（赤色）
+
+    // 平均損益・平均利益・平均損失
+    avgNetEl.textContent        = fmt(avgNet);
+    avgNetEl.classList.toggle('profit', avgNet > 0);
+    avgNetEl.classList.toggle('loss', avgNet < 0);
+
+    avgProfitOnlyEl.textContent = fmt(avgPos);
+    avgLossOnlyEl.textContent   = fmt(avgNeg); // 負のまま表示（赤色）
+  }
 
   /* ====== フィルタ ====== */
   function filterTable() {
@@ -76,26 +120,24 @@ document.addEventListener("DOMContentLoaded", function() {
     emptyState.style.display = any ? "none" : "";
   }
 
-  function updateSummary(){
-    const vis = dataRows.filter(r => r.style.display !== "none");
-    const profits = vis.map(r => numeric(r.children[4]?.textContent));
-    const wins = vis.filter(r => numeric(r.children[4]?.textContent) > 0).length;
+  yearFilter.addEventListener("change", ()=>{
+    clearActiveChips();
+    filterTable();
+  });
+  monthFilter.addEventListener("change", ()=>{
+    clearActiveChips();
+    filterTable();
+  });
 
-    const sum = profits.reduce((a,b)=>a+b,0);
-    const avg = profits.length ? sum / profits.length : 0;
-    const winRate = vis.length ? Math.round((wins/vis.length)*100) : 0;
-
-    sumCount.textContent  = String(vis.length);
-    winRateEl.textContent = `${winRate}%`;
-    sumProfit.textContent = Math.round(sum).toLocaleString();
-    avgProfit.textContent = Math.round(avg).toLocaleString();
+  /* ====== クイックフィルタ（アクティブ表示） ====== */
+  function clearActiveChips(){ chips.forEach(c=>c.classList.remove('active')); }
+  function setActiveChip(key){
+    clearActiveChips();
+    const target = chips.find(c=>c.dataset.range===key);
+    if (target) target.classList.add('active');
   }
 
-  yearFilter.addEventListener("change", filterTable);
-  monthFilter.addEventListener("change", filterTable);
-
-  /* ====== クイックフィルタ ====== */
-  document.querySelectorAll(".quick-chips button").forEach(b=>{
+  document.querySelectorAll(".quick-chips .chip").forEach(b=>{
     b.addEventListener("click", ()=>{
       const now = new Date();
       const y = now.getFullYear();
@@ -117,6 +159,7 @@ document.addEventListener("DOMContentLoaded", function() {
         yearFilter.value = "";
         monthFilter.value = "";
       }
+      setActiveChip(key);
       filterTable();
     });
   });
@@ -211,9 +254,8 @@ document.addEventListener("DOMContentLoaded", function() {
   window.addEventListener("click", (e)=>{ if (e.target === modal) closeModal(); });
 
   /* ====== 初期描画 ====== */
-  filterTable();
-  // レイアウト安定後に高さ再計算（KPIが小さいので表は常に複数行見えるはず）
-  setTimeout(setScrollableHeight, 100);
+  filterTable();                 // KPI初期更新
+  setTimeout(setScrollableHeight, 100);  // 高さ安定化
 
   /* ====== ページ離脱時：スクロール制御を元に戻す ====== */
   window.addEventListener("beforeunload", ()=>{
