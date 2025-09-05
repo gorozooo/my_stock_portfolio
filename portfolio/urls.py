@@ -15,6 +15,10 @@ urlpatterns = [
     path('cash/', views.cash_view, name='cash'),
     path('realized/', views.realized_view, name='realized'),
     path('trade_history/', views.trade_history, name='trade_history'),
+    
+    # --- 株モーダル専用ページ ---
+    path("stocks/<int:pk>/detail_fragment/", views.stock_detail_fragment, name="stock_detail_fragment"),
+    path("stocks/<int:pk>/overview.json", views.stock_overview_json, name="stock_overview_json"),
 
     # --- 株編集・売却（専用ページ） ---
     path("stocks/<int:pk>/edit/", views.edit_stock_page, name="stock_edit"),   # 編集ページ
