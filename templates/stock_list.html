@@ -92,13 +92,10 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/stock_list.css' %}">
 <link rel="stylesheet" href="{% static 'css/stock_detail_modal.css' %}">
-<link rel="stylesheet" href="{% static 'css/kill_legacy_modal.css' %}">
 {% endblock %}
 
-{% block extra_js %}
-<script src="{% static 'js/kill_legacy_modal.js' %}" defer></script>  
+{% block extra_js %} 
 <script src="{% static 'js/stock_list.js' %}" defer></script>
-{# ↓ これがモーダルへのリンク差し替え専用JS #}
 <script src="{% static 'js/stock_list.modal-links.js' %}" defer></script>
 <script src="{% static 'js/stock_detail_modal.js' %}" defer></script>
 {% endblock %}
