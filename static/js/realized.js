@@ -1,14 +1,20 @@
 document.addEventListener("DOMContentLoaded", function() {
+  // 年月フィルタ
   const yearFilter  = document.getElementById("yearFilter");
   const monthFilter = document.getElementById("monthFilter");
+
+  // テーブルと行
   const table       = document.getElementById("realizedTable");
   const tbody       = table.querySelector("tbody");
   const allRows     = [...tbody.querySelectorAll("tr")];
   const dataRows    = allRows.filter(r => !r.classList.contains('group-row'));
-  const emptyState  = document.getElementById("emptyState");
 
+  // スクロール領域
   const tableWrapper = document.getElementById("tableWrapper");
-  const stickyWrap   = document.querySelector(".sticky-wrap");
+  const topFixed     = document.querySelector(".top-fixed");
+
+  // 空状態
+  const emptyState  = document.getElementById("emptyState");
 
   // KPI
   const sumCount  = document.getElementById("sumCount");
@@ -16,25 +22,31 @@ document.addEventListener("DOMContentLoaded", function() {
   const sumProfit = document.getElementById("sumProfit");
   const avgProfit = document.getElementById("avgProfit");
 
-  /* ====== 表のみスクロール：高さを自動計算 ====== */
+  /* ====== ページ全体はスクロールさせず、表ラッパーだけ縦スクロール ====== */
+  // 念のため、body/docのスクロールを抑える（このページの体験を安定化）
+  const prevHtmlOverflow = document.documentElement.style.overflow;
+  const prevBodyOverflow = document.body.style.overflow;
+  document.documentElement.style.overflow = "hidden";
+  document.body.style.overflow = "hidden";
+
   function measureBottomTabHeight(){
     const el = document.querySelector(".bottom-tab, #bottom-tab");
     return el ? el.offsetHeight : 0;
   }
   function setScrollableHeight(){
-    const vh = window.innerHeight;
-    const stickyH = stickyWrap ? stickyWrap.offsetHeight : 0;
-    const bottomH = measureBottomTabHeight();
-    const padding = 12; // ちょい余白
-    const maxH = Math.max(160, vh - stickyH - bottomH - padding);
+    const vh     = window.innerHeight;
+    const topH   = topFixed ? topFixed.offsetHeight : 0;
+    const bottom = measureBottomTabHeight();
+    const padding = 10; // 余白
+    const maxH  = Math.max(140, vh - topH - bottom - padding);
     tableWrapper.style.maxHeight = maxH + "px";
-    tableWrapper.style.overflowY = "auto";
+    tableWrapper.style.overflow = "auto"; // 縦横スクロール可
   }
   setScrollableHeight();
   window.addEventListener("resize", setScrollableHeight);
   window.addEventListener("orientationchange", setScrollableHeight);
 
-  /* ====== ユーティリティ ====== */
+  /* ====== 数値ユーティリティ ====== */
   function numeric(text){
     const t = (text || "").toString().replace(/[^\-0-9.]/g, "");
     const v = parseFloat(t);
@@ -136,11 +148,10 @@ document.addEventListener("DOMContentLoaded", function() {
     });
   });
 
-  /* ====== 行タップでモーダル（スクロール誤タップ防止） ====== */
+  /* ====== モーダル（中央表示・誤タップ防止） ====== */
   const modal    = document.getElementById("stockModal");
   const panel    = modal.querySelector(".modal-content");
   const closeBtn = modal.querySelector(".close");
-  const body     = document.body;
 
   const modalName     = document.getElementById("modalName");
   const modalPrice    = document.getElementById("modalPrice");
@@ -161,7 +172,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
     modal.classList.add("show");
     modal.style.display = "flex";
-    body.style.overflow = "hidden";
+    // 背景（ページ）スクロールはもともと抑制済み。表スクロールもモーダル上では起きない。
   }
 
   const TAP_MAX_MOVE = 10;   // px
@@ -196,35 +207,19 @@ document.addEventListener("DOMContentLoaded", function() {
 
   function closeModal(){
     modal.classList.remove("show");
-    body.style.overflow = "";
-    setTimeout(()=>{ modal.style.display = "none"; }, 300);
+    setTimeout(()=>{ modal.style.display = "none"; }, 180);
   }
   closeBtn.addEventListener("click", closeModal);
   window.addEventListener("click", (e)=>{ if (e.target === modal) closeModal(); });
 
-  // 上方向にスワイプで閉じる（見やすさ重視で上部表示用のしきい値）
-  (function enableSwipeToClose(){
-    let startY=0, dy=0;
-    panel.addEventListener("touchstart", e=>{
-      startY = e.touches[0].clientY; dy = 0;
-    }, {passive:true});
-    panel.addEventListener("touchmove", e=>{
-      dy = e.touches[0].clientY - startY;
-      // 上方向に引っ張ったら閉じる準備（dy<0）
-      if (dy < 0) panel.style.transform = `translateY(${dy}px)`;
-    }, {passive:true});
-    panel.addEventListener("touchend", ()=>{
-      if (dy < -80) {
-        closeModal();
-        setTimeout(()=>{ panel.style.transform = ""; }, 320);
-      } else {
-        panel.style.transform = "";
-      }
-    });
-  })();
-
-  /* 初期描画 */
+  /* ====== 初期描画 ====== */
   filterTable();
-  // 画像/フォント読み込み後に高さが変わる可能性があるので少し遅らせて再計算
-  setTimeout(setScrollableHeight, 150);
+  // レイアウト安定後に高さ再計算
+  setTimeout(setScrollableHeight, 120);
+
+  /* ====== ページ離脱時：スクロール制御を元に戻す（他ページ影響防止） ====== */
+  window.addEventListener("beforeunload", ()=>{
+    document.documentElement.style.overflow = prevHtmlOverflow;
+    document.body.style.overflow = prevBodyOverflow;
+  });
 });
