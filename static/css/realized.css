@@ -143,6 +143,7 @@ html, body{
   background-color: rgba(0,0,0,0.6);
   justify-content: center; align-items: center;
   padding: 6px;
+  touch-action: none;
 }
 .modal-content{
   width: min(92vw, 360px);
