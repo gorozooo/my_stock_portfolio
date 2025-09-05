@@ -1,144 +1,132 @@
-(() => {
-  // ====== modal DOM をなければ動的生成 ======
-  let modalEl = document.getElementById('detail-modal');
-  if (!modalEl) {
-    modalEl = document.createElement('div');
-    modalEl.id = 'detail-modal';
-    modalEl.innerHTML = `
-      <div class="modal-backdrop" data-modal-close></div>
-      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title">
-        <div class="modal-header">
-          <div class="title-wrap">
-            <span id="detail-title">—</span>
-            <span class="code-chip" id="detail-code">—</span>
+/* 詳細モーダル（段階導入：まずは「概要」だけ） */
+(function(){
+  const mountId = "detail-modal-mount";
+
+  function yen(n){ try { return "¥" + Math.round(Number(n || 0)).toLocaleString(); } catch(e){ return "¥0"; } }
+  function num(n){ try { return Number(n || 0).toLocaleString(); } catch(e){ return "0"; } }
+
+  function ensureMount(){
+    let m = document.getElementById(mountId);
+    if(!m){
+      m = document.createElement("div");
+      m.id = mountId;
+      document.body.appendChild(m);
+    }
+    return m;
+  }
+
+  // 旧モーダルを安全に除去（既存JSのリスナーが残っていても発火元が無くなる）
+  function removeLegacyModals(){
+    ["stock-modal","edit-modal","sell-modal"].forEach(id=>{
+      const el = document.getElementById(id);
+      if(el && el.parentNode){
+        el.parentNode.removeChild(el);
+      }
+    });
+  }
+
+  async function openDetail(stockId){
+    if(!stockId){ console.warn("stockIdが不明"); return; }
+    const mount = ensureMount();
+
+    // 旧モーダルの再出現をブロック
+    removeLegacyModals();
+    document.body.classList.add("hide-legacy-modals");
+
+    try{
+      // HTML断片を取得して挿入
+      const htmlRes = await fetch(`/stocks/${stockId}/detail_fragment/`, {credentials:"same-origin"});
+      if(!htmlRes.ok){ throw new Error("モーダルの読み込みに失敗しました"); }
+      const html = await htmlRes.text();
+
+      // 既存内容を消してから挿入（多重生成防止）
+      mount.innerHTML = "";
+      mount.innerHTML = html;
+
+      const modal = mount.querySelector("#detail-modal");
+      if(!modal){ throw new Error("モーダルが生成できませんでした"); }
+
+      // 閉じる操作
+      modal.querySelectorAll("[data-dm-close]").forEach(el=>{
+        el.addEventListener("click", ()=> closeDetail());
+      });
+      document.addEventListener("keydown", escCloseOnce);
+
+      // タブ切替（今は概要以外はdisabled）
+      modal.querySelectorAll(".detail-tab").forEach(btn=>{
+        btn.addEventListener("click", ()=>{
+          if(btn.disabled) return;
+          const name = btn.getAttribute("data-tab");
+          modal.querySelectorAll(".detail-tab").forEach(b=>b.classList.toggle("is-active", b===btn));
+          modal.querySelectorAll(".detail-panel").forEach(p=>p.classList.toggle("is-active", p.getAttribute("data-panel")===name));
+        });
+      });
+
+      // 概要JSONを読み込み
+      const ovWrap = modal.querySelector('[data-panel="overview"]');
+      const res = await fetch(`/stocks/${stockId}/overview.json`, {credentials:"same-origin"});
+      if(!res.ok){ throw new Error("概要データの取得に失敗しました"); }
+      const d = await res.json();
+
+      const plClass = (Number(d.profit_loss||0) >= 0) ? "pos" : "neg";
+      ovWrap.innerHTML = `
+        <div class="overview-grid">
+          <div class="ov-item"><div class="ov-k">証券会社</div><div class="ov-v">${d.broker||"—"}</div></div>
+          <div class="ov-item"><div class="ov-k">口座区分</div><div class="ov-v">${d.account_type||"—"}</div></div>
+          <div class="ov-item"><div class="ov-k">保有株数</div><div class="ov-v">${num(d.shares)} 株</div></div>
+          <div class="ov-item"><div class="ov-k">ポジション</div><div class="ov-v">${d.position||"—"}</div></div>
+          <div class="ov-item"><div class="ov-k">取得単価</div><div class="ov-v">${yen(d.unit_price)}</div></div>
+          <div class="ov-item"><div class="ov-k">現在株価</div><div class="ov-v">${yen(d.current_price)}</div></div>
+          <div class="ov-item"><div class="ov-k">取得額</div><div class="ov-v">${yen(d.total_cost)}</div></div>
+          <div class="ov-item"><div class="ov-k">評価額</div><div class="ov-v">${yen(d.market_value)}</div></div>
+          <div class="ov-item"><div class="ov-k">評価損益</div><div class="ov-v ${plClass}">${yen(d.profit_loss)}</div></div>
+          <div class="ov-item"><div class="ov-k">購入日</div><div class="ov-v">${d.purchase_date||"—"}</div></div>
+          <div class="ov-item" style="grid-column: 1 / -1;">
+            <div class="ov-k">メモ</div>
+            <div class="ov-v" style="white-space:pre-wrap;">${(d.note||"").trim() || "—"}</div>
           </div>
-          <button class="close-btn" data-modal-close aria-label="閉じる">×</button>
         </div>
-        <div class="modal-body" data-modal-body>
-          <!-- ここにJSで中身を注入 -->
-        </div>
-        <div class="modal-footer">
-          <a id="detail-edit-link" class="btn">編集ページへ</a>
-          <a id="detail-sell-link" class="btn danger">売却ページへ</a>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(modalEl);
-  }
-
-  // ====== スクロールロック（横ズレ無し） ======
-  let __scrollY = 0;
-  function lockBodyScroll() {
-    if (document.body.classList.contains('modal-open')) return;
-    __scrollY = window.scrollY || window.pageYOffset || 0;
-    const sbw = window.innerWidth - document.documentElement.clientWidth;
-    if (sbw > 0) {
-      document.documentElement.style.setProperty('--scrollbar-w', sbw + 'px');
-      document.body.classList.add('has-scrollbar-padding');
+      `;
+    }catch(err){
+      console.error(err);
+      alert("詳細の読み込みでエラーが発生しました。時間をおいて再度お試しください。");
+      closeDetail();
     }
-    document.body.classList.add('modal-open');
-    document.body.style.top = `-${__scrollY}px`;
-  }
-  function unlockBodyScroll() {
-    document.body.classList.remove('modal-open', 'has-scrollbar-padding');
-    document.body.style.top = '';
-    window.scrollTo(0, __scrollY || 0);
-    __scrollY = 0;
   }
 
-  // ====== 公開API：モーダルを開く ======
-  function openDetailModal(payload) {
-    // payload: { id, name, ticker, shares, unit_price, current_price, profit_amount, profit_rate, account, broker }
-    const titleEl = modalEl.querySelector('#detail-title');
-    const codeEl = modalEl.querySelector('#detail-code');
-    const bodyEl = modalEl.querySelector('[data-modal-body]');
-    const editLink = modalEl.querySelector('#detail-edit-link');
-    const sellLink = modalEl.querySelector('#detail-sell-link');
-
-    const id = payload.id || '';
-    const name = payload.name || '—';
-    const ticker = payload.ticker || '—';
-    const shares = toInt(payload.shares);
-    const unit = toNum(payload.unit_price);
-    const cur = toNum(payload.current_price) || unit;
-    const pl = toNum(payload.profit_amount);
-    const pr = toNum(payload.profit_rate);
-    const account = payload.account || '—';
-    const broker = payload.broker || '—';
-
-    const marketValue = shares * cur;
-    const totalCost = shares * unit;
-    const profit = (marketValue - totalCost);
-
-    // 初回フレームでの点滅抑止
-    modalEl.classList.add('is-opening');
-
-    // タイトル
-    titleEl.textContent = name;
-    codeEl.textContent = ticker;
-
-    // 本文（軽量な要約 + 明細）
-    bodyEl.innerHTML = `
-      <div class="pill-group">
-        <div class="pill"><span class="k">保有株数</span><span class="v">${fmtInt(shares)} 株</span></div>
-        <div class="pill"><span class="k">取得単価</span><span class="v">¥${fmtInt(unit)}</span></div>
-        <div class="pill"><span class="k">現在株価</span><span class="v">¥${fmtInt(cur)}</span></div>
-        <div class="pill"><span class="k">口座</span><span class="v">${escapeHTML(account)}</span></div>
-        <div class="pill"><span class="k">証券</span><span class="v">${escapeHTML(broker)}</span></div>
-      </div>
-
-      <div class="row"><span class="k">取得額</span><span class="v">¥${fmtInt(totalCost)}</span></div>
-      <div class="row"><span class="k">評価額</span><span class="v">¥${fmtInt(marketValue)}</span></div>
-      <div class="row">
-        <span class="k">損益</span>
-        <span class="v ${profit >= 0 ? 'profit-pos':'profit-neg'}">¥${fmtInt(profit)}${pr !== null ? ` (${fmtNum(pr)}%)` : ''}</span>
-      </div>
-    `;
-
-    // 専用ページリンク
-    if (id) {
-      editLink.href = `/stocks/${id}/edit/`;
-      sellLink.href = `/stocks/${id}/sell/`;
-      editLink.setAttribute('data-stock-id', id);
-      sellLink.setAttribute('data-stock-id', id);
-    } else {
-      // 念のため無効化
-      editLink.removeAttribute('href');
-      sellLink.removeAttribute('href');
-    }
-
-    // ロック → 表示
-    lockBodyScroll();
-    modalEl.classList.add('is-open');
-
-    // 次フレームで opening 解除（以降フェード有効）
-    requestAnimationFrame(() => modalEl.classList.remove('is-opening'));
+  function escCloseOnce(e){
+    if(e.key === "Escape"){ closeDetail(); }
   }
 
-  function closeDetailModal() {
-    modalEl.classList.remove('is-open');
-    unlockBodyScroll();
+  function closeDetail(){
+    // 新モーダルを閉じる
+    const m = document.getElementById(mountId);
+    if(m){ m.innerHTML = ""; }
+    document.removeEventListener("keydown", escCloseOnce);
+
+    // 念のため旧モーダルは引き続き隠す（再挿入されるまで表示されない）
+    document.body.classList.add("hide-legacy-modals");
   }
 
-  // 背景クリック/×/Esc で閉じる
-  modalEl.addEventListener('click', (e) => {
-    if (e.target === modalEl || e.target.hasAttribute('data-modal-close')) {
-      closeDetailModal();
-    }
+  // 一覧のカードに紐づけ（.stock-card の data-id を使う）
+  document.addEventListener("DOMContentLoaded", ()=>{
+    // 1) 旧モーダルを物理的に排除（初回ロード時）
+    removeLegacyModals();
+    document.body.classList.add("hide-legacy-modals");
+
+    // 2) カードタップで新モーダルを開く
+    document.body.addEventListener("click", (e)=>{
+      const card = e.target.closest(".stock-card");
+      if(!card) return;
+
+      // 旧仕様の「カード本体クリックで旧モーダルを開く」リスナーが残っていても
+      // 物理的に旧モーダルは消してあるので表示されません。
+      if(card.classList.contains("swiped")) return; // スワイプ中の誤タップ防止
+
+      const id = card.dataset.id;
+      if(!id || id === "0"){ console.warn("card dataset.id が不正"); return; }
+
+      openDetail(id);
+    });
   });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && modalEl.classList.contains('is-open')) closeDetailModal();
-  });
-
-  // ====== util ======
-  function toNum(v){ const n = Number(v); return Number.isFinite(n) ? n : 0; }
-  function toInt(v){ const n = parseInt(v, 10); return Number.isFinite(n) ? n : 0; }
-  function fmtInt(n){ return (Math.round(n)).toLocaleString(); }
-  function fmtNum(n){ return Number(n).toLocaleString(undefined, {maximumFractionDigits:2}); }
-  function escapeHTML(str){
-    return String(str ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
-  }
-
-  // グローバル公開（リンク側から呼べるように）
-  window.__DETAIL_MODAL__ = { open: openDetailModal, close: closeDetailModal };
 })();
