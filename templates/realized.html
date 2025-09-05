@@ -3,64 +3,55 @@
 
 {% block content %}
 <div class="realized-container">
-    <!-- タイトル -->
-    <div class="glass-box">
-        <h1>📈 損益一覧</h1>
-    </div>
-
-    <!-- サマリー（フィルタ適用後に更新） -->
-    <div class="summary-cards">
-        <div class="card">
-            <div class="label">件数</div>
-            <div id="sumCount">--</div>
+    <!-- 上部：サマリー＋クイック＋フィルタ（ここまでを固定） -->
+    <div class="sticky-wrap" role="region" aria-label="絞り込みとサマリー">
+        <!-- サマリー（件数＋勝率／合計損益／平均損益） -->
+        <div class="summary-cards">
+            <div class="card">
+                <div class="row">
+                    <div><span class="label">件数</span> <span id="sumCount">--</span></div>
+                    <div><span class="label">勝率</span> <span id="winRate">--%</span></div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="label">合計損益</div>
+                <div id="sumProfit">--</div>
+            </div>
+            <div class="card">
+                <div class="label">平均損益</div>
+                <div id="avgProfit">--</div>
+            </div>
         </div>
-        <div class="card">
-            <div class="label">合計損益</div>
-            <div id="sumProfit">--</div>
+
+        <!-- クイックフィルタ -->
+        <div class="quick-chips">
+            <button type="button" data-range="this-month">今月</button>
+            <button type="button" data-range="last-month">先月</button>
+            <button type="button" data-range="this-year">今年</button>
+            <button type="button" data-range="all">すべて</button>
         </div>
-        <div class="card">
-            <div class="label">平均損益</div>
-            <div id="avgProfit">--</div>
+
+        <!-- 年月フィルタ（ここまでを固定したい要件） -->
+        <div class="filter-box">
+            <select id="yearFilter" aria-label="年フィルタ">
+                <option value="">年を選択</option>
+                <option value="2025">2025年</option>
+                <option value="2024">2024年</option>
+            </select>
+            <select id="monthFilter" aria-label="月フィルタ">
+                <option value="">月を選択</option>
+                <option value="01">1月</option><option value="02">2月</option>
+                <option value="03">3月</option><option value="04">4月</option>
+                <option value="05">5月</option><option value="06">6月</option>
+                <option value="07">7月</option><option value="08">8月</option>
+                <option value="09">9月</option><option value="10">10月</option>
+                <option value="11">11月</option><option value="12">12月</option>
+            </select>
         </div>
-    </div>
-
-    <!-- クイックフィルタ -->
-    <div class="quick-chips">
-        <button type="button" data-range="this-month">今月</button>
-        <button type="button" data-range="last-month">先月</button>
-        <button type="button" data-range="this-year">今年</button>
-        <button type="button" data-range="all">すべて</button>
-    </div>
-
-    <!-- 年月フィルタ -->
-    <div class="filter-box">
-        <select id="yearFilter" aria-label="年フィルタ">
-            <option value="">年を選択</option>
-            <option value="2025">2025年</option>
-            <option value="2024">2024年</option>
-        </select>
-
-        <select id="monthFilter" aria-label="月フィルタ">
-            <option value="">月を選択</option>
-            <option value="01">1月</option>
-            <option value="02">2月</option>
-            <option value="03">3月</option>
-            <option value="04">4月</option>
-            <option value="05">5月</option>
-            <option value="06">6月</option>
-            <option value="07">7月</option>
-            <option value="08">8月</option>
-            <option value="09">9月</option>
-            <option value="10">10月</option>
-            <option value="11">11月</option>
-            <option value="12">12月</option>
-        </select>
     </div>
 
     <!-- 空状態メッセージ -->
-    <p id="emptyState" class="empty-state" style="display:none;">
-        該当データがありません
-    </p>
+    <p id="emptyState" class="empty-state" style="display:none;">該当データがありません</p>
 
     <!-- テーブル -->
     <div class="table-wrapper">
@@ -88,7 +79,7 @@
                     data-profit="+50,000"
                     data-rate="+12%">
                     <td>2025-08-01</td>
-                    <td>トヨタ</td>
+                    <td class="stock-name-cell" title="トヨタ"><span>トヨタ</span></td>
                     <td>売却</td>
                     <td>100</td>
                     <td class="profit">+50,000</td>
@@ -104,7 +95,7 @@
                     data-profit="+60,000"
                     data-rate="+4%">
                     <td>2025-08-12</td>
-                    <td>任天堂</td>
+                    <td class="stock-name-cell" title="任天堂"><span>任天堂</span></td>
                     <td>売却</td>
                     <td>30</td>
                     <td class="profit">+60,000</td>
@@ -123,7 +114,7 @@
                     data-profit="-20,000"
                     data-rate="-5%">
                     <td>2025-07-15</td>
-                    <td>ソニー</td>
+                    <td class="stock-name-cell" title="ソニー"><span>ソニー</span></td>
                     <td>売却</td>
                     <td>50</td>
                     <td class="loss">-20,000</td>
