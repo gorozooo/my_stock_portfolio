@@ -1,9 +1,3 @@
-<!--{# ==========================
-   スマホファースト設計、HTML/CSS/JSは分離
-   証券会社タブ + 横スクロール + モーダル + 編集/売却ボタン
-   ※ broker_name / account_type_name は view 側で annotate 済み
-========================== #}-->
-
 {% extends "base.html" %}
 {% load static %}
 {% load humanize %}
@@ -12,8 +6,10 @@
 <div class="portfolio-container">
 
   {% if stocks %}
+    {# 1段目：証券会社でグルーピング #}
     {% regroup stocks by broker_name as broker_groups %}
 
+    {# ===== 証券会社タブ ===== #}
     <div class="broker-tabs-wrapper" role="tablist" aria-label="証券会社">
       {% for bg in broker_groups %}
         <button class="broker-tab"
@@ -24,16 +20,20 @@
       {% endfor %}
     </div>
 
+    {# ===== 証券会社セクション（横スクロール外枠） ===== #}
     <div class="broker-horizontal-wrapper" id="broker-horizontal-wrapper" aria-live="polite">
       {% for bg in broker_groups %}
         <section class="broker-section"
                  data-broker-index="{{ forloop.counter0 }}"
                  aria-label="{{ bg.grouper }}">
 
+          {# この証券会社の中で口座区分グループ #}
           {% regroup bg.list by account_type_name as account_groups %}
 
+          {# 口座チップ（JSで自動生成） #}
           <div class="account-chips" role="tablist" aria-label="{{ bg.grouper }} の口座区分"></div>
 
+          {# 1本スクロールラッパー #}
           <div class="broker-cards-wrapper">
             {% for ag in account_groups %}
               <h3 class="account-heading" id="account-{{ forloop.parentloop.counter0 }}-{{ forloop.counter0 }}">
@@ -71,6 +71,7 @@
                       </div>
                     </div>
 
+                    {# スワイプアクション：編集/売却は専用ページへ #}
                     <div class="card-actions">
                       <a href="{% url 'stock_edit' stock.id %}" class="edit-btn modal-action-btn">編集</a>
                       <a href="{% url 'stock_sell' stock.id %}" class="sell-btn modal-action-btn negative">売却</a>
@@ -87,14 +88,18 @@
     <p>保有株データがありません。</p>
   {% endif %}
 
-  {# 詳細モーダル（カードタップで開く） #}
-  <div id="stock-modal" class="modal" aria-hidden="true">
+  {# ===== 詳細モーダル（カードタップで開く） ===== #}
+  <div id="stock-modal"
+       class="modal"
+       aria-hidden="true"
+       data-edit-url-template="{% url 'stock_edit' 0 %}"
+       data-sell-url-template="{% url 'stock_sell' 0 %}">
     <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <button class="modal-close" aria-label="閉じる">&times;</button>
       <div id="modal-body" role="document"></div>
       <div class="modal-actions">
-        <a id="modal-edit-link" class="modal-action-btn">編集ページへ</a>
-        <a id="modal-sell-link" class="modal-action-btn negative">売却ページへ</a>
+        <a id="modal-edit-link" class="modal-action-btn" href="#">編集ページへ</a>
+        <a id="modal-sell-link" class="modal-action-btn negative" href="#">売却ページへ</a>
       </div>
     </div>
   </div>
@@ -107,6 +112,8 @@
 {% endblock %}
 
 {% block extra_js %}
+{# 既存のUI制御 #}
 <script src="{% static 'js/stock_list.js' %}" defer></script>
-
+{# モーダル内リンク差し込み専用の分離JS #}
+<script src="{% static 'js/stock_list.modal-links.js' %}" defer></script>
 {% endblock %}
