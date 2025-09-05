@@ -333,14 +333,17 @@ def stock_create(request):
 def sell_stock_page(request, pk):
     """
     売却専用ページ（市場/指値、部分売却対応）
-    - GET: ページ表示（現在値が空なら yfinance で軽く取得を試行）
-    - POST: バリデーション → RealizedProfit へ記録
-            全量売却: Stock削除 / 部分売却: shares 減算 + total_cost再計算
+    - GET:
+        ページ表示（現在値が空なら yfinance で軽く取得を試行）
+    - POST:
+        バリデーション → RealizedProfit へ記録
+        手数料 = 概算売却額 - 実際の損益額（未入力なら 0）
+        全量売却: Stock を削除 / 部分売却: shares 減算 + total_cost 再計算
     """
     stock = get_object_or_404(Stock, pk=pk)
     errors = []
 
-    # --- GET時の現在値表示用（未設定なら軽く取得を試す。失敗しても致命ではない） ---
+    # --- GET 時の現在値（未設定なら軽く取得） ---
     current_price_for_view = float(stock.current_price or 0.0)
     if current_price_for_view <= 0:
         try:
@@ -349,81 +352,131 @@ def sell_stock_page(request, pk):
             if not todays.empty:
                 current_price_for_view = float(todays["Close"].iloc[-1])
         except Exception:
-            current_price_for_view = 0.0  # 取得失敗時は0（テンプレ側で単価を使って概算可）
+            current_price_for_view = 0.0  # 取得失敗時は 0 のまま（テンプレ側で単価を使って概算）
 
     if request.method == "POST":
         mode = (request.POST.get("sell_mode") or "").strip()
+
+        # 売却株数
         try:
             shares_to_sell = int(request.POST.get("shares") or 0)
         except (TypeError, ValueError):
             shares_to_sell = 0
 
-        # 売却方法
+        # 指値（limit のとき）
+        try:
+            limit_price = float(request.POST.get("limit_price") or 0)
+        except (TypeError, ValueError):
+            limit_price = 0.0
+
+        # 売却日（テンプレの <input type="date" name="sell_date"> から）
+        sell_date_str = (request.POST.get("sell_date") or "").strip()
+        sold_at = timezone.now()
+        if sell_date_str:
+            try:
+                # 売却日の 15:00（日本の大引け相当）で保存 ※必要なら任意の時刻に調整
+                sell_date = datetime.date.fromisoformat(sell_date_str)
+                sold_at_naive = datetime.datetime.combine(sell_date, datetime.time(15, 0, 0))
+                sold_at = timezone.make_aware(sold_at_naive, timezone.get_current_timezone())
+            except Exception:
+                # 日付パースに失敗しても致命ではない（エラー表示にしてもOK）
+                errors.append("売却日が不正です。YYYY-MM-DD 形式で指定してください。")
+
+        # 実際の損益額（ユーザー入力）
+        try:
+            actual_profit_input = request.POST.get("actual_profit", "")
+            actual_profit = float(actual_profit_input) if actual_profit_input != "" else 0.0
+        except (TypeError, ValueError):
+            actual_profit = 0.0
+            errors.append("実際の損益額は数値で入力してください。")
+
+        # --- 基本バリデーション ---
         if mode not in ("market", "limit"):
             errors.append("売却方法が不正です。")
 
-        # 株数
         if shares_to_sell <= 0:
-            errors.append("売却株数を1以上で指定してください。")
+            errors.append("売却株数を 1 以上で指定してください。")
         elif shares_to_sell > int(stock.shares or 0):
             errors.append("保有株数を超える売却はできません。")
 
-        # 価格
+        # 売却価格（1株あたり）
         price = None
         if mode == "market":
-            price = float(stock.current_price or stock.unit_price or 0)
+            # current_price が妥当ならそれを優先、無ければ unit_price
+            price = float(stock.current_price or current_price_for_view or stock.unit_price or 0)
         else:  # limit
-            try:
-                limit_price = float(request.POST.get("limit_price") or 0)
-            except (TypeError, ValueError):
-                limit_price = 0.0
             if limit_price <= 0:
                 errors.append("指値価格を正しく入力してください。")
             else:
                 price = limit_price
 
-        if price is None or price <= 0:
+        if not price or price <= 0:
             errors.append("売却価格が不正です。")
 
-        # バリデーションNG → 再表示
+        # バリデーション NG → 再表示
         if errors:
             return render(
                 request,
                 "stocks/sell_stock_page.html",
-                {"stock": stock, "errors": errors, "current_price": current_price_for_view or 0.0},
+                {
+                    "stock": stock,
+                    "errors": errors,
+                    "current_price": current_price_for_view or 0.0,
+                },
             )
 
-        # 実現損益の計算
+        # --- 計算 ---
         unit_price = float(stock.unit_price or 0)
-        total_profit = (float(price) - unit_price) * shares_to_sell
+        estimated_amount = float(price) * shares_to_sell                # 概算売却額（手数料控除前の想定）
+        total_profit = (float(price) - unit_price) * shares_to_sell     # 概算損益（参考値）
+        fee = estimated_amount - float(actual_profit or 0.0)            # 指定の式で算出（負値になり得る場合もそのまま保存）
 
-        # 実現損益テーブルへ記録
-        RealizedProfit.objects.create(
+        # --- RealizedProfit へ記録 ---
+        rp_kwargs = dict(
             stock_name=stock.name,
             ticker=stock.ticker,
             shares=shares_to_sell,
             purchase_price=unit_price,
             sell_price=float(price),
-            total_profit=total_profit,
-            sold_at=timezone.now(),
+            total_profit=actual_profit if actual_profit != 0.0 else total_profit,  # 「実際の損益額」があればそれを優先保存
+            sold_at=sold_at,
         )
+        # fee フィールドが存在すれば追加（無ければ無視）
+        try:
+            RealizedProfit._meta.get_field("fee")
+            rp_kwargs["fee"] = fee
+        except Exception:
+            pass
+        # 参考：estimated_amount を保存したい場合はモデルにフィールド追加の上で同様に対応
+        # try:
+        #     RealizedProfit._meta.get_field("estimated_amount")
+        #     rp_kwargs["estimated_amount"] = estimated_amount
+        # except Exception:
+        #     pass
 
-        # 在庫調整（部分売却対応）
+        RealizedProfit.objects.create(**rp_kwargs)
+
+        # --- 在庫調整（部分売却対応） ---
         remaining = int(stock.shares or 0) - shares_to_sell
         if remaining <= 0:
             stock.delete()
         else:
             stock.shares = remaining
+            # total_cost は平均単価ベースで按分しない（要件に合わせて計算式を変える）
             stock.total_cost = int(round(remaining * unit_price))
             stock.save(update_fields=["shares", "total_cost", "updated_at"])
 
         return redirect("stock_list")
 
-    # GET 表示
+    # --- GET 表示 ---
     return render(
         request,
         "stocks/sell_stock_page.html",
-        {"stock": stock, "errors": errors, "current_price": current_price_for_view or 0.0},
+        {
+            "stock": stock,
+            "errors": errors,
+            "current_price": current_price_for_view or 0.0,
+        },
     )
     
 # views.py（ポイントだけ）
