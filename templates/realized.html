@@ -5,26 +5,37 @@
 <div class="realized-container">
   <!-- 上部：KPI / クイック / 年月（ページ上部は固定表示。スクロールは下の表だけ） -->
   <div class="top-fixed" role="region" aria-label="絞り込みとサマリー">
-    <!-- KPI：件数・勝率・合計損益・平均損益 -->
+    <!-- KPI：件数・勝率・合計損益・平均損益（新デザイン） -->
     <div class="kpi-grid">
-      <div class="kpi-card">
-        <div class="kpi-icon">📄</div>
-        <div class="kpi-label">件数</div>
+      <div class="kpi-card kpi--compact" data-kpi="count">
+        <div class="kpi-header">
+          <span class="kpi-icon" aria-hidden="true">📄</span>
+          <span class="kpi-label">件数</span>
+        </div>
         <div class="kpi-value" id="sumCount">--</div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-icon">🥇</div>
-        <div class="kpi-label">勝率</div>
+
+      <div class="kpi-card kpi--compact" data-kpi="winrate">
+        <div class="kpi-header">
+          <span class="kpi-icon" aria-hidden="true">🥇</span>
+          <span class="kpi-label">勝率</span>
+        </div>
         <div class="kpi-value" id="winRate">--%</div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-icon">💰</div>
-        <div class="kpi-label">合計損益</div>
+
+      <div class="kpi-card kpi--wide" data-kpi="total">
+        <div class="kpi-header">
+          <span class="kpi-icon" aria-hidden="true">💰</span>
+          <span class="kpi-label">合計損益</span>
+        </div>
         <div class="kpi-value" id="sumProfit">--</div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-icon">📊</div>
-        <div class="kpi-label">平均損益</div>
+
+      <div class="kpi-card kpi--wide" data-kpi="average">
+        <div class="kpi-header">
+          <span class="kpi-icon" aria-hidden="true">📊</span>
+          <span class="kpi-label">平均損益</span>
+        </div>
         <div class="kpi-value" id="avgProfit">--</div>
       </div>
     </div>
