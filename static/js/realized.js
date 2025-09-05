@@ -3,7 +3,8 @@ document.addEventListener("DOMContentLoaded", function() {
   const monthFilter = document.getElementById("monthFilter");
   const table       = document.getElementById("realizedTable");
   const tbody       = table.querySelector("tbody");
-  const rows        = [...tbody.querySelectorAll("tr")].filter(r => !r.classList.contains('group-row'));
+  const allRows     = [...tbody.querySelectorAll("tr")];
+  const dataRows    = allRows.filter(r => !r.classList.contains('group-row'));
 
   const emptyState  = document.getElementById("emptyState");
 
@@ -11,13 +12,21 @@ document.addEventListener("DOMContentLoaded", function() {
   const sumCount  = document.getElementById("sumCount");
   const sumProfit = document.getElementById("sumProfit");
   const avgProfit = document.getElementById("avgProfit");
+  const winRateEl = document.getElementById("winRate");
 
-  /* ========== フィルタ ========== */
+  /* ========= 数値ユーティリティ ========= */
+  function numeric(valueText) {
+    const t = (valueText || "").toString().replace(/[^\-0-9.]/g, "");
+    const v = parseFloat(t);
+    return isNaN(v) ? 0 : v;
+  }
+
+  /* ========= フィルタ ========= */
   function filterTable() {
     const year  = yearFilter.value;
     const month = monthFilter.value;
 
-    rows.forEach(row => {
+    dataRows.forEach(row => {
       const date = row.dataset.date || "";
       const [yy, mm] = date.split("-");
       let show = true;
@@ -31,35 +40,29 @@ document.addEventListener("DOMContentLoaded", function() {
   }
 
   function toggleEmpty() {
-    const anyVisible = rows.some(r => r.style.display !== "none");
+    const anyVisible = dataRows.some(r => r.style.display !== "none");
     emptyState.style.display = anyVisible ? "none" : "";
   }
 
-  function numeric(valueText) {
-    // "+50,000", "-5%", " 12 " -> 数値化
-    const t = (valueText || "").toString().replace(/[^\-0-9.]/g, "");
-    const v = parseFloat(t);
-    return isNaN(v) ? 0 : v;
-  }
-
   function updateSummary() {
-    const vis = rows.filter(r => r.style.display !== "none");
-    const profits = vis.map(r => {
-      const cell = r.children[4]; // 5列目=損益額
-      return numeric(cell?.textContent);
-    });
+    const vis = dataRows.filter(r => r.style.display !== "none");
+    const profits = vis.map(r => numeric(r.children[4]?.textContent)); // 損益額
+    const wins = vis.filter(r => numeric(r.children[4]?.textContent) > 0).length;
+
     const sum = profits.reduce((a,b)=>a+b,0);
     const avg = profits.length ? sum / profits.length : 0;
+    const winRate = vis.length ? Math.round((wins / vis.length) * 100) : 0;
 
-    sumCount.textContent  = vis.length.toString();
+    sumCount.textContent  = String(vis.length);
     sumProfit.textContent = Math.round(sum).toLocaleString();
     avgProfit.textContent = Math.round(avg).toLocaleString();
+    winRateEl.textContent = `${winRate}%`;
   }
 
   yearFilter.addEventListener("change", filterTable);
   monthFilter.addEventListener("change", filterTable);
 
-  /* ========== クイックフィルタ ========== */
+  /* ========= クイックフィルタ ========= */
   function pad2(n){ return n < 10 ? "0"+n : ""+n; }
   function setYearMonth(y, m) {
     yearFilter.value  = y || "";
@@ -70,29 +73,29 @@ document.addEventListener("DOMContentLoaded", function() {
     b.addEventListener("click", ()=>{
       const now = new Date();
       const y = now.getFullYear();
-      const m = now.getMonth()+1; // 1-12
+      const m = now.getMonth()+1;
       const mm = pad2(m);
       const key = b.dataset.range;
 
       if (key === "this-month") setYearMonth(String(y), mm);
       else if (key === "last-month") {
-        const d = new Date(y, m-2, 1); // 先月
+        const d = new Date(y, m-2, 1);
         setYearMonth(String(d.getFullYear()), pad2(d.getMonth()+1));
       } else if (key === "this-year") setYearMonth(String(y), "");
       else if (key === "all") setYearMonth("", "");
     });
   });
 
-  /* ========== ソート（ヘッダークリック） ========== */
+  /* ========= ソート（ヘッダークリック） ========= */
   table.querySelectorAll("thead th").forEach((th, idx)=>{
     th.addEventListener("click", ()=>{
-      const asc = th.dataset.asc !== "true"; // トグル
+      const asc = th.dataset.asc !== "true";
       th.dataset.asc = asc;
 
-      const dataRows = rows.filter(r => r.style.display !== "none"); // 表示中をソート
+      const visibleRows = dataRows.filter(r => r.style.display !== "none");
       const isDateCol = idx === 0;
 
-      dataRows.sort((a,b)=>{
+      visibleRows.sort((a,b)=>{
         let va, vb;
         if (isDateCol) {
           va = new Date(a.children[idx].textContent.trim());
@@ -104,13 +107,13 @@ document.addEventListener("DOMContentLoaded", function() {
         return asc ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
       });
 
-      // 並べ直し（非表示行は末尾に維持）
-      const hiddenRows = rows.filter(r => r.style.display === "none");
-      [...dataRows, ...hiddenRows].forEach(r => tbody.appendChild(r));
+      // 再配置：まず可視行を順に、次に不可視行
+      const hiddenRows = dataRows.filter(r => r.style.display === "none");
+      [...visibleRows, ...hiddenRows].forEach(r => tbody.appendChild(r));
     });
   });
 
-  /* ========== 行タップでモーダル ========== */
+  /* ========= 行タップでモーダル（誤タップ防止ロジック） ========= */
   const modal      = document.getElementById("stockModal");
   const panel      = modal.querySelector(".modal-content");
   const closeBtn   = modal.querySelector(".close");
@@ -124,8 +127,7 @@ document.addEventListener("DOMContentLoaded", function() {
   const modalProfit   = document.getElementById("modalProfit");
   const modalRate     = document.getElementById("modalRate");
 
-  function openModalForRow(row, e){
-    e?.preventDefault?.();
+  function openModalForRow(row){
     modalName.textContent     = row.dataset.name     || "";
     modalPrice.textContent    = row.dataset.price    || "";
     modalSector.textContent   = row.dataset.sector   || "";
@@ -136,25 +138,51 @@ document.addEventListener("DOMContentLoaded", function() {
 
     modal.classList.add("show");
     modal.style.display = "flex";
-    body.style.overflow = "hidden"; // 背景スクロール停止
+    body.style.overflow = "hidden";
   }
 
-  rows.forEach(row => {
-    const handler = (e)=> openModalForRow(row, e);
-    row.addEventListener("click", handler);
-    row.addEventListener("touchstart", handler, {passive:true});
+  // スクロールとタップの判定
+  const TAP_MAX_MOVE = 10;   // px（これ以上動いたらスクロール扱い）
+  const TAP_MAX_TIME = 500;  // ms（長押しは無視：必要なら調整）
+  dataRows.forEach(row => {
+    let startX=0, startY=0, startT=0, moved=false;
+
+    row.addEventListener("touchstart", (e)=>{
+      const t = e.touches[0];
+      startX = t.clientX; startY = t.clientY; startT = Date.now(); moved = false;
+    }, {passive:true});
+
+    row.addEventListener("touchmove", (e)=>{
+      const t = e.touches[0];
+      const dx = Math.abs(t.clientX - startX);
+      const dy = Math.abs(t.clientY - startY);
+      if (dx > TAP_MAX_MOVE || dy > TAP_MAX_MOVE) moved = true; // スクロール中
+    }, {passive:true});
+
+    row.addEventListener("touchend", (e)=>{
+      const dt = Date.now() - startT;
+      if (!moved && dt <= TAP_MAX_TIME && row.style.display !== "none") {
+        e.preventDefault();
+        openModalForRow(row);
+      }
+    });
+
+    // マウス（PC）クリックはそのまま
+    row.addEventListener("click", (e)=>{
+      if (row.style.display !== "none") openModalForRow(row);
+    });
   });
 
   function closeModal(){
     modal.classList.remove("show");
-    body.style.overflow = ""; // 背景スクロール復活
+    body.style.overflow = "";
     setTimeout(()=>{ modal.style.display = "none"; }, 300);
   }
 
   closeBtn.addEventListener("click", closeModal);
   window.addEventListener("click", (e)=>{ if (e.target === modal) closeModal(); });
 
-  /* ========== スワイプで閉じる（下方向） ========== */
+  // 下スワイプで閉じる
   (function enableSwipeToClose(){
     let startY=0, dy=0;
     panel.addEventListener("touchstart", e=>{
@@ -165,11 +193,11 @@ document.addEventListener("DOMContentLoaded", function() {
       if (dy > 0) panel.style.transform = `translateY(${dy}px)`;
     }, {passive:true});
     panel.addEventListener("touchend", ()=>{
-      if (dy > 80) { // しきい値
+      if (dy > 80) {
         closeModal();
         setTimeout(()=>{ panel.style.transform = ""; }, 320);
       } else {
-        panel.style.transform = ""; // 戻す
+        panel.style.transform = "";
       }
     });
   })();
