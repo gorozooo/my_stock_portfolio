@@ -1,12 +1,11 @@
 document.addEventListener("DOMContentLoaded", () => {
-  // 要素取得
+  // 要素
   const yearFilter  = document.getElementById("yearFilter");
   const monthFilter = document.getElementById("monthFilter");
   const table       = document.getElementById("realizedTable");
   const tbody       = table.querySelector("tbody");
   const allRows     = [...tbody.querySelectorAll("tr")];
   const dataRows    = allRows.filter(r => !r.classList.contains('group-row'));
-  const tableWrapper= document.getElementById("tableWrapper");
   const topFixed    = document.querySelector(".top-fixed");
   const emptyState  = document.getElementById("emptyState");
   const chips       = [...document.querySelectorAll(".quick-chips .chip")];
@@ -21,7 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const avgProfitOnlyEl = document.getElementById("avgProfitOnly");
   const avgLossOnlyEl   = document.getElementById("avgLossOnly");
 
-  /* ===== 高さ計算をCSS変数で渡す（縦スクロールの要） ===== */
+  /* ===== 高さ→CSS変数に反映（表だけスクロールのキモ） ===== */
   function bottomTabHeight(){
     const el = document.querySelector(".bottom-tab, #bottom-tab");
     return el ? el.offsetHeight : 0;
@@ -31,19 +30,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const bottomH = bottomTabHeight();
     document.documentElement.style.setProperty('--top-h', `${topH}px`);
     document.documentElement.style.setProperty('--bottom-h', `${bottomH}px`);
-    // 端末回転などで直後に効くように、少し遅れて再設定
-    setTimeout(()=>{
-      const topH2 = topFixed ? topFixed.offsetHeight : 0;
-      document.documentElement.style.setProperty('--top-h', `${topH2}px`);
-    }, 50);
   }
   setHeights();
   window.addEventListener("resize", setHeights);
   window.addEventListener("orientationchange", setHeights);
-
-  // top-fixed内部の行数が変わった時にも反映（念のため）
-  const mo = new MutationObserver(setHeights);
-  mo.observe(topFixed, {childList:true, subtree:true});
+  new MutationObserver(setHeights).observe(topFixed, {childList:true, subtree:true});
 
   /* ===== 数値ユーティリティ ===== */
   const numeric = (t)=> {
@@ -70,7 +61,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const avgNeg= neg.length ? negSum / neg.length : 0;
 
     sumCount.textContent  = String(count);
-    winRateEl.textContent = count ? `${Math.round((wins/count)*100)}%` : "0%";
+    winRateEl.textContent = count ? `${Math.round((wins/count)*100)}%` : "0%`;
 
     netProfitEl.textContent = fmt(net);
     netProfitEl.classList.toggle('profit', net > 0);
@@ -100,20 +91,17 @@ document.addEventListener("DOMContentLoaded", () => {
       row.style.display = show ? "" : "none";
     });
 
-    const any = dataRows.some(r => r.style.display !== "none");
-    emptyState.style.display = any ? "none" : "";
+    emptyState.style.display = dataRows.some(r => r.style.display !== "none") ? "none" : "";
     updateSummary();
   }
 
   yearFilter.addEventListener("change", ()=>{
     chips.forEach(c=>c.classList.remove('active'));
-    filterTable();
-    setHeights();
+    filterTable(); setHeights();
   });
   monthFilter.addEventListener("change", ()=>{
     chips.forEach(c=>c.classList.remove('active'));
-    filterTable();
-    setHeights();
+    filterTable(); setHeights();
   });
 
   /* ===== クイックフィルタ（アクティブ表示） ===== */
@@ -126,23 +114,19 @@ document.addEventListener("DOMContentLoaded", () => {
       const key = b.dataset.range;
 
       if (key === "this-month"){
-        yearFilter.value = String(y);
-        monthFilter.value = mm;
+        yearFilter.value = String(y); monthFilter.value = mm;
       } else if (key === "last-month"){
         const d = new Date(y, m-2, 1);
         yearFilter.value = String(d.getFullYear());
         monthFilter.value = pad2(d.getMonth()+1);
       } else if (key === "this-year"){
-        yearFilter.value = String(y);
-        monthFilter.value = "";
+        yearFilter.value = String(y); monthFilter.value = "";
       } else {
-        yearFilter.value = "";
-        monthFilter.value = "";
+        yearFilter.value = ""; monthFilter.value = "";
       }
       chips.forEach(c=>c.classList.remove('active'));
       b.classList.add('active');
-      filterTable();
-      setHeights();
+      filterTable(); setHeights();
     });
   });
 
@@ -161,8 +145,10 @@ document.addEventListener("DOMContentLoaded", () => {
           va = new Date(a.children[idx].textContent.trim());
           vb = new Date(b.children[idx].textContent.trim());
         }else{
-          va = numeric(a.children[idx].textContent);
-          vb = numeric(b.children[idx].textContent);
+          const na = numeric(a.children[idx].textContent);
+          const nb = numeric(b.children[idx].textContent);
+          va = isNaN(na) ? a.children[idx].textContent : na;
+          vb = isNaN(nb) ? b.children[idx].textContent : nb;
         }
         return asc ? (va>vb?1:-1) : (va<vb?1:-1);
       });
@@ -215,7 +201,7 @@ document.addEventListener("DOMContentLoaded", () => {
   closeBtn.addEventListener("click", closeModal);
   window.addEventListener("click", (e)=>{ if (e.target === modal) closeModal(); });
 
-  /* 初期表示 */
+  /* 初期描画 */
   filterTable();
   setHeights();
 });
