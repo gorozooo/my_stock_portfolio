@@ -276,35 +276,69 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   /* ===== モーダル ===== */
-  const modal    = document.getElementById("stockModal");
-  const closeBtn = modal.querySelector(".close");
+const modal    = document.getElementById("stockModal");
+const closeBtn = modal.querySelector(".close");
 
-  // 新モーダルの要素
-  const modalTitle    = document.getElementById("modalTitle");
-  const modalPurchase = document.getElementById("modalPurchase");
-  const modalQuantity = document.getElementById("modalQuantity");
-  const modalBroker   = document.getElementById("modalBroker");
-  const modalAccount  = document.getElementById("modalAccount");
-  const modalSell     = document.getElementById("modalSell");
-  const modalProfit   = document.getElementById("modalProfit");
-  const modalFee      = document.getElementById("modalFee");
+// 新モーダルの要素
+const modalTitle     = document.getElementById("modalTitle");
+const modalPurchase  = document.getElementById("modalPurchase");
+const modalQuantity  = document.getElementById("modalQuantity");
+const modalBroker    = document.getElementById("modalBroker");
+const modalAccount   = document.getElementById("modalAccount");
+const modalSell      = document.getElementById("modalSell");
+const modalProfit    = document.getElementById("modalProfit");
+const modalFee       = document.getElementById("modalFee");
+const modalSellAmount= document.getElementById("modalSellAmount"); // 新規：売却額
+const modalBuyAmount = document.getElementById("modalBuyAmount");  // 新規：取得額
 
-  function openModalForRow(row){
-    const name  = row.dataset.name || "";
-    const code  = row.dataset.code || "";
-    const title = code ? `${name}（${code}）` : name;
+function num(text){
+  if (text == null) return 0;
+  const s = String(text).replace(/[^\-0-9.]/g,'');
+  const v = parseFloat(s);
+  return isNaN(v) ? 0 : v;
+}
+function yen(n){
+  return Math.round(n).toLocaleString('ja-JP');
+}
 
-    if (modalTitle)    modalTitle.textContent    = title;
-    if (modalPurchase) modalPurchase.textContent = row.dataset.purchase || "";
-    if (modalQuantity) modalQuantity.textContent = row.dataset.quantity || "";
-    if (modalBroker)   modalBroker.textContent   = row.dataset.broker || "";
-    if (modalAccount)  modalAccount.textContent  = row.dataset.account || "";
-    if (modalSell)     modalSell.textContent     = row.dataset.sell || "";
-    if (modalProfit)   modalProfit.textContent   = row.dataset.profit || "";
-    if (modalFee)      modalFee.textContent      = row.dataset.fee || "";
+function openModalForRow(row){
+  const name  = row.dataset.name || "";
+  const code  = row.dataset.code || "";
+  const title = code ? `${name}（${code}）` : name;
 
-    modal.classList.add("show");
+  const q     = num(row.dataset.quantity);
+  const buy   = num(row.dataset.purchase); // 取得単価
+  const sell  = num(row.dataset.sell);     // 売却単価
+  const fee   = num(row.dataset.fee);      // 手数料（負数想定）
+  const prof  = num(row.dataset.profit);   // 損益額（+/-あり）
+
+  // 合計額を算出（手数料は明示表示、合計には含めない設計にしています）
+  const buyAmt  = q ? buy * q : 0;   // 取得額
+  const sellAmt = q ? sell * q : 0;  // 売却額
+
+  if (modalTitle)     modalTitle.textContent     = title;
+  if (modalPurchase)  modalPurchase.textContent  = buy ? yen(buy) : '-';
+  if (modalQuantity)  modalQuantity.textContent  = q ? yen(q) : '-';
+  if (modalBroker)    modalBroker.textContent    = row.dataset.broker || '';
+  if (modalAccount)   modalAccount.textContent   = row.dataset.account || '';
+  if (modalSell)      modalSell.textContent      = sell ? yen(sell) : '-';
+  if (modalProfit){
+    modalProfit.textContent = prof ? (prof>0? '+'+yen(prof) : yen(prof)) : '0';
+    modalProfit.classList.remove('profit','loss');
+    if (prof>0) modalProfit.classList.add('profit');
+    if (prof<0) modalProfit.classList.add('loss');
   }
+  if (modalFee)        modalFee.textContent      = fee ? yen(fee) : '0';
+  if (modalSellAmount) modalSellAmount.textContent = sellAmt ? yen(sellAmt) : '-';
+  if (modalBuyAmount)  modalBuyAmount.textContent  = buyAmt ? yen(buyAmt)   : '-';
+
+  modal.classList.add("show");
+}
+
+// 閉じる
+function closeModal(){ modal.classList.remove("show"); }
+closeBtn.addEventListener("click", closeModal);
+window.addEventListener("click", (e)=>{ if (e.target === modal) closeModal(); });
 
   const TAP_MAX_MOVE = 10, TAP_MAX_TIME = 500;
   function attachRowHandlers(){
