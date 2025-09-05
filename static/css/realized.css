@@ -1,21 +1,27 @@
-:root{
-  --top-h: 0px;       /* JSで実高さを代入 */
-  --bottom-h: 0px;    /* JSでボトムタブ高さを代入 */
-}
-
-/* ページ骨格：表だけスクロール */
-.realized-container{
-  height: 100dvh;
+/* ★ ページを固定化：これでbody側がスクロールしても影響しない */
+.realized-page{
+  position: fixed;  /* ←最重要 */
+  inset: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden; /* ←中の .table-wrapper にだけスクロールを委譲 */
+  background: transparent;
+  z-index: 0;       /* モーダルは上に来るのでOK */
+}
+
+/* ページ骨格：中で縦分割、上はauto、下はスクロール領域 */
+.realized-container{
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;    /* 子のoverflowを効かせるために必須 */
   gap: 6px;
   padding: 8px 8px 12px;
   font-family: "Helvetica Neue", system-ui, -apple-system, sans-serif;
   color:#fff;
-  background: transparent;
 }
 
-/* 上部（固定見え） */
+/* 上部は固定見え（スクロールしない） */
 .top-fixed{
   flex: 0 0 auto;
   backdrop-filter: blur(8px);
@@ -25,19 +31,18 @@
   padding: 6px;
 }
 
-/* 表ラッパー：縦横スクロール（高さをCSSで確定） */
+/* 表ラッパー：ここだけ縦スクロール＆横スクロール可 */
 .table-wrapper{
-  flex: 0 0 auto;
-  height: calc(100dvh - var(--top-h) - var(--bottom-h) - 12px);
-  min-height: 120px;
-  overflow: auto;
+  flex: 1 1 auto;   /* ← 余白をすべてここに割り当て */
+  min-height: 0;    /* ← これが無いとスクロールしないことがある */
+  overflow: auto;   /* ← 縦横スクロール */
   -webkit-overflow-scrolling: touch;
   border-radius: 10px;
   background: rgba(255,255,255,0.06);
   overscroll-behavior: contain;
 }
 
-/* KPI（3行・コンパクト） */
+/* ===== KPI・フィルタ ===== */
 .kpi-row{ display: grid; gap: 6px; margin-bottom: 4px; }
 .kpi-row1{ grid-template-columns: repeat(3, 1fr); }
 .kpi-row2{ grid-template-columns: repeat(2, 1fr); }
@@ -63,7 +68,7 @@
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* クイックフィルタ */
+/* クイックフィルタ（アクティブ表示） */
 .quick-chips.chips-compact{ display:flex; gap:6px; margin:4px 0; flex-wrap:wrap; }
 .quick-chips .chip{
   padding:6px 10px; border:none; border-radius:12px;
@@ -85,10 +90,10 @@
   font-size: .95rem; appearance: none; text-align: center;
 }
 
-/* 表（横スクロール可） */
+/* ===== 表（横スクロール可） ===== */
 #realizedTable{
   width:100%;
-  min-width: 720px;
+  min-width: 720px;                /* これ以下の画面幅だと横スクロール */
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -118,9 +123,7 @@
 
 /* 省略設定 */
 .stock-name-cell{ text-align: left; }
-.stock-name-cell span{
-  display:inline-block; width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-}
+.stock-name-cell span{ display:inline-block; width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .trade-type-cell span{ display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 /* 損益色 */
@@ -129,11 +132,10 @@
 
 .empty-state{ opacity:.85; text-align:center; }
 
-/* モーダル（コンパクト & はみ出し防止） */
+/* ===== モーダル（コンパクト & はみ出し防止） ===== */
 .modal{
   display:none; position:fixed; inset:0; z-index:100;
   background-color: rgba(0,0,0,0.6);
-  display: none; /* 初期は非表示 */
   justify-content: center; align-items: center;
   padding: 6px;
 }
@@ -154,7 +156,5 @@
 .modal.show .modal-content{ transform: scale(1); opacity: 1; }
 .modal .close{ position:absolute; top:8px; right:12px; font-size:1.2rem; cursor:pointer; color:#fff; }
 .modal-grid{ display:grid; grid-template-columns: 1fr 1fr; gap:8px 12px; margin-top:6px; }
-@media (max-width: 360px){
-  .modal-grid{ grid-template-columns: 1fr; } /* 超小画面で1列に */
-}
+@media (max-width: 360px){ .modal-grid{ grid-template-columns: 1fr; } }
 .modal-grid .k{ opacity:.85; margin-right:8px; }
