@@ -21,9 +21,9 @@ document.addEventListener("DOMContentLoaded", function() {
   const winRateEl = document.getElementById("winRate");
   const sumProfit = document.getElementById("sumProfit");
   const avgProfit = document.getElementById("avgProfit");
+  const kpiValues = [sumCount, winRateEl, sumProfit, avgProfit];
 
   /* ====== ページ全体はスクロールさせず、表ラッパーだけ縦スクロール ====== */
-  // 念のため、body/docのスクロールを抑える（このページの体験を安定化）
   const prevHtmlOverflow = document.documentElement.style.overflow;
   const prevBodyOverflow = document.body.style.overflow;
   document.documentElement.style.overflow = "hidden";
@@ -37,14 +37,14 @@ document.addEventListener("DOMContentLoaded", function() {
     const vh     = window.innerHeight;
     const topH   = topFixed ? topFixed.offsetHeight : 0;
     const bottom = measureBottomTabHeight();
-    const padding = 10; // 余白
+    const padding = 10;
     const maxH  = Math.max(140, vh - topH - bottom - padding);
     tableWrapper.style.maxHeight = maxH + "px";
     tableWrapper.style.overflow = "auto"; // 縦横スクロール可
   }
   setScrollableHeight();
-  window.addEventListener("resize", setScrollableHeight);
-  window.addEventListener("orientationchange", setScrollableHeight);
+  window.addEventListener("resize", ()=>{ setScrollableHeight(); fitAllKPI(); });
+  window.addEventListener("orientationchange", ()=>{ setScrollableHeight(); fitAllKPI(); });
 
   /* ====== 数値ユーティリティ ====== */
   function numeric(text){
@@ -90,6 +90,8 @@ document.addEventListener("DOMContentLoaded", function() {
     winRateEl.textContent = `${winRate}%`;
     sumProfit.textContent = Math.round(sum).toLocaleString();
     avgProfit.textContent = Math.round(avg).toLocaleString();
+
+    fitAllKPI();
   }
 
   yearFilter.addEventListener("change", filterTable);
@@ -172,7 +174,6 @@ document.addEventListener("DOMContentLoaded", function() {
 
     modal.classList.add("show");
     modal.style.display = "flex";
-    // 背景（ページ）スクロールはもともと抑制済み。表スクロールもモーダル上では起きない。
   }
 
   const TAP_MAX_MOVE = 10;   // px
@@ -212,12 +213,35 @@ document.addEventListener("DOMContentLoaded", function() {
   closeBtn.addEventListener("click", closeModal);
   window.addEventListener("click", (e)=>{ if (e.target === modal) closeModal(); });
 
+  /* ====== KPI値をカード幅にフィット（自動縮小） ====== */
+  function fitText(el, min=12, max=36){
+    // px指定。CSSのclampとは別に、実計測で縮める
+    const parent = el.parentElement;
+    if (!parent) return;
+    // 一度最大にしてから計測
+    el.style.fontSize = max + "px";
+    el.style.whiteSpace = "nowrap";
+    // 余白確保（内側パディング相当を引く）
+    const available = parent.clientWidth - 16; // 左右8pxずつのイメージ
+    let size = max;
+    // 収まるまで 1px ずつ縮小（短いのでOK / KPIだけに限定）
+    while (el.scrollWidth > available && size > min){
+      size -= 1;
+      el.style.fontSize = size + "px";
+    }
+  }
+  function fitAllKPI(){
+    // コンパクト：やや小さめ、ワイド：大きめに
+    document.querySelectorAll('.kpi-card.kpi--compact .kpi-value').forEach(el=>fitText(el, 12, 28));
+    document.querySelectorAll('.kpi-card.kpi--wide .kpi-value').forEach(el=>fitText(el, 12, 34));
+  }
+
   /* ====== 初期描画 ====== */
   filterTable();
-  // レイアウト安定後に高さ再計算
-  setTimeout(setScrollableHeight, 120);
+  // レイアウト安定後に高さ＆KPIフィット再計算
+  setTimeout(()=>{ setScrollableHeight(); fitAllKPI(); }, 120);
 
-  /* ====== ページ離脱時：スクロール制御を元に戻す（他ページ影響防止） ====== */
+  /* ====== ページ離脱時：スクロール制御を元に戻す ====== */
   window.addEventListener("beforeunload", ()=>{
     document.documentElement.style.overflow = prevHtmlOverflow;
     document.body.style.overflow = prevBodyOverflow;
