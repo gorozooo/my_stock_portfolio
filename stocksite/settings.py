@@ -114,9 +114,9 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
-DEBUG = False
+#DEBUG = False
 
-#DEBUG = True
+DEBUG = True
 
 # =============================
 # 本番運用時の追加設定例
