@@ -1,25 +1,138 @@
 {% extends "base.html" %}
+{% load static %}
+{% load humanize %}
+
+{% block title %}売却 - {{ stock.name }} ({{ stock.ticker }}){% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/stock_sell.css' %}">
+{% endblock %}
+
 {% block content %}
-<h2>{{ stock.name }} ({{ stock.ticker }}) 売却</h2>
-<form method="post">
-  {% csrf_token %}
-  <label>株数 <input type="number" name="shares" value="{{ stock.shares }}" required></label>
-  <fieldset>
-    <legend>売却方法</legend>
-    <label><input type="radio" name="sell_mode" value="market" checked> 市場価格で売却</label>
-    <label><input type="radio" name="sell_mode" value="limit"> 指値で売却</label>
-  </fieldset>
-  <div id="limit-input" style="display:none;">
-    <label>指値 <input type="number" name="limit_price"></label>
-  </div>
-  <button type="submit" class="negative">売却する</button>
-</form>
+<div class="sell-page">
+  <header class="sell-header">
+    <a href="{% url 'stock_list' %}" class="back-link">← 一覧へ戻る</a>
+    <h1 class="sell-title">
+      <span class="name">{{ stock.name }}</span>
+      <span class="code">{{ stock.ticker }}</span>
+    </h1>
+  </header>
+
+  {# 概要（視覚ピル） #}
+  <section class="sell-summary">
+    <div class="pill">
+      <span class="k">保有株数</span><span class="v">{{ stock.shares|intcomma }} 株</span>
+    </div>
+    <div class="pill">
+      <span class="k">取得単価</span><span class="v">¥{{ stock.unit_price|floatformat:0|intcomma }}</span>
+    </div>
+    <div class="pill">
+      <span class="k">現在株価</span>
+      <span class="v">{% if stock.current_price %}¥{{ stock.current_price|floatformat:0|intcomma }}{% else %}—{% endif %}</span>
+    </div>
+    <div class="pill">
+      <span class="k">口座</span><span class="v">{{ stock.account_type|default:"—" }}</span>
+    </div>
+    <div class="pill">
+      <span class="k">証券</span><span class="v">{{ stock.broker|default:"—" }}</span>
+    </div>
+  </section>
+
+  {# エラー表示（JSで活用） #}
+  <div class="sell-errors" id="sell-errors" aria-live="polite" hidden></div>
+
+  <form id="sell-form" method="post" action="">
+    {% csrf_token %}
+
+    <input type="hidden" name="stock_id" value="{{ stock.id }}">
+
+    <div class="form-section">
+      <label class="form-label" for="sell-shares">売却株数</label>
+      <div class="qty-row">
+        <button type="button" class="qty-btn" data-step="-100">-100</button>
+        <button type="button" class="qty-btn" data-step="-10">-10</button>
+        <input id="sell-shares"
+               name="shares"
+               type="number"
+               inputmode="numeric"
+               min="1"
+               max="{{ stock.shares }}"
+               step="1"
+               value="{{ stock.shares }}"
+               class="qty-input"
+               required>
+        <button type="button" class="qty-btn" data-step="10">+10</button>
+        <button type="button" class="qty-btn" data-step="100">+100</button>
+      </div>
+      <div class="qty-helpers">
+        <button type="button" class="chip" data-fill="25">25%</button>
+        <button type="button" class="chip" data-fill="50">50%</button>
+        <button type="button" class="chip" data-fill="75">75%</button>
+        <button type="button" class="chip" data-fill="100">ALL</button>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <span class="form-label">売却方法</span>
+      <div class="mode-row" role="radiogroup" aria-label="売却方法">
+        <label class="mode-item">
+          <input type="radio" name="sell_mode" value="market" checked>
+          <span>市場価格</span>
+        </label>
+        <label class="mode-item">
+          <input type="radio" name="sell_mode" value="limit">
+          <span>指値</span>
+        </label>
+      </div>
+
+      <div id="limit-wrap" class="limit-wrap" hidden>
+        <label class="form-label" for="limit-price">指値（円）</label>
+        <input id="limit-price"
+               name="limit_price"
+               type="number"
+               inputmode="numeric"
+               min="0"
+               step="1"
+               placeholder="例: 1,234"
+               class="text-input">
+        <div class="limit-hints">
+          {% if stock.current_price %}
+            <button type="button" class="chip" data-limit="{{ stock.current_price|floatformat:0 }}">現在値</button>
+          {% endif %}
+          <button type="button" class="chip" data-limit="+5">+5</button>
+          <button type="button" class="chip" data-limit="+10">+10</button>
+          <button type="button" class="chip" data-limit="-5">-5</button>
+          <button type="button" class="chip" data-limit="-10">-10</button>
+        </div>
+      </div>
+    </div>
+
+    <section class="review">
+      <div class="row">
+        <span class="k">概算売却額</span>
+        <span class="v" id="est-amount">—</span>
+      </div>
+      <div class="row">
+        <span class="k">概算損益</span>
+        <span class="v" id="est-pl">—</span>
+      </div>
+    </section>
+
+    <div class="sticky-actions">
+      <a href="{% url 'stock_list' %}" class="btn secondary">キャンセル</a>
+      <button type="submit" class="btn danger" id="sell-submit">売却する</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
 <script>
-document.addEventListener("change", e=>{
-  if(e.target.name==="sell_mode"){
-    document.getElementById("limit-input").style.display =
-      e.target.value==="limit" ? "block" : "none";
-  }
-});
+  window.__SELL_CTX__ = {
+    shares: {{ stock.shares }},
+    unit_price: {{ stock.unit_price|floatformat:2 }},
+    {% if stock.current_price %} current_price: {{ stock.current_price|floatformat:2 }}, {% else %} current_price: null, {% endif %}
+  };
 </script>
+<script src="{% static 'js/stock_sell.js' %}" defer></script>
 {% endblock %}
