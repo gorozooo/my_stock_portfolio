@@ -3,24 +3,27 @@
 
 {% block content %}
 <div class="realized-container">
-
-  <!-- サマリー～クイック～年月：ここまでを固定（上） -->
-  <div class="sticky-wrap" role="region" aria-label="絞り込みとサマリー">
-    <!-- 4分割サマリー：件数・勝率・合計損益・平均損益 -->
+  <!-- 上部：KPI / クイック / 年月（ページ上部は固定表示。スクロールは下の表だけ） -->
+  <div class="top-fixed" role="region" aria-label="絞り込みとサマリー">
+    <!-- KPI：件数・勝率・合計損益・平均損益 -->
     <div class="kpi-grid">
       <div class="kpi-card">
+        <div class="kpi-icon">📄</div>
         <div class="kpi-label">件数</div>
         <div class="kpi-value" id="sumCount">--</div>
       </div>
       <div class="kpi-card">
+        <div class="kpi-icon">🥇</div>
         <div class="kpi-label">勝率</div>
         <div class="kpi-value" id="winRate">--%</div>
       </div>
       <div class="kpi-card">
+        <div class="kpi-icon">💰</div>
         <div class="kpi-label">合計損益</div>
         <div class="kpi-value" id="sumProfit">--</div>
       </div>
       <div class="kpi-card">
+        <div class="kpi-icon">📊</div>
         <div class="kpi-label">平均損益</div>
         <div class="kpi-value" id="avgProfit">--</div>
       </div>
@@ -56,8 +59,8 @@
   <!-- 空状態 -->
   <p id="emptyState" class="empty-state" style="display:none;">該当データがありません</p>
 
-  <!-- 表のみスクロール領域 -->
-  <div class="table-wrapper" id="tableWrapper">
+  <!-- 表だけ縦スクロール & 横スクロール可 -->
+  <div class="table-wrapper" id="tableWrapper" aria-label="損益一覧スクロール領域">
     <table id="realizedTable" aria-label="損益一覧">
       <thead>
         <tr>
@@ -128,7 +131,7 @@
   </div>
 </div>
 
-<!-- モーダル（上部スライドインに変更） -->
+<!-- モーダル（中央表示 & フェード＋スケール） -->
 <div id="stockModal" class="modal" aria-hidden="true" aria-modal="true" role="dialog">
   <div class="modal-content glass-box" role="document">
     <span class="close" aria-label="閉じる">&times;</span>
