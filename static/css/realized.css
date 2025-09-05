@@ -3,24 +3,24 @@
   height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: 6px; /* 間隔も圧縮 */
-  padding: 8px 8px 12px; /* 余白も減らす */
+  gap: 6px;
+  padding: 8px 8px 12px;
   font-family: "Helvetica Neue", system-ui, -apple-system, sans-serif;
   color:#fff;
   background: transparent;
 }
 
-/* 上部（KPI/クイック/年月）固定：高さを最小限に */
+/* 上部固定ブロック（KPI/クイック/年月） */
 .top-fixed{
   flex: 0 0 auto;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   background: rgba(0,0,0,0.14);
   border-radius: 10px;
-  padding: 6px; /* 以前より小さく */
+  padding: 6px;
 }
 
-/* 表ラッパー：ここだけ縦横スクロール */
+/* 表ラッパー：縦横スクロール可（ここだけスクロール） */
 .table-wrapper{
   flex: 1 1 auto;
   min-height: 0;
@@ -30,17 +30,20 @@
   overscroll-behavior: contain;
 }
 
-/* ===== KPI（超コンパクト） ===== */
-.kpi-grid.kpi-compact{
+/* ===== KPI：3行構成（コンパクト） ===== */
+.kpi-row{
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
   gap: 6px;
-  margin-bottom: 4px; /* 余白も小さく */
+  margin-bottom: 4px;
 }
+.kpi-row1{ grid-template-columns: repeat(3, 1fr); } /* 件数・勝率・実現損益 */
+.kpi-row2{ grid-template-columns: repeat(2, 1fr); } /* 利益合計・損失合計 */
+.kpi-row3{ grid-template-columns: repeat(3, 1fr); } /* 平均損益・平均利益・平均損失 */
+
 .kpi-card{
   position: relative;
-  padding: 6px 8px;           /* パディング削減 */
-  border-radius: 10px;        /* 角丸も少し小さく */
+  padding: 6px 8px;
+  border-radius: 10px;
   background:
     linear-gradient(135deg, rgba(255,255,255,.09), rgba(255,255,255,.03)) padding-box,
     linear-gradient(135deg, rgba(0,255,255,.35), rgba(170,0,255,.28)) border-box;
@@ -55,19 +58,15 @@
   transform: rotate(8deg);
   pointer-events:none;
 }
-.kpi--compact{ min-width: 0; }
-.kpi--wide{ grid-column: span 2; min-width: 0; }
-
 .kpi-header{
   display:flex; align-items:center; gap:4px;
   opacity:.92; margin-bottom:2px;
 }
-.kpi-icon{ font-size:.9rem; }          /* アイコンも小さく */
+.kpi-icon{ font-size:.9rem; }
 .kpi-label{ font-size:.72rem; opacity:.8; }
-
 .kpi-value{
   font-variant-numeric: tabular-nums;
-  font-size: clamp(0.95rem, 3.4vw, 1.15rem); /* 値の高さを大幅縮小 */
+  font-size: clamp(0.95rem, 3.4vw, 1.15rem);
   font-weight: 800; line-height: 1.05;
   letter-spacing:.2px;
   white-space: nowrap;
@@ -76,23 +75,21 @@
   text-shadow: 0 1px 6px rgba(0,255,255,.18);
 }
 
-/* 極狭幅では2列グリッドだが、KPIは高さが小さいので視界を圧迫しにくい */
-@media (max-width: 420px){
-  .kpi-grid.kpi-compact{ grid-template-columns: repeat(2, 1fr); }
-  .kpi--wide{ grid-column: span 2; }
-}
-
-/* クイックフィルタ（コンパクト） */
+/* クイックフィルタ（アクティブ表示あり） */
 .quick-chips.chips-compact{
   display:flex; gap:6px; margin:4px 0; flex-wrap:wrap;
 }
-.quick-chips.chips-compact button{
+.quick-chips .chip{
   padding:6px 10px; border:none; border-radius:12px;
   background:rgba(255,255,255,.16); color:#fff; cursor:pointer;
   font-size:.9rem;
-  transition:transform .06s ease;
+  transition:transform .06s ease, background .12s ease, box-shadow .12s ease;
 }
-.quick-chips.chips-compact button:active{ transform:scale(.98); }
+.quick-chips .chip:active{ transform:scale(.98); }
+.quick-chips .chip.active{
+  background: rgba(0,255,255,.22);
+  box-shadow: 0 0 0 1px rgba(0,255,255,.35) inset, 0 6px 16px rgba(0,255,255,.22);
+}
 
 /* 年月フィルタ（コンパクト） */
 .filter-box.filter-compact{ display:flex; gap:6px; }
