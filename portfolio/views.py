@@ -331,36 +331,101 @@ def stock_create(request):
 
 @login_required
 def sell_stock_page(request, pk):
+    """
+    売却専用ページ（市場/指値、部分売却対応）
+    - GET: ページ表示（現在値が空なら yfinance で軽く取得を試行）
+    - POST: バリデーション → RealizedProfit へ記録
+            全量売却: Stock削除 / 部分売却: shares 減算 + total_cost再計算
+    """
     stock = get_object_or_404(Stock, pk=pk)
+    errors = []
+
+    # --- GET時の現在値表示用（未設定なら軽く取得を試す。失敗しても致命ではない） ---
+    current_price_for_view = float(stock.current_price or 0.0)
+    if current_price_for_view <= 0:
+        try:
+            symbol = f"{stock.ticker}.T" if not str(stock.ticker).endswith(".T") else stock.ticker
+            todays = yf.Ticker(symbol).history(period="1d")
+            if not todays.empty:
+                current_price_for_view = float(todays["Close"].iloc[-1])
+        except Exception:
+            current_price_for_view = 0.0  # 取得失敗時は0（テンプレ側で単価を使って概算可）
 
     if request.method == "POST":
-        mode = request.POST.get("sell_mode")
-        shares = int(request.POST.get("shares") or 0)
-        limit_price = request.POST.get("limit_price")
+        mode = (request.POST.get("sell_mode") or "").strip()
+        try:
+            shares_to_sell = int(request.POST.get("shares") or 0)
+        except (TypeError, ValueError):
+            shares_to_sell = 0
 
+        # 売却方法
+        if mode not in ("market", "limit"):
+            errors.append("売却方法が不正です。")
+
+        # 株数
+        if shares_to_sell <= 0:
+            errors.append("売却株数を1以上で指定してください。")
+        elif shares_to_sell > int(stock.shares or 0):
+            errors.append("保有株数を超える売却はできません。")
+
+        # 価格
+        price = None
         if mode == "market":
-            price = stock.current_price or stock.unit_price
-        elif mode == "limit" and limit_price:
-            price = float(limit_price)
-        else:
-            price = stock.unit_price
+            price = float(stock.current_price or stock.unit_price or 0)
+        else:  # limit
+            try:
+                limit_price = float(request.POST.get("limit_price") or 0)
+            except (TypeError, ValueError):
+                limit_price = 0.0
+            if limit_price <= 0:
+                errors.append("指値価格を正しく入力してください。")
+            else:
+                price = limit_price
 
-        total_profit = (price - stock.unit_price) * shares
+        if price is None or price <= 0:
+            errors.append("売却価格が不正です。")
 
+        # バリデーションNG → 再表示
+        if errors:
+            return render(
+                request,
+                "stocks/sell_stock_page.html",
+                {"stock": stock, "errors": errors, "current_price": current_price_for_view or 0.0},
+            )
+
+        # 実現損益の計算
+        unit_price = float(stock.unit_price or 0)
+        total_profit = (float(price) - unit_price) * shares_to_sell
+
+        # 実現損益テーブルへ記録
         RealizedProfit.objects.create(
             stock_name=stock.name,
             ticker=stock.ticker,
-            shares=shares,
-            purchase_price=stock.unit_price,
-            sell_price=price,
+            shares=shares_to_sell,
+            purchase_price=unit_price,
+            sell_price=float(price),
             total_profit=total_profit,
             sold_at=timezone.now(),
         )
-        stock.delete()
+
+        # 在庫調整（部分売却対応）
+        remaining = int(stock.shares or 0) - shares_to_sell
+        if remaining <= 0:
+            stock.delete()
+        else:
+            stock.shares = remaining
+            stock.total_cost = int(round(remaining * unit_price))
+            stock.save(update_fields=["shares", "total_cost", "updated_at"])
+
         return redirect("stock_list")
 
-    return render(request, "stocks/sell_stock_page.html", {"stock": stock})
-
+    # GET 表示
+    return render(
+        request,
+        "stocks/sell_stock_page.html",
+        {"stock": stock, "errors": errors, "current_price": current_price_for_view or 0.0},
+    )
+    
 # views.py（ポイントだけ）
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_http_methods
