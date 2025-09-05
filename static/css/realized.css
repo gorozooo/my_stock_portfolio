@@ -1,16 +1,17 @@
 /* ===== ベース（背景は透明） ===== */
-.realized-container {
-  padding: 12px 12px 24px;
+.realized-container{
+  padding: 10px 10px 16px;
   font-family: "Helvetica Neue", system-ui, -apple-system, sans-serif;
-  color: #fff;
-  background: transparent; /* ← 透明 */
-  min-height: 100vh;
+  color:#fff;
+  background: transparent; /* 透明背景 */
+  min-height:100vh;
 }
 
-/* ===== 上部をまとめて固定（サマリー～フィルタ） ===== */
+/* ===== 上部固定（サマリー～クイック～年月） ===== */
 :root{
-  /* 必要なら base.html 側で --sticky-offset を上書き（例: ナビ高） */
+  /* base.htmlのナビ分だけ必要なら上書き可能 */
   --sticky-offset: 0px;
+  --bottom-tab-height: 0px; /* bottom_tab.htmlでid/classがあればJSで上書き */
 }
 .sticky-wrap{
   position: sticky;
@@ -18,20 +19,22 @@
   z-index: 5;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  background: rgba(0,0,0,0.18); /* ほんのりガラス感（透過） */
+  background: rgba(0,0,0,0.18); /* ほんのりガラス感 */
   border-radius: 12px;
   padding: 8px;
   margin-bottom: 10px;
 }
 
-/* ===== サマリーカード ===== */
-.summary-cards { display: flex; gap: 8px; }
-.summary-cards .card{
-  flex: 1; padding: 8px 10px; border-radius: 10px;
-  background: rgba(255,255,255,.12);
+/* ===== KPI 4分割 ===== */
+.kpi-grid{
+  display:grid; grid-template-columns: repeat(4, 1fr); gap:8px;
 }
-.summary-cards .label{ opacity:.85; font-size:.78rem; }
-.summary-cards .row{ display:flex; justify-content:space-between; gap:8px; }
+.kpi-card{
+  padding:10px; border-radius:10px; background:rgba(255,255,255,.12);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+}
+.kpi-label{ font-size:.78rem; opacity:.85; margin-bottom:6px; }
+.kpi-value{ font-size:1.3rem; font-weight:800; letter-spacing:.5px; }
 
 /* ===== クイックフィルタ ===== */
 .quick-chips{ display:flex; gap:8px; margin:8px 0; flex-wrap:wrap; }
@@ -42,41 +45,40 @@
 .quick-chips button:active{ transform:scale(.98); }
 
 /* ===== 年月フィルタ ===== */
-.filter-box{
-  display:flex; gap: 8px;
-}
+.filter-box{ display:flex; gap:8px; }
 .filter-box select{
   flex:1; background: rgba(255,255,255,0.15);
   border: none; padding: 10px 12px; border-radius: 10px; color: #fff;
   font-size: 1rem; appearance: none; text-align: center;
 }
 
-/* ===== テーブル ===== */
-.table-wrapper{ overflow-x:auto; border-radius:10px; }
+/* ===== 表のみスクロール ===== */
+.table-wrapper{
+  overflow: hidden; /* 横スクロールはテーブル内、縦はこのラッパーで */
+  border-radius:10px;
+  background: rgba(255,255,255,0.06);
+}
+.table-wrapper{ /* 高さはJSで計算して max-height を付与 */
+  overscroll-behavior: contain; /* iOSのバウンス伝播を抑える */
+}
 #realizedTable{
   width:100%;
   border-collapse:collapse;
-  background: rgba(255,255,255,0.06);
-  table-layout: fixed; /* 名前セルの省略を効かせる */
+  table-layout: fixed; /* 省略記号を効かせる＆カラム衝突防止 */
 }
-#realizedTable th, #realizedTable td{
-  padding: 10px 6px;
-  text-align:center;
-  font-size:.92rem;
+#realizedTable thead th,
+#realizedTable tbody td{
+  padding:10px 6px; text-align:center; font-size:.92rem;
 }
 
-/* sticky header + ソート可能 */
+/* ヘッダー固定（テーブル内のスクロールで固定される） */
 #realizedTable thead th{
-  position: sticky;
-  top: calc(var(--sticky-offset) + 0px); /* テーブルヘッダも固定 */
-  z-index: 4;
+  position: sticky; top: 0; z-index: 1;
   background: rgba(255,255,255,0.22);
-  font-weight: 700;
-  white-space: nowrap;
-  cursor: pointer;
+  font-weight:700; white-space:nowrap; cursor:pointer;
 }
 
-/* 行見た目＆タップ誘導 */
+/* 行見た目 */
 #realizedTable tbody tr:nth-child(even){ background: rgba(255,255,255,.08); }
 #realizedTable tbody tr{ height: 48px; position:relative; }
 #realizedTable tbody tr:active{ background: rgba(255,255,255,.16); }
@@ -85,28 +87,32 @@
   transform:translateY(-50%); opacity:.6; font-size:20px;
 }
 
-/* グループ行（例：月見出し） */
+/* 月見出し */
 .group-row td{
   background:rgba(255,255,255,.12); font-weight:700; text-align:left;
 }
 
-/* 銘柄セル：折り返し防止＋省略記号 */
+/* ===== カラム幅調整（バッティング防止） ===== */
+#realizedTable th:nth-child(1), #realizedTable td:nth-child(1){ width: 8.2em; }  /* 日付 */
+#realizedTable th:nth-child(2), #realizedTable td:nth-child(2){ width: 40%;  }   /* 銘柄 */
+#realizedTable th:nth-child(3), #realizedTable td:nth-child(3){ width: 5.8em; }  /* 区分 */
+#realizedTable th:nth-child(4), #realizedTable td:nth-child(4){ width: 5.4em; }  /* 数量 */
+#realizedTable th:nth-child(5), #realizedTable td:nth-child(5){ width: 7.8em; }  /* 損益額 */
+#realizedTable th:nth-child(6), #realizedTable td:nth-child(6){ width: 6.6em; }  /* 損益率 */
+
+/* 銘柄セル：左寄せ・省略・衝突回避 */
+.stock-name-cell{ text-align:left; }
 .stock-name-cell span{
   display:inline-block;
-  max-width: 9.5em; /* スマホで収まる幅に調整 */
-  overflow:hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: middle;
+  width: 100%;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 
-/* 列幅のヒント（任意で微調整） */
-#realizedTable th:nth-child(1), #realizedTable td:nth-child(1){ width: 8.5em; } /* 日付 */
-#realizedTable th:nth-child(2), #realizedTable td:nth-child(2){ width: auto; }  /* 銘柄(可変) */
-#realizedTable th:nth-child(3), #realizedTable td:nth-child(3){ width: 5em; }   /* 区分 */
-#realizedTable th:nth-child(4), #realizedTable td:nth-child(4){ width: 5em; }   /* 数量 */
-#realizedTable th:nth-child(5), #realizedTable td:nth-child(5){ width: 7.5em; } /* 損益額 */
-#realizedTable th:nth-child(6), #realizedTable td:nth-child(6){ width: 6.5em; } /* 損益率 */
+/* 区分セル：省略＆中央 */
+.trade-type-cell span{
+  display:inline-block; max-width:100%; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap;
+}
 
 /* 損益の色分け */
 .profit{ color:#26c281; font-weight:700; }
@@ -115,20 +121,21 @@
 /* 空状態 */
 .empty-state{ opacity:.85; text-align:center; margin:12px 0; }
 
-/* ===== モーダル（下スライド） ===== */
+/* ===== モーダル（上部スライドイン） ===== */
 .modal{
   display:none; position:fixed; z-index:100; left:0; top:0; width:100%; height:100%;
   background-color: rgba(0,0,0,0.6);
-  justify-content:center; align-items:flex-end;
+  justify-content:center; align-items:flex-start; /* 上部 */
   -webkit-overflow-scrolling: touch;
+  padding-top: 12px; /* 上に少し余白 */
 }
 .modal-content{
-  width:100%; max-width:460px; padding:20px;
-  border-radius:14px 14px 0 0;
+  width:100%; max-width:480px; padding:20px;
+  border-radius:0 0 14px 14px; /* 上部表示なので下側に角丸 */
   background: rgba(255,255,255,0.12);
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-  transform: translateY(100%); transition: transform .3s ease-in-out;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+  transform: translateY(-110%); transition: transform .3s ease-in-out;
   position:relative;
 }
 .modal.show .modal-content{ transform: translateY(0); }
@@ -140,6 +147,6 @@
 
 /* PCで少しゆとり */
 @media (min-width: 768px){
-  #realizedTable th, #realizedTable td{ padding: 12px 10px; font-size:1rem; }
-  .stock-name-cell span{ max-width: 12em; }
+  .kpi-value{ font-size:1.5rem; }
+  #realizedTable thead th, #realizedTable tbody td{ padding:12px 10px; font-size:1rem; }
 }
