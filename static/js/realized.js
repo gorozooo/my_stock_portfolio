@@ -17,12 +17,12 @@ document.addEventListener("DOMContentLoaded", function() {
   const emptyState  = document.getElementById("emptyState");
 
   // KPI 要素
-  const sumCount      = document.getElementById("sumCount");
-  const winRateEl     = document.getElementById("winRate");
-  const netProfitEl   = document.getElementById("netProfit");
-  const totalProfitEl = document.getElementById("totalProfit");
-  const totalLossEl   = document.getElementById("totalLoss");
-  const avgNetEl      = document.getElementById("avgNet");
+  const sumCount        = document.getElementById("sumCount");
+  const winRateEl       = document.getElementById("winRate");
+  const netProfitEl     = document.getElementById("netProfit");
+  const totalProfitEl   = document.getElementById("totalProfit");
+  const totalLossEl     = document.getElementById("totalLoss");
+  const avgNetEl        = document.getElementById("avgNet");
   const avgProfitOnlyEl = document.getElementById("avgProfitOnly");
   const avgLossOnlyEl   = document.getElementById("avgLossOnly");
 
@@ -30,6 +30,7 @@ document.addEventListener("DOMContentLoaded", function() {
   const chips = [...document.querySelectorAll(".quick-chips .chip")];
 
   /* ====== ページ全体はスクロールさせず、表ラッパーだけ縦スクロール ====== */
+  // bodyにスクロールが乗らないように
   const prevHtmlOverflow = document.documentElement.style.overflow;
   const prevBodyOverflow = document.body.style.overflow;
   document.documentElement.style.overflow = "hidden";
@@ -38,14 +39,15 @@ document.addEventListener("DOMContentLoaded", function() {
   function measureBottomTabHeight(){
     const el = document.querySelector(".bottom-tab, #bottom-tab");
     return el ? el.offsetHeight : 0;
-    }
+  }
   function setScrollableHeight(){
     const vh     = window.innerHeight;
     const topH   = topFixed ? topFixed.offsetHeight : 0;
     const bottom = measureBottomTabHeight();
     const padding = 8;
-    const maxH  = Math.max(120, vh - topH - bottom - padding);
-    tableWrapper.style.maxHeight = maxH + "px";
+    const height  = Math.max(120, vh - topH - bottom - padding);
+    // 高さを明示指定（max-heightではなくheightにすることで確実にスクロール）
+    tableWrapper.style.height = height + "px";
     tableWrapper.style.overflow = "auto"; // 縦横スクロール可
   }
   setScrollableHeight();
@@ -64,7 +66,7 @@ document.addEventListener("DOMContentLoaded", function() {
   /* ====== KPI更新 ====== */
   function updateSummary(){
     const vis = dataRows.filter(r => r.style.display !== "none");
-    const vals = vis.map(r => numeric(r.children[4]?.textContent)); // 5列目=損益額
+    const vals = vis.map(r => numeric(r.children[4]?.textContent));
     const pos  = vals.filter(v => v > 0);
     const neg  = vals.filter(v => v < 0);
 
@@ -72,29 +74,26 @@ document.addEventListener("DOMContentLoaded", function() {
     const wins  = pos.length;
     const net   = vals.reduce((a,b)=>a+b,0);
     const posSum= pos.reduce((a,b)=>a+b,0);
-    const negSum= neg.reduce((a,b)=>a+b,0);          // 負の値
+    const negSum= neg.reduce((a,b)=>a+b,0);
     const avgNet= count ? net / count : 0;
     const avgPos= pos.length ? posSum / pos.length : 0;
-    const avgNeg= neg.length ? negSum / neg.length : 0; // 負の値
+    const avgNeg= neg.length ? negSum / neg.length : 0;
 
-    // 件数・勝率・実現損益
     sumCount.textContent  = String(count);
     winRateEl.textContent = count ? `${Math.round((wins/count)*100)}%` : "0%";
+
     netProfitEl.textContent = fmt(net);
     netProfitEl.classList.toggle('profit', net > 0);
     netProfitEl.classList.toggle('loss', net < 0);
 
-    // 利益合計・損失合計
     totalProfitEl.textContent = fmt(posSum);
-    totalLossEl.textContent   = fmt(negSum); // 負のまま表示（赤色）
+    totalLossEl.textContent   = fmt(negSum);
 
-    // 平均損益・平均利益・平均損失
     avgNetEl.textContent        = fmt(avgNet);
     avgNetEl.classList.toggle('profit', avgNet > 0);
     avgNetEl.classList.toggle('loss', avgNet < 0);
-
     avgProfitOnlyEl.textContent = fmt(avgPos);
-    avgLossOnlyEl.textContent   = fmt(avgNeg); // 負のまま表示（赤色）
+    avgLossOnlyEl.textContent   = fmt(avgNeg);
   }
 
   /* ====== フィルタ ====== */
@@ -137,7 +136,7 @@ document.addEventListener("DOMContentLoaded", function() {
     if (target) target.classList.add('active');
   }
 
-  document.querySelectorAll(".quick-chips .chip").forEach(b=>{
+  chips.forEach(b=>{
     b.addEventListener("click", ()=>{
       const now = new Date();
       const y = now.getFullYear();
@@ -190,7 +189,7 @@ document.addEventListener("DOMContentLoaded", function() {
     });
   });
 
-  /* ====== モーダル（中央表示・誤タップ防止） ====== */
+  /* ====== モーダル（中央表示・コンパクト） ====== */
   const modal    = document.getElementById("stockModal");
   const panel    = modal.querySelector(".modal-content");
   const closeBtn = modal.querySelector(".close");
@@ -254,8 +253,9 @@ document.addEventListener("DOMContentLoaded", function() {
   window.addEventListener("click", (e)=>{ if (e.target === modal) closeModal(); });
 
   /* ====== 初期描画 ====== */
-  filterTable();                 // KPI初期更新
-  setTimeout(setScrollableHeight, 100);  // 高さ安定化
+  filterTable();
+  // 高さはフォント/画像の読み込み後に変わることがあるので少し後に再計算
+  setTimeout(setScrollableHeight, 120);
 
   /* ====== ページ離脱時：スクロール制御を元に戻す ====== */
   window.addEventListener("beforeunload", ()=>{
