@@ -3,11 +3,9 @@
 
 {% block content %}
 <div class="realized-container">
-  <!-- 上部：KPI / クイック / 年月（固定） -->
+  <!-- 上部：KPI / クイック / 年月（固定見え） -->
   <div class="top-fixed" role="region" aria-label="絞り込みとサマリー">
-
     <!-- KPI：3段構成 -->
-    <!-- 1行目：件数・勝率・実現損益 -->
     <div class="kpi-row kpi-row1">
       <div class="kpi-card">
         <div class="kpi-header"><span class="kpi-icon">📄</span><span class="kpi-label">件数</span></div>
@@ -23,7 +21,6 @@
       </div>
     </div>
 
-    <!-- 2行目：利益金額合計・損失金額合計 -->
     <div class="kpi-row kpi-row2">
       <div class="kpi-card">
         <div class="kpi-header"><span class="kpi-icon">⬆️</span><span class="kpi-label">利益金額合計</span></div>
@@ -35,7 +32,6 @@
       </div>
     </div>
 
-    <!-- 3行目：平均損益・平均利益・平均損失 -->
     <div class="kpi-row kpi-row3">
       <div class="kpi-card">
         <div class="kpi-header"><span class="kpi-icon">📊</span><span class="kpi-label">平均損益</span></div>
@@ -95,65 +91,24 @@
         </tr>
       </thead>
       <tbody>
-        <!-- サンプル：2025-08 -->
         <tr class="group-row"><td colspan="6">2025年 8月</td></tr>
-
-        <tr data-date="2025-08-01"
-            data-name="トヨタ"
-            data-price="9,000"
-            data-sector="自動車"
-            data-purchase="8,500"
-            data-quantity="100"
-            data-profit="+50,000"
-            data-rate="+12%">
-          <td>2025-08-01</td>
-          <td class="stock-name-cell" title="トヨタ"><span>トヨタ</span></td>
-          <td class="trade-type-cell"><span>売却</span></td>
-          <td>100</td>
-          <td class="profit">+50,000</td>
-          <td class="profit">+12%</td>
+        <tr data-date="2025-08-01" data-name="トヨタ" data-price="9,000" data-sector="自動車" data-purchase="8,500" data-quantity="100" data-profit="+50,000" data-rate="+12%">
+          <td>2025-08-01</td><td class="stock-name-cell"><span>トヨタ</span></td><td class="trade-type-cell"><span>売却</span></td><td>100</td><td class="profit">+50,000</td><td class="profit">+12%</td>
+        </tr>
+        <tr data-date="2025-08-12" data-name="任天堂" data-price="52,000" data-sector="ゲーム" data-purchase="50,000" data-quantity="30" data-profit="+60,000" data-rate="+4%">
+          <td>2025-08-12</td><td class="stock-name-cell"><span>任天堂</span></td><td class="trade-type-cell"><span>売却</span></td><td>30</td><td class="profit">+60,000</td><td class="profit">+4%</td>
         </tr>
 
-        <tr data-date="2025-08-12"
-            data-name="任天堂"
-            data-price="52,000"
-            data-sector="ゲーム"
-            data-purchase="50,000"
-            data-quantity="30"
-            data-profit="+60,000"
-            data-rate="+4%">
-          <td>2025-08-12</td>
-          <td class="stock-name-cell" title="任天堂"><span>任天堂</span></td>
-          <td class="trade-type-cell"><span>売却</span></td>
-          <td>30</td>
-          <td class="profit">+60,000</td>
-          <td class="profit">+4%</td>
-        </tr>
-
-        <!-- サンプル：2025-07 -->
         <tr class="group-row"><td colspan="6">2025年 7月</td></tr>
-
-        <tr data-date="2025-07-15"
-            data-name="ソニー"
-            data-price="11,500"
-            data-sector="電機"
-            data-purchase="12,000"
-            data-quantity="50"
-            data-profit="-20,000"
-            data-rate="-5%">
-          <td>2025-07-15</td>
-          <td class="stock-name-cell" title="ソニー"><span>ソニー</span></td>
-          <td class="trade-type-cell"><span>売却</span></td>
-          <td>50</td>
-          <td class="loss">-20,000</td>
-          <td class="loss">-5%</td>
+        <tr data-date="2025-07-15" data-name="ソニー" data-price="11,500" data-sector="電機" data-purchase="12,000" data-quantity="50" data-profit="-20,000" data-rate="-5%">
+          <td>2025-07-15</td><td class="stock-name-cell"><span>ソニー</span></td><td class="trade-type-cell"><span>売却</span></td><td>50</td><td class="loss">-20,000</td><td class="loss">-5%</td>
         </tr>
       </tbody>
     </table>
   </div>
 </div>
 
-<!-- モーダル（中央表示・サイズ小さめ） -->
+<!-- モーダル（中央・コンパクト） -->
 <div id="stockModal" class="modal" aria-hidden="true" aria-modal="true" role="dialog">
   <div class="modal-content glass-box" role="document">
     <span class="close" aria-label="閉じる">&times;</span>
