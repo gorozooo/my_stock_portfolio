@@ -3,24 +3,24 @@
   height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px 10px 16px;
+  gap: 6px; /* 間隔も圧縮 */
+  padding: 8px 8px 12px; /* 余白も減らす */
   font-family: "Helvetica Neue", system-ui, -apple-system, sans-serif;
   color:#fff;
   background: transparent;
 }
 
-/* 上部（KPI/クイック/年月）固定 */
+/* 上部（KPI/クイック/年月）固定：高さを最小限に */
 .top-fixed{
   flex: 0 0 auto;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  background: rgba(0,0,0,0.18);
-  border-radius: 12px;
-  padding: 8px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  background: rgba(0,0,0,0.14);
+  border-radius: 10px;
+  padding: 6px; /* 以前より小さく */
 }
 
-/* 表ラッパー：縦横スクロール可（ここだけスクロール） */
+/* 表ラッパー：ここだけ縦横スクロール */
 .table-wrapper{
   flex: 1 1 auto;
   min-height: 0;
@@ -30,82 +30,76 @@
   overscroll-behavior: contain;
 }
 
-/* ===== KPI（新デザイン） ===== */
-.kpi-grid{
+/* ===== KPI（超コンパクト） ===== */
+.kpi-grid.kpi-compact{
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: 6px;
+  margin-bottom: 4px; /* 余白も小さく */
 }
 .kpi-card{
   position: relative;
-  padding: 12px 12px;
-  border-radius: 14px;
-  /* ガラス + グラデ境界線 */
+  padding: 6px 8px;           /* パディング削減 */
+  border-radius: 10px;        /* 角丸も少し小さく */
   background:
-    linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box,
-    linear-gradient(135deg, rgba(0,255,255,.4), rgba(170,0,255,.35)) border-box;
+    linear-gradient(135deg, rgba(255,255,255,.09), rgba(255,255,255,.03)) padding-box,
+    linear-gradient(135deg, rgba(0,255,255,.35), rgba(170,0,255,.28)) border-box;
   border: 1px solid transparent;
-  box-shadow:
-    0 10px 25px rgba(0,0,0,.25),
-    inset 0 0 32px rgba(255,255,255,.08);
+  box-shadow: 0 6px 18px rgba(0,0,0,.22), inset 0 0 22px rgba(255,255,255,.06);
   overflow: hidden;
 }
 .kpi-card::after{
   content:"";
-  position:absolute; inset:-30%;
-  background: radial-gradient(ellipse at top left, rgba(0,255,255,.12), transparent 60%);
+  position:absolute; inset:-35%;
+  background: radial-gradient(ellipse at top left, rgba(0,255,255,.10), transparent 60%);
   transform: rotate(8deg);
   pointer-events:none;
 }
 .kpi--compact{ min-width: 0; }
-.kpi--wide{ grid-column: span 2; min-width: 0; } /* 合計/平均は横にワイド */
+.kpi--wide{ grid-column: span 2; min-width: 0; }
 
-/* ヘッダ（アイコン＋ラベル） */
 .kpi-header{
-  display:flex; align-items:center; gap:6px;
-  opacity:.92; margin-bottom:4px;
+  display:flex; align-items:center; gap:4px;
+  opacity:.92; margin-bottom:2px;
 }
-.kpi-icon{ font-size:1.05rem; }
-.kpi-label{
-  font-size:.8rem; letter-spacing:.3px; opacity:.85;
-}
+.kpi-icon{ font-size:.9rem; }          /* アイコンも小さく */
+.kpi-label{ font-size:.72rem; opacity:.8; }
 
-/* 値（自動縮小＋等幅数字） */
 .kpi-value{
   font-variant-numeric: tabular-nums;
-  font-size: clamp(1.2rem, 5.2vw, 1.8rem);
-  font-weight: 900; line-height: 1.1;
-  letter-spacing:.3px;
+  font-size: clamp(0.95rem, 3.4vw, 1.15rem); /* 値の高さを大幅縮小 */
+  font-weight: 800; line-height: 1.05;
+  letter-spacing:.2px;
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
-  text-shadow: 0 2px 10px rgba(0,255,255,.22);
+  text-shadow: 0 1px 6px rgba(0,255,255,.18);
 }
 
-/* すごく狭い幅ではレイアウト変更：合計/平均はぶち抜き */
+/* 極狭幅では2列グリッドだが、KPIは高さが小さいので視界を圧迫しにくい */
 @media (max-width: 420px){
-  .kpi-grid{ grid-template-columns: repeat(2, 1fr); }
+  .kpi-grid.kpi-compact{ grid-template-columns: repeat(2, 1fr); }
   .kpi--wide{ grid-column: span 2; }
 }
 
-/* クイックフィルタ */
-.quick-chips{
-  display:flex; gap:8px; margin:8px 0; flex-wrap:wrap;
+/* クイックフィルタ（コンパクト） */
+.quick-chips.chips-compact{
+  display:flex; gap:6px; margin:4px 0; flex-wrap:wrap;
 }
-.quick-chips button{
-  padding:8px 12px; border:none; border-radius:14px;
-  background:rgba(255,255,255,.18); color:#fff; cursor:pointer;
+.quick-chips.chips-compact button{
+  padding:6px 10px; border:none; border-radius:12px;
+  background:rgba(255,255,255,.16); color:#fff; cursor:pointer;
+  font-size:.9rem;
   transition:transform .06s ease;
 }
-.quick-chips button:active{ transform:scale(.98); }
+.quick-chips.chips-compact button:active{ transform:scale(.98); }
 
-/* 年月フィルタ */
-.filter-box{ display:flex; gap:8px; }
-.filter-box select{
-  flex:1; background: rgba(255,255,255,0.15);
-  border: none; padding: 10px 12px; border-radius: 10px; color: #fff;
-  font-size: 1rem; appearance: none; text-align: center;
+/* 年月フィルタ（コンパクト） */
+.filter-box.filter-compact{ display:flex; gap:6px; }
+.filter-box.filter-compact select{
+  flex:1; background: rgba(255,255,255,0.14);
+  border: none; padding: 8px 10px; border-radius: 9px; color: #fff;
+  font-size: .95rem; appearance: none; text-align: center;
 }
 
 /* ===== 表（横スクロール可＆バッティング対策） ===== */
@@ -117,19 +111,19 @@
 }
 #realizedTable thead th,
 #realizedTable tbody td{
-  padding: 10px 6px; text-align: center; font-size: .92rem;
+  padding: 9px 6px; text-align: center; font-size: .9rem;
 }
 #realizedTable thead th{
   position: sticky; top: 0; z-index: 1;
-  background: rgba(255,255,255,0.22);
+  background: rgba(255,255,255,0.2);
   font-weight: 700; white-space: nowrap; cursor: pointer;
 }
 #realizedTable tbody tr:nth-child(even){ background: rgba(255,255,255,.08); }
-#realizedTable tbody tr{ height: 48px; position: relative; }
+#realizedTable tbody tr{ height: 46px; position: relative; }
 #realizedTable tbody tr:active{ background: rgba(255,255,255,.16); }
 #realizedTable tbody tr::after{
   content:'›'; position:absolute; right:8px; top:50%;
-  transform:translateY(-50%); opacity:.6; font-size:20px;
+  transform:translateY(-50%); opacity:.6; font-size:18px;
 }
 
 /* 月見出し */
@@ -139,12 +133,12 @@
 }
 
 /* カラム幅 */
-#realizedTable th:nth-child(1), #realizedTable td:nth-child(1){ width: 8.4em; }  /* 日付 */
+#realizedTable th:nth-child(1), #realizedTable td:nth-child(1){ width: 8.2em; }  /* 日付 */
 #realizedTable th:nth-child(2), #realizedTable td:nth-child(2){ width: 38%;  }  /* 銘柄 */
-#realizedTable th:nth-child(3), #realizedTable td:nth-child(3){ width: 6.2em; }  /* 区分 */
-#realizedTable th:nth-child(4), #realizedTable td:nth-child(4){ width: 5.4em; }  /* 数量 */
-#realizedTable th:nth-child(5), #realizedTable td:nth-child(5){ width: 7.8em; }  /* 損益額 */
-#realizedTable th:nth-child(6), #realizedTable td:nth-child(6){ width: 6.6em; }  /* 損益率 */
+#realizedTable th:nth-child(3), #realizedTable td:nth-child(3){ width: 6.0em; }  /* 区分 */
+#realizedTable th:nth-child(4), #realizedTable td:nth-child(4){ width: 5.2em; }  /* 数量 */
+#realizedTable th:nth-child(5), #realizedTable td:nth-child(5){ width: 7.6em; }  /* 損益額 */
+#realizedTable th:nth-child(6), #realizedTable td:nth-child(6){ width: 6.4em; }  /* 損益率 */
 
 /* 銘柄セル：左寄せ＋省略 */
 .stock-name-cell{ text-align: left; }
@@ -176,25 +170,25 @@
 .modal-content{
   width: 100%;
   max-width: 520px;
-  padding: 20px;
-  border-radius: 14px;
+  padding: 18px;
+  border-radius: 12px;
   background: rgba(20, 24, 28, 0.75);
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 20px 60px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.08) inset;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 16px 50px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.08) inset;
   transform: scale(.92); opacity: 0;
-  transition: transform .18s ease, opacity .18s ease;
+  transition: transform .16s ease, opacity .16s ease;
   position: relative;
 }
 .modal.show .modal-content{ transform: scale(1); opacity: 1; }
 .modal .close{
-  position:absolute; top:10px; right:15px; font-size:1.5rem; cursor:pointer; color:#fff;
+  position:absolute; top:8px; right:12px; font-size:1.4rem; cursor:pointer; color:#fff;
 }
 .modal-grid{
-  display:grid; grid-template-columns: 1fr 1fr; gap:10px 14px; margin-top:10px;
+  display:grid; grid-template-columns: 1fr 1fr; gap:8px 12px; margin-top:8px;
 }
 .modal-grid .k{ opacity:.85; display:inline-block; margin-right:8px; }
 
 /* PC少し拡大 */
 @media (min-width: 768px){
-  #realizedTable thead th, #realizedTable tbody td{ padding:12px 10px; font-size:1rem; }
+  #realizedTable thead th, #realizedTable tbody td{ padding:10px 8px; font-size:.98rem; }
 }
