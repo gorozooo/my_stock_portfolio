@@ -1,0 +1,47 @@
+<div id="detail-modal" class="detail-modal" aria-hidden="false">
+  <div class="detail-modal__overlay" data-dm-close></div>
+
+  <div class="detail-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="detail-modal-title">
+    <button class="detail-modal__close" data-dm-close aria-label="閉じる">×</button>
+
+    <header class="detail-modal__header">
+      <h2 id="detail-modal-title" class="dm-title">
+        <span class="dm-name">{{ stock.name }}</span>
+        <span class="dm-code">{{ stock.ticker }}</span>
+      </h2>
+      <div class="dm-cta">
+        <a href="{% url 'stock_edit' stock.id %}" class="dm-btn">編集</a>
+        <a href="{% url 'stock_sell' stock.id %}" class="dm-btn dm-btn--danger">売却</a>
+      </div>
+    </header>
+
+    <nav class="detail-tabs" role="tablist" aria-label="詳細タブ">
+      <button class="detail-tab is-active" data-tab="overview" role="tab" aria-selected="true">概要</button>
+      <button class="detail-tab" data-tab="price" role="tab" aria-selected="false" disabled>価格</button>
+      <button class="detail-tab" data-tab="fundamental" role="tab" aria-selected="false" disabled>指標</button>
+      <button class="detail-tab" data-tab="news" role="tab" aria-selected="false" disabled>ニュース</button>
+    </nav>
+
+    <section class="detail-panels">
+      <div class="detail-panel is-active" data-panel="overview">
+        <div class="skeleton">
+          <div class="sk-line"></div>
+          <div class="sk-line"></div>
+          <div class="sk-line sk-line--w60"></div>
+        </div>
+      </div>
+
+      <div class="detail-panel" data-panel="price">
+        <div class="placeholder">価格タブは次の段階で追加予定です。</div>
+      </div>
+
+      <div class="detail-panel" data-panel="fundamental">
+        <div class="placeholder">指標タブは次の段階で追加予定です。</div>
+      </div>
+
+      <div class="detail-panel" data-panel="news">
+        <div class="placeholder">ニュースタブは次の段階で追加予定です。</div>
+      </div>
+    </section>
+  </div>
+</div>
