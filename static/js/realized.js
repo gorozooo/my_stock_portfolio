@@ -4,10 +4,114 @@ document.addEventListener("DOMContentLoaded", () => {
   const monthFilter = document.getElementById("monthFilter");
   const table       = document.getElementById("realizedTable");
   const tbody       = table.querySelector("tbody");
-  const allRows     = [...tbody.querySelectorAll("tr")];
-  const dataRows    = allRows.filter(r => !r.classList.contains('group-row'));
   const emptyState  = document.getElementById("emptyState");
   const chips       = [...document.querySelectorAll(".quick-chips .chip")];
+
+  // ===== デモデータ注入（必要に応じて大量行を追加） =====
+  // 実運用に移るときは false にするか、このブロックを削除してください。
+  const SEED_DEMO_ROWS = true;
+  const MIN_ROWS_FOR_TEST = 60;
+
+  function ymd(date){
+    const y = date.getFullYear();
+    const m = String(date.getMonth()+1).padStart(2,'0');
+    const d = String(date.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+  function monthLabel(date){
+    return `${date.getFullYear()}年 ${date.getMonth()+1}月`;
+  }
+  function addGroupRow(label){
+    const tr = document.createElement('tr');
+    tr.className = 'group-row';
+    const td = document.createElement('td');
+    td.colSpan = 6;
+    td.textContent = label;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+  function addDataRow({date, name, tradeType, qty, profit, rate, price, sector, purchase}){
+    const tr = document.createElement('tr');
+    tr.dataset.date     = date;
+    tr.dataset.name     = name;
+    tr.dataset.price    = price;
+    tr.dataset.sector   = sector;
+    tr.dataset.purchase = purchase;
+    tr.dataset.quantity = String(qty);
+    tr.dataset.profit   = profit > 0 ? `+${profit.toLocaleString()}` : `${profit.toLocaleString()}`;
+    tr.dataset.rate     = (rate > 0 ? `+${rate}` : `${rate}`) + '%';
+
+    const tds = [];
+    const td0 = document.createElement('td'); td0.textContent = date; tds.push(td0);
+
+    const td1 = document.createElement('td'); td1.className = 'stock-name-cell';
+    const span1 = document.createElement('span'); span1.textContent = name; td1.appendChild(span1); tds.push(td1);
+
+    const td2 = document.createElement('td'); td2.className = 'trade-type-cell';
+    const span2 = document.createElement('span'); span2.textContent = tradeType; td2.appendChild(span2); tds.push(td2);
+
+    const td3 = document.createElement('td'); td3.textContent = String(qty); tds.push(td3);
+
+    const td4 = document.createElement('td');
+    td4.textContent = (profit > 0 ? `+${profit.toLocaleString()}` : profit.toLocaleString());
+    td4.className = profit > 0 ? 'profit' : (profit < 0 ? 'loss' : '');
+    tds.push(td4);
+
+    const td5 = document.createElement('td');
+    td5.textContent = (rate > 0 ? `+${rate}` : `${rate}`) + '%';
+    td5.className = rate > 0 ? 'profit' : (rate < 0 ? 'loss' : '');
+    tds.push(td5);
+
+    tds.forEach(td => tr.appendChild(td));
+    tbody.appendChild(tr);
+  }
+  function seedDemoRowsIfNeeded(){
+    const currentDataRows = [...tbody.querySelectorAll('tr')].filter(r => !r.classList.contains('group-row'));
+    if (!SEED_DEMO_ROWS || currentDataRows.length >= MIN_ROWS_FOR_TEST) return;
+
+    // 既存のグループ行は残しつつ、足りない分を直近数ヶ月に追加
+    const names   = ['トヨタ','任天堂','ソニー','キーエンス','武田薬品','三菱UFJ','KDDI','リクルート','オリックス','ZHD'];
+    const sectors = ['自動車','ゲーム','電機','精密','医薬','銀行','通信','人材','金融','IT'];
+    const trades  = ['売却','売却','売却','配当']; // 売却多め
+    const today = new Date();
+    // 直近90日を遡りながら、1〜2日おきに1行ずつ
+    let lastMonth = null;
+    let made = 0;
+    for (let i=0; i<120 && made < (MIN_ROWS_FOR_TEST - currentDataRows.length); i+= (Math.random()<0.4?2:1) ){
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const ymdStr = ymd(d);
+
+      const mLabel = monthLabel(d);
+      if (lastMonth !== mLabel){
+        addGroupRow(mLabel);
+        lastMonth = mLabel;
+      }
+
+      const idx = Math.floor(Math.random()*names.length);
+      const name = names[idx];
+      const sector = sectors[idx];
+      const qty = [10,20,30,50,100][Math.floor(Math.random()*5)];
+      const base = Math.floor( (Math.random()*2-1) * 80000 ); // -80,000〜+80,000
+      const profit = base === 0 ? 5000 : base; // 0は避ける
+      const rate   = Math.max(-20, Math.min(20, Math.round((profit/ (qty*1000))*100))); // ざっくり
+      const price  = (Math.floor(Math.random()*1000)+5000).toLocaleString();
+      const purchase = (Math.floor(Math.random()*1000)+4500).toLocaleString();
+      const tradeType = trades[Math.floor(Math.random()*trades.length)];
+
+      addDataRow({
+        date: ymdStr, name, tradeType, qty, profit, rate, price, sector, purchase
+      });
+      made++;
+    }
+  }
+  seedDemoRowsIfNeeded();
+
+  // ===== テーブル行の再取得（デモ追加入りの最新状態）
+  function getDataRows(){
+    const rows = [...tbody.querySelectorAll('tr')];
+    return rows.filter(r => !r.classList.contains('group-row'));
+  }
 
   // KPI
   const sumCount        = document.getElementById("sumCount");
@@ -29,12 +133,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* ===== KPI更新 ===== */
   function updateSummary(){
-    const vis = dataRows.filter(r => r.style.display !== "none");
-    const vals = vis.map(r => numeric(r.children[4]?.textContent));
+    const dataRows = getDataRows().filter(r => r.style.display !== "none");
+    const vals = dataRows.map(r => numeric(r.children[4]?.textContent));
     const pos  = vals.filter(v => v > 0);
     const neg  = vals.filter(v => v < 0);
 
-    const count = vis.length;
+    const count = dataRows.length;
     const wins  = pos.length;
     const net   = vals.reduce((a,b)=>a+b,0);
     const posSum= pos.reduce((a,b)=>a+b,0);
@@ -65,7 +169,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const year  = yearFilter.value;
     const month = monthFilter.value;
 
-    dataRows.forEach(row => {
+    getDataRows().forEach(row => {
       const date = row.dataset.date || "";
       const [yy, mm] = date.split("-");
       let show = true;
@@ -74,7 +178,7 @@ document.addEventListener("DOMContentLoaded", () => {
       row.style.display = show ? "" : "none";
     });
 
-    emptyState.style.display = dataRows.some(r => r.style.display !== "none") ? "none" : "";
+    emptyState.style.display = getDataRows().some(r => r.style.display !== "none") ? "none" : "";
     updateSummary();
   }
 
@@ -119,7 +223,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const asc = th.dataset.asc !== "true";
       th.dataset.asc = asc;
 
-      const visible = dataRows.filter(r => r.style.display !== "none");
+      const visible = getDataRows().filter(r => r.style.display !== "none");
       const isDate = idx === 0;
 
       visible.sort((a,b)=>{
@@ -136,7 +240,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return asc ? (va>vb?1:-1) : (va<vb?1:-1);
       });
 
-      const hidden = dataRows.filter(r => r.style.display === "none");
+      const hidden = getDataRows().filter(r => r.style.display === "none");
       [...visible, ...hidden].forEach(r => tbody.appendChild(r));
     });
   });
@@ -164,21 +268,28 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   const TAP_MAX_MOVE = 10, TAP_MAX_TIME = 500;
-  dataRows.forEach(row=>{
-    let sx=0, sy=0, st=0, moved=false;
-    row.addEventListener("touchstart", e=>{
-      const t = e.touches[0]; sx=t.clientX; sy=t.clientY; st=Date.now(); moved=false;
-    }, {passive:true});
-    row.addEventListener("touchmove", e=>{
-      const t = e.touches[0];
-      if (Math.abs(t.clientX-sx)>TAP_MAX_MOVE || Math.abs(t.clientY-sy)>TAP_MAX_MOVE) moved=true;
-    }, {passive:true});
-    row.addEventListener("touchend", e=>{
-      const dt = Date.now()-st;
-      if (!moved && dt<=TAP_MAX_TIME && row.style.display!=="none"){ e.preventDefault(); openModalForRow(row); }
+  function attachRowHandlers(){
+    getDataRows().forEach(row=>{
+      let sx=0, sy=0, st=0, moved=false;
+
+      row.addEventListener("touchstart", e=>{
+        const t = e.touches[0]; sx=t.clientX; sy=t.clientY; st=Date.now(); moved=false;
+      }, {passive:true});
+
+      row.addEventListener("touchmove", e=>{
+        const t = e.touches[0];
+        if (Math.abs(t.clientX-sx)>TAP_MAX_MOVE || Math.abs(t.clientY-sy)>TAP_MAX_MOVE) moved=true;
+      }, {passive:true});
+
+      row.addEventListener("touchend", e=>{
+        const dt = Date.now()-st;
+        if (!moved && dt<=TAP_MAX_TIME && row.style.display!=="none"){ e.preventDefault(); openModalForRow(row); }
+      });
+
+      row.addEventListener("click", ()=>{ if (row.style.display!=="none") openModalForRow(row); });
     });
-    row.addEventListener("click", ()=>{ if (row.style.display!=="none") openModalForRow(row); });
-  });
+  }
+  attachRowHandlers();
 
   function closeModal(){ modal.classList.remove("show"); }
   closeBtn.addEventListener("click", closeModal);
