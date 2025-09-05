@@ -3,129 +3,132 @@
 
 {% block content %}
 <div class="realized-container">
-    <!-- 上部：サマリー＋クイック＋フィルタ（ここまでを固定） -->
-    <div class="sticky-wrap" role="region" aria-label="絞り込みとサマリー">
-        <!-- サマリー（件数＋勝率／合計損益／平均損益） -->
-        <div class="summary-cards">
-            <div class="card">
-                <div class="row">
-                    <div><span class="label">件数</span> <span id="sumCount">--</span></div>
-                    <div><span class="label">勝率</span> <span id="winRate">--%</span></div>
-                </div>
-            </div>
-            <div class="card">
-                <div class="label">合計損益</div>
-                <div id="sumProfit">--</div>
-            </div>
-            <div class="card">
-                <div class="label">平均損益</div>
-                <div id="avgProfit">--</div>
-            </div>
-        </div>
 
-        <!-- クイックフィルタ -->
-        <div class="quick-chips">
-            <button type="button" data-range="this-month">今月</button>
-            <button type="button" data-range="last-month">先月</button>
-            <button type="button" data-range="this-year">今年</button>
-            <button type="button" data-range="all">すべて</button>
-        </div>
-
-        <!-- 年月フィルタ（ここまでを固定したい要件） -->
-        <div class="filter-box">
-            <select id="yearFilter" aria-label="年フィルタ">
-                <option value="">年を選択</option>
-                <option value="2025">2025年</option>
-                <option value="2024">2024年</option>
-            </select>
-            <select id="monthFilter" aria-label="月フィルタ">
-                <option value="">月を選択</option>
-                <option value="01">1月</option><option value="02">2月</option>
-                <option value="03">3月</option><option value="04">4月</option>
-                <option value="05">5月</option><option value="06">6月</option>
-                <option value="07">7月</option><option value="08">8月</option>
-                <option value="09">9月</option><option value="10">10月</option>
-                <option value="11">11月</option><option value="12">12月</option>
-            </select>
-        </div>
+  <!-- サマリー～クイック～年月：ここまでを固定（上） -->
+  <div class="sticky-wrap" role="region" aria-label="絞り込みとサマリー">
+    <!-- 4分割サマリー：件数・勝率・合計損益・平均損益 -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">件数</div>
+        <div class="kpi-value" id="sumCount">--</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">勝率</div>
+        <div class="kpi-value" id="winRate">--%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">合計損益</div>
+        <div class="kpi-value" id="sumProfit">--</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">平均損益</div>
+        <div class="kpi-value" id="avgProfit">--</div>
+      </div>
     </div>
 
-    <!-- 空状態メッセージ -->
-    <p id="emptyState" class="empty-state" style="display:none;">該当データがありません</p>
-
-    <!-- テーブル -->
-    <div class="table-wrapper">
-        <table id="realizedTable">
-            <thead>
-                <tr>
-                    <th scope="col">日付</th>
-                    <th scope="col">銘柄</th>
-                    <th scope="col">区分</th>
-                    <th scope="col">数量</th>
-                    <th scope="col">損益額</th>
-                    <th scope="col">損益率</th>
-                </tr>
-            </thead>
-            <tbody>
-                <!-- サンプル：2025-08 -->
-                <tr class="group-row"><td colspan="6">2025年 8月</td></tr>
-
-                <tr data-date="2025-08-01"
-                    data-name="トヨタ"
-                    data-price="9,000"
-                    data-sector="自動車"
-                    data-purchase="8,500"
-                    data-quantity="100"
-                    data-profit="+50,000"
-                    data-rate="+12%">
-                    <td>2025-08-01</td>
-                    <td class="stock-name-cell" title="トヨタ"><span>トヨタ</span></td>
-                    <td>売却</td>
-                    <td>100</td>
-                    <td class="profit">+50,000</td>
-                    <td class="profit">+12%</td>
-                </tr>
-
-                <tr data-date="2025-08-12"
-                    data-name="任天堂"
-                    data-price="52,000"
-                    data-sector="ゲーム"
-                    data-purchase="50,000"
-                    data-quantity="30"
-                    data-profit="+60,000"
-                    data-rate="+4%">
-                    <td>2025-08-12</td>
-                    <td class="stock-name-cell" title="任天堂"><span>任天堂</span></td>
-                    <td>売却</td>
-                    <td>30</td>
-                    <td class="profit">+60,000</td>
-                    <td class="profit">+4%</td>
-                </tr>
-
-                <!-- サンプル：2025-07 -->
-                <tr class="group-row"><td colspan="6">2025年 7月</td></tr>
-
-                <tr data-date="2025-07-15"
-                    data-name="ソニー"
-                    data-price="11,500"
-                    data-sector="電機"
-                    data-purchase="12,000"
-                    data-quantity="50"
-                    data-profit="-20,000"
-                    data-rate="-5%">
-                    <td>2025-07-15</td>
-                    <td class="stock-name-cell" title="ソニー"><span>ソニー</span></td>
-                    <td>売却</td>
-                    <td>50</td>
-                    <td class="loss">-20,000</td>
-                    <td class="loss">-5%</td>
-                </tr>
-            </tbody>
-        </table>
+    <!-- クイックフィルタ -->
+    <div class="quick-chips">
+      <button type="button" data-range="this-month">今月</button>
+      <button type="button" data-range="last-month">先月</button>
+      <button type="button" data-range="this-year">今年</button>
+      <button type="button" data-range="all">すべて</button>
     </div>
+
+    <!-- 年月フィルタ -->
+    <div class="filter-box">
+      <select id="yearFilter" aria-label="年フィルタ">
+        <option value="">年を選択</option>
+        <option value="2025">2025年</option>
+        <option value="2024">2024年</option>
+      </select>
+      <select id="monthFilter" aria-label="月フィルタ">
+        <option value="">月を選択</option>
+        <option value="01">1月</option><option value="02">2月</option>
+        <option value="03">3月</option><option value="04">4月</option>
+        <option value="05">5月</option><option value="06">6月</option>
+        <option value="07">7月</option><option value="08">8月</option>
+        <option value="09">9月</option><option value="10">10月</option>
+        <option value="11">11月</option><option value="12">12月</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 空状態 -->
+  <p id="emptyState" class="empty-state" style="display:none;">該当データがありません</p>
+
+  <!-- 表のみスクロール領域 -->
+  <div class="table-wrapper" id="tableWrapper">
+    <table id="realizedTable" aria-label="損益一覧">
+      <thead>
+        <tr>
+          <th scope="col">日付</th>
+          <th scope="col">銘柄</th>
+          <th scope="col">区分</th>
+          <th scope="col">数量</th>
+          <th scope="col">損益額</th>
+          <th scope="col">損益率</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- サンプル：2025-08 -->
+        <tr class="group-row"><td colspan="6">2025年 8月</td></tr>
+
+        <tr data-date="2025-08-01"
+            data-name="トヨタ"
+            data-price="9,000"
+            data-sector="自動車"
+            data-purchase="8,500"
+            data-quantity="100"
+            data-profit="+50,000"
+            data-rate="+12%">
+          <td>2025-08-01</td>
+          <td class="stock-name-cell" title="トヨタ"><span>トヨタ</span></td>
+          <td class="trade-type-cell"><span>売却</span></td>
+          <td>100</td>
+          <td class="profit">+50,000</td>
+          <td class="profit">+12%</td>
+        </tr>
+
+        <tr data-date="2025-08-12"
+            data-name="任天堂"
+            data-price="52,000"
+            data-sector="ゲーム"
+            data-purchase="50,000"
+            data-quantity="30"
+            data-profit="+60,000"
+            data-rate="+4%">
+          <td>2025-08-12</td>
+          <td class="stock-name-cell" title="任天堂"><span>任天堂</span></td>
+          <td class="trade-type-cell"><span>売却</span></td>
+          <td>30</td>
+          <td class="profit">+60,000</td>
+          <td class="profit">+4%</td>
+        </tr>
+
+        <!-- サンプル：2025-07 -->
+        <tr class="group-row"><td colspan="6">2025年 7月</td></tr>
+
+        <tr data-date="2025-07-15"
+            data-name="ソニー"
+            data-price="11,500"
+            data-sector="電機"
+            data-purchase="12,000"
+            data-quantity="50"
+            data-profit="-20,000"
+            data-rate="-5%">
+          <td>2025-07-15</td>
+          <td class="stock-name-cell" title="ソニー"><span>ソニー</span></td>
+          <td class="trade-type-cell"><span>売却</span></td>
+          <td>50</td>
+          <td class="loss">-20,000</td>
+          <td class="loss">-5%</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
 </div>
 
-<!-- モーダル -->
+<!-- モーダル（上部スライドインに変更） -->
 <div id="stockModal" class="modal" aria-hidden="true" aria-modal="true" role="dialog">
   <div class="modal-content glass-box" role="document">
     <span class="close" aria-label="閉じる">&times;</span>
