@@ -5,23 +5,44 @@ document.addEventListener("DOMContentLoaded", function() {
   const tbody       = table.querySelector("tbody");
   const allRows     = [...tbody.querySelectorAll("tr")];
   const dataRows    = allRows.filter(r => !r.classList.contains('group-row'));
-
   const emptyState  = document.getElementById("emptyState");
 
-  // サマリー要素
+  const tableWrapper = document.getElementById("tableWrapper");
+  const stickyWrap   = document.querySelector(".sticky-wrap");
+
+  // KPI
   const sumCount  = document.getElementById("sumCount");
+  const winRateEl = document.getElementById("winRate");
   const sumProfit = document.getElementById("sumProfit");
   const avgProfit = document.getElementById("avgProfit");
-  const winRateEl = document.getElementById("winRate");
 
-  /* ========= 数値ユーティリティ ========= */
-  function numeric(valueText) {
-    const t = (valueText || "").toString().replace(/[^\-0-9.]/g, "");
+  /* ====== 表のみスクロール：高さを自動計算 ====== */
+  function measureBottomTabHeight(){
+    const el = document.querySelector(".bottom-tab, #bottom-tab");
+    return el ? el.offsetHeight : 0;
+  }
+  function setScrollableHeight(){
+    const vh = window.innerHeight;
+    const stickyH = stickyWrap ? stickyWrap.offsetHeight : 0;
+    const bottomH = measureBottomTabHeight();
+    const padding = 12; // ちょい余白
+    const maxH = Math.max(160, vh - stickyH - bottomH - padding);
+    tableWrapper.style.maxHeight = maxH + "px";
+    tableWrapper.style.overflowY = "auto";
+  }
+  setScrollableHeight();
+  window.addEventListener("resize", setScrollableHeight);
+  window.addEventListener("orientationchange", setScrollableHeight);
+
+  /* ====== ユーティリティ ====== */
+  function numeric(text){
+    const t = (text || "").toString().replace(/[^\-0-9.]/g, "");
     const v = parseFloat(t);
     return isNaN(v) ? 0 : v;
   }
+  function pad2(n){ return n < 10 ? "0"+n : ""+n; }
 
-  /* ========= フィルタ ========= */
+  /* ====== フィルタ ====== */
   function filterTable() {
     const year  = yearFilter.value;
     const month = monthFilter.value;
@@ -39,36 +60,30 @@ document.addEventListener("DOMContentLoaded", function() {
     updateSummary();
   }
 
-  function toggleEmpty() {
-    const anyVisible = dataRows.some(r => r.style.display !== "none");
-    emptyState.style.display = anyVisible ? "none" : "";
+  function toggleEmpty(){
+    const any = dataRows.some(r => r.style.display !== "none");
+    emptyState.style.display = any ? "none" : "";
   }
 
-  function updateSummary() {
+  function updateSummary(){
     const vis = dataRows.filter(r => r.style.display !== "none");
-    const profits = vis.map(r => numeric(r.children[4]?.textContent)); // 損益額
+    const profits = vis.map(r => numeric(r.children[4]?.textContent));
     const wins = vis.filter(r => numeric(r.children[4]?.textContent) > 0).length;
 
     const sum = profits.reduce((a,b)=>a+b,0);
     const avg = profits.length ? sum / profits.length : 0;
-    const winRate = vis.length ? Math.round((wins / vis.length) * 100) : 0;
+    const winRate = vis.length ? Math.round((wins/vis.length)*100) : 0;
 
     sumCount.textContent  = String(vis.length);
+    winRateEl.textContent = `${winRate}%`;
     sumProfit.textContent = Math.round(sum).toLocaleString();
     avgProfit.textContent = Math.round(avg).toLocaleString();
-    winRateEl.textContent = `${winRate}%`;
   }
 
   yearFilter.addEventListener("change", filterTable);
   monthFilter.addEventListener("change", filterTable);
 
-  /* ========= クイックフィルタ ========= */
-  function pad2(n){ return n < 10 ? "0"+n : ""+n; }
-  function setYearMonth(y, m) {
-    yearFilter.value  = y || "";
-    monthFilter.value = m || "";
-    filterTable();
-  }
+  /* ====== クイックフィルタ ====== */
   document.querySelectorAll(".quick-chips button").forEach(b=>{
     b.addEventListener("click", ()=>{
       const now = new Date();
@@ -77,47 +92,55 @@ document.addEventListener("DOMContentLoaded", function() {
       const mm = pad2(m);
       const key = b.dataset.range;
 
-      if (key === "this-month") setYearMonth(String(y), mm);
-      else if (key === "last-month") {
+      if (key === "this-month"){
+        yearFilter.value = String(y);
+        monthFilter.value = mm;
+      } else if (key === "last-month"){
         const d = new Date(y, m-2, 1);
-        setYearMonth(String(d.getFullYear()), pad2(d.getMonth()+1));
-      } else if (key === "this-year") setYearMonth(String(y), "");
-      else if (key === "all") setYearMonth("", "");
+        yearFilter.value = String(d.getFullYear());
+        monthFilter.value = pad2(d.getMonth()+1);
+      } else if (key === "this-year"){
+        yearFilter.value = String(y);
+        monthFilter.value = "";
+      } else {
+        yearFilter.value = "";
+        monthFilter.value = "";
+      }
+      filterTable();
     });
   });
 
-  /* ========= ソート（ヘッダークリック） ========= */
+  /* ====== ソート（ヘッダークリック） ====== */
   table.querySelectorAll("thead th").forEach((th, idx)=>{
     th.addEventListener("click", ()=>{
       const asc = th.dataset.asc !== "true";
       th.dataset.asc = asc;
 
-      const visibleRows = dataRows.filter(r => r.style.display !== "none");
-      const isDateCol = idx === 0;
+      const visible = dataRows.filter(r => r.style.display !== "none");
+      const isDate = idx === 0;
 
-      visibleRows.sort((a,b)=>{
+      visible.sort((a,b)=>{
         let va, vb;
-        if (isDateCol) {
+        if (isDate){
           va = new Date(a.children[idx].textContent.trim());
           vb = new Date(b.children[idx].textContent.trim());
-        } else {
+        }else{
           va = numeric(a.children[idx].textContent);
           vb = numeric(b.children[idx].textContent);
         }
-        return asc ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
+        return asc ? (va>vb?1:-1) : (va<vb?1:-1);
       });
 
-      // 再配置：まず可視行を順に、次に不可視行
-      const hiddenRows = dataRows.filter(r => r.style.display === "none");
-      [...visibleRows, ...hiddenRows].forEach(r => tbody.appendChild(r));
+      const hidden = dataRows.filter(r => r.style.display === "none");
+      [...visible, ...hidden].forEach(r => tbody.appendChild(r));
     });
   });
 
-  /* ========= 行タップでモーダル（誤タップ防止ロジック） ========= */
-  const modal      = document.getElementById("stockModal");
-  const panel      = modal.querySelector(".modal-content");
-  const closeBtn   = modal.querySelector(".close");
-  const body       = document.body;
+  /* ====== 行タップでモーダル（スクロール誤タップ防止） ====== */
+  const modal    = document.getElementById("stockModal");
+  const panel    = modal.querySelector(".modal-content");
+  const closeBtn = modal.querySelector(".close");
+  const body     = document.body;
 
   const modalName     = document.getElementById("modalName");
   const modalPrice    = document.getElementById("modalPrice");
@@ -141,34 +164,32 @@ document.addEventListener("DOMContentLoaded", function() {
     body.style.overflow = "hidden";
   }
 
-  // スクロールとタップの判定
-  const TAP_MAX_MOVE = 10;   // px（これ以上動いたらスクロール扱い）
-  const TAP_MAX_TIME = 500;  // ms（長押しは無視：必要なら調整）
-  dataRows.forEach(row => {
-    let startX=0, startY=0, startT=0, moved=false;
+  const TAP_MAX_MOVE = 10;   // px
+  const TAP_MAX_TIME = 500;  // ms
+  dataRows.forEach(row=>{
+    let sx=0, sy=0, st=0, moved=false;
 
-    row.addEventListener("touchstart", (e)=>{
+    row.addEventListener("touchstart", e=>{
       const t = e.touches[0];
-      startX = t.clientX; startY = t.clientY; startT = Date.now(); moved = false;
+      sx = t.clientX; sy = t.clientY; st = Date.now(); moved=false;
     }, {passive:true});
 
-    row.addEventListener("touchmove", (e)=>{
+    row.addEventListener("touchmove", e=>{
       const t = e.touches[0];
-      const dx = Math.abs(t.clientX - startX);
-      const dy = Math.abs(t.clientY - startY);
-      if (dx > TAP_MAX_MOVE || dy > TAP_MAX_MOVE) moved = true; // スクロール中
+      const dx = Math.abs(t.clientX - sx);
+      const dy = Math.abs(t.clientY - sy);
+      if (dx > TAP_MAX_MOVE || dy > TAP_MAX_MOVE) moved = true;
     }, {passive:true});
 
-    row.addEventListener("touchend", (e)=>{
-      const dt = Date.now() - startT;
-      if (!moved && dt <= TAP_MAX_TIME && row.style.display !== "none") {
+    row.addEventListener("touchend", e=>{
+      const dt = Date.now() - st;
+      if (!moved && dt <= TAP_MAX_TIME && row.style.display !== "none"){
         e.preventDefault();
         openModalForRow(row);
       }
     });
 
-    // マウス（PC）クリックはそのまま
-    row.addEventListener("click", (e)=>{
+    row.addEventListener("click", ()=>{
       if (row.style.display !== "none") openModalForRow(row);
     });
   });
@@ -178,11 +199,10 @@ document.addEventListener("DOMContentLoaded", function() {
     body.style.overflow = "";
     setTimeout(()=>{ modal.style.display = "none"; }, 300);
   }
-
   closeBtn.addEventListener("click", closeModal);
   window.addEventListener("click", (e)=>{ if (e.target === modal) closeModal(); });
 
-  // 下スワイプで閉じる
+  // 上方向にスワイプで閉じる（見やすさ重視で上部表示用のしきい値）
   (function enableSwipeToClose(){
     let startY=0, dy=0;
     panel.addEventListener("touchstart", e=>{
@@ -190,10 +210,11 @@ document.addEventListener("DOMContentLoaded", function() {
     }, {passive:true});
     panel.addEventListener("touchmove", e=>{
       dy = e.touches[0].clientY - startY;
-      if (dy > 0) panel.style.transform = `translateY(${dy}px)`;
+      // 上方向に引っ張ったら閉じる準備（dy<0）
+      if (dy < 0) panel.style.transform = `translateY(${dy}px)`;
     }, {passive:true});
     panel.addEventListener("touchend", ()=>{
-      if (dy > 80) {
+      if (dy < -80) {
         closeModal();
         setTimeout(()=>{ panel.style.transform = ""; }, 320);
       } else {
@@ -204,4 +225,6 @@ document.addEventListener("DOMContentLoaded", function() {
 
   /* 初期描画 */
   filterTable();
+  // 画像/フォント読み込み後に高さが変わる可能性があるので少し遅らせて再計算
+  setTimeout(setScrollableHeight, 150);
 });
