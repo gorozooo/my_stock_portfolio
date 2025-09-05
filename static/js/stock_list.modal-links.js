@@ -1,68 +1,66 @@
-// モーダル内の「編集/売却」リンクを、クリックされたカードの data-id で動的に設定。
-// 初期 href は "#" なので、セット前に遷移する事故を防止。
+// カードクリックで詳細モーダルを開く（リンクはそのまま生かす）
+document.addEventListener('DOMContentLoaded', () => {
+  const container = document.querySelector('.portfolio-container') || document;
 
-(function () {
-  document.addEventListener('DOMContentLoaded', function () {
-    const modal = document.getElementById('stock-modal');
-    if (!modal) return;
+  // クリック委譲：.stock-card 内部の a は通常遷移、カード本体クリックでモーダル
+  container.addEventListener('click', (e) => {
+    const card = e.target.closest('.stock-card');
+    if (!card) return;
 
-    const editLink = document.getElementById('modal-edit-link');
-    const sellLink = document.getElementById('modal-sell-link');
+    // a要素を直接クリックした場合は通常リンクを優先
+    const anchor = e.target.closest('a');
+    if (anchor) return;
 
-    const editTpl = modal.dataset.editUrlTemplate || '/stocks/{id}/edit/';
-    const sellTpl = modal.dataset.sellUrlTemplate || '/stocks/{id}/sell/';
+    e.preventDefault();
 
-    let lastCardId = null;
-
-    const makeHref = (tpl, id) => String(tpl).replace('{id}', String(id));
-
-    const setLinks = (id) => {
-      lastCardId = id;
-      editLink.setAttribute('href', makeHref(editTpl, id));
-      sellLink.setAttribute('href', makeHref(sellTpl, id));
+    // dataset から安全に読み出し
+    const payload = {
+      id: card.dataset.id,
+      name: card.dataset.name,
+      ticker: card.dataset.ticker,
+      shares: card.dataset.shares,
+      unit_price: card.dataset.unit_price,
+      current_price: card.dataset.current_price,
+      profit_amount: card.dataset.profit,
+      profit_rate: card.dataset.profit_rate,
+      account: card.dataset.account,
+      broker: card.dataset.broker,
     };
 
-    // カードからIDを受け取り、モーダルにリンクを差し込む
-    document.querySelectorAll('.stock-card').forEach(card => {
-      card.addEventListener('click', (e) => {
-        // スワイプボタン領域のクリックは除外
-        if (e.target.closest('.card-actions')) return;
-        const id = card.dataset.id;
-        if (id) setLinks(id);
-      });
+    if (!payload.id || payload.id === '0') {
+      // 念のためIDがないカードは無視（404防止）
+      return;
+    }
 
-      card.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          const id = card.dataset.id;
-          if (id) setLinks(id);
-        }
-      });
-    });
-
-    // モーダルが開いた後でも、リンクが未設定なら補完
-    const ensureLinks = () => {
-      if (!lastCardId) return;
-      if (editLink.getAttribute('href') === '#' || !editLink.getAttribute('href')) {
-        setLinks(lastCardId);
-      }
-    };
-    const mo = new MutationObserver(ensureLinks);
-    mo.observe(modal, { attributes: true, attributeFilter: ['style', 'class', 'aria-hidden'] });
-
-    // 念のため、リンククリック時に未設定なら遷移をブロック
-    const guard = (ev) => {
-      const href = ev.currentTarget.getAttribute('href') || '#';
-      if (href === '#' || href.includes('{id}')) {
-        ev.preventDefault();
-        // 直近のカードIDが取れていればその場で差し込み
-        if (lastCardId) {
-          setLinks(lastCardId);
-          // 再クリックで遷移できるようにする（自動遷移したければここで location.assign(href) でもOK）
-        }
-      }
-    };
-    editLink.addEventListener('click', guard);
-    sellLink.addEventListener('click', guard);
+    // 新モーダルを開く
+    if (window.__DETAIL_MODAL__ && typeof window.__DETAIL_MODAL__.open === 'function') {
+      window.__DETAIL_MODAL__.open(payload);
+    }
   });
-})();
+
+  // キーボード操作（Enter/Spaceで開く）
+  container.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const card = e.target.closest('.stock-card');
+    if (!card) return;
+    e.preventDefault();
+
+    const payload = {
+      id: card.dataset.id,
+      name: card.dataset.name,
+      ticker: card.dataset.ticker,
+      shares: card.dataset.shares,
+      unit_price: card.dataset.unit_price,
+      current_price: card.dataset.current_price,
+      profit_amount: card.dataset.profit,
+      profit_rate: card.dataset.profit_rate,
+      account: card.dataset.account,
+      broker: card.dataset.broker,
+    };
+
+    if (!payload.id || payload.id === '0') return;
+    if (window.__DETAIL_MODAL__ && typeof window.__DETAIL_MODAL__.open === 'function') {
+      window.__DETAIL_MODAL__.open(payload);
+    }
+  });
+});
