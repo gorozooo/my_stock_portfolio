@@ -175,20 +175,38 @@
   </div>
 </div>
 
-<!-- モーダル（中央表示） -->
+<!-- モーダル（中央表示・リッチレイアウト） -->
 <div id="stockModal" class="modal" aria-hidden="true" aria-modal="true" role="dialog">
   <div class="modal-content glass-box" role="document">
     <span class="close" aria-label="閉じる">&times;</span>
+
     <!-- タイトル：銘柄（証券コード）を中央に -->
     <h2 id="modalTitle" class="modal-title-center"></h2>
+
+    <!-- まずは金額のサマリー（売却額 / 取得額） -->
+    <div class="modal-amounts">
+      <div class="amount-card">
+        <div class="amount-label">売却額</div>
+        <div class="amount-value" id="modalSellAmount">--</div>
+      </div>
+      <div class="amount-card">
+        <div class="amount-label">取得額</div>
+        <div class="amount-value" id="modalBuyAmount">--</div>
+      </div>
+    </div>
+
+    <!-- 詳細（2カラム） -->
     <div class="modal-grid">
+      <p><span class="k">売却単価</span><span id="modalSell"></span></p>
       <p><span class="k">取得単価</span><span id="modalPurchase"></span></p>
+
       <p><span class="k">株数</span><span id="modalQuantity"></span></p>
+      <p><span class="k">手数料</span><span id="modalFee"></span></p>
+
       <p><span class="k">証券会社</span><span id="modalBroker"></span></p>
       <p><span class="k">口座区分</span><span id="modalAccount"></span></p>
-      <p><span class="k">売却単価</span><span id="modalSell"></span></p>
-      <p><span class="k">損益額</span><span id="modalProfit"></span></p>
-      <p><span class="k">手数料</span><span id="modalFee"></span></p>
+
+      <p class="full"><span class="k">損益額</span><span id="modalProfit" class="pn"></span></p>
     </div>
   </div>
 </div>
