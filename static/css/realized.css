@@ -1,21 +1,21 @@
-/* ★ ここが超重要：ページ全体の縦スクロールを禁止して、表ラッパーだけに付与 */
+/* ページ全体スクロール禁止、表だけ縦スクロール */
 html, body{
   height:100%;
-  overflow:hidden;                 /* ← ページ全体はスクロールしない */
+  overflow:hidden;
   overscroll-behavior: none;
 }
 
 :root{
-  --top-h: 0px;      /* JSで実高さを代入 */
-  --bottom-h: 0px;   /* JSでボトムタブ高さを代入 */
+  --top-h: 0px;
+  --bottom-h: 0px;
 }
 
 .realized-container{
-  height: 100svh;                   /* iOS対策 */
-  height: 100dvh;                   /* 端末UIを除いた実高 */
+  height: 100svh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
-  overflow: hidden;                 /* ← 子だけスクロールさせる */
+  overflow: hidden;
   gap: 6px;
   padding: 8px 8px 12px;
   font-family: "Helvetica Neue", system-ui, -apple-system, sans-serif;
@@ -23,7 +23,6 @@ html, body{
   background: transparent;
 }
 
-/* 上部は固定見え（スクロールしない） */
 .top-fixed{
   flex: 0 0 auto;
   backdrop-filter: blur(8px);
@@ -33,19 +32,18 @@ html, body{
   padding: 6px;
 }
 
-/* 表ラッパー：ここだけ縦スクロール＆横スクロール可 */
 .table-wrapper{
   flex: 0 0 auto;
-  height: calc(100dvh - var(--top-h) - var(--bottom-h) - 12px); /* 画面高から固定分を差し引く */
+  height: calc(100dvh - var(--top-h) - var(--bottom-h) - 12px);
   min-height: 120px;
-  overflow: auto;                     /* ← ここに縦スクロールが付く */
-  -webkit-overflow-scrolling: touch;  /* iOS慣性 */
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
   border-radius: 10px;
   background: rgba(255,255,255,0.06);
   overscroll-behavior: contain;
 }
 
-/* ===== KPI：3行（コンパクト） ===== */
+/* KPI */
 .kpi-row{ display: grid; gap: 6px; margin-bottom: 4px; }
 .kpi-row1{ grid-template-columns: repeat(3, 1fr); }
 .kpi-row2{ grid-template-columns: repeat(2, 1fr); }
@@ -71,7 +69,7 @@ html, body{
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* クイックフィルタ（アクティブ表示） */
+/* クイックフィルタ */
 .quick-chips.chips-compact{ display:flex; gap:6px; margin:4px 0; flex-wrap:wrap; }
 .quick-chips .chip{
   padding:6px 10px; border:none; border-radius:12px;
@@ -96,7 +94,7 @@ html, body{
 /* ===== 表（横スクロール可） ===== */
 #realizedTable{
   width:100%;
-  min-width: 720px;                /* これ以下の画面幅だと横スクロール */
+  min-width: 920px;   /* 列が増えたので広めに */
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -116,18 +114,22 @@ html, body{
 }
 .group-row td{ background:rgba(255,255,255,.12); font-weight:700; text-align:left; }
 
-/* 幅配分 */
+/* 幅配分（8列） */
 #realizedTable th:nth-child(1), #realizedTable td:nth-child(1){ width: 8.2em; }
-#realizedTable th:nth-child(2), #realizedTable td:nth-child(2){ width: 38%;  }
-#realizedTable th:nth-child(3), #realizedTable td:nth-child(3){ width: 6.0em; }
-#realizedTable th:nth-child(4), #realizedTable td:nth-child(4){ width: 5.2em; }
-#realizedTable th:nth-child(5), #realizedTable td:nth-child(5){ width: 7.6em; }
-#realizedTable th:nth-child(6), #realizedTable td:nth-child(6){ width: 6.4em; }
+#realizedTable th:nth-child(2), #realizedTable td:nth-child(2){ width: 24%;  text-align:left; }
+#realizedTable th:nth-child(3), #realizedTable td:nth-child(3){ width: 8.0em; }
+#realizedTable th:nth-child(4), #realizedTable td:nth-child(4){ width: 7.2em; }
+#realizedTable th:nth-child(5), #realizedTable td:nth-child(5){ width: 6.2em; }
+#realizedTable th:nth-child(6), #realizedTable td:nth-child(6){ width: 6.0em; }
+#realizedTable th:nth-child(7), #realizedTable td:nth-child(7){ width: 8.4em; }
+#realizedTable th:nth-child(8), #realizedTable td:nth-child(8){ width: 6.4em; }
 
 /* 省略設定 */
-.stock-name-cell{ text-align: left; }
-.stock-name-cell span{ display:inline-block; width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.trade-type-cell span{ display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.stock-name-cell span,
+.trade-type-cell span{
+  display:inline-block; max-width:100%;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
 
 /* 損益色 */
 .profit{ color:#26c281; font-weight:700; }
@@ -135,7 +137,7 @@ html, body{
 
 .empty-state{ opacity:.85; text-align:center; }
 
-/* ===== モーダル（コンパクト & はみ出し防止） ===== */
+/* ===== モーダル ===== */
 .modal{
   display:none; position:fixed; inset:0; z-index:100;
   background-color: rgba(0,0,0,0.6);
@@ -161,3 +163,6 @@ html, body{
 .modal-grid{ display:grid; grid-template-columns: 1fr 1fr; gap:8px 12px; margin-top:6px; }
 @media (max-width: 360px){ .modal-grid{ grid-template-columns: 1fr; } }
 .modal-grid .k{ opacity:.85; margin-right:8px; }
+.modal-title-center{
+  text-align:center; font-weight:800; margin: 4px 0 8px;
+}
