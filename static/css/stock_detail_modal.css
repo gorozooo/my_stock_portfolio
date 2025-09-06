@@ -157,4 +157,31 @@
   justify-content: center;   /* 中央寄せ */
   align-items: center;
   padding: 10px;
-  background: linear-gradient(180deg, rgba(18,18,24,0) 0%, rgba(18,18,24,.9) 30%, rgba(18,18,24,.
+  background: linear-gradient(180deg, rgba(18,18,24,0) 0%, rgba(18,18,24,.9) 30%, rgba(18,18,24,.95) 100%);
+  border-top: 1px solid rgba(255,255,255,.12);
+  margin-top: 12px;
+  z-index: 5;
+  /* iOSのホームバーに配慮 */
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0));
+}
+.detail-modal__footer .dm-btn { min-width: 128px; }
+
+/* モバイル最適化 */
+@media (max-width: 480px){
+  .detail-modal__dialog { width: 96vw; }
+  .overview-grid { grid-template-columns: 1fr; }
+  /* CTAが折り返して×と重ならないよう少し間を空ける */
+  .detail-modal__header { padding-right: 56px; }
+  .detail-modal__footer { gap: 10px; }
+}
+
+/* ===== 旧モーダルの“チラ見え”をCSSだけで完全ブロック ===== */
+/* （HTMLに埋まっていても常に非表示。再挿入されても常に非表示） */
+#stock-modal,
+#edit-modal,
+#sell-modal {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
