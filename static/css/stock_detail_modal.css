@@ -15,6 +15,7 @@
   place-items: stretch;            /* ← 全画面に広げる */
   font-family: inherit;
   overflow: hidden;                /* 背景スクロール抑止 */
+  padding-right: 10px;
 }
 
 /* オーバーレイは全画面固定 */
@@ -44,7 +45,7 @@
 
   /* 上はタイトル分の余白、下はフッター分の余白 */
   padding: 12px;
-  padding-top: 30px;
+  padding-top: 12px;
   padding-bottom: 88px;
 }
 
