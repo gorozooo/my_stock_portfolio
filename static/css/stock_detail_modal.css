@@ -265,3 +265,33 @@
   opacity: 0 !important;
   pointer-events: none !important;
 }
+
+/* 期間チップ */
+.price-range-chips{
+  display:flex;
+  gap:8px;
+  flex-wrap:nowrap;
+  overflow-x:auto;
+  padding: 4px 0 2px;
+}
+.price-range-chips::-webkit-scrollbar{ display:none; }
+.price-range-chips .chip{
+  flex:0 0 auto;
+  padding:6px 12px;
+  font-size:12px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.22);
+  background: rgba(255,255,255,.06);
+  color:#fff;
+  cursor:pointer;
+  transition: transform .15s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease;
+}
+.price-range-chips .chip.is-active{
+  border-color: rgba(0,200,255,.9);
+  background: rgba(0,123,255,.20);
+  box-shadow: 0 0 8px rgba(0,200,255,.35);
+}
+.price-range-chips .chip:focus-visible{
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0,208,255,.45);
+}
