@@ -1,21 +1,18 @@
 /* 詳細モーダル（概要 + 価格 + 指標）
-   - 概要：楽観表示 → /overview.json で確定
-   - 価格：タブ初回クリックで /price.json 取得 → ミニチャート
-   - 指標：タブ初回クリックで /fundamental.json 取得 → PER/PBR/配当/時価総額/EPS推定
+   - 概要: /overview.json（from_card_current付き）で確定値
+   - 価格: 初回クリックで /price.json を取得して Canvas 描画
+   - 指標: 初回クリックで /fundamental.json を取得し表示（配当利回り・予想配当を含む）
 */
 (function () {
   const mountId = "detail-modal-mount";
 
   const toNum = (v, d = 0) => {
+    if (v === null || v === undefined) return d;
     const n = Number(String(v).replace(/[^\d.-]/g, ""));
     return Number.isFinite(n) ? n : d;
   };
   const yen = (n) => "¥" + Math.round(toNum(n)).toLocaleString();
   const num = (n) => toNum(n).toLocaleString();
-  const pct = (n) => {
-    const x = Number(n);
-    return Number.isFinite(x) ? x.toFixed(2) + "%" : "—";
-  };
 
   function calcOverview({ shares, unit_price, current_price, total_cost, position }) {
     const s = Math.max(0, toNum(shares));
@@ -78,7 +75,7 @@
     document.body.classList.add("hide-legacy-modals");
   }
 
-  // カードからの現在値救済
+  // --- カードから“現在株価”を必ず取得する（data属性 → テキスト救済の順）
   function getCardCurrentPrice(card) {
     let cp = toNum(card?.dataset?.current_price, 0);
     if (cp > 0) return cp;
@@ -96,7 +93,7 @@
     return 0;
   }
 
-  // 価格タブ：一度だけ読み込み
+  // --- 価格タブ ロード & 描画（一度だけ）
   async function loadPriceTab(modal, stockId) {
     if (modal.dataset.priceLoaded === "1") return;
 
@@ -105,43 +102,46 @@
     if (!res.ok) throw new Error("価格データの取得に失敗しました");
     const d = await res.json();
 
+    // 数値表示
     const lastEl = modal.querySelector("#price-last");
     const chgEl  = modal.querySelector("#price-chg");
     const h52El  = modal.querySelector("#price-52h");
     const l52El  = modal.querySelector("#price-52l");
-    if (lastEl) lastEl.textContent = yen(d.last_close);
-    if (chgEl)  chgEl.textContent  = `${(d.change >= 0 ? "+" : "")}${Math.round(d.change).toLocaleString()} / ${d.change_pct.toFixed(2)}%`;
-    if (h52El)  h52El.textContent  = d.high_52w ? yen(d.high_52w) : "—";
-    if (l52El)  l52El.textContent  = d.low_52w  ? yen(d.low_52w)  : "—";
+    if (lastEl) lastEl.textContent = d.last_close ? yen(d.last_close) : "—";
+    if (chgEl && d.change !== null && d.change !== undefined && d.prev_close) {
+      const chg = Math.round(d.change).toLocaleString();
+      const pct = (d.change_pct ?? 0).toFixed(2);
+      chgEl.textContent = `${(d.change >= 0 ? "+" : "")}${chg} / ${pct}%`;
+    } else if (chgEl) {
+      chgEl.textContent = "—";
+    }
+    if (h52El) h52El.textContent = d.high_52w ? yen(d.high_52w) : "—";
+    if (l52El) l52El.textContent = d.low_52w  ? yen(d.low_52w)  : "—";
 
-    // Canvas 描画
+    // ミニチャート描画（Canvas）
     const cvs = modal.querySelector("#price-canvas");
     if (cvs && d.series && d.series.length >= 2) {
-      // 物理サイズを CSS サイズから算出して HiDPI 対応
-      const cssW = cvs.clientWidth || 600;
-      const cssH = cvs.clientHeight || 160;
-      const dpr = window.devicePixelRatio || 1;
-      cvs.width = Math.floor(cssW * dpr);
-      cvs.height = Math.floor(cssH * dpr);
-
       const ctx = cvs.getContext("2d");
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // スケール
-      const W = cssW, H = cssH;
+      const Wcss = cvs.clientWidth;
+      const Hcss = cvs.clientHeight;
+      const dpr = window.devicePixelRatio || 1;
+      cvs.width  = Math.floor(Wcss * dpr);
+      cvs.height = Math.floor(Hcss * dpr);
+      ctx.scale(dpr, dpr);
 
       const ys = d.series.map(p => toNum(p.c));
       const minY = Math.min(...ys);
       const maxY = Math.max(...ys);
       const padX = 12, padY = 10;
-      const innerW = W - padX * 2, innerH = H - padY * 2;
+      const innerW = Wcss - padX * 2, innerH = Hcss - padY * 2;
+
       const xAt = (i) => padX + (innerW * i / (ys.length - 1));
       const yAt = (v) => padY + (innerH * (1 - (v - minY) / Math.max(1e-9, (maxY - minY))));
 
-      // area
+      // グラデ塗りつぶし
       const grad = ctx.createLinearGradient(0, padY, 0, padY + innerH);
       grad.addColorStop(0, "rgba(0,200,255,0.35)");
       grad.addColorStop(1, "rgba(0,200,255,0.00)");
-
-      ctx.clearRect(0,0,W,H);
 
       ctx.beginPath();
       ctx.moveTo(xAt(0), yAt(ys[0]));
@@ -152,7 +152,7 @@
       ctx.fillStyle = grad;
       ctx.fill();
 
-      // line
+      // ライン
       ctx.beginPath();
       ctx.moveTo(xAt(0), yAt(ys[0]));
       ys.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
@@ -164,34 +164,55 @@
     modal.dataset.priceLoaded = "1";
   }
 
-  // 指標タブ：一度だけ読み込み
-  async function loadFundamentalTab(modal, stockId) {
+  // --- 指標タブ ロード & 描画（一度だけ）
+  async function loadFundamentalTab(modal, stockId, cardCp) {
     if (modal.dataset.fundLoaded === "1") return;
 
     const url = new URL(`/stocks/${stockId}/fundamental.json`, window.location.origin);
+    if (cardCp && cardCp > 0) url.searchParams.set("from_card_current", String(cardCp));
     const res = await fetch(url.toString(), { credentials: "same-origin" });
     if (!res.ok) throw new Error("指標データの取得に失敗しました");
     const d = await res.json();
 
-    const setText = (sel, val, fmt) => {
+    const setText = (sel, valStr) => {
       const el = modal.querySelector(sel);
       if (!el) return;
-      if (val === null || val === undefined || val === "") { el.textContent = "—"; return; }
-      el.textContent = fmt ? fmt(val) : String(val);
+      el.textContent = (valStr === null || valStr === undefined || valStr === "") ? "—" : String(valStr);
     };
 
-    setText("#fd-per", d.per, (v) => Number(v).toFixed(2));
-    setText("#fd-pbr", d.pbr, (v) => Number(v).toFixed(2));
-    setText("#fd-div", d.div_yield_pct, (v) => pct(v));
-    setText("#fd-mcap", d.market_cap, (v) => {
-      const n = Number(v);
-      if (!Number.isFinite(n)) return "—";
-      // ざっくりの単位（日本語）
-      if (n >= 1e12) return (n/1e12).toFixed(2) + " 兆";
-      if (n >= 1e8)  return (n/1e8).toFixed(2)  + " 億";
-      return "¥" + n.toLocaleString();
-    });
-    setText("#fd-eps", d.eps_est, (v) => "¥" + Number(v).toFixed(2).toLocaleString?.() ?? Number(v).toFixed(2));
+    // PER / PBR / EPS
+    setText("#fd-per",  d.per  != null ? Number(d.per).toFixed(2)  : "");
+    setText("#fd-pbr",  d.pbr  != null ? Number(d.pbr).toFixed(2)  : "");
+    setText("#fd-eps",  d.eps  != null ? yen(d.eps)                : "");
+    // 時価総額（大きいので丸めて）
+    if (d.market_cap != null) {
+      const mc = Number(d.market_cap);
+      let disp = "—";
+      if (mc >= 1e12) disp = (mc / 1e12).toFixed(2) + " 兆円";
+      else if (mc >= 1e8) disp = (mc / 1e8).toFixed(2) + " 億円";
+      else disp = yen(mc);
+      setText("#fd-mcap", disp);
+    } else {
+      setText("#fd-mcap", "");
+    }
+
+    // 配当利回り（%）※ サーバは 3.1 のように%そのものを返す想定
+    if (d.dividend_yield_pct != null) {
+      const pct = Number(d.dividend_yield_pct);
+      setText("#fd-div", pct.toFixed(2) + "%");
+    } else {
+      setText("#fd-div", "");
+    }
+
+    // 予想配当（1株）= 円
+    if (d.dividend_per_share != null) {
+      setText("#fd-dps", yen(d.dividend_per_share));
+    } else {
+      setText("#fd-dps", "");
+    }
+
+    // 更新時刻
+    setText("#fd-updated", d.updated_at ? d.updated_at.replace("T", " ").slice(0, 19) : "");
 
     modal.dataset.fundLoaded = "1";
   }
@@ -220,6 +241,7 @@
       const modal = mount.querySelector("#detail-modal");
       if (!modal) throw new Error("モーダルが生成できませんでした");
 
+      // 閉じる
       modal.querySelectorAll("[data-dm-close]").forEach((el) => el.addEventListener("click", closeDetail));
       document.addEventListener("keydown", escCloseOnce);
 
@@ -232,10 +254,16 @@
           modal.querySelectorAll(".detail-panel").forEach((p) =>
             p.classList.toggle("is-active", p.getAttribute("data-panel") === name)
           );
+
           try {
-            if (name === "price") await loadPriceTab(modal, stockId);
-            if (name === "fundamental") await loadFundamentalTab(modal, stockId);
-          } catch (e) { console.error(e); }
+            if (name === "price") {
+              await loadPriceTab(modal, stockId);
+            } else if (name === "fundamental") {
+              await loadFundamentalTab(modal, stockId, cardCp);
+            }
+          } catch (e) {
+            console.error(e);
+          }
         });
       });
 
@@ -266,6 +294,7 @@
       const fixed = { ...d };
       if (toNum(fixed.current_price, 0) <= 0 && cardCp > 0) fixed.current_price = cardCp;
       if (toNum(fixed.total_cost, 0) <= 0) fixed.total_cost = toNum(fixed.shares, 0) * toNum(fixed.unit_price, 0);
+
       if (ovWrap) ovWrap.innerHTML = optimisticOverviewHTML(fixed);
     } catch (err) {
       console.error(err);
@@ -279,11 +308,10 @@
     removeLegacyModals();
     document.body.classList.add("hide-legacy-modals");
 
-    // カードクリックで開く
     document.body.addEventListener("click", (e) => {
       const card = e.target.closest(".stock-card");
       if (!card) return;
-      if (e.target.closest("a")) return;          // 編集/売却は通常遷移
+      if (e.target.closest("a")) return;          // 編集/売却リンクは通常遷移
       if (card.classList.contains("swiped")) return;
 
       const id = card.dataset.id;
@@ -291,7 +319,6 @@
       openDetail(id, card);
     });
 
-    // キーボード操作
     document.body.addEventListener("keydown", (e) => {
       if (e.key !== "Enter" && e.key !== " ") return;
       const card = e.target.closest?.(".stock-card");
@@ -303,66 +330,3 @@
     });
   });
 })();
-
-// 既存：loadPriceTab(modal, stockId) の下あたりに追加
-async function loadFundamentalTab(modal, stockId){
-  if (modal.dataset.fundLoaded === "1") return;
-
-  const url = new URL(`/stocks/${stockId}/fundamental.json`, window.location.origin);
-  const res = await fetch(url.toString(), { credentials: "same-origin" });
-  if (!res.ok) throw new Error("指標データの取得に失敗しました");
-  const d = await res.json();
-
-  const setText = (sel, val, fmt) => {
-    const el = modal.querySelector(sel);
-    if (!el) return;
-    if (val === null || val === undefined || val === "") { el.textContent = "—"; return; }
-    el.textContent = typeof fmt === "function" ? fmt(val) : String(val);
-  };
-  const pct = (v) => {
-    let y = Number(v);
-    if (!Number.isFinite(y)) return "—";
-    // サーバ側で正規化済みだが、二重保険
-    if (y > 100) y = y / 100;
-    if (y > 0 && y <= 1) y = y * 100;
-    return y.toFixed(2) + "%";
-  };
-  const num = (v, d = 0) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n.toFixed(d) : "—";
-  };
-  const yen = (v, d = 0) => {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return "—";
-    return "¥" + n.toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  };
-
-  setText("#fd-per", d.per, (v) => num(v, 2));
-  setText("#fd-pbr", d.pbr, (v) => num(v, 2));
-  setText("#fd-div", d.div_yield_pct, (v) => pct(v));
-
-  // ★ 予想DPS（1株）— 少数第3位まで表示（例: 138.500）
-  setText("#fd-dps", d.dps_forecast, (v) => yen(v, 3));
-
-  setText("#fd-mcap", d.market_cap, (v) => yen(v, 0));
-  setText("#fd-eps", d.eps_est, (v) => yen(v, 2));
-  setText("#fd-updated", d.source_updated ? `更新: ${d.source_updated}` : "—");
-
-  modal.dataset.fundLoaded = "1";
-}
-
-// 既存のタブ切替ハンドラに追記（price に加えて fundamental も lazy-load）
-modal.querySelectorAll(".detail-tab").forEach((btn) => {
-  btn.addEventListener("click", async () => {
-    if (btn.disabled) return;
-    const name = btn.getAttribute("data-tab");
-    modal.querySelectorAll(".detail-tab").forEach((b) => b.classList.toggle("is-active", b === btn));
-    modal.querySelectorAll(".detail-panel").forEach((p) =>
-      p.classList.toggle("is-active", p.getAttribute("data-panel") === name)
-    );
-    try{
-      if (name === "price")        await loadPriceTab(modal, stockId);
-      else if (name === "fundamental") await loadFundamentalTab(modal, stockId);  // ← 追加
-    }catch(e){ console.error(e); }
-  });
-});
