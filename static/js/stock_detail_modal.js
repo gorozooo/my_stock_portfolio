@@ -303,3 +303,66 @@
     });
   });
 })();
+
+// 既存：loadPriceTab(modal, stockId) の下あたりに追加
+async function loadFundamentalTab(modal, stockId){
+  if (modal.dataset.fundLoaded === "1") return;
+
+  const url = new URL(`/stocks/${stockId}/fundamental.json`, window.location.origin);
+  const res = await fetch(url.toString(), { credentials: "same-origin" });
+  if (!res.ok) throw new Error("指標データの取得に失敗しました");
+  const d = await res.json();
+
+  const setText = (sel, val, fmt) => {
+    const el = modal.querySelector(sel);
+    if (!el) return;
+    if (val === null || val === undefined || val === "") { el.textContent = "—"; return; }
+    el.textContent = typeof fmt === "function" ? fmt(val) : String(val);
+  };
+  const pct = (v) => {
+    let y = Number(v);
+    if (!Number.isFinite(y)) return "—";
+    // サーバ側で正規化済みだが、二重保険
+    if (y > 100) y = y / 100;
+    if (y > 0 && y <= 1) y = y * 100;
+    return y.toFixed(2) + "%";
+  };
+  const num = (v, d = 0) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toFixed(d) : "—";
+  };
+  const yen = (v, d = 0) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    return "¥" + n.toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  };
+
+  setText("#fd-per", d.per, (v) => num(v, 2));
+  setText("#fd-pbr", d.pbr, (v) => num(v, 2));
+  setText("#fd-div", d.div_yield_pct, (v) => pct(v));
+
+  // ★ 予想DPS（1株）— 少数第3位まで表示（例: 138.500）
+  setText("#fd-dps", d.dps_forecast, (v) => yen(v, 3));
+
+  setText("#fd-mcap", d.market_cap, (v) => yen(v, 0));
+  setText("#fd-eps", d.eps_est, (v) => yen(v, 2));
+  setText("#fd-updated", d.source_updated ? `更新: ${d.source_updated}` : "—");
+
+  modal.dataset.fundLoaded = "1";
+}
+
+// 既存のタブ切替ハンドラに追記（price に加えて fundamental も lazy-load）
+modal.querySelectorAll(".detail-tab").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    if (btn.disabled) return;
+    const name = btn.getAttribute("data-tab");
+    modal.querySelectorAll(".detail-tab").forEach((b) => b.classList.toggle("is-active", b === btn));
+    modal.querySelectorAll(".detail-panel").forEach((p) =>
+      p.classList.toggle("is-active", p.getAttribute("data-panel") === name)
+    );
+    try{
+      if (name === "price")        await loadPriceTab(modal, stockId);
+      else if (name === "fundamental") await loadFundamentalTab(modal, stockId);  // ← 追加
+    }catch(e){ console.error(e); }
+  });
+});
