@@ -1,288 +1,224 @@
-/* ===== 新しい詳細モーダル ===== */
-/* 最小限のスタイル。背景グラデは使わない（透明＋薄い面） */
-.detail-modal {
+/* =========================================================
+   新しい詳細モーダル / フルスクリーン版
+   - 概要/価格 どちらのタブでも常に全画面表示
+   - ヘッダーは中央2行（銘柄名 / コード）
+   - フッターは「編集・売却・閉じる」を等幅で下部固定
+   - 旧モーダルは完全に不可視化
+   ========================================================= */
+
+/* 画面全面にモーダルを展開。背景スクロールは止める */
+.detail-modal{
   position: fixed;
   inset: 0;
   z-index: 3000;
   display: grid;
-  place-items: center;
+  place-items: stretch;            /* ← 全画面に広げる */
   font-family: inherit;
-  overflow: hidden;                 /* 背景側のスクロールを止める */
+  overflow: hidden;                /* 背景スクロール抑止 */
 }
-.detail-modal__overlay {
-  position: fixed;                  /* 全画面固定 */
+
+/* オーバーレイは全画面固定 */
+.detail-modal__overlay{
+  position: fixed;
   inset: 0;
   background: rgba(0,0,0,.55);
   backdrop-filter: blur(2px);
 }
-.detail-modal__dialog {
+
+/* ダイアログ本体は100%幅・100dvh 高でフルスクリーン
+   中身は「ヘッダー／パネル（スクロール）／フッター」縦並び */
+.detail-modal__dialog{
   position: relative;
-  width: min(94vw, 720px);
-  /* 画面高から上下余白ぶんを引いて“確実に”内側スクロールを許可 */
-  max-height: calc(100dvh - 24px);
-  overflow-y: auto;                 /* ← 縦スクロール有効化 */
-  -webkit-overflow-scrolling: touch;/* ← iOSで慣性スクロール */
-  touch-action: pan-y;              /* ← タッチ操作で縦スクロール優先 */
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+
+  display: flex;
+  flex-direction: column;
 
   background: rgba(18,18,24,.96);
   border: 1px solid rgba(255,255,255,.14);
-  border-radius: 12px;
+  border-radius: 0 !important;     /* 全画面時は角丸オフ（好みで） */
   color: #fff;
+
+  /* 上はタイトル分の余白、下はフッター分の余白 */
   padding: 12px;
-  padding-top: 45px;                /* 上の余白（ナビと重ならない＆見出しに余白） */
-  padding-bottom: 72px;             /* 下部ボタン分の余白（フッターと被らない） */
+  padding-top: 56px;
+  padding-bottom: 88px;
 }
 
-/* ▼ 旧：右上の×はフッターに移動したため常に非表示にする */
-.detail-modal__close {
-  display: none !important;
-}
+/* ※ 右上×は使わない（フッターに「閉じる」設置のため） */
+.detail-modal__close{ display:none !important; }
 
-/* ヘッダまわり（中央寄せ・2行構成） */
-.detail-modal__header {
-  display: block;                   /* ブロックにして中身を縦に構成 */
-  text-align: center;               /* 中央寄せ */
+/* ================= ヘッダー（中央2行） ================= */
+.detail-modal__header{
+  display: block;
+  text-align: center;
   margin-bottom: 8px;
-  padding-right: 0;                 /* 右上×を使わないので余白不要 */
+  padding-right: 0;
 }
-.dm-title {
+.dm-title{
   display: flex;
-  flex-direction: column;           /* ← 2行に分ける */
-  align-items: center;              /* 中央寄せ */
+  flex-direction: column;          /* 1行目：銘柄名、2行目：コード */
+  align-items: center;
   gap: 4px;
   font-size: 16px;
   font-weight: 800;
   line-height: 1.2;
-  padding-left: 0;                  /* 右上×を使わないので余白不要 */
+  margin: 0;
 }
-.dm-title .dm-name {
-  display: block;                   /* 1行目：銘柄名（中央） */
+.dm-title .dm-name{
+  display: block;
   font-size: 16px;
   font-weight: 800;
 }
-.dm-code {
-  /* 2行目：コード（中央） */
+.dm-code{
   display: inline-block;
   border: 1px solid rgba(255,255,255,.25);
   border-radius: 8px;
   padding: 2px 8px;
   margin-top: 2px;
 }
+/* ヘッダー内の旧CTAは使わない */
+.dm-cta{ display:none !important; }
 
-/* （旧）ヘッダ内のボタンは非表示にする — 下部フッターへ移設するため */
-.dm-cta { display: none !important; }
-
-/* 共通ボタンスタイル */
-.dm-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px 16px;
-  border-radius: 999px;
-  color: #fff;
-  text-decoration: none;
-  border: 1px solid rgba(255,255,255,.22);
-  background: rgba(255,255,255,.08);
-  font-weight: 800;
-  min-width: 120px;
-}
-.dm-btn--danger {
-  background: linear-gradient(180deg, rgba(244,67,54,.95), rgba(244,67,54,.72));
-  border-color: rgba(244,67,54,.65);
-}
-
-/* タブ */
-.detail-tabs {
+/* ================ タブ / パネル ================ */
+.detail-tabs{
   display: flex;
   gap: 8px;
   margin: 6px 0 10px;
   overflow-x: auto;
 }
-.detail-tab {
+.detail-tab{
   padding: 8px 12px;
   border: 1px solid rgba(255,255,255,.22);
   border-radius: 999px;
   color:#fff;
   background: rgba(255,255,255,.06);
 }
-.detail-tab.is-active {
+.detail-tab.is-active{
   border-color: rgba(0,200,255,.9);
   box-shadow: 0 0 8px rgba(0,200,255,.45);
   background: rgba(0,123,255,.2);
 }
-.detail-tab[disabled] { opacity: .5; }
+.detail-tab[disabled]{ opacity:.5; }
 
-/* パネル */
-.detail-panels { display: block; }
-.detail-panel { display: none; }
-.detail-panel.is-active { display: block; }
+/* パネル領域はダイアログの中でスクロール可能に */
+.detail-panels{
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.detail-panel{ display:none; }
+.detail-panel.is-active{ display:block; }
 
-/* スケルトン */
-.skeleton { display: grid; gap: 8px; }
-.sk-line {
-  height: 14px;
+/* ================ 概要パネル ================ */
+.skeleton{ display:grid; gap:8px; }
+.sk-line{
+  height:14px;
   background: linear-gradient(90deg, rgba(255,255,255,.08), rgba(255,255,255,.18), rgba(255,255,255,.08));
-  border-radius: 6px;
+  border-radius:6px;
 }
-.sk-line--w60 { width: 60%; }
+.sk-line--w60{ width:60%; }
 
-/* 概要パネル */
-.overview-grid {
-  display: grid;
+.overview-grid{
+  display:grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap:8px;
 }
-.ov-item {
-  border: 1px solid rgba(255,255,255,.14);
-  border-radius: 10px;
-  padding: 10px;
+.ov-item{
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:10px;
+  padding:10px;
   background: rgba(255,255,255,.03);
 }
-.ov-k { font-size: 12px; color: rgba(255,255,255,.8); }
-.ov-v { font-weight: 800; font-size: 14px; color: #fff; }
-.ov-v.pos { color: #6aff6a; }
-.ov-v.neg { color: #ff6a6a; }
+.ov-k{ font-size:12px; color:rgba(255,255,255,.8); }
+.ov-v{ font-weight:800; font-size:14px; color:#fff; }
+.ov-v.pos{ color:#6aff6a; }
+.ov-v.neg{ color:#ff6a6a; }
 
-/* ===== フッター（編集・売却・閉じるを“1番下の中央”に固定） ===== */
-.detail-modal__footer {
+/* ================ 価格タブ ================ */
+.price-wrap{ display:grid; gap:10px; padding:8px 10px 16px; }
+.price-top{
+  display:flex; gap:12px; align-items: baseline; flex-wrap:wrap;
+}
+.price-top .label{ font-size:12px; opacity:.8; margin-right:6px; }
+.price-top .val{ font-weight:800; font-size:16px; color:#fff; }
+
+#price-canvas{
+  display:block;
+  width:100%;
+  height:160px;                    /* 見やすい高さ */
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 8px;
+  background: rgba(255,255,255,.03);
+}
+
+.price-rows{ display:grid; gap:6px; }
+.price-rows .row{
+  display:flex; justify-content:space-between;
+  padding:8px 10px;
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:10px;
+  background: rgba(255,255,255,.03);
+  margin-top:6px;
+}
+
+/* ================ フッター（等幅3ボタン） ================ */
+.detail-modal__footer{
   position: sticky;
   bottom: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-  align-items: center;
+  left: 0; right: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr; /* 編集 / 売却 / 閉じる */
+  gap: 10px;
   padding: 10px;
   background: linear-gradient(180deg, rgba(18,18,24,0) 0%, rgba(18,18,24,.9) 30%, rgba(18,18,24,.95) 100%);
   border-top: 1px solid rgba(255,255,255,.12);
-  margin-top: 12px;
   z-index: 5;
   padding-bottom: calc(10px + env(safe-area-inset-bottom, 0));
 }
 
-/* フッターのボタン（全て同じ幅） */
-.detail-modal__footer .dm-btn {
-  flex: 1;                     /* ← 横幅を均等に */
-  min-width: 100px;
-  text-align: center;
-  padding: 12px 0;
-  border-radius: 8px;
-  font-weight: 800;
-  font-size: 14px;
-  border: none;
+/* 共通ボタン */
+.dm-btn{
+  width:100%;
+  min-width:auto;
+  text-align:center;
+  padding:12px 0;
+  border-radius:8px;
+  font-weight:800;
+  font-size:14px;
+  border:none;
+  color:#fff;
   transition: background .2s ease, transform .2s ease;
+  background: rgba(255,255,255,.08);   /* 既定（上書きされる） */
 }
-.detail-modal__footer .dm-btn:hover {
-  transform: translateY(-1px);
-}
+.dm-btn:hover{ transform: translateY(-1px); }
 
-/* 編集ボタン（青系） */
-.dm-btn--edit {
+/* 色分け */
+.dm-btn--edit{
   background: linear-gradient(180deg, rgba(0,123,255,.9), rgba(0,123,255,.7));
-  color: #fff;
 }
-
-/* 売却ボタン（赤系） */
-.dm-btn--danger {
+.dm-btn--danger{
   background: linear-gradient(180deg, rgba(244,67,54,.95), rgba(244,67,54,.72));
-  color: #fff;
 }
-
-/* 閉じるボタン（グレー系） */
-.dm-btn--close {
+.dm-btn--close{
   background: linear-gradient(180deg, rgba(108,117,125,.9), rgba(108,117,125,.7));
-  color: #fff;
-}
-/* モバイル最適化 */
-@media (max-width: 480px){
-  .detail-modal__dialog { width: 96vw; }
-  .overview-grid { grid-template-columns: 1fr; }
-  .detail-modal__header { padding-right: 0; }
-  .detail-modal__footer { gap: 10px; }
 }
 
-/* ===== 旧モーダルの“チラ見え”をCSSだけで完全ブロック ===== */
+/* ================ モバイル最適化 ================ */
+@media (max-width: 480px){
+  .overview-grid{ grid-template-columns: 1fr; }
+  .detail-modal__footer{ gap:10px; }
+}
+
+/* ================ 旧モーダルの完全ブロック ================ */
 #stock-modal,
 #edit-modal,
-#sell-modal {
+#sell-modal{
   display: none !important;
   visibility: hidden !important;
   opacity: 0 !important;
   pointer-events: none !important;
 }
-
-/* ===== price tab ===== */
-.price-wrap { display: grid; gap: 10px; }
-.price-top { display: flex; align-items: center; gap: 12px; }
-.price-top .label { font-size: 12px; color: rgba(255,255,255,.8); margin-right: 6px; }
-.price-top .val { font-weight: 800; font-size: 16px; color: #fff; }
-.price-rows { display: grid; gap: 6px; }
-.price-rows .row { display: flex; justify-content: space-between; font-size: 13px; color: rgba(255,255,255,.9); }
-#price-canvas { width: 100%; height: 140px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: rgba(255,255,255,.03); }
-
-/* ===== モーダルを常時フルスクリーン化（概要/価格どちらのタブでも） ===== */
-.detail-modal {
-  place-items: stretch;          /* 画面全体に広げる */
-}
-
-.detail-modal__dialog {
-  width: 100vw !important;       /* 端から端まで */
-  max-width: 100vw !important;
-  height: 100dvh !important;     /* 画面高いっぱい */
-  max-height: 100dvh !important;
-  border-radius: 0 !important;   /* 角丸を外す（好みで） */
-  padding-top: 56px;             /* 上余白（タイトル分） */
-  padding-bottom: 88px;          /* 下のフッター分 + 余白 */
-  display: flex;                 /* ヘッダ/パネル/フッターを縦並びに */
-  flex-direction: column;
-}
-
-/* 中身は縦方向に可変、パネル部分だけスクロール */
-.detail-panels {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-/* 価格タブのレイアウト微調整（フルスクリーン時の見栄え） */
-.price-wrap {
-  display: grid;
-  gap: 10px;
-  padding: 8px 10px 16px;
-}
-.price-top {
-  display: flex;
-  gap: 12px;
-  align-items: baseline;
-  flex-wrap: wrap;
-}
-.price-top .label { font-size: 12px; opacity: .8; margin-right: 6px; }
-.price-top .val   { font-weight: 800; font-size: 16px; }
-.price-rows .row {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 10px;
-  border: 1px solid rgba(255,255,255,.14);
-  border-radius: 10px;
-  background: rgba(255,255,255,.03);
-  margin-top: 6px;
-}
-
-/* フッターはそのまま最下部に貼り付け（既存でOKだが再掲） */
-.detail-modal__footer {
-  position: sticky;
-  bottom: 0;
-  left: 0; right: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;  /* 編集 / 売却 / 閉じる を等幅に */
-  gap: 10px;
-  padding: 10px;
-  background: linear-gradient(180deg, rgba(18,18,24,0) 0%, rgba(18,18,24,.9) 30%, rgba(18,18,24,.95) 100%);
-  border-top: 1px solid rgba(255,255,255,.12);
-  z-index: 5;
-  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0));
-}
-
-.dm-btn { width: 100%; min-width: auto; }
-
