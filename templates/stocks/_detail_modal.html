@@ -2,17 +2,12 @@
   <div class="detail-modal__overlay" data-dm-close></div>
 
   <div class="detail-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="detail-modal-title">
-    <!-- ↑ 右上×は削除。閉じるはフッターに移動して押しやすく -->
-
     <!-- ヘッダー：銘柄名＝1行目中央／コード＝2行目中央 -->
-    <header class="detail-modal__header" style="justify-content:center; text-align:center; padding-right:0;">
-      <h2 id="detail-modal-title" class="dm-title" style="flex-direction:column; align-items:center; gap:6px; width:100%; margin:0;">
-        <span class="dm-name" style="font-size:16px; font-weight:800;">{{ stock.name }}</span>
-        <span class="dm-code" style="display:inline-block; border:1px solid rgba(255,255,255,.25); border-radius:8px; padding:2px 8px;">
-          {{ stock.ticker }}
-        </span>
+    <header class="detail-modal__header">
+      <h2 id="detail-modal-title" class="dm-title">
+        <span class="dm-name">{{ stock.name }}</span>
+        <span class="dm-code">{{ stock.ticker }}</span>
       </h2>
-      <!-- 以前ここにあった .dm-cta（編集/売却ボタン）はフッターへ移動しました -->
     </header>
 
     <!-- タブ -->
@@ -46,11 +41,11 @@
       </div>
     </section>
 
-    <!-- フッター（画面下中央に操作を集約：閉じる／編集／売却） -->
+    <!-- フッター（左から：編集／売却／閉じる） -->
     <footer class="detail-modal__footer">
-      <button type="button" class="dm-btn" data-dm-close aria-label="モーダルを閉じる">閉じる</button>
-      <a href="{% url 'stock_edit' stock.id %}" class="dm-btn">編集</a>
+      <a href="{% url 'stock_edit' stock.id %}" class="dm-btn dm-btn--edit">編集</a>
       <a href="{% url 'stock_sell' stock.id %}" class="dm-btn dm-btn--danger">売却</a>
+      <button type="button" class="dm-btn dm-btn--close" data-dm-close aria-label="モーダルを閉じる">閉じる</button>
     </footer>
   </div>
 </div>
