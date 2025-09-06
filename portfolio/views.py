@@ -658,17 +658,40 @@ try:
 except Exception:
     yf = None
 
+# views.py
+from django.http import JsonResponse
+from django.utils import timezone
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.cache import cache_page
+from django.views.decorators.http import require_GET
+from django.shortcuts import get_object_or_404
+import math
+
+try:
+    import yfinance as yf
+except Exception:
+    yf = None
+
 @cache_page(60)
 @login_required
 @require_GET
 def stock_fundamental_json(request, pk: int):
+    """
+    指標タブ用の軽量JSON
+      - PER / PBR
+      - 配当利回り（%に正規化）
+      - 予想DPS（1株あたりの予想配当）
+      - 時価総額 / 簡易EPS推定 など
+    """
+    from .models import Stock  # 循環import回避のため関数内で
     stock = get_object_or_404(Stock, pk=pk)
 
     ticker = Stock.to_yf_symbol(stock.ticker) if hasattr(Stock, "to_yf_symbol") else (stock.ticker or "")
     result = {
         "per": None,
         "pbr": None,
-        "div_yield_pct": None,   # ← 最終的に「%値」を入れる（3.10 なら 3.10）
+        "div_yield_pct": None,   # 例: 3.10（%）
+        "dps_forecast": None,    # 例: 138.50（円）
         "market_cap": None,
         "eps_est": None,
         "source_updated": None,
@@ -679,47 +702,72 @@ def stock_fundamental_json(request, pk: int):
     if yf and ticker:
         try:
             tkr = yf.Ticker(ticker)
+
+            # fast_info / info を併用（高速＋補完）
             fi = getattr(tkr, "fast_info", {}) or {}
             try:
                 info = tkr.info if isinstance(getattr(tkr, "info", None), dict) else {}
             except Exception:
                 info = {}
 
-            per = (fi.get("trailingPE") or info.get("trailingPE") or
-                   fi.get("forwardPE")  or info.get("forwardPE"))
+            # --- 基本指標 ---
+            per = (fi.get("trailingPE") or info.get("trailingPE")
+                   or fi.get("forwardPE") or info.get("forwardPE"))
             pbr = (fi.get("priceToBook") or info.get("priceToBook"))
 
-            # ====== ここを修正：dividendYield のスケールを正規化 ======
-            raw_div = fi.get("dividendYield", None)
+            # --- 最新価格の補完 ---
+            last = (fi.get("last_price") or fi.get("lastPrice") or info.get("currentPrice"))
+            if last and (not last_price or last_price <= 0):
+                last_price = float(last)
+
+            # --- 配当利回り（%に正規化） ---
+            raw_div = fi.get("dividendYield")
             if raw_div is None:
-                raw_div = info.get("dividendYield", None)
+                raw_div = info.get("dividendYield")
 
             div_pct = None
             if raw_div is not None:
                 try:
                     y = float(raw_div)
-                    # 0 < y <= 1.0 なら 0.031 → 3.1 とみなして ×100
-                    # 1.0 < y（例: 3.1）なら そのまま%値として採用
-                    # 100 を超えるような明らかな異常は 1/100 して救済
                     if y <= 0:
                         div_pct = None
                     elif y <= 1.0:
-                        div_pct = y * 100.0
+                        div_pct = y * 100.0      # 0.031 → 3.1
                     elif y > 100.0:
-                        div_pct = y / 100.0
+                        div_pct = y / 100.0      # 310 → 3.1（異常救済）
                     else:
-                        div_pct = y
+                        div_pct = y              # 3.1 → 3.1
                 except Exception:
                     div_pct = None
             result["div_yield_pct"] = div_pct
-            # ================================================
 
+            # --- 予想DPS（1株あたりの予想配当） ---
+            # yfinanceの候補:
+            #  - fast_info.get("dividendRate")
+            #  - info.get("dividendRate") / info.get("forwardAnnualDividendRate")
+            #  優先度: fast_info.dividendRate > info.dividendRate > forwardAnnualDividendRate
+            dps = (fi.get("dividendRate") or info.get("dividendRate")
+                   or info.get("forwardAnnualDividendRate"))
+
+            # 補完: 利回りと価格から推計（div_pct% × 価格）
+            if (dps is None or float(dps) <= 0) and div_pct and last_price:
+                try:
+                    dps = float(div_pct) / 100.0 * float(last_price)
+                except Exception:
+                    dps = None
+
+            # 小数の桁は保持（例: 138.500）— DBや表示側で丸めず返す
+            try:
+                if dps is not None:
+                    dps = float(dps)
+            except Exception:
+                dps = None
+            result["dps_forecast"] = dps
+
+            # --- 時価総額 ---
             mcap = (fi.get("marketCap") or info.get("marketCap"))
 
-            last = (fi.get("last_price") or fi.get("lastPrice") or info.get("currentPrice"))
-            if last and (not last_price or last_price <= 0):
-                last_price = float(last)
-
+            # --- 簡易EPS（= 価格 / PER の逆算） ---
             eps_est = None
             try:
                 if per and last_price and float(per) > 0:
@@ -727,6 +775,7 @@ def stock_fundamental_json(request, pk: int):
             except Exception:
                 eps_est = None
 
+            # 数値正規化
             def f(x):
                 try:
                     v = float(x)
