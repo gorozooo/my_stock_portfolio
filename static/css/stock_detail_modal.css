@@ -2,6 +2,7 @@
    新しい詳細モーダル / フルスクリーン版（改）
    - タブが内容に潰されないよう sticky 化 + 背景付与
    - 概要カード（証券会社/口座区分…）の右端切れを防止
+   - 概要/価格で “タブ直下のスクロール領域の高さ” を統一
    ========================================================= */
 
 /* 画面全面にモーダルを展開。背景スクロールは止める */
@@ -45,10 +46,10 @@
   border-radius: 0 !important;
   color: #fff;
 
-  /* 上はタイトル分の余白、下はフッター分の余白 */
+  /* 上はタイトル分の余白、下はフッター分の余白（フッターは sticky なので0でもOK） */
   padding: 12px;
   padding-top: 12px;
-  padding-bottom: 0px;
+  padding-bottom: 0;
 }
 
 /* 右上×は使わない（フッターに「閉じる」あり） */
@@ -91,15 +92,22 @@
 .dm-cta{ display:none !important; }
 
 /* ================ タブ / パネル ================ */
-/* タブが内容で潰れないように “sticky + 背景” を付与 */
+/* タブが内容で潰れないように “sticky + 背景” を付与
+   ＆ タブの見かけ高さを一定化して、そのぶん下の領域に余白を確保する */
+:root{
+  /* タブ行の見かけ高さ（ボタン + 上下パディング + 境界線ぶんの目安） */
+  --detail-tabs-height: 56px;
+}
+
 .detail-tabs{
   position: sticky;
   top: 0;                          /* ダイアログ内の最上部に貼り付く */
   z-index: 2;                      /* 内容より手前 */
   display: flex;
   gap: 8px;
-  margin: 6px 0 10px;
-  padding: 8px 12px;               /* 左右にパディングで余裕 */
+  margin: 0;                       /* ← 余白はパディング側で管理 */
+  padding: 10px 12px;              /* 左右にパディングで余裕 */
+  min-height: var(--detail-tabs-height);
   overflow-x: auto;
   background: linear-gradient(180deg, rgba(18,18,24,1) 50%, rgba(18,18,24,.9) 100%);
   border-bottom: 1px solid rgba(255,255,255,.12);
@@ -122,12 +130,14 @@
 .detail-tab[disabled]{ opacity:.5; }
 
 /* パネル領域はダイアログの中でスクロール可能に
-   右端でスクロールバーに食われないように内側余白を付与 */
+   ▼ “タブの見かけ高さ” と同じだけ上側に内側余白を確保して
+      どのタブでもスクロール開始位置が揃う（＝タブが潰れない） */
 .detail-panels{
   flex: 1 1 auto;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 0 12px 12px;            /* ← 右端切れ防止のパディング */
+  padding: var(--detail-tabs-height) 12px 12px;  /* ← 上にタブ高さぶんの余白を必ず追加 */
+  scroll-padding-top: var(--detail-tabs-height); /* ← 内部ジャンプ時も潰れないように */
 }
 .detail-panel{ display:none; }
 .detail-panel.is-active{ display:block; }
@@ -171,7 +181,8 @@
 /* ================ 価格タブ ================ */
 .price-wrap{
   display:grid; gap:10px;
-  padding: 8px 0 16px;             /* パネル側に padding があるので左右は 0 */
+  /* パネル側で上に --detail-tabs-height を取るので、ここは左右/下だけ */
+  padding: 0 0 16px;
 }
 .price-top{
   display:flex; gap:12px; align-items: baseline; flex-wrap:wrap;
