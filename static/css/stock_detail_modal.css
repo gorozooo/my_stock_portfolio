@@ -211,3 +211,12 @@
   opacity: 0 !important;
   pointer-events: none !important;
 }
+
+/* ===== price tab ===== */
+.price-wrap { display: grid; gap: 10px; }
+.price-top { display: flex; align-items: center; gap: 12px; }
+.price-top .label { font-size: 12px; color: rgba(255,255,255,.8); margin-right: 6px; }
+.price-top .val { font-weight: 800; font-size: 16px; color: #fff; }
+.price-rows { display: grid; gap: 6px; }
+.price-rows .row { display: flex; justify-content: space-between; font-size: 13px; color: rgba(255,255,255,.9); }
+#price-canvas { width: 100%; height: 140px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: rgba(255,255,255,.03); }
