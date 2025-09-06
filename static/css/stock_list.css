@@ -16,20 +16,6 @@
   --vh: 1vh;
   --navbar-h: 64px;        /* 固定ナビ高さ（必要に応じて調整） */
   --bottom-tab-h: 72px;    /* 下タブ高さ（必要に応じて調整） */
-
-  /* 追加：このファイル内で参照している基本色と寸法のデフォルト */
-  --page-pad: 0px;
-  --text: #fff;
-  --text-dim: rgba(255,255,255,.86);
-  --border: rgba(255,255,255,.5);
-  --border-dim: rgba(255,255,255,.25);
-  --bg-chip: rgba(255,255,255,.06);
-  --bg-panel: rgba(255,255,255,.03);
-  --accent: #00d0ff;
-  --accent-2: #007bff;
-
-  /* 追加：証券会社タブの見た目高さ（口座チップ固定の基準） */
-  --broker-tabs-h: 44px;    /* タブ群の実高さに合わせて微調整可 */
 }
 
 main{
@@ -204,17 +190,18 @@ main{
 }
 .account-chips::-webkit-scrollbar{ display:none; }
 
-/* 同時多表示を避けたい場合は、JSで “表示中の証券会社だけ .is-visible” を付与 */
+/* 他セクションの .account-chips が同時に表示されないようにする場合、
+   JSで“表示中の証券会社だけ .is-visible を付ける”前提にしておくと安全です。 */
 .account-chips:not(.is-visible){ display: none; }
 
 .account-chip{
   flex: 0 0 auto;
   padding: 8px 12px;
-  border: 1px solid var(--border-dim);
+  border: 1px solid var(--border-dim, rgba(255,255,255,.25));
   border-radius: 999px;
   font-size: 12px;
-  color: var(--text);
-  background: var(--bg-chip);
+  color: var(--text, #fff);
+  background: var(--bg-chip, rgba(255,255,255,.06));
   opacity: .9;
   transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease;
   outline: none;
@@ -235,12 +222,12 @@ main{
 }
 
 /* ▼ 重要：固定バーのぶんだけ下の内容を押し下げる
-   補助：スペーサーを置かなくても動くようにパディングで調整 */
+   （このスタイルは broker セクションの直後 or コンテナに追加）
+   既存CSSに .after-account-chips という空divを
+   タブの直後に1つ置くのが一番簡単です。 */
 .after-account-chips{
   height: var(--account-chips-h);  /* 上で定義した高さと同じにする */
 }
-/* スペーサーが無くても押し下がるよう、カードリストの上部に余白を入れる */
-.broker-cards-wrapper { padding-top: var(--account-chips-h); }
 
 /* 口座見出し（そのまま） */
 .account-heading{
@@ -328,7 +315,6 @@ main{
   border-color: rgba(255,106,106,.45);
   background: rgba(255,106,106,.10);
 }
-
 /* ==========================
    株カード縦スクロール領域
    ※ 「flex:1; min-height:0」で親高を余さず使い、縦だけスクロール
@@ -568,17 +554,4 @@ main{
 @media (min-width: 1024px){
   .broker-section{ flex:0 0 33.333%; min-width:33.333%; }
   .stock-card{ padding:14px; font-size:14px; max-width:560px; width:90%; }
-}
-
-/* ==========================
-   追加：旧モーダルの“チラ見え”をCSSで完全ブロック
-   （旧HTMLが残っていても常時非表示。JSより前に効く）
-========================== */
-#stock-modal,
-#edit-modal,
-#sell-modal{
-  display:none !important;
-  visibility:hidden !important;
-  opacity:0 !important;
-  pointer-events:none !important;
 }
