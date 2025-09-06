@@ -578,7 +578,7 @@ import yfinance as yf
 
 @login_required
 @require_GET
-@cache_page(60)
+@cache_page(60 * 1440)  # 1日キャッシュ
 def stock_price_json(request, pk: int):
     """
     価格タブ用の軽量JSON:
@@ -672,134 +672,189 @@ try:
 except Exception:
     yf = None
 
-@cache_page(60)
+# portfolio/views.py
+import datetime as dt
+import yfinance as yf
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_GET
+from django.views.decorators.cache import cache_page
+
+from .models import Stock
+
+@cache_page(60 * 1440)  # 1日キャッシュ（必要に応じて）
 @login_required
 @require_GET
 def stock_fundamental_json(request, pk: int):
     """
-    指標タブ用の軽量JSON
-      - PER / PBR
-      - 配当利回り（%に正規化）
-      - 予想DPS（1株あたりの予想配当）
-      - 時価総額 / 簡易EPS推定 など
+    指標タブ用の軽量JSON:
+      - PER, PBR, 時価総額, EPS
+      - 配当利回り(%), 予想配当(1株あたり, 円)
+    優先順:
+      1) fast_info / info
+      2) TTM配当合計から推計
+      3) カードの現在値(from_card_current)やDB値で補完
+    返す値は「数値そのもの」。フロントで整形して表示します。
     """
-    from .models import Stock  # 循環import回避のため関数内で
     stock = get_object_or_404(Stock, pk=pk)
+    symbol = Stock.to_yf_symbol(stock.ticker) if hasattr(Stock, "to_yf_symbol") else stock.ticker
 
-    ticker = Stock.to_yf_symbol(stock.ticker) if hasattr(Stock, "to_yf_symbol") else (stock.ticker or "")
-    result = {
-        "per": None,
-        "pbr": None,
-        "div_yield_pct": None,   # 例: 3.10（%）
-        "dps_forecast": None,    # 例: 138.50（円）
-        "market_cap": None,
-        "eps_est": None,
-        "source_updated": None,
-    }
-
-    last_price = float(stock.current_price or stock.unit_price or 0.0)
-
-    if yf and ticker:
+    # まずはカード側の現在値を受け取り、無ければDB
+    last_price = None
+    try:
+        cp = request.GET.get("from_card_current")
+        if cp:
+            last_price = float(cp)
+    except Exception:
+        pass
+    if not last_price:
         try:
-            tkr = yf.Ticker(ticker)
+            last_price = float(stock.current_price or 0.0)
+        except Exception:
+            last_price = 0.0
 
-            # fast_info / info を併用（高速＋補完）
-            fi = getattr(tkr, "fast_info", {}) or {}
+    per = None
+    pbr = None
+    eps = None
+    mcap = None
+    div_yield_pct = None   # 例: 3.1（= 3.1%）
+    dps = None             # 1株あたり配当（円想定）
+    updated = timezone.now().isoformat()
+
+    try:
+        tkr = yf.Ticker(symbol)
+
+        # --- fast_info 優先（軽量・高速）
+        fi = getattr(tkr, "fast_info", {}) or {}
+        def fi_get(key):
             try:
-                info = tkr.info if isinstance(getattr(tkr, "info", None), dict) else {}
+                # fast_info は dict風 or 属性風どちらもあり得る
+                if isinstance(fi, dict):
+                    return fi.get(key, None)
+                return getattr(fi, key, None)
             except Exception:
-                info = {}
-
-            # --- 基本指標 ---
-            per = (fi.get("trailingPE") or info.get("trailingPE")
-                   or fi.get("forwardPE") or info.get("forwardPE"))
-            pbr = (fi.get("priceToBook") or info.get("priceToBook"))
-
-            # --- 最新価格の補完 ---
-            last = (fi.get("last_price") or fi.get("lastPrice") or info.get("currentPrice"))
-            if last and (not last_price or last_price <= 0):
-                last_price = float(last)
-
-            # --- 配当利回り（%に正規化） ---
-            raw_div = fi.get("dividendYield")
-            if raw_div is None:
-                raw_div = info.get("dividendYield")
-
-            div_pct = None
-            if raw_div is not None:
-                try:
-                    y = float(raw_div)
-                    if y <= 0:
-                        div_pct = None
-                    elif y <= 1.0:
-                        div_pct = y * 100.0      # 0.031 → 3.1
-                    elif y > 100.0:
-                        div_pct = y / 100.0      # 310 → 3.1（異常救済）
-                    else:
-                        div_pct = y              # 3.1 → 3.1
-                except Exception:
-                    div_pct = None
-            result["div_yield_pct"] = div_pct
-
-            # --- 予想DPS（1株あたりの予想配当） ---
-            # yfinanceの候補:
-            #  - fast_info.get("dividendRate")
-            #  - info.get("dividendRate") / info.get("forwardAnnualDividendRate")
-            #  優先度: fast_info.dividendRate > info.dividendRate > forwardAnnualDividendRate
-            dps = (fi.get("dividendRate") or info.get("dividendRate")
-                   or info.get("forwardAnnualDividendRate"))
-
-            # 補完: 利回りと価格から推計（div_pct% × 価格）
-            if (dps is None or float(dps) <= 0) and div_pct and last_price:
-                try:
-                    dps = float(div_pct) / 100.0 * float(last_price)
-                except Exception:
-                    dps = None
-
-            # 小数の桁は保持（例: 138.500）— DBや表示側で丸めず返す
-            try:
-                if dps is not None:
-                    dps = float(dps)
-            except Exception:
-                dps = None
-            result["dps_forecast"] = dps
-
-            # --- 時価総額 ---
-            mcap = (fi.get("marketCap") or info.get("marketCap"))
-
-            # --- 簡易EPS（= 価格 / PER の逆算） ---
-            eps_est = None
-            try:
-                if per and last_price and float(per) > 0:
-                    eps_est = float(last_price) / float(per)
-            except Exception:
-                eps_est = None
-
-            # 数値正規化
-            def f(x):
-                try:
-                    v = float(x)
-                    if math.isfinite(v):
-                        return v
-                except Exception:
-                    pass
                 return None
 
-            result.update({
-                "per": f(per),
-                "pbr": f(pbr),
-                "market_cap": f(mcap),
-                "eps_est": f(eps_est),
-                "source_updated": timezone.now().isoformat(timespec="seconds"),
-            })
+        lp = fi_get("last_price")
+        if lp:
+            last_price = float(lp)
 
+        # 利回り: fast_info.dividend_yield は「小数（0.031）」のことが多い
+        dy = fi_get("dividend_yield")
+        if dy is not None:
+            try:
+                dyf = float(dy)
+                # 1未満なら小数→%に換算、すでに%（>1）ならそのまま
+                div_yield_pct = dyf * 100.0 if dyf < 1 else dyf
+            except Exception:
+                pass
+
+        # PER
+        trpe = fi_get("trailing_pe")
+        if trpe:
+            try: per = float(trpe)
+            except Exception: pass
+
+        # 時価総額
+        fmc = fi_get("market_cap")
+        if fmc:
+            try: mcap = float(fmc)
+            except Exception: pass
+
+        # --- info で補完（重い場合あり）
+        info = {}
+        try:
+            info = tkr.info or {}
         except Exception:
-            result["source_updated"] = timezone.now().isoformat(timespec="seconds")
-    else:
-        result["source_updated"] = timezone.now().isoformat(timespec="seconds")
+            info = {}
 
-    return JsonResponse(result)
+        if per is None:
+            v = info.get("trailingPE")
+            if v: 
+                try: per = float(v)
+                except Exception: pass
 
+        if pbr is None:
+            v = info.get("priceToBook")
+            if v:
+                try: pbr = float(v)
+                except Exception: pass
+
+        if eps is None:
+            v = info.get("trailingEps")
+            if v:
+                try: eps = float(v)
+                except Exception: pass
+
+        if mcap is None:
+            v = info.get("marketCap")
+            if v:
+                try: mcap = float(v)
+                except Exception: pass
+
+        # 予想配当（1株）: info['dividendRate'] を最優先
+        v = info.get("dividendRate")
+        if v:
+            try: dps = float(v)
+            except Exception: pass
+
+        # 配当利回りが無くて、TTM配当から推計
+        if (div_yield_pct is None or dps is None):
+            try:
+                divs = tkr.dividends  # pandas Series
+                if divs is not None and not divs.empty:
+                    since = timezone.now().date() - dt.timedelta(days=400)
+                    ttm = divs[divs.index.date >= since]
+                    if not ttm.empty:
+                        ttm_sum = float(ttm.sum())
+                        # DPS 未取得なら TTM を近似として採用
+                        if dps is None:
+                            dps = ttm_sum
+                        # 利回りも価格が取れていれば計算
+                        if div_yield_pct is None and last_price:
+                            div_yield_pct = (ttm_sum / float(last_price)) * 100.0
+            except Exception:
+                pass
+
+        # まだ DPS が無いが、利回りと価格があるなら逆算
+        if dps is None and div_yield_pct is not None and last_price:
+            dps = (float(div_yield_pct) / 100.0) * float(last_price)
+
+    except Exception:
+        # yfinance 側失敗は無視してフォールバックのみ
+        pass
+
+    # 価格フォールバック
+    if not last_price:
+        try:
+            last_price = float(stock.current_price or stock.unit_price or 0.0)
+        except Exception:
+            last_price = 0.0
+
+    # マイナス等の不正値は None に正規化
+    def clean_num(x):
+        try:
+            f = float(x)
+            if f != f:  # NaN
+                return None
+            return f
+        except Exception:
+            return None
+
+    data = {
+        "ticker": stock.ticker,
+        "last_price": clean_num(last_price),
+        "per": clean_num(per),
+        "pbr": clean_num(pbr),
+        "eps": clean_num(eps),
+        "market_cap": clean_num(mcap),
+        "dividend_yield_pct": clean_num(div_yield_pct),   # 3.1 のように %そのもの
+        "dividend_per_share": clean_num(dps),             # 円想定（数値）
+        "updated_at": updated,
+    }
+    return JsonResponse(data)
 @login_required
 def cash_view(request):
     return render(request, "cash.html")
