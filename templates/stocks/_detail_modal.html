@@ -64,6 +64,13 @@
       <!-- 価格：初回クリック時に /price.json を取得して描画 -->
       <div class="detail-panel" data-panel="price">
         <div class="price-wrap">
+          <!-- ▼ 期間チップ（1M/3M/1Y） -->
+          <div class="price-range-chips" role="tablist" aria-label="期間を選択">
+            <button type="button" class="chip is-active" data-range="1M" aria-selected="true">1M</button>
+            <button type="button" class="chip" data-range="3M" aria-selected="false">3M</button>
+            <button type="button" class="chip" data-range="1Y" aria-selected="false">1Y</button>
+          </div>
+
           <div class="price-top">
             <div class="price-last">
               <span class="label">最新</span>
@@ -84,8 +91,8 @@
           <div class="price-rows">
             <div class="row"><span>52週高値</span><span id="price-52h">—</span></div>
             <div class="row"><span>52週安値</span><span id="price-52l">—</span></div>
-            <div class="row"><span>上場来高値</span><span id="price-all-high">—</span></div>
-            <div class="row"><span>上場来安値</span><span id="price-all-low">—</span></div>
+            <div class="row"><span>上場来高値</span><span id="price-allh">—</span></div>
+            <div class="row"><span>上場来安値</span><span id="price-alll">—</span></div>
           </div>
         </div>
       </div>
