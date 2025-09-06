@@ -1,9 +1,7 @@
 /* =========================================================
-   新しい詳細モーダル / フルスクリーン版
-   - 概要/価格 どちらのタブでも常に全画面表示
-   - ヘッダーは中央2行（銘柄名 / コード）
-   - フッターは「編集・売却・閉じる」を等幅で下部固定
-   - 旧モーダルは完全に不可視化
+   新しい詳細モーダル / フルスクリーン版（改）
+   - タブが内容に潰されないよう sticky 化 + 背景付与
+   - 概要カード（証券会社/口座区分…）の右端切れを防止
    ========================================================= */
 
 /* 画面全面にモーダルを展開。背景スクロールは止める */
@@ -12,9 +10,15 @@
   inset: 0;
   z-index: 3000;
   display: grid;
-  place-items: stretch;            /* ← 全画面に広げる */
+  place-items: stretch;            /* 全画面 */
   font-family: inherit;
   overflow: hidden;                /* 背景スクロール抑止 */
+}
+
+/* モーダル内はすべて border-box にして計算ズレを防ぐ */
+.detail-modal,
+.detail-modal *{
+  box-sizing: border-box;
 }
 
 /* オーバーレイは全画面固定 */
@@ -25,8 +29,7 @@
   backdrop-filter: blur(2px);
 }
 
-/* ダイアログ本体は100%幅・100dvh 高でフルスクリーン
-   中身は「ヘッダー／パネル（スクロール）／フッター」縦並び */
+/* ダイアログ本体：フルスクリーン */
 .detail-modal__dialog{
   position: relative;
   width: 100vw !important;
@@ -39,7 +42,7 @@
 
   background: rgba(18,18,24,.96);
   border: 1px solid rgba(255,255,255,.14);
-  border-radius: 0 !important;     /* 全画面時は角丸オフ（好みで） */
+  border-radius: 0 !important;
   color: #fff;
 
   /* 上はタイトル分の余白、下はフッター分の余白 */
@@ -48,7 +51,7 @@
   padding-bottom: 88px;
 }
 
-/* ※ 右上×は使わない（フッターに「閉じる」設置のため） */
+/* 右上×は使わない（フッターに「閉じる」あり） */
 .detail-modal__close{ display:none !important; }
 
 /* ================= ヘッダー（中央2行） ================= */
@@ -56,7 +59,7 @@
   display: block;
   text-align: center;
   margin-bottom: 8px;
-  padding-right: 0;
+  padding: 0 12px; /* 端の密着を避ける */
 }
 .dm-title{
   display: flex;
@@ -79,23 +82,37 @@
   border-radius: 8px;
   padding: 2px 8px;
   margin-top: 2px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* ヘッダー内の旧CTAは使わない */
 .dm-cta{ display:none !important; }
 
 /* ================ タブ / パネル ================ */
+/* タブが内容で潰れないように “sticky + 背景” を付与 */
 .detail-tabs{
+  position: sticky;
+  top: 0;                          /* ダイアログ内の最上部に貼り付く */
+  z-index: 2;                      /* 内容より手前 */
   display: flex;
   gap: 8px;
   margin: 6px 0 10px;
+  padding: 8px 12px;               /* 左右にパディングで余裕 */
   overflow-x: auto;
+  background: linear-gradient(180deg, rgba(18,18,24,1) 50%, rgba(18,18,24,.9) 100%);
+  border-bottom: 1px solid rgba(255,255,255,.12);
 }
+.detail-tabs::-webkit-scrollbar{ display: none; }
+
 .detail-tab{
   padding: 8px 12px;
   border: 1px solid rgba(255,255,255,.22);
   border-radius: 999px;
   color:#fff;
   background: rgba(255,255,255,.06);
+  flex: 0 0 auto;
 }
 .detail-tab.is-active{
   border-color: rgba(0,200,255,.9);
@@ -104,16 +121,18 @@
 }
 .detail-tab[disabled]{ opacity:.5; }
 
-/* パネル領域はダイアログの中でスクロール可能に */
+/* パネル領域はダイアログの中でスクロール可能に
+   右端でスクロールバーに食われないように内側余白を付与 */
 .detail-panels{
   flex: 1 1 auto;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  padding: 0 12px 12px;            /* ← 右端切れ防止のパディング */
 }
 .detail-panel{ display:none; }
 .detail-panel.is-active{ display:block; }
 
-/* ================ 概要パネル ================ */
+/* ================ 概要パネル（右端切れ対策） ================ */
 .skeleton{ display:grid; gap:8px; }
 .sk-line{
   height:14px;
@@ -122,7 +141,10 @@
 }
 .sk-line--w60{ width:60%; }
 
+/* グリッドは常にパネル内の幅に収まるようにし、
+   長文は折り返し可能にしてハミ出しを防止 */
 .overview-grid{
+  width: 100%;
   display:grid;
   grid-template-columns: 1fr 1fr;
   gap:8px;
@@ -132,14 +154,25 @@
   border-radius:10px;
   padding:10px;
   background: rgba(255,255,255,.03);
+  overflow: hidden;                /* 内容のはみ出しを隠す */
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .ov-k{ font-size:12px; color:rgba(255,255,255,.8); }
 .ov-v{ font-weight:800; font-size:14px; color:#fff; }
 .ov-v.pos{ color:#6aff6a; }
 .ov-v.neg{ color:#ff6a6a; }
 
+/* 画面幅が狭い時は1列にして、必ず収まるように */
+@media (max-width: 640px){
+  .overview-grid{ grid-template-columns: 1fr; }
+}
+
 /* ================ 価格タブ ================ */
-.price-wrap{ display:grid; gap:10px; padding:8px 10px 16px; }
+.price-wrap{
+  display:grid; gap:10px;
+  padding: 8px 0 16px;             /* パネル側に padding があるので左右は 0 */
+}
 .price-top{
   display:flex; gap:12px; align-items: baseline; flex-wrap:wrap;
 }
@@ -149,7 +182,7 @@
 #price-canvas{
   display:block;
   width:100%;
-  height:160px;                    /* 見やすい高さ */
+  height:160px;
   border: 1px solid rgba(255,255,255,.12);
   border-radius: 8px;
   background: rgba(255,255,255,.03);
@@ -173,7 +206,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr 1fr; /* 編集 / 売却 / 閉じる */
   gap: 10px;
-  padding: 10px;
+  padding: 10px 12px;              /* パネル左右と揃える */
   background: linear-gradient(180deg, rgba(18,18,24,0) 0%, rgba(18,18,24,.9) 30%, rgba(18,18,24,.95) 100%);
   border-top: 1px solid rgba(255,255,255,.12);
   z-index: 5;
@@ -192,7 +225,7 @@
   border:none;
   color:#fff;
   transition: background .2s ease, transform .2s ease;
-  background: rgba(255,255,255,.08);   /* 既定（上書きされる） */
+  background: rgba(255,255,255,.08);   /* 既定（上書き） */
 }
 .dm-btn:hover{ transform: translateY(-1px); }
 
@@ -209,7 +242,6 @@
 
 /* ================ モバイル最適化 ================ */
 @media (max-width: 480px){
-  .overview-grid{ grid-template-columns: 1fr; }
   .detail-modal__footer{ gap:10px; }
 }
 
