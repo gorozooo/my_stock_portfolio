@@ -29,43 +29,21 @@
   border-radius: 12px;
   color: #fff;
   padding: 12px;
-  padding-top: 45px;                /* 上部余裕（×と重ならない） */
-  padding-bottom: 72px;             /* 下部ボタン分の余白 */
+  padding-top: 45px;                /* 上の余白（ナビと重ならない＆見出しに余白） */
+  padding-bottom: 72px;             /* 下部ボタン分の余白（フッターと被らない） */
 }
 
-/* 閉じるボタン（右上・赤） */
+/* ▼ 旧：右上の×はフッターに移動したため常に非表示にする */
 .detail-modal__close {
-  position: absolute;
-  /* 8px + ボタン高さ36px = 44px だと余白がギリなので少しゆとりを持って 52px */
-  top: 52px;                        /* ← “ボタン1個分”下げる（ナビ被り回避） */
-  right: 15px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  background: rgba(244, 67, 54, .9);
-  border: 1px solid rgba(244, 67, 54, .8);
-  border-radius: 50%;
-  color: #fff;
-  font-size: 18px;
-  cursor: pointer;
-  z-index: 20;                      /* CTAより上に */
-  transition: background .2s ease, transform .2s ease;
-}
-.detail-modal__close:hover {
-  background: rgba(244, 67, 54, 1);
-  transform: scale(1.05);
+  display: none !important;
 }
 
 /* ヘッダまわり（中央寄せ・2行構成） */
 .detail-modal__header {
-  /* 旧: space-between → 中央寄せ */
   display: block;                   /* ブロックにして中身を縦に構成 */
   text-align: center;               /* 中央寄せ */
   margin-bottom: 8px;
-  /* 右上の×が被らないように右側に余白（小さめでOK） */
-  padding-right: 48px;
+  padding-right: 0;                 /* 右上×を使わないので余白不要 */
 }
 .dm-title {
   display: flex;
@@ -75,7 +53,7 @@
   font-size: 16px;
   font-weight: 800;
   line-height: 1.2;
-  padding-left: 48px;
+  padding-left: 0;                  /* 右上×を使わないので余白不要 */
 }
 .dm-title .dm-name {
   display: block;                   /* 1行目：銘柄名（中央） */
@@ -165,7 +143,7 @@
 .ov-v.pos { color: #6aff6a; }
 .ov-v.neg { color: #ff6a6a; }
 
-/* ===== フッター（編集・売却を“1番下の中央”に固定） ===== */
+/* ===== フッター（閉じる・編集・売却を“1番下の中央”に固定） ===== */
 .detail-modal__footer {
   position: sticky;          /* ダイアログ内の最下部に張り付く */
   bottom: 0;
@@ -189,7 +167,7 @@
 @media (max-width: 480px){
   .detail-modal__dialog { width: 96vw; }
   .overview-grid { grid-template-columns: 1fr; }
-  .detail-modal__header { padding-right: 56px; }
+  .detail-modal__header { padding-right: 0; }
   .detail-modal__footer { gap: 10px; }
 }
 
