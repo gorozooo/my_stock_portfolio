@@ -29,7 +29,7 @@
   border-radius: 12px;
   color: #fff;
   padding: 12px;
-  padding-top: 14px;                /* 上部余裕（×と重ならない） */
+  padding-top: 24px;                /* 上部余裕（×と重ならない） */
   padding-bottom: 72px;             /* 下部ボタン分の余白 */
 }
 
