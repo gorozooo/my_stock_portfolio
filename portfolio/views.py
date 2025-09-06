@@ -521,38 +521,33 @@ def stock_detail_fragment(request, pk: int):
 def stock_overview_json(request, pk: int):
     """
     概要タブの軽量JSON。
-    - DBの値をベースに返す
-    - current_price が未取得/0/負値のときは unit_price をフォールバック表示値に採用
-    - 表示用の評価額/損益もフォールバック価格で再計算（モデルの計算式と整合）
+    - DB値を返すが、from_card_current が来ていて > 0 の場合は current_price をそれで上書き
+    - 取得額/評価額/損益も一貫計算
     """
     stock = get_object_or_404(Stock, pk=pk)
 
-    # --- 基本値を安全に数値化
+    # カード側で見えている現在株価（data-current_price）を優先的に採用
+    from_card = request.GET.get("from_card_current")
+    try:
+        from_card_val = float(from_card) if from_card is not None else 0.0
+    except (TypeError, ValueError):
+        from_card_val = 0.0
+
+    # ベースはDB
     shares = int(stock.shares or 0)
     unit_price = float(stock.unit_price or 0)
-    current_price_raw = float(stock.current_price or 0)
+    db_current = float(stock.current_price or 0)
+    current_price = from_card_val if from_card_val > 0 else db_current
 
-    # --- フォールバック：表示用の株価（0/未取得なら取得単価を使う）
-    if current_price_raw > 0:
-        display_price = current_price_raw
-        price_source = "current_price"
+    # 取得額（保険で再計算）
+    total_cost = float(stock.total_cost or (shares * unit_price))
+
+    # 評価額と損益（買い/売りで式が異なる）
+    market_value = current_price * shares
+    if stock.position == "売り":
+        profit_loss = (unit_price - current_price) * shares
     else:
-        display_price = unit_price
-        price_source = "unit_price_fallback"
-
-    # --- 取得額（整数円で扱う運用に合わせる）
-    total_cost = int(round(shares * unit_price))
-
-    # --- 評価額（表示用価格で再計算）
-    market_value = float(display_price) * float(shares)
-
-    # --- 評価損益（モデルの式と整合：買い/売りで分岐）
-    if (stock.position or "買い") == "売り":
-        # 空売りの評価損益： (取得単価 - 表示価格) * 株数
-        profit_loss = (unit_price - display_price) * shares
-    else:
-        # 買いの評価損益： 評価額 - 取得額
-        profit_loss = market_value - float(total_cost)
+        profit_loss = market_value - total_cost
 
     data = {
         "id": stock.id,
@@ -562,27 +557,14 @@ def stock_overview_json(request, pk: int):
         "account_type": stock.account_type,
         "position": stock.position,
         "purchase_date": stock.purchase_date.isoformat() if stock.purchase_date else None,
-
-        # 基本数値
         "shares": shares,
         "unit_price": unit_price,
-
-        # 表示用としてフォールバック済みを current_price に格納
-        "current_price": float(display_price),
-
-        # 取得額は再計算（整数円）
-        "total_cost": float(total_cost),
-
-        # 表示用価格で再計算した値を返す
-        "market_value": float(market_value),
-        "profit_loss": float(profit_loss),
-
+        "current_price": current_price,  # ← ここがカード値で上書きされる
+        "total_cost": total_cost,
+        "market_value": market_value,
+        "profit_loss": profit_loss,
         "note": stock.note or "",
         "updated_at": stock.updated_at.isoformat() if stock.updated_at else None,
-
-        # 参考情報（フロントでは未使用でもOK）
-        "original_current_price": current_price_raw,  # 生のDB値（0の可能性あり）
-        "price_source": price_source,                # どちらの値を使ったか
     }
     return JsonResponse(data)
 
