@@ -645,21 +645,121 @@ def stock_price_json(request, pk: int):
     }
     return JsonResponse(data)
 
+# 先頭付近の import に以下が無ければ追加してください
+from django.views.decorators.cache import cache_page
+from django.http import JsonResponse, Http404
+from django.shortcuts import render, get_object_or_404
+from django.utils import timezone
+import datetime as dt
+import math
+
+try:
+    import yfinance as yf
+except Exception:
+    yf = None
+
+# …（既存の view はそのまま）…
+
+@cache_page(60)  # 60秒キャッシュで十分軽く
+@login_required
 @require_GET
-@cache_page(600)  # ← 10分キャッシュ
-def stock_fundamental_json(request, pk):
+def stock_fundamental_json(request, pk: int):
+    """
+    指標タブ用の軽量JSON:
+      - PER (trailingPE or forwardPE)
+      - PBR (priceToBook)
+      - 配当利回り (dividendYield: 0.02 -> 2.0%)
+      - 時価総額 (marketCap)
+      - 1株利益(EPS)近似（PERと株価から推定）※参考値
+    取れない値は None を返す。フロントで '—' 表示にする。
+    """
     stock = get_object_or_404(Stock, pk=pk)
 
-    # ダミーデータ（あとで本物に差し替え）
-    data = {
-        "pe": None,
-        "dividend_yield": None,
+    # yfinance シンボル
+    ticker = Stock.to_yf_symbol(stock.ticker) if hasattr(Stock, "to_yf_symbol") else (stock.ticker or "")
+    result = {
+        "per": None,
+        "pbr": None,
+        "div_yield_pct": None,
         "market_cap": None,
-        "beta": None,
-        "eps": None,
-        "updated_at": datetime.datetime.now().isoformat(),
+        "eps_est": None,          # 参考値
+        "source_updated": None,   # 情報更新時刻（文字列）
     }
-    return JsonResponse(data)
+
+    # まずは DB の現値/株価からEPSを概算する準備
+    last_price = float(stock.current_price or stock.unit_price or 0.0)
+
+    if yf and ticker:
+        try:
+            tkr = yf.Ticker(ticker)
+
+            # 速い fast_info を優先
+            fi = getattr(tkr, "fast_info", {}) or {}
+            info = {}
+            # .info は重い可能性があるので、fast_info で不足なら history などと組合せ
+            try:
+                # yfinanceのバージョン差異により dict でないことがあるので防御的に
+                info = tkr.info if isinstance(getattr(tkr, "info", None), dict) else {}
+            except Exception:
+                info = {}
+
+            # 候補（trailingPE/forwardPE）
+            per = (fi.get("trailingPE")
+                   or info.get("trailingPE")
+                   or fi.get("forwardPE")
+                   or info.get("forwardPE"))
+
+            pbr = (fi.get("priceToBook") or info.get("priceToBook"))
+
+            div_yield = (fi.get("dividendYield") or info.get("dividendYield"))  # 例: 0.02
+            if div_yield is not None:
+                try:
+                    result["div_yield_pct"] = float(div_yield) * 100.0
+                except Exception:
+                    result["div_yield_pct"] = None
+
+            mcap = (fi.get("marketCap") or info.get("marketCap"))
+
+            # last price を fast_info から補強
+            last = (fi.get("last_price") or fi.get("lastPrice") or info.get("currentPrice"))
+            if last and (not last_price or last_price <= 0):
+                last_price = float(last)
+
+            # EPS 推定（参考値）：PER = Price / EPS → EPS ≈ Price / PER
+            eps_est = None
+            try:
+                if per and last_price and per > 0:
+                    eps_est = float(last_price) / float(per)
+            except Exception:
+                eps_est = None
+
+            # 数値へ丸め
+            def f(x):
+                try:
+                    v = float(x)
+                    if math.isfinite(v):
+                        return v
+                except Exception:
+                    pass
+                return None
+
+            result.update({
+                "per": f(per),
+                "pbr": f(pbr),
+                "market_cap": f(mcap),
+                "eps_est": f(eps_est),
+                "source_updated": timezone.now().isoformat(timespec="seconds"),
+            })
+
+        except Exception:
+            # yfinance失敗時は None のまま返却
+            result["source_updated"] = timezone.now().isoformat(timespec="seconds")
+
+    else:
+        # yfinanceが無い/ティッカー無しでも最低限の応答
+        result["source_updated"] = timezone.now().isoformat(timespec="seconds")
+
+    return JsonResponse(result)
 
 @login_required
 def cash_view(request):
