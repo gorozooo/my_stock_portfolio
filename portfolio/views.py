@@ -582,35 +582,51 @@ import yfinance as yf
 def stock_price_json(request, pk: int):
     """
     価格タブ用の軽量JSON:
-      - 直近30営業日の終値時系列（ミニチャート用）
-      - 52週高値/安値、最新終値、前日比
-      - 上場来高値/安値（period="max"）
-    ネットワーク失敗時は、DBの current_price で最低限を返す
+      - 終値時系列（期間は period=1M/3M/1Y）
+      - 最新終値・前日比
+      - 52週高値/安値
+      - 上場来高値/安値
     """
     stock = get_object_or_404(Stock, pk=pk)
-
-    # yfinance シンボル
     ticker = Stock.to_yf_symbol(stock.ticker) if hasattr(Stock, "to_yf_symbol") else stock.ticker
+
+    # ---- 期間決定（デフォルト 1M）----
+    period_q = (request.GET.get("period") or "1M").upper()
+    if period_q not in ("1M", "3M", "1Y"):
+        period_q = "1M"
+
     today = timezone.localdate()
-    start_1m = today - dt.timedelta(days=60)   # 30営業日程度入るように余裕
-    start_52w = today - dt.timedelta(days=400) # 52週用の余裕
+
+    # 期間に応じた開始日（“営業日”でなく暦日で余裕を持って広めに）
+    if period_q == "1M":
+        start_range = today - dt.timedelta(days=60)   # 30営業日ほど入る余裕
+        cap_points = 30
+    elif period_q == "3M":
+        start_range = today - dt.timedelta(days=150)
+        cap_points = 60
+    else:  # "1Y"
+        start_range = today - dt.timedelta(days=430)
+        cap_points = 260
+
+    start_52w = today - dt.timedelta(days=400)
 
     series = []
     last_close = None
     prev_close = None
     high_52w = None
     low_52w = None
-    high_all = None     # ← 上場来高値
-    low_all = None      # ← 上場来安値
+    high_all = None
+    low_all = None
 
     try:
         tkr = yf.Ticker(ticker)
 
-        # ミニチャート用
-        hist_1m = tkr.history(start=start_1m.isoformat(), end=(today + dt.timedelta(days=1)).isoformat())
-        if not hist_1m.empty:
-            closes = hist_1m["Close"].dropna()
-            pts = list(closes.items())[-30:]  # 最大30点に間引き
+        # --- 指定期間の終値時系列 ---
+        hist = tkr.history(start=start_range.isoformat(), end=(today + dt.timedelta(days=1)).isoformat())
+        if not hist.empty:
+            closes = hist["Close"].dropna()
+            # 末尾から上限 cap_points に間引き
+            pts = list(closes.items())[-cap_points:]
             series = [{"t": str(idx.date()), "c": float(val)} for idx, val in pts]
             if len(closes) >= 2:
                 last_close = float(closes.iloc[-1])
@@ -618,47 +634,44 @@ def stock_price_json(request, pk: int):
             elif len(closes) == 1:
                 last_close = float(closes.iloc[-1])
 
-        # 52週高安
+        # --- 52週高安 ---
         hist_52w = tkr.history(start=start_52w.isoformat(), end=(today + dt.timedelta(days=1)).isoformat())
         if not hist_52w.empty:
             high_52w = float(hist_52w["High"].dropna().max())
             low_52w  = float(hist_52w["Low"].dropna().min())
 
-        # 上場来高安（最大全期間）
-        try:
-            hist_max = tkr.history(period="max")
-            if not hist_max.empty:
-                high_all = float(hist_max["High"].dropna().max())
-                low_all  = float(hist_max["Low"].dropna().min())
-        except Exception:
-            # period="max" が使えないケースは無視（任意）
-            pass
+        # --- 上場来高安 ---
+        hist_all = tkr.history(period="max")
+        if not hist_all.empty:
+            high_all = float(hist_all["High"].dropna().max())
+            low_all  = float(hist_all["Low"].dropna().min())
 
     except Exception:
-        pass  # ネットワークなどは無視してフォールバックへ
+        # 失敗時はフォールバックへ
+        pass
 
     # フォールバック（最低限の表示）
-    if last_close is None or last_close <= 0:
+    if not last_close or last_close <= 0:
         last_close = float(stock.current_price or stock.unit_price or 0.0)
-    if prev_close is None:
+    if not prev_close or prev_close <= 0:
         prev_close = last_close
 
     change = last_close - prev_close
     change_pct = (change / prev_close * 100.0) if prev_close else 0.0
 
     data = {
-        "series": series,             # [{t: 'YYYY-MM-DD', c: 1234.5}, ...] 最大30点
-        "last_close": last_close,     # 最新終値
-        "prev_close": prev_close,     # 前終値
-        "change": change,             # 前日比
-        "change_pct": change_pct,     # 前日比%
-        "high_52w": high_52w,         # 52週高値
-        "low_52w": low_52w,           # 52週安値
-        "high_all": high_all,         # 上場来高値（取れなければ null）
-        "low_all": low_all,           # 上場来安値（取れなければ null）
+        "period": period_q,          # ← 返しておくとクライアントが整合確認に使える
+        "series": series,            # [{t:'YYYY-MM-DD', c: 1234.5}, ...]
+        "last_close": last_close,
+        "prev_close": prev_close,
+        "change": change,
+        "change_pct": change_pct,
+        "high_52w": high_52w,
+        "low_52w": low_52w,
+        "high_all": high_all,        # ← 上場来高値
+        "low_all": low_all,          # ← 上場来安値
     }
     return JsonResponse(data)
-
 # 先頭付近の import に以下が無ければ追加してください
 from django.views.decorators.cache import cache_page
 from django.http import JsonResponse, Http404
