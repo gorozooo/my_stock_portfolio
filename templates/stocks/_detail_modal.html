@@ -32,7 +32,7 @@
         価格
       </button>
 
-      <!-- ★ 指標タブを有効化（disabled を外す） -->
+      <!-- 指標タブを有効化 -->
       <button class="detail-tab"
               data-tab="fundamental"
               role="tab"
@@ -40,7 +40,7 @@
         指標
       </button>
 
-      <!-- ニュースはまだ無効のままでもOK -->
+      <!-- ニュースは未実装のままでもOK -->
       <button class="detail-tab"
               data-tab="news"
               role="tab"
@@ -88,16 +88,36 @@
         </div>
       </div>
 
-      <!-- 指標：まずは “—” の骨組み（あとでAPIをつなぐ） -->
+      <!-- 指標：/fundamental.json を lazy-load で描画 -->
       <div class="detail-panel" data-panel="fundamental">
         <div class="overview-grid">
-          <div class="ov-item"><div class="ov-k">PER</div><div class="ov-v" id="fd-per">—</div></div>
-          <div class="ov-item"><div class="ov-k">PBR</div><div class="ov-v" id="fd-pbr">—</div></div>
-          <div class="ov-item"><div class="ov-k">配当利回り</div><div class="ov-v" id="fd-div">—</div></div>
-          <div class="ov-item"><div class="ov-k">時価総額</div><div class="ov-v" id="fd-mcap">—</div></div>
+          <div class="ov-item">
+            <div class="ov-k">PER</div>
+            <div class="ov-v" id="fd-per">—</div>
+          </div>
+          <div class="ov-item">
+            <div class="ov-k">PBR</div>
+            <div class="ov-v" id="fd-pbr">—</div>
+          </div>
+          <div class="ov-item">
+            <div class="ov-k">配当利回り</div>
+            <div class="ov-v" id="fd-div">—</div>
+          </div>
+          <div class="ov-item">
+            <div class="ov-k">予想配当（1株）</div>
+            <div class="ov-v" id="fd-dps">—</div>
+          </div>
+          <div class="ov-item">
+            <div class="ov-k">時価総額</div>
+            <div class="ov-v" id="fd-mcap">—</div>
+          </div>
           <div class="ov-item" style="grid-column:1 / -1;">
             <div class="ov-k">EPS（推定）</div>
             <div class="ov-v" id="fd-eps">—</div>
+          </div>
+          <div class="ov-item" style="grid-column:1 / -1;">
+            <div class="ov-k">更新</div>
+            <div class="ov-v" id="fd-updated">—</div>
           </div>
         </div>
       </div>
