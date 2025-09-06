@@ -2,6 +2,7 @@
    - 旧モーダルを物理的に除去して“チラ見え”防止
    - カードの data-* を使って“即時プレビュー”を描画（体感を速く）
    - その後 /overview.json を取得して確定値に置き換え
+   - ★ モーダルの現在株価は「カード側の現在株価」に合わせて補正
 */
 (function () {
   const mountId = "detail-modal-mount";
@@ -28,11 +29,10 @@
 
   // position === "売り" のときは空売りの評価損益
   function calcOverview({ shares, unit_price, current_price, total_cost, position }) {
-    const s = Math.max(0, toNum(shares, 0));
+    const s  = Math.max(0, toNum(shares, 0));
     const up = Math.max(0, toNum(unit_price, 0));
     const cp = Math.max(0, toNum(current_price, 0));
     const tc = Math.max(0, toNum(total_cost, s * up)); // 念のため再計算フォールバック
-
     const mv = cp * s;
     const pl = (position === "売り") ? (up - cp) * s : (mv - tc);
     return { market_value: mv, profit_loss: pl, total_cost: tc };
@@ -98,6 +98,17 @@
     removeLegacyModals();
     document.body.classList.add("hide-legacy-modals");
 
+    // --- カード側の“現在株価”を取得（ここをソース・オブ・トゥルースにする） ---
+    const cardCp = toNum(cardEl?.dataset.current_price, 0);
+    const cardUp = toNum(cardEl?.dataset.unit_price, 0);
+    const cardShares = toNum(cardEl?.dataset.shares, 0);
+    const cardPosition = (cardEl?.dataset.position || "買い");
+
+    // 現在株価のフォールバック規則：
+    // 1) カードに current_price があればそれを採用
+    // 2) 無ければ unit_price を一時表示に使う（後でJSONで上書き）
+    const optimisticCp = cardCp > 0 ? cardCp : cardUp;
+
     try {
       // 1) HTML断片（新モーダルの器）を取得
       const htmlRes = await fetch(`/stocks/${stockId}/detail_fragment/`, { credentials: "same-origin" });
@@ -131,32 +142,47 @@
         });
       });
 
-      // 3) 概要パネルを“即時プレビュー”で先に埋める（カードの data-* を利用）
+      // 3) 概要パネルを“即時プレビュー”で先に埋める
       const ovWrap = modal.querySelector('[data-panel="overview"]');
-      if (cardEl && ovWrap) {
-        const d = {
-          broker: cardEl.dataset.broker || "",
-          account_type: cardEl.dataset.account || "",
-          position: cardEl.dataset.position || "買い",
-          shares: toNum(cardEl.dataset.shares, 0),
-          unit_price: toNum(cardEl.dataset.unit_price, 0),
-          // current_price が 0/未取得なら unit_price でフォールバック
-          current_price: (() => {
-            const cp = toNum(cardEl.dataset.current_price, 0);
-            return cp > 0 ? cp : toNum(cardEl.dataset.unit_price, 0);
-          })(),
-          total_cost: toNum(cardEl.dataset.shares, 0) * toNum(cardEl.dataset.unit_price, 0),
-          purchase_date: "", // カードに無ければ空
-          note: "",          // カードに無ければ空
+      if (ovWrap && cardEl) {
+        const optimistic = {
+          broker:      cardEl.dataset.broker || "",
+          account_type:cardEl.dataset.account || "",
+          position:    cardPosition,
+          shares:      cardShares,
+          unit_price:  cardUp,
+          current_price: optimisticCp,
+          total_cost:  cardShares * cardUp,
+          purchase_date: "",
+          note: ""
         };
-        ovWrap.innerHTML = optimisticOverviewHTML(d);
+        ovWrap.innerHTML = optimisticOverviewHTML(optimistic);
       }
 
       // 4) 本番データで上書き
-      const res = await fetch(`/stocks/${stockId}/overview.json`, { credentials: "same-origin" });
+      //    ★ サーバの /overview.json は from_card_current を受けられる想定
+      const url = new URL(`/stocks/${stockId}/overview.json`, window.location.origin);
+      if (cardCp > 0) url.searchParams.set("from_card_current", String(cardCp));
+      const res = await fetch(url.toString(), { credentials: "same-origin" });
       if (!res.ok) throw new Error("概要データの取得に失敗しました");
       const d = await res.json();
-      if (ovWrap) ovWrap.innerHTML = optimisticOverviewHTML(d);
+
+      // 念のためクライアント側でも最終補正：
+      // サーバが current_price を返せなかった場合、カードの値で上書き
+      const fixed = { ...d };
+      if (toNum(fixed.current_price, 0) <= 0 && cardCp > 0) {
+        fixed.current_price = cardCp;
+      }
+      // 取得額が無い/ズレていれば補正
+      if (toNum(fixed.total_cost, 0) <= 0) {
+        fixed.total_cost = toNum(fixed.shares, 0) * toNum(fixed.unit_price, 0);
+      }
+      // 市場価値/損益は最新 current_price で再計算
+      const { market_value, profit_loss } = calcOverview(fixed);
+      fixed.market_value = market_value;
+      fixed.profit_loss  = profit_loss;
+
+      if (ovWrap) ovWrap.innerHTML = optimisticOverviewHTML(fixed);
     } catch (err) {
       console.error(err);
       alert("詳細の読み込みでエラーが発生しました。時間をおいて再度お試しください。");
