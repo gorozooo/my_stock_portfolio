@@ -658,82 +658,75 @@ try:
 except Exception:
     yf = None
 
-# …（既存の view はそのまま）…
-
-@cache_page(60)  # 60秒キャッシュで十分軽く
+@cache_page(60)
 @login_required
 @require_GET
 def stock_fundamental_json(request, pk: int):
-    """
-    指標タブ用の軽量JSON:
-      - PER (trailingPE or forwardPE)
-      - PBR (priceToBook)
-      - 配当利回り (dividendYield: 0.02 -> 2.0%)
-      - 時価総額 (marketCap)
-      - 1株利益(EPS)近似（PERと株価から推定）※参考値
-    取れない値は None を返す。フロントで '—' 表示にする。
-    """
     stock = get_object_or_404(Stock, pk=pk)
 
-    # yfinance シンボル
     ticker = Stock.to_yf_symbol(stock.ticker) if hasattr(Stock, "to_yf_symbol") else (stock.ticker or "")
     result = {
         "per": None,
         "pbr": None,
-        "div_yield_pct": None,
+        "div_yield_pct": None,   # ← 最終的に「%値」を入れる（3.10 なら 3.10）
         "market_cap": None,
-        "eps_est": None,          # 参考値
-        "source_updated": None,   # 情報更新時刻（文字列）
+        "eps_est": None,
+        "source_updated": None,
     }
 
-    # まずは DB の現値/株価からEPSを概算する準備
     last_price = float(stock.current_price or stock.unit_price or 0.0)
 
     if yf and ticker:
         try:
             tkr = yf.Ticker(ticker)
-
-            # 速い fast_info を優先
             fi = getattr(tkr, "fast_info", {}) or {}
-            info = {}
-            # .info は重い可能性があるので、fast_info で不足なら history などと組合せ
             try:
-                # yfinanceのバージョン差異により dict でないことがあるので防御的に
                 info = tkr.info if isinstance(getattr(tkr, "info", None), dict) else {}
             except Exception:
                 info = {}
 
-            # 候補（trailingPE/forwardPE）
-            per = (fi.get("trailingPE")
-                   or info.get("trailingPE")
-                   or fi.get("forwardPE")
-                   or info.get("forwardPE"))
-
+            per = (fi.get("trailingPE") or info.get("trailingPE") or
+                   fi.get("forwardPE")  or info.get("forwardPE"))
             pbr = (fi.get("priceToBook") or info.get("priceToBook"))
 
-            div_yield = (fi.get("dividendYield") or info.get("dividendYield"))  # 例: 0.02
-            if div_yield is not None:
+            # ====== ここを修正：dividendYield のスケールを正規化 ======
+            raw_div = fi.get("dividendYield", None)
+            if raw_div is None:
+                raw_div = info.get("dividendYield", None)
+
+            div_pct = None
+            if raw_div is not None:
                 try:
-                    result["div_yield_pct"] = float(div_yield) * 100.0
+                    y = float(raw_div)
+                    # 0 < y <= 1.0 なら 0.031 → 3.1 とみなして ×100
+                    # 1.0 < y（例: 3.1）なら そのまま%値として採用
+                    # 100 を超えるような明らかな異常は 1/100 して救済
+                    if y <= 0:
+                        div_pct = None
+                    elif y <= 1.0:
+                        div_pct = y * 100.0
+                    elif y > 100.0:
+                        div_pct = y / 100.0
+                    else:
+                        div_pct = y
                 except Exception:
-                    result["div_yield_pct"] = None
+                    div_pct = None
+            result["div_yield_pct"] = div_pct
+            # ================================================
 
             mcap = (fi.get("marketCap") or info.get("marketCap"))
 
-            # last price を fast_info から補強
             last = (fi.get("last_price") or fi.get("lastPrice") or info.get("currentPrice"))
             if last and (not last_price or last_price <= 0):
                 last_price = float(last)
 
-            # EPS 推定（参考値）：PER = Price / EPS → EPS ≈ Price / PER
             eps_est = None
             try:
-                if per and last_price and per > 0:
+                if per and last_price and float(per) > 0:
                     eps_est = float(last_price) / float(per)
             except Exception:
                 eps_est = None
 
-            # 数値へ丸め
             def f(x):
                 try:
                     v = float(x)
@@ -752,11 +745,8 @@ def stock_fundamental_json(request, pk: int):
             })
 
         except Exception:
-            # yfinance失敗時は None のまま返却
             result["source_updated"] = timezone.now().isoformat(timespec="seconds")
-
     else:
-        # yfinanceが無い/ティッカー無しでも最低限の応答
         result["source_updated"] = timezone.now().isoformat(timespec="seconds")
 
     return JsonResponse(result)
@@ -769,7 +759,6 @@ def cash_view(request):
 @login_required
 def realized_view(request):
     return render(request, "realized.html")
-
 
 @login_required
 def trade_history(request):
