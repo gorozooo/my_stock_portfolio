@@ -64,16 +64,7 @@
                       <div class="stock-row"><span>株数</span><span>{{ stock.shares|intcomma }}株</span></div>
                       <div class="stock-row"><span>取得単価</span><span>{{ stock.unit_price|floatformat:0|intcomma }}円</span></div>
                       <div class="stock-row"><span>取得額</span><span>{{ stock.total_cost|intcomma }}円</span></div>
-                      <div class="stock-row">
-  <span>現在株価</span>
-  <span>
-    {% if stock.current_price and stock.current_price > 0 %}
-      {{ stock.current_price|floatformat:0|intcomma }}円
-    {% else %}
-      {{ stock.unit_price|floatformat:0|intcomma }}円
-    {% endif %}
-  </span>
-</div>
+                      <div class="stock-row"><span>現在株価</span><span>{% if stock.current_price and stock.current_price > 0 %}{{ stock.current_price|floatformat:0|intcomma }}円{% else %}{{ stock.unit_price|floatformat:0|intcomma }}円{% endif %}</span></div>
                       <div class="stock-row gain {% if stock.profit_amount >= 0 %}positive{% else %}negative{% endif %}">
                         <span>損益</span>
                         <span>{{ stock.profit_amount|intcomma }}円 ({{ stock.profit_rate }}%)</span>
