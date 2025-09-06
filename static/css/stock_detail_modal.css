@@ -29,7 +29,7 @@
   border-radius: 12px;
   color: #fff;
   padding: 12px;
-  padding-top: 30px;                /* 上部余裕（×と重ならない） */
+  padding-top: 45px;                /* 上部余裕（×と重ならない） */
   padding-bottom: 72px;             /* 下部ボタン分の余白 */
 }
 
@@ -38,7 +38,7 @@
   position: absolute;
   /* 8px + ボタン高さ36px = 44px だと余白がギリなので少しゆとりを持って 52px */
   top: 44px;                        /* ← “ボタン1個分”下げる（ナビ被り回避） */
-  right: 8px;
+  right: 15px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
