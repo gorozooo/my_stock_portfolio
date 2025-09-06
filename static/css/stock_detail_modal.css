@@ -143,26 +143,57 @@
 .ov-v.pos { color: #6aff6a; }
 .ov-v.neg { color: #ff6a6a; }
 
-/* ===== フッター（閉じる・編集・売却を“1番下の中央”に固定） ===== */
+/* ===== フッター（編集・売却・閉じるを“1番下の中央”に固定） ===== */
 .detail-modal__footer {
-  position: sticky;          /* ダイアログ内の最下部に張り付く */
+  position: sticky;
   bottom: 0;
   left: 0;
   right: 0;
   display: flex;
   gap: 12px;
-  justify-content: center;   /* 中央寄せ */
+  justify-content: center;
   align-items: center;
   padding: 10px;
   background: linear-gradient(180deg, rgba(18,18,24,0) 0%, rgba(18,18,24,.9) 30%, rgba(18,18,24,.95) 100%);
   border-top: 1px solid rgba(255,255,255,.12);
   margin-top: 12px;
   z-index: 5;
-  /* iOSのホームバーに配慮 */
   padding-bottom: calc(10px + env(safe-area-inset-bottom, 0));
 }
-.detail-modal__footer .dm-btn { min-width: 128px; }
 
+/* フッターのボタン（全て同じ幅） */
+.detail-modal__footer .dm-btn {
+  flex: 1;                     /* ← 横幅を均等に */
+  min-width: 100px;
+  text-align: center;
+  padding: 12px 0;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 14px;
+  border: none;
+  transition: background .2s ease, transform .2s ease;
+}
+.detail-modal__footer .dm-btn:hover {
+  transform: translateY(-1px);
+}
+
+/* 編集ボタン（青系） */
+.dm-btn--edit {
+  background: linear-gradient(180deg, rgba(0,123,255,.9), rgba(0,123,255,.7));
+  color: #fff;
+}
+
+/* 売却ボタン（赤系） */
+.dm-btn--danger {
+  background: linear-gradient(180deg, rgba(244,67,54,.95), rgba(244,67,54,.72));
+  color: #fff;
+}
+
+/* 閉じるボタン（グレー系） */
+.dm-btn--close {
+  background: linear-gradient(180deg, rgba(108,117,125,.9), rgba(108,117,125,.7));
+  color: #fff;
+}
 /* モバイル最適化 */
 @media (max-width: 480px){
   .detail-modal__dialog { width: 96vw; }
