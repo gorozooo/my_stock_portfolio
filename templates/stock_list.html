@@ -50,7 +50,7 @@
                        data-ticker="{{ stock.ticker }}"
                        data-shares="{{ stock.shares }}"
                        data-unit_price="{{ stock.unit_price|floatformat:0 }}"
-                       data-current_price="{% if stock.current_price and stock.current_price > 0 %}{{ stock.current_price|floatformat:0 }}{% else %}{{ stock.unit_price|floatformat:0 }}{% endif %}"
+                       data-current_price="{{ stock.current_price|floatformat:2 }}"
                        data-profit="{{ stock.profit_amount }}"
                        data-profit_rate="{{ stock.profit_rate }}"
                        data-account="{{ stock.account_type_name }}"
