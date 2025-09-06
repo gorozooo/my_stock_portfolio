@@ -13,13 +13,15 @@
     <!-- タブ -->
     <nav class="detail-tabs" role="tablist" aria-label="詳細タブ">
       <button class="detail-tab is-active" data-tab="overview" role="tab" aria-selected="true">概要</button>
-      <button class="detail-tab" data-tab="price" role="tab" aria-selected="false" disabled>価格</button>
+      <!-- 価格タブを有効化（lazy-load 用に JS が利用する） -->
+      <button class="detail-tab" data-tab="price" role="tab" aria-selected="false">価格</button>
       <button class="detail-tab" data-tab="fundamental" role="tab" aria-selected="false" disabled>指標</button>
       <button class="detail-tab" data-tab="news" role="tab" aria-selected="false" disabled>ニュース</button>
     </nav>
 
     <!-- パネル -->
     <section class="detail-panels">
+      <!-- 概要：最初はスケルトン → JS が /overview.json を描画 -->
       <div class="detail-panel is-active" data-panel="overview">
         <div class="skeleton">
           <div class="sk-line"></div>
@@ -28,8 +30,27 @@
         </div>
       </div>
 
+      <!-- 価格：初回クリック時に /price.json を取得して描画 -->
       <div class="detail-panel" data-panel="price">
-        <div class="placeholder">価格タブは次の段階で追加予定です。</div>
+        <div class="price-wrap">
+          <div class="price-top">
+            <div class="price-last">
+              <span class="label">最新</span>
+              <span class="val" id="price-last">—</span>
+            </div>
+            <div class="price-chg">
+              <span class="label">前日比</span>
+              <span class="val" id="price-chg">—</span>
+            </div>
+          </div>
+
+          <canvas id="price-canvas" width="600" height="140" aria-label="価格推移"></canvas>
+
+          <div class="price-rows">
+            <div class="row"><span>52週高値</span><span id="price-52h">—</span></div>
+            <div class="row"><span>52週安値</span><span id="price-52l">—</span></div>
+          </div>
+        </div>
       </div>
 
       <div class="detail-panel" data-panel="fundamental">
