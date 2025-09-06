@@ -1,8 +1,8 @@
 /* 詳細モーダル（概要 + 価格 + 指標）
    - 概要: /overview.json（from_card_current付き）で確定値
    - 価格: 初回 or 期間変更で /price.json?period= を取得 → Canvas 描画
-           ＋ 日付軸（先頭/中間/末尾）・価格目盛（min/mid/max）
-           ＋ オーバーレイ（クロスヘア & ツールチップ）
+           ローソク足（OHLCあり）/ ライン（OHLCなし）を自動切替
+           ＋ 軸ラベル（日付・価格）＋ オーバーレイ（クロスヘア & ツールチップ）
    - 指標: 初回クリックで /fundamental.json を取得（配当利回り・DPS含む）
 */
 (function () {
@@ -114,7 +114,7 @@
     return 0;
   }
 
-  /* ---------- price: fetch & draw ---------- */
+  /* ---------- price: fetch ---------- */
   async function fetchPrice(stockId, period) {
     const url = new URL(`/stocks/${stockId}/price.json`, window.location.origin);
     url.searchParams.set("period", period);
@@ -123,8 +123,10 @@
     return await res.json();
   }
 
-  // ベースチャート（エリア＋ライン＋軸ラベル）を描いてスケール関数を返す
-  function drawBasePriceChart(baseCanvas, series) {
+  /* ---------- price: draw (candlestick or line) ---------- */
+
+  // ライン（フォールバック）を描画
+  function drawLineChart(baseCanvas, series) {
     const { ctx, w, h } = fitCanvasToDPR(baseCanvas);
     ctx.clearRect(0, 0, w, h);
 
@@ -188,17 +190,116 @@
     if (mid) ctx.fillText(fmtDate(mid), xAt(Math.floor(series.length / 2)), h - pad.b + 2);
     if (last) ctx.fillText(fmtDate(last), xAt(series.length - 1), h - pad.b + 2);
 
-    return { xAt, yAt, pad, innerW, innerH, w, h };
+    return { xAt, yAt, pad, w, h, valueAtIndex: (i) => Number(series[i].c) };
   }
 
-  function enableOverlayInteraction(overlayCanvas, series, scales, tooltipEl) {
+  // ローソク足を描画
+  function drawCandles(baseCanvas, seriesOHLC) {
+    const { ctx, w, h } = fitCanvasToDPR(baseCanvas);
+    ctx.clearRect(0, 0, w, h);
+
+    const pad = { l: 48, r: 12, t: 10, b: 22 };
+    const innerW = w - pad.l - pad.r;
+    const innerH = h - pad.t - pad.b;
+
+    const highs = seriesOHLC.map(p => Number(p.h));
+    const lows  = seriesOHLC.map(p => Number(p.l));
+    const opens = seriesOHLC.map(p => Number(p.o));
+    const closes= seriesOHLC.map(p => Number(p.c));
+
+    const minY = Math.min(...lows);
+    const maxY = Math.max(...highs);
+
+    const n = seriesOHLC.length;
+    const xAt = (i) => pad.l + (innerW * i / Math.max(1, (n - 1)));
+    const yAt = (v) => pad.t + (innerH * (1 - (v - minY) / Math.max(1e-9, (maxY - minY))));
+    const colUp   = "rgba(244,67,54,0.95)";   // 陽線=赤
+    const colDown = "rgba(76,175,80,0.95)";   // 陰線=緑
+    const wickCol = "rgba(255,255,255,0.85)";
+
+    // 価格目盛（左）: min / mid / max（先に引いておく）
+    ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    const ticks = [minY, (minY + maxY) / 2, maxY];
+    ticks.forEach(v => {
+      const y = yAt(v);
+      ctx.fillStyle = "rgba(255,255,255,.85)";
+      ctx.fillText(Math.round(v).toLocaleString(), pad.l - 6, y);
+      ctx.strokeStyle = "rgba(255,255,255,.08)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(pad.l, y);
+      ctx.lineTo(w - pad.r, y);
+      ctx.stroke();
+    });
+
+    // ローソク本体
+    const stepX = (n <= 1) ? innerW : (innerW / (n - 1));
+    const bodyW = Math.max(3, Math.min(18, Math.floor(stepX * 0.6)));
+
+    for (let i = 0; i < n; i++) {
+      const o = opens[i], c = closes[i], hi = highs[i], lo = lows[i];
+      const cx = xAt(i);
+      const isUp = c >= o;
+      const color = isUp ? colUp : colDown;
+
+      // ヒゲ
+      ctx.strokeStyle = wickCol;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cx, yAt(hi));
+      ctx.lineTo(cx, yAt(lo));
+      ctx.stroke();
+
+      // 実体
+      const y1 = yAt(o);
+      const y2 = yAt(c);
+      const top = Math.min(y1, y2);
+      const height = Math.max(1, Math.abs(y1 - y2));
+      ctx.fillStyle = color;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+
+      // 細すぎる期間では見やすさのため線のみ
+      if (height <= 1) {
+        ctx.beginPath();
+        ctx.moveTo(cx - bodyW / 2, top);
+        ctx.lineTo(cx + bodyW / 2, top);
+        ctx.stroke();
+      } else {
+        ctx.fillRect(Math.round(cx - bodyW / 2), Math.round(top), Math.round(bodyW), Math.round(height));
+      }
+    }
+
+    // 日付（下）: 先頭 / 中央 / 末尾
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "rgba(255,255,255,.85)";
+    const first = seriesOHLC[0]?.t;
+    const mid = seriesOHLC[Math.floor(n / 2)]?.t;
+    const last = seriesOHLC[n - 1]?.t;
+    if (first) ctx.fillText(fmtDate(first), xAt(0), h - pad.b + 2);
+    if (mid)   ctx.fillText(fmtDate(mid), xAt(Math.floor(n / 2)), h - pad.b + 2);
+    if (last)  ctx.fillText(fmtDate(last), xAt(n - 1), h - pad.b + 2);
+
+    return {
+      xAt, yAt, pad, w, h,
+      valueAtIndex: (i) => closes[i], // ツールチップの基準点＝終値
+      ohlcAtIndex: (i) => ({
+        o: opens[i], h: highs[i], l: lows[i], c: closes[i], t: seriesOHLC[i]?.t
+      })
+    };
+  }
+
+  function enableOverlayInteraction(overlayCanvas, series, scales, tooltipEl, useOHLC = false) {
     const { ctx, w, h } = fitCanvasToDPR(overlayCanvas);
-    const { xAt, yAt, pad } = scales;
+    const { xAt, yAt, pad, valueAtIndex, ohlcAtIndex } = scales;
 
     function nearestIndex(px) {
       const n = series.length;
       if (n <= 1) return 0;
-      // 等間隔前提：xAt(i) は線形 → 逆変換で近似
+      // 等間隔前提：xAt(i) は線形 → 逆変換近似
       const x0 = xAt(0);
       const x1 = xAt(1);
       const step = Math.max(1, x1 - x0);
@@ -208,8 +309,9 @@
 
     function drawCross(i) {
       ctx.clearRect(0, 0, w, h);
+      const price = valueAtIndex(i);
       const px = xAt(i);
-      const py = yAt(Number(series[i].c));
+      const py = yAt(price);
 
       // 縦線
       ctx.strokeStyle = "rgba(255,255,255,.5)";
@@ -227,13 +329,18 @@
     }
 
     function showTooltip(i, clientX) {
-      const d = series[i];
-      const price = Math.round(Number(d.c)).toLocaleString();
-      const dt = d.t;
-      tooltipEl.textContent = `${dt} / ¥${price}`;
-      tooltipEl.classList.add("is-visible");
       const rect = overlayCanvas.getBoundingClientRect();
       const x = Math.min(Math.max(clientX - rect.left, 16), rect.width - 16);
+
+      if (useOHLC) {
+        const d = ohlcAtIndex(i);
+        tooltipEl.innerHTML = `${d.t}<br>O:${yen(d.o)}  H:${yen(d.h)}  L:${yen(d.l)}  C:${yen(d.c)}`;
+      } else {
+        const d = series[i];
+        tooltipEl.textContent = `${d.t} / ${yen(d.c)}`;
+      }
+
+      tooltipEl.classList.add("is-visible");
       tooltipEl.style.left = `${x}px`;
       tooltipEl.style.top = `8px`;
     }
@@ -284,12 +391,23 @@
     const base = modal.querySelector("#price-canvas");
     const over = modal.querySelector("#price-overlay");
     const tip  = modal.querySelector("#price-tooltip");
-    const series = (d.series || []).filter(p => Number.isFinite(toNum(p.c)));
+    if (!base || !over || !tip) return;
 
-    if (!base || !over || !tip || series.length < 2) return;
+    const hasOHLC = !!(d.series && d.series.length && ("o" in d.series[0]) && ("h" in d.series[0]) && ("l" in d.series[0]) && ("c" in d.series[0]));
 
-    const scales = drawBasePriceChart(base, series);
-    enableOverlayInteraction(over, series, scales, tip);
+    let scales;
+    if (hasOHLC) {
+      const ser = d.series.map(p => ({ t: p.t, o: toNum(p.o), h: toNum(p.h), l: toNum(p.l), c: toNum(p.c) }))
+                          .filter(p => Number.isFinite(p.o) && Number.isFinite(p.h) && Number.isFinite(p.l) && Number.isFinite(p.c));
+      if (ser.length < 2) return;
+      scales = drawCandles(base, ser);
+      enableOverlayInteraction(over, ser, scales, tip, true);
+    } else {
+      const ser = (d.series || []).map(p => ({ t: p.t, c: toNum(p.c) })).filter(p => Number.isFinite(p.c));
+      if (ser.length < 2) return;
+      scales = drawLineChart(base, ser);
+      enableOverlayInteraction(over, ser, scales, tip, false);
+    }
   }
 
   async function loadPriceTab(modal, stockId, period = "1M") {
