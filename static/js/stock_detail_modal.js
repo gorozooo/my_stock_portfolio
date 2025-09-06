@@ -1,14 +1,11 @@
 /* 詳細モーダル（概要 + 価格 + 指標）
    - 概要: /overview.json（from_card_current付き）で確定値
-   - 価格: 初回 or 期間変更で /price.json?period= を取得 → Canvas 描画
-           ローソク足（OHLCあり）/ ライン（OHLCなし）を自動切替
-           ＋ 軸ラベル（日付・価格）＋ オーバーレイ（クロスヘア & ツールチップ）
+   - 価格: 初回 or 期間変更で /price.json?period= を取得 → Canvas 描画（ローソク足対応）
    - 指標: 初回クリックで /fundamental.json を取得（配当利回り・DPS含む）
 */
 (function () {
   const mountId = "detail-modal-mount";
 
-  /* ---------- utils ---------- */
   const toNum = (v, d = 0) => {
     if (v === null || v === undefined) return d;
     const n = Number(String(v).replace(/[^\d.-]/g, ""));
@@ -16,24 +13,6 @@
   };
   const yen = (n) => "¥" + Math.round(toNum(n)).toLocaleString();
   const num = (n) => toNum(n).toLocaleString();
-
-  function fmtDate(dStr) {
-    // "YYYY-MM-DD" → "M/D"
-    if (!dStr) return "";
-    const p = dStr.split("-");
-    return (p.length >= 3) ? `${Number(p[1])}/${Number(p[2])}` : dStr;
-  }
-
-  function fitCanvasToDPR(canvas) {
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
-    canvas.width = Math.floor(w * dpr);
-    canvas.height = Math.floor(h * dpr);
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    return { ctx, w, h, dpr };
-  }
 
   function calcOverview({ shares, unit_price, current_price, total_cost, position }) {
     const s = Math.max(0, toNum(shares));
@@ -114,7 +93,7 @@
     return 0;
   }
 
-  /* ---------- price: fetch ---------- */
+  // ===== 価格タブ（期間対応） =====
   async function fetchPrice(stockId, period) {
     const url = new URL(`/stocks/${stockId}/price.json`, window.location.origin);
     url.searchParams.set("period", period);
@@ -123,246 +102,38 @@
     return await res.json();
   }
 
-  /* ---------- price: draw (candlestick or line) ---------- */
-
-  // ライン（フォールバック）を描画
-  function drawLineChart(baseCanvas, series) {
-    const { ctx, w, h } = fitCanvasToDPR(baseCanvas);
-    ctx.clearRect(0, 0, w, h);
-
-    const pad = { l: 42, r: 12, t: 10, b: 22 };
-    const innerW = w - pad.l - pad.r;
-    const innerH = h - pad.t - pad.b;
-
-    const ys = series.map(p => Number(p.c));
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-    const xAt = (i) => pad.l + (innerW * i / Math.max(1, (ys.length - 1)));
-    const yAt = (v) => pad.t + (innerH * (1 - (v - minY) / Math.max(1e-9, (maxY - minY))));
-
-    // エリア
-    const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + innerH);
-    grad.addColorStop(0, "rgba(0,200,255,0.35)");
-    grad.addColorStop(1, "rgba(0,200,255,0.00)");
-
-    ctx.beginPath();
-    ctx.moveTo(xAt(0), yAt(ys[0]));
-    ys.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
-    ctx.lineTo(xAt(ys.length - 1), pad.t + innerH);
-    ctx.lineTo(xAt(0), pad.t + innerH);
-    ctx.closePath();
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    // ライン
-    ctx.beginPath();
-    ctx.moveTo(xAt(0), yAt(ys[0]));
-    ys.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
-    ctx.strokeStyle = "rgba(0,200,255,0.85)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // 価格目盛（左）: min / mid / max
-    ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto";
-    ctx.textAlign = "right";
-    ctx.textBaseline = "middle";
-    const ticks = [minY, (minY + maxY) / 2, maxY];
-    ticks.forEach(v => {
-      const y = yAt(v);
-      ctx.fillStyle = "rgba(255,255,255,.85)";
-      ctx.fillText(Math.round(v).toLocaleString(), pad.l - 6, y);
-      ctx.strokeStyle = "rgba(255,255,255,.08)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(pad.l, y);
-      ctx.lineTo(w - pad.r, y);
-      ctx.stroke();
-    });
-
-    // 日付（下）: 先頭 / 中央 / 末尾
+  // --- 軸ラベルの補助（少ないテキストで干渉しにくく） ---
+  function drawAxes(ctx, W, H, padX, padY, minY, maxY, dates) {
+    ctx.save();
+    ctx.fillStyle = "rgba(255,255,255,0.7)";
+    ctx.font = "10px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    ctx.fillStyle = "rgba(255,255,255,.85)";
-    const first = series[0]?.t;
-    const mid = series[Math.floor(series.length / 2)]?.t;
-    const last = series[series.length - 1]?.t;
-    if (first) ctx.fillText(fmtDate(first), xAt(0), h - pad.b + 2);
-    if (mid) ctx.fillText(fmtDate(mid), xAt(Math.floor(series.length / 2)), h - pad.b + 2);
-    if (last) ctx.fillText(fmtDate(last), xAt(series.length - 1), h - pad.b + 2);
 
-    return { xAt, yAt, pad, w, h, valueAtIndex: (i) => Number(series[i].c) };
-  }
+    // X: 先頭・中央・末尾
+    if (dates.length >= 1) {
+      const first = dates[0], last = dates[dates.length - 1];
+      const mid = dates[Math.floor(dates.length / 2)];
+      ctx.fillText(first, padX + 4, H - padY + 4);
+      ctx.fillText(mid, W / 2, H - padY + 4);
+      ctx.fillText(last, W - padX - 12, H - padY + 4);
+    }
 
-  // ローソク足を描画
-  function drawCandles(baseCanvas, seriesOHLC) {
-    const { ctx, w, h } = fitCanvasToDPR(baseCanvas);
-    ctx.clearRect(0, 0, w, h);
-
-    const pad = { l: 48, r: 12, t: 10, b: 22 };
-    const innerW = w - pad.l - pad.r;
-    const innerH = h - pad.t - pad.b;
-
-    const highs = seriesOHLC.map(p => Number(p.h));
-    const lows  = seriesOHLC.map(p => Number(p.l));
-    const opens = seriesOHLC.map(p => Number(p.o));
-    const closes= seriesOHLC.map(p => Number(p.c));
-
-    const minY = Math.min(...lows);
-    const maxY = Math.max(...highs);
-
-    const n = seriesOHLC.length;
-    const xAt = (i) => pad.l + (innerW * i / Math.max(1, (n - 1)));
-    const yAt = (v) => pad.t + (innerH * (1 - (v - minY) / Math.max(1e-9, (maxY - minY))));
-    const colUp   = "rgba(244,67,54,0.95)";   // 陽線=赤
-    const colDown = "rgba(76,175,80,0.95)";   // 陰線=緑
-    const wickCol = "rgba(255,255,255,0.85)";
-
-    // 価格目盛（左）: min / mid / max（先に引いておく）
-    ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto";
+    // Y: min / mid / max
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
-    const ticks = [minY, (minY + maxY) / 2, maxY];
-    ticks.forEach(v => {
+    const fmt = (v) => Math.round(v).toLocaleString();
+    const innerH = H - padY * 2;
+    const yAt = (v) => padY + innerH * (1 - (v - minY) / Math.max(1e-9, (maxY - minY)));
+    const marks = [minY, (minY + maxY) / 2, maxY];
+    marks.forEach((v) => {
       const y = yAt(v);
-      ctx.fillStyle = "rgba(255,255,255,.85)";
-      ctx.fillText(Math.round(v).toLocaleString(), pad.l - 6, y);
-      ctx.strokeStyle = "rgba(255,255,255,.08)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(pad.l, y);
-      ctx.lineTo(w - pad.r, y);
-      ctx.stroke();
+      ctx.fillText(fmt(v), W - 2, y);
+      ctx.strokeStyle = "rgba(255,255,255,0.08)";
+      ctx.beginPath(); ctx.moveTo(padX, y); ctx.lineTo(W - padX, y); ctx.stroke();
     });
 
-    // ローソク本体
-    const stepX = (n <= 1) ? innerW : (innerW / (n - 1));
-    const bodyW = Math.max(3, Math.min(18, Math.floor(stepX * 0.6)));
-
-    for (let i = 0; i < n; i++) {
-      const o = opens[i], c = closes[i], hi = highs[i], lo = lows[i];
-      const cx = xAt(i);
-      const isUp = c >= o;
-      const color = isUp ? colUp : colDown;
-
-      // ヒゲ
-      ctx.strokeStyle = wickCol;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(cx, yAt(hi));
-      ctx.lineTo(cx, yAt(lo));
-      ctx.stroke();
-
-      // 実体
-      const y1 = yAt(o);
-      const y2 = yAt(c);
-      const top = Math.min(y1, y2);
-      const height = Math.max(1, Math.abs(y1 - y2));
-      ctx.fillStyle = color;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
-
-      // 細すぎる期間では見やすさのため線のみ
-      if (height <= 1) {
-        ctx.beginPath();
-        ctx.moveTo(cx - bodyW / 2, top);
-        ctx.lineTo(cx + bodyW / 2, top);
-        ctx.stroke();
-      } else {
-        ctx.fillRect(Math.round(cx - bodyW / 2), Math.round(top), Math.round(bodyW), Math.round(height));
-      }
-    }
-
-    // 日付（下）: 先頭 / 中央 / 末尾
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    ctx.fillStyle = "rgba(255,255,255,.85)";
-    const first = seriesOHLC[0]?.t;
-    const mid = seriesOHLC[Math.floor(n / 2)]?.t;
-    const last = seriesOHLC[n - 1]?.t;
-    if (first) ctx.fillText(fmtDate(first), xAt(0), h - pad.b + 2);
-    if (mid)   ctx.fillText(fmtDate(mid), xAt(Math.floor(n / 2)), h - pad.b + 2);
-    if (last)  ctx.fillText(fmtDate(last), xAt(n - 1), h - pad.b + 2);
-
-    return {
-      xAt, yAt, pad, w, h,
-      valueAtIndex: (i) => closes[i], // ツールチップの基準点＝終値
-      ohlcAtIndex: (i) => ({
-        o: opens[i], h: highs[i], l: lows[i], c: closes[i], t: seriesOHLC[i]?.t
-      })
-    };
-  }
-
-  function enableOverlayInteraction(overlayCanvas, series, scales, tooltipEl, useOHLC = false) {
-    const { ctx, w, h } = fitCanvasToDPR(overlayCanvas);
-    const { xAt, yAt, pad, valueAtIndex, ohlcAtIndex } = scales;
-
-    function nearestIndex(px) {
-      const n = series.length;
-      if (n <= 1) return 0;
-      // 等間隔前提：xAt(i) は線形 → 逆変換近似
-      const x0 = xAt(0);
-      const x1 = xAt(1);
-      const step = Math.max(1, x1 - x0);
-      const i = Math.round((px - x0) / step);
-      return Math.max(0, Math.min(n - 1, i));
-    }
-
-    function drawCross(i) {
-      ctx.clearRect(0, 0, w, h);
-      const price = valueAtIndex(i);
-      const px = xAt(i);
-      const py = yAt(price);
-
-      // 縦線
-      ctx.strokeStyle = "rgba(255,255,255,.5)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(px, pad.t);
-      ctx.lineTo(px, h - pad.b);
-      ctx.stroke();
-
-      // ドット
-      ctx.fillStyle = "rgba(0,200,255,.95)";
-      ctx.beginPath();
-      ctx.arc(px, py, 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    function showTooltip(i, clientX) {
-      const rect = overlayCanvas.getBoundingClientRect();
-      const x = Math.min(Math.max(clientX - rect.left, 16), rect.width - 16);
-
-      if (useOHLC) {
-        const d = ohlcAtIndex(i);
-        tooltipEl.innerHTML = `${d.t}<br>O:${yen(d.o)}  H:${yen(d.h)}  L:${yen(d.l)}  C:${yen(d.c)}`;
-      } else {
-        const d = series[i];
-        tooltipEl.textContent = `${d.t} / ${yen(d.c)}`;
-      }
-
-      tooltipEl.classList.add("is-visible");
-      tooltipEl.style.left = `${x}px`;
-      tooltipEl.style.top = `8px`;
-    }
-
-    function hideTooltip() {
-      tooltipEl.classList.remove("is-visible");
-      ctx.clearRect(0, 0, w, h);
-    }
-
-    function handleMove(e) {
-      const rect = overlayCanvas.getBoundingClientRect();
-      const clientX = (e.touches?.[0]?.clientX ?? e.clientX);
-      const x = clientX - rect.left;
-      const i = nearestIndex(x);
-      drawCross(i);
-      showTooltip(i, clientX);
-    }
-
-    overlayCanvas.addEventListener("mousemove", handleMove);
-    overlayCanvas.addEventListener("touchmove", handleMove, { passive: true });
-    overlayCanvas.addEventListener("mouseleave", hideTooltip);
-    overlayCanvas.addEventListener("touchend", hideTooltip);
+    ctx.restore();
   }
 
   function renderPrice(modal, d) {
@@ -387,26 +158,101 @@
     if (haEl)  haEl.textContent  = d.high_all ? yen(d.high_all) : "—";
     if (laEl)  laEl.textContent  = d.low_all  ? yen(d.low_all)  : "—";
 
-    // チャート（ベース＋オーバーレイ＋ツールチップ）
-    const base = modal.querySelector("#price-canvas");
-    const over = modal.querySelector("#price-overlay");
-    const tip  = modal.querySelector("#price-tooltip");
-    if (!base || !over || !tip) return;
+    // チャート（ローソク足対応）
+    const cvs = modal.querySelector("#price-canvas");
+    if (!cvs) return;
+    const ctx = cvs.getContext("2d");
+    const Wcss = cvs.clientWidth;
+    const Hcss = cvs.clientHeight;
+    const dpr = window.devicePixelRatio || 1;
+    cvs.width  = Math.floor(Wcss * dpr);
+    cvs.height = Math.floor(Hcss * dpr);
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, Wcss, Hcss);
 
-    const hasOHLC = !!(d.series && d.series.length && ("o" in d.series[0]) && ("h" in d.series[0]) && ("l" in d.series[0]) && ("c" in d.series[0]));
+    const series = Array.isArray(d.series) ? d.series : [];
+    if (series.length < 2) return;
 
-    let scales;
+    // 判定：OHLC ありならローソク、無ければライン
+    const hasOHLC = ["o","h","l","c"].every(k => series[0] && (k in series[0]));
+
+    // スケール共通計算
+    const padX = 28, padY = 18; // 軸ラベル用に余裕
+    const innerW = Wcss - padX * 2;
+    const innerH = Hcss - padY * 2;
+
+    const dates = series.map(p => p.t);
+    const values = hasOHLC
+      ? series.flatMap(p => [toNum(p.h), toNum(p.l)])
+      : series.map(p => toNum(p.c));
+    const minY = Math.min(...values);
+    const maxY = Math.max(...values);
+
+    const xStep = innerW / Math.max(1, series.length - 1);
+    const xAt = (i) => padX + xStep * i;
+    const yAt = (v) => padY + innerH * (1 - (v - minY) / Math.max(1e-9, (maxY - minY)));
+
     if (hasOHLC) {
-      const ser = d.series.map(p => ({ t: p.t, o: toNum(p.o), h: toNum(p.h), l: toNum(p.l), c: toNum(p.c) }))
-                          .filter(p => Number.isFinite(p.o) && Number.isFinite(p.h) && Number.isFinite(p.l) && Number.isFinite(p.c));
-      if (ser.length < 2) return;
-      scales = drawCandles(base, ser);
-      enableOverlayInteraction(over, ser, scales, tip, true);
+      // ====== ローソク足 ======
+      // ボディ幅（ステップの 60% 程度、最小 3px）
+      const bodyW = Math.max(3, xStep * 0.6);
+
+      series.forEach((p, i) => {
+        const o = toNum(p.o), h = toNum(p.h), l = toNum(p.l), c = toNum(p.c);
+        const x = xAt(i);
+        const cx = x; // 中央
+        const yO = yAt(o), yH = yAt(h), yL = yAt(l), yC = yAt(c);
+        const yTop = Math.min(yO, yC);
+        const yBot = Math.max(yO, yC);
+        const isBull = c >= o;  // 陽線: 赤
+        const col = isBull ? "rgba(244,67,54,1)" : "rgba(76,175,80,1)"; // 赤 / 緑
+        const colWick = isBull ? "rgba(244,67,54,0.9)" : "rgba(76,175,80,0.9)";
+
+        // ヒゲ
+        ctx.strokeStyle = colWick;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx, yH); ctx.lineTo(cx, yL);
+        ctx.stroke();
+
+        // 実体
+        const hBody = Math.max(1, yBot - yTop); // 少なくとも 1px 見えるように
+        ctx.fillStyle = col;
+        ctx.fillRect(cx - bodyW / 2, yTop, bodyW, hBody);
+      });
+
+      // 軸・ガイドライン
+      drawAxes(ctx, Wcss, Hcss, padX, padY, minY, maxY, [dates[0], dates[Math.floor(dates.length/2)], dates[dates.length-1]]);
     } else {
-      const ser = (d.series || []).map(p => ({ t: p.t, c: toNum(p.c) })).filter(p => Number.isFinite(p.c));
-      if (ser.length < 2) return;
-      scales = drawLineChart(base, ser);
-      enableOverlayInteraction(over, ser, scales, tip, false);
+      // ====== 終値ライン ======
+      const ys = series.map(p => toNum(p.c)).filter(v => Number.isFinite(v));
+      if (ys.length < 2) return;
+
+      // エリア
+      const grad = ctx.createLinearGradient(0, padY, 0, padY + innerH);
+      grad.addColorStop(0, "rgba(0,200,255,0.35)");
+      grad.addColorStop(1, "rgba(0,200,255,0.00)");
+
+      ctx.beginPath();
+      ctx.moveTo(xAt(0), yAt(ys[0]));
+      ys.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
+      ctx.lineTo(xAt(ys.length - 1), padY + innerH);
+      ctx.lineTo(xAt(0), padY + innerH);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // ライン
+      ctx.beginPath();
+      ctx.moveTo(xAt(0), yAt(ys[0]));
+      ys.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
+      ctx.strokeStyle = "rgba(0,200,255,0.85)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // 軸・ガイドライン
+      drawAxes(ctx, Wcss, Hcss, padX, padY, minY, maxY, [dates[0], dates[Math.floor(dates.length/2)], dates[dates.length-1]]);
     }
   }
 
@@ -419,7 +265,7 @@
     renderPrice(modal, data);
   }
 
-  /* ---------- fundamental ---------- */
+  // ===== 指標タブ =====
   async function loadFundamentalTab(modal, stockId, cardCp) {
     if (modal.dataset.fundLoaded === "1") return;
 
@@ -464,7 +310,6 @@
     modal.dataset.fundLoaded = "1";
   }
 
-  /* ---------- open / wiring ---------- */
   async function openDetail(stockId, cardEl) {
     if (!stockId) return;
     const mount = ensureMount();
@@ -565,6 +410,7 @@
       const fixed = { ...d };
       if (toNum(fixed.current_price, 0) <= 0 && cardCp > 0) fixed.current_price = cardCp;
       if (toNum(fixed.total_cost, 0) <= 0) fixed.total_cost = toNum(fixed.shares, 0) * toNum(fixed.unit_price, 0);
+
       if (ovWrap) ovWrap.innerHTML = optimisticOverviewHTML(fixed);
     } catch (err) {
       console.error(err);
@@ -573,7 +419,7 @@
     }
   }
 
-  /* ---------- boot ---------- */
+  // 起動
   document.addEventListener("DOMContentLoaded", () => {
     removeLegacyModals();
     document.body.classList.add("hide-legacy-modals");
