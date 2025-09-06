@@ -7,9 +7,10 @@
   display: grid;
   place-items: center;
   font-family: inherit;
+  overflow: hidden;                 /* 背景側のスクロールを止める */
 }
 .detail-modal__overlay {
-  position: absolute;
+  position: fixed;                  /* 全画面固定 */
   inset: 0;
   background: rgba(0,0,0,.55);
   backdrop-filter: blur(2px);
@@ -32,29 +33,11 @@
   padding-bottom: 72px;             /* 下部ボタン分の余白 */
 }
 
-/* 念のため、モーダル全体は外側スクロールを抑制（内側だけスクロール） */
-.detail-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 3000;
-  display: grid;
-  place-items: center;
-  font-family: inherit;
-  overflow: hidden;                 /* ← 背景側のスクロールを止める */
-}
-
-/* オーバーレイは画面全面を確実に覆う */
-.detail-modal__overlay {
-  position: fixed;                  /* ← absolute → fixed に変更 */
-  inset: 0;
-  background: rgba(0,0,0,.55);
-  backdrop-filter: blur(2px);
-}
-
 /* 閉じるボタン（右上・赤） */
 .detail-modal__close {
   position: absolute;
-  top: 8px;
+  /* 8px + ボタン高さ36px = 44px だと余白がギリなので少しゆとりを持って 52px */
+  top: 52px;                        /* ← “ボタン1個分”下げる（ナビ被り回避） */
   right: 8px;
   display: inline-flex;
   align-items: center;
@@ -75,27 +58,36 @@
   transform: scale(1.05);
 }
 
-/* ヘッダまわり */
+/* ヘッダまわり（中央寄せ・2行構成） */
 .detail-modal__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
+  /* 旧: space-between → 中央寄せ */
+  display: block;                   /* ブロックにして中身を縦に構成 */
+  text-align: center;               /* 中央寄せ */
   margin-bottom: 8px;
-  /* 右上の×が被らないように右側に余白 */
+  /* 右上の×が被らないように右側に余白（小さめでOK） */
   padding-right: 48px;
 }
 .dm-title {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;           /* ← 2行に分ける */
+  align-items: center;              /* 中央寄せ */
+  gap: 4px;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.dm-title .dm-name {
+  display: block;                   /* 1行目：銘柄名（中央） */
   font-size: 16px;
   font-weight: 800;
 }
 .dm-code {
+  /* 2行目：コード（中央） */
+  display: inline-block;
   border: 1px solid rgba(255,255,255,.25);
   border-radius: 8px;
   padding: 2px 8px;
+  margin-top: 2px;
 }
 
 /* （旧）ヘッダ内のボタンは非表示にする — 下部フッターへ移設するため */
@@ -196,13 +188,11 @@
 @media (max-width: 480px){
   .detail-modal__dialog { width: 96vw; }
   .overview-grid { grid-template-columns: 1fr; }
-  /* CTAが折り返して×と重ならないよう少し間を空ける */
   .detail-modal__header { padding-right: 56px; }
   .detail-modal__footer { gap: 10px; }
 }
 
 /* ===== 旧モーダルの“チラ見え”をCSSだけで完全ブロック ===== */
-/* （HTMLに埋まっていても常に非表示。再挿入されても常に非表示） */
 #stock-modal,
 #edit-modal,
 #sell-modal {
