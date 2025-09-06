@@ -48,7 +48,7 @@
   /* 上はタイトル分の余白、下はフッター分の余白 */
   padding: 12px;
   padding-top: 12px;
-  padding-bottom: 50px;
+  padding-bottom: 25px;
 }
 
 /* 右上×は使わない（フッターに「閉じる」あり） */
