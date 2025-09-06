@@ -1,11 +1,14 @@
 /* 詳細モーダル（概要 + 価格 + 指標）
    - 概要: /overview.json（from_card_current付き）で確定値
    - 価格: 初回 or 期間変更で /price.json?period= を取得 → Canvas 描画
+           ＋ 日付軸（先頭/中間/末尾）・価格目盛（min/mid/max）
+           ＋ オーバーレイ（クロスヘア & ツールチップ）
    - 指標: 初回クリックで /fundamental.json を取得（配当利回り・DPS含む）
 */
 (function () {
   const mountId = "detail-modal-mount";
 
+  /* ---------- utils ---------- */
   const toNum = (v, d = 0) => {
     if (v === null || v === undefined) return d;
     const n = Number(String(v).replace(/[^\d.-]/g, ""));
@@ -13,6 +16,24 @@
   };
   const yen = (n) => "¥" + Math.round(toNum(n)).toLocaleString();
   const num = (n) => toNum(n).toLocaleString();
+
+  function fmtDate(dStr) {
+    // "YYYY-MM-DD" → "M/D"
+    if (!dStr) return "";
+    const p = dStr.split("-");
+    return (p.length >= 3) ? `${Number(p[1])}/${Number(p[2])}` : dStr;
+  }
+
+  function fitCanvasToDPR(canvas) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx, w, h, dpr };
+  }
 
   function calcOverview({ shares, unit_price, current_price, total_cost, position }) {
     const s = Math.max(0, toNum(shares));
@@ -93,13 +114,148 @@
     return 0;
   }
 
-  // ===== 価格タブ（期間対応） =====
+  /* ---------- price: fetch & draw ---------- */
   async function fetchPrice(stockId, period) {
     const url = new URL(`/stocks/${stockId}/price.json`, window.location.origin);
     url.searchParams.set("period", period);
     const res = await fetch(url.toString(), { credentials: "same-origin" });
     if (!res.ok) throw new Error("価格データの取得に失敗しました");
     return await res.json();
+  }
+
+  // ベースチャート（エリア＋ライン＋軸ラベル）を描いてスケール関数を返す
+  function drawBasePriceChart(baseCanvas, series) {
+    const { ctx, w, h } = fitCanvasToDPR(baseCanvas);
+    ctx.clearRect(0, 0, w, h);
+
+    const pad = { l: 42, r: 12, t: 10, b: 22 };
+    const innerW = w - pad.l - pad.r;
+    const innerH = h - pad.t - pad.b;
+
+    const ys = series.map(p => Number(p.c));
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const xAt = (i) => pad.l + (innerW * i / Math.max(1, (ys.length - 1)));
+    const yAt = (v) => pad.t + (innerH * (1 - (v - minY) / Math.max(1e-9, (maxY - minY))));
+
+    // エリア
+    const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + innerH);
+    grad.addColorStop(0, "rgba(0,200,255,0.35)");
+    grad.addColorStop(1, "rgba(0,200,255,0.00)");
+
+    ctx.beginPath();
+    ctx.moveTo(xAt(0), yAt(ys[0]));
+    ys.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
+    ctx.lineTo(xAt(ys.length - 1), pad.t + innerH);
+    ctx.lineTo(xAt(0), pad.t + innerH);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // ライン
+    ctx.beginPath();
+    ctx.moveTo(xAt(0), yAt(ys[0]));
+    ys.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
+    ctx.strokeStyle = "rgba(0,200,255,0.85)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // 価格目盛（左）: min / mid / max
+    ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    const ticks = [minY, (minY + maxY) / 2, maxY];
+    ticks.forEach(v => {
+      const y = yAt(v);
+      ctx.fillStyle = "rgba(255,255,255,.85)";
+      ctx.fillText(Math.round(v).toLocaleString(), pad.l - 6, y);
+      ctx.strokeStyle = "rgba(255,255,255,.08)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(pad.l, y);
+      ctx.lineTo(w - pad.r, y);
+      ctx.stroke();
+    });
+
+    // 日付（下）: 先頭 / 中央 / 末尾
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "rgba(255,255,255,.85)";
+    const first = series[0]?.t;
+    const mid = series[Math.floor(series.length / 2)]?.t;
+    const last = series[series.length - 1]?.t;
+    if (first) ctx.fillText(fmtDate(first), xAt(0), h - pad.b + 2);
+    if (mid) ctx.fillText(fmtDate(mid), xAt(Math.floor(series.length / 2)), h - pad.b + 2);
+    if (last) ctx.fillText(fmtDate(last), xAt(series.length - 1), h - pad.b + 2);
+
+    return { xAt, yAt, pad, innerW, innerH, w, h };
+  }
+
+  function enableOverlayInteraction(overlayCanvas, series, scales, tooltipEl) {
+    const { ctx, w, h } = fitCanvasToDPR(overlayCanvas);
+    const { xAt, yAt, pad } = scales;
+
+    function nearestIndex(px) {
+      const n = series.length;
+      if (n <= 1) return 0;
+      // 等間隔前提：xAt(i) は線形 → 逆変換で近似
+      const x0 = xAt(0);
+      const x1 = xAt(1);
+      const step = Math.max(1, x1 - x0);
+      const i = Math.round((px - x0) / step);
+      return Math.max(0, Math.min(n - 1, i));
+    }
+
+    function drawCross(i) {
+      ctx.clearRect(0, 0, w, h);
+      const px = xAt(i);
+      const py = yAt(Number(series[i].c));
+
+      // 縦線
+      ctx.strokeStyle = "rgba(255,255,255,.5)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px, pad.t);
+      ctx.lineTo(px, h - pad.b);
+      ctx.stroke();
+
+      // ドット
+      ctx.fillStyle = "rgba(0,200,255,.95)";
+      ctx.beginPath();
+      ctx.arc(px, py, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function showTooltip(i, clientX) {
+      const d = series[i];
+      const price = Math.round(Number(d.c)).toLocaleString();
+      const dt = d.t;
+      tooltipEl.textContent = `${dt} / ¥${price}`;
+      tooltipEl.classList.add("is-visible");
+      const rect = overlayCanvas.getBoundingClientRect();
+      const x = Math.min(Math.max(clientX - rect.left, 16), rect.width - 16);
+      tooltipEl.style.left = `${x}px`;
+      tooltipEl.style.top = `8px`;
+    }
+
+    function hideTooltip() {
+      tooltipEl.classList.remove("is-visible");
+      ctx.clearRect(0, 0, w, h);
+    }
+
+    function handleMove(e) {
+      const rect = overlayCanvas.getBoundingClientRect();
+      const clientX = (e.touches?.[0]?.clientX ?? e.clientX);
+      const x = clientX - rect.left;
+      const i = nearestIndex(x);
+      drawCross(i);
+      showTooltip(i, clientX);
+    }
+
+    overlayCanvas.addEventListener("mousemove", handleMove);
+    overlayCanvas.addEventListener("touchmove", handleMove, { passive: true });
+    overlayCanvas.addEventListener("mouseleave", hideTooltip);
+    overlayCanvas.addEventListener("touchend", hideTooltip);
   }
 
   function renderPrice(modal, d) {
@@ -124,55 +280,19 @@
     if (haEl)  haEl.textContent  = d.high_all ? yen(d.high_all) : "—";
     if (laEl)  laEl.textContent  = d.low_all  ? yen(d.low_all)  : "—";
 
-    // チャート
-    const cvs = modal.querySelector("#price-canvas");
-    if (!cvs) return;
-    const ctx = cvs.getContext("2d");
-    const Wcss = cvs.clientWidth;
-    const Hcss = cvs.clientHeight;
-    const dpr = window.devicePixelRatio || 1;
-    cvs.width  = Math.floor(Wcss * dpr);
-    cvs.height = Math.floor(Hcss * dpr);
-    ctx.setTransform(1,0,0,1,0,0);
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, Wcss, Hcss);
+    // チャート（ベース＋オーバーレイ＋ツールチップ）
+    const base = modal.querySelector("#price-canvas");
+    const over = modal.querySelector("#price-overlay");
+    const tip  = modal.querySelector("#price-tooltip");
+    const series = (d.series || []).filter(p => Number.isFinite(toNum(p.c)));
 
-    const ys = (d.series || []).map(p => toNum(p.c)).filter(v => Number.isFinite(v));
-    if (ys.length < 2) return;
+    if (!base || !over || !tip || series.length < 2) return;
 
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-    const padX = 12, padY = 10;
-    const innerW = Wcss - padX * 2, innerH = Hcss - padY * 2;
-
-    const xAt = (i) => padX + (innerW * i / (ys.length - 1));
-    const yAt = (v) => padY + (innerH * (1 - (v - minY) / Math.max(1e-9, (maxY - minY))));
-
-    // グラデ塗りつぶし
-    const grad = ctx.createLinearGradient(0, padY, 0, padY + innerH);
-    grad.addColorStop(0, "rgba(0,200,255,0.35)");
-    grad.addColorStop(1, "rgba(0,200,255,0.00)");
-
-    ctx.beginPath();
-    ctx.moveTo(xAt(0), yAt(ys[0]));
-    ys.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
-    ctx.lineTo(xAt(ys.length - 1), padY + innerH);
-    ctx.lineTo(xAt(0), padY + innerH);
-    ctx.closePath();
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    // ライン
-    ctx.beginPath();
-    ctx.moveTo(xAt(0), yAt(ys[0]));
-    ys.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
-    ctx.strokeStyle = "rgba(0,200,255,0.85)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    const scales = drawBasePriceChart(base, series);
+    enableOverlayInteraction(over, series, scales, tip);
   }
 
   async function loadPriceTab(modal, stockId, period = "1M") {
-    // 簡易キャッシュ（モーダル単位）
     modal._priceCache = modal._priceCache || {};
     if (!modal._priceCache[period]) {
       modal._priceCache[period] = fetchPrice(stockId, period);
@@ -181,7 +301,7 @@
     renderPrice(modal, data);
   }
 
-  // ===== 指標タブ =====
+  /* ---------- fundamental ---------- */
   async function loadFundamentalTab(modal, stockId, cardCp) {
     if (modal.dataset.fundLoaded === "1") return;
 
@@ -226,6 +346,7 @@
     modal.dataset.fundLoaded = "1";
   }
 
+  /* ---------- open / wiring ---------- */
   async function openDetail(stockId, cardEl) {
     if (!stockId) return;
     const mount = ensureMount();
@@ -266,7 +387,6 @@
 
           try {
             if (name === "price") {
-              // 現在の選択期間を見てロード
               const activeChip = modal.querySelector(".price-range-chips .chip.is-active");
               const period = activeChip?.dataset?.range || "1M";
               await loadPriceTab(modal, stockId, period);
@@ -287,7 +407,6 @@
           if (!btn) return;
           const period = (btn.dataset.range || "1M").toUpperCase();
 
-          // 見た目更新
           chipsWrap.querySelectorAll(".chip").forEach(c => {
             c.classList.toggle("is-active", c === btn);
             c.setAttribute("aria-selected", c === btn ? "true" : "false");
@@ -328,7 +447,6 @@
       const fixed = { ...d };
       if (toNum(fixed.current_price, 0) <= 0 && cardCp > 0) fixed.current_price = cardCp;
       if (toNum(fixed.total_cost, 0) <= 0) fixed.total_cost = toNum(fixed.shares, 0) * toNum(fixed.unit_price, 0);
-
       if (ovWrap) ovWrap.innerHTML = optimisticOverviewHTML(fixed);
     } catch (err) {
       console.error(err);
@@ -337,7 +455,7 @@
     }
   }
 
-  // 起動
+  /* ---------- boot ---------- */
   document.addEventListener("DOMContentLoaded", () => {
     removeLegacyModals();
     document.body.classList.add("hide-legacy-modals");
