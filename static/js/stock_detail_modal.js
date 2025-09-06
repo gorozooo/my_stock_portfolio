@@ -1,7 +1,6 @@
-/* 詳細モーダル（概要だけ）
-   - カードの数値を即時プレビューに使う
-   - data-current_price が欠落/0でも、カード本文の表示テキストから数値を抽出して救済
-   - /overview.json に from_card_current を渡して最終値をサーバ側で上書き
+/* 詳細モーダル（概要 + 価格）
+   - 概要はカード値で即時描画 → /overview.json（from_card_current付き）で確定値
+   - 価格はタブ初回クリックで /price.json を取得して Canvas にミニチャート描画
 */
 (function () {
   const mountId = "detail-modal-mount";
@@ -76,13 +75,10 @@
 
   // --- カードから“現在株価”を必ず取得する（data属性 → テキスト救済の順）
   function getCardCurrentPrice(card) {
-    // 1) data-current_price（小数/整数どちらでもOKなようにパース）
     let cp = toNum(card?.dataset?.current_price, 0);
     if (cp > 0) return cp;
 
-    // 2) テキスト側「現在株価 …円」を読み取り
     try {
-      // 「現在株価」と書かれている行の最後の <span> を探す
       const rows = card.querySelectorAll(".stock-row");
       for (const r of rows) {
         const label = r.querySelector("span:first-child")?.textContent?.trim();
@@ -93,9 +89,80 @@
         }
       }
     } catch (_) {}
-
-    // 3) ダメなら 0
     return 0;
+  }
+
+  // --- 価格タブ ロード & 描画（一度だけ）
+  async function loadPriceTab(modal, stockId) {
+    const loadedFlag = modal.dataset.priceLoaded;
+    if (loadedFlag === "1") return;
+
+    const url = new URL(`/stocks/${stockId}/price.json`, window.location.origin);
+    const res = await fetch(url.toString(), { credentials: "same-origin" });
+    if (!res.ok) throw new Error("価格データの取得に失敗しました");
+    const d = await res.json();
+
+    // 数値表示
+    const lastEl = modal.querySelector("#price-last");
+    const chgEl  = modal.querySelector("#price-chg");
+    const h52El  = modal.querySelector("#price-52h");
+    const l52El  = modal.querySelector("#price-52l");
+    if (lastEl) lastEl.textContent = yen(d.last_close);
+    if (chgEl)  chgEl.textContent  = `${(d.change >= 0 ? "+" : "")}${Math.round(d.change).toLocaleString()} / ${d.change_pct.toFixed(2)}%`;
+    if (h52El)  h52El.textContent  = d.high_52w ? yen(d.high_52w) : "—";
+    if (l52El)  l52El.textContent  = d.low_52w  ? yen(d.low_52w)  : "—";
+
+    // ミニチャート描画（Canvas）
+    const cvs = modal.querySelector("#price-canvas");
+    if (cvs && d.series && d.series.length >= 2) {
+      const ctx = cvs.getContext("2d");
+      const W = cvs.width, H = cvs.height;
+      ctx.clearRect(0, 0, W, H);
+
+      // デバイスピクセル比でシャープに
+      const dpr = window.devicePixelRatio || 1;
+      if (dpr !== 1) {
+        cvs.style.width = W + "px";
+        cvs.style.height = H + "px";
+        cvs.width = Math.floor(W * dpr);
+        cvs.height = Math.floor(H * dpr);
+        ctx.scale(dpr, dpr);
+      }
+
+      const xs = d.series.map(p => p.t);
+      const ys = d.series.map(p => toNum(p.c));
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const padX = 12, padY = 10;
+      const innerW = W - padX * 2, innerH = H - padY * 2;
+
+      const xAt = (i) => padX + (innerW * i / (ys.length - 1));
+      const yAt = (v) => padY + (innerH * (1 - (v - minY) / Math.max(1e-9, (maxY - minY))));
+
+      // グラデ塗りつぶしエリア
+      const grad = ctx.createLinearGradient(0, padY, 0, padY + innerH);
+      grad.addColorStop(0, "rgba(0,200,255,0.35)");
+      grad.addColorStop(1, "rgba(0,200,255,0.00)");
+
+      ctx.beginPath();
+      ctx.moveTo(xAt(0), yAt(ys[0]));
+      ys.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
+      ctx.lineTo(xAt(ys.length - 1), padY + innerH);
+      ctx.lineTo(xAt(0), padY + innerH);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // ライン
+      ctx.beginPath();
+      ctx.moveTo(xAt(0), yAt(ys[0]));
+      ys.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
+      ctx.strokeStyle = "rgba(0,200,255,0.85)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    modal.dataset.priceLoaded = "1";
   }
 
   async function openDetail(stockId, cardEl) {
@@ -105,15 +172,13 @@
     removeLegacyModals();
     document.body.classList.add("hide-legacy-modals");
 
-    // カード由来の数値をできる限り取る
-    const cardCp = getCardCurrentPrice(cardEl);     // ← ここがポイント
+    const cardCp = getCardCurrentPrice(cardEl);
     const cardUp = toNum(cardEl?.dataset?.unit_price, 0);
     const cardShares = toNum(cardEl?.dataset?.shares, 0);
     const cardPosition = (cardEl?.dataset?.position || "買い");
     const optimisticCp = cardCp > 0 ? cardCp : cardUp;
 
     try {
-      // 器のHTML
       const htmlRes = await fetch(`/stocks/${stockId}/detail_fragment/`, { credentials: "same-origin" });
       if (!htmlRes.ok) throw new Error("モーダルの読み込みに失敗しました");
       const html = await htmlRes.text();
@@ -127,18 +192,22 @@
       modal.querySelectorAll("[data-dm-close]").forEach((el) => el.addEventListener("click", closeDetail));
       document.addEventListener("keydown", escCloseOnce);
 
+      // タブ切替（価格タブは lazy load）
       modal.querySelectorAll(".detail-tab").forEach((btn) => {
-        btn.addEventListener("click", () => {
+        btn.addEventListener("click", async () => {
           if (btn.disabled) return;
           const name = btn.getAttribute("data-tab");
           modal.querySelectorAll(".detail-tab").forEach((b) => b.classList.toggle("is-active", b === btn));
           modal.querySelectorAll(".detail-panel").forEach((p) =>
             p.classList.toggle("is-active", p.getAttribute("data-panel") === name)
           );
+          if (name === "price") {
+            try { await loadPriceTab(modal, stockId); } catch (e) { console.error(e); }
+          }
         });
       });
 
-      // 即時プレビューを先に表示
+      // 概要：即時プレビュー
       const ovWrap = modal.querySelector('[data-panel="overview"]');
       if (ovWrap) {
         const optimistic = {
@@ -147,7 +216,7 @@
           position: cardPosition,
           shares: cardShares,
           unit_price: cardUp,
-          current_price: optimisticCp,                  // ← まずはカード値
+          current_price: optimisticCp,
           total_cost: cardShares * cardUp,
           purchase_date: "",
           note: ""
@@ -155,21 +224,16 @@
         ovWrap.innerHTML = optimisticOverviewHTML(optimistic);
       }
 
-      // サーバ確定値（カードの現在株価も渡す → サーバで上書き）
+      // 概要：確定値（カードの現在株価も渡す）
       const url = new URL(`/stocks/${stockId}/overview.json`, window.location.origin);
       if (cardCp > 0) url.searchParams.set("from_card_current", String(cardCp));
       const res = await fetch(url.toString(), { credentials: "same-origin" });
       if (!res.ok) throw new Error("概要データの取得に失敗しました");
       const d = await res.json();
 
-      // サーバ側で current_price を上書き済みだが、念のため最終補正
       const fixed = { ...d };
       if (toNum(fixed.current_price, 0) <= 0 && cardCp > 0) fixed.current_price = cardCp;
       if (toNum(fixed.total_cost, 0) <= 0) fixed.total_cost = toNum(fixed.shares, 0) * toNum(fixed.unit_price, 0);
-
-      const { market_value, profit_loss } = calcOverview(fixed);
-      fixed.market_value = market_value;
-      fixed.profit_loss = profit_loss;
 
       if (ovWrap) ovWrap.innerHTML = optimisticOverviewHTML(fixed);
     } catch (err) {
