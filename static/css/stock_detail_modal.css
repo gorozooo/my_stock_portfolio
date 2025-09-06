@@ -295,3 +295,45 @@
   outline: none;
   box-shadow: 0 0 0 3px rgba(0,208,255,.45);
 }
+
+/* ====== チャート（2枚キャンバス＋ツールチップ） ====== */
+.price-chart{
+  position: relative;
+  width: 100%;
+  height: 180px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 8px;
+  background: rgba(255,255,255,.03);
+  overflow: hidden;
+}
+#price-canvas,
+#price-overlay{
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+#price-overlay{ pointer-events: auto; }
+
+.price-tooltip{
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  transform: translate(-50%, -100%);
+  background: rgba(0,0,0,.8);
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: #fff;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s ease, transform .05s ease;
+  white-space: nowrap;
+}
+.price-tooltip.is-visible{
+  opacity: 1;
+  transform: translate(-50%, -110%);
+}
+
