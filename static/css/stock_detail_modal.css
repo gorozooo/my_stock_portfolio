@@ -96,7 +96,7 @@
    ＆ タブの見かけ高さを一定化して、そのぶん下の領域に余白を確保する */
 :root{
   /* タブ行の見かけ高さ（ボタン + 上下パディング + 境界線ぶんの目安） */
-  --detail-tabs-height: 30px;
+  --detail-tabs-height: 45px;
 }
 
 .detail-tabs{
