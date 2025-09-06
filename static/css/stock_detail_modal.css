@@ -26,7 +26,11 @@
   color: #fff;
   /* ← 閉じるボタンのタップ余白が被らないように、右上に少し余裕 */
   padding-top: 14px;
+  /* フッター（ボタン）分の底上げ余白。被らないように確保 */
+  padding-bottom: 72px;
 }
+
+/* 閉じる */
 .detail-modal__close {
   position: sticky;      /* ← スクロールしても押しやすい位置に固定風 */
   top: 0;
@@ -67,24 +71,27 @@
   border-radius: 8px;
   padding: 2px 8px;
 }
-.dm-cta {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
+
+/* （旧）ヘッダ内のボタンは非表示にする — 下部フッターへ移設するため */
+.dm-cta { display: none !important; }
+
+/* 共通ボタンスタイル */
 .dm-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
   color: #fff;
   text-decoration: none;
   border: 1px solid rgba(255,255,255,.22);
-  background: rgba(255,255,255,.06);
+  background: rgba(255,255,255,.08);
+  font-weight: 800;
+  min-width: 120px;
 }
 .dm-btn--danger {
   background: linear-gradient(180deg, rgba(244,67,54,.95), rgba(244,67,54,.72));
+  border-color: rgba(244,67,54,.65);
 }
 
 /* タブ */
@@ -139,20 +146,15 @@
 .ov-v.pos { color: #6aff6a; }
 .ov-v.neg { color: #ff6a6a; }
 
-@media (max-width: 480px){
-  .detail-modal__dialog { width: 96vw; }
-  .overview-grid { grid-template-columns: 1fr; }
-  /* CTAが折り返して×と重ならないよう少し間を空ける */
-  .detail-modal__header { padding-right: 56px; }
-}
-
-/* ===== 旧モーダルの“チラ見え”をCSSだけで完全ブロック ===== */
-/* （HTMLに埋まっていても常に非表示。再挿入されても常に非表示） */
-#stock-modal,
-#edit-modal,
-#sell-modal {
-  display: none !important;
-  visibility: hidden !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-}
+/* ===== フッター（編集・売却を“1番下の中央”に固定） ===== */
+.detail-modal__footer {
+  position: sticky;          /* ダイアログ内の最下部に張り付く */
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  gap: 12px;
+  justify-content: center;   /* 中央寄せ */
+  align-items: center;
+  padding: 10px;
+  background: linear-gradient(180deg, rgba(18,18,24,0) 0%, rgba(18,18,24,.9) 30%, rgba(18,18,24,.
