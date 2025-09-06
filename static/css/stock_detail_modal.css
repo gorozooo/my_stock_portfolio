@@ -37,7 +37,7 @@
 .detail-modal__close {
   position: absolute;
   /* 8px + ボタン高さ36px = 44px だと余白がギリなので少しゆとりを持って 52px */
-  top: 44px;                        /* ← “ボタン1個分”下げる（ナビ被り回避） */
+  top: 52px;                        /* ← “ボタン1個分”下げる（ナビ被り回避） */
   right: 15px;
   display: inline-flex;
   align-items: center;
