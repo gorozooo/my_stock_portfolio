@@ -643,6 +643,22 @@ def stock_price_json(request, pk: int):
     }
     return JsonResponse(data)
 
+@require_GET
+@cache_page(600)  # ← 10分キャッシュ
+def stock_fundamental_json(request, pk):
+    stock = get_object_or_404(Stock, pk=pk)
+
+    # ダミーデータ（あとで本物に差し替え）
+    data = {
+        "pe": None,
+        "dividend_yield": None,
+        "market_cap": None,
+        "beta": None,
+        "eps": None,
+        "updated_at": datetime.datetime.now().isoformat(),
+    }
+    return JsonResponse(data)
+
 @login_required
 def cash_view(request):
     return render(request, "cash.html")
