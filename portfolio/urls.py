@@ -20,7 +20,8 @@ urlpatterns = [
     path("stocks/<int:pk>/detail_fragment/", views.stock_detail_fragment, name="stock_detail_fragment"),
     path("stocks/<int:pk>/overview.json", views.stock_overview_json, name="stock_overview_json"),
     path("stocks/<int:pk>/price.json", views.stock_price_json, name="stock_price_json"),
-
+    path("stocks/<int:pk>/fundamental.json", views.stock_fundamental_json, name="stock_fundamental_json"),
+    
     # --- 株編集・売却（専用ページ） ---
     path("stocks/<int:pk>/edit/", views.edit_stock_page, name="stock_edit"),   # 編集ページ
     path("stocks/<int:pk>/edit/fragment/", views.edit_stock_fragment, name="edit_stock_frag"),  # モーダル用
