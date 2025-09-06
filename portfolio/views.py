@@ -568,6 +568,81 @@ def stock_overview_json(request, pk: int):
     }
     return JsonResponse(data)
 
+from django.views.decorators.http import require_GET
+from django.http import JsonResponse
+from django.contrib.auth.decorators import login_required
+import datetime as dt
+from django.utils import timezone
+import yfinance as yf
+
+@login_required
+@require_GET
+def stock_price_json(request, pk: int):
+    """
+    価格タブ用の軽量JSON:
+      - 直近30営業日の終値時系列（ミニチャート用）
+      - 52週高値/安値、最新終値、前日比
+    ネットワーク失敗時は、DBの current_price で最低限を返す
+    """
+    stock = get_object_or_404(Stock, pk=pk)
+
+    # yfinance シンボル（モデルに合わせた正規化関数があるなら流用）
+    ticker = Stock.to_yf_symbol(stock.ticker) if hasattr(Stock, "to_yf_symbol") else stock.ticker
+    today = timezone.localdate()
+    start_1m = today - dt.timedelta(days=60)   # 30営業日程度入るように余裕を取る
+    start_52w = today - dt.timedelta(days=400) # 52週用の余裕
+
+    series = []
+    last_close = None
+    prev_close = None
+    high_52w = None
+    low_52w = None
+
+    try:
+        tkr = yf.Ticker(ticker)
+
+        # ミニチャート用：Closeだけ抜く
+        hist_1m = tkr.history(start=start_1m.isoformat(), end=(today+dt.timedelta(days=1)).isoformat())
+        if not hist_1m.empty:
+            closes = hist_1m["Close"].dropna()
+            # 時系列（最大30点に間引き）
+            pts = list(closes.items())[-30:]
+            series = [{"t": str(idx.date()), "c": float(val)} for idx, val in pts]
+            if len(closes) >= 2:
+                last_close = float(closes.iloc[-1])
+                prev_close = float(closes.iloc[-2])
+            elif len(closes) == 1:
+                last_close = float(closes.iloc[-1])
+
+        # 52週高安
+        hist_52w = tkr.history(start=start_52w.isoformat(), end=(today+dt.timedelta(days=1)).isoformat())
+        if not hist_52w.empty:
+            high_52w = float(hist_52w["High"].dropna().max())
+            low_52w  = float(hist_52w["Low"].dropna().min())
+
+    except Exception:
+        pass  # ネットワークなどは無視してフォールバックへ
+
+    # フォールバック（最低限の表示を保証）
+    if last_close is None or last_close <= 0:
+        last_close = float(stock.current_price or stock.unit_price or 0.0)
+    if prev_close is None:
+        prev_close = last_close
+
+    change = last_close - prev_close
+    change_pct = (change / prev_close * 100.0) if prev_close else 0.0
+
+    data = {
+        "series": series,             # [{t: 'YYYY-MM-DD', c: 1234.5}, ...] 最大30点
+        "last_close": last_close,     # 最新終値
+        "prev_close": prev_close,     # 前終値
+        "change": change,             # 前日比
+        "change_pct": change_pct,     # 前日比%
+        "high_52w": high_52w,         # 52週高値（取れなかったら null）
+        "low_52w": low_52w,           # 52週安値（取れなかったら null）
+    }
+    return JsonResponse(data)
+
 @login_required
 def cash_view(request):
     return render(request, "cash.html")
