@@ -17,34 +17,57 @@
 .detail-modal__dialog {
   position: relative;
   width: min(94vw, 720px);
-  max-height: 90vh;
-  overflow: auto;
+  /* 画面高から上下余白ぶんを引いて“確実に”内側スクロールを許可 */
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;                 /* ← 縦スクロール有効化 */
+  -webkit-overflow-scrolling: touch;/* ← iOSで慣性スクロール */
+  touch-action: pan-y;              /* ← タッチ操作で縦スクロール優先 */
+
   background: rgba(18,18,24,.96);
   border: 1px solid rgba(255,255,255,.14);
   border-radius: 12px;
-  padding: 12px;
   color: #fff;
-  padding-top: 14px;   /* 上部余裕 */
-  padding-bottom: 72px; /* フッター余白 */
+  padding: 12px;
+  padding-top: 14px;                /* 上部余裕（×と重ならない） */
+  padding-bottom: 72px;             /* 下部ボタン分の余白 */
 }
 
-/* 閉じるボタン */
+/* 念のため、モーダル全体は外側スクロールを抑制（内側だけスクロール） */
+.detail-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: grid;
+  place-items: center;
+  font-family: inherit;
+  overflow: hidden;                 /* ← 背景側のスクロールを止める */
+}
+
+/* オーバーレイは画面全面を確実に覆う */
+.detail-modal__overlay {
+  position: fixed;                  /* ← absolute → fixed に変更 */
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  backdrop-filter: blur(2px);
+}
+
+/* 閉じるボタン（右上・赤） */
 .detail-modal__close {
-  position: absolute;   /* ← absolute に変更 */
-  top: 8px;             /* 右上に固定 */
+  position: absolute;
+  top: 8px;
   right: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 36px;
   height: 36px;
-  background: rgba(244, 67, 54, .9); /* ← 赤色 */
+  background: rgba(244, 67, 54, .9);
   border: 1px solid rgba(244, 67, 54, .8);
   border-radius: 50%;
   color: #fff;
   font-size: 18px;
   cursor: pointer;
-  z-index: 20;          /* CTAよりも上 */
+  z-index: 20;                      /* CTAより上に */
   transition: background .2s ease, transform .2s ease;
 }
 .detail-modal__close:hover {
