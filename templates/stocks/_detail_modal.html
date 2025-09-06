@@ -64,13 +64,13 @@
       <!-- 価格：初回クリック時に /price.json を取得して描画 -->
       <div class="detail-panel" data-panel="price">
         <div class="price-wrap">
-          <!-- ▼ 期間チップ（1M/3M/1Y） -->
+          <!-- 期間チップ（そのまま） -->
           <div class="price-range-chips" role="tablist" aria-label="期間を選択">
             <button type="button" class="chip is-active" data-range="1M" aria-selected="true">1M</button>
             <button type="button" class="chip" data-range="3M" aria-selected="false">3M</button>
             <button type="button" class="chip" data-range="1Y" aria-selected="false">1Y</button>
           </div>
-
+      
           <div class="price-top">
             <div class="price-last">
               <span class="label">最新</span>
@@ -81,13 +81,14 @@
               <span class="val" id="price-chg">—</span>
             </div>
           </div>
-
-          <!-- フル幅表示（JS 側で DPR に合わせて再スケール） -->
-          <canvas id="price-canvas"
-                  width="600" height="160"
-                  style="display:block; width:100%; height:160px;"
-                  aria-label="価格推移"></canvas>
-
+      
+          <!-- ▼ チャート：ベース＋オーバーレイ（クロスヘア用） -->
+          <div class="price-chart">
+            <canvas id="price-canvas" width="600" height="180" aria-label="価格推移"></canvas>
+            <canvas id="price-overlay" width="600" height="180" aria-hidden="true"></canvas>
+            <div class="price-tooltip" id="price-tooltip" role="status" aria-live="polite">—</div>
+          </div>
+      
           <div class="price-rows">
             <div class="row"><span>52週高値</span><span id="price-52h">—</span></div>
             <div class="row"><span>52週安値</span><span id="price-52l">—</span></div>
