@@ -1,4 +1,9 @@
-<div id="detail-modal" class="detail-modal" aria-hidden="false">
+<div id="detail-modal"
+     class="detail-modal"
+     aria-hidden="false"
+     data-stock-id="{{ stock.id }}">  {# ← JS が参照するため stock.id を埋め込み #}
+
+  <!-- オーバーレイ（タップで閉じる） -->
   <div class="detail-modal__overlay" data-dm-close></div>
 
   <div class="detail-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="detail-modal-title">
@@ -13,7 +18,7 @@
     <!-- タブ -->
     <nav class="detail-tabs" role="tablist" aria-label="詳細タブ">
       <button class="detail-tab is-active" data-tab="overview" role="tab" aria-selected="true">概要</button>
-      <!-- 価格タブを有効化（lazy-load 用に JS が利用する） -->
+      <!-- 価格タブ：有効化（lazy-load 用に JS が参照） -->
       <button class="detail-tab" data-tab="price" role="tab" aria-selected="false">価格</button>
       <button class="detail-tab" data-tab="fundamental" role="tab" aria-selected="false" disabled>指標</button>
       <button class="detail-tab" data-tab="news" role="tab" aria-selected="false" disabled>ニュース</button>
@@ -44,7 +49,11 @@
             </div>
           </div>
 
-          <canvas id="price-canvas" width="600" height="140" aria-label="価格推移"></canvas>
+          <!-- フル幅表示になるようスタイルを併用（JS側でDPR対応描画） -->
+          <canvas id="price-canvas"
+                  width="600" height="140"
+                  style="display:block; width:100%; height:160px;"
+                  aria-label="価格推移"></canvas>
 
           <div class="price-rows">
             <div class="row"><span>52週高値</span><span id="price-52h">—</span></div>
