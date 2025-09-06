@@ -2,19 +2,19 @@
   <div class="detail-modal__overlay" data-dm-close></div>
 
   <div class="detail-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="detail-modal-title">
+    <!-- 閉じるボタン（右上／stickyで常に押しやすい） -->
     <button class="detail-modal__close" data-dm-close aria-label="閉じる">×</button>
 
+    <!-- ヘッダー（CTAは削除し、タイトルだけ） -->
     <header class="detail-modal__header">
       <h2 id="detail-modal-title" class="dm-title">
         <span class="dm-name">{{ stock.name }}</span>
         <span class="dm-code">{{ stock.ticker }}</span>
       </h2>
-      <div class="dm-cta">
-        <a href="{% url 'stock_edit' stock.id %}" class="dm-btn">編集</a>
-        <a href="{% url 'stock_sell' stock.id %}" class="dm-btn dm-btn--danger">売却</a>
-      </div>
+      <!-- 以前ここにあった .dm-cta（編集/売却ボタン）はフッターへ移動しました -->
     </header>
 
+    <!-- タブ -->
     <nav class="detail-tabs" role="tablist" aria-label="詳細タブ">
       <button class="detail-tab is-active" data-tab="overview" role="tab" aria-selected="true">概要</button>
       <button class="detail-tab" data-tab="price" role="tab" aria-selected="false" disabled>価格</button>
@@ -22,6 +22,7 @@
       <button class="detail-tab" data-tab="news" role="tab" aria-selected="false" disabled>ニュース</button>
     </nav>
 
+    <!-- パネル -->
     <section class="detail-panels">
       <div class="detail-panel is-active" data-panel="overview">
         <div class="skeleton">
@@ -43,5 +44,11 @@
         <div class="placeholder">ニュースタブは次の段階で追加予定です。</div>
       </div>
     </section>
+
+    <!-- フッター（画面下中央に編集/売却ボタンを配置） -->
+    <div class="detail-modal__footer">
+      <a href="{% url 'stock_edit' stock.id %}" class="dm-btn">編集</a>
+      <a href="{% url 'stock_sell' stock.id %}" class="dm-btn dm-btn--danger">売却</a>
+    </div>
   </div>
 </div>
