@@ -7,6 +7,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.db import transaction, models
 from django.utils import timezone
+from django.views.decorators.cache import cache_page
 import json
 import yfinance as yf
 
