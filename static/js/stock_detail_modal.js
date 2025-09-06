@@ -1,20 +1,24 @@
-/* 詳細モーダル（概要 + 価格）
-   - 概要はカード値で即時描画 → /overview.json（from_card_current付き）で確定値
-   - 価格はタブ初回クリックで /price.json を取得して Canvas にミニチャート描画
+/* 詳細モーダル（概要 + 価格 + 指標）
+   - 概要：楽観表示 → /overview.json で確定
+   - 価格：タブ初回クリックで /price.json 取得 → ミニチャート
+   - 指標：タブ初回クリックで /fundamental.json 取得 → PER/PBR/配当/時価総額/EPS推定
 */
 (function () {
   const mountId = "detail-modal-mount";
 
-  // --------- 共通ユーティリティ ---------
   const toNum = (v, d = 0) => {
-    const n = Number(String(v ?? "").replace(/[^\d.-]/g, ""));
+    const n = Number(String(v).replace(/[^\d.-]/g, ""));
     return Number.isFinite(n) ? n : d;
   };
   const yen = (n) => "¥" + Math.round(toNum(n)).toLocaleString();
   const num = (n) => toNum(n).toLocaleString();
+  const pct = (n) => {
+    const x = Number(n);
+    return Number.isFinite(x) ? x.toFixed(2) + "%" : "—";
+  };
 
   function calcOverview({ shares, unit_price, current_price, total_cost, position }) {
-    const s  = Math.max(0, toNum(shares));
+    const s = Math.max(0, toNum(shares));
     const up = Math.max(0, toNum(unit_price));
     const cp = Math.max(0, toNum(current_price));
     const tc = Math.max(0, toNum(total_cost) || s * up);
@@ -74,11 +78,10 @@
     document.body.classList.add("hide-legacy-modals");
   }
 
-  // --- カードから“現在株価”を確実に拾う（data属性 → テキスト救済の順で） ---
+  // カードからの現在値救済
   function getCardCurrentPrice(card) {
     let cp = toNum(card?.dataset?.current_price, 0);
     if (cp > 0) return cp;
-
     try {
       const rows = card.querySelectorAll(".stock-row");
       for (const r of rows) {
@@ -93,83 +96,7 @@
     return 0;
   }
 
-  // ===== 価格タブ関連 =====
-
-  // 履歴から 52週高安を算出（APIが無い場合の保険）
-  function calc52wFromHistory(history) {
-    if (!Array.isArray(history) || history.length === 0) {
-      return { high: null, low: null };
-    }
-    const tail = history.slice(-260); // おおよそ1年弱
-    let hi = -Infinity, lo = Infinity;
-    for (const p of tail) {
-      const c = Number(p.c ?? p.close ?? p.price ?? 0);
-      if (!Number.isFinite(c)) continue;
-      if (c > hi) hi = c;
-      if (c < lo) lo = c;
-    }
-    if (hi === -Infinity) hi = null;
-    if (lo === Infinity)  lo = null;
-    return { high: hi, low: lo };
-  }
-
-  // Canvas に軽量折れ線（DPR 対応）
-  function drawLine(canvas, history) {
-    if (!canvas) return;
-
-    // 実測サイズ
-    const cssW = canvas.clientWidth || 320;
-    const cssH = canvas.clientHeight || 120;
-    const dpr  = window.devicePixelRatio || 1;
-
-    // 内部ピクセルを DPR 倍に
-    canvas.width  = Math.max(1, Math.floor(cssW * dpr));
-    canvas.height = Math.max(1, Math.floor(cssH * dpr));
-
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(1,0,0,1,0,0); // リセット
-    ctx.scale(dpr, dpr);
-
-    const W = cssW, H = cssH;
-
-    const ys = (Array.isArray(history) ? history : [])
-      .map(d => Number(d.c ?? d.close ?? d.price ?? 0))
-      .filter(Number.isFinite);
-
-    ctx.clearRect(0, 0, W, H);
-    if (ys.length < 2) return;
-
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-    const padX = 12, padY = 10;
-    const innerW = W - padX * 2, innerH = H - padY * 2;
-
-    const xAt = (i) => padX + (innerW * i / (ys.length - 1));
-    const yAt = (v) => padY + (innerH * (1 - (v - minY) / Math.max(1e-9, (maxY - minY))));
-
-    // 塗りつぶし
-    const grad = ctx.createLinearGradient(0, padY, 0, padY + innerH);
-    grad.addColorStop(0, "rgba(0,200,255,0.35)");
-    grad.addColorStop(1, "rgba(0,200,255,0.00)");
-    ctx.beginPath();
-    ctx.moveTo(xAt(0), yAt(ys[0]));
-    ys.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
-    ctx.lineTo(xAt(ys.length - 1), padY + innerH);
-    ctx.lineTo(xAt(0), padY + innerH);
-    ctx.closePath();
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    // ライン
-    ctx.beginPath();
-    ctx.moveTo(xAt(0), yAt(ys[0]));
-    ys.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
-    ctx.strokeStyle = "rgba(0,200,255,0.85)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
-
-  // 価格タブを初回だけロード
+  // 価格タブ：一度だけ読み込み
   async function loadPriceTab(modal, stockId) {
     if (modal.dataset.priceLoaded === "1") return;
 
@@ -178,64 +105,111 @@
     if (!res.ok) throw new Error("価格データの取得に失敗しました");
     const d = await res.json();
 
-    // 要素参照
     const lastEl = modal.querySelector("#price-last");
     const chgEl  = modal.querySelector("#price-chg");
     const h52El  = modal.querySelector("#price-52h");
     const l52El  = modal.querySelector("#price-52l");
-    const cvs    = modal.querySelector("#price-canvas");
+    if (lastEl) lastEl.textContent = yen(d.last_close);
+    if (chgEl)  chgEl.textContent  = `${(d.change >= 0 ? "+" : "")}${Math.round(d.change).toLocaleString()} / ${d.change_pct.toFixed(2)}%`;
+    if (h52El)  h52El.textContent  = d.high_52w ? yen(d.high_52w) : "—";
+    if (l52El)  l52El.textContent  = d.low_52w  ? yen(d.low_52w)  : "—";
 
-    // 最新値・前日比
-    const last = toNum(d.last ?? d.last_close ?? d.current_price);
-    const prev = toNum(d.prev_close ?? d.previous_close);
-    const chg  = (prev > 0) ? last - prev : toNum(d.change);
-    const chgp = (prev > 0) ? ((last - prev) / prev * 100) : toNum(d.change_pct);
+    // Canvas 描画
+    const cvs = modal.querySelector("#price-canvas");
+    if (cvs && d.series && d.series.length >= 2) {
+      // 物理サイズを CSS サイズから算出して HiDPI 対応
+      const cssW = cvs.clientWidth || 600;
+      const cssH = cvs.clientHeight || 160;
+      const dpr = window.devicePixelRatio || 1;
+      cvs.width = Math.floor(cssW * dpr);
+      cvs.height = Math.floor(cssH * dpr);
 
-    if (lastEl) lastEl.textContent = yen(last);
-    if (chgEl) {
-      const sign = (chg >= 0 ? "+" : "");
-      chgEl.textContent = `${sign}${Math.round(chg).toLocaleString()} / ${ (Number.isFinite(chgp)? chgp.toFixed(2):"0.00") }%`;
-      chgEl.style.color = (chg >= 0) ? "#6aff6a" : "#ff6a6a";
-      chgEl.style.fontWeight = "800";
+      const ctx = cvs.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // スケール
+      const W = cssW, H = cssH;
+
+      const ys = d.series.map(p => toNum(p.c));
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const padX = 12, padY = 10;
+      const innerW = W - padX * 2, innerH = H - padY * 2;
+      const xAt = (i) => padX + (innerW * i / (ys.length - 1));
+      const yAt = (v) => padY + (innerH * (1 - (v - minY) / Math.max(1e-9, (maxY - minY))));
+
+      // area
+      const grad = ctx.createLinearGradient(0, padY, 0, padY + innerH);
+      grad.addColorStop(0, "rgba(0,200,255,0.35)");
+      grad.addColorStop(1, "rgba(0,200,255,0.00)");
+
+      ctx.clearRect(0,0,W,H);
+
+      ctx.beginPath();
+      ctx.moveTo(xAt(0), yAt(ys[0]));
+      ys.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
+      ctx.lineTo(xAt(ys.length - 1), padY + innerH);
+      ctx.lineTo(xAt(0), padY + innerH);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // line
+      ctx.beginPath();
+      ctx.moveTo(xAt(0), yAt(ys[0]));
+      ys.forEach((v, i) => ctx.lineTo(xAt(i), yAt(v)));
+      ctx.strokeStyle = "rgba(0,200,255,0.85)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
     }
-
-    // 52週高安：APIが無ければ履歴から算出
-    let h52 = d.high_52w ?? d.fifty_two_week_high ?? null;
-    let l52 = d.low_52w  ?? d.fifty_two_week_low  ?? null;
-
-    const history = Array.isArray(d.series) ? d.series : (Array.isArray(d.history) ? d.history : []);
-    if ((h52 == null || l52 == null) && history.length > 0) {
-      const { high, low } = calc52wFromHistory(history);
-      if (h52 == null) h52 = high;
-      if (l52 == null) l52 = low;
-    }
-    if (h52El) h52El.textContent = (h52 != null) ? yen(h52) : "—";
-    if (l52El) l52El.textContent = (l52 != null) ? yen(l52) : "—";
-
-    // チャート描画
-    if (cvs) drawLine(cvs, history);
 
     modal.dataset.priceLoaded = "1";
   }
 
-  // --------- メインフロー ---------
+  // 指標タブ：一度だけ読み込み
+  async function loadFundamentalTab(modal, stockId) {
+    if (modal.dataset.fundLoaded === "1") return;
+
+    const url = new URL(`/stocks/${stockId}/fundamental.json`, window.location.origin);
+    const res = await fetch(url.toString(), { credentials: "same-origin" });
+    if (!res.ok) throw new Error("指標データの取得に失敗しました");
+    const d = await res.json();
+
+    const setText = (sel, val, fmt) => {
+      const el = modal.querySelector(sel);
+      if (!el) return;
+      if (val === null || val === undefined || val === "") { el.textContent = "—"; return; }
+      el.textContent = fmt ? fmt(val) : String(val);
+    };
+
+    setText("#fd-per", d.per, (v) => Number(v).toFixed(2));
+    setText("#fd-pbr", d.pbr, (v) => Number(v).toFixed(2));
+    setText("#fd-div", d.div_yield_pct, (v) => pct(v));
+    setText("#fd-mcap", d.market_cap, (v) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return "—";
+      // ざっくりの単位（日本語）
+      if (n >= 1e12) return (n/1e12).toFixed(2) + " 兆";
+      if (n >= 1e8)  return (n/1e8).toFixed(2)  + " 億";
+      return "¥" + n.toLocaleString();
+    });
+    setText("#fd-eps", d.eps_est, (v) => "¥" + Number(v).toFixed(2).toLocaleString?.() ?? Number(v).toFixed(2));
+
+    modal.dataset.fundLoaded = "1";
+  }
+
   async function openDetail(stockId, cardEl) {
     if (!stockId) return;
     const mount = ensureMount();
 
-    // 旧モーダルを確実に排除
     removeLegacyModals();
     document.body.classList.add("hide-legacy-modals");
 
-    // カードから即時プレビュー値
-    const cardCp   = getCardCurrentPrice(cardEl);
-    const cardUp   = toNum(cardEl?.dataset?.unit_price, 0);
-    const cardSh   = toNum(cardEl?.dataset?.shares, 0);
-    const position = (cardEl?.dataset?.position || "買い");
+    const cardCp = getCardCurrentPrice(cardEl);
+    const cardUp = toNum(cardEl?.dataset?.unit_price, 0);
+    const cardShares = toNum(cardEl?.dataset?.shares, 0);
+    const cardPosition = (cardEl?.dataset?.position || "買い");
     const optimisticCp = cardCp > 0 ? cardCp : cardUp;
 
     try {
-      // フラグメント読み込み
       const htmlRes = await fetch(`/stocks/${stockId}/detail_fragment/`, { credentials: "same-origin" });
       if (!htmlRes.ok) throw new Error("モーダルの読み込みに失敗しました");
       const html = await htmlRes.text();
@@ -246,14 +220,10 @@
       const modal = mount.querySelector("#detail-modal");
       if (!modal) throw new Error("モーダルが生成できませんでした");
 
-      // ここで必ず stockId を埋め込む（タブ側が参照）
-      modal.setAttribute("data-stock-id", String(stockId));
-
-      // 閉じる（×相当 & フッター）
       modal.querySelectorAll("[data-dm-close]").forEach((el) => el.addEventListener("click", closeDetail));
       document.addEventListener("keydown", escCloseOnce);
 
-      // タブ切替（価格タブは lazy load）
+      // タブ切替（価格/指標は lazy load）
       modal.querySelectorAll(".detail-tab").forEach((btn) => {
         btn.addEventListener("click", async () => {
           if (btn.disabled) return;
@@ -262,23 +232,24 @@
           modal.querySelectorAll(".detail-panel").forEach((p) =>
             p.classList.toggle("is-active", p.getAttribute("data-panel") === name)
           );
-          if (name === "price") {
-            try { await loadPriceTab(modal, stockId); } catch (e) { console.error(e); }
-          }
+          try {
+            if (name === "price") await loadPriceTab(modal, stockId);
+            if (name === "fundamental") await loadFundamentalTab(modal, stockId);
+          } catch (e) { console.error(e); }
         });
       });
 
-      // 概要：即時プレビュー描画
+      // 概要：即時プレビュー
       const ovWrap = modal.querySelector('[data-panel="overview"]');
       if (ovWrap) {
         const optimistic = {
           broker: cardEl?.dataset?.broker || "",
           account_type: cardEl?.dataset?.account || "",
-          position,
-          shares: cardSh,
+          position: cardPosition,
+          shares: cardShares,
           unit_price: cardUp,
           current_price: optimisticCp,
-          total_cost: cardSh * cardUp,
+          total_cost: cardShares * cardUp,
           purchase_date: "",
           note: ""
         };
@@ -295,7 +266,6 @@
       const fixed = { ...d };
       if (toNum(fixed.current_price, 0) <= 0 && cardCp > 0) fixed.current_price = cardCp;
       if (toNum(fixed.total_cost, 0) <= 0) fixed.total_cost = toNum(fixed.shares, 0) * toNum(fixed.unit_price, 0);
-
       if (ovWrap) ovWrap.innerHTML = optimisticOverviewHTML(fixed);
     } catch (err) {
       console.error(err);
@@ -304,23 +274,24 @@
     }
   }
 
-  // --------- 起動 ---------
+  // 起動
   document.addEventListener("DOMContentLoaded", () => {
     removeLegacyModals();
     document.body.classList.add("hide-legacy-modals");
 
-    // カードクリックで開く（編集/売却のリンクは素通し）
+    // カードクリックで開く
     document.body.addEventListener("click", (e) => {
       const card = e.target.closest(".stock-card");
       if (!card) return;
-      if (e.target.closest("a")) return;
+      if (e.target.closest("a")) return;          // 編集/売却は通常遷移
       if (card.classList.contains("swiped")) return;
+
       const id = card.dataset.id;
       if (!id || id === "0") return;
       openDetail(id, card);
     });
 
-    // キーボード操作（Enter/Space）
+    // キーボード操作
     document.body.addEventListener("keydown", (e) => {
       if (e.key !== "Enter" && e.key !== " ") return;
       const card = e.target.closest?.(".stock-card");
