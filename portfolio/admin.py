@@ -57,39 +57,31 @@ class StockAdmin(admin.ModelAdmin):
     sell_link.short_description = "売却（通常画面）"
     
 # =============================
-# RealizedTrade
+# RealizedProfit
 # =============================
-@admin.register(RealizedTrade)
-class RealizedTradeAdmin(admin.ModelAdmin):
+@admin.register(RealizedProfit)
+class RealizedProfitAdmin(admin.ModelAdmin):
     # 一覧に表示するカラム
     list_display = (
         "id",
-        "date",          # 売却日
+        "sold_at",        # 売却日
         "ticker",
-        "name",
-        "account_type",
-        "broker",
+        "stock_name",
         "shares",
-        "unit_price",
+        "purchase_price",
         "sell_price",
-        "profit",
-        "actual_profit",
-        "created_at",
-        "updated_at",
+        "total_profit",
     )
 
     # 検索対象フィールド
-    search_fields = ("ticker", "name", "broker")
+    search_fields = ("ticker", "stock_name")
 
     # 絞り込みフィルター
-    list_filter = ("account_type", "broker", "date")
+    list_filter = ("sold_at",)
 
     # ソート順
-    ordering = ("-date", "-id")
-
-    # 読み取り専用フィールド
-    readonly_fields = ("created_at", "updated_at")
-    
+    ordering = ("-sold_at", "-id")
+        
 # =============================
 # Cash
 # =============================
