@@ -21,8 +21,8 @@ class StockAdmin(admin.ModelAdmin):
         "total_cost",
         "created_at",
         "updated_at",
-        "edit_link",   # ← 追加：通常画面の編集へ
-        "sell_link",   # ← 追加：通常画面の売却へ
+        "edit_link",   # 通常画面の編集ページ
+        "sell_link",   # 通常画面の売却ページ
     )
 
     # 検索対象フィールド
@@ -37,33 +37,25 @@ class StockAdmin(admin.ModelAdmin):
     # 管理画面の入力フォームで編集不可にするフィールド
     readonly_fields = ("created_at", "updated_at")
 
-    # ===== カスタム列（通常ビューへの導線） =====
+    # ===== カスタム列（通常ビューへのリンク） =====
     def edit_link(self, obj):
-        """
-        通常画面の編集ビューへ（URL名: stock_edit / 位置引数: stock.id）
-        例：urls.py 側が path("stocks/<int:stock_id>/edit/", ..., name="stock_edit")
-        かつテンプレ側が {% url 'stock_edit' stock.id %} の想定
-        """
+        """ユーザー用の編集画面へ飛ぶボタン"""
         try:
-            url = reverse("stock_edit", args=[obj.id])
+            url = reverse("stock_edit", kwargs={"pk": obj.id})
         except Exception:
             url = "#"
         return format_html('<a class="button" href="{}" target="_blank">編集</a>', url)
-
     edit_link.short_description = "編集（通常画面）"
 
     def sell_link(self, obj):
-        """
-        通常画面の売却ビューへ（URL名: stock_sell / 位置引数: stock.id）
-        """
+        """ユーザー用の売却画面へ飛ぶボタン"""
         try:
-            url = reverse("stock_sell", args=[obj.id])
+            url = reverse("stock_sell", kwargs={"pk": obj.id})
         except Exception:
             url = "#"
         return format_html('<a class="button" href="{}" target="_blank">売却</a>', url)
-
     sell_link.short_description = "売却（通常画面）"
-
+    
 # =============================
 # RealizedTrade
 # =============================
