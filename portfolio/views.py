@@ -357,6 +357,19 @@ def sell_stock_page(request, pk):
         except Exception:
             current_price_for_view = 0.0  # 取得失敗時は 0 のまま（テンプレ側で単価を使って概算）
 
+    # --- ティッカー等から 4桁の証券コードを抽出する小ヘルパー ---
+    def extract_securities_code(ticker_or_code: str) -> str:
+        """
+        例: '7203.T' -> '7203', '8306' -> '8306', 'AAPL' -> ''（抽出不可）
+        """
+        if not ticker_or_code:
+            return ""
+        s = str(ticker_or_code).strip()
+        # 末尾の .T / .JP など拡張子を削除
+        s = re.sub(r'\.[A-Za-z]+$', '', s)
+        m = re.match(r'^(\d{4})', s)
+        return m.group(1) if m else ""
+
     if request.method == "POST":
         mode = (request.POST.get("sell_mode") or "").strip()
 
@@ -372,12 +385,12 @@ def sell_stock_page(request, pk):
         except (TypeError, ValueError):
             limit_price = 0.0
 
-        # 売却日（テンプレの <input type="date" name="sell_date"> から）
+        # 売却日（テンプレの <input type="date" name="sell_date">）
         sell_date_str = (request.POST.get("sell_date") or "").strip()
         sold_at = timezone.now()
         if sell_date_str:
             try:
-                # 売却日の 15:00（日本の大引け相当）で保存 ※必要なら任意の時刻に調整
+                # 売却日の 15:00 に設定（必要あれば調整OK）
                 sell_date = datetime.date.fromisoformat(sell_date_str)
                 sold_at_naive = datetime.datetime.combine(sell_date, datetime.time(15, 0, 0))
                 sold_at = timezone.make_aware(sold_at_naive, timezone.get_current_timezone())
@@ -404,7 +417,6 @@ def sell_stock_page(request, pk):
         # 売却価格（1株あたり）
         price = None
         if mode == "market":
-            # current_price が妥当ならそれを優先、無ければ unit_price
             price = float(stock.current_price or current_price_for_view or stock.unit_price or 0)
         else:  # limit
             if limit_price <= 0:
@@ -431,35 +443,46 @@ def sell_stock_page(request, pk):
         unit_price = float(stock.unit_price or 0)
         estimated_amount = float(price) * shares_to_sell                # 概算売却額（手数料控除前の想定）
         total_profit_est = (float(price) - unit_price) * shares_to_sell # 概算損益（参考値）
-        fee = estimated_amount - float(actual_profit or 0.0)            # 指定の式で算出（負値になり得る場合もそのまま保存）
+        fee = estimated_amount - float(actual_profit or 0.0)            # 指定の式（負値もそのまま保存OK）
 
-        # 保存する損益額（実入力があればそちらを優先）
+        # 保存する損益額（実入力があれば優先）
         final_profit_amount = actual_profit if actual_profit != 0.0 else total_profit_est
 
-        # 損益率（%）を可能なら算出（分母=取得総額）。ゼロ割は避ける
+        # 損益率（%）を可能なら算出（分母=取得総額）
         profit_rate_val = None
         denom = unit_price * shares_to_sell
         if denom:
             profit_rate_val = round((final_profit_amount / denom) * 100, 2)
 
-        # --- RealizedProfit へ記録 ---
-        # ※ モデルの実フィールド名に合わせてマッピング（ticker/shares/total_profit/sold_at は使わない）
+        # --- 証券コード / 証券会社 / 口座区分 を決定 ---
+        posted_code   = (request.POST.get("code") or "").strip()
+        stock_code    = getattr(stock, "code", "") or ""
+        ticker_code   = extract_securities_code(getattr(stock, "ticker", "") or "")
+        final_code    = posted_code or stock_code or ticker_code or ""
+
+        # broker / account_type は POST 優先 → 無ければ stock の値
+        posted_broker = (request.POST.get("broker") or "").strip()
+        posted_acct   = (request.POST.get("account_type") or "").strip()
+        final_broker  = posted_broker or getattr(stock, "broker", "") or ""
+        final_account = posted_acct   or getattr(stock, "account_type", "") or ""
+
+        # --- RealizedProfit へ記録（モデルの実フィールド名に合わせる） ---
         RealizedProfit.objects.create(
-            user=request.user if getattr(RealizedProfit._meta.get_field('user'), 'null', False) is False else request.user,  # user が null=False なら必須
-            date=sold_at.date(),                         # sold_at → date(DateField)
-            stock_name=stock.name,                       # ticker ではなく stock_name へ
-            code=getattr(stock, "code", "") or "",       # あれば保存（無ければ空）
-            broker=stock.broker,                # ★追加
-            account_type=stock.account_type,    # ★追加
+            user=request.user,                         # user を必ず紐付け（モデルが null=True でも可）
+            date=sold_at.date(),                       # sold_at(aware) → date だけ保存
+            stock_name=stock.name,
+            code=final_code,
+            broker=final_broker,
+            account_type=final_account,
             trade_type="sell",
 
-            quantity=shares_to_sell,                     # shares → quantity
+            quantity=shares_to_sell,
             purchase_price=int(round(unit_price)) if unit_price else None,
             sell_price=int(round(price)) if price else None,
             fee=int(round(fee)) if fee else None,
 
             profit_amount=int(round(final_profit_amount)) if final_profit_amount is not None else None,
-            profit_rate=profit_rate_val,                 # DecimalField だが float でも保存可（必要なら Decimal へ変換）
+            profit_rate=profit_rate_val,               # DecimalField だが float 入力でもDjangoが変換
         )
 
         # --- 在庫調整（部分売却対応） ---
@@ -484,7 +507,7 @@ def sell_stock_page(request, pk):
             "current_price": current_price_for_view or 0.0,
         },
     )
-    
+        
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.decorators.http import require_http_methods
 from .models import Stock
