@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% load static %}
+{% block content %}
+
+<div class="dividend-page">
+  <form method="post" class="div-form" id="divForm" novalidate>
+    {% csrf_token %}
+
+    <!-- ヘッダー -->
+    <div class="div-head glass">
+      <div class="title">📥 配当を登録</div>
+      <div class="hint">必要なのは「受取日・銘柄名・受取額」だけ。あとから編集OK。</div>
+    </div>
+
+    <!-- 銘柄 / 証券コード -->
+    <div class="group glass">
+      <label class="label">銘柄名</label>
+      <input type="text" name="stock_name" id="stockName" placeholder="例: トヨタ" required value="{{ form.stock_name|default:'' }}">
+      <div class="row2">
+        <div class="col">
+          <label class="label">証券コード</label>
+          <input type="text" inputmode="numeric" pattern="[0-9]*" name="code" id="code" placeholder="例: 7203" value="{{ form.code|default:'' }}">
+        </div>
+        <div class="col">
+          <label class="label">受取日</label>
+          <input type="date" name="date" id="date" required value="{{ form.date|default:'' }}">
+        </div>
+      </div>
+    </div>
+
+    <!-- 証券会社 / 口座区分（チップ選択） -->
+    <div class="group glass">
+      <label class="label">証券会社</label>
+      <div class="chips" data-target="broker">
+        {% for b in "SBI,楽天,松井,マネックス,野村".split(",") %}
+          <button type="button" class="chip{% if form.broker == b %} active{% endif %}">{{ b }}</button>
+        {% endfor %}
+      </div>
+      <input type="hidden" name="broker" id="broker" value="{{ form.broker|default:'' }}">
+
+      <label class="label mt">口座区分</label>
+      <div class="chips" data-target="account_type">
+        {% for a in "特定,NISA,一般".split(",") %}
+          <button type="button" class="chip{% if form.account_type == a %} active{% endif %}">{{ a }}</button>
+        {% endfor %}
+      </div>
+      <input type="hidden" name="account_type" id="account_type" value="{{ form.account_type|default:'' }}">
+    </div>
+
+    <!-- 金額入力（ライブ計算） -->
+    <div class="group glass">
+      <div class="row2">
+        <div class="col">
+          <label class="label">受取額（手取り）</label>
+          <div class="input-amount">
+            <span class="prefix">¥</span>
+            <input type="text" name="amount_received" id="amount" inputmode="numeric" placeholder="例: 12,345" required value="{{ form.amount_received|default:'' }}">
+          </div>
+        </div>
+        <div class="col">
+          <label class="label">源泉税（任意）</label>
+          <div class="input-amount">
+            <span class="prefix">¥</span>
+            <input type="text" name="tax_withheld" id="tax" inputmode="numeric" placeholder="例: 2,345" value="{{ form.tax_withheld|default:'' }}">
+          </div>
+        </div>
+      </div>
+
+      <div class="row2">
+        <div class="col">
+          <label class="label">手数料（任意）</label>
+          <div class="input-amount">
+            <span class="prefix">¥</span>
+            <input type="text" name="fee" id="fee" inputmode="numeric" placeholder="例: 0" value="{{ form.fee|default:'' }}">
+          </div>
+        </div>
+        <div class="col">
+          <label class="label">メモ（任意）</label>
+          <input type="text" name="note" id="note" placeholder="例: 期末配当" value="{{ form.note|default:'' }}">
+        </div>
+      </div>
+
+      <!-- ライブKPI（視覚的サマリー） -->
+      <div class="kpi3">
+        <div class="kcard">
+          <div class="kcap">手取り</div>
+          <div class="kval" id="kNet">--</div>
+        </div>
+        <div class="kcard">
+          <div class="kcap">税</div>
+          <div class="kval" id="kTax">--</div>
+        </div>
+        <div class="kcard">
+          <div class="kcap">手数料</div>
+          <div class="kval" id="kFee">--</div>
+        </div>
+      </div>
+      <div class="kpi-wide">
+        <div class="kcap">実現損益に計上される金額</div>
+        <div class="kval big" id="kProfit">--</div>
+        <div class="khint">※ 実現損益 = 受取額 − 手数料（税は参考として保持）</div>
+      </div>
+    </div>
+
+    <!-- 送信 -->
+    <div class="actions">
+      <button class="submit-btn" type="submit">登録する</button>
+      <a class="cancel-link" href="{% url 'realized' %}">一覧へ戻る</a>
+    </div>
+
+    <!-- Django messages（エラー/完了） -->
+    {% if messages %}
+      <ul class="messages">
+        {% for m in messages %}
+          <li class="{{ m.tags }}">{{ m }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
+  </form>
+</div>
+
+<link rel="stylesheet" href="{% static 'css/dividend.css' %}">
+<script src="{% static 'js/dividend.js' %}"></script>
+{% endblock %}
