@@ -944,44 +944,69 @@ def _to_yf_symbol(ticker: str) -> str:
 @cache_page(300)  # 5分キャッシュ
 def stock_news_json(request, pk: int):
     """
-    ニュースタブ用の軽量JSON:
-      - yfinance の Ticker.news を利用（なければ空配列）
-      - title / publisher / link / published_at
+    ニュースJSON（lazy-load用）
+    GET:
+      page: 1.. (default=1)
+      limit: 10..50 (default=20)
+      lang: all/jp/us (将来拡張用、今は受けるだけ)
+    返却:
+      {
+        "page": 1,
+        "limit": 20,
+        "has_more": true/false,
+        "total": 123,         # わかるときだけ
+        "items": [{
+           "id": "news-uuid-or-hash",
+           "title": "...",
+           "url": "https://...",
+           "source": "Nikkei",
+           "published_at": "2025-03-05T10:32:00Z",
+           "summary": "...",
+           "sentiment": "pos|neg|neu",
+           "impact": 1|2|3,    # 3=強
+           "date": "2025-03-05"  # チャートマーキング用（日付粒度）
+        }, ...]
+      }
     """
     stock = get_object_or_404(Stock, pk=pk)
-    ticker = _to_yf_symbol(stock.ticker)
+    page = max(1, int(request.GET.get("page", "1") or 1))
+    limit = int(request.GET.get("limit", "20") or 20)
+    limit = max(10, min(50, limit))
+    # lang = (request.GET.get("lang") or "all").lower()
 
+    # --- ここで実際のニュース取得を行う（外部APIや自前DBなど）
+    # デモ用のダミーデータを返す。実装では置き換えてください。
+    now = timezone.now()
     items = []
-    try:
-        tkr = yf.Ticker(ticker)
-        news = getattr(tkr, "news", None) or []
-        # よくあるフィールド: title, publisher, link, providerPublishTime
-        for n in news[:15]:
-            title = n.get("title") or ""
-            publisher = n.get("publisher") or n.get("provider") or ""
-            link = n.get("link") or n.get("url") or ""
-            ts = n.get("providerPublishTime") or n.get("published") or None
-            if ts:
-                # yfinance は epoch 秒のことが多い
-                try:
-                    published_at = timezone.make_aware(dt.datetime.fromtimestamp(int(ts))).isoformat()
-                except Exception:
-                    published_at = None
-            else:
-                published_at = None
-            if title and link:
-                items.append({
-                    "title": title,
-                    "publisher": publisher,
-                    "link": link,
-                    "published_at": published_at,
-                })
-    except Exception:
-        # 取得失敗時は空で返す（フロントが “—” を出す）
-        items = []
+    base = (page - 1) * limit
+    for i in range(limit):
+        idx = base + i + 1
+        ts = now - dt.timedelta(hours=idx * 3)
+        date_str = ts.date().isoformat()
+        # 簡易センチメント/impact（ダミー）
+        sentiment = ("pos" if idx % 5 == 0 else "neg" if idx % 7 == 0 else "neu")
+        impact = 3 if idx % 9 == 0 else 2 if idx % 4 == 0 else 1
+        items.append({
+            "id": f"demo-{idx}",
+            "title": f"{stock.ticker} に関するニュース {idx}",
+            "url": "https://example.com/news",
+            "source": "ExampleWire",
+            "published_at": ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "summary": "概要テキスト（ダミー）。実装時は本文の要約などを入れてください。",
+            "sentiment": sentiment,
+            "impact": impact,
+            "date": date_str,
+        })
 
-    return JsonResponse({"results": items})
-    
+    has_more = page < 5  # デモ: 5ページ目まである想定
+    resp = {
+        "page": page,
+        "limit": limit,
+        "has_more": has_more,
+        "total": 100,  # わからなければ省略可
+        "items": items,
+    }
+    return JsonResponse(resp)    
 @login_required
 def cash_view(request):
     return render(request, "cash.html")
