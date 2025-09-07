@@ -32,7 +32,7 @@
     <div class="group glass">
       <label class="label">証券会社</label>
       <div class="chips" data-target="broker">
-        {% for b in "SBI,楽天,松井,マネックス,野村".split(",") %}
+        {% for b in BROKERS %}
           <button type="button" class="chip{% if form.broker == b %} active{% endif %}">{{ b }}</button>
         {% endfor %}
       </div>
@@ -40,7 +40,7 @@
 
       <label class="label mt">口座区分</label>
       <div class="chips" data-target="account_type">
-        {% for a in "特定,NISA,一般".split(",") %}
+        {% for a in ACCOUNTS %}
           <button type="button" class="chip{% if form.account_type == a %} active{% endif %}">{{ a }}</button>
         {% endfor %}
       </div>
@@ -108,7 +108,7 @@
       <a class="cancel-link" href="{% url 'realized' %}">一覧へ戻る</a>
     </div>
 
-    <!-- Django messages（エラー/完了） -->
+    <!-- Django messages -->
     {% if messages %}
       <ul class="messages">
         {% for m in messages %}
