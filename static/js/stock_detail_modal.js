@@ -1,4 +1,3 @@
-
 /* =========================================================
    詳細モーダル（概要 + 価格 + 指標）
    - 価格: /price.json?period=1M/3M/1Y を取得
@@ -6,7 +5,7 @@
    - 操作: ピンチズーム / ドラッグパン（上下左右） / ダブルタップでリセット
    - スマホ優先: モーダル中はページ全体のズーム禁止、チャートのみ許可
    ========================================================= */
-function () {
+(function () {
   const mountId = "detail-modal-mount";
 
   /* ---------- utils ---------- */
@@ -123,7 +122,6 @@ function () {
 
   /* ===================== テクニカル計算（凄腕仕様） ===================== */
   function calcATR14(series) {
-    // TR = max(H-L, |H-PrevC|, |L-PrevC|)
     const TR = [];
     for (let i = 0; i < series.length; i++) {
       const h = toNum(series[i].h), l = toNum(series[i].l);
@@ -159,12 +157,10 @@ function () {
     }
     return { up, dn };
   }
-  // 実用寄りスイング（前回実装を流用）
+  // 実用寄りスイング
   function findRecentSwings(series, maxCount = 2) {
     const L = series.length; if (L < 7) return { highs: [], lows: [] };
     const highs = [], lows = [], k = 3;
-
-    // ATRベースのしきい値（ノイズ除去）
     const atr = calcATR14(series);
     const threshold = atr * 0.5;
 
@@ -191,19 +187,17 @@ function () {
   /* ===================== ズーム・パン状態（チャート毎） ===================== */
   function makeViewState(seriesLen) {
     return {
-      // データ座標: x = インデックス、y = 価格
-      xScale: 1,          // 1 = 全幅（ズームインで >1）
-      yScale: 1,          // 1 = 自動スケール（>1 で縦に拡大）
+      xScale: 1,          // 1 = 全幅（>1 でズームイン）
+      yScale: 1,          // 1 = 自動スケール（>1 で縦ズーム）
       xOffset: 0,         // データ座標での平行移動（+で右へ）
-      yOffset: 0,         // 価格座標のオフセット（min/maxの中心相対シフト）
-      minXScale: 1,       // これ以下に縮小しない
-      maxXScale: 15,      // これ以上に拡大しない（スマホで扱いやすい程度）
+      yOffset: 0,         // 価格座標オフセット
+      minXScale: 1,
+      maxXScale: 15,      // スマホで扱いやすい程度
       minYScale: 1,
       maxYScale: 6,
       seriesLen
     };
   }
-
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
   /* ===================== チャート描画本体（ズーム対応） ===================== */
@@ -231,6 +225,9 @@ function () {
     if (!cvs) return;
     const ctx = cvs.getContext("2d");
 
+    // キャンバス内はデフォルトジェスチャー無効化（パン・ピンチは自前で）
+    cvs.style.touchAction = "none";
+
     // DPR
     const Wcss = cvs.clientWidth;
     const Hcss = cvs.clientHeight;
@@ -247,8 +244,7 @@ function () {
     // ビュー状態（モーダル単位で保持）
     modal._view = modal._view || makeViewState(series.length);
     const view = modal._view;
-    // 期間切替などで本数変化時はリセット
-    if (view.seriesLen !== series.length) modal._view = makeViewState(series.length);
+    if (view.seriesLen !== series.length) Object.assign(view, makeViewState(series.length));
 
     const padX = 38, padY = 18;
     const innerW = Wcss - padX * 2;
@@ -258,7 +254,6 @@ function () {
     const span = series.length / view.xScale;
     let xStart = clamp(series.length - span - view.xOffset, 0, Math.max(0, series.length - span));
     let xEnd   = xStart + span;
-    // インデックス整数化
     const iStart = Math.floor(xStart);
     const iEnd   = Math.min(series.length - 1, Math.ceil(xEnd));
 
@@ -269,12 +264,12 @@ function () {
       if (h > maxY) maxY = h;
       if (l < minY) minY = l;
     }
-    // 余白
     const padRate = 0.06;
-    const range = (maxY - minY) || 1;
-    minY -= range * padRate;
-    maxY += range * padRate;
-    // 縦方向のズーム（中心基準で拡大）
+    const baseRange = (maxY - minY) || 1;
+    minY -= baseRange * padRate;
+    maxY += baseRange * padRate;
+
+    // 縦方向のズーム（中心基準）
     if (view.yScale > 1) {
       const mid = (minY + maxY) / 2 + view.yOffset;
       const half = (maxY - minY) / 2 / view.yScale;
@@ -283,6 +278,9 @@ function () {
       minY += view.yOffset; maxY += view.yOffset;
     }
 
+    // パン用に現在の可視Y幅を保存（ジェスチャーで使う）
+    modal._lastYRange = (maxY - minY) || 1;
+
     // 座標変換
     const xAt = (idx) => {
       const frac = (idx - xStart) / Math.max(1e-9, (xEnd - xStart));
@@ -290,7 +288,7 @@ function () {
     };
     const yAt = (v) => padY + innerH * (1 - (v - minY) / Math.max(1e-9, (maxY - minY)));
 
-    // 背景の薄グリッド（Yのみ）
+    // 背景グリッド
     ctx.save();
     ctx.strokeStyle = "rgba(255,255,255,0.06)";
     ctx.lineWidth = 1;
@@ -346,7 +344,7 @@ function () {
     drawLineFromArray(sma20, "rgba(0,200,255,0.9)", 1.5);
     drawLineFromArray(sma50, "rgba(255,215,0,0.9)", 1.5);
 
-    // ====== ATRバンド（終値の周りに ±1.5*ATR） ======
+    // ====== ATRバンド（終値±1.5*ATR） ======
     const mul = 1.5;
     ctx.save();
     ctx.strokeStyle = "rgba(255,255,255,0.25)";
@@ -372,7 +370,7 @@ function () {
     ctx.setLineDash([]);
     ctx.restore();
 
-    // ====== フラクタルマーカー（△▽） ======
+    // ====== フラクタルマーカー（▲/▼） ======
     ctx.save();
     ctx.font = "11px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
     ctx.textAlign = "center";
@@ -454,7 +452,7 @@ function () {
       ctx.textAlign = "center"; ctx.textBaseline = "top";
       const first = Math.max(iStart, 0), last = Math.min(iEnd, series.length-1);
       const mid = Math.floor((first+last)/2);
-      const fmt = (i) => (series[i]?.t || "").slice(2); // YY-MM-DD くらい
+      const fmt = (i) => (series[i]?.t || "").slice(2);
       ctx.fillText(fmt(first), xAt(first)+6, Hcss - padY + 2);
       ctx.fillText(fmt(mid),   xAt(mid),      Hcss - padY + 2);
       ctx.fillText(fmt(last),  xAt(last)-6,   Hcss - padY + 2);
@@ -473,7 +471,7 @@ function () {
     const view = modal._view;
     let dragging = false, lastX = 0, lastY = 0;
 
-    // ---- 1本指ドラッグ = パン（左右=時間、上下=価格レンジの移動） ----
+    // 1本指ドラッグ = パン（左右=時間、上下=価格レンジ移動）
     canvas.addEventListener("touchstart", (e) => {
       if (e.touches.length === 1) {
         dragging = true;
@@ -489,24 +487,21 @@ function () {
         lastX = e.touches[0].clientX;
         lastY = e.touches[0].clientY;
 
-        // X: 指の移動量をインデックスオフセットに変換
         const span = series.length / view.xScale;
         const idxPerPx = span / geom.innerW;
         view.xOffset = clamp(view.xOffset - dx * idxPerPx, -(series.length - span), series.length - span);
 
-        // Y: ピクセル移動を価格オフセットに変換（現在の可視レンジ基準）
         const priceRange = (modal._lastYRange || 1);
         const pricePerPx = priceRange / geom.innerH;
         view.yOffset += dy * pricePerPx;
 
-        // 再描画（キャッシュ済みデータでOK）
         if (modal._priceLastData) renderProChart(modal, modal._priceLastData);
       }
     }, {passive:true});
 
     canvas.addEventListener("touchend", () => { dragging = false; }, {passive:true});
 
-    // ---- ピンチ = ズーム（2指） ----
+    // ピンチ = ズーム（2指）
     let pinchStartDist = 0, pinchStartXScale = 1, pinchStartYScale = 1;
     canvas.addEventListener("touchstart", (e) => {
       if (e.touches.length === 2) {
@@ -524,7 +519,6 @@ function () {
         const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
         const ratio = dist / (pinchStartDist || 1);
 
-        // X/Y同時にズーム（Xは時間、Yは価格）
         view.xScale = clamp(pinchStartXScale * ratio, view.minXScale, view.maxXScale);
         view.yScale = clamp(pinchStartYScale * ratio, view.minYScale, view.maxYScale);
 
@@ -534,7 +528,7 @@ function () {
 
     canvas.addEventListener("touchend", () => { pinchStartDist = 0; }, {passive:true});
 
-    // ---- ダブルタップでリセット ----
+    // ダブルタップでリセット
     let lastTap = 0;
     canvas.addEventListener("touchend", (e) => {
       const now = Date.now();
@@ -546,7 +540,7 @@ function () {
       lastTap = now;
     }, {passive:true});
 
-    // マウス（PC）向けのパン/ホイールズーム（おまけ）
+    // PC向けパン/ホイールズーム
     let mouseDrag=false, mx=0, my=0;
     canvas.addEventListener("mousedown", e=>{ mouseDrag=true; mx=e.clientX; my=e.clientY; });
     window.addEventListener("mouseup", ()=> mouseDrag=false);
@@ -579,7 +573,7 @@ function () {
     const data = await modal._priceCache[period];
     modal._priceLastData = data;
 
-    // 可視レンジのY幅を保存（パン速度用）
+    // 可視レンジの初期Y幅を保存（パン速度用）
     if (Array.isArray(data.series) && data.series.length >= 2) {
       const s = data.series;
       let minY = +Infinity, maxY = -Infinity;
