@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -939,9 +941,7 @@ from .models import Stock
 def _to_yf_symbol(ticker: str) -> str:
     return Stock.to_yf_symbol(ticker) if hasattr(Stock, "to_yf_symbol") else ticker
 
-# views.py
 
-from __future__ import annotations
 
 import datetime as dt
 from typing import Any, Dict, List, Tuple, TypedDict, Union, Optional
