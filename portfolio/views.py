@@ -1206,11 +1206,36 @@ def stock_news_json(request, pk: int):
 def cash_view(request):
     return render(request, "cash.html")
 
+import datetime
+import re
+import yfinance as yf
+from collections import OrderedDict
 
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect, get_object_or_404
+from django.utils import timezone
+
+from .models import Stock, RealizedProfit
 @login_required
 def realized_view(request):
-    return render(request, "realized.html")
+    """
+    実現損益一覧ページ
+    DBの RealizedProfit をログインユーザーごとに取得し、
+    年月ごとにグループ化してテンプレートに渡す
+    """
+    # ユーザーの実現損益を取得（最新日付順）
+    qs = RealizedProfit.objects.filter(user=request.user).order_by('-date', '-id')
 
+    # 年月ごとにまとめる（例: "2025-08"）
+    groups = OrderedDict()
+    for t in qs:
+        ym = t.date.strftime('%Y-%m')
+        groups.setdefault(ym, []).append(t)
+
+    # テンプレートへ渡す
+    return render(request, "realized.html", {
+        "rows_by_ym": groups,        # ← ループ用
+    })
 @login_required
 def trade_history(request):
     return render(request, "trade_history.html")
