@@ -44,8 +44,7 @@
       <button class="detail-tab"
               data-tab="news"
               role="tab"
-              aria-selected="false"
-              disabled>
+              aria-selected="false">
         ニュース
       </button>
     </nav>
@@ -155,9 +154,15 @@
       </div>
 
       <div class="detail-panel" data-panel="news">
-        <div class="placeholder">ニュースタブは次の段階で追加予定です。</div>
+    <div class="news-list" id="news-list">
+      <div class="news-skeleton">
+        <div class="sk-line"></div>
+        <div class="sk-line"></div>
+        <div class="sk-line sk-line--w60"></div>
       </div>
-    </section>
+    </div>
+  </div>
+</section>
 
     <!-- フッター（左から：編集／売却／閉じる） -->
     <footer class="detail-modal__footer">
