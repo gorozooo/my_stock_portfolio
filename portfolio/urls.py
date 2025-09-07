@@ -34,7 +34,10 @@ urlpatterns = [
     path('stocks/api/stock_by_code/', views.get_stock_by_code, name='stock_by_code'),
     path('stocks/api/suggest_name/', views.suggest_stock_name, name='suggest_name'),
     path('stocks/api/sectors/', views.get_sector_list, name='sector_list'),
-
+    
+    # --- 配当入力 ---
+    path("dividends/new/", views.dividend_create_view, name="dividend_create"),
+    
     # --- 設定画面（親メニュー） ---
     path('settings/login/', views.settings_login, name='settings_login'),
     path('settings/', views.settings_view, name='settings'),
