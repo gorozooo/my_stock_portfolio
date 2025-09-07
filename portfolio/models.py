@@ -185,25 +185,33 @@ class Stock(models.Model):
     def __str__(self):
         return f"{self.ticker} {self.name}"# 実現損益
 # =============================
-class RealizedTrade(models.Model):
-    name = models.CharField("銘柄名", max_length=100)
-    updated_at = models.DateTimeField("更新日時", auto_now=True)
-
-    def __str__(self):
-        return self.name
-
 class RealizedProfit(models.Model):
-    stock_name = models.CharField("銘柄名", max_length=100)
-    ticker = models.CharField("証券コード", max_length=10)
-    shares = models.PositiveIntegerField("株数")
-    purchase_price = models.FloatField("取得単価")
-    sell_price = models.FloatField("売却単価")
-    total_profit = models.FloatField("損益額")
-    sold_at = models.DateTimeField("売却日", default=timezone.now)
+    TRADE_TYPES = (
+        ('sell', '売却'),
+        ('dividend', '配当'),
+    )
+
+    user          = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='realized_trades')
+    date          = models.DateField(db_index=True, verbose_name='日付')
+    stock_name    = models.CharField(max_length=64, verbose_name='銘柄')
+    code          = models.CharField(max_length=16, blank=True, verbose_name='証券コード')  # 例: 7203
+    broker        = models.CharField(max_length=32, blank=True, verbose_name='証券会社')    # 例: SBI, 楽天
+    account_type  = models.CharField(max_length=32, blank=True, verbose_name='口座区分')    # 例: 特定, 一般, NISA
+    trade_type    = models.CharField(max_length=16, choices=TRADE_TYPES, default='sell', verbose_name='区分')
+
+    quantity      = models.IntegerField(verbose_name='株数')
+    purchase_price= models.IntegerField(null=True, blank=True, verbose_name='取得単価')     # 円
+    sell_price    = models.IntegerField(null=True, blank=True, verbose_name='売却単価')     # 円
+    fee           = models.IntegerField(null=True, blank=True, verbose_name='手数料', help_text='マイナスでもOK')
+
+    profit_amount = models.IntegerField(verbose_name='損益額')  # 円（プラス/マイナス）
+    profit_rate   = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, verbose_name='損益率')  # %
+
+    class Meta:
+        ordering = ['-date', '-id']
 
     def __str__(self):
-        return f"{self.ticker} {self.stock_name} ({self.total_profit})"
-
+        return f'{self.date} {self.stock_name} {self.trade_type}'
 # =============================
 # 現金モデル
 # =============================
