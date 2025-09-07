@@ -1,11 +1,15 @@
-/* スマホファースト版：ページ拡大縮小は無効化しつつ、
-   チャート内だけピンチで拡大/縮小、ドラッグで上下左右パンできるように。
-   既存の「概要/価格/指標」タブ構成・データ取得はそのまま。
-*/
+<script>
+/* =========================================================
+   詳細モーダル（概要 + 価格 + 指標）
+   - 価格: /price.json?period=1M/3M/1Y を取得
+   - チャート: ローソク + スイング高安線/レンジ帯 + ATR(14)±1.5 + フラクタル + MA20/50
+   - 操作: ピンチズーム / ドラッグパン（上下左右） / ダブルタップでリセット
+   - スマホ優先: モーダル中はページ全体のズーム禁止、チャートのみ許可
+   ========================================================= */
 (function () {
   const mountId = "detail-modal-mount";
 
-  // ========= 共通ユーティリティ =========
+  /* ---------- utils ---------- */
   const toNum = (v, d = 0) => {
     if (v === null || v === undefined) return d;
     const n = Number(String(v).replace(/[^\d.-]/g, ""));
@@ -14,7 +18,6 @@
   const yen = (n) => "¥" + Math.round(toNum(n)).toLocaleString();
   const num = (n) => toNum(n).toLocaleString();
 
-  // ========= 概要（既存） =========
   function calcOverview({ shares, unit_price, current_price, total_cost, position }) {
     const s = Math.max(0, toNum(shares));
     const up = Math.max(0, toNum(unit_price));
@@ -24,6 +27,7 @@
     const pl = position === "売り" ? (up - cp) * s : mv - tc;
     return { market_value: mv, profit_loss: pl, total_cost: tc };
   }
+
   function optimisticOverviewHTML(d) {
     const { market_value, profit_loss } = calcOverview(d);
     const plClass = profit_loss >= 0 ? "pos" : "neg";
@@ -47,139 +51,164 @@
     `;
   }
 
-  function ensureMount(){
+  function ensureMount() {
     let m = document.getElementById(mountId);
-    if(!m){ m = document.createElement("div"); m.id = mountId; document.body.appendChild(m); }
+    if (!m) {
+      m = document.createElement("div");
+      m.id = mountId;
+      document.body.appendChild(m);
+    }
     return m;
   }
-  function removeLegacyModals(){
-    ["stock-modal","edit-modal","sell-modal"].forEach(id=>{
+
+  function removeLegacyModals() {
+    ["stock-modal", "edit-modal", "sell-modal"].forEach((id) => {
       const el = document.getElementById(id);
-      if(el && el.parentNode) el.parentNode.removeChild(el);
+      if (el && el.parentNode) el.parentNode.removeChild(el);
     });
   }
-  function escCloseOnce(e){ if(e.key === "Escape") closeDetail(); }
 
-  // ========= 「ページのズーム禁止」ガード（モーダル表示中のみ） =========
-  const zoomGuards = {
-    applied:false,
-    onKeydown(e){
-      if (!e.ctrlKey && !e.metaKey) return;
-      const k = e.key.toLowerCase();
-      if (k==='+'||k==='='||k==='-'||k==='_'||k==='0'){ e.preventDefault(); }
-    },
-    onWheel(e){ if (e.ctrlKey) e.preventDefault(); },
-    onGestureStart(e){ e.preventDefault(); }, // iOS Safari
-    enable(){
-      if (this.applied) return;
-      document.addEventListener('keydown', this.onKeydown, { capture:true });
-      document.addEventListener('wheel', this.onWheel, { passive:false, capture:true });
-      document.addEventListener('gesturestart', this.onGestureStart, { passive:false, capture:true });
-      this.applied = true;
-    },
-    disable(){
-      if (!this.applied) return;
-      document.removeEventListener('keydown', this.onKeydown, { capture:true });
-      document.removeEventListener('wheel', this.onWheel, { capture:true });
-      document.removeEventListener('gesturestart', this.onGestureStart, { capture:true });
-      this.applied = false;
-    }
-  };
-
-  function closeDetail(){
+  function escCloseOnce(e) { if (e.key === "Escape") closeDetail(); }
+  function closeDetail() {
+    // meta viewport を元に戻す
+    togglePageZoom(false);
     const m = document.getElementById(mountId);
-    if(m) m.innerHTML = "";
+    if (m) m.innerHTML = "";
     document.removeEventListener("keydown", escCloseOnce);
     document.body.classList.add("hide-legacy-modals");
-    zoomGuards.disable();
   }
 
-  // ========= カードから現在株価（保険） =========
-  function getCardCurrentPrice(card){
+  // カード現在株価
+  function getCardCurrentPrice(card) {
     let cp = toNum(card?.dataset?.current_price, 0);
     if (cp > 0) return cp;
-    try{
+    try {
       const rows = card.querySelectorAll(".stock-row");
-      for(const r of rows){
+      for (const r of rows) {
         const label = r.querySelector("span:first-child")?.textContent?.trim();
-        if(label && label.includes("現在株価")){
+        if (label && label.indexOf("現在株価") !== -1) {
           const v = r.querySelector("span:last-child")?.textContent || "";
-          const n = toNum(v,0);
-          if(n>0) return n;
+          const n = toNum(v, 0);
+          if (n > 0) return n;
         }
       }
-    }catch(_){}
+    } catch (_) {}
     return 0;
   }
 
-  // ========= データ取得 =========
-  async function fetchPrice(stockId, period){
-    const url = new URL(`/stocks/${stockId}/price.json`, location.origin);
-    url.searchParams.set("period", (period||"1M").toUpperCase());
-    const res = await fetch(url, { credentials:'same-origin' });
-    if(!res.ok) throw new Error("価格データの取得に失敗しました");
+  /* ---------- ページ全体ズーム禁止（モーダル中のみ） ---------- */
+  let originalViewport = null;
+  function togglePageZoom(disable) {
+    const meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) return;
+    if (disable) {
+      if (originalViewport === null) originalViewport = meta.getAttribute("content") || "";
+      meta.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no");
+    } else {
+      if (originalViewport !== null) {
+        meta.setAttribute("content", originalViewport);
+        originalViewport = null;
+      }
+    }
+  }
+
+  /* ===================== 価格タブ：データ取得 ===================== */
+  async function fetchPrice(stockId, period) {
+    const url = new URL(`/stocks/${stockId}/price.json`, window.location.origin);
+    url.searchParams.set("period", period);
+    const res = await fetch(url.toString(), { credentials: "same-origin" });
+    if (!res.ok) throw new Error("価格データの取得に失敗しました");
     return await res.json();
   }
-  async function fetchFund(stockId, cardCp){
-    const url = new URL(`/stocks/${stockId}/fundamental.json`, location.origin);
-    if (cardCp && cardCp > 0) url.searchParams.set("from_card_current", String(cardCp));
-    const res = await fetch(url, { credentials:'same-origin' });
-    if(!res.ok) throw new Error("指標データの取得に失敗しました");
-    return await res.json();
+
+  /* ===================== テクニカル計算（凄腕仕様） ===================== */
+  function calcATR14(series) {
+    // TR = max(H-L, |H-PrevC|, |L-PrevC|)
+    const TR = [];
+    for (let i = 0; i < series.length; i++) {
+      const h = toNum(series[i].h), l = toNum(series[i].l);
+      const pc = i > 0 ? toNum(series[i-1].c) : h;
+      TR.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+    }
+    const n = Math.min(14, TR.length);
+    const atr = n ? TR.slice(-n).reduce((a,b)=>a+b,0)/n : 0;
+    return atr;
+  }
+  function calcSMA(series, len, key="c") {
+    const out = new Array(series.length).fill(null);
+    let sum = 0, q = [];
+    for (let i = 0; i < series.length; i++) {
+      const v = toNum(series[i][key]);
+      q.push(v); sum += v;
+      if (q.length > len) sum -= q.shift();
+      if (q.length === len) out[i] = sum / len;
+    }
+    return out;
+  }
+  // Bill Williams fractal: 高値(2左/2右より高)・安値(2左/2右より低)
+  function findFractals(series) {
+    const up = [], dn = [];
+    for (let i = 2; i < series.length - 2; i++) {
+      const h = toNum(series[i].h), l = toNum(series[i].l);
+      const condUp = h > toNum(series[i-1].h) && h > toNum(series[i-2].h)
+                  && h > toNum(series[i+1].h) && h > toNum(series[i+2].h);
+      const condDn = l < toNum(series[i-1].l) && l < toNum(series[i-2].l)
+                  && l < toNum(series[i+1].l) && l < toNum(series[i+2].l);
+      if (condUp) up.push({ i, price: h });
+      if (condDn) dn.push({ i, price: l });
+    }
+    return { up, dn };
+  }
+  // 実用寄りスイング（前回実装を流用）
+  function findRecentSwings(series, maxCount = 2) {
+    const L = series.length; if (L < 7) return { highs: [], lows: [] };
+    const highs = [], lows = [], k = 3;
+
+    // ATRベースのしきい値（ノイズ除去）
+    const atr = calcATR14(series);
+    const threshold = atr * 0.5;
+
+    for (let i = k; i < L - k; i++) {
+      const h = toNum(series[i].h), l = toNum(series[i].l);
+      let isHigh = true, isLow = true;
+      for (let j = 1; j <= k; j++) {
+        if (!(h > toNum(series[i-j].h) && h > toNum(series[i+j].h))) isHigh = false;
+        if (!(l < toNum(series[i-j].l) && l < toNum(series[i+j].l))) isLow = false;
+        if (!isHigh && !isLow) break;
+      }
+      if (isHigh) {
+        const neighbor = Math.max(toNum(series[i-1].h), toNum(series[i+1].h));
+        if (h - neighbor >= threshold) highs.push({ index: i, price: h });
+      }
+      if (isLow) {
+        const neighbor = Math.min(toNum(series[i-1].l), toNum(series[i+1].l));
+        if (neighbor - l >= threshold) lows.push({ index: i, price: l });
+      }
+    }
+    return { highs: highs.slice(-maxCount), lows: lows.slice(-maxCount) };
   }
 
-  // ========= 軸ラベル（簡易） =========
-  function drawAxes(ctx, W, H, padX, padY, minY, maxY, leftDate, midDate, rightDate){
-    ctx.save();
-    ctx.fillStyle = "rgba(255,255,255,0.7)";
-    ctx.font = "10px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
-    // X
-    ctx.textAlign = "center"; ctx.textBaseline = "top";
-    if (leftDate)  ctx.fillText(leftDate,  padX, H - padY + 4);
-    if (midDate)   ctx.fillText(midDate,   W/2,  H - padY + 4);
-    if (rightDate) ctx.fillText(rightDate, W-padX, H - padY + 4);
-    // Y
-    ctx.textAlign = "right"; ctx.textBaseline = "middle";
-    const fmt = (v) => Math.round(v).toLocaleString();
-    const innerH = H - padY*2;
-    const yAt = (v) => padY + innerH*(1-(v-minY)/Math.max(1e-9,(maxY-minY)));
-    [minY,(minY+maxY)/2,maxY].forEach(v=>{
-      const y = yAt(v);
-      ctx.fillText(fmt(v), W-2, y);
-      ctx.strokeStyle = "rgba(255,255,255,0.08)";
-      ctx.beginPath(); ctx.moveTo(padX,y); ctx.lineTo(W-padX,y); ctx.stroke();
-    });
-    ctx.restore();
-  }
-
-  // ========= チャート状態（スマホ優先：ピンチズーム & ドラッグパン） =========
-  function initChartState(modal, series, period){
-    const L = series.length;
-    const defaultBars = { "1M": 30, "3M": 60, "1Y": 120 }[(period||"1M").toUpperCase()] || 60;
-    const visible = Math.min(defaultBars, L);
-    const start = Math.max(0, L - visible);
-    const end   = L - 1;
-
-    modal._chartState = {
-      series,
-      period,
-      start, end,       // X の可視範囲（インデックス）
-      yZoom: 1,         // Y ズーム倍率（>1 で拡大）
-      yShiftPx: 0,      // Y パン（px）
-      minBars: 10, maxBars: L,
-      // ポインタ管理（スマホのピンチ用）
-      pointers: new Map(),
-      lastPinchDist: null,
-      lastPinchMid: null,
-      isDragging: false,
-      lastDrag: { x:0, y:0 }
+  /* ===================== ズーム・パン状態（チャート毎） ===================== */
+  function makeViewState(seriesLen) {
+    return {
+      // データ座標: x = インデックス、y = 価格
+      xScale: 1,          // 1 = 全幅（ズームインで >1）
+      yScale: 1,          // 1 = 自動スケール（>1 で縦に拡大）
+      xOffset: 0,         // データ座標での平行移動（+で右へ）
+      yOffset: 0,         // 価格座標のオフセット（min/maxの中心相対シフト）
+      minXScale: 1,       // これ以下に縮小しない
+      maxXScale: 15,      // これ以上に拡大しない（スマホで扱いやすい程度）
+      minYScale: 1,
+      maxYScale: 6,
+      seriesLen
     };
   }
 
-  function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-  function renderPrice(modal, data){
-    // 数値部
+  /* ===================== チャート描画本体（ズーム対応） ===================== */
+  function renderProChart(modal, data) {
+    // 右側数値
     const lastEl = modal.querySelector("#price-last");
     const chgEl  = modal.querySelector("#price-chg");
     const h52El  = modal.querySelector("#price-52h");
@@ -197,14 +226,12 @@
     if (haEl)  haEl.textContent  = data.high_all ? yen(data.high_all) : "—";
     if (laEl)  laEl.textContent  = data.low_all  ? yen(data.low_all)  : "—";
 
-    // チャート
+    // キャンバス
     const cvs = modal.querySelector("#price-canvas");
     if (!cvs) return;
-
-    // スマホのピンチを優先してページスクロール/ズームを抑制
-    cvs.style.touchAction = "none"; // ← これ大事（スマホでピンチ/ドラッグをCanvasへ）
-
     const ctx = cvs.getContext("2d");
+
+    // DPR
     const Wcss = cvs.clientWidth;
     const Hcss = cvs.clientHeight;
     const dpr = window.devicePixelRatio || 1;
@@ -217,242 +244,366 @@
     const series = Array.isArray(data.series) ? data.series : [];
     if (series.length < 2) return;
 
-    // 状態（初期化 or 更新）
-    if (!modal._chartState || modal._chartState.series !== series){
-      initChartState(modal, series, data.period || "1M");
-      // イベント（スマホ/PC共通: Pointer Events）
-      attachChartInteractions(modal, cvs);
+    // ビュー状態（モーダル単位で保持）
+    modal._view = modal._view || makeViewState(series.length);
+    const view = modal._view;
+    // 期間切替などで本数変化時はリセット
+    if (view.seriesLen !== series.length) modal._view = makeViewState(series.length);
+
+    const padX = 38, padY = 18;
+    const innerW = Wcss - padX * 2;
+    const innerH = Hcss - padY * 2;
+
+    // 可視X範囲（インデックス）
+    const span = series.length / view.xScale;
+    let xStart = clamp(series.length - span - view.xOffset, 0, Math.max(0, series.length - span));
+    let xEnd   = xStart + span;
+    // インデックス整数化
+    const iStart = Math.floor(xStart);
+    const iEnd   = Math.min(series.length - 1, Math.ceil(xEnd));
+
+    // Yスケール基準（可視範囲の高安）
+    let minY = +Infinity, maxY = -Infinity;
+    for (let i = iStart; i <= iEnd; i++) {
+      const h = toNum(series[i].h), l = toNum(series[i].l);
+      if (h > maxY) maxY = h;
+      if (l < minY) minY = l;
     }
-    const st = modal._chartState;
-    st.series = series; // 念のため最新反映
+    // 余白
+    const padRate = 0.06;
+    const range = (maxY - minY) || 1;
+    minY -= range * padRate;
+    maxY += range * padRate;
+    // 縦方向のズーム（中心基準で拡大）
+    if (view.yScale > 1) {
+      const mid = (minY + maxY) / 2 + view.yOffset;
+      const half = (maxY - minY) / 2 / view.yScale;
+      minY = mid - half; maxY = mid + half;
+    } else if (view.yOffset !== 0) {
+      minY += view.yOffset; maxY += view.yOffset;
+    }
 
-    // 可視部分のスライス
-    const start = clamp(st.start, 0, series.length-2);
-    const end   = clamp(st.end, start+1, series.length-1);
-    const vis   = series.slice(start, end+1);
+    // 座標変換
+    const xAt = (idx) => {
+      const frac = (idx - xStart) / Math.max(1e-9, (xEnd - xStart));
+      return padX + frac * innerW;
+    };
+    const yAt = (v) => padY + innerH * (1 - (v - minY) / Math.max(1e-9, (maxY - minY)));
 
-    // スケール
-    const padX = 28, padY = 18;
-    const innerW = Wcss - padX*2;
-    const innerH = Hcss - padY*2;
-    const xStep = innerW / Math.max(1, vis.length - 1);
-
-    const hasOHLC = ["o","h","l","c"].every(k => vis[0] && (k in vis[0]));
-    const yVals = hasOHLC
-      ? vis.flatMap(p => [toNum(p.h), toNum(p.l)])
-      : vis.map(p => toNum(p.c));
-    let minY = Math.min(...yVals);
-    let maxY = Math.max(...yVals);
-    if (minY === maxY){ minY -= 1; maxY += 1; } // 同値ズレ防止
-    const yAtRaw = (v) => padY + innerH * (1 - (v - minY) / Math.max(1e-9,(maxY-minY)));
-
-    // Yズーム/パンは「ピクセル座標」に後処理で適用
-    const centerY = padY + innerH/2;
-    const applyYTransform = (yPx) => centerY + (yPx - centerY) * st.yZoom + st.yShiftPx;
-
-    const xAt = (i) => padX + xStep * i;
-
-    // 影（背景グリッドは軽く）
+    // 背景の薄グリッド（Yのみ）
     ctx.save();
-    ctx.fillStyle = "rgba(255,255,255,0.04)";
-    ctx.fillRect(padX, padY, innerW, innerH);
+    ctx.strokeStyle = "rgba(255,255,255,0.06)";
+    ctx.lineWidth = 1;
+    const marks = 4;
+    for (let m = 0; m <= marks; m++) {
+      const y = padY + innerH * (m/marks);
+      ctx.beginPath(); ctx.moveTo(padX, y); ctx.lineTo(Wcss - padX, y); ctx.stroke();
+    }
     ctx.restore();
 
-    if (hasOHLC){
-      // ローソク足
-      const bodyW = Math.max(3, Math.min(10, xStep * 0.6));
-      vis.forEach((p, i) => {
-        const o = toNum(p.o), h = toNum(p.h), l = toNum(p.l), c = toNum(p.c);
-        const cx = xAt(i);
-        const yO = applyYTransform(yAtRaw(o));
-        const yH = applyYTransform(yAtRaw(h));
-        const yL = applyYTransform(yAtRaw(l));
-        const yC = applyYTransform(yAtRaw(c));
-        const yTop = Math.min(yO, yC);
-        const yBot = Math.max(yO, yC);
-        const isBull = c >= o;
-        const col = isBull ? "rgba(244,67,54,1)" : "rgba(76,175,80,1)";
-        const colWick = isBull ? "rgba(244,67,54,0.9)" : "rgba(76,175,80,0.9)";
+    // ====== テク計算 ======
+    const atr = calcATR14(series);
+    const sma20 = calcSMA(series, 20, "c");
+    const sma50 = calcSMA(series, 50, "c");
+    const fract = findFractals(series);
+    const swings = findRecentSwings(series, 2);
 
-        // ヒゲ
-        ctx.strokeStyle = colWick; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(cx, yH); ctx.lineTo(cx, yL); ctx.stroke();
-
-        // 実体
-        ctx.fillStyle = col;
-        const hBody = Math.max(1, yBot - yTop);
-        ctx.fillRect(cx - bodyW/2, yTop, bodyW, hBody);
-      });
-    }else{
-      // 終値ライン + エリア
-      const ys = vis.map(p => toNum(p.c));
-      const grad = ctx.createLinearGradient(0, padY, 0, padY + innerH);
-      grad.addColorStop(0, "rgba(0,200,255,0.35)");
-      grad.addColorStop(1, "rgba(0,200,255,0.00)");
-
-      ctx.beginPath();
-      ctx.moveTo(xAt(0), applyYTransform(yAtRaw(ys[0])));
-      ys.forEach((v,i)=> ctx.lineTo(xAt(i), applyYTransform(yAtRaw(v))));
-      ctx.lineTo(xAt(ys.length-1), applyYTransform(yAtRaw(minY)));
-      ctx.lineTo(xAt(0),            applyYTransform(yAtRaw(minY)));
-      ctx.closePath();
-      ctx.fillStyle = grad; ctx.fill();
-
-      ctx.beginPath();
-      ctx.moveTo(xAt(0), applyYTransform(yAtRaw(ys[0])));
-      ys.forEach((v,i)=> ctx.lineTo(xAt(i), applyYTransform(yAtRaw(v))));
-      ctx.strokeStyle = "rgba(0,200,255,0.85)";
-      ctx.lineWidth = 2; ctx.stroke();
+    // ====== ローソク ======
+    const step = innerW / Math.max(1, (xEnd - xStart));
+    const bodyW = Math.max(3, step * 0.65);
+    for (let i = iStart; i <= iEnd; i++) {
+      const p = series[i];
+      const o = toNum(p.o), h = toNum(p.h), l = toNum(p.l), c = toNum(p.c);
+      const cx = xAt(i);
+      const yO = yAt(o), yH = yAt(h), yL = yAt(l), yC = yAt(c);
+      const isBull = c >= o;
+      const col = isBull ? "rgba(244,67,54,1)" : "rgba(76,175,80,1)";
+      const colW = isBull ? "rgba(244,67,54,0.9)" : "rgba(76,175,80,0.9)";
+      // wick
+      ctx.strokeStyle = colW; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(cx, yH); ctx.lineTo(cx, yL); ctx.stroke();
+      // body
+      ctx.fillStyle = col;
+      const yTop = Math.min(yO, yC), yBot = Math.max(yO, yC);
+      ctx.fillRect(cx - bodyW/2, yTop, bodyW, Math.max(1, yBot - yTop));
     }
 
-    // 軸
-    const dates = vis.map(p=>p.t);
-    drawAxes(ctx, Wcss, Hcss, padX, padY, minY, maxY,
-      dates[0], dates[Math.floor(dates.length/2)], dates[dates.length-1]);
-
-    // 保存（再描画用にセット）
-    modal._chartState._render = () => renderPrice(modal, data);
-  }
-
-  // ========= チャートの操作イベント（スマホ優先：Pointer Events） =========
-  function attachChartInteractions(modal, canvas){
-    const st = modal._chartState;
-    const cvs = canvas;
-
-    // Wheel（PC用ズーム）— スマホは無視
-    const onWheel = (e) => {
-      // ページズームは禁止済み。ここではチャートのXズームのみ
-      if (e.ctrlKey) return; // ページズームは prevent 済
-      e.preventDefault();
-      const dir = Math.sign(e.deltaY);
-      const L = st.series.length;
-      const currBars = st.end - st.start + 1;
-      const focusPx = e.offsetX; // マウス位置を基準にズーム
-      const padX = 28;
-      const innerW = cvs.clientWidth - padX*2;
-      const rel = clamp((focusPx - padX)/Math.max(1,innerW), 0, 1);
-      const focusIdx = Math.round(st.start + rel * (currBars-1));
-
-      const zoomStep = 0.15;
-      const newBars = clamp(Math.round(dir > 0 ? currBars*(1+zoomStep) : currBars*(1-zoomStep)), st.minBars, st.maxBars);
-      const half = Math.floor(newBars * rel);
-      st.start = clamp(focusIdx - half, 0, L - newBars);
-      st.end   = st.start + newBars - 1;
-      // 縦パン（Shift + ホイール）オプション
-      if (e.shiftKey){
-        st.yShiftPx += e.deltaY * 0.3;
+    // ====== MA20/50 ======
+    function drawLineFromArray(arr, color, width=1.5) {
+      ctx.save();
+      ctx.strokeStyle = color; ctx.lineWidth = width;
+      ctx.beginPath();
+      let started = false;
+      for (let i = iStart; i <= iEnd; i++) {
+        const v = arr[i]; if (v == null) continue;
+        const x = xAt(i), y = yAt(v);
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
       }
-      st._render && st._render();
-    };
+      ctx.stroke();
+      ctx.restore();
+    }
+    drawLineFromArray(sma20, "rgba(0,200,255,0.9)", 1.5);
+    drawLineFromArray(sma50, "rgba(255,215,0,0.9)", 1.5);
 
-    // Pointer（スマホ/PC共通）
-    const onPointerDown = (e) => {
-      cvs.setPointerCapture(e.pointerId);
-      st.pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
-      if (st.pointers.size === 1){
-        st.isDragging = true;
-        st.lastDrag = { x:e.clientX, y:e.clientY };
-      }else if (st.pointers.size === 2){
-        // ピンチ初期化
-        const pts = Array.from(st.pointers.values());
-        st.lastPinchDist = dist(pts[0], pts[1]);
-        st.lastPinchMid  = mid(pts[0], pts[1]);
-      }
-      e.preventDefault();
-    };
+    // ====== ATRバンド（終値の周りに ±1.5*ATR） ======
+    const mul = 1.5;
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.setLineDash([4,3]);
+    ctx.beginPath();
+    let st=false;
+    for (let i = iStart; i <= iEnd; i++) {
+      const c = toNum(series[i].c);
+      const y = yAt(c + atr*mul);
+      const x = xAt(i);
+      if (!st){ ctx.moveTo(x,y); st=true; } else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+    ctx.beginPath();
+    st=false;
+    for (let i = iStart; i <= iEnd; i++) {
+      const c = toNum(series[i].c);
+      const y = yAt(c - atr*mul);
+      const x = xAt(i);
+      if (!st){ ctx.moveTo(x,y); st=true; } else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
 
-    const onPointerMove = (e) => {
-      if (!st.pointers.has(e.pointerId)) return;
-      st.pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    // ====== フラクタルマーカー（△▽） ======
+    ctx.save();
+    ctx.font = "11px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    fract.up.forEach(f => {
+      if (f.i < iStart || f.i > iEnd) return;
+      const x = xAt(f.i), y = yAt(f.price) - 10;
+      ctx.fillStyle = "rgba(255,215,0,0.95)";
+      ctx.fillText("▲", x, y);
+    });
+    fract.dn.forEach(f => {
+      if (f.i < iStart || f.i > iEnd) return;
+      const x = xAt(f.i), y = yAt(f.price) + 10;
+      ctx.fillStyle = "rgba(0,200,255,0.95)";
+      ctx.fillText("▼", x, y);
+    });
+    ctx.restore();
 
-      const pts = Array.from(st.pointers.values());
-      if (pts.length === 2){
-        // ピンチズーム & 2本指ドラッグ（Yパン）
-        const dNow  = dist(pts[0], pts[1]);
-        const dPrev = st.lastPinchDist || dNow;
-        const scale = clamp(dNow / dPrev, 0.5, 2.0);
+    // ====== スイング高安：水平線 + 最新レンジ帯 ======
+    (function drawSwings(){
+      const highs = swings.highs, lows = swings.lows;
+      const drawLine = (price, color, strong=false, label) => {
+        const y = yAt(price);
+        ctx.save();
+        ctx.setLineDash(strong ? [6,3] : [5,5]);
+        ctx.strokeStyle = color; ctx.lineWidth = strong ? 1.6 : 1.2;
+        ctx.beginPath(); ctx.moveTo(padX, y); ctx.lineTo(Wcss - padX, y); ctx.stroke();
+        ctx.setLineDash([]);
+        // ラベル
+        const text = `${label} ${Math.round(price).toLocaleString()}`;
+        const pad = 4, th = 14;
+        ctx.font = "10px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+        const tw = ctx.measureText(text).width;
+        const bx = Wcss - padX - tw - pad*2;
+        const by = Math.max(padY, Math.min(Hcss - padY - th, y - th/2));
+        ctx.fillStyle = "rgba(18,18,24,0.9)";
+        ctx.strokeStyle = color; ctx.lineWidth = 1;
+        if (ctx.roundRect){ ctx.beginPath(); ctx.roundRect(bx,by,tw+pad*2,th,4); ctx.fill(); ctx.stroke(); }
+        else { ctx.fillRect(bx,by,tw+pad*2,th); ctx.strokeRect(bx,by,tw+pad*2,th); }
+        ctx.fillStyle = color; ctx.textAlign="left"; ctx.textBaseline="middle";
+        ctx.fillText(text, bx+pad, by+th/2);
+        ctx.restore();
+      };
+      if (highs.length || lows.length) {
+        const hi1 = highs[highs.length-1], hi2 = highs[highs.length-2];
+        const lo1 = lows[lows.length-1],  lo2 = lows[lows.length-2];
+        if (hi1) drawLine(hi1.price, "rgba(255,215,0,0.95)", true, "スイング高値#1");
+        if (hi2) drawLine(hi2.price, "rgba(255,215,0,0.55)", false,"スイング高値#2");
+        if (lo1) drawLine(lo1.price, "rgba(0,200,255,0.95)", true, "スイング安値#1");
+        if (lo2) drawLine(lo2.price, "rgba(0,200,255,0.55)", false,"スイング安値#2");
 
-        const midNow  = mid(pts[0], pts[1]);
-        const midPrev = st.lastPinchMid || midNow;
-
-        // X方向：バー数でズーム（中心は画面の中点付近に）
-        const L = st.series.length;
-        const currBars = st.end - st.start + 1;
-        let newBars = clamp(Math.round(currBars / scale), st.minBars, st.maxBars);
-
-        // 中心は現在の可視範囲の中央寄りに
-        const focusIdx = Math.round((st.start + st.end)/2);
-        const half = Math.floor(newBars/2);
-        st.start = clamp(focusIdx - half, 0, L - newBars);
-        st.end   = st.start + newBars - 1;
-
-        // Y方向：ピンチでズーム、2本指の中点移動でパン
-        st.yZoom = clamp(st.yZoom * scale, 0.5, 5); // 縮小~拡大
-        st.yShiftPx += (midNow.y - midPrev.y);      // 上下ドラッグで縦パン
-
-        st.lastPinchDist = dNow;
-        st.lastPinchMid  = midNow;
-        st._render && st._render();
-        e.preventDefault();
-        return;
-      }
-
-      if (st.isDragging && pts.length === 1){
-        // 1本指ドラッグ：左右パン（X）、上下ドラッグ：縦パン（Y）
-        const dx = e.clientX - st.lastDrag.x;
-        const dy = e.clientY - st.lastDrag.y;
-        st.lastDrag = { x:e.clientX, y:e.clientY };
-
-        // X パン：ピクセル → バー数に換算
-        const padX = 28;
-        const innerW = cvs.clientWidth - padX*2;
-        const currBars = st.end - st.start + 1;
-        const barPx = innerW / Math.max(1, currBars-1);
-        const shiftBars = Math.round(-dx / Math.max(1, barPx));
-        if (shiftBars){
-          const L = st.series.length;
-          let s = clamp(st.start + shiftBars, 0, L - currBars);
-          st.start = s; st.end = s + currBars - 1;
+        // レンジ帯（最新の高安）
+        if (hi1 && lo1) {
+          ctx.save();
+          const yTop = yAt(Math.max(hi1.price, lo1.price));
+          const yBot = yAt(Math.min(hi1.price, lo1.price));
+          ctx.fillStyle = "rgba(0,200,255,0.08)";
+          ctx.fillRect(padX, yTop, Wcss - padX*2, Math.max(1, yBot-yTop));
+          ctx.restore();
         }
-
-        // Y パン（上下）：ピクセルそのまま
-        st.yShiftPx += dy;
-
-        st._render && st._render();
-        e.preventDefault();
       }
-    };
+    })();
 
-    const onPointerUp = (e) => {
-      st.pointers.delete(e.pointerId);
-      if (st.pointers.size < 2){
-        st.lastPinchDist = null;
-        st.lastPinchMid  = null;
+    // ====== 軸（簡易） ======
+    (function drawAxes(){
+      ctx.save();
+      ctx.fillStyle = "rgba(255,255,255,0.7)";
+      ctx.font = "10px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+      ctx.textBaseline = "middle";
+      // Yラベル
+      const yTicks = 4;
+      for (let m=0; m<=yTicks; m++){
+        const v = minY + (maxY - minY)*(m/yTicks);
+        const y = yAt(v);
+        ctx.textAlign = "right";
+        ctx.fillText(Math.round(v).toLocaleString(), Wcss - 2, y);
       }
-      if (st.pointers.size === 0){
-        st.isDragging = false;
-      }
-      e.preventDefault();
-    };
+      // Xラベル（先頭/中/末）
+      ctx.textAlign = "center"; ctx.textBaseline = "top";
+      const first = Math.max(iStart, 0), last = Math.min(iEnd, series.length-1);
+      const mid = Math.floor((first+last)/2);
+      const fmt = (i) => (series[i]?.t || "").slice(2); // YY-MM-DD くらい
+      ctx.fillText(fmt(first), xAt(first)+6, Hcss - padY + 2);
+      ctx.fillText(fmt(mid),   xAt(mid),      Hcss - padY + 2);
+      ctx.fillText(fmt(last),  xAt(last)-6,   Hcss - padY + 2);
+      ctx.restore();
+    })();
 
-    cvs.addEventListener('wheel', onWheel, { passive:false });
-    cvs.addEventListener('pointerdown', onPointerDown, { passive:false });
-    cvs.addEventListener('pointermove', onPointerMove, { passive:false });
-    cvs.addEventListener('pointerup', onPointerUp, { passive:false });
-    cvs.addEventListener('pointercancel', onPointerUp, { passive:false });
-
-    function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
-    function mid(a,b){ return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 }; }
+    // ====== ジェスチャー登録（ピンチ/ドラッグ/ダブルタップ） ======
+    bindGestures(modal, cvs, {padX, padY, innerW, innerH}, series);
   }
 
-  // ========= 指標タブ描画（既存簡易） =========
-  async function loadFundamentalTab(modal, stockId, cardCp){
+  /* ===================== ジェスチャー（スマホ向け） ===================== */
+  function bindGestures(modal, canvas, geom, series) {
+    if (canvas._bound) return;  // 二重登録防止
+    canvas._bound = true;
+
+    const view = modal._view;
+    let dragging = false, lastX = 0, lastY = 0;
+
+    // ---- 1本指ドラッグ = パン（左右=時間、上下=価格レンジの移動） ----
+    canvas.addEventListener("touchstart", (e) => {
+      if (e.touches.length === 1) {
+        dragging = true;
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+      }
+    }, {passive:true});
+
+    canvas.addEventListener("touchmove", (e) => {
+      if (dragging && e.touches.length === 1) {
+        const dx = e.touches[0].clientX - lastX;
+        const dy = e.touches[0].clientY - lastY;
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+
+        // X: 指の移動量をインデックスオフセットに変換
+        const span = series.length / view.xScale;
+        const idxPerPx = span / geom.innerW;
+        view.xOffset = clamp(view.xOffset - dx * idxPerPx, -(series.length - span), series.length - span);
+
+        // Y: ピクセル移動を価格オフセットに変換（現在の可視レンジ基準）
+        const priceRange = (modal._lastYRange || 1);
+        const pricePerPx = priceRange / geom.innerH;
+        view.yOffset += dy * pricePerPx;
+
+        // 再描画（キャッシュ済みデータでOK）
+        if (modal._priceLastData) renderProChart(modal, modal._priceLastData);
+      }
+    }, {passive:true});
+
+    canvas.addEventListener("touchend", () => { dragging = false; }, {passive:true});
+
+    // ---- ピンチ = ズーム（2指） ----
+    let pinchStartDist = 0, pinchStartXScale = 1, pinchStartYScale = 1;
+    canvas.addEventListener("touchstart", (e) => {
+      if (e.touches.length === 2) {
+        const [a,b] = e.touches;
+        pinchStartDist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        pinchStartXScale = view.xScale;
+        pinchStartYScale = view.yScale;
+      }
+    }, {passive:true});
+
+    canvas.addEventListener("touchmove", (e) => {
+      if (e.touches.length === 2 && pinchStartDist > 0) {
+        e.preventDefault(); // ← キャンバス内のみスクロール抑止
+        const [a,b] = e.touches;
+        const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        const ratio = dist / (pinchStartDist || 1);
+
+        // X/Y同時にズーム（Xは時間、Yは価格）
+        view.xScale = clamp(pinchStartXScale * ratio, view.minXScale, view.maxXScale);
+        view.yScale = clamp(pinchStartYScale * ratio, view.minYScale, view.maxYScale);
+
+        if (modal._priceLastData) renderProChart(modal, modal._priceLastData);
+      }
+    }, {passive:false});
+
+    canvas.addEventListener("touchend", () => { pinchStartDist = 0; }, {passive:true});
+
+    // ---- ダブルタップでリセット ----
+    let lastTap = 0;
+    canvas.addEventListener("touchend", (e) => {
+      const now = Date.now();
+      if (now - lastTap < 250) {
+        Object.assign(view, makeViewState(series.length));
+        modal._lastYRange = null;
+        if (modal._priceLastData) renderProChart(modal, modal._priceLastData);
+      }
+      lastTap = now;
+    }, {passive:true});
+
+    // マウス（PC）向けのパン/ホイールズーム（おまけ）
+    let mouseDrag=false, mx=0, my=0;
+    canvas.addEventListener("mousedown", e=>{ mouseDrag=true; mx=e.clientX; my=e.clientY; });
+    window.addEventListener("mouseup", ()=> mouseDrag=false);
+    canvas.addEventListener("mousemove", e=>{
+      if (!mouseDrag) return;
+      const dx = e.clientX - mx, dy = e.clientY - my;
+      mx = e.clientX; my = e.clientY;
+      const span = series.length / view.xScale;
+      const idxPerPx = span / geom.innerW;
+      view.xOffset = clamp(view.xOffset - dx * idxPerPx, -(series.length - span), series.length - span);
+      const priceRange = (modal._lastYRange || 1);
+      const pricePerPx = priceRange / geom.innerH;
+      view.yOffset += dy * pricePerPx;
+      if (modal._priceLastData) renderProChart(modal, modal._priceLastData);
+    });
+    canvas.addEventListener("wheel", e=>{
+      e.preventDefault();
+      const delta = e.deltaY;
+      const factor = Math.exp(-delta * 0.0015);
+      view.xScale = clamp(view.xScale * factor, view.minXScale, view.maxXScale);
+      view.yScale = clamp(view.yScale * factor, view.minYScale, view.maxYScale);
+      if (modal._priceLastData) renderProChart(modal, modal._priceLastData);
+    }, {passive:false});
+  }
+
+  /* ===================== 価格データのロード（期間キャッシュ） ===================== */
+  async function loadPriceTab(modal, stockId, period="1M") {
+    modal._priceCache = modal._priceCache || {};
+    if (!modal._priceCache[period]) modal._priceCache[period] = fetchPrice(stockId, period);
+    const data = await modal._priceCache[period];
+    modal._priceLastData = data;
+
+    // 可視レンジのY幅を保存（パン速度用）
+    if (Array.isArray(data.series) && data.series.length >= 2) {
+      const s = data.series;
+      let minY = +Infinity, maxY = -Infinity;
+      for (const p of s) { const h=toNum(p.h), l=toNum(p.l); if(h>maxY)maxY=h; if(l<minY)minY=l; }
+      modal._lastYRange = (maxY - minY) || 1;
+    }
+    renderProChart(modal, data);
+  }
+
+  /* ===================== 指標タブ ===================== */
+  async function loadFundamentalTab(modal, stockId, cardCp) {
     if (modal.dataset.fundLoaded === "1") return;
-    const d = await fetchFund(stockId, cardCp);
+    const url = new URL(`/stocks/${stockId}/fundamental.json`, window.location.origin);
+    if (cardCp && cardCp > 0) url.searchParams.set("from_card_current", String(cardCp));
+    const res = await fetch(url.toString(), { credentials: "same-origin" });
+    if (!res.ok) throw new Error("指標データの取得に失敗しました");
+    const d = await res.json();
+
     const setText = (sel, valStr) => {
-      const el = modal.querySelector(sel); if (!el) return;
-      el.textContent = (valStr===null||valStr===undefined||valStr==="") ? "—" : String(valStr);
+      const el = modal.querySelector(sel);
+      if (!el) return;
+      el.textContent = (valStr === null || valStr === undefined || valStr === "") ? "—" : String(valStr);
     };
+
     setText("#fd-per",  d.per  != null ? Number(d.per).toFixed(2)  : "");
     setText("#fd-pbr",  d.pbr  != null ? Number(d.pbr).toFixed(2)  : "");
     setText("#fd-eps",  d.eps  != null ? yen(d.eps)                : "");
@@ -469,26 +620,20 @@
     if (d.dividend_per_share != null) setText("#fd-dps", yen(d.dividend_per_share));
     else setText("#fd-dps", "");
     setText("#fd-updated", d.updated_at ? d.updated_at.replace("T"," ").slice(0,19) : "");
+
     modal.dataset.fundLoaded = "1";
   }
 
-  async function loadPriceTab(modal, stockId, period="1M"){
-    modal._priceCache = modal._priceCache || {};
-    if (!modal._priceCache[period]) modal._priceCache[period] = fetchPrice(stockId, period);
-    const data = await modal._priceCache[period];
-    renderPrice(modal, data);
-  }
-
-  // ========= モーダル起動 =========
-  async function openDetail(stockId, cardEl){
+  /* ===================== モーダル起動 ===================== */
+  async function openDetail(stockId, cardEl) {
     if (!stockId) return;
     const mount = ensureMount();
 
     removeLegacyModals();
     document.body.classList.add("hide-legacy-modals");
 
-    // ページの拡大縮小はモーダル中は無効化（スマホピンチはキャンバスにだけ効く）
-    zoomGuards.enable();
+    // ページズーム禁止（チャートだけズーム可）
+    togglePageZoom(true);
 
     const cardCp = getCardCurrentPrice(cardEl);
     const cardUp = toNum(cardEl?.dataset?.unit_price, 0);
@@ -496,59 +641,63 @@
     const cardPosition = (cardEl?.dataset?.position || "買い");
     const optimisticCp = cardCp > 0 ? cardCp : cardUp;
 
-    try{
-      const htmlRes = await fetch(`/stocks/${stockId}/detail_fragment/`, { credentials:"same-origin" });
-      if(!htmlRes.ok) throw new Error("モーダルの読み込みに失敗しました");
+    try {
+      const htmlRes = await fetch(`/stocks/${stockId}/detail_fragment/`, { credentials: "same-origin" });
+      if (!htmlRes.ok) throw new Error("モーダルの読み込みに失敗しました");
       const html = await htmlRes.text();
 
       mount.innerHTML = "";
       mount.innerHTML = html;
 
       const modal = mount.querySelector("#detail-modal");
-      if(!modal) throw new Error("モーダルが生成できませんでした");
+      if (!modal) throw new Error("モーダルが生成できませんでした");
 
       // 閉じる
-      modal.querySelectorAll("[data-dm-close]").forEach(el=> el.addEventListener("click", closeDetail));
+      modal.querySelectorAll("[data-dm-close]").forEach((el) => el.addEventListener("click", closeDetail));
       document.addEventListener("keydown", escCloseOnce);
 
-      // タブ切替（価格/指標は lazy）
-      modal.querySelectorAll(".detail-tab").forEach((btn)=>{
-        btn.addEventListener("click", async ()=>{
+      // タブ切替（価格/指標は lazy load）
+      modal.querySelectorAll(".detail-tab").forEach((btn) => {
+        btn.addEventListener("click", async () => {
           if (btn.disabled) return;
           const name = btn.getAttribute("data-tab");
-          modal.querySelectorAll(".detail-tab").forEach(b=>b.classList.toggle("is-active", b===btn));
-          modal.querySelectorAll(".detail-panel").forEach(p=>p.classList.toggle("is-active", p.getAttribute("data-panel")===name));
-          try{
-            if (name==="price"){
+          modal.querySelectorAll(".detail-tab").forEach((b) => b.classList.toggle("is-active", b === btn));
+          modal.querySelectorAll(".detail-panel").forEach((p) =>
+            p.classList.toggle("is-active", p.getAttribute("data-panel") === name)
+          );
+          try {
+            if (name === "price") {
               const activeChip = modal.querySelector(".price-range-chips .chip.is-active");
               const period = activeChip?.dataset?.range || "1M";
               await loadPriceTab(modal, stockId, period);
-            }else if(name==="fundamental"){
+            } else if (name === "fundamental") {
               await loadFundamentalTab(modal, stockId, cardCp);
             }
-          }catch(e){ console.error(e); }
+          } catch (e) { console.error(e); }
         });
       });
 
-      // 期間チップ（ある場合）
+      // 期間チップでチャート更新
       const chipsWrap = modal.querySelector(".price-range-chips");
-      if (chipsWrap){
-        chipsWrap.addEventListener("click", async (e)=>{
+      if (chipsWrap) {
+        chipsWrap.addEventListener("click", async (e) => {
           const btn = e.target.closest(".chip");
-          if(!btn) return;
-          const period = (btn.dataset.range||"1M").toUpperCase();
-          chipsWrap.querySelectorAll(".chip").forEach(c=>{
-            c.classList.toggle("is-active", c===btn);
-            c.setAttribute("aria-selected", c===btn ? "true":"false");
+          if (!btn) return;
+          const period = (btn.dataset.range || "1M").toUpperCase();
+          chipsWrap.querySelectorAll(".chip").forEach(c => {
+            c.classList.toggle("is-active", c === btn);
+            c.setAttribute("aria-selected", c === btn ? "true" : "false");
           });
-          try{ await loadPriceTab(modal, stockId, period); }catch(err){ console.error(err); }
+          // ビューをリセットしてから再取得
+          modal._view = null;
+          await loadPriceTab(modal, stockId, period);
         });
       }
 
-      // 概要：まずは楽観レンダ
+      // 概要：即時プレビュー
       const ovWrap = modal.querySelector('[data-panel="overview"]');
-      if (ovWrap){
-        ovWrap.innerHTML = optimisticOverviewHTML({
+      if (ovWrap) {
+        const optimistic = {
           broker: cardEl?.dataset?.broker || "",
           account_type: cardEl?.dataset?.account || "",
           position: cardPosition,
@@ -558,49 +707,52 @@
           total_cost: cardShares * cardUp,
           purchase_date: "",
           note: ""
-        });
+        };
+        ovWrap.innerHTML = optimisticOverviewHTML(optimistic);
       }
 
       // 概要：確定値
-      const url = new URL(`/stocks/${stockId}/overview.json`, location.origin);
+      const url = new URL(`/stocks/${stockId}/overview.json`, window.location.origin);
       if (cardCp > 0) url.searchParams.set("from_card_current", String(cardCp));
-      const res = await fetch(url, { credentials:'same-origin' });
-      if(!res.ok) throw new Error("概要データの取得に失敗しました");
+      const res = await fetch(url.toString(), { credentials: "same-origin" });
+      if (!res.ok) throw new Error("概要データの取得に失敗しました");
       const d = await res.json();
+
       const fixed = { ...d };
       if (toNum(fixed.current_price, 0) <= 0 && cardCp > 0) fixed.current_price = cardCp;
       if (toNum(fixed.total_cost, 0) <= 0) fixed.total_cost = toNum(fixed.shares, 0) * toNum(fixed.unit_price, 0);
       if (ovWrap) ovWrap.innerHTML = optimisticOverviewHTML(fixed);
-    }catch(err){
+    } catch (err) {
       console.error(err);
       alert("詳細の読み込みでエラーが発生しました。時間をおいて再度お試しください。");
       closeDetail();
     }
   }
 
-  // ========= 起動 =========
-  document.addEventListener("DOMContentLoaded", ()=>{
+  /* ===================== 起動 ===================== */
+  document.addEventListener("DOMContentLoaded", () => {
     removeLegacyModals();
     document.body.classList.add("hide-legacy-modals");
 
-    // カードクリックで起動（スマホ配慮）
-    document.body.addEventListener("click", (e)=>{
+    document.body.addEventListener("click", (e) => {
       const card = e.target.closest(".stock-card");
-      if(!card) return;
+      if (!card) return;
       if (e.target.closest("a")) return;
       if (card.classList.contains("swiped")) return;
       const id = card.dataset.id;
-      if(!id || id==="0") return;
+      if (!id || id === "0") return;
       openDetail(id, card);
     });
 
-    // キーボード起動（PC）
-    document.body.addEventListener("keydown", (e)=>{
-      if (e.key!=="Enter" && e.key!==" ") return;
-      const card = e.target.closest?.(".stock-card"); if(!card) return;
-      const id = card.dataset.id; if(!id || id==="0") return;
+    document.body.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const card = e.target.closest?.(".stock-card");
+      if (!card) return;
+      const id = card.dataset.id;
+      if (!id || id === "0") return;
       e.preventDefault();
       openDetail(id, card);
     });
   });
 })();
+</script>
