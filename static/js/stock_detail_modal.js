@@ -1,6 +1,6 @@
 /* 詳細モーダル（概要 + 価格 + 指標）
    - 概要: /overview.json（from_card_current付き）で確定値
-   - 価格: 初回 or 期間変更で /price.json?period= を取得 → Canvas 描画（ローソク足 + 直近高安水平線）
+   - 価格: 初回 or 期間変更で /price.json?period= を取得 → Canvas 描画（ローソク足 + 実用スイング高安水平線）
    - 指標: 初回クリックで /fundamental.json を取得（配当利回り・DPS含む）
 */
 (function () {
@@ -64,10 +64,7 @@
     });
   }
 
-  function escCloseOnce(e) {
-    if (e.key === "Escape") closeDetail();
-  }
-
+  function escCloseOnce(e) { if (e.key === "Escape") closeDetail(); }
   function closeDetail() {
     const m = document.getElementById(mountId);
     if (m) m.innerHTML = "";
@@ -115,7 +112,7 @@
       const first = dates[0], last = dates[dates.length - 1];
       const mid = dates[Math.floor(dates.length / 2)];
       ctx.fillText(first, padX + 4, H - padY + 4);
-      ctx.fillText(mid, W / 2, H - padY + 4);
+      ctx.fillText(mid, H > 0 ? W / 2 : 0, H - padY + 4);
       ctx.fillText(last, W - padX - 12, H - padY + 4);
     }
 
@@ -136,30 +133,97 @@
     ctx.restore();
   }
 
-  // --- 直近高安水平線 ---
-  function drawRecentHL(ctx, W, H, padX, padY, minY, maxY, series, hasOHLC) {
-    const lookback = Math.min(20, series.length); // 直近20本
-    const tail = series.slice(-lookback);
+  // --- スイング検出（テクニカル寄り） ---
+  function findSwingHL(series, hasOHLC) {
+    const L = series.length;
+    if (L < 7) return { high: null, low: null };
 
+    // 値配列
+    const highs = hasOHLC ? series.map(p => toNum(p.h)) : series.map(p => toNum(p.c));
+    const lows  = hasOHLC ? series.map(p => toNum(p.l)) : series.map(p => toNum(p.c));
+
+    // しきい値（ノイズ除去用）
+    let threshold = 0;
+    if (hasOHLC) {
+      // 簡易ATR（14本）→ 0.5倍
+      const tr = [];
+      for (let i = 0; i < L; i++) {
+        const h = toNum(series[i].h), l = toNum(series[i].l);
+        const cPrev = i > 0 ? toNum(series[i-1].c) : h; // 初回は適当に
+        const t = Math.max(h - l, Math.abs(h - cPrev), Math.abs(l - cPrev));
+        tr.push(t);
+      }
+      const n = Math.min(14, tr.length);
+      const atr = tr.slice(-n).reduce((a,b)=>a+b,0) / n;
+      threshold = atr * 0.5;
+    } else {
+      // 終値の標準偏差→ 0.8倍
+      const cls = series.map(p => toNum(p.c));
+      const n = Math.min(20, cls.length);
+      const tail = cls.slice(-n);
+      const m = tail.reduce((a,b)=>a+b,0) / n;
+      const sd = Math.sqrt(tail.reduce((a,b)=>a+(b-m)*(b-m),0)/n);
+      threshold = sd * 0.8;
+    }
+
+    // フラクタル左右幅
+    const k = 3;
+    let swingHigh = null; // {index, price}
+    let swingLow = null;
+
+    for (let i = k; i < L - k; i++) {
+      const h = highs[i], l = lows[i];
+      let isHigh = true, isLow = true;
+      for (let j = 1; j <= k; j++) {
+        if (!(h > highs[i-j] && h > highs[i+j])) isHigh = false;
+        if (!(l < lows[i-j] && l < lows[i+j])) isLow = false;
+        if (!isHigh && !isLow) break;
+      }
+      if (isHigh) {
+        // 直近の確定スイングのみ採用（しきい値でフィルタ）
+        const neighbor = Math.max(highs[i-1], highs[i+1]);
+        if (h - neighbor >= threshold) swingHigh = { index: i, price: h };
+      }
+      if (isLow) {
+        const neighbor = Math.min(lows[i-1], lows[i+1]);
+        if (neighbor - l >= threshold) swingLow = { index: i, price: l };
+      }
+    }
+
+    // どちらも見つからなければ null
+    return { high: swingHigh, low: swingLow };
+  }
+
+  // --- バックアップ：単純な直近20本の高安 ---
+  function recentWindowHL(series, hasOHLC) {
+    const tail = series.slice(-Math.min(20, series.length));
     const highs = hasOHLC ? tail.map(p => toNum(p.h)) : tail.map(p => toNum(p.c));
     const lows  = hasOHLC ? tail.map(p => toNum(p.l)) : tail.map(p => toNum(p.c));
+    if (!highs.length || !lows.length) return { high: null, low: null };
+    return {
+      high: { index: series.length - tail.length + highs.indexOf(Math.max(...highs)), price: Math.max(...highs) },
+      low:  { index: series.length - tail.length + lows.indexOf(Math.min(...lows)),  price: Math.min(...lows)  },
+    };
+  }
 
-    if (!highs.length || !lows.length) return;
-
-    const recentHigh = Math.max(...highs);
-    const recentLow  = Math.min(...lows);
+  // --- スイング水平線の描画 ---
+  function drawSwingHL(ctx, W, H, padX, padY, minY, maxY, series, hasOHLC) {
+    let { high, low } = findSwingHL(series, hasOHLC);
+    if (!high && !low) ({ high, low } = recentWindowHL(series, hasOHLC));
+    if (!high && !low) return;
 
     const innerH = H - padY * 2;
     const yAt = (v) => padY + innerH * (1 - (v - minY) / Math.max(1e-9, (maxY - minY)));
 
-    const lines = [
-      { y: yAt(recentHigh), color: "rgba(255,215,0,0.95)", text: "直近高値 " + Math.round(recentHigh).toLocaleString() },
-      { y: yAt(recentLow),  color: "rgba(0,200,255,0.95)",  text: "直近安値 " + Math.round(recentLow).toLocaleString() },
-    ];
+    const lines = [];
+    if (high) lines.push({ price: high.price, color: "rgba(255,215,0,0.95)", text: "スイング高値 " + Math.round(high.price).toLocaleString() });
+    if (low)  lines.push({ price: low.price,  color: "rgba(0,200,255,0.95)",  text: "スイング安値 " + Math.round(low.price).toLocaleString() });
 
     ctx.save();
-    lines.forEach(({y, color, text}) => {
-      // 破線の水平線
+    lines.forEach(({price, color, text}) => {
+      const y = yAt(price);
+
+      // 水平破線
       ctx.setLineDash([5, 4]);
       ctx.strokeStyle = color;
       ctx.lineWidth = 1.25;
@@ -169,21 +233,25 @@
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // 右端ラベル（小さなプレート）
+      // 右端ラベル
       const pad = 4;
       ctx.font = "10px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
       const tw = ctx.measureText(text).width;
       const th = 14;
       const bx = W - padX - tw - pad * 2;
-      const by = Math.max(padY, Math.min(H - padY - th, y - th / 2)); // はみ出しケア
+      const by = Math.max(padY, Math.min(H - padY - th, y - th / 2));
       ctx.fillStyle = "rgba(18,18,24,0.9)";
       ctx.strokeStyle = color;
       ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.roundRect(bx, by, tw + pad * 2, th, 4);
-      ctx.fill();
-      ctx.stroke();
-
+      if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(bx, by, tw + pad * 2, th, 4);
+        ctx.fill(); ctx.stroke();
+      } else {
+        // Fallback: 角丸APIが無い環境
+        ctx.fillRect(bx, by, tw + pad * 2, th);
+        ctx.strokeRect(bx, by, tw + pad * 2, th);
+      }
       ctx.fillStyle = color;
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
@@ -192,8 +260,9 @@
     ctx.restore();
   }
 
+  // --- 価格パネルの数値・チャート描画 ---
   function renderPrice(modal, d) {
-    // 数値表示
+    // 数値
     const lastEl = modal.querySelector("#price-last");
     const chgEl  = modal.querySelector("#price-chg");
     const h52El  = modal.querySelector("#price-52h");
@@ -214,7 +283,7 @@
     if (haEl)  haEl.textContent  = d.high_all ? yen(d.high_all) : "—";
     if (laEl)  laEl.textContent  = d.low_all  ? yen(d.low_all)  : "—";
 
-    // チャート（ローソク足対応 + 直近高安水平線）
+    // チャート
     const cvs = modal.querySelector("#price-canvas");
     if (!cvs) return;
     const ctx = cvs.getContext("2d");
@@ -232,24 +301,24 @@
 
     const hasOHLC = ["o","h","l","c"].every(k => series[0] && (k in series[0]));
 
-    // スケール共通
-    const padX = 28, padY = 18; // 軸ラベル分の余白
+    // スケール
+    const padX = 28, padY = 18;
     const innerW = Wcss - padX * 2;
     const innerH = Hcss - padY * 2;
 
     const dates = series.map(p => p.t);
-    const values = hasOHLC
+    const valsForScale = hasOHLC
       ? series.flatMap(p => [toNum(p.h), toNum(p.l)])
       : series.map(p => toNum(p.c));
-    const minY = Math.min(...values);
-    const maxY = Math.max(...values);
+    const minY = Math.min(...valsForScale);
+    const maxY = Math.max(...valsForScale);
 
     const xStep = innerW / Math.max(1, series.length - 1);
     const xAt = (i) => padX + xStep * i;
     const yAt = (v) => padY + innerH * (1 - (v - minY) / Math.max(1e-9, (maxY - minY)));
 
     if (hasOHLC) {
-      // ====== ローソク足 ======
+      // ====== ローソク足（陽線=赤 / 陰線=緑） ======
       const bodyW = Math.max(3, xStep * 0.6);
       series.forEach((p, i) => {
         const o = toNum(p.o), h = toNum(p.h), l = toNum(p.l), c = toNum(p.c);
@@ -257,8 +326,8 @@
         const yO = yAt(o), yH = yAt(h), yL = yAt(l), yC = yAt(c);
         const yTop = Math.min(yO, yC);
         const yBot = Math.max(yO, yC);
-        const isBull = c >= o;  // 陽線: 赤
-        const col = isBull ? "rgba(244,67,54,1)" : "rgba(76,175,80,1)"; // 赤 / 緑
+        const isBull = c >= o;
+        const col = isBull ? "rgba(244,67,54,1)" : "rgba(76,175,80,1)";
         const colWick = isBull ? "rgba(244,67,54,0.9)" : "rgba(76,175,80,0.9)";
 
         // ヒゲ
@@ -274,8 +343,9 @@
         ctx.fillRect(cx - bodyW / 2, yTop, bodyW, hBody);
       });
 
+      // 軸・スイング線
       drawAxes(ctx, Wcss, Hcss, padX, padY, minY, maxY, [dates[0], dates[Math.floor(dates.length/2)], dates[dates.length-1]]);
-      drawRecentHL(ctx, Wcss, Hcss, padX, padY, minY, maxY, series, true);
+      drawSwingHL(ctx, Wcss, Hcss, padX, padY, minY, maxY, series, true);
     } else {
       // ====== 終値ライン ======
       const ys = series.map(p => toNum(p.c)).filter(v => Number.isFinite(v));
@@ -304,7 +374,7 @@
       ctx.stroke();
 
       drawAxes(ctx, Wcss, Hcss, padX, padY, minY, maxY, [dates[0], dates[Math.floor(dates.length/2)], dates[dates.length-1]]);
-      drawRecentHL(ctx, Wcss, Hcss, padX, padY, minY, maxY, series, false);
+      drawSwingHL(ctx, Wcss, Hcss, padX, padY, minY, maxY, series, false);
     }
   }
 
