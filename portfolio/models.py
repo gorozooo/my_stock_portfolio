@@ -2,6 +2,7 @@ from django.db import models
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 import re
+from django.conf import settings
 
 # =============================
 # 株マスター（証券コード・銘柄・33業種）
@@ -191,27 +192,28 @@ class RealizedProfit(models.Model):
         ('dividend', '配当'),
     )
 
-    user          = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='realized_trades')
+    user          = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='realized_profits')
     date          = models.DateField(db_index=True, verbose_name='日付')
     stock_name    = models.CharField(max_length=64, verbose_name='銘柄')
-    code          = models.CharField(max_length=16, blank=True, verbose_name='証券コード')  # 例: 7203
-    broker        = models.CharField(max_length=32, blank=True, verbose_name='証券会社')    # 例: SBI, 楽天
-    account_type  = models.CharField(max_length=32, blank=True, verbose_name='口座区分')    # 例: 特定, 一般, NISA
+    code          = models.CharField(max_length=16, blank=True, verbose_name='証券コード')
+    broker        = models.CharField(max_length=32, blank=True, verbose_name='証券会社')
+    account_type  = models.CharField(max_length=32, blank=True, verbose_name='口座区分')
     trade_type    = models.CharField(max_length=16, choices=TRADE_TYPES, default='sell', verbose_name='区分')
 
     quantity      = models.IntegerField(verbose_name='株数')
-    purchase_price= models.IntegerField(null=True, blank=True, verbose_name='取得単価')     # 円
-    sell_price    = models.IntegerField(null=True, blank=True, verbose_name='売却単価')     # 円
+    purchase_price= models.IntegerField(null=True, blank=True, verbose_name='取得単価')
+    sell_price    = models.IntegerField(null=True, blank=True, verbose_name='売却単価')
     fee           = models.IntegerField(null=True, blank=True, verbose_name='手数料', help_text='マイナスでもOK')
 
-    profit_amount = models.IntegerField(verbose_name='損益額')  # 円（プラス/マイナス）
-    profit_rate   = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, verbose_name='損益率')  # %
+    profit_amount = models.IntegerField(verbose_name='損益額')  # 円
+    profit_rate   = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, verbose_name='損益率')
 
     class Meta:
         ordering = ['-date', '-id']
 
     def __str__(self):
         return f'{self.date} {self.stock_name} {self.trade_type}'
+        
 # =============================
 # 現金モデル
 # =============================
