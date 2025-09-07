@@ -188,39 +188,40 @@ class Stock(models.Model):
 # =============================
 # portfolio/models.py
 from datetime import date
-from decimal import Decimal
-
 from django.conf import settings
 from django.db import models
 
 
 class RealizedProfit(models.Model):
     """
-    実現損益（売却や配当で確定した取引）を1行=1トランザクションで保存するモデル
+    実現損益（確定取引や配当など）。
+    なんでも対応できるよう、数量・単価・率・手数料などは原則すべて任意入力（null/blank可）。
+    KPI集計や表示側で未入力は0/空として扱えばOK。
     """
     TRADE_TYPES = (
         ('sell', '売却'),
         ('dividend', '配当'),
+        ('other', 'その他'),
     )
 
-    # 所有者
+    # ------- 必須（軸になる情報） -------
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='realized_profits',
         verbose_name='ユーザー',
     )
-
-    # 基本情報
     date = models.DateField(
         db_index=True,
+        default=date.today,            # ここだけは既定を入れて運用しやすく
         verbose_name='日付',
-        default=date.today,        # ← 文字列ではなく callable（date.today）を使用
     )
     stock_name = models.CharField(
         max_length=64,
         verbose_name='銘柄',
     )
+
+    # ------- 任意（状況により空でも可） -------
     code = models.CharField(
         max_length=16,
         blank=True,
@@ -234,7 +235,7 @@ class RealizedProfit(models.Model):
     account_type = models.CharField(
         max_length=32,
         blank=True,
-        verbose_name='口座区分',   # 例：特定 / 一般 / NISA
+        verbose_name='口座区分',       # 例：特定 / 一般 / NISA
     )
     trade_type = models.CharField(
         max_length=16,
@@ -243,49 +244,58 @@ class RealizedProfit(models.Model):
         verbose_name='区分',
     )
 
-    # 取引数量・価格
+    # 取引数量・単価等（配当など数量が無いケースもあるので全部任意）
     quantity = models.IntegerField(
+        null=True, blank=True,
         verbose_name='株数',
+        help_text='配当など数量が無い場合は空でOK',
     )
     purchase_price = models.IntegerField(
-        null=True,
-        blank=True,
+        null=True, blank=True,
         verbose_name='取得単価',
     )
     sell_price = models.IntegerField(
-        null=True,
-        blank=True,
+        null=True, blank=True,
         verbose_name='売却単価',
     )
     fee = models.IntegerField(
-        null=True,
-        blank=True,
+        null=True, blank=True,
         verbose_name='手数料',
-        help_text='マイナスでもOK',
+        help_text='マイナスでもOK（例：-120）',
     )
 
-    # 成果（損益）
+    # 金額・率（未入力可。表示側/JSで0扱いにすればOK）
     profit_amount = models.IntegerField(
-        verbose_name='損益額',
-        default=0,                 # ← 既存行にも入る安全なデフォルト
+        null=True, blank=True,
+        verbose_name='損益額',         # 円（プラス/マイナス）
     )
     profit_rate = models.DecimalField(
-        max_digits=6,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        verbose_name='損益率',
-        default=Decimal('0'),      # ← Decimal 型でデフォルトを明示
+        max_digits=6, decimal_places=2,
+        null=True, blank=True,
+        verbose_name='損益率',         # %
     )
 
     class Meta:
         ordering = ['-date', '-id']
         verbose_name = '実現損益'
         verbose_name_plural = '実現損益'
+        indexes = [
+            models.Index(fields=['user', '-date']),
+        ]
+
+    # 便利プロパティ（テンプレや管理画面で使うならどうぞ）
+    @property
+    def buy_amount(self):
+        """取得額 = 取得単価 × 株数（どちらか無ければ None）"""
+        return (self.purchase_price or 0) * (self.quantity or 0) if self.purchase_price is not None and self.quantity is not None else None
+
+    @property
+    def sell_amount(self):
+        """売却額 = 売却単価 × 株数（どちらか無ければ None）"""
+        return (self.sell_price or 0) * (self.quantity or 0) if self.sell_price is not None and self.quantity is not None else None
 
     def __str__(self):
         return f'{self.date} {self.stock_name} {self.trade_type}'        
-        
 # =============================
 # 現金モデル
 # =============================
