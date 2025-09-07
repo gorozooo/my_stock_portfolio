@@ -206,10 +206,12 @@ class RealizedProfit(models.Model):
 
     # ------- 必須（軸になる情報） -------
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='realized_profits',
-        verbose_name='ユーザー',
+    settings.AUTH_USER_MODEL,
+    on_delete=models.CASCADE,
+    related_name='realized_profits',
+    verbose_name='ユーザー',
+    null=True,      # ← 追加
+    blank=True      # ← 追加
     )
     date = models.DateField(
         db_index=True,
