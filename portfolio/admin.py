@@ -61,8 +61,35 @@ class StockAdmin(admin.ModelAdmin):
 # =============================
 @admin.register(RealizedTrade)
 class RealizedTradeAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name', 'updated_at')
+    # 一覧に表示するカラム
+    list_display = (
+        "id",
+        "date",          # 売却日
+        "ticker",
+        "name",
+        "account_type",
+        "broker",
+        "shares",
+        "unit_price",
+        "sell_price",
+        "profit",
+        "actual_profit",
+        "created_at",
+        "updated_at",
+    )
 
+    # 検索対象フィールド
+    search_fields = ("ticker", "name", "broker")
+
+    # 絞り込みフィルター
+    list_filter = ("account_type", "broker", "date")
+
+    # ソート順
+    ordering = ("-date", "-id")
+
+    # 読み取り専用フィールド
+    readonly_fields = ("created_at", "updated_at")
+    
 # =============================
 # Cash
 # =============================
