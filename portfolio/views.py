@@ -382,7 +382,6 @@ def sell_stock_page(request, pk):
                 sold_at_naive = datetime.datetime.combine(sell_date, datetime.time(15, 0, 0))
                 sold_at = timezone.make_aware(sold_at_naive, timezone.get_current_timezone())
             except Exception:
-                # 日付パースに失敗しても致命ではない（エラー表示にしてもOK）
                 errors.append("売却日が不正です。YYYY-MM-DD 形式で指定してください。")
 
         # 実際の損益額（ユーザー入力）
@@ -431,33 +430,36 @@ def sell_stock_page(request, pk):
         # --- 計算 ---
         unit_price = float(stock.unit_price or 0)
         estimated_amount = float(price) * shares_to_sell                # 概算売却額（手数料控除前の想定）
-        total_profit = (float(price) - unit_price) * shares_to_sell     # 概算損益（参考値）
+        total_profit_est = (float(price) - unit_price) * shares_to_sell # 概算損益（参考値）
         fee = estimated_amount - float(actual_profit or 0.0)            # 指定の式で算出（負値になり得る場合もそのまま保存）
 
-        # --- RealizedProfit へ記録 ---
-        rp_kwargs = dict(
-            stock_name=stock.name,
-            ticker=stock.ticker,
-            shares=shares_to_sell,
-            purchase_price=unit_price,
-            sell_price=float(price),
-            total_profit=actual_profit if actual_profit != 0.0 else total_profit,  # 「実際の損益額」があればそれを優先保存
-            sold_at=sold_at,
-        )
-        # fee フィールドが存在すれば追加（無ければ無視）
-        try:
-            RealizedProfit._meta.get_field("fee")
-            rp_kwargs["fee"] = fee
-        except Exception:
-            pass
-        # 参考：estimated_amount を保存したい場合はモデルにフィールド追加の上で同様に対応
-        # try:
-        #     RealizedProfit._meta.get_field("estimated_amount")
-        #     rp_kwargs["estimated_amount"] = estimated_amount
-        # except Exception:
-        #     pass
+        # 保存する損益額（実入力があればそちらを優先）
+        final_profit_amount = actual_profit if actual_profit != 0.0 else total_profit_est
 
-        RealizedProfit.objects.create(**rp_kwargs)
+        # 損益率（%）を可能なら算出（分母=取得総額）。ゼロ割は避ける
+        profit_rate_val = None
+        denom = unit_price * shares_to_sell
+        if denom:
+            profit_rate_val = round((final_profit_amount / denom) * 100, 2)
+
+        # --- RealizedProfit へ記録 ---
+        # ※ モデルの実フィールド名に合わせてマッピング（ticker/shares/total_profit/sold_at は使わない）
+        RealizedProfit.objects.create(
+            user=request.user if getattr(RealizedProfit._meta.get_field('user'), 'null', False) is False else request.user,  # user が null=False なら必須
+            date=sold_at.date(),                         # sold_at → date(DateField)
+            stock_name=stock.name,                       # ticker ではなく stock_name へ
+            code=getattr(stock, "code", "") or "",       # あれば保存（無ければ空）
+            # broker / account_type はフォームや Stock から渡せるなら追加してください
+            trade_type="sell",
+
+            quantity=shares_to_sell,                     # shares → quantity
+            purchase_price=int(round(unit_price)) if unit_price else None,
+            sell_price=int(round(price)) if price else None,
+            fee=int(round(fee)) if fee else None,
+
+            profit_amount=int(round(final_profit_amount)) if final_profit_amount is not None else None,
+            profit_rate=profit_rate_val,                 # DecimalField だが float でも保存可（必要なら Decimal へ変換）
+        )
 
         # --- 在庫調整（部分売却対応） ---
         remaining = int(stock.shares or 0) - shares_to_sell
