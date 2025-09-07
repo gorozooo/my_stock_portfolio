@@ -939,6 +939,181 @@ from .models import Stock
 def _to_yf_symbol(ticker: str) -> str:
     return Stock.to_yf_symbol(ticker) if hasattr(Stock, "to_yf_symbol") else ticker
 
+# views.py
+
+from __future__ import annotations
+
+import datetime as dt
+from typing import Any, Dict, List, Tuple, TypedDict, Union, Optional
+
+from django.conf import settings
+from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ImproperlyConfigured
+from django.http import JsonResponse, HttpResponseBadRequest
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.views.decorators.cache import cache_page
+from django.views.decorators.http import require_GET
+
+from .models import Stock  # 必須
+# DBフォールバック用（存在すれば使う）
+try:
+    from .models import StockNews  # Optional: stock ごとのニュースを保存している場合
+    HAS_STOCK_NEWS_MODEL = True
+except Exception:
+    HAS_STOCK_NEWS_MODEL = False
+
+
+# ---- optional: 外部ニュースプロバイダ（実装済みなら使う） ---------------------
+# app/services/news_provider.py に fetch_stock_news があれば優先利用します。
+# 署名:
+#   fetch_stock_news(stock: Stock, page: int, limit: int, lang: str) -> Tuple[List[Dict[str, Any]], Optional[int]]
+# 返り値:
+#   (items, total) を想定。total 不明なら None。
+FETCH_PROVIDER = None
+try:
+    from app.services.news_provider import fetch_stock_news as _fetch_from_provider  # type: ignore
+    FETCH_PROVIDER = _fetch_from_provider  # prefer external provider if available
+except Exception:
+    FETCH_PROVIDER = None
+
+
+# ---- schema 用の型（lint/補完用） --------------------------------------------
+class NewsItemDict(TypedDict, total=False):
+    id: str
+    title: str
+    url: str
+    source: str
+    published_at: str     # ISO8601 UTC (Z)
+    summary: str
+    sentiment: str        # "pos" | "neg" | "neu"
+    impact: int           # 1..3
+    date: str             # YYYY-MM-DD (ローカル日付 or 市場日付など)
+
+
+# ---- ユーティリティ -----------------------------------------------------------
+MIN_LIMIT = 10
+MAX_LIMIT = 50
+DEFAULT_LIMIT = 20
+
+
+def _parse_positive_int(value: str, default: int, min_v: int, max_v: int) -> int:
+    try:
+        v = int(value)
+    except Exception:
+        return default
+    if v < min_v:
+        return min_v
+    if v > max_v:
+        return max_v
+    return v
+
+
+def _to_utc_isoz(dt_obj: dt.datetime) -> str:
+    """aware datetime を UTC 'YYYY-MM-DDTHH:MM:SSZ' にして返す"""
+    if timezone.is_naive(dt_obj):
+        dt_obj = timezone.make_aware(dt_obj, timezone.get_current_timezone())
+    dt_utc = dt_obj.astimezone(timezone.utc)
+    # Python 3.11+: timespec='seconds' で秒まで固定
+    return dt_utc.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _as_date_string(dt_obj: dt.datetime, *, tz: Optional[dt.tzinfo] = None) -> str:
+    """チャートマーキング用の日付（YYYY-MM-DD）。デフォルトは現在タイムゾーン。"""
+    if timezone.is_naive(dt_obj):
+        aware = timezone.make_aware(dt_obj, timezone.get_current_timezone())
+    else:
+        aware = dt_obj
+    if tz is None:
+        tz = timezone.get_current_timezone()
+    local_dt = aware.astimezone(tz)
+    return local_dt.date().isoformat()
+
+
+def _sanitize_url(url: Optional[str]) -> str:
+    if not url:
+        return ""
+    # ここでは簡易チェックのみ（http/https）
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    return ""
+
+
+def _serialize_from_dict(d: Dict[str, Any]) -> NewsItemDict:
+    # 外部プロバイダが返す dict を標準スキーマに寄せる
+    title = str(d.get("title") or "").strip()
+    source = str(d.get("source") or "").strip()
+    pub = d.get("published_at")
+    if isinstance(pub, dt.datetime):
+        published_at = _to_utc_isoz(pub)
+        date_str = _as_date_string(pub)
+    else:
+        # 文字列想定（UTC/Z入り等）。パースに失敗したら now。
+        try:
+            # 可能なら fromisoformat で簡易対応
+            parsed = dt.datetime.fromisoformat(str(pub).replace("Z", "+00:00"))
+        except Exception:
+            parsed = timezone.now()
+        if timezone.is_naive(parsed):
+            parsed = timezone.make_aware(parsed, timezone.utc)
+        published_at = _to_utc_isoz(parsed)
+        date_str = _as_date_string(parsed)
+
+    out: NewsItemDict = {
+        "id": str(d.get("id") or ""),
+        "title": title or "（タイトル不明）",
+        "url": _sanitize_url(d.get("url")),
+        "source": source or "—",
+        "published_at": published_at,
+        "summary": str(d.get("summary") or ""),
+        "sentiment": str(d.get("sentiment") or "neu"),
+        "impact": int(d.get("impact") or 1),
+        "date": str(d.get("date") or date_str),
+    }
+    return out
+
+
+def _serialize_from_model(m: Any) -> NewsItemDict:
+    # DBモデル（StockNews）から標準スキーマへ
+    # 想定フィールド: id, title, url, source, published_at (DateTimeField), summary, sentiment, impact
+    title = (getattr(m, "title", "") or "").strip()
+    source = (getattr(m, "source", "") or "").strip()
+    published_at = getattr(m, "published_at", None) or timezone.now()
+    return {
+        "id": str(getattr(m, "id", "")),
+        "title": title or "（タイトル不明）",
+        "url": _sanitize_url(getattr(m, "url", "") or ""),
+        "source": source or "—",
+        "published_at": _to_utc_isoz(published_at),
+        "summary": getattr(m, "summary", "") or "",
+        "sentiment": getattr(m, "sentiment", "") or "neu",
+        "impact": int(getattr(m, "impact", 1) or 1),
+        "date": _as_date_string(published_at),
+    }
+
+
+def _fetch_from_db(stock: Stock, page: int, limit: int, lang: str) -> Tuple[List[NewsItemDict], int, bool]:
+    """
+    DBに StockNews がある場合のフォールバック取得。
+    total は count で返す。has_more はページングから算出。
+    """
+    if not HAS_STOCK_NEWS_MODEL:
+        return ([], 0, False)
+
+    qs = StockNews.objects.filter(stock=stock).order_by("-published_at")
+    # lang 列がある場合はコメントアウト解除:
+    # if hasattr(StockNews, "lang") and lang != "all":
+    #     qs = qs.filter(lang=lang)
+
+    total = qs.count()
+    start = (page - 1) * limit
+    end = start + limit
+    objs = list(qs[start:end])
+    items = [_serialize_from_model(m) for m in objs]
+    has_more = end < total
+    return (items, total, has_more)
+
+
 @login_required
 @require_GET
 @cache_page(300)  # 5分キャッシュ
@@ -948,65 +1123,59 @@ def stock_news_json(request, pk: int):
     GET:
       page: 1.. (default=1)
       limit: 10..50 (default=20)
-      lang: all/jp/us (将来拡張用、今は受けるだけ)
+      lang: all/jp/us（拡張用）
     返却:
       {
         "page": 1,
         "limit": 20,
         "has_more": true/false,
-        "total": 123,         # わかるときだけ
-        "items": [{
-           "id": "news-uuid-or-hash",
-           "title": "...",
-           "url": "https://...",
-           "source": "Nikkei",
-           "published_at": "2025-03-05T10:32:00Z",
-           "summary": "...",
-           "sentiment": "pos|neg|neu",
-           "impact": 1|2|3,    # 3=強
-           "date": "2025-03-05"  # チャートマーキング用（日付粒度）
-        }, ...]
+        "total": 123,  # 不明なら省略
+        "items": [NewsItemDict, ...]
       }
     """
     stock = get_object_or_404(Stock, pk=pk)
-    page = max(1, int(request.GET.get("page", "1") or 1))
-    limit = int(request.GET.get("limit", "20") or 20)
-    limit = max(10, min(50, limit))
-    # lang = (request.GET.get("lang") or "all").lower()
 
-    # --- ここで実際のニュース取得を行う（外部APIや自前DBなど）
-    # デモ用のダミーデータを返す。実装では置き換えてください。
-    now = timezone.now()
-    items = []
-    base = (page - 1) * limit
-    for i in range(limit):
-        idx = base + i + 1
-        ts = now - dt.timedelta(hours=idx * 3)
-        date_str = ts.date().isoformat()
-        # 簡易センチメント/impact（ダミー）
-        sentiment = ("pos" if idx % 5 == 0 else "neg" if idx % 7 == 0 else "neu")
-        impact = 3 if idx % 9 == 0 else 2 if idx % 4 == 0 else 1
-        items.append({
-            "id": f"demo-{idx}",
-            "title": f"{stock.ticker} に関するニュース {idx}",
-            "url": "https://example.com/news",
-            "source": "ExampleWire",
-            "published_at": ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "summary": "概要テキスト（ダミー）。実装時は本文の要約などを入れてください。",
-            "sentiment": sentiment,
-            "impact": impact,
-            "date": date_str,
-        })
+    # --- 入力
+    page = _parse_positive_int(request.GET.get("page", "1"), default=1, min_v=1, max_v=10_000)
+    limit = _parse_positive_int(request.GET.get("limit", str(DEFAULT_LIMIT)), DEFAULT_LIMIT, MIN_LIMIT, MAX_LIMIT)
+    lang = (request.GET.get("lang") or "all").lower()
 
-    has_more = page < 5  # デモ: 5ページ目まである想定
-    resp = {
+    # --- 取得（外部プロバイダ or DB フォールバック）
+    items: List[NewsItemDict] = []
+    total: Optional[int] = None
+    has_more: bool = False
+
+    # 1) 外部プロバイダ優先
+    if FETCH_PROVIDER:
+        try:
+            raw_items, provider_total = FETCH_PROVIDER(stock=stock, page=page, limit=limit, lang=lang)
+            items = [_serialize_from_dict(d) for d in (raw_items or [])]
+            total = provider_total if isinstance(provider_total, int) and provider_total >= 0 else None
+            # has_more は total が分かれば計算、分からなければ「items が limit に満たない場合 False、満たしていれば True」と推定
+            if total is not None:
+                has_more = page * limit < total
+            else:
+                has_more = len(items) >= limit
+        except Exception as e:
+            # 外部失敗時は DB フォールバック
+            items, total_db, has_more = _fetch_from_db(stock, page, limit, lang)
+            total = total_db if total_db > 0 else None
+    else:
+        # 2) DB フォールバック
+        items, total_db, has_more = _fetch_from_db(stock, page, limit, lang)
+        total = total_db if total_db > 0 else None
+
+    # --- レスポンス整形
+    payload: Dict[str, Any] = {
         "page": page,
         "limit": limit,
         "has_more": has_more,
-        "total": 100,  # わからなければ省略可
         "items": items,
     }
-    return JsonResponse(resp)    
+    if total is not None:
+        payload["total"] = total
+
+    return JsonResponse(payload, json_dumps_params={"ensure_ascii": False})    
 @login_required
 def cash_view(request):
     return render(request, "cash.html")
