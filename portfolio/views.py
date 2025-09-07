@@ -455,7 +455,7 @@ def sell_stock_page(request, pk):
             profit_rate_val = round((final_profit_amount / denom) * 100, 2)
 
         # --- 証券コード / 証券会社 / 口座区分 を決定 ---
-        posted_code   = (request.POST.get("code") or "").strip()
+        posted_code = (request.POST.get("code") or request.POST.get("ticker") or "").strip()
         stock_code    = getattr(stock, "code", "") or ""
         ticker_code   = extract_securities_code(getattr(stock, "ticker", "") or "")
         final_code    = posted_code or stock_code or ticker_code or ""
