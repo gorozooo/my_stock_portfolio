@@ -61,10 +61,11 @@ class StockAdmin(admin.ModelAdmin):
 # RealizedProfit
 # =============================
 @admin.register(RealizedProfit)
-class RealizedProfitAdmin(admin.ModelAdmin):
-    list_display = ('date','stock_name','code','broker','account_type','trade_type','quantity','profit_amount','profit_rate')
-    list_filter  = ('broker','account_type','trade_type','date')
-    search_fields= ('stock_name','code')
+class RealizedProfit(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='realized_trades'
         
 # =============================
 # Cash
