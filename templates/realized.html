@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load static %}
+{% load humanize %}
 
 {% block content %}
 <div class="realized-container">
@@ -92,84 +93,66 @@
         </tr>
       </thead>
       <tbody>
-        <!-- グループ行（例） -->
-        <tr class="group-row"><td colspan="8">2025年 8月</td></tr>
-        <!-- データ行サンプル -->
-        <tr
-          data-date="2025-08-01"
-          data-name="トヨタ"
-          data-code="7203"
-          data-broker="SBI"
-          data-account="特定"
-          data-type="売却"
-          data-quantity="100"
-          data-profit="+50,000"
-          data-rate="+12%"
-          data-purchase="8,500"
-          data-sell="9,000"
-          data-fee="-120"
-          data-sector="自動車"
-        >
-          <td>2025-08-01</td>
-          <td class="stock-name-cell"><span>トヨタ</span></td>
-          <td>SBI</td>
-          <td>特定</td>
-          <td class="trade-type-cell"><span>売却</span></td>
-          <td>100</td>
-          <td class="profit">+50,000</td>
-          <td class="profit">+12%</td>
-        </tr>
+        {# === ここからDBの内容を出力 === #}
+        {% for ym, trades in rows_by_ym.items %}
+          {% with y=ym|slice:":4" m=ym|slice:"5:7" %}
+            <tr class="group-row"><td colspan="8">{{ y }}年 {{ m }}月</td></tr>
+          {% endwith %}
 
-        <tr
-          data-date="2025-08-12"
-          data-name="任天堂"
-          data-code="7974"
-          data-broker="楽天"
-          data-account="NISA"
-          data-type="売却"
-          data-quantity="30"
-          data-profit="+60,000"
-          data-rate="+4%"
-          data-purchase="50,000"
-          data-sell="52,000"
-          data-fee="-99"
-          data-sector="ゲーム"
-        >
-          <td>2025-08-12</td>
-          <td class="stock-name-cell"><span>任天堂</span></td>
-          <td>楽天</td>
-          <td>NISA</td>
-          <td class="trade-type-cell"><span>売却</span></td>
-          <td>30</td>
-          <td class="profit">+60,000</td>
-          <td class="profit">+4%</td>
-        </tr>
+          {% for t in trades %}
+            {% with jp_type="" %}
+              {% if t.trade_type == 'sell' %}
+                {% with jp_type="売却" %}{% endwith %}
+              {% elif t.trade_type == 'dividend' %}
+                {% with jp_type="配当" %}{% endwith %}
+              {% else %}
+                {% with jp_type=t.trade_type %}{% endwith %}
+              {% endif %}
+            {% endwith %}
 
-        <tr class="group-row"><td colspan="8">2025年 7月</td></tr>
-        <tr
-          data-date="2025-07-15"
-          data-name="ソニー"
-          data-code="6758"
-          data-broker="松井"
-          data-account="一般"
-          data-type="売却"
-          data-quantity="50"
-          data-profit="-20,000"
-          data-rate="-5%"
-          data-purchase="12,000"
-          data-sell="11,500"
-          data-fee="-110"
-          data-sector="電機"
-        >
-          <td>2025-07-15</td>
-          <td class="stock-name-cell"><span>ソニー</span></td>
-          <td>松井</td>
-          <td>一般</td>
-          <td class="trade-type-cell"><span>売却</span></td>
-          <td>50</td>
-          <td class="loss">-20,000</td>
-          <td class="loss">-5%</td>
-        </tr>
+            <tr
+              data-date="{{ t.date|date:'Y-m-d' }}"
+              data-name="{{ t.stock_name }}"
+              data-code="{{ t.code }}"
+              data-broker="{{ t.broker }}"
+              data-account="{{ t.account_type }}"
+              data-type="{% if t.trade_type == 'sell' %}売却{% elif t.trade_type == 'dividend' %}配当{% else %}{{ t.trade_type }}{% endif %}"
+              data-quantity="{{ t.quantity }}"
+              data-profit="{% if t.profit_amount %}{% if t.profit_amount > 0 %}+{% endif %}{{ t.profit_amount|intcomma }}{% else %}0{% endif %}"
+              data-rate="{% if t.profit_rate is not None %}{% if t.profit_rate > 0 %}+{% endif %}{{ t.profit_rate }}%{% else %}0%{% endif %}"
+              data-purchase="{{ t.purchase_price|default_if_none:''|intcomma }}"
+              data-sell="{{ t.sell_price|default_if_none:''|intcomma }}"
+              data-fee="{{ t.fee|default_if_none:0|intcomma }}"
+            >
+              <td>{{ t.date|date:"Y-m-d" }}</td>
+              <td class="stock-name-cell"><span>{{ t.stock_name }}</span></td>
+              <td>{{ t.broker }}</td>
+              <td>{{ t.account_type }}</td>
+              <td class="trade-type-cell"><span>{% if t.trade_type == 'sell' %}売却{% elif t.trade_type == 'dividend' %}配当{% else %}{{ t.trade_type }}{% endif %}</span></td>
+              <td>
+                {% if t.quantity is not None %}
+                  {{ t.quantity|intcomma }}
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+
+              {% if t.profit_amount is not None and t.profit_amount < 0 %}
+                <td class="loss">{{ t.profit_amount|intcomma }}</td>
+              {% else %}
+                <td class="profit">{% if t.profit_amount %}+{% endif %}{{ t.profit_amount|default_if_none:0|intcomma }}</td>
+              {% endif %}
+
+              {% if t.profit_rate is not None and t.profit_rate < 0 %}
+                <td class="loss">{{ t.profit_rate }}%</td>
+              {% else %}
+                <td class="profit">{% if t.profit_rate %}+{% endif %}{{ t.profit_rate|default_if_none:0 }}%</td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+        {% empty %}
+          {# データ0件でも tbody は空のまま / JSで emptyState を表示 #}
+        {% endfor %}
       </tbody>
     </table>
   </div>
