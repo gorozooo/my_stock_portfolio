@@ -578,7 +578,7 @@ import yfinance as yf
 
 @login_required
 @require_GET
-
+@cache_page(60 * 1440)  # 1日キャッシュ
 def stock_price_json(request, pk: int):
     """
     価格タブ用の軽量JSON:
