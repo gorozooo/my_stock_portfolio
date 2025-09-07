@@ -1215,6 +1215,9 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 
+# -----------------------------
+# 損益一覧
+# -----------------------------
 from .models import Stock, RealizedProfit
 @login_required
 def realized_view(request):
@@ -1240,6 +1243,97 @@ def realized_view(request):
 def trade_history(request):
     return render(request, "trade_history.html")
 
+from django.contrib import messages
+from django.utils import timezone
+from .models import RealizedProfit
+
+# -----------------------------
+# 配当入力
+# -----------------------------
+@login_required
+def dividend_create_view(request):
+    """
+    配当入力ページ
+    - 必須: 日付, 銘柄名, 受取額
+    - 任意: 証券コード, 証券会社, 口座区分, 源泉税, 手数料, メモ（メモは使わなければ無視OK）
+    保存先: RealizedProfit(trade_type='dividend')
+      profit_amount = 受取額 - 手数料（※源泉税は受取額に含めず、参考として保持）
+    """
+    if request.method == "POST":
+      def to_int(s, default=None):
+          if s in (None, ""):
+              return default
+          try:
+              return int(str(s).replace(",", "").replace("+", ""))
+          except Exception:
+              return default
+
+      # POST 値取得
+      date_str      = (request.POST.get("date") or "").strip()
+      stock_name    = (request.POST.get("stock_name") or "").strip()
+      code          = (request.POST.get("code") or "").strip()
+      broker        = (request.POST.get("broker") or "").strip()
+      account_type  = (request.POST.get("account_type") or "").strip()
+      amount_recv   = to_int(request.POST.get("amount_received"), None)  # 受取額（手取り）
+      tax_withheld  = to_int(request.POST.get("tax_withheld"), 0)        # 源泉税（参考）
+      fee           = to_int(request.POST.get("fee"), 0)                 # 手数料
+      note          = (request.POST.get("note") or "").strip()
+
+      errors = []
+      # バリデーション
+      if not date_str:
+          errors.append("受取日を入力してください。")
+      if not stock_name:
+          errors.append("銘柄名を入力してください。")
+      if amount_recv is None or amount_recv <= 0:
+          errors.append("受取額（手取り）を正しく入力してください。")
+
+      # 日付パース
+      date_val = None
+      if date_str:
+          try:
+              date_val = datetime.date.fromisoformat(date_str)
+          except Exception:
+              errors.append("受取日が不正です（YYYY-MM-DD）。")
+
+      if errors:
+          for m in errors:
+              messages.error(request, m)
+          # 入力保持して再表示
+          ctx = {
+              "form": {
+                  "date": date_str, "stock_name": stock_name, "code": code,
+                  "broker": broker, "account_type": account_type,
+                  "amount_received": request.POST.get("amount_received") or "",
+                  "tax_withheld": request.POST.get("tax_withheld") or "",
+                  "fee": request.POST.get("fee") or "",
+                  "note": note,
+              }
+          }
+          return render(request, "dividend_new.html", ctx)
+
+      # 保存ロジック
+      profit_amount = (amount_recv or 0) - (fee or 0)  # 実現損益 = 手取り - 手数料（税は参考）
+      RealizedProfit.objects.create(
+          user=request.user,
+          date=date_val,
+          stock_name=stock_name,
+          code=code,
+          broker=broker,
+          account_type=account_type,
+          trade_type='dividend',
+          quantity=None,
+          purchase_price=None,
+          sell_price=None,
+          fee=fee,
+          profit_amount=profit_amount,
+          profit_rate=None,  # 配当は率を持たない前提（必要なら後で算出可）
+      )
+      messages.success(request, "配当を登録しました。")
+      return redirect("realized")  # 実現損益一覧へ戻る（URL 名はあなたの環境に合わせて）
+
+    # GET
+    return render(request, "dividend_new.html", {"form": {}})
 
 # -----------------------------
 # 設定画面ログイン
