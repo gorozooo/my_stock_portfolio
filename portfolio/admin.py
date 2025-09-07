@@ -1,5 +1,7 @@
 from django.contrib import admin
 from .models import Stock, RealizedTrade, Cash, BottomTab, SubMenu, SettingsPassword
+from django.utils.html import format_html
+from django.urls import reverse
 
 # =============================
 # Stock
