@@ -24,7 +24,7 @@ from .models import (
 from .forms import SettingsPasswordForm
 from .utils import get_bottom_tabs
 from django.template.loader import get_template
-
+import re
 
 # -----------------------------
 # 共通コンテキスト
