@@ -61,26 +61,9 @@ class StockAdmin(admin.ModelAdmin):
 # =============================
 @admin.register(RealizedProfit)
 class RealizedProfitAdmin(admin.ModelAdmin):
-    # 一覧に表示するカラム
-    list_display = (
-        "id",
-        "sold_at",        # 売却日
-        "ticker",
-        "stock_name",
-        "shares",
-        "purchase_price",
-        "sell_price",
-        "total_profit",
-    )
-
-    # 検索対象フィールド
-    search_fields = ("ticker", "stock_name")
-
-    # 絞り込みフィルター
-    list_filter = ("sold_at",)
-
-    # ソート順
-    ordering = ("-sold_at", "-id")
+    list_display = ('date','stock_name','code','broker','account_type','trade_type','quantity','profit_amount','profit_rate')
+    list_filter  = ('broker','account_type','trade_type','date')
+    search_fields= ('stock_name','code')
         
 # =============================
 # Cash
