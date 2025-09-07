@@ -1,9 +1,10 @@
 /* =========================================================
-   詳細モーダル（概要 + 価格 + 指標）
+   詳細モーダル（概要 + 価格 + 指標 + ニュース）
    - ページ拡大/縮小はモーダル表示中のみ“完全禁止”
    - チャート内はピンチズーム / 1本指ドラッグで上下左右パン
    - ローソク + MA20/50 + ATR(14)±1.5 + フラクタル + スイング高安＆レンジ帯
-   - ★Closeのみ返る場合でも描画できるようにOHLCへ正規化（フォールバック）
+   - Closeのみ返る場合でも描画できるようにOHLCへ正規化（フォールバック）
+   - ニュース: /stocks/<id>/news.json を lazy-load
    ========================================================= */
 (function () {
   const mountId = "detail-modal-mount";
@@ -16,6 +17,13 @@
   };
   const yen = (n) => "¥" + Math.round(toNum(n)).toLocaleString();
   const num = (n) => toNum(n).toLocaleString();
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  function escapeHtml(s){
+    return String(s || "")
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+  }
 
   function calcOverview({ shares, unit_price, current_price, total_cost, position }) {
     const s = Math.max(0, toNum(shares));
@@ -32,19 +40,19 @@
     const plClass = profit_loss >= 0 ? "pos" : "neg";
     return `
       <div class="overview-grid">
-        <div class="ov-item"><div class="ov-k">証券会社</div><div class="ov-v">${d.broker || "—"}</div></div>
-        <div class="ov-item"><div class="ov-k">口座区分</div><div class="ov-v">${d.account_type || "—"}</div></div>
+        <div class="ov-item"><div class="ov-k">証券会社</div><div class="ov-v">${escapeHtml(d.broker || "—")}</div></div>
+        <div class="ov-item"><div class="ov-k">口座区分</div><div class="ov-v">${escapeHtml(d.account_type || "—")}</div></div>
         <div class="ov-item"><div class="ov-k">保有株数</div><div class="ov-v">${num(d.shares)} 株</div></div>
-        <div class="ov-item"><div class="ov-k">ポジション</div><div class="ov-v">${d.position || "—"}</div></div>
+        <div class="ov-item"><div class="ov-k">ポジション</div><div class="ov-v">${escapeHtml(d.position || "—")}</div></div>
         <div class="ov-item"><div class="ov-k">取得単価</div><div class="ov-v">${yen(d.unit_price)}</div></div>
         <div class="ov-item"><div class="ov-k">現在株価</div><div class="ov-v">${yen(d.current_price)}</div></div>
         <div class="ov-item"><div class="ov-k">取得額</div><div class="ov-v">${yen(d.total_cost)}</div></div>
         <div class="ov-item"><div class="ov-k">評価額</div><div class="ov-v">${yen(market_value)}</div></div>
         <div class="ov-item"><div class="ov-k">評価損益</div><div class="ov-v ${plClass}">${yen(profit_loss)}</div></div>
-        <div class="ov-item"><div class="ov-k">購入日</div><div class="ov-v">${d.purchase_date || "—"}</div></div>
+        <div class="ov-item"><div class="ov-k">購入日</div><div class="ov-v">${escapeHtml(d.purchase_date || "—")}</div></div>
         <div class="ov-item" style="grid-column: 1 / -1;">
           <div class="ov-k">メモ</div>
-          <div class="ov-v" style="white-space:pre-wrap;">${(d.note || "").trim() || "—"}</div>
+          <div class="ov-v" style="white-space:pre-wrap;">${escapeHtml((d.note || "").trim()) || "—"}</div>
         </div>
       </div>
     `;
@@ -241,7 +249,6 @@
       seriesLen
     };
   }
-  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
   /* ===================== チャート描画（ズーム対応 + OHLCフォールバック） ===================== */
   function renderProChart(modal, data) {
@@ -657,6 +664,56 @@
     modal.dataset.fundLoaded = "1";
   }
 
+  /* ===================== ニュースタブ ===================== */
+  async function loadNewsTab(modal, stockId) {
+    if (modal.dataset.newsLoaded === "1") return;
+    const url = new URL(`/stocks/${stockId}/news.json`, window.location.origin);
+    const res = await fetch(url.toString(), { credentials: "same-origin" });
+    const panel = modal.querySelector('.detail-panel[data-panel="news"]');
+    if (!panel) return;
+
+    const listWrap = document.createElement("div");
+    listWrap.className = "news-list";
+    listWrap.style.display = "grid";
+    listWrap.style.gap = "10px";
+
+    const renderItem = (it) => {
+      const a = document.createElement("a");
+      a.href = it.url || "#";
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.className = "news-item";
+      a.style.display = "grid";
+      a.style.gap = "4px";
+      a.style.padding = "10px";
+      a.style.border = "1px solid rgba(255,255,255,.14)";
+      a.style.borderRadius = "8px";
+      a.style.background = "rgba(255,255,255,.03)";
+      a.innerHTML = `
+        <div style="font-weight:800">${escapeHtml(it.title || "（タイトル不明）")}</div>
+        <div style="font-size:12px;opacity:.8">${escapeHtml(it.source || "—")}・${escapeHtml((it.published_at || "").replace("T"," ").slice(0,16))}</div>
+        ${it.summary ? `<div style="font-size:13px;opacity:.9">${escapeHtml(it.summary)}</div>` : ""}
+      `;
+      return a;
+    };
+
+    try {
+      if (!res.ok) throw new Error();
+      const arr = await res.json();
+      if (Array.isArray(arr) && arr.length) {
+        arr.forEach(it => listWrap.appendChild(renderItem(it)));
+      } else {
+        listWrap.innerHTML = `<div style="opacity:.8">関連ニュースが見つかりませんでした。</div>`;
+      }
+    } catch {
+      listWrap.innerHTML = `<div style="opacity:.8">ニュースの取得に失敗しました。</div>`;
+    }
+
+    panel.innerHTML = "";
+    panel.appendChild(listWrap);
+    modal.dataset.newsLoaded = "1";
+  }
+
   /* ===================== モーダル起動 ===================== */
   async function openDetail(stockId, cardEl) {
     if (!stockId) return;
@@ -689,7 +746,7 @@
       modal.querySelectorAll("[data-dm-close]").forEach((el) => el.addEventListener("click", closeDetail));
       document.addEventListener("keydown", escCloseOnce);
 
-      // タブ切替（価格/指標は lazy load）
+      // タブ切替（価格/指標/ニュースは lazy load）
       modal.querySelectorAll(".detail-tab").forEach((btn) => {
         btn.addEventListener("click", async () => {
           if (btn.disabled) return;
@@ -705,6 +762,8 @@
               await loadPriceTab(modal, stockId, period);
             } else if (name === "fundamental") {
               await loadFundamentalTab(modal, stockId, cardCp);
+            } else if (name === "news") {
+              await loadNewsTab(modal, stockId);
             }
           } catch (e) { console.error(e); }
         });
