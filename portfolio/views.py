@@ -449,7 +449,8 @@ def sell_stock_page(request, pk):
             date=sold_at.date(),                         # sold_at → date(DateField)
             stock_name=stock.name,                       # ticker ではなく stock_name へ
             code=getattr(stock, "code", "") or "",       # あれば保存（無ければ空）
-            # broker / account_type はフォームや Stock から渡せるなら追加してください
+            broker=stock.broker,                # ★追加
+            account_type=stock.account_type,    # ★追加
             trade_type="sell",
 
             quantity=shares_to_sell,                     # shares → quantity
