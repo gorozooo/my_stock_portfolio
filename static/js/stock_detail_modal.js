@@ -1,9 +1,8 @@
 /* =========================================================
    詳細モーダル（概要 + 価格 + 指標）
-   - 価格: /price.json?period=1M/3M/1Y を取得
-   - チャート: ローソク + スイング高安線/レンジ帯 + ATR(14)±1.5 + フラクタル + MA20/50
-   - 操作: ピンチズーム / ドラッグパン（上下左右） / ダブルタップでリセット
-   - スマホ優先: モーダル中はページ全体のズーム禁止、チャートのみ許可
+   - ページ拡大/縮小はモーダル表示中のみ“完全禁止”
+   - チャート内はピンチズーム / 1本指ドラッグで上下左右パン
+   - ローソク + MA20/50 + ATR(14)±1.5 + フラクタル + スイング高安＆レンジ帯
    ========================================================= */
 (function () {
   const mountId = "detail-modal-mount";
@@ -68,8 +67,70 @@
   }
 
   function escCloseOnce(e) { if (e.key === "Escape") closeDetail(); }
+
+  /* ---------- ページズーム完全禁止（モーダル中のみ） ---------- */
+  let originalViewport = null;
+  let zoomGuardsOn = false;
+  let onGestureStart, onGestureChange, onGestureEnd, onTouchMoveZoom, onDblClick;
+
+  function ensureViewportMeta() {
+    let meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.name = 'viewport';
+      meta.content = 'width=device-width, initial-scale=1';
+      document.head.appendChild(meta);
+    }
+    return meta;
+  }
+
+  function togglePageZoom(disable) {
+    const meta = ensureViewportMeta();
+    if (disable) {
+      if (originalViewport === null) originalViewport = meta.getAttribute("content") || "";
+      meta.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no");
+      installZoomGuards();
+    } else {
+      removeZoomGuards();
+      if (originalViewport !== null) {
+        meta.setAttribute("content", originalViewport);
+        originalViewport = null;
+      }
+    }
+  }
+
+  function installZoomGuards() {
+    if (zoomGuardsOn) return;
+    zoomGuardsOn = true;
+
+    onGestureStart = (e) => { e.preventDefault(); };
+    onGestureChange = (e) => { e.preventDefault(); };
+    onGestureEnd   = (e) => { e.preventDefault(); };
+    onTouchMoveZoom = (e) => {
+      // iOS 旧式: e.scale が 1 以外はピンチとみなす
+      if (typeof e.scale === "number" && e.scale !== 1) e.preventDefault();
+    };
+    onDblClick = (e) => { e.preventDefault(); };
+
+    document.addEventListener("gesturestart",  onGestureStart, {passive:false});
+    document.addEventListener("gesturechange", onGestureChange, {passive:false});
+    document.addEventListener("gestureend",    onGestureEnd,   {passive:false});
+    document.addEventListener("touchmove",     onTouchMoveZoom, {passive:false});
+    document.addEventListener("dblclick",      onDblClick, {passive:false});
+  }
+
+  function removeZoomGuards() {
+    if (!zoomGuardsOn) return;
+    zoomGuardsOn = false;
+
+    document.removeEventListener("gesturestart",  onGestureStart, {passive:false});
+    document.removeEventListener("gesturechange", onGestureChange, {passive:false});
+    document.removeEventListener("gestureend",    onGestureEnd,   {passive:false});
+    document.removeEventListener("touchmove",     onTouchMoveZoom, {passive:false});
+    document.removeEventListener("dblclick",      onDblClick, {passive:false});
+  }
+
   function closeDetail() {
-    // meta viewport を元に戻す
     togglePageZoom(false);
     const m = document.getElementById(mountId);
     if (m) m.innerHTML = "";
@@ -95,22 +156,6 @@
     return 0;
   }
 
-  /* ---------- ページ全体ズーム禁止（モーダル中のみ） ---------- */
-  let originalViewport = null;
-  function togglePageZoom(disable) {
-    const meta = document.querySelector('meta[name="viewport"]');
-    if (!meta) return;
-    if (disable) {
-      if (originalViewport === null) originalViewport = meta.getAttribute("content") || "";
-      meta.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no");
-    } else {
-      if (originalViewport !== null) {
-        meta.setAttribute("content", originalViewport);
-        originalViewport = null;
-      }
-    }
-  }
-
   /* ===================== 価格タブ：データ取得 ===================== */
   async function fetchPrice(stockId, period) {
     const url = new URL(`/stocks/${stockId}/price.json`, window.location.origin);
@@ -120,7 +165,7 @@
     return await res.json();
   }
 
-  /* ===================== テクニカル計算（凄腕仕様） ===================== */
+  /* ===================== テクニカル（凄腕仕様） ===================== */
   function calcATR14(series) {
     const TR = [];
     for (let i = 0; i < series.length; i++) {
@@ -143,7 +188,6 @@
     }
     return out;
   }
-  // Bill Williams fractal: 高値(2左/2右より高)・安値(2左/2右より低)
   function findFractals(series) {
     const up = [], dn = [];
     for (let i = 2; i < series.length - 2; i++) {
@@ -157,7 +201,6 @@
     }
     return { up, dn };
   }
-  // 実用寄りスイング
   function findRecentSwings(series, maxCount = 2) {
     const L = series.length; if (L < 7) return { highs: [], lows: [] };
     const highs = [], lows = [], k = 3;
@@ -189,10 +232,10 @@
     return {
       xScale: 1,          // 1 = 全幅（>1 でズームイン）
       yScale: 1,          // 1 = 自動スケール（>1 で縦ズーム）
-      xOffset: 0,         // データ座標での平行移動（+で右へ）
-      yOffset: 0,         // 価格座標オフセット
+      xOffset: 0,         // 可視範囲の左端（データindex基準）
+      yOffset: 0,         // 価格の平行移動（値）
       minXScale: 1,
-      maxXScale: 15,      // スマホで扱いやすい程度
+      maxXScale: 15,
       minYScale: 1,
       maxYScale: 6,
       seriesLen
@@ -200,9 +243,9 @@
   }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-  /* ===================== チャート描画本体（ズーム対応） ===================== */
+  /* ===================== チャート描画（ズーム対応） ===================== */
   function renderProChart(modal, data) {
-    // 右側数値
+    // 数値表示
     const lastEl = modal.querySelector("#price-last");
     const chgEl  = modal.querySelector("#price-chg");
     const h52El  = modal.querySelector("#price-52h");
@@ -220,12 +263,11 @@
     if (haEl)  haEl.textContent  = data.high_all ? yen(data.high_all) : "—";
     if (laEl)  laEl.textContent  = data.low_all  ? yen(data.low_all)  : "—";
 
-    // キャンバス
     const cvs = modal.querySelector("#price-canvas");
     if (!cvs) return;
     const ctx = cvs.getContext("2d");
 
-    // キャンバス内はデフォルトジェスチャー無効化（パン・ピンチは自前で）
+    // キャンバス内ジェスチャを全許可するため、ブラウザ既定は無効化
     cvs.style.touchAction = "none";
 
     // DPR
@@ -241,7 +283,7 @@
     const series = Array.isArray(data.series) ? data.series : [];
     if (series.length < 2) return;
 
-    // ビュー状態（モーダル単位で保持）
+    // ビュー状態
     modal._view = modal._view || makeViewState(series.length);
     const view = modal._view;
     if (view.seriesLen !== series.length) Object.assign(view, makeViewState(series.length));
@@ -250,14 +292,15 @@
     const innerW = Wcss - padX * 2;
     const innerH = Hcss - padY * 2;
 
-    // 可視X範囲（インデックス）
+    // 可視X（左端 index と可視幅）
     const span = series.length / view.xScale;
-    let xStart = clamp(series.length - span - view.xOffset, 0, Math.max(0, series.length - span));
-    let xEnd   = xStart + span;
+    view.xOffset = clamp(view.xOffset, 0, Math.max(0, series.length - span));
+    const xStart = view.xOffset;
+    const xEnd   = xStart + span;
     const iStart = Math.floor(xStart);
     const iEnd   = Math.min(series.length - 1, Math.ceil(xEnd));
 
-    // Yスケール基準（可視範囲の高安）
+    // 可視Y（可視区間の高安）
     let minY = +Infinity, maxY = -Infinity;
     for (let i = iStart; i <= iEnd; i++) {
       const h = toNum(series[i].h), l = toNum(series[i].l);
@@ -269,7 +312,7 @@
     minY -= baseRange * padRate;
     maxY += baseRange * padRate;
 
-    // 縦方向のズーム（中心基準）
+    // 縦ズーム＆オフセット
     if (view.yScale > 1) {
       const mid = (minY + maxY) / 2 + view.yOffset;
       const half = (maxY - minY) / 2 / view.yScale;
@@ -278,10 +321,8 @@
       minY += view.yOffset; maxY += view.yOffset;
     }
 
-    // パン用に現在の可視Y幅を保存（ジェスチャーで使う）
     modal._lastYRange = (maxY - minY) || 1;
 
-    // 座標変換
     const xAt = (idx) => {
       const frac = (idx - xStart) / Math.max(1e-9, (xEnd - xStart));
       return padX + frac * innerW;
@@ -299,14 +340,14 @@
     }
     ctx.restore();
 
-    // ====== テク計算 ======
+    // ===== テク計算 =====
     const atr = calcATR14(series);
     const sma20 = calcSMA(series, 20, "c");
     const sma50 = calcSMA(series, 50, "c");
     const fract = findFractals(series);
     const swings = findRecentSwings(series, 2);
 
-    // ====== ローソク ======
+    // ===== ローソク =====
     const step = innerW / Math.max(1, (xEnd - xStart));
     const bodyW = Math.max(3, step * 0.65);
     for (let i = iStart; i <= iEnd; i++) {
@@ -317,16 +358,14 @@
       const isBull = c >= o;
       const col = isBull ? "rgba(244,67,54,1)" : "rgba(76,175,80,1)";
       const colW = isBull ? "rgba(244,67,54,0.9)" : "rgba(76,175,80,0.9)";
-      // wick
       ctx.strokeStyle = colW; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(cx, yH); ctx.lineTo(cx, yL); ctx.stroke();
-      // body
       ctx.fillStyle = col;
       const yTop = Math.min(yO, yC), yBot = Math.max(yO, yC);
       ctx.fillRect(cx - bodyW/2, yTop, bodyW, Math.max(1, yBot - yTop));
     }
 
-    // ====== MA20/50 ======
+    // ===== MA20/50 =====
     function drawLineFromArray(arr, color, width=1.5) {
       ctx.save();
       ctx.strokeStyle = color; ctx.lineWidth = width;
@@ -344,7 +383,7 @@
     drawLineFromArray(sma20, "rgba(0,200,255,0.9)", 1.5);
     drawLineFromArray(sma50, "rgba(255,215,0,0.9)", 1.5);
 
-    // ====== ATRバンド（終値±1.5*ATR） ======
+    // ===== ATRバンド（終値±1.5*ATR） =====
     const mul = 1.5;
     ctx.save();
     ctx.strokeStyle = "rgba(255,255,255,0.25)";
@@ -370,7 +409,7 @@
     ctx.setLineDash([]);
     ctx.restore();
 
-    // ====== フラクタルマーカー（▲/▼） ======
+    // ===== フラクタル（▲/▼） =====
     ctx.save();
     ctx.font = "11px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
     ctx.textAlign = "center";
@@ -389,7 +428,7 @@
     });
     ctx.restore();
 
-    // ====== スイング高安：水平線 + 最新レンジ帯 ======
+    // ===== スイング高安（水平線+レンジ帯） =====
     (function drawSwings(){
       const highs = swings.highs, lows = swings.lows;
       const drawLine = (price, color, strong=false, label) => {
@@ -399,7 +438,6 @@
         ctx.strokeStyle = color; ctx.lineWidth = strong ? 1.6 : 1.2;
         ctx.beginPath(); ctx.moveTo(padX, y); ctx.lineTo(Wcss - padX, y); ctx.stroke();
         ctx.setLineDash([]);
-        // ラベル
         const text = `${label} ${Math.round(price).toLocaleString()}`;
         const pad = 4, th = 14;
         ctx.font = "10px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
@@ -414,33 +452,29 @@
         ctx.fillText(text, bx+pad, by+th/2);
         ctx.restore();
       };
-      if (highs.length || lows.length) {
-        const hi1 = highs[highs.length-1], hi2 = highs[highs.length-2];
-        const lo1 = lows[lows.length-1],  lo2 = lows[lows.length-2];
-        if (hi1) drawLine(hi1.price, "rgba(255,215,0,0.95)", true, "スイング高値#1");
-        if (hi2) drawLine(hi2.price, "rgba(255,215,0,0.55)", false,"スイング高値#2");
-        if (lo1) drawLine(lo1.price, "rgba(0,200,255,0.95)", true, "スイング安値#1");
-        if (lo2) drawLine(lo2.price, "rgba(0,200,255,0.55)", false,"スイング安値#2");
+      const hi1 = highs[highs.length-1], hi2 = highs[highs.length-2];
+      const lo1 = lows[lows.length-1],  lo2 = lows[lows.length-2];
+      if (hi1) drawLine(hi1.price, "rgba(255,215,0,0.95)", true, "スイング高値#1");
+      if (hi2) drawLine(hi2.price, "rgba(255,215,0,0.55)", false,"スイング高値#2");
+      if (lo1) drawLine(lo1.price, "rgba(0,200,255,0.95)", true, "スイング安値#1");
+      if (lo2) drawLine(lo2.price, "rgba(0,200,255,0.55)", false,"スイング安値#2");
 
-        // レンジ帯（最新の高安）
-        if (hi1 && lo1) {
-          ctx.save();
-          const yTop = yAt(Math.max(hi1.price, lo1.price));
-          const yBot = yAt(Math.min(hi1.price, lo1.price));
-          ctx.fillStyle = "rgba(0,200,255,0.08)";
-          ctx.fillRect(padX, yTop, Wcss - padX*2, Math.max(1, yBot-yTop));
-          ctx.restore();
-        }
+      if (hi1 && lo1) {
+        ctx.save();
+        const yTop = yAt(Math.max(hi1.price, lo1.price));
+        const yBot = yAt(Math.min(hi1.price, lo1.price));
+        ctx.fillStyle = "rgba(0,200,255,0.08)";
+        ctx.fillRect(padX, yTop, Wcss - padX*2, Math.max(1, yBot-yTop));
+        ctx.restore();
       }
     })();
 
-    // ====== 軸（簡易） ======
+    // ===== 簡易軸 =====
     (function drawAxes(){
       ctx.save();
       ctx.fillStyle = "rgba(255,255,255,0.7)";
       ctx.font = "10px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
       ctx.textBaseline = "middle";
-      // Yラベル
       const yTicks = 4;
       for (let m=0; m<=yTicks; m++){
         const v = minY + (maxY - minY)*(m/yTicks);
@@ -448,40 +482,33 @@
         ctx.textAlign = "right";
         ctx.fillText(Math.round(v).toLocaleString(), Wcss - 2, y);
       }
-      // Xラベル（先頭/中/末）
-      ctx.textAlign = "center"; ctx.textBaseline = "top";
-      const first = Math.max(iStart, 0), last = Math.min(iEnd, series.length-1);
-      const mid = Math.floor((first+last)/2);
-      const fmt = (i) => (series[i]?.t || "").slice(2);
-      ctx.fillText(fmt(first), xAt(first)+6, Hcss - padY + 2);
-      ctx.fillText(fmt(mid),   xAt(mid),      Hcss - padY + 2);
-      ctx.fillText(fmt(last),  xAt(last)-6,   Hcss - padY + 2);
       ctx.restore();
     })();
 
-    // ====== ジェスチャー登録（ピンチ/ドラッグ/ダブルタップ） ======
+    // ===== ジェスチャー登録 =====
     bindGestures(modal, cvs, {padX, padY, innerW, innerH}, series);
   }
 
-  /* ===================== ジェスチャー（スマホ向け） ===================== */
+  /* ===================== ジェスチャー（スマホ優先） ===================== */
   function bindGestures(modal, canvas, geom, series) {
     if (canvas._bound) return;  // 二重登録防止
     canvas._bound = true;
 
     const view = modal._view;
-    let dragging = false, lastX = 0, lastY = 0;
 
-    // 1本指ドラッグ = パン（左右=時間、上下=価格レンジ移動）
+    // 1本指ドラッグ = パン
+    let dragging = false, lastX = 0, lastY = 0;
     canvas.addEventListener("touchstart", (e) => {
       if (e.touches.length === 1) {
         dragging = true;
         lastX = e.touches[0].clientX;
         lastY = e.touches[0].clientY;
       }
-    }, {passive:true});
+    }, {passive:false});
 
     canvas.addEventListener("touchmove", (e) => {
       if (dragging && e.touches.length === 1) {
+        e.preventDefault(); // ← ここが超重要：ページスクロール抑止
         const dx = e.touches[0].clientX - lastX;
         const dy = e.touches[0].clientY - lastY;
         lastX = e.touches[0].clientX;
@@ -489,7 +516,7 @@
 
         const span = series.length / view.xScale;
         const idxPerPx = span / geom.innerW;
-        view.xOffset = clamp(view.xOffset - dx * idxPerPx, -(series.length - span), series.length - span);
+        view.xOffset = clamp(view.xOffset - dx * idxPerPx, 0, Math.max(0, series.length - span));
 
         const priceRange = (modal._lastYRange || 1);
         const pricePerPx = priceRange / geom.innerH;
@@ -497,11 +524,11 @@
 
         if (modal._priceLastData) renderProChart(modal, modal._priceLastData);
       }
-    }, {passive:true});
+    }, {passive:false});
 
-    canvas.addEventListener("touchend", () => { dragging = false; }, {passive:true});
+    canvas.addEventListener("touchend", () => { dragging = false; }, {passive:false});
 
-    // ピンチ = ズーム（2指）
+    // 2本指ピンチ = ズーム
     let pinchStartDist = 0, pinchStartXScale = 1, pinchStartYScale = 1;
     canvas.addEventListener("touchstart", (e) => {
       if (e.touches.length === 2) {
@@ -510,11 +537,11 @@
         pinchStartXScale = view.xScale;
         pinchStartYScale = view.yScale;
       }
-    }, {passive:true});
+    }, {passive:false});
 
     canvas.addEventListener("touchmove", (e) => {
       if (e.touches.length === 2 && pinchStartDist > 0) {
-        e.preventDefault(); // ← キャンバス内のみスクロール抑止
+        e.preventDefault(); // ← ここも必須：ページ側ピンチズームを封じる
         const [a,b] = e.touches;
         const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
         const ratio = dist / (pinchStartDist || 1);
@@ -522,25 +549,30 @@
         view.xScale = clamp(pinchStartXScale * ratio, view.minXScale, view.maxXScale);
         view.yScale = clamp(pinchStartYScale * ratio, view.minYScale, view.maxYScale);
 
+        // ズームで可視幅が変わるので、xOffset を再クランプ
+        const span = series.length / view.xScale;
+        view.xOffset = clamp(view.xOffset, 0, Math.max(0, series.length - span));
+
         if (modal._priceLastData) renderProChart(modal, modal._priceLastData);
       }
     }, {passive:false});
 
-    canvas.addEventListener("touchend", () => { pinchStartDist = 0; }, {passive:true});
+    canvas.addEventListener("touchend", () => { pinchStartDist = 0; }, {passive:false});
 
-    // ダブルタップでリセット
+    // ダブルタップ = リセット（かつブラウザのダブルタップズームを抑止）
     let lastTap = 0;
     canvas.addEventListener("touchend", (e) => {
       const now = Date.now();
       if (now - lastTap < 250) {
+        e.preventDefault();
         Object.assign(view, makeViewState(series.length));
         modal._lastYRange = null;
         if (modal._priceLastData) renderProChart(modal, modal._priceLastData);
       }
       lastTap = now;
-    }, {passive:true});
+    }, {passive:false});
 
-    // PC向けパン/ホイールズーム
+    // マウス：ドラッグパン & ホイールズーム
     let mouseDrag=false, mx=0, my=0;
     canvas.addEventListener("mousedown", e=>{ mouseDrag=true; mx=e.clientX; my=e.clientY; });
     window.addEventListener("mouseup", ()=> mouseDrag=false);
@@ -550,7 +582,7 @@
       mx = e.clientX; my = e.clientY;
       const span = series.length / view.xScale;
       const idxPerPx = span / geom.innerW;
-      view.xOffset = clamp(view.xOffset - dx * idxPerPx, -(series.length - span), series.length - span);
+      view.xOffset = clamp(view.xOffset - dx * idxPerPx, 0, Math.max(0, series.length - span));
       const priceRange = (modal._lastYRange || 1);
       const pricePerPx = priceRange / geom.innerH;
       view.yOffset += dy * pricePerPx;
@@ -558,22 +590,23 @@
     });
     canvas.addEventListener("wheel", e=>{
       e.preventDefault();
-      const delta = e.deltaY;
-      const factor = Math.exp(-delta * 0.0015);
+      const factor = Math.exp(-e.deltaY * 0.0015);
       view.xScale = clamp(view.xScale * factor, view.minXScale, view.maxXScale);
       view.yScale = clamp(view.yScale * factor, view.minYScale, view.maxYScale);
+      const span = series.length / view.xScale;
+      view.xOffset = clamp(view.xOffset, 0, Math.max(0, series.length - span));
       if (modal._priceLastData) renderProChart(modal, modal._priceLastData);
     }, {passive:false});
   }
 
-  /* ===================== 価格データのロード（期間キャッシュ） ===================== */
+  /* ===================== 価格データロード（期間キャッシュ） ===================== */
   async function loadPriceTab(modal, stockId, period="1M") {
     modal._priceCache = modal._priceCache || {};
     if (!modal._priceCache[period]) modal._priceCache[period] = fetchPrice(stockId, period);
     const data = await modal._priceCache[period];
     modal._priceLastData = data;
 
-    // 可視レンジの初期Y幅を保存（パン速度用）
+    // 初期Y幅（パン量算出に使用）
     if (Array.isArray(data.series) && data.series.length >= 2) {
       const s = data.series;
       let minY = +Infinity, maxY = -Infinity;
@@ -626,7 +659,7 @@
     removeLegacyModals();
     document.body.classList.add("hide-legacy-modals");
 
-    // ページズーム禁止（チャートだけズーム可）
+    // ページ拡大/縮小を完全禁止（モーダル中のみ）
     togglePageZoom(true);
 
     const cardCp = getCardCurrentPrice(cardEl);
@@ -663,6 +696,7 @@
             if (name === "price") {
               const activeChip = modal.querySelector(".price-range-chips .chip.is-active");
               const period = activeChip?.dataset?.range || "1M";
+              // ビューはタブ遷移毎に残す（継続閲覧向け）
               await loadPriceTab(modal, stockId, period);
             } else if (name === "fundamental") {
               await loadFundamentalTab(modal, stockId, cardCp);
@@ -671,7 +705,7 @@
         });
       });
 
-      // 期間チップでチャート更新
+      // 期間チップ
       const chipsWrap = modal.querySelector(".price-range-chips");
       if (chipsWrap) {
         chipsWrap.addEventListener("click", async (e) => {
@@ -682,7 +716,7 @@
             c.classList.toggle("is-active", c === btn);
             c.setAttribute("aria-selected", c === btn ? "true" : "false");
           });
-          // ビューをリセットしてから再取得
+          // 期間変更時はビューをリセット（見失い防止）
           modal._view = null;
           await loadPriceTab(modal, stockId, period);
         });
