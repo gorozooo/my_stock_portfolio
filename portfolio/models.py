@@ -205,9 +205,9 @@ class RealizedProfit(models.Model):
     sell_price    = models.IntegerField(null=True, blank=True, verbose_name='売却単価')
     fee           = models.IntegerField(null=True, blank=True, verbose_name='手数料', help_text='マイナスでもOK')
 
-    profit_amount = models.IntegerField(verbose_name='損益額')  # 円
-    profit_rate   = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, verbose_name='損益率')
-
+    profit_amount = models.IntegerField(verbose_name='損益額', default=0)
+    profit_rate   = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, verbose_name='損益率', default=0)
+    
     class Meta:
         ordering = ['-date', '-id']
 
