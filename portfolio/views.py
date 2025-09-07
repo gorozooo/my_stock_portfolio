@@ -923,6 +923,65 @@ def stock_fundamental_json(request, pk: int):
         "updated_at": updated,
     }
     return JsonResponse(data)
+    
+# portfolio/views.py
+from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.views.decorators.http import require_GET
+from django.views.decorators.cache import cache_page
+import datetime as dt
+import yfinance as yf
+
+from .models import Stock
+
+def _to_yf_symbol(ticker: str) -> str:
+    return Stock.to_yf_symbol(ticker) if hasattr(Stock, "to_yf_symbol") else ticker
+
+@login_required
+@require_GET
+@cache_page(300)  # 5分キャッシュ
+def stock_news_json(request, pk: int):
+    """
+    ニュースタブ用の軽量JSON:
+      - yfinance の Ticker.news を利用（なければ空配列）
+      - title / publisher / link / published_at
+    """
+    stock = get_object_or_404(Stock, pk=pk)
+    ticker = _to_yf_symbol(stock.ticker)
+
+    items = []
+    try:
+        tkr = yf.Ticker(ticker)
+        news = getattr(tkr, "news", None) or []
+        # よくあるフィールド: title, publisher, link, providerPublishTime
+        for n in news[:15]:
+            title = n.get("title") or ""
+            publisher = n.get("publisher") or n.get("provider") or ""
+            link = n.get("link") or n.get("url") or ""
+            ts = n.get("providerPublishTime") or n.get("published") or None
+            if ts:
+                # yfinance は epoch 秒のことが多い
+                try:
+                    published_at = timezone.make_aware(dt.datetime.fromtimestamp(int(ts))).isoformat()
+                except Exception:
+                    published_at = None
+            else:
+                published_at = None
+            if title and link:
+                items.append({
+                    "title": title,
+                    "publisher": publisher,
+                    "link": link,
+                    "published_at": published_at,
+                })
+    except Exception:
+        # 取得失敗時は空で返す（フロントが “—” を出す）
+        items = []
+
+    return JsonResponse({"results": items})
+    
 @login_required
 def cash_view(request):
     return render(request, "cash.html")
