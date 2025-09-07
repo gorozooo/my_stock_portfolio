@@ -193,7 +193,7 @@ class RealizedProfit(models.Model):
     )
 
     user          = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='realized_profits')
-    date          = models.DateField(db_index=True, verbose_name='日付')
+    date = models.DateField(db_index=True, verbose_name='日付', default="2025-01-01")
     stock_name    = models.CharField(max_length=64, verbose_name='銘柄')
     code          = models.CharField(max_length=16, blank=True, verbose_name='証券コード')
     broker        = models.CharField(max_length=32, blank=True, verbose_name='証券会社')
