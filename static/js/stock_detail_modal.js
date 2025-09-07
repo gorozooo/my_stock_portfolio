@@ -1,6 +1,6 @@
 /* 詳細モーダル（概要 + 価格 + 指標）
    - 概要: /overview.json（from_card_current付き）で確定値
-   - 価格: 初回 or 期間変更で /price.json?period= を取得 → Canvas 描画（ローソク足 + 実用スイング高安水平線）
+   - 価格: 初回 or 期間変更で /price.json?period= を取得 → Canvas 描画（ローソク足 + スイング高安2本 + レンジ帯）
    - 指標: 初回クリックで /fundamental.json を取得（配当利回り・DPS含む）
 */
 (function () {
@@ -133,31 +133,29 @@
     ctx.restore();
   }
 
-  // --- スイング検出（テクニカル寄り） ---
-  function findSwingHL(series, hasOHLC) {
+  // ========= スイング検出（実用寄り：各2本まで） =========
+  function findRecentSwings(series, hasOHLC, maxCount = 2) {
     const L = series.length;
-    if (L < 7) return { high: null, low: null };
+    if (L < 7) return { highs: [], lows: [] };
 
-    // 値配列
-    const highs = hasOHLC ? series.map(p => toNum(p.h)) : series.map(p => toNum(p.c));
-    const lows  = hasOHLC ? series.map(p => toNum(p.l)) : series.map(p => toNum(p.c));
+    const highsArr = hasOHLC ? series.map(p => toNum(p.h)) : series.map(p => toNum(p.c));
+    const lowsArr  = hasOHLC ? series.map(p => toNum(p.l)) : series.map(p => toNum(p.c));
 
-    // しきい値（ノイズ除去用）
+    // しきい値（ノイズ除去）
     let threshold = 0;
     if (hasOHLC) {
       // 簡易ATR（14本）→ 0.5倍
       const tr = [];
       for (let i = 0; i < L; i++) {
         const h = toNum(series[i].h), l = toNum(series[i].l);
-        const cPrev = i > 0 ? toNum(series[i-1].c) : h; // 初回は適当に
-        const t = Math.max(h - l, Math.abs(h - cPrev), Math.abs(l - cPrev));
-        tr.push(t);
+        const cPrev = i > 0 ? toNum(series[i-1].c) : h;
+        tr.push(Math.max(h - l, Math.abs(h - cPrev), Math.abs(l - cPrev)));
       }
       const n = Math.min(14, tr.length);
       const atr = tr.slice(-n).reduce((a,b)=>a+b,0) / n;
       threshold = atr * 0.5;
     } else {
-      // 終値の標準偏差→ 0.8倍
+      // 終値の標準偏差 → 0.8倍
       const cls = series.map(p => toNum(p.c));
       const n = Math.min(20, cls.length);
       const tail = cls.slice(-n);
@@ -166,74 +164,87 @@
       threshold = sd * 0.8;
     }
 
-    // フラクタル左右幅
     const k = 3;
-    let swingHigh = null; // {index, price}
-    let swingLow = null;
-
+    const highs = [];
+    const lows = [];
     for (let i = k; i < L - k; i++) {
-      const h = highs[i], l = lows[i];
+      const h = highsArr[i], l = lowsArr[i];
       let isHigh = true, isLow = true;
       for (let j = 1; j <= k; j++) {
-        if (!(h > highs[i-j] && h > highs[i+j])) isHigh = false;
-        if (!(l < lows[i-j] && l < lows[i+j])) isLow = false;
+        if (!(h > highsArr[i-j] && h > highsArr[i+j])) isHigh = false;
+        if (!(l < lowsArr[i-j] && l < lowsArr[i+j])) isLow = false;
         if (!isHigh && !isLow) break;
       }
       if (isHigh) {
-        // 直近の確定スイングのみ採用（しきい値でフィルタ）
-        const neighbor = Math.max(highs[i-1], highs[i+1]);
-        if (h - neighbor >= threshold) swingHigh = { index: i, price: h };
+        const neighbor = Math.max(highsArr[i-1], highsArr[i+1]);
+        if (h - neighbor >= threshold) highs.push({ index: i, price: h });
       }
       if (isLow) {
-        const neighbor = Math.min(lows[i-1], lows[i+1]);
-        if (neighbor - l >= threshold) swingLow = { index: i, price: l };
+        const neighbor = Math.min(lowsArr[i-1], lowsArr[i+1]);
+        if (neighbor - l >= threshold) lows.push({ index: i, price: l });
       }
     }
 
-    // どちらも見つからなければ null
-    return { high: swingHigh, low: swingLow };
+    // 末尾（直近）から最大 maxCount だけ採用
+    const takeLast = (arr) => arr.slice(-maxCount);
+    return { highs: takeLast(highs), lows: takeLast(lows) };
   }
 
-  // --- バックアップ：単純な直近20本の高安 ---
+  // バックアップ：直近20本の単純高安（見つからない時用）
   function recentWindowHL(series, hasOHLC) {
     const tail = series.slice(-Math.min(20, series.length));
     const highs = hasOHLC ? tail.map(p => toNum(p.h)) : tail.map(p => toNum(p.c));
     const lows  = hasOHLC ? tail.map(p => toNum(p.l)) : tail.map(p => toNum(p.c));
-    if (!highs.length || !lows.length) return { high: null, low: null };
+    if (!highs.length || !lows.length) return { highs: [], lows: [] };
+    const hiVal = Math.max(...highs);
+    const loVal = Math.min(...lows);
     return {
-      high: { index: series.length - tail.length + highs.indexOf(Math.max(...highs)), price: Math.max(...highs) },
-      low:  { index: series.length - tail.length + lows.indexOf(Math.min(...lows)),  price: Math.min(...lows)  },
+      highs: [{ index: series.length - tail.length + highs.indexOf(hiVal), price: hiVal }],
+      lows:  [{ index: series.length - tail.length + lows.indexOf(loVal),  price: loVal  }],
     };
   }
 
-  // --- スイング水平線の描画 ---
-  function drawSwingHL(ctx, W, H, padX, padY, minY, maxY, series, hasOHLC) {
-    let { high, low } = findSwingHL(series, hasOHLC);
-    if (!high && !low) ({ high, low } = recentWindowHL(series, hasOHLC));
-    if (!high && !low) return;
+  // スイング水平線 + レンジ帯
+  function drawSwingHL(modalCtx) {
+    const { ctx, W, H, padX, padY, minY, maxY, series, hasOHLC } = modalCtx;
+
+    let { highs, lows } = findRecentSwings(series, hasOHLC, 2);
+    if (highs.length === 0 && lows.length === 0) {
+      const backup = recentWindowHL(series, hasOHLC);
+      highs = backup.highs; lows = backup.lows;
+    }
+    if (highs.length === 0 && lows.length === 0) return;
 
     const innerH = H - padY * 2;
     const yAt = (v) => padY + innerH * (1 - (v - minY) / Math.max(1e-9, (maxY - minY)));
 
-    const lines = [];
-    if (high) lines.push({ price: high.price, color: "rgba(255,215,0,0.95)", text: "スイング高値 " + Math.round(high.price).toLocaleString() });
-    if (low)  lines.push({ price: low.price,  color: "rgba(0,200,255,0.95)",  text: "スイング安値 " + Math.round(low.price).toLocaleString() });
+    // レンジ帯（最新の高安が両方あるときに塗る）
+    const latestHigh = highs[highs.length - 1] || null;
+    const latestLow  = lows[lows.length - 1]  || null;
+    if (latestHigh && latestLow) {
+      const yTop = yAt(Math.max(latestHigh.price, latestLow.price));
+      const yBot = yAt(Math.min(latestHigh.price, latestLow.price));
+      ctx.save();
+      ctx.fillStyle = "rgba(0,200,255,0.08)";
+      ctx.fillRect(padX, yTop, W - padX * 2, Math.max(1, yBot - yTop));
+      ctx.restore();
+    }
 
-    ctx.save();
-    lines.forEach(({price, color, text}) => {
+    // 水平線 + ラベル（最新=実線寄りの破線＆濃色 / 2本目=薄色）
+    const drawLine = (price, color, label, strong=false) => {
       const y = yAt(price);
-
-      // 水平破線
-      ctx.setLineDash([5, 4]);
+      ctx.save();
+      ctx.setLineDash(strong ? [6,3] : [5,5]);
       ctx.strokeStyle = color;
-      ctx.lineWidth = 1.25;
+      ctx.lineWidth = strong ? 1.6 : 1.2;
       ctx.beginPath();
       ctx.moveTo(padX, y);
       ctx.lineTo(W - padX, y);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // 右端ラベル
+      // ラベル
+      const text = `${label} ${Math.round(price).toLocaleString()}`;
       const pad = 4;
       ctx.font = "10px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
       const tw = ctx.measureText(text).width;
@@ -248,7 +259,6 @@
         ctx.roundRect(bx, by, tw + pad * 2, th, 4);
         ctx.fill(); ctx.stroke();
       } else {
-        // Fallback: 角丸APIが無い環境
         ctx.fillRect(bx, by, tw + pad * 2, th);
         ctx.strokeRect(bx, by, tw + pad * 2, th);
       }
@@ -256,8 +266,16 @@
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
       ctx.fillText(text, bx + pad, by + th / 2);
-    });
-    ctx.restore();
+      ctx.restore();
+    };
+
+    // 高値2本（最新を#1、ひとつ前を#2）
+    if (highs.length >= 1) drawLine(highs[highs.length - 1].price, "rgba(255,215,0,0.95)", "スイング高値#1", true);
+    if (highs.length >= 2) drawLine(highs[highs.length - 2].price, "rgba(255,215,0,0.60)", "スイング高値#2", false);
+
+    // 安値2本
+    if (lows.length >= 1) drawLine(lows[lows.length - 1].price, "rgba(0,200,255,0.95)", "スイング安値#1", true);
+    if (lows.length >= 2) drawLine(lows[lows.length - 2].price, "rgba(0,200,255,0.55)", "スイング安値#2", false);
   }
 
   // --- 価格パネルの数値・チャート描画 ---
@@ -343,9 +361,10 @@
         ctx.fillRect(cx - bodyW / 2, yTop, bodyW, hBody);
       });
 
-      // 軸・スイング線
+      // 軸
       drawAxes(ctx, Wcss, Hcss, padX, padY, minY, maxY, [dates[0], dates[Math.floor(dates.length/2)], dates[dates.length-1]]);
-      drawSwingHL(ctx, Wcss, Hcss, padX, padY, minY, maxY, series, true);
+      // スイング線 + レンジ帯
+      drawSwingHL({ ctx, W: Wcss, H: Hcss, padX, padY, minY, maxY, series, hasOHLC: true });
     } else {
       // ====== 終値ライン ======
       const ys = series.map(p => toNum(p.c)).filter(v => Number.isFinite(v));
@@ -374,7 +393,7 @@
       ctx.stroke();
 
       drawAxes(ctx, Wcss, Hcss, padX, padY, minY, maxY, [dates[0], dates[Math.floor(dates.length/2)], dates[dates.length-1]]);
-      drawSwingHL(ctx, Wcss, Hcss, padX, padY, minY, maxY, series, false);
+      drawSwingHL({ ctx, W: Wcss, H: Hcss, padX, padY, minY, maxY, series, hasOHLC: false });
     }
   }
 
