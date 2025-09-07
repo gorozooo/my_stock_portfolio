@@ -492,7 +492,7 @@ def edit_stock_page(request, pk):
     if request.method == "POST":
         stock.shares = int(request.POST.get("shares") or stock.shares)
         stock.unit_price = float(request.POST.get("unit_price") or stock.unit_price)
-        stock.account = request.POST.get("account") or stock.account
+        stock.account_type = request.POST.get("account_type") or stock.account
         stock.position = request.POST.get("position") or stock.position
         stock.save()
         return redirect("stock_list")
