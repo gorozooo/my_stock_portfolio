@@ -299,17 +299,6 @@ class RealizedProfit(models.Model):
     def __str__(self):
         return f'{self.date} {self.stock_name} {self.trade_type}'        
         
-        
-# =============================
-# 現金モデル
-# =============================
-class Cash(models.Model):
-    amount = models.IntegerField("金額")
-    updated_at = models.DateTimeField("更新日時", auto_now=True)
-
-    def __str__(self):
-        return f"Cash: {self.amount}"
-
 # =============================
 # 配当入力モデル
 # =============================
