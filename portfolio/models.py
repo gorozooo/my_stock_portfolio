@@ -298,6 +298,8 @@ class RealizedProfit(models.Model):
 
     def __str__(self):
         return f'{self.date} {self.stock_name} {self.trade_type}'        
+        
+        
 # =============================
 # 現金モデル
 # =============================
@@ -307,6 +309,33 @@ class Cash(models.Model):
 
     def __str__(self):
         return f"Cash: {self.amount}"
+
+# =============================
+# 配当入力モデル
+# =============================
+from django.utils import timezone
+from django.db import models
+
+class Dividend(models.Model):
+    stock_name   = models.CharField("銘柄名", max_length=100)
+    ticker       = models.CharField("証券コード", max_length=10)
+    gross_amount = models.PositiveIntegerField("配当金（税引前・円）")
+    tax          = models.PositiveIntegerField("税額（円）", default=0)
+    net_amount   = models.PositiveIntegerField("受取額（円）", editable=False)
+    account_type = models.CharField("口座区分", max_length=10, blank=True, default="")
+    broker       = models.CharField("証券会社", max_length=50, blank=True, default="")
+    received_at  = models.DateField("受取日", default=timezone.now)
+    memo         = models.CharField("メモ", max_length=200, blank=True, default="")
+    created_at   = models.DateTimeField("作成", auto_now_add=True)
+    updated_at   = models.DateTimeField("更新", auto_now=True)
+
+    def save(self, *args, **kwargs):
+        # 受取額 = 税引前 - 税額（0未満にはしない）
+        self.net_amount = max(0, (self.gross_amount or 0) - (self.tax or 0))
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.received_at} {self.ticker} {self.stock_name} 配当 {self.net_amount}円"
 
 # =============================
 # 設定画面パスワード
