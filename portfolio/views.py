@@ -1299,7 +1299,7 @@ def dividend_new_page(request):
             "received_at":  request.GET.get("received_at", "") or str(date.today()),
         }
     }
-    return render(request, "realized/dividend_form.html", ctx)
+    render(request, "dividend_form.html", ctx)
     
 # -----------------------------
 # 登録ページ
