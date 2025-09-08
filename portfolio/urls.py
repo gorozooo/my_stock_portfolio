@@ -38,6 +38,9 @@ urlpatterns = [
     # --- 配当入力 ---
     path("dividends/new/", views.dividend_create_view, name="dividend_create"),
     
+    # --- 登録ページ ---
+    path("register/", views.register_hub, name="register_hub"),
+    
     # --- 設定画面（親メニュー） ---
     path('settings/login/', views.settings_login, name='settings_login'),
     path('settings/', views.settings_view, name='settings'),
