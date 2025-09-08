@@ -1552,6 +1552,7 @@ def cash_io_page(request):
     ctx = {
         "tabs": BROKER_TABS,
         "active_broker": broker,
+        "active_label": BROKER_MAP.get(broker, broker),
         "balances": balances,
         "recent": recent,
         "today": str(timezone.now().date()),
