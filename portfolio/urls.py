@@ -40,7 +40,7 @@ urlpatterns = [
     path("api/stocks/lookup/", views.api_stock_lookup, name="api_stock_lookup"),
     
     # --- 入出金 ---
-    path("cashflow/new/", views.cashflow_create, name="cashflow_create"),   # 入出金
+    path("cash/", views.cash_io_page, name="cash_io"),
     
     # --- 登録ページ ---
     path("register/", views.register_hub, name="register_hub"),
