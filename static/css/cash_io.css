@@ -1,7 +1,7 @@
 /* === ベース（ダーク寄り配色） === */
 *, *::before, *::after { box-sizing: border-box; }
 :root{
-  --bg:#1e293b;       /* 全体背景（濃いグレー） */
+  --bg:#1e293b;       /* ページ背景（濃いグレー） */
   --card:#334155;     /* カード領域（やや明るいグレー） */
   --line:#475569;     /* 枠線 */
   --ink:#f8fafc;      /* メイン文字（白っぽい） */
@@ -11,7 +11,18 @@
   --bad:#ef4444;      /* マイナス */
 }
 
-.cash-page { padding:16px; background:var(--bg); color:var(--ink); }
+/* === 大外のカード（ページ全体を1枚のカード風に） === */
+body { background: var(--bg); }
+.cash-page {
+  color:var(--ink);
+  background:var(--card);          /* ← 外側カード色 */
+  border:1px solid var(--line);
+  border-radius:18px;              /* ← 丸みを強めに */
+  padding:18px;                    /* 既存より少しゆったり */
+  max-width: 960px;                /* 中央に収めて“カード感”を出す */
+  margin: 16px auto;               /* 画面中央寄せ */
+  box-shadow: 0 16px 40px rgba(0,0,0,.25);
+}
 
 /* === メッセージ === */
 .msgs{ list-style:none; padding:0; margin:0 0 12px; }
@@ -19,39 +30,48 @@
 .msg.success{ background:rgba(34,197,94,0.2); color:var(--good); }
 .msg.error{ background:rgba(239,68,68,0.2); color:var(--bad); }
 
-/* === タブ === */
-.tabs{ display:flex; gap:8px; margin-bottom:14px; overflow:auto; }
+/* === タブ（中央表示） === */
+.tabs{
+  display:flex;
+  gap:8px;
+  margin: 0 auto 14px;
+  overflow:auto;
+  justify-content:center;          /* ← 中央寄せ */
+  -webkit-overflow-scrolling: touch;
+}
 .tab{
   padding:9px 14px; border-radius:999px;
-  background:var(--card); color:var(--ink);
+  background:var(--bg); color:var(--ink);
+  border:1px solid var(--line);
   text-decoration:none; white-space:nowrap;
   font-size:14px; font-weight:700;
-  transition:background .2s, transform .1s;
+  transition:background .2s, transform .1s, border-color .2s;
 }
-.tab:hover{ background:#475569; transform:translateY(-1px); }
-.tab.active{ background:var(--emph); color:#fff; }
+.tab:hover{ background:#405067; transform:translateY(-1px); }
+.tab.active{ background:var(--emph); color:#fff; border-color:var(--emph); }
 
-/* === 残高ピル === */
+/* === 残高ピル（控えめだけど見やすく） === */
 .summary.real{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
 @media (max-width:480px){ .summary.real{ grid-template-columns:1fr; } }
 .pill{
-  background:var(--card); border:1px solid var(--line);
+  background:transparent;
+  border:1px solid var(--line);
   border-radius:12px; padding:12px 14px;
-  display:flex; justify-content:space-between;
+  display:flex; justify-content:space-between; align-items:baseline;
 }
 .pill .k{ font-size:12px; color:var(--muted); }
 .pill .v{ font-size:18px; font-weight:700; color:var(--ink); }
 
-/* === カード（透明に近いグレー） === */
+/* === 内側カード（セクション枠） === */
 .card{
-  background:var(--card);
+  background: transparent;         /* 外は大カードなので内側は透明枠だけ */
   border:1px solid var(--line);
   border-radius:14px;
   padding:16px; margin:12px 0;
 }
 
 /* === 入出金モード === */
-.mode-row{ display:flex; gap:10px; margin-bottom:12px; }
+.mode-row{ display:flex; gap:10px; margin-bottom:12px; justify-content:center; }
 .mode{
   border:1px solid var(--line);
   padding:8px 12px; border-radius:999px;
@@ -73,13 +93,13 @@
   background:transparent; color:var(--ink);
 }
 
-.chips{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+.chips{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; justify-content:center; }
 .chip{
   border:1px solid var(--line); border-radius:999px;
-  background:var(--card); padding:7px 12px;
+  background:var(--bg); padding:7px 12px;
   font-size:12px; color:var(--ink);
 }
-.chip:hover{ background:#475569; }
+.chip:hover{ background:#405067; }
 
 /* === フォーム2列 === */
 .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
@@ -91,21 +111,21 @@
   padding:12px; font-size:16px; color:var(--ink);
   background:var(--bg);
 }
-.field input:focus{ border-color:var(--emph); }
+.field input:focus{ border-color:var(--emph); box-shadow:0 0 0 3px rgba(59,130,246,.25); }
 
 /* === テンキー === */
 .numpad{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:12px; }
 .numpad button{
   padding:14px 0; font-size:18px;
   border-radius:12px; border:1px solid var(--line);
-  background:var(--card); color:var(--ink);
+  background:var(--bg); color:var(--ink);
 }
 .numpad button:active{ transform:scale(.97); }
 
 /* === 下部アクション === */
 .sticky-actions{
   position:sticky; bottom:0;
-  background:linear-gradient(to top, rgba(30,41,59,.9), rgba(30,41,59,0));
+  background:linear-gradient(to top, rgba(51,65,85,.9), rgba(51,65,85,0));
   padding:12px 0 2px; margin-top:12px; display:flex; gap:10px;
 }
 .btn{
@@ -115,10 +135,10 @@
 
 /* === 月別サマリー === */
 .monthly{ margin:18px 0; }
-.monthly .h-title{ font-size:15px; color:var(--muted); margin:0 0 10px; }
+.monthly .h-title{ font-size:15px; color:var(--muted); margin:0 0 10px; text-align:center; }
 .monthly table{
   width:100%; border-collapse:collapse;
-  background:var(--card); border-radius:12px; overflow:hidden;
+  background:transparent; border:1px solid var(--line); border-radius:12px; overflow:hidden;
 }
 .monthly th, .monthly td{
   padding:10px 8px; border-bottom:1px solid var(--line);
@@ -132,12 +152,12 @@
 
 /* === 履歴 === */
 .history{ margin:18px 0; }
-.h-title{ font-size:15px; color:var(--muted); margin:0 0 10px; }
+.h-title{ font-size:15px; color:var(--muted); margin:0 0 10px; text-align:center; }
 .list{ list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px; }
 .row{
   display:grid; grid-template-columns:100px 1fr auto; gap:10px;
   align-items:center; padding:10px 12px;
-  background:var(--card); border-radius:12px;
+  background:transparent; border:1px solid var(--line); border-radius:12px;
 }
 .row .date{ color:var(--muted); font-size:13px; }
 .row .memo{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink); }
