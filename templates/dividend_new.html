@@ -118,13 +118,17 @@
     {% endif %}
   </form>
 </div>
+
+{# --- フォールバック読み込み（必ず本文内で1回読む） --- #}
+<link id="dividend-css-fallback" rel="stylesheet" href="{% static 'css/dividend.css' %}?v=1">
+<script src="{% static 'js/dividend.js' %}?v=1" defer></script>
 {% endblock %}
 
-{# 他テンプレと同じく、追加CSS/JSは専用ブロックに #}
+{# --- 通常読み込み（base.html が extra_* ブロックを持つ場合はこちらも走る） --- #}
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/dividend.css' %}">
+<link rel="stylesheet" href="{% static 'css/dividend.css' %}?v=1">
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/dividend.js' %}" defer></script>
+<script src="{% static 'js/dividend.js' %}?v=1" defer></script>
 {% endblock %}
