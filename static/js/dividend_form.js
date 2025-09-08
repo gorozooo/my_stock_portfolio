@@ -1,114 +1,116 @@
-// static/js/dividend_form.js
-document.addEventListener("DOMContentLoaded", () => {
-  // ===== 要素参照 =====
-  const form  = document.getElementById("div-form");
-  const gross = document.getElementById("gross");
-  const tax   = document.getElementById("tax");
-  const net   = document.getElementById("net-preview");
+{% extends "base.html" %}
+{% load static %}
 
-  const tickerInput  = document.querySelector('input[name="ticker"]');
-  const nameInput    = document.querySelector('input[name="stock_name"]');
-  const accountInput = document.querySelector('input[name="account_type"]');
-  const brokerInput  = document.querySelector('input[name="broker"]');
-  const sharesInput  = document.querySelector('input[name="shares"]'); // ★ 追加：保有株数
+{% block title %}配当の登録{% endblock %}
 
-  // ===== 税計算モード =====
-  let taxMode = "auto";            // "auto" | "zero" | "manual"
-  const pct = 0.20315;             // 20.315%
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/dividend_form.css' %}">
+{% endblock %}
 
-  // ===== ユーティリティ =====
-  const toNumber = (el) => Math.max(0, parseInt((el?.value || "0").replace(/,/g, ""), 10) || 0);
-  const fmt      = (n) => n.toLocaleString();
+{% block content %}
+<div class="div-page">
 
-  // 軽いハイライト（自動補完されたフィールドに視覚フィードバック）
-  function flash(el) {
-    if (!el) return;
-    el.style.transition = "background 300ms";
-    const old = el.style.background;
-    el.style.background = "rgba(16,185,129,0.18)";
-    setTimeout(() => (el.style.background = old || ""), 350);
-  }
+  {% if messages %}
+    <ul class="msgs">
+      {% for m in messages %}
+        <li class="msg {{ m.tags }}">{{ m }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
 
-  // ===== 受取額プレビュー再計算 =====
-  function recalc() {
-    const g = toNumber(gross);
-    let t   = toNumber(tax);
+  <form id="div-form" method="post" novalidate>
+    {% csrf_token %}
 
-    if (taxMode === "auto") {
-      t = Math.floor(g * pct);
-      if (tax) tax.value = t;
-    } else if (taxMode === "zero") {
-      t = 0;
-      if (tax) tax.value = 0;
-    }
-    const n = Math.max(0, g - t);
-    if (net) net.textContent = g ? `¥${fmt(n)}` : "—";
-  }
+    <section class="card">
+      <div class="field">
+        <label>銘柄名</label>
+        <input type="text" name="stock_name" value="{{ init.stock_name }}" placeholder="例: トヨタ" required>
+      </div>
 
-  // 入力イベント
-  if (gross) gross.addEventListener("input", recalc);
-  if (tax)   tax.addEventListener("input", () => { taxMode = "manual"; recalc(); });
+      <div class="field">
+        <label>証券コード</label>
+        <input type="text" name="ticker" value="{{ init.ticker }}" placeholder="例: 7203" required>
+      </div>
 
-  // 金額チップ（+1000 / +5000 / +10000 / ALL）
-  document.querySelectorAll(".chip[data-fill]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const val = btn.dataset.fill;
-      if (!gross) return;
-      if (val === "all") {
-        gross.focus();
-        gross.select();
-        return;
-      }
-      gross.value = toNumber(gross) + parseInt(val, 10);
-      recalc();
-    });
-  });
+      <div class="grid2">
+        <div class="field">
+          <label>口座区分</label>
+          <input type="text" name="account_type" value="{{ init.account_type }}" placeholder="例: 特定・NISA">
+        </div>
+        <div class="field">
+          <label>証券会社</label>
+          <input type="text" name="broker" value="{{ init.broker }}" placeholder="例: 楽天・SBI">
+        </div>
+      </div>
 
-  // 税方式チップ（自動 / ゼロ）
-  document.querySelectorAll(".chip[data-tax]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      taxMode = btn.dataset.tax; // "auto" or "zero"
-      recalc();
-    });
-  });
+      <!-- ★ 追加：保有株数（自動補完に対応） -->
+      <div class="field">
+        <label>保有株数</label>
+        <input type="number" inputmode="numeric" name="shares" value="{{ init.shares }}" placeholder="例: 100" min="0" step="1">
+        <p class="hint">証券コードを入力すると、保有中の株数が自動補完されます（編集可）。</p>
+      </div>
 
-  // ===== 銘柄自動補完（ticker→ name / account_type / broker / shares） =====
-  let timer = null;
-  function debounce(fn, wait = 300) {
-    clearTimeout(timer);
-    timer = setTimeout(fn, wait);
-  }
+      <!-- ★ 追加：1株あたり配当（妥当性チェック用） -->
+      <div class="field">
+        <label>1株あたり配当（税引前・円）</label>
+        <input id="per-share-gross" type="number" inputmode="numeric" placeholder="例: 65">
+        <p class="hint">保有株数と掛け合わせて、配当金入力の妥当性をチェックします。</p>
+      </div>
 
-  async function lookup() {
-    const t = (tickerInput?.value || "").trim();
-    if (!t) return;
+      <div class="grid2">
+        <div class="field">
+          <label>受取日</label>
+          <input type="date" name="received_at" value="{{ init.received_at }}" required>
+        </div>
+        <div class="field">
+          <label>税方式</label>
+          <div class="chips">
+            <button type="button" class="chip" data-tax="auto">自動(20.315%)</button>
+            <button type="button" class="chip" data-tax="zero">税0</button>
+          </div>
+        </div>
+      </div>
+    </section>
 
-    try {
-      const resp = await fetch(`/api/stocks/lookup/?ticker=${encodeURIComponent(t)}`, {
-        credentials: "same-origin",
-        headers: { "X-Requested-With": "XMLHttpRequest" },
-      });
+    <section class="card">
+      <div class="field">
+        <label>配当金（税引前・円）</label>
+        <input id="gross" type="number" inputmode="numeric" name="gross_amount" placeholder="例: 12,345" required>
+        <div class="chips">
+          <button type="button" class="chip" data-fill="1000">+1,000</button>
+          <button type="button" class="chip" data-fill="5000">+5,000</button>
+          <button type="button" class="chip" data-fill="10000">+10,000</button>
+          <button type="button" class="chip" data-fill="all">ALL</button>
+        </div>
+      </div>
 
-      if (!resp.ok) return; // 404などは無視
-      const j = await resp.json();
-      if (!j.found) return;
+      <div class="field">
+        <label>税額（円）</label>
+        <input id="tax" type="number" inputmode="numeric" name="tax" placeholder="自動計算 or 手入力OK">
+        <p class="hint">「自動」を選ぶと 20.315% を概算計算します。</p>
+      </div>
 
-      // 値が空の時だけ上書き（ユーザー入力は尊重）
-      if (nameInput     && !nameInput.value)     { nameInput.value     = j.stock_name   || ""; flash(nameInput); }
-      if (accountInput  && !accountInput.value)  { accountInput.value  = j.account_type || ""; flash(accountInput); }
-      if (brokerInput   && !brokerInput.value)   { brokerInput.value   = j.broker       || ""; flash(brokerInput); }
-      if (sharesInput   && !sharesInput.value)   { sharesInput.value   = j.shares ?? "";     flash(sharesInput); }
-    } catch (_) {
-      // ネットワークエラー等は黙殺
-    }
-  }
+      <div class="review">
+        <div class="row"><span class="k">受取額（推定）</span><span id="net-preview" class="v">—</span></div>
+      </div>
 
-  if (tickerInput) {
-    tickerInput.addEventListener("input", () => debounce(lookup, 300));
-    tickerInput.addEventListener("change", lookup);
-    tickerInput.addEventListener("blur", lookup);
-  }
+      <!-- ★ 追加：妥当性チェック結果表示欄 -->
+      <div id="gross-check" class="hint"></div>
 
-  // 初期計算
-  recalc();
-});
+      <div class="field">
+        <label>メモ</label>
+        <input type="text" name="memo" placeholder="例: 期末配当 1株×100株">
+      </div>
+    </section>
+
+    <div class="sticky-actions">
+      <a class="btn secondary" href="{% url 'realized' %}">キャンセル</a>
+      <button class="btn primary" type="submit">登録する</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/dividend_form.js' %}" defer></script>
+{% endblock %}
