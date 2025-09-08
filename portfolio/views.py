@@ -1389,18 +1389,76 @@ def register_hub(request):
 # -----------------------------
 # 入出金
 # -----------------------------
-from django.shortcuts import render
-from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect
+from django.urls import reverse
+from django.contrib import messages
+from django.db.models import Sum
+from django.utils import timezone
 
-@login_required
-def cashflow_create(request):
-    # ダミーなので実際の処理はまだしない
+from .models import CashFlow
+
+BROKER_TABS = [
+    ("rakuten", "楽天証券"),
+    ("matsui",  "松井証券"),
+    ("sbi",     "SBI証券"),
+]
+
+def _aggregate_balances():
+    """証券会社ごとの残高 = 入金合計 - 出金合計"""
+    sums = (CashFlow.objects
+            .values("broker", "flow_type")
+            .annotate(total=Sum("amount")))
+    bal = {k: 0 for k, _ in BROKER_TABS}
+    for row in sums:
+        b = row["broker"]; t = row["flow_type"]; v = row["total"] or 0
+        if b in bal:
+            bal[b] += v if t == "in" else -v
+    return bal
+
+def cash_io_page(request):
+    # タブ選択（?broker=rakuten 等）
+    broker = request.GET.get("broker") or "rakuten"
+    if broker not in dict(BROKER_TABS):
+        broker = "rakuten"
+
     if request.method == "POST":
-        # ここでフォーム処理予定
-        return render(request, "cashflow_success.html")
+        broker      = request.POST.get("broker") or broker
+        flow_type   = request.POST.get("flow_type")  # "in" / "out"
+        amount_raw  = (request.POST.get("amount") or "").replace(",", "")
+        occurred_at = request.POST.get("occurred_at") or str(timezone.now().date())
+        memo        = (request.POST.get("memo") or "").strip()
 
-    # GET時はフォーム画面（ダミー）
-    return render(request, "cashflow_form.html")
+        try:
+            amount = int(amount_raw)
+        except ValueError:
+            amount = 0
+
+        if broker not in dict(BROKER_TABS):
+            messages.error(request, "証券会社が不正です。")
+        elif flow_type not in ("in", "out"):
+            messages.error(request, "入金/出金を選んでください。")
+        elif amount <= 0:
+            messages.error(request, "金額を入力してください。")
+        else:
+            CashFlow.objects.create(
+                broker=broker, flow_type=flow_type,
+                amount=amount, occurred_at=occurred_at, memo=memo
+            )
+            verb = "入金" if flow_type == "in" else "出金"
+            messages.success(request, f"{dict(BROKER_TABS)[broker]} に {verb} {amount:,} 円を登録しました。")
+            return redirect(f"{reverse('cash_io')}?broker={broker}")
+
+    balances = _aggregate_balances()
+    recent = CashFlow.objects.filter(broker=broker).order_by("-occurred_at","-id")[:20]
+
+    ctx = {
+        "tabs": BROKER_TABS,
+        "active_broker": broker,
+        "balances": balances,
+        "recent": recent,
+        "today": str(timezone.now().date()),
+    }
+    return render(request, "cash/cash_io.html", ctx)    
     
 # -----------------------------
 # 設定画面ログイン
