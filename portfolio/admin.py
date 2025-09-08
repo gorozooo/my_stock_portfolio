@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Stock, RealizedProfit, Cash, BottomTab, SubMenu, SettingsPassword
+from .models import Stock, RealizedProfit,BottomTab, SubMenu, SettingsPassword
 from django.utils.html import format_html
 from django.urls import reverse
 
