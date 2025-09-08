@@ -11,7 +11,12 @@
   --bad:#ef4444;      /* マイナス */
 }
 
-.cash-page { padding:16px; background:var(--bg); color:var(--ink); }
+.cash-page { 
+  padding:16px; 
+  background:var(--bg); 
+  color:var(--ink); 
+  border-radius:18px;   /* ★ 大外カードに丸みを追加 */
+}
 
 /* === メッセージ === */
 .msgs{ list-style:none; padding:0; margin:0 0 12px; }
