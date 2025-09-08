@@ -89,6 +89,18 @@ class CashAdmin(admin.ModelAdmin):
     list_display = ('id', 'amount', 'updated_at')
 
 # =============================
+# 入出金
+# =============================
+from .models import CashFlow
+
+@admin.register(CashFlow)
+class CashFlowAdmin(admin.ModelAdmin):
+    list_display = ("id","occurred_at","broker","flow_type","amount","memo","updated_at")
+    list_filter  = ("broker","flow_type","occurred_at")
+    search_fields = ("memo",)
+    ordering = ("-occurred_at","-id")
+
+# =============================
 # BottomTab
 # =============================
 @admin.register(BottomTab)
