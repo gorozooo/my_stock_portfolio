@@ -1202,9 +1202,7 @@ def stock_news_json(request, pk: int):
         payload["total"] = total
 
     return JsonResponse(payload, json_dumps_params={"ensure_ascii": False})    
-@login_required
-def cash_view(request):
-    return render(request, "cash.html")
+
 
 import datetime
 import re
