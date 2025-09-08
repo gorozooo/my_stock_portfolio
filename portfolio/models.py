@@ -338,6 +338,42 @@ class Dividend(models.Model):
         return f"{self.received_at} {self.ticker} {self.stock_name} 配当 {self.net_amount}円"
 
 # =============================
+# 入出金モデル
+# =============================
+from django.db import models
+from django.utils import timezone
+
+class CashFlow(models.Model):
+    BROKER_CHOICES = [
+        ("rakuten", "楽天証券"),
+        ("matsui",  "松井証券"),
+        ("sbi",     "SBI証券"),
+    ]
+    FLOW_CHOICES = [
+        ("in",  "入金"),
+        ("out", "出金"),
+    ]
+
+    broker      = models.CharField("証券会社", max_length=12, choices=BROKER_CHOICES)
+    flow_type   = models.CharField("種別", max_length=3, choices=FLOW_CHOICES)
+    amount      = models.PositiveIntegerField("金額（円）")   # 常に正の数
+    occurred_at = models.DateField("日付", default=timezone.now)
+    memo        = models.CharField("メモ", max_length=200, blank=True, default="")
+    created_at  = models.DateTimeField("作成", auto_now_add=True)
+    updated_at  = models.DateTimeField("更新", auto_now=True)
+
+    class Meta:
+        ordering = ["-occurred_at", "-id"]
+
+    def signed_amount(self) -> int:
+        return self.amount if self.flow_type == "in" else -self.amount
+
+    def __str__(self):
+        label = dict(self.BROKER_CHOICES).get(self.broker, self.broker)
+        jpn = "入金" if self.flow_type == "in" else "出金"
+        return f"{self.occurred_at} {label} {jpn} {self.amount}円"
+
+# =============================
 # 設定画面パスワード
 # =============================
 class SettingsPassword(models.Model):
