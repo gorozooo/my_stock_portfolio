@@ -4,24 +4,25 @@
 .back-link { text-decoration:none; font-size:14px; opacity:.8; }
 
 .card {
-  background: rgba(255,255,255,0.8);
-  backdrop-filter: blur(10px);
+  background: transparent; /* 背景は透明に統一 */
+  border: 1px solid rgba(255,255,255,0.7); /* 白枠で囲む */
   border-radius: 14px;
   padding: 14px;
   margin: 12px 0;
-  box-shadow: 0 4px 18px rgba(0,0,0,0.06);
+  box-shadow: 0 4px 18px rgba(0,0,0,0.12); /* 少し影を強めて浮かせる */
 }
 
 .field { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
-.field label { font-size:13px; color:#333; }
+.field label { font-size:13px; color:#fff; } /* 背景が透明なら文字は白推奨 */
 .field input {
   appearance: none;
   width: 100%;
-  border: 1px solid #e5e7eb;
+  border: 1px solid rgba(255,255,255,0.4);
   border-radius: 10px;
   padding: 12px;
   font-size: 16px; /* スマホでズーム防止 */
-  background: #fff;
+  background: transparent; /* 入力欄も透明 */
+  color: #fff; /* 入力文字は白 */
 }
 
 .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
@@ -29,33 +30,37 @@
 
 .chips { display:flex; flex-wrap:wrap; gap:8px; }
 .chip {
-  border: 1px solid #e5e7eb;
-  background: #fff;
+  border: 1px solid rgba(255,255,255,0.6);
+  background: transparent;
   border-radius: 999px;
   padding: 6px 10px;
   font-size: 12px;
+  color: #fff;
 }
 
-.review { border-top: 1px dashed #e5e7eb; padding-top: 10px; margin-top: 8px; }
-.review .row { display:flex; justify-content:space-between; font-size:16px; }
+.review { border-top: 1px dashed rgba(255,255,255,0.4); padding-top: 10px; margin-top: 8px; }
+.review .row { display:flex; justify-content:space-between; font-size:16px; color:#fff; }
 .review .v { font-variant-numeric: tabular-nums; font-weight:700; }
 
 .sticky-actions {
   position: sticky;
   bottom: 0;
-  background: linear-gradient(to top, rgba(255,255,255,0.95), rgba(255,255,255,0));
+  background: linear-gradient(to top, rgba(0,0,0,0.6), rgba(0,0,0,0));
   padding: 12px 0 2px;
   display:flex; gap:10px; justify-content:space-between;
 }
 .btn {
   display:inline-block; text-align:center; width:100%;
-  padding: 12px; border-radius: 10px; border: none; font-size: 16px;
+  padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.7);
+  font-size: 16px;
+  background: transparent;
+  color: #fff;
 }
-.btn.primary { background:#2563eb; color:#fff; }
-.btn.secondary { background:#f3f4f6; color:#111; }
+.btn.primary { background: rgba(37,99,235,0.2); border-color:#2563eb; }
+.btn.secondary { background: rgba(255,255,255,0.1); border-color:rgba(255,255,255,0.5); }
 
 .msgs { list-style:none; padding:0; margin:6px 0 0; }
 .msg { font-size:14px; padding:8px 10px; border-radius:8px; }
-.msg.success { background:#ecfdf5; color:#065f46; }
-.msg.error { background:#fef2f2; color:#991b1b; }
-.hint { color:#6b7280; font-size:12px; margin: 4px 0 0; }
+.msg.success { background:rgba(16,185,129,0.2); color:#34d399; border:1px solid #34d399; }
+.msg.error { background:rgba(239,68,68,0.2); color:#f87171; border:1px solid #f87171; }
+.hint { color:rgba(255,255,255,0.7); font-size:12px; margin: 4px 0 0; }
