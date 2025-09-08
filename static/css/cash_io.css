@@ -1,87 +1,93 @@
-/* ===== 背景を完全に透明に ===== */
-.cash-page,
-.summary,
-.monthly,
-.history,
+.cash-page { padding: 16px; background: transparent; }
+
+.msgs { list-style:none; padding:0; margin:0 0 10px; }
+.msg { font-size:14px; padding:8px 10px; border-radius:8px; margin-bottom:6px; }
+.msg.success { background:rgba(236,253,245,0.7); color:#065f46; }
+.msg.error   { background:rgba(254,242,242,0.7); color:#991b1b; }
+
+.tabs { display:flex; gap:8px; margin-bottom:10px; overflow:auto; }
+.tab {
+  padding: 8px 12px; border-radius: 999px; border:1px solid #e5e7eb;
+  background: transparent; color:#111; text-decoration:none; white-space:nowrap; font-size:14px;
+}
+.tab.active { background:#111; color:#fff; border-color:#111; }
+
+.summary.real { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+@media (max-width: 480px) { .summary.real { grid-template-columns:1fr; } }
+.pill {
+  background: transparent; border:1px solid #e5e7eb; border-radius:12px;
+  padding:10px 12px; display:flex; align-items:baseline; justify-content:space-between;
+}
+.pill.focus { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,0.12); }
+.pill .k { font-size:12px; color:#6b7280; }
+.pill .v { font-size:18px; font-variant-numeric: tabular-nums; }
+
 .card {
-  background: transparent !important;
+  background: transparent; border:1px solid #e5e7eb; border-radius:14px;
+  padding:14px; margin:12px 0; box-shadow:none;
 }
 
-/* すべての要素で枠をはみ出さないように */
-*, *::before, *::after {
-  box-sizing: border-box;
-}
+.mode-row { display:flex; gap:10px; margin-bottom:8px; }
+.mode { border:1px solid #e5e7eb; padding:8px 12px; border-radius:999px; background:transparent; }
+.mode input { margin-right:6px; }
 
-/* カードは透明にして枠・影を消すならここで制御 */
-.card {
-  background: transparent !important;
-  padding: 14px;
-  border: 1px solid rgba(255,255,255,0.3); /* 枠だけ残したい場合 */
-  border-radius: 12px;
-  box-shadow: none; /* 影いらなければ */
-}
-
-/* 入力欄は必ずカード内で100%に収まる */
-.field input,
-.amount-wrap input,
-.amt-display input {
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  display: block;
-  overflow: hidden;
-}
-
-/* 金額入力欄（¥と入力欄を横並び） */
-.amount-wrap { width: 100%; }
+.amount-wrap { margin:8px 0 10px; }
 .amt-display {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
+  display:flex; align-items:center; gap:6px;
+  border:1px dashed #e5e7eb; border-radius:12px; padding:10px 12px;
+  width:100%;
 }
-.amt-display .currency {
-  flex: 0 0 auto;
-}
-.amt-display input {
-  flex: 1 1 auto;
-  min-width: 0; /* ← はみ出し防止のキモ */
-}
-
-/* 2列グリッド */
-.grid2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  width: 100%;
-}
-@media (max-width: 480px) {
-  .grid2 { grid-template-columns: 1fr; }
+.amt-display .currency { font-size:20px; color:#6b7280; }
+#amount {
+  flex:1 1 auto;
+  min-width:0; /* はみ出し防止 */
+  border:none; outline:none;
+  font-size:24px; font-weight:700; background:transparent;
+  font-variant-numeric: tabular-nums;
 }
 
-/* チップ・タブ・ボタン類も親幅に合わせる */
-.tabs,
-.chips,
-.numpad,
-.sticky-actions {
-  width: 100%;
+.chips { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.chip {
+  border:1px solid #e5e7eb; border-radius:999px; background:transparent;
+  padding:6px 10px; font-size:12px;
 }
 
-/* テンキー：3列グリッドで折り返し */
-.numpad {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; width:100%; }
+@media (max-width: 480px) { .grid2 { grid-template-columns:1fr; } }
+.field { display:flex; flex-direction:column; gap:6px; }
+.field input {
+  width:100%; max-width:100%; min-width:0;
+  border:1px solid #e5e7eb; border-radius:10px; padding:12px; font-size:16px;
+  background: transparent;
 }
+
+.numpad { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px; }
 .numpad button {
-  width: 100%;
-  padding: 12px 0;
+  padding:14px 0; font-size:18px; border-radius:12px;
+  border:1px solid #e5e7eb; background:transparent;
 }
 
-/* Undoバーは半透明で浮かせる */
-.undo-bar {
-  background: rgba(236, 254, 255, 0.6);
-  border: 1px solid #a7f3d0;
-  border-radius: 10px;
-  padding: 8px 10px;
+.sticky-actions {
+  position: sticky; bottom: 0;
+  background: linear-gradient(to top, rgba(255,255,255,0.2), rgba(255,255,255,0));
+  padding: 12px 0 2px; margin-top:10px;
+  display:flex; gap:10px;
 }
+.btn {
+  width:100%; padding:12px; border-radius:10px; border:none;
+  background:#2563eb; color:#fff; font-size:16px;
+}
+
+.history { margin:16px 0; }
+.h-title { font-size:14px; color:#6b7280; margin:0 0 8px; }
+.list { list-style:none; padding:0; margin:0; }
+.row {
+  display:grid; grid-template-columns: 96px 1fr 1fr; gap:8px; align-items:center;
+  padding:8px 10px; border-bottom:1px solid #f3f4f6; font-size:14px;
+}
+.row .date { color:#6b7280; }
+.row .type { font-variant-numeric: tabular-nums; text-align:right; }
+.row .type.in  { color:#065f46; }
+.row .type.out { color:#991b1b; }
+.row .memo { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.empty { color:#9ca3af; padding:10px; }
