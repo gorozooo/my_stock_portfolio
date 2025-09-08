@@ -17,6 +17,8 @@ html, body{
   min-height: 100dvh;
   padding: 12px 10px 18px;
   display:flex; justify-content:center;
+  background: transparent !important;  /* 背景を透明に */
+  color: #fff;                         /* 文字色は白のまま */
 }
 
 .div-form{ width: 100%; max-width: 720px; display:flex; flex-direction:column; gap:10px; }
