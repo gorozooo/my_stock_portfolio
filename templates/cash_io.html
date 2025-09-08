@@ -18,11 +18,20 @@
   font-size:12px; padding:4px 8px; border-radius:8px; text-decoration:none; border:1px solid #e5e7eb; background:#fff;
 }
 .opdel { color:#991b1b; border-color:#fecaca; }
+
+/* 既存の monthly は残しつつ、横スクロール用のラッパをサポート */
 .monthly { margin: 16px 0; }
 .monthly .h-title { font-size:14px; color:#6b7280; margin:0 0 8px; }
-.monthly table { width:100%; border-collapse: collapse; }
-.monthly th, .monthly td { padding:8px 6px; border-bottom:1px solid #f3f4f6; font-size:14px; text-align:right; }
-.monthly th:first-child, .monthly td:first-child { text-align:left; }
+
+/* ラッパで横スクロール許可（テーブルは最小幅を確保） */
+.monthly .table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 12px;
+}
+.monthly table { width:100%; border-collapse: collapse; min-width:560px; }
+.monthly th, .monthly td { padding:8px 6px; border-bottom:1px solid #f3f4f6; font-size:14px; text-align:right; white-space:nowrap; }
+.monthly th:first-child, .monthly td:first-child { text-align:left; white-space:normal; min-width:110px; }
 .monthly .pos { color:#065f46; }
 .monthly .neg { color:#991b1b; }
 </style>
@@ -130,23 +139,25 @@
   <!-- 月別サマリ（現タブの証券会社、直近6ヶ月） -->
   <section class="monthly">
     <h2 class="h-title">月別サマリ（{{ active_label }}）</h2>
-    <table>
-      <thead>
-        <tr><th>月</th><th>入金</th><th>出金</th><th>差引</th></tr>
-      </thead>
-      <tbody>
-        {% for m in monthly %}
-          <tr>
-            <td>{{ m.month|date:"Y年n月" }}</td>
-            <td>¥{{ m.in_total|floatformat:0|intcomma }}</td>
-            <td>¥{{ m.out_total|floatformat:0|intcomma }}</td>
-            <td class="{% if m.net >= 0 %}pos{% else %}neg{% endif %}">¥{{ m.net|floatformat:0|intcomma }}</td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="4">データがありません</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>月</th><th>入金</th><th>出金</th><th>差引</th></tr>
+        </thead>
+        <tbody>
+          {% for m in monthly %}
+            <tr>
+              <td>{{ m.month|date:"Y年n月" }}</td>
+              <td>¥{{ m.in_total|floatformat:0|intcomma }}</td>
+              <td>¥{{ m.out_total|floatformat:0|intcomma }}</td>
+              <td class="{% if m.net >= 0 %}pos{% else %}neg{% endif %}">¥{{ m.net|floatformat:0|intcomma }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4">データがありません</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </section>
 
   <!-- 最近の入出金（選択中の証券会社） -->
@@ -155,7 +166,8 @@
     <ul class="list">
       {% for it in recent %}
         <li class="row">
-          <span class="date">{{ it.occurred_at }}</span>
+          <!-- ★ 日付を短縮表記に変更：例 9/9 -->
+          <span class="date">{{ it.occurred_at|date:"n/j" }}</span>
           <span class="type {% if it.flow_type == 'in' %}in{% else %}out{% endif %}">
             {% if it.flow_type == 'in' %}+{% else %}-{% endif %}¥{{ it.amount|floatformat:0|intcomma }}
           </span>
