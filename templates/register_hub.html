@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}登録ハブ{% endblock %}
+
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'css/register.css' %}">
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+{% endblock %}
+
+{% block content %}
+
+<header class="page-head">
+  <h1>登録</h1>
+  <p class="sub">よく使う登録をワンタップで</p>
+</header>
+
+<div class="register-buttons">
+  {% for card in settings_cards %}
+  <a href="{% url card.url_name %}" class="register-card" data-color="{{ card.color }}">
+    <i class="fa-solid {{ card.icon }}"></i>
+    <div class="text-group">
+      <span class="title">{{ card.title }}</span>
+      <small>{{ card.description }}</small>
+    </div>
+
+    {% if card.progress %}
+    <div class="progress-bar"><span style="width: {{ card.progress }}%;"></span></div>
+    {% endif %}
+
+    {% if card.badge %}
+    <div class="status-badge">{{ card.badge }}</div>
+    {% endif %}
+  </a>
+  {% endfor %}
+</div>
+
+<!-- 下部のクイックTips（任意） -->
+<section class="quick-tips">
+  <h2>小ワザ</h2>
+  <ul>
+    <li>長押しで触覚（ハプティクス）っぽい演出</li>
+    <li>スワイプで戻るときもスクロール位置を保持</li>
+  </ul>
+</section>
+
+{% endblock %}
