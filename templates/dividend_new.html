@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
-{% block content %}
 
+{% block content %}
 <div class="dividend-page">
   <form method="post" class="div-form" id="divForm" novalidate>
     {% csrf_token %}
@@ -116,10 +116,15 @@
         {% endfor %}
       </ul>
     {% endif %}
-
   </form>
 </div>
+{% endblock %}
 
+{# 他テンプレと同じく、追加CSS/JSは専用ブロックに #}
+{% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/dividend.css' %}">
-<script src="{% static 'js/dividend.js' %}"></script>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/dividend.js' %}" defer></script>
 {% endblock %}
