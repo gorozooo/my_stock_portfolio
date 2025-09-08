@@ -1246,94 +1246,60 @@ def trade_history(request):
 # -----------------------------
 # 配当入力
 # -----------------------------
-from django.contrib import messages
-from django.utils import timezone
-import datetime
-from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect
-from .models import RealizedProfit
+from django.urls import reverse
+from django.contrib import messages
+from .models import Dividend
+from datetime import date
 
-@login_required
-def dividend_create_view(request):
-    BROKERS  = ["SBI", "楽天", "松井"]
-    ACCOUNTS = ["現物", "NISA"]
-
+def dividend_new_page(request):
+    """
+    配当入力（スマホファースト）
+    GET: ?ticker=7203&stock_name=トヨタ&account_type=特定&broker=楽天 などで初期値
+    POST: 保存して実現損益ページ（realized）へ戻る（無ければ stock_list へフォールバック）
+    """
     if request.method == "POST":
-        def to_int(s, default=None):
-            if s in (None, ""):
-                return default
+        ticker       = (request.POST.get("ticker") or "").strip()
+        stock_name   = (request.POST.get("stock_name") or "").strip()
+        received_at  = request.POST.get("received_at") or str(date.today())
+        gross_amount = int(request.POST.get("gross_amount") or 0)
+        tax          = int(request.POST.get("tax") or 0)
+        account_type = (request.POST.get("account_type") or "").strip()
+        broker       = (request.POST.get("broker") or "").strip()
+        memo         = (request.POST.get("memo") or "").strip()
+
+        if not ticker or not stock_name or gross_amount <= 0:
+            messages.error(request, "必須項目（銘柄名・コード・配当金）を入力してください。")
+        else:
+            Dividend.objects.create(
+                ticker=ticker,
+                stock_name=stock_name,
+                received_at=received_at,
+                gross_amount=gross_amount,
+                tax=tax,
+                account_type=account_type,
+                broker=broker,
+                memo=memo,
+            )
+            messages.success(request, "配当を登録しました。")
+            # 実現損益ページへ
             try:
-                return int(str(s).replace(",", "").replace("+", ""))
+                return redirect(reverse("realized"))
             except Exception:
-                return default
+                # 無ければ保有株一覧へ
+                return redirect(reverse("stock_list"))
 
-        # POST 値取得
-        date_str      = (request.POST.get("date") or "").strip()
-        stock_name    = (request.POST.get("stock_name") or "").strip()
-        code          = (request.POST.get("code") or "").strip()
-        broker        = (request.POST.get("broker") or "").strip()
-        account_type  = (request.POST.get("account_type") or "").strip()
-        amount_recv   = to_int(request.POST.get("amount_received"), None)  # 受取額(手取り)
-        tax_withheld  = to_int(request.POST.get("tax_withheld"), 0)        # 税(参考)
-        fee           = to_int(request.POST.get("fee"), 0)                 # 手数料
-        note          = (request.POST.get("note") or "").strip()
-
-        errors = []
-        if not date_str:
-            errors.append("受取日を入力してください。")
-        if not stock_name:
-            errors.append("銘柄名を入力してください。")
-        if amount_recv is None or amount_recv <= 0:
-            errors.append("受取額（手取り）を正しく入力してください。")
-
-        date_val = None
-        if date_str:
-            try:
-                date_val = datetime.date.fromisoformat(date_str)
-            except Exception:
-                errors.append("受取日が不正です（YYYY-MM-DD）。")
-
-        if errors:
-            for m in errors:
-                messages.error(request, m)
-            return render(request, "dividend_new.html", {
-                "form": {
-                    "date": date_str, "stock_name": stock_name, "code": code,
-                    "broker": broker, "account_type": account_type,
-                    "amount_received": request.POST.get("amount_received") or "",
-                    "tax_withheld": request.POST.get("tax_withheld") or "",
-                    "fee": request.POST.get("fee") or "",
-                    "note": note,
-                },
-                "BROKERS": BROKERS,
-                "ACCOUNTS": ACCOUNTS,
-            })
-
-        profit_amount = (amount_recv or 0) - (fee or 0)
-        RealizedProfit.objects.create(
-            user=request.user,
-            date=date_val,
-            stock_name=stock_name,
-            code=code,
-            broker=broker,
-            account_type=account_type,
-            trade_type='dividend',
-            quantity=None,
-            purchase_price=None,
-            sell_price=None,
-            fee=fee,
-            profit_amount=profit_amount,
-            profit_rate=None,
-        )
-        messages.success(request, "配当を登録しました。")
-        return redirect("realized")
-
-    # GET
-    return render(request, "dividend_new.html", {
-        "form": {},
-        "BROKERS": ["SBI", "楽天", "松井"],
-        "ACCOUNTS": ["現物", "NISA"],
-    })
+    # GET: 初期値
+    ctx = {
+        "init": {
+            "ticker":       request.GET.get("ticker", ""),
+            "stock_name":   request.GET.get("stock_name", ""),
+            "account_type": request.GET.get("account_type", ""),
+            "broker":       request.GET.get("broker", ""),
+            "received_at":  request.GET.get("received_at", "") or str(date.today()),
+        }
+    }
+    return render(request, "realized/dividend_form.html", ctx)
     
 # -----------------------------
 # 登録ページ
@@ -1354,7 +1320,7 @@ def register_hub(request):
             "progress": None,        # 任意
         },
         {
-            "url_name": "dividend_create",
+            "url_name": "dividend_new",
             "color": "#00C48C",
             "icon": "fa-coins",
             "title": "配当入力",
