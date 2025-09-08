@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}配当の登録{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/dividend_form.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="div-page">
+  <header class="div-header">
+    <a href="{% url 'realized' %}" class="back-link">← 実現損益に戻る</a>
+    <h1 class="div-title">配当の登録</h1>
+  </header>
+
+  {% if messages %}
+    <ul class="msgs">
+      {% for m in messages %}
+        <li class="msg {{ m.tags }}">{{ m }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  <form id="div-form" method="post" novalidate>
+    {% csrf_token %}
+
+    <section class="card">
+      <div class="field">
+        <label>銘柄名</label>
+        <input type="text" name="stock_name" value="{{ init.stock_name }}" placeholder="例: トヨタ" required>
+      </div>
+
+      <div class="field">
+        <label>証券コード</label>
+        <input type="text" name="ticker" value="{{ init.ticker }}" placeholder="例: 7203" required>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label>口座区分</label>
+          <input type="text" name="account_type" value="{{ init.account_type }}" placeholder="例: 特定・NISA">
+        </div>
+        <div class="field">
+          <label>証券会社</label>
+          <input type="text" name="broker" value="{{ init.broker }}" placeholder="例: 楽天・SBI">
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label>受取日</label>
+          <input type="date" name="received_at" value="{{ init.received_at }}" required>
+        </div>
+        <div class="field">
+          <label>税方式</label>
+          <div class="chips">
+            <button type="button" class="chip" data-tax="auto">自動(20.315%)</button>
+            <button type="button" class="chip" data-tax="zero">税0</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="field">
+        <label>配当金（税引前・円）</label>
+        <input id="gross" type="number" inputmode="numeric" name="gross_amount" placeholder="例: 12,345" required>
+        <div class="chips">
+          <button type="button" class="chip" data-fill="1000">+1,000</button>
+          <button type="button" class="chip" data-fill="5000">+5,000</button>
+          <button type="button" class="chip" data-fill="10000">+10,000</button>
+          <button type="button" class="chip" data-fill="all">ALL</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>税額（円）</label>
+        <input id="tax" type="number" inputmode="numeric" name="tax" placeholder="自動計算 or 手入力OK">
+        <p class="hint">「自動」を選ぶと 20.315%（所得税15.315%+住民税5%）を概算で計算します。</p>
+      </div>
+
+      <div class="review">
+        <div class="row"><span class="k">受取額（推定）</span><span id="net-preview" class="v">—</span></div>
+      </div>
+
+      <div class="field">
+        <label>メモ</label>
+        <input type="text" name="memo" placeholder="例: 期末配当 1株あたり65円 × 100株">
+      </div>
+    </section>
+
+    <div class="sticky-actions">
+      <a class="btn secondary" href="{% url 'realized' %}">キャンセル</a>
+      <button class="btn primary" type="submit">登録する</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/dividend_form.js' %}" defer></script>
+{% endblock %}
