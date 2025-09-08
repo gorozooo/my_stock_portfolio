@@ -36,7 +36,7 @@ urlpatterns = [
     path('stocks/api/sectors/', views.get_sector_list, name='sector_list'),
     
     # --- 配当入力 ---
-    path("realized/dividend/new/", views.dividend_new_page, name="dividend_new"),
+    path("dividend/new/", views.dividend_new_page, name="dividend_new"),
     
     # --- 入出金 ---
     path("cashflow/new/", views.cashflow_create, name="cashflow_create"),   # 入出金
