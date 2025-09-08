@@ -1336,6 +1336,45 @@ def dividend_create_view(request):
     })
     
 # -----------------------------
+# 登録ページ
+# -----------------------------
+from django.contrib.auth.decorators import login_required
+from django.urls import reverse
+
+@login_required
+def register_hub(request):
+    settings_cards = [
+        {
+            "url_name": "stock_create",
+            "color": "#3AA6FF",
+            "icon": "fa-circle-plus",
+            "title": "新規登録",
+            "description": "保有株を素早く追加",
+            "badge": "推奨",         # 任意
+            "progress": None,        # 任意
+        },
+        {
+            "url_name": "dividend_create",
+            "color": "#00C48C",
+            "icon": "fa-coins",
+            "title": "配当入力",
+            "description": "受取配当を記録",
+            "badge": None,
+            "progress": None,
+        },
+        {
+            "url_name": "cashflow_create",
+            "color": "#FF8A3D",
+            "icon": "fa-wallet",
+            "title": "入出金",
+            "description": "入金/出金を登録",
+            "badge": None,
+            "progress": None,
+        },
+    ]
+    return render(request, "register_hub.html", {"settings_cards": settings_cards})
+    
+# -----------------------------
 # 設定画面ログイン
 # -----------------------------
 def settings_login(request):
