@@ -50,6 +50,13 @@
         <p class="hint">証券コードを入力すると、保有中の株数が自動補完されます（編集可）。</p>
       </div>
 
+      <!-- ★ 追加：1株あたり配当（妥当性チェック用） -->
+      <div class="field">
+        <label>1株あたり配当（税引前・円）</label>
+        <input id="per-share-gross" type="number" inputmode="numeric" placeholder="例: 65">
+        <p class="hint">保有株数と掛け合わせて、配当金入力の妥当性をチェックします。</p>
+      </div>
+
       <div class="grid2">
         <div class="field">
           <label>受取日</label>
@@ -86,6 +93,9 @@
       <div class="review">
         <div class="row"><span class="k">受取額（推定）</span><span id="net-preview" class="v">—</span></div>
       </div>
+
+      <!-- ★ 追加：妥当性チェック結果表示欄 -->
+      <div id="gross-check" class="hint"></div>
 
       <div class="field">
         <label>メモ</label>
