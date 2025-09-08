@@ -1377,10 +1377,18 @@ def register_hub(request):
 # -----------------------------
 # 入出金
 # -----------------------------
-from django.urls import cashflow
+from django.shortcuts import render
+from django.contrib.auth.decorators import login_required
 
-@login_cashflow
+@login_required
 def cashflow_create(request):
+    # ダミーなので実際の処理はまだしない
+    if request.method == "POST":
+        # ここでフォーム処理予定
+        return render(request, "cashflow_success.html")
+
+    # GET時はフォーム画面（ダミー）
+    return render(request, "cashflow_form.html")
     
 # -----------------------------
 # 設定画面ログイン
