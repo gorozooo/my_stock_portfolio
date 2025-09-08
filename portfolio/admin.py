@@ -82,13 +82,6 @@ class DividendAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at","updated_at","net_amount")
 
 # =============================
-# Cash
-# =============================
-@admin.register(Cash)
-class CashAdmin(admin.ModelAdmin):
-    list_display = ('id', 'amount', 'updated_at')
-
-# =============================
 # 入出金
 # =============================
 from .models import CashFlow
