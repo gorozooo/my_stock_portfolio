@@ -204,3 +204,109 @@
 .row .type.in { color: var(--good); }
 .row .type.out{ color: var(--bad); }
 .empty{ color: rgba(255,255,255,0.6); padding:10px; text-align:center; }
+
+/* ===========================
+   月別サマリー：はみ出し防止
+   =========================== */
+
+/* テーブル全体を横スクロール可能に */
+.monthly .table-wrap { 
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.38); /* 既存の白枠とトーン合わせ */
+}
+
+/* テーブルに最小幅を与えて、セルが極端に潰れないように */
+.monthly table {
+  min-width: 560px;         /* 画面が狭い時は横スクロール */
+  border: none;             /* 外枠は .table-wrap に移譲 */
+}
+
+/* 数字は読みやすく、桁ズレしない */
+.monthly td, .monthly th {
+  white-space: nowrap;      /* 数字列は折り返さない */
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 月の列は折り返しOK（長いロケールでも崩れにくい） */
+.monthly td:first-child, 
+.monthly th:first-child {
+  white-space: normal; 
+  min-width: 110px;
+}
+
+/* スマホ時は少し文字サイズを落として視認性を維持 */
+@media (max-width: 400px) {
+  .monthly th, .monthly td { font-size: 13px; }
+}
+
+/* 既存のマークアップに合わせてラッパーを想定
+   <section class="monthly">
+     <h2 class="h-title">...</h2>
+     <div class="table-wrap">
+       <table>...</table>
+     </div>
+   </section>
+*/
+
+
+/* ===========================
+   最近の入出金：見切れ防止
+   =========================== */
+
+/* 行を2行レイアウトにもできる柔軟グリッドに */
+.list .row {
+  display: grid;
+  grid-template-columns: 100px 1fr auto;
+  grid-template-areas:
+    "date memo type";
+  gap: 10px;
+  align-items: center;
+}
+
+/* 画面が狭い時は メモを2行目に回して読みやすく */
+@media (max-width: 560px) {
+  .list .row {
+    grid-template-columns: 1fr auto;   /* 左=日付+メモ, 右=金額 */
+    grid-template-areas:
+      "date type"
+      "memo memo";
+  }
+}
+
+/* 各要素のエリア割り当て */
+.list .row .date { grid-area: date; }
+.list .row .type { grid-area: type; text-align: right; font-variant-numeric: tabular-nums; }
+.list .row .memo { grid-area: memo; }
+
+/* メモは折り返しOKにして見切れ回避 */
+.list .row .memo {
+  overflow: visible;
+  white-space: normal;              /* ← 一行固定を解除 */
+  overflow-wrap: anywhere;          /* 長い英数字も折り返す */
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+/* 金額が窮屈にならないよう最小幅確保 */
+.list .row .type {
+  min-width: 96px;                  /* "+¥12,345" 程度が収まる幅 */
+  white-space: nowrap;              /* 数字は折り返さない */
+}
+
+/* 日付も詰まり防止（短く見せたいならフォーマット側を短縮推奨） */
+.list .row .date {
+  min-width: 84px;
+  white-space: nowrap;
+  color: rgba(255,255,255,0.78);
+}
+
+/* さらに狭い端末向けに微調整 */
+@media (max-width: 360px) {
+  .list .row { gap: 8px; }
+  .list .row .type { min-width: 84px; font-size: 13.5px; }
+  .list .row .date { font-size: 12.5px; }
+  .list .row .memo { font-size: 14px; }
+}
