@@ -1,16 +1,15 @@
 {% extends "base.html" %}
 {% load static %}
 
+{% block title %}配当の登録{% endblock %}
+
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/dividend_form.css' %}">
 {% endblock %}
 
 {% block content %}
 <div class="div-page">
-  <header class="div-header">
-    <a href="{% url 'realized' %}" class="back-link">← 実現損益に戻る</a>
-    <h1 class="div-title">配当の登録</h1>
-  </header>
+  
 
   {% if messages %}
     <ul class="msgs">
@@ -75,7 +74,7 @@
       <div class="field">
         <label>税額（円）</label>
         <input id="tax" type="number" inputmode="numeric" name="tax" placeholder="自動計算 or 手入力OK">
-        <p class="hint">「自動」を選ぶと 20.315%（所得税15.315%+住民税5%）を概算で計算します。</p>
+        <p class="hint">「自動」を選ぶと 20.315% を概算計算します。</p>
       </div>
 
       <div class="review">
@@ -84,7 +83,7 @@
 
       <div class="field">
         <label>メモ</label>
-        <input type="text" name="memo" placeholder="例: 期末配当 1株あたり65円 × 100株">
+        <input type="text" name="memo" placeholder="例: 期末配当 1株×100株">
       </div>
     </section>
 
