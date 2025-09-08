@@ -1,7 +1,7 @@
 /* === ベース（ダーク寄り配色） === */
 *, *::before, *::after { box-sizing: border-box; }
 :root{
-  /*--bg:#1e293b;       /* 全体背景（濃いグレー） */
+  --bg:#1e293b;       /* 全体背景（濃いグレー） */
   --card:#334155;     /* カード領域（やや明るいグレー） */
   --line:#475569;     /* 枠線 */
   --ink:#f8fafc;      /* メイン文字（白っぽい） */
@@ -25,7 +25,13 @@
 .msg.error{ background:rgba(239,68,68,0.2); color:var(--bad); }
 
 /* === タブ === */
-.tabs{ display:flex; gap:8px; margin-bottom:14px; overflow:auto; }
+.tabs{ 
+  display:flex; 
+  gap:8px; 
+  margin-bottom:14px; 
+  overflow:auto; 
+  justify-content:center;  /* ★ 中央寄せ */
+}
 .tab{
   padding:9px 14px; border-radius:999px;
   background:var(--card); color:var(--ink);
@@ -40,7 +46,7 @@
 .summary.real{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
 @media (max-width:480px){ .summary.real{ grid-template-columns:1fr; } }
 .pill{
-  background:var(--card); border:1px solid var(--line);
+  background:var(--card); border:1px solid #fff;  /* ★ 白枠 */
   border-radius:12px; padding:12px 14px;
   display:flex; justify-content:space-between;
 }
@@ -50,7 +56,7 @@
 /* === カード（透明に近いグレー） === */
 .card{
   background:var(--card);
-  border:1px solid var(--line);
+  border:1px solid #fff;   /* ★ 白枠 */
   border-radius:14px;
   padding:16px; margin:12px 0;
 }
@@ -123,7 +129,8 @@
 .monthly .h-title{ font-size:15px; color:var(--muted); margin:0 0 10px; }
 .monthly table{
   width:100%; border-collapse:collapse;
-  background:var(--card); border-radius:12px; overflow:hidden;
+  background:var(--card); border:1px solid #fff;  /* ★ 白枠 */
+  border-radius:12px; overflow:hidden;
 }
 .monthly th, .monthly td{
   padding:10px 8px; border-bottom:1px solid var(--line);
@@ -142,7 +149,8 @@
 .row{
   display:grid; grid-template-columns:100px 1fr auto; gap:10px;
   align-items:center; padding:10px 12px;
-  background:var(--card); border-radius:12px;
+  background:var(--card); border:1px solid #fff;  /* ★ 白枠 */
+  border-radius:12px;
 }
 .row .date{ color:var(--muted); font-size:13px; }
 .row .memo{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink); }
