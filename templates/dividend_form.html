@@ -43,6 +43,13 @@
         </div>
       </div>
 
+      <!-- ★ 追加：保有株数（自動補完に対応） -->
+      <div class="field">
+        <label>保有株数</label>
+        <input type="number" inputmode="numeric" name="shares" value="{{ init.shares }}" placeholder="例: 100" min="0" step="1">
+        <p class="hint">証券コードを入力すると、保有中の株数が自動補完されます（編集可）。</p>
+      </div>
+
       <div class="grid2">
         <div class="field">
           <label>受取日</label>
