@@ -1,7 +1,17 @@
+# portfolio/admin.py
 from django.contrib import admin
-from .models import Stock, RealizedProfit,BottomTab, SubMenu, SettingsPassword
 from django.utils.html import format_html
 from django.urls import reverse
+
+from .models import (
+    Stock,
+    RealizedProfit,
+    Dividend,
+    CashFlow,
+    BottomTab,
+    SubMenu,
+    SettingsPassword,
+)
 
 # =============================
 # Stock
@@ -55,63 +65,86 @@ class StockAdmin(admin.ModelAdmin):
             url = "#"
         return format_html('<a class="button" href="{}" target="_blank">売却</a>', url)
     sell_link.short_description = "売却（通常画面）"
-    
+
+
 # =============================
-# RealizedProfit
+# RealizedProfit（実現損益）
+#   ※あなたのモデルに合わせて列名を設定しています。
+#   - モデルのフィールド名が異なる場合は、下の list_display を調整してください。
 # =============================
 @admin.register(RealizedProfit)
 class RealizedProfitAdmin(admin.ModelAdmin):
     list_display = (
-        'date','stock_name','code','broker','account_type',
-        'trade_type','quantity','profit_amount','profit_rate'
+        "date",          # 取引日（例：DateField / sold_at 等に合わせてOK）
+        "stock_name",    # 銘柄名
+        "code",          # 証券コード（モデルによっては ticker）
+        "broker",        # 証券会社
+        "account_type",  # 口座区分
+        "trade_type",    # 売/買 or 種別
+        "quantity",      # 株数
+        "profit_amount", # 損益額
+        "profit_rate",   # 損益率
     )
-    list_filter  = ('broker','account_type','trade_type','date')
-    search_fields= ('stock_name','code')
+    list_filter = ("broker", "account_type", "trade_type", "date")
+    search_fields = ("stock_name", "code")
+    ordering = ("-date", "-id")
+
 
 # =============================
-# 配当入力
+# Dividend（配当）
 # =============================
-from .models import Dividend
-
 @admin.register(Dividend)
 class DividendAdmin(admin.ModelAdmin):
-    list_display = ("id","received_at","ticker","stock_name","gross_amount","tax","net_amount","account_type","broker","updated_at")
-    search_fields = ("ticker","stock_name","broker")
-    list_filter = ("received_at","broker","account_type")
-    ordering = ("-received_at","-id")
-    readonly_fields = ("created_at","updated_at","net_amount")
+    list_display = (
+        "id",
+        "received_at",
+        "ticker",
+        "stock_name",
+        "gross_amount",
+        "tax",
+        "net_amount",
+        "account_type",
+        "broker",
+        "updated_at",
+    )
+    search_fields = ("ticker", "stock_name", "broker")
+    list_filter = ("received_at", "broker", "account_type")
+    ordering = ("-received_at", "-id")
+    readonly_fields = ("created_at", "updated_at", "net_amount")
+
 
 # =============================
-# 入出金
+# CashFlow（入出金）
 # =============================
-from .models import CashFlow
-
 @admin.register(CashFlow)
 class CashFlowAdmin(admin.ModelAdmin):
-    list_display = ("id","occurred_at","broker","flow_type","amount","memo","updated_at")
-    list_filter  = ("broker","flow_type","occurred_at")
+    list_display = ("id", "occurred_at", "broker", "flow_type", "amount", "memo", "updated_at")
+    list_filter  = ("broker", "flow_type", "occurred_at")
     search_fields = ("memo",)
-    ordering = ("-occurred_at","-id")
+    ordering = ("-occurred_at", "-id")
+
 
 # =============================
 # BottomTab
 # =============================
 @admin.register(BottomTab)
 class BottomTabAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name', 'icon', 'url_name', 'order')
-    ordering = ('order',)
+    list_display = ("id", "name", "icon", "url_name", "order")
+    ordering = ("order",)
+
 
 # =============================
 # SubMenu
 # =============================
 @admin.register(SubMenu)
 class SubMenuAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name', 'tab', 'url', 'order')
-    ordering = ('tab', 'order')
+    list_display = ("id", "name", "tab", "url", "order")
+    ordering = ("tab", "order")
+
 
 # =============================
 # SettingsPassword
 # =============================
 @admin.register(SettingsPassword)
 class SettingsPasswordAdmin(admin.ModelAdmin):
-    list_display = ('id', 'password')
+    list_display = ("id", "password")
