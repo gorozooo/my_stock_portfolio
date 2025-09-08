@@ -1443,7 +1443,7 @@ def _parse_date_yyyy_mm_dd(s: str):
 def _monthly_summary(limit_months=6, broker=None):
     """
     月別サマリ（直近 limit_months ヶ月）
-    - in_total, out_total, net （各月の合計）
+    - in_total, out_total, net
     - broker 指定があればその会社のみ
     戻り: [{month: date(月初), in_total:int, out_total:int, net:int}, ...] 新→古
     """
@@ -1460,12 +1460,18 @@ def _monthly_summary(limit_months=6, broker=None):
           )
           .order_by("-month")
     )
+
     rows = []
     for r in base[:limit_months]:
         it = int(r["in_total"] or 0)
         ot = int(r["out_total"] or 0)
+
+        # ▼ ここがポイント：Date/DateTime 両対応
+        m = r["month"]
+        month_value = m.date() if isinstance(m, datetime) else m
+
         rows.append({
-            "month": r["month"].date(),  # 月初
+            "month": month_value,  # .date() しない（必要なら上で安全に）
             "in_total": it,
             "out_total": ot,
             "net": it - ot,
