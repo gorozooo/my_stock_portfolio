@@ -1375,6 +1375,14 @@ def register_hub(request):
     return render(request, "register_hub.html", {"settings_cards": settings_cards})
     
 # -----------------------------
+# 入出金
+# -----------------------------
+from django.urls import cashflow
+
+@login_cashflow
+def cashflow_create(request):
+    
+# -----------------------------
 # 設定画面ログイン
 # -----------------------------
 def settings_login(request):
