@@ -1458,7 +1458,7 @@ def cash_io_page(request):
         "recent": recent,
         "today": str(timezone.now().date()),
     }
-    return render(request, "cash.html", ctx)   
+    return render(request, "cash_io.html", ctx)   
     
 # -----------------------------
 # 設定画面ログイン
