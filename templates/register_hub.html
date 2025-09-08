@@ -11,11 +11,6 @@
 
 {% block content %}
 
-<header class="page-head">
-  <h1>登録</h1>
-  <p class="sub">よく使う登録をワンタップで</p>
-</header>
-
 <div class="register-buttons">
   {% for card in settings_cards %}
   <a href="{% url card.url_name %}" class="register-card" data-color="{{ card.color }}">
