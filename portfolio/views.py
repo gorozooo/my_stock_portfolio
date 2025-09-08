@@ -1343,6 +1343,7 @@ def api_stock_lookup(request):
         "stock_name": obj.name,
         "account_type": obj.account_type,
         "broker": getattr(obj, "broker", ""),  # broker フィールドが無ければ空
+        "shares": obj.shares,
     }
     return JsonResponse(data, status=200)
 
