@@ -67,7 +67,20 @@ class RealizedProfitAdmin(admin.ModelAdmin):
     )
     list_filter  = ('broker','account_type','trade_type','date')
     search_fields= ('stock_name','code')
-        
+
+# =============================
+# 配当入力
+# =============================
+from .models import Dividend
+
+@admin.register(Dividend)
+class DividendAdmin(admin.ModelAdmin):
+    list_display = ("id","received_at","ticker","stock_name","gross_amount","tax","net_amount","account_type","broker","updated_at")
+    search_fields = ("ticker","stock_name","broker")
+    list_filter = ("received_at","broker","account_type")
+    ordering = ("-received_at","-id")
+    readonly_fields = ("created_at","updated_at","net_amount")
+
 # =============================
 # Cash
 # =============================
