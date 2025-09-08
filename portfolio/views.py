@@ -1389,25 +1389,35 @@ def register_hub(request):
 # -----------------------------
 # 入出金
 # -----------------------------
-from django.shortcuts import render, redirect
+# portfolio/views.py
+from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib import messages
-from django.db.models import Sum
+from django.db.models import Sum, F, Case, When, IntegerField
 from django.utils import timezone
+from django.views.decorators.http import require_POST
+from datetime import datetime, timedelta
 
+from django.db.models.functions import TruncMonth
 from .models import CashFlow
 
+# 設定
 BROKER_TABS = [
     ("rakuten", "楽天証券"),
     ("matsui",  "松井証券"),
     ("sbi",     "SBI証券"),
 ]
+BROKER_MAP = dict(BROKER_TABS)
+
+UNDO_WINDOW_SECONDS = 120  # ★ Undoが可能な時間（秒）。必要なら調整。
 
 def _aggregate_balances():
     """証券会社ごとの残高 = 入金合計 - 出金合計"""
-    sums = (CashFlow.objects
-            .values("broker", "flow_type")
-            .annotate(total=Sum("amount")))
+    sums = (
+        CashFlow.objects
+        .values("broker", "flow_type")
+        .annotate(total=Sum("amount"))
+    )
     bal = {k: 0 for k, _ in BROKER_TABS}
     for row in sums:
         b = row["broker"]; t = row["flow_type"]; v = row["total"] or 0
@@ -1415,41 +1425,120 @@ def _aggregate_balances():
             bal[b] += v if t == "in" else -v
     return bal
 
+def _parse_date_yyyy_mm_dd(s: str):
+    """'YYYY-MM-DD' を date に。失敗時は今日。"""
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        return timezone.now().date()
+
+def _monthly_summary(limit_months=6, broker=None):
+    """
+    月別サマリ（直近 limit_months ヶ月）
+    - in_total, out_total, net （各月の合計）
+    - broker 指定があればその会社のみ
+    戻り: [{month: date(月初), in_total:int, out_total:int, net:int}, ...] 新→古
+    """
+    qs = CashFlow.objects
+    if broker:
+        qs = qs.filter(broker=broker)
+
+    # 直近Nヶ月に絞りたい場合はここで期間絞りも可能
+    # 今回は全体から集計 → 後でスライス
+
+    base = (
+        qs.annotate(month=TruncMonth("occurred_at"))
+          .values("month")
+          .annotate(
+              in_total = Sum(Case(When(flow_type="in", then=F("amount")), default=0, output_field=IntegerField())),
+              out_total= Sum(Case(When(flow_type="out", then=F("amount")), default=0, output_field=IntegerField())),
+          )
+          .order_by("-month")
+    )
+    rows = []
+    for r in base[:limit_months]:
+        it = int(r["in_total"] or 0)
+        ot = int(r["out_total"] or 0)
+        rows.append({
+            "month": r["month"].date(),  # 月初
+            "in_total": it,
+            "out_total": ot,
+            "net": it - ot,
+        })
+    return rows
+
 def cash_io_page(request):
     # タブ選択（?broker=rakuten 等）
     broker = request.GET.get("broker") or "rakuten"
-    if broker not in dict(BROKER_TABS):
+    if broker not in BROKER_MAP:
         broker = "rakuten"
 
     if request.method == "POST":
         broker      = request.POST.get("broker") or broker
-        flow_type   = request.POST.get("flow_type")  # "in" / "out"
-        amount_raw  = (request.POST.get("amount") or "").replace(",", "")
+        flow_type   = (request.POST.get("flow_type") or "").strip()  # "in" / "out"
+        amount_raw  = (request.POST.get("amount") or "").replace(",", "").strip()
         occurred_at = request.POST.get("occurred_at") or str(timezone.now().date())
         memo        = (request.POST.get("memo") or "").strip()
 
+        # 変換
         try:
             amount = int(amount_raw)
         except ValueError:
             amount = 0
+        occurred_date = _parse_date_yyyy_mm_dd(occurred_at)
 
-        if broker not in dict(BROKER_TABS):
+        # バリデーション
+        if broker not in BROKER_MAP:
             messages.error(request, "証券会社が不正です。")
         elif flow_type not in ("in", "out"):
             messages.error(request, "入金/出金を選んでください。")
         elif amount <= 0:
             messages.error(request, "金額を入力してください。")
         else:
-            CashFlow.objects.create(
-                broker=broker, flow_type=flow_type,
-                amount=amount, occurred_at=occurred_at, memo=memo
+            # 登録
+            obj = CashFlow.objects.create(
+                broker=broker,
+                flow_type=flow_type,
+                amount=amount,                 # 常に正の数で保存（in/outで符号管理）
+                occurred_at=occurred_date,
+                memo=memo[:200],
             )
             verb = "入金" if flow_type == "in" else "出金"
-            messages.success(request, f"{dict(BROKER_TABS)[broker]} に {verb} {amount:,} 円を登録しました。")
+            messages.success(
+                request,
+                f"{BROKER_MAP[broker]} に {verb} {amount:,} 円を登録しました。"
+            )
+            # ★ Undo 情報をセッションに保存
+            request.session["last_cashflow_id"] = obj.id
+            request.session["last_cashflow_ts"] = timezone.now().timestamp()
+            request.session.modified = True
+
+            # 同じタブを維持
             return redirect(f"{reverse('cash_io')}?broker={broker}")
 
+    # 表示用データ
     balances = _aggregate_balances()
-    recent = CashFlow.objects.filter(broker=broker).order_by("-occurred_at","-id")[:20]
+    recent = (
+        CashFlow.objects
+        .filter(broker=broker)
+        .order_by("-occurred_at", "-id")[:20]
+    )
+
+    # ★ Undo表示フラグ
+    last_id = request.session.get("last_cashflow_id")
+    last_ts = request.session.get("last_cashflow_ts")
+    can_undo = False
+    if last_id and last_ts:
+        if timezone.now().timestamp() - float(last_ts) <= UNDO_WINDOW_SECONDS:
+            can_undo = True
+        else:
+            # 時間切れなら消す
+            request.session.pop("last_cashflow_id", None)
+            request.session.pop("last_cashflow_ts", None)
+            request.session.modified = True
+
+    # ★ 月別サマリ（直近6ヶ月、現タブの証券会社）
+    monthly = _monthly_summary(limit_months=6, broker=broker)
 
     ctx = {
         "tabs": BROKER_TABS,
@@ -1457,8 +1546,86 @@ def cash_io_page(request):
         "balances": balances,
         "recent": recent,
         "today": str(timezone.now().date()),
+        "can_undo": can_undo,
+        "undo_id": last_id,
+        "undo_seconds": UNDO_WINDOW_SECONDS,
+        "monthly": monthly,
     }
-    return render(request, "cash_io.html", ctx)   
+    return render(request, "cash_io.html", ctx)
+
+@require_POST
+def cash_undo(request):
+    """直前登録の取り消し（時間制限あり）"""
+    last_id = request.session.get("last_cashflow_id")
+    last_ts = request.session.get("last_cashflow_ts")
+    if not (last_id and last_ts):
+        messages.error(request, "取り消せる入出金がありません。")
+        return redirect(reverse("cash_io"))
+
+    if timezone.now().timestamp() - float(last_ts) > UNDO_WINDOW_SECONDS:
+        messages.error(request, "取り消し可能時間を過ぎました。")
+        request.session.pop("last_cashflow_id", None)
+        request.session.pop("last_cashflow_ts", None)
+        request.session.modified = True
+        return redirect(reverse("cash_io"))
+
+    obj = get_object_or_404(CashFlow, pk=last_id)
+    broker = obj.broker
+    amt = obj.amount
+    verb = "入金" if obj.flow_type == "in" else "出金"
+    obj.delete()
+
+    # セッションクリア
+    request.session.pop("last_cashflow_id", None)
+    request.session.pop("last_cashflow_ts", None)
+    request.session.modified = True
+
+    messages.success(request, f"{BROKER_MAP.get(broker, broker)} の {verb} {amt:,} 円を取り消しました。")
+    return redirect(f"{reverse('cash_io')}?broker={broker}")
+
+def cash_flow_edit_page(request, pk: int):
+    """履歴の編集ページ（単純な金額・日付・メモのみ）"""
+    obj = get_object_or_404(CashFlow, pk=pk)
+    broker = obj.broker
+
+    if request.method == "POST":
+        amount_raw  = (request.POST.get("amount") or "").replace(",", "").strip()
+        occurred_at = request.POST.get("occurred_at") or str(timezone.now().date())
+        memo        = (request.POST.get("memo") or "").strip()
+
+        try:
+            amount = int(amount_raw)
+        except ValueError:
+            amount = 0
+        occurred_date = _parse_date_yyyy_mm_dd(occurred_at)
+
+        if amount <= 0:
+            messages.error(request, "金額を入力してください。")
+        else:
+            obj.amount = amount
+            obj.occurred_at = occurred_date
+            obj.memo = memo[:200]
+            obj.save(update_fields=["amount", "occurred_at", "memo", "updated_at"])
+            messages.success(request, "入出金を更新しました。")
+            return redirect(f"{reverse('cash_io')}?broker={broker}")
+
+    ctx = {
+        "item": obj,
+        "broker_label": BROKER_MAP.get(broker, broker),
+        "today": str(timezone.now().date()),
+    }
+    return render(request, "cash_flow_edit.html", ctx)
+
+@require_POST
+def cash_flow_delete(request, pk: int):
+    """履歴の削除（ハードデリート）"""
+    obj = get_object_or_404(CashFlow, pk=pk)
+    broker = obj.broker
+    amt = obj.amount
+    verb = "入金" if obj.flow_type == "in" else "出金"
+    obj.delete()
+    messages.success(request, f"{BROKER_MAP.get(broker, broker)} の {verb} {amt:,} 円を削除しました。")
+    return redirect(f"{reverse('cash_io')}?broker={broker}") 
     
 # -----------------------------
 # 設定画面ログイン
