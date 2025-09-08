@@ -1316,7 +1316,36 @@ def dividend_new_page(request):
         }
     }
     return render(request, "dividend_form.html", ctx)   
-    
+
+# -----------------------------
+# 配当入力　銘柄自動補完 API
+# -----------------------------
+from django.http import JsonResponse
+from django.views.decorators.http import require_GET
+from django.db.models import F
+from .models import Stock
+
+@require_GET
+def api_stock_lookup(request):
+    ticker = (request.GET.get("ticker") or "").strip()
+    if not ticker:
+        return JsonResponse({"error": "ticker is required"}, status=400)
+
+    qs = (Stock.objects
+          .filter(ticker__iexact=ticker)
+          .order_by(F("purchase_date").desc(nulls_last=True), "-id"))
+    obj = qs.first()
+    if not obj:
+        return JsonResponse({"found": False}, status=404)
+
+    data = {
+        "found": True,
+        "stock_name": obj.name,
+        "account_type": obj.account_type,
+        "broker": getattr(obj, "broker", ""),  # broker フィールドが無ければ空
+    }
+    return JsonResponse(data, status=200)
+
 # -----------------------------
 # 登録ページ
 # -----------------------------
