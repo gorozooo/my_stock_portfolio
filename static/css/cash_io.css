@@ -1,160 +1,206 @@
-/* === ベース（ダーク寄り配色） === */
+/* === ベース（ダーク × ガラス） === */
 *, *::before, *::after { box-sizing: border-box; }
 :root{
-  --bg:#1e293b;       /* 全体背景（濃いグレー） */
-  --card:#334155;     /* カード領域（やや明るいグレー） */
-  --line:#475569;     /* 枠線 */
-  --ink:#f8fafc;      /* メイン文字（白っぽい） */
-  --muted:#cbd5e1;    /* 補助文字（薄い白） */
-  --emph:#3b82f6;     /* 強調ブルー */
-  --good:#22c55e;     /* プラス */
-  --bad:#ef4444;      /* マイナス */
+  --bg:#0b1220;                               /* 透ける暗背景の想定 */
+  --ink:#ffffff;                              /* メイン文字（白） */
+  --muted:rgba(255,255,255,0.78);             /* 補助文字（薄白） */
+  --emph:#3b82f6;                             /* 強調ブルー */
+
+  /* ガラス用カラー */
+  --glass: rgba(255,255,255,0.08);            /* カードの下地 */
+  --glass-weak: rgba(255,255,255,0.05);       /* もっと薄い */
+  --glass-strong: rgba(255,255,255,0.12);     /* 少し濃い */
+  --glass-line: rgba(255,255,255,0.38);       /* 白枠 */
+  --glass-line-weak: rgba(255,255,255,0.28);  /* 薄い白枠 */
+
+  --good:#34d399;
+  --bad:#f87171;
 }
 
-.cash-page { 
-  padding:16px; 
-  background:var(--bg); 
-  color:var(--ink); 
-  border-radius:18px;   /* ★ 大外カードに丸みを追加 */
+/* ページラッパー（配当/現金どちらでも適用） */
+.cash-page, .div-page {
+  padding:16px;
+  background: transparent;                    /* ★ 外側は透明に */
+  color: var(--ink);
+  border-radius:18px;                          /* 外枠の丸みは残す */
 }
 
 /* === メッセージ === */
 .msgs{ list-style:none; padding:0; margin:0 0 12px; }
-.msg{ font-size:14px; padding:10px 12px; border-radius:10px; margin-bottom:6px; }
-.msg.success{ background:rgba(34,197,94,0.2); color:var(--good); }
-.msg.error{ background:rgba(239,68,68,0.2); color:var(--bad); }
+.msg{
+  font-size:14px; padding:10px 12px; border-radius:10px; margin-bottom:6px;
+  background: var(--glass);
+  border:1px solid var(--glass-line-weak);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+}
+.msg.success{ color: var(--good); border-color: rgba(52,211,153,.55); background: rgba(52,211,153,.16); }
+.msg.error  { color: var(--bad);  border-color: rgba(248,113,113,.55); background: rgba(248,113,113,.16); }
 
-/* === タブ === */
-.tabs{ 
-  display:flex; 
-  gap:8px; 
-  margin-bottom:14px; 
-  overflow:auto; 
-  justify-content:center;  /* ★ 中央寄せ */
+/* === タブ（中央寄せ + ガラス） === */
+.tabs{
+  display:flex; gap:8px; margin-bottom:14px; overflow:auto; justify-content:center;
 }
 .tab{
   padding:9px 14px; border-radius:999px;
-  background:var(--card); color:var(--ink);
-  text-decoration:none; white-space:nowrap;
-  font-size:14px; font-weight:700;
-  transition:background .2s, transform .1s;
+  color:var(--ink); white-space:nowrap; font-size:14px; font-weight:700;
+  background: var(--glass);
+  border:1px solid var(--glass-line);
+  transition: background .2s, transform .1s, border-color .2s;
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  text-decoration:none;
 }
-.tab:hover{ background:#475569; transform:translateY(-1px); }
-.tab.active{ background:var(--emph); color:#fff; }
+.tab:hover{ background: var(--glass-strong); transform: translateY(-1px); }
+.tab.active{ background: linear-gradient(180deg, rgba(59,130,246,.35), rgba(59,130,246,.18)); border-color: rgba(59,130,246,.85); }
 
-/* === 残高ピル === */
+/* === 残高ピル（ガラス） === */
 .summary.real{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
 @media (max-width:480px){ .summary.real{ grid-template-columns:1fr; } }
 .pill{
-  background:var(--card); border:1px solid #fff;  /* ★ 白枠 */
+  background: var(--glass);
+  border:1px solid var(--glass-line);
   border-radius:12px; padding:12px 14px;
-  display:flex; justify-content:space-between;
+  display:flex; justify-content:space-between; align-items:baseline;
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
 }
 .pill .k{ font-size:12px; color:var(--muted); }
 .pill .v{ font-size:18px; font-weight:700; color:var(--ink); }
 
-/* === カード（透明に近いグレー） === */
+/* === カード（配当入力のガラス感） === */
 .card{
-  background:var(--card);
-  border:1px solid #fff;   /* ★ 白枠 */
+  background: var(--glass);                             /* ほんのり白で下地 */
+  border:1px solid var(--glass-line);                   /* 白枠 */
   border-radius:14px;
   padding:16px; margin:12px 0;
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);   /* iOS Safari */
+  box-shadow: 0 6px 24px rgba(0,0,0,0.18);
+  overflow: hidden;                                     /* 角丸からはみ出さない */
 }
 
-/* === 入出金モード === */
-.mode-row{ display:flex; gap:10px; margin-bottom:12px; }
+/* === 入出金モード（トグル風） === */
+.mode-row{ display:flex; gap:10px; margin-bottom:12px; justify-content:center; }
 .mode{
-  border:1px solid var(--line);
-  padding:8px 12px; border-radius:999px;
-  background:var(--bg); color:var(--ink);
+  padding:8px 12px; border-radius:999px; color:var(--ink);
+  background: var(--glass-weak);
+  border:1px solid var(--glass-line-weak);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
 }
 .mode input{ margin-right:6px; }
 
-/* === 金額入力 === */
+/* === 金額入力（大きめ数字 × ガラス） === */
 .amount-wrap{ margin:10px 0 12px; }
 .amt-display{
   display:flex; align-items:center; gap:10px;
-  border:2px solid var(--line); border-radius:14px; padding:12px 14px;
-  background:var(--bg);
+  border:1px solid var(--glass-line);
+  border-radius:14px; padding:12px 14px;
+  background: var(--glass-weak);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
 }
 .amt-display .currency{ font-size:20px; color:var(--muted); }
 #amount{
   flex:1 1 auto; min-width:0; border:none; outline:none;
-  font-size:22px; font-weight:800;
-  background:transparent; color:var(--ink);
+  font-size:22px; font-weight:800; background:transparent; color:var(--ink);
 }
 
+/* === チップ（+1000 など） === */
 .chips{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
 .chip{
-  border:1px solid var(--line); border-radius:999px;
-  background:var(--card); padding:7px 12px;
+  border:1px solid var(--glass-line);
+  background: var(--glass);
+  border-radius:999px; padding:7px 12px;
   font-size:12px; color:var(--ink);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
 }
-.chip:hover{ background:#475569; }
+.chip:hover{ background: var(--glass-strong); }
 
-/* === フォーム2列 === */
+/* === フォーム 2列 -> 1列（スマホ優先） === */
 .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
 @media(max-width:480px){ .grid2{ grid-template-columns:1fr; } }
+
 .field{ display:flex; flex-direction:column; gap:6px; }
 .field label{ color:var(--muted); font-size:13px; }
-.field input{
-  border:1px solid var(--line); border-radius:12px;
-  padding:12px; font-size:16px; color:var(--ink);
-  background:var(--bg);
+
+/* 入力欄：ガラス＋白枠、はみ出し防止 */
+.field input, .field select, .field textarea {
+  appearance: none; display:block; width:100%;
+  border:1px solid var(--glass-line);
+  border-radius:10px; padding:12px; font-size:16px;
+  background: rgba(255,255,255,0.06);
+  color: var(--ink); outline:none;
+  box-sizing: border-box;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
 }
-.field input:focus{ border-color:var(--emph); }
+.field input:focus, .field select:focus, .field textarea:focus {
+  border-color: rgba(255,255,255,0.85);
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.25);
+}
 
 /* === テンキー === */
 .numpad{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:12px; }
 .numpad button{
-  padding:14px 0; font-size:18px;
-  border-radius:12px; border:1px solid var(--line);
-  background:var(--card); color:var(--ink);
+  padding:14px 0; font-size:18px; border-radius:12px;
+  border:1px solid var(--glass-line);
+  background: var(--glass);
+  color: var(--ink);
+  backdrop-filter: blur(6px) saturate(140%);
+  -webkit-backdrop-filter: blur(6px) saturate(140%);
 }
 .numpad button:active{ transform:scale(.97); }
 
-/* === 下部アクション === */
+/* === 下部アクション（グラデで可読性） === */
 .sticky-actions{
   position:sticky; bottom:0;
-  background:linear-gradient(to top, rgba(30,41,59,.9), rgba(30,41,59,0));
+  background:linear-gradient(to top, rgba(0,0,0,0.6), rgba(0,0,0,0));
   padding:12px 0 2px; margin-top:12px; display:flex; gap:10px;
 }
 .btn{
-  flex:1; padding:12px; border-radius:12px; border:none;
-  background:var(--emph); color:#fff; font-size:16px; font-weight:700;
+  flex:1; padding:12px; border-radius:10px; border:1px solid var(--glass-line);
+  font-size:16px; color:#fff; box-sizing:border-box;
+  background: linear-gradient(180deg, rgba(59,130,246,0.35), rgba(59,130,246,0.18));
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.btn.secondary{
+  border-color: var(--glass-line-weak);
+  background: rgba(255,255,255,0.06);
 }
 
-/* === 月別サマリー === */
+/* === 月別サマリー（表もガラス） === */
 .monthly{ margin:18px 0; }
-.monthly .h-title{ font-size:15px; color:var(--muted); margin:0 0 10px; }
+.monthly .h-title{ font-size:15px; color:var(--muted); margin:0 0 10px; text-align:center; }
 .monthly table{
   width:100%; border-collapse:collapse;
-  background:var(--card); border:1px solid #fff;  /* ★ 白枠 */
+  background: var(--glass); border:1px solid var(--glass-line);
   border-radius:12px; overflow:hidden;
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
 }
-.monthly th, .monthly td{
-  padding:10px 8px; border-bottom:1px solid var(--line);
-  font-size:14px;
-}
+.monthly th, .monthly td{ padding:10px 8px; border-bottom:1px solid rgba(255,255,255,.12); font-size:14px; }
 .monthly th{ text-align:right; color:var(--ink); font-weight:700; }
 .monthly th:first-child, .monthly td:first-child{ text-align:left; }
 .monthly td{ color:var(--ink); text-align:right; }
 .monthly .pos{ color:var(--good); font-weight:700; }
-.monthly .neg{ color:var(--bad); font-weight:700; }
+.monthly .neg{ color:var(--bad);  font-weight:700; }
 
-/* === 履歴 === */
+/* === 履歴（行カードもガラス） === */
 .history{ margin:18px 0; }
 .h-title{ font-size:15px; color:var(--muted); margin:0 0 10px; }
 .list{ list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px; }
 .row{
-  display:grid; grid-template-columns:100px 1fr auto; gap:10px;
-  align-items:center; padding:10px 12px;
-  background:var(--card); border:1px solid #fff;  /* ★ 白枠 */
-  border-radius:12px;
+  display:grid; grid-template-columns:100px 1fr auto; gap:10px; align-items:center;
+  padding:10px 12px; background: var(--glass);
+  border:1px solid var(--glass-line); border-radius:12px;
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
 }
 .row .date{ color:var(--muted); font-size:13px; }
 .row .memo{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink); }
-.row .type{ font-weight:800; font-variant-numeric:tabular-nums; text-align:right; }
-.row .type.in{ color:var(--good); }
-.row .type.out{ color:var(--bad); }
-.empty{ color:#94a3b8; padding:10px; text-align:center; }
+.row .type{ font-weight:800; font-variant-numeric: tabular-nums; text-align:right; }
+.row .type.in { color: var(--good); }
+.row .type.out{ color: var(--bad); }
+.empty{ color: rgba(255,255,255,0.6); padding:10px; text-align:center; }
