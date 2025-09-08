@@ -5,16 +5,47 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/cash_io.css' %}">
+<style>
+/* ちょい足し（Undoバーと操作ボタン） */
+.undo-bar {
+  background:#ecfeff; color:#064e3b; border:1px solid #a7f3d0;
+  padding:8px 10px; border-radius:10px; display:flex; gap:10px; align-items:center; margin-bottom:10px;
+}
+.undo-bar .left { flex: 1; font-size:14px; }
+.undo-bar form { margin:0; }
+.row .ops { display:flex; gap:6px; justify-content:flex-end; }
+.oplink, .opdel {
+  font-size:12px; padding:4px 8px; border-radius:8px; text-decoration:none; border:1px solid #e5e7eb; background:#fff;
+}
+.opdel { color:#991b1b; border-color:#fecaca; }
+.monthly { margin: 16px 0; }
+.monthly .h-title { font-size:14px; color:#6b7280; margin:0 0 8px; }
+.monthly table { width:100%; border-collapse: collapse; }
+.monthly th, .monthly td { padding:8px 6px; border-bottom:1px solid #f3f4f6; font-size:14px; text-align:right; }
+.monthly th:first-child, .monthly td:first-child { text-align:left; }
+.monthly .pos { color:#065f46; }
+.monthly .neg { color:#991b1b; }
+</style>
 {% endblock %}
 
 {% block content %}
 <div class="cash-page">
+
   {% if messages %}
     <ul class="msgs">
       {% for m in messages %}
         <li class="msg {{ m.tags }}">{{ m }}</li>
       {% endfor %}
     </ul>
+  {% endif %}
+
+  {% if can_undo and undo_id %}
+    <div class="undo-bar" aria-live="polite">
+      <div class="left">直前の入出金を取り消せます（約 {{ undo_seconds }} 秒以内）</div>
+      <form method="post" action="{% url 'cash_undo' %}">{% csrf_token %}
+        <button class="oplink" type="submit">取り消す</button>
+      </form>
+    </div>
   {% endif %}
 
   <!-- 証券会社タブ -->
@@ -25,7 +56,7 @@
     {% endfor %}
   </nav>
 
-  <!-- 残高サマリー（3社分） -->
+  <!-- 残高サマリー -->
   <section class="summary real">
     <div class="pill {% if active_broker == 'rakuten' %}focus{% endif %}">
       <span class="k">楽天証券</span>
@@ -96,6 +127,28 @@
     </div>
   </form>
 
+  <!-- 月別サマリ（現タブの証券会社、直近6ヶ月） -->
+  <section class="monthly">
+    <h2 class="h-title">月別サマリ（{{ tabs|dictsort:"0"|last.1 }}）</h2>
+    <table>
+      <thead>
+        <tr><th>月</th><th>入金</th><th>出金</th><th>差引</th></tr>
+      </thead>
+      <tbody>
+        {% for m in monthly %}
+          <tr>
+            <td>{{ m.month|date:"Y年n月" }}</td>
+            <td>¥{{ m.in_total|floatformat:0|intcomma }}</td>
+            <td>¥{{ m.out_total|floatformat:0|intcomma }}</td>
+            <td class="{% if m.net >= 0 %}pos{% else %}neg{% endif %}">¥{{ m.net|floatformat:0|intcomma }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4">データがありません</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
   <!-- 最近の入出金（選択中の証券会社） -->
   <section class="history">
     <h2 class="h-title">最近の入出金</h2>
@@ -107,12 +160,20 @@
             {% if it.flow_type == 'in' %}+{% else %}-{% endif %}¥{{ it.amount|floatformat:0|intcomma }}
           </span>
           <span class="memo">{{ it.memo }}</span>
+          <span class="ops">
+            <a class="oplink" href="{% url 'cash_flow_edit' it.id %}">編集</a>
+            <form method="post" action="{% url 'cash_flow_delete' it.id %}" style="display:inline">
+              {% csrf_token %}
+              <button type="submit" class="opdel" onclick="return confirm('削除しますか？');">削除</button>
+            </form>
+          </span>
         </li>
       {% empty %}
         <li class="empty">まだ入出金はありません</li>
       {% endfor %}
     </ul>
   </section>
+
 </div>
 {% endblock %}
 
