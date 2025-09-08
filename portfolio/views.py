@@ -1246,17 +1246,18 @@ def trade_history(request):
 # -----------------------------
 # 配当入力
 # -----------------------------
+# 追加/確認：上の方のimport
+from datetime import date
 from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.contrib import messages
+# Dividendモデルを使っているなら
 from .models import Dividend
-from datetime import date
 
 def dividend_new_page(request):
     """
     配当入力（スマホファースト）
-    GET: ?ticker=7203&stock_name=トヨタ&account_type=特定&broker=楽天 などで初期値
-    POST: 保存して実現損益ページ（realized）へ戻る（無ければ stock_list へフォールバック）
+    テンプレは ルート直下: templates/dividend_form.html を使用
     """
     if request.method == "POST":
         ticker       = (request.POST.get("ticker") or "").strip()
@@ -1270,26 +1271,41 @@ def dividend_new_page(request):
 
         if not ticker or not stock_name or gross_amount <= 0:
             messages.error(request, "必須項目（銘柄名・コード・配当金）を入力してください。")
-        else:
-            Dividend.objects.create(
-                ticker=ticker,
-                stock_name=stock_name,
-                received_at=received_at,
-                gross_amount=gross_amount,
-                tax=tax,
-                account_type=account_type,
-                broker=broker,
-                memo=memo,
-            )
-            messages.success(request, "配当を登録しました。")
-            # 実現損益ページへ
+            # ↓ エラー時も必ずテンプレを返す（return None防止）
+            ctx = {
+                "init": {
+                    "ticker": ticker,
+                    "stock_name": stock_name,
+                    "account_type": account_type,
+                    "broker": broker,
+                    "received_at": received_at,
+                }
+            }
+            return render(request, "dividend_form.html", ctx)
+
+        # 保存
+        Dividend.objects.create(
+            ticker=ticker,
+            stock_name=stock_name,
+            received_at=received_at,
+            gross_amount=gross_amount,
+            tax=tax,
+            account_type=account_type,
+            broker=broker,
+            memo=memo,
+        )
+        messages.success(request, "配当を登録しました。")
+
+        # 戻り先（あなたのURL名に合わせて必要なら変更）
+        try:
+            return redirect(reverse("realized"))
+        except Exception:
             try:
-                return redirect(reverse("realized"))
+                return redirect(reverse("realized_trade_list"))
             except Exception:
-                # 無ければ保有株一覧へ
                 return redirect(reverse("stock_list"))
 
-    # GET: 初期値
+    # GET: 初期表示（必ずrenderを返す）
     ctx = {
         "init": {
             "ticker":       request.GET.get("ticker", ""),
@@ -1299,7 +1315,7 @@ def dividend_new_page(request):
             "received_at":  request.GET.get("received_at", "") or str(date.today()),
         }
     }
-    render(request, "dividend_form.html", ctx)
+    return render(request, "dividend_form.html", ctx)   
     
 # -----------------------------
 # 登録ページ
