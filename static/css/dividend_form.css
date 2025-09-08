@@ -1,66 +1,122 @@
+/* === 配当入力：スマホファースト + ガラス感 === */
 .div-page { padding: 16px; }
 .div-header { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
 .div-title { font-size:20px; font-weight:700; margin:0; }
 .back-link { text-decoration:none; font-size:14px; opacity:.8; }
 
+/* カードは透明ベース＋白枠＋ガラス(ブラー)＋はみ出し防止 */
 .card {
-  background: transparent; /* 背景は透明に統一 */
-  border: 1px solid rgba(255,255,255,0.7); /* 白枠で囲む */
+  background: rgba(255, 255, 255, 0.08);         /* ほんのり白でガラス感の下地 */
+  border: 1px solid rgba(255, 255, 255, 0.35);   /* 白枠で浮かせる */
   border-radius: 14px;
   padding: 14px;
   margin: 12px 0;
-  box-shadow: 0 4px 18px rgba(0,0,0,0.12); /* 少し影を強めて浮かせる */
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%); /* iOS Safari */
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  overflow: hidden;                                /* 角丸からはみ出さない！ */
 }
 
 .field { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
-.field label { font-size:13px; color:#fff; } /* 背景が透明なら文字は白推奨 */
+.field label { font-size:13px; color:#fff; }
+
+/* 入力欄がカード枠を超えないように box-sizing を徹底。背景は透明でガラスUIに調和 */
 .field input {
   appearance: none;
+  display: block;
   width: 100%;
-  border: 1px solid rgba(255,255,255,0.4);
+  box-sizing: border-box;                          /* これが超重要：はみ出し防止 */
+  border: 1px solid rgba(255, 255, 255, 0.40);
   border-radius: 10px;
   padding: 12px;
-  font-size: 16px; /* スマホでズーム防止 */
-  background: transparent; /* 入力欄も透明 */
-  color: #fff; /* 入力文字は白 */
+  font-size: 16px;                                 /* スマホでズーム防止 */
+  background: rgba(255, 255, 255, 0.04);          /* うっすら透明でガラス感 */
+  color: #fff;
+  outline: none;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* フォーカス時は縁取りを強めてアクセシビリティ向上 */
+.field input:focus {
+  border-color: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
 }
 
 .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 @media (max-width: 480px) { .grid2 { grid-template-columns:1fr; } }
 
+/* チップもガラスっぽく */
 .chips { display:flex; flex-wrap:wrap; gap:8px; }
 .chip {
-  border: 1px solid rgba(255,255,255,0.6);
-  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.50);
+  background: rgba(255, 255, 255, 0.06);
   border-radius: 999px;
   padding: 6px 10px;
   font-size: 12px;
   color: #fff;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
-.review { border-top: 1px dashed rgba(255,255,255,0.4); padding-top: 10px; margin-top: 8px; }
+/* レビューエリアも白の点線で統一感 */
+.review { border-top: 1px dashed rgba(255, 255, 255, 0.45); padding-top: 10px; margin-top: 8px; }
 .review .row { display:flex; justify-content:space-between; font-size:16px; color:#fff; }
 .review .v { font-variant-numeric: tabular-nums; font-weight:700; }
 
+/* 下部の固定アクション：背景透過の上にグラデで可読性を確保 */
 .sticky-actions {
   position: sticky;
   bottom: 0;
-  background: linear-gradient(to top, rgba(0,0,0,0.6), rgba(0,0,0,0));
+  background: linear-gradient(to top, rgba(0,0,0,0.65), rgba(0,0,0,0));
   padding: 12px 0 2px;
   display:flex; gap:10px; justify-content:space-between;
 }
+
+/* ボタンもガラス＋白枠。幅・paddingは box-sizing でカード内に収める */
 .btn {
-  display:inline-block; text-align:center; width:100%;
-  padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.7);
+  display:inline-block;
+  text-align:center;
+  width:100%;
+  box-sizing: border-box;                          /* はみ出し防止・安定 */
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.70);
   font-size: 16px;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.06);
   color: #fff;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
-.btn.primary { background: rgba(37,99,235,0.2); border-color:#2563eb; }
-.btn.secondary { background: rgba(255,255,255,0.1); border-color:rgba(255,255,255,0.5); }
+
+.btn.primary {
+  border-color: rgba(37, 99, 235, 0.9);
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.35), rgba(37, 99, 235, 0.18));
+}
+
+.btn.secondary {
+  border-color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.08);
+}
 
 .msgs { list-style:none; padding:0; margin:6px 0 0; }
 .msg { font-size:14px; padding:8px 10px; border-radius:8px; }
-.msg.success { background:rgba(16,185,129,0.2); color:#34d399; border:1px solid #34d399; }
-.msg.error { background:rgba(239,68,68,0.2); color:#f87171; border:1px solid #f87171; }
-.hint { color:rgba(255,255,255,0.7); font-size:12px; margin: 4px 0 0; }
+.msg.success {
+  background: rgba(16, 185, 129, 0.20);
+  color: #34d399;
+  border: 1px solid #34d399;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.msg.error {
+  background: rgba(239, 68, 68, 0.20);
+  color: #f87171;
+  border: 1px solid #f87171;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.hint { color: rgba(255, 255, 255, 0.75); font-size:12px; margin: 4px 0 0; }
+
+/* 安全マージン：カード直下の要素が角丸をはみ出さないように */
+.card * { max-width: 100%; box-sizing: border-box; }
