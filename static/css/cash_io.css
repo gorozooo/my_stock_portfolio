@@ -1,75 +1,133 @@
+/* すべてを枠内に収める前提（はみ出し防止の土台） */
+*, *::before, *::after { box-sizing: border-box; }
+
 .cash-page { padding: 16px; background: transparent; }
 
+/* メッセージ */
 .msgs { list-style:none; padding:0; margin:0 0 10px; }
 .msg { font-size:14px; padding:8px 10px; border-radius:8px; margin-bottom:6px; }
 .msg.success { background:rgba(236,253,245,0.7); color:#065f46; }
 .msg.error   { background:rgba(254,242,242,0.7); color:#991b1b; }
 
-.tabs { display:flex; gap:8px; margin-bottom:10px; overflow:auto; }
-.tab {
-  padding: 8px 12px; border-radius: 999px; border:1px solid #e5e7eb;
-  background: transparent; color:#111; text-decoration:none; white-space:nowrap; font-size:14px;
+/* ===== タブ：見やすさ強化＋ガラス感の土台 ===== */
+.tabs {
+  display:flex; gap:8px; margin-bottom:10px; overflow:auto;
+  padding:6px;
+  border-radius:14px;
+  background: rgba(255,255,255,0.16);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.35);
 }
-.tab.active { background:#111; color:#fff; border-color:#111; }
+.tab {
+  padding: 8px 12px; border-radius: 999px; border:1px solid rgba(255,255,255,0.45);
+  background: rgba(255,255,255,0.18);
+  color:#111; text-decoration:none; white-space:nowrap; font-size:14px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: transform .06s ease, background .2s ease, border-color .2s ease, color .2s ease;
+}
+.tab:hover { transform: translateY(-1px); }
+.tab.active {
+  background: rgba(17,17,17,0.9);
+  color:#fff; border-color: rgba(17,17,17,0.9);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+}
 
+/* ===== ピル（残高）もガラス風に ===== */
 .summary.real { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
 @media (max-width: 480px) { .summary.real { grid-template-columns:1fr; } }
+
 .pill {
-  background: transparent; border:1px solid #e5e7eb; border-radius:12px;
+  background: rgba(255,255,255,0.14);
+  border:1px solid rgba(255,255,255,0.35);
+  border-radius:12px;
   padding:10px 12px; display:flex; align-items:baseline; justify-content:space-between;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 .pill.focus { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,0.12); }
 .pill .k { font-size:12px; color:#6b7280; }
 .pill .v { font-size:18px; font-variant-numeric: tabular-nums; }
 
+/* ===== カード：ガラス感＋はみ出し完全防止 ===== */
 .card {
-  background: transparent; border:1px solid #e5e7eb; border-radius:14px;
-  padding:14px; margin:12px 0; box-shadow:none;
+  background: rgba(255,255,255,0.12);
+  border:1px solid rgba(255,255,255,0.35);
+  border-radius:14px;
+  padding:14px; margin:12px 0;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  overflow: hidden;            /* ← 中身が絶対にはみ出さない */
 }
+.card * { max-width: 100%; }   /* ← 子要素の物理はみ出しを抑制 */
 
+/* 入出金モード */
 .mode-row { display:flex; gap:10px; margin-bottom:8px; }
-.mode { border:1px solid #e5e7eb; padding:8px 12px; border-radius:999px; background:transparent; }
+.mode {
+  border:1px solid rgba(255,255,255,0.35);
+  padding:8px 12px; border-radius:999px;
+  background: rgba(255,255,255,0.16);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
 .mode input { margin-right:6px; }
 
+/* ===== 金額入力：はみ出しゼロ設計 ===== */
 .amount-wrap { margin:8px 0 10px; }
 .amt-display {
   display:flex; align-items:center; gap:6px;
-  border:1px dashed #e5e7eb; border-radius:12px; padding:10px 12px;
+  border:1px dashed rgba(229,231,235,0.9); border-radius:12px; padding:10px 12px;
   width:100%;
 }
 .amt-display .currency { font-size:20px; color:#6b7280; }
 #amount {
-  flex:1 1 auto;
-  min-width:0; /* はみ出し防止 */
+  flex:1 1 auto;              /* ← 余白に合わせて伸縮 */
+  min-width:0;                /* ← はみ出し防止のキモ */
   border:none; outline:none;
   font-size:24px; font-weight:700; background:transparent;
   font-variant-numeric: tabular-nums;
+  width: 100%;
 }
 
+/* チップ */
 .chips { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
 .chip {
-  border:1px solid #e5e7eb; border-radius:999px; background:transparent;
+  border:1px solid rgba(255,255,255,0.35);
+  border-radius:999px; background: rgba(255,255,255,0.16);
   padding:6px 10px; font-size:12px;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
 }
 
+/* ===== 2列→1列：はみ出しゼロ ===== */
 .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; width:100%; }
 @media (max-width: 480px) { .grid2 { grid-template-columns:1fr; } }
+
 .field { display:flex; flex-direction:column; gap:6px; }
 .field input {
   width:100%; max-width:100%; min-width:0;
-  border:1px solid #e5e7eb; border-radius:10px; padding:12px; font-size:16px;
-  background: transparent;
+  border:1px solid rgba(229,231,235,0.95);
+  border-radius:10px; padding:12px; font-size:16px;
+  background: rgba(255,255,255,0.85);  /* 入力欄は読みやすさ優先で薄白 */
+  outline: none;
+}
+.field input:focus {
+  border-color:#2563eb;
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.15);
 }
 
+/* ===== テンキー：折り返し・はみ出しなし ===== */
 .numpad { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px; }
 .numpad button {
   padding:14px 0; font-size:18px; border-radius:12px;
-  border:1px solid #e5e7eb; background:transparent;
+  border:1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.16);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
 }
 
+/* 下部アクション（背景は極薄グラ） */
 .sticky-actions {
   position: sticky; bottom: 0;
-  background: linear-gradient(to top, rgba(255,255,255,0.2), rgba(255,255,255,0));
+  background: linear-gradient(to top, rgba(255,255,255,0.12), rgba(255,255,255,0));
   padding: 12px 0 2px; margin-top:10px;
   display:flex; gap:10px;
 }
@@ -78,6 +136,7 @@
   background:#2563eb; color:#fff; font-size:16px;
 }
 
+/* ===== 履歴 ===== */
 .history { margin:16px 0; }
 .h-title { font-size:14px; color:#6b7280; margin:0 0 8px; }
 .list { list-style:none; padding:0; margin:0; }
@@ -89,5 +148,5 @@
 .row .type { font-variant-numeric: tabular-nums; text-align:right; }
 .row .type.in  { color:#065f46; }
 .row .type.out { color:#991b1b; }
-.row .memo { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.row .memo { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; word-break: break-word; }
 .empty { color:#9ca3af; padding:10px; }
