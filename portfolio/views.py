@@ -1375,7 +1375,7 @@ def register_hub(request):
             "progress": None,
         },
         {
-            "url_name": "cashflow_create",
+            "url_name": "cash_io",
             "color": "#FF8A3D",
             "icon": "fa-wallet",
             "title": "入出金",
