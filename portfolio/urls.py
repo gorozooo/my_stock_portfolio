@@ -41,6 +41,9 @@ urlpatterns = [
     
     # --- 入出金 ---
     path("cash/", views.cash_io_page, name="cash_io"),
+    path("cash/undo/", views.cash_undo, name="cash_undo"),
+    path("cash/flow/<int:pk>/edit/", views.cash_flow_edit_page, name="cash_flow_edit"),
+    path("cash/flow/<int:pk>/delete/", views.cash_flow_delete, name="cash_flow_delete"),
     
     # --- 登録ページ ---
     path("register/", views.register_hub, name="register_hub"),
