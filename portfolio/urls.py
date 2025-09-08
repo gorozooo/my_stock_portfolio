@@ -38,6 +38,9 @@ urlpatterns = [
     # --- 配当入力 ---
     path("dividends/new/", views.dividend_create_view, name="dividend_create"),
     
+    # --- 入出金 ---
+    path("cashflow/new/", views.cashflow_create, name="cashflow_create"),   # 入出金
+    
     # --- 登録ページ ---
     path("register/", views.register_hub, name="register_hub"),
     
