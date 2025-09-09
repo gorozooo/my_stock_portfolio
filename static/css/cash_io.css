@@ -1,28 +1,28 @@
 /* === ベース（ダーク × ガラス） === */
 *, *::before, *::after { box-sizing: border-box; }
 :root{
-  --bg:#0b1220;                               /* 透ける暗背景の想定 */
-  --ink:#ffffff;                              /* メイン文字（白） */
-  --muted:rgba(255,255,255,0.78);             /* 補助文字（薄白） */
-  --emph:#3b82f6;                             /* 強調ブルー */
+  --bg:#0b1220;               /* 暗背景（外側は透明運用でもOK） */
+  --ink:#ffffff;              /* メイン文字 */
+  --muted:rgba(255,255,255,.78);
+  --emph:#3b82f6;
 
-  /* ガラス用カラー */
-  --glass: rgba(255,255,255,0.08);            /* カードの下地 */
-  --glass-weak: rgba(255,255,255,0.05);       /* もっと薄い */
-  --glass-strong: rgba(255,255,255,0.12);     /* 少し濃い */
-  --glass-line: rgba(255,255,255,0.38);       /* 白枠 */
-  --glass-line-weak: rgba(255,255,255,0.28);  /* 薄い白枠 */
+  /* ガラス調 */
+  --glass: rgba(255,255,255,.08);
+  --glass-weak: rgba(255,255,255,.05);
+  --glass-strong: rgba(255,255,255,.12);
+  --glass-line: rgba(255,255,255,.38);
+  --glass-line-weak: rgba(255,255,255,.28);
 
-  --good:#34d399;
-  --bad:#f87171;
+  --good:#34d399; /* 入金 */
+  --bad:#f87171;  /* 出金 */
 }
 
-/* ページラッパー（配当/現金どちらでも適用） */
+/* ページラッパー（配当/現金） */
 .cash-page, .div-page {
   padding:16px;
-  background: transparent;                    /* ★ 外側は透明に */
+  background: transparent;  /* 外側は完全透明 */
   color: var(--ink);
-  border-radius:18px;                          /* 外枠の丸みは残す */
+  border-radius:18px;
 }
 
 /* === メッセージ === */
@@ -54,7 +54,7 @@
 .tab:hover{ background: var(--glass-strong); transform: translateY(-1px); }
 .tab.active{ background: linear-gradient(180deg, rgba(59,130,246,.35), rgba(59,130,246,.18)); border-color: rgba(59,130,246,.85); }
 
-/* === 残高ピル（ガラス） === */
+/* === 残高ピル === */
 .summary.real{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
 @media (max-width:480px){ .summary.real{ grid-template-columns:1fr; } }
 .pill{
@@ -68,16 +68,16 @@
 .pill .k{ font-size:12px; color:var(--muted); }
 .pill .v{ font-size:18px; font-weight:700; color:var(--ink); }
 
-/* === カード（配当入力のガラス感） === */
+/* === カード（フォーム等） === */
 .card{
-  background: var(--glass);                             /* ほんのり白で下地 */
-  border:1px solid var(--glass-line);                   /* 白枠 */
+  background: var(--glass);
+  border:1px solid var(--glass-line);
   border-radius:14px;
   padding:16px; margin:12px 0;
   backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);   /* iOS Safari */
-  box-shadow: 0 6px 24px rgba(0,0,0,0.18);
-  overflow: hidden;                                     /* 角丸からはみ出さない */
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  box-shadow: 0 6px 24px rgba(0,0,0,.18);
+  overflow: hidden;
 }
 
 /* === 入出金モード（トグル風） === */
@@ -91,7 +91,7 @@
 }
 .mode input{ margin-right:6px; }
 
-/* === 金額入力（大きめ数字 × ガラス） === */
+/* === 金額入力 === */
 .amount-wrap{ margin:10px 0 12px; }
 .amt-display{
   display:flex; align-items:center; gap:10px;
@@ -107,7 +107,7 @@
   font-size:22px; font-weight:800; background:transparent; color:var(--ink);
 }
 
-/* === チップ（+1000 など） === */
+/* チップ */
 .chips{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
 .chip{
   border:1px solid var(--glass-line);
@@ -119,26 +119,24 @@
 }
 .chip:hover{ background: var(--glass-strong); }
 
-/* === フォーム 2列 -> 1列（スマホ優先） === */
+/* === フォーム 2列 -> 1列 === */
 .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
 @media(max-width:480px){ .grid2{ grid-template-columns:1fr; } }
 
 .field{ display:flex; flex-direction:column; gap:6px; }
 .field label{ color:var(--muted); font-size:13px; }
-
-/* 入力欄：ガラス＋白枠、はみ出し防止 */
 .field input, .field select, .field textarea {
   appearance: none; display:block; width:100%;
   border:1px solid var(--glass-line);
   border-radius:10px; padding:12px; font-size:16px;
-  background: rgba(255,255,255,0.06);
+  background: rgba(255,255,255,.06);
   color: var(--ink); outline:none;
   box-sizing: border-box;
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
 }
 .field input:focus, .field select:focus, .field textarea:focus {
-  border-color: rgba(255,255,255,0.85);
-  box-shadow: 0 0 0 3px rgba(59,130,246,0.25);
+  border-color: rgba(255,255,255,.85);
+  box-shadow: 0 0 0 3px rgba(59,130,246,.25);
 }
 
 /* === テンキー === */
@@ -153,160 +151,70 @@
 }
 .numpad button:active{ transform:scale(.97); }
 
-/* === 下部アクション（グラデで可読性） === */
+/* === 下部アクション === */
 .sticky-actions{
   position:sticky; bottom:0;
-  background:linear-gradient(to top, rgba(0,0,0,0.6), rgba(0,0,0,0));
+  background:linear-gradient(to top, rgba(0,0,0,.6), rgba(0,0,0,0));
   padding:12px 0 2px; margin-top:12px; display:flex; gap:10px;
 }
 .btn{
   flex:1; padding:12px; border-radius:10px; border:1px solid var(--glass-line);
   font-size:16px; color:#fff; box-sizing:border-box;
-  background: linear-gradient(180deg, rgba(59,130,246,0.35), rgba(59,130,246,0.18));
+  background: linear-gradient(180deg, rgba(59,130,246,.35), rgba(59,130,246,.18));
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
 }
 .btn.secondary{
   border-color: var(--glass-line-weak);
-  background: rgba(255,255,255,0.06);
+  background: rgba(255,255,255,.06);
 }
 
-/* === 月別サマリー（表もガラス） === */
-.monthly{ margin:18px 0; }
-.monthly .h-title{ font-size:15px; color:var(--muted); margin:0 0 10px; text-align:center; }
-.monthly table{
-  width:100%; border-collapse:collapse;
-  background: var(--glass); border:1px solid var(--glass-line);
-  border-radius:12px; overflow:hidden;
-  backdrop-filter: blur(10px) saturate(140%);
-  -webkit-backdrop-filter: blur(10px) saturate(140%);
-}
-.monthly th, .monthly td{ padding:10px 8px; border-bottom:1px solid rgba(255,255,255,.12); font-size:14px; }
-.monthly th{ text-align:right; color:var(--ink); font-weight:700; }
-.monthly th:first-child, .monthly td:first-child{ text-align:left; }
-.monthly td{ color:var(--ink); text-align:right; }
-.monthly .pos{ color:var(--good); font-weight:700; }
-.monthly .neg{ color:var(--bad);  font-weight:700; }
-
-/* === 履歴（行カードもガラス） === */
+/* === 履歴（最近の入出金） === */
 .history{ margin:18px 0; }
 .h-title{ font-size:15px; color:var(--muted); margin:0 0 10px; }
 .list{ list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px; }
+
 .row{
-  display:grid; grid-template-columns:100px 1fr auto; gap:10px; align-items:center;
-  padding:10px 12px; background: var(--glass);
-  border:1px solid var(--glass-line); border-radius:12px;
+  display:grid;
+  grid-template-columns: 84px 1fr auto;   /* 日付 / メモ / 金額 */
+  grid-template-areas: "date memo type";
+  gap:10px; align-items:center;
+  padding:10px 12px;
+  background: var(--glass);
+  border:1px solid var(--glass-line);
+  border-radius:12px;
   backdrop-filter: blur(8px) saturate(140%);
   -webkit-backdrop-filter: blur(8px) saturate(140%);
 }
-.row .date{ color:var(--muted); font-size:13px; }
-.row .memo{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink); }
-.row .type{ font-weight:800; font-variant-numeric: tabular-nums; text-align:right; }
+
+.row .date{ grid-area: date; color:var(--muted); font-size:13px; white-space:nowrap; }
+.row .memo{ grid-area: memo; color:var(--ink); overflow:visible; white-space:normal; overflow-wrap:anywhere; word-break:break-word; line-height:1.4; }
+.row .type{ grid-area: type; text-align:right; font-variant-numeric:tabular-nums; font-weight:800; white-space:nowrap; }
 .row .type.in { color: var(--good); }
 .row .type.out{ color: var(--bad); }
-.empty{ color: rgba(255,255,255,0.6); padding:10px; text-align:center; }
 
-/* ===========================
-   月別サマリー：はみ出し防止
-   =========================== */
-
-/* テーブル全体を横スクロール可能に */
-.monthly .table-wrap { 
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.38); /* 既存の白枠とトーン合わせ */
-}
-
-/* テーブルに最小幅を与えて、セルが極端に潰れないように */
-.monthly table {
-  min-width: 560px;         /* 画面が狭い時は横スクロール */
-  border: none;             /* 外枠は .table-wrap に移譲 */
-}
-
-/* 数字は読みやすく、桁ズレしない */
-.monthly td, .monthly th {
-  white-space: nowrap;      /* 数字列は折り返さない */
-  line-height: 1.35;
-  font-variant-numeric: tabular-nums;
-}
-
-/* 月の列は折り返しOK（長いロケールでも崩れにくい） */
-.monthly td:first-child, 
-.monthly th:first-child {
-  white-space: normal; 
-  min-width: 110px;
-}
-
-/* スマホ時は少し文字サイズを落として視認性を維持 */
-@media (max-width: 400px) {
-  .monthly th, .monthly td { font-size: 13px; }
-}
-
-/* 既存のマークアップに合わせてラッパーを想定
-   <section class="monthly">
-     <h2 class="h-title">...</h2>
-     <div class="table-wrap">
-       <table>...</table>
-     </div>
-   </section>
-*/
-
-
-/* ===========================
-   最近の入出金：見切れ防止
-   =========================== */
-
-/* 行を2行レイアウトにもできる柔軟グリッドに */
-.list .row {
-  display: grid;
-  grid-template-columns: 100px 1fr auto;
-  grid-template-areas:
-    "date memo type";
-  gap: 10px;
-  align-items: center;
-}
-
-/* 画面が狭い時は メモを2行目に回して読みやすく */
-@media (max-width: 560px) {
-  .list .row {
-    grid-template-columns: 1fr auto;   /* 左=日付+メモ, 右=金額 */
+@media (max-width:560px){
+  .row{
+    grid-template-columns: 1fr auto;
     grid-template-areas:
       "date type"
       "memo memo";
   }
 }
 
-/* 各要素のエリア割り当て */
-.list .row .date { grid-area: date; }
-.list .row .type { grid-area: type; text-align: right; font-variant-numeric: tabular-nums; }
-.list .row .memo { grid-area: memo; }
+.empty{ color: rgba(255,255,255,.6); padding:10px; text-align:center; }
 
-/* メモは折り返しOKにして見切れ回避 */
-.list .row .memo {
-  overflow: visible;
-  white-space: normal;              /* ← 一行固定を解除 */
-  overflow-wrap: anywhere;          /* 長い英数字も折り返す */
-  word-break: break-word;
-  line-height: 1.4;
+/* === Undoバーの軽いガラス調（テンプレ内の補完用） === */
+.undo-bar {
+  background: var(--glass);
+  color:#eafffb;
+  border:1px solid var(--glass-line);
+  padding:8px 10px; border-radius:10px; display:flex; gap:10px; align-items:center; margin-bottom:10px;
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
 }
-
-/* 金額が窮屈にならないよう最小幅確保 */
-.list .row .type {
-  min-width: 96px;                  /* "+¥12,345" 程度が収まる幅 */
-  white-space: nowrap;              /* 数字は折り返さない */
+.undo-bar .left { flex: 1; font-size:14px; color:var(--muted); }
+.oplink, .opdel {
+  font-size:12px; padding:4px 8px; border-radius:8px; text-decoration:none;
+  border:1px solid var(--glass-line); background: var(--glass); color: var(--ink);
 }
-
-/* 日付も詰まり防止（短く見せたいならフォーマット側を短縮推奨） */
-.list .row .date {
-  min-width: 84px;
-  white-space: nowrap;
-  color: rgba(255,255,255,0.78);
-}
-
-/* さらに狭い端末向けに微調整 */
-@media (max-width: 360px) {
-  .list .row { gap: 8px; }
-  .list .row .type { min-width: 84px; font-size: 13.5px; }
-  .list .row .date { font-size: 12.5px; }
-  .list .row .memo { font-size: 14px; }
-}
+.opdel { color:#ffb4b4; border-color: rgba(248,113,113,.55); }
