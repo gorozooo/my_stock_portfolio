@@ -1419,11 +1419,7 @@ UNDO_WINDOW_SECONDS = 120
 # =============================
 def _aggregate_balances():
     """証券会社ごとの残高 = 入金合計 - 出金合計"""
-    sums = (
-        CashFlow.objects
-        .values("broker", "flow_type")
-        .annotate(total=Sum("amount"))
-    )
+    sums = (CashFlow.objects.values("broker", "flow_type").annotate(total=Sum("amount")))
     bal = {k: 0 for k, _ in BROKER_TABS}
     for row in sums:
         b = row["broker"]; t = row["flow_type"]; v = row["total"] or 0
@@ -1431,145 +1427,119 @@ def _aggregate_balances():
             bal[b] += v if t == "in" else -v
     return bal
 
-
 def _parse_date_yyyy_mm_dd(s: str):
-    """'YYYY-MM-DD' を date に。失敗時は今日。"""
     try:
         return datetime.strptime(s, "%Y-%m-%d").date()
     except Exception:
         return timezone.now().date()
 
 
-def _monthly_summary(limit_months=6, broker=None):
-    """
-    月別サマリ（直近 limit_months ヶ月）
-    - in_total, out_total, net
-    - broker 指定があればその会社のみ
-    戻り: [{month: date(月初), in_total:int, out_total:int, net:int}, ...] 新→古
-    """
-    qs = CashFlow.objects
-    if broker:
-        qs = qs.filter(broker=broker)
-
-    base = (
-        qs.annotate(month=TruncMonth("occurred_at"))
-          .values("month")
-          .annotate(
-              in_total = Sum(Case(When(flow_type="in",  then=F("amount")), default=0, output_field=IntegerField())),
-              out_total= Sum(Case(When(flow_type="out", then=F("amount")), default=0, output_field=IntegerField())),
-          )
-          .order_by("-month")
-    )
-
-    rows = []
-    for r in base[:limit_months]:
-        it = int(r["in_total"] or 0)
-        ot = int(r["out_total"] or 0)
-
-        # ▼ ここがポイント：Date/DateTime 両対応
-        m = r["month"]
-        month_value = m.date() if isinstance(m, datetime) else m
-
-        rows.append({
-            "month": month_value,  # .date() しない（必要なら上で安全に）
-            "in_total": it,
-            "out_total": ot,
-            "net": it - ot,
-        })
-    return rows
-
-
 # =============================
 # 入出金ページ（本体）
 # =============================
 def cash_io_page(request):
-    # タブ選択（?broker=rakuten 等）
+    # タブ（?broker=rakuten/matsui/sbi）
     broker = request.GET.get("broker") or "rakuten"
     if broker not in BROKER_MAP:
         broker = "rakuten"
+    active_label = BROKER_MAP[broker]
 
+    # クイック期間フィルター（"7", "30", "90", "all"）
+    range_days = (request.GET.get("range") or "").strip().lower()
+    # キーワード検索
+    q = (request.GET.get("q") or "").strip()
+
+    # POST: 登録
     if request.method == "POST":
-        broker      = request.POST.get("broker") or broker
-        flow_type   = (request.POST.get("flow_type") or "").strip()  # "in" / "out"
+        post_broker = request.POST.get("broker") or broker
+        flow_type   = (request.POST.get("flow_type") or "").strip()
         amount_raw  = (request.POST.get("amount") or "").replace(",", "").strip()
         occurred_at = request.POST.get("occurred_at") or str(timezone.now().date())
         memo        = (request.POST.get("memo") or "").strip()
 
-        # 変換
         try:
             amount = int(amount_raw)
         except ValueError:
             amount = 0
         occurred_date = _parse_date_yyyy_mm_dd(occurred_at)
 
-        # バリデーション
-        if broker not in BROKER_MAP:
+        if post_broker not in BROKER_MAP:
             messages.error(request, "証券会社が不正です。")
         elif flow_type not in ("in", "out"):
             messages.error(request, "入金/出金を選んでください。")
         elif amount <= 0:
             messages.error(request, "金額を入力してください。")
         else:
-            # 登録
             obj = CashFlow.objects.create(
-                broker=broker,
+                broker=post_broker,
                 flow_type=flow_type,
-                amount=amount,                 # 常に正の数で保存（in/outで符号管理）
+                amount=amount,                 # in/outは符号ではなく種類で管理
                 occurred_at=occurred_date,
                 memo=memo[:200],
             )
             verb = "入金" if flow_type == "in" else "出金"
-            messages.success(
-                request,
-                f"{BROKER_MAP[broker]} に {verb} {amount:,} 円を登録しました。"
-            )
-            # Undo 情報をセッションに保存
+            messages.success(request, f"{BROKER_MAP[post_broker]} に {verb} {amount:,} 円を登録しました。")
+            # Undo情報
             request.session["last_cashflow_id"] = obj.id
             request.session["last_cashflow_ts"] = timezone.now().timestamp()
             request.session.modified = True
+            # 同じタブに戻す
+            return redirect(f"{reverse('cash_io')}?broker={post_broker}&range={range_days or ''}&q={q}")
 
-            # 同じタブを維持
-            return redirect(f"{reverse('cash_io')}?broker={broker}")
-
-    # 表示用データ
+    # 残高サマリ
     balances = _aggregate_balances()
-    recent = (
-        CashFlow.objects
-        .filter(broker=broker)
-        .order_by("-occurred_at", "-id")[:20]
-    )
 
-    # Undo表示フラグ
+    # 最近の入出金：選択中ブローカーのみ
+    qs = CashFlow.objects.filter(broker=broker)
+
+    # 期間フィルタ：7/30/90日 or all（=制限なし）
+    if range_days and range_days.isdigit():
+        since = timezone.now().date() - timedelta(days=int(range_days))
+        qs = qs.filter(occurred_at__gte=since)
+    # "all" または空文字→フィルタしない
+
+    # キーワード検索（メモ）
+    if q:
+        qs = qs.filter(Q(memo__icontains=q))
+
+    recent = qs.order_by("-occurred_at", "-id")[:100]
+
+    # 合計（参考値）
+    agg = qs.aggregate(
+        in_sum=Sum(Case(When(flow_type="in", then=F("amount")), default=0, output_field=IntegerField())),
+        out_sum=Sum(Case(When(flow_type="out", then=F("amount")), default=0, output_field=IntegerField())),
+    )
+    totals_in = int(agg["in_sum"] or 0)
+    totals_out = int(agg["out_sum"] or 0)
+    totals_net = totals_in - totals_out
+
+    # Undo可否
     last_id = request.session.get("last_cashflow_id")
     last_ts = request.session.get("last_cashflow_ts")
-    can_undo = False
-    if last_id and last_ts:
-        if timezone.now().timestamp() - float(last_ts) <= UNDO_WINDOW_SECONDS:
-            can_undo = True
-        else:
-            # 時間切れならセッション消去
-            request.session.pop("last_cashflow_id", None)
-            request.session.pop("last_cashflow_ts", None)
-            request.session.modified = True
-
-    # 月別サマリ（直近6ヶ月、現タブの証券会社）
-    monthly = _monthly_summary(limit_months=6, broker=broker)
+    can_undo = bool(last_id and last_ts and (timezone.now().timestamp() - float(last_ts) <= UNDO_WINDOW_SECONDS))
+    if last_id and last_ts and not can_undo:
+        request.session.pop("last_cashflow_id", None)
+        request.session.pop("last_cashflow_ts", None)
+        request.session.modified = True
 
     ctx = {
         "tabs": BROKER_TABS,
         "active_broker": broker,
-        "active_label": BROKER_MAP.get(broker, broker),
+        "active_label": active_label,
         "balances": balances,
         "recent": recent,
         "today": str(timezone.now().date()),
         "can_undo": can_undo,
         "undo_id": last_id,
         "undo_seconds": UNDO_WINDOW_SECONDS,
-        "monthly": monthly,
+        "totals_in": totals_in,
+        "totals_out": totals_out,
+        "totals_net": totals_net,
+        "q": q,
+        "range": range_days,
+        "BROKER_MAP": BROKER_MAP,
     }
-    # ★ テンプレは templates直下の cash_io.html
     return render(request, "cash_io.html", ctx)
-
 
 # =============================
 # Undo（直後取り消し）
