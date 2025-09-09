@@ -5,6 +5,7 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/main.css' %}">
+<link rel="stylesheet" href="{% static 'css/tiles.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -18,57 +19,103 @@
     </ul>
   {% endif %}
 
-  <!-- ===== ヒーロー（総資産 + リング） ===== -->
-  <header class="card hero">
-  <div class="hero-head">
-    <h1 class="hero-title">総資産</h1>
-    <!-- hero-actions は不要なので削除（残っててもCSSで非表示） -->
-  </div>
-
-  <div class="hero-grid">
-    <!-- 左：リング（任意） -->
-    <div class="ring">
-      <svg class="ring-svg" data-target="{{ target_assets|default_if_none:0 }}" data-value="{{ total_assets|default_if_none:0 }}" viewBox="0 0 120 120">
-        <circle class="bg" cx="60" cy="60" r="52"/>
-        <circle class="fg" cx="60" cy="60" r="52" stroke-dasharray="0 999" stroke-dashoffset="0"/>
-      </svg>
-      <div class="ring-center">
-        <div class="ring-title">Total Assets</div>
-        <div class="ring-figure">¥{{ total_assets|default_if_none:0|floatformat:0|intcomma }}</div>
-        {% with dc=day_change|default_if_none:0 %}
-        <div class="ring-sub pn {% if dc >= 0 %}pos{% else %}neg{% endif %}">
-          前日比 {% if dc >= 0 %}+{% endif %}¥{{ dc|floatformat:0|intcomma }}
-        </div>
-        {% endwith %}
-      </div>
+  <!-- ===== HERO (タイルUI) ===== -->
+  <section class="hero-block">
+    <div class="hero-head">
+      <h1 class="hero-title">総資産</h1>
     </div>
 
-    <!-- 右：要約KPI & スパークライン -->
-    <div class="hero-right">
-      <div class="kpi-row">
-        <div class="mini">
-          <span class="k">評価額</span>
-          <span class="v">¥{{ portfolio_value|default_if_none:0|floatformat:0|intcomma }}</span>
-        </div>
-        <div class="mini">
-          <span class="k">現金</span>
-          <span class="v">¥{{ cash_total|default_if_none:0|floatformat:0|intcomma }}</span>
-        </div>
-        <div class="mini">
-          {% with upl=unrealized_pl|default_if_none:0 %}
-          <span class="k">含み損益</span>
-          <span class="v pn {% if upl >= 0 %}pos{% else %}neg{% endif %}">
-            {% if upl >= 0 %}+{% endif %}¥{{ upl|floatformat:0|intcomma }}
-          </span>
+    <div class="hero-grid">
+      <!-- 左：リング（目標 vs 現在） -->
+      <div class="ring">
+        <svg class="ring-svg"
+             data-target="{{ target_assets|default_if_none:0 }}"
+             data-value="{{ total_assets|default_if_none:0 }}"
+             viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="bg" cx="60" cy="60" r="52"></circle>
+          <circle class="fg" cx="60" cy="60" r="52" stroke-dasharray="0 999" stroke-dashoffset="0"></circle>
+        </svg>
+        <div class="ring-center">
+          <div class="ring-title">Total Assets</div>
+          <div class="ring-figure">
+            ¥{{ total_assets|default_if_none:0|floatformat:0|intcomma }}
+          </div>
+          {% with dc=day_change|default_if_none:0 %}
+          <div class="ring-sub pn {% if dc >= 0 %}pos{% else %}neg{% endif %}">
+            前日比 {% if dc >= 0 %}+{% endif %}¥{{ dc|floatformat:0|intcomma }}
+          </div>
           {% endwith %}
         </div>
       </div>
 
-      <!-- ここが「総資産の一番下」＝スパークライン（資産推移） -->
-      <div class="sparkline" id="assetSpark" data-points="{{ asset_history_csv|default_if_none:'' }}"></div>
+      <!-- 右：評価額タイル＋スパークライン -->
+      <div class="hero-right">
+
+        <!-- タイル：現物評価額（現物＋NISA） -->
+        <div class="tile">
+          <div class="tile-head">
+            <span class="tile-k">現物評価額（現物＋NISA）</span>
+            <span class="tile-v">
+              ¥{{ spot_market_value|default_if_none:0|floatformat:0|intcomma }}
+            </span>
+          </div>
+          <div class="tile-sub">
+            {% with u=spot_unrealized_pl|default_if_none:0 %}
+              <span class="pn {% if u >= 0 %}pos{% else %}neg{% endif %}">
+                {% if u >= 0 %}+{% endif %}¥{{ u|floatformat:0|intcomma }}
+              </span>
+              <span class="muted">（含み損益）</span>
+            {% endwith %}
+          </div>
+          <div class="g-bar">
+            <span data-ratio data-num="{{ spot_market_value|default_if_none:0 }}"
+                  data-den="{{ total_assets|default_if_none:0 }}"></span>
+          </div>
+        </div>
+
+        <!-- タイル：信用評価額（信用のみ） -->
+        <div class="tile">
+          <div class="tile-head">
+            <span class="tile-k">信用評価額（信用）</span>
+            <span class="tile-v">
+              ¥{{ margin_market_value|default_if_none:0|floatformat:0|intcomma }}
+            </span>
+          </div>
+          <div class="tile-sub">
+            {% with u=margin_unrealized_pl|default_if_none:0 %}
+              <span class="pn {% if u >= 0 %}pos{% else %}neg{% endif %}">
+                {% if u >= 0 %}+{% endif %}¥{{ u|floatformat:0|intcomma }}
+              </span>
+              <span class="muted">（含み損益）</span>
+            {% endwith %}
+          </div>
+          <div class="g-bar">
+            <span data-ratio data-num="{{ margin_market_value|default_if_none:0 }}"
+                  data-den="{{ total_assets|default_if_none:0 }}"></span>
+          </div>
+        </div>
+
+        <!-- タイル：現金 -->
+        <div class="tile">
+          <div class="tile-head">
+            <span class="tile-k">現金残高</span>
+            <span class="tile-v">
+              ¥{{ cash_total|default_if_none:0|floatformat:0|intcomma }}
+            </span>
+          </div>
+          <div class="tile-sub muted">口座合算</div>
+          <div class="g-bar">
+            <span data-ratio data-num="{{ cash_total|default_if_none:0 }}"
+                  data-den="{{ total_assets|default_if_none:0 }}"></span>
+          </div>
+        </div>
+
+        <!-- 資産推移（データ無ければJSで非表示） -->
+        <div class="sparkline" id="assetSpark"
+             data-points="{{ asset_history_csv|default_if_none:'' }}"></div>
+      </div>
     </div>
-  </div>
-</header>
+  </section>
 
   <!-- ===== ブローカー別（タブ切替） ===== -->
   <section class="brokers card">
