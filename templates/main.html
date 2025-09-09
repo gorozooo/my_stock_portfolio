@@ -67,7 +67,6 @@
       <div id="assetSpark" 
            class="spark"
            data-points="{{ asset_history_csv|default:'' }}">
-        <!-- JS が SVG を描画 -->
       </div>
     </div>
   </header>
@@ -92,13 +91,19 @@
         </div>
         <div class="tops">
           <h3>上位</h3>
-          <ul>
-            {% for p in top_positions_by_broker.rakuten|default:[] %}
-              <li><span class="n">{{ p.ticker }} {{ p.name }}</span>
-                  <span class="r">{{ p.shares|intcomma }}株</span>
-                  <span class="r">¥{{ p.market_value|floatformat:0|intcomma }}</span></li>
-            {% empty %}<li class="empty">データなし</li>{% endfor %}
-          </ul>
+          {% with tops=top_positions_by_broker.rakuten %}
+            <ul>
+              {% if tops %}
+                {% for p in tops %}
+                  <li><span class="n">{{ p.ticker }} {{ p.name }}</span>
+                      <span class="r">{{ p.shares|intcomma }}株</span>
+                      <span class="r">¥{{ p.market_value|floatformat:0|intcomma }}</span></li>
+                {% endfor %}
+              {% else %}
+                <li class="empty">データなし</li>
+              {% endif %}
+            </ul>
+          {% endwith %}
         </div>
       </article>
 
@@ -118,13 +123,19 @@
         </div>
         <div class="tops">
           <h3>上位</h3>
-          <ul>
-            {% for p in top_positions_by_broker.matsui|default:[] %}
-              <li><span class="n">{{ p.ticker }} {{ p.name }}</span>
-                  <span class="r">{{ p.shares|intcomma }}株</span>
-                  <span class="r">¥{{ p.market_value|floatformat:0|intcomma }}</span></li>
-            {% empty %}<li class="empty">データなし</li>{% endfor %}
-          </ul>
+          {% with tops=top_positions_by_broker.matsui %}
+            <ul>
+              {% if tops %}
+                {% for p in tops %}
+                  <li><span class="n">{{ p.ticker }} {{ p.name }}</span>
+                      <span class="r">{{ p.shares|intcomma }}株</span>
+                      <span class="r">¥{{ p.market_value|floatformat:0|intcomma }}</span></li>
+                {% endfor %}
+              {% else %}
+                <li class="empty">データなし</li>
+              {% endif %}
+            </ul>
+          {% endwith %}
         </div>
       </article>
 
@@ -144,13 +155,19 @@
         </div>
         <div class="tops">
           <h3>上位</h3>
-          <ul>
-            {% for p in top_positions_by_broker.sbi|default:[] %}
-              <li><span class="n">{{ p.ticker }} {{ p.name }}</span>
-                  <span class="r">{{ p.shares|intcomma }}株</span>
-                  <span class="r">¥{{ p.market_value|floatformat:0|intcomma }}</span></li>
-            {% empty %}<li class="empty">データなし</li>{% endfor %}
-          </ul>
+          {% with tops=top_positions_by_broker.sbi %}
+            <ul>
+              {% if tops %}
+                {% for p in tops %}
+                  <li><span class="n">{{ p.ticker }} {{ p.name }}</span>
+                      <span class="r">{{ p.shares|intcomma }}株</span>
+                      <span class="r">¥{{ p.market_value|floatformat:0|intcomma }}</span></li>
+                {% endfor %}
+              {% else %}
+                <li class="empty">データなし</li>
+              {% endif %}
+            </ul>
+          {% endwith %}
         </div>
       </article>
     </div>
@@ -195,29 +212,31 @@
     </div>
 
     <ul id="timeline" class="chiplist">
-      {% for a in recent_activities|default:[] %}
-        <li class="chiprow type-{{ a.kind }}">
-          <span class="cdate">{{ a.date|date:"n/j" }}</span>
-          {% if a.kind == 'trade' %}
-            <span class="cbadge">売買</span>
-            <span class="cmain">{{ a.ticker }} {{ a.name }}</span>
-            <span class="cval pn {% if a.pnl >= 0 %}pos{% else %}neg{% endif %}">
-              {% if a.pnl >= 0 %}+{% endif %}¥{{ a.pnl|floatformat:0|intcomma }}</span>
-          {% elif a.kind == 'dividend' %}
-            <span class="cbadge">配当</span>
-            <span class="cmain">{{ a.ticker }} {{ a.name }}</span>
-            <span class="cval">受取 ¥{{ a.net|floatformat:0|intcomma }}</span>
-          {% elif a.kind == 'cash' %}
-            <span class="cbadge">現金</span>
-            <span class="cmain">{{ a.broker_label }}</span>
-            <span class="cval pn {% if a.flow == 'in' %}pos{% else %}neg{% endif %}">
-              {% if a.flow == 'in' %}+{% else %}-{% endif %}¥{{ a.amount|floatformat:0|intcomma }}</span>
-          {% endif %}
-          {% if a.memo %}<span class="cmemo">{{ a.memo }}</span>{% endif %}
-        </li>
-      {% empty %}
+      {% if recent_activities %}
+        {% for a in recent_activities %}
+          <li class="chiprow type-{{ a.kind }}">
+            <span class="cdate">{{ a.date|date:"n/j" }}</span>
+            {% if a.kind == 'trade' %}
+              <span class="cbadge">売買</span>
+              <span class="cmain">{{ a.ticker }} {{ a.name }}</span>
+              <span class="cval pn {% if a.pnl >= 0 %}pos{% else %}neg{% endif %}">
+                {% if a.pnl >= 0 %}+{% endif %}¥{{ a.pnl|floatformat:0|intcomma }}</span>
+            {% elif a.kind == 'dividend' %}
+              <span class="cbadge">配当</span>
+              <span class="cmain">{{ a.ticker }} {{ a.name }}</span>
+              <span class="cval">受取 ¥{{ a.net|floatformat:0|intcomma }}</span>
+            {% elif a.kind == 'cash' %}
+              <span class="cbadge">現金</span>
+              <span class="cmain">{{ a.broker_label }}</span>
+              <span class="cval pn {% if a.flow == 'in' %}pos{% else %}neg{% endif %}">
+                {% if a.flow == 'in' %}+{% else %}-{% endif %}¥{{ a.amount|floatformat:0|intcomma }}</span>
+            {% endif %}
+            {% if a.memo %}<span class="cmemo">{{ a.memo }}</span>{% endif %}
+          </li>
+        {% endfor %}
+      {% else %}
         <li class="empty">まだデータがありません</li>
-      {% endfor %}
+      {% endif %}
     </ul>
   </section>
 
