@@ -10,6 +10,7 @@
 {% block content %}
 <div class="home-page">
 
+  {# --- メッセージ --- #}
   {% if messages %}
     <ul class="msgs">
       {% for m in messages %}
@@ -18,7 +19,9 @@
     </ul>
   {% endif %}
 
-  {# ====== ヒーロー：総資産（リング＋スパークライン） ====== #}
+  {# =========================
+     ヒーロー：総資産（ガラス×リング）
+     ========================= #}
   <header class="hero glass card">
     <div class="hero-top">
       <h1 class="hero-title">総資産</h1>
@@ -29,7 +32,7 @@
     </div>
 
     <div class="hero-core">
-      <div class="ring" 
+      <div class="ring"
            data-value="{{ total_assets|default_if_none:0 }}"
            data-max="{{ total_assets_target|default_if_none:0 }}">
         <svg viewBox="0 0 120 120" aria-hidden="true">
@@ -64,30 +67,26 @@
         </div>
       </div>
 
-      <div id="assetSpark" 
-           class="spark"
-           data-points="{{ asset_history_csv|default:'' }}">
-      </div>
+      {# スパークライン（CSVを data-points で渡してJS描画） #}
+      <div id="assetSpark" class="spark" data-points="{{ asset_history_csv|default:'' }}"></div>
     </div>
   </header>
 
-  {# ====== ブローカー横スワイプ（ピル＋トップポジション） ====== #}
+  {# =========================
+     ブローカー：横スワイプ 3カード（ガラス）
+     ========================= #}
   <section class="swimlane">
     <h2 class="lane-title">証券会社</h2>
     <div class="lane-scroll" role="list">
       {# 楽天 #}
       <article class="lane-card glass" role="listitem">
         <div class="lane-head">
-          <div class="logo">R</div>
-          <div class="name">楽天証券</div>
+          <div class="logo">R</div><div class="name">楽天証券</div>
         </div>
         <div class="pill-row">
-          <div class="pill"><span class="k">残高</span><span class="v">
-            ¥{{ broker_balances.rakuten|default_if_none:0|floatformat:0|intcomma }}</span></div>
-          <div class="pill"><span class="k">保有</span><span class="v">
-            {{ broker_stats.rakuten.holdings_count|default_if_none:0 }}</span></div>
-          <div class="pill"><span class="k">時価</span><span class="v">
-            ¥{{ broker_stats.rakuten.market_value|default_if_none:0|floatformat:0|intcomma }}</span></div>
+          <div class="pill"><span class="k">残高</span><span class="v">¥{{ broker_balances.rakuten|default_if_none:0|floatformat:0|intcomma }}</span></div>
+          <div class="pill"><span class="k">保有</span><span class="v">{{ broker_stats.rakuten.holdings_count|default_if_none:0 }}</span></div>
+          <div class="pill"><span class="k">時価</span><span class="v">¥{{ broker_stats.rakuten.market_value|default_if_none:0|floatformat:0|intcomma }}</span></div>
         </div>
         <div class="tops">
           <h3>上位</h3>
@@ -95,9 +94,7 @@
             <ul>
               {% if tops %}
                 {% for p in tops %}
-                  <li><span class="n">{{ p.ticker }} {{ p.name }}</span>
-                      <span class="r">{{ p.shares|intcomma }}株</span>
-                      <span class="r">¥{{ p.market_value|floatformat:0|intcomma }}</span></li>
+                  <li><span class="n">{{ p.ticker }} {{ p.name }}</span><span class="r">{{ p.shares|intcomma }}株</span><span class="r">¥{{ p.market_value|floatformat:0|intcomma }}</span></li>
                 {% endfor %}
               {% else %}
                 <li class="empty">データなし</li>
@@ -110,16 +107,12 @@
       {# 松井 #}
       <article class="lane-card glass" role="listitem">
         <div class="lane-head">
-          <div class="logo">M</div>
-          <div class="name">松井証券</div>
+          <div class="logo">M</div><div class="name">松井証券</div>
         </div>
         <div class="pill-row">
-          <div class="pill"><span class="k">残高</span><span class="v">
-            ¥{{ broker_balances.matsui|default_if_none:0|floatformat:0|intcomma }}</span></div>
-          <div class="pill"><span class="k">保有</span><span class="v">
-            {{ broker_stats.matsui.holdings_count|default_if_none:0 }}</span></div>
-          <div class="pill"><span class="k">時価</span><span class="v">
-            ¥{{ broker_stats.matsui.market_value|default_if_none:0|floatformat:0|intcomma }}</span></div>
+          <div class="pill"><span class="k">残高</span><span class="v">¥{{ broker_balances.matsui|default_if_none:0|floatformat:0|intcomma }}</span></div>
+          <div class="pill"><span class="k">保有</span><span class="v">{{ broker_stats.matsui.holdings_count|default_if_none:0 }}</span></div>
+          <div class="pill"><span class="k">時価</span><span class="v">¥{{ broker_stats.matsui.market_value|default_if_none:0|floatformat:0|intcomma }}</span></div>
         </div>
         <div class="tops">
           <h3>上位</h3>
@@ -127,9 +120,7 @@
             <ul>
               {% if tops %}
                 {% for p in tops %}
-                  <li><span class="n">{{ p.ticker }} {{ p.name }}</span>
-                      <span class="r">{{ p.shares|intcomma }}株</span>
-                      <span class="r">¥{{ p.market_value|floatformat:0|intcomma }}</span></li>
+                  <li><span class="n">{{ p.ticker }} {{ p.name }}</span><span class="r">{{ p.shares|intcomma }}株</span><span class="r">¥{{ p.market_value|floatformat:0|intcomma }}</span></li>
                 {% endfor %}
               {% else %}
                 <li class="empty">データなし</li>
@@ -142,16 +133,12 @@
       {# SBI #}
       <article class="lane-card glass" role="listitem">
         <div class="lane-head">
-          <div class="logo">S</div>
-          <div class="name">SBI証券</div>
+          <div class="logo">S</div><div class="name">SBI証券</div>
         </div>
         <div class="pill-row">
-          <div class="pill"><span class="k">残高</span><span class="v">
-            ¥{{ broker_balances.sbi|default_if_none:0|floatformat:0|intcomma }}</span></div>
-          <div class="pill"><span class="k">保有</span><span class="v">
-            {{ broker_stats.sbi.holdings_count|default_if_none:0 }}</span></div>
-          <div class="pill"><span class="k">時価</span><span class="v">
-            ¥{{ broker_stats.sbi.market_value|default_if_none:0|floatformat:0|intcomma }}</span></div>
+          <div class="pill"><span class="k">残高</span><span class="v">¥{{ broker_balances.sbi|default_if_none:0|floatformat:0|intcomma }}</span></div>
+          <div class="pill"><span class="k">保有</span><span class="v">{{ broker_stats.sbi.holdings_count|default_if_none:0 }}</span></div>
+          <div class="pill"><span class="k">時価</span><span class="v">¥{{ broker_stats.sbi.market_value|default_if_none:0|floatformat:0|intcomma }}</span></div>
         </div>
         <div class="tops">
           <h3>上位</h3>
@@ -159,9 +146,7 @@
             <ul>
               {% if tops %}
                 {% for p in tops %}
-                  <li><span class="n">{{ p.ticker }} {{ p.name }}</span>
-                      <span class="r">{{ p.shares|intcomma }}株</span>
-                      <span class="r">¥{{ p.market_value|floatformat:0|intcomma }}</span></li>
+                  <li><span class="n">{{ p.ticker }} {{ p.name }}</span><span class="r">{{ p.shares|intcomma }}株</span><span class="r">¥{{ p.market_value|floatformat:0|intcomma }}</span></li>
                 {% endfor %}
               {% else %}
                 <li class="empty">データなし</li>
@@ -173,7 +158,9 @@
     </div>
   </section>
 
-  {# ====== 実現損益（ゲージ3枚） ====== #}
+  {# =========================
+     実現損益：ネオンゲージ 3枚
+     ========================= #}
   <section class="gauges card glass">
     <div class="gauge" data-val="{{ realized_pl_mtd|default_if_none:0 }}">
       <div class="g-title">今月の実現</div>
@@ -199,7 +186,9 @@
     <a class="btn link" href="{% url 'realized' %}">実現一覧へ</a>
   </section>
 
-  {# ====== 最近のアクティビティ（チップ化） ====== #}
+  {# =========================
+     最近のアクティビティ：チップタイムライン
+     ========================= #}
   <section class="activity card glass">
     <div class="activity-head">
       <h2 class="sect-title">最近のアクティビティ</h2>
@@ -238,17 +227,6 @@
         <li class="empty">まだデータがありません</li>
       {% endif %}
     </ul>
-  </section>
-
-  {# ====== クイック操作（大きめタイル） ====== #}
-  <section class="quick card glass">
-    <h2 class="sect-title">クイック操作</h2>
-    <div class="qgrid">
-      <a class="qbtn" href="{% url 'cash_io' %}"><span class="qi">💸</span><span>入出金</span></a>
-      <a class="qbtn" href="{% url 'dividend_new' %}"><span class="qi">💴</span><span>配当</span></a>
-      <a class="qbtn" href="{% url 'stock_list' %}"><span class="qi">📈</span><span>保有株</span></a>
-      <a class="qbtn" href="{% url 'realized' %}"><span class="qi">📃</span><span>実現一覧</span></a>
-    </div>
   </section>
 
 </div>
