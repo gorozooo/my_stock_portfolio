@@ -5,100 +5,6 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/cash_io.css' %}">
-<style>
-/* ちょい足し（Undoバーと操作ボタン） */
-.undo-bar {
-  background:#ecfeff; color:#064e3b; border:1px solid #a7f3d0;
-  padding:8px 10px; border-radius:10px; display:flex; gap:10px; align-items:center; margin-bottom:10px;
-}
-.undo-bar .left { flex: 1; font-size:14px; }
-.undo-bar form { margin:0; }
-
-.row .ops { display:flex; gap:6px; justify-content:flex-end; }
-.oplink, .opdel {
-  font-size:12px; padding:4px 8px; border-radius:8px; text-decoration:none; border:1px solid #e5e7eb; background:#fff;
-}
-.opdel { color:#991b1b; border-color:#fecaca; }
-
-/* ====== ここから 履歴の見やすさ強化 ====== */
-.history { margin:18px 0; }
-.h-title { font-size:15px; color:#6b7280; margin:0 0 10px; display:flex; align-items:center; gap:8px; }
-
-/* クイックフィルター（期間・キーワード） */
-.filter-bar {
-  display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0 12px;
-}
-.fchip {
-  border:1px solid rgba(255,255,255,0.38);
-  background:rgba(255,255,255,0.08);
-  color:#fff; border-radius:999px; padding:6px 10px; font-size:12px;
-}
-.filter-bar form { display:flex; gap:8px; align-items:center; }
-.filter-bar input[type="search"]{
-  border:1px solid rgba(255,255,255,0.38); border-radius:10px; padding:8px 10px; font-size:14px;
-  background:rgba(255,255,255,0.06); color:#fff; outline:none;
-}
-.filter-bar button.btn-s {
-  border:1px solid rgba(255,255,255,0.38); border-radius:10px; padding:8px 10px; font-size:13px;
-  background:rgba(255,255,255,0.08); color:#fff;
-}
-
-.day-group { margin:10px 0 14px; }
-.day-head {
-  display:flex; align-items:baseline; gap:10px;
-  font-weight:700; color:#fff; margin:6px 0 8px;
-}
-.day-head .meta { font-size:12px; color:rgba(255,255,255,.7); }
-
-/* 行デザイン：ラベル＆金額を強調、メモは折り返し */
-.list { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px; }
-.row {
-  display:grid; grid-template-columns: auto 1fr auto auto; /* ラベル / メモ / 金額 / 操作 */
-  gap:10px; align-items:center; padding:10px 12px;
-  background: var(--glass, rgba(255,255,255,0.08));
-  border:1px solid var(--glass-line, rgba(255,255,255,0.38)); border-radius:12px;
-  backdrop-filter: blur(8px) saturate(140%); -webkit-backdrop-filter: blur(8px) saturate(140%);
-}
-.badge {
-  font-size:12px; font-weight:800; letter-spacing:.02em;
-  border-radius:999px; padding:4px 10px; white-space:nowrap;
-  border:1px solid rgba(255,255,255,0.38);
-  display:inline-flex; align-items:center; gap:6px;
-}
-.badge .ico{ font-size:12px; }
-.badge.in  { color:#22c55e; background:rgba(34,197,94,.12); border-color:rgba(34,197,94,.45); }   /* 入金 */
-.badge.out { color:#ef4444; background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.45); }  /* 出金 */
-
-.memo {
-  overflow:visible; white-space:normal; overflow-wrap:anywhere; word-break:break-word; color:#fff;
-}
-.amount {
-  font-weight:800; font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap;
-}
-.amount.in  { color:#22c55e; }
-.amount.out { color:#ef4444; }
-
-/* 極小画面では操作を下段に回す */
-@media (max-width:560px){
-  .row { grid-template-columns: auto 1fr auto; grid-template-areas:
-    "badge memo amount"
-    "ops   ops  ops"; }
-  .row .badge{ grid-area:badge; }
-  .row .memo{ grid-area:memo; }
-  .row .amount{ grid-area:amount; }
-  .row .ops{ grid-area:ops; justify-content:flex-start; }
-}
-
-/* 合計バー（オプション：ビューから totals を渡す場合表示） */
-.totals {
-  display:flex; gap:12px; flex-wrap:wrap; align-items:center;
-  margin: 8px 0 2px; color:#fff;
-}
-.totals .item {
-  border:1px solid rgba(255,255,255,.38); border-radius:999px;
-  padding:6px 10px; font-size:12px; background:rgba(255,255,255,.06);
-}
-</style>
 {% endblock %}
 
 {% block content %}
@@ -113,7 +19,7 @@
   {% endif %}
 
   {% if can_undo and undo_id %}
-    <div class="undo-bar" aria-live="polite">
+    <div class="undo-bar card" aria-live="polite">
       <div class="left">直前の入出金を取り消せます（約 {{ undo_seconds }} 秒以内）</div>
       <form method="post" action="{% url 'cash_undo' %}">{% csrf_token %}
         <button class="oplink" type="submit">取り消す</button>
@@ -121,11 +27,11 @@
     </div>
   {% endif %}
 
-  <!-- 証券会社タブ -->
+  <!-- 証券会社タブ（3社） -->
   <nav class="tabs" role="tablist" aria-label="証券会社">
     {% for key, label in tabs %}
       <a class="tab {% if key == active_broker %}active{% endif %}"
-         href="{% url 'cash_io' %}?broker={{ key }}">{{ label }}</a>
+         href="{% url 'cash_io' %}?broker={{ key }}&range={{ range|default:'' }}&q={{ q|urlencode }}">{{ label }}</a>
     {% endfor %}
   </nav>
 
@@ -200,66 +106,55 @@
     </div>
   </form>
 
-  <!-- ===== 最近の入出金（入出金に全振り） ===== -->
+  <!-- クイックフィルター（7 / 30 / 90 / すべて） -->
+  <div class="card filters" role="region" aria-label="最近の入出金フィルター">
+    <div class="chips" aria-label="期間">
+      {% with base='?broker='|add:active_broker|add:'&q='|add:q|urlencode|add:'&range=' %}
+        <a class="chip {% if range == '7' %}active{% endif %}"  href="{{ base }}7">直近7日</a>
+        <a class="chip {% if range == '30' %}active{% endif %}" href="{{ base }}30">直近30日</a>
+        <a class="chip {% if range == '90' %}active{% endif %}" href="{{ base }}90">直近90日</a>
+        <a class="chip {% if not range or range == 'all' %}active{% endif %}" href="{{ base }}all">すべて</a>
+      {% endwith %}
+    </div>
+    <form method="get" action="{% url 'cash_io' %}">
+      <input type="hidden" name="broker" value="{{ active_broker }}">
+      <input type="hidden" name="range"  value="{{ range|default:'all' }}">
+      <input class="field-input" type="text" name="q" value="{{ q }}" placeholder="メモ検索">
+      <button class="btn secondary" type="submit">検索</button>
+    </form>
+  </div>
+
+  <!-- 最近の入出金（見切れ防止レイアウト） -->
   <section class="history">
-    <h2 class="h-title">最近の入出金</h2>
-
-    <!-- クイックフィルター（任意のGETパラ対応: ?range=7 / 30, ?q=キーワード） -->
-    <div class="filter-bar">
-      <a class="fchip" href="{% url 'cash_io' %}?broker={{ active_broker }}&range=7">直近7日</a>
-      <a class="fchip" href="{% url 'cash_io' %}?broker={{ active_broker }}&range=30">直近30日</a>
-      <a class="fchip" href="{% url 'cash_io' %}?broker={{ active_broker }}&range=90">直近90日</a>
-      <form method="get" action="{% url 'cash_io' %}">
-        <input type="hidden" name="broker" value="{{ active_broker }}">
-        <input type="search" name="q" value="{{ request.GET.q }}" placeholder="メモで検索">
-        <button class="btn-s" type="submit">検索</button>
-      </form>
-    </div>
-
-    <!-- 合計バー（ビューで totals_in / totals_out / totals_net を渡せるなら表示） -->
-    {% if totals_in or totals_out or totals_net %}
-    <div class="totals">
-      {% if totals_in %}<span class="item">入金合計：¥{{ totals_in|floatformat:0|intcomma }}</span>{% endif %}
-      {% if totals_out %}<span class="item">出金合計：¥{{ totals_out|floatformat:0|intcomma }}</span>{% endif %}
-      {% if totals_net %}<span class="item">差引：¥{{ totals_net|floatformat:0|intcomma }}</span>{% endif %}
-    </div>
-    {% endif %}
-
-    <!-- 日付ごとに見出しを付けてグループ化 -->
-    {% if recent %}
-      {% regroup recent by occurred_at as days %}
-      {% for day in days %}
-        <div class="day-group">
-          <div class="day-head">
-            <div>{{ day.grouper|date:"Y年n月j日 (D)" }}</div>
-            <div class="meta">{{ day.list|length }} 件</div>
-          </div>
-          <ul class="list">
-            {% for it in day.list %}
-              <li class="row">
-                <span class="badge {% if it.flow_type == 'in' %}in{% else %}out{% endif %}">
-                  <span class="ico">{% if it.flow_type == 'in' %}↑{% else %}↓{% endif %}</span>
-                  {% if it.flow_type == 'in' %}入金{% else %}出金{% endif %}
-                </span>
-                <span class="memo">{{ it.memo|default:"（メモなし）" }}</span>
-                <span class="amount {% if it.flow_type == 'in' %}in{% else %}out{% endif %}">
-                  {% if it.flow_type == 'in' %}+{% else %}-{% endif %}¥{{ it.amount|floatformat:0|intcomma }}
-                </span>
-                <span class="ops">
-                  <a class="oplink" href="{% url 'cash_flow_edit' it.id %}">編集</a>
-                  <form method="post" action="{% url 'cash_flow_delete' it.id %}" style="display:inline">
-                    {% csrf_token %}
-                    <button type="submit" class="opdel" onclick="return confirm('削除しますか？');">削除</button>
-                  </form>
-                </span>
-              </li>
-            {% endfor %}
-          </ul>
-        </div>
+    <h2 class="h-title">最近の入出金（{{ active_label }}）</h2>
+    <ul class="list">
+      {% for it in recent %}
+        <li class="row">
+          <span class="date">{{ it.occurred_at|date:"n/j" }}</span>
+          <span class="memo">{{ it.memo }}</span>
+          <span class="type {% if it.flow_type == 'in' %}in{% else %}out{% endif %}">
+            {% if it.flow_type == 'in' %}+{% else %}-{% endif %}¥{{ it.amount|floatformat:0|intcomma }}
+          </span>
+          <span class="ops">
+            <a class="oplink" href="{% url 'cash_flow_edit' it.id %}">編集</a>
+            <form method="post" action="{% url 'cash_flow_delete' it.id %}" style="display:inline">{% csrf_token %}
+              <button type="submit" class="opdel" onclick="return confirm('削除しますか？');">削除</button>
+            </form>
+          </span>
+        </li>
+      {% empty %}
+        <li class="empty">まだ入出金はありません</li>
       {% endfor %}
-    {% else %}
-      <p class="empty">まだ入出金はありません</p>
-    {% endif %}
+    </ul>
+
+    <!-- 合計 -->
+    <div class="card totals">
+      <div class="totals-row">
+        <div>入金合計：<strong>¥{{ totals_in|floatformat:0|intcomma }}</strong></div>
+        <div>出金合計：<strong>¥{{ totals_out|floatformat:0|intcomma }}</strong></div>
+        <div>差引：<strong class="{% if totals_net >= 0 %}type in{% else %}type out{% endif %}">¥{{ totals_net|floatformat:0|intcomma }}</strong></div>
+      </div>
+    </div>
   </section>
 
 </div>
