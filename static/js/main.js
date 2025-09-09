@@ -81,68 +81,64 @@
   `;
 })();
 
-/* ---------------- Ring Gauge (total assets vs target) ---------------- */
-(function ringGaugeModule() {
-  // 親 .ring に data-total/data-target がある想定（旧JS互換で svg 側の data- も読む）
-  const ring = document.querySelector('.ring');
-  if (!ring) return;
+// ===== Ring Gauge (total assets vs target) =====
+(function ringGauge() {
+  const svg = document.querySelector('.ring-svg');
+  if (!svg) return;
+  const r = 52, C = 2 * Math.PI * r;
+  const target = parseFloat(svg.dataset.target || '0');
+  const value  = parseFloat(svg.dataset.value  || '0');
+  const fg = svg.querySelector('.fg'); if (!fg) return;
 
-  const svg = ring.querySelector('.ring-svg');
-  const fg = ring.querySelector('.fg');
-  if (!svg || !fg) return;
-
-  // データは親→SVG の優先順で取得
-  function num(attrOnRing, attrOnSvg, fallback = 0) {
-    const a = ring.getAttribute(attrOnRing) ?? ring.dataset[attrOnRing?.replace(/^data-/, '')];
-    const b = svg.getAttribute(attrOnSvg) ?? svg.dataset[attrOnSvg?.replace(/^data-/, '')];
-    const v = parseFloat(a ?? b ?? fallback);
-    return Number.isFinite(v) ? v : 0;
-  }
-
-  const r = 52;
-  const C = 2 * Math.PI * r;
-
-  const total = num('data-total', 'data-value', 0);
-  const target = num('data-target', 'data-target', 0);
-
-  let ratio = 0.6; // 目標未設定時の演出値
-  if (target > 0) ratio = Math.max(0, Math.min(1, total / target));
-
+  let ratio = 0;
+  if (target > 0) ratio = Math.max(0, Math.min(1, value / target));
+  if (target <= 0) ratio = 0.6; // 目標未設定時の見栄え
   const len = C * ratio;
-  fg.setAttribute('stroke-dasharray', `${len} ${Math.max(0, C - len)}`);
+  fg.setAttribute('stroke-dasharray', `${len} ${C - len}`);
   fg.setAttribute('stroke-dashoffset', '0');
 })();
 
-/* ---------------- Gauges (bar animation + width calculation) ---------------- */
-(function gaugeBars() {
-  // 比率バー（num/den → 0..100%）
+// ===== Bars (ratio against total assets) =====
+(function animateBars() {
   document.querySelectorAll('.g-bar span[data-ratio]').forEach(span => {
     const num = parseFloat(span.getAttribute('data-num') || '0');
     const den = parseFloat(span.getAttribute('data-den') || '0');
     let pct = 0;
     if (den > 0 && num >= 0) pct = Math.max(0, Math.min(100, (num / den) * 100));
-    // アニメーション
     span.style.width = '0';
     requestAnimationFrame(() => {
       span.style.transition = 'width .9s cubic-bezier(.2,.8,.2,1)';
       setTimeout(() => { span.style.width = pct + '%'; }, 10);
     });
   });
+})();
 
-  // 含み益率バー（u/mv を -100%以下→0%, 0%→50%, +100%以上→100%）
-  document.querySelectorAll('.g-bar span[data-profit]').forEach(span => {
-    const u  = parseFloat(span.getAttribute('data-u')  || '0');  // unrealized profit
-    const mv = parseFloat(span.getAttribute('data-mv') || '0');  // market value
-    let pct = 50;
-    if (mv > 0) {
-      const ratio = u / mv;       // -1 = -100%, 0 = 0%, 1 = +100%
-      pct = (ratio * 50) + 50;    // 0..100
-      pct = Math.max(0, Math.min(100, pct));
-    }
-    span.style.width = '0';
-    requestAnimationFrame(() => {
-      span.style.transition = 'width .9s cubic-bezier(.2,.8,.2,1)';
-      setTimeout(() => { span.style.width = pct + '%'; }, 10);
-    });
-  });
+// ===== Sparkline (asset history) =====
+(function renderSpark() {
+  const el = document.getElementById('assetSpark');
+  if (!el) return;
+  const raw = (el.getAttribute('data-points') || '').trim();
+  if (!raw) { el.style.display = 'none'; return; }
+
+  const vals = raw.split(',').map(s => parseFloat(s)).filter(v => !Number.isNaN(v));
+  if (vals.length < 2) { el.style.display = 'none'; return; }
+
+  const w = el.clientWidth || 320;
+  const h = el.clientHeight || 84;
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const pad = 6;
+
+  const sx = (i) => pad + (w - pad * 2) * (i / (vals.length - 1));
+  const sy = (v) => max === min ? h / 2 : pad + (1 - ((v - min) / (max - min))) * (h - pad * 2);
+
+  const pts = vals.map((v, i) => `${sx(i)},${sy(v)}`).join(' ');
+  const area = ['0,' + h, pts, w + ',' + h].join(' ');
+  el.innerHTML = `
+    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+      <polyline points="${pts}" fill="none" stroke="rgba(96,165,250,1)" stroke-width="2" />
+      <polyline points="${pts}" fill="none" stroke="rgba(96,165,250,.35)" stroke-width="6" opacity=".35" />
+      <polyline points="${area}" fill="rgba(96,165,250,.18)" />
+    </svg>
+  `;
 })();
