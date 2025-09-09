@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static humanize %}
+
 {% block title %}ホーム{% endblock %}
 
 {% block extra_css %}
@@ -7,49 +8,194 @@
 {% endblock %}
 
 {% block content %}
-<div class="container">
-  <div class="summary-grid">
-    <div class="summary-card glass">
-      <h3>総資産</h3>
-      <p class="value positive">¥1,250,000</p>
-    </div>
-    <div class="summary-card glass">
-      <h3>含み損益</h3>
-      <p class="value positive">+¥85,000</p>
-    </div>
-    <div class="summary-card glass">
-      <h3>実現損益</h3>
-      <p class="value negative">-¥15,000</p>
-    </div>
-  </div>
+<div class="home-page">
 
-  <div class="chart-card glass">
-    <h3>資産割合</h3>
-    <canvas id="assetChart"></canvas>
-  </div>
+  {# メッセージ #}
+  {% if messages %}
+    <ul class="msgs">
+      {% for m in messages %}
+        <li class="msg {{ m.tags }}">{{ m }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {# ===== ヘッダー（総資産 + 小さなサマリー） ===== #}
+  <header class="hero card">
+    <div class="hero-top">
+      <h1 class="hero-title">総資産</h1>
+      <div class="hero-actions">
+        <a class="btn ghost" href="{% url 'cash_io' %}">入出金</a>
+        <a class="btn ghost" href="{% url 'stock_list' %}">保有株</a>
+      </div>
+    </div>
+
+    <div class="hero-main">
+      <div class="asset-figure" data-value="{{ total_assets|default:0 }}">
+        ¥{{ total_assets|default:0|floatformat:0|intcomma }}
+      </div>
+      <div class="asset-sub">
+        <span>前日比</span>
+        <strong class="pn {% if day_change|default:0 >= 0 %}pos{% else %}neg{% endif %}">
+          {% if day_change|default:0 >= 0 %}+{% endif %}¥{{ day_change|default:0|floatformat:0|intcomma }}
+        </strong>
+      </div>
+    </div>
+
+    <div class="hero-mini">
+      <div class="mini">
+        <span class="k">評価額</span>
+        <span class="v">¥{{ portfolio_value|default:0|floatformat:0|intcomma }}</span>
+      </div>
+      <div class="mini">
+        <span class="k">現金</span>
+        <span class="v">¥{{ cash_total|default:0|floatformat:0|intcomma }}</span>
+      </div>
+      <div class="mini">
+        <span class="k">含み損益</span>
+        <span class="v {% if unrealized_pl|default:0 >= 0 %}pos{% else %}neg{% endif %}">
+          {% if unrealized_pl|default:0 >= 0 %}+{% endif %}¥{{ unrealized_pl|default:0|floatformat:0|intcomma }}
+        </span>
+      </div>
+    </div>
+
+    {# スパークライン（軽量SVG） #}
+    <div class="sparkline" id="assetSpark"
+         data-points="{{ asset_history_csv|default:'' }}"></div>
+  </header>
+
+  {# ===== ブローカー別（タブ） ===== #}
+  <section class="brokers card">
+    <nav class="tabs" role="tablist" aria-label="証券会社">
+      {% for key,label in broker_tabs %}
+        <button class="tab {% if key == active_broker %}active{% endif %}"
+                data-tab="{{ key }}">{{ label }}</button>
+      {% endfor %}
+    </nav>
+
+    <div class="panes">
+      {% for key,label in broker_tabs %}
+        <div class="pane {% if key == active_broker %}active{% endif %}"
+             id="pane-{{ key }}">
+          <div class="pill-row">
+            <div class="pill">
+              <span class="k">残高</span>
+              <span class="v">¥{{ broker_balances.key|default:0|floatformat:0|intcomma }}</span>
+            </div>
+            <div class="pill">
+              <span class="k">保有銘柄</span>
+              <span class="v">{{ broker_stats.key.holdings_count|default:0 }}</span>
+            </div>
+            <div class="pill">
+              <span class="k">時価評価</span>
+              <span class="v">¥{{ broker_stats.key.market_value|default:0|floatformat:0|intcomma }}</span>
+            </div>
+          </div>
+
+          {# 上位ポジション #}
+          <div class="toppos">
+            <h3 class="sect-title">上位ポジション</h3>
+            <ul class="pos-list">
+              {% for p in top_positions_by_broker.key|default:[] %}
+                <li class="pos-row">
+                  <span class="name">{{ p.ticker }} {{ p.name }}</span>
+                  <span class="lot">{{ p.shares|intcomma }}株</span>
+                  <span class="mv">¥{{ p.market_value|floatformat:0|intcomma }}</span>
+                </li>
+              {% empty %}
+                <li class="empty">データがありません</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# ===== 実現損益（今月 / 今年 / 累計） ===== #}
+  <section class="realized card">
+    <div class="grid3">
+      <div class="kpi">
+        <div class="k">今月の実現損益</div>
+        <div class="v pn {% if realized_pl_mtd|default:0 >= 0 %}pos{% else %}neg{% endif %}">
+          {% if realized_pl_mtd|default:0 >= 0 %}+{% endif %}¥{{ realized_pl_mtd|default:0|floatformat:0|intcomma }}
+        </div>
+      </div>
+      <div class="kpi">
+        <div class="k">今年の実現損益</div>
+        <div class="v pn {% if realized_pl_ytd|default:0 >= 0 %}pos{% else %}neg{% endif %}">
+          {% if realized_pl_ytd|default:0 >= 0 %}+{% endif %}¥{{ realized_pl_ytd|default:0|floatformat:0|intcomma }}
+        </div>
+      </div>
+      <div class="kpi">
+        <div class="k">累計の実現損益</div>
+        <div class="v pn {% if realized_pl_total|default:0 >= 0 %}pos{% else %}neg{% endif %}">
+          {% if realized_pl_total|default:0 >= 0 %}+{% endif %}¥{{ realized_pl_total|default:0|floatformat:0|intcomma }}
+        </div>
+      </div>
+    </div>
+    <a class="btn link" href="{% url 'realized' %}">実現一覧へ</a>
+  </section>
+
+  {# ===== 最近のアクティビティ（統合タイムライン） ===== #}
+  <section class="activity card">
+    <div class="activity-head">
+      <h3 class="sect-title">最近のアクティビティ</h3>
+      <div class="chips">
+        <button class="chip active" data-range="7">7日</button>
+        <button class="chip" data-range="30">30日</button>
+        <button class="chip" data-range="90">90日</button>
+        <button class="chip" data-range="all">すべて</button>
+      </div>
+    </div>
+
+    <ul class="timeline" id="timeline">
+      {% for a in recent_activities|default:[] %}
+        <li class="trow type-{{ a.kind }}">
+          <div class="tdate">{{ a.date|date:"n/j" }}</div>
+          <div class="tbody">
+            <div class="tline">
+              <span class="tbadge">{{ a.kind_label }}</span>
+              <span class="tmain">
+                {% if a.kind == 'trade' %}
+                  {{ a.ticker }} {{ a.name }} / {% if a.pnl >= 0 %}+{% endif %}¥{{ a.pnl|floatformat:0|intcomma }}
+                {% elif a.kind == 'dividend' %}
+                  配当 {{ a.ticker }} {{ a.name }} / 受取 ¥{{ a.net|floatformat:0|intcomma }}
+                {% elif a.kind == 'cash' %}
+                  現金 {{ a.broker_label }} / {% if a.flow == 'in' %}+{% else %}-{% endif %}¥{{ a.amount|floatformat:0|intcomma }}
+                {% endif %}
+              </span>
+            </div>
+            {% if a.memo %}<div class="tmemo">{{ a.memo }}</div>{% endif %}
+          </div>
+        </li>
+      {% empty %}
+        <li class="empty">まだデータがありません</li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  {# ===== クイック操作 ===== #}
+  <section class="quick card">
+    <h3 class="sect-title">クイック操作</h3>
+    <div class="qgrid">
+      <a class="qbtn" href="{% url 'cash_io' %}">
+        <span class="qi">💸</span><span>入出金を記録</span>
+      </a>
+      <a class="qbtn" href="{% url 'dividend_new' %}">
+        <span class="qi">💴</span><span>配当を登録</span>
+      </a>
+      <a class="qbtn" href="{% url 'stock_list' %}">
+        <span class="qi">📈</span><span>保有株を見る</span>
+      </a>
+      <a class="qbtn" href="{% url 'realized' %}">
+        <span class="qi">📃</span><span>実現一覧</span>
+      </a>
+    </div>
+  </section>
 
 </div>
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
-const ctx = document.getElementById('assetChart').getContext('2d');
-new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-        labels: ['日本株', '米国株', '現金'],
-        datasets: [{
-            data: [50, 30, 20],
-            backgroundColor: ['#007bff', '#28a745', '#ffc107'],
-            borderWidth: 2,
-            borderColor: '#fff',
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: { legend: { position: 'bottom' } }
-    }
-});
-</script>
+<script src="{% static 'js/main.js' %}" defer></script>
 {% endblock %}
