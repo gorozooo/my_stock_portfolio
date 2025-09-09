@@ -1,42 +1,129 @@
-/* メインコンテンツ余白確保（navbar・下タブを避ける） */
-.main-content {
-  padding-top: 90px;   /* navbar の高さ */
-  padding-bottom: 60px; /* bottom-tab の高さ */
+/* === ベース：ガラス×ダーク（配当/現金ページと同テイスト） === */
+*,*::before,*::after{box-sizing:border-box}
+:root{
+  --bg:transparent;
+  --ink:#ffffff;
+  --muted:rgba(255,255,255,.78);
+  --emph:#3b82f6;
+  --glass:rgba(255,255,255,.08);
+  --glass-weak:rgba(255,255,255,.05);
+  --glass-strong:rgba(255,255,255,.12);
+  --line:rgba(255,255,255,.38);
+  --line-weak:rgba(255,255,255,.28);
+  --pos:#34d399;
+  --neg:#f87171;
 }
 
-/* タイトル */
-.page-title {
-  text-align: center;
-  margin-bottom: 30px;
-  font-size: 28px;
-  color: #222;
+.home-page{padding:16px;color:var(--ink);background:transparent;border-radius:18px}
+.msgs{list-style:none;margin:0 0 10px;padding:0}
+.msg{padding:10px 12px;border-radius:10px;background:var(--glass);border:1px solid var(--line-weak)}
+.msg.success{color:var(--pos)}
+.msg.error{color:var(--neg)}
+
+.card{
+  background:var(--glass);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:16px;
+  margin:12px 0;
+  backdrop-filter:blur(12px) saturate(140%);
+  -webkit-backdrop-filter:blur(12px) saturate(140%);
+  box-shadow:0 6px 24px rgba(0,0,0,.18);
 }
 
-/* サマリーカード */
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 20px;
+/* ===== Hero ===== */
+.hero-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.hero-title{margin:0;font-size:16px;color:var(--muted)}
+.hero-actions{display:flex;gap:8px}
+.btn.ghost{
+  border:1px solid var(--line);
+  background:var(--glass-weak);
+  color:var(--ink);
+  border-radius:999px;
+  padding:6px 10px;
+  text-decoration:none;
+  font-size:13px;
 }
-.summary-card {
-  padding: 20px;
-  border-radius: 15px;
-  text-align: center;
-  transition: transform 0.2s ease-in-out;
-}
-.summary-card:hover { transform: translateY(-5px); }
-.summary-card h3 { font-size: 16px; margin-bottom: 10px; }
-.value { font-size: 22px; font-weight: bold; }
-.value.positive { color: #28a745; }
-.value.negative { color: #dc3545; }
 
-/* グラフカード */
-.chart-card { margin-top: 30px; padding: 20px; border-radius: 15px; }
+.hero-main{margin-top:6px}
+.asset-figure{font-size:30px;font-weight:900;letter-spacing:.5px}
+.asset-sub{margin-top:4px;font-size:13px;color:var(--muted)}
+.pn.pos{color:var(--pos);font-weight:700}
+.pn.neg{color:var(--neg);font-weight:700}
 
-/* ガラス感 */
-.glass {
-  background: rgba(255, 255, 255, 0.25);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+.hero-mini{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+.mini{background:var(--glass-weak);border:1px solid var(--line);border-radius:10px;padding:10px}
+.mini .k{display:block;font-size:12px;color:var(--muted)}
+.mini .v{display:block;margin-top:4px;font-size:16px;font-weight:800}
+
+.sparkline{height:48px;margin-top:10px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--glass-weak)}
+
+/* ===== Brokers ===== */
+.tabs{display:flex;gap:8px;justify-content:center;margin-bottom:12px;overflow:auto}
+.tab{
+  padding:8px 12px;border-radius:999px;border:1px solid var(--line);
+  background:var(--glass);color:var(--ink);font-weight:700
 }
+.tab.active{background:linear-gradient(180deg, rgba(59,130,246,.35), rgba(59,130,246,.18));border-color:rgba(59,130,246,.85)}
+
+.panes{margin-top:8px}
+.pane{display:none}
+.pane.active{display:block}
+
+.pill-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media (max-width:480px){.pill-row{grid-template-columns:1fr}}
+.pill{
+  background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;justify-content:space-between
+}
+.pill .k{font-size:12px;color:var(--muted)}
+.pill .v{font-size:18px;font-weight:800}
+
+.toppos .sect-title{margin:12px 0 8px;font-size:14px;color:var(--muted)}
+.pos-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.pos-row{
+  display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;
+  background:var(--glass-weak);border:1px solid var(--line);border-radius:10px;padding:10px 12px
+}
+.pos-row .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pos-row .lot{color:var(--muted);text-align:right}
+.pos-row .mv{font-weight:800;text-align:right}
+
+/* ===== Realized KPIs ===== */
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media (max-width:480px){.grid3{grid-template-columns:1fr}}
+.kpi{background:var(--glass-weak);border:1px solid var(--line);border-radius:10px;padding:12px}
+.kpi .k{font-size:12px;color:var(--muted)}
+.kpi .v{margin-top:6px;font-size:18px;font-weight:900}
+.btn.link{display:inline-block;margin-top:10px;color:var(--ink);text-decoration:underline}
+
+/* ===== Activity Timeline ===== */
+.activity-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.sect-title{margin:0;font-size:14px;color:var(--muted)}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{
+  border:1px solid var(--line);background:var(--glass);color:var(--ink);
+  padding:6px 10px;border-radius:999px;font-size:12px
+}
+.chip.active{background:linear-gradient(180deg, rgba(59,130,246,.35), rgba(59,130,246,.18));border-color:rgba(59,130,246,.85)}
+
+.timeline{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.trow{
+  display:grid;grid-template-columns:72px 1fr;gap:10px;align-items:start;
+  background:var(--glass-weak);border:1px solid var(--line);border-radius:10px;padding:10px 12px
+}
+.tdate{font-size:12px;color:var(--muted)}
+.tline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.tbadge{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:2px 8px;background:var(--glass)}
+.tmain{font-size:14px;font-weight:700}
+.tmemo{margin-top:4px;color:var(--muted);font-size:13px}
+.trow.type-trade .tbadge{border-color:#60a5fa}
+.trow.type-dividend .tbadge{border-color:#22d3ee}
+.trow.type-cash .tbadge{border-color:#a78bfa}
+
+/* ===== Quick ===== */
+.qgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.qbtn{
+  display:flex;gap:10px;align-items:center;justify-content:center;text-decoration:none;
+  background:var(--glass-weak);border:1px solid var(--line);border-radius:12px;padding:12px;color:var(--ink)
+}
+.qi{font-size:18px}
