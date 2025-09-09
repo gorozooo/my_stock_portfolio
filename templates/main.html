@@ -31,7 +31,9 @@
     <div class="hero-grid">
       <!-- 円形ゲージ -->
       <div class="ring" aria-label="総資産ゲージ">
-        <svg viewBox="0 0 120 120" class="ring-svg" data-target="{{ target_assets|default_if_none:0 }}" data-value="{{ total_assets|default_if_none:0 }}">
+        <svg viewBox="0 0 120 120" class="ring-svg"
+             data-target="{{ target_assets|default_if_none:0 }}"
+             data-value="{{ total_assets|default_if_none:0 }}">
           <circle cx="60" cy="60" r="52" class="bg"></circle>
           <circle cx="60" cy="60" r="52" class="fg" stroke-dasharray="0 999" stroke-dashoffset="0"></circle>
         </svg>
@@ -92,26 +94,50 @@
             <div class="logo">{{ b.label|slice:":2" }}</div>
             <div class="pane-balance">
               <div class="k">現金残高</div>
-              <div class="v">¥{{ b.balance|default_if_none:0|floatformat:0|intcomma }}</div>
+              {% with _s=b.balance|stringformat:"s" %}
+                {% if _s == 'Ellipsis' %}
+                  <div class="v">—</div>
+                {% else %}
+                  <div class="v">¥{{ b.balance|default_if_none:0|floatformat:0|intcomma }}</div>
+                {% endif %}
+              {% endwith %}
             </div>
           </div>
           <div class="pill-row">
             <div class="pill">
               <div class="k">保有銘柄数</div>
-              <div class="v">{{ b.holdings_count|default_if_none:0 }}</div>
+              {% with _s=b.holdings_count|stringformat:"s" %}
+                {% if _s == 'Ellipsis' %}
+                  <div class="v">—</div>
+                {% else %}
+                  <div class="v">{{ b.holdings_count|default_if_none:0 }}</div>
+                {% endif %}
+              {% endwith %}
             </div>
             <div class="pill">
               <div class="k">時価評価</div>
-              <div class="v">¥{{ b.market_value|default_if_none:0|floatformat:0|intcomma }}</div>
+              {% with _s=b.market_value|stringformat:"s" %}
+                {% if _s == 'Ellipsis' %}
+                  <div class="v">—</div>
+                {% else %}
+                  <div class="v">¥{{ b.market_value|default_if_none:0|floatformat:0|intcomma }}</div>
+                {% endif %}
+              {% endwith %}
             </div>
-            {% with u=b.unrealized_pl|default_if_none:0 %}
             <div class="pill">
               <div class="k">含み損益</div>
-              <div class="v {% if u >= 0 %}pos{% else %}neg{% endif %}">
-                {% if u >= 0 %}+{% endif %}¥{{ u|floatformat:0|intcomma }}
-              </div>
+              {% with _s=b.unrealized_pl|stringformat:"s" %}
+                {% if _s == 'Ellipsis' %}
+                  <div class="v">—</div>
+                {% else %}
+                  {% with u=b.unrealized_pl|default_if_none:0 %}
+                    <div class="v {% if u >= 0 %}pos{% else %}neg{% endif %}">
+                      {% if u >= 0 %}+{% endif %}¥{{ u|floatformat:0|intcomma }}
+                    </div>
+                  {% endwith %}
+                {% endif %}
+              {% endwith %}
             </div>
-            {% endwith %}
           </div>
         </div>
 
@@ -131,20 +157,22 @@
                   </tr>
                 </thead>
                 <tbody>
-                  {% if b.top_positions %}
-                    {% for p in b.top_positions %}
-                    <tr>
-                      <td>{{ p.ticker }}</td>
-                      <td class="name">{{ p.name }}</td>
-                      <td class="ar">{{ p.shares|default_if_none:0|intcomma }} 株</td>
-                      <td class="ar">¥{{ p.market_value|default_if_none:0|floatformat:0|intcomma }}</td>
-                    </tr>
-                    {% empty %}
-                    <tr><td colspan="4" class="empty">データがありません</td></tr>
-                    {% endfor %}
-                  {% else %}
-                    <tr><td colspan="4" class="empty">データがありません</td></tr>
-                  {% endif %}
+                  {% with _tops_s=b.top_positions|stringformat:"s" %}
+                    {% if _tops_s == 'Ellipsis' or not b.top_positions %}
+                      <tr><td colspan="4" class="empty">データがありません</td></tr>
+                    {% else %}
+                      {% for p in b.top_positions %}
+                        <tr>
+                          <td>{{ p.ticker }}</td>
+                          <td class="name">{{ p.name }}</td>
+                          <td class="ar">{{ p.shares|default_if_none:0|intcomma }} 株</td>
+                          <td class="ar">¥{{ p.market_value|default_if_none:0|floatformat:0|intcomma }}</td>
+                        </tr>
+                      {% empty %}
+                        <tr><td colspan="4" class="empty">データがありません</td></tr>
+                      {% endfor %}
+                    {% endif %}
+                  {% endwith %}
                 </tbody>
               </table>
             </div>
@@ -153,34 +181,36 @@
           <!-- 最近のアクティビティ（そのブローカー限定） -->
           <div>
             <h3 class="sect-title">最近の動き</h3>
-            <ul class="mini-activity">
-              {% if b.recent %}
-                {% for r in b.recent %}
-                  <li class="arow">
-                    <div class="adate">{{ r.date|date:"n/j" }}</div>
-                    <div class="amain">
-                      <span class="cbadge">{{ r.kind }}</span>
-                      {% if r.ticker %} {{ r.ticker }}{% endif %}
-                      {% if r.name %} {{ r.name }}{% endif %}
-                      {% if r.memo %} <span class="small">/ {{ r.memo }}</span>{% endif %}
-                    </div>
-                    {% if r.amount %}
-                      {% with amt=r.amount|default_if_none:0 %}
-                        <div class="aval {% if r.sign == '+' %}pos{% else %}neg{% endif %}">
-                          {{ r.sign }}¥{{ amt|floatformat:0|intcomma }}
-                        </div>
-                      {% endwith %}
-                    {% else %}
-                      <div class="aval small">—</div>
-                    {% endif %}
-                  </li>
-                {% empty %}
-                  <li class="empty">まだ動きがありません</li>
-                {% endfor %}
+            {% with _rec_s=b.recent|stringformat:"s" %}
+              {% if _rec_s == 'Ellipsis' or not b.recent %}
+                <ul class="mini-activity"><li class="empty">まだ動きがありません</li></ul>
               {% else %}
-                <li class="empty">まだ動きがありません</li>
+                <ul class="mini-activity">
+                  {% for r in b.recent %}
+                    <li class="arow">
+                      <div class="adate">{{ r.date|date:"n/j" }}</div>
+                      <div class="amain">
+                        <span class="cbadge">{{ r.kind }}</span>
+                        {% if r.ticker %} {{ r.ticker }}{% endif %}
+                        {% if r.name %} {{ r.name }}{% endif %}
+                        {% if r.memo %} <span class="small">/ {{ r.memo }}</span>{% endif %}
+                      </div>
+                      {% if r.amount %}
+                        {% with amt=r.amount|default_if_none:0 %}
+                          <div class="aval {% if r.sign == '+' %}pos{% else %}neg{% endif %}">
+                            {{ r.sign }}¥{{ amt|floatformat:0|intcomma }}
+                          </div>
+                        {% endwith %}
+                      {% else %}
+                        <div class="aval small">—</div>
+                      {% endif %}
+                    </li>
+                  {% empty %}
+                    <li class="empty">まだ動きがありません</li>
+                  {% endfor %}
+                </ul>
               {% endif %}
-            </ul>
+            {% endwith %}
           </div>
         </div>
 
@@ -188,28 +218,60 @@
         <div class="gauges">
           <div class="gauge">
             <div class="g-title">評価 / 総資産</div>
-            <div class="g-figure">¥{{ b.market_value|default_if_none:0|floatformat:0|intcomma }} / ¥{{ total_assets|default_if_none:0|floatformat:0|intcomma }}</div>
+            {% with n_s=b.market_value|stringformat:"s" d_s=total_assets|stringformat:"s" %}
+              {% if n_s == 'Ellipsis' or d_s == 'Ellipsis' %}
+                <div class="g-figure">—</div>
+              {% else %}
+                <div class="g-figure">
+                  ¥{{ b.market_value|default_if_none:0|floatformat:0|intcomma }}
+                  /
+                  ¥{{ total_assets|default_if_none:0|floatformat:0|intcomma }}
+                </div>
+              {% endif %}
+            {% endwith %}
             <div class="g-bar">
-              <span data-ratio="mv" data-num="{{ b.market_value|default_if_none:0 }}" data-den="{{ total_assets|default_if_none:1 }}"></span>
+              <span data-ratio="mv"
+                    data-num="{{ b.market_value|default_if_none:0 }}"
+                    data-den="{{ total_assets|default_if_none:0 }}"></span>
             </div>
           </div>
+
           <div class="gauge">
             <div class="g-title">現金 / 総資産</div>
-            <div class="g-figure">¥{{ b.balance|default_if_none:0|floatformat:0|intcomma }} / ¥{{ total_assets|default_if_none:0|floatformat:0|intcomma }}</div>
+            {% with n_s=b.balance|stringformat:"s" d_s=total_assets|stringformat:"s" %}
+              {% if n_s == 'Ellipsis' or d_s == 'Ellipsis' %}
+                <div class="g-figure">—</div>
+              {% else %}
+                <div class="g-figure">
+                  ¥{{ b.balance|default_if_none:0|floatformat:0|intcomma }}
+                  /
+                  ¥{{ total_assets|default_if_none:0|floatformat:0|intcomma }}
+                </div>
+              {% endif %}
+            {% endwith %}
             <div class="g-bar">
-              <span data-ratio="cash" data-num="{{ b.balance|default_if_none:0 }}" data-den="{{ total_assets|default_if_none:1 }}"></span>
+              <span data-ratio="cash"
+                    data-num="{{ b.balance|default_if_none:0 }}"
+                    data-den="{{ total_assets|default_if_none:0 }}"></span>
             </div>
           </div>
-          {% with mv=b.market_value|default_if_none:0 u=b.unrealized_pl|default_if_none:0 %}
+
+          {% with mv_s=b.market_value|stringformat:"s" u_s=b.unrealized_pl|stringformat:"s" %}
           <div class="gauge">
             <div class="g-title">含み益率</div>
-            <div class="g-figure {% if u >= 0 %}pos{% else %}neg{% endif %}">
-              {% if mv > 0 %}¥{{ u|floatformat:0|intcomma }} / ¥{{ mv|floatformat:0|intcomma }}{% else %}—{% endif %}
-            </div>
-            <!-- ※ テンプレでは計算せずデータだけ渡し、JSで幅を計算 -->
-            <div class="g-bar">
-              <span data-profit data-u="{{ u }}" data-mv="{{ mv }}"></span>
-            </div>
+            {% if mv_s == 'Ellipsis' or u_s == 'Ellipsis' %}
+              <div class="g-figure">—</div>
+              <div class="g-bar"><span data-profit data-u="0" data-mv="0"></span></div>
+            {% else %}
+              {% with mv=b.market_value|default_if_none:0 u=b.unrealized_pl|default_if_none:0 %}
+                <div class="g-figure {% if u >= 0 %}pos{% else %}neg{% endif %}">
+                  {% if mv > 0 %}¥{{ u|floatformat:0|intcomma }} / ¥{{ mv|floatformat:0|intcomma }}{% else %}—{% endif %}
+                </div>
+                <div class="g-bar">
+                  <span data-profit data-u="{{ u }}" data-mv="{{ mv }}"></span>
+                </div>
+              {% endwith %}
+            {% endif %}
           </div>
           {% endwith %}
         </div>
