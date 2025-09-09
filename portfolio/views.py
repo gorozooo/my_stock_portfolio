@@ -84,7 +84,7 @@ from django.utils import timezone
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
-# ───────────────── フォールバック（既存が無くても動く） ─────────────────
+# ───────── フォールバック（無くても落ちないように） ─────────
 try:
     BROKER_TABS  # noqa: F401
 except NameError:
@@ -126,8 +126,7 @@ def _safe_int(x, default=0) -> int:
 def _safe_float(x, default=0.0) -> float:
     try:
         f = float(x)
-        # NaN 対策
-        return f if f == f else default
+        return f if f == f else default  # NaN→default
     except Exception:
         return default
 
@@ -140,7 +139,6 @@ def _model_has_user_field(model) -> bool:
 
 
 def _norm_broker_key(value: str) -> str:
-    """表示名／日本語／FK文字列化などを rakuten/matsui/sbi に寄せる。"""
     if not value:
         return ""
     s = str(value).strip().lower()
@@ -153,32 +151,31 @@ def _norm_broker_key(value: str) -> str:
     return ""
 
 
-def _acct_group(account_type: str, position: str) -> str:
-    """
-    'spot'   … 現物＋NISA（特定／一般／一般NISA／つみたてNISA 等）
-    'margin' … 信用（制度信用／一般信用）、売建は常に信用扱い
-    """
-    at = (account_type or "").upper()
-    pos = (position or "").lower()
+def _val_first(obj, names: list[str], default=None):
+    """objから候補フィールド名を順に見て最初にある値を返す"""
+    for n in names:
+        if hasattr(obj, n):
+            v = getattr(obj, n)
+            if v is not None and v != "":
+                return v
+    return default
 
-    # 売建は常に信用
-    if pos in ("売", "売り", "short"):
-        return "margin"
 
-    # 文字に「信」「CREDIT」「MARGIN」があれば信用
-    if any(k in at for k in ("信", "CREDIT", "MARGIN")):
-        return "margin"
-
-    # NISA/特定/一般 等は現物
-    if any(k in at for k in ("NISA", "特定", "一般", "つみたて")):
-        return "spot"
-
-    # account_type が無くても、買いなら現物に倒す
-    return "spot"
+def _bool_first(obj, names: list[str]) -> bool | None:
+    v = _val_first(obj, names, None)
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return v
+    s = str(v).strip().lower()
+    if s in ("1", "true", "yes", "y", "t"):
+        return True
+    if s in ("0", "false", "no", "n", "f"):
+        return False
+    return None
 
 
 def _stock_queryset_for_user(request):
-    """Stock が無い/ user フィールドが無い環境でも落ちない queryset/fallback を返す"""
     if not Stock:
         return []
     qs = Stock.objects.all()
@@ -187,15 +184,11 @@ def _stock_queryset_for_user(request):
     return qs
 
 
-# ────────────────── 手数料・税の取り込みヘルパ ────────────────────
+# ───────── 手数料・税の取り込み（フィールド名ぶれ吸収） ─────────
 def _extract_fees(obj) -> float:
-    """
-    モデル側に手数料／税がある場合は取り込む。
-    フィールド名の揺れに広めに対応。
-    """
     names = [
         "fee", "fees", "commission", "commissions",
-        "tax", "taxes", "stamp_tax", "other_fee",
+        "tax", "taxes", "stamp_tax", "other_fee", "broker_fee",
     ]
     total = 0.0
     for n in names:
@@ -204,61 +197,121 @@ def _extract_fees(obj) -> float:
     return max(total, 0.0)
 
 
-# ────────────────── 1銘柄の評価額・含み損益 ─────────────────────
-def _compute_position_metrics(stock_obj) -> dict:
+# ───────── 現物/信用・買い/売り 判定（多系統フィールド対応） ─────────
+def _detect_side(obj) -> tuple[str, bool]:
     """
-    【評価額】
-      - 現物/信用買: current * quantity
-      - 信用売（ショート）: current * quantity  ※評価“規模”として正数で持つ
-    【含み損益】
-      - ロング（買）: (current - unit) * quantity   （手数料はコストに加算）
-      - ショート（売）: (unit - current) * quantity  （手数料はコストから減算）
-    【コスト】
-      - total_cost があればそれを最優先で使用
-      - 無ければ unit * qty に手数料を加味
-        * ロング: cost = unit*qty + fees
-        * ショート: cost = unit*qty - fees  （売付受渡額から手数料控除）
+    return: (acct_group, is_short)
+      acct_group: "spot" or "margin"
+      is_short  : True(売建) / False(買 or 現物)
     """
-    qty_raw = getattr(stock_obj, "shares", 0)
-    qty = abs(_safe_float(qty_raw))  # モデルが負数量を持っていても絶対値で評価規模を出す
-    unit = _safe_float(getattr(stock_obj, "unit_price", 0.0))
-    current = _safe_float(
-        getattr(stock_obj, "current_price", unit if unit else 0.0),
-        unit if unit else 0.0
-    )
-    position = (getattr(stock_obj, "position", "買") or "").lower()
-    is_short = position in ("売", "売り", "short")
+    # 1) 明示フラグ優先
+    is_margin = _bool_first(obj, ["is_margin", "margin_flag", "is_credit", "credit_flag"])
+    is_short  = _bool_first(obj, ["is_short", "short_flag"])
+    side_str  = (_val_first(obj, ["side", "position", "pos"], "") or "").lower()
 
-    # コスト優先順位: total_cost > （unit*qty ± fees）
-    total_cost = getattr(stock_obj, "total_cost", None)
-    if total_cost is not None and total_cost != "":
-        cost = _safe_float(total_cost)
-        # total_cost が既に手数料込みのはずなのでそのまま採用
+    # 2) 文字列で side 判定
+    if is_short is None:
+        if any(k in side_str for k in ("short", "sell", "売", "売り", "売建")):
+            is_short = True
+        elif any(k in side_str for k in ("long", "buy", "買", "買い", "買建")):
+            is_short = False
+
+    # 3) 口座種別・信用種別で margin/spot 判定
+    acct_text = " ".join(
+        str(_val_first(obj, names, "") or "")
+        for names in [
+            ["account_type", "account", "account_category", "category", "kind"],
+            ["margin_type", "credit_type"],
+        ]
+    ).upper()
+
+    # NISA/特定/一般/つみたて → 基本 spot
+    if any(k in acct_text for k in ("NISA", "特定", "一般", "つみたて", "一般ＮＩＳＡ", "新ＮＩＳＡ", "成長", "つみたてＮＩＳＡ")):
+        acct_group = "spot"
+    # 信用ワード
+    elif any(k in acct_text for k in ("信", "MARGIN", "CREDIT", "制度", "一般信用")):
+        acct_group = "margin"
     else:
-        fees = _extract_fees(stock_obj)
-        if is_short:
-            cost = unit * qty - fees  # 売付受渡額（手数料控除後）
+        # 明示フラグがあれば従う
+        if is_margin is True:
+            acct_group = "margin"
+        elif is_margin is False:
+            acct_group = "spot"
         else:
-            cost = unit * qty + fees  # 取得原価（手数料加算）
+            # side 未判定なら現物に倒す
+            acct_group = "spot"
 
-    # 評価額（規模）
-    market_value = current * qty
+    # 売建は常に信用扱い
+    if is_short is True:
+        acct_group = "margin"
 
-    # 含み損益
+    # 最終補正：side 不明は False に倒す（現物/信用買）
+    return acct_group, bool(is_short)
+
+
+# ───────── 価格・コストの取得（候補フィールド横断） ─────────
+def _pick_current_price(obj) -> float:
+    return _safe_float(_val_first(obj, [
+        "current_price", "last_price", "price", "close_price", "market_price", "last",
+    ], 0.0))
+
+
+def _pick_unit_price(obj) -> float:
+    return _safe_float(_val_first(obj, [
+        "unit_price", "avg_price", "average_price", "average_cost", "book_unit_price", "cost_price",
+    ], 0.0))
+
+
+def _pick_quantity(obj) -> float:
+    q = _safe_float(_val_first(obj, [
+        "shares", "quantity", "qty", "units", "lot",
+    ], 0.0))
+    return abs(q)  # 評価規模は常に正値
+
+
+def _pick_cost(obj, unit: float, qty: float, is_short: bool) -> float:
+    """
+    優先順: total_cost → book_cost → book_value → average_cost/avg_price*qty → unit*qty
+    手数料は total_cost が無いときのみ加減算
+    """
+    # 優先: total_cost/book_cost/book_value
+    v = _val_first(obj, ["total_cost", "book_cost", "book_value"], None)
+    if v is not None:
+        return _safe_float(v)
+
+    avg = _safe_float(_val_first(obj, ["average_cost", "avg_cost", "avg_price", "average_price"], 0.0))
+    base = avg if avg > 0 else unit
+    gross = base * qty
+
+    fees = _extract_fees(obj)
     if is_short:
-        # (売付受渡額) - (現価での買戻し額)
-        unrealized = cost - current * qty
+        return gross - fees   # 売付受渡額（手数料控除）
+    return gross + fees       # 取得原価（手数料加算）
+
+
+# ───────── 1銘柄メトリクス（現物/信用・ロング/ショート対応） ─────────
+def _compute_position_metrics(stock_obj) -> dict:
+    acct_group, is_short = _detect_side(stock_obj)
+    qty = _pick_quantity(stock_obj)
+    unit = _pick_unit_price(stock_obj)
+    curr = _pick_current_price(stock_obj) or unit
+    cost = _pick_cost(stock_obj, unit, qty, is_short)
+
+    market_value = curr * qty  # 規模（ショートも正値）
+    if is_short:
+        unrealized = cost - curr * qty          # (売付受渡額) − (現価買戻し額)
     else:
-        # (現価での評価額) - (取得原価)
-        unrealized = current * qty - cost
+        unrealized = curr * qty - cost          # (評価額) − (取得原価)
 
     return {
+        "group": acct_group,        # "spot" or "margin"
+        "is_short": is_short,       # True/False
         "shares": qty,
         "unit_price": unit,
-        "current_price": current,
+        "current_price": curr,
+        "cost": cost,
         "market_value": market_value,
         "unrealized_pl": unrealized,
-        "is_short": is_short,
     }
 
 
@@ -276,16 +329,15 @@ def _top_positions(stocks, topn=5):
     return rows[:topn]
 
 
-# ───────────────────── 最近の動き（各社・全体） ────────────────────
+# ───────── 最近の動き（各社・全体） ─────────
 def _recent_for_broker(broker_key: str, request, limit=6):
     items = []
 
-    # 売買
     if RealizedProfit:
         q = RealizedProfit.objects.all()
         if _model_has_user_field(RealizedProfit):
             q = q.filter(user=request.user)
-        q = q.order_by("-date", "-id")[:200]
+        q = q.order_by("-date", "-id")[:300]
         for t in q:
             if _norm_broker_key(getattr(t, "broker", "")) != broker_key:
                 continue
@@ -301,12 +353,11 @@ def _recent_for_broker(broker_key: str, request, limit=6):
                 "memo": "",
             })
 
-    # 配当
     if Dividend:
         qd = Dividend.objects.all()
         if _model_has_user_field(Dividend):
             qd = qd.filter(user=request.user)
-        qd = qd.order_by("-received_at", "-id")[:200]
+        qd = qd.order_by("-received_at", "-id")[:300]
         for d in qd:
             if _norm_broker_key(getattr(d, "broker", "")) != broker_key:
                 continue
@@ -323,9 +374,10 @@ def _recent_for_broker(broker_key: str, request, limit=6):
                 "memo": getattr(d, "memo", "") or "",
             })
 
-    # 現金
     if CashFlow:
         qc = CashFlow.objects.all().order_by("-occurred_at", "-id")[:300]
+        if _model_has_user_field(CashFlow):
+            qc = qc.filter(user=request.user)
         for c in qc:
             bkey = _norm_broker_key(getattr(c, "broker", ""))
             if bkey != broker_key:
@@ -351,7 +403,6 @@ def _recent_all(request, days: int | None):
     horizon = timezone.localdate() - timedelta(days=days) if isinstance(days, int) else None
     rows = []
 
-    # 売買
     if RealizedProfit:
         q = RealizedProfit.objects.all()
         if _model_has_user_field(RealizedProfit):
@@ -371,7 +422,6 @@ def _recent_all(request, days: int | None):
                 "memo": "",
             })
 
-    # 配当
     if Dividend:
         qd = Dividend.objects.all()
         if _model_has_user_field(Dividend):
@@ -392,9 +442,10 @@ def _recent_all(request, days: int | None):
                 "memo": getattr(d, "memo", "") or "",
             })
 
-    # 現金
     if CashFlow:
         qc = CashFlow.objects.all()
+        if _model_has_user_field(CashFlow):
+            qc = qc.filter(user=request.user)
         if horizon:
             qc = qc.filter(occurred_at__gte=horizon)
         qc = qc.order_by("-occurred_at", "-id")[:300]
@@ -417,23 +468,19 @@ def _recent_all(request, days: int | None):
 @login_required
 def main_page(request):
     """
-    ダッシュボード（main.html 向けコンテキストを完全整備）
-    - 現物（現物＋NISA）と信用（買建／売建）を厳密に分離
-    - 含み損益はロング/ショートの正しい式で算出（手数料も考慮）
+    - 現物（現物＋NISA）と信用（買建／売建）を確実に分離
+    - P/L はロング/ショートで式を分ける（手数料も考慮）
+    - 価格/数量/コストは候補フィールドを総当たりで取得
     - ブローカー名は正規化
-    - モデル欠損でも落ちない
     """
-    # タブ
     broker_tabs = BROKER_TABS
     active_broker = request.GET.get("broker") or "rakuten"
     if active_broker not in dict(broker_tabs):
         active_broker = "rakuten"
 
     # ===== 保有集計 =====
-    spot_mv = 0.0           # 現物＋NISA 評価額
-    margin_mv = 0.0         # 信用（買建＋売建）評価額（規模）
-    spot_upl = 0.0          # 現物＋NISA 含み損益
-    margin_upl = 0.0        # 信用 含み損益
+    spot_mv = margin_mv = 0.0
+    spot_upl = margin_upl = 0.0
 
     holdings_count_by_broker = defaultdict(int)
     market_value_by_broker = defaultdict(float)
@@ -443,16 +490,13 @@ def main_page(request):
     qs = _stock_queryset_for_user(request)
     for s in qs:
         m = _compute_position_metrics(s)
-        group = _acct_group(getattr(s, "account_type", "") or "", getattr(s, "position", "") or "")
-
-        if group == "spot":
+        if m["group"] == "spot":
             spot_mv += m["market_value"]
             spot_upl += m["unrealized_pl"]
         else:
             margin_mv += m["market_value"]
             margin_upl += m["unrealized_pl"]
 
-        # ブローカー別集計
         braw = getattr(s, "broker", "")
         if hasattr(braw, "name"):
             braw = getattr(braw, "name", "")
@@ -463,7 +507,7 @@ def main_page(request):
             upl_by_broker[bkey] += m["unrealized_pl"]
             stocks_by_broker[bkey].append(s)
 
-    # ===== 現金残高（入出金差） =====
+    # ===== 現金残高 =====
     broker_balances = {"rakuten": 0, "matsui": 0, "sbi": 0}
     cash_total = 0
     if CashFlow:
@@ -483,7 +527,7 @@ def main_page(request):
 
     # ===== 総資産・前日比 =====
     total_assets = spot_mv + margin_mv + cash_total
-    day_change = 0  # 履歴が無い環境は 0
+    day_change = 0
     target_assets = 0
 
     # ===== ブローカー統計・上位ポジション =====
@@ -505,14 +549,14 @@ def main_page(request):
         "sbi": _top_positions(stocks_by_broker.get("sbi", []), 5),
     }
 
-    # ===== ブローカー別 最近の動き =====
+    # ===== 最近の動き =====
     recent_by_broker = {
         "rakuten": _recent_for_broker("rakuten", request),
         "matsui": _recent_for_broker("matsui", request),
         "sbi": _recent_for_broker("sbi", request),
     }
 
-    # ===== 実現損益 KPI（配当を加味するかは仕様次第。ここでは加味） =====
+    # ===== 実現損益（配当加味） =====
     realized_pl_mtd = realized_pl_ytd = realized_pl_total = 0
     today = timezone.localdate()
     first_m = today.replace(day=1)
@@ -525,9 +569,9 @@ def main_page(request):
         agg_total = base.aggregate(s=Sum("profit_amount"))
         agg_mtd = base.filter(date__gte=first_m).aggregate(s=Sum("profit_amount"))
         agg_ytd = base.filter(date__gte=first_y).aggregate(s=Sum("profit_amount"))
-        realized_pl_total = _safe_int(agg_total.get("s", 0))
-        realized_pl_mtd = _safe_int(agg_mtd.get("s", 0))
-        realized_pl_ytd = _safe_int(agg_ytd.get("s", 0))
+        realized_pl_total += _safe_int(agg_total.get("s", 0))
+        realized_pl_mtd   += _safe_int(agg_mtd.get("s", 0))
+        realized_pl_ytd   += _safe_int(agg_ytd.get("s", 0))
 
     if Dividend:
         dq = Dividend.objects.all()
@@ -543,45 +587,39 @@ def main_page(request):
             return s
 
         realized_pl_total += _div_sum(dq)
-        realized_pl_mtd += _div_sum(dq.filter(received_at__gte=first_m))
-        realized_pl_ytd += _div_sum(dq.filter(received_at__gte=first_y))
+        realized_pl_mtd   += _div_sum(dq.filter(received_at__gte=first_m))
+        realized_pl_ytd   += _div_sum(dq.filter(received_at__gte=first_y))
 
-    # ===== スパークライン（無い環境はフラット） =====
+    # ===== スパークライン（無ければフラット） =====
     try:
         asset_history_csv = ",".join([str(int(round(total_assets)))] * 30)
     except Exception:
         asset_history_csv = ""
 
-    # ===== 最近のアクティビティ（全体） =====
+    # ===== 最近アクティビティ（全体） =====
     rng = (request.GET.get("range") or "7").lower()
     days = {"7": 7, "30": 30, "90": 90}.get(rng)
     recent_activities = _recent_all(request, days)
 
     # ===== コンテキスト =====
     ctx = dict(
-        # ヒーロー
         total_assets=total_assets,
         day_change=day_change,
         target_assets=target_assets,
 
-        # 評価額と現金（← ここが “現物＋NISA / 信用” に分離）
-        spot_market_value=spot_mv,       # 現物＋NISA
-        margin_market_value=margin_mv,   # 信用（買建＋売建）
-        cash_total=cash_total,
-
-        # 含み損益（分離 + 合計）
-        spot_unrealized_pl=spot_upl,
-        margin_unrealized_pl=margin_upl,
+        # ← テンプレで使えるよう分離して渡す
+        spot_market_value=spot_mv,        # 現物＋NISA 評価額
+        margin_market_value=margin_mv,    # 信用 評価額
+        spot_unrealized_pl=spot_upl,      # 現物＋NISA 含み損益
+        margin_unrealized_pl=margin_upl,  # 信用 含み損益
         unrealized_pl_total=spot_upl + margin_upl,
 
-        # 既存テンプレ互換（必要なら参照される）
+        # 互換（既存の main.html が参照していても動くように）
         portfolio_value=spot_mv + margin_mv,
         unrealized_pl=spot_upl + margin_upl,
 
-        # sparkline
         asset_history_csv=asset_history_csv,
 
-        # ブローカータブ
         broker_tabs=broker_tabs,
         active_broker=active_broker,
         broker_balances=broker_balances,
@@ -589,17 +627,15 @@ def main_page(request):
         top_positions_by_broker=top_positions_by_broker,
         recent_by_broker=recent_by_broker,
 
-        # 実現損益 KPI
         realized_pl_mtd=realized_pl_mtd,
         realized_pl_ytd=realized_pl_ytd,
         realized_pl_total=realized_pl_total,
 
-        # タイムライン
         recent_activities=recent_activities,
     )
-    return render(request, "main.html", ctx)
+    return render(request, "main.html", ctx)    
     
-    # -----------------------------
+# -----------------------------
 # 認証（関数本体は変更なし）
 # -----------------------------
 def login_view(request):
