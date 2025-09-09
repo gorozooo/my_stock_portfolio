@@ -877,6 +877,58 @@ def stock_fundamental_json(request, pk: int):
     }
     return JsonResponse(data)
 
+@login_required
+@require_GET
+def stock_overview_json(request, pk: int):
+    """
+    概要タブの軽量JSON。
+    - DB値を返すが、from_card_current が来ていて > 0 の場合は current_price をそれで上書き
+    - 取得額/評価額/損益も一貫計算
+    """
+    stock = get_object_or_404(Stock, pk=pk)
+
+    # カード側で見えている現在株価（data-current_price）を優先的に採用
+    from_card = request.GET.get("from_card_current")
+    try:
+        from_card_val = float(from_card) if from_card is not None else 0.0
+    except (TypeError, ValueError):
+        from_card_val = 0.0
+
+    # ベースはDB
+    shares = int(stock.shares or 0)
+    unit_price = float(stock.unit_price or 0)
+    db_current = float(stock.current_price or 0)
+    current_price = from_card_val if from_card_val > 0 else db_current
+
+    # 取得額（保険で再計算）
+    total_cost = float(stock.total_cost or (shares * unit_price))
+
+    # 評価額と損益（買い/売りで式が異なる）
+    market_value = current_price * shares
+    if stock.position == "売り":
+        profit_loss = (unit_price - current_price) * shares
+    else:
+        profit_loss = market_value - total_cost
+
+    data = {
+        "id": stock.id,
+        "name": stock.name,
+        "ticker": stock.ticker,
+        "broker": stock.broker,
+        "account_type": stock.account_type,
+        "position": stock.position,
+        "purchase_date": stock.purchase_date.isoformat() if stock.purchase_date else None,
+        "shares": shares,
+        "unit_price": unit_price,
+        "current_price": current_price,  # ← カード値で上書きされ得る
+        "total_cost": total_cost,
+        "market_value": market_value,
+        "profit_loss": profit_loss,
+        "note": stock.note or "",
+        "updated_at": stock.updated_at.isoformat() if stock.updated_at else None,
+    }
+    return JsonResponse(data)
+
 
 # --- ニュース JSON（既存のまま / 型補助） ---
 class NewsItemDict(TypedDict, total=False):
