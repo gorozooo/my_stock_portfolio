@@ -25,6 +25,8 @@ from .forms import SettingsPasswordForm
 from .utils import get_bottom_tabs
 from django.template.loader import get_template
 import re
+from datetime import datetime, timedelta
+
 
 # -----------------------------
 # 共通コンテキスト
