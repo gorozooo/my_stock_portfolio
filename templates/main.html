@@ -35,9 +35,9 @@
       </div>
       <div class="asset-sub">
         <span>前日比</span>
-        {% with _dc=day_change|default_if_none:0 %}
-        <strong class="pn {% if _dc >= 0 %}pos{% else %}neg{% endif %}">
-          {% if _dc >= 0 %}+{% endif %}¥{{ _dc|floatformat:0|intcomma }}
+        {% with dc_val=day_change|default_if_none:0 %}
+        <strong class="pn {% if dc_val >= 0 %}pos{% else %}neg{% endif %}">
+          {% if dc_val >= 0 %}+{% endif %}¥{{ dc_val|floatformat:0|intcomma }}
         </strong>
         {% endwith %}
       </div>
@@ -53,10 +53,10 @@
         <span class="v">¥{{ cash_total|default_if_none:0|floatformat:0|intcomma }}</span>
       </div>
       <div class="mini">
-        {% with _upl=unrealized_pl|default_if_none:0 %}
+        {% with upl_val=unrealized_pl|default_if_none:0 %}
         <span class="k">含み損益</span>
-        <span class="v {% if _upl >= 0 %}pos{% else %}neg{% endif %}">
-          {% if _upl >= 0 %}+{% endif %}¥{{ _upl|floatformat:0|intcomma }}
+        <span class="v {% if upl_val >= 0 %}pos{% else %}neg{% endif %}">
+          {% if upl_val >= 0 %}+{% endif %}¥{{ upl_val|floatformat:0|intcomma }}
         </span>
         {% endwith %}
       </div>
@@ -134,29 +134,29 @@
   {# ===== 実現損益（今月 / 今年 / 累計） ===== #}
   <section class="realized card">
     <div class="grid3">
-      {% with _m=realized_pl_mtd|default_if_none:0 %}
+      {% with mtd_val=realized_pl_mtd|default_if_none:0 %}
       <div class="kpi">
         <div class="k">今月の実現損益</div>
-        <div class="v pn {% if _m >= 0 %}pos{% else %}neg{% endif %}">
-          {% if _m >= 0 %}+{% endif %}¥{{ _m|floatformat:0|intcomma }}
+        <div class="v pn {% if mtd_val >= 0 %}pos{% else %}neg{% endif %}">
+          {% if mtd_val >= 0 %}+{% endif %}¥{{ mtd_val|floatformat:0|intcomma }}
         </div>
       </div>
       {% endwith %}
 
-      {% with _y=realized_pl_ytd|default_if_none:0 %}
+      {% with ytd_val=realized_pl_ytd|default_if_none:0 %}
       <div class="kpi">
         <div class="k">今年の実現損益</div>
-        <div class="v pn {% if _y >= 0 %}pos{% else %}neg{% endif %}">
-          {% if _y >= 0 %}+{% endif %}¥{{ _y|floatformat:0|intcomma }}
+        <div class="v pn {% if ytd_val >= 0 %}pos{% else %}neg{% endif %}">
+          {% if ytd_val >= 0 %}+{% endif %}¥{{ ytd_val|floatformat:0|intcomma }}
         </div>
       </div>
       {% endwith %}
 
-      {% with _t=realized_pl_total|default_if_none:0 %}
+      {% with total_val=realized_pl_total|default_if_none:0 %}
       <div class="kpi">
         <div class="k">累計の実現損益</div>
-        <div class="v pn {% if _t >= 0 %}pos{% else %}neg{% endif %}">
-          {% if _t >= 0 %}+{% endif %}¥{{ _t|floatformat:0|intcomma }}
+        <div class="v pn {% if total_val >= 0 %}pos{% else %}neg{% endif %}">
+          {% if total_val >= 0 %}+{% endif %}¥{{ total_val|floatformat:0|intcomma }}
         </div>
       </div>
       {% endwith %}
@@ -187,16 +187,16 @@
                 <span class="tmain">
                   {% if a.kind == 'trade' %}
                     {{ a.ticker }} {{ a.name }} /
-                    {% with _p=a.pnl|default_if_none:0 %}
-                      {% if _p >= 0 %}+{% endif %}¥{{ _p|floatformat:0|intcomma }}
+                    {% with pnl_val=a.pnl|default_if_none:0 %}
+                      {% if pnl_val >= 0 %}+{% endif %}¥{{ pnl_val|floatformat:0|intcomma }}
                     {% endwith %}
                   {% elif a.kind == 'dividend' %}
                     配当 {{ a.ticker }} {{ a.name }} /
                     受取 ¥{{ a.net|default_if_none:0|floatformat:0|intcomma }}
                   {% elif a.kind == 'cash' %}
-                    {% with _amt=a.amount|default_if_none:0 %}
+                    {% with amt_val=a.amount|default_if_none:0 %}
                       現金 {{ a.broker_label }} /
-                      {% if a.flow == 'in' %}+{% else %}-{% endif %}¥{{ _amt|floatformat:0|intcomma }}
+                      {% if a.flow == 'in' %}+{% else %}-{% endif %}¥{{ amt_val|floatformat:0|intcomma }}
                     {% endwith %}
                   {% endif %}
                 </span>
