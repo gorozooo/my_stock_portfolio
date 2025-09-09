@@ -38,69 +38,70 @@ def bottom_tabs_context(request):
 # -----------------------------
 # メイン画面
 # -----------------------------
-# views.py（例）
-from django.shortcuts import render
-from django.db.models import Sum, F
+# views.py（参考）
+from django.contrib.auth.decorators import login_required
 from django.utils import timezone
-from collections import defaultdict
+from datetime import timedelta
 
+@login_required
 def main_page(request):
-    # それっぽいダミー（実装はあなたの集計に置き換え）
-    total_assets = 1_234_567
-    day_change = 12_345
-    portfolio_value = 987_654
-    cash_total = 246_810
-    unrealized_pl = 35_000
+    # ここは既存の集計から実値を入れてください
+    total_assets       = your_total_assets_calc(request.user)
+    day_change         = your_day_change_calc(request.user)
+    portfolio_value    = your_portfolio_value_calc(request.user)
+    cash_total         = your_cash_total_calc(request.user)
+    unrealized_pl      = your_unrealized_pl_calc(request.user)
+    asset_history_csv  = your_history_csv(request.user)  # "100,102,98,..."の形式
+    target_assets      = 0  # 目標があれば数値、無ければ0でOK
 
-    # カンマ区切りの履歴（スパークライン）
-    asset_history_csv = "1200000,1215000,1208000,1223000,1234567"
-
-    broker_tabs = [("rakuten", "楽天証券"), ("matsui", "松井証券"), ("sbi", "SBI証券")]
-    active_broker = "rakuten"
-
-    broker_balances = {"rakuten": 100000, "matsui": 50000, "sbi": 96810}
-    broker_stats = {
-        "rakuten": {"holdings_count": 5, "market_value": 450000},
-        "matsui":  {"holdings_count": 2, "market_value": 120000},
-        "sbi":     {"holdings_count": 1, "market_value": 417654},
-    }
-    top_positions_by_broker = {
-        "rakuten": [
-            {"ticker":"7203","name":"トヨタ","shares":100,"market_value":250000},
-            {"ticker":"9432","name":"NTT","shares":200,"market_value":120000},
-        ]
-    }
-
-    realized_pl_mtd = 12345
-    realized_pl_ytd = 67890
-    realized_pl_total = 123456
-
-    # 最近の統合アクティビティ（trade / dividend / cash）
-    recent_activities = [
-        {"kind":"trade","kind_label":"売却","date":timezone.now(), "ticker":"7203","name":"トヨタ","pnl": 8000, "memo":""},
-        {"kind":"dividend","kind_label":"配当","date":timezone.now(), "ticker":"9432","name":"NTT","net": 3500, "memo":"期末配当"},
-        {"kind":"cash","kind_label":"現金","date":timezone.now(), "broker_label":"楽天証券","flow":"in","amount":10000,"memo":"入金"},
+    # 証券会社データ（例）
+    brokers = [
+      {
+        "key":"rakuten","label":"楽天証券",
+        "balance":  your_balance("rakuten", request.user),
+        "holdings_count": your_holdings_count("rakuten", request.user),
+        "market_value":   your_market_value("rakuten", request.user),
+        "unrealized_pl":  your_unrealized_pl("rakuten", request.user),
+        "top_positions":  your_top_positions("rakuten", request.user),  # [{ticker,name,shares,market_value},...]
+        "recent":         your_recent_activities("rakuten", request.user) # [{date,kind,sign,amount,...}]
+      },
+      {
+        "key":"matsui","label":"松井証券",
+        "balance":  ...,
+        "holdings_count": ...,
+        "market_value":   ...,
+        "unrealized_pl":  ...,
+        "top_positions":  ...,
+        "recent":         ...
+      },
+      {
+        "key":"sbi","label":"SBI証券",
+        "balance":  ...,
+        "holdings_count": ...,
+        "market_value":   ...,
+        "unrealized_pl":  ...,
+        "top_positions":  ...,
+        "recent":         ...
+      },
     ]
 
+    # グローバル最近のアクティビティ（rangeクエリ対応）
+    rng = request.GET.get("range","7")
+    since = {"7":7,"30":30,"90":90}.get(rng)
+    recent_activities = your_recent_all(request.user, days=since)  # list[{date,kind,sign,amount,...}]
+
     ctx = dict(
-        total_assets=total_assets,
-        day_change=day_change,
-        portfolio_value=portfolio_value,
-        cash_total=cash_total,
-        unrealized_pl=unrealized_pl,
-        asset_history_csv=asset_history_csv,
-        broker_tabs=broker_tabs,
-        active_broker=active_broker,
-        broker_balances=broker_balances,
-        broker_stats=broker_stats,
-        top_positions_by_broker=top_positions_by_broker,
-        realized_pl_mtd=realized_pl_mtd,
-        realized_pl_ytd=realized_pl_ytd,
-        realized_pl_total=realized_pl_total,
+        total_assets=total_assets, day_change=day_change,
+        portfolio_value=portfolio_value, cash_total=cash_total,
+        unrealized_pl=unrealized_pl, asset_history_csv=asset_history_csv,
+        target_assets=target_assets,
+        brokers=brokers,
+        realized_pl_mtd=your_realized_mtd(request.user),
+        realized_pl_ytd=your_realized_ytd(request.user),
+        realized_pl_total=your_realized_total(request.user),
         recent_activities=recent_activities,
     )
     return render(request, "main.html", ctx)
-
 
 # -----------------------------
 # 認証
