@@ -1,10 +1,4 @@
 /* === Glass × Dark – Mobile-first (Futuristic, spacious & vivid) === */
-/* 目的：
-   - スマホ優先で“詰まりすぎ”を解消（余白/行間/タップ領域UP）
-   - 横スクロールが必要な領域は安全にオーバーフロー制御
-   - タブ/表/タイムラインの可読性改善
-   - 見た目の派手さは維持しつつ、崩れを最小化
-*/
 *,*::before,*::after{box-sizing:border-box}
 :root{
   --bg:#050914;
@@ -20,19 +14,18 @@
   --glass-strong:rgba(255,255,255,.16);
   --glass-line:rgba(255,255,255,.28);
 
-  /* ゆとりあるスケール（モバイル基準） */
   --radius-s:12px;
   --radius-m:14px;
   --radius-l:18px;
 
-  --space-1:8px;   /* ちいさめ余白 */
-  --space-2:12px;  /* 標準余白（モバイル） */
-  --space-3:16px;  /* セクション間 */
-  --space-4:20px;  /* 大きめ */
-  --space-5:28px;  /* ヒーロー/カード外縁 */
+  --space-1:8px;
+  --space-2:12px;
+  --space-3:16px;
+  --space-4:20px;
+  --space-5:28px;
 
-  --tap:48px;      /* 最小タップ領域 */
-  --bw:1px;        /* 線の太さ（端末DPRで十分濃い） */
+  --tap:48px;
+  --bw:1px;
 }
 
 html{
@@ -66,7 +59,7 @@ body{
   margin:0 auto;
 }
 
-/* ─── 共通カード ───────────────────────────────────────── */
+/* ─── Cards ───────────────────────────────────────── */
 .card{
   background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02));
   border:var(--bw) solid var(--glass-line);
@@ -80,18 +73,9 @@ body{
 .card > *:first-child{margin-top:0}
 .card > *:last-child{margin-bottom:0}
 
-/* セクション見出しライン（過度なズレを抑制） */
-.card::before{
-  content:"";
-  display:block;
-  height:3px;
-  border-radius:999px;
-  margin:-6px 0 var(--space-3);
-  background:linear-gradient(90deg,rgba(96,165,250,.85),rgba(139,92,246,.75));
-  filter:drop-shadow(0 0 14px rgba(96,165,250,.45));
-}
+/* ★ 不要な上部の1本線を削除：.card::before を廃止 */
 
-/* ─── メッセージ ─────────────────────────────────────── */
+/* ─── Messages ───────────────────────────────────── */
 .msgs{list-style:none;padding:0;margin:0 0 var(--space-3)}
 .msg{
   padding:12px 14px;
@@ -101,7 +85,7 @@ body{
   margin:10px 0;
 }
 
-/* ─── ボタン ─────────────────────────────────────────── */
+/* ─── Buttons ─────────────────────────────────────── */
 .btn{
   display:inline-flex;align-items:center;gap:10px;
   min-height:var(--tap);
@@ -118,11 +102,17 @@ body{
   text-decoration:underline;text-underline-offset:4px
 }
 
-/* ─── ヒーロー ───────────────────────────────────────── */
+/* ─── Hero ───────────────────────────────────────── */
 .hero{display:flex;flex-direction:column;gap:var(--space-4)}
-.hero-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);flex-wrap:wrap}
-.hero-title{font-weight:1000;letter-spacing:.02em;margin:0;font-size:clamp(18px,4.8vw,26px)}
-.hero-actions{display:flex;gap:10px;flex-wrap:wrap}
+.hero-head{
+  display:flex;align-items:center;justify-content:center; /* ★ 中央寄せ */
+  gap:var(--space-2);flex-wrap:wrap;text-align:center;
+}
+.hero-actions{display:none} /* ★ ボタンを隠す */
+.hero-title{
+  font-weight:1000;letter-spacing:.02em;margin:0;
+  font-size:clamp(20px,5vw,28px);
+}
 
 .hero-grid{display:grid;grid-template-columns:1fr;gap:var(--space-4)}
 @media(min-width:720px){.hero-grid{grid-template-columns:min(280px,40%) 1fr}}
@@ -132,7 +122,7 @@ body{
   width:min(280px,76vw);
   aspect-ratio:1/1;
   margin:auto;
-  contain:layout paint; /* レイアウト負荷抑制 */
+  contain:layout paint;
 }
 .ring-svg{width:100%;height:100%;transform:rotate(-90deg)}
 .ring .bg{fill:none;stroke:rgba(255,255,255,.18);stroke-width:14}
@@ -146,16 +136,12 @@ body{
   align-items:center;justify-content:center;text-align:center;padding:8px
 }
 .ring-title{font-size:12px;color:var(--muted);letter-spacing:.10em;text-transform:uppercase}
-.ring-figure{font-size:30px;font-weight:1000;letter-spacing:.01em;margin-top:6px;font-variant-numeric:tabular-nums}
-.ring-sub{margin-top:6px;font-size:13px;color:var(--muted)}
+.ring-figure{font-size:32px;font-weight:1000;letter-spacing:.01em;margin-top:8px;font-variant-numeric:tabular-nums}
+.ring-sub{margin-top:8px;font-size:13px;color:var(--muted)}
 .pn.pos{color:var(--good)} .pn.neg{color:var(--bad)}
 
 .hero-right{display:flex;flex-direction:column;gap:var(--space-3)}
-.kpi-row{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:var(--space-2);
-}
+.kpi-row{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2)}
 @media(min-width:420px){.kpi-row{grid-template-columns:1fr 1fr 1fr}}
 .mini{
   background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.04));
@@ -167,6 +153,7 @@ body{
 .mini .k{font-size:12px;color:var(--muted);letter-spacing:.02em}
 .mini .v{font-weight:1000;font-variant-numeric:tabular-nums;font-size:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
+/* スパークライン：データが無い時はJSでdisplay:noneに */
 .sparkline{
   height:84px;border-radius:16px;
   background:var(--glass-weak);
@@ -181,7 +168,7 @@ body{
   filter:blur(6px);opacity:.7
 }
 
-/* ─── タブ（証券会社） ─────────────────────────────── */
+/* ─── Tabs (brokers) ───────────────────────────── */
 .tabs{
   display:flex;gap:10px;justify-content:flex-start;flex-wrap:nowrap;
   overflow:auto; padding-bottom:6px; margin-bottom:var(--space-3);
@@ -207,7 +194,7 @@ body{
 .panes .pane{display:none}
 .panes .pane.active{display:block}
 
-/* ─── ペイン先頭 + ピル群 ─────────────────────────── */
+/* ─── Pane head & pills ─────────────────────────── */
 .pane-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:var(--space-3);flex-wrap:wrap}
 .pane-brand{display:flex;align-items:center;gap:12px}
 .logo{
@@ -219,10 +206,7 @@ body{
 .pane-balance .k{font-size:12px;color:var(--muted)}
 .pane-balance .v{font-weight:1000;font-variant-numeric:tabular-nums;font-size:18px}
 
-.pill-row{
-  display:grid;gap:var(--space-2);
-  grid-template-columns:1fr 1fr;
-}
+.pill-row{display:grid;gap:var(--space-2);grid-template-columns:1fr 1fr}
 @media(min-width:520px){.pill-row{grid-template-columns:repeat(3,1fr)}}
 .pill{
   background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.04));
@@ -231,11 +215,11 @@ body{
 .pill .k{font-size:12px;color:var(--muted)}
 .pill .v{font-weight:1000;font-variant-numeric:tabular-nums;font-size:16px}
 
-/* ─── 2カラム分割 ───────────────────────────────────── */
+/* ─── Split ─────────────────────────────────────── */
 .panel-split{display:grid;grid-template-columns:1fr;gap:var(--space-3);margin-top:var(--space-3)}
 @media(min-width:900px){.panel-split{grid-template-columns:1fr 1fr}}
 
-/* ─── テーブル（保有銘柄） ─────────────────────────── */
+/* ─── Table ─────────────────────────────────────── */
 .table-wrap{
   overflow:auto;border-radius:16px;border:var(--bw) solid var(--glass-line);
   background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.04));
@@ -243,7 +227,6 @@ body{
 }
 .tbl{
   width:100%;border-collapse:separate;border-spacing:0;
-  /* モバイルでも崩さない：最低幅をやや控えめに */
   min-width:560px;
 }
 .tbl thead th{
@@ -259,7 +242,7 @@ body{
 .tbl tbody tr:hover{background:rgba(255,255,255,.05)}
 .tbl tr:last-child td{border-bottom:none}
 
-/* ─── ブローカー別ミニアクティビティ ─────────────── */
+/* ─── Mini activity ─────────────────────────────── */
 .mini-activity{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
 .arow{
   display:grid;grid-template-columns:70px 1fr auto;
@@ -279,7 +262,7 @@ body{
 .small{font-size:12px;color:var(--muted)}
 .empty{color:rgba(255,255,255,.92);text-align:center;padding:12px}
 
-/* ─── ゲージ（バー） ───────────────────────────────── */
+/* ─── Gauges ────────────────────────────────────── */
 .gauges{display:grid;grid-template-columns:1fr;gap:var(--space-3);margin-top:var(--space-3)}
 @media(min-width:780px){.gauges{grid-template-columns:1fr 1fr 1fr}}
 .gauge{
@@ -296,7 +279,7 @@ body{
   box-shadow:0 0 16px rgba(96,165,250,.55), 0 0 20px rgba(139,92,246,.45)
 }
 
-/* ─── 実現損益 KPI ─────────────────────────────────── */
+/* ─── Realized KPI ───────────────────────────────── */
 .grid3{display:grid;grid-template-columns:1fr;gap:var(--space-3)}
 @media(min-width:680px){.grid3{grid-template-columns:1fr 1fr 1fr}}
 .kpi{
@@ -307,7 +290,7 @@ body{
 .kpi .v{font-weight:1000;font-size:20px;font-variant-numeric:tabular-nums}
 .kpi .v.pos{color:var(--good)} .kpi .v.neg{color:var(--bad)}
 
-/* ─── 全体アクティビティ（タイムライン） ───────────── */
+/* ─── Timeline ──────────────────────────────────── */
 .activity-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-2);gap:10px;flex-wrap:wrap}
 .chips{display:flex;gap:10px;flex-wrap:wrap;overflow:auto;-webkit-overflow-scrolling:touch}
 .chip{
@@ -341,7 +324,7 @@ body{
 .tmain{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tmemo{color:var(--muted);font-size:12px}
 
-/* ─── ユーティリティ ───────────────────────────────── */
+/* ─── Utils ─────────────────────────────────────── */
 .pn{font-variant-numeric:tabular-nums}
 .nowrap{white-space:nowrap}
 .clip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -350,7 +333,7 @@ body{
   clip:rect(0,0,0,0);white-space:nowrap;border:0
 }
 
-/* スクロールバー控えめ */
+/* Scrollbars */
 @supports selector(::-webkit-scrollbar){
   .table-wrap::-webkit-scrollbar{height:10px}
   .table-wrap::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:999px}
@@ -358,7 +341,7 @@ body{
   .tabs::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:999px}
 }
 
-/* ─── さりげない発光（Reduced Motionなら停止） ───────── */
+/* 微発光 */
 @keyframes glowPulse{
   0%{box-shadow:0 0 0 rgba(96,165,250,0)}
   50%{box-shadow:0 0 24px rgba(96,165,250,.38)}
