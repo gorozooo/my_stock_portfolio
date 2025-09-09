@@ -1,152 +1,98 @@
-// main.js – Tab UI / Ring / Spark / Gauges / Activity filter
-document.addEventListener('DOMContentLoaded', () => {
-  initBrokerTabs();
-  initRing();
-  initSparkline();
-  initGauges();
-  initActivityFilters();
+// ===== Tabs (broker) =====
+document.addEventListener('click', (e) => {
+  const tab = e.target.closest('.tab');
+  if (!tab) return;
+
+  const key = tab.dataset.tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+
+  tab.classList.add('active');
+  const pane = document.getElementById(`pane-${key}`);
+  if (pane) pane.classList.add('active');
 });
 
-/* ========== Tabs (brokers) ========== */
-function initBrokerTabs(){
-  const tabs  = document.querySelectorAll('.brokers .tabs .tab');
-  const panes = document.querySelectorAll('.brokers .panes .pane');
-  if(!tabs.length) return;
+// ===== Range chips (recent activities) =====
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip');
+  if (!chip) return;
+  const range = chip.dataset.range;
+  const url = new URL(window.location.href);
+  if (range === 'all') {
+    url.searchParams.set('range', 'all');
+  } else {
+    url.searchParams.set('range', range);
+  }
+  window.location.href = url.toString();
+});
 
-  tabs.forEach(tab=>{
-    tab.addEventListener('click',()=>{
-      const key = tab.dataset.tab;
-      tabs.forEach(t=>{t.classList.remove('active'); t.setAttribute('aria-selected','false')});
-      panes.forEach(p=>p.classList.remove('active'));
-      tab.classList.add('active'); tab.setAttribute('aria-selected','true');
-      const pane = document.getElementById(`pane-${key}`);
-      if(pane) pane.classList.add('active');
-    });
-  });
-}
-
-/* ========== Hero ring progress ========== */
-function initRing() {
-  const ring = document.querySelector('.ring');
-  if (!ring) return;
-
-  const svg = ring.querySelector('svg');
-  const fg  = svg.querySelector('.fg');
-  const r   = 50; // viewBox半径
-  const C   = 2 * Math.PI * r;
-  fg.style.strokeDasharray = `${C} ${C}`;
-
-  const val = toNumber(ring.dataset.value);
-  const maxRaw = toNumber(ring.dataset.max);
-  const max = maxRaw > 0 ? maxRaw : (val > 0 ? val : 1);
-
-  const pct = Math.max(0, Math.min(1, val / max));
-  const targetOffset = C * (1 - pct);
-
-  animateStrokeOffset(fg, targetOffset, 900);
-}
-
-function animateStrokeOffset(el, target, dur=900){
-  const C = parseFloat(el.style.strokeDasharray.split(' ')[0]) || 314;
-  let t=0; const start = performance.now();
-  requestAnimationFrame(function tick(now){
-    t = Math.min(1,(now-start)/dur);
-    const eased = easeOutCubic(t);
-    const current = C - (C - target) * eased;
-    el.style.strokeDashoffset = current;
-    if(t<1) requestAnimationFrame(tick);
-  });
-}
-
-function easeOutCubic(x){ return 1 - Math.pow(1 - x, 3); }
-function toNumber(x){ const n = Number(String(x||'').replace(/[^\d.-]/g,'')); return isFinite(n) ? n : 0; }
-
-/* ========== Sparkline (inline SVG) ========== */
-function initSparkline() {
+// ===== Sparkline (asset history) =====
+(function renderSpark() {
   const el = document.getElementById('assetSpark');
   if (!el) return;
+  const raw = (el.getAttribute('data-points') || '').trim();
+  if (!raw) { el.textContent = 'データなし'; return; }
 
-  const csv = (el.dataset.points || '').trim();
-  if (!csv) { el.innerHTML = '<svg viewBox="0 0 320 60"></svg>'; return; }
-
-  const nums = csv.split(/[,\s]+/).map(toNumber).filter(n => !isNaN(n));
-  if (nums.length < 2) { el.innerHTML = '<svg viewBox="0 0 320 60"></svg>'; return; }
+  const vals = raw.split(',').map(s => parseFloat(s)).filter(v => !Number.isNaN(v));
+  if (vals.length < 2) { el.textContent = 'データ不足'; return; }
 
   const w = el.clientWidth || 320;
   const h = el.clientHeight || 60;
-  const min = Math.min(...nums);
-  const max = Math.max(...nums);
-  const span = Math.max(1, max - min);
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const pad = 4;
 
-  const pts = nums.map((v,i) => {
-    const x = (i/(nums.length-1)) * (w-10) + 5;
-    const y = h - 5 - ((v - min) / span) * (h-10);
-    return [x,y];
-  });
+  const scaleX = (i) => pad + (w - pad * 2) * (i / (vals.length - 1));
+  const scaleY = (v) => {
+    if (max === min) return h / 2;
+    const t = (v - min) / (max - min);
+    return pad + (1 - t) * (h - pad * 2);
+  };
 
-  const path = pts.map((p,i)=> (i===0?`M${p[0]},${p[1]}`:`L${p[0]},${p[1]}`)).join(' ');
-  const fill = `${path} L${pts[pts.length-1][0]},${h-2} L${pts[0][0]},${h-2} Z`;
-
+  const pts = vals.map((v, i) => `${scaleX(i)},${scaleY(v)}`).join(' ');
+  const area = ['0,' + h, pts, w + ',' + h].join(' ');
   el.innerHTML = `
-    <svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="資産推移">
-      <defs>
-        <linearGradient id="grad" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stop-color="rgba(59,130,246,0.55)"/>
-          <stop offset="100%" stop-color="rgba(59,130,246,0.05)"/>
-        </linearGradient>
-      </defs>
-      <path d="${fill}" fill="url(#grad)"/>
-      <path d="${path}" fill="none" stroke="rgba(59,130,246,1)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+      <polyline points="${pts}" fill="none" stroke="rgba(96,165,250,1)" stroke-width="2" />
+      <polyline points="${pts}" fill="none" stroke="rgba(96,165,250,.35)" stroke-width="6" opacity=".35" />
+      <polyline points="${area}" fill="rgba(96,165,250,.18)" />
     </svg>
   `;
-}
+})();
 
-/* ========== Gauges ========== */
-function initGauges(){
-  const gauges = document.querySelectorAll('.gauge');
-  if(!gauges.length) return;
+// ===== Ring Gauge (total assets vs target) =====
+(function ringGauge() {
+  const svg = document.querySelector('.ring-svg');
+  if (!svg) return;
+  const r = 52;
+  const C = 2 * Math.PI * r;
 
-  let maxAbs = 1;
-  gauges.forEach(g => { maxAbs = Math.max(maxAbs, Math.abs(toNumber(g.dataset.val))); });
+  const target = parseFloat(svg.dataset.target || '0');
+  const value  = parseFloat(svg.dataset.value  || '0');
 
-  gauges.forEach(g=>{
-    const v = toNumber(g.dataset.val);
-    const bar = g.querySelector('.g-bar span');
-    const ratio = Math.min(1, Math.abs(v)/maxAbs);
-    const target = Math.round(ratio*100);
+  const fg = svg.querySelector('.fg');
+  if (!fg) return;
 
-    bar.style.background = v >= 0
-      ? 'linear-gradient(90deg, rgba(52,211,153,.6), rgba(52,211,153,1))'
-      : 'linear-gradient(90deg, rgba(248,113,113,.6), rgba(248,113,113,1))';
-    bar.style.boxShadow = v >= 0
-      ? '0 0 10px rgba(52,211,153,.6)'
-      : '0 0 10px rgba(248,113,113,.6)';
+  let ratio = 0;
+  if (target > 0) ratio = Math.max(0, Math.min(1, value / target));
+  // 対象未設定なら 60% を演出値に
+  if (target <= 0) ratio = 0.6;
 
-    animateWidth(bar, target, 700);
-  });
-}
+  const len = C * ratio;
+  fg.setAttribute('stroke-dasharray', `${len} ${C - len}`);
+  fg.setAttribute('stroke-dashoffset', '0');
+})();
 
-function animateWidth(el, targetPercent, dur=800){
-  let t=0; const start=performance.now();
-  requestAnimationFrame(function tick(now){
-    t = Math.min(1,(now-start)/dur);
-    const eased = easeOutCubic(t);
-    el.style.width = (eased*targetPercent)+'%';
-    if(t<1) requestAnimationFrame(tick);
-  });
-}
-
-/* ========== Activity filter (range=7/30/90/all) ========== */
-function initActivityFilters(){
-  const chips = document.querySelectorAll('.activity .chips .chip');
-  if (!chips.length) return;
-  const current = new URL(window.location.href);
-
-  chips.forEach(ch=>{
-    const r = ch.dataset.range;
-    ch.addEventListener('click',()=>{
-      current.searchParams.set('range', r);
-      window.location.href = current.toString();
+// ===== Gauges (bar animation) =====
+(function animateBars() {
+  document.querySelectorAll('.g-bar span').forEach(span => {
+    const w = window.getComputedStyle(span).width;
+    span.style.width = '0';
+    requestAnimationFrame(() => {
+      span.style.transition = 'width .9s cubic-bezier(.2,.8,.2,1)';
+      // 計算済み width を一度読み出すため再レイアウト
+      // その後 style.width を元の値へ
+      setTimeout(() => { span.style.width = w; }, 10);
     });
   });
-}
+})();
