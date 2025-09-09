@@ -27,11 +27,13 @@
     </div>
   {% endif %}
 
-  <!-- 証券会社タブ（3社） -->
+  <!-- 証券会社タブ（?broker=... は q と range を維持） -->
   <nav class="tabs" role="tablist" aria-label="証券会社">
     {% for key, label in tabs %}
-      <a class="tab {% if key == active_broker %}active{% endif %}"
-         href="{% url 'cash_io' %}?broker={{ key }}&range={{ range|default:'' }}&q={{ q|urlencode }}">{{ label }}</a>
+      <a
+        class="tab {% if key == active_broker %}active{% endif %}"
+        href="{% url 'cash_io' %}?broker={{ key }}&q={{ q|default:''|urlencode }}&range={{ range|default:'all' }}"
+      >{{ label }}</a>
     {% endfor %}
   </nav>
 
@@ -109,13 +111,16 @@
   <!-- クイックフィルター（7 / 30 / 90 / すべて） -->
   <div class="card filters" role="region" aria-label="最近の入出金フィルター">
     <div class="chips" aria-label="期間">
-      {% with base='?broker='|add:active_broker|add:'&q='|add:q|urlencode|add:'&range=' %}
-        <a class="chip {% if range == '7' %}active{% endif %}"  href="{{ base }}7">直近7日</a>
-        <a class="chip {% if range == '30' %}active{% endif %}" href="{{ base }}30">直近30日</a>
-        <a class="chip {% if range == '90' %}active{% endif %}" href="{{ base }}90">直近90日</a>
-        <a class="chip {% if not range or range == 'all' %}active{% endif %}" href="{{ base }}all">すべて</a>
-      {% endwith %}
+      <a class="chip {% if range == '7' %}active{% endif %}"
+         href="{% url 'cash_io' %}?broker={{ active_broker }}&q={{ q|default:''|urlencode }}&range=7">直近7日</a>
+      <a class="chip {% if range == '30' %}active{% endif %}"
+         href="{% url 'cash_io' %}?broker={{ active_broker }}&q={{ q|default:''|urlencode }}&range=30">直近30日</a>
+      <a class="chip {% if range == '90' %}active{% endif %}"
+         href="{% url 'cash_io' %}?broker={{ active_broker }}&q={{ q|default:''|urlencode }}&range=90">直近90日</a>
+      <a class="chip {% if not range or range == 'all' %}active{% endif %}"
+         href="{% url 'cash_io' %}?broker={{ active_broker }}&q={{ q|default:''|urlencode }}&range=all">すべて</a>
     </div>
+
     <form method="get" action="{% url 'cash_io' %}">
       <input type="hidden" name="broker" value="{{ active_broker }}">
       <input type="hidden" name="range"  value="{{ range|default:'all' }}">
@@ -152,7 +157,11 @@
       <div class="totals-row">
         <div>入金合計：<strong>¥{{ totals_in|floatformat:0|intcomma }}</strong></div>
         <div>出金合計：<strong>¥{{ totals_out|floatformat:0|intcomma }}</strong></div>
-        <div>差引：<strong class="{% if totals_net >= 0 %}type in{% else %}type out{% endif %}">¥{{ totals_net|floatformat:0|intcomma }}</strong></div>
+        <div>差引：
+          <strong class="{% if totals_net >= 0 %}type in{% else %}type out{% endif %}">
+            ¥{{ totals_net|floatformat:0|intcomma }}
+          </strong>
+        </div>
       </div>
     </div>
   </section>
