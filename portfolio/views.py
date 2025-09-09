@@ -1218,27 +1218,102 @@ from django.utils import timezone
 # -----------------------------
 # 損益一覧
 # -----------------------------
-from .models import Stock, RealizedProfit
+# views.py
+from collections import OrderedDict
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render
+from django.db.models import Sum
+from .models import RealizedProfit, Dividend  # ★ 追加
+
+def _model_has_field(model, name: str) -> bool:
+    try:
+        model._meta.get_field(name)
+        return True
+    except Exception:
+        return False
+
 @login_required
 def realized_view(request):
     """
-    実現損益一覧ページ
-    DBの RealizedProfit をログインユーザーごとに取得し、
-    年月ごとにグループ化してテンプレートに渡す
+    実現損益 + 配当をまとめて一覧表示。
+    年月ごとにグルーピングしてテンプレへ渡す。
     """
-    # ユーザーの実現損益を取得（最新日付順）
-    qs = RealizedProfit.objects.filter(user=request.user).order_by('-date', '-id')
+    # --- 1) 売買（既存）
+    trades_qs = RealizedProfit.objects.filter(user=request.user).order_by("-date", "-id")
 
-    # 年月ごとにまとめる（例: "2025-08"）
+    trade_rows = []
+    for t in trades_qs:
+        trade_rows.append({
+            "date":        t.date,                    # datetime/date
+            "stock_name":  t.stock_name,
+            "code":        getattr(t, "code", None),
+            "broker":      t.broker,
+            "account_type":t.account_type,
+            "trade_type":  "sell",                    # 表示用（＝売買）
+            "quantity":    getattr(t, "quantity", None),
+            "profit_amount":getattr(t, "profit_amount", 0),
+            "profit_rate": getattr(t, "profit_rate", None),
+            "purchase_price":getattr(t, "purchase_price", None),
+            "sell_price":  getattr(t, "sell_price", None),
+            "fee":         getattr(t, "fee", None),
+            # id も持っておくと行識別に便利
+            "id":          t.id,
+            "_kind":       "trade",                   # 内部用
+        })
+
+    # --- 2) 配当（user FK の有無で分岐）
+    div_qs = Dividend.objects.all()
+    if _model_has_field(Dividend, "user"):
+        div_qs = div_qs.filter(user=request.user)
+
+    div_qs = div_qs.order_by("-received_at", "-id")
+
+    div_rows = []
+    for d in div_qs:
+        # テンプレが期待するキー名に合わせてマッピング
+        div_rows.append({
+            "date":        d.received_at,             # ← Realizedと合わせるため "date" に寄せる
+            "stock_name":  d.stock_name,
+            "code":        getattr(d, "ticker", None),
+            "broker":      d.broker,
+            "account_type":d.account_type,
+            "trade_type":  "dividend",                # 表示上の区分
+            "quantity":    None,                      # 配当は株数を表示しないなら None
+            "profit_amount":getattr(d, "net_amount", 0),  # 受取額を損益欄に表示（好みで gross でも可）
+            "profit_rate": None,
+            "purchase_price": None,
+            "sell_price":  None,
+            "fee":         None,
+            "id":          d.id,
+            "_kind":       "dividend",
+        })
+
+    # --- 3) マージして日付降順に
+    merged = trade_rows + div_rows
+    merged.sort(key=lambda r: (r["date"], r["id"]), reverse=True)
+
+    # --- 4) 年月グルーピング（"YYYY-MM"）
     groups = OrderedDict()
-    for t in qs:
-        ym = t.date.strftime('%Y-%m')
-        groups.setdefault(ym, []).append(t)
+    for row in merged:
+        y = row["date"].year
+        m = row["date"].month
+        ym = f"{y:04d}-{m:02d}"
+        groups.setdefault(ym, []).append(row)
 
-    # テンプレートへ渡す
+    # --- 5) 合計など（必要なら）
+    # KPIをサーバー側で出したいときの例（テンプレ/JSの実装に合わせて使用）
+    totals = {
+        "count": len(merged),
+        "sum_profit": sum((r["profit_amount"] or 0) for r in merged),
+        "sum_profit_only": sum((r["profit_amount"] or 0) for r in merged if (r["profit_amount"] or 0) > 0),
+        "sum_loss_only": sum((r["profit_amount"] or 0) for r in merged if (r["profit_amount"] or 0) < 0),
+    }
+
     return render(request, "realized.html", {
-        "rows_by_ym": groups,        # ← ループ用
+        "rows_by_ym": groups,
+        "totals": totals,
     })
+    
 @login_required
 def trade_history(request):
     return render(request, "trade_history.html")
