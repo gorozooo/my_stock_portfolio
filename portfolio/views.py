@@ -14,6 +14,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.db import models
+from django.db import transaction 
 from django.db.models import (
     Sum, F, Value, Case, When, CharField, IntegerField, Q,
 )
@@ -894,7 +895,7 @@ def get_tabs(request):
 @csrf_exempt
 @require_POST
 @login_required
-@models.transaction.atomic
+@transaction.atomic 
 def save_tab(request):
     import json
     try:
