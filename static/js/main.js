@@ -47,61 +47,38 @@
   });
 })();
 
-/* ---------------- Sparkline (asset history) ---------------- */
-(function sparklineModule() {
+// ===== Sparkline (asset history) =====
+(function renderSpark() {
   const el = document.getElementById('assetSpark');
   if (!el) return;
+  const raw = (el.getAttribute('data-points') || '').trim();
+  if (!raw) { el.style.display = 'none'; return; }
 
-  function render() {
-    const raw = (el.getAttribute('data-points') || '').trim();
-    if (!raw) { el.textContent = '—'; return; }
+  const vals = raw.split(',').map(s => parseFloat(s)).filter(v => !Number.isNaN(v));
+  if (vals.length < 2) { el.style.display = 'none'; return; }
 
-    const vals = raw.split(',').map(s => parseFloat(s)).filter(v => Number.isFinite(v));
-    if (vals.length < 2) { el.textContent = '—'; return; }
+  const w = el.clientWidth || 320;
+  const h = el.clientHeight || 84;
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const pad = 6;
 
-    const w = el.clientWidth || 320;
-    const h = el.clientHeight || 60;
-    const pad = 6;
+  const scaleX = (i) => pad + (w - pad * 2) * (i / (vals.length - 1));
+  const scaleY = (v) => {
+    if (max === min) return h / 2;
+    const t = (v - min) / (max - min);
+    return pad + (1 - t) * (h - pad * 2);
+  };
 
-    const min = Math.min(...vals);
-    const max = Math.max(...vals);
-    const range = Math.max(1e-9, max - min);
-
-    const stepX = (w - pad * 2) / (vals.length - 1);
-    const pts = vals.map((v, i) => {
-      const x = pad + i * stepX;
-      const t = (v - min) / range;
-      const y = h - pad - t * (h - pad * 2);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    });
-
-    // 面グラデ用エリアポリライン
-    const area = ['0,' + (h - 0), pts.join(' '), (w - 0) + ',' + (h - 0)].join(' ');
-
-    el.innerHTML = `
-      <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
-        <polyline points="${pts.join(' ')}" fill="none" stroke="rgba(96,165,250,1)" stroke-width="2"/>
-        <polyline points="${pts.join(' ')}" fill="none" stroke="rgba(96,165,250,.35)" stroke-width="6" opacity=".35"/>
-        <polyline points="${area}" fill="rgba(96,165,250,.18)" />
-      </svg>
-    `;
-  }
-
-  // 初回描画
-  render();
-
-  // リサイズ追従（対応ブラウザ）
-  if ('ResizeObserver' in window) {
-    const ro = new ResizeObserver(() => render());
-    ro.observe(el);
-  } else {
-    // フォールバック：簡易リサイズ
-    let tid = null;
-    window.addEventListener('resize', () => {
-      clearTimeout(tid);
-      tid = setTimeout(render, 150);
-    });
-  }
+  const pts = vals.map((v, i) => `${scaleX(i)},${scaleY(v)}`).join(' ');
+  const area = ['0,' + h, pts, w + ',' + h].join(' ');
+  el.innerHTML = `
+    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+      <polyline points="${pts}" fill="none" stroke="rgba(96,165,250,1)" stroke-width="2" />
+      <polyline points="${pts}" fill="none" stroke="rgba(96,165,250,.35)" stroke-width="6" opacity=".35" />
+      <polyline points="${area}" fill="rgba(96,165,250,.18)" />
+    </svg>
+  `;
 })();
 
 /* ---------------- Ring Gauge (total assets vs target) ---------------- */
