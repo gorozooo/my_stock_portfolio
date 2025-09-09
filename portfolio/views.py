@@ -1,111 +1,70 @@
+# portfolio/views.py
 from __future__ import annotations
 
+# ===== 標準 =====
+from collections import OrderedDict, defaultdict
+from datetime import date, datetime, timedelta
+import logging
+import re
+from typing import Dict, List, Optional, Tuple
+
+# ===== Django =====
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
+from django.db import models
+from django.db.models import (
+    Sum, F, Value, Case, When, CharField, IntegerField, Q,
+)
+from django.db.models.functions import TruncMonth
+from django.http import (
+    JsonResponse, HttpResponseBadRequest, HttpResponse, Http404,
+)
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
-from django.db import transaction, models
+from django.template.loader import get_template, render_to_string
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.cache import cache_page
-import json
-import yfinance as yf
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST, require_GET, require_http_methods
 
+# ===== 外部 =====
+import yfinance as yf  # ネット環境・制限の可能性に注意
+
+# ===== アプリ =====
+from .forms import SettingsPasswordForm
 from .models import (
     BottomTab,
     SubMenu,
     Stock,
     StockMaster,
     SettingsPassword,
-    RealizedProfit
+    RealizedProfit,
+    CashFlow,
 )
-from .forms import SettingsPasswordForm
+# Dividend が存在する前提で利用。存在しない環境でも落ちないように try。
+try:
+    from .models import Dividend
+    HAS_DIVIDEND = True
+except Exception:
+    Dividend = None  # type: ignore
+    HAS_DIVIDEND = False
+
 from .utils import get_bottom_tabs
-from django.template.loader import get_template
-import re
-from datetime import datetime, timedelta
 
+logger = logging.getLogger(__name__)
 
-# -----------------------------
+# =============================================================================
 # 共通コンテキスト
-# -----------------------------
+# =============================================================================
 def bottom_tabs_context(request):
     return {"BOTTOM_TABS": get_bottom_tabs()}
 
 
-# -----------------------------
-# メイン画面
-# -----------------------------
-# views.py（参考）
-from django.contrib.auth.decorators import login_required
-from django.utils import timezone
-from datetime import timedelta
-
-@login_required
-def main_page(request):
-    # ここは既存の集計から実値を入れてください
-    total_assets       = your_total_assets_calc(request.user)
-    day_change         = your_day_change_calc(request.user)
-    portfolio_value    = your_portfolio_value_calc(request.user)
-    cash_total         = your_cash_total_calc(request.user)
-    unrealized_pl      = your_unrealized_pl_calc(request.user)
-    asset_history_csv  = your_history_csv(request.user)  # "100,102,98,..."の形式
-    target_assets      = 0  # 目標があれば数値、無ければ0でOK
-
-    # 証券会社データ（例）
-    brokers = [
-      {
-        "key":"rakuten","label":"楽天証券",
-        "balance":  your_balance("rakuten", request.user),
-        "holdings_count": your_holdings_count("rakuten", request.user),
-        "market_value":   your_market_value("rakuten", request.user),
-        "unrealized_pl":  your_unrealized_pl("rakuten", request.user),
-        "top_positions":  your_top_positions("rakuten", request.user),  # [{ticker,name,shares,market_value},...]
-        "recent":         your_recent_activities("rakuten", request.user) # [{date,kind,sign,amount,...}]
-      },
-      {
-        "key":"matsui","label":"松井証券",
-        "balance":  ...,
-        "holdings_count": ...,
-        "market_value":   ...,
-        "unrealized_pl":  ...,
-        "top_positions":  ...,
-        "recent":         ...
-      },
-      {
-        "key":"sbi","label":"SBI証券",
-        "balance":  ...,
-        "holdings_count": ...,
-        "market_value":   ...,
-        "unrealized_pl":  ...,
-        "top_positions":  ...,
-        "recent":         ...
-      },
-    ]
-
-    # グローバル最近のアクティビティ（rangeクエリ対応）
-    rng = request.GET.get("range","7")
-    since = {"7":7,"30":30,"90":90}.get(rng)
-    recent_activities = your_recent_all(request.user, days=since)  # list[{date,kind,sign,amount,...}]
-
-    ctx = dict(
-        total_assets=total_assets, day_change=day_change,
-        portfolio_value=portfolio_value, cash_total=cash_total,
-        unrealized_pl=unrealized_pl, asset_history_csv=asset_history_csv,
-        target_assets=target_assets,
-        brokers=brokers,
-        realized_pl_mtd=your_realized_mtd(request.user),
-        realized_pl_ytd=your_realized_ytd(request.user),
-        realized_pl_total=your_realized_total(request.user),
-        recent_activities=recent_activities,
-    )
-    return render(request, "main.html", ctx)
-
-# -----------------------------
+# =============================================================================
 # 認証
-# -----------------------------
+# =============================================================================
 def login_view(request):
     if request.user.is_authenticated:
         return redirect("main")
@@ -125,126 +84,64 @@ def logout_view(request):
     return redirect("login")
 
 
-# views.py
-# ---------------------------------------
-# スマホファースト想定 / HTML・CSS・JS 分離前提
-# 目的：
-#  - broker → account_type → 銘柄 の二段階グループ化で表示
-#  - broker/account_type が CharField(choices) / FK / 素の文字列 いずれでも表示が壊れない
-#  - 現在株価・損益のみ計算（チャートは取得/埋め込みしない）
-#  - 価格はDjangoキャッシュで15分キャッシュ
-# ---------------------------------------
+# =============================================================================
+# ユーティリティ：数値・日付
+# =============================================================================
+def _parse_date_yyyy_mm_dd(s: str) -> date:
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        return timezone.localdate()
 
-import datetime
-import logging
 
-from django.core.cache import cache
-from django.db.models import F, Value, Case, When, CharField
-from django.http import JsonResponse, HttpResponse
-from django.shortcuts import render, redirect, get_object_or_404
-from django.template.loader import get_template
-from django.contrib.auth.decorators import login_required
-from django.utils import timezone
-from django.views.decorators.http import require_POST
+def _safe_int(x, default=0) -> int:
+    try:
+        return int(x)
+    except Exception:
+        return default
 
-import yfinance as yf  # 現在株価の軽量取得に使用
 
-from .models import Stock, RealizedProfit
+def _safe_float(x, default=0.0) -> float:
+    try:
+        return float(x)
+    except Exception:
+        return default
 
-logger = logging.getLogger(__name__)
 
-# 価格キャッシュの有効期限（秒）
+def _extract_securities_code(ticker_or_code: str) -> str:
+    """
+    '7203.T' -> '7203', '8306' -> '8306', 'AAPL' -> ''
+    """
+    if not ticker_or_code:
+        return ""
+    s = str(ticker_or_code).strip()
+    s = re.sub(r"\.[A-Za-z]+$", "", s)  # .T などを削除
+    m = re.match(r"^(\d{4})", s)
+    return m.group(1) if m else ""
+
+
+# =============================================================================
+# ユーティリティ：価格キャッシュ
+# =============================================================================
 PRICE_CACHE_TTL = 15 * 60  # 15分
-# -----------------------------
-# 株関連ページ
-# -----------------------------
-@login_required
-def stock_list_view(request):
-    
-    # ----保有株一覧ページ。
-    #- 証券会社（broker）→口座区分（account_type）→銘柄 の二段階グルーピングに対応
-    #- broker/account_type は CharField(choices) / ForeignKey / 文字列 どれでも正しく表示
-    # - 現在株価・損益のみを計算してテンプレへ渡す（チャートは取得しない）
-    #- yfinance 結果はキャッシュしてレスポンスを高速化
 
-    # ---- ベースQuerySet（userフィールドがあればユーザーで絞り込み） ----
-    qs = Stock.objects.all()
-    try:
-        field_names = {f.name for f in Stock._meta.get_fields()}
-        if "user" in field_names:
-            qs = qs.filter(user=request.user)
-    except Exception as e:
-        logger.debug("User filter not applied: %s", e)
-
-    # ---- broker_name の正規化 ----
-    try:
-        broker_field = Stock._meta.get_field("broker")
-        broker_type = broker_field.get_internal_type()
-        if broker_type == "CharField" and getattr(Stock, "BROKER_CHOICES", None):
-            whens = [When(broker=code, then=Value(label)) for code, label in Stock.BROKER_CHOICES]
-            broker_name_annot = Case(*whens, default=F("broker"), output_field=CharField())
-        elif broker_type == "ForeignKey":
-            qs = qs.select_related("broker")
-            # Brokerモデルの表示名フィールド。必要に応じて変更（例: display_name 等）
-            broker_name_annot = F("broker__name")
-        else:
-            broker_name_annot = F("broker")
-    except Exception as e:
-        logger.warning("broker_name annotate fallback: %s", e)
-        broker_name_annot = Value("（未設定）", output_field=CharField())
-
-    # ---- account_type_name の正規化 ----
-    try:
-        at_field = Stock._meta.get_field("account_type")
-        at_type = at_field.get_internal_type()
-        if at_type == "CharField" and getattr(Stock, "ACCOUNT_TYPE_CHOICES", None):
-            whens = [When(account_type=code, then=Value(label)) for code, label in Stock.ACCOUNT_TYPE_CHOICES]
-            account_name_annot = Case(*whens, default=F("account_type"), output_field=CharField())
-        elif at_type == "ForeignKey":
-            qs = qs.select_related("account_type")
-            account_name_annot = F("account_type__name")
-        else:
-            account_name_annot = F("account_type")
-    except Exception as e:
-        logger.warning("account_type_name annotate fallback: %s", e)
-        account_name_annot = Value("（未設定）", output_field=CharField())
-
-    # ---- 表示名注釈 + 規定順ソート ----
-    qs = qs.annotate(
-        broker_name=broker_name_annot,
-        account_type_name=account_name_annot,
-    ).order_by("broker_name", "account_type_name", "name", "ticker")
-
-    # ---- 現在株価・損益の計算（チャートは取得しない）----
-    for stock in qs:
-        stock.current_price = _get_current_price_cached(stock.ticker, fallback=stock.unit_price)
-
-        shares = int(stock.shares or 0)
-        unit_price = float(stock.unit_price or 0)
-        current = float(stock.current_price or unit_price)
-
-        stock.total_cost = shares * unit_price
-        stock.profit_amount = round(current * shares - stock.total_cost)
-        stock.profit_rate = round((stock.profit_amount / stock.total_cost * 100), 2) if stock.total_cost else 0.0
-
-    return render(request, "stock_list.html", {"stocks": qs})
-
+def _yf_symbol(ticker: str) -> str:
+    """日本株前提の簡易 .T 付与（既に拡張子付きならそのまま）"""
+    if not ticker:
+        return ""
+    if re.search(r"\.[A-Za-z]+$", ticker):
+        return ticker
+    return f"{ticker}.T"
 
 def _get_current_price_cached(ticker: str, fallback: float = 0.0) -> float:
-    """
-    yfinance の当日終値を取得し、Djangoキャッシュに保存/取得する。
-    取得失敗時は fallback（通常は取得単価）を返す。
-    """
     if not ticker:
         return float(fallback or 0.0)
-
     cache_key = f"price:{ticker}"
     cached = cache.get(cache_key)
     if isinstance(cached, (int, float)):
         return float(cached)
 
-    # 日本株のYahoo Financeシンボル（例: 7203.T）
-    symbol = f"{ticker}.T"
+    symbol = _yf_symbol(ticker)
     try:
         t = yf.Ticker(symbol)
         todays = t.history(period="1d")
@@ -252,1111 +149,375 @@ def _get_current_price_cached(ticker: str, fallback: float = 0.0) -> float:
             price = float(todays["Close"].iloc[-1])
             cache.set(cache_key, price, PRICE_CACHE_TTL)
             return price
-        else:
-            # データ空ならフォールバック
-            cache.set(cache_key, float(fallback or 0.0), PRICE_CACHE_TTL)
-            return float(fallback or 0.0)
+        cache.set(cache_key, float(fallback or 0.0), PRICE_CACHE_TTL)
+        return float(fallback or 0.0)
     except Exception as e:
         logger.info("Price fetch failed for %s: %s", symbol, e)
         cache.set(cache_key, float(fallback or 0.0), PRICE_CACHE_TTL)
         return float(fallback or 0.0)
 
 
+# =============================================================================
+# メイン（ホーム）ページ
+#   - あなたの main.html / main.css / main.js に対応
+#   - brokers: rakuten/matsui/sbi のタブ構造
+#   - recent_activities: range=7/30/90/all 対応
+# =============================================================================
+
+BROKER_TABS: List[Tuple[str, str]] = [
+    ("rakuten", "楽天証券"),
+    ("matsui",  "松井証券"),
+    ("sbi",     "SBI証券"),
+]
+BROKER_MAP = dict(BROKER_TABS)
+
 @login_required
-def stock_create(request):
+def main_page(request):
     """
-    新規登録（POST）
-    - position を「買」/「売」に正規化
-    - 必須/数値チェックを実施
+    Topダッシュボード（未来的ガラスUI版）に必要な集計をサーバ側で整形
     """
-    errors = {}
-    data = {}
+    user = request.user
 
-    if request.method == "POST":
-        data = request.POST
+    # ---------- 現金残高 ----------
+    cash_agg = (
+        CashFlow.objects.filter().values("broker", "flow_type").annotate(total=Sum("amount"))
+    )
+    cash_total = 0
+    broker_cash: Dict[str, int] = {k: 0 for k, _ in BROKER_TABS}
+    for row in cash_agg:
+        b = row["broker"]; t = row["flow_type"]; v = int(row["total"] or 0)
+        if b in broker_cash:
+            broker_cash[b] += v if t == "in" else -v
+        cash_total += v if t == "in" else -v
 
-        # --- 購入日 ---
-        purchase_date = None
-        purchase_date_str = (data.get("purchase_date") or "").strip()
-        if purchase_date_str:
-            try:
-                purchase_date = datetime.date.fromisoformat(purchase_date_str)
-            except ValueError:
-                errors["purchase_date"] = "購入日を正しい形式（YYYY-MM-DD）で入力してください"
+    # ---------- 保有株（評価・含み損益） ----------
+    stocks_qs = Stock.objects.all()
+    # userフィールドがあれば絞り込み
+    try:
+        if "user" in {f.name for f in Stock._meta.get_fields()}:
+            stocks_qs = stocks_qs.filter(user=user)
+    except Exception:
+        pass
+
+    # 口座/証券会社名の正規化（CharField choices / FK / 生文字列のいずれにも対応）
+    def _normalize_field(model, field_name: str, fk_label: str = "name"):
+        try:
+            fld = model._meta.get_field(field_name)
+            typ = fld.get_internal_type()
+            if typ == "CharField" and getattr(model, f"{field_name.upper()}_CHOICES", None):
+                choices = getattr(model, f"{field_name.upper()}_CHOICES")
+                whens = [When(**{field_name: code, "then": Value(label)}) for code, label in choices]
+                return Case(*whens, default=F(field_name), output_field=CharField())
+            if typ == "ForeignKey":
+                return F(f"{field_name}__{fk_label}")
+            return F(field_name)
+        except Exception:
+            return Value("（未設定）", output_field=CharField())
+
+    broker_name_annot = _normalize_field(Stock, "broker")
+    account_name_annot = _normalize_field(Stock, "account_type")
+
+    # 注釈＋並び
+    stocks_qs = stocks_qs.annotate(
+        broker_name=broker_name_annot,
+        account_type_name=account_name_annot,
+    ).order_by("broker_name", "account_type_name", "name", "ticker")
+
+    # 株式集計
+    portfolio_value = 0.0
+    unrealized_pl = 0.0
+
+    # ブローカー別: 保有銘柄数、時価評価、含み損益、トップポジション、直近イベント
+    broker_blocks: Dict[str, dict] = {
+        k: {
+            "key": k,
+            "label": BROKER_MAP[k],
+            "balance": broker_cash.get(k, 0),
+            "holdings_count": 0,
+            "market_value": 0.0,
+            "unrealized_pl": 0.0,
+            "top_positions": [],  # [{ticker,name,shares,market_value}]
+            "recent": [],         # recent_activities() から後で詰める
+        } for k, _ in BROKER_TABS
+    }
+
+    # ティッカー別の現在値を取得し、評価額と含み損益を計算
+    for s in stocks_qs:
+        current = _get_current_price_cached(s.ticker, fallback=s.unit_price or 0)
+        shares = int(s.shares or 0)
+        unit   = float(s.unit_price or 0)
+
+        mv = current * shares
+        portfolio_value += mv
+
+        # 含み損益（売りは反転）
+        if s.position == "売り":
+            pl = (unit - current) * shares
         else:
-            errors["purchase_date"] = "購入日を入力してください"
+            pl = mv - (shares * unit)
+        unrealized_pl += pl
 
-        # --- 基本項目 ---
-        ticker = (data.get("ticker") or "").strip()
-        name = (data.get("name") or "").strip()
-        account_type = (data.get("account_type") or "").strip()
-        broker = (data.get("broker") or "").strip()
-        sector = (data.get("sector") or "").strip()
-        note = (data.get("note") or "").strip()
+        # ブローカー別
+        bkey = getattr(s, "broker", None)
+        if bkey in broker_blocks:
+            broker_blocks[bkey]["holdings_count"] += 1
+            broker_blocks[bkey]["market_value"] += mv
+            broker_blocks[bkey]["unrealized_pl"] += pl
+            broker_blocks[bkey]["top_positions"].append({
+                "ticker": s.ticker,
+                "name": s.name,
+                "shares": shares,
+                "market_value": mv,
+            })
 
-        # --- ポジション（買い/売り/買/売 を許容） ---
-        position = (data.get("position") or "").strip()
-        if not position:
-            errors["position"] = "ポジションを選択してください"
-        elif position not in ("買い", "売り", "買", "売"):
-            errors["position"] = "ポジションの値が不正です（買い／売りから選択してください）"
+    # トップポジションは評価額順で上位5件
+    for k in broker_blocks.keys():
+        tops = sorted(broker_blocks[k]["top_positions"], key=lambda x: x["market_value"], reverse=True)[:5]
+        broker_blocks[k]["top_positions"] = tops
 
-        # --- 数値項目 ---
-        try:
-            shares = int(data.get("shares"))
-            if shares <= 0:
-                errors["shares"] = "株数は1以上を入力してください"
-        except (TypeError, ValueError):
-            shares = 0
-            errors["shares"] = "株数を正しく入力してください"
+    # 総資産
+    total_assets = int(round(portfolio_value + cash_total))
 
-        try:
-            unit_price = float(data.get("unit_price"))
-            if unit_price < 0:
-                errors["unit_price"] = "取得単価は0以上を入力してください"
-        except (TypeError, ValueError):
-            unit_price = 0.0
-            errors["unit_price"] = "取得単価を正しく入力してください"
+    # 前日比（簡易：当日・前日の終値合計差。データ無い場合は 0）
+    # ※本格的にやるなら履歴テーブルを設ける
+    day_change = 0
 
-        # 取得額（POSTが空なら shares * unit_price）
-        try:
-            total_cost = float(data.get("total_cost")) if data.get("total_cost") not in (None, "",) else (shares * unit_price)
-        except (TypeError, ValueError):
-            total_cost = shares * unit_price
+    # スパークライン（資産推移CSV）：実データが無ければ空文字
+    asset_history_csv = ""  # 例: "1000000,1003000,1001000,1010000"
 
-        # --- 必須チェック ---
-        if not ticker:
-            errors["ticker"] = "証券コードを入力してください"
-        if not name:
-            errors["name"] = "銘柄名を入力してください"
-        if not account_type:
-            errors["account_type"] = "口座区分を選択してください"
-        if not broker:
-            errors["broker"] = "証券会社を選択してください"
-        if not sector:
-            errors["sector"] = "セクターを入力してください"
+    # 目標資産（リングの最大値）。未設定なら total をそのまま最大とし、リングがフルに光る
+    target_assets = 0
 
-        # --- 保存 ---
-        if not errors:
-            normalized_position = "買" if position in ("買", "買い") else "売"
+    # 実現損益（今月/今年/累計）
+    today = timezone.localdate()
+    first_of_month = today.replace(day=1)
+    first_of_year = date(today.year, 1, 1)
 
-            create_kwargs = dict(
-                purchase_date=purchase_date,
-                ticker=ticker,
-                name=name,
-                account_type=account_type,
-                broker=broker,
-                sector=sector,
-                position=normalized_position,
-                shares=shares,
-                unit_price=unit_price,
-                total_cost=total_cost,
-                note=note,
-            )
+    realized_qs = RealizedProfit.objects.filter(user=user)
+    realized_pl_mtd = int(realized_qs.filter(date__gte=first_of_month).aggregate(x=Sum("profit_amount"))["x"] or 0)
+    realized_pl_ytd = int(realized_qs.filter(date__gte=first_of_year).aggregate(x=Sum("profit_amount"))["x"] or 0)
+    realized_pl_total = int(realized_qs.aggregate(x=Sum("profit_amount"))["x"] or 0)
 
-            # userフィールドが存在する場合は紐付け
-            try:
-                if "user" in {f.name for f in Stock._meta.get_fields()}:
-                    create_kwargs["user"] = request.user
-            except Exception:
-                pass
+    # 証券会社ごとの直近アクティビティ（最大10件）
+    for k in broker_blocks.keys():
+        broker_blocks[k]["recent"] = _recent_activities(user=user, broker=k, days=30, limit=10)
 
-            Stock.objects.create(**create_kwargs)
-            return redirect("stock_list")
+    # brokers: テンプレの期待形式に合わせてリスト化（順序保持）
+    brokers = [broker_blocks[k] for k, _ in BROKER_TABS]
 
-    else:
-        # 初期表示用
-        data = {
-            "purchase_date": "",
+    # グローバル最近のアクティビティ（range=7/30/90/all）
+    rng = (request.GET.get("range") or "7").lower()
+    since_days = {"7": 7, "30": 30, "90": 90}.get(rng)
+    recent_activities = _recent_activities(user=user, broker=None, days=since_days, limit=100)
+
+    ctx = dict(
+        total_assets=total_assets,
+        day_change=day_change,
+        portfolio_value=int(round(portfolio_value)),
+        cash_total=int(round(cash_total)),
+        unrealized_pl=int(round(unrealized_pl)),
+        asset_history_csv=asset_history_csv,
+        target_assets=target_assets,
+        brokers=brokers,
+        realized_pl_mtd=realized_pl_mtd,
+        realized_pl_ytd=realized_pl_ytd,
+        realized_pl_total=realized_pl_total,
+        recent_activities=recent_activities,
+    )
+    return render(request, "main.html", ctx)
+
+
+def _recent_activities(*, user, broker: Optional[str], days: Optional[int], limit: int) -> List[dict]:
+    """
+    売買(RealizedProfit)・配当(Dividend)・現金(CashFlow)をまとめた簡易タイムライン。
+    broker を指定するとその証券会社のみ。
+    days=None なら全期間。
+    """
+    items: List[dict] = []
+    since_date = None
+    if days:
+        since_date = timezone.localdate() - timedelta(days=days)
+
+    # 売買
+    rp = RealizedProfit.objects.filter(user=user)
+    if broker:
+        rp = rp.filter(broker=broker)
+    if since_date:
+        rp = rp.filter(date__gte=since_date)
+    rp = rp.order_by("-date", "-id")[:limit]
+    for r in rp:
+        amt = int(r.profit_amount or 0)
+        items.append({
+            "kind": "trade",
+            "kind_label": "売買",
+            "date": r.date,
+            "ticker": getattr(r, "code", ""),
+            "name": r.stock_name,
+            "pnl": amt,
+            "amount": abs(amt),
+            "sign": "+" if amt >= 0 else "-",
+            "broker_label": BROKER_MAP.get(getattr(r, "broker", ""), getattr(r, "broker", "")),
+            "flow": "",
+            "memo": "",
+        })
+
+    # 配当
+    if HAS_DIVIDEND:
+        dv = Dividend.objects.all()
+        if hasattr(Dividend, "user"):
+            dv = dv.filter(user=user)
+        if broker:
+            dv = dv.filter(broker=broker)
+        if since_date:
+            dv = dv.filter(received_at__gte=since_date)
+        dv = dv.order_by("-received_at", "-id")[:limit]
+        for d in dv:
+            net = int(getattr(d, "net_amount", 0) or (int(d.gross_amount or 0) - int(d.tax or 0)))
+            items.append({
+                "kind": "dividend",
+                "kind_label": "配当",
+                "date": d.received_at,
+                "ticker": getattr(d, "ticker", ""),
+                "name": getattr(d, "stock_name", ""),
+                "net": net,
+                "amount": net,
+                "sign": "+",
+                "broker_label": BROKER_MAP.get(getattr(d, "broker", ""), getattr(d, "broker", "")),
+                "flow": "",
+                "memo": getattr(d, "memo", ""),
+            })
+
+    # 現金
+    cf = CashFlow.objects.all()
+    if broker:
+        cf = cf.filter(broker=broker)
+    if since_date:
+        cf = cf.filter(occurred_at__gte=since_date)
+    cf = cf.order_by("-occurred_at", "-id")[:limit]
+    for c in cf:
+        is_in = (c.flow_type == "in")
+        items.append({
+            "kind": "cash",
+            "kind_label": "現金",
+            "date": c.occurred_at,
             "ticker": "",
             "name": "",
-            "account_type": "",
-            "broker": "",
-            "sector": "",
-            "position": "",
-            "shares": "",
-            "unit_price": "",
-            "total_cost": "",
-            "note": "",
-        }
+            "amount": int(c.amount or 0),
+            "sign": "+" if is_in else "-",
+            "broker_label": BROKER_MAP.get(c.broker, c.broker),
+            "flow": "in" if is_in else "out",
+            "memo": c.memo or "",
+        })
 
-    context = {
-        "errors": errors,
-        "data": data,
-        "BROKER_CHOICES": getattr(Stock, "BROKER_CHOICES", ()),
-    }
+    # 日付降順で統合 → 上位 limit 件
+    items.sort(key=lambda x: (x["date"], x.get("ticker", ""), x.get("name", "")), reverse=True)
+    return items[:limit]
 
-    tpl = get_template("stocks/stock_create.html")
-    return HttpResponse(tpl.render(context, request))
 
+# =============================================================================
+# 保有株一覧（2段グループ：broker → account_type）
+# =============================================================================
 @login_required
-def sell_stock_page(request, pk):
-    """
-    売却専用ページ（市場/指値、部分売却対応）
-    - GET:
-        ページ表示（現在値が空なら yfinance で軽く取得を試行）
-    - POST:
-        バリデーション → RealizedProfit へ記録
-        手数料 = 概算売却額 - 実際の損益額（未入力なら 0）
-        全量売却: Stock を削除 / 部分売却: shares 減算 + total_cost 再計算
-    """
-    stock = get_object_or_404(Stock, pk=pk)
-    errors = []
-
-    # --- GET 時の現在値（未設定なら軽く取得） ---
-    current_price_for_view = float(stock.current_price or 0.0)
-    if current_price_for_view <= 0:
-        try:
-            symbol = f"{stock.ticker}.T" if not str(stock.ticker).endswith(".T") else stock.ticker
-            todays = yf.Ticker(symbol).history(period="1d")
-            if not todays.empty:
-                current_price_for_view = float(todays["Close"].iloc[-1])
-        except Exception:
-            current_price_for_view = 0.0  # 取得失敗時は 0 のまま（テンプレ側で単価を使って概算）
-
-    # --- ティッカー等から 4桁の証券コードを抽出する小ヘルパー ---
-    def extract_securities_code(ticker_or_code: str) -> str:
-        """
-        例: '7203.T' -> '7203', '8306' -> '8306', 'AAPL' -> ''（抽出不可）
-        """
-        if not ticker_or_code:
-            return ""
-        s = str(ticker_or_code).strip()
-        # 末尾の .T / .JP など拡張子を削除
-        s = re.sub(r'\.[A-Za-z]+$', '', s)
-        m = re.match(r'^(\d{4})', s)
-        return m.group(1) if m else ""
-
-    if request.method == "POST":
-        mode = (request.POST.get("sell_mode") or "").strip()
-
-        # 売却株数
-        try:
-            shares_to_sell = int(request.POST.get("shares") or 0)
-        except (TypeError, ValueError):
-            shares_to_sell = 0
-
-        # 指値（limit のとき）
-        try:
-            limit_price = float(request.POST.get("limit_price") or 0)
-        except (TypeError, ValueError):
-            limit_price = 0.0
-
-        # 売却日（テンプレの <input type="date" name="sell_date">）
-        sell_date_str = (request.POST.get("sell_date") or "").strip()
-        sold_at = timezone.now()
-        if sell_date_str:
-            try:
-                # 売却日の 15:00 に設定（必要あれば調整OK）
-                sell_date = datetime.date.fromisoformat(sell_date_str)
-                sold_at_naive = datetime.datetime.combine(sell_date, datetime.time(15, 0, 0))
-                sold_at = timezone.make_aware(sold_at_naive, timezone.get_current_timezone())
-            except Exception:
-                errors.append("売却日が不正です。YYYY-MM-DD 形式で指定してください。")
-
-        # 実際の損益額（ユーザー入力）
-        try:
-            actual_profit_input = request.POST.get("actual_profit", "")
-            actual_profit = float(actual_profit_input) if actual_profit_input != "" else 0.0
-        except (TypeError, ValueError):
-            actual_profit = 0.0
-            errors.append("実際の損益額は数値で入力してください。")
-
-        # --- 基本バリデーション ---
-        if mode not in ("market", "limit"):
-            errors.append("売却方法が不正です。")
-
-        if shares_to_sell <= 0:
-            errors.append("売却株数を 1 以上で指定してください。")
-        elif shares_to_sell > int(stock.shares or 0):
-            errors.append("保有株数を超える売却はできません。")
-
-        # 売却価格（1株あたり）
-        price = None
-        if mode == "market":
-            price = float(stock.current_price or current_price_for_view or stock.unit_price or 0)
-        else:  # limit
-            if limit_price <= 0:
-                errors.append("指値価格を正しく入力してください。")
-            else:
-                price = limit_price
-
-        if not price or price <= 0:
-            errors.append("売却価格が不正です。")
-
-        # バリデーション NG → 再表示
-        if errors:
-            return render(
-                request,
-                "stocks/sell_stock_page.html",
-                {
-                    "stock": stock,
-                    "errors": errors,
-                    "current_price": current_price_for_view or 0.0,
-                },
-            )
-
-        # --- 計算 ---
-        unit_price = float(stock.unit_price or 0)
-        estimated_amount = float(price) * shares_to_sell                # 概算売却額（手数料控除前の想定）
-        total_profit_est = (float(price) - unit_price) * shares_to_sell # 概算損益（参考値）
-        fee = estimated_amount - float(actual_profit or 0.0)            # 指定の式（負値もそのまま保存OK）
-
-        # 保存する損益額（実入力があれば優先）
-        final_profit_amount = actual_profit if actual_profit != 0.0 else total_profit_est
-
-        # 損益率（%）を可能なら算出（分母=取得総額）
-        profit_rate_val = None
-        denom = unit_price * shares_to_sell
-        if denom:
-            profit_rate_val = round((final_profit_amount / denom) * 100, 2)
-
-        # --- 証券コード / 証券会社 / 口座区分 を決定 ---
-        posted_code = (request.POST.get("code") or request.POST.get("ticker") or "").strip()
-        stock_code    = getattr(stock, "code", "") or ""
-        ticker_code   = extract_securities_code(getattr(stock, "ticker", "") or "")
-        final_code    = posted_code or stock_code or ticker_code or ""
-
-        # broker / account_type は POST 優先 → 無ければ stock の値
-        posted_broker = (request.POST.get("broker") or "").strip()
-        posted_acct   = (request.POST.get("account_type") or "").strip()
-        final_broker  = posted_broker or getattr(stock, "broker", "") or ""
-        final_account = posted_acct   or getattr(stock, "account_type", "") or ""
-
-        # --- RealizedProfit へ記録（モデルの実フィールド名に合わせる） ---
-        RealizedProfit.objects.create(
-            user=request.user,                         # user を必ず紐付け（モデルが null=True でも可）
-            date=sold_at.date(),                       # sold_at(aware) → date だけ保存
-            stock_name=stock.name,
-            code=final_code,
-            broker=final_broker,
-            account_type=final_account,
-            trade_type="sell",
-
-            quantity=shares_to_sell,
-            purchase_price=int(round(unit_price)) if unit_price else None,
-            sell_price=int(round(price)) if price else None,
-            fee=int(round(fee)) if fee else None,
-
-            profit_amount=int(round(final_profit_amount)) if final_profit_amount is not None else None,
-            profit_rate=profit_rate_val,               # DecimalField だが float 入力でもDjangoが変換
-        )
-
-        # --- 在庫調整（部分売却対応） ---
-        remaining = int(stock.shares or 0) - shares_to_sell
-        if remaining <= 0:
-            stock.delete()
-        else:
-            stock.shares = remaining
-            # total_cost は平均単価ベースで按分しない（要件に合わせて計算式を変える）
-            stock.total_cost = int(round(remaining * unit_price))
-            stock.save(update_fields=["shares", "total_cost", "updated_at"])
-
-        return redirect("stock_list")
-
-    # --- GET 表示 ---
-    return render(
-        request,
-        "stocks/sell_stock_page.html",
-        {
-            "stock": stock,
-            "errors": errors,
-            "current_price": current_price_for_view or 0.0,
-        },
-    )
-        
-from django.shortcuts import render, get_object_or_404, redirect
-from django.views.decorators.http import require_http_methods
-from .models import Stock
-
-@require_http_methods(["GET", "POST"])
-def edit_stock_page(request, pk):
-    stock = get_object_or_404(Stock, pk=pk)
-    if request.method == "POST":
-        stock.shares = int(request.POST.get("shares") or stock.shares)
-        stock.unit_price = float(request.POST.get("unit_price") or stock.unit_price)
-        stock.account_type = request.POST.get("account_type") or stock.account
-        stock.position = request.POST.get("position") or stock.position
-        stock.save()
-        return redirect("stock_list")
-    # 専用ページはベースレイアウトで _edit_form.html を読み込む
-    return render(request, "stocks/edit_page.html", {"stock": stock})
-
-def edit_stock_fragment(request, pk):
-    """モーダルで読み込む“フォームだけ”の部分HTMLを返す"""
-    stock = get_object_or_404(Stock, pk=pk)
-    return render(request, "stocks/edit_form.html", {"stock": stock})
-
-from django.http import JsonResponse
-from django.template.loader import render_to_string
-from django.views.decorators.http import require_GET
-
-@login_required
-@require_GET
-def stock_detail_fragment(request, pk: int):
-    """
-    詳細モーダルのHTML断片（タブの器＋ボタン類）。最初は「概要」タブだけ中身を動的に入れる。
-    """
-    stock = get_object_or_404(Stock, pk=pk)
-    html = render_to_string("stocks/_detail_modal.html", {"stock": stock}, request=request)
-    # フロントはこのHTMLをそのままDOMに挿入して使う
-    return HttpResponse(html)
-
-@login_required
-@require_GET
-def stock_overview_json(request, pk: int):
-    """
-    概要タブの軽量JSON。
-    - DB値を返すが、from_card_current が来ていて > 0 の場合は current_price をそれで上書き
-    - 取得額/評価額/損益も一貫計算
-    """
-    stock = get_object_or_404(Stock, pk=pk)
-
-    # カード側で見えている現在株価（data-current_price）を優先的に採用
-    from_card = request.GET.get("from_card_current")
+def stock_list_view(request):
+    qs = Stock.objects.all()
     try:
-        from_card_val = float(from_card) if from_card is not None else 0.0
-    except (TypeError, ValueError):
-        from_card_val = 0.0
-
-    # ベースはDB
-    shares = int(stock.shares or 0)
-    unit_price = float(stock.unit_price or 0)
-    db_current = float(stock.current_price or 0)
-    current_price = from_card_val if from_card_val > 0 else db_current
-
-    # 取得額（保険で再計算）
-    total_cost = float(stock.total_cost or (shares * unit_price))
-
-    # 評価額と損益（買い/売りで式が異なる）
-    market_value = current_price * shares
-    if stock.position == "売り":
-        profit_loss = (unit_price - current_price) * shares
-    else:
-        profit_loss = market_value - total_cost
-
-    data = {
-        "id": stock.id,
-        "name": stock.name,
-        "ticker": stock.ticker,
-        "broker": stock.broker,
-        "account_type": stock.account_type,
-        "position": stock.position,
-        "purchase_date": stock.purchase_date.isoformat() if stock.purchase_date else None,
-        "shares": shares,
-        "unit_price": unit_price,
-        "current_price": current_price,  # ← ここがカード値で上書きされる
-        "total_cost": total_cost,
-        "market_value": market_value,
-        "profit_loss": profit_loss,
-        "note": stock.note or "",
-        "updated_at": stock.updated_at.isoformat() if stock.updated_at else None,
-    }
-    return JsonResponse(data)
-
-from django.views.decorators.http import require_GET
-from django.http import JsonResponse
-from django.contrib.auth.decorators import login_required
-import datetime as dt
-from django.utils import timezone
-import yfinance as yf
-
-@login_required
-@require_GET
-@cache_page(60 * 1440)  # 1日キャッシュ
-def stock_price_json(request, pk: int):
-    """
-    価格タブ用の軽量JSON:
-      - OHLC 時系列（ローソク足用／なければ Close のみ）
-        ※ ?period=1M/3M/1Y で切替（既定 1M）
-      - 最新終値・前日比
-      - 52週高値/安値
-      - 上場来高値/安値
-    失敗時は DB の current_price などでフォールバック
-    """
-    stock = get_object_or_404(Stock, pk=pk)
-    ticker = Stock.to_yf_symbol(stock.ticker) if hasattr(Stock, "to_yf_symbol") else stock.ticker
-
-    # ---- 期間決定（デフォルト 1M）----
-    period_q = (request.GET.get("period") or "1M").upper()
-    if period_q not in ("1M", "3M", "1Y"):
-        period_q = "1M"
-
-    today = timezone.localdate()
-
-    # 期間に応じた開始日（暦日で余裕を広めに確保）
-    if period_q == "1M":
-        start_range = today - dt.timedelta(days=60)   # 30営業日程度入るよう余裕
-        cap_points = 30
-    elif period_q == "3M":
-        start_range = today - dt.timedelta(days=150)
-        cap_points = 60
-    else:  # "1Y"
-        start_range = today - dt.timedelta(days=430)
-        cap_points = 260
-
-    start_52w = today - dt.timedelta(days=400)
-
-    series = []        # ローソク足: [{t, o, h, l, c}] / ライン: [{t, c}]
-    last_close = None
-    prev_close = None
-    high_52w = None
-    low_52w = None
-    high_all = None
-    low_all = None
-
-    try:
-        tkr = yf.Ticker(ticker)
-
-        # --- 指定期間の時系列（1日足） ---
-        hist = tkr.history(
-            start=start_range.isoformat(),
-            end=(today + dt.timedelta(days=1)).isoformat(),
-            interval="1d",
-        )
-
-        if not hist.empty:
-            # yfinance は列名: ["Open","High","Low","Close", ...]
-            # NaN を除外して尾部 cap_points 件に間引き
-            df = hist[["Open", "High", "Low", "Close"]].dropna()
-            if not df.empty:
-                tail = df.tail(cap_points)
-                # OHLC で返す（JS は o/h/l/c があればローソク足、無ければライン）
-                series = [
-                    {
-                        "t": str(idx.date()),
-                        "o": float(row["Open"]),
-                        "h": float(row["High"]),
-                        "l": float(row["Low"]),
-                        "c": float(row["Close"]),
-                    }
-                    for idx, row in tail.iterrows()
-                ]
-
-                closes = df["Close"]
-                if len(closes) >= 2:
-                    last_close = float(closes.iloc[-1])
-                    prev_close = float(closes.iloc[-2])
-                elif len(closes) == 1:
-                    last_close = float(closes.iloc[-1])
-
-        # --- 52週高安 ---
-        hist_52w = tkr.history(
-            start=start_52w.isoformat(),
-            end=(today + dt.timedelta(days=1)).isoformat(),
-            interval="1d",
-        )
-        if not hist_52w.empty:
-            hh = hist_52w["High"].dropna()
-            ll = hist_52w["Low"].dropna()
-            if not hh.empty:
-                high_52w = float(hh.max())
-            if not ll.empty:
-                low_52w = float(ll.min())
-
-        # --- 上場来高安 ---
-        hist_all = tkr.history(period="max", interval="1d")
-        if not hist_all.empty:
-            hh_all = hist_all["High"].dropna()
-            ll_all = hist_all["Low"].dropna()
-            if not hh_all.empty:
-                high_all = float(hh_all.max())
-            if not ll_all.empty:
-                low_all = float(ll_all.min())
-
-    except Exception:
-        # ネットワーク・レート制限などは無視してフォールバック
-        pass
-
-    # フォールバック（最低限の表示）
-    if not last_close or last_close <= 0:
-        last_close = float(stock.current_price or stock.unit_price or 0.0)
-    if not prev_close or prev_close <= 0:
-        prev_close = last_close
-
-    change = last_close - prev_close
-    change_pct = (change / prev_close * 100.0) if prev_close else 0.0
-
-    # もし何らかの理由で OHLC を作れなかったら、Close だけの series を生成（上限 cap_points）
-    if not series:
-        # Close だけの簡易 series（最新日付だけでも形を合わせる）
-        # ※ ここではラベル用に today から cap_points 逆算して日付を並べるなどもできるが、
-        #    余計な誤解を避けるため空配列のまま返す/または 1点だけ返す方が安全。
-        # ここでは空配列のまま返す（JS 側は防御済みで描画をスキップ）
-        series = []
-
-    data = {
-        "period": period_q,          # クライアント側の整合確認用
-        "series": series,            # [{t:'YYYY-MM-DD', o,h,l,c}] or [{t, c}]
-        "last_close": last_close,
-        "prev_close": prev_close,
-        "change": change,
-        "change_pct": change_pct,
-        "high_52w": high_52w,
-        "low_52w": low_52w,
-        "high_all": high_all,        # 上場来高値
-        "low_all": low_all,          # 上場来安値
-    }
-    return JsonResponse(data)
-    
-from django.views.decorators.cache import cache_page
-from django.http import JsonResponse, Http404
-from django.shortcuts import render, get_object_or_404
-from django.utils import timezone
-import datetime as dt
-import math
-
-try:
-    import yfinance as yf
-except Exception:
-    yf = None
-
-# views.py
-from django.http import JsonResponse
-from django.utils import timezone
-from django.contrib.auth.decorators import login_required
-from django.views.decorators.cache import cache_page
-from django.views.decorators.http import require_GET
-from django.shortcuts import get_object_or_404
-import math
-
-try:
-    import yfinance as yf
-except Exception:
-    yf = None
-
-# portfolio/views.py
-import datetime as dt
-import yfinance as yf
-from django.http import JsonResponse
-from django.shortcuts import get_object_or_404
-from django.utils import timezone
-from django.contrib.auth.decorators import login_required
-from django.views.decorators.http import require_GET
-from django.views.decorators.cache import cache_page
-
-from .models import Stock
-
-@cache_page(60 * 1440)  # 1日キャッシュ（必要に応じて）
-@login_required
-@require_GET
-def stock_fundamental_json(request, pk: int):
-    """
-    指標タブ用の軽量JSON:
-      - PER, PBR, 時価総額, EPS
-      - 配当利回り(%), 予想配当(1株あたり, 円)
-    優先順:
-      1) fast_info / info
-      2) TTM配当合計から推計
-      3) カードの現在値(from_card_current)やDB値で補完
-    返す値は「数値そのもの」。フロントで整形して表示します。
-    """
-    stock = get_object_or_404(Stock, pk=pk)
-    symbol = Stock.to_yf_symbol(stock.ticker) if hasattr(Stock, "to_yf_symbol") else stock.ticker
-
-    # まずはカード側の現在値を受け取り、無ければDB
-    last_price = None
-    try:
-        cp = request.GET.get("from_card_current")
-        if cp:
-            last_price = float(cp)
+        if "user" in {f.name for f in Stock._meta.get_fields()}:
+            qs = qs.filter(user=request.user)
     except Exception:
         pass
-    if not last_price:
+
+    # 正規化注釈
+    def _norm(model, field, fk_label="name"):
         try:
-            last_price = float(stock.current_price or 0.0)
+            fld = model._meta.get_field(field)
+            typ = fld.get_internal_type()
+            if typ == "CharField" and getattr(model, f"{field.upper()}_CHOICES", None):
+                choices = getattr(model, f"{field.upper()}_CHOICES")
+                whens = [When(**{field: code, "then": Value(label)}) for code, label in choices]
+                return Case(*whens, default=F(field), output_field=CharField())
+            if typ == "ForeignKey":
+                return F(f"{field}__{fk_label}")
+            return F(field)
         except Exception:
-            last_price = 0.0
+            return Value("（未設定）", output_field=CharField())
 
-    per = None
-    pbr = None
-    eps = None
-    mcap = None
-    div_yield_pct = None   # 例: 3.1（= 3.1%）
-    dps = None             # 1株あたり配当（円想定）
-    updated = timezone.now().isoformat()
+    qs = qs.annotate(
+        broker_name=_norm(Stock, "broker"),
+        account_type_name=_norm(Stock, "account_type"),
+    ).order_by("broker_name", "account_type_name", "name", "ticker")
 
-    try:
-        tkr = yf.Ticker(symbol)
+    # 軽量な現在値+損益計算
+    for s in qs:
+        s.current_price = _get_current_price_cached(s.ticker, fallback=s.unit_price)
+        sh = int(s.shares or 0)
+        up = float(s.unit_price or 0)
+        cur = float(s.current_price or up)
+        s.total_cost = sh * up
+        s.profit_amount = round(cur * sh - s.total_cost)
+        s.profit_rate = round((s.profit_amount / s.total_cost * 100), 2) if s.total_cost else 0.0
 
-        # --- fast_info 優先（軽量・高速）
-        fi = getattr(tkr, "fast_info", {}) or {}
-        def fi_get(key):
-            try:
-                # fast_info は dict風 or 属性風どちらもあり得る
-                if isinstance(fi, dict):
-                    return fi.get(key, None)
-                return getattr(fi, key, None)
-            except Exception:
-                return None
-
-        lp = fi_get("last_price")
-        if lp:
-            last_price = float(lp)
-
-        # 利回り: fast_info.dividend_yield は「小数（0.031）」のことが多い
-        dy = fi_get("dividend_yield")
-        if dy is not None:
-            try:
-                dyf = float(dy)
-                # 1未満なら小数→%に換算、すでに%（>1）ならそのまま
-                div_yield_pct = dyf * 100.0 if dyf < 1 else dyf
-            except Exception:
-                pass
-
-        # PER
-        trpe = fi_get("trailing_pe")
-        if trpe:
-            try: per = float(trpe)
-            except Exception: pass
-
-        # 時価総額
-        fmc = fi_get("market_cap")
-        if fmc:
-            try: mcap = float(fmc)
-            except Exception: pass
-
-        # --- info で補完（重い場合あり）
-        info = {}
-        try:
-            info = tkr.info or {}
-        except Exception:
-            info = {}
-
-        if per is None:
-            v = info.get("trailingPE")
-            if v: 
-                try: per = float(v)
-                except Exception: pass
-
-        if pbr is None:
-            v = info.get("priceToBook")
-            if v:
-                try: pbr = float(v)
-                except Exception: pass
-
-        if eps is None:
-            v = info.get("trailingEps")
-            if v:
-                try: eps = float(v)
-                except Exception: pass
-
-        if mcap is None:
-            v = info.get("marketCap")
-            if v:
-                try: mcap = float(v)
-                except Exception: pass
-
-        # 予想配当（1株）: info['dividendRate'] を最優先
-        v = info.get("dividendRate")
-        if v:
-            try: dps = float(v)
-            except Exception: pass
-
-        # 配当利回りが無くて、TTM配当から推計
-        if (div_yield_pct is None or dps is None):
-            try:
-                divs = tkr.dividends  # pandas Series
-                if divs is not None and not divs.empty:
-                    since = timezone.now().date() - dt.timedelta(days=400)
-                    ttm = divs[divs.index.date >= since]
-                    if not ttm.empty:
-                        ttm_sum = float(ttm.sum())
-                        # DPS 未取得なら TTM を近似として採用
-                        if dps is None:
-                            dps = ttm_sum
-                        # 利回りも価格が取れていれば計算
-                        if div_yield_pct is None and last_price:
-                            div_yield_pct = (ttm_sum / float(last_price)) * 100.0
-            except Exception:
-                pass
-
-        # まだ DPS が無いが、利回りと価格があるなら逆算
-        if dps is None and div_yield_pct is not None and last_price:
-            dps = (float(div_yield_pct) / 100.0) * float(last_price)
-
-    except Exception:
-        # yfinance 側失敗は無視してフォールバックのみ
-        pass
-
-    # 価格フォールバック
-    if not last_price:
-        try:
-            last_price = float(stock.current_price or stock.unit_price or 0.0)
-        except Exception:
-            last_price = 0.0
-
-    # マイナス等の不正値は None に正規化
-    def clean_num(x):
-        try:
-            f = float(x)
-            if f != f:  # NaN
-                return None
-            return f
-        except Exception:
-            return None
-
-    data = {
-        "ticker": stock.ticker,
-        "last_price": clean_num(last_price),
-        "per": clean_num(per),
-        "pbr": clean_num(pbr),
-        "eps": clean_num(eps),
-        "market_cap": clean_num(mcap),
-        "dividend_yield_pct": clean_num(div_yield_pct),   # 3.1 のように %そのもの
-        "dividend_per_share": clean_num(dps),             # 円想定（数値）
-        "updated_at": updated,
-    }
-    return JsonResponse(data)
-    
-# portfolio/views.py
-from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
-from django.shortcuts import get_object_or_404
-from django.utils import timezone
-from django.views.decorators.http import require_GET
-from django.views.decorators.cache import cache_page
-import datetime as dt
-import yfinance as yf
-
-from .models import Stock
-
-def _to_yf_symbol(ticker: str) -> str:
-    return Stock.to_yf_symbol(ticker) if hasattr(Stock, "to_yf_symbol") else ticker
+    return render(request, "stock_list.html", {"stocks": qs})
 
 
-
-import datetime as dt
-from typing import Any, Dict, List, Tuple, TypedDict, Union, Optional
-
-from django.conf import settings
-from django.contrib.auth.decorators import login_required
-from django.core.exceptions import ImproperlyConfigured
-from django.http import JsonResponse, HttpResponseBadRequest
-from django.shortcuts import get_object_or_404
-from django.utils import timezone
-from django.views.decorators.cache import cache_page
-from django.views.decorators.http import require_GET
-
-from .models import Stock  # 必須
-# DBフォールバック用（存在すれば使う）
-try:
-    from .models import StockNews  # Optional: stock ごとのニュースを保存している場合
-    HAS_STOCK_NEWS_MODEL = True
-except Exception:
-    HAS_STOCK_NEWS_MODEL = False
-
-
-# ---- optional: 外部ニュースプロバイダ（実装済みなら使う） ---------------------
-# app/services/news_provider.py に fetch_stock_news があれば優先利用します。
-# 署名:
-#   fetch_stock_news(stock: Stock, page: int, limit: int, lang: str) -> Tuple[List[Dict[str, Any]], Optional[int]]
-# 返り値:
-#   (items, total) を想定。total 不明なら None。
-FETCH_PROVIDER = None
-try:
-    from app.services.news_provider import fetch_stock_news as _fetch_from_provider  # type: ignore
-    FETCH_PROVIDER = _fetch_from_provider  # prefer external provider if available
-except Exception:
-    FETCH_PROVIDER = None
-
-
-# ---- schema 用の型（lint/補完用） --------------------------------------------
-class NewsItemDict(TypedDict, total=False):
-    id: str
-    title: str
-    url: str
-    source: str
-    published_at: str     # ISO8601 UTC (Z)
-    summary: str
-    sentiment: str        # "pos" | "neg" | "neu"
-    impact: int           # 1..3
-    date: str             # YYYY-MM-DD (ローカル日付 or 市場日付など)
-
-
-# ---- ユーティリティ -----------------------------------------------------------
-MIN_LIMIT = 10
-MAX_LIMIT = 50
-DEFAULT_LIMIT = 20
-
-
-def _parse_positive_int(value: str, default: int, min_v: int, max_v: int) -> int:
-    try:
-        v = int(value)
-    except Exception:
-        return default
-    if v < min_v:
-        return min_v
-    if v > max_v:
-        return max_v
-    return v
-
-
-def _to_utc_isoz(dt_obj: dt.datetime) -> str:
-    """aware datetime を UTC 'YYYY-MM-DDTHH:MM:SSZ' にして返す"""
-    if timezone.is_naive(dt_obj):
-        dt_obj = timezone.make_aware(dt_obj, timezone.get_current_timezone())
-    dt_utc = dt_obj.astimezone(timezone.utc)
-    # Python 3.11+: timespec='seconds' で秒まで固定
-    return dt_utc.replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def _as_date_string(dt_obj: dt.datetime, *, tz: Optional[dt.tzinfo] = None) -> str:
-    """チャートマーキング用の日付（YYYY-MM-DD）。デフォルトは現在タイムゾーン。"""
-    if timezone.is_naive(dt_obj):
-        aware = timezone.make_aware(dt_obj, timezone.get_current_timezone())
-    else:
-        aware = dt_obj
-    if tz is None:
-        tz = timezone.get_current_timezone()
-    local_dt = aware.astimezone(tz)
-    return local_dt.date().isoformat()
-
-
-def _sanitize_url(url: Optional[str]) -> str:
-    if not url:
-        return ""
-    # ここでは簡易チェックのみ（http/https）
-    if url.startswith("http://") or url.startswith("https://"):
-        return url
-    return ""
-
-
-def _serialize_from_dict(d: Dict[str, Any]) -> NewsItemDict:
-    # 外部プロバイダが返す dict を標準スキーマに寄せる
-    title = str(d.get("title") or "").strip()
-    source = str(d.get("source") or "").strip()
-    pub = d.get("published_at")
-    if isinstance(pub, dt.datetime):
-        published_at = _to_utc_isoz(pub)
-        date_str = _as_date_string(pub)
-    else:
-        # 文字列想定（UTC/Z入り等）。パースに失敗したら now。
-        try:
-            # 可能なら fromisoformat で簡易対応
-            parsed = dt.datetime.fromisoformat(str(pub).replace("Z", "+00:00"))
-        except Exception:
-            parsed = timezone.now()
-        if timezone.is_naive(parsed):
-            parsed = timezone.make_aware(parsed, timezone.utc)
-        published_at = _to_utc_isoz(parsed)
-        date_str = _as_date_string(parsed)
-
-    out: NewsItemDict = {
-        "id": str(d.get("id") or ""),
-        "title": title or "（タイトル不明）",
-        "url": _sanitize_url(d.get("url")),
-        "source": source or "—",
-        "published_at": published_at,
-        "summary": str(d.get("summary") or ""),
-        "sentiment": str(d.get("sentiment") or "neu"),
-        "impact": int(d.get("impact") or 1),
-        "date": str(d.get("date") or date_str),
-    }
-    return out
-
-
-def _serialize_from_model(m: Any) -> NewsItemDict:
-    # DBモデル（StockNews）から標準スキーマへ
-    # 想定フィールド: id, title, url, source, published_at (DateTimeField), summary, sentiment, impact
-    title = (getattr(m, "title", "") or "").strip()
-    source = (getattr(m, "source", "") or "").strip()
-    published_at = getattr(m, "published_at", None) or timezone.now()
-    return {
-        "id": str(getattr(m, "id", "")),
-        "title": title or "（タイトル不明）",
-        "url": _sanitize_url(getattr(m, "url", "") or ""),
-        "source": source or "—",
-        "published_at": _to_utc_isoz(published_at),
-        "summary": getattr(m, "summary", "") or "",
-        "sentiment": getattr(m, "sentiment", "") or "neu",
-        "impact": int(getattr(m, "impact", 1) or 1),
-        "date": _as_date_string(published_at),
-    }
-
-
-def _fetch_from_db(stock: Stock, page: int, limit: int, lang: str) -> Tuple[List[NewsItemDict], int, bool]:
-    """
-    DBに StockNews がある場合のフォールバック取得。
-    total は count で返す。has_more はページングから算出。
-    """
-    if not HAS_STOCK_NEWS_MODEL:
-        return ([], 0, False)
-
-    qs = StockNews.objects.filter(stock=stock).order_by("-published_at")
-    # lang 列がある場合はコメントアウト解除:
-    # if hasattr(StockNews, "lang") and lang != "all":
-    #     qs = qs.filter(lang=lang)
-
-    total = qs.count()
-    start = (page - 1) * limit
-    end = start + limit
-    objs = list(qs[start:end])
-    items = [_serialize_from_model(m) for m in objs]
-    has_more = end < total
-    return (items, total, has_more)
-
-
-@login_required
-@require_GET
-@cache_page(300)  # 5分キャッシュ
-def stock_news_json(request, pk: int):
-    """
-    ニュースJSON（lazy-load用）
-    GET:
-      page: 1.. (default=1)
-      limit: 10..50 (default=20)
-      lang: all/jp/us（拡張用）
-    返却:
-      {
-        "page": 1,
-        "limit": 20,
-        "has_more": true/false,
-        "total": 123,  # 不明なら省略
-        "items": [NewsItemDict, ...]
-      }
-    """
-    stock = get_object_or_404(Stock, pk=pk)
-
-    # --- 入力
-    page = _parse_positive_int(request.GET.get("page", "1"), default=1, min_v=1, max_v=10_000)
-    limit = _parse_positive_int(request.GET.get("limit", str(DEFAULT_LIMIT)), DEFAULT_LIMIT, MIN_LIMIT, MAX_LIMIT)
-    lang = (request.GET.get("lang") or "all").lower()
-
-    # --- 取得（外部プロバイダ or DB フォールバック）
-    items: List[NewsItemDict] = []
-    total: Optional[int] = None
-    has_more: bool = False
-
-    # 1) 外部プロバイダ優先
-    if FETCH_PROVIDER:
-        try:
-            raw_items, provider_total = FETCH_PROVIDER(stock=stock, page=page, limit=limit, lang=lang)
-            items = [_serialize_from_dict(d) for d in (raw_items or [])]
-            total = provider_total if isinstance(provider_total, int) and provider_total >= 0 else None
-            # has_more は total が分かれば計算、分からなければ「items が limit に満たない場合 False、満たしていれば True」と推定
-            if total is not None:
-                has_more = page * limit < total
-            else:
-                has_more = len(items) >= limit
-        except Exception as e:
-            # 外部失敗時は DB フォールバック
-            items, total_db, has_more = _fetch_from_db(stock, page, limit, lang)
-            total = total_db if total_db > 0 else None
-    else:
-        # 2) DB フォールバック
-        items, total_db, has_more = _fetch_from_db(stock, page, limit, lang)
-        total = total_db if total_db > 0 else None
-
-    # --- レスポンス整形
-    payload: Dict[str, Any] = {
-        "page": page,
-        "limit": limit,
-        "has_more": has_more,
-        "items": items,
-    }
-    if total is not None:
-        payload["total"] = total
-
-    return JsonResponse(payload, json_dumps_params={"ensure_ascii": False})    
-
-
-import datetime
-import re
-import yfinance as yf
-from collections import OrderedDict
-
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import render, redirect, get_object_or_404
-from django.utils import timezone
-
-# -----------------------------
-# 損益一覧
-# -----------------------------
-# views.py
-from collections import OrderedDict
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import render
-from django.db.models import Sum
-from .models import RealizedProfit, Dividend  # ★ 追加
-
-def _model_has_field(model, name: str) -> bool:
-    try:
-        model._meta.get_field(name)
-        return True
-    except Exception:
-        return False
-
+# =============================================================================
+# 実現損益（売買 + 配当）一覧
+# =============================================================================
 @login_required
 def realized_view(request):
-    """
-    実現損益 + 配当をまとめて一覧表示。
-    年月ごとにグルーピングしてテンプレへ渡す。
-    """
-    # --- 1) 売買（既存）
+    # 売買
     trades_qs = RealizedProfit.objects.filter(user=request.user).order_by("-date", "-id")
-
     trade_rows = []
     for t in trades_qs:
         trade_rows.append({
-            "date":        t.date,                    # datetime/date
-            "stock_name":  t.stock_name,
-            "code":        getattr(t, "code", None),
-            "broker":      t.broker,
-            "account_type":t.account_type,
-            "trade_type":  "sell",                    # 表示用（＝売買）
-            "quantity":    getattr(t, "quantity", None),
-            "profit_amount":getattr(t, "profit_amount", 0),
+            "date": t.date,
+            "stock_name": t.stock_name,
+            "code": getattr(t, "code", None),
+            "broker": t.broker,
+            "account_type": t.account_type,
+            "trade_type": "sell",
+            "quantity": getattr(t, "quantity", None),
+            "profit_amount": getattr(t, "profit_amount", 0),
             "profit_rate": getattr(t, "profit_rate", None),
-            "purchase_price":getattr(t, "purchase_price", None),
-            "sell_price":  getattr(t, "sell_price", None),
-            "fee":         getattr(t, "fee", None),
-            # id も持っておくと行識別に便利
-            "id":          t.id,
-            "_kind":       "trade",                   # 内部用
+            "purchase_price": getattr(t, "purchase_price", None),
+            "sell_price": getattr(t, "sell_price", None),
+            "fee": getattr(t, "fee", None),
+            "id": t.id,
+            "_kind": "trade",
         })
 
-    # --- 2) 配当（user FK の有無で分岐）
-    div_qs = Dividend.objects.all()
-    if _model_has_field(Dividend, "user"):
-        div_qs = div_qs.filter(user=request.user)
-
-    div_qs = div_qs.order_by("-received_at", "-id")
-
+    # 配当
     div_rows = []
-    for d in div_qs:
-        # テンプレが期待するキー名に合わせてマッピング
-        div_rows.append({
-            "date":        d.received_at,             # ← Realizedと合わせるため "date" に寄せる
-            "stock_name":  d.stock_name,
-            "code":        getattr(d, "ticker", None),
-            "broker":      d.broker,
-            "account_type":d.account_type,
-            "trade_type":  "dividend",                # 表示上の区分
-            "quantity":    None,                      # 配当は株数を表示しないなら None
-            "profit_amount":getattr(d, "net_amount", 0),  # 受取額を損益欄に表示（好みで gross でも可）
-            "profit_rate": None,
-            "purchase_price": None,
-            "sell_price":  None,
-            "fee":         None,
-            "id":          d.id,
-            "_kind":       "dividend",
-        })
+    if HAS_DIVIDEND:
+        dv_qs = Dividend.objects.all()
+        if hasattr(Dividend, "user"):
+            dv_qs = dv_qs.filter(user=request.user)
+        dv_qs = dv_qs.order_by("-received_at", "-id")
+        for d in dv_qs:
+            div_rows.append({
+                "date": d.received_at,
+                "stock_name": d.stock_name,
+                "code": getattr(d, "ticker", None),
+                "broker": d.broker,
+                "account_type": d.account_type,
+                "trade_type": "dividend",
+                "quantity": None,
+                "profit_amount": getattr(d, "net_amount", 0) or (int(d.gross_amount or 0) - int(d.tax or 0)),
+                "profit_rate": None,
+                "purchase_price": None,
+                "sell_price": None,
+                "fee": None,
+                "id": d.id,
+                "_kind": "dividend",
+            })
 
-    # --- 3) マージして日付降順に
     merged = trade_rows + div_rows
     merged.sort(key=lambda r: (r["date"], r["id"]), reverse=True)
 
-    # --- 4) 年月グルーピング（"YYYY-MM"）
     groups = OrderedDict()
     for row in merged:
-        y = row["date"].year
-        m = row["date"].month
-        ym = f"{y:04d}-{m:02d}"
+        ym = f"{row['date'].year:04d}-{row['date'].month:02d}"
         groups.setdefault(ym, []).append(row)
 
-    # --- 5) 合計など（必要なら）
-    # KPIをサーバー側で出したいときの例（テンプレ/JSの実装に合わせて使用）
     totals = {
         "count": len(merged),
         "sum_profit": sum((r["profit_amount"] or 0) for r in merged),
@@ -1364,57 +525,37 @@ def realized_view(request):
         "sum_loss_only": sum((r["profit_amount"] or 0) for r in merged if (r["profit_amount"] or 0) < 0),
     }
 
-    return render(request, "realized.html", {
-        "rows_by_ym": groups,
-        "totals": totals,
-    })
-    
-@login_required
-def trade_history(request):
-    return render(request, "trade_history.html")
+    return render(request, "realized.html", {"rows_by_ym": groups, "totals": totals})
 
-# -----------------------------
+
+# =============================================================================
 # 配当入力
-# -----------------------------
-# 追加/確認：上の方のimport
-from datetime import date
-from django.shortcuts import render, redirect
-from django.urls import reverse
-from django.contrib import messages
-# Dividendモデルを使っているなら
-from .models import Dividend
-
+# =============================================================================
+@login_required
 def dividend_new_page(request):
-    """
-    配当入力（スマホファースト）
-    テンプレは ルート直下: templates/dividend_form.html を使用
-    """
+    if not HAS_DIVIDEND:
+        raise Http404("Dividend model not found.")
+
     if request.method == "POST":
         ticker       = (request.POST.get("ticker") or "").strip()
         stock_name   = (request.POST.get("stock_name") or "").strip()
         received_at  = request.POST.get("received_at") or str(date.today())
-        gross_amount = int(request.POST.get("gross_amount") or 0)
-        tax          = int(request.POST.get("tax") or 0)
+        gross_amount = _safe_int(request.POST.get("gross_amount"), 0)
+        tax          = _safe_int(request.POST.get("tax"), 0)
         account_type = (request.POST.get("account_type") or "").strip()
         broker       = (request.POST.get("broker") or "").strip()
         memo         = (request.POST.get("memo") or "").strip()
 
         if not ticker or not stock_name or gross_amount <= 0:
             messages.error(request, "必須項目（銘柄名・コード・配当金）を入力してください。")
-            # ↓ エラー時も必ずテンプレを返す（return None防止）
-            ctx = {
-                "init": {
-                    "ticker": ticker,
-                    "stock_name": stock_name,
-                    "account_type": account_type,
-                    "broker": broker,
-                    "received_at": received_at,
-                }
-            }
+            ctx = {"init": {
+                "ticker": ticker, "stock_name": stock_name,
+                "account_type": account_type, "broker": broker,
+                "received_at": received_at,
+            }}
             return render(request, "dividend_form.html", ctx)
 
-        # 保存
-        Dividend.objects.create(
+        kwargs = dict(
             ticker=ticker,
             stock_name=stock_name,
             received_at=received_at,
@@ -1424,9 +565,13 @@ def dividend_new_page(request):
             broker=broker,
             memo=memo,
         )
+        if hasattr(Dividend, "user"):
+            kwargs["user"] = request.user
+
+        Dividend.objects.create(**kwargs)
         messages.success(request, "配当を登録しました。")
 
-        # 戻り先（あなたのURL名に合わせて必要なら変更）
+        # 戻り先
         try:
             return redirect(reverse("realized"))
         except Exception:
@@ -1435,25 +580,15 @@ def dividend_new_page(request):
             except Exception:
                 return redirect(reverse("stock_list"))
 
-    # GET: 初期表示（必ずrenderを返す）
-    ctx = {
-        "init": {
-            "ticker":       request.GET.get("ticker", ""),
-            "stock_name":   request.GET.get("stock_name", ""),
-            "account_type": request.GET.get("account_type", ""),
-            "broker":       request.GET.get("broker", ""),
-            "received_at":  request.GET.get("received_at", "") or str(date.today()),
-        }
-    }
-    return render(request, "dividend_form.html", ctx)   
+    ctx = {"init": {
+        "ticker":       request.GET.get("ticker", ""),
+        "stock_name":   request.GET.get("stock_name", ""),
+        "account_type": request.GET.get("account_type", ""),
+        "broker":       request.GET.get("broker", ""),
+        "received_at":  request.GET.get("received_at", "") or str(date.today()),
+    }}
+    return render(request, "dividend_form.html", ctx)
 
-# -----------------------------
-# 配当入力　銘柄自動補完 API
-# -----------------------------
-from django.http import JsonResponse
-from django.views.decorators.http import require_GET
-from django.db.models import F
-from .models import Stock
 
 @require_GET
 def api_stock_lookup(request):
@@ -1472,113 +607,34 @@ def api_stock_lookup(request):
         "found": True,
         "stock_name": obj.name,
         "account_type": obj.account_type,
-        "broker": getattr(obj, "broker", ""),  # broker フィールドが無ければ空
+        "broker": getattr(obj, "broker", ""),
         "shares": obj.shares,
     }
     return JsonResponse(data, status=200)
 
-# -----------------------------
-# 登録ページ
-# -----------------------------
-from django.contrib.auth.decorators import login_required
-from django.urls import reverse
 
-@login_required
-def register_hub(request):
-    settings_cards = [
-        {
-            "url_name": "stock_create",
-            "color": "#3AA6FF",
-            "icon": "fa-circle-plus",
-            "title": "新規登録",
-            "description": "保有株を素早く追加",
-            "badge": "推奨",         # 任意
-            "progress": None,        # 任意
-        },
-        {
-            "url_name": "dividend_new",
-            "color": "#00C48C",
-            "icon": "fa-coins",
-            "title": "配当入力",
-            "description": "受取配当を記録",
-            "badge": None,
-            "progress": None,
-        },
-        {
-            "url_name": "cash_io",
-            "color": "#FF8A3D",
-            "icon": "fa-wallet",
-            "title": "入出金",
-            "description": "入金/出金を登録",
-            "badge": None,
-            "progress": None,
-        },
-    ]
-    return render(request, "register_hub.html", {"settings_cards": settings_cards})
-    
-# -----------------------------
-# 入出金
-# -----------------------------
-# portfolio/views.py
-# portfolio/views.py
-from django.shortcuts import render, redirect, get_object_or_404
-from django.urls import reverse
-from django.contrib import messages
-from django.db.models import Sum, F, Case, When, IntegerField
-from django.utils import timezone
-from django.views.decorators.http import require_POST
-from datetime import datetime  # timedelta は未使用なので削除
-
-from django.db.models.functions import TruncMonth
-from .models import CashFlow
-
-# =============================
-# 設定
-# =============================
-BROKER_TABS = [
-    ("rakuten", "楽天証券"),
-    ("matsui",  "松井証券"),
-    ("sbi",     "SBI証券"),
-]
-BROKER_MAP = dict(BROKER_TABS)
-
-# Undo 可能な時間（秒）
+# =============================================================================
+# 入出金（現金）
+# =============================================================================
 UNDO_WINDOW_SECONDS = 120
 
-
-# =============================
-# ヘルパ
-# =============================
-def _aggregate_balances():
-    """証券会社ごとの残高 = 入金合計 - 出金合計"""
-    sums = (CashFlow.objects.values("broker", "flow_type").annotate(total=Sum("amount")))
+def _aggregate_balances() -> Dict[str, int]:
+    sums = CashFlow.objects.values("broker", "flow_type").annotate(total=Sum("amount"))
     bal = {k: 0 for k, _ in BROKER_TABS}
     for row in sums:
-        b = row["broker"]; t = row["flow_type"]; v = row["total"] or 0
+        b = row["broker"]; t = row["flow_type"]; v = int(row["total"] or 0)
         if b in bal:
             bal[b] += v if t == "in" else -v
     return bal
 
-def _parse_date_yyyy_mm_dd(s: str):
-    try:
-        return datetime.strptime(s, "%Y-%m-%d").date()
-    except Exception:
-        return timezone.now().date()
-
-
-# =============================
-# 入出金ページ（本体）
-# =============================
+@login_required
 def cash_io_page(request):
-    # タブ（?broker=rakuten/matsui/sbi）
     broker = request.GET.get("broker") or "rakuten"
     if broker not in BROKER_MAP:
         broker = "rakuten"
     active_label = BROKER_MAP[broker]
 
-    # クイック期間フィルター（"7", "30", "90", "all"）
     range_days = (request.GET.get("range") or "").strip().lower()
-    # キーワード検索
     q = (request.GET.get("q") or "").strip()
 
     # POST: 登録
@@ -1586,13 +642,10 @@ def cash_io_page(request):
         post_broker = request.POST.get("broker") or broker
         flow_type   = (request.POST.get("flow_type") or "").strip()
         amount_raw  = (request.POST.get("amount") or "").replace(",", "").strip()
-        occurred_at = request.POST.get("occurred_at") or str(timezone.now().date())
+        occurred_at = request.POST.get("occurred_at") or str(timezone.localdate())
         memo        = (request.POST.get("memo") or "").strip()
 
-        try:
-            amount = int(amount_raw)
-        except ValueError:
-            amount = 0
+        amount = _safe_int(amount_raw, 0)
         occurred_date = _parse_date_yyyy_mm_dd(occurred_at)
 
         if post_broker not in BROKER_MAP:
@@ -1603,40 +656,33 @@ def cash_io_page(request):
             messages.error(request, "金額を入力してください。")
         else:
             obj = CashFlow.objects.create(
-                broker=post_broker,
-                flow_type=flow_type,
-                amount=amount,                 # in/outは符号ではなく種類で管理
-                occurred_at=occurred_date,
-                memo=memo[:200],
+                broker=post_broker, flow_type=flow_type, amount=amount,
+                occurred_at=occurred_date, memo=memo[:200]
             )
             verb = "入金" if flow_type == "in" else "出金"
             messages.success(request, f"{BROKER_MAP[post_broker]} に {verb} {amount:,} 円を登録しました。")
-            # Undo情報
             request.session["last_cashflow_id"] = obj.id
             request.session["last_cashflow_ts"] = timezone.now().timestamp()
             request.session.modified = True
-            # 同じタブに戻す
             return redirect(f"{reverse('cash_io')}?broker={post_broker}&range={range_days or ''}&q={q}")
 
-    # 残高サマリ
+    # 残高
     balances = _aggregate_balances()
 
-    # 最近の入出金：選択中ブローカーのみ
+    # 履歴（このページでは「選択中の証券会社」のみを表示）
     qs = CashFlow.objects.filter(broker=broker)
 
-    # 期間フィルタ：7/30/90日 or all（=制限なし）
+    # 期間フィルタ
     if range_days and range_days.isdigit():
-        since = timezone.now().date() - timedelta(days=int(range_days))
+        since = timezone.localdate() - timedelta(days=int(range_days))
         qs = qs.filter(occurred_at__gte=since)
-    # "all" または空文字→フィルタしない
 
-    # キーワード検索（メモ）
+    # メモ検索
     if q:
         qs = qs.filter(Q(memo__icontains=q))
 
     recent = qs.order_by("-occurred_at", "-id")[:100]
 
-    # 合計（参考値）
     agg = qs.aggregate(
         in_sum=Sum(Case(When(flow_type="in", then=F("amount")), default=0, output_field=IntegerField())),
         out_sum=Sum(Case(When(flow_type="out", then=F("amount")), default=0, output_field=IntegerField())),
@@ -1660,7 +706,7 @@ def cash_io_page(request):
         "active_label": active_label,
         "balances": balances,
         "recent": recent,
-        "today": str(timezone.now().date()),
+        "today": str(timezone.localdate()),
         "can_undo": can_undo,
         "undo_id": last_id,
         "undo_seconds": UNDO_WINDOW_SECONDS,
@@ -1673,9 +719,7 @@ def cash_io_page(request):
     }
     return render(request, "cash_io.html", ctx)
 
-# =============================
-# Undo（直後取り消し）
-# =============================
+
 @require_POST
 def cash_undo(request):
     last_id = request.session.get("last_cashflow_id")
@@ -1697,7 +741,6 @@ def cash_undo(request):
     verb = "入金" if obj.flow_type == "in" else "出金"
     obj.delete()
 
-    # セッションクリア
     request.session.pop("last_cashflow_id", None)
     request.session.pop("last_cashflow_ts", None)
     request.session.modified = True
@@ -1706,23 +749,17 @@ def cash_undo(request):
     return redirect(f"{reverse('cash_io')}?broker={broker}")
 
 
-# =============================
-# 履歴編集／削除
-# =============================
+@login_required
 def cash_flow_edit_page(request, pk: int):
-    """履歴の編集ページ（単純な金額・日付・メモのみ）"""
     obj = get_object_or_404(CashFlow, pk=pk)
     broker = obj.broker
 
     if request.method == "POST":
         amount_raw  = (request.POST.get("amount") or "").replace(",", "").strip()
-        occurred_at = request.POST.get("occurred_at") or str(timezone.now().date())
+        occurred_at = request.POST.get("occurred_at") or str(timezone.localdate())
         memo        = (request.POST.get("memo") or "").strip()
 
-        try:
-            amount = int(amount_raw)
-        except ValueError:
-            amount = 0
+        amount = _safe_int(amount_raw, 0)
         occurred_date = _parse_date_yyyy_mm_dd(occurred_at)
 
         if amount <= 0:
@@ -1735,17 +772,12 @@ def cash_flow_edit_page(request, pk: int):
             messages.success(request, "入出金を更新しました。")
             return redirect(f"{reverse('cash_io')}?broker={broker}")
 
-    ctx = {
-        "item": obj,
-        "broker_label": BROKER_MAP.get(broker, broker),
-        "today": str(timezone.now().date()),
-    }
+    ctx = {"item": obj, "broker_label": BROKER_MAP.get(broker, broker), "today": str(timezone.localdate())}
     return render(request, "cash_flow_edit.html", ctx)
 
 
 @require_POST
 def cash_flow_delete(request, pk: int):
-    """履歴の削除（ハードデリート）"""
     obj = get_object_or_404(CashFlow, pk=pk)
     broker = obj.broker
     amt = obj.amount
@@ -1754,22 +786,19 @@ def cash_flow_delete(request, pk: int):
     messages.success(request, f"{BROKER_MAP.get(broker, broker)} の {verb} {amt:,} 円を削除しました。")
     return redirect(f"{reverse('cash_io')}?broker={broker}")
 
-# =============================
-# 互換エイリアス（古いコードが cash_view を参照してもOKにする）
-# =============================
+
+# 互換：古いコードが cash_view を参照してもOK
 def cash_view(request, *args, **kwargs):
-    return cash_io_page(request, *args, **kwargs)    
-# -----------------------------
-# 設定画面ログイン
-# -----------------------------
+    return cash_io_page(request, *args, **kwargs)
+
+
+# =============================================================================
+# 設定画面
+# =============================================================================
 def settings_login(request):
     password_obj = SettingsPassword.objects.first()
     if not password_obj:
-        return render(
-            request,
-            "settings_login.html",
-            {"error": "パスワードが設定されていません。管理画面で作成してください。"},
-        )
+        return render(request, "settings_login.html", {"error": "パスワードが設定されていません。管理画面で作成してください。"})
     if request.method == "POST":
         password = request.POST.get("password") or ""
         if password == password_obj.password:
@@ -1779,9 +808,6 @@ def settings_login(request):
     return render(request, "settings_login.html")
 
 
-# -----------------------------
-# 設定画面本体
-# -----------------------------
 @login_required
 def settings_view(request):
     if not request.session.get("settings_authenticated"):
@@ -1796,16 +822,12 @@ def settings_view(request):
     return render(request, "settings.html", {"settings_cards": settings_cards})
 
 
-# -----------------------------
-# 設定系子ページ
-# -----------------------------
 @login_required
 def tab_manager_view(request):
     if not request.session.get("settings_authenticated"):
         return redirect("settings_login")
 
     tabs_qs = BottomTab.objects.prefetch_related('submenus').order_by('order', 'id')
-
     tab_list = []
     for tab in tabs_qs:
         tab_list.append({
@@ -1819,7 +841,6 @@ def tab_manager_view(request):
                 for sub in tab.submenus.all().order_by('order', 'id')
             ],
         })
-
     return render(request, "tab_manager.html", {"tabs": tab_list})
 
 
@@ -1837,9 +858,6 @@ def notification_settings_view(request):
     return render(request, "notification_settings.html")
 
 
-# -----------------------------
-# 設定画面パスワード編集
-# -----------------------------
 @login_required
 def settings_password_edit(request):
     if not request.session.get("settings_authenticated"):
@@ -1858,33 +876,27 @@ def settings_password_edit(request):
     return render(request, "settings_password_edit.html", {"form": form})
 
 
-# -----------------------------
-# API: タブ一覧（下部ナビ用のJSON）
-# -----------------------------
+# =============================================================================
+# 下部タブ API
+# =============================================================================
 @login_required
 def get_tabs(request):
     tabs_qs = BottomTab.objects.prefetch_related("submenus").order_by("order", "id")
     data = []
     for tab in tabs_qs:
         data.append({
-            "id": tab.id,
-            "name": tab.name,
-            "icon": tab.icon,
-            "url_name": tab.url_name,
-            "order": tab.order,
+            "id": tab.id, "name": tab.name, "icon": tab.icon, "url_name": tab.url_name, "order": tab.order,
             "submenus": [{"id": sm.id, "name": sm.name, "url": sm.url, "order": sm.order} for sm in tab.submenus.all().order_by("order", "id")]
         })
     return JsonResponse(data, safe=False)
 
 
-# -----------------------------
-# API: タブ追加／更新
-# -----------------------------
 @csrf_exempt
 @require_POST
 @login_required
-@transaction.atomic
+@models.transaction.atomic
 def save_tab(request):
+    import json
     try:
         data = json.loads(request.body.decode("utf-8"))
     except json.JSONDecodeError:
@@ -1902,34 +914,20 @@ def save_tab(request):
         tab = BottomTab.objects.filter(id=tab_id).first()
         if not tab:
             return JsonResponse({"error": "Tab not found"}, status=404)
-        tab.name = name
-        tab.icon = icon
-        tab.url_name = url_name
-        tab.save()
+        tab.name = name; tab.icon = icon; tab.url_name = url_name; tab.save()
     else:
         max_tab = BottomTab.objects.order_by("-order").first()
         tab = BottomTab.objects.create(
-            name=name,
-            icon=icon,
-            url_name=url_name,
-            order=(max_tab.order + 1) if max_tab else 0,
+            name=name, icon=icon, url_name=url_name, order=(max_tab.order + 1) if max_tab else 0
         )
 
     return JsonResponse({
-        "id": tab.id,
-        "name": tab.name,
-        "icon": tab.icon,
-        "url_name": tab.url_name,
-        "order": tab.order,
-        "submenus": [
-            {"id": sm.id, "name": sm.name, "url": sm.url, "order": sm.order}
-            for sm in tab.submenus.all().order_by("order", "id")
-        ],
+        "id": tab.id, "name": tab.name, "icon": tab.icon, "url_name": tab.url_name, "order": tab.order,
+        "submenus": [{"id": sm.id, "name": sm.name, "url": sm.url, "order": sm.order}
+                     for sm in tab.submenus.all().order_by("order", "id")],
     })
 
-# -----------------------------
-# API: タブ削除
-# -----------------------------
+
 @csrf_exempt
 @require_POST
 @login_required
@@ -1940,32 +938,30 @@ def delete_tab(request, tab_id):
     tab.delete()
     return JsonResponse({"success": True})
 
-# -----------------------------
-# API: タブ順序保存
-# -----------------------------
+
 @csrf_exempt
 @require_POST
 @login_required
 def save_order(request):
+    import json
     try:
         data = json.loads(request.body.decode("utf-8"))
     except json.JSONDecodeError:
         return HttpResponseBadRequest("Invalid JSON")
 
-    for idx, tab_id in enumerate(data):  # data は配列 [3,1,2,...]
+    for idx, tab_id in enumerate(data):
         tab = BottomTab.objects.filter(id=tab_id).first()
         if tab:
             tab.order = idx
             tab.save()
     return JsonResponse({"success": True})
 
-# -----------------------------
-# API: サブメニュー保存
-# -----------------------------
+
 @csrf_exempt
 @require_POST
 @login_required
 def save_submenu(request):
+    import json
     try:
         data = json.loads(request.body.decode("utf-8"))
     except json.JSONDecodeError:
@@ -1987,18 +983,14 @@ def save_submenu(request):
         sm = tab.submenus.filter(id=submenu_id).first()
         if not sm:
             return JsonResponse({"error": "Submenu not found"}, status=404)
-        sm.name = name
-        sm.url = url
-        sm.save()
+        sm.name = name; sm.url = url; sm.save()
     else:
         max_order = tab.submenus.aggregate(max_order=models.Max("order"))["max_order"] or 0
         sm = tab.submenus.create(name=name, url=url, order=max_order + 1)
 
     return JsonResponse({"id": sm.id, "name": sm.name, "url": sm.url, "order": sm.order})
 
-# -----------------------------
-# API: サブメニュー削除
-# -----------------------------
+
 @csrf_exempt
 @require_POST
 @login_required
@@ -2009,28 +1001,28 @@ def delete_submenu(request, sub_id):
     sm.delete()
     return JsonResponse({"success": True})
 
-# -----------------------------
-# API: サブメニュー順序保存
-# -----------------------------
+
 @csrf_exempt
 @require_POST
 @login_required
 def save_submenu_order(request):
+    import json
     try:
         data = json.loads(request.body.decode("utf-8"))
     except json.JSONDecodeError:
         return HttpResponseBadRequest("Invalid JSON")
 
-    for idx, sub_id in enumerate(data):  # data は配列 [10,11,12]
+    for idx, sub_id in enumerate(data):
         sm = SubMenu.objects.filter(id=sub_id).first()
         if sm:
             sm.order = idx
             sm.save()
     return JsonResponse({"success": True})
 
-# -----------------------------
-# API: 証券コード → 銘柄・業種
-# -----------------------------
+
+# =============================================================================
+# マスタ検索API
+# =============================================================================
 def get_stock_by_code(request):
     code = (request.GET.get("code") or "").strip()
     stock = StockMaster.objects.filter(code=code).first()
@@ -2042,24 +1034,13 @@ def get_stock_by_code(request):
     return JsonResponse({"success": False}, json_dumps_params={"ensure_ascii": False})
 
 
-# -----------------------------
-# API: 銘柄名サジェスト
-# -----------------------------
 def suggest_stock_name(request):
     q = (request.GET.get("q") or "").strip()
     qs = StockMaster.objects.filter(name__icontains=q)[:10]
-    data = [
-        {"code": s.code, "name": s.name, "sector": s.sector or ""}
-        for s in qs
-    ]
+    data = [{"code": s.code, "name": s.name, "sector": s.sector or ""} for s in qs]
     return JsonResponse(data, safe=False, json_dumps_params={"ensure_ascii": False})
 
 
-# -----------------------------
-# API: 33業種リスト
-# -----------------------------
 def get_sector_list(request):
-    sectors = list(
-        StockMaster.objects.values_list("sector", flat=True).distinct()
-    )
+    sectors = list(StockMaster.objects.values_list("sector", flat=True).distinct())
     return JsonResponse([s or "" for s in sectors], safe=False, json_dumps_params={"ensure_ascii": False})
