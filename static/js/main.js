@@ -75,24 +75,44 @@ document.addEventListener('click', (e) => {
 
   let ratio = 0;
   if (target > 0) ratio = Math.max(0, Math.min(1, value / target));
-  // 対象未設定なら 60% を演出値に
-  if (target <= 0) ratio = 0.6;
+  if (target <= 0) ratio = 0.6; // 目標未設定時の演出値
 
   const len = C * ratio;
   fg.setAttribute('stroke-dasharray', `${len} ${C - len}`);
   fg.setAttribute('stroke-dashoffset', '0');
 })();
 
-// ===== Gauges (bar animation) =====
+// ===== Gauges (bar animation + width calculation in JS) =====
 (function animateBars() {
-  document.querySelectorAll('.g-bar span').forEach(span => {
-    const w = window.getComputedStyle(span).width;
+  // 1) 単純な比率バー（評価/総資産・現金/総資産）
+  document.querySelectorAll('.g-bar span[data-ratio]').forEach(span => {
+    const num = parseFloat(span.getAttribute('data-num') || '0');
+    const den = parseFloat(span.getAttribute('data-den') || '0');
+    let pct = 0;
+    if (den > 0 && num >= 0) {
+      pct = Math.max(0, Math.min(100, (num / den) * 100));
+    }
     span.style.width = '0';
     requestAnimationFrame(() => {
       span.style.transition = 'width .9s cubic-bezier(.2,.8,.2,1)';
-      // 計算済み width を一度読み出すため再レイアウト
-      // その後 style.width を元の値へ
-      setTimeout(() => { span.style.width = w; }, 10);
+      setTimeout(() => { span.style.width = pct + '%'; }, 10);
+    });
+  });
+
+  // 2) 含み益率バー： mvが分母、u/mv を -∞..+∞ → 0..100 に写像（0%= -100%以下, 50%= ±0%, 100%= +100%以上）
+  document.querySelectorAll('.g-bar span[data-profit]').forEach(span => {
+    const u  = parseFloat(span.getAttribute('data-u')  || '0');
+    const mv = parseFloat(span.getAttribute('data-mv') || '0');
+    let pct = 0;
+    if (mv > 0) {
+      const ratio = u / mv;             // -1.0 = -100%, 0 = 0%, 1.0 = +100%
+      pct = (ratio * 50) + 50;          // 中心50%にマップ
+      pct = Math.max(0, Math.min(100, pct));
+    }
+    span.style.width = '0';
+    requestAnimationFrame(() => {
+      span.style.transition = 'width .9s cubic-bezier(.2,.8,.2,1)';
+      setTimeout(() => { span.style.width = pct + '%'; }, 10);
     });
   });
 })();
