@@ -22,14 +22,16 @@
     {% csrf_token %}
 
     <section class="card">
-      <div class="field">
-        <label>銘柄名</label>
-        <input type="text" name="stock_name" value="{{ init.stock_name }}" placeholder="例: トヨタ" required>
-      </div>
-
+      
       <div class="field">
         <label>証券コード</label>
         <input type="text" name="ticker" value="{{ init.ticker }}" placeholder="例: 7203" required>
+        <p class="hint">証券コードを入力すると、保有している株式は自動補完されます。</p>
+      </div>
+      
+      <div class="field">
+        <label>銘柄名</label>
+        <input type="text" name="stock_name" value="{{ init.stock_name }}" placeholder="例: トヨタ" required>
       </div>
 
       <div class="grid2">
@@ -47,7 +49,6 @@
       <div class="field">
         <label>保有株数</label>
         <input type="number" inputmode="numeric" name="shares" value="{{ init.shares }}" placeholder="例: 100" min="0" step="1">
-        <p class="hint">証券コードを入力すると、保有中の株数が自動補完されます（編集可）。</p>
       </div>
 
       <!-- ★ 追加：1株あたり配当（妥当性チェック用） -->
