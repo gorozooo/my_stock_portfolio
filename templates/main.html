@@ -189,28 +189,27 @@
           <div class="gauge">
             <div class="g-title">評価 / 総資産</div>
             <div class="g-figure">¥{{ b.market_value|default_if_none:0|floatformat:0|intcomma }} / ¥{{ total_assets|default_if_none:0|floatformat:0|intcomma }}</div>
-            <div class="g-bar"><span style="width: calc({{ b.market_value|default_if_none:0 }} / {{ total_assets|default_if_none:1 }} * 100%)"></span></div>
+            <div class="g-bar">
+              <span data-ratio="mv" data-num="{{ b.market_value|default_if_none:0 }}" data-den="{{ total_assets|default_if_none:1 }}"></span>
+            </div>
           </div>
           <div class="gauge">
             <div class="g-title">現金 / 総資産</div>
             <div class="g-figure">¥{{ b.balance|default_if_none:0|floatformat:0|intcomma }} / ¥{{ total_assets|default_if_none:0|floatformat:0|intcomma }}</div>
-            <div class="g-bar"><span style="width: calc({{ b.balance|default_if_none:0 }} / {{ total_assets|default_if_none:1 }} * 100%)"></span></div>
+            <div class="g-bar">
+              <span data-ratio="cash" data-num="{{ b.balance|default_if_none:0 }}" data-den="{{ total_assets|default_if_none:1 }}"></span>
+            </div>
           </div>
           {% with mv=b.market_value|default_if_none:0 u=b.unrealized_pl|default_if_none:0 %}
           <div class="gauge">
             <div class="g-title">含み益率</div>
-            {% if mv %}
-              {% with rate=u|divisibleby:1 %}
-              {% endwith %}
-              {% comment %} 表示は JS でOK。ここは数値を出すだけ {% endcomment %}
-              <div class="g-figure {% if u >= 0 %}pos{% else %}neg{% endif %}">
-                {% if mv > 0 %}{{ u|floatformat:0|intcomma }} / ¥{{ mv|floatformat:0|intcomma }}{% else %}—{% endif %}
-              </div>
-              <div class="g-bar"><span style="width: calc({{ (u|floatformat:2) }} / ({{ mv|default_if_none:1 }}) * 80% + 20%)"></span></div>
-            {% else %}
-              <div class="g-figure">—</div>
-              <div class="g-bar"><span style="width:0%"></span></div>
-            {% endif %}
+            <div class="g-figure {% if u >= 0 %}pos{% else %}neg{% endif %}">
+              {% if mv > 0 %}¥{{ u|floatformat:0|intcomma }} / ¥{{ mv|floatformat:0|intcomma }}{% else %}—{% endif %}
+            </div>
+            <!-- ※ テンプレでは計算せずデータだけ渡し、JSで幅を計算 -->
+            <div class="g-bar">
+              <span data-profit data-u="{{ u }}" data-mv="{{ mv }}"></span>
+            </div>
           </div>
           {% endwith %}
         </div>
