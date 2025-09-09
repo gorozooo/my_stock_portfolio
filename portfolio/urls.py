@@ -4,7 +4,7 @@ from portfolio import views as pf_views
 
 urlpatterns = [
     # --- メインページ ---
-    path('', views.main_view, name='main'),
+    path('', views.main_page, name='main'),
 
     # --- ログイン・ログアウト ---
     path('login/', views.login_view, name='login'),
