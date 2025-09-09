@@ -10,225 +10,212 @@
 {% block content %}
 <div class="home-page">
 
-  {# --- メッセージ --- #}
-  {% if messages %}
-    <ul class="msgs">
-      {% for m in messages %}
-        <li class="msg {{ m.tags }}">{{ m }}</li>
-      {% endfor %}
-    </ul>
-  {% endif %}
-
-  {# =========================
-     ヒーロー：総資産（ガラス×リング）
-     ========================= #}
-  <header class="hero glass card">
-    <div class="hero-top">
-      <h1 class="hero-title">総資産</h1>
-      <div class="hero-actions">
-        <a class="btn ghost" href="{% url 'cash_io' %}">入出金</a>
-        <a class="btn ghost" href="{% url 'stock_list' %}">保有株</a>
-      </div>
-    </div>
-
-    <div class="hero-core">
-      <div class="ring"
-           data-value="{{ total_assets|default_if_none:0 }}"
-           data-max="{{ total_assets_target|default_if_none:0 }}">
-        <svg viewBox="0 0 120 120" aria-hidden="true">
-          <circle class="bg" cx="60" cy="60" r="50" />
-          <circle class="fg" cx="60" cy="60" r="50" />
-        </svg>
-        <div class="ring-center">
-          <div class="ring-figure">¥{{ total_assets|default_if_none:0|floatformat:0|intcomma }}</div>
-          <div class="ring-sub">
-            <span>前日比</span>
-            <b class="pn {% if day_change|default_if_none:0 >= 0 %}pos{% else %}neg{% endif %}">
-              {% if day_change|default_if_none:0 >= 0 %}+{% endif %}¥{{ day_change|default_if_none:0|floatformat:0|intcomma }}
-            </b>
+  {# ===== HERO（総資産＋リング＋ミニKPI＋スパーク） ===== #}
+  <header class="hero card glass">
+    <div class="hero-grid">
+      <div class="hero-core">
+        <div class="ring"
+             data-value="{{ total_assets|default:'0' }}"
+             data-max="{{ target_assets|default:'0' }}">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle cx="60" cy="60" r="50" class="bg"></circle>
+            <circle cx="60" cy="60" r="50" class="fg"></circle>
+          </svg>
+          <div class="ring-center">
+            <div class="ring-title">総資産</div>
+            <div class="ring-figure">¥{{ total_assets|default:"0"|floatformat:0|intcomma }}</div>
+            <div class="ring-sub">
+              前日比
+              <b class="pn {% if day_change|default:"0"|floatformat:0|add:"0" >= 0 %}pos{% else %}neg{% endif %}">
+                {% if day_change|default:"0"|floatformat:0|add:"0" >= 0 %}+{% endif %}¥{{ day_change|default:"0"|floatformat:0|intcomma }}
+              </b>
+            </div>
           </div>
         </div>
       </div>
 
       <div class="hero-metrics">
         <div class="mini">
-          <span class="k">評価額</span>
-          <span class="v">¥{{ portfolio_value|default_if_none:0|floatformat:0|intcomma }}</span>
+          <div class="k">評価額</div>
+          <div class="v">¥{{ portfolio_value|default:"0"|floatformat:0|intcomma }}</div>
         </div>
         <div class="mini">
-          <span class="k">現金</span>
-          <span class="v">¥{{ cash_total|default_if_none:0|floatformat:0|intcomma }}</span>
+          <div class="k">現金</div>
+          <div class="v">¥{{ cash_total|default:"0"|floatformat:0|intcomma }}</div>
         </div>
         <div class="mini">
-          <span class="k">含み損益</span>
-          <span class="v pn {% if unrealized_pl|default_if_none:0 >= 0 %}pos{% else %}neg{% endif %}">
-            {% if unrealized_pl|default_if_none:0 >= 0 %}+{% endif %}¥{{ unrealized_pl|default_if_none:0|floatformat:0|intcomma }}
-          </span>
+          <div class="k">含み損益</div>
+          <div class="v pn {% if unrealized_pl|default:"0"|floatformat:0|add:"0" >= 0 %}pos{% else %}neg{% endif %}">
+            {% if unrealized_pl|default:"0"|floatformat:0|add:"0" >= 0 %}+{% endif %}¥{{ unrealized_pl|default:"0"|floatformat:0|intcomma }}
+          </div>
         </div>
       </div>
 
-      {# スパークライン（CSVを data-points で渡してJS描画） #}
-      <div id="assetSpark" class="spark" data-points="{{ asset_history_csv|default:'' }}"></div>
+      <div class="spark" id="assetSpark" data-points="{{ asset_history_csv|default:'' }}"></div>
     </div>
   </header>
 
-  {# =========================
-     ブローカー：横スワイプ 3カード（ガラス）
-     ========================= #}
-  <section class="swimlane">
-    <h2 class="lane-title">証券会社</h2>
-    <div class="lane-scroll" role="list">
-      {# 楽天 #}
-      <article class="lane-card glass" role="listitem">
-        <div class="lane-head">
-          <div class="logo">R</div><div class="name">楽天証券</div>
-        </div>
-        <div class="pill-row">
-          <div class="pill"><span class="k">残高</span><span class="v">¥{{ broker_balances.rakuten|default_if_none:0|floatformat:0|intcomma }}</span></div>
-          <div class="pill"><span class="k">保有</span><span class="v">{{ broker_stats.rakuten.holdings_count|default_if_none:0 }}</span></div>
-          <div class="pill"><span class="k">時価</span><span class="v">¥{{ broker_stats.rakuten.market_value|default_if_none:0|floatformat:0|intcomma }}</span></div>
-        </div>
-        <div class="tops">
-          <h3>上位</h3>
-          {% with tops=top_positions_by_broker.rakuten %}
-            <ul>
-              {% if tops %}
-                {% for p in tops %}
-                  <li><span class="n">{{ p.ticker }} {{ p.name }}</span><span class="r">{{ p.shares|intcomma }}株</span><span class="r">¥{{ p.market_value|floatformat:0|intcomma }}</span></li>
-                {% endfor %}
-              {% else %}
-                <li class="empty">データなし</li>
-              {% endif %}
-            </ul>
-          {% endwith %}
-        </div>
-      </article>
+  {# ===== ブローカー：タブ（横スライドではなく、明確なセグメント） ===== #}
+  <section class="brokers card glass">
+    <nav class="tabs" role="tablist" aria-label="証券会社">
+      {% for b in brokers %}
+        <button class="tab {% if forloop.first %}active{% endif %}"
+                role="tab"
+                aria-selected="{% if forloop.first %}true{% else %}false{% endif %}"
+                data-tab="{{ b.key }}">{{ b.label }}</button>
+      {% endfor %}
+    </nav>
 
-      {# 松井 #}
-      <article class="lane-card glass" role="listitem">
-        <div class="lane-head">
-          <div class="logo">M</div><div class="name">松井証券</div>
-        </div>
-        <div class="pill-row">
-          <div class="pill"><span class="k">残高</span><span class="v">¥{{ broker_balances.matsui|default_if_none:0|floatformat:0|intcomma }}</span></div>
-          <div class="pill"><span class="k">保有</span><span class="v">{{ broker_stats.matsui.holdings_count|default_if_none:0 }}</span></div>
-          <div class="pill"><span class="k">時価</span><span class="v">¥{{ broker_stats.matsui.market_value|default_if_none:0|floatformat:0|intcomma }}</span></div>
-        </div>
-        <div class="tops">
-          <h3>上位</h3>
-          {% with tops=top_positions_by_broker.matsui %}
-            <ul>
-              {% if tops %}
-                {% for p in tops %}
-                  <li><span class="n">{{ p.ticker }} {{ p.name }}</span><span class="r">{{ p.shares|intcomma }}株</span><span class="r">¥{{ p.market_value|floatformat:0|intcomma }}</span></li>
-                {% endfor %}
-              {% else %}
-                <li class="empty">データなし</li>
-              {% endif %}
-            </ul>
-          {% endwith %}
-        </div>
-      </article>
+    <div class="panes">
+      {% for b in brokers %}
+        <div class="pane {% if forloop.first %}active{% endif %}" id="pane-{{ b.key }}" role="tabpanel">
+          <div class="pane-head">
+            <div class="pane-brand">
+              <div class="logo">{{ b.label|slice:":1" }}</div>
+              <div class="name">{{ b.label }}</div>
+            </div>
+            <div class="pane-balance">
+              <span class="k">残高</span>
+              <span class="v">¥{{ b.balance|default:"0"|floatformat:0|intcomma }}</span>
+            </div>
+          </div>
 
-      {# SBI #}
-      <article class="lane-card glass" role="listitem">
-        <div class="lane-head">
-          <div class="logo">S</div><div class="name">SBI証券</div>
-        </div>
-        <div class="pill-row">
-          <div class="pill"><span class="k">残高</span><span class="v">¥{{ broker_balances.sbi|default_if_none:0|floatformat:0|intcomma }}</span></div>
-          <div class="pill"><span class="k">保有</span><span class="v">{{ broker_stats.sbi.holdings_count|default_if_none:0 }}</span></div>
-          <div class="pill"><span class="k">時価</span><span class="v">¥{{ broker_stats.sbi.market_value|default_if_none:0|floatformat:0|intcomma }}</span></div>
-        </div>
-        <div class="tops">
-          <h3>上位</h3>
-          {% with tops=top_positions_by_broker.sbi %}
-            <ul>
-              {% if tops %}
-                {% for p in tops %}
-                  <li><span class="n">{{ p.ticker }} {{ p.name }}</span><span class="r">{{ p.shares|intcomma }}株</span><span class="r">¥{{ p.market_value|floatformat:0|intcomma }}</span></li>
+          <div class="pill-row">
+            <div class="pill">
+              <div class="k">保有銘柄</div>
+              <div class="v">{{ b.holdings_count|default:"0"|intcomma }}銘柄</div>
+            </div>
+            <div class="pill">
+              <div class="k">時価評価</div>
+              <div class="v">¥{{ b.market_value|default:"0"|floatformat:0|intcomma }}</div>
+            </div>
+            <div class="pill">
+              <div class="k">含み損益</div>
+              <div class="v pn {% if b.unrealized_pl|default:"0"|floatformat:0|add:"0" >= 0 %}pos{% else %}neg{% endif %}">
+                {% if b.unrealized_pl|default:"0"|floatformat:0|add:"0" >= 0 %}+{% endif %}¥{{ b.unrealized_pl|default:"0"|floatformat:0|intcomma }}
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-split">
+            <div class="panel-left">
+              <h3 class="sect-title">上位ポジション</h3>
+              <ul class="pos-list">
+                {% for p in b.top_positions %}
+                  <li class="pos-row">
+                    <span class="name">{{ p.ticker }} {{ p.name }}</span>
+                    <span class="lot">{{ p.shares|intcomma }}株</span>
+                    <span class="mv">¥{{ p.market_value|floatformat:0|intcomma }}</span>
+                  </li>
+                {% empty %}
+                  <li class="empty">データがありません</li>
                 {% endfor %}
-              {% else %}
-                <li class="empty">データなし</li>
-              {% endif %}
-            </ul>
-          {% endwith %}
+              </ul>
+            </div>
+
+            <div class="panel-right">
+              <h3 class="sect-title">直近アクティビティ</h3>
+              <ul class="mini-activity">
+                {% for a in b.recent|default:[] %}
+                  <li class="arow type-{{ a.kind }}">
+                    <span class="adate">{{ a.date|date:"n/j" }}</span>
+                    <span class="amain">
+                      {% if a.kind == 'trade' %}
+                        {{ a.ticker }} {{ a.name }}
+                      {% elif a.kind == 'dividend' %}
+                        配当 {{ a.ticker }} {{ a.name }}
+                      {% elif a.kind == 'cash' %}
+                        現金 {{ a.flow|upper }}
+                      {% else %}
+                        {{ a.title|default:"" }}
+                      {% endif %}
+                    </span>
+                    <span class="aval {% if a.sign|default:'+' == '+' %}pos{% else %}neg{% endif %}">
+                      {% if a.sign|default:'+' == '+' %}+{% else %}-{% endif %}¥{{ a.amount|default:"0"|floatformat:0|intcomma }}
+                    </span>
+                  </li>
+                {% empty %}
+                  <li class="empty small">まだありません</li>
+                {% endfor %}
+              </ul>
+            </div>
+          </div>
+
         </div>
-      </article>
+      {% endfor %}
     </div>
   </section>
 
-  {# =========================
-     実現損益：ネオンゲージ 3枚
-     ========================= #}
+  {# ===== KPIダッシュ（モジュール化されたゲージ3つ） ===== #}
   <section class="gauges card glass">
-    <div class="gauge" data-val="{{ realized_pl_mtd|default_if_none:0 }}">
-      <div class="g-title">今月の実現</div>
-      <div class="g-figure pn {% if realized_pl_mtd|default_if_none:0 >= 0 %}pos{% else %}neg{% endif %}">
-        {% if realized_pl_mtd|default_if_none:0 >= 0 %}+{% endif %}¥{{ realized_pl_mtd|default_if_none:0|floatformat:0|intcomma }}
+    <div class="gauge" data-val="{{ realized_pl_mtd|default:'0' }}">
+      <div class="g-title">今月の実現損益</div>
+      <div class="g-figure pn {% if realized_pl_mtd|default:'0'|floatformat:0|add:'0' >= 0 %}pos{% else %}neg{% endif %}">
+        {% if realized_pl_mtd|default:'0'|floatformat:0|add:'0' >= 0 %}+{% endif %}¥{{ realized_pl_mtd|default:'0'|floatformat:0|intcomma }}
       </div>
       <div class="g-bar"><span></span></div>
     </div>
-    <div class="gauge" data-val="{{ realized_pl_ytd|default_if_none:0 }}">
-      <div class="g-title">今年の実現</div>
-      <div class="g-figure pn {% if realized_pl_ytd|default_if_none:0 >= 0 %}pos{% else %}neg{% endif %}">
-        {% if realized_pl_ytd|default_if_none:0 >= 0 %}+{% endif %}¥{{ realized_pl_ytd|default_if_none:0|floatformat:0|intcomma }}
+    <div class="gauge" data-val="{{ realized_pl_ytd|default:'0' }}">
+      <div class="g-title">今年の実現損益</div>
+      <div class="g-figure pn {% if realized_pl_ytd|default:'0'|floatformat:0|add:'0' >= 0 %}pos{% else %}neg{% endif %}">
+        {% if realized_pl_ytd|default:'0'|floatformat:0|add:'0' >= 0 %}+{% endif %}¥{{ realized_pl_ytd|default:'0'|floatformat:0|intcomma }}
       </div>
       <div class="g-bar"><span></span></div>
     </div>
-    <div class="gauge" data-val="{{ realized_pl_total|default_if_none:0 }}">
-      <div class="g-title">累計の実現</div>
-      <div class="g-figure pn {% if realized_pl_total|default_if_none:0 >= 0 %}pos{% else %}neg{% endif %}">
-        {% if realized_pl_total|default_if_none:0 >= 0 %}+{% endif %}¥{{ realized_pl_total|default_if_none:0|floatformat:0|intcomma }}
+    <div class="gauge" data-val="{{ realized_pl_total|default:'0' }}">
+      <div class="g-title">累計の実現損益</div>
+      <div class="g-figure pn {% if realized_pl_total|default:'0'|floatformat:0|add:'0' >= 0 %}pos{% else %}neg{% endif %}">
+        {% if realized_pl_total|default:'0'|floatformat:0|add:'0' >= 0 %}+{% endif %}¥{{ realized_pl_total|default:'0'|floatformat:0|intcomma }}
       </div>
       <div class="g-bar"><span></span></div>
     </div>
-    <a class="btn link" href="{% url 'realized' %}">実現一覧へ</a>
   </section>
 
-  {# =========================
-     最近のアクティビティ：チップタイムライン
-     ========================= #}
+  {# ===== 統合タイムライン（グローバル） ===== #}
   <section class="activity card glass">
     <div class="activity-head">
-      <h2 class="sect-title">最近のアクティビティ</h2>
+      <h3 class="sect-title">最近のアクティビティ</h3>
       <div class="chips">
-        <button class="chip active" data-range="7">7日</button>
-        <button class="chip" data-range="30">30日</button>
-        <button class="chip" data-range="90">90日</button>
-        <button class="chip" data-range="all">すべて</button>
+        {# range クエリでフィルタ #}
+        {% with r=request.GET.range|default:"7" %}
+          <button class="chip {% if r == '7' %}active{% endif %}"  data-range="7">7日</button>
+          <button class="chip {% if r == '30' %}active{% endif %}" data-range="30">30日</button>
+          <button class="chip {% if r == '90' %}active{% endif %}" data-range="90">90日</button>
+          <button class="chip {% if r == 'all' %}active{% endif %}" data-range="all">すべて</button>
+        {% endwith %}
       </div>
     </div>
 
-    <ul id="timeline" class="chiplist">
-      {% if recent_activities %}
-        {% for a in recent_activities %}
-          <li class="chiprow type-{{ a.kind }}">
-            <span class="cdate">{{ a.date|date:"n/j" }}</span>
+    <ul class="chiplist" id="timeline">
+      {% for a in recent_activities|default:[] %}
+        <li class="chiprow type-{{ a.kind }}">
+          <span class="cdate">{{ a.date|date:"n/j" }}</span>
+          <span class="cbadge">
+            {% if a.kind == 'trade' %}売買{% elif a.kind == 'dividend' %}配当{% elif a.kind == 'cash' %}現金{% else %}その他{% endif %}
+          </span>
+          <span class="cmain">
             {% if a.kind == 'trade' %}
-              <span class="cbadge">売買</span>
-              <span class="cmain">{{ a.ticker }} {{ a.name }}</span>
-              <span class="cval pn {% if a.pnl >= 0 %}pos{% else %}neg{% endif %}">
-                {% if a.pnl >= 0 %}+{% endif %}¥{{ a.pnl|floatformat:0|intcomma }}</span>
+              {{ a.ticker }} {{ a.name }}
             {% elif a.kind == 'dividend' %}
-              <span class="cbadge">配当</span>
-              <span class="cmain">{{ a.ticker }} {{ a.name }}</span>
-              <span class="cval">受取 ¥{{ a.net|floatformat:0|intcomma }}</span>
+              配当 {{ a.ticker }} {{ a.name }}
             {% elif a.kind == 'cash' %}
-              <span class="cbadge">現金</span>
-              <span class="cmain">{{ a.broker_label }}</span>
-              <span class="cval pn {% if a.flow == 'in' %}pos{% else %}neg{% endif %}">
-                {% if a.flow == 'in' %}+{% else %}-{% endif %}¥{{ a.amount|floatformat:0|intcomma }}</span>
+              {{ a.broker_label }} {{ a.flow|upper }}
+            {% else %}
+              {{ a.title|default:"" }}
             {% endif %}
-            {% if a.memo %}<span class="cmemo">{{ a.memo }}</span>{% endif %}
-          </li>
-        {% endfor %}
-      {% else %}
+          </span>
+          <span class="cval {% if a.sign|default:'+' == '+' %}pos{% else %}neg{% endif %}">
+            {% if a.sign|default:'+' == '+' %}+{% else %}-{% endif %}¥{{ a.amount|default:'0'|floatformat:0|intcomma }}
+          </span>
+          {% if a.memo %}<span class="cmemo">{{ a.memo }}</span>{% endif %}
+        </li>
+      {% empty %}
         <li class="empty">まだデータがありません</li>
-      {% endif %}
+      {% endfor %}
     </ul>
   </section>
 
+  {% include "bottom_tab.html" %}
 </div>
 {% endblock %}
 
