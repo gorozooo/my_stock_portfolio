@@ -75,53 +75,145 @@
     <div class="panes">
       {% for key,label in broker_tabs %}
         <div class="pane {% if key == active_broker %}active{% endif %}" id="pane-{{ key }}">
-          {# 動的キー参照を if/elif で展開 #}
+
+          {# 動的キー参照は with を分岐ごとに閉じる #}
           {% if key == 'rakuten' %}
             {% with bal=broker_balances.rakuten stats=broker_stats.rakuten tops=top_positions_by_broker.rakuten %}
+              <div class="pill-row">
+                <div class="pill">
+                  <span class="k">残高</span>
+                  <span class="v">¥{{ bal|default:0|floatformat:0|intcomma }}</span>
+                </div>
+                <div class="pill">
+                  <span class="k">保有銘柄</span>
+                  <span class="v">{{ stats.holdings_count|default:0 }}</span>
+                </div>
+                <div class="pill">
+                  <span class="k">時価評価</span>
+                  <span class="v">¥{{ stats.market_value|default:0|floatformat:0|intcomma }}</span>
+                </div>
+              </div>
+
+              <div class="toppos">
+                <h3 class="sect-title">上位ポジション</h3>
+                <ul class="pos-list">
+                  {% if tops %}
+                    {% for p in tops %}
+                      <li class="pos-row">
+                        <span class="name">{{ p.ticker }} {{ p.name }}</span>
+                        <span class="lot">{{ p.shares|intcomma }}株</span>
+                        <span class="mv">¥{{ p.market_value|floatformat:0|intcomma }}</span>
+                      </li>
+                    {% empty %}
+                      <li class="empty">データがありません</li>
+                    {% endfor %}
+                  {% else %}
+                    <li class="empty">データがありません</li>
+                  {% endif %}
+                </ul>
+              </div>
+            {% endwith %}
+
           {% elif key == 'matsui' %}
             {% with bal=broker_balances.matsui stats=broker_stats.matsui tops=top_positions_by_broker.matsui %}
+              <div class="pill-row">
+                <div class="pill">
+                  <span class="k">残高</span>
+                  <span class="v">¥{{ bal|default:0|floatformat:0|intcomma }}</span>
+                </div>
+                <div class="pill">
+                  <span class="k">保有銘柄</span>
+                  <span class="v">{{ stats.holdings_count|default:0 }}</span>
+                </div>
+                <div class="pill">
+                  <span class="k">時価評価</span>
+                  <span class="v">¥{{ stats.market_value|default:0|floatformat:0|intcomma }}</span>
+                </div>
+              </div>
+
+              <div class="toppos">
+                <h3 class="sect-title">上位ポジション</h3>
+                <ul class="pos-list">
+                  {% if tops %}
+                    {% for p in tops %}
+                      <li class="pos-row">
+                        <span class="name">{{ p.ticker }} {{ p.name }}</span>
+                        <span class="lot">{{ p.shares|intcomma }}株</span>
+                        <span class="mv">¥{{ p.market_value|floatformat:0|intcomma }}</span>
+                      </li>
+                    {% empty %}
+                      <li class="empty">データがありません</li>
+                    {% endfor %}
+                  {% else %}
+                    <li class="empty">データがありません</li>
+                  {% endif %}
+                </ul>
+              </div>
+            {% endwith %}
+
           {% elif key == 'sbi' %}
             {% with bal=broker_balances.sbi stats=broker_stats.sbi tops=top_positions_by_broker.sbi %}
+              <div class="pill-row">
+                <div class="pill">
+                  <span class="k">残高</span>
+                  <span class="v">¥{{ bal|default:0|floatformat:0|intcomma }}</span>
+                </div>
+                <div class="pill">
+                  <span class="k">保有銘柄</span>
+                  <span class="v">{{ stats.holdings_count|default:0 }}</span>
+                </div>
+                <div class="pill">
+                  <span class="k">時価評価</span>
+                  <span class="v">¥{{ stats.market_value|default:0|floatformat:0|intcomma }}</span>
+                </div>
+              </div>
+
+              <div class="toppos">
+                <h3 class="sect-title">上位ポジション</h3>
+                <ul class="pos-list">
+                  {% if tops %}
+                    {% for p in tops %}
+                      <li class="pos-row">
+                        <span class="name">{{ p.ticker }} {{ p.name }}</span>
+                        <span class="lot">{{ p.shares|intcomma }}株</span>
+                        <span class="mv">¥{{ p.market_value|floatformat:0|intcomma }}</span>
+                      </li>
+                    {% empty %}
+                      <li class="empty">データがありません</li>
+                    {% endfor %}
+                  {% else %}
+                    <li class="empty">データがありません</li>
+                  {% endif %}
+                </ul>
+              </div>
+            {% endwith %}
+
           {% else %}
             {% with bal=0 stats=None tops=None %}
+              <div class="pill-row">
+                <div class="pill">
+                  <span class="k">残高</span>
+                  <span class="v">¥{{ bal|default:0|floatformat:0|intcomma }}</span>
+                </div>
+                <div class="pill">
+                  <span class="k">保有銘柄</span>
+                  <span class="v">{{ stats.holdings_count|default:0 }}</span>
+                </div>
+                <div class="pill">
+                  <span class="k">時価評価</span>
+                  <span class="v">¥{{ stats.market_value|default:0|floatformat:0|intcomma }}</span>
+                </div>
+              </div>
+
+              <div class="toppos">
+                <h3 class="sect-title">上位ポジション</h3>
+                <ul class="pos-list">
+                  <li class="empty">データがありません</li>
+                </ul>
+              </div>
+            {% endwith %}
           {% endif %}
 
-          <div class="pill-row">
-            <div class="pill">
-              <span class="k">残高</span>
-              <span class="v">¥{{ bal|default:0|floatformat:0|intcomma }}</span>
-            </div>
-            <div class="pill">
-              <span class="k">保有銘柄</span>
-              <span class="v">{{ stats.holdings_count|default:0 }}</span>
-            </div>
-            <div class="pill">
-              <span class="k">時価評価</span>
-              <span class="v">¥{{ stats.market_value|default:0|floatformat:0|intcomma }}</span>
-            </div>
-          </div>
-
-          {# 上位ポジション #}
-          <div class="toppos">
-            <h3 class="sect-title">上位ポジション</h3>
-            <ul class="pos-list">
-              {% if tops %}
-                {% for p in tops %}
-                  <li class="pos-row">
-                    <span class="name">{{ p.ticker }} {{ p.name }}</span>
-                    <span class="lot">{{ p.shares|intcomma }}株</span>
-                    <span class="mv">¥{{ p.market_value|floatformat:0|intcomma }}</span>
-                  </li>
-                {% empty %}
-                  <li class="empty">データがありません</li>
-                {% endfor %}
-              {% else %}
-                <li class="empty">データがありません</li>
-              {% endif %}
-            </ul>
-          </div>
-
-          {% endwith %}
         </div>
       {% endfor %}
     </div>
