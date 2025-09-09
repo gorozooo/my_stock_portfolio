@@ -38,14 +38,68 @@ def bottom_tabs_context(request):
 # -----------------------------
 # メイン画面
 # -----------------------------
-@login_required
-def main_view(request):
-    current_page = "ホーム"
-    last_update = timezone.now()
-    return render(request, "main.html", {
-        "current_page": current_page,
-        "last_update": last_update,
-    })
+# views.py（例）
+from django.shortcuts import render
+from django.db.models import Sum, F
+from django.utils import timezone
+from collections import defaultdict
+
+def main_page(request):
+    # それっぽいダミー（実装はあなたの集計に置き換え）
+    total_assets = 1_234_567
+    day_change = 12_345
+    portfolio_value = 987_654
+    cash_total = 246_810
+    unrealized_pl = 35_000
+
+    # カンマ区切りの履歴（スパークライン）
+    asset_history_csv = "1200000,1215000,1208000,1223000,1234567"
+
+    broker_tabs = [("rakuten", "楽天証券"), ("matsui", "松井証券"), ("sbi", "SBI証券")]
+    active_broker = "rakuten"
+
+    broker_balances = {"rakuten": 100000, "matsui": 50000, "sbi": 96810}
+    broker_stats = {
+        "rakuten": {"holdings_count": 5, "market_value": 450000},
+        "matsui":  {"holdings_count": 2, "market_value": 120000},
+        "sbi":     {"holdings_count": 1, "market_value": 417654},
+    }
+    top_positions_by_broker = {
+        "rakuten": [
+            {"ticker":"7203","name":"トヨタ","shares":100,"market_value":250000},
+            {"ticker":"9432","name":"NTT","shares":200,"market_value":120000},
+        ]
+    }
+
+    realized_pl_mtd = 12345
+    realized_pl_ytd = 67890
+    realized_pl_total = 123456
+
+    # 最近の統合アクティビティ（trade / dividend / cash）
+    recent_activities = [
+        {"kind":"trade","kind_label":"売却","date":timezone.now(), "ticker":"7203","name":"トヨタ","pnl": 8000, "memo":""},
+        {"kind":"dividend","kind_label":"配当","date":timezone.now(), "ticker":"9432","name":"NTT","net": 3500, "memo":"期末配当"},
+        {"kind":"cash","kind_label":"現金","date":timezone.now(), "broker_label":"楽天証券","flow":"in","amount":10000,"memo":"入金"},
+    ]
+
+    ctx = dict(
+        total_assets=total_assets,
+        day_change=day_change,
+        portfolio_value=portfolio_value,
+        cash_total=cash_total,
+        unrealized_pl=unrealized_pl,
+        asset_history_csv=asset_history_csv,
+        broker_tabs=broker_tabs,
+        active_broker=active_broker,
+        broker_balances=broker_balances,
+        broker_stats=broker_stats,
+        top_positions_by_broker=top_positions_by_broker,
+        realized_pl_mtd=realized_pl_mtd,
+        realized_pl_ytd=realized_pl_ytd,
+        realized_pl_total=realized_pl_total,
+        recent_activities=recent_activities,
+    )
+    return render(request, "main.html", ctx)
 
 
 # -----------------------------
