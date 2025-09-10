@@ -1846,3 +1846,126 @@ def suggest_stock_name(request):
 def get_sector_list(request):
     sectors = list(StockMaster.objects.values_list("sector", flat=True).distinct())
     return JsonResponse([s or "" for s in sectors], safe=False, json_dumps_params={"ensure_ascii": False})
+    
+# -----------------------------
+# デバッグ
+# -----------------------------
+# --- 追加インポート ---
+from django.http import HttpResponse
+from django.utils.html import escape
+
+def _calc_for_debug(s):
+    """main_page と同じロジックで1銘柄を計算して丸見えにする"""
+    def _safe_float(x, default=0.0):
+        try:
+            f = float(x)
+            return f if f == f else default
+        except Exception:
+            return default
+
+    shares = _safe_float(getattr(s, "shares", 0))
+    unit   = _safe_float(getattr(s, "unit_price", 0))
+    curr   = _safe_float(getattr(s, "current_price", 0))
+    price  = curr if curr > 0 else unit
+
+    pos    = str(getattr(s, "position", "買い"))
+    acct   = str(getattr(s, "account_type", "現物"))
+    total_cost = _safe_float(getattr(s, "total_cost", shares * unit))
+
+    # 評価額
+    mv = price * shares
+    # 含み損益
+    if pos == "売り":
+        upl = (unit - price) * shares
+    else:
+        upl = mv - total_cost
+
+    # グルーピング（現物＝現物+NISA かつ 売りではない / 信用＝信用 or 売り）
+    is_spot   = (acct in {"現物", "NISA"}) and (pos != "売り")
+    is_margin = (acct == "信用") or (pos == "売り")
+    group = "spot" if is_spot and not is_margin else "margin"
+
+    return {
+        "id": getattr(s, "id", None),
+        "ticker": getattr(s, "ticker", ""),
+        "name": getattr(s, "name", ""),
+        "shares": shares,
+        "unit_price": unit,
+        "current_price": curr,
+        "price_used": price,      # ← 実計算で使った価格（現値が0なら取得単価）
+        "total_cost": total_cost, # ← 取得額（DBから）
+        "market_value": mv,       # ← 評価額
+        "position": pos,
+        "account_type": acct,
+        "group": group,           # spot / margin
+        "unrealized_pl": upl,     # ← 含み損益
+    }
+
+@login_required
+def debug_holdings(request):
+    """ブラウザで見れるデバッグ表（ズレの原因特定に使う）"""
+    if not Stock:
+        return HttpResponse("<h1>No Stock model</h1>")
+
+    rows = []
+    qs = Stock.objects.all()
+    # user列があれば自分のデータだけ
+    try:
+        if "user" in {f.name for f in Stock._meta.get_fields()}:
+            qs = qs.filter(user=request.user)
+    except Exception:
+        pass
+
+    for s in qs:
+        rows.append(_calc_for_debug(s))
+
+    # 合計も出す
+    spot_mv = sum(r["market_value"] for r in rows if r["group"] == "spot")
+    margin_mv = sum(r["market_value"] for r in rows if r["group"] == "margin")
+    spot_upl = sum(r["unrealized_pl"] for r in rows if r["group"] == "spot")
+    margin_upl = sum(r["unrealized_pl"] for r in rows if r["group"] == "margin")
+
+    # 簡易HTMLテーブルで出力
+    html = []
+    html.append("<h1>Holdings Debug</h1>")
+    html.append("<p>この表をそのままコピペしてくれれば照合できます。</p>")
+    html.append(f"<p><b>現物MV</b>: {int(spot_mv):,} / <b>信用MV</b>: {int(margin_mv):,} / "
+                f"<b>現物UPL</b>: {int(spot_upl):,} / <b>信用UPL</b>: {int(margin_upl):,}</p>")
+    html.append("""
+    <style>
+      table{border-collapse:collapse; font-family:system-ui, sans-serif}
+      th,td{border:1px solid #bbb; padding:6px 8px; font-size:13px}
+      th{background:#eee}
+      td.num{text-align:right; font-variant-numeric:tabular-nums}
+      tr:hover{background:#f9f9f9}
+    </style>
+    """)
+    html.append("<table>")
+    html.append("<tr>"
+                "<th>ID</th><th>コード</th><th>銘柄</th><th>株数</th>"
+                "<th>取得単価</th><th>現在値</th><th>計算で使った価格</th>"
+                "<th>取得額(total_cost)</th><th>評価額</th><th>含み損益</th>"
+                "<th>口座</th><th>ポジ</th><th>グループ</th>"
+                "</tr>")
+    for r in rows:
+        html.append(
+            "<tr>"
+            f"<td>{escape(str(r['id']))}</td>"
+            f"<td>{escape(r['ticker'])}</td>"
+            f"<td>{escape(r['name'])}</td>"
+            f"<td class='num'>{int(r['shares']):,}</td>"
+            f"<td class='num'>{r['unit_price']:.2f}</td>"
+            f"<td class='num'>{r['current_price']:.2f}</td>"
+            f"<td class='num'><b>{r['price_used']:.2f}</b></td>"
+            f"<td class='num'>{r['total_cost']:.0f}</td>"
+            f"<td class='num'><b>{r['market_value']:.0f}</b></td>"
+            f"<td class='num'>{r['unrealized_pl']:.0f}</td>"
+            f"<td>{escape(r['account_type'])}</td>"
+            f"<td>{escape(r['position'])}</td>"
+            f"<td>{escape(r['group'])}</td>"
+            "</tr>"
+        )
+    html.append("</table>")
+    return HttpResponse("".join(html))
+    
+    
