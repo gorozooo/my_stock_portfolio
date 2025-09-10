@@ -621,7 +621,7 @@ def _get_current_price_cached(ticker: str, fallback: float = 0.0) -> float:
 
 @login_required
 def stock_create(request):
-    errors = {}
+    errors: dict[str, str] = {}
     data = {}
 
     if request.method == "POST":
@@ -631,9 +631,9 @@ def stock_create(request):
         purchase_date = None
         purchase_date_str = (data.get("purchase_date") or "").strip()
         if purchase_date_str:
-            try:
-                purchase_date = datetime.date.fromisoformat(purchase_date_str)  # type: ignore[attr-defined]
-            except ValueError:
+            # ✅ 修正ポイント：Django標準のパーサで安全に
+            purchase_date = parse_date(purchase_date_str)
+            if purchase_date is None:
                 errors["purchase_date"] = "購入日を正しい形式（YYYY-MM-DD）で入力してください"
         else:
             errors["purchase_date"] = "購入日を入力してください"
@@ -671,10 +671,12 @@ def stock_create(request):
             errors["unit_price"] = "取得単価を正しく入力してください"
 
         try:
-            total_cost = float(data.get("total_cost")) if data.get("total_cost") not in (None, "",) else (shares * unit_price)
+            raw_total = data.get("total_cost")
+            total_cost = float(raw_total) if raw_total not in (None, "",) else (shares * unit_price)
         except (TypeError, ValueError):
             total_cost = shares * unit_price
 
+        # --- 必須チェック ---
         if not ticker:
             errors["ticker"] = "証券コードを入力してください"
         if not name:
@@ -686,6 +688,7 @@ def stock_create(request):
         if not sector:
             errors["sector"] = "セクターを入力してください"
 
+        # --- 成功処理 ---
         if not errors:
             normalized_position = "買" if position in ("買", "買い") else "売"
 
@@ -703,6 +706,7 @@ def stock_create(request):
                 note=note,
             )
 
+            # userフィールドがある場合のみセット（安全に）
             try:
                 if "user" in {f.name for f in Stock._meta.get_fields()}:
                     create_kwargs["user"] = request.user
@@ -713,6 +717,7 @@ def stock_create(request):
             return redirect("stock_list")
 
     else:
+        # 初期値（スマホの入力体験重視で空文字）
         data = {
             "purchase_date": "",
             "ticker": "",
@@ -735,7 +740,6 @@ def stock_create(request):
 
     tpl = get_template("stocks/stock_create.html")
     return HttpResponse(tpl.render(context, request))
-
 
 @login_required
 def sell_stock_page(request, pk):
