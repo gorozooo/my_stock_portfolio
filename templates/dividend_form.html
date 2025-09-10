@@ -25,7 +25,16 @@
       
       <div class="field">
         <label>証券コード</label>
-        <input type="text" name="ticker" value="{{ init.ticker }}" placeholder="例: 7203" required>
+        <!-- スマホで数字テンキーを開く：type="text" + inputmode="numeric" + pattern -->
+        <input
+          type="text"
+          name="ticker"
+          value="{{ init.ticker }}"
+          placeholder="例: 7203"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="6"
+          required>
         <p class="hint">証券コードを入力すると、保有している株式は自動補完されます。</p>
       </div>
       
@@ -45,16 +54,21 @@
         </div>
       </div>
 
-      <!-- ★ 追加：保有株数（自動補完に対応） -->
+      <!-- 保有株数（自動補完に対応） -->
       <div class="field">
         <label>保有株数</label>
         <input type="number" inputmode="numeric" name="shares" value="{{ init.shares }}" placeholder="例: 100" min="0" step="1">
       </div>
 
-      <!-- ★ 追加：1株あたり配当（妥当性チェック用） -->
+      <!-- 1株あたり配当：小数点入力に対応（iPhoneで小数テンキー） -->
       <div class="field">
         <label>1株あたり配当（税引前・円）</label>
-        <input id="per-share-gross" type="number" inputmode="numeric" placeholder="例: 65">
+        <input
+          id="per-share-gross"
+          type="number"
+          inputmode="decimal"
+          step="0.01"
+          placeholder="例: 65.5">
         <p class="hint">保有株数と掛け合わせて、配当金入力の妥当性をチェックします。</p>
       </div>
 
@@ -76,7 +90,7 @@
     <section class="card">
       <div class="field">
         <label>配当金（税引前・円）</label>
-        <input id="gross" type="number" inputmode="numeric" name="gross_amount" placeholder="例: 12,345" required>
+        <input id="gross" type="number" inputmode="numeric" name="gross_amount" placeholder="例: 12345" required>
         <div class="chips">
           <button type="button" class="chip" data-fill="1000">+1,000</button>
           <button type="button" class="chip" data-fill="5000">+5,000</button>
@@ -95,7 +109,7 @@
         <div class="row"><span class="k">受取額（推定）</span><span id="net-preview" class="v">—</span></div>
       </div>
 
-      <!-- ★ 追加：妥当性チェック結果表示欄 -->
+      <!-- 妥当性チェック結果表示欄 -->
       <div id="gross-check" class="hint"></div>
 
       <div class="field">
