@@ -78,6 +78,7 @@ def bottom_tabs_context(request):
 # -----------------------------
 # メイン画面（※関数本体は変更なし）
 # -----------------------------
+# portfolio/views.py
 from collections import defaultdict
 from datetime import timedelta
 from django.db.models import Sum
@@ -85,6 +86,7 @@ from django.utils import timezone
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
+# モデル読み込み（無くても落ちないようにガード）
 try:
     from .models import Stock
 except Exception:
@@ -106,7 +108,7 @@ except Exception:
     CashFlow = None  # type: ignore
 
 
-# ---------- utils ----------
+# -------------------- utils --------------------
 def _safe_float(x, default=0.0):
     try:
         f = float(x)
@@ -123,10 +125,16 @@ def _safe_int(x, default=0):
         except Exception:
             return default
 
+def _model_has_user_field(model) -> bool:
+    try:
+        return "user" in {f.name for f in model._meta.get_fields()}
+    except Exception:
+        return False
 
-# ---------- fixed: apply filters BEFORE slicing ----------
+
+# -------------------- recent (filter→slice の順に修正済) --------------------
 def _recent_all(request, days: int | None):
-    """最近のアクティビティ（売買/配当/現金）"""
+    """最近のアクティビティ（売買/配当/現金）。filter を先に、slice は最後。"""
     rows = []
     today = timezone.localdate()
     horizon = today - timedelta(days=days) if isinstance(days, int) else None
@@ -134,10 +142,12 @@ def _recent_all(request, days: int | None):
     # 売買
     if RealizedProfit:
         q = RealizedProfit.objects.all()
+        if _model_has_user_field(RealizedProfit):
+            q = q.filter(user=request.user)
         if horizon:
             q = q.filter(date__gte=horizon)
-        q = q.order_by("-date", "-id")
-        for t in q[:300]:
+        q = q.order_by("-date", "-id")[:300]
+        for t in q:
             pnl = _safe_float(getattr(t, "profit_amount", 0))
             rows.append({
                 "kind": "trade",
@@ -152,10 +162,12 @@ def _recent_all(request, days: int | None):
     # 配当
     if Dividend:
         qd = Dividend.objects.all()
+        if _model_has_user_field(Dividend):
+            qd = qd.filter(user=request.user)
         if horizon:
             qd = qd.filter(received_at__gte=horizon)
-        qd = qd.order_by("-received_at", "-id")
-        for d in qd[:300]:
+        qd = qd.order_by("-received_at", "-id")[:300]
+        for d in qd:
             net = getattr(d, "net_amount", None)
             net = _safe_int(net) if net is not None else (_safe_int(getattr(d, "gross_amount", 0)) - _safe_int(getattr(d, "tax", 0)))
             rows.append({
@@ -171,14 +183,16 @@ def _recent_all(request, days: int | None):
     # 現金
     if CashFlow:
         qc = CashFlow.objects.all()
+        if _model_has_user_field(CashFlow):
+            qc = qc.filter(user=request.user)
         if horizon:
             qc = qc.filter(occurred_at__gte=horizon)
-        qc = qc.order_by("-occurred_at", "-id")
+        qc = qc.order_by("-occurred_at", "-id")[:300]
         BROKER_LABELS = {
             "rakuten": "楽天証券", "matsui": "松井証券", "sbi": "SBI証券",
             "楽天": "楽天証券", "松井": "松井証券", "SBI": "SBI証券",
         }
-        for c in qc[:300]:
+        for c in qc:
             b = getattr(c, "broker", "")
             rows.append({
                 "kind": "cash",
@@ -194,64 +208,86 @@ def _recent_all(request, days: int | None):
     return rows[:100]
 
 
-# ---------- main (recalc to match stock_list logic) ----------
+# -------------------- main（保存済みの評価額/含み損益を最優先で使用） --------------------
 @login_required
 def main_page(request):
     """
-    stock_list と同じ式で集計：
-      現値が0/未設定→取得単価を使用
-      買い:  評価額=現値×株数, 含み損益=評価額-取得額
-      売り:  含み損益=(取得単価-現値)×株数
-      現物グループ: account_type in {'現物','NISA'} かつ position!='売り'
-      信用グループ: account_type=='信用' または position=='売り'
+    stock_list と一致させるため：
+      - 評価額は `Stock.market_value` を最優先（0/未設定のみ再計算）
+      - 含み損益は `Stock.profit_loss` を最優先（0/未設定のみ再計算）
+      - 現値が 0/None のとき再計算する場合は取得単価を使用（最後の手段）
+      - 現物グループ: account_type in {'現物','NISA'} かつ position!='売り'
+        信用グループ: account_type=='信用' または position=='売り'
     """
     spot_mv = margin_mv = 0.0
     spot_upl = margin_upl = 0.0
 
+    # 保有の集計
     if Stock:
-        for s in Stock.objects.all():
+        qs = Stock.objects.all()
+        if _model_has_user_field(Stock):
+            qs = qs.filter(user=request.user)
+
+        for s in qs:
             shares = _safe_float(getattr(s, "shares", 0))
             unit   = _safe_float(getattr(s, "unit_price", 0))
             curr   = _safe_float(getattr(s, "current_price", 0))
-            price  = curr if curr > 0 else unit
-
+            total_cost = _safe_float(getattr(s, "total_cost", shares * unit))
             pos    = str(getattr(s, "position", "買い"))
             acct   = str(getattr(s, "account_type", "現物"))
 
-            mv = price * shares
-            if pos == "売り":
-                upl = (unit - price) * shares
+            # --- 評価額（market_value を最優先） ---
+            mv_store = _safe_float(getattr(s, "market_value", 0))
+            if mv_store > 0:
+                mv = mv_store
             else:
-                total_cost = _safe_float(getattr(s, "total_cost", shares * unit))
-                upl = mv - total_cost
+                price = curr if curr > 0 else unit
+                mv = price * shares
 
+            # --- 含み損益（profit_loss を最優先） ---
+            upl_store = _safe_float(getattr(s, "profit_loss", None))
+            if upl_store is not None and upl_store != 0:
+                upl = upl_store
+            else:
+                price = curr if curr > 0 else unit
+                if pos == "売り":
+                    # 売建: (取得単価 - 現値) * 株数
+                    upl = (unit - price) * shares
+                else:
+                    # 買い: 評価額 - 取得額（取得額は total_cost を信頼）
+                    upl = (price * shares) - total_cost
+
+            # グルーピング
             is_spot   = (acct in {"現物", "NISA"}) and (pos != "売り")
             is_margin = (acct == "信用") or (pos == "売り")
 
             if is_spot:
-                spot_mv += mv
+                spot_mv  += mv
                 spot_upl += upl
-            elif is_margin:
-                margin_mv += mv
-                margin_upl += upl
             else:
-                spot_mv += mv
-                spot_upl += upl
+                # is_margin または不明→信用へ倒す
+                margin_mv  += mv
+                margin_upl += upl
 
+    # 現金合計
     cash_total = 0
     if CashFlow:
-        sums = CashFlow.objects.values("flow_type").annotate(total=Sum("amount"))
-        for row in sums:
+        cf = CashFlow.objects.all()
+        if _model_has_user_field(CashFlow):
+            cf = cf.filter(user=request.user)
+        for row in cf.values("flow_type").annotate(total=Sum("amount")):
             amt = _safe_int(row.get("total", 0))
             cash_total += amt if (row.get("flow_type") or "") == "in" else -amt
 
     total_assets = spot_mv + margin_mv + cash_total
 
+    # スパークライン（なければフラット）
     try:
         asset_history_csv = ",".join([str(int(round(total_assets)))] * 30)
     except Exception:
         asset_history_csv = ""
 
+    # 最近のアクティビティ
     rng = (request.GET.get("range") or "7").lower()
     days = {"7": 7, "30": 30, "90": 90}.get(rng)
     recent_activities = _recent_all(request, days)
@@ -259,12 +295,21 @@ def main_page(request):
     ctx = dict(
         total_assets=total_assets,
         asset_history_csv=asset_history_csv,
+
+        # 現物/NISA と 信用を分けて出す
         spot_market_value=spot_mv,
         margin_market_value=margin_mv,
         spot_unrealized_pl=spot_upl,
         margin_unrealized_pl=margin_upl,
         unrealized_pl_total=spot_upl + margin_upl,
+
         cash_total=cash_total,
+
+        # 互換（他テンプレが参照していても動くように）
+        portfolio_value=spot_mv + margin_mv,
+        unrealized_pl=spot_upl + margin_upl,
+
+        # 最近のアクティビティ
         recent_activities=recent_activities,
     )
     return render(request, "main.html", ctx)
