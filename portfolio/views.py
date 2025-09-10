@@ -215,21 +215,21 @@ def main_page(request):
     """
     ★ stock_list と同じ計算ロジックでメイン集計 ★
       - 株価: _get_current_price_cached(ticker, fallback=unit_price)
-      - 評価額: current * shares
-      - 含み損益: 買い→ current*shares - total_cost / 売り→ (unit - current)*shares
+      - 評価額: 「採用価格(= current>0 ? current : unit) × shares」
+      - 含み損益: 買い→ (採用価格×株数) - total_cost / 売り→ (unit - 採用価格)×株数
       - グループ:
           現物 = account_type in {'現物','NISA'} and position != '売り'
           信用 = account_type == '信用' or position == '売り'
-      - total_cost は shares * unit_price を使用
+      - total_cost は shares * unit_price を再計算（DBの丸め差を排除）
     """
     spot_mv = margin_mv = 0.0
     spot_upl = margin_upl = 0.0
 
     show_debug = (request.GET.get("debug") == "1")
-    debug_rows = []
+    debug_rows: list[dict] = []
 
     if Stock:
-        # user フィルタ（あれば）
+        # user フィルタ（user フィールドがある場合のみ）
         qs = Stock.objects.all()
         try:
             if "user" in {f.name for f in Stock._meta.get_fields()}:
@@ -238,36 +238,39 @@ def main_page(request):
             pass
 
         for s in qs:
+            # 基本値（float/int 化して NaN/None を吸収）
             shares = _safe_int(getattr(s, "shares", 0))
             unit   = _safe_float(getattr(s, "unit_price", 0.0))
 
-            # ★ stock_list と同じ：キャッシュ経由で現在値を取得（失敗時は unit を採用）
+            # 現在値は stock_list 同様：キャッシュ経由で取得（失敗時は unit にフォールバック）
             try:
-                current = _get_current_price_cached(s.ticker, fallback=unit)  # ← 既存関数をそのまま使用
+                current = _get_current_price_cached(getattr(s, "ticker", ""), fallback=unit)
             except Exception:
                 current = unit
 
-            # total_cost も stock_list と同じ考え方（shares * unit）
-            total_cost = float(shares) * unit
+            # 採用価格（current > 0 を優先、0/未設定なら unit）
+            used_price  = current if _safe_float(current) > 0 else unit
+            price_source = "current" if _safe_float(current) > 0 else "unit"
+
+            # total_cost は shares * unit で再計算（保存値の丸め差を無視）
+            total_cost = float(shares) * float(unit)
 
             pos  = str(getattr(s, "position", "買い") or "")
             acct = str(getattr(s, "account_type", "現物") or "")
 
-            # 評価額
-            mv = float(current) * float(shares)
+            # 評価額 = 採用価格 × 株数
+            mv = float(used_price) * float(shares)
 
-            # 含み損益（stock_list の式に統一）
+            # 含み損益（買い/売りで式を切替）
             if pos == "売り":
-                upl = (unit - float(current)) * float(shares)
+                upl = (float(unit) - float(used_price)) * float(shares)
             else:
                 upl = mv - total_cost
-            # stock_list は損益率だけ round。ここは金額を整数丸めしたい場合は round() する。
-            # （ビュー表示は floatformat/intcomma なので整数化しなくてもOK）
 
-            # グループ分け
+            # グループ分け（現物=現物/NISAかつ買い、信用=信用 or 売り）
             is_spot   = (acct in {"現物", "NISA"}) and (pos != "売り")
             is_margin = (acct == "信用") or (pos == "売り")
-            group = "margin" if is_margin and not is_spot else "spot"
+            group = "margin" if (is_margin and not is_spot) else "spot"
 
             if group == "spot":
                 spot_mv  += mv
@@ -276,6 +279,7 @@ def main_page(request):
                 margin_mv  += mv
                 margin_upl += upl
 
+            # デバッグ行
             if show_debug:
                 debug_rows.append({
                     "id": getattr(s, "id", ""),
@@ -283,7 +287,9 @@ def main_page(request):
                     "name": getattr(s, "name", ""),
                     "shares": shares,
                     "unit_price": unit,
-                    "current_price": current,
+                    "current_price": _safe_float(current),
+                    "used_price": _safe_float(used_price),   # ← 追加
+                    "price_source": price_source,            # ← 追加 ("current" or "unit")
                     "total_cost": total_cost,
                     "market_value": mv,
                     "unrealized_pl": upl,
@@ -301,14 +307,13 @@ def main_page(request):
                 cf = cf.filter(user=request.user)
         except Exception:
             pass
-        sums = cf.values("flow_type").annotate(total=Sum("amount"))
-        for row in sums:
+        for row in cf.values("flow_type").annotate(total=Sum("amount")):
             amt = _safe_int(row.get("total", 0))
             cash_total += amt if (row.get("flow_type") or "") == "in" else -amt
 
     total_assets = spot_mv + margin_mv + cash_total
 
-    # スパークライン（簡易）
+    # スパークライン（簡易フラット）
     try:
         asset_history_csv = ",".join([str(int(round(total_assets)))] * 30)
     except Exception:
@@ -324,7 +329,7 @@ def main_page(request):
     if show_debug:
         debug_text = (
             "※ 株価は stock_list と同じく _get_current_price_cached(ticker, fallback=unit) を使用。"
-            " 評価額=現在値×株数、含み損益（買）=評価額-取得額、（売）=(取得単価-現在値)×株数。"
+            " 評価額=採用価格×株数、含み損益（買）=評価額-取得額、（売）=(取得単価-採用価格)×株数。"
             " 現物=現物/NISAかつ買い、信用=信用 or 売り。"
         )
 
@@ -332,7 +337,7 @@ def main_page(request):
         total_assets=total_assets,
         asset_history_csv=asset_history_csv,
 
-        # ← テンプレが参照するキー
+        # 表示用
         spot_market_value=spot_mv,
         margin_market_value=margin_mv,
         spot_unrealized_pl=spot_upl,
@@ -349,6 +354,7 @@ def main_page(request):
         recent_activities=recent_activities,
     )
     return render(request, "main.html", ctx)
+
 
 # -----------------------------
 # 認証（関数本体は変更なし）

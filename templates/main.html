@@ -30,13 +30,14 @@
   .dbg-table th,.dbg-table td{border:1px solid rgba(255,255,255,.25);padding:6px 8px;font-size:12px;vertical-align:top}
   .dbg-table th{background:rgba(255,255,255,.08);position:sticky;top:0}
   .tag{display:inline-block;padding:2px 6px;border-radius:8px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.06);font-size:11px}
+  .ar{text-align:right}
 </style>
 
 <div class="wrap">
 
   <!-- DEBUG 印 -->
   {% if debug %}
-    <div class="tag">DEBUG v3</div>
+    <div class="tag">DEBUG v4</div>
   {% endif %}
 
   <!-- 総資産（中央表示） -->
@@ -127,7 +128,7 @@
               <td class="ar">{{ r.shares|floatformat:0|intcomma }}</td>
               <td class="ar">{{ r.unit_price|floatformat:2|intcomma }}</td>
               <td class="ar">{{ r.current_price|floatformat:2|intcomma }}</td>
-              <td class="ar">{{ r.price_used|floatformat:2|intcomma }}</td>
+              <td class="ar">{{ r.used_price|floatformat:2|intcomma }}</td> {# ← 修正：price_used → used_price #}
               <td><span class="tag">{{ r.price_source }}</span></td>
               <td class="ar">{{ r.total_cost|floatformat:0|intcomma }}</td>
               <td class="ar">{{ r.market_value|floatformat:0|intcomma }}</td>
