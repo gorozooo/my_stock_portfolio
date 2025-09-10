@@ -84,6 +84,10 @@ from django.utils import timezone
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
+# 既存の import 群（Stock, RealizedProfit, Dividend, CashFlow, など）はそのまま
+# ※ このファイル内に _get_current_price_cached が定義済み（stock_list_view の上）という前提で呼び出します。
+#   もし別モジュールなら適切に import してください。
+
 try:
     from .models import Stock
 except Exception:
@@ -101,12 +105,14 @@ try:
 except Exception:
     CashFlow = None  # type: ignore
 
+
 def _safe_float(x, default=0.0):
     try:
         f = float(x)
         return f if f == f else default
     except Exception:
         return default
+
 
 def _safe_int(x, default=0):
     try:
@@ -117,36 +123,52 @@ def _safe_int(x, default=0):
         except Exception:
             return default
 
+
 def _recent_all(request, days: int | None):
+    """最近のアクティビティ（売買/配当/現金）— フィルタ→スライスの順で安全に。"""
     rows = []
     today = timezone.localdate()
     horizon = today - timedelta(days=days) if isinstance(days, int) else None
 
+    # 売買
     if RealizedProfit:
         q = RealizedProfit.objects.all()
+        # user フィルタ（安全に）
+        try:
+            if "user" in {f.name for f in RealizedProfit._meta.get_fields()}:
+                q = q.filter(user=request.user)
+        except Exception:
+            pass
         if horizon:
             q = q.filter(date__gte=horizon)
-        q = q.order_by("-date", "-id")
-        for t in q[:300]:
-            pnl = _safe_float(getattr(t, "profit_amount", 0))
+        q = q.order_by("-date", "-id")[:300]
+        for t in q:
             rows.append({
                 "kind": "trade",
                 "kind_label": "売買",
                 "date": getattr(t, "date", today),
                 "ticker": getattr(t, "code", "") or "",
                 "name": getattr(t, "stock_name", "") or "",
-                "pnl": pnl,
+                "pnl": _safe_float(getattr(t, "profit_amount", 0)),
                 "memo": "",
             })
 
+    # 配当
     if Dividend:
         qd = Dividend.objects.all()
+        try:
+            if "user" in {f.name for f in Dividend._meta.get_fields()}:
+                qd = qd.filter(user=request.user)
+        except Exception:
+            pass
         if horizon:
             qd = qd.filter(received_at__gte=horizon)
-        qd = qd.order_by("-received_at", "-id")
-        for d in qd[:300]:
+        qd = qd.order_by("-received_at", "-id")[:300]
+        for d in qd:
             net = getattr(d, "net_amount", None)
-            net = _safe_int(net) if net is not None else (_safe_int(getattr(d, "gross_amount", 0)) - _safe_int(getattr(d, "tax", 0)))
+            net = _safe_int(net) if net is not None else (
+                _safe_int(getattr(d, "gross_amount", 0)) - _safe_int(getattr(d, "tax", 0))
+            )
             rows.append({
                 "kind": "dividend",
                 "kind_label": "配当",
@@ -157,16 +179,22 @@ def _recent_all(request, days: int | None):
                 "memo": getattr(d, "memo", "") or "",
             })
 
+    # 現金
     if CashFlow:
         qc = CashFlow.objects.all()
+        try:
+            if "user" in {f.name for f in CashFlow._meta.get_fields()}:
+                qc = qc.filter(user=request.user)
+        except Exception:
+            pass
         if horizon:
             qc = qc.filter(occurred_at__gte=horizon)
-        qc = qc.order_by("-occurred_at", "-id")
+        qc = qc.order_by("-occurred_at", "-id")[:300]
         BROKER_LABELS = {
             "rakuten": "楽天証券", "matsui": "松井証券", "sbi": "SBI証券",
             "楽天": "楽天証券", "松井": "松井証券", "SBI": "SBI証券",
         }
-        for c in qc[:300]:
+        for c in qc:
             b = getattr(c, "broker", "")
             rows.append({
                 "kind": "cash",
@@ -181,8 +209,19 @@ def _recent_all(request, days: int | None):
     rows.sort(key=lambda r: (r.get("date") or today, r.get("kind") or ""), reverse=True)
     return rows[:100]
 
+
 @login_required
 def main_page(request):
+    """
+    ★ stock_list と同じ計算ロジックでメイン集計 ★
+      - 株価: _get_current_price_cached(ticker, fallback=unit_price)
+      - 評価額: current * shares
+      - 含み損益: 買い→ current*shares - total_cost / 売り→ (unit - current)*shares
+      - グループ:
+          現物 = account_type in {'現物','NISA'} and position != '売り'
+          信用 = account_type == '信用' or position == '売り'
+      - total_cost は shares * unit_price を使用
+    """
     spot_mv = margin_mv = 0.0
     spot_upl = margin_upl = 0.0
 
@@ -190,28 +229,42 @@ def main_page(request):
     debug_rows = []
 
     if Stock:
-        for s in Stock.objects.all():
-            shares = _safe_float(getattr(s, "shares", 0))
-            unit   = _safe_float(getattr(s, "unit_price", 0))
-            curr   = _safe_float(getattr(s, "current_price", 0))
-            total_cost = _safe_float(getattr(s, "total_cost", shares * unit))
-            pos    = str(getattr(s, "position", "買い"))
-            acct   = str(getattr(s, "account_type", "現物"))
+        # user フィルタ（あれば）
+        qs = Stock.objects.all()
+        try:
+            if "user" in {f.name for f in Stock._meta.get_fields()}:
+                qs = qs.filter(user=request.user)
+        except Exception:
+            pass
 
-            # 価格は保存値だけで決める：current>0 を優先、0/未設定なら unit
-            if curr > 0:
-                price_used = curr
-                price_source = "current"
-            else:
-                price_used = unit
-                price_source = "unit"
+        for s in qs:
+            shares = _safe_int(getattr(s, "shares", 0))
+            unit   = _safe_float(getattr(s, "unit_price", 0.0))
 
-            mv = price_used * shares
+            # ★ stock_list と同じ：キャッシュ経由で現在値を取得（失敗時は unit を採用）
+            try:
+                current = _get_current_price_cached(s.ticker, fallback=unit)  # ← 既存関数をそのまま使用
+            except Exception:
+                current = unit
+
+            # total_cost も stock_list と同じ考え方（shares * unit）
+            total_cost = float(shares) * unit
+
+            pos  = str(getattr(s, "position", "買い") or "")
+            acct = str(getattr(s, "account_type", "現物") or "")
+
+            # 評価額
+            mv = float(current) * float(shares)
+
+            # 含み損益（stock_list の式に統一）
             if pos == "売り":
-                upl = (unit - price_used) * shares
+                upl = (unit - float(current)) * float(shares)
             else:
                 upl = mv - total_cost
+            # stock_list は損益率だけ round。ここは金額を整数丸めしたい場合は round() する。
+            # （ビュー表示は floatformat/intcomma なので整数化しなくてもOK）
 
+            # グループ分け
             is_spot   = (acct in {"現物", "NISA"}) and (pos != "売り")
             is_margin = (acct == "信用") or (pos == "売り")
             group = "margin" if is_margin and not is_spot else "spot"
@@ -230,9 +283,7 @@ def main_page(request):
                     "name": getattr(s, "name", ""),
                     "shares": shares,
                     "unit_price": unit,
-                    "current_price": curr,
-                    "price_used": price_used,
-                    "price_source": price_source,
+                    "current_price": current,
                     "total_cost": total_cost,
                     "market_value": mv,
                     "unrealized_pl": upl,
@@ -241,50 +292,63 @@ def main_page(request):
                     "group": group,
                 })
 
-    # 現金
+    # 現金合計（入出金の差）
     cash_total = 0
     if CashFlow:
-        sums = CashFlow.objects.values("flow_type").annotate(total=Sum("amount"))
+        cf = CashFlow.objects.all()
+        try:
+            if "user" in {f.name for f in CashFlow._meta.get_fields()}:
+                cf = cf.filter(user=request.user)
+        except Exception:
+            pass
+        sums = cf.values("flow_type").annotate(total=Sum("amount"))
         for row in sums:
             amt = _safe_int(row.get("total", 0))
             cash_total += amt if (row.get("flow_type") or "") == "in" else -amt
 
     total_assets = spot_mv + margin_mv + cash_total
 
-    # スパークライン
+    # スパークライン（簡易）
     try:
         asset_history_csv = ",".join([str(int(round(total_assets)))] * 30)
     except Exception:
         asset_history_csv = ""
 
-    # 最近
+    # 最近のアクティビティ
     rng = (request.GET.get("range") or "7").lower()
     days = {"7": 7, "30": 30, "90": 90}.get(rng)
     recent_activities = _recent_all(request, days)
 
+    # デバッグ注記
     debug_text = None
     if show_debug:
         debug_text = (
-            "※ いまは market_value / profit_loss は一切参照せず、\n"
-            "   保存されている current_price (>0) を優先、0/未設定は unit_price で再計算しています。"
+            "※ 株価は stock_list と同じく _get_current_price_cached(ticker, fallback=unit) を使用。"
+            " 評価額=現在値×株数、含み損益（買）=評価額-取得額、（売）=(取得単価-現在値)×株数。"
+            " 現物=現物/NISAかつ買い、信用=信用 or 売り。"
         )
 
     ctx = dict(
         total_assets=total_assets,
         asset_history_csv=asset_history_csv,
+
+        # ← テンプレが参照するキー
         spot_market_value=spot_mv,
         margin_market_value=margin_mv,
         spot_unrealized_pl=spot_upl,
         margin_unrealized_pl=margin_upl,
         unrealized_pl_total=spot_upl + margin_upl,
         cash_total=cash_total,
+
+        # デバッグ
         debug=show_debug,
         debug_text=debug_text,
         debug_rows=debug_rows,
+
+        # 活動
         recent_activities=recent_activities,
     )
     return render(request, "main.html", ctx)
-
 
 # -----------------------------
 # 認証（関数本体は変更なし）
