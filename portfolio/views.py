@@ -78,7 +78,6 @@ def bottom_tabs_context(request):
 # メイン画面（※関数本体は変更なし）
 # -----------------------------
 # portfolio/views.py
-from __future__ import annotations
 from collections import defaultdict
 from datetime import timedelta
 from typing import Iterable
