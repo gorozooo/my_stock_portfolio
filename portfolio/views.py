@@ -78,7 +78,6 @@ def bottom_tabs_context(request):
 # -----------------------------
 # メイン画面（※関数本体は変更なし）
 # -----------------------------
-# portfolio/views.py
 from collections import defaultdict
 from datetime import timedelta
 from django.db.models import Sum
@@ -86,33 +85,28 @@ from django.utils import timezone
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
-# ---- models (存在しない環境でも落ちないように) ----
 try:
     from .models import Stock
 except Exception:
     Stock = None  # type: ignore
-
 try:
     from .models import RealizedProfit
 except Exception:
     RealizedProfit = None  # type: ignore
-
 try:
     from .models import Dividend
 except Exception:
     Dividend = None  # type: ignore
-
 try:
     from .models import CashFlow
 except Exception:
     CashFlow = None  # type: ignore
 
-
-# ---------- utils ----------
+# 既存で使っている安全変換
 def _safe_float(x, default=0.0):
     try:
         f = float(x)
-        return f if f == f else default  # NaN guard
+        return f if f == f else default
     except Exception:
         return default
 
@@ -125,35 +119,7 @@ def _safe_int(x, default=0):
         except Exception:
             return default
 
-
-# ---------- yfinance で現値補完（current_price<=0 のときだけ） ----------
-def _fetch_price_yf(symbol: str) -> float | None:
-    try:
-        import yfinance as yf
-        if not symbol:
-            return None
-        hist = yf.Ticker(symbol).history(period="1d")  # 直近終値だけ
-        if hist is None or len(hist) == 0:
-            return None
-        close = float(hist["Close"].iloc[-1])
-        return close if close > 0 else None
-    except Exception:
-        return None
-
-def _to_yf_symbol(ticker: str) -> str:
-    t = (ticker or "").strip()
-    if not t:
-        return t
-    if "." in t:
-        return t
-    # 4桁数字のみなら東証として .T を付与
-    import re
-    if re.fullmatch(r"\d{4}", t):
-        return f"{t}.T"
-    return t
-
-
-# ---------- 最近のアクティビティ（slice前にfilter） ----------
+# 既存のままでOK（slice前にfilter）
 def _recent_all(request, days: int | None):
     rows = []
     today = timezone.localdate()
@@ -165,13 +131,14 @@ def _recent_all(request, days: int | None):
             q = q.filter(date__gte=horizon)
         q = q.order_by("-date", "-id")
         for t in q[:300]:
+            pnl = _safe_float(getattr(t, "profit_amount", 0))
             rows.append({
                 "kind": "trade",
                 "kind_label": "売買",
                 "date": getattr(t, "date", today),
                 "ticker": getattr(t, "code", "") or "",
                 "name": getattr(t, "stock_name", "") or "",
-                "pnl": _safe_float(getattr(t, "profit_amount", 0)),
+                "pnl": pnl,
                 "memo": "",
             })
 
@@ -198,14 +165,17 @@ def _recent_all(request, days: int | None):
         if horizon:
             qc = qc.filter(occurred_at__gte=horizon)
         qc = qc.order_by("-occurred_at", "-id")
-        LABEL = {"rakuten":"楽天証券","matsui":"松井証券","sbi":"SBI証券","楽天":"楽天証券","松井":"松井証券","SBI":"SBI証券"}
+        BROKER_LABELS = {
+            "rakuten": "楽天証券", "matsui": "松井証券", "sbi": "SBI証券",
+            "楽天": "楽天証券", "松井": "松井証券", "SBI": "SBI証券",
+        }
         for c in qc[:300]:
             b = getattr(c, "broker", "")
             rows.append({
                 "kind": "cash",
                 "kind_label": "現金",
                 "date": getattr(c, "occurred_at", today),
-                "broker_label": LABEL.get(b, str(b)),
+                "broker_label": BROKER_LABELS.get(b, str(b)),
                 "amount": _safe_int(getattr(c, "amount", 0)),
                 "flow": getattr(c, "flow_type", ""),
                 "memo": getattr(c, "memo", "") or "",
@@ -214,25 +184,19 @@ def _recent_all(request, days: int | None):
     rows.sort(key=lambda r: (r.get("date") or today, r.get("kind") or ""), reverse=True)
     return rows[:100]
 
-
-# ---------- main (price source switchable: stored | yf) ----------
+# ===== ここから置き換え =====
 @login_required
 def main_page(request):
     """
-    price モード:
-      - stored (既定): current_price>0 を使用。0/未設定なら unit_price を使用。（yfinance 不使用）
-      - yf          : current_price<=0 のときだけ yfinance の終値で補完（なければ unit）
-    グルーピング:
-      - 現物: account_type in {'現物','NISA'} かつ position!='売り'
-      - 信用: account_type=='信用' または position=='売り'
-    P/L:
-      - 買い:  mv - total_cost
-      - 売り:  (unit_price - price_used) * shares
+    【強制再計算モード（既定）】
+    - market_value / profit_loss は一切参照しない
+    - price_used = (current_price>0 ? current_price : unit_price)
+    - 買い : mv = price_used*shares, upl = mv - total_cost
+    - 売り : upl = (unit_price - price_used) * shares
+    - グループ:
+        現物 = account_type in {'現物','NISA'} かつ position!='売り'
+        信用 = account_type=='信用' または position=='売り'
     """
-    # ---- どの価格を使うか（保存値=既定 / yfinance）----
-    price_mode = (request.GET.get("price") or "stored").lower()
-    use_yf = (price_mode == "yf")
-
     spot_mv = margin_mv = 0.0
     spot_upl = margin_upl = 0.0
 
@@ -248,22 +212,13 @@ def main_page(request):
             pos    = str(getattr(s, "position", "買い"))
             acct   = str(getattr(s, "account_type", "現物"))
 
-            # ---- 価格決定ロジック（既定は保存値のみ）----
+            # 価格は保存値だけで決める（yf等は使わない）
             if curr > 0:
                 price_used = curr
                 price_source = "current"
             else:
-                if use_yf:
-                    yf_price = _fetch_price_yf(_to_yf_symbol(getattr(s, "ticker", "")))
-                    if yf_price and yf_price > 0:
-                        price_used = yf_price
-                        price_source = "yf"
-                    else:
-                        price_used = unit
-                        price_source = "unit"
-                else:
-                    price_used = unit
-                    price_source = "unit"
+                price_used = unit
+                price_source = "unit"
 
             mv = price_used * shares
             if pos == "売り":
@@ -284,6 +239,7 @@ def main_page(request):
                 margin_upl += upl
                 group = "margin"
             else:
+                # 万一未知の口座種別は現物に倒す
                 spot_mv  += mv
                 spot_upl += upl
 
@@ -296,7 +252,7 @@ def main_page(request):
                     "unit_price": unit,
                     "current_price": curr,
                     "price_used": price_used,
-                    "price_source": price_source,  # current/unit/yf
+                    "price_source": price_source,  # current/unit
                     "total_cost": total_cost,
                     "market_value": mv,
                     "unrealized_pl": upl,
@@ -305,7 +261,7 @@ def main_page(request):
                     "group": group,
                 })
 
-    # ---- 現金合計 ----
+    # 現金合計
     cash_total = 0
     if CashFlow:
         sums = CashFlow.objects.values("flow_type").annotate(total=Sum("amount"))
@@ -315,13 +271,13 @@ def main_page(request):
 
     total_assets = spot_mv + margin_mv + cash_total
 
-    # ---- スパークライン ----
+    # スパークライン（仮：フラット）
     try:
         asset_history_csv = ",".join([str(int(round(total_assets)))] * 30)
     except Exception:
         asset_history_csv = ""
 
-    # ---- 最近のアクティビティ ----
+    # 最近のアクティビティ
     rng = (request.GET.get("range") or "7").lower()
     days = {"7": 7, "30": 30, "90": 90}.get(rng)
     recent_activities = _recent_all(request, days)
@@ -331,21 +287,23 @@ def main_page(request):
         debug_text = (
             f"Holdings Debug\n"
             f"現物MV: {spot_mv:,.0f} / 信用MV: {margin_mv:,.0f} / "
-            f"現物UPL: {spot_upl:,.0f} / 信用UPL: {margin_upl:,.0f}"
+            f"現物UPL: {spot_upl:,.0f} / 信用UPL: {margin_upl:,.0f}\n"
+            f"※ market_value / profit_loss は無視。保存された current_price が 0/未設定のときは unit_price を使用。"
         )
 
     ctx = dict(
         total_assets=total_assets,
         asset_history_csv=asset_history_csv,
 
+        # 表示用
         spot_market_value=spot_mv,
         margin_market_value=margin_mv,
         spot_unrealized_pl=spot_upl,
         margin_unrealized_pl=margin_upl,
         unrealized_pl_total=spot_upl + margin_upl,
-
         cash_total=cash_total,
 
+        # デバッグ
         debug=show_debug,
         debug_text=debug_text,
         debug_rows=debug_rows,
@@ -353,6 +311,8 @@ def main_page(request):
         recent_activities=recent_activities,
     )
     return render(request, "main.html", ctx)
+# ===== ここまで置き換え =====
+
 
 
 
