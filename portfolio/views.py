@@ -251,7 +251,7 @@ def main_page(request):
         recent_activities=recent,
         asset_history_csv=asset_history_csv,
     )
-    return render(request, "main_min.html", ctx)   
+    return render(request, "main.html", ctx)   
     
 # -----------------------------
 # 認証（関数本体は変更なし）
