@@ -80,12 +80,11 @@ def bottom_tabs_context(request):
 # -----------------------------
 from collections import defaultdict
 from datetime import timedelta
-from django.db.models import Sum, Q
+from django.db.models import Sum
 from django.utils import timezone
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
-# モデルの import（無くても落ちないようフェイルセーフ）
 try:
     from .models import Stock
 except Exception:
@@ -107,12 +106,11 @@ except Exception:
     CashFlow = None  # type: ignore
 
 
-# ========== ヘルパ ==========
-
+# ---------- utils ----------
 def _safe_float(x, default=0.0):
     try:
         f = float(x)
-        return f if f == f else default  # NaN ガード
+        return f if f == f else default  # NaN guard
     except Exception:
         return default
 
@@ -125,18 +123,21 @@ def _safe_int(x, default=0):
         except Exception:
             return default
 
+
+# ---------- fixed: apply filters BEFORE slicing ----------
 def _recent_all(request, days: int | None):
-    """最近のアクティビティ（売買/配当/現金）をまとめて返す"""
+    """最近のアクティビティ（売買/配当/現金）"""
     rows = []
     today = timezone.localdate()
     horizon = today - timedelta(days=days) if isinstance(days, int) else None
 
-    # 売買（実現損益）
+    # 売買
     if RealizedProfit:
-        q = RealizedProfit.objects.all().order_by("-date", "-id")[:300]
+        q = RealizedProfit.objects.all()
         if horizon:
             q = q.filter(date__gte=horizon)
-        for t in q:
+        q = q.order_by("-date", "-id")
+        for t in q[:300]:
             pnl = _safe_float(getattr(t, "profit_amount", 0))
             rows.append({
                 "kind": "trade",
@@ -150,10 +151,11 @@ def _recent_all(request, days: int | None):
 
     # 配当
     if Dividend:
-        qd = Dividend.objects.all().order_by("-received_at", "-id")[:300]
+        qd = Dividend.objects.all()
         if horizon:
             qd = qd.filter(received_at__gte=horizon)
-        for d in qd:
+        qd = qd.order_by("-received_at", "-id")
+        for d in qd[:300]:
             net = getattr(d, "net_amount", None)
             net = _safe_int(net) if net is not None else (_safe_int(getattr(d, "gross_amount", 0)) - _safe_int(getattr(d, "tax", 0)))
             rows.append({
@@ -168,18 +170,15 @@ def _recent_all(request, days: int | None):
 
     # 現金
     if CashFlow:
-        qc = CashFlow.objects.all().order_by("-occurred_at", "-id")[:300]
+        qc = CashFlow.objects.all()
         if horizon:
             qc = qc.filter(occurred_at__gte=horizon)
+        qc = qc.order_by("-occurred_at", "-id")
         BROKER_LABELS = {
-            "rakuten": "楽天証券",
-            "matsui":  "松井証券",
-            "sbi":     "SBI証券",
-            "楽天":    "楽天証券",
-            "松井":    "松井証券",
-            "SBI":     "SBI証券",
+            "rakuten": "楽天証券", "matsui": "松井証券", "sbi": "SBI証券",
+            "楽天": "楽天証券", "松井": "松井証券", "SBI": "SBI証券",
         }
-        for c in qc:
+        for c in qc[:300]:
             b = getattr(c, "broker", "")
             rows.append({
                 "kind": "cash",
@@ -195,20 +194,17 @@ def _recent_all(request, days: int | None):
     return rows[:100]
 
 
-# ========== メインビュー（集計は “その場再計算” 方式） ==========
-
+# ---------- main (recalc to match stock_list logic) ----------
 @login_required
 def main_page(request):
     """
-    stock_list と同じ式で集計する版：
-      - 現在値が 0/未設定なら【取得単価】を使う
-      - 買い：  評価額 = 現在値×株数, 含み損益 = 評価額 - 取得額
-      - 売り：  含み損益 = (取得単価 - 現在値) × 株数（＝空売りの評価損益）
-      - グループ分け：
-          * 現物グループ = account_type ∈ {"現物","NISA"} かつ position != "売り"
-          * 信用グループ = account_type == "信用" または position == "売り"
+    stock_list と同じ式で集計：
+      現値が0/未設定→取得単価を使用
+      買い:  評価額=現値×株数, 含み損益=評価額-取得額
+      売り:  含み損益=(取得単価-現値)×株数
+      現物グループ: account_type in {'現物','NISA'} かつ position!='売り'
+      信用グループ: account_type=='信用' または position=='売り'
     """
-    # ===== 保有集計（その場再計算） =====
     spot_mv = margin_mv = 0.0
     spot_upl = margin_upl = 0.0
 
@@ -217,74 +213,58 @@ def main_page(request):
             shares = _safe_float(getattr(s, "shares", 0))
             unit   = _safe_float(getattr(s, "unit_price", 0))
             curr   = _safe_float(getattr(s, "current_price", 0))
+            price  = curr if curr > 0 else unit
+
             pos    = str(getattr(s, "position", "買い"))
             acct   = str(getattr(s, "account_type", "現物"))
 
-            # stock_list と同じ「現在値フォールバック」
-            price = curr if curr > 0 else unit
             mv = price * shares
-
-            # 含み損益
             if pos == "売り":
                 upl = (unit - price) * shares
             else:
                 total_cost = _safe_float(getattr(s, "total_cost", shares * unit))
                 upl = mv - total_cost
 
-            # グループ分け
             is_spot   = (acct in {"現物", "NISA"}) and (pos != "売り")
             is_margin = (acct == "信用") or (pos == "売り")
 
             if is_spot:
-                spot_mv  += mv
+                spot_mv += mv
                 spot_upl += upl
             elif is_margin:
-                margin_mv  += mv
+                margin_mv += mv
                 margin_upl += upl
             else:
-                # どれでもない（想定外）は現物に倒す
-                spot_mv  += mv
+                spot_mv += mv
                 spot_upl += upl
 
-    # ===== 現金残高 =====
     cash_total = 0
     if CashFlow:
         sums = CashFlow.objects.values("flow_type").annotate(total=Sum("amount"))
         for row in sums:
             amt = _safe_int(row.get("total", 0))
-            if (row.get("flow_type") or "") == "in":
-                cash_total += amt
-            else:
-                cash_total -= amt
+            cash_total += amt if (row.get("flow_type") or "") == "in" else -amt
 
-    # ===== 総資産 =====
     total_assets = spot_mv + margin_mv + cash_total
 
-    # ===== スパークライン（データがない時はフラット） =====
     try:
         asset_history_csv = ",".join([str(int(round(total_assets)))] * 30)
     except Exception:
         asset_history_csv = ""
 
-    # ===== 最近のアクティビティ =====
     rng = (request.GET.get("range") or "7").lower()
     days = {"7": 7, "30": 30, "90": 90}.get(rng)
     recent_activities = _recent_all(request, days)
 
-    # ===== コンテキスト =====
     ctx = dict(
         total_assets=total_assets,
         asset_history_csv=asset_history_csv,
-
-        # 分離して渡す（テンプレが参照）
         spot_market_value=spot_mv,
         margin_market_value=margin_mv,
         spot_unrealized_pl=spot_upl,
         margin_unrealized_pl=margin_upl,
         unrealized_pl_total=spot_upl + margin_upl,
-
         cash_total=cash_total,
-
         recent_activities=recent_activities,
     )
     return render(request, "main.html", ctx)
