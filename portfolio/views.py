@@ -215,18 +215,24 @@ def _recent_all(request, days: int | None):
     return rows[:100]
 
 
-# ---------- main ----------
+# ---------- main (price source switchable: stored | yf) ----------
 @login_required
 def main_page(request):
     """
-    現値が0の銘柄だけ yfinance で終値を補完してから集計。
-    分類：
-      - 現物（現物+NISA かつ position!='売り'）
-      - 信用（account_type=='信用' または position=='売り'）
-    P/L：
+    price モード:
+      - stored (既定): current_price>0 を使用。0/未設定なら unit_price を使用。（yfinance 不使用）
+      - yf          : current_price<=0 のときだけ yfinance の終値で補完（なければ unit）
+    グルーピング:
+      - 現物: account_type in {'現物','NISA'} かつ position!='売り'
+      - 信用: account_type=='信用' または position=='売り'
+    P/L:
       - 買い:  mv - total_cost
       - 売り:  (unit_price - price_used) * shares
     """
+    # ---- どの価格を使うか（保存値=既定 / yfinance）----
+    price_mode = (request.GET.get("price") or "stored").lower()
+    use_yf = (price_mode == "yf")
+
     spot_mv = margin_mv = 0.0
     spot_upl = margin_upl = 0.0
 
@@ -234,7 +240,6 @@ def main_page(request):
     debug_rows = []
 
     if Stock:
-        # まとめて取得（N件程度想定）
         for s in Stock.objects.all():
             shares = _safe_float(getattr(s, "shares", 0))
             unit   = _safe_float(getattr(s, "unit_price", 0))
@@ -243,17 +248,19 @@ def main_page(request):
             pos    = str(getattr(s, "position", "買い"))
             acct   = str(getattr(s, "account_type", "現物"))
 
-            # 価格決定：current_price>0 を優先。0なら yfinance で補完、だめなら unit。
-            price_used = None
-            price_source = "current"
+            # ---- 価格決定ロジック（既定は保存値のみ）----
             if curr > 0:
                 price_used = curr
+                price_source = "current"
             else:
-                # yfinance 補完
-                yf_price = _fetch_price_yf(_to_yf_symbol(getattr(s, "ticker", "")))
-                if yf_price and yf_price > 0:
-                    price_used = yf_price
-                    price_source = "yf"
+                if use_yf:
+                    yf_price = _fetch_price_yf(_to_yf_symbol(getattr(s, "ticker", "")))
+                    if yf_price and yf_price > 0:
+                        price_used = yf_price
+                        price_source = "yf"
+                    else:
+                        price_used = unit
+                        price_source = "unit"
                 else:
                     price_used = unit
                     price_source = "unit"
@@ -289,7 +296,7 @@ def main_page(request):
                     "unit_price": unit,
                     "current_price": curr,
                     "price_used": price_used,
-                    "price_source": price_source,  # <- どの値を使ったか
+                    "price_source": price_source,  # current/unit/yf
                     "total_cost": total_cost,
                     "market_value": mv,
                     "unrealized_pl": upl,
@@ -298,7 +305,7 @@ def main_page(request):
                     "group": group,
                 })
 
-    # 現金合計
+    # ---- 現金合計 ----
     cash_total = 0
     if CashFlow:
         sums = CashFlow.objects.values("flow_type").annotate(total=Sum("amount"))
@@ -308,13 +315,13 @@ def main_page(request):
 
     total_assets = spot_mv + margin_mv + cash_total
 
-    # スパークライン
+    # ---- スパークライン ----
     try:
         asset_history_csv = ",".join([str(int(round(total_assets)))] * 30)
     except Exception:
         asset_history_csv = ""
 
-    # 最近のアクティビティ
+    # ---- 最近のアクティビティ ----
     rng = (request.GET.get("range") or "7").lower()
     days = {"7": 7, "30": 30, "90": 90}.get(rng)
     recent_activities = _recent_all(request, days)
@@ -346,6 +353,7 @@ def main_page(request):
         recent_activities=recent_activities,
     )
     return render(request, "main.html", ctx)
+
 
 
 # -----------------------------
