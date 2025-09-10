@@ -95,15 +95,15 @@
     </article>
 
     <article class="kpi-card glass">
-      <div class="kpi-title">現金合計</div>
+      <div class="kpi-title">キャッシュ残高</div>
       <div class="kpi-value"
-           id="cashTotal"
-           data-value="{{ cash_total|default_if_none:0 }}">
-        ¥{{ cash_total|default_if_none:0|floatformat:0|intcomma }}
+           id="cashBalance"
+           data-value="{{ cash_balance|default_if_none:0 }}">
+        ¥{{ cash_balance|default_if_none:0|floatformat:0|intcomma }}
       </div>
-      <div class="kpi-sub">流動資産の即戦力</div>
+      <div class="kpi-sub">入出金 − 現物取得額 + 実現損益</div>
       <div class="gauge" id="gaugeLiquidity"
-           data-value="{{ cash_total|default_if_none:0 }}"
+           data-value="{{ cash_balance|default_if_none:0 }}"
            data-total="{{ total_assets|default_if_none:0 }}"></div>
     </article>
 
@@ -112,7 +112,7 @@
       <div class="stack-bars" id="stackBars"
            data-spot="{{ spot_market_value|default_if_none:0 }}"
            data-margin="{{ margin_market_value|default_if_none:0 }}"
-           data-cash="{{ cash_total|default_if_none:0 }}">
+           data-cash="{{ cash_balance|default_if_none:0 }}">
         <span aria-hidden="true"></span>
       </div>
       <ul class="legend">
