@@ -78,6 +78,7 @@ def bottom_tabs_context(request):
 # -----------------------------
 # メイン画面（※関数本体は変更なし）
 # -----------------------------
+# portfolio/views.py
 from collections import defaultdict
 from datetime import timedelta
 from django.db.models import Sum
@@ -85,6 +86,7 @@ from django.utils import timezone
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
+# ---- models (存在しない環境でも落ちないように) ----
 try:
     from .models import Stock
 except Exception:
@@ -106,10 +108,11 @@ except Exception:
     CashFlow = None  # type: ignore
 
 
+# ---------- utils ----------
 def _safe_float(x, default=0.0):
     try:
         f = float(x)
-        return f if f == f else default
+        return f if f == f else default  # NaN guard
     except Exception:
         return default
 
@@ -123,6 +126,34 @@ def _safe_int(x, default=0):
             return default
 
 
+# ---------- yfinance で現値補完（current_price<=0 のときだけ） ----------
+def _fetch_price_yf(symbol: str) -> float | None:
+    try:
+        import yfinance as yf
+        if not symbol:
+            return None
+        hist = yf.Ticker(symbol).history(period="1d")  # 直近終値だけ
+        if hist is None or len(hist) == 0:
+            return None
+        close = float(hist["Close"].iloc[-1])
+        return close if close > 0 else None
+    except Exception:
+        return None
+
+def _to_yf_symbol(ticker: str) -> str:
+    t = (ticker or "").strip()
+    if not t:
+        return t
+    if "." in t:
+        return t
+    # 4桁数字のみなら東証として .T を付与
+    import re
+    if re.fullmatch(r"\d{4}", t):
+        return f"{t}.T"
+    return t
+
+
+# ---------- 最近のアクティビティ（slice前にfilter） ----------
 def _recent_all(request, days: int | None):
     rows = []
     today = timezone.localdate()
@@ -184,15 +215,17 @@ def _recent_all(request, days: int | None):
     return rows[:100]
 
 
+# ---------- main ----------
 @login_required
 def main_page(request):
     """
-    ストアド値の扱いを修正：
-      - stored_mv(=market_value) が >0 のときだけ stored_upl(=profit_loss) を採用
-      - それ以外はビュー内で再計算して使う
+    現値が0の銘柄だけ yfinance で終値を補完してから集計。
     分類：
       - 現物（現物+NISA かつ position!='売り'）
       - 信用（account_type=='信用' または position=='売り'）
+    P/L：
+      - 買い:  mv - total_cost
+      - 売り:  (unit_price - price_used) * shares
     """
     spot_mv = margin_mv = 0.0
     spot_upl = margin_upl = 0.0
@@ -201,32 +234,35 @@ def main_page(request):
     debug_rows = []
 
     if Stock:
+        # まとめて取得（N件程度想定）
         for s in Stock.objects.all():
             shares = _safe_float(getattr(s, "shares", 0))
             unit   = _safe_float(getattr(s, "unit_price", 0))
             curr   = _safe_float(getattr(s, "current_price", 0))
-            price_used = curr if curr > 0 else unit
             total_cost = _safe_float(getattr(s, "total_cost", shares * unit))
             pos    = str(getattr(s, "position", "買い"))
             acct   = str(getattr(s, "account_type", "現物"))
 
-            stored_mv  = _safe_float(getattr(s, "market_value", 0.0))
-            stored_upl_raw = getattr(s, "profit_loss", None)
-            stored_upl = None if stored_upl_raw is None else _safe_float(stored_upl_raw, 0.0)
-
-            # 評価額: ストアドが有効なら使用、0なら補完
-            mv = stored_mv if stored_mv > 0 else (price_used * shares)
-
-            # 含み損益: 「stored_mv>0 の時だけ」ストアドを信用。
-            if stored_mv > 0 and stored_upl_raw is not None:
-                upl = stored_upl
-                upl_source = "stored"
+            # 価格決定：current_price>0 を優先。0なら yfinance で補完、だめなら unit。
+            price_used = None
+            price_source = "current"
+            if curr > 0:
+                price_used = curr
             else:
-                if pos == "売り":
-                    upl = (unit - price_used) * shares
+                # yfinance 補完
+                yf_price = _fetch_price_yf(_to_yf_symbol(getattr(s, "ticker", "")))
+                if yf_price and yf_price > 0:
+                    price_used = yf_price
+                    price_source = "yf"
                 else:
-                    upl = mv - total_cost
-                upl_source = "recalc"
+                    price_used = unit
+                    price_source = "unit"
+
+            mv = price_used * shares
+            if pos == "売り":
+                upl = (unit - price_used) * shares
+            else:
+                upl = mv - total_cost
 
             is_spot   = (acct in {"現物", "NISA"}) and (pos != "売り")
             is_margin = (acct == "信用") or (pos == "売り")
@@ -253,15 +289,13 @@ def main_page(request):
                     "unit_price": unit,
                     "current_price": curr,
                     "price_used": price_used,
+                    "price_source": price_source,  # <- どの値を使ったか
                     "total_cost": total_cost,
                     "market_value": mv,
                     "unrealized_pl": upl,
                     "account_type": acct,
                     "position": pos,
                     "group": group,
-                    "stored_mv": stored_mv,
-                    "stored_upl": stored_upl_raw,
-                    "upl_source": upl_source,
                 })
 
     # 現金合計
@@ -312,6 +346,7 @@ def main_page(request):
         recent_activities=recent_activities,
     )
     return render(request, "main.html", ctx)
+
 
 # -----------------------------
 # 認証（関数本体は変更なし）
