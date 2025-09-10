@@ -78,19 +78,19 @@ def bottom_tabs_context(request):
 # メイン画面（※関数本体は変更なし）
 # -----------------------------
 # portfolio/views.py
+
 from collections import defaultdict
 from datetime import timedelta
-from typing import Iterable
 
 from django.contrib.auth.decorators import login_required
 from django.db.models import Sum
 from django.shortcuts import render
 from django.utils import timezone
 
-# ── 依存モデル（安全に import） ─────────────────────────────
+# ── 安全にモデル import ─────────────────────────────────────
 try:
     from .models import Stock
-except Exception:  # テストしやすさのため
+except Exception:
     Stock = None  # type: ignore
 
 try:
@@ -109,16 +109,24 @@ except Exception:
     CashFlow = None  # type: ignore
 
 
-# ── 表示タブ（フロントが期待するキー/ラベル） ────────────────
+# ── タブ表示用ラベル ────────────────────────────────────────
 BROKER_TABS = [
     ("rakuten", "楽天証券"),
     ("matsui",  "松井証券"),
     ("sbi",     "SBI証券"),
 ]
-BROKER_MAP = dict(BROKER_TABS)  # key→表示名
+BROKER_MAP = dict(BROKER_TABS)
 
 
-# ── 小さなユーティリティ ───────────────────────────────────
+# ── ヘルパ ────────────────────────────────────────────────
+def _safe_float(x, default=0.0) -> float:
+    try:
+        v = float(x)
+        return v if (v == v) else default  # NaN ガード
+    except Exception:
+        return default
+
+
 def _safe_int(x, default=0) -> int:
     try:
         return int(round(float(x)))
@@ -126,20 +134,10 @@ def _safe_int(x, default=0) -> int:
         return default
 
 
-def _safe_float(x, default=0.0) -> float:
-    try:
-        v = float(x)
-        # NaN ガード
-        return v if (v == v) else default
-    except Exception:
-        return default
-
-
 def _norm_broker_key(value: str) -> str:
     """
-    Stock.broker（「楽天」「松井」「SBI」「moomoo」等）を
-    テンプレのキー（rakuten/matsui/sbi）へ正規化。
-    一致しないもの（例：moomoo）は '' を返して「集計対象外」にします。
+    Stock.broker を UI キーへ正規化。
+    日本語/大文字小文字混在に対処。未対応（例: moomoo）は '' で除外。
     """
     s = (value or "").strip().lower()
     if not s:
@@ -148,23 +146,22 @@ def _norm_broker_key(value: str) -> str:
         return "rakuten"
     if "松井" in s or "matsui" in s:
         return "matsui"
-    if "sbi" in s:
+    if "sbi" in s:  # "SBI" / "sbi" など
         return "sbi"
-    # moomoo など未対応は除外
     return ""
 
 
 def _grp_account(account_type: str) -> str:
     """
-    現物/NISA → 'spot'、信用 → 'margin' を返す。
-    それ以外は 'spot' 扱い（NISA拡張やつみたてNISAが増えても安全）。
+    現物/NISA → 'spot'
+    信用       → 'margin'
+    それ以外   → 'spot' 扱い
     """
     a = (account_type or "").strip().lower()
     if "信用" in a:
         return "margin"
     if "nisa" in a or "現物" in a:
         return "spot"
-    # 想定外は現物に含める
     return "spot"
 
 
@@ -181,113 +178,94 @@ def _stock_queryset_for_user(request):
     return qs
 
 
-def _compute_row_metrics(s: "Stock") -> dict:
+def _row_mv_pl(s) -> tuple[float, float]:
     """
-    1銘柄の「評価額」「含み損益」を **ビジネスルール通り** に計算して返す。
-    - 評価額: current_price × shares （current_price=0/未設定なら unit_price で補完）
-    - 含み損益:
-        * 買い: (評価額) - total_cost
-        * 売り: (unit_price - current_price) × shares
+    1銘柄の評価額と含み損益を **モデルの保存値優先** で取得。
+    - mv: stock.market_value が正なら採用。0/未設定なら shares*(current_price or unit_price) で補完
+    - pl: stock.profit_loss をそのまま採用（空なら mv - total_cost を最終フォールバック）
     """
-    shares = _safe_int(getattr(s, "shares", 0))
-    unit   = _safe_float(getattr(s, "unit_price", 0.0))
-    curr0  = _safe_float(getattr(s, "current_price", 0.0))
-    curr   = curr0 if curr0 > 0 else unit  # 未設定/0なら取得単価で補完
+    shares = _safe_float(getattr(s, "shares", 0))
+    unit   = _safe_float(getattr(s, "unit_price", 0))
+    curr   = _safe_float(getattr(s, "current_price", 0)) or unit
+    mv0    = _safe_float(getattr(s, "market_value", 0))
+    pl0    = _safe_float(getattr(s, "profit_loss", 0))
     cost   = _safe_float(getattr(s, "total_cost", shares * unit))
-    pos    = str(getattr(s, "position", "買い") or "買い")
 
-    market_value = curr * shares
-    if pos == "売り":
-        pnl = (unit - curr) * shares
-    else:
-        pnl = market_value - cost
-
-    return {
-        "market_value": market_value,
-        "unrealized_pl": pnl,
-        "shares": shares,
-        "unit_price": unit,
-        "current_price": curr,
-        "pos": pos,
-    }
+    mv = mv0 if mv0 > 0 else shares * curr
+    pl = pl0 if pl0 != 0 else (mv - cost)
+    return mv, pl
 
 
-def _top_positions(stocks: Iterable["Stock"], topn=5):
+def _top_positions(stock_list, topn=5):
     rows = []
-    for s in stocks:
-        m = _compute_row_metrics(s)
+    for s in stock_list:
+        mv, _ = _row_mv_pl(s)
         rows.append({
             "ticker": getattr(s, "ticker", "") or "",
             "name": getattr(s, "name", "") or "",
-            "shares": m["shares"],
-            "market_value": m["market_value"],
+            "shares": _safe_int(getattr(s, "shares", 0)),
+            "market_value": mv,
         })
     rows.sort(key=lambda r: _safe_float(r["market_value"]), reverse=True)
     return rows[:topn]
 
 
 def _recent_for_broker(bkey: str, request, limit=6):
-    """（そのまま維持。表示上必要なため簡易実装）"""
+    """最近の動き（売買/配当/現金）"""
     items = []
     # 売買
     if RealizedProfit:
-        base = RealizedProfit.objects.all()
+        q = RealizedProfit.objects.all()
         try:
             if "user" in {f.name for f in RealizedProfit._meta.get_fields()}:
-                base = base.filter(user=request.user)
+                q = q.filter(user=request.user)
         except Exception:
             pass
-        for t in base.order_by("-date", "-id")[:150]:
+        for t in q.order_by("-date", "-id")[:200]:
             if _norm_broker_key(getattr(t, "broker", "")) != bkey:
                 continue
+            pnl = _safe_float(getattr(t, "profit_amount", 0))
             items.append({
-                "kind": "trade",
-                "kind_label": "売買",
+                "kind": "trade", "kind_label": "売買",
                 "date": getattr(t, "date", timezone.localdate()),
                 "ticker": getattr(t, "code", "") or "",
                 "name": getattr(t, "stock_name", "") or "",
-                "pnl": _safe_float(getattr(t, "profit_amount", 0)),
-                "sign": "+" if _safe_float(getattr(t, "profit_amount", 0)) >= 0 else "-",
+                "pnl": pnl, "sign": "+" if pnl >= 0 else "-",
                 "memo": "",
             })
     # 配当
     if Dividend:
-        base = Dividend.objects.all()
+        qd = Dividend.objects.all()
         try:
             if "user" in {f.name for f in Dividend._meta.get_fields()}:
-                base = base.filter(user=request.user)
+                qd = qd.filter(user=request.user)
         except Exception:
             pass
-        for d in base.order_by("-received_at", "-id")[:150]:
+        for d in qd.order_by("-received_at", "-id")[:200]:
             if _norm_broker_key(getattr(d, "broker", "")) != bkey:
                 continue
             gross = _safe_int(getattr(d, "gross_amount", 0))
             tax   = _safe_int(getattr(d, "tax", 0))
             net   = _safe_int(getattr(d, "net_amount", gross - tax))
             items.append({
-                "kind": "dividend",
-                "kind_label": "配当",
+                "kind": "dividend", "kind_label": "配当",
                 "date": getattr(d, "received_at", timezone.localdate()),
                 "ticker": getattr(d, "ticker", "") or "",
                 "name": getattr(d, "stock_name", "") or "",
-                "net": net,
-                "sign": "+" if net >= 0 else "-",
+                "net": net, "sign": "+" if net >= 0 else "-",
                 "memo": getattr(d, "memo", "") or "",
             })
     # 現金
     if CashFlow and bkey in BROKER_MAP:
-        for c in CashFlow.objects.filter(broker=bkey).order_by("-occurred_at", "-id")[:150]:
-            amt = _safe_int(getattr(c, "amount", 0))
-            flow = getattr(c, "flow_type", "")
-            sign = "+" if flow == "in" else "-"
+        for c in CashFlow.objects.filter(broker=bkey).order_by("-occurred_at", "-id")[:200]:
+            amt  = _safe_int(getattr(c, "amount", 0))
+            flow = getattr(c, "flow_type", "in")
             items.append({
-                "kind": "cash",
-                "kind_label": "現金",
+                "kind": "cash", "kind_label": "現金",
                 "date": getattr(c, "occurred_at", timezone.localdate()),
                 "broker_label": BROKER_MAP.get(bkey, bkey),
-                "amount": amt,
-                "flow": flow,
-                "sign": sign,
+                "amount": amt, "flow": flow,
+                "sign": "+" if flow == "in" else "-",
                 "memo": getattr(c, "memo", "") or "",
             })
 
@@ -299,7 +277,6 @@ def _recent_all(request, days: int | None):
     rows = []
     horizon = timezone.localdate() - timedelta(days=days) if days else None
 
-    # 売買
     if RealizedProfit:
         base = RealizedProfit.objects.all()
         try:
@@ -318,7 +295,7 @@ def _recent_all(request, days: int | None):
                 "pnl": _safe_float(getattr(t, "profit_amount", 0)),
                 "memo": "",
             })
-    # 配当
+
     if Dividend:
         base = Dividend.objects.all()
         try:
@@ -339,7 +316,7 @@ def _recent_all(request, days: int | None):
                 "name": getattr(d, "stock_name", "") or "",
                 "net": net, "memo": getattr(d, "memo", "") or "",
             })
-    # 現金
+
     if CashFlow:
         base = CashFlow.objects.all()
         if horizon:
@@ -358,62 +335,46 @@ def _recent_all(request, days: int | None):
     return rows[:100]
 
 
-# ── メインビュー ───────────────────────────────────────────
+# ── メイン：stock_list と同じ基準で集計 ─────────────────────
 @login_required
 def main_page(request):
-    """
-    ルール厳密版：
-      - 現物評価額 = account_type ∈ {"現物","NISA"} の合計（空売りは「売り」で判定）
-      - 信用評価額 = account_type ∈ {"信用"} の合計
-      - 含み損益 = ルール通り（買い: MV-取得額 / 売り: (取得単価-現値)*株）
-      - いずれも整数円で最終表示（テンプレ側で intcomma/floatformat:0 前提）
-    """
-    # タブ関連
-    broker_tabs = BROKER_TABS
+    # タブ
     active_broker = request.GET.get("broker") or "rakuten"
-    if active_broker not in dict(broker_tabs):
+    if active_broker not in dict(BROKER_TABS):
         active_broker = "rakuten"
 
-    # 集計器
-    spot_value = 0.0
-    spot_upl   = 0.0
-    margin_value = 0.0
-    margin_upl   = 0.0
+    # 集計バッファ
+    spot_value = spot_pl = 0.0
+    margin_value = margin_pl = 0.0
 
-    # ブローカー別
-    holdings_count_by_broker: dict[str, int] = defaultdict(int)
-    market_value_by_broker: dict[str, float] = defaultdict(float)
-    upl_by_broker: dict[str, float] = defaultdict(float)
-    stocks_by_broker: dict[str, list] = defaultdict(list)
+    holdings_count_by_broker = defaultdict(int)
+    market_value_by_broker   = defaultdict(float)
+    upl_by_broker            = defaultdict(float)
+    stocks_by_broker         = defaultdict(list)
 
-    # 保有株ループ
-    qs = _stock_queryset_for_user(request)
-    for s in qs:
-        # 口座区分で現物/信用を判定
-        grp = _grp_account(getattr(s, "account_type", ""))
-        # 評価額/PL を計算
-        m = _compute_row_metrics(s)
+    # 保有株をモデル値で集計
+    for s in _stock_queryset_for_user(request):
+        mv, pl = _row_mv_pl(s)
+        grp    = _grp_account(getattr(s, "account_type", ""))
 
         if grp == "margin":
-            margin_value += m["market_value"]
-            margin_upl   += m["unrealized_pl"]
+            margin_value += mv
+            margin_pl    += pl
         else:
-            # 現物（現物 + NISA）
-            spot_value += m["market_value"]
-            spot_upl   += m["unrealized_pl"]
+            spot_value += mv
+            spot_pl    += pl
 
-        # ブローカー別集計（タブ用）
         bkey = _norm_broker_key(getattr(s, "broker", ""))
         if bkey:
             holdings_count_by_broker[bkey] += 1
-            market_value_by_broker[bkey] += m["market_value"]
-            upl_by_broker[bkey] += m["unrealized_pl"]
+            market_value_by_broker[bkey]   += mv
+            upl_by_broker[bkey]            += pl
             stocks_by_broker[bkey].append(s)
 
     # 現金残高
     broker_balances = {"rakuten": 0, "matsui": 0, "sbi": 0}
     if CashFlow:
-        sums = (CashFlow.objects.values("broker", "flow_type").annotate(total=Sum("amount")))
+        sums = CashFlow.objects.values("broker", "flow_type").annotate(total=Sum("amount"))
         for row in sums:
             b = row.get("broker") or ""
             t = row.get("flow_type") or ""
@@ -422,13 +383,13 @@ def main_page(request):
                 broker_balances[b] += total if t == "in" else -total
     cash_total = sum(broker_balances.values())
 
-    # 総資産・合計評価額・合計含み損益（整数に寄せるのはテンプレ側）
+    # 合計
     total_portfolio_value = spot_value + margin_value
-    total_unrealized_pl   = spot_upl + margin_upl
+    total_unrealized_pl   = spot_pl + margin_pl
     total_assets          = total_portfolio_value + cash_total
-    day_change            = 0  # 前日比は別で用意がなければ0
+    day_change            = 0  # データなければ 0
 
-    # ブローカー統計（テンプレ互換）
+    # ブローカースタッツ
     broker_stats = {
         "rakuten": {
             "holdings_count": holdings_count_by_broker.get("rakuten", 0),
@@ -447,21 +408,21 @@ def main_page(request):
         },
     }
 
-    # 上位ポジション（各社トップ5）
+    # 上位ポジション
     top_positions_by_broker = {
-        "rakuten": _top_positions(stocks_by_broker.get("rakuten", []), topn=5),
-        "matsui":  _top_positions(stocks_by_broker.get("matsui", []),  topn=5),
-        "sbi":     _top_positions(stocks_by_broker.get("sbi", []),     topn=5),
+        "rakuten": _top_positions(stocks_by_broker.get("rakuten", []), 5),
+        "matsui":  _top_positions(stocks_by_broker.get("matsui", []),  5),
+        "sbi":     _top_positions(stocks_by_broker.get("sbi", []),     5),
     }
 
-    # 最近の動き（各社）
+    # 最近の動き
     recent_by_broker = {
         "rakuten": _recent_for_broker("rakuten", request),
         "matsui":  _recent_for_broker("matsui", request),
         "sbi":     _recent_for_broker("sbi", request),
     }
 
-    # 実現損益（MTD/YTD/累計）
+    # 実現損益
     realized_pl_mtd = realized_pl_ytd = realized_pl_total = 0
     if RealizedProfit:
         base = RealizedProfit.objects.all()
@@ -477,44 +438,57 @@ def main_page(request):
         realized_pl_mtd   = _safe_int((base.filter(date__gte=first_of_month).aggregate(s=Sum("profit_amount")) or {}).get("s", 0))
         realized_pl_ytd   = _safe_int((base.filter(date__gte=first_of_year).aggregate(s=Sum("profit_amount")) or {}).get("s", 0))
 
-    # スパークライン（データ無い環境でも空でOK）
-    try:
-        asset_history_csv = ",".join([str(_safe_int(total_assets)) for _ in range(30)])
-    except Exception:
-        asset_history_csv = ""
+    # スパークライン（なければフラット）
+    asset_history_csv = ",".join([str(_safe_int(total_assets)) for _ in range(30)])
 
     # 最近のアクティビティ（全体）
     rng  = request.GET.get("range", "7")
     days = {"7": 7, "30": 30, "90": 90}.get(rng)
     recent_activities = _recent_all(request, days)
 
+    # コンテキスト（テンプレ想定キーは維持）
     ctx = dict(
-        # ヒーロー（ここはテンプレが読むキー）
-        total_assets=total_assets,                # 総資産（現物+信用+現金）
-        day_change=day_change,
+        # 総資産
+        total_assets=_safe_int(total_assets),
+        day_change=_safe_int(day_change),
         asset_history_csv=asset_history_csv,
 
-        # ヒーロー下のKPI（修正：現物/信用を分離して提供）
-        spot_value=spot_value,                    # 現物（現物+NISA）
-        margin_value=margin_value,                # 信用
-        portfolio_value=total_portfolio_value,    # 評価額合計（現物+信用）
-        cash_total=cash_total,
-        unrealized_pl=total_unrealized_pl,        # 含み損益合計（現物+信用）
-        spot_unrealized_pl=spot_upl,
-        margin_unrealized_pl=margin_upl,
+        # 主要 KPI（現物/信用を分離）
+        spot_value=_safe_int(spot_value),
+        margin_value=_safe_int(margin_value),
+        portfolio_value=_safe_int(total_portfolio_value),
+        cash_total=_safe_int(cash_total),
+        unrealized_pl=_safe_int(total_unrealized_pl),
+        spot_unrealized_pl=_safe_int(spot_pl),
+        margin_unrealized_pl=_safe_int(margin_pl),
 
         # ブローカータブ
         broker_tabs=BROKER_TABS,
         active_broker=active_broker,
-        broker_balances=broker_balances,
-        broker_stats=broker_stats,
-        top_positions_by_broker=top_positions_by_broker,
+        broker_balances={k: _safe_int(v) for k, v in broker_balances.items()},
+        broker_stats={
+            k: {
+                "holdings_count": broker_stats[k]["holdings_count"],
+                "market_value": _safe_int(broker_stats[k]["market_value"]),
+                "unrealized_pl": _safe_int(broker_stats[k]["unrealized_pl"]),
+            } for k in broker_stats
+        },
+        top_positions_by_broker={
+            k: [
+                {
+                    "ticker": r["ticker"],
+                    "name": r["name"],
+                    "shares": _safe_int(r["shares"]),
+                    "market_value": _safe_int(r["market_value"]),
+                } for r in v
+            ] for k, v in top_positions_by_broker.items()
+        },
         recent_by_broker=recent_by_broker,
 
         # 実現損益
-        realized_pl_mtd=realized_pl_mtd,
-        realized_pl_ytd=realized_pl_ytd,
-        realized_pl_total=realized_pl_total,
+        realized_pl_mtd=_safe_int(realized_pl_mtd),
+        realized_pl_ytd=_safe_int(realized_pl_ytd),
+        realized_pl_total=_safe_int(realized_pl_total),
 
         # アクティビティ
         recent_activities=recent_activities,
