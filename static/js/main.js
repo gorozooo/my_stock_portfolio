@@ -1,144 +1,191 @@
-/* static/js/main_home.js */
-/* =========================================================
-   Home Dashboard Interactions (Full)
-   - Broker Tabs (with persistence)
-   - Range Chips (query param update)
-   - Sparkline (responsive SVG)
-   - Ring Gauge (total vs target)
-   - Gauges (animated bars)
-   ========================================================= */
+(function(){
+  const $ = (sel, root=document)=>root.querySelector(sel);
+  const $$ = (sel, root=document)=>[...root.querySelectorAll(sel)];
 
-/* ---------------- Tabs (brokers) ---------------- */
-(function tabsModule() {
-  const TAB_KEY = 'home.activeBroker';
-  const tabs = document.querySelectorAll('.tabs .tab');
-  const panes = document.querySelectorAll('.panes .pane');
+  // ===== ユーティリティ =====
+  const fmtJPY = (v)=>"¥"+Math.round(v).toLocaleString("ja-JP");
+  const clamp = (v, a, b)=>Math.max(a, Math.min(b, v));
 
-  function activate(key) {
-    tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === key));
-    panes.forEach(p => p.classList.toggle('active', p.id === `pane-${key}`));
-    try { localStorage.setItem(TAB_KEY, key); } catch (_) {}
+  // ===== 数値アニメーション（低負荷） =====
+  function animateNumber(el, to, dur=700){
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if(reduce){ el.textContent = fmtJPY(to); return; }
+    const from = parseFloat(el.dataset.value||to) || 0;
+    const start = performance.now();
+    function tick(now){
+      const t = clamp((now - start) / dur, 0, 1);
+      const val = from + (to - from) * (1 - Math.pow(1 - t, 3));
+      el.textContent = fmtJPY(val);
+      if(t < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+    el.dataset.value = to;
   }
 
-  // 初期化（保存されたキーが有効なら採用）
-  let initial = null;
-  try { initial = localStorage.getItem(TAB_KEY); } catch (_) {}
-  if (initial) {
-    const has = Array.from(tabs).some(t => t.dataset.tab === initial);
-    if (has) activate(initial);
+  // ===== ミニスパークライン（SVG） =====
+  function renderSpark(el){
+    const raw = (el?.dataset.points||"").trim();
+    const vals = raw.split(",").map(Number).filter(v=>!Number.isNaN(v));
+    if(!el || vals.length < 2){ el.textContent = "データなし"; return; }
+    const w = el.clientWidth || 320, h = el.clientHeight || 68, pad = 6;
+    const min = Math.min(...vals), max = Math.max(...vals);
+    const x = i => pad + (w-pad*2) * (i/(vals.length-1));
+    const y = v => max===min ? h/2 : pad + (1-((v-min)/(max-min))) * (h-pad*2);
+    const pts = vals.map((v,i)=>`${x(i)},${y(v)}`).join(" ");
+    el.innerHTML = `
+      <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+        <defs>
+          <linearGradient id="g1" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="var(--primary)"/>
+            <stop offset="100%" stop-color="var(--accent)"/>
+          </linearGradient>
+          <filter id="glow"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        </defs>
+        <polyline points="${pts}" fill="none" stroke="url(#g1)" stroke-width="3" filter="url(#glow)"/>
+      </svg>`;
   }
 
-  document.addEventListener('click', (e) => {
-    const tab = e.target.closest('.tab');
-    if (!tab || !tab.dataset.tab) return;
-    activate(tab.dataset.tab);
-  });
-})();
+  // ===== 円リング（比率） =====
+  function renderRing(el){
+    const val = parseFloat(el.dataset.value||"0");
+    const total = Math.max(1, parseFloat(el.dataset.total||"1"));
+    const pct = clamp(val/total, 0, 1);
+    const size = el.clientHeight || 90;
+    const r = (size/2) - 8, c = Math.PI*2*r;
+    const dash = c * pct, gap = c - dash;
+    el.innerHTML = `
+      <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">
+        <circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="var(--line)" stroke-width="10" fill="none"/>
+        <circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="url(#gradRing)" stroke-linecap="round"
+                stroke-dasharray="${dash} ${gap}" stroke-width="10" fill="none"
+                transform="rotate(-90 ${size/2} ${size/2})"/>
+        <defs>
+          <linearGradient id="gradRing" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="var(--primary)"/>
+            <stop offset="100%" stop-color="var(--accent)"/>
+          </linearGradient>
+        </defs>
+        <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
+              fill="var(--fg)" style="font-weight:800;font-size:12px">${Math.round(pct*100)}%</text>
+      </svg>`;
+  }
 
-/* ---------------- Range chips (recent activities) ---------------- */
-(function rangeChips() {
-  document.addEventListener('click', (e) => {
-    const chip = e.target.closest('.chip');
-    if (!chip) return;
-    const range = chip.dataset.range;
-    const url = new URL(window.location.href);
-    if (range) url.searchParams.set('range', range);
-    window.location.href = url.toString();
-  });
-})();
+  // ===== 横スタックバー（現物/信用/現金） =====
+  function renderStackBars(el){
+    const spot = parseFloat(el.dataset.spot||"0");
+    const margin = parseFloat(el.dataset.margin||"0");
+    const cash = parseFloat(el.dataset.cash||"0");
+    const total = Math.max(1, spot + margin + cash);
+    const p = v => Math.max(2, (v/total)*100); // 最低2%は見せる
+    el.innerHTML = `
+      <span style="width:${p(spot)}%;background:var(--primary)"></span>
+      <span style="width:${p(margin)}%;background:#ff8a5b"></span>
+      <span style="width:${p(cash)}%;background:var(--accent)"></span>`;
+  }
 
-// ===== Sparkline (asset history) =====
-(function renderSpark() {
-  const el = document.getElementById('assetSpark');
-  if (!el) return;
-  const raw = (el.getAttribute('data-points') || '').trim();
-  if (!raw) { el.style.display = 'none'; return; }
+  // ===== リスクヒート（簡易スコア） =====
+  function renderRisk(el){
+    const cash = parseFloat($('#cashTotal')?.dataset.value||"0");
+    const total = parseFloat($('#totalAssets')?.dataset.value||"0");
+    const margin = parseFloat($('#marginMV')?.dataset.value||"0");
+    // 現金多 → 低リスク, 信用多 → 高リスクの超単純スコア
+    const cashPct = total ? cash/total : 0;
+    const marginPct = total ? margin/total : 0;
+    const score = clamp(50*(1-cashPct) + 50*(marginPct), 0, 100);
+    // 条件に応じてグラデの位置を動かす
+    el.style.background = `linear-gradient(90deg,
+      #26d07c66 ${clamp(100-score,0,100)}%, 
+      #ffd16666 ${clamp(100-score+10,0,100)}%, 
+      #ff4d6766 ${clamp(100-score+20,0,100)}%)`;
+  }
 
-  const vals = raw.split(',').map(s => parseFloat(s)).filter(v => !Number.isNaN(v));
-  if (vals.length < 2) { el.style.display = 'none'; return; }
+  // ===== ミニ予測（ダミー生成） =====
+  function renderPreview(listEl){
+    const ideas = [
+      {k:"現金比率", v: ()=> {
+        const c = parseFloat($('#cashTotal')?.dataset.value||"0");
+        const t = parseFloat($('#totalAssets')?.dataset.value||"0") || 1;
+        return Math.round(100*c/t) + "%";
+      }},
+      {k:"信用依存", v: ()=> {
+        const m = parseFloat($('#marginMV')?.dataset.value||"0");
+        const t = parseFloat($('#totalAssets')?.dataset.value||"0") || 1;
+        return Math.round(100*m/t) + "%";
+      }},
+      {k:"想定ボラ", v: ()=> {
+        const s = parseFloat($('#spotMV')?.dataset.value||"0");
+        const m = parseFloat($('#marginMV')?.dataset.value||"0");
+        const vol = Math.min(100, Math.round(10 + 0.000006*(s + 2*m)));
+        return vol + "/100";
+      }},
+    ];
+    listEl.innerHTML = ideas.map(i=>(
+      `<div class="mini-item"><span>${i.k}</span><strong>${i.v()}</strong></div>`
+    )).join("");
+  }
 
-  const w = el.clientWidth || 320;
-  const h = el.clientHeight || 84;
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  const pad = 6;
-
-  const scaleX = (i) => pad + (w - pad * 2) * (i / (vals.length - 1));
-  const scaleY = (v) => {
-    if (max === min) return h / 2;
-    const t = (v - min) / (max - min);
-    return pad + (1 - t) * (h - pad * 2);
-  };
-
-  const pts = vals.map((v, i) => `${scaleX(i)},${scaleY(v)}`).join(' ');
-  const area = ['0,' + h, pts, w + ',' + h].join(' ');
-  el.innerHTML = `
-    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-      <polyline points="${pts}" fill="none" stroke="rgba(96,165,250,1)" stroke-width="2" />
-      <polyline points="${pts}" fill="none" stroke="rgba(96,165,250,.35)" stroke-width="6" opacity=".35" />
-      <polyline points="${area}" fill="rgba(96,165,250,.18)" />
-    </svg>
-  `;
-})();
-
-// ===== Ring Gauge (total assets vs target) =====
-(function ringGauge() {
-  const svg = document.querySelector('.ring-svg');
-  if (!svg) return;
-  const r = 52, C = 2 * Math.PI * r;
-  const target = parseFloat(svg.dataset.target || '0');
-  const value  = parseFloat(svg.dataset.value  || '0');
-  const fg = svg.querySelector('.fg'); if (!fg) return;
-
-  let ratio = 0;
-  if (target > 0) ratio = Math.max(0, Math.min(1, value / target));
-  if (target <= 0) ratio = 0.6; // 目標未設定時の見栄え
-  const len = C * ratio;
-  fg.setAttribute('stroke-dasharray', `${len} ${C - len}`);
-  fg.setAttribute('stroke-dashoffset', '0');
-})();
-
-// ===== Bars (ratio against total assets) =====
-(function animateBars() {
-  document.querySelectorAll('.g-bar span[data-ratio]').forEach(span => {
-    const num = parseFloat(span.getAttribute('data-num') || '0');
-    const den = parseFloat(span.getAttribute('data-den') || '0');
-    let pct = 0;
-    if (den > 0 && num >= 0) pct = Math.max(0, Math.min(100, (num / den) * 100));
-    span.style.width = '0';
-    requestAnimationFrame(() => {
-      span.style.transition = 'width .9s cubic-bezier(.2,.8,.2,1)';
-      setTimeout(() => { span.style.width = pct + '%'; }, 10);
+  // ===== テーマ切替 =====
+  function setupThemeToggle(btn){
+    btn?.addEventListener('click', ()=>{
+      document.documentElement.classList.toggle('light');
     });
-  });
-})();
+  }
 
-// ===== Sparkline (asset history) =====
-(function renderSpark() {
-  const el = document.getElementById('assetSpark');
-  if (!el) return;
-  const raw = (el.getAttribute('data-points') || '').trim();
-  if (!raw) { el.style.display = 'none'; return; }
+  // ===== イベント =====
+  function setupReveal(btn, grid, deep){
+    btn?.addEventListener('click', ()=>{
+      const show = grid.hasAttribute('hidden');
+      if(show){ grid.removeAttribute('hidden'); deep.style.display='block'; btn.textContent='内訳を隠す'; }
+      else { grid.setAttribute('hidden',''); deep.style.display='none'; btn.textContent='内訳を展開'; }
+    });
+    $('#btnCollapse')?.addEventListener('click', ()=>{
+      grid.setAttribute('hidden',''); deep.style.display='none'; $('#btnReveal').textContent='内訳を展開';
+    });
+  }
 
-  const vals = raw.split(',').map(s => parseFloat(s)).filter(v => !Number.isNaN(v));
-  if (vals.length < 2) { el.style.display = 'none'; return; }
+  // ===== 初期化 =====
+  function init(){
+    // 数値アニメ
+    const totalEl = $('#totalAssets');
+    if(totalEl) animateNumber(totalEl, parseFloat(totalEl.dataset.value||"0"));
 
-  const w = el.clientWidth || 320;
-  const h = el.clientHeight || 84;
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  const pad = 6;
+    // スパーク
+    renderSpark($('#assetSpark'));
 
-  const sx = (i) => pad + (w - pad * 2) * (i / (vals.length - 1));
-  const sy = (v) => max === min ? h / 2 : pad + (1 - ((v - min) / (max - min))) * (h - pad * 2);
+    // リング＆ゲージ
+    [$('#ringSpot'), $('#ringMargin')].forEach(el=>el && renderRing(el));
+    renderStackBars($('#stackBars'));
+    renderRisk($('#riskHeat'));
+    renderPreview($('#miniPreview'));
 
-  const pts = vals.map((v, i) => `${sx(i)},${sy(v)}`).join(' ');
-  const area = ['0,' + h, pts, w + ',' + h].join(' ');
-  el.innerHTML = `
-    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-      <polyline points="${pts}" fill="none" stroke="rgba(96,165,250,1)" stroke-width="2" />
-      <polyline points="${pts}" fill="none" stroke="rgba(96,165,250,.35)" stroke-width="6" opacity=".35" />
-      <polyline points="${area}" fill="rgba(96,165,250,.18)" />
-    </svg>
-  `;
+    // スパークデッキ（2枚）
+    const deck = $('#sparkDeck');
+    if(deck){
+      const raw = (deck.dataset.points||'').trim();
+      deck.innerHTML = `
+        <div class="spark" data-points="${raw}"></div>
+        <div class="spark" data-points="${raw}"></div>`;
+      $$('.spark', deck).forEach(renderSpark);
+    }
+
+    setupReveal($('#btnReveal'), $('#kpiGrid'), $('#deep'));
+    setupThemeToggle($('#btnTheme'));
+
+    // PnL 着色
+    $$('.pnl').forEach(el=>{
+      const s = parseFloat(el.dataset.sign||"0");
+      if(s >= 0) el.classList.add('pos'); else el.classList.add('neg');
+    });
+
+    // リサイズで再描画（スパーク/リング）
+    let t; window.addEventListener('resize', ()=>{
+      clearTimeout(t);
+      t = setTimeout(()=>{
+        renderSpark($('#assetSpark'));
+        [$('#ringSpot'), $('#ringMargin')].forEach(el=>el && renderRing(el));
+      }, 100);
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
 })();
