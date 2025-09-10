@@ -210,26 +210,30 @@ def _recent_all(request, days: int | None):
 @login_required
 def main_page(request):
     """
-    ★ stock_list と同じ計算ロジックでメイン集計 ★
-      - 株価: _get_current_price_cached(ticker, fallback=unit_price)
-      - 評価額: 採用価格(= current>0 ? current : unit) × shares
-      - 含み損益: 買い→ (採用価格×株数) - total_cost / 売り→ (unit - 採用価格)×株数
-      - グループ:
-          現物 = account_type in {'現物','NISA'} and position != '売り'
-          信用 = account_type == '信用' or position == '売り'
-      - total_cost は shares * unit_price を使用（DB丸め差の影響排除）
-      - キャッシュ残高 = 入出金合計 − 現物/NISA取得額合計 + 実現損益累計
-      - 総資産 = 現物評価額 + 現物含み損益 + 信用含み損益 + キャッシュ残高
+    集計方針（あなたの要望に合わせて確定）:
+      1) 現物/信用の評価額・含み損益は stock_list と同じロジック
+         - 採用価格: current_price>0 ? current_price : unit_price
+         - 買い: UPL = (採用価格×株数) - total_cost
+         - 売り: UPL = (unit_price - 採用価格) × 株数
+         - 現物= account_type in {'現物','NISA'} かつ position!='売り'
+           信用= account_type=='信用' or position=='売り'
+      2) キャッシュ残高（cash_balance）
+         = 入出金合計（入金−出金）
+           − 現物/NISAの取得額合計
+           + 実現損益合計（RealizedProfit.profit_amount + Dividend.net_amount）
+      3) 総資産
+         = 現物評価額 + 現物UPL + 信用UPL + キャッシュ残高
+        （※ 実現損益は cash_balance に含めるため総資産では別加算しない）
     """
+    show_debug = (request.GET.get("debug") == "1")
+
+    # ---------- 1) 評価額/UPL ----------
     spot_mv = margin_mv = 0.0
     spot_upl = margin_upl = 0.0
-    spot_total_cost = 0.0  # 現物/NISAの取得額合計（shares*unit）
-
-    show_debug = (request.GET.get("debug") == "1")
-    debug_rows: list[dict] = []
 
     if Stock:
         qs = Stock.objects.all()
+        # userフィルタ（あれば）
         try:
             if "user" in {f.name for f in Stock._meta.get_fields()}:
                 qs = qs.filter(user=request.user)
@@ -240,21 +244,19 @@ def main_page(request):
             shares = _safe_int(getattr(s, "shares", 0))
             unit   = _safe_float(getattr(s, "unit_price", 0.0))
 
-            # 株価は stock_list と同じ関数で取得（失敗時は unit）
+            # 現在値（取得失敗時は unit を採用）
             try:
                 current = _get_current_price_cached(getattr(s, "ticker", ""), fallback=unit)
             except Exception:
                 current = unit
 
-            used_price   = current if _safe_float(current) > 0 else unit
-            price_source = "current" if _safe_float(current) > 0 else "unit"
-
+            used_price = current if _safe_float(current) > 0 else unit
             total_cost = float(shares) * float(unit)
+
             pos  = str(getattr(s, "position", "買い") or "")
             acct = str(getattr(s, "account_type", "現物") or "")
 
             mv = float(used_price) * float(shares)
-
             if pos == "売り":
                 upl = (float(unit) - float(used_price)) * float(shares)
             else:
@@ -262,36 +264,20 @@ def main_page(request):
 
             is_spot   = (acct in {"現物", "NISA"}) and (pos != "売り")
             is_margin = (acct == "信用") or (pos == "売り")
-            group = "margin" if (is_margin and not is_spot) else "spot"
-
-            if group == "spot":
+            if is_spot:
                 spot_mv  += mv
                 spot_upl += upl
-                spot_total_cost += total_cost  # ← 現物/NISAの取得額を加算
-            else:
+            elif is_margin:
                 margin_mv  += mv
                 margin_upl += upl
+            else:
+                # 不明なものは現物扱いに倒す
+                spot_mv  += mv
+                spot_upl += upl
 
-            if show_debug:
-                debug_rows.append({
-                    "id": getattr(s, "id", ""),
-                    "ticker": getattr(s, "ticker", ""),
-                    "name": getattr(s, "name", ""),
-                    "shares": shares,
-                    "unit_price": unit,
-                    "current_price": _safe_float(current),
-                    "used_price": _safe_float(used_price),
-                    "price_source": price_source,
-                    "total_cost": total_cost,
-                    "market_value": mv,
-                    "unrealized_pl": upl,
-                    "account_type": acct,
-                    "position": pos,
-                    "group": group,
-                })
-
-    # 入出金合計（純粋なキャッシュフロー）
-    pure_cash_total = 0
+    # ---------- 2) キャッシュ残高のための内訳 ----------
+    # 2-1) 入出金合計（入金−出金）
+    cash_io_total = 0
     if CashFlow:
         cf = CashFlow.objects.all()
         try:
@@ -299,11 +285,33 @@ def main_page(request):
                 cf = cf.filter(user=request.user)
         except Exception:
             pass
-        for row in cf.values("flow_type").annotate(total=Sum("amount")):
-            amt = _safe_int(row.get("total", 0))
-            pure_cash_total += amt if (row.get("flow_type") or "") == "in" else -amt
 
-    # 実現損益累計
+        agg = cf.values("flow_type").annotate(total=Sum("amount"))
+        for row in agg:
+            amt = _safe_int(row.get("total", 0))
+            if (row.get("flow_type") or "") == "in":
+                cash_io_total += amt
+            else:
+                cash_io_total -= amt
+
+    # 2-2) 現物/NISAの取得額合計（残株ベース）
+    spot_cost_total = 0.0
+    if Stock:
+        qs = Stock.objects.all()
+        try:
+            if "user" in {f.name for f in Stock._meta.get_fields()}:
+                qs = qs.filter(user=request.user)
+        except Exception:
+            pass
+        for s in qs:
+            pos  = str(getattr(s, "position", "買い") or "")
+            acct = str(getattr(s, "account_type", "現物") or "")
+            if (acct in {"現物", "NISA"}) and (pos != "売り"):
+                shares = _safe_int(getattr(s, "shares", 0))
+                unit   = _safe_float(getattr(s, "unit_price", 0.0))
+                spot_cost_total += float(shares) * float(unit)
+
+    # 2-3) 実現損益合計（売買 + 配当）
     realized_total = 0
     if RealizedProfit:
         rp = RealizedProfit.objects.all()
@@ -312,13 +320,30 @@ def main_page(request):
                 rp = rp.filter(user=request.user)
         except Exception:
             pass
-        realized_total = _safe_int(rp.aggregate(total=Sum("profit_amount")).get("total", 0))
+        val = rp.aggregate(s=Sum("profit_amount")).get("s")
+        realized_total += _safe_int(val or 0)
 
-    # キャッシュ残高 = 入出金合計 − 現物/NISA取得額合計 + 実現損益累計
-    cash_balance = pure_cash_total - spot_total_cost + realized_total
+    if Dividend:
+        dq = Dividend.objects.all()
+        try:
+            if "user" in {f.name for f in Dividend._meta.get_fields()}:
+                dq = dq.filter(user=request.user)
+        except Exception:
+            pass
+        # net_amount があればそれ、無ければ (gross - tax)
+        for d in dq:
+            net = getattr(d, "net_amount", None)
+            if net is not None:
+                realized_total += _safe_int(net)
+            else:
+                realized_total += _safe_int(getattr(d, "gross_amount", 0)) - _safe_int(getattr(d, "tax", 0))
 
-    # 総資産 = 現物評価額 + 現物含み損益 + 信用含み損益 + キャッシュ残高
-    total_assets = spot_mv + spot_upl + margin_upl + cash_balance
+    # 2-4) キャッシュ残高
+    cash_balance = float(cash_io_total) - float(spot_cost_total) + float(realized_total)
+
+    # ---------- 3) 総資産 ----------
+    total_assets = float(spot_mv) + float(spot_upl) + float(margin_upl) + float(cash_balance)
+    # （実現損益は cash_balance に含めているため、ここでは別加算しない）
 
     # スパークライン（簡易）
     try:
@@ -333,29 +358,34 @@ def main_page(request):
 
     # デバッグ注記
     debug_text = None
+    debug_rows = []
     if show_debug:
         debug_text = (
-            "※ 株価は stock_list と同じく _get_current_price_cached(ticker, fallback=unit) を使用。"
-            " 評価額=採用価格×株数、含み損益（買）=評価額-取得額、（売）=(取得単価-採用価格)×株数。"
-            " 現物=現物/NISAかつ買い、信用=信用 or 売り。"
-            " キャッシュ残高=入出金合計−現物/NISA取得額合計+実現損益累計。"
-            " 総資産=現物評価額+現物UPL+信用UPL+キャッシュ残高。"
+            "cash_balance = (入出金合計) - (現物/NISAの取得額合計) + (実現損益合計[売買+配当])\n"
+            f"  入出金合計(cash_io_total) = {cash_io_total}\n"
+            f"  現物取得額合計(spot_cost_total) = {int(round(spot_cost_total))}\n"
+            f"  実現損益合計(realized_total) = {realized_total}\n"
+            f"⇒ cash_balance = {int(round(cash_balance))}"
         )
 
     ctx = dict(
+        # 総資産系
         total_assets=total_assets,
         asset_history_csv=asset_history_csv,
 
-        # 表示用
+        # 評価額/UPL
         spot_market_value=spot_mv,
         margin_market_value=margin_mv,
         spot_unrealized_pl=spot_upl,
         margin_unrealized_pl=margin_upl,
         unrealized_pl_total=spot_upl + margin_upl,
-        cash_balance=cash_balance,          # ← テンプレ側はこれを表示
-        pure_cash_total=pure_cash_total,    # （必要ならデバッグ/確認用に渡す）
-        realized_total=realized_total,      # （同上）
-        spot_total_cost=spot_total_cost,    # （同上）
+
+        # 現金（キャッシュ残高）
+        cash_balance=cash_balance,     # ← テンプレはこれを表示
+        # 参考値（必要ならテンプレで表示）
+        cash_io_total=cash_io_total,
+        spot_cost_total=spot_cost_total,
+        realized_total=realized_total,
 
         # デバッグ
         debug=show_debug,
@@ -366,7 +396,6 @@ def main_page(request):
         recent_activities=recent_activities,
     )
     return render(request, "main.html", ctx)
-
 
 # -----------------------------
 # 認証（関数本体は変更なし）
