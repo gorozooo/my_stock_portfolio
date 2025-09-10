@@ -21,6 +21,17 @@
   .list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
   .item{display:grid;grid-template-columns:70px 1fr auto;gap:8px;align-items:center;border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:8px;background:rgba(255,255,255,.06)}
   .date{opacity:.8;font-size:12px}
+
+  /* Debug table */
+  .debug-section{margin-top:20px}
+  .debug-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:8px 0}
+  .debug-wrap{overflow:auto;border:1px solid rgba(255,255,255,.2);border-radius:10px}
+  table.debug{width:100%;min-width:1080px;border-collapse:separate;border-spacing:0;background:rgba(255,255,255,.04)}
+  table.debug th,table.debug td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.12);font-size:13px;vertical-align:middle;white-space:nowrap}
+  table.debug thead th{position:sticky;top:0;background:rgba(255,255,255,.08);backdrop-filter:blur(6px)}
+  table.debug tr:last-child td{border-bottom:none}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  .ok{color:#22c55e}.ng{color:#ef4444}
 </style>
 
 <div class="wrap">
@@ -44,8 +55,8 @@
       {% with p=spot_unrealized_pl|default_if_none:0 %}
         <div class="muted">
           含み損益
-          <span class="{% if p|floatformat:2 >= 0 %}pos{% else %}neg{% endif %}">
-            {% if p|floatformat:2 >= 0 %}+{% endif %}¥{{ p|floatformat:0|intcomma }}
+          <span class="{% if p >= 0 %}pos{% else %}neg{% endif %}">
+            {% if p >= 0 %}+{% endif %}¥{{ p|floatformat:0|intcomma }}
           </span>
         </div>
       {% endwith %}
@@ -59,8 +70,8 @@
       {% with p=margin_unrealized_pl|default_if_none:0 %}
         <div class="muted">
           含み損益
-          <span class="{% if p|floatformat:2 >= 0 %}pos{% else %}neg{% endif %}">
-            {% if p|floatformat:2 >= 0 %}+{% endif %}¥{{ p|floatformat:0|intcomma }}
+          <span class="{% if p >= 0 %}pos{% else %}neg{% endif %}">
+            {% if p >= 0 %}+{% endif %}¥{{ p|floatformat:0|intcomma }}
           </span>
         </div>
       {% endwith %}
@@ -74,8 +85,8 @@
     <div class="tile">
       <h3>含み損益（合計）</h3>
       {% with p=unrealized_pl_total|default_if_none:0 %}
-        <div class="amt {% if p|floatformat:2 >= 0 %}pos{% else %}neg{% endif %}">
-          {% if p|floatformat:2 >= 0 %}+{% endif %}¥{{ p|floatformat:0|intcomma }}
+        <div class="amt {% if p >= 0 %}pos{% else %}neg{% endif %}">
+          {% if p >= 0 %}+{% endif %}¥{{ p|floatformat:0|intcomma }}
         </div>
       {% endwith %}
     </div>
@@ -93,8 +104,8 @@
             {% if a.kind == 'trade' %}
               <span>{{ a.ticker }} {{ a.name }}</span>
               {% with v=a.pnl|default_if_none:0 %}
-                <span class="{% if v|floatformat:2 >= 0 %}pos{% else %}neg{% endif %}">
-                  {% if v|floatformat:2 >= 0 %}+{% endif %}¥{{ v|floatformat:0|intcomma }}
+                <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">
+                  {% if v >= 0 %}+{% endif %}¥{{ v|floatformat:0|intcomma }}
                 </span>
               {% endwith %}
 
@@ -120,6 +131,71 @@
       <div class="muted">まだデータがありません</div>
     {% endif %}
   </section>
+
+  {# ====== Debug（holdings_debug があるときだけ表示） ====== #}
+  {% if holdings_debug %}
+  <section class="debug-section">
+    <div class="debug-head">
+      <h3 class="muted" style="margin:0">Holdings Debug</h3>
+      {% if debug_totals %}
+        <div class="muted" style="font-size:13px">
+          現物MV: {{ debug_totals.spot_mv|default_if_none:0|floatformat:0|intcomma }}
+          ／ 信用MV: {{ debug_totals.margin_mv|default_if_none:0|floatformat:0|intcomma }}
+          ／ 現物UPL: {{ debug_totals.spot_upl|default_if_none:0|intcomma }}
+          ／ 信用UPL: {{ debug_totals.margin_upl|default_if_none:0|intcomma }}
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="debug-wrap">
+      <table class="debug">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>コード</th>
+            <th>銘柄</th>
+            <th class="num">株数</th>
+            <th class="num">取得単価</th>
+            <th class="num">現在値</th>
+            <th class="num">計算で使った価格</th>
+            <th class="num">取得額(total_cost)</th>
+            <th class="num">評価額</th>
+            <th class="num">含み損益</th>
+            <th>口座</th>
+            <th>ポジ</th>
+            <th>グループ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in holdings_debug %}
+          <tr>
+            <td>{{ r.id }}</td>
+            <td>{{ r.ticker }}</td>
+            <td>{{ r.name }}</td>
+            <td class="num">{{ r.shares|default_if_none:0|floatformat:0|intcomma }}</td>
+            <td class="num">{{ r.unit_price|default_if_none:0|floatformat:2|intcomma }}</td>
+            <td class="num">{{ r.current_price|default_if_none:0|floatformat:2|intcomma }}</td>
+            <td class="num">{{ r.price_used|default_if_none:0|floatformat:2|intcomma }}</td>
+            <td class="num">{{ r.total_cost|default_if_none:0|floatformat:0|intcomma }}</td>
+            <td class="num">{{ r.mv_calc|default_if_none:0|floatformat:0|intcomma }}</td>
+            <td class="num {% if r.upl_calc >= 0 %}ok{% else %}ng{% endif %}">
+              {% if r.upl_calc >= 0 %}+{% endif %}{{ r.upl_calc|default_if_none:0|floatformat:0|intcomma }}
+            </td>
+            <td>{{ r.account_type }}</td>
+            <td>{{ r.position }}</td>
+            <td>{{ r.group }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <p class="muted" style="margin-top:8px;font-size:12px">
+      ※「計算で使った価格」は <strong>現在値が0なら取得単価</strong> を使用しています。<br>
+      ※ 含み損益は「買い: 評価額 − 取得額」「売り: (取得単価 − 価格) × 株数」です。
+    </p>
+  </section>
+  {% endif %}
 
 </div>
 
