@@ -22,17 +22,22 @@
   .item{display:grid;grid-template-columns:70px 1fr auto;gap:8px;align-items:center;border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:8px;background:rgba(255,255,255,.06)}
   .date{opacity:.8;font-size:12px}
 
-  /* debug */
-  .debug-wrap{margin-top:24px}
-  .debug-title{font-weight:900;margin:0 0 8px}
-  .debug-pre{white-space:pre-wrap;border:1px dashed rgba(255,255,255,.35);padding:8px;border-radius:10px;background:rgba(255,255,255,.04)}
-  .debug-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px}
-  .debug-table th,.debug-table td{border:1px solid rgba(255,255,255,.25);padding:6px 8px}
-  .debug-table th{background:rgba(255,255,255,.08)}
-  .nowrap{white-space:nowrap}
+  /* デバッグテーブル */
+  .dbg{margin-top:18px}
+  .dbg h3{margin:0 0 8px}
+  .dbg small{opacity:.7}
+  .dbg-table{width:100%;border-collapse:collapse;margin-top:8px}
+  .dbg-table th,.dbg-table td{border:1px solid rgba(255,255,255,.25);padding:6px 8px;font-size:12px;vertical-align:top}
+  .dbg-table th{background:rgba(255,255,255,.08);position:sticky;top:0}
+  .tag{display:inline-block;padding:2px 6px;border-radius:8px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.06);font-size:11px}
 </style>
 
 <div class="wrap">
+
+  <!-- DEBUG 印 -->
+  {% if debug %}
+    <div class="tag">DEBUG v3</div>
+  {% endif %}
 
   <!-- 総資産（中央表示） -->
   <section class="hero">
@@ -90,8 +95,60 @@
     </div>
   </section>
 
-  <!-- 最近のアクティビティ（10件まで表示想定） -->
-  <section>
+  <!-- デバッグ出力（/?debug=1 で表示） -->
+  {% if debug %}
+    <section class="dbg">
+      <h3>Holdings Debug</h3>
+      <div class="muted" style="margin:6px 0">
+        現物MV: {{ spot_market_value|floatformat:0|intcomma }}
+        / 信用MV: {{ margin_market_value|floatformat:0|intcomma }}
+        / 現物UPL: {{ spot_unrealized_pl|floatformat:0|intcomma }}
+        / 信用UPL: {{ margin_unrealized_pl|floatformat:0|intcomma }}
+      </div>
+      {% if debug_text %}
+        <div class="muted" style="margin:6px 0;white-space:pre-line">{{ debug_text }}</div>
+      {% endif %}
+
+      <table class="dbg-table">
+        <thead>
+          <tr>
+            <th>ID</th><th>コード</th><th>銘柄</th>
+            <th>株数</th><th>取得単価</th><th>現在値</th><th>採用価格</th><th>source</th>
+            <th>取得額(total_cost)</th><th>評価額</th><th>含み損益</th>
+            <th>口座</th><th>ポジ</th><th>グループ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in debug_rows %}
+            <tr>
+              <td>{{ r.id }}</td>
+              <td>{{ r.ticker }}</td>
+              <td>{{ r.name }}</td>
+              <td class="ar">{{ r.shares|floatformat:0|intcomma }}</td>
+              <td class="ar">{{ r.unit_price|floatformat:2|intcomma }}</td>
+              <td class="ar">{{ r.current_price|floatformat:2|intcomma }}</td>
+              <td class="ar">{{ r.price_used|floatformat:2|intcomma }}</td>
+              <td><span class="tag">{{ r.price_source }}</span></td>
+              <td class="ar">{{ r.total_cost|floatformat:0|intcomma }}</td>
+              <td class="ar">{{ r.market_value|floatformat:0|intcomma }}</td>
+              <td class="ar">{% if r.unrealized_pl >= 0 %}+{% endif %}{{ r.unrealized_pl|floatformat:0|intcomma }}</td>
+              <td>{{ r.account_type }}</td>
+              <td>{{ r.position }}</td>
+              <td>{{ r.group }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <small class="muted">
+        ※ いまは <strong>market_value / profit_loss は一切参照せず</strong>、保存済みの
+        <strong>current_price（&gt;0）を優先</strong>、0/未設定なら<strong>unit_price</strong>で再計算しています。
+      </small>
+    </section>
+  {% endif %}
+
+  <!-- 最近のアクティビティ（10件まで） -->
+  <section style="margin-top:16px">
     <h3 class="muted" style="margin:8px 0">最近のアクティビティ</h3>
     {% if recent_activities %}
       <ul class="list">
@@ -129,56 +186,6 @@
       <div class="muted">まだデータがありません</div>
     {% endif %}
   </section>
-
-  {% if debug %}
-  <!-- ─────────── デバッグ出力 ─────────── -->
-  <section class="debug-wrap">
-    <h3 class="debug-title">Holdings Debug</h3>
-    {% if debug_text %}<pre class="debug-pre">{{ debug_text }}</pre>{% endif %}
-
-    <div style="overflow:auto">
-      <table class="debug-table">
-        <thead>
-          <tr>
-            <th>ID</th><th>コード</th><th>銘柄</th><th class="nowrap">株数</th>
-            <th class="nowrap">取得単価</th><th class="nowrap">現在値</th>
-            <th class="nowrap">計算で使った価格</th>
-            <th class="nowrap">取得額(total_cost)</th>
-            <th class="nowrap">評価額</th>
-            <th class="nowrap">含み損益</th>
-            <th>口座</th><th>ポジ</th><th>グループ</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in debug_rows %}
-          <tr>
-            <td>{{ r.id }}</td>
-            <td>{{ r.ticker }}</td>
-            <td>{{ r.name }}</td>
-            <td class="nowrap">{{ r.shares|floatformat:0|intcomma }}</td>
-            <td class="nowrap">{{ r.unit_price|floatformat:2|intcomma }}</td>
-            <td class="nowrap">{{ r.current_price|floatformat:2|intcomma }}</td>
-            <td class="nowrap">{{ r.price_used|floatformat:2|intcomma }}</td>
-            <td class="nowrap">{{ r.total_cost|floatformat:0|intcomma }}</td>
-            <td class="nowrap">{{ r.market_value|floatformat:0|intcomma }}</td>
-            <td class="nowrap">
-              {% if r.unrealized_pl >= 0 %}+{% endif %}{{ r.unrealized_pl|floatformat:0|intcomma }}
-            </td>
-            <td>{{ r.account_type }}</td>
-            <td>{{ r.position }}</td>
-            <td>{{ r.group }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    <p class="muted" style="margin-top:8px">
-      ※ 評価額/損益は <strong>market_value / profit_loss（保存済み）</strong> を優先使用。<br>
-      未設定や 0 の場合のみ「現値(なければ取得単価) × 株数」で補完しています。
-    </p>
-  </section>
-  {% endif %}
 
 </div>
 

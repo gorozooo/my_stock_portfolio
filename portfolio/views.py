@@ -78,7 +78,6 @@ def bottom_tabs_context(request):
 # -----------------------------
 # メイン画面（※関数本体は変更なし）
 # -----------------------------
-from collections import defaultdict
 from datetime import timedelta
 from django.db.models import Sum
 from django.utils import timezone
@@ -102,7 +101,6 @@ try:
 except Exception:
     CashFlow = None  # type: ignore
 
-# 既存で使っている安全変換
 def _safe_float(x, default=0.0):
     try:
         f = float(x)
@@ -119,7 +117,6 @@ def _safe_int(x, default=0):
         except Exception:
             return default
 
-# 既存のままでOK（slice前にfilter）
 def _recent_all(request, days: int | None):
     rows = []
     today = timezone.localdate()
@@ -184,19 +181,8 @@ def _recent_all(request, days: int | None):
     rows.sort(key=lambda r: (r.get("date") or today, r.get("kind") or ""), reverse=True)
     return rows[:100]
 
-# ===== ここから置き換え =====
 @login_required
 def main_page(request):
-    """
-    【強制再計算モード（既定）】
-    - market_value / profit_loss は一切参照しない
-    - price_used = (current_price>0 ? current_price : unit_price)
-    - 買い : mv = price_used*shares, upl = mv - total_cost
-    - 売り : upl = (unit_price - price_used) * shares
-    - グループ:
-        現物 = account_type in {'現物','NISA'} かつ position!='売り'
-        信用 = account_type=='信用' または position=='売り'
-    """
     spot_mv = margin_mv = 0.0
     spot_upl = margin_upl = 0.0
 
@@ -212,7 +198,7 @@ def main_page(request):
             pos    = str(getattr(s, "position", "買い"))
             acct   = str(getattr(s, "account_type", "現物"))
 
-            # 価格は保存値だけで決める（yf等は使わない）
+            # 価格は保存値だけで決める：current>0 を優先、0/未設定なら unit
             if curr > 0:
                 price_used = curr
                 price_source = "current"
@@ -228,20 +214,14 @@ def main_page(request):
 
             is_spot   = (acct in {"現物", "NISA"}) and (pos != "売り")
             is_margin = (acct == "信用") or (pos == "売り")
+            group = "margin" if is_margin and not is_spot else "spot"
 
-            group = "spot"
-            if is_spot:
+            if group == "spot":
                 spot_mv  += mv
                 spot_upl += upl
-                group = "spot"
-            elif is_margin:
+            else:
                 margin_mv  += mv
                 margin_upl += upl
-                group = "margin"
-            else:
-                # 万一未知の口座種別は現物に倒す
-                spot_mv  += mv
-                spot_upl += upl
 
             if show_debug:
                 debug_rows.append({
@@ -252,7 +232,7 @@ def main_page(request):
                     "unit_price": unit,
                     "current_price": curr,
                     "price_used": price_used,
-                    "price_source": price_source,  # current/unit
+                    "price_source": price_source,
                     "total_cost": total_cost,
                     "market_value": mv,
                     "unrealized_pl": upl,
@@ -261,7 +241,7 @@ def main_page(request):
                     "group": group,
                 })
 
-    # 現金合計
+    # 現金
     cash_total = 0
     if CashFlow:
         sums = CashFlow.objects.values("flow_type").annotate(total=Sum("amount"))
@@ -271,13 +251,13 @@ def main_page(request):
 
     total_assets = spot_mv + margin_mv + cash_total
 
-    # スパークライン（仮：フラット）
+    # スパークライン
     try:
         asset_history_csv = ",".join([str(int(round(total_assets)))] * 30)
     except Exception:
         asset_history_csv = ""
 
-    # 最近のアクティビティ
+    # 最近
     rng = (request.GET.get("range") or "7").lower()
     days = {"7": 7, "30": 30, "90": 90}.get(rng)
     recent_activities = _recent_all(request, days)
@@ -285,35 +265,25 @@ def main_page(request):
     debug_text = None
     if show_debug:
         debug_text = (
-            f"Holdings Debug\n"
-            f"現物MV: {spot_mv:,.0f} / 信用MV: {margin_mv:,.0f} / "
-            f"現物UPL: {spot_upl:,.0f} / 信用UPL: {margin_upl:,.0f}\n"
-            f"※ market_value / profit_loss は無視。保存された current_price が 0/未設定のときは unit_price を使用。"
+            "※ いまは market_value / profit_loss は一切参照せず、\n"
+            "   保存されている current_price (>0) を優先、0/未設定は unit_price で再計算しています。"
         )
 
     ctx = dict(
         total_assets=total_assets,
         asset_history_csv=asset_history_csv,
-
-        # 表示用
         spot_market_value=spot_mv,
         margin_market_value=margin_mv,
         spot_unrealized_pl=spot_upl,
         margin_unrealized_pl=margin_upl,
         unrealized_pl_total=spot_upl + margin_upl,
         cash_total=cash_total,
-
-        # デバッグ
         debug=show_debug,
         debug_text=debug_text,
         debug_rows=debug_rows,
-
         recent_activities=recent_activities,
     )
     return render(request, "main.html", ctx)
-# ===== ここまで置き換え =====
-
-
 
 
 # -----------------------------
