@@ -5,14 +5,15 @@
 
 {% block content %}
 <style>
-  /* 最小&モバイル優先の軽量スタイル */
+  /* 最小＆モバイル優先、読みやすさ重視 */
   .wrap{max-width:980px;margin:0 auto;padding:16px}
   .hero{display:flex;flex-direction:column;align-items:center;gap:8px;margin-bottom:16px}
+  .hero .label{opacity:.75;font-size:13px}
   .hero .total{font-weight:900;font-size:28px}
-  .row{display:grid;grid-template-columns:1fr;gap:10px;margin:12px 0}
+  .row{display:grid;grid-template-columns:1fr;gap:12px;margin:12px 0}
   @media(min-width:560px){.row{grid-template-columns:1fr 1fr}}
   .tile{padding:12px;border:1px solid rgba(255,255,255,.2);border-radius:12px;background:rgba(255,255,255,.06)}
-  .tile h3{margin:0 0 8px;font-size:14px;opacity:.8}
+  .tile h3{margin:0 0 8px;font-size:14px;opacity:.85}
   .amt{font-weight:800}
   .pos{color:#22c55e}.neg{color:#ef4444}
   .muted{opacity:.8}
@@ -26,8 +27,10 @@
 
   <!-- 総資産（中央表示） -->
   <section class="hero">
-    <div class="label muted">総資産</div>
-    <div class="total">¥{{ total_assets|floatformat:0|intcomma }}</div>
+    <div class="label">総資産</div>
+    <div class="total">
+      ¥{{ total_assets|default_if_none:0|floatformat:0|intcomma }}
+    </div>
     <div class="spark" id="assetSpark" data-points="{{ asset_history_csv|default_if_none:'' }}"></div>
   </section>
 
@@ -35,37 +38,50 @@
   <section class="row">
     <div class="tile">
       <h3>現物（現物 + NISA）</h3>
-      <div class="amt">評価額 ¥{{ spot_market_value|floatformat:0|intcomma }}</div>
+      <div class="amt">
+        評価額 ¥{{ spot_market_value|default_if_none:0|floatformat:0|intcomma }}
+      </div>
       {% with p=spot_unrealized_pl|default_if_none:0 %}
-        <div class="muted">含み損益 <span class="{% if p >= 0 %}pos{% else %}neg{% endif %}">
-          {% if p >= 0 %}+{% endif %}¥{{ p|floatformat:0|intcomma }}</span></div>
+        <div class="muted">
+          含み損益
+          <span class="{% if p|floatformat:2 >= 0 %}pos{% else %}neg{% endif %}">
+            {% if p|floatformat:2 >= 0 %}+{% endif %}¥{{ p|floatformat:0|intcomma }}
+          </span>
+        </div>
       {% endwith %}
     </div>
 
     <div class="tile">
       <h3>信用</h3>
-      <div class="amt">評価額 ¥{{ margin_market_value|floatformat:0|intcomma }}</div>
+      <div class="amt">
+        評価額 ¥{{ margin_market_value|default_if_none:0|floatformat:0|intcomma }}
+      </div>
       {% with p=margin_unrealized_pl|default_if_none:0 %}
-        <div class="muted">含み損益 <span class="{% if p >= 0 %}pos{% else %}neg{% endif %}">
-          {% if p >= 0 %}+{% endif %}¥{{ p|floatformat:0|intcomma }}</span></div>
+        <div class="muted">
+          含み損益
+          <span class="{% if p|floatformat:2 >= 0 %}pos{% else %}neg{% endif %}">
+            {% if p|floatformat:2 >= 0 %}+{% endif %}¥{{ p|floatformat:0|intcomma }}
+          </span>
+        </div>
       {% endwith %}
     </div>
 
     <div class="tile">
       <h3>現金合計</h3>
-      <div class="amt">¥{{ cash_total|floatformat:0|intcomma }}</div>
+      <div class="amt">¥{{ cash_total|default_if_none:0|floatformat:0|intcomma }}</div>
     </div>
 
     <div class="tile">
       <h3>含み損益（合計）</h3>
       {% with p=unrealized_pl_total|default_if_none:0 %}
-        <div class="amt {% if p >= 0 %}pos{% else %}neg{% endif %}">
-          {% if p >= 0 %}+{% endif %}¥{{ p|floatformat:0|intcomma }}</div>
+        <div class="amt {% if p|floatformat:2 >= 0 %}pos{% else %}neg{% endif %}">
+          {% if p|floatformat:2 >= 0 %}+{% endif %}¥{{ p|floatformat:0|intcomma }}
+        </div>
       {% endwith %}
     </div>
   </section>
 
-  <!-- 最近のアクティビティ（10件） -->
+  <!-- 最近のアクティビティ（10件まで表示想定） -->
   <section>
     <h3 class="muted" style="margin:8px 0">最近のアクティビティ</h3>
     {% if recent_activities %}
@@ -73,16 +89,27 @@
         {% for a in recent_activities %}
           <li class="item">
             <span class="date">{{ a.date|date:"n/j" }}</span>
+
             {% if a.kind == 'trade' %}
               <span>{{ a.ticker }} {{ a.name }}</span>
               {% with v=a.pnl|default_if_none:0 %}
-                <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">
-                  {% if v >= 0 %}+{% endif %}¥{{ v|floatformat:0|intcomma }}
+                <span class="{% if v|floatformat:2 >= 0 %}pos{% else %}neg{% endif %}">
+                  {% if v|floatformat:2 >= 0 %}+{% endif %}¥{{ v|floatformat:0|intcomma }}
                 </span>
               {% endwith %}
+
             {% elif a.kind == 'dividend' %}
               <span>配当 {{ a.ticker }} {{ a.name }}</span>
               <span class="pos">+¥{{ a.net|default_if_none:0|intcomma }}</span>
+
+            {% elif a.kind == 'cash' %}
+              {% with amt=a.amount|default_if_none:0 %}
+                <span>現金 {{ a.broker_label }}</span>
+                <span class="{% if a.flow == 'in' %}pos{% else %}neg{% endif %}">
+                  {% if a.flow == 'in' %}+{% else %}-{% endif %}¥{{ amt|intcomma }}
+                </span>
+              {% endwith %}
+
             {% else %}
               <span>—</span><span></span>
             {% endif %}
@@ -96,8 +123,8 @@
 
 </div>
 
-<!-- とりあえずインラインJS（静的ファイル化は後でOK） -->
 <script>
+/* シンプルなスパークライン描画（値が無ければメッセージ） */
 (function renderSpark(){
   const el = document.getElementById('assetSpark');
   if(!el) return;
