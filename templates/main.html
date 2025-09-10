@@ -1,595 +1,119 @@
 {% extends "base.html" %}
-{% load static humanize %}
+{% load humanize %}
 
-{% block title %}ホーム{% endblock %}
-
-{% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/main.css' %}">
-<link rel="stylesheet" href="{% static 'css/tiles.css' %}">
-{% endblock %}
+{% block title %}ホーム（ミニ）{% endblock %}
 
 {% block content %}
-<div class="home-page">
+<style>
+  /* 最小&モバイル優先の軽量スタイル */
+  .wrap{max-width:980px;margin:0 auto;padding:16px}
+  .hero{display:flex;flex-direction:column;align-items:center;gap:8px;margin-bottom:16px}
+  .hero .total{font-weight:900;font-size:28px}
+  .row{display:grid;grid-template-columns:1fr;gap:10px;margin:12px 0}
+  @media(min-width:560px){.row{grid-template-columns:1fr 1fr}}
+  .tile{padding:12px;border:1px solid rgba(255,255,255,.2);border-radius:12px;background:rgba(255,255,255,.06)}
+  .tile h3{margin:0 0 8px;font-size:14px;opacity:.8}
+  .amt{font-weight:800}
+  .pos{color:#22c55e}.neg{color:#ef4444}
+  .muted{opacity:.8}
+  .spark{height:64px;border:1px solid rgba(255,255,255,.2);border-radius:10px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-top:8px}
+  .list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+  .item{display:grid;grid-template-columns:70px 1fr auto;gap:8px;align-items:center;border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:8px;background:rgba(255,255,255,.06)}
+  .date{opacity:.8;font-size:12px}
+</style>
 
-  {% if messages %}
-    <ul class="msgs">
-      {% for m in messages %}
-        <li class="msg {{ m.tags }}">{{ m }}</li>
-      {% endfor %}
-    </ul>
-  {% endif %}
+<div class="wrap">
 
-  <!-- ===== HERO (タイルUI) ===== -->
-  <section class="hero-block">
-    <div class="hero-head">
-      <h1 class="hero-title">総資産</h1>
+  <!-- 総資産（中央表示） -->
+  <section class="hero">
+    <div class="label muted">総資産</div>
+    <div class="total">¥{{ total_assets|floatformat:0|intcomma }}</div>
+    <div class="spark" id="assetSpark" data-points="{{ asset_history_csv|default_if_none:'' }}"></div>
+  </section>
+
+  <!-- 評価額 / 含み損益 / 現金 -->
+  <section class="row">
+    <div class="tile">
+      <h3>現物（現物 + NISA）</h3>
+      <div class="amt">評価額 ¥{{ spot_market_value|floatformat:0|intcomma }}</div>
+      {% with p=spot_unrealized_pl|default_if_none:0 %}
+        <div class="muted">含み損益 <span class="{% if p >= 0 %}pos{% else %}neg{% endif %}">
+          {% if p >= 0 %}+{% endif %}¥{{ p|floatformat:0|intcomma }}</span></div>
+      {% endwith %}
     </div>
 
-    <div class="hero-grid">
-      <!-- 左：リング（目標 vs 現在） -->
-      <div class="ring">
-        <svg class="ring-svg"
-             data-target="{{ target_assets|default_if_none:0 }}"
-             data-value="{{ total_assets|default_if_none:0 }}"
-             viewBox="0 0 120 120" aria-hidden="true">
-          <circle class="bg" cx="60" cy="60" r="52"></circle>
-          <circle class="fg" cx="60" cy="60" r="52" stroke-dasharray="0 999" stroke-dashoffset="0"></circle>
-        </svg>
-        <div class="ring-center">
-          <div class="ring-title">Total Assets</div>
-          <div class="ring-figure">
-            ¥{{ total_assets|default_if_none:0|floatformat:0|intcomma }}
-          </div>
-          {% with dc=day_change|default_if_none:0 %}
-          <div class="ring-sub pn {% if dc >= 0 %}pos{% else %}neg{% endif %}">
-            前日比 {% if dc >= 0 %}+{% endif %}¥{{ dc|floatformat:0|intcomma }}
-          </div>
-          {% endwith %}
-        </div>
-      </div>
+    <div class="tile">
+      <h3>信用</h3>
+      <div class="amt">評価額 ¥{{ margin_market_value|floatformat:0|intcomma }}</div>
+      {% with p=margin_unrealized_pl|default_if_none:0 %}
+        <div class="muted">含み損益 <span class="{% if p >= 0 %}pos{% else %}neg{% endif %}">
+          {% if p >= 0 %}+{% endif %}¥{{ p|floatformat:0|intcomma }}</span></div>
+      {% endwith %}
+    </div>
 
-      <!-- 右：評価額タイル＋スパークライン -->
-      <div class="hero-right">
+    <div class="tile">
+      <h3>現金合計</h3>
+      <div class="amt">¥{{ cash_total|floatformat:0|intcomma }}</div>
+    </div>
 
-        <!-- タイル：現物評価額（現物＋NISA） -->
-        <div class="tile">
-          <div class="tile-head">
-            <span class="tile-k">現物評価額（現物＋NISA）</span>
-            <span class="tile-v">
-              ¥{{ spot_market_value|default_if_none:0|floatformat:0|intcomma }}
-            </span>
-          </div>
-          <div class="tile-sub">
-            {% with u=spot_unrealized_pl|default_if_none:0 %}
-              <span class="pn {% if u >= 0 %}pos{% else %}neg{% endif %}">
-                {% if u >= 0 %}+{% endif %}¥{{ u|floatformat:0|intcomma }}
-              </span>
-              <span class="muted">（含み損益）</span>
-            {% endwith %}
-          </div>
-          <div class="g-bar">
-            <span data-ratio data-num="{{ spot_market_value|default_if_none:0 }}"
-                  data-den="{{ total_assets|default_if_none:0 }}"></span>
-          </div>
-        </div>
-
-        <!-- タイル：信用評価額（信用のみ） -->
-        <div class="tile">
-          <div class="tile-head">
-            <span class="tile-k">信用評価額（信用）</span>
-            <span class="tile-v">
-              ¥{{ margin_market_value|default_if_none:0|floatformat:0|intcomma }}
-            </span>
-          </div>
-          <div class="tile-sub">
-            {% with u=margin_unrealized_pl|default_if_none:0 %}
-              <span class="pn {% if u >= 0 %}pos{% else %}neg{% endif %}">
-                {% if u >= 0 %}+{% endif %}¥{{ u|floatformat:0|intcomma }}
-              </span>
-              <span class="muted">（含み損益）</span>
-            {% endwith %}
-          </div>
-          <div class="g-bar">
-            <span data-ratio data-num="{{ margin_market_value|default_if_none:0 }}"
-                  data-den="{{ total_assets|default_if_none:0 }}"></span>
-          </div>
-        </div>
-
-        <!-- タイル：現金 -->
-        <div class="tile">
-          <div class="tile-head">
-            <span class="tile-k">現金残高</span>
-            <span class="tile-v">
-              ¥{{ cash_total|default_if_none:0|floatformat:0|intcomma }}
-            </span>
-          </div>
-          <div class="tile-sub muted">口座合算</div>
-          <div class="g-bar">
-            <span data-ratio data-num="{{ cash_total|default_if_none:0 }}"
-                  data-den="{{ total_assets|default_if_none:0 }}"></span>
-          </div>
-        </div>
-
-        <!-- 資産推移（データ無ければJSで非表示） -->
-        <div class="sparkline" id="assetSpark"
-             data-points="{{ asset_history_csv|default_if_none:'' }}"></div>
-      </div>
+    <div class="tile">
+      <h3>含み損益（合計）</h3>
+      {% with p=unrealized_pl_total|default_if_none:0 %}
+        <div class="amt {% if p >= 0 %}pos{% else %}neg{% endif %}">
+          {% if p >= 0 %}+{% endif %}¥{{ p|floatformat:0|intcomma }}</div>
+      {% endwith %}
     </div>
   </section>
 
-  <!-- ===== ブローカー別（タブ切替） ===== -->
-  <section class="brokers card">
-    <nav class="tabs" role="tablist" aria-label="証券会社">
-      {% for key,label in broker_tabs %}
-        <button class="tab {% if key == active_broker %}active{% endif %}"
-                type="button"
-                data-tab="{{ key }}">{{ label }}</button>
-      {% endfor %}
-    </nav>
-
-    <div class="panes">
-      {% for key,label in broker_tabs %}
-        {% if key == 'rakuten' %}
-          {% with bal=broker_balances.rakuten stats=broker_stats.rakuten tops=top_positions_by_broker.rakuten rec=recent_by_broker.rakuten %}
-          <div class="pane {% if key == active_broker %}active{% endif %}" id="pane-{{ key }}">
-            <div class="pane-head">
-              <div class="pane-brand">
-                <span class="logo">R</span>
-                <div class="pane-balance">
-                  <div class="k">現金残高</div>
-                  {% with guard=bal|stringformat:"s" %}
-                    {% if guard == 'Ellipsis' or guard == '' %}
-                      <div class="v">—</div>
-                    {% else %}
-                      <div class="v">¥{{ bal|default_if_none:0|floatformat:0|intcomma }}</div>
-                    {% endif %}
-                  {% endwith %}
-                </div>
-              </div>
-            </div>
-
-            <div class="pill-row">
-              <div class="pill">
-                <span class="k">保有銘柄</span>
-                {% with s=stats|stringformat:"s" %}
-                  {% if s == 'Ellipsis' or not stats %}
-                    <span class="v">—</span>
-                  {% else %}
-                    <span class="v">{{ stats.holdings_count|default_if_none:0 }}</span>
-                  {% endif %}
-                {% endwith %}
-              </div>
-              <div class="pill">
-                <span class="k">時価評価</span>
-                {% with s=stats|stringformat:"s" %}
-                  {% if s == 'Ellipsis' or not stats %}
-                    <span class="v">—</span>
-                  {% else %}
-                    <span class="v">¥{{ stats.market_value|default_if_none:0|floatformat:0|intcomma }}</span>
-                  {% endif %}
-                {% endwith %}
-              </div>
-              <div class="pill">
-                <span class="k">含み損益</span>
-                {% with s=stats|stringformat:"s" %}
-                  {% if s == 'Ellipsis' or not stats %}
-                    <span class="v">—</span>
-                  {% else %}
-                    {% with upv=stats.unrealized_pl|default_if_none:0 %}
-                      <span class="v {% if upv >= 0 %}pos{% else %}neg{% endif %}">
-                        {% if upv >= 0 %}+{% endif %}¥{{ upv|floatformat:0|intcomma }}
-                      </span>
-                    {% endwith %}
-                  {% endif %}
-                {% endwith %}
-              </div>
-            </div>
-
-            <div class="panel-split">
-              <div>
-                <h3 class="sect-title">上位ポジション</h3>
-                {% with ts=tops|stringformat:"s" %}
-                  {% if ts == 'Ellipsis' or not tops %}
-                    <div class="empty">データがありません</div>
-                  {% else %}
-                    <ul class="pos-list">
-                      {% for p in tops %}
-                        <li class="pos-row">
-                          <span class="name">{{ p.ticker }} {{ p.name }}</span>
-                          <span class="lot">{{ p.shares|default_if_none:0|intcomma }}株</span>
-                          <span class="mv">¥{{ p.market_value|default_if_none:0|floatformat:0|intcomma }}</span>
-                        </li>
-                      {% empty %}
-                        <li class="empty">データがありません</li>
-                      {% endfor %}
-                    </ul>
-                  {% endif %}
-                {% endwith %}
-              </div>
-
-              <div>
-                <h3 class="sect-title">最近の動き</h3>
-                {% with rs=rec|stringformat:"s" %}
-                  {% if rs == 'Ellipsis' or not rec %}
-                    <div class="empty">データがありません</div>
-                  {% else %}
-                    <ul class="mini-activity">
-                      {% for a in rec %}
-                        <li class="arow">
-                          <span class="adate">{{ a.date|date:"n/j" }}</span>
-                          <span class="amain">
-                            {% if a.kind == 'trade' %}
-                              {{ a.ticker }} {{ a.name }}
-                            {% elif a.kind == 'dividend' %}
-                              配当 {{ a.ticker }} {{ a.name }}
-                            {% elif a.kind == 'cash' %}
-                              現金 {{ a.broker_label }}
-                            {% else %}
-                              —
-                            {% endif %}
-                          </span>
-                          <span class="aval {% if a.sign == '+' or a.pnl|default_if_none:0 >= 0 %}pos{% else %}neg{% endif %}">
-                            {% if a.kind == 'trade' %}
-                              {% with pnlv=a.pnl|default_if_none:0 %}
-                                {% if pnlv >= 0 %}+{% endif %}¥{{ pnlv|floatformat:0|intcomma }}
-                              {% endwith %}
-                            {% elif a.kind == 'dividend' %}
-                              ¥{{ a.net|default_if_none:0|floatformat:0|intcomma }}
-                            {% elif a.kind == 'cash' %}
-                              {% with am=a.amount|default_if_none:0 %}
-                                {% if a.flow == 'in' %}+{% else %}-{% endif %}¥{{ am|floatformat:0|intcomma }}
-                              {% endwith %}
-                            {% else %}—{% endif %}
-                          </span>
-                        </li>
-                      {% empty %}
-                        <li class="empty">データがありません</li>
-                      {% endfor %}
-                    </ul>
-                  {% endif %}
-                {% endwith %}
-              </div>
-            </div>
-          </div>
-          {% endwith %}
-
-        {% elif key == 'matsui' %}
-          {% with bal=broker_balances.matsui stats=broker_stats.matsui tops=top_positions_by_broker.matsui rec=recent_by_broker.matsui %}
-          <div class="pane {% if key == active_broker %}active{% endif %}" id="pane-{{ key }}">
-            <div class="pane-head">
-              <div class="pane-brand">
-                <span class="logo">M</span>
-                <div class="pane-balance">
-                  <div class="k">現金残高</div>
-                  {% with guard=bal|stringformat:"s" %}
-                    {% if guard == 'Ellipsis' or guard == '' %}
-                      <div class="v">—</div>
-                    {% else %}
-                      <div class="v">¥{{ bal|default_if_none:0|floatformat:0|intcomma }}</div>
-                    {% endif %}
-                  {% endwith %}
-                </div>
-              </div>
-            </div>
-
-            <div class="pill-row">
-              <div class="pill">
-                <span class="k">保有銘柄</span>
-                {% with s=stats|stringformat:"s" %}
-                  {% if s == 'Ellipsis' or not stats %}
-                    <span class="v">—</span>
-                  {% else %}
-                    <span class="v">{{ stats.holdings_count|default_if_none:0 }}</span>
-                  {% endif %}
-                {% endwith %}
-              </div>
-              <div class="pill">
-                <span class="k">時価評価</span>
-                {% with s=stats|stringformat:"s" %}
-                  {% if s == 'Ellipsis' or not stats %}
-                    <span class="v">—</span>
-                  {% else %}
-                    <span class="v">¥{{ stats.market_value|default_if_none:0|floatformat:0|intcomma }}</span>
-                  {% endif %}
-                {% endwith %}
-              </div>
-              <div class="pill">
-                <span class="k">含み損益</span>
-                {% with s=stats|stringformat:"s" %}
-                  {% if s == 'Ellipsis' or not stats %}
-                    <span class="v">—</span>
-                  {% else %}
-                    {% with upv=stats.unrealized_pl|default_if_none:0 %}
-                      <span class="v {% if upv >= 0 %}pos{% else %}neg{% endif %}">
-                        {% if upv >= 0 %}+{% endif %}¥{{ upv|floatformat:0|intcomma }}
-                      </span>
-                    {% endwith %}
-                  {% endif %}
-                {% endwith %}
-              </div>
-            </div>
-
-            <div class="panel-split">
-              <div>
-                <h3 class="sect-title">上位ポジション</h3>
-                {% with ts=tops|stringformat:"s" %}
-                  {% if ts == 'Ellipsis' or not tops %}
-                    <div class="empty">データがありません</div>
-                  {% else %}
-                    <ul class="pos-list">
-                      {% for p in tops %}
-                        <li class="pos-row">
-                          <span class="name">{{ p.ticker }} {{ p.name }}</span>
-                          <span class="lot">{{ p.shares|default_if_none:0|intcomma }}株</span>
-                          <span class="mv">¥{{ p.market_value|default_if_none:0|floatformat:0|intcomma }}</span>
-                        </li>
-                      {% empty %}
-                        <li class="empty">データがありません</li>
-                      {% endfor %}
-                    </ul>
-                  {% endif %}
-                {% endwith %}
-              </div>
-              <div>
-                <h3 class="sectタイトル">最近の動き</h3>
-                {% with rs=rec|stringformat:"s" %}
-                  {% if rs == 'Ellipsis' or not rec %}
-                    <div class="empty">データがありません</div>
-                  {% else %}
-                    <ul class="mini-activity">
-                      {% for a in rec %}
-                        <li class="arow">
-                          <span class="adate">{{ a.date|date:"n/j" }}</span>
-                          <span class="amain">
-                            {% if a.kind == 'trade' %}
-                              {{ a.ticker }} {{ a.name }}
-                            {% elif a.kind == 'dividend' %}
-                              配当 {{ a.ticker }} {{ a.name }}
-                            {% elif a.kind == 'cash' %}
-                              現金 {{ a.broker_label }}
-                            {% else %}
-                              —
-                            {% endif %}
-                          </span>
-                          <span class="aval {% if a.sign == '+' or a.pnl|default_if_none:0 >= 0 %}pos{% else %}neg{% endif %}">
-                            {% if a.kind == 'trade' %}
-                              {% with pnlv=a.pnl|default_if_none:0 %}
-                                {% if pnlv >= 0 %}+{% endif %}¥{{ pnlv|floatformat:0|intcomma }}
-                              {% endwith %}
-                            {% elif a.kind == 'dividend' %}
-                              ¥{{ a.net|default_if_none:0|floatformat:0|intcomma }}
-                            {% elif a.kind == 'cash' %}
-                              {% with am=a.amount|default_if_none:0 %}
-                                {% if a.flow == 'in' %}+{% else %}-{% endif %}¥{{ am|floatformat:0|intcomma }}
-                              {% endwith %}
-                            {% else %}—{% endif %}
-                          </span>
-                        </li>
-                      {% empty %}
-                        <li class="empty">データがありません</li>
-                      {% endfor %}
-                    </ul>
-                  {% endif %}
-                {% endwith %}
-              </div>
-            </div>
-          </div>
-          {% endwith %}
-
-        {% elif key == 'sbi' %}
-          {% with bal=broker_balances.sbi stats=broker_stats.sbi tops=top_positions_by_broker.sbi rec=recent_by_broker.sbi %}
-          <div class="pane {% if key == active_broker %}active{% endif %}" id="pane-{{ key }}">
-            <div class="pane-head">
-              <div class="pane-brand">
-                <span class="logo">S</span>
-                <div class="pane-balance">
-                  <div class="k">現金残高</div>
-                  {% with guard=bal|stringformat:"s" %}
-                    {% if guard == 'Ellipsis' or guard == '' %}
-                      <div class="v">—</div>
-                    {% else %}
-                      <div class="v">¥{{ bal|default_if_none:0|floatformat:0|intcomma }}</div>
-                    {% endif %}
-                  {% endwith %}
-                </div>
-              </div>
-            </div>
-
-            <div class="pill-row">
-              <div class="pill">
-                <span class="k">保有銘柄</span>
-                {% with s=stats|stringformat:"s" %}
-                  {% if s == 'Ellipsis' or not stats %}
-                    <span class="v">—</span>
-                  {% else %}
-                    <span class="v">{{ stats.holdings_count|default_if_none:0 }}</span>
-                  {% endif %}
-                {% endwith %}
-              </div>
-              <div class="pill">
-                <span class="k">時価評価</span>
-                {% with s=stats|stringformat:"s" %}
-                  {% if s == 'Ellipsis' or not stats %}
-                    <span class="v">—</span>
-                  {% else %}
-                    <span class="v">¥{{ stats.market_value|default_if_none:0|floatformat:0|intcomma }}</span>
-                  {% endif %}
-                {% endwith %}
-              </div>
-              <div class="pill">
-                <span class="k">含み損益</span>
-                {% with s=stats|stringformat:"s" %}
-                  {% if s == 'Ellipsis' or not stats %}
-                    <span class="v">—</span>
-                  {% else %}
-                    {% with upv=stats.unrealized_pl|default_if_none:0 %}
-                      <span class="v {% if upv >= 0 %}pos{% else %}neg{% endif %}">
-                        {% if upv >= 0 %}+{% endif %}¥{{ upv|floatformat:0|intcomma }}
-                      </span>
-                    {% endwith %}
-                  {% endif %}
-                {% endwith %}
-              </div>
-            </div>
-
-            <div class="panel-split">
-              <div>
-                <h3 class="sect-title">上位ポジション</h3>
-                {% with ts=tops|stringformat:"s" %}
-                  {% if ts == 'Ellipsis' or not tops %}
-                    <div class="empty">データがありません</div>
-                  {% else %}
-                    <ul class="pos-list">
-                      {% for p in tops %}
-                        <li class="pos-row">
-                          <span class="name">{{ p.ticker }} {{ p.name }}</span>
-                          <span class="lot">{{ p.shares|default_if_none:0|intcomma }}株</span>
-                          <span class="mv">¥{{ p.market_value|default_if_none:0|floatformat:0|intcomma }}</span>
-                        </li>
-                      {% empty %}
-                        <li class="empty">データがありません</li>
-                      {% endfor %}
-                    </ul>
-                  {% endif %}
-                {% endwith %}
-              </div>
-              <div>
-                <h3 class="sect-title">最近の動き</h3>
-                {% with rs=rec|stringformat:"s" %}
-                  {% if rs == 'Ellipsis' or not rec %}
-                    <div class="empty">データがありません</div>
-                  {% else %}
-                    <ul class="mini-activity">
-                      {% for a in rec %}
-                        <li class="arow">
-                          <span class="adate">{{ a.date|date:"n/j" }}</span>
-                          <span class="amain">
-                            {% if a.kind == 'trade' %}
-                              {{ a.ticker }} {{ a.name }}
-                            {% elif a.kind == 'dividend' %}
-                              配当 {{ a.ticker }} {{ a.name }}
-                            {% elif a.kind == 'cash' %}
-                              現金 {{ a.broker_label }}
-                            {% else %}
-                              —
-                            {% endif %}
-                          </span>
-                          <span class="aval {% if a.sign == '+' or a.pnl|default_if_none:0 >= 0 %}pos{% else %}neg{% endif %}">
-                            {% if a.kind == 'trade' %}
-                              {% with pnlv=a.pnl|default_if_none:0 %}
-                                {% if pnlv >= 0 %}+{% endif %}¥{{ pnlv|floatformat:0|intcomma }}
-                              {% endwith %}
-                            {% elif a.kind == 'dividend' %}
-                              ¥{{ a.net|default_if_none:0|floatformat:0|intcomma }}
-                            {% elif a.kind == 'cash' %}
-                              {% with am=a.amount|default_if_none:0 %}
-                                {% if a.flow == 'in' %}+{% else %}-{% endif %}¥{{ am|floatformat:0|intcomma }}
-                              {% endwith %}
-                            {% else %}—{% endif %}
-                          </span>
-                        </li>
-                      {% empty %}
-                        <li class="empty">データがありません</li>
-                      {% endfor %}
-                    </ul>
-                  {% endif %}
-                {% endwith %}
-              </div>
-            </div>
-          </div>
-          {% endwith %}
-        {% else %}
-          <div class="pane {% if key == active_broker %}active{% endif %}" id="pane-{{ key }}">
-            <div class="empty">未対応のタブです</div>
-          </div>
-        {% endif %}
-      {% endfor %}
-    </div>
-  </section>
-
-  <!-- ===== 実現損益 KPI ===== -->
-  <section class="realized card">
-    <div class="grid3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
-      {% with m=realized_pl_mtd|default_if_none:0 %}
-      <div class="kpi">
-        <div class="k">今月の実現損益</div>
-        <div class="v pn {% if m >= 0 %}pos{% else %}neg{% endif %}">
-          {% if m >= 0 %}+{% endif %}¥{{ m|floatformat:0|intcomma }}
-        </div>
-      </div>
-      {% endwith %}
-      {% with y=realized_pl_ytd|default_if_none:0 %}
-      <div class="kpi">
-        <div class="k">今年の実現損益</div>
-        <div class="v pn {% if y >= 0 %}pos{% else %}neg{% endif %}">
-          {% if y >= 0 %}+{% endif %}¥{{ y|floatformat:0|intcomma }}
-        </div>
-      </div>
-      {% endwith %}
-      {% with t=realized_pl_total|default_if_none:0 %}
-      <div class="kpi">
-        <div class="k">累計の実現損益</div>
-        <div class="v pn {% if t >= 0 %}pos{% else %}neg{% endif %}">
-          {% if t >= 0 %}+{% endif %}¥{{ t|floatformat:0|intcomma }}
-        </div>
-      </div>
-      {% endwith %}
-    </div>
-    <a class="btn link" href="{% url 'realized' %}">実現一覧へ</a>
-  </section>
-
-  <!-- ===== 最近のアクティビティ（全体） ===== -->
-  <section class="activity card">
-    <div class="activity-head">
-      <h3 class="sect-title">最近のアクティビティ</h3>
-      <div class="chips">
-        <button class="chip {% if request.GET.range|default_if_none:'' == '7' or not request.GET.range %}active{% endif %}" data-range="7" type="button">7日</button>
-        <button class="chip {% if request.GET.range == '30' %}active{% endif %}" data-range="30" type="button">30日</button>
-        <button class="chip {% if request.GET.range == '90' %}active{% endif %}" data-range="90" type="button">90日</button>
-        <button class="chip {% if request.GET.range == 'all' %}active{% endif %}" data-range="all" type="button">すべて</button>
-      </div>
-    </div>
-
-    <ul class="timeline" id="timeline">
-      {% if recent_activities %}
+  <!-- 最近のアクティビティ（10件） -->
+  <section>
+    <h3 class="muted" style="margin:8px 0">最近のアクティビティ</h3>
+    {% if recent_activities %}
+      <ul class="list">
         {% for a in recent_activities %}
-          <li class="trow type-{{ a.kind }}">
-            <div class="tdate">{{ a.date|date:"n/j" }}</div>
-            <div class="tbody">
-              <div class="tline">
-                <span class="tbadge">{{ a.kind_label }}</span>
-                <span class="tmain">
-                  {% if a.kind == 'trade' %}
-                    {{ a.ticker }} {{ a.name }} /
-                    {% with p=a.pnl|default_if_none:0 %}
-                      {% if p >= 0 %}+{% endif %}¥{{ p|floatformat:0|intcomma }}
-                    {% endwith %}
-                  {% elif a.kind == 'dividend' %}
-                    配当 {{ a.ticker }} {{ a.name }} /
-                    受取 ¥{{ a.net|default_if_none:0|floatformat:0|intcomma }}
-                  {% elif a.kind == 'cash' %}
-                    {% with amt=a.amount|default_if_none:0 %}
-                      現金 {{ a.broker_label }} /
-                      {% if a.flow == 'in' %}+{% else %}-{% endif %}¥{{ amt|floatformat:0|intcomma }}
-                    {% endwith %}
-                  {% else %}—{% endif %}
+          <li class="item">
+            <span class="date">{{ a.date|date:"n/j" }}</span>
+            {% if a.kind == 'trade' %}
+              <span>{{ a.ticker }} {{ a.name }}</span>
+              {% with v=a.pnl|default_if_none:0 %}
+                <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">
+                  {% if v >= 0 %}+{% endif %}¥{{ v|floatformat:0|intcomma }}
                 </span>
-              </div>
-              {% if a.memo %}<div class="tmemo">{{ a.memo }}</div>{% endif %}
-            </div>
+              {% endwith %}
+            {% elif a.kind == 'dividend' %}
+              <span>配当 {{ a.ticker }} {{ a.name }}</span>
+              <span class="pos">+¥{{ a.net|default_if_none:0|intcomma }}</span>
+            {% else %}
+              <span>—</span><span></span>
+            {% endif %}
           </li>
-        {% empty %}
-          <li class="empty">まだデータがありません</li>
         {% endfor %}
-      {% else %}
-        <li class="empty">まだデータがありません</li>
-      {% endif %}
-    </ul>
+      </ul>
+    {% else %}
+      <div class="muted">まだデータがありません</div>
+    {% endif %}
   </section>
 
 </div>
-{% endblock %}
 
-{% block extra_js %}
-<script src="{% static 'js/main.js' %}" defer></script>
+<!-- とりあえずインラインJS（静的ファイル化は後でOK） -->
+<script>
+(function renderSpark(){
+  const el = document.getElementById('assetSpark');
+  if(!el) return;
+  const raw = (el.getAttribute('data-points')||'').trim();
+  if(!raw){ el.textContent='データなし'; return; }
+  const vals = raw.split(',').map(s=>parseFloat(s)).filter(v=>!Number.isNaN(v));
+  if(vals.length<2){ el.textContent='データ不足'; return; }
+  const w = el.clientWidth||320, h = el.clientHeight||64, pad=4;
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const x = i => pad + (w-pad*2)*(i/(vals.length-1));
+  const y = v => max===min ? h/2 : pad + (1-((v-min)/(max-min)))*(h-pad*2);
+  const pts = vals.map((v,i)=>`${x(i)},${y(v)}`).join(' ');
+  el.innerHTML = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    <polyline points="${pts}" fill="none" stroke="rgba(96,165,250,1)" stroke-width="2"/>
+    <polyline points="${pts}" fill="none" stroke="rgba(96,165,250,.35)" stroke-width="6" opacity=".35"/>
+  </svg>`;
+})();
+</script>
 {% endblock %}
