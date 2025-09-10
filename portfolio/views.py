@@ -106,11 +106,10 @@ except Exception:
     CashFlow = None  # type: ignore
 
 
-# ---------- utils ----------
 def _safe_float(x, default=0.0):
     try:
         f = float(x)
-        return f if f == f else default  # NaN guard
+        return f if f == f else default
     except Exception:
         return default
 
@@ -124,31 +123,27 @@ def _safe_int(x, default=0):
             return default
 
 
-# ---------- 最近のアクティビティ（フィルタ→スライスの順） ----------
 def _recent_all(request, days: int | None):
     rows = []
     today = timezone.localdate()
     horizon = today - timedelta(days=days) if isinstance(days, int) else None
 
-    # 売買
     if RealizedProfit:
         q = RealizedProfit.objects.all()
         if horizon:
             q = q.filter(date__gte=horizon)
         q = q.order_by("-date", "-id")
         for t in q[:300]:
-            pnl = _safe_float(getattr(t, "profit_amount", 0))
             rows.append({
                 "kind": "trade",
                 "kind_label": "売買",
                 "date": getattr(t, "date", today),
                 "ticker": getattr(t, "code", "") or "",
                 "name": getattr(t, "stock_name", "") or "",
-                "pnl": pnl,
+                "pnl": _safe_float(getattr(t, "profit_amount", 0)),
                 "memo": "",
             })
 
-    # 配当
     if Dividend:
         qd = Dividend.objects.all()
         if horizon:
@@ -167,23 +162,19 @@ def _recent_all(request, days: int | None):
                 "memo": getattr(d, "memo", "") or "",
             })
 
-    # 現金
     if CashFlow:
         qc = CashFlow.objects.all()
         if horizon:
             qc = qc.filter(occurred_at__gte=horizon)
         qc = qc.order_by("-occurred_at", "-id")
-        BROKER_LABELS = {
-            "rakuten": "楽天証券", "matsui": "松井証券", "sbi": "SBI証券",
-            "楽天": "楽天証券", "松井": "松井証券", "SBI": "SBI証券",
-        }
+        LABEL = {"rakuten":"楽天証券","matsui":"松井証券","sbi":"SBI証券","楽天":"楽天証券","松井":"松井証券","SBI":"SBI証券"}
         for c in qc[:300]:
             b = getattr(c, "broker", "")
             rows.append({
                 "kind": "cash",
                 "kind_label": "現金",
                 "date": getattr(c, "occurred_at", today),
-                "broker_label": BROKER_LABELS.get(b, str(b)),
+                "broker_label": LABEL.get(b, str(b)),
                 "amount": _safe_int(getattr(c, "amount", 0)),
                 "flow": getattr(c, "flow_type", ""),
                 "memo": getattr(c, "memo", "") or "",
@@ -193,22 +184,19 @@ def _recent_all(request, days: int | None):
     return rows[:100]
 
 
-# ---------- 集計ロジック（ストアド値優先） ----------
 @login_required
 def main_page(request):
     """
-    ・まずモデルに保存されている `market_value` / `profit_loss` を最優先で使う
-    ・それが 0 / 未設定なら、ビュー内で再計算して補完
-       - 現値=0/未設定 → 取得単価を使用
-       - 買い:  UPL = (price_used * shares) - total_cost
-       - 売り:  UPL = (unit_price - price_used) * shares
-    ・現物グループ: account_type in {'現物','NISA'} かつ position!='売り'
-    ・信用グループ: account_type=='信用' または position=='売り'
+    ストアド値の扱いを修正：
+      - stored_mv(=market_value) が >0 のときだけ stored_upl(=profit_loss) を採用
+      - それ以外はビュー内で再計算して使う
+    分類：
+      - 現物（現物+NISA かつ position!='売り'）
+      - 信用（account_type=='信用' または position=='売り'）
     """
     spot_mv = margin_mv = 0.0
     spot_upl = margin_upl = 0.0
 
-    # デバッグ用の行明細
     show_debug = (request.GET.get("debug") == "1")
     debug_rows = []
 
@@ -217,36 +205,33 @@ def main_page(request):
             shares = _safe_float(getattr(s, "shares", 0))
             unit   = _safe_float(getattr(s, "unit_price", 0))
             curr   = _safe_float(getattr(s, "current_price", 0))
+            price_used = curr if curr > 0 else unit
             total_cost = _safe_float(getattr(s, "total_cost", shares * unit))
             pos    = str(getattr(s, "position", "買い"))
             acct   = str(getattr(s, "account_type", "現物"))
 
-            # 1) ストアド値を最優先
             stored_mv  = _safe_float(getattr(s, "market_value", 0.0))
-            stored_upl = getattr(s, "profit_loss", None)
-            stored_upl = _safe_float(stored_upl, None) if stored_upl is not None else None
+            stored_upl_raw = getattr(s, "profit_loss", None)
+            stored_upl = None if stored_upl_raw is None else _safe_float(stored_upl_raw, 0.0)
 
-            # 2) price_used（表示/デバッグ用）
-            price_used = curr if curr > 0 else unit
+            # 評価額: ストアドが有効なら使用、0なら補完
+            mv = stored_mv if stored_mv > 0 else (price_used * shares)
 
-            # 3) 評価額・含み損益（ストアド優先→無ければ計算）
-            if stored_mv and stored_mv > 0:
-                mv = stored_mv
-            else:
-                mv = price_used * shares
-
-            if stored_upl is not None:
+            # 含み損益: 「stored_mv>0 の時だけ」ストアドを信用。
+            if stored_mv > 0 and stored_upl_raw is not None:
                 upl = stored_upl
+                upl_source = "stored"
             else:
                 if pos == "売り":
                     upl = (unit - price_used) * shares
                 else:
                     upl = mv - total_cost
+                upl_source = "recalc"
 
-            # 現物/信用への振り分け
             is_spot   = (acct in {"現物", "NISA"}) and (pos != "売り")
             is_margin = (acct == "信用") or (pos == "売り")
 
+            group = "spot"
             if is_spot:
                 spot_mv  += mv
                 spot_upl += upl
@@ -256,10 +241,8 @@ def main_page(request):
                 margin_upl += upl
                 group = "margin"
             else:
-                # 念のため現物側へ倒す
                 spot_mv  += mv
                 spot_upl += upl
-                group = "spot"
 
             if show_debug:
                 debug_rows.append({
@@ -277,7 +260,8 @@ def main_page(request):
                     "position": pos,
                     "group": group,
                     "stored_mv": stored_mv,
-                    "stored_upl": stored_upl,
+                    "stored_upl": stored_upl_raw,
+                    "upl_source": upl_source,
                 })
 
     # 現金合計
@@ -301,7 +285,6 @@ def main_page(request):
     days = {"7": 7, "30": 30, "90": 90}.get(rng)
     recent_activities = _recent_all(request, days)
 
-    # デバッグテキスト（合計部）
     debug_text = None
     if show_debug:
         debug_text = (
@@ -322,7 +305,6 @@ def main_page(request):
 
         cash_total=cash_total,
 
-        # デバッグ
         debug=show_debug,
         debug_text=debug_text,
         debug_rows=debug_rows,
@@ -331,8 +313,6 @@ def main_page(request):
     )
     return render(request, "main.html", ctx)
 
-
-    
 # -----------------------------
 # 認証（関数本体は変更なし）
 # -----------------------------
