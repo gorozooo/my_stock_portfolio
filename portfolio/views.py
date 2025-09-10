@@ -78,419 +78,180 @@ def bottom_tabs_context(request):
 # -----------------------------
 # メイン画面（※関数本体は変更なし）
 # -----------------------------
-# portfolio/views.py から main_page 全文置き換え
-
-from collections import defaultdict
+# --- 最小の main_page（ズレ防止・再計算なし版） ---
 from datetime import timedelta
 from django.db.models import Sum, Q
 from django.utils import timezone
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
-# 既存 try/except などの上位ヘルパはそのままでOK（前のまま）
+try:
+    from .models import Stock, RealizedProfit, Dividend, CashFlow
+except Exception:
+    Stock = RealizedProfit = Dividend = CashFlow = None  # type: ignore
 
 
 @login_required
 def main_page(request):
     """
-    stock_list と完全一致させるための集計版
-    - 再計算はしない（Stock に保存済みの market_value / profit_loss を合計）
-    - 「現物 + NISA（表記ゆれ含む）」を現物枠に、信用のみを信用枠に
-    - moomoo は除外（楽天/松井/SBI の3社のみをダッシュボードに反映）
+    最小ダッシュボード:
+    - 現物=「現物 + NISA（表記ゆれ含む）」の保存値合算
+    - 信用=「信用」の保存値合算
+    - 現金= CashFlow(in/out) の差額合算（rakuten/matsui/sbi のみ）
+    - 総資産= 現物評価 + 信用評価 + 現金
     """
+    # ---- Stocks の絞り込み（ユーザ & ブローカー3社、moomoo除外）----
+    spot_mv = spot_pl = 0.0
+    margin_mv = margin_pl = 0.0
 
-    # ===== タブ =====
-    try:
-        broker_tabs = BROKER_TABS
-    except NameError:
-        broker_tabs = [("rakuten", "楽天証券"), ("matsui", "松井証券"), ("sbi", "SBI証券")]
-
-    active_broker = request.GET.get("broker") or "rakuten"
-    if active_broker not in dict(broker_tabs):
-        active_broker = "rakuten"
-
-    # ===== 集計対象ブローカー（moomoo を除外）=====
-    ALLOWED_BROKER_JP = {"楽天", "松井", "SBI"}
-
-    # ===== NISA を現物に含める（表記ゆれ吸収）=====
-    # モデル choices は "現物", "信用", "NISA" だが、過去データや外部取込でブレる可能性を吸収
-    SPOT_Q = (
-        Q(account_type__in=["現物", "NISA"]) |
-        Q(account_type__icontains="nisa") |         # NISA / つみたてNISA / 新NISA / 一般NISA など
-        Q(account_type__contains="ＮＩＳＡ") |       # 全角
-        Q(account_type__contains="つみたて") |
-        Q(account_type__contains="一般") |
-        Q(account_type__contains="新")
-    )
-    MARGIN_Q = Q(account_type="信用")
-
-    # ===== Stocks を取得（ユーザー・ブローカー絞り込み）=====
-    if 'Stock' not in globals() or Stock is None:
-        qs_all = []
-    else:
-        qs_all = Stock.objects.all()
-        # user フィールドがある場合だけ絞る
+    if Stock:
+        qs = Stock.objects.all()
+        # user フィールドがあるなら絞る
         try:
             if "user" in {f.name for f in Stock._meta.get_fields()}:
-                qs_all = qs_all.filter(user=request.user)
+                qs = qs.filter(user=request.user)
         except Exception:
             pass
-        # moomoo 除外（※stock_list 側が3社ベースならここがズレの主因になりやすい）
-        qs_all = qs_all.filter(broker__in=ALLOWED_BROKER_JP)
+        # moomoo を除外（ダッシュボードは楽天/松井/SBI だけ）
+        qs = qs.filter(broker__in=["楽天", "松井", "SBI"])
 
-    # ===== 合計は保存値ベース =====
-    spot_mv = spot_upl = 0.0
-    margin_mv = margin_upl = 0.0
+        # 現物 + NISA（表記ゆれ吸収）
+        SPOT_Q = (
+            Q(account_type__in=["現物", "NISA"]) |
+            Q(account_type__icontains="nisa") |
+            Q(account_type__contains="ＮＩＳＡ") |
+            Q(account_type__contains="つみたて") |
+            Q(account_type__contains="一般") |
+            Q(account_type__contains="新")
+        )
+        MARGIN_Q = Q(account_type="信用")
 
-    if hasattr(qs_all, "filter"):
-        qs_spot   = qs_all.filter(SPOT_Q)
-        qs_margin = qs_all.filter(MARGIN_Q)
+        agg_spot   = qs.filter(SPOT_Q).aggregate(mv=Sum("market_value"), pl=Sum("profit_loss"))
+        agg_margin = qs.filter(MARGIN_Q).aggregate(mv=Sum("market_value"), pl=Sum("profit_loss"))
 
-        agg_spot   = qs_spot.aggregate(mv=Sum("market_value"), pl=Sum("profit_loss"))
-        agg_margin = qs_margin.aggregate(mv=Sum("market_value"), pl=Sum("profit_loss"))
+        spot_mv   = float(agg_spot.get("mv") or 0.0)
+        spot_pl   = float(agg_spot.get("pl") or 0.0)
+        margin_mv = float(agg_margin.get("mv") or 0.0)
+        margin_pl = float(agg_margin.get("pl") or 0.0)
 
-        spot_mv    = float(agg_spot.get("mv") or 0.0)
-        spot_upl   = float(agg_spot.get("pl") or 0.0)
-        margin_mv  = float(agg_margin.get("mv") or 0.0)
-        margin_upl = float(agg_margin.get("pl") or 0.0)
-
-    # ===== ブローカー別（これも保存値ベース）=====
-    holdings_count_by_broker = defaultdict(int)
-    market_value_by_broker   = defaultdict(float)
-    upl_by_broker            = defaultdict(float)
-    stocks_by_broker         = defaultdict(list)
-
-    for s in qs_all:
-        bname = getattr(s, "broker", "")
-        if bname not in ALLOWED_BROKER_JP:
-            continue
-        # 日本語名 → タブキー
-        if bname == "楽天":
-            bkey = "rakuten"
-        elif bname == "松井":
-            bkey = "matsui"
-        elif bname == "SBI":
-            bkey = "sbi"
-        else:
-            continue
-
-        holdings_count_by_broker[bkey] += 1
-        market_value_by_broker[bkey]   += float(getattr(s, "market_value", 0.0) or 0.0)
-        upl_by_broker[bkey]            += float(getattr(s, "profit_loss", 0.0) or 0.0)
-        stocks_by_broker[bkey].append(s)
-
-    def _bk_stats(k):
-        return {
-            "holdings_count": holdings_count_by_broker.get(k, 0),
-            "market_value":   market_value_by_broker.get(k, 0.0),
-            "unrealized_pl":  upl_by_broker.get(k, 0.0),
-        }
-
-    broker_stats = {
-        "rakuten": _bk_stats("rakuten"),
-        "matsui":  _bk_stats("matsui"),
-        "sbi":     _bk_stats("sbi"),
-    }
-
-    # 上位ポジションは保存値 market_value でソート
-    def _top_positions(stocks, topn=5):
-        rows = []
-        for s in stocks:
-            rows.append({
-                "ticker": getattr(s, "ticker", "") or "",
-                "name": getattr(s, "name", "") or "",
-                "shares": int(getattr(s, "shares", 0) or 0),
-                "market_value": float(getattr(s, "market_value", 0.0) or 0.0),
-            })
-        rows.sort(key=lambda r: r["market_value"], reverse=True)
-        return rows[:topn]
-
-    top_positions_by_broker = {
-        "rakuten": _top_positions(stocks_by_broker.get("rakuten", []), 5),
-        "matsui":  _top_positions(stocks_by_broker.get("matsui", []), 5),
-        "sbi":     _top_positions(stocks_by_broker.get("sbi", []), 5),
-    }
-
-    # ===== 現金残高（user があれば絞る）=====
-    broker_balances = {"rakuten": 0, "matsui": 0, "sbi": 0}
+    # ---- 現金（3社のみ）----
     cash_total = 0
-    if 'CashFlow' in globals() and CashFlow is not None:
+    if CashFlow:
         cf = CashFlow.objects.all()
         try:
             if "user" in {f.name for f in CashFlow._meta.get_fields()}:
                 cf = cf.filter(user=request.user)
         except Exception:
             pass
-        # moomoo を除外
         cf = cf.filter(broker__in=["rakuten", "matsui", "sbi"])
         sums = cf.values("broker", "flow_type").annotate(total=Sum("amount"))
         for row in sums:
-            bkey = row.get("broker")
-            amt  = int(row.get("total", 0) or 0)
-            if row.get("flow_type") != "in":
-                amt = -amt
-            if bkey in broker_balances:
-                broker_balances[bkey] += amt
-        cash_total = sum(broker_balances.values())
+            amt = int(row.get("total") or 0)
+            cash_total += amt if row.get("flow_type") == "in" else -amt
 
-    # ===== 実現損益（配当も足す）=====
-    realized_pl_mtd = realized_pl_ytd = realized_pl_total = 0
+    # ---- 総資産 ----
+    total_assets = spot_mv + margin_mv + cash_total
+
+    # ---- 実現損益（配当含む）最小版 ----
     today   = timezone.localdate()
     first_m = today.replace(day=1)
     first_y = today.replace(month=1, day=1)
 
-    if 'RealizedProfit' in globals() and RealizedProfit is not None:
+    def _div_sum(qs):
+        s = 0
+        for d in qs:
+            net = getattr(d, "net_amount", None)
+            if net is None:
+                gross = int(getattr(d, "gross_amount", 0) or 0)
+                tax   = int(getattr(d, "tax", 0) or 0)
+                net = gross - tax
+            s += int(net or 0)
+        return s
+
+    realized_pl_total = realized_pl_mtd = realized_pl_ytd = 0
+    if RealizedProfit:
         base = RealizedProfit.objects.all()
         try:
             if "user" in {f.name for f in RealizedProfit._meta.get_fields()}:
                 base = base.filter(user=request.user)
         except Exception:
             pass
-        agg_total = base.aggregate(s=Sum("profit_amount"))
-        agg_mtd   = base.filter(date__gte=first_m).aggregate(s=Sum("profit_amount"))
-        agg_ytd   = base.filter(date__gte=first_y).aggregate(s=Sum("profit_amount"))
-        realized_pl_total += int(agg_total.get("s") or 0)
-        realized_pl_mtd   += int(agg_mtd.get("s")   or 0)
-        realized_pl_ytd   += int(agg_ytd.get("s")   or 0)
+        realized_pl_total += int(base.aggregate(s=Sum("profit_amount")).get("s") or 0)
+        realized_pl_mtd   += int(base.filter(date__gte=first_m).aggregate(s=Sum("profit_amount")).get("s") or 0)
+        realized_pl_ytd   += int(base.filter(date__gte=first_y).aggregate(s=Sum("profit_amount")).get("s") or 0)
 
-    if 'Dividend' in globals() and Dividend is not None:
+    if Dividend:
         dq = Dividend.objects.all()
         try:
             if "user" in {f.name for f in Dividend._meta.get_fields()}:
                 dq = dq.filter(user=request.user)
         except Exception:
             pass
-
-        def _div_sum(qs):
-            s = 0
-            for d in qs:
-                net = getattr(d, "net_amount", None)
-                if net is None:
-                    gross = int(getattr(d, "gross_amount", 0) or 0)
-                    tax   = int(getattr(d, "tax", 0) or 0)
-                    net = gross - tax
-                s += int(net or 0)
-            return s
-
         realized_pl_total += _div_sum(dq)
         realized_pl_mtd   += _div_sum(dq.filter(received_at__gte=first_m))
         realized_pl_ytd   += _div_sum(dq.filter(received_at__gte=first_y))
 
-    # ===== 総資産 =====
-    total_assets = spot_mv + margin_mv + cash_total
-    day_change = 0
-    target_assets = 0
+    # ---- 最近のアクティビティ（超ミニ）----
+    recent = []
+    if RealizedProfit:
+        q = RealizedProfit.objects.all()
+        try:
+            if "user" in {f.name for f in RealizedProfit._meta.get_fields()}:
+                q = q.filter(user=request.user)
+        except Exception:
+            pass
+        for t in q.order_by("-date", "-id")[:10]:
+            recent.append({
+                "kind": "trade",
+                "date": getattr(t, "date", today),
+                "name": getattr(t, "stock_name", "") or "",
+                "ticker": getattr(t, "code", "") or "",
+                "pnl": float(getattr(t, "profit_amount", 0) or 0),
+            })
+    if Dividend:
+        qd = Dividend.objects.all()
+        try:
+            if "user" in {f.name for f in Dividend._meta.get_fields()}:
+                qd = qd.filter(user=request.user)
+        except Exception:
+            pass
+        for d in qd.order_by("-received_at", "-id")[:10]:
+            net = getattr(d, "net_amount", None)
+            if net is None:
+                gross = int(getattr(d, "gross_amount", 0) or 0)
+                tax   = int(getattr(d, "tax", 0) or 0)
+                net = gross - tax
+            recent.append({
+                "kind": "dividend",
+                "date": getattr(d, "received_at", today),
+                "name": getattr(d, "stock_name", "") or "",
+                "ticker": getattr(d, "ticker", "") or "",
+                "net": int(net or 0),
+            })
+    recent.sort(key=lambda r: r["date"], reverse=True)
+    recent = recent[:10]
 
-    # ===== スパークライン（無ければフラット）=====
+    # ---- スパークライン（フラットでもOK）----
     asset_history_csv = ",".join([str(int(round(total_assets)))] * 30) if total_assets else ""
 
-    # ===== 最近の動き =====
-    def _recent_for_broker(bkey, req, limit=6):
-        items = []
-        # RealizedProfit
-        if 'RealizedProfit' in globals() and RealizedProfit is not None:
-            q = RealizedProfit.objects.all()
-            try:
-                if "user" in {f.name for f in RealizedProfit._meta.get_fields()}:
-                    q = q.filter(user=req.user)
-            except Exception:
-                pass
-            q = q.order_by("-date", "-id")[:300]
-            for t in q:
-                # 入力ブローカーの文字列を正規化
-                name = (getattr(t, "broker", "") or "").strip()
-                name_norm = "rakuten" if "楽" in name or "rakuten" in name.lower() else \
-                            "matsui"  if "松" in name or "matsui"  in name.lower() else \
-                            "sbi"     if "sbi" in name.lower()     else ""
-                if name_norm != bkey:
-                    continue
-                pnl = float(getattr(t, "profit_amount", 0.0) or 0.0)
-                items.append({
-                    "kind": "trade", "kind_label": "売買",
-                    "date": getattr(t, "date", timezone.localdate()),
-                    "ticker": getattr(t, "code", "") or "",
-                    "name": getattr(t, "stock_name", "") or "",
-                    "pnl": pnl, "sign": "+" if pnl >= 0 else "-",
-                    "memo": "",
-                })
-        # Dividend
-        if 'Dividend' in globals() and Dividend is not None:
-            qd = Dividend.objects.all()
-            try:
-                if "user" in {f.name for f in Dividend._meta.get_fields()}:
-                    qd = qd.filter(user=req.user)
-            except Exception:
-                pass
-            qd = qd.order_by("-received_at", "-id")[:300]
-            for d in qd:
-                name = (getattr(d, "broker", "") or "").strip()
-                name_norm = "rakuten" if "楽" in name or "rakuten" in name.lower() else \
-                            "matsui"  if "松" in name or "matsui"  in name.lower() else \
-                            "sbi"     if "sbi" in name.lower()     else ""
-                if name_norm != bkey:
-                    continue
-                net = getattr(d, "net_amount", None)
-                if net is None:
-                    gross = int(getattr(d, "gross_amount", 0) or 0)
-                    tax   = int(getattr(d, "tax", 0) or 0)
-                    net = gross - tax
-                items.append({
-                    "kind": "dividend", "kind_label": "配当",
-                    "date": getattr(d, "received_at", timezone.localdate()),
-                    "ticker": getattr(d, "ticker", "") or "",
-                    "name": getattr(d, "stock_name", "") or "",
-                    "net": int(net or 0),
-                    "sign": "+" if (net or 0) >= 0 else "-",
-                    "memo": getattr(d, "memo", "") or "",
-                })
-        # CashFlow
-        if 'CashFlow' in globals() and CashFlow is not None:
-            cf = CashFlow.objects.all()
-            try:
-                if "user" in {f.name for f in CashFlow._meta.get_fields()}:
-                    cf = cf.filter(user=req.user)
-            except Exception:
-                pass
-            # broker は英語 key なのでそのまま比較
-            cf = cf.filter(broker=bkey).order_by("-occurred_at", "-id")[:300]
-            for c in cf:
-                amt  = int(getattr(c, "amount", 0) or 0)
-                flow = getattr(c, "flow_type", "")
-                items.append({
-                    "kind": "cash", "kind_label": "現金",
-                    "date": getattr(c, "occurred_at", timezone.localdate()),
-                    "broker_label": dict(BROKER_TABS).get(bkey, bkey),
-                    "amount": amt,
-                    "flow": flow,
-                    "sign": "+" if flow == "in" else "-",
-                    "memo": getattr(c, "memo", "") or "",
-                })
-
-        items.sort(key=lambda r: (r.get("date") or timezone.localdate(), r.get("kind") or ""), reverse=True)
-        return items[:limit]
-
-    recent_by_broker = {
-        "rakuten": _recent_for_broker("rakuten", request),
-        "matsui":  _recent_for_broker("matsui",  request),
-        "sbi":     _recent_for_broker("sbi",     request),
-    }
-
-    # 全体タイムライン
-    def _recent_all(req, days: int | None):
-        horizon = timezone.localdate() - timedelta(days=days) if isinstance(days, int) else None
-        rows = []
-        if 'RealizedProfit' in globals() and RealizedProfit is not None:
-            q = RealizedProfit.objects.all()
-            try:
-                if "user" in {f.name for f in RealizedProfit._meta.get_fields()}:
-                    q = q.filter(user=req.user)
-            except Exception:
-                pass
-            if horizon:
-                q = q.filter(date__gte=horizon)
-            q = q.order_by("-date", "-id")[:300]
-            for t in q:
-                pnl = float(getattr(t, "profit_amount", 0.0) or 0.0)
-                rows.append({
-                    "kind": "trade", "kind_label": "売買",
-                    "date": getattr(t, "date", timezone.localdate()),
-                    "ticker": getattr(t, "code", "") or "",
-                    "name": getattr(t, "stock_name", "") or "",
-                    "pnl": pnl, "memo": "",
-                })
-        if 'Dividend' in globals() and Dividend is not None:
-            qd = Dividend.objects.all()
-            try:
-                if "user" in {f.name for f in Dividend._meta.get_fields()}:
-                    qd = qd.filter(user=req.user)
-            except Exception:
-                pass
-            if horizon:
-                qd = qd.filter(received_at__gte=horizon)
-            qd = qd.order_by("-received_at", "-id")[:300]
-            for d in qd:
-                net = getattr(d, "net_amount", None)
-                if net is None:
-                    gross = int(getattr(d, "gross_amount", 0) or 0)
-                    tax   = int(getattr(d, "tax", 0) or 0)
-                    net = gross - tax
-                rows.append({
-                    "kind": "dividend", "kind_label": "配当",
-                    "date": getattr(d, "received_at", timezone.localdate()),
-                    "ticker": getattr(d, "ticker", "") or "",
-                    "name": getattr(d, "stock_name", "") or "",
-                    "net": int(net or 0),
-                    "memo": getattr(d, "memo", "") or "",
-                })
-        if 'CashFlow' in globals() and CashFlow is not None:
-            cf = CashFlow.objects.all()
-            try:
-                if "user" in {f.name for f in CashFlow._meta.get_fields()}:
-                    cf = cf.filter(user=req.user)
-            except Exception:
-                pass
-            if horizon:
-                cf = cf.filter(occurred_at__gte=horizon)
-            cf = cf.order_by("-occurred_at", "-id")[:300]
-            for c in cf:
-                rows.append({
-                    "kind": "cash", "kind_label": "現金",
-                    "date": getattr(c, "occurred_at", timezone.localdate()),
-                    "broker_label": dict(BROKER_TABS).get(getattr(c, "broker", ""), getattr(c, "broker", "")),
-                    "amount": int(getattr(c, "amount", 0) or 0),
-                    "flow": getattr(c, "flow_type", ""),
-                    "memo": getattr(c, "memo", "") or "",
-                })
-        rows.sort(key=lambda r: (r.get("date") or timezone.localdate(), r.get("kind") or ""), reverse=True)
-        return rows[:100]
-
-    rng = (request.GET.get("range") or "7").lower()
-    days = {"7": 7, "30": 30, "90": 90}.get(rng)
-    recent_activities = _recent_all(request, days)
-
-    # ===== コンテキスト =====
     ctx = dict(
         total_assets=total_assets,
-        day_change=day_change,
-        target_assets=0,
+        cash_total=cash_total,
 
-        # 現物/信用（保存値ベース）
         spot_market_value=spot_mv,
+        spot_unrealized_pl=spot_pl,
         margin_market_value=margin_mv,
-        spot_unrealized_pl=spot_upl,
-        margin_unrealized_pl=margin_upl,
-        unrealized_pl_total=spot_upl + margin_upl,
+        margin_unrealized_pl=margin_pl,
+        unrealized_pl_total=spot_pl + margin_pl,
 
-        # 既存互換
-        portfolio_value=spot_mv + margin_mv,
-        unrealized_pl=spot_upl + margin_upl,
-
-        asset_history_csv=asset_history_csv,
-
-        broker_tabs=broker_tabs,
-        active_broker=active_broker,
-        broker_balances=broker_balances,
-        broker_stats={
-            "rakuten": {"holdings_count": len(stocks_by_broker.get("rakuten", [])),
-                        "market_value": market_value_by_broker.get("rakuten", 0.0),
-                        "unrealized_pl": upl_by_broker.get("rakuten", 0.0)},
-            "matsui":  {"holdings_count": len(stocks_by_broker.get("matsui", [])),
-                        "market_value": market_value_by_broker.get("matsui", 0.0),
-                        "unrealized_pl": upl_by_broker.get("matsui", 0.0)},
-            "sbi":     {"holdings_count": len(stocks_by_broker.get("sbi", [])),
-                        "market_value": market_value_by_broker.get("sbi", 0.0),
-                        "unrealized_pl": upl_by_broker.get("sbi", 0.0)},
-        },
-        top_positions_by_broker=top_positions_by_broker,
-        recent_by_broker=recent_by_broker,
-
+        realized_pl_total=realized_pl_total,
         realized_pl_mtd=realized_pl_mtd,
         realized_pl_ytd=realized_pl_ytd,
-        realized_pl_total=realized_pl_total,
 
-        recent_activities=recent_activities,
+        recent_activities=recent,
+        asset_history_csv=asset_history_csv,
     )
-    return render(request, "main.html", ctx)   
+    return render(request, "main_min.html", ctx)   
     
 # -----------------------------
 # 認証（関数本体は変更なし）
