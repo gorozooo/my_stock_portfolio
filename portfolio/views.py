@@ -78,9 +78,8 @@ def bottom_tabs_context(request):
 # -----------------------------
 # メイン画面（※関数本体は変更なし）
 # -----------------------------
-# --- 最小の main_page（ズレ防止・再計算なし版） ---
 from datetime import timedelta
-from django.db.models import Sum, Q
+from django.db.models import Sum
 from django.utils import timezone
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
@@ -91,69 +90,104 @@ except Exception:
     Stock = RealizedProfit = Dividend = CashFlow = None  # type: ignore
 
 
+# ---------------- 小ユーティリティ ----------------
+def _to_float(x, default=0.0) -> float:
+    try:
+        f = float(x)
+        return f if f == f else default  # NaN ガード
+    except Exception:
+        return default
+
+
+def _to_int(x, default=0) -> int:
+    try:
+        return int(x)
+    except Exception:
+        try:
+            return int(float(x))
+        except Exception:
+            return default
+
+
+def _model_has_user(model) -> bool:
+    try:
+        return "user" in {f.name for f in model._meta.get_fields()}
+    except Exception:
+        return False
+
+
+def _norm_acct(text: str) -> str:
+    """
+    account_type を正規化:
+      - "信用" を含む → 'margin'
+      - "NISA", "ＮＩＳＡ", "つみたて", "新NISA", "一般NISA" を含む → 'spot'
+      - "現物" → 'spot'
+      - 上記以外は 'spot' に倒す（現物扱い）
+    """
+    if not text:
+        return "spot"
+    s = str(text).strip()
+    s_up = s.upper()  # NISA/ＮＩＳＡ を一括判定
+    if "信用" in s:
+        return "margin"
+    if any(k in s_up for k in ("NISA", "ＮＩＳＡ")) or \
+       any(k in s for k in ("つみたて", "新NISA", "一般NISA", "一般ＮＩＳＡ", "新ＮＩＳＡ")):
+        return "spot"
+    if "現物" in s:
+        return "spot"
+    return "spot"
+
+
 @login_required
 def main_page(request):
     """
-    最小ダッシュボード:
-    - 現物=「現物 + NISA（表記ゆれ含む）」の保存値合算
-    - 信用=「信用」の保存値合算
-    - 現金= CashFlow(in/out) の差額合算（rakuten/matsui/sbi のみ）
-    - 総資産= 現物評価 + 信用評価 + 現金
+    ダッシュボード最小・正確版
+    - ブローカーは**全て含む**（moomoo も含める）
+    - account_type を正規化し「現物(＋NISA)/信用」を分ける
+    - 計算は**保存済み**の `market_value` と `profit_loss` の合算のみ
+    - 余計な再計算は一切しない（stock_list と一致させる）
     """
-    # ---- Stocks の絞り込み（ユーザ & ブローカー3社、moomoo除外）----
+    # ---------- Stocks 集計 ----------
     spot_mv = spot_pl = 0.0
     margin_mv = margin_pl = 0.0
 
     if Stock:
         qs = Stock.objects.all()
-        # user フィールドがあるなら絞る
-        try:
-            if "user" in {f.name for f in Stock._meta.get_fields()}:
-                qs = qs.filter(user=request.user)
-        except Exception:
-            pass
-        # moomoo を除外（ダッシュボードは楽天/松井/SBI だけ）
-        qs = qs.filter(broker__in=["楽天", "松井", "SBI"])
+        if _model_has_user(Stock):
+            qs = qs.filter(user=request.user)
 
-        # 現物 + NISA（表記ゆれ吸収）
-        SPOT_Q = (
-            Q(account_type__in=["現物", "NISA"]) |
-            Q(account_type__icontains="nisa") |
-            Q(account_type__contains="ＮＩＳＡ") |
-            Q(account_type__contains="つみたて") |
-            Q(account_type__contains="一般") |
-            Q(account_type__contains="新")
-        )
-        MARGIN_Q = Q(account_type="信用")
+        # 1件ずつ正規化して合算（表記ゆれ/空白/全角混在を吸収）
+        for s in qs:
+            grp = _norm_acct(getattr(s, "account_type", ""))
+            mv = _to_float(getattr(s, "market_value", 0.0))
+            pl = _to_float(getattr(s, "profit_loss", 0.0))
+            if grp == "margin":
+                margin_mv += mv
+                margin_pl += pl
+            else:
+                spot_mv += mv
+                spot_pl += pl
 
-        agg_spot   = qs.filter(SPOT_Q).aggregate(mv=Sum("market_value"), pl=Sum("profit_loss"))
-        agg_margin = qs.filter(MARGIN_Q).aggregate(mv=Sum("market_value"), pl=Sum("profit_loss"))
-
-        spot_mv   = float(agg_spot.get("mv") or 0.0)
-        spot_pl   = float(agg_spot.get("pl") or 0.0)
-        margin_mv = float(agg_margin.get("mv") or 0.0)
-        margin_pl = float(agg_margin.get("pl") or 0.0)
-
-    # ---- 現金（3社のみ）----
+    # ---------- 現金（ブローカー制限なし） ----------
     cash_total = 0
     if CashFlow:
         cf = CashFlow.objects.all()
-        try:
-            if "user" in {f.name for f in CashFlow._meta.get_fields()}:
-                cf = cf.filter(user=request.user)
-        except Exception:
-            pass
-        cf = cf.filter(broker__in=["rakuten", "matsui", "sbi"])
-        sums = cf.values("broker", "flow_type").annotate(total=Sum("amount"))
+        if _model_has_user(CashFlow):
+            cf = cf.filter(user=request.user)
+        # in/out の差額
+        sums = cf.values("flow_type").annotate(total=Sum("amount"))
         for row in sums:
-            amt = int(row.get("total") or 0)
-            cash_total += amt if row.get("flow_type") == "in" else -amt
+            amt = _to_int(row.get("total", 0))
+            if row.get("flow_type") == "in":
+                cash_total += amt
+            else:
+                cash_total -= amt
 
-    # ---- 総資産 ----
+    # ---------- 総資産 ----------
     total_assets = spot_mv + margin_mv + cash_total
 
-    # ---- 実現損益（配当含む）最小版 ----
-    today   = timezone.localdate()
+    # ---------- 実現損益（配当含む） ----------
+    today = timezone.localdate()
     first_m = today.replace(day=1)
     first_y = today.replace(month=1, day=1)
 
@@ -162,86 +196,74 @@ def main_page(request):
         for d in qs:
             net = getattr(d, "net_amount", None)
             if net is None:
-                gross = int(getattr(d, "gross_amount", 0) or 0)
-                tax   = int(getattr(d, "tax", 0) or 0)
+                gross = _to_int(getattr(d, "gross_amount", 0))
+                tax = _to_int(getattr(d, "tax", 0))
                 net = gross - tax
-            s += int(net or 0)
+            s += _to_int(net)
         return s
 
     realized_pl_total = realized_pl_mtd = realized_pl_ytd = 0
     if RealizedProfit:
         base = RealizedProfit.objects.all()
-        try:
-            if "user" in {f.name for f in RealizedProfit._meta.get_fields()}:
-                base = base.filter(user=request.user)
-        except Exception:
-            pass
-        realized_pl_total += int(base.aggregate(s=Sum("profit_amount")).get("s") or 0)
-        realized_pl_mtd   += int(base.filter(date__gte=first_m).aggregate(s=Sum("profit_amount")).get("s") or 0)
-        realized_pl_ytd   += int(base.filter(date__gte=first_y).aggregate(s=Sum("profit_amount")).get("s") or 0)
-
+        if _model_has_user(RealizedProfit):
+            base = base.filter(user=request.user)
+        realized_pl_total += _to_int(base.aggregate(s=Sum("profit_amount")).get("s", 0))
+        realized_pl_mtd   += _to_int(base.filter(date__gte=first_m).aggregate(s=Sum("profit_amount")).get("s", 0))
+        realized_pl_ytd   += _to_int(base.filter(date__gte=first_y).aggregate(s=Sum("profit_amount")).get("s", 0))
     if Dividend:
         dq = Dividend.objects.all()
-        try:
-            if "user" in {f.name for f in Dividend._meta.get_fields()}:
-                dq = dq.filter(user=request.user)
-        except Exception:
-            pass
+        if _model_has_user(Dividend):
+            dq = dq.filter(user=request.user)
         realized_pl_total += _div_sum(dq)
         realized_pl_mtd   += _div_sum(dq.filter(received_at__gte=first_m))
         realized_pl_ytd   += _div_sum(dq.filter(received_at__gte=first_y))
 
-    # ---- 最近のアクティビティ（超ミニ）----
+    # ---------- 最近のアクティビティ（軽量） ----------
     recent = []
     if RealizedProfit:
         q = RealizedProfit.objects.all()
-        try:
-            if "user" in {f.name for f in RealizedProfit._meta.get_fields()}:
-                q = q.filter(user=request.user)
-        except Exception:
-            pass
+        if _model_has_user(RealizedProfit):
+            q = q.filter(user=request.user)
         for t in q.order_by("-date", "-id")[:10]:
             recent.append({
                 "kind": "trade",
                 "date": getattr(t, "date", today),
                 "name": getattr(t, "stock_name", "") or "",
                 "ticker": getattr(t, "code", "") or "",
-                "pnl": float(getattr(t, "profit_amount", 0) or 0),
+                "pnl": _to_float(getattr(t, "profit_amount", 0)),
             })
     if Dividend:
         qd = Dividend.objects.all()
-        try:
-            if "user" in {f.name for f in Dividend._meta.get_fields()}:
-                qd = qd.filter(user=request.user)
-        except Exception:
-            pass
+        if _model_has_user(Dividend):
+            qd = qd.filter(user=request.user)
         for d in qd.order_by("-received_at", "-id")[:10]:
             net = getattr(d, "net_amount", None)
             if net is None:
-                gross = int(getattr(d, "gross_amount", 0) or 0)
-                tax   = int(getattr(d, "tax", 0) or 0)
-                net = gross - tax
+                net = _to_int(getattr(d, "gross_amount", 0)) - _to_int(getattr(d, "tax", 0))
             recent.append({
                 "kind": "dividend",
                 "date": getattr(d, "received_at", today),
                 "name": getattr(d, "stock_name", "") or "",
                 "ticker": getattr(d, "ticker", "") or "",
-                "net": int(net or 0),
+                "net": _to_int(net),
             })
     recent.sort(key=lambda r: r["date"], reverse=True)
     recent = recent[:10]
 
-    # ---- スパークライン（フラットでもOK）----
+    # ---------- スパークライン（フラット可） ----------
     asset_history_csv = ",".join([str(int(round(total_assets)))] * 30) if total_assets else ""
 
+    # ---------- コンテキスト ----------
     ctx = dict(
         total_assets=total_assets,
         cash_total=cash_total,
 
-        spot_market_value=spot_mv,
-        spot_unrealized_pl=spot_pl,
-        margin_market_value=margin_mv,
-        margin_unrealized_pl=margin_pl,
+        # ご要望の4指標（**ここを見る**）
+        spot_market_value=spot_mv,        # 現物＋NISA 評価額（moomoo含む全ブローカー）
+        margin_market_value=margin_mv,    # 信用 評価額
+        spot_unrealized_pl=spot_pl,       # 現物＋NISA 含み損益
+        margin_unrealized_pl=margin_pl,   # 信用 含み損益
+
         unrealized_pl_total=spot_pl + margin_pl,
 
         realized_pl_total=realized_pl_total,
