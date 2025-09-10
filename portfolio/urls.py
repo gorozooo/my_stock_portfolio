@@ -5,6 +5,9 @@ from portfolio import views as pf_views
 urlpatterns = [
     # --- メインページ ---
     path('', views.main_page, name='main'),
+    
+    # --- デバッグ ---
+    path("debug/holdings", views.debug_holdings, name="debug_holdings"),
 
     # --- ログイン・ログアウト ---
     path('login/', views.login_view, name='login'),
