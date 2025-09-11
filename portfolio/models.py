@@ -412,3 +412,43 @@ class SubMenu(models.Model):
 
     def __str__(self):
         return f"{self.tab.name} - {self.name}"
+        
+# =============================
+# 総資産の履歴
+# =============================
+from django.conf import settings
+from django.db import models
+
+class AssetSnapshot(models.Model):
+    """
+    1日1件の総資産スナップショット。
+    user が無いプロジェクトでも動くように null/blank を許可。
+    """
+    user = models.ForeignKey(
+        getattr(settings, "AUTH_USER_MODEL", "auth.User"),
+        on_delete=models.CASCADE,
+        null=True, blank=True,
+        db_index=True,
+    )
+    date = models.DateField(db_index=True)
+
+    total_assets = models.BigIntegerField()
+    spot_market_value = models.BigIntegerField()
+    margin_market_value = models.BigIntegerField()
+    cash_balance = models.BigIntegerField()
+    unrealized_pl_total = models.BigIntegerField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "date"], name="uniq_snapshot_per_user_per_day"
+            )
+        ]
+        ordering = ["-date", "-id"]
+
+    def __str__(self):
+        u = getattr(self.user, "username", "—")
+        return f"{self.date} / {u} / {self.total_assets}"
