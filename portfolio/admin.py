@@ -148,3 +148,16 @@ class SubMenuAdmin(admin.ModelAdmin):
 @admin.register(SettingsPassword)
 class SettingsPasswordAdmin(admin.ModelAdmin):
     list_display = ("id", "password")
+    
+# =============================
+# 総資産の履歴
+# =============================
+from django.contrib import admin
+from .models import AssetSnapshot
+
+@admin.register(AssetSnapshot)
+class AssetSnapshotAdmin(admin.ModelAdmin):
+    list_display = ("date", "user", "total_assets", "spot_market_value",
+                    "margin_market_value", "cash_balance", "unrealized_pl_total")
+    list_filter = ("date", "user")
+    date_hierarchy = "date"
