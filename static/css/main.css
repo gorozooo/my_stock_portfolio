@@ -93,3 +93,31 @@ body{
 .act-date{color:var(--muted);font-size:12px}
 .act-main{font-weight:700}
 .act-val{font-variant-numeric:tabular-nums}
+
+/* LIVE 演出 */
+.chip-live { display:inline-flex; align-items:center; gap:.5rem }
+.live-dot {
+  width:.6rem; height:.6rem; border-radius:50%;
+  background: #22c55e; box-shadow:0 0 0 .15rem rgba(34,197,94,.25);
+  animation: pulse 1.8s infinite;
+}
+@keyframes pulse {
+  0% { transform:scale(1); box-shadow:0 0 0 .15rem rgba(34,197,94,.25); }
+  50% { transform:scale(1.25); box-shadow:0 0 0 .35rem rgba(34,197,94,.12); }
+  100% { transform:scale(1); box-shadow:0 0 0 .15rem rgba(34,197,94,.25); }
+}
+.live-ts { opacity:.8; font-variant-numeric: tabular-nums; }
+
+/* 総資産の軽いグロー */
+.total.glow {
+  text-shadow: 0 0 12px rgba(96,165,250,.35);
+  transition: text-shadow .6s ease;
+}
+
+/* KPI グリッドの開閉アニメ（任意） */
+.kpi-grid[hidden] { display:none; }
+.kpi-grid.revealed { animation: kpiIn .35s ease; }
+@keyframes kpiIn {
+  from { opacity:0; transform: translateY(8px); }
+  to   { opacity:1; transform: translateY(0); }
+}
