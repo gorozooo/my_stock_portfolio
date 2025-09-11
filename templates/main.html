@@ -10,65 +10,55 @@
 
 {% block content %}
 <div class="wrap">
-
-  <!-- ====== HERO / 総資産 ====== -->
+  <!-- ===== HERO ===== -->
   <section class="hero">
     <div class="bg-orb orb-a"></div>
     <div class="bg-orb orb-b"></div>
 
     <div class="hero-topline">
-      <span class="chip chip-live" aria-live="polite">
-        <span class="live-dot"></span> LIVE <span id="liveTs"></span>
-      </span>
-      <span class="chip chip-ai">AI INSIGHTS</span>
+      <span class="chip chip-live"><span class="live-dot"></span><span class="live-ts">LIVE</span></span>
     </div>
 
     <h1 class="headline">総資産</h1>
-    <div class="total"
-         id="totalAssets"
-         data-value="{{ total_assets|default_if_none:0 }}">
+
+    <div class="total" id="totalAssets" data-value="{{ total_assets|default_if_none:0 }}">
       ¥{{ total_assets|default_if_none:0|floatformat:0|intcomma }}
     </div>
-    <div class="total-sub">
-      含み損益合計：
-      <span class="pnl"
-            data-sign="{{ unrealized_pl_total|default_if_none:0|floatformat:2 }}">
-        {% if unrealized_pl_total|default_if_none:0 >= 0 %}+{% endif %}
-        ¥{{ unrealized_pl_total|default_if_none:0|floatformat:0|intcomma }}
-      </span>
-    </div>
 
-    <!-- ミニスパークライン -->
-    <div class="spark-wrap">
-      <div id="assetSpark"
-           class="spark"
-           data-points="{{ asset_history_csv|default_if_none:'' }}"
-           role="img"
-           aria-label="総資産の推移">
+    <div class="hero-inline">
+      <div class="total-sub">
+        含み損益合計：
+        <span class="pnl" data-sign="{{ unrealized_pl_total|default_if_none:0|floatformat:2 }}">
+          {% if unrealized_pl_total|default_if_none:0 >= 0 %}+{% endif %}
+          ¥{{ unrealized_pl_total|default_if_none:0|floatformat:0|intcomma }}
+        </span>
       </div>
+      <!-- リンク風トグル（余白極力なし） -->
+      <button id="discloseKPI" class="link-toggle" aria-expanded="false" aria-controls="kpiGrid">
+        内訳を表示
+        <svg class="chev" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
     </div>
 
-    <!-- クイックアクション -->
-    <div class="hero-actions">
-      <button class="btn btn-primary" id="btnReveal">内訳を展開</button>
+    <!-- ミニスパークライン（余白圧縮版） -->
+    <div class="spark-wrap compact">
+      <div id="assetSpark" class="spark" data-points="{{ asset_history_csv|default_if_none:'' }}" role="img" aria-label="総資産の推移"></div>
     </div>
   </section>
 
-  <!-- ====== KPI グリッド（横並び 2×2） ====== -->
-  <section class="kpi-grid" id="kpiGrid" hidden
-           data-target-spot="0.60" data-target-margin="0.20" data-target-cash="0.20">
+  <!-- ===== KPI（横並び） ===== -->
+  <section class="kpi-grid" id="kpiGrid" hidden>
     <div class="kpi-row">
       <article class="kpi-card glass">
         <div class="kpi-title">現物（現物+NISA）評価額</div>
-        <div class="kpi-value"
-             id="spotMV"
-             data-value="{{ spot_market_value|default_if_none:0 }}">
+        <div class="kpi-value" id="spotMV" data-value="{{ spot_market_value|default_if_none:0 }}">
           ¥{{ spot_market_value|default_if_none:0|floatformat:0|intcomma }}
         </div>
         <div class="kpi-sub">
           含み損益：
-          <span class="pnl"
-                data-sign="{{ spot_unrealized_pl|default_if_none:0|floatformat:2 }}">
+          <span class="pnl" data-sign="{{ spot_unrealized_pl|default_if_none:0|floatformat:2 }}">
             {% if spot_unrealized_pl|default_if_none:0 >= 0 %}+{% endif %}
             ¥{{ spot_unrealized_pl|default_if_none:0|floatformat:0|intcomma }}
           </span>
@@ -80,15 +70,12 @@
 
       <article class="kpi-card glass">
         <div class="kpi-title">信用 評価額</div>
-        <div class="kpi-value"
-             id="marginMV"
-             data-value="{{ margin_market_value|default_if_none:0 }}">
+        <div class="kpi-value" id="marginMV" data-value="{{ margin_market_value|default_if_none:0 }}">
           ¥{{ margin_market_value|default_if_none:0|floatformat:0|intcomma }}
         </div>
         <div class="kpi-sub">
           含み損益：
-          <span class="pnl"
-                data-sign="{{ margin_unrealized_pl|default_if_none:0|floatformat:2 }}">
+          <span class="pnl" data-sign="{{ margin_unrealized_pl|default_if_none:0|floatformat:2 }}">
             {% if margin_unrealized_pl|default_if_none:0 >= 0 %}+{% endif %}
             ¥{{ margin_unrealized_pl|default_if_none:0|floatformat:0|intcomma }}
           </span>
@@ -102,9 +89,7 @@
     <div class="kpi-row">
       <article class="kpi-card glass">
         <div class="kpi-title">キャッシュ残高</div>
-        <div class="kpi-value"
-             id="cashBalance"
-             data-value="{{ cash_balance|default_if_none:0 }}">
+        <div class="kpi-value" id="cashBalance" data-value="{{ cash_balance|default_if_none:0 }}">
           ¥{{ cash_balance|default_if_none:0|floatformat:0|intcomma }}
         </div>
         <div class="kpi-sub">入出金 − 現物取得額 + 実現損益</div>
@@ -128,20 +113,10 @@
         </ul>
       </article>
     </div>
-
-    <!-- ====== AI INSIGHTS（新規実装） ====== -->
-    <div class="ai-box kpi-row" style="grid-template-columns:1fr;">
-      <article class="kpi-card glass">
-        <div class="kpi-title">AI INSIGHTS（β）</div>
-        <ul class="ai-list" id="aiInsights">
-          <!-- JSで項目を注入：目標比率乖離／勝率／MaxDD推定／配当見込み -->
-        </ul>
-      </article>
-    </div>
   </section>
 
-  <!-- ====== ディープダイブ（詳細） ====== -->
-  <section class="deep glass" id="deep">
+  <!-- ===== 詳細（据え置き） ===== -->
+  <section class="deep glass" id="deep" hidden>
     <header class="deep-hd">
       <h2>詳細インサイト</h2>
       <div class="hd-actions">
@@ -163,39 +138,36 @@
 
       <article class="deep-card">
         <h3>トレンド・スパーク</h3>
-        <div id="sparkDeck" class="spark-deck"
-             data-points="{{ asset_history_csv|default_if_none:'' }}"></div>
+        <div id="sparkDeck" class="spark-deck" data-points="{{ asset_history_csv|default_if_none:'' }}"></div>
         <p class="muted">30ポイントの簡易トレンド。詳細チャートは個別銘柄から。</p>
       </article>
     </div>
   </section>
 
-  <!-- ====== 最近のアクティビティ ====== -->
+  <!-- ===== Activity ===== -->
   <section class="activity">
     <h2>最近のアクティビティ</h2>
     {% if recent_activities %}
-      <ul class="activity-list" id="activityList">
+      <ul class="activity-list">
         {% for a in recent_activities %}
-          <li class="act-item" data-kind="{{ a.kind }}">
-            <div class="act-date">{{ a.date|date:"Y-m-d" }}</div>
+          <li class="act-item">
+            <div class="act-date">{{ a.date|date:"n/j" }}</div>
             {% if a.kind == 'trade' %}
               <div class="act-main">売買 {{ a.ticker }} {{ a.name }}</div>
-              <div class="act-val {% if a.pnl >= 0 %}pos{% else %}neg{% endif %}"
-                   data-amount="{{ a.pnl|default_if_none:0 }}">
+              <div class="act-val {% if a.pnl >= 0 %}pos{% else %}neg{% endif %}">
                 {% if a.pnl >= 0 %}+{% endif %}¥{{ a.pnl|floatformat:0|intcomma }}
               </div>
             {% elif a.kind == 'dividend' %}
               <div class="act-main">配当 {{ a.ticker }} {{ a.name }}</div>
-              <div class="act-val pos" data-amount="{{ a.net|default_if_none:0 }}">+¥{{ a.net|default_if_none:0|intcomma }}</div>
+              <div class="act-val pos">+¥{{ a.net|default_if_none:0|intcomma }}</div>
             {% elif a.kind == 'cash' %}
               <div class="act-main">現金 {{ a.broker_label }}</div>
-              <div class="act-val {% if a.flow == 'in' %}pos{% else %}neg{% endif %}"
-                   data-amount="{% if a.flow == 'in' %}{{ a.amount|default_if_none:0 }}{% else %}-{{ a.amount|default_if_none:0 }}{% endif %}">
+              <div class="act-val {% if a.flow == 'in' %}pos{% else %}neg{% endif %}">
                 {% if a.flow == 'in' %}+{% else %}-{% endif %}¥{{ a.amount|intcomma }}
               </div>
             {% else %}
               <div class="act-main">その他</div>
-              <div class="act-val" data-amount="0">—</div>
+              <div class="act-val">—</div>
             {% endif %}
           </li>
         {% endfor %}
