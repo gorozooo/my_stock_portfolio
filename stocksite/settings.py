@@ -147,6 +147,18 @@ CRONJOBS = [
     # ('0 7 * * *', 'django.core.management.call_command', ['snapshot_assets']),
 ]
 
+# === Bench & Sector targets ===
+BENCH_TICKERS = {
+    "TOPIX": "^TOPX",    # TOPIX
+    "NIKKEI": "^N225",   # 日経平均
+}
+# 目標配分（%）；お好みで
+SECTOR_TARGETS = {
+    "銀行": 10, "保険": 8, "商社": 10, "小売": 8, "不動産": 8,
+    "機械": 12, "化学": 10, "電機": 12, "自動車": 12, "その他": 10,
+}
+SECTOR_TARGETS_DEFAULT = 100  # 合計100%になる前提（ズレても自動正規化）
+
 # =============================
 # 本番向けオプション例（必要に応じて）
 # =============================
