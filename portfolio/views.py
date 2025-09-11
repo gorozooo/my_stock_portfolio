@@ -76,6 +76,140 @@ def bottom_tabs_context(request):
     return {"BOTTOM_TABS": get_bottom_tabs()}
 
 # -----------------------------
+# ダッシュボード
+# -----------------------------
+import datetime as dt
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render
+from django.core.cache import cache
+
+try:
+    import yfinance as yf
+except Exception:
+    yf = None  # yfinance未導入でもクラッシュしないように
+
+# 既存: Stock, _get_current_price_cached などはあなたのファイルに既にあります
+try:
+    from .models import Stock
+except Exception:
+    Stock = None  # type: ignore
+
+
+def _safe_float(x, default=0.0):
+    try:
+        f = float(x)
+        return f if f == f else default
+    except Exception:
+        return default
+
+
+def _yf_last_two_closes(symbol: str):
+    """yfinanceで直近2本の終値を返す (prev_close, last_close)。失敗時は(None, None)。"""
+    if not yf:
+        return (None, None)
+    try:
+        h = yf.Ticker(symbol).history(period="5d", interval="1d")
+        closes = h["Close"].dropna()
+        if len(closes) >= 2:
+            return (float(closes.iloc[-2]), float(closes.iloc[-1]))
+        elif len(closes) == 1:
+            c = float(closes.iloc[-1])
+            return (c, c)
+    except Exception:
+        pass
+    return (None, None)
+
+
+def _yf_benchmark_return():
+    """
+    TOPIXの前日比リターン（小数, 例: +0.008 = +0.8%）を取得。
+    ^TOPX が取れない環境があるので TOPIX連動ETFでフォールバック。
+    """
+    candidates = ["^TOPX", "1306.T", "1473.T"]  # TOPIX, TOPIX連動ETF
+    for sym in candidates:
+        prevc, lastc = _yf_last_two_closes(sym)
+        if prevc and lastc and prevc > 0:
+            return (lastc - prevc) / prevc
+    return 0.0
+
+
+@login_required
+def dashboard_today_view(request):
+    """
+    今日の損益 + ベンチ差（TOPIX）だけの軽量ダッシュ。
+    - 今日の損益（円）＝ Σ (買い: (last - prev)*shares, 売り: (prev - last)*shares)
+    - ポート今日リターン(%)＝ 今日の損益 / Σ(前日終値×株数)
+    - ベンチ差(%)＝ ポート今日リターン - TOPIX今日リターン
+    """
+    total_intraday_pnl = 0.0         # 今日の損益（円）
+    portfolio_prev_value = 0.0       # 昨日終値ベースのポート価値
+    rows = []
+
+    if Stock:
+        qs = Stock.objects.all()
+        # userフィルタ（あれば）
+        try:
+            if "user" in {f.name for f in Stock._meta.get_fields()}:
+                qs = qs.filter(user=request.user)
+        except Exception:
+            pass
+
+        for s in qs:
+            ticker = str(getattr(s, "ticker", "") or "")
+            if not ticker:
+                continue
+            # Yahoo用に .T 付与（既に .T 付ならそのまま）
+            yf_symbol = f"{ticker}.T" if not ticker.endswith(".T") else ticker
+
+            prevc, lastc = _yf_last_two_closes(yf_symbol)
+            if not (prevc and lastc):
+                # 価格が取れないときはスキップ
+                continue
+
+            shares = int(getattr(s, "shares", 0) or 0)
+            pos = str(getattr(s, "position", "買い") or "")
+
+            # 前日終値ベースの価値
+            portfolio_prev_value += prevc * shares
+
+            # 今日の損益（売りポジは逆符号）
+            if pos == "売り":
+                pnl = (prevc - lastc) * shares
+            else:
+                pnl = (lastc - prevc) * shares
+
+            total_intraday_pnl += pnl
+
+            rows.append({
+                "name": getattr(s, "name", "") or ticker,
+                "ticker": ticker,
+                "pre_close": prevc,
+                "last_close": lastc,
+                "shares": shares,
+                "position": pos,
+                "pnl": pnl,
+            })
+
+    # ポート今日リターン
+    port_ret = (total_intraday_pnl / portfolio_prev_value) if portfolio_prev_value > 0 else 0.0
+
+    # ベンチ（TOPIX）今日リターン
+    bench_ret = _yf_benchmark_return()
+
+    # ベンチ差
+    alpha_ret = port_ret - bench_ret
+
+    context = {
+        "today_pnl": total_intraday_pnl,     # 円
+        "port_ret": port_ret,                # 小数
+        "bench_ret": bench_ret,              # 小数
+        "alpha_ret": alpha_ret,              # 小数
+        "rows": rows,
+        "as_of": dt.datetime.now(),
+    }
+    return render(request, "dashboard_today.html", context)
+
+# -----------------------------
 # メイン画面（※関数本体は変更なし）
 # -----------------------------
 from datetime import timedelta
