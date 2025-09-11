@@ -80,7 +80,8 @@ def bottom_tabs_context(request):
 # -----------------------------
 # views.py
 import datetime as dt
-from typing import Tuple, Optional
+from collections import defaultdict
+from typing import Optional, Tuple, List
 
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
@@ -89,23 +90,21 @@ from django.utils import timezone
 try:
     import yfinance as yf
 except Exception:
-    yf = None  # yfinance 未導入でも落とさない
+    yf = None  # yfinance未導入でも落ちないように
 
 try:
     from .models import Stock
 except Exception:
     Stock = None  # type: ignore
 
-import logging
-logger = logging.getLogger(__name__)
 
-
+# --------- Yahoo!Finance 安全ヘルパ ---------
 def _yf_history_last_two(symbol: str) -> Optional[Tuple[float, float]]:
+    """直近2本の終値（前日終値, 当日終値）を返す。無理なら None。"""
     if not yf or not symbol:
         return None
     try:
         t = yf.Ticker(symbol)
-        # 祝日や欠損を吸収するため余裕をもって 10d
         hist = t.history(period="10d", interval="1d", auto_adjust=False, actions=False)
         if hist is None or hist.empty:
             return None
@@ -117,8 +116,7 @@ def _yf_history_last_two(symbol: str) -> Optional[Tuple[float, float]]:
         if prevc <= 0 or lastc <= 0:
             return None
         return (prevc, lastc)
-    except Exception as e:
-        logger.info("history fetch failed for %s: %s", symbol, e)
+    except Exception:
         return None
 
 
@@ -126,7 +124,7 @@ def _yf_last_two_closes(yf_symbol: str) -> Optional[Tuple[float, float]]:
     got = _yf_history_last_two(yf_symbol)
     if got:
         return got
-    # 4桁コードなら .T をつけて再トライ
+    # 4桁コードなら .T 付で再トライ
     base = yf_symbol.split(".")[0]
     if base.isdigit() and len(base) == 4 and not yf_symbol.endswith(".T"):
         return _yf_history_last_two(f"{base}.T")
@@ -134,122 +132,175 @@ def _yf_last_two_closes(yf_symbol: str) -> Optional[Tuple[float, float]]:
 
 
 def _yf_benchmark_return() -> float:
-    """TOPIX→1306.T→1308.T の順でフォールバック。失敗したら 0.0。"""
+    """TOPIXの当日リターン（失敗時は1306.T→1308.Tフォールバック）。なければ0.0。"""
     if not yf:
         return 0.0
-    for sym in ("^TOPIX", "1306.T", "1308.T"):
+    for sym in ("^TOPX", "1306.T", "1308.T"):
         pair = _yf_last_two_closes(sym)
         if not pair:
             continue
         prevc, lastc = pair
-        try:
-            return (lastc - prevc) / prevc if prevc else 0.0
-        except Exception:
-            continue
-    logger.warning("Benchmark fetch failed; fallback 0.0")
+        return (lastc - prevc) / prevc if prevc else 0.0
     return 0.0
 
 
-@login_required
-def dashboard_today_view(request):
+# --------- ポートフォリオ履歴（ベンチ比較用） ---------
+def _portfolio_history_csv(request, days: int = 60) -> str:
     """
-    今日の損益 + ベンチ差（TOPIX）ダッシュ。
-    価格が取れない銘柄はスキップするが、rows に reason を入れて画面に出す。
-    rows が 0 件でも today_pnl/ret は 0 として必ず表示。
+    ポートの“価値”の履歴をCSVで返す（終値ベース）。
+    ・長ポジ： +shares * close
+    ・売りポジ： -shares * close（エクスポージャとして扱う）
+    取得失敗時は空CSVを返す。
     """
-    total_intraday_pnl = 0.0
-    portfolio_prev_value = 0.0
-    rows = []
+    if not (yf and Stock):
+        return ""
 
-    if not Stock:
-        context = {
-            "today_pnl": 0.0, "port_ret": 0.0, "bench_ret": _yf_benchmark_return(),
-            "alpha_ret": 0.0, "rows": [],
-            "as_of": timezone.now(),
-            "notice": "Stock モデルが読み込めませんでした。",
-        }
-        return render(request, "dashboard_today.html", context)
-
+    # ユーザの保有一覧
     qs = Stock.objects.all()
-    # user フィルタ（あれば）
     try:
         if "user" in {f.name for f in Stock._meta.get_fields()}:
             qs = qs.filter(user=request.user)
     except Exception:
         pass
-
-    if not qs.exists():
-        context = {
-            "today_pnl": 0.0, "port_ret": 0.0, "bench_ret": _yf_benchmark_return(),
-            "alpha_ret": 0.0, "rows": [],
-            "as_of": timezone.now(),
-            "notice": "保有銘柄がありません。",
-        }
-        return render(request, "dashboard_today.html", context)
-
+    codes = []
+    items = []
     for s in qs:
-        ticker = str(getattr(s, "ticker", "") or "").strip()
-        name = str(getattr(s, "name", "") or "") or ticker or "—"
+        ticker = (getattr(s, "ticker", "") or "").strip()
         if not ticker:
-            rows.append({
-                "name": name, "ticker": "—", "pre_close": None, "last_close": None,
-                "shares": int(getattr(s, "shares", 0) or 0),
-                "position": str(getattr(s, "position", "買い") or ""),
-                "pnl": 0.0, "reason": "証券コードが未設定",
-            })
             continue
-
-        yf_symbol = f"{ticker}.T" if not ticker.endswith(".T") else ticker
-        pair = _yf_last_two_closes(yf_symbol)
-        if not pair:
-            rows.append({
-                "name": name, "ticker": ticker, "pre_close": None, "last_close": None,
-                "shares": int(getattr(s, "shares", 0) or 0),
-                "position": str(getattr(s, "position", "買い") or ""),
-                "pnl": 0.0, "reason": "価格を取得できませんでした",
-            })
-            continue
-
-        prevc, lastc = pair
+        yf_symbol = ticker if ticker.endswith(".T") else f"{ticker}.T"
         shares = int(getattr(s, "shares", 0) or 0)
         pos = str(getattr(s, "position", "買い") or "")
+        sign = -1 if pos.startswith("売") else 1
+        if shares == 0:
+            continue
+        codes.append(yf_symbol)
+        items.append((yf_symbol, shares, sign))
 
-        portfolio_prev_value += prevc * shares
+    if not items:
+        return ""
 
-        if pos in ("売り", "売") or pos.startswith("売"):
-            pnl = (prevc - lastc) * shares
-        else:
-            pnl = (lastc - prevc) * shares
+    # 日付→合計価値 の辞書
+    total_by_date: dict[dt.date, float] = defaultdict(float)
 
-        total_intraday_pnl += pnl
+    # 余裕を持ってdays+10日取得（欠損対策）
+    for yf_symbol, shares, sign in items:
+        try:
+            t = yf.Ticker(yf_symbol)
+            hist = t.history(period=f"{days + 15}d", interval="1d", auto_adjust=False, actions=False)
+            if hist is None or hist.empty:
+                continue
+            closes = hist["Close"].dropna()
+            # pandas の index が Timestamp（UTC）なので date() に落とす
+            for ts, px in closes.items():
+                try:
+                    d = ts.date()
+                except Exception:
+                    # pandas<->numpy 互換
+                    d = dt.date.fromtimestamp(int(ts))
+                total_by_date[d] += float(px) * shares * sign
+        except Exception:
+            continue
 
-        rows.append({
-            "name": name,
-            "ticker": ticker,
-            "pre_close": prevc,
-            "last_close": lastc,
-            "shares": shares,
-            "position": pos,
-            "pnl": pnl,
-            "reason": "",  # 正常
-        })
+    if not total_by_date:
+        return ""
 
-    port_ret = (total_intraday_pnl / portfolio_prev_value) if portfolio_prev_value > 0 else 0.0
-    bench_ret = _yf_benchmark_return()
-    alpha_ret = port_ret - bench_ret
+    # 直近days日に整形（昇順）
+    dates_sorted = sorted(total_by_date.keys())[-days:]
+    series = [int(round(total_by_date[d])) for d in dates_sorted]
+    return ",".join(str(v) for v in series)
+
+
+def _benchmark_history_csv(days: int = 60) -> str:
+    """ベンチ（TOPIX代替）の価格履歴をCSV化。失敗時は空。"""
+    if not yf:
+        return ""
+    for sym in ("^TOPIX", "1306.T", "1308.T"):
+        try:
+            t = yf.Ticker(sym)
+            hist = t.history(period=f"{days + 15}d", interval="1d", auto_adjust=False, actions=False)
+            if hist is None or hist.empty:
+                continue
+            closes = hist["Close"].dropna()
+            vals = [float(x) for x in closes.tail(days).tolist()]
+            if not vals:
+                continue
+            return ",".join(str(int(round(v))) for v in vals)
+        except Exception:
+            continue
+    return ""
+
+
+# ========= ビュー本体 =========
+@login_required
+def dashboard_today_view(request):
+    """
+    今日の損益 + ベンチ差 をテンプレ（dashboard.html）の期待キーに合わせて返却。
+    - pnl_today（円）
+    - bench_diff_today（% 表示用の小数 *100ではなく「百分率」で返す」←テンプレが % を出す）
+    - asset_history_csv / bench_history_csv（カンマ区切りの数列）
+    """
+    pnl_today = 0.0
+    prev_value_sum = 0.0  # 昨日終値×株数の合計（売りは符号反転）
+
+    if Stock:
+        qs = Stock.objects.all()
+        try:
+            if "user" in {f.name for f in Stock._meta.get_fields()}:
+                qs = qs.filter(user=request.user)
+        except Exception:
+            pass
+
+        for s in qs:
+            ticker = (getattr(s, "ticker", "") or "").strip()
+            if not ticker:
+                continue
+            yf_symbol = ticker if ticker.endswith(".T") else f"{ticker}.T"
+            pair = _yf_last_two_closes(yf_symbol)
+            if not pair:
+                continue
+            prevc, lastc = pair
+            shares = int(getattr(s, "shares", 0) or 0)
+            pos = str(getattr(s, "position", "買い") or "")
+            sign = -1 if pos.startswith("売") else 1
+
+            prev_value_sum += prevc * shares * sign
+            pnl_today += (lastc - prevc) * shares * sign
+
+    # ポート今日リターン（小数）→ テンプレは % 表示にしているので *100 してから渡す
+    port_ret = (pnl_today / prev_value_sum) if prev_value_sum else 0.0
+    port_ret_pct = port_ret * 100.0
+
+    # ベンチ
+    bench_ret = _yf_benchmark_return()  # 小数
+    bench_ret_pct = bench_ret * 100.0
+
+    # ベンチ差（百分率）
+    bench_diff_today = (port_ret - bench_ret) * 100.0
+
+    # ヒストリー（CSV）
+    asset_history_csv = _portfolio_history_csv(request, days=60)  # ポート価値（符号付エクスポージャ）
+    bench_history_csv = _benchmark_history_csv(days=60)
 
     context = {
-        "today_pnl": total_intraday_pnl,
-        "port_ret": port_ret,
-        "bench_ret": bench_ret,
-        "alpha_ret": alpha_ret,
-        "rows": rows,
+        # テンプレ期待キー
+        "pnl_today": pnl_today,
+        "bench_diff_today": bench_diff_today,  # 例：+1.23% と表示される
+        "asset_history_csv": asset_history_csv,
+        "bench_history_csv": bench_history_csv,
+
+        # ついでに“中に隠れている表示”で使うかもしれないので返しておく
+        "port_ret_pct": port_ret_pct,
+        "bench_ret_pct": bench_ret_pct,
+
+        # 既存ダッシュの他KPI用（あれば）
+        "cash_balance": 0,           # 必要なら main_page の計算を共通関数化して再利用
+        "total_assets": 0,
+        "margin_market_value": 0,
+
         "as_of": timezone.now(),
-        # 画面上に軽い注意を出せるように（任意）
-        "notice": None,
     }
     return render(request, "dashboard_today.html", context)
-
 # -----------------------------
 # メイン画面（※関数本体は変更なし）
 # -----------------------------
