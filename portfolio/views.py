@@ -78,137 +78,175 @@ def bottom_tabs_context(request):
 # -----------------------------
 # ダッシュボード
 # -----------------------------
+# views.py
 import datetime as dt
+from typing import Tuple, Optional
+
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
-from django.core.cache import cache
+from django.utils import timezone
 
 try:
     import yfinance as yf
 except Exception:
-    yf = None  # yfinance未導入でもクラッシュしないように
+    yf = None  # yfinance 未導入でも落とさない
 
-# 既存: Stock, _get_current_price_cached などはあなたのファイルに既にあります
 try:
     from .models import Stock
 except Exception:
     Stock = None  # type: ignore
 
+import logging
+logger = logging.getLogger(__name__)
 
-def _safe_float(x, default=0.0):
+
+def _yf_history_last_two(symbol: str) -> Optional[Tuple[float, float]]:
+    if not yf or not symbol:
+        return None
     try:
-        f = float(x)
-        return f if f == f else default
-    except Exception:
-        return default
+        t = yf.Ticker(symbol)
+        # 祝日や欠損を吸収するため余裕をもって 10d
+        hist = t.history(period="10d", interval="1d", auto_adjust=False, actions=False)
+        if hist is None or hist.empty:
+            return None
+        closes = hist["Close"].dropna()
+        if len(closes) < 2:
+            return None
+        prevc = float(closes.iloc[-2])
+        lastc = float(closes.iloc[-1])
+        if prevc <= 0 or lastc <= 0:
+            return None
+        return (prevc, lastc)
+    except Exception as e:
+        logger.info("history fetch failed for %s: %s", symbol, e)
+        return None
 
 
-def _yf_last_two_closes(symbol: str):
-    """yfinanceで直近2本の終値を返す (prev_close, last_close)。失敗時は(None, None)。"""
+def _yf_last_two_closes(yf_symbol: str) -> Optional[Tuple[float, float]]:
+    got = _yf_history_last_two(yf_symbol)
+    if got:
+        return got
+    # 4桁コードなら .T をつけて再トライ
+    base = yf_symbol.split(".")[0]
+    if base.isdigit() and len(base) == 4 and not yf_symbol.endswith(".T"):
+        return _yf_history_last_two(f"{base}.T")
+    return None
+
+
+def _yf_benchmark_return() -> float:
+    """TOPIX→1306.T→1308.T の順でフォールバック。失敗したら 0.0。"""
     if not yf:
-        return (None, None)
-    try:
-        h = yf.Ticker(symbol).history(period="5d", interval="1d")
-        closes = h["Close"].dropna()
-        if len(closes) >= 2:
-            return (float(closes.iloc[-2]), float(closes.iloc[-1]))
-        elif len(closes) == 1:
-            c = float(closes.iloc[-1])
-            return (c, c)
-    except Exception:
-        pass
-    return (None, None)
-
-
-def _yf_benchmark_return():
-    """
-    TOPIXの前日比リターン（小数, 例: +0.008 = +0.8%）を取得。
-    ^TOPX が取れない環境があるので TOPIX連動ETFでフォールバック。
-    """
-    candidates = ["^TOPIX", "1306.T", "1473.T"]  # TOPIX, TOPIX連動ETF
-    for sym in candidates:
-        prevc, lastc = _yf_last_two_closes(sym)
-        if prevc and lastc and prevc > 0:
-            return (lastc - prevc) / prevc
+        return 0.0
+    for sym in ("^TOPX", "1306.T", "1308.T"):
+        pair = _yf_last_two_closes(sym)
+        if not pair:
+            continue
+        prevc, lastc = pair
+        try:
+            return (lastc - prevc) / prevc if prevc else 0.0
+        except Exception:
+            continue
+    logger.warning("Benchmark fetch failed; fallback 0.0")
     return 0.0
 
 
 @login_required
 def dashboard_today_view(request):
     """
-    今日の損益 + ベンチ差（TOPIX）だけの軽量ダッシュ。
-    - 今日の損益（円）＝ Σ (買い: (last - prev)*shares, 売り: (prev - last)*shares)
-    - ポート今日リターン(%)＝ 今日の損益 / Σ(前日終値×株数)
-    - ベンチ差(%)＝ ポート今日リターン - TOPIX今日リターン
+    今日の損益 + ベンチ差（TOPIX）ダッシュ。
+    価格が取れない銘柄はスキップするが、rows に reason を入れて画面に出す。
+    rows が 0 件でも today_pnl/ret は 0 として必ず表示。
     """
-    total_intraday_pnl = 0.0         # 今日の損益（円）
-    portfolio_prev_value = 0.0       # 昨日終値ベースのポート価値
+    total_intraday_pnl = 0.0
+    portfolio_prev_value = 0.0
     rows = []
 
-    if Stock:
-        qs = Stock.objects.all()
-        # userフィルタ（あれば）
-        try:
-            if "user" in {f.name for f in Stock._meta.get_fields()}:
-                qs = qs.filter(user=request.user)
-        except Exception:
-            pass
+    if not Stock:
+        context = {
+            "today_pnl": 0.0, "port_ret": 0.0, "bench_ret": _yf_benchmark_return(),
+            "alpha_ret": 0.0, "rows": [],
+            "as_of": timezone.now(),
+            "notice": "Stock モデルが読み込めませんでした。",
+        }
+        return render(request, "dashboard_today.html", context)
 
-        for s in qs:
-            ticker = str(getattr(s, "ticker", "") or "").strip()
-            if not ticker:
-                continue
+    qs = Stock.objects.all()
+    # user フィルタ（あれば）
+    try:
+        if "user" in {f.name for f in Stock._meta.get_fields()}:
+            qs = qs.filter(user=request.user)
+    except Exception:
+        pass
 
-            # Yahoo用に .T 付与（既に .T 付ならそのまま）
-            yf_symbol = f"{ticker}.T" if not ticker.endswith(".T") else ticker
+    if not qs.exists():
+        context = {
+            "today_pnl": 0.0, "port_ret": 0.0, "bench_ret": _yf_benchmark_return(),
+            "alpha_ret": 0.0, "rows": [],
+            "as_of": timezone.now(),
+            "notice": "保有銘柄がありません。",
+        }
+        return render(request, "dashboard_today.html", context)
 
-            pair = _yf_last_two_closes(yf_symbol)
-            if not pair:
-                # 価格が取れないときはスキップ（ログだけ残す）
-                logger.debug("skip: no price for %s", yf_symbol)
-                continue
-
-            prevc, lastc = pair
-            shares = int(getattr(s, "shares", 0) or 0)
-            pos = str(getattr(s, "position", "買い") or "")
-
-            # 前日終値ベースの価値
-            portfolio_prev_value += prevc * shares
-
-            # 今日の損益（売りポジは逆符号／「売」も許容）
-            if pos in ("売り", "売") or pos.startswith("売"):
-                pnl = (prevc - lastc) * shares
-            else:
-                pnl = (lastc - prevc) * shares
-
-            total_intraday_pnl += pnl
-
+    for s in qs:
+        ticker = str(getattr(s, "ticker", "") or "").strip()
+        name = str(getattr(s, "name", "") or "") or ticker or "—"
+        if not ticker:
             rows.append({
-                "name": getattr(s, "name", "") or ticker,
-                "ticker": ticker,
-                "pre_close": prevc,
-                "last_close": lastc,
-                "shares": shares,
-                "position": pos,
-                "pnl": pnl,
+                "name": name, "ticker": "—", "pre_close": None, "last_close": None,
+                "shares": int(getattr(s, "shares", 0) or 0),
+                "position": str(getattr(s, "position", "買い") or ""),
+                "pnl": 0.0, "reason": "証券コードが未設定",
             })
+            continue
 
-    # ポート今日リターン
+        yf_symbol = f"{ticker}.T" if not ticker.endswith(".T") else ticker
+        pair = _yf_last_two_closes(yf_symbol)
+        if not pair:
+            rows.append({
+                "name": name, "ticker": ticker, "pre_close": None, "last_close": None,
+                "shares": int(getattr(s, "shares", 0) or 0),
+                "position": str(getattr(s, "position", "買い") or ""),
+                "pnl": 0.0, "reason": "価格を取得できませんでした",
+            })
+            continue
+
+        prevc, lastc = pair
+        shares = int(getattr(s, "shares", 0) or 0)
+        pos = str(getattr(s, "position", "買い") or "")
+
+        portfolio_prev_value += prevc * shares
+
+        if pos in ("売り", "売") or pos.startswith("売"):
+            pnl = (prevc - lastc) * shares
+        else:
+            pnl = (lastc - prevc) * shares
+
+        total_intraday_pnl += pnl
+
+        rows.append({
+            "name": name,
+            "ticker": ticker,
+            "pre_close": prevc,
+            "last_close": lastc,
+            "shares": shares,
+            "position": pos,
+            "pnl": pnl,
+            "reason": "",  # 正常
+        })
+
     port_ret = (total_intraday_pnl / portfolio_prev_value) if portfolio_prev_value > 0 else 0.0
-
-    # ベンチ（TOPIX or 代替ETF）今日リターン
     bench_ret = _yf_benchmark_return()
-
-    # ベンチ差
     alpha_ret = port_ret - bench_ret
 
     context = {
-        "today_pnl": total_intraday_pnl,     # 円
-        "port_ret": port_ret,                # 小数（テンプレで *100, floatformat など）
-        "bench_ret": bench_ret,              # 小数
-        "alpha_ret": alpha_ret,              # 小数
+        "today_pnl": total_intraday_pnl,
+        "port_ret": port_ret,
+        "bench_ret": bench_ret,
+        "alpha_ret": alpha_ret,
         "rows": rows,
         "as_of": timezone.now(),
+        # 画面上に軽い注意を出せるように（任意）
+        "notice": None,
     }
     return render(request, "dashboard_today.html", context)
 
