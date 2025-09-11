@@ -50,12 +50,21 @@ body{
 .total{font-size:36px;font-weight:1000;letter-spacing:.02em}
 .total-sub{margin-top:4px;color:var(--muted)}
 .spark-wrap{margin-top:12px}
-.spark{height:68px;border:1px dashed var(--line);border-radius:14px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.spark{
+  height:68px;
+  /* 破線は撤去：枠なしで近未来っぽく */
+  border:0;
+  border-radius:14px;display:flex;align-items:center;justify-content:center;overflow:hidden
+}
 
 /* =============== KPI =============== */
 .kpi-grid{display:grid;grid-template-columns:1fr;gap:12px;margin:16px 0}
 @media (min-width:640px){.kpi-grid{grid-template-columns:1fr 1fr}}
 @media (min-width:880px){.kpi-grid{grid-template-columns:1fr 1fr}}
+/* 横並びに束ねる行ラッパー（現物×信用／キャッシュ×比率） */
+.kpi-row{display:grid;grid-template-columns:1fr;gap:12px}
+@media (min-width:560px){.kpi-row{grid-template-columns:1fr 1fr}}
+
 .glass{background:var(--glass);border:1px solid var(--line);border-radius:16px;padding:14px;backdrop-filter: blur(8px)}
 .kpi-card .kpi-title{font-size:12px;color:var(--muted)}
 .kpi-card .kpi-value{font-size:22px;font-weight:900;margin:4px 0}
@@ -71,6 +80,17 @@ body{
 .dot-margin{background:#ff8a5b}
 .dot-cash{background:var(--accent)}
 .legend{display:flex;gap:12px;margin:10px 0 4px;padding:0;list-style:none;color:var(--muted);font-size:12px}
+
+/* =============== AI INSIGHTS =============== */
+.ai-box{margin-top:14px}
+.ai-list{list-style:none;padding:0;margin:8px 0 0;display:grid;gap:8px}
+.ai-item{display:flex;justify-content:space-between;align-items:baseline;
+  border:1px solid rgba(255,255,255,.15);border-radius:10px;
+  padding:8px 10px;background:rgba(255,255,255,.05)}
+.ai-item small{opacity:.75}
+.ai-item strong{font-variation-settings:"wght" 800}
+.ai-pos{color:#22c55e}
+.ai-neg{color:#ef4444}
 
 /* =============== DEEP =============== */
 .deep{margin:16px 0}
@@ -94,7 +114,7 @@ body{
 .act-main{font-weight:700}
 .act-val{font-variant-numeric:tabular-nums}
 
-/* LIVE 演出 */
+/* LIVE 演出（強め） */
 .chip-live { display:inline-flex; align-items:center; gap:.5rem }
 .live-dot {
   width:.6rem; height:.6rem; border-radius:50%;
