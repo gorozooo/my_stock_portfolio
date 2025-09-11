@@ -144,6 +144,7 @@ CRONJOBS = [
     # JSTサーバーの場合（毎日16:00）
     ('0 16 * * *', 'django.core.management.call_command', ['snapshot_assets']),
     ('0 16 * * *', 'django.core.management.call_command', ['snapshot_metrics']),
+    ("0 16 * * *", "django.core.management.call_command", ["snapshot_today_pnl"], {"verbosity": 1}),
     # もしサーバーTZがUTCなら、上をコメントアウトして下を有効化
     # ('0 7 * * *', 'django.core.management.call_command', ['snapshot_assets']),
 ]
