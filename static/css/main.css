@@ -31,7 +31,7 @@ body{
   overflow:hidden; /* FIX: KPIがはみ出すのを防止（右端のにじみ対策） */
 }
 /* FIX: 内訳を閉じている時に縦の余白をさらに詰めたい場合はここを調整 */
-.hero.is-collapsed{ padding-bottom: 6px; } /* ← ここを小さくすると“含み損益～下端”の空白が狭くなる */
+.hero.is-collapsed{ padding-bottom: 1px; } /* ← ここを小さくすると“含み損益～下端”の空白が狭くなる */
 
 .bg-orb{position:absolute;border-radius:50%;filter:blur(30px);opacity:.55;pointer-events:none;}
 .orb-a{width:160px;height:160px;left:-20px;top:-20px;background:radial-gradient(var(--primary),transparent)}
