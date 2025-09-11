@@ -452,3 +452,23 @@ class AssetSnapshot(models.Model):
     def __str__(self):
         u = getattr(self.user, "username", "—")
         return f"{self.date} / {u} / {self.total_assets}"
+
+# =============================
+# 総資産スナップショット
+# =============================
+from django.conf import settings
+from django.db import models
+
+class PortfolioSnapshot(models.Model):
+    """総資産スナップショット（日次1点）"""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True)
+    date = models.DateField(db_index=True)
+    total_assets = models.BigIntegerField(default=0)
+
+    class Meta:
+        unique_together = ("user", "date")
+        ordering = ["-date"]
+
+    def __str__(self):
+        u = getattr(self.user, "username", "anon")
+        return f"{u} {self.date} {self.total_assets:,}"
