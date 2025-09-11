@@ -125,7 +125,7 @@ def _yf_benchmark_return():
     TOPIXの前日比リターン（小数, 例: +0.008 = +0.8%）を取得。
     ^TOPX が取れない環境があるので TOPIX連動ETFでフォールバック。
     """
-    candidates = ["^TOPX", "1306.T", "1473.T"]  # TOPIX, TOPIX連動ETF
+    candidates = ["^TOPIX", "1306.T", "1473.T"]  # TOPIX, TOPIX連動ETF
     for sym in candidates:
         prevc, lastc = _yf_last_two_closes(sym)
         if prevc and lastc and prevc > 0:
