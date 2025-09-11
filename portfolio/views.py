@@ -98,51 +98,73 @@ except Exception:
     Stock = None  # type: ignore
 
 
-# --------- Yahoo!Finance 安全ヘルパ ---------
+# ---- 直近2本の終値（前日・当日）を安全に取る ----
 def _yf_history_last_two(symbol: str) -> Optional[Tuple[float, float]]:
-    """直近2本の終値（前日終値, 当日終値）を返す。無理なら None。"""
+    """
+    直近「取引日」の終値を2本返す。（週末/祝日で欠損してもOK）
+    返り値: (prev_close, last_close) / 失敗時 None
+    """
     if not yf or not symbol:
         return None
     try:
         t = yf.Ticker(symbol)
-        hist = t.history(period="10d", interval="1d", auto_adjust=False, actions=False)
+        # 余裕を持って過去15営業日分ほど
+        hist = t.history(period="20d", interval="1d", auto_adjust=False, actions=False)
         if hist is None or hist.empty:
             return None
         closes = hist["Close"].dropna()
+        # 0やNaNは除外
+        closes = closes[closes > 0]
         if len(closes) < 2:
             return None
         prevc = float(closes.iloc[-2])
         lastc = float(closes.iloc[-1])
-        if prevc <= 0 or lastc <= 0:
-            return None
         return (prevc, lastc)
     except Exception:
         return None
 
 
 def _yf_last_two_closes(yf_symbol: str) -> Optional[Tuple[float, float]]:
+    """与えられたシンボルの2本終値。4桁コードなら .T 付けて再挑戦。"""
     got = _yf_history_last_two(yf_symbol)
     if got:
         return got
-    # 4桁コードなら .T 付で再トライ
     base = yf_symbol.split(".")[0]
     if base.isdigit() and len(base) == 4 and not yf_symbol.endswith(".T"):
         return _yf_history_last_two(f"{base}.T")
     return None
 
 
+# ---- ベンチマーク（TOPIX）日次リターン（小数） ----
 def _yf_benchmark_return() -> float:
-    """TOPIXの当日リターン（失敗時は1306.T→1308.Tフォールバック）。なければ0.0。"""
+    """
+    TOPIXの当日リターン（小数）を返す。
+    優先順位: 公式指数 → 代表ETFフォールバック（複数）
+    どれも取れなければ 0.0
+    """
     if not yf:
         return 0.0
-    for sym in ("^TOPIX", "1306.T", "1308.T"):
+
+    # 候補を増やして堅牢化（^TOPX と ^TOPIX 両方、代表ETFいくつか）
+    candidates = [
+        "^TOPX",         # TOPIX（Yahoo!の一般的表記）
+        "^TOPIX",        # 環境によりこちらしか通らないケース
+        "1306.T",        # 野村TOPIX連動型上場投資信託
+        "1308.T",        # iシェアーズ TOPIX ETF
+        "1473.T",        # One ETF TOPIX
+        "2557.T",        # SMDAM TOPIX ETF（代替）
+    ]
+
+    for sym in candidates:
         pair = _yf_last_two_closes(sym)
         if not pair:
             continue
         prevc, lastc = pair
-        return (lastc - prevc) / prevc if prevc else 0.0
-    return 0.0
+        if prevc > 0:
+            return (lastc - prevc) / prevc
 
+    # 全滅したら 0
+    return 0.0
 
 # --------- ポートフォリオ履歴（ベンチ比較用） ---------
 def _portfolio_history_csv(request, days: int = 60) -> str:
