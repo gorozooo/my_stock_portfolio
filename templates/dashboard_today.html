@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% load static %}
+{% load humanize %}
+
+{% block title %}ダッシュ：今日の損益{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="wrap">
+  <section class="hero hero-dash">
+    <div class="bg-orb orb-a"></div>
+    <div class="bg-orb orb-b"></div>
+
+    <div class="hero-topline">
+      <span class="chip chip-live">
+        <span class="live-dot" aria-hidden="true"></span>
+        LIVE <span class="live-ts" id="liveTs">--:--:--</span>
+      </span>
+    </div>
+
+    <h1 class="headline">今日の損益 ＋ ベンチ差</h1>
+
+    <div class="kpis">
+      <div class="card main">
+        <div class="big" id="pnlYen" data-val="{{ today_pnl|default_if_none:0 }}">
+          ¥{{ today_pnl|default_if_none:0|floatformat:0|intcomma }}
+        </div>
+        <div class="sub">
+          ポート今日: 
+          <strong class="pnl {% if port_ret >= 0 %}pos{% else %}neg{% endif %}">
+            {% if port_ret >= 0 %}+{% endif %}{{ port_ret|floatformat:2 }}%
+          </strong>
+          ／ TOPIX:
+          <span class="{% if bench_ret >= 0 %}pos{% else %}neg{% endif %}">
+            {% if bench_ret >= 0 %}+{% endif %}{{ bench_ret|floatformat:2 }}%
+          </span>
+          ／ ベンチ差:
+          <span class="{% if alpha_ret >= 0 %}pos{% else %}neg{% endif %}">
+            {% if alpha_ret >= 0 %}+{% endif %}{{ alpha_ret|floatformat:2 }}%
+          </span>
+        </div>
+
+        <!-- 派手目ミニスパーク（総資産ではなく “今日の損益” の推移を表現：ノイズ演出込み） -->
+        <div id="sparkToday" class="spark-today"
+             data-base="{{ today_pnl|default_if_none:0 }}">
+        </div>
+      </div>
+
+      <div class="card side">
+        <div class="side-title">上位寄与（今日）</div>
+        <ul class="contrib">
+          {% for r in rows|dictsortreversed:"pnl"|slice:":5" %}
+            <li>
+              <span class="tkr">{{ r.ticker }}</span>
+              <span class="nm">{{ r.name }}</span>
+              <span class="v {% if r.pnl >= 0 %}pos{% else %}neg{% endif %}">
+                {% if r.pnl >= 0 %}+{% endif %}¥{{ r.pnl|floatformat:0|intcomma }}
+              </span>
+            </li>
+          {% empty %}
+            <li class="muted">データなし</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+
+    <p class="muted asof">更新: {{ as_of|date:"H:i:s" }}</p>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/dashboard_today.js' %}" defer></script>
+{% endblock %}
