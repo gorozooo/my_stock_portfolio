@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}PRO パネル{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/pro.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="wrap pro-wrap">
+  <section class="hero glass">
+    <div class="bg-orb orb-a"></div>
+    <div class="bg-orb orb-b"></div>
+
+    <div class="hero-topline">
+      <span class="chip chip-live">
+        <span class="live-dot" aria-hidden="true"></span>
+        LIVE <span class="live-ts" id="liveTs">--:--:--</span>
+      </span>
+    </div>
+
+    <h1 class="headline">PRO ダッシュ</h1>
+    <p class="muted">ベンチ比較 / 最大ドローダウン / セクター乖離 / 日次寄与（簡易）</p>
+
+    <!-- ① ベンチ比較 + DD -->
+    <div class="card-grid">
+      <article class="card">
+        <h3>ベンチ比較 & 最大DD（過去180日）</h3>
+        <div id="benchCards" class="bench-cards">
+          <!-- JSでミニカード注入 -->
+        </div>
+      </article>
+
+      <!-- ② セクター乖離 -->
+      <article class="card">
+        <h3>セクター乖離メーター</h3>
+        <div id="sectorDrift" class="drift-list"></div>
+      </article>
+
+      <!-- ③ 日次アトリビューション -->
+      <article class="card">
+        <h3>日次アトリビューション（寄与上位10）</h3>
+        <div id="attrList" class="attr-list"></div>
+      </article>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/pro.js' %}" defer></script>
+{% endblock %}
