@@ -1,14 +1,8 @@
 /* =============== THEME =============== */
 :root{
-  --bg:#0b0f1a;
-  --fg:#e6ebff;
-  --muted:#97a0c1;
-  --glass:rgba(255,255,255,.06);
-  --line:rgba(255,255,255,.14);
-  --primary:#6ea8ff;
-  --accent:#00ffd1;
-  --danger:#ff4d67;
-  --success:#26d07c;
+  --bg:#0b0f1a; --fg:#e6ebff; --muted:#97a0c1;
+  --glass:rgba(255,255,255,.06); --line:rgba(255,255,255,.14);
+  --primary:#6ea8ff; --accent:#00ffd1; --danger:#ff4d67; --success:#26d07c;
 }
 @media (prefers-color-scheme: light){
   :root{
@@ -17,97 +11,79 @@
     --primary:#2b64ff; --accent:#0dd3b8;
   }
 }
-
 *{box-sizing:border-box}
 html,body{height:100%}
 body{
-  margin:0;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Meiryo", Arial, "Apple Color Emoji", "Segoe UI Emoji";
-  color:var(--fg);
+  margin:0; color:var(--fg);
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI","Meiryo",Arial,"Apple Color Emoji","Segoe UI Emoji";
   background:
     radial-gradient(1200px 600px at 70% -20%, rgba(110,168,255,.15), transparent 60%),
     radial-gradient(900px 600px at -10% 10%, rgba(0,255,209,.08), transparent 60%),
     var(--bg);
 }
 
-/* =============== UTILS =============== */
 .wrap{max-width:980px;margin:0 auto;padding:16px}
 .muted{color:var(--muted)}
 .pos{color:var(--success)} .neg{color:var(--danger)}
-.chip{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--glass);backdrop-filter: blur(6px);font-weight:700}
+.chip{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--glass);backdrop-filter:blur(6px);font-weight:700}
 
-/* LIVE 演出（強め） */
-.chip-live { display:inline-flex; align-items:center; gap:.5rem }
-.live-dot {
-  width:.6rem; height:.6rem; border-radius:50%;
-  background: #22c55e; box-shadow:0 0 0 .15rem rgba(34,197,94,.25);
-  animation: pulse 1.8s infinite;
-}
-@keyframes pulse {
-  0% { transform:scale(1); box-shadow:0 0 0 .15rem rgba(34,197,94,.25); }
-  50% { transform:scale(1.25); box-shadow:0 0 0 .35rem rgba(34,197,94,.12); }
-  100% { transform:scale(1); box-shadow:0 0 0 .15rem rgba(34,197,94,.25); }
-}
-.live-ts { opacity:.8; font-variant-numeric: tabular-nums; }
+/* LIVE 演出 */
+.chip-live{display:inline-flex;align-items:center;gap:.5rem}
+.live-dot{width:.6rem;height:.6rem;border-radius:50%;background:#22c55e;box-shadow:0 0 0 .15rem rgba(34,197,94,.25);animation:pulse 1.8s infinite}
+@keyframes pulse{0%{transform:scale(1);box-shadow:0 0 0 .15rem rgba(34,197,94,.25)}50%{transform:scale(1.25);box-shadow:0 0 0 .35rem rgba(34,197,94,.12)}100%{transform:scale(1);box-shadow:0 0 0 .15rem rgba(34,197,94,.25)}}
+.live-ts{opacity:.8;font-variant-numeric:tabular-nums}
 
 /* =============== HERO =============== */
-/* ★余白を狭くするなら↓ここを調整（特に padding-bottom） */
+/* ★内訳を閉じている時の余白はここ（padding-bottom）で調整 */
 .hero{
-  position:relative;
-  border:1px solid var(--line);
-  border-radius:18px;
-  padding:16px 16px 14px; /* ← 下を14pxにして“閉じている時”の余白を抑える */
+  position:relative;border:1px solid var(--line);border-radius:18px;
+  padding:16px 16px 14px; /* 下端を詰めて無駄な空白を削減 */
   background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));
 }
-.bg-orb{position:absolute;border-radius:50%;filter:blur(30px);opacity:.55;pointer-events:none;}
+.bg-orb{position:absolute;border-radius:50%;filter:blur(30px);opacity:.55;pointer-events:none}
 .orb-a{width:180px;height:180px;left:-20px;top:-20px;background:radial-gradient(var(--primary),transparent)}
 .orb-b{width:220px;height:220px;right:-30px;bottom:-30px;background:radial-gradient(var(--accent),transparent)}
 .hero-topline{display:flex;gap:8px;margin-bottom:8px}
 .headline{margin:2px 0 0;font-size:13px;color:var(--muted);letter-spacing:.08em}
 .total{font-size:34px;font-weight:1000;letter-spacing:.02em}
 .total-sub{margin-top:2px;color:var(--muted)}
-/* スパーク（ダッシュ枠は残しつつ高さを低めにして空白を抑える） */
-.spark-wrap{margin-top:8px}
-.spark{height:60px;border:1px dashed var(--line);border-radius:14px;display:flex;align-items:center;justify-content:center;overflow:hidden}
 
 /* =============== HERO 内訳（<details>） =============== */
 .breakdown{margin-top:10px}
 .summary-btn{
-  display:inline-flex;align-items:center;gap:.5rem;
-  padding:8px 10px;border-radius:12px;border:1px solid var(--line);
-  background:var(--glass);font-weight:800;cursor:pointer;user-select:none;
+  display:inline-flex;align-items:center;gap:.5rem;cursor:pointer;user-select:none;
+  padding:8px 10px;border-radius:12px;border:1px solid var(--line);background:var(--glass);font-weight:800;
 }
 .breakdown[open] .summary-btn{border-color:rgba(0,255,209,.35)}
-.breakdown-grid{
-  margin-top:10px;
-  display:grid;grid-template-columns:1fr;gap:8px;
-}
+.breakdown-grid{margin-top:10px;display:grid;grid-template-columns:1fr;gap:8px}
 .breakdown-grid .line{
   display:flex;justify-content:space-between;align-items:center;
   border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--glass);
 }
 
-/* =============== KPI（1列固定・はみ出し防止） =============== */
-/* ★KPIの“はみ出し”はこのコンテナ幅とカードの padding を見直せばOK */
-.kpi-grid{
-  display:grid;
-  grid-template-columns:1fr; /* ← 常に1列表示に固定 */
-  gap:12px;
-  margin:16px 0;
-}
-.glass{background:var(--glass);border:1px solid var(--line);border-radius:16px;padding:14px;backdrop-filter: blur(8px)}
+/* =============== KPI（カード内・1列固定／はみ出し防止） =============== */
+/* ★KPI が右寄り/はみ出すケースはこの余白やカードpaddingを調整 */
+.kpi-grid.kpi-in-hero{margin-top:12px}
+.kpi-grid{display:grid;grid-template-columns:1fr;gap:12px}
+.glass{background:var(--glass);border:1px solid var(--line);border-radius:16px;padding:14px;backdrop-filter:blur(8px)}
 .kpi-card .kpi-title{font-size:12px;color:var(--muted)}
 .kpi-card .kpi-value{font-size:22px;font-weight:900;margin:4px 0}
 .kpi-card .kpi-sub{color:var(--muted);font-size:12px}
 .kpi-card.accent{border-color:rgba(0,255,209,.35)}
 
+/* 利益率ゲージ */
+.meter{position:relative;margin-top:10px;height:12px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.04);overflow:hidden}
+.meter-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--success),var(--primary));transition:width .5s ease}
+.meter-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--fg);text-shadow:0 1px 2px rgba(0,0,0,.25);pointer-events:none}
+
+/* ミニ損益スパーク */
+.mini-spark{height:54px;border:1px solid var(--line);border-radius:12px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:rgba(255,255,255,.03)}
+
 /* ポート比率 */
 .stack-bars{height:22px;border-radius:12px;overflow:hidden;border:1px solid var(--line);display:flex}
-.stack-bars > span{display:block;height:100%}
+.stack-bars>span{display:block;height:100%}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
-.dot-spot{background:var(--primary)}
-.dot-margin{background:#ff8a5b}
-.dot-cash{background:var(--accent)}
+.dot-spot{background:var(--primary)} .dot-margin{background:#ff8a5b} .dot-cash{background:var(--accent)}
 .legend{display:flex;gap:12px;margin:10px 0 4px;padding:0;list-style:none;color:var(--muted);font-size:12px}
 
 /* =============== ACTIVITY =============== */
@@ -120,4 +96,4 @@ body{
 .act-val{font-variant-numeric:tabular-nums}
 
 /* 総資産の軽いグロー */
-.total.glow { text-shadow: 0 0 12px rgba(96,165,250,.35); transition: text-shadow .6s ease; }
+.total.glow{ text-shadow:0 0 12px rgba(96,165,250,.35); transition:text-shadow .6s ease }
