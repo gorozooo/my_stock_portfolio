@@ -19,46 +19,64 @@ def pro_panel(request):
 # ① ベンチ比較 + 最大DD
 @login_required
 def api_bench_and_dd(request):
-    # 期間：過去180日
+    """
+    - スナップショット: 直近 ~180 営業日相当を想定
+    - ベンチ: BENCH_TICKERS のリスト順にフォールバックして最初に取れた系列を採用
+    - 価格取得は period 指定を優先（営業日ズレの影響を受けにくい）
+    """
     today = timezone.localdate()
-    start = today - dt.timedelta(days=200)
 
-    # portfolio series（スナップショット無い日は当日値で補完しない＝欠損はスキップ）
-    qs = PortfolioSnapshot.objects.filter(user=request.user, date__gte=start, date__lte=today).order_by("date")
+    # --- Portfolio series from snapshots ---
+    qs = PortfolioSnapshot.objects.filter(user=request.user).order_by("date")
+    # 直近 ~200日分に絞る（多すぎると重い）
+    qs = qs.filter(date__gte=today - dt.timedelta(days=220), date__lte=today)
     dates, vals = [], []
     for s in qs:
         dates.append(s.date.isoformat())
         vals.append(float(s.total_assets))
 
-    # TWR & DD
-    def series_to_metrics(vals: List[float]):
-        if not vals: return dict(twr=0.0, maxdd=0.0)
+    def series_to_metrics(series):
+        if not series:
+            return {"twr": 0.0, "maxdd": 0.0}
         rets = []
-        for i in range(1, len(vals)):
-            if vals[i-1] != 0:
-                rets.append((vals[i]/vals[i-1]) - 1.0)
+        for i in range(1, len(series)):
+            if series[i-1] != 0:
+                rets.append(series[i] / series[i-1] - 1.0)
         twr = 1.0
-        for r in rets: twr *= (1.0 + r)
+        for r in rets:
+            twr *= (1.0 + r)
         twr -= 1.0
-        # Max DD
-        peak = vals[0]; maxdd = 0.0
-        for v in vals:
-            if v > peak: peak = v
-            dd = (v/peak) - 1.0
-            if dd < maxdd: maxdd = dd
-        return dict(twr=twr, maxdd=maxdd)
+        peak = series[0]
+        maxdd = 0.0
+        for v in series:
+            if v > peak:
+                peak = v
+            dd = (v / peak) - 1.0
+            if dd < maxdd:
+                maxdd = dd
+        return {"twr": twr, "maxdd": maxdd}
 
     port = series_to_metrics(vals)
 
-    # ベンチ：NIKKEI / TOPIX
+    # --- Benchmarks with fallback ---
     out_bench = {}
-    for name, tkr in getattr(settings, "BENCH_TICKERS", {}).items():
-        try:
-            hist = yf.Ticker(tkr).history(start=start.isoformat(), end=(today+dt.timedelta(days=1)).isoformat(), interval="1d")["Close"].dropna()
-            bvals = [float(x) for x in hist.values.tolist()]
-            out_bench[name] = series_to_metrics(bvals)
-        except Exception:
-            out_bench[name] = dict(twr=None, maxdd=None)
+    bench_cfg = getattr(settings, "BENCH_TICKERS", {})
+    for name, symbols in bench_cfg.items():
+        if isinstance(symbols, str):
+            symbols = [symbols]
+        metrics = {"twr": None, "maxdd": None}
+        for sym in symbols:
+            try:
+                # period 指定のほうが「開始/終了日の営業日ズレ」に強い
+                hist = yf.Ticker(sym).history(period="250d", interval="1d")["Close"]
+                hist = hist.dropna()
+                if not hist.empty:
+                    series = [float(x) for x in hist.values.tolist()]
+                    metrics = series_to_metrics(series)
+                    break  # 最初に取れた記号で採用
+            except Exception:
+                continue
+        out_bench[name] = metrics
 
     return JsonResponse({
         "dates": dates,
