@@ -472,3 +472,25 @@ class PortfolioSnapshot(models.Model):
     def __str__(self):
         u = getattr(self.user, "username", "anon")
         return f"{u} {self.date} {self.total_assets:,}"
+        
+# =============================
+# 当日損益のスナップショット
+# =============================
+class TodayPnLSnapshot(models.Model):
+    """
+    毎日16:00に確定させる「当日損益」スナップショット。
+    - pnl_today: 売買 + 配当 + 現金(当日分) など、あなたの定義で保存
+    - bench_ret: ベンチマーク差分/リターン（任意）
+    """
+    date = models.DateField(db_index=True, unique=True)
+    pnl_today = models.IntegerField(default=0)         # 円
+    bench_ret = models.FloatField(null=True, blank=True)  # ％（任意）
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "当日損益スナップショット"
+        verbose_name_plural = "当日損益スナップショット"
+
+    def __str__(self):
+        return f"{self.date} pnl={self.pnl_today} bench={self.bench_ret}"
+
