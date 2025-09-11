@@ -7,8 +7,8 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-)l$5u7#*s5ls885avu*8rpmfiiiczle6vsr+y78%!cutwp%wpl'
-DEBUG = False  # 本番運用前提（必要なら True に）
-
+#DEBUG = False  # 本番運用前提（必要なら True に）
+DEBUG = True
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "gorozooo.com", "www.gorozooo.com", "192.168.1.16"]
 
 # =============================
