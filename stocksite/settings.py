@@ -143,6 +143,7 @@ sentry_sdk.init(
 CRONJOBS = [
     # JSTサーバーの場合（毎日16:00）
     ('0 16 * * *', 'django.core.management.call_command', ['snapshot_assets']),
+    ('0 16 * * *', 'django.core.management.call_command', ['snapshot_metrics']),
     # もしサーバーTZがUTCなら、上をコメントアウトして下を有効化
     # ('0 7 * * *', 'django.core.management.call_command', ['snapshot_assets']),
 ]
