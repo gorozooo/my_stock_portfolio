@@ -16,11 +16,9 @@
     <div class="bg-orb orb-a"></div>
     <div class="bg-orb orb-b"></div>
 
-    <!-- LIVE & AI -->
     <div class="hero-topline">
       <span class="chip chip-live" aria-live="polite">
-        <i class="live-dot" aria-hidden="true"></i>
-        LIVE <span class="live-ts" id="liveTs">--:--:--</span>
+        <span class="live-dot"></span> LIVE <span id="liveTs"></span>
       </span>
       <span class="chip chip-ai">AI INSIGHTS</span>
     </div>
@@ -50,81 +48,96 @@
       </div>
     </div>
 
-    <!-- クイックアクション（テーマ切替ボタンは削除） -->
+    <!-- クイックアクション -->
     <div class="hero-actions">
       <button class="btn btn-primary" id="btnReveal">内訳を展開</button>
     </div>
   </section>
 
-  <!-- ====== KPI グリッド（内訳） ====== -->
-  <section class="kpi-grid" id="kpiGrid" hidden>
-    <article class="kpi-card glass">
-      <div class="kpi-title">現物（現物+NISA）評価額</div>
-      <div class="kpi-value"
-           id="spotMV"
-           data-value="{{ spot_market_value|default_if_none:0 }}">
-        ¥{{ spot_market_value|default_if_none:0|floatformat:0|intcomma }}
-      </div>
-      <div class="kpi-sub">
-        含み損益：
-        <span class="pnl"
-              data-sign="{{ spot_unrealized_pl|default_if_none:0|floatformat:2 }}">
-          {% if spot_unrealized_pl|default_if_none:0 >= 0 %}+{% endif %}
-          ¥{{ spot_unrealized_pl|default_if_none:0|floatformat:0|intcomma }}
-        </span>
-      </div>
-      <div class="ring" id="ringSpot"
-           data-value="{{ spot_market_value|default_if_none:0 }}"
-           data-total="{{ total_assets|default_if_none:0 }}"></div>
-    </article>
+  <!-- ====== KPI グリッド（横並び 2×2） ====== -->
+  <section class="kpi-grid" id="kpiGrid" hidden
+           data-target-spot="0.60" data-target-margin="0.20" data-target-cash="0.20">
+    <div class="kpi-row">
+      <article class="kpi-card glass">
+        <div class="kpi-title">現物（現物+NISA）評価額</div>
+        <div class="kpi-value"
+             id="spotMV"
+             data-value="{{ spot_market_value|default_if_none:0 }}">
+          ¥{{ spot_market_value|default_if_none:0|floatformat:0|intcomma }}
+        </div>
+        <div class="kpi-sub">
+          含み損益：
+          <span class="pnl"
+                data-sign="{{ spot_unrealized_pl|default_if_none:0|floatformat:2 }}">
+            {% if spot_unrealized_pl|default_if_none:0 >= 0 %}+{% endif %}
+            ¥{{ spot_unrealized_pl|default_if_none:0|floatformat:0|intcomma }}
+          </span>
+        </div>
+        <div class="ring" id="ringSpot"
+             data-value="{{ spot_market_value|default_if_none:0 }}"
+             data-total="{{ total_assets|default_if_none:0 }}"></div>
+      </article>
 
-    <article class="kpi-card glass">
-      <div class="kpi-title">信用 評価額</div>
-      <div class="kpi-value"
-           id="marginMV"
-           data-value="{{ margin_market_value|default_if_none:0 }}">
-        ¥{{ margin_market_value|default_if_none:0|floatformat:0|intcomma }}
-      </div>
-      <div class="kpi-sub">
-        含み損益：
-        <span class="pnl"
-              data-sign="{{ margin_unrealized_pl|default_if_none:0|floatformat:2 }}">
-          {% if margin_unrealized_pl|default_if_none:0 >= 0 %}+{% endif %}
-          ¥{{ margin_unrealized_pl|default_if_none:0|floatformat:0|intcomma }}
-        </span>
-      </div>
-      <div class="ring" id="ringMargin"
-           data-value="{{ margin_market_value|default_if_none:0 }}"
-           data-total="{{ total_assets|default_if_none:0 }}"></div>
-    </article>
+      <article class="kpi-card glass">
+        <div class="kpi-title">信用 評価額</div>
+        <div class="kpi-value"
+             id="marginMV"
+             data-value="{{ margin_market_value|default_if_none:0 }}">
+          ¥{{ margin_market_value|default_if_none:0|floatformat:0|intcomma }}
+        </div>
+        <div class="kpi-sub">
+          含み損益：
+          <span class="pnl"
+                data-sign="{{ margin_unrealized_pl|default_if_none:0|floatformat:2 }}">
+            {% if margin_unrealized_pl|default_if_none:0 >= 0 %}+{% endif %}
+            ¥{{ margin_unrealized_pl|default_if_none:0|floatformat:0|intcomma }}
+          </span>
+        </div>
+        <div class="ring" id="ringMargin"
+             data-value="{{ margin_market_value|default_if_none:0 }}"
+             data-total="{{ total_assets|default_if_none:0 }}"></div>
+      </article>
+    </div>
 
-    <article class="kpi-card glass">
-      <div class="kpi-title">キャッシュ残高</div>
-      <div class="kpi-value"
-           id="cashBalance"
-           data-value="{{ cash_balance|default_if_none:0 }}">
-        ¥{{ cash_balance|default_if_none:0|floatformat:0|intcomma }}
-      </div>
-      <div class="kpi-sub">入出金 − 現物取得額 + 実現損益</div>
-      <div class="gauge" id="gaugeLiquidity"
-           data-value="{{ cash_balance|default_if_none:0 }}"
-           data-total="{{ total_assets|default_if_none:0 }}"></div>
-    </article>
+    <div class="kpi-row">
+      <article class="kpi-card glass">
+        <div class="kpi-title">キャッシュ残高</div>
+        <div class="kpi-value"
+             id="cashBalance"
+             data-value="{{ cash_balance|default_if_none:0 }}">
+          ¥{{ cash_balance|default_if_none:0|floatformat:0|intcomma }}
+        </div>
+        <div class="kpi-sub">入出金 − 現物取得額 + 実現損益</div>
+        <div class="gauge" id="gaugeLiquidity"
+             data-value="{{ cash_balance|default_if_none:0 }}"
+             data-total="{{ total_assets|default_if_none:0 }}"></div>
+      </article>
 
-    <article class="kpi-card glass accent">
-      <div class="kpi-title">ポート比率</div>
-      <div class="stack-bars" id="stackBars"
-           data-spot="{{ spot_market_value|default_if_none:0 }}"
-           data-margin="{{ margin_market_value|default_if_none:0 }}"
-           data-cash="{{ cash_balance|default_if_none:0 }}">
-        <span aria-hidden="true"></span>
-      </div>
-      <ul class="legend">
-        <li><i class="dot dot-spot"></i>現物</li>
-        <li><i class="dot dot-margin"></i>信用</li>
-        <li><i class="dot dot-cash"></i>現金</li>
-      </ul>
-    </article>
+      <article class="kpi-card glass accent">
+        <div class="kpi-title">ポート比率</div>
+        <div class="stack-bars" id="stackBars"
+             data-spot="{{ spot_market_value|default_if_none:0 }}"
+             data-margin="{{ margin_market_value|default_if_none:0 }}"
+             data-cash="{{ cash_balance|default_if_none:0 }}">
+          <span aria-hidden="true"></span>
+        </div>
+        <ul class="legend">
+          <li><i class="dot dot-spot"></i>現物</li>
+          <li><i class="dot dot-margin"></i>信用</li>
+          <li><i class="dot dot-cash"></i>現金</li>
+        </ul>
+      </article>
+    </div>
+
+    <!-- ====== AI INSIGHTS（新規実装） ====== -->
+    <div class="ai-box kpi-row" style="grid-template-columns:1fr;">
+      <article class="kpi-card glass">
+        <div class="kpi-title">AI INSIGHTS（β）</div>
+        <ul class="ai-list" id="aiInsights">
+          <!-- JSで項目を注入：目標比率乖離／勝率／MaxDD推定／配当見込み -->
+        </ul>
+      </article>
+    </div>
   </section>
 
   <!-- ====== ディープダイブ（詳細） ====== -->
@@ -139,9 +152,7 @@
     <div class="deep-grid">
       <article class="deep-card">
         <h3>日次プレビュー</h3>
-        <div class="mini-list" id="miniPreview">
-          <!-- JSでヒントを注入 -->
-        </div>
+        <div class="mini-list" id="miniPreview"></div>
       </article>
 
       <article class="deep-card">
@@ -163,26 +174,28 @@
   <section class="activity">
     <h2>最近のアクティビティ</h2>
     {% if recent_activities %}
-      <ul class="activity-list">
+      <ul class="activity-list" id="activityList">
         {% for a in recent_activities %}
-          <li class="act-item">
-            <div class="act-date">{{ a.date|date:"n/j" }}</div>
+          <li class="act-item" data-kind="{{ a.kind }}">
+            <div class="act-date">{{ a.date|date:"Y-m-d" }}</div>
             {% if a.kind == 'trade' %}
               <div class="act-main">売買 {{ a.ticker }} {{ a.name }}</div>
-              <div class="act-val {% if a.pnl >= 0 %}pos{% else %}neg{% endif %}">
+              <div class="act-val {% if a.pnl >= 0 %}pos{% else %}neg{% endif %}"
+                   data-amount="{{ a.pnl|default_if_none:0 }}">
                 {% if a.pnl >= 0 %}+{% endif %}¥{{ a.pnl|floatformat:0|intcomma }}
               </div>
             {% elif a.kind == 'dividend' %}
               <div class="act-main">配当 {{ a.ticker }} {{ a.name }}</div>
-              <div class="act-val pos">+¥{{ a.net|default_if_none:0|intcomma }}</div>
+              <div class="act-val pos" data-amount="{{ a.net|default_if_none:0 }}">+¥{{ a.net|default_if_none:0|intcomma }}</div>
             {% elif a.kind == 'cash' %}
               <div class="act-main">現金 {{ a.broker_label }}</div>
-              <div class="act-val {% if a.flow == 'in' %}pos{% else %}neg{% endif %}">
+              <div class="act-val {% if a.flow == 'in' %}pos{% else %}neg{% endif %}"
+                   data-amount="{% if a.flow == 'in' %}{{ a.amount|default_if_none:0 }}{% else %}-{{ a.amount|default_if_none:0 }}{% endif %}">
                 {% if a.flow == 'in' %}+{% else %}-{% endif %}¥{{ a.amount|intcomma }}
               </div>
             {% else %}
               <div class="act-main">その他</div>
-              <div class="act-val">—</div>
+              <div class="act-val" data-amount="0">—</div>
             {% endif %}
           </li>
         {% endfor %}
