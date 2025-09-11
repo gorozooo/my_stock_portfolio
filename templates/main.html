@@ -10,7 +10,7 @@
 
 {% block content %}
 <div class="wrap">
-  <!-- ===== HERO ===== -->
+  <!-- ===== HERO（総資産カード） ===== -->
   <section class="hero">
     <div class="bg-orb orb-a"></div>
     <div class="bg-orb orb-b"></div>
@@ -33,8 +33,9 @@
           ¥{{ unrealized_pl_total|default_if_none:0|floatformat:0|intcomma }}
         </span>
       </div>
-      <!-- リンク風トグル（余白極力なし） -->
-      <button id="discloseKPI" class="link-toggle" aria-expanded="false" aria-controls="kpiGrid">
+
+      <!-- 内訳トグル（カード内に収納） -->
+      <button id="discloseKPI" class="link-toggle" aria-expanded="false" aria-controls="heroDisclosure">
         内訳を表示
         <svg class="chev" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
           <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -42,106 +43,81 @@
       </button>
     </div>
 
-    <!-- ミニスパークライン（余白圧縮版） -->
+    <!-- ミニスパークライン -->
     <div class="spark-wrap compact">
       <div id="assetSpark" class="spark" data-points="{{ asset_history_csv|default_if_none:'' }}" role="img" aria-label="総資産の推移"></div>
     </div>
-  </section>
 
-  <!-- ===== KPI（横並び） ===== -->
-  <section class="kpi-grid" id="kpiGrid" hidden>
-    <div class="kpi-row">
-      <article class="kpi-card glass">
-        <div class="kpi-title">現物（現物+NISA）評価額</div>
-        <div class="kpi-value" id="spotMV" data-value="{{ spot_market_value|default_if_none:0 }}">
-          ¥{{ spot_market_value|default_if_none:0|floatformat:0|intcomma }}
-        </div>
-        <div class="kpi-sub">
-          含み損益：
-          <span class="pnl" data-sign="{{ spot_unrealized_pl|default_if_none:0|floatformat:2 }}">
-            {% if spot_unrealized_pl|default_if_none:0 >= 0 %}+{% endif %}
-            ¥{{ spot_unrealized_pl|default_if_none:0|floatformat:0|intcomma }}
-          </span>
-        </div>
-        <div class="ring" id="ringSpot"
-             data-value="{{ spot_market_value|default_if_none:0 }}"
-             data-total="{{ total_assets|default_if_none:0 }}"></div>
-      </article>
+    <!-- ▼▼ 総資産カード内の内訳（KPI） ▼▼ -->
+    <div id="heroDisclosure" class="hero-disclosure" hidden>
+      <!-- 1段目：現物 × 信用（横並び） -->
+      <div class="kpi-duo">
+        <article class="kpi-card glass">
+          <div class="kpi-title">現物（現物+NISA）評価額</div>
+          <div class="kpi-value" id="spotMV" data-value="{{ spot_market_value|default_if_none:0 }}">
+            ¥{{ spot_market_value|default_if_none:0|floatformat:0|intcomma }}
+          </div>
+          <div class="kpi-sub">
+            含み損益：
+            <span class="pnl" data-sign="{{ spot_unrealized_pl|default_if_none:0|floatformat:2 }}">
+              {% if spot_unrealized_pl|default_if_none:0 >= 0 %}+{% endif %}
+              ¥{{ spot_unrealized_pl|default_if_none:0|floatformat:0|intcomma }}
+            </span>
+          </div>
+          <div class="ring" id="ringSpot"
+               data-value="{{ spot_market_value|default_if_none:0 }}"
+               data-total="{{ total_assets|default_if_none:0 }}"></div>
+        </article>
 
-      <article class="kpi-card glass">
-        <div class="kpi-title">信用 評価額</div>
-        <div class="kpi-value" id="marginMV" data-value="{{ margin_market_value|default_if_none:0 }}">
-          ¥{{ margin_market_value|default_if_none:0|floatformat:0|intcomma }}
-        </div>
-        <div class="kpi-sub">
-          含み損益：
-          <span class="pnl" data-sign="{{ margin_unrealized_pl|default_if_none:0|floatformat:2 }}">
-            {% if margin_unrealized_pl|default_if_none:0 >= 0 %}+{% endif %}
-            ¥{{ margin_unrealized_pl|default_if_none:0|floatformat:0|intcomma }}
-          </span>
-        </div>
-        <div class="ring" id="ringMargin"
-             data-value="{{ margin_market_value|default_if_none:0 }}"
-             data-total="{{ total_assets|default_if_none:0 }}"></div>
-      </article>
-    </div>
-
-    <div class="kpi-row">
-      <article class="kpi-card glass">
-        <div class="kpi-title">キャッシュ残高</div>
-        <div class="kpi-value" id="cashBalance" data-value="{{ cash_balance|default_if_none:0 }}">
-          ¥{{ cash_balance|default_if_none:0|floatformat:0|intcomma }}
-        </div>
-        <div class="kpi-sub">入出金 − 現物取得額 + 実現損益</div>
-        <div class="gauge" id="gaugeLiquidity"
-             data-value="{{ cash_balance|default_if_none:0 }}"
-             data-total="{{ total_assets|default_if_none:0 }}"></div>
-      </article>
-
-      <article class="kpi-card glass accent">
-        <div class="kpi-title">ポート比率</div>
-        <div class="stack-bars" id="stackBars"
-             data-spot="{{ spot_market_value|default_if_none:0 }}"
-             data-margin="{{ margin_market_value|default_if_none:0 }}"
-             data-cash="{{ cash_balance|default_if_none:0 }}">
-          <span aria-hidden="true"></span>
-        </div>
-        <ul class="legend">
-          <li><i class="dot dot-spot"></i>現物</li>
-          <li><i class="dot dot-margin"></i>信用</li>
-          <li><i class="dot dot-cash"></i>現金</li>
-        </ul>
-      </article>
-    </div>
-  </section>
-
-  <!-- ===== 詳細（据え置き） ===== -->
-  <section class="deep glass" id="deep" hidden>
-    <header class="deep-hd">
-      <h2>詳細インサイト</h2>
-      <div class="hd-actions">
-        <button class="btn btn-ghost" id="btnCollapse">閉じる</button>
+        <article class="kpi-card glass">
+          <div class="kpi-title">信用 評価額</div>
+          <div class="kpi-value" id="marginMV" data-value="{{ margin_market_value|default_if_none:0 }}">
+            ¥{{ margin_market_value|default_if_none:0|floatformat:0|intcomma }}
+          </div>
+          <div class="kpi-sub">
+            含み損益：
+            <span class="pnl" data-sign="{{ margin_unrealized_pl|default_if_none:0|floatformat:2 }}">
+              {% if margin_unrealized_pl|default_if_none:0 >= 0 %}+{% endif %}
+              ¥{{ margin_unrealized_pl|default_if_none:0|floatformat:0|intcomma }}
+            </span>
+          </div>
+          <div class="ring" id="ringMargin"
+               data-value="{{ margin_market_value|default_if_none:0 }}"
+               data-total="{{ total_assets|default_if_none:0 }}"></div>
+        </article>
       </div>
-    </header>
 
-    <div class="deep-grid">
-      <article class="deep-card">
-        <h3>日次プレビュー</h3>
-        <div class="mini-list" id="miniPreview"></div>
-      </article>
+      <!-- 2段目：キャッシュ × 比率（横並び） -->
+      <div class="kpi-duo">
+        <article class="kpi-card glass">
+          <div class="kpi-title">キャッシュ残高</div>
+          <div class="kpi-value" id="cashBalance" data-value="{{ cash_balance|default_if_none:0 }}">
+            ¥{{ cash_balance|default_if_none:0|floatformat:0|intcomma }}
+          </div>
+          <div class="kpi-sub">入出金 − 現物取得額 + 実現損益</div>
+          <div class="gauge" id="gaugeLiquidity"
+               data-value="{{ cash_balance|default_if_none:0 }}"
+               data-total="{{ total_assets|default_if_none:0 }}"></div>
+        </article>
 
-      <article class="deep-card">
-        <h3>リスク・ヒート</h3>
-        <div class="heat" id="riskHeat" aria-label="ボラティリティ推定"></div>
-        <p class="muted">※現金比率と信用残を簡易スコア化</p>
-      </article>
-
-      <article class="deep-card">
-        <h3>トレンド・スパーク</h3>
-        <div id="sparkDeck" class="spark-deck" data-points="{{ asset_history_csv|default_if_none:'' }}"></div>
-        <p class="muted">30ポイントの簡易トレンド。詳細チャートは個別銘柄から。</p>
-      </article>
+        <article class="kpi-card glass accent">
+          <div class="kpi-title">ポート比率</div>
+          <div class="stack-bars" id="stackBars"
+               data-spot="{{ spot_market_value|default_if_none:0 }}"
+               data-margin="{{ margin_market_value|default_if_none:0 }}"
+               data-cash="{{ cash_balance|default_if_none:0 }}">
+            <span aria-hidden="true"></span>
+          </div>
+          <ul class="legend">
+            <li><i class="dot dot-spot"></i>現物</li>
+            <li><i class="dot dot-margin"></i>信用</li>
+            <li><i class="dot dot-cash"></i>現金</li>
+          </ul>
+        </article>
+      </div>
     </div>
+    <!-- ▲▲ 総資産カード内の内訳（KPI） ▲▲ -->
+
   </section>
 
   <!-- ===== Activity ===== -->
