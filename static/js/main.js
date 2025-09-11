@@ -4,7 +4,6 @@
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
   const fmtJPY = (v)=>"¥"+Math.round(v).toLocaleString("ja-JP");
 
-  // 数値アニメ
   function animateNumber(el, to, dur=700){
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if(reduce){ el.textContent = fmtJPY(to); return; }
@@ -20,7 +19,6 @@
     el.dataset.value = to;
   }
 
-  // スパーク
   function renderSpark(el){
     if(!el) return;
     const raw = (el.dataset.points||"").trim();
@@ -44,7 +42,6 @@
       </svg>`;
   }
 
-  // 円リング
   function renderRing(el){
     if(!el) return;
     const val = parseFloat(el.dataset.value||"0");
@@ -70,7 +67,6 @@
       </svg>`;
   }
 
-  // スタックバー
   function renderStackBars(el){
     if(!el) return;
     const spot = parseFloat(el.dataset.spot||"0");
@@ -84,11 +80,17 @@
       <span style="width:${p(cash)}%;background:var(--accent)"></span>`;
   }
 
-  // 開閉（カード内）
+  // 内訳の開閉（hero に is-collapsed を付け外しして余白を制御）
   function setupDisclosure(){
     const btn = $('#discloseKPI');
     const panel = $('#heroDisclosure');
-    if(!btn || !panel) return;
+    const hero = $('.hero');
+    if(!btn || !panel || !hero) return;
+
+    // 初期：hiddenなら is-collapsed を確実に付ける
+    if(panel.hasAttribute('hidden')) {
+      hero.classList.add('is-collapsed');
+    }
 
     btn.addEventListener('click', ()=>{
       const open = btn.getAttribute('aria-expanded') === 'true';
@@ -99,6 +101,7 @@
           <svg class="chev" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
             <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>`;
+        hero.classList.add('is-collapsed'); // ← 閉じると余白を詰める
       }else{
         panel.removeAttribute('hidden');
         btn.setAttribute('aria-expanded','true');
@@ -106,8 +109,8 @@
           <svg class="chev" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
             <path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>`;
-
-        // 内訳を開いたタイミングで各可視部品を描画
+        hero.classList.remove('is-collapsed'); // ← 開くと通常余白
+        // 可視化部品を描画
         [$('#ringSpot'), $('#ringMargin')].forEach(el=>el && renderRing(el));
         renderStackBars($('#stackBars'));
       }
@@ -133,7 +136,6 @@
       clearTimeout(t);
       t=setTimeout(()=>{
         renderSpark($('#assetSpark'));
-        // 開いている時のみ再描画
         if($('#heroDisclosure') && !$('#heroDisclosure').hasAttribute('hidden')){
           [$('#ringSpot'), $('#ringMargin')].forEach(el=>el && renderRing(el));
         }
