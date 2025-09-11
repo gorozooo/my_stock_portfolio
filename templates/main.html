@@ -9,10 +9,19 @@
 {% endblock %}
 
 {% block content %}
+
+<!-- ====== 動くオーブ背景レイヤー（固定・ページ全体） ====== -->
+<div class="bg-layer" aria-hidden="true">
+  <span class="orb orb-1"></span>
+  <span class="orb orb-2"></span>
+  <span class="orb orb-3"></span>
+</div>
+
 <div class="wrap">
 
   <!-- ====== HERO / 総資産（KPIと内訳をカード内に格納） ====== -->
   <section class="hero">
+    <!-- 既存（カード内の控えめオーブ：必要ならCSSでopacityを調整） -->
     <div class="bg-orb orb-a"></div>
     <div class="bg-orb orb-b"></div>
 
