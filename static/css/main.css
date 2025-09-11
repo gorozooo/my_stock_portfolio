@@ -65,6 +65,7 @@ body{
   display:grid;
   grid-template-columns: minmax(0,1fr) minmax(0,1fr); /* FIX: 右端はみ出しの直接対策 */
   gap:12px;
+  margin-bottom:10px;
 }
 .kpi-row-single{
   display:grid;
