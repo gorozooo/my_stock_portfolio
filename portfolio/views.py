@@ -257,14 +257,19 @@ def _benchmark_history_csv(days: int = 60) -> str:
 @login_required
 def dashboard_today_view(request):
     """
-    今日の損益 + ベンチ差（TOPIX）に加えて、
-    現金比率/信用依存のための簡易集計も載せる。
+    今日の損益 + ベンチ差 をテンプレ（dashboard_today.html）の期待キーに合わせて返却。
+    - pnl_today（円）
+    - bench_diff_today（百分率, 例: 1.23）
+    - asset_history_csv / bench_history_csv（カンマ区切りの数列）
+    さらに、現金比率/信用依存の表示用に:
+    - cash_balance（入出金差 − 現物取得額合計 + 実現損益合計）
+    - total_assets（= 現物MV + 現物UPL + 信用UPL + cash_balance）
+    - margin_market_value（信用ポジの評価額合計）
     """
 
-    # ====== 1) 今日の損益（ポート） ======
-    total_intraday_pnl = 0.0
-    portfolio_prev_value = 0.0
-    rows = []
+    # ---------- 1) 今日の損益（ポート） ----------
+    pnl_today = 0.0
+    prev_value_sum = 0.0  # 昨日終値×株数（売りは符号反転）
 
     if Stock:
         qs = Stock.objects.all()
@@ -275,38 +280,32 @@ def dashboard_today_view(request):
             pass
 
         for s in qs:
-            ticker = str(getattr(s, "ticker", "") or "")
+            ticker = (getattr(s, "ticker", "") or "").strip()
             if not ticker:
                 continue
-            yf_symbol = f"{ticker}.T" if not ticker.endswith(".T") else ticker
+            yf_symbol = ticker if ticker.endswith(".T") else f"{ticker}.T"
 
             pair = _yf_last_two_closes(yf_symbol)
             if not pair:
                 continue
-
             prevc, lastc = pair
+
             shares = int(getattr(s, "shares", 0) or 0)
             pos = str(getattr(s, "position", "買い") or "")
+            sign = -1 if pos.startswith("売") else 1
 
-            portfolio_prev_value += prevc * shares
-            pnl = (prevc - lastc) * shares if pos == "売り" else (lastc - prevc) * shares
-            total_intraday_pnl += pnl
+            prev_value_sum += prevc * shares * sign
+            pnl_today += (lastc - prevc) * shares * sign
 
-            rows.append({
-                "name": getattr(s, "name", "") or ticker,
-                "ticker": ticker,
-                "pre_close": prevc,
-                "last_close": lastc,
-                "shares": shares,
-                "position": pos,
-                "pnl": pnl,
-            })
+    port_ret = (pnl_today / prev_value_sum) if prev_value_sum else 0.0
+    port_ret_pct = port_ret * 100.0
 
-    port_ret = (total_intraday_pnl / portfolio_prev_value) if portfolio_prev_value > 0 else 0.0
-    bench_ret = _yf_benchmark_return()  # ← さっきの堅牢版
-    alpha_ret = port_ret - bench_ret
+    # ---------- 2) ベンチ（TOPIX等） ----------
+    bench_ret = _yf_benchmark_return() or 0.0  # 小数
+    bench_ret_pct = bench_ret * 100.0
+    bench_diff_today = (port_ret - bench_ret) * 100.0  # 百分率
 
-    # ====== 2) 現金比率/信用依存 用の軽量集計 ======
+    # ---------- 3) 比率用のベース数値（“これまでどおり”の定義） ----------
     spot_mv = margin_mv = 0.0
     spot_upl = margin_upl = 0.0
 
@@ -324,7 +323,6 @@ def dashboard_today_view(request):
             pos    = str(getattr(s, "position", "買い") or "")
             acct   = str(getattr(s, "account_type", "現物") or "")
 
-            # 現値（失敗時は unit）
             try:
                 current = _get_current_price_cached(getattr(s, "ticker", ""), fallback=unit)
             except Exception:
@@ -337,7 +335,6 @@ def dashboard_today_view(request):
 
             is_spot   = (acct in {"現物", "NISA"}) and (pos != "売り")
             is_margin = (acct == "信用") or (pos == "売り")
-
             if is_spot:
                 spot_mv += mv
                 spot_upl += upl
@@ -348,7 +345,7 @@ def dashboard_today_view(request):
                 spot_mv += mv
                 spot_upl += upl
 
-    # キャッシュ残高 = 入出金差 - 現物取得額合計 + 実現損益合計
+    # 現金：入出金差 − 現物/NISAの取得額合計 + 実現損益合計
     cash_io_total = 0
     if CashFlow:
         cf = CashFlow.objects.all()
@@ -370,8 +367,8 @@ def dashboard_today_view(request):
         except Exception:
             pass
         for s in qs3:
-            pos  = str(getattr(s, "position", "買い") or "")
             acct = str(getattr(s, "account_type", "現物") or "")
+            pos  = str(getattr(s, "position", "買い") or "")
             if (acct in {"現物", "NISA"}) and (pos != "売り"):
                 shares = int(getattr(s, "shares", 0) or 0)
                 unit   = float(getattr(s, "unit_price", 0.0) or 0.0)
@@ -405,20 +402,32 @@ def dashboard_today_view(request):
 
     cash_balance = float(cash_io_total) - float(spot_cost_total) + float(realized_total)
 
-    # 総資産（あなたの定義）
+    # 総資産（定義通り）
     total_assets = float(spot_mv) + float(spot_upl) + float(margin_upl) + float(cash_balance)
+
+    # ---------- 4) 履歴系列（テンプレが読むキーは必ず埋める） ----------
+    asset_history_csv = _portfolio_history_csv(request, days=60) or ""
+    bench_history_csv = _benchmark_history_csv(days=60) or ""
 
     context = {
         # 今日の損益 + ベンチ差
-        "pnl_today": total_intraday_pnl,
-        "bench_diff_today": alpha_ret * 100.0,  # テンプレは % 表示
-        "rows": rows,
-        "as_of": dt.datetime.now(),
+        "pnl_today": pnl_today,
+        "bench_diff_today": bench_diff_today,  # ex: 1.23（テンプレで%付与）
 
-        # 比率用（テンプレが data-* で読む）
+        # 比率用
         "cash_balance": cash_balance,
-        "margin_market_value": margin_mv,   # ← “信用依存”はこれを使う
         "total_assets": total_assets,
+        "margin_market_value": margin_mv,
+
+        # 可視化用履歴
+        "asset_history_csv": asset_history_csv,
+        "bench_history_csv": bench_history_csv,
+
+        # おまけ（使っていなければ無視される）
+        "port_ret_pct": port_ret_pct,
+        "bench_ret_pct": bench_ret_pct,
+
+        "as_of": timezone.now(),
     }
     return render(request, "dashboard_today.html", context)
     
