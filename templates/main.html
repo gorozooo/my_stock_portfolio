@@ -11,7 +11,8 @@
 {% block content %}
 <div class="wrap">
   <!-- ===== HERO（総資産カード） ===== -->
-  <section class="hero">
+  <!-- 初期状態は内訳を閉じているので is-collapsed を付与 -->
+  <section class="hero is-collapsed">
     <div class="bg-orb orb-a"></div>
     <div class="bg-orb orb-b"></div>
 
@@ -43,14 +44,14 @@
       </button>
     </div>
 
-    <!-- ミニスパークライン -->
+    <!-- ミニスパークライン（余白を詰めた版） -->
     <div class="spark-wrap compact">
       <div id="assetSpark" class="spark" data-points="{{ asset_history_csv|default_if_none:'' }}" role="img" aria-label="総資産の推移"></div>
     </div>
 
     <!-- ▼▼ 総資産カード内の内訳（KPI） ▼▼ -->
     <div id="heroDisclosure" class="hero-disclosure" hidden>
-      <!-- 1段目：現物 × 信用（横並び） -->
+      <!-- 1段目：現物 × 信用（横並び・右はみ出し防止済み） -->
       <div class="kpi-duo">
         <article class="kpi-card glass">
           <div class="kpi-title">現物（現物+NISA）評価額</div>
@@ -87,8 +88,8 @@
         </article>
       </div>
 
-      <!-- 2段目：キャッシュ × 比率（横並び） -->
-      <div class="kpi-duo">
+      <!-- 2段目：キャッシュ残高 と ポート比率を1列表示（見やすさ優先） -->
+      <div class="kpi-row-single">
         <article class="kpi-card glass">
           <div class="kpi-title">キャッシュ残高</div>
           <div class="kpi-value" id="cashBalance" data-value="{{ cash_balance|default_if_none:0 }}">
