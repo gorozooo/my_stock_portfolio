@@ -155,25 +155,28 @@ def dashboard_today_view(request):
             pass
 
         for s in qs:
-            ticker = str(getattr(s, "ticker", "") or "")
+            ticker = str(getattr(s, "ticker", "") or "").strip()
             if not ticker:
                 continue
+
             # Yahoo用に .T 付与（既に .T 付ならそのまま）
             yf_symbol = f"{ticker}.T" if not ticker.endswith(".T") else ticker
 
-            prevc, lastc = _yf_last_two_closes(yf_symbol)
-            if not (prevc and lastc):
-                # 価格が取れないときはスキップ
+            pair = _yf_last_two_closes(yf_symbol)
+            if not pair:
+                # 価格が取れないときはスキップ（ログだけ残す）
+                logger.debug("skip: no price for %s", yf_symbol)
                 continue
 
+            prevc, lastc = pair
             shares = int(getattr(s, "shares", 0) or 0)
             pos = str(getattr(s, "position", "買い") or "")
 
             # 前日終値ベースの価値
             portfolio_prev_value += prevc * shares
 
-            # 今日の損益（売りポジは逆符号）
-            if pos == "売り":
+            # 今日の損益（売りポジは逆符号／「売」も許容）
+            if pos in ("売り", "売") or pos.startswith("売"):
                 pnl = (prevc - lastc) * shares
             else:
                 pnl = (lastc - prevc) * shares
@@ -193,7 +196,7 @@ def dashboard_today_view(request):
     # ポート今日リターン
     port_ret = (total_intraday_pnl / portfolio_prev_value) if portfolio_prev_value > 0 else 0.0
 
-    # ベンチ（TOPIX）今日リターン
+    # ベンチ（TOPIX or 代替ETF）今日リターン
     bench_ret = _yf_benchmark_return()
 
     # ベンチ差
@@ -201,11 +204,11 @@ def dashboard_today_view(request):
 
     context = {
         "today_pnl": total_intraday_pnl,     # 円
-        "port_ret": port_ret,                # 小数
+        "port_ret": port_ret,                # 小数（テンプレで *100, floatformat など）
         "bench_ret": bench_ret,              # 小数
         "alpha_ret": alpha_ret,              # 小数
         "rows": rows,
-        "as_of": dt.datetime.now(),
+        "as_of": timezone.now(),
     }
     return render(request, "dashboard_today.html", context)
 
