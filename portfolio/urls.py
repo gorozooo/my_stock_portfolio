@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views
 from portfolio import views as pf_views
+from . import views_analytics
 
 urlpatterns = [
     # --- メインページ ---
@@ -50,6 +51,12 @@ urlpatterns = [
     
     # --- 登録ページ ---
     path("register/", views.register_hub, name="register_hub"),
+    
+    # --- プロ目線でおすすめ ---
+    path("pro/", views_analytics.pro_panel, name="pro_panel"),
+    path("api/bench-dd/", views_analytics.api_bench_and_dd, name="api_bench_dd"),
+    path("api/sector-drift/", views_analytics.api_sector_drift, name="api_sector_drift"),
+    path("api/attr-daily/", views_analytics.api_daily_attribution, name="api_attr_daily"),
     
     # --- 設定画面（親メニュー） ---
     path('settings/login/', views.settings_login, name='settings_login'),
