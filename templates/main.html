@@ -46,7 +46,15 @@
       </span>
     </div>
 
-    <!-- 破線のエリア（旧スパーク）は削除済み -->
+    <!-- 総資産の表示ブロックの直下に追加 -->
+<div class="spark-wrap">
+  <div id="assetSpark"
+       class="spark spark--fancy"
+       data-points="{{ asset_history_csv|default_if_none:'' }}"
+       role="img"
+       aria-label="総資産の簡易推移（演出あり）">
+  </div>
+</div>
 
     <!-- 内訳（カード内の折りたたみ） -->
     <details class="breakdown" id="breakdown">
