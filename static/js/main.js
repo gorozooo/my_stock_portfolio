@@ -5,6 +5,7 @@
   // ===== ユーティリティ =====
   const fmtJPY = (v)=>"¥"+Math.round(v).toLocaleString("ja-JP");
   const clamp = (v, a, b)=>Math.max(a, Math.min(b, v));
+  const todayISO = ()=>new Date().toISOString().slice(0,10);
 
   // ===== 数値アニメーション（低負荷） =====
   function animateNumber(el, to, dur=700){
@@ -85,7 +86,7 @@
 
   // ===== リスクヒート（簡易スコア） =====
   function renderRisk(el){
-    const cash = parseFloat($('#cashBalance')?.dataset.value||"0"); // 修正: cashTotal→cashBalance
+    const cash = parseFloat($('#cashBalance')?.dataset.value||"0");
     const total = parseFloat($('#totalAssets')?.dataset.value||"0");
     const margin = parseFloat($('#marginMV')?.dataset.value||"0");
     const cashPct = total ? cash/total : 0;
@@ -97,11 +98,11 @@
       #ff4d6766 ${clamp(100-score+20,0,100)}%)`;
   }
 
-  // ===== ミニ予測（ダミー生成） =====
+  // ===== ミニ予測（ダミー） =====
   function renderPreview(listEl){
     const ideas = [
       {k:"現金比率", v: ()=> {
-        const c = parseFloat($('#cashBalance')?.dataset.value||"0"); // 修正
+        const c = parseFloat($('#cashBalance')?.dataset.value||"0");
         const t = parseFloat($('#totalAssets')?.dataset.value||"0") || 1;
         return Math.round(100*c/t) + "%";
       }},
@@ -137,12 +138,105 @@
     setInterval(tick, 1000);
   }
 
+  // ===== 目標比率乖離／勝率／最大DD推定／配当見込み =====
+  function renderAIInsights(){
+    const box = $('#aiInsights');
+    if(!box) return;
+
+    // 現状比率
+    const spot = parseFloat($('#spotMV')?.dataset.value||"0");
+    const margin = parseFloat($('#marginMV')?.dataset.value||"0");
+    const cash = parseFloat($('#cashBalance')?.dataset.value||"0");
+    const total = Math.max(1, parseFloat($('#totalAssets')?.dataset.value||"0"));
+
+    const cur = { spot: spot/total, margin: margin/total, cash: cash/total };
+
+    // 目標: section属性で調整可（デフォ 60/20/20）
+    const grid = $('#kpiGrid');
+    const tgt = {
+      spot:   parseFloat(grid?.dataset.targetSpot||"0.60"),
+      margin: parseFloat(grid?.dataset.targetMargin||"0.20"),
+      cash:   parseFloat(grid?.dataset.targetCash||"0.20"),
+    };
+    const dev = {
+      spot:   Math.round((cur.spot - tgt.spot) * 100),
+      margin: Math.round((cur.margin - tgt.margin) * 100),
+      cash:   Math.round((cur.cash - tgt.cash) * 100),
+    };
+
+    // 勝率（アクティビティの trade pnl>0 割合）
+    const trades = $$('#activityList .act-item[data-kind="trade"]');
+    let win=0, lose=0;
+    trades.forEach(li=>{
+      const v = parseFloat($('[data-amount]', li)?.dataset.amount||"0");
+      if(v > 0) win++; else if(v < 0) lose++;
+    });
+    const wr = (win+lose) ? Math.round(100*win/(win+lose)) : null;
+
+    // 最大ドローダウン（asset_history_csv を使用）
+    function maxDrawdown(vals){
+      let peak = vals[0], mdd = 0;
+      for(let i=1;i<vals.length;i++){
+        peak = Math.max(peak, vals[i]);
+        mdd = Math.min(mdd, (vals[i]-peak)/peak);
+      }
+      return Math.round(mdd * 100); // 負の％
+    }
+    let mddPct = null;
+    const raw = ($('#assetSpark')?.dataset.points||'').trim();
+    if(raw){
+      const vals = raw.split(',').map(Number).filter(v=>!Number.isNaN(v) && v>0);
+      if(vals.length >= 3) mddPct = maxDrawdown(vals);
+    }
+
+    // 配当着地（最近の配当合計を年率換算っぽく推定）
+    const divs = $$('#activityList .act-item[data-kind="dividend"] .act-val');
+    let divSum=0;
+    divs.forEach(el=>{ divSum += parseFloat(el.dataset.amount||"0"); });
+    // ざっくり：最近表示分（最大100件）の平均月額×12
+    const monthsApprox = Math.max(1, Math.min(12, Math.ceil(divs.length/3))); // だいたい3件で1ヶ月想定
+    const divAnnualEst = Math.round((divSum/monthsApprox)*12);
+
+    // 表示
+    const posneg = (n)=> n>=0 ? 'ai-pos' : 'ai-neg';
+    box.innerHTML = `
+      <li class="ai-item">
+        <div><strong>目標比率乖離</strong><br><small>Spot/Margin/Cash vs Target</small></div>
+        <div style="text-align:right">
+          <div class="${posneg(dev.spot)}">現物 ${dev.spot>=0?'+':''}${dev.spot}%</div>
+          <div class="${posneg(dev.margin)}">信用 ${dev.margin>=0?'+':''}${dev.margin}%</div>
+          <div class="${posneg(dev.cash)}">現金 ${dev.cash>=0?'+':''}${dev.cash}%</div>
+        </div>
+      </li>
+      <li class="ai-item">
+        <div><strong>勝率</strong><br><small>最近の売買履歴ベース</small></div>
+        <div><strong>${wr!==null ? wr+'%' : '—'}</strong></div>
+      </li>
+      <li class="ai-item">
+        <div><strong>最大ドローダウン（推定）</strong><br><small>簡易：総資産スパークから</small></div>
+        <div><strong>${mddPct!==null ? mddPct+'%' : '—'}</strong></div>
+      </li>
+      <li class="ai-item">
+        <div><strong>配当着地見込み</strong><br><small>最近の配当合計から年率換算（目安）</small></div>
+        <div><strong>${fmtJPY(divAnnualEst)}</strong></div>
+      </li>
+    `;
+  }
+
   // ===== イベント（内訳トグル） =====
   function setupReveal(btn, grid, deep){
     btn?.addEventListener('click', ()=>{
       const show = grid.hasAttribute('hidden');
-      if(show){ grid.removeAttribute('hidden'); deep.style.display='block'; btn.textContent='内訳を隠す'; }
-      else { grid.setAttribute('hidden',''); deep.style.display='none'; btn.textContent='内訳を展開'; }
+      if(show){
+        grid.removeAttribute('hidden');
+        deep.style.display='block';
+        btn.textContent='内訳を隠す';
+        renderAIInsights(); // 開いたときに算出
+      }else{
+        grid.setAttribute('hidden','');
+        deep.style.display='none';
+        btn.textContent='内訳を展開';
+      }
     });
     $('#btnCollapse')?.addEventListener('click', ()=>{
       grid.setAttribute('hidden',''); deep.style.display='none'; $('#btnReveal').textContent='内訳を展開';
@@ -162,7 +256,6 @@
     [$('#ringSpot'), $('#ringMargin')].forEach(el=>el && renderRing(el));
     renderStackBars($('#stackBars'));
     renderRisk($('#riskHeat'));
-    renderPreview($('#miniPreview'));
 
     // スパークデッキ（2枚）
     const deck = $('#sparkDeck');
@@ -175,7 +268,7 @@
     }
 
     setupReveal($('#btnReveal'), $('#kpiGrid'), $('#deep'));
-    setupLive(); // LIVE強化（時刻更新）
+    setupLive();
 
     // PnL 着色
     $$('.pnl').forEach(el=>{
@@ -183,13 +276,29 @@
       if(s >= 0) el.classList.add('pos'); else el.classList.add('neg');
     });
 
+    // 日次プレビュー（簡易）
+    (function renderPreview(listEl){
+      if(!listEl) return;
+      const c = parseFloat($('#cashBalance')?.dataset.value||"0");
+      const t = parseFloat($('#totalAssets')?.dataset.value||"0") || 1;
+      const m = parseFloat($('#marginMV')?.dataset.value||"0");
+      const items = [
+        {k:"現金比率", v: Math.round(100*c/t) + "%"},
+        {k:"信用依存", v: Math.round(100*m/t) + "%"},
+        {k:"ヒント", v: (m/t)>0.35 ? "信用比率がやや高め" : "バランス良好"},
+      ];
+      listEl.innerHTML = items.map(i=>(
+        `<div class="mini-item"><span>${i.k}</span><strong>${i.v}</strong></div>`
+      )).join("");
+    })($('#miniPreview'));
+
     // リサイズで再描画（スパーク/リング）
     let t; window.addEventListener('resize', ()=>{
       clearTimeout(t);
       t = setTimeout(()=>{
         renderSpark($('#assetSpark'));
         [$('#ringSpot'), $('#ringMargin')].forEach(el=>el && renderRing(el));
-      }, 100);
+      }, 120);
     });
   }
 
