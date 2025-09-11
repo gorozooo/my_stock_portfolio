@@ -135,7 +135,7 @@ def _yf_benchmark_return() -> float:
     """TOPIXの当日リターン（失敗時は1306.T→1308.Tフォールバック）。なければ0.0。"""
     if not yf:
         return 0.0
-    for sym in ("^TOPX", "1306.T", "1308.T"):
+    for sym in ("^TOPIX", "1306.T", "1308.T"):
         pair = _yf_last_two_closes(sym)
         if not pair:
             continue
