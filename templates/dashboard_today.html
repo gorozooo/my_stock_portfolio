@@ -2,76 +2,112 @@
 {% load static %}
 {% load humanize %}
 
-{% block title %}ダッシュ：今日の損益{% endblock %}
+{% block title %}ダッシュボード{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
 {% endblock %}
 
 {% block content %}
-<div class="wrap">
-  <section class="hero hero-dash">
-    <div class="bg-orb orb-a"></div>
-    <div class="bg-orb orb-b"></div>
+<div class="dash-wrap">
 
-    <div class="hero-topline">
-      <span class="chip chip-live">
-        <span class="live-dot" aria-hidden="true"></span>
-        LIVE <span class="live-ts" id="liveTs">--:--:--</span>
-      </span>
+  <!-- ヘッダ -->
+  <header class="dash-hd">
+    <h1>意思決定ダッシュボード</h1>
+    <div class="chips">
+      <span class="chip chip-live"><span class="live-dot" aria-hidden="true"></span>LIVE <span id="liveTs" class="live-ts">--:--:--</span></span>
+    </div>
+  </header>
+
+  <!-- ===== セクション1: 今日の損益 + ベンチ差（既存想定の枠） ===== -->
+  <section class="panel glass">
+    <header class="panel-hd">
+      <h2>今日の損益 + ベンチ差</h2>
+    </header>
+
+    <div class="kpi-row">
+      <article class="kpi">
+        <div class="kpi-title">本日損益</div>
+        <div class="kpi-value" id="kpiPnlToday" data-value="{{ pnl_today|default_if_none:0 }}">¥{{ pnl_today|default_if_none:0|floatformat:0|intcomma }}</div>
+        <div class="kpi-sub muted">前日比 / 試算</div>
+      </article>
+      <article class="kpi">
+        <div class="kpi-title">ベンチ差（TOPIX）</div>
+        <div class="kpi-value" id="kpiBenchDiff" data-value="{{ bench_diff_today|default_if_none:0 }}">+{{ bench_diff_today|default_if_none:0|floatformat:2 }}%</div>
+        <div class="kpi-sub muted">ポート vs 指数</div>
+      </article>
     </div>
 
-    <h1 class="headline">今日の損益 ＋ ベンチ差</h1>
-
-    <div class="kpis">
-      <div class="card main">
-        <div class="big" id="pnlYen" data-val="{{ today_pnl|default_if_none:0 }}">
-          ¥{{ today_pnl|default_if_none:0|floatformat:0|intcomma }}
-        </div>
-        <div class="sub">
-          ポート今日: 
-          <strong class="pnl {% if port_ret >= 0 %}pos{% else %}neg{% endif %}">
-            {% if port_ret >= 0 %}+{% endif %}{{ port_ret|floatformat:2 }}%
-          </strong>
-          ／ TOPIX:
-          <span class="{% if bench_ret >= 0 %}pos{% else %}neg{% endif %}">
-            {% if bench_ret >= 0 %}+{% endif %}{{ bench_ret|floatformat:2 }}%
-          </span>
-          ／ ベンチ差:
-          <span class="{% if alpha_ret >= 0 %}pos{% else %}neg{% endif %}">
-            {% if alpha_ret >= 0 %}+{% endif %}{{ alpha_ret|floatformat:2 }}%
-          </span>
-        </div>
-
-        <!-- 派手目ミニスパーク（総資産ではなく “今日の損益” の推移を表現：ノイズ演出込み） -->
-        <div id="sparkToday" class="spark-today"
-             data-base="{{ today_pnl|default_if_none:0 }}">
-        </div>
-      </div>
-
-      <div class="card side">
-        <div class="side-title">上位寄与（今日）</div>
-        <ul class="contrib">
-          {% for r in rows|dictsortreversed:"pnl"|slice:":5" %}
-            <li>
-              <span class="tkr">{{ r.ticker }}</span>
-              <span class="nm">{{ r.name }}</span>
-              <span class="v {% if r.pnl >= 0 %}pos{% else %}neg{% endif %}">
-                {% if r.pnl >= 0 %}+{% endif %}¥{{ r.pnl|floatformat:0|intcomma }}
-              </span>
-            </li>
-          {% empty %}
-            <li class="muted">データなし</li>
-          {% endfor %}
-        </ul>
-      </div>
-    </div>
-
-    <p class="muted asof">更新: {{ as_of|date:"H:i:s" }}</p>
+    <!-- スパーク（ポート vs ベンチ） -->
+    <div class="spark-compare"
+         id="sparkCompare"
+         data-portfolio="{{ asset_history_csv|default_if_none:'' }}"
+         data-benchmark="{{ bench_history_csv|default_if_none:'' }}"
+         aria-label="ポートとベンチの推移比較"></div>
   </section>
+
+  <!-- ===== セクション2: リスク ===== -->
+  <section class="panel glass" id="riskPanel"
+           data-portfolio="{{ asset_history_csv|default_if_none:'' }}"
+           data-benchmark="{{ bench_history_csv|default_if_none:'' }}">
+    <header class="panel-hd">
+      <h2>リスク</h2>
+      <div class="panel-actions">
+        <button class="btn btn-ghost" id="riskHorizonBtn" data-h="30">30日</button>
+        <button class="btn btn-ghost" id="riskHorizonBtn60" data-h="60">60日</button>
+        <button class="btn btn-ghost" id="riskHorizonBtn90" data-h="90">90日</button>
+      </div>
+    </header>
+
+    <!-- 上段 KPI -->
+    <div class="kpi-grid">
+      <article class="kpi big">
+        <div class="kpi-title">VaR(95%)</div>
+        <div class="kpi-value" id="kpiVaR">—</div>
+        <div class="kpi-sub muted">過去リターンの下位5%相当（単純推定）</div>
+      </article>
+      <article class="kpi">
+        <div class="kpi-title">最大ドローダウン</div>
+        <div class="kpi-value" id="kpiMaxDD">—</div>
+        <div class="kpi-sub muted">期間内のピークからの最大下落率</div>
+      </article>
+      <article class="kpi">
+        <div class="kpi-title">年率ボラ（推定）</div>
+        <div class="kpi-value" id="kpiVol">—</div>
+        <div class="kpi-sub muted">日次リターン×√252</div>
+      </article>
+      <article class="kpi">
+        <div class="kpi-title">現金比率</div>
+        <div class="kpi-value" id="kpiCashRatio"
+             data-cash="{{ cash_balance|default_if_none:0 }}"
+             data-total="{{ total_assets|default_if_none:0 }}">—</div>
+        <div class="kpi-sub muted">現金 / 総資産</div>
+      </article>
+      <article class="kpi">
+        <div class="kpi-title">信用依存</div>
+        <div class="kpi-value" id="kpiMarginRatio"
+             data-margin="{{ margin_market_value|default_if_none:0 }}"
+             data-total="{{ total_assets|default_if_none:0 }}">—</div>
+        <div class="kpi-sub muted">信用評価額 / 総資産</div>
+      </article>
+    </div>
+
+    <!-- 下段 可視化 -->
+    <div class="risk-viz">
+      <div class="viz-card">
+        <h3>リターン分布（ヒストグラム）</h3>
+        <canvas id="histCanvas" width="600" height="200" aria-label="日次リターンの分布"></canvas>
+      </div>
+      <div class="viz-card">
+        <h3>ドローダウン・トラック</h3>
+        <div class="mini-spark" id="ddSpark" aria-label="ドローダウン推移"></div>
+      </div>
+    </div>
+  </section>
+
 </div>
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/dashboard_today.js' %}" defer></script>
+<script src="{% static 'js/dashboard.js' %}" defer></script>
 {% endblock %}
