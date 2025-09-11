@@ -161,3 +161,15 @@ class AssetSnapshotAdmin(admin.ModelAdmin):
                     "margin_market_value", "cash_balance", "unrealized_pl_total")
     list_filter = ("date", "user")
     date_hierarchy = "date"
+
+# =============================
+# 当日のスナップショット
+# =============================
+from django.contrib import admin
+from .models import TodayPnLSnapshot
+
+@admin.register(TodayPnLSnapshot)
+class TodayPnLSnapshotAdmin(admin.ModelAdmin):
+    list_display = ("date", "pnl_today", "bench_ret", "created_at")
+    list_filter = ("date",)
+    ordering = ("-date",)
