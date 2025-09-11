@@ -49,7 +49,7 @@
     if(!el) return;
     const val = parseFloat(el.dataset.value||"0");
     const total = Math.max(1, parseFloat(el.dataset.total||"1"));
-    const pct = clamp(val/total, 0, 1);
+    const pct = Math.max(0, Math.min(1, val/total));
     const size = el.clientHeight || 86;
     const r = (size/2)-8, c = Math.PI*2*r;
     const dash = c*pct, gap = c-dash;
@@ -84,85 +84,33 @@
       <span style="width:${p(cash)}%;background:var(--accent)"></span>`;
   }
 
-  // リスク
-  function renderRisk(el){
-    if(!el) return;
-    const cash = parseFloat($('#cashBalance')?.dataset.value||"0");
-    const total = parseFloat($('#totalAssets')?.dataset.value||"0");
-    const margin = parseFloat($('#marginMV')?.dataset.value||"0");
-    const cashPct = total ? cash/total : 0;
-    const marginPct = total ? margin/total : 0;
-    const score = clamp(50*(1-cashPct) + 50*(marginPct), 0, 100);
-    el.style.background = `linear-gradient(90deg,
-      #26d07c66 ${clamp(100-score,0,100)}%,
-      #ffd16666 ${clamp(100-score+10,0,100)}%,
-      #ff4d6766 ${clamp(100-score+20,0,100)}%)`;
-  }
-
-  // ミニプレビュー
-  function renderPreview(listEl){
-    if(!listEl) return;
-    const ideas = [
-      {k:"現金比率", v: ()=> {
-        const c = parseFloat($('#cashBalance')?.dataset.value||"0");
-        const t = parseFloat($('#totalAssets')?.dataset.value||"0") || 1;
-        return Math.round(100*c/t) + "%";
-      }},
-      {k:"信用依存", v: ()=> {
-        const m = parseFloat($('#marginMV')?.dataset.value||"0");
-        const t = parseFloat($('#totalAssets')?.dataset.value||"0") || 1;
-        return Math.round(100*m/t) + "%";
-      }},
-      {k:"想定ボラ", v: ()=> {
-        const s = parseFloat($('#spotMV')?.dataset.value||"0");
-        const m = parseFloat($('#marginMV')?.dataset.value||"0");
-        const vol = Math.min(100, Math.round(10 + 0.000006*(s + 2*m)));
-        return vol + "/100";
-      }},
-    ];
-    listEl.innerHTML = ideas.map(i=>(
-      `<div class="mini-item"><span>${i.k}</span><strong>${i.v()}</strong></div>`
-    )).join("");
-  }
-
-  // 開閉（リンク風）
+  // 開閉（カード内）
   function setupDisclosure(){
     const btn = $('#discloseKPI');
-    const grid = $('#kpiGrid');
-    const deep = $('#deep');
-    if(!btn || !grid) return;
+    const panel = $('#heroDisclosure');
+    if(!btn || !panel) return;
 
     btn.addEventListener('click', ()=>{
       const open = btn.getAttribute('aria-expanded') === 'true';
       if(open){
-        grid.setAttribute('hidden','');
-        deep && deep.setAttribute('hidden','');
+        panel.setAttribute('hidden','');
         btn.setAttribute('aria-expanded','false');
         btn.innerHTML = `内訳を表示
           <svg class="chev" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
             <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>`;
       }else{
-        grid.removeAttribute('hidden');
-        deep && deep.removeAttribute('hidden');
+        panel.removeAttribute('hidden');
         btn.setAttribute('aria-expanded','true');
         btn.innerHTML = `内訳を隠す
           <svg class="chev" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
             <path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
           </svg>`;
-        grid.classList.add('revealed');
-        setTimeout(()=>grid.classList.remove('revealed'), 400);
-      }
-    });
 
-    $('#btnCollapse')?.addEventListener('click', ()=>{
-      grid.setAttribute('hidden','');
-      deep && deep.setAttribute('hidden','');
-      btn.setAttribute('aria-expanded','false');
-      btn.innerHTML = `内訳を表示
-        <svg class="chev" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-          <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>`;
+        // 内訳を開いたタイミングで各可視部品を描画
+        [$('#ringSpot'), $('#ringMargin')].forEach(el=>el && renderRing(el));
+        renderStackBars($('#stackBars'));
+      }
     });
   }
 
@@ -171,19 +119,6 @@
     if(totalEl) animateNumber(totalEl, parseFloat(totalEl.dataset.value||"0"));
 
     renderSpark($('#assetSpark'));
-    [$('#ringSpot'), $('#ringMargin')].forEach(el=>el && renderRing(el));
-    renderStackBars($('#stackBars'));
-    renderRisk($('#riskHeat'));
-    renderPreview($('#miniPreview'));
-
-    const deck = $('#sparkDeck');
-    if(deck){
-      const raw = (deck.dataset.points||'').trim();
-      deck.innerHTML = `<div class="spark" data-points="${raw}"></div><div class="spark" data-points="${raw}"></div>`;
-      $$('.spark', deck).forEach(renderSpark);
-    }
-
-    setupDisclosure();
 
     // PnL 色
     $$('.pnl').forEach(el=>{
@@ -191,12 +126,17 @@
       if(s>=0) el.classList.add('pos'); else el.classList.add('neg');
     });
 
+    setupDisclosure();
+
     // リサイズ再描画
     let t; window.addEventListener('resize', ()=>{
       clearTimeout(t);
       t=setTimeout(()=>{
         renderSpark($('#assetSpark'));
-        [$('#ringSpot'), $('#ringMargin')].forEach(el=>el && renderRing(el));
+        // 開いている時のみ再描画
+        if($('#heroDisclosure') && !$('#heroDisclosure').hasAttribute('hidden')){
+          [$('#ringSpot'), $('#ringMargin')].forEach(el=>el && renderRing(el));
+        }
       },120);
     });
   }
