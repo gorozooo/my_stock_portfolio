@@ -150,8 +150,8 @@ CRONJOBS = [
 
 # === Bench & Sector targets ===
 BENCH_TICKERS = {
-    "TOPIX": "^TOPX",    # TOPIX
-    "NIKKEI": "^N225",   # 日経平均
+    "TOPIX": ["1306.T", "1308.T"],   # TOPIX ETF（野村 / iShares）
+    "NIKKEI": ["1321.T", "^N225"],   # 日経225 ETF → 取れなければ指数
 }
 # 目標配分（%）；お好みで
 SECTOR_TARGETS = {
