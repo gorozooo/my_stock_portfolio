@@ -198,3 +198,58 @@ body{
 @media (min-width:760px){
   .total{ font-size:40px }
 }
+
+/* ===== Fancy Spark for Total Assets ===== */
+.spark-wrap{ margin-top:10px }
+.spark--fancy{
+  position: relative;
+  height: 86px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(120% 100% at 10% 0%, rgba(110,168,255,.10), transparent 60%),
+    radial-gradient(120% 100% at 100% 100%, rgba(0,255,209,.08), transparent 60%),
+    rgba(255,255,255,.03);
+}
+
+/* 発光のベール（奥でゆっくり動く） */
+.spark--fancy::before{
+  content:"";
+  position:absolute; inset:-30%;
+  background: radial-gradient(60% 60% at 30% 40%, rgba(0,255,209,.22), transparent 70%);
+  filter: blur(24px);
+  animation: sparkMist 8s ease-in-out infinite alternate;
+  pointer-events:none;
+}
+@keyframes sparkMist{
+  0%   { transform: translate3d(-4%, 2%, 0) rotate(0deg); opacity:.6; }
+  100% { transform: translate3d(4%, -3%, 0) rotate(6deg); opacity:.85; }
+}
+
+/* 線の強い発光 */
+.spark--fancy svg .line-main{
+  stroke: url(#sparkGrad);
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 8px rgba(0,255,209,.55));
+}
+.spark--fancy svg .line-glow{
+  stroke: rgba(110,168,255,.38);
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: .55;
+  filter: blur(0.2px);
+}
+
+/* 初回 “線を描く” 演出 */
+.spark--fancy svg .draw{
+  stroke-dasharray: var(--dash, 0);
+  stroke-dashoffset: var(--dash, 0);
+  animation: drawLine 1.6s ease forwards;
+}
+@keyframes drawLine{
+  to { stroke-dashoffset: 0; }
+}
