@@ -24,7 +24,15 @@ body{
 .chip{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--glass);backdrop-filter: blur(6px);font-weight:700}
 
 /* hero card */
-.hero{position:relative;border:1px solid var(--line);border-radius:18px;padding:14px 14px 12px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03))}
+.hero{
+  position:relative;border:1px solid var(--line);border-radius:18px;
+  padding:14px 14px 12px; /* デフォルトの余白 */
+  background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));
+  overflow:hidden; /* FIX: KPIがはみ出すのを防止（右端のにじみ対策） */
+}
+/* FIX: 内訳を閉じている時に縦の余白をさらに詰めたい場合はここを調整 */
+.hero.is-collapsed{ padding-bottom: 6px; } /* ← ここを小さくすると“含み損益～下端”の空白が狭くなる */
+
 .bg-orb{position:absolute;border-radius:50%;filter:blur(30px);opacity:.55;pointer-events:none;}
 .orb-a{width:160px;height:160px;left:-20px;top:-20px;background:radial-gradient(var(--primary),transparent)}
 .orb-b{width:200px;height:200px;right:-30px;bottom:-30px;background:radial-gradient(var(--accent),transparent)}
@@ -41,13 +49,30 @@ body{
 .link-toggle[aria-expanded="true"] .chev{transform:rotate(180deg)}
 
 /* spark */
-.spark-wrap.compact{margin-top:6px}
+.spark-wrap.compact{margin-top:6px} /* FIX: ここも少し詰めて全体の空白を圧縮 */
 .spark{height:60px;border:0;border-radius:12px;display:flex;align-items:center;justify-content:center;overflow:hidden}
 
 /* hero disclosure (KPI inside hero) */
-.hero-disclosure{margin-top:10px}
-.kpi-duo{display:grid;grid-template-columns:1fr 1fr;gap:12px} /* ←常時2カラムで横並び */
-.glass{background:var(--glass);border:1px solid var(--line);border-radius:16px;padding:12px;backdrop-filter: blur(8px)}
+.hero-disclosure{
+  margin-top:10px;
+  width:100%; /* FIX: KPIが親幅に収まるよう幅を明示 */
+  overflow:hidden; /* FIX: 内部のはみ出しを抑制 */
+}
+.hero-disclosure[hidden]{margin-top:0;} /* 閉じてる時は余白ゼロ */
+
+/* KPI左右はみ出し対策：minmax(0,1fr) と min-width:0 を明示 */
+.kpi-duo{
+  display:grid;
+  grid-template-columns: minmax(0,1fr) minmax(0,1fr); /* FIX: 右端はみ出しの直接対策 */
+  gap:12px;
+}
+.kpi-row-single{
+  display:grid;
+  grid-template-columns: 1fr; /* 要望：2段目（キャッシュ/比率）は1列表示 */
+  gap:12px;
+}
+
+.glass{background:var(--glass);border:1px solid var(--line);border-radius:16px;padding:12px;backdrop-filter: blur(8px);min-width:0;} /* FIX: min-width:0 で子要素のはみ出しを防止 */
 .kpi-card .kpi-title{font-size:12px;color:var(--muted)}
 .kpi-card .kpi-value{font-size:22px;font-weight:900;margin:4px 0}
 .kpi-card .kpi-sub{color:var(--muted);font-size:12px}
