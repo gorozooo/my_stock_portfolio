@@ -4,7 +4,9 @@
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
   const fmtJPY = v => "¥" + Math.round(v).toLocaleString("ja-JP");
 
-  // ===== 背景：動くオーブ（HTMLに無ければ自動挿入） =====
+  // =========================
+  // 背景：動くオーブ（HTMLに無ければ自動挿入）
+  // =========================
   function mountBgLayer(){
     if($('.bg-layer')) return; // 既にある
     const layer = document.createElement('div');
@@ -17,7 +19,9 @@
     document.body.appendChild(layer);
   }
 
-  // ===== LIVE clock =====
+  // =========================
+  // LIVE clock
+  // =========================
   let liveTimer = null;
   function tickLive(){
     const el = $('#liveTs'); if(!el) return;
@@ -33,7 +37,9 @@
     liveTimer = setInterval(tickLive, 1000);
   }
 
-  // ===== number animation（総資産） =====
+  // =========================
+  // number animation（総資産）
+  // =========================
   function animateNumber(el, to, dur=700){
     if(!el) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -52,7 +58,9 @@
     el.dataset.value = to;
   }
 
-  // ===== 横比率バー（現物/信用/現金） =====
+  // =========================
+  // 横比率バー（現物/信用/現金）
+  // =========================
   function renderStackBars(el){
     if(!el) return;
     const s = parseFloat(el.dataset.spot||"0");
@@ -66,7 +74,9 @@
       <span style="width:${p(c)}%;background:var(--accent)"></span>`;
   }
 
-  // ===== PnL 色分け =====
+  // =========================
+  // PnL 色分け
+  // =========================
   function paintPnL(){
     $$('.pnl').forEach(el=>{
       const s = parseFloat(el.dataset.sign||"0");
@@ -75,7 +85,9 @@
     });
   }
 
-  // ===== 内訳（<details>）ラベル切替 =====
+  // =========================
+  // 内訳（<details>）ラベル切替
+  // =========================
   function setupBreakdown(){
     const d = $('#breakdown'); if(!d) return;
     const s = d.querySelector('.summary-btn');
@@ -84,7 +96,9 @@
     set();
   }
 
-  // ===== 利益率ゲージ（現物） =====
+  // =========================
+  // 利益率ゲージ（現物）
+  // =========================
   function renderSpotRate(){
     const meter = $('#spotRate'); if(!meter) return;
     const mv  = parseFloat(meter.dataset.mv  || "0");
@@ -109,7 +123,9 @@
     meter.setAttribute('aria-valuenow', String(clamped.toFixed(1)));
   }
 
-  // ===== ミニ損益スパーク（信用） =====
+  // =========================
+  // ミニ損益スパーク（信用）
+  // =========================
   function renderMiniSpark(el){
     if(!el) return;
     let raw = (el.dataset.points || '').trim();
@@ -141,29 +157,143 @@
       </svg>`;
   }
 
-  // ===== リサイズ再描画（負荷低め） =====
+  // =========================
+  // 総資産スパーク（実データ + 演出ノイズで常時ゆらゆら）
+  // =========================
+  function initFancySpark(){
+    const el = $('#assetSpark');
+    if(!el) return;
+
+    // 1) 実データ読み込み
+    const raw = (el.dataset.points||'').trim();
+    const base = raw.split(',').map(Number).filter(v=>!Number.isNaN(v));
+    if(base.length < 2){
+      el.textContent = 'データ不足';
+      return;
+    }
+
+    // 2) 描画関数
+    const pad = 6;
+    function draw(vals, first=false){
+      const w = el.clientWidth || 360;
+      const h = el.clientHeight || 86;
+      const min = Math.min(...vals), max = Math.max(...vals);
+      const x = i => pad + (w - pad*2) * (i/(vals.length-1));
+      const y = v => max===min ? h/2 : pad + (1 - ((v - min)/(max - min))) * (h - pad*2);
+      const pts = vals.map((v,i)=>`${x(i)},${y(v)}`).join(' ');
+
+      if(first || !el._svg){
+        const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+        svg.setAttribute('width', w);
+        svg.setAttribute('height', h);
+        svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+        const defs = document.createElementNS(svg.namespaceURI,'defs');
+        const grad = document.createElementNS(svg.namespaceURI,'linearGradient');
+        grad.setAttribute('id','sparkGrad');
+        grad.setAttribute('x1','0'); grad.setAttribute('y1','0');
+        grad.setAttribute('x2','1'); grad.setAttribute('y2','0');
+        const s1 = document.createElementNS(svg.namespaceURI,'stop');
+        s1.setAttribute('offset','0%');  s1.setAttribute('stop-color','var(--primary)');
+        const s2 = document.createElementNS(svg.namespaceURI,'stop');
+        s2.setAttribute('offset','100%'); s2.setAttribute('stop-color','var(--accent)');
+        grad.appendChild(s1); grad.appendChild(s2);
+        defs.appendChild(grad);
+        svg.appendChild(defs);
+
+        const glow = document.createElementNS(svg.namespaceURI,'polyline');
+        glow.setAttribute('class','line-glow');
+        glow.setAttribute('points', pts);
+        svg.appendChild(glow);
+
+        const line = document.createElementNS(svg.namespaceURI,'polyline');
+        line.setAttribute('class','line-main draw');
+        line.setAttribute('points', pts);
+        svg.appendChild(line);
+
+        // “線を描く” 初回演出
+        const approxLen = Math.hypot(w, h) * 1.6;
+        line.style.setProperty('--dash', approxLen);
+
+        el.innerHTML = '';
+        el.appendChild(svg);
+        el._svg = { svg, line, glow };
+      } else {
+        el._svg.glow.setAttribute('points', pts);
+        el._svg.line.setAttribute('points', pts);
+      }
+    }
+
+    // 3) 初期描画
+    draw(base, true);
+
+    // 4) ゆらぎループ
+    let rafId = 0, start = performance.now();
+    function loop(t){
+      const h = el.clientHeight || 86;
+      const dt = (t - start) / 1000;
+      const amp = Math.max(2, h * 0.06); // ← 振幅（派手さの強さ）。もっと派手：0.10 など
+      const speed = 0.9;                 // ← 速度（値を上げると速く揺れる）
+      const vals = base.map((v,i)=>{
+        const phase = (i * 0.55) + (dt * speed);
+        const jiggle = Math.sin(phase) * amp;
+        return v + jiggle;
+      });
+      draw(vals, false);
+      rafId = requestAnimationFrame(loop);
+    }
+
+    // Reduce motion の人には静止
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if(!reduce){
+      rafId = requestAnimationFrame(loop);
+    }
+
+    // ハンドラ保持（可視状態切替/クリーンアップで使用）
+    el._sparkDispose = ()=> cancelAnimationFrame(rafId);
+
+    // リサイズで再レイアウト
+    let timer;
+    window.addEventListener('resize', ()=>{
+      clearTimeout(timer);
+      timer = setTimeout(()=>draw(base, true), 120);
+    });
+  }
+
+  // =========================
+  // リサイズ再描画（負荷低め）
+  // =========================
   function setupResize(){
     let t;
     window.addEventListener('resize', ()=>{
       clearTimeout(t);
       t = setTimeout(()=>{
         renderMiniSpark($('#marginSpark'));
+        // 総資産スパークは initFancySpark 内で個別対応済み
       }, 120);
     });
   }
 
-  // ===== Visibility（非表示時はLIVE停止） =====
+  // =========================
+  // Visibility（非表示時はLIVE/スパーク停止）
+  // =========================
   function setupVisibility(){
     document.addEventListener('visibilitychange', ()=>{
       if(document.hidden){
         if(liveTimer) clearInterval(liveTimer);
+        const s = $('#assetSpark');
+        if(s && s._sparkDispose) s._sparkDispose();
       }else{
         startLive();
+        // 非表示から復帰時、再構築（安全のため）
+        initFancySpark();
       }
     });
   }
 
-  // ===== 初期化 =====
+  // =========================
+  // 初期化
+  // =========================
   function init(){
     mountBgLayer();
     startLive();
@@ -182,6 +312,9 @@
     // KPI: 現物ゲージ & 信用スパーク
     renderSpotRate();
     renderMiniSpark($('#marginSpark'));
+
+    // 総資産スパーク（実データ + ノイズ）
+    initFancySpark();
 
     // 補助
     setupResize();
