@@ -85,14 +85,12 @@
 
   // ===== リスクヒート（簡易スコア） =====
   function renderRisk(el){
-    const cash = parseFloat($('#cashTotal')?.dataset.value||"0");
+    const cash = parseFloat($('#cashBalance')?.dataset.value||"0"); // 修正: cashTotal→cashBalance
     const total = parseFloat($('#totalAssets')?.dataset.value||"0");
     const margin = parseFloat($('#marginMV')?.dataset.value||"0");
-    // 現金多 → 低リスク, 信用多 → 高リスクの超単純スコア
     const cashPct = total ? cash/total : 0;
     const marginPct = total ? margin/total : 0;
     const score = clamp(50*(1-cashPct) + 50*(marginPct), 0, 100);
-    // 条件に応じてグラデの位置を動かす
     el.style.background = `linear-gradient(90deg,
       #26d07c66 ${clamp(100-score,0,100)}%, 
       #ffd16666 ${clamp(100-score+10,0,100)}%, 
@@ -103,7 +101,7 @@
   function renderPreview(listEl){
     const ideas = [
       {k:"現金比率", v: ()=> {
-        const c = parseFloat($('#cashTotal')?.dataset.value||"0");
+        const c = parseFloat($('#cashBalance')?.dataset.value||"0"); // 修正
         const t = parseFloat($('#totalAssets')?.dataset.value||"0") || 1;
         return Math.round(100*c/t) + "%";
       }},
@@ -124,14 +122,22 @@
     )).join("");
   }
 
-  // ===== テーマ切替 =====
-  function setupThemeToggle(btn){
-    btn?.addEventListener('click', ()=>{
-      document.documentElement.classList.toggle('light');
-    });
+  // ===== LIVE演出（時刻更新＋点滅） =====
+  function setupLive(){
+    const ts = $('#liveTs');
+    const dot = $('.chip-live .live-dot');
+    if(!ts) return;
+    function pad(n){ return String(n).padStart(2,'0'); }
+    function tick(){
+      const d = new Date();
+      ts.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      dot && dot.classList.toggle('pulse');
+    }
+    tick();
+    setInterval(tick, 1000);
   }
 
-  // ===== イベント =====
+  // ===== イベント（内訳トグル） =====
   function setupReveal(btn, grid, deep){
     btn?.addEventListener('click', ()=>{
       const show = grid.hasAttribute('hidden');
@@ -169,7 +175,7 @@
     }
 
     setupReveal($('#btnReveal'), $('#kpiGrid'), $('#deep'));
-    setupThemeToggle($('#btnTheme'));
+    setupLive(); // LIVE強化（時刻更新）
 
     // PnL 着色
     $$('.pnl').forEach(el=>{
