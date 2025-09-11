@@ -15,8 +15,13 @@
   <section class="hero">
     <div class="bg-orb orb-a"></div>
     <div class="bg-orb orb-b"></div>
+
+    <!-- LIVE & AI -->
     <div class="hero-topline">
-      <span class="chip chip-live" aria-live="polite">LIVE</span>
+      <span class="chip chip-live" aria-live="polite">
+        <i class="live-dot" aria-hidden="true"></i>
+        LIVE <span class="live-ts" id="liveTs">--:--:--</span>
+      </span>
       <span class="chip chip-ai">AI INSIGHTS</span>
     </div>
 
@@ -45,14 +50,13 @@
       </div>
     </div>
 
-    <!-- クイックアクション -->
+    <!-- クイックアクション（テーマ切替ボタンは削除） -->
     <div class="hero-actions">
       <button class="btn btn-primary" id="btnReveal">内訳を展開</button>
-      <button class="btn btn-ghost" id="btnTheme">テーマ切替</button>
     </div>
   </section>
 
-  <!-- ====== KPI グリッド ====== -->
+  <!-- ====== KPI グリッド（内訳） ====== -->
   <section class="kpi-grid" id="kpiGrid" hidden>
     <article class="kpi-card glass">
       <div class="kpi-title">現物（現物+NISA）評価額</div>
@@ -136,7 +140,7 @@
       <article class="deep-card">
         <h3>日次プレビュー</h3>
         <div class="mini-list" id="miniPreview">
-          <!-- JSで「今日の変化予想」やヒントを注入 -->
+          <!-- JSでヒントを注入 -->
         </div>
       </article>
 
