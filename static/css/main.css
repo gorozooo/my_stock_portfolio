@@ -1,15 +1,28 @@
+/* =============== THEME =============== */
 :root{
-  --bg:#0b0f1a; --fg:#e6ebff; --muted:#97a0c1;
-  --glass:rgba(255,255,255,.06); --line:rgba(255,255,255,.14);
-  --primary:#6ea8ff; --accent:#00ffd1; --danger:#ff4d67; --success:#26d07c;
+  --bg:#0b0f1a;
+  --fg:#e6ebff;
+  --muted:#97a0c1;
+  --glass:rgba(255,255,255,.06);
+  --line:rgba(255,255,255,.14);
+  --primary:#6ea8ff;
+  --accent:#00ffd1;
+  --danger:#ff4d67;
+  --success:#26d07c;
 }
 @media (prefers-color-scheme: light){
-  :root{ --bg:#f4f6fb; --fg:#0a102a; --muted:#5a617a; --glass:rgba(11,15,26,.05); --line:rgba(10,16,42,.12); --primary:#2b64ff; --accent:#0dd3b8; }
+  :root{
+    --bg:#f4f6fb; --fg:#0a102a; --muted:#5a617a;
+    --glass:rgba(11,15,26,.05); --line:rgba(10,16,42,.12);
+    --primary:#2b64ff; --accent:#0dd3b8;
+  }
 }
+
 *{box-sizing:border-box}
 html,body{height:100%}
 body{
-  margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Meiryo", Arial;
+  margin:0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Meiryo", Arial, "Apple Color Emoji", "Segoe UI Emoji";
   color:var(--fg);
   background:
     radial-gradient(1200px 600px at 70% -20%, rgba(110,168,255,.15), transparent 60%),
@@ -17,76 +30,88 @@ body{
     var(--bg);
 }
 
-/* basics */
+/* =============== UTILS =============== */
 .wrap{max-width:980px;margin:0 auto;padding:16px}
 .muted{color:var(--muted)}
 .pos{color:var(--success)} .neg{color:var(--danger)}
 .chip{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--glass);backdrop-filter: blur(6px);font-weight:700}
 
-/* hero card */
+/* LIVE 演出（強め） */
+.chip-live { display:inline-flex; align-items:center; gap:.5rem }
+.live-dot {
+  width:.6rem; height:.6rem; border-radius:50%;
+  background: #22c55e; box-shadow:0 0 0 .15rem rgba(34,197,94,.25);
+  animation: pulse 1.8s infinite;
+}
+@keyframes pulse {
+  0% { transform:scale(1); box-shadow:0 0 0 .15rem rgba(34,197,94,.25); }
+  50% { transform:scale(1.25); box-shadow:0 0 0 .35rem rgba(34,197,94,.12); }
+  100% { transform:scale(1); box-shadow:0 0 0 .15rem rgba(34,197,94,.25); }
+}
+.live-ts { opacity:.8; font-variant-numeric: tabular-nums; }
+
+/* =============== HERO =============== */
+/* ★余白を狭くするなら↓ここを調整（特に padding-bottom） */
 .hero{
-  position:relative;border:1px solid var(--line);border-radius:18px;
-  padding:14px 14px 12px; /* デフォルトの余白 */
+  position:relative;
+  border:1px solid var(--line);
+  border-radius:18px;
+  padding:16px 16px 14px; /* ← 下を14pxにして“閉じている時”の余白を抑える */
   background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));
-  overflow:hidden; /* FIX: KPIがはみ出すのを防止（右端のにじみ対策） */
 }
-/* FIX: 内訳を閉じている時に縦の余白をさらに詰めたい場合はここを調整 */
-.hero.is-collapsed{ padding-bottom: -5px; } /* ← ここを小さくすると“含み損益～下端”の空白が狭くなる */
-
 .bg-orb{position:absolute;border-radius:50%;filter:blur(30px);opacity:.55;pointer-events:none;}
-.orb-a{width:160px;height:160px;left:-20px;top:-20px;background:radial-gradient(var(--primary),transparent)}
-.orb-b{width:200px;height:200px;right:-30px;bottom:-30px;background:radial-gradient(var(--accent),transparent)}
-.hero-topline{display:flex;gap:8px;margin-bottom:6px}
+.orb-a{width:180px;height:180px;left:-20px;top:-20px;background:radial-gradient(var(--primary),transparent)}
+.orb-b{width:220px;height:220px;right:-30px;bottom:-30px;background:radial-gradient(var(--accent),transparent)}
+.hero-topline{display:flex;gap:8px;margin-bottom:8px}
 .headline{margin:2px 0 0;font-size:13px;color:var(--muted);letter-spacing:.08em}
-.total{font-size:34px;font-weight:1000;letter-spacing:.02em;line-height:1}
-.hero-inline{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:6px}
-.total-sub{color:var(--muted);font-size:13px}
+.total{font-size:34px;font-weight:1000;letter-spacing:.02em}
+.total-sub{margin-top:2px;color:var(--muted)}
+/* スパーク（ダッシュ枠は残しつつ高さを低めにして空白を抑える） */
+.spark-wrap{margin-top:8px}
+.spark{height:60px;border:1px dashed var(--line);border-radius:14px;display:flex;align-items:center;justify-content:center;overflow:hidden}
 
-/* link-like toggle */
-.link-toggle{appearance:none;border:0;background:transparent;color:var(--primary);font-weight:800;display:inline-flex;align-items:center;gap:6px;cursor:pointer;padding:6px 8px;border-radius:10px}
-.link-toggle:hover{background:rgba(255,255,255,.06)}
-.link-toggle .chev{transition:transform .2s ease}
-.link-toggle[aria-expanded="true"] .chev{transform:rotate(180deg)}
-
-/* spark */
-.spark-wrap.compact{margin-top:6px} /* FIX: ここも少し詰めて全体の空白を圧縮 */
-.spark{height:60px;border:0;border-radius:12px;display:flex;align-items:center;justify-content:center;overflow:hidden}
-
-/* hero disclosure (KPI inside hero) */
-.hero-disclosure{
+/* =============== HERO 内訳（<details>） =============== */
+.breakdown{margin-top:10px}
+.summary-btn{
+  display:inline-flex;align-items:center;gap:.5rem;
+  padding:8px 10px;border-radius:12px;border:1px solid var(--line);
+  background:var(--glass);font-weight:800;cursor:pointer;user-select:none;
+}
+.breakdown[open] .summary-btn{border-color:rgba(0,255,209,.35)}
+.breakdown-grid{
   margin-top:10px;
-  width:100%; /* FIX: KPIが親幅に収まるよう幅を明示 */
-  overflow:hidden; /* FIX: 内部のはみ出しを抑制 */
+  display:grid;grid-template-columns:1fr;gap:8px;
 }
-.hero-disclosure[hidden]{margin-top:0;} /* 閉じてる時は余白ゼロ */
-
-/* KPI左右はみ出し対策：minmax(0,1fr) と min-width:0 を明示 */
-.kpi-duo{
-  display:grid;
-  grid-template-columns: minmax(0,1fr) minmax(0,1fr); /* FIX: 右端はみ出しの直接対策 */
-  gap:12px;
-  margin-bottom:10px;
-}
-.kpi-row-single{
-  display:grid;
-  grid-template-columns: 1fr; /* 要望：2段目（キャッシュ/比率）は1列表示 */
-  gap:12px;
+.breakdown-grid .line{
+  display:flex;justify-content:space-between;align-items:center;
+  border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--glass);
 }
 
-.glass{background:var(--glass);border:1px solid var(--line);border-radius:16px;padding:12px;backdrop-filter: blur(8px);min-width:0;} /* FIX: min-width:0 で子要素のはみ出しを防止 */
+/* =============== KPI（1列固定・はみ出し防止） =============== */
+/* ★KPIの“はみ出し”はこのコンテナ幅とカードの padding を見直せばOK */
+.kpi-grid{
+  display:grid;
+  grid-template-columns:1fr; /* ← 常に1列表示に固定 */
+  gap:12px;
+  margin:16px 0;
+}
+.glass{background:var(--glass);border:1px solid var(--line);border-radius:16px;padding:14px;backdrop-filter: blur(8px)}
 .kpi-card .kpi-title{font-size:12px;color:var(--muted)}
 .kpi-card .kpi-value{font-size:22px;font-weight:900;margin:4px 0}
 .kpi-card .kpi-sub{color:var(--muted);font-size:12px}
-.kpi-card .ring{height:86px;margin-top:6px}
 .kpi-card.accent{border-color:rgba(0,255,209,.35)}
+
+/* ポート比率 */
 .stack-bars{height:22px;border-radius:12px;overflow:hidden;border:1px solid var(--line);display:flex}
 .stack-bars > span{display:block;height:100%}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
-.dot-spot{background:var(--primary)} .dot-margin{background:#ff8a5b} .dot-cash{background:var(--accent)}
-.legend{display:flex;gap:12px;margin:8px 0 2px;padding:0;list-style:none;color:var(--muted);font-size:12px}
+.dot-spot{background:var(--primary)}
+.dot-margin{background:#ff8a5b}
+.dot-cash{background:var(--accent)}
+.legend{display:flex;gap:12px;margin:10px 0 4px;padding:0;list-style:none;color:var(--muted);font-size:12px}
 
-/* activity */
-.activity{margin:16px 0}
+/* =============== ACTIVITY =============== */
+.activity{margin:18px 0}
 .activity h2{margin:0 0 8px}
 .activity-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .act-item{display:grid;grid-template-columns:60px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--glass)}
@@ -94,11 +119,5 @@ body{
 .act-main{font-weight:700}
 .act-val{font-variant-numeric:tabular-nums}
 
-/* LIVE badge */
-.chip-live { display:inline-flex; align-items:center; gap:.5rem }
-.live-dot { width:.6rem; height:.6rem; border-radius:50%; background:#22c55e; box-shadow:0 0 0 .15rem rgba(34,197,94,.25); animation:pulse 1.8s infinite; }
-@keyframes pulse { 0%{transform:scale(1);box-shadow:0 0 0 .15rem rgba(34,197,94,.25);} 50%{transform:scale(1.25);box-shadow:0 0 0 .35rem rgba(34,197,94,.12);} 100%{transform:scale(1);box-shadow:0 0 0 .15rem rgba(34,197,94,.25);} }
-.live-ts { opacity:.8; font-variant-numeric: tabular-nums; }
-
-/* subtle glow */
+/* 総資産の軽いグロー */
 .total.glow { text-shadow: 0 0 12px rgba(96,165,250,.35); transition: text-shadow .6s ease; }
