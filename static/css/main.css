@@ -16,12 +16,63 @@ html,body{height:100%}
 body{
   margin:0; color:var(--fg);
   font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI","Meiryo",Arial,"Apple Color Emoji","Segoe UI Emoji";
+  /* ベース＋静的グラデーションの下地 */
   background:
     radial-gradient(1200px 600px at 70% -20%, rgba(110,168,255,.15), transparent 60%),
     radial-gradient(900px 600px at -10% 10%, rgba(0,255,209,.08), transparent 60%),
     var(--bg);
 }
 
+/* =============== 動くオーブ背景（ページ全体） =============== */
+/* HTML側で <div class="bg-layer"><span class="orb orb-1"></span>…</div> を
+   <div class="wrap"> の直前に1回だけ置いてください */
+.bg-layer{
+  position:fixed; inset:0; z-index:-1; overflow:hidden; pointer-events:none;
+}
+.bg-layer .orb{
+  position:absolute; width:42vmin; height:42vmin; border-radius:50%;
+  filter:blur(28px); opacity:.55; mix-blend-mode:screen; will-change:transform,opacity;
+}
+.bg-layer .orb-1{
+  left:-10vmin; top:-8vmin;
+  background:radial-gradient(closest-side, rgba(110,168,255,.55), transparent 70%);
+  animation:floatA 22s ease-in-out infinite;
+}
+.bg-layer .orb-2{
+  right:-14vmin; bottom:-12vmin;
+  background:radial-gradient(closest-side, rgba(0,255,209,.45), transparent 70%);
+  animation:floatB 28s ease-in-out infinite;
+}
+.bg-layer .orb-3{
+  left:40%; top:60%;
+  background:radial-gradient(closest-side, rgba(255,77,103,.35), transparent 70%);
+  animation:floatC 26s ease-in-out infinite;
+}
+@keyframes floatA{
+  0%{transform:translate(0,0) scale(1);opacity:.55}
+  25%{transform:translate(6vmin,2vmin) scale(1.06);opacity:.60}
+  50%{transform:translate(2vmin,6vmin) scale(1.12);opacity:.50}
+  75%{transform:translate(-4vmin,3vmin) scale(1.04);opacity:.58}
+  100%{transform:translate(0,0) scale(1);opacity:.55}
+}
+@keyframes floatB{
+  0%{transform:translate(0,0) scale(1.05);opacity:.50}
+  20%{transform:translate(-5vmin,3vmin) scale(1.00);opacity:.60}
+  55%{transform:translate(-2vmin,-6vmin) scale(1.10);opacity:.48}
+  85%{transform:translate(4vmin,-2vmin) scale(1.03);opacity:.56}
+  100%{transform:translate(0,0) scale(1.05);opacity:.50}
+}
+@keyframes floatC{
+  0%{transform:translate(0,0) scale(1);opacity:.38}
+  30%{transform:translate(5vmin,-4vmin) scale(1.08);opacity:.45}
+  60%{transform:translate(-3vmin,-2vmin) scale(1.14);opacity:.36}
+  100%{transform:translate(0,0) scale(1);opacity:.38}
+}
+@media (prefers-reduced-motion: reduce){
+  .bg-layer .orb{ animation:none }
+}
+
+/* =============== COMMON UI =============== */
 .wrap{max-width:980px;margin:0 auto;padding:16px}
 .muted{color:var(--muted)}
 .pos{color:var(--success)} .neg{color:var(--danger)}
@@ -30,16 +81,22 @@ body{
 /* LIVE 演出 */
 .chip-live{display:inline-flex;align-items:center;gap:.5rem}
 .live-dot{width:.6rem;height:.6rem;border-radius:50%;background:#22c55e;box-shadow:0 0 0 .15rem rgba(34,197,94,.25);animation:pulse 1.8s infinite}
-@keyframes pulse{0%{transform:scale(1);box-shadow:0 0 0 .15rem rgba(34,197,94,.25)}50%{transform:scale(1.25);box-shadow:0 0 0 .35rem rgba(34,197,94,.12)}100%{transform:scale(1);box-shadow:0 0 0 .15rem rgba(34,197,94,.25)}}
+@keyframes pulse{
+  0%{transform:scale(1);box-shadow:0 0 0 .15rem rgba(34,197,94,.25)}
+  50%{transform:scale(1.25);box-shadow:0 0 0 .35rem rgba(34,197,94,.12)}
+  100%{transform:scale(1);box-shadow:0 0 0 .15rem rgba(34,197,94,.25)}
+}
 .live-ts{opacity:.8;font-variant-numeric:tabular-nums}
 
 /* =============== HERO =============== */
 /* ★内訳を閉じている時の余白はここ（padding-bottom）で調整 */
 .hero{
-  position:relative;border:1px solid var(--line);border-radius:18px;
+  position:relative; border:1px solid var(--line); border-radius:18px;
   padding:16px 16px 14px; /* 下端を詰めて無駄な空白を削減 */
   background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));
+  overflow:hidden; /* KPIがはみ出さないよう保険 */
 }
+/* 既存のヒーロー内オーブ（必要なら残す／強すぎる場合はopacity下げ） */
 .bg-orb{position:absolute;border-radius:50%;filter:blur(30px);opacity:.55;pointer-events:none}
 .orb-a{width:180px;height:180px;left:-20px;top:-20px;background:radial-gradient(var(--primary),transparent)}
 .orb-b{width:220px;height:220px;right:-30px;bottom:-30px;background:radial-gradient(var(--accent),transparent)}
@@ -61,7 +118,7 @@ body{
   border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--glass);
 }
 
-/* =============== KPI（カード内・1列固定／はみ出し防止） =============== */
+/* =============== KPI（カード内1列固定／はみ出し防止） =============== */
 /* ★KPI が右寄り/はみ出すケースはこの余白やカードpaddingを調整 */
 .kpi-grid.kpi-in-hero{margin-top:12px}
 .kpi-grid{display:grid;grid-template-columns:1fr;gap:12px}
