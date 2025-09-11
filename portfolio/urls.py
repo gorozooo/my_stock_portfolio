@@ -7,6 +7,9 @@ urlpatterns = [
     # --- メインページ ---
     path('', views.main_page, name='main'),
     
+    # --- ダッシュボード ---
+    path("dashboard/", views.dashboard_today_view, name="dashboard_today"),
+    
     # --- デバッグ ---
     path("debug/holdings", views.debug_holdings, name="debug_holdings"),
 
