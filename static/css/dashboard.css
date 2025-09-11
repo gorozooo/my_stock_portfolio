@@ -29,7 +29,7 @@ body{
 
 /* panel */
 .glass{background:var(--glass);border:1px solid var(--line);border-radius:16px;backdrop-filter:blur(8px)}
-.panel{padding:14px;margin:12px 0}
+.panel{padding:14px;margin:12px 0; overflow:hidden;} /* ← はみ出し抑止(軽め) */
 .panel-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .panel-hd h2{margin:0;font-size:16px}
 .btn{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);padding:6px 10px;border-radius:10px;cursor:pointer}
@@ -37,22 +37,51 @@ body{
 /* KPI */
 .kpi-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
 .kpi-grid{display:grid;grid-template-columns:1fr;gap:10px;margin-top:8px}
-@media(min-width:760px){.kpi-grid{grid-template-columns:1.2fr 1fr 1fr 1fr 1fr}}
-.kpi{border:1px solid var(--line);border-radius:12px;padding:10px;background:rgba(255,255,255,.04)}
+@media(min-width:760px){.kpi-grid{grid-template-columns:minmax(0,1.2fr) repeat(4, minmax(0,1fr));}} /* ← minmaxでオーバーフロー防止 */
+.kpi{border:1px solid var(--line);border-radius:12px;padding:10px;background:rgba(255,255,255,.04); min-width:0;} /* ← 子要素のはみ出しを抑止 */
 .kpi.big{grid-column:span 1}
 .kpi-title{font-size:12px;color:var(--muted)}
-.kpi-value{font-size:22px;font-weight:900;margin:4px 0}
+.kpi-value{font-size:22px;font-weight:900;margin:4px 0;word-break:break-word}
 .kpi-sub{font-size:12px;color:var(--muted)}
 .pos{color:var(--success)} .neg{color:var(--danger)}
 
 /* compare spark */
-.spark-compare{height:90px;border:1px dashed var(--line);border-radius:12px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-top:8px}
+.spark-compare{
+  height:90px;border:1px dashed var(--line);border-radius:12px;
+  display:flex;align-items:center;justify-content:center;overflow:hidden;margin-top:8px;
+  width:100%;
+}
 
-/* risk viz */
-.risk-viz{display:grid;grid-template-columns:1fr;gap:10px;margin-top:8px}
-@media(min-width:920px){.risk-viz{grid-template-columns:1fr 1fr}}
-.viz-card{border:1px solid var(--line);border-radius:12px;padding:10px;background:rgba(255,255,255,.03)}
-.mini-spark{height:160px;border:1px solid var(--line);border-radius:12px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:rgba(255,255,255,.02)}
+/* ===== リスク可視化（右はみ出し対策） ===== */
+.risk-viz{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:10px;
+  margin-top:8px;
+}
+@media(min-width:920px){
+  .risk-viz{grid-template-columns:repeat(2, minmax(0,1fr));} /* ← minmax(0,1fr)で子の幅を親に収める */
+}
+.viz-card{
+  border:1px solid var(--line);border-radius:12px;padding:10px;background:rgba(255,255,255,.03);
+  min-width:0; /* ← グリッド内の子要素が横に伸び過ぎるのを防止 */
+}
+
+/* ★ Canvas/SVG を常にカード幅にフィットさせる（はみ出しの主因の解消） */
+.viz-card canvas,
+.viz-card svg{
+  display:block;
+  width:100% !important;  /* ← HTMLの width 属性(例: 600)よりCSSを優先 */
+  height:auto !important; /* ← 縦横比維持で縮む */
+  max-width:100%;
+}
+
+/* ミニ・ドローダウンスパーク */
+.mini-spark{
+  height:160px;border:1px solid var(--line);border-radius:12px;
+  display:flex;align-items:center;justify-content:center;overflow:hidden;background:rgba(255,255,255,.02);
+  width:100%;
+}
 
 /* subtle glow */
 .kpi-value.glow{ text-shadow:0 0 12px rgba(96,165,250,.35); transition:text-shadow .6s ease }
