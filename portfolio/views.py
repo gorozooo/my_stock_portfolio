@@ -137,7 +137,7 @@ def _yf_benchmark_return() -> float:
     """TOPIX→1306.T→1308.T の順でフォールバック。失敗したら 0.0。"""
     if not yf:
         return 0.0
-    for sym in ("^TOPX", "1306.T", "1308.T"):
+    for sym in ("^TOPIX", "1306.T", "1308.T"):
         pair = _yf_last_two_closes(sym)
         if not pair:
             continue
