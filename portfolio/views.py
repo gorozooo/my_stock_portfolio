@@ -257,13 +257,14 @@ def _benchmark_history_csv(days: int = 60) -> str:
 @login_required
 def dashboard_today_view(request):
     """
-    今日の損益 + ベンチ差 をテンプレ（dashboard.html）の期待キーに合わせて返却。
-    - pnl_today（円）
-    - bench_diff_today（% 表示用の小数 *100ではなく「百分率」で返す」←テンプレが % を出す）
-    - asset_history_csv / bench_history_csv（カンマ区切りの数列）
+    今日の損益 + ベンチ差（TOPIX）に加えて、
+    現金比率/信用依存のための簡易集計も載せる。
     """
-    pnl_today = 0.0
-    prev_value_sum = 0.0  # 昨日終値×株数の合計（売りは符号反転）
+
+    # ====== 1) 今日の損益（ポート） ======
+    total_intraday_pnl = 0.0
+    portfolio_prev_value = 0.0
+    rows = []
 
     if Stock:
         qs = Stock.objects.all()
@@ -274,55 +275,153 @@ def dashboard_today_view(request):
             pass
 
         for s in qs:
-            ticker = (getattr(s, "ticker", "") or "").strip()
+            ticker = str(getattr(s, "ticker", "") or "")
             if not ticker:
                 continue
-            yf_symbol = ticker if ticker.endswith(".T") else f"{ticker}.T"
+            yf_symbol = f"{ticker}.T" if not ticker.endswith(".T") else ticker
+
             pair = _yf_last_two_closes(yf_symbol)
             if not pair:
                 continue
+
             prevc, lastc = pair
             shares = int(getattr(s, "shares", 0) or 0)
             pos = str(getattr(s, "position", "買い") or "")
-            sign = -1 if pos.startswith("売") else 1
 
-            prev_value_sum += prevc * shares * sign
-            pnl_today += (lastc - prevc) * shares * sign
+            portfolio_prev_value += prevc * shares
+            pnl = (prevc - lastc) * shares if pos == "売り" else (lastc - prevc) * shares
+            total_intraday_pnl += pnl
 
-    # ポート今日リターン（小数）→ テンプレは % 表示にしているので *100 してから渡す
-    port_ret = (pnl_today / prev_value_sum) if prev_value_sum else 0.0
-    port_ret_pct = port_ret * 100.0
+            rows.append({
+                "name": getattr(s, "name", "") or ticker,
+                "ticker": ticker,
+                "pre_close": prevc,
+                "last_close": lastc,
+                "shares": shares,
+                "position": pos,
+                "pnl": pnl,
+            })
 
-    # ベンチ
-    bench_ret = _yf_benchmark_return()  # 小数
-    bench_ret_pct = bench_ret * 100.0
+    port_ret = (total_intraday_pnl / portfolio_prev_value) if portfolio_prev_value > 0 else 0.0
+    bench_ret = _yf_benchmark_return()  # ← さっきの堅牢版
+    alpha_ret = port_ret - bench_ret
 
-    # ベンチ差（百分率）
-    bench_diff_today = (port_ret - bench_ret) * 100.0
+    # ====== 2) 現金比率/信用依存 用の軽量集計 ======
+    spot_mv = margin_mv = 0.0
+    spot_upl = margin_upl = 0.0
 
-    # ヒストリー（CSV）
-    asset_history_csv = _portfolio_history_csv(request, days=60)  # ポート価値（符号付エクスポージャ）
-    bench_history_csv = _benchmark_history_csv(days=60)
+    if Stock:
+        qs2 = Stock.objects.all()
+        try:
+            if "user" in {f.name for f in Stock._meta.get_fields()}:
+                qs2 = qs2.filter(user=request.user)
+        except Exception:
+            pass
+
+        for s in qs2:
+            shares = int(getattr(s, "shares", 0) or 0)
+            unit   = float(getattr(s, "unit_price", 0.0) or 0.0)
+            pos    = str(getattr(s, "position", "買い") or "")
+            acct   = str(getattr(s, "account_type", "現物") or "")
+
+            # 現値（失敗時は unit）
+            try:
+                current = _get_current_price_cached(getattr(s, "ticker", ""), fallback=unit)
+            except Exception:
+                current = unit
+
+            used = float(current) if float(current or 0) > 0 else unit
+            mv = used * shares
+            total_cost = unit * shares
+            upl = (unit - used) * shares if pos == "売り" else (mv - total_cost)
+
+            is_spot   = (acct in {"現物", "NISA"}) and (pos != "売り")
+            is_margin = (acct == "信用") or (pos == "売り")
+
+            if is_spot:
+                spot_mv += mv
+                spot_upl += upl
+            elif is_margin:
+                margin_mv += mv
+                margin_upl += upl
+            else:
+                spot_mv += mv
+                spot_upl += upl
+
+    # キャッシュ残高 = 入出金差 - 現物取得額合計 + 実現損益合計
+    cash_io_total = 0
+    if CashFlow:
+        cf = CashFlow.objects.all()
+        try:
+            if "user" in {f.name for f in CashFlow._meta.get_fields()}:
+                cf = cf.filter(user=request.user)
+        except Exception:
+            pass
+        for row in cf.values("flow_type").annotate(total=Sum("amount")):
+            amt = int(row.get("total") or 0)
+            cash_io_total += amt if (row.get("flow_type") or "") == "in" else -amt
+
+    spot_cost_total = 0.0
+    if Stock:
+        qs3 = Stock.objects.all()
+        try:
+            if "user" in {f.name for f in Stock._meta.get_fields()}:
+                qs3 = qs3.filter(user=request.user)
+        except Exception:
+            pass
+        for s in qs3:
+            pos  = str(getattr(s, "position", "買い") or "")
+            acct = str(getattr(s, "account_type", "現物") or "")
+            if (acct in {"現物", "NISA"}) and (pos != "売り"):
+                shares = int(getattr(s, "shares", 0) or 0)
+                unit   = float(getattr(s, "unit_price", 0.0) or 0.0)
+                spot_cost_total += shares * unit
+
+    realized_total = 0
+    if RealizedProfit:
+        rp = RealizedProfit.objects.all()
+        try:
+            if "user" in {f.name for f in RealizedProfit._meta.get_fields()}:
+                rp = rp.filter(user=request.user)
+        except Exception:
+            pass
+        realized_total += int(rp.aggregate(s=Sum("profit_amount")).get("s") or 0)
+
+    if Dividend:
+        dq = Dividend.objects.all()
+        try:
+            if "user" in {f.name for f in Dividend._meta.get_fields()}:
+                dq = dq.filter(user=request.user)
+        except Exception:
+            pass
+        for d in dq:
+            net = getattr(d, "net_amount", None)
+            if net is not None:
+                realized_total += int(net or 0)
+            else:
+                gross = int(getattr(d, "gross_amount", 0) or 0)
+                tax   = int(getattr(d, "tax", 0) or 0)
+                realized_total += (gross - tax)
+
+    cash_balance = float(cash_io_total) - float(spot_cost_total) + float(realized_total)
+
+    # 総資産（あなたの定義）
+    total_assets = float(spot_mv) + float(spot_upl) + float(margin_upl) + float(cash_balance)
 
     context = {
-        # テンプレ期待キー
-        "pnl_today": pnl_today,
-        "bench_diff_today": bench_diff_today,  # 例：+1.23% と表示される
-        "asset_history_csv": asset_history_csv,
-        "bench_history_csv": bench_history_csv,
+        # 今日の損益 + ベンチ差
+        "pnl_today": total_intraday_pnl,
+        "bench_diff_today": alpha_ret * 100.0,  # テンプレは % 表示
+        "rows": rows,
+        "as_of": dt.datetime.now(),
 
-        # ついでに“中に隠れている表示”で使うかもしれないので返しておく
-        "port_ret_pct": port_ret_pct,
-        "bench_ret_pct": bench_ret_pct,
-
-        # 既存ダッシュの他KPI用（あれば）
-        "cash_balance": 0,           # 必要なら main_page の計算を共通関数化して再利用
-        "total_assets": 0,
-        "margin_market_value": 0,
-
-        "as_of": timezone.now(),
+        # 比率用（テンプレが data-* で読む）
+        "cash_balance": cash_balance,
+        "margin_market_value": margin_mv,   # ← “信用依存”はこれを使う
+        "total_assets": total_assets,
     }
     return render(request, "dashboard_today.html", context)
+    
 # -----------------------------
 # メイン画面（※関数本体は変更なし）
 # -----------------------------
