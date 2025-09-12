@@ -3,10 +3,11 @@
 {% load humanize %}
 
 {% block content %}
-<div class="realized-container">
-  <!-- 上部：KPI / クイック / 年月 -->
-  <div class="top-fixed" role="region" aria-label="絞り込みとサマリー">
-    <!-- KPI：3段（既存のまま） -->
+<div class="realized-page">
+
+  <!-- 固定トップ：KPI / クイック / トグル / 年月 -->
+  <section class="top-fixed" role="region" aria-label="絞り込みとサマリー">
+    <!-- KPI：3段 -->
     <div class="kpi-row kpi-row1">
       <div class="kpi-card">
         <div class="kpi-header"><span class="kpi-icon">📄</span><span class="kpi-label">件数</span></div>
@@ -48,12 +49,18 @@
       </div>
     </div>
 
-    <!-- クイックフィルタ -->
+    <!-- クイック期間 -->
     <div class="quick-chips chips-compact">
       <button type="button" data-range="this-month" class="chip">今月</button>
       <button type="button" data-range="last-month" class="chip">先月</button>
       <button type="button" data-range="this-year" class="chip">今年</button>
       <button type="button" data-range="all" class="chip active">すべて</button>
+    </div>
+
+    <!-- 表示トグル（損益額 ⇄ 損益率） -->
+    <div class="seg-toggle" role="tablist" aria-label="表示切替">
+      <button class="seg-btn active" data-show="amount" role="tab" aria-selected="true">損益額</button>
+      <button class="seg-btn" data-show="rate" role="tab" aria-selected="false">損益率</button>
     </div>
 
     <!-- 年月フィルタ -->
@@ -73,43 +80,31 @@
         <option value="11">11</option><option value="12">12</option>
       </select>
     </div>
-  </div>
+  </section>
 
   <p id="emptyState" class="empty-state" style="display:none;">該当データがありません</p>
 
-  <!-- 表だけ縦スクロール & 横スクロール可 -->
-  <div class="table-wrapper" id="tableWrapper" aria-label="損益一覧スクロール領域">
+  <!-- 表だけ縦スクロール（横も可） -->
+  <section class="table-wrapper" id="tableWrapper" aria-label="損益一覧スクロール領域">
     <table id="realizedTable" aria-label="損益一覧">
       <thead>
         <tr>
-          <th scope="col">日付</th>
-          <th scope="col">銘柄</th>
-          <th scope="col">証券会社</th>
-          <th scope="col">口座区分</th>
-          <th scope="col">区分</th>
-          <th scope="col">株数</th>
-          <th scope="col">損益額</th>
-          <th scope="col">損益率</th>
+          <th scope="col" data-key="date">日付</th>
+          <th scope="col" data-key="name">銘柄</th>
+          <th scope="col" data-key="broker">証券会社</th>
+          <th scope="col" data-key="account">口座区分</th>
+          <th scope="col" data-key="type">区分</th>
+          <th scope="col" data-key="qty">株数</th>
+          <th scope="col" data-key="profit">損益額</th>
+          <th scope="col" data-key="rate">損益率</th>
         </tr>
       </thead>
       <tbody>
-        {# === ここからDBの内容を出力 === #}
         {% for ym, trades in rows_by_ym.items %}
           {% with y=ym|slice:":4" m=ym|slice:"5:7" %}
             <tr class="group-row"><td colspan="8">{{ y }}年 {{ m }}月</td></tr>
           {% endwith %}
-
           {% for t in trades %}
-            {% with jp_type="" %}
-              {% if t.trade_type == 'sell' %}
-                {% with jp_type="売却" %}{% endwith %}
-              {% elif t.trade_type == 'dividend' %}
-                {% with jp_type="配当" %}{% endwith %}
-              {% else %}
-                {% with jp_type=t.trade_type %}{% endwith %}
-              {% endif %}
-            {% endwith %}
-
             <tr
               data-date="{{ t.date|date:'Y-m-d' }}"
               data-name="{{ t.stock_name }}"
@@ -117,7 +112,7 @@
               data-broker="{{ t.broker }}"
               data-account="{{ t.account_type }}"
               data-type="{% if t.trade_type == 'sell' %}売却{% elif t.trade_type == 'dividend' %}配当{% else %}{{ t.trade_type }}{% endif %}"
-              data-quantity="{{ t.quantity }}"
+              data-quantity="{{ t.quantity|default_if_none:'' }}"
               data-profit="{% if t.profit_amount %}{% if t.profit_amount > 0 %}+{% endif %}{{ t.profit_amount|intcomma }}{% else %}0{% endif %}"
               data-rate="{% if t.profit_rate is not None %}{% if t.profit_rate > 0 %}+{% endif %}{{ t.profit_rate }}%{% else %}0%{% endif %}"
               data-purchase="{{ t.purchase_price|default_if_none:''|intcomma }}"
@@ -125,48 +120,55 @@
               data-fee="{{ t.fee|default_if_none:0|intcomma }}"
             >
               <td>{{ t.date|date:"Y-m-d" }}</td>
-              <td class="stock-name-cell"><span>{{ t.stock_name }}</span></td>
+              <td class="stock-name-cell">
+                <span class="name">{{ t.stock_name }}</span>
+                <span class="code"> {{ t.code }}</span>
+              </td>
               <td>{{ t.broker }}</td>
               <td>{{ t.account_type }}</td>
               <td class="trade-type-cell"><span>{% if t.trade_type == 'sell' %}売却{% elif t.trade_type == 'dividend' %}配当{% else %}{{ t.trade_type }}{% endif %}</span></td>
-              <td>
-                {% if t.quantity is not None %}
-                  {{ t.quantity|intcomma }}
-                {% else %}
-                  -
-                {% endif %}
-              </td>
+              <td>{% if t.quantity is not None %}{{ t.quantity|intcomma }}{% else %}-{% endif %}</td>
 
               {% if t.profit_amount is not None and t.profit_amount < 0 %}
-                <td class="loss">{{ t.profit_amount|intcomma }}</td>
+                <td class="profit-cell loss">
+                  <div class="pn">
+                    <span class="num">{{ t.profit_amount|intcomma }}</span>
+                    <span class="bar" data-pn="{{ t.profit_amount }}"></span>
+                  </div>
+                </td>
               {% else %}
-                <td class="profit">{% if t.profit_amount %}+{% endif %}{{ t.profit_amount|default_if_none:0|intcomma }}</td>
+                <td class="profit-cell profit">
+                  <div class="pn">
+                    <span class="num">{% if t.profit_amount %}+{% endif %}{{ t.profit_amount|default_if_none:0|intcomma }}</span>
+                    <span class="bar" data-pn="{{ t.profit_amount|default_if_none:0 }}"></span>
+                  </div>
+                </td>
               {% endif %}
 
               {% if t.profit_rate is not None and t.profit_rate < 0 %}
-                <td class="loss">{{ t.profit_rate }}%</td>
+                <td class="rate-cell loss"><span class="num">{{ t.profit_rate }}%</span></td>
               {% else %}
-                <td class="profit">{% if t.profit_rate %}+{% endif %}{{ t.profit_rate|default_if_none:0 }}%</td>
+                <td class="rate-cell profit"><span class="num">{% if t.profit_rate %}+{% endif %}{{ t.profit_rate|default_if_none:0 }}%</span></td>
               {% endif %}
             </tr>
           {% endfor %}
         {% empty %}
-          {# データ0件でも tbody は空のまま / JSで emptyState を表示 #}
         {% endfor %}
       </tbody>
     </table>
-  </div>
+  </section>
+
+  <!-- スクロールTop FAB -->
+  <button id="scrollTopFab" class="fab" aria-label="先頭に戻る">▲</button>
+
 </div>
 
-<!-- モーダル（中央表示・リッチレイアウト） -->
+<!-- モーダル -->
 <div id="stockModal" class="modal" aria-hidden="true" aria-modal="true" role="dialog">
   <div class="modal-content glass-box" role="document">
     <span class="close" aria-label="閉じる">&times;</span>
-
-    <!-- タイトル：銘柄（証券コード）を中央に -->
     <h2 id="modalTitle" class="modal-title-center"></h2>
 
-    <!-- まずは金額のサマリー（売却額 / 取得額） -->
     <div class="modal-amounts">
       <div class="amount-card">
         <div class="amount-label">売却額</div>
@@ -178,7 +180,6 @@
       </div>
     </div>
 
-    <!-- 詳細（2カラム） -->
     <div class="modal-grid">
       <p><span class="k">売却単価</span><span id="modalSell"></span></p>
       <p><span class="k">取得単価</span><span id="modalPurchase"></span></p>
