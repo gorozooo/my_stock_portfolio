@@ -1,11 +1,222 @@
-/* ========================================
-   共通背景や色 (common.css)
-======================================== */
+/* ============================================================
+   common.css (Mobile-first Neon Background)
+   - Mobile: 軽量レイヤ（stars, aurora, 2 orbs, soft scan, light grid）
+   - Tablet/Desktop: 段階的に強化（パララックス星, 追加オーブ, 奥行グリッド）
+   - 低モーション対応 / 配色は CSS 変数で簡単に差し替え
+   ============================================================ */
 
-body {
-  margin: 0;
-  font-family: sans-serif;
-  background: linear-gradient(135deg, #000006, #001133, #4400aa);
-  color: #fff;
-  min-height: 100vh;
+/* ===== Theme Vars ===== */
+:root{
+  --bg:#000006;            /* 背景ベース */
+  --fg:#eef3ff;            /* テキスト色 */
+
+  --primary:#7db3ff;       /* 青ネオン */
+  --accent:#00ffd1;        /* アクア */
+  --hot:#ff7ad9;           /* マゼンタ */
+  --amber:#ffd166;         /* アンバー */
+
+  --grid:#3be3ff26;        /* グリッド線(透過) */
+  --scan:#ffffff10;        /* スキャンライン */
+  --grain:rgba(255,255,255,.06); /* 粒子 */
+
+  /* モバイル向けサイズ/強度 */
+  --orb-blur:26px;
+  --aurora-blur:48px;
+  --scan-opacity:.25;
+  --grain-opacity:.10;
+  --grid-h:28%;            /* グリッド高さ(奥行面) */
+  --grid-cell:44px;        /* グリッド間隔 */
 }
+
+@media (prefers-color-scheme: light){
+  :root{
+    --bg:#f6f8ff;
+    --fg:#0a102a;
+    --primary:#2b64ff;
+    --accent:#04e1c3;
+    --hot:#ff51c8;
+    --amber:#ffb86b;
+    --grid:#2b64ff24;
+    --scan:#0000000f;
+    --grain:rgba(0,0,0,.06);
+  }
+}
+
+/* ===== Base ===== */
+html,body{height:100%}
+body{
+  margin:0;
+  color:var(--fg);
+  background: var(--bg);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Kaku Gothic ProN",
+               "Noto Sans JP", "Yu Gothic UI", "Helvetica Neue", Arial, Roboto, Meiryo;
+  overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+
+/* ===== Background Root =====
+   base.html の <body> 直下に
+   <div class="bgx">…</div> を1つ置く
+*/
+.bgx{
+  position:fixed; inset:0; z-index:-1;
+  pointer-events:none; overflow:hidden; isolation:isolate;
+}
+
+/* ---------- Stars (static, light) ---------- */
+.bgx .stars{
+  position:absolute; inset:-10%;
+  background:
+    radial-gradient(1px 1px at 15% 20%, #fff, transparent 55%),
+    radial-gradient(1.2px 1.2px at 70% 35%, #fff, transparent 55%),
+    radial-gradient(1px 1px at 35% 75%, #fff, transparent 55%),
+    radial-gradient(1.2px 1.2px at 85% 55%, #fff, transparent 55%);
+  opacity:.35;
+  filter:drop-shadow(0 0 3px #fff);
+}
+
+/* ---------- Aurora (one soft ribbon) ---------- */
+.bgx .aurora{
+  position:absolute; inset:-25% -20% -20% -20%;
+  background:
+    radial-gradient(900px 600px at 65% 10%, color-mix(in oklab, var(--accent) 65%, transparent) 0%, transparent 60%),
+    radial-gradient(800px 500px at 10% 85%, color-mix(in oklab, var(--hot) 55%, transparent) 0%, transparent 60%);
+  filter: blur(var(--aurora-blur)) saturate(1.15);
+  opacity:.55;
+  animation: auroraFloat 14s ease-in-out infinite alternate;
+}
+@keyframes auroraFloat{
+  0%  { transform:translate3d(0,0,0) scale(1); }
+  100%{ transform:translate3d(-2%, 2%, 0) scale(1.03) rotate(.6deg); }
+}
+
+/* ---------- Orbs (2 small, mobile) ---------- */
+.bgx .orb{ position:absolute; border-radius:50%; mix-blend-mode:screen; filter: blur(var(--orb-blur)); opacity:.6; }
+.bgx .orb.o1{
+  width:260px; height:260px; left:-80px; top:-60px;
+  background: radial-gradient(circle at 30% 30%, var(--primary), transparent 65%);
+  animation: orb1 18s ease-in-out infinite;
+}
+.bgx .orb.o2{
+  width:320px; height:320px; right:-90px; bottom:-70px;
+  background: radial-gradient(circle at 70% 70%, var(--accent), transparent 65%);
+  animation: orb2 20s ease-in-out infinite;
+}
+@keyframes orb1{ 0%{transform:translate(0,0)} 50%{transform:translate(40px,24px) scale(1.05)} 100%{transform:translate(0,0)} }
+@keyframes orb2{ 0%{transform:translate(0,0)} 50%{transform:translate(-44px,-24px) scale(1.04)} 100%{transform:translate(0,0)} }
+
+/* ---------- Light Grid (flat on mobile) ---------- */
+.bgx .grid{
+  position:absolute; left:0; right:0; bottom:0; height:var(--grid-h);
+  background:
+    repeating-linear-gradient(to right, transparent 0 var(--grid-cell), var(--grid) var(--grid-cell) calc(var(--grid-cell) + 1px)),
+    repeating-linear-gradient(to top,   transparent 0 var(--grid-cell), var(--grid) var(--grid-cell) calc(var(--grid-cell) + 1px));
+  opacity:.65;
+  animation: gridFlow 7s linear infinite;
+  mask-image: linear-gradient(to top, rgba(0,0,0,.9), rgba(0,0,0,.35) 40%, transparent 70%);
+}
+@keyframes gridFlow{
+  from{ background-position: 0 0, 0 0; }
+  to  { background-position: 0 44px, 0 44px; }
+}
+
+/* ---------- Scanlines (very subtle) ---------- */
+.bgx .scan{
+  position:absolute; inset:0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 2px,
+    var(--scan) 2px 3px
+  );
+  opacity: var(--scan-opacity);
+  animation: scanShift 5.5s linear infinite;
+}
+@keyframes scanShift{ from{ transform:translateY(0) } to{ transform:translateY(6px) } }
+
+/* ---------- Grain (dither noise) ---------- */
+.bgx .grain{
+  position:absolute; inset:-40%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='1' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.6'/%3E%3C/svg%3E");
+  opacity: var(--grain-opacity);
+  animation: grainMove 9s steps(10) infinite;
+}
+@keyframes grainMove{
+  0%{ transform:translate3d(0,0,0) }
+  100%{ transform:translate3d(-4%, 3%, 0) }
+}
+
+/* ===== Reduced Motion ===== */
+@media (prefers-reduced-motion: reduce){
+  .bgx .aurora, .bgx .orb, .bgx .grid, .bgx .scan, .bgx .grain{ animation:none !important }
+}
+
+/* ===== Progressive Enhancement: Tablet (>= 768px) ===== */
+@media (min-width: 768px){
+  :root{
+    --orb-blur:32px;
+    --aurora-blur:64px;
+    --scan-opacity:.28;
+    --grain-opacity:.12;
+    --grid-h:34%;
+    --grid-cell:54px;
+  }
+
+  .bgx .stars2{
+    position:absolute; inset:-12%;
+    background:
+      radial-gradient(1.2px 1.2px at 25% 45%, #fff, transparent 55%),
+      radial-gradient(1px 1px at 55% 20%, #fff, transparent 55%),
+      radial-gradient(1.4px 1.4px at 82% 70%, #fff, transparent 55%);
+    opacity:.25;
+    animation: parallax 80s linear infinite;
+  }
+  @keyframes parallax{
+    from{ transform:translate3d(0,0,0) }
+    to  { transform:translate3d(-6%, 4%, 0) }
+  }
+
+  /* 追加オーブ */
+  .bgx .orb.o3{
+    position:absolute; width:360px; height:360px; left:40%; top:55%;
+    background: radial-gradient(circle at 50% 50%, var(--hot), transparent 65%);
+    filter: blur(var(--orb-blur)); opacity:.58; mix-blend-mode:screen;
+    animation: orb3 24s ease-in-out infinite;
+  }
+  @keyframes orb3{ 0%{transform:translate(-24px,8px)} 50%{transform:translate(18px,-18px) scale(1.07)} 100%{transform:translate(-24px,8px)} }
+
+  /* グリッドに奥行き */
+  .bgx .grid{
+    transform-origin:50% 100%;
+    transform: perspective(820px) rotateX(58deg) translateY(6%);
+    filter: drop-shadow(0 0 8px var(--grid));
+  }
+}
+
+/* ===== Desktop (>= 1200px) 強め演出 ===== */
+@media (min-width: 1200px){
+  :root{
+    --orb-blur:40px;
+    --aurora-blur:72px;
+    --scan-opacity:.32;
+    --grain-opacity:.14;
+    --grid-h:38%;
+    --grid-cell:60px;
+  }
+
+  .bgx .orb.o4{
+    position:absolute; width:420px; height:420px; right:12%; top:14%;
+    background: radial-gradient(circle at 50% 50%, var(--amber), transparent 65%);
+    filter: blur(var(--orb-blur)); opacity:.58; mix-blend-mode:screen;
+    animation: orb4 28s ease-in-out infinite;
+  }
+  @keyframes orb4{ 0%{transform:translate(8px,-16px)} 50%{transform:translate(-28px,18px) scale(1.06)} 100%{transform:translate(8px,-16px)} }
+
+  .bgx .grid{
+    transform: perspective(900px) rotateX(60deg) translateY(8%);
+    animation-duration: 8.5s;
+  }
+}
+
+/* ===== Content Layer Helper ===== */
+.app-root, .page-root{ position:relative; z-index:0; }
