@@ -12,15 +12,15 @@
 {% now "Y-m-d" as today_str %}
 <div class="sell-page">
   <header class="sell-header">
-    <a href="{% url 'stock_list' %}" class="back-link">← 一覧へ戻る</a>
+    <a href="{% url 'stock_list' %}" class="back-link" aria-label="一覧へ戻る">←</a>
     <h1 class="sell-title">
       <span class="name">{{ stock.name }}</span>
       <span class="code">{{ stock.ticker }}</span>
     </h1>
   </header>
 
-  {# --- ここから「売却日」入力（カレンダー）を先頭に追加 --- #}
-  <section class="sell-date">
+  <!-- 売却日（先頭に固定） -->
+  <section class="sell-date card">
     <label class="form-label" for="sell-date-input">売却日</label>
     <input
       id="sell-date-input"
@@ -32,49 +32,33 @@
     <p class="hint">約定日を選択（未変更なら本日）</p>
   </section>
 
-  {# 概要（視覚ピル） #}
+  <!-- 概要（ピル） -->
   <section class="sell-summary">
-    <div class="pill">
-      <span class="k">保有株数</span><span class="v">{{ stock.shares|intcomma }} 株</span>
-    </div>
-    <div class="pill">
-      <span class="k">取得単価</span><span class="v">¥{{ stock.unit_price|floatformat:0|intcomma }}</span>
-    </div>
-    <div class="pill">
-      <span class="k">現在株価</span>
-      <span class="v">{% if stock.current_price %}¥{{ stock.current_price|floatformat:0|intcomma }}{% else %}—{% endif %}</span>
-    </div>
-    <div class="pill">
-      <span class="k">口座</span><span class="v">{{ stock.account_type|default:"—" }}</span>
-    </div>
-    <div class="pill">
-      <span class="k">証券</span><span class="v">{{ stock.broker|default:"—" }}</span>
-    </div>
+    <div class="pill"><span class="k">保有株数</span><span class="v">{{ stock.shares|intcomma }} 株</span></div>
+    <div class="pill"><span class="k">取得単価</span><span class="v">¥{{ stock.unit_price|floatformat:0|intcomma }}</span></div>
+    <div class="pill"><span class="k">現在株価</span><span class="v">{% if stock.current_price %}¥{{ stock.current_price|floatformat:0|intcomma }}{% else %}—{% endif %}</span></div>
+    <div class="pill"><span class="k">口座</span><span class="v">{{ stock.account_type|default:"—" }}</span></div>
+    <div class="pill"><span class="k">証券</span><span class="v">{{ stock.broker|default:"—" }}</span></div>
   </section>
 
-  {# エラー表示（JSで活用） #}
+  <!-- エラー -->
   <div class="sell-errors" id="sell-errors" aria-live="polite" hidden></div>
 
   <form id="sell-form" method="post" action="">
     {% csrf_token %}
-
     <input type="hidden" name="stock_id" value="{{ stock.id }}">
+    <!-- JSで計算して送る hidden -->
+    <input type="hidden" name="fee" id="hidden-fee" value="0">
+    <input type="hidden" name="sell_price" id="hidden-sell-price" value="">
 
-    <div class="form-section">
+    <!-- 数量 -->
+    <section class="form-section card">
       <label class="form-label" for="sell-shares">売却株数</label>
       <div class="qty-row">
         <button type="button" class="qty-btn" data-step="-100">-100</button>
         <button type="button" class="qty-btn" data-step="-10">-10</button>
-        <input id="sell-shares"
-               name="shares"
-               type="number"
-               inputmode="numeric"
-               min="1"
-               max="{{ stock.shares }}"
-               step="1"
-               value="{{ stock.shares }}"
-               class="qty-input"
-               required>
+        <input id="sell-shares" name="shares" type="number" inputmode="numeric"
+               min="1" max="{{ stock.shares }}" step="1" value="{{ stock.shares }}" class="qty-input" required>
         <button type="button" class="qty-btn" data-step="10">+10</button>
         <button type="button" class="qty-btn" data-step="100">+100</button>
       </div>
@@ -84,9 +68,10 @@
         <button type="button" class="chip" data-fill="75">75%</button>
         <button type="button" class="chip" data-fill="100">ALL</button>
       </div>
-    </div>
+    </section>
 
-    <div class="form-section">
+    <!-- 売却方法 -->
+    <section class="form-section card">
       <span class="form-label">売却方法</span>
       <div class="mode-row" role="radiogroup" aria-label="売却方法">
         <label class="mode-item">
@@ -101,14 +86,9 @@
 
       <div id="limit-wrap" class="limit-wrap" hidden>
         <label class="form-label" for="limit-price">指値（円）</label>
-        <input id="limit-price"
-               name="limit_price"
-               type="number"
-               inputmode="numeric"
-               min="0"
-               step="1"
-               placeholder="例: 1,234"
-               class="text-input">
+        <input id="limit-price" name="limit_price" type="number" inputmode="numeric"
+               min="0" step="1" placeholder="例: 1,234" class="text-input">
+
         <div class="limit-hints">
           {% if stock.current_price %}
             <button type="button" class="chip" data-limit="{{ stock.current_price|floatformat:0 }}">現在値</button>
@@ -119,34 +99,26 @@
           <button type="button" class="chip" data-limit="-10">-10</button>
         </div>
       </div>
-    </div>
-
-    {# --- ここから「実際の損益額」入力を追加 --- #}
-    <div class="form-section">
-      <label class="form-label" for="actual-profit">実際の損益額（円）</label>
-      <input id="actual-profit"
-             name="actual_profit"
-             type="number"
-             inputmode="numeric"
-             step="1"
-             placeholder="例: 12,345（手数料控除前後どちらでもOK）"
-             class="text-input">
-      <p class="hint">
-        入力すると、<strong>手数料 = 概算売却額 − 実際の損益額</strong> として保存されます（入力が空の場合は手数料0として扱います）。
-      </p>
-    </div>
-
-    <section class="review">
-      <div class="row">
-        <span class="k">概算売却額</span>
-        <span class="v" id="est-amount">—</span>
-      </div>
-      <div class="row">
-        <span class="k">概算損益</span>
-        <span class="v" id="est-pl">—</span>
-      </div>
     </section>
 
+    <!-- 実際の損益額 -->
+    <section class="form-section card">
+      <label class="form-label" for="actual-profit">実際の損益額（円）</label>
+      <input id="actual-profit" name="actual_profit" type="number" inputmode="numeric" step="1"
+             placeholder="例: 12,345（手数料控除前後どちらでもOK）" class="text-input">
+      <p class="hint">
+        入力すると、<strong>手数料 = 概算売却額 − 実際の損益額</strong> として保存します（空欄なら手数料0）。
+      </p>
+    </section>
+
+    <!-- ライブ概算 -->
+    <section class="review card">
+      <div class="row"><span class="k">概算売却額</span><span class="v" id="est-amount">—</span></div>
+      <div class="row"><span class="k">概算損益</span><span class="v" id="est-pl">—</span></div>
+      <div class="row"><span class="k">手数料(推定)</span><span class="v" id="est-fee">—</span></div>
+    </section>
+
+    <!-- 送信 -->
     <div class="sticky-actions">
       <a href="{% url 'stock_list' %}" class="btn secondary">キャンセル</a>
       <button type="submit" class="btn danger" id="sell-submit">売却する</button>
@@ -160,7 +132,11 @@
   window.__SELL_CTX__ = {
     shares: {{ stock.shares }},
     unit_price: {{ stock.unit_price|floatformat:2 }},
-    {% if stock.current_price %} current_price: {{ stock.current_price|floatformat:2 }}, {% else %} current_price: null, {% endif %}
+    {% if stock.current_price %}
+      current_price: {{ stock.current_price|floatformat:2 }},
+    {% else %}
+      current_price: null,
+    {% endif %}
   };
 </script>
 <script src="{% static 'js/stock_sell.js' %}" defer></script>
