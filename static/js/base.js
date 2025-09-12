@@ -1,7 +1,10 @@
 // base-bottomtab.js
+// 既存ケアレット（↓）がある場合はそれを開閉トグルとして使用。
+// 無い場合のみケアレットを自動挿入。重複していたら既存を優先して自動挿入分は削除。
+
 document.addEventListener("DOMContentLoaded", function () {
   /* =========================
-     軽量ローディング（必要最低限）
+     軽量ローディング
   ========================= */
   const style = document.createElement("style");
   style.innerHTML = `
@@ -33,65 +36,85 @@ document.addEventListener("DOMContentLoaded", function () {
     loading.style.opacity = "0";
     setTimeout(()=>{ loading.style.display = "none"; }, 200);
   }
-  window.__showLoading__ = showLoading; // ほかのスクリプトからも呼べるように
+  window.__showLoading__ = showLoading;
 
-  // 初回/遷移フック
   showLoading();
-  window.addEventListener("load", hideLoading, { passive: true });
-  window.addEventListener("beforeunload", ()=> showLoading(), { passive: true });
-  window.addEventListener("pageshow", e=>{ if(e.persisted) hideLoading(); }, { passive: true });
+  window.addEventListener("load", hideLoading, { passive:true });
+  window.addEventListener("beforeunload", ()=> showLoading(), { passive:true });
+  window.addEventListener("pageshow", e=>{ if(e.persisted) hideLoading(); }, { passive:true });
 
   /* =====================================
      下タブ & サブメニュー（ボタンバー版）
-     - “↓（ケアレト）”を押した時だけ開閉
-     - サブメニューの <a> をピル型ボタンに変換して並べる
-     - オーバーレイ無し、外側クリック/ESCで閉じる
+     - 既存ケアレットを優先利用
+     - 無ければ自動挿入
+     - 既存+自動の重複は自動の方を削除
   ===================================== */
   (function(){
     const tabBar   = document.querySelector('.bottom-tab');
     const tabItems = document.querySelectorAll('.bottom-tab .tab-item');
     if (!tabBar || !tabItems.length) return;
 
-    // 既存の（ポップオーバー/ボトムシート）UIがあればクリア
+    // 既存のポップオーバー/シートは撤去
     document.querySelectorAll('.tab-backdrop, .bottom-sheet, .popover-menu').forEach(n => n.remove());
 
-    // アクションバーDOM（共用・1つ）
+    // 共有アクションバー
     const actionbar = document.createElement('div');
     actionbar.className = 'tab-actionbar';
     actionbar.setAttribute('role', 'group');
     actionbar.setAttribute('aria-label', 'クイックアクション');
     document.body.appendChild(actionbar);
 
-    // has-sub 付与 & ケアレトボタン注入
-    tabItems.forEach(t => {
-      const hasSub = !!t.querySelector('.sub-menu');
-      if (hasSub) {
-        t.classList.add('has-sub');
-        if (!t.querySelector('.tab-caret')) {
-          const caretBtn = document.createElement('button');
-          caretBtn.type = 'button';
-          caretBtn.className = 'tab-caret';
-          caretBtn.setAttribute('aria-label', 'メニューを開閉');
-          caretBtn.setAttribute('aria-expanded', 'false');
-          caretBtn.textContent = '▾';
-          t.appendChild(caretBtn);
-        }
-      }
-    });
-
-    let openFor = null;          // 開いているタブ要素
-    let justOpenedAt = 0;        // 直後の外側クリック誤判定防止
+    let openFor = null;
+    let justOpenedAt = 0;
     const OPEN_IGNORE_MS = 200;
 
-    // 位置決め & 表示
+    // ケアレット探索ヘルパ
+    function findExistingCaret(tab){
+      // よくある命名を幅広くサポート
+      const selectors = [
+        '.tab-caret',
+        '.caret',
+        '.caret-icon',
+        '[data-caret]',
+        '[data-role="caret"]'
+      ];
+      let carets = [];
+      selectors.forEach(sel=>{
+        tab.querySelectorAll(sel).forEach(el=> carets.push(el));
+      });
+      if (carets.length > 1){
+        // 先頭を残して残りは削除（見た目崩さないよう display:none ではなく remove）
+        carets.slice(1).forEach(el=> el.remove());
+      }
+      return carets[0] || null;
+    }
+
+    // ケアレット生成（必要な場合のみ）
+    function injectCaret(tab){
+      const link = tab.querySelector('.tab-link');
+      const btn  = document.createElement('button');
+      btn.type   = 'button';
+      btn.className = 'tab-caret';
+      btn.setAttribute('aria-label', 'メニューを開閉');
+      btn.setAttribute('aria-expanded', 'false');
+      btn.dataset.injected = "1";
+      btn.textContent = '▾';
+      // 既存UIに合わせて、可能なら tab-link の末尾に入れる
+      if (link){
+        link.appendChild(btn);
+      } else {
+        tab.appendChild(btn);
+      }
+      return btn;
+    }
+
+    // アクションバー表示
     function openBarFor(tabItem){
       const submenu = tabItem.querySelector('.sub-menu');
       if (!submenu) return;
 
-      // 別タブが開いている場合は閉じる
       if (openFor && openFor !== tabItem) closeBar();
 
-      // ボタン群再生成
       actionbar.innerHTML = '';
       submenu.querySelectorAll('a').forEach(a=>{
         const href = a.getAttribute('href') || '#';
@@ -104,11 +127,11 @@ document.addEventListener("DOMContentLoaded", function () {
           if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
           e.preventDefault();
           (window.__showLoading__ || showLoading)(()=> window.location.href = href);
-        }, { passive: false });
+        }, { passive:false });
         actionbar.appendChild(btn);
       });
 
-      // 位置：モバイル＝左右余白、PC＝該当タブの上に幅合わせ
+      // 位置
       const rect = tabItem.getBoundingClientRect();
       const isDesktop = window.matchMedia('(min-width: 768px)').matches;
       if (isDesktop) {
@@ -122,11 +145,11 @@ document.addEventListener("DOMContentLoaded", function () {
         actionbar.style.left   = '8px';
         actionbar.style.right  = '8px';
         actionbar.style.width  = 'auto';
-        actionbar.style.bottom = 'calc(86px + env(safe-area-inset-bottom,0) + 8px)'; // 下タブの上
+        actionbar.style.bottom = 'calc(86px + env(safe-area-inset-bottom,0) + 8px)';
       }
 
       tabItem.classList.add('open');
-      const caret = tabItem.querySelector('.tab-caret');
+      const caret = tabItem.querySelector('.tab-caret, .caret, .caret-icon, [data-caret], [data-role="caret"]');
       if (caret) caret.setAttribute('aria-expanded', 'true');
 
       actionbar.style.display = 'flex';
@@ -139,11 +162,10 @@ document.addEventListener("DOMContentLoaded", function () {
     function closeBar(){
       if (openFor) {
         openFor.classList.remove('open');
-        const caret = openFor.querySelector('.tab-caret');
+        const caret = openFor.querySelector('.tab-caret, .caret, .caret-icon, [data-caret], [data-role="caret"]');
         if (caret) caret.setAttribute('aria-expanded', 'false');
       }
       actionbar.classList.remove('show');
-      // アニメ後に display: none
       setTimeout(()=>{
         if (!actionbar.classList.contains('show')) {
           actionbar.style.display = 'none';
@@ -153,53 +175,67 @@ document.addEventListener("DOMContentLoaded", function () {
       openFor = null;
     }
 
-    // ケアレト（↓）のクリックで開閉。タブ本体は通常遷移
+    // タブ毎のセットアップ
     tabItems.forEach(tab=>{
-      const tabLink = tab.querySelector('.tab-link');
       const submenu = tab.querySelector('.sub-menu');
-      const caret   = tab.querySelector('.tab-caret');
 
-      if (caret && submenu){
-        // マウス/タップ両対応
-        ['click','pointerup','keydown'].forEach(ev=>{
-          caret.addEventListener(ev, (e)=>{
-            // キーボードは Enter/Space のみ反応
-            if (e.type === 'keydown' && !(e.key === 'Enter' || e.key === ' ')) return;
-            e.preventDefault(); e.stopPropagation();
-            if (openFor === tab) closeBar(); else openBarFor(tab);
-          }, { passive: false });
-        });
+      // サブメニューがないのにケアレットが存在する場合は削除
+      if (!submenu){
+        tab.querySelectorAll('.tab-caret, .caret, .caret-icon, [data-caret], [data-role="caret"]').forEach(el=> el.remove());
+        return;
       }
 
+      // ケアレット確定：既存優先、無ければ挿入
+      let caret = findExistingCaret(tab);
+      if (!caret) {
+        caret = injectCaret(tab);
+      } else {
+        // 既存が span などの非ボタンなら role / tabindex を付与
+        if (caret.tagName !== 'BUTTON') {
+          caret.setAttribute('role', 'button');
+          caret.setAttribute('tabindex', '0');
+        }
+        // 既存の中に文字以外（アイコンフォント等）でも OK
+      }
+
+      // クリック/Enter/Spaceで開閉
+      const handler = (e)=>{
+        if (e.type === 'keydown' && !(e.key === 'Enter' || e.key === ' ')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (openFor === tab) closeBar(); else openBarFor(tab);
+      };
+      caret.addEventListener('click', handler, { passive:false });
+      caret.addEventListener('keydown', handler, { passive:false });
+
+      // タブ本体のリンクは通常遷移（caret のときは止める）
+      const tabLink = tab.querySelector('.tab-link');
       if (tabLink){
-        // ↓以外のクリックは普通に遷移
         tabLink.addEventListener('click', (e)=>{
-          if (e.target.closest('.tab-caret')) return;
+          if (e.target.closest('.tab-caret, .caret, .caret-icon, [data-caret], [data-role="caret"]')) return;
           const href = tabLink.getAttribute('href');
           if (href && !href.startsWith('#') && !href.startsWith('javascript:')){
             e.preventDefault();
             (window.__showLoading__ || showLoading)(()=> window.location.href = href);
           }
-        }, { passive: false });
+        }, { passive:false });
       }
     });
 
-    // 外側クリックで閉じる（開直後は無視）
+    // 外側クリック/ESC/リサイズで閉じる（開直後は無視）
     document.addEventListener('click', (e)=>{
       if (!openFor) return;
       if (Date.now() - justOpenedAt < OPEN_IGNORE_MS) return;
       const inTab = !!e.target.closest('.bottom-tab .tab-item');
       const inBar = !!e.target.closest('.tab-actionbar');
       if (!inTab && !inBar) closeBar();
-    }, { passive: true });
+    }, { passive:true });
 
-    // ESCで閉じる
     window.addEventListener('keydown', (e)=>{
       if (e.key === 'Escape' && openFor) closeBar();
-    }, { passive: true });
+    }, { passive:true });
 
-    // リサイズで閉じる（配置が変わるため）
-    window.addEventListener('resize', closeBar, { passive: true });
+    window.addEventListener('resize', closeBar, { passive:true });
   })();
 
   /* =========================
