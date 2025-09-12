@@ -9,7 +9,11 @@
 {% endblock %}
 
 {% block content %}
-{% now "Y-m-d" as today_str %}
+{% now "Y-m-d" as now_str %}
+{% comment %}
+  today_str はビューから渡す値を優先。無ければ now の日付を使用。
+{% endcomment %}
+{% with today_val=today_str|default:now_str %}
 <div class="sell-page">
   <header class="sell-header">
     <a href="{% url 'stock_list' %}" class="back-link" aria-label="一覧へ戻る">←</a>
@@ -19,37 +23,55 @@
     </h1>
   </header>
 
-  <!-- 売却日 -->
-  <section class="sell-date card">
-    <label class="form-label" for="sell-date-input">売却日</label>
-    <input
-      id="sell-date-input"
-      name="sell_date"
-      type="date"
-      form="sell-form"
-      value="{{ today_str }}"
-      class="text-input">
-    <p class="hint">約定日を選択（未変更なら本日）</p>
-  </section>
+  {# ===== エラー表示（サーババリデーション） ===== #}
+  {% if errors %}
+    <div class="sell-errors" id="sell-errors" aria-live="polite">
+      <ul>
+        {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+      </ul>
+    </div>
+  {% else %}
+    <div class="sell-errors" id="sell-errors" aria-live="polite" hidden></div>
+  {% endif %}
 
-  <!-- 概要（ピル） -->
-  <section class="sell-summary">
-    <div class="pill"><span class="k">保有株数</span><span class="v">{{ stock.shares|intcomma }} 株</span></div>
-    <div class="pill"><span class="k">取得単価</span><span class="v">¥{{ stock.unit_price|floatformat:0|intcomma }}</span></div>
-    <div class="pill"><span class="k">現在株価</span><span class="v">{% if stock.current_price %}¥{{ stock.current_price|floatformat:0|intcomma }}{% else %}—{% endif %}</span></div>
-    <div class="pill"><span class="k">口座</span><span class="v">{{ stock.account_type|default:"—" }}</span></div>
-    <div class="pill"><span class="k">証券</span><span class="v">{{ stock.broker|default:"—" }}</span></div>
-  </section>
-
-  <!-- エラー -->
-  <div class="sell-errors" id="sell-errors" aria-live="polite" hidden></div>
-
-  <form id="sell-form" method="post" action="">
+  <form id="sell-form"
+        method="post"
+        action="{% url 'sell_stock_page' pk=stock.pk %}">
     {% csrf_token %}
     <input type="hidden" name="stock_id" value="{{ stock.id }}">
-    <!-- JSで計算してサーバへ送る -->
-    <input type="hidden" name="fee" id="hidden-fee" value="0">
-    <input type="hidden" name="sell_price" id="hidden-sell-price" value="">
+    <!-- JSで計算してサーバへ送る（サーバ側で再計算は継続推奨） -->
+    <input type="hidden" name="fee" id="hidden-fee" value="{{ posted.fee|default:'' }}">
+    <input type="hidden" name="sell_price" id="hidden-sell-price" value="{{ posted.sell_price|default:'' }}">
+
+    <!-- 売却日 -->
+    <section class="sell-date card">
+      <label class="form-label" for="sell-date-input">売却日</label>
+      <input
+        id="sell-date-input"
+        name="sell_date"
+        type="date"
+        value="{{ posted.sell_date|default:today_val }}"
+        class="text-input">
+      <p class="hint">約定日を選択（未変更なら本日）</p>
+    </section>
+
+    <!-- 概要（ピル） -->
+    <section class="sell-summary">
+      <div class="pill"><span class="k">保有株数</span><span class="v">{{ stock.shares|intcomma }} 株</span></div>
+      <div class="pill"><span class="k">取得単価</span><span class="v">¥{{ stock.unit_price|floatformat:0|intcomma }}</span></div>
+      <div class="pill">
+        <span class="k">現在株価</span>
+        <span class="v">
+          {% if stock.current_price %}
+            ¥{{ stock.current_price|floatformat:0|intcomma }}
+          {% else %}
+            —
+          {% endif %}
+        </span>
+      </div>
+      <div class="pill"><span class="k">口座</span><span class="v">{{ stock.account_type|default:"—" }}</span></div>
+      <div class="pill"><span class="k">証券</span><span class="v">{{ stock.broker|default:"—" }}</span></div>
+    </section>
 
     <!-- 数量 -->
     <section class="form-section card">
@@ -58,7 +80,9 @@
         <button type="button" class="qty-btn" data-step="-100">-100</button>
         <button type="button" class="qty-btn" data-step="-10">-10</button>
         <input id="sell-shares" name="shares" type="number" inputmode="numeric"
-               min="1" max="{{ stock.shares }}" step="1" value="{{ stock.shares }}" class="qty-input" required>
+               min="1" max="{{ stock.shares }}" step="1"
+               value="{{ posted.shares|default:stock.shares }}"
+               class="qty-input" required>
         <button type="button" class="qty-btn" data-step="10">+10</button>
         <button type="button" class="qty-btn" data-step="100">+100</button>
       </div>
@@ -74,20 +98,25 @@
     <section class="form-section card">
       <span class="form-label">売却方法</span>
       <div class="mode-row" role="radiogroup" aria-label="売却方法">
-        <label class="mode-item">
-          <input type="radio" name="sell_mode" value="market" checked>
-          <span>市場価格</span>
-        </label>
-        <label class="mode-item">
-          <input type="radio" name="sell_mode" value="limit">
-          <span>指値</span>
-        </label>
+        {% with sel=posted.sell_mode|default:'market' %}
+          <label class="mode-item">
+            <input type="radio" name="sell_mode" value="market" {% if sel == 'market' %}checked{% endif %}>
+            <span>市場価格</span>
+          </label>
+          <label class="mode-item">
+            <input type="radio" name="sell_mode" value="limit" {% if sel == 'limit' %}checked{% endif %}>
+            <span>指値</span>
+          </label>
+        {% endwith %}
       </div>
 
-      <div id="limit-wrap" class="limit-wrap" hidden>
+      {% with sel=posted.sell_mode|default:'market' %}
+      <div id="limit-wrap" class="limit-wrap" {% if sel != 'limit' %}hidden{% endif %}>
         <label class="form-label" for="limit-price">指値（円）</label>
         <input id="limit-price" name="limit_price" type="number" inputmode="numeric"
-               min="0" step="1" placeholder="例: 1,234" class="text-input">
+               min="0" step="1" placeholder="例: 1,234"
+               value="{{ posted.limit_price|default:'' }}"
+               class="text-input">
 
         <div class="limit-hints">
           {% if stock.current_price %}
@@ -99,16 +128,19 @@
           <button type="button" class="chip" data-limit="-10">-10</button>
         </div>
       </div>
+      {% endwith %}
     </section>
 
     <!-- 実際の損益額 -->
     <section class="form-section card">
       <label class="form-label" for="actual-profit">実際の損益額（円）</label>
       <input id="actual-profit" name="actual_profit" type="number" inputmode="numeric" step="1"
-             placeholder="例: 12,345（空欄なら 取得額−売却額 を使用）" class="text-input">
+             placeholder="例: 12,345（空欄なら 売却額−取得額 を使用）"
+             value="{{ posted.actual_profit|default:'' }}"
+             class="text-input">
     </section>
 
-    <!-- ライブ計算（仕様に合わせて刷新） -->
+    <!-- ライブ計算（レビュー） -->
     <section class="review card">
       <div class="row"><span class="k">取得額</span><span class="v" id="rv-buy">—</span></div>
       <div class="row"><span class="k">売却額</span><span class="v" id="rv-sell">—</span></div>
@@ -126,6 +158,7 @@
     <div class="page-end-spacer" aria-hidden="true"></div>
   </form>
 </div>
+{% endwith %}
 {% endblock %}
 
 {% block extra_js %}
@@ -133,7 +166,9 @@
   window.__SELL_CTX__ = {
     shares: {{ stock.shares }},
     unit_price: {{ stock.unit_price|floatformat:2 }},
-    {% if stock.current_price %}
+    {% if current_price %}
+      current_price: {{ current_price|floatformat:2 }},
+    {% elif stock.current_price %}
       current_price: {{ stock.current_price|floatformat:2 }},
     {% else %}
       current_price: null,
