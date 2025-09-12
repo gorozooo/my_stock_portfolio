@@ -31,8 +31,6 @@
         <button id="clearSearch" class="icon-btn" aria-label="検索クリア">✖</button>
       </div>
 
-      <!-- ※損益額/率のトグルは廃止 -->
-
       <button id="kpiToggle" class="kpi-toggle" aria-expanded="false" aria-controls="kpiBox">
         <span class="kpi-ico">📊</span><span class="kpi-txt">KPI</span><span class="kpi-caret">▼</span>
       </button>
@@ -69,7 +67,7 @@
       <div class="kpi-deck">
         <div class="kpi-card ring">
           <div class="ring-wrap">
-            <!-- 12時起点・パス長100で管理 -->
+            <!-- 12時起点・パス長100 -->
             <svg viewBox="0 0 36 36" class="circular" aria-hidden="true">
               <path class="bg" pathLength="100"
                     d="M18 2a16 16 0 1 1 0 32 16 16 0 1 1 0-32"/>
@@ -179,6 +177,7 @@
                   <td class="pnl-cell {% if pn_val < 0 %}loss{% else %}profit{% endif %}">
                     <div class="pnl-wrap">
                       <div class="amount">
+                        <!-- ★ 必ず金額を出す .num -->
                         <span class="num">
                           {% if t.profit_amount %}
                             {% if t.profit_amount > 0 %}+{% endif %}{{ t.profit_amount|intcomma }}
