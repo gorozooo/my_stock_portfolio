@@ -1,53 +1,63 @@
 document.addEventListener("DOMContentLoaded", () => {
-  /* ===== Grab elements ===== */
-  const yearFilter   = document.getElementById("yearFilter");
-  const monthFilter  = document.getElementById("monthFilter");
-  const table        = document.getElementById("realizedTable");
-  const tbody        = table.querySelector("tbody");
-  const emptyState   = document.getElementById("emptyState");
-  const chips        = [...document.querySelectorAll(".quick-chips .chip")];
-  const segBtns      = [...document.querySelectorAll(".seg-btn")];
-  const tableWrapper = document.getElementById("tableWrapper");
-  const fab          = document.getElementById("scrollTopFab");
-  const kpiToggle    = document.getElementById("kpiToggle");
-  const controlsBox  = document.querySelector(".rp-controls");
-  const searchInput  = document.getElementById("searchInput");
-  const clearSearch  = document.getElementById("clearSearch");
-  const themeToggle  = document.getElementById("themeToggle");
-  const densityToggle= document.getElementById("densityToggle");
-
-  /* ===== Utils ===== */
+  /* ===== Utility ===== */
+  const $  = (s) => document.querySelector(s);
+  const $$ = (s) => Array.from(document.querySelectorAll(s));
   const numeric = (t)=> {
     const v = parseFloat(String(t||"").replace(/[^\-0-9.]/g,""));
     return isNaN(v) ? 0 : v;
   };
   const fmt = (n)=> Math.round(n).toLocaleString();
-  const pad2 = n => n<10 ? "0"+n : ""+n;
+  const pad2 = (n)=> n<10 ? "0"+n : ""+n;
+
+  /* ===== Grabs ===== */
+  const yearFilter   = $("#yearFilter");
+  const monthFilter  = $("#monthFilter");
+  const table        = $("#realizedTable");
+  const tbody        = table?.querySelector("tbody");
+  const emptyState   = $("#emptyState");
+  const chips        = $$(".quick-chips .chip");
+  const segBtns      = $$(".seg-btn");
+  const kpiToggle    = $("#kpiToggle");
+  const controlsBox  = $(".rp-controls");
+  const searchInput  = $("#searchInput");
+  const clearSearch  = $("#clearSearch");
+  const tableWrapper = $("#tableWrapper");
+  const fab          = $("#scrollTopFab");
+  const themeToggle  = $("#themeToggle");
+  const densityToggle= $("#densityToggle");
 
   const dataRows = ()=> [...tbody.querySelectorAll("tr")].filter(r => !r.classList.contains("group-row"));
 
-  function calcHeights(){
-    const top = document.querySelector(".rp-controls");
-    const topH = top ? (top.getBoundingClientRect().height + 8) : 0;
-    const bottom = document.querySelector(".bottom-tab, .bottom_navbar, #bottomTab, [data-bottom-tab]");
-    const bottomH = bottom ? (bottom.getBoundingClientRect().height) : 0;
-    document.documentElement.style.setProperty("--top-h", `${topH}px`);
-    document.documentElement.style.setProperty("--bottom-h", `${bottomH}px`);
+  /* ===== View Height Re-calc (単一スクロール領域) ===== */
+  const topbar = $(".rp-topbar");
+  const tabs   = $(".rp-tabs");
+  const bottom = document.querySelector(".bottom-tab, .bottom_navbar, #bottomTab, [data-bottom-tab]");
+
+  function vh(){ return Math.max(window.innerHeight, document.documentElement.clientHeight); }
+  function recalcViewHeights(){
+    const topH    = (topbar?.getBoundingClientRect().height || 0);
+    const ctrlH   = (controlsBox?.getBoundingClientRect().height || 0);
+    const tabsH   = (tabs?.getBoundingClientRect().height || 0);
+    const bottomH = (bottom?.getBoundingClientRect().height || 0);
+    const padding = 12;
+    const rest = Math.max(120, vh() - (topH + ctrlH + tabsH + bottomH + padding));
+    document.documentElement.style.setProperty("--view-h", `${rest}px`);
+    $$(".view.active .scroll-area").forEach(el => { el.style.height = `${rest}px`; });
   }
-  calcHeights();
-  window.addEventListener("resize", calcHeights);
-  window.addEventListener("orientationchange", () => setTimeout(calcHeights, 60));
+  window.addEventListener("load", recalcViewHeights);
+  window.addEventListener("resize", recalcViewHeights);
+  window.addEventListener("orientationchange", () => setTimeout(recalcViewHeights, 60));
 
   /* ===== KPI ===== */
-  const sumCount        = document.getElementById("sumCount");
-  const winRateEl       = document.getElementById("winRate");
-  const netProfitEl     = document.getElementById("netProfit");
-  const totalProfitEl   = document.getElementById("totalProfit");
-  const totalLossEl     = document.getElementById("totalLoss");
-  const avgNetEl        = document.getElementById("avgNet");
-  const avgProfitOnlyEl = document.getElementById("avgProfitOnly");
-  const avgLossOnlyEl   = document.getElementById("avgLossOnly");
-  const winArc          = document.getElementById("winArc");
+  const sumCount        = $("#sumCount");
+  const winRateEl       = $("#winRate");
+  const netProfitEl     = $("#netProfit");
+  const totalProfitEl   = $("#totalProfit");
+  const totalLossEl     = $("#totalLoss");
+  const avgNetEl        = $("#avgNet");
+  const avgProfitOnlyEl = $("#avgProfitOnly");
+  const avgLossOnlyEl   = $("#avgLossOnly");
+  const winArc          = $("#winArc");
 
   function updateSummary(){
     const visible = dataRows().filter(r => r.style.display !== "none");
@@ -104,8 +114,8 @@ document.addEventListener("DOMContentLoaded", () => {
     emptyState.style.display = dataRows().some(r => r.style.display !== "none") ? "none" : "";
     updateSummary();
     updateBars();
-    buildTiles();   // 反映
-    buildInsights();// 反映
+    buildTiles();
+    buildInsights();
   }
 
   yearFilter?.addEventListener("change", ()=>{ chips.forEach(c=>c.classList.remove('active')); filterTable(); });
@@ -135,7 +145,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  searchInput?.addEventListener("input", filterTable);
+  const searchInputEl = $("#searchInput");
+  searchInputEl?.addEventListener("input", filterTable);
   clearSearch?.addEventListener("click", ()=>{ searchInput.value=""; filterTable(); });
 
   /* ===== Sort ===== */
@@ -183,7 +194,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   applyToggle("amount");
 
-  /* ===== Bars ===== */
+  /* ===== P/L Bars ===== */
   function updateBars(){
     const visible = dataRows().filter(r => r.style.display !== "none");
     const pnVals = visible.map(r => {
@@ -213,25 +224,20 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   /* ===== Modal ===== */
-  const modal    = document.getElementById("stockModal");
+  const modal    = $("#stockModal");
   const closeBtn = modal ? modal.querySelector(".close") : null;
-  const modalTitle      = document.getElementById("modalTitle");
-  const modalPurchase   = document.getElementById("modalPurchase");
-  const modalQuantity   = document.getElementById("modalQuantity");
-  const modalBroker     = document.getElementById("modalBroker");
-  const modalAccount    = document.getElementById("modalAccount");
-  const modalSell       = document.getElementById("modalSell");
-  const modalProfit     = document.getElementById("modalProfit");
-  const modalFee        = document.getElementById("modalFee");
-  const modalSellAmount = document.getElementById("modalSellAmount");
-  const modalBuyAmount  = document.getElementById("modalBuyAmount");
+  const modalTitle      = $("#modalTitle");
+  const modalPurchase   = $("#modalPurchase");
+  const modalQuantity   = $("#modalQuantity");
+  const modalBroker     = $("#modalBroker");
+  const modalAccount    = $("#modalAccount");
+  const modalSell       = $("#modalSell");
+  const modalProfit     = $("#modalProfit");
+  const modalFee        = $("#modalFee");
+  const modalSellAmount = $("#modalSellAmount");
+  const modalBuyAmount  = $("#modalBuyAmount");
 
-  const num = (t)=> {
-    if (t == null) return 0;
-    const s = String(t).replace(/[^\-0-9.]/g,'');
-    const v = parseFloat(s);
-    return isNaN(v) ? 0 : v;
-  };
+  const num = (t)=> { const s = String(t??"").replace(/[^\-0-9.]/g,''); const v = parseFloat(s); return isNaN(v) ? 0 : v; };
   const yen = (n)=> Math.round(n).toLocaleString('ja-JP');
 
   function openModalForRow(row){
@@ -290,28 +296,42 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* ===== FAB scroll top ===== */
   function onScroll(){
-    const show = tableWrapper.scrollTop > 200;
+    const area = $(".view.active .scroll-area");
+    if (!area) return;
+    const show = area.scrollTop > 200;
     fab.classList.toggle("show", show);
   }
-  tableWrapper.addEventListener("scroll", onScroll, {passive:true});
-  fab.addEventListener("click", ()=> tableWrapper.scrollTo({top:0, behavior:"smooth"}));
-
-  /* ===== KPI collapse & auto slim ===== */
-  const PREF_COLLAPSE = "rp.kpiCollapsed";
-  function setCollapsed(collapsed){
-    controlsBox.classList.toggle("collapsed", collapsed);
-    kpiToggle.setAttribute("aria-expanded", (!collapsed).toString());
-    kpiToggle.textContent = collapsed ? "KPI" : "KPI▲";
-    calcHeights();
-  }
-  const saved = localStorage.getItem(PREF_COLLAPSE);
-  if (saved === null){ setCollapsed(true); localStorage.setItem(PREF_COLLAPSE, "1"); }
-  else{ setCollapsed(saved === "1"); }
-  kpiToggle.addEventListener("click", ()=>{
-    const next = !controlsBox.classList.contains("collapsed");
-    setCollapsed(next);
-    localStorage.setItem(PREF_COLLAPSE, next ? "1" : "0");
+  // スクロールはアクティブビューの領域を監視
+  const scrollAreaObserver = new MutationObserver(()=> {
+    const area = $(".view.active .scroll-area");
+    if (!area) return;
+    area.removeEventListener("scroll", onScroll);
+    area.addEventListener("scroll", onScroll, {passive:true});
   });
+  scrollAreaObserver.observe(document.body, {subtree:true, childList:true, attributes:true});
+
+  fab.addEventListener("click", ()=>{
+    const area = $(".view.active .scroll-area");
+    area?.scrollTo({top:0, behavior:"smooth"});
+  });
+
+  /* ===== KPI 開閉（収まり＋再採寸） ===== */
+  if (kpiToggle && controlsBox){
+    const PREF_COLLAPSE = "rp.kpiCollapsed";
+    function setCollapsed(collapsed){
+      controlsBox.classList.toggle("collapsed", collapsed);
+      kpiToggle.setAttribute("aria-expanded", (!collapsed).toString());
+      kpiToggle.querySelector(".kpi-caret").textContent = collapsed ? "▼" : "▲";
+      setTimeout(recalcViewHeights, 0);
+      localStorage.setItem(PREF_COLLAPSE, collapsed ? "1" : "0");
+    }
+    const saved = localStorage.getItem(PREF_COLLAPSE);
+    setCollapsed(saved === null ? true : saved === "1");
+    kpiToggle.addEventListener("click", ()=>{
+      const next = !controlsBox.classList.contains("collapsed");
+      setCollapsed(next);
+    });
+  }
 
   /* ===== Theme & density ===== */
   themeToggle?.addEventListener("click", ()=>{
@@ -325,7 +345,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   /* ===== Tiles View ===== */
-  const tilesGrid = document.getElementById("tilesGrid");
+  const tilesGrid = $("#tilesGrid");
   function buildTiles(){
     if (!tilesGrid) return;
     tilesGrid.innerHTML = "";
@@ -356,13 +376,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   /* ===== Insights View ===== */
-  const monthlyChart = document.getElementById("monthlyChart");
-  const topGainersEl = document.getElementById("topGainers");
-  const topLosersEl  = document.getElementById("topLosers");
-  const byBrokerEl   = document.getElementById("byBroker");
+  const monthlyChart = $("#monthlyChart");
+  const topGainersEl = $("#topGainers");
+  const topLosersEl  = $("#topLosers");
+  const byBrokerEl   = $("#byBroker");
 
   function buildInsights(){
-    // Monthly aggregation (YYYY-MM)
     const visible = dataRows().filter(r => r.style.display !== "none");
     const mapMonth = new Map();
     const mapName  = new Map();
@@ -378,7 +397,7 @@ document.addEventListener("DOMContentLoaded", () => {
       mapBroker.set(broker,(mapBroker.get(broker)||0)+pn);
     });
 
-    // Chart
+    // Chart（純Canvas）
     if (monthlyChart){
       const ctx = monthlyChart.getContext("2d");
       ctx.clearRect(0,0,monthlyChart.width, monthlyChart.height);
@@ -386,14 +405,14 @@ document.addEventListener("DOMContentLoaded", () => {
       const months = [...mapMonth.keys()].sort();
       const values = months.map(m=>mapMonth.get(m));
       const maxAbs = Math.max(1000, ...values.map(v=>Math.abs(v)));
-      // axes
+
       ctx.strokeStyle = "rgba(255,255,255,.25)";
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(P, H-P); ctx.lineTo(W-P, H-P); ctx.moveTo(P, P); ctx.lineTo(P, H-P); ctx.stroke();
-      // zero line
       const zeroY = H/2;
-      ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.beginPath(); ctx.moveTo(P, zeroY); ctx.lineTo(W-P, zeroY); ctx.stroke();
-      // bars
+      ctx.strokeStyle = "rgba(255,255,255,.18)";
+      ctx.beginPath(); ctx.moveTo(P, zeroY); ctx.lineTo(W-P, zeroY); ctx.stroke();
+
       const n = Math.max(1, months.length);
       const gap = 6;
       const barW = Math.max(8, ((W-P*2) - gap*(n-1)) / n);
@@ -405,7 +424,6 @@ document.addEventListener("DOMContentLoaded", () => {
         const y = v>=0 ? (zeroY - h) : zeroY;
         ctx.fillStyle = v>=0 ? "rgba(0,220,130,.85)" : "rgba(255,80,100,.85)";
         ctx.fillRect(x, y, barW, h);
-        // label
         ctx.fillStyle = "rgba(255,255,255,.75)";
         ctx.font = "12px system-ui";
         ctx.textAlign = "center";
@@ -413,7 +431,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
 
-    // Top gainers/losers
+    // Top gainers / losers
     const arr = [...mapName.entries()];
     arr.sort((a,b)=>b[1]-a[1]);
     const topG = arr.slice(0,5);
@@ -436,7 +454,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
 
-    // by broker
+    // By broker
     if (byBrokerEl){
       byBrokerEl.innerHTML = "";
       [...mapBroker.entries()].sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).forEach(([bk, v])=>{
@@ -449,11 +467,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   /* ===== Tabs ===== */
-  const tabBtns = [...document.querySelectorAll(".rp-tabs .tab")];
+  const tabBtns = $$(".rp-tabs .tab");
   const views = {
-    ledger: document.getElementById("view-ledger"),
-    tiles: document.getElementById("view-tiles"),
-    insights: document.getElementById("view-insights"),
+    ledger: $("#view-ledger"),
+    tiles: $("#view-tiles"),
+    insights: $("#view-insights"),
   };
   tabBtns.forEach(btn=>{
     btn.addEventListener("click", ()=>{
@@ -461,7 +479,7 @@ document.addEventListener("DOMContentLoaded", () => {
       btn.classList.add("active");
       const v = btn.dataset.view;
       Object.keys(views).forEach(k=>views[k].classList.toggle("active", k===v));
-      calcHeights();
+      setTimeout(recalcViewHeights, 0);
       if (v==="tiles")  buildTiles();
       if (v==="insights") buildInsights();
     });
@@ -469,7 +487,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* ===== Init ===== */
   attachRowHandlers();
-  filterTable();      // KPI, bars, tiles, insights
+  filterTable();
   updateBars();
-  calcHeights();
+  setTimeout(recalcViewHeights, 0);
 });
