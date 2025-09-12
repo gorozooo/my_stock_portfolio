@@ -67,12 +67,10 @@
       <div class="kpi-deck">
         <div class="kpi-card ring">
           <div class="ring-wrap">
-            <!-- 12時起点・パス長100 -->
+            <!-- 12時起点 -->
             <svg viewBox="0 0 36 36" class="circular" aria-hidden="true">
-              <path class="bg" pathLength="100"
-                    d="M18 2a16 16 0 1 1 0 32 16 16 0 1 1 0-32"/>
-              <path id="winArc" class="fg" pathLength="100" stroke-dasharray="0 100" stroke-dashoffset="0"
-                    d="M18 2a16 16 0 1 1 0 32 16 16 0 1 1 0-32"/>
+              <path class="bg" pathLength="100" d="M18 2a16 16 0 1 1 0 32 16 16 0 1 1 0-32"/>
+              <path id="winArc" class="fg" pathLength="100" stroke-dasharray="0 100" stroke-dashoffset="0" d="M18 2a16 16 0 1 1 0 32 16 16 0 1 1 0-32"/>
             </svg>
             <div class="ring-val"><span id="winRate">--%</span><small>勝率</small></div>
           </div>
@@ -177,22 +175,14 @@
                   <td class="pnl-cell {% if pn_val < 0 %}loss{% else %}profit{% endif %}">
                     <div class="pnl-wrap">
                       <div class="amount">
-                        <!-- ★ 必ず金額を出す .num -->
-                        <span class="num">
-                          {% if t.profit_amount %}
-                            {% if t.profit_amount > 0 %}+{% endif %}{{ t.profit_amount|intcomma }}
-                          {% else %}
-                            0
-                          {% endif %}
-                        </span>
+                        <!-- 金額（必ず出す）：JSでネット損益に正規化して上書き -->
+                        <span class="num">{% if t.profit_amount %}{% if t.profit_amount > 0 %}+{% endif %}{{ t.profit_amount|intcomma }}{% else %}0{% endif %}</span>
                         <span class="bar" data-pn="{{ pn_val }}"></span>
                       </div>
                       <span class="rate chip {% if t.profit_rate is not None and t.profit_rate < 0 %}loss{% else %}profit{% endif %}">
                         {% if t.profit_rate %}
                           {% if t.profit_rate > 0 %}+{% endif %}{{ t.profit_rate }}
-                        {% else %}
-                          0
-                        {% endif %}%
+                        {% else %}0{% endif %}%
                       </span>
                     </div>
                   </td>
