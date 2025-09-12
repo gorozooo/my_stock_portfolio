@@ -36,7 +36,7 @@
 
   <form id="sell-form"
         method="post"
-        action="{% url 'sell_stock_page' pk=stock.pk %}">
+        action="{% url 'stock_sell' pk=stock.pk %}">
     {% csrf_token %}
     <input type="hidden" name="stock_id" value="{{ stock.id }}">
     <!-- JSで計算してサーバへ送る（サーバ側で再計算は継続推奨） -->
