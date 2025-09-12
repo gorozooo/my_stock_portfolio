@@ -16,7 +16,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const tbody        = table?.querySelector("tbody");
   const emptyState   = $("#emptyState");
   const chips        = $$(".quick-chips .chip");
-  const segBtns      = $$(".seg-btn");
   const kpiToggle    = $("#kpiToggle");
   const controlsBox  = $(".rp-controls");
   const searchInput  = $("#searchInput");
@@ -77,7 +76,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function updateSummary(){
     const visible = dataRows().filter(r => r.style.display !== "none");
-    const profitCells = visible.map(r => (r.children[6] && r.children[6].innerText) || "0");
+    const profitCells = visible.map(r => (r.children[6] && r.children[6].querySelector('.num')?.innerText) || "0");
     const vals = profitCells.map(numeric);
     const pos = vals.filter(v => v > 0), neg = vals.filter(v => v < 0);
 
@@ -176,6 +175,11 @@ document.addEventListener("DOMContentLoaded", () => {
         if (isDate){
           va = new Date(a.children[idx].textContent.trim());
           vb = new Date(b.children[idx].textContent.trim());
+        }else if (idx === 6){
+          // 損益列は金額ベースでソート
+          const na = numeric(a.children[6].querySelector('.num')?.innerText || "0");
+          const nb = numeric(b.children[6].querySelector('.num')?.innerText || "0");
+          va = na; vb = nb;
         }else{
           const na = numeric(a.children[idx].textContent);
           const nb = numeric(b.children[idx].textContent);
@@ -192,50 +196,17 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  /* ===== Toggle amount/rate columns ===== */
-  const TOGGLE_KEY = "rp.toggleMode"; // "amount" | "rate"
-  function applyToggle(mode){
-    const profitCol = 6, rateCol = 7; // 0-based index
-    // ヘッダー
-    table.querySelectorAll("thead th")[profitCol].classList.toggle("col-hide", mode === "rate");
-    table.querySelectorAll("thead th")[rateCol].classList.toggle("col-hide", mode === "amount");
-    // 本体
-    [...table.querySelectorAll(`tbody td:nth-child(${profitCol+1})`)]
-      .forEach(td=>td.classList.toggle("col-hide", mode === "rate"));
-    [...table.querySelectorAll(`tbody td:nth-child(${rateCol+1})`)]
-      .forEach(td=>td.classList.toggle("col-hide", mode === "amount"));
-
-    // UI状態
-    segBtns.forEach(b=>{
-      const active = b.dataset.show === mode;
-      b.classList.toggle("active", active);
-      b.setAttribute("aria-selected", active ? "true" : "false");
-    });
-    localStorage.setItem(TOGGLE_KEY, mode);
-  }
-
-  // 初期モード（保存があれば復元）
-  const initialMode = localStorage.getItem(TOGGLE_KEY) || "amount";
-  applyToggle(initialMode);
-
-  segBtns.forEach(b=>{
-    b.addEventListener("click", ()=>{
-      const mode = b.dataset.show === "rate" ? "rate" : "amount";
-      applyToggle(mode);
-    });
-  });
-
   /* ===== P/L Bars ===== */
   function updateBars(){
     const visible = dataRows().filter(r => r.style.display !== "none");
     const pnVals = visible.map(r => {
-      const bar = r.querySelector(".profit-cell .bar");
+      const bar = r.querySelector(".pnl-cell .bar");
       if (!bar) return 0;
       return Math.abs(parseFloat(bar.dataset.pn || "0"));
     });
     const max = Math.max(5000, ...pnVals);
     visible.forEach(r=>{
-      const bar = r.querySelector(".profit-cell .bar");
+      const bar = r.querySelector(".pnl-cell .bar");
       if (!bar) return;
       const val = Math.abs(parseFloat(bar.dataset.pn || "0"));
       const w = Math.min(100, Math.round((val / max) * 100));
@@ -248,7 +219,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const fill = bar.firstElementChild;
       fill.style.width = Math.max(8, Math.round(64 * w / 100)) + "px";
       fill.style.borderRadius = "999px";
-      fill.style.background = bar.closest(".loss")
+      const isLoss = r.classList.contains("loss") || (numeric(r.querySelector('.num')?.innerText || "0") < 0);
+      fill.style.background = isLoss
         ? "linear-gradient(90deg, rgba(255,80,100,.95), rgba(255,120,120,.85))"
         : "linear-gradient(90deg, rgba(0,220,130,.95), rgba(0,255,210,.85))";
     });
@@ -325,57 +297,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  /* ===== FAB scroll top（アクティブビューのスクロール領域を監視） ===== */
-  function currentScrollArea(){ return document.querySelector(".view.active .scroll-area"); }
-  function onScroll(){
-    const area = currentScrollArea();
-    if (!area) return;
-    const show = area.scrollTop > 200;
-    fab.classList.toggle("show", show);
-  }
-  function bindScrollArea(){
-    const area = currentScrollArea();
-    if (!area) return;
-    area.removeEventListener("scroll", onScroll);
-    area.addEventListener("scroll", onScroll, {passive:true});
-  }
-  bindScrollArea();
-
-  fab.addEventListener("click", ()=>{
-    const area = currentScrollArea();
-    area?.scrollTo({top:0, behavior:"smooth"});
-  });
-
-  /* ===== KPI 開閉 ===== */
-  if (kpiToggle && controlsBox){
-    const PREF_COLLAPSE = "rp.kpiCollapsed";
-    function setCollapsed(collapsed){
-      controlsBox.classList.toggle("collapsed", collapsed);
-      kpiToggle.setAttribute("aria-expanded", (!collapsed).toString());
-      kpiToggle.querySelector(".kpi-caret").textContent = collapsed ? "▼" : "▲";
-      setTimeout(recalcViewHeights, 0);
-    }
-    const saved = localStorage.getItem(PREF_COLLAPSE);
-    if (saved === null){ setCollapsed(true); localStorage.setItem(PREF_COLLAPSE, "1"); }
-    else{ setCollapsed(saved === "1"); }
-    kpiToggle.addEventListener("click", ()=>{
-      const next = !controlsBox.classList.contains("collapsed");
-      setCollapsed(next);
-      localStorage.setItem(PREF_COLLAPSE, next ? "1" : "0");
-    });
-  }
-
-  /* ===== Theme & density ===== */
-  themeToggle?.addEventListener("click", ()=>{
-    const root = document.querySelector(".rp-page");
-    root.classList.toggle("theme-dark");
-    root.classList.toggle("theme-light");
-  });
-  densityToggle?.addEventListener("click", ()=>{
-    const rows = table.querySelectorAll("tbody tr");
-    rows.forEach(r => r.style.height = (r.style.height === "44px" ? "50px" : "44px"));
-  });
-
   /* ===== Tiles View ===== */
   const tilesGrid = $("#tilesGrid");
   function buildTiles(){
@@ -385,8 +306,8 @@ document.addEventListener("DOMContentLoaded", () => {
     visible.slice(0, 200).forEach(row=>{
       const name=row.dataset.name||"", code=row.dataset.code||"", broker=row.dataset.broker||"", type=row.dataset.type||"";
       const qty=row.dataset.quantity||"-";
-      const profit=row.children[6]?.innerText || "0";
-      const rate=row.children[7]?.innerText || "0%";
+      const profit=row.querySelector('.pnl-cell .num')?.innerText || "0";
+      const rate=row.dataset.rate || "0%";
       const tile = document.createElement("div");
       tile.className="tile";
       tile.innerHTML=`
@@ -421,7 +342,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     visible.forEach(r=>{
       const ym = (r.dataset.date||"").slice(0,7);
-      const pn = numeric(r.children[6]?.innerText || "0");
+      const pn = numeric(r.querySelector('.pnl-cell .num')?.innerText || "0");
       const name = r.dataset.name||"";
       const broker = r.dataset.broker||"";
       mapMonth.set(ym, (mapMonth.get(ym)||0)+pn);
@@ -498,25 +419,33 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  /* ===== Tabs ===== */
+  /* ===== Tabs & FAB ===== */
   const tabBtns = $$(".rp-tabs .tab");
   const views = {
     ledger: $("#view-ledger"),
     tiles: $("#view-tiles"),
     insights: $("#view-insights"),
   };
-  function bindScrollArea(){
-    const area = document.querySelector(".view.active .scroll-area");
-    if (!area) return;
-    area.removeEventListener("scroll", onScroll);
-    area.addEventListener("scroll", onScroll, {passive:true});
-  }
+  function currentScrollArea(){ return document.querySelector(".view.active .scroll-area"); }
   function onScroll(){
-    const area = document.querySelector(".view.active .scroll-area");
+    const area = currentScrollArea();
     if (!area) return;
     const show = area.scrollTop > 200;
     fab.classList.toggle("show", show);
   }
+  function bindScrollArea(){
+    const area = currentScrollArea();
+    if (!area) return;
+    area.removeEventListener("scroll", onScroll);
+    area.addEventListener("scroll", onScroll, {passive:true});
+  }
+  bindScrollArea();
+
+  fab.addEventListener("click", ()=>{
+    const area = currentScrollArea();
+    area?.scrollTo({top:0, behavior:"smooth"});
+  });
+
   tabBtns.forEach(btn=>{
     btn.addEventListener("click", ()=>{
       tabBtns.forEach(b=>b.classList.remove("active"));
