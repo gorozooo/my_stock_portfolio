@@ -216,3 +216,79 @@ main{
   .bottom-tab .tab-link,
   .tab-actionbar { transition:none !important; }
 }
+
+/* ケアレット（既存/自動どちらでも） */
+.bottom-tab .tab-item .tab-caret,
+.bottom-tab .tab-item .caret,
+.bottom-tab .tab-item .caret-icon,
+.bottom-tab .tab-item [data-caret],
+.bottom-tab .tab-item [data-role="caret"]{
+  margin-left: 6px;
+  font-size: 12px;
+  line-height: 1;
+  background: transparent;
+  color: #aee7ff;
+  border: none;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.bottom-tab .tab-item .tab-caret:focus,
+.bottom-tab .tab-item .caret:focus,
+.bottom-tab .tab-item .caret-icon:focus,
+.bottom-tab .tab-item [data-caret]:focus,
+.bottom-tab .tab-item [data-role="caret"]:focus{
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0,255,255,.25);
+}
+
+/* アクションバー（表示領域を確実に確保） */
+.tab-actionbar{
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  bottom: calc(86px + env(safe-area-inset-bottom, 0));
+  display: none;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(10, 12, 24, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 255, 255, 0.15);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.45), 0 0 22px rgba(0,255,255,0.12) inset;
+  z-index: 1100;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  transform: translateY(8px);
+  opacity: 0;
+  transition: opacity .18s ease, transform .18s ease;
+}
+.tab-actionbar.show{ display:flex; opacity:1; transform:translateY(0); }
+
+.tab-actionbar .ab-btn{
+  appearance: none;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: linear-gradient(135deg, rgba(0,255,255,.16), rgba(255,0,255,.14));
+  color: #eaf8ff;
+  font-size: .9rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 10px 14px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: transform .08s ease, box-shadow .18s ease, background .18s ease;
+  white-space: nowrap;
+}
+.tab-actionbar .ab-btn:hover{ box-shadow: 0 6px 16px rgba(0,255,255,.18); }
+.tab-actionbar .ab-btn:active{ transform: translateY(1px) scale(.98); }
+
+/* PCは位置をタブ真上に調整（JSがwidth/left/bottomをセット） */
+@media (min-width:768px){
+  .tab-actionbar{ left:auto; right:auto; width:auto; }
+}
