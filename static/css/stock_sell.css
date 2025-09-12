@@ -98,9 +98,10 @@ body{
   .sell-summary{grid-template-columns:repeat(3,1fr);}
 }
 
+/* --- mini soft keypad --- */
 .softpad{ display:flex; gap:8px; margin-top:8px; }
 .sp-key{
   min-width:42px; padding:8px 10px; border:none; border-radius:10px;
   background:rgba(255,255,255,.14); color:#fff; font-weight:800; cursor:pointer;
 }
-.sp-key:active{ transform:translateY(1px); }
+.sp-key:active{ transform: translateY(1px); }
