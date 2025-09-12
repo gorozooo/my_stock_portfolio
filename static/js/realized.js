@@ -21,29 +21,44 @@ document.addEventListener("DOMContentLoaded", () => {
   const controlsBox  = $(".rp-controls");
   const searchInput  = $("#searchInput");
   const clearSearch  = $("#clearSearch");
-  const tableWrapper = $("#tableWrapper");
   const fab          = $("#scrollTopFab");
   const themeToggle  = $("#themeToggle");
   const densityToggle= $("#densityToggle");
 
   const dataRows = ()=> [...tbody.querySelectorAll("tr")].filter(r => !r.classList.contains("group-row"));
 
-  /* ===== View Height Re-calc (単一スクロール領域) ===== */
+  /* ===== View Height Re-calc (単一スクロール領域 & bottom-tab計測) ===== */
   const topbar = $(".rp-topbar");
   const tabs   = $(".rp-tabs");
-  const bottom = document.querySelector(".bottom-tab, .bottom_navbar, #bottomTab, [data-bottom-tab]");
+  function findBottomTab() {
+    // 複数候補から最初に見つかった要素を返す
+    return document.querySelector(".bottom-tab") ||
+           document.querySelector(".bottom_navbar") ||
+           document.getElementById("bottomTab") ||
+           document.querySelector("[data-bottom-tab]");
+  }
 
   function vh(){ return Math.max(window.innerHeight, document.documentElement.clientHeight); }
   function recalcViewHeights(){
+    const bottomEl = findBottomTab();
+    const bottomH = bottomEl ? bottomEl.getBoundingClientRect().height : 0;
+    document.documentElement.style.setProperty("--bottom-h", `${bottomH}px`);
+
     const topH    = (topbar?.getBoundingClientRect().height || 0);
     const ctrlH   = (controlsBox?.getBoundingClientRect().height || 0);
     const tabsH   = (tabs?.getBoundingClientRect().height || 0);
-    const bottomH = (bottom?.getBoundingClientRect().height || 0);
     const padding = 12;
+
     const rest = Math.max(120, vh() - (topH + ctrlH + tabsH + bottomH + padding));
     document.documentElement.style.setProperty("--view-h", `${rest}px`);
     $$(".view.active .scroll-area").forEach(el => { el.style.height = `${rest}px`; });
   }
+
+  // ボトムタブのサイズ変化も監視（表示/非表示・端末回転等）
+  const bottomObserver = new MutationObserver(recalcViewHeights);
+  const bottomElInit = findBottomTab();
+  if (bottomElInit) bottomObserver.observe(bottomElInit, {attributes:true, childList:true, subtree:true});
+
   window.addEventListener("load", recalcViewHeights);
   window.addEventListener("resize", recalcViewHeights);
   window.addEventListener("orientationchange", () => setTimeout(recalcViewHeights, 60));
@@ -145,8 +160,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  const searchInputEl = $("#searchInput");
-  searchInputEl?.addEventListener("input", filterTable);
+  searchInput?.addEventListener("input", filterTable);
   clearSearch?.addEventListener("click", ()=>{ searchInput.value=""; filterTable(); });
 
   /* ===== Sort ===== */
@@ -294,24 +308,24 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  /* ===== FAB scroll top ===== */
+  /* ===== FAB scroll top（アクティブビューのスクロール領域を監視） ===== */
+  function currentScrollArea(){ return document.querySelector(".view.active .scroll-area"); }
   function onScroll(){
-    const area = $(".view.active .scroll-area");
+    const area = currentScrollArea();
     if (!area) return;
     const show = area.scrollTop > 200;
     fab.classList.toggle("show", show);
   }
-  // スクロールはアクティブビューの領域を監視
-  const scrollAreaObserver = new MutationObserver(()=> {
-    const area = $(".view.active .scroll-area");
+  function bindScrollArea(){
+    const area = currentScrollArea();
     if (!area) return;
     area.removeEventListener("scroll", onScroll);
     area.addEventListener("scroll", onScroll, {passive:true});
-  });
-  scrollAreaObserver.observe(document.body, {subtree:true, childList:true, attributes:true});
+  }
+  bindScrollArea();
 
   fab.addEventListener("click", ()=>{
-    const area = $(".view.active .scroll-area");
+    const area = currentScrollArea();
     area?.scrollTo({top:0, behavior:"smooth"});
   });
 
@@ -323,13 +337,14 @@ document.addEventListener("DOMContentLoaded", () => {
       kpiToggle.setAttribute("aria-expanded", (!collapsed).toString());
       kpiToggle.querySelector(".kpi-caret").textContent = collapsed ? "▼" : "▲";
       setTimeout(recalcViewHeights, 0);
-      localStorage.setItem(PREF_COLLAPSE, collapsed ? "1" : "0");
     }
     const saved = localStorage.getItem(PREF_COLLAPSE);
-    setCollapsed(saved === null ? true : saved === "1");
+    if (saved === null){ setCollapsed(true); localStorage.setItem(PREF_COLLAPSE, "1"); }
+    else{ setCollapsed(saved === "1"); }
     kpiToggle.addEventListener("click", ()=>{
       const next = !controlsBox.classList.contains("collapsed");
       setCollapsed(next);
+      localStorage.setItem(PREF_COLLAPSE, next ? "1" : "0");
     });
   }
 
@@ -384,6 +399,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function buildInsights(){
     const visible = dataRows().filter(r => r.style.display !== "none");
     const mapMonth = new Map();
+    aconst = 1; // (noop to ensure file change; remove if undesired)
     const mapName  = new Map();
     const mapBroker= new Map();
 
@@ -479,7 +495,7 @@ document.addEventListener("DOMContentLoaded", () => {
       btn.classList.add("active");
       const v = btn.dataset.view;
       Object.keys(views).forEach(k=>views[k].classList.toggle("active", k===v));
-      setTimeout(recalcViewHeights, 0);
+      setTimeout(() => { recalcViewHeights(); bindScrollArea(); }, 0);
       if (v==="tiles")  buildTiles();
       if (v==="insights") buildInsights();
     });
@@ -489,5 +505,5 @@ document.addEventListener("DOMContentLoaded", () => {
   attachRowHandlers();
   filterTable();
   updateBars();
-  setTimeout(recalcViewHeights, 0);
+  setTimeout(() => { recalcViewHeights(); bindScrollArea(); }, 0);
 });
