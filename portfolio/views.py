@@ -1029,7 +1029,7 @@ def sell_stock_page(request, pk):
     stock = get_object_or_404(Stock, pk=pk)
     errors = []
 
-    # 現在値の補完（見た目用）
+    # 画面表示用の現在値補完
     current_price_for_view = float(stock.current_price or 0.0)
     if current_price_for_view <= 0:
         try:
@@ -1067,21 +1067,21 @@ def sell_stock_page(request, pk):
         if sell_date_str:
             try:
                 sell_date = datetime.date.fromisoformat(sell_date_str)  # type: ignore[attr-defined]
-                sold_at_naive = datetime.combine(sell_date, dt.time(15, 0, 0))  # dt はファイル上部の import に合わせてください
+                sold_at_naive = datetime.combine(sell_date, dt.time(15, 0, 0))
                 sold_at = timezone.make_aware(sold_at_naive, timezone.get_current_timezone())
             except Exception:
                 errors.append("売却日が不正です。YYYY-MM-DD 形式で指定してください。")
 
-        # 実際の損益額（空なら None。0 は「入力された0」として扱う）
-        actual_profit_raw = request.POST.get("actual_profit", None)
+        # 実際の損益額（空なら None。0 は有効値）
+        ap_raw = request.POST.get("actual_profit", None)
         actual_profit = None
-        if actual_profit_raw is not None and actual_profit_raw != "":
+        if ap_raw is not None and ap_raw != "":
             try:
-                actual_profit = float(actual_profit_raw)
+                actual_profit = float(ap_raw)
             except (TypeError, ValueError):
                 errors.append("実際の損益額は数値で入力してください。")
 
-        # バリデーション
+        # 売却方法/数量/価格の検証
         if mode not in ("market", "limit"):
             errors.append("売却方法が不正です。")
 
@@ -1102,7 +1102,15 @@ def sell_stock_page(request, pk):
         if not price or price <= 0:
             errors.append("売却価格が不正です。")
 
+        # ここでエラーなら入力値を保持して再描画
         if errors:
+            posted = {
+                "sell_mode": mode,
+                "shares": shares_to_sell,
+                "limit_price": request.POST.get("limit_price", ""),
+                "sell_date": sell_date_str,
+                "actual_profit": request.POST.get("actual_profit", ""),
+            }
             return render(
                 request,
                 "stocks/sell_stock_page.html",
@@ -1110,42 +1118,39 @@ def sell_stock_page(request, pk):
                     "stock": stock,
                     "errors": errors,
                     "current_price": current_price_for_view or 0.0,
+                    "posted": posted,
+                    "today_str": timezone.now().date().isoformat(),
                 },
             )
 
-        # === 計算 ===
+        # ==== 計算（最終）====
         unit_price = float(stock.unit_price or 0)               # 取得単価（/株）
         buy_amount = unit_price * shares_to_sell                # 取得額（合計）
         sell_amount = float(price) * shares_to_sell             # 売却額（合計）
 
-        # 損益：入力があればそれ、空なら 売却額 − 取得額（±どちらでもOK）
-        final_profit_amount = (
-            actual_profit if actual_profit is not None
-            else (sell_amount - buy_amount)
-        )
+        # 損益：入力あれば採用、空なら 売却額−取得額
+        final_profit_amount = actual_profit if actual_profit is not None else (sell_amount - buy_amount)
 
-        # 手数料：一意に決まる式（損益が＋でも−でも成立）
-        # fee = 売却額 − 取得額 − 損益
+        # 手数料：売却額 − 取得額 − 損益（損益±どちらでもOK）
         fee = sell_amount - buy_amount - final_profit_amount
 
-        # 利回り（％）
+        # 率
         profit_rate_val = None
-        denom = buy_amount  # = unit_price * shares_to_sell
-        if denom:
-            profit_rate_val = round((final_profit_amount / denom) * 100, 2)
+        if buy_amount:
+            profit_rate_val = round((final_profit_amount / buy_amount) * 100, 2)
 
-        # 付随情報
+        # メタ
         posted_code = (request.POST.get("code") or request.POST.get("ticker") or "").strip()
-        stock_code    = getattr(stock, "code", "") or ""
-        ticker_code   = extract_securities_code(getattr(stock, "ticker", "") or "")
-        final_code    = posted_code or stock_code or ticker_code or ""
+        stock_code  = getattr(stock, "code", "") or ""
+        ticker_code = extract_securities_code(getattr(stock, "ticker", "") or "")
+        final_code  = posted_code or stock_code or ticker_code or ""
 
         posted_broker = (request.POST.get("broker") or "").strip()
         posted_acct   = (request.POST.get("account_type") or "").strip()
         final_broker  = posted_broker or getattr(stock, "broker", "") or ""
         final_account = posted_acct   or getattr(stock, "account_type", "") or ""
 
-        # === 保存 ===
+        # 保存（0 も含め数値で保存）
         RealizedProfit.objects.create(
             user=request.user,
             date=sold_at.date(),
@@ -1157,12 +1162,12 @@ def sell_stock_page(request, pk):
             quantity=shares_to_sell,
             purchase_price=int(round(unit_price)) if unit_price else None,  # 単価
             sell_price=int(round(price)) if price else None,                # 単価
-            fee=int(round(fee)),                                            # ← 0 でも数値で保存
+            fee=int(round(fee)),
             profit_amount=int(round(final_profit_amount)),
             profit_rate=profit_rate_val,
         )
 
-        # 残数処理
+        # 残数更新
         remaining = int(stock.shares or 0) - shares_to_sell
         if remaining <= 0:
             stock.delete()
@@ -1181,6 +1186,8 @@ def sell_stock_page(request, pk):
             "stock": stock,
             "errors": errors,
             "current_price": current_price_for_view or 0.0,
+            "posted": {},  # 初回は空
+            "today_str": timezone.now().date().isoformat(),
         },
     )
 
