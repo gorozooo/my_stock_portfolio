@@ -23,7 +23,7 @@
     </div>
   </header>
 
-  <!-- コントロール（検索 / トグル / KPI） -->
+  <!-- コントロール（検索 / KPI） -->
   <section class="rp-controls" role="region" aria-label="絞り込みとKPI">
     <div class="topline">
       <div class="searchbox">
@@ -31,14 +31,7 @@
         <button id="clearSearch" class="icon-btn" aria-label="検索クリア">✖</button>
       </div>
 
-      <div class="seg-toggle" role="tablist" aria-label="表示切替">
-        <button class="seg-btn active" data-show="amount" role="tab" aria-selected="true" title="損益額で表示">
-          <span class="seg-ico">💰</span><span class="seg-label">損益額</span>
-        </button>
-        <button class="seg-btn" data-show="rate" role="tab" aria-selected="false" title="損益率で表示">
-          <span class="seg-ico">📈</span><span class="seg-label">損益率</span>
-        </button>
-      </div>
+      <!-- ※損益額/率のトグルは廃止 -->
 
       <button id="kpiToggle" class="kpi-toggle" aria-expanded="false" aria-controls="kpiBox">
         <span class="kpi-ico">📊</span><span class="kpi-txt">KPI</span><span class="kpi-caret">▼</span>
@@ -143,14 +136,13 @@
               <th scope="col" data-key="account">口座区分</th>
               <th scope="col" data-key="type">区分</th>
               <th scope="col" data-key="qty">株数</th>
-              <th scope="col" data-key="profit">損益額</th>
-              <th scope="col" data-key="rate">損益率</th>
+              <th scope="col" data-key="pnl">損益（額 / 率）</th>
             </tr>
           </thead>
           <tbody>
             {% for ym, trades in rows_by_ym.items %}
               {% with y=ym|slice:":4" m=ym|slice:"5:7" %}
-                <tr class="group-row"><td colspan="8">{{ y }}年 {{ m }}月</td></tr>
+                <tr class="group-row"><td colspan="7">{{ y }}年 {{ m }}月</td></tr>
               {% endwith %}
               {% for t in trades %}
                 <tr
@@ -168,36 +160,31 @@
                   data-fee="{{ t.fee|default_if_none:0|intcomma }}"
                 >
                   <td>{{ t.date|date:"Y-m-d" }}</td>
+
                   <td class="stock-name-cell">
                     <span class="name">{{ t.stock_name }}</span>
                     <span class="code">{{ t.code }}</span>
                   </td>
+
                   <td>{{ t.broker }}</td>
                   <td>{{ t.account_type }}</td>
                   <td class="trade-type-cell"><span>{% if t.trade_type == 'sell' %}売却{% elif t.trade_type == 'dividend' %}配当{% else %}{{ t.trade_type }}{% endif %}</span></td>
                   <td>{% if t.quantity is not None %}{{ t.quantity|intcomma }}{% else %}-{% endif %}</td>
 
-                  {% if t.profit_amount is not None and t.profit_amount < 0 %}
-                    <td class="profit-cell loss">
-                      <div class="pn">
-                        <span class="num">{{ t.profit_amount|intcomma }}</span>
-                        <span class="bar" data-pn="{{ t.profit_amount }}"></span>
+                  <!-- 損益（額＋バー＋率チップ）-->
+                  {% with _pn=t.profit_amount|default_if_none:0 %}
+                  <td class="pnl-cell {% if _pn < 0 %}loss{% else %}profit{% endif %}">
+                    <div class="pnl-wrap">
+                      <div class="amount">
+                        <span class="num">{% if t.profit_amount %}{% if t.profit_amount > 0 %}+{% endif %}{{ t.profit_amount|intcomma }}{% else %}0{% endif %}</span>
+                        <span class="bar" data-pn="{{ _pn }}"></span>
                       </div>
-                    </td>
-                  {% else %}
-                    <td class="profit-cell profit">
-                      <div class="pn">
-                        <span class="num">{% if t.profit_amount %}+{% endif %}{{ t.profit_amount|default_if_none:0|intcomma }}</span>
-                        <span class="bar" data-pn="{{ t.profit_amount|default_if_none:0 }}"></span>
-                      </div>
-                    </td>
-                  {% endif %}
-
-                  {% if t.profit_rate is not None and t.profit_rate < 0 %}
-                    <td class="rate-cell loss"><span class="chip num">{{ t.profit_rate }}%</span></td>
-                  {% else %}
-                    <td class="rate-cell profit"><span class="chip num">{% if t.profit_rate %}+{% endif %}{{ t.profit_rate|default_if_none:0 }}%</span></td>
-                  {% endif %}
+                      <span class="rate chip {% if t.profit_rate is not None and t.profit_rate < 0 %}loss{% else %}profit{% endif %}">
+                        {% if t.profit_rate %}{% if t.profit_rate > 0 %}+{% endif %}{{ t.profit_rate }}{% else %}0{% endif %}%
+                      </span>
+                    </div>
+                  </td>
+                  {% endwith %}
                 </tr>
               {% endfor %}
             {% empty %}{% endfor %}
