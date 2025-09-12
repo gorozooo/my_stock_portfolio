@@ -5,12 +5,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const toNum = (t)=> {
     if (t === null || t === undefined) return 0;
     const s = String(t).replace(/[^\-0-9.]/g,"");
-    if (s === "" || s === "-" || s === ".") return 0;
+    if (!s || s === "-" || s === ".") return 0;
     const v = parseFloat(s);
     return isNaN(v) ? 0 : v;
   };
   const fmt = (n)=> Math.round(n).toLocaleString();
   const pad2 = (n)=> n<10 ? "0"+n : ""+n;
+  const yen = (n)=> Math.round(n).toLocaleString('ja-JP');
 
   /* ===== Elements ===== */
   const yearFilter   = $("#yearFilter");
@@ -110,9 +111,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  /* ===== 手数料込み“ネット損益”に正規化 ===== */
+  /* ===== 損益の正規化（サーバ提供の損益を真とする） =====
+     - 表示金額(.num)は data-profit（サーバの実現損益）をそのまま使用
+     - 売却額/取得額は 単価×株数
+     - 手数料は (売却額 - 取得額 - 実現損益) の絶対値として逆算（常にコスト表示）
+  */
   function ensureNumSpan(row){
-    // num span が無ければ生成（必ず金額が出るように）
     const pnCell = row.querySelector(".pnl-cell");
     if (!pnCell) return null;
     let numSpan = pnCell.querySelector(".num");
@@ -130,50 +134,44 @@ document.addEventListener("DOMContentLoaded", () => {
     dataRows().forEach(row => {
       const pnCell = row.querySelector(".pnl-cell");
       const barEl  = pnCell?.querySelector(".bar");
-      const numSpan= ensureNumSpan(row); // ★ ここで必ず .num を確保
+      const numSpan= ensureNumSpan(row);
       if (!pnCell || !barEl || !numSpan) return;
 
       const qtyStr = row.dataset.quantity ?? "";
       const isDividend = (qtyStr === "" || qtyStr === null);
 
+      // サーバ損益（真値）
+      const serverPn = toNum(row.getAttribute("data-profit"));
+
+      // 金額（必ず出す）
+      numSpan.textContent = serverPn > 0 ? `+${fmt(serverPn)}` : fmt(serverPn);
+      pnCell.classList.remove("profit","loss");
+      pnCell.classList.add(serverPn < 0 ? "loss" : "profit");
+      barEl.dataset.pn = String(serverPn);
+
       if (isDividend) {
-        // 配当：サーバ値をそのまま表示
-        const serverPn = toNum(row.dataset.profit || "0");
-        numSpan.textContent = serverPn > 0 ? `+${fmt(serverPn)}` : fmt(serverPn);
-        pnCell.classList.toggle("profit", serverPn >= 0);
-        pnCell.classList.toggle("loss",   serverPn < 0);
-        barEl.dataset.pn = String(serverPn);
-        // 合計金額は不要
+        // 配当は売買金額が無いので逆算はしない
+        row.dataset._sell_amount_total = "0";
+        row.dataset._buy_amount_total  = "0";
+        row.dataset._fee_abs           = "0";
         return;
       }
 
-      // 単価×株数 → 売却額/取得額
       const qty  = toNum(row.dataset.quantity);
       const buy  = toNum(row.dataset.purchase);
       const sell = toNum(row.dataset.sell);
-      // 手数料：符号に依存せず必ず“コスト控除”扱い（絶対値で引く）
-      const feeRaw = toNum(row.dataset.fee);
-      const feeAbs = Math.abs(feeRaw);
 
       const buyAmt  = qty ? buy * qty : 0;
       const sellAmt = qty ? sell * qty : 0;
-      const net     = (sellAmt - buyAmt) - feeAbs; // ★ 絶対値で差し引く
 
-      // 金額（必ず出す）
-      numSpan.textContent = net > 0 ? `+${fmt(net)}` : fmt(net);
+      // 手数料逆算（常に正のコスト）
+      let feeAbs = Math.abs((sellAmt - buyAmt) - serverPn);
+      // あり得ない巨大値を弾く（100万円超はサニタイズ）
+      if (feeAbs > 1_000_000) feeAbs = 0;
 
-      // 色
-      pnCell.classList.remove("profit","loss");
-      pnCell.classList.add(net < 0 ? "loss" : "profit");
-
-      // データ属性更新（KPI/タイル/インサイトでも利用）
-      row.dataset.profit = net > 0 ? `+${fmt(net)}` : `${fmt(net)}`;
-      barEl.dataset.pn   = String(net);
-
-      // 合計金額（モーダル用）
       row.dataset._sell_amount_total = String(Math.round(sellAmt));
       row.dataset._buy_amount_total  = String(Math.round(buyAmt));
-      row.dataset._fee_abs           = String(Math.round(feeAbs)); // 表示用の絶対値も保持
+      row.dataset._fee_abs           = String(Math.round(feeAbs));
     });
   }
 
@@ -268,18 +266,16 @@ document.addEventListener("DOMContentLoaded", () => {
     visible.forEach(r=>{
       const bar = r.querySelector(".pnl-cell .bar");
       if (!bar) return;
+      const barW = Math.max(48, Math.min(110, bar.clientWidth || 72));
       const val = Math.abs(toNum(bar.dataset.pn || "0"));
       const pct = Math.min(100, Math.round((val / max) * 100));
       let fill = bar.firstElementChild;
       if (!fill){
         fill = document.createElement("span");
-        fill.style.position = "absolute";
-        fill.style.left = "0"; fill.style.top = "0"; fill.style.bottom = "0";
         bar.appendChild(fill);
       }
       fill.style.transition = 'width .25s ease';
-      fill.style.width = Math.max(8, Math.round(72 * pct / 100)) + "px";
-      fill.style.borderRadius = "999px";
+      fill.style.width = Math.max(6, Math.round(barW * pct / 100)) + "px";
       const numText = r.querySelector('.pnl-cell .num')?.innerText || "0";
       const isLoss = toNum(numText) < 0;
       fill.style.background = isLoss
@@ -302,8 +298,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const modalSellAmount = $("#modalSellAmount");
   const modalBuyAmount  = $("#modalBuyAmount");
 
-  const yen = (n)=> Math.round(n).toLocaleString('ja-JP');
-
   function openModalForRow(row){
     if (!modal) return;
     const name  = row.dataset.name || "";
@@ -313,11 +307,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const q     = toNum(row.dataset.quantity);
     const buy   = toNum(row.dataset.purchase);
     const sell  = toNum(row.dataset.sell);
-    const feeAbs= toNum(row.dataset._fee_abs || row.dataset.fee); // 絶対値優先
-    const prof  = toNum(row.dataset.profit); // 正規化済みネット
-
+    const prof  = toNum(row.getAttribute("data-profit")); // サーバ損益
     const buyAmt  = row.dataset._buy_amount_total  ? toNum(row.dataset._buy_amount_total)  : (q ? buy * q : 0);
     const sellAmt = row.dataset._sell_amount_total ? toNum(row.dataset._sell_amount_total) : (q ? sell * q : 0);
+    const feeAbs  = row.dataset._fee_abs ? toNum(row.dataset._fee_abs) : Math.abs((sellAmt - buyAmt) - prof);
 
     modalTitle.textContent     = title;
     modalPurchase.textContent  = buy ? yen(buy) : '-';
@@ -330,7 +323,6 @@ document.addEventListener("DOMContentLoaded", () => {
     modalProfit.classList.remove('profit','loss');
     modalProfit.classList.add(prof<0 ? 'loss' : 'profit');
 
-    // 手数料は常に正の金額表示（コスト）にする
     modalFee.textContent        = yen(Math.abs(feeAbs));
     modalSellAmount.textContent = sellAmt ? yen(sellAmt) : '-';
     modalBuyAmount.textContent  = buyAmt  ? yen(buyAmt)  : '-';
@@ -547,11 +539,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   /* ===== Init ===== */
-  // 1) まず .num を強制的に用意してから
-  dataRows().forEach(ensureNumSpan);
-  // 2) ネット損益に正規化（手数料は絶対値で差し引く）
-  normalizePnLRows();
-  // 3) 各種描画
+  dataRows().forEach(ensureNumSpan); // 必ず金額用 .num を用意
+  normalizePnLRows();                // サーバ損益を真として反映（手数料は逆算）
   attachRowHandlers();
   filterTable();
   updateBars();
