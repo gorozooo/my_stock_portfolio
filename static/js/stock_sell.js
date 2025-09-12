@@ -10,7 +10,7 @@
     return isNaN(v) ? 0 : v;
   };
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-  const yen = (n)=> Math.round(n).toLocaleString('ja-JP');
+  const yen = (n)=> Math.round(n).toLocaleString('ja-Jp');
 
   // Elements
   const form = $("#sell-form");
@@ -26,26 +26,28 @@
 
   const actualProfitInput = $("#actual-profit");
 
-  const estAmount = $("#est-amount");
-  const estPL     = $("#est-pl");
-  const estFee    = $("#est-fee");
+  // Review fields (刷新)
+  const rvBuy  = $("#rv-buy");
+  const rvSell = $("#rv-sell");
+  const rvPL   = $("#rv-pl");
+  const rvFee  = $("#rv-fee");
 
   const hiddenFee = $("#hidden-fee");
   const hiddenSellPrice = $("#hidden-sell-price");
 
-  // State
+  // Context
   const MAX = Number(ctx.shares) || 0;
   const unitPrice = Number(ctx.unit_price) || 0;
   const currentPrice = (ctx.current_price !== null && ctx.current_price !== undefined) ? Number(ctx.current_price) : null;
 
-  // Helpers
+  /* helpers */
   function activeMode(){
     const r = modeRadios.find(r=>r.checked);
     return r ? r.value : "market";
   }
   function currentSellPrice(){
     if (activeMode() === "market"){
-      return currentPrice; // 現在値がない場合は null
+      return currentPrice; // 市場価格（取得できない場合は null）
     }
     const lim = toNum(limitInput.value);
     return lim > 0 ? lim : null;
@@ -56,7 +58,7 @@
     err.textContent = msg || "";
   }
 
-  // UI events
+  /* UI events */
   qtyBtns.forEach(b=>{
     b.addEventListener("click", ()=>{
       const step = Number(b.dataset.step) || 0;
@@ -95,63 +97,83 @@
     ch.addEventListener("click", ()=>{
       const val = ch.dataset.limit;
       if (!val) return;
-      if (val === "現在値"){
-        if (currentPrice != null) limitInput.value = String(Math.round(currentPrice));
-      }else if (val.startsWith("+") || val.startsWith("-")){
+      if (!isNaN(Number(val))) {
+        limitInput.value = String(Math.max(0, Math.round(Number(val))));
+      } else if (val.startsWith("+") || val.startsWith("-")) {
         const d = Number(val);
         const base = toNum(limitInput.value) || (currentPrice != null ? currentPrice : 0);
         limitInput.value = String(Math.max(0, Math.round(base + d)));
-      }else{
-        limitInput.value = String(Math.max(0, Math.round(toNum(val))));
+      } else {
+        // "現在値" 想定
+        if (currentPrice != null) limitInput.value = String(Math.round(currentPrice));
       }
       compute();
     });
   });
-  limitInput.addEventListener("input", compute);
-  actualProfitInput.addEventListener("input", compute);
 
-  // Core compute
+  [limitInput, actualProfitInput].forEach(el=> el.addEventListener("input", compute));
+
+  /* ===== 新ルール計算 =====
+     取得額 = 売却株数 × 取得単価
+     売却額 = 入力した金額（市場価格 or 指値） × 売却株数
+     損益   = "実際の損益額" 入力があればその値、空なら 取得額 − 売却額
+     手数料 = 取得額 − 売却額 − 損益
+   */
   function compute(){
     showError("");
+
     const qty = toNum(sharesInput.value);
-    const sp  = currentSellPrice(); // may be null
+    const sp  = currentSellPrice();  // 単価
     const up  = unitPrice;
 
-    // 売却額
-    let sellAmt = null;
-    if (sp != null) sellAmt = qty * sp;
+    const buyAmount  = qty * up;               // 取得額（合計）
+    const sellAmount = (sp != null) ? qty * sp : null; // 売却額（合計）
 
-    // 概算損益（売買差額ベース）
-    let grossPL = null;
-    if (sp != null) grossPL = (sp - up) * qty;
+    // 損益
+    const apText = actualProfitInput.value.trim();
+    let profit;
+    if (apText !== "") {
+      profit = toNum(apText);
+    } else {
+      // 指示通り：空なら 取得額 − 売却額
+      if (sellAmount == null) {
+        profit = null; // 売却額が分からなければ損益は出さない
+      } else {
+        profit = buyAmount - sellAmount;
+      }
+    }
 
-    // 手数料（仕様通り：手数料 = 概算売却額 − 実際の損益額、未入力なら 0）
-    const ap = actualProfitInput.value.trim();
-    let fee = 0;
-    if (ap !== "" && sellAmt != null){
-      fee = sellAmt - toNum(ap);
-      // 手数料は負になり得ない前提（負なら0に丸め）
-      if (fee < 0) fee = 0;
+    // 手数料
+    let fee = null;
+    if (sellAmount != null && profit != null) {
+      fee = buyAmount - sellAmount - profit;
     }
 
     // 表示
-    estAmount.textContent = (sellAmt == null) ? "—" : `¥${yen(sellAmt)}`;
-    estPL.textContent     = (grossPL == null) ? "—" : `${grossPL>=0?"+":""}¥${yen(grossPL)}`;
-    estPL.classList.toggle("profit", grossPL!=null && grossPL>=0);
-    estPL.classList.toggle("loss",   grossPL!=null && grossPL<0);
-    estFee.textContent    = (ap !== "" && sellAmt != null) ? `¥${yen(fee)}` : "—";
+    rvBuy.textContent  = `¥${yen(buyAmount)}`;
+    rvSell.textContent = (sellAmount == null) ? "—" : `¥${yen(sellAmount)}`;
+    if (profit == null) {
+      rvPL.textContent = "—";
+      rvPL.classList.remove("profit","loss");
+    } else {
+      rvPL.textContent = `${profit>=0?"+":""}¥${yen(profit)}`;
+      rvPL.classList.toggle("profit", profit>=0);
+      rvPL.classList.toggle("loss", profit<0);
+    }
+    rvFee.textContent = (fee == null) ? "—" : `¥${yen(fee)}`;
 
-    // hidden
-    hiddenFee.value = String(Math.round(fee || 0));
+    // hidden送信値
+    // sell_price は「単価」を保存（合計が必要ならサーバ側で qty を掛け算）
     hiddenSellPrice.value = (sp != null) ? String(Math.round(sp)) : "";
+    hiddenFee.value = (fee == null) ? "" : String(Math.round(fee));
 
-    return {qty, sp, up, sellAmt, grossPL, fee};
+    return {qty, sp, up, buyAmount, sellAmount, profit, fee};
   }
 
-  // Validate on submit
-  form.addEventListener("submit", (e)=>{
+  /* submit validation */
+  const formValidate = (e)=>{
     const { sp } = compute();
-    const mode = activeMode();
+    const mode = (function(){ const r=modeRadios.find(r=>r.checked); return r? r.value : "market"; })();
 
     if (mode === "market" && (sp == null)){
       e.preventDefault();
@@ -166,15 +188,23 @@
         return;
       }
     }
-    // 数量
     const q = toNum(sharesInput.value);
-    if (q < 1 || q > MAX){
+    if (q < 1 || q > (Number(ctx.shares)||0)){
       e.preventDefault();
-      showError(`売却株数は 1〜${MAX.toLocaleString()} の範囲で指定してください。`);
+      showError(`売却株数は 1〜${(Number(ctx.shares)||0).toLocaleString()} の範囲で指定してください。`);
       return;
     }
-  });
+  };
 
-  // Init
+  form.addEventListener("submit", formValidate);
+
+  /* init */
   compute();
+
+  /* スクロール系：iOS等で最下部まで行けるように安全策 */
+  // 端末のソフトキーボード開閉で高さが変わっても計算し直し
+  window.addEventListener("resize", () => {
+    // ここではCSSのpaddingで対応済みなので表示再計算のみ
+    compute();
+  });
 })();
