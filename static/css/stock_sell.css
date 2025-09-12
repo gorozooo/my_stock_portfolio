@@ -5,16 +5,33 @@
   --pri:#6ee7ff; --acc:#b07cff; --ok:#1ed492; --ng:#ff5b6a;
   --shadow:0 12px 28px rgba(0,0,0,.35);
 }
-html,body{height:100%;margin:0;overflow:hidden;-webkit-text-size-adjust:100%;}
-body{color:var(--fg);background:
-  radial-gradient(1200px 600px at 80% -10%, rgba(0,255,255,.10), transparent),
-  radial-gradient(900px 500px at -10% 20%, rgba(170,0,255,.10), transparent),
-  #0b0f1a;
+
+/* ←← ここを変更：ページ全体スクロール可能に（最下部まで行ける） */
+html,body{
+  height:100%;
+  margin:0;
+  overflow:auto;              /* 以前の overflow:hidden を廃止 */
+  -webkit-text-size-adjust:100%;
+}
+
+body{
+  color:var(--fg);
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(0,255,255,.10), transparent),
+    radial-gradient(900px 500px at -10% 20%, rgba(170,0,255,.10), transparent),
+    #0b0f1a;
   font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Helvetica Neue", Arial;
 }
 
 /* ===== Layout ===== */
-.sell-page{display:flex;flex-direction:column;height:100dvh;gap:8px;padding:10px;}
+.sell-page{
+  display:flex;
+  flex-direction:column;
+  min-height:100dvh;          /* 高さは最小で画面いっぱい。足りなければ縦に伸びる */
+  gap:8px;
+  padding:10px 10px 96px;     /* ← 下部に大きめ余白。stickyの下までスクロール可 */
+}
+
 .sell-header{display:flex;align-items:center;gap:10px;}
 .back-link{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:10px;background:rgba(255,255,255,.12);color:#fff;text-decoration:none;border:1px solid rgba(255,255,255,.18);}
 .sell-title{display:flex;align-items:baseline;gap:8px;margin:0;}
@@ -51,17 +68,30 @@ body{color:var(--fg);background:
 .limit-wrap{display:flex;flex-direction:column;gap:8px;margin-top:6px;}
 .limit-hints{display:flex;gap:6px;flex-wrap:wrap;}
 
-/* Review */
+/* Review（行見やすく） */
 .review .row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px dashed rgba(255,255,255,.18);}
 .review .row:last-child{border-bottom:none;}
 .review .k{opacity:.85;}
 .review .v{font-variant-numeric:tabular-nums;font-weight:900;}
 
-/* Sticky Actions */
-.sticky-actions{position:sticky;bottom:0;display:flex;gap:8px;justify-content:space-between;padding-top:8px;background:linear-gradient(180deg, rgba(11,15,26,0), rgba(11,15,26,.85));backdrop-filter:blur(6px);}
+/* Sticky Actions（重なってもスクロール可能に） */
+.sticky-actions{
+  position:sticky;
+  bottom:0;
+  display:flex;
+  gap:8px;
+  justify-content:space-between;
+  padding-top:8px;
+  background:linear-gradient(180deg, rgba(11,15,26,0), rgba(11,15,26,.9));
+  backdrop-filter:blur(6px);
+  z-index:10;
+}
 .btn{flex:1;display:inline-flex;align-items:center;justify-content:center;height:48px;border:none;border-radius:12px;color:#fff;text-decoration:none;font-weight:900;}
 .btn.secondary{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);}
 .btn.danger{background:linear-gradient(135deg, rgba(255,90,106,.85), rgba(176,124,255,.85));}
+
+/* 最下部までの余白用 */
+.page-end-spacer{height:28px;} /* ← これでボタンの下までちゃんと到達できます */
 
 /* Responsive */
 @media (min-width:640px){
