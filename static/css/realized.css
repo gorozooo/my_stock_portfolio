@@ -164,10 +164,31 @@ body{
 #realizedTable th:nth-child(7), #realizedTable td:nth-child(7){ width: 9.2em; }
 #realizedTable th:nth-child(8), #realizedTable td:nth-child(8){ width: 7.0em; }
 
-/* 銘柄セル：コードを薄く */
-.stock-name-cell{ display:flex; flex-direction:column; gap:2px; }
-.stock-name-cell .name{ font-weight:800; }
-.stock-name-cell .code{ opacity:.66; font-size:.78rem; }
+/* ===== 銘柄セル：横並び・1行キープ（Safari対応） ===== */
+/* セル自体でオーバーフローを隠す：ellipsisが確実に効く */
+#realizedTable td:nth-child(2){ overflow: hidden; }
+
+.stock-name-cell{
+  display:flex !important;
+  flex-direction:row !important;
+  align-items:center;
+  gap:6px;
+  white-space:nowrap;   /* 基本は1行表示 */
+  min-width:0;          /* 省略記号を効かせるための肝 */
+}
+.stock-name-cell .name{
+  flex:1 1 auto;
+  min-width:0;          /* ←超重要（Safariでellipsisを効かせる） */
+  overflow:hidden;
+  text-overflow:ellipsis;
+  font-weight:800;
+}
+.stock-name-cell .code{
+  flex:0 0 auto;        /* コードは折り返さない */
+  opacity:.66;
+  font-size:.82rem;
+  white-space:nowrap;
+}
 
 /* 損益の可視化（バー＋色） */
 .profit-cell .pn{ display:flex; align-items:center; gap:6px; justify-content:center; }
