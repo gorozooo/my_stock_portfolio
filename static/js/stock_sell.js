@@ -1,142 +1,180 @@
-// ==========================
-// 売却ページJS（スマホ優先）
-// ==========================
-(() => {
+(function(){
   const ctx = window.__SELL_CTX__ || {};
-  const form = document.getElementById('sell-form');
-  if (!form) return;
+  const $  = (s, r=document)=> r.querySelector(s);
+  const $$ = (s, r=document)=> Array.from(r.querySelectorAll(s));
+  const toNum = (t) => {
+    if (t === null || t === undefined) return 0;
+    const s = String(t).replace(/[^\-0-9.]/g,"");
+    if (!s || s === "-" || s === ".") return 0;
+    const v = parseFloat(s);
+    return isNaN(v) ? 0 : v;
+  };
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const yen = (n)=> Math.round(n).toLocaleString('ja-JP');
 
-  const errorsEl = document.getElementById('sell-errors');
-  const sharesEl = document.getElementById('sell-shares');
-  const modeRadios = Array.from(form.querySelectorAll('input[name="sell_mode"]'));
-  const limitWrap = document.getElementById('limit-wrap');
-  const limitInput = document.getElementById('limit-price');
+  // Elements
+  const form = $("#sell-form");
+  const err  = $("#sell-errors");
+  const sharesInput = $("#sell-shares");
+  const qtyBtns = $$(".qty-btn");
+  const fillChips = $$(".qty-helpers .chip");
 
-  const estAmountEl = document.getElementById('est-amount');
-  const estPlEl = document.getElementById('est-pl');
+  const modeRadios = $$("input[name='sell_mode']");
+  const limitWrap  = $("#limit-wrap");
+  const limitInput = $("#limit-price");
+  const limitChips = $$(".limit-hints .chip");
 
-  const totalOwned = Number(ctx.shares || 0);
-  const unit = Number(ctx.unit_price || 0);
-  const current = ctx.current_price == null ? null : Number(ctx.current_price);
+  const actualProfitInput = $("#actual-profit");
 
-  // --- helper ---
-  const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+  const estAmount = $("#est-amount");
+  const estPL     = $("#est-pl");
+  const estFee    = $("#est-fee");
 
-  const showErrors = (msgs) => {
-    if (!errorsEl) return;
-    if (!msgs || !msgs.length) {
-      errorsEl.hidden = true;
-      errorsEl.innerHTML = '';
-      return;
+  const hiddenFee = $("#hidden-fee");
+  const hiddenSellPrice = $("#hidden-sell-price");
+
+  // State
+  const MAX = Number(ctx.shares) || 0;
+  const unitPrice = Number(ctx.unit_price) || 0;
+  const currentPrice = (ctx.current_price !== null && ctx.current_price !== undefined) ? Number(ctx.current_price) : null;
+
+  // Helpers
+  function activeMode(){
+    const r = modeRadios.find(r=>r.checked);
+    return r ? r.value : "market";
+  }
+  function currentSellPrice(){
+    if (activeMode() === "market"){
+      return currentPrice; // 現在値がない場合は null
     }
-    errorsEl.hidden = false;
-    errorsEl.innerHTML = msgs.map(m => `<div>• ${m}</div>`).join('');
-  };
+    const lim = toNum(limitInput.value);
+    return lim > 0 ? lim : null;
+  }
+  function showError(msg){
+    if (!err) return;
+    err.hidden = !msg;
+    err.textContent = msg || "";
+  }
 
-  const activeMode = () => {
-    const r = modeRadios.find(r => r.checked);
-    return r ? r.value : 'market';
-  };
+  // UI events
+  qtyBtns.forEach(b=>{
+    b.addEventListener("click", ()=>{
+      const step = Number(b.dataset.step) || 0;
+      let v = toNum(sharesInput.value) + step;
+      v = clamp(v, 1, MAX);
+      sharesInput.value = String(v);
+      compute();
+    });
+  });
+  fillChips.forEach(c=>{
+    c.addEventListener("click", ()=>{
+      const pct = Number(c.dataset.fill);
+      let v = Math.floor(MAX * pct / 100);
+      v = clamp(v, 1, MAX);
+      sharesInput.value = String(v);
+      compute();
+    });
+  });
+  sharesInput.addEventListener("input", ()=>{
+    let v = Math.floor(toNum(sharesInput.value));
+    if (!v || v < 1) v = 1;
+    if (v > MAX) v = MAX;
+    sharesInput.value = String(v);
+    compute();
+  });
 
-  const getQty = () => clamp(Number(sharesEl.value || 0), 1, totalOwned);
-
-  const getPrice = () => {
-    if (activeMode() === 'market') {
-      return current ?? unit; // 現在値が無ければ取得単価ベース
-    }
-    return Number(limitInput.value || 0);
-  };
-
-  const formatJPY = (n) => isFinite(n) ? '¥' + Math.round(n).toLocaleString() : '—';
-
-  const recompute = () => {
-    const qty = getQty();
-    sharesEl.value = qty;
-
-    // 指値欄の表示
-    if (activeMode() === 'limit') {
-      limitWrap.hidden = false;
-    } else {
-      limitWrap.hidden = true;
-    }
-
-    // 見積もり
-    const price = getPrice();
-    const estAmount = qty * price;
-    const cost = qty * unit;
-    const pl = estAmount - cost;
-
-    estAmountEl.textContent = formatJPY(estAmount);
-    estPlEl.textContent = (isFinite(pl) ? (pl >= 0 ? '+' : '') : '') + formatJPY(pl).replace('¥', '');
-    estPlEl.classList.toggle('pos', isFinite(pl) && pl >= 0);
-    estPlEl.classList.toggle('neg', isFinite(pl) && pl < 0);
-  };
-
-  // 初期化
-  recompute();
-
-  // 数量ボタン
-  form.querySelectorAll('.qty-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const step = Number(btn.dataset.step || 0);
-      sharesEl.value = clamp(Number(sharesEl.value || 0) + step, 1, totalOwned);
-      recompute();
+  modeRadios.forEach(r=>{
+    r.addEventListener("change", ()=>{
+      const isLimit = (r.value === "limit" && r.checked);
+      limitWrap.hidden = !isLimit;
+      compute();
     });
   });
 
-  // パーセンテージ／ALL
-  form.querySelectorAll('.qty-helpers .chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const pct = Number(chip.dataset.fill || 0);
-      if (!pct) return;
-      const v = Math.max(1, Math.floor(totalOwned * pct / 100));
-      sharesEl.value = clamp(v, 1, totalOwned);
-      recompute();
-    });
-  });
-
-  sharesEl.addEventListener('input', recompute);
-
-  // 売却方法切替
-  modeRadios.forEach(r => r.addEventListener('change', recompute));
-
-  // 指値チップ
-  form.querySelectorAll('.limit-hints .chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const val = chip.dataset.limit;
+  limitChips.forEach(ch=>{
+    ch.addEventListener("click", ()=>{
+      const val = ch.dataset.limit;
       if (!val) return;
-      if (val === '+5' || val === '+10' || val === '-5' || val === '-10') {
-        const delta = Number(val);
-        const base = (current ?? unit);
-        limitInput.value = Math.max(0, Math.round(base + delta));
-      } else {
-        limitInput.value = Math.max(0, Math.round(Number(val)));
+      if (val === "現在値"){
+        if (currentPrice != null) limitInput.value = String(Math.round(currentPrice));
+      }else if (val.startsWith("+") || val.startsWith("-")){
+        const d = Number(val);
+        const base = toNum(limitInput.value) || (currentPrice != null ? currentPrice : 0);
+        limitInput.value = String(Math.max(0, Math.round(base + d)));
+      }else{
+        limitInput.value = String(Math.max(0, Math.round(toNum(val))));
       }
-      recompute();
+      compute();
     });
   });
+  limitInput.addEventListener("input", compute);
+  actualProfitInput.addEventListener("input", compute);
 
-  limitInput.addEventListener('input', recompute);
+  // Core compute
+  function compute(){
+    showError("");
+    const qty = toNum(sharesInput.value);
+    const sp  = currentSellPrice(); // may be null
+    const up  = unitPrice;
 
-  // 送信バリデーション（簡易）
-  form.addEventListener('submit', (e) => {
-    const errs = [];
-    const qty = getQty();
+    // 売却額
+    let sellAmt = null;
+    if (sp != null) sellAmt = qty * sp;
 
-    if (!qty || qty < 1) errs.push('売却株数を1以上で指定してください。');
-    if (qty > totalOwned) errs.push('保有株数を超えています。');
+    // 概算損益（売買差額ベース）
+    let grossPL = null;
+    if (sp != null) grossPL = (sp - up) * qty;
 
-    if (activeMode() === 'limit') {
-      const lp = Number(limitInput.value || 0);
-      if (!lp || lp <= 0) errs.push('指値価格を入力してください。');
+    // 手数料（仕様通り：手数料 = 概算売却額 − 実際の損益額、未入力なら 0）
+    const ap = actualProfitInput.value.trim();
+    let fee = 0;
+    if (ap !== "" && sellAmt != null){
+      fee = sellAmt - toNum(ap);
+      // 手数料は負になり得ない前提（負なら0に丸め）
+      if (fee < 0) fee = 0;
     }
 
-    if (errs.length) {
+    // 表示
+    estAmount.textContent = (sellAmt == null) ? "—" : `¥${yen(sellAmt)}`;
+    estPL.textContent     = (grossPL == null) ? "—" : `${grossPL>=0?"+":""}¥${yen(grossPL)}`;
+    estPL.classList.toggle("profit", grossPL!=null && grossPL>=0);
+    estPL.classList.toggle("loss",   grossPL!=null && grossPL<0);
+    estFee.textContent    = (ap !== "" && sellAmt != null) ? `¥${yen(fee)}` : "—";
+
+    // hidden
+    hiddenFee.value = String(Math.round(fee || 0));
+    hiddenSellPrice.value = (sp != null) ? String(Math.round(sp)) : "";
+
+    return {qty, sp, up, sellAmt, grossPL, fee};
+  }
+
+  // Validate on submit
+  form.addEventListener("submit", (e)=>{
+    const { sp } = compute();
+    const mode = activeMode();
+
+    if (mode === "market" && (sp == null)){
       e.preventDefault();
-      showErrors(errs);
+      showError("現在値を取得できないため、市場価格での売却が行えません。指値に切り替えて価格を入力してください。");
       return;
     }
-
-    showErrors([]);
+    if (mode === "limit"){
+      const v = toNum(limitInput.value);
+      if (v <= 0){
+        e.preventDefault();
+        showError("指値価格を入力してください。");
+        return;
+      }
+    }
+    // 数量
+    const q = toNum(sharesInput.value);
+    if (q < 1 || q > MAX){
+      e.preventDefault();
+      showError(`売却株数は 1〜${MAX.toLocaleString()} の範囲で指定してください。`);
+      return;
+    }
   });
+
+  // Init
+  compute();
 })();
