@@ -3,43 +3,68 @@
 {% load humanize %}
 
 {% block content %}
-<div class="realized-page">
+<div class="realized-page theme-dark">
 
-  <!-- 固定トップ：KPI / クイック / トグル / 年月 -->
+  <!-- アンビエント背景（派手目・軽量） -->
+  <div class="ambient">
+    <span class="blob b1"></span>
+    <span class="blob b2"></span>
+    <span class="blob b3"></span>
+  </div>
+
+  <!-- ツールバー -->
+  <header class="topbar" role="banner">
+    <div class="brand">
+      <span class="logo">⛵</span>
+      <span class="title">Realized P&L</span>
+    </div>
+    <div class="actions">
+      <button id="themeToggle" class="icon-btn" aria-label="テーマ切替">🌗</button>
+      <button id="densityToggle" class="icon-btn" aria-label="表示密度切替">↕️</button>
+    </div>
+  </header>
+
+  <!-- 固定トップ：KPI / 検索 / クイック / トグル / 年月 -->
   <section class="top-fixed" role="region" aria-label="絞り込みとサマリー">
-    <!-- KPIトグル：右上（初期は「隠す」状態の表記だが、初期はcollapsed=trueで隠します） -->
-    <button id="kpiToggle" class="kpi-toggle" aria-expanded="false" aria-controls="kpiBox">KPIを表示</button>
+    <!-- KPIトグル -->
+    <div class="topline">
+      <div class="searchbox">
+        <input id="searchInput" type="search" placeholder="銘柄 / コード / 証券会社で検索" aria-label="テーブル検索">
+        <button id="clearSearch" class="icon-btn" aria-label="検索クリア">✖</button>
+      </div>
+      <button id="kpiToggle" class="kpi-toggle" aria-expanded="false" aria-controls="kpiBox">KPIを表示</button>
+    </div>
 
-    <!-- KPIボックス（手動/自動で収納・展開） -->
+    <!-- KPIボックス（折りたたみ） -->
     <div id="kpiBox" class="kpi-box">
-      <!-- KPI：3段 -->
-      <div class="kpi-row kpi-row1">
+      <div class="kpi-deck">
+        <!-- KPIリング（勝率） -->
+        <div class="kpi-card ring">
+          <div class="ring-wrap">
+            <svg viewBox="0 0 36 36" class="circular">
+              <path class="bg" d="M18 2a16 16 0 1 1 0 32 16 16 0 1 1 0-32"/>
+              <path id="winArc" class="fg" stroke-dasharray="0,100" d="M18 2a16 16 0 1 1 0 32 16 16 0 1 1 0-32"/>
+            </svg>
+            <div class="ring-val"><span id="winRate">--%</span><small>勝率</small></div>
+          </div>
+        </div>
+        <!-- KPIカード -->
         <div class="kpi-card">
           <div class="kpi-header"><span class="kpi-icon">📄</span><span class="kpi-label">件数</span></div>
           <div class="kpi-value" id="sumCount">--</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">🥇</span><span class="kpi-label">勝率</span></div>
-          <div class="kpi-value" id="winRate">--%</div>
-        </div>
-        <div class="kpi-card">
           <div class="kpi-header"><span class="kpi-icon">💰</span><span class="kpi-label">実現損益</span></div>
           <div class="kpi-value" id="netProfit">--</div>
         </div>
-      </div>
-
-      <div class="kpi-row kpi-row2">
         <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">⬆️</span><span class="kpi-label">利益金額合計</span></div>
+          <div class="kpi-header"><span class="kpi-icon">⬆️</span><span class="kpi-label">利益合計</span></div>
           <div class="kpi-value profit" id="totalProfit">--</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">⬇️</span><span class="kpi-label">損失金額合計</span></div>
+          <div class="kpi-header"><span class="kpi-icon">⬇️</span><span class="kpi-label">損失合計</span></div>
           <div class="kpi-value loss" id="totalLoss">--</div>
         </div>
-      </div>
-
-      <div class="kpi-row kpi-row3">
         <div class="kpi-card">
           <div class="kpi-header"><span class="kpi-icon">📊</span><span class="kpi-label">平均損益</span></div>
           <div class="kpi-value" id="avgNet">--</div>
@@ -53,7 +78,7 @@
           <div class="kpi-value loss" id="avgLossOnly">--</div>
         </div>
       </div>
-    </div><!-- /kpi-box -->
+    </div>
 
     <!-- クイック期間 -->
     <div class="quick-chips chips-compact">
@@ -90,7 +115,7 @@
 
   <p id="emptyState" class="empty-state" style="display:none;">該当データがありません</p>
 
-  <!-- 表だけ縦スクロール（横も可） -->
+  <!-- 表だけ縦スクロール -->
   <section class="table-wrapper" id="tableWrapper" aria-label="損益一覧スクロール領域">
     <table id="realizedTable" aria-label="損益一覧">
       <thead>
@@ -152,9 +177,9 @@
               {% endif %}
 
               {% if t.profit_rate is not None and t.profit_rate < 0 %}
-                <td class="rate-cell loss"><span class="num">{{ t.profit_rate }}%</span></td>
+                <td class="rate-cell loss"><span class="chip num">{{ t.profit_rate }}%</span></td>
               {% else %}
-                <td class="rate-cell profit"><span class="num">{% if t.profit_rate %}+{% endif %}{{ t.profit_rate|default_if_none:0 }}%</span></td>
+                <td class="rate-cell profit"><span class="chip num">{% if t.profit_rate %}+{% endif %}{{ t.profit_rate|default_if_none:0 }}%</span></td>
               {% endif %}
             </tr>
           {% endfor %}
