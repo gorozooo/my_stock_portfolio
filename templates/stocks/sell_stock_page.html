@@ -200,5 +200,113 @@
       if (limitWrap) limitWrap.hidden = false;
     }
   });
+(function(){
+  // 文字列→数値 正規化（全角→半角、カンマ削除、全角マイナス対応）
+  function normalizeNumericString(s){
+    if (typeof s !== 'string') return '';
+    // 全角英数記号→半角
+    s = s.replace(/[！-～]/g, function(ch){ return String.fromCharCode(ch.charCodeAt(0)-0xFEE0); });
+    // 全角ハイフン/マイナスや長音などを半角マイナスへ
+    s = s.replace(/[－ー―−‒–—]/g, '-');
+    // カンマ削除、全角ピリオド→半角
+    s = s.replace(/,/g,'').replace(/。/g,'.').replace(/．/g,'.');
+    // 先頭以外のマイナスは除去（例: "12-3" → "123"）
+    s = s.replace(/(?!^)-/g,'');
+    // ドットは最初の1個だけ許容
+    const firstDot = s.indexOf('.');
+    if (firstDot !== -1) {
+      s = s.slice(0, firstDot + 1) + s.slice(firstDot + 1).replace(/\./g, '');
+    }
+    return s;
+  }
+
+  // カーソル位置に文字を挿入
+  function insertAtCursor(input, text){
+    const start = input.selectionStart ?? input.value.length;
+    const end   = input.selectionEnd ?? input.value.length;
+    const before = input.value.slice(0, start);
+    const after  = input.value.slice(end);
+    input.value = before + text + after;
+    const pos = start + text.length;
+    input.setSelectionRange(pos, pos);
+    input.dispatchEvent(new Event('input', {bubbles:true}));
+  }
+
+  // ±トグル
+  function toggleSign(input){
+    let v = input.value || '';
+    v = normalizeNumericString(v);
+    if (!v) { input.value = '-'; input.setSelectionRange(1,1); return; }
+    if (v.startsWith('-')) v = v.slice(1);
+    else v = '-' + v;
+    input.value = v;
+    input.dispatchEvent(new Event('input', {bubbles:true}));
+  }
+
+  // C クリア
+  function clearAll(input){
+    input.value = '';
+    input.dispatchEvent(new Event('input', {bubbles:true}));
+  }
+
+  // .（小数点）を一つだけ
+  function insertDot(input){
+    let v = normalizeNumericString(input.value || '');
+    if (v.includes('.')) return;
+    insertAtCursor(input, '.');
+  }
+
+  // −（マイナス）を先頭に1回
+  function insertMinus(input){
+    let v = normalizeNumericString(input.value || '');
+    if (v.startsWith('-')) return;
+    // 先頭に挿入
+    input.focus();
+    input.setSelectionRange(0,0);
+    insertAtCursor(input, '-');
+  }
+
+  // すべての .softpad を初期化
+  document.querySelectorAll('.softpad').forEach(pad=>{
+    const targetSel = pad.getAttribute('data-target');
+    const input = document.querySelector(targetSel);
+    if (!input) return;
+
+    pad.addEventListener('click', (e)=>{
+      const btn = e.target.closest('.sp-key');
+      if (!btn) return;
+      if (btn.classList.contains('sp-minus'))  insertMinus(input);
+      else if (btn.classList.contains('sp-dot')) insertDot(input);
+      else if (btn.classList.contains('sp-toggle')) toggleSign(input);
+      else if (btn.classList.contains('sp-clear'))  clearAll(input);
+      input.focus();
+    });
+
+    // 入力時に都度正規化（全角/カンマ等）
+    input.addEventListener('input', ()=>{
+      const pos = input.selectionStart;
+      const before = input.value;
+      const normalized = normalizeNumericString(before);
+      if (before !== normalized){
+        input.value = normalized;
+        // ざっくりカーソル維持
+        const newPos = Math.min(normalized.length, pos ?? normalized.length);
+        input.setSelectionRange(newPos, newPos);
+      }
+    });
+  });
+
+  // 送信直前に hidden 値へも正規化して反映（既に stock_sell.js があればそこで拾ってOK）
+  const form = document.getElementById('sell-form');
+  if (form){
+    form.addEventListener('submit', ()=>{
+      ['#actual-profit','#limit-price'].forEach(sel=>{
+        const el = document.querySelector(sel);
+        if (!el) return;
+        el.value = normalizeNumericString(el.value || '');
+      });
+    });
+  }
+})();
 </script>
 {% endblock %}
