@@ -1,11 +1,10 @@
-/* ========== 基本 ========== */
+/* ================== ベース ================== */
 html, body{
   height:100%;
-  overflow:hidden;          /* ページ固定 */
+  overflow:hidden;          /* ページ固定：表だけ縦スクロール */
   overscroll-behavior:none;
   -webkit-text-size-adjust:100%;
 }
-
 :root{
   --top-h: 0px;
   --bottom-h: 0px;
@@ -18,36 +17,62 @@ html, body{
   --ok: #26d07c;
   --ng: #ff5b6a;
 }
-
 *{ box-sizing:border-box; }
-body{ margin:0; color:var(--fg); background: radial-gradient(1200px 600px at 80% -10%, rgba(0,255,255,.10), transparent), radial-gradient(900px 500px at -10% 20%, rgba(170,0,255,.10), transparent), linear-gradient(180deg, #0b0f1a 0%, #0b0f1a 100%); font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Helvetica Neue", Arial; }
+body{
+  margin:0; color:var(--fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Helvetica Neue", Arial;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(0,255,255,.10), transparent),
+    radial-gradient(900px 500px at -10% 20%, rgba(170,0,255,.10), transparent),
+    linear-gradient(180deg, #0b0f1a 0%, #0b0f1a 100%);
+}
 
+/* ================== レイアウト ================== */
 .realized-page{
   height:100svh; height:100dvh;
   display:flex; flex-direction:column; gap:6px;
   padding:8px 8px 12px;
 }
 
-/* ========== Top固定 ========== */
+/* 固定トップ（KPI/フィルタ/トグル） */
 .top-fixed{
+  position: relative;
   flex:0 0 auto;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box, linear-gradient(135deg, rgba(0,255,255,.28), rgba(170,0,255,.24)) border-box;
-  border:1px solid transparent; border-radius:12px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box,
+    linear-gradient(135deg, rgba(0,255,255,.28), rgba(170,0,255,.24)) border-box;
+  border:1px solid transparent;
+  border-radius:12px;
   padding:8px;
   box-shadow: 0 10px 28px rgba(0,0,0,.28), inset 0 0 20px rgba(255,255,255,.05);
 }
 
-/* KPI */
+/* KPIトグルボタン */
+.kpi-toggle{
+  position:absolute; right:10px; top:10px;
+  padding:6px 10px; border:none; border-radius:10px;
+  font-weight:700; color:#fff; cursor:pointer;
+  background: linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22));
+  box-shadow: 0 6px 16px rgba(0,0,0,.25), inset 0 0 0 1px rgba(255,255,255,.18);
+}
+
+/* 折りたたみ＆スリム */
+.top-fixed.collapsed .kpi-box{ display:none; }
+.top-fixed.collapsed{ padding-top:44px; }
+.top-fixed.slim{ padding:6px; backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+
+/* KPIカード */
 .kpi-row{ display:grid; gap:6px; margin-bottom:4px; }
 .kpi-row1{ grid-template-columns: repeat(3, 1fr); }
 .kpi-row2{ grid-template-columns: repeat(2, 1fr); }
 .kpi-row3{ grid-template-columns: repeat(3, 1fr); }
-
 .kpi-card{
   padding:6px 8px; border-radius:12px;
-  background: linear-gradient(135deg, rgba(255,255,255,.09), rgba(255,255,255,.03)) padding-box, linear-gradient(135deg, rgba(0,255,255,.35), rgba(170,0,255,.28)) border-box;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.09), rgba(255,255,255,.03)) padding-box,
+    linear-gradient(135deg, rgba(0,255,255,.35), rgba(170,0,255,.28)) border-box;
   border:1px solid transparent;
   box-shadow: 0 6px 18px rgba(0,0,0,.22), inset 0 0 22px rgba(255,255,255,.06);
 }
@@ -73,7 +98,8 @@ body{ margin:0; color:var(--fg); background: radial-gradient(1200px 600px at 80%
 
 /* セグメントトグル（損益額/率） */
 .seg-toggle{
-  display:flex; background:rgba(255,255,255,.10); border-radius:12px; padding:4px; gap:4px; margin-bottom:6px;
+  display:flex; background:rgba(255,255,255,.10);
+  border-radius:12px; padding:4px; gap:4px; margin-bottom:6px;
 }
 .seg-btn{
   flex:1; border:none; border-radius:9px; padding:8px 10px; color:#fff; background:transparent; font-weight:700;
@@ -91,8 +117,7 @@ body{ margin:0; color:var(--fg); background: radial-gradient(1200px 600px at 80%
   font-size: .95rem; appearance: none; text-align: center;
 }
 
-/* ========== 表 ==========
-   8列：スマホ視認性を上げるため可視化を追加 */
+/* ================== 表 ================== */
 .table-wrapper{
   flex:0 0 auto;
   height: calc(100dvh - var(--top-h) - var(--bottom-h) - 12px);
@@ -101,7 +126,6 @@ body{ margin:0; color:var(--fg); background: radial-gradient(1200px 600px at 80%
   border-radius:12px; background: var(--glass);
   overscroll-behavior:contain; position:relative;
 }
-
 #realizedTable{
   width:100%; min-width: 920px;
   border-collapse: collapse; table-layout: fixed;
@@ -122,10 +146,9 @@ body{ margin:0; color:var(--fg); background: radial-gradient(1200px 600px at 80%
   content:'›'; position:absolute; right:8px; top:50%; transform:translateY(-50%);
   opacity:.6; font-size:18px; pointer-events:none;
 }
-
 /* 月グループ行（sticky） */
 .group-row td{
-  position: sticky; top: 42px; z-index:1; /* ヘッダーの直下 */
+  position: sticky; top: 42px; z-index:1;
   background: rgba(255,255,255,.14);
   font-weight:900; text-align:left; letter-spacing:.02em;
   box-shadow: 0 1px 0 rgba(255,255,255,.22) inset;
@@ -146,7 +169,7 @@ body{ margin:0; color:var(--fg); background: radial-gradient(1200px 600px at 80%
 .stock-name-cell .name{ font-weight:800; }
 .stock-name-cell .code{ opacity:.66; font-size:.78rem; }
 
-/* 損益の可視化（バー＋ヒート） */
+/* 損益の可視化（バー＋色） */
 .profit-cell .pn{ display:flex; align-items:center; gap:6px; justify-content:center; }
 .profit-cell .num{ min-width: 5.5em; display:inline-block; text-align:right; font-variant-numeric:tabular-nums; }
 .profit-cell .bar{
@@ -154,25 +177,19 @@ body{ margin:0; color:var(--fg); background: radial-gradient(1200px 600px at 80%
   background:linear-gradient(90deg, rgba(255,255,255,.22), rgba(255,255,255,.08));
   position:relative; overflow:hidden;
 }
-.profit-cell .bar::before{
-  content:""; position:absolute; left:50%; top:0; bottom:0; width:0%;
-  transform-origin:left center; transition:width .25s ease;
-  background: linear-gradient(90deg, rgba(255,0,90,.85), rgba(255,180,0,.85), rgba(0,220,130,.9));
-  filter: saturate(1.1);
-}
 .profit-cell.loss .bar::before{ background: linear-gradient(90deg, rgba(255,80,100,.95), rgba(255,120,120,.85)); }
 .profit-cell.profit .bar::before{ background: linear-gradient(90deg, rgba(0,220,130,.95), rgba(0,255,210,.85)); }
 
 /* 損益率セル */
 .rate-cell .num{ font-variant-numeric:tabular-nums; font-weight:800; }
 
-/* 非表示制御（トグル用） */
+/* トグル用 */
 .col-hide{ display:none !important; }
 
 /* 空状態 */
 .empty-state{ opacity:.9; text-align:center; margin-top:10px; }
 
-/* ========== モーダル ========== */
+/* ================== モーダル ================== */
 .modal{
   display:none; position:fixed; inset:0; z-index:100;
   background-color: rgba(0,0,0,0.6);
@@ -183,7 +200,9 @@ body{ margin:0; color:var(--fg); background: radial-gradient(1200px 600px at 80%
 .modal-content{
   width:min(92vw, 380px); max-height:min(74vh, 560px); overflow:auto;
   padding:14px; border-radius:14px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04)) padding-box, linear-gradient(135deg, rgba(0,255,255,.28), rgba(170,0,255,.24)) border-box;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04)) padding-box,
+    linear-gradient(135deg, rgba(0,255,255,.28), rgba(170,0,255,.24)) border-box;
   border: 1px solid transparent;
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   box-shadow: 0 14px 44px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.08) inset;
@@ -196,11 +215,15 @@ body{ margin:0; color:var(--fg); background: radial-gradient(1200px 600px at 80%
 
 .modal-amounts{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin: 8px 0 10px; }
 .amount-card{
-  border-radius:12px; background: linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box, linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)) border-box;
-  border:1px solid transparent; padding:10px 12px; box-shadow: 0 8px 22px rgba(0,0,0,.28), inset 0 0 18px rgba(255,255,255,.06);
+  border-radius:12px;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box,
+    linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)) border-box;
+  border:1px solid transparent; padding:10px 12px;
+  box-shadow: 0 8px 22px rgba(0,0,0,.28), inset 0 0 18px rgba(255,255,255,.06);
 }
 .amount-label{ font-size:.78rem; opacity:.85; margin-bottom:4px; }
-.amount-value{ font-variant-numeric:tabular-nums; font-size: clamp(1.05rem, 5vw, 1.28rem); font-weight: 900; line-height: 1.1; letter-spacing:.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.amount-value{ font-variant-numeric:tabular-nums; font-size: clamp(1.05rem, 5vw, 1.28rem); font-weight: 900; line-height:1.1; letter-spacing:.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
 .modal-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; margin-top:6px; }
 .modal-grid p{ display:flex; justify-content:space-between; gap:10px; margin:0; }
@@ -213,7 +236,7 @@ body{ margin:0; color:var(--fg); background: radial-gradient(1200px 600px at 80%
   .modal-grid{ grid-template-columns:1fr; }
 }
 
-/* FAB */
+/* ================== FAB ================== */
 .fab{
   position:fixed; right:16px; bottom: calc(var(--bottom-h) + 16px);
   width:44px; height:44px; border-radius:50%;
