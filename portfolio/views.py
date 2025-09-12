@@ -1105,23 +1105,21 @@ def sell_stock_page(request, pk):
         # ここでエラーなら入力値を保持して再描画
         if errors:
             posted = {
-                "sell_mode": mode,
-                "shares": shares_to_sell,
-                "limit_price": request.POST.get("limit_price", ""),
-                "sell_date": sell_date_str,
-                "actual_profit": request.POST.get("actual_profit", ""),
-            }
-            return render(
-                request,
-                "stocks/sell_stock_page.html",
-                {
-                    "stock": stock,
-                    "errors": errors,
-                    "current_price": current_price_for_view or 0.0,
-                    "posted": posted,
-                    "today_str": timezone.now().date().isoformat(),
-                },
-            )
+    "sell_mode": mode,
+    "shares": shares_to_sell,
+    "limit_price": request.POST.get("limit_price", ""),
+    "sell_date": sell_date_str,
+    "actual_profit": request.POST.get("actual_profit", ""),
+    "fee": request.POST.get("fee", ""),
+    "sell_price": request.POST.get("sell_price", ""),
+}
+return render(request, "stocks/sell_stock_page.html", {
+    "stock": stock,
+    "errors": errors,
+    "current_price": current_price_for_view or 0.0,
+    "posted": posted,
+    "today_str": timezone.now().date().isoformat(),
+})
 
         # ==== 計算（最終）====
         unit_price = float(stock.unit_price or 0)               # 取得単価（/株）
