@@ -133,20 +133,29 @@
     <!-- 実際の損益額 -->
     <section class="form-section card">
       <label class="form-label" for="actual-profit">実際の損益額（円）</label>
-      <input id="actual-profit" name="actual_profit"
+    
+      <!-- 電話配列にして数字列を出しやすくする（マイナスは下のソフトキーで確実に入力） -->
+      <input id="actual-profit"
+             name="actual_profit"
              type="text"
-             inputmode="tel"        <!-- ← 電話配列で確実に数字行 -->
-             autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+             inputmode="tel"
+             autocomplete="off"
+             autocorrect="off"
+             autocapitalize="off"
+             spellcheck="false"
              placeholder="例: -12,345.67"
              value="{{ posted.actual_profit|default:'' }}"
-             class="text-input">
+             class="text-input"
+             aria-describedby="actual-profit-help">
     
-      <!-- ここを追加：仮想キー -->
+      <p id="actual-profit-help" class="hint">必要なら下の − / . / ± / C を使って入力できます。</p>
+    
+      <!-- ソフトキー（仮想キーパッド） -->
       <div class="softpad" data-target="#actual-profit" aria-label="数値キーパッド">
-        <button type="button" class="sp-key sp-minus">−</button>
-        <button type="button" class="sp-key sp-dot">.</button>
-        <button type="button" class="sp-key sp-toggle">±</button>
-        <button type="button" class="sp-key sp-clear">C</button>
+        <button type="button" class="sp-key sp-minus" aria-label="マイナスを挿入">−</button>
+        <button type="button" class="sp-key sp-dot" aria-label="小数点を挿入">.</button>
+        <button type="button" class="sp-key sp-toggle" aria-label="符号を反転">±</button>
+        <button type="button" class="sp-key sp-clear" aria-label="クリア">C</button>
       </div>
     </section>
 
