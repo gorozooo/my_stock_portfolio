@@ -3,105 +3,57 @@
 {% load humanize %}
 
 {% block content %}
-<div class="realized-page theme-dark">
-
-  <!-- アンビエント背景（派手目・軽量） -->
-  <div class="ambient">
-    <span class="blob b1"></span>
-    <span class="blob b2"></span>
-    <span class="blob b3"></span>
+<div class="rp-page theme-dark">
+  <!-- 背景 -->
+  <div class="rp-ambient" aria-hidden="true">
+    <span class="rp-blob b1"></span>
+    <span class="rp-blob b2"></span>
+    <span class="rp-blob b3"></span>
   </div>
 
-  <!-- ツールバー -->
-  <header class="topbar" role="banner">
+  <!-- ヘッダー -->
+  <header class="rp-topbar">
     <div class="brand">
-      <span class="logo">⛵</span>
-      <span class="title">Realized P&L</span>
+      <span class="logo">🚀</span>
+      <span class="title">Neon Pulse — Realized</span>
     </div>
     <div class="actions">
       <button id="themeToggle" class="icon-btn" aria-label="テーマ切替">🌗</button>
-      <button id="densityToggle" class="icon-btn" aria-label="表示密度切替">↕️</button>
+      <button id="densityToggle" class="icon-btn" aria-label="表示密度">↕️</button>
     </div>
   </header>
 
-  <!-- 固定トップ：KPI / 検索 / クイック / トグル / 年月 -->
-  <section class="top-fixed" role="region" aria-label="絞り込みとサマリー">
-    <!-- KPIトグル -->
+  <!-- コントロール -->
+  <section class="rp-controls" role="region" aria-label="絞り込みとKPI">
+    <!-- 上段 -->
     <div class="topline">
       <div class="searchbox">
-        <input id="searchInput" type="search" placeholder="銘柄 / コード / 証券会社で検索" aria-label="テーブル検索">
+        <input id="searchInput" type="search" placeholder="銘柄 / コード / 証券会社 / 区分" aria-label="テーブル検索">
         <button id="clearSearch" class="icon-btn" aria-label="検索クリア">✖</button>
       </div>
-      <button id="kpiToggle" class="kpi-toggle" aria-expanded="false" aria-controls="kpiBox">KPIを表示</button>
-    </div>
-
-    <!-- KPIボックス（折りたたみ） -->
-    <div id="kpiBox" class="kpi-box">
-      <div class="kpi-deck">
-        <!-- KPIリング（勝率） -->
-        <div class="kpi-card ring">
-          <div class="ring-wrap">
-            <svg viewBox="0 0 36 36" class="circular">
-              <path class="bg" d="M18 2a16 16 0 1 1 0 32 16 16 0 1 1 0-32"/>
-              <path id="winArc" class="fg" stroke-dasharray="0,100" d="M18 2a16 16 0 1 1 0 32 16 16 0 1 1 0-32"/>
-            </svg>
-            <div class="ring-val"><span id="winRate">--%</span><small>勝率</small></div>
-          </div>
-        </div>
-        <!-- KPIカード -->
-        <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">📄</span><span class="kpi-label">件数</span></div>
-          <div class="kpi-value" id="sumCount">--</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">💰</span><span class="kpi-label">実現損益</span></div>
-          <div class="kpi-value" id="netProfit">--</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">⬆️</span><span class="kpi-label">利益合計</span></div>
-          <div class="kpi-value profit" id="totalProfit">--</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">⬇️</span><span class="kpi-label">損失合計</span></div>
-          <div class="kpi-value loss" id="totalLoss">--</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">📊</span><span class="kpi-label">平均損益</span></div>
-          <div class="kpi-value" id="avgNet">--</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">🔼</span><span class="kpi-label">平均利益</span></div>
-          <div class="kpi-value profit" id="avgProfitOnly">--</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-header"><span class="kpi-icon">🔽</span><span class="kpi-label">平均損失</span></div>
-          <div class="kpi-value loss" id="avgLossOnly">--</div>
-        </div>
+      <div class="seg-toggle" role="tablist" aria-label="表示切替">
+        <button class="seg-btn active" data-show="amount" role="tab" aria-selected="true">金額</button>
+        <button class="seg-btn" data-show="rate" role="tab" aria-selected="false">率</button>
       </div>
+      <button id="kpiToggle" class="kpi-toggle" aria-expanded="false" aria-controls="kpiBox">KPI</button>
     </div>
 
     <!-- クイック期間 -->
-    <div class="quick-chips chips-compact">
+    <div class="quick-chips">
       <button type="button" data-range="this-month" class="chip">今月</button>
       <button type="button" data-range="last-month" class="chip">先月</button>
       <button type="button" data-range="this-year" class="chip">今年</button>
       <button type="button" data-range="all" class="chip active">すべて</button>
     </div>
 
-    <!-- 表示トグル（損益額 ⇄ 損益率） -->
-    <div class="seg-toggle" role="tablist" aria-label="表示切替">
-      <button class="seg-btn active" data-show="amount" role="tab" aria-selected="true">損益額</button>
-      <button class="seg-btn" data-show="rate" role="tab" aria-selected="false">損益率</button>
-    </div>
-
-    <!-- 年月フィルタ -->
-    <div class="filter-box filter-compact">
-      <select id="yearFilter" aria-label="年フィルタ">
+    <!-- 年月 -->
+    <div class="filter-box">
+      <select id="yearFilter" aria-label="年">
         <option value="">年</option>
         <option value="2025">2025</option>
         <option value="2024">2024</option>
       </select>
-      <select id="monthFilter" aria-label="月フィルタ">
+      <select id="monthFilter" aria-label="月">
         <option value="">月</option>
         <option value="01">1</option><option value="02">2</option>
         <option value="03">3</option><option value="04">4</option>
@@ -111,87 +63,165 @@
         <option value="11">11</option><option value="12">12</option>
       </select>
     </div>
+
+    <!-- KPI -->
+    <div id="kpiBox" class="kpi-box">
+      <div class="kpi-deck">
+        <div class="kpi-card ring">
+          <div class="ring-wrap">
+            <svg viewBox="0 0 36 36" class="circular">
+              <path class="bg" d="M18 2a16 16 0 1 1 0 32 16 16 0 1 1 0-32"/>
+              <path id="winArc" class="fg" stroke-dasharray="0,100" d="M18 2a16 16 0 1 1 0 32 16 16 0 1 1 0-32"/>
+            </svg>
+            <div class="ring-val"><span id="winRate">--%</span><small>勝率</small></div>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header"><span>📄</span><span>件数</span></div>
+          <div class="kpi-value" id="sumCount">--</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header"><span>💰</span><span>実現損益</span></div>
+          <div class="kpi-value" id="netProfit">--</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header"><span>⬆️</span><span>利益合計</span></div>
+          <div class="kpi-value profit" id="totalProfit">--</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header"><span>⬇️</span><span>損失合計</span></div>
+          <div class="kpi-value loss" id="totalLoss">--</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header"><span>📊</span><span>平均損益</span></div>
+          <div class="kpi-value" id="avgNet">--</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header"><span>🔼</span><span>平均利益</span></div>
+          <div class="kpi-value profit" id="avgProfitOnly">--</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header"><span>🔽</span><span>平均損失</span></div>
+          <div class="kpi-value loss" id="avgLossOnly">--</div>
+        </div>
+      </div>
+    </div>
   </section>
 
-  <p id="emptyState" class="empty-state" style="display:none;">該当データがありません</p>
+  <!-- ビュータブ -->
+  <nav class="rp-tabs" role="tablist" aria-label="ビュー切替">
+    <button class="tab active" data-view="ledger" role="tab" aria-selected="true">Ledger</button>
+    <button class="tab" data-view="tiles" role="tab" aria-selected="false">Tiles</button>
+    <button class="tab" data-view="insights" role="tab" aria-selected="false">Insights</button>
+  </nav>
 
-  <!-- 表だけ縦スクロール -->
-  <section class="table-wrapper" id="tableWrapper" aria-label="損益一覧スクロール領域">
-    <table id="realizedTable" aria-label="損益一覧">
-      <thead>
-        <tr>
-          <th scope="col" data-key="date">日付</th>
-          <th scope="col" data-key="name">銘柄</th>
-          <th scope="col" data-key="broker">証券会社</th>
-          <th scope="col" data-key="account">口座区分</th>
-          <th scope="col" data-key="type">区分</th>
-          <th scope="col" data-key="qty">株数</th>
-          <th scope="col" data-key="profit">損益額</th>
-          <th scope="col" data-key="rate">損益率</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for ym, trades in rows_by_ym.items %}
-          {% with y=ym|slice:":4" m=ym|slice:"5:7" %}
-            <tr class="group-row"><td colspan="8">{{ y }}年 {{ m }}月</td></tr>
-          {% endwith %}
-          {% for t in trades %}
-            <tr
-              data-date="{{ t.date|date:'Y-m-d' }}"
-              data-name="{{ t.stock_name }}"
-              data-code="{{ t.code }}"
-              data-broker="{{ t.broker }}"
-              data-account="{{ t.account_type }}"
-              data-type="{% if t.trade_type == 'sell' %}売却{% elif t.trade_type == 'dividend' %}配当{% else %}{{ t.trade_type }}{% endif %}"
-              data-quantity="{{ t.quantity|default_if_none:'' }}"
-              data-profit="{% if t.profit_amount %}{% if t.profit_amount > 0 %}+{% endif %}{{ t.profit_amount|intcomma }}{% else %}0{% endif %}"
-              data-rate="{% if t.profit_rate is not None %}{% if t.profit_rate > 0 %}+{% endif %}{{ t.profit_rate }}%{% else %}0%{% endif %}"
-              data-purchase="{{ t.purchase_price|default_if_none:''|intcomma }}"
-              data-sell="{{ t.sell_price|default_if_none:''|intcomma }}"
-              data-fee="{{ t.fee|default_if_none:0|intcomma }}"
-            >
-              <td>{{ t.date|date:"Y-m-d" }}</td>
-              <td class="stock-name-cell">
-                <span class="name">{{ t.stock_name }}</span>
-                <span class="code"> {{ t.code }}</span>
-              </td>
-              <td>{{ t.broker }}</td>
-              <td>{{ t.account_type }}</td>
-              <td class="trade-type-cell"><span>{% if t.trade_type == 'sell' %}売却{% elif t.trade_type == 'dividend' %}配当{% else %}{{ t.trade_type }}{% endif %}</span></td>
-              <td>{% if t.quantity is not None %}{{ t.quantity|intcomma }}{% else %}-{% endif %}</td>
-
-              {% if t.profit_amount is not None and t.profit_amount < 0 %}
-                <td class="profit-cell loss">
-                  <div class="pn">
-                    <span class="num">{{ t.profit_amount|intcomma }}</span>
-                    <span class="bar" data-pn="{{ t.profit_amount }}"></span>
-                  </div>
+  <!-- Ledger（表） -->
+  <section id="view-ledger" class="view active">
+    <p id="emptyState" class="empty-state" style="display:none;">該当データがありません</p>
+    <div class="table-wrapper" id="tableWrapper" aria-label="損益一覧スクロール領域">
+      <table id="realizedTable" aria-label="損益一覧">
+        <thead>
+          <tr>
+            <th scope="col" data-key="date">日付</th>
+            <th scope="col" data-key="name">銘柄</th>
+            <th scope="col" data-key="broker">証券会社</th>
+            <th scope="col" data-key="account">口座区分</th>
+            <th scope="col" data-key="type">区分</th>
+            <th scope="col" data-key="qty">株数</th>
+            <th scope="col" data-key="profit">損益額</th>
+            <th scope="col" data-key="rate">損益率</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ym, trades in rows_by_ym.items %}
+            {% with y=ym|slice:":4" m=ym|slice:"5:7" %}
+              <tr class="group-row"><td colspan="8">{{ y }}年 {{ m }}月</td></tr>
+            {% endwith %}
+            {% for t in trades %}
+              <tr
+                data-date="{{ t.date|date:'Y-m-d' }}"
+                data-name="{{ t.stock_name }}"
+                data-code="{{ t.code }}"
+                data-broker="{{ t.broker }}"
+                data-account="{{ t.account_type }}"
+                data-type="{% if t.trade_type == 'sell' %}売却{% elif t.trade_type == 'dividend' %}配当{% else %}{{ t.trade_type }}{% endif %}"
+                data-quantity="{{ t.quantity|default_if_none:'' }}"
+                data-profit="{% if t.profit_amount %}{% if t.profit_amount > 0 %}+{% endif %}{{ t.profit_amount|intcomma }}{% else %}0{% endif %}"
+                data-rate="{% if t.profit_rate is not None %}{% if t.profit_rate > 0 %}+{% endif %}{{ t.profit_rate }}%{% else %}0%{% endif %}"
+                data-purchase="{{ t.purchase_price|default_if_none:''|intcomma }}"
+                data-sell="{{ t.sell_price|default_if_none:''|intcomma }}"
+                data-fee="{{ t.fee|default_if_none:0|intcomma }}"
+              >
+                <td>{{ t.date|date:"Y-m-d" }}</td>
+                <td class="stock-name-cell">
+                  <span class="name">{{ t.stock_name }}</span>
+                  <span class="code"> {{ t.code }}</span>
                 </td>
-              {% else %}
-                <td class="profit-cell profit">
-                  <div class="pn">
-                    <span class="num">{% if t.profit_amount %}+{% endif %}{{ t.profit_amount|default_if_none:0|intcomma }}</span>
-                    <span class="bar" data-pn="{{ t.profit_amount|default_if_none:0 }}"></span>
-                  </div>
-                </td>
-              {% endif %}
+                <td>{{ t.broker }}</td>
+                <td>{{ t.account_type }}</td>
+                <td class="trade-type-cell"><span>{% if t.trade_type == 'sell' %}売却{% elif t.trade_type == 'dividend' %}配当{% else %}{{ t.trade_type }}{% endif %}</span></td>
+                <td>{% if t.quantity is not None %}{{ t.quantity|intcomma }}{% else %}-{% endif %}</td>
 
-              {% if t.profit_rate is not None and t.profit_rate < 0 %}
-                <td class="rate-cell loss"><span class="chip num">{{ t.profit_rate }}%</span></td>
-              {% else %}
-                <td class="rate-cell profit"><span class="chip num">{% if t.profit_rate %}+{% endif %}{{ t.profit_rate|default_if_none:0 }}%</span></td>
-              {% endif %}
-            </tr>
-          {% endfor %}
-        {% empty %}
-        {% endfor %}
-      </tbody>
-    </table>
+                {% if t.profit_amount is not None and t.profit_amount < 0 %}
+                  <td class="profit-cell loss">
+                    <div class="pn">
+                      <span class="num">{{ t.profit_amount|intcomma }}</span>
+                      <span class="bar" data-pn="{{ t.profit_amount }}"></span>
+                    </div>
+                  </td>
+                {% else %}
+                  <td class="profit-cell profit">
+                    <div class="pn">
+                      <span class="num">{% if t.profit_amount %}+{% endif %}{{ t.profit_amount|default_if_none:0|intcomma }}</span>
+                      <span class="bar" data-pn="{{ t.profit_amount|default_if_none:0 }}"></span>
+                    </div>
+                  </td>
+                {% endif %}
+
+                {% if t.profit_rate is not None and t.profit_rate < 0 %}
+                  <td class="rate-cell loss"><span class="chip num">{{ t.profit_rate }}%</span></td>
+                {% else %}
+                  <td class="rate-cell profit"><span class="chip num">{% if t.profit_rate %}+{% endif %}{{ t.profit_rate|default_if_none:0 }}%</span></td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+          {% empty %}{% endfor %}
+        </tbody>
+      </table>
+    </div>
   </section>
 
-  <!-- スクロールTop FAB -->
+  <!-- Tiles（カード） -->
+  <section id="view-tiles" class="view">
+    <div id="tilesGrid" class="tiles-grid" aria-live="polite"></div>
+  </section>
+
+  <!-- Insights -->
+  <section id="view-insights" class="view">
+    <div class="insights-wrap">
+      <div class="ins-panel">
+        <h3>月次損益</h3>
+        <canvas id="monthlyChart" width="600" height="260" aria-label="月次損益チャート"></canvas>
+      </div>
+      <div class="ins-panel two-col">
+        <div>
+          <h3>Top Gainers</h3>
+          <ol id="topGainers" class="rank-list"></ol>
+        </div>
+        <div>
+          <h3>Top Losers</h3>
+          <ol id="topLosers" class="rank-list"></ol>
+        </div>
+      </div>
+      <div class="ins-panel">
+        <h3>ブローカー別 実現損益</h3>
+        <ul id="byBroker" class="pill-list"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAB -->
   <button id="scrollTopFab" class="fab" aria-label="先頭に戻る">▲</button>
-
 </div>
 
 <!-- モーダル -->
