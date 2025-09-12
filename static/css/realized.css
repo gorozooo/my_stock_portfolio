@@ -1,30 +1,10 @@
-/* ================== ベース ================== */
-html, body{
-  height:100%;
-  overflow:hidden;          /* ページ固定：表だけ縦スクロール */
-  overscroll-behavior:none;
-  -webkit-text-size-adjust:100%;
-}
+/* ===== Base & Theme ===== */
+html, body{ height:100%; overflow:hidden; overscroll-behavior:none; -webkit-text-size-adjust:100%; }
 :root{
-  --top-h: 0px;
-  --bottom-h: 0px;
-  --glass: rgba(255,255,255,.06);
-  --line: rgba(255,255,255,.14);
-  --fg: #eaf2ff;
-  --bg: #0b0f1a;
-  --pri: #6ee7ff;
-  --acc: #b07cff;
-  --ok: #26d07c;
-  --ng: #ff5b6a;
-
-  /* ミニマム幅（colごと）※環境に合わせて微調整可 */
-  --w-date:    8.0rem;
-  --w-broker:  7.2rem;
-  --w-account: 6.4rem;
-  --w-type:    5.6rem;
-  --w-qty:     5.4rem;
-  --w-profit:  8.6rem;
-  --w-rate:    6.6rem;
+  --top-h:0px; --bottom-h:0px;
+  --fg:#eaf2ff; --bg:#0b0f1a; --glass:rgba(255,255,255,.06);
+  --ok:#26d07c; --ng:#ff5b6a; --pri:#6ee7ff; --acc:#b07cff;
+  --w-date:8.0rem; --w-broker:7.2rem; --w-account:6.4rem; --w-type:5.6rem; --w-qty:5.4rem; --w-profit:8.6rem; --w-rate:6.6rem;
 }
 *{ box-sizing:border-box; }
 body{
@@ -36,142 +16,91 @@ body{
     linear-gradient(180deg, #0b0f1a 0%, #0b0f1a 100%);
 }
 
-/* ================== レイアウト ================== */
-.realized-page{
-  height:100svh; height:100dvh;
-  display:flex; flex-direction:column; gap:6px;
-  padding:8px 8px 12px;
-}
+/* ===== Ambient ===== */
+.rp-ambient{ position:fixed; inset:0; z-index:-1; overflow:hidden; }
+.rp-blob{ position:absolute; width:48vmax; height:48vmax; filter:blur(60px); opacity:.22; border-radius:50%; animation: float 16s ease-in-out infinite alternate; }
+.rp-blob.b1{ background: radial-gradient(circle at 30% 30%, rgba(0,255,255,.5), transparent 60%); left:-20vmax; top:-12vmax; }
+.rp-blob.b2{ background: radial-gradient(circle at 70% 40%, rgba(170,0,255,.45), transparent 60%); right:-18vmax; top:-8vmax; animation-delay:2s; }
+.rp-blob.b3{ background: radial-gradient(circle at 40% 70%, rgba(0,255,204,.4), transparent 60%); left:10vmax; bottom:-16vmax; animation-delay:4s; }
+@keyframes float{ from{ transform:translateY(-2%) scale(1);} to{ transform:translateY(2%) scale(1.06);} }
 
-/* 固定トップ（KPI/フィルタ/トグル） */
-.top-fixed{
-  position: relative;
-  flex:0 0 auto;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  background:
-    linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box,
-    linear-gradient(135deg, rgba(0,255,255,.28), rgba(170,0,255,.24)) border-box;
-  border:1px solid transparent;
-  border-radius:12px;
-  padding:8px;
-  box-shadow: 0 10px 28px rgba(0,0,0,.28), inset 0 0 20px rgba(255,255,255,.05);
-}
+/* ===== Page Frame ===== */
+.rp-page{ height:100svh; height:100dvh; display:flex; flex-direction:column; gap:8px; padding:8px 8px 12px; }
 
-/* KPIトグルボタン */
-.kpi-toggle{
-  position:absolute; right:10px; top:10px;
-  padding:6px 10px; border:none; border-radius:10px;
-  font-weight:700; color:#fff; cursor:pointer;
+/* Topbar */
+.rp-topbar{ display:flex; align-items:center; justify-content:space-between; padding:8px 10px; margin:6px 8px 0; border-radius:12px;
+  background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.02)); border:1px solid rgba(255,255,255,.12); backdrop-filter: blur(8px);
+}
+.brand{ display:flex; align-items:center; gap:8px; font-weight:900; letter-spacing:.02em; }
+.brand .logo{ font-size:1.1rem; }
+.brand .title{ font-size:1.02rem; }
+.actions{ display:flex; gap:6px; }
+.icon-btn{ border:none; border-radius:10px; padding:6px 10px; color:#fff; cursor:pointer; background:rgba(255,255,255,.14); }
+.icon-btn:active{ transform:scale(.98); }
+
+/* ===== Controls ===== */
+.rp-controls{
+  position:relative; flex:0 0 auto; padding:8px; border-radius:12px;
+  background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box,
+             linear-gradient(135deg, rgba(0,255,255,.28), rgba(170,0,255,.24)) border-box;
+  border:1px solid transparent; backdrop-filter: blur(10px);
+  box-shadow:0 10px 28px rgba(0,0,0,.28), inset 0 0 20px rgba(255,255,255,.05);
+}
+.topline{ display:grid; grid-template-columns: 1fr auto auto; gap:8px; align-items:center; }
+.searchbox{ display:flex; align-items:center; gap:6px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); border-radius:10px; padding:6px 8px; }
+.searchbox input{ flex:1; background:transparent; border:none; outline:none; color:#fff; font-size:.95rem; }
+.kpi-toggle{ padding:6px 10px; border:none; border-radius:10px; font-weight:700; color:#fff; cursor:pointer;
   background: linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22));
   box-shadow: 0 6px 16px rgba(0,0,0,.25), inset 0 0 0 1px rgba(255,255,255,.18);
 }
-
-/* 折りたたみ＆スリム */
-.top-fixed.collapsed .kpi-box{ display:none; }
-.top-fixed.collapsed{ padding-top:44px; }
-.top-fixed.slim{ padding:6px; backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
-
-/* KPIカード */
-.kpi-row{ display:grid; gap:6px; margin-bottom:4px; }
-.kpi-row1{ grid-template-columns: repeat(3, 1fr); }
-.kpi-row2{ grid-template-columns: repeat(2, 1fr); }
-.kpi-row3{ grid-template-columns: repeat(3, 1fr); }
-.kpi-card{
-  padding:6px 8px; border-radius:12px;
-  background:
-    linear-gradient(135deg, rgba(255,255,255,.09), rgba(255,255,255,.03)) padding-box,
-    linear-gradient(135deg, rgba(0,255,255,.35), rgba(170,0,255,.28)) border-box;
-  border:1px solid transparent;
-  box-shadow: 0 6px 18px rgba(0,0,0,.22), inset 0 0 22px rgba(255,255,255,.06);
-}
-.kpi-header{ display:flex; align-items:center; gap:6px; opacity:.92; margin-bottom:2px; }
-.kpi-icon{ font-size:.9rem; }
-.kpi-label{ font-size:.72rem; opacity:.84; }
-.kpi-value{ font-variant-numeric:tabular-nums; font-size: clamp(0.95rem, 3.4vw, 1.18rem); font-weight: 800; line-height:1.05; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.profit{ color: var(--ok); font-weight:700; }
-.loss{ color: var(--ng); font-weight:700; }
-
-/* クイック期間 */
 .quick-chips{ display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 2px; }
-.quick-chips .chip{
-  padding:6px 10px; border:none; border-radius:12px;
-  background:rgba(255,255,255,.16); color:#fff; cursor:pointer; font-size:.9rem;
-  transition:transform .06s ease, background .12s ease, box-shadow .12s ease;
-}
-.quick-chips .chip:active{ transform:scale(.98); }
-.quick-chips .chip.active{
-  background: rgba(0,255,255,.22);
-  box-shadow: 0 0 0 1px rgba(0,255,255,.35) inset, 0 6px 16px rgba(0,255,255,.22);
-}
+.chip{ padding:6px 10px; border:none; border-radius:12px; background:rgba(255,255,255,.16); color:#fff; cursor:pointer; font-size:.9rem; }
+.chip.active{ background: rgba(0,255,255,.22); box-shadow: 0 0 0 1px rgba(0,255,255,.35) inset, 0 6px 16px rgba(0,255,255,.22); }
 
-/* セグメントトグル（損益額/率） */
-.seg-toggle{
-  display:flex; background:rgba(255,255,255,.10);
-  border-radius:12px; padding:4px; gap:4px; margin-bottom:6px;
-}
-.seg-btn{
-  flex:1; border:none; border-radius:9px; padding:8px 10px; color:#fff; background:transparent; font-weight:700;
-}
-.seg-btn.active{
-  background: linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22));
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.18), 0 8px 20px rgba(0,0,0,.25);
-}
-
-/* 年月フィルタ */
 .filter-box{ display:flex; gap:6px; }
-.filter-box select{
-  flex:1; background: rgba(255,255,255,0.14);
-  border: none; padding: 8px 10px; border-radius: 9px; color: #fff;
-  font-size: .95rem; appearance: none; text-align: center;
-}
+.filter-box select{ flex:1; background: rgba(255,255,255,.14); border: none; padding: 8px 10px; border-radius: 9px; color: #fff; text-align:center; }
 
-/* ================== 表 ================== */
-.table-wrapper{
-  flex:0 0 auto;
-  height: calc(100dvh - var(--top-h) - var(--bottom-h) - 12px);
-  min-height: 140px;
-  overflow:auto; -webkit-overflow-scrolling:touch;
-  border-radius:12px; background: var(--glass);
-  overscroll-behavior:contain; position:relative;
-}
-#realizedTable{
-  width:100%;
-  min-width: 920px;
-  border-collapse: collapse;
-  table-layout: auto;     /* ← ここが肝。銘柄列に残り幅を回せる */
-}
-#realizedTable thead th, #realizedTable tbody td{
-  padding:10px 6px; text-align:center; font-size:.92rem;
-}
-#realizedTable thead th{
-  position:sticky; top:0; z-index:2;
-  background: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.16));
-  font-weight:800; white-space:nowrap; cursor:pointer;
-  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-}
+.seg-toggle{ display:flex; background:rgba(255,255,255,.10); border-radius:12px; padding:4px; gap:4px; }
+.seg-btn{ border:none; border-radius:9px; padding:8px 10px; color:#fff; background:transparent; font-weight:700; }
+.seg-btn.active{ background: linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.18), 0 8px 20px rgba(0,0,0,.25); }
+
+/* KPI deck */
+.kpi-box{ margin-top:6px; }
+.kpi-deck{ display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; }
+.kpi-card{ padding:8px; border-radius:12px; background: linear-gradient(135deg, rgba(255,255,255,.09), rgba(255,255,255,.03)) padding-box, linear-gradient(135deg, rgba(0,255,255,.35), rgba(170,0,255,.28)) border-box; border:1px solid transparent; box-shadow: 0 6px 18px rgba(0,0,0,.22), inset 0 0 22px rgba(255,255,255,.06);}
+.kpi-header{ display:flex; align-items:center; gap:6px; opacity:.92; margin-bottom:4px; font-size:.86rem; }
+.kpi-value{ font-variant-numeric:tabular-nums; font-size: clamp(0.98rem, 3.4vw, 1.18rem); font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.kpi-card.ring{ display:flex; align-items:center; justify-content:center; }
+.circular{ width:72px; height:72px; transform:rotate(-90deg); }
+.circular .bg{ fill:none; stroke:rgba(255,255,255,.18); stroke-width:4; }
+.circular .fg{ fill:none; stroke:#26c281; stroke-width:4; stroke-linecap:round; transition:stroke-dasharray .3s ease; }
+.ring-wrap{ position:relative; }
+.ring-val{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; transform:rotate(90deg); }
+.ring-val span{ font-weight:900; }
+.profit{ color:var(--ok); font-weight:700; } .loss{ color:var(--ng); font-weight:700; }
+
+/* Collapse states */
+.rp-controls.collapsed .kpi-box{ display:none; }
+
+/* ===== Tabs ===== */
+.rp-tabs{ display:flex; gap:6px; margin-top:2px; }
+.rp-tabs .tab{ flex:1; border:none; padding:10px 12px; border-radius:10px; color:#fff; background:rgba(255,255,255,.12); font-weight:800; }
+.rp-tabs .tab.active{ background:linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)); box-shadow: 0 8px 18px rgba(0,0,0,.25); }
+
+/* ===== Ledger Table ===== */
+.table-wrapper{ flex:1 1 auto; min-height: 140px; overflow:auto; -webkit-overflow-scrolling:touch; border-radius:12px; background: var(--glass); position:relative; }
+#realizedTable{ width:100%; min-width:920px; border-collapse:collapse; table-layout:auto; }
+#realizedTable th, #realizedTable td{ padding:10px 6px; text-align:center; font-size:.92rem; }
+#realizedTable thead th{ position:sticky; top:0; z-index:2; background: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.16)); font-weight:800; white-space:nowrap; cursor:pointer; backdrop-filter: blur(6px); }
 #realizedTable tbody tr:nth-child(even){ background: rgba(255,255,255,.06); }
-#realizedTable tbody tr{ height: 50px; position: relative; transition: background .12s ease; }
+#realizedTable tbody tr{ height:50px; position:relative; transition: background .12s ease; }
 #realizedTable tbody tr:active{ background: rgba(255,255,255,.12); }
-#realizedTable tbody tr::after{
-  content:'›'; position:absolute; right:8px; top:50%; transform:translateY(-50%);
-  opacity:.6; font-size:18px; pointer-events:none;
-}
+#realizedTable tbody tr::after{ content:'›'; position:absolute; right:8px; top:50%; transform:translateY(-50%); opacity:.6; font-size:18px; pointer-events:none; }
+.group-row td{ position:sticky; top:42px; z-index:1; background: rgba(255,255,255,.14); font-weight:900; text-align:left; letter-spacing:.02em; box-shadow: inset 0 1px 0 rgba(255,255,255,.22); }
 
-/* 月グループ行（sticky） */
-.group-row td{
-  position: sticky; top: 42px; z-index:1;
-  background: rgba(255,255,255,.14);
-  font-weight:900; text-align:left; letter-spacing:.02em;
-  box-shadow: 0 1px 0 rgba(255,255,255,.22) inset;
-}
-
-/* ===== 列の最小幅（銘柄は指定しない＝残余を全部つかむ） ===== */
-/* 1列目：日付 */
+/* col widths */
 #realizedTable th:nth-child(1), #realizedTable td:nth-child(1){ min-width: var(--w-date); }
-/* 2列目：銘柄（幅は指定しない！→残り全部を使う） */
-#realizedTable th:nth-child(2), #realizedTable td:nth-child(2){ text-align:left; overflow:hidden; }
-/* 3列目以降はミニマムだけ確保 */
+#realizedTable th:nth-child(2), #realizedTable td:nth-child(2){ text-align:left; overflow:hidden; } /* take the rest */
 #realizedTable th:nth-child(3), #realizedTable td:nth-child(3){ min-width: var(--w-broker); }
 #realizedTable th:nth-child(4), #realizedTable td:nth-child(4){ min-width: var(--w-account); }
 #realizedTable th:nth-child(5), #realizedTable td:nth-child(5){ min-width: var(--w-type); }
@@ -179,123 +108,65 @@ body{
 #realizedTable th:nth-child(7), #realizedTable td:nth-child(7){ min-width: var(--w-profit); }
 #realizedTable th:nth-child(8), #realizedTable td:nth-child(8){ min-width: var(--w-rate); }
 
-/* ===== 銘柄セル：横並び・1行キープ（Safari対応） ===== */
-#realizedTable td:nth-child(2){ overflow: hidden; }
-.stock-name-cell{
-  display:flex; flex-direction:row; align-items:center; gap:6px;
-  white-space:nowrap; min-width:0;
-}
-.stock-name-cell .name{
-  flex:1 1 auto; min-width:0;
-  overflow:hidden; text-overflow:ellipsis; font-weight:800;
-}
-.stock-name-cell .code{
-  flex:0 0 auto; opacity:.75; font-size:.82rem; white-space:nowrap;
-  padding:2px 6px; border-radius:6px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15);
-  max-width:7.5em; overflow:hidden; text-overflow:ellipsis;   /* 長いコード対策 */
-}
+/* Stock cell */
+#realizedTable td:nth-child(2){ overflow:hidden; }
+.stock-name-cell{ display:flex; align-items:center; gap:6px; white-space:nowrap; min-width:0; }
+.stock-name-cell .name{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-weight:800; }
+.stock-name-cell .code{ flex:0 0 auto; opacity:.75; font-size:.82rem; white-space:nowrap; padding:2px 6px; border-radius:6px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15); }
 
-/* 損益の可視化（バー＋色） */
+/* P/L bars & rate chips */
 .profit-cell .pn{ display:flex; align-items:center; gap:6px; justify-content:center; }
-.profit-cell .num{ min-width: 5.5em; display:inline-block; text-align:right; font-variant-numeric:tabular-nums; }
-.profit-cell .bar{
-  display:inline-block; height:8px; width:64px; border-radius:999px;
-  background:linear-gradient(90deg, rgba(255,255,255,.22), rgba(255,255,255,.08));
-  position:relative; overflow:hidden;
-}
-.profit-cell.loss .bar::before{ background: linear-gradient(90deg, rgba(255,80,100,.95), rgba(255,120,120,.85)); }
-.profit-cell.profit .bar::before{ background: linear-gradient(90deg, rgba(0,220,130,.95), rgba(0,255,210,.85)); }
+.profit-cell .num{ min-width: 5.6em; display:inline-block; text-align:right; font-variant-numeric:tabular-nums; }
+.profit-cell .bar{ display:inline-block; height:8px; width:64px; border-radius:999px; background:linear-gradient(90deg, rgba(255,255,255,.22), rgba(255,255,255,.08)); position:relative; overflow:hidden; }
+.chip{ display:inline-flex; align-items:center; justify-content:center; padding:4px 8px; border-radius:999px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); font-weight:800; }
 
-/* 損益率セル */
-.rate-cell .num{ font-variant-numeric:tabular-nums; font-weight:800; }
-
-/* トグル用 */
+/* Toggle column */
 .col-hide{ display:none !important; }
 
-/* 空状態 */
+/* Empty */
 .empty-state{ opacity:.9; text-align:center; margin-top:10px; }
 
-/* ================== モーダル ================== */
-.modal{
-  display:none; position:fixed; inset:0; z-index:100;
-  background-color: rgba(0,0,0,0.6);
-  justify-content: center; align-items: center;
-  padding: 6px; touch-action: none;
-}
+/* ===== Tiles ===== */
+.tiles-grid{ display:grid; grid-template-columns: repeat( auto-fill, minmax(240px, 1fr) ); gap:10px; height: calc(100dvh - var(--top-h) - var(--bottom-h) - 130px); overflow:auto; padding:6px; border-radius:12px; background:var(--glass); }
+.tile{ border-radius:12px; padding:10px; background: linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box, linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)) border-box; border:1px solid transparent; box-shadow: 0 8px 18px rgba(0,0,0,.28); cursor:pointer; }
+.tile .t-head{ display:flex; gap:8px; align-items:center; justify-content:space-between; }
+.tile .t-name{ font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tile .t-code{ opacity:.75; font-size:.82rem; }
+.tile .t-body{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; font-variant-numeric:tabular-nums; }
+.badge{ padding:2px 6px; border-radius:6px; background: rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); font-weight:700; }
+
+/* ===== Insights ===== */
+.insights-wrap{ display:grid; gap:10px; height: calc(100dvh - var(--top-h) - var(--bottom-h) - 130px); overflow:auto; }
+.ins-panel{ border-radius:12px; padding:10px; background: linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box, linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)) border-box; border:1px solid transparent; box-shadow: 0 8px 18px rgba(0,0,0,.28); }
+.ins-panel h3{ margin:0 0 8px; }
+.ins-panel.two-col{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+.rank-list{ margin:0; padding-left:18px; }
+.pill-list{ display:flex; flex-wrap:wrap; gap:8px; margin:0; padding:0; list-style:none; }
+.pill{ padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); font-weight:800; }
+
+/* ===== Modal ===== */
+.modal{ display:none; position:fixed; inset:0; z-index:100; background-color: rgba(0,0,0,0.6); justify-content:center; align-items:center; padding:6px; touch-action:none; }
 .modal.show{ display:flex; }
-.modal-content{
-  width:min(92vw, 380px); max-height:min(74vh, 560px); overflow:auto;
-  padding:14px; border-radius:14px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04)) padding-box,
-    linear-gradient(135deg, rgba(0,255,255,.28), rgba(170,0,255,.24)) border-box;
-  border: 1px solid transparent;
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 14px 44px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.08) inset;
-  transform: scale(.92); opacity: 0;
-  transition: transform .16s ease, opacity .16s ease; position:relative;
-}
+.modal-content{ width:min(92vw, 380px); max-height:min(74vh, 560px); overflow:auto; padding:14px; border-radius:14px; background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04)) padding-box, linear-gradient(135deg, rgba(0,255,255,.28), rgba(170,0,255,.24)) border-box; border: 1px solid transparent; backdrop-filter: blur(10px); box-shadow: 0 14px 44px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.08) inset; transform: scale(.92); opacity: 0; transition: transform .16s ease, opacity .16s ease; position:relative; }
 .modal.show .modal-content{ transform: scale(1); opacity: 1; }
 .modal .close{ position:absolute; top:8px; right:12px; font-size:1.4rem; cursor:pointer; }
 .modal-title-center{ text-align:center; font-weight:900; letter-spacing:.02em; margin: 2px 0 10px; font-size: 1.12rem; text-shadow:0 2px 10px rgba(0,0,0,.35); }
-
-.modal-amounts{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin: 8px 0 10px; }
-.amount-card{
-  border-radius:12px;
-  background:
-    linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box,
-    linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)) border-box;
-  border:1px solid transparent; padding:10px 12px;
-  box-shadow: 0 8px 22px rgba(0,0,0,.28), inset 0 0 18px rgba(255,255,255,.06);
-}
+.modal-amounts{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:8px 0 10px; }
+.amount-card{ border-radius:12px; background: linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box, linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)) border-box; border:1px solid transparent; padding:10px 12px; box-shadow: 0 8px 22px rgba(0,0,0,.28), inset 0 0 18px rgba(255,255,255,.06); }
 .amount-label{ font-size:.78rem; opacity:.85; margin-bottom:4px; }
 .amount-value{ font-variant-numeric:tabular-nums; font-size: clamp(1.05rem, 5vw, 1.28rem); font-weight: 900; line-height:1.1; letter-spacing:.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-
 .modal-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; margin-top:6px; }
 .modal-grid p{ display:flex; justify-content:space-between; gap:10px; margin:0; }
 .modal-grid p.full{ grid-column:1 / -1; }
 .modal-grid .k{ opacity:.85; margin-right:8px; }
-.modal-grid .pn.profit{ color:var(--ok); font-weight:800; }
-.modal-grid .pn.loss{ color:var(--ng); font-weight:800; }
-@media (max-width: 360px){
-  .modal-amounts{ grid-template-columns:1fr; }
-  .modal-grid{ grid-template-columns:1fr; }
-}
+.modal-grid .pn.profit{ color:var(--ok); font-weight:800; } .modal-grid .pn.loss{ color:var(--ng); font-weight:800; }
+@media (max-width:360px){ .modal-amounts{ grid-template-columns:1fr; } .modal-grid{ grid-template-columns:1fr; } }
 
-/* ================== FAB ================== */
-.fab{
-  position:fixed; right:16px; bottom: calc(var(--bottom-h) + 16px);
-  width:44px; height:44px; border-radius:50%;
-  background: linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.28));
-  border:1px solid rgba(255,255,255,.25); color:#fff; font-weight:900;
-  box-shadow: 0 12px 28px rgba(0,0,0,.38);
-  display:flex; align-items:center; justify-content:center;
-  opacity:0; pointer-events:none; transform:translateY(8px);
-  transition: opacity .18s ease, transform .18s ease;
-}
+/* FAB */
+.fab{ position:fixed; right:16px; bottom: calc(var(--bottom-h) + 16px); width:44px; height:44px; border-radius:50%; background: linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.28)); border:1px solid rgba(255,255,255,.25); color:#fff; font-weight:900; box-shadow: 0 12px 28px rgba(0,0,0,.38); display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none; transform:translateY(8px); transition: opacity .18s ease, transform .18s ease; }
 .fab.show{ opacity:1; pointer-events:auto; transform:none; }
 
-/* ================== レスポンシブ微調整 ================== */
-@media (max-width: 420px){
-  :root{
-    --w-date:    7.4rem;
-    --w-broker:  6.6rem;
-    --w-account: 6.0rem;
-    --w-type:    5.2rem;
-    --w-qty:     5.0rem;
-    --w-profit:  8.0rem;
-    --w-rate:    6.2rem;
-  }
-  .stock-name-cell .code{ max-width:6.2em; }
-}
-@media (min-width: 768px){
-  :root{
-    --w-date:    8.2rem;
-    --w-broker:  7.8rem;
-    --w-account: 6.8rem;
-    --w-type:    6.0rem;
-    --w-qty:     5.8rem;
-    --w-profit:  9.0rem;
-    --w-rate:    6.8rem;
-  }
+/* Responsive fine-tune */
+@media (max-width:420px){
+  :root{ --w-date:7.2rem; --w-broker:6.2rem; --w-account:5.6rem; --w-type:5.0rem; --w-qty:5.0rem; --w-profit:8.0rem; --w-rate:6.0rem; }
 }
