@@ -1040,6 +1040,10 @@ def sell_stock_page(request, pk):
         except Exception:
             current_price_for_view = 0.0
 
+    # テンプレで使うフラグ（Jinja風の式を避けるため、サーバで用意）
+    has_price_available = bool(current_price_for_view or stock.current_price)
+    initial_sell_mode_default = 'market' if has_price_available else 'limit'
+
     def extract_securities_code(ticker_or_code: str) -> str:
         if not ticker_or_code:
             return ""
@@ -1125,6 +1129,8 @@ def sell_stock_page(request, pk):
                     "current_price": current_price_for_view or 0.0,
                     "posted": posted,
                     "today_str": timezone.now().date().isoformat(),
+                    "has_price_available": has_price_available,
+                    "initial_sell_mode_default": initial_sell_mode_default,
                 },
             )
 
@@ -1193,9 +1199,11 @@ def sell_stock_page(request, pk):
             "current_price": current_price_for_view or 0.0,
             "posted": {},  # 初回は空
             "today_str": timezone.now().date().isoformat(),
+            "has_price_available": has_price_available,
+            "initial_sell_mode_default": initial_sell_mode_default,
         },
     )
-
+    
 @require_http_methods(["GET", "POST"])
 def edit_stock_page(request, pk):
     stock = get_object_or_404(Stock, pk=pk)
