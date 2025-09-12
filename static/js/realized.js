@@ -26,7 +26,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const dataRows = ()=> [...tbody.querySelectorAll("tr")].filter(r => !r.classList.contains("group-row"));
 
-  /* ===== View Height Re-calc (単一スクロール領域 & bottom-tab計測) ===== */
+  /* ===== View Height Re-calc (ボトムタブ対応) ===== */
   const topbar = $(".rp-topbar");
   const tabs   = $(".rp-tabs");
   function findBottomTab() {
@@ -35,7 +35,6 @@ document.addEventListener("DOMContentLoaded", () => {
         || document.getElementById("bottomTab")
         || document.querySelector("[data-bottom-tab]");
   }
-
   function vh(){ return Math.max(window.innerHeight, document.documentElement.clientHeight); }
   function recalcViewHeights(){
     const bottomEl = findBottomTab();
@@ -51,14 +50,11 @@ document.addEventListener("DOMContentLoaded", () => {
     document.documentElement.style.setProperty("--view-h", `${rest}px`);
     $$(".view.active .scroll-area").forEach(el => { el.style.height = `${rest}px`; });
   }
-
-  // ボトムタブのサイズ変化も監視
   let bottomElInit = findBottomTab();
   if (bottomElInit) {
     const bottomObserver = new MutationObserver(recalcViewHeights);
     bottomObserver.observe(bottomElInit, {attributes:true, childList:true, subtree:true});
   }
-
   window.addEventListener("load", recalcViewHeights);
   window.addEventListener("resize", recalcViewHeights);
   window.addEventListener("orientationchange", () => setTimeout(recalcViewHeights, 60));
@@ -76,6 +72,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function updateSummary(){
     const visible = dataRows().filter(r => r.style.display !== "none");
+    // 金額は .pnl-cell .num から読む（normalize後はネット値）
     const profitCells = visible.map(r => (r.children[6] && r.children[6].querySelector('.num')?.innerText) || "0");
     const vals = profitCells.map(numeric);
     const pos = vals.filter(v => v > 0), neg = vals.filter(v => v < 0);
@@ -103,20 +100,71 @@ document.addEventListener("DOMContentLoaded", () => {
     avgProfitOnlyEl.textContent = fmt(avgPos);
     avgLossOnlyEl.textContent   = fmt(avgNeg);
 
-    // ★ リング：12時起点、アニメ＆色相変化
+    // リング：12時起点、アニメ＆色相
     if (winArc){
       const pct = Math.max(0, Math.min(100, winRate));
       winArc.setAttribute("stroke-dasharray", `${pct} 100`);
       winArc.setAttribute("stroke-dashoffset", "0");
-      // アニメーション（CSSに依存＋ここでも再指定）
       winArc.style.transition = 'stroke-dasharray .35s ease, stroke .35s ease';
-      // 赤→緑へ
       const hue = Math.round((pct/100)*120); // 0=赤, 120=緑
       winArc.style.stroke = `hsl(${hue} 70% 55%)`;
     }
   }
 
-  /* ===== Filters (year/month/search/chips) ===== */
+  /* ===== 正規化：手数料込みのネット損益に統一 ===== */
+  function normalizePnLRows() {
+    const rows = dataRows();
+    rows.forEach(row => {
+      const qtyStr = row.dataset.quantity ?? "";
+      const isDividend = (qtyStr === "" || qtyStr === null);
+
+      // 表のDOM
+      const pnCell = row.querySelector(".pnl-cell");
+      const pnNum  = pnCell?.querySelector(".num");
+      const barEl  = pnCell?.querySelector(".bar");
+
+      if (!pnCell || !pnNum || !barEl) return;
+
+      if (isDividend) {
+        // 配当はサーバ値をそのまま（data-profitが正）
+        const serverPn = row.dataset.profit || "0";
+        pnNum.textContent = serverPn;
+        pnCell.classList.toggle("profit", numeric(serverPn) >= 0);
+        pnCell.classList.toggle("loss",   numeric(serverPn) < 0);
+        barEl.dataset.pn = String(numeric(serverPn));
+        return;
+      }
+
+      // 売買ネット損益 = (売却単価*株数 - 取得単価*株数) - 手数料
+      const qty  = parseFloat((row.dataset.quantity || "0").replace(/[^\-0-9.]/g,"")) || 0;
+      const buy  = parseFloat((row.dataset.purchase || "0").replace(/[^\-0-9.]/g,"")) || 0;
+      const sell = parseFloat((row.dataset.sell || "0").replace(/[^\-0-9.]/g,"")) || 0;
+      const fee  = parseFloat((row.dataset.fee || "0").replace(/[^\-0-9.]/g,""));
+      const buyAmt  = qty ? buy * qty : 0;
+      const sellAmt = qty ? sell * qty : 0;
+      const gross   = sellAmt - buyAmt;
+      const feeAdj  = isNaN(fee) ? 0 : (fee >= 0 ? -fee : fee); // コストは差し引く
+      const net     = gross + feeAdj;
+
+      // 金額テキスト
+      const s = Math.round(net).toLocaleString();
+      pnNum.textContent = net > 0 ? `+${s}` : s;
+
+      // 色
+      pnCell.classList.remove("profit","loss");
+      pnCell.classList.add(net < 0 ? "loss" : "profit");
+
+      // データ属性もネット値に更新（KPI/モーダルで利用）
+      row.dataset.profit = net > 0 ? `+${Math.round(net).toLocaleString()}` : `${Math.round(net).toLocaleString()}`;
+      barEl.dataset.pn = String(Math.round(net));
+
+      // 合計金額（モーダル用）
+      row.dataset._sell_amount_total = Math.round(sellAmt).toString();
+      row.dataset._buy_amount_total  = Math.round(buyAmt).toString();
+    });
+  }
+
+  /* ===== 表フィルタ ===== */
   function filterTable(){
     const year  = yearFilter?.value.trim() ?? "";
     const month = monthFilter?.value.trim() ?? "";
@@ -142,7 +190,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   yearFilter?.addEventListener("change", ()=>{ chips.forEach(c=>c.classList.remove('active')); filterTable(); });
   monthFilter?.addEventListener("change", ()=>{ chips.forEach(c=>c.classList.remove('active')); filterTable(); });
-
   chips.forEach(b=>{
     b.addEventListener("click", ()=>{
       const now = new Date();
@@ -166,7 +213,6 @@ document.addEventListener("DOMContentLoaded", () => {
       filterTable();
     });
   });
-
   searchInput?.addEventListener("input", filterTable);
   clearSearch?.addEventListener("click", ()=>{ searchInput.value=""; filterTable(); });
 
@@ -183,7 +229,7 @@ document.addEventListener("DOMContentLoaded", () => {
           va = new Date(a.children[idx].textContent.trim());
           vb = new Date(b.children[idx].textContent.trim());
         }else if (idx === 6){
-          // 損益列は金額ベースでソート
+          // 損益列は金額でソート（normalize済みの .num）
           const na = numeric(a.children[6].querySelector('.num')?.innerText || "0");
           const nb = numeric(b.children[6].querySelector('.num')?.innerText || "0");
           va = na; vb = nb;
@@ -224,7 +270,6 @@ document.addEventListener("DOMContentLoaded", () => {
         bar.appendChild(fill);
       }
       const fill = bar.firstElementChild;
-      // すこしだけアニメ
       fill.style.transition = 'width .25s ease';
       fill.style.width = Math.max(8, Math.round(64 * w / 100)) + "px";
       fill.style.borderRadius = "999px";
@@ -250,7 +295,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const modalSellAmount = $("#modalSellAmount");
   const modalBuyAmount  = $("#modalBuyAmount");
 
-  const num = (t)=> { const s = String(t??"").replace(/[^\-0-9.]/g,''); const v = parseFloat(s); return isNaN(v) ? 0 : v; };
+  const num = (t)=> { const s = String(t??"").replace(/[^\-0-9.]/g,''); const v = parseFloat(s); return isNaN(v) ? 0 : v; }
   const yen = (n)=> Math.round(n).toLocaleString('ja-JP');
 
   function openModalForRow(row){
@@ -263,10 +308,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const buy   = num(row.dataset.purchase);
     const sell  = num(row.dataset.sell);
     const fee   = num(row.dataset.fee);
+    // 正規化後の data-profit（ネット）を信頼
     const prof  = num(row.dataset.profit);
-
-    const buyAmt  = q ? buy * q : 0;
-    const sellAmt = q ? sell * q : 0;
+    // 合計額は正規化で保存したものを優先（なければ計算）
+    const buyAmt  = row.dataset._buy_amount_total  ? num(row.dataset._buy_amount_total)  : (q ? buy * q : 0);
+    const sellAmt = row.dataset._sell_amount_total ? num(row.dataset._sell_amount_total) : (q ? sell * q : 0);
 
     modalTitle.textContent     = title;
     modalPurchase.textContent  = buy ? yen(buy) : '-';
@@ -347,7 +393,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function buildInsights(){
     const visible = dataRows().filter(r => r.style.display !== "none");
     const mapMonth = new Map();
-       const mapName  = new Map();
+    const mapName  = new Map();
     const mapBroker= new Map();
 
     visible.forEach(r=>{
@@ -450,12 +496,10 @@ document.addEventListener("DOMContentLoaded", () => {
     area.addEventListener("scroll", onScroll, {passive:true});
   }
   bindScrollArea();
-
   fab.addEventListener("click", ()=>{
     const area = currentScrollArea();
     area?.scrollTo({top:0, behavior:"smooth"});
   });
-
   tabBtns.forEach(btn=>{
     btn.addEventListener("click", ()=>{
       tabBtns.forEach(b=>b.classList.remove("active"));
@@ -463,7 +507,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const v = btn.dataset.view;
       Object.keys(views).forEach(k=>views[k].classList.toggle("active", k===v));
       setTimeout(() => { recalcViewHeights(); bindScrollArea(); }, 0);
-      if (v==="tiles")  buildTiles();
+      if (v==="tiles")   buildTiles();
       if (v==="insights") buildInsights();
     });
   });
@@ -499,8 +543,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   /* ===== Init ===== */
+  normalizePnLRows();   // ← 手数料ネット化で統一（額・バー・KPI・モーダルに反映）
   attachRowHandlers();
-  filterTable();
+  filterTable();        // ← 検索/フィルタ後にKPI/バー/タイル/インサイト更新
   updateBars();
   setTimeout(() => { recalcViewHeights(); bindScrollArea(); }, 0);
 });
