@@ -1024,10 +1024,51 @@ def stock_create(request):
     tpl = get_template("stocks/stock_create.html")
     return HttpResponse(tpl.render(context, request))
 
+def _to_number_or_none(s: str | None):
+    """
+    ユーザー入力を float に安全変換:
+    - 全角→半角(NFKC)
+    - 全角/各種ダッシュを半角'-'に
+    - カンマ除去
+    - 全角ピリオド→'.'
+    - 先頭以外の '-' は除去
+    - '.' は最初の1個だけ許容
+    失敗時 None
+    """
+    if s is None:
+        return None
+    if not isinstance(s, str):
+        s = str(s)
+
+    # 全角→半角
+    s = unicodedata.normalize('NFKC', s)
+    # 全角/各種ダッシュを半角マイナスへ
+    s = re.sub(r'[－ー―−‒–—]', '-', s)
+    # カンマ除去
+    s = s.replace(',', '')
+    # 全角ピリオド類を'.'へ
+    s = s.replace('．', '.').replace('。', '.')
+    # 先頭以外の '-' は除去
+    s = re.sub(r'(?!^)-', '', s)
+    # 複数 '.' は1個に
+    parts = s.split('.')
+    if len(parts) > 2:
+        s = parts[0] + '.' + ''.join(parts[1:])
+
+    s = s.strip()
+    if s in ('', '-', '+', '.', '-.', '+.'):
+        return None
+
+    try:
+        return float(s)
+    except Exception:
+        return None
+
+
 @login_required
 def sell_stock_page(request, pk):
     stock = get_object_or_404(Stock, pk=pk)
-    errors = []
+    errors: list[str] = []
 
     # 画面表示用の現在値補完
     current_price_for_view = float(stock.current_price or 0.0)
@@ -1040,7 +1081,7 @@ def sell_stock_page(request, pk):
         except Exception:
             current_price_for_view = 0.0
 
-    # テンプレで使うフラグ（Jinja風の式を避けるため、サーバで用意）
+    # テンプレ用フラグ
     has_price_available = bool(current_price_for_view or stock.current_price)
     initial_sell_mode_default = 'market' if has_price_available else 'limit'
 
@@ -1055,15 +1096,15 @@ def sell_stock_page(request, pk):
     if request.method == "POST":
         mode = (request.POST.get("sell_mode") or "").strip()
 
+        # 株数（整数）
         try:
             shares_to_sell = int(request.POST.get("shares") or 0)
         except (TypeError, ValueError):
             shares_to_sell = 0
 
-        try:
-            limit_price = float(request.POST.get("limit_price") or 0)
-        except (TypeError, ValueError):
-            limit_price = 0.0
+        # 指値（安全パース）
+        limit_price_raw = request.POST.get("limit_price") or ""
+        limit_price = _to_number_or_none(limit_price_raw) or 0.0
 
         # 売却日
         sell_date_str = (request.POST.get("sell_date") or "").strip()
@@ -1076,13 +1117,12 @@ def sell_stock_page(request, pk):
             except Exception:
                 errors.append("売却日が不正です。YYYY-MM-DD 形式で指定してください。")
 
-        # 実際の損益額（空なら None。0 は有効値）
+        # 実際の損益額（空欄は None。0 は有効）
         ap_raw = request.POST.get("actual_profit", None)
         actual_profit = None
         if ap_raw is not None and ap_raw != "":
-            try:
-                actual_profit = float(ap_raw)
-            except (TypeError, ValueError):
+            actual_profit = _to_number_or_none(ap_raw)
+            if actual_profit is None:
                 errors.append("実際の損益額は数値で入力してください。")
 
         # 売却方法/数量/価格の検証
@@ -1096,7 +1136,7 @@ def sell_stock_page(request, pk):
 
         price = None
         if mode == "market":
-            # 現在値 → 取得できない場合は 0 なのでエラー
+            # 市場価格が取れない場合は指値を促す
             price = float(stock.current_price or current_price_for_view or 0)
             if price <= 0:
                 errors.append("市場価格を取得できません。『指値』を選択して価格を入力してください。")
@@ -1109,7 +1149,7 @@ def sell_stock_page(request, pk):
         if not price or price <= 0:
             errors.append("売却価格が不正です。")
 
-        # ここでエラーなら入力値を保持して再描画
+        # エラー時：入力値を保持して再描画
         if errors:
             posted = {
                 "sell_mode": mode,
@@ -1142,7 +1182,7 @@ def sell_stock_page(request, pk):
         # 損益：入力あれば採用、空なら 売却額−取得額
         final_profit_amount = actual_profit if actual_profit is not None else (sell_amount - buy_amount)
 
-        # 手数料：売却額 − 取得額 − 損益（損益が ± どちらでも成立）
+        # 手数料：売却額 − 取得額 − 損益（損益が±どちらでも成立）
         fee = sell_amount - buy_amount - final_profit_amount
 
         # 率
