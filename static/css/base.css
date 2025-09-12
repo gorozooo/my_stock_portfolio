@@ -1,6 +1,6 @@
 /* ========================================
    固定ナビバー & 下タブ (base.css)
-   スマホファースト設計 / 使いやすさ強化
+   スマホファースト / サブメニューをJSでレンダリング
 ======================================== */
 
 /* ===== ナビバー ===== */
@@ -35,13 +35,11 @@
   line-height: 1.2;
   margin-right: 30px;
 }
-
 @keyframes gradientFlow {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
 }
-
 @keyframes glowTitle {
   from { text-shadow: 0 0 12px #0ff, 0 0 24px #0ff; }
   to   { text-shadow: 0 0 20px #f0f, 0 0 40px #f0f; }
@@ -58,13 +56,12 @@
   margin-right: 30px;
   animation: glowCurrent 2s ease-in-out infinite alternate;
 }
-
 @keyframes glowCurrent {
   from { text-shadow: 0 0 10px #0ff, 0 0 20px #0ff; }
   to   { text-shadow: 0 0 18px #0ff, 0 0 36px #0ff; }
 }
 
-/* ===== 下タブ (スマホ: 安定タップ & セーフエリア配慮) ===== */
+/* ===== 下タブ ===== */
 .bottom-tab {
   position: fixed;
   inset: auto 0 0 0;
@@ -79,6 +76,17 @@
   z-index: 1000;
   border-top: 1px solid rgba(0, 255, 255, 0.15);
   box-shadow: 0 -4px 18px rgba(0, 255, 255, 0.2);
+}
+
+/* ✅ 重要：元のサブメニューは常に隠す（JSがコピーして描画） */
+.bottom-tab .tab-item .sub-menu {
+  display: none !important;
+  visibility: hidden !important;
+  position: absolute !important;
+  left: -9999px !important;
+  top: auto !important;
+  height: 0 !important;
+  overflow: hidden !important;
 }
 
 .bottom-tab .tab-list {
@@ -140,7 +148,6 @@
   text-shadow: 0 0 6px #0ff, 0 0 14px #0ff, 0 0 24px rgba(0,255,255,0.7);
   transform: translateY(-2px);
 }
-
 .bottom-tab .tab-link:hover i,
 .bottom-tab .tab-item.active .tab-link i,
 .bottom-tab .tab-item.open .tab-link i {
@@ -160,7 +167,6 @@
   transition: opacity .18s ease;
   z-index: 1001;
 }
-
 .tab-backdrop.show {
   opacity: 1;
   pointer-events: auto;
@@ -181,7 +187,6 @@
   margin: 0 10px 8px;
   overflow: hidden;
 }
-
 .bottom-sheet.show {
   transform: translateY(0);
   opacity: 1;
@@ -194,7 +199,6 @@
   margin: 0;
   padding: 6px 0;
 }
-
 .bottom-sheet .sub-menu li a {
   display: block;
   padding: 12px 16px;
@@ -204,7 +208,6 @@
   letter-spacing: .01em;
   transition: background .15s ease, color .15s ease, text-shadow .15s ease;
 }
-
 .bottom-sheet .sub-menu li a:active,
 .bottom-sheet .sub-menu li a:hover {
   color: #0ff;
@@ -212,7 +215,7 @@
   background: rgba(0, 255, 255, 0.06);
 }
 
-/* ===== PC/タブレット時は “吹き出し型” に切り替え ===== */
+/* ===== PC/タブレット時は “吹き出し型” ===== */
 @media (min-width: 768px) {
   .bottom-sheet { display: none; }
 
