@@ -1066,8 +1066,8 @@ def sell_stock_page(request, pk):
         sold_at = timezone.now()
         if sell_date_str:
             try:
-                sell_date = datetime.date.fromisoformat(sell_date_str)  # type: ignore[attr-defined]
-                sold_at_naive = datetime.combine(sell_date, dt.time(15, 0, 0))
+                sell_date = dt.date.fromisoformat(sell_date_str)
+                sold_at_naive = dt.datetime.combine(sell_date, dt.time(15, 0, 0))
                 sold_at = timezone.make_aware(sold_at_naive, timezone.get_current_timezone())
             except Exception:
                 errors.append("売却日が不正です。YYYY-MM-DD 形式で指定してください。")
@@ -1092,7 +1092,10 @@ def sell_stock_page(request, pk):
 
         price = None
         if mode == "market":
-            price = float(stock.current_price or current_price_for_view or stock.unit_price or 0)
+            # 現在値 → 取得できない場合は 0 なのでエラー
+            price = float(stock.current_price or current_price_for_view or 0)
+            if price <= 0:
+                errors.append("市場価格を取得できません。『指値』を選択して価格を入力してください。")
         else:
             if limit_price <= 0:
                 errors.append("指値価格を正しく入力してください。")
@@ -1105,31 +1108,35 @@ def sell_stock_page(request, pk):
         # ここでエラーなら入力値を保持して再描画
         if errors:
             posted = {
-    "sell_mode": mode,
-    "shares": shares_to_sell,
-    "limit_price": request.POST.get("limit_price", ""),
-    "sell_date": sell_date_str,
-    "actual_profit": request.POST.get("actual_profit", ""),
-    "fee": request.POST.get("fee", ""),
-    "sell_price": request.POST.get("sell_price", ""),
-}
-return render(request, "stocks/sell_stock_page.html", {
-    "stock": stock,
-    "errors": errors,
-    "current_price": current_price_for_view or 0.0,
-    "posted": posted,
-    "today_str": timezone.now().date().isoformat(),
-})
+                "sell_mode": mode,
+                "shares": request.POST.get("shares", ""),
+                "limit_price": request.POST.get("limit_price", ""),
+                "sell_date": sell_date_str,
+                "actual_profit": request.POST.get("actual_profit", ""),
+                "fee": request.POST.get("fee", ""),
+                "sell_price": request.POST.get("sell_price", ""),
+            }
+            return render(
+                request,
+                "stocks/sell_stock_page.html",
+                {
+                    "stock": stock,
+                    "errors": errors,
+                    "current_price": current_price_for_view or 0.0,
+                    "posted": posted,
+                    "today_str": timezone.now().date().isoformat(),
+                },
+            )
 
         # ==== 計算（最終）====
-        unit_price = float(stock.unit_price or 0)               # 取得単価（/株）
-        buy_amount = unit_price * shares_to_sell                # 取得額（合計）
-        sell_amount = float(price) * shares_to_sell             # 売却額（合計）
+        unit_price = float(stock.unit_price or 0)                # 取得単価（/株）
+        buy_amount = unit_price * shares_to_sell                 # 取得額（合計）
+        sell_amount = float(price) * shares_to_sell              # 売却額（合計）
 
         # 損益：入力あれば採用、空なら 売却額−取得額
         final_profit_amount = actual_profit if actual_profit is not None else (sell_amount - buy_amount)
 
-        # 手数料：売却額 − 取得額 − 損益（損益±どちらでもOK）
+        # 手数料：売却額 − 取得額 − 損益（損益が ± どちらでも成立）
         fee = sell_amount - buy_amount - final_profit_amount
 
         # 率
