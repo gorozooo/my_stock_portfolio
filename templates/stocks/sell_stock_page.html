@@ -130,21 +130,18 @@
       {% endwith %}
     </section>
 
-    <!-- 実際の損益額：小数点・マイナスOK（仮想キー付き） -->
+    <!-- 実際の損益額 -->
     <section class="form-section card">
       <label class="form-label" for="actual-profit">実際の損益額（円）</label>
       <input id="actual-profit" name="actual_profit"
              type="text"
-             inputmode="tel"
-             autocomplete="off"
-             autocorrect="off"
-             autocapitalize="off"
-             spellcheck="false"
+             inputmode="tel"        <!-- ← 電話配列で確実に数字行 -->
+             autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
              placeholder="例: -12,345.67"
              value="{{ posted.actual_profit|default:'' }}"
              class="text-input">
     
-      <!-- 仮想キー -->
+      <!-- ここを追加：仮想キー -->
       <div class="softpad" data-target="#actual-profit" aria-label="数値キーパッド">
         <button type="button" class="sp-key sp-minus">−</button>
         <button type="button" class="sp-key sp-dot">.</button>
