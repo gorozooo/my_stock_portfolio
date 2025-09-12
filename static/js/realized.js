@@ -1,33 +1,31 @@
 document.addEventListener("DOMContentLoaded", () => {
-  /* ===== 要素参照 ===== */
-  const yearFilter  = document.getElementById("yearFilter");
-  const monthFilter = document.getElementById("monthFilter");
-  const table       = document.getElementById("realizedTable");
-  const tbody       = table.querySelector("tbody");
-  const emptyState  = document.getElementById("emptyState");
-  const chips       = [...document.querySelectorAll(".quick-chips .chip")];
-  const segBtns     = [...document.querySelectorAll(".seg-btn")];
-  const tableWrapper= document.getElementById("tableWrapper");
-  const fab         = document.getElementById("scrollTopFab");
+  /* ===== 要素 ===== */
+  const yearFilter   = document.getElementById("yearFilter");
+  const monthFilter  = document.getElementById("monthFilter");
+  const table        = document.getElementById("realizedTable");
+  const tbody        = table.querySelector("tbody");
+  const emptyState   = document.getElementById("emptyState");
+  const chips        = [...document.querySelectorAll(".quick-chips .chip")];
+  const segBtns      = [...document.querySelectorAll(".seg-btn")];
+  const tableWrapper = document.getElementById("tableWrapper");
+  const fab          = document.getElementById("scrollTopFab");
+  const kpiToggle    = document.getElementById("kpiToggle");
+  const topFixed     = document.querySelector(".top-fixed");
 
-  /* ===== iPhone対策：上部/下タブの高さを計測 ===== */
+  /* ===== 上部/下タブの高さを実測してCSS変数に反映（iPhone対応） ===== */
   function calcHeights(){
-    // 上部 = .top-fixed のボックス高 + マージン分
     const top = document.querySelector(".top-fixed");
     const topH = top ? (top.getBoundingClientRect().height + 8) : 0;
-
-    // 下タブがあれば高さを読む（bottom_tab.html 内の固定バーを想定）
     const bottom = document.querySelector(".bottom-tab, .bottom_navbar, #bottomTab, [data-bottom-tab]");
     const bottomH = bottom ? (bottom.getBoundingClientRect().height) : 0;
-
     document.documentElement.style.setProperty("--top-h", `${topH}px`);
     document.documentElement.style.setProperty("--bottom-h", `${bottomH}px`);
   }
   calcHeights();
   window.addEventListener("resize", calcHeights);
-  window.addEventListener("orientationchange", () => setTimeout(calcHeights, 50));
+  window.addEventListener("orientationchange", () => setTimeout(calcHeights, 60));
 
-  /* ===== KPI計算 ===== */
+  /* ===== KPI 計算 ===== */
   const sumCount        = document.getElementById("sumCount");
   const winRateEl       = document.getElementById("winRate");
   const netProfitEl     = document.getElementById("netProfit");
@@ -159,12 +157,12 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   /* ===== 表示トグル（損益額⇄率） ===== */
-  function applyToggle(mode){ // mode: 'amount' | 'rate'
+  function applyToggle(mode){ // 'amount' | 'rate'
     const profitCol = 6, rateCol = 7; // 0始まり
-    // 列ヘッダ
+    // ヘッダ
     table.querySelectorAll("thead th")[profitCol].classList.toggle("col-hide", mode === "rate");
     table.querySelectorAll("thead th")[rateCol].classList.toggle("col-hide", mode === "amount");
-    // 全行
+    // 本体
     [...table.querySelectorAll(`tbody td:nth-child(${profitCol+1})`)].forEach(td=>td.classList.toggle("col-hide", mode === "rate"));
     [...table.querySelectorAll(`tbody td:nth-child(${rateCol+1})`)].forEach(td=>td.classList.toggle("col-hide", mode === "amount"));
   }
@@ -172,13 +170,12 @@ document.addEventListener("DOMContentLoaded", () => {
     b.addEventListener("click", ()=>{
       segBtns.forEach(x=>x.classList.remove("active"));
       b.classList.add("active");
-      const mode = b.dataset.show;
-      applyToggle(mode);
+      applyToggle(b.dataset.show);
     });
   });
-  applyToggle("amount"); // 初期は損益額表示
+  applyToggle("amount"); // 初期表示
 
-  /* ===== 損益バー（可視化） ===== */
+  /* ===== 損益バーの可視化 ===== */
   function updateBars(){
     const visible = getAllDataRows().filter(r => r.style.display !== "none");
     const pnVals = visible.map(r => {
@@ -186,66 +183,29 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!bar) return 0;
       return Math.abs(parseFloat(bar.dataset.pn || "0"));
     });
-    const max = Math.max(5000, ...pnVals); // 小さすぎると差が見えないので最小基準
+    const max = Math.max(5000, ...pnVals);
     visible.forEach(r=>{
       const bar = r.querySelector(".profit-cell .bar");
       if (!bar) return;
       const val = Math.abs(parseFloat(bar.dataset.pn || "0"));
       const w = Math.min(100, Math.round((val / max) * 100));
-      bar.style.setProperty("--w", w + "%");
-      bar.style.setProperty("--sign", (parseFloat(bar.dataset.pn||"0")>=0 ? "pos":"neg"));
-      bar.style.setProperty("--abs", val);
-      bar.style.setProperty("--max", max);
-      bar.style.setProperty("--ratio", (val/max));
-      bar.style.setProperty("--human", val.toLocaleString());
-      bar.style.setProperty("--wpx", Math.round(0.64 * w) + "px");
-      bar.style.setProperty("--w", w + "%");
-      bar.style.setProperty("--hint", `"${val.toLocaleString()}"`);
-
-      // 実バー描画
-      bar.style.position = "relative";
-      bar.style.setProperty("--width", w + "%");
-      bar.style.setProperty("--opacity", 0.95);
-      bar.style.setProperty("--blur", "0px");
-      bar.style.setProperty("--glow", "0 0 12px rgba(0,255,200,.35)");
-      bar.style.setProperty("--shadow", "inset 0 0 0 1px rgba(255,255,255,.22)");
-      bar.style.setProperty("--sat", 1.0);
-      bar.style.setProperty("--alpha", 0.9);
-      bar.style.setProperty("--wmin", "8%");
-      bar.style.setProperty("--wmax", "100%");
-      bar.style.setProperty("--grad", "linear-gradient(90deg, rgba(255,255,255,.22), rgba(255,255,255,.08))");
-      bar.style.setProperty("--gradPos", "linear-gradient(90deg, rgba(0,220,130,.95), rgba(0,255,210,.85))");
-      bar.style.setProperty("--gradNeg", "linear-gradient(90deg, rgba(255,80,100,.95), rgba(255,120,120,.85))");
-      // 擬似要素幅を制御（Safari対策で style.width 併用）
-      bar.style.width = "64px";
-      bar.style.setProperty("--barw", w + "%");
-      bar.style.setProperty("--barwpx", Math.max(8, Math.round(64 * w / 100)) + "px");
-      bar.style.setProperty("--barglow", (bar.closest(".loss") ? "0 0 10px rgba(255,90,110,.3)" : "0 0 10px rgba(0,255,210,.3)"));
-      // 実際の before 幅
-      bar.style.setProperty("--before-width", Math.max(8, Math.round(64 * w / 100)) + "px");
-      bar.style.setProperty("--before-color", bar.closest(".loss") ? "rgba(255,120,130,.95)" : "rgba(0,240,200,.95)");
-      bar.style.setProperty("--before-gradient", bar.closest(".loss") ? "linear-gradient(90deg, rgba(255,80,100,.95), rgba(255,120,120,.85))" : "linear-gradient(90deg, rgba(0,220,130,.95), rgba(0,255,210,.85))");
-      bar.style.setProperty("--before-shadow", "0 0 10px rgba(0,0,0,.25)");
-      bar.style.setProperty("--before-radius", "999px");
-      // 実適用
-      bar.style.setProperty("box-shadow", "inset 0 0 0 1px rgba(255,255,255,.20)");
-      bar.style.setProperty("background", "linear-gradient(90deg, rgba(255,255,255,.22), rgba(255,255,255,.08))");
-      bar.style.setProperty("overflow", "hidden");
-      bar.style.setProperty("border-radius", "999px");
-      // before を JS で描画（Safari 擬似要素幅制御の互換策）
+      // Safari対策：疑似要素ではなく内側spanで幅を反映
       if (!bar.firstElementChild){
         const fill = document.createElement("span");
         fill.style.position = "absolute";
         fill.style.left = "0"; fill.style.top = "0"; fill.style.bottom = "0";
-        fill.style.width = Math.max(8, Math.round(64 * w / 100)) + "px";
-        fill.style.borderRadius = "999px";
-        fill.style.background = bar.closest(".loss") ? "linear-gradient(90deg, rgba(255,80,100,.95), rgba(255,120,120,.85))" : "linear-gradient(90deg, rgba(0,220,130,.95), rgba(0,255,210,.85))";
-        fill.style.boxShadow = "0 0 10px rgba(0,0,0,.25)";
         bar.appendChild(fill);
-      }else{
-        bar.firstElementChild.style.width = Math.max(8, Math.round(64 * w / 100)) + "px";
-        bar.firstElementChild.style.background = bar.closest(".loss") ? "linear-gradient(90deg, rgba(255,80,100,.95), rgba(255,120,120,.85))" : "linear-gradient(90deg, rgba(0,220,130,.95), rgba(0,255,210,.85))";
       }
+      const fill = bar.firstElementChild;
+      fill.style.width = Math.max(8, Math.round(64 * w / 100)) + "px";
+      fill.style.borderRadius = "999px";
+      fill.style.background = bar.closest(".loss")
+        ? "linear-gradient(90deg, rgba(255,80,100,.95), rgba(255,120,120,.85))"
+        : "linear-gradient(90deg, rgba(0,220,130,.95), rgba(0,255,210,.85))";
+      bar.style.boxShadow = "inset 0 0 0 1px rgba(255,255,255,.20)";
+      bar.style.overflow = "hidden";
+      bar.style.borderRadius = "999px";
+      bar.style.width = "64px";
     });
   }
 
@@ -308,7 +268,6 @@ document.addEventListener("DOMContentLoaded", () => {
   if (closeBtn) closeBtn.addEventListener("click", closeModal);
   window.addEventListener("click", (e)=>{ if (modal && e.target === modal) closeModal(); });
 
-  // 行にタップ・クリック付与
   function attachRowHandlers(){
     const TAP_MAX_MOVE = 10, TAP_MAX_TIME = 500;
     getAllDataRows().forEach(row=>{
@@ -335,6 +294,55 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   tableWrapper.addEventListener("scroll", onScroll, {passive:true});
   fab.addEventListener("click", ()=> tableWrapper.scrollTo({top:0, behavior:"smooth"}));
+
+  /* ===== KPI 折りたたみ（手動）＋ 自動スリム化（スクロール） ===== */
+  let userPinned = localStorage.getItem("realized.kpiPinned") === "1"; // 展開固定フラグ
+  const PREF_KEY = "realized.kpiCollapsed";
+
+  function setCollapsed(collapsed){
+    if (!topFixed) return;
+    topFixed.classList.toggle("collapsed", collapsed);
+    // ボタンの文言・状態
+    if (kpiToggle){
+      kpiToggle.setAttribute("aria-expanded", (!collapsed).toString());
+      kpiToggle.textContent = collapsed ? "KPIを表示" : "KPIを隠す";
+    }
+    calcHeights(); // 高さ再計測（表の縦計算を崩さない）
+  }
+
+  // 初期状態：既に保存がなければ「折りたたみ=true」で表を広く
+  const saved = localStorage.getItem(PREF_KEY);
+  if (saved === null){
+    setCollapsed(true);
+    localStorage.setItem(PREF_KEY, "1");
+  }else{
+    setCollapsed(saved === "1");
+  }
+
+  if (kpiToggle){
+    kpiToggle.addEventListener("click", ()=>{
+      const next = !topFixed.classList.contains("collapsed");
+      setCollapsed(next);
+      localStorage.setItem(PREF_KEY, next ? "1" : "0");
+      // 展開＝ピン留め、収納＝ピン解除
+      userPinned = (next === false);
+      localStorage.setItem("realized.kpiPinned", userPinned ? "1" : "0");
+    });
+  }
+
+  // スクロールで自動スリム化（ユーザーが展開固定していない時に作動）
+  function autoSlimByScroll(){
+    if (!topFixed) return;
+    if (userPinned) return;
+    const y = tableWrapper.scrollTop;
+    const collapsed = y > 24;
+    topFixed.classList.toggle("slim", y > 4);
+    if (collapsed !== topFixed.classList.contains("collapsed")){
+      setCollapsed(collapsed);
+      localStorage.setItem(PREF_KEY, collapsed ? "1" : "0");
+    }
+  }
+  tableWrapper.addEventListener("scroll", autoSlimByScroll, {passive:true});
 
   /* ===== 初期描画 ===== */
   attachRowHandlers();
