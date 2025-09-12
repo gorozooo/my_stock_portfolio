@@ -103,9 +103,16 @@ document.addEventListener("DOMContentLoaded", () => {
     avgProfitOnlyEl.textContent = fmt(avgPos);
     avgLossOnlyEl.textContent   = fmt(avgNeg);
 
+    // ★ リング：12時起点、アニメ＆色相変化
     if (winArc){
       const pct = Math.max(0, Math.min(100, winRate));
-      winArc.setAttribute("stroke-dasharray", `${pct},100`);
+      winArc.setAttribute("stroke-dasharray", `${pct} 100`);
+      winArc.setAttribute("stroke-dashoffset", "0");
+      // アニメーション（CSSに依存＋ここでも再指定）
+      winArc.style.transition = 'stroke-dasharray .35s ease, stroke .35s ease';
+      // 赤→緑へ
+      const hue = Math.round((pct/100)*120); // 0=赤, 120=緑
+      winArc.style.stroke = `hsl(${hue} 70% 55%)`;
     }
   }
 
@@ -217,6 +224,8 @@ document.addEventListener("DOMContentLoaded", () => {
         bar.appendChild(fill);
       }
       const fill = bar.firstElementChild;
+      // すこしだけアニメ
+      fill.style.transition = 'width .25s ease';
       fill.style.width = Math.max(8, Math.round(64 * w / 100)) + "px";
       fill.style.borderRadius = "999px";
       const numText = r.querySelector('.pnl-cell .num')?.innerText || "0";
