@@ -85,12 +85,14 @@ body{
   font-variant-numeric:tabular-nums; font-size: clamp(0.98rem, 3.4vw, 1.18rem); font-weight:800;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; max-width:100%;
 }
+
+/* ★ 回転削除バージョン（12時起点） */
 .kpi-card.ring{ display:flex; align-items:center; justify-content:center; min-width:0; }
-.circular{ width:72px; height:72px; transform:rotate(-90deg); flex:0 0 auto; }
+.circular{ width:72px; height:72px; flex:0 0 auto; }
 .circular .bg{ fill:none; stroke:rgba(255,255,255,.18); stroke-width:4; }
-.circular .fg{ fill:none; stroke:#26c281; stroke-width:4; stroke-linecap:round; transition:stroke-dasharray .3s ease; }
+.circular .fg{ fill:none; stroke:#26c281; stroke-width:4; stroke-linecap:round; transition:stroke-dasharray .35s ease, stroke .35s ease; }
 .ring-wrap{ position:relative; }
-.ring-val{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; transform:rotate(90deg); }
+.ring-val{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
 .ring-val span{ font-weight:900; }
 .profit{ color:var(--ok); font-weight:700; } .loss{ color:var(--ng); font-weight:700; }
 
