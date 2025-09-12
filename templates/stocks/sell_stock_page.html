@@ -130,18 +130,28 @@
       {% endwith %}
     </section>
 
-    <!-- 実際の損益額：小数点・マイナスOK -->
-<section class="form-section card">
-  <label class="form-label" for="actual-profit">実際の損益額（円）</label>
-  <input id="actual-profit" name="actual_profit"
-         type="text"
-         inputmode="numeric"
-         pattern="^-?\d*([.,]\d+)?$"
-         step="any"
-         placeholder="例: -12,345.67（マイナスも可）"
-         value="{{ posted.actual_profit|default:'' }}"
-         class="text-input">
-</section>
+    <!-- 実際の損益額：小数点・マイナスOK（仮想キー付き） -->
+    <section class="form-section card">
+      <label class="form-label" for="actual-profit">実際の損益額（円）</label>
+      <input id="actual-profit" name="actual_profit"
+             type="text"
+             inputmode="tel"
+             autocomplete="off"
+             autocorrect="off"
+             autocapitalize="off"
+             spellcheck="false"
+             placeholder="例: -12,345.67"
+             value="{{ posted.actual_profit|default:'' }}"
+             class="text-input">
+    
+      <!-- 仮想キー -->
+      <div class="softpad" data-target="#actual-profit" aria-label="数値キーパッド">
+        <button type="button" class="sp-key sp-minus">−</button>
+        <button type="button" class="sp-key sp-dot">.</button>
+        <button type="button" class="sp-key sp-toggle">±</button>
+        <button type="button" class="sp-key sp-clear">C</button>
+      </div>
+    </section>
 
     <!-- ライブ計算 -->
     <section class="review card">
