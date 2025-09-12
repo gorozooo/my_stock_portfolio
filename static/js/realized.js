@@ -31,11 +31,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const topbar = $(".rp-topbar");
   const tabs   = $(".rp-tabs");
   function findBottomTab() {
-    // 複数候補から最初に見つかった要素を返す
-    return document.querySelector(".bottom-tab") ||
-           document.querySelector(".bottom_navbar") ||
-           document.getElementById("bottomTab") ||
-           document.querySelector("[data-bottom-tab]");
+    return document.querySelector(".bottom-tab")
+        || document.querySelector(".bottom_navbar")
+        || document.getElementById("bottomTab")
+        || document.querySelector("[data-bottom-tab]");
   }
 
   function vh(){ return Math.max(window.innerHeight, document.documentElement.clientHeight); }
@@ -54,10 +53,12 @@ document.addEventListener("DOMContentLoaded", () => {
     $$(".view.active .scroll-area").forEach(el => { el.style.height = `${rest}px`; });
   }
 
-  // ボトムタブのサイズ変化も監視（表示/非表示・端末回転等）
-  const bottomObserver = new MutationObserver(recalcViewHeights);
-  const bottomElInit = findBottomTab();
-  if (bottomElInit) bottomObserver.observe(bottomElInit, {attributes:true, childList:true, subtree:true});
+  // ボトムタブのサイズ変化も監視
+  let bottomElInit = findBottomTab();
+  if (bottomElInit) {
+    const bottomObserver = new MutationObserver(recalcViewHeights);
+    bottomObserver.observe(bottomElInit, {attributes:true, childList:true, subtree:true});
+  }
 
   window.addEventListener("load", recalcViewHeights);
   window.addEventListener("resize", recalcViewHeights);
@@ -192,21 +193,37 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   /* ===== Toggle amount/rate columns ===== */
+  const TOGGLE_KEY = "rp.toggleMode"; // "amount" | "rate"
   function applyToggle(mode){
-    const profitCol = 6, rateCol = 7;
+    const profitCol = 6, rateCol = 7; // 0-based index
+    // ヘッダー
     table.querySelectorAll("thead th")[profitCol].classList.toggle("col-hide", mode === "rate");
     table.querySelectorAll("thead th")[rateCol].classList.toggle("col-hide", mode === "amount");
-    [...table.querySelectorAll(`tbody td:nth-child(${profitCol+1})`)].forEach(td=>td.classList.toggle("col-hide", mode === "rate"));
-    [...table.querySelectorAll(`tbody td:nth-child(${rateCol+1})`)].forEach(td=>td.classList.toggle("col-hide", mode === "amount"));
+    // 本体
+    [...table.querySelectorAll(`tbody td:nth-child(${profitCol+1})`)]
+      .forEach(td=>td.classList.toggle("col-hide", mode === "rate"));
+    [...table.querySelectorAll(`tbody td:nth-child(${rateCol+1})`)]
+      .forEach(td=>td.classList.toggle("col-hide", mode === "amount"));
+
+    // UI状態
+    segBtns.forEach(b=>{
+      const active = b.dataset.show === mode;
+      b.classList.toggle("active", active);
+      b.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    localStorage.setItem(TOGGLE_KEY, mode);
   }
+
+  // 初期モード（保存があれば復元）
+  const initialMode = localStorage.getItem(TOGGLE_KEY) || "amount";
+  applyToggle(initialMode);
+
   segBtns.forEach(b=>{
     b.addEventListener("click", ()=>{
-      segBtns.forEach(x=>x.classList.remove("active"));
-      b.classList.add("active");
-      applyToggle(b.dataset.show);
+      const mode = b.dataset.show === "rate" ? "rate" : "amount";
+      applyToggle(mode);
     });
   });
-  applyToggle("amount");
 
   /* ===== P/L Bars ===== */
   function updateBars(){
@@ -329,7 +346,7 @@ document.addEventListener("DOMContentLoaded", () => {
     area?.scrollTo({top:0, behavior:"smooth"});
   });
 
-  /* ===== KPI 開閉（収まり＋再採寸） ===== */
+  /* ===== KPI 開閉 ===== */
   if (kpiToggle && controlsBox){
     const PREF_COLLAPSE = "rp.kpiCollapsed";
     function setCollapsed(collapsed){
@@ -399,7 +416,6 @@ document.addEventListener("DOMContentLoaded", () => {
   function buildInsights(){
     const visible = dataRows().filter(r => r.style.display !== "none");
     const mapMonth = new Map();
-    aconst = 1; // (noop to ensure file change; remove if undesired)
     const mapName  = new Map();
     const mapBroker= new Map();
 
@@ -489,6 +505,18 @@ document.addEventListener("DOMContentLoaded", () => {
     tiles: $("#view-tiles"),
     insights: $("#view-insights"),
   };
+  function bindScrollArea(){
+    const area = document.querySelector(".view.active .scroll-area");
+    if (!area) return;
+    area.removeEventListener("scroll", onScroll);
+    area.addEventListener("scroll", onScroll, {passive:true});
+  }
+  function onScroll(){
+    const area = document.querySelector(".view.active .scroll-area");
+    if (!area) return;
+    const show = area.scrollTop > 200;
+    fab.classList.toggle("show", show);
+  }
   tabBtns.forEach(btn=>{
     btn.addEventListener("click", ()=>{
       tabBtns.forEach(b=>b.classList.remove("active"));
