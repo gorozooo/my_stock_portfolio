@@ -212,3 +212,6 @@ body{
 @media (max-width:420px){
   :root{ --w-date:7.2rem; --w-broker:6.2rem; --w-account:5.6rem; --w-type:5.0rem; --w-qty:5.0rem; --w-profit:8.0rem; --w-rate:6.0rem; }
 }
+
+/* 列の表示/非表示に使用（損益額・損益率トグル用） */
+.col-hide { display: none !important; }
