@@ -10,9 +10,6 @@
 
 {% block content %}
 {% now "Y-m-d" as now_str %}
-{% comment %}
-  today_str はビューから渡す値を優先。無ければ now の日付を使用。
-{% endcomment %}
 {% with today_val=today_str|default:now_str %}
 <div class="sell-page">
   <header class="sell-header">
@@ -34,24 +31,22 @@
     <div class="sell-errors" id="sell-errors" aria-live="polite" hidden></div>
   {% endif %}
 
-  <form id="sell-form"
-        method="post"
-        action="{% url 'stock_sell' pk=stock.pk %}">
+  {# 現在値が無い時のヒント #}
+  {% if not current_price and not stock.current_price %}
+    <div class="banner warn">現在値を取得できないため、初期状態を「指値」にしています。価格を入力してください。</div>
+  {% endif %}
+
+  <form id="sell-form" method="post" action="{% url 'stock_sell' pk=stock.pk %}">
     {% csrf_token %}
     <input type="hidden" name="stock_id" value="{{ stock.id }}">
-    <!-- JSで計算してサーバへ送る（サーバ側で再計算は継続推奨） -->
     <input type="hidden" name="fee" id="hidden-fee" value="{{ posted.fee|default:'' }}">
     <input type="hidden" name="sell_price" id="hidden-sell-price" value="{{ posted.sell_price|default:'' }}">
 
     <!-- 売却日 -->
     <section class="sell-date card">
       <label class="form-label" for="sell-date-input">売却日</label>
-      <input
-        id="sell-date-input"
-        name="sell_date"
-        type="date"
-        value="{{ posted.sell_date|default:today_val }}"
-        class="text-input">
+      <input id="sell-date-input" name="sell_date" type="date"
+             value="{{ posted.sell_date|default:today_val }}" class="text-input">
       <p class="hint">約定日を選択（未変更なら本日）</p>
     </section>
 
@@ -62,7 +57,9 @@
       <div class="pill">
         <span class="k">現在株価</span>
         <span class="v">
-          {% if stock.current_price %}
+          {% if current_price %}
+            ¥{{ current_price|floatformat:0|intcomma }}
+          {% elif stock.current_price %}
             ¥{{ stock.current_price|floatformat:0|intcomma }}
           {% else %}
             —
@@ -97,8 +94,9 @@
     <!-- 売却方法 -->
     <section class="form-section card">
       <span class="form-label">売却方法</span>
+      {% with has_price=(current_price or stock.current_price) %}
       <div class="mode-row" role="radiogroup" aria-label="売却方法">
-        {% with sel=posted.sell_mode|default:'market' %}
+        {% with sel=posted.sell_mode|default:('market' if has_price else 'limit') %}
           <label class="mode-item">
             <input type="radio" name="sell_mode" value="market" {% if sel == 'market' %}checked{% endif %}>
             <span>市場価格</span>
@@ -110,16 +108,18 @@
         {% endwith %}
       </div>
 
-      {% with sel=posted.sell_mode|default:'market' %}
+      {# 価格入力（現在値が無ければ初期表示） #}
+      {% with sel=posted.sell_mode|default:('market' if has_price else 'limit') %}
       <div id="limit-wrap" class="limit-wrap" {% if sel != 'limit' %}hidden{% endif %}>
         <label class="form-label" for="limit-price">指値（円）</label>
         <input id="limit-price" name="limit_price" type="number" inputmode="numeric"
                min="0" step="1" placeholder="例: 1,234"
-               value="{{ posted.limit_price|default:'' }}"
-               class="text-input">
+               value="{{ posted.limit_price|default:'' }}" class="text-input">
 
         <div class="limit-hints">
-          {% if stock.current_price %}
+          {% if current_price %}
+            <button type="button" class="chip" data-limit="{{ current_price|floatformat:0 }}">現在値</button>
+          {% elif stock.current_price %}
             <button type="button" class="chip" data-limit="{{ stock.current_price|floatformat:0 }}">現在値</button>
           {% endif %}
           <button type="button" class="chip" data-limit="+5">+5</button>
@@ -129,6 +129,7 @@
         </div>
       </div>
       {% endwith %}
+      {% endwith %}
     </section>
 
     <!-- 実際の損益額 -->
@@ -136,8 +137,7 @@
       <label class="form-label" for="actual-profit">実際の損益額（円）</label>
       <input id="actual-profit" name="actual_profit" type="number" inputmode="numeric" step="1"
              placeholder="例: 12,345（空欄なら 売却額−取得額 を使用）"
-             value="{{ posted.actual_profit|default:'' }}"
-             class="text-input">
+             value="{{ posted.actual_profit|default:'' }}" class="text-input">
     </section>
 
     <!-- ライブ計算（レビュー） -->
@@ -154,7 +154,6 @@
       <button type="submit" class="btn danger" id="sell-submit">売却する</button>
     </div>
 
-    <!-- 最下部まで確実にスクロールさせるスペーサ -->
     <div class="page-end-spacer" aria-hidden="true"></div>
   </form>
 </div>
@@ -176,4 +175,19 @@
   };
 </script>
 <script src="{% static 'js/stock_sell.js' %}" defer></script>
+<script>
+  // 現在値が無い場合はJSでも安全に「指値」へ切替
+  document.addEventListener('DOMContentLoaded', ()=>{
+    const ctx = window.__SELL_CTX__ || {};
+    const hasPrice = ctx.current_price != null && Number(ctx.current_price) > 0;
+    if (!hasPrice) {
+      const limitRadio = document.querySelector('input[name="sell_mode"][value="limit"]');
+      const marketRadio= document.querySelector('input[name="sell_mode"][value="market"]');
+      const limitWrap  = document.getElementById('limit-wrap');
+      if (limitRadio) limitRadio.checked = true;
+      if (marketRadio) marketRadio.checked = false;
+      if (limitWrap) limitWrap.hidden = false;
+    }
+  });
+</script>
 {% endblock %}
