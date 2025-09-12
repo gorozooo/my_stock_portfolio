@@ -71,10 +71,17 @@ document.addEventListener("DOMContentLoaded", function () {
      下タブ & サブメニュー
      - モバイル: ボトムシート
      - デスクトップ: ポップオーバー
+     - 元の .sub-menu は CSS で非表示
+       → JSで内容をコピーして表示
   ========================= */
   const tabBar = document.querySelector('.bottom-tab');
   const tabItems = document.querySelectorAll('.bottom-tab .tab-item');
   if (tabBar && tabItems.length) {
+    // サブメニューがあるタブに has-sub を付与（装飾用）
+    tabItems.forEach(t => {
+      if (t.querySelector('.sub-menu')) t.classList.add('has-sub');
+    });
+
     // バックドロップ（共有）
     const backdrop = document.createElement('div');
     backdrop.className = 'tab-backdrop';
@@ -126,7 +133,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     }
 
-    function buildList(fromMenu, toList) {
+    function cloneMenuItems(fromMenu, toList) {
       toList.innerHTML = '';
       fromMenu.querySelectorAll('a').forEach(a => {
         const li = document.createElement('li');
@@ -147,11 +154,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function openMenuFor(tabItem) {
       const submenu = tabItem.querySelector('.sub-menu');
-      if (!submenu) return; // 念のため
+      if (!submenu) return;
       lastFocus = tabItem.querySelector('.tab-link') || tabItem;
       document.addEventListener('keydown', onKeydown);
 
-      // 既存オープンなら閉じる
       if (openFor && openFor !== tabItem) {
         closeMenus();
       }
@@ -162,20 +168,17 @@ document.addEventListener("DOMContentLoaded", function () {
 
       if (isDesktop()) {
         // ポップオーバー
-        buildList(submenu, popList);
+        cloneMenuItems(submenu, popList);
         const rect = tabItem.getBoundingClientRect();
-        pop.style.left = Math.min(
-          Math.max(8, rect.left + rect.width / 2 - 110),
-          window.innerWidth - 220
-        ) + 'px';
-        pop.style.top = (rect.top - 10) + 'px';
+        const width = 200;
+        pop.style.left = Math.min(Math.max(8, rect.left + rect.width / 2 - width/2), window.innerWidth - width - 8) + 'px';
+        pop.style.top  = (rect.top - 12) + 'px';
         pop.classList.add('show');
-        // 初項目にフォーカス
         const first = pop.querySelector('a');
         if (first) first.focus({ preventScroll: true });
       } else {
         // ボトムシート
-        buildList(submenu, sheetList);
+        cloneMenuItems(submenu, sheetList);
         sheet.classList.add('show');
         const first = sheet.querySelector('a');
         if (first) first.focus({ preventScroll: true });
@@ -187,23 +190,16 @@ document.addEventListener("DOMContentLoaded", function () {
       const tabLink = tab.querySelector('.tab-link');
       const submenu = tab.querySelector('.sub-menu');
 
-      // サブメニューが存在するタブに印を付ける
-      if (submenu) tab.classList.add('has-sub');
-
       // タブ押下
       tab.addEventListener('click', e => {
-        // サブメニューリンク自体は個別で捕捉するのでここでは無視
-        if (e.target.closest('.sub-menu a')) return;
-
+        if (e.target.closest('.sub-menu a')) return; // 既存DOM内のリンクは無視
         if (submenu) {
-          // メニューを開閉
           if (tab.classList.contains('open')) {
             closeMenus();
           } else {
             openMenuFor(tab);
           }
         } else if (tabLink) {
-          // 直接遷移
           const href = tabLink.getAttribute('href');
           if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
             e.preventDefault();
@@ -225,12 +221,11 @@ document.addEventListener("DOMContentLoaded", function () {
       tab.addEventListener('touchend', e => {
         clearTimeout(holdTimer);
         const dt = Date.now() - t0;
-        // 短押しは click に委ねる
-        if (dt < 450) return;
+        if (dt < 450) return; // 短押しは click に任せる
         e.preventDefault();
       }, { passive: false });
 
-      // サブメニュー内クリック（既存DOM内）はローディングして遷移
+      // 既存DOMのサブメニューリンク → 直接遷移時にもローディング
       if (submenu) {
         submenu.querySelectorAll('a').forEach(a => {
           a.addEventListener('click', ev => {
@@ -254,10 +249,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     });
 
-    window.addEventListener('resize', () => {
-      // 画面切替時の取りこぼしを防ぐ
-      closeMenus();
-    });
+    window.addEventListener('resize', closeMenus);
   }
 
   /* =========================
