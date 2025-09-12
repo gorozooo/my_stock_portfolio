@@ -1,3 +1,4 @@
+// static/js/stock_sell.js
 (function(){
   const ctx = window.__SELL_CTX__ || {};
   const $  = (s, r=document)=> r.querySelector(s);
@@ -10,7 +11,7 @@
     return isNaN(v) ? 0 : v;
   };
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-  const yen = (n)=> Math.round(n).toLocaleString('ja-Jp');
+  const yen = (n)=> Math.round(n).toLocaleString('ja-JP');
 
   // Elements
   const form = $("#sell-form");
@@ -26,7 +27,7 @@
 
   const actualProfitInput = $("#actual-profit");
 
-  // Review fields (刷新)
+  // Review fields
   const rvBuy  = $("#rv-buy");
   const rvSell = $("#rv-sell");
   const rvPL   = $("#rv-pl");
@@ -98,13 +99,15 @@
       const val = ch.dataset.limit;
       if (!val) return;
       if (!isNaN(Number(val))) {
+        // 数値そのまま
         limitInput.value = String(Math.max(0, Math.round(Number(val))));
       } else if (val.startsWith("+") || val.startsWith("-")) {
+        // 相対
         const d = Number(val);
         const base = toNum(limitInput.value) || (currentPrice != null ? currentPrice : 0);
         limitInput.value = String(Math.max(0, Math.round(base + d)));
       } else {
-        // "現在値" 想定
+        // "現在値"
         if (currentPrice != null) limitInput.value = String(Math.round(currentPrice));
       }
       compute();
@@ -113,40 +116,39 @@
 
   [limitInput, actualProfitInput].forEach(el=> el.addEventListener("input", compute));
 
-  /* ===== 新ルール計算 =====
-     取得額 = 売却株数 × 取得単価
-     売却額 = 入力した金額（市場価格 or 指値） × 売却株数
-     損益   = "実際の損益額" 入力があればその値、空なら 取得額 − 売却額
-     手数料 = 取得額 − 売却額 − 損益
-   */
+  /* ===== 計算（修正版） =====
+     基本式：損益 = 売却額 − 取得額 − 手数料
+     → 手数料 = 売却額 − 取得額 − 損益  ← これでプラマイ両方OK
+
+     表示＆保存ロジック
+     - 取得額 = 売却株数 × 取得単価
+     - 売却額 = （市場価格 or 指値）× 売却株数
+     - 損益   = 「実際の損益額」入力があればその値、空なら 売却額 − 取得額
+     - 手数料 = 売却額 − 取得額 − 損益
+  */
   function compute(){
     showError("");
 
     const qty = toNum(sharesInput.value);
-    const sp  = currentSellPrice();  // 単価
+    const sp  = currentSellPrice();  // 売却単価（null あり）
     const up  = unitPrice;
 
-    const buyAmount  = qty * up;               // 取得額（合計）
-    const sellAmount = (sp != null) ? qty * sp : null; // 売却額（合計）
+    const buyAmount  = qty * up;                         // 取得額（合計）
+    const sellAmount = (sp != null) ? qty * sp : null;   // 売却額（合計）
 
-    // 損益
+    // 損益（入力優先 / 未入力は 売却額 − 取得額）
     const apText = actualProfitInput.value.trim();
     let profit;
     if (apText !== "") {
       profit = toNum(apText);
     } else {
-      // 指示通り：空なら 取得額 − 売却額
-      if (sellAmount == null) {
-        profit = null; // 売却額が分からなければ損益は出さない
-      } else {
-        profit = buyAmount - sellAmount;
-      }
+      profit = (sellAmount == null) ? null : (sellAmount - buyAmount);
     }
 
-    // 手数料
+    // 手数料（常に一意に決まる）
     let fee = null;
     if (sellAmount != null && profit != null) {
-      fee = buyAmount - sellAmount - profit;
+      fee = sellAmount - buyAmount - profit;
     }
 
     // 表示
@@ -201,10 +203,6 @@
   /* init */
   compute();
 
-  /* スクロール系：iOS等で最下部まで行けるように安全策 */
-  // 端末のソフトキーボード開閉で高さが変わっても計算し直し
-  window.addEventListener("resize", () => {
-    // ここではCSSのpaddingで対応済みなので表示再計算のみ
-    compute();
-  });
+  /* ソフトキーボード等での高さ変動に追随（安全のため再計算） */
+  window.addEventListener("resize", compute);
 })();
