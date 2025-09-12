@@ -272,3 +272,74 @@ main {
   .bottom-tab .tab-link { font-size: 0.9rem; }
   .bottom-tab .tab-link i { font-size: 24px; }
 }
+
+/* ===== サブメニュー：ボタンバー（オーバーレイ無し） ===== */
+.tab-actionbar {
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  bottom: calc(72px + 8px); /* 下タブの高さ + 余白 */
+  display: none;            /* 非表示が初期 */
+  gap: 8px;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(10, 12, 24, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 255, 255, 0.15);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.45), 0 0 22px rgba(0,255,255,0.12) inset;
+  z-index: 1100;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  transform: translateY(8px);
+  opacity: 0;
+  transition: opacity .18s ease, transform .18s ease;
+}
+
+.tab-actionbar.show {
+  display: flex;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tab-actionbar .ab-btn {
+  appearance: none;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: linear-gradient(135deg, rgba(0,255,255,.15), rgba(255,0,255,.12));
+  color: #eaf8ff;
+  font-size: .9rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 10px 14px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: transform .08s ease, box-shadow .18s ease, background .18s ease;
+  white-space: nowrap;
+}
+
+.tab-actionbar .ab-btn:active { transform: translateY(1px) scale(.98); }
+.tab-actionbar .ab-btn:hover {
+  box-shadow: 0 6px 16px rgba(0,255,255,.18);
+  background: linear-gradient(135deg, rgba(0,255,255,.22), rgba(255,0,255,.18));
+}
+
+@media (min-width: 768px) {
+  /* デスクトップはタブの真上、幅を該当タブに合わせてスマートに */
+  .tab-actionbar {
+    left: auto;
+    right: auto;
+    min-width: 240px;
+    max-width: 560px;
+  }
+}
+
+/* “サブメニューあり”のタブに▼を表示（任意） */
+.bottom-tab .tab-item.has-sub .tab-link::after{
+  content: "▾";
+  font-size: 12px;
+  opacity: .7;
+  margin-left: 4px;
+}
