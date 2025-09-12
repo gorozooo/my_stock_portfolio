@@ -219,7 +219,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const fill = bar.firstElementChild;
       fill.style.width = Math.max(8, Math.round(64 * w / 100)) + "px";
       fill.style.borderRadius = "999px";
-      const isLoss = r.classList.contains("loss") || (numeric(r.querySelector('.num')?.innerText || "0") < 0);
+      const numText = r.querySelector('.pnl-cell .num')?.innerText || "0";
+      const isLoss = numeric(numText) < 0;
       fill.style.background = isLoss
         ? "linear-gradient(90deg, rgba(255,80,100,.95), rgba(255,120,120,.85))"
         : "linear-gradient(90deg, rgba(0,220,130,.95), rgba(0,255,210,.85))";
@@ -337,7 +338,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function buildInsights(){
     const visible = dataRows().filter(r => r.style.display !== "none");
     const mapMonth = new Map();
-    const mapName  = new Map();
+       const mapName  = new Map();
     const mapBroker= new Map();
 
     visible.forEach(r=>{
@@ -456,6 +457,36 @@ document.addEventListener("DOMContentLoaded", () => {
       if (v==="tiles")  buildTiles();
       if (v==="insights") buildInsights();
     });
+  });
+
+  /* ===== KPI 開閉（初期は閉） ===== */
+  if (kpiToggle && controlsBox){
+    const PREF_COLLAPSE = "rp.kpiCollapsed";
+    function setCollapsed(collapsed){
+      controlsBox.classList.toggle("collapsed", collapsed);
+      kpiToggle.setAttribute("aria-expanded", (!collapsed).toString());
+      kpiToggle.querySelector(".kpi-caret").textContent = collapsed ? "▼" : "▲";
+      setTimeout(recalcViewHeights, 0);
+    }
+    const saved = localStorage.getItem(PREF_COLLAPSE);
+    if (saved === null){ setCollapsed(true); localStorage.setItem(PREF_COLLAPSE, "1"); }
+    else{ setCollapsed(saved === "1"); }
+    kpiToggle.addEventListener("click", ()=>{
+      const next = !controlsBox.classList.contains("collapsed");
+      setCollapsed(next);
+      localStorage.setItem(PREF_COLLAPSE, next ? "1" : "0");
+    });
+  }
+
+  /* ===== Theme & density ===== */
+  themeToggle?.addEventListener("click", ()=>{
+    const root = document.querySelector(".rp-page");
+    root.classList.toggle("theme-dark");
+    root.classList.toggle("theme-light");
+  });
+  densityToggle?.addEventListener("click", ()=>{
+    const rows = table.querySelectorAll("tbody tr");
+    rows.forEach(r => r.style.height = (r.style.height === "44px" ? "50px" : "44px"));
   });
 
   /* ===== Init ===== */
