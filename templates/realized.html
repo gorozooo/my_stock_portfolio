@@ -7,47 +7,53 @@
 
   <!-- 固定トップ：KPI / クイック / トグル / 年月 -->
   <section class="top-fixed" role="region" aria-label="絞り込みとサマリー">
-    <!-- KPI：3段 -->
-    <div class="kpi-row kpi-row1">
-      <div class="kpi-card">
-        <div class="kpi-header"><span class="kpi-icon">📄</span><span class="kpi-label">件数</span></div>
-        <div class="kpi-value" id="sumCount">--</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-header"><span class="kpi-icon">🥇</span><span class="kpi-label">勝率</span></div>
-        <div class="kpi-value" id="winRate">--%</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-header"><span class="kpi-icon">💰</span><span class="kpi-label">実現損益</span></div>
-        <div class="kpi-value" id="netProfit">--</div>
-      </div>
-    </div>
+    <!-- KPIトグル：右上（初期は「隠す」状態の表記だが、初期はcollapsed=trueで隠します） -->
+    <button id="kpiToggle" class="kpi-toggle" aria-expanded="false" aria-controls="kpiBox">KPIを表示</button>
 
-    <div class="kpi-row kpi-row2">
-      <div class="kpi-card">
-        <div class="kpi-header"><span class="kpi-icon">⬆️</span><span class="kpi-label">利益金額合計</span></div>
-        <div class="kpi-value profit" id="totalProfit">--</div>
+    <!-- KPIボックス（手動/自動で収納・展開） -->
+    <div id="kpiBox" class="kpi-box">
+      <!-- KPI：3段 -->
+      <div class="kpi-row kpi-row1">
+        <div class="kpi-card">
+          <div class="kpi-header"><span class="kpi-icon">📄</span><span class="kpi-label">件数</span></div>
+          <div class="kpi-value" id="sumCount">--</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header"><span class="kpi-icon">🥇</span><span class="kpi-label">勝率</span></div>
+          <div class="kpi-value" id="winRate">--%</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header"><span class="kpi-icon">💰</span><span class="kpi-label">実現損益</span></div>
+          <div class="kpi-value" id="netProfit">--</div>
+        </div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-header"><span class="kpi-icon">⬇️</span><span class="kpi-label">損失金額合計</span></div>
-        <div class="kpi-value loss" id="totalLoss">--</div>
-      </div>
-    </div>
 
-    <div class="kpi-row kpi-row3">
-      <div class="kpi-card">
-        <div class="kpi-header"><span class="kpi-icon">📊</span><span class="kpi-label">平均損益</span></div>
-        <div class="kpi-value" id="avgNet">--</div>
+      <div class="kpi-row kpi-row2">
+        <div class="kpi-card">
+          <div class="kpi-header"><span class="kpi-icon">⬆️</span><span class="kpi-label">利益金額合計</span></div>
+          <div class="kpi-value profit" id="totalProfit">--</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header"><span class="kpi-icon">⬇️</span><span class="kpi-label">損失金額合計</span></div>
+          <div class="kpi-value loss" id="totalLoss">--</div>
+        </div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-header"><span class="kpi-icon">🔼</span><span class="kpi-label">平均利益</span></div>
-        <div class="kpi-value profit" id="avgProfitOnly">--</div>
+
+      <div class="kpi-row kpi-row3">
+        <div class="kpi-card">
+          <div class="kpi-header"><span class="kpi-icon">📊</span><span class="kpi-label">平均損益</span></div>
+          <div class="kpi-value" id="avgNet">--</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header"><span class="kpi-icon">🔼</span><span class="kpi-label">平均利益</span></div>
+          <div class="kpi-value profit" id="avgProfitOnly">--</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header"><span class="kpi-icon">🔽</span><span class="kpi-label">平均損失</span></div>
+          <div class="kpi-value loss" id="avgLossOnly">--</div>
+        </div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-header"><span class="kpi-icon">🔽</span><span class="kpi-label">平均損失</span></div>
-        <div class="kpi-value loss" id="avgLossOnly">--</div>
-      </div>
-    </div>
+    </div><!-- /kpi-box -->
 
     <!-- クイック期間 -->
     <div class="quick-chips chips-compact">
