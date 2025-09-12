@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import datetime as dt
+import unicodedata
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Tuple, TypedDict, Optional
 
