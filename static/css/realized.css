@@ -4,6 +4,8 @@ html, body{ height:100%; overflow:hidden; overscroll-behavior:none; -webkit-text
   --top-h:0px; --bottom-h:0px;
   --fg:#eaf2ff; --bg:#0b0f1a; --glass:rgba(255,255,255,.06);
   --ok:#26d07c; --ng:#ff5b6a; --pri:#6ee7ff; --acc:#b07cff;
+
+  /* min widths for table columns */
   --w-date:8.0rem; --w-broker:7.2rem; --w-account:6.4rem; --w-type:5.6rem; --w-qty:5.4rem; --w-profit:8.6rem; --w-rate:6.6rem;
 }
 *{ box-sizing:border-box; }
@@ -46,23 +48,47 @@ body{
   border:1px solid transparent; backdrop-filter: blur(10px);
   box-shadow:0 10px 28px rgba(0,0,0,.28), inset 0 0 20px rgba(255,255,255,.05);
 }
-.topline{ display:grid; grid-template-columns: 1fr auto auto; gap:8px; align-items:center; }
+.topline{
+  display:grid; grid-template-columns: 1fr auto auto; /* 検索 / セグメント / KPI */
+  gap:8px; align-items:center;
+}
 .searchbox{ display:flex; align-items:center; gap:6px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); border-radius:10px; padding:6px 8px; }
 .searchbox input{ flex:1; background:transparent; border:none; outline:none; color:#fff; font-size:.95rem; }
-.kpi-toggle{ padding:6px 10px; border:none; border-radius:10px; font-weight:700; color:#fff; cursor:pointer;
-  background: linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22));
+
+/* KPIトグル：フレックス内に収める（はみ出し防止） */
+.kpi-toggle{
+  position:static; display:inline-flex; align-items:center; gap:6px;
+  padding:8px 12px; border:none; border-radius:10px; font-weight:800; color:#fff; cursor:pointer; white-space:nowrap;
+  background: linear-gradient(135deg, rgba(0,255,204,.32), rgba(102,0,255,.26));
   box-shadow: 0 6px 16px rgba(0,0,0,.25), inset 0 0 0 1px rgba(255,255,255,.18);
 }
+.kpi-toggle .kpi-caret{ display:inline-block; transform: translateY(1px); opacity:.9; }
+
+/* 大型セグメント（損益額/率） */
+.seg-toggle{
+  display:flex; gap:6px; padding:4px;
+  background: rgba(255,255,255,.12);
+  border-radius:12px; border:1px solid rgba(255,255,255,.18);
+}
+.seg-btn{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:10px 12px; border:0; border-radius:10px;
+  background: transparent; color:#fff; font-weight:900; letter-spacing:.02em; outline-offset:2px;
+}
+.seg-btn .seg-ico{ font-size:1rem; }
+.seg-btn .seg-label{ font-size:.92rem; }
+.seg-btn.active{
+  background: linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22));
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.22), 0 8px 20px rgba(0,0,0,.25);
+}
+.seg-btn:not(.active){ opacity:.85; }
+
+/* Quick chips / Filters */
 .quick-chips{ display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 2px; }
 .chip{ padding:6px 10px; border:none; border-radius:12px; background:rgba(255,255,255,.16); color:#fff; cursor:pointer; font-size:.9rem; }
 .chip.active{ background: rgba(0,255,255,.22); box-shadow: 0 0 0 1px rgba(0,255,255,.35) inset, 0 6px 16px rgba(0,255,255,.22); }
-
 .filter-box{ display:flex; gap:6px; }
 .filter-box select{ flex:1; background: rgba(255,255,255,.14); border: none; padding: 8px 10px; border-radius: 9px; color: #fff; text-align:center; }
-
-.seg-toggle{ display:flex; background:rgba(255,255,255,.10); border-radius:12px; padding:4px; gap:4px; }
-.seg-btn{ border:none; border-radius:9px; padding:8px 10px; color:#fff; background:transparent; font-weight:700; }
-.seg-btn.active{ background: linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.18), 0 8px 20px rgba(0,0,0,.25); }
 
 /* KPI deck */
 .kpi-box{ margin-top:6px; }
@@ -79,7 +105,7 @@ body{
 .ring-val span{ font-weight:900; }
 .profit{ color:var(--ok); font-weight:700; } .loss{ color:var(--ng); font-weight:700; }
 
-/* Collapse states */
+/* KPI 折りたたみ */
 .rp-controls.collapsed .kpi-box{ display:none; }
 
 /* ===== Tabs ===== */
@@ -87,8 +113,16 @@ body{
 .rp-tabs .tab{ flex:1; border:none; padding:10px 12px; border-radius:10px; color:#fff; background:rgba(255,255,255,.12); font-weight:800; }
 .rp-tabs .tab.active{ background:linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)); box-shadow: 0 8px 18px rgba(0,0,0,.25); }
 
+/* ===== Views（単一スクロール領域） ===== */
+.view{ display:none; }
+.view.active{ display:block; }
+.scroll-area{
+  height: var(--view-h, 60vh);  /* JSで再計算して代入 */
+  overflow: auto; -webkit-overflow-scrolling: touch;
+}
+
 /* ===== Ledger Table ===== */
-.table-wrapper{ flex:1 1 auto; min-height: 140px; overflow:auto; -webkit-overflow-scrolling:touch; border-radius:12px; background: var(--glass); position:relative; }
+.table-wrapper{ height:auto; border-radius:12px; background: var(--glass); position:relative; }
 #realizedTable{ width:100%; min-width:920px; border-collapse:collapse; table-layout:auto; }
 #realizedTable th, #realizedTable td{ padding:10px 6px; text-align:center; font-size:.92rem; }
 #realizedTable thead th{ position:sticky; top:0; z-index:2; background: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.16)); font-weight:800; white-space:nowrap; cursor:pointer; backdrop-filter: blur(6px); }
@@ -96,11 +130,12 @@ body{
 #realizedTable tbody tr{ height:50px; position:relative; transition: background .12s ease; }
 #realizedTable tbody tr:active{ background: rgba(255,255,255,.12); }
 #realizedTable tbody tr::after{ content:'›'; position:absolute; right:8px; top:50%; transform:translateY(-50%); opacity:.6; font-size:18px; pointer-events:none; }
+/* sticky group row */
 .group-row td{ position:sticky; top:42px; z-index:1; background: rgba(255,255,255,.14); font-weight:900; text-align:left; letter-spacing:.02em; box-shadow: inset 0 1px 0 rgba(255,255,255,.22); }
 
-/* col widths */
+/* 列幅（銘柄は残り全部） */
 #realizedTable th:nth-child(1), #realizedTable td:nth-child(1){ min-width: var(--w-date); }
-#realizedTable th:nth-child(2), #realizedTable td:nth-child(2){ text-align:left; overflow:hidden; } /* take the rest */
+#realizedTable th:nth-child(2), #realizedTable td:nth-child(2){ text-align:left; overflow:hidden; }
 #realizedTable th:nth-child(3), #realizedTable td:nth-child(3){ min-width: var(--w-broker); }
 #realizedTable th:nth-child(4), #realizedTable td:nth-child(4){ min-width: var(--w-account); }
 #realizedTable th:nth-child(5), #realizedTable td:nth-child(5){ min-width: var(--w-type); }
@@ -108,26 +143,23 @@ body{
 #realizedTable th:nth-child(7), #realizedTable td:nth-child(7){ min-width: var(--w-profit); }
 #realizedTable th:nth-child(8), #realizedTable td:nth-child(8){ min-width: var(--w-rate); }
 
-/* Stock cell */
+/* 銘柄セル：横並び1行＋ellipsis */
 #realizedTable td:nth-child(2){ overflow:hidden; }
 .stock-name-cell{ display:flex; align-items:center; gap:6px; white-space:nowrap; min-width:0; }
 .stock-name-cell .name{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-weight:800; }
 .stock-name-cell .code{ flex:0 0 auto; opacity:.75; font-size:.82rem; white-space:nowrap; padding:2px 6px; border-radius:6px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15); }
 
-/* P/L bars & rate chips */
+/* P/L bars & rate chip */
 .profit-cell .pn{ display:flex; align-items:center; gap:6px; justify-content:center; }
 .profit-cell .num{ min-width: 5.6em; display:inline-block; text-align:right; font-variant-numeric:tabular-nums; }
 .profit-cell .bar{ display:inline-block; height:8px; width:64px; border-radius:999px; background:linear-gradient(90deg, rgba(255,255,255,.22), rgba(255,255,255,.08)); position:relative; overflow:hidden; }
 .chip{ display:inline-flex; align-items:center; justify-content:center; padding:4px 8px; border-radius:999px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); font-weight:800; }
 
-/* Toggle column */
-.col-hide{ display:none !important; }
-
-/* Empty */
-.empty-state{ opacity:.9; text-align:center; margin-top:10px; }
+/* 空状態 */
+.empty-state{ opacity:.9; text-align:center; margin:10px 0; }
 
 /* ===== Tiles ===== */
-.tiles-grid{ display:grid; grid-template-columns: repeat( auto-fill, minmax(240px, 1fr) ); gap:10px; height: calc(100dvh - var(--top-h) - var(--bottom-h) - 130px); overflow:auto; padding:6px; border-radius:12px; background:var(--glass); }
+.tiles-grid{ display:grid; grid-template-columns: repeat( auto-fill, minmax(240px, 1fr) ); gap:10px; padding:6px; border-radius:12px; background:var(--glass); }
 .tile{ border-radius:12px; padding:10px; background: linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box, linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)) border-box; border:1px solid transparent; box-shadow: 0 8px 18px rgba(0,0,0,.28); cursor:pointer; }
 .tile .t-head{ display:flex; gap:8px; align-items:center; justify-content:space-between; }
 .tile .t-name{ font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -136,7 +168,7 @@ body{
 .badge{ padding:2px 6px; border-radius:6px; background: rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); font-weight:700; }
 
 /* ===== Insights ===== */
-.insights-wrap{ display:grid; gap:10px; height: calc(100dvh - var(--top-h) - var(--bottom-h) - 130px); overflow:auto; }
+.insights-wrap{ display:grid; gap:10px; }
 .ins-panel{ border-radius:12px; padding:10px; background: linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box, linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)) border-box; border:1px solid transparent; box-shadow: 0 8px 18px rgba(0,0,0,.28); }
 .ins-panel h3{ margin:0 0 8px; }
 .ins-panel.two-col{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
@@ -166,7 +198,7 @@ body{
 .fab{ position:fixed; right:16px; bottom: calc(var(--bottom-h) + 16px); width:44px; height:44px; border-radius:50%; background: linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.28)); border:1px solid rgba(255,255,255,.25); color:#fff; font-weight:900; box-shadow: 0 12px 28px rgba(0,0,0,.38); display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none; transform:translateY(8px); transition: opacity .18s ease, transform .18s ease; }
 .fab.show{ opacity:1; pointer-events:auto; transform:none; }
 
-/* Responsive fine-tune */
+/* Responsive微調整 */
 @media (max-width:420px){
   :root{ --w-date:7.2rem; --w-broker:6.2rem; --w-account:5.6rem; --w-type:5.0rem; --w-qty:5.0rem; --w-profit:8.0rem; --w-rate:6.0rem; }
 }
