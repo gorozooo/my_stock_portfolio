@@ -132,7 +132,7 @@ body{
 #realizedTable th:nth-child(6), #realizedTable td:nth-child(6){ min-width: var(--w-qty); }
 #realizedTable th:nth-child(7), #realizedTable td:nth-child(7){ min-width: var(--w-pnl); }
 
-/* 銘柄セル：横並び1行＋ellipsis */
+/* 銘柄セル：横並び1行＋ellipsis（縦積み禁止） */
 #realizedTable td:nth-child(2){ overflow:hidden; }
 .stock-name-cell{ display:flex; align-items:center; gap:6px; white-space:nowrap; min-width:0; }
 .stock-name-cell .name{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-weight:800; }
