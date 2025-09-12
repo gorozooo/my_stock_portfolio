@@ -6,17 +6,31 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>{% block title %}My Portfolio{% endblock %}</title>
 
-  <!-- 共通CSS（分離管理） -->
+  <!-- 共通CSS -->
   <link rel="stylesheet" href="{% static 'css/base.css' %}">
-  <!-- 共通背景 -->
+  <!-- 共通背景（派手目 Neon Hypergrid） -->
   <link rel="stylesheet" href="{% static 'css/common.css' %}">
-  <!-- ローダー専用CSS（ネオン&バーの見た目・アニメはここで定義） -->
+  <!-- ローダー -->
   <link rel="stylesheet" href="{% static 'css/loader.css' %}">
 
   {% block extra_css %}{% endblock %}
 </head>
 <body>
-  <!-- ローディング画面（data-textはCSSの::before用。JSでも同期） -->
+  <!-- ① 共通背景レイヤー（1ページに1つだけ） -->
+  <div class="bgx" aria-hidden="true">
+    <div class="stars"></div>
+    <div class="stars2"></div>
+    <div class="grid"></div>
+    <div class="aurora"></div>
+    <div class="orb o1"></div>
+    <div class="orb o2"></div>
+    <div class="orb o3"></div>
+    <div class="orb o4"></div>
+    <div class="scan"></div>
+    <div class="grain"></div>
+  </div>
+
+  <!-- ローディング（前面に出す） -->
   <div id="loading-screen" role="status" aria-live="polite" aria-label="Now Loading">
     <div class="loading-text" data-text="Now Loading...">Now Loading...</div>
     <div class="loading-bar-container">
@@ -24,36 +38,39 @@
     </div>
   </div>
 
-  <!-- ナビバー -->
-  <header class="navbar">
-    <div class="navbar-title">My Portfolio</div>
-    <div class="navbar-current">
-      {% comment %} 下タブのアクティブタブ名を表示 {% endcomment %}
-      {% for tab in BOTTOM_TABS %}
-        {% if tab.url_name == request.resolver_match.url_name %}
-          {{ tab.name }}
-        {% elif tab.submenus_list %}
-          {% for submenu in tab.submenus_list %}
-            {% if submenu.url == request.resolver_match.url_name or submenu.url_name == request.resolver_match.url_name %}
-              {{ submenu.name }}
-            {% endif %}
-          {% endfor %}
-        {% endif %}
-      {% endfor %}
-    </div>
-  </header>
+  <!-- ② 前面ラッパ：背景の上に中身を配置 -->
+  <div class="app-root">
+    <!-- ナビバー -->
+    <header class="navbar">
+      <div class="navbar-title">My Portfolio</div>
+      <div class="navbar-current">
+        {% comment %} 下タブのアクティブタブ名を表示 {% endcomment %}
+        {% for tab in BOTTOM_TABS %}
+          {% if tab.url_name == request.resolver_match.url_name %}
+            {{ tab.name }}
+          {% elif tab.submenus_list %}
+            {% for submenu in tab.submenus_list %}
+              {% if submenu.url == request.resolver_match.url_name or submenu.url_name == request.resolver_match.url_name %}
+                {{ submenu.name }}
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+        {% endfor %}
+      </div>
+    </header>
 
-  <!-- メイン -->
-  <main>
-    {% block content %}{% endblock %}
-  </main>
+    <!-- メイン -->
+    <main>
+      {% block content %}{% endblock %}
+    </main>
 
-  <!-- 下タブ -->
-  {% include "bottom_tab.html" %}
+    <!-- 下タブ -->
+    {% include "bottom_tab.html" %}
+  </div>
 
-  <!-- 共通JS（分離管理） -->
+  <!-- 共通JS -->
   <script src="{% static 'js/base.js' %}"></script>
-  <!-- ローダー制御JS（表示/非表示とSafari対策はここで） -->
+  <!-- ローダー制御JS -->
   <script src="{% static 'js/loader.js' %}"></script>
 
   {% block extra_js %}{% endblock %}
