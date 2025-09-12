@@ -170,19 +170,16 @@
                   <td class="trade-type-cell"><span>{% if t.trade_type == 'sell' %}売却{% elif t.trade_type == 'dividend' %}配当{% else %}{{ t.trade_type }}{% endif %}</span></td>
                   <td>{% if t.quantity is not None %}{{ t.quantity|intcomma }}{% else %}-{% endif %}</td>
 
-                  <!-- 損益（額＋バー＋率チップ）-->
+                  <!-- 損益（額＋バー＋率チップ） ※金額 .num を必ず表示 -->
                   {% with pn_val=t.profit_amount|default_if_none:0 %}
                   <td class="pnl-cell {% if pn_val < 0 %}loss{% else %}profit{% endif %}">
                     <div class="pnl-wrap">
                       <div class="amount">
-                        <!-- 金額（必ず出す）：JSでネット損益に正規化して上書き -->
                         <span class="num">{% if t.profit_amount %}{% if t.profit_amount > 0 %}+{% endif %}{{ t.profit_amount|intcomma }}{% else %}0{% endif %}</span>
                         <span class="bar" data-pn="{{ pn_val }}"></span>
                       </div>
                       <span class="rate chip {% if t.profit_rate is not None and t.profit_rate < 0 %}loss{% else %}profit{% endif %}">
-                        {% if t.profit_rate %}
-                          {% if t.profit_rate > 0 %}+{% endif %}{{ t.profit_rate }}
-                        {% else %}0{% endif %}%
+                        {% if t.profit_rate %}{% if t.profit_rate > 0 %}+{% endif %}{{ t.profit_rate }}{% else %}0{% endif %}%
                       </span>
                     </div>
                   </td>
