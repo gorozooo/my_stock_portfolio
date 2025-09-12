@@ -50,12 +50,12 @@ body{
 }
 .topline{
   display:grid; grid-template-columns: 1fr auto auto; /* 検索 / セグメント / KPI */
-  gap:8px; align-items:center;
+  gap:8px; align-items:center; min-width:0;
 }
-.searchbox{ display:flex; align-items:center; gap:6px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); border-radius:10px; padding:6px 8px; }
-.searchbox input{ flex:1; background:transparent; border:none; outline:none; color:#fff; font-size:.95rem; }
+.searchbox{ display:flex; align-items:center; gap:6px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); border-radius:10px; padding:6px 8px; min-width:0; }
+.searchbox input{ flex:1; background:transparent; border:none; outline:none; color:#fff; font-size:.95rem; min-width:0; }
 
-/* KPIトグル：フレックス内に収める（はみ出し防止） */
+/* KPIトグル：はみ出し防止 */
 .kpi-toggle{
   position:static; display:inline-flex; align-items:center; gap:6px;
   padding:8px 12px; border:none; border-radius:10px; font-weight:800; color:#fff; cursor:pointer; white-space:nowrap;
@@ -64,16 +64,17 @@ body{
 }
 .kpi-toggle .kpi-caret{ display:inline-block; transform: translateY(1px); opacity:.9; }
 
-/* 大型セグメント（損益額/率） */
+/* 大型セグメント */
 .seg-toggle{
   display:flex; gap:6px; padding:4px;
   background: rgba(255,255,255,.12);
   border-radius:12px; border:1px solid rgba(255,255,255,.18);
+  min-width:0;
 }
 .seg-btn{
   display:inline-flex; align-items:center; gap:6px;
   padding:10px 12px; border:0; border-radius:10px;
-  background: transparent; color:#fff; font-weight:900; letter-spacing:.02em; outline-offset:2px;
+  background: transparent; color:#fff; font-weight:900; letter-spacing:.02em; outline-offset:2px; min-width:0;
 }
 .seg-btn .seg-ico{ font-size:1rem; }
 .seg-btn .seg-label{ font-size:.92rem; }
@@ -81,7 +82,7 @@ body{
   background: linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22));
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.22), 0 8px 20px rgba(0,0,0,.25);
 }
-.seg-btn:not(.active){ opacity:.85; }
+.seg-btn:not(.active){ opacity:.9; }
 
 /* Quick chips / Filters */
 .quick-chips{ display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 2px; }
@@ -90,14 +91,22 @@ body{
 .filter-box{ display:flex; gap:6px; }
 .filter-box select{ flex:1; background: rgba(255,255,255,.14); border: none; padding: 8px 10px; border-radius: 9px; color: #fff; text-align:center; }
 
-/* KPI deck */
+/* KPI deck（auto-fitで折返し） */
 .kpi-box{ margin-top:6px; }
-.kpi-deck{ display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; }
-.kpi-card{ padding:8px; border-radius:12px; background: linear-gradient(135deg, rgba(255,255,255,.09), rgba(255,255,255,.03)) padding-box, linear-gradient(135deg, rgba(0,255,255,.35), rgba(170,0,255,.28)) border-box; border:1px solid transparent; box-shadow: 0 6px 18px rgba(0,0,0,.22), inset 0 0 22px rgba(255,255,255,.06);}
-.kpi-header{ display:flex; align-items:center; gap:6px; opacity:.92; margin-bottom:4px; font-size:.86rem; }
-.kpi-value{ font-variant-numeric:tabular-nums; font-size: clamp(0.98rem, 3.4vw, 1.18rem); font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.kpi-card.ring{ display:flex; align-items:center; justify-content:center; }
-.circular{ width:72px; height:72px; transform:rotate(-90deg); }
+.kpi-deck{ display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:6px; }
+.kpi-card{
+  padding:8px; border-radius:12px; min-width:0;
+  background: linear-gradient(135deg, rgba(255,255,255,.09), rgba(255,255,255,.03)) padding-box,
+              linear-gradient(135deg, rgba(0,255,255,.35), rgba(170,0,255,.28)) border-box;
+  border:1px solid transparent; box-shadow: 0 6px 18px rgba(0,0,0,.22), inset 0 0 22px rgba(255,255,255,.06);
+}
+.kpi-header{ display:flex; align-items:center; gap:6px; opacity:.92; margin-bottom:4px; font-size:.86rem; min-width:0; }
+.kpi-value{
+  font-variant-numeric:tabular-nums; font-size: clamp(0.98rem, 3.4vw, 1.18rem); font-weight:800;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; max-width:100%;
+}
+.kpi-card.ring{ display:flex; align-items:center; justify-content:center; min-width:0; }
+.circular{ width:72px; height:72px; transform:rotate(-90deg); flex:0 0 auto; }
 .circular .bg{ fill:none; stroke:rgba(255,255,255,.18); stroke-width:4; }
 .circular .fg{ fill:none; stroke:#26c281; stroke-width:4; stroke-linecap:round; transition:stroke-dasharray .3s ease; }
 .ring-wrap{ position:relative; }
@@ -119,6 +128,7 @@ body{
 .scroll-area{
   height: var(--view-h, 60vh);  /* JSで再計算して代入 */
   overflow: auto; -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(var(--bottom-h, 0px) + 16px); /* ← ボトムタブ被り防止 */
 }
 
 /* ===== Ledger Table ===== */
@@ -149,27 +159,27 @@ body{
 .stock-name-cell .name{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-weight:800; }
 .stock-name-cell .code{ flex:0 0 auto; opacity:.75; font-size:.82rem; white-space:nowrap; padding:2px 6px; border-radius:6px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15); }
 
-/* P/L bars & rate chip */
-.profit-cell .pn{ display:flex; align-items:center; gap:6px; justify-content:center; }
-.profit-cell .num{ min-width: 5.6em; display:inline-block; text-align:right; font-variant-numeric:tabular-nums; }
-.profit-cell .bar{ display:inline-block; height:8px; width:64px; border-radius:999px; background:linear-gradient(90deg, rgba(255,255,255,.22), rgba(255,255,255,.08)); position:relative; overflow:hidden; }
-.chip{ display:inline-flex; align-items:center; justify-content:center; padding:4px 8px; border-radius:999px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); font-weight:800; }
+/* P/L bars & rate chip（はみ出し防止） */
+.profit-cell .pn{ display:flex; align-items:center; gap:6px; justify-content:center; min-width:0; }
+.profit-cell .num{ flex:0 0 auto; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums; display:inline-block; }
+.profit-cell .bar{ flex:0 0 64px; height:8px; border-radius:999px; background:linear-gradient(90deg, rgba(255,255,255,.22), rgba(255,255,255,.08)); position:relative; overflow:hidden; }
+.chip{ display:inline-flex; align-items:center; justify-content:center; padding:4px 8px; border-radius:999px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); font-weight:800; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
 
 /* 空状態 */
 .empty-state{ opacity:.9; text-align:center; margin:10px 0; }
 
 /* ===== Tiles ===== */
 .tiles-grid{ display:grid; grid-template-columns: repeat( auto-fill, minmax(240px, 1fr) ); gap:10px; padding:6px; border-radius:12px; background:var(--glass); }
-.tile{ border-radius:12px; padding:10px; background: linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box, linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)) border-box; border:1px solid transparent; box-shadow: 0 8px 18px rgba(0,0,0,.28); cursor:pointer; }
-.tile .t-head{ display:flex; gap:8px; align-items:center; justify-content:space-between; }
-.tile .t-name{ font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tile{ border-radius:12px; padding:10px; background: linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box, linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)) border-box; border:1px solid transparent; box-shadow: 0 8px 18px rgba(0,0,0,.28); cursor:pointer; min-width:0; }
+.tile .t-head{ display:flex; gap:8px; align-items:center; justify-content:space-between; min-width:0; }
+.tile .t-name{ font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
 .tile .t-code{ opacity:.75; font-size:.82rem; }
-.tile .t-body{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; font-variant-numeric:tabular-nums; }
+.tile .t-body{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; font-variant-numeric:tabular-nums; min-width:0; }
 .badge{ padding:2px 6px; border-radius:6px; background: rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); font-weight:700; }
 
 /* ===== Insights ===== */
 .insights-wrap{ display:grid; gap:10px; }
-.ins-panel{ border-radius:12px; padding:10px; background: linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box, linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)) border-box; border:1px solid transparent; box-shadow: 0 8px 18px rgba(0,0,0,.28); }
+.ins-panel{ border-radius:12px; padding:10px; background: linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box, linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)) border-box; border:1px solid transparent; box-shadow: 0 8px 18px rgba(0,0,0,.28); min-width:0; }
 .ins-panel h3{ margin:0 0 8px; }
 .ins-panel.two-col{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
 .rank-list{ margin:0; padding-left:18px; }
@@ -182,7 +192,7 @@ body{
 .modal-content{ width:min(92vw, 380px); max-height:min(74vh, 560px); overflow:auto; padding:14px; border-radius:14px; background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04)) padding-box, linear-gradient(135deg, rgba(0,255,255,.28), rgba(170,0,255,.24)) border-box; border: 1px solid transparent; backdrop-filter: blur(10px); box-shadow: 0 14px 44px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.08) inset; transform: scale(.92); opacity: 0; transition: transform .16s ease, opacity .16s ease; position:relative; }
 .modal.show .modal-content{ transform: scale(1); opacity: 1; }
 .modal .close{ position:absolute; top:8px; right:12px; font-size:1.4rem; cursor:pointer; }
-.modal-title-center{ text-align:center; font-weight:900; letter-spacing:.02em; margin: 2px 0 10px; font-size: 1.12rem; text-shadow:0 2px 10px rgba(0,0,0,.35); }
+.modal-title-center{ text-align:center; font-weight:900; letter-spacing:.02em; margin: 2px 0 10px; font-size: 1.12rem; text-shadow: 0 2px 10px rgba(0,0,0,.35); }
 .modal-amounts{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:8px 0 10px; }
 .amount-card{ border-radius:12px; background: linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.04)) padding-box, linear-gradient(135deg, rgba(0,255,204,.28), rgba(102,0,255,.22)) border-box; border:1px solid transparent; padding:10px 12px; box-shadow: 0 8px 22px rgba(0,0,0,.28), inset 0 0 18px rgba(255,255,255,.06); }
 .amount-label{ font-size:.78rem; opacity:.85; margin-bottom:4px; }
