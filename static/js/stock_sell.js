@@ -55,8 +55,13 @@
   }
   function showError(msg){
     if (!err) return;
-    err.hidden = !msg;
-    err.textContent = msg || "";
+    if (msg) {
+      err.hidden = false;
+      err.textContent = msg;
+    } else {
+      err.hidden = true;
+      err.textContent = "";
+    }
   }
 
   /* UI events */
@@ -116,11 +121,11 @@
 
   [limitInput, actualProfitInput].forEach(el=> el.addEventListener("input", compute));
 
-  /* ===== 計算（修正版） =====
+  /* ===== 計算（サマリー＆hidden） =====
      基本式：損益 = 売却額 − 取得額 − 手数料
-     → 手数料 = 売却額 − 取得額 − 損益  ← これでプラマイ両方OK
+     → 手数料 = 売却額 − 取得額 − 損益
 
-     表示＆保存ロジック
+     表示＆送信
      - 取得額 = 売却株数 × 取得単価
      - 売却額 = （市場価格 or 指値）× 売却株数
      - 損益   = 「実際の損益額」入力があればその値、空なら 売却額 − 取得額
@@ -164,45 +169,23 @@
     }
     rvFee.textContent = (fee == null) ? "—" : `¥${yen(fee)}`;
 
-    // hidden送信値
-    // sell_price は「単価」を保存（合計が必要ならサーバ側で qty を掛け算）
+    // hidden送信値（単価/手数料）
     hiddenSellPrice.value = (sp != null) ? String(Math.round(sp)) : "";
     hiddenFee.value = (fee == null) ? "" : String(Math.round(fee));
 
     return {qty, sp, up, buyAmount, sellAmount, profit, fee};
   }
 
-  /* submit validation */
-  const formValidate = (e)=>{
-    const { sp } = compute();
-    const mode = (function(){ const r=modeRadios.find(r=>r.checked); return r? r.value : "market"; })();
-
-    if (mode === "market" && (sp == null)){
-      e.preventDefault();
-      showError("現在値を取得できないため、市場価格での売却が行えません。指値に切り替えて価格を入力してください。");
-      return;
-    }
-    if (mode === "limit"){
-      const v = toNum(limitInput.value);
-      if (v <= 0){
-        e.preventDefault();
-        showError("指値価格を入力してください。");
-        return;
-      }
-    }
-    const q = toNum(sharesInput.value);
-    if (q < 1 || q > (Number(ctx.shares)||0)){
-      e.preventDefault();
-      showError(`売却株数は 1〜${(Number(ctx.shares)||0).toLocaleString()} の範囲で指定してください。`);
-      return;
-    }
-  };
-
-  form.addEventListener("submit", formValidate);
+  // ★送信はサーバに任せる：preventDefault しない
+  form.addEventListener("submit", ()=>{
+    // 送信直前に hidden を確定
+    compute();
+    // 何も止めずにそのままPOST
+  });
 
   /* init */
   compute();
 
-  /* ソフトキーボード等での高さ変動に追随（安全のため再計算） */
+  // モバイルキーボードの高さ変化でも再計算
   window.addEventListener("resize", compute);
 })();
