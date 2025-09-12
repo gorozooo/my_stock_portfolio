@@ -71,7 +71,7 @@ body{
 .filter-box{ display:flex; gap:6px; }
 .filter-box select{ flex:1; background: rgba(255,255,255,.14); border: none; padding: 8px 10px; border-radius: 9px; color: #fff; text-align:center; }
 
-/* KPI deck（auto-fitで折返し） */
+/* KPI deck */
 .kpi-box{ margin-top:6px; }
 .kpi-deck{ display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:6px; }
 .kpi-card{
@@ -86,7 +86,7 @@ body{
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; max-width:100%;
 }
 
-/* ★ 回転削除バージョン（12時起点） */
+/* ★ リング（12時起点） */
 .kpi-card.ring{ display:flex; align-items:center; justify-content:center; min-width:0; }
 .circular{ width:72px; height:72px; flex:0 0 auto; }
 .circular .bg{ fill:none; stroke:rgba(255,255,255,.18); stroke-width:4; }
@@ -108,9 +108,9 @@ body{
 .view{ display:none; }
 .view.active{ display:block; }
 .scroll-area{
-  height: var(--view-h, 60vh);  /* JSで再計算して代入 */
+  height: var(--view-h, 60vh);
   overflow: auto; -webkit-overflow-scrolling: touch;
-  padding-bottom: calc(var(--bottom-h, 0px) + 16px); /* ← ボトムタブ被り防止 */
+  padding-bottom: calc(var(--bottom-h, 0px) + 16px); /* ボトムタブ被り防止 */
 }
 
 /* ===== Ledger Table ===== */
