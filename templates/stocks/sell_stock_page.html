@@ -20,7 +20,6 @@
     </h1>
   </header>
 
-  {# ===== エラー表示（サーババリデーション） ===== #}
   {% if errors %}
     <div class="sell-errors" id="sell-errors" aria-live="polite">
       <ul>
@@ -31,8 +30,7 @@
     <div class="sell-errors" id="sell-errors" aria-live="polite" hidden></div>
   {% endif %}
 
-  {# 現在値が無い時のヒント #}
-  {% if not current_price and not stock.current_price %}
+  {% if not has_price_available %}
     <div class="banner warn">現在値を取得できないため、初期状態を「指値」にしています。価格を入力してください。</div>
   {% endif %}
 
@@ -50,7 +48,7 @@
       <p class="hint">約定日を選択（未変更なら本日）</p>
     </section>
 
-    <!-- 概要（ピル） -->
+    <!-- 概要 -->
     <section class="sell-summary">
       <div class="pill"><span class="k">保有株数</span><span class="v">{{ stock.shares|intcomma }} 株</span></div>
       <div class="pill"><span class="k">取得単価</span><span class="v">¥{{ stock.unit_price|floatformat:0|intcomma }}</span></div>
@@ -94,22 +92,18 @@
     <!-- 売却方法 -->
     <section class="form-section card">
       <span class="form-label">売却方法</span>
-      {% with has_price=(current_price or stock.current_price) %}
+      {% with sel=posted.sell_mode|default:initial_sell_mode_default %}
       <div class="mode-row" role="radiogroup" aria-label="売却方法">
-        {% with sel=posted.sell_mode|default:('market' if has_price else 'limit') %}
-          <label class="mode-item">
-            <input type="radio" name="sell_mode" value="market" {% if sel == 'market' %}checked{% endif %}>
-            <span>市場価格</span>
-          </label>
-          <label class="mode-item">
-            <input type="radio" name="sell_mode" value="limit" {% if sel == 'limit' %}checked{% endif %}>
-            <span>指値</span>
-          </label>
-        {% endwith %}
+        <label class="mode-item">
+          <input type="radio" name="sell_mode" value="market" {% if sel == 'market' %}checked{% endif %}>
+          <span>市場価格</span>
+        </label>
+        <label class="mode-item">
+          <input type="radio" name="sell_mode" value="limit" {% if sel == 'limit' %}checked{% endif %}>
+          <span>指値</span>
+        </label>
       </div>
 
-      {# 価格入力（現在値が無ければ初期表示） #}
-      {% with sel=posted.sell_mode|default:('market' if has_price else 'limit') %}
       <div id="limit-wrap" class="limit-wrap" {% if sel != 'limit' %}hidden{% endif %}>
         <label class="form-label" for="limit-price">指値（円）</label>
         <input id="limit-price" name="limit_price" type="number" inputmode="numeric"
@@ -129,7 +123,6 @@
         </div>
       </div>
       {% endwith %}
-      {% endwith %}
     </section>
 
     <!-- 実際の損益額 -->
@@ -140,7 +133,7 @@
              value="{{ posted.actual_profit|default:'' }}" class="text-input">
     </section>
 
-    <!-- ライブ計算（レビュー） -->
+    <!-- ライブ計算 -->
     <section class="review card">
       <div class="row"><span class="k">取得額</span><span class="v" id="rv-buy">—</span></div>
       <div class="row"><span class="k">売却額</span><span class="v" id="rv-sell">—</span></div>
@@ -148,7 +141,6 @@
       <div class="row"><span class="k">手数料</span><span class="v" id="rv-fee">—</span></div>
     </section>
 
-    <!-- 送信 -->
     <div class="sticky-actions">
       <a href="{% url 'stock_list' %}" class="btn secondary">キャンセル</a>
       <button type="submit" class="btn danger" id="sell-submit">売却する</button>
@@ -176,14 +168,13 @@
 </script>
 <script src="{% static 'js/stock_sell.js' %}" defer></script>
 <script>
-  // 現在値が無い場合はJSでも安全に「指値」へ切替
-  document.addEventListener('DOMContentLoaded', ()=>{
-    const ctx = window.__SELL_CTX__ || {};
-    const hasPrice = ctx.current_price != null && Number(ctx.current_price) > 0;
+  // 現在値が無い場合はJSでも「指値」を選択状態に（安全側）
+  document.addEventListener('DOMContentLoaded', function(){
+    var hasPrice = {{ has_price_available|yesno:"true,false" }};
     if (!hasPrice) {
-      const limitRadio = document.querySelector('input[name="sell_mode"][value="limit"]');
-      const marketRadio= document.querySelector('input[name="sell_mode"][value="market"]');
-      const limitWrap  = document.getElementById('limit-wrap');
+      var limitRadio = document.querySelector('input[name="sell_mode"][value="limit"]');
+      var marketRadio= document.querySelector('input[name="sell_mode"][value="market"]');
+      var limitWrap  = document.getElementById('limit-wrap');
       if (limitRadio) limitRadio.checked = true;
       if (marketRadio) marketRadio.checked = false;
       if (limitWrap) limitWrap.hidden = false;
