@@ -1,6 +1,6 @@
-// 下タブ：サブメニューがあるタブだけ「押せるケアレット（↓）」を
-// タブ“の下”に独立ボタンとして自動挿入。↓だけで開閉、タブ本体は通常遷移。
-// （装飾用の既存ケアレットは強制的に無効化／除去）
+// 下タブ：サブメニューがあるタブだけ ↓ ケアレットを「タブ内の下段」に生成。
+// ケアレットでのみ開閉。タブ本体は通常遷移。
+// さらに、ボタンバー（サブメニュー）は“下タブの実高さ”を取得して少し上に固定。
 
 document.addEventListener("DOMContentLoaded", function () {
   /* --- 軽量ローディング（必要なら残す） --- */
@@ -43,7 +43,7 @@ document.addEventListener("DOMContentLoaded", function () {
     window.addEventListener("pageshow", e=>{ if(e.persisted) hideLoading(); }, {passive:true});
   })();
 
-  /* --- 下タブ & サブメニュー（ボタンバー） --- */
+  /* --- 下タブ & サブメニュー --- */
   const tabBar   = document.querySelector(".bottom-tab");
   const tabItems = document.querySelectorAll(".bottom-tab .tab-item");
   if (!tabBar || !tabItems.length) return;
@@ -57,6 +57,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
   let openFor = null;
   let justOpenedAt = 0;
+
+  function barOffsetPx() {
+    // 下タブの実高さ + 余白 12px
+    const r = tabBar.getBoundingClientRect();
+    const sa = (Number(getComputedStyle(document.documentElement).getPropertyValue('padding-bottom')) || 0);
+    return Math.round(r.height + 12);
+  }
 
   function closeBar() {
     if (openFor) {
@@ -103,11 +110,8 @@ document.addEventListener("DOMContentLoaded", function () {
         btn.setAttribute("role", "menuitem");
 
         btn.addEventListener("click", (e) => {
-          // hash や javascript: はそのまま
           if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
-          // 新規タブはローダー無し
           if (target === "_blank") return;
-
           e.preventDefault();
           (window.__showLoading__ || ((cb)=>cb()))(() => (window.location.href = href));
         }, {passive:false});
@@ -116,20 +120,20 @@ document.addEventListener("DOMContentLoaded", function () {
       });
     }
 
-    // 位置：SPは左右8px・タブ上/ PCは吹き出し的に中央寄せ
-    const rect = tabItem.getBoundingClientRect();
+    // 位置：SP=下タブの実高さに追従 / PC=吹き出し中央寄せ
+    const tabRect = tabItem.getBoundingClientRect();
     if (window.matchMedia("(min-width: 768px)").matches) {
-      const width = Math.min(560, Math.max(260, rect.width * 1.7));
-      const left  = Math.min(Math.max(8, rect.left + rect.width/2 - width/2), window.innerWidth - width - 8);
+      const width = Math.min(560, Math.max(260, tabRect.width * 1.7));
+      const left  = Math.min(Math.max(8, tabRect.left + tabRect.width/2 - width/2), window.innerWidth - width - 8);
       actionbar.style.left   = left + "px";
       actionbar.style.right  = "auto";
       actionbar.style.width  = width + "px";
-      actionbar.style.bottom = (window.innerHeight - rect.top + 10) + "px";
+      actionbar.style.bottom = (window.innerHeight - tabRect.top + 10) + "px";
     } else {
       actionbar.style.left   = "8px";
       actionbar.style.right  = "8px";
       actionbar.style.width  = "auto";
-      actionbar.style.bottom = "calc(96px + env(safe-area-inset-bottom,0))";
+      actionbar.style.bottom = barOffsetPx() + "px";
     }
 
     tabItem.classList.add("open");
@@ -143,18 +147,17 @@ document.addEventListener("DOMContentLoaded", function () {
     justOpenedAt = Date.now();
   }
 
-  // 1) 装飾ケアレットの無効化 2) 「↓」ボタンをタブの“直下”に設置 3) 長押しでクイック開
+  // タブ初期化：装飾ケアレット除去 → 下段ケアレットを追加
   tabItems.forEach(tab => {
     const submenu = tab.querySelector(".sub-menu");
     const link    = tab.querySelector(".tab-link");
 
-    // （重要）装飾ケアレット類は**すべて**消す
+    // 装飾ケアレット類は全削除（重複表示を回避）
     tab.querySelectorAll(".tab-caret-btn, .tab-caret, .caret, .caret-icon, [data-caret], [data-role='caret']").forEach(n => n.remove());
-    // タブに .has-sub を付けると CSS 疑似(::after)でケアレットが出るテーマがあるので **付けない**
     tab.classList.remove("has-sub");
 
-    // サブメニュー無し → 通常遷移だけフック
     if (!submenu) {
+      // サブメニュー無し：タブ本体は通常遷移（ローディング付き）
       if (link) {
         link.addEventListener("click", (e) => {
           const href = link.getAttribute("href");
@@ -168,8 +171,7 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
 
-    // ---------- ここからサブメニューあり ----------
-    // ケアレットボタンをタブ“直下（兄弟要素）”に作る（= ボタン形式の下段）
+    // サブメニューあり：下段に押せるケアレットを追加
     const caret = document.createElement("button");
     caret.type = "button";
     caret.className = "tab-caret-btn";
@@ -177,19 +179,15 @@ document.addEventListener("DOMContentLoaded", function () {
     caret.setAttribute("aria-controls", "tab-actionbar");
     caret.setAttribute("aria-label", "サブメニューを開閉");
     caret.textContent = "▾";
-
-    // 既存テーマが .tab-link の中しかスタイルしてない場合でも、
-    // 下段に独立表示させたいので .tab-item の**直下**に追加
     tab.appendChild(caret);
 
-    // ↓ でのみ開閉
     caret.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
       if (openFor === tab) closeBar(); else openBarFor(tab);
     }, {passive:false});
 
-    // タブ本体は通常遷移のまま
+    // タブ本体は通常遷移（ケアレットとは独立）
     if (link) {
       link.addEventListener("click", (e) => {
         const href = link.getAttribute("href");
@@ -201,28 +199,18 @@ document.addEventListener("DOMContentLoaded", function () {
       }, {passive:false});
     }
 
-    // 長押しクイックアクセス（スマホ想定）
+    // 長押しクイックアクセス（SP）
     let touchTimer = null;
     const LONG_PRESS_MS = 500;
-
     tab.addEventListener("touchstart", (e) => {
-      if (e.target === caret) return; // ケアレット自体は通常処理
-      touchTimer = setTimeout(() => {
-        openBarFor(tab);
-        touchTimer = null;
-      }, LONG_PRESS_MS);
+      if (e.target === caret) return;
+      touchTimer = setTimeout(() => { openBarFor(tab); touchTimer = null; }, LONG_PRESS_MS);
     }, {passive:true});
-
-    tab.addEventListener("touchend", () => {
-      if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
-    }, {passive:true});
-
-    tab.addEventListener("touchmove", () => {
-      if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
-    }, {passive:true});
+    tab.addEventListener("touchend",   () => { if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; } }, {passive:true});
+    tab.addEventListener("touchmove",  () => { if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; } }, {passive:true});
   });
 
-  // 外側クリック・Esc・リサイズで閉じる（開直後は誤閉じ防止）
+  // 外側クリック・Esc・リサイズ・向き変更で閉じる
   document.addEventListener("click", (e) => {
     if (!openFor) return;
     if (Date.now() - justOpenedAt < 160) return;
@@ -232,8 +220,9 @@ document.addEventListener("DOMContentLoaded", function () {
   }, {passive:true});
   window.addEventListener("keydown", (e) => { if (e.key === "Escape" && openFor) closeBar(); }, {passive:true});
   window.addEventListener("resize", () => closeBar(), {passive:true});
+  window.addEventListener("orientationchange", () => closeBar(), {passive:true});
 
-  /* --- 現在ページ名（任意） --- */
+  // 現在ページ名（任意）
   const cur = document.getElementById("current-page-name");
   if (cur) {
     const path = location.pathname;
