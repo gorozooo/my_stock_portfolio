@@ -1915,9 +1915,16 @@ def trade_history(request):
 
 
 # -----------------------------
-# 配当入力（既存のまま）
+# 配当入力（修正版）
 # -----------------------------
 from datetime import date as _date_alias  # 既存関数のための補助
+from django.utils import timezone
+from django.contrib import messages
+from django.shortcuts import render, redirect
+from django.urls import reverse
+
+from .models import Dividend, RealizedProfit
+
 
 def dividend_new_page(request):
     if request.method == "POST":
@@ -1930,6 +1937,7 @@ def dividend_new_page(request):
         broker       = (request.POST.get("broker") or "").strip()
         memo         = (request.POST.get("memo") or "").strip()
 
+        # --- バリデーション ---
         if not ticker or not stock_name or gross_amount <= 0:
             messages.error(request, "必須項目（銘柄名・コード・配当金）を入力してください。")
             ctx = {
@@ -1943,6 +1951,7 @@ def dividend_new_page(request):
             }
             return render(request, "dividend_form.html", ctx)
 
+        # --- Dividend に保存（従来のまま） ---
         if Dividend:
             Dividend.objects.create(
                 ticker=ticker,
@@ -1954,8 +1963,26 @@ def dividend_new_page(request):
                 broker=broker,
                 memo=memo,
             )
+
+        # --- RealizedProfit にも保存（新規追加） ---
+        try:
+            RealizedProfit.objects.create(
+                user=request.user if request.user.is_authenticated else None,
+                date=received_at,
+                stock_name=stock_name,
+                code=ticker,
+                broker=broker,
+                account_type=account_type,
+                trade_type="dividend",
+                profit_amount=gross_amount - tax,
+            )
+        except Exception as e:
+            # モデルが無い / エラー時は無視して進める
+            print("RealizedProfit 配当登録エラー:", e)
+
         messages.success(request, "配当を登録しました。")
 
+        # --- リダイレクト先 ---
         try:
             return redirect(reverse("realized"))
         except Exception:
@@ -1964,6 +1991,7 @@ def dividend_new_page(request):
             except Exception:
                 return redirect(reverse("stock_list"))
 
+    # GET 時の初期値
     ctx = {
         "init": {
             "ticker":       request.GET.get("ticker", ""),
@@ -1974,7 +2002,6 @@ def dividend_new_page(request):
         }
     }
     return render(request, "dividend_form.html", ctx)
-
 
 # -----------------------------
 # 配当入力 補助API（既存のまま）
