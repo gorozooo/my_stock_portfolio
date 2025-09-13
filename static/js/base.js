@@ -1,5 +1,6 @@
 // static/js/base.js
-// Loader + Bottom Tab/Submenu（クリックは標準遷移。preventDefaultしない）
+// Loader + Bottom Tab/Submenu（標準遷移のまま）
+// ローダーは「必ず閉じる」多重セーフ付き
 
 (function () {
   /* =========================================
@@ -50,48 +51,53 @@
         <div class="loading-bar" role="progressbar" aria-hidden="true"></div>
       `;
       document.body.appendChild(host);
-    } else {
-      // 既存CSSと衝突しないよう、hiddenクラスを尊重
-      // 非表示時はクリック透過にしておく
-      if (!host.classList.contains('hidden')) {
-        host.style.pointerEvents = 'auto';
-      }
     }
 
-    function show() {
+    // 既存CSS互換：hidden で非表示／それ以外は表示
+    const show = () => {
       host.classList.remove('hidden');
-      host.style.pointerEvents = 'auto';     // 表示中はクリックブロック
+      host.style.pointerEvents = 'auto'; // 表示中はクリックブロック
       document.documentElement.style.cursor = 'wait';
       document.body.style.cursor = 'wait';
-    }
-    function hide() {
+    };
+    const hide = () => {
       host.classList.add('hidden');
-      host.style.pointerEvents = 'none';     // 非表示中は透過
+      host.style.pointerEvents = 'none';
       document.documentElement.style.cursor = '';
       document.body.style.cursor = '';
-    }
+    };
 
     // グローバル API
     window.PageLoader = { show, hide };
 
-    // “前の挙動”に合わせる：初回は必ず表示 → window.loadで消す
+    // ====== “前の挙動”＋多重セーフ ======
+    // A) 初回は必ず表示
     show();
+
+    // B) window.load で消す（once）
     window.addEventListener('load', () => {
-      // ほんの少し余韻を残して消す（チラ見え防止）
-      setTimeout(hide, 300);
+      setTimeout(hide, 250);
+    }, { passive: true, once: true });
+
+    // C) もしこの時点で既に読み終わっていたら即消す（script遅延で load 済のケース）
+    if (document.readyState === 'complete') {
+      setTimeout(hide, 0);
+    }
+
+    // D) visibilitychange で復帰時に読み終わっていれば消す（iOS/Safari 対策）
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && document.readyState === 'complete') hide();
     }, { passive: true });
 
-    // 離脱時は必ず表示
-    window.addEventListener('beforeunload', () => {
-      show();
-    }, { passive: true });
-
-    // bfcache 復帰時は不要
+    // E) bfcache 復帰はローダー不要
     window.addEventListener('pageshow', (e) => {
       if (e.persisted) hide();
     }, { passive: true });
 
-    // 押下の瞬間に“見せるだけ”の早表示（遷移は標準に任せる）
+    // F) 離脱時は必ず表示（遷移開始を体感させる）
+    window.addEventListener('beforeunload', () => { show(); }, { passive: true });
+
+    // G) クリックの“押下瞬間”に早表示（遷移は標準に任せる。preventDefaultしない）
     const earlyShow = (e) => {
       const a = e.target.closest && e.target.closest('a[href]');
       const submitBtn = e.target.closest && e.target.closest('button[type="submit"], input[type="submit"]');
@@ -109,10 +115,17 @@
     };
     document.addEventListener('pointerdown', earlyShow, { capture: true, passive: true });
     document.addEventListener('touchstart', earlyShow, { capture: true, passive: true });
+
+    // H) 予防策：何があっても最大 8 秒で自動クローズ（無限ローディング防止）
+    setTimeout(() => hide(), 8000);
+
+    // I) JSエラー発生時も画面を見られるようにする
+    window.addEventListener('error', () => hide());
+    window.addEventListener('unhandledrejection', () => hide());
   }
 
   /* =========================================
-     2) Bottom Tab + Submenu（UIのみ）
+     2) Bottom Tab + Submenu（UIのみ、遷移は標準）
   ========================================= */
   function initTabs() {
     const tabBar = document.querySelector('.bottom-tab');
@@ -154,7 +167,7 @@
         // 既存の飾りケアレットは除去
         tab.querySelectorAll('.tab-caret, .caret, .caret-icon, [data-caret], [data-role="caret"]').forEach(n => n.remove());
 
-        const link    = tab.querySelector('.tab-link');   // ← 触らない（遷移は標準）
+        const link    = tab.querySelector('.tab-link');   // ← 触らない（標準遷移）
         const submenu = tab.querySelector('.sub-menu');
 
         // ケアレット列：常にセルを作る（高さを揃える）
@@ -217,7 +230,8 @@
 
       // ケアレット状態
       map.forEach(({ caretBtn }) => { if (caretBtn) caretBtn.setAttribute('aria-expanded', 'false'); });
-      if (rec.caretBtn) rec.caretBtn.setAttribute('aria-expanded', 'true');
+      const recBtn = rec.caretBtn;
+      if (recBtn) recBtn.setAttribute('aria-expanded', 'true');
 
       actionbar.style.display = 'flex';
       requestAnimationFrame(() => actionbar.classList.add('show'));
@@ -252,8 +266,8 @@
      Boot
   ========================================= */
   function start() {
-    initLoader();
-    initTabs();
+    try { initLoader(); } catch (e) { console.error(e); }
+    try { initTabs();   } catch (e) { console.error(e); }
   }
 
   if (document.readyState === 'loading') {
