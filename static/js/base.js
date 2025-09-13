@@ -1,9 +1,9 @@
 // static/js/base.js
-// Loader + Bottom Tab/Submenu combined, with aggressive instant-show
-// - pointerdown/touchstart で即表示（hidden/visibility/display/opacity を !important で上書き）
-// - click は preventDefault -> loader を“出しっぱなし”で href へ
-// - #loading-screen があればそれを使用 / 無ければ最上位オーバーレイを自動生成
-// - 下タブ/サブメニューは“開閉のみ”維持（遷移はグローバルで拾う）
+// Loader + Bottom Tab/Submenu combined, with robust auto-hide
+// - 初期表示 → window.load で閉じる（load 済でも即閉じ）
+// - pointerdown/touchstart で即表示、click は preventDefault → loader維持 → href
+// - #loading-screen 優先、無ければ最上位オーバーレイを生成
+// - 下タブ/サブメニューは開閉のみ（遷移はグローバルで拾う）
 
 (function () {
   /* ================ helpers ================ */
@@ -38,28 +38,22 @@
     const host = document.createElement('div');
     host.id = '__hardloader__';
     host.innerHTML = `<div class="loading-text">Now Loading…</div><div class="loading-bar"></div>`;
-    document.body ? document.body.appendChild(host) : document.addEventListener('DOMContentLoaded', () => document.body.appendChild(host), { once: true });
+    (document.body ? Promise.resolve() : new Promise(r => document.addEventListener('DOMContentLoaded', r, { once: true })))
+      .then(() => document.body.appendChild(host));
     return host;
   }
 
   function initLoader() {
     // 1) 既存の #loading-screen を優先利用
     let host = document.querySelector('#loading-screen');
-    let usingFallback = false;
+    if (!host) host = createFallbackOverlay();
 
-    if (!host) {
-      host = createFallbackOverlay();
-      usingFallback = true;
-    }
-
-    // 2) 最後に必ず勝つ show/hide（!important で上書き & hiddenクラス剥がし）
+    // 2) 強制 show/hide
     function forceShow(cb) {
-      try {
-        host.classList && host.classList.remove('hidden');
-      } catch {}
+      try { host.classList && host.classList.remove('hidden'); } catch {}
       host.style.setProperty('display', 'flex', 'important');
       host.style.setProperty('visibility', 'visible', 'important');
-      // reflow 確保
+      // reflow
       // eslint-disable-next-line no-unused-expressions
       host.offsetHeight;
       host.style.setProperty('opacity', '1', 'important');
@@ -68,7 +62,6 @@
       document.body.style.cursor = 'wait';
       if (typeof cb === 'function') cb();
     }
-
     function forceHide() {
       host.style.setProperty('opacity', '0', 'important');
       setTimeout(() => {
@@ -81,29 +74,45 @@
       }, 230);
     }
 
-    // 3) 公開
+    // 3) 公開 API
     window.__loader = { show: forceShow, hide: forceHide };
 
-    // 4) “前の挙動”に戻す：初期は必ず表示 → load で閉じる
+    // 4) “前の挙動”：初期は必ず表示 → load で閉じる
     forceShow();
+
+    // a) まだ load が来ていない通常ケース
     window.addEventListener('load', forceHide, { passive: true });
+
+    // b) すでにロード済みで base.js が後読み込みだったケース（これが永遠に消えない主因）
+    if (document.readyState === 'complete') {
+      // 次のタスクで即閉じる（他 CSS/JS の初期化が落ち着く 1 フレーム待ち）
+      setTimeout(forceHide, 0);
+    }
+
+    // c) 念のためのウォッチドッグ（8s で自動クローズ）
+    let watchdog = setTimeout(() => {
+      forceHide();
+      watchdog = null;
+    }, 8000);
+    window.addEventListener('load', () => { if (watchdog) { clearTimeout(watchdog); watchdog = null; } }, { passive: true });
+
+    // d) 離脱時は必ず表示
     window.addEventListener('beforeunload', () => forceShow(), { passive: true });
+
+    // e) bfcache 復帰時は不要
     window.addEventListener('pageshow', (e) => { if (e.persisted) forceHide(); }, { passive: true });
 
-    // 5) 既存 loader.js（PageLoader）がいても上書き勝ちするように同期
+    // f) 既存 loader.js（PageLoader）とも同期（両方あっても表示/非表示が一致）
     if (window.PageLoader) {
       const origShow = window.PageLoader.show?.bind(window.PageLoader);
       const origHide = window.PageLoader.hide?.bind(window.PageLoader);
       window.PageLoader.show = () => { origShow?.(); forceShow(); };
       window.PageLoader.hide = () => { forceHide(); origHide?.(); };
     }
-
-    return { host, usingFallback };
   }
 
   /* ================ Instant Hook ================ */
   function initInstantHook() {
-    // pointerdown/touchstart で最速表示（描画を間に合わせる）
     const down = (e) => {
       const a = e.target.closest?.('a[href]');
       const btn = e.target.closest?.('button[type="submit"], input[type="submit"]');
@@ -122,7 +131,6 @@
     document.addEventListener('pointerdown', down, { capture: true, passive: true });
     document.addEventListener('touchstart', down, { capture: true, passive: true });
 
-    // click は防いで自分でナビゲーション（表示を維持）
     document.addEventListener('click', (e) => {
       const a = e.target.closest?.('a[href]');
       if (!a) return;
@@ -135,7 +143,6 @@
       window.__loader?.show(() => { window.location.href = href; });
     }, { capture: true });
 
-    // form 送信
     document.addEventListener('submit', (e) => {
       const form = e.target;
       if (!(form instanceof HTMLFormElement)) return;
@@ -143,7 +150,6 @@
       window.__loader?.show();
     }, { capture: true });
 
-    // Enterキー（フォーカスが a / submit の場合）
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
       const el = document.activeElement;
