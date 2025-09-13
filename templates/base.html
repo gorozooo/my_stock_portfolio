@@ -33,8 +33,8 @@
     <div class="grain"></div>
   </div>
 
-  <!-- ローディング（前面に出す） -->
-  <div id="loading-screen" role="status" aria-live="polite" aria-label="Now Loading">
+  <!-- ローディング（初期は非表示にするため hidden を付与） -->
+  <div id="loading-screen" class="hidden" role="status" aria-live="polite" aria-label="Now Loading">
     <div class="loading-text" data-text="Now Loading...">Now Loading...</div>
     <div class="loading-bar-container">
       <div class="loading-bar"></div>
@@ -71,11 +71,18 @@
     {% include "bottom_tab.html" %}
   </div>
 
-  <!-- 共通JS -->
-  <script src="{% static 'js/base.js' %}"></script>
-  <!-- ローダー制御JS
-  <script src="{% static 'js/loader.js' %}"></script>-->
+  <!-- 共通JS（ローダー制御は base.js に集約） -->
+  <script src="{% static 'js/base.js' %}" defer></script>
+  {# 旧ローダー単体は使わない #}
+  {# <script src="{% static 'js/loader.js' %}"></script> #}
 
   {% block extra_js %}{% endblock %}
+
+  <!-- JS無効時のフォールバック -->
+  <noscript>
+    <style>
+      #loading-screen{ display:none !important; }
+    </style>
+  </noscript>
 </body>
 </html>
