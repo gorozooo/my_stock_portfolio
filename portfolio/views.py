@@ -2053,97 +2053,88 @@ def _parse_date_yyyy_mm_dd(s: str):
         return timezone.now().date()
 
 
-def _aggregate_balances_and_breakdown(user=None):
+def _aggregate_balances_and_breakdown(user=None, sell_basis: str = SELL_BASIS_DEFAULT):
     """
-    残高と内訳を同時に返す。
-    戻り値: (balances_dict, breakdown_dict)
-      balances_dict = {"rakuten": int, "matsui": int, "sbi": int}
-      breakdown_dict = {
-        "rakuten": {
-           "cash_in": int, "cash_in_count": int,
-           "cash_out": int, "cash_out_count": int,
-           "cash_net": int,
-           "sell_sum": int, "sell_count": int,
-           "div_sum": int, "div_count": int,
-           "total": int  # = cash_net + sell_sum + div_sum
-        }, ...
-      }
+    balances と breakdown を返す。
+    - CashFlow … 入金/出金
+    - RealizedProfit … sell は受取＆損益を両方集計、dividend は受取額（profit_amount）を集計
+    - user が渡されたら user=該当 or user IS NULL の両方を含める（過去データ互換）
     """
-    # 初期化
     balances = {k: 0 for k, _ in BROKER_TABS}
     breakdown = {
         k: dict(
-            cash_in=0, cash_in_count=0,
+            cash_in=0,  cash_in_count=0,
             cash_out=0, cash_out_count=0,
             cash_net=0,
-            sell_sum=0, sell_count=0,
+            sell_proceeds_sum=0, sell_profit_sum=0, sell_count=0,
             div_sum=0, div_count=0,
             total=0,
         ) for k, _ in BROKER_TABS
     }
 
-    # CashFlow: 入金/出金
-    cf_in = (
-        CashFlow.objects.filter(flow_type="in")
-        .values("broker").annotate(total=Sum("amount"), cnt=Sum(Value(1)))
-    )
+    # --- CashFlow 入出金 ---
+    cf_in = (CashFlow.objects.filter(flow_type="in")
+             .values("broker").annotate(total=Sum("amount"), cnt=Count("id")))
     for r in cf_in:
         b = _canon_broker(r["broker"])
         if b in balances:
             breakdown[b]["cash_in"] = int(r["total"] or 0)
             breakdown[b]["cash_in_count"] = int(r["cnt"] or 0)
 
-    cf_out = (
-        CashFlow.objects.filter(flow_type="out")
-        .values("broker").annotate(total=Sum("amount"), cnt=Sum(Value(1)))
-    )
+    cf_out = (CashFlow.objects.filter(flow_type="out")
+              .values("broker").annotate(total=Sum("amount"), cnt=Count("id")))
     for r in cf_out:
         b = _canon_broker(r["broker"])
         if b in balances:
             breakdown[b]["cash_out"] = int(r["total"] or 0)
             breakdown[b]["cash_out_count"] = int(r["cnt"] or 0)
 
-    for b in balances.keys():
+    for b in balances:
         breakdown[b]["cash_net"] = breakdown[b]["cash_in"] - breakdown[b]["cash_out"]
         balances[b] += breakdown[b]["cash_net"]
 
-    # RealizedProfit（ユーザー単位で絞る）
+    # --- RealizedProfit（user指定時は NULL も含める） ---
     rp = RealizedProfit.objects.all()
     if user is not None:
-        rp = rp.filter(user=user)
+        rp = rp.filter(Q(user=user) | Q(user__isnull=True))
 
-    # 売却：売却受取額（sell_price×quantity−fee）
-    sell_expr = (
-        Coalesce(F("sell_price"), 0) * Coalesce(F("quantity"), 0)
-        - Coalesce(F("fee"), 0)
+    # 売却：受取(現金) と 損益(PL) を両方集計
+    sell_proceeds_expr = (
+        Coalesce(F("sell_price"), 0) * Coalesce(F("quantity"), 0) - Coalesce(F("fee"), 0)
     )
-    rp_sell = (
-        rp.filter(trade_type="sell")
-        .values("broker").annotate(total=Sum(sell_expr, output_field=IntegerField()), cnt=Sum(Value(1)))
-    )
+    rp_sell = (rp.filter(trade_type="sell")
+               .values("broker")
+               .annotate(
+                   proceeds=Sum(sell_proceeds_expr, output_field=IntegerField()),
+                   profit=Sum(Coalesce(F("profit_amount"), 0), output_field=IntegerField()),
+                   cnt=Count("id"),
+               ))
     for r in rp_sell:
         b = _canon_broker(r["broker"])
         if b in balances:
-            val = int(r["total"] or 0)
-            breakdown[b]["sell_sum"] = val
-            breakdown[b]["sell_count"] = int(r["cnt"] or 0)
-            balances[b] += val
+            proceeds = int(r["proceeds"] or 0)
+            profit   = int(r["profit"] or 0)
+            breakdown[b]["sell_proceeds_sum"] = proceeds
+            breakdown[b]["sell_profit_sum"]   = profit
+            breakdown[b]["sell_count"]        = int(r["cnt"] or 0)
+            balances[b] += proceeds if sell_basis == "proceeds" else profit
 
-    # 配当：profit_amount を加算
-    rp_div = (
-        rp.filter(trade_type="dividend")
-        .values("broker").annotate(total=Sum(Coalesce(F("profit_amount"), 0), output_field=IntegerField()), cnt=Sum(Value(1)))
-    )
+    # 配当：profit_amount を受取額として採用
+    rp_div = (rp.filter(trade_type="dividend")
+              .values("broker")
+              .annotate(
+                  total=Sum(Coalesce(F("profit_amount"), 0), output_field=IntegerField()),
+                  cnt=Count("id"),
+              ))
     for r in rp_div:
         b = _canon_broker(r["broker"])
         if b in balances:
             val = int(r["total"] or 0)
-            breakdown[b]["div_sum"] = val
+            breakdown[b]["div_sum"]   = val
             breakdown[b]["div_count"] = int(r["cnt"] or 0)
             balances[b] += val
 
-    # 合計セット
-    for b in balances.keys():
+    for b in balances:
         breakdown[b]["total"] = balances[b]
 
     return balances, breakdown
