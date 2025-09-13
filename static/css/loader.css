@@ -1,62 +1,44 @@
 /* css/loader.css */
 
-/* ========== 基本：初期は非表示（JSで表示） ========== */
+/* 画面全体のローダー（初期は表示。JSで hide へ） */
 #loading-screen{
   position: fixed;
   inset: 0;
-  z-index: 9999;
   background: rgba(10,10,20,0.95);
-
-  /* 初期は隠す（チラ見え防止） */
-  display: none;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-
-  /* アニメ */
-  transition: opacity .4s ease, visibility .4s ease;
-
-  /* レイアウト（表示時に効く） */
-  display: flex;               /* ← JSがdisplay:flexをインライン指定する想定 */
+  display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-}
-
-/* JSやテンプレで .is-active を付けるだけでも表示できるように（保険） */
-#loading-screen.is-active{
-  display: flex;
+  z-index: 9999;
   opacity: 1;
   visibility: visible;
-  pointer-events: auto;
+  transition: opacity .4s ease, visibility .4s ease;
 }
 
-/* 完全に畳む用（JSの PageLoader.hide() が付ける想定） */
+/* 非表示状態（JSで付け外し） */
 #loading-screen.hidden{
-  opacity: 0 !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-  display: none !important;        /* ← “一生見えっぱなし”事故を確実に止める */
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  /* ← “一生見えっぱなし”事故を確実に止めるため追記 */
+  display: none !important;
 }
 
-/* ========== ネオン文言 ========== */
+/* ネオンテキスト：最初から発光ON */
 #loading-screen .loading-text{
   font-family: "Orbitron", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans";
   font-size: 26px;
   font-weight: 700;
   color: #00eaff;
   margin-bottom: 20px;
-
   text-shadow:
     0 0 8px  #0ff,
     0 0 16px #0ff,
     0 0 32px #0ff,
     0 0 48px #f0f;
-
   animation:
     loader-bounce 1.4s ease-in-out infinite,
     loader-flicker 1.8s ease-in-out infinite;
-
   will-change: transform, text-shadow;
   transform: translateZ(0);
   position: relative;
@@ -78,14 +60,11 @@
   filter: blur(.4px);
 }
 
-/* バウンド */
 @keyframes loader-bounce{
   0%,20%,50%,80%,100%{ transform: translateZ(0) translateY(0); }
   40%{ transform: translateZ(0) translateY(-12px); }
   60%{ transform: translateZ(0) translateY(-6px); }
 }
-
-/* 明→より明（暗くしない） */
 @keyframes loader-flicker{
   0%,100%{
     text-shadow:
@@ -103,7 +82,7 @@
   }
 }
 
-/* ========== 進行バー ========== */
+/* 進行バーの器 */
 #loading-screen .loading-bar-container{
   width: 80%;
   max-width: 400px;
@@ -115,25 +94,34 @@
   position: relative;
 }
 
+/* 進行バー本体：背景位置を流して確実に“動く”ように */
 #loading-screen .loading-bar{
   height: 100%;
-  width: 200%;
+  width: 100%;
   border-radius: 4px;
+
+  /* グラデの流れを background-position で制御（transform 不要） */
   background: linear-gradient(90deg, #0ff, #ff00ff, #0ff);
+  background-size: 200% 100%;            /* ← 横に長い分布を用意 */
+  background-position: 0% 0%;            /* ← 初期位置 */
+
   box-shadow:
     0 0 12px #0ff,
     0 0 24px #0ff,
     0 0 36px #f0f;
+
   animation:
-    loader-slide 2.5s linear infinite,
-    loader-pulse 1.6s ease-in-out infinite;
-  will-change: transform, box-shadow;
+    loader-bg-move 2.5s linear infinite,
+    loader-pulse   1.6s ease-in-out infinite;
+
+  /* 最適化ヒント */
+  will-change: background-position, box-shadow;
 }
 
-/* 横流れ */
-@keyframes loader-slide{
-  0%   { transform: translateZ(0) translateX(-100%); }
-  100% { transform: translateZ(0) translateX(100%); }
+/* 背景を左→右に流す */
+@keyframes loader-bg-move{
+  0%   { background-position:   0% 0%; }
+  100% { background-position: 200% 0%; }
 }
 
 /* 明るさの強弱のみ（暗くしない） */
@@ -152,12 +140,15 @@
   }
 }
 
-/* ========== 低モーション配慮 ========== */
+/* （必要なら）利用者が OS で“簡易動作”を選んでいる場合に配慮
+   アニメーションは残すが、少しだけ控えめに */
 @media (prefers-reduced-motion: reduce){
   #loading-screen .loading-text{
-    animation: none;
+    animation: loader-flicker 2.4s ease-in-out infinite;
   }
   #loading-screen .loading-bar{
-    animation: none;
+    animation:
+      loader-bg-move 4s linear infinite,
+      loader-pulse   2.4s ease-in-out infinite;
   }
 }
