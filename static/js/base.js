@@ -1,9 +1,19 @@
-// base.js — ローディング復活 + 下タブ/サブメニューを data-tabkey で厳密ひも付け
+// base.js — Loader v2（以前の体感に近い）+ 下タブ/サブメニュー（data-tabkeyで厳密ひも付け）
+// 使い方：このファイルをそのまま差し替え
+
 document.addEventListener("DOMContentLoaded", () => {
   /* =========================
-     ローディング（最小CSSをインライン注入）
+     Loader v2（クリック時だけ表示/チラつき防止）
   ========================= */
+  const LOADER_CFG = {
+    showOnInitialLoad: false,   // 初回ロードでも出したい場合は true
+    showOnBeforeUnload: true,   // 離脱時にできるだけ表示
+    delayBeforeShowMs: 120,     // 表示までの遅延（短い遷移は不表示に）
+    minVisibleMs: 360           // 一度出たら最低表示時間
+  };
+
   (function initLoader() {
+    // CSS
     const style = document.createElement("style");
     style.innerHTML = `
       #loading-overlay{
@@ -22,10 +32,11 @@ document.addEventListener("DOMContentLoaded", () => {
         background:linear-gradient(90deg,#0ff,#f0f,#0ff); background-size:200% 100%;
         animation:loadslide 2s linear infinite
       }
-      @keyframes loadslide { 0%{background-position:0 0} 100%{background-position:200% 0} }
+      @keyframes loadslide{0%{background-position:0 0}100%{background-position:200% 0}}
     `;
     document.head.appendChild(style);
 
+    // DOM
     const overlay = document.createElement("div");
     overlay.id = "loading-overlay";
     overlay.innerHTML = `
@@ -34,49 +45,90 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
     document.body.appendChild(overlay);
 
-    function show(cb) {
+    let delayTimer = null;
+    let visibleAt = 0;
+    let isShowing = false;
+
+    function reallyShow(cb) {
       overlay.style.display = "flex";
       requestAnimationFrame(() => {
         overlay.style.opacity = "1";
-        if (cb) setTimeout(cb, 40);
+        isShowing = true;
+        visibleAt = performance.now();
+        if (cb) cb();
       });
     }
-    function hide() {
-      overlay.style.opacity = "0";
-      setTimeout(() => { overlay.style.display = "none"; }, 200);
+    function show(cb) {
+      clearTimeout(delayTimer);
+      delayTimer = setTimeout(() => reallyShow(cb), LOADER_CFG.delayBeforeShowMs);
     }
-    // グローバル公開
+    function hide(force = false) {
+      clearTimeout(delayTimer);
+      if (!isShowing) { overlay.style.display = "none"; return; }
+      const elapsed = performance.now() - visibleAt;
+      const wait = force ? 0 : Math.max(0, LOADER_CFG.minVisibleMs - elapsed);
+      setTimeout(() => {
+        overlay.style.opacity = "0";
+        setTimeout(() => { overlay.style.display = "none"; isShowing = false; }, 200);
+      }, wait);
+    }
+
+    // 公開
     window.__loader = { show, hide };
 
-    // 初期表示 → window.load で閉じる
-    show();
-    window.addEventListener("load", hide, { passive: true });
-    window.addEventListener("beforeunload", () => show(), { passive: true });
-    window.addEventListener("pageshow", (e) => { if (e.persisted) hide(); }, { passive: true });
+    // 初回は出さない（設定で切替）
+    if (LOADER_CFG.showOnInitialLoad) {
+      show();
+      window.addEventListener("load", () => hide(), { passive: true });
+    } else {
+      window.addEventListener("pageshow", (e) => { if (e.persisted) hide(true); }, { passive: true });
+    }
+
+    if (LOADER_CFG.showOnBeforeUnload) {
+      window.addEventListener("beforeunload", () => {
+        clearTimeout(delayTimer);
+        reallyShow();
+      }, { passive: true });
+    }
+
+    // 全フォーム送信時にもローダー
+    document.addEventListener("submit", () => show(), true);
+
+    // aタグの通常遷移を go() に差し替えたい場合（全体）
+    document.addEventListener("click", (e) => {
+      const a = e.target.closest('a[href]');
+      if (!a) return;
+      // タブ本体やサブメニューは別途ハンドルしているので除外
+      if (a.closest('.bottom-tab') || a.closest('.tab-actionbar')) return;
+      const href = a.getAttribute('href');
+      const target = a.getAttribute('target') || '';
+      if (!href || href.startsWith('#') || href.startsWith('javascript:') || target === '_blank') return;
+      if (a.classList.contains('no-loader')) return;
+      e.preventDefault();
+      go(href);
+    }, true);
   })();
 
-  // 以降、遷移はコレ経由にする
+  // 遷移ヘルパ
   function go(href) {
     if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
-    if (window.__loader && typeof window.__loader.show === "function") {
-      window.__loader.show(() => (window.location.href = href));
-    } else {
-      window.location.href = href;
-    }
+    if (window.__loader) window.__loader.show(() => (window.location.href = href));
+    else window.location.href = href;
   }
 
   /* =========================
-     下タブ & サブメニュー（data-tabkey で厳密リンク）
+     下タブ & サブメニュー（data-tabkeyで厳密ひも付け）
+     - ケアレット行は .bottom-tab の直下に 1 行表示
+     - サブメニューはボタンバー(.tab-actionbar)で表示
   ========================= */
   const tabBar = document.querySelector(".bottom-tab");
   if (!tabBar) return;
 
-  // ケアレット行（タブの直下に並べる）
+  // ケアレット行（タブの直後に配置）
   let caretRow = document.querySelector(".caret-row");
   if (!caretRow) {
     caretRow = document.createElement("div");
     caretRow.className = "caret-row";
-    // 下タブの直後に置くと高さ揃えが安定
     tabBar.insertAdjacentElement("afterend", caretRow);
   }
 
@@ -85,6 +137,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!actionbar) {
     actionbar = document.createElement("div");
     actionbar.className = "tab-actionbar";
+    actionbar.setAttribute("role", "menu");
     document.body.appendChild(actionbar);
   }
 
@@ -105,20 +158,19 @@ document.addEventListener("DOMContentLoaded", () => {
         tab.dataset.tabkey = key;
       }
 
-      // 古い飾りケアレットは除去
-      tab
-        .querySelectorAll(".tab-caret, .caret, .caret-icon, [data-caret], [data-role='caret']")
-        .forEach((n) => n.remove());
+      // 古い飾りケアレットは除去（テンプレ差異吸収）
+      tab.querySelectorAll(".tab-caret, .caret, .caret-icon, [data-caret], [data-role='caret']").forEach(n => n.remove());
 
       const link = tab.querySelector(".tab-link");
       const submenu = tab.querySelector(".sub-menu");
 
-      // ケアレット列：常にタブ数ぶん作る（高さ揃え）
+      // ケアレット列：常にタブ数ぶん作る（高さ揃えのため）
       const cell = document.createElement("div");
       cell.className = "caret-cell";
 
       let caretBtn = null;
       if (submenu) {
+        tab.classList.add("has-sub");
         caretBtn = document.createElement("button");
         caretBtn.type = "button";
         caretBtn.className = "caret-btn";
@@ -127,6 +179,7 @@ document.addEventListener("DOMContentLoaded", () => {
         caretBtn.dataset.tabkey = key;
         cell.appendChild(caretBtn);
       } else {
+        tab.classList.remove("has-sub");
         const ph = document.createElement("div");
         ph.className = "caret-placeholder";
         cell.appendChild(ph);
@@ -147,7 +200,7 @@ document.addEventListener("DOMContentLoaded", () => {
       };
     });
 
-    // タブ本体は通常遷移（常に go() 経由）
+    // タブ本体は通常遷移（go 経由）
     map.forEach(({ link }) => {
       if (!link) return;
       link.onclick = (e) => {
@@ -159,6 +212,7 @@ document.addEventListener("DOMContentLoaded", () => {
       };
     });
 
+    // 既に開いていたキーが消えていたら閉じる
     if (openKey && !map.has(openKey)) hideBar();
   }
 
@@ -168,10 +222,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     actionbar.innerHTML = "";
     const links = rec.submenu.querySelectorAll("a");
+
     if (links.length === 0) {
       const none = document.createElement("span");
       none.className = "ab-btn";
       none.textContent = "メニューなし";
+      none.setAttribute("role", "menuitem");
       actionbar.appendChild(none);
     } else {
       links.forEach((a) => {
@@ -182,6 +238,7 @@ document.addEventListener("DOMContentLoaded", () => {
         btn.className = "ab-btn";
         btn.href = href;
         btn.textContent = label;
+        btn.setAttribute("role", "menuitem");
         btn.onclick = (e) => {
           if (!href || href.startsWith("#") || href.startsWith("javascript:") || target === "_blank") return;
           e.preventDefault();
@@ -191,11 +248,11 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
 
-    // ケアレット状態
+    // すべてのケアレットを collapsed に
     map.forEach(({ caretBtn }) => { if (caretBtn) caretBtn.setAttribute("aria-expanded", "false"); });
     if (rec.caretBtn) rec.caretBtn.setAttribute("aria-expanded", "true");
 
-    // 表示（位置はCSS固定配置のため不要）
+    // 表示
     actionbar.style.display = "flex";
     requestAnimationFrame(() => actionbar.classList.add("show"));
     openKey = key;
@@ -222,7 +279,7 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("keydown", (e) => { if (e.key === "Escape" && openKey) hideBar(); }, { passive: true });
   window.addEventListener("resize", hideBar, { passive: true });
 
-  // タブDOMの変化に追従
+  // タブDOMの変化に追従（テンプレの差異や動的追加にも強い）
   const mo = new MutationObserver(() => rebuild());
   mo.observe(tabBar, { childList: true, subtree: true });
 
