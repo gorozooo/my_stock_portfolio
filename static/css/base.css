@@ -1,94 +1,87 @@
 /* ========================================
-   固定ナビバー & 下タブ (base.css)
-   スマホファースト / 下タブ=ボタン形式 / サブメニュー=ボタンバー
-   ※ ページ差分を吸収するため、重要プロパティは .bottom-tab スコープで完結
+   固定ナビバー & 下タブ（ケアレットは下タブの“下”）
+   スマホファースト
 ======================================== */
 
-/* ===== ナビバー ===== */
-.navbar {
+/* ===== ナビバー（必要なら既存のまま） ===== */
+.navbar{
   position: fixed;
   inset: 0 0 auto 0;
   height: 64px;
-  background: rgba(0, 0, 0, 0.65);
+  background: rgba(0,0,0,.65);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   display: flex;
-  justify-content: center;
   align-items: center;
+  justify-content: center;
   padding: 8px 16px;
   z-index: 1000;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+  box-shadow: 0 2px 12px rgba(0,0,0,.4);
   flex-direction: column;
   gap: 2px;
 }
-.navbar-title {
-  font-size: 1.5rem;
-  font-weight: bold;
-  text-transform: uppercase;
-  background: linear-gradient(270deg, #00ffff, #ff00ff, #00ffff);
-  background-size: 400% 400%;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: gradientFlow 8s ease infinite, glowTitle 3s infinite alternate;
-  font-family: "Orbitron", sans-serif;
-  line-height: 1.2;
-}
-@keyframes gradientFlow {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-@keyframes glowTitle {
-  from { text-shadow: 0 0 12px #0ff, 0 0 24px #0ff; }
-  to   { text-shadow: 0 0 20px #f0f, 0 0 40px #f0f; }
-}
-.navbar-current {
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: #0ff;
-  text-shadow: 0 0 10px #0ff, 0 0 20px #0ff;
-  letter-spacing: 1px;
-  font-family: "Orbitron", sans-serif;
-  animation: glowCurrent 2s ease-in-out infinite alternate;
-}
-@keyframes glowCurrent {
-  from { text-shadow: 0 0 10px #0ff, 0 0 20px #0ff; }
-  to   { text-shadow: 0 0 18px #0ff, 0 0 36px #0ff; }
-}
 
-/* ===== 下タブ（横並び/ボタン形式に強制） ===== */
+/* ===== 下タブ（高さは常に一定・横並び） ===== */
 .bottom-tab{
   position: fixed;
   inset: auto 0 0 0;
-  height: calc(78px + env(safe-area-inset-bottom, 0));
-  padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0));
-  background: rgba(0, 5, 20, 0.7);
+  height: calc(60px + env(safe-area-inset-bottom,0));
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom,0));
+  background: rgba(0, 5, 20, 0.72);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
-  z-index: 1000;
-  border-top: 1px solid rgba(0, 255, 255, 0.14);
-  box-shadow: 0 -8px 22px rgba(0, 255, 255, 0.16);
+  z-index: 1000; /* ケアレット行より下（ケアレット行は 1001） */
+  border-top: 1px solid rgba(0,255,255,.14);
+  box-shadow: 0 -8px 22px rgba(0,255,255,.16);
 }
 
-/* ここを“横一列”に強制（他ページCSSの上書き対策で !important） */
+/* タブは“横一列”を強制 */
 .bottom-tab .tab-list{
   margin: 0;
   padding: 0;
   list-style: none;
-  display: flex !important;          /* ← 横並びを強制 */
-  flex-direction: row !important;    /* ← 縦並びを禁止 */
+  display: flex !important;
+  flex-direction: row !important;
   align-items: stretch;
   justify-content: space-between;
   gap: 8px;
   width: 100%;
 }
-
-/* 各アイテムは等幅で横に伸びる */
 .bottom-tab .tab-item{
-  flex: 1 1 0;           /* 等分 */
-  min-width: 64px;
-  display: block;
+  flex: 1 1 0;
+  min-width: 58px;
 }
+
+/* タブ本体は“リンク”だけ（ボタン化しない・高さ一定） */
+.bottom-tab .tab-link{
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-decoration: none;
+  padding: 10px 8px;
+  border-radius: 12px;
+  min-height: 44px;              /* ← ここで下タブ高さを揃える */
+  color: #cfe9ff;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: inset 0 0 12px rgba(255,255,255,0.04);
+  transition: transform .1s ease, background .2s ease, color .1s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.bottom-tab .tab-link i{ font-size: 18px; line-height: 1; }
+.bottom-tab .tab-link .label{
+  font-size: .9rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bottom-tab .tab-item.active .tab-link{
+  color: #fff;
+  background: rgba(0,255,255,0.10);
+  box-shadow: inset 0 0 18px rgba(0,255,255,.16);
+}
+.bottom-tab .tab-link:hover{ transform: translateY(-1px); }
 
 /* 既存テンプレの“見えっぱなしサブメニュー”は完全無効化（JSのみ使用） */
 .bottom-tab .tab-item .sub-menu{
@@ -101,97 +94,56 @@
   overflow: hidden !important;
 }
 
-/* ボタン（丸っこい＆横レイアウト） */
-.bottom-tab .tab-link{
-  display: flex !important;          /* ← 横並び */
-  align-items: center;
-  justify-content: space-between;    /* 左:アイコン+ラベル / 右:ケアレット */
-  gap: 10px;
-  text-decoration: none;
-  padding: 10px 14px;
-  border-radius: 999px;
-  min-height: 52px;
-
-  background:
-    linear-gradient(135deg, rgba(0,255,255,.14), rgba(255,0,255,.10)) padding-box,
-    linear-gradient(135deg, rgba(0,255,255,.35), rgba(255,0,255,.28)) border-box;
-  border: 1px solid transparent;
-  box-shadow: 0 6px 18px rgba(0,0,0,.38), inset 0 0 18px rgba(255,255,255,.05);
-
-  color: #bfe8ff;
-  font-size: .9rem;
-  font-weight: 800;
-  letter-spacing: .02em;
-  transition: transform .12s ease, box-shadow .18s ease, background .18s ease, color .12s ease;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-
-  /* ラベルが長くてもケアレットを潰さない */
-  overflow: visible;
-}
-
-/* 左側の“アイコン+ラベル”をひと塊に（幅が狭い時に省略） */
-.bottom-tab .tab-link .left{
-  display: inline-flex;
-  align-items: center;
+/* ===== ケアレット行（下タブの“下”に固定表示） ===== */
+.tab-caret-row{
+  position: fixed;
+  left: 0; right: 0;
+  bottom: calc(60px + env(safe-area-inset-bottom,0)); /* ← 下タブのちょうど上辺りに重ならない位置 */
+  height: 26px;                 /* ケアレット行の高さは常に一定 */
+  padding: 0 8px 6px;
+  z-index: 1001;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;       /* タブ数と同じ幅配分に */
   gap: 8px;
-  min-width: 0; /* これがないと省略が効かない場合あり */
-}
-.bottom-tab .tab-link i{
-  font-size: 18px;
-  opacity: .95;
-  line-height: 1;
-}
-.bottom-tab .tab-link .label{
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1;
+  pointer-events: none;         /* 行自体はクリック不可（ボタンだけ可） */
 }
 
-/* 既存の飾りケアレットは使わない */
-.bottom-tab .tab-item.has-sub .tab-link::after{ content: none !important; }
-
-/* 押した/開いた時の見た目は共通 */
-.bottom-tab .tab-item.active .tab-link,
-.bottom-tab .tab-item.open .tab-link{
-  color: #fff;
-  transform: translateY(-1px);
-  box-shadow: 0 10px 24px rgba(0, 255, 255, .24), inset 0 0 30px rgba(0,255,255,.12);
-  background:
-    linear-gradient(135deg, rgba(0,255,255,.22), rgba(255,0,255,.16)) padding-box,
-    linear-gradient(135deg, rgba(0,255,255,.45), rgba(255,0,255,.36)) border-box;
+/* ケアレットボタン（タブの直下に1:1で並ぶ） */
+.tab-caret-row .tab-caret-slot{
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.bottom-tab .tab-link:hover{ transform: translateY(-1px); }
-.bottom-tab .tab-link:active{ transform: translateY(0); }
-
-/* JSが注入する“押せるケアレット”を必ず右端に表示＆共通サイズ */
 .tab-caret-btn{
+  pointer-events: auto;         /* ボタンだけクリック可 */
   appearance: none;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.16);
-  border-radius: 999px;
-  height: 28px;                 /* 全タブ同一の高さで揃う */
-  min-width: 28px;
-  padding: 0 6px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.18);
   color: #cfe9ff;
-  cursor: pointer;
+  border-radius: 999px;
+  height: 26px;                 /* ケアレット高さを固定 */
+  min-width: 28px;
+  padding: 0 8px;
+  font-size: 14px;
+  line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  line-height: 1;
-  flex: 0 0 auto;               /* 右端に固定。縮まない */
+  cursor: pointer;
+  transition: background .15s ease, transform .08s ease;
 }
-.tab-caret-btn:focus-visible{
-  outline: 2px solid rgba(0,255,255,.6);
-  outline-offset: 2px;
+.tab-caret-btn:active{ transform: translateY(1px) scale(.98); }
+.tab-caret-btn[aria-expanded="true"]{
+  background: rgba(0,255,255,.20);
+  border-color: rgba(0,255,255,.30);
 }
 
-/* サブメニュー（ボタンバー） */
+/* サブメニュー：ボタンバー（下タブとケアレット行の“さらに上”） */
 .tab-actionbar{
   position: fixed;
   left: 8px; right: 8px;
-  bottom: calc(88px + env(safe-area-inset-bottom, 0));
+  bottom: calc(60px + 26px + 8px + env(safe-area-inset-bottom,0)); /* 下タブ + ケアレット + マージン */
   display: none;
   flex-wrap: wrap;
   justify-content: center;
@@ -199,7 +151,7 @@
   gap: 8px;
   padding: 10px;
   border-radius: 14px;
-  background: rgba(10, 12, 24, 0.9);
+  background: rgba(10, 12, 24, 0.92);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border: 1px solid rgba(0, 255, 255, 0.16);
@@ -236,18 +188,15 @@
 }
 .tab-actionbar .ab-btn:active{ transform: translateY(1px) scale(.98); }
 
-/* main余白（被り防止） */
+/* ===== main（被り防止：下タブ + ケアレット行ぶんの余白） ===== */
 main{
-  padding: 88px 16px calc(120px + env(safe-area-inset-bottom, 0));
-  overflow-y: auto;
+  padding: 88px 16px calc(60px + 26px + 20px + env(safe-area-inset-bottom,0));
   min-height: calc(100vh - 160px);
-  scroll-padding-bottom: calc(150px + env(safe-area-inset-bottom, 0));
+  overflow-y: auto;
+  scroll-padding-bottom: calc(60px + 26px + 20px + env(safe-area-inset-bottom,0));
 }
 
-/* PC微調整 */
-@media (min-width: 768px) {
-  .navbar-title { font-size: 1.7rem; }
-  .navbar-current { font-size: 1rem; }
-  .bottom-tab .tab-list { gap: 10px; }
-  .bottom-tab .tab-link { padding: 12px 16px; }
+/* PC 少しだけ広めに */
+@media (min-width: 768px){
+  .bottom-tab .tab-link{ min-height: 46px; }
 }
