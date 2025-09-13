@@ -2239,6 +2239,7 @@ def cash_io_page(request):
         "debug_balance": debug_balance,
         # ★追加：テンプレ用の整形済み配列
         "breakdown_rows": breakdown_rows,
+        "active_breakdown": active_breakdown,
     }
     return render(request, "cash_io.html", ctx)
 
