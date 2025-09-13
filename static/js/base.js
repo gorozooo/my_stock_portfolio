@@ -5,20 +5,20 @@ document.addEventListener("DOMContentLoaded", function () {
   const tabItems = tabList ? Array.from(tabList.querySelectorAll(".tab-item")) : [];
   if (!tabBar || !tabList || tabItems.length === 0) return;
 
-  // 既存の飾りケアレットやインライン caret を除去（見た目の差異をなくす）
+  // 既存の飾りケアレットを除去（見た目差異の原因を排除）
   tabItems.forEach(tab=>{
     tab.querySelectorAll(".tab-caret-btn, .tab-caret, .caret, .caret-icon, [data-caret], [data-role='caret']")
       .forEach(n => n.remove());
   });
 
-  // ケアレット行を作る（タブ数に合わせて 1:1 スロット）
+  // ケアレット行を作る（タブ数に合わせたスロット）
   let caretRow = document.querySelector(".tab-caret-row");
   if (!caretRow){
     caretRow = document.createElement("div");
     caretRow.className = "tab-caret-row";
     document.body.appendChild(caretRow);
   }
-  caretRow.innerHTML = ""; // 再構築
+  caretRow.innerHTML = "";
 
   // 共用アクションバー
   let actionbar = document.getElementById("tab-actionbar");
@@ -55,7 +55,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     if (openFor && openFor !== tabItem) closeBar();
 
-    // メニューを再生成
+    // メニュー再生成
     actionbar.innerHTML = "";
     const links = submenu.querySelectorAll("a");
     if (links.length === 0){
@@ -76,7 +76,7 @@ document.addEventListener("DOMContentLoaded", function () {
         btn.setAttribute("role","menuitem");
         btn.addEventListener("click", (e)=>{
           if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
-          if (target === "_blank") return;
+          if (target === "_blank") return; // 新規タブ遷移はそのまま
           e.preventDefault();
           window.location.href = href;
         }, {passive:false});
@@ -84,7 +84,7 @@ document.addEventListener("DOMContentLoaded", function () {
       });
     }
 
-    // 対応するケアレットを展開状態に
+    // 対応ケアレットを展開状態に
     const btn = caretRow.querySelector(`[data-tab-id="${tabItem.dataset.tabId}"]`);
     if (btn) btn.setAttribute("aria-expanded","true");
 
@@ -95,7 +95,7 @@ document.addEventListener("DOMContentLoaded", function () {
     justOpenedAt = Date.now();
   }
 
-  // 各タブに ID を振って、ケアレット行にスロットを作成
+  // 各タブにIDを振り、ケアレット行のスロットを作る
   tabItems.forEach((tab, idx)=>{
     tab.dataset.tabId = `t${idx}`;
 
@@ -119,10 +119,10 @@ document.addEventListener("DOMContentLoaded", function () {
       }, {passive:false});
       slot.appendChild(cbtn);
     } else {
-      // サブメニューがないタブはスペーサを置き、行高さを揃える
+      // サブメニュー無しでも高さを揃えるためのスペーサ
       const spacer = document.createElement("div");
-      spacer.style.height   = "26px";
-      spacer.style.minWidth = "28px";
+      spacer.style.height = "22px";
+      spacer.style.minWidth = "24px";
       slot.appendChild(spacer);
     }
 
@@ -146,9 +146,9 @@ document.addEventListener("DOMContentLoaded", function () {
   document.addEventListener("click", (e)=>{
     if (!openFor) return;
     if (Date.now() - justOpenedAt < 140) return;
-    const inTab  = !!e.target.closest(".bottom-tab .tab-item");
-    const inBar  = !!e.target.closest(".tab-actionbar");
-    const inCaret= !!e.target.closest(".tab-caret-row");
+    const inTab   = !!e.target.closest(".bottom-tab .tab-item");
+    const inBar   = !!e.target.closest(".tab-actionbar");
+    const inCaret = !!e.target.closest(".tab-caret-row");
     if (!inTab && !inBar && !inCaret) closeBar();
   }, {passive:true});
   window.addEventListener("keydown", (e)=>{ if (e.key === "Escape" && openFor) closeBar(); }, {passive:true});
