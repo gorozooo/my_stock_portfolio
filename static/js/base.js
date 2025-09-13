@@ -1,9 +1,9 @@
-// 下タブ：サブメニューがあるタブだけ ↓ ケアレットを「タブ内の下段」に生成。
-// ケアレットでのみ開閉。タブ本体は通常遷移。
-// さらに、ボタンバー（サブメニュー）は“下タブの実高さ”を取得して少し上に固定。
+// 下タブ：サブメニューがあるタブだけ 下段に“押せるケアレット”を生成。
+// 既存の飾りケアレットは除去。タブ本体(.tab-link)は通常遷移。
+// サブメニュー（ボタンバー）は 下タブの“実高さ+余白” に追従表示。
 
 document.addEventListener("DOMContentLoaded", function () {
-  /* --- 軽量ローディング（必要なら残す） --- */
+  /* --- 軽量ローディング（任意） --- */
   (function () {
     const style = document.createElement("style");
     style.innerHTML = `
@@ -59,9 +59,8 @@ document.addEventListener("DOMContentLoaded", function () {
   let justOpenedAt = 0;
 
   function barOffsetPx() {
-    // 下タブの実高さ + 余白 12px
+    // 下タブの実高さ + 12px
     const r = tabBar.getBoundingClientRect();
-    const sa = (Number(getComputedStyle(document.documentElement).getPropertyValue('padding-bottom')) || 0);
     return Math.round(r.height + 12);
   }
 
@@ -90,7 +89,6 @@ document.addEventListener("DOMContentLoaded", function () {
     // ボタン再生成
     actionbar.innerHTML = "";
     const links = submenu.querySelectorAll("a");
-
     if (!links.length) {
       const none = document.createElement("span");
       none.className = "ab-btn";
@@ -147,12 +145,12 @@ document.addEventListener("DOMContentLoaded", function () {
     justOpenedAt = Date.now();
   }
 
-  // タブ初期化：装飾ケアレット除去 → 下段ケアレットを追加
+  // タブ初期化：装飾ケアレット除去 → 下段ケアレット生成（ある所だけ）
   tabItems.forEach(tab => {
     const submenu = tab.querySelector(".sub-menu");
     const link    = tab.querySelector(".tab-link");
 
-    // 装飾ケアレット類は全削除（重複表示を回避）
+    // 既存の飾りケアレットはすべて除去（被り防止）
     tab.querySelectorAll(".tab-caret-btn, .tab-caret, .caret, .caret-icon, [data-caret], [data-role='caret']").forEach(n => n.remove());
     tab.classList.remove("has-sub");
 
@@ -171,7 +169,10 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
 
-    // サブメニューあり：下段に押せるケアレットを追加
+    // サブメニューあり：クラス付与（→ CSSのスペーサoff）
+    tab.classList.add("has-sub");
+
+    // 下段に“押せるケアレット”を生成（下段固定行に収まる）
     const caret = document.createElement("button");
     caret.type = "button";
     caret.className = "tab-caret-btn";
@@ -199,7 +200,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }, {passive:false});
     }
 
-    // 長押しクイックアクセス（SP）
+    // 長押しクイックアクセス（スマホ）
     let touchTimer = null;
     const LONG_PRESS_MS = 500;
     tab.addEventListener("touchstart", (e) => {
