@@ -1,8 +1,9 @@
-// 下タブ：必ず“押せるケアレット”を自動挿入し、そのボタンでのみサブメニュー開閉。
-// 既存の飾り↓は無視されます。タブ本体(.tab-link)は通常遷移のまま。
+// 下タブ：サブメニューがあるタブだけ「押せるケアレット（↓）」を
+// タブ“の下”に独立ボタンとして自動挿入。↓だけで開閉、タブ本体は通常遷移。
+// （装飾用の既存ケアレットは強制的に無効化／除去）
 
 document.addEventListener("DOMContentLoaded", function () {
-  /* --- ローディング（必要なら残す） --- */
+  /* --- 軽量ローディング（必要なら残す） --- */
   (function () {
     const style = document.createElement("style");
     style.innerHTML = `
@@ -42,12 +43,12 @@ document.addEventListener("DOMContentLoaded", function () {
     window.addEventListener("pageshow", e=>{ if(e.persisted) hideLoading(); }, {passive:true});
   })();
 
-  /* --- 下タブ & サブメニュー --- */
+  /* --- 下タブ & サブメニュー（ボタンバー） --- */
   const tabBar   = document.querySelector(".bottom-tab");
   const tabItems = document.querySelectorAll(".bottom-tab .tab-item");
   if (!tabBar || !tabItems.length) return;
 
-  // アクションバー（共用）
+  // 共用アクションバー
   const actionbar = document.createElement("div");
   actionbar.className = "tab-actionbar";
   actionbar.id = "tab-actionbar";
@@ -60,8 +61,8 @@ document.addEventListener("DOMContentLoaded", function () {
   function closeBar() {
     if (openFor) {
       openFor.classList.remove("open");
-      const caret = openFor.querySelector(".tab-caret-btn");
-      if (caret) caret.setAttribute("aria-expanded", "false");
+      const caretBtn = openFor.querySelector(":scope > .tab-caret-btn");
+      if (caretBtn) caretBtn.setAttribute("aria-expanded", "false");
     }
     actionbar.classList.remove("show");
     setTimeout(() => {
@@ -82,7 +83,8 @@ document.addEventListener("DOMContentLoaded", function () {
     // ボタン再生成
     actionbar.innerHTML = "";
     const links = submenu.querySelectorAll("a");
-    if (links.length === 0) {
+
+    if (!links.length) {
       const none = document.createElement("span");
       none.className = "ab-btn";
       none.textContent = "メニューなし";
@@ -90,19 +92,20 @@ document.addEventListener("DOMContentLoaded", function () {
       actionbar.appendChild(none);
     } else {
       links.forEach(a => {
-        const href = a.getAttribute("href") || "#";
-        const txt  = (a.textContent || "").trim();
+        const href   = a.getAttribute("href") || "#";
+        const txt    = (a.textContent || "").trim();
         const target = a.getAttribute("target") || "";
-        const btn  = document.createElement("a");
+
+        const btn = document.createElement("a");
         btn.className = "ab-btn";
         btn.href = href;
         btn.textContent = txt;
         btn.setAttribute("role", "menuitem");
 
         btn.addEventListener("click", (e) => {
-          // hash / javascript: はそのまま
+          // hash や javascript: はそのまま
           if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
-          // 新規タブはローダーなし
+          // 新規タブはローダー無し
           if (target === "_blank") return;
 
           e.preventDefault();
@@ -113,7 +116,7 @@ document.addEventListener("DOMContentLoaded", function () {
       });
     }
 
-    // 位置決め
+    // 位置：SPは左右8px・タブ上/ PCは吹き出し的に中央寄せ
     const rect = tabItem.getBoundingClientRect();
     if (window.matchMedia("(min-width: 768px)").matches) {
       const width = Math.min(560, Math.max(260, rect.width * 1.7));
@@ -130,8 +133,8 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     tabItem.classList.add("open");
-    const caret = tabItem.querySelector(".tab-caret-btn");
-    if (caret) caret.setAttribute("aria-expanded", "true");
+    const caretBtn = tabItem.querySelector(":scope > .tab-caret-btn");
+    if (caretBtn) caretBtn.setAttribute("aria-expanded", "true");
 
     actionbar.style.display = "flex";
     requestAnimationFrame(() => actionbar.classList.add("show"));
@@ -140,16 +143,18 @@ document.addEventListener("DOMContentLoaded", function () {
     justOpenedAt = Date.now();
   }
 
-  // すべてのタブ：サブメニュー有ならケアレットを必ず挿入
+  // 1) 装飾ケアレットの無効化 2) 「↓」ボタンをタブの“直下”に設置 3) 長押しでクイック開
   tabItems.forEach(tab => {
     const submenu = tab.querySelector(".sub-menu");
-    const link = tab.querySelector(".tab-link");
+    const link    = tab.querySelector(".tab-link");
 
+    // （重要）装飾ケアレット類は**すべて**消す
+    tab.querySelectorAll(".tab-caret-btn, .tab-caret, .caret, .caret-icon, [data-caret], [data-role='caret']").forEach(n => n.remove());
+    // タブに .has-sub を付けると CSS 疑似(::after)でケアレットが出るテーマがあるので **付けない**
+    tab.classList.remove("has-sub");
+
+    // サブメニュー無し → 通常遷移だけフック
     if (!submenu) {
-      // サブメニュー無し → 既存の飾りケアレットは排除
-      tab.classList.remove("has-sub", "open");
-      tab.querySelectorAll(".tab-caret-btn, .tab-caret, .caret, .caret-icon, [data-caret], [data-role='caret']").forEach(n => n.remove());
-      // 通常遷移（変更なし）
       if (link) {
         link.addEventListener("click", (e) => {
           const href = link.getAttribute("href");
@@ -163,10 +168,8 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
 
-    tab.classList.add("has-sub");
-
-    // 既存飾りを削除して、押せるケアレットを注入（重複注入防止）
-    tab.querySelectorAll(".tab-caret-btn, .tab-caret, .caret, .caret-icon, [data-caret], [data-role='caret']").forEach(n => n.remove());
+    // ---------- ここからサブメニューあり ----------
+    // ケアレットボタンをタブ“直下（兄弟要素）”に作る（= ボタン形式の下段）
     const caret = document.createElement("button");
     caret.type = "button";
     caret.className = "tab-caret-btn";
@@ -174,16 +177,19 @@ document.addEventListener("DOMContentLoaded", function () {
     caret.setAttribute("aria-controls", "tab-actionbar");
     caret.setAttribute("aria-label", "サブメニューを開閉");
     caret.textContent = "▾";
-    (link || tab).appendChild(caret);
 
-    // ケアレットでのみ開閉
+    // 既存テーマが .tab-link の中しかスタイルしてない場合でも、
+    // 下段に独立表示させたいので .tab-item の**直下**に追加
+    tab.appendChild(caret);
+
+    // ↓ でのみ開閉
     caret.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
       if (openFor === tab) closeBar(); else openBarFor(tab);
     }, {passive:false});
 
-    // タブ本体は通常遷移
+    // タブ本体は通常遷移のまま
     if (link) {
       link.addEventListener("click", (e) => {
         const href = link.getAttribute("href");
@@ -194,9 +200,29 @@ document.addEventListener("DOMContentLoaded", function () {
         (window.__showLoading__ || ((cb)=>cb()))(() => (window.location.href = href));
       }, {passive:false});
     }
+
+    // 長押しクイックアクセス（スマホ想定）
+    let touchTimer = null;
+    const LONG_PRESS_MS = 500;
+
+    tab.addEventListener("touchstart", (e) => {
+      if (e.target === caret) return; // ケアレット自体は通常処理
+      touchTimer = setTimeout(() => {
+        openBarFor(tab);
+        touchTimer = null;
+      }, LONG_PRESS_MS);
+    }, {passive:true});
+
+    tab.addEventListener("touchend", () => {
+      if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
+    }, {passive:true});
+
+    tab.addEventListener("touchmove", () => {
+      if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
+    }, {passive:true});
   });
 
-  // 外側クリック・ESC・リサイズで閉じる
+  // 外側クリック・Esc・リサイズで閉じる（開直後は誤閉じ防止）
   document.addEventListener("click", (e) => {
     if (!openFor) return;
     if (Date.now() - justOpenedAt < 160) return;
@@ -204,27 +230,23 @@ document.addEventListener("DOMContentLoaded", function () {
     const inBar = !!e.target.closest(".tab-actionbar");
     if (!inTab && !inBar) closeBar();
   }, {passive:true});
-
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && openFor) closeBar();
-  }, {passive:true});
-
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape" && openFor) closeBar(); }, {passive:true});
   window.addEventListener("resize", () => closeBar(), {passive:true});
 
   /* --- 現在ページ名（任意） --- */
-  const currentURL = location.pathname;
-  const currentPageNameEl = document.getElementById("current-page-name");
-  if (currentPageNameEl) {
+  const cur = document.getElementById("current-page-name");
+  if (cur) {
+    const path = location.pathname;
     const tabLinks = document.querySelectorAll(".tab-item .tab-link");
     let found = false;
     tabLinks.forEach(tl => {
       const href = tl.getAttribute("href");
       const nameSpan = tl.querySelector("span");
-      if (href && nameSpan && currentURL.startsWith(href)) {
-        currentPageNameEl.textContent = nameSpan.textContent;
+      if (href && nameSpan && path.startsWith(href)) {
+        cur.textContent = nameSpan.textContent;
         found = true;
       }
     });
-    if (!found) currentPageNameEl.textContent = currentURL.replace(/^\/|\/$/g, "") || "ホーム";
+    if (!found) cur.textContent = path.replace(/^\/|\/$/g, "") || "ホーム";
   }
 });
