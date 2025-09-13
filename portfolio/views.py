@@ -78,6 +78,34 @@ logger = logging.getLogger(__name__)
 def bottom_tabs_context(request):
     return {"BOTTOM_TABS": get_bottom_tabs()}
 
+# 正規化マップ（大小/全角/別表記を吸収）
+BROKER_ALIASES = {
+    # rakuten
+    "rakuten": "rakuten", "楽天": "rakuten", "楽天証券": "rakuten", "らくてん": "rakuten",
+    # matsui
+    "matsui": "matsui", "松井": "matsui", "松井証券": "matsui",
+    # sbi
+    "sbi": "sbi", "ＳＢＩ": "sbi", "SBI": "sbi", "SBI証券": "sbi", "ｓｂｉ": "sbi",
+}
+
+def _canon_broker(raw: str) -> str:
+    """
+    ブローカー名を内部キーに正規化する。
+    - 前後空白・全角→半角・小文字化
+    - エイリアス表で吸収（見つからなければそのまま返す）
+    """
+    if not raw:
+        return ""
+    s = (str(raw).strip()
+                 .replace("　", " ")
+                 .lower())
+    # 全角英数→半角（簡易）
+    z2h = str.maketrans("ａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ０１２３４５６７８９",
+                        "abcdefghijklmnopqrstuvwxyz0123456789")
+    s = s.translate(z2h)
+    return BROKER_ALIASES.get(s, s)
+
+
 # -----------------------------
 # ダッシュボード
 # -----------------------------
