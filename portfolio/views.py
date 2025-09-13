@@ -2185,14 +2185,30 @@ def cash_io_page(request):
         request.session.pop("last_cashflow_ts", None)
         request.session.modified = True
 
-    # JSON をテンプレへ埋め込む
+        # JSON をテンプレへ埋め込む
     breakdown_json = mark_safe(json.dumps(breakdown_dict, ensure_ascii=False))
+
+    # ★追加：テンプレで回しやすい形に整形（可変キー問題の回避）
+    breakdown_rows = [
+        {
+            "key": k,
+            "label": label,
+            "data": breakdown_dict.get(k, {
+                "cash_in": 0, "cash_in_count": 0,
+                "cash_out": 0, "cash_out_count": 0,
+                "cash_net": 0,
+                "sell_sum": 0, "sell_count": 0,
+                "div_sum": 0, "div_count": 0,
+                "total": 0,
+            })
+        }
+        for k, label in BROKER_TABS
+    ]
 
     ctx = {
         "tabs": BROKER_TABS,
         "active_broker": broker,
         "active_label": active_label,
-        # テンプレ互換（balances.rakuten 等）
         "balances": SimpleNamespace(
             **{k: int(balances_dict.get(k, 0)) for k, _ in BROKER_TABS}
         ),
@@ -2207,10 +2223,11 @@ def cash_io_page(request):
         "q": q,
         "range": range_days,
         "BROKER_MAP": BROKER_MAP,
-        # 追加
         "balance_breakdown": breakdown_dict,
         "balance_breakdown_json": breakdown_json,
         "debug_balance": debug_balance,
+        # ★追加：テンプレ用の整形済み配列
+        "breakdown_rows": breakdown_rows,
     }
     return render(request, "cash_io.html", ctx)
 
