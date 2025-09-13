@@ -1,201 +1,167 @@
+// 下タブ：サブメニューがあるタブでもタブ本体は“常に遷移”。
+// サブメニューの開閉はケアレット（▾）と長押しのみ。
+
 document.addEventListener("DOMContentLoaded", function () {
+  /* ========== 軽量ローディング ========== */
+  (function () {
+    const style = document.createElement("style");
+    style.innerHTML = `
+      #loading-overlay{position:fixed;inset:0;background:rgba(10,10,20,.95);
+        display:none;opacity:0;transition:opacity .22s ease;z-index:9999;
+        display:flex;align-items:center;justify-content:center;flex-direction:column}
+      #loading-overlay .loading-text{color:#0ff;font:700 22px/1.2 "Orbitron",system-ui;
+        text-shadow:0 0 10px #0ff,0 0 20px #0ff}
+      #loading-overlay .loading-bar{width:220px;height:6px;border-radius:4px;margin-top:12px;
+        background:linear-gradient(90deg,#0ff,#f0f,#0ff);background-size:200% 100%;
+        animation:loadslide 2s linear infinite}
+      @keyframes loadslide{0%{background-position:0 0}100%{background-position:200% 0}}
+    `;
+    document.head.appendChild(style);
 
-  /* =====================================
-     ローディング用スタイル（先に注入）
-  ===================================== */
-  const style = document.createElement("style");
-  style.innerHTML = `
-    #loading-overlay{
-      position: fixed; inset: 0; background: rgba(10,10,20,0.95);
-      display: none; flex-direction: column; justify-content: center; align-items: center;
-      z-index: 9999; opacity: 0; transition: opacity .25s ease; contain: paint;
-    }
-    #loading-overlay .loading-text{
-      font-family: "Orbitron", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans";
-      font-size: 26px; font-weight: 700; color: #00eaff; margin-bottom: 20px;
-      text-shadow: 0 0 8px #0ff, 0 0 16px #0ff, 0 0 32px #0ff, 0 0 48px #f0f;
-      animation: loader-bounce 1.4s ease-in-out infinite, loader-flicker 1.8s ease-in-out infinite;
-      will-change: transform, text-shadow; transform: translateZ(0); position: relative;
-    }
-    #loading-overlay .loading-text::before{
-      content: attr(data-text); position: absolute; inset: 0; color: transparent; pointer-events: none; z-index: -1;
-      text-shadow: 0 0 10px #0ff, 0 0 20px #0ff, 0 0 40px #0ff, 0 0 80px #f0f; filter: blur(.4px);
-    }
-    @keyframes loader-bounce{ 0%,20%,50%,80%,100%{ transform: translateZ(0) translateY(0) } 40%{ transform: translateZ(0) translateY(-12px) } 60%{ transform: translateZ(0) translateY(-6px) } }
-    @keyframes loader-flicker{
-      0%,100%{ text-shadow: 0 0 8px #0ff, 0 0 16px #0ff, 0 0 32px #0ff, 0 0 48px #f0f; }
-      50%{    text-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 48px #0ff, 0 0 72px #f0f; }
-    }
-    #loading-overlay .loading-bar-container{
-      width: 80%; max-width: 400px; height: 8px; background: rgba(0,255,255,0.2);
-      border-radius: 4px; overflow: hidden; box-shadow: inset 0 0 12px #0ff; position: relative;
-    }
-    #loading-overlay .loading-bar{
-      height: 100%; width: 100%; border-radius: 4px;
-      background: linear-gradient(90deg, #0ff, #ff00ff, #0ff); box-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #f0f;
-      animation: loader-slide 2.5s linear infinite, loader-pulse 1.6s ease-in-out infinite;
-      will-change: transform, box-shadow; transform: translateZ(0) translateX(-100%);
-    }
-    @keyframes loader-slide{ 0%{ transform: translateZ(0) translateX(-100%) } 100%{ transform: translateZ(0) translateX(100%) } }
-    @keyframes loader-pulse{
-      0%,100%{ box-shadow: 0 0 12px #0ff, 0 0 24px #0ff, 0 0 36px #f0f; }
-      50%{    box-shadow: 0 0 18px #0ff, 0 0 36px #0ff, 0 0 60px #f0f; }
-    }
-  `;
-  document.head.appendChild(style);
+    const loading = document.createElement("div");
+    loading.id = "loading-overlay";
+    loading.innerHTML = `<div class="loading-text">Now Loading…</div><div class="loading-bar"></div>`;
+    document.body.appendChild(loading);
 
-  /* =====================================
-     ローディングDOM（テンプレ文字列で挿入）
-  ===================================== */
-  const loadingOverlay = document.createElement("div");
-  loadingOverlay.id = "loading-overlay";
-  loadingOverlay.innerHTML = `
-    <div class="loading-text" data-text="Now Loading...">Now Loading...</div>
-    <div class="loading-bar-container">
-      <div class="loading-bar"></div>
-    </div>
-  `;
-  document.body.appendChild(loadingOverlay);
+    function showLoading(cb){
+      loading.style.display="flex";
+      requestAnimationFrame(()=>{ loading.style.opacity="1"; if(cb) setTimeout(cb,40); });
+    }
+    function hideLoading(){
+      loading.style.opacity="0";
+      setTimeout(()=>{ loading.style.display="none"; },200);
+    }
+    window.__showLoading__ = showLoading;
 
-  function showLoading(cb) {
-    loadingOverlay.style.display = 'flex';
-    requestAnimationFrame(() => {
-      loadingOverlay.style.opacity = '1';
-      if (typeof cb === 'function') setTimeout(cb, 50);
+    // ページ入出時の表示制御
+    window.addEventListener("load", hideLoading, {passive:true});
+    window.addEventListener("beforeunload", ()=> showLoading(), {passive:true});
+    window.addEventListener("pageshow", e=>{ if(e.persisted) hideLoading(); }, {passive:true});
+  })();
+
+  /* ========== 下タブ & サブメニュー ========== */
+  const tabItems = document.querySelectorAll(".bottom-tab .tab-item");
+  if (!tabItems.length) return;
+
+  // すべて閉じる
+  function closeAllSubMenus() {
+    document.querySelectorAll(".bottom-tab .sub-menu.show").forEach(sm=>{
+      sm.classList.remove("show");
+      sm.style.opacity = "0";
+      sm.style.transform = "translateY(10px)";
+    });
+    document.querySelectorAll(".tab-caret-btn[aria-expanded='true']").forEach(b=>{
+      b.setAttribute("aria-expanded", "false");
     });
   }
-  function hideLoading() {
-    loadingOverlay.style.opacity = '0';
-    setTimeout(() => { loadingOverlay.style.display = 'none'; }, 260);
-  }
 
-  showLoading();
-  window.addEventListener("load", hideLoading);
-  window.addEventListener("beforeunload", () => showLoading());
-  window.addEventListener("pageshow", (e) => { if (e.persisted) hideLoading(); });
+  // 位置合わせして開く
+  function openSubMenuFor(tabItem) {
+    const subMenu = tabItem.querySelector(".sub-menu");
+    if (!subMenu) return;
 
-  /* =====================================
-     下タブ＆サブメニュー（修正版）
-  ===================================== */
-  const tabs = document.querySelectorAll('.tab-item');
-
-  // まず全サブメニューを初期化
-  tabs.forEach(tab => {
-    const subMenu = tab.querySelector('.sub-menu');
-    if (subMenu) {
-      // show/close を CSS で制御するので display は触らない
-      subMenu.classList.remove('show');
-      // 固定配置に（重なり事故防止）
-      subMenu.style.position = 'fixed';
-      subMenu.style.opacity = '0';
-      subMenu.style.transform = 'translateY(10px)';
-      subMenu.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
-      subMenu.style.zIndex = '10000';
-    }
-  });
-
-  // サブメニューを開く（座標合わせ含む）
-  function openSubMenu(subMenu, tab) {
-    const rect = tab.getBoundingClientRect();
-    // 一旦表示して幅を取る
-    subMenu.style.visibility = 'hidden';
-    subMenu.classList.add('show');
-    // 左位置（中央寄せしつつはみ出し防止）
+    // 一旦 show で幅測り
+    subMenu.classList.add("show");
+    subMenu.style.position = "fixed";
+    subMenu.style.visibility = "hidden";
+    const rect = tabItem.getBoundingClientRect();
     const w = subMenu.getBoundingClientRect().width || 160;
+
     const left = Math.min(Math.max(8, rect.left + rect.width/2 - w/2), window.innerWidth - w - 8);
     subMenu.style.left = left + "px";
     subMenu.style.bottom = (window.innerHeight - rect.top + 10) + "px";
-    // フェードイン
-    requestAnimationFrame(() => {
-      subMenu.style.visibility = 'visible';
-      subMenu.style.opacity = '1';
-      subMenu.style.transform = 'translateY(0)';
+
+    requestAnimationFrame(()=>{
+      subMenu.style.visibility = "visible";
+      subMenu.style.opacity = "1";
+      subMenu.style.transform = "translateY(0)";
     });
+
+    const caret = tabItem.querySelector(".tab-caret-btn");
+    if (caret) caret.setAttribute("aria-expanded", "true");
   }
 
-  function closeAllSubMenus() {
-    document.querySelectorAll('.sub-menu.show').forEach(sm => {
-      sm.classList.remove('show');
-      sm.style.opacity = '0';
-      sm.style.transform = 'translateY(10px)';
-      // 位置リセットは不要（次回再計算）
-    });
-  }
-
-  // タブごとのイベント
-  tabs.forEach(tab => {
-    const subMenu = tab.querySelector('.sub-menu');
-    const tabLink = tab.querySelector('.tab-link');
-
-    // サブメニュー内リンク：遷移前にローディング
-    if (subMenu) {
-      subMenu.querySelectorAll('a').forEach(a => {
-        a.addEventListener('click', e => {
-          const href = a.getAttribute('href');
-          if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
-            e.preventDefault();
-            e.stopPropagation();
-            showLoading(() => window.location.href = href);
-          }
-        });
-        a.addEventListener('touchend', e => {
-          const href = a.getAttribute('href');
-          if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
-            e.preventDefault();
-            e.stopPropagation();
-            showLoading(() => window.location.href = href);
-          }
-        });
-      });
-    }
-
-    // ★ ここが肝：サブメニューがあるタブは tabLink クリックで開閉し、遷移しない
-    if (tabLink) {
-      tabLink.addEventListener('click', e => {
-        if (subMenu) {
-          e.preventDefault(); // ← ナビゲーションさせない
-          const isOpen = subMenu.classList.contains('show');
-          closeAllSubMenus();
-          if (!isOpen) openSubMenu(subMenu, tab);
-        } else {
-          // サブメニューが無いタブは通常遷移＋ローダー
-          const href = tabLink.getAttribute('href');
-          if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
-            e.preventDefault();
-            closeAllSubMenus();
-            showLoading(() => window.location.href = href);
-          }
-        }
-      });
-
-      // モバイル長押し：サブメニューをクイックオープン
-      let touchStartTime = 0;
-      tabLink.addEventListener('touchstart', () => { touchStartTime = Date.now(); }, {passive:true});
-      tabLink.addEventListener('touchend', e => {
-        if (!subMenu) return;
-        const dur = Date.now() - touchStartTime;
-        if (dur >= 500) {
-          e.preventDefault();
-          e.stopPropagation();
-          const isOpen = subMenu.classList.contains('show');
-          closeAllSubMenus();
-          if (!isOpen) openSubMenu(subMenu, tab);
-        }
-      }, {passive:false});
-    }
-
-    // サブメニュー自体のクリックはバブリング停止
-    if (subMenu) {
-      subMenu.addEventListener('click', e => e.stopPropagation());
-    }
-  });
-
-  // 外側クリック/タッチで閉じる
-  ['click','touchstart'].forEach(ev => {
-    document.addEventListener(ev, e => {
-      if (!e.target.closest('.tab-item') && !e.target.closest('.sub-menu')) {
+  // 外側クリックで閉じる
+  ["click","touchstart"].forEach(ev=>{
+    document.addEventListener(ev, (e)=>{
+      if (!e.target.closest(".bottom-tab .tab-item") && !e.target.closest(".bottom-tab .sub-menu")) {
         closeAllSubMenus();
       }
     }, {passive:true});
+  });
+
+  tabItems.forEach(tabItem=>{
+    const link = tabItem.querySelector(".tab-link");
+    const subMenu = tabItem.querySelector(".sub-menu");
+
+    // サブメニュー初期状態
+    if (subMenu) {
+      subMenu.classList.remove("show");
+      subMenu.style.position = "fixed";
+      subMenu.style.opacity = "0";
+      subMenu.style.transform = "translateY(10px)";
+      subMenu.style.transition = "opacity .2s ease, transform .2s ease";
+      subMenu.style.zIndex = "10000";
+
+      // サブメニュー内リンク：遷移前ローダー
+      subMenu.querySelectorAll("a").forEach(a=>{
+        a.addEventListener("click", (e)=>{
+          const href = a.getAttribute("href");
+          if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
+          e.preventDefault(); e.stopPropagation();
+          (window.__showLoading__ || ((cb)=>cb()))(()=> window.location.href = href);
+        }, {passive:false});
+      });
+
+      // --- ケアレット（▾）を挿入：これでのみ開閉 ---
+      // 既存の飾りケアレットは排除
+      tabItem.querySelectorAll(".tab-caret-btn, .tab-caret, .caret, .caret-icon, [data-caret]").forEach(n=>n.remove());
+      const caret = document.createElement("button");
+      caret.type = "button";
+      caret.className = "tab-caret-btn";
+      caret.setAttribute("aria-expanded", "false");
+      caret.setAttribute("aria-label", "サブメニューを開閉");
+      caret.textContent = "▾";
+      // 下タブの『下側』に出すイメージ：.tab-item の直下に置く
+      tabItem.appendChild(caret);
+
+      caret.addEventListener("click", (e)=>{
+        e.preventDefault();
+        e.stopPropagation();
+        const isOpen = subMenu.classList.contains("show");
+        closeAllSubMenus();
+        if (!isOpen) openSubMenuFor(tabItem);
+      }, {passive:false});
+    } else {
+      // サブメニュー無し：余計なケアレットは削除
+      tabItem.querySelectorAll(".tab-caret-btn, .tab-caret, .caret, .caret-icon, [data-caret]").forEach(n=>n.remove());
+    }
+
+    // タブ本体クリックは常に遷移（サブメニュー有りでも）
+    if (link) {
+      link.addEventListener("click", (e)=>{
+        const href = link.getAttribute("href");
+        if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
+        e.preventDefault();
+        closeAllSubMenus();
+        (window.__showLoading__ || ((cb)=>cb()))(()=> window.location.href = href);
+      }, {passive:false});
+    }
+
+    // 長押し（500ms〜）でクイックオープン
+    if (subMenu && link) {
+      let t0 = 0, pressed = false;
+      link.addEventListener("touchstart", ()=>{ t0 = Date.now(); pressed=false; }, {passive:true});
+      link.addEventListener("touchend", (e)=>{
+        const dur = Date.now() - t0;
+        if (dur >= 500) {
+          e.preventDefault(); e.stopPropagation();
+          pressed = true;
+          const isOpen = subMenu.classList.contains("show");
+          closeAllSubMenus();
+          if (!isOpen) openSubMenuFor(tabItem);
+        }
+      }, {passive:false});
+    }
   });
 });
