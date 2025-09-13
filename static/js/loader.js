@@ -1,112 +1,114 @@
-// js/loader.js
-// ローディング専用。即時表示（pointerdown）+ 遷移完了まで維持。
-// 下タブ/サブメニュー用のコードは base.js 側に維持したまま、ここは Loader のみ。
+// static/js/loader.js
+// ローダー一元管理：PageLoader.show()/hide() 提供 + 自動フック（load / beforeunload / instant show）
 
-(function () {
+(function(){
   const loader = document.getElementById('loading-screen');
   if (!loader) return;
 
-  // 表示中はカーソルを待機にしてフィードバック強化
-  function setWaitCursor(on) {
-    document.documentElement.style.cursor = on ? 'wait' : '';
-    document.body.style.cursor = on ? 'wait' : '';
+  // 表示文言の data-text を同期（保険）
+  const textEl = loader.querySelector('.loading-text');
+  if (textEl && !textEl.getAttribute('data-text')) {
+    textEl.setAttribute('data-text', textEl.textContent.trim());
   }
 
-  // 強制表示（CSSを確実に上書き）
-  function showNow(cb) {
-    loader.classList.remove('hidden');
-    loader.style.removeProperty('display'); // CSS に任せる（display:flex）
-    // reflow でフレーム確保
-    // eslint-disable-next-line no-unused-expressions
-    loader.offsetHeight;
-    loader.style.opacity = '1';
-    loader.style.visibility = 'visible';
-    setWaitCursor(true);
-    if (typeof cb === 'function') cb();
-  }
-
-  // 強制非表示（.hidden で即座に display:none へ）
-  function hideNow() {
-    loader.classList.add('hidden');
-    setWaitCursor(false);
-  }
-
-  // 外向けAPI（base.js等から呼べる）
+  // 外向けAPI
   window.PageLoader = {
-    show: showNow,
-    hide: hideNow
+    show() {
+      loader.classList.remove('hidden'); // ← CSSで opacity/visibility を切り替え
+      // 念のため即時確定（他CSS競合を抑える）
+      loader.style.opacity = '1';
+      loader.style.visibility = 'visible';
+    },
+    hide() {
+      loader.classList.add('hidden');
+    }
   };
 
-  // 1) 初期：必ず表示（以前の挙動）
-  //   HTML/CSS で既に表示状態なので、ここでは何もしない。
-  //   ※ もし別JSで早期に隠されていたら、下の 'load' で再度隠すのでOK。
+  // ---- 初期状態：**表示**（前の挙動）
+  // HTMLでは #loading-screen に .hidden がついていない想定
+  // → すでに見えているので何もしない
 
-  // 2) ページ完全ロードでフェードアウト
+  // ---- ページ読み込み完了 → 少し待ってフェードアウト
   window.addEventListener('load', () => {
-    // フェードの残像を抑えるため少しだけ遅らせる
-    setTimeout(hideNow, 220);
+    setTimeout(() => PageLoader.hide(), 300);
   }, { passive: true });
 
-  // 3) Safari等の離脱時にも確実に表示
+  // ---- 離脱で必ず表示（Safari含む）
   window.addEventListener('beforeunload', () => {
-    showNow();
+    PageLoader.show();
   }, { passive: true });
 
-  // 4) bfcache 復帰（戻る/進む）はローダー不要
+  // ---- bfcache 復帰（戻る/進む）はローダー不要
   window.addEventListener('pageshow', (e) => {
-    if (e.persisted) hideNow();
+    if (e.persisted) PageLoader.hide();
   }, { passive: true });
 
-  // 5) 押下の瞬間に表示（リンク/フォーム）
-  function isModClick(e){ return e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0; }
-  function isValidHref(href){ return href && !href.startsWith('#') && !href.startsWith('javascript:'); }
+  // =========================================
+  // ここから「押した瞬間に出す」フック（アンカー/フォーム）
+  // =========================================
 
-  // pointerdown/touchstart で“最速”表示（視覚ストレス軽減）
+  const isModClick = (e) => e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0;
+  const isValidHref = (href) => href && !href.startsWith('#') && !href.startsWith('javascript:');
+
+  let fallbackTimer = null;
+  function armFallback(){
+    clearTimeout(fallbackTimer);
+    // 3秒以内に beforeunload が来なければ自動で隠す（遷移無しケースの保険）
+    fallbackTimer = setTimeout(() => PageLoader.hide(), 3000);
+  }
+  function clearFallback(){ clearTimeout(fallbackTimer); fallbackTimer = null; }
+  window.addEventListener('beforeunload', clearFallback, { passive: true });
+
+  // pointerdown / touchstart で最速表示
   const downHandler = (e) => {
     const a = e.target.closest && e.target.closest('a[href]');
-    if (a) {
-      const href = a.getAttribute('href');
-      if (isValidHref(href) && a.target !== '_blank' && !a.hasAttribute('download') && !isModClick(e) && a.dataset.noLoader !== 'true') {
-        showNow();
-        return;
-      }
-    }
     const submitBtn = e.target.closest && e.target.closest('button[type="submit"], input[type="submit"]');
-    if (submitBtn) {
+
+    if (a) {
+      const href   = a.getAttribute('href') || '';
+      const target = a.getAttribute('target') || '';
+      const dl     = a.hasAttribute('download');
+      if (isValidHref(href) && target !== '_blank' && !dl && a.dataset.noLoader !== 'true' && !isModClick(e)) {
+        PageLoader.show();
+        armFallback();
+      }
+    } else if (submitBtn) {
       const form = submitBtn.form || submitBtn.closest('form');
       if (form && form.target !== '_blank' && form.dataset.noLoader !== 'true') {
-        showNow();
+        PageLoader.show();
+        armFallback();
       }
     }
   };
   document.addEventListener('pointerdown', downHandler, { capture: true, passive: true });
   document.addEventListener('touchstart', downHandler, { capture: true, passive: true });
 
-  // click では遷移を自前実行してローダーを維持
+  // クリック時は自前遷移でローダー維持（他で prevent されてなければ）
   document.addEventListener('click', (e) => {
     const a = e.target.closest && e.target.closest('a[href]');
     if (!a) return;
+    if (e.defaultPrevented) return;
 
-    const href = a.getAttribute('href');
-    if (!isValidHref(href)) return;
-    if (a.target === '_blank' || a.hasAttribute('download') || a.dataset.noLoader === 'true') return;
-    if (isModClick(e)) return;
+    const href   = a.getAttribute('href') || '';
+    const target = a.getAttribute('target') || '';
+    const dl     = a.hasAttribute('download');
+
+    if (!isValidHref(href) || target === '_blank' || dl || a.dataset.noLoader === 'true' || isModClick(e)) return;
 
     e.preventDefault();
-    showNow(() => { window.location.href = href; });
-  }, { capture: true });
+    PageLoader.show();        // 念のため再度 show
+    clearFallback();
+    setTimeout(() => { window.location.href = href; }, 0);
+  }, { capture: true, passive: false });
 
-  // form submit でも出しっぱなしにして遷移を待つ
+  // フォーム送信も確実に show
   document.addEventListener('submit', (e) => {
     const form = e.target;
     if (!(form instanceof HTMLFormElement)) return;
     if (form.target === '_blank' || form.dataset.noLoader === 'true') return;
-    showNow();
+    PageLoader.show();
+    clearFallback();
+    // 送信自体はブラウザに任せる
   }, { capture: true });
 
-  // 念のため、ローダーテキストの data-text を同期
-  const textEl = loader.querySelector('.loading-text');
-  if (textEl && !textEl.getAttribute('data-text')) {
-    textEl.setAttribute('data-text', textEl.textContent.trim());
-  }
 })();
