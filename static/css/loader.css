@@ -1,44 +1,62 @@
 /* css/loader.css */
 
-/* 画面全体のローダー（初期は表示。JSで hide へ） */
+/* ========== 基本：初期は非表示（JSで表示） ========== */
 #loading-screen{
   position: fixed;
   inset: 0;
-  background: rgba(10,10,20,0.95);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
   z-index: 9999;
-  opacity: 1;
-  visibility: visible;
-  transition: opacity .4s ease, visibility .4s ease;
-}
+  background: rgba(10,10,20,0.95);
 
-/* 非表示状態（JSで付け外し） */
-#loading-screen.hidden{
+  /* 初期は隠す（チラ見え防止） */
+  display: none;
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  /* ← “一生見えっぱなし”事故を確実に止めるため追記 */
-  display: none !important;
+
+  /* アニメ */
+  transition: opacity .4s ease, visibility .4s ease;
+
+  /* レイアウト（表示時に効く） */
+  display: flex;               /* ← JSがdisplay:flexをインライン指定する想定 */
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
 }
 
-/* ネオンテキスト：最初から発光ON */
+/* JSやテンプレで .is-active を付けるだけでも表示できるように（保険） */
+#loading-screen.is-active{
+  display: flex;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+/* 完全に畳む用（JSの PageLoader.hide() が付ける想定） */
+#loading-screen.hidden{
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  display: none !important;        /* ← “一生見えっぱなし”事故を確実に止める */
+}
+
+/* ========== ネオン文言 ========== */
 #loading-screen .loading-text{
   font-family: "Orbitron", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans";
   font-size: 26px;
   font-weight: 700;
   color: #00eaff;
   margin-bottom: 20px;
+
   text-shadow:
     0 0 8px  #0ff,
     0 0 16px #0ff,
     0 0 32px #0ff,
     0 0 48px #f0f;
+
   animation:
     loader-bounce 1.4s ease-in-out infinite,
     loader-flicker 1.8s ease-in-out infinite;
+
   will-change: transform, text-shadow;
   transform: translateZ(0);
   position: relative;
@@ -60,11 +78,14 @@
   filter: blur(.4px);
 }
 
+/* バウンド */
 @keyframes loader-bounce{
   0%,20%,50%,80%,100%{ transform: translateZ(0) translateY(0); }
   40%{ transform: translateZ(0) translateY(-12px); }
   60%{ transform: translateZ(0) translateY(-6px); }
 }
+
+/* 明→より明（暗くしない） */
 @keyframes loader-flicker{
   0%,100%{
     text-shadow:
@@ -82,7 +103,7 @@
   }
 }
 
-/* 進行バーの器 */
+/* ========== 進行バー ========== */
 #loading-screen .loading-bar-container{
   width: 80%;
   max-width: 400px;
@@ -94,7 +115,6 @@
   position: relative;
 }
 
-/* 進行バー本体：最初から発光ON＋横流れ */
 #loading-screen .loading-bar{
   height: 100%;
   width: 100%;
@@ -111,10 +131,13 @@
   transform: translateZ(0) translateX(-100%);
 }
 
+/* 横流れ */
 @keyframes loader-slide{
   0%   { transform: translateZ(0) translateX(-100%); }
   100% { transform: translateZ(0) translateX(100%); }
 }
+
+/* 明るさの強弱のみ（暗くしない） */
 @keyframes loader-pulse{
   0%,100%{
     box-shadow:
@@ -127,5 +150,15 @@
       0 0 18px #0ff,
       0 0 36px #0ff,
       0 0 60px #f0f;
+  }
+}
+
+/* ========== 低モーション配慮 ========== */
+@media (prefers-reduced-motion: reduce){
+  #loading-screen .loading-text{
+    animation: none;
+  }
+  #loading-screen .loading-bar{
+    animation: none;
   }
 }
