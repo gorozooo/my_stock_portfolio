@@ -2039,6 +2039,11 @@ BROKER_ALIASES = {
 
 UNDO_WINDOW_SECONDS = 120
 
+# --- 売却基準（残高の加算に何を使うか） ---
+# "proceeds" = 売却受取（現金ベース） / "profit" = 売却損益（PLベース）
+SELL_BASIS_DEFAULT = "proceeds"
+SELL_BASIS_CHOICES = {"proceeds", "profit"}
+
 from .models import CashFlow, RealizedProfit  # ここで一度だけ
 
 
