@@ -6,42 +6,59 @@
 /* ===== ナビバー ===== */
 .navbar {
   position: fixed;
-  top: 0; left: 0; width: 100%; height: 64px;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 64px;
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
-  display: flex; justify-content: center; align-items: center;
-  padding: 0 16px; z-index: 1000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0 16px;
+  z-index: 1000;
   box-shadow: 0 2px 12px rgba(0,0,0,0.4);
-  flex-direction: column; gap: 2px;
+  flex-direction: column;
+  gap: 2px;
 }
 
-/* タイトル：流れるグラデーション＋ネオン */
 .navbar-title {
-  font-size: 1.5rem; font-weight: bold; text-transform: uppercase;
+  font-size: 1.5rem;
+  font-weight: bold;
+  text-transform: uppercase;
   background: linear-gradient(270deg, #00ffff, #ff00ff, #00ffff);
   background-size: 400% 400%;
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
   animation: gradientFlow 8s ease infinite, glowTitle 3s infinite alternate;
-  font-family: "Orbitron", sans-serif; line-height: 1.2; margin-right: 30px;
+  font-family: "Orbitron", sans-serif;
+  line-height: 1.2;
+  margin-right: 30px;
 }
+
 @keyframes gradientFlow {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
 }
+
 @keyframes glowTitle {
   from { text-shadow: 0 0 12px #0ff, 0 0 24px #0ff; }
   to   { text-shadow: 0 0 20px #f0f, 0 0 40px #f0f; }
 }
 
-/* 現在ページ名 */
 .navbar-current {
-  font-size: 0.85rem; font-weight: 500; color: #0ff;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #0ff;
   text-shadow: 0 0 10px #0ff, 0 0 20px #0ff;
-  letter-spacing: 1px; font-family: "Orbitron", sans-serif;
-  margin-right: 30px; animation: glowCurrent 2s ease-in-out infinite alternate;
+  letter-spacing: 1px;
+  font-family: "Orbitron", sans-serif;
+  margin-right: 30px;
+  animation: glowCurrent 2s ease-in-out infinite alternate;
 }
+
 @keyframes glowCurrent {
   from { text-shadow: 0 0 10px #0ff, 0 0 20px #0ff; }
   to   { text-shadow: 0 0 18px #0ff, 0 0 36px #0ff; }
@@ -49,62 +66,132 @@
 
 /* ===== 下タブ ===== */
 .bottom-tab {
-  position: fixed; bottom: 0; left: 0; width: 100%; height: 72px;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 76px; /* 高さを揃える */
   background: rgba(0, 0, 20, 0.6);
-  backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
-  display: flex; justify-content: space-around; align-items: center;
-  z-index: 1000; border-top: 1px solid rgba(0, 255, 255, 0.15);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  z-index: 1000;
+  border-top: 1px solid rgba(0, 255, 255, 0.15);
   box-shadow: 0 -4px 18px rgba(0, 255, 255, 0.2);
 }
+
 .bottom-tab .tab-list {
-  display: flex; justify-content: space-around; align-items: center;
-  width: 100%; margin: 0; padding: 0; list-style: none;
+  display: flex;
+  justify-content: space-around;
+  align-items: stretch; /* 高さを揃える */
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
-.bottom-tab .tab-item { flex: 1; text-align: center; position: relative; }
+
+.bottom-tab .tab-item {
+  flex: 1;
+  text-align: center;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
 
 /* タブリンク */
 .bottom-tab .tab-link {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 4px; text-decoration: none; color: #888; font-size: 0.8rem;
-  transition: all 0.35s ease; padding: 6px 0; cursor: pointer;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  color: #888;
+  font-size: 0.7rem;
+  transition: all 0.35s ease;
+  padding: 6px 0 0; /* 上寄せしてケアレット分を空ける */
+  cursor: pointer;
 }
+
 .bottom-tab .tab-link i {
-  font-size: 22px; transition: all 0.35s ease; color: #aaa;
+  font-size: 20px;
+  transition: all 0.35s ease;
+  color: #aaa;
+  margin-bottom: 2px;
 }
 
 /* ホバー・アクティブ */
 .bottom-tab .tab-link:hover,
 .bottom-tab .tab-item.active .tab-link {
-  color: #fff; text-shadow: 0 0 6px #0ff, 0 0 14px #0ff, 0 0 24px rgba(0,255,255,0.7);
+  color: #fff;
+  text-shadow: 0 0 6px #0ff, 0 0 14px #0ff, 0 0 24px rgba(0,255,255,0.7);
   transform: translateY(-2px);
 }
+
 .bottom-tab .tab-link:hover i,
 .bottom-tab .tab-item.active .tab-link i {
   color: #0ff;
   text-shadow: 0 0 12px #0ff, 0 0 26px #0ff, 0 0 36px rgba(0,255,255,0.9);
-  transform: scale(1.2);
+  transform: scale(1.15);
 }
 
-/* ===== サブメニュー（初期は閉） ===== */
+/* ===== ケアレット（下に配置） ===== */
+.tab-caret-btn {
+  margin-top: 4px;
+  height: 18px;   /* 高さを少し大きく */
+  line-height: 18px;
+  font-size: 14px;
+  color: #0ff;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: transform .2s ease;
+}
+
+.tab-caret-btn[aria-expanded="true"] {
+  transform: rotate(180deg);
+}
+
+/* ===== サブメニュー ===== */
 .bottom-tab .sub-menu {
-  position: fixed; /* ← 画面に固定して重なりを防ぐ */
-  bottom: 78px;
-  left: 50%; transform: translateX(-50%) scale(0.9);
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%) scale(0.9);
   background: rgba(15, 15, 30, 0.95);
-  border-radius: 12px; padding: 8px 0;
+  border-radius: 12px;
+  padding: 8px 0;
   box-shadow: 0 0 16px rgba(0, 255, 255, 0.3);
-  list-style: none; opacity: 0; pointer-events: none;
-  min-width: 130px; transition: all 0.25s ease; z-index: 1100;
+  list-style: none;
+  opacity: 0;
+  pointer-events: none;
+  min-width: 130px;
+  transition: all 0.25s ease;
+  z-index: 1100;
 }
+
 .bottom-tab .sub-menu.show {
-  opacity: 1; pointer-events: auto; transform: translateX(-50%) scale(1);
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) scale(1);
 }
+
 .bottom-tab .sub-menu li a {
-  display: block; padding: 8px 16px; color: #aaa; text-decoration: none;
-  font-size: 0.85rem; transition: all 0.25s ease;
+  display: block;
+  padding: 8px 16px;
+  color: #aaa;
+  text-decoration: none;
+  font-size: 0.8rem;
+  transition: all 0.25s ease;
 }
+
 .bottom-tab .sub-menu li a:hover {
-  color: #0ff; text-shadow: 0 0 6px #0ff, 0 0 14px #0ff;
+  color: #0ff;
+  text-shadow: 0 0 6px #0ff, 0 0 14px #0ff;
   background: rgba(0, 255, 255, 0.05);
 }
 
@@ -119,6 +206,6 @@ main {
 @media (min-width: 768px) {
   .navbar-title { font-size: 1.7rem; }
   .navbar-current { font-size: 1rem; }
-  .bottom-tab .tab-link { font-size: 0.9rem; }
-  .bottom-tab .tab-link i { font-size: 24px; }
+  .bottom-tab .tab-link { font-size: 0.8rem; }
+  .bottom-tab .tab-link i { font-size: 22px; }
 }
