@@ -1,57 +1,50 @@
 // static/js/base.js
-// ★ローダー専用（下タブ/サブメニューには触れません）
-// - 初期は表示（HTML/loader.cssのまま）
-// - window.load / readyState=complete / visibilitychange / pageshow(bfcache) で確実に閉じる
-// - 例外時・JSエラー時でも強制クローズ（!important で畳む）
-// - 遷移時は pointerdown/submit/beforeunload で素早く表示
+// Loader only（下タブ/サブメニューは触りません）
+// ・初回は“必ず表示”→ 完全読込でフェードアウト
+// ・リンク/フォーム操作の“押した瞬間”に即表示
+// ・CSS競合があっても !important で強制反映
+// ・bfcache復帰やエラー時、フェイルセーフも網羅
 
 (function () {
-  // ====== ユーティリティ ======
-  function hardShow(el) {
+  // ---- utilities ----
+  function forceShow(el) {
     if (!el) return;
-    // 既存CSSに勝てるように !important で明示
-    el.classList.remove('hidden');
+    el.classList.remove('hidden'); // loader.css の hidden を解除
     el.style.setProperty('display', 'flex', 'important');
     el.style.setProperty('opacity', '1', 'important');
     el.style.setProperty('visibility', 'visible', 'important');
     el.style.setProperty('pointer-events', 'auto', 'important');
-    el.style.setProperty('z-index', '2147483647', 'important'); // 常に最前
+    el.style.setProperty('z-index', '2147483647', 'important');
     document.documentElement.style.cursor = 'wait';
     document.body.style.cursor = 'wait';
   }
-
-  function hardHide(el) {
+  function forceHide(el) {
     if (!el) return;
-    el.classList.add('hidden'); // loader.css のトランジションも生かす
-    // さらに確実に畳む
+    el.classList.add('hidden'); // CSS のトランジションを活かす
     el.style.setProperty('opacity', '0', 'important');
     el.style.setProperty('visibility', 'hidden', 'important');
     el.style.setProperty('pointer-events', 'none', 'important');
-    // 遅延で display も落とす（レイアウト軽減）
     setTimeout(() => {
       el.style.setProperty('display', 'none', 'important');
       document.documentElement.style.cursor = '';
       document.body.style.cursor = '';
     }, 350);
   }
+  function ensureLoaderHost() {
+    let host = document.getElementById('loading-screen');
+    if (host) return host;
 
-  function createOverlayIfMissing() {
-    let el = document.getElementById('loading-screen');
-    if (el) return el;
-
-    // 無い場合は簡易オーバーレイを自動生成（見た目はシンプルだが同じ挙動）
+    // 無い場合は簡易オーバーレイを作る（見た目はシンプルだが挙動は同じ）
     const style = document.createElement('style');
     style.textContent = `
       #__loading_overlay__{
-        position:fixed; inset:0; z-index:2147483647 !important;
+        position:fixed; inset:0; z-index:2147483647!important;
         background:rgba(10,10,20,.95);
         display:flex; align-items:center; justify-content:center; flex-direction:column;
         opacity:1; visibility:visible; pointer-events:auto;
         transition:opacity .35s ease, visibility .35s ease;
       }
-      #__loading_overlay__.hidden{
-        opacity:0; visibility:hidden; pointer-events:none;
-      }
+      #__loading_overlay__.hidden{ opacity:0; visibility:hidden; pointer-events:none; }
       #__loading_overlay__ .loading-text{
         color:#0ff; font:700 22px/1.2 "Orbitron",system-ui;
         text-shadow:0 0 10px #0ff,0 0 20px #0ff; margin-bottom:12px;
@@ -65,89 +58,82 @@
     `;
     document.head.appendChild(style);
 
-    el = document.createElement('div');
-    el.id = '__loading_overlay__';
-    el.innerHTML = `
+    host = document.createElement('div');
+    host.id = '__loading_overlay__';
+    host.innerHTML = `
       <div class="loading-text">Now Loading…</div>
       <div class="loading-bar" role="progressbar" aria-hidden="true"></div>
     `;
-    document.body.appendChild(el);
-    return el;
+    document.body.appendChild(host);
+    return host;
+  }
+  function isValidNavAnchor(a, e) {
+    if (!a) return false;
+    const href = a.getAttribute('href');
+    if (!href || href.startsWith('#') || href.startsWith('javascript:')) return false;
+    if (a.target === '_blank' || a.hasAttribute('download')) return false;
+    if (a.dataset.noLoader === 'true') return false;
+    if (e && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0)) return false;
+    return true;
   }
 
   function start() {
-    // 1) ローダーDOM
-    const loader = createOverlayIfMissing(); // #loading-screen 優先、無ければ作る
+    const loader = ensureLoaderHost();
 
-    // 2) 初期は表示（HTML/loader.css が担当）。JSでも再保証しておく
-    hardShow(loader);
+    // 1) 初回“必ず表示”
+    //    - HTML/CSS 側で何かに上書きされていてもここで可視化
+    forceShow(loader);
 
-    // 3) “絶対に消す”多重セーフ
-    const tryHide = () => hardHide(loader);
-
-    // 3-1) ページ完全読込で閉じる
-    window.addEventListener('load', () => {
-      // 読み終わってすぐ消すと「最後だけチラッ」になる環境があるので少し余韻
-      setTimeout(tryHide, 250);
-    }, { once: true, passive: true });
-
-    // 3-2) 既にcompleteなら即クローズ（defer/asyncで遅れて実行されたとき）
+    // 2) 完全読込でフェードアウト（“最後だけチラ見え”防止のため少し余韻）
+    const closeAfterLoad = () => setTimeout(() => forceHide(loader), 250);
     if (document.readyState === 'complete') {
-      setTimeout(tryHide, 0);
+      // 既に読み終わっているケース（defer/asyncなど）
+      closeAfterLoad();
     } else {
-      // 3-3) 念のため DOMContentLoaded 後にも監視（環境依存の取りこぼし対策）
-      document.addEventListener('DOMContentLoaded', () => {
-        // ネットワークが速い環境で load が遅れても 1.2s で畳む
-        setTimeout(() => {
-          if (document.readyState === 'complete') tryHide();
-        }, 1200);
-      }, { once: true });
+      window.addEventListener('load', closeAfterLoad, { once: true, passive: true });
     }
 
-    // 3-4) ページがフォアグラウンドに戻った時、既に読み終わっているなら消す
+    // 3) フェイルセーフ群
+    //    3-1) DOMContentLoaded 後も 1.2s 経過で readyState=complete なら念押しクローズ
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => {
+        if (document.readyState === 'complete') forceHide(loader);
+      }, 1200);
+    }, { once: true });
+    //    3-2) 可視化復帰時に complete ならクローズ
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && document.readyState === 'complete') tryHide();
+      if (document.visibilityState === 'visible' && document.readyState === 'complete') forceHide(loader);
     }, { passive: true });
+    //    3-3) bfcache 復帰でクローズ
+    window.addEventListener('pageshow', (e) => { if (e.persisted) forceHide(loader); }, { passive: true });
+    //    3-4) エラーでも UI を塞がない
+    window.addEventListener('error', () => forceHide(loader));
+    window.addEventListener('unhandledrejection', () => forceHide(loader));
+    //    3-5) 最終保険：最大 6 秒で畳む
+    setTimeout(() => forceHide(loader), 6000);
 
-    // 3-5) bfcache 復帰時はローダー不要
-    window.addEventListener('pageshow', (e) => {
-      if (e.persisted) tryHide();
-    }, { passive: true });
+    // 4) “押した瞬間”表示（ナビ前に確実表示）
+    const onPointerDown = (e) => {
+      const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+      if (isValidNavAnchor(a, e)) { forceShow(loader); return; }
 
-    // 3-6) JS エラー/未処理例外でも UI を見せるため強制クローズ
-    window.addEventListener('error', () => tryHide());
-    window.addEventListener('unhandledrejection', () => tryHide());
-
-    // 3-7) 最終フェイルセーフ：何があっても最大 6 秒で畳む
-    setTimeout(tryHide, 6000);
-
-    // 4) 遷移時は素早く見せる（押下の瞬間）
-    const isValidLink = (a, e) =>
-      a && isValidHref(a.getAttribute('href')) &&
-      a.target !== '_blank' && !a.hasAttribute('download') &&
-      !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0;
-
-    const pointerDownHandler = (e) => {
-      const a = e.target.closest && e.target.closest('a[href]');
-      if (isValidLink(a, e)) hardShow(loader);
-
-      const submitBtn = e.target.closest && e.target.closest('button[type="submit"], input[type="submit"]');
-      if (submitBtn) {
-        const form = submitBtn.form || submitBtn.closest('form');
-        if (form && form.target !== '_blank') hardShow(loader);
+      const submit = e.target && e.target.closest
+        ? e.target.closest('button[type="submit"], input[type="submit"]') : null;
+      if (submit) {
+        const form = submit.form || submit.closest('form');
+        if (form && form.target !== '_blank' && form.dataset.noLoader !== 'true') {
+          forceShow(loader);
+        }
       }
     };
-    document.addEventListener('pointerdown', pointerDownHandler, { capture: true, passive: true });
-    document.addEventListener('touchstart', pointerDownHandler, { capture: true, passive: true });
+    document.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true });
+    document.addEventListener('touchstart', onPointerDown, { capture: true, passive: true });
 
-    // 5) ページ離脱開始で確実に表示（Safari 対策）
-    window.addEventListener('beforeunload', () => hardShow(loader), { passive: true });
+    // 5) 離脱開始時も確実に表示（Safari 対策）
+    window.addEventListener('beforeunload', () => forceShow(loader), { passive: true });
 
-    // 6) 外部からも使えるように公開（任意）
-    window.PageLoader = {
-      show: () => hardShow(loader),
-      hide: () => hardHide(loader),
-    };
+    // 6) 外部からも使える API（任意）
+    window.PageLoader = { show: () => forceShow(loader), hide: () => forceHide(loader) };
   }
 
   if (document.readyState === 'loading') {
