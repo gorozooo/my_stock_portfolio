@@ -1976,6 +1976,7 @@ def register_hub(request):
 # -----------------------------
 from datetime import datetime, timedelta
 from types import SimpleNamespace
+import json
 
 from django.contrib import messages
 from django.db.models import Sum, F, Case, When, IntegerField, Value, Q
@@ -1983,6 +1984,7 @@ from django.db.models.functions import Coalesce
 from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.safestring import mark_safe
 
 BROKER_TABS = [
     ("rakuten", "楽天証券"),
@@ -1991,7 +1993,7 @@ BROKER_TABS = [
 ]
 BROKER_MAP = dict(BROKER_TABS)
 
-# 表記ゆれ吸収（必要ならここに増やせばOK）
+# 表記ゆれ吸収
 BROKER_ALIASES = {
     "rakuten": "rakuten", "楽天": "rakuten", "楽天証券": "rakuten",
     "matsui":  "matsui",  "松井": "matsui",  "松井証券": "matsui",
@@ -2004,63 +2006,7 @@ from .models import CashFlow, RealizedProfit  # ここで一度だけ
 
 
 def _canon_broker(b: str) -> str:
-    """ブローカー表記ゆれを内部キーへ正規化"""
     return BROKER_ALIASES.get((b or "").strip(), (b or "").strip())
-
-
-def _aggregate_balances(user=None):
-    """
-    証券会社ごとの残高を返す（dict互換）。
-    - CashFlow … 入金 +、出金 −
-    - RealizedProfit … sell: (sell_price*quantity - fee), dividend: profit_amount を加算
-    - other は現金増減が不明のため除外
-    - user が渡されたら RealizedProfit は user で絞り込み（CashFlow は現状仕様そのまま）
-    """
-    # まず CashFlow（入出金）
-    cf_qs = (
-        CashFlow.objects
-        .values("broker", "flow_type")
-        .annotate(total=Sum("amount"))
-    )
-    bal = {k: 0 for k, _ in BROKER_TABS}
-    for row in cf_qs:
-        b = _canon_broker(row["broker"])
-        if b in bal:
-            v = int(row["total"] or 0)
-            bal[b] += v if row["flow_type"] == "in" else -v
-
-    # 次に実現キャッシュ加算（RealizedProfit）
-    rp_qs = RealizedProfit.objects.all()
-    if user is not None:
-        rp_qs = rp_qs.filter(user=user)
-
-    # 売却：売却受取額（sell_price×quantity−fee）
-    sell_expr = (
-        Coalesce(F("sell_price"), 0) * Coalesce(F("quantity"), 0)
-        - Coalesce(F("fee"), 0)
-    )
-    sell_rows = (
-        rp_qs.filter(trade_type="sell")
-        .values("broker")
-        .annotate(delta=Sum(sell_expr, output_field=IntegerField()))
-    )
-    for row in sell_rows:
-        b = _canon_broker(row["broker"])
-        if b in bal:
-            bal[b] += int(row["delta"] or 0)
-
-    # 配当：profit_amount を加算（未入力は0扱い）
-    div_rows = (
-        rp_qs.filter(trade_type="dividend")
-        .values("broker")
-        .annotate(delta=Sum(Coalesce(F("profit_amount"), 0), output_field=IntegerField()))
-    )
-    for row in div_rows:
-        b = _canon_broker(row["broker"])
-        if b in bal:
-            bal[b] += int(row["delta"] or 0)
-
-    return bal
 
 
 def _parse_date_yyyy_mm_dd(s: str):
@@ -2070,6 +2016,102 @@ def _parse_date_yyyy_mm_dd(s: str):
         return timezone.now().date()
 
 
+def _aggregate_balances_and_breakdown(user=None):
+    """
+    残高と内訳を同時に返す。
+    戻り値: (balances_dict, breakdown_dict)
+      balances_dict = {"rakuten": int, "matsui": int, "sbi": int}
+      breakdown_dict = {
+        "rakuten": {
+           "cash_in": int, "cash_in_count": int,
+           "cash_out": int, "cash_out_count": int,
+           "cash_net": int,
+           "sell_sum": int, "sell_count": int,
+           "div_sum": int, "div_count": int,
+           "total": int  # = cash_net + sell_sum + div_sum
+        }, ...
+      }
+    """
+    # 初期化
+    balances = {k: 0 for k, _ in BROKER_TABS}
+    breakdown = {
+        k: dict(
+            cash_in=0, cash_in_count=0,
+            cash_out=0, cash_out_count=0,
+            cash_net=0,
+            sell_sum=0, sell_count=0,
+            div_sum=0, div_count=0,
+            total=0,
+        ) for k, _ in BROKER_TABS
+    }
+
+    # CashFlow: 入金/出金
+    cf_in = (
+        CashFlow.objects.filter(flow_type="in")
+        .values("broker").annotate(total=Sum("amount"), cnt=Sum(Value(1)))
+    )
+    for r in cf_in:
+        b = _canon_broker(r["broker"])
+        if b in balances:
+            breakdown[b]["cash_in"] = int(r["total"] or 0)
+            breakdown[b]["cash_in_count"] = int(r["cnt"] or 0)
+
+    cf_out = (
+        CashFlow.objects.filter(flow_type="out")
+        .values("broker").annotate(total=Sum("amount"), cnt=Sum(Value(1)))
+    )
+    for r in cf_out:
+        b = _canon_broker(r["broker"])
+        if b in balances:
+            breakdown[b]["cash_out"] = int(r["total"] or 0)
+            breakdown[b]["cash_out_count"] = int(r["cnt"] or 0)
+
+    for b in balances.keys():
+        breakdown[b]["cash_net"] = breakdown[b]["cash_in"] - breakdown[b]["cash_out"]
+        balances[b] += breakdown[b]["cash_net"]
+
+    # RealizedProfit（ユーザー単位で絞る）
+    rp = RealizedProfit.objects.all()
+    if user is not None:
+        rp = rp.filter(user=user)
+
+    # 売却：売却受取額（sell_price×quantity−fee）
+    sell_expr = (
+        Coalesce(F("sell_price"), 0) * Coalesce(F("quantity"), 0)
+        - Coalesce(F("fee"), 0)
+    )
+    rp_sell = (
+        rp.filter(trade_type="sell")
+        .values("broker").annotate(total=Sum(sell_expr, output_field=IntegerField()), cnt=Sum(Value(1)))
+    )
+    for r in rp_sell:
+        b = _canon_broker(r["broker"])
+        if b in balances:
+            val = int(r["total"] or 0)
+            breakdown[b]["sell_sum"] = val
+            breakdown[b]["sell_count"] = int(r["cnt"] or 0)
+            balances[b] += val
+
+    # 配当：profit_amount を加算
+    rp_div = (
+        rp.filter(trade_type="dividend")
+        .values("broker").annotate(total=Sum(Coalesce(F("profit_amount"), 0), output_field=IntegerField()), cnt=Sum(Value(1)))
+    )
+    for r in rp_div:
+        b = _canon_broker(r["broker"])
+        if b in balances:
+            val = int(r["total"] or 0)
+            breakdown[b]["div_sum"] = val
+            breakdown[b]["div_count"] = int(r["cnt"] or 0)
+            balances[b] += val
+
+    # 合計セット
+    for b in balances.keys():
+        breakdown[b]["total"] = balances[b]
+
+    return balances, breakdown
+
+
 def cash_io_page(request):
     broker = request.GET.get("broker") or "rakuten"
     broker = broker if broker in BROKER_MAP else "rakuten"
@@ -2077,6 +2119,7 @@ def cash_io_page(request):
 
     range_days = (request.GET.get("range") or "").strip().lower()
     q = (request.GET.get("q") or "").strip()
+    debug_balance = (request.GET.get("debug_balance") == "1")
 
     if request.method == "POST":
         post_broker = _canon_broker(request.POST.get("broker") or broker)
@@ -2112,18 +2155,18 @@ def cash_io_page(request):
             request.session.modified = True
             return redirect(f"{reverse('cash_io')}?broker={post_broker}&range={range_days or ''}&q={q}")
 
-    # 実現損益込みで集計（ユーザー前提のモデルなので user を渡す）
-    balances_dict = _aggregate_balances(user=request.user if request.user.is_authenticated else None)
+    # 実現損益込みで集計 + 内訳
+    balances_dict, breakdown_dict = _aggregate_balances_and_breakdown(
+        user=request.user if request.user.is_authenticated else None
+    )
 
+    # 一覧クエリ
     qs = CashFlow.objects.filter(broker=broker)
-
     if range_days and range_days.isdigit():
         since = timezone.now().date() - timedelta(days=int(range_days))
         qs = qs.filter(occurred_at__gte=since)
-
     if q:
         qs = qs.filter(Q(memo__icontains=q))
-
     recent = qs.order_by("-occurred_at", "-id")[:100]
 
     agg = qs.aggregate(
@@ -2142,11 +2185,14 @@ def cash_io_page(request):
         request.session.pop("last_cashflow_ts", None)
         request.session.modified = True
 
+    # JSON をテンプレへ埋め込む
+    breakdown_json = mark_safe(json.dumps(breakdown_dict, ensure_ascii=False))
+
     ctx = {
         "tabs": BROKER_TABS,
         "active_broker": broker,
         "active_label": active_label,
-        # テンプレ互換（balances.rakuten 等）に合わせる
+        # テンプレ互換（balances.rakuten 等）
         "balances": SimpleNamespace(
             **{k: int(balances_dict.get(k, 0)) for k, _ in BROKER_TABS}
         ),
@@ -2161,9 +2207,12 @@ def cash_io_page(request):
         "q": q,
         "range": range_days,
         "BROKER_MAP": BROKER_MAP,
+        # 追加
+        "balance_breakdown": breakdown_dict,
+        "balance_breakdown_json": breakdown_json,
+        "debug_balance": debug_balance,
     }
     return render(request, "cash_io.html", ctx)
-
 
 @require_POST
 def cash_undo(request):
