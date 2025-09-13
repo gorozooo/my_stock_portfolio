@@ -1,15 +1,12 @@
 // static/js/base.js
-// Loader + Bottom Tab & Submenu (all-in-one)
-// - Loader: 押した瞬間に表示 → window.load で閉じる（旧挙動）
-// - Instant hook: pointerdown/touchstart/Enter で即表示（キャンセル時の自動リカバリ付き）
-// - Tabs/Submenu: caret-row + actionbar 版（前回のまま）
+// Loader + Bottom Tab & Submenu (unchanged) — instant show now truly sticks until navigation
 
 (function () {
   /* =========================================
-     1) Loader — “前の挙動”を完全再現
+     1) Loader — shared
   ========================================= */
   function initLoader() {
-    let host = document.querySelector('#loading-screen'); // 派手版
+    let host = document.querySelector('#loading-screen'); // fancy template screen
     let mode = 'screen';
     if (!host) {
       mode = 'overlay';
@@ -45,14 +42,14 @@
     }
 
     function show(cb) {
-      // 直ちに可視化（クリック前に見せたい）
+      // show immediately and keep visible
       if (mode === 'screen') {
         if (getComputedStyle(host).display === 'none') host.style.display = 'flex';
         host.style.opacity = '1';
       } else {
         host.style.display = 'flex';
-        // reflow で即描画を安定させる
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+        // force reflow for immediate paint
+        // eslint-disable-next-line no-unused-expressions
         host.offsetHeight;
         host.style.opacity = '1';
       }
@@ -75,7 +72,7 @@
 
     window.__loader = { show, hide };
 
-    // 初回は必ず表示 → load で閉じる
+    // initial: always visible until load (previous behavior)
     if (getComputedStyle(host).display === 'none') {
       show();
     } else {
@@ -86,7 +83,7 @@
     window.addEventListener('beforeunload', () => show(), { passive: true });
     window.addEventListener('pageshow', (e) => { if (e.persisted) hide(); }, { passive: true });
 
-    // 任意ナビ
+    // manual goto helper
     window.__goto = function (href) {
       if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
       show(() => { window.location.href = href; });
@@ -94,23 +91,26 @@
   }
 
   /* =========================================
-     1.5) “押した瞬間”に出すためのグローバル・インスタントフック
-     - pointerdown / touchstart / Enter
-     - click/submit は最終実行（遷移実行）
-     - 修飾キー、_blank、#、download、data-no-loader は除外
-     - キャンセル/非遷移時の自動リカバリ（短時間で hide）
+     1.5) Instant-Show Hook — keep shown until nav actually starts
   ========================================= */
   function initInstantHook() {
     const isModifiedClick = (e) => e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0;
-    let pendingTimer = null;
-    let lastIntentTs = 0;
+    let pendingHideTimer = null;
+    let navIntentArmed = false;
 
-    function scheduleFallbackHide() {
-      // もし遷移が起きなかったら自動で消す（300ms）
-      if (pendingTimer) clearTimeout(pendingTimer);
-      pendingTimer = setTimeout(() => {
-        if (window.__loader) window.__loader.hide();
-      }, 300);
+    function armIntent() {
+      navIntentArmed = true;
+      // keep loader visible long enough so “beforeunload” can fire
+      if (pendingHideTimer) clearTimeout(pendingHideTimer);
+      pendingHideTimer = setTimeout(() => {
+        // if nothing happened (no beforeunload, no click handler navigation), hide it
+        if (navIntentArmed && window.__loader) window.__loader.hide();
+        navIntentArmed = false;
+      }, 5000); // ← 5s に延長（Safari/回線遅延でも消えにくい）
+    }
+    function disarmIntent() {
+      navIntentArmed = false;
+      if (pendingHideTimer) { clearTimeout(pendingHideTimer); pendingHideTimer = null; }
     }
 
     function maybeInstantShowForAnchor(a, e) {
@@ -120,29 +120,23 @@
       if (a.hasAttribute('download')) return false;
       if (a.dataset.noLoader === 'true') return false;
       if (isModifiedClick(e)) return false;
-      // ここで即表示
       if (window.__loader) window.__loader.show();
-      lastIntentTs = Date.now();
-      scheduleFallbackHide();
+      armIntent();
       return true;
     }
-
     function maybeInstantShowForForm(form) {
       if (form.getAttribute('target') === '_blank') return false;
       if (form.dataset.noLoader === 'true') return false;
       if (window.__loader) window.__loader.show();
-      lastIntentTs = Date.now();
-      scheduleFallbackHide();
+      armIntent();
       return true;
     }
 
-    // pointerdown/touchstart：とにかく先出し（最優先）
+    // show on pointerdown/touchstart (earliest)
     const downHandler = (e) => {
-      // a[href] 直近
       const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
       if (a && maybeInstantShowForAnchor(a, e)) return;
 
-      // submit ボタン・もしくは form 内
       const submitBtn = e.target && e.target.closest ? e.target.closest('button[type="submit"], input[type="submit"]') : null;
       if (submitBtn) {
         const form = submitBtn.form || submitBtn.closest('form');
@@ -151,16 +145,14 @@
       const form = e.target && e.target.closest ? e.target.closest('form') : null;
       if (form) { maybeInstantShowForForm(form); }
     };
-
     document.addEventListener('pointerdown', downHandler, { capture: true, passive: true });
     document.addEventListener('touchstart', downHandler, { capture: true, passive: true });
 
-    // Enter キーで a / button による遷移
+    // Enter key
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
       const active = document.activeElement;
       if (!active) return;
-
       if (active.tagName === 'A' && active.hasAttribute('href')) {
         maybeInstantShowForAnchor(active, e);
       } else if (active.tagName === 'BUTTON' || (active.tagName === 'INPUT' && active.type === 'submit')) {
@@ -169,11 +161,10 @@
       }
     }, { capture: true });
 
-    // click：実際の遷移を行う（即表示は pointerdown で済んでいる）
+    // perform navigation ourselves on click (keeps loader up)
     document.addEventListener('click', (e) => {
       const a = e.target.closest && e.target.closest('a[href]');
       if (!a) return;
-
       const href = a.getAttribute('href');
       if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
       if (a.getAttribute('target') === '_blank') return;
@@ -184,26 +175,26 @@
       e.preventDefault();
       if (window.__loader) window.__loader.show(() => (window.location.href = href));
       else window.location.href = href;
+      // 遷移実行したのでフェイルセーフ解除
+      disarmIntent();
     }, { capture: true });
 
-    // submit：実際の送信時にも念のため show
+    // form submit
     document.addEventListener('submit', (e) => {
       const form = e.target;
       if (!(form instanceof HTMLFormElement)) return;
       if (form.getAttribute('target') === '_blank') return;
       if (form.dataset.noLoader === 'true') return;
       if (window.__loader) window.__loader.show();
-      // フォームは送信を止めない
+      disarmIntent(); // 送信したので解除（beforeunload が来るはず）
     }, { capture: true });
 
-    // 実際にページ遷移が始まると beforeunload が走るので、その際は fallback を解除
-    window.addEventListener('beforeunload', () => {
-      if (pendingTimer) clearTimeout(pendingTimer);
-    });
+    // actual page leave started
+    window.addEventListener('beforeunload', () => disarmIntent(), { passive: true });
   }
 
   /* =========================================
-     2) Bottom Tab + Submenu（前回版を維持）
+     2) Bottom Tab + Submenu — unchanged
   ========================================= */
   function initTabs() {
     const tabBar = document.querySelector('.bottom-tab');
@@ -345,12 +336,12 @@
   }
 
   /* =========================================
-     起動
+     Boot
   ========================================= */
   function start() {
     initLoader();
-    initInstantHook();  // ← これで“押した瞬間”に表示されます
-    initTabs();         // ← 下タブ/サブメニュー（触らず維持）
+    initInstantHook();   // ← 修正点：押した瞬間に出し、そのまま維持
+    initTabs();          // ← 変更なし
   }
 
   if (document.readyState === 'loading') {
