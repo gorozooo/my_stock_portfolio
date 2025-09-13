@@ -17,26 +17,41 @@ document.addEventListener("DOMContentLoaded", function () {
       @keyframes loadslide{0%{background-position:0 0}100%{background-position:200% 0}}
     `;
     document.head.appendChild(style);
+
     const loading = document.createElement("div");
     loading.id = "loading-overlay";
     loading.innerHTML = `<div class="loading-text">Now Loading…</div><div class="loading-bar"></div>`;
     document.body.appendChild(loading);
-    function showLoading(cb){ loading.style.display="flex"; requestAnimationFrame(()=>{ loading.style.opacity="1"; if(cb) setTimeout(cb,40); }); }
-    function hideLoading(){ loading.style.opacity="0"; setTimeout(()=>{ loading.style.display="none"; },200); }
+
+    function showLoading(cb){
+      loading.style.display="flex";
+      requestAnimationFrame(()=>{
+        loading.style.opacity="1";
+        if(cb) setTimeout(cb,40);
+      });
+    }
+    function hideLoading(){
+      loading.style.opacity="0";
+      setTimeout(()=>{ loading.style.display="none"; },200);
+    }
     window.__showLoading__ = showLoading;
-    showLoading(); window.addEventListener("load", hideLoading, {passive:true});
+
+    showLoading();
+    window.addEventListener("load", hideLoading, {passive:true});
     window.addEventListener("beforeunload", ()=> showLoading(), {passive:true});
     window.addEventListener("pageshow", e=>{ if(e.persisted) hideLoading(); }, {passive:true});
   })();
 
   /* --- 下タブ & サブメニュー --- */
-  const tabBar = document.querySelector(".bottom-tab");
+  const tabBar   = document.querySelector(".bottom-tab");
   const tabItems = document.querySelectorAll(".bottom-tab .tab-item");
   if (!tabBar || !tabItems.length) return;
 
   // アクションバー（共用）
   const actionbar = document.createElement("div");
   actionbar.className = "tab-actionbar";
+  actionbar.id = "tab-actionbar";
+  actionbar.setAttribute("role", "menu");
   document.body.appendChild(actionbar);
 
   let openFor = null;
@@ -66,20 +81,37 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // ボタン再生成
     actionbar.innerHTML = "";
-    submenu.querySelectorAll("a").forEach(a => {
-      const href = a.getAttribute("href") || "#";
-      const txt  = (a.textContent || "").trim();
-      const btn  = document.createElement("a");
-      btn.className = "ab-btn";
-      btn.href = href;
-      btn.textContent = txt;
-      btn.addEventListener("click", (e) => {
-        if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
-        e.preventDefault();
-        (window.__showLoading__ || ((cb)=>cb()))(() => (window.location.href = href));
-      }, {passive:false});
-      actionbar.appendChild(btn);
-    });
+    const links = submenu.querySelectorAll("a");
+    if (links.length === 0) {
+      const none = document.createElement("span");
+      none.className = "ab-btn";
+      none.textContent = "メニューなし";
+      none.setAttribute("role", "menuitem");
+      actionbar.appendChild(none);
+    } else {
+      links.forEach(a => {
+        const href = a.getAttribute("href") || "#";
+        const txt  = (a.textContent || "").trim();
+        const target = a.getAttribute("target") || "";
+        const btn  = document.createElement("a");
+        btn.className = "ab-btn";
+        btn.href = href;
+        btn.textContent = txt;
+        btn.setAttribute("role", "menuitem");
+
+        btn.addEventListener("click", (e) => {
+          // hash / javascript: はそのまま
+          if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
+          // 新規タブはローダーなし
+          if (target === "_blank") return;
+
+          e.preventDefault();
+          (window.__showLoading__ || ((cb)=>cb()))(() => (window.location.href = href));
+        }, {passive:false});
+
+        actionbar.appendChild(btn);
+      });
+    }
 
     // 位置決め
     const rect = tabItem.getBoundingClientRect();
@@ -114,21 +146,32 @@ document.addEventListener("DOMContentLoaded", function () {
     const link = tab.querySelector(".tab-link");
 
     if (!submenu) {
-      // サブメニュー無し → 既存ケアレットのような飾りは排除
+      // サブメニュー無し → 既存の飾りケアレットは排除
       tab.classList.remove("has-sub", "open");
       tab.querySelectorAll(".tab-caret-btn, .tab-caret, .caret, .caret-icon, [data-caret], [data-role='caret']").forEach(n => n.remove());
-      // 通常遷移の見直し（何もしない）
+      // 通常遷移（変更なし）
+      if (link) {
+        link.addEventListener("click", (e) => {
+          const href = link.getAttribute("href");
+          const target = link.getAttribute("target") || "";
+          if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
+          if (target === "_blank") return;
+          e.preventDefault();
+          (window.__showLoading__ || ((cb)=>cb()))(() => (window.location.href = href));
+        }, {passive:false});
+      }
       return;
     }
 
     tab.classList.add("has-sub");
 
-    // 既存飾り↓は消して、確実に押せるボタンを注入
+    // 既存飾りを削除して、押せるケアレットを注入（重複注入防止）
     tab.querySelectorAll(".tab-caret-btn, .tab-caret, .caret, .caret-icon, [data-caret], [data-role='caret']").forEach(n => n.remove());
     const caret = document.createElement("button");
     caret.type = "button";
     caret.className = "tab-caret-btn";
     caret.setAttribute("aria-expanded", "false");
+    caret.setAttribute("aria-controls", "tab-actionbar");
     caret.setAttribute("aria-label", "サブメニューを開閉");
     caret.textContent = "▾";
     (link || tab).appendChild(caret);
@@ -140,15 +183,15 @@ document.addEventListener("DOMContentLoaded", function () {
       if (openFor === tab) closeBar(); else openBarFor(tab);
     }, {passive:false});
 
-    // タブ本体は通常遷移（サブメニューがあってもリンククリックはページへ）
+    // タブ本体は通常遷移
     if (link) {
       link.addEventListener("click", (e) => {
-        // ケアレットを押したときはここに来ない（stopPropagation 済）
         const href = link.getAttribute("href");
-        if (href && !href.startsWith("#") && !href.startsWith("javascript:")) {
-          e.preventDefault();
-          (window.__showLoading__ || ((cb)=>cb()))(() => (window.location.href = href));
-        }
+        const target = link.getAttribute("target") || "";
+        if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
+        if (target === "_blank") return;
+        e.preventDefault();
+        (window.__showLoading__ || ((cb)=>cb()))(() => (window.location.href = href));
       }, {passive:false});
     }
   });
@@ -161,7 +204,11 @@ document.addEventListener("DOMContentLoaded", function () {
     const inBar = !!e.target.closest(".tab-actionbar");
     if (!inTab && !inBar) closeBar();
   }, {passive:true});
-  window.addEventListener("keydown", (e) => { if (e.key === "Escape" && openFor) closeBar(); }, {passive:true});
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && openFor) closeBar();
+  }, {passive:true});
+
   window.addEventListener("resize", () => closeBar(), {passive:true});
 
   /* --- 現在ページ名（任意） --- */
