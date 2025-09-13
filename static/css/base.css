@@ -3,7 +3,7 @@
    スマホファースト / 下タブ=ボタン形式 / サブメニュー=ボタンバー
 ======================================== */
 
-/* ===== ナビバー（既存そのまま） ===== */
+/* ===== ナビバー ===== */
 .navbar {
   position: fixed;
   inset: 0 0 auto 0;
@@ -76,16 +76,22 @@
   padding: 0;
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(5, 1fr); /* タブ数にあわせて調整 */
+  /* タブ数に応じて自動調整（最低幅を確保しつつ均等） */
+  grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
   gap: 8px;
 }
 
-/* “ボタン”そのもの */
+.bottom-tab .tab-item {
+  position: relative;
+}
+
+/* “ボタン”そのもの（アイコン/ラベル/ケアレット用の3カラム） */
 .bottom-tab .tab-link {
   display: grid;
-  grid-template-columns: auto 1fr auto; /* アイコン / ラベル / ケアレット */
+  grid-template-columns: auto 1fr auto; /* [icon] [label] [caret (疑似)] */
   align-items: center;
   gap: 8px;
+  width: 100%;
   text-decoration: none;
   padding: 10px 12px;
   border-radius: 14px;
@@ -110,25 +116,39 @@
   min-height: 48px;
 }
 
+/* アイコン */
 .bottom-tab .tab-link i {
   font-size: 18px;
   opacity: .95;
 }
 
+/* ラベル（横並び時に省略） */
 .bottom-tab .tab-link .label {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* 既存テンプレートでケアレット要素がない場合は疑似で表示 */
+/* 既存テンプレでボタン内に紛れ込むケアレットは強制非表示 */
+.bottom-tab .tab-link .tab-caret-btn,
+.bottom-tab .tab-link .tab-caret,
+.bottom-tab .tab-link .caret,
+.bottom-tab .tab-link .caret-icon,
+.bottom-tab .tab-link [data-caret],
+.bottom-tab .tab-link [data-role="caret"] {
+  display: none !important;
+}
+
+/* サブメニューを持つタブだけ疑似ケアレット表示（右端の3カラム目に収まる） */
 .bottom-tab .tab-item.has-sub .tab-link::after {
   content: "▾";
   font-size: 12px;
   opacity: .8;
+  justify-self: end;
+  line-height: 1;
 }
 
-/* アクティブ/オープン時は“押されたボタン”感を強調 */
+/* アクティブ/オープンで“押されたボタン”感 */
 .bottom-tab .tab-item.active .tab-link,
 .bottom-tab .tab-item.open .tab-link {
   color: #fff;
@@ -139,16 +159,18 @@
     linear-gradient(135deg, rgba(0,255,255,.45), rgba(255,0,255,.36)) border-box;
 }
 
-/* ホバー/押下 */
 .bottom-tab .tab-link:hover { transform: translateY(-1px); }
 .bottom-tab .tab-link:active { transform: translateY(0); }
 
-/* サブメニュー（テンプレからは非表示にしてJSで使用） */
+/* もとのUL内のサブメニューは隠し、JSが内容だけ使う */
 .bottom-tab .tab-item .sub-menu {
   display: none !important;
   visibility: hidden !important;
-  position: absolute !important; left: -9999px !important; top: auto !important;
-  height: 0 !important; overflow: hidden !important;
+  position: absolute !important;
+  left: -9999px !important;
+  top: auto !important;
+  height: 0 !important;
+  overflow: hidden !important;
 }
 
 /* ===== サブメニュー：ボタンバー（横並びピル） ===== */
@@ -168,7 +190,7 @@
   -webkit-backdrop-filter: blur(14px);
   border: 1px solid rgba(0, 255, 255, 0.16);
   box-shadow: 0 10px 28px rgba(0,0,0,0.45), 0 0 22px rgba(0,255,255,0.12) inset;
-  z-index: 1200;               /* ← 最前に */
+  z-index: 1200;
   transform: translateY(8px);
   opacity: 0;
   transition: opacity .18s ease, transform .18s ease;
