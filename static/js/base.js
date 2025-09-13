@@ -1,273 +1,153 @@
 // static/js/base.js
-// Loader + Bottom Tab/Submenu（標準遷移のまま）
-// ローダーは「必ず閉じる」多重セーフ付き
+// ★ローダー専用（下タブ/サブメニューには触れません）
+// - 初期は表示（HTML/loader.cssのまま）
+// - window.load / readyState=complete / visibilitychange / pageshow(bfcache) で確実に閉じる
+// - 例外時・JSエラー時でも強制クローズ（!important で畳む）
+// - 遷移時は pointerdown/submit/beforeunload で素早く表示
 
 (function () {
-  /* =========================================
-     0) helpers
-  ========================================= */
-  const isModClick = (e) => e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0;
-  const isValidHref = (href) => href && !href.startsWith('#') && !href.startsWith('javascript:');
+  // ====== ユーティリティ ======
+  function hardShow(el) {
+    if (!el) return;
+    // 既存CSSに勝てるように !important で明示
+    el.classList.remove('hidden');
+    el.style.setProperty('display', 'flex', 'important');
+    el.style.setProperty('opacity', '1', 'important');
+    el.style.setProperty('visibility', 'visible', 'important');
+    el.style.setProperty('pointer-events', 'auto', 'important');
+    el.style.setProperty('z-index', '2147483647', 'important'); // 常に最前
+    document.documentElement.style.cursor = 'wait';
+    document.body.style.cursor = 'wait';
+  }
 
-  /* =========================================
-     1) Loader（#loading-screen 優先／無ければ簡易生成）
-  ========================================= */
-  function initLoader() {
-    let host = document.querySelector('#loading-screen');
-    let mode = 'screen'; // 'screen' = 既存テンプレ, 'overlay' = 自動生成
-
-    if (!host) {
-      mode = 'overlay';
-
-      const style = document.createElement('style');
-      style.textContent = `
-        #__loading_overlay__{
-          position:fixed; inset:0; z-index:9999;
-          background:rgba(10,10,20,.95);
-          display:flex; align-items:center; justify-content:center; flex-direction:column;
-          opacity:1; transition:opacity .35s ease, visibility .35s ease;
-          visibility:visible;
-        }
-        #__loading_overlay__.hidden{
-          opacity:0; visibility:hidden; pointer-events:none;
-        }
-        #__loading_overlay__ .loading-text{
-          color:#0ff; font:700 22px/1.2 "Orbitron",system-ui;
-          text-shadow:0 0 10px #0ff,0 0 20px #0ff; margin-bottom:12px;
-        }
-        #__loading_overlay__ .loading-bar{
-          width:220px; height:6px; border-radius:4px;
-          background:linear-gradient(90deg,#0ff,#f0f,#0ff); background-size:200% 100%;
-          animation:__slide 2s linear infinite;
-        }
-        @keyframes __slide { 0%{background-position:0 0} 100%{background-position:200% 0} }
-      `;
-      document.head.appendChild(style);
-
-      host = document.createElement('div');
-      host.id = '__loading_overlay__';
-      host.innerHTML = `
-        <div class="loading-text" aria-live="polite">Now Loading…</div>
-        <div class="loading-bar" role="progressbar" aria-hidden="true"></div>
-      `;
-      document.body.appendChild(host);
-    }
-
-    // 既存CSS互換：hidden で非表示／それ以外は表示
-    const show = () => {
-      host.classList.remove('hidden');
-      host.style.pointerEvents = 'auto'; // 表示中はクリックブロック
-      document.documentElement.style.cursor = 'wait';
-      document.body.style.cursor = 'wait';
-    };
-    const hide = () => {
-      host.classList.add('hidden');
-      host.style.pointerEvents = 'none';
+  function hardHide(el) {
+    if (!el) return;
+    el.classList.add('hidden'); // loader.css のトランジションも生かす
+    // さらに確実に畳む
+    el.style.setProperty('opacity', '0', 'important');
+    el.style.setProperty('visibility', 'hidden', 'important');
+    el.style.setProperty('pointer-events', 'none', 'important');
+    // 遅延で display も落とす（レイアウト軽減）
+    setTimeout(() => {
+      el.style.setProperty('display', 'none', 'important');
       document.documentElement.style.cursor = '';
       document.body.style.cursor = '';
-    };
-
-    // グローバル API
-    window.PageLoader = { show, hide };
-
-    // ====== “前の挙動”＋多重セーフ ======
-    // A) 初回は必ず表示
-    show();
-
-    // B) window.load で消す（once）
-    window.addEventListener('load', () => {
-      setTimeout(hide, 250);
-    }, { passive: true, once: true });
-
-    // C) もしこの時点で既に読み終わっていたら即消す（script遅延で load 済のケース）
-    if (document.readyState === 'complete') {
-      setTimeout(hide, 0);
-    }
-
-    // D) visibilitychange で復帰時に読み終わっていれば消す（iOS/Safari 対策）
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && document.readyState === 'complete') hide();
-    }, { passive: true });
-
-    // E) bfcache 復帰はローダー不要
-    window.addEventListener('pageshow', (e) => {
-      if (e.persisted) hide();
-    }, { passive: true });
-
-    // F) 離脱時は必ず表示（遷移開始を体感させる）
-    window.addEventListener('beforeunload', () => { show(); }, { passive: true });
-
-    // G) クリックの“押下瞬間”に早表示（遷移は標準に任せる。preventDefaultしない）
-    const earlyShow = (e) => {
-      const a = e.target.closest && e.target.closest('a[href]');
-      const submitBtn = e.target.closest && e.target.closest('button[type="submit"], input[type="submit"]');
-      if (a) {
-        const href = a.getAttribute('href');
-        if (!isModClick(e) && isValidHref(href) && a.target !== '_blank' && !a.hasAttribute('download') && a.dataset.noLoader !== 'true') {
-          show();
-        }
-      } else if (submitBtn) {
-        const form = submitBtn.form || submitBtn.closest('form');
-        if (form && form.target !== '_blank' && form.dataset.noLoader !== 'true') {
-          show();
-        }
-      }
-    };
-    document.addEventListener('pointerdown', earlyShow, { capture: true, passive: true });
-    document.addEventListener('touchstart', earlyShow, { capture: true, passive: true });
-
-    // H) 予防策：何があっても最大 8 秒で自動クローズ（無限ローディング防止）
-    setTimeout(() => hide(), 8000);
-
-    // I) JSエラー発生時も画面を見られるようにする
-    window.addEventListener('error', () => hide());
-    window.addEventListener('unhandledrejection', () => hide());
+    }, 350);
   }
 
-  /* =========================================
-     2) Bottom Tab + Submenu（UIのみ、遷移は標準）
-  ========================================= */
-  function initTabs() {
-    const tabBar = document.querySelector('.bottom-tab');
-    if (!tabBar) return;
+  function createOverlayIfMissing() {
+    let el = document.getElementById('loading-screen');
+    if (el) return el;
 
-    // ケアレット行（タブの直下に並べる）
-    let caretRow = document.querySelector('.caret-row');
-    if (!caretRow) {
-      caretRow = document.createElement('div');
-      caretRow.className = 'caret-row';
-      tabBar.insertAdjacentElement('afterend', caretRow);
-    }
-
-    // サブメニューのアクションバー
-    let actionbar = document.querySelector('.tab-actionbar');
-    if (!actionbar) {
-      actionbar = document.createElement('div');
-      actionbar.className = 'tab-actionbar';
-      document.body.appendChild(actionbar);
-    }
-
-    let openKey = null;
-    const map = new Map(); // key -> { tab, link, submenu, caretBtn }
-
-    function rebuild() {
-      caretRow.innerHTML = '';
-      map.clear();
-
-      const tabs = Array.from(tabBar.querySelectorAll('.tab-item'));
-      let seq = 0;
-
-      tabs.forEach((tab) => {
-        let key = tab.dataset.tabkey;
-        if (!key) {
-          key = `t${Date.now().toString(36)}_${(seq++).toString(36)}`;
-          tab.dataset.tabkey = key;
-        }
-
-        // 既存の飾りケアレットは除去
-        tab.querySelectorAll('.tab-caret, .caret, .caret-icon, [data-caret], [data-role="caret"]').forEach(n => n.remove());
-
-        const link    = tab.querySelector('.tab-link');   // ← 触らない（標準遷移）
-        const submenu = tab.querySelector('.sub-menu');
-
-        // ケアレット列：常にセルを作る（高さを揃える）
-        const cell = document.createElement('div');
-        cell.className = 'caret-cell';
-
-        let caretBtn = null;
-        if (submenu) {
-          caretBtn = document.createElement('button');
-          caretBtn.type = 'button';
-          caretBtn.className = 'caret-btn';
-          caretBtn.textContent = '▾';
-          caretBtn.setAttribute('aria-expanded', 'false');
-          caretBtn.dataset.tabkey = key;
-          cell.appendChild(caretBtn);
-        } else {
-          const ph = document.createElement('div');
-          ph.className = 'caret-placeholder';
-          cell.appendChild(ph);
-        }
-        caretRow.appendChild(cell);
-
-        map.set(key, { tab, link, submenu, caretBtn });
-      });
-
-      // ケアレットでのみ開閉（aのクリックは素通し）
-      map.forEach(({ caretBtn }, key) => {
-        if (!caretBtn) return;
-        caretBtn.onclick = (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (openKey === key) hideBar();
-          else showBar(key);
-        };
-      });
-
-      if (openKey && !map.has(openKey)) hideBar();
-    }
-
-    function showBar(key) {
-      const rec = map.get(key);
-      if (!rec || !rec.submenu) return;
-
-      actionbar.innerHTML = '';
-      const links = rec.submenu.querySelectorAll('a');
-
-      if (!links.length) {
-        const none = document.createElement('span');
-        none.className = 'ab-btn';
-        none.textContent = 'メニューなし';
-        actionbar.appendChild(none);
-      } else {
-        links.forEach((a) => {
-          const btn = a.cloneNode(true);     // href/target そのまま維持
-          btn.classList.add('ab-btn');       // 見た目だけ追加
-          // クリックハンドラは付けない（標準遷移）
-          actionbar.appendChild(btn);
-        });
+    // 無い場合は簡易オーバーレイを自動生成（見た目はシンプルだが同じ挙動）
+    const style = document.createElement('style');
+    style.textContent = `
+      #__loading_overlay__{
+        position:fixed; inset:0; z-index:2147483647 !important;
+        background:rgba(10,10,20,.95);
+        display:flex; align-items:center; justify-content:center; flex-direction:column;
+        opacity:1; visibility:visible; pointer-events:auto;
+        transition:opacity .35s ease, visibility .35s ease;
       }
+      #__loading_overlay__.hidden{
+        opacity:0; visibility:hidden; pointer-events:none;
+      }
+      #__loading_overlay__ .loading-text{
+        color:#0ff; font:700 22px/1.2 "Orbitron",system-ui;
+        text-shadow:0 0 10px #0ff,0 0 20px #0ff; margin-bottom:12px;
+      }
+      #__loading_overlay__ .loading-bar{
+        width:220px; height:6px; border-radius:4px;
+        background:linear-gradient(90deg,#0ff,#f0f,#0ff);
+        background-size:200% 100%; animation:__slide 2s linear infinite;
+      }
+      @keyframes __slide { 0%{background-position:0 0} 100%{background-position:200% 0} }
+    `;
+    document.head.appendChild(style);
 
-      // ケアレット状態
-      map.forEach(({ caretBtn }) => { if (caretBtn) caretBtn.setAttribute('aria-expanded', 'false'); });
-      const recBtn = rec.caretBtn;
-      if (recBtn) recBtn.setAttribute('aria-expanded', 'true');
-
-      actionbar.style.display = 'flex';
-      requestAnimationFrame(() => actionbar.classList.add('show'));
-      openKey = key;
-    }
-
-    function hideBar() {
-      actionbar.classList.remove('show');
-      map.forEach(({ caretBtn }) => { if (caretBtn) caretBtn.setAttribute('aria-expanded', 'false'); });
-      setTimeout(() => {
-        if (!actionbar.classList.contains('show')) actionbar.style.display = 'none';
-      }, 160);
-      openKey = null;
-    }
-
-    // 外側クリック/ESC/リサイズで閉じる（UIのみ）
-    document.addEventListener('click', (e) => {
-      if (!openKey) return;
-      const inBar  = !!e.target.closest('.tab-actionbar');
-      const inRow  = !!e.target.closest('.caret-row');
-      const inTabs = !!e.target.closest('.bottom-tab');
-      if (!inBar && !inRow && !inTabs) hideBar();
-    }, { passive: true });
-    window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && openKey) hideBar(); }, { passive: true });
-    window.addEventListener('resize', hideBar, { passive: true });
-
-    new MutationObserver(() => rebuild()).observe(tabBar, { childList: true, subtree: true });
-    rebuild();
+    el = document.createElement('div');
+    el.id = '__loading_overlay__';
+    el.innerHTML = `
+      <div class="loading-text">Now Loading…</div>
+      <div class="loading-bar" role="progressbar" aria-hidden="true"></div>
+    `;
+    document.body.appendChild(el);
+    return el;
   }
 
-  /* =========================================
-     Boot
-  ========================================= */
   function start() {
-    try { initLoader(); } catch (e) { console.error(e); }
-    try { initTabs();   } catch (e) { console.error(e); }
+    // 1) ローダーDOM
+    const loader = createOverlayIfMissing(); // #loading-screen 優先、無ければ作る
+
+    // 2) 初期は表示（HTML/loader.css が担当）。JSでも再保証しておく
+    hardShow(loader);
+
+    // 3) “絶対に消す”多重セーフ
+    const tryHide = () => hardHide(loader);
+
+    // 3-1) ページ完全読込で閉じる
+    window.addEventListener('load', () => {
+      // 読み終わってすぐ消すと「最後だけチラッ」になる環境があるので少し余韻
+      setTimeout(tryHide, 250);
+    }, { once: true, passive: true });
+
+    // 3-2) 既にcompleteなら即クローズ（defer/asyncで遅れて実行されたとき）
+    if (document.readyState === 'complete') {
+      setTimeout(tryHide, 0);
+    } else {
+      // 3-3) 念のため DOMContentLoaded 後にも監視（環境依存の取りこぼし対策）
+      document.addEventListener('DOMContentLoaded', () => {
+        // ネットワークが速い環境で load が遅れても 1.2s で畳む
+        setTimeout(() => {
+          if (document.readyState === 'complete') tryHide();
+        }, 1200);
+      }, { once: true });
+    }
+
+    // 3-4) ページがフォアグラウンドに戻った時、既に読み終わっているなら消す
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && document.readyState === 'complete') tryHide();
+    }, { passive: true });
+
+    // 3-5) bfcache 復帰時はローダー不要
+    window.addEventListener('pageshow', (e) => {
+      if (e.persisted) tryHide();
+    }, { passive: true });
+
+    // 3-6) JS エラー/未処理例外でも UI を見せるため強制クローズ
+    window.addEventListener('error', () => tryHide());
+    window.addEventListener('unhandledrejection', () => tryHide());
+
+    // 3-7) 最終フェイルセーフ：何があっても最大 6 秒で畳む
+    setTimeout(tryHide, 6000);
+
+    // 4) 遷移時は素早く見せる（押下の瞬間）
+    const isValidLink = (a, e) =>
+      a && isValidHref(a.getAttribute('href')) &&
+      a.target !== '_blank' && !a.hasAttribute('download') &&
+      !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0;
+
+    const pointerDownHandler = (e) => {
+      const a = e.target.closest && e.target.closest('a[href]');
+      if (isValidLink(a, e)) hardShow(loader);
+
+      const submitBtn = e.target.closest && e.target.closest('button[type="submit"], input[type="submit"]');
+      if (submitBtn) {
+        const form = submitBtn.form || submitBtn.closest('form');
+        if (form && form.target !== '_blank') hardShow(loader);
+      }
+    };
+    document.addEventListener('pointerdown', pointerDownHandler, { capture: true, passive: true });
+    document.addEventListener('touchstart', pointerDownHandler, { capture: true, passive: true });
+
+    // 5) ページ離脱開始で確実に表示（Safari 対策）
+    window.addEventListener('beforeunload', () => hardShow(loader), { passive: true });
+
+    // 6) 外部からも使えるように公開（任意）
+    window.PageLoader = {
+      show: () => hardShow(loader),
+      hide: () => hardHide(loader),
+    };
   }
 
   if (document.readyState === 'loading') {
