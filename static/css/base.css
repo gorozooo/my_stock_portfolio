@@ -56,13 +56,8 @@
   to   { text-shadow: 0 0 18px #0ff, 0 0 36px #0ff; }
 }
 
-/* ===== 下タブ（ここで完結） ===== */
-.bottom-tab {
-  /* ページ差分を吸収するローカル変数（どこでも同じ高さ/余白） */
-  --tab-count: 5;      /* JSで実数に上書きされる */
-  --tab-btn-h: 52px;   /* ボタン高さ（文字/アイコンの共通基準） */
-  --tab-caret-h: 18px; /* ケアレット高さ（均一化用） */
-
+/* ===== 下タブ（横並び/ボタン形式に強制） ===== */
+.bottom-tab{
   position: fixed;
   inset: auto 0 0 0;
   height: calc(78px + env(safe-area-inset-bottom, 0));
@@ -75,8 +70,28 @@
   box-shadow: 0 -8px 22px rgba(0, 255, 255, 0.16);
 }
 
-/* 既存テンプレの “見えっぱなしサブメニュー” を完全無効化（JSが使うだけ） */
-.bottom-tab .tab-item .sub-menu {
+/* ここを“横一列”に強制（他ページCSSの上書き対策で !important） */
+.bottom-tab .tab-list{
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex !important;          /* ← 横並びを強制 */
+  flex-direction: row !important;    /* ← 縦並びを禁止 */
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+/* 各アイテムは等幅で横に伸びる */
+.bottom-tab .tab-item{
+  flex: 1 1 0;           /* 等分 */
+  min-width: 64px;
+  display: block;
+}
+
+/* 既存テンプレの“見えっぱなしサブメニュー”は完全無効化（JSのみ使用） */
+.bottom-tab .tab-item .sub-menu{
   display: none !important;
   visibility: hidden !important;
   position: absolute !important;
@@ -86,30 +101,16 @@
   overflow: hidden !important;
 }
 
-/* 等分幅はJSで --tab-count を差し込むので、ページ毎に同じ見た目 */
-.bottom-tab .tab-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  grid-template-columns: repeat(var(--tab-count), minmax(0, 1fr));
-  gap: 8px;
-}
-
-/* 各タブ（ボタン形式に統一） */
-.bottom-tab .tab-item { min-width: 64px; }
-
-.bottom-tab .tab-link {
-  /* 横並び（アイコン | ラベル | ケアレット） */
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+/* ボタン（丸っこい＆横レイアウト） */
+.bottom-tab .tab-link{
+  display: flex !important;          /* ← 横並び */
   align-items: center;
+  justify-content: space-between;    /* 左:アイコン+ラベル / 右:ケアレット */
   gap: 10px;
-
   text-decoration: none;
   padding: 10px 14px;
-  border-radius: 999px; /* 丸っこく統一 */
-  min-height: var(--tab-btn-h);
+  border-radius: 999px;
+  min-height: 52px;
 
   background:
     linear-gradient(135deg, rgba(0,255,255,.14), rgba(255,0,255,.10)) padding-box,
@@ -124,27 +125,36 @@
   transition: transform .12s ease, box-shadow .18s ease, background .18s ease, color .12s ease;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+
+  /* ラベルが長くてもケアレットを潰さない */
+  overflow: visible;
 }
 
-/* アイコン/ラベルの見た目を固定（ページ差吸収） */
-.bottom-tab .tab-link i {
+/* 左側の“アイコン+ラベル”をひと塊に（幅が狭い時に省略） */
+.bottom-tab .tab-link .left{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0; /* これがないと省略が効かない場合あり */
+}
+.bottom-tab .tab-link i{
   font-size: 18px;
   opacity: .95;
   line-height: 1;
 }
-.bottom-tab .tab-link .label {
+.bottom-tab .tab-link .label{
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1; /* ページ依存の行高を殺す */
+  line-height: 1;
 }
 
-/* 既存テンプレートの “飾りケアレット” は使わない（JSが本物を注入） */
-.bottom-tab .tab-item.has-sub .tab-link::after { content: none !important; }
+/* 既存の飾りケアレットは使わない */
+.bottom-tab .tab-item.has-sub .tab-link::after{ content: none !important; }
 
-/* 押した/開いている状態は同じ見た目 */
+/* 押した/開いた時の見た目は共通 */
 .bottom-tab .tab-item.active .tab-link,
-.bottom-tab .tab-item.open .tab-link {
+.bottom-tab .tab-item.open .tab-link{
   color: #fff;
   transform: translateY(-1px);
   box-shadow: 0 10px 24px rgba(0, 255, 255, .24), inset 0 0 30px rgba(0,255,255,.12);
@@ -152,35 +162,36 @@
     linear-gradient(135deg, rgba(0,255,255,.22), rgba(255,0,255,.16)) padding-box,
     linear-gradient(135deg, rgba(0,255,255,.45), rgba(255,0,255,.36)) border-box;
 }
-.bottom-tab .tab-link:hover { transform: translateY(-1px); }
-.bottom-tab .tab-link:active { transform: translateY(0); }
+.bottom-tab .tab-link:hover{ transform: translateY(-1px); }
+.bottom-tab .tab-link:active{ transform: translateY(0); }
 
-/* JSが注入する “押せるケアレット” を常に同じ大きさに */
-.tab-caret-btn {
+/* JSが注入する“押せるケアレット”を必ず右端に表示＆共通サイズ */
+.tab-caret-btn{
   appearance: none;
-  background: transparent;
-  border: 0;
-  font-size: 16px;
-  line-height: 1;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 999px;
+  height: 28px;                 /* 全タブ同一の高さで揃う */
+  min-width: 28px;
+  padding: 0 6px;
   color: #cfe9ff;
   cursor: pointer;
-  height: var(--tab-caret-h);
-  width: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transform: translateY(1px);
+  line-height: 1;
+  flex: 0 0 auto;               /* 右端に固定。縮まない */
 }
-.tab-caret-btn:focus-visible {
+.tab-caret-btn:focus-visible{
   outline: 2px solid rgba(0,255,255,.6);
   outline-offset: 2px;
 }
 
 /* サブメニュー（ボタンバー） */
-.tab-actionbar {
+.tab-actionbar{
   position: fixed;
   left: 8px; right: 8px;
-  bottom: calc(88px + env(safe-area-inset-bottom, 0)); /* タブの少し上に固定 */
+  bottom: calc(88px + env(safe-area-inset-bottom, 0));
   display: none;
   flex-wrap: wrap;
   justify-content: center;
@@ -198,12 +209,12 @@
   opacity: 0;
   transition: opacity .18s ease, transform .18s ease;
 }
-.tab-actionbar.show {
+.tab-actionbar.show{
   display: flex;
   opacity: 1;
   transform: translateY(0);
 }
-.tab-actionbar .ab-btn {
+.tab-actionbar .ab-btn{
   appearance: none;
   border: 1px solid rgba(255,255,255,0.18);
   background: linear-gradient(135deg, rgba(0,255,255,.15), rgba(255,0,255,.12));
@@ -219,14 +230,14 @@
   transition: transform .08s ease, box-shadow .18s ease, background .18s ease;
   white-space: nowrap;
 }
-.tab-actionbar .ab-btn:hover {
+.tab-actionbar .ab-btn:hover{
   box-shadow: 0 6px 16px rgba(0,255,255,.18);
   background: linear-gradient(135deg, rgba(0,255,255,.22), rgba(255,0,255,.18));
 }
-.tab-actionbar .ab-btn:active { transform: translateY(1px) scale(.98); }
+.tab-actionbar .ab-btn:active{ transform: translateY(1px) scale(.98); }
 
-/* main は被り防止の余白を固定（全ページ同じに） */
-main {
+/* main余白（被り防止） */
+main{
   padding: 88px 16px calc(120px + env(safe-area-inset-bottom, 0));
   overflow-y: auto;
   min-height: calc(100vh - 160px);
