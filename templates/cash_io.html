@@ -206,7 +206,7 @@
   </section>
 
   <!-- ▼ Debug: ?debug_balance=1 で表示（折り畳み） -->
-  {% if debug_balance %}
+    {% if debug_balance %}
   <section class="debug-card">
     <details open>
       <summary>残高内訳（デバッグ用）</summary>
@@ -220,22 +220,26 @@
           </tr>
         </thead>
         <tbody>
-          {% for key, label in tabs %}
-          {% with b=balance_breakdown.key %}
-          {% endwith %}
+          {% for row in breakdown_rows %}
           <tr>
-            <td>{{ label }}</td>
-            <td>¥{{ balance_breakdown[key].cash_in|floatformat:0|intcomma }}</td>
-            <td>¥{{ balance_breakdown[key].cash_out|floatformat:0|intcomma }}</td>
-            <td>¥{{ balance_breakdown[key].cash_net|floatformat:0|intcomma }}</td>
-            <td>¥{{ balance_breakdown[key].sell_sum|floatformat:0|intcomma }}</td>
-            <td>¥{{ balance_breakdown[key].div_sum|floatformat:0|intcomma }}</td>
-            <td><strong>¥{{ balance_breakdown[key].total|floatformat:0|intcomma }}</strong></td>
+            <td>{{ row.label }}</td>
+            <td>¥{{ row.data.cash_in|floatformat:0|intcomma }}</td>
+            <td>¥{{ row.data.cash_out|floatformat:0|intcomma }}</td>
+            <td>¥{{ row.data.cash_net|floatformat:0|intcomma }}</td>
+            <td>¥{{ row.data.sell_sum|floatformat:0|intcomma }}</td>
+            <td>¥{{ row.data.div_sum|floatformat:0|intcomma }}</td>
+            <td><strong>¥{{ row.data.total|floatformat:0|intcomma }}</strong></td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
-      <p style="margin-top:6px;color:#9fb3cc">counts: 各種件数 → 入金 {{ balance_breakdown[active_broker].cash_in_count }} / 出金 {{ balance_breakdown[active_broker].cash_out_count }} / 売却 {{ balance_breakdown[active_broker].sell_count }} / 配当 {{ balance_breakdown[active_broker].div_count }}</p>
+      <p style="margin-top:6px;color:#9fb3cc">
+        counts（{{ active_label }}）:
+        入金 {{ balance_breakdown[active_broker].cash_in_count }} /
+        出金 {{ balance_breakdown[active_broker].cash_out_count }} /
+        売却 {{ balance_breakdown[active_broker].sell_count }} /
+        配当 {{ balance_breakdown[active_broker].div_count }}
+      </p>
     </details>
   </section>
   {% endif %}
