@@ -1,89 +1,91 @@
 // static/js/base.js
-// Loader + Bottom Tab & Submenu (unchanged) — instant show now truly sticks until navigation
+// Loader + Bottom Tab & Submenu（タブ/サブメニューは前回仕様のまま）
+// 「押した瞬間にローディングを表示 → ナビ開始まで維持」を強化
 
 (function () {
   /* =========================================
      1) Loader — shared
   ========================================= */
   function initLoader() {
-    let host = document.querySelector('#loading-screen'); // fancy template screen
+    let host = document.querySelector('#loading-screen'); // 派手テンプレ
     let mode = 'screen';
+
     if (!host) {
       mode = 'overlay';
-      const style = document.createElement('style');
-      style.id = 'loading-overlay-style';
-      style.textContent = `
-        #loading-overlay{
-          position:fixed; inset:0; z-index:9999;
-          background:rgba(10,10,20,.95);
-          display:none; opacity:0; transition:opacity .22s ease;
-          display:flex; align-items:center; justify-content:center; flex-direction:column
-        }
-        #loading-overlay .loading-text{
-          color:#0ff; font:700 22px/1.2 "Orbitron",system-ui;
-          text-shadow:0 0 10px #0ff,0 0 20px #0ff
-        }
-        #loading-overlay .loading-bar{
-          width:220px; height:6px; border-radius:4px; margin-top:12px;
-          background:linear-gradient(90deg,#0ff,#f0f,#0ff);
-          background-size:200% 100%; animation:loadslide 2s linear infinite
-        }
-        @keyframes loadslide { 0%{background-position:0 0} 100%{background-position:200% 0} }
-      `;
-      document.head.appendChild(style);
 
-      host = document.createElement('div');
-      host.id = 'loading-overlay';
-      host.innerHTML = `
-        <div class="loading-text">Now Loading…</div>
-        <div class="loading-bar"></div>
-      `;
-      document.body.appendChild(host);
+      // 既に注入済みなら重複注入しない
+      if (!document.getElementById('loading-overlay-style')) {
+        const style = document.createElement('style');
+        style.id = 'loading-overlay-style';
+        style.textContent = `
+          #loading-overlay{
+            position:fixed; inset:0; z-index:2147483647;
+            background:rgba(10,10,20,.95);
+            display:none; opacity:0; transition:opacity .22s ease;
+            display:flex; align-items:center; justify-content:center; flex-direction:column
+          }
+          #loading-overlay .loading-text{
+            color:#0ff; font:700 22px/1.2 "Orbitron",system-ui;
+            text-shadow:0 0 10px #0ff,0 0 20px #0ff
+          }
+          #loading-overlay .loading-bar{
+            width:220px; height:6px; border-radius:4px; margin-top:12px;
+            background:linear-gradient(90deg,#0ff,#f0f,#0ff);
+            background-size:200% 100%; animation:loadslide 2s linear infinite
+          }
+          @keyframes loadslide { 0%{background-position:0 0} 100%{background-position:200% 0} }
+        `;
+        document.head.appendChild(style);
+      }
+
+      host = document.getElementById('loading-overlay');
+      if (!host) {
+        host = document.createElement('div');
+        host.id = 'loading-overlay';
+        host.innerHTML = `
+          <div class="loading-text">Now Loading…</div>
+          <div class="loading-bar"></div>
+        `;
+        document.body.appendChild(host);
+      }
     }
 
     function show(cb) {
-      // show immediately and keep visible
-      if (mode === 'screen') {
-        if (getComputedStyle(host).display === 'none') host.style.display = 'flex';
-        host.style.opacity = '1';
-      } else {
-        host.style.display = 'flex';
-        // force reflow for immediate paint
-        // eslint-disable-next-line no-unused-expressions
-        host.offsetHeight;
-        host.style.opacity = '1';
-      }
+      // 押した瞬間に見えるよう reflow を入れて即描画
+      host.style.display = 'flex';
+      // eslint-disable-next-line no-unused-expressions
+      host.offsetHeight; // reflow
+      host.style.opacity = '1';
+      host.style.zIndex = host.style.zIndex || '2147483647';
       document.documentElement.style.cursor = 'wait';
       document.body.style.cursor = 'wait';
-      if (typeof cb === 'function') setTimeout(cb, 0);
+      if (typeof cb === 'function') {
+        // 0ms だと同フレームのことがあるので requestAnimationFrame
+        requestAnimationFrame(() => cb());
+      }
     }
 
     function hide() {
       host.style.opacity = '0';
-      const delay = (mode === 'screen') ? 220 : 200;
       setTimeout(() => {
         if (getComputedStyle(host).opacity === '0') {
           host.style.display = 'none';
           document.documentElement.style.cursor = '';
           document.body.style.cursor = '';
         }
-      }, delay);
+      }, mode === 'screen' ? 240 : 200);
     }
 
     window.__loader = { show, hide };
 
-    // initial: always visible until load (previous behavior)
-    if (getComputedStyle(host).display === 'none') {
-      show();
-    } else {
-      host.style.opacity = '1';
-    }
-
+    // 初期は必ず表示→load で閉じる（以前の挙動）
+    host.style.display = 'flex';
+    host.style.opacity = '1';
     window.addEventListener('load', hide, { passive: true });
     window.addEventListener('beforeunload', () => show(), { passive: true });
     window.addEventListener('pageshow', (e) => { if (e.persisted) hide(); }, { passive: true });
 
-    // manual goto helper
+    // 手動ナビ補助
     window.__goto = function (href) {
       if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
       show(() => { window.location.href = href; });
@@ -91,22 +93,23 @@
   }
 
   /* =========================================
-     1.5) Instant-Show Hook — keep shown until nav actually starts
+     1.5) Instant-Show Hook — 押した瞬間に出して維持
   ========================================= */
   function initInstantHook() {
-    const isModifiedClick = (e) => e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0;
+    const isModifiedClick = (e) =>
+      e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0;
+
     let pendingHideTimer = null;
     let navIntentArmed = false;
 
     function armIntent() {
       navIntentArmed = true;
-      // keep loader visible long enough so “beforeunload” can fire
       if (pendingHideTimer) clearTimeout(pendingHideTimer);
+      // 何も起きなければ 5s 後に消す（Safari/遅延対策）
       pendingHideTimer = setTimeout(() => {
-        // if nothing happened (no beforeunload, no click handler navigation), hide it
         if (navIntentArmed && window.__loader) window.__loader.hide();
         navIntentArmed = false;
-      }, 5000); // ← 5s に延長（Safari/回線遅延でも消えにくい）
+      }, 5000);
     }
     function disarmIntent() {
       navIntentArmed = false;
@@ -132,12 +135,14 @@
       return true;
     }
 
-    // show on pointerdown/touchstart (earliest)
+    // pointerdown / touchstart で最速表示
     const downHandler = (e) => {
       const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
       if (a && maybeInstantShowForAnchor(a, e)) return;
 
-      const submitBtn = e.target && e.target.closest ? e.target.closest('button[type="submit"], input[type="submit"]') : null;
+      const submitBtn = e.target && e.target.closest
+        ? e.target.closest('button[type="submit"], input[type="submit"]')
+        : null;
       if (submitBtn) {
         const form = submitBtn.form || submitBtn.closest('form');
         if (form) { maybeInstantShowForForm(form); return; }
@@ -146,22 +151,23 @@
       if (form) { maybeInstantShowForForm(form); }
     };
     document.addEventListener('pointerdown', downHandler, { capture: true, passive: true });
-    document.addEventListener('touchstart', downHandler, { capture: true, passive: true });
+    document.addEventListener('touchstart',  downHandler, { capture: true, passive: true });
 
-    // Enter key
+    // Enter キーでも同様
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
       const active = document.activeElement;
       if (!active) return;
       if (active.tagName === 'A' && active.hasAttribute('href')) {
         maybeInstantShowForAnchor(active, e);
-      } else if (active.tagName === 'BUTTON' || (active.tagName === 'INPUT' && active.type === 'submit')) {
+      } else if (active.tagName === 'BUTTON' ||
+                (active.tagName === 'INPUT' && active.type === 'submit')) {
         const form = active.form || active.closest('form');
         if (form) maybeInstantShowForForm(form);
       }
     }, { capture: true });
 
-    // perform navigation ourselves on click (keeps loader up)
+    // click ナビを自分で実行（ローダーを維持したまま）
     document.addEventListener('click', (e) => {
       const a = e.target.closest && e.target.closest('a[href]');
       if (!a) return;
@@ -175,8 +181,7 @@
       e.preventDefault();
       if (window.__loader) window.__loader.show(() => (window.location.href = href));
       else window.location.href = href;
-      // 遷移実行したのでフェイルセーフ解除
-      disarmIntent();
+      disarmIntent(); // 実ナビ開始
     }, { capture: true });
 
     // form submit
@@ -186,10 +191,10 @@
       if (form.getAttribute('target') === '_blank') return;
       if (form.dataset.noLoader === 'true') return;
       if (window.__loader) window.__loader.show();
-      disarmIntent(); // 送信したので解除（beforeunload が来るはず）
+      disarmIntent();
     }, { capture: true });
 
-    // actual page leave started
+    // 離脱開始で解除
     window.addEventListener('beforeunload', () => disarmIntent(), { passive: true });
   }
 
@@ -340,8 +345,8 @@
   ========================================= */
   function start() {
     initLoader();
-    initInstantHook();   // ← 修正点：押した瞬間に出し、そのまま維持
-    initTabs();          // ← 変更なし
+    initInstantHook(); // 押した瞬間に表示＆維持
+    initTabs();        // ここは“変更なし”
   }
 
   if (document.readyState === 'loading') {
