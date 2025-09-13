@@ -34,6 +34,8 @@ from django.utils.dateparse import parse_date
 from django.views.decorators.cache import cache_page
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET, require_http_methods
+from django.db.models import Sum, F, Case, When, IntegerField, Value, Q, Count
+from django.db.models.functions import Coalesce
 
 # ==== 自作 ====
 from .forms import SettingsPasswordForm
