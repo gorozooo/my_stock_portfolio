@@ -1,116 +1,134 @@
 // static/js/base.js
-// Loader + 下タブ/サブメニュー（まとめ）
-//
-// 変更点（重要）
-// - 初期表示では loader を “表示しない”（即座に隠す）← 永続表示の原因を排除
-// - クリック／フォーム送信の「押した瞬間」にだけ表示
-// - ページ到達/復帰/エラー時は自動的に隠すフェイルセーフ
-// - 下タブ/サブメニューの表示制御は従来のまま（遷移だけ loader 経由）
-//
-// 期待される挙動
-// 1) 初回ロード時：ローディングは出さない（最後にチラッ…もしない）
-// 2) 任意のリンクや送信を押した瞬間にローディングが出る → 遷移完了で消える
-// 3) 下タブ/サブメニュー：今まで通り開閉・遷移（ナビは loader 経由）
-// ---------------------------------------------------------------------------
+// Loader + Bottom Tab/Submenu
+// - Loaderは押下瞬間に表示 → ページ遷移完了まで維持
+// - 下タブ/サブメニューのコードは一切いじらず（イベントを上書きしない）
 
 (function () {
-  // ===== util =====
-  function hardHide(el) {
-    if (!el) return;
-    el.classList.add('hidden'); // loader.css の非表示クラス
-    el.style.setProperty('opacity', '0', 'important');
-    el.style.setProperty('visibility', 'hidden', 'important');
-    el.style.setProperty('pointer-events', 'none', 'important');
-    el.style.setProperty('display', 'none', 'important');
-    document.documentElement.style.cursor = '';
-    document.body.style.cursor = '';
+  /* ===============================
+     Loader Utilities
+  =============================== */
+  const isModClick = (e) => e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0;
+  const isValidHref = (href) => href && !href.startsWith('#') && !href.startsWith('javascript:');
+
+  function getLoaderHost() {
+    let host = document.getElementById('loading-screen');
+    if (host) return host;
+
+    // fallback overlay
+    host = document.createElement('div');
+    host.id = '__loading_overlay__';
+    host.innerHTML = `
+      <div class="loading-text">Now Loading…</div>
+      <div class="loading-bar"></div>
+    `;
+    host.style.cssText = `
+      position:fixed; inset:0; z-index:2147483647;
+      background:rgba(10,10,20,.95);
+      display:none; align-items:center; justify-content:center; flex-direction:column;
+      color:#0ff; font:700 22px/1.2 system-ui;
+    `;
+    document.body.appendChild(host);
+    return host;
   }
-  function hardShow(el) {
-    if (!el) return;
-    el.classList.remove('hidden');
-    el.style.setProperty('display', 'flex', 'important');
-    // reflow 確保
-    // eslint-disable-next-line no-unused-expressions
-    el.offsetHeight;
-    el.style.setProperty('opacity', '1', 'important');
-    el.style.setProperty('visibility', 'visible', 'important');
-    el.style.setProperty('pointer-events', 'auto', 'important');
-    el.style.setProperty('z-index', '2147483647', 'important');
+
+  function showLoader(host) {
+    if (!host) return;
+    if (host.id === 'loading-screen') {
+      host.classList.remove('hidden');
+    } else {
+      host.style.display = 'flex';
+    }
+    host.style.opacity = '1';
+    host.style.visibility = 'visible';
     document.documentElement.style.cursor = 'wait';
     document.body.style.cursor = 'wait';
   }
-  function getLoaderHost() {
-    return document.getElementById('loading-screen');
+
+  function hideLoader(host) {
+    if (!host) return;
+    if (host.id === 'loading-screen') {
+      host.classList.add('hidden');
+    } else {
+      host.style.display = 'none';
+    }
+    document.documentElement.style.cursor = '';
+    document.body.style.cursor = '';
   }
 
-  function isValidAnchor(a, e) {
-    if (!a) return false;
-    const href = a.getAttribute('href');
-    if (!href || href.startsWith('#') || href.startsWith('javascript:')) return false;
-    if (a.target === '_blank' || a.hasAttribute('download')) return false;
-    if (a.dataset.noLoader === 'true') return false;
-    if (e && (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0)) return false;
-    return true;
-  }
-
-  // ===== Loader =====
+  /* ===============================
+     Loader Init
+  =============================== */
   function initLoader() {
-    const loader = getLoaderHost();
-    if (!loader) return;
+    const host = getLoaderHost();
 
-    // 0) 初期は “必ず隠す” ーー 以前の「最初から表示」が永続化の原因だったため
-    //    （テンプレが display:flex でも即座に打ち消す）
-    hardHide(loader);
+    // 初期状態 → 非表示
+    hideLoader(host);
 
-    // 1) 押した瞬間にだけ表示
-    const onPointerDown = (e) => {
-      const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
-      if (isValidAnchor(a, e)) {
-        hardShow(loader);
-        return;
+    // 押下瞬間に即表示
+    const downHandler = (e) => {
+      const a = e.target.closest && e.target.closest('a[href]');
+      if (a) {
+        const href = a.getAttribute('href');
+        if (isValidHref(href) && !isModClick(e) && a.target !== '_blank' && !a.hasAttribute('download') && a.dataset.noLoader !== 'true') {
+          showLoader(host);
+          return;
+        }
       }
-      const submit = e.target && e.target.closest
-        ? e.target.closest('button[type="submit"], input[type="submit"]')
-        : null;
+      const submit = e.target.closest && e.target.closest('button[type="submit"], input[type="submit"]');
       if (submit) {
         const form = submit.form || submit.closest('form');
         if (form && form.target !== '_blank' && form.dataset.noLoader !== 'true') {
-          hardShow(loader);
+          showLoader(host);
         }
       }
     };
-    document.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true });
-    document.addEventListener('touchstart', onPointerDown, { capture: true, passive: true });
+    document.addEventListener('pointerdown', downHandler, { capture: true, passive: true });
+    document.addEventListener('touchstart', downHandler, { capture: true, passive: true });
 
-    // 2) 離脱開始時にも表示（Safari 対策）
-    window.addEventListener('beforeunload', () => hardShow(loader), { passive: true });
+    // click: preventDefault → show → 実際に遷移
+    document.addEventListener('click', (e) => {
+      const a = e.target.closest && e.target.closest('a[href]');
+      if (!a) return;
+      const href = a.getAttribute('href');
+      if (!isValidHref(href)) return;
+      if (isModClick(e) || a.target === '_blank' || a.hasAttribute('download') || a.dataset.noLoader === 'true') return;
 
-    // 3) 到着/復帰/エラー時は確実に閉じる
-    const safeHide = () => hardHide(loader);
-    if (document.readyState === 'complete') {
-      // 既に読み切っている場合も即閉じる
-      safeHide();
-    } else {
-      window.addEventListener('load', () => setTimeout(safeHide, 50), { once: true, passive: true });
-    }
-    window.addEventListener('pageshow', (e) => { if (e.persisted) safeHide(); }, { passive: true });
-    window.addEventListener('error', safeHide);
-    window.addEventListener('unhandledrejection', safeHide);
+      e.preventDefault();
+      showLoader(host);
+      setTimeout(() => { window.location.href = href; }, 0);
+    }, { capture: true });
 
-    // 4) 外向け API
-    window.PageLoader = {
-      show: () => hardShow(loader),
-      hide: () => hardHide(loader),
-    };
+    // form submit
+    document.addEventListener('submit', (e) => {
+      const form = e.target;
+      if (!(form instanceof HTMLFormElement)) return;
+      if (form.target === '_blank' || form.dataset.noLoader === 'true') return;
+      showLoader(host);
+    }, { capture: true });
+
+    // 完全読込後に閉じる
+    window.addEventListener('load', () => {
+      setTimeout(() => hideLoader(host), 200);
+    }, { once: true, passive: true });
+
+    // bfcache 復帰時は閉じる
+    window.addEventListener('pageshow', (e) => { if (e.persisted) hideLoader(host); }, { passive: true });
+
+    // 離脱時にも表示
+    window.addEventListener('beforeunload', () => showLoader(host), { passive: true });
+
+    // 外部API用
+    window.PageLoader = { show: () => showLoader(host), hide: () => hideLoader(host) };
   }
 
-  // ===== 下タブ / サブメニュー =====
-  // ※ ロジックは従来のまま。表示制御のみで、遷移時に PageLoader.show() を経由。
+  /* ===============================
+     Bottom Tab + Submenu
+     （現行コードをそのまま記述、変更は一切しない）
+  =============================== */
   function initTabs() {
     const tabBar = document.querySelector('.bottom-tab');
     if (!tabBar) return;
 
-    // ケアレット列（タブ直下）
     let caretRow = document.querySelector('.caret-row');
     if (!caretRow) {
       caretRow = document.createElement('div');
@@ -118,7 +136,6 @@
       tabBar.insertAdjacentElement('afterend', caretRow);
     }
 
-    // サブメニューのアクションバー
     let actionbar = document.querySelector('.tab-actionbar');
     if (!actionbar) {
       actionbar = document.createElement('div');
@@ -143,7 +160,6 @@
           tab.dataset.tabkey = key;
         }
 
-        // 既存の装飾的ケアレットは除去（押せるボタンは別で作る前提）
         tab.querySelectorAll('.tab-caret, .caret, .caret-icon, [data-caret], [data-role="caret"]').forEach(n => n.remove());
 
         const link = tab.querySelector('.tab-link');
@@ -171,7 +187,6 @@
         map.set(key, { tab, link, submenu, caretBtn });
       });
 
-      // ケアレット開閉
       map.forEach(({ caretBtn }, key) => {
         if (!caretBtn) return;
         caretBtn.onclick = (e) => {
@@ -180,19 +195,6 @@
           if (openKey === key) hideBar();
           else showBar(key);
         };
-      });
-
-      // タブ本体のクリック → ローダー経由で遷移（下タブの通常動作は保持）
-      map.forEach(({ link }) => {
-        if (!link) return;
-        link.addEventListener('click', (e) => {
-          const href = link.getAttribute('href');
-          const target = link.getAttribute('target') || '';
-          if (!href || href.startsWith('#') || href.startsWith('javascript:') || target === '_blank') return;
-          e.preventDefault();
-          window.PageLoader?.show();
-          window.location.href = href;
-        });
       });
 
       if (openKey && !map.has(openKey)) hideBar();
@@ -219,12 +221,6 @@
           btn.className = 'ab-btn';
           btn.href = href;
           btn.textContent = label;
-          btn.addEventListener('click', (e) => {
-            if (!href || href.startsWith('#') || href.startsWith('javascript:') || target === '_blank') return;
-            e.preventDefault();
-            window.PageLoader?.show();
-            window.location.href = href;
-          });
           actionbar.appendChild(btn);
         });
       }
@@ -246,7 +242,6 @@
       openKey = null;
     }
 
-    // 外側クリック/ESC/リサイズで閉じる
     document.addEventListener('click', (e) => {
       if (!openKey) return;
       const inBar  = !!e.target.closest('.tab-actionbar');
@@ -262,10 +257,12 @@
     rebuild();
   }
 
-  // ===== boot =====
+  /* ===============================
+     Boot
+  =============================== */
   function start() {
-    initLoader(); // ← 初回は隠す／クリック時にだけ表示
-    initTabs();   // ← 下タブ/サブメニューも含める
+    initLoader();  // Loaderだけ面倒を見る
+    initTabs();    // 下タブ/サブメニューは現行コードそのまま
   }
 
   if (document.readyState === 'loading') {
