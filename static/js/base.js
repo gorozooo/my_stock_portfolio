@@ -1,13 +1,124 @@
 // static/js/base.js
-// 下タブ / サブメニューの UI だけ担当。
-// クリックによる遷移は一切ハンドリングしない（loader.js に任せる）。
+// Loader + Bottom Tab/Submenu（クリックは標準遷移。preventDefaultしない）
 
 (function () {
+  /* =========================================
+     0) helpers
+  ========================================= */
+  const isModClick = (e) => e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0;
+  const isValidHref = (href) => href && !href.startsWith('#') && !href.startsWith('javascript:');
+
+  /* =========================================
+     1) Loader（#loading-screen 優先／無ければ簡易生成）
+  ========================================= */
+  function initLoader() {
+    let host = document.querySelector('#loading-screen');
+    let mode = 'screen'; // 'screen' = 既存テンプレ, 'overlay' = 自動生成
+
+    if (!host) {
+      mode = 'overlay';
+
+      const style = document.createElement('style');
+      style.textContent = `
+        #__loading_overlay__{
+          position:fixed; inset:0; z-index:9999;
+          background:rgba(10,10,20,.95);
+          display:flex; align-items:center; justify-content:center; flex-direction:column;
+          opacity:1; transition:opacity .35s ease, visibility .35s ease;
+          visibility:visible;
+        }
+        #__loading_overlay__.hidden{
+          opacity:0; visibility:hidden; pointer-events:none;
+        }
+        #__loading_overlay__ .loading-text{
+          color:#0ff; font:700 22px/1.2 "Orbitron",system-ui;
+          text-shadow:0 0 10px #0ff,0 0 20px #0ff; margin-bottom:12px;
+        }
+        #__loading_overlay__ .loading-bar{
+          width:220px; height:6px; border-radius:4px;
+          background:linear-gradient(90deg,#0ff,#f0f,#0ff); background-size:200% 100%;
+          animation:__slide 2s linear infinite;
+        }
+        @keyframes __slide { 0%{background-position:0 0} 100%{background-position:200% 0} }
+      `;
+      document.head.appendChild(style);
+
+      host = document.createElement('div');
+      host.id = '__loading_overlay__';
+      host.innerHTML = `
+        <div class="loading-text" aria-live="polite">Now Loading…</div>
+        <div class="loading-bar" role="progressbar" aria-hidden="true"></div>
+      `;
+      document.body.appendChild(host);
+    } else {
+      // 既存CSSと衝突しないよう、hiddenクラスを尊重
+      // 非表示時はクリック透過にしておく
+      if (!host.classList.contains('hidden')) {
+        host.style.pointerEvents = 'auto';
+      }
+    }
+
+    function show() {
+      host.classList.remove('hidden');
+      host.style.pointerEvents = 'auto';     // 表示中はクリックブロック
+      document.documentElement.style.cursor = 'wait';
+      document.body.style.cursor = 'wait';
+    }
+    function hide() {
+      host.classList.add('hidden');
+      host.style.pointerEvents = 'none';     // 非表示中は透過
+      document.documentElement.style.cursor = '';
+      document.body.style.cursor = '';
+    }
+
+    // グローバル API
+    window.PageLoader = { show, hide };
+
+    // “前の挙動”に合わせる：初回は必ず表示 → window.loadで消す
+    show();
+    window.addEventListener('load', () => {
+      // ほんの少し余韻を残して消す（チラ見え防止）
+      setTimeout(hide, 300);
+    }, { passive: true });
+
+    // 離脱時は必ず表示
+    window.addEventListener('beforeunload', () => {
+      show();
+    }, { passive: true });
+
+    // bfcache 復帰時は不要
+    window.addEventListener('pageshow', (e) => {
+      if (e.persisted) hide();
+    }, { passive: true });
+
+    // 押下の瞬間に“見せるだけ”の早表示（遷移は標準に任せる）
+    const earlyShow = (e) => {
+      const a = e.target.closest && e.target.closest('a[href]');
+      const submitBtn = e.target.closest && e.target.closest('button[type="submit"], input[type="submit"]');
+      if (a) {
+        const href = a.getAttribute('href');
+        if (!isModClick(e) && isValidHref(href) && a.target !== '_blank' && !a.hasAttribute('download') && a.dataset.noLoader !== 'true') {
+          show();
+        }
+      } else if (submitBtn) {
+        const form = submitBtn.form || submitBtn.closest('form');
+        if (form && form.target !== '_blank' && form.dataset.noLoader !== 'true') {
+          show();
+        }
+      }
+    };
+    document.addEventListener('pointerdown', earlyShow, { capture: true, passive: true });
+    document.addEventListener('touchstart', earlyShow, { capture: true, passive: true });
+  }
+
+  /* =========================================
+     2) Bottom Tab + Submenu（UIのみ）
+  ========================================= */
   function initTabs() {
     const tabBar = document.querySelector('.bottom-tab');
     if (!tabBar) return;
 
-    // ケアレット行（下タブの直下に固定）
+    // ケアレット行（タブの直下に並べる）
     let caretRow = document.querySelector('.caret-row');
     if (!caretRow) {
       caretRow = document.createElement('div');
@@ -15,7 +126,7 @@
       tabBar.insertAdjacentElement('afterend', caretRow);
     }
 
-    // サブメニューのアクションバー（共用）
+    // サブメニューのアクションバー
     let actionbar = document.querySelector('.tab-actionbar');
     if (!actionbar) {
       actionbar = document.createElement('div');
@@ -40,13 +151,13 @@
           tab.dataset.tabkey = key;
         }
 
-        // 既存の飾りケアレットは除去（重複回避）
+        // 既存の飾りケアレットは除去
         tab.querySelectorAll('.tab-caret, .caret, .caret-icon, [data-caret], [data-role="caret"]').forEach(n => n.remove());
 
-        const link    = tab.querySelector('.tab-link');   // ← 触らない（クリックは loader.js が担当）
+        const link    = tab.querySelector('.tab-link');   // ← 触らない（遷移は標準）
         const submenu = tab.querySelector('.sub-menu');
 
-        // 下のケアレット用セルを常に作る（高さを揃える）
+        // ケアレット列：常にセルを作る（高さを揃える）
         const cell = document.createElement('div');
         cell.className = 'caret-cell';
 
@@ -69,7 +180,7 @@
         map.set(key, { tab, link, submenu, caretBtn });
       });
 
-      // ケアレットでのみ開閉（リンクは通常の a 動作に任せる）
+      // ケアレットでのみ開閉（aのクリックは素通し）
       map.forEach(({ caretBtn }, key) => {
         if (!caretBtn) return;
         caretBtn.onclick = (e) => {
@@ -87,7 +198,6 @@
       const rec = map.get(key);
       if (!rec || !rec.submenu) return;
 
-      // 中身を a のままクローンしてボタンバーに並べる（クリックは loader.js に任せる）
       actionbar.innerHTML = '';
       const links = rec.submenu.querySelectorAll('a');
 
@@ -98,9 +208,9 @@
         actionbar.appendChild(none);
       } else {
         links.forEach((a) => {
-          const btn = a.cloneNode(true);            // href/target もコピー
-          btn.classList.add('ab-btn');              // 見た目用のクラスだけ追加
-          // ここで addEventListener は付けない（← 重要）
+          const btn = a.cloneNode(true);     // href/target そのまま維持
+          btn.classList.add('ab-btn');       // 見た目だけ追加
+          // クリックハンドラは付けない（標準遷移）
           actionbar.appendChild(btn);
         });
       }
@@ -123,7 +233,7 @@
       openKey = null;
     }
 
-    // 外側クリック/ESC/リサイズで閉じる（挙動のみ）
+    // 外側クリック/ESC/リサイズで閉じる（UIのみ）
     document.addEventListener('click', (e) => {
       if (!openKey) return;
       const inBar  = !!e.target.closest('.tab-actionbar');
@@ -134,14 +244,21 @@
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && openKey) hideBar(); }, { passive: true });
     window.addEventListener('resize', hideBar, { passive: true });
 
-    // タブDOMの変化に追従
     new MutationObserver(() => rebuild()).observe(tabBar, { childList: true, subtree: true });
     rebuild();
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initTabs, { once: true });
-  } else {
+  /* =========================================
+     Boot
+  ========================================= */
+  function start() {
+    initLoader();
     initTabs();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start, { once: true });
+  } else {
+    start();
   }
 })();
