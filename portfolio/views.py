@@ -1974,24 +1974,94 @@ def register_hub(request):
 # -----------------------------
 # 入出金（既存のまま / import 整理済み）
 # -----------------------------
+from datetime import datetime, timedelta
+from types import SimpleNamespace
+
+from django.contrib import messages
+from django.db.models import Sum, F, Case, When, IntegerField, Value, Q
+from django.db.models.functions import Coalesce
+from django.shortcuts import render, redirect
+from django.urls import reverse
+from django.utils import timezone
+
 BROKER_TABS = [
     ("rakuten", "楽天証券"),
     ("matsui",  "松井証券"),
     ("sbi",     "SBI証券"),
 ]
 BROKER_MAP = dict(BROKER_TABS)
+
+# 表記ゆれ吸収（必要ならここに増やせばOK）
+BROKER_ALIASES = {
+    "rakuten": "rakuten", "楽天": "rakuten", "楽天証券": "rakuten",
+    "matsui":  "matsui",  "松井": "matsui",  "松井証券": "matsui",
+    "sbi":     "sbi",     "SBI":  "sbi",     "SBI証券": "sbi",
+}
+
 UNDO_WINDOW_SECONDS = 120
 
-from .models import CashFlow  # ここで一度だけ
+from .models import CashFlow, RealizedProfit  # ここで一度だけ
 
-def _aggregate_balances():
-    sums = (CashFlow.objects.values("broker", "flow_type").annotate(total=Sum("amount")))
+
+def _canon_broker(b: str) -> str:
+    """ブローカー表記ゆれを内部キーへ正規化"""
+    return BROKER_ALIASES.get((b or "").strip(), (b or "").strip())
+
+
+def _aggregate_balances(user=None):
+    """
+    証券会社ごとの残高を返す（dict互換）。
+    - CashFlow … 入金 +、出金 −
+    - RealizedProfit … sell: (sell_price*quantity - fee), dividend: profit_amount を加算
+    - other は現金増減が不明のため除外
+    - user が渡されたら RealizedProfit は user で絞り込み（CashFlow は現状仕様そのまま）
+    """
+    # まず CashFlow（入出金）
+    cf_qs = (
+        CashFlow.objects
+        .values("broker", "flow_type")
+        .annotate(total=Sum("amount"))
+    )
     bal = {k: 0 for k, _ in BROKER_TABS}
-    for row in sums:
-        b = row["broker"]; t = row["flow_type"]; v = row["total"] or 0
+    for row in cf_qs:
+        b = _canon_broker(row["broker"])
         if b in bal:
-            bal[b] += v if t == "in" else -v
+            v = int(row["total"] or 0)
+            bal[b] += v if row["flow_type"] == "in" else -v
+
+    # 次に実現キャッシュ加算（RealizedProfit）
+    rp_qs = RealizedProfit.objects.all()
+    if user is not None:
+        rp_qs = rp_qs.filter(user=user)
+
+    # 売却：売却受取額（sell_price×quantity−fee）
+    sell_expr = (
+        Coalesce(F("sell_price"), 0) * Coalesce(F("quantity"), 0)
+        - Coalesce(F("fee"), 0)
+    )
+    sell_rows = (
+        rp_qs.filter(trade_type="sell")
+        .values("broker")
+        .annotate(delta=Sum(sell_expr, output_field=IntegerField()))
+    )
+    for row in sell_rows:
+        b = _canon_broker(row["broker"])
+        if b in bal:
+            bal[b] += int(row["delta"] or 0)
+
+    # 配当：profit_amount を加算（未入力は0扱い）
+    div_rows = (
+        rp_qs.filter(trade_type="dividend")
+        .values("broker")
+        .annotate(delta=Sum(Coalesce(F("profit_amount"), 0), output_field=IntegerField()))
+    )
+    for row in div_rows:
+        b = _canon_broker(row["broker"])
+        if b in bal:
+            bal[b] += int(row["delta"] or 0)
+
     return bal
+
 
 def _parse_date_yyyy_mm_dd(s: str):
     try:
@@ -1999,17 +2069,17 @@ def _parse_date_yyyy_mm_dd(s: str):
     except Exception:
         return timezone.now().date()
 
+
 def cash_io_page(request):
     broker = request.GET.get("broker") or "rakuten"
-    if broker not in BROKER_MAP:
-        broker = "rakuten"
+    broker = broker if broker in BROKER_MAP else "rakuten"
     active_label = BROKER_MAP[broker]
 
     range_days = (request.GET.get("range") or "").strip().lower()
     q = (request.GET.get("q") or "").strip()
 
     if request.method == "POST":
-        post_broker = request.POST.get("broker") or broker
+        post_broker = _canon_broker(request.POST.get("broker") or broker)
         flow_type   = (request.POST.get("flow_type") or "").strip()
         amount_raw  = (request.POST.get("amount") or "").replace(",", "").strip()
         occurred_at = request.POST.get("occurred_at") or str(timezone.now().date())
@@ -2042,7 +2112,9 @@ def cash_io_page(request):
             request.session.modified = True
             return redirect(f"{reverse('cash_io')}?broker={post_broker}&range={range_days or ''}&q={q}")
 
-    balances = _aggregate_balances()
+    # 実現損益込みで集計（ユーザー前提のモデルなので user を渡す）
+    balances_dict = _aggregate_balances(user=request.user if request.user.is_authenticated else None)
+
     qs = CashFlow.objects.filter(broker=broker)
 
     if range_days and range_days.isdigit():
@@ -2074,7 +2146,10 @@ def cash_io_page(request):
         "tabs": BROKER_TABS,
         "active_broker": broker,
         "active_label": active_label,
-        "balances": balances,
+        # テンプレ互換（balances.rakuten 等）に合わせる
+        "balances": SimpleNamespace(
+            **{k: int(balances_dict.get(k, 0)) for k, _ in BROKER_TABS}
+        ),
         "recent": recent,
         "today": str(timezone.now().date()),
         "can_undo": can_undo,
