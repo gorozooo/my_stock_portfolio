@@ -128,7 +128,6 @@
     loader-slide 2.5s linear infinite,
     loader-pulse 1.6s ease-in-out infinite;
   will-change: transform, box-shadow;
-  transform: translateZ(0) translateX(-100%);
 }
 
 /* 横流れ */
