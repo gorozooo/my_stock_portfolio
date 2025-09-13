@@ -1,50 +1,13 @@
 // static/js/base.js
-// 下タブ / サブメニューのみ（ローダーは一切生成しない）
-// 遷移時は window.PageLoader?.show() を呼ぶだけ
+// 下タブ / サブメニューの UI だけ担当。
+// クリックによる遷移は一切ハンドリングしない（loader.js に任せる）。
 
 (function () {
-  const isValidHref = (href) => href && !href.startsWith('#') && !href.startsWith('javascript:');
-
-  // ---- 「通常のリンク遷移」でもローダーを出す（存在すれば）
-  // （loader.jsが後読みでも、ハンドラは先に仕掛けてOK。呼ぶ瞬間に存在チェック）
-  document.addEventListener('click', (e) => {
-    const a = e.target.closest && e.target.closest('a[href]');
-    if (!a) return;
-
-    const href   = a.getAttribute('href');
-    const target = a.getAttribute('target') || '';
-    const dl     = a.hasAttribute('download');
-
-    if (!isValidHref(href) || target === '_blank' || dl || a.dataset.noLoader === 'true') return;
-
-    // すでに他で prevent されているなら触らない
-    if (e.defaultPrevented) return;
-
-    // 画面遷移の直前にローダー（あれば）
-    if (window.PageLoader && typeof window.PageLoader.show === 'function') {
-      e.preventDefault();
-      window.PageLoader.show();
-      // 遅延0で即遷移（描画フレームを1つ確保）
-      setTimeout(() => { window.location.href = href; }, 0);
-    }
-  }, { capture: true, passive: false });
-
-  // ---- フォーム送信時もローダー（存在すれば）
-  document.addEventListener('submit', (e) => {
-    const form = e.target;
-    if (!(form instanceof HTMLFormElement)) return;
-    if (form.getAttribute('target') === '_blank' || form.dataset.noLoader === 'true') return;
-    if (window.PageLoader && typeof window.PageLoader.show === 'function') {
-      window.PageLoader.show();
-    }
-  }, { capture: true });
-
-  // ===== ここから下は「下タブ / サブメニュー」だけ =====
   function initTabs() {
     const tabBar = document.querySelector('.bottom-tab');
     if (!tabBar) return;
 
-    // ケアレット用の行（下タブ直下）
+    // ケアレット行（下タブの直下に固定）
     let caretRow = document.querySelector('.caret-row');
     if (!caretRow) {
       caretRow = document.createElement('div');
@@ -52,7 +15,7 @@
       tabBar.insertAdjacentElement('afterend', caretRow);
     }
 
-    // サブメニューのアクションバー
+    // サブメニューのアクションバー（共用）
     let actionbar = document.querySelector('.tab-actionbar');
     if (!actionbar) {
       actionbar = document.createElement('div');
@@ -61,7 +24,7 @@
     }
 
     let openKey = null;
-    const map = new Map();
+    const map = new Map(); // key -> { tab, link, submenu, caretBtn }
 
     function rebuild() {
       caretRow.innerHTML = '';
@@ -77,12 +40,13 @@
           tab.dataset.tabkey = key;
         }
 
-        // 既存の飾りケアレットを削除（重複回避）
+        // 既存の飾りケアレットは除去（重複回避）
         tab.querySelectorAll('.tab-caret, .caret, .caret-icon, [data-caret], [data-role="caret"]').forEach(n => n.remove());
 
-        const link    = tab.querySelector('.tab-link');
+        const link    = tab.querySelector('.tab-link');   // ← 触らない（クリックは loader.js が担当）
         const submenu = tab.querySelector('.sub-menu');
 
+        // 下のケアレット用セルを常に作る（高さを揃える）
         const cell = document.createElement('div');
         cell.className = 'caret-cell';
 
@@ -105,7 +69,7 @@
         map.set(key, { tab, link, submenu, caretBtn });
       });
 
-      // ケアレットで開閉
+      // ケアレットでのみ開閉（リンクは通常の a 動作に任せる）
       map.forEach(({ caretBtn }, key) => {
         if (!caretBtn) return;
         caretBtn.onclick = (e) => {
@@ -123,6 +87,7 @@
       const rec = map.get(key);
       if (!rec || !rec.submenu) return;
 
+      // 中身を a のままクローンしてボタンバーに並べる（クリックは loader.js に任せる）
       actionbar.innerHTML = '';
       const links = rec.submenu.querySelectorAll('a');
 
@@ -133,31 +98,14 @@
         actionbar.appendChild(none);
       } else {
         links.forEach((a) => {
-          const href   = a.getAttribute('href') || '#';
-          const label  = (a.textContent || '').trim();
-          const target = a.getAttribute('target') || '';
-
-          const btn = document.createElement('a');
-          btn.className = 'ab-btn';
-          btn.href = href;
-          btn.textContent = label;
-
-          btn.addEventListener('click', (e) => {
-            if (!isValidHref(href) || target === '_blank') return;
-            e.preventDefault();
-            if (window.PageLoader && typeof window.PageLoader.show === 'function') {
-              window.PageLoader.show();
-              setTimeout(() => { window.location.href = href; }, 0);
-            } else {
-              window.location.href = href;
-            }
-          });
-
+          const btn = a.cloneNode(true);            // href/target もコピー
+          btn.classList.add('ab-btn');              // 見た目用のクラスだけ追加
+          // ここで addEventListener は付けない（← 重要）
           actionbar.appendChild(btn);
         });
       }
 
-      // ケアレット状態更新
+      // ケアレット状態
       map.forEach(({ caretBtn }) => { if (caretBtn) caretBtn.setAttribute('aria-expanded', 'false'); });
       if (rec.caretBtn) rec.caretBtn.setAttribute('aria-expanded', 'true');
 
@@ -175,7 +123,7 @@
       openKey = null;
     }
 
-    // 外側クリック/ESC/リサイズで閉じる
+    // 外側クリック/ESC/リサイズで閉じる（挙動のみ）
     document.addEventListener('click', (e) => {
       if (!openKey) return;
       const inBar  = !!e.target.closest('.tab-actionbar');
@@ -186,6 +134,7 @@
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && openKey) hideBar(); }, { passive: true });
     window.addEventListener('resize', hideBar, { passive: true });
 
+    // タブDOMの変化に追従
     new MutationObserver(() => rebuild()).observe(tabBar, { childList: true, subtree: true });
     rebuild();
   }
