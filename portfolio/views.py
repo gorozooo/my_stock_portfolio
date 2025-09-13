@@ -2093,19 +2093,9 @@ def _aggregate_balances_and_breakdown(user=None, sell_basis: str = SELL_BASIS_DE
     """
     balances と breakdown を返す。
     - CashFlow … 入金/出金（件数=Count）
-    - RealizedProfit … sell は「受取(現金)」「損益(PL)」を両方集計、
-                        dividend は受取額（profit_amount）を集計
+    - RealizedProfit … sell は「受取(現金)」「損益(PL)」を両方集計
+                      dividend は profit_amount があればそれを、無ければ (sell_price×quantity−fee) を採用
     - user が渡されたら user=該当 OR user IS NULL を両方含める（過去データ互換）
-    返り値:
-      balances: { "rakuten": int, "matsui": int, "sbi": int }
-      breakdown: {
-        <broker>: {
-          cash_in, cash_in_count, cash_out, cash_out_count, cash_net,
-          sell_proceeds_sum, sell_profit_sum, sell_count,
-          div_sum, div_count,
-          total
-        }, ...
-      }
     """
     # 残高初期化（BROKER_TABS のキーのみ許容）
     balances = {k: 0 for k, _ in BROKER_TABS}
@@ -2120,6 +2110,9 @@ def _aggregate_balances_and_breakdown(user=None, sell_basis: str = SELL_BASIS_DE
         ) for k, _ in BROKER_TABS
     }
 
+    # 未マッピングの broker を拾ってデバッグに出す用（任意）
+    unknown_brokers = set()
+
     # --- CashFlow: 入金/出金 ---
     cf_in = (
         CashFlow.objects.filter(flow_type="in")
@@ -2127,10 +2120,13 @@ def _aggregate_balances_and_breakdown(user=None, sell_basis: str = SELL_BASIS_DE
         .annotate(total=Sum("amount"), cnt=Count("id"))
     )
     for r in cf_in:
-        b = _canon_broker(r["broker"])  # ★ 正規化を必ず通す
+        b = _canon_broker(r["broker"])
         if b in balances:
             breakdown[b]["cash_in"] = int(r["total"] or 0)
             breakdown[b]["cash_in_count"] = int(r["cnt"] or 0)
+        else:
+            if r["broker"]:
+                unknown_brokers.add(str(r["broker"]))
 
     cf_out = (
         CashFlow.objects.filter(flow_type="out")
@@ -2138,10 +2134,13 @@ def _aggregate_balances_and_breakdown(user=None, sell_basis: str = SELL_BASIS_DE
         .annotate(total=Sum("amount"), cnt=Count("id"))
     )
     for r in cf_out:
-        b = _canon_broker(r["broker"])  # ★ 正規化を必ず通す
+        b = _canon_broker(r["broker"])
         if b in balances:
             breakdown[b]["cash_out"] = int(r["total"] or 0)
             breakdown[b]["cash_out_count"] = int(r["cnt"] or 0)
+        else:
+            if r["broker"]:
+                unknown_brokers.add(str(r["broker"]))
 
     for b in balances.keys():
         breakdown[b]["cash_net"] = breakdown[b]["cash_in"] - breakdown[b]["cash_out"]
@@ -2166,7 +2165,7 @@ def _aggregate_balances_and_breakdown(user=None, sell_basis: str = SELL_BASIS_DE
         )
     )
     for r in rp_sell:
-        b = _canon_broker(r["broker"])  # ★ 正規化
+        b = _canon_broker(r["broker"])
         if b in balances:
             proceeds = int(r["proceeds"] or 0)
             profit   = int(r["profit"] or 0)
@@ -2174,30 +2173,48 @@ def _aggregate_balances_and_breakdown(user=None, sell_basis: str = SELL_BASIS_DE
             breakdown[b]["sell_profit_sum"]   = profit
             breakdown[b]["sell_count"]        = int(r["cnt"] or 0)
             balances[b] += proceeds if sell_basis == "proceeds" else profit
+        else:
+            if r["broker"]:
+                unknown_brokers.add(str(r["broker"]))
 
-    # 配当：profit_amount を受取額として集計
+    # 配当：
+    #   1) profit_amount が入っていればそれを採用
+    #   2) 無ければ (sell_price×quantity−fee) をフォールバックとして採用
+    div_fallback_expr = (
+        Coalesce(F("sell_price"), 0) * Coalesce(F("quantity"), 0) - Coalesce(F("fee"), 0)
+    )
+    div_amount_expr = Case(
+        When(profit_amount__isnull=False, then=Coalesce(F("profit_amount"), 0)),
+        default=div_fallback_expr,
+        output_field=IntegerField(),
+    )
+
     rp_div = (
         rp.filter(trade_type="dividend")
         .values("broker")
         .annotate(
-            total=Sum(Coalesce(F("profit_amount"), 0), output_field=IntegerField()),
+            total=Sum(div_amount_expr, output_field=IntegerField()),
             cnt=Count("id"),
         )
     )
     for r in rp_div:
-        b = _canon_broker(r["broker"])  # ★ 正規化
+        b = _canon_broker(r["broker"])
         if b in balances:
             val = int(r["total"] or 0)
             breakdown[b]["div_sum"]   = val
             breakdown[b]["div_count"] = int(r["cnt"] or 0)
             balances[b] += val
+        else:
+            if r["broker"]:
+                unknown_brokers.add(str(r["broker"]))
 
-    # 合計を確定
+    # 合計
     for b in balances.keys():
         breakdown[b]["total"] = balances[b]
 
+    # ここで unknown_brokers を返す or 外部に出すなら、必要に応じて一緒に返してもOK
+    # → 既存の返り値に影響を出したくなければ、呼び出し側で別途計算/表示しても良い
     return balances, breakdown
-
 
 def cash_io_page(request):
     broker = request.GET.get("broker") or "rakuten"
