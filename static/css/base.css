@@ -57,70 +57,89 @@
   to   { text-shadow: 0 0 18px #0ff, 0 0 36px #0ff; }
 }
 
-/* ===== 下タブ（2段: 上=ボタン / 下=ケアレット） ===== */
+/* ===== 下タブ（2段: 上=ボタン固定 / 下=ケアレット固定） ===== */
 .bottom-tab {
   position: fixed;
   inset: auto 0 0 0;
-  /* 上段ボタン(48) + 下段ケアレット(26) + パディング + セーフエリア */
-  min-height: calc(48px + 26px + 16px + env(safe-area-inset-bottom, 0));
-  padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0));
+  /* 上段(ボタン=56px) + 下段(ケアレット=28px) + 上下padding + セーフエリア */
+  min-height: calc(56px + 28px + 12px + env(safe-area-inset-bottom, 0));
+  padding: 6px 10px calc(6px + env(safe-area-inset-bottom, 0));
   background: rgba(0, 5, 20, 0.7);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
-  z-index: 1010;            /* ケアレットも確実に前面へ */
+  z-index: 1010;
   border-top: 1px solid rgba(0, 255, 255, 0.14);
   box-shadow: 0 -8px 22px rgba(0, 255, 255, 0.16);
-  overflow: visible;        /* ケアレットの影が切れない */
+  overflow: visible;
 }
 
-/* タブ群: 5カラム想定（必要に応じて変更） */
 .bottom-tab .tab-list {
   margin: 0;
   padding: 0;
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, 1fr); /* タブ数に合わせて調整 */
   column-gap: 10px;
-  row-gap: 6px;             /* 上段ボタンと下段ケアレットの間隔 */
+  row-gap: 6px; /* 上段と下段の間隔 */
 }
 
-/* 1タブ = 縦並び（上: ボタン / 下: ケアレット） */
+/* 1タブ = 2行（固定） */
 .bottom-tab .tab-item {
+  position: relative;
   display: grid;
-  grid-template-rows: 1fr auto; /* 上段が伸び、下段ケアレットは自動高さ */
-  align-items: end;
+  grid-template-rows: 56px 28px; /* 上段=56 / 下段=28 で固定 */
+  align-items: center;
   justify-items: stretch;
   min-width: 0;
 }
 
-/* 上段：ボタン本体（横並び：アイコン + ラベル） */
+/* ▼ サブメニュー無しでも高さを揃えるためのスペーサ（デフォ表示） */
+.bottom-tab .tab-item::after {
+  content: "";
+  height: 28px;
+  display: block;
+  grid-row: 2 / 3;
+  grid-column: 1 / -1;
+  border-radius: 10px;
+  /* 見えないスペーサ */
+}
+
+/* サブメニューがあるタブにはJSで .has-sub を付与 → スペーサを消して実ボタンを置く */
+.bottom-tab .tab-item.has-sub::after {
+  display: none;
+}
+
+/* 上段：丸っこい（ピル）ボタン本体：横並び(アイコン+ラベル) */
 .bottom-tab .tab-link {
+  grid-row: 1 / 2;
   display: inline-grid;
   grid-auto-flow: column;
   grid-auto-columns: max-content;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
   text-decoration: none;
-  padding: 10px 12px;
-  border-radius: 14px;
+  padding: 10px 14px;
+  border-radius: 9999px; /* ピル形状 */
   background:
-    linear-gradient(135deg, rgba(0,255,255,.14), rgba(255,0,255,.10)) padding-box,
-    linear-gradient(135deg, rgba(0,255,255,.35), rgba(255,0,255,.28)) border-box;
+    radial-gradient(120% 120% at 20% 20%, rgba(0,255,255,.18), transparent 60%) padding-box,
+    linear-gradient(135deg, rgba(0,255,255,.28), rgba(255,0,255,.24)) border-box;
   border: 1px solid transparent;
-  box-shadow: 0 6px 18px rgba(0,0,0,.38), inset 0 0 18px rgba(255,255,255,.05);
-  color: #bfe8ff;
-  font-size: .9rem;
+  box-shadow: 0 10px 24px rgba(0,0,0,.35), inset 0 0 22px rgba(255,255,255,.07);
+  color: #cfe9ff;
+  font-size: .92rem;
   font-weight: 800;
   letter-spacing: .02em;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  min-height: 48px;
+  min-height: 56px; /* 行高と一致 */
+  line-height: 1;
   text-align: center;
+  transition: transform .12s ease, box-shadow .18s ease, background .18s ease, color .12s ease;
 }
 
 .bottom-tab .tab-link i {
-  font-size: 18px;
+  font-size: 19px;
   opacity: .95;
 }
 .bottom-tab .tab-link .label {
@@ -134,16 +153,16 @@
 .bottom-tab .tab-item.open .tab-link {
   color: #fff;
   transform: translateY(-1px);
-  box-shadow: 0 10px 24px rgba(0, 255, 255, .24), inset 0 0 30px rgba(0,255,255,.12);
+  box-shadow: 0 14px 30px rgba(0, 255, 255, .25), inset 0 0 36px rgba(0,255,255,.14);
   background:
-    linear-gradient(135deg, rgba(0,255,255,.22), rgba(255,0,255,.16)) padding-box,
-    linear-gradient(135deg, rgba(0,255,255,.45), rgba(255,0,255,.36)) border-box;
+    radial-gradient(120% 120% at 20% 20%, rgba(0,255,255,.24), transparent 60%) padding-box,
+    linear-gradient(135deg, rgba(0,255,255,.40), rgba(255,0,255,.34)) border-box;
 }
 
 .bottom-tab .tab-link:hover { transform: translateY(-1px); }
 .bottom-tab .tab-link:active { transform: translateY(0); }
 
-/* テンプレ由来のサブメニューはJSのみで使う */
+/* サブメニューのテンプレ要素はJSでのみ使用（常非表示） */
 .bottom-tab .tab-item .sub-menu {
   display: none !important;
   visibility: hidden !important;
@@ -154,19 +173,19 @@
   overflow: hidden !important;
 }
 
-/* 下段：ケアレット（常にバー内に収まり、押しやすい） */
+/* 下段：ケアレット（サブメニュー有りの時だけ表示） */
 .tab-caret-btn {
+  grid-row: 2 / 3;
   appearance: none;
   border: 1px solid rgba(255,255,255,0.20);
-  background: linear-gradient(180deg, rgba(0,255,255,.18), rgba(255,0,255,.12));
+  background: linear-gradient(180deg, rgba(0,255,255,.20), rgba(255,0,255,.12));
   color: #eaf8ff;
-  border-radius: 10px;
-  height: 26px;
-  line-height: 24px;
+  border-radius: 12px;
+  height: 28px;
+  line-height: 26px;
   font-weight: 800;
   font-size: 13px;
   letter-spacing: .02em;
-  margin-top: 4px;
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(0,0,0,.25);
   transition: transform .08s ease, box-shadow .16s ease, background .16s ease;
@@ -176,7 +195,7 @@
 }
 .tab-caret-btn:hover {
   box-shadow: 0 6px 16px rgba(0,255,255,.20);
-  background: linear-gradient(180deg, rgba(0,255,255,.24), rgba(255,0,255,.16));
+  background: linear-gradient(180deg, rgba(0,255,255,.26), rgba(255,0,255,.16));
 }
 .tab-caret-btn:active { transform: translateY(1px) scale(.98); }
 
@@ -185,8 +204,7 @@
   position: fixed;
   left: 8px;
   right: 8px;
-  /* 下タブの高さに追従（JSから設定） */
-  bottom: 100px;
+  bottom: 100px; /* JSで下タブの実高さに追従 */
   display: none;
   flex-wrap: wrap;
   justify-content: center;
@@ -217,7 +235,7 @@
   color: #eaf8ff;
   font-size: .9rem;
   font-weight: 800;
-  border-radius: 999px;
+  border-radius: 9999px;
   padding: 10px 14px;
   text-decoration: none;
   display: inline-flex;
@@ -234,10 +252,10 @@
 
 /* ===== main（被り防止） ===== */
 main {
-  padding: 88px 16px calc(130px + env(safe-area-inset-bottom, 0));
+  padding: 88px 16px calc(140px + env(safe-area-inset-bottom, 0));
   overflow-y: auto;
   min-height: calc(100vh - 160px);
-  scroll-padding-bottom: calc(160px + env(safe-area-inset-bottom, 0));
+  scroll-padding-bottom: calc(170px + env(safe-area-inset-bottom, 0));
 }
 
 /* PC微調整 */
@@ -245,7 +263,5 @@ main {
   .navbar-title { font-size: 1.7rem; }
   .navbar-current { font-size: 1rem; }
   .bottom-tab .tab-list { column-gap: 12px; }
-  .bottom-tab .tab-link { padding: 12px 14px; }
-
-  /* PCではケアレットはそのまま（下段）、ボタンバーは吹き出し位置にJSで移動 */
+  .bottom-tab .tab-link { padding: 12px 16px; }
 }
