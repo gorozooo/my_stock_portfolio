@@ -1,9 +1,9 @@
-// 下タブ：サブメニューがあるタブだけ 下段に“押せるケアレット”を生成。
-// 既存の飾りケアレットは除去。タブ本体(.tab-link)は通常遷移。
-// サブメニュー（ボタンバー）は 下タブの“実高さ+余白” に追従表示。
+// 下タブ：全タブにケアレット領域を用意（サブメニュー無しは透明プレースホルダー）。
+// 重なり防止のため、各タブは「上=ボタン固定高」「下=ケアレット固定高」の2段構成。
+// サブメニューはボタンバーとして、下タブの実高さ + 余白に追従表示。
 
 document.addEventListener("DOMContentLoaded", function () {
-  /* --- 軽量ローディング（任意） --- */
+  /* --- 軽量ローディング（必要なら残す） --- */
   (function () {
     const style = document.createElement("style");
     style.innerHTML = `
@@ -26,19 +26,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function showLoading(cb){
       loading.style.display="flex";
-      requestAnimationFrame(()=>{
-        loading.style.opacity="1";
-        if(cb) setTimeout(cb,40);
-      });
+      requestAnimationFrame(()=>{ loading.style.opacity="1"; if(cb) setTimeout(cb,40); });
     }
-    function hideLoading(){
-      loading.style.opacity="0";
-      setTimeout(()=>{ loading.style.display="none"; },200);
-    }
-    window.__showLoading__ = showLoading;
+    function hideLoading(){ loading.style.opacity="0"; setTimeout(()=>{ loading.style.display="none"; },200); }
 
-    showLoading();
-    window.addEventListener("load", hideLoading, {passive:true});
+    window.__showLoading__ = showLoading;
+    showLoading(); window.addEventListener("load", hideLoading, {passive:true});
     window.addEventListener("beforeunload", ()=> showLoading(), {passive:true});
     window.addEventListener("pageshow", e=>{ if(e.persisted) hideLoading(); }, {passive:true});
   })();
@@ -58,17 +51,17 @@ document.addEventListener("DOMContentLoaded", function () {
   let openFor = null;
   let justOpenedAt = 0;
 
-  function barOffsetPx() {
-    // 下タブの実高さ + 12px
+  const getBarOffset = () => {
+    // 下タブの実高さ + 12px だけ上に
     const r = tabBar.getBoundingClientRect();
     return Math.round(r.height + 12);
-  }
+  };
 
-  function closeBar() {
+  const closeBar = () => {
     if (openFor) {
       openFor.classList.remove("open");
-      const caretBtn = openFor.querySelector(":scope > .tab-caret-btn");
-      if (caretBtn) caretBtn.setAttribute("aria-expanded", "false");
+      const caret = openFor.querySelector(":scope > .tab-caret-btn");
+      if (caret) caret.setAttribute("aria-expanded", "false");
     }
     actionbar.classList.remove("show");
     setTimeout(() => {
@@ -78,15 +71,14 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     }, 140);
     openFor = null;
-  }
+  };
 
-  function openBarFor(tabItem) {
+  const openBarFor = (tabItem) => {
     const submenu = tabItem.querySelector(".sub-menu");
     if (!submenu) return;
 
     if (openFor && openFor !== tabItem) closeBar();
 
-    // ボタン再生成
     actionbar.innerHTML = "";
     const links = submenu.querySelectorAll("a");
     if (!links.length) {
@@ -118,77 +110,42 @@ document.addEventListener("DOMContentLoaded", function () {
       });
     }
 
-    // 位置：SP=下タブの実高さに追従 / PC=吹き出し中央寄せ
-    const tabRect = tabItem.getBoundingClientRect();
+    // 位置決め：SP=下タブ上 / PC=吹き出し風（中央寄せ）
+    const rect = tabItem.getBoundingClientRect();
     if (window.matchMedia("(min-width: 768px)").matches) {
-      const width = Math.min(560, Math.max(260, tabRect.width * 1.7));
-      const left  = Math.min(Math.max(8, tabRect.left + tabRect.width/2 - width/2), window.innerWidth - width - 8);
+      const width = Math.min(560, Math.max(260, rect.width * 1.7));
+      const left  = Math.min(Math.max(8, rect.left + rect.width/2 - width/2), window.innerWidth - width - 8);
       actionbar.style.left   = left + "px";
       actionbar.style.right  = "auto";
       actionbar.style.width  = width + "px";
-      actionbar.style.bottom = (window.innerHeight - tabRect.top + 10) + "px";
+      actionbar.style.bottom = (window.innerHeight - rect.top + 10) + "px";
     } else {
       actionbar.style.left   = "8px";
       actionbar.style.right  = "8px";
       actionbar.style.width  = "auto";
-      actionbar.style.bottom = barOffsetPx() + "px";
+      actionbar.style.bottom = getBarOffset() + "px";
     }
 
     tabItem.classList.add("open");
-    const caretBtn = tabItem.querySelector(":scope > .tab-caret-btn");
-    if (caretBtn) caretBtn.setAttribute("aria-expanded", "true");
+    const caret = tabItem.querySelector(":scope > .tab-caret-btn");
+    if (caret) caret.setAttribute("aria-expanded", "true");
 
     actionbar.style.display = "flex";
     requestAnimationFrame(() => actionbar.classList.add("show"));
 
     openFor = tabItem;
     justOpenedAt = Date.now();
-  }
+  };
 
-  // タブ初期化：装飾ケアレット除去 → 下段ケアレット生成（ある所だけ）
+  // 既存の飾りケアレットを全削除 → 全タブに確実にケアレット領域を配置
   tabItems.forEach(tab => {
+    tab.querySelectorAll(".tab-caret-btn, .tab-caret, .caret, .caret-icon, [data-caret], [data-role='caret']")
+      .forEach(n => n.remove());
+
     const submenu = tab.querySelector(".sub-menu");
     const link    = tab.querySelector(".tab-link");
 
-    // 既存の飾りケアレットはすべて除去（被り防止）
-    tab.querySelectorAll(".tab-caret-btn, .tab-caret, .caret, .caret-icon, [data-caret], [data-role='caret']").forEach(n => n.remove());
-    tab.classList.remove("has-sub");
-
-    if (!submenu) {
-      // サブメニュー無し：タブ本体は通常遷移（ローディング付き）
-      if (link) {
-        link.addEventListener("click", (e) => {
-          const href = link.getAttribute("href");
-          const target = link.getAttribute("target") || "";
-          if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
-          if (target === "_blank") return;
-          e.preventDefault();
-          (window.__showLoading__ || ((cb)=>cb()))(() => (window.location.href = href));
-        }, {passive:false});
-      }
-      return;
-    }
-
-    // サブメニューあり：クラス付与（→ CSSのスペーサoff）
-    tab.classList.add("has-sub");
-
-    // 下段に“押せるケアレット”を生成（下段固定行に収まる）
-    const caret = document.createElement("button");
-    caret.type = "button";
-    caret.className = "tab-caret-btn";
-    caret.setAttribute("aria-expanded", "false");
-    caret.setAttribute("aria-controls", "tab-actionbar");
-    caret.setAttribute("aria-label", "サブメニューを開閉");
-    caret.textContent = "▾";
-    tab.appendChild(caret);
-
-    caret.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (openFor === tab) closeBar(); else openBarFor(tab);
-    }, {passive:false});
-
-    // タブ本体は通常遷移（ケアレットとは独立）
+    // 上段ボタン：通常遷移（ローダー付）
     if (link) {
       link.addEventListener("click", (e) => {
         const href = link.getAttribute("href");
@@ -200,15 +157,37 @@ document.addEventListener("DOMContentLoaded", function () {
       }, {passive:false});
     }
 
-    // 長押しクイックアクセス（スマホ）
-    let touchTimer = null;
-    const LONG_PRESS_MS = 500;
-    tab.addEventListener("touchstart", (e) => {
-      if (e.target === caret) return;
-      touchTimer = setTimeout(() => { openBarFor(tab); touchTimer = null; }, LONG_PRESS_MS);
-    }, {passive:true});
-    tab.addEventListener("touchend",   () => { if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; } }, {passive:true});
-    tab.addEventListener("touchmove",  () => { if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; } }, {passive:true});
+    // 下段ケアレット：全タブに必ず追加（無い場合は透明プレースホルダー）
+    const caret = document.createElement("button");
+    caret.type = "button";
+    caret.className = "tab-caret-btn";
+    caret.setAttribute("aria-controls", "tab-actionbar");
+    caret.setAttribute("aria-label", "サブメニューを開閉");
+    caret.textContent = "▾";
+    tab.appendChild(caret);
+
+    if (submenu) {
+      tab.classList.add("has-sub");
+      caret.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (openFor === tab) closeBar(); else openBarFor(tab);
+      }, {passive:false});
+
+      // 長押しでクイックアクセス（SP）
+      let tmr = null;
+      const LONG_MS = 500;
+      tab.addEventListener("touchstart", (e) => {
+        if (e.target === caret) return;
+        tmr = setTimeout(() => { openBarFor(tab); tmr = null; }, LONG_MS);
+      }, {passive:true});
+      tab.addEventListener("touchend",   () => { if (tmr) { clearTimeout(tmr); tmr = null; } }, {passive:true});
+      tab.addEventListener("touchmove",  () => { if (tmr) { clearTimeout(tmr); tmr = null; } }, {passive:true});
+    } else {
+      // 透明プレースホルダー：高さは確保、見た目/クリック無効
+      caret.classList.add("is-placeholder");
+      caret.setAttribute("aria-hidden", "true");
+    }
   });
 
   // 外側クリック・Esc・リサイズ・向き変更で閉じる
@@ -223,20 +202,11 @@ document.addEventListener("DOMContentLoaded", function () {
   window.addEventListener("resize", () => closeBar(), {passive:true});
   window.addEventListener("orientationchange", () => closeBar(), {passive:true});
 
-  // 現在ページ名（任意）
-  const cur = document.getElementById("current-page-name");
-  if (cur) {
-    const path = location.pathname;
-    const tabLinks = document.querySelectorAll(".tab-item .tab-link");
-    let found = false;
-    tabLinks.forEach(tl => {
-      const href = tl.getAttribute("href");
-      const nameSpan = tl.querySelector("span");
-      if (href && nameSpan && path.startsWith(href)) {
-        cur.textContent = nameSpan.textContent;
-        found = true;
-      }
-    });
-    if (!found) cur.textContent = path.replace(/^\/|\/$/g, "") || "ホーム";
-  }
+  // 画面回転やソフトキーボード出現で下タブ高さが変わったら再配置
+  const ro = new ResizeObserver(() => {
+    if (actionbar.classList.contains("show") && !window.matchMedia("(min-width:768px)").matches) {
+      actionbar.style.bottom = getBarOffset() + "px";
+    }
+  });
+  ro.observe(tabBar);
 });
