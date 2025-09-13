@@ -1,6 +1,6 @@
 /* css/loader.css */
 
-/* 画面全体のローダー */
+/* 画面全体のローダー（初期は表示。JSで hide へ） */
 #loading-screen{
   position: fixed;
   inset: 0;
@@ -10,6 +10,8 @@
   justify-content: center;
   align-items: center;
   z-index: 9999;
+  opacity: 1;
+  visibility: visible;
   transition: opacity .4s ease, visibility .4s ease;
 }
 
@@ -18,6 +20,8 @@
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+  /* ← “一生見えっぱなし”事故を確実に止めるため追記 */
+  display: none !important;
 }
 
 /* ネオンテキスト：最初から発光ON */
@@ -27,19 +31,14 @@
   font-weight: 700;
   color: #00eaff;
   margin-bottom: 20px;
-
-  /* 初期フレームから強い発光 */
   text-shadow:
     0 0 8px  #0ff,
     0 0 16px #0ff,
     0 0 32px #0ff,
     0 0 48px #f0f;
-
-  /* “暗くしない”揺らめき & バウンド */
   animation:
     loader-bounce 1.4s ease-in-out infinite,
     loader-flicker 1.8s ease-in-out infinite;
-
   will-change: transform, text-shadow;
   transform: translateZ(0);
   position: relative;
@@ -61,14 +60,11 @@
   filter: blur(.4px);
 }
 
-/* バウンド */
 @keyframes loader-bounce{
   0%,20%,50%,80%,100%{ transform: translateZ(0) translateY(0); }
   40%{ transform: translateZ(0) translateY(-12px); }
   60%{ transform: translateZ(0) translateY(-6px); }
 }
-
-/* 明→より明（暗くしない） */
 @keyframes loader-flicker{
   0%,100%{
     text-shadow:
@@ -104,28 +100,21 @@
   width: 100%;
   border-radius: 4px;
   background: linear-gradient(90deg, #0ff, #ff00ff, #0ff);
-
-  /* 初期から発光 */
   box-shadow:
     0 0 12px #0ff,
     0 0 24px #0ff,
     0 0 36px #f0f;
-
   animation:
     loader-slide 2.5s linear infinite,
     loader-pulse 1.6s ease-in-out infinite;
-
   will-change: transform, box-shadow;
   transform: translateZ(0) translateX(-100%);
 }
 
-/* 横流れ（幅を伸ばすのではなくスライド） */
 @keyframes loader-slide{
   0%   { transform: translateZ(0) translateX(-100%); }
   100% { transform: translateZ(0) translateX(100%); }
 }
-
-/* 明るさの強弱のみ（暗くしない） */
 @keyframes loader-pulse{
   0%,100%{
     box-shadow:
