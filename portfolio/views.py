@@ -902,7 +902,6 @@ def _get_current_price_cached(ticker: str, fallback: float = 0.0) -> float:
 # -----------------------------
 # 以降の関数は“既存そのまま”。（追記のみ / インポート解決済み）
 # -----------------------------
-
 @login_required
 def stock_create(request):
     errors: dict[str, str] = {}
@@ -915,7 +914,6 @@ def stock_create(request):
         purchase_date = None
         purchase_date_str = (data.get("purchase_date") or "").strip()
         if purchase_date_str:
-            # ✅ 修正ポイント：Django標準のパーサで安全に
             purchase_date = parse_date(purchase_date_str)
             if purchase_date is None:
                 errors["purchase_date"] = "購入日を正しい形式（YYYY-MM-DD）で入力してください"
@@ -997,7 +995,29 @@ def stock_create(request):
             except Exception:
                 pass
 
-            Stock.objects.create(**create_kwargs)
+            # Stock を作成
+            obj = Stock.objects.create(**create_kwargs)
+
+            # ★買付のときだけ現金を自動で差し引く（CashFlow 'out' 登録）
+            try:
+                if AUTO_DEDUCT_CASH_ON_BUY and normalized_position == "買":
+                    cf_broker = _canon_broker_name(broker)
+                    # 二重作成防止トークン
+                    token = f"#BUY:stock={obj.id}"
+
+                    already = CashFlow.objects.filter(broker=cf_broker, memo__contains=token).exists()
+                    if not already:
+                        CashFlow.objects.create(
+                            broker=cf_broker,
+                            flow_type="out",
+                            amount=int(round(total_cost)),  # 現金は整数円に丸め
+                            occurred_at=purchase_date or date.today(),
+                            memo=f"自動買付: {name} {shares}株 x {unit_price:g} {token}"[:200],
+                        )
+            except Exception:
+                # ログを入れたい場合は logger.exception(...) などをどうぞ
+                pass
+
             return redirect("stock_list")
 
     else:
@@ -2008,6 +2028,12 @@ from .models import CashFlow, RealizedProfit  # ここで一度だけ
 def _canon_broker(b: str) -> str:
     return BROKER_ALIASES.get((b or "").strip(), (b or "").strip())
 
+# --- 自動買付のON/OFF（必要なら settings から読む） ---
+AUTO_DEDUCT_CASH_ON_BUY = True
+
+def _canon_broker_name(broker: str) -> str:
+    # cash_io 側の正規化に合わせて必要なら同じ辞書を使ってください
+    return (broker or "").strip()
 
 def _parse_date_yyyy_mm_dd(s: str):
     try:
