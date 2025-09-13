@@ -235,10 +235,10 @@
       </table>
       <p style="margin-top:6px;color:#9fb3cc">
         counts（{{ active_label }}）:
-        入金 {{ balance_breakdown[active_broker].cash_in_count }} /
-        出金 {{ balance_breakdown[active_broker].cash_out_count }} /
-        売却 {{ balance_breakdown[active_broker].sell_count }} /
-        配当 {{ balance_breakdown[active_broker].div_count }}
+        入金 {{ active_breakdown.cash_in_count }}
+        / 出金 {{ active_breakdown.cash_out_count }}
+        / 売却 {{ active_breakdown.sell_count }}
+        / 配当 {{ active_breakdown.div_count }}
       </p>
     </details>
   </section>
