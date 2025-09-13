@@ -2185,10 +2185,10 @@ def cash_io_page(request):
         request.session.pop("last_cashflow_ts", None)
         request.session.modified = True
 
-        # JSON をテンプレへ埋め込む
+            # JSON をテンプレへ埋め込み
     breakdown_json = mark_safe(json.dumps(breakdown_dict, ensure_ascii=False))
 
-    # ★追加：テンプレで回しやすい形に整形（可変キー問題の回避）
+    # テンプレで回しやすい配列
     breakdown_rows = [
         {
             "key": k,
@@ -2204,6 +2204,17 @@ def cash_io_page(request):
         }
         for k, label in BROKER_TABS
     ]
+
+    # ★追加：アクティブタブの内訳だけを取り出して渡す（テンプレでドット参照可能）
+    default_brk = {
+        "cash_in": 0, "cash_in_count": 0,
+        "cash_out": 0, "cash_out_count": 0,
+        "cash_net": 0,
+        "sell_sum": 0, "sell_count": 0,
+        "div_sum": 0, "div_count": 0,
+        "total": 0,
+    }
+    active_breakdown = breakdown_dict.get(broker, default_brk)
 
     ctx = {
         "tabs": BROKER_TABS,
