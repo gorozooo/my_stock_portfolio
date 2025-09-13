@@ -902,6 +902,18 @@ def _get_current_price_cached(ticker: str, fallback: float = 0.0) -> float:
 # -----------------------------
 # 以降の関数は“既存そのまま”。（追記のみ / インポート解決済み）
 # -----------------------------
+# 自動買付出金のON/OFF（必要なら settings から読む形にしてもOK）
+AUTO_DEDUCT_CASH_ON_BUY = True
+
+# ★ 自動控除の対象口座（現金を減らしたい口座のみ）
+CASH_DEDUCT_ACCOUNT_TYPES = {"現物", "NISA"}
+
+def _canon_broker_name(broker: str) -> str:
+    """cash_io 側のキーと合わせたければここで正規化。とりあえず strip のみ。"""
+    return (broker or "").strip()
+
+
+# ==== 本体 ====
 @login_required
 def stock_create(request):
     errors: dict[str, str] = {}
@@ -998,9 +1010,14 @@ def stock_create(request):
             # Stock を作成
             obj = Stock.objects.create(**create_kwargs)
 
-            # ★買付のときだけ現金を自動で差し引く（CashFlow 'out' 登録）
+            # ★買付のときだけ、かつ「現物 / NISA」の口座のみ現金を自動で差し引く
+            #   → 信用は控除しない（現物/NISA以外はスキップ）
             try:
-                if AUTO_DEDUCT_CASH_ON_BUY and normalized_position == "買":
+                if (
+                    AUTO_DEDUCT_CASH_ON_BUY
+                    and normalized_position == "買"
+                    and account_type in CASH_DEDUCT_ACCOUNT_TYPES
+                ):
                     cf_broker = _canon_broker_name(broker)
                     # 二重作成防止トークン
                     token = f"#BUY:stock={obj.id}"
@@ -1012,7 +1029,7 @@ def stock_create(request):
                             flow_type="out",
                             amount=int(round(total_cost)),  # 現金は整数円に丸め
                             occurred_at=purchase_date or date.today(),
-                            memo=f"自動買付: {name} {shares}株 x {unit_price:g} {token}"[:200],
+                            memo=f"自動買付({account_type}): {name} {shares}株 x {unit_price:g} {token}"[:200],
                         )
             except Exception:
                 # ログを入れたい場合は logger.exception(...) などをどうぞ
@@ -2028,12 +2045,6 @@ from .models import CashFlow, RealizedProfit  # ここで一度だけ
 def _canon_broker(b: str) -> str:
     return BROKER_ALIASES.get((b or "").strip(), (b or "").strip())
 
-# --- 自動買付のON/OFF（必要なら settings から読む） ---
-AUTO_DEDUCT_CASH_ON_BUY = True
-
-def _canon_broker_name(broker: str) -> str:
-    # cash_io 側の正規化に合わせて必要なら同じ辞書を使ってください
-    return (broker or "").strip()
 
 def _parse_date_yyyy_mm_dd(s: str):
     try:
