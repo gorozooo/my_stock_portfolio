@@ -5,6 +5,44 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/cash_io.css' %}">
+<style>
+/* 簡易モーダル（必要ならCSSファイルへ） */
+#breakdown-overlay{
+  position: fixed; inset: 0; background: rgba(0,0,0,.5);
+  display: none; align-items: center; justify-content: center; z-index: 9999;
+}
+#breakdown-modal{
+  width: min(92vw, 520px); background: #0f1624; color: #eaf2ff;
+  border: 1px solid rgba(255,255,255,.12); border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.4);
+}
+#breakdown-modal header{
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,.1);
+}
+#breakdown-modal .body{
+  padding: 12px 16px; font-size: 14px;
+}
+#breakdown-modal .row{
+  display: flex; justify-content: space-between; padding: 8px 0;
+  border-bottom: 1px dashed rgba(255,255,255,.08);
+}
+#breakdown-modal .row:last-child{ border-bottom: 0; }
+#breakdown-modal .k{ color: #9fb3cc; }
+#breakdown-modal .total{
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.12); font-weight: 700;
+}
+#breakdown-close{
+  background: transparent; border: 0; color: #eaf2ff; font-size: 20px; line-height: 1;
+}
+.debug-card{
+  margin-top: 16px; padding: 12px; border: 1px solid rgba(255,255,255,.12);
+  border-radius: 12px; background: rgba(255,255,255,.04);
+}
+.debug-card summary{ cursor: pointer; }
+.debug-table{ width: 100%; border-collapse: collapse; font-size: 13px; }
+.debug-table th, .debug-table td{ padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,.08); text-align: right; }
+.debug-table th:first-child, .debug-table td:first-child{ text-align: left; }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -27,27 +65,27 @@
     </div>
   {% endif %}
 
-  <!-- 証券会社タブ（?broker=... は q と range を維持） -->
+  <!-- 証券会社タブ -->
   <nav class="tabs" role="tablist" aria-label="証券会社">
     {% for key, label in tabs %}
       <a
         class="tab {% if key == active_broker %}active{% endif %}"
-        href="{% url 'cash_io' %}?broker={{ key }}&q={{ q|default:''|urlencode }}&range={{ range|default:'all' }}"
+        href="{% url 'cash_io' %}?broker={{ key }}&q={{ q|default:''|urlencode }}&range={{ range|default:'all' }}{% if debug_balance %}&debug_balance=1{% endif %}"
       >{{ label }}</a>
     {% endfor %}
   </nav>
 
-  <!-- 残高サマリー -->
+  <!-- 残高サマリー（タップで内訳モーダル） -->
   <section class="summary real">
-    <div class="pill {% if active_broker == 'rakuten' %}focus{% endif %}">
+    <div class="pill {% if active_broker == 'rakuten' %}focus{% endif %}" data-broker="rakuten" role="button" tabindex="0" aria-label="楽天証券の内訳を表示">
       <span class="k">楽天証券</span>
       <span class="v">¥{{ balances.rakuten|default:0|floatformat:0|intcomma }}</span>
     </div>
-    <div class="pill {% if active_broker == 'matsui' %}focus{% endif %}">
+    <div class="pill {% if active_broker == 'matsui' %}focus{% endif %}" data-broker="matsui" role="button" tabindex="0" aria-label="松井証券の内訳を表示">
       <span class="k">松井証券</span>
       <span class="v">¥{{ balances.matsui|default:0|floatformat:0|intcomma }}</span>
     </div>
-    <div class="pill {% if active_broker == 'sbi' %}focus{% endif %}">
+    <div class="pill {% if active_broker == 'sbi' %}focus{% endif %}" data-broker="sbi" role="button" tabindex="0" aria-label="SBI証券の内訳を表示">
       <span class="k">SBI証券</span>
       <span class="v">¥{{ balances.sbi|default:0|floatformat:0|intcomma }}</span>
     </div>
@@ -108,28 +146,29 @@
     </div>
   </form>
 
-  <!-- クイックフィルター（7 / 30 / 90 / すべて） -->
+  <!-- クイックフィルター -->
   <div class="card filters" role="region" aria-label="最近の入出金フィルター">
     <div class="chips" aria-label="期間">
       <a class="chip {% if range == '7' %}active{% endif %}"
-         href="{% url 'cash_io' %}?broker={{ active_broker }}&q={{ q|default:''|urlencode }}&range=7">直近7日</a>
+         href="{% url 'cash_io' %}?broker={{ active_broker }}&q={{ q|default:''|urlencode }}&range=7{% if debug_balance %}&debug_balance=1{% endif %}">直近7日</a>
       <a class="chip {% if range == '30' %}active{% endif %}"
-         href="{% url 'cash_io' %}?broker={{ active_broker }}&q={{ q|default:''|urlencode }}&range=30">直近30日</a>
+         href="{% url 'cash_io' %}?broker={{ active_broker }}&q={{ q|default:''|urlencode }}&range=30{% if debug_balance %}&debug_balance=1{% endif %}">直近30日</a>
       <a class="chip {% if range == '90' %}active{% endif %}"
-         href="{% url 'cash_io' %}?broker={{ active_broker }}&q={{ q|default:''|urlencode }}&range=90">直近90日</a>
+         href="{% url 'cash_io' %}?broker={{ active_broker }}&q={{ q|default:''|urlencode }}&range=90{% if debug_balance %}&debug_balance=1{% endif %}">直近90日</a>
       <a class="chip {% if not range or range == 'all' %}active{% endif %}"
-         href="{% url 'cash_io' %}?broker={{ active_broker }}&q={{ q|default:''|urlencode }}&range=all">すべて</a>
+         href="{% url 'cash_io' %}?broker={{ active_broker }}&q={{ q|default:''|urlencode }}&range=all{% if debug_balance %}&debug_balance=1{% endif %}">すべて</a>
     </div>
 
     <form method="get" action="{% url 'cash_io' %}">
       <input type="hidden" name="broker" value="{{ active_broker }}">
       <input type="hidden" name="range"  value="{{ range|default:'all' }}">
+      {% if debug_balance %}<input type="hidden" name="debug_balance" value="1">{% endif %}
       <input class="field-input" type="text" name="q" value="{{ q }}" placeholder="メモ検索">
       <button class="btn secondary" type="submit">検索</button>
     </form>
   </div>
 
-  <!-- 最近の入出金（見切れ防止レイアウト） -->
+  <!-- 最近の入出金 -->
   <section class="history">
     <h2 class="h-title">最近の入出金（{{ active_label }}）</h2>
     <ul class="list">
@@ -166,9 +205,124 @@
     </div>
   </section>
 
+  <!-- ▼ Debug: ?debug_balance=1 で表示（折り畳み） -->
+  {% if debug_balance %}
+  <section class="debug-card">
+    <details open>
+      <summary>残高内訳（デバッグ用）</summary>
+      <table class="debug-table">
+        <thead>
+          <tr>
+            <th>証券会社</th>
+            <th>入金</th><th>出金</th><th>差引</th>
+            <th>売却受取</th><th>配当</th>
+            <th>合計</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for key, label in tabs %}
+          {% with b=balance_breakdown.key %}
+          {% endwith %}
+          <tr>
+            <td>{{ label }}</td>
+            <td>¥{{ balance_breakdown[key].cash_in|floatformat:0|intcomma }}</td>
+            <td>¥{{ balance_breakdown[key].cash_out|floatformat:0|intcomma }}</td>
+            <td>¥{{ balance_breakdown[key].cash_net|floatformat:0|intcomma }}</td>
+            <td>¥{{ balance_breakdown[key].sell_sum|floatformat:0|intcomma }}</td>
+            <td>¥{{ balance_breakdown[key].div_sum|floatformat:0|intcomma }}</td>
+            <td><strong>¥{{ balance_breakdown[key].total|floatformat:0|intcomma }}</strong></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p style="margin-top:6px;color:#9fb3cc">counts: 各種件数 → 入金 {{ balance_breakdown[active_broker].cash_in_count }} / 出金 {{ balance_breakdown[active_broker].cash_out_count }} / 売却 {{ balance_breakdown[active_broker].sell_count }} / 配当 {{ balance_breakdown[active_broker].div_count }}</p>
+    </details>
+  </section>
+  {% endif %}
+
 </div>
+
+<!-- モーダル本体 -->
+<div id="breakdown-overlay" aria-hidden="true">
+  <div id="breakdown-modal" role="dialog" aria-modal="true" aria-labelledby="bd-title">
+    <header>
+      <h3 id="bd-title">内訳</h3>
+      <button id="breakdown-close" aria-label="閉じる">×</button>
+    </header>
+    <div class="body" id="bd-body"></div>
+  </div>
+</div>
+
+<!-- 内訳データ(JSON)を埋め込み -->
+<script id="balance-breakdown" type="application/json">{{ balance_breakdown_json|safe }}</script>
 {% endblock %}
 
 {% block extra_js %}
 <script src="{% static 'js/cash_io.js' %}" defer></script>
+<script defer>
+document.addEventListener("DOMContentLoaded", () => {
+  // JSON を取得
+  const dataEl = document.getElementById("balance-breakdown");
+  let breakdown = {};
+  try { breakdown = JSON.parse(dataEl?.textContent || "{}"); } catch(e) {}
+
+  // モーダル要素
+  const overlay = document.getElementById("breakdown-overlay");
+  const modalBody = document.getElementById("bd-body");
+  const titleEl = document.getElementById("bd-title");
+  const closeBtn = document.getElementById("breakdown-close");
+
+  const labelMap = {
+    rakuten: "楽天証券",
+    matsui: "松井証券",
+    sbi: "SBI証券",
+  };
+
+  function fmt(n){
+    if(typeof n !== "number") n = Number(n||0);
+    return n.toLocaleString("ja-JP");
+  }
+
+  function openModal(brokerKey){
+    const b = breakdown[brokerKey] || {};
+    titleEl.textContent = `${labelMap[brokerKey]||brokerKey} の内訳`;
+    modalBody.innerHTML = `
+      <div class="row"><span class="k">入金(件数)</span><span>¥${fmt(b.cash_in)}（${b.cash_in_count||0}件）</span></div>
+      <div class="row"><span class="k">出金(件数)</span><span>¥${fmt(b.cash_out)}（${b.cash_out_count||0}件）</span></div>
+      <div class="row"><span class="k">差引(入出金)</span><span>¥${fmt(b.cash_net)}</span></div>
+      <div class="row"><span class="k">売却受取(件数)</span><span>¥${fmt(b.sell_sum)}（${b.sell_count||0}件）</span></div>
+      <div class="row"><span class="k">配当(件数)</span><span>¥${fmt(b.div_sum)}（${b.div_count||0}件）</span></div>
+      <div class="row total"><span class="k">合計</span><span>¥${fmt(b.total)}</span></div>
+    `;
+    overlay.style.display = "flex";
+    overlay.setAttribute("aria-hidden", "false");
+  }
+  function closeModal(){
+    overlay.style.display = "none";
+    overlay.setAttribute("aria-hidden", "true");
+  }
+
+  // pillクリックでオープン
+  document.querySelectorAll(".summary.real .pill").forEach(pill=>{
+    pill.addEventListener("click", ()=>{
+      const key = pill.getAttribute("data-broker");
+      openModal(key);
+    });
+    pill.addEventListener("keydown", (e)=>{
+      if(e.key === "Enter" || e.key === " "){
+        e.preventDefault();
+        openModal(pill.getAttribute("data-broker"));
+      }
+    });
+  });
+
+  overlay.addEventListener("click", (e)=>{
+    if(e.target === overlay) closeModal();
+  });
+  closeBtn.addEventListener("click", closeModal);
+  document.addEventListener("keydown", (e)=>{
+    if(e.key === "Escape") closeModal();
+  });
+});
+</script>
 {% endblock %}
