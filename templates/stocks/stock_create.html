@@ -9,22 +9,39 @@
 
 {% block content %}
 <main>
-  <form id="stock-form" method="post" novalidate>
+  <form id="stock-form" method="post" novalidate autocomplete="off">
     {% csrf_token %}
     <div class="form-grid">
 
       <!-- 購入日 -->
       <div class="form-field">
         <label for="purchase_date">購入日</label>
-        <input type="date" id="purchase_date" name="purchase_date"
-               value="{{ data.purchase_date|default:'' }}">
+        <input
+          type="date"
+          id="purchase_date"
+          name="purchase_date"
+          value="{{ data.purchase_date|default:'' }}"
+          enterkeyhint="next"
+        >
+        {% if errors.purchase_date %}<div class="field-error">{{ errors.purchase_date }}</div>{% endif %}
       </div>
 
-      <!-- 証券コード -->
+      <!-- 証券コード：数字テンキー + パターン + 最大桁 -->
       <div class="form-field">
         <label for="ticker">証券コード</label>
-        <input type="text" id="ticker" name="ticker" pattern="^(\d{4}|\d{3,4}[A-Z])$"
-               value="{{ data.ticker|default:'' }}">
+        <input
+          type="text"
+          id="ticker"
+          name="ticker"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="6"
+          placeholder="例: 7203"
+          autocapitalize="off"
+          autocomplete="off"
+          enterkeyhint="next"
+          value="{{ data.ticker|default:'' }}"
+        >
         {% if errors.ticker %}
           <div class="field-error" data-for="ticker">{{ errors.ticker }}</div>
         {% else %}
@@ -35,14 +52,23 @@
       <!-- 銘柄名 -->
       <div class="form-field">
         <label for="name">銘柄</label>
-        <input type="text" id="name" name="name" value="{{ data.name|default:'' }}">
+        <input
+          type="text"
+          id="name"
+          name="name"
+          placeholder="例: トヨタ自動車"
+          autocapitalize="off"
+          autocomplete="off"
+          enterkeyhint="next"
+          value="{{ data.name|default:'' }}"
+        >
         {% if errors.name %}<div class="field-error">{{ errors.name }}</div>{% endif %}
       </div>
 
       <!-- 証券会社 -->
       <div class="form-field">
         <label for="broker">証券会社</label>
-        <select id="broker" name="broker">
+        <select id="broker" name="broker" enterkeyhint="next">
           <option value="" disabled {% if not data.broker %}selected{% endif %}>選択してください</option>
           {% for val,label in BROKER_CHOICES %}
             <option value="{{ val }}" {% if data.broker == val %}selected{% endif %}>{{ label }}</option>
@@ -54,7 +80,7 @@
       <!-- 口座区分 -->
       <div class="form-field">
         <label for="account_type">口座区分</label>
-        <select id="account_type" name="account_type">
+        <select id="account_type" name="account_type" enterkeyhint="next">
           <option value="" disabled {% if not data.account_type %}selected{% endif %}>選択してください</option>
           <option value="現物" {% if data.account_type == '現物' %}selected{% endif %}>現物</option>
           <option value="信用" {% if data.account_type == '信用' %}selected{% endif %}>信用</option>
@@ -63,10 +89,10 @@
         {% if errors.account_type %}<div class="field-error">{{ errors.account_type }}</div>{% endif %}
       </div>
 
-      <!-- ポジション（追加） -->
+      <!-- ポジション -->
       <div class="form-field">
         <label for="position">ポジション</label>
-        <select id="position" name="position">
+        <select id="position" name="position" enterkeyhint="next">
           <option value="" disabled {% if not data.position %}selected{% endif %}>選択してください</option>
           <option value="買い" {% if data.position == '買い' %}selected{% endif %}>買い</option>
           <option value="売り" {% if data.position == '売り' %}selected{% endif %}>売り</option>
@@ -74,43 +100,93 @@
         {% if errors.position %}<div class="field-error">{{ errors.position }}</div>{% endif %}
       </div>
 
-      <!-- 株数 -->
+      <!-- 株数：数字テンキー（整数） -->
       <div class="form-field">
         <label for="shares">株数</label>
-        <input type="number" id="shares" name="shares" min="1" step="1" value="{{ data.shares|default:'' }}">
+        <input
+          type="number"
+          id="shares"
+          name="shares"
+          min="1"
+          step="1"
+          inputmode="numeric"
+          placeholder="例: 100"
+          enterkeyhint="next"
+          value="{{ data.shares|default:'' }}"
+        >
         {% if errors.shares %}<div class="field-error">{{ errors.shares }}</div>{% endif %}
       </div>
 
-      <!-- 取得単価 -->
+      <!-- 取得単価：小数テンキー -->
       <div class="form-field">
         <label for="unit_price">取得単価</label>
-        <input type="number" id="unit_price" name="unit_price" step="any" min="0" value="{{ data.unit_price|default:'' }}">
+        <input
+          type="number"
+          id="unit_price"
+          name="unit_price"
+          step="0.01"
+          min="0"
+          inputmode="decimal"
+          placeholder="例: 2500.00"
+          enterkeyhint="next"
+          value="{{ data.unit_price|default:'' }}"
+        >
         {% if errors.unit_price %}<div class="field-error">{{ errors.unit_price }}</div>{% endif %}
       </div>
 
-      <!-- 取得額（自動計算） -->
+      <!-- 取得額（自動計算表示 + hiddenで送信） -->
       <div class="form-field">
         <label for="total_cost">取得額</label>
-        <input type="text" id="total_cost" readonly value="{{ data.total_cost|default:'' }}">
-        <input type="hidden" id="total_cost_raw" name="total_cost" value="{{ data.total_cost|default:'' }}">
+        <input
+          type="text"
+          id="total_cost"
+          readonly
+          inputmode="numeric"
+          placeholder="自動計算"
+          value="{{ data.total_cost|default:'' }}"
+          aria-live="polite"
+        >
+        <input
+          type="hidden"
+          id="total_cost_raw"
+          name="total_cost"
+          value="{{ data.total_cost|default:'' }}"
+        >
       </div>
-      
-      <!-- セクター -->
+
+      <!-- セクター：datalist（スマホOK） -->
       <div class="form-field">
         <label for="sector">セクター</label>
-        <input list="sector-list" id="sector" name="sector" value="{{ data.sector|default:'' }}">
+        <input
+          list="sector-list"
+          id="sector"
+          name="sector"
+          placeholder="例: 輸送用機器"
+          autocapitalize="off"
+          autocomplete="off"
+          enterkeyhint="done"
+          value="{{ data.sector|default:'' }}"
+        >
         <datalist id="sector-list"></datalist>
         {% if errors.sector %}<div class="field-error">{{ errors.sector }}</div>{% endif %}
       </div>
-      
+
       <!-- 備考 -->
       <div class="form-field form-field--full">
         <label for="note">備考</label>
-        <textarea id="note" name="note" rows="3">{{ data.note|default:'' }}</textarea>
+        <textarea
+          id="note"
+          name="note"
+          rows="3"
+          placeholder="例: 〇月優待狙い"
+          autocapitalize="off"
+          autocomplete="off"
+        >{{ data.note|default:'' }}</textarea>
       </div>
 
     </div>
 
+    <!-- 親指タップしやすい大ボタン（CSSでsticky化推奨） -->
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">登録する</button>
       <a class="btn btn-secondary" href="{% url 'stock_list' %}">戻る</a>
