@@ -442,23 +442,29 @@ main{
 .stock-row.gain.positive span:last-child{ color:#6aff6a; font-weight:700; }
 .stock-row.gain.negative span:last-child{ color:#ff6a6a; font-weight:700; }
 
-/* 株カード内の損益行をハイライト */
-.stock-row.gain.positive span:last-child {
-  color: #25ff70;              /* 緑 */
+/* 株カード内の損益を合計サマリーと同じデザインに */
+.stock-row.gain span:last-child {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
   font-weight: 800;
-  border: 1px solid rgba(37,255,112,.45);
-  background: rgba(37,255,112,.08);
-  padding: 2px 6px;
-  border-radius: 6px;
+  font-size: 13px;
+  min-width: 80px;       /* 文字数が少なくても幅を確保 */
+  text-align: center;    /* 中央寄せ */
 }
 
+/* プラス損益（合計サマリーと同じ色） */
+.stock-row.gain.positive span:last-child {
+  color: #6aff6a;
+  background: rgba(106,255,106,.10);
+  border: 1px solid rgba(106,255,106,.45);
+}
+
+/* マイナス損益（合計サマリーと同じ色） */
 .stock-row.gain.negative span:last-child {
-  color: #ff4d67;              /* 赤 */
-  font-weight: 800;
-  border: 1px solid rgba(255,77,103,.45);
-  background: rgba(255,77,103,.08);
-  padding: 2px 6px;
-  border-radius: 6px;
+  color: #ff6a6a;
+  background: rgba(255,106,106,.10);
+  border: 1px solid rgba(255,106,106,.45);
 }
 
 /* ==========================
