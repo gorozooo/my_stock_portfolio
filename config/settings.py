@@ -91,9 +91,13 @@ TIME_ZONE = 'Asia/Tokyo'
 USE_I18N = True
 USE_TZ = True  # DBはUTCで保存、表示はAsia/Tokyo
 
-# === Static（CSS/JS/画像）===
+# Static files (CSS, JavaScript, Images)
 STATIC_URL = 'static/'
-# ← ここがポイント：プロジェクト直下の static/ を読む
+
+# ← これを必ず追加（collectstaticの出力先。絶対パスになる書き方）
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# ← 自分で置くソースのstaticフォルダ（無ければ作る）
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
 # 既定の主キー
