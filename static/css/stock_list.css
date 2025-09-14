@@ -267,7 +267,7 @@ main{
   margin: 0 2px 8px;
   border: 1px dashed var(--border-dim);
   border-radius: 10px;
-  background: var(--bg-panel);
+  background: var(--card-bg);
   font-size: 12px;
   color: var(--text-dim);
 }
