@@ -1,30 +1,24 @@
 from django.shortcuts import render
-from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse
+from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_GET
 
 from .services.trend import detect_trend
 
 
+# 必要ならトップページ（ダミー）を残す
 def main(request):
-    """
-    トップページ：簡易カード（ダミー）
-    """
     cards = [
-        {"name": "トヨタ", "ticker": "7203.T", "trend": "UP", "proba": 62.5},
-        {"name": "ソニーG", "ticker": "6758.T", "trend": "FLAT", "proba": None},
+        {"name": "トヨタ自動車", "ticker": "7203.T", "trend": "UP", "proba": 62.5},
+        {"name": "ソニーグループ", "ticker": "6758.T", "trend": "FLAT", "proba": None},
     ]
     return render(request, "main.html", {"cards": cards})
 
 
 @require_GET
 def trend_api(request):
-    """
-    JSON API: /api/trend?ticker=XXXX
-    """
-    ticker = request.GET.get("ticker", "").strip()
+    ticker = (request.GET.get("ticker") or "").strip()
     if not ticker:
         return HttpResponseBadRequest("ticker is required")
-
     try:
         result = detect_trend(ticker)
     except Exception as e:
@@ -33,6 +27,7 @@ def trend_api(request):
     data = {
         "ok": True,
         "ticker": result.ticker,
+        "name": result.name,  # ★ 日本語名
         "asof": result.asof,
         "days": result.days,
         "signal": result.signal,
@@ -46,22 +41,19 @@ def trend_api(request):
 
 
 def trend_page(request):
-    """
-    画面: /trend/
-    スマホファーストのシンプル画面（HTMXでカード差し替え）
-    """
+    # スマホファーストのシンプル画面
     return render(request, "portfolio/trend.html")
 
 
 def trend_card_partial(request):
     """
-    HTMX が差し替えるカード断片: /trend/card?ticker=XXXX
+    HTMX が差し替えるカード断片
     """
-    ticker = request.GET.get("ticker", "").strip()
+    ticker = (request.GET.get("ticker") or "").strip()
     ctx = {"error": None, "res": None}
 
     if not ticker:
-        ctx["error"] = "ティッカーを入力してください（例：AAPL, MSFT, 7203.T）"
+        ctx["error"] = "ティッカーを入力してください（例：AAPL, MSFT, 7203 など。日本株は .T 不要）"
         return render(request, "portfolio/_trend_card.html", ctx)
 
     try:
@@ -70,10 +62,3 @@ def trend_card_partial(request):
         ctx["error"] = str(e)
 
     return render(request, "portfolio/_trend_card.html", ctx)
-
-
-def healthz(request):
-    """
-    ヘルスチェック: /healthz
-    """
-    return HttpResponse("ok")
