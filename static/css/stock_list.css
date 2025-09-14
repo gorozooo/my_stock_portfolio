@@ -398,7 +398,7 @@ main{
   box-shadow:0 0 0 3px rgba(0,208,255,.45);
 }
 
-/* 銘柄＋コードを横並びで中央配置 */
+/* 銘柄＋コードを中央配置 */
 .stock-header {
   display: flex;
   justify-content: center;   /* 中央揃え */
@@ -407,7 +407,7 @@ main{
   font-size: 14px;
   font-weight: 800;
   text-align: center;
-  gap: 6px;                  /* 銘柄とコードの間に余白 */
+  gap: 4px;
 }
 
 /* 銘柄名 */
@@ -417,14 +417,16 @@ main{
   font-weight: 900;
 }
 
-/* 証券コード */
+/* 証券コードを ( ) 付きにする */
+.stock-code::before {
+  content: "（";
+}
+.stock-code::after {
+  content: "）";
+}
 .stock-code {
   color: #e1e6f0;
   font-weight: 700;
-  border: 1px solid rgba(255,255,255,.28);
-  border-radius: 6px;
-  padding: 2px 6px;
-  background: rgba(255,255,255,.08);
   font-size: 13px;
 }
 
