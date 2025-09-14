@@ -1,60 +1,33 @@
 {% load static %}
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>{% block title %}My Portfolio{% endblock %}</title>
-
-  <!-- 共通CSS（分離管理） -->
-  <link rel="stylesheet" href="{% static 'css/base.css' %}">
-  <link rel="stylesheet" href="{% static 'css/common.css' %}">
-  <!-- ローダー専用CSS（ネオン&バーの見た目・アニメはここで定義） -->
-  <link rel="stylesheet" href="{% static 'css/loader.css' %}">
-
-  {% block extra_css %}{% endblock %}
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}ProFolio AI{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/main.css' %}">
+  <script defer src="{% static 'js/app.js' %}"></script>
 </head>
 <body>
-  <!-- ローディング画面（data-textはCSSの::before用。JSでも同期） -->
-  <div id="loading-screen" role="status" aria-live="polite" aria-label="Now Loading">
-    <div class="loading-text" data-text="Now Loading...">Now Loading...</div>
-    <div class="loading-bar-container">
-      <div class="loading-bar"></div>
-    </div>
-  </div>
-
-  <!-- ナビバー -->
-  <header class="navbar">
-    <div class="navbar-title">My Portfolio</div>
-    <div class="navbar-current">
-      {% comment %} 下タブのアクティブタブ名を表示 {% endcomment %}
-      {% for tab in BOTTOM_TABS %}
-        {% if tab.url_name == request.resolver_match.url_name %}
-          {{ tab.name }}
-        {% elif tab.submenus_list %}
-          {% for submenu in tab.submenus_list %}
-            {% if submenu.url == request.resolver_match.url_name or submenu.url_name == request.resolver_match.url_name %}
-              {{ submenu.name }}
-            {% endif %}
-          {% endfor %}
-        {% endif %}
-      {% endfor %}
+  <!-- 上部ガラスナビ -->
+  <header class="nav">
+    <div class="nav-glass">
+      <div class="nav-left">📊 ProFolio AI</div>
+      <div class="nav-center">スマホ最適・AI補助</div>
+      <a class="nav-right" href="/admin/">⚙️</a>
     </div>
   </header>
 
   <!-- メイン -->
-  <main>
-    {% block content %}{% endblock %}
-  </main>
+  <main class="page">{% block content %}{% endblock %}</main>
 
-  <!-- 下タブ -->
-  {% include "bottom_tab.html" %}
-
-  <!-- 共通JS（分離管理） -->
-  <script src="{% static 'js/base.js' %}"></script>
-  <!-- ローダー制御JS（表示/非表示とSafari対策はここで） -->
-  <script src="{% static 'js/loader.js' %}"></script>
-
-  {% block extra_js %}{% endblock %}
+  <!-- 下タブ（アイコンは後で長押しサブメニュー追加予定） -->
+  <nav class="bottom">
+    <button class="active" title="ホーム">🏠</button>
+    <button title="保有">📈</button>
+    <button title="損益">🧾</button>
+    <button title="分析">🧠</button>
+    <button title="設定">⚙️</button>
+  </nav>
 </body>
 </html>

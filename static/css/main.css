@@ -1,255 +1,45 @@
-/* ================= THEME (Neon / Futuristic) ================= */
 :root{
-  --bg:#070a12; --fg:#eef3ff; --muted:#8fa0c7;
+  --bg:#0b0f1a; --fg:#e6ebff; --muted:#97a0c1;
   --glass:rgba(255,255,255,.06); --line:rgba(255,255,255,.14);
-  --primary:#7db3ff; --accent:#00ffd1; --danger:#ff4d67; --success:#26d07c;
-  --neon:#97f6ff; --hot:#ff7ad9;
-}
-@media (prefers-color-scheme: light){
-  :root{
-    --bg:#f4f6fb; --fg:#0a102a; --muted:#5a617a;
-    --glass:rgba(11,15,26,.05); --line:rgba(10,16,42,.10);
-    --primary:#2b64ff; --accent:#0dd3b8; --neon:#41e6ff; --hot:#ff51c8;
-  }
 }
 *{box-sizing:border-box}
 html,body{height:100%}
 body{
-  margin:0; color:var(--fg);
-  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI","Meiryo",Arial,"Apple Color Emoji","Segoe UI Emoji";
-  background: var(--bg);
-  overflow-x:hidden;
+  margin:0; color:var(--fg); background:#0b0f1a;
+  background-image:
+    radial-gradient(1200px 600px at 80% -10%, rgba(110,168,255,.20), transparent 60%),
+    radial-gradient(900px 500px at 0% 100%, rgba(0,255,209,.12), transparent 60%);
+  font-family: -apple-system, system-ui,
+    "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Meiryo", sans-serif;
 }
+.nav{position:sticky;top:0;z-index:50}
+.nav-glass{
+  display:flex;justify-content:space-between;align-items:center;gap:8px;
+  padding:10px 14px; backdrop-filter: blur(12px);
+  background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.02));
+  border-bottom:1px solid var(--line); box-shadow:0 10px 40px rgba(0,255,209,.15);
+}
+.page{padding:12px 12px 84px}
+.bottom{
+  position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-around;
+  padding:10px 8px; backdrop-filter:blur(16px);
+  background:rgba(255,255,255,.08); border-top:1px solid var(--line);
+  box-shadow:0 -10px 40px rgba(110,168,255,.18);
+}
+.bottom button{
+  appearance:none;border:none;background:transparent;color:var(--fg);
+  font-size:20px;padding:8px 10px;border-radius:12px;transition:transform .12s ease;
+}
+.bottom button.active,.bottom button:active{transform:translateY(-2px)}
 
-/* ================= GLOBAL LAYERED BACKGROUND ================= */
-/* ページ全体の動くオーブ + グラデ波 */
-.bg-layer{
-  position:fixed; inset:0; z-index:-1; pointer-events:none;
-  background:
-    radial-gradient(1200px 600px at 80% -10%, rgba(110,168,255,.22), transparent 60%),
-    radial-gradient(900px 600px at -10% 15%, rgba(0,255,209,.16), transparent 60%);
-  animation: bgShift 18s ease-in-out infinite alternate;
+.grid{display:grid;gap:10px}
+.card{
+  background:var(--glass); border:1px solid var(--line);
+  border-radius:16px; padding:12px;
+  box-shadow:0 6px 24px rgba(0,0,0,.25), inset 0 0 48px rgba(110,168,255,.05);
 }
-@keyframes bgShift{
-  0%   { filter:hue-rotate(0deg) saturate(1); }
-  50%  { filter:hue-rotate(12deg) saturate(1.1); }
-  100% { filter:hue-rotate(22deg) saturate(1.2); }
-}
-
-/* メインの“動く光のオーブ” */
-.bg-layer .orb{
-  position:absolute; border-radius:50%; filter:blur(36px);
-  opacity:.55; mix-blend-mode:screen; will-change:transform, opacity, filter;
-}
-.bg-layer .orb-1{
-  width:440px; height:440px; left:-120px; top:-80px;
-  background:radial-gradient(circle at 30% 30%, var(--primary), transparent 60%);
-  animation: orbFloat1 22s ease-in-out infinite;
-}
-.bg-layer .orb-2{
-  width:520px; height:520px; right:-140px; bottom:-120px;
-  background:radial-gradient(circle at 70% 70%, var(--accent), transparent 60%);
-  animation: orbFloat2 26s ease-in-out infinite;
-}
-.bg-layer .orb-3{
-  width:380px; height:380px; left:40%; top:55%;
-  background:radial-gradient(circle at 50% 50%, var(--hot), transparent 60%);
-  animation: orbFloat3 28s ease-in-out infinite;
-}
-@keyframes orbFloat1{ 
-  0% { transform:translate(0,0) scale(1); }
-  50%{ transform:translate(60px,40px) scale(1.08); }
-  100%{ transform:translate(0,0) scale(1); }
-}
-@keyframes orbFloat2{ 
-  0% { transform:translate(0,0) scale(1); }
-  50%{ transform:translate(-80px,-40px) scale(1.05); }
-  100%{ transform:translate(0,0) scale(1); }
-}
-@keyframes orbFloat3{ 
-  0% { transform:translate(-30px,10px) scale(1); }
-  50%{ transform:translate(20px,-20px) scale(1.12); }
-  100%{ transform:translate(-30px,10px) scale(1); }
-}
-
-/* 低モーション配慮 */
-@media (prefers-reduced-motion: reduce){
-  .bg-layer, .bg-layer .orb{ animation:none !important }
-}
-
-/* ================= LAYOUT ================= */
-.wrap{max-width:980px;margin:0 auto;padding:16px}
-.muted{color:var(--muted)}
-.pos{color:var(--success)} .neg{color:var(--danger)}
-.chip{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--glass);backdrop-filter:blur(8px);font-weight:700}
-
-/* LIVE 演出（強化） */
-.chip-live{display:inline-flex;align-items:center;gap:.6rem}
-.live-dot{width:.66rem;height:.66rem;border-radius:50%;background:#22c55e;
-  box-shadow:0 0 0 .18rem rgba(34,197,94,.25), 0 0 12px rgba(34,197,94,.45);
-  animation:pulse 1.6s ease-in-out infinite;
-}
-@keyframes pulse{
-  0%,100%{ transform:scale(1); box-shadow:0 0 0 .18rem rgba(34,197,94,.25), 0 0 12px rgba(34,197,94,.45); }
-  50%{ transform:scale(1.25); box-shadow:0 0 0 .32rem rgba(34,197,94,.12), 0 0 22px rgba(34,197,94,.55); }
-}
-.live-ts{opacity:.85;font-variant-numeric:tabular-nums;letter-spacing:.02em}
-
-/* ================= HERO ================= */
-/* heroカードのネオン枠（マスクでアニメーション） */
-.hero{
-  position:relative;border-radius:18px; padding:16px 16px 14px;
-  background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.03));
-  overflow:hidden;
-}
-.hero::before{
-  content:""; position:absolute; inset:-2px; border-radius:20px;
-  background: conic-gradient(from 0deg, var(--neon), transparent 25%, var(--hot), transparent 50%, var(--accent), transparent 75%, var(--neon));
-  filter: blur(8px); opacity:.45;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor; mask-composite: exclude;
-  padding:2px; pointer-events:none;
-  animation: borderSpin 14s linear infinite;
-}
-@keyframes borderSpin{ to{ transform: rotate(360deg) } }
-
-.bg-orb{position:absolute;border-radius:50%;filter:blur(28px);opacity:.38;pointer-events:none}
-.orb-a{width:180px;height:180px;left:-20px;top:-20px;background:radial-gradient(var(--primary),transparent)}
-.orb-b{width:220px;height:220px;right:-30px;bottom:-30px;background:radial-gradient(var(--accent),transparent)}
-
-.hero-topline{display:flex;gap:8px;margin-bottom:8px}
-.headline{margin:2px 0 0;font-size:13px;color:var(--muted);letter-spacing:.12em}
-
-/* 総資産：ネオン・シマー */
-.total{
-  font-size:36px;font-weight:1000;letter-spacing:.02em; line-height:1.1;
-  background: linear-gradient(90deg, #fff, var(--neon), #fff);
-  -webkit-background-clip:text; background-clip:text; color:transparent;
-  animation: shimmer 3.2s linear infinite;
-}
-@keyframes shimmer{
-  0%{ background-position:-120% 0 }
-  100%{ background-position:220% 0 }
-}
-.total.glow{ text-shadow:0 0 18px rgba(97,168,255,.35) }
-.total-sub{margin-top:2px;color:var(--muted)}
-
-/* ================= 内訳（details） ================= */
-.breakdown{margin-top:10px}
-.summary-btn{
-  display:inline-flex;align-items:center;gap:.5rem;cursor:pointer;user-select:none;
-  padding:8px 10px;border-radius:12px;border:1px solid var(--line);background:var(--glass);font-weight:800;
-  transition: transform .08s ease, box-shadow .2s ease;
-}
-.summary-btn:hover{ transform: translateY(-1px); box-shadow:0 8px 22px rgba(0,0,0,.18) }
-.breakdown[open] .summary-btn{ border-color:rgba(0,255,209,.42); box-shadow: 0 0 0 2px rgba(0,255,209,.12) }
-.breakdown-grid{margin-top:10px;display:grid;grid-template-columns:1fr;gap:8px}
-.breakdown-grid .line{
-  display:flex;justify-content:space-between;align-items:center;
-  border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:var(--glass);
-}
-
-/* ================= KPI（カード内1列） ================= */
-.kpi-grid.kpi-in-hero{margin-top:12px}
-.kpi-grid{display:grid;grid-template-columns:1fr;gap:12px}
-.glass{
-  background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.03));
-  border:1px solid var(--line); border-radius:16px; padding:14px; backdrop-filter:blur(10px);
-  box-shadow: 0 12px 28px rgba(0,0,0,.22);
-}
-.kpi-card .kpi-title{font-size:12px;color:var(--muted);letter-spacing:.03em}
-.kpi-card .kpi-value{font-size:22px;font-weight:900;margin:4px 0;text-shadow:0 0 10px rgba(125,179,255,.22)}
-.kpi-card .kpi-sub{color:var(--muted);font-size:12px}
-.kpi-card.accent{border-color:rgba(0,255,209,.35)}
-
-/* 利益率ゲージ（ネオンストライプ） */
-.meter{position:relative;margin-top:10px;height:12px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.04);overflow:hidden}
-.meter-fill{
-  height:100%;width:0%;
-  background:
-    repeating-linear-gradient(45deg, rgba(255,255,255,.22) 0 8px, rgba(255,255,255,0) 8px 16px),
-    linear-gradient(90deg,var(--success),var(--primary));
-  filter: drop-shadow(0 0 8px rgba(125,179,255,.45));
-  transition:width .55s ease;
-}
-.meter-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--fg);text-shadow:0 1px 2px rgba(0,0,0,.35);pointer-events:none}
-
-/* ミニ損益スパーク */
-.mini-spark{height:56px;border:1px solid var(--line);border-radius:12px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:rgba(255,255,255,.03)}
-.mini-spark svg{ filter: drop-shadow(0 4px 12px rgba(0,255,209,.18)); }
-
-/* ポート比率 */
-.stack-bars{height:22px;border-radius:12px;overflow:hidden;border:1px solid var(--line);display:flex}
-.stack-bars>span{display:block;height:100%}
-.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
-.dot-spot{background:var(--primary)} .dot-margin{background:#ff8a5b} .dot-cash{background:var(--accent)}
-.legend{display:flex;gap:12px;margin:10px 0 4px;padding:0;list-style:none;color:var(--muted);font-size:12px}
-
-/* ================= ACTIVITY ================= */
-.activity{margin:18px 0}
-.activity h2{margin:0 0 8px}
-.activity-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
-.act-item{display:grid;grid-template-columns:60px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--glass)}
-.act-date{color:var(--muted);font-size:12px}
-.act-main{font-weight:700}
-.act-val{font-variant-numeric:tabular-nums}
-
-/* レスポンシブ微調整 */
-@media (min-width:760px){
-  .total{ font-size:40px }
-}
-
-/* ===== Fancy Spark for Total Assets ===== */
-.spark-wrap{ margin-top:10px }
-.spark--fancy{
-  position: relative;
-  height: 86px;
-  border-radius: 14px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  background:
-    radial-gradient(120% 100% at 10% 0%, rgba(110,168,255,.10), transparent 60%),
-    radial-gradient(120% 100% at 100% 100%, rgba(0,255,209,.08), transparent 60%),
-    rgba(255,255,255,.03);
-}
-
-/* 発光のベール（奥でゆっくり動く） */
-.spark--fancy::before{
-  content:"";
-  position:absolute; inset:-30%;
-  background: radial-gradient(60% 60% at 30% 40%, rgba(0,255,209,.22), transparent 70%);
-  filter: blur(24px);
-  animation: sparkMist 8s ease-in-out infinite alternate;
-  pointer-events:none;
-}
-@keyframes sparkMist{
-  0%   { transform: translate3d(-4%, 2%, 0) rotate(0deg); opacity:.6; }
-  100% { transform: translate3d(4%, -3%, 0) rotate(6deg); opacity:.85; }
-}
-
-/* 線の強い発光 */
-.spark--fancy svg .line-main{
-  stroke: url(#sparkGrad);
-  stroke-width: 3.2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  filter: drop-shadow(0 0 8px rgba(0,255,209,.55));
-}
-.spark--fancy svg .line-glow{
-  stroke: rgba(110,168,255,.38);
-  stroke-width: 8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  opacity: .55;
-  filter: blur(0.2px);
-}
-
-/* 初回 “線を描く” 演出 */
-.spark--fancy svg .draw{
-  stroke-dasharray: var(--dash, 0);
-  stroke-dashoffset: var(--dash, 0);
-  animation: drawLine 1.6s ease forwards;
-}
-@keyframes drawLine{
-  to { stroke-dashoffset: 0; }
-}
+.row{display:flex;justify-content:space-between;align-items:center}
+.name{font-weight:600}
+.muted{color:var(--muted);font-size:13px;margin-top:4px}
+.trend.up{color:#26d07c}.trend.down{color:#ff4d67}
+.ai{margin-top:6px}

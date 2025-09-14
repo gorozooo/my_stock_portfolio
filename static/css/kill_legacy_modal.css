@@ -1,7 +1,0 @@
-/* 旧モーダル(#stock-modal)を常に完全非表示にする保険 */
-#stock-modal {
-  display: none !important;
-  visibility: hidden !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-}

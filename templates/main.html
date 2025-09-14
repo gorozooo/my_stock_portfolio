@@ -1,210 +1,23 @@
 {% extends "base.html" %}
-{% load static %}
-{% load humanize %}
-
-{% block title %}ホーム{% endblock %}
-
-{% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/main.css' %}">
-{% endblock %}
-
 {% block content %}
-
-<!-- ====== 動くオーブ背景レイヤー（固定・ページ全体） ====== -->
-<div class="bg-layer" aria-hidden="true">
-  <span class="orb orb-1"></span>
-  <span class="orb orb-2"></span>
-  <span class="orb orb-3"></span>
-</div>
-
-<div class="wrap">
-
-  <!-- ====== HERO / 総資産（KPIと内訳をカード内に格納） ====== -->
-  <section class="hero">
-    <!-- 既存（カード内の控えめオーブ：必要ならCSSでopacityを調整） -->
-    <div class="bg-orb orb-a"></div>
-    <div class="bg-orb orb-b"></div>
-
-    <div class="hero-topline">
-      <span class="chip chip-live">
-        <span class="live-dot" aria-hidden="true"></span>
-        LIVE <span class="live-ts" id="liveTs">--:--:--</span>
-      </span>
-    </div>
-
-    <h1 class="headline">総資産</h1>
-
-    <div class="total glow" id="totalAssets" data-value="{{ total_assets|default_if_none:0 }}">
-      ¥{{ total_assets|default_if_none:0|floatformat:0|intcomma }}
-    </div>
-
-    <div class="total-sub">
-      含み損益合計：
-      <span class="pnl" data-sign="{{ unrealized_pl_total|default_if_none:0|floatformat:2 }}">
-        {% if unrealized_pl_total|default_if_none:0 >= 0 %}+{% endif %}
-        ¥{{ unrealized_pl_total|default_if_none:0|floatformat:0|intcomma }}
-      </span>
-    </div>
-
-    <!-- 総資産の表示ブロックの直下に追加 -->
-<div class="spark-wrap">
-  <div id="assetSpark"
-       class="spark spark--fancy"
-       data-points="{{ asset_history_csv|default_if_none:'' }}"
-       role="img"
-       aria-label="総資産の簡易推移（演出あり）">
-  </div>
-</div>
-
-    <!-- 内訳（カード内の折りたたみ） -->
-    <details class="breakdown" id="breakdown">
-      <summary class="summary-btn">内訳を表示</summary>
-      <div class="breakdown-grid">
-        <div class="line">
-          <span>現物（評価額）</span>
-          <strong>¥{{ spot_market_value|default_if_none:0|floatformat:0|intcomma }}</strong>
-        </div>
-        <div class="line">
-          <span>現物（含み損益）</span>
-          <strong class="{% if spot_unrealized_pl|default_if_none:0 >= 0 %}pos{% else %}neg{% endif %}">
-            {% if spot_unrealized_pl|default_if_none:0 >= 0 %}+{% endif %}
-            ¥{{ spot_unrealized_pl|default_if_none:0|floatformat:0|intcomma }}
-          </strong>
-        </div>
-        <div class="line">
-          <span>信用（評価額）</span>
-          <strong>¥{{ margin_market_value|default_if_none:0|floatformat:0|intcomma }}</strong>
-        </div>
-        <div class="line">
-          <span>信用（含み損益）</span>
-          <strong class="{% if margin_unrealized_pl|default_if_none:0 >= 0 %}pos{% else %}neg{% endif %}">
-            {% if margin_unrealized_pl|default_if_none:0 >= 0 %}+{% endif %}
-            ¥{{ margin_unrealized_pl|default_if_none:0|floatformat:0|intcomma }}
-          </strong>
-        </div>
-        <div class="line">
-          <span>キャッシュ残高</span>
-          <strong>¥{{ cash_balance|default_if_none:0|floatformat:0|intcomma }}</strong>
-        </div>
+<h2 style="margin:6px 4px">保有銘柄（AIサマリ・ダミー）</h2>
+<div class="grid">
+  {% for c in cards %}
+  <article class="card">
+    <div class="row">
+      <div class="name">{{ c.name }} <small>({{ c.ticker }})</small></div>
+      <div class="trend {% if c.trend == 'UP' %}up{% elif c.trend == 'DOWN' %}down{% endif %}">
+        {% if c.trend == "UP" %}📈 上昇{% elif c.trend == "DOWN" %}📉 下降{% else %}—{% endif %}
       </div>
-    </details>
-
-    <!-- ====== KPI（カード内・1列） ====== -->
-    <section class="kpi-grid kpi-in-hero">
-
-      <!-- 現物（利益率ゲージ付き） -->
-      <article class="kpi-card glass">
-        <div class="kpi-title">現物（現物+NISA）</div>
-        <div class="kpi-value" id="spotMV"
-             data-value="{{ spot_market_value|default_if_none:0 }}">
-          ¥{{ spot_market_value|default_if_none:0|floatformat:0|intcomma }}
-        </div>
-        <div class="kpi-sub">
-          含み損益：
-          <span class="pnl" data-sign="{{ spot_unrealized_pl|default_if_none:0|floatformat:2 }}">
-            {% if spot_unrealized_pl|default_if_none:0 >= 0 %}+{% endif %}
-            ¥{{ spot_unrealized_pl|default_if_none:0|floatformat:0|intcomma }}
-          </span>
-        </div>
-
-        <!-- 利益率ゲージ（ total_cost = mv - upl ）-->
-        <div class="meter"
-             id="spotRate"
-             data-mv="{{ spot_market_value|default_if_none:0 }}"
-             data-upl="{{ spot_unrealized_pl|default_if_none:0 }}">
-          <div class="meter-fill"></div>
-          <div class="meter-label">—%</div>
-        </div>
-      </article>
-
-      <!-- 信用（ミニ損益スパーク付き） -->
-      <article class="kpi-card glass">
-        <div class="kpi-title">信用</div>
-        <div class="kpi-value" id="marginMV"
-             data-value="{{ margin_market_value|default_if_none:0 }}">
-          ¥{{ margin_market_value|default_if_none:0|floatformat:0|intcomma }}
-        </div>
-        <div class="kpi-sub">
-          含み損益：
-          <span class="pnl" data-sign="{{ margin_unrealized_pl|default_if_none:0|floatformat:2 }}">
-            {% if margin_unrealized_pl|default_if_none:0 >= 0 %}+{% endif %}
-            ¥{{ margin_unrealized_pl|default_if_none:0|floatformat:0|intcomma }}
-          </span>
-        </div>
-
-        <!-- ミニ損益スパーク（履歴が無ければ 0, 現在損益 の2点で描画） -->
-        <div class="mini-spark"
-             id="marginSpark"
-             data-points="{{ margin_pl_history_csv|default_if_none:'' }}"
-             data-fallback="{{ margin_unrealized_pl|default_if_none:0 }}">
-        </div>
-      </article>
-
-      <!-- キャッシュ残高 -->
-      <article class="kpi-card glass">
-        <div class="kpi-title">キャッシュ残高</div>
-        <div class="kpi-value" id="cashBalance"
-             data-value="{{ cash_balance|default_if_none:0 }}">
-          ¥{{ cash_balance|default_if_none:0|floatformat:0|intcomma }}
-        </div>
-        <div class="kpi-sub">入出金 − 現物取得額 + 実現損益</div>
-      </article>
-
-      <!-- ポート比率 -->
-      <article class="kpi-card glass accent">
-        <div class="kpi-title">ポート比率</div>
-        <div class="stack-bars" id="stackBars"
-             data-spot="{{ spot_market_value|default_if_none:0 }}"
-             data-margin="{{ margin_market_value|default_if_none:0 }}"
-             data-cash="{{ cash_balance|default_if_none:0 }}">
-          <span aria-hidden="true"></span>
-        </div>
-        <ul class="legend">
-          <li><i class="dot dot-spot"></i>現物</li>
-          <li><i class="dot dot-margin"></i>信用</li>
-          <li><i class="dot dot-cash"></i>現金</li>
-        </ul>
-      </article>
-
-    </section>
-  </section>
-
-  <!-- ====== 最近のアクティビティ ====== -->
-  <section class="activity">
-    <h2>最近のアクティビティ</h2>
-    {% if recent_activities %}
-      <ul class="activity-list">
-        {% for a in recent_activities %}
-          <li class="act-item">
-            <div class="act-date">{{ a.date|date:"n/j" }}</div>
-            {% if a.kind == 'trade' %}
-              <div class="act-main">売買 {{ a.ticker }} {{ a.name }}</div>
-              <div class="act-val {% if a.pnl >= 0 %}pos{% else %}neg{% endif %}">
-                {% if a.pnl >= 0 %}+{% endif %}¥{{ a.pnl|floatformat:0|intcomma }}
-              </div>
-            {% elif a.kind == 'dividend' %}
-              <div class="act-main">配当 {{ a.ticker }} {{ a.name }}</div>
-              <div class="act-val pos">+¥{{ a.net|default_if_none:0|intcomma }}</div>
-            {% elif a.kind == 'cash' %}
-              <div class="act-main">現金 {{ a.broker_label }}</div>
-              <div class="act-val {% if a.flow == 'in' %}pos{% else %}neg{% endif %}">
-                {% if a.flow == 'in' %}+{% else %}-{% endif %}¥{{ a.amount|intcomma }}
-              </div>
-            {% else %}
-              <div class="act-main">その他</div>
-              <div class="act-val">—</div>
-            {% endif %}
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <div class="muted">まだデータがありません</div>
-    {% endif %}
-  </section>
-
+    </div>
+    <div class="muted">株数: 100（ダミー）</div>
+    <div class="ai">
+      AI予測:
+      {% if c.proba is not None %}上がる確率 <b>{{ c.proba }}%</b>{% else %}未学習{% endif %}
+    </div>
+  </article>
+  {% empty %}
+  <p>まずは <a href="/admin/">管理画面</a>から保有銘柄を1件登録してください。</p>
+  {% endfor %}
 </div>
-{% endblock %}
-
-{% block extra_js %}
-<script src="{% static 'js/main.js' %}" defer></script>
 {% endblock %}
