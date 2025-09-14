@@ -398,22 +398,34 @@ main{
   box-shadow:0 0 0 3px rgba(0,208,255,.45);
 }
 
-.stock-header{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  margin-bottom:6px;
-  font-size:13px;
-  font-weight:700;
-  letter-spacing:.2px;
+/* 銘柄＋コードを横並びで中央配置 */
+.stock-header {
+  display: flex;
+  justify-content: center;   /* 中央揃え */
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 800;
+  text-align: center;
+  gap: 6px;                  /* 銘柄とコードの間に余白 */
 }
-.stock-name{ color:#fff; }
-.stock-code{
-  color:var(--text-dim);
-  font-weight:700;
-  border:1px solid var(--border-dim);
-  border-radius:6px;
-  padding:2px 6px;
+
+/* 銘柄名 */
+.stock-name {
+  color: #fff;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+/* 証券コード */
+.stock-code {
+  color: #e1e6f0;
+  font-weight: 700;
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 6px;
+  padding: 2px 6px;
+  background: rgba(255,255,255,.08);
+  font-size: 13px;
 }
 
 .stock-row{
