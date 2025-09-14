@@ -442,31 +442,6 @@ main{
 .stock-row.gain.positive span:last-child{ color:#6aff6a; font-weight:700; }
 .stock-row.gain.negative span:last-child{ color:#ff6a6a; font-weight:700; }
 
-/* 株カード内の損益を合計サマリーと同じデザインに */
-.stock-row.gain span:last-child {
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-weight: 800;
-  font-size: 13px;
-  min-width: 80px;       /* 文字数が少なくても幅を確保 */
-  text-align: center;    /* 中央寄せ */
-}
-
-/* プラス損益（合計サマリーと同じ色） */
-.stock-row.gain.positive span:last-child {
-  color: #6aff6a;
-  background: rgba(106,255,106,.10);
-  border: 1px solid rgba(106,255,106,.45);
-}
-
-/* マイナス損益（合計サマリーと同じ色） */
-.stock-row.gain.negative span:last-child {
-  color: #ff6a6a;
-  background: rgba(255,106,106,.10);
-  border: 1px solid rgba(255,106,106,.45);
-}
-
 /* ==========================
    編集・売却ボタン（カード右スライド）
 ========================== */
@@ -603,4 +578,33 @@ main{
 @media (min-width: 1024px){
   .broker-section{ flex:0 0 33.333%; min-width:33.333%; }
   .stock-card{ padding:14px; font-size:14px; max-width:560px; width:90%; }
+}
+
+/* --- 株カード内の損益を「合計サマリー」と同じ見た目に揃える --- */
+/* 共通（ pill 形状 + 中央寄せ ） */
+.stock-card .stock-row.gain span:last-child{
+  display:inline-block !important;
+  padding:4px 12px !important;
+  border-radius:999px !important;
+  font-weight:800 !important;
+  font-size:13px !important;
+  min-width:120px !important;
+  text-align:center !important;
+  line-height:1.2 !important;
+  border:1px solid transparent !important;   /* 色は下で上書き */
+  background:transparent !important;
+}
+
+/* プラス損益（合計サマリーと同じ色） */
+.stock-card .stock-row.gain.positive span:last-child{
+  color:#6aff6a !important;
+  background:rgba(106,255,106,.10) !important;
+  border-color:rgba(106,255,106,.45) !important;
+}
+
+/* マイナス損益（合計サマリーと同じ色） */
+.stock-card .stock-row.gain.negative span:last-child{
+  color:#ff6a6a !important;
+  background:rgba(255,106,106,.10) !important;
+  border-color:rgba(255,106,106,.45) !important;
 }
