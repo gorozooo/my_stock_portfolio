@@ -270,6 +270,7 @@ main{
   background: var(--bg-panel);
   font-size: 12px;
   color: var(--text-dim);
+  background:rgba(255,255,255,.22);
 }
 
 /* 左上の見出し（例：合計 / Summaryなど好きに） */
