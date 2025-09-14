@@ -1,0 +1,45 @@
+:root{
+  --bg:#0b0f1a; --fg:#e6ebff; --muted:#97a0c1;
+  --glass:rgba(255,255,255,.06); --line:rgba(255,255,255,.14);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; color:var(--fg); background:#0b0f1a;
+  background-image:
+    radial-gradient(1200px 600px at 80% -10%, rgba(110,168,255,.20), transparent 60%),
+    radial-gradient(900px 500px at 0% 100%, rgba(0,255,209,.12), transparent 60%);
+  font-family: -apple-system, system-ui,
+    "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Meiryo", sans-serif;
+}
+.nav{position:sticky;top:0;z-index:50}
+.nav-glass{
+  display:flex;justify-content:space-between;align-items:center;gap:8px;
+  padding:10px 14px; backdrop-filter: blur(12px);
+  background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.02));
+  border-bottom:1px solid var(--line); box-shadow:0 10px 40px rgba(0,255,209,.15);
+}
+.page{padding:12px 12px 84px}
+.bottom{
+  position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-around;
+  padding:10px 8px; backdrop-filter:blur(16px);
+  background:rgba(255,255,255,.08); border-top:1px solid var(--line);
+  box-shadow:0 -10px 40px rgba(110,168,255,.18);
+}
+.bottom button{
+  appearance:none;border:none;background:transparent;color:var(--fg);
+  font-size:20px;padding:8px 10px;border-radius:12px;transition:transform .12s ease;
+}
+.bottom button.active,.bottom button:active{transform:translateY(-2px)}
+
+.grid{display:grid;gap:10px}
+.card{
+  background:var(--glass); border:1px solid var(--line);
+  border-radius:16px; padding:12px;
+  box-shadow:0 6px 24px rgba(0,0,0,.25), inset 0 0 48px rgba(110,168,255,.05);
+}
+.row{display:flex;justify-content:space-between;align-items:center}
+.name{font-weight:600}
+.muted{color:var(--muted);font-size:13px;margin-top:4px}
+.trend.up{color:#26d07c}.trend.down{color:#ff4d67}
+.ai{margin-top:6px}
