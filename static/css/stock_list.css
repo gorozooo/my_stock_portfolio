@@ -16,6 +16,10 @@
   --vh: 1vh;
   --navbar-h: 64px;        /* 固定ナビ高さ（必要に応じて調整） */
   --bottom-tab-h: 72px;    /* 下タブ高さ（必要に応じて調整） */
+
+  /* ★追加（任意）：カード背景の色だけ変数化 */
+  --card-bg: rgba(32, 36, 44, .60);        /* うっすらグレー */
+  --card-bg-hover: rgba(40, 44, 54, .68);  /* ホバー時に少しだけ濃く */
 }
 
 main{
@@ -366,7 +370,10 @@ main{
   padding:10px;
   border:1px solid #ffffff;
   border-radius:10px;
-  background:rgba(255,255,255,.02);
+
+  /* ★ここだけ変更：背景を“うっすらグレー”に */
+  background: var(--card-bg);
+
   color:var(--text);
   cursor:pointer;
   font-size:12px;
@@ -381,7 +388,10 @@ main{
 .stock-card:hover{
   transform:translateY(-1px);
   box-shadow:0 6px 18px rgba(0,123,255,.35);
-  background:rgba(255,255,255,.04);
+
+  /* ★ホバー時は少しだけ濃く */
+  background: var(--card-bg-hover);
+
   border-color:rgba(255,255,255,.85);
 }
 .stock-card:focus-visible{
