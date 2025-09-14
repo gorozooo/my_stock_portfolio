@@ -607,6 +607,3 @@ main{
   background:rgba(255,106,106,.10);
   border-color:rgba(255,106,106,.45);
 }
-
-/* 既存の色指定が強い場合に備えて最小限の !important で上書き */
-.stock-row.gain > span:last-child{ color:inherit !important; }
