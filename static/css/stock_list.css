@@ -1,6 +1,6 @@
 /* ==========================
-   スマホファースト / 最小修正版
-   （HTML/JSは変更なし）
+   スマホファースト / 最小修正版（表示復旧）
+   ※ HTML/JS は一切変更不要
    ========================== */
 
 :root{
@@ -18,18 +18,14 @@
   --accent-2: #7df9ff;
 }
 
-/* ==========================
-   main（最下部で切れないよう余白広め）
-   ========================== */
+/* 最下部まで確実にスクロールできるよう下パディングを大きめに */
 main{
-  padding: 88px 16px calc(var(--bottom-tab-h) + 120px); /* ← 下を広めに確保 */
+  padding: 88px 16px calc(var(--bottom-tab-h) + 120px);
   min-height: calc((var(--vh) * 100) - var(--navbar-h));
   overflow: visible;
 }
 
-/* ==========================
-   証券会社タブ（背景帯は消す）
-   ========================== */
+/* ===== 証券会社タブ（松井/楽天）— 背景帯は完全に消す ===== */
 .broker-tabs-wrapper{
   display:flex;
   justify-content:center;
@@ -39,8 +35,7 @@ main{
   top: var(--navbar-h);
   z-index:150;
 
-  /* 余計な帯を出さない */
-  background: transparent;
+  background: transparent;        /* ← 帯を出さない */
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   border-bottom: none;
@@ -68,18 +63,15 @@ main{
 }
 
 /* ==========================
-   ブローカーごとのセクション出し分け（HTMLはそのまま）
-   → active だけ表示、他は非表示
+   ★ 表示復旧ポイント
+   以前の修正で .broker-section を display:none にしてしまったのを撤回。
+   ここでは一切非表示にしません（JSが制御している想定）。
    ========================== */
-.broker-section{ display:none; }
-.broker-section.active{
-  display:flex;
-  flex-direction:column;
-}
+/* （非表示指定ナシ） */
+/* .broker-section { } */
+/* .broker-section.active { } */
 
-/* ==========================
-   見出し（読みやすいが控えめに）
-   ========================== */
+/* 見出し（読みやすく） */
 .account-heading{
   margin:16px 2px 10px;
   font-size:14px;
@@ -100,15 +92,13 @@ main{
   opacity:.9;
 }
 
-/* ==========================
-   合計カード（下余白を少し増やす）
-   ========================== */
+/* 合計カード（下余白を少し増やす） */
 .account-summary{
   display:grid;
   grid-template-columns:1fr;
   row-gap:8px;
   padding: 12px 14px;
-  margin: 0 2px 16px;   /* ← 14px→16px に拡大 */
+  margin: 0 2px 16px;
   border: 1px solid rgba(255,255,255,.24);
   border-radius: 14px;
   background: rgba(18,22,32,.6);
@@ -121,9 +111,7 @@ main{
   color: #ffffff;
 }
 
-/* ==========================
-   株カード（元のトーン・サイズを維持）
-   ========================== */
+/* 株カード：間隔を広げる（②） */
 .stock-card-wrapper{
   background:transparent;
   border-radius:12px;
@@ -131,9 +119,7 @@ main{
   display:flex;
   justify-content:center;
   align-items:center;
-
-  /* ② カード間の隙間を広げる */
-  margin-bottom: 20px;  /* ← ここで調整（18〜24推奨） */
+  margin-bottom: 22px;   /* ← カード間余白：お好みで 18〜26px */
 }
 
 .stock-card{
@@ -158,7 +144,6 @@ main{
   border-color:rgba(125,249,255,.35);
 }
 
-/* ヘッダーと行の見た目は控えめに維持 */
 .stock-header{
   display:flex;
   justify-content:space-between;
@@ -187,16 +172,12 @@ main{
 .stock-row.gain.positive span:last-child{ color:#6aff6a; font-weight:800; }
 .stock-row.gain.negative span:last-child{ color:#ff6a6a; font-weight:800; }
 
-/* ==========================
-   ① 左スワイプでだけ出る編集・売却（元の挙動に戻す）
-   - 初期状態は完全に見えない・触れない
-   - .stock-card に .swiped が付いたときだけ表示
-   ========================== */
+/* ① 左スワイプでだけ出る編集・売却（初期は完全非表示） */
 .stock-card .card-actions{
   position:absolute;
   top:8px;
 
-  /* 初期は完全に隠す（見えない＆触れない） */
+  /* 初期は見えない＆触れない */
   right: -9999px;
   opacity: 0;
   pointer-events: none;
@@ -208,19 +189,14 @@ main{
   backdrop-filter: blur(10px);
   border-radius:8px;
   box-shadow:0 4px 12px rgba(0,123,255,.35);
-
-  /* スワイプ時にスッと出る */
   transition: right .25s ease, opacity .2s ease;
   z-index:10;
 }
-
-/* スワイプ状態だけ見せる */
 .stock-card.swiped .card-actions{
   right:8px;
   opacity:1;
   pointer-events:auto;
 }
-
 .card-actions button{
   padding:6px 12px;
   border-radius:6px;
