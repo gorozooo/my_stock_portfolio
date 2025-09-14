@@ -9,11 +9,15 @@
         </div>
         <div class="sub" style="font-size:12px;color:#777;">{{ res.ticker }}</div>
       </div>
+
+      {# 判定は大文字基準（サービスは "UP"/"DOWN"/"FLAT" を返す） #}
       <span class="tag {{ res.signal|lower }}">
-        {% if res.signal == "up" %}上昇トレンド
-        {% elif res.signal == "down" %}下降トレンド
-        {% else %}横ばい
-        {% endif %}
+        {% with sig=res.signal|upper %}
+          {% if sig == "UP" %}上昇トレンド
+          {% elif sig == "DOWN" %}下降トレンド
+          {% else %}横ばい
+          {% endif %}
+        {% endwith %}
       </span>
     </div>
 
