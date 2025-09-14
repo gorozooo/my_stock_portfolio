@@ -1,0 +1,24 @@
+{% if error %}
+  <div class="sub">{{ error }}</div>
+{% elif res %}
+  <div>
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-weight:600;font-size:18px;">{{ res.ticker }}</div>
+      <span class="tag {{ res.signal }}">
+        {% if res.signal == "up" %}上昇トレンド
+        {% elif res.signal == "down" %}下降トレンド
+        {% else %}横ばい
+        {% endif %}
+      </span>
+    </div>
+    <div class="sub" style="margin-top:4px;">As of {{ res.asof }} / {{ res.days }}日</div>
+    <ul style="margin:10px 0 0 16px;">
+      <li>短期MA(10): {{ res.ma_short }}</li>
+      <li>長期MA(30): {{ res.ma_long }}</li>
+      <li>回帰傾き(年率%): {{ res.slope_annualized_pct }}</li>
+      <li>根拠: {{ res.reason }}</li>
+    </ul>
+  </div>
+{% else %}
+  <div class="sub">結果がありません</div>
+{% endif %}

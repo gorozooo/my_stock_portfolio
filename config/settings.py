@@ -93,6 +93,10 @@ USE_TZ = True  # DBはUTCで保存、表示はAsia/Tokyo
 
 # === Static（CSS/JS/画像）===
 STATIC_URL = 'static/'
+
+# （集約先フォルダ）
+STATIC_ROOT = BASE_DIR / 'staticfiles' 
+
 # ← ここがポイント：プロジェクト直下の static/ を読む
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
