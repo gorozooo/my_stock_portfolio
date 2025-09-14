@@ -1,139 +1,144 @@
-# portfolio/services/trend.py
 from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
+import datetime as dt
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
 
+# =========================
+# ヘルパ
+# =========================
+def _normalize_ticker(raw: str) -> str:
+    """
+    入力を正規化。
+    - 4桁数字だけなら日本株とみなし「.T」を付与（例: '7203' -> '7203.T'）
+    - すでにサフィックスがある場合や英米株などはそのまま大文字化のみ
+    """
+    t = (raw or "").strip().upper()
+    if not t:
+        return t
+    if "." in t:
+        return t
+    if t.isdigit() and len(t) in (4, 5):  # 東証は主に4桁
+        return f"{t}.T"
+    return t
+
+
+def _fetch_name_jp(ticker: str) -> str:
+    """
+    yfinance から銘柄名（日本語優先）を取得。
+    - 日本株は info['shortName'] が日本語のことが多い
+    - それが無ければ longName、さらに fallback はティッカー
+    """
+    try:
+        info = getattr(yf.Ticker(ticker), "info", {}) or {}
+        name = info.get("shortName") or info.get("longName") or info.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    except Exception:
+        pass
+    return ticker
+
+
+# =========================
+# 結果スキーマ
+# =========================
 @dataclass
 class TrendResult:
     ticker: str
-    asof: str                 # ISO 文字列（最新営業日）
-    days: int                 # 解析対象日数（実際に残った営業日数）
-    signal: str               # "UP" | "DOWN" | "FLAT"
-    reason: str               # 人間向け説明
-    slope: float              # 1日あたりの価格傾き（通貨単位）
-    slope_annualized_pct: float  # 年換算(252営業日)の平均比[%]
-    ma_short: Optional[float] # 短期移動平均の最新値
-    ma_long: Optional[float]  # 長期移動平均の最新値
+    name: str                   # ★ 日本語名を想定（無ければ英語 or ティッカー）
+    asof: str                   # 例: '2025-09-15'
+    days: int                   # 直近使用日数
+    signal: str                 # 'UP' | 'DOWN' | 'FLAT'
+    reason: str
+    slope: float                # 1日あたりの回帰傾き（終値）
+    slope_annualized_pct: float # 年率換算(%)
+    ma_short: Optional[float]   # 短期MAの最新値
+    ma_long: Optional[float]    # 長期MAの最新値
 
 
-def _load_ohlc(ticker: str, need_days: int) -> pd.DataFrame:
-    """
-    yfinanceから日足を取得。
-    将来の欠損を考慮し、必要日数の3倍（最低120日）を取得してから日付で絞り込む。
-    """
-    lookback_days = max(need_days * 3, 120)
-    df = yf.download(
-        ticker,
-        period=f"{lookback_days}d",
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-        threads=False,
-    )
-
-    if df is None or df.empty:
-        raise ValueError(f"no data for {ticker}")
-
-    # index をタイムゾーンなしの DatetimeIndex に揃える
-    df.index = pd.to_datetime(df.index).tz_localize(None)
-
-    # “終値”がない銘柄はあり得ないが、念のためガード
-    if "Close" not in df.columns:
-        raise ValueError("unexpected data shape: column 'Close' not found")
-
-    # 祝日等で穴が空くことがあるため、営業日Bでリサンプル（前日埋め）
-    # これにより rolling の窓が安定する
-    df = (
-        df[["Close"]]
-        .resample("B")
-        .last()
-        .ffill()
-    )
-    return df
-
-
-def _slice_by_days(df: pd.DataFrame, days: int) -> pd.DataFrame:
-    """今日からdays日前以降に日付フィルタ。"""
-    cutoff = pd.Timestamp.today().normalize() - pd.Timedelta(days=days)
-    df2 = df[df.index >= cutoff]
-    return df2
-
-
-def _slope_and_ma(close: pd.Series, ma_short: int, ma_long: int):
-    """
-    価格系列に対して線形回帰で日次傾きを算出。
-    さらに短期/長期の単純移動平均（SMA）を計算。
-    """
-    n = len(close)
-    x = np.arange(n, dtype=float)
-    y = close.astype(float).to_numpy()
-
-    # polyfit(1次)で傾き（日次）と切片
-    k, b = np.polyfit(x, y, 1)
-
-    mean_price = float(np.mean(y))
-    # 平均価格に対する日次傾き → 年換算(252営業日)で%表示
-    slope_annualized_pct = float((k / mean_price) * 252 * 100) if mean_price else 0.0
-
-    s_ma = close.rolling(window=ma_short, min_periods=max(1, ma_short // 2)).mean()
-    l_ma = close.rolling(window=ma_long,  min_periods=max(1, ma_long  // 2)).mean()
-
-    return float(k), float(slope_annualized_pct), float(s_ma.iloc[-1]), float(l_ma.iloc[-1])
-
-
+# =========================
+# メイン判定
+# =========================
 def detect_trend(
     ticker: str,
-    days: int = 60,          # 直近60日で判定（約3か月弱）
-    ma_short: int = 10,      # 10日移動平均
-    ma_long: int = 25,       # 25日移動平均
+    days: int = 60,
+    ma_short_win: int = 10,
+    ma_long_win: int = 25,
 ) -> TrendResult:
     """
-    直近days“日”の終値でトレンドを判定。
-    - 日付でフィルタ（tail(n)は使わない）
-    - 線形回帰の傾き + 短期/長期MAの位置関係で UP/DOWN/FLAT
+    直近 N 日の終値で線形回帰の傾きと移動平均を見て
+    シンプルに UP/DOWN/FLAT を返す。
     """
-    if days < 15:
-        # あまり短いとノイズが強いので下限ガード
-        days = 15
+    ticker = _normalize_ticker(ticker)
+    if not ticker:
+        raise ValueError("ticker is required")
 
-    df = _load_ohlc(ticker, need_days=days)
-    df = _slice_by_days(df, days=days)
+    # データ取得（市場休日も考慮して余裕を持って period を長めに）
+    period_days = max(days + 30, 120)
+    df = yf.download(ticker, period=f"{period_days}d", interval="1d", progress=False)
+    if df is None or df.empty:
+        raise ValueError("価格データを取得できませんでした")
 
-    # 安全装置：行数が少なすぎる場合はエラー
-    if len(df) < max(ma_long + 3, 15):
-        raise ValueError(
-            f"too few rows ({len(df)}) in last {days} days for {ticker}"
-        )
+    # 終値のみ
+    s = df["Close"].dropna()
+    if s.empty:
+        raise ValueError("終値データが空でした")
 
-    close = df["Close"]
-    k, slope_ann_pct, ma_s, ma_l = _slope_and_ma(close, ma_short, ma_long)
+    # 直近 'days' 営業日のみ（tail にキーワード引数は不可！）
+    s = s.tail(days)
 
-    # ルール：MAの位置関係と傾きの符号で最終判定
-    if ma_s > ma_l and k > 0:
+    if len(s) < max(15, ma_long_win):
+        raise ValueError(f"データ日数が不足しています（取得: {len(s)}日）")
+
+    # 移動平均
+    ma_short = s.rolling(ma_short_win).mean()
+    ma_long = s.rolling(ma_long_win).mean()
+    ma_s = float(ma_short.iloc[-1]) if not np.isnan(ma_short.iloc[-1]) else None
+    ma_l = float(ma_long.iloc[-1]) if not np.isnan(ma_long.iloc[-1]) else None
+
+    # 線形回帰（x は 0..n-1）
+    y = s.values.astype(float)
+    x = np.arange(len(y), dtype=float)
+    k, b = np.polyfit(x, y, 1)  # 傾き k
+
+    # 年率換算の概算（営業日 ~ 252日）
+    last_price = y[-1]
+    slope_daily_pct = (k / last_price) * 100.0 if last_price else 0.0
+    slope_ann_pct = slope_daily_pct * 252.0
+
+    # シグナル判定（シンプル基準）
+    signal = "FLAT"
+    reason = "傾きが小さいため様子見"
+    if slope_ann_pct >= 5.0:
         signal = "UP"
-        reason = f"短期MA({ma_short})が長期MA({ma_long})より上、かつ回帰傾きが正"
-    elif ma_s < ma_l and k < 0:
+        reason = "回帰傾き(年率換算)が正で大きめ"
+    elif slope_ann_pct <= -5.0:
         signal = "DOWN"
-        reason = f"短期MA({ma_short})が長期MA({ma_long})より下、かつ回帰傾きが負"
-    else:
-        signal = "FLAT"
-        reason = "MA位置と回帰傾きが一致せず、明確な方向性なし"
+        reason = "回帰傾き(年率換算)が負で大きめ"
 
-    asof = df.index.max().strftime("%Y-%m-%d")
+    # MA クロスで補強
+    if ma_s is not None and ma_l is not None:
+        if ma_s > ma_l and signal == "FLAT":
+            signal, reason = "UP", "短期線が長期線を上回る(ゴールデンクロス気味)"
+        elif ma_s < ma_l and signal == "FLAT":
+            signal, reason = "DOWN", "短期線が長期線を下回る(デッドクロス気味)"
+
+    asof = s.index[-1].date().isoformat()
+    name = _fetch_name_jp(ticker)
+
     return TrendResult(
         ticker=ticker,
+        name=name,
         asof=asof,
-        days=len(df),
+        days=int(len(s)),
         signal=signal,
         reason=reason,
         slope=float(k),
         slope_annualized_pct=float(slope_ann_pct),
-        ma_short=float(ma_s),
-        ma_long=float(ma_l),
+        ma_short=ma_s,
+        ma_long=ma_l,
     )
