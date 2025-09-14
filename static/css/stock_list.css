@@ -419,10 +419,10 @@ main{
 
 /* 証券コードを ( ) 付きにする */
 .stock-code::before {
-  content: "（";
+  content: "(";
 }
 .stock-code::after {
-  content: "）";
+  content: ")";
 }
 .stock-code {
   color: #e1e6f0;
