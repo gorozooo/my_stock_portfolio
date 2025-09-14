@@ -267,10 +267,9 @@ main{
   margin: 0 2px 8px;
   border: 1px dashed var(--border-dim);
   border-radius: 10px;
-  background: var(--bg-panel);
+  background:rgba(255,255,255,.22);
   font-size: 12px;
   color: var(--text-dim);
-  background:rgba(255,255,255,.22);
 }
 
 /* 左上の見出し（例：合計 / Summaryなど好きに） */
