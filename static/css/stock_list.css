@@ -5,7 +5,6 @@
 :root{
   --vh: 1vh;
   --navbar-h: 64px;
-  --broker-tabs-h: 44px;
   --bottom-tab-h: 72px;
   --page-pad: 16px;
 
@@ -20,34 +19,97 @@
 
 /* ==========================
    main スクロールエリア
-   （最下部まで届くように余白追加）
 ========================== */
 main{
-  padding: 88px 16px calc(var(--bottom-tab-h) + 60px); /* ← 下に+60px余白 */
+  padding: 88px 16px calc(var(--bottom-tab-h) + 60px);
   overflow: visible;
   min-height: calc((var(--vh) * 100) - var(--navbar-h));
 }
 
 /* ==========================
-   口座見出し（現物 / NISA / 信用）
+   証券会社タブ（松井 / 楽天）
+========================== */
+.broker-tabs-wrapper{
+  display:flex;
+  justify-content:center;
+  gap:8px;
+  padding:6px 10px;
+  position:sticky;
+  top: var(--navbar-h);
+  z-index:150;
+  background:rgba(18,18,24,.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom:1px solid rgba(255,255,255,.15);
+}
+.broker-tabs-wrapper::-webkit-scrollbar{ display:none; }
+
+.broker-tab{
+  padding:8px 14px;
+  border:1px solid var(--border);
+  background:rgba(255,255,255,.05);
+  border-radius:14px;
+  cursor:pointer;
+  flex-shrink:0;
+  white-space:nowrap;
+  font-size:13px;
+  font-weight:700;
+  color:var(--text);
+  transition:all .2s ease;
+}
+.broker-tab.active{
+  background:linear-gradient(135deg, rgba(0,123,255,.8), rgba(0,255,255,.6));
+  border-color: rgba(0,123,255,.8);
+  color:#fff;
+  box-shadow:0 0 12px rgba(0,200,255,.5);
+}
+
+/* ==========================
+   口座タブ（現物 / 信用 / NISA）
+========================== */
+.account-chips{
+  display:flex;
+  justify-content:center;
+  gap:8px;
+  margin:10px 0;
+}
+.account-chip{
+  padding:6px 12px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  font-size:12px;
+  color:var(--text);
+  background:rgba(255,255,255,.08);
+  cursor:pointer;
+  transition:all .2s ease;
+}
+.account-chip.is-active{
+  background:linear-gradient(135deg, rgba(0,123,255,.8), rgba(0,255,255,.6));
+  color:#fff;
+  border-color:rgba(0,123,255,.8);
+  box-shadow:0 0 8px rgba(0,200,255,.5);
+}
+
+/* ==========================
+   口座見出し
 ========================== */
 .account-heading{
   margin:12px 2px 8px;
-  font-size:14px;           /* 少し大きく */
+  font-size:14px;
   font-weight:900;
-  color:#fff;               /* はっきり白文字 */
+  color:#fff;
   letter-spacing:.5px;
-  padding:6px 12px;
-  border-radius:8px;
-
-  /* 背景を付けて浮かせる */
-  background:linear-gradient(135deg, rgba(0,123,255,.65), rgba(0,255,255,.35));
-  box-shadow:0 4px 12px rgba(0,0,0,.25);
+  padding-left:10px;
   position:relative;
 }
-
 .account-heading::before{
-  display:none; /* 左の細い棒は非表示に */
+  content:'';
+  position:absolute;
+  left:0; top:4px; bottom:4px;
+  width:3px;
+  border-radius:3px;
+  background:linear-gradient(180deg, var(--accent), var(--accent-2));
+  opacity:.7;
 }
 
 /* ==========================
@@ -61,9 +123,8 @@ main{
   margin: 0 2px 10px;
   border: 1px solid rgba(255,255,255,.24);
   border-radius: 14px;
-  background: rgba(18,22,32,.58);
-  box-shadow: 0 14px 28px rgba(0,0,0,.22);
-
+  background: rgba(18,22,32,.6);
+  box-shadow: 0 12px 24px rgba(0,0,0,.25);
   font-size: 13px;
   color: #eef2f8;
 }
@@ -75,6 +136,14 @@ main{
 /* ==========================
    株カード
 ========================== */
+.stock-card-wrapper{
+  background:transparent;
+  border-radius:12px;
+  width:100%;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+}
 .stock-card{
   position:relative;
   padding:12px;
@@ -89,18 +158,15 @@ main{
   box-sizing:border-box;
   overflow:hidden;
   transition:transform .18s ease, box-shadow .18s ease, background .18s ease, border-color .18s ease;
-  touch-action:pan-y;
-  outline:none;
-  box-shadow: 0 10px 24px rgba(0,0,0,.25);
 }
 .stock-card:hover{
   transform:translateY(-2px);
-  box-shadow:0 14px 28px rgba(0,123,255,.25);
+  box-shadow:0 12px 24px rgba(0,123,255,.25);
   background:rgba(26,32,48,.6);
   border-color:rgba(125,249,255,.35);
 }
-.stock-card:focus-visible{ box-shadow:0 0 0 3px rgba(0,208,255,.45); }
 
+/* 株カード内の行 */
 .stock-header{
   display:flex;
   justify-content:space-between;
@@ -108,7 +174,6 @@ main{
   margin-bottom:6px;
   font-size:13px;
   font-weight:800;
-  letter-spacing:.2px;
 }
 .stock-name{ color:#fff; }
 .stock-code{
@@ -119,7 +184,6 @@ main{
   padding:2px 6px;
   background: rgba(255,255,255,.08);
 }
-
 .stock-row{
   display:flex;
   justify-content:space-between;
@@ -130,3 +194,36 @@ main{
 .stock-row span:last-child{ color:#fff; font-weight:700; }
 .stock-row.gain.positive span:last-child{ color:#6aff6a; font-weight:800; }
 .stock-row.gain.negative span:last-child{ color:#ff6a6a; font-weight:800; }
+
+/* ==========================
+   編集・売却ボタン（スワイプ表示）
+========================== */
+.stock-card .card-actions{
+  position:absolute;
+  top:8px;
+  right:-148px; /* 初期は隠す */
+  display:flex;
+  gap:6px;
+  padding:6px;
+  background:rgba(0,0,0,.35);
+  backdrop-filter: blur(10px);
+  border-radius:8px;
+  box-shadow:0 4px 12px rgba(0,123,255,.35);
+  transition:right .25s ease;
+  z-index:10;
+}
+.stock-card.swiped .card-actions{ right:8px; }
+
+.card-actions button{
+  padding:6px 12px;
+  border-radius:6px;
+  font-weight:700;
+  font-size:.9rem;
+  cursor:pointer;
+  border:1px solid rgba(255,255,255,.3);
+  color:#fff;
+  background:linear-gradient(180deg, rgba(0,123,255,.85), rgba(0,123,255,.6));
+}
+.card-actions .sell-btn{
+  background:linear-gradient(180deg, rgba(220,53,69,.9), rgba(220,53,69,.65));
+}
