@@ -130,8 +130,8 @@ def get_metrics(ticker: str, bench: str = "^TOPX", days: int = 420) -> dict:
         b = None
         bret = None
 
-    # トレンド：回帰傾き（60日・年率）
-    y = s.tail(60).values.astype(float)
+        # トレンド：回帰傾き（60日・年率）
+    y = s.tail(60).values.astype(float).ravel()
     x = np.arange(len(y), dtype=float)
     k, _ = np.polyfit(x, y, 1)
     slope_ann_pct = float((k / y[-1]) * 100.0 * TRADING_DAYS)
