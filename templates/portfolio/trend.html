@@ -74,16 +74,27 @@
   </div>
 
   <script>
-    // --- financial プラグインのコントローラ/エレメントを明示登録 ---
-    (function registerFinancial(){
-      const fin = window['chartjs-chart-financial'];
-      if (fin && fin.CandlestickController) {
-        Chart.register(
-          fin.CandlestickController,
-          fin.OhlcController,
-          fin.FinancialElement
-        );
-      }
+    // --- financial プラグインを“どこにぶら下がっていても”登録 ---
+    (function robustRegisterFinancial(){
+      try {
+        const finNS = window['chartjs-chart-financial'];
+        // パッケージが Chart に埋め込まれているケース
+        const candlestick1 = Chart.CandlestickController;
+        const ohlc1        = Chart.OhlcController;
+        const elem1        = Chart.FinancialElement;
+        // UMD が独立名前空間で出てくるケース
+        const candlestick2 = finNS && finNS.CandlestickController;
+        const ohlc2        = finNS && finNS.OhlcController;
+        const elem2        = finNS && finNS.FinancialElement;
+        const reg = [];
+        if (candlestick1) reg.push(candlestick1);
+        if (ohlc1)        reg.push(ohlc1);
+        if (elem1)        reg.push(elem1);
+        if (candlestick2) reg.push(candlestick2);
+        if (ohlc2)        reg.push(ohlc2);
+        if (elem2)        reg.push(elem2);
+        if (reg.length) Chart.register(...reg);
+      } catch (_) {/* no-op */}
     })();
 
     const tickerEl = document.getElementById('ticker');
@@ -99,8 +110,31 @@
 
     tickerEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') btn.click(); });
 
-    // ===== Chart.js（candlestick優先 / 線グラフに自動フォールバック） =====
     let chart;
+
+    function renderLineFromOHLC(ctx, j){
+      // ohlc→折れ線に落とす（Close + MA）
+      const labels = j.ohlc.map(r => r.x);
+      const close  = j.ohlc.map(r => r.c);
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Close', data: close, borderWidth: 2, pointRadius: 0 },
+            { label: 'MA(10)', data: j.ma10, borderWidth: 1, pointRadius: 0, spanGaps: true },
+            { label: 'MA(30)', data: j.ma30, borderWidth: 1, pointRadius: 0, spanGaps: true }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          scales: { x: { display: false }, y: { beginAtZero: false, ticks: { callback: v => (typeof v === 'number' ? v.toLocaleString() : v) } } },
+          plugins: { legend: { display: true } }
+        }
+      });
+    }
+
     async function drawChart(input, days = 180) {
       const ticker = normalizeTicker(input);
       if (!ticker) return;
@@ -110,45 +144,41 @@
         const ctx = document.getElementById('priceChart').getContext('2d');
         if (chart) chart.destroy();
 
-        // candlestick データがあればローソク足で描画
+        // 1) candlestick を最優先
         if (j.ok && Array.isArray(j.ohlc) && j.ohlc.length) {
-          const ma10 = j.ohlc.map((row, i) => (j.ma10?.[i] != null ? { x: row.x, y: j.ma10[i] } : null)).filter(Boolean);
-          const ma30 = j.ohlc.map((row, i) => (j.ma30?.[i] != null ? { x: row.x, y: j.ma30[i] } : null)).filter(Boolean);
+          try {
+            const ma10 = j.ohlc.map((row, i) => (j.ma10?.[i] != null ? { x: row.x, y: j.ma10[i] } : null)).filter(Boolean);
+            const ma30 = j.ohlc.map((row, i) => (j.ma30?.[i] != null ? { x: row.x, y: j.ma30[i] } : null)).filter(Boolean);
 
-          chart = new Chart(ctx, {
-            data: {
-              datasets: [
-                {
-                  type: 'candlestick',
-                  label: 'OHLC',
-                  data: j.ohlc   // [{x:'YYYY-MM-DD', o,h,l,c},...]
+            chart = new Chart(ctx, {
+              data: {
+                datasets: [
+                  { type: 'candlestick', label: 'OHLC', data: j.ohlc },
+                  { type: 'line', label: 'MA(10)', data: ma10, borderWidth: 1.5, pointRadius: 0, spanGaps: true },
+                  { type: 'line', label: 'MA(30)', data: ma30, borderWidth: 1.5, pointRadius: 0, spanGaps: true }
+                ]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                parsing: { xAxisKey: 'x', openKey: 'o', highKey: 'h', lowKey: 'l', closeKey: 'c' },
+                interaction: { mode: 'index', intersect: false },
+                scales: {
+                  x: { type: 'time', time: { parser: 'yyyy-MM-dd', tooltipFormat: 'yyyy-MM-dd' }, ticks: { maxTicksLimit: 6 } },
+                  y: { beginAtZero: false, ticks: { callback: v => (typeof v === 'number' ? v.toLocaleString() : v) } }
                 },
-                { type: 'line', label: 'MA(10)', data: ma10, borderWidth: 1.5, pointRadius: 0, spanGaps: true },
-                { type: 'line', label: 'MA(30)', data: ma30, borderWidth: 1.5, pointRadius: 0, spanGaps: true }
-              ]
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              parsing: {
-                xAxisKey: 'x',
-                openKey:  'o',
-                highKey:  'h',
-                lowKey:   'l',
-                closeKey: 'c'
-              },
-              interaction: { mode: 'index', intersect: false },
-              scales: {
-                x: { type: 'time', time: { parser: 'yyyy-MM-dd', tooltipFormat: 'yyyy-MM-dd' }, ticks: { maxTicksLimit: 6 } },
-                y: { beginAtZero: false, ticks: { callback: v => (typeof v === 'number' ? v.toLocaleString() : v) } }
-              },
-              plugins: { legend: { display: true } }
-            }
-          });
+                plugins: { legend: { display: true } }
+              }
+            });
+          } catch (e) {
+            // プラグイン未登録などで失敗したら折れ線へ
+            console.warn('candlestick fallback to line:', e);
+            renderLineFromOHLC(ctx, j);
+          }
           return;
         }
 
-        // それ以外（従来の labels/close 形式）は折れ線でフォールバック
+        // 2) labels/close が来たときはそのまま折れ線
         if (j.ok && Array.isArray(j.labels) && j.labels.length) {
           chart = new Chart(ctx, {
             type: 'line',
@@ -156,8 +186,8 @@
               labels: j.labels,
               datasets: [
                 { label: 'Close', data: j.close, borderWidth: 2, pointRadius: 0 },
-                { label: 'MA(10)', data: j.ma10, borderWidth: 1, pointRadius: 0 },
-                { label: 'MA(30)', data: j.ma30, borderWidth: 1, pointRadius: 0 }
+                { label: 'MA(10)', data: j.ma10, borderWidth: 1, pointRadius: 0, spanGaps: true },
+                { label: 'MA(30)', data: j.ma30, borderWidth: 1, pointRadius: 0, spanGaps: true }
               ]
             },
             options: {
