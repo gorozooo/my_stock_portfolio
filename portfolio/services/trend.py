@@ -139,16 +139,20 @@ def _lookup_name_jp_from_csv(ticker: str) -> Optional[str]:
 def _normalize_ticker(raw: str) -> str:
     """
     入力を正規化。
-    - 4〜5桁の数字だけなら日本株とみなし「.T」を付与（例: '7203' -> '7203.T'）
-    - すでにサフィックスがある場合や英米株などはそのまま（大文字化のみ）
+    - 4〜5桁の数字だけなら日本株とみなし「.T」を付与
+    - すでにサフィックスがある場合や英米株などはそのまま
     """
     t = (raw or "").strip().upper()
     if not t:
         return t
     if "." in t:
         return t
-    if re.fullmatch(r"\d{4,5}", re.sub(r"\D", "", t)):
-        return f"{re.sub(r'\\D', '', t)}.T"
+
+    # 数字だけ抽出
+    digits = re.sub(r"\D", "", t)
+    if re.fullmatch(r"\d{4,5}", digits):
+        return digits + ".T"
+
     return t
 
 
