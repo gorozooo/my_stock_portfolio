@@ -35,17 +35,22 @@
     .b-red{ background:#ffecec; color:#b00020; }
     .b-gray{ background:#f5f5f5; color:#555; }
     .err { color:#b00020; margin-top:8px; }
+
+    /* 意思決定バッジ（色＋絵文字） */
     .badge-decision {
-      display:inline-block;
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
       padding:6px 12px;
       border-radius:999px;
       font-size:14px;
-      font-weight:600;
+      font-weight:700;
       color:#fff;
+      letter-spacing:.2px;
     }
-    .badge-buy { background:#26d07c; }   /* 緑 */
-    .badge-watch { background:#f4c542; } /* 黄色 */
-    .badge-skip { background:#ff4d4f; }  /* 赤 */
+    .badge-buy { background:#26d07c; }   /* 緑: 買い候補 */
+    .badge-watch { background:#f4c542; color:#222; } /* 黄: 観察（読みやすさのため濃い文字色） */
+    .badge-skip { background:#ff4d4f; }  /* 赤: 見送り */
   </style>
 </head>
 <body>
@@ -96,7 +101,7 @@
     }
     tickerEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') btn.click(); });
 
-    // ===== 折れ線チャート（既存APIの /api/ohlc: labels/close 形式にも対応） =====
+    // ===== 折れ線チャート（/api/ohlc: labels/close 形式） =====
     let chart;
     async function drawChart(input, days = 180) {
       const ticker = normalizeTicker(input);
@@ -141,6 +146,13 @@
       const cls = kind === 'green' ? 'b-green' : kind === 'red' ? 'b-red' : 'b-gray';
       return `<span class="badge ${cls}">${txt}</span>`;
     }
+    function decisionBadge(label){
+      // BUY / WATCH / AVOID を想定。足りなければ WATCH 扱い。
+      const L = (label || 'WATCH').toUpperCase();
+      if (L === 'BUY')   return `<span class="badge-decision badge-buy">✅ 買い候補</span>`;
+      if (L === 'AVOID') return `<span class="badge-decision badge-skip">🚫 見送り</span>`;
+      return `<span class="badge-decision badge-watch">👀 観察</span>`;
+    }
     function fmt(x, d=2){ return (x===null || x===undefined) ? '-' : Number(x).toFixed(d); }
 
     async function loadEvidence(input){
@@ -164,15 +176,10 @@
         asof.textContent = `根拠（${j.asof} 時点）`;
         grid.innerHTML = '';
 
-        // ① 意思決定バッジ
-        const d = j.decision || {};
-        const label = d.label || 'WATCH';
-        const reasons = (d.reasons || []).join(' / ');
-        const kind = label === 'BUY' ? 'green' : label === 'AVOID' ? 'red' : 'gray';
-        dec.innerHTML = badge(label === 'BUY' ? '買い候補'
-                             : label === 'AVOID' ? '見送り'
-                             : '観察', kind)
-                        + (reasons ? `<span class="sub" style="margin-left:8px;">${reasons}</span>` : '');
+        // ① 意思決定バッジ（色＋絵文字）
+        const label   = (j.decision && j.decision.label) || 'WATCH';
+        const reasons = Array.isArray(j.decision?.reasons) ? j.decision.reasons.join(' / ') : '';
+        dec.innerHTML = decisionBadge(label) + (reasons ? `<span class="sub" style="margin-left:8px;">${reasons}</span>` : '');
 
         // トレンド
         const slope = j.trend?.slope_ann_pct_60;
