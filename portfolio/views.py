@@ -6,10 +6,9 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_GET
 
 from .services.trend import detect_trend
+from .services.metrics import get_metrics
 
-import re
-import pandas as pd
-import yfinance as yf
+import re, pandas as pd, yfinance as yf
 
 # ========= 共通: ティッカー正規化（日本株 4〜5桁は .T を付与） =========
 _JP_ALNUM = re.compile(r"^[0-9A-Z]{4,5}$")
@@ -144,3 +143,20 @@ def ohlc_api(request):
 
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)})
+        
+@require_GET
+def metrics_api(request):
+    """プロ向け軽量根拠セット"""
+    ticker_raw = (request.GET.get("ticker") or "").strip()
+    bench = (request.GET.get("bench") or "^TOPX").strip()
+    if not ticker_raw:
+        return HttpResponseBadRequest("ticker is required")
+    ticker = _normalize_ticker(ticker_raw)
+    try:
+        metrics = get_metrics(ticker, bench=bench)
+        metrics["ticker"] = ticker
+        metrics["bench"] = bench
+        return JsonResponse(metrics)
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        
