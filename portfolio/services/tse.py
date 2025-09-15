@@ -114,11 +114,13 @@ def search(q: str, limit: int = 8) -> List[Tuple[str, str]]:
         return []
 
     q_upper = q.upper()
-    # DataFrame 作って簡単にフィルタ
+
+    # ✅ ここがポイント: list of tuple から DataFrame を作る
     df = pd.DataFrame(
         [(c, n) for c, n in _TSE_MAP.items()],
         columns=["code", "name"]
     )
+
     hits = df[
         df["code"].str.startswith(q_upper) |
         df["name"].str.contains(re.escape(q), case=False, na=False)
