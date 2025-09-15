@@ -2,9 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta
-    name="viewport"
-    content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <title>銘柄トレンド判定</title>
 
   <!-- htmx -->
@@ -29,6 +27,7 @@
     .flat{ background:#f5f5f5; color:#555; }
     .sub{ color:#666; font-size:12px; }
     .chart-wrap { margin-top:12px; border:1px solid #eee; border-radius:16px; padding:12px; height:360px; position:relative; }
+    .chart-msg { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#b00020; font-weight:600; }
     .htmx-indicator { display:none; }
     .htmx-request .htmx-indicator { display:block; }
     .grid { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
@@ -40,7 +39,6 @@
     .b-gray{ background:#f5f5f5; color:#555; }
     .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }
     .err { color:#b00020; margin-top:8px; }
-    .chart-msg{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#b00020; }
   </style>
 </head>
 <body>
@@ -66,8 +64,8 @@
 
   <!-- チャート（ローソク足 or フォールバック線） -->
   <div class="chart-wrap">
-    <div id="chartMsg" class="chart-msg" style="display:none;"></div>
     <canvas id="priceChart"></canvas>
+    <div id="chartMsg" class="chart-msg" style="display:none;"></div>
   </div>
 
   <!-- 根拠（軽量セット） -->
@@ -78,34 +76,30 @@
   </div>
 
   <script>
-  // --- financial プラグインを確実に登録 ---
-  (function robustRegisterFinancial(){
-    try{
-      const fin = window['chartjs-chart-financial'];
-      const regs = [];
-
-      // Chart に直接ぶら下がっている場合
-      if (Chart.CandlestickController) regs.push(Chart.CandlestickController);
-      if (Chart.OhlcController)        regs.push(Chart.OhlcController);
-      if (Chart.CandlestickElement)    regs.push(Chart.CandlestickElement);
-      if (Chart.OhlcElement)           regs.push(Chart.OhlcElement);
-
-      // UMD 名前空間として出てくる場合
-      if (fin?.CandlestickController) regs.push(fin.CandlestickController);
-      if (fin?.OhlcController)        regs.push(fin.OhlcController);
-      if (fin?.CandlestickElement)    regs.push(fin.CandlestickElement);
-      if (fin?.OhlcElement)           regs.push(fin.OhlcElement);
-
-      if (regs.length) Chart.register(...regs);
-      console.log("Financial plugin registered:", regs);
-    }catch(e){
-      console.error('financial register failed', e);
-    }
-  })();
+    // --- financial プラグインを確実に登録（存在するものだけ） ---
+    (function registerFinancialSafely(){
+      try{
+        const fin = window['chartjs-chart-financial'];
+        const regs = [];
+        // Chart 直下
+        if (Chart.CandlestickController) regs.push(Chart.CandlestickController);
+        if (Chart.OhlcController)        regs.push(Chart.OhlcController);
+        if (Chart.CandlestickElement)    regs.push(Chart.CandlestickElement);
+        if (Chart.OhlcElement)           regs.push(Chart.OhlcElement);
+        // UMD 名前空間
+        if (fin?.CandlestickController) regs.push(fin.CandlestickController);
+        if (fin?.OhlcController)        regs.push(fin.OhlcController);
+        if (fin?.CandlestickElement)    regs.push(fin.CandlestickElement);
+        if (fin?.OhlcElement)           regs.push(fin.OhlcElement);
+        if (regs.length) Chart.register(...regs);
+      }catch(e){ /* no-op */ }
+    })();
 
     const tickerEl = document.getElementById('ticker');
     const btn = document.getElementById('judgeBtn');
+    const chartMsg = document.getElementById('chartMsg');
 
+    // 4–5桁英数字は .T を付与（バックエンドと同じルール）
     function normalizeTicker(raw){
       const t = (raw || '').trim().toUpperCase();
       if (!t) return t;
@@ -118,10 +112,10 @@
     let chart;
 
     function showChartMsg(text){
-      const m = document.getElementById('chartMsg');
-      m.textContent = text || '';
-      m.style.display = text ? 'flex' : 'none';
+      chartMsg.textContent = text;
+      chartMsg.style.display = 'flex';
     }
+    function hideChartMsg(){ chartMsg.style.display = 'none'; }
 
     function renderLineFromOHLC(ctx, j){
       const labels = j.ohlc.map(r => r.x);
@@ -146,28 +140,31 @@
     }
 
     async function drawChart(input, days = 180) {
+      hideChartMsg();
       const ticker = normalizeTicker(input);
       if (!ticker) return;
-      showChartMsg('');
       try {
         const r = await fetch(`/api/ohlc?ticker=${encodeURIComponent(ticker)}&days=${days}`);
         const j = await r.json();
         const ctx = document.getElementById('priceChart').getContext('2d');
         if (chart) chart.destroy();
 
-        // 1) candlestick（x を Date に変換：iOS Safari 対策）
-        if (j.ok && Array.isArray(j.ohlc) && j.ohlc.length) {
-          const ohlc = j.ohlc.map(row => ({
-            x: new Date(row.x), o: row.o, h: row.h, l: row.l, c: row.c
-          }));
-          const ma10 = ohlc.map((row, i) => (j.ma10?.[i] != null ? { x: row.x, y: j.ma10[i] } : null)).filter(Boolean);
-          const ma30 = ohlc.map((row, i) => (j.ma30?.[i] != null ? { x: row.x, y: j.ma30[i] } : null)).filter(Boolean);
+        if (!j.ok) { showChartMsg('チャートデータが取得できませんでした。'); return; }
 
-          try{
+        // ローソク足コントローラの有無を事前判定
+        const canCandle =
+          !!(Chart.CandlestickController || (window['chartjs-chart-financial']?.CandlestickController));
+
+        // 1) ohlc があり、かつ candlestick が使えるならローソク足
+        if (Array.isArray(j.ohlc) && j.ohlc.length && canCandle) {
+          try {
+            const ma10 = j.ohlc.map((row, i) => (j.ma10?.[i] != null ? { x: row.x, y: j.ma10[i] } : null)).filter(Boolean);
+            const ma30 = j.ohlc.map((row, i) => (j.ma30?.[i] != null ? { x: row.x, y: j.ma30[i] } : null)).filter(Boolean);
+
             chart = new Chart(ctx, {
               data: {
                 datasets: [
-                  { type: 'candlestick', label: 'OHLC', data: ohlc },
+                  { type: 'candlestick', label: 'OHLC', data: j.ohlc },
                   { type: 'line', label: 'MA(10)', data: ma10, borderWidth: 1.5, pointRadius: 0, spanGaps: true },
                   { type: 'line', label: 'MA(30)', data: ma30, borderWidth: 1.5, pointRadius: 0, spanGaps: true }
                 ]
@@ -177,21 +174,28 @@
                 parsing: { xAxisKey: 'x', openKey: 'o', highKey: 'h', lowKey: 'l', closeKey: 'c' },
                 interaction: { mode: 'index', intersect: false },
                 scales: {
-                  x: { type: 'time', time: { tooltipFormat: 'yyyy-MM-dd' }, ticks: { maxTicksLimit: 6 } },
+                  x: { type: 'time', time: { parser: 'yyyy-MM-dd', tooltipFormat: 'yyyy-MM-dd' }, ticks: { maxTicksLimit: 6 } },
                   y: { beginAtZero: false, ticks: { callback: v => (typeof v === 'number' ? v.toLocaleString() : v) } }
                 },
                 plugins: { legend: { display: true } }
               }
             });
-          }catch(e){
-            console.warn('candlestick failed, fallback to line', e);
-            renderLineFromOHLC(ctx, { ...j, ohlc });
+            return;
+          } catch (e) {
+            // 失敗したら折れ線に落とす
+            renderLineFromOHLC(ctx, j);
+            return;
           }
+        }
+
+        // 2) ohlc はあるが candlestick が使えない → 折れ線
+        if (Array.isArray(j.ohlc) && j.ohlc.length) {
+          renderLineFromOHLC(ctx, j);
           return;
         }
 
-        // 2) 従来の labels/close
-        if (j.ok && Array.isArray(j.labels) && j.labels.length) {
+        // 3) 旧データ形式（labels/close）
+        if (Array.isArray(j.labels) && j.labels.length) {
           chart = new Chart(ctx, {
             type: 'line',
             data: {
@@ -212,10 +216,8 @@
           return;
         }
 
-        // データ無し
         showChartMsg('チャートデータが取得できませんでした。');
       } catch(e) {
-        console.error(e);
         showChartMsg('チャート描画中にエラーが発生しました。');
       }
     }
