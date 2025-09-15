@@ -196,6 +196,22 @@ def _lookup_name_jp_from_csv(ticker: str) -> Optional[str]:
 
     return None
 
+def _lookup_name_jp_from_list(ticker: str) -> Optional[str]:
+    """
+    JSON/CSVからロード済みの_TSE_MAPを使って日本語名を返す。
+    """
+    _load_tse_map_if_needed()
+    if not _TSE_MAP:
+        return None
+
+    t = (ticker or "").upper().strip()
+    if not t:
+        return None
+
+    numeric = t.split(".", 1)[0]
+    return _TSE_MAP.get(numeric)
+
+
 # =====================================================================
 # ティッカー正規化 / 名前取得
 # =====================================================================
