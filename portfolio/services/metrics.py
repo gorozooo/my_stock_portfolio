@@ -74,7 +74,20 @@ def _adx(df: pd.DataFrame, n: int = 14) -> float:
 # =========================================================
 # メイン関数
 # =========================================================
-def get_metrics(ticker: str, bench: str = "^TOPX", days: int = 420) -> dict:
+def _default_lot_for(ticker: str) -> int:
+    t = (ticker or "").upper()
+    return 100 if t.endswith(".T") or t.isdigit() else 1
+
+
+def get_metrics(
+    ticker: str,
+    bench: str = "^TOPX",
+    days: int = 420,
+    *,
+    account_equity: float | None = None,   # 例: 1_000_000 (=100万円)
+    risk_pct: float = 1.0,                 # 例: 1% リスク
+    lot: int | None = None                 # Noneなら自動判定（日本株=100）
+) -> dict:
     # --- データ取得（auto_adjustを明示）
     df = yf.download(ticker, period=f"{days}d", interval="1d",
                      auto_adjust=True, progress=False)
@@ -99,7 +112,7 @@ def get_metrics(ticker: str, bench: str = "^TOPX", days: int = 420) -> dict:
 
     ret = s.pct_change()
 
-    # --- ベンチマーク
+    # --- ベンチ
     b = None; bret = None
     try:
         bdf = yf.download(bench, period=f"{days}d", interval="1d",
@@ -151,6 +164,8 @@ def get_metrics(ticker: str, bench: str = "^TOPX", days: int = 420) -> dict:
         last = float(s.iloc[-1])
         from_52w_high = float((last / roll_max - 1.0) * 100.0)
         from_52w_low  = float((last / roll_min - 1.0) * 100.0)
+    else:
+        last = float(s.iloc[-1])
 
     # --- 年化ボラ
     ret_clean = ret.dropna()
@@ -165,21 +180,45 @@ def get_metrics(ticker: str, bench: str = "^TOPX", days: int = 420) -> dict:
     ], axis=1).max(axis=1)
     atr14 = float(tr.rolling(14).mean().iloc[-1]) if tr.dropna().size >= 14 else None
 
-    # --- ADV20
-    adv20 = None
-    if not v.empty:
-        adv20 = float((s * v).rolling(20).mean().iloc[-1])
-
-    # --- スイング水準
+    # --- スイング水準（エントリー/ストップ指針）
     swing_win  = 20
     swing_high = float(h.tail(swing_win).max())
     swing_low  = float(l.tail(swing_win).min())
-    last_close = float(s.iloc[-1])
 
     entry_level = stop_level = None
     if atr14 is not None:
-        entry_level = float(swing_high + 0.5 * atr14)
-        stop_level  = float(swing_low  - 1.5 * atr14)
+        entry_level = float(swing_high + 0.5 * atr14)  # 指針：上抜け買い
+        stop_level  = float(swing_low  - 1.5 * atr14)  # 指針：初期ストップ
+    last_close = last
+
+    # --- ポジションサイズ計算
+    sizing = None
+    if entry_level and stop_level and entry_level > stop_level and account_equity:
+        risk_amount = float(account_equity) * float(risk_pct) / 100.0
+        risk_per_share = entry_level - stop_level
+        if risk_per_share > 0:
+            _lot = lot if lot is not None else _default_lot_for(ticker)
+            raw_qty = risk_amount / risk_per_share
+            # 単元に丸め
+            units = int(raw_qty // _lot) * _lot
+            if units > 0:
+                notional = units * entry_level
+                exp_loss = units * (entry_level - stop_level)
+                # 参考ターゲット（1.5R）
+                target_price = entry_level + 1.5 * (entry_level - stop_level)
+                r_multiple_to_hi = (swing_high - entry_level) / (entry_level - stop_level) if (entry_level - stop_level) > 0 else None
+                sizing = {
+                    "equity": float(account_equity),
+                    "risk_pct": float(risk_pct),
+                    "risk_amount": float(risk_amount),
+                    "lot": _lot,
+                    "qty": int(units),
+                    "risk_per_share": float(risk_per_share),
+                    "notional": float(notional),
+                    "expected_loss_at_stop": float(exp_loss),
+                    "suggested_target_price": float(target_price),
+                    "r_multiple_to_prev_high": float(r_multiple_to_hi) if r_multiple_to_hi is not None else None,
+                }
 
     return {
         "ok": True,
@@ -199,10 +238,11 @@ def get_metrics(ticker: str, bench: str = "^TOPX", days: int = 420) -> dict:
             "vol60_ann_pct": vol60,
             "atr14": atr14,
         },
-        "liquidity": {"adv20": adv20},
+        "liquidity": {"adv20": float((s * v).rolling(20).mean().iloc[-1]) if not v.empty else None},
         "levels": {
             "entry": entry_level, "stop": stop_level,
             "swing_high": swing_high, "swing_low": swing_low,
             "last_close": last_close, "atr14": atr14, "window": swing_win,
         },
+        "sizing": sizing,  # ← 追加（Noneの可能性あり）
     }
