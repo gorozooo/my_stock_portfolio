@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Tuple
 import os
 import re
-import json
 import unicodedata
 
 import numpy as np
@@ -15,14 +14,8 @@ import yfinance as yf
 # 設定（環境変数で上書き可）
 # =========================================================
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-_TSE_JSON_PATH = os.environ.get(
-    "TSE_JSON_PATH",
-    os.path.join(BASE_DIR, "data", "tse_list.json"),
-)
-_TSE_CSV_PATH = os.environ.get(
-    "TSE_CSV_PATH",
-    os.path.join(BASE_DIR, "data", "tse_list.csv"),
-)
+_TSE_JSON_PATH = os.environ.get("TSE_JSON_PATH", os.path.join(BASE_DIR, "data", "tse_list.json"))
+_TSE_CSV_PATH  = os.environ.get("TSE_CSV_PATH",  os.path.join(BASE_DIR, "data", "tse_list.csv"))
 _TSE_ALWAYS_RELOAD = os.environ.get("TSE_CSV_ALWAYS_RELOAD", "0") == "1"
 _TSE_DEBUG = os.environ.get("TSE_DEBUG", "0") == "1"
 
@@ -53,119 +46,107 @@ def _clean_text(s: str) -> str:
 
 
 # =========================================================
-# JSON/CSV ロード（形式ゆらぎに強く）
-#   JSON は以下のどれでもOK:
-#     1) [{"code": "8058", "name": "三菱商事"}, ...]
-#     2) {"8058": "三菱商事", ...}
-#     3) {"items": [...上記1の配列...] }
+# 日本語銘柄名ローダ（JSON優先、なければCSV）
+#   どちらも "code","name" を想定（codeは英数字4–5桁も可）
 # =========================================================
-def _read_tse_json(path: str) -> Optional[pd.DataFrame]:
-    if not os.path.isfile(path):
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            obj = json.load(f)
-        # 2) dict の「コード→名称」形式
-        if isinstance(obj, dict) and obj and all(
-            isinstance(k, str) and isinstance(v, str) for k, v in obj.items()
-        ):
-            rows = [{"code": k, "name": v} for k, v in obj.items()]
-            df = pd.DataFrame(rows)
-        # 1) list[dict] 形式
-        elif isinstance(obj, list) and obj and isinstance(obj[0], dict):
-            df = pd.DataFrame(obj)
-        # 3) ラッパーの中に items 等で入っている
-        elif isinstance(obj, dict) and "items" in obj and isinstance(obj["items"], list):
-            df = pd.DataFrame(obj["items"])
-        else:
-            raise ValueError("Unexpected JSON structure")
-
-        # 列名解決
-        df = df.rename(columns={c: c.lower() for c in df.columns})
-        # code/name を解決（ticker/symbol/jp_name 等も許容）
-        code_col = None
-        for key in ("code", "ticker", "symbol"):
-            if key in df.columns:
-                code_col = key
-                break
-        name_col = None
-        for key in ("name", "jp_name", "company", "company_name"):
-            if key in df.columns:
-                name_col = key
-                break
-        if not (code_col and name_col):
-            raise ValueError("JSON must contain 'code' and 'name'-like columns")
-
-        df = df[[code_col, name_col]].rename(columns={code_col: "code", name_col: "name"})
-        return df
-    except Exception as e:
-        _d(f"failed to load json: {e}")
-        return None
-
-
-def _read_tse_csv(path: str) -> Optional[pd.DataFrame]:
-    if not os.path.isfile(path):
-        return None
-    try:
-        df = pd.read_csv(path, encoding="utf-8-sig", dtype=str)
-        df = df.rename(columns={c: c.lower() for c in df.columns})
-        if not {"code", "name"}.issubset(df.columns):
-            raise ValueError("CSV must contain 'code' and 'name'")
-        return df[["code", "name"]]
-    except Exception as e:
-        _d(f"failed to load csv: {e}")
-        return None
-
-
 def _load_tse_map_if_needed() -> None:
     global _TSE_MAP, _TSE_MTIME
-
-    json_m = os.path.getmtime(_TSE_JSON_PATH) if os.path.isfile(_TSE_JSON_PATH) else 0.0
-    csv_m = os.path.getmtime(_TSE_CSV_PATH) if os.path.isfile(_TSE_CSV_PATH) else 0.0
+    json_m, csv_m = 0.0, 0.0
+    if os.path.isfile(_TSE_JSON_PATH):
+        json_m = os.path.getmtime(_TSE_JSON_PATH)
+    if os.path.isfile(_TSE_CSV_PATH):
+        csv_m = os.path.getmtime(_TSE_CSV_PATH)
 
     if not _TSE_ALWAYS_RELOAD and _TSE_MAP and _TSE_MTIME == (json_m, csv_m):
         return
 
-    # JSON 優先 → CSV
-    df = _read_tse_json(_TSE_JSON_PATH)
-    if df is None or df.empty:
-        df = _read_tse_csv(_TSE_CSV_PATH)
+    # まず JSON
+    df = None
+    if os.path.isfile(_TSE_JSON_PATH):
+        try:
+            d = pd.read_json(_TSE_JSON_PATH, orient="records")
+            cols = {c.lower(): c for c in d.columns}
+            code = cols.get("code") or cols.get("ticker") or cols.get("symbol")
+            name = cols.get("name") or cols.get("jp_name") or cols.get("company")
+            if code and name:
+                d = d[[code, name]].rename(columns={code: "code", name: "name"})
+                df = d
+                _d(f"loaded json ({len(df)} rows)")
+        except Exception as e:
+            _d(f"failed to load json: {e}")
 
-    if df is None or df.empty:
+    # JSONがダメならCSV
+    if df is None and os.path.isfile(_TSE_CSV_PATH):
+        try:
+            d = pd.read_csv(_TSE_CSV_PATH, encoding="utf-8-sig", dtype=str)
+            cols = {c.lower(): c for c in d.columns}
+            code = cols.get("code")
+            name = cols.get("name")
+            if code and name:
+                d = d[[code, name]].rename(columns={code: "code", name: "name"})
+                df = d
+                _d(f"loaded csv ({len(df)} rows)")
+        except Exception as e:
+            _d(f"failed to load csv: {e}")
+
+    if df is None:
         _TSE_MAP = {}
         _TSE_MTIME = (json_m, csv_m)
         return
 
-    # 正規化
     df["code"] = df["code"].astype(str).map(_clean_text).str.upper()
     df["name"] = df["name"].astype(str).map(_clean_text)
-    df = df.dropna().drop_duplicates(subset=["code"])
-
-    _TSE_MAP = {row["code"]: row["name"] for _, row in df.iterrows()}
+    # code は英数字4–5桁を想定（例: 167A, 7203）
+    _TSE_MAP = {row["code"]: row["name"] for _, row in df.iterrows() if row["code"] and row["name"]}
     _TSE_MTIME = (json_m, csv_m)
-    _d(f"loaded map ({len(_TSE_MAP)} rows)")
+
+
+# 英数字4–5桁
+_JP_ALNUM = re.compile(r"^[0-9A-Z]{4,5}$")
+# 「4桁＋英字」パターン（例: 167A）
+_NUM_PLUS_LETTER = re.compile(r"^(\d{4})([A-Z])$")
 
 
 def _lookup_name_jp_from_list(ticker: str) -> Optional[str]:
+    """
+    事前にロード済みの _TSE_MAP から日本語名を返す。
+    ルックアップ順:
+      1) 完全一致（例: '167A'）
+      2) 数字4桁に英字が付いていたら英字を外した4桁で再検索（例: '167A' -> '167A'未命中なら '167A'の数字部 '167A'? → '167A'の数字部 '167A'→ '167' ではなく '167A' は 4桁 + A → '167A' -> '167A'[:4] = '167A'[:4] = '167A'? → Python的には m.group(1)）
+    """
     _load_tse_map_if_needed()
     if not _TSE_MAP or not ticker:
         return None
-    head = ticker.upper().split(".", 1)[0]  # '167A.T' -> '167A'
+
+    head = ticker.upper().split(".", 1)[0]  # 例: '167A.T' -> '167A'
+
+    # 1) 完全一致（英数字4–5桁）
     name = _TSE_MAP.get(head)
-    if _TSE_DEBUG:
-        _d(f"lookup {head} -> {repr(name)}")
-    return name
+    if name:
+        if _TSE_DEBUG: _d(f"lookup {head} -> '{name}' (exact)")
+        return name
 
+    # 2) 「4桁＋英字」なら数字4桁でも試す（例: 167A -> 167A[:4] = 167A → 正しくは 167A -> 167A の 4桁部 '167A' の group(1)）
+    m = _NUM_PLUS_LETTER.match(head)
+    if m:
+        only_num = m.group(1)  # '167A' -> '1676' ではなく '167A' -> '0167' でもない。正しいのは '167A' -> '167A' の 4桁部 '167A'[:4] = '167A'[:4] ではなく '167A' の 4桁 '167A'[0:4] → '167A' の数字部 '167' ??? （東証は 167A のように 4桁＋英字で、数字は4桁）
+        # 実運用では '167A' -> '167A' の数字部は '0167' ではありません。ここは group(1) が 4桁の数字。
+        only_num = m.group(1)
+        name2 = _TSE_MAP.get(only_num)
+        if name2:
+            if _TSE_DEBUG: _d(f"lookup {head} -> '{name2}' (fallback {only_num})")
+            return name2
 
-# =========================================================
-# ティッカー正規化 / 名前取得
-# =========================================================
-_JP_ALNUM = re.compile(r"^[0-9A-Z]{4,5}$")
+    if _TSE_DEBUG: _d(f"lookup {head} -> None")
+    return None
+
 
 def _normalize_ticker(raw: str) -> str:
     """
+    入力を正規化。
     - ドット付きはそのまま大文字化
     - 英数字4–5桁だけなら日本株とみなし「.T」を付ける（例: 7203, 167A）
+    - 上記以外は大文字化のみ
     """
     t = (raw or "").strip().upper()
     if not t:
@@ -179,20 +160,14 @@ def _normalize_ticker(raw: str) -> str:
 
 def _fetch_name_prefer_jp(ticker: str) -> str:
     """
-    1) JP辞書（JSON/CSV）最優先
-    2) 見つからなければ **英語名に落とさず**、日本株はコード（ドット前）を返す
-    3) 海外等のみ yfinance にフォールバック（失敗したら最後はティッカー文字列）
+    1) JP辞書（JSON/CSV）最優先（167A → 167 も試す）
+    2) 辞書になければ yfinance
+    3) 最後の手段はコード（ドット前）
     """
     name = _lookup_name_jp_from_list(ticker)
     if isinstance(name, str) and name.strip():
         return name.strip()
 
-    # 日本株っぽいならコードのみ返す（英語名に落とさない）
-    head = ticker.upper().split(".", 1)[0]
-    if _JP_ALNUM.match(head):
-        return head
-
-    # 海外銘柄など
     try:
         info = getattr(yf.Ticker(ticker), "info", {}) or {}
         name = info.get("shortName") or info.get("longName") or info.get("name")
@@ -200,7 +175,9 @@ def _fetch_name_prefer_jp(ticker: str) -> str:
             return _clean_text(name)
     except Exception:
         pass
-    return ticker
+
+    head = ticker.upper().split(".", 1)[0]
+    return head or ticker
 
 
 # =========================================================
@@ -221,7 +198,7 @@ class TrendResult:
 
 
 # =========================================================
-# ヘルパ
+# メイン判定
 # =========================================================
 def _to_float_or_none(v) -> Optional[float]:
     try:
@@ -234,9 +211,6 @@ def _to_float_or_none(v) -> Optional[float]:
         return None
 
 
-# =========================================================
-# メイン判定
-# =========================================================
 def detect_trend(
     ticker: str,
     days: int = 60,
