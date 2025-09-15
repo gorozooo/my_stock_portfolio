@@ -9,6 +9,7 @@
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:16px; }
+    h2 { font-size:28px; margin:0 0 12px; }
     .row { display:flex; gap:8px; }
     input[type=text]{ flex:1; font-size:16px; padding:12px; border:1px solid #ddd; border-radius:12px; }
     button{ padding:12px 16px; font-size:16px; border:none; border-radius:12px; background:#111; color:#fff; }
@@ -18,65 +19,24 @@
     .down{ background:#ffecec; color:#b00020; }
     .flat{ background:#f5f5f5; color:#555; }
     .sub{ color:#666; font-size:12px; }
-
-    .suggest { margin-top:8px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
-    .suggest-item { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; background:#fff; }
-    .suggest-item + .suggest-item { border-top:1px solid #eee; }
-    .suggest-name { font-weight:600; }
-    .suggest-code { font-size:12px; color:#777; }
-    .suggest-btn { padding:6px 10px; font-size:13px; border:none; border-radius:999px; background:#111; color:#fff; }
   </style>
 </head>
 <body>
   <h2>銘柄トレンド判定</h2>
 
-  <!-- formでEnterキー対応 -->
-  <form class="row"
-        hx-get="/trend/card"
-        hx-target="#result"
-        hx-indicator="#loading"
-        hx-vals='js:{"ticker": document.getElementById("ticker").value.trim()}'>
-    <input
-      id="ticker"
-      name="q"
-      type="text"
-      placeholder="例: 8058 / 7203 / 167A（.T は自動付与）"
-      hx-get="/api/suggest"
-      hx-trigger="keyup changed delay:250ms"
-      hx-target="#suggest"
-      hx-include="#ticker"
-      hx-params="q"
-      hx-swap="innerHTML">
-    <button type="submit">判定</button>
-  </form>
+  <div class="row">
+    <input id="ticker" type="text" placeholder="例: AAPL / MSFT / 7203（.T不要）">
+    <button
+      hx-get="/trend/card"
+      hx-target="#result"
+      hx-indicator="#loading"
+      hx-vals='js:{"ticker": document.getElementById("ticker").value.trim()}'>
+      判定
+    </button>
+  </div>
 
-  <!-- サジェスト表示 -->
-  <div id="suggest" class="suggest"></div>
+  <div id="loading" class="sub" style="display:none;" hx-ext="class-tools">Loading...</div>
 
-  <div id="loading" class="sub" style="display:none;">Loading...</div>
-
-  <!-- 判定結果 -->
   <div id="result" class="card"></div>
-
-  <!-- サジェストの断片例 -->
-  <!--
-  {% if items %}
-    {% for code,name in items %}
-      <div class="suggest-item">
-        <div>
-          <div class="suggest-name">{{ name }}</div>
-          <div class="suggest-code">{{ code }}.T</div>
-        </div>
-        <button class="suggest-btn"
-                hx-get="/trend/card?ticker={{ code }}"
-                hx-target="#result"
-                hx-swap="innerHTML"
-                hx-on="click: document.querySelector('#ticker').value='{{ code }}'">
-          これで判定
-        </button>
-      </div>
-    {% endfor %}
-  {% endif %}
-  -->
 </body>
 </html>
