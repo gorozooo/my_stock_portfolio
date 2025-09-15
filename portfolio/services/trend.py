@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Optional, Dict
 import os
 import re
-import unicodedata
+import datetime as dt
 
 import numpy as np
 import pandas as pd
@@ -12,6 +12,9 @@ import yfinance as yf
 
 # =====================================================================
 # 日本語銘柄名 CSV ローダ（data/tse_list.csv を想定）
+# - 形式: ヘッダあり、少なくとも "code","name" の2列
+# - 文字コード: UTF-8 (BOMあり/なし可)
+# - CSV に紛れがちなゼロ幅スペース等も除去してマップ化
 # =====================================================================
 
 # CSV の既定パス（必要なら環境変数で上書き）
@@ -24,30 +27,26 @@ _TSE_CSV_PATH = os.environ.get(
 _TSE_MAP: Dict[str, str] = {}
 _TSE_CSV_MTIME: float = 0.0
 
+# ゼロ幅系・BOM を落とす正規表現
+_ZW_RE = re.compile(r"[\u200B-\u200D\uFEFF]")
 
-def _clean_text(s: object) -> str:
+def _clean_text(s: str) -> str:
+    """前後の空白除去 + ゼロ幅文字除去。"""
+    if not isinstance(s, str):
+        s = str(s) if s is not None else ""
+    s = s.strip()
+    s = _ZW_RE.sub("", s)
+    return s
+
+def _clean_code_for_key(s: str) -> str:
     """
-    テキストのクリーニング:
-    - str化 → NFKC 正規化（全角英数の統一等）
-    - BOM/制御文字/ゼロ幅/双方向制御/私用領域等の不可視文字を除去
-    - 前後の空白を除去
+    コード列用の正規化:
+    - 空白類を全除去
+    - ゼロ幅文字除去
     """
-    if s is None:
-        return ""
-    t = str(s)
-
-    # Unicode 正規化（全角英数→半角など）
-    t = unicodedata.normalize("NFKC", t)
-
-    # 制御文字（C0/C1）と DEL
-    t = re.sub(r"[\u0000-\u001F\u007F-\u009F]", "", t)
-    # ゼロ幅/双方向制御/ワード結合子等
-    t = re.sub(r"[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]", "", t)
-    # 私用領域（PUA）
-    t = re.sub(r"[\uE000-\uF8FF]", "", t)
-
-    return t.strip()
-
+    s = _clean_text(s)
+    s = re.sub(r"\s+", "", s)
+    return s
 
 def _load_tse_map_if_needed() -> None:
     """
@@ -67,33 +66,23 @@ def _load_tse_map_if_needed() -> None:
         df = pd.read_csv(
             _TSE_CSV_PATH,
             encoding="utf-8-sig",
-            dtype=str,  # 何が来ても文字列として読む
+            dtype=str,
         )
 
-        # 列名のゆらぎに対応（大小文字/全角半角）
-        cols = {unicodedata.normalize("NFKC", c).strip().lower(): c for c in df.columns}
-        code_col = cols.get("code")
-        name_col = cols.get("name")
+        # 列名（大小文字ゆらぎ対応）
+        cols_l = {c.lower(): c for c in df.columns}
+        code_col = cols_l.get("code")
+        name_col = cols_l.get("name")
         if not code_col or not name_col:
-            # 代表的な日本語列名にもフォールバック（念のため）
-            code_col = code_col or cols.get("銘柄コード") or cols.get("コード") or "code"
-            name_col = name_col or cols.get("銘柄名") or cols.get("名称") or "name"
-            # 無ければ KeyError を起こさないよう存在しない場合は空 DataFrame へ
-            for need in (code_col, name_col):
-                if need not in df.columns:
-                    df[need] = ""
+            _TSE_MAP = {}
+            _TSE_CSV_MTIME = 0.0
+            return
 
-        # 値のクリーニング
-        df[code_col] = df[code_col].map(_clean_text)
+        # 正規化
+        df[code_col] = df[code_col].map(_clean_code_for_key)
         df[name_col] = df[name_col].map(_clean_text)
 
-        # コード列は数字以外を全除去（"8306.0" や空白混入・PUA混入を吸収）
-        df[code_col] = df[code_col].str.replace(r"\D", "", regex=True)
-
-        # 4〜5桁のみ採用
-        df = df[df[code_col].str.fullmatch(r"\d{4,5}")]
-
-        # マップ化（例: "8306" -> "三菱UFJフィナンシャルグループ"）
+        # マップ化（例: "7011" -> "三菱重工業"）
         _TSE_MAP = {
             row[code_col]: row[name_col]
             for _, row in df.iterrows()
@@ -106,18 +95,6 @@ def _load_tse_map_if_needed() -> None:
         _TSE_CSV_MTIME = 0.0
 
 
-def _code_from_ticker_like(t: str) -> Optional[str]:
-    """
-    '7203' / '7203.T' / '7203.TK' などから 4〜5桁の数字コードを抽出。
-    マッチしなければ None。
-    """
-    if not t:
-        return None
-    head = t.split(".", 1)[0]
-    code = re.sub(r"\D", "", head or "")
-    return code if re.fullmatch(r"\d{4,5}", code) else None
-
-
 def _lookup_name_jp_from_csv(ticker: str) -> Optional[str]:
     """
     ティッカーが東証（nnnn or nnnn.T 等）なら CSV から日本語名を返す。
@@ -126,33 +103,39 @@ def _lookup_name_jp_from_csv(ticker: str) -> Optional[str]:
     _load_tse_map_if_needed()
     if not _TSE_MAP:
         return None
-    code = _code_from_ticker_like((ticker or "").upper().strip())
-    if not code:
+
+    t = (ticker or "").upper().strip()
+    if not t:
         return None
-    return _TSE_MAP.get(code)
+
+    # "7203" / "7203.T" / "7203.TK" など → 数字部分
+    numeric = t.split(".", 1)[0]
+    numeric = _clean_code_for_key(numeric)
+    if numeric.isdigit() and 4 <= len(numeric) <= 5:
+        return _TSE_MAP.get(numeric)
+    return None
 
 
 # =====================================================================
-# チッカー正規化 / 名前取得
+# ティッカー正規化 / 名前取得
 # =====================================================================
 
 def _normalize_ticker(raw: str) -> str:
     """
     入力を正規化。
-    - 4〜5桁の数字だけなら日本株とみなし「.T」を付与
-    - すでにサフィックスがある場合や英米株などはそのまま
+    - 4〜5桁の数字だけ、または先頭が数字だらけの場合は日本株とみなし「.T」を付与
+      例: '7203' -> '7203.T', ' 7203 ' -> '7203.T'
+    - すでにサフィックスがある場合や英米株などは大文字化のみ
     """
     t = (raw or "").strip().upper()
     if not t:
         return t
     if "." in t:
         return t
-
-    # 数字だけ抽出
-    digits = re.sub(r"\D", "", t)
-    if re.fullmatch(r"\d{4,5}", digits):
-        return digits + ".T"
-
+    # 非数字を除去して判定（ユーザ入力の混入に強く）
+    digits_only = re.sub(r"\D", "", t)
+    if digits_only.isdigit() and 4 <= len(digits_only) <= 5:
+        return f"{digits_only}.T"
     return t
 
 
@@ -162,17 +145,20 @@ def _fetch_name_prefer_jp(ticker: str) -> str:
     2) なければ yfinance から取得（shortName/longName/name）
     3) それも無ければティッカーを返す
     """
+    # まず CSV
     name_csv = _lookup_name_jp_from_csv(ticker)
     if isinstance(name_csv, str) and name_csv.strip():
         return name_csv.strip()
 
+    # フォールバック: yfinance
     try:
         info = getattr(yf.Ticker(ticker), "info", {}) or {}
         name = info.get("shortName") or info.get("longName") or info.get("name")
         if isinstance(name, str) and name.strip():
-            return name.strip()
+            return _clean_text(name)
     except Exception:
         pass
+
     return ticker
 
 
@@ -233,15 +219,16 @@ def detect_trend(
     ma_short = s.rolling(ma_short_win).mean()
     ma_long = s.rolling(ma_long_win).mean()
 
-    # NaN セーフに float/None 化
-    def _to_float_or_none(v) -> Optional[float]:
+    # 直近の有効値（NaN を飛ばして最後の値）を安全に取得
+    def _last_valid(series) -> Optional[float]:
         try:
-            return None if pd.isna(v) else float(v)
+            v = series.dropna().iloc[-1]
+            return float(v)
         except Exception:
             return None
 
-    ma_s = _to_float_or_none(ma_short.iloc[-1])
-    ma_l = _to_float_or_none(ma_long.iloc[-1])
+    ma_s = _last_valid(ma_short)
+    ma_l = _last_valid(ma_long)
 
     # 線形回帰（x は 0..n-1）
     y = s.values.astype(float)
@@ -257,9 +244,11 @@ def detect_trend(
     signal = "FLAT"
     reason = "傾きが小さいため様子見"
     if slope_ann_pct >= 5.0:
-        signal, reason = "UP", "回帰傾き(年率換算)が正で大きめ"
+        signal = "UP"
+        reason = "回帰傾き(年率換算)が正で大きめ"
     elif slope_ann_pct <= -5.0:
-        signal, reason = "DOWN", "回帰傾き(年率換算)が負で大きめ"
+        signal = "DOWN"
+        reason = "回帰傾き(年率換算)が負で大きめ"
 
     # MA クロスで補強
     if (ma_s is not None) and (ma_l is not None):
