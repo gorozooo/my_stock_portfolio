@@ -36,21 +36,11 @@
     .b-gray{ background:#f5f5f5; color:#555; }
     .err { color:#b00020; margin-top:8px; }
 
-    /* 意思決定バッジ（色＋絵文字） */
-    .badge-decision {
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      padding:6px 12px;
-      border-radius:999px;
-      font-size:14px;
-      font-weight:700;
-      color:#fff;
-      letter-spacing:.2px;
-    }
-    .badge-buy { background:#26d07c; }   /* 緑: 買い候補 */
-    .badge-watch { background:#f4c542; color:#222; } /* 黄: 観察（読みやすさのため濃い文字色） */
-    .badge-skip { background:#ff4d4f; }  /* 赤: 見送り */
+    /* 意思決定の大きめバッジ（前段で導入済み） */
+    .badge-decision { display:inline-block; padding:6px 12px; border-radius:999px; font-size:14px; font-weight:600; color:#fff; }
+    .badge-buy   { background:#26d07c; }   /* 緑 */
+    .badge-watch { background:#f4c542; }   /* 黄 */
+    .badge-skip  { background:#ff4d4f; }   /* 赤 */
   </style>
 </head>
 <body>
@@ -71,15 +61,15 @@
 
   <div id="loading" class="sub htmx-indicator">Loading...</div>
 
-  <!-- 判定結果カード（HTMXで差し替え） -->
+  <!-- 判定結果カード -->
   <div id="result" class="card"></div>
 
-  <!-- チャート（折れ線） -->
+  <!-- チャート -->
   <div class="chart-wrap">
     <canvas id="priceChart"></canvas>
   </div>
 
-  <!-- 根拠 + 意思決定 -->
+  <!-- 根拠 + エントリー/損切り/利確 -->
   <div id="evidence" class="card" style="display:none;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
       <div class="sub" id="ev-asof"></div>
@@ -101,28 +91,53 @@
     }
     tickerEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') btn.click(); });
 
-    // ===== 折れ線チャート（/api/ohlc: labels/close 形式） =====
+    // ===== チャート描画 =====
     let chart;
+    let latestTrade = null; // {entry, stop, take} を保持してラインに使う
+
+    function makeConstLine(len, y){
+      if (y == null) return null;
+      return Array.from({length: len}, () => y);
+    }
+
+    function addTradeLinesToDatasets(datasets, len){
+      if (!latestTrade) return datasets;
+      const {entry, stop, take} = latestTrade;
+      const ds = [...datasets];
+      const baseOpt = {borderWidth: 1.5, pointRadius: 0, spanGaps: true};
+      const entryLine = makeConstLine(len, entry);
+      const stopLine  = makeConstLine(len, stop);
+      const takeLine  = makeConstLine(len, take);
+      if (entryLine) ds.push({ label: 'Entry', data: entryLine, ...baseOpt, borderDash:[6,4] });
+      if (stopLine)  ds.push({ label: 'Stop',  data: stopLine,  ...baseOpt, borderDash:[4,4] });
+      if (takeLine)  ds.push({ label: 'Take',  data: takeLine,  ...baseOpt, borderDash:[2,4] });
+      return ds;
+    }
+
     async function drawChart(input, days = 180) {
       const ticker = normalizeTicker(input);
       if (!ticker) return;
       try {
+        // /api/ohlc で価格データ
         const r = await fetch(`/api/ohlc?ticker=${encodeURIComponent(ticker)}&days=${days}`);
         const j = await r.json();
-        const ctx = document.getElementById('priceChart').getContext('2d');
+        const el = document.getElementById('priceChart');
+        const ctx = el.getContext('2d');
         if (chart) chart.destroy();
 
         if (j.ok && Array.isArray(j.labels) && j.labels.length){
+          // 長さ確定後にライン用データ生成
+          const labels = j.labels;
+          let datasets = [
+            { label: 'Close', data: j.close, borderWidth: 2, pointRadius: 0 },
+            { label: 'MA(10)', data: j.ma10, borderWidth: 1, pointRadius: 0, spanGaps: true },
+            { label: 'MA(30)', data: j.ma30, borderWidth: 1, pointRadius: 0, spanGaps: true }
+          ];
+          datasets = addTradeLinesToDatasets(datasets, labels.length);
+
           chart = new Chart(ctx, {
             type: 'line',
-            data: {
-              labels: j.labels,
-              datasets: [
-                { label: 'Close', data: j.close, borderWidth: 2, pointRadius: 0 },
-                { label: 'MA(10)', data: j.ma10, borderWidth: 1, pointRadius: 0, spanGaps: true },
-                { label: 'MA(30)', data: j.ma30, borderWidth: 1, pointRadius: 0, spanGaps: true }
-              ]
-            },
+            data: { labels, datasets },
             options: {
               responsive: true, maintainAspectRatio: false,
               interaction: { mode: 'index', intersect: false },
@@ -131,27 +146,20 @@
             }
           });
         } else {
-          const box = document.querySelector('.chart-wrap');
-          box.innerHTML = '<div style="color:#b00020;padding:8px;">チャートデータが取得できませんでした。</div>';
+          document.querySelector('.chart-wrap').innerHTML =
+            '<div style="color:#b00020;padding:8px;">チャートデータが取得できませんでした。</div>';
         }
       } catch(e) {
-        const box = document.querySelector('.chart-wrap');
-        box.innerHTML = '<div style="color:#b00020;padding:8px;">チャート描画中にエラーが発生しました。</div>';
+        document.querySelector('.chart-wrap').innerHTML =
+          '<div style="color:#b00020;padding:8px;">チャート描画中にエラーが発生しました。</div>';
         console.error(e);
       }
     }
 
-    // ===== Evidence（軽量根拠 + 意思決定） =====
+    // ===== Evidence（軽量根拠 + 意思決定 + エントリー/損切/利確表示） =====
     function badge(txt, kind){
       const cls = kind === 'green' ? 'b-green' : kind === 'red' ? 'b-red' : 'b-gray';
       return `<span class="badge ${cls}">${txt}</span>`;
-    }
-    function decisionBadge(label){
-      // BUY / WATCH / AVOID を想定。足りなければ WATCH 扱い。
-      const L = (label || 'WATCH').toUpperCase();
-      if (L === 'BUY')   return `<span class="badge-decision badge-buy">✅ 買い候補</span>`;
-      if (L === 'AVOID') return `<span class="badge-decision badge-skip">🚫 見送り</span>`;
-      return `<span class="badge-decision badge-watch">👀 観察</span>`;
     }
     function fmt(x, d=2){ return (x===null || x===undefined) ? '-' : Number(x).toFixed(d); }
 
@@ -176,44 +184,28 @@
         asof.textContent = `根拠（${j.asof} 時点）`;
         grid.innerHTML = '';
 
-        // ① 意思決定バッジ（色＋絵文字）
-        const label   = (j.decision && j.decision.label) || 'WATCH';
-        const reasons = Array.isArray(j.decision?.reasons) ? j.decision.reasons.join(' / ') : '';
-        dec.innerHTML = decisionBadge(label) + (reasons ? `<span class="sub" style="margin-left:8px;">${reasons}</span>` : '');
+        // === 意思決定（前段で導入済・ここは表示のみ） ===
+        // 例: バックエンドで decision を用意するならここで解釈
+        // 今回は省略（必要ならここにBUY/WATCH/AVOIDバッジを描画）
 
-        // トレンド
-        const slope = j.trend?.slope_ann_pct_60;
-        const adx = j.trend?.adx14;
-        const ma = j.trend?.ma || {};
-        const maStack = ma.stack === 'bull' ? badge('MA整列:強', 'green')
-                       : ma.stack === 'bear' ? badge('MA整列:弱', 'red')
-                       : badge('MA整列:中立', 'gray');
+        // === ② エントリー/損切り/利確（新規） ===
+        const tr = j.trade || {};
+        latestTrade = { entry: tr.entry ?? null, stop: tr.stop ?? null, take: tr.take ?? null };
+
         grid.insertAdjacentHTML('beforeend', `
-          <div class="kpi"><h4>回帰傾き(60日・年率)</h4><div class="v">${fmt(slope)}%</div></div>
-          <div class="kpi"><h4>ADX(14)</h4><div class="v">${fmt(adx)}</div></div>
-          <div class="kpi"><h4>MA20/50/200</h4><div class="v">${fmt(ma["20"],0)} / ${fmt(ma["50"],0)} / ${fmt(ma["200"],0)}</div></div>
-          <div class="kpi"><h4>MA整列</h4><div class="v">${maStack}</div></div>
+          <div class="kpi"><h4>Entry</h4><div class="v">${fmt(tr.entry)}</div></div>
+          <div class="kpi"><h4>Stop</h4><div class="v">${tr.stop ? fmt(tr.stop) : '-'}</div></div>
+          <div class="kpi"><h4>Take (R=${fmt(tr.rr,1)})</h4><div class="v">${tr.take ? fmt(tr.take) : '-'}</div></div>
+          <div class="kpi"><h4>MA20(参考)</h4><div class="v">${j.trend?.ma ? fmt(j.trend.ma["20"]) : '-'}</div></div>
+          <div class="kpi" style="grid-column: 1 / -1;">
+            <h4>計算ロジック</h4><div class="v" style="font-size:12px;font-weight:500;">${tr.method || '-'}</div>
+          </div>
         `);
 
-        // 相対
-        const rs6 = j.relative?.rs_6m_pct;
-        const nearHigh = (j.relative?.from_52w_high_pct ?? null);
-        const nearLow  = (j.relative?.from_52w_low_pct ?? null);
-        grid.insertAdjacentHTML('beforeend', `
-          <div class="kpi"><h4>RS(6M,指数比)</h4><div class="v">${fmt(rs6)}%</div></div>
-          <div class="kpi"><h4>52週高値まで</h4><div class="v">${fmt(nearHigh)}%</div></div>
-          <div class="kpi"><h4>52週安値から</h4><div class="v">${fmt(nearLow)}%</div></div>
-        `);
-
-        // リスク・流動性
-        const vol20 = j.risk?.vol20_ann_pct, vol60 = j.risk?.vol60_ann_pct, atr = j.risk?.atr14;
-        const adv20 = j.liquidity?.adv20;
-        grid.insertAdjacentHTML('beforeend', `
-          <div class="kpi"><h4>年化ボラ20</h4><div class="v">${fmt(vol20)}%</div></div>
-          <div class="kpi"><h4>年化ボラ60</h4><div class="v">${fmt(vol60)}%</div></div>
-          <div class="kpi"><h4>ATR(14)</h4><div class="v">${fmt(atr,0)}</div></div>
-          <div class="kpi"><h4>ADV20(売買代金)</h4><div class="v">${adv20 ? adv20.toLocaleString() : '-'}</div></div>
-        `);
+        // ★ ライン反映のため、evidence読み込み後にチャート再描画
+        // （描画順: 先にdrawChart→evidenceでlatestTrade更新→再描画）
+        const t = tickerEl.value.trim();
+        if (t) drawChart(t);
 
         box.style.display = 'block';
       }catch(e){
@@ -228,7 +220,9 @@
     document.body.addEventListener('htmx:afterOnLoad', () => {
       const t = tickerEl.value.trim();
       if (t){
+        // 1回目描画
         drawChart(t);
+        // evidenceでtrade計算→ライン注入のため再描画
         loadEvidence(t);
       }
     });
