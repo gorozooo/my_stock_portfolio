@@ -4,6 +4,10 @@ from django.views.decorators.http import require_GET
 
 from .services.trend import detect_trend
 
+import yfinance as yf
+import numpy as np
+import pandas as pd
+
 
 # 必要ならトップページ（ダミー）を残す
 def main(request):
@@ -62,3 +66,30 @@ def trend_card_partial(request):
         ctx["error"] = str(e)
 
     return render(request, "portfolio/_trend_card.html", ctx)
+    
+    @require_GET
+def ohlc_api(request):
+    t = (request.GET.get("ticker") or "").strip()
+    days = int(request.GET.get("days", 180))
+    if not t:
+        return JsonResponse({"ok": False, "error": "ticker required"}, status=400)
+    # 休日分バッファ
+    period = max(days + 30, 240)
+    df = yf.download(t, period=f"{period}d", interval="1d", progress=False)
+    if df is None or df.empty:
+        return JsonResponse({"ok": False, "error": "no data"}, status=404)
+
+    s = df["Close"].dropna().tail(days)
+    ma10 = s.rolling(10).mean()
+    ma30 = s.rolling(30).mean()
+
+    payload = {
+        "ok": True,
+        "ticker": t,
+        "labels": [d.strftime("%Y-%m-%d") for d in s.index],
+        "close": [float(x) for x in s.values],
+        "ma10":  [None if pd.isna(x) else float(x) for x in ma10.values],
+        "ma30":  [None if pd.isna(x) else float(x) for x in ma30.values],
+    }
+    return JsonResponse(payload)
+    
