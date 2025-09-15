@@ -88,17 +88,16 @@ def trend_api(request):
     }
     return JsonResponse(data)
 
+# portfolio/views.py から ohlc_api を丸ごと差し替え
 @require_GET
 def ohlc_api(request):
     """
-    Chart.js Financial（candlestick）用の OHLC + MA API
-    返却形式:
-    {
-      ok: true,
-      ohlc: [{x:"YYYY-MM-DD", o:..., h:..., l:..., c:...}, ...],
-      ma10: [null/number,...],   # ohlc と同じ長さ
-      ma30: [null/number,...]
-    }
+    candlestick がダメでも線グラフ用のデータは必ず返す
+    返却:
+      ok: true
+      ohlc: [{x,o,h,l,c}]  (作れたら)
+      labels/close/ma10/ma30: 折れ線用（常にセット）
+      msg: 補足
     """
     ticker_raw = (request.GET.get("ticker") or "").strip()
     ticker = _normalize_ticker(ticker_raw)
@@ -108,72 +107,63 @@ def ohlc_api(request):
         return JsonResponse({"ok": False, "error": "ticker required"})
 
     try:
-        # ローソクは調整前のOHLCが必要なので auto_adjust=False を明示
-        df = yf.download(
-            str(ticker),
-            period=f"{days}d",
-            interval="1d",
-            auto_adjust=False,
-            progress=False,
-        )
+        df = yf.download(str(ticker), period=f"{days}d", interval="1d",
+                         progress=False, auto_adjust=True)
         if df is None or df.empty:
             return JsonResponse({"ok": False, "error": "no data"})
 
-        # -------- 列名ゆらぎ & MultiIndex 対応で OHLC を取り出す --------
-        def _pick(colname: str) -> pd.Series:
-            if isinstance(df.columns, pd.MultiIndex):
-                # level 0 に目的の列があれば cross-section で取得
-                if colname in df.columns.get_level_values(0):
-                    obj = df.xs(colname, axis=1, level=0, drop_level=True)
-                    # 複数列（複数ティッカー）の場合は先頭列を採用
-                    if isinstance(obj, pd.DataFrame):
-                        obj = obj.iloc[:, 0]
-                    return pd.to_numeric(obj, errors="coerce")
-                # 最後の保険：最終列を採用
-                return pd.to_numeric(df.iloc[:, -1], errors="coerce")
-            else:
-                # 単一列DataFrame
-                lower = {c.lower(): c for c in df.columns}
-                use = lower.get(colname.lower())
-                if not use:
-                    raise KeyError(colname)
-                return pd.to_numeric(df[use], errors="coerce")
+        # ---- Close（単一/MI 対応）----
+        if isinstance(df.columns, pd.MultiIndex):
+            close_obj = (df.xs("Close", axis=1, level=0, drop_level=True)
+                         if "Close" in df.columns.get_level_values(0)
+                         else df.iloc[:, -1])
+            s = close_obj.iloc[:, 0] if isinstance(close_obj, pd.DataFrame) else close_obj
+        else:
+            if "Close" not in df.columns and "Adj Close" in df.columns:
+                df = df.rename(columns={"Adj Close": "Close"})
+            if "Close" not in df.columns:
+                return JsonResponse({"ok": False, "error": "no Close column"})
+            s = df["Close"]
 
-        o = _pick("Open")
-        h = _pick("High")
-        l = _pick("Low")
-        c = _pick("Close")
+        s = pd.to_numeric(s, errors="coerce").dropna()
+        ma10 = s.rolling(10).mean()
+        ma30 = s.rolling(30).mean()
 
-        # 共通インデックスにアラインし、NaNを落とす
-        base = pd.concat([o, h, l, c], axis=1, join="inner").dropna()
-        base.columns = ["Open", "High", "Low", "Close"]
-        if base.empty:
-            return JsonResponse({"ok": False, "error": "no aligned data"})
+        # ---- candlestick（作れたら）----
+        ohlc = None
+        try:
+            def pick(col):
+                if isinstance(df.columns, pd.MultiIndex):
+                    obj = (df.xs(col, axis=1, level=0, drop_level=True)
+                           if col in df.columns.get_level_values(0) else None)
+                    if obj is None: return None
+                    return pd.to_numeric(obj.iloc[:,0] if isinstance(obj, pd.DataFrame) else obj, errors="coerce")
+                return pd.to_numeric(df[col], errors="coerce") if col in df.columns else None
 
-        # 移動平均（Closeベース）— candlestick と同一長さになるように None 埋め
-        ma10_full = base["Close"].rolling(10).mean()
-        ma30_full = base["Close"].rolling(30).mean()
+            o, h, l, c = pick("Open"), pick("High"), pick("Low"), pick("Close")
+            base = pd.concat([o, h, l, c], axis=1, join="inner")
+            base.columns = ["Open", "High", "Low", "Close"]
+            base = base.dropna()
+            if not base.empty:
+                ohlc = [{
+                    "x": idx.strftime("%Y-%m-%d"),
+                    "o": float(row["Open"]),
+                    "h": float(row["High"]),
+                    "l": float(row["Low"]),
+                    "c": float(row["Close"]),
+                } for idx, row in base.iterrows()]
+        except Exception:
+            ohlc = None  # 失敗しても無視（線で描く）
 
-        # candlestick 用データ
-        ohlc = [
-            {
-                "x": idx.strftime("%Y-%m-%d"),
-                "o": float(row["Open"]),
-                "h": float(row["High"]),
-                "l": float(row["Low"]),
-                "c": float(row["Close"]),
-            }
-            for idx, row in base.iterrows()
-        ]
-
-        payload = {
+        return JsonResponse({
             "ok": True,
-            "ohlc": ohlc,
-            "ma10": [float(v) if pd.notna(v) else None for v in ma10_full],
-            "ma30": [float(v) if pd.notna(v) else None for v in ma30_full],
-        }
-        return JsonResponse(payload)
-
+            "ohlc": ohlc,  # null でもOK（前段が折れ線にフォールバック）
+            "labels": [d.strftime("%Y-%m-%d") for d in s.index],
+            "close": [float(v) for v in s],
+            "ma10": [float(v) if pd.notna(v) else None for v in ma10],
+            "ma30": [float(v) if pd.notna(v) else None for v in ma30],
+            "msg": "candlestick fallback to line" if ohlc is None else "candlestick ok"
+        })
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)})
         
