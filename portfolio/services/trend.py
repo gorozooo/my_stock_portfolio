@@ -1,199 +1,116 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
 import os
 import re
-import json
 import unicodedata
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
-
-# =====================================================================
+# =========================================================
 # 設定（環境変数で上書き可）
-# =====================================================================
+# =========================================================
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+_TSE_JSON_PATH = os.environ.get("TSE_JSON_PATH", os.path.join(BASE_DIR, "data", "tse_list.json"))
+_TSE_CSV_PATH  = os.environ.get("TSE_CSV_PATH",  os.path.join(BASE_DIR, "data", "tse_list.csv"))
+_TSE_ALWAYS_RELOAD = os.environ.get("TSE_CSV_ALWAYS_RELOAD", "0") == "1"
+_TSE_DEBUG = os.environ.get("TSE_DEBUG", "0") == "1"
 
-_BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+# ベンチマーク（RS計算用）
+_INDEX_TICKER = os.environ.get("INDEX_TICKER", "^N225")  # 例: ^N225, ^GSPC など
 
-_TSE_CSV_PATH = os.environ.get(
-    "TSE_CSV_PATH",
-    os.path.join(_BASE_DIR, "data", "tse_list.csv"),
-)
-_TSE_JSON_PATH = os.environ.get(
-    "TSE_JSON_PATH",
-    os.path.join(_BASE_DIR, "data", "tse_list.json"),
-)
-_TSE_ALWAYS_RELOAD = os.environ.get("TSE_CSV_ALWAYS_RELOAD") == "1"
-_TSE_DEBUG = os.environ.get("TSE_DEBUG") == "1"
-
-# モジュール内キャッシュ
+# キャッシュ
 _TSE_MAP: Dict[str, str] = {}
-_TSE_SRC_TAG: str = ""  # "csv" or "json" or ""
+_TSE_MTIME: Tuple[float, float] = (0.0, 0.0)  # (json_mtime, csv_mtime)
 
+def _d(msg: str) -> None:
+    if _TSE_DEBUG:
+        print(f"[TSE] {msg}")
 
-# =====================================================================
-# 文字クリーン（最強版）
-# =====================================================================
-
-# 除外する Unicode カテゴリ
-# - Cc: 制御文字
-# - Cf: 書式文字（ZWSPやBOMなど）
-# - Co: 私用領域（PUA） … “”のような謎記号はここに入ることが多い
-_EXCLUDE_CATEGORIES = {"Cc", "Cf", "Co"}
-
+# =========================================================
+# テキストクレンジング
+# =========================================================
 def _clean_text(s: str) -> str:
-    """
-    Excel/ブラウザ/端末間で混入しがちな不可視文字を“カテゴリ”ベースで徹底除去。
-    - 正規化: NFKC
-    - 除去   : Cc/Cf/Co（制御・書式・私用領域）を総除去
-    - 仕上げ : 全角スペース→半角、連続空白を1つに、前後trim
-    """
     if not isinstance(s, str):
         return s
-
-    # 正規化（全角→半角、互換分解など）
     s = unicodedata.normalize("NFKC", s)
-
-    # 文字カテゴリでふるい落とす
-    cleaned_chars = []
-    for ch in s:
-        cat = unicodedata.category(ch)
-        if cat in _EXCLUDE_CATEGORIES:
-            continue  # 制御/書式/私用領域は捨てる
-        cleaned_chars.append(ch)
-    s = "".join(cleaned_chars)
-
-    # 全角スペースを半角へ
+    s = re.sub(r"[\u200B-\u200D\uFEFF]", "", s)   # zero width & BOM
+    s = re.sub(r"[\uFE00-\uFE0F]", "", s)         # variation selectors
+    s = re.sub(r"[\u0000-\u001F\u007F]", "", s)   # control chars + DEL
+    s = re.sub(r"[\uE000-\uF8FF]", "", s)         # PUA
     s = s.replace("\u3000", " ")
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
 
-    # 余分な空白の詰め
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
-
-# =====================================================================
-# 東証リスト ロード（CSV/JSON どちらでも可）
-# =====================================================================
-
+# =========================================================
+# 日本語銘柄名ローダ（JSON優先、なければCSV）
+# =========================================================
 def _load_tse_map_if_needed() -> None:
-    """
-    CSV/JSON のどちらかから code->name マップをロード。
-    - CSV が存在すれば CSV を優先
-    - 無ければ JSON を見る
-    どちらの経路でも読み込み時に _clean_text を通す
-    """
-    global _TSE_MAP, _TSE_SRC_TAG
+    global _TSE_MAP, _TSE_MTIME
+    json_m, csv_m = 0.0, 0.0
+    if os.path.isfile(_TSE_JSON_PATH):
+        json_m = os.path.getmtime(_TSE_JSON_PATH)
+    if os.path.isfile(_TSE_CSV_PATH):
+        csv_m = os.path.getmtime(_TSE_CSV_PATH)
 
-    if _TSE_MAP and not _TSE_ALWAYS_RELOAD:
+    if not _TSE_ALWAYS_RELOAD and _TSE_MAP and _TSE_MTIME == (json_m, csv_m):
         return
 
-    # まず CSV を試す
-    if os.path.isfile(_TSE_CSV_PATH):
-        try:
-            df = pd.read_csv(
-                _TSE_CSV_PATH,
-                encoding="utf-8-sig",
-                dtype={"code": str, "name": str},
-            )
-            cols = {c.lower(): c for c in df.columns}
-            code_col = cols.get("code")
-            name_col = cols.get("name")
-            if not code_col or not name_col:
-                raise ValueError("CSV に 'code' と 'name' 列が必要です")
-
-            # 正規化 + クリーニング
-            df[code_col] = df[code_col].astype(str).map(_clean_text)
-            df[name_col] = df[name_col].astype(str).map(_clean_text)
-
-            # 数字以外が紛れたコードを防御的に除去
-            df = df[df[code_col].str.fullmatch(r"\d{4,5}")]
-
-            _TSE_MAP = {
-                row[code_col]: row[name_col]
-                for _, row in df.iterrows()
-                if row[code_col] and row[name_col]
-            }
-            _TSE_SRC_TAG = "csv"
-            if _TSE_DEBUG:
-                print(f"[TSE] loaded csv ({len(_TSE_MAP)} rows)")
-            return
-        except Exception as e:
-            _TSE_MAP = {}
-            _TSE_SRC_TAG = ""
-            if _TSE_DEBUG:
-                print("[TSE] CSV load failed:", e)
-
-    # CSV が無ければ JSON
+    # まず JSON
+    df = None
     if os.path.isfile(_TSE_JSON_PATH):
         try:
-            with open(_TSE_JSON_PATH, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-
-            m: Dict[str, str] = {}
-            if isinstance(raw, dict):
-                for k, v in raw.items():
-                    code = _clean_text(str(k).strip())
-                    name = _clean_text(str(v).strip())
-                    if re.fullmatch(r"\d{4,5}", code) and name:
-                        m[code] = name
-            elif isinstance(raw, list):
-                # [{"code": "...", "name": "..."}] 形式も許容
-                for d in raw:
-                    code = _clean_text(str(d.get("code", "")).strip())
-                    name = _clean_text(str(d.get("name", "")).strip())
-                    if re.fullmatch(r"\d{4,5}", code) and name:
-                        m[code] = name
-
-            _TSE_MAP = m
-            _TSE_SRC_TAG = "json"
-            if _TSE_DEBUG:
-                print(f"[TSE] loaded json ({len(_TSE_MAP)} rows)")
-            return
+            d = pd.read_json(_TSE_JSON_PATH, orient="records")
+            cols = {c.lower(): c for c in d.columns}
+            code = cols.get("code") or cols.get("ticker") or cols.get("symbol")
+            name = cols.get("name") or cols.get("jp_name") or cols.get("company")
+            if code and name:
+                d = d[[code, name]].rename(columns={code: "code", name: "name"})
+                df = d
+                _d(f"loaded json ({len(df)} rows)")
         except Exception as e:
-            _TSE_MAP = {}
-            _TSE_SRC_TAG = ""
-            if _TSE_DEBUG:
-                print("[TSE] JSON load failed:", e)
+            _d(f"failed to load json: {e}")
 
-    # どちらも無し/失敗
-    _TSE_MAP = {}
-    _TSE_SRC_TAG = ""
-    if _TSE_DEBUG:
-        print("[TSE] no list loaded")
+    # JSONがダメならCSV
+    if df is None and os.path.isfile(_TSE_CSV_PATH):
+        try:
+            d = pd.read_csv(_TSE_CSV_PATH, encoding="utf-8-sig", dtype=str)
+            cols = {c.lower(): c for c in d.columns}
+            code = cols.get("code")
+            name = cols.get("name")
+            if code and name:
+                d = d[[code, name]].rename(columns={code: "code", name: "name"})
+                df = d
+                _d(f"loaded csv ({len(df)} rows)")
+        except Exception as e:
+            _d(f"failed to load csv: {e}")
 
+    if df is None:
+        _TSE_MAP = {}
+        _TSE_MTIME = (json_m, csv_m)
+        return
+
+    df["code"] = df["code"].astype(str).map(_clean_text)
+    df["name"] = df["name"].astype(str).map(_clean_text)
+    _TSE_MAP = {row["code"].upper(): row["name"] for _, row in df.iterrows() if row["code"] and row["name"]}
+    _TSE_MTIME = (json_m, csv_m)
 
 def _lookup_name_jp_from_list(ticker: str) -> Optional[str]:
-    """
-    ティッカーが東証（nnnn / nnnnn / nnnn.T など）なら CSV/JSON マップから日本語名を返す。
-    見つからなければ None。
-    """
     _load_tse_map_if_needed()
-    if not _TSE_MAP:
+    if not _TSE_MAP or not ticker:
         return None
+    head = ticker.upper().split(".", 1)[0]
+    name = _TSE_MAP.get(head)
+    if _TSE_DEBUG:
+        _d(f"lookup {head} -> {repr(name)}")
+    return name
 
-    t = (ticker or "").upper().strip()
-    if not t:
-        return None
-
-    # "7203" / "7203.T" / "7203.TK" などの数字部分を抜く
-    numeric = t.split(".", 1)[0]
-    if numeric.isdigit() and len(numeric) in (4, 5):
-        name = _TSE_MAP.get(numeric)
-        if name:
-            name = _clean_text(name)
-            if _TSE_DEBUG:
-                print(f"[TSE] lookup {numeric} -> '{name}' (src={_TSE_SRC_TAG})")
-            return name
-        if _TSE_DEBUG:
-            print(f"[TSE] lookup {numeric} -> None")
-    return None
-
-
-# =====================================================================
+# =========================================================
 # ティッカー正規化 / 名前取得
-# =====================================================================
+# =========================================================
+_JP_ALNUM = re.compile(r"^[0-9A-Z]{4,5}$")
 
 def _normalize_ticker(raw: str) -> str:
     t = (raw or "").strip().upper()
@@ -201,32 +118,14 @@ def _normalize_ticker(raw: str) -> str:
         return t
     if "." in t:
         return t
-    # 4～5桁の数字 or 数字+アルファベットを東証コードとして処理
-    if re.match(r"^\d{3,4}[A-Z]?$", t):
+    if _JP_ALNUM.match(t):
         return f"{t}.T"
     return t
 
-
 def _fetch_name_prefer_jp(ticker: str) -> str:
-    """
-    優先順:
-      1) 東証リスト（CSV/JSON）の日本語名
-      2) 日本株コードなら数字だけ（英語へは落とさない）
-      3) 海外銘柄等は yfinance の名称（shortName/longName/name）
-      4) 何も無ければティッカー
-    """
-    # まず東証リスト
-    name_csv = _lookup_name_jp_from_list(ticker)
-    if name_csv:
-        return _clean_text(name_csv)
-
-    # 日本株コードなら数字だけを返す
-    t = (ticker or "").upper().strip()
-    numeric = t.split(".", 1)[0]
-    if numeric.isdigit() and len(numeric) in (4, 5):
-        return numeric
-
-    # 海外銘柄などは yfinance
+    name = _lookup_name_jp_from_list(ticker)
+    if isinstance(name, str) and name.strip():
+        return name.strip()
     try:
         info = getattr(yf.Ticker(ticker), "info", {}) or {}
         name = info.get("shortName") or info.get("longName") or info.get("name")
@@ -234,31 +133,107 @@ def _fetch_name_prefer_jp(ticker: str) -> str:
             return _clean_text(name)
     except Exception:
         pass
+    head = ticker.upper().split(".", 1)[0]
+    return head or ticker
 
-    return ticker
+# =========================================================
+# テクニカル（ADX/ATRなど）
+# =========================================================
+def _true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs()
+    ], axis=1).max(axis=1)
+    return tr
 
+def _wilder_smooth(series: pd.Series, n: int) -> pd.Series:
+    # 初期値＝最初のn個の単純平均、その後はWilder平滑
+    s = series.copy()
+    out = pd.Series(index=s.index, dtype=float)
+    out.iloc[n-1] = s.iloc[:n].mean()
+    for i in range(n, len(s)):
+        out.iloc[i] = (out.iloc[i-1] * (n - 1) + s.iloc[i]) / n
+    return out
 
-# =====================================================================
+def _adx(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> Optional[float]:
+    try:
+        up_move = high.diff()
+        down_move = -low.diff()
+        plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+        minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+
+        tr = _true_range(high, low, close)
+        atr = _wilder_smooth(tr, n)
+
+        plus_di = 100 * _wilder_smooth(plus_dm, n) / atr
+        minus_di = 100 * _wilder_smooth(minus_dm, n) / atr
+        dx = ( (plus_di - minus_di).abs() / (plus_di + minus_di) ) * 100
+        adx = _wilder_smooth(dx, n)
+        v = float(adx.dropna().iloc[-1])
+        return v
+    except Exception:
+        return None
+
+def _annualized_vol(p: pd.Series, win: int) -> Optional[float]:
+    try:
+        r = p.pct_change().dropna()
+        if len(r) < max(10, win):
+            return None
+        return float(r.tail(win).std() * np.sqrt(252) * 100.0)
+    except Exception:
+        return None
+
+def _atr(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> Optional[float]:
+    try:
+        tr = _true_range(high, low, close)
+        atr = _wilder_smooth(tr, n)
+        return float(atr.dropna().iloc[-1])
+    except Exception:
+        return None
+
+# =========================================================
 # 結果スキーマ
-# =====================================================================
-
+# =========================================================
 @dataclass
 class TrendResult:
     ticker: str
-    name: str                   # 日本語名を想定（無ければ英語 or ティッカー/数字）
-    asof: str                   # 例: '2025-09-15'
-    days: int                   # 直近使用日数
-    signal: str                 # 'UP' | 'DOWN' | 'FLAT'
+    name: str
+    asof: str
+    days: int
+    signal: str         # 'UP' | 'DOWN' | 'FLAT'
     reason: str
-    slope: float                # 1日あたりの回帰傾き（終値）
-    slope_annualized_pct: float # 年率換算(%)
-    ma_short: Optional[float]   # 短期MAの最新値
-    ma_long: Optional[float]    # 長期MAの最新値
+    slope: float
+    slope_annualized_pct: float
+    ma_short: Optional[float]
+    ma_long: Optional[float]
+    # 追加
+    ma20: Optional[float]
+    ma50: Optional[float]
+    ma200: Optional[float]
+    ma_order: Optional[str]          # "20>50>200" 等
+    adx14: Optional[float]
+    rs_6m_pct: Optional[float]       # 6か月ベンチ超過(%)
+    hi52_gap_pct: Optional[float]    # 52週高値までの距離(%) 正=未到達
+    lo52_gap_pct: Optional[float]    # 52週安値からの距離(%) 正=上
+    vol20_ann_pct: Optional[float]
+    vol60_ann_pct: Optional[float]
+    atr14: Optional[float]
+    adv20: Optional[float]           # 20日売買代金平均（Close*Volume）
 
-
-# =====================================================================
+# =========================================================
 # メイン判定
-# =====================================================================
+# =========================================================
+def _to_float_or_none(v) -> Optional[float]:
+    try:
+        if isinstance(v, pd.Series):
+            v = v.iloc[0]
+        if pd.isna(v):
+            return None
+        return float(v)
+    except Exception:
+        return None
 
 def detect_trend(
     ticker: str,
@@ -266,99 +241,140 @@ def detect_trend(
     ma_short_win: int = 10,
     ma_long_win: int = 30,
 ) -> TrendResult:
-    """
-    直近 N 日の終値で線形回帰の傾きと移動平均を見て
-    シンプルに UP/DOWN/FLAT を返す。
-    """
     ticker = _normalize_ticker(ticker)
     if not ticker:
         raise ValueError("ticker is required")
 
-    # データ取得（市場休日も考慮して余裕を持って長めに）
-    period_days = max(days + 30, 120)
-    df = yf.download(
-        ticker,
-        period=f"{period_days}d",
-        interval="1d",
-        progress=False,
-        auto_adjust=True,  # FutureWarning 回避
-    )
+    # いろいろ計算するので長めに取る（52週=~252営業日）
+    period_days = max(days + 300, 420)
+    df = yf.download(ticker, period=f"{period_days}d", interval="1d", progress=False)
     if df is None or df.empty:
         raise ValueError("価格データを取得できませんでした")
 
-    # 終値のみ
-    s = df["Close"].dropna()
+    # column名の揺れ（yfinanceのauto_adjust既定変更など）を吸収
+    cols = {c.lower(): c for c in df.columns}
+    close_col = cols.get("close") or "Close"
+    high_col  = cols.get("high") or "High"
+    low_col   = cols.get("low") or "Low"
+    vol_col   = cols.get("volume") or "Volume"
+
+    s = df[close_col].dropna()
     if s.empty:
         raise ValueError("終値データが空でした")
 
-    # 直近 'days' 営業日のみ
-    s = s.tail(days)
+    s_recent = s.tail(days)
+    if len(s_recent) < max(15, ma_long_win):
+        raise ValueError(f"データ日数が不足しています（取得: {len(s_recent)}日）")
 
-    if len(s) < max(15, ma_long_win):
-        raise ValueError(f"データ日数が不足しています（取得: {len(s)}日）")
+    # ------- 基本MA -------
+    ma_short = s_recent.rolling(ma_short_win).mean()
+    ma_long  = s_recent.rolling(ma_long_win).mean()
+    ma_s = _to_float_or_none(ma_short.iloc[[-1]])
+    ma_l = _to_float_or_none(ma_long.iloc[[-1]])
 
-    # 移動平均
-    ma_short = s.rolling(ma_short_win).mean()
-    ma_long = s.rolling(ma_long_win).mean()
-
-    def _to_float_or_none(v) -> Optional[float]:
-        try:
-            if pd.isna(v):
-                return None
-        except Exception:
-            pass
-        try:
-            return float(v)
-        except Exception:
-            # pandas Series を誤って渡された場合などの保険
-            try:
-                return float(getattr(v, "iloc", [None])[-1])
-            except Exception:
-                return None
-
-    ma_s = _to_float_or_none(ma_short.iloc[-1])
-    ma_l = _to_float_or_none(ma_long.iloc[-1])
-
-    # 線形回帰（x は 0..n-1）
-    y = s.values.astype(float)
+    # ------- 回帰傾き -------
+    y = s_recent.values.astype(float)
     x = np.arange(len(y), dtype=float)
-    k, _b = np.polyfit(x, y, 1)  # 傾き k
-
-    # 年率換算の概算（営業日 ~ 252日）
+    k, _b = np.polyfit(x, y, 1)
     last_price = y[-1]
     slope_daily_pct = (k / last_price) * 100.0 if last_price else 0.0
     slope_ann_pct = slope_daily_pct * 252.0
 
-    # シグナル判定（シンプル基準）
+    # ------- シグナル -------
     signal = "FLAT"
     reason = "傾きが小さいため様子見"
     if slope_ann_pct >= 5.0:
-        signal = "UP"
-        reason = "回帰傾き(年率換算)が正で大きめ"
+        signal, reason = "UP", "回帰傾き(年率換算)が正で大きめ"
     elif slope_ann_pct <= -5.0:
-        signal = "DOWN"
-        reason = "回帰傾き(年率換算)が負で大きめ"
-
-    # MA クロスで補強
-    if (ma_s is not None) and (ma_l is not None):
-        if ma_s > ma_l and signal == "FLAT":
+        signal, reason = "DOWN", "回帰傾き(年率換算)が負で大きめ"
+    if (ma_s is not None) and (ma_l is not None) and signal == "FLAT":
+        if ma_s > ma_l:
             signal, reason = "UP", "短期線が長期線を上回る(ゴールデンクロス気味)"
-        elif ma_s < ma_l and signal == "FLAT":
+        elif ma_s < ma_l:
             signal, reason = "DOWN", "短期線が長期線を下回る(デッドクロス気味)"
 
-    asof = s.index[-1].date().isoformat()
-    # 返却直前にももう一度クリーン（ダブルセーフ）
-    name = _clean_text(_fetch_name_prefer_jp(ticker))
+    # ------- 追加指標（過去長期データ使用） -------
+    ma20 = float(s.tail(20).mean()) if len(s) >= 20 else None
+    ma50 = float(s.tail(50).mean()) if len(s) >= 50 else None
+    ma200 = float(s.tail(200).mean()) if len(s) >= 200 else None
+
+    def _ma_order_str(a,b,c):
+        if None in (a,b,c):
+            return None
+        order = sorted([("20",a),("50",b),("200",c)], key=lambda t: t[1], reverse=True)
+        return ">".join([t[0] for t in order])  # e.g. "20>50>200"
+
+    ma_order = _ma_order_str(ma20, ma50, ma200)
+
+    # ADX/ATR
+    adx14 = _adx(df[high_col], df[low_col], df[close_col], n=14)
+    atr14 = _atr(df[high_col], df[low_col], df[close_col], n=14)
+
+    # 年化ボラ
+    vol20 = _annualized_vol(s, 20)
+    vol60 = _annualized_vol(s, 60)
+
+    # 52週高安
+    if len(s) >= 252:
+        hi52 = float(s.tail(252).max())
+        lo52 = float(s.tail(252).min())
+        last = float(s.iloc[-1])
+        hi52_gap = (hi52 - last) / last * 100.0
+        lo52_gap = (last - lo52) / lo52 * 100.0
+    else:
+        hi52_gap = lo52_gap = None
+
+    # RS(6M) ベンチ比
+    rs_6m = None
+    try:
+        bench = yf.download(_INDEX_TICKER, period="300d", interval="1d", progress=False)
+        bcols = {c.lower(): c for c in bench.columns}
+        bclose = bench[bcols.get("close") or "Close"].dropna()
+        # 130営業日 ≒ 6か月
+        r_stock = s.pct_change().dropna().tail(130)
+        r_bench = bclose.pct_change().dropna().tail(130)
+        # 共通日付で合わせる
+        joined = pd.concat([r_stock, r_bench], axis=1, join="inner")
+        joined.columns = ["s","b"]
+        if not joined.empty:
+            cum_s = (1 + joined["s"]).prod() - 1.0
+            cum_b = (1 + joined["b"]).prod() - 1.0
+            rs_6m = (cum_s - cum_b) * 100.0
+    except Exception:
+        rs_6m = None
+
+    # ADV20（売買代金20日平均）
+    adv20 = None
+    try:
+        vol = df[vol_col].astype(float)
+        adv20 = float((vol.tail(20) * s.tail(20)).mean())
+    except Exception:
+        pass
+
+    asof = s_recent.index[-1].date().isoformat()
+    name = _fetch_name_prefer_jp(ticker)
 
     return TrendResult(
         ticker=ticker,
         name=name,
         asof=asof,
-        days=int(len(s)),
+        days=int(len(s_recent)),
         signal=signal,
         reason=reason,
         slope=float(k),
         slope_annualized_pct=float(slope_ann_pct),
         ma_short=ma_s,
         ma_long=ma_l,
+        ma20=ma20,
+        ma50=ma50,
+        ma200=ma200,
+        ma_order=ma_order,
+        adx14=adx14,
+        rs_6m_pct=rs_6m,
+        hi52_gap_pct=hi52_gap,
+        lo52_gap_pct=lo52_gap,
+        vol20_ann_pct=vol20,
+        vol60_ann_pct=vol60,
+        atr14=atr14,
+        adv20=adv20,
     )
