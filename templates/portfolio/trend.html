@@ -4,52 +4,42 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <title>銘柄トレンド判定</title>
-
-  <!-- htmx / Chart.js -->
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
   <style>
-    body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial; margin:16px; }
+    body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial; margin:16px; }
     h2 { font-size:28px; margin:0 0 12px; }
     .row { display:flex; gap:8px; }
     input[type=text]{ flex:1; font-size:16px; padding:12px; border:1px solid #ddd; border-radius:12px; }
     button{ padding:12px 16px; font-size:16px; border:none; border-radius:12px; background:#111; color:#fff; }
-    .card{ margin-top:12px; border:1px solid #eee; border-radius:16px; padding:16px; box-shadow:0 2px 8px rgba(0,0,0,.06); }
+    .card{ margin-top:12px; border:1px solid #eee; border-radius:16px; padding:16px; box-shadow:0 2px 8px rgba(0,0,0,.06);}
+    .tag{ display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px; }
+    .up{ background:#e6ffed; color:#057a55; }
+    .down{ background:#ffecec; color:#b00020; }
+    .flat{ background:#f5f5f5; color:#555; }
     .sub{ color:#666; font-size:12px; }
-
-    /* htmx indicator */
+    .chart-wrap { margin-top:12px; border:1px solid #eee; border-radius:16px; padding:12px; height:260px; }
     .htmx-indicator { display:none; }
     .htmx-request .htmx-indicator { display:block; }
-
-    /* chart box */
-    .chart-wrap { margin-top:12px; border:1px solid #eee; border-radius:16px; padding:12px; height:260px; }
-
     /* 根拠テーブル */
-    .grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
     .kpi { padding:10px; border:1px solid #eee; border-radius:12px; background:#fafafa; }
     .kpi h4 { margin:0 0 6px; font-size:13px; color:#666; }
     .kpi .v { font-size:16px; font-weight:600; }
-    .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }
     .b-green{ background:#e6ffed; color:#057a55; }
-    .b-red{   background:#ffecec; color:#b00020; }
-    .b-gray{  background:#f5f5f5; color:#555; }
+    .b-red{ background:#ffecec; color:#b00020; }
+    .b-gray{ background:#f5f5f5; color:#555; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }
+    .err { color:#b00020; margin-top:8px; }
   </style>
 </head>
 <body>
   <h2>銘柄トレンド判定</h2>
 
   <div class="row">
-    <input
-      id="ticker"
-      type="text"
-      placeholder="例: AAPL / MSFT / 7203（.T不要）"
-      inputmode="latin"
-      autocomplete="off"
-      autocapitalize="characters"
-      spellcheck="false">
-    <button
-      id="judgeBtn"
+    <input id="ticker" type="text" placeholder="例: AAPL / MSFT / 7203（.T不要）"
+           inputmode="latin" autocomplete="off" autocapitalize="characters" spellcheck="false">
+    <button id="judgeBtn"
       hx-get="/trend/card"
       hx-target="#result"
       hx-swap="innerHTML"
@@ -61,7 +51,7 @@
 
   <div id="loading" class="sub htmx-indicator">Loading...</div>
 
-  <!-- 判定カード（HTMXで差し替え） -->
+  <!-- 判定結果カード -->
   <div id="result" class="card"></div>
 
   <!-- チャート -->
@@ -73,27 +63,34 @@
   <div id="evidence" class="card" style="display:none;">
     <div class="sub" id="ev-asof"></div>
     <div class="grid" id="ev-grid"></div>
+    <div id="ev-error" class="err" style="display:none;"></div>
   </div>
 
   <script>
     const tickerEl = document.getElementById('ticker');
     const btn = document.getElementById('judgeBtn');
 
-    // Enterで実行
+    // 4–5桁英数字は .T を付与（バックエンドと同じルール）
+    function normalizeTicker(raw){
+      const t = (raw || '').trim().toUpperCase();
+      if (!t) return t;
+      if (t.includes('.')) return t;
+      return /^[0-9A-Z]{4,5}$/.test(t) ? `${t}.T` : t;
+    }
+
     tickerEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') btn.click(); });
 
-    /* ============== Chart.js ============== */
+    // ===== Chart.js =====
     let chart;
-    async function drawChart(ticker, days=180){
+    async function drawChart(input, days = 180) {
+      const ticker = normalizeTicker(input);
       if (!ticker) return;
-      try{
+      try {
         const r = await fetch(`/api/ohlc?ticker=${encodeURIComponent(ticker)}&days=${days}`);
         const j = await r.json();
-        if (!j.ok || !(j.labels && j.labels.length)) return;
-
+        if (!j.ok || !j.labels?.length) return;
         const ctx = document.getElementById('priceChart').getContext('2d');
         if (chart) chart.destroy();
-
         chart = new Chart(ctx, {
           type: 'line',
           data: {
@@ -105,50 +102,49 @@
             ]
           },
           options: {
-            responsive: true,
-            maintainAspectRatio: false,
+            responsive: true, maintainAspectRatio: false,
             interaction: { mode: 'index', intersect: false },
-            scales: {
-              x: { display: false },
-              y: { beginAtZero: false, ticks: { callback: v => (typeof v === 'number' ? v.toLocaleString() : v) } }
-            },
+            scales: { x: { display: false }, y: { beginAtZero: false, ticks: { callback: v => (typeof v === 'number'? v.toLocaleString(): v) } } },
             plugins: { legend: { display: true } }
           }
         });
-      }catch(e){ console.error(e); }
+      } catch(e) { console.error(e); }
     }
 
-    /* ============== Evidence（軽量根拠） ============== */
+    // ===== Evidence（軽量根拠） =====
     function badge(val, good=true){
-      return `<span class="badge ${good ? 'b-green' : 'b-red'}">${val}</span>`;
+      const cls = good ? 'b-green' : 'b-red';
+      return `<span class="badge ${cls}">${val}</span>`;
     }
-    function fmt(x, d=2){
-      return (x===null || x===undefined || Number.isNaN(Number(x))) ? '-' : Number(x).toFixed(d);
-    }
+    function fmt(x, d=2){ return (x===null || x===undefined) ? '-' : Number(x).toFixed(d); }
 
-    async function loadEvidence(ticker){
-      const box  = document.getElementById('evidence');
+    async function loadEvidence(input){
+      const ticker = normalizeTicker(input);
+      const box = document.getElementById('evidence');
       const grid = document.getElementById('ev-grid');
       const asof = document.getElementById('ev-asof');
+      const err  = document.getElementById('ev-error');
       box.style.display = 'none';
-
+      err.style.display = 'none'; err.textContent = '';
       try{
         const r = await fetch(`/api/metrics?ticker=${encodeURIComponent(ticker)}`);
         const j = await r.json();
-        if (!j.ok) return;
-
+        if(!j.ok){
+          err.textContent = j.error || 'メトリクス取得に失敗しました';
+          err.style.display = 'block';
+          box.style.display = 'block';
+          return;
+        }
         asof.textContent = `根拠（${j.asof} 時点）`;
         grid.innerHTML = '';
 
-        // --- トレンド ---
+        // トレンド
         const slope = j.trend?.slope_ann_pct_60;
-        const adx   = j.trend?.adx14;
-        const ma    = j.trend?.ma || {};
-        const maStack =
-          ma.stack === 'bull' ? badge('MA整列:強', true) :
-          ma.stack === 'bear' ? badge('MA整列:弱', false) :
-          `<span class="badge b-gray">MA整列:中立</span>`;
-
+        const adx = j.trend?.adx14;
+        const ma = j.trend?.ma || {};
+        const maStack = ma.stack === 'bull' ? badge('MA整列:強', true)
+                       : ma.stack === 'bear' ? badge('MA整列:弱', false)
+                       : `<span class="badge b-gray">MA整列:中立</span>`;
         grid.insertAdjacentHTML('beforeend', `
           <div class="kpi"><h4>回帰傾き(60日・年率)</h4><div class="v">${fmt(slope)}%</div></div>
           <div class="kpi"><h4>ADX(14)</h4><div class="v">${fmt(adx)}</div></div>
@@ -156,36 +152,39 @@
           <div class="kpi"><h4>MA整列</h4><div class="v">${maStack}</div></div>
         `);
 
-        // --- 相対強さ ---
-        const rs6      = j.relative?.rs_6m_pct;
-        const fromHigh = j.relative?.from_52w_high_pct ?? null;
-        const fromLow  = j.relative?.from_52w_low_pct  ?? null;
-
+        // 相対
+        const rs6 = j.relative?.rs_6m_pct;
+        const nearHigh = (j.relative?.from_52w_high_pct ?? null);
+        const nearLow  = (j.relative?.from_52w_low_pct ?? null);
         grid.insertAdjacentHTML('beforeend', `
           <div class="kpi"><h4>RS(6M,指数比)</h4><div class="v">${fmt(rs6)}%</div></div>
-          <div class="kpi"><h4>52週高値まで</h4><div class="v">${fmt(fromHigh)}%</div></div>
-          <div class="kpi"><h4>52週安値から</h4><div class="v">${fmt(fromLow)}%</div></div>
+          <div class="kpi"><h4>52週高値まで</h4><div class="v">${fmt(nearHigh)}%</div></div>
+          <div class="kpi"><h4>52週安値から</h4><div class="v">${fmt(nearLow)}%</div></div>
         `);
 
-        // --- リスク/流動性 ---
+        // リスク・流動性
         const vol20 = j.risk?.vol20_ann_pct, vol60 = j.risk?.vol60_ann_pct, atr = j.risk?.atr14;
         const adv20 = j.liquidity?.adv20;
-
         grid.insertAdjacentHTML('beforeend', `
           <div class="kpi"><h4>年化ボラ20</h4><div class="v">${fmt(vol20)}%</div></div>
           <div class="kpi"><h4>年化ボラ60</h4><div class="v">${fmt(vol60)}%</div></div>
           <div class="kpi"><h4>ATR(14)</h4><div class="v">${fmt(atr,0)}</div></div>
-          <div class="kpi"><h4>ADV20(売買代金)</h4><div class="v">${adv20 ? Number(adv20).toLocaleString() : '-'}</div></div>
+          <div class="kpi"><h4>ADV20(売買代金)</h4><div class="v">${adv20 ? adv20.toLocaleString() : '-'}</div></div>
         `);
 
         box.style.display = 'block';
-      }catch(e){ console.error(e); }
+      }catch(e){
+        const errBox = document.getElementById('ev-error');
+        errBox.textContent = `メトリクス取得エラー: ${e}`;
+        errBox.style.display = 'block';
+        document.getElementById('evidence').style.display = 'block';
+      }
     }
 
-    // HTMXでカード更新後にチャート＋根拠も更新
+    // HTMXでカードが更新されたら、同一ティッカーでチャート＋根拠も更新
     document.body.addEventListener('htmx:afterOnLoad', () => {
       const t = tickerEl.value.trim();
-      if (t) {
+      if (t){
         drawChart(t);
         loadEvidence(t);
       }
