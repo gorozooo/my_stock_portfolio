@@ -2,16 +2,14 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta
-    name="viewport"
-    content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <title>銘柄トレンド判定</title>
 
   <!-- htmx -->
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 
-  <!-- Chart.js 本体 -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <!-- Chart.js (auto bundle) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <!-- 金融（ローソク）プラグイン + 日付アダプタ -->
   <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@3"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
@@ -31,7 +29,6 @@
     .chart-wrap { margin-top:12px; border:1px solid #eee; border-radius:16px; padding:12px; height:360px; }
     .htmx-indicator { display:none; }
     .htmx-request .htmx-indicator { display:block; }
-    /* 根拠テーブル */
     .grid { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
     .kpi { padding:10px; border:1px solid #eee; border-radius:12px; background:#fafafa; }
     .kpi h4 { margin:0 0 6px; font-size:13px; color:#666; }
@@ -77,6 +74,18 @@
   </div>
 
   <script>
+    // --- financial プラグインのコントローラ/エレメントを明示登録 ---
+    (function registerFinancial(){
+      const fin = window['chartjs-chart-financial'];
+      if (fin && fin.CandlestickController) {
+        Chart.register(
+          fin.CandlestickController,
+          fin.OhlcController,
+          fin.FinancialElement
+        );
+      }
+    })();
+
     const tickerEl = document.getElementById('ticker');
     const btn = document.getElementById('judgeBtn');
 
@@ -107,66 +116,62 @@
           const ma30 = j.ohlc.map((row, i) => (j.ma30?.[i] != null ? { x: row.x, y: j.ma30[i] } : null)).filter(Boolean);
 
           chart = new Chart(ctx, {
-  type: 'candlestick',
-  data: {
-    datasets: [
-      {
-        label: 'OHLC',
-        data: j.ohlc,  // [{x,o,h,l,c},...]
-        borderColor: '#333'
-      },
-      {
-        type: 'line',
-        label: 'MA(10)',
-        data: j.ohlc.map((row, i) => ({
-          x: row.x,
-          y: j.ma10?.[i] ?? null
-        })),
-        borderColor: 'blue',
-        borderWidth: 1.2,
-        pointRadius: 0,
-        spanGaps: true
-      },
-      {
-        type: 'line',
-        label: 'MA(30)',
-        data: j.ohlc.map((row, i) => ({
-          x: row.x,
-          y: j.ma30?.[i] ?? null
-        })),
-        borderColor: 'orange',
-        borderWidth: 1.2,
-        pointRadius: 0,
-        spanGaps: true
-      }
-    ]
-  },
-  options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    parsing: {
-      xAxisKey: 'x',
-      openKey: 'o',
-      highKey: 'h',
-      lowKey: 'l',
-      closeKey: 'c'
-    },
-    scales: {
-      x: {
-        type: 'time',
-        time: { parser: 'yyyy-MM-dd', tooltipFormat: 'yyyy-MM-dd' },
-        ticks: { maxTicksLimit: 6 }
-      },
-      y: {
-        beginAtZero: false,
-        ticks: {
-          callback: v => (typeof v === 'number' ? v.toLocaleString() : v)
+            data: {
+              datasets: [
+                {
+                  type: 'candlestick',
+                  label: 'OHLC',
+                  data: j.ohlc   // [{x:'YYYY-MM-DD', o,h,l,c},...]
+                },
+                { type: 'line', label: 'MA(10)', data: ma10, borderWidth: 1.5, pointRadius: 0, spanGaps: true },
+                { type: 'line', label: 'MA(30)', data: ma30, borderWidth: 1.5, pointRadius: 0, spanGaps: true }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              parsing: {
+                xAxisKey: 'x',
+                openKey:  'o',
+                highKey:  'h',
+                lowKey:   'l',
+                closeKey: 'c'
+              },
+              interaction: { mode: 'index', intersect: false },
+              scales: {
+                x: { type: 'time', time: { parser: 'yyyy-MM-dd', tooltipFormat: 'yyyy-MM-dd' }, ticks: { maxTicksLimit: 6 } },
+                y: { beginAtZero: false, ticks: { callback: v => (typeof v === 'number' ? v.toLocaleString() : v) } }
+              },
+              plugins: { legend: { display: true } }
+            }
+          });
+          return;
         }
+
+        // それ以外（従来の labels/close 形式）は折れ線でフォールバック
+        if (j.ok && Array.isArray(j.labels) && j.labels.length) {
+          chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: j.labels,
+              datasets: [
+                { label: 'Close', data: j.close, borderWidth: 2, pointRadius: 0 },
+                { label: 'MA(10)', data: j.ma10, borderWidth: 1, pointRadius: 0 },
+                { label: 'MA(30)', data: j.ma30, borderWidth: 1, pointRadius: 0 }
+              ]
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false,
+              interaction: { mode: 'index', intersect: false },
+              scales: { x: { display: false }, y: { beginAtZero: false, ticks: { callback: v => (typeof v === 'number'? v.toLocaleString(): v) } } },
+              plugins: { legend: { display: true } }
+            }
+          });
+        }
+      } catch(e) {
+        console.error(e);
       }
-    },
-    plugins: { legend: { display: true } }
-  }
-});
+    }
 
     // ===== Evidence（軽量根拠） =====
     function badge(val, good=true){
@@ -195,7 +200,6 @@
         asof.textContent = `根拠（${j.asof} 時点）`;
         grid.innerHTML = '';
 
-        // トレンド
         const slope = j.trend?.slope_ann_pct_60;
         const adx = j.trend?.adx14;
         const ma = j.trend?.ma || {};
@@ -209,7 +213,6 @@
           <div class="kpi"><h4>MA整列</h4><div class="v">${maStack}</div></div>
         `);
 
-        // 相対
         const rs6 = j.relative?.rs_6m_pct;
         const nearHigh = (j.relative?.from_52w_high_pct ?? null);
         const nearLow  = (j.relative?.from_52w_low_pct ?? null);
@@ -219,7 +222,6 @@
           <div class="kpi"><h4>52週安値から</h4><div class="v">${fmt(nearLow)}%</div></div>
         `);
 
-        // リスク・流動性
         const vol20 = j.risk?.vol20_ann_pct, vol60 = j.risk?.vol60_ann_pct, atr = j.risk?.atr14;
         const adv20 = j.liquidity?.adv20;
         grid.insertAdjacentHTML('beforeend', `
