@@ -12,13 +12,16 @@ import yfinance as yf
 # =====================================================================
 # 日本語銘柄名 CSV ローダ（data/tse_list.csv を想定）
 # - 形式: ヘッダあり、少なくとも "code","name" の2列
+# - 環境変数:
+#     TSE_CSV_PATH           … CSV のパスを上書き
+#     TSE_CSV_ALWAYS_RELOAD  … "1" なら毎回CSV再読込（開発/デバッグ向け）
 # =====================================================================
 
-# CSV の既定パス（必要なら環境変数で上書き）
 _TSE_CSV_PATH = os.environ.get(
     "TSE_CSV_PATH",
     os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "tse_list.csv"),
 )
+_ALWAYS_RELOAD = os.environ.get("TSE_CSV_ALWAYS_RELOAD", "0") == "1"
 
 # モジュール内キャッシュ
 _TSE_MAP: Dict[str, str] = {}
@@ -32,17 +35,15 @@ def _clean_text(s: str) -> str:
     """
     if not isinstance(s, str):
         return s
-    # まずNFKCで正規化（全角→半角など）
+    # NFKCで正規化（全角→半角など）
     s = unicodedata.normalize("NFKC", s)
-
     # ゼロ幅/バリアント/制御文字/DEL/私用領域/BOM を除去
-    s = re.sub(r"[\u200B-\u200D\uFEFF]", "", s)             # zero width & BOM
-    s = re.sub(r"[\uFE00-\uFE0F]", "", s)                   # variation selectors
-    s = re.sub(r"[\u0000-\u001F\u007F]", "", s)             # control chars + DEL
-    s = re.sub(r"[\uE000-\uF8FF]", "", s)                   # Private Use Area
-    # 全角スペース→半角
+    s = re.sub(r"[\u200B-\u200D\uFEFF]", "", s)         # zero width & BOM
+    s = re.sub(r"[\uFE00-\uFE0F]", "", s)               # variation selectors
+    s = re.sub(r"[\u0000-\u001F\u007F]", "", s)         # control chars + DEL
+    s = re.sub(r"[\uE000-\uF8FF]", "", s)               # Private Use Area
+    # 全角スペース→半角、空白整形
     s = s.replace("\u3000", " ")
-    # 余分な空白を整形
     s = re.sub(r"\s+", " ", s)
     return s.strip()
 
@@ -59,7 +60,7 @@ def _load_tse_map_if_needed() -> None:
 
     try:
         mtime = os.path.getmtime(_TSE_CSV_PATH)
-        if _TSE_MAP and _TSE_CSV_MTIME == mtime:
+        if not _ALWAYS_RELOAD and _TSE_MAP and _TSE_CSV_MTIME == mtime:
             return  # 変更なし
 
         df = pd.read_csv(
@@ -219,7 +220,18 @@ def detect_trend(
     ma_short = s.rolling(ma_short_win).mean()
     ma_long = s.rolling(ma_long_win).mean()
 
+    def _as_scalar(v):
+        """Series/ndarray/singleton を安全にスカラーへ"""
+        if isinstance(v, pd.Series):
+            v = v.iloc[-1]
+        elif isinstance(v, np.ndarray):
+            if v.size == 0:
+                return None
+            v = v.item() if v.size == 1 else v[-1]
+        return v
+
     def _to_float_or_none(v) -> Optional[float]:
+        v = _as_scalar(v)
         try:
             if pd.isna(v):
                 return None
@@ -261,7 +273,7 @@ def detect_trend(
             signal, reason = "DOWN", "短期線が長期線を下回る(デッドクロス気味)"
 
     asof = s.index[-1].date().isoformat()
-    name = _fetch_name_prefer_jp(ticker)
+    name = _clean_text(_fetch_name_prefer_jp(ticker))
 
     return TrendResult(
         ticker=ticker,
