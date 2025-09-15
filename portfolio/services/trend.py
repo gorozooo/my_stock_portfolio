@@ -3,12 +3,11 @@ from dataclasses import dataclass
 from typing import Optional, Dict
 import os
 import re
-import datetime as dt
+import unicodedata
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
-
 
 # =====================================================================
 # 日本語銘柄名 CSV ローダ（data/tse_list.csv を想定）
@@ -27,13 +26,24 @@ _TSE_CSV_MTIME: float = 0.0
 
 
 def _clean_text(s: str) -> str:
-    """不可視文字やゼロ幅スペースを削除して正規化"""
+    """
+    不可視文字や私用領域の文字などを削除し、Unicode正規化(NFKC)して返す。
+    Excel→CSVで混入する「」(私用領域 U+E000–U+F8FF) 等にも対応。
+    """
     if not isinstance(s, str):
         return s
-    # ゼロ幅スペース / BOM など
-    s = re.sub(r"[\u200B-\u200D\uFEFF]", "", s)
-    # 全角スペース -> 半角
+    # まずNFKCで正規化（全角→半角など）
+    s = unicodedata.normalize("NFKC", s)
+
+    # ゼロ幅/バリアント/制御文字/DEL/私用領域/BOM を除去
+    s = re.sub(r"[\u200B-\u200D\uFEFF]", "", s)             # zero width & BOM
+    s = re.sub(r"[\uFE00-\uFE0F]", "", s)                   # variation selectors
+    s = re.sub(r"[\u0000-\u001F\u007F]", "", s)             # control chars + DEL
+    s = re.sub(r"[\uE000-\uF8FF]", "", s)                   # Private Use Area
+    # 全角スペース→半角
     s = s.replace("\u3000", " ")
+    # 余分な空白を整形
+    s = re.sub(r"\s+", " ", s)
     return s.strip()
 
 
@@ -51,11 +61,13 @@ def _load_tse_map_if_needed() -> None:
         mtime = os.path.getmtime(_TSE_CSV_PATH)
         if _TSE_MAP and _TSE_CSV_MTIME == mtime:
             return  # 変更なし
+
         df = pd.read_csv(
             _TSE_CSV_PATH,
             encoding="utf-8-sig",
             dtype={"code": str, "name": str},
         )
+
         # 列名解決（大小文字・表記ゆらぎ対策）
         cols = {c.lower(): c for c in df.columns}
         code_col = cols.get("code")
@@ -95,9 +107,9 @@ def _lookup_name_jp_from_csv(ticker: str) -> Optional[str]:
     # "7203" / "7203.T" / "7203.TK" などの数字部分を抜く
     numeric = t.split(".", 1)[0]
     if numeric.isdigit() and len(numeric) in (4, 5):
-        raw = _TSE_MAP.get(numeric)
-        if raw:
-            return _clean_text(raw)
+        name = _TSE_MAP.get(numeric)
+        if name:
+            return _clean_text(name)
     return None
 
 
@@ -207,7 +219,6 @@ def detect_trend(
     ma_short = s.rolling(ma_short_win).mean()
     ma_long = s.rolling(ma_long_win).mean()
 
-    # 安全に float/None 化（ambiguous 回避）
     def _to_float_or_none(v) -> Optional[float]:
         try:
             if pd.isna(v):
