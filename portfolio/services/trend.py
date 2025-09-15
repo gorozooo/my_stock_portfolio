@@ -72,10 +72,8 @@ def _load_tse_map_if_needed() -> None:
                 raw = json.load(f)
 
             if isinstance(raw, list):
-                # 例: [{"code":"7011","name":"三菱重工業"}, ...]
                 d = pd.DataFrame(raw)
             elif isinstance(raw, dict):
-                # 例: {"7011":"三菱重工業", ...}
                 d = pd.DataFrame([{"code": k, "name": v} for k, v in raw.items()])
             else:
                 raise ValueError("tse_list.json: unexpected root type")
@@ -170,7 +168,12 @@ def _true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
     return tr
 
 def _wilder_smooth(series: pd.Series, n: int) -> pd.Series:
-    s = series.copy()
+    """長さ<n のときも落ちない簡易Wilder平滑"""
+    s = pd.to_numeric(series, errors="coerce")
+    if len(s) == 0:
+      return s
+    if len(s) < n:
+      return s.ewm(alpha=1/max(n,1), adjust=False).mean()
     out = pd.Series(index=s.index, dtype=float)
     out.iloc[n-1] = s.iloc[:n].mean()
     for i in range(n, len(s)):
@@ -198,7 +201,7 @@ def _adx(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> Opti
 
 def _annualized_vol(p: pd.Series, win: int) -> Optional[float]:
     try:
-        r = p.pct_change().dropna()
+        r = pd.to_numeric(p, errors="coerce").pct_change().dropna()
         if len(r) < max(10, win):
             return None
         return float(r.tail(win).std() * np.sqrt(252) * 100.0)
@@ -214,29 +217,39 @@ def _atr(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> Opti
         return None
 
 # ---------- yfinance DF から特定フィールドの Series を安全に取り出す ----------
-def _pick_field(df: pd.DataFrame, field: str) -> pd.Series:
+def _pick_field(df: pd.DataFrame, field: str, *, required: bool = True) -> pd.Series:
     """
     field: 'Close' | 'High' | 'Low' | 'Volume'
-    - 単一列: その列を返す
+    - 単一列: その列を返す（Close は 'Adj Close' も許容）
     - MultiIndex: level=0 に field があれば xs で取り出し、最初の列を使う
+    - 見つからない & required=False のときは空Seriesを返す
     """
+    # MultiIndex
     if isinstance(df.columns, pd.MultiIndex):
-        if field in df.columns.get_level_values(0):
-            obj = df.xs(field, axis=1, level=0, drop_level=True)
-            s = obj.iloc[:, 0] if isinstance(obj, pd.DataFrame) else obj
-            return pd.to_numeric(s, errors="coerce")
-        # 想定外なら最後の列を使う（数値化）
-        return pd.to_numeric(df.iloc[:, -1], errors="coerce")
-    # 通常の単一Index
-    # 列名比較は文字列化して大文字小文字無視
-    col = None
-    for c in df.columns:
-        if str(c).lower() == field.lower():
-            col = c
-            break
-    if col is None:
-        raise ValueError(f"{field} column not found")
-    return pd.to_numeric(df[col], errors="coerce")
+        level0 = df.columns.get_level_values(0)
+        candidate = field
+        alt = "Adj Close" if field.lower() == "close" else None
+        if candidate in level0:
+            obj = df.xs(candidate, axis=1, level=0, drop_level=True)
+        elif alt and (alt in level0):
+            obj = df.xs(alt, axis=1, level=0, drop_level=True)
+        else:
+            if required:
+                raise ValueError(f"{field} column not found")
+            return pd.Series(dtype=float)
+        s = obj.iloc[:, 0] if isinstance(obj, pd.DataFrame) else obj
+        return pd.to_numeric(s, errors="coerce")
+
+    # 単一Index
+    cols_lower = {str(c).lower(): c for c in df.columns}
+    use = cols_lower.get(field.lower())
+    if use is None and field.lower() == "close":
+        use = cols_lower.get("adj close")
+    if use is None:
+        if required:
+            raise ValueError(f"{field} column not found")
+        return pd.Series(dtype=float)
+    return pd.to_numeric(df[use], errors="coerce")
 
 # =========================================================
 # 結果スキーマ
@@ -297,10 +310,10 @@ def detect_trend(
         raise ValueError("価格データを取得できませんでした")
 
     # --- Close/High/Low/Volume を安全に抽出 ---
-    close_s = _pick_field(df, "Close").dropna()
-    high_s  = _pick_field(df, "High").dropna()
-    low_s   = _pick_field(df, "Low").dropna()
-    vol_s   = _pick_field(df, "Volume").dropna()
+    close_s = _pick_field(df, "Close", required=True).dropna()
+    high_s  = _pick_field(df, "High",  required=True).dropna()
+    low_s   = _pick_field(df, "Low",   required=True).dropna()
+    vol_s   = _pick_field(df, "Volume", required=False).dropna()  # 任意
 
     if close_s.empty:
         raise ValueError("終値データが空でした")
@@ -337,9 +350,9 @@ def detect_trend(
             signal, reason = "DOWN", "短期線が長期線を下回る(デッドクロス気味)"
 
     # ------- 追加指標（過去長期データ使用） -------
-    ma20 = float(close_s.tail(20).mean())  if len(close_s) >= 20  else None
-    ma50 = float(close_s.tail(50).mean())  if len(close_s) >= 50  else None
-    ma200= float(close_s.tail(200).mean()) if len(close_s) >= 200 else None
+    ma20  = float(close_s.tail(20).mean())   if len(close_s) >= 20   else None
+    ma50  = float(close_s.tail(50).mean())   if len(close_s) >= 50   else None
+    ma200 = float(close_s.tail(200).mean())  if len(close_s) >= 200  else None
 
     def _ma_order_str(a,b,c):
         if None in (a,b,c):
@@ -349,11 +362,10 @@ def detect_trend(
 
     ma_order = _ma_order_str(ma20, ma50, ma200)
 
-    # ADX/ATR（長期列で計算）
-    # 高値/安値/終値のインデックスを合わせる
+    # ADX/ATR（長期列で計算）— 高値/安値/終値のインデックスを合わせる
     common_idx = close_s.index.intersection(high_s.index).intersection(low_s.index)
     adx14 = _adx(high_s.reindex(common_idx), low_s.reindex(common_idx), close_s.reindex(common_idx), n=14)
-    atr14 = _atr(high_s.reindex(common_idx), low_s.reindex(common_idx), close_s.reindex(common_idx), n=14)
+    atr14 = _atr(high_s.reindex(common_idx),  low_s.reindex(common_idx),  close_s.reindex(common_idx), n=14)
 
     # 年化ボラ
     vol20 = _annualized_vol(close_s, 20)
@@ -374,9 +386,8 @@ def detect_trend(
     try:
         bench = yf.download(_INDEX_TICKER, period="300d", interval="1d", progress=False)
         if bench is not None and not bench.empty:
-            bclose = _pick_field(bench, "Close").dropna()
-            # 130営業日 ≒ 6か月
-            r_stock = close_s.pct_change().dropna().tail(130)
+            bclose = _pick_field(bench, "Close", required=True).dropna()
+            r_stock = close_s.pct_change().dropna().tail(130)  # ≒6か月
             r_bench = bclose.pct_change().dropna().tail(130)
             joined = pd.concat([r_stock, r_bench], axis=1, join="inner")
             joined.columns = ["s","b"]
@@ -390,8 +401,9 @@ def detect_trend(
     # ADV20（売買代金20日平均 = Close * Volume）
     adv20 = None
     try:
-        vol_aligned = vol_s.reindex(close_s.index)
-        adv20 = float((vol_aligned.tail(20) * close_s.tail(20)).mean())
+        if not vol_s.empty:
+            vol_aligned = vol_s.reindex(close_s.index)
+            adv20 = float((vol_aligned.tail(20) * close_s.tail(20)).mean())
     except Exception:
         pass
 
