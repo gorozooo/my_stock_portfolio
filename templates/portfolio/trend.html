@@ -101,18 +101,25 @@
     }
 
     function addTradeLinesToDatasets(datasets, len){
-      if (!latestTrade) return datasets;
-      const {entry, stop, take} = latestTrade;
-      const ds = [...datasets];
-      const baseOpt = {borderWidth: 1.5, pointRadius: 0, spanGaps: true};
-      const entryLine = makeConstLine(len, entry);
-      const stopLine  = makeConstLine(len, stop);
-      const takeLine  = makeConstLine(len, take);
-      if (entryLine) ds.push({ label: 'Entry', data: entryLine, ...baseOpt, borderDash:[6,4] });
-      if (stopLine)  ds.push({ label: 'Stop',  data: stopLine,  ...baseOpt, borderDash:[4,4] });
-      if (takeLine)  ds.push({ label: 'Take',  data: takeLine,  ...baseOpt, borderDash:[2,4] });
-      return ds;
-    }
+  if (!latestTrade) return datasets;
+  const {entry, stop, take} = latestTrade;
+  const ds = [...datasets];
+  const baseOpt = {borderWidth: 1.5, pointRadius: 0, spanGaps: true};
+
+  if (entry != null){
+    const entryLine = Array(len).fill(entry);
+    ds.push({ label: 'Entry', data: entryLine, ...baseOpt, borderColor:'#444', borderDash:[6,4] });
+  }
+  if (stop != null){
+    const stopLine = Array(len).fill(stop);
+    ds.push({ label: 'Stop', data: stopLine, ...baseOpt, borderColor:'#d00', borderDash:[4,4] });
+  }
+  if (take != null){
+    const takeLine = Array(len).fill(take);
+    ds.push({ label: 'Take', data: takeLine, ...baseOpt, borderColor:'#0a0', borderDash:[2,4] });
+  }
+  return ds;
+}
 
     async function drawChart(input, days = 180) {
       const ticker = normalizeTicker(input);
