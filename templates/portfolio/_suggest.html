@@ -1,8 +1,8 @@
-{% if items and items|length > 0 %}
+{% if items %}
   <div class="suggest">
     {% for code, name in items %}
       <div class="suggest-item">
-        <div>
+        <div class="suggest-info">
           <div class="suggest-name">{{ name }}</div>
           <div class="suggest-code">{{ code }}.T</div>
         </div>
@@ -11,12 +11,9 @@
                 hx-target="#result"
                 hx-swap="innerHTML"
                 hx-on="click: document.querySelector('#ticker').value='{{ code }}'">
-          これで判定
+          判定
         </button>
       </div>
     {% endfor %}
   </div>
-{% else %}
-  <!-- 候補なし: 何も出さない or メッセージを出したいなら以下をコメント解除 -->
-  {# <div class="sub">候補がありません</div> #}
 {% endif %}
