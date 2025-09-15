@@ -19,7 +19,6 @@
     .flat{ background:#f5f5f5; color:#555; }
     .sub{ color:#666; font-size:12px; }
 
-    /* suggest list */
     .suggest { margin-top:8px; border:1px solid #eee; border-radius:12px; overflow:hidden; }
     .suggest-item { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; background:#fff; }
     .suggest-item + .suggest-item { border-top:1px solid #eee; }
@@ -31,45 +30,35 @@
 <body>
   <h2>銘柄トレンド判定</h2>
 
-  <div class="row">
-    <!-- 入力値はサジェスト用に name="q" を付与 -->
+  <!-- formでEnterキー対応 -->
+  <form class="row"
+        hx-get="/trend/card"
+        hx-target="#result"
+        hx-indicator="#loading"
+        hx-vals='js:{"ticker": document.getElementById("ticker").value.trim()}'>
     <input
       id="ticker"
       name="q"
       type="text"
       placeholder="例: 8058 / 7203 / 167A（.T は自動付与）"
-      <!-- Enterで即判定 -->
-      hx-get="/trend/card"
-      hx-target="#result"
-      hx-trigger="keyup[key=='Enter']"
-      hx-vals='js:{"ticker": document.getElementById("ticker").value.trim()}'
-    >
-    <button
-      hx-get="/trend/card"
-      hx-target="#result"
-      hx-indicator="#loading"
-      hx-vals='js:{"ticker": document.getElementById("ticker").value.trim()}'>
-      判定
-    </button>
-  </div>
+      hx-get="/api/suggest"
+      hx-trigger="keyup changed delay:250ms"
+      hx-target="#suggest"
+      hx-include="#ticker"
+      hx-params="q"
+      hx-swap="innerHTML">
+    <button type="submit">判定</button>
+  </form>
 
-  <!-- サジェスト（コード前方一致 / 日本語名部分一致） -->
-  <div id="suggest"
-       class="suggest"
-       hx-get="/api/suggest"
-       hx-trigger="keyup changed delay:250ms from:#ticker"
-       hx-include="#ticker"   <!-- name=q を送る -->
-       hx-params="q"
-       hx-target="#suggest"
-       hx-swap="innerHTML">
-  </div>
+  <!-- サジェスト表示 -->
+  <div id="suggest" class="suggest"></div>
 
-  <div id="loading" class="sub" style="display:none;" hx-ext="class-tools">Loading...</div>
+  <div id="loading" class="sub" style="display:none;">Loading...</div>
 
-  <!-- 判定結果の差し替え先 -->
+  <!-- 判定結果 -->
   <div id="result" class="card"></div>
 
-  <!-- 参考: _suggest.html が返す断片の想定（サーバ側テンプレート） -->
+  <!-- サジェストの断片例 -->
   <!--
   {% if items %}
     {% for code,name in items %}
