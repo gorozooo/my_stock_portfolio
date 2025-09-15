@@ -90,7 +90,6 @@ def trend_api(request):
 
 
 @require_GET
-
 def api_ohlc(request):
     ticker = request.GET.get("ticker")
     days = int(request.GET.get("days", 180))
