@@ -92,7 +92,7 @@ def trend_api(request):
 @require_GET
 def ohlc_api(request):
     """
-    Chart.js Financial プラグイン用の OHLC + MA API
+    Chart.js Financial（candlestick）用の OHLC + MA API
     返却形式:
     {
       ok: true,
@@ -109,42 +109,51 @@ def ohlc_api(request):
         return JsonResponse({"ok": False, "error": "ticker required"})
 
     try:
-        df = yf.download(str(ticker), period=f"{days}d", interval="1d", progress=False)
+        # ローソクは調整前のOHLCが必要なので auto_adjust=False を明示
+        df = yf.download(
+            str(ticker),
+            period=f"{days}d",
+            interval="1d",
+            auto_adjust=False,
+            progress=False,
+        )
         if df is None or df.empty:
             return JsonResponse({"ok": False, "error": "no data"})
 
         # -------- 列名ゆらぎ & MultiIndex 対応で OHLC を取り出す --------
         def _pick(colname: str) -> pd.Series:
             if isinstance(df.columns, pd.MultiIndex):
+                # level 0 に目的の列があれば cross-section で取得
                 if colname in df.columns.get_level_values(0):
                     obj = df.xs(colname, axis=1, level=0, drop_level=True)
-                    # 複数列のときは先頭列を使用（通常は単一列）
+                    # 複数列（複数ティッカー）の場合は先頭列を採用
                     if isinstance(obj, pd.DataFrame):
-                        return pd.to_numeric(obj.iloc[:, 0], errors="coerce")
+                        obj = obj.iloc[:, 0]
                     return pd.to_numeric(obj, errors="coerce")
-                # 最後の保険：最終列を使う
+                # 最後の保険：最終列を採用
                 return pd.to_numeric(df.iloc[:, -1], errors="coerce")
             else:
-                cols = {c.lower(): c for c in df.columns}
-                use = cols.get(colname.lower())
+                # 単一列DataFrame
+                lower = {c.lower(): c for c in df.columns}
+                use = lower.get(colname.lower())
                 if not use:
                     raise KeyError(colname)
                 return pd.to_numeric(df[use], errors="coerce")
 
-        o = _pick("Open").dropna()
-        h = _pick("High").dropna()
-        l = _pick("Low").dropna()
-        c = _pick("Close").dropna()
+        o = _pick("Open")
+        h = _pick("High")
+        l = _pick("Low")
+        c = _pick("Close")
 
-        # 共通インデックスでアライン
+        # 共通インデックスにアラインし、NaNを落とす
         base = pd.concat([o, h, l, c], axis=1, join="inner").dropna()
         base.columns = ["Open", "High", "Low", "Close"]
         if base.empty:
             return JsonResponse({"ok": False, "error": "no aligned data"})
 
-        # MA は close から
-        ma10 = base["Close"].rolling(10).mean()
-        ma30 = base["Close"].rolling(30).mean()
+        # 移動平均（Closeベース）— candlestick と同一長さになるように None 埋め
+        ma10_full = base["Close"].rolling(10).mean()
+        ma30_full = base["Close"].rolling(30).mean()
 
         # candlestick 用データ
         ohlc = [
@@ -161,8 +170,8 @@ def ohlc_api(request):
         payload = {
             "ok": True,
             "ohlc": ohlc,
-            "ma10": [float(v) if pd.notna(v) else None for v in ma10],
-            "ma30": [float(v) if pd.notna(v) else None for v in ma30],
+            "ma10": [float(v) if pd.notna(v) else None for v in ma10_full],
+            "ma30": [float(v) if pd.notna(v) else None for v in ma30_full],
         }
         return JsonResponse(payload)
 
