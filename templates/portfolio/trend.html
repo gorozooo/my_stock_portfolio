@@ -25,36 +25,48 @@
     .down{ background:#ffecec; color:#b00020; }
     .flat{ background:#f5f5f5; color:#555; }
     .sub{ color:#666; font-size:12px; }
-    .chart-wrap { margin-top:12px; border:1px solid #eee; border-radius:16px; padding:12px; }
+    .chart-wrap { margin-top:12px; border:1px solid #eee; border-radius:16px; padding:12px; height:260px; }
+    /* htmx のインジケータ表示 */
+    .htmx-indicator { display:none; }
+    .htmx-request .htmx-indicator { display:block; }
   </style>
 </head>
 <body>
   <h2>銘柄トレンド判定</h2>
 
   <div class="row">
-    <input id="ticker" type="text" placeholder="例: AAPL / MSFT / 7203（.T不要）" inputmode="latin">
+    <input
+      id="ticker"
+      type="text"
+      placeholder="例: AAPL / MSFT / 7203（.T不要）"
+      inputmode="latin"
+      autocomplete="off"
+      autocapitalize="characters"
+      spellcheck="false">
     <button
       id="judgeBtn"
       hx-get="/trend/card"
       hx-target="#result"
+      hx-swap="innerHTML"
       hx-indicator="#loading"
       hx-vals='js:{"ticker": document.getElementById("ticker").value.trim()}'>
       判定
     </button>
   </div>
 
-  <div id="loading" class="sub" style="display:none;" hx-ext="class-tools">Loading...</div>
+  <!-- htmx の標準クラスで自動表示/非表示 -->
+  <div id="loading" class="sub htmx-indicator">Loading...</div>
 
   <!-- 判定結果カード（HTMXで差し替え） -->
   <div id="result" class="card"></div>
 
   <!-- 価格チャート -->
   <div class="chart-wrap">
-    <canvas id="priceChart" height="220"></canvas>
+    <canvas id="priceChart"></canvas>
   </div>
 
   <script>
-    // Enterで判定ボタンを押せるように
+    // Enter で判定ボタン
     const tickerEl = document.getElementById('ticker');
     const btn = document.getElementById('judgeBtn');
     tickerEl.addEventListener('keydown', (e) => {
@@ -63,12 +75,12 @@
 
     // Chart.js セットアップ
     let chart;
-    async function drawChart(ticker, days=180) {
+    async function drawChart(ticker, days = 180) {
       if (!ticker) return;
       try {
         const r = await fetch(`/api/ohlc?ticker=${encodeURIComponent(ticker)}&days=${days}`);
         const j = await r.json();
-        if (!j.ok) return;
+        if (!j.ok || !j.labels || !j.labels.length) return;
 
         const ctx = document.getElementById('priceChart').getContext('2d');
         if (chart) chart.destroy();
@@ -78,9 +90,9 @@
           data: {
             labels: j.labels,
             datasets: [
-              { label: 'Close', data: j.close, borderWidth: 1, pointRadius: 0 },
-              { label: 'MA(10)', data: j.ma10, borderWidth: 1, pointRadius: 0 },
-              { label: 'MA(30)', data: j.ma30, borderWidth: 1, pointRadius: 0 }
+              { label: 'Close', data: j.close, borderWidth: 2, pointRadius: 0 },
+              { label: 'MA(10)', data: j.ma10, borderWidth: 1.5, pointRadius: 0 },
+              { label: 'MA(30)', data: j.ma30, borderWidth: 1.5, pointRadius: 0 }
             ]
           },
           options: {
@@ -89,21 +101,27 @@
             interaction: { mode: 'index', intersect: false },
             scales: {
               x: { display: false },
-              y: { ticks: { callback: v => v.toLocaleString() } }
+              y: {
+                beginAtZero: false,
+                ticks: { callback: v => (typeof v === 'number' ? v.toLocaleString() : v) }
+              }
             },
             plugins: { legend: { display: true } }
           }
         });
       } catch (e) {
-        // チャートは失敗してもUIを壊さない
-        console.error(e);
+        console.error(e); // チャートは失敗してもUIを壊さない
       }
     }
 
-    // HTMXでカード描画が終わったら、同じティッカーでチャートも更新
-    document.body.addEventListener('htmx:afterOnLoad', () => {
-      const t = tickerEl.value.trim();
-      if (t) drawChart(t);
+    // HTMX でカードが更新されたらチャートも同じティッカーで更新
+    document.body.addEventListener('htmx:afterOnLoad', (ev) => {
+      if (!ev.detail || !ev.detail.elt) return;
+      // 今回のリクエストが #result を更新したときだけ反応
+      if (ev.detail.elt.id === 'result') {
+        const t = tickerEl.value.trim();
+        if (t) drawChart(t);
+      }
     });
   </script>
 </body>
