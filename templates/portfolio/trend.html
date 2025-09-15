@@ -114,15 +114,11 @@
       }
     }
 
-    // HTMX でカードが更新されたらチャートも同じティッカーで更新
-    document.body.addEventListener('htmx:afterOnLoad', (ev) => {
-      if (!ev.detail || !ev.detail.elt) return;
-      // 今回のリクエストが #result を更新したときだけ反応
-      if (ev.detail.elt.id === 'result') {
-        const t = tickerEl.value.trim();
-        if (t) drawChart(t);
-      }
-    });
+    // HTMXリクエスト後は必ずチャート更新
+document.body.addEventListener('htmx:afterOnLoad', () => {
+  const t = tickerEl.value.trim();
+  if (t) drawChart(t);
+});
   </script>
 </body>
 </html>
