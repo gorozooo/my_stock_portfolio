@@ -78,22 +78,30 @@
   </div>
 
   <script>
-    // --- financial プラグインを確実に登録 ---
-    (function robustRegisterFinancial(){
-      try{
-        const fin = window['chartjs-chart-financial'];
-        const regs = [];
-        if (Chart.CandlestickController) regs.push(Chart.CandlestickController);
-        if (Chart.OhlcController)        regs.push(Chart.OhlcController);
-        if (Chart.CandlestickElement)    regs.push(Chart.CandlestickElement);
-        if (Chart.OhlcElement)           regs.push(Chart.OhlcElement);
-        if (fin && fin.CandlestickController) regs.push(fin.CandlestickController);
-        if (fin && fin.OhlcController)        regs.push(fin.OhlcController);
-        if (fin && fin.CandlestickElement)    regs.push(fin.CandlestickElement);
-        if (fin && fin.OhlcElement)           regs.push(fin.OhlcElement);
-        if (regs.length) Chart.register(...regs);
-      }catch(e){ console.warn('financial register failed', e); }
-    })();
+  // --- financial プラグインを確実に登録 ---
+  (function robustRegisterFinancial(){
+    try{
+      const fin = window['chartjs-chart-financial'];
+      const regs = [];
+
+      // Chart に直接ぶら下がっている場合
+      if (Chart.CandlestickController) regs.push(Chart.CandlestickController);
+      if (Chart.OhlcController)        regs.push(Chart.OhlcController);
+      if (Chart.CandlestickElement)    regs.push(Chart.CandlestickElement);
+      if (Chart.OhlcElement)           regs.push(Chart.OhlcElement);
+
+      // UMD 名前空間として出てくる場合
+      if (fin?.CandlestickController) regs.push(fin.CandlestickController);
+      if (fin?.OhlcController)        regs.push(fin.OhlcController);
+      if (fin?.CandlestickElement)    regs.push(fin.CandlestickElement);
+      if (fin?.OhlcElement)           regs.push(fin.OhlcElement);
+
+      if (regs.length) Chart.register(...regs);
+      console.log("Financial plugin registered:", regs);
+    }catch(e){
+      console.error('financial register failed', e);
+    }
+  })();
 
     const tickerEl = document.getElementById('ticker');
     const btn = document.getElementById('judgeBtn');
