@@ -13,8 +13,6 @@ import yfinance as yf
 # =====================================================================
 # 日本語銘柄名 CSV ローダ（data/tse_list.csv を想定）
 # - 形式: ヘッダあり、少なくとも "code","name" の2列
-# - 文字コード: UTF-8 (BOMあり/なし可)
-# - CSV に紛れがちなゼロ幅スペース等も除去してマップ化
 # =====================================================================
 
 # CSV の既定パス（必要なら環境変数で上書き）
@@ -27,26 +25,17 @@ _TSE_CSV_PATH = os.environ.get(
 _TSE_MAP: Dict[str, str] = {}
 _TSE_CSV_MTIME: float = 0.0
 
-# ゼロ幅系・BOM を落とす正規表現
-_ZW_RE = re.compile(r"[\u200B-\u200D\uFEFF]")
 
 def _clean_text(s: str) -> str:
-    """前後の空白除去 + ゼロ幅文字除去。"""
+    """不可視文字やゼロ幅スペースを削除して正規化"""
     if not isinstance(s, str):
-        s = str(s) if s is not None else ""
-    s = s.strip()
-    s = _ZW_RE.sub("", s)
-    return s
+        return s
+    # ゼロ幅スペース / BOM など
+    s = re.sub(r"[\u200B-\u200D\uFEFF]", "", s)
+    # 全角スペース -> 半角
+    s = s.replace("\u3000", " ")
+    return s.strip()
 
-def _clean_code_for_key(s: str) -> str:
-    """
-    コード列用の正規化:
-    - 空白類を全除去
-    - ゼロ幅文字除去
-    """
-    s = _clean_text(s)
-    s = re.sub(r"\s+", "", s)
-    return s
 
 def _load_tse_map_if_needed() -> None:
     """
@@ -62,27 +51,22 @@ def _load_tse_map_if_needed() -> None:
         mtime = os.path.getmtime(_TSE_CSV_PATH)
         if _TSE_MAP and _TSE_CSV_MTIME == mtime:
             return  # 変更なし
-
         df = pd.read_csv(
             _TSE_CSV_PATH,
             encoding="utf-8-sig",
-            dtype=str,
+            dtype={"code": str, "name": str},
         )
-
-        # 列名（大小文字ゆらぎ対応）
-        cols_l = {c.lower(): c for c in df.columns}
-        code_col = cols_l.get("code")
-        name_col = cols_l.get("name")
+        # 列名解決（大小文字・表記ゆらぎ対策）
+        cols = {c.lower(): c for c in df.columns}
+        code_col = cols.get("code")
+        name_col = cols.get("name")
         if not code_col or not name_col:
-            _TSE_MAP = {}
-            _TSE_CSV_MTIME = 0.0
-            return
+            raise ValueError("CSV に 'code' と 'name' 列が必要です")
 
         # 正規化
-        df[code_col] = df[code_col].map(_clean_code_for_key)
-        df[name_col] = df[name_col].map(_clean_text)
+        df[code_col] = df[code_col].astype(str).map(_clean_text)
+        df[name_col] = df[name_col].astype(str).map(_clean_text)
 
-        # マップ化（例: "7011" -> "三菱重工業"）
         _TSE_MAP = {
             row[code_col]: row[name_col]
             for _, row in df.iterrows()
@@ -90,14 +74,14 @@ def _load_tse_map_if_needed() -> None:
         }
         _TSE_CSV_MTIME = mtime
     except Exception:
-        # CSV が壊れていても落ちないように、マップは空に戻す
+        # CSV が壊れていても落ちないように
         _TSE_MAP = {}
         _TSE_CSV_MTIME = 0.0
 
 
 def _lookup_name_jp_from_csv(ticker: str) -> Optional[str]:
     """
-    ティッカーが東証（nnnn or nnnn.T 等）なら CSV から日本語名を返す。
+    ティッカーが東証（nnnn or nnnn.T など）なら CSV から日本語名を返す。
     見つからなければ None。
     """
     _load_tse_map_if_needed()
@@ -108,11 +92,12 @@ def _lookup_name_jp_from_csv(ticker: str) -> Optional[str]:
     if not t:
         return None
 
-    # "7203" / "7203.T" / "7203.TK" など → 数字部分
+    # "7203" / "7203.T" / "7203.TK" などの数字部分を抜く
     numeric = t.split(".", 1)[0]
-    numeric = _clean_code_for_key(numeric)
-    if numeric.isdigit() and 4 <= len(numeric) <= 5:
-        return _TSE_MAP.get(numeric)
+    if numeric.isdigit() and len(numeric) in (4, 5):
+        raw = _TSE_MAP.get(numeric)
+        if raw:
+            return _clean_text(raw)
     return None
 
 
@@ -123,40 +108,37 @@ def _lookup_name_jp_from_csv(ticker: str) -> Optional[str]:
 def _normalize_ticker(raw: str) -> str:
     """
     入力を正規化。
-    - 4〜5桁の数字だけ、または先頭が数字だらけの場合は日本株とみなし「.T」を付与
-      例: '7203' -> '7203.T', ' 7203 ' -> '7203.T'
-    - すでにサフィックスがある場合や英米株などは大文字化のみ
+    - 4〜5桁の数字だけなら日本株とみなし「.T」を付与（例: '7203' -> '7203.T'）
+    - すでにサフィックスがある場合や英米株などはそのまま（大文字化のみ）
     """
     t = (raw or "").strip().upper()
     if not t:
         return t
     if "." in t:
         return t
-    # 非数字を除去して判定（ユーザ入力の混入に強く）
-    digits_only = re.sub(r"\D", "", t)
-    if digits_only.isdigit() and 4 <= len(digits_only) <= 5:
-        return f"{digits_only}.T"
+    if t.isdigit() and len(t) in (4, 5):
+        return f"{t}.T"
     return t
 
 
 def _fetch_name_prefer_jp(ticker: str) -> str:
     """
     1) CSV（全銘柄日本語辞書）があれば最優先
-    2) 日本株ティッカー (nnnn.T) で CSV に無ければコード文字列を返す
-    3) それ以外は yfinance にフォールバック
+    2) 日本株コードで CSV に無ければ「数字コード」を返す（英語に落とさない）
+    3) 海外等は yfinance 名にフォールバック
     """
     # まず CSV
     name_csv = _lookup_name_jp_from_csv(ticker)
-    if isinstance(name_csv, str) and name_csv.strip():
-        return _clean_text(name_csv)
+    if name_csv:
+        return name_csv
 
-    # 日本株コード (nnnn.T) の場合 → CSV優先で無ければ ticker をそのまま返す
+    # 日本株コードなら数字のみを返す
     t = (ticker or "").upper().strip()
     numeric = t.split(".", 1)[0]
-    if numeric.isdigit() and 4 <= len(numeric) <= 5:
-        return numeric  # 例: "8058"
+    if numeric.isdigit() and len(numeric) in (4, 5):
+        return numeric
 
-    # フォールバック: 海外株など
+    # 海外銘柄などは yfinance
     try:
         info = getattr(yf.Ticker(ticker), "info", {}) or {}
         name = info.get("shortName") or info.get("longName") or info.get("name")
@@ -175,7 +157,7 @@ def _fetch_name_prefer_jp(ticker: str) -> str:
 @dataclass
 class TrendResult:
     ticker: str
-    name: str                   # 日本語名を想定（無ければ英語 or ティッカー）
+    name: str                   # 日本語名を想定（無ければ英語 or ティッカー/数字）
     asof: str                   # 例: '2025-09-15'
     days: int                   # 直近使用日数
     signal: str                 # 'UP' | 'DOWN' | 'FLAT'
@@ -225,16 +207,20 @@ def detect_trend(
     ma_short = s.rolling(ma_short_win).mean()
     ma_long = s.rolling(ma_long_win).mean()
 
-    # 直近の有効値（NaN を飛ばして最後の値）を安全に取得
-    def _last_valid(series) -> Optional[float]:
+    # 安全に float/None 化（ambiguous 回避）
+    def _to_float_or_none(v) -> Optional[float]:
         try:
-            v = series.dropna().iloc[-1]
+            if pd.isna(v):
+                return None
+        except Exception:
+            pass
+        try:
             return float(v)
         except Exception:
             return None
 
-    ma_s = _last_valid(ma_short)
-    ma_l = _last_valid(ma_long)
+    ma_s = _to_float_or_none(ma_short.iloc[-1])
+    ma_l = _to_float_or_none(ma_long.iloc[-1])
 
     # 線形回帰（x は 0..n-1）
     y = s.values.astype(float)
