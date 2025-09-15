@@ -31,10 +31,6 @@ _TSE_CSV_MTIME: float = 0.0
 
 
 def _load_tse_map_if_needed() -> None:
-    """
-    CSV があれば読み込み、更新時刻が変わっていれば再読込する。
-    無ければ何もしない（yfinance にフォールバック）。
-    """
     global _TSE_MAP, _TSE_CSV_MTIME
 
     if not os.path.isfile(_TSE_CSV_PATH):
@@ -48,29 +44,26 @@ def _load_tse_map_if_needed() -> None:
         df = pd.read_csv(
             _TSE_CSV_PATH,
             encoding="utf-8-sig",
-            dtype={"code": str, "name": str},
+            dtype=str,
         )
-    except Exception as e:
-        # CSV が壊れていても落ちないように、マップは空に戻す
+    except Exception:
         _TSE_MAP = {}
         _TSE_CSV_MTIME = 0.0
         return
 
-    # 大小文字無視で列名解決
-    cols_lower = {c.lower(): c for c in df.columns}
-    code_col = cols_lower.get("code")
-    name_col = cols_lower.get("name")
+    # 列名を正規化（小文字化 & 全角半角カナも対応）
+    cols = {c.strip().lower(): c for c in df.columns}
+    code_col = cols.get("code") or cols.get("ｺｰﾄﾞ") or cols.get("コード")
+    name_col = cols.get("name") or cols.get("銘柄名") or cols.get("めいがらめい")
+
     if not code_col or not name_col:
-        # 列名が見つからない場合は読み飛ばし（yfinance にフォールバック）
         _TSE_MAP = {}
         _TSE_CSV_MTIME = 0.0
         return
 
-    # 正規化: 先頭/末尾空白除去
     df[code_col] = df[code_col].astype(str).str.strip()
     df[name_col] = df[name_col].astype(str).str.strip()
 
-    # マップ化（例: "7011" -> "三菱重工業"）
     _TSE_MAP = {
         row[code_col]: row[name_col]
         for _, row in df.iterrows()
