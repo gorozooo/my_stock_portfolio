@@ -1,139 +1,127 @@
-# portfolio/services/tse.py
 from __future__ import annotations
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 import os
 import re
 import unicodedata
-import time
-
 import pandas as pd
 
-# ================================================================
-# 設定
-# ================================================================
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-TSE_JSON_PATH = os.environ.get("TSE_JSON_PATH", os.path.join(BASE_DIR, "data", "tse_list.json"))
-TSE_CSV_PATH  = os.environ.get("TSE_CSV_PATH",  os.path.join(BASE_DIR, "data", "tse_list.csv"))
 
-# 簡易キャッシュ
-_cached_df: Optional[pd.DataFrame] = None
-_cached_src: Optional[str] = None  # "json" / "csv"
-_cached_mtime: float = 0.0
+# 環境変数で上書き可
+_TSE_JSON_PATH = os.environ.get("TSE_JSON_PATH", os.path.join(BASE_DIR, "data", "tse_list.json"))
+_TSE_CSV_PATH  = os.environ.get("TSE_CSV_PATH",  os.path.join(BASE_DIR, "data", "tse_list.csv"))
+_TSE_ALWAYS_RELOAD = os.environ.get("TSE_CSV_ALWAYS_RELOAD", "0") == "1"
+_TSE_DEBUG = os.environ.get("TSE_DEBUG", "0") == "1"
+
+# モジュール内キャッシュ
+_TSE_MAP: Dict[str, str] = {}
+_TSE_MTIME: Tuple[float, float] = (0.0, 0.0)  # (json_mtime, csv_mtime)
 
 
-# ================================================================
-# ユーティリティ
-# ================================================================
+def _d(msg: str) -> None:
+    if _TSE_DEBUG:
+        print(f"[TSE] {msg}")
+
+
 def _clean(s: str) -> str:
-    """Excel/CSV 由来の不可視文字を除去し、NFKC 正規化・空白整形。"""
     if not isinstance(s, str):
         return s
     s = unicodedata.normalize("NFKC", s)
-    # zero width & BOM
-    s = re.sub(r"[\u200B-\u200D\uFEFF]", "", s)
-    # variation selectors
-    s = re.sub(r"[\uFE00-\uFE0F]", "", s)
-    # control chars + DEL
-    s = re.sub(r"[\u0000-\u001F\u007F]", "", s)
-    # Private Use Area
-    s = re.sub(r"[\uE000-\uF8FF]", "", s)
-    # 全角スペース → 半角
+    s = re.sub(r"[\u200B-\u200D\uFEFF]", "", s)      # zero width & BOM
+    s = re.sub(r"[\uFE00-\uFE0F]", "", s)            # variation selectors
+    s = re.sub(r"[\u0000-\u001F\u007F]", "", s)      # control chars + DEL
+    s = re.sub(r"[\uE000-\uF8FF]", "", s)            # PUA (BMP)
     s = s.replace("\u3000", " ")
-    # 余計な空白を1つに
-    s = re.sub(r"\s+", " ", s)
-    return s.strip()
-
-
-def _pick_cols(df: pd.DataFrame) -> pd.DataFrame:
-    """列名ゆらぎを吸収して code/name の2列に整える。"""
-    cols = {c.lower(): c for c in df.columns}
-    code = cols.get("code") or cols.get("ticker") or cols.get("symbol")
-    name = cols.get("name") or cols.get("jp_name") or cols.get("company")
-    if not (code and name):
-        raise RuntimeError("tse list needs 'code' and 'name' columns")
-    df = df[[code, name]].rename(columns={code: "code", name: "name"})
-    return df
-
-
-def _load_df_from_file(path: str, kind: str) -> pd.DataFrame:
-    """kind='json' or 'csv'"""
-    if kind == "json":
-        df = pd.read_json(path, orient="records")
-    else:
-        df = pd.read_csv(path, encoding="utf-8-sig", dtype=str)
-    df = _pick_cols(df)
-    df["code"] = df["code"].astype(str).map(_clean).str.upper()
-    df["name"] = df["name"].astype(str).map(_clean)
-    # 同一コード重複を除去（先勝ち）
-    df = df.dropna().drop_duplicates(subset=["code"])
-    return df
-
-
-def _source_mtime(path: str) -> float:
-    try:
-        return os.path.getmtime(path)
-    except OSError:
-        return 0.0
+    return re.sub(r"\s+", " ", s).strip()
 
 
 def _load_df() -> pd.DataFrame:
-    """JSON 優先 → CSV フォールバック。変更があれば再読込。"""
-    global _cached_df, _cached_src, _cached_mtime
+    """JSON優先、無ければCSVを読む。列名は code/name を想定（柔軟に解決）。"""
+    if os.path.isfile(_TSE_JSON_PATH):
+        df = pd.read_json(_TSE_JSON_PATH, orient="records")
+        cols = {c.lower(): c for c in df.columns}
+        code = cols.get("code") or cols.get("ticker") or cols.get("symbol")
+        name = cols.get("name") or cols.get("jp_name") or cols.get("company")
+        if code and name:
+            df = df[[code, name]].rename(columns={code: "code", name: "name"})
+        else:
+            raise RuntimeError("tse_list.json needs 'code' and 'name'")
+        return df
 
-    # どちらを使うか決定（JSON 優先）
-    if os.path.isfile(TSE_JSON_PATH):
-        use_path, src = TSE_JSON_PATH, "json"
-    elif os.path.isfile(TSE_CSV_PATH):
-        use_path, src = TSE_CSV_PATH, "csv"
-    else:
-        # 何もなければ空
-        _cached_df, _cached_src, _cached_mtime = pd.DataFrame(columns=["code", "name"]), None, 0.0
-        return _cached_df
+    if os.path.isfile(_TSE_CSV_PATH):
+        df = pd.read_csv(_TSE_CSV_PATH, encoding="utf-8-sig", dtype=str)
+        df = df.rename(columns={c: c.lower() for c in df.columns})
+        if not {"code", "name"}.issubset(df.columns):
+            raise RuntimeError("tse_list.csv needs 'code' and 'name'")
+        return df[["code", "name"]]
 
-    mtime = _source_mtime(use_path)
-    if _cached_df is not None and _cached_src == src and _cached_mtime == mtime:
-        return _cached_df
+    # 何も無ければ空
+    return pd.DataFrame(columns=["code", "name"])
 
-    df = _load_df_from_file(use_path, src)
-    _cached_df, _cached_src, _cached_mtime = df, src, mtime
-    return df
 
-def lookup_name_jp(code: str) -> Optional[str]:
+def _refresh_cache_if_needed() -> None:
+    """ファイルの更新時刻が変わっていれば再読込。"""
+    global _TSE_MAP, _TSE_MTIME
+    json_m = os.path.getmtime(_TSE_JSON_PATH) if os.path.isfile(_TSE_JSON_PATH) else 0.0
+    csv_m  = os.path.getmtime(_TSE_CSV_PATH)  if os.path.isfile(_TSE_CSV_PATH)  else 0.0
+
+    if not _TSE_ALWAYS_RELOAD and _TSE_MAP and _TSE_MTIME == (json_m, csv_m):
+        return
+
     df = _load_df()
-    hit = df[df["code"].str.upper() == code.upper()]
-    if not hit.empty:
-        return hit.iloc[0]["name"]
-    return None
+    if df.empty:
+        _TSE_MAP = {}
+        _TSE_MTIME = (json_m, csv_m)
+        _d("loaded empty list")
+        return
+
+    df["code"] = df["code"].astype(str).map(_clean).str.upper()
+    df["name"] = df["name"].astype(str).map(_clean)
+
+    _TSE_MAP = {row["code"]: row["name"] for _, row in df.iterrows() if row["code"] and row["name"]}
+    _TSE_MTIME = (json_m, csv_m)
+    _d(f"loaded {len(_TSE_MAP)} rows")
 
 
-# ================================================================
-# 公開 API
-# ================================================================
+def lookup_name_jp(code_or_ticker: str) -> Optional[str]:
+    """
+    '8058' / '8058.T' / '167A' / '167A.T' などから **日本語名** を返す。
+    無ければ None。
+    """
+    _refresh_cache_if_needed()
+    if not _TSE_MAP:
+        return None
+    if not code_or_ticker:
+        return None
+    head = code_or_ticker.upper().split(".", 1)[0]  # ドット前をキーに
+    name = _TSE_MAP.get(head)
+    if _TSE_DEBUG:
+        _d(f"lookup {head} -> {repr(name)}")
+    return name
+
+
 def search(q: str, limit: int = 8) -> List[Tuple[str, str]]:
     """
-    サジェスト検索:
-      - code 前方一致（'80' -> 8058 …）
-      - name 部分一致（'三菱' / '銀行' など）
-    戻り値: [(code, name), ...]  最大 limit 件
+    サジェスト用：code 前方一致 or name 部分一致
+    戻り値: [(code, name), ...]
     """
     q = _clean(q or "")
     if not q:
         return []
 
-    df = _load_df()
-    if df.empty:
+    _refresh_cache_if_needed()
+    if not _TSE_MAP:
         return []
 
-    # 優先1: コード前方一致（大小区別なし）
     q_upper = q.upper()
-    hits_code = df[df["code"].str.startswith(q_upper, na=False)]
+    # DataFrame 作って簡単にフィルタ
+    df = pd.DataFrame(
+        [(c, n) for c, n in _TSE_MAP.items()],
+        columns=["code", "name"]
+    )
+    hits = df[
+        df["code"].str.startswith(q_upper) |
+        df["name"].str.contains(re.escape(q), case=False, na=False)
+    ].head(limit)
 
-    # 優先2: 名前部分一致（大文字/小文字は無視、日本語もOK）
-    # pandas の contains でエスケープ
-    hits_name = df[df["name"].str.contains(re.escape(q), case=False, na=False)]
-
-    # 連結して重複コードを除去（コード一致を優先した順序）
-    merged = pd.concat([hits_code, hits_name], ignore_index=True)
-    merged = merged.drop_duplicates(subset=["code"]).head(limit)
-
-    return [(row["code"], row["name"]) for _, row in merged.iterrows()]
+    return [(row["code"], row["name"]) for _, row in hits.iterrows()]
