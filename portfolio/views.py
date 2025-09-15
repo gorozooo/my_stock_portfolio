@@ -1,16 +1,34 @@
+# portfolio/views.py
+from __future__ import annotations
+
 from django.shortcuts import render
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_GET
 
 from .services.trend import detect_trend
 
-import yfinance as yf
-import numpy as np
+import re
 import pandas as pd
+import yfinance as yf
 
 
-# 必要ならトップページ（ダミー）を残す
+# ========= 共通: ティッカー正規化（日本株 4〜5桁は .T を付与） =========
+_JP_ALNUM = re.compile(r"^[0-9A-Z]{4,5}$")
+
+def _normalize_ticker(raw: str) -> str:
+    t = (raw or "").strip().upper()
+    if not t:
+        return t
+    if "." in t:
+        return t
+    if _JP_ALNUM.match(t):
+        return f"{t}.T"
+    return t
+
+
+# ========= 画面 =========
 def main(request):
+    # 必要ならトップページ（ダミー）
     cards = [
         {"name": "トヨタ自動車", "ticker": "7203.T", "trend": "UP", "proba": 62.5},
         {"name": "ソニーグループ", "ticker": "6758.T", "trend": "FLAT", "proba": None},
@@ -18,11 +36,40 @@ def main(request):
     return render(request, "main.html", {"cards": cards})
 
 
+def trend_page(request):
+    # スマホファーストのシンプル画面
+    return render(request, "portfolio/trend.html")
+
+
+def trend_card_partial(request):
+    """
+    HTMX が差し替えるカード断片
+    """
+    ticker_raw = (request.GET.get("ticker") or "").strip()
+    ticker = _normalize_ticker(ticker_raw)
+    ctx = {"error": None, "res": None}
+
+    if not ticker:
+        ctx["error"] = "ティッカーを入力してください（例：AAPL, MSFT, 7203 など。日本株は .T 不要）"
+        return render(request, "portfolio/_trend_card.html", ctx)
+
+    try:
+        ctx["res"] = detect_trend(ticker)
+    except Exception as e:
+        ctx["error"] = str(e)
+
+    return render(request, "portfolio/_trend_card.html", ctx)
+
+
+# ========= API =========
 @require_GET
 def trend_api(request):
-    ticker = (request.GET.get("ticker") or "").strip()
-    if not ticker:
+    ticker_raw = (request.GET.get("ticker") or "").strip()
+    if not ticker_raw:
         return HttpResponseBadRequest("ticker is required")
+
+    ticker = _normalize_ticker(ticker_raw)
+
     try:
         result = detect_trend(ticker)
     except Exception as e:
@@ -44,42 +91,30 @@ def trend_api(request):
     return JsonResponse(data)
 
 
-def trend_page(request):
-    # スマホファーストのシンプル画面
-    return render(request, "portfolio/trend.html")
-
-
-def trend_card_partial(request):
-    """
-    HTMX が差し替えるカード断片
-    """
-    ticker = (request.GET.get("ticker") or "").strip()
-    ctx = {"error": None, "res": None}
-
-    if not ticker:
-        ctx["error"] = "ティッカーを入力してください（例：AAPL, MSFT, 7203 など。日本株は .T 不要）"
-        return render(request, "portfolio/_trend_card.html", ctx)
-
-    try:
-        ctx["res"] = detect_trend(ticker)
-    except Exception as e:
-        ctx["error"] = str(e)
-
-    return render(request, "portfolio/_trend_card.html", ctx)
-    
 @require_GET
 def ohlc_api(request):
-    ticker = (request.GET.get("ticker") or "").strip().upper()
+    """
+    チャート描画用のデータ返却API
+    GET /api/ohlc?ticker=7011&days=180
+    """
+    ticker_raw = (request.GET.get("ticker") or "").strip()
     days = int(request.GET.get("days") or 180)
-    if not ticker:
-        return JsonResponse({"ok": False, "error": "ticker required"})
+
+    if not ticker_raw:
+        return JsonResponse({"ok": False, "error": "ticker required"}, status=400)
+
+    ticker = _normalize_ticker(ticker_raw)
 
     try:
-        df = yf.download(ticker, period=f"{days}d", interval="1d", progress=False)
-        if df.empty:
-            return JsonResponse({"ok": False, "error": "no data"})
+        # 休日を考慮して period は少し余裕を持たせる
+        df = yf.download(ticker, period=f"{max(days + 30, 120)}d", interval="1d", progress=False)
+        if df is None or df.empty:
+            return JsonResponse({"ok": False, "error": "no data"}, status=400)
 
-        s = df["Close"].dropna()
+        s = df["Close"].dropna().tail(days)
+        if s.empty:
+            return JsonResponse({"ok": False, "error": "no close prices"}, status=400)
+
         ma10 = s.rolling(10).mean()
         ma30 = s.rolling(30).mean()
 
@@ -92,5 +127,4 @@ def ohlc_api(request):
         }
         return JsonResponse(data)
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)})
-    
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
