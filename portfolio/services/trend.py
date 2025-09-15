@@ -142,15 +142,21 @@ def _normalize_ticker(raw: str) -> str:
 def _fetch_name_prefer_jp(ticker: str) -> str:
     """
     1) CSV（全銘柄日本語辞書）があれば最優先
-    2) なければ yfinance から取得（shortName/longName/name）
-    3) それも無ければティッカーを返す
+    2) 日本株ティッカー (nnnn.T) で CSV に無ければコード文字列を返す
+    3) それ以外は yfinance にフォールバック
     """
     # まず CSV
     name_csv = _lookup_name_jp_from_csv(ticker)
     if isinstance(name_csv, str) and name_csv.strip():
-        return name_csv.strip()
+        return _clean_text(name_csv)
 
-    # フォールバック: yfinance
+    # 日本株コード (nnnn.T) の場合 → CSV優先で無ければ ticker をそのまま返す
+    t = (ticker or "").upper().strip()
+    numeric = t.split(".", 1)[0]
+    if numeric.isdigit() and 4 <= len(numeric) <= 5:
+        return numeric  # 例: "8058"
+
+    # フォールバック: 海外株など
     try:
         info = getattr(yf.Ticker(ticker), "info", {}) or {}
         name = info.get("shortName") or info.get("longName") or info.get("name")
