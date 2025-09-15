@@ -2,7 +2,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Dict
 import os
-import time
 import datetime as dt
 
 import numpy as np
@@ -21,7 +20,10 @@ import yfinance as yf
 # =====================================================================
 
 # CSV の既定パス（必要なら環境変数で上書き）
-_TSE_CSV_PATH = os.environ.get("TSE_CSV_PATH", os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "tse_list.csv"))
+_TSE_CSV_PATH = os.environ.get(
+    "TSE_CSV_PATH",
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "tse_list.csv"),
+)
 
 # モジュール内キャッシュ
 _TSE_MAP: Dict[str, str] = {}
@@ -38,42 +40,43 @@ def _load_tse_map_if_needed() -> None:
     if not os.path.isfile(_TSE_CSV_PATH):
         return
 
+    mtime = os.path.getmtime(_TSE_CSV_PATH)
+    if _TSE_MAP and _TSE_CSV_MTIME == mtime:
+        return  # 変更なし
+
     try:
-        mtime = os.path.getmtime(_TSE_CSV_PATH)
-        if _TSE_MAP and _TSE_CSV_MTIME == mtime:
-            return  # 変更なし
         df = pd.read_csv(
             _TSE_CSV_PATH,
             encoding="utf-8-sig",
             dtype={"code": str, "name": str},
         )
-        # 必須列チェック
-        if not {"code", "name"}.issubset(set(c.lower() for c in df.columns)):
-            # 列名の大小文字ゆらぎ対策
-            cols = {c.lower(): c for c in df.columns}
-            code_col = cols.get("code")
-            name_col = cols.get("name")
-        else:
-            # 大小文字無視で列参照を得る
-            cols = {c.lower(): c for c in df.columns}
-            code_col = cols["code"]
-            name_col = cols["name"]
-
-        # 正規化: 4〜5桁の先頭ゼロ保持、空白除去
-        df[code_col] = df[code_col].astype(str).str.strip()
-        df[name_col] = df[name_col].astype(str).str.strip()
-
-        # マップ化（例: "7011" -> "三菱重工業"）
-        _TSE_MAP = {
-            row[code_col]: row[name_col]
-            for _, row in df.iterrows()
-            if row[code_col] and row[name_col]
-        }
-        _TSE_CSV_MTIME = mtime
-    except Exception:
+    except Exception as e:
         # CSV が壊れていても落ちないように、マップは空に戻す
         _TSE_MAP = {}
         _TSE_CSV_MTIME = 0.0
+        return
+
+    # 大小文字無視で列名解決
+    cols_lower = {c.lower(): c for c in df.columns}
+    code_col = cols_lower.get("code")
+    name_col = cols_lower.get("name")
+    if not code_col or not name_col:
+        # 列名が見つからない場合は読み飛ばし（yfinance にフォールバック）
+        _TSE_MAP = {}
+        _TSE_CSV_MTIME = 0.0
+        return
+
+    # 正規化: 先頭/末尾空白除去
+    df[code_col] = df[code_col].astype(str).str.strip()
+    df[name_col] = df[name_col].astype(str).str.strip()
+
+    # マップ化（例: "7011" -> "三菱重工業"）
+    _TSE_MAP = {
+        row[code_col]: row[name_col]
+        for _, row in df.iterrows()
+        if row[code_col] and row[name_col]
+    }
+    _TSE_CSV_MTIME = mtime
 
 
 def _lookup_name_jp_from_csv(ticker: str) -> Optional[str]:
@@ -89,8 +92,12 @@ def _lookup_name_jp_from_csv(ticker: str) -> Optional[str]:
     if not t:
         return None
 
-    # "7203" / "7203.T" / "7203.TK" などの数字部分を抜く
+    # 「JP:7203」「7203.T」「7203.TK」などに対応して数字部分を抜く
+    # まずコロンがあれば右側を優先
+    if ":" in t:
+        t = t.split(":", 1)[1]
     numeric = t.split(".", 1)[0]
+
     if numeric.isdigit() and len(numeric) in (4, 5):
         return _TSE_MAP.get(numeric)
 
@@ -98,7 +105,7 @@ def _lookup_name_jp_from_csv(ticker: str) -> Optional[str]:
 
 
 # =====================================================================
-# チッカー正規化 / 名前取得
+# ティッカー正規化 / 名前取得
 # =====================================================================
 
 def _normalize_ticker(raw: str) -> str:
@@ -110,7 +117,8 @@ def _normalize_ticker(raw: str) -> str:
     t = (raw or "").strip().upper()
     if not t:
         return t
-    if "." in t:
+    if "." in t or ":" in t:
+        # 既にサフィックス/プレフィックス付き（JP: など）ならそのまま大文字のみ
         return t
     if t.isdigit() and len(t) in (4, 5):
         return f"{t}.T"
@@ -178,11 +186,24 @@ def detect_trend(
 
     # データ取得（市場休日も考慮して余裕を持って period を長めに）
     period_days = max(days + 30, 120)
-    df = yf.download(ticker, period=f"{period_days}d", interval="1d", progress=False)
+    try:
+        df = yf.download(
+            ticker,
+            period=f"{period_days}d",
+            interval="1d",
+            progress=False,
+            auto_adjust=True,  # FutureWarning回避 & 分割配当の影響を除去
+            threads=True,
+        )
+    except Exception as e:
+        raise ValueError(f"価格データ取得に失敗しました: {e}") from e
+
     if df is None or df.empty:
         raise ValueError("価格データを取得できませんでした")
 
     # 終値のみ
+    if "Close" not in df.columns:
+        raise ValueError("価格データに終値列が見つかりませんでした")
     s = df["Close"].dropna()
     if s.empty:
         raise ValueError("終値データが空でした")
@@ -199,10 +220,7 @@ def detect_trend(
 
     # 安全に float/None 化（ambiguous 回避）
     def _to_float_or_none(v) -> Optional[float]:
-        if v is None:
-            return None
         try:
-            # pandas の NaN 判定は isna を使う
             if pd.isna(v):
                 return None
         except Exception:
@@ -218,7 +236,7 @@ def detect_trend(
     # 線形回帰（x は 0..n-1）
     y = s.values.astype(float)
     x = np.arange(len(y), dtype=float)
-    k, b = np.polyfit(x, y, 1)  # 傾き k
+    k, _b = np.polyfit(x, y, 1)  # 傾き k
 
     # 年率換算の概算（営業日 ~ 252日）
     last_price = y[-1]
