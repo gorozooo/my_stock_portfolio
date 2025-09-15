@@ -49,54 +49,72 @@ def _clean_text(s: str) -> str:
 # 日本語銘柄名ローダ（JSON優先、なければCSV）
 # =========================================================
 def _load_tse_map_if_needed() -> None:
+    """tse_list.json / tse_list.csv を読み込み、_TSE_MAP = {CODE: 日本語名} を作る。
+       - JSON は list[{"code","name"}] も dict{"7011":"三菱重工業"} も許容
+       - CSV は header に code,name があればOK
+    """
     global _TSE_MAP, _TSE_MTIME
-    json_m, csv_m = 0.0, 0.0
-    if os.path.isfile(_TSE_JSON_PATH):
-        json_m = os.path.getmtime(_TSE_JSON_PATH)
-    if os.path.isfile(_TSE_CSV_PATH):
-        csv_m = os.path.getmtime(_TSE_CSV_PATH)
 
+    json_m = os.path.getmtime(_TSE_JSON_PATH) if os.path.isfile(_TSE_JSON_PATH) else 0.0
+    csv_m  = os.path.getmtime(_TSE_CSV_PATH)  if os.path.isfile(_TSE_CSV_PATH)  else 0.0
+
+    # 変更がなければキャッシュを使う
     if not _TSE_ALWAYS_RELOAD and _TSE_MAP and _TSE_MTIME == (json_m, csv_m):
         return
 
-    # まず JSON
     df = None
+
+    # ---------- JSON 優先 ----------
     if os.path.isfile(_TSE_JSON_PATH):
         try:
-            d = pd.read_json(_TSE_JSON_PATH, orient="records")
-            # 列名は何が来ても文字列化して判定（tuple対策）
-            cols = {str(c).lower(): c for c in d.columns}
+            with open(_TSE_JSON_PATH, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+
+            if isinstance(raw, list):
+                # 例: [{"code":"7011","name":"三菱重工業"}, ...]
+                d = pd.DataFrame(raw)
+            elif isinstance(raw, dict):
+                # 例: {"7011":"三菱重工業", ...}
+                d = pd.DataFrame([{"code": k, "name": v} for k, v in raw.items()])
+            else:
+                raise ValueError("tse_list.json: unexpected root type")
+
+            cols = {c.lower(): c for c in d.columns}
             code = cols.get("code") or cols.get("ticker") or cols.get("symbol")
             name = cols.get("name") or cols.get("jp_name") or cols.get("company")
-            if code and name:
-                d = d[[code, name]].rename(columns={code: "code", name: "name"})
-                df = d
-                _d(f"loaded json ({len(df)} rows)")
+            if not (code and name):
+                raise ValueError("tse_list.json must have 'code' and 'name' columns")
+
+            d = d[[code, name]].rename(columns={code: "code", name: "name"})
+            df = d
+            _d(f"loaded json ({len(df)} rows)")
         except Exception as e:
             _d(f"failed to load json: {e}")
 
-    # JSONがダメならCSV
+    # ---------- CSV フォールバック ----------
     if df is None and os.path.isfile(_TSE_CSV_PATH):
         try:
             d = pd.read_csv(_TSE_CSV_PATH, encoding="utf-8-sig", dtype=str)
-            cols = {str(c).lower(): c for c in d.columns}
-            code = cols.get("code")
-            name = cols.get("name")
-            if code and name:
-                d = d[[code, name]].rename(columns={code: "code", name: "name"})
-                df = d
-                _d(f"loaded csv ({len(df)} rows)")
+            d = d.rename(columns={c: c.lower() for c in d.columns})
+            if not {"code", "name"}.issubset(d.columns):
+                raise ValueError("tse_list.csv needs 'code' and 'name'")
+            df = d[["code", "name"]]
+            _d(f"loaded csv ({len(df)} rows)")
         except Exception as e:
             _d(f"failed to load csv: {e}")
 
+    # ---------- どちらも無い/不正 ----------
     if df is None:
         _TSE_MAP = {}
         _TSE_MTIME = (json_m, csv_m)
         return
 
-    df["code"] = df["code"].astype(str).map(_clean_text)
+    # 正規化
+    df["code"] = df["code"].astype(str).map(_clean_text).str.upper()
     df["name"] = df["name"].astype(str).map(_clean_text)
-    _TSE_MAP = {row["code"].upper(): row["name"] for _, row in df.iterrows() if row["code"] and row["name"]}
+    df = df.dropna().drop_duplicates(subset=["code"])
+
+    _TSE_MAP = {row["code"]: row["name"] for _, row in df.iterrows()}
     _TSE_MTIME = (json_m, csv_m)
 
 def _lookup_name_jp_from_list(ticker: str) -> Optional[str]:
