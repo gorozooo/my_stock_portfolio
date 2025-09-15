@@ -1,3 +1,4 @@
+# portfolio/views.py
 from __future__ import annotations
 
 from django.shortcuts import render
@@ -9,7 +10,6 @@ from .services.trend import detect_trend
 import re
 import pandas as pd
 import yfinance as yf
-
 
 # ========= 共通: ティッカー正規化（日本株 4〜5桁は .T を付与） =========
 _JP_ALNUM = re.compile(r"^[0-9A-Z]{4,5}$")
@@ -92,30 +92,44 @@ def trend_api(request):
 
 @require_GET
 def ohlc_api(request):
+    """
+    Chart.js 用の終値 + 移動平均 API
+    - yfinance が返す DataFrame は場合により MultiIndex になる
+      （Close/High/Low/… × ティッカー）ので安全に Close を取り出す
+    """
     ticker_raw = (request.GET.get("ticker") or "").strip()
     ticker = _normalize_ticker(ticker_raw)
     days = int(request.GET.get("days") or 180)
+
     if not ticker:
         return JsonResponse({"ok": False, "error": "ticker required"})
 
     try:
         df = yf.download(str(ticker), period=f"{days}d", interval="1d", progress=False)
-
         if df is None or df.empty:
             return JsonResponse({"ok": False, "error": "no data"})
 
-        # -------- カラム調整 --------
+        # -------- Close 取り出し（単一 / MultiIndex 両対応）--------
         if isinstance(df.columns, pd.MultiIndex):
-            # MultiIndex → 単一ティッカー列を選ぶ
-            if "Close" in df.columns.levels[0]:
-                df = df["Close"].to_frame(name="Close")
+            # level=0 に "Close" があればクロスセクションで取得
+            if "Close" in df.columns.get_level_values(0):
+                close_obj = df.xs("Close", axis=1, level=0, drop_level=True)
+                # close_obj は単一列なら Series、複数列なら DataFrame
+                if isinstance(close_obj, pd.DataFrame):
+                    s = close_obj.iloc[:, 0]  # 最初のティッカー列
+                else:
+                    s = close_obj  # Series
             else:
-                df.columns = [c[0] for c in df.columns]  # 1段 flatten
+                # 念のため最終列を数値化して使う
+                s = df.iloc[:, -1]
+        else:
+            # 通常の単一ティッカー DataFrame 形式
+            if "Close" not in df.columns:
+                return JsonResponse({"ok": False, "error": "no Close column"})
+            s = df["Close"]
 
-        if "Close" not in df.columns:
-            return JsonResponse({"ok": False, "error": "no Close column"})
+        s = pd.to_numeric(s, errors="coerce").dropna()
 
-        s = df["Close"].dropna().astype(float)
         ma10 = s.rolling(10).mean()
         ma30 = s.rolling(30).mean()
 
