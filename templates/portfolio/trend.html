@@ -2,15 +2,17 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta
+    name="viewport"
+    content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <title>銘柄トレンド判定</title>
 
   <!-- htmx -->
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 
-  <!-- Chart.js 本体（v4系） -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-  <!-- 金融（ローソク）プラグイン + 日付アダプタ（v3系） -->
+  <!-- Chart.js (UMD bundle) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <!-- 金融（ローソク）プラグイン + 日付アダプタ -->
   <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@3"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
 
@@ -26,7 +28,7 @@
     .down{ background:#ffecec; color:#b00020; }
     .flat{ background:#f5f5f5; color:#555; }
     .sub{ color:#666; font-size:12px; }
-    .chart-wrap { margin-top:12px; border:1px solid #eee; border-radius:16px; padding:12px; height:360px; }
+    .chart-wrap { margin-top:12px; border:1px solid #eee; border-radius:16px; padding:12px; height:360px; position:relative; }
     .htmx-indicator { display:none; }
     .htmx-request .htmx-indicator { display:block; }
     .grid { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
@@ -38,6 +40,7 @@
     .b-gray{ background:#f5f5f5; color:#555; }
     .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }
     .err { color:#b00020; margin-top:8px; }
+    .chart-msg{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#b00020; }
   </style>
 </head>
 <body>
@@ -63,8 +66,8 @@
 
   <!-- チャート（ローソク足 or フォールバック線） -->
   <div class="chart-wrap">
+    <div id="chartMsg" class="chart-msg" style="display:none;"></div>
     <canvas id="priceChart"></canvas>
-    <div id="chartError" class="err" style="display:none;"></div>
   </div>
 
   <!-- 根拠（軽量セット） -->
@@ -75,24 +78,26 @@
   </div>
 
   <script>
+    // --- financial プラグインを確実に登録 ---
+    (function robustRegisterFinancial(){
+      try{
+        const fin = window['chartjs-chart-financial'];
+        const regs = [];
+        if (Chart.CandlestickController) regs.push(Chart.CandlestickController);
+        if (Chart.OhlcController)        regs.push(Chart.OhlcController);
+        if (Chart.CandlestickElement)    regs.push(Chart.CandlestickElement);
+        if (Chart.OhlcElement)           regs.push(Chart.OhlcElement);
+        if (fin && fin.CandlestickController) regs.push(fin.CandlestickController);
+        if (fin && fin.OhlcController)        regs.push(fin.OhlcController);
+        if (fin && fin.CandlestickElement)    regs.push(fin.CandlestickElement);
+        if (fin && fin.OhlcElement)           regs.push(fin.OhlcElement);
+        if (regs.length) Chart.register(...regs);
+      }catch(e){ console.warn('financial register failed', e); }
+    })();
+
     const tickerEl = document.getElementById('ticker');
     const btn = document.getElementById('judgeBtn');
 
-    // --- financial プラグインを確実に登録（CDN/モバイル対策のシム）---
-    (function ensureFinancialRegistered(){
-      try{
-        const fin = window['chartjs-chart-financial'];
-        const reg = Chart.registry?.controllers?.get?.('candlestick');
-        if (!reg && fin){
-          Chart.register(
-            fin.CandlestickController, fin.OhlcController,
-            fin.CandlestickElement,    fin.OhlcElement
-          );
-        }
-      }catch(e){ /* 失敗してもフォールバックするので無視 */ }
-    })();
-
-    // 4–5桁英数字は .T を付与（バックエンドと同じルール）
     function normalizeTicker(raw){
       const t = (raw || '').trim().toUpperCase();
       if (!t) return t;
@@ -102,73 +107,91 @@
 
     tickerEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') btn.click(); });
 
-    // ===== Chart.js（candlestick優先 / 線グラフに自動フォールバック） =====
     let chart;
-    function showChartError(msg){
-      const el = document.getElementById('chartError');
-      el.textContent = msg;
-      el.style.display = 'block';
+
+    function showChartMsg(text){
+      const m = document.getElementById('chartMsg');
+      m.textContent = text || '';
+      m.style.display = text ? 'flex' : 'none';
     }
-    function clearChartError(){
-      const el = document.getElementById('chartError');
-      el.textContent = '';
-      el.style.display = 'none';
+
+    function renderLineFromOHLC(ctx, j){
+      const labels = j.ohlc.map(r => r.x);
+      const close  = j.ohlc.map(r => r.c);
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Close', data: close, borderWidth: 2, pointRadius: 0 },
+            { label: 'MA(10)', data: j.ma10, borderWidth: 1, pointRadius: 0, spanGaps: true },
+            { label: 'MA(30)', data: j.ma30, borderWidth: 1, pointRadius: 0, spanGaps: true }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          scales: { x: { display: false }, y: { beginAtZero: false, ticks: { callback: v => (typeof v === 'number' ? v.toLocaleString() : v) } } },
+          plugins: { legend: { display: true } }
+        }
+      });
     }
 
     async function drawChart(input, days = 180) {
       const ticker = normalizeTicker(input);
       if (!ticker) return;
-      clearChartError();
+      showChartMsg('');
       try {
         const r = await fetch(`/api/ohlc?ticker=${encodeURIComponent(ticker)}&days=${days}`);
         const j = await r.json();
         const ctx = document.getElementById('priceChart').getContext('2d');
         if (chart) chart.destroy();
 
-        const financialReady =
-          !!(Chart.registry && Chart.registry.controllers.get('candlestick'));
+        // 1) candlestick（x を Date に変換：iOS Safari 対策）
+        if (j.ok && Array.isArray(j.ohlc) && j.ohlc.length) {
+          const ohlc = j.ohlc.map(row => ({
+            x: new Date(row.x), o: row.o, h: row.h, l: row.l, c: row.c
+          }));
+          const ma10 = ohlc.map((row, i) => (j.ma10?.[i] != null ? { x: row.x, y: j.ma10[i] } : null)).filter(Boolean);
+          const ma30 = ohlc.map((row, i) => (j.ma30?.[i] != null ? { x: row.x, y: j.ma30[i] } : null)).filter(Boolean);
 
-        // candlestick データがあり、かつプラグインが登録済みならローソク足
-        if (j.ok && Array.isArray(j.ohlc) && j.ohlc.length && financialReady) {
-          const ma10 = j.ohlc.map((row, i) => (j.ma10?.[i] != null ? { x: row.x, y: j.ma10[i] } : null)).filter(Boolean);
-          const ma30 = j.ohlc.map((row, i) => (j.ma30?.[i] != null ? { x: row.x, y: j.ma30[i] } : null)).filter(Boolean);
-
-          chart = new Chart(ctx, {
-            data: {
-              datasets: [
-                { type: 'candlestick', label: 'OHLC', data: j.ohlc },
-                { type: 'line', label: 'MA(10)', data: ma10, borderWidth: 1.5, pointRadius: 0, spanGaps: true },
-                { type: 'line', label: 'MA(30)', data: ma30, borderWidth: 1.5, pointRadius: 0, spanGaps: true },
-              ]
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              parsing: { xAxisKey:'x', openKey:'o', highKey:'h', lowKey:'l', closeKey:'c' },
-              interaction: { mode: 'index', intersect: false },
-              scales: {
-                x: { type: 'time', time: { parser: 'yyyy-MM-dd', tooltipFormat: 'yyyy-MM-dd' }, ticks: { maxTicksLimit: 6 } },
-                y: { beginAtZero: false, ticks: { callback: v => (typeof v === 'number' ? v.toLocaleString() : v) } }
+          try{
+            chart = new Chart(ctx, {
+              data: {
+                datasets: [
+                  { type: 'candlestick', label: 'OHLC', data: ohlc },
+                  { type: 'line', label: 'MA(10)', data: ma10, borderWidth: 1.5, pointRadius: 0, spanGaps: true },
+                  { type: 'line', label: 'MA(30)', data: ma30, borderWidth: 1.5, pointRadius: 0, spanGaps: true }
+                ]
               },
-              plugins: { legend: { display: true } }
-            }
-          });
+              options: {
+                responsive: true, maintainAspectRatio: false,
+                parsing: { xAxisKey: 'x', openKey: 'o', highKey: 'h', lowKey: 'l', closeKey: 'c' },
+                interaction: { mode: 'index', intersect: false },
+                scales: {
+                  x: { type: 'time', time: { tooltipFormat: 'yyyy-MM-dd' }, ticks: { maxTicksLimit: 6 } },
+                  y: { beginAtZero: false, ticks: { callback: v => (typeof v === 'number' ? v.toLocaleString() : v) } }
+                },
+                plugins: { legend: { display: true } }
+              }
+            });
+          }catch(e){
+            console.warn('candlestick failed, fallback to line', e);
+            renderLineFromOHLC(ctx, { ...j, ohlc });
+          }
           return;
         }
 
-        // ラインフォールバック
+        // 2) 従来の labels/close
         if (j.ok && Array.isArray(j.labels) && j.labels.length) {
-          if (!financialReady) {
-            showChartError('ローソク足プラグイン未登録のため、折れ線で表示しました。');
-          }
           chart = new Chart(ctx, {
             type: 'line',
             data: {
               labels: j.labels,
               datasets: [
                 { label: 'Close', data: j.close, borderWidth: 2, pointRadius: 0 },
-                { label: 'MA(10)', data: j.ma10, borderWidth: 1, pointRadius: 0 },
-                { label: 'MA(30)', data: j.ma30, borderWidth: 1, pointRadius: 0 }
+                { label: 'MA(10)', data: j.ma10, borderWidth: 1, pointRadius: 0, spanGaps: true },
+                { label: 'MA(30)', data: j.ma30, borderWidth: 1, pointRadius: 0, spanGaps: true }
               ]
             },
             options: {
@@ -181,10 +204,11 @@
           return;
         }
 
-        showChartError('チャートデータが取得できませんでした。');
+        // データ無し
+        showChartMsg('チャートデータが取得できませんでした。');
       } catch(e) {
         console.error(e);
-        showChartError(`描画エラー: ${e}`);
+        showChartMsg('チャート描画中にエラーが発生しました。');
       }
     }
 
@@ -215,7 +239,6 @@
         asof.textContent = `根拠（${j.asof} 時点）`;
         grid.innerHTML = '';
 
-        // トレンド
         const slope = j.trend?.slope_ann_pct_60;
         const adx = j.trend?.adx14;
         const ma = j.trend?.ma || {};
@@ -229,7 +252,6 @@
           <div class="kpi"><h4>MA整列</h4><div class="v">${maStack}</div></div>
         `);
 
-        // 相対
         const rs6 = j.relative?.rs_6m_pct;
         const nearHigh = (j.relative?.from_52w_high_pct ?? null);
         const nearLow  = (j.relative?.from_52w_low_pct ?? null);
@@ -239,7 +261,6 @@
           <div class="kpi"><h4>52週安値から</h4><div class="v">${fmt(nearLow)}%</div></div>
         `);
 
-        // リスク・流動性
         const vol20 = j.risk?.vol20_ann_pct, vol60 = j.risk?.vol60_ann_pct, atr = j.risk?.atr14;
         const adv20 = j.liquidity?.adv20;
         grid.insertAdjacentHTML('beforeend', `
