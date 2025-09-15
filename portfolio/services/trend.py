@@ -1,21 +1,111 @@
-# portfolio/services/trend.py
 from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict
+import os
+import time
+import datetime as dt
+
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
 
-# =========================
-# ヘルパ
-# =========================
+# =====================================================================
+# 日本語銘柄名 CSV ローダ（data/tse_list.csv を想定）
+# - 形式: ヘッダあり、少なくとも "code","name" の2列
+# - 例:
+#     code,name
+#     7011,三菱重工業
+#     7203,トヨタ自動車
+# - 文字コードは UTF-8 (BOMあり/なし どちらでもOK)
+# =====================================================================
+
+# CSV の既定パス（必要なら環境変数で上書き）
+_TSE_CSV_PATH = os.environ.get("TSE_CSV_PATH", os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "tse_list.csv"))
+
+# モジュール内キャッシュ
+_TSE_MAP: Dict[str, str] = {}
+_TSE_CSV_MTIME: float = 0.0
+
+
+def _load_tse_map_if_needed() -> None:
+    """
+    CSV があれば読み込み、更新時刻が変わっていれば再読込する。
+    無ければ何もしない（yfinance にフォールバック）。
+    """
+    global _TSE_MAP, _TSE_CSV_MTIME
+
+    if not os.path.isfile(_TSE_CSV_PATH):
+        return
+
+    try:
+        mtime = os.path.getmtime(_TSE_CSV_PATH)
+        if _TSE_MAP and _TSE_CSV_MTIME == mtime:
+            return  # 変更なし
+        df = pd.read_csv(
+            _TSE_CSV_PATH,
+            encoding="utf-8-sig",
+            dtype={"code": str, "name": str},
+        )
+        # 必須列チェック
+        if not {"code", "name"}.issubset(set(c.lower() for c in df.columns)):
+            # 列名の大小文字ゆらぎ対策
+            cols = {c.lower(): c for c in df.columns}
+            code_col = cols.get("code")
+            name_col = cols.get("name")
+        else:
+            # 大小文字無視で列参照を得る
+            cols = {c.lower(): c for c in df.columns}
+            code_col = cols["code"]
+            name_col = cols["name"]
+
+        # 正規化: 4〜5桁の先頭ゼロ保持、空白除去
+        df[code_col] = df[code_col].astype(str).str.strip()
+        df[name_col] = df[name_col].astype(str).str.strip()
+
+        # マップ化（例: "7011" -> "三菱重工業"）
+        _TSE_MAP = {
+            row[code_col]: row[name_col]
+            for _, row in df.iterrows()
+            if row[code_col] and row[name_col]
+        }
+        _TSE_CSV_MTIME = mtime
+    except Exception:
+        # CSV が壊れていても落ちないように、マップは空に戻す
+        _TSE_MAP = {}
+        _TSE_CSV_MTIME = 0.0
+
+
+def _lookup_name_jp_from_csv(ticker: str) -> Optional[str]:
+    """
+    ティッカーが東証（nnnn or nnnn.T）なら CSV から日本語名を返す。
+    見つからなければ None。
+    """
+    _load_tse_map_if_needed()
+    if not _TSE_MAP:
+        return None
+
+    t = (ticker or "").upper().strip()
+    if not t:
+        return None
+
+    # "7203" / "7203.T" / "7203.TK" などの数字部分を抜く
+    numeric = t.split(".", 1)[0]
+    if numeric.isdigit() and len(numeric) in (4, 5):
+        return _TSE_MAP.get(numeric)
+
+    return None
+
+
+# =====================================================================
+# チッカー正規化 / 名前取得
+# =====================================================================
+
 def _normalize_ticker(raw: str) -> str:
     """
     入力を正規化。
-    - 4～5桁の数字のみなら日本株とみなし「.T」を付与（例: '7203' -> '7203.T'）
-    - それ以外はそのまま大文字化のみ
+    - 4〜5桁の数字だけなら日本株とみなし「.T」を付与（例: '7203' -> '7203.T'）
+    - すでにサフィックスがある場合や英米株などはそのまま（大文字化のみ）
     """
     t = (raw or "").strip().upper()
     if not t:
@@ -27,11 +117,18 @@ def _normalize_ticker(raw: str) -> str:
     return t
 
 
-def _fetch_name_jp(ticker: str) -> str:
+def _fetch_name_prefer_jp(ticker: str) -> str:
     """
-    yfinance から銘柄名（日本語優先）を取得。
-    取れなければティッカーでフォールバック。
+    1) CSV（全銘柄日本語辞書）があれば最優先
+    2) なければ yfinance から取得（shortName/longName/name）
+    3) それも無ければティッカーを返す
     """
+    # まず CSV
+    name_csv = _lookup_name_jp_from_csv(ticker)
+    if isinstance(name_csv, str) and name_csv.strip():
+        return name_csv.strip()
+
+    # フォールバック: yfinance
     try:
         info = getattr(yf.Ticker(ticker), "info", {}) or {}
         name = info.get("shortName") or info.get("longName") or info.get("name")
@@ -39,17 +136,19 @@ def _fetch_name_jp(ticker: str) -> str:
             return name.strip()
     except Exception:
         pass
+
     return ticker
 
 
-# =========================
+# =====================================================================
 # 結果スキーマ
-# =========================
+# =====================================================================
+
 @dataclass
 class TrendResult:
     ticker: str
-    name: str                   # 日本語名（無ければ英語/ティッカー）
-    asof: str                   # 'YYYY-MM-DD'
+    name: str                   # 日本語名を想定（無ければ英語 or ティッカー）
+    asof: str                   # 例: '2025-09-15'
     days: int                   # 直近使用日数
     signal: str                 # 'UP' | 'DOWN' | 'FLAT'
     reason: str
@@ -59,14 +158,15 @@ class TrendResult:
     ma_long: Optional[float]    # 長期MAの最新値
 
 
-# =========================
+# =====================================================================
 # メイン判定
-# =========================
+# =====================================================================
+
 def detect_trend(
     ticker: str,
     days: int = 60,
     ma_short_win: int = 10,
-    ma_long_win: int = 25,
+    ma_long_win: int = 30,
 ) -> TrendResult:
     """
     直近 N 日の終値で線形回帰の傾きと移動平均を見て
@@ -76,13 +176,13 @@ def detect_trend(
     if not ticker:
         raise ValueError("ticker is required")
 
-    # 市場休場を考慮して余裕を持って period を長めに
+    # データ取得（市場休日も考慮して余裕を持って period を長めに）
     period_days = max(days + 30, 120)
     df = yf.download(ticker, period=f"{period_days}d", interval="1d", progress=False)
     if df is None or df.empty:
         raise ValueError("価格データを取得できませんでした")
 
-    # 終値 Series
+    # 終値のみ
     s = df["Close"].dropna()
     if s.empty:
         raise ValueError("終値データが空でした")
@@ -93,38 +193,35 @@ def detect_trend(
     if len(s) < max(15, ma_long_win):
         raise ValueError(f"データ日数が不足しています（取得: {len(s)}日）")
 
-    # --- 移動平均（必ず float/None に落とす）---
-    ma_short_s = s.rolling(ma_short_win).mean()
-    ma_long_s = s.rolling(ma_long_win).mean()
+    # 移動平均
+    ma_short = s.rolling(ma_short_win).mean()
+    ma_long = s.rolling(ma_long_win).mean()
 
-    ma_short_last: Optional[float] = None
-    if not ma_short_s.empty:
-        v = ma_short_s.iloc[-1]
-        # v が 0次元 ndarray / numpy scalar / pandas scalar / Series(長さ1) でも安全に数値化
+    # 安全に float/None 化（ambiguous 回避）
+    def _to_float_or_none(v) -> Optional[float]:
+        if v is None:
+            return None
         try:
-            val = getattr(v, "item", lambda: v)()
+            # pandas の NaN 判定は isna を使う
+            if pd.isna(v):
+                return None
         except Exception:
-            val = v
-        if pd.notna(val):
-            ma_short_last = float(val)
+            pass
+        try:
+            return float(v)
+        except Exception:
+            return None
 
-    ma_long_last: Optional[float] = None
-    if not ma_long_s.empty:
-        v = ma_long_s.iloc[-1]
-        try:
-            val = getattr(v, "item", lambda: v)()
-        except Exception:
-            val = v
-        if pd.notna(val):
-            ma_long_last = float(val)
+    ma_s = _to_float_or_none(ma_short.iloc[-1])
+    ma_l = _to_float_or_none(ma_long.iloc[-1])
 
     # 線形回帰（x は 0..n-1）
-    y = np.asarray(s.values, dtype=float)
+    y = s.values.astype(float)
     x = np.arange(len(y), dtype=float)
     k, b = np.polyfit(x, y, 1)  # 傾き k
 
     # 年率換算の概算（営業日 ~ 252日）
-    last_price = float(y[-1])
+    last_price = y[-1]
     slope_daily_pct = (k / last_price) * 100.0 if last_price else 0.0
     slope_ann_pct = slope_daily_pct * 252.0
 
@@ -139,14 +236,14 @@ def detect_trend(
         reason = "回帰傾き(年率換算)が負で大きめ"
 
     # MA クロスで補強
-    if ma_short_last is not None and ma_long_last is not None:
-        if ma_short_last > ma_long_last and signal == "FLAT":
+    if (ma_s is not None) and (ma_l is not None):
+        if ma_s > ma_l and signal == "FLAT":
             signal, reason = "UP", "短期線が長期線を上回る(ゴールデンクロス気味)"
-        elif ma_short_last < ma_long_last and signal == "FLAT":
+        elif ma_s < ma_l and signal == "FLAT":
             signal, reason = "DOWN", "短期線が長期線を下回る(デッドクロス気味)"
 
     asof = s.index[-1].date().isoformat()
-    name = _fetch_name_jp(ticker)
+    name = _fetch_name_prefer_jp(ticker)
 
     return TrendResult(
         ticker=ticker,
@@ -157,6 +254,6 @@ def detect_trend(
         reason=reason,
         slope=float(k),
         slope_annualized_pct=float(slope_ann_pct),
-        ma_short=ma_short_last,
-        ma_long=ma_long_last,
+        ma_short=ma_s,
+        ma_long=ma_l,
     )
