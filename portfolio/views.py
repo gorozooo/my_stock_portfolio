@@ -93,28 +93,17 @@ def trend_api(request):
 
 @require_GET
 def ohlc_api(request):
-    """
-    チャート描画用のデータ返却API
-    GET /api/ohlc?ticker=7011&days=180
-    """
-    ticker_raw = (request.GET.get("ticker") or "").strip()
+    ticker = (request.GET.get("ticker") or "").strip().upper()
     days = int(request.GET.get("days") or 180)
-
-    if not ticker_raw:
-        return JsonResponse({"ok": False, "error": "ticker required"}, status=400)
-
-    ticker = _normalize_ticker(ticker_raw)
+    if not ticker:
+        return JsonResponse({"ok": False, "error": "ticker required"})
 
     try:
-        # 休日を考慮して period は少し余裕を持たせる
-        df = yf.download(ticker, period=f"{max(days + 30, 120)}d", interval="1d", progress=False)
-        if df is None or df.empty:
-            return JsonResponse({"ok": False, "error": "no data"}, status=400)
+        df = yf.download(ticker, period=f"{days}d", interval="1d", progress=False)
+        if df.empty:
+            return JsonResponse({"ok": False, "error": "no data"})
 
-        s = df["Close"].dropna().tail(days)
-        if s.empty:
-            return JsonResponse({"ok": False, "error": "no close prices"}, status=400)
-
+        s = df["Close"].dropna()
         ma10 = s.rolling(10).mean()
         ma30 = s.rolling(30).mean()
 
@@ -127,4 +116,4 @@ def ohlc_api(request):
         }
         return JsonResponse(data)
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        return JsonResponse({"ok": False, "error": str(e)})
