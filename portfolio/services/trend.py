@@ -1,8 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional, Tuple
-import datetime as dt
-
+from typing import Optional
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -14,15 +12,15 @@ import yfinance as yf
 def _normalize_ticker(raw: str) -> str:
     """
     入力を正規化。
-    - 4桁数字だけなら日本株とみなし「.T」を付与（例: '7203' -> '7203.T'）
-    - すでにサフィックスがある場合や英米株などはそのまま大文字化のみ
+    - 4〜5桁の数字だけなら日本株とみなし「.T」を付与（例: '7203' -> '7203.T'）
+    - それ以外は大文字化のみ
     """
     t = (raw or "").strip().upper()
     if not t:
         return t
     if "." in t:
         return t
-    if t.isdigit() and len(t) in (4, 5):  # 東証は主に4桁
+    if t.isdigit() and len(t) in (4, 5):
         return f"{t}.T"
     return t
 
@@ -30,8 +28,7 @@ def _normalize_ticker(raw: str) -> str:
 def _fetch_name_jp(ticker: str) -> str:
     """
     yfinance から銘柄名（日本語優先）を取得。
-    - 日本株は info['shortName'] が日本語のことが多い
-    - それが無ければ longName、さらに fallback はティッカー
+    見つからなければティッカーを返す。
     """
     try:
         info = getattr(yf.Ticker(ticker), "info", {}) or {}
@@ -49,15 +46,15 @@ def _fetch_name_jp(ticker: str) -> str:
 @dataclass
 class TrendResult:
     ticker: str
-    name: str                   # ★ 日本語名を想定（無ければ英語 or ティッカー）
-    asof: str                   # 例: '2025-09-15'
-    days: int                   # 直近使用日数
-    signal: str                 # 'UP' | 'DOWN' | 'FLAT'
+    name: str                    # 日本語名（なければ英名/ティッカー）
+    asof: str                    # 'YYYY-MM-DD'
+    days: int                    # 使用した直近日数
+    signal: str                  # 'UP' | 'DOWN' | 'FLAT'
     reason: str
-    slope: float                # 1日あたりの回帰傾き（終値）
-    slope_annualized_pct: float # 年率換算(%)
-    ma_short: Optional[float]   # 短期MAの最新値
-    ma_long: Optional[float]    # 長期MAの最新値
+    slope: float                 # 回帰傾き(終値/日)
+    slope_annualized_pct: float  # 年率換算(%)
+    ma_short: Optional[float]    # 短期MAの最新値
+    ma_long: Optional[float]     # 長期MAの最新値
 
 
 # =========================
@@ -77,7 +74,7 @@ def detect_trend(
     if not ticker:
         raise ValueError("ticker is required")
 
-    # データ取得（市場休日も考慮して余裕を持って period を長めに）
+    # 休日を考慮して余裕を持って period を長めに取得
     period_days = max(days + 30, 120)
     df = yf.download(ticker, period=f"{period_days}d", interval="1d", progress=False)
     if df is None or df.empty:
@@ -88,7 +85,7 @@ def detect_trend(
     if s.empty:
         raise ValueError("終値データが空でした")
 
-    # 直近 'days' 営業日のみ（tail にキーワード引数は不可！）
+    # 直近 'days' 営業日（tail は位置引数のみ）
     s = s.tail(days)
 
     if len(s) < max(15, ma_long_win):
@@ -97,8 +94,13 @@ def detect_trend(
     # 移動平均
     ma_short = s.rolling(ma_short_win).mean()
     ma_long = s.rolling(ma_long_win).mean()
-    ma_s = float(ma_short.iloc[-1]) if not np.isnan(ma_short.iloc[-1]) else None
-    ma_l = float(ma_long.iloc[-1]) if not np.isnan(ma_long.iloc[-1]) else None
+
+    # 最終値を安全に取り出し（NaN のときは None に）
+    val_s = ma_short.iloc[-1]
+    ma_s = float(val_s) if pd.notna(val_s) else None
+
+    val_l = ma_long.iloc[-1]
+    ma_l = float(val_l) if pd.notna(val_l) else None
 
     # 線形回帰（x は 0..n-1）
     y = s.values.astype(float)
@@ -121,10 +123,10 @@ def detect_trend(
         reason = "回帰傾き(年率換算)が負で大きめ"
 
     # MA クロスで補強
-    if ma_s is not None and ma_l is not None:
-        if ma_s > ma_l and signal == "FLAT":
+    if (ma_s is not None) and (ma_l is not None):
+        if (ma_s > ma_l) and (signal == "FLAT"):
             signal, reason = "UP", "短期線が長期線を上回る(ゴールデンクロス気味)"
-        elif ma_s < ma_l and signal == "FLAT":
+        elif (ma_s < ma_l) and (signal == "FLAT"):
             signal, reason = "DOWN", "短期線が長期線を下回る(デッドクロス気味)"
 
     asof = s.index[-1].date().isoformat()
