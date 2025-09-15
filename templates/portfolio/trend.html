@@ -101,23 +101,14 @@
     }
 
     function addTradeLinesToDatasets(datasets, len){
-  if (!latestTrade) return datasets;
-  const {entry, stop, take} = latestTrade;
+  if (!window.latestTrade) return datasets;
+  const {entry, stop, take} = window.latestTrade;
   const ds = [...datasets];
-  const baseOpt = {borderWidth: 1.5, pointRadius: 0, spanGaps: true};
+  const base = {borderWidth: 1.5, pointRadius: 0, spanGaps: true};
 
-  if (entry != null){
-    const entryLine = Array(len).fill(entry);
-    ds.push({ label: 'Entry', data: entryLine, ...baseOpt, borderColor:'#444', borderDash:[6,4] });
-  }
-  if (stop != null){
-    const stopLine = Array(len).fill(stop);
-    ds.push({ label: 'Stop', data: stopLine, ...baseOpt, borderColor:'#d00', borderDash:[4,4] });
-  }
-  if (take != null){
-    const takeLine = Array(len).fill(take);
-    ds.push({ label: 'Take', data: takeLine, ...baseOpt, borderColor:'#0a0', borderDash:[2,4] });
-  }
+  if (entry != null) ds.push({ label:'Entry', data: Array(len).fill(entry), ...base, borderColor:'#444', borderDash:[6,4] });
+  if (stop  != null) ds.push({ label:'Stop',  data: Array(len).fill(stop),  ...base, borderColor:'#d00', borderDash:[4,4] });
+  if (take  != null) ds.push({ label:'Take',  data: Array(len).fill(take),  ...base, borderColor:'#0a0', borderDash:[2,4] });
   return ds;
 }
 
