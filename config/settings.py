@@ -12,7 +12,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # === 基本設定 ===
 # ※ 本番では環境変数で管理しましょう（開発中はこのままでOK）
 SECRET_KEY = 'django-insecure-(f8%22e=p67$pa(7pd!%z3p7f$6w8z)_%o7lgti6i#8pi_%(59'
-DEBUG = True
+DEBUG = Fail 
 
 # 開発中: 空でOK / 本番(ConoHa等): ドメイン or IP を追加
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "gorozooo.com", "www.gorozooo.com", "192.168.1.16"]
