@@ -127,8 +127,11 @@ def _load_tse_map_if_needed() -> None:
         return
 
     # JSON 優先 → CSV
-    df = _read_tse_json(_TSE_JSON_PATH) or _read_tse_csv(_TSE_CSV_PATH)
-    if df is None:
+    df = _read_tse_json(_TSE_JSON_PATH)
+    if df is None or df.empty:
+        df = _read_tse_csv(_TSE_CSV_PATH)
+
+    if df is None or df.empty:
         _TSE_MAP = {}
         _TSE_MTIME = (json_m, csv_m)
         return
