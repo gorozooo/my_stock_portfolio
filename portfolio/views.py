@@ -99,17 +99,23 @@ def ohlc_api(request):
         return JsonResponse({"ok": False, "error": "ticker required"})
 
     try:
-        # ★ 単一銘柄の DataFrame を取得（columns: Open, High, Low, Close ...）
         df = yf.download(str(ticker), period=f"{days}d", interval="1d", progress=False)
 
         if df is None or df.empty:
             return JsonResponse({"ok": False, "error": "no data"})
 
-        # MultiIndex の場合は列レベルを落とす
+        # -------- カラム調整 --------
         if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.droplevel(0)
+            # MultiIndex → 単一ティッカー列を選ぶ
+            if "Close" in df.columns.levels[0]:
+                df = df["Close"].to_frame(name="Close")
+            else:
+                df.columns = [c[0] for c in df.columns]  # 1段 flatten
 
-        s = df["Close"].dropna().astype(float)  # ← float にキャスト
+        if "Close" not in df.columns:
+            return JsonResponse({"ok": False, "error": "no Close column"})
+
+        s = df["Close"].dropna().astype(float)
         ma10 = s.rolling(10).mean()
         ma30 = s.rolling(30).mean()
 
