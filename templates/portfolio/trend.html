@@ -2,17 +2,10 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta
-    name="viewport"
-    content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <title>銘柄トレンド判定</title>
-
-  <!-- htmx -->
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-
-  <!-- Chart.js（チャート描画用） -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:16px; }
     h2 { font-size:28px; margin:0 0 12px; }
@@ -26,24 +19,24 @@
     .flat{ background:#f5f5f5; color:#555; }
     .sub{ color:#666; font-size:12px; }
     .chart-wrap { margin-top:12px; border:1px solid #eee; border-radius:16px; padding:12px; height:260px; }
-    /* htmx のインジケータ表示 */
     .htmx-indicator { display:none; }
     .htmx-request .htmx-indicator { display:block; }
-    #chartErr { color:#b00020; font-size:12px; margin-top:8px; }
+    /* 根拠テーブル */
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
+    .kpi { padding:10px; border:1px solid #eee; border-radius:12px; background:#fafafa; }
+    .kpi h4 { margin:0 0 6px; font-size:13px; color:#666; }
+    .kpi .v { font-size:16px; font-weight:600; }
+    .b-green{ background:#e6ffed; color:#057a55; }
+    .b-red{ background:#ffecec; color:#b00020; }
+    .b-gray{ background:#f5f5f5; color:#555; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }
   </style>
 </head>
 <body>
   <h2>銘柄トレンド判定</h2>
 
   <div class="row">
-    <input
-      id="ticker"
-      type="text"
-      placeholder="例: AAPL / MSFT / 7203（.T不要）"
-      inputmode="latin"
-      autocomplete="off"
-      autocapitalize="characters"
-      spellcheck="false">
+    <input id="ticker" type="text" placeholder="例: AAPL / MSFT / 7203（.T不要）" inputmode="latin" autocomplete="off" autocapitalize="characters" spellcheck="false">
     <button
       id="judgeBtn"
       hx-get="/trend/card"
@@ -55,80 +48,126 @@
     </button>
   </div>
 
-  <!-- htmx の標準クラスで自動表示/非表示 -->
   <div id="loading" class="sub htmx-indicator">Loading...</div>
 
-  <!-- 判定結果カード（HTMXで差し替え） -->
+  <!-- 判定結果カード -->
   <div id="result" class="card"></div>
 
-  <!-- 価格チャート -->
+  <!-- チャート -->
   <div class="chart-wrap">
-    <!-- 高さを明示しておく（モバイルで 0px になるのを防ぐ） -->
-    <canvas id="priceChart" height="220"></canvas>
-    <div id="chartErr"></div>
+    <canvas id="priceChart"></canvas>
+  </div>
+
+  <!-- 根拠（軽量セット） -->
+  <div id="evidence" class="card" style="display:none;">
+    <div class="sub" id="ev-asof"></div>
+    <div class="grid" id="ev-grid"></div>
   </div>
 
   <script>
-    // Enter で判定ボタン
     const tickerEl = document.getElementById('ticker');
     const btn = document.getElementById('judgeBtn');
-    tickerEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') btn.click();
-    });
 
-    // Chart.js セットアップ
+    tickerEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') btn.click(); });
+
+    // ===== Chart.js =====
     let chart;
-    const errEl = document.getElementById('chartErr');
-
     async function drawChart(ticker, days = 180) {
-      errEl.textContent = '';
       if (!ticker) return;
       try {
         const r = await fetch(`/api/ohlc?ticker=${encodeURIComponent(ticker)}&days=${days}`);
         const j = await r.json();
-        if (!j.ok || !j.labels || !j.labels.length) {
-          errEl.textContent = j.error ? `チャート取得エラー: ${j.error}` : 'チャートを描画できませんでした。';
-          return;
-        }
-
+        if (!j.ok || !j.labels?.length) return;
         const ctx = document.getElementById('priceChart').getContext('2d');
         if (chart) chart.destroy();
-
         chart = new Chart(ctx, {
           type: 'line',
           data: {
             labels: j.labels,
             datasets: [
               { label: 'Close', data: j.close, borderWidth: 2, pointRadius: 0 },
-              { label: 'MA(10)', data: j.ma10, borderWidth: 1.5, pointRadius: 0 },
-              { label: 'MA(30)', data: j.ma30, borderWidth: 1.5, pointRadius: 0 }
+              { label: 'MA(10)', data: j.ma10, borderWidth: 1, pointRadius: 0 },
+              { label: 'MA(30)', data: j.ma30, borderWidth: 1, pointRadius: 0 }
             ]
           },
           options: {
-            responsive: true,
-            maintainAspectRatio: false,
+            responsive: true, maintainAspectRatio: false,
             interaction: { mode: 'index', intersect: false },
-            scales: {
-              x: { display: false },
-              y: {
-                beginAtZero: false,
-                ticks: { callback: v => (typeof v === 'number' ? v.toLocaleString() : v) }
-              }
-            },
+            scales: { x: { display: false }, y: { beginAtZero: false, ticks: { callback: v => (typeof v === 'number'? v.toLocaleString(): v) } } },
             plugins: { legend: { display: true } }
           }
         });
-      } catch (e) {
-        errEl.textContent = 'チャートの描画中にエラーが発生しました。';
+      } catch(e) { console.error(e); }
+    }
+
+    // ===== Evidence（軽量根拠） =====
+    function badge(val, good=true){
+      const cls = good ? 'b-green' : 'b-red';
+      return `<span class="badge ${cls}">${val}</span>`;
+    }
+    function fmt(x, d=2){ return (x===null || x===undefined) ? '-' : Number(x).toFixed(d); }
+
+    async function loadEvidence(ticker){
+      const box = document.getElementById('evidence');
+      const grid = document.getElementById('ev-grid');
+      const asof = document.getElementById('ev-asof');
+      box.style.display = 'none';
+      try{
+        const r = await fetch(`/api/metrics?ticker=${encodeURIComponent(ticker)}`);
+        const j = await r.json();
+        if(!j.ok) return;
+        asof.textContent = `根拠（${j.asof} 時点）`;
+        grid.innerHTML = '';
+
+        // トレンド
+        const slope = j.trend?.slope_ann_pct_60;
+        const adx = j.trend?.adx14;
+        const ma = j.trend?.ma || {};
+        const maStack = ma.stack === 'bull' ? badge('MA整列:強', true)
+                       : ma.stack === 'bear' ? badge('MA整列:弱', false)
+                       : `<span class="badge b-gray">MA整列:中立</span>`;
+
+        grid.insertAdjacentHTML('beforeend', `
+          <div class="kpi"><h4>回帰傾き(60日・年率)</h4><div class="v">${fmt(slope)}%</div></div>
+          <div class="kpi"><h4>ADX(14)</h4><div class="v">${fmt(adx)}</div></div>
+          <div class="kpi"><h4>MA20/50/200</h4><div class="v">${fmt(ma["20"],0)} / ${fmt(ma["50"],0)} / ${fmt(ma["200"],0)}</div></div>
+          <div class="kpi"><h4>MA整列</h4><div class="v">${maStack}</div></div>
+        `);
+
+        // 相対
+        const rs6 = j.relative?.rs_6m_pct;
+        const nearHigh = (j.relative?.from_52w_high_pct ?? null);
+        const nearLow  = (j.relative?.from_52w_low_pct ?? null);
+
+        grid.insertAdjacentHTML('beforeend', `
+          <div class="kpi"><h4>RS(6M,指数比)</h4><div class="v">${fmt(rs6)}%</div></div>
+          <div class="kpi"><h4>52週高値まで</h4><div class="v">${fmt(nearHigh)}%</div></div>
+          <div class="kpi"><h4>52週安値から</h4><div class="v">${fmt(nearLow)}%</div></div>
+        `);
+
+        // リスク・流動性
+        const vol20 = j.risk?.vol20_ann_pct, vol60 = j.risk?.vol60_ann_pct, atr = j.risk?.atr14;
+        const adv20 = j.liquidity?.adv20;
+
+        grid.insertAdjacentHTML('beforeend', `
+          <div class="kpi"><h4>年化ボラ20</h4><div class="v">${fmt(vol20)}%</div></div>
+          <div class="kpi"><h4>年化ボラ60</h4><div class="v">${fmt(vol60)}%</div></div>
+          <div class="kpi"><h4>ATR(14)</h4><div class="v">${fmt(atr,0)}</div></div>
+          <div class="kpi"><h4>ADV20(売買代金)</h4><div class="v">${adv20 ? adv20.toLocaleString() : '-'}</div></div>
+        `);
+
+        box.style.display = 'block';
+      }catch(e){
         console.error(e);
       }
     }
 
-    // ★ DOMが #result に差し替わった “後” にだけチャート更新
-    document.body.addEventListener('htmx:afterSwap', (evt) => {
-      if (evt.detail && evt.detail.target && evt.detail.target.id === 'result') {
-        const t = tickerEl.value.trim();
-        if (t) drawChart(t);
+    // HTMXでカードが更新されたら、同一ティッカーでチャート＋根拠も更新
+    document.body.addEventListener('htmx:afterOnLoad', () => {
+      const t = tickerEl.value.trim();
+      if (t){
+        drawChart(t);
+        loadEvidence(t);
       }
     });
   </script>
