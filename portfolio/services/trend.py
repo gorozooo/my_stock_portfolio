@@ -196,17 +196,13 @@ def _lookup_name_jp_from_list(ticker: str) -> Optional[str]:
 # =====================================================================
 
 def _normalize_ticker(raw: str) -> str:
-    """
-    入力を正規化。
-    - 4〜5桁の数字だけなら日本株とみなし「.T」を付与（例: '7203' -> '7203.T'）
-    - すでにサフィックスがある場合や英米株などはそのまま（大文字化のみ）
-    """
     t = (raw or "").strip().upper()
     if not t:
         return t
     if "." in t:
         return t
-    if t.isdigit() and len(t) in (4, 5):
+    # 4～5桁の数字 or 数字+アルファベットを東証コードとして処理
+    if re.match(r"^\d{3,4}[A-Z]?$", t):
         return f"{t}.T"
     return t
 
