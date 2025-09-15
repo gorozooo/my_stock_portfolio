@@ -1,3 +1,4 @@
+{# portfolio/templates/portfolio/_trend_card.html #}
 {% if error %}
   <div class="card" style="color:#b00020">{{ error }}</div>
 {% elif res %}
@@ -15,28 +16,12 @@
     <div class="sub" style="margin-top:6px;">{{ res.asof }} 時点 / 直近 {{ res.days }} 日</div>
 
     <ul style="margin:10px 0 0 18px; padding:0; line-height:1.8;">
-      <li>短期MA(10): {% if res.ma_short %}{{ res.ma_short|floatformat:2 }}{% endif %}</li>
-      <li>長期MA(30): {% if res.ma_long %}{{ res.ma_long|floatformat:2 }}{% endif %}</li>
-      <li>回帰傾き (年率): {{ res.slope_annualized_pct|floatformat:2 }}%</li>
+      <li>短期MA(10): {% if res.ma_short != None %}{{ res.ma_short|floatformat:2 }}{% else %}-{% endif %}</li>
+      <li>長期MA(30): {% if res.ma_long  != None %}{{ res.ma_long|floatformat:2  }}{% else %}-{% endif %}</li>
+      <li>回帰傾き (年率): {% if res.slope_annualized_pct != None %}{{ res.slope_annualized_pct|floatformat:2 }}%{% else %}-{% endif %}</li>
       <li>根拠: {{ res.reason }}</li>
     </ul>
 
-    <hr style="border:none;border-top:1px solid #eee; margin:12px 0;">
-
-    <div class="sub" style="font-weight:600;margin-bottom:6px;">プロ向け・軽量セット</div>
-    <ul style="margin:0 0 0 18px; padding:0; line-height:1.8;">
-      <li>MA並び(20/50/200): {% if res.ma_order %}{{ res.ma_order }}{% else %}-{% endif %}</li>
-      <li>ADX(14): {% if res.adx14 != None %}{{ res.adx14|floatformat:1 }}{% else %}-{% endif %}</li>
-      <li>RS(6M) 指数超過: {% if res.rs_6m_pct != None %}{{ res.rs_6m_pct|floatformat:1 }}%{% else %}-{% endif %}</li>
-      <li>52週高値乖離: {% if res.hi52_gap_pct != None %}{{ res.hi52_gap_pct|floatformat:1 }}%{% else %}-{% endif %}</li>
-      <li>52週安値乖離: {% if res.lo52_gap_pct != None %}{{ res.lo52_gap_pct|floatformat:1 }}%{% else %}-{% endif %}</li>
-      <li>年化ボラ20/60: 
-        {% if res.vol20_ann_pct != None %}{{ res.vol20_ann_pct|floatformat:1 }}%{% else %}-{% endif %}
-        /
-        {% if res.vol60_ann_pct != None %}{{ res.vol60_ann_pct|floatformat:1 }}%{% else %}-{% endif %}
-      </li>
-      <li>ATR(14): {% if res.atr14 != None %}{{ res.atr14|floatformat:2 }}{% else %}-{% endif %}</li>
-      <li>ADV20(出来高×価格): {% if res.adv20 != None %}{{ res.adv20|floatformat:0 }}{% else %}-{% endif %}</li>
-    </ul>
+    {# 詳細のプロ指標は trend.html 側の「根拠」カード（/api/metrics）で表示 #}
   </div>
 {% endif %}
