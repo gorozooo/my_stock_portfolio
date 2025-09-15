@@ -92,9 +92,14 @@ def trend_api(request):
 @require_GET
 def ohlc_api(request):
     """
-    Chart.js 用の終値 + 移動平均 API
-    - yfinance が返す DataFrame は場合により MultiIndex になる
-      （Close/High/Low/… × ティッカー）ので安全に Close を取り出す
+    Chart.js Financial プラグイン用の OHLC + MA API
+    返却形式:
+    {
+      ok: true,
+      ohlc: [{x:"YYYY-MM-DD", o:..., h:..., l:..., c:...}, ...],
+      ma10: [null/number,...],   # ohlc と同じ長さ
+      ma30: [null/number,...]
+    }
     """
     ticker_raw = (request.GET.get("ticker") or "").strip()
     ticker = _normalize_ticker(ticker_raw)
@@ -108,38 +113,58 @@ def ohlc_api(request):
         if df is None or df.empty:
             return JsonResponse({"ok": False, "error": "no data"})
 
-        # -------- Close 取り出し（単一 / MultiIndex 両対応）--------
-        if isinstance(df.columns, pd.MultiIndex):
-            # level=0 に "Close" があればクロスセクションで取得
-            if "Close" in df.columns.get_level_values(0):
-                close_obj = df.xs("Close", axis=1, level=0, drop_level=True)
-                # close_obj は単一列なら Series、複数列なら DataFrame
-                if isinstance(close_obj, pd.DataFrame):
-                    s = close_obj.iloc[:, 0]  # 最初のティッカー列
-                else:
-                    s = close_obj  # Series
+        # -------- 列名ゆらぎ & MultiIndex 対応で OHLC を取り出す --------
+        def _pick(colname: str) -> pd.Series:
+            if isinstance(df.columns, pd.MultiIndex):
+                if colname in df.columns.get_level_values(0):
+                    obj = df.xs(colname, axis=1, level=0, drop_level=True)
+                    # 複数列のときは先頭列を使用（通常は単一列）
+                    if isinstance(obj, pd.DataFrame):
+                        return pd.to_numeric(obj.iloc[:, 0], errors="coerce")
+                    return pd.to_numeric(obj, errors="coerce")
+                # 最後の保険：最終列を使う
+                return pd.to_numeric(df.iloc[:, -1], errors="coerce")
             else:
-                # 念のため最終列を数値化して使う
-                s = df.iloc[:, -1]
-        else:
-            # 通常の単一ティッカー DataFrame 形式
-            if "Close" not in df.columns:
-                return JsonResponse({"ok": False, "error": "no Close column"})
-            s = df["Close"]
+                cols = {c.lower(): c for c in df.columns}
+                use = cols.get(colname.lower())
+                if not use:
+                    raise KeyError(colname)
+                return pd.to_numeric(df[use], errors="coerce")
 
-        s = pd.to_numeric(s, errors="coerce").dropna()
+        o = _pick("Open").dropna()
+        h = _pick("High").dropna()
+        l = _pick("Low").dropna()
+        c = _pick("Close").dropna()
 
-        ma10 = s.rolling(10).mean()
-        ma30 = s.rolling(30).mean()
+        # 共通インデックスでアライン
+        base = pd.concat([o, h, l, c], axis=1, join="inner").dropna()
+        base.columns = ["Open", "High", "Low", "Close"]
+        if base.empty:
+            return JsonResponse({"ok": False, "error": "no aligned data"})
 
-        data = {
+        # MA は close から
+        ma10 = base["Close"].rolling(10).mean()
+        ma30 = base["Close"].rolling(30).mean()
+
+        # candlestick 用データ
+        ohlc = [
+            {
+                "x": idx.strftime("%Y-%m-%d"),
+                "o": float(row["Open"]),
+                "h": float(row["High"]),
+                "l": float(row["Low"]),
+                "c": float(row["Close"]),
+            }
+            for idx, row in base.iterrows()
+        ]
+
+        payload = {
             "ok": True,
-            "labels": [d.strftime("%Y-%m-%d") for d in s.index],
-            "close": [float(v) for v in s],
+            "ohlc": ohlc,
             "ma10": [float(v) if pd.notna(v) else None for v in ma10],
             "ma30": [float(v) if pd.notna(v) else None for v in ma30],
         }
-        return JsonResponse(data)
+        return JsonResponse(payload)
 
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)})
