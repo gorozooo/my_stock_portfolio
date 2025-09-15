@@ -305,7 +305,13 @@ def detect_trend(
 
     # いろいろ計算するので長めに取る（52週=~252営業日）
     period_days = max(days + 300, 420)
-    df = yf.download(ticker, period=f"{period_days}d", interval="1d", progress=False)
+    df = yf.download(
+    ticker,
+    period=f"{period_days}d",
+    interval="1d",
+    auto_adjust=True,     # ← これを明示
+    progress=False,
+)
     if df is None or df.empty:
         raise ValueError("価格データを取得できませんでした")
 
@@ -384,7 +390,13 @@ def detect_trend(
     # RS(6M) ベンチ比
     rs_6m = None
     try:
-        bench = yf.download(_INDEX_TICKER, period="300d", interval="1d", progress=False)
+        bench = yf.download(
+    _INDEX_TICKER,
+    period="300d",
+    interval="1d",
+    auto_adjust=True,     # ← これを明示
+    progress=False,
+)
         if bench is not None and not bench.empty:
             bclose = _pick_field(bench, "Close", required=True).dropna()
             r_stock = close_s.pct_change().dropna().tail(130)  # ≒6か月
