@@ -1,4 +1,3 @@
-# portfolio/views.py
 from __future__ import annotations
 
 from django.shortcuts import render
@@ -93,14 +92,17 @@ def trend_api(request):
 
 @require_GET
 def ohlc_api(request):
-    ticker = (request.GET.get("ticker") or "").strip().upper()
+    # ★ ここでも必ず正規化（7011 → 7011.T）
+    ticker_raw = (request.GET.get("ticker") or "").strip()
+    ticker = _normalize_ticker(ticker_raw)
     days = int(request.GET.get("days") or 180)
+
     if not ticker:
         return JsonResponse({"ok": False, "error": "ticker required"})
 
     try:
         df = yf.download(ticker, period=f"{days}d", interval="1d", progress=False)
-        if df.empty:
+        if df is None or df.empty:
             return JsonResponse({"ok": False, "error": "no data"})
 
         s = df["Close"].dropna()
