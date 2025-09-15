@@ -98,6 +98,13 @@ def _load_df() -> pd.DataFrame:
     _cached_df, _cached_src, _cached_mtime = df, src, mtime
     return df
 
+def lookup_name_jp(code: str) -> Optional[str]:
+    df = _load_df()
+    hit = df[df["code"].str.upper() == code.upper()]
+    if not hit.empty:
+        return hit.iloc[0]["name"]
+    return None
+
 
 # ================================================================
 # 公開 API
