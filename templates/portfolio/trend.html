@@ -107,63 +107,66 @@
           const ma30 = j.ohlc.map((row, i) => (j.ma30?.[i] != null ? { x: row.x, y: j.ma30[i] } : null)).filter(Boolean);
 
           chart = new Chart(ctx, {
-            data: {
-              datasets: [
-                {
-                  type: 'candlestick',
-                  label: 'OHLC',
-                  data: j.ohlc,   // [{x,o,h,l,c},...]
-                  // ↑ financial プラグイン既定キー(x,o,h,l,c)を利用
-                },
-                { type: 'line', label: 'MA(10)', data: ma10, borderWidth: 1.5, pointRadius: 0, spanGaps: true },
-                { type: 'line', label: 'MA(30)', data: ma30, borderWidth: 1.5, pointRadius: 0, spanGaps: true },
-              ]
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              parsing: {
-                xAxisKey: 'x',
-                openKey:  'o',
-                highKey:  'h',
-                lowKey:   'l',
-                closeKey: 'c'
-              },
-              interaction: { mode: 'index', intersect: false },
-              scales: {
-                x: { type: 'time', time: { parser: 'yyyy-MM-dd', tooltipFormat: 'yyyy-MM-dd' }, ticks: { maxTicksLimit: 6 } },
-                y: { beginAtZero: false, ticks: { callback: v => (typeof v === 'number' ? v.toLocaleString() : v) } }
-              },
-              plugins: { legend: { display: true } }
-            }
-          });
-          return;
-        }
-
-        // それ以外（従来の labels/close 形式）は折れ線でフォールバック
-        if (j.ok && Array.isArray(j.labels) && j.labels.length) {
-          chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-              labels: j.labels,
-              datasets: [
-                { label: 'Close', data: j.close, borderWidth: 2, pointRadius: 0 },
-                { label: 'MA(10)', data: j.ma10, borderWidth: 1, pointRadius: 0 },
-                { label: 'MA(30)', data: j.ma30, borderWidth: 1, pointRadius: 0 }
-              ]
-            },
-            options: {
-              responsive: true, maintainAspectRatio: false,
-              interaction: { mode: 'index', intersect: false },
-              scales: { x: { display: false }, y: { beginAtZero: false, ticks: { callback: v => (typeof v === 'number'? v.toLocaleString(): v) } } },
-              plugins: { legend: { display: true } }
-            }
-          });
-        }
-      } catch(e) {
-        console.error(e);
+  type: 'candlestick',
+  data: {
+    datasets: [
+      {
+        label: 'OHLC',
+        data: j.ohlc,  // [{x,o,h,l,c},...]
+        borderColor: '#333'
+      },
+      {
+        type: 'line',
+        label: 'MA(10)',
+        data: j.ohlc.map((row, i) => ({
+          x: row.x,
+          y: j.ma10?.[i] ?? null
+        })),
+        borderColor: 'blue',
+        borderWidth: 1.2,
+        pointRadius: 0,
+        spanGaps: true
+      },
+      {
+        type: 'line',
+        label: 'MA(30)',
+        data: j.ohlc.map((row, i) => ({
+          x: row.x,
+          y: j.ma30?.[i] ?? null
+        })),
+        borderColor: 'orange',
+        borderWidth: 1.2,
+        pointRadius: 0,
+        spanGaps: true
       }
-    }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    parsing: {
+      xAxisKey: 'x',
+      openKey: 'o',
+      highKey: 'h',
+      lowKey: 'l',
+      closeKey: 'c'
+    },
+    scales: {
+      x: {
+        type: 'time',
+        time: { parser: 'yyyy-MM-dd', tooltipFormat: 'yyyy-MM-dd' },
+        ticks: { maxTicksLimit: 6 }
+      },
+      y: {
+        beginAtZero: false,
+        ticks: {
+          callback: v => (typeof v === 'number' ? v.toLocaleString() : v)
+        }
+      }
+    },
+    plugins: { legend: { display: true } }
+  }
+});
 
     // ===== Evidence（軽量根拠） =====
     function badge(val, good=true){
