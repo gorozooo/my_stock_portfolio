@@ -67,7 +67,7 @@ def trend_card_partial(request):
 
     return render(request, "portfolio/_trend_card.html", ctx)
     
-    @require_GET
+@require_GET
 def ohlc_api(request):
     t = (request.GET.get("ticker") or "").strip()
     days = int(request.GET.get("days", 180))
