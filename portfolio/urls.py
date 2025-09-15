@@ -14,4 +14,5 @@ urlpatterns = [
     path("healthz", lambda r: HttpResponse("ok"), name="healthz"),
     
     path("api/ohlc", views.ohlc_api, name="ohlc_api"),
+    path("api/metrics", views.metrics_api, name="metrics_api"),
 ]
