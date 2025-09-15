@@ -5,6 +5,8 @@ import os
 import re
 import unicodedata
 import pandas as pd
+import json, os
+
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 _TSE_JSON_PATH = os.environ.get("TSE_JSON_PATH", os.path.join(BASE_DIR, "data", "tse_list.json"))
@@ -67,3 +69,41 @@ def search(q: str, limit: int = 8) -> List[Tuple[str, str]]:
     ].head(limit)
 
     return [(row["code"], row["name"]) for _, row in hits.iterrows()]
+    
+    def _load_tse_list():
+    """data/tse_list.json を読み込んで {code: name} を返す"""
+    base = os.path.dirname(os.path.dirname(__file__))
+    path = os.path.join(base, "data", "tse_list.json")
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    # data は list[{code, name}] 形式を想定
+    return {str(row["code"]).strip(): str(row["name"]).strip() for row in data}
+
+def search(query: str, limit=8):
+    """部分一致検索"""
+    query = query.strip()
+    if not query:
+        return []
+
+    name_map = _load_tse_list()
+    results = []
+
+    # 数字で始まるならコード優先
+    digits = "".join(ch for ch in query if ch.isdigit())
+    if digits:
+        for code, name in name_map.items():
+            if code.startswith(digits):
+                results.append((code, name))
+                if len(results) >= limit:
+                    return results
+
+    # 日本語名の部分一致
+    for code, name in name_map.items():
+        if query in name and (code, name) not in results:
+            results.append((code, name))
+            if len(results) >= limit:
+                break
+
+    return results
