@@ -159,15 +159,15 @@ def _normalize_ticker(raw: str) -> str:
 
 
 def _fetch_name_prefer_jp(ticker: str) -> str:
-    """
-    1) JP辞書（JSON/CSV）最優先（167A → 167 も試す）
-    2) 辞書になければ yfinance
-    3) 最後の手段はコード（ドット前）
-    """
     name = _lookup_name_jp_from_list(ticker)
     if isinstance(name, str) and name.strip():
         return name.strip()
 
+    # ⚠ 日本株 (.T) の場合、辞書にないときはコードそのまま返す
+    if ticker.endswith(".T"):
+        return ticker.split(".")[0]
+
+    # それ以外は yfinance にフォールバック
     try:
         info = getattr(yf.Ticker(ticker), "info", {}) or {}
         name = info.get("shortName") or info.get("longName") or info.get("name")
@@ -176,8 +176,7 @@ def _fetch_name_prefer_jp(ticker: str) -> str:
     except Exception:
         pass
 
-    head = ticker.upper().split(".", 1)[0]
-    return head or ticker
+    return ticker
 
 
 # =========================================================
