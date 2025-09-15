@@ -29,6 +29,7 @@
     /* htmx のインジケータ表示 */
     .htmx-indicator { display:none; }
     .htmx-request .htmx-indicator { display:block; }
+    #chartErr { color:#b00020; font-size:12px; margin-top:8px; }
   </style>
 </head>
 <body>
@@ -62,7 +63,9 @@
 
   <!-- 価格チャート -->
   <div class="chart-wrap">
-    <canvas id="priceChart"></canvas>
+    <!-- 高さを明示しておく（モバイルで 0px になるのを防ぐ） -->
+    <canvas id="priceChart" height="220"></canvas>
+    <div id="chartErr"></div>
   </div>
 
   <script>
@@ -75,12 +78,18 @@
 
     // Chart.js セットアップ
     let chart;
+    const errEl = document.getElementById('chartErr');
+
     async function drawChart(ticker, days = 180) {
+      errEl.textContent = '';
       if (!ticker) return;
       try {
         const r = await fetch(`/api/ohlc?ticker=${encodeURIComponent(ticker)}&days=${days}`);
         const j = await r.json();
-        if (!j.ok || !j.labels || !j.labels.length) return;
+        if (!j.ok || !j.labels || !j.labels.length) {
+          errEl.textContent = j.error ? `チャート取得エラー: ${j.error}` : 'チャートを描画できませんでした。';
+          return;
+        }
 
         const ctx = document.getElementById('priceChart').getContext('2d');
         if (chart) chart.destroy();
@@ -110,14 +119,17 @@
           }
         });
       } catch (e) {
-        console.error(e); // チャートは失敗してもUIを壊さない
+        errEl.textContent = 'チャートの描画中にエラーが発生しました。';
+        console.error(e);
       }
     }
 
-    // HTMXリクエスト後は必ずチャート更新（カードが更新されたら呼ぶ）
-    document.body.addEventListener('htmx:afterOnLoad', () => {
-      const t = tickerEl.value.trim();
-      if (t) drawChart(t);
+    // ★ DOMが #result に差し替わった “後” にだけチャート更新
+    document.body.addEventListener('htmx:afterSwap', (evt) => {
+      if (evt.detail && evt.detail.target && evt.detail.target.id === 'result') {
+        const t = tickerEl.value.trim();
+        if (t) drawChart(t);
+      }
     });
   </script>
 </body>
