@@ -1,3 +1,4 @@
+# portfolio/services/trend.py
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Dict, Tuple
@@ -63,7 +64,8 @@ def _load_tse_map_if_needed() -> None:
     if os.path.isfile(_TSE_JSON_PATH):
         try:
             d = pd.read_json(_TSE_JSON_PATH, orient="records")
-            cols = {c.lower(): c for c in d.columns}
+            # 列名は何が来ても文字列化して判定（tuple対策）
+            cols = {str(c).lower(): c for c in d.columns}
             code = cols.get("code") or cols.get("ticker") or cols.get("symbol")
             name = cols.get("name") or cols.get("jp_name") or cols.get("company")
             if code and name:
@@ -77,7 +79,7 @@ def _load_tse_map_if_needed() -> None:
     if df is None and os.path.isfile(_TSE_CSV_PATH):
         try:
             d = pd.read_csv(_TSE_CSV_PATH, encoding="utf-8-sig", dtype=str)
-            cols = {c.lower(): c for c in d.columns}
+            cols = {str(c).lower(): c for c in d.columns}
             code = cols.get("code")
             name = cols.get("name")
             if code and name:
@@ -127,7 +129,7 @@ def _fetch_name_prefer_jp(ticker: str) -> str:
     if isinstance(name, str) and name.strip():
         return name.strip()
     try:
-        info = getattr(yf.Ticker(ticker), "info", {}) or {}
+        info = getattr(yf.Ticker(str(ticker)), "info", {}) or {}
         name = info.get("shortName") or info.get("longName") or info.get("name")
         if isinstance(name, str) and name.strip():
             return _clean_text(name)
@@ -149,7 +151,6 @@ def _true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
     return tr
 
 def _wilder_smooth(series: pd.Series, n: int) -> pd.Series:
-    # 初期値＝最初のn個の単純平均、その後はWilder平滑
     s = series.copy()
     out = pd.Series(index=s.index, dtype=float)
     out.iloc[n-1] = s.iloc[:n].mean()
@@ -169,7 +170,7 @@ def _adx(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> Opti
 
         plus_di = 100 * _wilder_smooth(plus_dm, n) / atr
         minus_di = 100 * _wilder_smooth(minus_dm, n) / atr
-        dx = ( (plus_di - minus_di).abs() / (plus_di + minus_di) ) * 100
+        dx = ((plus_di - minus_di).abs() / (plus_di + minus_di)) * 100
         adx = _wilder_smooth(dx, n)
         v = float(adx.dropna().iloc[-1])
         return v
@@ -192,6 +193,31 @@ def _atr(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> Opti
         return float(atr.dropna().iloc[-1])
     except Exception:
         return None
+
+# ---------- yfinance DF から特定フィールドの Series を安全に取り出す ----------
+def _pick_field(df: pd.DataFrame, field: str) -> pd.Series:
+    """
+    field: 'Close' | 'High' | 'Low' | 'Volume'
+    - 単一列: その列を返す
+    - MultiIndex: level=0 に field があれば xs で取り出し、最初の列を使う
+    """
+    if isinstance(df.columns, pd.MultiIndex):
+        if field in df.columns.get_level_values(0):
+            obj = df.xs(field, axis=1, level=0, drop_level=True)
+            s = obj.iloc[:, 0] if isinstance(obj, pd.DataFrame) else obj
+            return pd.to_numeric(s, errors="coerce")
+        # 想定外なら最後の列を使う（数値化）
+        return pd.to_numeric(df.iloc[:, -1], errors="coerce")
+    # 通常の単一Index
+    # 列名比較は文字列化して大文字小文字無視
+    col = None
+    for c in df.columns:
+        if str(c).lower() == field.lower():
+            col = c
+            break
+    if col is None:
+        raise ValueError(f"{field} column not found")
+    return pd.to_numeric(df[col], errors="coerce")
 
 # =========================================================
 # 結果スキーマ
@@ -241,7 +267,7 @@ def detect_trend(
     ma_short_win: int = 10,
     ma_long_win: int = 30,
 ) -> TrendResult:
-    ticker = _normalize_ticker(ticker)
+    ticker = _normalize_ticker(str(ticker))
     if not ticker:
         raise ValueError("ticker is required")
 
@@ -251,18 +277,16 @@ def detect_trend(
     if df is None or df.empty:
         raise ValueError("価格データを取得できませんでした")
 
-    # column名の揺れ（yfinanceのauto_adjust既定変更など）を吸収
-    cols = {c.lower(): c for c in df.columns}
-    close_col = cols.get("close") or "Close"
-    high_col  = cols.get("high") or "High"
-    low_col   = cols.get("low") or "Low"
-    vol_col   = cols.get("volume") or "Volume"
+    # --- Close/High/Low/Volume を安全に抽出 ---
+    close_s = _pick_field(df, "Close").dropna()
+    high_s  = _pick_field(df, "High").dropna()
+    low_s   = _pick_field(df, "Low").dropna()
+    vol_s   = _pick_field(df, "Volume").dropna()
 
-    s = df[close_col].dropna()
-    if s.empty:
+    if close_s.empty:
         raise ValueError("終値データが空でした")
 
-    s_recent = s.tail(days)
+    s_recent = close_s.tail(days)
     if len(s_recent) < max(15, ma_long_win):
         raise ValueError(f"データ日数が不足しています（取得: {len(s_recent)}日）")
 
@@ -294,9 +318,9 @@ def detect_trend(
             signal, reason = "DOWN", "短期線が長期線を下回る(デッドクロス気味)"
 
     # ------- 追加指標（過去長期データ使用） -------
-    ma20 = float(s.tail(20).mean()) if len(s) >= 20 else None
-    ma50 = float(s.tail(50).mean()) if len(s) >= 50 else None
-    ma200 = float(s.tail(200).mean()) if len(s) >= 200 else None
+    ma20 = float(close_s.tail(20).mean())  if len(close_s) >= 20  else None
+    ma50 = float(close_s.tail(50).mean())  if len(close_s) >= 50  else None
+    ma200= float(close_s.tail(200).mean()) if len(close_s) >= 200 else None
 
     def _ma_order_str(a,b,c):
         if None in (a,b,c):
@@ -306,19 +330,21 @@ def detect_trend(
 
     ma_order = _ma_order_str(ma20, ma50, ma200)
 
-    # ADX/ATR
-    adx14 = _adx(df[high_col], df[low_col], df[close_col], n=14)
-    atr14 = _atr(df[high_col], df[low_col], df[close_col], n=14)
+    # ADX/ATR（長期列で計算）
+    # 高値/安値/終値のインデックスを合わせる
+    common_idx = close_s.index.intersection(high_s.index).intersection(low_s.index)
+    adx14 = _adx(high_s.reindex(common_idx), low_s.reindex(common_idx), close_s.reindex(common_idx), n=14)
+    atr14 = _atr(high_s.reindex(common_idx), low_s.reindex(common_idx), close_s.reindex(common_idx), n=14)
 
     # 年化ボラ
-    vol20 = _annualized_vol(s, 20)
-    vol60 = _annualized_vol(s, 60)
+    vol20 = _annualized_vol(close_s, 20)
+    vol60 = _annualized_vol(close_s, 60)
 
     # 52週高安
-    if len(s) >= 252:
-        hi52 = float(s.tail(252).max())
-        lo52 = float(s.tail(252).min())
-        last = float(s.iloc[-1])
+    if len(close_s) >= 252:
+        hi52 = float(close_s.tail(252).max())
+        lo52 = float(close_s.tail(252).min())
+        last = float(close_s.iloc[-1])
         hi52_gap = (hi52 - last) / last * 100.0
         lo52_gap = (last - lo52) / lo52 * 100.0
     else:
@@ -328,26 +354,25 @@ def detect_trend(
     rs_6m = None
     try:
         bench = yf.download(_INDEX_TICKER, period="300d", interval="1d", progress=False)
-        bcols = {c.lower(): c for c in bench.columns}
-        bclose = bench[bcols.get("close") or "Close"].dropna()
-        # 130営業日 ≒ 6か月
-        r_stock = s.pct_change().dropna().tail(130)
-        r_bench = bclose.pct_change().dropna().tail(130)
-        # 共通日付で合わせる
-        joined = pd.concat([r_stock, r_bench], axis=1, join="inner")
-        joined.columns = ["s","b"]
-        if not joined.empty:
-            cum_s = (1 + joined["s"]).prod() - 1.0
-            cum_b = (1 + joined["b"]).prod() - 1.0
-            rs_6m = (cum_s - cum_b) * 100.0
+        if bench is not None and not bench.empty:
+            bclose = _pick_field(bench, "Close").dropna()
+            # 130営業日 ≒ 6か月
+            r_stock = close_s.pct_change().dropna().tail(130)
+            r_bench = bclose.pct_change().dropna().tail(130)
+            joined = pd.concat([r_stock, r_bench], axis=1, join="inner")
+            joined.columns = ["s","b"]
+            if not joined.empty:
+                cum_s = (1 + joined["s"]).prod() - 1.0
+                cum_b = (1 + joined["b"]).prod() - 1.0
+                rs_6m = (cum_s - cum_b) * 100.0
     except Exception:
         rs_6m = None
 
-    # ADV20（売買代金20日平均）
+    # ADV20（売買代金20日平均 = Close * Volume）
     adv20 = None
     try:
-        vol = df[vol_col].astype(float)
-        adv20 = float((vol.tail(20) * s.tail(20)).mean())
+        vol_aligned = vol_s.reindex(close_s.index)
+        adv20 = float((vol_aligned.tail(20) * close_s.tail(20)).mean())
     except Exception:
         pass
 
