@@ -88,42 +88,94 @@ def trend_api(request):
     }
     return JsonResponse(data)
 
-
 @require_GET
-def api_ohlc(request):
-    ticker = request.GET.get("ticker")
-    days = int(request.GET.get("days", 180))
+def ohlc_api(request):
+    """
+    Chart.js Financial（candlestick）用の OHLC + MA API
+    返却形式:
+    {
+      ok: true,
+      ohlc: [{x:"YYYY-MM-DD", o:..., h:..., l:..., c:...}, ...],
+      ma10: [null/number,...],   # ohlc と同じ長さ
+      ma30: [null/number,...]
+    }
+    """
+    ticker_raw = (request.GET.get("ticker") or "").strip()
+    ticker = _normalize_ticker(ticker_raw)
+    days = int(request.GET.get("days") or 180)
+
     if not ticker:
         return JsonResponse({"ok": False, "error": "ticker required"})
 
-    df = yf.download(ticker, period=f"{days}d", interval="1d", progress=False)
-    if df is None or df.empty:
-        return JsonResponse({"ok": False, "error": "no data"})
+    try:
+        # ローソクは調整前のOHLCが必要なので auto_adjust=False を明示
+        df = yf.download(
+            str(ticker),
+            period=f"{days}d",
+            interval="1d",
+            auto_adjust=False,
+            progress=False,
+        )
+        if df is None or df.empty:
+            return JsonResponse({"ok": False, "error": "no data"})
 
-    df = df.dropna()
+        # -------- 列名ゆらぎ & MultiIndex 対応で OHLC を取り出す --------
+        def _pick(colname: str) -> pd.Series:
+            if isinstance(df.columns, pd.MultiIndex):
+                # level 0 に目的の列があれば cross-section で取得
+                if colname in df.columns.get_level_values(0):
+                    obj = df.xs(colname, axis=1, level=0, drop_level=True)
+                    # 複数列（複数ティッカー）の場合は先頭列を採用
+                    if isinstance(obj, pd.DataFrame):
+                        obj = obj.iloc[:, 0]
+                    return pd.to_numeric(obj, errors="coerce")
+                # 最後の保険：最終列を採用
+                return pd.to_numeric(df.iloc[:, -1], errors="coerce")
+            else:
+                # 単一列DataFrame
+                lower = {c.lower(): c for c in df.columns}
+                use = lower.get(colname.lower())
+                if not use:
+                    raise KeyError(colname)
+                return pd.to_numeric(df[use], errors="coerce")
 
-    # ローソク足データ
-    ohlc = [
-        {
-            "x": idx.strftime("%Y-%m-%d"),
-            "o": float(row["Open"]),
-            "h": float(row["High"]),
-            "l": float(row["Low"]),
-            "c": float(row["Close"]),
+        o = _pick("Open")
+        h = _pick("High")
+        l = _pick("Low")
+        c = _pick("Close")
+
+        # 共通インデックスにアラインし、NaNを落とす
+        base = pd.concat([o, h, l, c], axis=1, join="inner").dropna()
+        base.columns = ["Open", "High", "Low", "Close"]
+        if base.empty:
+            return JsonResponse({"ok": False, "error": "no aligned data"})
+
+        # 移動平均（Closeベース）— candlestick と同一長さになるように None 埋め
+        ma10_full = base["Close"].rolling(10).mean()
+        ma30_full = base["Close"].rolling(30).mean()
+
+        # candlestick 用データ
+        ohlc = [
+            {
+                "x": idx.strftime("%Y-%m-%d"),
+                "o": float(row["Open"]),
+                "h": float(row["High"]),
+                "l": float(row["Low"]),
+                "c": float(row["Close"]),
+            }
+            for idx, row in base.iterrows()
+        ]
+
+        payload = {
+            "ok": True,
+            "ohlc": ohlc,
+            "ma10": [float(v) if pd.notna(v) else None for v in ma10_full],
+            "ma30": [float(v) if pd.notna(v) else None for v in ma30_full],
         }
-        for idx, row in df.iterrows()
-    ]
+        return JsonResponse(payload)
 
-    # 移動平均
-    ma10 = df["Close"].rolling(10).mean().round(2).tolist()
-    ma30 = df["Close"].rolling(30).mean().round(2).tolist()
-
-    return JsonResponse({
-        "ok": True,
-        "ohlc": ohlc,
-        "ma10": ma10,
-        "ma30": ma30,
-    })
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)})
         
 @require_GET
 def metrics_api(request):
