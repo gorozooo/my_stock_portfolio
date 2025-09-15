@@ -1,4 +1,3 @@
-# portfolio/services/metrics.py
 from __future__ import annotations
 import numpy as np
 import pandas as pd
@@ -7,13 +6,11 @@ import yfinance as yf
 TRADING_DAYS = 252
 
 def _get_close(df: pd.DataFrame) -> pd.Series:
-    """yfinance の列ゆらぎを吸収して Close 系列を返す（auto_adjust=True 想定）"""
     if "Close" in df.columns:
         s = df["Close"]
     elif "Adj Close" in df.columns:
         s = df["Adj Close"]
     else:
-        # MultiIndex 保険
         for c in df.columns:
             if isinstance(c, tuple) and c[0] in ("Close", "Adj Close"):
                 s = df[c]
@@ -26,7 +23,6 @@ def _ann_vol(ret: pd.Series) -> float:
     return float(ret.std() * np.sqrt(TRADING_DAYS) * 100.0)
 
 def _adx(df: pd.DataFrame, n: int = 14) -> float:
-    """Wilder 法に準じた簡易 ADX（df は High/Low/Close 必須）"""
     h = pd.to_numeric(df["High"], errors="coerce")
     l = pd.to_numeric(df["Low"],  errors="coerce")
     c = pd.to_numeric(df["Close"], errors="coerce")
@@ -49,12 +45,10 @@ def _adx(df: pd.DataFrame, n: int = 14) -> float:
     return float(adx.dropna().iloc[-1])
 
 def get_metrics(ticker: str, bench: str = "^TOPX", days: int = 420) -> dict:
-    # 価格
     df = yf.download(ticker, period=f"{days}d", interval="1d", progress=False)
     if df is None or df.empty:
         raise ValueError("no data")
 
-    # 数値化・欠損落とし（列ゆらぎ吸収）
     use_cols: dict[str, pd.Series] = {}
     for col in ("Open", "High", "Low", "Close", "Adj Close", "Volume"):
         if col in df.columns:
@@ -66,10 +60,9 @@ def get_metrics(ticker: str, bench: str = "^TOPX", days: int = 420) -> dict:
     if not {"High", "Low", "Close"}.issubset(dfx.columns):
         raise ValueError("no aligned data")
 
-    s = _get_close(dfx)           # 終値 Series（1 次元）
+    s = _get_close(dfx)
     ret = s.pct_change()
 
-    # ベンチ
     try:
         bdf = yf.download(bench, period=f"{days}d", interval="1d", progress=False)
         b = _get_close(bdf)
@@ -78,8 +71,8 @@ def get_metrics(ticker: str, bench: str = "^TOPX", days: int = 420) -> dict:
         b = None
         bret = None
 
-    # トレンド：回帰傾き（60日・年率）— 必ず 1 次元に潰してから polyfit
-    y = np.ravel(s.tail(60).to_numpy(dtype=float))   # (N,) 保証
+    # ★ 1 次元に強制してから polyfit
+    y = np.ravel(s.tail(60).to_numpy(dtype=float))
     x = np.arange(len(y), dtype=float)
     if len(y) < 2:
         raise ValueError("not enough data for regression")
@@ -95,21 +88,17 @@ def get_metrics(ticker: str, bench: str = "^TOPX", days: int = 420) -> dict:
               else "mixed")
     )
 
-    # ADX(14)
     adx14 = _adx(dfx.dropna()[["High", "Low", "Close"]])
 
-    # 相対強さ：6か月超過（126営業日）
     rs_6m = None
     if bret is not None and len(s) > 126 and len(b) > 126:
         rs_6m = float((s.pct_change(126).iloc[-1] - b.pct_change(126).iloc[-1]) * 100)
 
-    # 52週高値/安値乖離
     roll_max = s.rolling(252).max().iloc[-1] if len(s) >= 252 else None
     roll_min = s.rolling(252).min().iloc[-1] if len(s) >= 252 else None
     from_52w_high = float((s.iloc[-1] / roll_max - 1) * 100) if roll_max else None
     from_52w_low  = float((s.iloc[-1] / roll_min - 1) * 100) if roll_min else None
 
-    # リスク・流動性
     vol20 = _ann_vol(ret.tail(20).dropna()) if len(ret.dropna()) >= 20 else None
     vol60 = _ann_vol(ret.tail(60).dropna()) if len(ret.dropna()) >= 60 else None
 
@@ -122,7 +111,6 @@ def get_metrics(ticker: str, bench: str = "^TOPX", days: int = 420) -> dict:
 
     adv20 = float((s * dfx["Volume"]).rolling(20).mean().iloc[-1]) if "Volume" in dfx.columns else None
 
-    # ====== エントリー/損切り指針（ATR ベース） ======
     swing_win   = 20
     swing_high  = float(dfx["High"].tail(swing_win).max())
     swing_low   = float(dfx["Low"].tail(swing_win).min())
