@@ -329,7 +329,7 @@ def detect_trend(
     ma_l = _to_float_or_none(ma_long.iloc[[-1]])
 
     # ------- 回帰傾き -------
-    y = s_recent.values.astype(float)
+    y = s_recent.to_numpy(dtype=float).ravel()
     x = np.arange(len(y), dtype=float)
     k, _b = np.polyfit(x, y, 1)
     last_price = y[-1]
