@@ -92,77 +92,97 @@ def trend_api(request):
 @require_GET
 def ohlc_api(request):
     """
-    candlestick がダメでも線グラフ用のデータは必ず返す
+    折れ線チャート/ローソクどちらでも使える OHLC + MA API
     返却:
-      ok: true
-      ohlc: [{x,o,h,l,c}]  (作れたら)
-      labels/close/ma10/ma30: 折れ線用（常にセット）
-      msg: 補足
+    {
+      ok: true,
+      labels: ["YYYY-MM-DD", ...],        # 折れ線用
+      close: [number,...],                # 1次元
+      ma10:  [number|null,...],           # 1次元
+      ma30:  [number|null,...],           # 1次元
+      ohlc:  [{x:"YYYY-MM-DD",o:..,h:..,l:..,c:..}, ...]  # ローソク用（おまけ）
+    }
     """
-    ticker_raw = (request.GET.get("ticker") or "").strip()
-    ticker = _normalize_ticker(ticker_raw)
+    def tolist1d(series: pd.Series) -> list:
+        """Series/ndarray を 1 次元 list[float|None] に正規化"""
+        arr = np.ravel(series.to_numpy())        # (N,1) -> (N,)
+        out = []
+        for v in arr:
+            if pd.isna(v):
+                out.append(None)
+            else:
+                try:
+                    out.append(float(v))
+                except Exception:
+                    out.append(None)
+        return out
+
+    # ---- 入力 ----
+    raw = (request.GET.get("ticker") or "").strip()
+    if not raw:
+        return JsonResponse({"ok": False, "error": "ticker required"})
+    ticker = raw if "." in raw else (raw.upper() + ".T" if 4 <= len(raw) <= 5 else raw)
     days = int(request.GET.get("days") or 180)
 
-    if not ticker:
-        return JsonResponse({"ok": False, "error": "ticker required"})
-
     try:
-        df = yf.download(str(ticker), period=f"{days}d", interval="1d",
-                         progress=False, auto_adjust=True)
+        df = yf.download(str(ticker), period=f"{days}d", interval="1d", progress=False)
         if df is None or df.empty:
             return JsonResponse({"ok": False, "error": "no data"})
 
-        # ---- Close（単一/MI 対応）----
-        if isinstance(df.columns, pd.MultiIndex):
-            close_obj = (df.xs("Close", axis=1, level=0, drop_level=True)
-                         if "Close" in df.columns.get_level_values(0)
-                         else df.iloc[:, -1])
-            s = close_obj.iloc[:, 0] if isinstance(close_obj, pd.DataFrame) else close_obj
-        else:
-            if "Close" not in df.columns and "Adj Close" in df.columns:
-                df = df.rename(columns={"Adj Close": "Close"})
-            if "Close" not in df.columns:
-                return JsonResponse({"ok": False, "error": "no Close column"})
-            s = df["Close"]
+        # ---- 列名ゆらぎ / MultiIndex 対応で OHLC を取り出す ----
+        def pick(df_: pd.DataFrame, name: str) -> pd.Series:
+            if isinstance(df_.columns, pd.MultiIndex):
+                # level=0 の "Close" などを xs
+                if name in df_.columns.get_level_values(0):
+                    obj = df_.xs(name, axis=1, level=0, drop_level=True)
+                    s = obj.iloc[:, 0] if isinstance(obj, pd.DataFrame) else obj
+                    return pd.to_numeric(s, errors="coerce")
+                # 最後の列を保険で使う
+                return pd.to_numeric(df_.iloc[:, -1], errors="coerce")
+            # 通常の単一列
+            for c in df_.columns:
+                if str(c).lower() == name.lower():
+                    return pd.to_numeric(df_[c], errors="coerce")
+            raise KeyError(name)
 
-        s = pd.to_numeric(s, errors="coerce").dropna()
-        ma10 = s.rolling(10).mean()
-        ma30 = s.rolling(30).mean()
+        o = pick(df, "Open")
+        h = pick(df, "High")
+        l = pick(df, "Low")
+        c = pick(df, "Close")
 
-        # ---- candlestick（作れたら）----
-        ohlc = None
-        try:
-            def pick(col):
-                if isinstance(df.columns, pd.MultiIndex):
-                    obj = (df.xs(col, axis=1, level=0, drop_level=True)
-                           if col in df.columns.get_level_values(0) else None)
-                    if obj is None: return None
-                    return pd.to_numeric(obj.iloc[:,0] if isinstance(obj, pd.DataFrame) else obj, errors="coerce")
-                return pd.to_numeric(df[col], errors="coerce") if col in df.columns else None
+        base = pd.concat([o, h, l, c], axis=1, join="inner").dropna()
+        base.columns = ["Open", "High", "Low", "Close"]
+        if base.empty:
+            return JsonResponse({"ok": False, "error": "no aligned data"})
 
-            o, h, l, c = pick("Open"), pick("High"), pick("Low"), pick("Close")
-            base = pd.concat([o, h, l, c], axis=1, join="inner")
-            base.columns = ["Open", "High", "Low", "Close"]
-            base = base.dropna()
-            if not base.empty:
-                ohlc = [{
-                    "x": idx.strftime("%Y-%m-%d"),
-                    "o": float(row["Open"]),
-                    "h": float(row["High"]),
-                    "l": float(row["Low"]),
-                    "c": float(row["Close"]),
-                } for idx, row in base.iterrows()]
-        except Exception:
-            ohlc = None  # 失敗しても無視（線で描く）
+        # ---- MA 計算（NaN は None にして長さを合わせる）----
+        ma10_s = base["Close"].rolling(10).mean()
+        ma30_s = base["Close"].rolling(30).mean()
+
+        labels = base.index.strftime("%Y-%m-%d").tolist()
+        close  = tolist1d(base["Close"])
+        ma10   = tolist1d(ma10_s)
+        ma30   = tolist1d(ma30_s)
+
+        # candlestick 用（参考：使わなくても OK）
+        ohlc = [
+            {
+                "x": idx.strftime("%Y-%m-%d"),
+                "o": float(row["Open"]),
+                "h": float(row["High"]),
+                "l": float(row["Low"]),
+                "c": float(row["Close"]),
+            }
+            for idx, row in base.iterrows()
+        ]
 
         return JsonResponse({
             "ok": True,
-            "ohlc": ohlc,  # null でもOK（前段が折れ線にフォールバック）
-            "labels": [d.strftime("%Y-%m-%d") for d in s.index],
-            "close": [float(v) for v in s],
-            "ma10": [float(v) if pd.notna(v) else None for v in ma10],
-            "ma30": [float(v) if pd.notna(v) else None for v in ma30],
-            "msg": "candlestick fallback to line" if ohlc is None else "candlestick ok"
+            "labels": labels,
+            "close": close,
+            "ma10":  ma10,
+            "ma30":  ma30,
+            "ohlc":  ohlc,
         })
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)})
