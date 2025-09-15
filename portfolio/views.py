@@ -3,7 +3,7 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_GET
 
 from .services.trend import detect_trend
-
+from .services.tse import search as search_tse
 
 # 必要ならトップページ（ダミー）を残す
 def main(request):
@@ -62,3 +62,12 @@ def trend_card_partial(request):
         ctx["error"] = str(e)
 
     return render(request, "portfolio/_trend_card.html", ctx)
+    
+@require_GET
+def suggest_api(request):
+    q = (request.GET.get("q") or "").strip()
+    items = search_tse(q, limit=8) if q else []
+    # items: [(code, name), ...]
+    return render(request, "portfolio/_suggest.html", {"items": items})
+    
+    
