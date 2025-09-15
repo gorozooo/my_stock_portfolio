@@ -92,20 +92,24 @@ def trend_api(request):
 
 @require_GET
 def ohlc_api(request):
-    # ★ ここでも必ず正規化（7011 → 7011.T）
     ticker_raw = (request.GET.get("ticker") or "").strip()
     ticker = _normalize_ticker(ticker_raw)
     days = int(request.GET.get("days") or 180)
-
     if not ticker:
         return JsonResponse({"ok": False, "error": "ticker required"})
 
     try:
-        df = yf.download(ticker, period=f"{days}d", interval="1d", progress=False)
+        # ★ 単一銘柄の DataFrame を取得（columns: Open, High, Low, Close ...）
+        df = yf.download(str(ticker), period=f"{days}d", interval="1d", progress=False)
+
         if df is None or df.empty:
             return JsonResponse({"ok": False, "error": "no data"})
 
-        s = df["Close"].dropna()
+        # MultiIndex の場合は列レベルを落とす
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.droplevel(0)
+
+        s = df["Close"].dropna().astype(float)  # ← float にキャスト
         ma10 = s.rolling(10).mean()
         ma30 = s.rolling(30).mean()
 
@@ -117,5 +121,6 @@ def ohlc_api(request):
             "ma30": [float(v) if pd.notna(v) else None for v in ma30],
         }
         return JsonResponse(data)
+
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)})
