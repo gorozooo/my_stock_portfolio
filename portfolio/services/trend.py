@@ -34,28 +34,41 @@ _TSE_SRC_TAG: str = ""  # "csv" or "json" or ""
 
 
 # =====================================================================
-# 文字クリーン
+# 文字クリーン（最強版）
 # =====================================================================
+
+# 除外する Unicode カテゴリ
+# - Cc: 制御文字
+# - Cf: 書式文字（ZWSPやBOMなど）
+# - Co: 私用領域（PUA） … “”のような謎記号はここに入ることが多い
+_EXCLUDE_CATEGORIES = {"Cc", "Cf", "Co"}
 
 def _clean_text(s: str) -> str:
     """
-    不可視文字や私用領域の文字などを削除し、Unicode正規化(NFKC)して返す。
-    Excel→CSV/JSONで混入する「」(PUA: U+E000–U+F8FF) 等にも対応。
+    Excel/ブラウザ/端末間で混入しがちな不可視文字を“カテゴリ”ベースで徹底除去。
+    - 正規化: NFKC
+    - 除去   : Cc/Cf/Co（制御・書式・私用領域）を総除去
+    - 仕上げ : 全角スペース→半角、連続空白を1つに、前後trim
     """
     if not isinstance(s, str):
         return s
+
+    # 正規化（全角→半角、互換分解など）
     s = unicodedata.normalize("NFKC", s)
-    # zero width & BOM
-    s = re.sub(r"[\u200B-\u200D\uFEFF]", "", s)
-    # variation selectors
-    s = re.sub(r"[\uFE00-\uFE0F]", "", s)
-    # control chars + DEL
-    s = re.sub(r"[\u0000-\u001F\u007F]", "", s)
-    # Private Use Area（“”等）
-    s = re.sub(r"[\uE000-\uF8FF]", "", s)
-    # 全角スペース→半角
+
+    # 文字カテゴリでふるい落とす
+    cleaned_chars = []
+    for ch in s:
+        cat = unicodedata.category(ch)
+        if cat in _EXCLUDE_CATEGORIES:
+            continue  # 制御/書式/私用領域は捨てる
+        cleaned_chars.append(ch)
+    s = "".join(cleaned_chars)
+
+    # 全角スペースを半角へ
     s = s.replace("\u3000", " ")
-    # 余分な空白を整形
+
+    # 余分な空白の詰め
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
@@ -90,8 +103,12 @@ def _load_tse_map_if_needed() -> None:
             if not code_col or not name_col:
                 raise ValueError("CSV に 'code' と 'name' 列が必要です")
 
+            # 正規化 + クリーニング
             df[code_col] = df[code_col].astype(str).map(_clean_text)
             df[name_col] = df[name_col].astype(str).map(_clean_text)
+
+            # 数字以外が紛れたコードを防御的に除去
+            df = df[df[code_col].str.fullmatch(r"\d{4,5}")]
 
             _TSE_MAP = {
                 row[code_col]: row[name_col]
@@ -108,24 +125,26 @@ def _load_tse_map_if_needed() -> None:
             if _TSE_DEBUG:
                 print("[TSE] CSV load failed:", e)
 
-    # CSV が駄目なら JSON
+    # CSV が無ければ JSON
     if os.path.isfile(_TSE_JSON_PATH):
         try:
             with open(_TSE_JSON_PATH, "r", encoding="utf-8") as f:
                 raw = json.load(f)
 
+            m: Dict[str, str] = {}
             if isinstance(raw, dict):
-                m = {str(k).strip(): _clean_text(str(v)) for k, v in raw.items()}
+                for k, v in raw.items():
+                    code = _clean_text(str(k).strip())
+                    name = _clean_text(str(v).strip())
+                    if re.fullmatch(r"\d{4,5}", code) and name:
+                        m[code] = name
             elif isinstance(raw, list):
                 # [{"code": "...", "name": "..."}] 形式も許容
-                m = {}
                 for d in raw:
                     code = _clean_text(str(d.get("code", "")).strip())
                     name = _clean_text(str(d.get("name", "")).strip())
-                    if code and name:
+                    if re.fullmatch(r"\d{4,5}", code) and name:
                         m[code] = name
-            else:
-                m = {}
 
             _TSE_MAP = m
             _TSE_SRC_TAG = "json"
@@ -205,7 +224,7 @@ def _fetch_name_prefer_jp(ticker: str) -> str:
     if name_csv:
         return _clean_text(name_csv)
 
-    # 日本株コードなら数字だけを返す（余計な“”などが残らない）
+    # 日本株コードなら数字だけを返す
     t = (ticker or "").upper().strip()
     numeric = t.split(".", 1)[0]
     if numeric.isdigit() and len(numeric) in (4, 5):
@@ -261,13 +280,12 @@ def detect_trend(
 
     # データ取得（市場休日も考慮して余裕を持って長めに）
     period_days = max(days + 30, 120)
-    # yfinance の FutureWarning 対策で auto_adjust を明示
     df = yf.download(
         ticker,
         period=f"{period_days}d",
         interval="1d",
         progress=False,
-        auto_adjust=True,
+        auto_adjust=True,  # FutureWarning 回避
     )
     if df is None or df.empty:
         raise ValueError("価格データを取得できませんでした")
@@ -333,7 +351,7 @@ def detect_trend(
             signal, reason = "DOWN", "短期線が長期線を下回る(デッドクロス気味)"
 
     asof = s.index[-1].date().isoformat()
-    # 最終的にもクリーン（ダブルセーフ）
+    # 返却直前にももう一度クリーン（ダブルセーフ）
     name = _clean_text(_fetch_name_prefer_jp(ticker))
 
     return TrendResult(
