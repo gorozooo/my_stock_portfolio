@@ -12,4 +12,6 @@ urlpatterns = [
     path("trend/card", views.trend_card_partial, name="trend_card_partial"),
     # ヘルスチェック
     path("healthz", lambda r: HttpResponse("ok"), name="healthz"),
+    
+    path("api/ohlc", views.ohlc_api, name="ohlc_api"),
 ]
