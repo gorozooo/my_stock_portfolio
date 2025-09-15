@@ -1,195 +1,209 @@
+# portfolio/management/commands/update_tse_list.py
 from __future__ import annotations
-import os
+
 import io
+import re
 import sys
-import time
-import shutil
-import hashlib
 import tempfile
-from typing import Optional, Tuple
+from pathlib import Path
+from typing import Optional, Tuple, List
 
 import pandas as pd
 import requests
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-# 既定の保存先: services/trend.py が参照している data/tse_list.csv
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-DEFAULT_OUT = os.path.join(BASE_DIR, "portfolio", "data", "tse_list.csv")
-DEFAULT_STATE_DIR = os.path.join(BASE_DIR, "portfolio", "data", ".state")
+# 既定URL（JPX: 東証上場銘柄一覧 / Excel）
+DEFAULT_JPX_EXCEL_URL = (
+    "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
+)
 
-# 環境変数でURLを指定できるように
-ENV_URL = os.environ.get("TSE_CSV_URL", "").strip()
-
-
-def _ensure_dir(path: str) -> None:
-    os.makedirs(path, exist_ok=True)
-
-
-def _atomic_write_bytes(path: str, content: bytes) -> None:
-    _ensure_dir(os.path.dirname(path))
-    fd, tmp = tempfile.mkstemp(prefix=".tmp_tse_", dir=os.path.dirname(path))
+def _base_dir() -> Path:
+    # settings.BASE_DIR を優先、なければ manage.py からの相対にフォールバック
     try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(content)
-        os.replace(tmp, path)
-    finally:
-        try:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-        except Exception:
-            pass
-
-
-def _atomic_write_text(path: str, text: str, encoding: str = "utf-8-sig") -> None:
-    _atomic_write_bytes(path, text.encode(encoding))
-
-
-def _load_state(state_dir: str) -> Tuple[Optional[str], Optional[str]]:
-    """前回保存したETag/Last-Modifiedを読む"""
-    etag_path = os.path.join(state_dir, "tse_list.etag")
-    lm_path = os.path.join(state_dir, "tse_list.last_modified")
-    etag = None
-    last_modified = None
-    if os.path.isfile(etag_path):
-        try:
-            etag = open(etag_path, "r", encoding="utf-8").read().strip()
-        except Exception:
-            pass
-    if os.path.isfile(lm_path):
-        try:
-            last_modified = open(lm_path, "r", encoding="utf-8").read().strip()
-        except Exception:
-            pass
-    return etag or None, last_modified or None
-
-
-def _save_state(state_dir: str, etag: Optional[str], last_modified: Optional[str]) -> None:
-    _ensure_dir(state_dir)
-    if etag:
-        _atomic_write_text(os.path.join(state_dir, "tse_list.etag"), etag)
-    if last_modified:
-        _atomic_write_text(os.path.join(state_dir, "tse_list.last_modified"), last_modified)
-
-
-def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    列名ゆらぎを吸収し、必要な2列 'code','name' をUTF-8で出力できる形に整える。
-    - code はゼロ埋めせず“文字列のまま”保持（4〜5桁を想定）
-    - name は前後スペース除去
-    """
-    # 列名を小文字化マップ
-    cols = {c.lower(): c for c in df.columns}
-    code_col = cols.get("code") or cols.get("銘柄コード") or cols.get("コード")
-    name_col = cols.get("name") or cols.get("銘柄名") or cols.get("銘柄")
-
-    if not code_col or not name_col:
-        raise CommandError("CSVに 'code' と 'name'（または等価の列名）が見つかりません。")
-
-    out = pd.DataFrame({
-        "code": df[code_col].astype(str).str.strip(),
-        "name": df[name_col].astype(str).str.strip(),
-    })
-
-    # 4〜5桁の数字のみを残す（REIT/ETFなど5桁も通す）
-    mask = out["code"].str.fullmatch(r"\d{4,5}")
-    out = out[mask].dropna().drop_duplicates(subset=["code"])
-
-    # 並びをコード昇順に
-    try:
-        out = out.sort_values(by="code", key=lambda s: s.astype(int))
+        return Path(settings.BASE_DIR)  # type: ignore[attr-defined]
     except Exception:
-        out = out.sort_values(by="code")
+        return Path(__file__).resolve().parents[4]  # .../project_root/
 
-    return out
+def _data_dir() -> Path:
+    d = getattr(settings, "TSE_DATA_DIR", None)
+    if d:
+        p = Path(d)
+    else:
+        p = _base_dir() / "data"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
+def _csv_path() -> Path:
+    # 上書き可能な設定: TSE_LIST_CSV_PATH
+    path_in_settings = getattr(settings, "TSE_LIST_CSV_PATH", None)
+    if path_in_settings:
+        p = Path(path_in_settings)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+    return _data_dir() / "tse_list.csv"
+
+CODE_RE = re.compile(r"^\d{4}$")  # 東証の4桁コード
+
+NAME_COL_KEYWORDS = [
+    "銘柄", "会社", "名称", "社名",       # 日本語
+    "Name", "Issuer", "Security", "Company"  # 英語
+]
+
+def _guess_columns(df: pd.DataFrame) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Excelの列名が版によって違っても、4桁コード列と銘柄名列を推測する。
+    """
+    if df is None or df.empty:
+        return None, None
+
+    # 文字列化してから探索（欠損は空文字）
+    dff = df.copy()
+    dff.columns = [str(c).strip() for c in dff.columns]
+
+    # 候補: まず厳密に「4桁数字」で埋まっている列を探す
+    code_col = None
+    for col in dff.columns:
+        ser = dff[col].astype(str).str.strip()
+        # 値のうち、4桁数字の比率が高い列を優先
+        total = (ser != "").sum()
+        if total == 0:
+            continue
+        match_ratio = ser.str.fullmatch(CODE_RE).sum() / total
+        if match_ratio > 0.7:  # 7割以上が4桁数字ならコード列とみなす
+            code_col = col
+            break
+
+    # 銘柄名っぽい列（列名にキーワード）
+    name_col = None
+    for col in dff.columns:
+        col_lower = str(col).lower()
+        if any(k.lower() in col_lower for k in NAME_COL_KEYWORDS):
+            name_col = col
+            break
+
+    # ダメ押し：nameが見つからない場合、文字長の平均が長い列を使う
+    if name_col is None:
+        best_col = None
+        best_len = -1.0
+        for col in dff.columns:
+            ser = dff[col].astype(str).str.strip()
+            avg_len = ser.map(len).mean()
+            if avg_len > best_len:
+                best_len = avg_len
+                best_col = col
+        name_col = best_col
+
+    return code_col, name_col
+
+def _download_excel(url: str) -> bytes:
+    r = requests.get(url, timeout=60)
+    r.raise_for_status()
+    return r.content
+
+def _read_all_sheets(xls_bytes: bytes) -> pd.DataFrame:
+    with pd.ExcelFile(io.BytesIO(xls_bytes)) as xls:
+        frames: List[pd.DataFrame] = []
+        for name in xls.sheet_names:
+            try:
+                df = pd.read_excel(xls, sheet_name=name, dtype=str)
+                if df is not None and not df.empty:
+                    frames.append(df)
+            except Exception:
+                continue
+        if not frames:
+            raise CommandError("Excelのどのシートからもデータを読み込めませんでした。")
+        return pd.concat(frames, ignore_index=True)
+
+def _normalize_name(s: str) -> str:
+    if not isinstance(s, str):
+        return ""
+    t = s.strip()
+    # ありがちなノイズの簡易除去（任意）
+    t = t.replace("\u3000", " ")  # 全角スペース
+    return t
 
 class Command(BaseCommand):
-    help = "東証公式の「銘柄コード→銘柄名」CSVを取得して portfolio/data/tse_list.csv を更新します。"
+    help = "JPX（東証）のExcelを読み込み、コード→銘柄名のCSVを作成します。"
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--url",
             type=str,
-            default=ENV_URL or "",
-            help="CSVの取得先URL（環境変数 TSE_CSV_URL でも指定可）",
+            default=None,
+            help="Excelの取得URL（未指定なら既定のJPX Excel URLを使用）",
         )
         parser.add_argument(
             "--out",
             type=str,
-            default=DEFAULT_OUT,
-            help=f"出力先CSVパス（既定: {DEFAULT_OUT}）",
+            default=None,
+            help="出力CSVパス（未指定時は settings.TSE_LIST_CSV_PATH または <BASE>/data/tse_list.csv）",
         )
         parser.add_argument(
-            "--state-dir",
+            "--encoding",
             type=str,
-            default=DEFAULT_STATE_DIR,
-            help=f"ETag/Last-Modified保存ディレクトリ（既定: {DEFAULT_STATE_DIR}）",
-        )
-        parser.add_argument(
-            "--force",
-            action="store_true",
-            help="304でも強制的に再取得・上書きする",
-        )
-        parser.add_argument(
-            "--timeout",
-            type=int,
-            default=30,
-            help="HTTPタイムアウト秒（既定: 30）",
+            default="utf-8-sig",
+            help="CSVエンコーディング（既定: utf-8-sig）",
         )
 
     def handle(self, *args, **opts):
-        url = (opts["url"] or "").strip()
-        out_path = opts["out"]
-        state_dir = opts["state_dir"]
-        force = bool(opts["force"])
-        timeout = int(opts["timeout"])
-
+        url: Optional[str] = opts.get("url") or getattr(settings, "TSE_CSV_URL", None)
         if not url:
-            raise CommandError("CSVのURLが指定されていません。--url か環境変数 TSE_CSV_URL を設定してください。")
+            # URL未指定なら既定を採用（Excel）
+            url = DEFAULT_JPX_EXCEL_URL
 
-        self.stdout.write(self.style.NOTICE(f"Fetching: {url}"))
+        out_path = Path(opts.get("out") or _csv_path())
+        encoding = opts.get("encoding") or "utf-8-sig"
 
-        # If-None-Match / If-Modified-Since
-        etag_prev, lm_prev = _load_state(state_dir)
-        headers = {}
-        if etag_prev and not force:
-            headers["If-None-Match"] = etag_prev
-        if lm_prev and not force:
-            headers["If-Modified-Since"] = lm_prev
-
+        self.stdout.write(self.style.NOTICE(f"Downloading: {url}"))
         try:
-            resp = requests.get(url, headers=headers, timeout=timeout)
+            xls_bytes = _download_excel(url)
         except Exception as e:
-            raise CommandError(f"ダウンロード失敗: {e}")
+            raise CommandError(f"Excelのダウンロードに失敗しました: {e}")
 
-        if resp.status_code == 304 and not force:
-            self.stdout.write(self.style.SUCCESS("サーバ応答 304 Not Modified。更新不要。"))
-            return
+        self.stdout.write("Reading Excel sheets...")
+        df_all = _read_all_sheets(xls_bytes)
 
-        if resp.status_code != 200 or not resp.content:
-            raise CommandError(f"不正な応答: {resp.status_code}")
+        code_col, name_col = _guess_columns(df_all)
+        if not code_col or not name_col:
+            raise CommandError(
+                f"列を特定できませんでした。code_col={code_col}, name_col={name_col}"
+            )
 
-        # pandasで読みつつ検証・整形
+        self.stdout.write(f"Detected columns -> code: '{code_col}', name: '{name_col}'")
+
+        df = df_all[[code_col, name_col]].copy()
+        df.columns = ["code", "name"]
+        # 正規化
+        df["code"] = df["code"].astype(str).str.strip()
+        df["name"] = df["name"].astype(str).map(_normalize_name)
+
+        # 4桁コードのみ残す
+        df = df[df["code"].str.fullmatch(CODE_RE)].copy()
+
+        # 空・重複を処理
+        df = df[(df["code"] != "") & (df["name"] != "")]
+        df = df.drop_duplicates(subset=["code"], keep="first").sort_values("code")
+
+        count = len(df)
+        if count == 0:
+            raise CommandError("抽出結果が0件でした。Excelの形式変更の可能性があります。")
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # 保存
+        df.to_csv(out_path, index=False, encoding=encoding)
+        self.stdout.write(self.style.SUCCESS(f"Saved CSV: {out_path} ({count} rows)"))
+
+        # ついでに JSON も（任意・高速化用）
         try:
-            df = pd.read_csv(io.BytesIO(resp.content), encoding="utf-8-sig")
-        except UnicodeDecodeError:
-            # もしShift_JISなどなら自動判定にチェンジ
-            df = pd.read_csv(io.BytesIO(resp.content), encoding_errors="ignore")
-        df = _normalize_df(df)
+            mapping = {r["code"]: r["name"] for _, r in df.iterrows()}
+            (out_path.with_suffix(".json")).write_text(
+                pd.Series(mapping).to_json(force_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            self.stdout.write(self.style.SUCCESS(f"Saved JSON: {out_path.with_suffix('.json')}"))
+        except Exception:
+            pass
 
-        if df.empty:
-            raise CommandError("整形後のデータが空です。元CSVの列名や中身を確認してください。")
-
-        # 出力（UTF-8 BOM付き）
-        csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
-        _atomic_write_bytes(out_path, csv_bytes)
-        self.stdout.write(self.style.SUCCESS(f"書き込み完了: {out_path}（{len(df)}行）"))
-
-        # ETag / Last-Modified 保存
-        etag_new = resp.headers.get("ETag")
-        lm_new = resp.headers.get("Last-Modified")
-        if etag_new or lm_new:
-            _save_state(state_dir, etag_new, lm_new)
-            self.stdout.write(self.style.NOTICE("ETag/Last-Modified を保存しました。"))
-
-        self.stdout.write(self.style.SUCCESS("完了。"))
+        self.stdout.write(self.style.SUCCESS("Done."))
