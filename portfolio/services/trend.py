@@ -1,37 +1,19 @@
-# portfolio/services/trend.py
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional, Dict, Tuple
-import os
+from typing import Optional
 import re
 import unicodedata
-
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
-# =========================================================
-# 設定（環境変数で上書き可）
-# =========================================================
-BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-_TSE_JSON_PATH = os.environ.get("TSE_JSON_PATH", os.path.join(BASE_DIR, "data", "tse_list.json"))
-_TSE_CSV_PATH  = os.environ.get("TSE_CSV_PATH",  os.path.join(BASE_DIR, "data", "tse_list.csv"))
-_TSE_ALWAYS_RELOAD = os.environ.get("TSE_CSV_ALWAYS_RELOAD", "0") == "1"
-_TSE_DEBUG = os.environ.get("TSE_DEBUG", "0") == "1"
-
-# キャッシュ
-_TSE_MAP: Dict[str, str] = {}
-_TSE_MTIME: Tuple[float, float] = (0.0, 0.0)  # (json_mtime, csv_mtime)
+# 日本語名は tse.py に一本化！
+from . import tse
 
 
-def _d(msg: str) -> None:
-    if _TSE_DEBUG:
-        print(f"[TSE] {msg}")
-
-
-# =========================================================
-# テキストクレンジング
-# =========================================================
+# ------------------------------
+# 文字列クリーニング
+# ------------------------------
 def _clean_text(s: str) -> str:
     if not isinstance(s, str):
         return s
@@ -45,92 +27,12 @@ def _clean_text(s: str) -> str:
     return s.strip()
 
 
-# =========================================================
-# 日本語銘柄名ローダ（JSON優先、なければCSV）
-#   どちらも "code","name" を想定（codeは英数字4–5桁も可）
-# =========================================================
-def _load_tse_map_if_needed() -> None:
-    global _TSE_MAP, _TSE_MTIME
-    json_m, csv_m = 0.0, 0.0
-    if os.path.isfile(_TSE_JSON_PATH):
-        json_m = os.path.getmtime(_TSE_JSON_PATH)
-    if os.path.isfile(_TSE_CSV_PATH):
-        csv_m = os.path.getmtime(_TSE_CSV_PATH)
-
-    if not _TSE_ALWAYS_RELOAD and _TSE_MAP and _TSE_MTIME == (json_m, csv_m):
-        return
-
-    # まず JSON
-    df = None
-    if os.path.isfile(_TSE_JSON_PATH):
-        try:
-            d = pd.read_json(_TSE_JSON_PATH, orient="records")
-            # 記録の形式に合わせて柔軟に列名を解決
-            cols = {c.lower(): c for c in d.columns}
-            code = cols.get("code") or cols.get("ticker") or cols.get("symbol")
-            name = cols.get("name") or cols.get("jp_name") or cols.get("company")
-            if code and name:
-                d = d[[code, name]].rename(columns={code: "code", name: "name"})
-                df = d
-                _d(f"loaded json ({len(df)} rows)")
-        except Exception:
-            pass
-
-    # JSONがダメならCSV
-    if df is None and os.path.isfile(_TSE_CSV_PATH):
-        try:
-            d = pd.read_csv(_TSE_CSV_PATH, encoding="utf-8-sig", dtype=str)
-            cols = {c.lower(): c for c in d.columns}
-            code = cols.get("code")
-            name = cols.get("name")
-            if code and name:
-                d = d[[code, name]].rename(columns={code: "code", name: "name"})
-                df = d
-                _d(f"loaded csv ({len(df)} rows)")
-        except Exception:
-            pass
-
-    if df is None:
-        _TSE_MAP = {}
-        _TSE_MTIME = (json_m, csv_m)
-        return
-
-    df["code"] = df["code"].astype(str).map(_clean_text)
-    df["name"] = df["name"].astype(str).map(_clean_text)
-    # code は英数字4–5桁を想定（例: 167A, 7203）
-    _TSE_MAP = {row["code"].upper(): row["name"] for _, row in df.iterrows() if row["code"] and row["name"]}
-    _TSE_MTIME = (json_m, csv_m)
-
-
-def _lookup_name_jp_from_list(ticker: str) -> Optional[str]:
-    """
-    事前にロード済みの _TSE_MAP から日本語名を返す。
-    ルックアップキーは「ドット前の英数字4–5桁（大文字）をそのまま」。
-    """
-    _load_tse_map_if_needed()
-    if not _TSE_MAP:
-        return None
-    if not ticker:
-        return None
-    head = ticker.upper().split(".", 1)[0]  # 例: '167A.T' -> '167A'
-    name = _TSE_MAP.get(head)
-    if _TSE_DEBUG:
-        _d(f"lookup {head} -> {repr(name)}")
-    return name
-
-
-# =========================================================
-# ティッカー正規化 / 名前取得
-# =========================================================
+# ------------------------------
+# ティッカー正規化
+# ------------------------------
 _JP_ALNUM = re.compile(r"^[0-9A-Z]{4,5}$")
 
 def _normalize_ticker(raw: str) -> str:
-    """
-    入力を正規化。
-    - ドット付きはそのまま大文字化
-    - 英数字4–5桁だけなら日本株とみなし「.T」を付ける（例: 7203, 167A）
-    - 上記以外は大文字化のみ
-    """
     t = (raw or "").strip().upper()
     if not t:
         return t
@@ -141,16 +43,27 @@ def _normalize_ticker(raw: str) -> str:
     return t
 
 
+# ------------------------------
+# 日本語名の取得（tse に一本化）
+# ------------------------------
 def _fetch_name_prefer_jp(ticker: str) -> str:
     """
-    1) JP辞書（JSON/CSV）最優先
-    2) 辞書になければ yfinance
-    3) 最後の手段はティッカー
+    1) tse.lookup_name_jp() で日本語名
+    2) 見つからなければ（日本株コードなら）数値/英数字コード
+    3) それ以外は yfinance 名（クリーニング）
     """
-    name = _lookup_name_jp_from_list(ticker)
-    if isinstance(name, str) and name.strip():
-        return name.strip()
+    head = (ticker or "").upper().split(".", 1)[0]
 
+    # 1) TSE 辞書
+    name = tse.lookup_name_jp(head)
+    if isinstance(name, str) and name.strip():
+        return _clean_text(name)
+
+    # 2) 日本株コードなら英数字コードをそのまま
+    if _JP_ALNUM.match(head):
+        return head
+
+    # 3) 海外などは yfinance
     try:
         info = getattr(yf.Ticker(ticker), "info", {}) or {}
         name = info.get("shortName") or info.get("longName") or info.get("name")
@@ -159,14 +72,12 @@ def _fetch_name_prefer_jp(ticker: str) -> str:
     except Exception:
         pass
 
-    # 日本株ならドット前を返す（英数字コード）
-    head = ticker.upper().split(".", 1)[0]
-    return head or ticker
+    return _clean_text(ticker)
 
 
-# =========================================================
+# ------------------------------
 # 結果スキーマ
-# =========================================================
+# ------------------------------
 @dataclass
 class TrendResult:
     ticker: str
@@ -181,9 +92,9 @@ class TrendResult:
     ma_long: Optional[float]
 
 
-# =========================================================
-# メイン判定
-# =========================================================
+# ------------------------------
+# ユーティリティ
+# ------------------------------
 def _to_float_or_none(v) -> Optional[float]:
     try:
         if isinstance(v, pd.Series):
@@ -195,6 +106,9 @@ def _to_float_or_none(v) -> Optional[float]:
         return None
 
 
+# ------------------------------
+# メイン判定
+# ------------------------------
 def detect_trend(
     ticker: str,
     days: int = 60,
@@ -247,7 +161,8 @@ def detect_trend(
             signal, reason = "DOWN", "短期線が長期線を下回る(デッドクロス気味)"
 
     asof = s.index[-1].date().isoformat()
-    name = _fetch_name_prefer_jp(ticker)
+    name = _fetch_name_prefer_jp(ticker)  # ← 常に tse を経由
+    name = _clean_text(name)              # 念押しでクリーニング
 
     return TrendResult(
         ticker=ticker,
