@@ -69,27 +69,28 @@ def trend_card_partial(request):
     
 @require_GET
 def ohlc_api(request):
-    t = (request.GET.get("ticker") or "").strip()
-    days = int(request.GET.get("days", 180))
-    if not t:
-        return JsonResponse({"ok": False, "error": "ticker required"}, status=400)
-    # 休日分バッファ
-    period = max(days + 30, 240)
-    df = yf.download(t, period=f"{period}d", interval="1d", progress=False)
-    if df is None or df.empty:
-        return JsonResponse({"ok": False, "error": "no data"}, status=404)
+    ticker = (request.GET.get("ticker") or "").strip().upper()
+    days = int(request.GET.get("days") or 180)
+    if not ticker:
+        return JsonResponse({"ok": False, "error": "ticker required"})
 
-    s = df["Close"].dropna().tail(days)
-    ma10 = s.rolling(10).mean()
-    ma30 = s.rolling(30).mean()
+    try:
+        df = yf.download(ticker, period=f"{days}d", interval="1d", progress=False)
+        if df.empty:
+            return JsonResponse({"ok": False, "error": "no data"})
 
-    payload = {
-        "ok": True,
-        "ticker": t,
-        "labels": [d.strftime("%Y-%m-%d") for d in s.index],
-        "close": [float(x) for x in s.values],
-        "ma10":  [None if pd.isna(x) else float(x) for x in ma10.values],
-        "ma30":  [None if pd.isna(x) else float(x) for x in ma30.values],
-    }
-    return JsonResponse(payload)
+        s = df["Close"].dropna()
+        ma10 = s.rolling(10).mean()
+        ma30 = s.rolling(30).mean()
+
+        data = {
+            "ok": True,
+            "labels": [d.strftime("%Y-%m-%d") for d in s.index],
+            "close": [float(v) for v in s],
+            "ma10": [float(v) if pd.notna(v) else None for v in ma10],
+            "ma30": [float(v) if pd.notna(v) else None for v in ma30],
+        }
+        return JsonResponse(data)
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)})
     
