@@ -5,20 +5,45 @@ import yfinance as yf
 
 TRADING_DAYS = 252
 
-def _get_close(df: pd.DataFrame) -> pd.Series:
-    if "Close" in df.columns:
-        s = df["Close"]
-    elif "Adj Close" in df.columns:
-        s = df["Adj Close"]
-    else:
-        for c in df.columns:
-            if isinstance(c, tuple) and c[0] in ("Close", "Adj Close"):
-                s = df[c]
-                break
+# =========================================================
+# ヘルパー：Series取り出し（MultiIndex対応）
+# =========================================================
+def _pick_series(df: pd.DataFrame, field: str, *, required: bool = True) -> pd.Series:
+    """
+    yfinanceの単独/マルチ列どちらでも、指定field('Open','High','Low','Close','Adj Close','Volume')
+    を安全に1本のSeriesで返す。
+    - required=True のとき見つからなければ ValueError
+    - required=False のときは空Series
+    """
+    if isinstance(df.columns, pd.MultiIndex):
+        lv0 = df.columns.get_level_values(0)
+        target = field
+        alt = "Adj Close" if field.lower() == "close" else None
+        if target in lv0:
+            obj = df.xs(target, axis=1, level=0, drop_level=True)
+        elif alt and (alt in lv0):
+            obj = df.xs(alt, axis=1, level=0, drop_level=True)
         else:
-            raise KeyError("Close")
-    return pd.to_numeric(s, errors="coerce").dropna()
+            if required:
+                raise ValueError(f"{field} column not found")
+            return pd.Series(dtype=float)
+        s = obj.iloc[:, 0] if isinstance(obj, pd.DataFrame) else obj
+        return pd.to_numeric(s, errors="coerce")
+    else:
+        cols_lower = {str(c).lower(): c for c in df.columns}
+        use = cols_lower.get(field.lower())
+        if use is None and field.lower() == "close":
+            use = cols_lower.get("adj close")
+        if use is None:
+            if required:
+                raise ValueError(f"{field} column not found")
+            return pd.Series(dtype=float)
+        return pd.to_numeric(df[use], errors="coerce")
 
+
+# =========================================================
+# ボラ・ADXなど計算用ヘルパー
+# =========================================================
 def _ann_vol(ret: pd.Series) -> float:
     return float(ret.std() * np.sqrt(TRADING_DAYS) * 100.0)
 
@@ -26,6 +51,7 @@ def _adx(df: pd.DataFrame, n: int = 14) -> float:
     h = pd.to_numeric(df["High"], errors="coerce")
     l = pd.to_numeric(df["Low"],  errors="coerce")
     c = pd.to_numeric(df["Close"], errors="coerce")
+
     up = h.diff()
     dn = -l.diff()
     plus_dm  = pd.Series(np.where((up > dn) & (up > 0), up, 0.0),  index=h.index, dtype=float)
@@ -44,80 +70,113 @@ def _adx(df: pd.DataFrame, n: int = 14) -> float:
     adx = dx.ewm(alpha=1/n, adjust=False).mean()
     return float(adx.dropna().iloc[-1])
 
+
+# =========================================================
+# メイン関数
+# =========================================================
 def get_metrics(ticker: str, bench: str = "^TOPX", days: int = 420) -> dict:
-    df = yf.download(ticker, period=f"{days}d", interval="1d", progress=False)
+    # --- データ取得（auto_adjustを明示）
+    df = yf.download(ticker, period=f"{days}d", interval="1d",
+                     auto_adjust=True, progress=False)
     if df is None or df.empty:
         raise ValueError("no data")
 
-    use_cols: dict[str, pd.Series] = {}
-    for col in ("Open", "High", "Low", "Close", "Adj Close", "Volume"):
-        if col in df.columns:
-            use_cols[col] = pd.to_numeric(df[col], errors="coerce")
-    dfx = pd.DataFrame(use_cols).dropna(how="all")
-    if "Close" not in dfx.columns and "Adj Close" in dfx.columns:
-        dfx["Close"] = dfx["Adj Close"]
+    # 必要列を抽出
+    close_s = _pick_series(df, "Close", required=True).dropna()
+    high_s  = _pick_series(df, "High",  required=True).dropna()
+    low_s   = _pick_series(df, "Low",   required=True).dropna()
+    vol_s   = _pick_series(df, "Volume", required=False)
 
-    if not {"High", "Low", "Close"}.issubset(dfx.columns):
+    if close_s.empty or high_s.empty or low_s.empty:
         raise ValueError("no aligned data")
 
-    s = _get_close(dfx)
+    # 共通インデックスで揃える
+    common = close_s.index.intersection(high_s.index).intersection(low_s.index)
+    s = close_s.reindex(common)
+    h = high_s.reindex(common)
+    l = low_s.reindex(common)
+    v = vol_s.reindex(common) if not vol_s.empty else pd.Series(dtype=float, index=common)
+
     ret = s.pct_change()
 
+    # --- ベンチマーク
+    b = None; bret = None
     try:
-        bdf = yf.download(bench, period=f"{days}d", interval="1d", progress=False)
-        b = _get_close(bdf)
-        bret = b.pct_change()
+        bdf = yf.download(bench, period=f"{days}d", interval="1d",
+                          auto_adjust=True, progress=False)
+        if bdf is not None and not bdf.empty:
+            bclose = _pick_series(bdf, "Close", required=True).dropna()
+            joined = pd.concat([s.pct_change(), bclose.pct_change()], axis=1, join="inner")
+            joined.columns = ["s", "b"]
+            b = bclose
+            bret = joined["b"]
     except Exception:
-        b = None
-        bret = None
+        pass
 
-    # ★ 1 次元に強制してから polyfit
+    # --- トレンド（回帰）
     y = np.ravel(s.tail(60).to_numpy(dtype=float))
-    x = np.arange(len(y), dtype=float)
-    if len(y) < 2:
+    if y.size < 2:
         raise ValueError("not enough data for regression")
+    x = np.arange(y.size, dtype=float)
     k, _ = np.polyfit(x, y, 1)
     slope_ann_pct = float((k / y[-1]) * 100.0 * TRADING_DAYS)
 
+    # --- 移動平均
     ma20  = float(s.rolling(20).mean().iloc[-1])   if len(s) >= 20  else None
     ma50  = float(s.rolling(50).mean().iloc[-1])   if len(s) >= 50  else None
     ma200 = float(s.rolling(200).mean().iloc[-1])  if len(s) >= 200 else None
-    ma_stack = (
-        "bull" if (ma20 is not None and ma50 is not None and ma200 is not None and ma20 > ma50 > ma200)
-        else ("bear" if (ma20 is not None and ma50 is not None and ma200 is not None and ma20 < ma50 < ma200)
-              else "mixed")
-    )
+    if all(x is not None for x in (ma20, ma50, ma200)):
+        ma_stack = "bull" if (ma20 > ma50 > ma200) else ("bear" if (ma20 < ma50 < ma200) else "mixed")
+    else:
+        ma_stack = "mixed"
 
-    adx14 = _adx(dfx.dropna()[["High", "Low", "Close"]])
+    # --- ADX
+    dfx = pd.DataFrame({"High": h, "Low": l, "Close": s}).dropna(how="any")
+    adx14 = _adx(dfx[["High", "Low", "Close"]])
 
+    # --- RS 6M
     rs_6m = None
-    if bret is not None and len(s) > 126 and len(b) > 126:
-        rs_6m = float((s.pct_change(126).iloc[-1] - b.pct_change(126).iloc[-1]) * 100)
+    if b is not None and len(s) > 126 and len(b) > 126:
+        s6 = s.pct_change(126)
+        b6 = b.pct_change(126)
+        joined6 = pd.concat([s6, b6], axis=1, join="inner").dropna()
+        if not joined6.empty:
+            rs_6m = float((joined6.iloc[-1, 0] - joined6.iloc[-1, 1]) * 100.0)
 
-    roll_max = s.rolling(252).max().iloc[-1] if len(s) >= 252 else None
-    roll_min = s.rolling(252).min().iloc[-1] if len(s) >= 252 else None
-    from_52w_high = float((s.iloc[-1] / roll_max - 1) * 100) if roll_max else None
-    from_52w_low  = float((s.iloc[-1] / roll_min - 1) * 100) if roll_min else None
+    # --- 52週高安
+    from_52w_high = from_52w_low = None
+    if len(s) >= 252:
+        roll_max = float(s.tail(252).max())
+        roll_min = float(s.tail(252).min())
+        last = float(s.iloc[-1])
+        from_52w_high = float((last / roll_max - 1.0) * 100.0)
+        from_52w_low  = float((last / roll_min - 1.0) * 100.0)
 
-    vol20 = _ann_vol(ret.tail(20).dropna()) if len(ret.dropna()) >= 20 else None
-    vol60 = _ann_vol(ret.tail(60).dropna()) if len(ret.dropna()) >= 60 else None
+    # --- 年化ボラ
+    ret_clean = ret.dropna()
+    vol20 = _ann_vol(ret_clean.tail(20)) if len(ret_clean) >= 20 else None
+    vol60 = _ann_vol(ret_clean.tail(60)) if len(ret_clean) >= 60 else None
 
+    # --- ATR14
     tr = pd.concat([
-        (dfx["High"] - dfx["Low"]).abs(),
-        (dfx["High"] - dfx["Close"].shift()).abs(),
-        (dfx["Low"]  - dfx["Close"].shift()).abs()
+        (h - l).abs(),
+        (h - s.shift()).abs(),
+        (l - s.shift()).abs()
     ], axis=1).max(axis=1)
-    atr14 = float(tr.rolling(14).mean().iloc[-1]) if len(tr.dropna()) >= 14 else None
+    atr14 = float(tr.rolling(14).mean().iloc[-1]) if tr.dropna().size >= 14 else None
 
-    adv20 = float((s * dfx["Volume"]).rolling(20).mean().iloc[-1]) if "Volume" in dfx.columns else None
+    # --- ADV20
+    adv20 = None
+    if not v.empty:
+        adv20 = float((s * v).rolling(20).mean().iloc[-1])
 
-    swing_win   = 20
-    swing_high  = float(dfx["High"].tail(swing_win).max())
-    swing_low   = float(dfx["Low"].tail(swing_win).min())
-    last_close  = float(s.iloc[-1])
+    # --- スイング水準
+    swing_win  = 20
+    swing_high = float(h.tail(swing_win).max())
+    swing_low  = float(l.tail(swing_win).min())
+    last_close = float(s.iloc[-1])
 
-    entry_level = None
-    stop_level  = None
+    entry_level = stop_level = None
     if atr14 is not None:
         entry_level = float(swing_high + 0.5 * atr14)
         stop_level  = float(swing_low  - 1.5 * atr14)
@@ -140,16 +199,10 @@ def get_metrics(ticker: str, bench: str = "^TOPX", days: int = 420) -> dict:
             "vol60_ann_pct": vol60,
             "atr14": atr14,
         },
-        "liquidity": {
-            "adv20": adv20,
-        },
+        "liquidity": {"adv20": adv20},
         "levels": {
-            "entry": entry_level,
-            "stop":  stop_level,
-            "swing_high": swing_high,
-            "swing_low":  swing_low,
-            "last_close": last_close,
-            "atr14": atr14,
-            "window": swing_win,
+            "entry": entry_level, "stop": stop_level,
+            "swing_high": swing_high, "swing_low": swing_low,
+            "last_close": last_close, "atr14": atr14, "window": swing_win,
         },
     }
