@@ -164,10 +164,10 @@ def _load_tse_map_if_needed() -> None:
         print("[TSE] no list loaded")
 
 
-def _lookup_name_jp_from_list(ticker: str) -> Optional[str]:
+def _lookup_name_jp_from_csv(ticker: str) -> Optional[str]:
     """
-    ティッカーが東証（nnnn / nnnnn / nnnn.T など）なら CSV/JSON マップから日本語名を返す。
-    見つからなければ None。
+    ティッカーが東証（nnnn / nnnA / nnnn.T / nnnA.T など）なら
+    CSV/JSON から日本語名を返す。見つからなければ None。
     """
     _load_tse_map_if_needed()
     if not _TSE_MAP:
@@ -177,17 +177,23 @@ def _lookup_name_jp_from_list(ticker: str) -> Optional[str]:
     if not t:
         return None
 
-    # "7203" / "7203.T" / "7203.TK" などの数字部分を抜く
-    numeric = t.split(".", 1)[0]
-    if numeric.isdigit() and len(numeric) in (4, 5):
-        name = _TSE_MAP.get(numeric)
-        if name:
-            name = _clean_text(name)
-            if _TSE_DEBUG:
-                print(f"[TSE] lookup {numeric} -> '{name}' (src={_TSE_SRC_TAG})")
-            return name
-        if _TSE_DEBUG:
-            print(f"[TSE] lookup {numeric} -> None")
+    # 先頭の「数字3～4桁 + 任意で1文字アルファベット」を切り出し
+    m = re.match(r"^(\d{3,4}[A-Z]?)", t)
+    if not m:
+        return None
+    code_key = m.group(1)
+
+    # まずは完全一致（例: 167A）
+    name = _TSE_MAP.get(code_key)
+    if name:
+        return _clean_text(name)
+
+    # それでも無ければ数字だけでも試す（例: 167A -> 0167 / 167 などの例外救済）
+    numeric = re.match(r"^(\d{3,4})", code_key).group(1)
+    name = _TSE_MAP.get(numeric)
+    if name:
+        return _clean_text(name)
+
     return None
 
 
@@ -196,12 +202,18 @@ def _lookup_name_jp_from_list(ticker: str) -> Optional[str]:
 # =====================================================================
 
 def _normalize_ticker(raw: str) -> str:
+    """
+    入力を正規化。
+    - 4桁数字 or 3～4桁数字＋1文字アルファベット なら日本株とみなし「.T」を付与
+      例: 8058 -> 8058.T, 167A -> 167A.T
+    - すでにサフィックスがある場合や海外株などはそのまま（大文字化のみ）
+    """
     t = (raw or "").strip().upper()
     if not t:
         return t
     if "." in t:
         return t
-    # 4～5桁の数字 or 数字+アルファベットを東証コードとして処理
+    # 3～4桁の数字 + 任意で末尾1文字アルファベット
     if re.match(r"^\d{3,4}[A-Z]?$", t):
         return f"{t}.T"
     return t
