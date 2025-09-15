@@ -28,10 +28,27 @@ def _normalize_ticker(raw: str) -> str:
 def _fetch_name_jp(ticker: str) -> str:
     """
     yfinance から銘柄名（日本語優先）を取得。
-    見つからなければティッカーを返す。
+    Ticker.info が pandas.Series を返すことがあるため、
+    真偽値評価は絶対に行わず、必要なら dict 化する。
     """
     try:
-        info = getattr(yf.Ticker(ticker), "info", {}) or {}
+        ti = yf.Ticker(ticker)
+
+        # 直接 info を読む（dict/Series/None の可能性がある）
+        raw = getattr(ti, "info", None)
+
+        # Series -> dict、None/不明 -> {}
+        if isinstance(raw, dict):
+            info = raw
+        elif isinstance(raw, pd.Series):
+            info = raw.to_dict()
+        else:
+            # get_info() が使える環境ならこちらも試す（失敗しても握りつぶす）
+            try:
+                info = ti.get_info() or {}
+            except Exception:
+                info = {}
+
         name = info.get("shortName") or info.get("longName") or info.get("name")
         if isinstance(name, str) and name.strip():
             return name.strip()
@@ -105,11 +122,11 @@ def detect_trend(
     # 線形回帰（x は 0..n-1）
     y = s.values.astype(float)
     x = np.arange(len(y), dtype=float)
-    k, b = np.polyfit(x, y, 1)  # 傾き k
+    k, _ = np.polyfit(x, y, 1)  # 傾き k
 
     # 年率換算の概算（営業日 ~ 252日）
-    last_price = y[-1]
-    slope_daily_pct = (k / last_price) * 100.0 if last_price else 0.0
+    last_price = float(y[-1])
+    slope_daily_pct = (k / last_price) * 100.0 if last_price != 0 else 0.0
     slope_ann_pct = slope_daily_pct * 252.0
 
     # シグナル判定（シンプル基準）
