@@ -84,13 +84,19 @@ def trend_api(request):
     return JsonResponse(data)
 
 
+# ========= API =========
 @require_GET
 def ohlc_api(request):
     """
-    折れ線チャート/ローソクどちらでも使える OHLC + MA API
+    折れ線チャート/ローソク足どちらでも使える OHLC + MA API
     """
+    import numpy as np
+
     def tolist1d(series: pd.Series) -> list:
-        arr = np.ravel(series.to_numpy())  # ← numpy で flatten
+        """Series/ndarray を 1 次元 list[float|None] に正規化"""
+        if series is None:
+            return []
+        arr = np.ravel(series.to_numpy())   # (N,) に潰す
         out = []
         for v in arr:
             if pd.isna(v):
@@ -102,6 +108,7 @@ def ohlc_api(request):
                     out.append(None)
         return out
 
+    # ---- 入力 ----
     raw = (request.GET.get("ticker") or "").strip()
     if not raw:
         return JsonResponse({"ok": False, "error": "ticker required"})
@@ -113,6 +120,7 @@ def ohlc_api(request):
         if df is None or df.empty:
             return JsonResponse({"ok": False, "error": "no data"})
 
+        # ---- 列名ゆらぎ対応 ----
         def pick(df_: pd.DataFrame, name: str) -> pd.Series:
             if isinstance(df_.columns, pd.MultiIndex):
                 if name in df_.columns.get_level_values(0):
@@ -135,21 +143,35 @@ def ohlc_api(request):
         if base.empty:
             return JsonResponse({"ok": False, "error": "no aligned data"})
 
+        # ---- MA 計算 ----
         ma10_s = base["Close"].rolling(10).mean()
         ma30_s = base["Close"].rolling(30).mean()
 
         labels = base.index.strftime("%Y-%m-%d").tolist()
-        close  = tolist1d(base["Close"])
-        ma10   = tolist1d(ma10_s)
-        ma30   = tolist1d(ma30_s)
+        close = tolist1d(base["Close"])
+        ma10 = tolist1d(ma10_s)
+        ma30 = tolist1d(ma30_s)
 
+        # candlestick 用
         ohlc = [
-            {"x": idx.strftime("%Y-%m-%d"), "o": float(row["Open"]), "h": float(row["High"]),
-             "l": float(row["Low"]), "c": float(row["Close"])}
+            {
+                "x": idx.strftime("%Y-%m-%d"),
+                "o": float(row["Open"]),
+                "h": float(row["High"]),
+                "l": float(row["Low"]),
+                "c": float(row["Close"]),
+            }
             for idx, row in base.iterrows()
         ]
 
-        return JsonResponse({"ok": True, "labels": labels, "close": close, "ma10": ma10, "ma30": ma30, "ohlc": ohlc})
+        return JsonResponse({
+            "ok": True,
+            "labels": labels,
+            "close": close,
+            "ma10": ma10,
+            "ma30": ma30,
+            "ohlc": ohlc,
+        })
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)})
 
