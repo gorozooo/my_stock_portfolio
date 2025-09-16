@@ -7,80 +7,133 @@
 
   <style>
     body {
-  background: #0b0f1a; /* ダークネイビー */
-  color: #e6ebff;     /* 全体文字は明るめブルーグレー */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  margin: 12px;
+  background: #0b0f1a; /* ダーク背景 */
+  color: #f1f5f9;      /* 明るめ文字 */
 }
 
+/* 見出し */
 h2 {
-  color: #ffffff;
-}
-
-/* 入力フォーム・ボタン */
-input[type=text] {
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.2);
+  font-size: 22px;
+  margin: 0 0 16px;
+  font-weight: 600;
   color: #fff;
 }
-input::placeholder {
-  color: #aaa;
+
+/* 入力とボタン */
+input[type=text] {
+  flex: 1;
+  font-size: 16px;
+  padding: 14px 12px;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: #1e293b;
+  color: #fff;
 }
 button {
-  background: linear-gradient(135deg,#4f46e5,#3b82f6);
+  padding: 14px 18px;
+  font-size: 15px;
+  border: none;
+  border-radius: 12px;
+  background: #2563eb;
   color: #fff;
   font-weight: 600;
-  box-shadow: 0 2px 6px rgba(0,0,0,.4);
+}
+button:hover {
+  background: #1d4ed8;
 }
 
 /* カード */
 .card {
+  margin-top: 14px;
+  border-radius: 14px;
+  padding: 16px;
   background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.1);
-  color: #e6ebff;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 2px 8px rgba(0,0,0,.4);
 }
 
 /* サブテキスト */
 .sub {
-  color: #97a0c1;
+  color: #94a3b8;
+  font-size: 13px;
 }
 
-/* KPIグリッド */
+/* チャート */
+.chart-wrap {
+  margin-top: 16px;
+  border-radius: 16px;
+  padding: 12px;
+  height: 300px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+/* KPIグリッド → 横スクロール */
+.grid {
+  display: flex;
+  overflow-x: auto;
+  gap: 10px;
+  padding-bottom: 6px;
+}
 .kpi {
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.15);
-  color: #e6ebff;
+  min-width: 140px;
+  flex-shrink: 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
 }
 .kpi h4 {
-  color: #97a0c1;
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: #cbd5e1;
 }
 .kpi .v {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
-  color: #ffffff;
+  color: #fff;
 }
 
 /* バッジ */
-.badge { font-weight:600; }
-.b-green { background: rgba(38,208,124,0.15); color:#26d07c; }
-.b-red   { background: rgba(255,77,103,0.15); color:#ff4d67; }
-.b-gray  { background: rgba(255,255,255,0.12); color:#ccc; }
-
-/* 意思決定ラベル */
-.badge-decision {
-  font-size: 15px;
-  font-weight: 700;
-  padding: 6px 14px;
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
 }
-.badge-buy   { background:#26d07c; color:#fff; }
+.b-green { background:#16a34a; color:#fff; }
+.b-red   { background:#dc2626; color:#fff; }
+.b-gray  { background:#334155; color:#e2e8f0; }
+
+/* 判定バッジ */
+.badge-decision {
+  display:inline-block;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+  color:#fff;
+}
+.badge-buy   { background:#16a34a; }
 .badge-watch { background:#facc15; color:#222; }
-.badge-skip  { background:#ef4444; color:#fff; }
+.badge-skip  { background:#ef4444; }
 
 /* ポジションサイズ */
 #ev-sizing {
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 12px;
   background: rgba(255,255,255,0.06);
-  border: 1px dashed rgba(255,255,255,0.2);
-  color: #e6ebff;
+  font-size: 14px;
 }
-#ev-sizing h4 { color:#97a0c1; }
+#ev-sizing h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #cbd5e1;
+}
   </style>
 {% endblock %}
 
