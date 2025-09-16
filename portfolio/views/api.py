@@ -84,7 +84,6 @@ def ohlc(request):
 
 @require_GET
 def metrics(request):
-    """Metrics API（ユーザー設定対応版）"""
     ticker_raw = (request.GET.get("ticker") or "").strip()
     bench = (request.GET.get("bench") or "^TOPX").strip()
     if not ticker_raw:
@@ -95,6 +94,7 @@ def metrics(request):
     risk = 1.0
     lot = None
 
+    # ユーザー設定を反映
     try:
         if request.user and request.user.is_authenticated:
             setting, _ = UserSetting.objects.get_or_create(user=request.user)
@@ -103,6 +103,7 @@ def metrics(request):
     except Exception:
         pass
 
+    # 任意：クエリで上書き（検証用）
     if request.GET.get("equity"):
         try: equity = int(request.GET.get("equity"))
         except: pass
@@ -114,15 +115,15 @@ def metrics(request):
         except: pass
 
     try:
-        metrics = get_metrics(
+        res = get_metrics(
             ticker,
             bench=bench,
             account_equity=equity,
             risk_pct=risk,
             lot=lot,
         )
-        metrics["ticker"] = ticker
-        metrics["bench"] = bench
-        return JsonResponse(metrics)
+        res["ticker"] = ticker
+        res["bench"] = bench
+        return JsonResponse(res)
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)}, status=400)
