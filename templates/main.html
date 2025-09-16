@@ -1,23 +1,10 @@
+<!-- templates/main.html -->
 {% extends "base.html" %}
+{% block title %}ホーム{% endblock %}
 {% block content %}
-<h2 style="margin:6px 4px">保有銘柄（AIサマリ・ダミー）</h2>
-<div class="grid">
-  {% for c in cards %}
-  <article class="card">
-    <div class="row">
-      <div class="name">{{ c.name }} <small>({{ c.ticker }})</small></div>
-      <div class="trend {% if c.trend == 'UP' %}up{% elif c.trend == 'DOWN' %}down{% endif %}">
-        {% if c.trend == "UP" %}📈 上昇{% elif c.trend == "DOWN" %}📉 下降{% else %}—{% endif %}
-      </div>
-    </div>
-    <div class="muted">株数: 100（ダミー）</div>
-    <div class="ai">
-      AI予測:
-      {% if c.proba is not None %}上がる確率 <b>{{ c.proba }}%</b>{% else %}未学習{% endif %}
-    </div>
-  </article>
-  {% empty %}
-  <p>まずは <a href="/admin/">管理画面</a>から保有銘柄を1件登録してください。</p>
-  {% endfor %}
-</div>
+  <div class="rounded-2xl p-4 bg-white/5 ring-1 ring-white/10 shadow">
+    <div class="text-sm text-slate-400">ようこそ</div>
+    <h2 class="text-xl font-semibold mt-1">スピード重視の株アプリ</h2>
+    <p class="text-slate-300 mt-2">下のタブから保有一覧やトレンド判定へ。ホーム追加でPWA化してサクサク。</p>
+  </div>
 {% endblock %}
