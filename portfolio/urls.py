@@ -1,23 +1,26 @@
 from django.urls import path
 from django.http import HttpResponse
-from . import views
+
+# ← ここがポイント：viewsパッケージ内の各モジュールを明示的に import
+from .views import core as core_views
 from .views import settings as settings_views
 from .views import api as api_views
 
 urlpatterns = [
-    path("", views.main, name="home"),
-    # トレンド判定ページ（フォームのある画面）
-    path("trend/", views.trend_page, name="trend"),
+    path("", core_views.main, name="home"),
+    # トレンド判定ページ
+    path("trend/", core_views.trend_page, name="trend"),
     # API（/api/trend?ticker=...）
-    path("api/trend", views.trend_api, name="trend_api"),
+    path("api/trend", core_views.trend_api, name="trend_api"),
     # HTMX が差し替えるカード断片
-    path("trend/card", views.trend_card_partial, name="trend_card_partial"),
+    path("trend/card", core_views.trend_card_partial, name="trend_card_partial"),
     # ヘルスチェック
     path("healthz", lambda r: HttpResponse("ok"), name="healthz"),
-    
-    #path("api/ohlc", views.ohlc_api, name="ohlc_api"),
-    #path("api/metrics", views.metrics_api, name="metrics_api"),
-    path("settings/trade", settings_views.trade_setting, name="trade_setting"),
+
+    # 新API（分割版）に一本化
     path("api/metrics", api_views.metrics, name="api_metrics"),
     path("api/ohlc", api_views.ohlc, name="api_ohlc"),
+
+    # 設定画面
+    path("settings/trade", settings_views.trade_setting, name="trade_setting"),
 ]
