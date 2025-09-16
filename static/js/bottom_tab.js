@@ -1,9 +1,42 @@
-// bottom_tab.js – Haptics + BottomSheet + Icon/Color + Drag Follow
+// bottom_tab.js – Haptics + BottomSheet + Icon/Color + Drag Follow + Grabber Swipe(Loop) + Toast
 document.addEventListener("DOMContentLoaded", () => {
   const submenu = document.getElementById("submenu");
   const tabs = document.querySelectorAll(".tab-btn");
   const root = document.getElementById("bottomTabRoot") || document.body;
   const LONG_PRESS_MS = 550;
+
+  // ====== Toast ======
+  let toastEl = document.getElementById("btmToast");
+  if (!toastEl){
+    toastEl = document.createElement("div");
+    toastEl.id = "btmToast";
+    // 最低限のスタイル（CSS無くても動くようにインラインで）
+    toastEl.style.position = "fixed";
+    toastEl.style.left = "50%";
+    toastEl.style.bottom = "80px";
+    toastEl.style.transform = "translateX(-50%) translateY(20px)";
+    toastEl.style.background = "rgba(30,32,46,.95)";
+    toastEl.style.color = "#fff";
+    toastEl.style.padding = "8px 12px";
+    toastEl.style.fontSize = "13px";
+    toastEl.style.borderRadius = "10px";
+    toastEl.style.border = "1px solid rgba(255,255,255,.08)";
+    toastEl.style.boxShadow = "0 6px 20px rgba(0,0,0,.35)";
+    toastEl.style.opacity = "0";
+    toastEl.style.pointerEvents = "none";
+    toastEl.style.transition = "opacity .18s ease, transform .18s ease";
+    toastEl.style.zIndex = "10005";
+    document.body.appendChild(toastEl);
+  }
+  function showToast(msg){
+    toastEl.textContent = msg;
+    toastEl.style.opacity = "1";
+    toastEl.style.transform = "translateX(-50%) translateY(0)";
+    setTimeout(()=>{
+      toastEl.style.opacity = "0";
+      toastEl.style.transform = "translateX(-50%) translateY(20px)";
+    }, 1200);
+  }
 
   // マスク要素（なければ生成）
   let mask = document.querySelector(".btm-mask");
@@ -44,6 +77,31 @@ document.addEventListener("DOMContentLoaded", () => {
     ],
   };
 
+  /* ===== タブ配列/現在位置/遷移（循環） ===== */
+  function getTabsArray(){ return Array.from(document.querySelectorAll(".tab-btn")); }
+  function getActiveTabIndex(){
+    const arr = getTabsArray();
+    const idx = arr.findIndex(t => t.classList.contains("active"));
+    return Math.max(0, idx);
+  }
+  function gotoTab(index, vibrate = true, toast = true){
+    const arr = getTabsArray();
+    if (!arr.length) return;
+    // 循環
+    const i = (index % arr.length + arr.length) % arr.length;
+    const btn = arr[i];
+    const link = btn.dataset.link || "/";
+    // 先にUI反映
+    arr.forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    if (vibrate && navigator.vibrate) navigator.vibrate(8);
+    if (toast){
+      const label = btn.querySelector("span")?.textContent?.trim() || link;
+      showToast(`${label} に移動`);
+    }
+    window.location.href = link;
+  }
+
   /* ---------- Bottom Sheet Rendering ---------- */
   function renderMenu(type){
     const items = MENUS[type] || [];
@@ -51,7 +109,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const grab = document.createElement("div");
     grab.className = "grabber";
+    grab.style.cursor = "grab";
     submenu.appendChild(grab);
+
+    // grabber に左右スワイプ（循環切替 + トースト）
+    attachGrabberSwipe(grab);
 
     items.forEach(it=>{
       if (it.section){
@@ -97,25 +159,13 @@ document.addEventListener("DOMContentLoaded", () => {
   mask.addEventListener("click", hideMenu);
 
   /* ---------- Drag Follow (Swipe to Close) ---------- */
-  let drag = {
-    startY: 0,
-    lastY: 0,
-    startTime: 0,
-    lastTime: 0,
-    dy: 0,
-    vY: 0,
-    active: false
-  };
+  let drag = { startY:0, lastY:0, startTime:0, lastTime:0, dy:0, vY:0, active:false };
 
-  // ドラッグ開始は「シートが最上部にスクロールされている時のみ」
-  function canStartDrag() {
-    return submenu.scrollTop <= 0;
-  }
+  function canStartDrag(){ return submenu.scrollTop <= 0; }
 
   function onDragStart(e){
     const y = (e.touches ? e.touches[0].clientY : e.clientY);
-    drag.startY = y;
-    drag.lastY = y;
+    drag.startY = y; drag.lastY = y;
     drag.startTime = drag.lastTime = performance.now();
     drag.dy = 0; drag.vY = 0; drag.active = false;
   }
@@ -123,28 +173,22 @@ document.addEventListener("DOMContentLoaded", () => {
   function onDragMove(e){
     const y = (e.touches ? e.touches[0].clientY : e.clientY);
     const now = performance.now();
-    const dy = Math.max(0, y - drag.startY); // 上方向は0、下のみ
+    const dy = Math.max(0, y - drag.startY);
     const dt = Math.max(1, now - drag.lastTime);
-    const vy = (y - drag.lastY) / dt;        // px/ms
+    const vy = (y - drag.lastY) / dt;
 
-    // シートが最上部かつ下方向に動いたらドラッグ発火（スクロールを奪う）
-    if (!drag.active && dy > 0 && canStartDrag()) {
+    if (!drag.active && dy > 0 && canStartDrag()){
       drag.active = true;
       submenu.classList.add("dragging");
     }
 
     if (drag.active){
-      e.preventDefault(); // ページスクロール抑止
-      drag.dy = dy;
-      drag.vY = vy;
-      drag.lastY = y;
-      drag.lastTime = now;
+      e.preventDefault();
+      drag.dy = dy; drag.vY = vy; drag.lastY = y; drag.lastTime = now;
 
-      // 追従（少しラバー感）
       const follow = dy * 0.98;
       submenu.style.transform = `translateY(${follow}px)`;
 
-      // マスクの不透明度も連動（最大 35% → 下げると薄く）
       const h = submenu.getBoundingClientRect().height || window.innerHeight * 0.7;
       const ratio = Math.min(1, follow / (h * 0.9));
       mask.style.opacity = String(1 - ratio * 0.9);
@@ -152,19 +196,15 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function onDragEnd(){
-    if (!drag.active){
-      // ドラッグ未発火 → 何もしない（スクロールだった）
-      return;
-    }
+    if (!drag.active) return;
     submenu.classList.remove("dragging");
 
-    const CLOSE_DISTANCE = Math.min(window.innerHeight * 0.25, 220); // 距離しきい値
-    const CLOSE_VELOCITY = 0.8 / 1000; // px/ms を 1/ms に換算（0.8px/ms ≒ 800px/s）
+    const CLOSE_DISTANCE = Math.min(window.innerHeight * 0.25, 220);
+    const CLOSE_VELOCITY = 0.8 / 1000; // px/ms
 
     const shouldClose = (drag.dy > CLOSE_DISTANCE) || (drag.vY > CLOSE_VELOCITY);
 
     if (shouldClose){
-      // 下へアニメ → 終了後にhide
       submenu.style.transition = "transform .18s ease";
       submenu.style.transform = `translateY(110%)`;
       mask.classList.remove("show");
@@ -174,7 +214,6 @@ document.addEventListener("DOMContentLoaded", () => {
         hideMenu();
       });
     } else {
-      // 元に戻す
       submenu.style.transition = "transform .18s ease";
       submenu.style.transform = "translateY(0)";
       mask.style.opacity = "";
@@ -185,13 +224,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // シート領域でのイベント登録（ボディではなくシートに限定）
   submenu.addEventListener("touchstart", onDragStart, {passive:true});
   submenu.addEventListener("touchmove",  onDragMove,  {passive:false});
   submenu.addEventListener("touchend",   onDragEnd,   {passive:true});
   submenu.addEventListener("touchcancel",onDragEnd,   {passive:true});
-
-  // マウスでもドラッグできるようにしておく（任意）
   let mouseDown = false;
   submenu.addEventListener("mousedown",(e)=>{ mouseDown = true; onDragStart(e); });
   window.addEventListener("mousemove",(e)=>{ if(mouseDown) onDragMove(e); });
@@ -203,17 +239,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const type = btn.dataset.menu;
     let timer = null, longPressed = false, moved = false;
 
-    // 通常クリック
     btn.addEventListener("click",(e)=>{
       if (longPressed){ e.preventDefault(); longPressed = false; return; }
       if (!submenu.classList.contains("show") && link) window.location.href = link;
     });
 
-    // iOSのコピー/調べる抑止のため preventDefault（passive:false）
     btn.addEventListener("touchstart",(e)=>{
-      e.preventDefault();
-      longPressed = false; moved = false;
-      clearTimeout(timer);
+      e.preventDefault(); // iOS コールアウト抑止
+      longPressed = false; moved = false; clearTimeout(timer);
       timer = setTimeout(()=>{ longPressed = true; showMenu(type, btn); }, LONG_PRESS_MS);
     }, {passive:false});
 
@@ -224,7 +257,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!longPressed && !moved && link) window.location.href = link;
     }, {passive:true});
 
-    // デスクトップ右クリック
     btn.addEventListener("contextmenu",(e)=>{ e.preventDefault(); showMenu(type, btn); });
   });
 
@@ -263,4 +295,44 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
   })();
+
+  /* ---------- Grabber Swipe (左右でタブ循環) ---------- */
+  function attachGrabberSwipe(grabber){
+    const X_THRESH = 48;      // 最低スワイプ距離(px)
+    const ANGLE_TAN = 1.2;    // 横優位判定 |dx| >= 1.2*|dy|
+
+    let sx=0, sy=0, lx=0, ly=0, active=false;
+
+    function start(e){
+      const t = e.touches ? e.touches[0] : e;
+      sx = lx = t.clientX; sy = ly = t.clientY; active = true;
+    }
+    function move(e){
+      if (!active) return;
+      const t = e.touches ? e.touches[0] : e;
+      lx = t.clientX; ly = t.clientY;
+    }
+    function end(){
+      if (!active) return; active = false;
+      const dx = lx - sx, dy = ly - sy;
+      if (Math.abs(dx) < X_THRESH) return;
+      if (Math.abs(dx) < Math.abs(dy) * ANGLE_TAN) return;
+
+      const cur = getActiveTabIndex();
+      if (dx < 0){
+        // 左へ → 次（循環）
+        gotoTab(cur + 1, true, true);
+      } else {
+        // 右へ → 前（循環）
+        gotoTab(cur - 1, true, true);
+      }
+    }
+
+    grabber.addEventListener("touchstart", start, {passive:true});
+    grabber.addEventListener("touchmove",  move,  {passive:true});
+    grabber.addEventListener("touchend",   end,   {passive:true});
+    grabber.addEventListener("mousedown",  (e)=>{ e.preventDefault(); start(e); });
+    window.addEventListener("mousemove",   move);
+    window.addEventListener("mouseup",     end);
+  }
 });
