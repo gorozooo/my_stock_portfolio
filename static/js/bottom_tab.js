@@ -1,8 +1,13 @@
-// bottom_tab.js – clamp付きポジショニング
+// bottom_tab.js – clamp付きポジショニング + iOS長押し抑止版
 document.addEventListener("DOMContentLoaded", () => {
   const submenu = document.getElementById("submenu");
   const tabs = document.querySelectorAll(".tab-btn");
   const LONG_PRESS_MS = 550;
+
+  // 端末のコンテキストメニューを下タブ/サブメニュー領域で無効化
+  document.querySelectorAll(".bottom-tab, .submenu").forEach(el => {
+    el.addEventListener("contextmenu", e => e.preventDefault());
+  });
 
   const MENUS = {
     home: [
@@ -52,7 +57,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 押したボタンの真上に出しつつ、左右は画面内にクランプ
   function positionMenu(anchorBtn){
-    const pad = 12;                          // 画面端からの余白
+    const pad = 12;
     const vw = window.innerWidth || document.documentElement.clientWidth;
     const r = anchorBtn.getBoundingClientRect();
     const center = r.left + r.width / 2;
@@ -61,11 +66,12 @@ document.addEventListener("DOMContentLoaded", () => {
     submenu.style.visibility = "hidden";
     submenu.classList.add("show");
     const w = submenu.offsetWidth;
-    // 幅が画面より大きすぎる場合は縮める
     if (w > vw - pad*2) submenu.style.maxWidth = (vw - pad*2) + "px";
 
-    const clamped = Math.min(Math.max(center, pad + submenu.offsetWidth/2),
-                             vw - pad - submenu.offsetWidth/2);
+    const clamped = Math.min(
+      Math.max(center, pad + submenu.offsetWidth / 2),
+      vw - pad - submenu.offsetWidth / 2
+    );
 
     submenu.style.left = clamped + "px";
     submenu.style.transform = "translateX(-50%)";
@@ -75,6 +81,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function showMenu(type, btn){
     renderMenu(type);
     positionMenu(btn);
+    submenu.setAttribute("aria-hidden","false");
     if (navigator.vibrate) navigator.vibrate(10);
   }
   function hideMenu(){
@@ -82,28 +89,45 @@ document.addEventListener("DOMContentLoaded", () => {
     submenu.setAttribute("aria-hidden","true");
   }
 
-  // 長押し（+右クリック）＆クリック遷移の両立
+  // 長押し（+右クリック）＆クリック遷移の両立 + iOSロングタップ抑止
   tabs.forEach(btn=>{
     const link = btn.dataset.link;
     const type = btn.dataset.menu;
-    let timer = null, longPressed = false;
+    let timer = null, longPressed = false, moved = false;
 
+    // 通常クリック
     btn.addEventListener("click",(e)=>{
       if (longPressed){ e.preventDefault(); longPressed = false; return; }
       if (!submenu.classList.contains("show") && link) window.location.href = link;
     });
 
-    btn.addEventListener("touchstart",()=>{
-      longPressed = false; clearTimeout(timer);
-      timer = setTimeout(()=>{ longPressed = true; showMenu(type, btn); }, LONG_PRESS_MS);
-    }, {passive:true});
-    btn.addEventListener("touchend",()=> clearTimeout(timer), {passive:true});
-    btn.addEventListener("touchmove",()=> clearTimeout(timer), {passive:true});
+    // iOSの「コピー/調べる」を出さないために preventDefault を使用（passive:false）
+    btn.addEventListener("touchstart",(e)=>{
+      e.preventDefault();                // ← 既定のロングタップ動作を抑止
+      longPressed = false; moved = false;
+      clearTimeout(timer);
+      timer = setTimeout(()=>{
+        longPressed = true;
+        showMenu(type, btn);
+      }, LONG_PRESS_MS);
+    }, {passive:false});
+
+    btn.addEventListener("touchmove",()=>{ moved = true; clearTimeout(timer); }, {passive:true});
     btn.addEventListener("touchcancel",()=> clearTimeout(timer), {passive:true});
 
+    btn.addEventListener("touchend",()=>{
+      clearTimeout(timer);
+      // 長押しでなければ自前で遷移（ブラウザ既定クリックは使わない）
+      if (!longPressed && !moved && link) {
+        window.location.href = link;
+      }
+    }, {passive:true});
+
+    // PC右クリック
     btn.addEventListener("contextmenu",(e)=>{ e.preventDefault(); showMenu(type, btn); });
   });
 
+  // 背景タップ/Escで閉じる
   document.addEventListener("click",(e)=>{
     if (!submenu.contains(e.target) && !e.target.classList.contains("tab-btn")) hideMenu();
   });
