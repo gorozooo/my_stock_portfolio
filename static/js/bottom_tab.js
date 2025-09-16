@@ -1,5 +1,6 @@
-// bottom_tab.js – v12
-// Haptics + BottomSheet + Icon/Color + Drag Follow + Grabber Swipe(Loop) + Toast + Robust Navigation
+// bottom_tab.js – v13
+// Haptics + BottomSheet + Icon/Color + Drag Follow + Grabber Swipe(Loop)
+// + Toast + Robust Navigation + iOS touch-action hardening
 document.addEventListener("DOMContentLoaded", () => {
   const submenu = document.getElementById("submenu");
   const tabs = document.querySelectorAll(".tab-btn");
@@ -89,17 +90,12 @@ document.addEventListener("DOMContentLoaded", () => {
     return Math.max(0, idx);
   }
 
-  // 最強ナビ（4段フォールバック + HTMX対応）
+  // 多段フォールバック + HTMX対応
   function navigateTo(rawLink){
     const link = normPath(rawLink || "/");
 
-    // 1) location.assign
     try { setTimeout(()=> location.assign(link), 10); return; } catch(e){}
-
-    // 2) window.open(_self)
     try { setTimeout(()=> window.open(link, "_self"), 20); return; } catch(e){}
-
-    // 3) ダミー a click
     try {
       setTimeout(()=>{
         const a = document.createElement("a");
@@ -108,20 +104,15 @@ document.addEventListener("DOMContentLoaded", () => {
       }, 30);
       return;
     } catch(e){}
-
-    // 4) HTMX があれば ajax ナビ → 最後は reload
     try {
       if (window.htmx){
         setTimeout(()=>{
           window.htmx.ajax("GET", link, { target:"body", swap:"morphdom" })
-            .then(()=>{})  // 置換成功したらOK
             .catch(()=> location.replace(link));
         }, 40);
         return;
       }
     } catch(e){}
-
-    // 5) 最終手段
     setTimeout(()=>{
       try { history.pushState({}, "", link); } catch(e){}
       location.reload(true);
@@ -131,13 +122,10 @@ document.addEventListener("DOMContentLoaded", () => {
   function gotoTab(index, vibrate = true, toast = true){
     const arr = getTabsArray();
     if (!arr.length) return;
-
-    // 循環インデックス
     const i = (index % arr.length + arr.length) % arr.length;
     const btn = arr[i];
     const link = normPath(btn.dataset.link || "/");
 
-    // 先にUI反映＆オーバーレイ排除
     hideMenu(true);
     arr.forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
@@ -148,8 +136,13 @@ document.addEventListener("DOMContentLoaded", () => {
       showToast(`${label} に移動`);
     }
 
-    // 少し遅らせて確実に発火
-    setTimeout(()=> navigateTo(link), 120);
+    // 成功視覚フィードバック（ごく短いハイライト）
+    btn.style.transition = "background-color .15s ease";
+    const oldBg = btn.style.backgroundColor;
+    btn.style.backgroundColor = "rgba(255,255,255,.08)";
+    setTimeout(()=>{ btn.style.backgroundColor = oldBg || ""; }, 160);
+
+    setTimeout(()=> navigateTo(link), 100);
   }
 
   /* ===================== Render Bottom Sheet ===================== */
@@ -160,6 +153,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const grab = document.createElement("div");
     grab.className = "grabber";
     grab.style.cursor = "grab";
+    // iOSでの誤作動を避ける（JSで直接適用）
+    grab.style.touchAction = "none";                 // すべてJSで処理
+    grab.style.webkitUserSelect = "none";
+    grab.style.userSelect = "none";
+    grab.style.webkitTouchCallout = "none";
+    // 面積をしっかり確保（ヒットボックス拡大）
+    grab.style.minHeight = "18px";
+    grab.style.padding = "12px 0";
     submenu.appendChild(grab);
 
     attachGrabberSwipe(grab); // 左右スワイプでタブ循環
@@ -199,7 +200,7 @@ document.addEventListener("DOMContentLoaded", () => {
     mask.classList.remove("show");
     submenu.classList.remove("dragging");
     submenu.classList.remove("show");
-    submenu.style.transform = ""; // CSSに戻す
+    submenu.style.transform = "";
     submenu.setAttribute("aria-hidden","true");
     const unlock = ()=>{ document.documentElement.style.overflow=""; document.body.style.overflow=""; };
     if (!soft){ unlock(); } else { setTimeout(unlock, 0); }
@@ -325,10 +326,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* ===================== Grabber Swipe（左右で循環＋フリック） ===================== */
   function attachGrabberSwipe(grabber){
-    const X_THRESH = 16;
-    const ANGLE_TAN = 0.6;
-    const V_THRESH = 0.45/1000; // 600px/s
+    // さらに感度アップ
+    const X_THRESH = 8;          // 最小水平移動
+    const ANGLE_TAN = 0.4;       // 横優位判定を緩める
+    const V_THRESH = 0.25/1000;  // 速度（約250px/s）
+
     let sx=0, sy=0, lx=0, ly=0, st=0, lt=0, active=false;
+
+    // iOSでの選択/コールアウト抑止（保険）
+    grabber.style.touchAction = "none";
+    grabber.style.webkitTouchCallout = "none";
+    grabber.style.webkitUserSelect = "none";
+    grabber.style.userSelect = "none";
 
     function start(e){
       const t = e.touches ? e.touches[0] : e;
@@ -352,6 +361,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if ((distanceOK || velocityOK) && angleOK){
         const cur = getActiveTabIndex();
+        // 小さな視覚フィードバック（グラバー色）
+        const old = submenu.style.backgroundColor;
+        submenu.style.backgroundColor = "rgba(255,255,255,.04)";
+        setTimeout(()=>{ submenu.style.backgroundColor = old || ""; }, 120);
+
         if (dx < 0) gotoTab(cur + 1, true, true);
         else        gotoTab(cur - 1, true, true);
       }
