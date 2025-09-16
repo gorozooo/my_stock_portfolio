@@ -15,8 +15,8 @@ urlpatterns = [
     # ヘルスチェック
     path("healthz", lambda r: HttpResponse("ok"), name="healthz"),
     
-    path("api/ohlc", views.ohlc_api, name="ohlc_api"),
-    path("api/metrics", views.metrics_api, name="metrics_api"),
+    #path("api/ohlc", views.ohlc_api, name="ohlc_api"),
+    #path("api/metrics", views.metrics_api, name="metrics_api"),
     path("settings/trade", settings_views.trade_setting, name="trade_setting"),
     path("api/metrics", api_views.metrics, name="api_metrics"),
     path("api/ohlc", api_views.ohlc, name="api_ohlc"),
