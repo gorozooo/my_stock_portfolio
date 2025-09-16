@@ -1,10 +1,9 @@
-// bottom_tab.js v3 – iOS長押し安定版
+// bottom_tab.js – clamp付きポジショニング
 document.addEventListener("DOMContentLoaded", () => {
   const submenu = document.getElementById("submenu");
   const tabs = document.querySelectorAll(".tab-btn");
   const LONG_PRESS_MS = 550;
 
-  // ページ別メニュー
   const MENUS = {
     home: [
       { section: "クイック" },
@@ -30,11 +29,11 @@ document.addEventListener("DOMContentLoaded", () => {
     ],
   };
 
-  function renderMenu(type, anchorBtn){
+  function renderMenu(type){
     const items = MENUS[type] || [];
     submenu.innerHTML = "";
     items.forEach(it=>{
-      if(it.section){
+      if (it.section){
         const sec = document.createElement("div");
         sec.className = "section"; sec.textContent = it.section;
         submenu.appendChild(sec); return;
@@ -49,20 +48,33 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       submenu.appendChild(b);
     });
-
-    // 位置：押したボタンの中央付近
-    if(anchorBtn){
-      const r = anchorBtn.getBoundingClientRect();
-      const left = r.left + r.width/2;
-      submenu.style.left = `${left}px`;
-      submenu.style.transform = "translateX(-50%)";
-    }
   }
 
-  function showMenu(type, anchorBtn){
-    renderMenu(type, anchorBtn);
+  // 押したボタンの真上に出しつつ、左右は画面内にクランプ
+  function positionMenu(anchorBtn){
+    const pad = 12;                          // 画面端からの余白
+    const vw = window.innerWidth || document.documentElement.clientWidth;
+    const r = anchorBtn.getBoundingClientRect();
+    const center = r.left + r.width / 2;
+
+    // 一旦表示して幅を測る（不可視で）
+    submenu.style.visibility = "hidden";
     submenu.classList.add("show");
-    submenu.setAttribute("aria-hidden","false");
+    const w = submenu.offsetWidth;
+    // 幅が画面より大きすぎる場合は縮める
+    if (w > vw - pad*2) submenu.style.maxWidth = (vw - pad*2) + "px";
+
+    const clamped = Math.min(Math.max(center, pad + submenu.offsetWidth/2),
+                             vw - pad - submenu.offsetWidth/2);
+
+    submenu.style.left = clamped + "px";
+    submenu.style.transform = "translateX(-50%)";
+    submenu.style.visibility = "visible";
+  }
+
+  function showMenu(type, btn){
+    renderMenu(type);
+    positionMenu(btn);
     if (navigator.vibrate) navigator.vibrate(10);
   }
   function hideMenu(){
@@ -70,42 +82,28 @@ document.addEventListener("DOMContentLoaded", () => {
     submenu.setAttribute("aria-hidden","true");
   }
 
-  // 長押し検出（iOS安定化：suppressClickで遷移抑止）
+  // 長押し（+右クリック）＆クリック遷移の両立
   tabs.forEach(btn=>{
     const link = btn.dataset.link;
     const type = btn.dataset.menu;
-    let timer = null;
-    let longPressed = false;
+    let timer = null, longPressed = false;
 
-    // 通常クリック
     btn.addEventListener("click",(e)=>{
-      if (longPressed) { // 直前に長押し発火したら遷移しない
-        e.preventDefault(); longPressed = false; return;
-      }
+      if (longPressed){ e.preventDefault(); longPressed = false; return; }
       if (!submenu.classList.contains("show") && link) window.location.href = link;
     });
 
-    // タッチ長押し
-    btn.addEventListener("touchstart",(e)=>{
-      longPressed = false;
-      clearTimeout(timer);
-      timer = setTimeout(()=>{
-        longPressed = true;
-        showMenu(type, btn);
-      }, LONG_PRESS_MS);
+    btn.addEventListener("touchstart",()=>{
+      longPressed = false; clearTimeout(timer);
+      timer = setTimeout(()=>{ longPressed = true; showMenu(type, btn); }, LONG_PRESS_MS);
     }, {passive:true});
-
     btn.addEventListener("touchend",()=> clearTimeout(timer), {passive:true});
     btn.addEventListener("touchmove",()=> clearTimeout(timer), {passive:true});
     btn.addEventListener("touchcancel",()=> clearTimeout(timer), {passive:true});
 
-    // PC右クリック
-    btn.addEventListener("contextmenu",(e)=>{
-      e.preventDefault(); showMenu(type, btn);
-    });
+    btn.addEventListener("contextmenu",(e)=>{ e.preventDefault(); showMenu(type, btn); });
   });
 
-  // 背景タップ/Escで閉じる
   document.addEventListener("click",(e)=>{
     if (!submenu.contains(e.target) && !e.target.classList.contains("tab-btn")) hideMenu();
   });
