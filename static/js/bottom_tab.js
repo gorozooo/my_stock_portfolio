@@ -78,25 +78,26 @@ document.addEventListener("DOMContentLoaded", () => {
     return Math.max(0, idx);
   }
   function gotoTab(index, vibrate = true, toast = true){
-    const arr = getTabsArray();
-    if (!arr.length) return;
-    // 循環
-    const i = (index % arr.length + arr.length) % arr.length;
-    const btn = arr[i];
-    const link = btn.dataset.link || "/";
-    // メニュー閉じてから遷移（干渉防止）
-    hideMenu(true);
-    // UI反映
-    arr.forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    if (vibrate && navigator.vibrate) navigator.vibrate(8);
-    if (toast){
-      const label = btn.querySelector("span")?.textContent?.trim() || link;
-      showToast(`${label} に移動`);
-    }
-    // ナビゲーション
-    window.location.href = link;
+  const arr = getTabsArray();
+  if (!arr.length) return;
+  const i = (index % arr.length + arr.length) % arr.length;
+  const btn = arr[i];
+  const link = btn.dataset.link || "/";
+
+  hideMenu(true);
+
+  arr.forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+
+  if (vibrate && navigator.vibrate) navigator.vibrate(8);
+  if (toast){
+    const label = btn.querySelector("span")?.textContent?.trim() || link;
+    showToast(`${label} に移動`);
   }
+
+  console.log("gotoTab", link);  // ← 動作確認用
+  setTimeout(()=> location.assign(link), 120); // ← 確実に遷移
+}
 
   // ===== メニュー描画 =====
   function renderMenu(type){
