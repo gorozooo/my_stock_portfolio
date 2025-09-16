@@ -1,57 +1,50 @@
-// bottom_tab.js – Haptics + BottomSheet + Icon/Color + Drag Follow + Grabber Swipe(Loop) + Toast
+// bottom_tab.js – v10
+// Haptics + BottomSheet + Icon/Color + Drag Follow + Grabber Swipe(Loop) + Toast
 document.addEventListener("DOMContentLoaded", () => {
   const submenu = document.getElementById("submenu");
   const tabs = document.querySelectorAll(".tab-btn");
   const root = document.getElementById("bottomTabRoot") || document.body;
-  const LONG_PRESS_MS = 550;
+  const LONG_PRESS_MS = 500;
 
   // ====== Toast ======
   let toastEl = document.getElementById("btmToast");
   if (!toastEl){
     toastEl = document.createElement("div");
     toastEl.id = "btmToast";
-    // 最低限のスタイル（CSS無くても動くようにインラインで）
-    toastEl.style.position = "fixed";
-    toastEl.style.left = "50%";
-    toastEl.style.bottom = "80px";
-    toastEl.style.transform = "translateX(-50%) translateY(20px)";
-    toastEl.style.background = "rgba(30,32,46,.95)";
-    toastEl.style.color = "#fff";
-    toastEl.style.padding = "8px 12px";
-    toastEl.style.fontSize = "13px";
-    toastEl.style.borderRadius = "10px";
-    toastEl.style.border = "1px solid rgba(255,255,255,.08)";
-    toastEl.style.boxShadow = "0 6px 20px rgba(0,0,0,.35)";
-    toastEl.style.opacity = "0";
-    toastEl.style.pointerEvents = "none";
-    toastEl.style.transition = "opacity .18s ease, transform .18s ease";
-    toastEl.style.zIndex = "10005";
+    Object.assign(toastEl.style, {
+      position:"fixed", left:"50%", bottom:"84px", transform:"translate(-50%, 24px)",
+      background:"rgba(30,32,46,.96)", color:"#fff", padding:"8px 12px", fontSize:"13px",
+      borderRadius:"10px", border:"1px solid rgba(255,255,255,.08)",
+      boxShadow:"0 10px 28px rgba(0,0,0,.45)", opacity:"0", pointerEvents:"none",
+      transition:"opacity .16s ease, transform .16s ease", zIndex:"10006"
+    });
     document.body.appendChild(toastEl);
   }
   function showToast(msg){
     toastEl.textContent = msg;
     toastEl.style.opacity = "1";
-    toastEl.style.transform = "translateX(-50%) translateY(0)";
+    toastEl.style.transform = "translate(-50%, 0)";
     setTimeout(()=>{
       toastEl.style.opacity = "0";
-      toastEl.style.transform = "translateX(-50%) translateY(20px)";
+      toastEl.style.transform = "translate(-50%, 24px)";
     }, 1200);
   }
 
-  // マスク要素（なければ生成）
+  // ====== マスク ======
   let mask = document.querySelector(".btm-mask");
   if (!mask){
     mask = document.createElement("div");
     mask.className = "btm-mask";
     root.appendChild(mask);
   }
+  mask.addEventListener("click", hideMenu);
 
   // iOS コンテキストメニュー抑止
   document.querySelectorAll(".bottom-tab, .submenu").forEach(el => {
     el.addEventListener("contextmenu", e => e.preventDefault());
   });
 
-  // ページ別メニュー
+  // ====== ページ別メニュー ======
   const MENUS = {
     home: [
       { section: "クイック" },
@@ -77,7 +70,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ],
   };
 
-  /* ===== タブ配列/現在位置/遷移（循環） ===== */
+  // ===== タブ配列/現在位置/遷移（循環＋トースト） =====
   function getTabsArray(){ return Array.from(document.querySelectorAll(".tab-btn")); }
   function getActiveTabIndex(){
     const arr = getTabsArray();
@@ -91,7 +84,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const i = (index % arr.length + arr.length) % arr.length;
     const btn = arr[i];
     const link = btn.dataset.link || "/";
-    // 先にUI反映
+    // メニュー閉じてから遷移（干渉防止）
+    hideMenu(true);
+    // UI反映
     arr.forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     if (vibrate && navigator.vibrate) navigator.vibrate(8);
@@ -99,10 +94,11 @@ document.addEventListener("DOMContentLoaded", () => {
       const label = btn.querySelector("span")?.textContent?.trim() || link;
       showToast(`${label} に移動`);
     }
+    // ナビゲーション
     window.location.href = link;
   }
 
-  /* ---------- Bottom Sheet Rendering ---------- */
+  // ===== メニュー描画 =====
   function renderMenu(type){
     const items = MENUS[type] || [];
     submenu.innerHTML = "";
@@ -112,7 +108,7 @@ document.addEventListener("DOMContentLoaded", () => {
     grab.style.cursor = "grab";
     submenu.appendChild(grab);
 
-    // grabber に左右スワイプ（循環切替 + トースト）
+    // grabber スワイプ（左右で循環切替）
     attachGrabberSwipe(grab);
 
     items.forEach(it=>{
@@ -146,66 +142,61 @@ document.addEventListener("DOMContentLoaded", () => {
     document.body.style.overflow = "hidden";
   }
 
-  function hideMenu(){
+  function hideMenu(soft=false){
     mask.classList.remove("show");
     submenu.classList.remove("dragging");
     submenu.classList.remove("show");
     submenu.style.transform = ""; // CSSに戻す
     submenu.setAttribute("aria-hidden","true");
-    document.documentElement.style.overflow = "";
-    document.body.style.overflow = "";
+    if (!soft){
+      document.documentElement.style.overflow = "";
+      document.body.style.overflow = "";
+    } else {
+      // soft のときもスクロール解除（確実に）
+      setTimeout(()=>{ document.documentElement.style.overflow=""; document.body.style.overflow=""; }, 0);
+    }
   }
 
-  mask.addEventListener("click", hideMenu);
-
-  /* ---------- Drag Follow (Swipe to Close) ---------- */
+  // ===== Drag Follow to Close =====
   let drag = { startY:0, lastY:0, startTime:0, lastTime:0, dy:0, vY:0, active:false };
+  const CLOSE_DISTANCE = 220;
+  const CLOSE_VELOCITY = 0.8 / 1000; // px/ms
 
   function canStartDrag(){ return submenu.scrollTop <= 0; }
 
   function onDragStart(e){
-    const y = (e.touches ? e.touches[0].clientY : e.clientY);
-    drag.startY = y; drag.lastY = y;
+    const t = e.touches ? e.touches[0] : e;
+    drag.startY = drag.lastY = t.clientY;
     drag.startTime = drag.lastTime = performance.now();
     drag.dy = 0; drag.vY = 0; drag.active = false;
   }
-
   function onDragMove(e){
-    const y = (e.touches ? e.touches[0].clientY : e.clientY);
+    const t = e.touches ? e.touches[0] : e;
     const now = performance.now();
-    const dy = Math.max(0, y - drag.startY);
+    const dy = Math.max(0, t.clientY - drag.startY);
     const dt = Math.max(1, now - drag.lastTime);
-    const vy = (y - drag.lastY) / dt;
+    const vy = (t.clientY - drag.lastY) / dt;
 
     if (!drag.active && dy > 0 && canStartDrag()){
       drag.active = true;
       submenu.classList.add("dragging");
     }
-
     if (drag.active){
       e.preventDefault();
-      drag.dy = dy; drag.vY = vy; drag.lastY = y; drag.lastTime = now;
-
+      drag.dy = dy; drag.vY = vy; drag.lastY = t.clientY; drag.lastTime = now;
       const follow = dy * 0.98;
       submenu.style.transform = `translateY(${follow}px)`;
-
       const h = submenu.getBoundingClientRect().height || window.innerHeight * 0.7;
       const ratio = Math.min(1, follow / (h * 0.9));
       mask.style.opacity = String(1 - ratio * 0.9);
     }
   }
-
   function onDragEnd(){
     if (!drag.active) return;
     submenu.classList.remove("dragging");
-
-    const CLOSE_DISTANCE = Math.min(window.innerHeight * 0.25, 220);
-    const CLOSE_VELOCITY = 0.8 / 1000; // px/ms
-
     const shouldClose = (drag.dy > CLOSE_DISTANCE) || (drag.vY > CLOSE_VELOCITY);
-
     if (shouldClose){
-      submenu.style.transition = "transform .18s ease";
+      submenu.style.transition = "transform .16s ease";
       submenu.style.transform = `translateY(110%)`;
       mask.classList.remove("show");
       submenu.addEventListener("transitionend", function te(){
@@ -214,7 +205,7 @@ document.addEventListener("DOMContentLoaded", () => {
         hideMenu();
       });
     } else {
-      submenu.style.transition = "transform .18s ease";
+      submenu.style.transition = "transform .16s ease";
       submenu.style.transform = "translateY(0)";
       mask.style.opacity = "";
       submenu.addEventListener("transitionend", function te2(){
@@ -223,17 +214,17 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
   }
-
   submenu.addEventListener("touchstart", onDragStart, {passive:true});
   submenu.addEventListener("touchmove",  onDragMove,  {passive:false});
   submenu.addEventListener("touchend",   onDragEnd,   {passive:true});
   submenu.addEventListener("touchcancel",onDragEnd,   {passive:true});
+
   let mouseDown = false;
   submenu.addEventListener("mousedown",(e)=>{ mouseDown = true; onDragStart(e); });
   window.addEventListener("mousemove",(e)=>{ if(mouseDown) onDragMove(e); });
   window.addEventListener("mouseup",()=>{ if(mouseDown){ mouseDown=false; onDragEnd(); } });
 
-  /* ---------- Long-Press on Tabs ---------- */
+  // ===== Long-Press on Tabs =====
   tabs.forEach(btn=>{
     const link = btn.dataset.link;
     const type = btn.dataset.menu;
@@ -245,7 +236,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     btn.addEventListener("touchstart",(e)=>{
-      e.preventDefault(); // iOS コールアウト抑止
+      // 感度UPのためここでprevent（iOSコールアウト抑止 & 長押し安定）
+      e.preventDefault();
       longPressed = false; moved = false; clearTimeout(timer);
       timer = setTimeout(()=>{ longPressed = true; showMenu(type, btn); }, LONG_PRESS_MS);
     }, {passive:false});
@@ -260,17 +252,13 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener("contextmenu",(e)=>{ e.preventDefault(); showMenu(type, btn); });
   });
 
-  /* ---------- Active Tab Highlighter ---------- */
+  // ===== Active Tab Highlighter =====
   (function activateTab() {
     const tabs = document.querySelectorAll(".tab-btn");
     if (!tabs.length) return;
-
     function norm(path) {
-      try {
-        const u = new URL(path, window.location.origin);
-        let p = u.pathname;
-        if (!p.endsWith("/")) p += "/";
-        return p;
+      try { const u = new URL(path, window.location.origin);
+        let p = u.pathname; if (!p.endsWith("/")) p += "/"; return p;
       } catch { return "/"; }
     }
     function setActiveByPath(pathname) {
@@ -285,7 +273,6 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       tabs.forEach(b => b.classList.toggle("active", b === best));
     }
-
     setActiveByPath(location.pathname);
     window.addEventListener("popstate", () => setActiveByPath(location.pathname));
     document.querySelectorAll(".tab-btn").forEach(btn => {
@@ -296,39 +283,48 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   })();
 
-  /* ---------- Grabber Swipe (左右でタブ循環) ---------- */
+  // ===== Grabber Swipe（左右でタブ循環＋フリック対応） =====
   function attachGrabberSwipe(grabber){
-    const X_THRESH = 48;      // 最低スワイプ距離(px)
-    const ANGLE_TAN = 1.2;    // 横優位判定 |dx| >= 1.2*|dy|
+    const X_THRESH = 20;      // ← 感度アップ（最小距離）
+    const ANGLE_TAN = 0.6;    // ← 横優位判定を緩める（|dx| >= 0.6*|dy|）
+    const V_THRESH = 0.6/1000; // ← 速度でも発火（約600px/s）
 
-    let sx=0, sy=0, lx=0, ly=0, active=false;
+    let sx=0, sy=0, lx=0, ly=0, st=0, lt=0, active=false;
 
     function start(e){
       const t = e.touches ? e.touches[0] : e;
-      sx = lx = t.clientX; sy = ly = t.clientY; active = true;
+      // iOS の「テキスト選択/画像保存」抑止
+      if (e.cancelable) e.preventDefault();
+      sx = lx = t.clientX; sy = ly = t.clientY;
+      st = lt = performance.now(); active = true;
     }
     function move(e){
       if (!active) return;
       const t = e.touches ? e.touches[0] : e;
-      lx = t.clientX; ly = t.clientY;
+      lx = t.clientX; ly = t.clientY; lt = performance.now();
     }
     function end(){
       if (!active) return; active = false;
       const dx = lx - sx, dy = ly - sy;
-      if (Math.abs(dx) < X_THRESH) return;
-      if (Math.abs(dx) < Math.abs(dy) * ANGLE_TAN) return;
+      const dt = Math.max(1, lt - st);
+      const vx = dx / dt; // px/ms
 
-      const cur = getActiveTabIndex();
-      if (dx < 0){
-        // 左へ → 次（循環）
-        gotoTab(cur + 1, true, true);
-      } else {
-        // 右へ → 前（循環）
-        gotoTab(cur - 1, true, true);
+      // 条件：距離 or 速度、かつ横優位
+      const distanceOK = Math.abs(dx) >= X_THRESH;
+      const velocityOK = Math.abs(vx) >= V_THRESH;
+      const angleOK = Math.abs(dx) >= Math.abs(dy) * ANGLE_TAN;
+
+      if ((distanceOK || velocityOK) && angleOK){
+        const cur = getActiveTabIndex();
+        if (dx < 0){ // 左→次
+          gotoTab(cur + 1, true, true);
+        } else {     // 右→前
+          gotoTab(cur - 1, true, true);
+        }
       }
     }
 
-    grabber.addEventListener("touchstart", start, {passive:true});
+    grabber.addEventListener("touchstart", start, {passive:false});
     grabber.addEventListener("touchmove",  move,  {passive:true});
     grabber.addEventListener("touchend",   end,   {passive:true});
     grabber.addEventListener("mousedown",  (e)=>{ e.preventDefault(); start(e); });
