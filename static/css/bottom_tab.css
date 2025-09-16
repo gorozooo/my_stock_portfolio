@@ -13,10 +13,15 @@
 
 /* ===== サブメニュー ===== */
 .submenu{
-  position:fixed;bottom:60px;left:50%;transform:translateX(-50%);
-  background:rgba(30,30,40,.95);border:1px solid rgba(255,255,255,.12);
-  border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.35);
-  padding:6px;min-width:180px;display:none;z-index:10000
+  position:fixed;
+  /* Safariの下部バー/ノッチ対策 */
+  bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+  left: 50%; transform: translateX(-50%);
+  background: rgba(30,30,40,.95);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.35);
+  padding:6px; min-width:180px; max-width:92vw;   /* 画面幅に収める */
+  display:none; z-index:10000; overflow:hidden
 }
 .submenu.show{display:block}
 .submenu .section{padding:6px 10px;color:#a5b4fc;font-size:12px;opacity:.9}
