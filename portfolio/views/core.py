@@ -5,8 +5,8 @@ from django.shortcuts import render
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_GET
 
-from .services.trend import detect_trend
-from .services.metrics import get_metrics
+from ..services.trend import detect_trend
+from ..services.metrics import get_metrics
 
 import re, pandas as pd, yfinance as yf
 import numpy as np   # ★ 忘れずに追加！
