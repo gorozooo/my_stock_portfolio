@@ -1,16 +1,22 @@
-<div class="bottom-tab" id="bottomTabRoot" aria-label="Bottom Navigation">
-  <nav class="tab-inner">
-    <button class="tab-btn" data-link="/"           data-menu="home"      aria-label="ホーム">
-      <div>🏠</div><span>ホーム</span>
-    </button>
-    <button class="tab-btn" data-link="/holdings/"  data-menu="holdings"  aria-label="保有">
-      <div>📄</div><span>保有</span>
-    </button>
-    <button class="tab-btn" data-link="/trend/"     data-menu="trend"     aria-label="トレンド">
-      <div>📈</div><span>トレンド</span>
-    </button>
+<div class="btm-wrap" id="bottomTabRoot" aria-label="Bottom Navigation">
+  <nav class="btm-nav">
+    <div class="btm-grid">
+      <button class="tab-btn" data-link="/"          data-menu="home"     aria-label="ホーム">
+        <div class="ico">🏠</div><span>ホーム</span>
+      </button>
+      <button class="tab-btn" data-link="/holdings/" data-menu="holdings" aria-label="保有">
+        <div class="ico">📄</div><span>保有</span>
+      </button>
+      <button class="tab-btn" data-link="/trend/"    data-menu="trend"    aria-label="トレンド">
+        <div class="ico">📈</div><span>トレンド</span>
+      </button>
+    </div>
   </nav>
 
-  <!-- サブメニュー：中身はJSで描画 -->
-  <div class="submenu" id="submenu" role="menu" aria-hidden="true"></div>
+  <!-- ボトムシート（長押しで開く） -->
+  <div class="submenu" id="submenu" role="menu" aria-hidden="true">
+    <div class="grabber" aria-hidden="true"></div>
+    <!-- JSがメニュー項目を差し込む -->
+  </div>
+  <div class="btm-mask"></div>
 </div>
