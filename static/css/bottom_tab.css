@@ -10,7 +10,13 @@
   display:flex;flex-direction:column;align-items:center
 }
 .tab-btn span{font-size:12px}
-
+/* iOS 長押し対策：選択/コールアウト無効化 */
+.bottom-tab, .tab-inner, .tab-btn, .submenu, .submenu * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
 /* ===== サブメニュー ===== */
 .submenu{
   position:fixed;
@@ -31,3 +37,10 @@
 }
 .submenu .submenu-item:hover{background:rgba(148,163,184,.18)}
 .submenu .danger{color:#fecaca}
+/* iOS 長押し対策：選択/コールアウト無効化 */
+.bottom-tab, .tab-inner, .tab-btn, .submenu, .submenu * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
