@@ -1,93 +1,52 @@
-/* ===== 下タブ ===== */
-.bottom-tab{
-  position:fixed;left:0;right:0;bottom:0;z-index:9999;
-  background:rgba(20,20,30,.85);backdrop-filter:blur(12px);
-  border-top:1px solid rgba(255,255,255,.2);display:flex;justify-content:center
-}
-.tab-inner{display:flex;justify-content:space-around;width:100%;max-width:500px}
-.tab-btn{
-  flex:1;padding:10px 0;color:#fff;font-size:18px;background:none;border:0;
-  display:flex;flex-direction:column;align-items:center;gap:2px;
-  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none
-}
+/* ---- Bottom Tab ---- */
+.btm-wrap{position:fixed;left:0;right:0;bottom:0;z-index:10000;pointer-events:none}
+.btm-nav{pointer-events:auto;background:rgba(13,16,24,.78);backdrop-filter:blur(12px);
+  border-top:1px solid rgba(255,255,255,.08)}
+.btm-grid{max-width:680px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
+.tab-btn{appearance:none;-webkit-appearance:none;background:none;border:0;color:#cfd6ee;
+  padding:10px 4px 12px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer}
+.tab-btn .ico{font-size:20px;line-height:1}
 .tab-btn span{font-size:12px}
+.tab-btn:active{transform:translateY(1px)}
+.tab-btn.active{color:#fff}
+.tab-btn.active .ico{filter:drop-shadow(0 3px 8px rgba(73,118,255,.45))}
+.tab-btn.active::after{content:"";position:absolute;inset:auto 16px 0 16px;height:3px;border-radius:6px;
+  background:linear-gradient(90deg,#4f7bff,#9f7aea)}
 
-/* Active Tab */
-.tab-btn { opacity:.7; transition: transform .18s ease, opacity .18s ease, filter .18s ease; }
-.tab-btn.active {
-  opacity:1;
-  transform: translateY(-2px) scale(1.05);
-  filter: drop-shadow(0 2px 8px rgba(99,102,241,.35));
-}
-.tab-btn.active div {
-  background: linear-gradient(135deg,#60a5fa 0%,#a78bfa 50%,#f472b6 100%);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-}
-.tab-btn.active span { color:#e2e8f0; font-weight:600; }
+/* press feedback */
+@keyframes btn-bounce{0%{transform:scale(.98)}60%{transform:scale(1.02)}100%{transform:scale(1)}}
+.tab-btn.clicked{animation:btn-bounce .18s ease}
 
-/* 長押し時のぷるぷる */
-@keyframes pulse-wobble{
-  0%{transform:translateY(0) scale(1)}
-  30%{transform:translateY(-1px) scale(1.04)}
-  60%{transform:translateY(0) scale(0.98)}
-  100%{transform:translateY(0) scale(1)}
-}
-.tab-btn.shake div{animation:pulse-wobble .35s ease;}
-
-/* マスク */
-.btm-mask{
-  position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.35);
-  opacity:0;pointer-events:none;transition:opacity .18s ease;
-}
+/* ---- Mask ---- */
+.btm-mask{position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(2px);
+  opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:10001}
 .btm-mask.show{opacity:1;pointer-events:auto}
 
-/* セーフエリア */
-:root{ --safe-bottom: env(safe-area-inset-bottom, 0px); }
-
-/* ===== ボトムシート ===== */
-.submenu{
-  position:fixed;left:0;right:0;bottom:0;z-index:10001;
-  margin:0 auto;max-width:520px;background:rgba(22,24,33,.98);
-  border-top-left-radius:16px;border-top-right-radius:16px;
-  border:1px solid rgba(255,255,255,.08);border-bottom:0;
-  box-shadow:0 -16px 40px rgba(0,0,0,.45);
-  transform:translateY(110%); /* 初期は画面外 */
-  transition:transform .22s cubic-bezier(.2,.9,.2,1);
-  padding:8px 8px calc(12px + var(--safe-bottom));
-  max-height:70vh;overflow:auto;backdrop-filter:blur(10px);
-  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
-  will-change: transform; /* パフォーマンス */
-}
+/* ---- Bottom Sheet ---- */
+.submenu{position:fixed;left:0;right:0;bottom:0;transform:translateY(110%);transition:transform .2s ease;
+  z-index:10002;max-width:680px;margin:0 auto;background:rgba(24,28,42,.96);backdrop-filter:blur(16px);
+  border-top-left-radius:18px;border-top-right-radius:18px;border:1px solid rgba(255,255,255,.08);
+  padding:8px 10px 18px;box-shadow:0 -10px 40px rgba(0,0,0,.45);pointer-events:auto;
+  max-height:min(72vh,560px);overflow:auto}
 .submenu.show{transform:translateY(0)}
-.submenu.dragging{transition:none;} /* ドラッグ中は遷移無効化で追従を滑らかに */
+.submenu.dragging{transition:none}
 
-.submenu .grabber{
-  width:40px;height:4px;border-radius:999px;margin:6px auto 10px;
-  background:rgba(255,255,255,.22)
-}
-.submenu .section{padding:6px 10px;color:#a5b4fc;font-size:12px;opacity:.9}
-.submenu .submenu-item{
-  display:flex;align-items:center;gap:10px;width:100%;
-  text-align:left;padding:12px 14px;margin:4px 0;
-  background:none;color:#fff;border:0;border-radius:12px;font-size:15px
-}
-.submenu .submenu-item .ico{font-size:18px;min-width:20px;text-align:center}
+.grabber{width:48px;height:5px;border-radius:999px;background:rgba(255,255,255,.2);
+  margin:8px auto 10px}
 
-/* 色トーン */
-.submenu .tone-add    { background:rgba(16,185,129,.12); }
-.submenu .tone-add:hover{ background:rgba(16,185,129,.22); }
-.submenu .tone-info   { background:rgba(59,130,246,.10); }
-.submenu .tone-info:hover{ background:rgba(59,130,246,.20); }
-.submenu .tone-action { background:rgba(234,179,8,.12); }
-.submenu .tone-action:hover{ background:rgba(234,179,8,.22); }
-.submenu .tone-danger { background:rgba(239,68,68,.12); color:#fecaca; }
-.submenu .tone-danger:hover{ background:rgba(239,68,68,.22); }
+/* sections & items */
+.section{font-size:12px;color:#a7b1d8;margin:8px 12px}
+.submenu-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:transparent;
+  color:#e9ecff;padding:12px 14px;border-radius:12px;cursor:pointer}
+.submenu-item:hover{background:rgba(255,255,255,.06)}
+.submenu-item .ico{width:22px;text-align:center}
 
-/* iOS 長押しの選択/コールアウト無効化 */
-.bottom-tab, .tab-inner, .tab-btn, .submenu, .submenu *{
-  -webkit-user-select:none;user-select:none;
-  -webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;
-}
+/* tones */
+.tone-add   {color:#34d399}
+.tone-info  {color:#93c5fd}
+.tone-action{color:#fbbf24}
+.tone-danger{color:#f87171}
 
-/* 念のため全幅内に収める */
-.submenu{max-width: min(520px, 100vw)}
+/* subtle haptics-like shake for long-press target */
+@keyframes tiny-shake{0%,100%{transform:translateX(0)}40%{transform:translateX(-1px)}70%{transform:translateX(1px)}}
+.tab-btn.shake{animation:tiny-shake .28s ease}
