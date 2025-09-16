@@ -1,33 +1,41 @@
-{% load static %}
 <!doctype html>
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>{% block title %}ProFolio AI{% endblock %}</title>
-  <link rel="stylesheet" href="{% static 'css/main.css' %}">
-  <script defer src="{% static 'js/app.js' %}"></script>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>{% block title %}My Stock{% endblock %}</title>
+
+  <!-- Tailwind CDN（後でビルドに移行） -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- HTMX + Alpine -->
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+  <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+
+  <!-- PWA -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0b0f1a">
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/service-worker.js').catch(console.error);
+      });
+    }
+  </script>
+
+  {% block head %}{% endblock %}
 </head>
-<body>
-  <!-- 上部ガラスナビ -->
-  <header class="nav">
-    <div class="nav-glass">
-      <div class="nav-left">📊 ProFolio AI</div>
-      <div class="nav-center">スマホ最適・AI補助</div>
-      <a class="nav-right" href="/admin/">⚙️</a>
+<body class="bg-slate-950 text-slate-100">
+  <!-- 下部固定ナビ（親指リーチ） -->
+  <nav class="fixed bottom-0 left-0 right-0 z-50 bg-slate-900/70 backdrop-blur-md border-t border-slate-800">
+    <div class="max-w-screen-sm mx-auto grid grid-cols-3 text-center text-sm">
+      <a href="/" class="py-3">🏠 ホーム</a>
+      <a href="/holdings/" class="py-3">📄 保有</a>
+      <a href="/trend/" class="py-3">📈 トレンド</a>
     </div>
-  </header>
-
-  <!-- メイン -->
-  <main class="page">{% block content %}{% endblock %}</main>
-
-  <!-- 下タブ（アイコンは後で長押しサブメニュー追加予定） -->
-  <nav class="bottom">
-    <button class="active" title="ホーム">🏠</button>
-    <button title="保有">📈</button>
-    <button title="損益">🧾</button>
-    <button title="分析">🧠</button>
-    <button title="設定">⚙️</button>
   </nav>
+
+  <main class="max-w-screen-sm mx-auto px-4 pb-24 pt-4">
+    {% block content %}{% endblock %}
+  </main>
 </body>
 </html>
