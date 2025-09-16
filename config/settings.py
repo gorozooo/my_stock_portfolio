@@ -103,3 +103,9 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 
 # 既定の主キー
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ログイン/ログアウト
+LOGIN_URL = "/accounts/login/"
+LOGIN_REDIRECT_URL = "/"
+LOGOUT_REDIRECT_URL = "/"
+
