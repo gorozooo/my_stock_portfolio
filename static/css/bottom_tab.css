@@ -75,3 +75,16 @@
 
 /* 画面端切れ防止：メニュー自体は全幅ボトムシートなので不要だが、旧スタイル残留のため保険 */
 .submenu{max-width: min(520px, 100vw)}
+
+/* === Active Tab === */
+.tab-btn { opacity:.7; transition: transform .18s ease, opacity .18s ease, filter .18s ease; }
+.tab-btn.active {
+  opacity:1;
+  transform: translateY(-2px) scale(1.05);
+  filter: drop-shadow(0 2px 8px rgba(99,102,241,.35)); /* 青系発光 */
+}
+.tab-btn.active div {
+  background: linear-gradient(135deg,#60a5fa 0%,#a78bfa 50%,#f472b6 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.tab-btn.active span { color:#e2e8f0; font-weight:600; }
