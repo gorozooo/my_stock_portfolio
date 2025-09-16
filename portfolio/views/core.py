@@ -4,6 +4,9 @@ from __future__ import annotations
 from django.shortcuts import render
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_GET
+from django.contrib.auth.decorators import login_required
+
+from .models import Holding
 
 from ..services.trend import detect_trend
 from ..services.metrics import get_metrics
@@ -48,6 +51,11 @@ def trend_card_partial(request):
         ctx["error"] = str(e)
 
     return render(request, "portfolio/_trend_card.html", ctx)
+
+@login_required
+def holdings_list(request):
+    qs = Holding.objects.filter(user=request.user).order_by("-updated_at")
+    return render(request, "portfolio/holdings_list.html", {"rows": qs})
 
 
 # ========= API =========
