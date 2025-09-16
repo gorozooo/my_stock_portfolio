@@ -12,7 +12,20 @@
 }
 .tab-btn span{font-size:12px}
 
-/* 長押し時のぷるぷる（haptic風） */
+/* Active Tab */
+.tab-btn { opacity:.7; transition: transform .18s ease, opacity .18s ease, filter .18s ease; }
+.tab-btn.active {
+  opacity:1;
+  transform: translateY(-2px) scale(1.05);
+  filter: drop-shadow(0 2px 8px rgba(99,102,241,.35));
+}
+.tab-btn.active div {
+  background: linear-gradient(135deg,#60a5fa 0%,#a78bfa 50%,#f472b6 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.tab-btn.active span { color:#e2e8f0; font-weight:600; }
+
+/* 長押し時のぷるぷる */
 @keyframes pulse-wobble{
   0%{transform:translateY(0) scale(1)}
   30%{transform:translateY(-1px) scale(1.04)}
@@ -21,16 +34,17 @@
 }
 .tab-btn.shake div{animation:pulse-wobble .35s ease;}
 
-/* ===== ボトムシート化したサブメニュー ===== */
+/* マスク */
 .btm-mask{
   position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.35);
   opacity:0;pointer-events:none;transition:opacity .18s ease;
 }
 .btm-mask.show{opacity:1;pointer-events:auto}
 
-/* iOSの下部バー/ノッチ対策 */
+/* セーフエリア */
 :root{ --safe-bottom: env(safe-area-inset-bottom, 0px); }
 
+/* ===== ボトムシート ===== */
 .submenu{
   position:fixed;left:0;right:0;bottom:0;z-index:10001;
   margin:0 auto;max-width:520px;background:rgba(22,24,33,.98);
@@ -41,9 +55,11 @@
   transition:transform .22s cubic-bezier(.2,.9,.2,1);
   padding:8px 8px calc(12px + var(--safe-bottom));
   max-height:70vh;overflow:auto;backdrop-filter:blur(10px);
-  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
+  will-change: transform; /* パフォーマンス */
 }
 .submenu.show{transform:translateY(0)}
+.submenu.dragging{transition:none;} /* ドラッグ中は遷移無効化で追従を滑らかに */
 
 .submenu .grabber{
   width:40px;height:4px;border-radius:999px;margin:6px auto 10px;
@@ -57,7 +73,7 @@
 }
 .submenu .submenu-item .ico{font-size:18px;min-width:20px;text-align:center}
 
-/* 色分け（tone） */
+/* 色トーン */
 .submenu .tone-add    { background:rgba(16,185,129,.12); }
 .submenu .tone-add:hover{ background:rgba(16,185,129,.22); }
 .submenu .tone-info   { background:rgba(59,130,246,.10); }
@@ -67,24 +83,11 @@
 .submenu .tone-danger { background:rgba(239,68,68,.12); color:#fecaca; }
 .submenu .tone-danger:hover{ background:rgba(239,68,68,.22); }
 
-/* iOS長押しの選択/コールアウト無効化 & ハイライト消し */
+/* iOS 長押しの選択/コールアウト無効化 */
 .bottom-tab, .tab-inner, .tab-btn, .submenu, .submenu *{
   -webkit-user-select:none;user-select:none;
   -webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;
 }
 
-/* 画面端切れ防止：メニュー自体は全幅ボトムシートなので不要だが、旧スタイル残留のため保険 */
+/* 念のため全幅内に収める */
 .submenu{max-width: min(520px, 100vw)}
-
-/* === Active Tab === */
-.tab-btn { opacity:.7; transition: transform .18s ease, opacity .18s ease, filter .18s ease; }
-.tab-btn.active {
-  opacity:1;
-  transform: translateY(-2px) scale(1.05);
-  filter: drop-shadow(0 2px 8px rgba(99,102,241,.35)); /* 青系発光 */
-}
-.tab-btn.active div {
-  background: linear-gradient(135deg,#60a5fa 0%,#a78bfa 50%,#f472b6 100%);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-}
-.tab-btn.active span { color:#e2e8f0; font-weight:600; }
