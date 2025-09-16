@@ -1,52 +1,128 @@
-/* ---- Bottom Tab ---- */
-.btm-wrap{position:fixed;left:0;right:0;bottom:0;z-index:10000;pointer-events:none}
-.btm-nav{pointer-events:auto;background:rgba(13,16,24,.78);backdrop-filter:blur(12px);
-  border-top:1px solid rgba(255,255,255,.08)}
-.btm-grid{max-width:680px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
-.tab-btn{appearance:none;-webkit-appearance:none;background:none;border:0;color:#cfd6ee;
-  padding:10px 4px 12px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer}
-.tab-btn .ico{font-size:20px;line-height:1}
-.tab-btn span{font-size:12px}
-.tab-btn:active{transform:translateY(1px)}
-.tab-btn.active{color:#fff}
-.tab-btn.active .ico{filter:drop-shadow(0 3px 8px rgba(73,118,255,.45))}
-.tab-btn.active::after{content:"";position:absolute;inset:auto 16px 0 16px;height:3px;border-radius:6px;
-  background:linear-gradient(90deg,#4f7bff,#9f7aea)}
+/* ---- Bottom Tab Wrapper ---- */
+.btm-wrap {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 10000;
+  pointer-events: none;
+}
+.btm-nav {
+  pointer-events: auto;
+  background: rgba(13,16,24,.78);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+.btm-grid {
+  max-width: 680px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(3,1fr);
+  gap: 2px;
+}
 
-/* press feedback */
-@keyframes btn-bounce{0%{transform:scale(.98)}60%{transform:scale(1.02)}100%{transform:scale(1)}}
-.tab-btn.clicked{animation:btn-bounce .18s ease}
+/* ---- Tab Buttons ---- */
+.tab-btn {
+  position: relative; /* 光彩の基準 */
+  appearance: none; -webkit-appearance: none;
+  background: none;
+  border: 0;
+  color: #cfd6ee;
+  padding: 10px 4px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  will-change: transform;
+}
+.tab-btn .ico { font-size: 20px; line-height: 1; }
+.tab-btn span { font-size: 12px; }
 
-/* ---- Mask ---- */
-.btm-mask{position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(2px);
-  opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:10001}
-.btm-mask.show{opacity:1;pointer-events:auto}
+/* ---- 押下時のフィードバック ---- */
+.tab-btn.pressing {
+  transform: translateY(1px) scale(.96);
+}
+@keyframes btnPop {
+  0%   { transform: scale(.96); }
+  60%  { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+.tab-btn.clicked {
+  animation: btnPop .24s cubic-bezier(.2,.8,.2,1);
+}
 
-/* ---- Bottom Sheet ---- */
-.submenu{position:fixed;left:0;right:0;bottom:0;transform:translateY(110%);transition:transform .2s ease;
-  z-index:10002;max-width:680px;margin:0 auto;background:rgba(24,28,42,.96);backdrop-filter:blur(16px);
-  border-top-left-radius:18px;border-top-right-radius:18px;border:1px solid rgba(255,255,255,.08);
-  padding:8px 10px 18px;box-shadow:0 -10px 40px rgba(0,0,0,.45);pointer-events:auto;
-  max-height:min(72vh,560px);overflow:auto}
-.submenu.show{transform:translateY(0)}
-.submenu.dragging{transition:none}
+/* ---- アクティブタブの光彩 ---- */
+.tab-btn.active { color: #fff; }
+.tab-btn.active .ico {
+  filter: drop-shadow(0 3px 8px rgba(73,118,255,.45));
+}
+.tab-btn.active::after {
+  content: "";
+  position: absolute;
+  left: 16px; right: 16px; bottom: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg,#4f7bff,#9f7aea,#4f7bff);
+  background-size: 200% 100%;
+  animation: glowShift 4s linear infinite;
+  box-shadow: 0 0 12px rgba(79,123,255,.55),
+              0 0 22px rgba(159,122,234,.35);
+}
+@keyframes glowShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
 
-.grabber{width:48px;height:5px;border-radius:999px;background:rgba(255,255,255,.2);
-  margin:8px auto 10px}
+/* ---- サブメニュー/マスク ---- */
+.btm-menu {
+  position: fixed;
+  left: 50%; bottom: 70px;
+  transform: translateX(-50%) translateY(120%);
+  min-width: 220px;
+  background: rgba(28,32,48,.96);
+  border-radius: 14px;
+  padding: 8px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.45);
+  transition: transform .25s ease;
+  z-index: 10005;
+}
+.btm-menu.show {
+  transform: translateX(-50%) translateY(0);
+}
+.submenu-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px;
+  width: 100%;
+  border: none; background: none;
+  color: #eee; font-size: 14px;
+  text-align: left;
+  border-radius: 8px;
+}
+.submenu-item:hover {
+  background: rgba(255,255,255,.08);
+}
+.submenu-item.danger { color: #ff4d4d; }
 
-/* sections & items */
-.section{font-size:12px;color:#a7b1d8;margin:8px 12px}
-.submenu-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:transparent;
-  color:#e9ecff;padding:12px 14px;border-radius:12px;cursor:pointer}
-.submenu-item:hover{background:rgba(255,255,255,.06)}
-.submenu-item .ico{width:22px;text-align:center}
+.section {
+  font-size: 11px;
+  color: #9ca3af;
+  margin: 6px 0 4px;
+  padding: 0 8px;
+}
 
-/* tones */
-.tone-add   {color:#34d399}
-.tone-info  {color:#93c5fd}
-.tone-action{color:#fbbf24}
-.tone-danger{color:#f87171}
+.btm-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.4);
+  display: none;
+  z-index: 10004;
+}
+.btm-mask.show { display: block; }
 
-/* subtle haptics-like shake for long-press target */
-@keyframes tiny-shake{0%,100%{transform:translateX(0)}40%{transform:translateX(-1px)}70%{transform:translateX(1px)}}
-.tab-btn.shake{animation:tiny-shake .28s ease}
+/* ---- Grabber ---- */
+.grabber {
+  width: 42px; height: 5px;
+  background: rgba(255,255,255,.25);
+  border-radius: 999px;
+  margin: 6px auto 10px;
+}
