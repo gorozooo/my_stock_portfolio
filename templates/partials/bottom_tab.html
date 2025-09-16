@@ -1,31 +1,23 @@
-<div x-data="{ open: false }" class="fixed bottom-0 left-0 right-0 z-50">
-  <!-- タブ本体 -->
-  <nav class="bg-slate-900/70 backdrop-blur-md border-t border-slate-800">
-    <div class="max-w-screen-sm mx-auto grid grid-cols-3 text-center text-sm">
-      <button @contextmenu.prevent="open = !open"
-              @touchstart.passive="pressTimer = setTimeout(()=>open=true,600)"
-              @touchend="clearTimeout(pressTimer)"
-              class="py-3 w-full">🏠 ホーム</button>
-
-      <button @contextmenu.prevent="open = !open"
-              @touchstart.passive="pressTimer = setTimeout(()=>open=true,600)"
-              @touchend="clearTimeout(pressTimer)"
-              class="py-3 w-full">📄 保有</button>
-
-      <button @contextmenu.prevent="open = !open"
-              @touchstart.passive="pressTimer = setTimeout(()=>open=true,600)"
-              @touchend="clearTimeout(pressTimer)"
-              class="py-3 w-full">📈 トレンド</button>
+<div class="btm-wrap" id="bottomTabRoot" aria-label="Bottom Navigation">
+  <nav class="btm-nav">
+    <div class="btm-grid">
+      <button class="btm-btn" data-link="/"          data-menu="home">
+        <div>🏠</div><span>ホーム</span>
+      </button>
+      <button class="btm-btn" data-link="/holdings/" data-menu="holdings">
+        <div>📄</div><span>保有</span>
+      </button>
+      <button class="btm-btn" data-link="/trend/"    data-menu="trend">
+        <div>📈</div><span>トレンド</span>
+      </button>
     </div>
   </nav>
 
-  <!-- サブメニュー（長押し/右クリックで表示） -->
-  <div x-show="open"
-       @click.away="open=false"
-       class="absolute bottom-14 left-1/2 -translate-x-1/2 bg-slate-800/95 backdrop-blur-md rounded-xl shadow-lg p-2 w-40 text-sm space-y-1"
-       x-transition>
-    <button class="w-full px-3 py-2 text-left rounded-md hover:bg-slate-700">✏️ 編集</button>
-    <button class="w-full px-3 py-2 text-left rounded-md hover:bg-slate-700">🗑️ 削除</button>
-    <button class="w-full px-3 py-2 text-left rounded-md hover:bg-slate-700">🔍 詳細</button>
+  <!-- サブメニュー（中身はJSで差し替え可） -->
+  <div class="btm-menu" id="btmMenu" role="menu" aria-hidden="true">
+    <button class="btm-item" data-action="open">🔍 詳細を開く</button>
+    <button class="btm-item" data-action="edit">✏️ 編集</button>
+    <button class="btm-item" data-action="delete">🗑️ 削除</button>
   </div>
+  <div class="btm-mask" id="btmMask"></div>
 </div>
