@@ -1,13 +1,12 @@
-// bottom_tab.js – v13
-// Haptics + BottomSheet + Icon/Color + Drag Follow + Grabber Swipe(Loop)
-// + Toast + Robust Navigation + iOS touch-action hardening
+// bottom_tab.js – v14
+// + Swipe on bottom nav itself (sheet閉じててもOK)
 document.addEventListener("DOMContentLoaded", () => {
   const submenu = document.getElementById("submenu");
   const tabs = document.querySelectorAll(".tab-btn");
   const root = document.getElementById("bottomTabRoot") || document.body;
   const LONG_PRESS_MS = 500;
 
-  /* ===================== Toast ===================== */
+  /* ===== Toast ===== */
   let toastEl = document.getElementById("btmToast");
   if (!toastEl){
     toastEl = document.createElement("div");
@@ -21,7 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     document.body.appendChild(toastEl);
   }
-  function showToast(msg){
+  const showToast = (msg)=>{
     toastEl.textContent = msg;
     toastEl.style.opacity = "1";
     toastEl.style.transform = "translate(-50%, 0)";
@@ -29,9 +28,9 @@ document.addEventListener("DOMContentLoaded", () => {
       toastEl.style.opacity = "0";
       toastEl.style.transform = "translate(-50%, 24px)";
     }, 1100);
-  }
+  };
 
-  /* ===================== Mask ===================== */
+  /* ===== Mask ===== */
   let mask = document.querySelector(".btm-mask");
   if (!mask){
     mask = document.createElement("div");
@@ -39,13 +38,11 @@ document.addEventListener("DOMContentLoaded", () => {
     root.appendChild(mask);
   }
   mask.addEventListener("click", hideMenu);
-
-  // iOS コンテキストメニュー抑止
-  document.querySelectorAll(".bottom-tab, .submenu").forEach(el => {
+  document.querySelectorAll(".bottom-tab, .submenu").forEach(el=>{
     el.addEventListener("contextmenu", e => e.preventDefault());
   });
 
-  /* ===================== Menus ===================== */
+  /* ===== Menus ===== */
   const MENUS = {
     home: [
       { section: "クイック" },
@@ -71,29 +68,24 @@ document.addEventListener("DOMContentLoaded", () => {
     ],
   };
 
-  /* ===================== Tabs / Navigation ===================== */
-  function normPath(p){
+  /* ===== Tabs / Navigation ===== */
+  const normPath = (p)=>{
     try{
       const u = new URL(p, window.location.origin);
       let path = u.pathname;
       if (path !== "/" && !path.endsWith("/")) path += "/";
       return path;
-    }catch{
-      return "/";
-    }
-  }
-
-  function getTabsArray(){ return Array.from(document.querySelectorAll(".tab-btn")); }
-  function getActiveTabIndex(){
+    }catch{ return "/"; }
+  };
+  const getTabsArray = ()=> Array.from(document.querySelectorAll(".tab-btn"));
+  const getActiveTabIndex = ()=>{
     const arr = getTabsArray();
     const idx = arr.findIndex(t => t.classList.contains("active"));
     return Math.max(0, idx);
-  }
+  };
 
-  // 多段フォールバック + HTMX対応
   function navigateTo(rawLink){
     const link = normPath(rawLink || "/");
-
     try { setTimeout(()=> location.assign(link), 10); return; } catch(e){}
     try { setTimeout(()=> window.open(link, "_self"), 20); return; } catch(e){}
     try {
@@ -136,16 +128,16 @@ document.addEventListener("DOMContentLoaded", () => {
       showToast(`${label} に移動`);
     }
 
-    // 成功視覚フィードバック（ごく短いハイライト）
+    // ごく短いハイライト
     btn.style.transition = "background-color .15s ease";
     const oldBg = btn.style.backgroundColor;
     btn.style.backgroundColor = "rgba(255,255,255,.08)";
     setTimeout(()=>{ btn.style.backgroundColor = oldBg || ""; }, 160);
 
-    setTimeout(()=> navigateTo(link), 100);
+    setTimeout(()=> navigateTo(link), 80);
   }
 
-  /* ===================== Render Bottom Sheet ===================== */
+  /* ===== Bottom Sheet Render ===== */
   function renderMenu(type){
     const items = MENUS[type] || [];
     submenu.innerHTML = "";
@@ -153,17 +145,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const grab = document.createElement("div");
     grab.className = "grabber";
     grab.style.cursor = "grab";
-    // iOSでの誤作動を避ける（JSで直接適用）
-    grab.style.touchAction = "none";                 // すべてJSで処理
+    grab.style.touchAction = "none";
     grab.style.webkitUserSelect = "none";
     grab.style.userSelect = "none";
     grab.style.webkitTouchCallout = "none";
-    // 面積をしっかり確保（ヒットボックス拡大）
     grab.style.minHeight = "18px";
     grab.style.padding = "12px 0";
     submenu.appendChild(grab);
 
-    attachGrabberSwipe(grab); // 左右スワイプでタブ循環
+    attachGrabberSwipe(grab);
 
     items.forEach(it=>{
       if (it.section){
@@ -195,7 +185,6 @@ document.addEventListener("DOMContentLoaded", () => {
     document.documentElement.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
   }
-
   function hideMenu(soft=false){
     mask.classList.remove("show");
     submenu.classList.remove("dragging");
@@ -206,12 +195,12 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!soft){ unlock(); } else { setTimeout(unlock, 0); }
   }
 
-  /* ===================== Drag to Close ===================== */
+  /* ===== Drag to Close ===== */
   let drag = { startY:0, lastY:0, startTime:0, lastTime:0, dy:0, vY:0, active:false };
   const CLOSE_DISTANCE = 220;
-  const CLOSE_VELOCITY = 0.8 / 1000; // px/ms
+  const CLOSE_VELOCITY = 0.8 / 1000;
 
-  function canStartDrag(){ return submenu.scrollTop <= 0; }
+  const canStartDrag = ()=> submenu.scrollTop <= 0;
   function onDragStart(e){
     const t = e.touches ? e.touches[0] : e;
     drag.startY = drag.lastY = t.clientY;
@@ -271,7 +260,7 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("mousemove",(e)=>{ if(mouseDown) onDragMove(e); });
   window.addEventListener("mouseup",()=>{ if(mouseDown){ mouseDown=false; onDragEnd(); } });
 
-  /* ===================== Long-Press on Tabs ===================== */
+  /* ===== Long-Press on Tabs ===== */
   tabs.forEach(btn=>{
     const link = btn.dataset.link;
     const type = btn.dataset.menu;
@@ -298,7 +287,7 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener("contextmenu",(e)=>{ e.preventDefault(); showMenu(type, btn); });
   });
 
-  /* ===================== Active Tab Highlighter ===================== */
+  /* ===== Active Tab Highlighter ===== */
   (function activateTab() {
     const tabs = document.querySelectorAll(".tab-btn");
     if (!tabs.length) return;
@@ -324,16 +313,60 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   })();
 
-  /* ===================== Grabber Swipe（左右で循環＋フリック） ===================== */
-  function attachGrabberSwipe(grabber){
-    // さらに感度アップ
-    const X_THRESH = 8;          // 最小水平移動
-    const ANGLE_TAN = 0.4;       // 横優位判定を緩める
-    const V_THRESH = 0.25/1000;  // 速度（約250px/s）
+  /* ===== Swipe on Bottom Nav (シート閉じててもOK) ===== */
+  (function attachNavSwipe(){
+    const nav = document.querySelector(".btm-nav");
+    if (!nav) return;
+
+    // iOSでブラウザの戻る/進むジェスチャに奪われにくい設定
+    nav.style.touchAction = "pan-y";  // 横方向はJS側で処理
+
+    const X_THRESH = 10;         // 最小移動
+    const ANGLE_TAN = 0.45;      // 横優位
+    const V_THRESH = 0.25/1000;  // 速度しきい値
 
     let sx=0, sy=0, lx=0, ly=0, st=0, lt=0, active=false;
 
-    // iOSでの選択/コールアウト抑止（保険）
+    function start(e){
+      const t = e.touches ? e.touches[0] : e;
+      sx = lx = t.clientX; sy = ly = t.clientY;
+      st = lt = performance.now(); active = true;
+    }
+    function move(e){
+      if (!active) return;
+      const t = e.touches ? e.touches[0] : e;
+      lx = t.clientX; ly = t.clientY; lt = performance.now();
+    }
+    function end(){
+      if (!active) return; active = false;
+      const dx = lx - sx, dy = ly - sy;
+      const dt = Math.max(1, lt - st);
+      const vx = dx / dt;
+
+      const distanceOK = Math.abs(dx) >= X_THRESH;
+      const velocityOK = Math.abs(vx) >= V_THRESH;
+      const angleOK = Math.abs(dx) >= Math.abs(dy) * ANGLE_TAN;
+
+      if ((distanceOK || velocityOK) && angleOK){
+        const cur = getActiveTabIndex();
+        if (dx < 0) gotoTab(cur + 1, true, true);
+        else        gotoTab(cur - 1, true, true);
+      }
+    }
+
+    nav.addEventListener("touchstart", start, {passive:true});
+    nav.addEventListener("touchmove",  move,  {passive:true});
+    nav.addEventListener("touchend",   end,   {passive:true});
+  })();
+
+  /* ===== Grabber Swipe（左右で循環＋フリック） ===== */
+  function attachGrabberSwipe(grabber){
+    const X_THRESH = 8;
+    const ANGLE_TAN = 0.4;
+    const V_THRESH = 0.25/1000;
+
+    let sx=0, sy=0, lx=0, ly=0, st=0, lt=0, active=false;
+
     grabber.style.touchAction = "none";
     grabber.style.webkitTouchCallout = "none";
     grabber.style.webkitUserSelect = "none";
@@ -361,11 +394,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if ((distanceOK || velocityOK) && angleOK){
         const cur = getActiveTabIndex();
-        // 小さな視覚フィードバック（グラバー色）
-        const old = submenu.style.backgroundColor;
-        submenu.style.backgroundColor = "rgba(255,255,255,.04)";
-        setTimeout(()=>{ submenu.style.backgroundColor = old || ""; }, 120);
-
         if (dx < 0) gotoTab(cur + 1, true, true);
         else        gotoTab(cur - 1, true, true);
       }
