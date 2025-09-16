@@ -142,3 +142,45 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.addEventListener("keydown",(e)=>{ if(e.key==="Escape") hideMenu(); });
 });
+
+// --- Active Tab Highlighter ---
+(function activateTab() {
+  const tabs = document.querySelectorAll(".tab-btn");
+  if (!tabs.length) return;
+
+  function norm(path) {
+    // 末尾スラッシュを統一、クエリ/ハッシュ除去
+    try {
+      const u = new URL(path, window.location.origin);
+      let p = u.pathname;
+      if (!p.endsWith("/")) p += "/";
+      return p;
+    } catch { return "/"; }
+  }
+  function setActiveByPath(pathname) {
+    const here = norm(pathname || location.pathname);
+    let best = null, bestLen = -1;
+    tabs.forEach(btn => {
+      const raw = btn.dataset.link || "/";
+      const link = norm(raw);
+      // 完全一致 or サブパス一致を許可（ホームだけは "/" のみに）
+      const isHome = link === "/";
+      const hit = isHome ? (here === "/") : (here.startsWith(link));
+      // より長い一致（=より具体的）を優先
+      if (hit && link.length > bestLen) { best = btn; bestLen = link.length; }
+    });
+    tabs.forEach(b => b.classList.toggle("active", b === best));
+  }
+
+  // 初回＆履歴移動
+  setActiveByPath(location.pathname);
+  window.addEventListener("popstate", () => setActiveByPath(location.pathname));
+
+  // クリック直後も即時反映（遷移前の視覚反応）
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+    });
+  });
+})();
