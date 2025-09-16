@@ -27,12 +27,7 @@ def _normalize_ticker(raw: str) -> str:
 
 # ========= 画面 =========
 def main(request):
-    cards = [
-        {"name": "トヨタ自動車", "ticker": "7203.T", "trend": "UP", "proba": 62.5},
-        {"name": "ソニーグループ", "ticker": "6758.T", "trend": "FLAT", "proba": None},
-    ]
-    return render(request, "main.html", {"cards": cards})
-
+    return render(request, "main.html")
 
 def trend_page(request):
     return render(request, "portfolio/trend.html")
