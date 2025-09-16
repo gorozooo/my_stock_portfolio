@@ -1,3 +1,4 @@
+{% load static %}
 <!doctype html>
 <html lang="ja">
 <head>
@@ -22,6 +23,9 @@
     }
   </script>
 
+  <!-- ▼ 追加：下タブの専用CSS -->
+  <link rel="stylesheet" href="{% static 'css/bottom_tab.css' %}?v=1">
+
   {% block head %}{% endblock %}
 </head>
 <body class="bg-slate-950 text-slate-100">
@@ -29,7 +33,10 @@
     {% block content %}{% endblock %}
   </main>
 
-  <!-- 共通下タブ -->
+  <!-- 共通下タブ（マークアップのみ） -->
   {% include "partials/bottom_tab.html" %}
+
+  <!-- ▼ 追加：下タブの専用JS（body最後で） -->
+  <script src="{% static 'js/bottom_tab.js' %}?v=1"></script>
 </body>
 </html>
