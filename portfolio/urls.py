@@ -23,4 +23,6 @@ urlpatterns = [
 
     # 設定画面
     path("settings/trade", settings_views.trade_setting, name="trade_setting"),
+    
+    path("holdings/", core_views.holdings_list, name="holdings_list"),
 ]
