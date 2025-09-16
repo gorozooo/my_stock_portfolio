@@ -1,5 +1,5 @@
-// bottom_tab.js – v14
-// + Swipe on bottom nav itself (sheet閉じててもOK)
+// bottom_tab.js – v15
+// Pointer Events で nav スワイプを確実に検出 + 即時遷移
 document.addEventListener("DOMContentLoaded", () => {
   const submenu = document.getElementById("submenu");
   const tabs = document.querySelectorAll(".tab-btn");
@@ -42,7 +42,7 @@ document.addEventListener("DOMContentLoaded", () => {
     el.addEventListener("contextmenu", e => e.preventDefault());
   });
 
-  /* ===== Menus ===== */
+  /* ===== Menus（省略：あなたの現行 MENUS をそのまま使う） ===== */
   const MENUS = {
     home: [
       { section: "クイック" },
@@ -68,7 +68,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ],
   };
 
-  /* ===== Tabs / Navigation ===== */
+  /* ===== Helpers ===== */
   const normPath = (p)=>{
     try{
       const u = new URL(p, window.location.origin);
@@ -83,33 +83,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const idx = arr.findIndex(t => t.classList.contains("active"));
     return Math.max(0, idx);
   };
-
-  function navigateTo(rawLink){
+  const navigateTo = (rawLink)=>{
     const link = normPath(rawLink || "/");
-    try { setTimeout(()=> location.assign(link), 10); return; } catch(e){}
-    try { setTimeout(()=> window.open(link, "_self"), 20); return; } catch(e){}
-    try {
-      setTimeout(()=>{
-        const a = document.createElement("a");
-        a.href = link; a.rel = "noopener"; a.style.display="none";
-        document.body.appendChild(a); a.click(); a.remove();
-      }, 30);
-      return;
-    } catch(e){}
-    try {
-      if (window.htmx){
-        setTimeout(()=>{
-          window.htmx.ajax("GET", link, { target:"body", swap:"morphdom" })
-            .catch(()=> location.replace(link));
-        }, 40);
-        return;
-      }
-    } catch(e){}
-    setTimeout(()=>{
-      try { history.pushState({}, "", link); } catch(e){}
-      location.reload(true);
-    }, 50);
-  }
+    // 即時に確実な方法で遷移（iOSでも安定）
+    try { window.location.href = link; return; } catch(e){}
+    try { location.assign(link); return; } catch(e){}
+    try { window.open(link, "_self"); return; } catch(e){}
+    // 最後の保険
+    try { history.pushState({}, "", link); location.reload(); } catch(e){ location.replace(link); }
+  };
 
   function gotoTab(index, vibrate = true, toast = true){
     const arr = getTabsArray();
@@ -117,44 +99,30 @@ document.addEventListener("DOMContentLoaded", () => {
     const i = (index % arr.length + arr.length) % arr.length;
     const btn = arr[i];
     const link = normPath(btn.dataset.link || "/");
-
     hideMenu(true);
     arr.forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
-
     if (vibrate && navigator.vibrate) navigator.vibrate(8);
     if (toast){
       const label = btn.querySelector("span")?.textContent?.trim() || link;
       showToast(`${label} に移動`);
     }
-
     // ごく短いハイライト
     btn.style.transition = "background-color .15s ease";
     const oldBg = btn.style.backgroundColor;
     btn.style.backgroundColor = "rgba(255,255,255,.08)";
     setTimeout(()=>{ btn.style.backgroundColor = oldBg || ""; }, 160);
-
-    setTimeout(()=> navigateTo(link), 80);
+    // 遅延なしで即遷移
+    navigateTo(link);
   }
 
-  /* ===== Bottom Sheet Render ===== */
+  /* ===== Bottom Sheet（ドラッグで閉じる） ===== */
   function renderMenu(type){
     const items = MENUS[type] || [];
     submenu.innerHTML = "";
-
     const grab = document.createElement("div");
     grab.className = "grabber";
-    grab.style.cursor = "grab";
-    grab.style.touchAction = "none";
-    grab.style.webkitUserSelect = "none";
-    grab.style.userSelect = "none";
-    grab.style.webkitTouchCallout = "none";
-    grab.style.minHeight = "18px";
-    grab.style.padding = "12px 0";
     submenu.appendChild(grab);
-
-    attachGrabberSwipe(grab);
-
     items.forEach(it=>{
       if (it.section){
         const sec = document.createElement("div");
@@ -172,7 +140,6 @@ document.addEventListener("DOMContentLoaded", () => {
       submenu.appendChild(b);
     });
   }
-
   function showMenu(type, btn){
     renderMenu(type);
     mask.classList.add("show");
@@ -195,99 +162,71 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!soft){ unlock(); } else { setTimeout(unlock, 0); }
   }
 
-  /* ===== Drag to Close ===== */
-  let drag = { startY:0, lastY:0, startTime:0, lastTime:0, dy:0, vY:0, active:false };
-  const CLOSE_DISTANCE = 220;
-  const CLOSE_VELOCITY = 0.8 / 1000;
-
-  const canStartDrag = ()=> submenu.scrollTop <= 0;
-  function onDragStart(e){
-    const t = e.touches ? e.touches[0] : e;
-    drag.startY = drag.lastY = t.clientY;
-    drag.startTime = drag.lastTime = performance.now();
-    drag.dy = 0; drag.vY = 0; drag.active = false;
-  }
-  function onDragMove(e){
-    const t = e.touches ? e.touches[0] : e;
-    const now = performance.now();
-    const dy = Math.max(0, t.clientY - drag.startY);
-    const dt = Math.max(1, now - drag.lastTime);
-    const vy = (t.clientY - drag.lastY) / dt;
-
-    if (!drag.active && dy > 0 && canStartDrag()){
-      drag.active = true;
+  // ドラッグして閉じる（縦）
+  (function enableDragClose(){
+    let startY=0, lastY=0, active=false;
+    const CLOSE_DISTANCE = 200;
+    submenu.addEventListener("pointerdown", (e)=>{
+      if (submenu.scrollTop > 0) return; // 内部スクロール中は無効
+      startY = lastY = e.clientY; active = true;
+      submenu.setPointerCapture(e.pointerId);
+    });
+    submenu.addEventListener("pointermove", (e)=>{
+      if (!active) return;
+      const dy = Math.max(0, e.clientY - startY);
+      lastY = e.clientY;
+      submenu.style.transform = `translateY(${dy*0.98}px)`;
       submenu.classList.add("dragging");
-    }
-    if (drag.active){
-      e.preventDefault();
-      drag.dy = dy; drag.vY = vy; drag.lastY = t.clientY; drag.lastTime = now;
-      const follow = dy * 0.98;
-      submenu.style.transform = `translateY(${follow}px)`;
-      const h = submenu.getBoundingClientRect().height || window.innerHeight * 0.7;
-      const ratio = Math.min(1, follow / (h * 0.9));
-      mask.style.opacity = String(1 - ratio * 0.9);
-    }
-  }
-  function onDragEnd(){
-    if (!drag.active) return;
-    submenu.classList.remove("dragging");
-    const shouldClose = (drag.dy > CLOSE_DISTANCE) || (drag.vY > CLOSE_VELOCITY);
-    if (shouldClose){
-      submenu.style.transition = "transform .16s ease";
-      submenu.style.transform = `translateY(110%)`;
-      mask.classList.remove("show");
-      submenu.addEventListener("transitionend", function te(){
-        submenu.removeEventListener("transitionend", te);
-        submenu.style.transition = "";
-        hideMenu();
-      });
-    } else {
-      submenu.style.transition = "transform .16s ease";
-      submenu.style.transform = "translateY(0)";
-      mask.style.opacity = "";
-      submenu.addEventListener("transitionend", function te2(){
-        submenu.removeEventListener("transitionend", te2);
-        submenu.style.transition = "";
-      });
-    }
-  }
-  submenu.addEventListener("touchstart", onDragStart, {passive:true});
-  submenu.addEventListener("touchmove",  onDragMove,  {passive:false});
-  submenu.addEventListener("touchend",   onDragEnd,   {passive:true});
-  submenu.addEventListener("touchcancel",onDragEnd,   {passive:true});
-  let mouseDown = false;
-  submenu.addEventListener("mousedown",(e)=>{ mouseDown = true; onDragStart(e); });
-  window.addEventListener("mousemove",(e)=>{ if(mouseDown) onDragMove(e); });
-  window.addEventListener("mouseup",()=>{ if(mouseDown){ mouseDown=false; onDragEnd(); } });
+    });
+    const end = ()=>{
+      if (!active) return;
+      active = false;
+      submenu.classList.remove("dragging");
+      const dy = Math.max(0, lastY - startY);
+      if (dy > CLOSE_DISTANCE){
+        submenu.style.transition = "transform .16s ease";
+        submenu.style.transform = "translateY(110%)";
+        setTimeout(()=>{ submenu.style.transition=""; hideMenu(); }, 170);
+      }else{
+        submenu.style.transition = "transform .16s ease";
+        submenu.style.transform = "translateY(0)";
+        setTimeout(()=>{ submenu.style.transition=""; }, 170);
+      }
+    };
+    submenu.addEventListener("pointerup", end);
+    submenu.addEventListener("pointercancel", end);
+  })();
 
-  /* ===== Long-Press on Tabs ===== */
+  /* ===== 長押しメニュー（tab） ===== */
   tabs.forEach(btn=>{
     const link = btn.dataset.link;
     const type = btn.dataset.menu;
     let timer = null, longPressed = false, moved = false;
 
+    // 通常タップで遷移
     btn.addEventListener("click",(e)=>{
       if (longPressed){ e.preventDefault(); longPressed = false; return; }
       if (!submenu.classList.contains("show") && link) navigateTo(link);
     });
 
-    btn.addEventListener("touchstart",(e)=>{
-      e.preventDefault();
+    // 長押し
+    btn.addEventListener("pointerdown",(e)=>{
       longPressed = false; moved = false; clearTimeout(timer);
       timer = setTimeout(()=>{ longPressed = true; showMenu(type, btn); }, LONG_PRESS_MS);
-    }, {passive:false});
+    });
+    btn.addEventListener("pointermove",()=>{ moved = true; });
+    ["pointerup","pointercancel","pointerleave"].forEach(ev=>{
+      btn.addEventListener(ev, ()=>{
+        clearTimeout(timer);
+        if (!longPressed && !moved && link) navigateTo(link);
+      });
+    });
 
-    btn.addEventListener("touchmove",()=>{ moved = true; clearTimeout(timer); }, {passive:true});
-    btn.addEventListener("touchcancel",()=> clearTimeout(timer), {passive:true});
-    btn.addEventListener("touchend",()=>{
-      clearTimeout(timer);
-      if (!longPressed && !moved && link) navigateTo(link);
-    }, {passive:true});
-
+    // 右クリック
     btn.addEventListener("contextmenu",(e)=>{ e.preventDefault(); showMenu(type, btn); });
   });
 
-  /* ===== Active Tab Highlighter ===== */
+  /* ===== Active Tab 表示 ===== */
   (function activateTab() {
     const tabs = document.querySelectorAll(".tab-btn");
     if (!tabs.length) return;
@@ -305,105 +244,40 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     setActiveByPath(location.pathname);
     window.addEventListener("popstate", () => setActiveByPath(location.pathname));
-    document.querySelectorAll(".tab-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-      });
-    });
   })();
 
-  /* ===== Swipe on Bottom Nav (シート閉じててもOK) ===== */
+  /* ===== 下タブ全体でスワイプ → タブ循環 ===== */
   (function attachNavSwipe(){
     const nav = document.querySelector(".btm-nav");
     if (!nav) return;
 
-    // iOSでブラウザの戻る/進むジェスチャに奪われにくい設定
-    nav.style.touchAction = "pan-y";  // 横方向はJS側で処理
+    // ブラウザジェスチャに奪われにくくする
+    nav.style.touchAction = "none";
 
-    const X_THRESH = 10;         // 最小移動
-    const ANGLE_TAN = 0.45;      // 横優位
-    const V_THRESH = 0.25/1000;  // 速度しきい値
+    const X_THRESH = 12;     // 最小距離
+    const ANGLE_TAN = 0.45;  // 横優位
+    let sx=0, sy=0, lx=0, ly=0, active=false;
 
-    let sx=0, sy=0, lx=0, ly=0, st=0, lt=0, active=false;
-
-    function start(e){
-      const t = e.touches ? e.touches[0] : e;
-      sx = lx = t.clientX; sy = ly = t.clientY;
-      st = lt = performance.now(); active = true;
-    }
-    function move(e){
+    nav.addEventListener("pointerdown", (e)=>{
+      active = true;
+      sx = lx = e.clientX; sy = ly = e.clientY;
+      nav.setPointerCapture(e.pointerId);
+    });
+    nav.addEventListener("pointermove", (e)=>{
       if (!active) return;
-      const t = e.touches ? e.touches[0] : e;
-      lx = t.clientX; ly = t.clientY; lt = performance.now();
-    }
-    function end(){
+      lx = e.clientX; ly = e.clientY;
+    });
+    const end = ()=>{
       if (!active) return; active = false;
       const dx = lx - sx, dy = ly - sy;
-      const dt = Math.max(1, lt - st);
-      const vx = dx / dt;
-
-      const distanceOK = Math.abs(dx) >= X_THRESH;
-      const velocityOK = Math.abs(vx) >= V_THRESH;
-      const angleOK = Math.abs(dx) >= Math.abs(dy) * ANGLE_TAN;
-
-      if ((distanceOK || velocityOK) && angleOK){
+      if (Math.abs(dx) >= X_THRESH && Math.abs(dx) >= Math.abs(dy)*ANGLE_TAN){
         const cur = getActiveTabIndex();
         if (dx < 0) gotoTab(cur + 1, true, true);
         else        gotoTab(cur - 1, true, true);
       }
-    }
-
-    nav.addEventListener("touchstart", start, {passive:true});
-    nav.addEventListener("touchmove",  move,  {passive:true});
-    nav.addEventListener("touchend",   end,   {passive:true});
+    };
+    nav.addEventListener("pointerup", end);
+    nav.addEventListener("pointercancel", end);
+    nav.addEventListener("pointerleave", end);
   })();
-
-  /* ===== Grabber Swipe（左右で循環＋フリック） ===== */
-  function attachGrabberSwipe(grabber){
-    const X_THRESH = 8;
-    const ANGLE_TAN = 0.4;
-    const V_THRESH = 0.25/1000;
-
-    let sx=0, sy=0, lx=0, ly=0, st=0, lt=0, active=false;
-
-    grabber.style.touchAction = "none";
-    grabber.style.webkitTouchCallout = "none";
-    grabber.style.webkitUserSelect = "none";
-    grabber.style.userSelect = "none";
-
-    function start(e){
-      const t = e.touches ? e.touches[0] : e;
-      if (e.cancelable) e.preventDefault();
-      sx = lx = t.clientX; sy = ly = t.clientY;
-      st = lt = performance.now(); active = true;
-    }
-    function move(e){
-      if (!active) return;
-      const t = e.touches ? e.touches[0] : e;
-      lx = t.clientX; ly = t.clientY; lt = performance.now();
-    }
-    function end(){
-      if (!active) return; active = false;
-      const dx = lx - sx, dy = ly - sy;
-      const dt = Math.max(1, lt - st);
-      const vx = dx / dt;
-      const distanceOK = Math.abs(dx) >= X_THRESH;
-      const velocityOK = Math.abs(vx) >= V_THRESH;
-      const angleOK = Math.abs(dx) >= Math.abs(dy) * ANGLE_TAN;
-
-      if ((distanceOK || velocityOK) && angleOK){
-        const cur = getActiveTabIndex();
-        if (dx < 0) gotoTab(cur + 1, true, true);
-        else        gotoTab(cur - 1, true, true);
-      }
-    }
-
-    grabber.addEventListener("touchstart", start, {passive:false});
-    grabber.addEventListener("touchmove",  move,  {passive:true});
-    grabber.addEventListener("touchend",   end,   {passive:true});
-    grabber.addEventListener("mousedown",  (e)=>{ e.preventDefault(); start(e); });
-    window.addEventListener("mousemove",   move);
-    window.addEventListener("mouseup",     end);
-  }
 });
