@@ -6,7 +6,7 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_GET
 from django.contrib.auth.decorators import login_required
 
-from .models import Holding
+from ..models import Holding
 
 from ..services.trend import detect_trend
 from ..services.metrics import get_metrics
