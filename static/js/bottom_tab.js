@@ -1,42 +1,58 @@
-// bottom_tab.js – clamp付きポジショニング + iOS長押し抑止版
+// bottom_tab.js – Haptics風アニメ + ボトムシート + アイコン/色
 document.addEventListener("DOMContentLoaded", () => {
   const submenu = document.getElementById("submenu");
   const tabs = document.querySelectorAll(".tab-btn");
+  const root = document.getElementById("bottomTabRoot") || document.body;
   const LONG_PRESS_MS = 550;
 
-  // 端末のコンテキストメニューを下タブ/サブメニュー領域で無効化
+  // マスク要素（なければ生成）
+  let mask = document.querySelector(".btm-mask");
+  if (!mask){
+    mask = document.createElement("div");
+    mask.className = "btm-mask";
+    root.appendChild(mask);
+  }
+
+  // iOS コンテキストメニュー抑止
   document.querySelectorAll(".bottom-tab, .submenu").forEach(el => {
     el.addEventListener("contextmenu", e => e.preventDefault());
   });
 
+  // ページ別メニュー（アイコンとtoneを追加）
   const MENUS = {
     home: [
       { section: "クイック" },
-      { label: "＋ 保有を追加", action: "add_holding" },
-      { label: "実現損益を記録", action: "add_realized" },
-      { label: "設定を開く", href: "/settings/trade" },
+      { label: "保有を追加",        action: "add_holding",   icon: "➕", tone: "add" },
+      { label: "実現損益を記録",    action: "add_realized",  icon: "✍️", tone: "action" },
+      { label: "設定を開く",        href: "/settings/trade", icon: "⚙️", tone: "info" },
     ],
     holdings: [
       { section: "保有" },
-      { label: "＋ 追加", action: "add_holding" },
-      { label: "CSVエクスポート", action: "export_csv" },
-      { label: "並び替え/フィルタ", action: "open_filter" },
+      { label: "＋ 追加",            action: "add_holding",   icon: "📥", tone: "add" },
+      { label: "CSVエクスポート",    action: "export_csv",    icon: "🧾", tone: "info" },
+      { label: "並び替え/フィルタ",  action: "open_filter",   icon: "🧮", tone: "action" },
       { section: "選択中" },
-      { label: "売却（クローズ）", action: "close_position" },
-      { label: "削除", action: "delete_holding", danger: true },
+      { label: "売却（クローズ）",   action: "close_position",icon: "💱", tone: "action" },
+      { label: "削除",               action: "delete_holding",icon: "🗑️", tone: "danger" },
     ],
     trend: [
       { section: "トレンド" },
-      { label: "この銘柄を監視に追加", action: "watch_symbol" },
-      { label: "エントリー/ストップ計算", action: "calc_entry_stop" },
-      { label: "共有リンクをコピー", action: "share_link" },
-      { label: "チャート設定", action: "chart_settings" },
+      { label: "監視に追加",          action: "watch_symbol",  icon: "👁️", tone: "add" },
+      { label: "エントリー/ストップ計算", action: "calc_entry_stop", icon: "🎯", tone: "info" },
+      { label: "共有リンクをコピー",  action: "share_link",    icon: "🔗", tone: "info" },
+      { label: "チャート設定",        action: "chart_settings",icon: "🛠️", tone: "action" },
     ],
   };
 
+  // ---- メニュー描画：ボトムシート（全幅） ----
   function renderMenu(type){
     const items = MENUS[type] || [];
     submenu.innerHTML = "";
+
+    const grab = document.createElement("div");
+    grab.className = "grabber";
+    submenu.appendChild(grab);
+
     items.forEach(it=>{
       if (it.section){
         const sec = document.createElement("div");
@@ -44,8 +60,8 @@ document.addEventListener("DOMContentLoaded", () => {
         submenu.appendChild(sec); return;
       }
       const b = document.createElement("button");
-      b.className = "submenu-item" + (it.danger ? " danger" : "");
-      b.textContent = it.label;
+      b.className = `submenu-item tone-${it.tone || "info"}`;
+      b.innerHTML = `<span class="ico">${it.icon || "•"}</span><span>${it.label}</span>`;
       b.addEventListener("click",(e)=>{
         e.stopPropagation(); hideMenu();
         if (it.href){ window.location.href = it.href; return; }
@@ -55,41 +71,41 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 押したボタンの真上に出しつつ、左右は画面内にクランプ
-  function positionMenu(anchorBtn){
-    const pad = 12;
-    const vw = window.innerWidth || document.documentElement.clientWidth;
-    const r = anchorBtn.getBoundingClientRect();
-    const center = r.left + r.width / 2;
-
-    // 一旦表示して幅を測る（不可視で）
-    submenu.style.visibility = "hidden";
-    submenu.classList.add("show");
-    const w = submenu.offsetWidth;
-    if (w > vw - pad*2) submenu.style.maxWidth = (vw - pad*2) + "px";
-
-    const clamped = Math.min(
-      Math.max(center, pad + submenu.offsetWidth / 2),
-      vw - pad - submenu.offsetWidth / 2
-    );
-
-    submenu.style.left = clamped + "px";
-    submenu.style.transform = "translateX(-50%)";
-    submenu.style.visibility = "visible";
-  }
-
   function showMenu(type, btn){
     renderMenu(type);
-    positionMenu(btn);
+    mask.classList.add("show");
+    submenu.classList.add("show");
     submenu.setAttribute("aria-hidden","false");
+    // haptic視覚：ボタンぷるぷる
+    btn.classList.add("shake");
+    setTimeout(()=>btn.classList.remove("shake"), 360);
+    // 小さくバイブ
     if (navigator.vibrate) navigator.vibrate(10);
-  }
-  function hideMenu(){
-    submenu.classList.remove("show");
-    submenu.setAttribute("aria-hidden","true");
+    // スクロール抑止
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
   }
 
-  // 長押し（+右クリック）＆クリック遷移の両立 + iOSロングタップ抑止
+  function hideMenu(){
+    mask.classList.remove("show");
+    submenu.classList.remove("show");
+    submenu.setAttribute("aria-hidden","true");
+    document.documentElement.style.overflow = "";
+    document.body.style.overflow = "";
+  }
+
+  // マスクタップ・下スワイプで閉じる
+  mask.addEventListener("click", hideMenu);
+  let startY = null;
+  submenu.addEventListener("touchstart",(e)=>{ startY = e.touches[0].clientY; }, {passive:true});
+  submenu.addEventListener("touchmove",(e)=>{
+    if (startY==null) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy>40) hideMenu();
+  }, {passive:true});
+  submenu.addEventListener("touchend",()=>{ startY=null; }, {passive:true});
+
+  // ---- 長押し（＋右クリック）＆短押し遷移。iOSロングタップ抑止 ----
   tabs.forEach(btn=>{
     const link = btn.dataset.link;
     const type = btn.dataset.menu;
@@ -101,33 +117,26 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!submenu.classList.contains("show") && link) window.location.href = link;
     });
 
-    // iOSの「コピー/調べる」を出さないために preventDefault を使用（passive:false）
+    // iOSのコピー/調べる抑止のため preventDefault（passive:false）
     btn.addEventListener("touchstart",(e)=>{
-      e.preventDefault();                // ← 既定のロングタップ動作を抑止
+      e.preventDefault();
       longPressed = false; moved = false;
       clearTimeout(timer);
-      timer = setTimeout(()=>{
-        longPressed = true;
-        showMenu(type, btn);
-      }, LONG_PRESS_MS);
+      timer = setTimeout(()=>{ longPressed = true; showMenu(type, btn); }, 550);
     }, {passive:false});
 
     btn.addEventListener("touchmove",()=>{ moved = true; clearTimeout(timer); }, {passive:true});
     btn.addEventListener("touchcancel",()=> clearTimeout(timer), {passive:true});
-
     btn.addEventListener("touchend",()=>{
       clearTimeout(timer);
-      // 長押しでなければ自前で遷移（ブラウザ既定クリックは使わない）
-      if (!longPressed && !moved && link) {
-        window.location.href = link;
-      }
+      if (!longPressed && !moved && link) window.location.href = link;
     }, {passive:true});
 
-    // PC右クリック
+    // デスクトップ右クリック
     btn.addEventListener("contextmenu",(e)=>{ e.preventDefault(); showMenu(type, btn); });
   });
 
-  // 背景タップ/Escで閉じる
+  // 背景クリック/Escで閉じる
   document.addEventListener("click",(e)=>{
     if (!submenu.contains(e.target) && !e.target.classList.contains("tab-btn")) hideMenu();
   });
