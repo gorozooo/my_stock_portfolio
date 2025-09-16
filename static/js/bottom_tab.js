@@ -325,9 +325,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* ===================== Grabber Swipe（左右で循環＋フリック） ===================== */
   function attachGrabberSwipe(grabber){
-    const X_THRESH = 20;
+    const X_THRESH = 16;
     const ANGLE_TAN = 0.6;
-    const V_THRESH = 0.6/1000; // 600px/s
+    const V_THRESH = 0.45/1000; // 600px/s
     let sx=0, sy=0, lx=0, ly=0, st=0, lt=0, active=false;
 
     function start(e){
