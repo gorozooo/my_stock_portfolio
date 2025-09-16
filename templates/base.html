@@ -25,17 +25,11 @@
   {% block head %}{% endblock %}
 </head>
 <body class="bg-slate-950 text-slate-100">
-  <!-- 下部固定ナビ（親指リーチ） -->
-  <nav class="fixed bottom-0 left-0 right-0 z-50 bg-slate-900/70 backdrop-blur-md border-t border-slate-800">
-    <div class="max-w-screen-sm mx-auto grid grid-cols-3 text-center text-sm">
-      <a href="/" class="py-3">🏠 ホーム</a>
-      <a href="/holdings/" class="py-3">📄 保有</a>
-      <a href="/trend/" class="py-3">📈 トレンド</a>
-    </div>
-  </nav>
-
   <main class="max-w-screen-sm mx-auto px-4 pb-24 pt-4">
     {% block content %}{% endblock %}
   </main>
+
+  <!-- 共通下タブ -->
+  {% include "partials/bottom_tab.html" %}
 </body>
 </html>
