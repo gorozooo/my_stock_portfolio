@@ -91,3 +91,5 @@
 
 /* 念のため全幅内に収める */
 .submenu{max-width: min(520px, 100vw)}
+
+.submenu .grabber { cursor: grab; }
