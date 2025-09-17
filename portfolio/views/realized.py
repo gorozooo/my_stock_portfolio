@@ -43,11 +43,11 @@ def _base_qs(request, q: str = ""):
 
 def _aggregate(qs):
     return qs.aggregate(
-        n=Coalesce(Count("id"), 0),
-        qty=Coalesce(Sum("qty"), 0),
-        fee=Coalesce(Sum("fee"), 0.0),
-        tax=Coalesce(Sum("tax"), 0.0),
-        pnl=Coalesce(Sum(_signed_amount_expr()), 0.0),
+        n   = Coalesce(Count("id"), 0),
+        qty = Coalesce(Sum(F("qty")), 0),           # ← 'qty' ではなく F("qty")
+        fee = Coalesce(Sum(F("fee")), 0.0),         # ← 同上
+        tax = Coalesce(Sum(F("tax")), 0.0),         # ← 同上
+        pnl = Coalesce(Sum(_signed_amount_expr()), 0.0),
     )
 
 
