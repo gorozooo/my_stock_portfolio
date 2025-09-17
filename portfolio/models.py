@@ -43,7 +43,7 @@ class RealizedTrade(models.Model):
     side      = models.CharField(max_length=4, choices=SIDE_CHOICES)
 
     ticker    = models.CharField(max_length=20)       # 証券コード
-    name      = models.CharField(max_length=100)      # ★ 追加：銘柄名
+    name      = models.CharField(max_length=100, null=True, blank=True)  # ★ 変更
     qty       = models.IntegerField()
 
     price     = models.DecimalField(max_digits=14, decimal_places=2)  # 売買単価
