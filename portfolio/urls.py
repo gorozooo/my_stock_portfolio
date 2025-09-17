@@ -5,6 +5,7 @@ from django.http import HttpResponse
 from .views import core as core_views
 from .views import settings as settings_views
 from .views import api as api_views
+from .views import realized as realized_views
 
 urlpatterns = [
     path("", core_views.main, name="home"),
@@ -24,5 +25,12 @@ urlpatterns = [
     # 設定画面
     path("settings/trade", settings_views.trade_setting, name="trade_setting"),
     
+    # 保有株式
     path("holdings/", core_views.holdings_list, name="holdings_list"),
+    
+    # 実現損益
+    path("realized/", realized_views.list_page, name="realized_list"),
+    path("realized/partial/table", realized_views.table_partial, name="realized_table_partial"),
+    path("realized/create", realized_views.create, name="realized_create"),
+    path("realized/delete/<int:pk>", realized_views.delete, name="realized_delete"),
 ]
