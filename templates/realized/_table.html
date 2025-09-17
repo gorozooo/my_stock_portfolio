@@ -2,22 +2,22 @@
 {% load humanize %}
 <table class="w-full border-separate border-spacing-0 rounded-2xl overflow-hidden">
   <colgroup>
-    <col class="w-28">  {# 日付（折り返しなし） #}
-    <col class="w-36">  {# 銘柄（2行表示） #}
-    <col class="w-14">  {# Side #}
-    <col class="w-28">  {# 数量 #}
-    <col class="w-28">  {# 価格 #}
-    <col class="w-28">  {# 手数料 #}
-    <col class="w-28">  {# 税 #}
-    <col class="w-32">  {# 実現損益 #}
-    <col class="w-14">  {# 操作 #}
+    <col class="w-28">  {# 日付 #}
+    <col class="w-40">  {# 銘柄 #}
+    <col class="w-20">  {# Side #}
+    <col class="w-28">
+    <col class="w-28">
+    <col class="w-28">
+    <col class="w-28">
+    <col class="w-32">
+    <col class="w-14">
   </colgroup>
 
   <thead class="bg-white/5 text-slate-300 text-sm">
     <tr>
       <th class="px-3 py-2 text-left whitespace-nowrap">日付</th>
       <th class="px-3 py-2 text-left">銘柄</th>
-      <th class="px-3 py-2 text-left">Side</th>
+      <th class="px-3 py-2 text-center whitespace-nowrap">Side</th>
       <th class="px-3 py-2 text-right">数量</th>
       <th class="px-3 py-2 text-right">価格</th>
       <th class="px-3 py-2 text-right">手数料</th>
@@ -30,43 +30,35 @@
   <tbody class="text-[15px]">
     {% for t in trades %}
       <tr class="border-b border-white/10">
-        {# 日付（折り返し禁止） #}
+        {# 日付 #}
         <td class="px-3 py-2 whitespace-nowrap text-slate-200">
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
-        {# 銘柄：上段=コード、下段=名称（小さく淡く） #}
-        <td class="px-3 py-2">
+        {# 銘柄 = 上段コード / 下段名称 #}
+        <td class="px-3 py-2 whitespace-nowrap">
           <div class="leading-tight">
             <div class="font-semibold tracking-wide">{{ t.ticker }}</div>
             <div class="text-slate-400 text-xs mt-0.5">{{ t.name|default:"" }}</div>
           </div>
         </td>
 
-        {# Side #}
-        <td class="px-3 py-2">
-          <span class="inline-flex items-center justify-center rounded-md px-2 py-0.5 text-xs
+        {# Side nowrap #}
+        <td class="px-3 py-2 text-center whitespace-nowrap">
+          <span class="inline-block rounded-md px-2 py-0.5 text-xs
                        {% if t.side == 'SELL' %}bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/25
                        {% else %}bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/25{% endif %}">
             {{ t.side }}
           </span>
         </td>
 
-        {# 数値列：等幅フォント＋折り返し禁止＋右寄せ #}
-        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
-          {{ t.qty|intcomma }}
-        </td>
-        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
-          ¥{{ t.price|floatformat:0|intcomma }}
-        </td>
-        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
-          ¥{{ t.fee|floatformat:0|intcomma }}
-        </td>
-        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
-          ¥{{ t.tax|floatformat:0|intcomma }}
-        </td>
+        {# 数値列 #}
+        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">{{ t.qty|intcomma }}</td>
+        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.price|floatformat:0|intcomma }}</td>
+        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.fee|floatformat:0|intcomma }}</td>
+        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.tax|floatformat:0|intcomma }}</td>
 
-        {# 実現損益（色分け） #}
+        {# 損益 #}
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
           {% with v=t.pnl_calc %}
             <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
@@ -75,10 +67,9 @@
           {% endwith %}
         </td>
 
-        {# 操作 #}
+        {# 削除ボタン #}
         <td class="px-3 py-2 text-right">
-          <form hx-post="{% url 'realized_delete' t.id %}"
-                hx-target="#pnlTableWrap" hx-swap="outerHTML"
+          <form hx-post="{% url 'realized_delete' t.id %}" hx-target="#pnlTableWrap" hx-swap="outerHTML"
                 onsubmit="return confirm('削除しますか？')">
             {% csrf_token %}
             <button class="text-slate-300 hover:text-rose-300 text-sm">削除</button>
