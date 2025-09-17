@@ -205,25 +205,21 @@ def summary_partial(request):
 @login_required
 @require_GET
 def close_sheet(request, pk: int):
-    """売却（クローズ）用のボトムシートを HTML として返す（HTMXがそのまま差し替え）"""
     h = get_object_or_404(Holding, pk=pk, user=request.user)
-
-    # 直近の手数料/税（あるなら）を既定値に
-    last = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at").first()
+    last = RealizedTrade.objects.filter(user=request.user).order_by('-trade_at').first()
     ctx = {
-        "h": h,
-        "prefill": {
-            "date": timezone.now().date(),
-            "side": "SELL",
-            "ticker": h.ticker,
-            "qty": h.qty,                 # 既定は全量
-            "price": "",                  # 価格だけ入力してもらう
-            "fee":  last.fee if last else 0,
-            "tax":  last.tax if last else 0,
-            "memo": "",
-        }
+      "h": h,
+      "prefill": {
+        "date": timezone.now().date(),
+        "side": "SELL",
+        "ticker": h.ticker,
+        "qty": h.qty,
+        "price": "",
+        "fee":  last.fee if last else 0,
+        "tax":  last.tax if last else 0,
+        "memo": "",
+      }
     }
-    # ★ JSONではなく HTML をそのまま返す
     return render(request, "realized/_close_sheet.html", ctx)
     
 @login_required
