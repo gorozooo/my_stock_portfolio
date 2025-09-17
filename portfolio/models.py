@@ -28,16 +28,19 @@ class Holding(models.Model):
     def __str__(self):
         return f"{self.ticker} x{self.quantity}"
 
+# 例）RealizedTrade モデル
 class RealizedTrade(models.Model):
-    user      = models.ForeignKey(User, on_delete=models.CASCADE, related_name="realized_trades")
-    trade_at  = models.DateField(db_index=True)
-    ticker    = models.CharField(max_length=24, db_index=True)
-    side      = models.CharField(max_length=4, choices=[("BUY","BUY"),("SELL","SELL")], default="SELL")
+    user      = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    trade_at  = models.DateField()
+    side      = models.CharField(max_length=4, choices=(("SELL","SELL"),("BUY","BUY")))
+    ticker    = models.CharField(max_length=20)
     qty       = models.IntegerField()
-    price     = models.DecimalField(max_digits=14, decimal_places=4)
-    fee       = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    tax       = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    memo      = models.CharField(max_length=200, blank=True)
+    price     = models.DecimalField(max_digits=14, decimal_places=2)   # 売買単価
+    basis     = models.DecimalField(max_digits=14, decimal_places=2,   # ★ 追加：原価(平均取得単価/1株)
+                                    null=True, blank=True)
+    fee       = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    tax       = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    memo      = models.TextField(blank=True, default="")
     created_at= models.DateTimeField(auto_now_add=True)
 
     class Meta:
