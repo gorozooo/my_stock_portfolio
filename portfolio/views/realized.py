@@ -2,26 +2,28 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import csv
 
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.db.models import (
     Count, Sum, F, Value, Case, When, ExpressionWrapper,
     DecimalField, IntegerField
 )
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse, JsonResponse
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
-from django.db import transaction
-
-from ..models import Holding, RealizedTrade
-import csv
 from django.utils.encoding import smart_str
 
+from ..models import Holding, RealizedTrade
 
-# ---- PnL を Decimal で注釈 ---------------------------------------------------
+
+# ============================================================
+#  PnL は DBに保存しない。都度 Decimal で計算して注釈/集計。
+# ============================================================
 DECIMAL_2 = DecimalField(max_digits=20, decimal_places=2)
 
 def _with_pnl(qs):
@@ -30,75 +32,78 @@ def _with_pnl(qs):
       SELL:  qty*price - fee - tax
       BUY : -(qty*price) - fee - tax
     """
-    gross = F("qty") * F("price")                          # Decimal
-    fees  = F("fee") + F("tax")                            # Decimal
-    sell_expr = gross - fees                               # Decimal
-    buy_expr  = -gross - fees                              # Decimal
+    gross = F("qty") * F("price")     # Decimal 同士の乗算として扱う
+    fees  = Coalesce(F("fee"), Value(Decimal("0"), output_field=DECIMAL_2)) \
+          + Coalesce(F("tax"), Value(Decimal("0"), output_field=DECIMAL_2))
 
     return qs.annotate(
         pnl_calc=ExpressionWrapper(
             Case(
-                When(side="SELL", then=sell_expr),
-                When(side="BUY",  then=buy_expr),
+                When(side="SELL", then=gross - fees),
+                When(side="BUY",  then=-(gross) - fees),
                 default=Value(Decimal("0")),
-                output_field=DECIMAL_2,   # Case の型も明示
+                output_field=DECIMAL_2,
             ),
-            output_field=DECIMAL_2,       # 全体を Decimal に固定
+            output_field=DECIMAL_2,
         )
     )
 
-
-# ---- 集計（すべて Decimal/Integer を明示） -----------------------------------
 def _aggregate(qs):
+    """一覧のサマリーを Decimal/Integer を明示して取得"""
     qs = _with_pnl(qs)
     return qs.aggregate(
-        n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
-        qty = Coalesce(Sum(F("qty")), Value(0), output_field=IntegerField()),
-        fee = Coalesce(Sum(F("fee")), Value(Decimal("0")), output_field=DECIMAL_2),
-        tax = Coalesce(Sum(F("tax")), Value(Decimal("0")), output_field=DECIMAL_2),
-        pnl = Coalesce(Sum("pnl_calc", output_field=DECIMAL_2), Value(Decimal("0")), output_field=DECIMAL_2),
+        n   = Coalesce(Count("id"), Value(0, output_field=IntegerField())),
+        qty = Coalesce(Sum(F("qty")), Value(0, output_field=IntegerField())),
+        fee = Coalesce(Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DECIMAL_2))), Value(Decimal("0"), output_field=DECIMAL_2)),
+        tax = Coalesce(Sum(Coalesce(F("tax"), Value(Decimal("0"), output_field=DECIMAL_2))), Value(Decimal("0"), output_field=DECIMAL_2)),
+        pnl = Coalesce(Sum("pnl_calc", output_field=DECIMAL_2), Value(Decimal("0"), output_field=DECIMAL_2)),
     )
 
 
-# ---- 一覧 -------------------------------------------------------------------
+# ============================================================
+#  画面
+# ============================================================
 @login_required
 @require_GET
 def list_page(request):
     q = (request.GET.get("q") or "").strip()
-
     qs = RealizedTrade.objects.all().order_by("-trade_at", "-id")
     if q:
         qs = qs.filter(ticker__icontains=q)
 
-    rows = _with_pnl(qs)   # 行別 pnl_calc を持たせる
-    agg  = _aggregate(qs)  # 合計
+    rows = _with_pnl(qs)
+    agg  = _aggregate(qs)
 
     return render(request, "realized/list.html", {"q": q, "trades": rows, "agg": agg})
 
 
-# ---- 作成（HTMX: テーブル断片とサマリーを返す） ------------------------------
+# ============================================================
+#  作成（HTMX: テーブル断片 + サマリー返却）
+# ============================================================
 @login_required
 @require_POST
 def create(request):
-    # 入力
-    trade_at = request.POST.get("date") or timezone.now().date()  # form の name は "date"
-    side     = (request.POST.get("side") or "SELL").upper()
-    ticker   = (request.POST.get("ticker") or "").strip()
+    # 入力取得
+    date_raw = (request.POST.get("date") or "").strip()  # form name="date"
+    try:
+        trade_at = timezone.datetime.fromisoformat(date_raw).date() if date_raw else timezone.localdate()
+    except Exception:
+        trade_at = timezone.localdate()
+
+    side   = (request.POST.get("side") or "SELL").upper()
+    ticker = (request.POST.get("ticker") or "").strip()
 
     try:
         qty   = int(request.POST.get("qty") or 0)
-        # Decimal で保持するモデルでもフォーム値は float で来ることが多い → そのまま保存OK
-        price = request.POST.get("price") or "0"
-        fee   = request.POST.get("fee")   or "0"
-        tax   = request.POST.get("tax")   or "0"
-        # バリデーション用に数値化チェックだけ軽く行う
-        _ = float(price); _ = float(fee); _ = float(tax)
+        price = Decimal(str(request.POST.get("price") or "0"))
+        fee   = Decimal(str(request.POST.get("fee")   or "0"))
+        tax   = Decimal(str(request.POST.get("tax")   or "0"))
     except Exception:
         return JsonResponse({"ok": False, "error": "数値の形式が不正です"}, status=400)
 
-    memo = request.POST.get("memo") or ""
+    memo = (request.POST.get("memo") or "").strip()
 
-    if not ticker or qty <= 0 or float(price) <= 0:
+    if not ticker or qty <= 0 or price <= 0:
         return JsonResponse({"ok": False, "error": "入力が不足しています"}, status=400)
 
     RealizedTrade.objects.create(
@@ -121,7 +126,9 @@ def create(request):
     return JsonResponse({"ok": True, "table": table_html, "summary": summary_html})
 
 
-# ---- 削除（HTMX: テーブル断片とサマリーを返す） ------------------------------
+# ============================================================
+#  削除（HTMX: テーブル断片 + サマリー返却）
+# ============================================================
 @login_required
 @require_POST
 def delete(request, pk: int):
@@ -141,7 +148,9 @@ def delete(request, pk: int):
     return JsonResponse({"ok": True, "table": table_html, "summary": summary_html})
 
 
-# ---- CSV エクスポート --------------------------------------------------------
+# ============================================================
+#  CSV
+# ============================================================
 @login_required
 @require_GET
 def export_csv(request):
@@ -155,7 +164,7 @@ def export_csv(request):
     resp = HttpResponse(content_type="text/csv; charset=utf-8")
     resp["Content-Disposition"] = 'attachment; filename="realized_trades.csv"'
     w = csv.writer(resp)
-    w.writerow(["date", "ticker", "side", "qty", "price", "fee", "tax", "pnl", "memo"])
+    w.writerow(["trade_at", "ticker", "side", "qty", "price", "fee", "tax", "pnl", "memo"])
     for t in qs:
         w.writerow([
             t.trade_at,
@@ -166,7 +175,9 @@ def export_csv(request):
     return resp
 
 
-# ---- テーブル断片 ------------------------------------------------------------
+# ============================================================
+#  部分テンプレ
+# ============================================================
 @login_required
 @require_GET
 def table_partial(request):
@@ -177,8 +188,6 @@ def table_partial(request):
     rows = _with_pnl(qs)
     return render(request, "realized/_table.html", {"trades": rows})
 
-
-# ---- サマリー断片 ------------------------------------------------------------
 @login_required
 @require_GET
 def summary_partial(request):
@@ -188,23 +197,26 @@ def summary_partial(request):
         qs = qs.filter(ticker__icontains=q)
     agg = _aggregate(qs)
     return render(request, "realized/_summary.html", {"agg": agg, "q": q})
-    
+
+
+# ============================================================
+#  保有 → 売却（ボトムシート + 登録）
+# ============================================================
 @login_required
 @require_GET
 def close_sheet(request, pk: int):
     h = get_object_or_404(Holding, pk=pk, user=request.user)
-    # 直近の手数料/税（あるなら）を既定値に
-    last = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at").first()
+    last = RealizedTrade.objects.filter().order_by("-trade_at").first()
     ctx = {
         "h": h,
         "prefill": {
-            "date": timezone.now().date(),
+            "date": timezone.localdate(),
             "side": "SELL",
             "ticker": h.ticker,
             "qty": h.qty,                 # 既定は全量
             "price": "",                  # 価格だけ入力してもらう
-            "fee":  last.fee if last else 0,
-            "tax":  last.tax if last else 0,
+            "fee":  last.fee if last else Decimal("0"),
+            "tax":  last.tax if last else Decimal("0"),
             "memo": "",
         }
     }
@@ -216,46 +228,66 @@ def close_sheet(request, pk: int):
 @transaction.atomic
 def close_submit(request, pk: int):
     h = get_object_or_404(Holding, pk=pk, user=request.user)
-    date   = request.POST.get("date") or timezone.now().date()
-    side   = "SELL"
-    qty    = int(request.POST.get("qty") or 0)
-    price  = float(request.POST.get("price") or 0)
-    fee    = float(request.POST.get("fee") or 0)
-    tax    = float(request.POST.get("tax") or 0)
-    memo   = request.POST.get("memo") or ""
+
+    # 入力
+    date_raw = (request.POST.get("date") or "").strip()
+    try:
+        trade_at = timezone.datetime.fromisoformat(date_raw).date() if date_raw else timezone.localdate()
+    except Exception:
+        trade_at = timezone.localdate()
+
+    side  = "SELL"
+    try:
+        qty   = int(request.POST.get("qty") or 0)
+        price = Decimal(str(request.POST.get("price") or "0"))
+        fee   = Decimal(str(request.POST.get("fee")   or "0"))
+        tax   = Decimal(str(request.POST.get("tax")   or "0"))
+    except Exception:
+        return JsonResponse({"ok": False, "error": "数値の形式が不正です"}, status=400)
+
+    memo = (request.POST.get("memo") or "").strip()
 
     if qty <= 0 or price <= 0 or qty > h.qty:
         return JsonResponse({"ok": False, "error": "数量/価格を確認してください"}, status=400)
 
-    # 実現損益（単純：売却代金-手数料-税。細かい原価処理は後述）
-    pnl = qty * price - fee - tax
-
+    # 登録（pnl は保存しない）
     RealizedTrade.objects.create(
-        user=request.user, trade_at=date, side=side, ticker=h.ticker,
-        qty=qty, price=price, fee=fee, tax=tax, memo=memo, pnl=pnl
+        user=request.user, trade_at=trade_at, side=side, ticker=h.ticker,
+        qty=qty, price=price, fee=fee, tax=tax, memo=memo
     )
 
-    # 保有数量を減算（0ならクローズ）
+    # 保有数量を減算（0なら削除）
     h.qty = F("qty") - qty
     h.save(update_fields=["qty"])
     h.refresh_from_db()
     if h.qty <= 0:
-        h.delete()  # もしくは status=closed に
+        h.delete()
 
-    # 最新テーブル/サマリー/保有一覧の断片を返す（HTMX差替え）
+    # 最新テーブル/サマリー/（あれば）保有一覧断片を返す
     q = (request.POST.get("q") or "").strip()
-    qs = RealizedTrade.objects.filter(user=request.user)
-    if q: qs = qs.filter(ticker__icontains=q)
-    qs = qs.order_by("-trade_at", "-id")
-    agg = qs.aggregate(
-        n=Count("id"),
-        qty=Coalesce(Sum("qty"), 0),
-        fee=Coalesce(Sum("fee", output_field=FloatField()), 0.0),
-        tax=Coalesce(Sum("tax", output_field=FloatField()), 0.0),
-        pnl=Coalesce(Sum("pnl", output_field=FloatField()), 0.0),
-    )
-    table_html   = render_to_string("realized/_table.html",   {"trades": qs}, request=request)
-    summary_html = render_to_string("realized/_summary.html", {"agg": agg},   request=request)
-    holdings_html = render_to_string("holdings/_list.html", {"holdings": Holding.objects.filter(user=request.user)}, request=request)
+    qs = RealizedTrade.objects.all().order_by("-trade_at", "-id")
+    if q:
+        qs = qs.filter(ticker__icontains=q)
 
-    return JsonResponse({"ok": True, "table": table_html, "summary": summary_html, "holdings": holdings_
+    rows = _with_pnl(qs)
+    agg  = _aggregate(qs)
+
+    table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
+    summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
+
+    # 保有一覧の部分テンプレが存在しない環境でも落ちないように
+    try:
+        holdings_html = render_to_string(
+            "holdings/_list.html",
+            {"holdings": Holding.objects.filter(user=request.user)},
+            request=request
+        )
+    except Exception:
+        holdings_html = ""
+
+    return JsonResponse({
+        "ok": True,
+        "table": table_html,
+        "summary": summary_html,
+        "holdings": holdings_html
+    })
