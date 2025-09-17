@@ -4,46 +4,97 @@ from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_GET, require_POST
 from ..models import RealizedTrade
+from django.http import JsonResponse, HttpResponse
+from django.views.decorators.http import require_POST
+from django.utils.encoding import smart_str
+import csv
+from django.db.models import Sum, Count, F, FloatField
+from django.db.models.functions import Coalesce
 
 @login_required
 @require_GET
 def list_page(request):
     return render(request, "portfolio/realized/list.html")
 
+# ---- 既存 list_page の末尾で集計を渡すように（検索クエリq対応）----
 @login_required
 @require_GET
-def table_partial(request):
-    qs = RealizedTrade.objects.filter(user=request.user)
-    ticker = (request.GET.get("q") or "").strip()
-    if ticker:
-        qs = qs.filter(ticker__icontains=ticker)
-    return render(request, "portfolio/realized/_table.html", {"rows": qs[:500]})
+def list_page(request):
+    q = (request.GET.get("q") or "").strip()
+    qs = RealizedTrade.objects.all().order_by("-date", "-id")
+    if q:
+        qs = qs.filter(ticker__icontains=q)
 
+    # 集計
+    agg = qs.aggregate(
+        n=Count("id"),
+        qty=Coalesce(Sum("qty"), 0),
+        fee=Coalesce(Sum("fee"), 0.0),
+        tax=Coalesce(Sum("tax"), 0.0),
+        pnl=Coalesce(Sum("pnl"), 0.0),
+    )
+    return render(request, "realized/list.html", {"q": q, "trades": qs, "agg": agg})
+
+# ---- 作成（HTMXで返すHTMLはテーブル断片） ----
 @login_required
 @require_POST
 def create(request):
-    try:
-        trade = RealizedTrade(
-            user=request.user,
-            trade_at=request.POST.get("trade_at"),
-            ticker=(request.POST.get("ticker") or "").upper().strip(),
-            side=request.POST.get("side") or "SELL",
-            qty=int(request.POST.get("qty") or 0),
-            price=float(request.POST.get("price") or 0),
-            fee=float(request.POST.get("fee") or 0),
-            tax=float(request.POST.get("tax") or 0),
-            memo=request.POST.get("memo") or "",
-        )
-        if trade.qty <= 0 or trade.price <= 0:
-            return HttpResponseBadRequest("qty/price invalid")
-        trade.save()
-        return JsonResponse({"ok": True})
-    except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+    # 必要パラメータ（name 属性は後述のフォームと合わせる）
+    date = request.POST.get("date") or timezone.now().date()
+    side = (request.POST.get("side") or "SELL").upper()
+    ticker = (request.POST.get("ticker") or "").strip()
+    qty = int(request.POST.get("qty") or 0)
+    price = float(request.POST.get("price") or 0)
+    fee = float(request.POST.get("fee") or 0)
+    tax = float(request.POST.get("tax") or 0)
+    memo = request.POST.get("memo") or ""
 
+    if not ticker or qty <= 0 or price <= 0:
+        return JsonResponse({"ok": False, "error": "入力が不足しています"}, status=400)
+
+    # pnl は単票の実現額（SELL 正なら利益 / BUY はマイナス想定でもOK）
+    sign = 1 if side == "SELL" else -1
+    pnl = sign * qty * price - fee - tax
+
+    obj = RealizedTrade.objects.create(
+        date=date, side=side, ticker=ticker, qty=qty, price=price,
+        fee=fee, tax=tax, pnl=pnl, memo=memo
+    )
+
+    # 追加後のテーブル断片とサマリーを返す
+    q = (request.POST.get("q") or "").strip()
+    qs = RealizedTrade.objects.all().order_by("-date", "-id")
+    if q:
+        qs = qs.filter(ticker__icontains=q)
+    agg = qs.aggregate(
+        n=Count("id"),
+        qty=Coalesce(Sum("qty"), 0),
+        fee=Coalesce(Sum("fee"), 0.0),
+        tax=Coalesce(Sum("tax"), 0.0),
+        pnl=Coalesce(Sum("pnl"), 0.0),
+    )
+    html = render_to_string("realized/_table.html", {"trades": qs}, request=request)
+    summary = render_to_string("realized/_summary.html", {"agg": agg}, request=request)
+    return JsonResponse({"ok": True, "table": html, "summary": summary})
+
+# ---- 削除（HTMX で行だけ差し替え） ----
 @login_required
 @require_POST
 def delete(request, pk: int):
-    obj = get_object_or_404(RealizedTrade, pk=pk, user=request.user)
-    obj.delete()
-    return JsonResponse({"ok": True})
+    RealizedTrade.objects.filter(pk=pk).delete()
+    # 現状のテーブルを返す（クエリ維持）
+    q = (request.POST.get("q") or "").strip()
+    qs = RealizedTrade.objects.all().order_by("-date", "-id")
+    if q:
+        qs = qs.filter(ticker__icontains=q)
+    agg = qs.aggregate(
+        n=Count("id"),
+        qty=Coalesce(Sum("qty"), 0),
+        fee=Coalesce(Sum("fee"), 0.0),
+        tax=Coalesce(Sum("tax"), 0.0),
+        pnl=Coalesce(Sum("pnl"), 0.0),
+    )
+    html = render_to_string("realized/_table.html", {"trades": qs}, request=request)
+    summary = render_to_string("realized/_summary.html", {"agg": agg}, request=request)
+    return JsonResponse({"ok": True, "table": html, "summary": summary})
+    
