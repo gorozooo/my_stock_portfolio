@@ -1,183 +1,99 @@
 {% extends "base.html" %}
 {% load static %}
-
 {% block title %}実現損益{% endblock %}
 
 {% block head %}
-<style>
-  /* 追加の微調整（Tailwindで足りないところだけ） */
-  .glass {
-    background: rgba(33, 38, 55, .6);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255,255,255,.06);
-  }
-  .card {
-    @apply rounded-xl p-4 glass;
-  }
-  .pill {
-    @apply rounded-lg px-4 py-3 text-sm font-semibold glass;
-  }
-  .pos { color:#22c55e }
-  .neg { color:#ef4444 }
-  .tbl th { @apply text-slate-300 font-semibold text-xs uppercase tracking-wide; }
-  .tbl td { @apply text-sm; }
-  .tbl tr:hover td { @apply bg-slate-800/30; }
-  .tbl thead th { position: sticky; top: 0; background-color: rgba(2,6,23,.9); backdrop-filter: blur(4px); }
-  .field-label { @apply text-xs text-slate-400; }
-  .field { @apply h-12 rounded-xl bg-slate-800/60 border border-slate-700/60 px-4 text-slate-100 placeholder-slate-400; }
-  .btn-primary {
-    @apply h-12 rounded-xl w-full text-center font-semibold;
-    background: linear-gradient(135deg, #6366f1, #7c3aed);
-  }
-  .btn-primary:active { transform: translateY(1px); }
-</style>
+<link rel="stylesheet" href="{% static 'css/realized.css' %}?v=2">
 {% endblock %}
 
 {% block content %}
-<h1 class="text-2xl font-bold mb-4">実現損益</h1>
+<div class="pnl">
+  <h1>実現損益</h1>
 
-<!-- 入力フォーム -->
-<form id="realizedForm" class="card mb-4 space-y-3" autocomplete="off">
-  <div class="grid grid-cols-2 gap-3">
-    <div>
-      <label class="field-label">日付</label>
-      <input type="date" name="trade_at" class="field w-full" value="{{ today|default:'' }}">
-    </div>
-    <div>
-      <label class="field-label">ティッカー</label>
-      <input type="text" name="ticker" inputmode="latin" placeholder="例: 7203 / AAPL" class="field w-full uppercase">
+  <!-- 入力フォーム -->
+  <form id="pnlForm" class="formgrid"
+        hx-post="{% url 'realized_create' %}"
+        hx-target="#pnlTableWrap"
+        hx-swap="outerHTML">
+    {% csrf_token %}
+
+    <div class="fi">
+      <label>日付</label>
+      <input type="date" name="trade_at">
     </div>
 
-    <div>
-      <label class="field-label">Side</label>
-      <select name="side" class="field w-full">
-        <option value="SELL" selected>SELL</option>
-        <option value="BUY">BUY</option>
+    <div class="fi">
+      <label>ティッカー</label>
+      <input type="text" name="ticker" placeholder="例: 7203 / AAPL" inputmode="latin" autocapitalize="characters">
+    </div>
+
+    <div class="fi">
+      <label>Side</label>
+      <select name="side">
+        <option>SELL</option>
+        <option>BUY</option>
       </select>
     </div>
-    <div>
-      <label class="field-label">数量</label>
-      <input type="number" name="qty" min="1" step="1" class="field w-full" placeholder="数量">
+
+    <div class="fi">
+      <label>数量</label>
+      <input type="number" name="qty" inputmode="numeric" placeholder="数量">
     </div>
 
-    <div>
-      <label class="field-label">価格</label>
-      <input type="number" name="price" min="0" step="0.01" class="field w-full" placeholder="価格">
-    </div>
-    <div>
-      <label class="field-label">手数料</label>
-      <input type="number" name="fee" min="0" step="0.01" class="field w-full" placeholder="手数料">
+    <div class="fi">
+      <label>価格</label>
+      <input type="number" name="price" inputmode="decimal" step="0.01" placeholder="価格">
     </div>
 
-    <div>
-      <label class="field-label">税</label>
-      <input type="number" name="tax" min="0" step="0.01" class="field w-full" placeholder="税">
+    <div class="fi">
+      <label>手数料</label>
+      <input type="number" name="fee" inputmode="decimal" step="0.01" placeholder="手数料">
     </div>
-    <div>
-      <label class="field-label">メモ</label>
-      <input type="text" name="memo" class="field w-full" placeholder="任意メモ">
+
+    <div class="fi">
+      <label>税</label>
+      <input type="number" name="tax" inputmode="decimal" step="0.01" placeholder="税">
     </div>
+
+    <div class="fi">
+      <label>メモ</label>
+      <input type="text" name="memo" placeholder="任意メモ">
+    </div>
+
+    <div class="fi fi-full">
+      <button type="submit" class="btn-primary">追加</button>
+    </div>
+
+    <!-- 検索 -->
+    <div class="fi fi-full">
+      <input type="search" name="q" value="{{ q|default:'' }}" id="q"
+             placeholder="ティッカーで検索"
+             hx-get="{% url 'realized_table_partial' %}"
+             hx-target="#pnlTableWrap"
+             hx-trigger="keyup changed delay:300ms, search"
+             hx-include="#q">
+    </div>
+  </form>
+
+  <!-- サマリー -->
+  <div id="pnlSummaryWrap"
+       hx-get="{% url 'realized_summary_partial' %}?q={{ q|urlencode }}"
+       hx-trigger="load, pnl:refresh from:body"
+       hx-swap="outerHTML">
+    {% include "realized/_summary.html" with agg=agg %}
   </div>
 
-  <button type="submit" class="btn-primary">追加</button>
-</form>
+  <!-- CSV -->
+  <div class="csv-link">
+    <a href="{% url 'realized_export_csv' %}?q={{ q|urlencode }}">CSVエクスポート</a>
+  </div>
 
-<!-- 検索 + サマリー -->
-<div class="mb-3 grid grid-cols-1 gap-3">
-  <input id="q" type="search" class="field w-full" placeholder="ティッカーで検索" value="{{ q|default:'' }}">
-  <div id="summary" class="grid grid-cols-4 gap-3">
-    {% include "realized/_summary.html" %}
+  <!-- テーブル -->
+  <div id="pnlTableWrap"
+       hx-get="{% url 'realized_table_partial' %}?q={{ q|urlencode }}"
+       hx-trigger="load, pnl:refresh from:body"
+       hx-swap="outerHTML">
+    {% include "realized/_table.html" with trades=trades %}
   </div>
 </div>
-
-<!-- CSVリンク -->
-<div class="flex justify-end mb-2">
-  <a href="{% url 'realized_export_csv' %}?q={{ q|urlencode }}" class="text-sky-300 text-sm underline">CSVエクスポート</a>
-</div>
-
-<!-- テーブル -->
-<div class="card p-0 overflow-hidden">
-  <table class="tbl w-full">
-    <thead>
-      <tr class="border-b border-slate-800/60">
-        <th class="text-left p-3">日付</th>
-        <th class="text-left p-3">銘柄</th>
-        <th class="text-left p-3">Side</th>
-        <th class="text-right p-3">数量</th>
-        <th class="text-right p-3">価格</th>
-        <th class="text-right p-3">手数料</th>
-        <th class="text-right p-3">税</th>
-        <th class="text-right p-3">実現損益</th>
-        <th class="p-3"></th>
-      </tr>
-    </thead>
-    <tbody id="table-body">
-      {% include "realized/_table.html" %}
-    </tbody>
-  </table>
-  {% if trades|length == 0 %}
-    <div class="p-6 text-slate-400 text-sm">データなし</div>
-  {% endif %}
-</div>
-
-<script>
-  // 追加: fetchで作成→部分更新（views.realized.create は JSON 返却）
-  const form = document.getElementById('realizedForm');
-  const tbody = document.getElementById('table-body');
-  const summary = document.getElementById('summary');
-  const qEl = document.getElementById('q');
-
-  function params() {
-    const fd = new FormData(form);
-    if (qEl.value) fd.append('q', qEl.value.trim());
-    return fd;
-  }
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    try {
-      const r = await fetch("{% url 'realized_create' %}", { method: 'POST', body: params(), headers: {'X-CSRFToken': '{{ csrf_token }}'} });
-      const j = await r.json();
-      if (j.ok){
-        tbody.innerHTML = j.table;
-        summary.innerHTML = j.summary;
-        form.reset();
-      } else {
-        alert(j.error || '登録に失敗しました');
-      }
-    } catch(err){ alert('通信エラー: '+ err); }
-  });
-
-  // 検索してテーブル＆サマリー差し替え
-  let t;
-  qEl.addEventListener('input', () => {
-    clearTimeout(t);
-    t = setTimeout(async () => {
-      const url = "{% url 'realized_table_partial' %}" + "?q=" + encodeURIComponent(qEl.value.trim());
-      const url2 = "{% url 'realized_summary_partial' %}" + "?q=" + encodeURIComponent(qEl.value.trim());
-      const [r1, r2] = await Promise.all([fetch(url), fetch(url2)]);
-      tbody.innerHTML = await r1.text();
-      summary.innerHTML = await r2.text();
-    }, 250);
-  });
-
-  // 削除（イベントデリゲート）
-  tbody.addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-del]');
-    if (!btn) return;
-    if (!confirm('削除しますか？')) return;
-
-    const pk = btn.getAttribute('data-del');
-    const fd = new FormData();
-    fd.append('q', qEl.value.trim());
-    try {
-      const r = await fetch(`/realized/delete/${pk}`, { method: 'POST', body: fd, headers: {'X-CSRFToken': '{{ csrf_token }}'} });
-      const j = await r.json();
-      if (j.ok){
-        tbody.innerHTML = j.table;
-        summary.innerHTML = j.summary;
-      }
-    } catch(err){ alert('通信エラー: '+ err); }
-  });
-</script>
 {% endblock %}
