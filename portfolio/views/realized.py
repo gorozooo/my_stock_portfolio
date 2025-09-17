@@ -258,24 +258,31 @@ def close_submit(request, pk: int):
 
     memo = (request.POST.get("memo") or "").strip()
 
-    # Holding は quantity を使用
+    # ★ Holding は quantity を使う
     if qty <= 0 or price <= 0 or qty > h.quantity:
         return JsonResponse({"ok": False, "error": "数量/価格を確認してください"}, status=400)
 
-    # 登録（pnl は保存しない）
+    # 実現損益レコード作成（pnlは保存しない）
     RealizedTrade.objects.create(
-        user=request.user, trade_at=trade_at, side=side, ticker=h.ticker,
-        qty=qty, price=price, fee=fee, tax=tax, memo=memo
+        user=request.user,
+        trade_at=trade_at,
+        side=side,
+        ticker=h.ticker,
+        qty=qty,
+        price=price,
+        fee=fee,
+        tax=tax,
+        memo=memo,
     )
 
-    # 保有数量を減算（0なら削除）
+    # ★ 保有数量を減算（quantity で統一）
     h.quantity = F("quantity") - qty
     h.save(update_fields=["quantity"])
     h.refresh_from_db()
     if h.quantity <= 0:
         h.delete()
 
-    # 最新テーブル/サマリー/（あれば）保有一覧断片を返す
+    # テーブル/サマリーを再描画（あなたのヘルパとテンプレに合わせて）
     q = (request.POST.get("q") or "").strip()
     qs = RealizedTrade.objects.all().order_by("-trade_at", "-id")
     if q:
@@ -287,7 +294,7 @@ def close_submit(request, pk: int):
     table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
     summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
 
-    # 保有一覧の部分テンプレが存在しない環境でも落ちないように
+    # 保有一覧（存在しない場合は空文字で返す）
     try:
         holdings_html = render_to_string(
             "holdings/_list.html",
@@ -301,5 +308,5 @@ def close_submit(request, pk: int):
         "ok": True,
         "table": table_html,
         "summary": summary_html,
-        "holdings": holdings_html
+        "holdings": holdings_html,
     })
