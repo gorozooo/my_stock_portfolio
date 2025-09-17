@@ -27,13 +27,10 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-
-    # 追加（HTMX連携）
     'django_htmx',
-
     # ここに自作アプリを足していきます（作ったらコメントアウト解除）
      'portfolio',
-    # 'analytics',
+     'django.contrib.humanize',
 ]
 
 MIDDLEWARE = [
