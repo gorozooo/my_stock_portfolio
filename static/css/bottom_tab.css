@@ -20,7 +20,7 @@
   max-width: 680px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: repeat(4, 1fr); /* ← 3→4 に修正 */
+  grid-template-columns: repeat(4, 1fr); /*下タブの数 ← 3→4 に修正 */
   gap: 2px;
 }
 
