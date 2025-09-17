@@ -1,19 +1,42 @@
-{% for t in trades %}
-<tr class="border-b border-slate-800/50">
-  <td class="p-3">{{ t.trade_at|date:"Y-m-d" }}</td>
-  <td class="p-3 font-semibold">{{ t.ticker }}</td>
-  <td class="p-3">{{ t.side }}</td>
-  <td class="p-3 text-right">{{ t.qty }}</td>
-  <td class="p-3 text-right">{{ t.price|floatformat:2 }}</td>
-  <td class="p-3 text-right">{{ t.fee|floatformat:0 }}</td>
-  <td class="p-3 text-right">{{ t.tax|floatformat:0 }}</td>
-  {% with val=t.pnl %}
-  <td class="p-3 text-right {% if val >= 0 %}pos{% else %}neg{% endif %}">
-    {{ val|floatformat:0 }}
-  </td>
-  {% endwith %}
-  <td class="p-3 text-right">
-    <button data-del="{{ t.id }}" class="text-red-400 hover:text-red-300 text-sm">削除</button>
-  </td>
-</tr>
-{% endfor %}
+<!-- templates/realized/_table.html -->
+<table>
+  <thead>
+    <tr>
+      <th>日付</th>
+      <th>銘柄</th>
+      <th>Side</th>
+      <th>数量</th>
+      <th>価格</th>
+      <th>手数料</th>
+      <th>税</th>
+      <th>実現損益</th>
+      <th>操作</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for t in trades %}
+      <tr>
+        <td>{{ t.trade_at|date:"Y-m-d" }}</td>
+        <td>{{ t.ticker }}</td>
+        <td>{{ t.side }}</td>
+        <td>{{ t.qty }}</td>
+        <td>{{ t.price }}</td>
+        <td>¥{{ t.fee }}</td>
+        <td>¥{{ t.tax }}</td>
+        <td class="{% if t.pnl < 0 %}text-red-500{% else %}text-green-500{% endif %}">
+          ¥{{ t.pnl|floatformat:0 }}
+        </td>
+        <td>
+          <form hx-post="{% url 'realized_delete' t.id %}"
+                hx-target="#pnlTableWrap"
+                hx-swap="outerHTML">
+            {% csrf_token %}
+            <button type="submit">削除</button>
+          </form>
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="9">データなし</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
