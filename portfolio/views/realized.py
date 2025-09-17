@@ -232,7 +232,7 @@ def close_sheet(request, pk: int):
         }
     }
     html = render_to_string("realized/_close_sheet.html", ctx, request=request)
-    return JsonResponse({"ok": True, "sheet": html})
+    return HttpResponse(html, content_type="text/html; charset=utf-8")
 
 @login_required
 @require_POST
