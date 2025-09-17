@@ -14,8 +14,9 @@ from django.shortcuts import render
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
+from django.db import transaction
 
-from ..models import RealizedTrade
+from ..models import Holding, RealizedTrade
 import csv
 from django.utils.encoding import smart_str
 
@@ -187,3 +188,74 @@ def summary_partial(request):
         qs = qs.filter(ticker__icontains=q)
     agg = _aggregate(qs)
     return render(request, "realized/_summary.html", {"agg": agg, "q": q})
+    
+@login_required
+@require_GET
+def close_sheet(request, pk: int):
+    h = get_object_or_404(Holding, pk=pk, user=request.user)
+    # 直近の手数料/税（あるなら）を既定値に
+    last = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at").first()
+    ctx = {
+        "h": h,
+        "prefill": {
+            "date": timezone.now().date(),
+            "side": "SELL",
+            "ticker": h.ticker,
+            "qty": h.qty,                 # 既定は全量
+            "price": "",                  # 価格だけ入力してもらう
+            "fee":  last.fee if last else 0,
+            "tax":  last.tax if last else 0,
+            "memo": "",
+        }
+    }
+    html = render_to_string("realized/_close_sheet.html", ctx, request=request)
+    return JsonResponse({"ok": True, "sheet": html})
+
+@login_required
+@require_POST
+@transaction.atomic
+def close_submit(request, pk: int):
+    h = get_object_or_404(Holding, pk=pk, user=request.user)
+    date   = request.POST.get("date") or timezone.now().date()
+    side   = "SELL"
+    qty    = int(request.POST.get("qty") or 0)
+    price  = float(request.POST.get("price") or 0)
+    fee    = float(request.POST.get("fee") or 0)
+    tax    = float(request.POST.get("tax") or 0)
+    memo   = request.POST.get("memo") or ""
+
+    if qty <= 0 or price <= 0 or qty > h.qty:
+        return JsonResponse({"ok": False, "error": "数量/価格を確認してください"}, status=400)
+
+    # 実現損益（単純：売却代金-手数料-税。細かい原価処理は後述）
+    pnl = qty * price - fee - tax
+
+    RealizedTrade.objects.create(
+        user=request.user, trade_at=date, side=side, ticker=h.ticker,
+        qty=qty, price=price, fee=fee, tax=tax, memo=memo, pnl=pnl
+    )
+
+    # 保有数量を減算（0ならクローズ）
+    h.qty = F("qty") - qty
+    h.save(update_fields=["qty"])
+    h.refresh_from_db()
+    if h.qty <= 0:
+        h.delete()  # もしくは status=closed に
+
+    # 最新テーブル/サマリー/保有一覧の断片を返す（HTMX差替え）
+    q = (request.POST.get("q") or "").strip()
+    qs = RealizedTrade.objects.filter(user=request.user)
+    if q: qs = qs.filter(ticker__icontains=q)
+    qs = qs.order_by("-trade_at", "-id")
+    agg = qs.aggregate(
+        n=Count("id"),
+        qty=Coalesce(Sum("qty"), 0),
+        fee=Coalesce(Sum("fee", output_field=FloatField()), 0.0),
+        tax=Coalesce(Sum("tax", output_field=FloatField()), 0.0),
+        pnl=Coalesce(Sum("pnl", output_field=FloatField()), 0.0),
+    )
+    table_html   = render_to_string("realized/_table.html",   {"trades": qs}, request=request)
+    summary_html = render_to_string("realized/_summary.html", {"agg": agg},   request=request)
+    holdings_html = render_to_string("holdings/_list.html", {"holdings": Holding.objects.filter(user=request.user)}, request=request)
+
+    return JsonResponse({"ok": True, "table": table_html, "summary": summary_html, "holdings": holdings_
