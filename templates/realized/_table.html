@@ -4,7 +4,19 @@
 <div id="pnlTableWrap" class="mt-4">
   <div class="rounded-2xl ring-1 ring-white/10 bg-white/5 shadow overflow-hidden">
     <div class="overflow-x-auto">
-      <table class="min-w-full text-sm tabular-nums">
+      <table class="min-w-full table-fixed text-sm leading-tight tabular-nums">
+        <colgroup>
+          <col class="w-24">   {# 日付 YYYY-MM-DD #}
+          <col class="w-28">   {# 銘柄 #}
+          <col class="w-12">   {# Side #}
+          <col class="w-20">   {# 数量 #}
+          <col class="w-24">   {# 価格 #}
+          <col class="w-20">   {# 手数料 #}
+          <col class="w-16">   {# 税 #}
+          <col class="w-28">   {# 実現損益 #}
+          <col class="w-14">   {# 操作 #}
+        </colgroup>
+
         <thead class="bg-white/10 sticky top-0 backdrop-blur">
           <tr class="text-slate-300">
             <th class="px-3 py-2 text-left  whitespace-nowrap">日付</th>
@@ -24,44 +36,41 @@
             {% for t in trades %}
               <tr class="hover:bg-white/5">
                 <td class="px-3 py-2 whitespace-nowrap">{{ t.trade_at|date:"Y-m-d" }}</td>
-                <td class="px-3 py-2 whitespace-nowrap">{{ t.ticker }}</td>
-                <td class="px-3 py-2 text-center">
-                  <span class="inline-flex items-center px-2 py-0.5 rounded-md
-                      {% if t.side == 'SELL' %}
-                        bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/20
-                      {% else %}
-                        bg-sky-500/15 text-sky-200 ring-1 ring-sky-400/20
-                      {% endif %}">
-                    {{ t.side }}
-                  </span>
+                <td class="px-3 py-2 whitespace-nowrap">
+                  <span class="truncate block" title="{{ t.ticker }}">{{ t.ticker }}</span>
                 </td>
-                <td class="px-3 py-2 text-right">{{ t.qty|intcomma }}</td>
-                <td class="px-3 py-2 text-right">¥{{ t.price|floatformat:0|intcomma }}</td>
-                <td class="px-3 py-2 text-right">¥{{ t.fee|floatformat:0|intcomma }}</td>
-                <td class="px-3 py-2 text-right">¥{{ t.tax|floatformat:0|intcomma }}</td>
-                <td class="px-3 py-2 text-right">
+                <td class="px-3 py-2 text-center whitespace-nowrap">
+                  {% if t.side == 'SELL' %}
+                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-md bg-emerald-500/20 text-emerald-200 ring-1 ring-emerald-400/25 text-xs">S</span>
+                  {% else %}
+                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-md bg-sky-500/20 text-sky-200 ring-1 ring-sky-400/25 text-xs">L</span>
+                  {% endif %}
+                </td>
+                <td class="px-3 py-2 text-right whitespace-nowrap">{{ t.qty|intcomma }}</td>
+                <td class="px-3 py-2 text-right whitespace-nowrap">¥{{ t.price|floatformat:0|intcomma }}</td>
+                <td class="px-3 py-2 text-right whitespace-nowrap">¥{{ t.fee|floatformat:0|intcomma }}</td>
+                <td class="px-3 py-2 text-right whitespace-nowrap">¥{{ t.tax|floatformat:0|intcomma }}</td>
+                <td class="px-3 py-2 text-right whitespace-nowrap">
                   {% with v=t.pnl_calc %}
-                  <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
-                    ¥{{ v|floatformat:0|intcomma }}
-                  </span>
+                    <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+                      ¥{{ v|floatformat:0|intcomma }}
+                    </span>
                   {% endwith %}
                 </td>
-                <td class="px-3 py-2 text-right">
+                <td class="px-3 py-2 text-right whitespace-nowrap">
                   <form
                     hx-post="{% url 'realized_delete' t.id %}"
                     hx-target="#pnlTableWrap"
                     hx-swap="outerHTML">
                     {% csrf_token %}
-                    <button class="text-slate-300 hover:text-rose-300 underline underline-offset-2">
-                      削除
-                    </button>
+                    <button class="text-slate-300 hover:text-rose-300 underline underline-offset-2">削除</button>
                   </form>
                 </td>
               </tr>
             {% endfor %}
           {% else %}
             <tr>
-              <td colspan="9" class="px-3 py-6 text-center text-slate-400">データなし</td>
+              <td colspan="9" class="px-3 py-6 text-center text-slate-400 whitespace-nowrap">データなし</td>
             </tr>
           {% endif %}
         </tbody>
