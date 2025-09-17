@@ -1,38 +1,86 @@
 {% extends "base.html" %}
 {% block title %}実現損益{% endblock %}
 {% block content %}
-<h2 class="text-lg font-semibold mb-2">実現損益</h2>
+<h1 class="text-xl font-semibold mb-3">実現損益</h1>
 
-<!-- 追加フォーム（HTMXで送信→テーブルだけリロード） -->
-<form id="rt-form" class="grid grid-cols-2 gap-2 mb-3"
+<!-- 追加フォーム（HTMXでPOSTし、テーブルとサマリを差し替え） -->
+<form id="rzForm" class="grid grid-cols-2 gap-3 mb-3"
       hx-post="{% url 'realized_create' %}"
-      hx-on::after-request="this.reset(); htmx.ajax('GET','{% url 'realized_table_partial' %}', {target:'#rt-table', swap:'innerHTML'})">
-  {% csrf_token %}
-  <input name="trade_at" type="date" class="border rounded px-2 py-1" required>
-  <input name="ticker"   placeholder="例: 7203 / AAPL" class="border rounded px-2 py-1" required>
-  <select name="side" class="border rounded px-2 py-1">
-    <option value="SELL">SELL</option><option value="BUY">BUY</option>
+      hx-trigger="submit"
+      hx-target="#rzTable"
+      hx-swap="outerHTML"
+      onsubmit="return submitRealized(event)">
+  <input type="date"   name="date"  class="input" value="{{ today|default:None }}">
+  <input type="text"   name="ticker" placeholder="例: 7203 / AAPL" class="input" required>
+  <select name="side"  class="input">
+    <option value="SELL">SELL</option>
+    <option value="BUY">BUY</option>
   </select>
-  <input name="qty"   type="number" step="1" min="1" class="border rounded px-2 py-1" placeholder="数量" required>
-  <input name="price" type="number" step="0.01" min="0" class="border rounded px-2 py-1" placeholder="価格" required>
-  <input name="fee"   type="number" step="0.01" min="0" class="border rounded px-2 py-1" placeholder="手数料">
-  <input name="tax"   type="number" step="0.01" min="0" class="border rounded px-2 py-1" placeholder="税">
-  <input name="memo"  placeholder="メモ" class="border rounded px-2 py-1 col-span-1">
-  <button class="bg-indigo-600 text-white rounded px-3 py-1">追加</button>
+  <input type="number" name="qty"   placeholder="数量" class="input" min="1" required>
+  <input type="number" name="price" placeholder="価格" class="input" step="0.01" required>
+  <input type="number" name="fee"   placeholder="手数料" class="input" step="0.01">
+  <input type="number" name="tax"   placeholder="税" class="input" step="0.01">
+  <input type="text"   name="memo"  placeholder="メモ" class="input">
+  <button class="col-span-2 btn-primary">追加</button>
+  <input type="hidden" name="q" value="{{ q }}">
 </form>
 
 <!-- 検索 -->
-<div class="mb-2">
-  <input id="rt-q" class="border rounded px-2 py-1 w-full" placeholder="ティッカーで検索"
-         hx-get="{% url 'realized_table_partial' %}" hx-target="#rt-table" hx-trigger="keyup changed delay:300ms"
-         hx-include="#rt-q">
+<form class="mb-3" method="get" action="{% url 'realized_list' %}">
+  <input class="input w-full" type="search" name="q" placeholder="ティッカーで検索" value="{{ q }}">
+</form>
+
+<!-- サマリー -->
+<div id="rzSummary">
+  {% include "realized/_summary.html" with agg=agg %}
 </div>
 
-<!-- 一覧テーブル -->
-<div id="rt-table"
-     hx-get="{% url 'realized_table_partial' %}"
-     hx-trigger="load"
-     hx-swap="innerHTML">
-  <!-- 部分テンプレが差し込まれる -->
+<!-- テーブル -->
+<div id="rzTable">
+  {% include "realized/_table.html" with trades=trades %}
 </div>
+
+<!-- ちょいCSS -->
+<style>
+.input{background:#111827;border:1px solid #1f2937;border-radius:12px;padding:10px 12px}
+.btn-primary{background:#4f46e5;border:none;color:#fff;border-radius:12px;padding:10px 12px}
+.action-link{color:#93c5fd}
+</style>
+
+<script>
+async function submitRealized(e){
+  e.preventDefault();
+  const f = e.target;
+  const r = await fetch(f.getAttribute('hx-post'), {
+    method: 'POST',
+    headers: {'X-Requested-With':'XMLHttpRequest'},
+    body: new FormData(f)
+  });
+  const j = await r.json();
+  if (j.ok){
+    document.querySelector('#rzTable').outerHTML = j.table;
+    document.querySelector('#rzSummary').innerHTML = j.summary;
+    f.reset();
+  }else{
+    alert(j.error || '登録に失敗しました');
+  }
+  return false;
+}
+
+// 削除ボタン（テーブル側で data-id を持つ）
+async function deleteTrade(id){
+  if(!confirm('この行を削除しますか？')) return;
+  const fd = new FormData(); fd.append('q', '{{ q }}');
+  const r = await fetch("{% url 'realized_delete' 0 %}".replace('/0','/'+id), {
+    method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body: fd
+  });
+  const j = await r.json();
+  if (j.ok){
+    document.querySelector('#rzTable').outerHTML = j.table;
+    document.querySelector('#rzSummary').innerHTML = j.summary;
+  }else{
+    alert('削除に失敗しました');
+  }
+}
+</script>
 {% endblock %}
