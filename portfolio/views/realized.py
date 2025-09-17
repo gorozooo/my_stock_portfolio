@@ -186,9 +186,8 @@ def close_sheet(request, pk: int):
             "memo": "",
         }
     }
-    html = render_to_string("realized/_close_sheet.html", ctx, request=request)
-    return JsonResponse({"ok": True, "sheet": html})
-
+    return render(request, "realized/_close_sheet.html", ctx)
+    
 @login_required
 @require_POST
 @transaction.atomic
