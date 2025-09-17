@@ -1,0 +1,123 @@
+/* ===== 実現損益ページ: 見やすさ調整 ===== */
+.pnl{max-width:720px;margin:0 auto}
+.pnl h1{font-size:24px;font-weight:700;margin:6px 0 14px}
+
+/* フォーム */
+.formgrid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+}
+.fi{display:flex;flex-direction:column;gap:6px}
+.fi-full{grid-column:1 / -1}
+
+/* ラベルは控えめに */
+.fi label{
+  font-size:12px;
+  color:#9aa3bd;
+  font-weight:600;
+  letter-spacing:.02em;
+}
+
+/* 入力欄を主役に（暗色/丸み） */
+.fi input[type="text"],
+.fi input[type="date"],
+.fi input[type="number"],
+.fi input[type="search"],
+.fi select{
+  appearance:none;-webkit-appearance:none;
+  width:100%;
+  border:1px solid rgba(255,255,255,.08);
+  background:#1a1f2d;
+  color:#e9ecff;
+  border-radius:12px;
+  padding:12px 14px;
+  font-size:15px;
+  outline:none;
+}
+.fi input::placeholder{color:#7380a8}
+
+/* セレクト矢印（iOS対策：背景に簡易アイコン） */
+.fi select{
+  background-image: linear-gradient(45deg, transparent 50%, #9aa3bd 50%),
+                    linear-gradient(135deg, #9aa3bd 50%, transparent 50%);
+  background-position: calc(100% - 18px) calc(50% - 3px),
+                       calc(100% - 12px) calc(50% - 3px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 36px;
+}
+
+/* 追加ボタン */
+.btn-primary{
+  width:100%;
+  border:0;
+  border-radius:12px;
+  padding:12px 14px;
+  font-weight:700;
+  background:linear-gradient(180deg,#5866f2,#4653e6);
+  color:#fff;
+  box-shadow:0 6px 16px rgba(82,102,255,.25);
+}
+.btn-primary:active{transform:translateY(1px)}
+
+/* サマリーカード */
+.summary-grid{
+  display:grid;
+  grid-template-columns: repeat(4,1fr);
+  gap:10px;
+  margin:8px 0 2px;
+}
+.sum-card{
+  border:1px solid rgba(255,255,255,.08);
+  background:#121724;
+  border-radius:12px;
+  padding:10px 12px;
+}
+.sum-card .k{font-size:12px;color:#9aa3bd}
+.sum-card .v{font-size:18px;font-weight:700;margin-top:2px}
+.sum-card .v.negative{color:#ff6b6b}
+.sum-card .v.positive{color:#34d399}
+
+/* CSVリンク */
+.csv-link{margin:10px 0 6px;text-align:right}
+.csv-link a{color:#a8c5ff;text-decoration:underline}
+
+/* テーブル */
+.pnl table{
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0;
+  font-size:14px;
+}
+.pnl thead th{
+  position:sticky; top:0;
+  background:#0d1320;
+  color:#aab2d3;
+  font-weight:600;
+  text-align:left;
+  padding:10px 10px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.pnl tbody td{
+  padding:12px 10px;
+  border-bottom:1px solid rgba(255,255,255,.06);
+  color:#e6e9ff;
+  vertical-align:top;
+  word-break:break-word;
+}
+.pnl tbody tr:nth-child(odd){background:rgba(255,255,255,.02)}
+.pnl tbody tr:hover{background:rgba(255,255,255,.04)}
+
+/* テーブル内トーン */
+.pnl .text-red-500{color:#ff6b6b}
+.pnl .text-green-500{color:#34d399}
+
+/* 小型端末（幅 <= 380px）で1列フォームに落とす */
+@media (max-width: 380px){
+  .formgrid{grid-template-columns:1fr}
+  .summary-grid{grid-template-columns: repeat(2,1fr)}
+}
+
+/* iOSセーフエリアの下余白を確保（下タブと干渉しないよう） */
+.pnl{padding-bottom: max(24px, env(safe-area-inset-bottom))}
