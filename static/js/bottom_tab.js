@@ -1,4 +1,4 @@
-// bottom_tab.js – Tap nav / Long-press sheet / Drag-to-close / Toast / Bounce
+// bottom_tab.js – Tap nav / Long-press sheet / Drag-to-close / Toast / Bounce (fixed)
 document.addEventListener("DOMContentLoaded", () => {
   const root    = document.getElementById("bottomTabRoot") || document.body;
   const submenu = document.getElementById("submenu");
@@ -9,14 +9,24 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ---------- 安全確認（要素が無いと動かない） ---------- */
   if (!submenu || !mask || !tabs.length) return;
 
+  /* ---------- バウンス（確実発火） ---------- */
+  function triggerBounce(btn){
+    // 競合しないよう pressing を先に外す
+    btn.classList.remove("pressing");
+    // 連続タップでも毎回再生できるよう一旦外す→強制リフロー→付け直し
+    btn.classList.remove("clicked");
+    // 強制リフロー
+    // eslint-disable-next-line no-unused-expressions
+    btn.offsetWidth;
+    btn.classList.add("clicked");
+    setTimeout(()=> btn.classList.remove("clicked"), 220);
+  }
+
   /* ---------- 押下中の押し込み & バウンス ---------- */
   function attachPressFeedback(btn){
     const addPress   = ()=> btn.classList.add("pressing");
-    const clearPress = ()=>{
-      btn.classList.remove("pressing");
-      btn.classList.add("clicked");
-      setTimeout(()=> btn.classList.remove("clicked"), 220);
-    };
+    const clearPress = ()=> triggerBounce(btn);
+
     if (window.PointerEvent){
       btn.addEventListener("pointerdown", addPress);
       btn.addEventListener("pointerup",   clearPress);
@@ -30,6 +40,11 @@ document.addEventListener("DOMContentLoaded", () => {
       btn.addEventListener("touchend",   clearPress, {passive:true});
       btn.addEventListener("touchcancel",()=> btn.classList.remove("pressing"), {passive:true});
     }
+
+    // ページ非表示時に状態が残らないように
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) btn.classList.remove("pressing");
+    });
   }
   tabs.forEach(attachPressFeedback);
 
@@ -92,9 +107,13 @@ document.addEventListener("DOMContentLoaded", () => {
       return x;
     }catch{ return "/"; }
   }
+
+  let isNavigating = false;
   function navigateTo(link){
+    if (isNavigating) return;
     const url = normPath(link || "/");
-    // UI反映
+
+    // UI反映（先にactive/トースト）
     const active = Array.from(tabs).find(b => normPath(b.dataset.link||"/") === url);
     if (active){
       tabs.forEach(b=> b.classList.remove("active"));
@@ -103,7 +122,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const label = active.querySelector("span")?.textContent?.trim() || "";
       showToast(`${label} に移動`);
     }
-    // 遷移（単純・確実）
+
+    isNavigating = true;
+    // 遷移（確実）— 小さく遅延
     setTimeout(()=>{ location.href = url; }, 60);
   }
 
@@ -154,10 +175,12 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ---------- Drag to Close（下方向のみ） ---------- */
   let drag = {startY:0, dy:0, active:false};
   const CLOSE_DISTANCE = 200;
+
   submenu.addEventListener("touchstart",(e)=>{
     if (!e.touches || !e.touches[0]) return;
     drag.startY = e.touches[0].clientY; drag.dy=0; drag.active=false;
   }, {passive:true});
+
   submenu.addEventListener("touchmove",(e)=>{
     if (!e.touches || !e.touches[0]) return;
     const dy = Math.max(0, e.touches[0].clientY - drag.startY);
@@ -171,6 +194,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const ratio = Math.min(1, dy/260);
     mask.style.opacity = String(1 - ratio*.9);
   }, {passive:false});
+
   function endDrag(){
     if (!drag.active) return;
     submenu.classList.remove("dragging");
@@ -196,15 +220,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const type = btn.dataset.menu;
     let timer=null, longPressed=false, moved=false;
 
-    // クリック（PC/キーボードでも動く）
+    // クリック（PC/キーボードでも反応）
     btn.addEventListener("click",(e)=>{
       if (longPressed){ e.preventDefault(); longPressed=false; return; }
-      btn.classList.add("clicked");
-      setTimeout(()=>btn.classList.remove("clicked"), 180);
+      triggerBounce(btn);
       if (!submenu.classList.contains("show") && link) navigateTo(link);
     });
 
-    // iOS長押し安定化（コピー/調べる抑止）
+    // iOS 長押し安定化（コピー/調べる抑止）
     btn.addEventListener("touchstart",(e)=>{
       e.preventDefault();
       longPressed=false; moved=false; clearTimeout(timer);
