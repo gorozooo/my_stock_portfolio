@@ -1,37 +1,57 @@
 {# templates/realized/_close_sheet.html #}
 <div class="sheet">
-  <div class="sheet-title">{{ h.ticker }} をクローズ</div>
-  <form hx-post="{% url 'holding_close_submit' h.id %}"
-        hx-target="#pnlTableWrap" hx-swap="outerHTML"
-        onsubmit="window.dispatchEvent(new CustomEvent('bottomtab:close'))">
+  <div class="sheet-title flex items-center justify-between">
+    <span>{{ h.ticker }} をクローズ</span>
+    <button type="button" class="text-slate-400 text-sm" data-dismiss="sheet">閉じる</button>
+  </div>
+
+  {# JS(fetch) 用: クラスと action を固定。HTMX 属性は使わない #}
+  <form class="js-close-submit-form"
+        action="{% url 'realized_close_submit' h.id %}"
+        method="post">
     {% csrf_token %}
+
     <div class="grid grid-cols-2 gap-3">
       <label class="flex flex-col gap-1">
         <span class="text-xs text-slate-400">日付</span>
-        <input name="date" type="date" value="{{ prefill.date }}" class="in" />
+        <input name="date" type="date" value="{{ prefill.date }}"
+               class="in" />
       </label>
+
       <label class="flex flex-col gap-1">
         <span class="text-xs text-slate-400">数量</span>
-        <input name="qty" type="number" min="1" max="{{ h.qty }}" value="{{ prefill.qty }}" class="in" />
+        <input name="qty" type="number" min="1" max="{{ h.qty }}"
+               value="{{ prefill.qty }}" class="in" />
         <small class="text-xs text-slate-500">保有: {{ h.qty }}</small>
       </label>
+
       <label class="flex flex-col gap-1 col-span-2">
         <span class="text-xs text-slate-400">売却価格</span>
-        <input name="price" inputmode="decimal" placeholder="例: 1234.5" class="in" />
+        <input name="price" inputmode="decimal" placeholder="例: 1234.5"
+               class="in" />
       </label>
+
       <label class="flex flex-col gap-1">
         <span class="text-xs text-slate-400">手数料</span>
-        <input name="fee" inputmode="decimal" value="{{ prefill.fee }}" class="in" />
+        <input name="fee" inputmode="decimal" value="{{ prefill.fee }}"
+               class="in" />
       </label>
+
       <label class="flex flex-col gap-1">
         <span class="text-xs text-slate-400">税</span>
-        <input name="tax" inputmode="decimal" value="{{ prefill.tax }}" class="in" />
+        <input name="tax" inputmode="decimal" value="{{ prefill.tax }}"
+               class="in" />
       </label>
+
       <label class="flex flex-col gap-1 col-span-2">
         <span class="text-xs text-slate-400">メモ</span>
         <input name="memo" placeholder="任意メモ" class="in" />
       </label>
     </div>
-    <button class="btn-primary w-full mt-4">売却を記録</button>
+
+    <div class="mt-4 flex gap-2">
+      <button type="button" class="btn w-1/3" data-dismiss="sheet">キャンセル</button>
+      <button type="submit" class="btn-primary w-2/3">売却を記録</button>
+    </div>
   </form>
 </div>
