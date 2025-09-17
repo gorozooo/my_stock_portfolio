@@ -35,12 +35,13 @@
             <div class="mt-3 grid grid-cols-3 gap-2 text-sm">
               <!-- 売却（クローズ） -->
               <button
-                type="button"  <!-- ★ 既定のsubmit衝突を防止 -->
+                type="button"
                 class="px-3 py-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-200 ring-1 ring-rose-400/25 transition"
                 hx-get="{% url 'realized_close_sheet' r.id %}"
                 hx-target="#sheetRoot"
                 hx-swap="innerHTML"
                 aria-label="売却（クローズ）"
+                data-action="open-close-sheet"
               >
                 💱 売却（クローズ）
               </button>
@@ -83,16 +84,25 @@
   </div>
 
   <!-- 売却シートの差し込み先（HTMXがここへ描画） -->
-  <div id="sheetRoot"></div>
+  <div id="sheetRoot" aria-live="polite"></div>
 
   {# ---- inline helper: 売却シートの送信/閉じる配線（HTMXで差し込まれた後に実行） ---- #}
   <script>
     (function () {
       const sheetRoot = document.getElementById('sheetRoot');
 
+      // 2連打防止（任意）
+      document.querySelectorAll('[data-action="open-close-sheet"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          btn.disabled = true;
+          setTimeout(() => { btn.disabled = false; }, 600);
+        });
+      });
+
       function wireSheet(root) {
         if (!root) return;
-        // close ボタン
+
+        // 閉じるボタン
         root.querySelectorAll('[data-dismiss="sheet"]').forEach(btn => {
           btn.addEventListener('click', () => { root.innerHTML = ''; }, { once: true });
         });
@@ -101,21 +111,30 @@
         const form = root.querySelector('.js-close-submit-form');
         if (!form) return;
 
+        // 二重配線防止
+        if (form.dataset.wired === '1') return;
+        form.dataset.wired = '1';
+
         form.addEventListener('submit', async (e) => {
           e.preventDefault();
           const fd = new FormData(form);
           try {
-            const res = await fetch(form.action, { method: 'POST', body: fd, headers: {'X-Requested-With':'fetch'} });
+            const res = await fetch(form.action, {
+              method: 'POST',
+              body: fd,
+              headers: {'X-Requested-With':'fetch'}
+            });
             const data = await res.json();
             if (!data || data.ok !== true) {
-              alert((data && data.error) || '保存に失敗しました'); return;
+              alert((data && data.error) || '保存に失敗しました');
+              return;
             }
-            // 保有一覧の差し替え（サーバーは "holdings" を返す）
+            // 保有一覧差し替え
             if (data.holdings) {
               const list = document.getElementById('holdingsListRoot');
               if (list) list.outerHTML = data.holdings;
             }
-            // 実現損益ページを開いていた場合の断片更新にも対応
+            // 実現損益ページの断片更新（開いていれば）
             if (data.table) {
               const t = document.getElementById('pnlTableWrap');
               if (t) t.outerHTML = data.table;
@@ -124,13 +143,13 @@
               const s = document.getElementById('pnlSummaryWrap');
               if (s) s.outerHTML = data.summary;
             }
-            // シート閉じる
+            // シートを閉じる
             sheetRoot.innerHTML = '';
           } catch (err) {
             console.error(err);
             alert('通信エラーが発生しました');
           }
-        }, { once: true });
+        });
       }
 
       // HTMX で sheetRoot へ差し替わった直後に配線
@@ -138,7 +157,7 @@
         if (e.target && e.target.id === 'sheetRoot') wireSheet(sheetRoot);
       });
 
-      // 直接 innerHTML を入れた場合にも一応
+      // 直接 innerHTML を入れた場合にも対応
       const mo = new MutationObserver(() => wireSheet(sheetRoot));
       mo.observe(sheetRoot, { childList: true });
     })();
