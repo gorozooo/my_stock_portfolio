@@ -1,55 +1,71 @@
+{# templates/realized/_table.html #}
 {% load humanize %}
-<style>
-  .pnl-table{width:100%; border-collapse:separate; border-spacing:0; font-size:13px; line-height:1.45}
-  .pnl-table th,.pnl-table td{padding:10px 8px; border-bottom:1px solid rgba(255,255,255,.06)}
-  .pnl-table th{position:sticky; top:0; z-index:1; background:rgba(24,28,42,.96); backdrop-filter:blur(8px); font-weight:700}
-  .pnl-table .num{font-variant-numeric:tabular-nums; text-align:right}
-  .pnl-plus{color:#34d399} .pnl-minus{color:#f87171}
-  .code{font-weight:600}
-</style>
 
-<div id="pnlTableWrap">
-  <table class="pnl-table w-full">
-    <thead>
-      <tr>
-        <th>日付</th>
-        <th>銘柄</th>
-        <th>Side</th>
-        <th class="num">数量</th>
-        <th class="num">価格</th>
-        <th class="num">原価</th>
-        <th class="num">手数料</th>
-        <th class="num">税</th>
-        <th class="num">実現損益</th>
-        <th>操作</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for t in trades %}
-        {% with pnl=t.pnl_calc %}
-        <tr>
-          <td>{{ t.trade_at|date:"Y-m-d" }}</td>
-          <td><span class="code">{{ t.ticker }}</span></td>
-          <td>{{ t.side }}</td>
-          <td class="num">{{ t.qty|intcomma }}</td>
-          <td class="num">¥{{ t.price|floatformat:0|intcomma }}</td>
-          <td class="num">{% if t.basis %}¥{{ t.basis|floatformat:0|intcomma }}{% else %}-{% endif %}</td>
-          <td class="num">¥{{ t.fee|floatformat:0|intcomma }}</td>
-          <td class="num">¥{{ t.tax|floatformat:0|intcomma }}</td>
-          <td class="num {% if pnl > 0 %}pnl-plus{% elif pnl < 0 %}pnl-minus{% endif %}">
-            ¥{{ pnl|floatformat:0|intcomma }}
-          </td>
-          <td>
-            <form hx-post="{% url 'realized_delete' t.id %}" hx-target="#pnlTableWrap" hx-swap="outerHTML">
-              {% csrf_token %}
-              <button class="underline text-slate-300">削除</button>
-            </form>
-          </td>
-        </tr>
-        {% endwith %}
-      {% empty %}
-        <tr><td colspan="10" class="text-slate-400 py-6">データなし</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div id="pnlTableWrap" class="mt-4">
+  <div class="rounded-2xl ring-1 ring-white/10 bg-white/5 shadow overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm tabular-nums">
+        <thead class="bg-white/10 sticky top-0 backdrop-blur">
+          <tr class="text-slate-300">
+            <th class="px-3 py-2 text-left  whitespace-nowrap">日付</th>
+            <th class="px-3 py-2 text-left  whitespace-nowrap">銘柄</th>
+            <th class="px-3 py-2 text-center whitespace-nowrap">Side</th>
+            <th class="px-3 py-2 text-right whitespace-nowrap">数量</th>
+            <th class="px-3 py-2 text-right whitespace-nowrap">価格</th>
+            <th class="px-3 py-2 text-right whitespace-nowrap">手数料</th>
+            <th class="px-3 py-2 text-right whitespace-nowrap">税</th>
+            <th class="px-3 py-2 text-right whitespace-nowrap">実現損益</th>
+            <th class="px-3 py-2"></th>
+          </tr>
+        </thead>
+
+        <tbody class="divide-y divide-white/10">
+          {% if trades %}
+            {% for t in trades %}
+              <tr class="hover:bg-white/5">
+                <td class="px-3 py-2 whitespace-nowrap">{{ t.trade_at|date:"Y-m-d" }}</td>
+                <td class="px-3 py-2 whitespace-nowrap">{{ t.ticker }}</td>
+                <td class="px-3 py-2 text-center">
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-md
+                      {% if t.side == 'SELL' %}
+                        bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/20
+                      {% else %}
+                        bg-sky-500/15 text-sky-200 ring-1 ring-sky-400/20
+                      {% endif %}">
+                    {{ t.side }}
+                  </span>
+                </td>
+                <td class="px-3 py-2 text-right">{{ t.qty|intcomma }}</td>
+                <td class="px-3 py-2 text-right">¥{{ t.price|floatformat:0|intcomma }}</td>
+                <td class="px-3 py-2 text-right">¥{{ t.fee|floatformat:0|intcomma }}</td>
+                <td class="px-3 py-2 text-right">¥{{ t.tax|floatformat:0|intcomma }}</td>
+                <td class="px-3 py-2 text-right">
+                  {% with v=t.pnl_calc %}
+                  <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+                    ¥{{ v|floatformat:0|intcomma }}
+                  </span>
+                  {% endwith %}
+                </td>
+                <td class="px-3 py-2 text-right">
+                  <form
+                    hx-post="{% url 'realized_delete' t.id %}"
+                    hx-target="#pnlTableWrap"
+                    hx-swap="outerHTML">
+                    {% csrf_token %}
+                    <button class="text-slate-300 hover:text-rose-300 underline underline-offset-2">
+                      削除
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="9" class="px-3 py-6 text-center text-slate-400">データなし</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
 </div>
