@@ -8,8 +8,11 @@
 
   <!-- Tailwind CDN（後でビルドに移行） -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- HTMX + Alpine -->
+
+  <!-- HTMX（deferでOK。DOMContentLoaded後に自動でhx-属性をバインド） -->
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+
+  <!-- Alpine（必要なら） -->
   <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 
   <!-- PWA -->
@@ -23,7 +26,7 @@
     }
   </script>
 
-  <!-- ▼ 追加：下タブの専用CSS -->
+  <!-- 下タブの専用CSS -->
   <link rel="stylesheet" href="{% static 'css/bottom_tab.css' %}?v=9">
 
   {% block head %}{% endblock %}
@@ -33,11 +36,23 @@
     {% block content %}{% endblock %}
   </main>
 
+  <!-- 全ページ共通：ボトムシート差し込み先（HTMXターゲット） -->
+  <div id="sheetRoot" aria-live="polite"></div>
+
   <!-- 共通下タブ（マークアップのみ） -->
   {% include "partials/bottom_tab.html" %}
 
-  <!-- ▼ 追加：下タブの専用JS（body最後で） -->
+  <!-- 下タブJS -->
   <script src="{% static 'js/bottom_tab.js' %}?v=9"></script>
-  <script src="/static/js/realized_close.js"></script>
+
+  <!-- 売却シート配線（外部JSにしているなら static 経由で） -->
+  <script src="{% static 'js/realized_close.js' %}"></script>
+
+  <!-- 簡易デバッグ：HTMXのネットワークエラーを拾う（スマホでも気づけるようアラート） -->
+  <script>
+    document.body.addEventListener('htmx:responseError', function (e) {
+      alert('読み込みに失敗しました: ' + (e.detail.xhr && e.detail.xhr.status));
+    });
+  </script>
 </body>
 </html>
