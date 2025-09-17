@@ -1,4 +1,4 @@
-// bottom_tab.js – Tap nav + Long-press bottom sheet + Toast + Drag-to-close + Bounce feedback
+// bottom_tab.js – Tap nav / Long-press sheet / Drag-to-close / Toast / Bounce
 document.addEventListener("DOMContentLoaded", () => {
   const root    = document.getElementById("bottomTabRoot") || document.body;
   const submenu = document.getElementById("submenu");
@@ -6,9 +6,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const mask    = document.querySelector(".btm-mask");
   const LONG_PRESS_MS = 500;
 
-  /* ---------- Press/Bounce feedback ---------- */
+  /* ---------- 安全確認（要素が無いと動かない） ---------- */
+  if (!submenu || !mask || !tabs.length) return;
+
+  /* ---------- 押下中の押し込み & バウンス ---------- */
   function attachPressFeedback(btn){
-    const addPress = ()=> btn.classList.add("pressing");
+    const addPress   = ()=> btn.classList.add("pressing");
     const clearPress = ()=>{
       btn.classList.remove("pressing");
       btn.classList.add("clicked");
@@ -35,7 +38,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!toast){
     toast = document.createElement("div");
     toast.id = "btmToast";
-    Object.assign(toast.style, {
+    Object.assign(toast.style,{
       position:"fixed",left:"50%",bottom:"84px",transform:"translate(-50%,24px)",
       background:"rgba(30,32,46,.96)",color:"#fff",padding:"8px 12px",fontSize:"13px",
       borderRadius:"10px",border:"1px solid rgba(255,255,255,.08)",
@@ -54,7 +57,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }, 1100);
   }
 
-  /* ---------- ページ別メニュー定義 ---------- */
+  /* ---------- メニュー定義 ---------- */
   const MENUS = {
     home: [
       { section:"クイック" },
@@ -80,7 +83,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ],
   };
 
-  /* ---------- ナビゲーション（堅牢） ---------- */
+  /* ---------- ナビゲーション（確実に遷移） ---------- */
   function normPath(p){
     try{
       const u = new URL(p, location.origin);
@@ -91,32 +94,27 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   function navigateTo(link){
     const url = normPath(link || "/");
-    // クリック効果 & トースト
+    // UI反映
     const active = Array.from(tabs).find(b => normPath(b.dataset.link||"/") === url);
     if (active){
-      // アクティブ表示（光彩はCSS側 .tab-btn.active に任せる）
       tabs.forEach(b=> b.classList.remove("active"));
       active.classList.add("active");
       if (navigator.vibrate) navigator.vibrate(8);
       const label = active.querySelector("span")?.textContent?.trim() || "";
       showToast(`${label} に移動`);
     }
-    // 遷移（フォールバック）
-    setTimeout(()=>{
-      try{ location.assign(url); }
-      catch(e){ location.href = url; }
-    }, 90);
+    // 遷移（単純・確実）
+    setTimeout(()=>{ location.href = url; }, 60);
   }
 
-  /* ---------- ボトムシート生成/表示 ---------- */
+  /* ---------- ボトムシート（生成/表示/非表示） ---------- */
   function renderMenu(type){
     const items = MENUS[type] || [];
     submenu.innerHTML = '<div class="grabber" aria-hidden="true"></div>';
     items.forEach(it=>{
       if (it.section){
         const sec = document.createElement("div");
-        sec.className = "section";
-        sec.textContent = it.section;
+        sec.className = "section"; sec.textContent = it.section;
         submenu.appendChild(sec); return;
       }
       const b = document.createElement("button");
@@ -135,7 +133,6 @@ document.addEventListener("DOMContentLoaded", () => {
     mask.classList.add("show");
     submenu.classList.add("show");
     submenu.setAttribute("aria-hidden","false");
-    // ちょいハプティック＋アイコン微振動
     btn.classList.add("shake");
     setTimeout(()=>btn.classList.remove("shake"), 320);
     if (navigator.vibrate) navigator.vibrate(10);
@@ -147,27 +144,28 @@ document.addEventListener("DOMContentLoaded", () => {
     submenu.classList.remove("dragging");
     submenu.classList.remove("show");
     submenu.setAttribute("aria-hidden","true");
+    submenu.style.transform="";             // 念のためリセット
     document.documentElement.style.overflow="";
     document.body.style.overflow="";
   }
-  if (mask) mask.addEventListener("click", hideMenu);
+  mask.addEventListener("click", hideMenu);
   submenu.addEventListener("contextmenu", e => e.preventDefault());
 
-  /* ---------- Drag to Close（下方向のみ追従） ---------- */
-  let drag = {startY:0,lastY:0,dy:0,active:false};
+  /* ---------- Drag to Close（下方向のみ） ---------- */
+  let drag = {startY:0, dy:0, active:false};
   const CLOSE_DISTANCE = 200;
   submenu.addEventListener("touchstart",(e)=>{
-    const t = e.touches[0];
-    drag.startY = drag.lastY = t.clientY; drag.dy=0; drag.active=false;
+    if (!e.touches || !e.touches[0]) return;
+    drag.startY = e.touches[0].clientY; drag.dy=0; drag.active=false;
   }, {passive:true});
   submenu.addEventListener("touchmove",(e)=>{
-    const t = e.touches[0];
-    const dy = Math.max(0, t.clientY - drag.startY);
+    if (!e.touches || !e.touches[0]) return;
+    const dy = Math.max(0, e.touches[0].clientY - drag.startY);
     if (!drag.active && dy>0 && submenu.scrollTop<=0){
       drag.active = true; submenu.classList.add("dragging");
     }
     if (!drag.active) return;
-    e.preventDefault();
+    e.preventDefault(); // スクロールを奪う
     drag.dy = dy;
     submenu.style.transform = `translateY(${dy}px)`;
     const ratio = Math.min(1, dy/260);
@@ -178,33 +176,35 @@ document.addEventListener("DOMContentLoaded", () => {
     submenu.classList.remove("dragging");
     if (drag.dy > CLOSE_DISTANCE){
       submenu.style.transition="transform .16s ease"; submenu.style.transform="translateY(110%)";
-      submenu.addEventListener("transitionend",function te(){submenu.removeEventListener("transitionend",te);
-        submenu.style.transition=""; submenu.style.transform=""; hideMenu();});
+      submenu.addEventListener("transitionend", function te(){
+        submenu.removeEventListener("transitionend", te);
+        submenu.style.transition=""; submenu.style.transform="";
+        hideMenu();
+      }, {once:true});
     }else{
       submenu.style.transition="transform .16s ease"; submenu.style.transform="translateY(0)";
-      submenu.addEventListener("transitionend",()=> submenu.style.transition="",{once:true});
+      submenu.addEventListener("transitionend", ()=>{ submenu.style.transition=""; }, {once:true});
       mask.style.opacity="";
     }
   }
   submenu.addEventListener("touchend", endDrag, {passive:true});
   submenu.addEventListener("touchcancel", endDrag, {passive:true});
 
-  /* ---------- タブ：タップ遷移 + 長押し ---------- */
+  /* ---------- タブ：タップ遷移 + 長押しでシート ---------- */
   tabs.forEach(btn=>{
     const link = btn.dataset.link;
     const type = btn.dataset.menu;
     let timer=null, longPressed=false, moved=false;
 
-    // 通常クリック（デスクトップやキーボードフォーカスからも反応）
+    // クリック（PC/キーボードでも動く）
     btn.addEventListener("click",(e)=>{
       if (longPressed){ e.preventDefault(); longPressed=false; return; }
-      // バウンス
       btn.classList.add("clicked");
       setTimeout(()=>btn.classList.remove("clicked"), 180);
       if (!submenu.classList.contains("show") && link) navigateTo(link);
     });
 
-    // iOS のコピー/調べる抑止＋長押し
+    // iOS長押し安定化（コピー/調べる抑止）
     btn.addEventListener("touchstart",(e)=>{
       e.preventDefault();
       longPressed=false; moved=false; clearTimeout(timer);
@@ -218,7 +218,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }, {passive:true});
   });
 
-  /* ---------- Active 状態反映（初期表示） ---------- */
+  /* ---------- 初期アクティブ反映 ---------- */
   (function markActive(){
     const here = normPath(location.pathname);
     tabs.forEach(b=>{
