@@ -1,22 +1,21 @@
-{% with agg=agg %}
-  <div class="pill text-slate-300">
-    <div class="text-xs opacity-70">件数</div>
-    <div class="text-lg">{{ agg.n|default:0 }}</div>
+<!-- templates/realized/_summary.html -->
+<div class="summary-grid">
+  <div class="sum-card">
+    <div class="k">件数</div>
+    <div class="v">{{ agg.n }}</div>
   </div>
-  <div class="pill text-slate-300">
-    <div class="text-xs opacity-70">数量合計</div>
-    <div class="text-lg">{{ agg.qty|default:0 }}</div>
+  <div class="sum-card">
+    <div class="k">数量合計</div>
+    <div class="v">{{ agg.qty }}</div>
   </div>
-  <div class="pill text-slate-300">
-    <div class="text-xs opacity-70">手数料</div>
-    <div class="text-lg">¥{{ agg.fee|floatformat:0|default:"0" }}</div>
+  <div class="sum-card">
+    <div class="k">手数料</div>
+    <div class="v">¥{{ agg.fee|floatformat:0 }}</div>
   </div>
-  <div class="pill">
-    <div class="text-xs opacity-70">実現損益</div>
-    {% if agg.pnl and agg.pnl|floatformat:2 >= 0 %}
-      <div class="text-lg pos">¥{{ agg.pnl|floatformat:0 }}</div>
-    {% else %}
-      <div class="text-lg neg">¥{{ agg.pnl|floatformat:0 }}</div>
-    {% endif %}
+  <div class="sum-card">
+    <div class="k">実現損益</div>
+    <div class="v {% if agg.pnl < 0 %}negative{% else %}positive{% endif %}">
+      ¥{{ agg.pnl|floatformat:0 }}
+    </div>
   </div>
-{% endwith %}
+</div>
