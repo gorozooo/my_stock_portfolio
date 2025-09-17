@@ -33,4 +33,5 @@ urlpatterns = [
     path("realized/partial/table", realized_views.table_partial, name="realized_table_partial"),
     path("realized/create", realized_views.create, name="realized_create"),
     path("realized/delete/<int:pk>", realized_views.delete, name="realized_delete"),
+    path("realized/export/csv", realized_views.export_csv, name="realized_export_csv"),
 ]
