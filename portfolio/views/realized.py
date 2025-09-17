@@ -17,6 +17,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 from django.utils.encoding import smart_str
+from django.shortcuts import render, get_object_or_404
 
 from ..models import Holding, RealizedTrade
 
@@ -206,21 +207,22 @@ def summary_partial(request):
 @require_GET
 def close_sheet(request, pk: int):
     h = get_object_or_404(Holding, pk=pk, user=request.user)
-    last = RealizedTrade.objects.filter(user=request.user).order_by('-trade_at').first()
+    last = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at").first()
     ctx = {
-      "h": h,
-      "prefill": {
-        "date": timezone.now().date(),
-        "side": "SELL",
-        "ticker": h.ticker,
-        "qty": h.qty,
-        "price": "",
-        "fee":  last.fee if last else 0,
-        "tax":  last.tax if last else 0,
-        "memo": "",
-      }
+        "h": h,
+        "prefill": {
+            "date": timezone.now().date(),
+            "side": "SELL",
+            "ticker": h.ticker,
+            "qty": h.quantity,            # ← ここ
+            "price": "",
+            "fee":  last.fee if last else 0,
+            "tax":  last.tax if last else 0,
+            "memo": "",
+        }
     }
-    return render(request, "realized/_close_sheet.html", ctx)
+    html = render_to_string("realized/_close_sheet.html", ctx, request=request)
+    return JsonResponse({"ok": True, "sheet": html})
     
 @login_required
 @require_POST
