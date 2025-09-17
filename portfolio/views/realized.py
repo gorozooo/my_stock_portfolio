@@ -17,7 +17,6 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 from django.utils.encoding import smart_str
-from django.shortcuts import render, get_object_or_404
 
 from ..models import Holding, RealizedTrade
 
@@ -33,15 +32,17 @@ def _with_pnl(qs):
       SELL:  qty*price - fee - tax
       BUY : -(qty*price) - fee - tax
     """
-    gross = F("qty") * F("price")     # Decimal 同士の乗算として扱う
-    fees  = Coalesce(F("fee"), Value(Decimal("0"), output_field=DECIMAL_2)) \
-          + Coalesce(F("tax"), Value(Decimal("0"), output_field=DECIMAL_2))
+    gross = F("qty") * F("price")  # Decimal 同士の乗算を想定
+    fees = (
+        Coalesce(F("fee"), Value(Decimal("0"), output_field=DECIMAL_2))
+        + Coalesce(F("tax"), Value(Decimal("0"), output_field=DECIMAL_2))
+    )
 
     return qs.annotate(
         pnl_calc=ExpressionWrapper(
             Case(
                 When(side="SELL", then=gross - fees),
-                When(side="BUY",  then=-(gross) - fees),
+                When(side="BUY", then=-(gross) - fees),
                 default=Value(Decimal("0")),
                 output_field=DECIMAL_2,
             ),
@@ -55,9 +56,18 @@ def _aggregate(qs):
     return qs.aggregate(
         n   = Coalesce(Count("id"), Value(0, output_field=IntegerField())),
         qty = Coalesce(Sum(F("qty")), Value(0, output_field=IntegerField())),
-        fee = Coalesce(Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DECIMAL_2))), Value(Decimal("0"), output_field=DECIMAL_2)),
-        tax = Coalesce(Sum(Coalesce(F("tax"), Value(Decimal("0"), output_field=DECIMAL_2))), Value(Decimal("0"), output_field=DECIMAL_2)),
-        pnl = Coalesce(Sum("pnl_calc", output_field=DECIMAL_2), Value(Decimal("0"), output_field=DECIMAL_2)),
+        fee = Coalesce(
+            Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DECIMAL_2))),
+            Value(Decimal("0"), output_field=DECIMAL_2)
+        ),
+        tax = Coalesce(
+            Sum(Coalesce(F("tax"), Value(Decimal("0"), output_field=DECIMAL_2))),
+            Value(Decimal("0"), output_field=DECIMAL_2)
+        ),
+        pnl = Coalesce(
+            Sum("pnl_calc", output_field=DECIMAL_2),
+            Value(Decimal("0"), output_field=DECIMAL_2)
+        ),
     )
 
 
@@ -214,7 +224,7 @@ def close_sheet(request, pk: int):
             "date": timezone.now().date(),
             "side": "SELL",
             "ticker": h.ticker,
-            "qty": h.quantity,            # ← ここ
+            "qty": h.quantity,          # ← Holding は quantity フィールド
             "price": "",
             "fee":  last.fee if last else 0,
             "tax":  last.tax if last else 0,
@@ -223,7 +233,7 @@ def close_sheet(request, pk: int):
     }
     html = render_to_string("realized/_close_sheet.html", ctx, request=request)
     return JsonResponse({"ok": True, "sheet": html})
-    
+
 @login_required
 @require_POST
 @transaction.atomic
@@ -237,7 +247,7 @@ def close_submit(request, pk: int):
     except Exception:
         trade_at = timezone.localdate()
 
-    side  = "SELL"
+    side = "SELL"
     try:
         qty   = int(request.POST.get("qty") or 0)
         price = Decimal(str(request.POST.get("price") or "0"))
@@ -248,7 +258,8 @@ def close_submit(request, pk: int):
 
     memo = (request.POST.get("memo") or "").strip()
 
-    if qty <= 0 or price <= 0 or qty > h.qty:
+    # Holding は quantity を使用
+    if qty <= 0 or price <= 0 or qty > h.quantity:
         return JsonResponse({"ok": False, "error": "数量/価格を確認してください"}, status=400)
 
     # 登録（pnl は保存しない）
@@ -258,10 +269,10 @@ def close_submit(request, pk: int):
     )
 
     # 保有数量を減算（0なら削除）
-    h.qty = F("qty") - qty
-    h.save(update_fields=["qty"])
+    h.quantity = F("quantity") - qty
+    h.save(update_fields=["quantity"])
     h.refresh_from_db()
-    if h.qty <= 0:
+    if h.quantity <= 0:
         h.delete()
 
     # 最新テーブル/サマリー/（あれば）保有一覧断片を返す
