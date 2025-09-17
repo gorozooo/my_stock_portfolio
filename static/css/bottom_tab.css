@@ -2,7 +2,7 @@
 .btm-wrap{position:fixed;left:0;right:0;bottom:0;z-index:10000;pointer-events:none}
 .btm-nav{pointer-events:auto;background:rgba(13,16,24,.78);backdrop-filter:blur(12px);
   border-top:1px solid rgba(255,255,255,.08);padding-bottom:max(0px,env(safe-area-inset-bottom))}
-.btm-grid{max-width:680px;margin:0 auto;display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
+.btm-grid{max-width:680px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:2px}/*下タブのかず*/
 
 .tab-btn{
   position:relative;appearance:none;-webkit-appearance:none;background:none;border:0;color:#cfd6ee;
