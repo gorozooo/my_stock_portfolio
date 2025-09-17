@@ -1,42 +1,55 @@
-<!-- templates/realized/_table.html -->
-<table>
-  <thead>
-    <tr>
-      <th>日付</th>
-      <th>銘柄</th>
-      <th>Side</th>
-      <th>数量</th>
-      <th>価格</th>
-      <th>手数料</th>
-      <th>税</th>
-      <th>実現損益</th>
-      <th>操作</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for t in trades %}
+{% load humanize %}
+<style>
+  .pnl-table{width:100%; border-collapse:separate; border-spacing:0; font-size:13px; line-height:1.45}
+  .pnl-table th,.pnl-table td{padding:10px 8px; border-bottom:1px solid rgba(255,255,255,.06)}
+  .pnl-table th{position:sticky; top:0; z-index:1; background:rgba(24,28,42,.96); backdrop-filter:blur(8px); font-weight:700}
+  .pnl-table .num{font-variant-numeric:tabular-nums; text-align:right}
+  .pnl-plus{color:#34d399} .pnl-minus{color:#f87171}
+  .code{font-weight:600}
+</style>
+
+<div id="pnlTableWrap">
+  <table class="pnl-table w-full">
+    <thead>
       <tr>
-        <td>{{ t.trade_at|date:"Y-m-d" }}</td>
-        <td>{{ t.ticker }}</td>
-        <td>{{ t.side }}</td>
-        <td>{{ t.qty }}</td>
-        <td>{{ t.price }}</td>
-        <td>¥{{ t.fee }}</td>
-        <td>¥{{ t.tax }}</td>
-        <td class="{% if t.pnl < 0 %}text-red-500{% else %}text-green-500{% endif %}">
-          ¥{{ t.pnl|floatformat:0 }}
-        </td>
-        <td>
-          <form hx-post="{% url 'realized_delete' t.id %}"
-                hx-target="#pnlTableWrap"
-                hx-swap="outerHTML">
-            {% csrf_token %}
-            <button type="submit">削除</button>
-          </form>
-        </td>
+        <th>日付</th>
+        <th>銘柄</th>
+        <th>Side</th>
+        <th class="num">数量</th>
+        <th class="num">価格</th>
+        <th class="num">原価</th>
+        <th class="num">手数料</th>
+        <th class="num">税</th>
+        <th class="num">実現損益</th>
+        <th>操作</th>
       </tr>
-    {% empty %}
-      <tr><td colspan="9">データなし</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+    </thead>
+    <tbody>
+      {% for t in trades %}
+        {% with pnl=t.pnl_calc %}
+        <tr>
+          <td>{{ t.trade_at|date:"Y-m-d" }}</td>
+          <td><span class="code">{{ t.ticker }}</span></td>
+          <td>{{ t.side }}</td>
+          <td class="num">{{ t.qty|intcomma }}</td>
+          <td class="num">¥{{ t.price|floatformat:0|intcomma }}</td>
+          <td class="num">{% if t.basis %}¥{{ t.basis|floatformat:0|intcomma }}{% else %}-{% endif %}</td>
+          <td class="num">¥{{ t.fee|floatformat:0|intcomma }}</td>
+          <td class="num">¥{{ t.tax|floatformat:0|intcomma }}</td>
+          <td class="num {% if pnl > 0 %}pnl-plus{% elif pnl < 0 %}pnl-minus{% endif %}">
+            ¥{{ pnl|floatformat:0|intcomma }}
+          </td>
+          <td>
+            <form hx-post="{% url 'realized_delete' t.id %}" hx-target="#pnlTableWrap" hx-swap="outerHTML">
+              {% csrf_token %}
+              <button class="underline text-slate-300">削除</button>
+            </form>
+          </td>
+        </tr>
+        {% endwith %}
+      {% empty %}
+        <tr><td colspan="10" class="text-slate-400 py-6">データなし</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
