@@ -1,11 +1,13 @@
 /* templates/pwa/service-worker.js */
-const VERSION = "v1.0.0";                 // ← 更新時は上げる
+const VERSION = "v1.0.1";                 // ← 更新時は上げる
 const PRECACHE = `precache-${VERSION}`;
 const RUNTIME  = `runtime-${VERSION}`;
 
 const PRECACHE_URLS = [
   "/",                     // ホーム
   "/holdings/",            // 保有一覧（オフライン対応の主役）
+  "/realized/",            // 実現損益（追加）
+  "/pwa/offline.html",     // オフライン用ページ
   "/manifest.webmanifest",
   "/static/pwa/icon-192.png",
   "/static/pwa/icon-512.png",
@@ -24,9 +26,13 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.map((k) => {
-        if (![PRECACHE, RUNTIME].includes(k)) return caches.delete(k);
-      }))
+      Promise.all(
+        keys.map((k) => {
+          if (![PRECACHE, RUNTIME].includes(k)) {
+            return caches.delete(k);
+          }
+        })
+      )
     )
   );
   self.clients.claim();
@@ -52,9 +58,9 @@ self.addEventListener("fetch", (event) => {
           return net;
         } catch {
           // ネット失敗：キャッシュ or オフラインHTML
-          const cache = await caches.open(PRECACHE);
           const cached = await caches.match(req);
-          return cached || cache.match("/pwa/offline.html") || Response.error();
+          const precache = await caches.open(PRECACHE);
+          return cached || precache.match("/pwa/offline.html") || Response.error();
         }
       })()
     );
@@ -76,7 +82,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 3) API → Stale-While-Revalidate（最後の結果を即返し、裏で更新）
+  // 3) API → Stale-While-Revalidate
   if (url.pathname.startsWith("/api/")) {
     event.respondWith(
       caches.open(RUNTIME).then(async (cache) => {
@@ -87,22 +93,14 @@ self.addEventListener("fetch", (event) => {
             return res;
           })
           .catch(() => null);
-        // まずキャッシュがあればそれ、無ければネット
         return cached || networkFetch || Response.error();
       })
     );
     return;
   }
 
-  // 4) その他 → まずキャッシュ、無ければネット
+  // 4) その他 → Cache-first fallback
   event.respondWith(
     caches.match(req).then((c) => c || fetch(req))
-  );
-});
-
-// オフラインHTMLをプリキャッシュに追加（install前でも参照される可能性に備える）
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(PRECACHE).then((c) => c.add("/pwa/offline.html").catch(()=>{}))
   );
 });
