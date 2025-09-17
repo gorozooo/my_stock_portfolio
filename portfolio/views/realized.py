@@ -11,11 +11,6 @@ import csv
 from django.db.models import Sum, Count, F, FloatField
 from django.db.models.functions import Coalesce
 
-@login_required
-@require_GET
-def list_page(request):
-    return render(request, "portfolio/realized/list.html")
-
 # ---- 既存 list_page の末尾で集計を渡すように（検索クエリq対応）----
 @login_required
 @require_GET
@@ -97,4 +92,19 @@ def delete(request, pk: int):
     html = render_to_string("realized/_table.html", {"trades": qs}, request=request)
     summary = render_to_string("realized/_summary.html", {"agg": agg}, request=request)
     return JsonResponse({"ok": True, "table": html, "summary": summary})
+    
+    # ---- CSV エクスポート ----
+def export_csv(request):
+    q = (request.GET.get("q") or "").strip()
+    qs = RealizedTrade.objects.all().order_by("-date", "-id")
+    if q:
+        qs = qs.filter(ticker__icontains=q)
+
+    resp = HttpResponse(content_type="text/csv; charset=utf-8")
+    resp["Content-Disposition"] = 'attachment; filename="realized_trades.csv"'
+    writer = csv.writer(resp)
+    writer.writerow(["date","ticker","side","qty","price","fee","tax","pnl","memo"])
+    for t in qs:
+        writer.writerow([t.date, t.ticker, t.side, t.qty, t.price, t.fee, t.tax, t.pnl, smart_str(t.memo or "")])
+    return resp
     
