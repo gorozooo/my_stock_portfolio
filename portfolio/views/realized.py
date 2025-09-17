@@ -216,7 +216,7 @@ def close_submit(request, pk: int):
     basis = Decimal(str(h.avg_cost))
 
     RealizedTrade.objects.create(
-        user=request.user, trade_at=trade_at, side="SELL", ticker=h.ticker,
+        user=request.user, trade_at=trade_at, side="SELL", ticker=h.ticker, name=h.name,
         qty=qty, price=price, basis=basis, fee=fee, tax=tax,
         memo=(request.POST.get("memo") or "").strip(),
     )
