@@ -34,7 +34,7 @@ urlpatterns = [
     path("realized/create", realized_views.create, name="realized_create"),
     path("realized/delete/<int:pk>", realized_views.delete, name="realized_delete"),
     path("realized/close-sheet/<int:pk>/", realized_views.close_sheet, name="realized_close_sheet"),
-path("realized/close-submit/<int:pk>/", realized_views.close_submit, name="realized_close_submit"),
+    path("realized/close-submit/<int:pk>/", realized_views.close_submit, name="realized_close_submit"),
 
     # ← 追加：部分テンプレとCSV
     path("realized/partial/table", realized_views.table_partial, name="realized_table_partial"),
