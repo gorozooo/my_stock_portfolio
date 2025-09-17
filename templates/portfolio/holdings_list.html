@@ -35,6 +35,7 @@
             <div class="mt-3 grid grid-cols-3 gap-2 text-sm">
               <!-- 売却（クローズ） -->
               <button
+                type="button"  <!-- ★ 既定のsubmit衝突を防止 -->
                 class="px-3 py-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-200 ring-1 ring-rose-400/25 transition"
                 hx-get="{% url 'realized_close_sheet' r.id %}"
                 hx-target="#sheetRoot"
