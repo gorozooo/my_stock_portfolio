@@ -26,6 +26,8 @@ urlpatterns = [
 
     # 保有
     path("holdings/", core_views.holdings_list, name="holdings_list"),
+    path("holdings/<int:pk>/close", realized_views.close_sheet, name="holding_close_sheet"),  # 画面
+    path("holdings/<int:pk>/close/submit", realized_views.close_submit, name="holding_close_submit"),  # POST
 
     # 実現損益
     path("realized/", realized_views.list_page, name="realized_list"),
