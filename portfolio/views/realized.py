@@ -11,6 +11,7 @@ import csv
 from django.db.models import Sum, Count, F, FloatField
 from django.db.models.functions import Coalesce
 
+
 # ---- 既存 list_page の末尾で集計を渡すように（検索クエリq対応）----
 @login_required
 @require_GET
@@ -107,4 +108,26 @@ def export_csv(request):
     for t in qs:
         writer.writerow([t.date, t.ticker, t.side, t.qty, t.price, t.fee, t.tax, t.pnl, smart_str(t.memo or "")])
     return resp
-    
+
+# --- 部分テンプレ：テーブルだけ返す ---
+def table_partial(request):
+    q = (request.GET.get("q") or "").strip()
+    qs = RealizedTrade.objects.all().order_by("-date", "-id")
+    if q:
+        qs = qs.filter(ticker__icontains=q)
+    return render(request, "realized/_table.html", {"trades": qs})
+
+# --- （必要なら）サマリーだけ返す ---
+def summary_partial(request):
+    q = (request.GET.get("q") or "").strip()
+    qs = RealizedTrade.objects.all().order_by("-date", "-id")
+    if q:
+        qs = qs.filter(ticker__icontains=q)
+    agg = qs.aggregate(
+        n=Count("id"),
+        qty=Coalesce(Sum("qty"), 0),
+        fee=Coalesce(Sum("fee"), 0.0),
+        tax=Coalesce(Sum("tax"), 0.0),
+        pnl=Coalesce(Sum("pnl"), 0.0),
+    )
+    return render(request, "realized/_summary.html", {"agg": agg, "q": q})
