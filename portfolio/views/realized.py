@@ -86,54 +86,69 @@ def list_page(request):
 @login_required
 @require_POST
 def create(request):
-    # --- 入力 ---
     date_raw = (request.POST.get("date") or "").strip()
     try:
         trade_at = timezone.datetime.fromisoformat(date_raw).date() if date_raw else timezone.localdate()
     except Exception:
         trade_at = timezone.localdate()
 
-    ticker  = (request.POST.get("ticker")  or "").strip()
-    name    = (request.POST.get("name")    or "").strip()
-    side    = (request.POST.get("side")    or "SELL").upper()
-    broker  = (request.POST.get("broker")  or "OTHER").upper()   # RAKUTEN/MATSUI/SBI/OTHER を想定
-    account = (request.POST.get("account") or "SPEC").upper()    # 追加: 口座区分 SPEC/MARGIN/NISA
+    ticker = (request.POST.get("ticker") or "").strip()
+    name   = (request.POST.get("name")   or "").strip()
+    side   = (request.POST.get("side")   or "SELL").upper()
+    broker = (request.POST.get("broker") or "OTHER").upper()
+    account= (request.POST.get("account") or "SPEC").upper()
 
-    try:
-        qty   = int(request.POST.get("qty") or 0)
-    except Exception:
-        qty = 0
+    qty    = int(request.POST.get("qty") or 0)
+    price  = _to_dec(request.POST.get("price"))
+    fee_in = _to_dec(request.POST.get("fee"))
 
-    price    = _to_dec(request.POST.get("price"))
-    fee_in   = _to_dec(request.POST.get("fee"))
-    cf_in    = request.POST.get("cashflow")
+    cf_in  = request.POST.get("cashflow")
     cashflow = None if cf_in in (None, "") else _to_dec(cf_in)
 
-    memo = (request.POST.get("memo") or "").strip()
+    memo   = (request.POST.get("memo") or "").strip()
 
-    # --- validate ---
     if not ticker or qty <= 0 or price <= 0:
         return JsonResponse({"ok": False, "error": "入力が不足しています"}, status=400)
-    if side not in ("SELL", "BUY"):
+    if side not in ("SELL","BUY"):
         return JsonResponse({"ok": False, "error": "Sideが不正です"}, status=400)
-    if broker not in ("RAKUTEN", "MATSUI", "SBI", "OTHER"):
-        broker = "OTHER"
-    if account not in ("SPEC", "MARGIN", "NISA"):
-        account = "SPEC"
 
-    # --- 手数料の決定（cashflow 優先）---
-    # notional = 取引金額（単価×数量）。cashflow が与えられたら
-    # SELL:  cashflow = notional - fee → fee = notional - cashflow
-    # BUY :  cashflow = -notional - fee → fee = -notional - cashflow
-    notional = Decimal(qty) * price
+    notional = Decimal(qty) * price  # 約定金額（正の値）
+
+    # 受渡金額の符号を整理（SELLは＋、BUYは−で正規化）
     if cashflow is not None:
-        fee = (notional - cashflow) if side == "SELL" else (-(notional) - cashflow)
-        # 必要なら異常値ケア:
-        # if fee < 0: fee = Decimal("0")
+        if side == "SELL" and cashflow < 0:
+            cashflow = -cashflow
+        if side == "BUY" and cashflow > 0:
+            cashflow = -cashflow
+
+        # 想定レンジ（大きな手数料でも約定金額の20%は超えない想定）
+        if side == "SELL":
+            # 0 ～ notional の範囲を想定
+            if not (Decimal("0") <= cashflow <= notional):
+                return JsonResponse({
+                    "ok": False,
+                    "error": "受渡金額が不正です。SELLは0〜約定金額で入力してください。"
+                }, status=400)
+            fee = notional - cashflow
+        else:
+            # -notional ～ 0 の範囲を想定
+            if not (-notional <= cashflow <= Decimal("0")):
+                return JsonResponse({
+                    "ok": False,
+                    "error": "受渡金額が不正です。BUYは−で入力してください。"
+                }, status=400)
+            fee = -(notional) - cashflow  # 例: notional=100, cashflow=-101 → fee=1
+
+        # 過大/負の手数料はエラー（PnL金額を入れてしまった可能性）
+        if fee < 0 or fee > notional * Decimal("0.2"):
+            return JsonResponse({
+                "ok": False,
+                "error": "手数料の逆算に失敗しました。『受渡金額（現金の出入り）』を入力してください。PnL（利益額）ではありません。"
+            }, status=400)
     else:
+        cashflow = None
         fee = fee_in
 
-    # --- 登録 ---
     RealizedTrade.objects.create(
         user=request.user,
         trade_at=trade_at,
@@ -141,15 +156,16 @@ def create(request):
         ticker=ticker,
         name=name,
         broker=broker,
-        account=account,      # ★ 追加: 口座区分を保存
+        account=account,
         qty=qty,
         price=price,
         fee=fee,
-        cashflow=cashflow,    # null可
+        tax=Decimal("0"),     # 税は fee に含めて扱うポリシー
+        cashflow=cashflow,    # 入っていれば保存
         memo=memo,
     )
 
-    # --- 再描画（検索語維持：コード/名称の部分一致） ---
+    # 再描画
     q  = (request.POST.get("q") or "").strip()
     qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
     if q:
