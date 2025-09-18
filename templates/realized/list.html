@@ -23,7 +23,6 @@
 
     <div class="fi">
       <label>日付</label>
-      {# ※ views は name='date' を読むので合わせる #}
       <input type="date" name="date">
     </div>
 
@@ -114,27 +113,40 @@
       return el ? encodeURIComponent(el.value || '') : '';
     }
 
+    function refreshBothNow() {
+      var q = getQ();
+      // テーブル
+      htmx.ajax('GET', "{% url 'realized_table_partial' %}" + (q ? ("?q=" + q) : ""), {
+        target: '#pnlTableWrap',
+        swap: 'outerHTML'
+      });
+      // サマリー
+      htmx.ajax('GET', "{% url 'realized_summary_partial' %}" + (q ? ("?q=" + q) : ""), {
+        target: '#pnlSummaryWrap',
+        swap: 'outerHTML'
+      });
+    }
+
     function scheduleRefreshBoth() {
       if (timer) clearTimeout(timer);
       timer = setTimeout(function () {
         timer = null;
-        var q = getQ();
-
-        // テーブル再取得
-        htmx.ajax('GET', "{% url 'realized_table_partial' %}" + (q ? ("?q=" + q) : ""), {
-          target: '#pnlTableWrap',
-          swap: 'outerHTML'
-        });
-
-        // サマリー再取得
-        htmx.ajax('GET', "{% url 'realized_summary_partial' %}" + (q ? ("?q=" + q) : ""), {
-          target: '#pnlSummaryWrap',
-          swap: 'outerHTML'
-        });
+        refreshBothNow();
       }, DEBOUNCE_MS);
     }
 
+    // ① 手動ディスパッチ（作成/削除フォームから）
     document.addEventListener('pnl:scheduleRefresh', scheduleRefreshBoth);
+
+    // ② サーバの HX-Trigger ヘッダに反応（delete で返している想定）
+    document.body.addEventListener('htmx:afterRequest', function (e) {
+      try {
+        var hdr = e.detail && e.detail.xhr && e.detail.xhr.getResponseHeader('HX-Trigger');
+        if (hdr && hdr.indexOf('pnl:scheduleRefresh') !== -1) scheduleRefreshBoth();
+      } catch (_) {}
+    });
+
+    // ページ離脱時にタイマー破棄
     window.addEventListener('beforeunload', function () {
       if (timer) clearTimeout(timer);
     });
