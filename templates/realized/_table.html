@@ -1,28 +1,25 @@
-{# templates/realized/_table.html #}
 {% load humanize %}
 <table class="w-full border-separate border-spacing-0 rounded-2xl overflow-hidden">
   <colgroup>
     <col class="w-28">  {# 日付 #}
-    <col class="w-56">  {# 銘柄（バッジを入れるので少し広げる） #}
+    <col class="w-48">  {# 銘柄 #}
     <col class="w-20">  {# Side #}
+    <col class="w-24">
     <col class="w-28">
-    <col class="w-28">
-    <col class="w-28">
-    <col class="w-28">
-    <col class="w-32">
+    <col class="w-24">  {# 手数料 #}
+    <col class="w-28">  {# 実損 #}
     <col class="w-20">  {# 操作 #}
   </colgroup>
 
-  <thead class="bg-white/5 text-slate-300 text-sm">
+  <thead class="bg-white/5 text-slate-300 text-xs">
     <tr>
       <th class="px-3 py-2 text-left whitespace-nowrap">日付</th>
       <th class="px-3 py-2 text-left">銘柄</th>
       <th class="px-3 py-2 text-center whitespace-nowrap">Side</th>
       <th class="px-3 py-2 text-right">数量</th>
-      <th class="px-3 py-2 text-right">価格</th>
+      <th class="px-3 py-2 text-right">約定単価</th>
       <th class="px-3 py-2 text-right">手数料</th>
-      <th class="px-3 py-2 text-right">税</th>
-      <th class="px-3 py-2 text-right">実現損益</th>
+      <th class="px-3 py-2 text-right">実損（±）</th>
       <th class="px-3 py-2 text-right whitespace-nowrap">操作</th>
     </tr>
   </thead>
@@ -30,37 +27,32 @@
   <tbody class="text-[15px]">
     {% for t in trades %}
       <tr class="border-b border-white/10">
+        <!-- 日付 -->
         <td class="px-3 py-2 whitespace-nowrap text-slate-200">
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
-        {# ── 銘柄 = 上段:コード / 下段:名称（主役） + バッジ（証券/口座） ── #}
+        <!-- 銘柄（上=コード小、下=名称太字）+ ブローカー/口座区分バッジ -->
         <td class="px-3 py-2">
           <div class="leading-tight">
-            <div class="text-slate-400 text-xs tracking-wide whitespace-nowrap">{{ t.ticker }}</div>
-            <div class="text-slate-200 font-medium truncate">{{ t.name|default:"" }}</div>
-
-            {% if t.broker or t.account %}
-              <div class="flex gap-1 mt-1 text-[11px]">
-                {% if t.broker %}
-                  {% with b=t.broker %}
-                    <span class="px-1.5 py-0.5 rounded bg-white/10 text-slate-300 whitespace-nowrap">
-                      {% if b == 'RAKUTEN' %}楽天証券{% elif b == 'SBI' %}SBI{% elif b == 'MATSUI' %}松井{% else %}その他{% endif %}
-                    </span>
-                  {% endwith %}
-                {% endif %}
-                {% if t.account %}
-                  {% with a=t.account %}
-                    <span class="px-1.5 py-0.5 rounded bg-white/10 text-slate-300 whitespace-nowrap">
-                      {% if a == 'MARGIN' %}信用{% elif a == 'NISA' %}NISA{% else %}特定{% endif %}
-                    </span>
-                  {% endwith %}
-                {% endif %}
-              </div>
-            {% endif %}
+            <div class="text-slate-400 text-[11px] tracking-wide whitespace-nowrap">{{ t.ticker }}</div>
+            <div class="text-slate-200 font-semibold truncate">{{ t.name|default:"" }}</div>
+            <div class="mt-0.5 space-x-1 text-[11px]">
+              {% if t.broker %}
+                <span class="inline-block px-1.5 py-0.5 rounded bg-white/10 text-slate-300 whitespace-nowrap">
+                  {{ t.broker }}
+                </span>
+              {% endif %}
+              {% if t.account %}
+                <span class="inline-block px-1.5 py-0.5 rounded bg-white/10 text-slate-300 whitespace-nowrap">
+                  {{ t.account }}
+                </span>
+              {% endif %}
+            </div>
           </div>
         </td>
 
+        <!-- Side -->
         <td class="px-3 py-2 text-center whitespace-nowrap">
           <span class="inline-block rounded-md px-2 py-0.5 text-xs whitespace-nowrap
                        {% if t.side == 'SELL' %}bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/25
@@ -69,19 +61,21 @@
           </span>
         </td>
 
+        <!-- 数値 -->
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">{{ t.qty|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.price|floatformat:0|intcomma }}</td>
-        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.fee|floatformat:0|intcomma }}</td>
-        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.tax|floatformat:0|intcomma }}</td>
+        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.fee|default:0|floatformat:0|intcomma }}</td>
 
+        <!-- 実損（= ユーザー入力の cashflow をそのまま表示） -->
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
-          {% with v=t.pnl_calc %}
-            <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+          {% with v=t.cashflow|default:0 %}
+            <span class="{% if v|floatformat:6 >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
               ¥{{ v|floatformat:0|intcomma }}
             </span>
           {% endwith %}
         </td>
 
+        <!-- 削除（JSONを受けて手動で差し替え） -->
         <td class="px-3 py-2 text-right whitespace-nowrap">
           <form
             hx-post="{% url 'realized_delete' t.id %}"
@@ -92,18 +86,27 @@
               if (event.detail.successful) {
                 try {
                   var data = JSON.parse(event.detail.xhr.responseText || '{}');
-                  if (data.table) { var t = document.querySelector('#pnlTableWrap'); if (t) t.outerHTML = data.table; }
-                  if (data.summary) { var s = document.querySelector('#pnlSummaryWrap'); if (s) s.outerHTML = data.summary; }
+                  if (data.table) {
+                    var t = document.querySelector('#pnlTableWrap');
+                    if (t) t.outerHTML = data.table;
+                  }
+                  if (data.summary) {
+                    var s = document.querySelector('#pnlSummaryWrap');
+                    if (s) s.outerHTML = data.summary;
+                  }
                 } catch(e) { console.error(e); }
-              }">
+              }
+            ">
             {% csrf_token %}
-            <button type="submit" class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">削除</button>
+            <button type="submit" class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">
+              削除
+            </button>
           </form>
         </td>
       </tr>
     {% empty %}
       <tr>
-        <td colspan="9" class="px-3 py-6 text-slate-400">データなし</td>
+        <td colspan="8" class="px-3 py-6 text-slate-400">データなし</td>
       </tr>
     {% endfor %}
   </tbody>
