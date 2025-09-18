@@ -1,5 +1,12 @@
 {# templates/realized/_table.html #}
 {% load humanize %}
+<style>
+  /* クリック阻害の保険 */
+  #pnlTableWrap, #pnlTableWrap * { pointer-events: auto; }
+  /* 右端の操作列が何かに被されても上に出す */
+  td.td-actions, td.td-actions * { position: relative; z-index: 20; }
+</style>
+
 <table class="w-full border-separate border-spacing-0 rounded-2xl overflow-hidden">
   <colgroup>
     <col class="w-28">  {# 日付 #}
@@ -35,7 +42,7 @@
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
-        {# 銘柄 = 上段:コード（控えめ）/ 下段:名称（主役） #}
+        {# 銘柄 = 上段: コード / 下段: 名称（主役） #}
         <td class="px-3 py-2">
           <div class="leading-tight">
             <div class="text-slate-400 text-xs tracking-wide whitespace-nowrap">{{ t.ticker }}</div>
@@ -67,39 +74,33 @@
           {% endwith %}
         </td>
 
-        {# 削除（ネイティブ確認→OKでPOST→テーブル置換、サマリーはOOBで更新） #}
-        <td class="px-3 py-2 text-right whitespace-nowrap">
-          <form
-            hx-post="{% url 'realized_close_submit' h.id %}"
-            hx-target="#pnlTableWrap"
-            hx-swap="outerHTML"
+        {# 削除：フォームを廃止してボタン単体で POST #}
+        <td class="px-3 py-2 text-right whitespace-nowrap td-actions">
+          {# CSRF はページ上の他フォームから拾う #}
+          <button
+            type="button"
+            class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap"
+            hx-post="{% url 'realized_delete' t.id %}"
             hx-include="[name=csrfmiddlewaretoken], #q"
+            hx-swap="none"
+            hx-confirm="削除しますか？"
             hx-on::after-request="
               if (event.detail.successful) {
                 try {
                   var data = JSON.parse(event.detail.xhr.responseText || '{}');
                   if (data.table) {
-                    var t = document.querySelector('#pnlTableWrap');
-                    if (t) t.outerHTML = data.table;
+                    var tw = document.querySelector('#pnlTableWrap');
+                    if (tw) tw.outerHTML = data.table;
                   }
                   if (data.summary) {
-                    var s = document.querySelector('#pnlSummaryWrap');
-                    if (s) s.outerHTML = data.summary;
+                    var sw = document.querySelector('#pnlSummaryWrap');
+                    if (sw) sw.outerHTML = data.summary;
                   }
-                  htmx.remove(this.closest('.sheet')); // モーダルを閉じる
                 } catch(e) { console.error(e); }
               }
-            "
-          >
-            {% csrf_token %}
-          
-            <!-- 入力欄はそのまま -->
-            ...
-            <div class="grid grid-cols-2 gap-2 mt-4">
-              <button type="button" class="btn-ghost" data-dismiss="sheet">キャンセル</button>
-              <button type="submit" class="btn-primary">売却を記録</button>
-            </div>
-          </form>
+            ">
+            削除
+          </button>
         </td>
       </tr>
     {% empty %}
