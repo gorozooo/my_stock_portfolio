@@ -227,23 +227,31 @@ def summary_partial(request):
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
     agg = _aggregate(qs)
     return render(request, "realized/_summary.html", {"agg": agg, "q": q})
-    
-# portfolio/views/realized.py の一部
+
+
 from django.forms.models import model_to_dict
 import logging
 logger = logging.getLogger(__name__)
 
+
 @login_required
 @require_GET
 def close_sheet(request, pk: int):
+    """
+    保有 → 売却のボトムシート（HTMX で表示する HTML を返す）
+    - Holding/RealizedTrade に user フィールドが無い環境でも動作するよう防御
+    - 数量は quantity / qty どちらでも対応
+    - プリセット値は直近の RealizedTrade を参照（なければデフォルト）
+    - 例外時はモーダルに内容を出すため JSON に error/traceback を返す（HTTP 400）
+    """
     try:
-        # Holding 取得（user フィールド有無に対応）
+        # --- Holding 取得（user フィールド有無に対応） -------------------------
         holding_filters = {"pk": pk}
         if any(f.name == "user" for f in Holding._meta.fields):
             holding_filters["user"] = request.user
         h = get_object_or_404(Holding, **holding_filters)
 
-        # RealizedTrade 直近
+        # --- 直近の RealizedTrade（user フィールドがあれば絞る） --------------
         rt_qs = RealizedTrade.objects.all()
         if any(f.name == "user" for f in RealizedTrade._meta.fields):
             rt_qs = rt_qs.filter(user=request.user)
@@ -253,14 +261,18 @@ def close_sheet(request, pk: int):
         def g(obj, name, default=""):
             return getattr(obj, name, default) if obj is not None else default
 
+        # 保有数量（quantity / qty どちらでも）
         h_qty = g(h, "quantity", None)
-        if not h_qty:
+        if h_qty in (None, ""):
             h_qty = g(h, "qty", 0)
+
+        # date は input[type=date] に素直に入る ISO 文字列にしておく
+        today_iso = timezone.localdate().isoformat()
 
         ctx = {
             "h": h,
             "prefill": {
-                "date": timezone.localdate(),
+                "date": today_iso,
                 "side": "SELL",
                 "ticker": g(h, "ticker", ""),
                 "name":   g(h, "name", ""),
@@ -270,27 +282,24 @@ def close_sheet(request, pk: int):
                 "cashflow": g(last, "cashflow", ""),
                 "memo":   "",
                 "broker": g(last, "broker", "OTHER"),
-                "account": g(last, "account", "SPEC"),
-            }
+                "account": g(last, "account", "SPEC"),  # SPEC/MARGIN/NISA を想定
+            },
         }
 
         html = render_to_string("realized/_close_sheet.html", ctx, request=request)
         return JsonResponse({"ok": True, "sheet": html})
 
     except Exception as e:
-        import traceback
-        tb = traceback.format_exc()
-        return JsonResponse(
-            {"ok": False, "error": str(e), "traceback": tb},
-            status=400
-        )
-
-    except Exception as e:
-        # ここで握りつぶさずログへ
+        # ログにも残しつつ、スマホでも内容が見えるようにエラー詳細を返す
         logger.exception("close_sheet error: %s", e)
+        import traceback
         return JsonResponse(
-            {"ok": False, "error": f"シートの生成に失敗しました: {e}"},
-            status=400
+            {
+                "ok": False,
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+            },
+            status=400,
         )
 
 @login_required
