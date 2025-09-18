@@ -236,32 +236,25 @@ logger = logging.getLogger(__name__)
 @login_required
 @require_GET
 def close_sheet(request, pk: int):
-    """
-    保有 → 売却のボトムシート（HTMX で開く）
-    - Holding/RealizedTrade に user フィールドが無い場合でも落ちない
-    - last が無い場合でも安全にデフォルト値を入れる
-    - 例外は 500 にせず JSON で返す（モーダル側で表示できる）
-    """
     try:
-        # ---- Holding を安全に取得（user フィールド有無に対応） -------------------
+        # Holding 取得（user フィールド有無に対応）
         holding_filters = {"pk": pk}
         if any(f.name == "user" for f in Holding._meta.fields):
             holding_filters["user"] = request.user
         h = get_object_or_404(Holding, **holding_filters)
 
-        # ---- 直近の RealizedTrade を安全に取得 -----------------------------------
+        # RealizedTrade 直近
         rt_qs = RealizedTrade.objects.all()
         if any(f.name == "user" for f in RealizedTrade._meta.fields):
             rt_qs = rt_qs.filter(user=request.user)
         last = rt_qs.order_by("-trade_at", "-id").first()
 
-        # ---- プリセット（安全な getattrs） ---------------------------------------
+        # 安全な getter
         def g(obj, name, default=""):
             return getattr(obj, name, default) if obj is not None else default
 
-        # Holding の数量フィールド名差異を吸収（quantity / qty）
         h_qty = g(h, "quantity", None)
-        if h_qty in (None, ""):
+        if not h_qty:
             h_qty = g(h, "qty", 0)
 
         ctx = {
@@ -277,12 +270,20 @@ def close_sheet(request, pk: int):
                 "cashflow": g(last, "cashflow", ""),
                 "memo":   "",
                 "broker": g(last, "broker", "OTHER"),
-                "account": g(last, "account", "SPEC"),  # SPEC / MARGIN / NISA
+                "account": g(last, "account", "SPEC"),
             }
         }
 
         html = render_to_string("realized/_close_sheet.html", ctx, request=request)
         return JsonResponse({"ok": True, "sheet": html})
+
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        return JsonResponse(
+            {"ok": False, "error": str(e), "traceback": tb},
+            status=400
+        )
 
     except Exception as e:
         # ここで握りつぶさずログへ
