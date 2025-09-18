@@ -35,7 +35,7 @@
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
-        <!-- 銘柄＝上段:コード / 下段:名称（主役） -->
+        <!-- 銘柄＝上段:コード / 下段:名称 -->
         <td class="px-3 py-2">
           <div class="leading-tight">
             <div class="text-slate-400 text-xs tracking-wide">{{ t.ticker }}</div>
@@ -43,7 +43,7 @@
           </div>
         </td>
 
-        <!-- Side（折り返さない） -->
+        <!-- Side -->
         <td class="px-3 py-2 text-center whitespace-nowrap">
           <span class="inline-block rounded-md px-2 py-0.5 text-xs
                        {% if t.side == 'SELL' %}
@@ -55,7 +55,7 @@
           </span>
         </td>
 
-        <!-- 数値列 -->
+        <!-- 数値 -->
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">{{ t.qty|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.price|floatformat:0|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.fee|floatformat:0|intcomma }}</td>
@@ -70,24 +70,20 @@
           {% endwith %}
         </td>
 
-        <!-- 削除（ボタン単体で POST） -->
-        <td class="px-3 py-2 text-right whitespace-nowrap relative pointer-events-auto">
-          <button
-            type="button"
-            class="px-3 py-1 rounded-md ring-1 ring-white/15 text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap
-                   inline-flex items-center justify-center pointer-events-auto relative z-10"
-            style="touch-action: manipulation;"
+        <!-- 削除 -->
+        <td class="px-3 py-2 text-right whitespace-nowrap">
+          <form
             hx-post="{% url 'realized_delete' t.id %}"
             hx-target="#pnlTableWrap"
             hx-swap="outerHTML"
             hx-include="#q"
             hx-confirm="削除しますか？"
-            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
-            hx-disabled-elt="this"
-            hx-on::after-request="if (event.detail.successful) { document.dispatchEvent(new CustomEvent('pnl:scheduleRefresh')); }"
           >
-            削除
-          </button>
+            {% csrf_token %}
+            <button type="submit" class="px-2 py-1 text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">
+              削除
+            </button>
+          </form>
         </td>
       </tr>
     {% empty %}
