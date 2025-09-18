@@ -4,7 +4,7 @@
 {% block title %}実現損益{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/realized.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'css/realized.css' %}?v=4">
 {% endblock %}
 
 {% block content %}
@@ -81,7 +81,7 @@
     </div>
   </form>
 
-  {# ── サマリー（id 固定） ─────────────────────────────── #}
+  {# ── サマリー ─────────────────────────────────────────────── #}
   <div id="pnlSummaryWrap"
        hx-get="{% url 'realized_summary_partial' %}?q={{ q|urlencode }}"
        hx-trigger="load, pnl:refresh from:body"
@@ -94,7 +94,7 @@
     <a href="{% url 'realized_export_csv' %}?q={{ q|urlencode }}">CSVエクスポート</a>
   </div>
 
-  {# ── テーブル（作成・削除後に差し替えるターゲット） ─────────────── #}
+  {# ── テーブル ─────────────────────────────────────────────── #}
   <div id="pnlTableWrap"
        hx-get="{% url 'realized_table_partial' %}?q={{ q|urlencode }}"
        hx-trigger="load, pnl:refresh from:body"
@@ -103,28 +103,38 @@
   </div>
 </div>
 
-{# ── 3秒デバウンスでサマリー/テーブル再計算（削除・追加後） ───────────── #}
+{# ── 3秒デバウンスで「サマリー＋テーブル」両方再取得 ───────────── #}
 <script>
   (function () {
     var timer = null;
     var DEBOUNCE_MS = 3000;
 
-    // 削除や追加完了後に呼ばれる
-    function schedule() {
+    function getQ() {
+      var el = document.getElementById('q');
+      return el ? encodeURIComponent(el.value || '') : '';
+    }
+
+    function scheduleRefreshBoth() {
       if (timer) clearTimeout(timer);
       timer = setTimeout(function () {
         timer = null;
-        // サマリーだけ再取得
-        htmx.ajax('GET', "{% url 'realized_summary_partial' %}?q={{ q|urlencode }}", {
+        var q = getQ();
+
+        // テーブル再取得
+        htmx.ajax('GET', "{% url 'realized_table_partial' %}" + (q ? ("?q=" + q) : ""), {
+          target: '#pnlTableWrap',
+          swap: 'outerHTML'
+        });
+
+        // サマリー再取得
+        htmx.ajax('GET', "{% url 'realized_summary_partial' %}" + (q ? ("?q=" + q) : ""), {
           target: '#pnlSummaryWrap',
           swap: 'outerHTML'
         });
       }, DEBOUNCE_MS);
     }
 
-    // カスタムイベント → どこからでも呼べる
-    document.addEventListener('pnl:scheduleRefresh', schedule);
-
+    document.addEventListener('pnl:scheduleRefresh', scheduleRefreshBoth);
     window.addEventListener('beforeunload', function () {
       if (timer) clearTimeout(timer);
     });
