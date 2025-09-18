@@ -2,9 +2,9 @@
 {% load humanize %}
 <table class="w-full border-separate border-spacing-0 rounded-2xl overflow-hidden">
   <colgroup>
-    <col class="w-28">
-    <col class="w-40">
-    <col class="w-20">
+    <col class="w-28">  {# 日付 #}
+    <col class="w-40">  {# 銘柄 #}
+    <col class="w-20">  {# Side #}
     <col class="w-28">
     <col class="w-28">
     <col class="w-28">
@@ -34,7 +34,6 @@
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
-        {# 銘柄：上段=コード / 下段=名称（主役） #}
         <td class="px-3 py-2">
           <div class="leading-tight">
             <div class="text-slate-400 text-xs tracking-wide">{{ t.ticker }}</div>
@@ -63,19 +62,14 @@
           {% endwith %}
         </td>
 
-        {# ★ 削除：行を消して、3秒後にまとめて再計算（デバウンス） #}
         <td class="px-3 py-2 text-right whitespace-nowrap">
           <form
             hx-post="{% url 'realized_delete' t.id %}"
-            hx-swap="none"
-            hx-confirm="削除しますか？"
-            hx-on::after-request="
-              if (event.detail.successful) {
-                const tr = this.closest('tr'); if (tr) tr.remove();
-                document.dispatchEvent(new CustomEvent('pnl:scheduleRefresh'));
-                if (window.navigator?.vibrate) navigator.vibrate(8);
-              }
-            "
+            hx-target="closest tr"            {# ← 行だけ即時に消す #}
+            hx-swap="outerHTML"
+            hx-include="#q"
+            hx-on::after-request="if (event.detail.successful) { document.dispatchEvent(new CustomEvent('pnl:scheduleRefresh')); }"
+            onsubmit="return confirm('削除しますか？')"
           >
             {% csrf_token %}
             <button type="submit" class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">
