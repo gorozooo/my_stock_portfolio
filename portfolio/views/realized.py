@@ -121,16 +121,24 @@ def create(request):
 @login_required
 @require_POST
 def delete(request, pk: int):
+    # 自分のデータだけを対象に（多重ユーザー想定）
     RealizedTrade.objects.filter(pk=pk, user=request.user).delete()
+
     q  = (request.POST.get("q") or "").strip()
     qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
-    if q: qs = qs.filter(ticker__icontains=q)
-    rows=_with_pnl(qs); agg=_aggregate(qs)
-    return JsonResponse({
-        "ok": True,
-        "table":   render_to_string("realized/_table.html",   {"trades": rows}, request=request),
-        "summary": render_to_string("realized/_summary.html", {"agg": agg},     request=request),
-    })
+    if q:
+        qs = qs.filter(ticker__icontains=q)
+
+    rows = _with_pnl(qs)
+    agg  = _aggregate(qs)
+
+    table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
+    summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
+
+    # テーブルをターゲット(#pnlTableWrap)に置換しつつ、
+    # サマリーは OOB で #pnlSummaryWrap を同時更新
+    oob = f'<div id="pnlSummaryWrap" hx-swap-oob="true">{summary_html}</div>'
+    return HttpResponse(table_html + oob)
 
 @login_required
 @require_GET
