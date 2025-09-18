@@ -30,38 +30,35 @@
   <tbody class="text-[15px]">
     {% for t in trades %}
       <tr class="border-b border-white/10">
-        <!-- 日付 -->
+        {# 日付 #}
         <td class="px-3 py-2 whitespace-nowrap text-slate-200">
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
-        <!-- 銘柄＝上段:コード / 下段:名称 -->
+        {# 銘柄＝上段:コード / 下段:名称（主役） #}
         <td class="px-3 py-2">
           <div class="leading-tight">
-            <div class="text-slate-400 text-xs tracking-wide">{{ t.ticker }}</div>
+            <div class="text-slate-400 text-xs tracking-wide whitespace-nowrap">{{ t.ticker }}</div>
             <div class="text-slate-200 font-medium truncate">{{ t.name|default:"" }}</div>
           </div>
         </td>
 
-        <!-- Side -->
+        {# Side（折り返さない） #}
         <td class="px-3 py-2 text-center whitespace-nowrap">
           <span class="inline-block rounded-md px-2 py-0.5 text-xs
-                       {% if t.side == 'SELL' %}
-                         bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/25
-                       {% else %}
-                         bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/25
-                       {% endif %}">
+                       {% if t.side == 'SELL' %}bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/25
+                       {% else %}bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/25{% endif %}">
             {{ t.side }}
           </span>
         </td>
 
-        <!-- 数値 -->
+        {# 数値列 #}
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">{{ t.qty|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.price|floatformat:0|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.fee|floatformat:0|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.tax|floatformat:0|intcomma }}</td>
 
-        <!-- 損益 -->
+        {# 損益 #}
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
           {% with v=t.pnl_calc %}
             <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
@@ -70,7 +67,7 @@
           {% endwith %}
         </td>
 
-        <!-- 削除 -->
+        {# 操作（削除） #}
         <td class="px-3 py-2 text-right whitespace-nowrap">
           <form
             hx-post="{% url 'realized_delete' t.id %}"
@@ -80,7 +77,8 @@
             hx-confirm="削除しますか？"
           >
             {% csrf_token %}
-            <button type="submit" class="px-2 py-1 text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">
+            <button type="submit"
+              class="inline-flex items-center gap-1 text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">
               削除
             </button>
           </form>
