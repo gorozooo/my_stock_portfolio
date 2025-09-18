@@ -170,17 +170,13 @@ def create(request):
 def delete(request, pk: int):
     RealizedTrade.objects.filter(pk=pk, user=request.user).delete()
 
-    q  = (request.POST.get("q") or "").strip()
+    q = (request.POST.get("q") or "").strip()
     qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
     rows = _with_pnl(qs)
-    agg  = _aggregate(qs)
-
-    table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
-    summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
-    return JsonResponse({"ok": True, "table": table_html, "summary": summary_html})
+    return render(request, "realized/_table.html", {"trades": rows})
 
 # ============================================================
 #  CSV（税は出力しない／cashflowはあれば出力）
