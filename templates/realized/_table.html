@@ -66,10 +66,9 @@
           <form
             hx-post="{% url 'realized_delete' t.id %}"
             hx-target="closest tr"
-            hx-swap="outerHTML"
+            hx-swap="outerHTML"  <!-- ← 空レスで行が消える -->
             hx-include="#q"
             hx-on::before-request="if(!confirm('削除しますか？')){event.preventDefault();}"
-            hx-on::after-request="if(event.detail.successful){document.dispatchEvent(new CustomEvent('pnl:scheduleRefresh'));}"
           >
             {% csrf_token %}
             <button type="submit" class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">
