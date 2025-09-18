@@ -238,41 +238,35 @@ logger = logging.getLogger(__name__)
 @require_GET
 def close_sheet(request, pk: int):
     """
-    保有 → 売却のボトムシート（HTMX で表示する HTML を返す）
-    - Holding/RealizedTrade に user フィールドが無い環境でも動作するよう防御
-    - 数量は quantity / qty どちらでも対応
-    - プリセット値は直近の RealizedTrade を参照（なければデフォルト）
-    - 例外時はモーダルに内容を出すため JSON に error/traceback を返す（HTTP 400）
+    保有 → 売却のボトムシート。
+    HTMX(hx-get) で #sheetRoot に innerHTML として差し込むため、
+    ここは JSON ではなく “素のHTML” を返す。
     """
     try:
-        # --- Holding 取得（user フィールド有無に対応） -------------------------
+        # Holding 取得（user フィールド有無に対応）
         holding_filters = {"pk": pk}
         if any(f.name == "user" for f in Holding._meta.fields):
             holding_filters["user"] = request.user
         h = get_object_or_404(Holding, **holding_filters)
 
-        # --- 直近の RealizedTrade（user フィールドがあれば絞る） --------------
+        # 直近 RealizedTrade（user フィールド有無に対応）
         rt_qs = RealizedTrade.objects.all()
         if any(f.name == "user" for f in RealizedTrade._meta.fields):
             rt_qs = rt_qs.filter(user=request.user)
         last = rt_qs.order_by("-trade_at", "-id").first()
 
-        # 安全な getter
         def g(obj, name, default=""):
             return getattr(obj, name, default) if obj is not None else default
 
-        # 保有数量（quantity / qty どちらでも）
+        # quantity / qty どちらでも
         h_qty = g(h, "quantity", None)
         if h_qty in (None, ""):
             h_qty = g(h, "qty", 0)
 
-        # date は input[type=date] に素直に入る ISO 文字列にしておく
-        today_iso = timezone.localdate().isoformat()
-
         ctx = {
             "h": h,
             "prefill": {
-                "date": today_iso,
+                "date": timezone.localdate().isoformat(),
                 "side": "SELL",
                 "ticker": g(h, "ticker", ""),
                 "name":   g(h, "name", ""),
@@ -282,12 +276,35 @@ def close_sheet(request, pk: int):
                 "cashflow": g(last, "cashflow", ""),
                 "memo":   "",
                 "broker": g(last, "broker", "OTHER"),
-                "account": g(last, "account", "SPEC"),  # SPEC/MARGIN/NISA を想定
+                "account": g(last, "account", "SPEC"),  # SPEC/MARGIN/NISA
             },
         }
 
         html = render_to_string("realized/_close_sheet.html", ctx, request=request)
-        return JsonResponse({"ok": True, "sheet": html})
+        return HttpResponse(html)  # ★ HTML をそのまま返す
+
+    except Exception as e:
+        # 失敗時も 200 で “エラー用の簡易シートHTML” を返す（スマホで原因を見せる）
+        logger.exception("close_sheet error (pk=%s): %s", pk, e)
+        import traceback
+        tb = traceback.format_exc()
+        error_html = f"""
+        <div class="sheet" style="padding:16px">
+          <div class="sheet-title" style="font-weight:700;margin-bottom:10px">クローズシートの表示に失敗しました</div>
+          <div style="color:#fca5a5;margin-bottom:8px;">{str(e)}</div>
+          <details style="font-size:12px;opacity:.8">
+            <summary>詳細</summary>
+            <pre style="white-space:pre-wrap">{tb}</pre>
+          </details>
+          <div style="margin-top:12px">
+            <button type="button" data-dismiss="sheet"
+                    style="padding:10px 12px;border:1px solid rgba(255,255,255,.2);border-radius:10px">
+              閉じる
+            </button>
+          </div>
+        </div>
+        """
+        return HttpResponse(error_html)
 
     except Exception as e:
         # ログにも残しつつ、スマホでも内容が見えるようにエラー詳細を返す
