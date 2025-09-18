@@ -121,9 +121,11 @@ def create(request):
 @login_required
 @require_POST
 def delete(request, pk: int):
+    # 対象行を削除（本人データのみ）
     RealizedTrade.objects.filter(pk=pk, user=request.user).delete()
 
-    q  = (request.POST.get("q") or "").strip()
+    # クエリ維持して一覧を再生成
+    q = (request.POST.get("q") or "").strip()
     qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
     if q:
         qs = qs.filter(ticker__icontains=q)
@@ -139,7 +141,7 @@ def delete(request, pk: int):
     summary_oob = f'<div id="pnlSummaryWrap" hx-swap-oob="true">{summary_inner}</div>'
 
     # 1レスポンスで両方返す（HTMX はターゲット置換 + OOB を同時に適用）
-    return HttpResponse(table_html + summary_oob)
+    return HttpResponse(table_html + summary_oob, content_type="text/html; charset=utf-8")
     
 @login_required
 @require_GET
