@@ -2,15 +2,15 @@
 {% load humanize %}
 <table class="w-full border-separate border-spacing-0 rounded-2xl overflow-hidden">
   <colgroup>
-    <col class="w-28">  {# 日付 #}
-    <col class="w-40">  {# 銘柄 #}
-    <col class="w-20">  {# Side #}
+    <col class="w-28">
+    <col class="w-40">
+    <col class="w-20">
     <col class="w-28">
     <col class="w-28">
     <col class="w-28">
     <col class="w-28">
     <col class="w-32">
-    <col class="w-20">  {# 操作 #}
+    <col class="w-20">
   </colgroup>
 
   <thead class="bg-white/5 text-slate-300 text-sm">
@@ -30,35 +30,31 @@
   <tbody class="text-[15px]">
     {% for t in trades %}
       <tr class="border-b border-white/10">
-        {# 日付 #}
         <td class="px-3 py-2 whitespace-nowrap text-slate-200">
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
-        {# 銘柄 = 上段: コード（控えめ）/ 下段: 名称（主役） #}
+        {# 銘柄：上段=コード / 下段=名称（主役） #}
         <td class="px-3 py-2">
           <div class="leading-tight">
-            <div class="text-slate-400 text-xs tracking-wide whitespace-nowrap">{{ t.ticker }}</div>
+            <div class="text-slate-400 text-xs tracking-wide">{{ t.ticker }}</div>
             <div class="text-slate-200 font-medium truncate">{{ t.name|default:"" }}</div>
           </div>
         </td>
 
-        {# Side（折り返さない） #}
         <td class="px-3 py-2 text-center whitespace-nowrap">
-          <span class="inline-block rounded-md px-2 py-0.5 text-xs whitespace-nowrap
+          <span class="inline-block rounded-md px-2 py-0.5 text-xs
                        {% if t.side == 'SELL' %}bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/25
                        {% else %}bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/25{% endif %}">
             {{ t.side }}
           </span>
         </td>
 
-        {# 数値列 #}
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">{{ t.qty|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.price|floatformat:0|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.fee|floatformat:0|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.tax|floatformat:0|intcomma }}</td>
 
-        {# 損益 #}
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
           {% with v=t.pnl_calc %}
             <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
@@ -67,28 +63,20 @@
           {% endwith %}
         </td>
 
-        {# 削除（JSONを受けて自前で差し替え） #}
+        {# ★ 削除：行を消して、3秒後にまとめて再計算（デバウンス） #}
         <td class="px-3 py-2 text-right whitespace-nowrap">
           <form
             hx-post="{% url 'realized_delete' t.id %}"
-            hx-swap="none"              {# ← サーバは JSON を返すため、HTMXでは置換しない #}
-            hx-include="#q"
+            hx-swap="none"
             hx-confirm="削除しますか？"
             hx-on::after-request="
               if (event.detail.successful) {
-                try {
-                  var data = JSON.parse(event.detail.xhr.responseText || '{}');
-                  if (data.table) {
-                    var t = document.querySelector('#pnlTableWrap');
-                    if (t) t.outerHTML = data.table;
-                  }
-                  if (data.summary) {
-                    var s = document.querySelector('#pnlSummaryWrap');
-                    if (s) s.outerHTML = data.summary;
-                  }
-                } catch(e) { console.error(e); }
+                const tr = this.closest('tr'); if (tr) tr.remove();
+                document.dispatchEvent(new CustomEvent('pnl:scheduleRefresh'));
+                if (window.navigator?.vibrate) navigator.vibrate(8);
               }
-            ">
+            "
+          >
             {% csrf_token %}
             <button type="submit" class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">
               削除
