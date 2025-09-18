@@ -232,43 +232,32 @@ def summary_partial(request):
 @require_GET
 def close_sheet(request, pk: int):
     """
-    保有 → 売却のボトムシート
-    ※ HTMX に直接差し込む HTML を返す（JSON では返さない）
+    保有 → 売却のボトムシート（HTMXで表示するHTMLを返す）
     """
     h = get_object_or_404(Holding, pk=pk, user=request.user)
 
-    # Holding 側の数量フィールド差異を吸収
-    qty_in_holding = getattr(h, "quantity", None)
-    if qty_in_holding is None:
-        qty_in_holding = getattr(h, "qty", 0)
-
-    # 直近の入力（手数料/税/口座/証券会社 など）をプリセット
-    last = (
-        RealizedTrade.objects.filter(user=request.user)
-        .order_by("-trade_at", "-id")
-        .first()
-    )
+    # 直近の入力値をプリセット（なければデフォルト）
+    last = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at").first()
 
     ctx = {
         "h": h,
         "prefill": {
             "date": timezone.localdate(),
             "side": "SELL",
-            "ticker": getattr(h, "ticker", "") or "",
+            "ticker": h.ticker,
             "name": getattr(h, "name", "") or "",
-            "qty": qty_in_holding,
+            "qty": getattr(h, "quantity", None) or getattr(h, "qty", 0),
             "price": "",
-            "fee": getattr(last, "fee", 0) or 0,
+            "fee": getattr(last, "fee", 0),             # ← 安全に
+            "cashflow": getattr(last, "cashflow", ""),  # ← 安全に
             "memo": "",
-            "broker": getattr(last, "broker", "OTHER") or "OTHER",
-            # 口座区分（特定=SPEC / 信用=MARGIN / NISA=NISA）
-            "account": getattr(last, "account", "SPEC") or "SPEC",
-        },
+            "broker": getattr(last, "broker", "OTHER"),
+            "account": getattr(last, "account", "SPEC"),  # SPEC/MARGIN/NISA を想定
+        }
     }
 
     html = render_to_string("realized/_close_sheet.html", ctx, request=request)
-    # JSON ではなく HTML を返す（HTMX がそのままターゲットへ差し込む）
-    return HttpResponse(html, content_type="text/html")
+    return JsonResponse({"ok": True, "sheet": html})
 
 @login_required
 @require_POST
