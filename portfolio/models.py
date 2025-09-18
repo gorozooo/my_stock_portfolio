@@ -28,72 +28,72 @@ class Holding(models.Model):
     def __str__(self):
         return f"{self.ticker} x{self.quantity}"
 
-# portfolio/models.py
-
-from decimal import Decimal, ROUND_HALF_UP
-from django.conf import settings
-from django.db import models
-
 
 class RealizedTrade(models.Model):
-    user      = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    trade_at  = models.DateField()
-
-    SIDE_CHOICES = (("SELL", "SELL"), ("BUY", "BUY"))
-    side      = models.CharField(max_length=4, choices=SIDE_CHOICES)
-
-    ticker    = models.CharField(max_length=20)       # 証券コード
-    name      = models.CharField(max_length=100, null=True, blank=True)  # ★ 変更
-    qty       = models.IntegerField()
-
-    price     = models.DecimalField(max_digits=14, decimal_places=2)  # 売買単価
-    basis     = models.DecimalField(                              # 原価（1株あたり平均取得単価）
-        max_digits=14, decimal_places=2, null=True, blank=True
+    BROKER_CHOICES = (
+        ("RAKUTEN", "楽天証券"),
+        ("SBI",     "SBI証券"),
+        ("MATSUI",  "松井証券"),
+        ("OTHER",   "その他"),
     )
 
-    fee       = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
-    tax       = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    user      = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    trade_at  = models.DateField()
+    side      = models.CharField(max_length=4, choices=(("SELL","SELL"),("BUY","BUY")))
+    ticker    = models.CharField(max_length=20)
+    name      = models.CharField(max_length=120, blank=True, default="")   # 既存にある想定。無ければ追加してOK
+    qty       = models.IntegerField()
+    price     = models.DecimalField(max_digits=14, decimal_places=2)       # 約定単価（1株あたり）
+    basis     = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    fee       = models.DecimalField(max_digits=14, decimal_places=2, default=0)  # 手数料（税含め一本化運用でもOK）
+    tax       = models.DecimalField(max_digits=14, decimal_places=2, default=0)  # 使わないなら将来削除可
+
+    # ★ 追加: 証券会社（任意）/ 受渡金額（現金フロー、手入力可）
+    broker    = models.CharField(max_length=16, choices=BROKER_CHOICES, default="OTHER")
+    cashflow  = models.DecimalField(
+        max_digits=16, decimal_places=2, null=True, blank=True,
+        help_text="受渡金額（現金フロー）。SELL=受取は＋、BUY=支払は−。未入力なら自動計算。"
+    )
+
     memo      = models.TextField(blank=True, default="")
     created_at= models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["-trade_at", "-id"]
-
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _D(x) -> Decimal:
-        """Decimal 変換（None → 0）"""
-        if x is None:
-            return Decimal("0")
-        if isinstance(x, Decimal):
-            return x
-        return Decimal(str(x))
+        ordering = ["-trade_at","-id"]
 
     @property
-    def amount(self) -> Decimal:
-        """約定金額 = 単価 × 数量"""
-        return self._D(self.price) * Decimal(self.qty)
+    def amount(self):
+        """約定金額（絶対値ではなく ‘価格×数量’。符号は side で扱う）"""
+        return float(self.qty) * float(self.price)
 
     @property
-    def pnl(self) -> Decimal:
+    def pnl(self):
         """
-        実現損益（SELLを正）
+        投資家の実現損益（PnL）。basis を使った純粋損益。
         SELL: (price - basis) * qty - fee - tax
-        BUY : -((price - basis) * qty) - fee - tax
+        BUY : 0（建玉オープンとして損益は発生させない）
+        basis 未設定時は price を代用（=損益0）で安全に倒す。
         """
-        price = self._D(self.price)
-        basis = self._D(self.basis)  # None → 0
-        fee   = self._D(self.fee)
-        tax   = self._D(self.tax)
-        qty   = Decimal(self.qty)
-
-        core = (price - basis) * qty
-        if self.side == "SELL":
-            pnl = core - fee - tax
+        if self.side == "BUY":
+            gross = 0.0
         else:
-            pnl = -core - fee - tax
+            b = float(self.basis) if self.basis is not None else float(self.price)
+            gross = (float(self.price) - b) * float(self.qty)
 
-        return pnl.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return gross - float(self.fee) - float(self.tax)
 
-    def __str__(self) -> str:
-        return f"{self.trade_at} {self.ticker} {self.name} {self.side} x{self.qty} @ {self.price}"
+    @property
+    def cashflow_effective(self):
+        """
+        表示・集計で使う“現金の動き”。
+        - 入力がある: そのまま返す（SELL=＋, BUY=− が望ましい）
+        - 入力なし  : 受渡の慣習に沿って自動推定
+            SELL → + (qty*price - fee - tax)
+            BUY  → - (qty*price + fee + tax)
+        """
+        if self.cashflow is not None:
+            return float(self.cashflow)
+
+        signed = self.amount if self.side == "SELL" else -self.amount
+        return signed - float(self.fee) - float(self.tax)
+        
