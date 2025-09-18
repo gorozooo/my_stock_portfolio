@@ -1,21 +1,33 @@
-<!-- templates/realized/_summary.html -->
+{# templates/realized/_summary.html #}
+{% load humanize %}
+
 <div class="summary-grid">
   <div class="sum-card">
     <div class="k">件数</div>
-    <div class="v">{{ agg.n }}</div>
+    <div class="v font-mono tabular-nums">{{ agg.n|default:0|intcomma }}</div>
   </div>
+
   <div class="sum-card">
     <div class="k">数量合計</div>
-    <div class="v">{{ agg.qty }}</div>
+    <div class="v font-mono tabular-nums">{{ agg.qty|default:0|intcomma }}</div>
   </div>
+
   <div class="sum-card">
-    <div class="k">手数料</div>
-    <div class="v">¥{{ agg.fee|floatformat:0 }}</div>
+    <div class="k">手数料（参考）</div>
+    <div class="v font-mono tabular-nums">¥{{ agg.fee|default:0|floatformat:0|intcomma }}</div>
   </div>
+
   <div class="sum-card">
-    <div class="k">実現損益</div>
-    <div class="v {% if agg.pnl < 0 %}negative{% else %}positive{% endif %}">
-      ¥{{ agg.pnl|floatformat:0 }}
-    </div>
+    <div class="k">実損（手数料控除前）</div>
+    {% with v=agg.pnl|default:0 %}
+      <div class="v font-mono tabular-nums {% if v < 0 %}negative{% else %}positive{% endif %}">
+        ¥{{ v|floatformat:0|intcomma }}
+      </div>
+    {% endwith %}
   </div>
+</div>
+
+{# ちょい注記（必要なければ削除OK） #}
+<div class="mt-1 text-[11px] text-slate-400">
+  ※ 実損は「手数料控除前」の利益/損失（手入力）です。手数料は参考として別計上します。
 </div>
