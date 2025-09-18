@@ -231,3 +231,137 @@ def summary_partial(request):
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
     agg = _aggregate(qs)
     return render(request, "realized/_summary.html", {"agg": agg, "q": q})
+    
+@login_required
+@require_GET
+def close_sheet(request, pk: int):
+    """
+    保有 → 売却のボトムシート（HTMXで表示するHTMLを返す）
+    """
+    h = get_object_or_404(Holding, pk=pk, user=request.user)
+
+    # 直近の入力値をプリセット
+    last = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at").first()
+    ctx = {
+        "h": h,
+        "prefill": {
+            "date": timezone.localdate(),
+            "side": "SELL",
+            "ticker": h.ticker,
+            "name": getattr(h, "name", "") or "",
+            "qty": getattr(h, "quantity", None) or getattr(h, "qty", 0),  # Holding 側のフィールド差異を吸収
+            "price": "",
+            "fee":  (last.fee if last else 0),
+            "memo": "",
+            "broker": getattr(last, "broker", "OTHER"),
+            "account": getattr(last, "account", "SPEC"),  # SPEC/MARGIN/NISA を想定
+        }
+    }
+
+    html = render_to_string("realized/_close_sheet.html", ctx, request=request)
+    return JsonResponse({"ok": True, "sheet": html})
+
+@login_required
+@require_POST
+@transaction.atomic
+def close_submit(request, pk: int):
+    """
+    保有行の「売却」を登録。
+    - 必須: date, qty, price
+    - 任意: fee もしくは cashflow（片方だけ or 両方。cashflow 優先で fee を逆算）
+    - 追加: broker, account, memo, name
+    完了後、実損テーブルとサマリー、（あれば）保有一覧断片を返す。
+    """
+    h = get_object_or_404(Holding, pk=pk, user=request.user)
+
+    # 入力を回収
+    date_raw = (request.POST.get("date") or "").strip()
+    try:
+        trade_at = timezone.datetime.fromisoformat(date_raw).date() if date_raw else timezone.localdate()
+    except Exception:
+        trade_at = timezone.localdate()
+
+    side   = "SELL"
+    qty_in = int(request.POST.get("qty") or 0)
+    price  = _to_dec(request.POST.get("price"))
+    fee_in = _to_dec(request.POST.get("fee"))
+    cf_in  = request.POST.get("cashflow")
+    cashflow = None if cf_in in (None, "") else _to_dec(cf_in)
+
+    broker  = (request.POST.get("broker")  or "OTHER").upper()
+    account = (request.POST.get("account") or "SPEC").upper()  # SPEC/MARGIN/NISA を想定
+    memo    = (request.POST.get("memo") or "").strip()
+
+    # 表示名（保有に name があればそれを使う。フォーム側から name 渡すならそちら優先でもOK）
+    name = (request.POST.get("name") or "").strip() or getattr(h, "name", "") or ""
+
+    # バリデーション（Holding 側のフィールド名ゆれに対応）
+    held_qty = getattr(h, "quantity", None)
+    if held_qty is None:
+        held_qty = getattr(h, "qty", 0)
+
+    if qty_in <= 0 or price <= 0 or qty_in > held_qty:
+        return JsonResponse({"ok": False, "error": "数量/価格を確認してください"}, status=400)
+
+    # cashflow 優先で fee を逆算（売りなので notional - cashflow = fee）
+    notional = _to_dec(qty_in) * price
+    if cashflow is not None:
+        fee = (notional - cashflow)  # SELL
+    else:
+        fee = fee_in
+
+    # 取引を登録（pnl はDBに保存しない運用。集計は注釈で算出）
+    RealizedTrade.objects.create(
+        user=request.user,
+        trade_at=trade_at,
+        side=side,
+        ticker=getattr(h, "ticker", ""),
+        name=name,
+        broker=broker,
+        account=account,   # モデルに account を追加済み想定
+        qty=qty_in,
+        price=price,
+        fee=fee,
+        cashflow=cashflow, # モデルに null 可で追加済み想定
+        memo=memo,
+    )
+
+    # 保有数量を減算（0以下で削除）
+    if hasattr(h, "quantity"):
+        h.quantity = F("quantity") - qty_in
+        h.save(update_fields=["quantity"])
+        h.refresh_from_db()
+        if h.quantity <= 0:
+            h.delete()
+    else:
+        # 古いスキーマ（qty）にも対応
+        h.qty = F("qty") - qty_in
+        h.save(update_fields=["qty"])
+        h.refresh_from_db()
+        if h.qty <= 0:
+            h.delete()
+
+    # 断片の再描画（検索キーワード維持：q は ticker/name の部分一致）
+    q = (request.POST.get("q") or "").strip()
+    qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
+    if q:
+        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+
+    rows = _with_pnl(qs)
+    agg  = _aggregate(qs)
+
+    table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
+    summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
+
+    # 保有一覧の部分テンプレがある場合だけ返す（無くてもOK）
+    try:
+        holdings_html = render_to_string(
+            "holdings/_list.html",
+            {"holdings": Holding.objects.filter(user=request.user)},
+            request=request
+        )
+    except Exception:
+        holdings_html = ""
+
+    return JsonResponse({"ok": True, "table": table_html, "summary": summary_html, "holdings": holdings_html})
+
