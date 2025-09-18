@@ -5,11 +5,11 @@
     <col class="w-28">   {# 日付 #}
     <col class="w-40">   {# 銘柄 #}
     <col class="w-20">   {# Side #}
-    <col class="w-28">   {# 数量 #}
-    <col class="w-28">   {# 価格 #}
-    <col class="w-28">   {# 手数料 #}
-    <col class="w-28">   {# 税 #}
-    <col class="w-32">   {# 実現損益 #}
+    <col class="w-28">
+    <col class="w-28">
+    <col class="w-28">
+    <col class="w-28">
+    <col class="w-32">
     <col class="w-20">   {# 操作 #}
   </colgroup>
 
@@ -30,12 +30,12 @@
   <tbody class="text-[15px]">
     {% for t in trades %}
       <tr class="border-b border-white/10">
-        {# 日付 #}
+        <!-- 日付 -->
         <td class="px-3 py-2 whitespace-nowrap text-slate-200">
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
-        {# 銘柄＝上段:コード / 下段:名称（主役） #}
+        <!-- 銘柄＝上段:コード / 下段:名称（主役） -->
         <td class="px-3 py-2">
           <div class="leading-tight">
             <div class="text-slate-400 text-xs tracking-wide">{{ t.ticker }}</div>
@@ -43,7 +43,7 @@
           </div>
         </td>
 
-        {# Side（折り返さない） #}
+        <!-- Side（折り返さない） -->
         <td class="px-3 py-2 text-center whitespace-nowrap">
           <span class="inline-block rounded-md px-2 py-0.5 text-xs
                        {% if t.side == 'SELL' %}
@@ -55,13 +55,13 @@
           </span>
         </td>
 
-        {# 数値列 #}
+        <!-- 数値列 -->
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">{{ t.qty|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.price|floatformat:0|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.fee|floatformat:0|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.tax|floatformat:0|intcomma }}</td>
 
-        {# 損益 #}
+        <!-- 損益 -->
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
           {% with v=t.pnl_calc %}
             <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
@@ -70,30 +70,24 @@
           {% endwith %}
         </td>
 
-        {# 削除 #}
-        <td class="px-3 py-2 text-right whitespace-nowrap relative">
-          <form
-            action="{% url 'realized_delete' t.id %}"
-            method="post"
-            class="inline-block"
+        <!-- 削除（ボタン単体で POST） -->
+        <td class="px-3 py-2 text-right whitespace-nowrap relative pointer-events-auto">
+          <button
+            type="button"
+            class="px-3 py-1 rounded-md ring-1 ring-white/15 text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap
+                   inline-flex items-center justify-center pointer-events-auto relative z-10"
+            style="touch-action: manipulation;"
             hx-post="{% url 'realized_delete' t.id %}"
             hx-target="#pnlTableWrap"
             hx-swap="outerHTML"
             hx-include="#q"
             hx-confirm="削除しますか？"
-            hx-disabled-elt="button"
+            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+            hx-disabled-elt="this"
             hx-on::after-request="if (event.detail.successful) { document.dispatchEvent(new CustomEvent('pnl:scheduleRefresh')); }"
           >
-            {% csrf_token %}
-            <button
-              type="submit"
-              class="px-3 py-1 rounded-md ring-1 ring-white/15 text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap
-                     pointer-events-auto relative z-[1]"
-              style="touch-action: manipulation;"
-            >
-              削除
-            </button>
-          </form>
+            削除
+          </button>
         </td>
       </tr>
     {% empty %}
