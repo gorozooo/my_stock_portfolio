@@ -64,59 +64,100 @@ def list_page(request):
     agg  = _aggregate(qs)
     return render(request, "realized/list.html", {"q": q, "trades": rows, "agg": agg})
 
+# ---- 作成（HTMX: テーブル断片 + サマリー返却） ------------------------------
 @login_required
 @require_POST
 def create(request):
-    # 入力
+    """
+    入力方針：
+      - ユーザーは「受渡金額(=実損の現金フロー)」を手入力できる
+      - 未入力なら、fee から受渡金額を自動計算する
+      - 入力がある場合は、受渡金額から fee を逆算する（税は使わず fee 一本化）
+
+    記号：
+      SELL の正方向 = 現金の受け取り (+)
+      BUY  の負方向 = 現金の支払い (-)
+    """
+    from decimal import Decimal, InvalidOperation
+
+    # 日付
     date_raw = (request.POST.get("date") or "").strip()
     try:
         trade_at = timezone.datetime.fromisoformat(date_raw).date() if date_raw else timezone.localdate()
     except Exception:
         trade_at = timezone.localdate()
 
-    side   = (request.POST.get("side") or "SELL").upper()
-    ticker = (request.POST.get("ticker") or "").strip()
+    side     = (request.POST.get("side") or "SELL").upper()
+    ticker   = (request.POST.get("ticker") or "").strip()
+    broker   = (request.POST.get("broker") or "OTHER").upper()
+    memo     = (request.POST.get("memo") or "").strip()
 
+    # 数量・価格
     try:
         qty   = int(request.POST.get("qty") or 0)
         price = Decimal(str(request.POST.get("price") or "0"))
-        fee   = Decimal(str(request.POST.get("fee")   or "0"))
-        tax   = Decimal(str(request.POST.get("tax")   or "0"))
     except Exception:
-        return JsonResponse({"ok": False, "error": "数値の形式が不正です"}, status=400)
+        return JsonResponse({"ok": False, "error": "数量/価格の形式が不正です"}, status=400)
 
-    # basis：フォーム値が無ければ、同銘柄の保有の平均取得単価を既定に
-    basis_raw = request.POST.get("basis")
-    if basis_raw not in (None, ""):
-        try:
-            basis = Decimal(str(basis_raw))
-        except Exception:
-            return JsonResponse({"ok": False, "error": "原価の形式が不正です"}, status=400)
-    else:
-        basis = Holding.objects.filter(user=request.user, ticker=ticker)\
-                .values_list("avg_cost", flat=True).first() or Decimal("0")
+    # fee（空なら 0）/ cashflow（空なら None）
+    fee_raw      = (request.POST.get("fee") or "").strip()
+    cashflow_raw = (request.POST.get("cashflow") or "").strip()
 
-    memo = (request.POST.get("memo") or "").strip()
+    try:
+        fee = Decimal(str(fee_raw)) if fee_raw != "" else Decimal("0")
+    except InvalidOperation:
+        return JsonResponse({"ok": False, "error": "手数料の形式が不正です"}, status=400)
+
+    try:
+        cashflow = Decimal(str(cashflow_raw)) if cashflow_raw != "" else None
+    except InvalidOperation:
+        return JsonResponse({"ok": False, "error": "受渡金額(実損)の形式が不正です"}, status=400)
 
     if not ticker or qty <= 0 or price <= 0:
         return JsonResponse({"ok": False, "error": "入力が不足しています"}, status=400)
 
+    notional = Decimal(qty) * price  # 約定金額（絶対値）
+
+    # --- 受渡/手数料の決定 ---
+    # 優先：cashflow が入力されていれば fee を逆算（税は使わず一本化）
+    if cashflow is not None:
+        if side == "SELL":
+            # SELL: + (notional - fee) = cashflow → fee = notional - cashflow
+            fee = (notional - cashflow)
+        else:
+            # BUY : - (notional + fee) = cashflow → fee = -(cashflow) - notional
+            fee = (-(cashflow) - notional)
+        # マイナス誤入力など安全側でクリップ
+        if fee < 0:
+            fee = Decimal("0")
+    else:
+        # cashflow 未入力 → fee から自動算出
+        if side == "SELL":
+            cashflow = notional - fee
+        else:
+            cashflow = -(notional + fee)
+
+    # 保存（taxは使わない運用なので0固定、basisは未入力のままでOK）
     RealizedTrade.objects.create(
-        user=request.user, trade_at=trade_at, side=side, ticker=ticker,
-        qty=qty, price=price, basis=basis, fee=fee, tax=tax, memo=memo,
+        trade_at=trade_at, side=side, ticker=ticker,
+        qty=qty, price=price, fee=fee, tax=0,
+        broker=broker, cashflow=cashflow, memo=memo,
+        user=request.user,
     )
 
-    # 再描画
+    # 再描画（検索語維持）
     q  = (request.POST.get("q") or "").strip()
     qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
-    if q: qs = qs.filter(ticker__icontains=q)
-    rows = _with_pnl(qs); agg = _aggregate(qs)
+    if q:
+        qs = qs.filter(models.Q(ticker__icontains=q) | models.Q(name__icontains=q))
 
-    return JsonResponse({
-        "ok": True,
-        "table":   render_to_string("realized/_table.html",   {"trades": rows}, request=request),
-        "summary": render_to_string("realized/_summary.html", {"agg": agg},     request=request),
-    })
+    rows = _with_pnl(qs)
+    agg  = _aggregate(qs)
+
+    table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
+    summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
+
+    return JsonResponse({"ok": True, "table": table_html, "summary": summary_html})
 
 @login_required
 @require_POST
