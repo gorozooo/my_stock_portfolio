@@ -123,23 +123,12 @@ def create(request):
 def delete(request, pk: int):
     RealizedTrade.objects.filter(pk=pk, user=request.user).delete()
 
-    q  = (request.POST.get("q") or "").strip()
-    qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
-    if q:
-        qs = qs.filter(ticker__icontains=q)
-
-    rows = _with_pnl(qs)
-    agg  = _aggregate(qs)
-
-    # 部分テンプレをレンダリング
-    table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
-    summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
-
-    return JsonResponse({
-        "ok": True,
-        "table": table_html,
-        "summary": summary_html
-    })
+    # 行はフロント側で（target 行に）空を差し替えて消す。本文は空、204。
+    # ついでに、3秒後の再取得を予約するカスタムイベントを HX-Trigger で送る。
+    trigger_payload = json.dumps({"pnl:scheduleRefresh": True})
+    resp = HttpResponse("", status=204)
+    resp["HX-Trigger"] = trigger_payload
+    return resp
     
 @login_required
 @require_GET
