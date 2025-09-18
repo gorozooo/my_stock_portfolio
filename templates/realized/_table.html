@@ -70,16 +70,35 @@
         {# 削除（ネイティブ確認→OKでPOST→テーブル置換、サマリーはOOBで更新） #}
         <td class="px-3 py-2 text-right whitespace-nowrap">
           <form
-            hx-post="{% url 'realized_delete' t.id %}"
+            hx-post="{% url 'realized_close_submit' h.id %}"
             hx-target="#pnlTableWrap"
             hx-swap="outerHTML"
-            hx-include="#q"
-            hx-confirm="削除しますか？"
+            hx-include="[name=csrfmiddlewaretoken], #q"
+            hx-on::after-request="
+              if (event.detail.successful) {
+                try {
+                  var data = JSON.parse(event.detail.xhr.responseText || '{}');
+                  if (data.table) {
+                    var t = document.querySelector('#pnlTableWrap');
+                    if (t) t.outerHTML = data.table;
+                  }
+                  if (data.summary) {
+                    var s = document.querySelector('#pnlSummaryWrap');
+                    if (s) s.outerHTML = data.summary;
+                  }
+                  htmx.remove(this.closest('.sheet')); // モーダルを閉じる
+                } catch(e) { console.error(e); }
+              }
+            "
           >
             {% csrf_token %}
-            <button type="submit" class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">
-              🗑 削除
-            </button>
+          
+            <!-- 入力欄はそのまま -->
+            ...
+            <div class="grid grid-cols-2 gap-2 mt-4">
+              <button type="button" class="btn-ghost" data-dismiss="sheet">キャンセル</button>
+              <button type="submit" class="btn-primary">売却を記録</button>
+            </div>
           </form>
         </td>
       </tr>
