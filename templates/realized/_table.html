@@ -2,15 +2,15 @@
 {% load humanize %}
 <table class="w-full border-separate border-spacing-0 rounded-2xl overflow-hidden">
   <colgroup>
-    <col class="w-28">
-    <col class="w-40">
-    <col class="w-20">
+    <col class="w-28">   {# 日付 #}
+    <col class="w-40">   {# 銘柄 #}
+    <col class="w-20">   {# Side #}
     <col class="w-28">
     <col class="w-28">
     <col class="w-28">
     <col class="w-28">
     <col class="w-32">
-    <col class="w-20">
+    <col class="w-20">   {# 操作 #}
   </colgroup>
 
   <thead class="bg-white/5 text-slate-300 text-sm">
@@ -30,10 +30,12 @@
   <tbody class="text-[15px]">
     {% for t in trades %}
       <tr class="border-b border-white/10">
+        {# 日付 #}
         <td class="px-3 py-2 whitespace-nowrap text-slate-200">
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
+        {# 銘柄＝上段:コード / 下段:名称（主役） #}
         <td class="px-3 py-2">
           <div class="leading-tight">
             <div class="text-slate-400 text-xs tracking-wide">{{ t.ticker }}</div>
@@ -41,6 +43,7 @@
           </div>
         </td>
 
+        {# Side（折り返さない） #}
         <td class="px-3 py-2 text-center whitespace-nowrap">
           <span class="inline-block rounded-md px-2 py-0.5 text-xs
                        {% if t.side == 'SELL' %}bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/25
@@ -49,11 +52,13 @@
           </span>
         </td>
 
+        {# 数値列 #}
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">{{ t.qty|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.price|floatformat:0|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.fee|floatformat:0|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.tax|floatformat:0|intcomma }}</td>
 
+        {# 損益 #}
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
           {% with v=t.pnl_calc %}
             <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
@@ -62,13 +67,15 @@
           {% endwith %}
         </td>
 
+        {# 削除（行だけ即消し＋3秒後に一覧/サマリー再取得を予約） #}
         <td class="px-3 py-2 text-right whitespace-nowrap">
           <form
             hx-post="{% url 'realized_delete' t.id %}"
             hx-target="closest tr"
-            hx-swap="outerHTML"  <!-- ← 空レスで行が消える -->
+            hx-swap="outerHTML"
             hx-include="#q"
-            hx-on::before-request="if(!confirm('削除しますか？')){event.preventDefault();}"
+            hx-confirm="削除しますか？"
+            hx-on::after-request="if (event.detail.successful) { document.dispatchEvent(new CustomEvent('pnl:scheduleRefresh')); }"
           >
             {% csrf_token %}
             <button type="submit" class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">
