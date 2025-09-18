@@ -76,7 +76,9 @@
     <div class="sheet-row">
       <label class="flex flex-col gap-1">
         <span class="label">日付</span>
-        <input name="date" type="date" value="{{ prefill.date }}" class="in" />
+        <input name="date" type="date"
+               value="{{ prefill.date|date:'Y-m-d' }}"
+               class="in" />
       </label>
       <label class="flex flex-col gap-1">
         <span class="label">数量</span>
@@ -85,6 +87,7 @@
                min="1"
                max="{{ h.quantity|default:h.qty }}"
                value="{{ prefill.qty }}"
+               inputmode="numeric"
                class="in" />
         <small class="text-xs text-slate-500">保有: {{ h.quantity|default:h.qty }}</small>
       </label>
@@ -95,7 +98,7 @@
       <input name="price" inputmode="decimal" placeholder="例: 1234.5" class="in" />
     </label>
 
-    {# ブローカー / 口座区分 #}
+    {# 証券会社 / 口座区分 #}
     <div class="sheet-row mt-3">
       <label class="flex flex-col gap-1">
         <span class="label">証券会社</span>
@@ -119,13 +122,13 @@
     {# 受渡金額 or 手数料（税込み） #}
     <div class="sheet-row mt-3">
       <label class="flex flex-col gap-1">
-        <span class="label">受渡金額（任意）</span>
+        <span class="label">受渡金額（任意・実損）</span>
         <input name="cashflow" inputmode="decimal"
                value="{{ prefill.cashflow|default:'' }}"
                placeholder="入力すると手数料を逆算" class="in" />
         <p class="help">
-          例）受渡金額を入力すると、<b>手数料（税含む）</b>は自動で逆算されます。
-          未入力なら下の手数料を使います。
+          受渡金額を入力すると <b>手数料（税含む）</b>は自動で逆算します。
+          未入力なら下の手数料を使用します。SELL は＋／BUY は−で入力。
         </p>
       </label>
       <label class="flex flex-col gap-1">
@@ -146,7 +149,7 @@
 
     {# サーバ側で SELL 固定の想定だが念のため送る #}
     <input type="hidden" name="side" value="SELL">
-    {# 名称も渡しておく（モデルにnameがある場合の保険） #}
+    {# 名称も渡しておく（モデルに name がある場合の保険） #}
     <input type="hidden" name="name" value="{{ h.name|default:'' }}">
     <input type="hidden" name="ticker" value="{{ h.ticker }}">
   </form>
