@@ -2,15 +2,15 @@
 {% load humanize %}
 <table class="w-full border-separate border-spacing-0 rounded-2xl overflow-hidden">
   <colgroup>
-    <col class="w-28">   {# 日付 #}
-    <col class="w-40">   {# 銘柄 #}
-    <col class="w-20">   {# Side #}
+    <col class="w-28">  {# 日付 #}
+    <col class="w-40">  {# 銘柄 #}
+    <col class="w-20">  {# Side #}
     <col class="w-28">
     <col class="w-28">
     <col class="w-28">
     <col class="w-28">
     <col class="w-32">
-    <col class="w-20">   {# 操作 #}
+    <col class="w-20">  {# 操作 #}
   </colgroup>
 
   <thead class="bg-white/5 text-slate-300 text-sm">
@@ -30,12 +30,12 @@
   <tbody class="text-[15px]">
     {% for t in trades %}
       <tr class="border-b border-white/10">
-        {# 日付（折り返しなし） #}
+        {# 日付 #}
         <td class="px-3 py-2 whitespace-nowrap text-slate-200">
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
-        {# 銘柄＝上段:コード（控えめ） / 下段:名称（主役） #}
+        {# 銘柄 = 上段: コード（控えめ）/ 下段: 名称（主役） #}
         <td class="px-3 py-2">
           <div class="leading-tight">
             <div class="text-slate-400 text-xs tracking-wide whitespace-nowrap">{{ t.ticker }}</div>
@@ -43,9 +43,9 @@
           </div>
         </td>
 
-        {# Side（折り返しなし） #}
+        {# Side（折り返さない） #}
         <td class="px-3 py-2 text-center whitespace-nowrap">
-          <span class="inline-block rounded-md px-2 py-0.5 text-xs
+          <span class="inline-block rounded-md px-2 py-0.5 text-xs whitespace-nowrap
                        {% if t.side == 'SELL' %}bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/25
                        {% else %}bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/25{% endif %}">
             {{ t.side }}
@@ -67,21 +67,30 @@
           {% endwith %}
         </td>
 
-        {# 操作（削除）: HTML標準送信 + HTMXの二重化。必ず動く構成 #}
+        {# 削除（JSONを受けて自前で差し替え） #}
         <td class="px-3 py-2 text-right whitespace-nowrap">
           <form
-            method="post"
-            action="{% url 'realized_delete' t.id %}"
             hx-post="{% url 'realized_delete' t.id %}"
-            hx-target="#pnlTableWrap"
-            hx-swap="outerHTML"
+            hx-swap="none"              {# ← サーバは JSON を返すため、HTMXでは置換しない #}
             hx-include="#q"
             hx-confirm="削除しますか？"
-          >
+            hx-on::after-request="
+              if (event.detail.successful) {
+                try {
+                  var data = JSON.parse(event.detail.xhr.responseText || '{}');
+                  if (data.table) {
+                    var t = document.querySelector('#pnlTableWrap');
+                    if (t) t.outerHTML = data.table;
+                  }
+                  if (data.summary) {
+                    var s = document.querySelector('#pnlSummaryWrap');
+                    if (s) s.outerHTML = data.summary;
+                  }
+                } catch(e) { console.error(e); }
+              }
+            ">
             {% csrf_token %}
-            <button type="submit"
-              class="inline-flex items-center gap-1 text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap"
-              style="touch-action:manipulation; position:relative; z-index:1;">
+            <button type="submit" class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">
               削除
             </button>
           </form>
