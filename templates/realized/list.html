@@ -109,19 +109,22 @@
     var timer = null;
     var DEBOUNCE_MS = 3000;
 
+    // 削除や追加完了後に呼ばれる
     function schedule() {
       if (timer) clearTimeout(timer);
       timer = setTimeout(function () {
         timer = null;
-        // サマリー＆テーブル双方を再取得（各自 hx-trigger="pnl:refresh" で反応）
-        htmx.trigger(document.body, 'pnl:refresh');
+        // サマリーだけ再取得
+        htmx.ajax('GET', "{% url 'realized_summary_partial' %}?q={{ q|urlencode }}", {
+          target: '#pnlSummaryWrap',
+          swap: 'outerHTML'
+        });
       }, DEBOUNCE_MS);
     }
 
-    // どこからでも呼べるようにカスタムイベントを拾う
+    // カスタムイベント → どこからでも呼べる
     document.addEventListener('pnl:scheduleRefresh', schedule);
 
-    // ページ離脱時はタイマー片付け
     window.addEventListener('beforeunload', function () {
       if (timer) clearTimeout(timer);
     });
