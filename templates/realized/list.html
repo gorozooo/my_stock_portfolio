@@ -17,7 +17,7 @@
         hx-target="#pnlTableWrap"
         hx-swap="outerHTML"
         hx-include="#q"
-        hx-on::after-request="if (event.detail.successful) { htmx.trigger(document.body, 'pnl:refresh'); }"
+        hx-on::after-request="if (event.detail.successful) { document.dispatchEvent(new CustomEvent('pnl:scheduleRefresh')); }"
         autocomplete="off" novalidate>
     {% csrf_token %}
 
@@ -81,7 +81,7 @@
     </div>
   </form>
 
-  {# ── サマリー（OOB 更新の着地点。id は固定で使う） ─────────────── #}
+  {# ── サマリー（id 固定） ─────────────────────────────── #}
   <div id="pnlSummaryWrap"
        hx-get="{% url 'realized_summary_partial' %}?q={{ q|urlencode }}"
        hx-trigger="load, pnl:refresh from:body"
@@ -102,4 +102,29 @@
     {% include "realized/_table.html" with trades=trades %}
   </div>
 </div>
+
+{# ── 3秒デバウンスでサマリー/テーブル再計算（削除・追加後） ───────────── #}
+<script>
+  (function () {
+    var timer = null;
+    var DEBOUNCE_MS = 3000;
+
+    function schedule() {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function () {
+        timer = null;
+        // サマリー＆テーブル双方を再取得（各自 hx-trigger="pnl:refresh" で反応）
+        htmx.trigger(document.body, 'pnl:refresh');
+      }, DEBOUNCE_MS);
+    }
+
+    // どこからでも呼べるようにカスタムイベントを拾う
+    document.addEventListener('pnl:scheduleRefresh', schedule);
+
+    // ページ離脱時はタイマー片付け
+    window.addEventListener('beforeunload', function () {
+      if (timer) clearTimeout(timer);
+    });
+  })();
+</script>
 {% endblock %}
