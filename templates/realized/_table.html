@@ -71,27 +71,13 @@
         <td class="px-3 py-2 text-right whitespace-nowrap">
           <form
             hx-post="{% url 'realized_delete' t.id %}"
-            hx-swap="none"
+            hx-target="#pnlTableWrap"
+            hx-swap="outerHTML"
             hx-include="#q"
             hx-confirm="削除しますか？"
-            hx-on::after-request="
-              if (event.detail.successful) {
-                try {
-                  var data = JSON.parse(event.detail.xhr.responseText || '{}');
-                  if (data.table) {
-                    var t = document.querySelector('#pnlTableWrap');
-                    if (t) t.outerHTML = data.table;
-                  }
-                  if (data.summary) {
-                    var s = document.querySelector('#pnlSummaryWrap');
-                    if (s) s.outerHTML = data.summary;
-                  }
-                } catch(e) { console.error(e); }
-              }
-            ">
+          >
             {% csrf_token %}
-            <button type="submit" 
-                    class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">
+            <button type="submit" class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">
               🗑 削除
             </button>
           </form>
