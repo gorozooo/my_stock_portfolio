@@ -121,10 +121,25 @@ def create(request):
 @login_required
 @require_POST
 def delete(request, pk: int):
-    # 自分のレコードだけ消す（存在しなくても例外にしない）
     RealizedTrade.objects.filter(pk=pk, user=request.user).delete()
-    # 空の 204 を返す → htmx は行を delete し、エラー扱いしない
-    return HttpResponse(status=204)
+
+    q  = (request.POST.get("q") or "").strip()
+    qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
+    if q:
+        qs = qs.filter(ticker__icontains=q)
+
+    rows = _with_pnl(qs)
+    agg  = _aggregate(qs)
+
+    # テーブル本体（置換ターゲット）
+    table_html = render_to_string("realized/_table.html", {"trades": rows}, request=request)
+
+    # サマリーは OOB で同時更新（id を含むラッパを付ける）
+    summary_inner = render_to_string("realized/_summary.html", {"agg": agg}, request=request)
+    summary_oob = f'<div id="pnlSummaryWrap" hx-swap-oob="true">{summary_inner}</div>'
+
+    # 1レスポンスで両方返す（HTMX はターゲット置換 + OOB を同時に適用）
+    return HttpResponse(table_html + summary_oob)
     
 @login_required
 @require_GET
