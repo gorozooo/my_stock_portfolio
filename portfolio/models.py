@@ -36,7 +36,13 @@ class RealizedTrade(models.Model):
         ("MATSUI",  "松井証券"),
         ("OTHER",   "その他"),
     )
-
+    
+    ACCOUNT_CHOICES = (
+        ("SPEC", "特定"),
+        ("MARGIN", "信用"),
+        ("NISA", "NISA"),
+    )
+    
     user      = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     trade_at  = models.DateField()
     side      = models.CharField(max_length=4, choices=(("SELL","SELL"),("BUY","BUY")))
@@ -50,6 +56,7 @@ class RealizedTrade(models.Model):
 
     # ★ 追加: 証券会社（任意）/ 受渡金額（現金フロー、手入力可）
     broker    = models.CharField(max_length=16, choices=BROKER_CHOICES, default="OTHER")
+    account   = models.CharField(max_length=10, choices=ACCOUNT_CHOICES, default="SPEC",help_text="口座区分（特定/信用/NISA）")
     cashflow  = models.DecimalField(
         max_digits=16, decimal_places=2, null=True, blank=True,
         help_text="受渡金額（現金フロー）。SELL=受取は＋、BUY=支払は−。未入力なら自動計算。"
