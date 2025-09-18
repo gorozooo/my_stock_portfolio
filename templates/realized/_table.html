@@ -10,7 +10,7 @@
     <col class="w-28">
     <col class="w-28">
     <col class="w-32">
-    <col class="w-20">  {# ← 操作列を広げる（w-14→w-20） #}
+    <col class="w-20">
   </colgroup>
 
   <thead class="bg-white/5 text-slate-300 text-sm">
@@ -34,7 +34,6 @@
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
-        {# 上段=コード（控えめ）/ 下段=名称（主役） #}
         <td class="px-3 py-2">
           <div class="leading-tight">
             <div class="text-slate-400 text-xs tracking-wide">{{ t.ticker }}</div>
@@ -63,12 +62,13 @@
           {% endwith %}
         </td>
 
-        {# 削除：nowrap + 十分な横幅 #}
         <td class="px-3 py-2 text-right whitespace-nowrap">
           <form
+            method="post"
             hx-post="{% url 'realized_delete' t.id %}"
             hx-target="#pnlTableWrap"
             hx-swap="outerHTML"
+            onsubmit="return confirm('削除しますか？')"
           >
             {% csrf_token %}
             <button type="submit"
