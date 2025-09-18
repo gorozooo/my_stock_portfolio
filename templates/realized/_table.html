@@ -47,7 +47,7 @@
           </div>
         </td>
 
-        {# Side（折り返さない） #}
+        {# Side #}
         <td class="px-3 py-2 text-center whitespace-nowrap">
           <span class="inline-block rounded-md px-2 py-0.5 text-xs
                        {% if t.side == 'SELL' %}bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/25
@@ -71,15 +71,14 @@
           {% endwith %}
         </td>
 
-        {# 削除（行だけ即消し＋3秒後に一覧/サマリー再取得を予約） #}
+        {# 削除（テーブルを即時置換。サマリーは OOB で同時更新） #}
         <td class="px-3 py-2 text-right whitespace-nowrap">
           <form
             hx-post="{% url 'realized_delete' t.id %}"
-            hx-target="closest tr"
-            hx-swap="delete"
+            hx-target="#pnlTableWrap"
+            hx-swap="outerHTML"
             hx-include="#q"
             hx-confirm="削除しますか？"
-            hx-on::after-request="if (event.detail.successful) { document.dispatchEvent(new CustomEvent('pnl:scheduleRefresh')); }"
           >
             {% csrf_token %}
             <button type="submit" class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">
