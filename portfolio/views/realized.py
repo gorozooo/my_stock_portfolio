@@ -121,14 +121,10 @@ def create(request):
 @login_required
 @require_POST
 def delete(request, pk: int):
+    # 自分のレコードだけ消す（存在しなくても例外にしない）
     RealizedTrade.objects.filter(pk=pk, user=request.user).delete()
-
-    # 行はフロント側で（target 行に）空を差し替えて消す。本文は空、204。
-    # ついでに、3秒後の再取得を予約するカスタムイベントを HX-Trigger で送る。
-    trigger_payload = json.dumps({"pnl:scheduleRefresh": True})
-    resp = HttpResponse("", status=204)
-    resp["HX-Trigger"] = trigger_payload
-    return resp
+    # 空の 204 を返す → htmx は行を delete し、エラー扱いしない
+    return HttpResponse(status=204)
     
 @login_required
 @require_GET
