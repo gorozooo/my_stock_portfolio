@@ -35,23 +35,11 @@
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
-        {# 銘柄 = 上段: コード（控えめ）/ 下段: 名称（主役） + バッジ（証券会社・口座区分） #}
+        {# 銘柄 = 上段:コード（控えめ）/ 下段:名称（主役） #}
         <td class="px-3 py-2">
           <div class="leading-tight">
             <div class="text-slate-400 text-xs tracking-wide whitespace-nowrap">{{ t.ticker }}</div>
-            <div class="text-slate-200 font-medium truncate" title="{{ t.name|default:'' }}">{{ t.name|default:"" }}</div>
-            <div class="mt-0.5 text-[11px] text-slate-400 flex items-center gap-2">
-              {% if t.broker %}
-                <span class="px-1.5 py-0.5 rounded ring-1 ring-white/10 bg-white/5 whitespace-nowrap">
-                  {{ t.broker }}
-                </span>
-              {% endif %}
-              {% if t.account %}
-                <span class="px-1.5 py-0.5 rounded ring-1 ring-white/10 bg-white/5 whitespace-nowrap">
-                  {% if t.account == 'SPEC' %}特定{% elif t.account == 'MARGIN' %}信用{% elif t.account == 'NISA' %}NISA{% else %}{{ t.account }}{% endif %}
-                </span>
-              {% endif %}
-            </div>
+            <div class="text-slate-200 font-medium truncate">{{ t.name|default:"" }}</div>
           </div>
         </td>
 
@@ -79,28 +67,14 @@
           {% endwith %}
         </td>
 
-        {# 削除（JSONを受けて自前で差し替え） #}
+        {# 削除（ネイティブ確認→OKでPOST→テーブル置換、サマリーはOOBで更新） #}
         <td class="px-3 py-2 text-right whitespace-nowrap">
           <form
             hx-post="{% url 'realized_delete' t.id %}"
-            hx-swap="none"              {# サーバは JSON を返すため、HTMXでは置換しない #}
+            hx-target="#pnlTableWrap"
+            hx-swap="outerHTML"
             hx-include="#q"
-            hx-confirm="削除しますか？"
-            hx-on::after-request="
-              if (event.detail.successful) {
-                try {
-                  var data = JSON.parse(event.detail.xhr.responseText || '{}');
-                  if (data.table) {
-                    var _t = document.querySelector('#pnlTableWrap');
-                    if (_t) _t.outerHTML = data.table;
-                  }
-                  if (data.summary) {
-                    var _s = document.querySelector('#pnlSummaryWrap');
-                    if (_s) _s.outerHTML = data.summary;
-                  }
-                } catch(e) { console.error(e); }
-              }
-            ">
+            hx-confirm="削除しますか？">
             {% csrf_token %}
             <button type="submit" class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">
               削除
