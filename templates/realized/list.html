@@ -4,14 +4,14 @@
 {% block title %}実現損益{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/realized.css' %}?v=5">
+<link rel="stylesheet" href="{% static 'css/realized.css' %}?v=7">
 {% endblock %}
 
 {% block content %}
 <div class="pnl">
   <h1>実現損益</h1>
 
-  {# ── 入力フォーム（追加成功→サマリーを即リフレッシュ） ─────────────── #}
+  {# ── 入力フォーム ──────────────────────────────────────────────── #}
   <form id="pnlForm" class="formgrid"
         hx-post="{% url 'realized_create' %}"
         hx-target="#pnlTableWrap"
@@ -32,6 +32,12 @@
              inputmode="latin" autocapitalize="characters">
     </div>
 
+    {# ★ 銘柄名追加 #}
+    <div class="fi">
+      <label>銘柄名</label>
+      <input type="text" name="name" placeholder="例: トヨタ / Apple">
+    </div>
+
     <div class="fi">
       <label>Side</label>
       <select name="side">
@@ -46,7 +52,7 @@
     </div>
 
     <div class="fi">
-      <label>価格</label>
+      <label>約定単価</label>
       <input type="number" name="price" inputmode="decimal" step="0.01" placeholder="価格">
     </div>
 
@@ -55,12 +61,27 @@
       <input type="number" name="fee" inputmode="decimal" step="0.01" placeholder="手数料">
     </div>
 
+    {# ★ 受渡金額（実損キャッシュフロー） #}
     <div class="fi">
-      <label>税</label>
-      <input type="number" name="tax" inputmode="decimal" step="0.01" placeholder="税">
+      <label>受渡金額（実損）</label>
+      <input type="number" name="cashflow" inputmode="decimal" step="0.01" placeholder="SELLは＋／BUYは−">
+      <small class="text-xs text-slate-400 block mt-1">
+        入力すると手数料を逆算します。未入力なら手数料から自動計算します。
+      </small>
     </div>
 
+    {# ★ 証券会社 #}
     <div class="fi">
+      <label>証券会社</label>
+      <select name="broker">
+        <option value="RAKUTEN">楽天証券</option>
+        <option value="SBI">SBI証券</option>
+        <option value="MATSUI">松井証券</option>
+        <option value="OTHER" selected>その他</option>
+      </select>
+    </div>
+
+    <div class="fi fi-full">
       <label>メモ</label>
       <input type="text" name="memo" placeholder="任意メモ">
     </div>
@@ -69,10 +90,10 @@
       <button type="submit" class="btn-primary">追加</button>
     </div>
 
-    {# 検索（テーブルのみ差し替え・入力のたび） #}
+    {# 検索（テーブルのみ差し替え） #}
     <div class="fi fi-full">
       <input type="search" name="q" value="{{ q|default:'' }}" id="q"
-             placeholder="ティッカーで検索"
+             placeholder="ティッカーや銘柄名で検索"
              hx-get="{% url 'realized_table_partial' %}"
              hx-target="#pnlTableWrap"
              hx-trigger="keyup changed delay:300ms, search"
@@ -80,7 +101,7 @@
     </div>
   </form>
 
-  {# ── サマリー（pnl:refresh を受けて即再取得） ────────────────── #}
+  {# ── サマリー ──────────────────────────────────────────────── #}
   <div id="pnlSummaryWrap"
        hx-get="{% url 'realized_summary_partial' %}?q={{ q|urlencode }}"
        hx-trigger="load, pnl:refresh from:body"
@@ -93,7 +114,7 @@
     <a href="{% url 'realized_export_csv' %}?q={{ q|urlencode }}">CSVエクスポート</a>
   </div>
 
-  {# ── テーブル（load と pnl:refresh を受けて再取得可能に） ───────── #}
+  {# ── テーブル ──────────────────────────────────────────────── #}
   <div id="pnlTableWrap"
        hx-get="{% url 'realized_table_partial' %}?q={{ q|urlencode }}"
        hx-trigger="load, pnl:refresh from:body"
