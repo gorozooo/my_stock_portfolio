@@ -1,139 +1,64 @@
-{# templates/realized/_close_sheet.html #}
+{# templates/realized/_close_sheet.html — 互換版（以前と同じパラメータでPOST） #}
 <style>
-  /* ====== ボトムシート内フォームの可読性（iOS/Safari 含む） ====== */
   .sheet .in{
-    appearance:none;-webkit-appearance:none;
-    width:100%;
-    border-radius:12px;
-    padding:12px 14px;
-    background:rgba(255,255,255,.08);
-    border:1px solid rgba(255,255,255,.15);
-    color:#e9ecff;
-    caret-color:#fff;
-    outline:none;
-    transition:border-color .15s ease, box-shadow .15s ease, background .15s ease;
+    appearance:none;-webkit-appearance:none;width:100%;
+    border-radius:12px;padding:12px 14px;
+    background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);
+    color:#e9ecff;caret-color:#fff;outline:none;
+    transition:border-color .15s ease,box-shadow .15s ease,background .15s ease;
   }
-  .sheet .in::placeholder{ color:rgba(233,236,255,.45) }
-  .sheet .in:focus{
-    border-color:rgba(99,102,241,.55);
-    box-shadow:0 0 0 3px rgba(99,102,241,.22);
-    background:rgba(255,255,255,.10);
-  }
-  .sheet .in[readonly], .sheet .in:disabled{ opacity:.75 }
-
-  /* 数値/日付入力のテキスト色（iOSのデフォ白地対策） */
-  .sheet input[type="date"].in,
-  .sheet input[type="number"].in,
-  .sheet input[type="text"].in { color:#e9ecff; }
-
-  /* Safari / iOS のオートフィルが白く反転する問題を上書き */
-  .sheet input.in:-webkit-autofill{
-    -webkit-text-fill-color:#e9ecff;
-    transition:background-color 9999s ease-in-out 0s;
-    -webkit-box-shadow:0 0 0 1000px rgba(255,255,255,.08) inset;
-  }
-
-  .sheet .btn-primary{
-    width:100%;
-    border:0;border-radius:14px;
-    padding:14px 16px;
-    background:linear-gradient(180deg,#6d73ff,#5561f2);
-    color:#fff;font-weight:700;
-    box-shadow:0 10px 24px rgba(85,97,242,.25);
-  }
-  .sheet .btn-ghost{
-    width:100%;
-    border:1px solid rgba(255,255,255,.15);
-    border-radius:14px;
-    padding:14px 16px;color:#e9ecff;background:transparent;
-  }
-
-  .sheet .sheet-row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
-  .sheet .sheet-title{ font-weight:700; font-size:18px; margin-bottom:10px }
-  .sheet .sheet-head{
-    display:flex; align-items:center; justify-content:space-between; margin-bottom:8px
-  }
-  .sheet .label{ font-size:12px; color:#a7b1d8 }
-  .help { font-size:11px; color:#9db0ff; margin-top:6px; line-height:1.3 }
+  .sheet .in::placeholder{color:rgba(233,236,255,.45)}
+  .sheet .in:focus{border-color:rgba(99,102,241,.55);box-shadow:0 0 0 3px rgba(99,102,241,.22);background:rgba(255,255,255,.10)}
+  .sheet .in[readonly],.sheet .in:disabled{opacity:.75}
+  .sheet input[type="date"].in,.sheet input[type="number"].in,.sheet input[type="text"].in{color:#e9ecff}
+  .sheet input.in:-webkit-autofill{-webkit-text-fill-color:#e9ecff;transition:background-color 9999s ease-in-out 0s;-webkit-box-shadow:0 0 0 1000px rgba(255,255,255,.08) inset}
+  .sheet .btn-primary{width:100%;border:0;border-radius:14px;padding:14px 16px;background:linear-gradient(180deg,#6d73ff,#5561f2);color:#fff;font-weight:700;box-shadow:0 10px 24px rgba(85,97,242,.25)}
+  .sheet .btn-ghost{width:100%;border:1px solid rgba(255,255,255,.15);border-radius:14px;padding:14px 16px;color:#e9ecff;background:transparent}
+  .sheet .sheet-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .sheet .sheet-title{font-weight:700;font-size:18px;margin-bottom:10px}
+  .sheet .sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .sheet .label{font-size:12px;color:#a7b1d8}
 </style>
 
 <div class="sheet">
   <div class="sheet-head">
     <div class="sheet-title">
-      {{ h.ticker }}
-      {% if h.name %}<span class="text-slate-400 text-xs font-normal">（{{ h.name }}）</span>{% endif %}
-      をクローズ
+      {{ h.ticker }} {% if h.name %}<span class="text-slate-400 text-xs font-normal">（{{ h.name }}）</span>{% endif %} をクローズ
     </div>
     <button type="button" class="text-indigo-300 underline" data-dismiss="sheet">閉じる</button>
   </div>
 
-  <form class="js-close-submit-form"
-        action="{% url 'realized_close_submit' h.id %}"
-        method="post">
+  <form class="js-close-submit-form" action="{% url 'realized_close_submit' h.id %}" method="post">
     {% csrf_token %}
 
-    {# 基本 #}
     <div class="sheet-row">
       <label class="flex flex-col gap-1">
         <span class="label">日付</span>
-        <input name="date" type="date"
-               value="{{ prefill.date|date:'Y-m-d' }}"
-               class="in" />
+        <input name="date" type="date" value="{{ prefill.date|date:'Y-m-d' }}" class="in" />
       </label>
       <label class="flex flex-col gap-1">
         <span class="label">数量</span>
-        {# Holding の数量フィールド差異に対応（quantity / qty） #}
-        <input name="qty" type="number"
-               min="1"
-               max="{{ h.quantity|default:h.qty }}"
-               value="{{ prefill.qty }}"
-               inputmode="numeric"
-               class="in" />
+        {# Holding 側の quantity / qty どちらにも対応 #}
+        <input name="qty" type="number" inputmode="numeric"
+               min="1" max="{{ h.quantity|default:h.qty }}"
+               value="{{ prefill.qty }}" class="in" />
         <small class="text-xs text-slate-500">保有: {{ h.quantity|default:h.qty }}</small>
       </label>
     </div>
 
     <label class="flex flex-col gap-1 mt-3">
       <span class="label">売却単価</span>
-      <input name="price" inputmode="decimal" placeholder="例: 1234.5" class="in" />
+      <input name="price" inputmode="decimal" step="0.01" placeholder="例: 1234.5" class="in" />
     </label>
 
-    {# 証券会社 / 口座区分 #}
     <div class="sheet-row mt-3">
       <label class="flex flex-col gap-1">
-        <span class="label">証券会社</span>
-        <select name="broker" class="in">
-          <option value="RAKUTEN" {% if prefill.broker == 'RAKUTEN' %}selected{% endif %}>楽天証券</option>
-          <option value="SBI"     {% if prefill.broker == 'SBI' %}selected{% endif %}>SBI証券</option>
-          <option value="MATSUI"  {% if prefill.broker == 'MATSUI' %}selected{% endif %}>松井証券</option>
-          <option value="OTHER"   {% if prefill.broker == 'OTHER' or not prefill.broker %}selected{% endif %}>その他</option>
-        </select>
+        <span class="label">手数料</span>
+        <input name="fee" inputmode="decimal" step="0.01" value="{{ prefill.fee }}" class="in" />
       </label>
       <label class="flex flex-col gap-1">
-        <span class="label">口座区分</span>
-        <select name="account" class="in">
-          <option value="SPEC"   {% if prefill.account == 'SPEC' %}selected{% endif %}>特定</option>
-          <option value="MARGIN" {% if prefill.account == 'MARGIN' %}selected{% endif %}>信用</option>
-          <option value="NISA"   {% if prefill.account == 'NISA' %}selected{% endif %}>NISA</option>
-        </select>
-      </label>
-    </div>
-
-    {# 受渡金額 or 手数料（税込み） #}
-    <div class="sheet-row mt-3">
-      <label class="flex flex-col gap-1">
-        <span class="label">受渡金額（任意・実損）</span>
-        <input name="cashflow" inputmode="decimal"
-               value="{{ prefill.cashflow|default:'' }}"
-               placeholder="入力すると手数料を逆算" class="in" />
-        <p class="help">
-          受渡金額を入力すると <b>手数料（税含む）</b>は自動で逆算します。
-          未入力なら下の手数料を使用します。SELL は＋／BUY は−で入力。
-        </p>
-      </label>
-      <label class="flex flex-col gap-1">
-        <span class="label">手数料（税込み）</span>
-        <input name="fee" inputmode="decimal" value="{{ prefill.fee }}" class="in" />
+        <span class="label">税</span>
+        <input name="tax" inputmode="decimal" step="0.01" value="{{ prefill.tax }}" class="in" />
       </label>
     </div>
 
@@ -147,10 +72,12 @@
       <button class="btn-primary">売却を記録</button>
     </div>
 
-    {# サーバ側で SELL 固定の想定だが念のため送る #}
+    {# 互換のために hidden を付けておく（ビューが読むなら使われる／読まないなら無視される） #}
     <input type="hidden" name="side" value="SELL">
-    {# 名称も渡しておく（モデルに name がある場合の保険） #}
-    <input type="hidden" name="name" value="{{ h.name|default:'' }}">
     <input type="hidden" name="ticker" value="{{ h.ticker }}">
+    <input type="hidden" name="name" value="{{ h.name|default:'' }}">
+    <input type="hidden" name="broker" value="{{ prefill.broker|default:'OTHER' }}">
+    <input type="hidden" name="account" value="{{ prefill.account|default:'SPEC' }}">
+    <input type="hidden" name="cashflow" value="">
   </form>
 </div>
