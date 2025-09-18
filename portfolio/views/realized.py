@@ -121,9 +121,10 @@ def create(request):
 @login_required
 @require_POST
 def delete(request, pk: int):
-    # 自分のデータだけを対象に（多重ユーザー想定）
+    # 自分のデータだけ削除（安全）
     RealizedTrade.objects.filter(pk=pk, user=request.user).delete()
 
+    # 再計算
     q  = (request.POST.get("q") or "").strip()
     qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
     if q:
@@ -132,13 +133,17 @@ def delete(request, pk: int):
     rows = _with_pnl(qs)
     agg  = _aggregate(qs)
 
+    # サマリーは OOB で更新、テーブルはターゲットに差し替え
+    summary_html = render_to_string("realized/_summary.html", {"agg": agg}, request=request)
     table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
-    summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
 
-    # テーブルをターゲット(#pnlTableWrap)に置換しつつ、
-    # サマリーは OOB で #pnlSummaryWrap を同時更新
-    oob = f'<div id="pnlSummaryWrap" hx-swap-oob="true">{summary_html}</div>'
-    return HttpResponse(table_html + oob)
+    # _summary.html のルートに id="pnlSummaryWrap" がある前提で OOB 属性を付与
+    summary_html = summary_html.replace(
+        '<div id="pnlSummaryWrap"',
+        '<div id="pnlSummaryWrap" hx-swap-oob="true"'
+    )
+
+    return HttpResponse(summary_html + table_html)
 
 @login_required
 @require_GET
