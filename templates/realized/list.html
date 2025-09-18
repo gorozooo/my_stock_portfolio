@@ -4,20 +4,20 @@
 {% block title %}実現損益{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/realized.css' %}?v=4">
+<link rel="stylesheet" href="{% static 'css/realized.css' %}?v=5">
 {% endblock %}
 
 {% block content %}
 <div class="pnl">
   <h1>実現損益</h1>
 
-  {# ── 入力フォーム ───────────────────────────────────────────── #}
+  {# ── 入力フォーム（追加成功→サマリーを即リフレッシュ） ─────────────── #}
   <form id="pnlForm" class="formgrid"
         hx-post="{% url 'realized_create' %}"
         hx-target="#pnlTableWrap"
         hx-swap="outerHTML"
         hx-include="#q"
-        hx-on::after-request="if (event.detail.successful) { document.dispatchEvent(new CustomEvent('pnl:scheduleRefresh')); }"
+        hx-on::after-request="if (event.detail.successful) { htmx.trigger(document.body, 'pnl:refresh'); }"
         autocomplete="off" novalidate>
     {% csrf_token %}
 
@@ -80,7 +80,7 @@
     </div>
   </form>
 
-  {# ── サマリー ─────────────────────────────────────────────── #}
+  {# ── サマリー（pnl:refresh を受けて即再取得） ────────────────── #}
   <div id="pnlSummaryWrap"
        hx-get="{% url 'realized_summary_partial' %}?q={{ q|urlencode }}"
        hx-trigger="load, pnl:refresh from:body"
@@ -93,7 +93,7 @@
     <a href="{% url 'realized_export_csv' %}?q={{ q|urlencode }}">CSVエクスポート</a>
   </div>
 
-  {# ── テーブル ─────────────────────────────────────────────── #}
+  {# ── テーブル（load と pnl:refresh を受けて再取得可能に） ───────── #}
   <div id="pnlTableWrap"
        hx-get="{% url 'realized_table_partial' %}?q={{ q|urlencode }}"
        hx-trigger="load, pnl:refresh from:body"
@@ -101,55 +101,4 @@
     {% include "realized/_table.html" with trades=trades %}
   </div>
 </div>
-
-{# ── 3秒デバウンスで「サマリー＋テーブル」両方再取得 ───────────── #}
-<script>
-  (function () {
-    var timer = null;
-    var DEBOUNCE_MS = 3000;
-
-    function getQ() {
-      var el = document.getElementById('q');
-      return el ? encodeURIComponent(el.value || '') : '';
-    }
-
-    function refreshBothNow() {
-      var q = getQ();
-      // テーブル
-      htmx.ajax('GET', "{% url 'realized_table_partial' %}" + (q ? ("?q=" + q) : ""), {
-        target: '#pnlTableWrap',
-        swap: 'outerHTML'
-      });
-      // サマリー
-      htmx.ajax('GET', "{% url 'realized_summary_partial' %}" + (q ? ("?q=" + q) : ""), {
-        target: '#pnlSummaryWrap',
-        swap: 'outerHTML'
-      });
-    }
-
-    function scheduleRefreshBoth() {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(function () {
-        timer = null;
-        refreshBothNow();
-      }, DEBOUNCE_MS);
-    }
-
-    // ① 手動ディスパッチ（作成/削除フォームから）
-    document.addEventListener('pnl:scheduleRefresh', scheduleRefreshBoth);
-
-    // ② サーバの HX-Trigger ヘッダに反応（delete で返している想定）
-    document.body.addEventListener('htmx:afterRequest', function (e) {
-      try {
-        var hdr = e.detail && e.detail.xhr && e.detail.xhr.getResponseHeader('HX-Trigger');
-        if (hdr && hdr.indexOf('pnl:scheduleRefresh') !== -1) scheduleRefreshBoth();
-      } catch (_) {}
-    });
-
-    // ページ離脱時にタイマー破棄
-    window.addEventListener('beforeunload', function () {
-      if (timer) clearTimeout(timer);
-    });
-  })();
-</script>
 {% endblock %}
