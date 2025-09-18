@@ -228,36 +228,69 @@ def summary_partial(request):
     agg = _aggregate(qs)
     return render(request, "realized/_summary.html", {"agg": agg, "q": q})
     
+# portfolio/views/realized.py の一部
+from django.forms.models import model_to_dict
+import logging
+logger = logging.getLogger(__name__)
+
 @login_required
 @require_GET
 def close_sheet(request, pk: int):
     """
-    保有 → 売却のボトムシート（HTMXで表示するHTMLを返す）
+    保有 → 売却のボトムシート（HTMX で開く）
+    - Holding/RealizedTrade に user フィールドが無い場合でも落ちない
+    - last が無い場合でも安全にデフォルト値を入れる
+    - 例外は 500 にせず JSON で返す（モーダル側で表示できる）
     """
-    h = get_object_or_404(Holding, pk=pk, user=request.user)
+    try:
+        # ---- Holding を安全に取得（user フィールド有無に対応） -------------------
+        holding_filters = {"pk": pk}
+        if any(f.name == "user" for f in Holding._meta.fields):
+            holding_filters["user"] = request.user
+        h = get_object_or_404(Holding, **holding_filters)
 
-    # 直近の入力値をプリセット（なければデフォルト）
-    last = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at").first()
+        # ---- 直近の RealizedTrade を安全に取得 -----------------------------------
+        rt_qs = RealizedTrade.objects.all()
+        if any(f.name == "user" for f in RealizedTrade._meta.fields):
+            rt_qs = rt_qs.filter(user=request.user)
+        last = rt_qs.order_by("-trade_at", "-id").first()
 
-    ctx = {
-        "h": h,
-        "prefill": {
-            "date": timezone.localdate(),
-            "side": "SELL",
-            "ticker": h.ticker,
-            "name": getattr(h, "name", "") or "",
-            "qty": getattr(h, "quantity", None) or getattr(h, "qty", 0),
-            "price": "",
-            "fee": getattr(last, "fee", 0),             # ← 安全に
-            "cashflow": getattr(last, "cashflow", ""),  # ← 安全に
-            "memo": "",
-            "broker": getattr(last, "broker", "OTHER"),
-            "account": getattr(last, "account", "SPEC"),  # SPEC/MARGIN/NISA を想定
+        # ---- プリセット（安全な getattrs） ---------------------------------------
+        def g(obj, name, default=""):
+            return getattr(obj, name, default) if obj is not None else default
+
+        # Holding の数量フィールド名差異を吸収（quantity / qty）
+        h_qty = g(h, "quantity", None)
+        if h_qty in (None, ""):
+            h_qty = g(h, "qty", 0)
+
+        ctx = {
+            "h": h,
+            "prefill": {
+                "date": timezone.localdate(),
+                "side": "SELL",
+                "ticker": g(h, "ticker", ""),
+                "name":   g(h, "name", ""),
+                "qty":    h_qty,
+                "price":  "",
+                "fee":    g(last, "fee", 0),
+                "cashflow": g(last, "cashflow", ""),
+                "memo":   "",
+                "broker": g(last, "broker", "OTHER"),
+                "account": g(last, "account", "SPEC"),  # SPEC / MARGIN / NISA
+            }
         }
-    }
 
-    html = render_to_string("realized/_close_sheet.html", ctx, request=request)
-    return JsonResponse({"ok": True, "sheet": html})
+        html = render_to_string("realized/_close_sheet.html", ctx, request=request)
+        return JsonResponse({"ok": True, "sheet": html})
+
+    except Exception as e:
+        # ここで握りつぶさずログへ
+        logger.exception("close_sheet error: %s", e)
+        return JsonResponse(
+            {"ok": False, "error": f"シートの生成に失敗しました: {e}"},
+            status=400
+        )
 
 @login_required
 @require_POST
