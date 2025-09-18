@@ -25,10 +25,10 @@ from ..models import Holding, RealizedTrade
 # ============================================================
 DEC2 = DecimalField(max_digits=20, decimal_places=2)
 
-def _to_dec(val: str | None, default="0"):
+def _to_dec(v, default="0"):
     try:
-        return Decimal(str(val if val not in (None, "") else default))
-    except (InvalidOperation, TypeError):
+        return Decimal(str(v if v not in (None, "") else default))
+    except Exception:
         return Decimal(default)
 
 # ============================================================
@@ -53,13 +53,13 @@ def _with_pnl(qs):
     )
 
 def _aggregate(qs):
-    qs = _with_pnl(qs)
     return qs.aggregate(
-        n   = Coalesce(Count("id"), Value(0, output_field=IntegerField())),
-        qty = Coalesce(Sum(F("qty")), Value(0, output_field=IntegerField())),
-        fee = Coalesce(Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))), Value(Decimal("0"), output_field=DEC2)),
-        pnl = Coalesce(Sum("pnl_calc", output_field=DEC2), Value(Decimal("0"), output_field=DEC2)),
+        n=Coalesce(Count("id"), 0),
+        qty=Coalesce(Sum("qty"), 0),
+        fee=Coalesce(Sum(Coalesce("fee", Value(Decimal("0")))), Decimal("0")),
+        pnl=Coalesce(Sum(Coalesce("cashflow", Value(Decimal("0")))), Decimal("0")),  # ← 実損
     )
+
 
 # ============================================================
 #  画面
@@ -98,57 +98,22 @@ def create(request):
     broker = (request.POST.get("broker") or "OTHER").upper()
     account= (request.POST.get("account") or "SPEC").upper()
 
-    qty    = int(request.POST.get("qty") or 0)
+    try:
+        qty    = int(request.POST.get("qty") or 0)
+    except Exception:
+        qty = 0
     price  = _to_dec(request.POST.get("price"))
-    fee_in = _to_dec(request.POST.get("fee"))
-
-    cf_in  = request.POST.get("cashflow")
-    cashflow = None if cf_in in (None, "") else _to_dec(cf_in)
+    fee    = _to_dec(request.POST.get("fee"))  # 参考値（損益には不使用）
+    pnl_in = _to_dec(request.POST.get("pnl_input"))  # ← 実損（手数料控除前）を手入力
 
     memo   = (request.POST.get("memo") or "").strip()
 
     if not ticker or qty <= 0 or price <= 0:
         return JsonResponse({"ok": False, "error": "入力が不足しています"}, status=400)
-    if side not in ("SELL","BUY"):
+    if side not in ("SELL", "BUY"):
         return JsonResponse({"ok": False, "error": "Sideが不正です"}, status=400)
 
-    notional = Decimal(qty) * price  # 約定金額（正の値）
-
-    # 受渡金額の符号を整理（SELLは＋、BUYは−で正規化）
-    if cashflow is not None:
-        if side == "SELL" and cashflow < 0:
-            cashflow = -cashflow
-        if side == "BUY" and cashflow > 0:
-            cashflow = -cashflow
-
-        # 想定レンジ（大きな手数料でも約定金額の20%は超えない想定）
-        if side == "SELL":
-            # 0 ～ notional の範囲を想定
-            if not (Decimal("0") <= cashflow <= notional):
-                return JsonResponse({
-                    "ok": False,
-                    "error": "受渡金額が不正です。SELLは0〜約定金額で入力してください。"
-                }, status=400)
-            fee = notional - cashflow
-        else:
-            # -notional ～ 0 の範囲を想定
-            if not (-notional <= cashflow <= Decimal("0")):
-                return JsonResponse({
-                    "ok": False,
-                    "error": "受渡金額が不正です。BUYは−で入力してください。"
-                }, status=400)
-            fee = -(notional) - cashflow  # 例: notional=100, cashflow=-101 → fee=1
-
-        # 過大/負の手数料はエラー（PnL金額を入れてしまった可能性）
-        if fee < 0 or fee > notional * Decimal("0.2"):
-            return JsonResponse({
-                "ok": False,
-                "error": "手数料の逆算に失敗しました。『受渡金額（現金の出入り）』を入力してください。PnL（利益額）ではありません。"
-            }, status=400)
-    else:
-        cashflow = None
-        fee = fee_in
-
+    # 実損は cashflow に保存（合計/表示に使用）
     RealizedTrade.objects.create(
         user=request.user,
         trade_at=trade_at,
@@ -160,8 +125,7 @@ def create(request):
         qty=qty,
         price=price,
         fee=fee,
-        tax=Decimal("0"),     # 税は fee に含めて扱うポリシー
-        cashflow=cashflow,    # 入っていれば保存
+        cashflow=pnl_in,   # ← ここが「実損」
         memo=memo,
     )
 
@@ -171,7 +135,7 @@ def create(request):
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-    rows = _with_pnl(qs)
+    rows = qs
     agg  = _aggregate(qs)
 
     table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
