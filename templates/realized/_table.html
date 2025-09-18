@@ -1,16 +1,9 @@
 {# templates/realized/_table.html #}
 {% load humanize %}
-<style>
-  /* クリック阻害の保険 */
-  #pnlTableWrap, #pnlTableWrap * { pointer-events: auto; }
-  /* 右端の操作列が何かに被されても上に出す */
-  td.td-actions, td.td-actions * { position: relative; z-index: 20; }
-</style>
-
 <table class="w-full border-separate border-spacing-0 rounded-2xl overflow-hidden">
   <colgroup>
     <col class="w-28">  {# 日付 #}
-    <col class="w-40">  {# 銘柄 #}
+    <col class="w-56">  {# 銘柄（バッジを入れるので少し広げる） #}
     <col class="w-20">  {# Side #}
     <col class="w-28">
     <col class="w-28">
@@ -37,20 +30,37 @@
   <tbody class="text-[15px]">
     {% for t in trades %}
       <tr class="border-b border-white/10">
-        {# 日付 #}
         <td class="px-3 py-2 whitespace-nowrap text-slate-200">
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
-        {# 銘柄 = 上段: コード / 下段: 名称（主役） #}
+        {# ── 銘柄 = 上段:コード / 下段:名称（主役） + バッジ（証券/口座） ── #}
         <td class="px-3 py-2">
           <div class="leading-tight">
             <div class="text-slate-400 text-xs tracking-wide whitespace-nowrap">{{ t.ticker }}</div>
             <div class="text-slate-200 font-medium truncate">{{ t.name|default:"" }}</div>
+
+            {% if t.broker or t.account %}
+              <div class="flex gap-1 mt-1 text-[11px]">
+                {% if t.broker %}
+                  {% with b=t.broker %}
+                    <span class="px-1.5 py-0.5 rounded bg-white/10 text-slate-300 whitespace-nowrap">
+                      {% if b == 'RAKUTEN' %}楽天証券{% elif b == 'SBI' %}SBI{% elif b == 'MATSUI' %}松井{% else %}その他{% endif %}
+                    </span>
+                  {% endwith %}
+                {% endif %}
+                {% if t.account %}
+                  {% with a=t.account %}
+                    <span class="px-1.5 py-0.5 rounded bg-white/10 text-slate-300 whitespace-nowrap">
+                      {% if a == 'MARGIN' %}信用{% elif a == 'NISA' %}NISA{% else %}特定{% endif %}
+                    </span>
+                  {% endwith %}
+                {% endif %}
+              </div>
+            {% endif %}
           </div>
         </td>
 
-        {# Side（折り返さない） #}
         <td class="px-3 py-2 text-center whitespace-nowrap">
           <span class="inline-block rounded-md px-2 py-0.5 text-xs whitespace-nowrap
                        {% if t.side == 'SELL' %}bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/25
@@ -59,13 +69,11 @@
           </span>
         </td>
 
-        {# 数値列 #}
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">{{ t.qty|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.price|floatformat:0|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.fee|floatformat:0|intcomma }}</td>
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.tax|floatformat:0|intcomma }}</td>
 
-        {# 損益 #}
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
           {% with v=t.pnl_calc %}
             <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
@@ -74,33 +82,23 @@
           {% endwith %}
         </td>
 
-        {# 削除：フォームを廃止してボタン単体で POST #}
-        <td class="px-3 py-2 text-right whitespace-nowrap td-actions">
-          {# CSRF はページ上の他フォームから拾う #}
-          <button
-            type="button"
-            class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap"
+        <td class="px-3 py-2 text-right whitespace-nowrap">
+          <form
             hx-post="{% url 'realized_delete' t.id %}"
-            hx-include="[name=csrfmiddlewaretoken], #q"
             hx-swap="none"
+            hx-include="#q"
             hx-confirm="削除しますか？"
             hx-on::after-request="
               if (event.detail.successful) {
                 try {
                   var data = JSON.parse(event.detail.xhr.responseText || '{}');
-                  if (data.table) {
-                    var tw = document.querySelector('#pnlTableWrap');
-                    if (tw) tw.outerHTML = data.table;
-                  }
-                  if (data.summary) {
-                    var sw = document.querySelector('#pnlSummaryWrap');
-                    if (sw) sw.outerHTML = data.summary;
-                  }
+                  if (data.table) { var t = document.querySelector('#pnlTableWrap'); if (t) t.outerHTML = data.table; }
+                  if (data.summary) { var s = document.querySelector('#pnlSummaryWrap'); if (s) s.outerHTML = data.summary; }
                 } catch(e) { console.error(e); }
-              }
-            ">
-            削除
-          </button>
+              }">
+            {% csrf_token %}
+            <button type="submit" class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">削除</button>
+          </form>
         </td>
       </tr>
     {% empty %}
