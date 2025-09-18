@@ -118,26 +118,19 @@ def create(request):
         "summary": render_to_string("realized/_summary.html", {"agg": agg},     request=request),
     })
 
+# ============================================================
+#  削除（HTMX: ローカルで行だけ消して、サマリーは後でJSが再計算）
+# ============================================================
 @login_required
 @require_POST
 def delete(request, pk: int):
+    # 自分のデータだけ安全に削除
     RealizedTrade.objects.filter(pk=pk, user=request.user).delete()
 
-    q  = (request.POST.get("q") or "").strip()
-    qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
-    if q:
-        qs = qs.filter(ticker__icontains=q)
-
-    rows = _with_pnl(qs)
-    agg  = _aggregate(qs)
-
-    table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
-    summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
-
+    # ここでは即座にHTMLを返さず「削除OK」だけ通知
     return JsonResponse({
         "ok": True,
-        "table": table_html,
-        "summary": summary_html
+        "message": "削除しました"
     })
     
 @login_required
