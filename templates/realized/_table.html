@@ -35,7 +35,7 @@
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
-        {# 銘柄 = 上段:コード / 下段:名称（主役） #}
+        {# 銘柄＝上段:コード / 下段:名称（主役） #}
         <td class="px-3 py-2">
           <div class="leading-tight">
             <div class="text-slate-400 text-xs tracking-wide">{{ t.ticker }}</div>
@@ -43,7 +43,7 @@
           </div>
         </td>
 
-        {# Side nowrap #}
+        {# Side（折り返さない） #}
         <td class="px-3 py-2 text-center whitespace-nowrap">
           <span class="inline-block rounded-md px-2 py-0.5 text-xs
                        {% if t.side == 'SELL' %}
@@ -56,18 +56,10 @@
         </td>
 
         {# 数値列 #}
-        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
-          {{ t.qty|intcomma }}
-        </td>
-        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
-          ¥{{ t.price|floatformat:0|intcomma }}
-        </td>
-        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
-          ¥{{ t.fee|floatformat:0|intcomma }}
-        </td>
-        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
-          ¥{{ t.tax|floatformat:0|intcomma }}
-        </td>
+        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">{{ t.qty|intcomma }}</td>
+        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.price|floatformat:0|intcomma }}</td>
+        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.fee|floatformat:0|intcomma }}</td>
+        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">¥{{ t.tax|floatformat:0|intcomma }}</td>
 
         {# 損益 #}
         <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
@@ -78,20 +70,25 @@
           {% endwith %}
         </td>
 
-        {# 削除ボタン #}
-        <td class="px-3 py-2 text-right whitespace-nowrap">
+        {# 削除 #}
+        <td class="px-3 py-2 text-right whitespace-nowrap relative">
           <form
+            action="{% url 'realized_delete' t.id %}"
+            method="post"
+            class="inline-block"
             hx-post="{% url 'realized_delete' t.id %}"
             hx-target="#pnlTableWrap"
             hx-swap="outerHTML"
             hx-include="#q"
             hx-confirm="削除しますか？"
+            hx-disabled-elt="button"
             hx-on::after-request="if (event.detail.successful) { document.dispatchEvent(new CustomEvent('pnl:scheduleRefresh')); }"
           >
             {% csrf_token %}
             <button
               type="submit"
-              class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap cursor-pointer"
+              class="px-3 py-1 rounded-md ring-1 ring-white/15 text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap
+                     pointer-events-auto relative z-[1]"
               style="touch-action: manipulation;"
             >
               削除
