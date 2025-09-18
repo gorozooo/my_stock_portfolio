@@ -38,11 +38,12 @@
       </label>
       <label class="flex flex-col gap-1">
         <span class="label">数量</span>
-        {# Holding 側の quantity / qty どちらにも対応 #}
-        <input name="qty" type="number" inputmode="numeric"
-               min="1" max="{{ h.quantity|default:h.qty }}"
-               value="{{ prefill.qty }}" class="in" />
-        <small class="text-xs text-slate-500">保有: {{ h.quantity|default:h.qty }}</small>
+        <input name="qty" type="number"
+               min="1"
+               max="{{ h.quantity }}"
+               value="{{ prefill.qty }}"
+               class="in" />
+        <small class="text-xs text-slate-500">保有: {{ h.quantity }}</small>
       </label>
     </div>
 
