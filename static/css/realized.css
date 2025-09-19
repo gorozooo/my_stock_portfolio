@@ -122,22 +122,3 @@
 /* iOSセーフエリアの下余白を確保（下タブと干渉しないよう） */
 .pnl{padding-bottom: max(24px, env(safe-area-inset-bottom))}
 
-/* ===== fold-killer: 強制ノーラップ（全ブラウザ対策） ===== */
-.nowrap,
-th.th-nowrap,
-td.td-nowrap {
-  white-space: nowrap !important;
-  word-break: normal !important;      /* break-all を打ち消す */
-  overflow-wrap: normal !important;    /* anywhere/word-break を打ち消す */
-}
-
-/* 数字を等幅で綺麗に */
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
-.tabnums { font-variant-numeric: tabular-nums; }
-
-/* 見出しを少し小さくして詰ませる */
-th.sm { font-size: 0.9rem; }
-
-/* 列の最小幅を少しだけ与えて崩れにくくする */
-.min-72 { min-width: 72px; }
-.min-88 { min-width: 88px; }
