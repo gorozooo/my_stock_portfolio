@@ -394,14 +394,18 @@ def table_partial(request):
     except Exception as e:
         logger.exception("table_partial error: %s", e)
         tb = traceback.format_exc()
+        # ← ステータスは 200。HTMX がそのまま置換してくれる
         html = f"""
         <div class="p-3 rounded-lg" style="background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;">
           <div style="font-weight:700;margin-bottom:6px">テーブル取得に失敗しました</div>
           <div style="margin-bottom:8px">{str(e)}</div>
-          <details style="font-size:12px;opacity:.85"><summary>詳細</summary><pre style="white-space:pre-wrap">{tb}</pre></details>
+          <details style="font-size:12px;opacity:.85">
+            <summary>詳細</summary>
+            <pre style="white-space:pre-wrap">{tb}</pre>
+          </details>
         </div>
         """
-        return HttpResponse(html, status=400)
+        return HttpResponse(html)  # ★200で返す
 
 @login_required
 @require_GET
@@ -420,11 +424,14 @@ def summary_partial(request):
         <div class="p-3 rounded-lg" style="background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;">
           <div style="font-weight:700;margin-bottom:6px">サマリー取得に失敗しました</div>
           <div style="margin-bottom:8px">{str(e)}</div>
-          <details style="font-size:12px;opacity:.85"><summary>詳細</summary><pre style="white-space:pre-wrap">{tb}</pre></details>
+          <details style="font-size:12px;opacity:.85">
+            <summary>詳細</summary>
+            <pre style="white-space:pre-wrap">{tb}</pre>
+          </details>
         </div>
         """
-        return HttpResponse(html, status=400)
-
+        return HttpResponse(html)  # ★200で返す
+        
 # ============================================================
 #  保有 → 売却（ボトムシート／登録）
 #   ※ 実損（投資家PnL）の逆算は行わず、fee は入力値を採用
