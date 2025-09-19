@@ -45,6 +45,7 @@ def _with_metrics(qs):
     gross = ExpressionWrapper(F("qty") * F("price"), output_field=DEC2)
     fee   = Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))
 
+    # 💰現金フロー（現物/信用で分けても式は同じにしておく）
     cashflow_calc = Case(
         When(side="SELL", then=gross - fee),
         When(side="BUY",  then=-(gross + fee)),
@@ -52,6 +53,7 @@ def _with_metrics(qs):
         output_field=DEC2,
     )
 
+    # 📈投資家PnL（手入力の実損）
     pnl_display = Coalesce(F("cashflow"), Value(Decimal("0"), output_field=DEC2))
 
     return qs.annotate(
@@ -65,17 +67,62 @@ def _with_metrics(qs):
 #     - pnl : 手入力実損（投資家PnL）の合計
 # ============================================================
 def _aggregate(qs):
+    """
+    全体集計（現物・信用を分け、合計も返す）
+    """
     qs = _with_metrics(qs)
-    return qs.aggregate(
+
+    agg = qs.aggregate(
         n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
         qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
-        fee = Coalesce(
-            Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))),
-            Value(Decimal("0"), output_field=DEC2)
-        ),
-        cash= Coalesce(Sum("cashflow_calc", output_field=DEC2), Value(Decimal("0"), output_field=DEC2)),
-        pnl = Coalesce(Sum("pnl_display",   output_field=DEC2), Value(Decimal("0"), output_field=DEC2)),
+        fee = Coalesce(Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))),
+                       Value(Decimal("0"), output_field=DEC2)),
+
+        # 💰現金フロー（現物= SPEC/NISA、信用=MARGIN）
+        cash_spec   = Coalesce(Sum("cashflow_calc", filter=Q(account__in=["SPEC", "NISA"]), output_field=DEC2),
+                               Value(Decimal("0"), output_field=DEC2)),
+        cash_margin = Coalesce(Sum("cashflow_calc", filter=Q(account="MARGIN"), output_field=DEC2),
+                               Value(Decimal("0"), output_field=DEC2)),
+
+        # 📈投資家PnL（手入力の実損の合計）
+        pnl = Coalesce(Sum("pnl_display", output_field=DEC2),
+                       Value(Decimal("0"), output_field=DEC2)),
     )
+    # 合計現金フロー
+    agg["cash_total"] = (agg["cash_spec"] or Decimal("0")) + (agg["cash_margin"] or Decimal("0"))
+    return agg
+
+def _aggregate_by_broker(qs):
+    """
+    証券会社別の集計（同じく現物/信用/合計とPnLを返す）
+    返り値: list[dict] 例: [{"broker":"RAKUTEN", "cash_spec":..., "cash_margin":..., "cash_total":..., "pnl":...}, ...]
+    """
+    qs = _with_metrics(qs)
+
+    rows = (qs
+        .values("broker")
+        .annotate(
+            n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
+            qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
+            fee = Coalesce(Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))),
+                           Value(Decimal("0"), output_field=DEC2)),
+
+            cash_spec   = Coalesce(Sum("cashflow_calc", filter=Q(account__in=["SPEC", "NISA"]), output_field=DEC2),
+                                   Value(Decimal("0"), output_field=DEC2)),
+            cash_margin = Coalesce(Sum("cashflow_calc", filter=Q(account="MARGIN"), output_field=DEC2),
+                                   Value(Decimal("0"), output_field=DEC2)),
+            pnl = Coalesce(Sum("pnl_display", output_field=DEC2),
+                           Value(Decimal("0"), output_field=DEC2)),
+        )
+        .order_by("broker")
+    )
+
+    out = []
+    for r in rows:
+        r = dict(r)
+        r["cash_total"] = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
+        out.append(r)
+    return out
 
 # ============================================================
 #  画面
@@ -90,7 +137,14 @@ def list_page(request):
 
     rows = _with_metrics(qs)
     agg  = _aggregate(qs)
-    return render(request, "realized/list.html", {"q": q, "trades": rows, "agg": agg})
+    agg_brokers = _aggregate_by_broker(qs)
+
+    return render(request, "realized/list.html", {
+        "q": q,
+        "trades": rows,
+        "agg": agg,
+        "agg_brokers": agg_brokers,   # ★ 追加
+    })
 
 # ============================================================
 #  作成
@@ -226,8 +280,10 @@ def summary_partial(request):
     qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
-    agg = _aggregate(qs)
-    return render(request, "realized/_summary.html", {"agg": agg, "q": q})
+
+    agg  = _aggregate(qs)
+    agg_brokers = _aggregate_by_broker(qs)
+    return render(request, "realized/_summary.html", {"agg": agg, "agg_brokers": agg_brokers, "q": q})
 
 # ============================================================
 #  保有 → 売却（ボトムシート／登録）
