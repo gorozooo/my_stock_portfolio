@@ -219,23 +219,30 @@ def summary_period_partial(request):
         order = "period"
         label_format = "%Y-%m"
 
-    grouped = (qs
-        .annotate(period=bucket)
-        .values("period")
-        .annotate(
-            n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
-            qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
-            fee = Coalesce(Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))),
-                           Value(Decimal("0"), output_field=DEC2)),
+    dec0 = Value(Decimal("0"), output_field=DEC2)
 
-            cash_spec   = Coalesce(Sum("cashflow_calc", filter=Q(account__in=["SPEC", "NISA"]), output_field=DEC2),
-                                   Value(Decimal("0"), output_field=DEC2)),
-            cash_margin = Coalesce(Sum("cashflow_calc", filter=Q(account="MARGIN"), output_field=DEC2),
-                                   Value(Decimal("0"), output_field=DEC2)),
-            pnl = Coalesce(Sum("pnl_display", output_field=DEC2),
-                           Value(Decimal("0"), output_field=DEC2)),
-        )
-        .order_by(order)
+    grouped = (
+        qs.annotate(period=bucket)
+          .values("period")
+          .annotate(
+              n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
+              qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
+              fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
+
+              # 💰現金（現物/NISA）は実キャッシュ = cashflow_calc
+              cash_spec = Coalesce(
+                  Sum("cashflow_calc", filter=Q(account__in=["SPEC", "NISA"]), output_field=DEC2),
+                  dec0,
+              ),
+              # 💰現金（信用）は手入力PnL = cashflow（NULLなら0）
+              cash_margin = Coalesce(
+                  Sum(Coalesce(F("cashflow"), dec0), filter=Q(account="MARGIN"), output_field=DEC2),
+                  dec0,
+              ),
+              # 📈PnL 累計（手入力実損）
+              pnl = Coalesce(Sum("pnl_display", output_field=DEC2), dec0),
+          )
+          .order_by(order)
     )
 
     # 表示用に整形
@@ -263,7 +270,8 @@ def summary_period_partial(request):
         "q": q,
     }
     return render(request, "realized/_summary_period.html", ctx)
-    
+
+
 # --- 月次サマリー（Chart.js 用 JSON） -------------------------
 @login_required
 @require_GET
@@ -272,7 +280,9 @@ def chart_monthly_json(request):
     指定ユーザーの実現取引を月次で集計して JSON 返却。
     - labels: ["2024-10", "2024-11", ...]（昇順）
     - pnl:    各月の “投資家PnL”（= cashflow フィールド合計）
-    - cash:   各月の “現金フロー”（SELL: qty*price - fee / BUY: -(qty*price + fee)）
+    - cash:   各月の “現金フロー”
+              現物/NISA → cashflow_calc（実キャッシュ）
+              信用       → cashflow（手入力PnL）
     ※ フィルタ q（ティッカー/名称の部分一致）対応
     """
     q = (request.GET.get("q") or "").strip()
@@ -281,13 +291,22 @@ def chart_monthly_json(request):
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-    qs = _with_metrics(qs)  # cashflow_calc / pnl_display を注入
+    qs = _with_metrics(qs)
+
+    dec0 = Value(Decimal("0"), output_field=DEC2)
+    cash_expr = Case(
+        When(account__in=["SPEC", "NISA"], then=F("cashflow_calc")),
+        When(account="MARGIN",           then=Coalesce(F("cashflow"), dec0)),
+        default=dec0,
+        output_field=DEC2,
+    )
+
     monthly = (
         qs.annotate(m=TruncMonth("trade_at"))
           .values("m")
           .annotate(
-              pnl = Coalesce(Sum("pnl_display",   output_field=DEC2), Value(Decimal("0"), output_field=DEC2)),
-              cash= Coalesce(Sum("cashflow_calc", output_field=DEC2), Value(Decimal("0"), output_field=DEC2)),
+              pnl  = Coalesce(Sum("pnl_display", output_field=DEC2), dec0),
+              cash = Coalesce(Sum(cash_expr,      output_field=DEC2), dec0),
           )
           .order_by("m")
     )
@@ -295,7 +314,6 @@ def chart_monthly_json(request):
     labels, pnl, cash = [], [], []
     for row in monthly:
         labels.append(row["m"].strftime("%Y-%m") if row["m"] else "")
-        # JSON で安全に扱えるよう float 化（小数は切り上げない）
         pnl.append(float(row["pnl"]))
         cash.append(float(row["cash"]))
 
