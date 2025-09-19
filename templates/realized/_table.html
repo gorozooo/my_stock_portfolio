@@ -15,15 +15,15 @@
 
   <thead class="bg-white/5 text-slate-300 text-xs">
     <tr>
-      <th class="px-3 py-2 text-left whitespace-nowrap">日付</th>
+      <th class="px-3 py-2 text-left" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">日付</th>
       <th class="px-3 py-2 text-left">銘柄</th>
-      <th class="px-3 py-2 text-center whitespace-nowrap">Side</th>
-      <th class="px-3 py-2 text-right">数量</th>
-      <th class="px-3 py-2 text-right">約定単価</th>
-      <th class="px-3 py-2 text-right">💰実損(現金)</th>
-      <th class="px-3 py-2 text-right">📈実現損益</th>
-      <th class="px-3 py-2 text-right">手数料</th>
-      <th class="px-3 py-2 text-right whitespace-nowrap">操作</th>
+      <th class="px-3 py-2 text-center" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">Side</th>
+      <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">数量</th>
+      <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">約定単価</th>
+      <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">💰実損(現金)</th>
+      <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">📈実現損益</th>
+      <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">手数料</th>
+      <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">操作</th>
     </tr>
   </thead>
 
@@ -31,32 +31,37 @@
     {% for t in trades %}
       <tr class="border-b border-white/10">
         {# 日付 #}
-        <td class="px-3 py-2 whitespace-nowrap text-slate-200">
+        <td class="px-3 py-2 text-slate-200"
+            style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
         {# 銘柄（上段:コード小 / 下段:名称太） + バッジ（証券会社＋口座区分） #}
         <td class="px-3 py-2">
           <div class="leading-tight">
-            <div class="text-slate-400 text-xs tracking-wide whitespace-nowrap">{{ t.ticker }}</div>
+            <div class="text-slate-400 text-xs tracking-wide" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
+              {{ t.ticker }}
+            </div>
             <div class="text-slate-200 font-semibold truncate">{{ t.name|default:"" }}</div>
             <div class="mt-1 flex items-center gap-1 text-[10px] leading-none">
               {# broker badge #}
               {% with b=t.broker|default:"OTHER" %}
-                <span class="px-1.5 py-0.5 rounded-md ring-1 whitespace-nowrap
-                             {% if b == 'RAKUTEN' %}bg-fuchsia-500/15 text-fuchsia-200 ring-fuchsia-400/25
-                             {% elif b == 'SBI' %}bg-sky-500/15 text-sky-200 ring-sky-400/25
-                             {% elif b == 'MATSUI' %}bg-emerald-500/15 text-emerald-200 ring-emerald-400/25
-                             {% else %}bg-slate-600/20 text-slate-300 ring-white/10{% endif %}">
+                <span class="px-1.5 py-0.5 rounded-md ring-1"
+                      style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;
+                             {% if b == 'RAKUTEN' %}background:rgba(217,70,239,.15);color:#f5d0fe;border-color:rgba(217,70,239,.25);
+                             {% elif b == 'SBI' %}background:rgba(14,165,233,.15);color:#bae6fd;border-color:rgba(14,165,233,.25);
+                             {% elif b == 'MATSUI' %}background:rgba(16,185,129,.15);color:#bbf7d0;border-color:rgba(16,185,129,.25);
+                             {% else %}background:rgba(100,116,139,.2);color:#cbd5e1;border-color:rgba(255,255,255,.1);{% endif %}">
                   {% if b == 'RAKUTEN' %}楽天{% elif b == 'SBI' %}SBI{% elif b == 'MATSUI' %}松井{% else %}その他{% endif %}
                 </span>
               {% endwith %}
               {# account badge #}
               {% with a=t.account|default:"SPEC" %}
-                <span class="px-1.5 py-0.5 rounded-md ring-1 whitespace-nowrap
-                             {% if a == 'NISA' %}bg-amber-500/15 text-amber-200 ring-amber-400/25
-                             {% elif a == 'MARGIN' %}bg-rose-500/15 text-rose-200 ring-rose-400/25
-                             {% else %}bg-indigo-500/15 text-indigo-200 ring-indigo-400/25{% endif %}">
+                <span class="px-1.5 py-0.5 rounded-md ring-1"
+                      style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;
+                             {% if a == 'NISA' %}background:rgba(245,158,11,.15);color:#fde68a;border-color:rgba(245,158,11,.25);
+                             {% elif a == 'MARGIN' %}background:rgba(244,63,94,.15);color:#fecdd3;border-color:rgba(244,63,94,.25);
+                             {% else %}background:rgba(99,102,241,.15);color:#c7d2fe;border-color:rgba(99,102,241,.25);{% endif %}">
                   {% if a == 'NISA' %}NISA{% elif a == 'MARGIN' %}信用{% else %}特定{% endif %}
                 </span>
               {% endwith %}
@@ -65,47 +70,56 @@
         </td>
 
         {# Side（折り返さない） #}
-        <td class="px-3 py-2 text-center whitespace-nowrap">
-          <span class="inline-block rounded-md px-2 py-0.5 text-xs whitespace-nowrap
-                       {% if t.side == 'SELL' %}bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/25
-                       {% else %}bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/25{% endif %}">
+        <td class="px-3 py-2 text-center">
+          <span class="inline-block rounded-md px-2 py-0.5 text-xs"
+                style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;
+                       {% if t.side == 'SELL' %}background:rgba(244,63,94,.15);color:#fecdd3;border:1px solid rgba(244,63,94,.25);
+                       {% else %}background:rgba(16,185,129,.15);color:#bbf7d0;border:1px solid rgba(16,185,129,.25);{% endif %}">
             {{ t.side }}
           </span>
         </td>
 
         {# 数値列 #}
-        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
+        <td class="px-3 py-2 text-right font-mono"
+            style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
           {{ t.qty|intcomma }}
         </td>
-        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
+        <td class="px-3 py-2 text-right font-mono"
+            style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
           ¥{{ t.price|floatformat:0|intcomma }}
         </td>
 
-        {# 💰実損(現金) ← サーバ注釈: cashflow_calc #}
-        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
+        {# 💰実損(現金) #}
+        <td class="px-3 py-2 text-right font-mono"
+            style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
           {% with v=t.cashflow_calc %}
-            <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+            <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}"
+                  style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
               ¥{{ v|floatformat:0|intcomma }}
             </span>
           {% endwith %}
         </td>
 
-        {# 📈実現損益 ← サーバ注釈: pnl_display（＝ユーザー手入力の実損） #}
-        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
+        {# 📈実現損益 #}
+        <td class="px-3 py-2 text-right font-mono"
+            style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
           {% with v=t.pnl_display %}
-            <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+            <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}"
+                  style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
               ¥{{ v|floatformat:0|intcomma }}
             </span>
           {% endwith %}
         </td>
 
         {# 手数料 #}
-        <td class="px-3 py-2 text-right whitespace-nowrap font-mono tabular-nums">
+        <td class="px-3 py-2 text-right font-mono"
+            style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
           ¥{{ t.fee|floatformat:0|intcomma }}
         </td>
 
-        {# 削除（JSONを受けて自前で差し替え） #}
-        <td class="px-3 py-2 text-right whitespace-nowrap">
+        {# 削除 #}
+        <td class="px-3 py-2 text-right"
+            style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
           <form
             hx-post="{% url 'realized_delete' t.id %}"
             hx-swap="none"
@@ -125,7 +139,8 @@
               }
             ">
             {% csrf_token %}
-            <button type="submit" class="text-slate-300 hover:text-rose-300 text-sm whitespace-nowrap">
+            <button type="submit" class="text-slate-300 hover:text-rose-300 text-sm"
+                    style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
               削除
             </button>
           </form>
