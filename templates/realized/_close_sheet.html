@@ -1,38 +1,27 @@
 {# templates/realized/_close_sheet.html #}
 <style>
-  .sheet .in{
-    appearance:none;-webkit-appearance:none;width:100%;
-    border-radius:12px;padding:12px 14px;
-    background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);
-    color:#e9ecff;outline:none;transition:.15s;
-  }
+  .sheet .in{appearance:none;-webkit-appearance:none;width:100%;border-radius:12px;padding:12px 14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#e9ecff;outline:none;transition:.15s}
   .sheet .in::placeholder{color:rgba(233,236,255,.45)}
   .sheet .in:focus{border-color:rgba(99,102,241,.55);box-shadow:0 0 0 3px rgba(99,102,241,.22)}
-  .sheet .btn-primary{width:100%;border:0;border-radius:14px;padding:14px 16px;
-    background:linear-gradient(180deg,#6d73ff,#5561f2);color:#fff;font-weight:700}
+  .sheet .btn-primary{width:100%;border:0;border-radius:14px;padding:14px 16px;background:linear-gradient(180deg,#6d73ff,#5561f2);color:#fff;font-weight:700}
   .sheet .btn-ghost{width:100%;border:1px solid rgba(255,255,255,.15);border-radius:14px;padding:14px 16px;color:#e9ecff;background:transparent}
   .sheet .sheet-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .sheet .sheet-title{font-weight:700;font-size:18px;margin-bottom:10px}
   .sheet .sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
   .sheet .label{font-size:12px;color:#a7b1d8}
-  /* ±トグル付き入力 */
   .sign-wrap{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center}
   .sign-btn{min-width:38px;padding:10px 0;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e9ecff}
 </style>
 
-<div class="sheet">
+<div class="sheet" id="closeSheet">
   <div class="sheet-head">
     <div class="sheet-title">
-      {{ h.ticker }}
-      {% if h.name %}<span class="text-slate-400 text-xs font-normal">（{{ h.name }}）</span>{% endif %}
-      をクローズ
+      {{ h.ticker }}{% if h.name %}<span class="text-slate-400 text-xs font-normal">（{{ h.name }}）</span>{% endif %} をクローズ
     </div>
     <button type="button" class="text-indigo-300 underline" data-dismiss="sheet">閉じる</button>
   </div>
 
-  <form class="js-close-submit-form"
-        action="{% url 'realized_close_submit' h.id %}"
-        method="post" id="closeForm">
+  <form action="{% url 'realized_close_submit' h.id %}" method="post" id="closeForm">
     {% csrf_token %}
 
     <div class="sheet-row">
@@ -72,23 +61,17 @@
       </label>
     </div>
 
-    <!-- 実損（手数料控除前）: iOSでも負数を入れられる ±トグル付き -->
+    <!-- iOSでも負数を入れられる ±トグル付き -->
     <label class="flex flex-col gap-1 mt-3">
       <span class="label">実損（手数料控除前・任意）</span>
       <div class="sign-wrap">
         <button type="button" class="sign-btn" data-sgn="-">−</button>
-        <input name="cashflow"
-               type="text"
-               inputmode="decimal"
-               pattern="-?[0-9]+([.,][0-9]+)?"
-               placeholder="+ 利益 / − 損失"
-               class="in"
-               value="{{ prefill.cashflow|default:'' }}">
+        <input name="cashflow" type="text" inputmode="decimal"
+               pattern="-?[0-9]+([.,][0-9]+)?" placeholder="+ 利益 / − 損失"
+               class="in" value="{{ prefill.cashflow|default:'' }}">
         <button type="button" class="sign-btn" data-sgn="+">＋</button>
       </div>
-      <p class="text-xs text-slate-400 mt-1">
-        ※ iPhoneの小数キーボードには「−」が無いので、左の「−」ボタンで負にできます。
-      </p>
+      <p class="text-xs text-slate-400 mt-1">※ キーボードに「−」が無い場合は左のボタンで負に切替。</p>
     </label>
 
     <label class="flex flex-col gap-1 mt-3">
@@ -106,7 +89,7 @@
       <button class="btn-primary">売却を記録</button>
     </div>
 
-    <!-- 固定項目 -->
+    <!-- 固定 -->
     <input type="hidden" name="side" value="SELL">
     <input type="hidden" name="name" value="{{ h.name|default:'' }}">
     <input type="hidden" name="ticker" value="{{ h.ticker }}">
@@ -114,40 +97,51 @@
 </div>
 
 <script>
-  // ±トグル
-  document.currentScript.closest('.sheet').addEventListener('click', function(e){
-    const btn = e.target.closest('.sign-btn');
-    if (!btn) return;
-    const wrap = btn.closest('.sign-wrap');
-    const input = wrap.querySelector('input[name="cashflow"]');
-    if (!input) return;
-    const wantMinus = btn.dataset.sgn === '-';
+  function initCloseSheet(root){
+    if(!root || root.__inited) return;
+    root.__inited = true;
 
-    // 全角/記号を正規化
-    let v = (input.value || '').replace(/[＋+]/g, '+')
-                               .replace(/[−–—]/g, '-')
-                               .replace(/，/g, ',')
-                               .trim();
-    v = v.replace(',', '.');
-    if (v === '' || v === '+' || v === '-') v = '0';
-    let num = parseFloat(v);
-    if (isNaN(num)) num = 0;
+    // ±トグル
+    root.addEventListener('click', function(e){
+      const btn = e.target.closest('.sign-btn');
+      if(!btn) return;
+      const input = root.querySelector('input[name="cashflow"]');
+      if(!input) return;
 
-    num = Math.abs(num) * (wantMinus ? -1 : 1);
-    input.value = String(num);
-    input.dispatchEvent(new Event('input', {bubbles:true}));
+      const wantMinus = btn.dataset.sgn === '-';
+      let v = (input.value || '')
+        .replace(/[＋+]/g,'+').replace(/[−–—]/g,'-')
+        .replace(/，/g,',').replace(',', '.').trim();
+      if (v === '' || v === '+' || v === '-') v = '0';
+      let num = parseFloat(v);
+      if (isNaN(num)) num = 0;
+      num = Math.abs(num) * (wantMinus ? -1 : 1);
+      input.value = String(num);
+      input.dispatchEvent(new Event('input', {bubbles:true}));
+    });
+
+    // 送信前の正規化
+    const form = root.querySelector('#closeForm');
+    if(form){
+      form.addEventListener('submit', function(){
+        const cf = form.querySelector('input[name="cashflow"]');
+        if(cf){
+          cf.value = (cf.value || '')
+            .replace(/[＋+]/g,'+').replace(/[−–—]/g,'-')
+            .replace(/，/g,',').replace(',', '.').trim();
+        }
+      });
+    }
+  }
+
+  // 直読み時
+  document.addEventListener('DOMContentLoaded', function(){
+    initCloseSheet(document.getElementById('closeSheet'));
   });
-
-  // 送信前に数値を正規化（,→. / 全角→半角 / 前後空白除去）
-  document.getElementById('closeForm').addEventListener('submit', function(e){
-    const cf = this.querySelector('input[name="cashflow"]');
-    if (cf) {
-      cf.value = (cf.value || '')
-        .replace(/[＋+]/g, '+')
-        .replace(/[−–—]/g, '-')
-        .replace(/，/g, ',')
-        .replace(',', '.')
-        .trim();
+  // HTMXで差し込まれたとき
+  document.body.addEventListener('htmx:afterSwap', function(e){
+    if(e.detail && e.detail.target && e.detail.target.id === 'sheetRoot'){
+      initCloseSheet(document.getElementById('closeSheet'));
     }
   });
 </script>
