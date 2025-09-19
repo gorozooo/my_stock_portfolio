@@ -1,34 +1,46 @@
 <!-- templates/realized/_summary.html -->
-{% load humanize %}
-<div class="summary-grid">
+<style>
+  /* ==== Summary scoped style (HTMXで差し替え時にも効くよう局所定義) ==== */
+  .sum-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+  @media (max-width:760px){.sum-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  .sum-card{
+    background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.10);
+    border-radius:14px; padding:12px 14px;
+  }
+  .sum-k{font-size:12px; color:#b9c3dd; display:flex; align-items:center; gap:6px; white-space:nowrap}
+  .sum-v{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+         font-variant-numeric:tabular-nums; font-size:20px; font-weight:700;
+         color:#e8ecff; margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .sum-v.positive{color:#34d399}  /* emerald-400 */
+  .sum-v.negative{color:#f87171}  /* rose-400 */
+  .nowrap{white-space:nowrap}
+</style>
+
+<div class="sum-grid">
+  <!-- 件数 -->
   <div class="sum-card">
-    <div class="k">件数</div>
-    <div class="v">{{ agg.n }}</div>
+    <div class="sum-k">📄 件数</div>
+    <div class="sum-v">{{ agg.n|default:0 }}</div>
   </div>
 
+  <!-- 数量合計 -->
   <div class="sum-card">
-    <div class="k">数量合計</div>
-    <div class="v">{{ agg.qty|intcomma }}</div>
+    <div class="sum-k">🔢 数量合計</div>
+    <div class="sum-v">{{ agg.qty|default:0|intcomma }}</div>
   </div>
 
+  <!-- 手数料合計 -->
   <div class="sum-card">
-    <div class="k">手数料合計</div>
-    <div class="v">¥{{ agg.fee|floatformat:0|intcomma }}</div>
+    <div class="sum-k">💸 手数料合計</div>
+    <div class="sum-v">¥{{ agg.fee|default:0|floatformat:0|intcomma }}</div>
   </div>
 
-  {# 💰 現金ベース（受渡の積み上げ） #}
+  <!-- 💰 実損(現金) 合計 = cashflow合計 -->
   <div class="sum-card">
-    <div class="k">💰 実損(現金)合計</div>
-    <div class="v {% if agg.cash < 0 %}negative{% else %}positive{% endif %}">
-      ¥{{ agg.cash|floatformat:0|intcomma }}
-    </div>
-  </div>
-
-  {# 📈 投資家PnL（ユーザー手入力の"実損"の累計） #}
-  <div class="sum-card">
-    <div class="k">📈 実現損益合計</div>
-    <div class="v {% if agg.pnl < 0 %}negative{% else %}positive{% endif %}">
-      ¥{{ agg.pnl|floatformat:0|intcomma }}
+    <div class="sum-k">💰 実損(現金) 合計</div>
+    <div class="sum-v {% if agg.pnl < 0 %}negative{% else %}positive{% endif %}">
+      ¥{{ agg.pnl|default:0|floatformat:0|intcomma }}
     </div>
   </div>
 </div>
