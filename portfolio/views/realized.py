@@ -11,13 +11,14 @@ from django.db.models import (
     Count, Sum, F, Value, Case, When, ExpressionWrapper,
     DecimalField, IntegerField, Q
 )
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, TruncMonth, TruncYear
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, get_object_or_404
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 from django.utils.encoding import smart_str
+from django.utils.dateparse import parse_date
 
 from ..models import Holding, RealizedTrade
 
@@ -33,6 +34,42 @@ def _to_dec(v, default="0"):
         return Decimal(str(v if v not in (None, "") else default))
     except Exception:
         return Decimal(default)
+
+
+# 期間ヘルパ
+def _parse_period(request):
+    """
+    ?preset=THIS_MONTH|YTD|LAST_12M|THIS_YEAR|CUSTOM
+    ?start=YYYY-MM-DD&end=YYYY-MM-DD （CUSTOM のときのみ）
+    返り値: (start_date or None, end_date or None, preset)
+    """
+    preset = (request.GET.get("preset") or "THIS_MONTH").upper()
+    today = timezone.localdate()
+
+    if preset == "THIS_MONTH":
+        start = today.replace(day=1)
+        end = today
+    elif preset == "THIS_YEAR":
+        start = today.replace(month=1, day=1)
+        end = today
+    elif preset == "YTD":
+        start = today.replace(month=1, day=1)
+        end = today
+    elif preset == "LAST_12M":
+        # 前年同日+1で12ヶ月（ざっくり：日数は気にせず概算でOK）
+        start = (today.replace(day=1) - timezone.timedelta(days=365)).replace(day=1)
+        end = today
+    elif preset == "CUSTOM":
+        s = parse_date(request.GET.get("start") or "")
+        e = parse_date(request.GET.get("end") or "")
+        start = s or None
+        end = e or None
+    else:
+        start = today.replace(day=1)
+        end = today
+        preset = "THIS_MONTH"
+
+    return start, end, preset
 
 # ============================================================
 #  注釈（テーブル/サマリー兼用）
@@ -123,6 +160,86 @@ def _aggregate_by_broker(qs):
         r["cash_total"] = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
         out.append(r)
     return out
+
+
+@login_required
+@require_GET
+def summary_period_partial(request):
+    """
+    月次（または年次）で 📈PnL と 💰現金（現物/信用/合計）を集計して返す部分テンプレ。
+    ?preset=THIS_MONTH|THIS_YEAR|YTD|LAST_12M|CUSTOM
+    ?start=YYYY-MM-DD&end=YYYY-MM-DD （CUSTOMのみ）
+    ?freq=month|year  （既定: month）
+    """
+    q = (request.GET.get("q") or "").strip()
+    freq = (request.GET.get("freq") or "month").lower()
+    start, end, preset = _parse_period(request)
+
+    qs = RealizedTrade.objects.filter(user=request.user)
+    if q:
+        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+    if start:
+        qs = qs.filter(trade_at__gte=start)
+    if end:
+        qs = qs.filter(trade_at__lte=end)
+
+    qs = _with_metrics(qs)
+
+    # バケット化
+    if freq == "year":
+        bucket = TruncYear("trade_at")
+        order = "period"
+        label_format = "%Y"
+    else:
+        bucket = TruncMonth("trade_at")
+        order = "period"
+        label_format = "%Y-%m"
+
+    grouped = (qs
+        .annotate(period=bucket)
+        .values("period")
+        .annotate(
+            n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
+            qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
+            fee = Coalesce(Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))),
+                           Value(Decimal("0"), output_field=DEC2)),
+
+            cash_spec   = Coalesce(Sum("cashflow_calc", filter=Q(account__in=["SPEC", "NISA"]), output_field=DEC2),
+                                   Value(Decimal("0"), output_field=DEC2)),
+            cash_margin = Coalesce(Sum("cashflow_calc", filter=Q(account="MARGIN"), output_field=DEC2),
+                                   Value(Decimal("0"), output_field=DEC2)),
+            pnl = Coalesce(Sum("pnl_display", output_field=DEC2),
+                           Value(Decimal("0"), output_field=DEC2)),
+        )
+        .order_by(order)
+    )
+
+    # 表示用に整形
+    rows = []
+    for r in grouped:
+        cash_total = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
+        rows.append({
+            "period": r["period"],
+            "label": r["period"].strftime(label_format) if r["period"] else "",
+            "n": r["n"],
+            "qty": r["qty"],
+            "fee": r["fee"],
+            "cash_spec": r["cash_spec"],
+            "cash_margin": r["cash_margin"],
+            "cash_total": cash_total,
+            "pnl": r["pnl"],
+        })
+
+    ctx = {
+        "rows": rows,
+        "preset": preset,
+        "freq": freq,
+        "start": start,
+        "end": end,
+        "q": q,
+    }
+    return render(request, "realized/_summary_period.html", ctx)
+    
 
 # ============================================================
 #  画面
