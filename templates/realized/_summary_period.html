@@ -1,0 +1,95 @@
+{% load humanize %}
+<style>
+  .period-wrap{margin-top:14px}
+  .period-head{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+  .btn{font-size:12px;padding:6px 10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:transparent;color:#e5e7eb}
+  .btn[aria-current="true"]{background:rgba(255,255,255,.10)}
+  .tbl{width:100%;border-collapse:separate;border-spacing:0}
+  .tbl th,.tbl td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.08)}
+  .tbl thead th{font-size:12px;color:#a7b1d8;text-align:right}
+  .tbl thead th:first-child,.tbl tbody td:first-child{text-align:left}
+  .pos{color:#86efac} .neg{color:#fca5a5}
+</style>
+
+<div class="period-wrap">
+  <div class="period-head">
+    <div style="font-size:12px;color:#a7b1d8">期間まとめ</div>
+
+    <!-- プリセット -->
+    <button class="btn"
+            hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq={{ freq }}&q={{ q|urlencode }}"
+            hx-target="#periodTable" hx-swap="outerHTML"
+            aria-current="{{ 'true' if preset == 'THIS_MONTH' else 'false' }}">
+      今月
+    </button>
+    <button class="btn"
+            hx-get="{% url 'realized_summary_period' %}?preset=THIS_YEAR&freq={{ freq }}&q={{ q|urlencode }}"
+            hx-target="#periodTable" hx-swap="outerHTML"
+            aria-current="{{ 'true' if preset == 'THIS_YEAR' else 'false' }}">
+      今年
+    </button>
+    <button class="btn"
+            hx-get="{% url 'realized_summary_period' %}?preset=LAST_12M&freq={{ freq }}&q={{ q|urlencode }}"
+            hx-target="#periodTable" hx-swap="outerHTML"
+            aria-current="{{ 'true' if preset == 'LAST_12M' else 'false' }}">
+      過去12ヶ月
+    </button>
+
+    <!-- 粒度 -->
+    <button class="btn"
+            hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=month&q={{ q|urlencode }}"
+            hx-target="#periodTable" hx-swap="outerHTML"
+            aria-current="{{ 'true' if freq == 'month' else 'false' }}">
+      月次
+    </button>
+    <button class="btn"
+            hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=year&q={{ q|urlencode }}"
+            hx-target="#periodTable" hx-swap="outerHTML"
+            aria-current="{{ 'true' if freq == 'year' else 'false' }}">
+      年次
+    </button>
+  </div>
+
+  <div id="periodTable">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>期間</th>
+          <th>件数</th>
+          <th>数量</th>
+          <th>手数料</th>
+          <th>💰現金(現物)</th>
+          <th>💰現金(信用)</th>
+          <th>💰現金(合計)</th>
+          <th>📈PnL</th>
+        </tr>
+      </thead>
+      <tbody class="text-[15px]">
+        {% if rows %}
+          {% for r in rows %}
+            <tr>
+              <td>{{ r.label }}</td>
+              <td style="text-align:right">{{ r.n|intcomma }}</td>
+              <td style="text-align:right">{{ r.qty|intcomma }}</td>
+              <td style="text-align:right">¥{{ r.fee|floatformat:0|intcomma }}</td>
+              <td style="text-align:right">
+                {% with v=r.cash_spec %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}
+              </td>
+              <td style="text-align:right">
+                {% with v=r.cash_margin %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}
+              </td>
+              <td style="text-align:right">
+                {% with v=r.cash_total %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}
+              </td>
+              <td style="text-align:right">
+                {% with v=r.pnl %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}
+              </td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="8" style="color:#94a3b8">データなし</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
