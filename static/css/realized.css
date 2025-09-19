@@ -121,3 +121,18 @@
 
 /* iOSセーフエリアの下余白を確保（下タブと干渉しないよう） */
 .pnl{padding-bottom: max(24px, env(safe-area-inset-bottom))}
+
+/* ==== realized.css 追加分 ==== */
+/* 折り返し禁止（見出し・データ両方で使う） */
+.nowrap { white-space: nowrap; }
+
+/* 数字を等幅で綺麗にそろえる */
+.mono      { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+.tabnums   { font-variant-numeric: tabular-nums; }
+
+/* モバイルで列が詰んだ時でも見出しは折り返さない */
+th.th-nowrap { white-space: nowrap; }
+
+/* 少しだけ最小幅を持たせて崩れにくくする（必要に応じて調整） */
+td.td-narrow, th.td-narrow { min-width: 72px; }
+td.td-wide,   th.td-wide   { min-width: 96px; }
