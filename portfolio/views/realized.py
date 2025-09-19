@@ -217,23 +217,18 @@ def summary_period_partial(request):
     # 表示用に整形
     rows = []
     for r in grouped:
-    period = r.get("period")
-    if period:
-        label = period.strftime(label_format)
-    else:
-        label = "-"
-    cash_total = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
-    rows.append({
-        "period": period,
-        "label": label,
-        "n": r["n"],
-        "qty": r["qty"],
-        "fee": r["fee"],
-        "cash_spec": r["cash_spec"],
-        "cash_margin": r["cash_margin"],
-        "cash_total": cash_total,
-        "pnl": r["pnl"],
-    })
+        cash_total = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
+        rows.append({
+            "period": r["period"],
+            "label": r["period"].strftime(label_format) if r["period"] else "",
+            "n": r["n"],
+            "qty": r["qty"],
+            "fee": r["fee"],
+            "cash_spec": r["cash_spec"],
+            "cash_margin": r["cash_margin"],
+            "cash_total": cash_total,
+            "pnl": r["pnl"],
+        })
 
     ctx = {
         "rows": rows,
