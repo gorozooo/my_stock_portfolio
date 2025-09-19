@@ -269,6 +269,7 @@ def close_sheet(request, pk: int):
 
         ctx = {
             "h": h,
+            "h_qty": h_qty,  # ← テンプレから常にこれを参照
             "prefill": {
                 "date": timezone.localdate().isoformat(),
                 "side": "SELL",
