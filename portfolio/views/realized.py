@@ -100,34 +100,57 @@ def _with_metrics(qs):
     )
 
 # ============================================================
-#  サマリー（二軸）
-#     - cash: 現金ベースの合計（受渡の積み上げ）
-#     - pnl : 手入力実損（投資家PnL）の合計
+#  サマリー（二軸＋口座区分）
+#   - fee        : 手数料合計
+#   - cash_spec  : 💰現金フロー（現物/NISA）= cashflow_calc を合計
+#   - cash_margin: 💰現金フロー（信用）    = 手入力PnL(cashflow) を合計
+#   - cash_total : 上記の合計
+#   - pnl        : 📈PnL累計 = 手入力PnL(cashflow) を合計
 # ============================================================
 def _aggregate(qs):
-    """
-    全体集計（現物・信用を分け、合計も返す）
-    """
     qs = _with_metrics(qs)
+
+    dec0 = Value(Decimal("0"), output_field=DEC2)
 
     agg = qs.aggregate(
         n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
         qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
-        fee = Coalesce(Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))),
-                       Value(Decimal("0"), output_field=DEC2)),
-
-        # 💰現金フロー（現物= SPEC/NISA、信用=MARGIN）
-        cash_spec   = Coalesce(Sum("cashflow_calc", filter=Q(account__in=["SPEC", "NISA"]), output_field=DEC2),
-                               Value(Decimal("0"), output_field=DEC2)),
-        cash_margin = Coalesce(Sum("cashflow_calc", filter=Q(account="MARGIN"), output_field=DEC2),
-                               Value(Decimal("0"), output_field=DEC2)),
-
-        # 📈投資家PnL（手入力の実損の合計）
-        pnl = Coalesce(Sum("pnl_display", output_field=DEC2),
-                       Value(Decimal("0"), output_field=DEC2)),
+        fee = Coalesce(
+            Sum(Coalesce(F("fee"), dec0)),
+            dec0,
+        ),
+        # 現物/NISA は実キャッシュを合計
+        cash_spec = Coalesce(
+            Sum(
+                Case(
+                    When(account__in=["SPEC", "NISA"], then=F("cashflow_calc")),
+                    default=dec0,
+                    output_field=DEC2,
+                )
+            ),
+            dec0,
+        ),
+        # 信用は「手入力PnL(cashflow)」を合計
+        cash_margin = Coalesce(
+            Sum(
+                Case(
+                    When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
+                    default=dec0,
+                    output_field=DEC2,
+                )
+            ),
+            dec0,
+        ),
+        # 📈PnL累計（いつでも手入力PnLの合計）
+        pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
     )
-    # 合計現金フロー
-    agg["cash_total"] = (agg["cash_spec"] or Decimal("0")) + (agg["cash_margin"] or Decimal("0"))
+
+    # 合計はPython側で足し込み
+    try:
+        agg["cash_total"] = (agg["cash_spec"] or Decimal("0")) + (agg["cash_margin"] or Decimal("0"))
+    except Exception:
+        agg["cash_total"] = Decimal("0")
+
     return agg
 
 def _aggregate_by_broker(qs):
