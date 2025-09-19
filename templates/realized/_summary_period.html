@@ -1,3 +1,4 @@
+{# templates/realized/_summary_period.html #}
 {% load humanize %}
 <style>
   .period-wrap{margin-top:14px}
@@ -6,45 +7,45 @@
   .btn[aria-current="true"]{background:rgba(255,255,255,.10)}
   .tbl{width:100%;border-collapse:separate;border-spacing:0}
   .tbl th,.tbl td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.08)}
-  .tbl thead th{font-size:12px;color:#a7b1d8;text-align:right}
+  .tbl thead th{font-size:12px;color:#a7b1d8;text-align:right;white-space:nowrap}
   .tbl thead th:first-child,.tbl tbody td:first-child{text-align:left}
   .pos{color:#86efac} .neg{color:#fca5a5}
 </style>
 
-<div class="period-wrap">
+<div id="periodWrap" class="period-wrap">
   <div class="period-head">
     <div style="font-size:12px;color:#a7b1d8">期間まとめ</div>
 
-    <!-- プリセット -->
+    {# ----- プリセット ----- #}
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq={{ freq }}&q={{ q|urlencode }}"
-            hx-target="#periodTable" hx-select="#periodTable" hx-swap="outerHTML"
+            hx-target="#periodWrap" hx-select="#periodWrap" hx-swap="outerHTML"
             aria-current="{% if preset == 'THIS_MONTH' %}true{% else %}false{% endif %}">
       今月
     </button>
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=THIS_YEAR&freq={{ freq }}&q={{ q|urlencode }}"
-            hx-target="#periodTable" hx-select="#periodTable" hx-swap="outerHTML"
+            hx-target="#periodWrap" hx-select="#periodWrap" hx-swap="outerHTML"
             aria-current="{% if preset == 'THIS_YEAR' %}true{% else %}false{% endif %}">
       今年
     </button>
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=LAST_12M&freq={{ freq }}&q={{ q|urlencode }}"
-            hx-target="#periodTable" hx-select="#periodTable" hx-swap="outerHTML"
+            hx-target="#periodWrap" hx-select="#periodWrap" hx-swap="outerHTML"
             aria-current="{% if preset == 'LAST_12M' %}true{% else %}false{% endif %}">
       過去12ヶ月
     </button>
 
-    <!-- 粒度 -->
+    {# ----- 粒度 ----- #}
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=month&q={{ q|urlencode }}"
-            hx-target="#periodTable" hx-select="#periodTable" hx-swap="outerHTML"
+            hx-target="#periodWrap" hx-select="#periodWrap" hx-swap="outerHTML"
             aria-current="{% if freq == 'month' %}true{% else %}false{% endif %}">
       月次
     </button>
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=year&q={{ q|urlencode }}"
-            hx-target="#periodTable" hx-select="#periodTable" hx-swap="outerHTML"
+            hx-target="#periodWrap" hx-select="#periodWrap" hx-swap="outerHTML"
             aria-current="{% if freq == 'year' %}true{% else %}false{% endif %}">
       年次
     </button>
@@ -68,26 +69,26 @@
         {% if rows %}
           {% for r in rows %}
             <tr>
-              <td>{{ r.label }}</td>
-              <td style="text-align:right">{{ r.n|intcomma }}</td>
-              <td style="text-align:right">{{ r.qty|intcomma }}</td>
-              <td style="text-align:right">¥{{ r.fee|floatformat:0|intcomma }}</td>
-              <td style="text-align:right">
+              <td class="whitespace-nowrap">{{ r.label }}</td>
+              <td class="text-right font-mono tabular-nums whitespace-nowrap">{{ r.n|intcomma }}</td>
+              <td class="text-right font-mono tabular-nums whitespace-nowrap">{{ r.qty|intcomma }}</td>
+              <td class="text-right font-mono tabular-nums whitespace-nowrap">¥{{ r.fee|floatformat:0|intcomma }}</td>
+              <td class="text-right font-mono tabular-nums whitespace-nowrap">
                 {% with v=r.cash_spec %}
                   <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>
                 {% endwith %}
               </td>
-              <td style="text-align:right">
+              <td class="text-right font-mono tabular-nums whitespace-nowrap">
                 {% with v=r.cash_margin %}
                   <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>
                 {% endwith %}
               </td>
-              <td style="text-align:right">
+              <td class="text-right font-mono tabular-nums whitespace-nowrap">
                 {% with v=r.cash_total %}
                   <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>
                 {% endwith %}
               </td>
-              <td style="text-align:right">
+              <td class="text-right font-mono tabular-nums whitespace-nowrap">
                 {% with v=r.pnl %}
                   <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>
                 {% endwith %}
