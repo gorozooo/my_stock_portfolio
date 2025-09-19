@@ -30,6 +30,23 @@
     {% include "realized/_summary.html" with agg=agg %}
   </div>
 
+  {# すでにあるサマリー #}
+  <div id="pnlSummaryWrap"
+       hx-get="{% url 'realized_summary_partial' %}?q={{ q|urlencode }}"
+       hx-trigger="load, pnl:refresh from:body"
+       hx-swap="outerHTML">
+    {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
+  </div>
+  
+  {# ★ 期間まとめ（初回ロード時に今月・月次を取得） #}
+  <div id="pnlPeriodWrap"
+       hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq=month&q={{ q|urlencode }}"
+       hx-trigger="load, pnl:refresh from:body"
+       hx-swap="outerHTML">
+    {# 初期フォールバック（JS無効時） #}
+    <div style="color:#94a3b8; padding:8px 0">期間まとめを読み込み中…</div>
+  </div>
+
   {# ── CSV ────────────────────────────────────── #}
   <div class="csv-link">
     <a href="{% url 'realized_export_csv' %}?q={{ q|urlencode }}">CSVエクスポート</a>
