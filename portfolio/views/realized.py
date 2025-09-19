@@ -412,7 +412,6 @@ def summary_partial(request):
         if q:
             qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
         agg = _aggregate(qs)
-        agg_brokers = _aggregate_by_broker(qs)
         return render(request, "realized/_summary.html", {"agg": agg, "q": q})
     except Exception as e:
         logger.exception("summary_partial error: %s", e)
@@ -425,7 +424,6 @@ def summary_partial(request):
         </div>
         """
         return HttpResponse(html, status=400)
-
 
 # ============================================================
 #  保有 → 売却（ボトムシート／登録）
