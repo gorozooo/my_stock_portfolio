@@ -319,30 +319,36 @@ def close_submit(request, pk: int):
     """
     保有行の「売却」を登録（平均取得から手数料を逆算）。
     - 実損（手数料控除前）＝ cashflow（±で手入力）
-    - 手数料  = (売値 - basis) * 数量 - 実損
-    - basis は Holding の代表的なフィールド名から自動検出
+    - 手数料 = (売値 − basis) × 数量 − 実損
+    - basis は Holding 側の代表的フィールド名から自動検出
     失敗時は {ok:false, error:"..."} を 400 で返す。
     """
     try:
         # --- Holding (user有無の両対応) ---
-        holding_filters = {"pk": pk}
+        filters = {"pk": pk}
         if any(f.name == "user" for f in Holding._meta.fields):
-            holding_filters["user"] = request.user
-        h = get_object_or_404(Holding, **holding_filters)
+            filters["user"] = request.user
+        h = get_object_or_404(Holding, **filters)
 
         # --- 入力 ---
         date_raw = (request.POST.get("date") or "").strip()
         try:
-            trade_at = timezone.datetime.fromisoformat(date_raw).date() if date_raw else timezone.localdate()
+            trade_at = (
+                timezone.datetime.fromisoformat(date_raw).date()
+                if date_raw else timezone.localdate()
+            )
         except Exception:
             trade_at = timezone.localdate()
 
-        side        = "SELL"
-        qty_in      = int(request.POST.get("qty") or 0)
+        side  = "SELL"
+        try:
+            qty_in = int(request.POST.get("qty") or 0)
+        except Exception:
+            qty_in = 0
         price       = _to_dec(request.POST.get("price"))
         cashflow_in = request.POST.get("cashflow")  # 実損（手数料控除前 / ±）
         pnl_input   = None if cashflow_in in (None, "") else _to_dec(cashflow_in)
-        # fee 入力があっても「basis から逆算」を優先
+
         broker  = (request.POST.get("broker")  or "OTHER").upper()
         account = (request.POST.get("account") or "SPEC").upper()
         memo    = (request.POST.get("memo")    or "").strip()
@@ -358,33 +364,36 @@ def close_submit(request, pk: int):
         # --- basis(平均取得単価/1株) を検出 ---
         basis_candidates = [
             "avg_cost", "average_cost", "avg_price", "average_price",
-            "basis", "cost_price", "cost_per_share",
+            "basis", "cost_price", "cost_per_share", "avg", "average",
+            "avg_unit_cost", "avg_purchase_price",
         ]
         basis = None
-        for f in basis_candidates:
-            v = getattr(h, f, None)
+        for fname in basis_candidates:
+            v = getattr(h, fname, None)
             if v not in (None, ""):
                 try:
                     basis = Decimal(str(v))
                     break
                 except Exception:
-                    pass
+                    continue
         if basis is None:
             return JsonResponse(
-                {"ok": False, "error": "保有の平均取得単価(basis)が見つかりません。Holdingに avg_cost / average_cost / basis 等のいずれかを追加してください。"},
+                {
+                    "ok": False,
+                    "error": "保有の平均取得単価(basis)が見つかりません。Holding に avg_cost / average_cost / basis 等のいずれかを用意してください。"
+                },
                 status=400,
             )
 
-        # --- 実損が未入力なら 0 とみなす（＝最終損益も0扱い）---
+        # --- 実損が未入力なら 0 扱い ---
         if pnl_input is None:
             pnl_input = Decimal("0")
 
         # --- 手数料を逆算 ---
         # 実損（±） = (売値 − basis) × 数量 − fee  →  fee = (売値 − basis) × 数量 − 実損
         fee = (price - basis) * Decimal(qty_in) - pnl_input
-        # fee は理論上 0 以上だが、過去データ等で負になることもあり得るのでそのまま保存（要望があれば0下限を入れる）
 
-        # --- 登録（cashflow には“実損（手数料控除前）”を保存）---
+        # --- 登録（cashflow に“実損（手数料控除前）”を保存）---
         RealizedTrade.objects.create(
             user=request.user,
             trade_at=trade_at,
@@ -400,7 +409,7 @@ def close_submit(request, pk: int):
             memo=memo,
         )
 
-        # --- 保有数量の更新（0で削除）---
+        # --- 保有数量の更新（0 以下で削除）---
         if hasattr(h, "quantity"):
             h.quantity = F("quantity") - qty_in
             h.save(update_fields=["quantity"])
@@ -419,6 +428,7 @@ def close_submit(request, pk: int):
         qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
         if q:
             qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+
         rows = _with_pnl(qs)
         agg  = _aggregate(qs)
 
@@ -439,5 +449,8 @@ def close_submit(request, pk: int):
 
     except Exception as e:
         import traceback
-        return JsonResponse({"ok": False, "error": str(e), "traceback": traceback.format_exc()}, status=400)
+        return JsonResponse(
+            {"ok": False, "error": str(e), "traceback": traceback.format_exc()},
+            status=400,
+        )
         
