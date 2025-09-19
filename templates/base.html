@@ -31,7 +31,7 @@
 
   {% block head %}{% endblock %}
 </head>
-<body class="bg-slate-950 text-slate-100">
+<body class="bg-slate-950 text-slate-100" hx-ext="swap-on-error">
   <main class="max-w-screen-sm mx-auto px-4 pb-24 pt-4">
     {% block content %}{% endblock %}
   </main>
@@ -48,11 +48,59 @@
   <!-- 売却シート配線（外部JSにしているなら static 経由で） -->
   <script src="{% static 'js/realized_close.js' %}"></script>
 
-  <!-- 簡易デバッグ：HTMXのネットワークエラーを拾う（スマホでも気づけるようアラート） -->
+  <!-- HTMX 拡張: エラーでも強制スワップ -->
   <script>
-    document.body.addEventListener('htmx:responseError', function (e) {
-      alert('読み込みに失敗しました: ' + (e.detail.xhr && e.detail.xhr.status));
-    });
+    (function () {
+      if (!window.htmx || htmx.defineExtension === undefined) return;
+      htmx.defineExtension('swap-on-error', {
+        onEvent: function (name, evt) {
+          if (name === 'htmx:beforeSwap') {
+            var status = evt.detail.xhr ? evt.detail.xhr.status : 0;
+            if (status >= 400) {
+              evt.detail.shouldSwap = true;
+              evt.detail.isError = false;
+            }
+          }
+        }
+      });
+    })();
+  </script>
+
+  <!-- HTMX エラーモーダル -->
+  <script>
+    (function () {
+      function showOverlay(title, bodyHTML) {
+        var id = 'htmx-error-overlay';
+        var el = document.getElementById(id);
+        if (!el) {
+          el = document.createElement('div');
+          el.id = id;
+          el.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;';
+          el.innerHTML =
+            '<div style="max-width:900px;width:100%;background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:12px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.45)">'+
+              '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:#1f2937;border-bottom:1px solid #374151;">'+
+                '<div style="font-weight:700">HTMX エラー: <span id="he-title"></span></div>'+
+                '<button id="he-close" style="padding:6px 10px;border:1px solid #4b5563;border-radius:8px;background:transparent;color:#e5e7eb">閉じる</button>'+
+              '</div>'+
+              '<div id="he-body" style="max-height:70vh;overflow:auto;padding:14px 16px;white-space:pre-wrap;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;"></div>'+
+            '</div>';
+          document.body.appendChild(el);
+          el.querySelector('#he-close').onclick = function(){ el.remove(); };
+        }
+        el.querySelector('#he-title').textContent = title || '';
+        el.querySelector('#he-body').innerHTML = bodyHTML || '';
+      }
+
+      document.body.addEventListener('htmx:responseError', function (e) {
+        var xhr = e.detail.xhr || {};
+        var ct  = (xhr.getResponseHeader && xhr.getResponseHeader('Content-Type')) || '';
+        var body = xhr.responseText || '';
+        if (ct.indexOf('application/json') >= 0) {
+          try { body = '<pre>'+JSON.stringify(JSON.parse(body), null, 2)+'</pre>'; } catch(_){}
+        }
+        showOverlay('HTTP '+xhr.status, body || '(空のレスポンス)');
+      });
+    })();
   </script>
 </body>
 </html>
