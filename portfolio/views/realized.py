@@ -300,39 +300,38 @@ def close_sheet(request, pk: int):
         """
         return HttpResponse(error_html)
 
-@login_required
+    @login_required
 @require_POST
 @transaction.atomic
 def close_submit(request, pk: int):
     """
-    保有行の「売却」を登録。
-    - 必須: date, qty, price
-    - 任意: fee / cashflow(=手入力実損) を保存
-    - ※ fee の逆算は行わない（平均取得単価と連携して後日対応）
+    保有→売却の登録。basis（平均取得単価）を使い、pnl_input（実損/手数料控除前）から fee を自動逆算。
+      fee = max(0, (price - basis) * qty - pnl_input)
+    ※ 実損（手数料控除前）は cashflow に保存
     """
     h = get_object_or_404(Holding, pk=pk, user=request.user)
 
-    # 入力
+    # ---- 入力 ----
     date_raw = (request.POST.get("date") or "").strip()
     try:
         trade_at = timezone.datetime.fromisoformat(date_raw).date() if date_raw else timezone.localdate()
     except Exception:
         trade_at = timezone.localdate()
 
-    side   = "SELL"
-    qty    = int(request.POST.get("qty") or 0)
-    price  = _to_dec(request.POST.get("price"))
-    fee    = _to_dec(request.POST.get("fee"))
-    # シート側で「実損」を入れてきた場合は cashflow に保存（表示・集計用）
-    pnl_in = request.POST.get("cashflow")
-    cashflow = None if pnl_in in (None, "") else _to_dec(pnl_in)
+    side = "SELL"
+    qty   = int(request.POST.get("qty") or 0)
+    price = _to_dec(request.POST.get("price"))
+    # 実損（手数料控除前）…必須
+    pnl_input = _to_dec(request.POST.get("pnl_input"), None)
+    if pnl_input is None:
+        return JsonResponse({"ok": False, "error": "実損（手数料控除前）を入力してください"}, status=400)
 
     broker  = (request.POST.get("broker")  or "OTHER").upper()
     account = (request.POST.get("account") or "SPEC").upper()
     memo    = (request.POST.get("memo") or "").strip()
     name    = (request.POST.get("name") or "").strip() or getattr(h, "name", "") or ""
 
-    # 保有数量
+    # ---- 保有数量・バリデーション ----
     held_qty = getattr(h, "quantity", None)
     if held_qty is None:
         held_qty = getattr(h, "qty", 0)
@@ -340,7 +339,26 @@ def close_submit(request, pk: int):
     if qty <= 0 or price <= 0 or qty > held_qty:
         return JsonResponse({"ok": False, "error": "数量/価格を確認してください"}, status=400)
 
-    # 登録
+    # ---- basis 取得（avg_cost 優先、無ければ basis を試す）----
+    basis = getattr(h, "avg_cost", None)
+    if basis in (None, ""):
+        basis = getattr(h, "basis", None)
+    if basis in (None, ""):
+        return JsonResponse({"ok": False, "error": "平均取得単価（basis/avg_cost）が保有データに見つかりません"}, status=400)
+    basis = _to_dec(basis)
+
+    # ---- fee を逆算 ----
+    # 理論PnL_before_fee = (price - basis) * qty
+    pnl_before_fee = (price - basis) * _to_dec(qty)
+    fee = pnl_before_fee - pnl_input
+    if fee < 0:
+        fee = Decimal("0")  # 下限0にクリップ（異常入力対策）
+
+    # 実損（手数料控除前）は cashflow に保存（従来通り）
+    cashflow = pnl_input
+
+    # ---- 登録 ----
+    from ..models import RealizedTrade
     RealizedTrade.objects.create(
         user=request.user,
         trade_at=trade_at,
@@ -351,12 +369,12 @@ def close_submit(request, pk: int):
         account=account,
         qty=qty,
         price=price,
-        fee=fee,
-        cashflow=cashflow,   # ← 手入力の実損（あれば）
+        fee=fee,           # ← 自動逆算した手数料
+        cashflow=cashflow, # ← 実損（手数料控除前）
         memo=memo,
     )
 
-    # 保有数量を減算（0以下なら削除）
+    # ---- 保有数量を減算（0なら削除）----
     if hasattr(h, "quantity"):
         h.quantity = F("quantity") - qty
         h.save(update_fields=["quantity"])
@@ -370,19 +388,20 @@ def close_submit(request, pk: int):
         if h.qty <= 0:
             h.delete()
 
-    # 再描画
+    # ---- 一覧の再描画 ----
+    from django.db.models import Q
     q = (request.POST.get("q") or "").strip()
     qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-    rows = _with_metrics(qs)
+    rows = _with_pnl(qs)
     agg  = _aggregate(qs)
 
     table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
     summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
 
-    # 保有一覧（存在すれば）
+    # 保有一覧断片（存在しない環境でもOK）
     try:
         holdings_html = render_to_string(
             "holdings/_list.html",
