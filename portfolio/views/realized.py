@@ -234,18 +234,26 @@ def summary_partial(request):
 #   ※ 実損（投資家PnL）の逆算は行わず、fee は入力値を採用
 #      （平均取得単価と連携しての逆算は今後対応）
 # ============================================================
+from django.forms.models import model_to_dict
+import logging
+logger = logging.getLogger(__name__)
+
 @login_required
 @require_GET
 def close_sheet(request, pk: int):
     """
-    保有 → 売却のボトムシート。HTMX で素の HTML を返す。
+    保有 → 売却のボトムシート。
+    HTMX(hx-get) で #sheetRoot に innerHTML として差し込むため、
+    ここは JSON ではなく “素のHTML” を返す。
     """
     try:
+        # Holding 取得（user フィールド有無に対応）
         holding_filters = {"pk": pk}
         if any(f.name == "user" for f in Holding._meta.fields):
             holding_filters["user"] = request.user
         h = get_object_or_404(Holding, **holding_filters)
 
+        # 直近 RealizedTrade（user フィールド有無に対応）
         rt_qs = RealizedTrade.objects.all()
         if any(f.name == "user" for f in RealizedTrade._meta.fields):
             rt_qs = rt_qs.filter(user=request.user)
@@ -254,6 +262,7 @@ def close_sheet(request, pk: int):
         def g(obj, name, default=""):
             return getattr(obj, name, default) if obj is not None else default
 
+        # quantity / qty どちらでも
         h_qty = g(h, "quantity", None)
         if h_qty in (None, ""):
             h_qty = g(h, "qty", 0)
@@ -268,17 +277,18 @@ def close_sheet(request, pk: int):
                 "qty":    h_qty,
                 "price":  "",
                 "fee":    g(last, "fee", 0),
-                "cashflow": g(last, "cashflow", ""),  # 手入力実損を入れる場合の初期値
+                "cashflow": g(last, "cashflow", ""),
                 "memo":   "",
                 "broker": g(last, "broker", "OTHER"),
-                "account": g(last, "account", "SPEC"),
+                "account": g(last, "account", "SPEC"),  # SPEC/MARGIN/NISA
             },
         }
 
         html = render_to_string("realized/_close_sheet.html", ctx, request=request)
-        return HttpResponse(html)
+        return HttpResponse(html)  # ★ HTML をそのまま返す
 
     except Exception as e:
+        # 失敗時も 200 で “エラー用の簡易シートHTML” を返す（スマホで原因を見せる）
         logger.exception("close_sheet error (pk=%s): %s", pk, e)
         import traceback
         tb = traceback.format_exc()
@@ -300,65 +310,57 @@ def close_sheet(request, pk: int):
         """
         return HttpResponse(error_html)
 
-    @login_required
+
+@login_required
 @require_POST
 @transaction.atomic
 def close_submit(request, pk: int):
     """
-    保有→売却の登録。basis（平均取得単価）を使い、pnl_input（実損/手数料控除前）から fee を自動逆算。
-      fee = max(0, (price - basis) * qty - pnl_input)
-    ※ 実損（手数料控除前）は cashflow に保存
+    保有行の「売却」を登録。
+    - 必須: date, qty, price
+    - 任意: fee もしくは cashflow（片方だけ or 両方。cashflow 優先で fee を逆算）
+    - 追加: broker, account, memo, name
+    完了後、実損テーブルとサマリー、（あれば）保有一覧断片を返す。
     """
     h = get_object_or_404(Holding, pk=pk, user=request.user)
 
-    # ---- 入力 ----
+    # 入力を回収
     date_raw = (request.POST.get("date") or "").strip()
     try:
         trade_at = timezone.datetime.fromisoformat(date_raw).date() if date_raw else timezone.localdate()
     except Exception:
         trade_at = timezone.localdate()
 
-    side = "SELL"
-    qty   = int(request.POST.get("qty") or 0)
-    price = _to_dec(request.POST.get("price"))
-    # 実損（手数料控除前）…必須
-    pnl_input = _to_dec(request.POST.get("pnl_input"), None)
-    if pnl_input is None:
-        return JsonResponse({"ok": False, "error": "実損（手数料控除前）を入力してください"}, status=400)
+    side   = "SELL"
+    qty_in = int(request.POST.get("qty") or 0)
+    price  = _to_dec(request.POST.get("price"))
+    fee_in = _to_dec(request.POST.get("fee"))
+    cf_in  = request.POST.get("cashflow")
+    cashflow = None if cf_in in (None, "") else _to_dec(cf_in)
 
     broker  = (request.POST.get("broker")  or "OTHER").upper()
-    account = (request.POST.get("account") or "SPEC").upper()
+    account = (request.POST.get("account") or "SPEC").upper()  # SPEC/MARGIN/NISA を想定
     memo    = (request.POST.get("memo") or "").strip()
-    name    = (request.POST.get("name") or "").strip() or getattr(h, "name", "") or ""
 
-    # ---- 保有数量・バリデーション ----
+    # 表示名（保有に name があればそれを使う。フォーム側から name 渡すならそちら優先でもOK）
+    name = (request.POST.get("name") or "").strip() or getattr(h, "name", "") or ""
+
+    # バリデーション（Holding 側のフィールド名ゆれに対応）
     held_qty = getattr(h, "quantity", None)
     if held_qty is None:
         held_qty = getattr(h, "qty", 0)
 
-    if qty <= 0 or price <= 0 or qty > held_qty:
+    if qty_in <= 0 or price <= 0 or qty_in > held_qty:
         return JsonResponse({"ok": False, "error": "数量/価格を確認してください"}, status=400)
 
-    # ---- basis 取得（avg_cost 優先、無ければ basis を試す）----
-    basis = getattr(h, "avg_cost", None)
-    if basis in (None, ""):
-        basis = getattr(h, "basis", None)
-    if basis in (None, ""):
-        return JsonResponse({"ok": False, "error": "平均取得単価（basis/avg_cost）が保有データに見つかりません"}, status=400)
-    basis = _to_dec(basis)
+    # cashflow 優先で fee を逆算（売りなので notional - cashflow = fee）
+    notional = _to_dec(qty_in) * price
+    if cashflow is not None:
+        fee = (notional - cashflow)  # SELL
+    else:
+        fee = fee_in
 
-    # ---- fee を逆算 ----
-    # 理論PnL_before_fee = (price - basis) * qty
-    pnl_before_fee = (price - basis) * _to_dec(qty)
-    fee = pnl_before_fee - pnl_input
-    if fee < 0:
-        fee = Decimal("0")  # 下限0にクリップ（異常入力対策）
-
-    # 実損（手数料控除前）は cashflow に保存（従来通り）
-    cashflow = pnl_input
-
-    # ---- 登録 ----
-    from ..models import RealizedTrade
+    # 取引を登録（pnl はDBに保存しない運用。集計は注釈で算出）
     RealizedTrade.objects.create(
         user=request.user,
         trade_at=trade_at,
@@ -366,30 +368,30 @@ def close_submit(request, pk: int):
         ticker=getattr(h, "ticker", ""),
         name=name,
         broker=broker,
-        account=account,
-        qty=qty,
+        account=account,   # モデルに account を追加済み想定
+        qty=qty_in,
         price=price,
-        fee=fee,           # ← 自動逆算した手数料
-        cashflow=cashflow, # ← 実損（手数料控除前）
+        fee=fee,
+        cashflow=cashflow, # モデルに null 可で追加済み想定
         memo=memo,
     )
 
-    # ---- 保有数量を減算（0なら削除）----
+    # 保有数量を減算（0以下で削除）
     if hasattr(h, "quantity"):
-        h.quantity = F("quantity") - qty
+        h.quantity = F("quantity") - qty_in
         h.save(update_fields=["quantity"])
         h.refresh_from_db()
         if h.quantity <= 0:
             h.delete()
     else:
-        h.qty = F("qty") - qty
+        # 古いスキーマ（qty）にも対応
+        h.qty = F("qty") - qty_in
         h.save(update_fields=["qty"])
         h.refresh_from_db()
         if h.qty <= 0:
             h.delete()
 
-    # ---- 一覧の再描画 ----
-    from django.db.models import Q
+    # 断片の再描画（検索キーワード維持：q は ticker/name の部分一致）
     q = (request.POST.get("q") or "").strip()
     qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
     if q:
@@ -401,7 +403,7 @@ def close_submit(request, pk: int):
     table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
     summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
 
-    # 保有一覧断片（存在しない環境でもOK）
+    # 保有一覧の部分テンプレがある場合だけ返す（無くてもOK）
     try:
         holdings_html = render_to_string(
             "holdings/_list.html",
