@@ -33,21 +33,21 @@
   </div>
 
   <div class="sum-card">
-    <div class="k">📈PnL累計（手入力実損）</div>
+    <div class="k">📈PnL累計</div>
     {% with v=agg.pnl %}
       <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
     {% endwith %}
   </div>
 
   <div class="sum-card">
-    <div class="k">💰現金フロー（現物：SPEC/NISA）</div>
+    <div class="k">💰現金フロー（現物：特定/NISA）</div>
     {% with v=agg.cash_spec %}
       <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
     {% endwith %}
   </div>
 
   <div class="sum-card">
-    <div class="k">💰現金フロー（信用：MARGIN）</div>
+    <div class="k">💰現金フロー（信用）</div>
     {% with v=agg.cash_margin %}
       <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
     {% endwith %}
