@@ -384,13 +384,14 @@ def export_csv(request):
 @login_required
 @require_GET
 def table_partial(request):
-    q  = (request.GET.get("q") or "").strip()
-    qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
-    if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
-    rows = _with_metrics(qs)
-    return render(request, "realized/_table.html", {"trades": rows})
-except Exception as e:
+    try:
+        q  = (request.GET.get("q") or "").strip()
+        qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
+        if q:
+            qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+        rows = _with_metrics(qs)
+        return render(request, "realized/_table.html", {"trades": rows})
+    except Exception as e:
         logger.exception("table_partial error: %s", e)
         tb = traceback.format_exc()
         html = f"""
@@ -405,15 +406,15 @@ except Exception as e:
 @login_required
 @require_GET
 def summary_partial(request):
-    q  = (request.GET.get("q") or "").strip()
-    qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
-    if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
-
-    agg  = _aggregate(qs)
-    agg_brokers = _aggregate_by_broker(qs)
-    return render(request, "realized/_summary.html", {"agg": agg, "agg_brokers": agg_brokers, "q": q})
-except Exception as e:
+    try:
+        q  = (request.GET.get("q") or "").strip()
+        qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
+        if q:
+            qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+        agg = _aggregate(qs)
+        agg_brokers = _aggregate_by_broker(qs)
+        return render(request, "realized/_summary.html", {"agg": agg, "q": q})
+    except Exception as e:
         logger.exception("summary_partial error: %s", e)
         tb = traceback.format_exc()
         html = f"""
