@@ -1,62 +1,99 @@
-<!-- templates/realized/_summary.html -->
 {% load humanize %}
+
 <style>
-  /* ==== Summary scoped style (HTMXで差し替え時にも効くよう局所定義) ==== */
-  .sum-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
-  @media (max-width:760px){.sum-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  .sum-card{
-    background:rgba(255,255,255,.06);
-    border:1px solid rgba(255,255,255,.10);
-    border-radius:14px; padding:12px 14px;
+  .summary-grid{display:grid;gap:12px;grid-template-columns:repeat(4,minmax(0,1fr))}
+  .sum-card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px}
+  .k{font-size:12px;color:#a7b1d8;margin-bottom:6px}
+  .v{font-size:18px;font-weight:700}
+  .pos{color:#86efac} .neg{color:#fca5a5}
+
+  /* 証券会社グリッド */
+  .broker-grid{display:grid;gap:10px;grid-template-columns:repeat(4,minmax(0,1fr))}
+  .bname{font-size:12px;color:#cbd5e1;margin-bottom:6px}
+  @media (max-width: 1024px){
+    .summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .broker-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   }
-  .sum-k{font-size:12px; color:#b9c3dd; display:flex; align-items:center; gap:6px; white-space:nowrap}
-  .sum-v{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
-         font-variant-numeric:tabular-nums; font-size:20px; font-weight:700;
-         color:#e8ecff; margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-  .sum-v.positive{color:#34d399}  /* emerald-400 */
-  .sum-v.negative{color:#f87171}  /* rose-400 */
-  .nowrap{white-space:nowrap}
 </style>
 
-{# templates/realized/_summary.html #}
-{% load humanize %}
-
 <div class="summary-grid">
-  <!-- 件数 -->
   <div class="sum-card">
     <div class="k">件数</div>
-    <div class="v whitespace-nowrap">{{ agg.n|default:0|intcomma }}</div>
+    <div class="v">{{ agg.n|intcomma }}</div>
   </div>
 
-  <!-- 数量合計 -->
   <div class="sum-card">
     <div class="k">数量合計</div>
-    <div class="v whitespace-nowrap">{{ agg.qty|default:0|intcomma }}</div>
+    <div class="v">{{ agg.qty|intcomma }}</div>
   </div>
 
-  <!-- 手数料合計 -->
   <div class="sum-card">
     <div class="k">手数料合計</div>
-    <div class="v whitespace-nowrap">¥{{ agg.fee|default:0|floatformat:0|intcomma }}</div>
+    <div class="v">¥{{ agg.fee|floatformat:0|intcomma }}</div>
   </div>
 
-  <!-- 💰 実損(現金) 合計：cash -->
   <div class="sum-card">
-    <div class="k">💰 実損(現金) 合計</div>
-    {% with v=agg.cash|default:0 %}
-      <div class="v whitespace-nowrap {% if v < 0 %}negative{% else %}positive{% endif %}">
-        ¥{{ v|floatformat:0|intcomma }}
-      </div>
+    <div class="k">📈PnL累計（手入力実損）</div>
+    {% with v=agg.pnl %}
+      <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
     {% endwith %}
   </div>
 
-  <!-- 📈 PnL 累計：pnl -->
   <div class="sum-card">
-    <div class="k">📈 PnL 累計</div>
-    {% with v=agg.pnl|default:0 %}
-      <div class="v whitespace-nowrap {% if v < 0 %}negative{% else %}positive{% endif %}">
-        ¥{{ v|floatformat:0|intcomma }}
-      </div>
+    <div class="k">💰現金フロー（現物：SPEC/NISA）</div>
+    {% with v=agg.cash_spec %}
+      <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
+    {% endwith %}
+  </div>
+
+  <div class="sum-card">
+    <div class="k">💰現金フロー（信用：MARGIN）</div>
+    {% with v=agg.cash_margin %}
+      <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
+    {% endwith %}
+  </div>
+
+  <div class="sum-card" style="grid-column: span 2 / span 2;">
+    <div class="k">💰現金フロー合計（現物＋信用）</div>
+    {% with v=agg.cash_total %}
+      <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
     {% endwith %}
   </div>
 </div>
+
+{% if agg_brokers %}
+  <div style="margin-top:14px; font-size:12px; color:#94a3b8">証券会社別</div>
+  <div class="broker-grid" style="margin-top:6px">
+    {% for b in agg_brokers %}
+      <div class="sum-card">
+        <div class="bname">
+          {% if b.broker == 'RAKUTEN' %}楽天証券
+          {% elif b.broker == 'SBI' %}SBI証券
+          {% elif b.broker == 'MATSUI' %}松井証券
+          {% elif b.broker %}{{ b.broker }}
+          {% else %}その他{% endif %}
+        </div>
+
+        <div class="k">📈PnL</div>
+        {% with v=b.pnl %}
+          <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
+        {% endwith %}
+
+        <div class="k" style="margin-top:8px">💰現金（現物）</div>
+        {% with v=b.cash_spec %}
+          <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
+        {% endwith %}
+
+        <div class="k" style="margin-top:8px">💰現金（信用）</div>
+        {% with v=b.cash_margin %}
+          <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
+        {% endwith %}
+
+        <div class="k" style="margin-top:8px">💰現金（合計）</div>
+        {% with v=b.cash_total %}
+          <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
+        {% endwith %}
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
