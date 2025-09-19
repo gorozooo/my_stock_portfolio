@@ -18,36 +18,45 @@
   .nowrap{white-space:nowrap}
 </style>
 
-<!-- templates/realized/_summary.html -->
+{# templates/realized/_summary.html #}
+{% load humanize %}
+
 <div class="summary-grid">
+  <!-- 件数 -->
   <div class="sum-card">
     <div class="k">件数</div>
-    <div class="v">{{ agg.n }}</div>
+    <div class="v whitespace-nowrap">{{ agg.n|default:0|intcomma }}</div>
   </div>
 
+  <!-- 数量合計 -->
   <div class="sum-card">
     <div class="k">数量合計</div>
-    <div class="v">{{ agg.qty }}</div>
+    <div class="v whitespace-nowrap">{{ agg.qty|default:0|intcomma }}</div>
   </div>
 
+  <!-- 手数料合計 -->
   <div class="sum-card">
-    <div class="k">手数料</div>
-    <div class="v">¥{{ agg.fee|floatformat:0|intcomma }}</div>
+    <div class="k">手数料合計</div>
+    <div class="v whitespace-nowrap">¥{{ agg.fee|default:0|floatformat:0|intcomma }}</div>
   </div>
 
-  <!-- 💰 実損（現金ベース） -->
+  <!-- 💰 実損(現金) 合計：cash -->
   <div class="sum-card">
-    <div class="k">💰 実損合計</div>
-    <div class="v {% if agg.cashflow_sum < 0 %}negative{% else %}positive{% endif %}">
-      ¥{{ agg.cashflow_sum|floatformat:0|intcomma }}
-    </div>
+    <div class="k">💰 実損(現金) 合計</div>
+    {% with v=agg.cash|default:0 %}
+      <div class="v whitespace-nowrap {% if v < 0 %}negative{% else %}positive{% endif %}">
+        ¥{{ v|floatformat:0|intcomma }}
+      </div>
+    {% endwith %}
   </div>
 
-  <!-- 📈 投資家PnL累計 -->
+  <!-- 📈 PnL 累計：pnl -->
   <div class="sum-card">
-    <div class="k">📈 PnL累計</div>
-    <div class="v {% if agg.pnl_sum < 0 %}negative{% else %}positive{% endif %}">
-      ¥{{ agg.pnl_sum|floatformat:0|intcomma }}
-    </div>
+    <div class="k">📈 PnL 累計</div>
+    {% with v=agg.pnl|default:0 %}
+      <div class="v whitespace-nowrap {% if v < 0 %}negative{% else %}positive{% endif %}">
+        ¥{{ v|floatformat:0|intcomma }}
+      </div>
+    {% endwith %}
   </div>
 </div>
