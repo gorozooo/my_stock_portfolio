@@ -232,12 +232,8 @@ def summary_partial(request):
 # ============================================================
 #  保有 → 売却（ボトムシート／登録）
 #   ※ 実損（投資家PnL）の逆算は行わず、fee は入力値を採用
-#      （平均取得単価と連携しての逆算は今後対応）
+#      → いまは close_submit で basis から fee を逆算する仕様に更新済み
 # ============================================================
-from django.forms.models import model_to_dict
-import logging
-logger = logging.getLogger(__name__)
-
 @login_required
 @require_GET
 def close_sheet(request, pk: int):
@@ -310,7 +306,6 @@ def close_sheet(request, pk: int):
         </div>
         """
         return HttpResponse(error_html)
-
 
 @login_required
 @require_POST
@@ -429,7 +424,7 @@ def close_submit(request, pk: int):
         if q:
             qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-        rows = _with_pnl(qs)
+        rows = _with_metrics(qs)   # ← ここを _with_metrics に統一
         agg  = _aggregate(qs)
 
         table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
@@ -453,4 +448,3 @@ def close_submit(request, pk: int):
             {"ok": False, "error": str(e), "traceback": traceback.format_exc()},
             status=400,
         )
-        
