@@ -18,19 +18,19 @@
     <!-- プリセット -->
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq={{ freq }}&q={{ q|urlencode }}"
-            hx-target="#periodTable" hx-swap="outerHTML"
+            hx-target="#periodTable" hx-select="#periodTable" hx-swap="outerHTML"
             aria-current="{% if preset == 'THIS_MONTH' %}true{% else %}false{% endif %}">
       今月
     </button>
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=THIS_YEAR&freq={{ freq }}&q={{ q|urlencode }}"
-            hx-target="#periodTable" hx-swap="outerHTML"
+            hx-target="#periodTable" hx-select="#periodTable" hx-swap="outerHTML"
             aria-current="{% if preset == 'THIS_YEAR' %}true{% else %}false{% endif %}">
       今年
     </button>
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=LAST_12M&freq={{ freq }}&q={{ q|urlencode }}"
-            hx-target="#periodTable" hx-swap="outerHTML"
+            hx-target="#periodTable" hx-select="#periodTable" hx-swap="outerHTML"
             aria-current="{% if preset == 'LAST_12M' %}true{% else %}false{% endif %}">
       過去12ヶ月
     </button>
@@ -38,13 +38,13 @@
     <!-- 粒度 -->
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=month&q={{ q|urlencode }}"
-            hx-target="#periodTable" hx-swap="outerHTML"
+            hx-target="#periodTable" hx-select="#periodTable" hx-swap="outerHTML"
             aria-current="{% if freq == 'month' %}true{% else %}false{% endif %}">
       月次
     </button>
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=year&q={{ q|urlencode }}"
-            hx-target="#periodTable" hx-swap="outerHTML"
+            hx-target="#periodTable" hx-select="#periodTable" hx-swap="outerHTML"
             aria-current="{% if freq == 'year' %}true{% else %}false{% endif %}">
       年次
     </button>
