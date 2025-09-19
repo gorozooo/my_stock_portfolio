@@ -317,101 +317,127 @@ def close_sheet(request, pk: int):
 @transaction.atomic
 def close_submit(request, pk: int):
     """
-    保有行の「売却」を登録。
-    - 必須: date, qty, price
-    - 任意: fee もしくは cashflow（片方だけ or 両方。cashflow 優先で fee を逆算）
-    - 追加: broker, account, memo, name
-    完了後、実損テーブルとサマリー、（あれば）保有一覧断片を返す。
+    保有行の「売却」を登録（平均取得から手数料を逆算）。
+    - 実損（手数料控除前）＝ cashflow（±で手入力）
+    - 手数料  = (売値 - basis) * 数量 - 実損
+    - basis は Holding の代表的なフィールド名から自動検出
+    失敗時は {ok:false, error:"..."} を 400 で返す。
     """
-    h = get_object_or_404(Holding, pk=pk, user=request.user)
-
-    # 入力を回収
-    date_raw = (request.POST.get("date") or "").strip()
     try:
-        trade_at = timezone.datetime.fromisoformat(date_raw).date() if date_raw else timezone.localdate()
-    except Exception:
-        trade_at = timezone.localdate()
+        # --- Holding (user有無の両対応) ---
+        holding_filters = {"pk": pk}
+        if any(f.name == "user" for f in Holding._meta.fields):
+            holding_filters["user"] = request.user
+        h = get_object_or_404(Holding, **holding_filters)
 
-    side   = "SELL"
-    qty_in = int(request.POST.get("qty") or 0)
-    price  = _to_dec(request.POST.get("price"))
-    fee_in = _to_dec(request.POST.get("fee"))
-    cf_in  = request.POST.get("cashflow")
-    cashflow = None if cf_in in (None, "") else _to_dec(cf_in)
+        # --- 入力 ---
+        date_raw = (request.POST.get("date") or "").strip()
+        try:
+            trade_at = timezone.datetime.fromisoformat(date_raw).date() if date_raw else timezone.localdate()
+        except Exception:
+            trade_at = timezone.localdate()
 
-    broker  = (request.POST.get("broker")  or "OTHER").upper()
-    account = (request.POST.get("account") or "SPEC").upper()  # SPEC/MARGIN/NISA を想定
-    memo    = (request.POST.get("memo") or "").strip()
+        side        = "SELL"
+        qty_in      = int(request.POST.get("qty") or 0)
+        price       = _to_dec(request.POST.get("price"))
+        cashflow_in = request.POST.get("cashflow")  # 実損（手数料控除前 / ±）
+        pnl_input   = None if cashflow_in in (None, "") else _to_dec(cashflow_in)
+        # fee 入力があっても「basis から逆算」を優先
+        broker  = (request.POST.get("broker")  or "OTHER").upper()
+        account = (request.POST.get("account") or "SPEC").upper()
+        memo    = (request.POST.get("memo")    or "").strip()
+        name    = (request.POST.get("name")    or "").strip() or getattr(h, "name", "") or ""
 
-    # 表示名（保有に name があればそれを使う。フォーム側から name 渡すならそちら優先でもOK）
-    name = (request.POST.get("name") or "").strip() or getattr(h, "name", "") or ""
+        # --- バリデーション（数量フィールド両対応）---
+        held_qty = getattr(h, "quantity", None)
+        if held_qty is None:
+            held_qty = getattr(h, "qty", 0)
+        if qty_in <= 0 or price <= 0 or qty_in > held_qty:
+            return JsonResponse({"ok": False, "error": "数量/価格を確認してください"}, status=400)
 
-    # バリデーション（Holding 側のフィールド名ゆれに対応）
-    held_qty = getattr(h, "quantity", None)
-    if held_qty is None:
-        held_qty = getattr(h, "qty", 0)
+        # --- basis(平均取得単価/1株) を検出 ---
+        basis_candidates = [
+            "avg_cost", "average_cost", "avg_price", "average_price",
+            "basis", "cost_price", "cost_per_share",
+        ]
+        basis = None
+        for f in basis_candidates:
+            v = getattr(h, f, None)
+            if v not in (None, ""):
+                try:
+                    basis = Decimal(str(v))
+                    break
+                except Exception:
+                    pass
+        if basis is None:
+            return JsonResponse(
+                {"ok": False, "error": "保有の平均取得単価(basis)が見つかりません。Holdingに avg_cost / average_cost / basis 等のいずれかを追加してください。"},
+                status=400,
+            )
 
-    if qty_in <= 0 or price <= 0 or qty_in > held_qty:
-        return JsonResponse({"ok": False, "error": "数量/価格を確認してください"}, status=400)
+        # --- 実損が未入力なら 0 とみなす（＝最終損益も0扱い）---
+        if pnl_input is None:
+            pnl_input = Decimal("0")
 
-    # cashflow 優先で fee を逆算（売りなので notional - cashflow = fee）
-    notional = _to_dec(qty_in) * price
-    if cashflow is not None:
-        fee = (notional - cashflow)  # SELL
-    else:
-        fee = fee_in
+        # --- 手数料を逆算 ---
+        # 実損（±） = (売値 − basis) × 数量 − fee  →  fee = (売値 − basis) × 数量 − 実損
+        fee = (price - basis) * Decimal(qty_in) - pnl_input
+        # fee は理論上 0 以上だが、過去データ等で負になることもあり得るのでそのまま保存（要望があれば0下限を入れる）
 
-    # 取引を登録（pnl はDBに保存しない運用。集計は注釈で算出）
-    RealizedTrade.objects.create(
-        user=request.user,
-        trade_at=trade_at,
-        side=side,
-        ticker=getattr(h, "ticker", ""),
-        name=name,
-        broker=broker,
-        account=account,   # モデルに account を追加済み想定
-        qty=qty_in,
-        price=price,
-        fee=fee,
-        cashflow=cashflow, # モデルに null 可で追加済み想定
-        memo=memo,
-    )
-
-    # 保有数量を減算（0以下で削除）
-    if hasattr(h, "quantity"):
-        h.quantity = F("quantity") - qty_in
-        h.save(update_fields=["quantity"])
-        h.refresh_from_db()
-        if h.quantity <= 0:
-            h.delete()
-    else:
-        # 古いスキーマ（qty）にも対応
-        h.qty = F("qty") - qty_in
-        h.save(update_fields=["qty"])
-        h.refresh_from_db()
-        if h.qty <= 0:
-            h.delete()
-
-    # 断片の再描画（検索キーワード維持：q は ticker/name の部分一致）
-    q = (request.POST.get("q") or "").strip()
-    qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
-    if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
-
-    rows = _with_pnl(qs)
-    agg  = _aggregate(qs)
-
-    table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
-    summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
-
-    # 保有一覧の部分テンプレがある場合だけ返す（無くてもOK）
-    try:
-        holdings_html = render_to_string(
-            "holdings/_list.html",
-            {"holdings": Holding.objects.filter(user=request.user)},
-            request=request
+        # --- 登録（cashflow には“実損（手数料控除前）”を保存）---
+        RealizedTrade.objects.create(
+            user=request.user,
+            trade_at=trade_at,
+            side=side,
+            ticker=getattr(h, "ticker", ""),
+            name=name,
+            broker=broker,
+            account=account,
+            qty=qty_in,
+            price=price,
+            fee=fee,
+            cashflow=pnl_input,  # ← 実損（±）
+            memo=memo,
         )
-    except Exception:
-        holdings_html = ""
 
-    return JsonResponse({"ok": True, "table": table_html, "summary": summary_html, "holdings": holdings_html})
+        # --- 保有数量の更新（0で削除）---
+        if hasattr(h, "quantity"):
+            h.quantity = F("quantity") - qty_in
+            h.save(update_fields=["quantity"])
+            h.refresh_from_db()
+            if h.quantity <= 0:
+                h.delete()
+        else:
+            h.qty = F("qty") - qty_in
+            h.save(update_fields=["qty"])
+            h.refresh_from_db()
+            if h.qty <= 0:
+                h.delete()
+
+        # --- 再描画片 ---
+        q = (request.POST.get("q") or "").strip()
+        qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
+        if q:
+            qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+        rows = _with_pnl(qs)
+        agg  = _aggregate(qs)
+
+        table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
+        summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
+
+        # 保有一覧（存在しない場合は空文字）
+        try:
+            holdings_html = render_to_string(
+                "holdings/_list.html",
+                {"holdings": Holding.objects.filter(user=request.user)},
+                request=request,
+            )
+        except Exception:
+            holdings_html = ""
+
+        return JsonResponse({"ok": True, "table": table_html, "summary": summary_html, "holdings": holdings_html})
+
+    except Exception as e:
+        import traceback
+        return JsonResponse({"ok": False, "error": str(e), "traceback": traceback.format_exc()}, status=400)
+        
