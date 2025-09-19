@@ -18,30 +18,36 @@
   .nowrap{white-space:nowrap}
 </style>
 
-<div class="sum-grid">
-  <!-- 件数 -->
+<!-- templates/realized/_summary.html -->
+<div class="summary-grid">
   <div class="sum-card">
-    <div class="sum-k">📄 件数</div>
-    <div class="sum-v">{{ agg.n|default:0 }}</div>
+    <div class="k">件数</div>
+    <div class="v">{{ agg.n }}</div>
   </div>
 
-  <!-- 数量合計 -->
   <div class="sum-card">
-    <div class="sum-k">🔢 数量合計</div>
-    <div class="sum-v">{{ agg.qty|default:0|intcomma }}</div>
+    <div class="k">数量合計</div>
+    <div class="v">{{ agg.qty }}</div>
   </div>
 
-  <!-- 手数料合計 -->
   <div class="sum-card">
-    <div class="sum-k">💸 手数料合計</div>
-    <div class="sum-v">¥{{ agg.fee|default:0|floatformat:0|intcomma }}</div>
+    <div class="k">手数料</div>
+    <div class="v">¥{{ agg.fee|floatformat:0|intcomma }}</div>
   </div>
 
-  <!-- 💰 実損(現金) 合計 = cashflow合計 -->
+  <!-- 💰 実損（現金ベース） -->
   <div class="sum-card">
-    <div class="sum-k">💰 実損(現金) 合計</div>
-    <div class="sum-v {% if agg.pnl < 0 %}negative{% else %}positive{% endif %}">
-      ¥{{ agg.pnl|default:0|floatformat:0|intcomma }}
+    <div class="k">💰 実損合計</div>
+    <div class="v {% if agg.cashflow_sum < 0 %}negative{% else %}positive{% endif %}">
+      ¥{{ agg.cashflow_sum|floatformat:0|intcomma }}
+    </div>
+  </div>
+
+  <!-- 📈 投資家PnL累計 -->
+  <div class="sum-card">
+    <div class="k">📈 PnL累計</div>
+    <div class="v {% if agg.pnl_sum < 0 %}negative{% else %}positive{% endif %}">
+      ¥{{ agg.pnl_sum|floatformat:0|intcomma }}
     </div>
   </div>
 </div>
