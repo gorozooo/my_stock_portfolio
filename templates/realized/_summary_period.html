@@ -19,19 +19,19 @@
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq={{ freq }}&q={{ q|urlencode }}"
             hx-target="#periodTable" hx-swap="outerHTML"
-            aria-current="{{ 'true' if preset == 'THIS_MONTH' else 'false' }}">
+            aria-current="{% if preset == 'THIS_MONTH' %}true{% else %}false{% endif %}">
       今月
     </button>
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=THIS_YEAR&freq={{ freq }}&q={{ q|urlencode }}"
             hx-target="#periodTable" hx-swap="outerHTML"
-            aria-current="{{ 'true' if preset == 'THIS_YEAR' else 'false' }}">
+            aria-current="{% if preset == 'THIS_YEAR' %}true{% else %}false{% endif %}">
       今年
     </button>
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=LAST_12M&freq={{ freq }}&q={{ q|urlencode }}"
             hx-target="#periodTable" hx-swap="outerHTML"
-            aria-current="{{ 'true' if preset == 'LAST_12M' else 'false' }}">
+            aria-current="{% if preset == 'LAST_12M' %}true{% else %}false{% endif %}">
       過去12ヶ月
     </button>
 
@@ -39,13 +39,13 @@
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=month&q={{ q|urlencode }}"
             hx-target="#periodTable" hx-swap="outerHTML"
-            aria-current="{{ 'true' if freq == 'month' else 'false' }}">
+            aria-current="{% if freq == 'month' %}true{% else %}false{% endif %}">
       月次
     </button>
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=year&q={{ q|urlencode }}"
             hx-target="#periodTable" hx-swap="outerHTML"
-            aria-current="{{ 'true' if freq == 'year' else 'false' }}">
+            aria-current="{% if freq == 'year' %}true{% else %}false{% endif %}">
       年次
     </button>
   </div>
@@ -73,16 +73,24 @@
               <td style="text-align:right">{{ r.qty|intcomma }}</td>
               <td style="text-align:right">¥{{ r.fee|floatformat:0|intcomma }}</td>
               <td style="text-align:right">
-                {% with v=r.cash_spec %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}
+                {% with v=r.cash_spec %}
+                  <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>
+                {% endwith %}
               </td>
               <td style="text-align:right">
-                {% with v=r.cash_margin %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}
+                {% with v=r.cash_margin %}
+                  <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>
+                {% endwith %}
               </td>
               <td style="text-align:right">
-                {% with v=r.cash_total %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}
+                {% with v=r.cash_total %}
+                  <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>
+                {% endwith %}
               </td>
               <td style="text-align:right">
-                {% with v=r.pnl %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}
+                {% with v=r.pnl %}
+                  <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>
+                {% endwith %}
               </td>
             </tr>
           {% endfor %}
