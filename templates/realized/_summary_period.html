@@ -13,10 +13,12 @@
   .is-focus{background:rgba(59,130,246,.10)}
 </style>
 
-<div class="period-wrap" id="periodTable">
+{# ★ グラフ側から preset/freq を引き継ぐための data-* を必ず付与 #}
+<div id="pnlPeriodWrap" class="period-wrap" data-preset="{{ preset }}" data-freq="{{ freq }}">
   <div class="period-head">
     <div style="font-size:12px;color:#a7b1d8">期間まとめ</div>
 
+    {# プリセット切替（focusは解除して全体に戻す） #}
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq={{ freq }}&q={{ q|urlencode }}"
             hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
@@ -36,6 +38,7 @@
       過去12ヶ月
     </button>
 
+    {# 粒度切替（月次/年次） #}
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=month&q={{ q|urlencode }}"
             hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
@@ -49,6 +52,7 @@
       年次
     </button>
 
+    {# フォーカス解除（全体表示へ） #}
     {% if focus %}
       <button class="btn"
               hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq={{ freq }}&q={{ q|urlencode }}"
@@ -57,7 +61,7 @@
     {% endif %}
   </div>
 
-  {# ─ 選択ボックス ─ #}
+  {# ─ 選択サマリー（グラフタップや行タップで出る） ─ #}
   {% if selected %}
     <div class="rounded-xl p-3 mb-2"
          style="border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)">
@@ -94,7 +98,8 @@
     <tbody class="text-[15px]">
       {% if rows %}
         {% for r in rows %}
-          <tr data-period="{{ r.label }}" class="{% if focus and r.label == focus %}is-focus{% endif %}">
+          <tr data-period="{{ r.label }}"
+              class="{% if focus and r.label == focus %}is-focus{% endif %}">
             <td>{{ r.label }}</td>
             <td style="text-align:right">{{ r.n|intcomma }}</td>
             <td style="text-align:right">{{ r.qty|intcomma }}</td>
