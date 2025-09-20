@@ -22,11 +22,12 @@
            class="w-full">
   </div>
 
-  {# ── サマリー（重複なし・これだけ残す） ───────────────── #}
+  {# ── サマリー（1個だけ） ─────────────────────────── #}
 <div id="pnlSummaryWrap"
      hx-get="{% url 'realized_summary_partial' %}?q={{ q|urlencode }}"
      hx-trigger="load, pnl:refresh from:body"
      hx-swap="outerHTML">
+  {# 初回フォールバック（サーバーレンダリング時） #}
   {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
 </div>
 
