@@ -16,136 +16,152 @@
   const el = document.getElementById('pnlChart');
   if (!el) return;
 
-  // 2x 解像度でにじみ対策（iPhone など）
+  // 2x 解像度でにじみ対策
   const resizeCanvasForHiDPI = (canvas) => {
-    const ratio = window.devicePixelRatio || 1;
-    const { width, height } = canvas.getBoundingClientRect();
-    canvas.width  = Math.round(width  * ratio);
-    canvas.height = Math.round(height * ratio);
-    canvas.style.width  = width + 'px';
-    canvas.style.height = height + 'px';
+    const ratio = Math.max(1, window.devicePixelRatio || 1);
+    const r = canvas.getBoundingClientRect();
+    const w = Math.round(r.width  * ratio);
+    const h = Math.round(r.height * ratio);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width  = w;
+      canvas.height = h;
+      canvas.style.width  = r.width + 'px';
+      canvas.style.height = r.height + 'px';
+    }
   };
 
-  async function draw() {
-    try {
-      const qEl = document.querySelector('#q');
-      const q   = qEl ? encodeURIComponent(qEl.value || '') : '';
-      const url = "{% url 'realized_chart_monthly' %}?q=" + q;
+  let chart = null;
 
-      const res  = await fetch(url, { credentials: 'same-origin' });
-      const data = await res.json();
+  async function fetchData() {
+    const qEl = document.querySelector('#q');
+    const q   = qEl ? encodeURIComponent(qEl.value || '') : '';
+    const res = await fetch("{% url 'realized_chart_monthly' %}?q=" + q, { credentials: 'same-origin' });
+    return await res.json();
+  }
 
-      // 現金バーの色を符号で分岐（+青 / -赤）
-      const cashColors = data.cash.map(v => v >= 0 ? 'rgba(59,130,246,0.55)' : 'rgba(244,63,94,0.65)');
+  async function draw(force = false) {
+    // 画面外でゼロサイズのときは何もしない（可視になったら描く）
+    const rect = el.getBoundingClientRect();
+    if (!force && (rect.width === 0 || rect.height === 0)) return;
 
-      // 既存チャート破棄
-      if (window._pnlChart) {
-        window._pnlChart.destroy();
-        window._pnlChart = null;
-      }
+    const data = await fetchData();
 
-      const ctx = el.getContext('2d');
-      resizeCanvasForHiDPI(el);
+    const cashColors = data.cash.map(v => v >= 0 ? 'rgba(59,130,246,0.55)' : 'rgba(244,63,94,0.65)');
 
-      window._pnlChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: data.labels,                   // e.g. ["2025-02","2025-03","…"]
-          datasets: [
-            // 現金＝バー（符号で色分け）
-            {
-              type: 'bar',
-              label: '💰 現金',
-              data: data.cash,
-              backgroundColor: cashColors,
-              borderWidth: 0,
-              order: 2
-            },
-            // PnL＝折れ線
-            {
-              type: 'line',
-              label: '📈 PnL',
-              data: data.pnl,
-              borderColor: 'rgba(16,185,129,1)',  // 緑
-              backgroundColor: 'rgba(16,185,129,0.15)',
-              pointRadius: 3,
-              pointHoverRadius: 4,
-              tension: 0.25,
-              fill: false,
-              yAxisID: 'y',
-              order: 1
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          animation: { duration: 250 },
-          interaction: { mode: 'index', intersect: false },
-          plugins: {
-            legend: { labels: { color: '#e5e7eb' } },
-            tooltip: {
-              callbacks: {
-                label: (ctx) => {
-                  const v = ctx.parsed.y ?? 0;
-                  return `${ctx.dataset.label}: ¥${Number(v).toLocaleString()}`;
-                }
-              }
-            }
+    if (chart) {
+      chart.destroy();
+      chart = null;
+    }
+
+    const ctx = el.getContext('2d');
+    resizeCanvasForHiDPI(el);
+
+    chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: data.labels,
+        datasets: [
+          {
+            type: 'bar',
+            label: '💰 現金',
+            data: data.cash,
+            backgroundColor: cashColors,
+            borderWidth: 0,
+            order: 2
           },
-          scales: {
-            x: {
-              ticks: { color: '#cbd5e1' },
-              grid: { color: 'rgba(148,163,184,0.12)' }
-            },
-            y: {
-              ticks: {
-                color: '#cbd5e1',
-                callback: v => '¥' + Number(v).toLocaleString()
-              },
-              grid: {
-                color: 'rgba(148,163,184,0.12)',
-                zeroLineColor: 'rgba(148,163,184,0.35)'
-              }
+          {
+            type: 'line',
+            label: '📈 PnL',
+            data: data.pnl,
+            borderColor: 'rgba(16,185,129,1)',
+            backgroundColor: 'rgba(16,185,129,0.15)',
+            pointRadius: 3,
+            pointHoverRadius: 4,
+            tension: 0.25,
+            fill: false,
+            yAxisID: 'y',
+            order: 1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 200 },
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: '#e5e7eb' } },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${ctx.dataset.label}: ¥${Number(ctx.parsed.y ?? 0).toLocaleString()}`
             }
           }
+        },
+        scales: {
+          x: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(148,163,184,0.12)' } },
+          y: {
+            ticks: { color: '#cbd5e1', callback: v => '¥' + Number(v).toLocaleString() },
+            grid: { color: 'rgba(148,163,184,0.12)' }
+          }
         }
-      });
-    } catch (e) {
-      console.error(e);
-    }
+      }
+    });
   }
 
-  // 初期描画
+  // 初回描画
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', draw, { once: true });
+    document.addEventListener('DOMContentLoaded', () => draw(true), { once: true });
   } else {
-    draw();
+    draw(true);
   }
 
-  // 検索で再描画（Enter / change / blur）
+  // キーワード変更で再描画
   const qEl = document.querySelector('#q');
   if (qEl) {
     ['change','blur','keydown'].forEach(ev => {
       qEl.addEventListener(ev, (e) => {
-        if (ev !== 'keydown' || e.key === 'Enter') draw();
+        if (ev !== 'keydown' || e.key === 'Enter') draw(true);
       });
     });
   }
 
-  // HTMX でサマリー/テーブルが更新されたら再描画
+  // HTMX 更新後も再描画
   document.body.addEventListener('htmx:afterSwap', (e) => {
     if (!e.target) return;
-    if (e.target.id === 'pnlTableWrap' || e.target.id === 'pnlSummaryWrap' || e.target.id === 'pnlPeriodWrap') {
-      draw();
+    if (['pnlTableWrap','pnlSummaryWrap','pnlPeriodWrap'].includes(e.target.id)) {
+      draw(true);
     }
   });
 
-  // 画面回転・リサイズで高DPIを維持
+  // iOS Safari 対策：可視領域に戻ったら再描画（スクロール/ツールバー変化で消える対策）
+  const io = new IntersectionObserver((entries) => {
+    const ent = entries[0];
+    if (ent && ent.isIntersecting) {
+      // サイズ再計算して軽めに更新
+      if (chart && chart.chartArea) {
+        resizeCanvasForHiDPI(el);
+        chart.resize();
+        chart.update('none');
+      } else {
+        draw(true);
+      }
+    }
+  }, { threshold: 0.2 });
+  io.observe(el);
+
+  // 端末回転やアドレスバー伸縮での高さ変化にも追従
+  let rT = null;
   window.addEventListener('resize', () => {
-    if (!window._pnlChart) return;
-    resizeCanvasForHiDPI(el);
-    window._pnlChart.resize();
+    clearTimeout(rT);
+    rT = setTimeout(() => {
+      if (!chart) return;
+      resizeCanvasForHiDPI(el);
+      chart.resize();
+      chart.update('none');
+    }, 100);
   });
+
+  // bfcache 復帰時（iOSでよく起きる）
+  window.addEventListener('pageshow', () => draw(true));
 })();
 </script>
