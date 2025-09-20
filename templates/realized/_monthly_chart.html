@@ -1,15 +1,118 @@
-{# 月次グラフ（棒：PnL / 折れ線：現金フロー） #}
-<div class="mt-6 rounded-2xl bg-white/5 p-4">
+{# templates/realized/_monthly_chart.html #}
+<div class="mt-6 rounded-2xl bg-white/5 p-3">
   <div class="flex items-center justify-between mb-2">
     <div class="text-sm text-slate-300">月次サマリー</div>
-    <div class="flex gap-2 text-xs">
-      <label class="flex items-center gap-1 cursor-pointer">
-        <input id="togglePnl" type="checkbox" checked> PnL
-      </label>
-      <label class="flex items-center gap-1 cursor-pointer">
-        <input id="toggleCash" type="checkbox" checked> 現金フロー
-      </label>
-    </div>
+    <div class="text-xs text-slate-400">📈 PnL（投資家損益） / 💰 現金フロー</div>
   </div>
-  <canvas id="monthlyChart" height="240"></canvas>
+  <div id="pnlChartWrap" style="height:240px">
+    <canvas id="pnlChart" style="width:100%;height:100%"></canvas>
+  </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+(function () {
+  // 二重バインド防止
+  if (window.__pnlChartBound) return;
+  window.__pnlChartBound = true;
+
+  // iOS Safari で過剰に解像度が上がってサイズが膨らむのを抑止
+  if (window.Chart && Chart.defaults) {
+    Chart.defaults.responsive = true;
+    Chart.defaults.maintainAspectRatio = false;
+    Chart.defaults.animation = false;
+    Chart.defaults.devicePixelRatio = 1;
+  }
+
+  const canvas = document.getElementById('pnlChart');
+  if (!canvas) return;
+
+  let chart = null;
+  let drawTimer = null;
+
+  async function fetchData() {
+    const qEl = document.querySelector('#q');
+    const q   = qEl ? encodeURIComponent(qEl.value || '') : '';
+    const res = await fetch("{% url 'realized_chart_monthly' %}?q=" + q, { credentials: 'same-origin' });
+    return await res.json();
+  }
+
+  async function draw() {
+    // 連打対策（150ms デバウンス）
+    clearTimeout(drawTimer);
+    drawTimer = setTimeout(async () => {
+      try {
+        const data = await fetchData();
+        if (chart) {
+          chart.destroy();
+          chart = null;
+        }
+        const ctx = canvas.getContext('2d');
+        chart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: data.labels,
+            datasets: [
+              { label: '📈PnL',  data: data.pnl,  borderWidth: 0, backgroundColor: 'rgba(16,185,129,0.65)' },
+              { label: '💰現金', data: data.cash, borderWidth: 0, backgroundColor: 'rgba(59,130,246,0.55)' },
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { labels: { color: '#e5e7eb' } },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => {
+                    const v = ctx.parsed.y ?? 0;
+                    return `${ctx.dataset.label}: ¥` + Number(v).toLocaleString();
+                  }
+                }
+              }
+            },
+            scales: {
+              x: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(148,163,184,0.12)' } },
+              y: { ticks: { color: '#cbd5e1', callback: (v)=> '¥' + Number(v).toLocaleString() },
+                   grid: { color: 'rgba(148,163,184,0.12)' } }
+            }
+          }
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }, 150);
+  }
+
+  // 初回描画
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', draw, { once: true });
+  } else {
+    draw();
+  }
+
+  // 検索で再描画（Enter / blur / change）
+  const qEl = document.querySelector('#q');
+  if (qEl) {
+    ['change','blur','keydown'].forEach(ev => {
+      qEl.addEventListener(ev, (e) => {
+        if (ev !== 'keydown' || e.key === 'Enter') draw();
+      });
+    });
+  }
+
+  // HTMX で該当領域が差し替わったら再描画
+  document.body.addEventListener('htmx:afterSwap', function (e) {
+    const id = e.target && e.target.id;
+    if (id === 'pnlTableWrap' || id === 'pnlSummaryWrap' || id === 'pnlPeriodWrap') {
+      draw();
+    }
+  });
+
+  // タブ復帰時にサイズが狂ったら再描画
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) draw();
+  });
+})();
+</script>
