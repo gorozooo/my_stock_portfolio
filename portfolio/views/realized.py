@@ -140,36 +140,49 @@ def _aggregate(qs):
 
 def _aggregate_by_broker(qs):
     """
-    証券会社別の集計。
-    - broker が NULL/空文字は除外
-    - 現物/NISA: cashflow_calc
-    - 信用: 手入力PnL(cashflow)
-    - PnL: 手入力PnL(cashflow)
+    証券会社別の集計（現物/信用/合計 と PnL）
+    - 現物/NISA … 実キャッシュ (cashflow_calc)
+    - 信用 …… 手入力PnL (= cashflow)
+    - PnL …… 手入力PnL (= cashflow)
     """
     qs = _with_metrics(qs)
+
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
     rows = (
-        qs.exclude(broker__isnull=True).exclude(broker__exact="")
-          .values("broker")
-          .annotate(
-              n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
-              qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
-              fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
+        qs
+        .values("broker")
+        .annotate(
+            n   = Count("id"),
+            qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
+            fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
 
-              cash_spec = Coalesce(
-                  Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
-                           default=dec0, output_field=DEC2)),
-                  dec0,
-              ),
-              cash_margin = Coalesce(
-                  Sum(Case(When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
-                           default=dec0, output_field=DEC2)),
-                  dec0,
-              ),
-              pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
-          )
-          .order_by("broker")
+            # 現物/NISA は実キャッシュ（calc）を合計
+            cash_spec = Coalesce(
+                Sum(
+                    Case(
+                        When(account__in=["SPEC", "NISA"], then=F("cashflow_calc")),
+                        default=dec0, output_field=DEC2,
+                    )
+                ),
+                dec0,
+            ),
+            # 信用は手入力PnL (= cashflow) を合計
+            cash_margin = Coalesce(
+                Sum(
+                    Case(
+                        When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
+                        default=dec0, output_field=DEC2,
+                    )
+                ),
+                dec0,
+            ),
+            # PnL は常に手入力PnL の合計
+            pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
+        )
+        .filter(~Q(broker__isnull=True))     # NULL を除外
+        .exclude(broker="")                  # 空文字を除外
+        .order_by("broker")
     )
 
     out = []
