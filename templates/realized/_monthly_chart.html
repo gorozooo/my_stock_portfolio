@@ -46,16 +46,6 @@
     }
   };
 
-  // "2025-03" → {start:"2025-03-01", end:"2025-03-31"}
-  function monthRange(label) {
-    const [y, m] = (label || '').split('-').map(n => parseInt(n, 10));
-    if (!y || !m) return null;
-    const start = `${y}-${String(m).padStart(2,'0')}-01`;
-    const endDay = new Date(y, m, 0).getDate();
-    const end = `${y}-${String(m).padStart(2,'0')}-${String(endDay).padStart(2,'0')}`;
-    return { start, end };
-  }
-
   let chart = null;
 
   async function fetchData() {
@@ -65,7 +55,6 @@
     return await res.json();
   }
 
-  // ボタンの見た目状態
   function setBtnState(btn, visible) {
     btn.setAttribute('aria-pressed', visible ? 'true' : 'false');
     btn.style.opacity = visible ? '1' : '0.45';
@@ -84,7 +73,6 @@
     const cashColors = cash.map(v => v >= 0 ? 'rgba(59,130,246,0.55)' : 'rgba(244,63,94,0.70)');
 
     if (chart) { chart.destroy(); chart = null; }
-
     const ctx = el.getContext('2d');
     resizeCanvasForHiDPI(el);
 
@@ -93,12 +81,9 @@
       data: {
         labels,
         datasets: [
-          // 0: 現金（棒）
-          { type: 'bar', label: '💰 現金', data: cash, backgroundColor: cashColors, borderWidth: 0, yAxisID: 'y', order: 2 },
-          // 1: 月次 PnL（折れ線）
-          { type: 'line', label: '📈 PnL', data: pnl, borderColor: 'rgba(16,185,129,1)', backgroundColor: 'rgba(16,185,129,0.15)', borderWidth: 2.5, pointRadius: 3, pointHoverRadius: 4, tension: 0.25, fill: false, yAxisID: 'y', order: 1 },
-          // 2: 累積 PnL（右軸）
-          { type: 'line', label: '📈 累積PnL', data: pnlCum, borderColor: '#fde68a', backgroundColor: 'rgba(253,230,138,0.18)', borderWidth: 3, pointRadius: 3, pointHoverRadius: 4, tension: 0.18, fill: false, yAxisID: 'y2', order: 0 }
+          { type: 'bar',  label: '💰 現金',     data: cash,   backgroundColor: cashColors, borderWidth: 0,  yAxisID: 'y',  order: 2 },
+          { type: 'line', label: '📈 PnL',     data: pnl,    borderColor: 'rgba(16,185,129,1)', backgroundColor: 'rgba(16,185,129,0.15)', borderWidth: 2.5, pointRadius: 3, pointHoverRadius: 4, tension: 0.25, fill: false, yAxisID: 'y',  order: 1 },
+          { type: 'line', label: '📈 累積PnL', data: pnlCum, borderColor: '#fde68a', backgroundColor: 'rgba(253,230,138,0.18)', borderWidth: 3,   pointRadius: 3, pointHoverRadius: 4, tension: 0.18, fill: false, yAxisID: 'y2', order: 0 }
         ]
       },
       options: {
@@ -106,30 +91,31 @@
         maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
 
-        // ← チャートクリック → 期間まとめをその月に切替（フォーカス付き）
+        // ★ グラフクリック → 期間まとめは「全体を維持」+ 選択月だけハイライト
         onClick: (evt, elements, inst) => {
-          // クリック対象のインデックスを安全に取得
           const pts = inst.getElementsAtEventForMode(evt, 'nearest', {intersect: true}, true);
           if (!pts || !pts.length) return;
-          const label = inst.data.labels[pts[0].index];
-          const range = monthRange(label);
-          if (!range) return;
+          const label = inst.data.labels[pts[0].index];  // "YYYY-MM"
+
+          // 現在の preset / freq は #pnlPeriodWrap の data 属性から取得（未設定なら LAST_12M / month）
+          const wrap = document.querySelector('#pnlPeriodWrap');
+          const preset = (wrap?.dataset.preset) || 'LAST_12M';
+          const freq   = (wrap?.dataset.freq)   || 'month';
 
           const qEl = document.querySelector('#q');
           const q   = qEl ? encodeURIComponent(qEl.value || '') : '';
 
           const url =
             "{% url 'realized_summary_period' %}"
-            + "?preset=CUSTOM"
-            + "&start=" + encodeURIComponent(range.start)
-            + "&end="   + encodeURIComponent(range.end)
-            + "&freq=month"
-            + "&q=" + q
-            + "&focus=" + encodeURIComponent(label);   // ← 行ハイライト用
+            + "?preset=" + encodeURIComponent(preset)
+            + "&freq="   + encodeURIComponent(freq)
+            + "&keep=all"                       // ← 全体を残すフラグ
+            + "&focus="  + encodeURIComponent(label)
+            + "&q=" + q;
 
           if (window.htmx) {
-            htmx.ajax('GET', url, { target: '#pnlPeriodWrap', swap: 'outerHTML' }); // ← 正しい呼び方
-            document.querySelector('#pnlPeriodWrap')?.scrollIntoView({behavior:'smooth', block:'start'});
+            htmx.ajax('GET', url, { target: '#pnlPeriodWrap', swap: 'outerHTML' });
+            wrap?.scrollIntoView({behavior:'smooth', block:'start'});
           }
         },
 
@@ -156,21 +142,13 @@
           }
         },
         scales: {
-          x:   { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(148,163,184,0.12)' } },
-          y:   {
-            ticks: { color: '#cbd5e1', callback: v => '¥' + Number(v).toLocaleString() },
-            grid:  { color: 'rgba(148,163,184,0.12)' }
-          },
-          y2:  {
-            position: 'right',
-            ticks: { color: '#fde68a', callback: v => '¥' + Number(v).toLocaleString() },
-            grid: { drawOnChartArea: false }
-          }
+          x:  { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(148,163,184,0.12)' } },
+          y:  { ticks: { color: '#cbd5e1', callback: v => '¥' + Number(v).toLocaleString() }, grid: { color: 'rgba(148,163,184,0.12)' } },
+          y2: { position: 'right', ticks: { color: '#fde68a', callback: v => '¥' + Number(v).toLocaleString() }, grid: { drawOnChartArea: false } }
         }
       }
     });
 
-    // 初期ボタン状態（全表示）
     setBtnState(document.getElementById('btnToggleCum'),  true);
     setBtnState(document.getElementById('btnToggleCash'), true);
     setBtnState(document.getElementById('btnTogglePnl'),  true);
@@ -183,7 +161,7 @@
     draw(true);
   }
 
-  // 検索キーワード変更 → 再描画
+  // キーワード変更 → 再描画
   const qEl = document.querySelector('#q');
   if (qEl) {
     ['change','blur','keydown'].forEach(ev => {
@@ -193,13 +171,13 @@
     });
   }
 
-  // HTMX で要素が差し替わったら再描画
+  // HTMX 差し替え後も再描画
   document.body.addEventListener('htmx:afterSwap', (e) => {
     if (!e.target) return;
     if (['pnlTableWrap','pnlSummaryWrap','pnlPeriodWrap'].includes(e.target.id)) draw(true);
   });
 
-  // 可視になった/回転した 等のときの追従
+  // 可視・回転対応
   const io = new IntersectionObserver((entries) => {
     const ent = entries[0];
     if (ent && ent.isIntersecting) {
@@ -227,7 +205,7 @@
 
   window.addEventListener('pageshow', () => draw(true));
 
-  // ── トグルボタン配線 ─────────────────────
+  // ── トグルボタン配線 ─
   const btnCum  = document.getElementById('btnToggleCum');
   const btnCash = document.getElementById('btnToggleCash');
   const btnPnl  = document.getElementById('btnTogglePnl');
@@ -239,8 +217,8 @@
     chart.update();
     setBtnState(btn, !vis);
   }
-  btnCum?.addEventListener('click',  () => toggleDataset(2, btnCum));   // 累積PnL（右軸）
-  btnCash?.addEventListener('click', () => toggleDataset(0, btnCash));  // 現金（棒）
-  btnPnl?.addEventListener('click',  () => toggleDataset(1, btnPnl));   // PnL（月次）
+  btnCum?.addEventListener('click',  () => toggleDataset(2, btnCum));
+  btnCash?.addEventListener('click', () => toggleDataset(0, btnCash));
+  btnPnl?.addEventListener('click',  () => toggleDataset(1, btnPnl));
 })();
 </script>
