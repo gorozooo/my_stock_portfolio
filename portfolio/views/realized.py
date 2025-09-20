@@ -277,12 +277,12 @@ def summary_period_partial(request):
 @require_GET
 def chart_monthly_json(request):
     """
-    指定ユーザーの実現取引を月次で集計して JSON 返却。
-    - labels: ["2025-02", "2025-03", ...]（昇順）
+    月次で集計して JSON 返却。
     - pnl:    各月の “投資家PnL”（= cashflow フィールド合計）
-    - cash:   各月の “現金フロー”（SELL: qty*price - fee / BUY: -(qty*price + fee)）
-    - pnl_cum: PnL の累積（開始月からの積み上げ）
-    ※ フィルタ q（ティッカー/名称の部分一致）対応
+    - cash:   各月の “現金フロー”
+              ＊現物/NISA: cashflow_calc（受け渡しベース）
+              ＊信用      : pnl_display（手入力PnL）
+    ついでにデバッグ用に cash_spec / cash_margin も返す。
     """
     q = (request.GET.get("q") or "").strip()
 
@@ -290,32 +290,59 @@ def chart_monthly_json(request):
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-    qs = _with_metrics(qs)  # cashflow_calc / pnl_display を注入
+    # cashflow_calc / pnl_display を注入
+    qs = _with_metrics(qs)
+
     monthly = (
         qs.annotate(m=TruncMonth("trade_at"))
           .values("m")
           .annotate(
-              pnl = Coalesce(Sum("pnl_display",   output_field=DEC2), Value(Decimal("0"), output_field=DEC2)),
-              cash= Coalesce(Sum("cashflow_calc", output_field=DEC2), Value(Decimal("0"), output_field=DEC2)),
+              # 投資家PnL（月次）
+              pnl = Coalesce(
+                  Sum("pnl_display", output_field=DEC2),
+                  Value(Decimal("0"), output_field=DEC2)
+              ),
+              # 現物/NISA は実受渡（cashflow_calc）
+              cash_spec = Coalesce(
+                  Sum("cashflow_calc", filter=Q(account__in=["SPEC", "NISA"]), output_field=DEC2),
+                  Value(Decimal("0"), output_field=DEC2)
+              ),
+              # 信用は手入力PnLを現金相当として扱う
+              cash_margin = Coalesce(
+                  Sum("pnl_display", filter=Q(account="MARGIN"), output_field=DEC2),
+                  Value(Decimal("0"), output_field=DEC2)
+              ),
           )
           .order_by("m")
     )
 
-    labels, pnl, cash, pnl_cum = [], [], [], []
+    labels, pnl, cash, cash_spec, cash_margin, pnl_cum = [], [], [], [], [], []
     running = Decimal("0")
     for row in monthly:
         label = row["m"].strftime("%Y-%m") if row["m"] else ""
         labels.append(label)
 
-        p = row["pnl"]  or Decimal("0")
-        c = row["cash"] or Decimal("0")
+        p = row["pnl"] or Decimal("0")
+        cs = row["cash_spec"] or Decimal("0")
+        cm = row["cash_margin"] or Decimal("0")
+        ctotal = cs + cm
+
         pnl.append(float(p))
-        cash.append(float(c))
+        cash.append(float(ctotal))
+        cash_spec.append(float(cs))
+        cash_margin.append(float(cm))
 
         running += p
         pnl_cum.append(float(running))
 
-    return JsonResponse({"labels": labels, "pnl": pnl, "cash": cash, "pnl_cum": pnl_cum})
+    return JsonResponse({
+        "labels": labels,
+        "pnl": pnl,
+        "pnl_cum": pnl_cum,        # 右軸の累積PnL
+        "cash": cash,              # 棒グラフ用（現物=受渡, 信用=PnL）
+        "cash_spec": cash_spec,    # 任意（デバッグ用）
+        "cash_margin": cash_margin # 任意（デバッグ用）
+    })
 
 # ============================================================
 #  画面
