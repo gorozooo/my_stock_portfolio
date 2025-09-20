@@ -109,60 +109,44 @@ def _with_metrics(qs):
 # ============================================================
 def _aggregate(qs):
     qs = _with_metrics(qs)
-
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
     agg = qs.aggregate(
         n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
         qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
-        fee = Coalesce(
-            Sum(Coalesce(F("fee"), dec0)),
-            dec0,
-        ),
-        # 現物/NISA は実キャッシュを合計
+        fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
+
+        # 現物/NISA は実キャッシュ
         cash_spec = Coalesce(
-            Sum(
-                Case(
-                    When(account__in=["SPEC", "NISA"], then=F("cashflow_calc")),
-                    default=dec0,
-                    output_field=DEC2,
-                )
-            ),
+            Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
+                     default=dec0, output_field=DEC2)),
             dec0,
         ),
-        # 信用は「手入力PnL(cashflow)」を合計
+        # 信用は手入力PnL（cashflow）
         cash_margin = Coalesce(
-            Sum(
-                Case(
-                    When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
-                    default=dec0,
-                    output_field=DEC2,
-                )
-            ),
+            Sum(Case(When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
+                     default=dec0, output_field=DEC2)),
             dec0,
         ),
-        # 📈PnL累計（いつでも手入力PnLの合計）
+        # PnL も手入力合算
         pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
     )
-
-    # 合計はPython側で足し込み
     try:
         agg["cash_total"] = (agg["cash_spec"] or Decimal("0")) + (agg["cash_margin"] or Decimal("0"))
     except Exception:
         agg["cash_total"] = Decimal("0")
-
     return agg
+
 
 def _aggregate_by_broker(qs):
     """
-    証券会社別の集計（現物/信用/合計 と PnL）。
-    - broker が NULL/空文字のレコードは除外
-    - 現物/NISA は cashflow_calc を合算
-    - 信用は「手入力PnL(cashflow)」を合算（全体サマリーと同じ）
-    - PnL も常に cashflow（手入力）で計上
+    証券会社別の集計。
+    - broker が NULL/空文字は除外
+    - 現物/NISA: cashflow_calc
+    - 信用: 手入力PnL(cashflow)
+    - PnL: 手入力PnL(cashflow)
     """
     qs = _with_metrics(qs)
-
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
     rows = (
@@ -173,27 +157,16 @@ def _aggregate_by_broker(qs):
               qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
               fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
 
-              # 現物/NISA は実キャッシュ
               cash_spec = Coalesce(
-                  Sum(
-                      Case(
-                          When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
-                          default=dec0, output_field=DEC2
-                      )
-                  ),
+                  Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
+                           default=dec0, output_field=DEC2)),
                   dec0,
               ),
-              # 信用は手入力PnL（cashflow）
               cash_margin = Coalesce(
-                  Sum(
-                      Case(
-                          When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
-                          default=dec0, output_field=DEC2
-                      )
-                  ),
+                  Sum(Case(When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
+                           default=dec0, output_field=DEC2)),
                   dec0,
               ),
-              # PnL も手入力合算
               pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
           )
           .order_by("broker")
@@ -201,9 +174,9 @@ def _aggregate_by_broker(qs):
 
     out = []
     for r in rows:
-        r = dict(r)
-        r["cash_total"] = (r.get("cash_spec") or Decimal("0")) + (r.get("cash_margin") or Decimal("0"))
-        out.append(r)
+        d = dict(r)
+        d["cash_total"] = (d.get("cash_spec") or Decimal("0")) + (d.get("cash_margin") or Decimal("0"))
+        out.append(d)
     return out
 
 
