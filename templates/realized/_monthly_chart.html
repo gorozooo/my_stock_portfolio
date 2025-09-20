@@ -56,19 +56,19 @@
   }
 
   function setBtnState(btn, visible) {
-    btn.setAttribute('aria-pressed', visible ? 'true' : 'false');
-    btn.style.opacity = visible ? '1' : '0.45';
+    btn?.setAttribute('aria-pressed', visible ? 'true' : 'false');
+    if (btn) btn.style.opacity = visible ? '1' : '0.45';
   }
 
   async function draw(force = false) {
     const rect = el.getBoundingClientRect();
     if (!force && (rect.width === 0 || rect.height === 0)) return;
 
-    const data = await fetchData();
-    const labels = data.labels || [];
-    const cash   = data.cash   || [];
-    const pnl    = data.pnl    || [];
-    const pnlCum = data.pnl_cum|| [];
+    const data   = await fetchData();
+    const labels = data.labels   || [];
+    const cash   = data.cash     || [];
+    const pnl    = data.pnl      || [];
+    const pnlCum = data.pnl_cum  || [];
 
     const cashColors = cash.map(v => v >= 0 ? 'rgba(59,130,246,0.55)' : 'rgba(244,63,94,0.70)');
 
@@ -91,14 +91,13 @@
         maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
 
-        // ★ グラフクリック → 期間まとめは「全体を維持」+ 選択月だけハイライト
+        // ★ グラフクリック → 全体表を維持して上部サマリー更新＆該当行ハイライト
         onClick: (evt, elements, inst) => {
           const pts = inst.getElementsAtEventForMode(evt, 'nearest', {intersect: true}, true);
           if (!pts || !pts.length) return;
           const label = inst.data.labels[pts[0].index];  // "YYYY-MM"
 
-          // 現在の preset / freq は #pnlPeriodWrap の data 属性から取得（未設定なら LAST_12M / month）
-          const wrap = document.querySelector('#pnlPeriodWrap');
+          const wrap   = document.querySelector('#pnlPeriodWrap');
           const preset = (wrap?.dataset.preset) || 'LAST_12M';
           const freq   = (wrap?.dataset.freq)   || 'month';
 
@@ -109,7 +108,7 @@
             "{% url 'realized_summary_period' %}"
             + "?preset=" + encodeURIComponent(preset)
             + "&freq="   + encodeURIComponent(freq)
-            + "&keep=all"                       // ← 全体を残すフラグ
+            + "&keep=all"
             + "&focus="  + encodeURIComponent(label)
             + "&q=" + q;
 
@@ -148,6 +147,9 @@
         }
       }
     });
+
+    // グローバル参照（表→グラフ連動用）
+    window._pnlChart = chart;
 
     setBtnState(document.getElementById('btnToggleCum'),  true);
     setBtnState(document.getElementById('btnToggleCash'), true);
@@ -220,5 +222,18 @@
   btnCum?.addEventListener('click',  () => toggleDataset(2, btnCum));
   btnCash?.addEventListener('click', () => toggleDataset(0, btnCash));
   btnPnl?.addEventListener('click',  () => toggleDataset(1, btnPnl));
+
+  // 表側からのフォーカス（pnl:focus）を受け取り、該当月を強調
+  document.body.addEventListener('pnl:focus', (e) => {
+    const label = e?.detail?.label;
+    if (!label || !window._pnlChart) return;
+    const c = window._pnlChart;
+    const idx = (c.data.labels || []).indexOf(label);
+    if (idx < 0) return;
+    const act = [{datasetIndex:0,index:idx},{datasetIndex:1,index:idx},{datasetIndex:2,index:idx}];
+    c.setActiveElements(act);
+    c.tooltip.setActiveElements(act, {x:0,y:0});
+    c.update();
+  });
 })();
 </script>
