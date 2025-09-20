@@ -57,56 +57,81 @@
     resizeCanvasForHiDPI(el);
 
     chart = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: data.labels,
-        datasets: [
-          {
-            type: 'bar',
-            label: '💰 現金',
-            data: data.cash,
-            backgroundColor: cashColors,
-            borderWidth: 0,
-            order: 2
-          },
-          {
-            type: 'line',
-            label: '📈 PnL',
-            data: data.pnl,
-            borderColor: 'rgba(16,185,129,1)',
-            backgroundColor: 'rgba(16,185,129,0.15)',
-            pointRadius: 3,
-            pointHoverRadius: 4,
-            tension: 0.25,
-            fill: false,
-            yAxisID: 'y',
-            order: 1
-          }
-        ]
+  type: 'bar',
+  data: {
+    labels: data.labels,
+    datasets: [
+      // 💰現金（棒）
+      {
+        type: 'bar',
+        label: '💰 現金',
+        data: data.cash,
+        backgroundColor: cashColors,
+        borderWidth: 0,
+        yAxisID: 'y',
+        order: 2
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: { duration: 200 },
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { labels: { color: '#e5e7eb' } },
-          tooltip: {
-            callbacks: {
-              label: (ctx) => `${ctx.dataset.label}: ¥${Number(ctx.parsed.y ?? 0).toLocaleString()}`
-            }
-          }
-        },
-        scales: {
-          x: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(148,163,184,0.12)' } },
-          y: {
-            ticks: { color: '#cbd5e1', callback: v => '¥' + Number(v).toLocaleString() },
-            grid: { color: 'rgba(148,163,184,0.12)' }
+      // 📈PnL（月次：折れ線）
+      {
+        type: 'line',
+        label: '📈 PnL',
+        data: data.pnl,
+        borderColor: 'rgba(16,185,129,1)',
+        backgroundColor: 'rgba(16,185,129,0.15)',
+        pointRadius: 3,
+        pointHoverRadius: 4,
+        tension: 0.25,
+        fill: false,
+        yAxisID: 'y',
+        order: 1
+      },
+      // 📈累積PnL（右軸：折れ線）
+      {
+        type: 'line',
+        label: '📈 累積PnL',
+        data: data.pnl_cum,
+        borderColor: 'rgba(234,179,8,1)',        // amber
+        backgroundColor: 'rgba(234,179,8,0.15)',
+        pointRadius: 3,
+        pointHoverRadius: 4,
+        tension: 0.2,
+        fill: false,
+        yAxisID: 'y2',
+        order: 0
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { labels: { color: '#e5e7eb' } },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => {
+            const v = ctx.parsed.y ?? 0;
+            return `${ctx.dataset.label}: ¥${Number(v).toLocaleString()}`;
           }
         }
       }
-    });
+    },
+    scales: {
+      x: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(148,163,184,0.12)' } },
+      // 左軸（棒＆月次PnL）
+      y: {
+        ticks: { color: '#cbd5e1', callback: v => '¥' + Number(v).toLocaleString() },
+        grid:  { color: 'rgba(148,163,184,0.12)' }
+      },
+      // 右軸（累積PnL）
+      y2: {
+        position: 'right',
+        ticks: { color: '#fbbf24', callback: v => '¥' + Number(v).toLocaleString() },
+        grid:  { drawOnChartArea: false }
+      }
+    }
   }
+});
 
   // 初回描画
   if (document.readyState === 'loading') {
