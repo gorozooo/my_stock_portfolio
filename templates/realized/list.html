@@ -22,13 +22,14 @@
            class="w-full">
   </div>
 
-  {# すでにあるサマリー（ブローカー内訳付き） #}
-  <div id="pnlSummaryWrap"
-       hx-get="{% url 'realized_summary_partial' %}?q={{ q|urlencode }}"
-       hx-trigger="load, pnl:refresh from:body"
-       hx-swap="outerHTML">
-    {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
-  </div>
+  {# ── サマリー（重複なし・これだけ残す） ───────────────── #}
+<div id="pnlSummaryWrap"
+     hx-get="{% url 'realized_summary_partial' %}?q={{ q|urlencode }}"
+     hx-trigger="load, pnl:refresh from:body"
+     hx-swap="outerHTML">
+  {# 初回フォールバック（SSR表示）。HTMXで後から同テンプレに差し替え。 #}
+  {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
+</div>
 
   {# ★ 期間まとめ（初回ロード時に今月・月次を取得） #}
   <div id="pnlPeriodWrap"
