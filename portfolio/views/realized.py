@@ -143,7 +143,8 @@ def _aggregate_by_broker(qs):
     証券会社別の集計（現物/信用/合計 と PnL）
     - 現物/NISA … 実キャッシュ (cashflow_calc)
     - 信用 …… 手入力PnL (= cashflow)
-    - PnL …… 手入力PnL (= cashflow)
+    - PnL …… 常に手入力PnL (= cashflow)
+    - broker は大文字正規化し、NULL/空は OTHER に寄せる
     """
     qs = _with_metrics(qs)
 
@@ -151,13 +152,16 @@ def _aggregate_by_broker(qs):
 
     rows = (
         qs
-        .values("broker")
+        # broker を正規化（NULL/空 => OTHER、大小文字差異も吸収）
+        .annotate(_broker=Upper(Coalesce(F("broker"), Value(""), output_field=DecimalField(null=True))))  # ダミー回避
+        .annotate(_broker=Upper(Coalesce(F("broker"), Value("OTHER"))))
+        .values("_broker")
         .annotate(
-            n   = Count("id"),
+            n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
             qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
             fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
 
-            # 現物/NISA は実キャッシュ（calc）を合計
+            # 現物/NISA は実キャッシュ（calc）
             cash_spec = Coalesce(
                 Sum(
                     Case(
@@ -167,7 +171,7 @@ def _aggregate_by_broker(qs):
                 ),
                 dec0,
             ),
-            # 信用は手入力PnL (= cashflow) を合計
+            # 信用は手入力PnL (= cashflow)
             cash_margin = Coalesce(
                 Sum(
                     Case(
@@ -180,16 +184,24 @@ def _aggregate_by_broker(qs):
             # PnL は常に手入力PnL の合計
             pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
         )
-        .filter(~Q(broker__isnull=True))     # NULL を除外
-        .exclude(broker="")                  # 空文字を除外
-        .order_by("broker")
+        .order_by("_broker")
     )
 
     out = []
     for r in rows:
         d = dict(r)
-        d["cash_total"] = (d.get("cash_spec") or Decimal("0")) + (d.get("cash_margin") or Decimal("0"))
-        out.append(d)
+        broker_code = d.get("_broker") or "OTHER"
+        cash_total = (d.get("cash_spec") or Decimal("0")) + (d.get("cash_margin") or Decimal("0"))
+        out.append({
+            "broker": broker_code,
+            "n": d["n"],
+            "qty": d["qty"],
+            "fee": d["fee"],
+            "cash_spec": d["cash_spec"],
+            "cash_margin": d["cash_margin"],
+            "cash_total": cash_total,
+            "pnl": d["pnl"],
+        })
     return out
 
 
@@ -290,7 +302,7 @@ def summary_period_partial(request):
 
 
 @login_required
-def realized_summary_partial(request: HttpRequest):
+def realized_summary_partial(request):
     """
     サマリー（全体＋ブローカー別）を部分描画して返す。
     """
@@ -302,9 +314,6 @@ def realized_summary_partial(request: HttpRequest):
 
     agg = _aggregate(qs)
     agg_brokers = _aggregate_by_broker(qs)
-
-    # デバッグ時に中身を確認したい場合は以下を一時的に有効化
-    # print("BROKERS:", agg_brokers)
 
     return render(
         request,
