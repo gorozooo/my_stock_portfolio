@@ -63,7 +63,7 @@
 </div>
 
 {# ── 証券会社別 ───────────────────────── #}
-{% if agg_brokers|length > 0 %}
+{% if agg_brokers %}
   <div style="margin-top:14px; font-size:12px; color:#94a3b8">証券会社別</div>
   <div class="broker-grid" style="margin-top:6px">
     {% for b in agg_brokers %}
@@ -80,17 +80,14 @@
         {% with v=b.pnl %}
           <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
         {% endwith %}
-
         <div class="k" style="margin-top:8px">💰現金（現物）</div>
         {% with v=b.cash_spec %}
           <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
         {% endwith %}
-
         <div class="k" style="margin-top:8px">💰現金（信用）</div>
         {% with v=b.cash_margin %}
           <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
         {% endwith %}
-
         <div class="k" style="margin-top:8px">💰現金（合計）</div>
         {% with v=b.cash_total %}
           <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
