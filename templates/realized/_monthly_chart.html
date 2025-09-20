@@ -2,18 +2,20 @@
 <div class="mt-6 rounded-2xl bg-white/5 p-3">
   <div class="flex items-center justify-between mb-2">
     <div class="text-sm text-slate-300">月次サマリー</div>
-    <div class="text-xs text-slate-400">📈 PnL（投資家損益） / 💰 現金フロー</div>
+    <div class="text-xs text-slate-400">📈 PnL（投資家損益） / 💰 現金フロー / 📈 累積PnL</div>
   </div>
 
   <div style="height:240px">
     <canvas id="pnlChart" style="width:100%;height:100%"></canvas>
   </div>
+  <div id="pnlChartMsg" class="text-sm text-slate-400 mt-2 hidden"></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 (function () {
-  const el = document.getElementById('pnlChart');
+  const el  = document.getElementById('pnlChart');
+  const msg = document.getElementById('pnlChartMsg');
   if (!el) return;
 
   // 2x 解像度でにじみ対策
@@ -30,108 +32,143 @@
     }
   };
 
+  const showMsg = (text) => {
+    if (!msg) return;
+    msg.textContent = text || '';
+    msg.classList.toggle('hidden', !text);
+  };
+
   let chart = null;
 
   async function fetchData() {
     const qEl = document.querySelector('#q');
     const q   = qEl ? encodeURIComponent(qEl.value || '') : '';
     const res = await fetch("{% url 'realized_chart_monthly' %}?q=" + q, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     return await res.json();
   }
 
   async function draw(force = false) {
-    // 画面外でゼロサイズのときは何もしない（可視になったら描く）
-    const rect = el.getBoundingClientRect();
-    if (!force && (rect.width === 0 || rect.height === 0)) return;
+    try {
+      showMsg('');
 
-    const data = await fetchData();
+      // 画面外でゼロサイズのときは何もしない（可視になったら描く）
+      const rect = el.getBoundingClientRect();
+      if (!force && (rect.width === 0 || rect.height === 0)) return;
 
-    const cashColors = data.cash.map(v => v >= 0 ? 'rgba(59,130,246,0.55)' : 'rgba(244,63,94,0.65)');
+      const dataRaw = await fetchData();
 
-    if (chart) {
-      chart.destroy();
-      chart = null;
-    }
+      // --- 防御: 欠損キー/NaNに強い正規化 ---
+      const labels = Array.isArray(dataRaw.labels) ? dataRaw.labels : [];
+      const pnl    = (Array.isArray(dataRaw.pnl)  ? dataRaw.pnl  : []).map(v => Number.isFinite(+v) ? +v : 0);
+      const cash   = (Array.isArray(dataRaw.cash) ? dataRaw.cash : []).map(v => Number.isFinite(+v) ? +v : 0);
+      let pnlCum   = Array.isArray(dataRaw.pnl_cum) ? dataRaw.pnl_cum.map(v => Number.isFinite(+v) ? +v : 0) : null;
 
-    const ctx = el.getContext('2d');
-    resizeCanvasForHiDPI(el);
-
-    chart = new Chart(ctx, {
-  type: 'bar',
-  data: {
-    labels: data.labels,
-    datasets: [
-      // 💰現金（棒）
-      {
-        type: 'bar',
-        label: '💰 現金',
-        data: data.cash,
-        backgroundColor: cashColors,
-        borderWidth: 0,
-        yAxisID: 'y',
-        order: 2
-      },
-      // 📈PnL（月次：折れ線）
-      {
-        type: 'line',
-        label: '📈 PnL',
-        data: data.pnl,
-        borderColor: 'rgba(16,185,129,1)',
-        backgroundColor: 'rgba(16,185,129,0.15)',
-        pointRadius: 3,
-        pointHoverRadius: 4,
-        tension: 0.25,
-        fill: false,
-        yAxisID: 'y',
-        order: 1
-      },
-      // 📈累積PnL（右軸：折れ線）
-      {
-        type: 'line',
-        label: '📈 累積PnL',
-        data: data.pnl_cum,
-        borderColor: 'rgba(234,179,8,1)',        // amber
-        backgroundColor: 'rgba(234,179,8,0.15)',
-        pointRadius: 3,
-        pointHoverRadius: 4,
-        tension: 0.2,
-        fill: false,
-        yAxisID: 'y2',
-        order: 0
+      // 累積が来ていない/長さ不一致ならクライアント側で生成
+      if (!pnlCum || pnlCum.length !== pnl.length) {
+        pnlCum = [];
+        let run = 0;
+        for (let i = 0; i < pnl.length; i++) { run += pnl[i]; pnlCum.push(run); }
       }
-    ]
-  },
-  options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    interaction: { mode: 'index', intersect: false },
-    plugins: {
-      legend: { labels: { color: '#e5e7eb' } },
-      tooltip: {
-        callbacks: {
-          label: (ctx) => {
-            const v = ctx.parsed.y ?? 0;
-            return `${ctx.dataset.label}: ¥${Number(v).toLocaleString()}`;
+
+      if (labels.length === 0) {
+        if (chart) { chart.destroy(); chart = null; }
+        showMsg('データなし');
+        return;
+      }
+
+      const cashColors = cash.map(v => v >= 0 ? 'rgba(59,130,246,0.55)' : 'rgba(244,63,94,0.65)');
+
+      if (chart) {
+        chart.destroy();
+        chart = null;
+      }
+
+      const ctx = el.getContext('2d');
+      resizeCanvasForHiDPI(el);
+
+      chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            // 💰現金（棒）
+            {
+              type: 'bar',
+              label: '💰 現金',
+              data: cash,
+              backgroundColor: cashColors,
+              borderWidth: 0,
+              yAxisID: 'y',
+              order: 2
+            },
+            // 📈PnL（月次：折れ線）
+            {
+              type: 'line',
+              label: '📈 PnL',
+              data: pnl,
+              borderColor: 'rgba(16,185,129,1)',
+              backgroundColor: 'rgba(16,185,129,0.15)',
+              pointRadius: 3,
+              pointHoverRadius: 4,
+              tension: 0.25,
+              fill: false,
+              yAxisID: 'y',
+              order: 1
+            },
+            // 📈累積PnL（右軸：折れ線）
+            {
+              type: 'line',
+              label: '📈 累積PnL',
+              data: pnlCum,
+              borderColor: 'rgba(234,179,8,1)',        // amber
+              backgroundColor: 'rgba(234,179,8,0.15)',
+              pointRadius: 3,
+              pointHoverRadius: 4,
+              tension: 0.2,
+              fill: false,
+              yAxisID: 'y2',
+              order: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { labels: { color: '#e5e7eb' } },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const v = ctx.parsed.y ?? 0;
+                  return `${ctx.dataset.label}: ¥${Number(v).toLocaleString()}`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(148,163,184,0.12)' } },
+            // 左軸（棒＆月次PnL）
+            y: {
+              ticks: { color: '#cbd5e1', callback: v => '¥' + Number(v).toLocaleString() },
+              grid:  { color: 'rgba(148,163,184,0.12)' }
+            },
+            // 右軸（累積PnL）
+            y2: {
+              position: 'right',
+              ticks: { color: '#fbbf24', callback: v => '¥' + Number(v).toLocaleString() },
+              grid:  { drawOnChartArea: false }
+            }
           }
         }
-      }
-    },
-    scales: {
-      x: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(148,163,184,0.12)' } },
-      // 左軸（棒＆月次PnL）
-      y: {
-        ticks: { color: '#cbd5e1', callback: v => '¥' + Number(v).toLocaleString() },
-        grid:  { color: 'rgba(148,163,184,0.12)' }
-      },
-      // 右軸（累積PnL）
-      y2: {
-        position: 'right',
-        ticks: { color: '#fbbf24', callback: v => '¥' + Number(v).toLocaleString() },
-        grid:  { drawOnChartArea: false }
-      }
+      });
+    } catch (err) {
+      console.error(err);
+      if (chart) { chart.destroy(); chart = null; }
+      showMsg('グラフの読み込みに失敗しました');
     }
   }
-});
 
   // 初回描画
   if (document.readyState === 'loading') {
@@ -158,11 +195,10 @@
     }
   });
 
-  // iOS Safari 対策：可視領域に戻ったら再描画（スクロール/ツールバー変化で消える対策）
+  // 可視になったら復元（iOS Safari のツールバー挙動対策）
   const io = new IntersectionObserver((entries) => {
     const ent = entries[0];
     if (ent && ent.isIntersecting) {
-      // サイズ再計算して軽めに更新
       if (chart && chart.chartArea) {
         resizeCanvasForHiDPI(el);
         chart.resize();
@@ -174,7 +210,7 @@
   }, { threshold: 0.2 });
   io.observe(el);
 
-  // 端末回転やアドレスバー伸縮での高さ変化にも追従
+  // 端末回転やアドレスバー伸縮で再レイアウト
   let rT = null;
   window.addEventListener('resize', () => {
     clearTimeout(rT);
@@ -186,7 +222,7 @@
     }, 100);
   });
 
-  // bfcache 復帰時（iOSでよく起きる）
+  // bfcache からの復帰でも再描画
   window.addEventListener('pageshow', () => draw(true));
 })();
 </script>
