@@ -281,36 +281,6 @@ def summary_period_partial(request):
     }
     return render(request, "realized/_summary_period.html", ctx)
 
-@login_required
-@require_GET
-def realized_summary_partial(request):
-    q = (request.GET.get("q") or "").strip()
-
-    qs = RealizedTrade.objects.filter(user=request.user)
-    if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
-
-    qs = _with_metrics(qs)
-
-    # 全体集計
-    agg = qs.aggregate(
-        n=Count("id"),
-        qty=Coalesce(Sum("qty"), 0),
-        fee=Coalesce(Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))), Decimal("0")),
-        cash_spec=Coalesce(Sum("cashflow_calc", filter=Q(account__in=["SPEC","NISA"]), output_field=DEC2), Decimal("0")),
-        cash_margin=Coalesce(Sum("cashflow_calc", filter=Q(account="MARGIN"), output_field=DEC2), Decimal("0")),
-        pnl=Coalesce(Sum("pnl_display", output_field=DEC2), Decimal("0")),
-    )
-    agg["cash_total"] = agg["cash_spec"] + agg["cash_margin"]
-
-    # ブローカー別
-    agg_brokers = _aggregate_by_broker(qs)
-
-    return render(request, "realized/_summary.html", {
-        "agg": agg,
-        "agg_brokers": agg_brokers,
-    })
-
 
 # --- 月次サマリー（Chart.js 用 JSON） -------------------------
 @login_required
