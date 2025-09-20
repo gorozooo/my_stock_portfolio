@@ -10,7 +10,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import (
     Count, Sum, F, Value, Case, When, ExpressionWrapper,
-    DecimalField, IntegerField, Q
+    DecimalField, IntegerField, Q, CharField
 )
 from django.db.models.functions import Coalesce, TruncMonth, TruncYear
 from django.http import HttpResponse, JsonResponse
