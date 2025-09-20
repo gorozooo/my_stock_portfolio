@@ -156,49 +156,53 @@ def _aggregate(qs):
 def _aggregate_by_broker(qs):
     """
     証券会社別の集計（現物/信用/合計 と PnL）。
-    broker が NULL/空 の場合は 'OTHER' に寄せる。
-    返り値: list[dict]
+    - broker が NULL/空文字のレコードは除外
+    - 現物/NISA は cashflow_calc を合算
+    - 信用は「手入力PnL(cashflow)」を合算（全体サマリーと同じ）
+    - PnL も常に cashflow（手入力）で計上
     """
     qs = _with_metrics(qs)
 
-    # 'broker' と同名で annotate しない（衝突回避）
-    qs = qs.annotate(
-        broker_norm=Case(
-            When(broker__isnull=True, then=Value("OTHER", output_field=CharField())),
-            When(broker="",          then=Value("OTHER", output_field=CharField())),
-            default=F("broker"),
-            output_field=CharField(),
-        )
-    )
+    dec0 = Value(Decimal("0"), output_field=DEC2)
 
     rows = (
-        qs.values("broker_norm")
+        qs.exclude(broker__isnull=True).exclude(broker__exact="")
+          .values("broker")
           .annotate(
               n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
-              qty = Coalesce(Sum("qty"),  Value(0), output_field=IntegerField()),
-              fee = Coalesce(Sum(Coalesce(F("fee"), Value(0), output_field=DEC2)),
-                             Value(0), output_field=DEC2),
+              qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
+              fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
 
-              cash_spec   = Coalesce(Sum("cashflow_calc",
-                                         filter=Q(account__in=["SPEC","NISA"]),
-                                         output_field=DEC2),
-                                     Value(0), output_field=DEC2),
-              cash_margin = Coalesce(Sum("cashflow_calc",
-                                         filter=Q(account="MARGIN"),
-                                         output_field=DEC2),
-                                     Value(0), output_field=DEC2),
-
-              pnl = Coalesce(Sum("pnl_display", output_field=DEC2),
-                             Value(0), output_field=DEC2),
+              # 現物/NISA は実キャッシュ
+              cash_spec = Coalesce(
+                  Sum(
+                      Case(
+                          When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
+                          default=dec0, output_field=DEC2
+                      )
+                  ),
+                  dec0,
+              ),
+              # 信用は手入力PnL（cashflow）
+              cash_margin = Coalesce(
+                  Sum(
+                      Case(
+                          When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
+                          default=dec0, output_field=DEC2
+                      )
+                  ),
+                  dec0,
+              ),
+              # PnL も手入力合算
+              pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
           )
-          .order_by("broker_norm")
+          .order_by("broker")
     )
 
     out = []
     for r in rows:
         r = dict(r)
-        r["broker"] = r.pop("broker_norm")  # テンプレが b.broker を読む
-        r["cash_total"] = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
+        r["cash_total"] = (r.get("cash_spec") or Decimal("0")) + (r.get("cash_margin") or Decimal("0"))
         out.append(r)
     return out
 
