@@ -1,0 +1,15 @@
+{# 月次グラフ（棒：PnL / 折れ線：現金フロー） #}
+<div class="mt-6 rounded-2xl bg-white/5 p-4">
+  <div class="flex items-center justify-between mb-2">
+    <div class="text-sm text-slate-300">月次サマリー</div>
+    <div class="flex gap-2 text-xs">
+      <label class="flex items-center gap-1 cursor-pointer">
+        <input id="togglePnl" type="checkbox" checked> PnL
+      </label>
+      <label class="flex items-center gap-1 cursor-pointer">
+        <input id="toggleCash" type="checkbox" checked> 現金フロー
+      </label>
+    </div>
+  </div>
+  <canvas id="monthlyChart" height="240"></canvas>
+</div>
