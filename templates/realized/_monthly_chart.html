@@ -12,55 +12,68 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 (function () {
-  // 二重バインド防止
   if (window.__pnlChartBound) return;
   window.__pnlChartBound = true;
-
-  // iOS Safari で過剰に解像度が上がってサイズが膨らむのを抑止
-  if (window.Chart && Chart.defaults) {
-    Chart.defaults.responsive = true;
-    Chart.defaults.maintainAspectRatio = false;
-    Chart.defaults.animation = false;
-    Chart.defaults.devicePixelRatio = 1;
-  }
 
   const canvas = document.getElementById('pnlChart');
   if (!canvas) return;
 
   let chart = null;
-  let drawTimer = null;
+  let timer = null;
 
   async function fetchData() {
     const qEl = document.querySelector('#q');
-    const q   = qEl ? encodeURIComponent(qEl.value || '') : '';
-    const res = await fetch("{% url 'realized_chart_monthly' %}?q=" + q, { credentials: 'same-origin' });
+    const q = qEl ? encodeURIComponent(qEl.value || '') : '';
+    const res = await fetch("{% url 'realized_chart_monthly' %}?q=" + q, {credentials: 'same-origin'});
     return await res.json();
   }
 
   async function draw() {
-    // 連打対策（150ms デバウンス）
-    clearTimeout(drawTimer);
-    drawTimer = setTimeout(async () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
       try {
         const data = await fetchData();
-        if (chart) {
-          chart.destroy();
-          chart = null;
-        }
+
+        if (chart) { chart.destroy(); chart = null; }
+
         const ctx = canvas.getContext('2d');
+
+        // 高精細ディスプレイは 2x までにしてクッキリ＆過負荷防止
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+
         chart = new Chart(ctx, {
-          type: 'bar',
+          type: 'bar', // デフォは棒、PnLは個別に line 指定
           data: {
             labels: data.labels,
             datasets: [
-              { label: '📈PnL',  data: data.pnl,  borderWidth: 0, backgroundColor: 'rgba(16,185,129,0.65)' },
-              { label: '💰現金', data: data.cash, borderWidth: 0, backgroundColor: 'rgba(59,130,246,0.55)' },
+              {
+                type: 'line',
+                label: '📈PnL',
+                data: data.pnl,
+                borderWidth: 2,
+                pointRadius: 2,
+                pointHoverRadius: 4,
+                tension: 0.25,
+                borderColor: 'rgba(16,185,129,1)',    // 緑系
+                backgroundColor: 'rgba(16,185,129,0.15)',
+                yAxisID: 'y',
+              },
+              {
+                type: 'bar',
+                label: '💰現金',
+                data: data.cash,
+                borderWidth: 0,
+                backgroundColor: 'rgba(59,130,246,0.55)', // 青系
+                yAxisID: 'y',
+              },
             ]
           },
           options: {
             responsive: true,
             maintainAspectRatio: false,
+            devicePixelRatio: dpr,
             interaction: { mode: 'index', intersect: false },
+            animation: { duration: 200 },
             plugins: {
               legend: { labels: { color: '#e5e7eb' } },
               tooltip: {
@@ -73,26 +86,32 @@
               }
             },
             scales: {
-              x: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(148,163,184,0.12)' } },
-              y: { ticks: { color: '#cbd5e1', callback: (v)=> '¥' + Number(v).toLocaleString() },
-                   grid: { color: 'rgba(148,163,184,0.12)' } }
+              x: {
+                ticks: { color: '#cbd5e1' },
+                grid:  { color: 'rgba(148,163,184,0.12)' }
+              },
+              y: {
+                beginAtZero: true,
+                ticks: { color: '#cbd5e1', callback: v => '¥' + Number(v).toLocaleString() },
+                grid:  { color: 'rgba(148,163,184,0.12)' }
+              }
             }
           }
         });
       } catch (e) {
         console.error(e);
       }
-    }, 150);
+    }, 120);
   }
 
-  // 初回描画
+  // 初回
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', draw, { once: true });
   } else {
     draw();
   }
 
-  // 検索で再描画（Enter / blur / change）
+  // 検索で再描画（Enter/blur/change）
   const qEl = document.querySelector('#q');
   if (qEl) {
     ['change','blur','keydown'].forEach(ev => {
@@ -102,17 +121,13 @@
     });
   }
 
-  // HTMX で該当領域が差し替わったら再描画
-  document.body.addEventListener('htmx:afterSwap', function (e) {
+  // HTMX差し替え時も再描画
+  document.body.addEventListener('htmx:afterSwap', (e) => {
     const id = e.target && e.target.id;
-    if (id === 'pnlTableWrap' || id === 'pnlSummaryWrap' || id === 'pnlPeriodWrap') {
-      draw();
-    }
+    if (id === 'pnlTableWrap' || id === 'pnlSummaryWrap' || id === 'pnlPeriodWrap') draw();
   });
 
-  // タブ復帰時にサイズが狂ったら再描画
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) draw();
-  });
+  // タブ復帰で再調整
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) draw(); });
 })();
 </script>
