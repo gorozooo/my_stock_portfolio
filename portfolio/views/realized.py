@@ -20,7 +20,6 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 from django.utils.encoding import smart_str
 from django.utils.dateparse import parse_date
-from django.db.models import Value, CharField
 
 from ..models import Holding, RealizedTrade
 
