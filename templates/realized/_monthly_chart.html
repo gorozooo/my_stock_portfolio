@@ -106,8 +106,9 @@
         maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
 
-        // ← ここでチャートクリック → 期間まとめをその月に切替
+        // ← チャートクリック → 期間まとめをその月に切替（フォーカス付き）
         onClick: (evt, elements, inst) => {
+          // クリック対象のインデックスを安全に取得
           const pts = inst.getElementsAtEventForMode(evt, 'nearest', {intersect: true}, true);
           if (!pts || !pts.length) return;
           const label = inst.data.labels[pts[0].index];
@@ -117,12 +118,19 @@
           const qEl = document.querySelector('#q');
           const q   = qEl ? encodeURIComponent(qEl.value || '') : '';
 
-          htmx.ajax('GET',
-            `{% url 'realized_summary_period' %}?preset=CUSTOM&start=${range.start}&end=${range.end}&freq=month&q=${q}`,
-            '#pnlPeriodWrap'
-          );
+          const url =
+            "{% url 'realized_summary_period' %}"
+            + "?preset=CUSTOM"
+            + "&start=" + encodeURIComponent(range.start)
+            + "&end="   + encodeURIComponent(range.end)
+            + "&freq=month"
+            + "&q=" + q
+            + "&focus=" + encodeURIComponent(label);   // ← 行ハイライト用
 
-          document.querySelector('#pnlPeriodWrap')?.scrollIntoView({behavior:'smooth', block:'start'});
+          if (window.htmx) {
+            htmx.ajax('GET', url, { target: '#pnlPeriodWrap', swap: 'outerHTML' }); // ← 正しい呼び方
+            document.querySelector('#pnlPeriodWrap')?.scrollIntoView({behavior:'smooth', block:'start'});
+          }
         },
 
         plugins: {
