@@ -190,13 +190,14 @@ def _aggregate_by_broker(qs):
 @require_GET
 def summary_period_partial(request):
     """
-    月次/年次で 📈PnL と 💰現金（現物/信用/合計）を集計して返す部分テンプレ。
-    追加: focus=YYYY-MM or YYYY で「選択期間のサマリー＋表ハイライト」を表示
+    月次/年次で 📈PnL と 💰現金（現物/信用/合計）を集計して返す。
+    - 現物(NISA含む)の現金フロー: cashflow_calc
+    - 信用の現金フロー        : pnl_display（手入力PnL）
     """
     q = (request.GET.get("q") or "").strip()
     freq = (request.GET.get("freq") or "month").lower()
     start, end, preset = _parse_period(request)
-    focus = (request.GET.get("focus") or "").strip()  # "2025-07" / "2025"
+    focus = (request.GET.get("focus") or "").strip()
 
     qs = RealizedTrade.objects.filter(user=request.user)
     if q:
@@ -208,26 +209,41 @@ def summary_period_partial(request):
 
     qs = _with_metrics(qs)
 
-    # バケット化
     if freq == "year":
         bucket = TruncYear("trade_at")
-        label_format = "%Y"
+        label_fmt = "%Y"
     else:
         bucket = TruncMonth("trade_at")
-        label_format = "%Y-%m"
+        label_fmt = "%Y-%m"
 
     grouped = (
         qs.annotate(period=bucket)
           .values("period")
           .annotate(
               n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
-              qty = Coalesce(Sum("qty"),   Value(0), output_field=IntegerField()),
-              fee = Coalesce(Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))),
-                             Value(Decimal("0"), output_field=DEC2)),
-              cash_spec   = Coalesce(Sum("cashflow_calc", filter=Q(account__in=["SPEC","NISA"]), output_field=DEC2),
-                                     Value(Decimal("0"), output_field=DEC2)),
-              cash_margin = Coalesce(Sum("cashflow_calc", filter=Q(account="MARGIN"), output_field=DEC2),
-                                     Value(Decimal("0"), output_field=DEC2)),
+              qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
+              fee = Coalesce(
+                      Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))),
+                      Value(Decimal("0"), output_field=DEC2)
+              ),
+              # 現物/NISA は受渡金ベース
+              cash_spec = Coalesce(
+                  Sum(Case(
+                      When(account__in=["SPEC", "NISA"], then=F("cashflow_calc")),
+                      default=Value(Decimal("0")),
+                      output_field=DEC2,
+                  )),
+                  Value(Decimal("0"), output_field=DEC2)
+              ),
+              # 信用は “手入力の実現損益” ベース
+              cash_margin = Coalesce(
+                  Sum(Case(
+                      When(account="MARGIN", then=F("pnl_display")),
+                      default=Value(Decimal("0")),
+                      output_field=DEC2,
+                  )),
+                  Value(Decimal("0"), output_field=DEC2)
+              ),
               pnl = Coalesce(Sum("pnl_display", output_field=DEC2),
                              Value(Decimal("0"), output_field=DEC2)),
           )
@@ -236,25 +252,22 @@ def summary_period_partial(request):
 
     rows = []
     for r in grouped:
-        label = r["period"].strftime(label_format) if r["period"] else ""
         cash_total = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
         rows.append({
             "period": r["period"],
-            "label": label,           # テンプレでキーに使う
-            "n": r["n"], "qty": r["qty"], "fee": r["fee"],
+            "label": r["period"].strftime(label_fmt) if r["period"] else "",
+            "n": r["n"],
+            "qty": r["qty"],
+            "fee": r["fee"],
             "cash_spec": r["cash_spec"],
             "cash_margin": r["cash_margin"],
             "cash_total": cash_total,
             "pnl": r["pnl"],
         })
 
-    # 選択レコード（あれば）
     selected = None
     if focus:
-        for r in rows:
-            if r["label"] == focus:
-                selected = r
-                break
+        selected = next((rr for rr in rows if rr["label"] == focus), None)
 
     ctx = {
         "rows": rows,
