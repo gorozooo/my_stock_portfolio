@@ -310,8 +310,8 @@ def realized_summary_partial(request: HttpRequest):
         request,
         "realized/_summary.html",
         {"agg": agg, "agg_brokers": agg_brokers, "q": q},
+    )
     
-
 
 # --- 月次サマリー（Chart.js 用 JSON） -------------------------
 @login_required
