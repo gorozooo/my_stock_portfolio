@@ -27,7 +27,6 @@
      hx-get="{% url 'realized_summary_partial' %}?q={{ q|urlencode }}"
      hx-trigger="load, pnl:refresh from:body"
      hx-swap="outerHTML">
-  {# 初回フォールバック（SSR表示）。HTMXで後から同テンプレに差し替え。 #}
   {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
 </div>
 
