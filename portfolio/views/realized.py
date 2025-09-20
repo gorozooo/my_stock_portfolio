@@ -371,6 +371,7 @@ def chart_monthly_json(request):
 # ============================================================
 #  画面
 # ============================================================
+
 @login_required
 @require_GET
 def list_page(request):
@@ -387,7 +388,7 @@ def list_page(request):
         "q": q,
         "trades": rows,
         "agg": agg,
-        "agg_brokers": agg_brokers,   # ★ 追加
+        "agg_brokers": agg_brokers,
     })
 
 # ============================================================
