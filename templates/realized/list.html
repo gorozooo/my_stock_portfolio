@@ -22,14 +22,6 @@
            class="w-full">
   </div>
 
-  {# ── サマリー ───────────────────────────────── #}
-  <div id="pnlSummaryWrap"
-       hx-get="{% url 'realized_summary_partial' %}?q={{ q|urlencode }}"
-       hx-trigger="load, pnl:refresh from:body"
-       hx-swap="outerHTML">
-    {% include "realized/_summary.html" with agg=agg %}
-  </div>
-
   {# すでにあるサマリー（ブローカー内訳付き） #}
   <div id="pnlSummaryWrap"
        hx-get="{% url 'realized_summary_partial' %}?q={{ q|urlencode }}"
