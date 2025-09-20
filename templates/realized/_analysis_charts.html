@@ -1,0 +1,227 @@
+{# templates/realized/_analysis_charts.html #}
+<div class="mt-6 grid gap-4">
+  <!-- 累積PnL 推移 -->
+  <div class="rounded-2xl bg-white/5 p-3">
+    <div class="flex items-center justify-between mb-2">
+      <div class="text-sm text-slate-300">累積PnLの推移</div>
+      <div class="text-xs text-slate-400">月次PnLの累積（右肩上がりが理想）</div>
+    </div>
+    <div style="height:220px">
+      <canvas id="chartCumPnl" style="width:100%;height:100%"></canvas>
+    </div>
+  </div>
+
+  <!-- 月次PnL ヒストグラム -->
+  <div class="rounded-2xl bg-white/5 p-3">
+    <div class="flex items-center justify-between mb-2">
+      <div class="text-sm text-slate-300">月次PnL ヒストグラム</div>
+      <div class="text-xs text-slate-400">“勝ち負けの分布”とバラつき（ボラティリティ）</div>
+    </div>
+    <div style="height:220px">
+      <canvas id="chartPnlHist" style="width:100%;height:100%"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Chart.js が未ロードの場合は動的読み込み
+  function ensureChartJs() {
+    return new Promise((resolve) => {
+      if (window.Chart) return resolve();
+      const s = document.createElement('script');
+      s.src = "https://cdn.jsdelivr.net/npm/chart.js";
+      s.onload = resolve;
+      document.head.appendChild(s);
+    });
+  }
+
+  const $q = () => document.querySelector('#q');
+
+  async function fetchMonthly() {
+    const qEl = $q(); const q = qEl ? encodeURIComponent(qEl.value || '') : '';
+    const url = "{% url 'realized_chart_monthly' %}?q=" + q;
+    const res = await fetch(url, {credentials:'same-origin'});
+    return await res.json(); // {labels, pnl, cash, pnl_cum}
+  }
+
+  // HiDPI（にじみ対策）
+  function resizeHiDPI(canvas) {
+    const ratio = Math.max(1, window.devicePixelRatio || 1);
+    const r = canvas.getBoundingClientRect();
+    const w = Math.round(r.width  * ratio);
+    const h = Math.round(r.height * ratio);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width  = w;
+      canvas.height = h;
+      canvas.style.width  = r.width + 'px';
+      canvas.style.height = r.height + 'px';
+    }
+  }
+
+  // ヒストグラム（Sturges の公式でビン数を決める）
+  function buildHistogram(values) {
+    const data = (values || []).map(Number).filter(v => Number.isFinite(v));
+    const n = data.length || 0;
+    if (!n) return {edges:[], counts:[]};
+    const min = Math.min(...data);
+    const max = Math.max(...data);
+    const k = Math.max(3, Math.ceil(Math.log2(n) + 1));  // ビン数
+    const width = (max - min) / k || 1;
+    const edges = Array.from({length: k + 1}, (_, i) => min + i * width);
+    const counts = Array(k).fill(0);
+    for (const v of data) {
+      let idx = Math.floor((v - min) / width);
+      if (idx < 0) idx = 0;
+      if (idx >= k) idx = k - 1; // 上端含む
+      counts[idx] += 1;
+    }
+    return {edges, counts};
+  }
+
+  let chartCum = null;
+  let chartHist = null;
+
+  function drawCum(labels, pnlCum) {
+    const el = document.getElementById('chartCumPnl');
+    if (!el) return;
+    resizeHiDPI(el);
+    const ctx = el.getContext('2d');
+    if (chartCum) { chartCum.destroy(); chartCum = null; }
+    chartCum = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels || [],
+        datasets: [{
+          label: '📈 累積PnL',
+          data: (pnlCum || []).map(Number),
+          borderColor: 'rgba(234,179,8,1)',        // amber
+          backgroundColor: 'rgba(234,179,8,0.12)',
+          borderWidth: 3,
+          pointRadius: 2.5,
+          pointHoverRadius: 4,
+          tension: 0.18,
+          fill: true,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {mode:'index', intersect:false},
+        plugins: {
+          legend: { labels:{ color:'#e5e7eb' } },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `累積PnL: ¥${Number(ctx.parsed.y ?? 0).toLocaleString()}`
+            }
+          }
+        },
+        scales: {
+          x: { ticks:{ color:'#cbd5e1' }, grid:{ color:'rgba(148,163,184,0.12)' } },
+          y: { ticks:{ color:'#cbd5e1', callback:v=>'¥'+Number(v).toLocaleString() },
+               grid:{ color:'rgba(148,163,184,0.12)' } }
+        }
+      }
+    });
+  }
+
+  function drawHist(pnl) {
+    const el = document.getElementById('chartPnlHist');
+    if (!el) return;
+    resizeHiDPI(el);
+    const ctx = el.getContext('2d');
+    if (chartHist) { chartHist.destroy(); chartHist = null; }
+
+    const {edges, counts} = buildHistogram(pnl);
+    const labels = [];
+    const colors = [];
+    for (let i = 0; i < counts.length; i++) {
+      const left = edges[i], right = edges[i+1];
+      labels.push(`¥${Math.round(left).toLocaleString()} ~ ¥${Math.round(right).toLocaleString()}`);
+      // ビン中央がプラスなら青、マイナスなら赤
+      const mid = (left + right) / 2;
+      colors.push(mid >= 0 ? 'rgba(59,130,246,0.55)' : 'rgba(244,63,94,0.70)');
+    }
+
+    chartHist = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: '月数',
+          data: counts,
+          backgroundColor: colors,
+          borderWidth: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {mode:'index', intersect:false},
+        plugins: {
+          legend: { labels:{ color:'#e5e7eb' } },
+          tooltip: {
+            callbacks: {
+              title: (items) => items?.[0]?.label || '',
+              label: (ctx) => `月数: ${ctx.parsed.y ?? 0}`
+            }
+          }
+        },
+        scales: {
+          x: { ticks:{ color:'#cbd5e1' }, grid:{ color:'rgba(148,163,184,0.12)' } },
+          y: { ticks:{ color:'#cbd5e1' }, grid:{ color:'rgba(148,163,184,0.12)' }, beginAtZero:true }
+        }
+      }
+    });
+  }
+
+  async function drawAll(force=false) {
+    await ensureChartJs();
+    // キャンバスが不可視/ゼロサイズならスキップ
+    const el1 = document.getElementById('chartCumPnl');
+    const el2 = document.getElementById('chartPnlHist');
+    if (!el1 || !el2) return;
+    const r1 = el1.getBoundingClientRect(), r2 = el2.getBoundingClientRect();
+    if (!force && ((r1.width===0||r1.height===0) && (r2.width===0||r2.height===0))) return;
+
+    const data = await fetchMonthly();
+    drawCum(data.labels, data.pnl_cum);
+    drawHist(data.pnl);
+  }
+
+  // 初回
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => drawAll(true), {once:true});
+  } else {
+    drawAll(true);
+  }
+
+  // 検索変更で再描画
+  const qEl = $q();
+  if (qEl) {
+    ['change','blur','keydown'].forEach(ev => {
+      qEl.addEventListener(ev, e => {
+        if (ev !== 'keydown' || e.key === 'Enter') drawAll(true);
+      });
+    });
+  }
+
+  // HTMX で主要領域が差し替わったら再描画
+  document.body.addEventListener('htmx:afterSwap', e => {
+    if (!e.target) return;
+    if (['pnlTableWrap','pnlSummaryWrap','pnlPeriodWrap'].includes(e.target.id)) {
+      drawAll(true);
+    }
+  });
+
+  // 可視化・回転への追従
+  const io1 = new IntersectionObserver((ents)=>{ if (ents[0]?.isIntersecting) drawAll(true); }, {threshold:0.2});
+  const io2 = new IntersectionObserver((ents)=>{ if (ents[0]?.isIntersecting) drawAll(true); }, {threshold:0.2});
+  const el1 = document.getElementById('chartCumPnl'); if (el1) io1.observe(el1);
+  const el2 = document.getElementById('chartPnlHist'); if (el2) io2.observe(el2);
+
+  let t = null;
+  window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(()=>drawAll(true), 120); });
+  window.addEventListener('pageshow', () => drawAll(true));
+})();
+</script>
