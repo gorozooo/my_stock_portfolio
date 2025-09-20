@@ -155,37 +155,39 @@ def _aggregate(qs):
 
 def _aggregate_by_broker(qs):
     """
-    証券会社別の集計（現物/信用/合計とPnL）
-    broker が NULL / 空 の場合は 'OTHER' に寄せる
+    証券会社別の集計（現物/信用/合計 と PnL）。
+    broker が NULL/空 の場合は 'OTHER' に寄せる。
+    返り値: list[dict]
     """
     qs = _with_metrics(qs)
 
-    # 既存フィールド名 'broker' と衝突しないよう、別名で正規化
+    # 'broker' と同名で annotate しない（衝突回避）
     qs = qs.annotate(
-        broker_norm=Coalesce(F("broker"), Value("OTHER", output_field=CharField()))
+        broker_norm=Case(
+            When(broker__isnull=True, then=Value("OTHER", output_field=CharField())),
+            When(broker="",          then=Value("OTHER", output_field=CharField())),
+            default=F("broker"),
+            output_field=CharField(),
+        )
     )
 
     rows = (
         qs.values("broker_norm")
           .annotate(
               n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
-              qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
-              fee = Coalesce(
-                      Sum(Coalesce(F("fee"), Value(0), output_field=DEC2)),
-                      Value(0), output_field=DEC2
-                   ),
-              cash_spec   = Coalesce(
-                              Sum("cashflow_calc",
-                                  filter=Q(account__in=["SPEC","NISA"]),
-                                  output_field=DEC2),
-                              Value(0), output_field=DEC2
-                            ),
-              cash_margin = Coalesce(
-                              Sum("cashflow_calc",
-                                  filter=Q(account="MARGIN"),
-                                  output_field=DEC2),
-                              Value(0), output_field=DEC2
-                            ),
+              qty = Coalesce(Sum("qty"),  Value(0), output_field=IntegerField()),
+              fee = Coalesce(Sum(Coalesce(F("fee"), Value(0), output_field=DEC2)),
+                             Value(0), output_field=DEC2),
+
+              cash_spec   = Coalesce(Sum("cashflow_calc",
+                                         filter=Q(account__in=["SPEC","NISA"]),
+                                         output_field=DEC2),
+                                     Value(0), output_field=DEC2),
+              cash_margin = Coalesce(Sum("cashflow_calc",
+                                         filter=Q(account="MARGIN"),
+                                         output_field=DEC2),
+                                     Value(0), output_field=DEC2),
+
               pnl = Coalesce(Sum("pnl_display", output_field=DEC2),
                              Value(0), output_field=DEC2),
           )
@@ -195,8 +197,7 @@ def _aggregate_by_broker(qs):
     out = []
     for r in rows:
         r = dict(r)
-        # テンプレが b.broker を読むので、broker に詰め替える
-        r["broker"] = r.pop("broker_norm")
+        r["broker"] = r.pop("broker_norm")  # テンプレが b.broker を読む
         r["cash_total"] = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
         out.append(r)
     return out
