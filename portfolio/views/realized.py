@@ -278,11 +278,10 @@ def summary_period_partial(request):
 def chart_monthly_json(request):
     """
     指定ユーザーの実現取引を月次で集計して JSON 返却。
-    - labels: ["2024-10", "2024-11", ...]（昇順）
+    - labels: ["2025-02", "2025-03", ...]（昇順）
     - pnl:    各月の “投資家PnL”（= cashflow フィールド合計）
-    - cash:   各月の “現金フロー”
-              現物/NISA → cashflow_calc（実キャッシュ）
-              信用       → cashflow（手入力PnL）
+    - cash:   各月の “現金フロー”（SELL: qty*price - fee / BUY: -(qty*price + fee)）
+    - pnl_cum: PnL の累積（開始月からの積み上げ）
     ※ フィルタ q（ティッカー/名称の部分一致）対応
     """
     q = (request.GET.get("q") or "").strip()
@@ -291,33 +290,32 @@ def chart_monthly_json(request):
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-    qs = _with_metrics(qs)
-
-    dec0 = Value(Decimal("0"), output_field=DEC2)
-    cash_expr = Case(
-        When(account__in=["SPEC", "NISA"], then=F("cashflow_calc")),
-        When(account="MARGIN",           then=Coalesce(F("cashflow"), dec0)),
-        default=dec0,
-        output_field=DEC2,
-    )
-
+    qs = _with_metrics(qs)  # cashflow_calc / pnl_display を注入
     monthly = (
         qs.annotate(m=TruncMonth("trade_at"))
           .values("m")
           .annotate(
-              pnl  = Coalesce(Sum("pnl_display", output_field=DEC2), dec0),
-              cash = Coalesce(Sum(cash_expr,      output_field=DEC2), dec0),
+              pnl = Coalesce(Sum("pnl_display",   output_field=DEC2), Value(Decimal("0"), output_field=DEC2)),
+              cash= Coalesce(Sum("cashflow_calc", output_field=DEC2), Value(Decimal("0"), output_field=DEC2)),
           )
           .order_by("m")
     )
 
-    labels, pnl, cash = [], [], []
+    labels, pnl, cash, pnl_cum = [], [], [], []
+    running = Decimal("0")
     for row in monthly:
-        labels.append(row["m"].strftime("%Y-%m") if row["m"] else "")
-        pnl.append(float(row["pnl"]))
-        cash.append(float(row["cash"]))
+        label = row["m"].strftime("%Y-%m") if row["m"] else ""
+        labels.append(label)
 
-    return JsonResponse({"labels": labels, "pnl": pnl, "cash": cash})
+        p = row["pnl"]  or Decimal("0")
+        c = row["cash"] or Decimal("0")
+        pnl.append(float(p))
+        cash.append(float(c))
+
+        running += p
+        pnl_cum.append(float(running))
+
+    return JsonResponse({"labels": labels, "pnl": pnl, "cash": cash, "pnl_cum": pnl_cum})
 
 # ============================================================
 #  画面
