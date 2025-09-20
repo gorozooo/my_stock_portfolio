@@ -13,12 +13,12 @@
   .is-focus{background:rgba(59,130,246,.10)}
 </style>
 
-{# ★ グラフ側から preset/freq を引き継ぐための data-* を必ず付与 #}
+{# ★ グラフ側が preset/freq を参照できるよう data-* を付与 #}
 <div id="pnlPeriodWrap" class="period-wrap" data-preset="{{ preset }}" data-freq="{{ freq }}">
   <div class="period-head">
     <div style="font-size:12px;color:#a7b1d8">期間まとめ</div>
 
-    {# プリセット切替（focusは解除して全体に戻す） #}
+    {# プリセット切替（サーバ集計を使う通常切替） #}
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq={{ freq }}&q={{ q|urlencode }}"
             hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
@@ -38,7 +38,7 @@
       過去12ヶ月
     </button>
 
-    {# 粒度切替（月次/年次） #}
+    {# 粒度切替 #}
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=month&q={{ q|urlencode }}"
             hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
@@ -52,35 +52,28 @@
       年次
     </button>
 
-    {# フォーカス解除（全体表示へ） #}
-    {% if focus %}
-      <button class="btn"
-              hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq={{ freq }}&q={{ q|urlencode }}"
-              hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
-              title="全体に戻る">全体に戻る</button>
-    {% endif %}
+    {# クライアント側フォーカス解除ボタン（後述JSで制御） #}
+    <button id="btnClearFocus" class="btn" type="button" style="display:none">全体に戻る</button>
   </div>
 
-  {# ─ 選択サマリー（グラフタップや行タップで出る） ─ #}
-  {% if selected %}
-    <div class="rounded-xl p-3 mb-2"
-         style="border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)">
-      <div class="text-xs text-slate-400 mb-1">選択: {{ selected.label }}</div>
-      <div class="grid grid-cols-2 gap-2 text-[14px]">
-        <div>件数: {{ selected.n|intcomma }}</div>
-        <div>数量: {{ selected.qty|intcomma }}</div>
-        <div>手数料: ¥{{ selected.fee|floatformat:0|intcomma }}</div>
-        <div>📈PnL: <span class="{% if selected.pnl >= 0 %}pos{% else %}neg{% endif %}">
-          ¥{{ selected.pnl|floatformat:0|intcomma }}</span></div>
-        <div>💰現金(現物): <span class="{% if selected.cash_spec >= 0 %}pos{% else %}neg{% endif %}">
-          ¥{{ selected.cash_spec|floatformat:0|intcomma }}</span></div>
-        <div>💰現金(信用): <span class="{% if selected.cash_margin >= 0 %}pos{% else %}neg{% endif %}">
-          ¥{{ selected.cash_margin|floatformat:0|intcomma }}</span></div>
-        <div class="col-span-2">💰現金(合計): <span class="{% if selected.cash_total >= 0 %}pos{% else %}neg{% endif %}">
-          ¥{{ selected.cash_total|floatformat:0|intcomma }}</span></div>
+  {# ─ 選択サマリー（クライアントでも差し替える） ─ #}
+  <div id="periodSelectedBox">
+    {% if selected %}
+      <div class="rounded-xl p-3 mb-2"
+           style="border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)">
+        <div class="text-xs text-slate-400 mb-1">選択: {{ selected.label }}</div>
+        <div class="grid grid-cols-2 gap-2 text-[14px]">
+          <div>件数: {{ selected.n|intcomma }}</div>
+          <div>数量: {{ selected.qty|intcomma }}</div>
+          <div>手数料: ¥{{ selected.fee|floatformat:0|intcomma }}</div>
+          <div>📈PnL: <span class="{% if selected.pnl >= 0 %}pos{% else %}neg{% endif %}">¥{{ selected.pnl|floatformat:0|intcomma }}</span></div>
+          <div>💰現金(現物): <span class="{% if selected.cash_spec >= 0 %}pos{% else %}neg{% endif %}">¥{{ selected.cash_spec|floatformat:0|intcomma }}</span></div>
+          <div>💰現金(信用): <span class="{% if selected.cash_margin >= 0 %}pos{% else %}neg{% endif %}">¥{{ selected.cash_margin|floatformat:0|intcomma }}</span></div>
+          <div class="col-span-2">💰現金(合計): <span class="{% if selected.cash_total >= 0 %}pos{% else %}neg{% endif %}">¥{{ selected.cash_total|floatformat:0|intcomma }}</span></div>
+        </div>
       </div>
-    </div>
-  {% endif %}
+    {% endif %}
+  </div>
 
   <table class="tbl">
     <thead>
@@ -98,8 +91,17 @@
     <tbody class="text-[15px]">
       {% if rows %}
         {% for r in rows %}
-          <tr data-period="{{ r.label }}"
-              class="{% if focus and r.label == focus %}is-focus{% endif %}">
+          {# ★ 行に集計値を data-* で埋め込み（JSで選択ボックスを即時生成） #}
+          <tr
+            data-period="{{ r.label }}"
+            data-n="{{ r.n }}"
+            data-qty="{{ r.qty }}"
+            data-fee="{{ r.fee }}"
+            data-cash-spec="{{ r.cash_spec }}"
+            data-cash-margin="{{ r.cash_margin }}"
+            data-cash-total="{{ r.cash_total }}"
+            data-pnl="{{ r.pnl }}"
+            class="{% if focus and r.label == focus %}is-focus{% endif %}">
             <td>{{ r.label }}</td>
             <td style="text-align:right">{{ r.n|intcomma }}</td>
             <td style="text-align:right">{{ r.qty|intcomma }}</td>
@@ -124,3 +126,90 @@
     </tbody>
   </table>
 </div>
+
+<script>
+/* ─────────────────────────────────────────────────────────
+   グラフの onClick は「pnl:focus-period {detail:{label:'YYYY-MM'}}」
+   を発火するように修正済み。ここで行ハイライト＆上部ボックス更新。
+   ───────────────────────────────────────────────────────── */
+(function(){
+  const wrap = document.getElementById('pnlPeriodWrap');
+  if (!wrap) return;
+
+  const selBox = document.getElementById('periodSelectedBox');
+  const btnClear = document.getElementById('btnClearFocus');
+
+  function yen(v){ try{ return '¥' + Number(v).toLocaleString(); }catch(e){ return '¥0'; } }
+
+  function buildSelectedHTML(row){
+    const label = row.dataset.period || '';
+    const n     = row.dataset.n || 0;
+    const qty   = row.dataset.qty || 0;
+    const fee   = row.dataset.fee || 0;
+    const pnl   = Number(row.dataset.pnl || 0);
+    const cs    = Number(row.dataset['cashSpec'] || row.dataset.cashSpec || 0);
+    const cm    = Number(row.dataset['cashMargin'] || row.dataset.cashMargin || 0);
+    const ct    = Number(row.dataset['cashTotal'] || row.dataset.cashTotal || (cs+cm));
+
+    const pnlCls = pnl >= 0 ? 'pos' : 'neg';
+    const csCls  = cs  >= 0 ? 'pos' : 'neg';
+    const cmCls  = cm  >= 0 ? 'pos' : 'neg';
+    const ctCls  = ct  >= 0 ? 'pos' : 'neg';
+
+    return `
+      <div class="rounded-xl p-3 mb-2" style="border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)">
+        <div class="text-xs text-slate-400 mb-1">選択: ${label}</div>
+        <div class="grid grid-cols-2 gap-2 text-[14px]">
+          <div>件数: ${Number(n).toLocaleString()}</div>
+          <div>数量: ${Number(qty).toLocaleString()}</div>
+          <div>手数料: ${yen(fee)}</div>
+          <div>📈PnL: <span class="${pnlCls}">${yen(pnl)}</span></div>
+          <div>💰現金(現物): <span class="${csCls}">${yen(cs)}</span></div>
+          <div>💰現金(信用): <span class="${cmCls}">${yen(cm)}</span></div>
+          <div class="col-span-2">💰現金(合計): <span class="${ctCls}">${yen(ct)}</span></div>
+        </div>
+      </div>
+    `;
+  }
+
+  function clearFocus(){
+    wrap.querySelectorAll('tbody tr').forEach(tr => tr.classList.remove('is-focus'));
+    if (selBox) selBox.innerHTML = '';
+    if (btnClear) btnClear.style.display = 'none';
+  }
+
+  function focusLabel(label){
+    let target = null;
+    wrap.querySelectorAll('tbody tr').forEach(tr=>{
+      const hit = (tr.dataset.period === label);
+      tr.classList.toggle('is-focus', hit);
+      if (hit) target = tr;
+    });
+    if (target && selBox){
+      selBox.innerHTML = buildSelectedHTML(target);
+      if (btnClear) btnClear.style.display = '';
+      // 表の該当行へ軽くスクロール（上部ボックスは残す）
+      target.scrollIntoView({behavior:'smooth', block:'center'});
+    }
+  }
+
+  // 行タップでも同様の挙動
+  wrap.addEventListener('click', (e)=>{
+    const tr = e.target.closest('tbody tr[data-period]');
+    if (!tr) return;
+    focusLabel(tr.dataset.period);
+  });
+
+  // グラフからの通知
+  document.addEventListener('pnl:focus-period', (e)=>{
+    if (!e.detail || !e.detail.label) return;
+    focusLabel(e.detail.label);
+  });
+
+  // 全体に戻る
+  btnClear?.addEventListener('click', clearFocus);
+
+  // サーバから focus/selected が最初に渡ってきた場合は、そのままボタン表示
+  {% if focus %} if (btnClear) btnClear.style.display = ''; {% endif %}
+})();
+</script>
