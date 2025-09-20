@@ -7,98 +7,115 @@
   .btn[aria-current="true"]{background:rgba(255,255,255,.10)}
   .tbl{width:100%;border-collapse:separate;border-spacing:0}
   .tbl th,.tbl td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.08)}
-  .tbl thead th{font-size:12px;color:#a7b1d8;text-align:right;white-space:nowrap}
+  .tbl thead th{font-size:12px;color:#a7b1d8;text-align:right}
   .tbl thead th:first-child,.tbl tbody td:first-child{text-align:left}
   .pos{color:#86efac} .neg{color:#fca5a5}
+  .is-focus{background:rgba(59,130,246,.10)}
 </style>
 
-<div id="periodWrap" class="period-wrap">
+<div class="period-wrap" id="periodTable">
   <div class="period-head">
     <div style="font-size:12px;color:#a7b1d8">期間まとめ</div>
 
-    {# ----- プリセット ----- #}
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq={{ freq }}&q={{ q|urlencode }}"
-            hx-target="#periodWrap" hx-select="#periodWrap" hx-swap="outerHTML"
+            hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
             aria-current="{% if preset == 'THIS_MONTH' %}true{% else %}false{% endif %}">
       今月
     </button>
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=THIS_YEAR&freq={{ freq }}&q={{ q|urlencode }}"
-            hx-target="#periodWrap" hx-select="#periodWrap" hx-swap="outerHTML"
+            hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
             aria-current="{% if preset == 'THIS_YEAR' %}true{% else %}false{% endif %}">
       今年
     </button>
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=LAST_12M&freq={{ freq }}&q={{ q|urlencode }}"
-            hx-target="#periodWrap" hx-select="#periodWrap" hx-swap="outerHTML"
+            hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
             aria-current="{% if preset == 'LAST_12M' %}true{% else %}false{% endif %}">
       過去12ヶ月
     </button>
 
-    {# ----- 粒度 ----- #}
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=month&q={{ q|urlencode }}"
-            hx-target="#periodWrap" hx-select="#periodWrap" hx-swap="outerHTML"
+            hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
             aria-current="{% if freq == 'month' %}true{% else %}false{% endif %}">
       月次
     </button>
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=year&q={{ q|urlencode }}"
-            hx-target="#periodWrap" hx-select="#periodWrap" hx-swap="outerHTML"
+            hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
             aria-current="{% if freq == 'year' %}true{% else %}false{% endif %}">
       年次
     </button>
+
+    {% if focus %}
+      <button class="btn"
+              hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq={{ freq }}&q={{ q|urlencode }}"
+              hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
+              title="全体に戻る">全体に戻る</button>
+    {% endif %}
   </div>
 
-  <div id="periodTable">
-    <table class="tbl">
-      <thead>
-        <tr>
-          <th>期間</th>
-          <th>件数</th>
-          <th>数量</th>
-          <th>手数料</th>
-          <th>💰現金(現物)</th>
-          <th>💰現金(信用)</th>
-          <th>💰現金(合計)</th>
-          <th>📈PnL</th>
-        </tr>
-      </thead>
-      <tbody class="text-[15px]">
-        {% if rows %}
-          {% for r in rows %}
-            <tr>
-              <td class="whitespace-nowrap">{{ r.label }}</td>
-              <td class="text-right font-mono tabular-nums whitespace-nowrap">{{ r.n|intcomma }}</td>
-              <td class="text-right font-mono tabular-nums whitespace-nowrap">{{ r.qty|intcomma }}</td>
-              <td class="text-right font-mono tabular-nums whitespace-nowrap">¥{{ r.fee|floatformat:0|intcomma }}</td>
-              <td class="text-right font-mono tabular-nums whitespace-nowrap">
-                {% with v=r.cash_spec %}
-                  <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>
-                {% endwith %}
-              </td>
-              <td class="text-right font-mono tabular-nums whitespace-nowrap">
-                {% with v=r.cash_margin %}
-                  <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>
-                {% endwith %}
-              </td>
-              <td class="text-right font-mono tabular-nums whitespace-nowrap">
-                {% with v=r.cash_total %}
-                  <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>
-                {% endwith %}
-              </td>
-              <td class="text-right font-mono tabular-nums whitespace-nowrap">
-                {% with v=r.pnl %}
-                  <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>
-                {% endwith %}
-              </td>
-            </tr>
-          {% endfor %}
-        {% else %}
-          <tr><td colspan="8" style="color:#94a3b8">データなし</td></tr>
-        {% endif %}
-      </tbody>
-    </table>
-  </div>
+  {# ─ 選択ボックス ─ #}
+  {% if selected %}
+    <div class="rounded-xl p-3 mb-2"
+         style="border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)">
+      <div class="text-xs text-slate-400 mb-1">選択: {{ selected.label }}</div>
+      <div class="grid grid-cols-2 gap-2 text-[14px]">
+        <div>件数: {{ selected.n|intcomma }}</div>
+        <div>数量: {{ selected.qty|intcomma }}</div>
+        <div>手数料: ¥{{ selected.fee|floatformat:0|intcomma }}</div>
+        <div>📈PnL: <span class="{% if selected.pnl >= 0 %}pos{% else %}neg{% endif %}">
+          ¥{{ selected.pnl|floatformat:0|intcomma }}</span></div>
+        <div>💰現金(現物): <span class="{% if selected.cash_spec >= 0 %}pos{% else %}neg{% endif %}">
+          ¥{{ selected.cash_spec|floatformat:0|intcomma }}</span></div>
+        <div>💰現金(信用): <span class="{% if selected.cash_margin >= 0 %}pos{% else %}neg{% endif %}">
+          ¥{{ selected.cash_margin|floatformat:0|intcomma }}</span></div>
+        <div class="col-span-2">💰現金(合計): <span class="{% if selected.cash_total >= 0 %}pos{% else %}neg{% endif %}">
+          ¥{{ selected.cash_total|floatformat:0|intcomma }}</span></div>
+      </div>
+    </div>
+  {% endif %}
+
+  <table class="tbl">
+    <thead>
+      <tr>
+        <th>期間</th>
+        <th>件数</th>
+        <th>数量</th>
+        <th>手数料</th>
+        <th>💰現金(現物)</th>
+        <th>💰現金(信用)</th>
+        <th>💰現金(合計)</th>
+        <th>📈PnL</th>
+      </tr>
+    </thead>
+    <tbody class="text-[15px]">
+      {% if rows %}
+        {% for r in rows %}
+          <tr data-period="{{ r.label }}" class="{% if focus and r.label == focus %}is-focus{% endif %}">
+            <td>{{ r.label }}</td>
+            <td style="text-align:right">{{ r.n|intcomma }}</td>
+            <td style="text-align:right">{{ r.qty|intcomma }}</td>
+            <td style="text-align:right">¥{{ r.fee|floatformat:0|intcomma }}</td>
+            <td style="text-align:right">
+              {% with v=r.cash_spec %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}
+            </td>
+            <td style="text-align:right">
+              {% with v=r.cash_margin %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}
+            </td>
+            <td style="text-align:right">
+              {% with v=r.cash_total %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}
+            </td>
+            <td style="text-align:right">
+              {% with v=r.pnl %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}
+            </td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="8" style="color:#94a3b8">データなし</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
 </div>
