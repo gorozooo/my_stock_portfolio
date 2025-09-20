@@ -15,7 +15,7 @@
 
   <thead class="bg-white/5 text-slate-300 text-xs">
     <tr>
-      <th class="px-3 py-2 text-left" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">日付</th>
+      <th class="px-3 py-2 text-left"  style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">日付</th>
       <th class="px-3 py-2 text-left">銘柄</th>
       <th class="px-3 py-2 text-center" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">Side</th>
       <th class="px-3 py-2 text-right" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">数量</th>
@@ -36,7 +36,7 @@
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
-        {# 銘柄（上段:コード小 / 下段:名称太） + バッジ（証券会社＋口座区分） #}
+        {# 銘柄＋バッジ #}
         <td class="px-3 py-2">
           <div class="leading-tight">
             <div class="text-slate-400 text-xs tracking-wide" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
@@ -44,7 +44,6 @@
             </div>
             <div class="text-slate-200 font-semibold truncate">{{ t.name|default:"" }}</div>
             <div class="mt-1 flex items-center gap-1 text-[10px] leading-none">
-              {# broker badge #}
               {% with b=t.broker|default:"OTHER" %}
                 <span class="px-1.5 py-0.5 rounded-md ring-1"
                       style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;
@@ -55,7 +54,6 @@
                   {% if b == 'RAKUTEN' %}楽天{% elif b == 'SBI' %}SBI{% elif b == 'MATSUI' %}松井{% else %}その他{% endif %}
                 </span>
               {% endwith %}
-              {# account badge #}
               {% with a=t.account|default:"SPEC" %}
                 <span class="px-1.5 py-0.5 rounded-md ring-1"
                       style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;
@@ -69,7 +67,7 @@
           </div>
         </td>
 
-        {# Side（折り返さない） #}
+        {# Side #}
         <td class="px-3 py-2 text-center">
           <span class="inline-block rounded-md px-2 py-0.5 text-xs"
                 style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;
@@ -89,18 +87,27 @@
           ¥{{ t.price|floatformat:0|intcomma }}
         </td>
 
-        {# 💰実損(現金) #}
+        {# 💰実損(現金) ＊信用(MARGIN)はPnLを表示 #}
         <td class="px-3 py-2 text-right font-mono"
             style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
-          {% with v=t.cashflow_calc %}
-            <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}"
-                  style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
-              ¥{{ v|floatformat:0|intcomma }}
-            </span>
-          {% endwith %}
+          {% if t.account == 'MARGIN' %}
+            {% with v=t.pnl_display %}
+              <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}"
+                    style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
+                ¥{{ v|floatformat:0|intcomma }}
+              </span>
+            {% endwith %}
+          {% else %}
+            {% with v=t.cashflow_calc %}
+              <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}"
+                    style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
+                ¥{{ v|floatformat:0|intcomma }}
+              </span>
+            {% endwith %}
+          {% endif %}
         </td>
 
-        {# 📈実現損益 #}
+        {# 📈実現損益（常に PnL） #}
         <td class="px-3 py-2 text-right font-mono"
             style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
           {% with v=t.pnl_display %}
@@ -130,10 +137,10 @@
                 try {
                   var data = JSON.parse(event.detail.xhr.responseText || '{}');
                   if (data.table) {
-                    var t = document.querySelector('#pnlTableWrap'); if (t) t.outerHTML = data.table;
+                    var tEl = document.querySelector('#pnlTableWrap'); if (tEl) tEl.outerHTML = data.table;
                   }
                   if (data.summary) {
-                    var s = document.querySelector('#pnlSummaryWrap'); if (s) s.outerHTML = data.summary;
+                    var sEl = document.querySelector('#pnlSummaryWrap'); if (sEl) sEl.outerHTML = data.summary;
                   }
                 } catch(e) { console.error(e); }
               }
