@@ -13,33 +13,42 @@
 
   {# ── 検索だけ残す ─────────────────────────────── #}
   <div class="fi fi-full mt-4">
-    <input type="search" name="q" value="{{ q|default:'' }}" id="q"
-           placeholder="ティッカー/名称で検索"
-           hx-get="{% url 'realized_table_partial' %}"
-           hx-target="#pnlTableWrap"
-           hx-trigger="keyup changed delay:300ms, search"
-           hx-include="#q"
-           class="w-full">
+    <input
+      type="search"
+      name="q"
+      value="{{ q|default:'' }}"
+      id="q"
+      placeholder="ティッカー/名称で検索"
+      hx-get="{% url 'realized_table_partial' %}"
+      hx-target="#pnlTableWrap"
+      hx-trigger="keyup changed delay:300ms, search"
+      hx-include="#q"
+      class="w-full"
+    >
   </div>
 
-  {# ── サマリー（1個だけ） ─────────────────────────── #}
-<div id="pnlSummaryWrap"
-     hx-get="{% url 'realized_summary_partial' %}?q={{ q|urlencode }}"
-     hx-trigger="load" 
-     hx-swap="outerHTML">
-  {# 初回フォールバック（サーバーレンダリング時） #}
-  {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
-</div>
+  {# ── サマリー（1個だけ / innerHTML で中身のみ置換） ─────────── #}
+  <div
+    id="pnlSummaryWrap"
+    hx-get="{% url 'realized_summary_partial' %}?q={{ q|urlencode }}"
+    hx-trigger="load"
+    hx-swap="innerHTML"
+  >
+    {# 初回フォールバック（サーバーレンダリング時） #}
+    {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
+  </div>
 
-  {# ★ 期間まとめ（初回ロード時に今月・月次を取得） #}
-  <div id="pnlPeriodWrap"
-       hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq=month&q={{ q|urlencode }}"
-       hx-trigger="load"
-       hx-swap="outerHTML">
+  {# ★ 期間まとめ（初回ロード時に今月・月次を取得） ───────────── #}
+  <div
+    id="pnlPeriodWrap"
+    hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq=month&q={{ q|urlencode }}"
+    hx-trigger="load"
+    hx-swap="outerHTML"
+  >
     <div style="color:#94a3b8; padding:8px 0">期間まとめを読み込み中…</div>
   </div>
 
-  {# ── 月次チャート（外部パーシャルに分離） ─────────────── #}
+  {# ── 月次チャート（外部パーシャル） ──────────────────── #}
   {% include "realized/_monthly_chart.html" %}
   {% include "realized/_analysis_charts.html" %}
 
@@ -49,10 +58,12 @@
   </div>
 
   {# ── テーブル ──────────────────────────────── #}
-  <div id="pnlTableWrap"
-       hx-get="{% url 'realized_table_partial' %}?q={{ q|urlencode }}"
-       hx-trigger="load"
-       hx-swap="outerHTML">
+  <div
+    id="pnlTableWrap"
+    hx-get="{% url 'realized_table_partial' %}?q={{ q|urlencode }}"
+    hx-trigger="load"
+    hx-swap="outerHTML"
+  >
     {% include "realized/_table.html" with trades=trades %}
   </div>
 </div>
