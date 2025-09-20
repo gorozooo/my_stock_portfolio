@@ -405,6 +405,36 @@ def create(request):
     summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
     return JsonResponse({"ok": True, "table": table_html, "summary": summary_html})
 
+@login_required
+@require_GET
+def manual_sheet(request):
+    """
+    実現損益を“手入力で追加”するボトムシート。
+    - BUY/SELL をセレクトで切替
+    - 現物/信用も選択
+    - 実損（投資家PnL）は cashflow に入れる運用なのでフォーム名は pnl_input
+    """
+    # 直近値をプリフィル
+    from ..models import RealizedTrade
+    rt_qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
+    last  = rt_qs.first()
+
+    def g(obj, name, default=""):
+        return getattr(obj, name, default) if obj is not None else default
+
+    ctx = {
+        "prefill": {
+            "date":    timezone.localdate().isoformat(),
+            "side":    "SELL",
+            "broker":  g(last, "broker", "OTHER"),
+            "account": g(last, "account", "SPEC"),
+            "fee":     g(last, "fee", 0),
+        },
+        "q": (request.GET.get("q") or "").strip(),
+    }
+    html = render_to_string("realized/_manual_sheet.html", ctx, request=request)
+    return HttpResponse(html)
+
 # ============================================================
 #  削除（テーブル＋サマリーを同時更新して返す）
 # ============================================================
