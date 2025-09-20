@@ -30,131 +30,24 @@
     {% include "realized/_summary.html" with agg=agg %}
   </div>
 
-  {# すでにあるサマリー #}
+  {# すでにあるサマリー（ブローカー内訳付き） #}
   <div id="pnlSummaryWrap"
        hx-get="{% url 'realized_summary_partial' %}?q={{ q|urlencode }}"
        hx-trigger="load, pnl:refresh from:body"
        hx-swap="outerHTML">
     {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
   </div>
-  
+
   {# ★ 期間まとめ（初回ロード時に今月・月次を取得） #}
   <div id="pnlPeriodWrap"
        hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq=month&q={{ q|urlencode }}"
        hx-trigger="load, pnl:refresh from:body"
        hx-swap="outerHTML">
-    {# 初期フォールバック（JS無効時） #}
     <div style="color:#94a3b8; padding:8px 0">期間まとめを読み込み中…</div>
   </div>
 
-  <!-- 月次チャート（PnL & 現金フロー） -->
-  <div class="mt-6 rounded-2xl bg-white/5 p-3">
-    <div class="flex items-center justify-between mb-2">
-      <div class="text-sm text-slate-300">月次サマリー</div>
-      <div class="text-xs text-slate-400">📈 PnL（投資家損益） / 💰 現金フロー</div>
-    </div>
-    <div style="height:240px">
-      <canvas id="pnlChart"></canvas>
-    </div>
-  </div>
-  
-  <!-- Chart.js CDN（重複読み込みはブラウザが勝手にまとめます） -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script>
-  (function () {
-    const el = document.getElementById('pnlChart');
-    if (!el) return;
-  
-    async function draw() {
-      try {
-        // 検索ボックス (#q) の値を使って再描画可能に
-        const qEl = document.querySelector('#q');
-        const q   = qEl ? encodeURIComponent(qEl.value || '') : '';
-        const res = await fetch("{% url 'realized_chart_monthly' %}?q=" + q, {credentials: 'same-origin'});
-        const data = await res.json();
-  
-        // 既存チャートがあれば破棄
-        if (window._pnlChart) {
-          window._pnlChart.destroy();
-          window._pnlChart = null;
-        }
-  
-        const ctx = el.getContext('2d');
-        window._pnlChart = new Chart(ctx, {
-          type: 'bar',
-          data: {
-            labels: data.labels,
-            datasets: [
-              {
-                label: '📈PnL',
-                data: data.pnl,
-                borderWidth: 0,
-                backgroundColor: 'rgba(16, 185, 129, 0.65)',   // emerald-ish
-              },
-              {
-                label: '💰現金',
-                data: data.cash,
-                borderWidth: 0,
-                backgroundColor: 'rgba(59, 130, 246, 0.55)',   // blue-ish
-              },
-            ]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: {mode: 'index', intersect: false},
-            plugins: {
-              legend: {labels: {color: '#e5e7eb'}},
-              tooltip: {
-                callbacks: {
-                  label: (ctx) => {
-                    const v = ctx.parsed.y ?? 0;
-                    return `${ctx.dataset.label}: ¥` + v.toLocaleString();
-                  }
-                }
-              }
-            },
-            scales: {
-              x: {
-                ticks: {color: '#cbd5e1'},
-                grid: {color: 'rgba(148,163,184,0.12)'}
-              },
-              y: {
-                ticks: {
-                  color: '#cbd5e1',
-                  callback: (v) => '¥' + Number(v).toLocaleString()
-                },
-                grid: {color: 'rgba(148,163,184,0.12)'}
-              }
-            }
-          }
-        });
-      } catch (e) {
-        console.error(e);
-      }
-    }
-  
-    // 初回描画
-    document.addEventListener('DOMContentLoaded', draw);
-  
-    // 検索ボックスで再描画（Enter/blur/change）
-    const qEl = document.querySelector('#q');
-    if (qEl) {
-      ['change', 'blur', 'keydown'].forEach(ev => {
-        qEl.addEventListener(ev, (e) => {
-          if (ev !== 'keydown' || e.key === 'Enter') draw();
-        });
-      });
-    }
-  
-    // HTMX でテーブルが差し替わった場合も再描画
-    document.body.addEventListener('htmx:afterSwap', function (e) {
-      if (e.target && (e.target.id === 'pnlTableWrap' || e.target.id === 'pnlSummaryWrap')) {
-        draw();
-      }
-    });
-  })();
-  </script>
+  {# ── 月次チャート（外部パーシャルに分離） ─────────────── #}
+  {% include "realized/_monthly_chart.html" %}
 
   {# ── CSV ────────────────────────────────────── #}
   <div class="csv-link">
