@@ -1,99 +1,80 @@
+{# templates/realized/_summary.html #}
 {% load humanize %}
 
-<style>
-  .summary-grid{display:grid;gap:12px;grid-template-columns:repeat(4,minmax(0,1fr))}
-  .sum-card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px}
-  .k{font-size:12px;color:#a7b1d8;margin-bottom:6px}
-  .v{font-size:18px;font-weight:700}
-  .pos{color:#86efac} .neg{color:#fca5a5}
-
-  /* 証券会社グリッド */
-  .broker-grid{display:grid;gap:10px;grid-template-columns:repeat(4,minmax(0,1fr))}
-  .bname{font-size:12px;color:#cbd5e1;margin-bottom:6px}
-  @media (max-width: 1024px){
-    .summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-    .broker-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-  }
-</style>
-
-<div class="summary-grid">
-  <div class="sum-card">
-    <div class="k">件数</div>
-    <div class="v">{{ agg.n|intcomma }}</div>
+<div class="grid grid-cols-2 gap-3 md:grid-cols-4">
+  {# --- 全体サマリー --- #}
+  <div class="card"><div class="ttl">件数</div><div class="val">{{ agg.n|intcomma }}</div></div>
+  <div class="card"><div class="ttl">数量合計</div><div class="val">{{ agg.qty|intcomma }}</div></div>
+  <div class="card"><div class="ttl">手数料合計</div><div class="val">¥{{ agg.fee|floatformat:0|intcomma }}</div></div>
+  <div class="card"><div class="ttl">📈PnL累計</div>
+    <div class="val {% if agg.pnl >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+      ¥{{ agg.pnl|floatformat:0|intcomma }}
+    </div>
   </div>
 
-  <div class="sum-card">
-    <div class="k">数量合計</div>
-    <div class="v">{{ agg.qty|intcomma }}</div>
+  <div class="card col-span-2 md:col-span-1"><div class="ttl">💰現金フロー（現物：特定/NISA）</div>
+    <div class="val {% if agg.cash_spec >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+      ¥{{ agg.cash_spec|floatformat:0|intcomma }}
+    </div>
   </div>
-
-  <div class="sum-card">
-    <div class="k">手数料合計</div>
-    <div class="v">¥{{ agg.fee|floatformat:0|intcomma }}</div>
+  <div class="card col-span-2 md:col-span-1"><div class="ttl">💰現金フロー（信用）</div>
+    <div class="val {% if agg.cash_margin >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+      ¥{{ agg.cash_margin|floatformat:0|intcomma }}
+    </div>
   </div>
-
-  <div class="sum-card">
-    <div class="k">📈PnL累計</div>
-    {% with v=agg.pnl %}
-      <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
-    {% endwith %}
-  </div>
-
-  <div class="sum-card">
-    <div class="k">💰現金フロー（現物：特定/NISA）</div>
-    {% with v=agg.cash_spec %}
-      <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
-    {% endwith %}
-  </div>
-
-  <div class="sum-card">
-    <div class="k">💰現金フロー（信用）</div>
-    {% with v=agg.cash_margin %}
-      <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
-    {% endwith %}
-  </div>
-
-  <div class="sum-card" style="grid-column: span 2 / span 2;">
-    <div class="k">💰現金フロー合計（現物＋信用）</div>
-    {% with v=agg.cash_total %}
-      <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
-    {% endwith %}
+  <div class="card md:col-span-2"><div class="ttl">💰現金フロー合計（現物＋信用）</div>
+    <div class="val {% if agg.cash_total >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+      ¥{{ agg.cash_total|floatformat:0|intcomma }}
+    </div>
   </div>
 </div>
 
+{# --- ブローカー別（渡っていれば描画） --- #}
 {% if agg_brokers %}
-  <div style="margin-top:14px; font-size:12px; color:#94a3b8">証券会社別</div>
-  <div class="broker-grid" style="margin-top:6px">
+  <div class="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
     {% for b in agg_brokers %}
-      <div class="sum-card">
-        <div class="bname">
-          {% if b.broker == 'RAKUTEN' %}楽天証券
-          {% elif b.broker == 'SBI' %}SBI証券
-          {% elif b.broker == 'MATSUI' %}松井証券
-          {% elif b.broker %}{{ b.broker }}
+      <div class="card">
+        <div class="ttl">
+          証券会社:
+          {% if b.broker == 'RAKUTEN' %}楽天
+          {% elif b.broker == 'SBI' %}SBI
+          {% elif b.broker == 'MATSUI' %}松井
           {% else %}その他{% endif %}
         </div>
-
-        <div class="k">📈PnL</div>
-        {% with v=b.pnl %}
-          <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
-        {% endwith %}
-
-        <div class="k" style="margin-top:8px">💰現金（現物）</div>
-        {% with v=b.cash_spec %}
-          <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
-        {% endwith %}
-
-        <div class="k" style="margin-top:8px">💰現金（信用）</div>
-        {% with v=b.cash_margin %}
-          <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
-        {% endwith %}
-
-        <div class="k" style="margin-top:8px">💰現金（合計）</div>
-        {% with v=b.cash_total %}
-          <div class="v {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
-        {% endwith %}
+        <div class="text-xs text-slate-400 mb-1">
+          件数 {{ b.n|intcomma }} / 数量 {{ b.qty|intcomma }} / 手数料 ¥{{ b.fee|floatformat:0|intcomma }}
+        </div>
+        <div class="space-y-1">
+          <div>💰現物:
+            <span class="{% if b.cash_spec >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+              ¥{{ b.cash_spec|floatformat:0|intcomma }}
+            </span>
+          </div>
+          <div>💰信用:
+            <span class="{% if b.cash_margin >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+              ¥{{ b.cash_margin|floatformat:0|intcomma }}
+            </span>
+          </div>
+          <div>💰合計:
+            <span class="{% if b.cash_total >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+              ¥{{ b.cash_total|floatformat:0|intcomma }}
+            </span>
+          </div>
+          <div>📈PnL:
+            <span class="{% if b.pnl >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}">
+              ¥{{ b.pnl|floatformat:0|intcomma }}
+            </span>
+          </div>
+        </div>
       </div>
     {% endfor %}
   </div>
 {% endif %}
+
+{# ちょっとした共通スタイル #}
+<style>
+  .card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
+        border-radius:14px;padding:12px}
+  .ttl{font-size:12px;color:#a7b1d8;margin-bottom:4px}
+  .val{font-size:22px;line-height:1.1}
+</style>
