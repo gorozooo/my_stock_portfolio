@@ -4,7 +4,8 @@
     <div class="text-sm text-slate-300">月次サマリー</div>
     <div class="text-xs text-slate-400">📈 PnL（投資家損益） / 💰 現金フロー</div>
   </div>
-  <div id="pnlChartWrap" style="height:240px">
+
+  <div style="height:240px">
     <canvas id="pnlChart" style="width:100%;height:100%"></canvas>
   </div>
 </div>
@@ -12,106 +13,117 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 (function () {
-  if (window.__pnlChartBound) return;
-  window.__pnlChartBound = true;
+  const el = document.getElementById('pnlChart');
+  if (!el) return;
 
-  const canvas = document.getElementById('pnlChart');
-  if (!canvas) return;
-
-  let chart = null;
-  let timer = null;
-
-  async function fetchData() {
-    const qEl = document.querySelector('#q');
-    const q = qEl ? encodeURIComponent(qEl.value || '') : '';
-    const res = await fetch("{% url 'realized_chart_monthly' %}?q=" + q, {credentials: 'same-origin'});
-    return await res.json();
-  }
+  // 2x 解像度でにじみ対策（iPhone など）
+  const resizeCanvasForHiDPI = (canvas) => {
+    const ratio = window.devicePixelRatio || 1;
+    const { width, height } = canvas.getBoundingClientRect();
+    canvas.width  = Math.round(width  * ratio);
+    canvas.height = Math.round(height * ratio);
+    canvas.style.width  = width + 'px';
+    canvas.style.height = height + 'px';
+  };
 
   async function draw() {
-    clearTimeout(timer);
-    timer = setTimeout(async () => {
-      try {
-        const data = await fetchData();
+    try {
+      const qEl = document.querySelector('#q');
+      const q   = qEl ? encodeURIComponent(qEl.value || '') : '';
+      const url = "{% url 'realized_chart_monthly' %}?q=" + q;
 
-        if (chart) { chart.destroy(); chart = null; }
+      const res  = await fetch(url, { credentials: 'same-origin' });
+      const data = await res.json();
 
-        const ctx = canvas.getContext('2d');
+      // 現金バーの色を符号で分岐（+青 / -赤）
+      const cashColors = data.cash.map(v => v >= 0 ? 'rgba(59,130,246,0.55)' : 'rgba(244,63,94,0.65)');
 
-        // 高精細ディスプレイは 2x までにしてクッキリ＆過負荷防止
-        const dpr = Math.min(2, window.devicePixelRatio || 1);
+      // 既存チャート破棄
+      if (window._pnlChart) {
+        window._pnlChart.destroy();
+        window._pnlChart = null;
+      }
 
-        chart = new Chart(ctx, {
-          type: 'bar', // デフォは棒、PnLは個別に line 指定
-          data: {
-            labels: data.labels,
-            datasets: [
-              {
-                type: 'line',
-                label: '📈PnL',
-                data: data.pnl,
-                borderWidth: 2,
-                pointRadius: 2,
-                pointHoverRadius: 4,
-                tension: 0.25,
-                borderColor: 'rgba(16,185,129,1)',    // 緑系
-                backgroundColor: 'rgba(16,185,129,0.15)',
-                yAxisID: 'y',
-              },
-              {
-                type: 'bar',
-                label: '💰現金',
-                data: data.cash,
-                borderWidth: 0,
-                backgroundColor: 'rgba(59,130,246,0.55)', // 青系
-                yAxisID: 'y',
-              },
-            ]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            devicePixelRatio: dpr,
-            interaction: { mode: 'index', intersect: false },
-            animation: { duration: 200 },
-            plugins: {
-              legend: { labels: { color: '#e5e7eb' } },
-              tooltip: {
-                callbacks: {
-                  label: (ctx) => {
-                    const v = ctx.parsed.y ?? 0;
-                    return `${ctx.dataset.label}: ¥` + Number(v).toLocaleString();
-                  }
+      const ctx = el.getContext('2d');
+      resizeCanvasForHiDPI(el);
+
+      window._pnlChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: data.labels,                   // e.g. ["2025-02","2025-03","…"]
+          datasets: [
+            // 現金＝バー（符号で色分け）
+            {
+              type: 'bar',
+              label: '💰 現金',
+              data: data.cash,
+              backgroundColor: cashColors,
+              borderWidth: 0,
+              order: 2
+            },
+            // PnL＝折れ線
+            {
+              type: 'line',
+              label: '📈 PnL',
+              data: data.pnl,
+              borderColor: 'rgba(16,185,129,1)',  // 緑
+              backgroundColor: 'rgba(16,185,129,0.15)',
+              pointRadius: 3,
+              pointHoverRadius: 4,
+              tension: 0.25,
+              fill: false,
+              yAxisID: 'y',
+              order: 1
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 250 },
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { labels: { color: '#e5e7eb' } },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const v = ctx.parsed.y ?? 0;
+                  return `${ctx.dataset.label}: ¥${Number(v).toLocaleString()}`;
                 }
               }
+            }
+          },
+          scales: {
+            x: {
+              ticks: { color: '#cbd5e1' },
+              grid: { color: 'rgba(148,163,184,0.12)' }
             },
-            scales: {
-              x: {
-                ticks: { color: '#cbd5e1' },
-                grid:  { color: 'rgba(148,163,184,0.12)' }
+            y: {
+              ticks: {
+                color: '#cbd5e1',
+                callback: v => '¥' + Number(v).toLocaleString()
               },
-              y: {
-                beginAtZero: true,
-                ticks: { color: '#cbd5e1', callback: v => '¥' + Number(v).toLocaleString() },
-                grid:  { color: 'rgba(148,163,184,0.12)' }
+              grid: {
+                color: 'rgba(148,163,184,0.12)',
+                zeroLineColor: 'rgba(148,163,184,0.35)'
               }
             }
           }
-        });
-      } catch (e) {
-        console.error(e);
-      }
-    }, 120);
+        }
+      });
+    } catch (e) {
+      console.error(e);
+    }
   }
 
-  // 初回
+  // 初期描画
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', draw, { once: true });
   } else {
     draw();
   }
 
-  // 検索で再描画（Enter/blur/change）
+  // 検索で再描画（Enter / change / blur）
   const qEl = document.querySelector('#q');
   if (qEl) {
     ['change','blur','keydown'].forEach(ev => {
@@ -121,13 +133,19 @@
     });
   }
 
-  // HTMX差し替え時も再描画
+  // HTMX でサマリー/テーブルが更新されたら再描画
   document.body.addEventListener('htmx:afterSwap', (e) => {
-    const id = e.target && e.target.id;
-    if (id === 'pnlTableWrap' || id === 'pnlSummaryWrap' || id === 'pnlPeriodWrap') draw();
+    if (!e.target) return;
+    if (e.target.id === 'pnlTableWrap' || e.target.id === 'pnlSummaryWrap' || e.target.id === 'pnlPeriodWrap') {
+      draw();
+    }
   });
 
-  // タブ復帰で再調整
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) draw(); });
+  // 画面回転・リサイズで高DPIを維持
+  window.addEventListener('resize', () => {
+    if (!window._pnlChart) return;
+    resizeCanvasForHiDPI(el);
+    window._pnlChart.resize();
+  });
 })();
 </script>
