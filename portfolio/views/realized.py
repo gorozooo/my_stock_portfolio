@@ -20,6 +20,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 from django.utils.encoding import smart_str
 from django.utils.dateparse import parse_date
+from django.db.models import Value, CharField
 
 from ..models import Holding, RealizedTrade
 
@@ -154,34 +155,29 @@ def _aggregate(qs):
     return agg
 
 def _aggregate_by_broker(qs):
-    """
-    証券会社別の集計（同じく現物/信用/合計とPnLを返す）
-    返り値: list[dict] 例: [{"broker":"RAKUTEN", "cash_spec":..., "cash_margin":..., "cash_total":..., "pnl":...}, ...]
-    """
     qs = _with_metrics(qs)
 
-    rows = (qs
-        .values("broker")
-        .annotate(
-            n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
-            qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
-            fee = Coalesce(Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))),
-                           Value(Decimal("0"), output_field=DEC2)),
-
-            cash_spec   = Coalesce(Sum("cashflow_calc", filter=Q(account__in=["SPEC", "NISA"]), output_field=DEC2),
-                                   Value(Decimal("0"), output_field=DEC2)),
-            cash_margin = Coalesce(Sum("cashflow_calc", filter=Q(account="MARGIN"), output_field=DEC2),
-                                   Value(Decimal("0"), output_field=DEC2)),
-            pnl = Coalesce(Sum("pnl_display", output_field=DEC2),
-                           Value(Decimal("0"), output_field=DEC2)),
-        )
-        .order_by("broker")
+    rows = (
+        qs.values(broker=Coalesce('broker', Value('OTHER', output_field=CharField())))
+          .annotate(
+              n=Coalesce(Count('id'), Value(0), output_field=IntegerField()),
+              qty=Coalesce(Sum('qty'), Value(0), output_field=IntegerField()),
+              fee=Coalesce(Sum(Coalesce(F('fee'), Value(Decimal('0'), output_field=DEC2))),
+                           Value(Decimal('0'), output_field=DEC2)),
+              cash_spec=Coalesce(Sum('cashflow_calc', filter=Q(account__in=['SPEC','NISA']), output_field=DEC2),
+                                 Value(Decimal('0'), output_field=DEC2)),
+              cash_margin=Coalesce(Sum('cashflow_calc', filter=Q(account='MARGIN'), output_field=DEC2),
+                                   Value(Decimal('0'), output_field=DEC2)),
+              pnl=Coalesce(Sum('pnl_display', output_field=DEC2),
+                           Value(Decimal('0'), output_field=DEC2)),
+          )
+          .order_by('broker')
     )
 
     out = []
     for r in rows:
         r = dict(r)
-        r["cash_total"] = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
+        r['cash_total'] = (r['cash_spec'] or Decimal('0')) + (r['cash_margin'] or Decimal('0'))
         out.append(r)
     return out
 
