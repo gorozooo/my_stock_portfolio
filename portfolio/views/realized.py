@@ -279,10 +279,7 @@ def summary_period_partial(request):
 @login_required
 @require_GET
 def realized_summary_partial(request):
-    """
-    サマリー（全体＋ブローカー別）を部分描画して返す。
-    list_page と同じ集計ロジックを使い、_summary.html を返却。
-    """
+    """サマリー（全体＋ブローカー別）を部分描画して返す。"""
     q = (request.GET.get("q") or "").strip()
 
     qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
@@ -292,16 +289,11 @@ def realized_summary_partial(request):
     agg = _aggregate(qs)
     agg_brokers = _aggregate_by_broker(qs)
 
-    # 部分テンプレをそのまま返す（outerHTML で差し替えられるように）
-    return render(
-        request,
-        "realized/_summary.html",
-        {
-            "agg": agg,
-            "agg_brokers": agg_brokers,
-            "q": q,
-        },
-    )
+    return render(request, "realized/_summary.html", {
+        "agg": agg,
+        "agg_brokers": agg_brokers,
+        "q": q,
+    })
 
 
 # --- 月次サマリー（Chart.js 用 JSON） -------------------------
