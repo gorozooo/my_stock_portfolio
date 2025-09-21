@@ -1,58 +1,102 @@
 {% load humanize %}
+
 <style>
-  .rk-d-wrap{margin-top:10px}
-  .rk-d-card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px}
-  .rk-d-h{font-size:13px;color:#cbd5e1;margin-bottom:8px}
-  .rk-d-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:10px}
-  .rk-d-item{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px}
-  .k{font-size:12px;color:#94a3b8;margin-bottom:4px}
+  .rk-d-wrap{margin-top:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:10px}
+  .rk-d-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .rk-d-title{font-size:13px;color:#cbd5e1}
+  .rk-d-actions{display:flex;gap:8px}
+  .rk-d-btn{font-size:11px;padding:4px 8px;border:1px solid rgba(148,163,184,.25);border-radius:8px;background:transparent;color:#cbd5e1}
+  .rk-d-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-bottom:8px}
+  .rk-d-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:8px}
+  .k{font-size:11px;color:#94a3b8;margin-bottom:4px}
   .v{font-variant-numeric:tabular-nums}
   .pos{color:#86efac} .neg{color:#fca5a5}
-  table.rk-d-tbl{width:100%;border-collapse:separate;border-spacing:0}
-  table.rk-d-tbl th, table.rk-d-tbl td{padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.08);font-size:13px}
-  table.rk-d-tbl th{color:#94a3b8;text-align:left}
+  .rk-d-table{width:100%;border-collapse:separate;border-spacing:0}
+  .rk-d-table th,.rk-d-table td{padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.08);font-size:12px}
+  .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  @media (max-width: 800px){ .rk-d-grid{grid-template-columns:repeat(2,minmax(0,1fr))} }
 </style>
 
-<div class="rk-d-wrap" id="rkDetail">
-  <div class="rk-d-card">
-    <div class="rk-d-h">🔎 銘柄詳細: {{ ticker|default:"(未選択)" }}</div>
+{# ★ outerHTML で置換されても次も当たるように、必ず同じ id を持つ #}
+<div id="pnlRankingDetailWrap" class="rk-d-wrap">
 
-    {% if ticker %}
-      <div class="rk-d-grid">
-        <div class="rk-d-item"><div class="k">件数</div><div class="v">{{ agg.n|intcomma }}</div></div>
-        <div class="rk-d-item"><div class="k">数量</div><div class="v">{{ agg.qty|intcomma }}</div></div>
-        <div class="rk-d-item"><div class="k">📈PnL合計</div>
-          {% with p=agg.pnl %}<div class="v {% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>{% endwith %}
-        </div>
-        <div class="rk-d-item"><div class="k">勝率 / 平均</div>
-          <div class="v">{{ agg.win_rate|floatformat:0 }}% / ¥{{ agg.avg|floatformat:0|intcomma }}</div>
-        </div>
-      </div>
-
-      <table class="rk-d-tbl">
-        <thead>
-          <tr>
-            <th>日付</th><th>Side</th><th>数量</th><th>約定単価</th><th>📈PnL</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for t in rows %}
-            <tr>
-              <td>{{ t.trade_at|date:"Y-m-d" }}</td>
-              <td>{{ t.side }}</td>
-              <td>{{ t.qty|intcomma }}</td>
-              <td>¥{{ t.price|floatformat:0|intcomma }}</td>
-              {% with p=t.pnl_display %}
-                <td class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</td>
-              {% endwith %}
-            </tr>
-          {% empty %}
-            <tr><td colspan="5" style="color:#94a3b8">直近の取引はありません</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div style="color:#94a3b8">銘柄を選択してください。</div>
-    {% endif %}
+  <div class="rk-d-head">
+    <div class="rk-d-title">銘柄詳細: <strong>{{ ticker }}</strong></div>
+    <div class="rk-d-actions">
+      <button type="button" class="rk-d-btn" id="rkDetailClose">閉じる</button>
+      <button type="button" class="rk-d-btn" id="rkDetailClear">フィルタ解除</button>
+    </div>
   </div>
+
+  {% if agg %}
+    <div class="rk-d-grid">
+      <div class="rk-d-card">
+        <div class="k">件数</div><div class="v">{{ agg.n|intcomma }}</div>
+      </div>
+      <div class="rk-d-card">
+        <div class="k">数量</div><div class="v">{{ agg.qty|intcomma }}</div>
+      </div>
+      <div class="rk-d-card">
+        <div class="k">📈 PnL</div>
+        {% with p=agg.pnl %}<div class="v {% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>{% endwith %}
+      </div>
+      <div class="rk-d-card">
+        <div class="k">平均 / 回</div><div class="v">¥{{ agg.avg|floatformat:0|intcomma }}</div>
+      </div>
+      <div class="rk-d-card">
+        <div class="k">勝率</div><div class="v">{{ agg.win_rate|floatformat:0 }}%</div>
+      </div>
+    </div>
+  {% endif %}
+
+  <table class="rk-d-table">
+    <thead>
+      <tr>
+        <th>日付</th><th>Side</th><th class="num">数量</th><th class="num">約定単価</th><th class="num">📈PnL</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if rows %}
+        {% for t in rows %}
+          <tr>
+            <td>{{ t.trade_at|date:"Y-m-d" }}</td>
+            <td>{{ t.side }}</td>
+            <td class="num">{{ t.qty|intcomma }}</td>
+            <td class="num">¥{{ t.price|floatformat:0|intcomma }}</td>
+            <td class="num">
+              {% with p=t.pnl_display %}
+                <span class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</span>
+              {% endwith %}
+            </td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="5" style="color:#94a3b8">直近の約定はありません。</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
 </div>
+
+<script>
+(() => {
+  // 閉じる：明細エリアを空にするだけ
+  document.getElementById('rkDetailClose')?.addEventListener('click', () => {
+    const box = document.getElementById('pnlRankingDetailWrap');
+    if (box) box.innerHTML = '';
+  });
+
+  // フィルタ解除：#q を空にして既存の連鎖を発火、明細もクリア
+  document.getElementById('rkDetailClear')?.addEventListener('click', () => {
+    const q = document.getElementById('q');
+    if (q) {
+      q.value = '';
+      if (window.htmx) {
+        document.body.dispatchEvent(new Event('pnl:refresh', {bubbles:true}));
+        htmx.trigger(q, 'search');
+      }
+    }
+    const box = document.getElementById('pnlRankingDetailWrap');
+    if (box) box.innerHTML = '';
+  });
+})();
+</script>
