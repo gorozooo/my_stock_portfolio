@@ -381,59 +381,119 @@ def chart_monthly_json(request):
         "cash_margin": cash_margin # 任意（デバッグ用）
     })
 
+from decimal import Decimal
+
 @login_required
 @require_GET
 def realized_ranking_partial(request):
     """
-    銘柄別ランキング（実現PnLベース）
-      - 集計対象: RealizedTrade
-      - グルーピング: ticker / name
-      - 指標: n, qty, pnl(=cashflow合計), avg, win_rate
+    銘柄別ランキング（期間連動）
+    GET: q / preset / freq / start / end（_parse_periodに準拠）
+    返却: _ranking.html
     """
     q = (request.GET.get("q") or "").strip()
+
+    # 期間解釈（THIS_MONTHなどのプリセットやCUSTOMにも対応）
+    start, end, preset = _parse_period(request)
+    freq = (request.GET.get("freq") or "month").lower()
 
     qs = RealizedTrade.objects.filter(user=request.user)
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-    # つねに存在する cashflow をベースに集計
-    cf = Coalesce(F("cashflow"), Value(Decimal("0"), output_field=DEC2))
+    if start:
+        qs = qs.filter(trade_at__gte=start)
+    if end:
+        qs = qs.filter(trade_at__lte=end)
 
-    base = (
+    qs = _with_metrics(qs)
+
+    grouped = (
         qs.values("ticker", "name")
           .annotate(
               n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
-              qty = Coalesce(Sum("qty"),   Value(0), output_field=IntegerField()),
-              pnl = Coalesce(Sum(cf),      Value(Decimal("0"), output_field=DEC2)),
-              wins= Coalesce(
-                        Sum(Case(When(cashflow__gt=0, then=1),
-                                 default=0,
-                                 output_field=IntegerField())),
-                        Value(0), output_field=IntegerField()
-                    ),
+              qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
+              pnl = Coalesce(Sum("pnl_display", output_field=DEC2), Value(Decimal("0"), output_field=DEC2)),
+              avg = Coalesce(Avg("pnl_display", output_field=DEC2), Value(Decimal("0"), output_field=DEC2)),
+              wins = Coalesce(
+                  Sum(Case(When(pnl_display__gt=0, then=1), default=0, output_field=IntegerField())),
+                  Value(0),
+                  output_field=IntegerField(),
+              ),
           )
     )
 
-    # 平均PnL / 勝率（%）を計算（型を明示）
-    base = base.annotate(
-        avg = ExpressionWrapper(
-                  Coalesce(F("pnl"),  Value(Decimal("0"), output_field=DEC2)) /
-                  Coalesce(F("n"),    Value(1), output_field=IntegerField()),
-                  output_field=DEC2
-              ),
-        win_rate = ExpressionWrapper(
-                      100 * Coalesce(F("wins"), Value(0), output_field=IntegerField()) /
-                      Coalesce(F("n"),   Value(1), output_field=IntegerField()),
-                      output_field=DecimalField(max_digits=6, decimal_places=2)
-                   ),
-    )
+    rows = []
+    for r in grouped:
+        n = r["n"] or 0
+        win_rate = (r["wins"] * 100.0 / n) if n else 0.0
+        rows.append({
+            "ticker": r["ticker"],
+            "name":   r["name"],
+            "n":      n,
+            "qty":    r["qty"] or 0,
+            "pnl":    r["pnl"] or Decimal("0"),
+            "avg":    r["avg"] or Decimal("0"),
+            "win_rate": win_rate,
+        })
 
-    top5   = list(base.order_by("-pnl")[:5])
-    worst5 = list(base.order_by("pnl")[:5])
+    # TOP 5 / WORST 5
+    top5   = sorted(rows, key=lambda x: (x["pnl"], x["win_rate"]), reverse=True)[:5]
+    worst5 = sorted(rows, key=lambda x: (x["pnl"], -x["win_rate"]))[:5]
 
-    return render(request, "realized/_ranking.html", {
+    ctx = {
         "top5": top5,
         "worst5": worst5,
+        # 期間情報（テンプレ/JSが再リクエスト時に利用）
+        "preset": preset, "freq": freq, "start": start, "end": end, "q": q,
+    }
+    return render(request, "realized/_ranking.html", ctx)
+
+
+@login_required
+@require_GET
+def realized_ranking_detail_partial(request):
+    """
+    銘柄ドリルダウン（期間連動）
+    GET: ticker, q, preset/freq/start/end
+    返却: _ranking_detail.html
+    """
+    ticker = (request.GET.get("ticker") or "").strip()
+    q = (request.GET.get("q") or "").strip()
+    start, end, preset = _parse_period(request)
+
+    if not ticker:
+        return render(request, "realized/_ranking_detail.html", {"ticker": "", "rows": [], "agg": {}})
+
+    qs = RealizedTrade.objects.filter(user=request.user, ticker=ticker)
+    if q:
+        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+    if start:
+        qs = qs.filter(trade_at__gte=start)
+    if end:
+        qs = qs.filter(trade_at__lte=end)
+
+    qs = _with_metrics(qs).order_by("-trade_at", "-id")
+
+    # ミニ集計
+    dec0 = Value(Decimal("0"), output_field=DEC2)
+    agg = qs.aggregate(
+        n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
+        qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
+        pnl = Coalesce(Sum(Coalesce(F("pnl_display"), dec0)), dec0),
+        avg = Coalesce(Avg(Coalesce(F("pnl_display"), dec0)), dec0),
+        wins = Coalesce(Sum(Case(When(pnl_display__gt=0, then=1), default=0, output_field=IntegerField())), Value(0), output_field=IntegerField()),
+    )
+    n = agg.get("n") or 0
+    agg["win_rate"] = (agg.get("wins") * 100.0 / n) if n else 0.0
+
+    # 直近5件
+    rows = list(qs[:5])
+
+    return render(request, "realized/_ranking_detail.html", {
+        "ticker": ticker,
+        "rows": rows,
+        "agg": agg,
     })
 
 # ============================================================
