@@ -47,12 +47,11 @@ document.addEventListener("DOMContentLoaded", () => {
       { label:"売却（クローズ）",         action:"close_position", icon:"💱", tone:"action" },
       { label:"削除",                     action:"delete_holding", icon:"🗑️", tone:"danger" },
     ],
-    pnl: [
+    realized: [
       { section:"実現損益" },
-      { label:"＋ 新規エントリ",          action:"pnl_add",        icon:"➕", tone:"add" },
-      { label:"CSVインポート",            action:"pnl_import",     icon:"📥", tone:"info" },
-      { label:"CSVエクスポート",          action:"pnl_export",     icon:"🧾", tone:"info" },
-      { label:"一括削除",                 action:"pnl_bulk_delete",icon:"🗑️", tone:"danger" },
+      { label:"期間サマリー（グラフ付き）", action:"pnl_show_summary", icon:"📊", tone:"info" },
+      { label:"ランキング",               action:"pnl_show_ranking", icon:"🏅", tone:"info" },
+      { label:"明細",                     action:"pnl_show_details", icon:"📑", tone:"info" },
     ],
     trend: [
       { section:"トレンド" },
