@@ -386,9 +386,9 @@ def chart_monthly_json(request):
 def realized_ranking_partial(request):
     """
     銘柄別ランキング（実現PnLベース）
+      - 集計対象: RealizedTrade
       - グルーピング: ticker / name
-      - 集計: 件数(n) / 数量合計(qty) / PnL合計(pnl) / PnL平均(avg) / 勝率(win_rate)
-      - 表示: TOP5 / WORST5
+      - 指標: n, qty, pnl(=cashflow合計), avg, win_rate
     """
     q = (request.GET.get("q") or "").strip()
 
@@ -396,51 +396,45 @@ def realized_ranking_partial(request):
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-    # pnl_display などを付与（あなたの既存ヘルパ）
-    qs = _with_metrics(qs)
+    # つねに存在する cashflow をベースに集計
+    cf = Coalesce(F("cashflow"), Value(Decimal("0"), output_field=DEC2))
 
     base = (
         qs.values("ticker", "name")
           .annotate(
-              n=Coalesce(Count("id"), Value(0)),
-              qty=Coalesce(Sum("qty"), Value(0)),
-              pnl=Coalesce(Sum("pnl_display", output_field=DEC2),
-                           Value(Decimal("0"), output_field=DEC2)),
-              avg=Coalesce(Avg("pnl_display", output_field=DEC2),
-                           Value(Decimal("0"), output_field=DEC2)),
-              wins=Coalesce(
-                  Sum(
-                      Case(
-                          When(pnl_display__gt=0, then=1),
-                          default=0,
-                          output_field=IntegerField(),
-                      )
-                  ),
-                  Value(0),
-              ),
+              n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
+              qty = Coalesce(Sum("qty"),   Value(0), output_field=IntegerField()),
+              pnl = Coalesce(Sum(cf),      Value(Decimal("0"), output_field=DEC2)),
+              wins= Coalesce(
+                        Sum(Case(When(cashflow__gt=0, then=1),
+                                 default=0,
+                                 output_field=IntegerField())),
+                        Value(0), output_field=IntegerField()
+                    ),
           )
     )
 
-    # 2方向のランキング
-    top_qs    = base.order_by("-pnl")[:5]
-    worst_qs  = base.order_by("pnl")[:5]
+    # 平均PnL / 勝率（%）を計算（型を明示）
+    base = base.annotate(
+        avg = ExpressionWrapper(
+                  Coalesce(F("pnl"),  Value(Decimal("0"), output_field=DEC2)) /
+                  Coalesce(F("n"),    Value(1), output_field=IntegerField()),
+                  output_field=DEC2
+              ),
+        win_rate = ExpressionWrapper(
+                      100 * Coalesce(F("wins"), Value(0), output_field=IntegerField()) /
+                      Coalesce(F("n"),   Value(1), output_field=IntegerField()),
+                      output_field=DecimalField(max_digits=6, decimal_places=2)
+                   ),
+    )
 
-    def _with_rate(rows):
-        out = []
-        for r in rows:
-            r = dict(r)
-            n = int(r.get("n") or 0) or 1
-            wins = int(r.get("wins") or 0)
-            r["win_rate"] = (wins / n) * 100.0
-            out.append(r)
-        return out
+    top5   = list(base.order_by("-pnl")[:5])
+    worst5 = list(base.order_by("pnl")[:5])
 
-    ctx = {
-        "top":   _with_rate(top_qs),
-        "worst": _with_rate(worst_qs),
-        "q": q,
-    }
-    return render(request, "realized/_ranking.html", ctx)
+    return render(request, "realized/_ranking.html", {
+        "top5": top5,
+        "worst5": worst5,
+    })
 
 # ============================================================
 #  画面
