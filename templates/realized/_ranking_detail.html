@@ -18,9 +18,11 @@
   @media (max-width: 640px){ .rk-grid{grid-template-columns:1fr} }
 </style>
 
-{# ここで未定義を [] に正規化しておく #}
-{% with t=top5|default:[] w=worst5|default:[] %}
-<div class="rk-wrap" id="rkWrap">
+{# 変数名ゆれ対策：存在する最初の配列を拾う。未定義/None は [] に落とす #}
+{% with t=top5|default:best5|default:top|default:tops|default_if_none:[] %}
+{% with w=worst5|default:bottom5|default:worst|default:bottom|default_if_none:[] %}
+
+<div class="rk-wrap" id="pnlRankingWrap">
   <div class="rk-head">
     <div class="rk-h">📊 銘柄別ランキング（実現PnL）</div>
     <button type="button" class="rk-clear" id="rkClear">フィルタ解除</button>
@@ -86,11 +88,13 @@
     <div class="muted" style="padding:8px 0">データなし</div>
   {% endif %}
 </div>
+
+{% endwith %}
 {% endwith %}
 
 <script>
 (() => {
-  const qEl  = document.getElementById('q');
+  const qEl = document.getElementById('q');
   document.getElementById('rkClear')?.addEventListener('click', () => {
     if (!qEl) return;
     qEl.value = '';
