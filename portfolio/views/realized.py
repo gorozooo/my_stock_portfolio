@@ -12,7 +12,7 @@ from django.db.models import (
     Count, Sum, F, Value, Case, When, ExpressionWrapper,
     DecimalField, IntegerField, Q, CharField
 )
-from django.db.models.functions import Upper, Coalesce, TruncMonth, TruncYear
+from django.db.models.functions import Coalesce, TruncMonth, TruncYear
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, get_object_or_404
 from django.template.loader import render_to_string
@@ -140,68 +140,50 @@ def _aggregate(qs):
 
 def _aggregate_by_broker(qs):
     """
-    証券会社別の集計（現物/信用/合計 と PnL）
-    - 現物/NISA … 実キャッシュ (cashflow_calc)
-    - 信用 …… 手入力PnL (= cashflow)
-    - PnL …… 常に手入力PnL (= cashflow)
-    - broker は大文字正規化し、NULL/空は OTHER に寄せる
+    証券会社別の集計（現物/信用/合計とPnL）
+    返り値: list[dict] 例:
+      [{"broker":"RAKUTEN", "cash_spec":..., "cash_margin":..., "cash_total":..., "pnl":...}, ...]
     """
     qs = _with_metrics(qs)
 
-    dec0 = Value(Decimal("0"), output_field=DEC2)
+    # broker が NULL の場合は "OTHER" に寄せる（文字列型を明示）
+    broker_key = Coalesce(F("broker"), Value("OTHER"), output_field=CharField())
 
     rows = (
-        qs
-        # broker を正規化（NULL/空 => OTHER、大小文字差異も吸収）
-        .annotate(_broker=Upper(Coalesce(F("broker"), Value(""), output_field=DecimalField(null=True))))  # ダミー回避
-        .annotate(_broker=Upper(Coalesce(F("broker"), Value("OTHER"))))
-        .values("_broker")
-        .annotate(
-            n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
-            qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
-            fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
+        qs.values(broker=broker_key)   # ← これで "broker" キーに正規化した文字列が入る
+          .annotate(
+              n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
+              qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
+              fee = Coalesce(
+                  Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))),
+                  Value(Decimal("0"), output_field=DEC2)
+              ),
 
-            # 現物/NISA は実キャッシュ（calc）
-            cash_spec = Coalesce(
-                Sum(
-                    Case(
-                        When(account__in=["SPEC", "NISA"], then=F("cashflow_calc")),
-                        default=dec0, output_field=DEC2,
-                    )
-                ),
-                dec0,
-            ),
-            # 信用は手入力PnL (= cashflow)
-            cash_margin = Coalesce(
-                Sum(
-                    Case(
-                        When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
-                        default=dec0, output_field=DEC2,
-                    )
-                ),
-                dec0,
-            ),
-            # PnL は常に手入力PnL の合計
-            pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
-        )
-        .order_by("_broker")
+              # 現物/NISA は実キャッシュ合計
+              cash_spec   = Coalesce(
+                  Sum("cashflow_calc", filter=Q(account__in=["SPEC", "NISA"]), output_field=DEC2),
+                  Value(Decimal("0"), output_field=DEC2)
+              ),
+              # 信用は "cashflow_calc" でも "cashflow" でもどちらでも良いが、
+              # ここは全体の集計ロジック (_aggregate) と合わせておく
+              cash_margin = Coalesce(
+                  Sum("cashflow_calc", filter=Q(account="MARGIN"), output_field=DEC2),
+                  Value(Decimal("0"), output_field=DEC2)
+              ),
+
+              pnl = Coalesce(
+                  Sum("pnl_display", output_field=DEC2),
+                  Value(Decimal("0"), output_field=DEC2)
+              ),
+          )
+          .order_by("broker")
     )
 
     out = []
     for r in rows:
-        d = dict(r)
-        broker_code = d.get("_broker") or "OTHER"
-        cash_total = (d.get("cash_spec") or Decimal("0")) + (d.get("cash_margin") or Decimal("0"))
-        out.append({
-            "broker": broker_code,
-            "n": d["n"],
-            "qty": d["qty"],
-            "fee": d["fee"],
-            "cash_spec": d["cash_spec"],
-            "cash_margin": d["cash_margin"],
-            "cash_total": cash_total,
-            "pnl": d["pnl"],
-        })
+        r = dict(r)
+        r["cash_total"] = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
+        out.append(r)
     return out
 
 
