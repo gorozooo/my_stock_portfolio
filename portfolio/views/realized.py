@@ -384,40 +384,63 @@ def chart_monthly_json(request):
 @login_required
 @require_GET
 def realized_ranking_partial(request):
+    """
+    銘柄別ランキング（実現PnLベース）
+      - グルーピング: ticker / name
+      - 集計: 件数(n) / 数量合計(qty) / PnL合計(pnl) / PnL平均(avg) / 勝率(win_rate)
+      - 表示: TOP5 / WORST5
+    """
     q = (request.GET.get("q") or "").strip()
-    qs = RealizedTrade.objects.filter(user=request.user)
 
+    qs = RealizedTrade.objects.filter(user=request.user)
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
+    # pnl_display などを付与（あなたの既存ヘルパ）
     qs = _with_metrics(qs)
 
-    rows = (
+    base = (
         qs.values("ticker", "name")
           .annotate(
-              n=Count("id"),
+              n=Coalesce(Count("id"), Value(0)),
               qty=Coalesce(Sum("qty"), Value(0)),
-              pnl=Coalesce(Sum("pnl_display"), Value(0)),
-              avg=Coalesce(Avg("pnl_display"), Value(0)),
-              win=Coalesce(Sum(
-                  Case(When(pnl_display__gt=0, then=1), default=0, output_field=IntegerField())
-              ), Value(0))
+              pnl=Coalesce(Sum("pnl_display", output_field=DEC2),
+                           Value(Decimal("0"), output_field=DEC2)),
+              avg=Coalesce(Avg("pnl_display", output_field=DEC2),
+                           Value(Decimal("0"), output_field=DEC2)),
+              wins=Coalesce(
+                  Sum(
+                      Case(
+                          When(pnl_display__gt=0, then=1),
+                          default=0,
+                          output_field=IntegerField(),
+                      )
+                  ),
+                  Value(0),
+              ),
           )
-          .order_by("-pnl")
     )
 
-    # 勝率パーセント換算
-    for r in rows:
-        r["win_rate"] = round((r["win"] / r["n"]) * 100, 1) if r["n"] > 0 else 0
+    # 2方向のランキング
+    top_qs    = base.order_by("-pnl")[:5]
+    worst_qs  = base.order_by("pnl")[:5]
 
-    top5 = list(rows[:5])
-    worst5 = list(rows.order_by("pnl")[:5])
+    def _with_rate(rows):
+        out = []
+        for r in rows:
+            r = dict(r)
+            n = int(r.get("n") or 0) or 1
+            wins = int(r.get("wins") or 0)
+            r["win_rate"] = (wins / n) * 100.0
+            out.append(r)
+        return out
 
-    return render(request, "realized/_ranking.html", {
-        "top5": top5,
-        "worst5": worst5,
+    ctx = {
+        "top":   _with_rate(top_qs),
+        "worst": _with_rate(worst_qs),
         "q": q,
-    })
+    }
+    return render(request, "realized/_ranking.html", ctx)
 
 # ============================================================
 #  画面
