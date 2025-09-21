@@ -5,6 +5,7 @@ from .views import core as core_views
 from .views import settings as settings_views
 from .views import api as api_views
 from .views import realized as realized_views
+from .views import rankings as rankings_views
 
 urlpatterns = [
     path("", core_views.main, name="home"),
