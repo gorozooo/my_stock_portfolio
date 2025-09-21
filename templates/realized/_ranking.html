@@ -24,7 +24,8 @@
     <button type="button" class="rk-clear" id="rkClear">フィルタ解除</button>
   </div>
 
-  {% if (top5 and top5|length) or (worst5 and worst5|length) %}
+  {# ※ Django テンプレでは括弧NG。シンプルに書く #}
+  {% if top5 or worst5 %}
     <div class="rk-grid">
       <div class="rk-card">
         <div class="rk-ttl">🏅 TOP 5</div>
@@ -41,8 +42,13 @@
                 <span class="rk-ticker">{{ r.ticker }}</span>
               </div>
               <div class="rk-mets">
-                {% with p=r.pnl %}<div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>{% endwith %}
-                <div class="muted">勝率 {{ r.win_rate|floatformat:0 }}% / 平均 ¥{{ r.avg|floatformat:0|intcomma }}</div>
+                {% with p=r.pnl %}
+                  <div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>
+                {% endwith %}
+                <div class="muted">
+                  勝率 {{ r.win_rate|floatformat:0 }}% /
+                  平均 ¥{{ r.avg|floatformat:0|intcomma }}
+                </div>
               </div>
             </div>
           {% endfor %}
@@ -66,8 +72,13 @@
                 <span class="rk-ticker">{{ r.ticker }}</span>
               </div>
               <div class="rk-mets">
-                {% with p=r.pnl %}<div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>{% endwith %}
-                <div class="muted">勝率 {{ r.win_rate|floatformat:0 }}% / 平均 ¥{{ r.avg|floatformat:0|intcomma }}</div>
+                {% with p=r.pnl %}
+                  <div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>
+                {% endwith %}
+                <div class="muted">
+                  勝率 {{ r.win_rate|floatformat:0 }}% /
+                  平均 ¥{{ r.avg|floatformat:0|intcomma }}
+                </div>
               </div>
             </div>
           {% endfor %}
