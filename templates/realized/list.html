@@ -26,6 +26,14 @@
   <div id="pnlSummaryWrap">
     {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
   </div>
+  
+  {# サマリーの下あたりに追加 #}
+<div id="pnlRankingWrap"
+     hx-get="{% url 'realized_ranking_partial' %}?q={{ q|urlencode }}"
+     hx-trigger="load"
+     hx-swap="outerHTML">
+  <div style="color:#94a3b8; padding:8px 0">ランキングを読み込み中…</div>
+</div>
 
   {# ★ 期間まとめ ─────────────────────────────── #}
   <div id="pnlPeriodWrap"
