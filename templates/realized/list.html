@@ -11,60 +11,78 @@
 <div class="pnl">
   <h1>実現損益</h1>
 
-  {# ── 検索だけ残す ─────────────────────────────── #}
+  {# ── 検索 ─────────────────────────────── #}
   <div class="fi fi-full mt-4">
-    <input
-      type="search"
-      name="q"
-      value="{{ q|default:'' }}"
-      id="q"
-      placeholder="ティッカー/名称で検索"
-      hx-get="{% url 'realized_table_partial' %}"
-      hx-target="#pnlTableWrap"
-      hx-trigger="keyup changed delay:300ms, search"
-      hx-include="#q"
-      class="w-full"
-    >
+    <input type="search" name="q" value="{{ q|default:'' }}" id="q"
+           placeholder="ティッカー/名称で検索"
+           hx-get="{% url 'realized_table_partial' %}"
+           hx-target="#pnlTableWrap"
+           hx-trigger="keyup changed delay:300ms, search"
+           hx-include="#q"
+           class="w-full">
   </div>
 
-  {# ── サマリー（1個だけ / innerHTML で中身のみ置換） ─────────── #}
-  <div
-    id="pnlSummaryWrap"
-    hx-get="{% url 'realized_summary_partial' %}?q={{ q|urlencode }}"
-    hx-trigger="load"
-    hx-swap="innerHTML"
-  >
-    {# 初回フォールバック（サーバーレンダリング時） #}
+  {# ── サマリー（SSR固定。必要時に JS で明示更新） ─────────── #}
+  <div id="pnlSummaryWrap">
     {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
   </div>
 
-  {# ★ 期間まとめ（初回ロード時に今月・月次を取得） ───────────── #}
-  <div
-    id="pnlPeriodWrap"
-    hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq=month&q={{ q|urlencode }}"
-    hx-trigger="load"
-    hx-swap="outerHTML"
-  >
+  {# ★ 期間まとめ ───────────────────────── #}
+  <div id="pnlPeriodWrap"
+       hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq=month&q={{ q|urlencode }}"
+       hx-trigger="load"
+       hx-swap="outerHTML">
     <div style="color:#94a3b8; padding:8px 0">期間まとめを読み込み中…</div>
   </div>
 
-  {# ── 月次チャート（外部パーシャル） ──────────────────── #}
+  {# ── チャート ────────────────────────── #}
   {% include "realized/_monthly_chart.html" %}
   {% include "realized/_analysis_charts.html" %}
 
-  {# ── CSV ────────────────────────────────────── #}
+  {# ── CSV ──────────────────────────────── #}
   <div class="csv-link">
     <a href="{% url 'realized_export_csv' %}?q={{ q|urlencode }}">CSVエクスポート</a>
   </div>
 
-  {# ── テーブル ──────────────────────────────── #}
-  <div
-    id="pnlTableWrap"
-    hx-get="{% url 'realized_table_partial' %}?q={{ q|urlencode }}"
-    hx-trigger="load"
-    hx-swap="outerHTML"
-  >
+  {# ── テーブル ─────────────────────────── #}
+  <div id="pnlTableWrap"
+       hx-get="{% url 'realized_table_partial' %}?q={{ q|urlencode }}"
+       hx-trigger="load"
+       hx-swap="outerHTML">
     {% include "realized/_table.html" with trades=trades %}
   </div>
 </div>
+
+{# ---- サマリーだけ手動リフレッシュ（HTMXではなく fetch） ---- #}
+<script>
+  async function refreshSummary() {
+    try {
+      const qEl = document.querySelector('#q');
+      const q   = qEl ? encodeURIComponent(qEl.value || '') : '';
+      const res = await fetch("{% url 'realized_summary_partial' %}?q=" + q, {credentials:'same-origin'});
+      const html = await res.text();
+      const wrap = document.getElementById('pnlSummaryWrap');
+      if (wrap) wrap.innerHTML = html;  // ← 中身だけ差し替え（外枠は維持）
+    } catch(e){ console.error(e); }
+  }
+
+  // 検索決定（Enter/blur/change）でサマリーを更新
+  (function(){
+    const qEl = document.querySelector('#q');
+    if (qEl) {
+      ['change','blur','keydown'].forEach(ev => {
+        qEl.addEventListener(ev, (e) => {
+          if (ev !== 'keydown' || e.key === 'Enter') refreshSummary();
+        });
+      });
+    }
+    // HTMXでテーブル or 期間まとめが差し替わったらサマリーも更新
+    document.body.addEventListener('htmx:afterSwap', (e) => {
+      if (!e.target) return;
+      if (e.target.id === 'pnlTableWrap' || e.target.id === 'pnlPeriodWrap') {
+        refreshSummary();
+      }
+    });
+  })();
+</script>
 {% endblock %}
