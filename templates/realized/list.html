@@ -26,21 +26,28 @@
   <div id="pnlSummaryWrap">
     {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
   </div>
-  
+
+  {# ── 期間まとめ（★これが抜けていた） ────────────────── #}
+  <div id="pnlPeriodWrap"
+       hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq=month&q={{ q|urlencode }}"
+       hx-trigger="load, pnl:refresh from:body"
+       hx-swap="outerHTML">
+    <div style="color:#94a3b8; padding:8px 0">期間まとめを読み込み中…</div>
+  </div>
 
   {# --- ランキング（期間連動） --- #}
-<div id="pnlRankingWrap"
-     hx-get="{% url 'realized_ranking_partial' %}?preset=LAST_12M&freq=month"
-     hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
-     hx-trigger="load, pnl:refresh from:body"
-     hx-swap="outerHTML">
-  <div style="color:#94a3b8;padding:8px 0">ランキングを読み込み中…</div>
-</div>
+  <div id="pnlRankingWrap"
+       hx-get="{% url 'realized_ranking_partial' %}"
+       hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
+       hx-trigger="load, pnl:refresh from:body"
+       hx-swap="outerHTML">
+    <div style="color:#94a3b8;padding:8px 0">ランキングを読み込み中…</div>
+  </div>
 
-{# ドリルダウンの明細を表示する場所 #}
-<div id="pnlRankingDetailWrap"></div>
+  {# ドリルダウンの明細を表示する場所 #}
+  <div id="pnlRankingDetailWrap"></div>
 
-  {# ── チャート ───────────────────────────── #}
+  {# ── チャート（グラフ→期間まとめへ focus イベント送信） ─────── #}
   {% include "realized/_monthly_chart.html" %}
   {% include "realized/_analysis_charts.html" %}
 
@@ -52,7 +59,7 @@
   {# ── テーブル ───────────────────────────── #}
   <div id="pnlTableWrap"
        hx-get="{% url 'realized_table_partial' %}?q={{ q|urlencode }}"
-       hx-trigger="load"
+       hx-trigger="load, pnl:refresh from:body"
        hx-swap="outerHTML">
     {% include "realized/_table.html" with trades=trades %}
   </div>
