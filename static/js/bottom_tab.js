@@ -30,7 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeout(()=>{ toast.style.opacity="0"; toast.style.transform="translate(-50%,24px)"; }, 1100);
   };
 
-  /* --- メニュー定義（実現損益タブを追加） --- */
+  /* --- メニュー定義 --- */
   const MENUS = {
     home: [
       { section:"クイック" },
@@ -62,6 +62,9 @@ document.addEventListener("DOMContentLoaded", () => {
     ],
   };
 
+  /* --- エイリアス対応 --- */
+  const MENU_ALIASES = { pnl: "realized", realized: "realized" };
+
   /* --- ナビゲーション --- */
   const normPath = (p)=>{
     try{ const u = new URL(p, location.origin); let x=u.pathname; if(x!=="/" && !x.endsWith("/")) x+="/"; return x; }
@@ -84,16 +87,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const triggerBounce = (btn)=>{
     btn.classList.remove("pressing");
     btn.classList.remove("clicked");
-    // 強制リフローでアニメを毎回起動
-    // eslint-disable-next-line no-unused-expressions
-    btn.offsetWidth;
+    btn.offsetWidth; // 強制リフロー
     btn.classList.add("clicked");
     setTimeout(()=> btn.classList.remove("clicked"), 220);
   };
 
   /* --- ボトムシート --- */
   function renderMenu(type){
-    const items = MENUS[type] || [];
+    const resolved = MENU_ALIASES[type] || type;
+    const items = MENUS[resolved] || [];
     submenu.innerHTML = '<div class="grabber" aria-hidden="true"></div>';
     items.forEach(it=>{
       if (it.section){
@@ -107,7 +109,7 @@ document.addEventListener("DOMContentLoaded", () => {
       b.addEventListener("click",(ev)=>{
         ev.stopPropagation(); hideMenu();
         if (it.href){ navigateTo(it.href); return; }
-        window.dispatchEvent(new CustomEvent("bottomtab:action",{detail:{menu:type,action:it.action}}));
+        window.dispatchEvent(new CustomEvent("bottomtab:action",{detail:{menu:resolved,action:it.action}}));
       });
       submenu.appendChild(b);
     });
