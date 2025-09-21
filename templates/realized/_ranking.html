@@ -87,20 +87,22 @@
 </div>
 
 <script>
-  // ランキング行クリック → 検索 q に適用して各セクションを更新
-  function applyTickerFilter(ticker){
+  // 検索欄に反映 → HTMX領域をまとめて再取得（既存の構成を活かす）
+  window.filterByTicker = function(ticker){
     const q = document.getElementById('q');
     if (!q) return;
     q.value = ticker;
-    // 既存の仕組み（テーブル/サマリー/期間/チャート）を更新
+    // テーブル差し替え（既存のhx-get設定を利用）
     q.dispatchEvent(new Event('change', {bubbles:true}));
-    if (window.htmx){
-      document.body.dispatchEvent(new Event('pnl:refresh'));
-      // 自分（ランキング）も再読み込み（選択銘柄のランキング状態に）
-      htmx.ajax('GET', `{% url 'realized_ranking_partial' %}?q=${encodeURIComponent(ticker)}`,
-        {target:'#pnlRankingWrap', swap:'outerHTML'});
-    }
-    // スクロール位置を少し下げてランキング効果を見せるなら↓
-    // document.getElementById('pnlTableWrap')?.scrollIntoView({behavior:'smooth', block:'start'});
-  }
+    // 期間まとめ・サマリー・グラフも更新したい場合はカスタムイベントで
+    document.body.dispatchEvent(new Event('pnl:refresh'));
+  };
+  // フィルタ解除（空にして全更新）
+  window.clearTickerFilter = function(){
+    const q = document.getElementById('q');
+    if (!q) return;
+    q.value = '';
+    q.dispatchEvent(new Event('change', {bubbles:true}));
+    document.body.dispatchEvent(new Event('pnl:refresh'));
+  };
 </script>
