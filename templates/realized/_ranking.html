@@ -1,108 +1,102 @@
-{# templates/realized/_ranking.html #}
 {% load humanize %}
-
 <style>
-  .rank-wrap{margin-top:16px}
-  .rank-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-  .rank-grid{display:grid;gap:12px;grid-template-columns:repeat(2,minmax(0,1fr))}
-  .rank-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);border-radius:12px;padding:12px}
-  .rank-title{font-size:12px;color:#a7b1d8;margin-bottom:8px;display:flex;align-items:center;gap:6px}
-  .rank-row{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;padding:6px 0;border-top:1px dashed rgba(255,255,255,.06)}
-  .rank-row:first-of-type{border-top:0}
-  .tic{font-weight:700;font-variant-numeric:tabular-nums}
-  .nm{font-size:12px;color:#cbd5e1}
-  .k{font-size:12px;color:#9aa4b2}
-  .v{font-variant-numeric:tabular-nums}
-  .pos{color:#86efac}
-  .neg{color:#fca5a5}
-  .pill{font-size:11px;border:1px solid rgba(255,255,255,.12);padding:3px 6px;border-radius:9999px;color:#e5e7eb}
-  .mini{font-size:11px;color:#94a3b8}
-  .clickable{cursor:pointer}
-  @media (max-width: 768px){
-    .rank-grid{grid-template-columns:1fr}
-  }
+  .rk-wrap{margin-top:14px}
+  .rk-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .rk-h{font-size:13px;color:#cbd5e1}
+  .rk-clear{font-size:11px;padding:4px 8px;border:1px solid rgba(148,163,184,.25);border-radius:8px;background:transparent;color:#cbd5e1}
+  .rk-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .rk-card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:10px}
+  .rk-ttl{font-size:12px;color:#94a3b8;margin-bottom:6px}
+  .rk-row{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:8px;cursor:pointer}
+  .rk-row:hover{background:rgba(255,255,255,.06)}
+  .rk-name{font-size:13px;color:#e5e7eb;display:flex;gap:6px;align-items:baseline}
+  .rk-ticker{font-size:11px;color:#94a3b8}
+  .rk-mets{font-variant-numeric:tabular-nums;text-align:right}
+  .rk-mets div{line-height:1.2}
+  .pos{color:#86efac} .neg{color:#fca5a5}
+  .muted{color:#94a3b8}
+  @media (max-width: 640px){ .rk-grid{grid-template-columns:1fr} }
 </style>
 
-<div class="rank-wrap" id="pnlRankingWrap">
-  <div class="rank-head">
-    <div class="mini">🎯 銘柄別ランキング（実現PnL）</div>
-    <button type="button" class="pill" onclick="window.clearTickerFilter?.()">フィルタ解除</button>
+<div class="rk-wrap" id="rkWrap">
+  <div class="rk-head">
+    <div class="rk-h">📊 銘柄別ランキング（実現PnL）</div>
+    <button type="button" class="rk-clear" id="rkClear">フィルタ解除</button>
   </div>
 
-  <div class="rank-grid">
-    {# ------ TOP 5 ------ #}
-    <div class="rank-card">
-      <div class="rank-title">🏆 TOP 5</div>
-      {% if top5 %}
-        {% for r in top5 %}
-          <div class="rank-row clickable" onclick="window.filterByTicker?.('{{ r.ticker }}')">
-            <div>
-              <div class="tic">{{ r.ticker }}</div>
-              <div class="nm">{{ r.name }}</div>
-            </div>
-            <div class="k">
-              件数 {{ r.n|intcomma }}・数量 {{ r.qty|intcomma }}<br>
-              勝率 {{ r.win_rate|floatformat:0 }}%
-            </div>
-            <div style="text-align:right">
-              <div class="v {% if r.pnl >= 0 %}pos{% else %}neg{% endif %}">
-                ¥{{ r.pnl|floatformat:0|intcomma }}
+  {% if (top5 and top5|length) or (worst5 and worst5|length) %}
+    <div class="rk-grid">
+      <div class="rk-card">
+        <div class="rk-ttl">🏅 TOP 5</div>
+        {% if top5 %}
+          {% for r in top5 %}
+            <div class="rk-row" data-ticker="{{ r.ticker }}">
+              <div class="rk-name">
+                <span>{{ r.name|default:r.ticker }}</span>
+                <span class="rk-ticker">{{ r.ticker }}</span>
               </div>
-              <div class="mini">平均 ¥{{ r.avg|floatformat:0|intcomma }}</div>
+              <div class="rk-mets">
+                {% with p=r.pnl %}
+                  <div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>
+                {% endwith %}
+                <div class="muted">勝率 {{ r.win_rate|floatformat:0 }}% / 平均 ¥{{ r.avg|floatformat:0|intcomma }}</div>
+              </div>
             </div>
-          </div>
-        {% endfor %}
-      {% else %}
-        <div class="mini" style="padding:8px 0">データなし</div>
-      {% endif %}
-    </div>
+          {% endfor %}
+        {% else %}
+          <div class="muted" style="padding:8px 0">データなし</div>
+        {% endif %}
+      </div>
 
-    {# ------ WORST 5 ------ #}
-    <div class="rank-card">
-      <div class="rank-title">📉 ワースト 5</div>
-      {% if worst5 %}
-        {% for r in worst5 %}
-          <div class="rank-row clickable" onclick="window.filterByTicker?.('{{ r.ticker }}')">
-            <div>
-              <div class="tic">{{ r.ticker }}</div>
-              <div class="nm">{{ r.name }}</div>
-            </div>
-            <div class="k">
-              件数 {{ r.n|intcomma }}・数量 {{ r.qty|intcomma }}<br>
-              勝率 {{ r.win_rate|floatformat:0 }}%
-            </div>
-            <div style="text-align:right">
-              <div class="v {% if r.pnl >= 0 %}pos{% else %}neg{% endif %}">
-                ¥{{ r.pnl|floatformat:0|intcomma }}
+      <div class="rk-card">
+        <div class="rk-ttl">📉 ワースト 5</div>
+        {% if worst5 %}
+          {% for r in worst5 %}
+            <div class="rk-row" data-ticker="{{ r.ticker }}">
+              <div class="rk-name">
+                <span>{{ r.name|default:r.ticker }}</span>
+                <span class="rk-ticker">{{ r.ticker }}</span>
               </div>
-              <div class="mini">平均 ¥{{ r.avg|floatformat:0|intcomma }}</div>
+              <div class="rk-mets">
+                {% with p=r.pnl %}
+                  <div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>
+                {% endwith %}
+                <div class="muted">勝率 {{ r.win_rate|floatformat:0 }}% / 平均 ¥{{ r.avg|floatformat:0|intcomma }}</div>
+              </div>
             </div>
-          </div>
-        {% endfor %}
-      {% else %}
-        <div class="mini" style="padding:8px 0">データなし</div>
-      {% endif %}
+          {% endfor %}
+        {% else %}
+          <div class="muted" style="padding:8px 0">データなし</div>
+        {% endif %}
+      </div>
     </div>
-  </div>
+  {% else %}
+    <div class="muted" style="padding:8px 0">データなし</div>
+  {% endif %}
 </div>
 
 <script>
-  // 検索欄に反映 → HTMX領域をまとめて再取得（既存の構成を活かす）
-  window.filterByTicker = function(ticker){
-    const q = document.getElementById('q');
-    if (!q) return;
-    q.value = ticker;
-    // テーブル差し替え（既存のhx-get設定を利用）
-    q.dispatchEvent(new Event('change', {bubbles:true}));
-    // 期間まとめ・サマリー・グラフも更新したい場合はカスタムイベントで
-    document.body.dispatchEvent(new Event('pnl:refresh'));
-  };
-  // フィルタ解除（空にして全更新）
-  window.clearTickerFilter = function(){
-    const q = document.getElementById('q');
-    if (!q) return;
-    q.value = '';
-    q.dispatchEvent(new Event('change', {bubbles:true}));
-    document.body.dispatchEvent(new Event('pnl:refresh'));
-  };
+(() => {
+  // ランキング行クリック → 検索に ticker を投入してHTMXで再描画
+  const wrap = document.getElementById('rkWrap');
+  const qEl  = document.getElementById('q');
+  function fireRefresh(){
+    // テーブル/サマリー/期間まとめ/チャートを再取得（既存のトリガを活用）
+    document.body.dispatchEvent(new Event('pnl:refresh', {bubbles:true}));
+    // テーブルのGETは #q の hx-get に任せるため、手動でイベント発火
+    if (window.htmx) htmx.trigger(qEl, 'search'); // ← input[type=search]のsearchイベント
+  }
+  wrap?.addEventListener('click', (e) => {
+    const row = e.target.closest('.rk-row');
+    if (!row || !qEl) return;
+    qEl.value = row.dataset.ticker || '';
+    fireRefresh();
+  });
+  // フィルタ解除
+  document.getElementById('rkClear')?.addEventListener('click', () => {
+    if (!qEl) return;
+    qEl.value = '';
+    fireRefresh();
+  });
+})();
 </script>
