@@ -91,31 +91,15 @@
         maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
 
-        // ★ グラフクリック → 全体表を維持して上部サマリー更新＆該当行ハイライト
+        // ★ グラフクリック → 差し替えは行わず、期間表へフォーカスイベントを送るだけ
         onClick: (evt, elements, inst) => {
           const pts = inst.getElementsAtEventForMode(evt, 'nearest', {intersect: true}, true);
           if (!pts || !pts.length) return;
           const label = inst.data.labels[pts[0].index];  // "YYYY-MM"
-
-          const wrap   = document.querySelector('#pnlPeriodWrap');
-          const preset = (wrap?.dataset.preset) || 'LAST_12M';
-          const freq   = (wrap?.dataset.freq)   || 'month';
-
-          const qEl = document.querySelector('#q');
-          const q   = qEl ? encodeURIComponent(qEl.value || '') : '';
-
-          const url =
-            "{% url 'realized_summary_period' %}"
-            + "?preset=" + encodeURIComponent(preset)
-            + "&freq="   + encodeURIComponent(freq)
-            + "&keep=all"
-            + "&focus="  + encodeURIComponent(label)
-            + "&q=" + q;
-
-          if (window.htmx) {
-            htmx.ajax('GET', url, { target: '#pnlPeriodWrap', swap: 'outerHTML' });
-            wrap?.scrollIntoView({behavior:'smooth', block:'start'});
-          }
+          document.dispatchEvent(new CustomEvent('pnl:focus-period', {
+            detail: { label },
+            bubbles: true,
+          }));
         },
 
         plugins: {
