@@ -1,94 +1,108 @@
-{# 銘柄別ランキング（実現PnL） #}
+{# templates/realized/_ranking.html #}
 {% load humanize %}
+
 <style>
-  .rk-wrap{margin-top:16px}
-  .rk-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-  .rk-grid{display:grid;gap:12px;grid-template-columns:repeat(2,minmax(0,1fr))}
-  .rk-card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px}
-  .rk-title{font-size:12px;color:#cbd5e1;margin-bottom:6px}
-  .rk-row{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:13px}
-  .rk-row+.rk-row{margin-top:8px}
-  .rk-code{font-weight:700}
-  .pos{color:#86efac}.neg{color:#fca5a5}
-  .mono{font-variant-numeric:tabular-nums}
-  .rk-item{padding:6px;border-radius:8px;cursor:pointer}
-  .rk-item:hover{background:rgba(255,255,255,.06)}
-  @media (max-width: 768px){.rk-grid{grid-template-columns:1fr}}
+  .rank-wrap{margin-top:16px}
+  .rank-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .rank-grid{display:grid;gap:12px;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rank-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);border-radius:12px;padding:12px}
+  .rank-title{font-size:12px;color:#a7b1d8;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .rank-row{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;padding:6px 0;border-top:1px dashed rgba(255,255,255,.06)}
+  .rank-row:first-of-type{border-top:0}
+  .tic{font-weight:700;font-variant-numeric:tabular-nums}
+  .nm{font-size:12px;color:#cbd5e1}
+  .k{font-size:12px;color:#9aa4b2}
+  .v{font-variant-numeric:tabular-nums}
+  .pos{color:#86efac}
+  .neg{color:#fca5a5}
+  .pill{font-size:11px;border:1px solid rgba(255,255,255,.12);padding:3px 6px;border-radius:9999px;color:#e5e7eb}
+  .mini{font-size:11px;color:#94a3b8}
+  .clickable{cursor:pointer}
+  @media (max-width: 768px){
+    .rank-grid{grid-template-columns:1fr}
+  }
 </style>
 
-<div class="rk-wrap" id="pnlRankingWrap">
-  <div class="rk-head">
-    <div class="text-slate-300 text-sm">銘柄別ランキング（実現PnL）</div>
+<div class="rank-wrap" id="pnlRankingWrap">
+  <div class="rank-head">
+    <div class="mini">🎯 銘柄別ランキング（実現PnL）</div>
+    <button type="button" class="pill" onclick="window.clearTickerFilter?.()">フィルタ解除</button>
   </div>
 
-  <div class="rk-grid">
-    <div class="rk-card">
-      <div class="rk-title">🏆 TOP 5（PnL合計）</div>
-      {% if top %}
-        {% for r in top %}
-          <div class="rk-item" onclick="applyTickerFilter('{{ r.ticker }}')">
-            <div class="rk-row">
-              <div><span class="rk-code">{{ r.ticker }}</span>　{{ r.name }}</div>
-              {% with v=r.pnl %}<div class="mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>{% endwith %}
+  <div class="rank-grid">
+    {# ------ TOP 5 ------ #}
+    <div class="rank-card">
+      <div class="rank-title">🏆 TOP 5</div>
+      {% if top5 %}
+        {% for r in top5 %}
+          <div class="rank-row clickable" onclick="window.filterByTicker?.('{{ r.ticker }}')">
+            <div>
+              <div class="tic">{{ r.ticker }}</div>
+              <div class="nm">{{ r.name }}</div>
             </div>
-            <div class="rk-row">
-              <div>件数 / 数量</div><div class="mono">{{ r.n|intcomma }} / {{ r.qty|intcomma }}</div>
+            <div class="k">
+              件数 {{ r.n|intcomma }}・数量 {{ r.qty|intcomma }}<br>
+              勝率 {{ r.win_rate|floatformat:0 }}%
             </div>
-            <div class="rk-row">
-              <div>平均PnL</div><div class="mono {% if r.avg >= 0 %}pos{% else %}neg{% endif %}">¥{{ r.avg|floatformat:0|intcomma }}</div>
-            </div>
-            <div class="rk-row">
-              <div>勝率</div><div class="mono">{{ r.win_rate|floatformat:1 }}%</div>
+            <div style="text-align:right">
+              <div class="v {% if r.pnl >= 0 %}pos{% else %}neg{% endif %}">
+                ¥{{ r.pnl|floatformat:0|intcomma }}
+              </div>
+              <div class="mini">平均 ¥{{ r.avg|floatformat:0|intcomma }}</div>
             </div>
           </div>
         {% endfor %}
       {% else %}
-        <div style="color:#94a3b8">データなし</div>
+        <div class="mini" style="padding:8px 0">データなし</div>
       {% endif %}
     </div>
 
-    <div class="rk-card">
-      <div class="rk-title">💥 ワースト 5（PnL合計）</div>
-      {% if worst %}
-        {% for r in worst %}
-          <div class="rk-item" onclick="applyTickerFilter('{{ r.ticker }}')">
-            <div class="rk-row">
-              <div><span class="rk-code">{{ r.ticker }}</span>　{{ r.name }}</div>
-              {% with v=r.pnl %}<div class="mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>{% endwith %}
+    {# ------ WORST 5 ------ #}
+    <div class="rank-card">
+      <div class="rank-title">📉 ワースト 5</div>
+      {% if worst5 %}
+        {% for r in worst5 %}
+          <div class="rank-row clickable" onclick="window.filterByTicker?.('{{ r.ticker }}')">
+            <div>
+              <div class="tic">{{ r.ticker }}</div>
+              <div class="nm">{{ r.name }}</div>
             </div>
-            <div class="rk-row">
-              <div>件数 / 数量</div><div class="mono">{{ r.n|intcomma }} / {{ r.qty|intcomma }}</div>
+            <div class="k">
+              件数 {{ r.n|intcomma }}・数量 {{ r.qty|intcomma }}<br>
+              勝率 {{ r.win_rate|floatformat:0 }}%
             </div>
-            <div class="rk-row">
-              <div>平均PnL</div><div class="mono {% if r.avg >= 0 %}pos{% else %}neg{% endif %}">¥{{ r.avg|floatformat:0|intcomma }}</div>
-            </div>
-            <div class="rk-row">
-              <div>勝率</div><div class="mono">{{ r.win_rate|floatformat:1 }}%</div>
+            <div style="text-align:right">
+              <div class="v {% if r.pnl >= 0 %}pos{% else %}neg{% endif %}">
+                ¥{{ r.pnl|floatformat:0|intcomma }}
+              </div>
+              <div class="mini">平均 ¥{{ r.avg|floatformat:0|intcomma }}</div>
             </div>
           </div>
         {% endfor %}
       {% else %}
-        <div style="color:#94a3b8">データなし</div>
+        <div class="mini" style="padding:8px 0">データなし</div>
       {% endif %}
     </div>
   </div>
 </div>
 
 <script>
-  // ランキング行クリック → 検索 q に適用して各セクションを更新
-  function applyTickerFilter(ticker){
+  // 検索欄に反映 → HTMX領域をまとめて再取得（既存の構成を活かす）
+  window.filterByTicker = function(ticker){
     const q = document.getElementById('q');
     if (!q) return;
     q.value = ticker;
-    // 既存の仕組み（テーブル/サマリー/期間/チャート）を更新
+    // テーブル差し替え（既存のhx-get設定を利用）
     q.dispatchEvent(new Event('change', {bubbles:true}));
-    if (window.htmx){
-      document.body.dispatchEvent(new Event('pnl:refresh'));
-      // 自分（ランキング）も再読み込み（選択銘柄のランキング状態に）
-      htmx.ajax('GET', `{% url 'realized_ranking_partial' %}?q=${encodeURIComponent(ticker)}`,
-        {target:'#pnlRankingWrap', swap:'outerHTML'});
-    }
-    // スクロール位置を少し下げてランキング効果を見せるなら↓
-    // document.getElementById('pnlTableWrap')?.scrollIntoView({behavior:'smooth', block:'start'});
-  }
+    // 期間まとめ・サマリー・グラフも更新したい場合はカスタムイベントで
+    document.body.dispatchEvent(new Event('pnl:refresh'));
+  };
+  // フィルタ解除（空にして全更新）
+  window.clearTickerFilter = function(){
+    const q = document.getElementById('q');
+    if (!q) return;
+    q.value = '';
+    q.dispatchEvent(new Event('change', {bubbles:true}));
+    document.body.dispatchEvent(new Event('pnl:refresh'));
+  };
 </script>
