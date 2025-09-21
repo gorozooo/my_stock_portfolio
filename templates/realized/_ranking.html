@@ -18,19 +18,22 @@
   @media (max-width: 640px){ .rk-grid{grid-template-columns:1fr} }
 </style>
 
-<div class="rk-wrap" id="rkWrap">
+{# 変数名ゆれ対策。未定義や空文字も最後で [] へフォールバック #}
+{% with t=top5|default:best5|default:top|default:tops|default:[] %}
+{% with w=worst5|default:bottom5|default:worst|default:bottom|default:[] %}
+
+<div class="rk-wrap" id="pnlRankingWrap">
   <div class="rk-head">
     <div class="rk-h">📊 銘柄別ランキング（実現PnL）</div>
     <button type="button" class="rk-clear" id="rkClear">フィルタ解除</button>
   </div>
 
-  {# ← length で厳密に判定 #}
-  {% if top5|length or worst5|length %}
+  {% if t|length or w|length %}
     <div class="rk-grid">
       <div class="rk-card">
         <div class="rk-ttl">🏅 TOP 5</div>
-        {% if top5|length %}
-          {% for r in top5 %}
+        {% if t|length %}
+          {% for r in t %}
             <div class="rk-row"
                  hx-get="{% url 'realized_ranking_detail_partial' %}"
                  hx-target="#pnlRankingDetailWrap"
@@ -42,9 +45,7 @@
                 <span class="rk-ticker">{{ r.ticker }}</span>
               </div>
               <div class="rk-mets">
-                {% with p=r.pnl %}
-                  <div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>
-                {% endwith %}
+                {% with p=r.pnl %}<div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>{% endwith %}
                 <div class="muted">勝率 {{ r.win_rate|floatformat:0 }}% / 平均 ¥{{ r.avg|floatformat:0|intcomma }}</div>
               </div>
             </div>
@@ -56,8 +57,8 @@
 
       <div class="rk-card">
         <div class="rk-ttl">📉 ワースト 5</div>
-        {% if worst5|length %}
-          {% for r in worst5 %}
+        {% if w|length %}
+          {% for r in w %}
             <div class="rk-row"
                  hx-get="{% url 'realized_ranking_detail_partial' %}"
                  hx-target="#pnlRankingDetailWrap"
@@ -69,9 +70,7 @@
                 <span class="rk-ticker">{{ r.ticker }}</span>
               </div>
               <div class="rk-mets">
-                {% with p=r.pnl %}
-                  <div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>
-                {% endwith %}
+                {% with p=r.pnl %}<div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>{% endwith %}
                 <div class="muted">勝率 {{ r.win_rate|floatformat:0 }}% / 平均 ¥{{ r.avg|floatformat:0|intcomma }}</div>
               </div>
             </div>
@@ -86,9 +85,12 @@
   {% endif %}
 </div>
 
+{% endwith %}
+{% endwith %}
+
 <script>
 (() => {
-  const qEl  = document.getElementById('q');
+  const qEl = document.getElementById('q');
   document.getElementById('rkClear')?.addEventListener('click', () => {
     if (!qEl) return;
     qEl.value = '';
