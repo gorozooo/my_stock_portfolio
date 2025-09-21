@@ -30,7 +30,7 @@
 
   {# --- ランキング（期間連動） --- #}
 <div id="pnlRankingWrap"
-     hx-get="{% url 'realized_ranking_partial' %}"
+     hx-get="{% url 'realized_ranking_partial' %}?preset=LAST_12M&freq=month"
      hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
      hx-trigger="load, pnl:refresh from:body"
      hx-swap="outerHTML">
