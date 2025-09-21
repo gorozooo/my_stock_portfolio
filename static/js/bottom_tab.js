@@ -6,10 +6,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const LONG_PRESS_MS = 500;
   if (!submenu || !mask || !tabs.length) return;
 
-  /* --- 列数をタブ数に自動追従（CSS変数へ） --- */
+  // 列数をタブ数に自動追従（CSS変数）
   document.documentElement.style.setProperty("--tab-cols", String(tabs.length));
 
-  /* --- Toast --- */
+  // Toast（簡易）
   let toast = document.getElementById("btmToast");
   if (!toast){
     toast = document.createElement("div");
@@ -30,12 +30,12 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeout(()=>{ toast.style.opacity="0"; toast.style.transform="translate(-50%,24px)"; }, 1100);
   };
 
-  /* --- メニュー定義 --- */
+  // メニュー定義
   const MENUS = {
     home: [
       { section:"クイック" },
       { label:"保有を追加",               action:"add_holding",   icon:"➕", tone:"add" },
-      { label:"実現損益を記録",           href:"/pnl/",           icon:"💰", tone:"action" },
+      { label:"実現損益を記録",           href:"/realized/",           icon:"💰", tone:"action" },
       { label:"設定を開く",               href:"/settings/trade/",icon:"⚙️", tone:"info" },
     ],
     holdings: [
@@ -49,9 +49,9 @@ document.addEventListener("DOMContentLoaded", () => {
     ],
     realized: [
       { section:"実現損益" },
-      { label:"期間サマリー（グラフ付き）", action:"pnl_show_summary", icon:"📊", tone:"info" },
-      { label:"ランキング",               action:"pnl_show_ranking", icon:"🏅", tone:"info" },
-      { label:"明細",                     action:"pnl_show_details", icon:"📑", tone:"info" },
+      { label:"期間サマリー（グラフ付き）", action:"show_summary", icon:"📊", tone:"info" },
+      { label:"ランキング",               action:"show_ranking", icon:"🏅", tone:"info" },
+      { label:"明細",                     action:"show_details", icon:"📑", tone:"info" },
     ],
     trend: [
       { section:"トレンド" },
@@ -62,10 +62,11 @@ document.addEventListener("DOMContentLoaded", () => {
     ],
   };
 
-  /* --- エイリアス対応 --- */
+  // ★ エイリアス対応（旧 "pnl" を "realized" に吸収）
   const MENU_ALIASES = { pnl: "realized", realized: "realized" };
+  const resolveMenuType = (t)=> MENU_ALIASES[t] || t;
 
-  /* --- ナビゲーション --- */
+  // ナビゲーション
   const normPath = (p)=>{
     try{ const u = new URL(p, location.origin); let x=u.pathname; if(x!=="/" && !x.endsWith("/")) x+="/"; return x; }
     catch{ return "/"; }
@@ -83,7 +84,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeout(()=>{ location.href = url; }, 60);
   };
 
-  /* --- バウンス --- */
+  // バウンス演出
   const triggerBounce = (btn)=>{
     btn.classList.remove("pressing");
     btn.classList.remove("clicked");
@@ -92,11 +93,23 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeout(()=> btn.classList.remove("clicked"), 220);
   };
 
-  /* --- ボトムシート --- */
+  // ボトムシート描画
   function renderMenu(type){
-    const resolved = MENU_ALIASES[type] || type;
+    const resolved = resolveMenuType(type);
     const items = MENUS[resolved] || [];
+
     submenu.innerHTML = '<div class="grabber" aria-hidden="true"></div>';
+
+    if (!items.length){
+      // 何も無いと「バーだけ」になるので、分かりやすい表示を入れる
+      const p = document.createElement("div");
+      p.className = "submenu-item tone-info";
+      p.style.opacity = ".8";
+      p.innerHTML = `<span class="ico">ℹ️</span><span>メニュー未設定（${resolved}）</span>`;
+      submenu.appendChild(p);
+      return;
+    }
+
     items.forEach(it=>{
       if (it.section){
         const sec = document.createElement("div");
@@ -114,6 +127,7 @@ document.addEventListener("DOMContentLoaded", () => {
       submenu.appendChild(b);
     });
   }
+
   const showMenu=(type, btn)=>{
     renderMenu(type);
     mask.classList.add("show");
@@ -176,18 +190,23 @@ document.addEventListener("DOMContentLoaded", () => {
   submenu.addEventListener("touchend", endDrag, {passive:true});
   submenu.addEventListener("touchcancel", endDrag, {passive:true});
 
-  /* --- タブ：タップ遷移 + 長押し --- */
+  // タブ：タップ遷移 + 長押し + アクティブタブはタップでメニュー表示
   tabs.forEach(btn=>{
     const link = btn.dataset.link;
-    const type = btn.dataset.menu;
+    const typeRaw = btn.dataset.menu;
+    const type = resolveMenuType(typeRaw);
     let timer=null, longPressed=false, moved=false;
 
+    // クリック：アクティブならメニュー、非アクティブなら遷移
     btn.addEventListener("click",(e)=>{
       if (longPressed){ e.preventDefault(); longPressed=false; return; }
       triggerBounce(btn);
+      const isActive = btn.classList.contains("active");
+      if (isActive){ e.preventDefault(); showMenu(type, btn); return; }
       if (!submenu.classList.contains("show") && link) navigateTo(link);
     });
 
+    // 長押しでメニュー
     btn.addEventListener("touchstart",(e)=>{
       e.preventDefault();
       longPressed=false; moved=false; clearTimeout(timer);
@@ -201,7 +220,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }, {passive:true});
   });
 
-  /* --- 初期アクティブ --- */
+  // 初期アクティブ表示
   (function markActive(){
     const here = normPath(location.pathname);
     tabs.forEach(b=>{
