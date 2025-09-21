@@ -455,19 +455,20 @@ def realized_ranking_partial(request):
 def realized_ranking_detail_partial(request):
     """
     銘柄ドリルダウン（期間連動）
-    GET: ticker, q, preset/freq/start/end
+    GET: ticker, preset/freq/start/end
     返却: _ranking_detail.html
     """
-    ticker = (request.GET.get("ticker") or "").strip()
-    q = (request.GET.get("q") or "").strip()
-    start, end, preset = _parse_period(request)
+    from django.db.models import Count, Sum, Value, IntegerField, Case, When, F
+    from django.db.models.functions import Coalesce
+    from decimal import Decimal
 
+    ticker = (request.GET.get("ticker") or "").strip()
     if not ticker:
         return render(request, "realized/_ranking_detail.html", {"ticker": "", "rows": [], "agg": {}})
 
+    start, end, _preset = _parse_period(request)
+
     qs = RealizedTrade.objects.filter(user=request.user, ticker=ticker)
-    if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
     if start:
         qs = qs.filter(trade_at__gte=start)
     if end:
@@ -475,20 +476,29 @@ def realized_ranking_detail_partial(request):
 
     qs = _with_metrics(qs).order_by("-trade_at", "-id")
 
-    # ミニ集計
+    DEC2 = RealizedTrade._meta.get_field("price").output_field  # 既存DECIMALと整合
     dec0 = Value(Decimal("0"), output_field=DEC2)
+
     agg = qs.aggregate(
         n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
         qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
-        pnl = Coalesce(Sum(Coalesce(F("pnl_display"), dec0)), dec0),
-        avg = Coalesce(Avg(Coalesce(F("pnl_display"), dec0)), dec0),
-        wins = Coalesce(Sum(Case(When(pnl_display__gt=0, then=1), default=0, output_field=IntegerField())), Value(0), output_field=IntegerField()),
+        pnl = Coalesce(Sum(Coalesce(F("pnl_display"), dec0), output_field=DEC2), dec0),
+        avg = Coalesce(
+            # 平均は Sum/Count で安全に
+            Sum(Coalesce(F("pnl_display"), dec0), output_field=DEC2) /
+            Coalesce(Count("id"), Value(1), output_field=IntegerField()),
+            dec0,
+        ),
+        wins = Coalesce(
+            Sum(Case(When(pnl_display__gt=0, then=1), default=0, output_field=IntegerField())),
+            Value(0),
+            output_field=IntegerField(),
+        ),
     )
-    n = agg.get("n") or 0
-    agg["win_rate"] = (agg.get("wins") * 100.0 / n) if n else 0.0
+    n = int(agg.get("n") or 0)
+    agg["win_rate"] = (float(agg.get("wins") or 0) * 100.0 / n) if n else 0.0
 
-    # 直近5件
-    rows = list(qs[:5])
+    rows = list(qs[:5])  # 直近5件
 
     return render(request, "realized/_ranking_detail.html", {
         "ticker": ticker,
