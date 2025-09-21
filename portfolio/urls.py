@@ -5,7 +5,6 @@ from .views import core as core_views
 from .views import settings as settings_views
 from .views import api as api_views
 from .views import realized as realized_views
-from .views import rankings as rankings_views
 
 urlpatterns = [
     path("", core_views.main, name="home"),
@@ -39,7 +38,7 @@ urlpatterns = [
     path("realized/summary-period", realized_views.summary_period_partial, name="realized_summary_period"),
     path("realized/chart-monthly.json", realized_views.chart_monthly_json, name="realized_chart_monthly"),
     path("realized/summary-partial/", realized_views.realized_summary_partial, name="realized_summary_partial"),
-    path("realized/ranking/",ranking_views.realized_ranking_partial,name="realized_ranking_partial",),
+    path("realized/ranking/", realized_views.realized_ranking_partial, name="realized_ranking_partial"),
     
     
     # ← 追加：部分テンプレとCSV
