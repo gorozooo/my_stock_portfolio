@@ -141,47 +141,43 @@ def _aggregate(qs):
 def _aggregate_by_broker(qs):
     """
     証券会社別の集計（現物/信用/合計とPnL）
-    返り値: list[dict] 例:
-      [{"broker":"RAKUTEN", "cash_spec":..., "cash_margin":..., "cash_total":..., "pnl":...}, ...]
     """
     qs = _with_metrics(qs)
 
-    # broker が NULL の場合は "OTHER" に寄せる（文字列型を明示）
-    broker_key = Coalesce(F("broker"), Value("OTHER"), output_field=CharField())
+    # NULL を OTHER に寄せた正規化フィールドを別名で付与
+    qs = qs.annotate(
+        broker_norm=Coalesce(F("broker"), Value("OTHER"), output_field=CharField())
+    )
 
     rows = (
-        qs.values(broker=broker_key)   # ← これで "broker" キーに正規化した文字列が入る
+        qs.values("broker_norm")  # ← モデルの broker と衝突しない
           .annotate(
               n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
               qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
               fee = Coalesce(
                   Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))),
-                  Value(Decimal("0"), output_field=DEC2)
+                  Value(Decimal("0"), output_field=DEC2),
               ),
-
-              # 現物/NISA は実キャッシュ合計
               cash_spec   = Coalesce(
-                  Sum("cashflow_calc", filter=Q(account__in=["SPEC", "NISA"]), output_field=DEC2),
-                  Value(Decimal("0"), output_field=DEC2)
+                  Sum("cashflow_calc", filter=Q(account__in=["SPEC","NISA"]), output_field=DEC2),
+                  Value(Decimal("0"), output_field=DEC2),
               ),
-              # 信用は "cashflow_calc" でも "cashflow" でもどちらでも良いが、
-              # ここは全体の集計ロジック (_aggregate) と合わせておく
               cash_margin = Coalesce(
                   Sum("cashflow_calc", filter=Q(account="MARGIN"), output_field=DEC2),
-                  Value(Decimal("0"), output_field=DEC2)
+                  Value(Decimal("0"), output_field=DEC2),
               ),
-
               pnl = Coalesce(
                   Sum("pnl_display", output_field=DEC2),
-                  Value(Decimal("0"), output_field=DEC2)
+                  Value(Decimal("0"), output_field=DEC2),
               ),
           )
-          .order_by("broker")
+          .order_by("broker_norm")
     )
 
     out = []
     for r in rows:
         r = dict(r)
+        r["broker"] = r.pop("broker_norm")  # テンプレ側は b.broker のままでOKに
         r["cash_total"] = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
         out.append(r)
     return out
