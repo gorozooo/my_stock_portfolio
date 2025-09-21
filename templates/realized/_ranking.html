@@ -24,29 +24,25 @@
     <button type="button" class="rk-clear" id="rkClear">フィルタ解除</button>
   </div>
 
-  {# top5 / worst5 のどちらかがあれば表示 #}
-  {% if top5 or worst5 %}
+  {% if (top5 and top5|length) or (worst5 and worst5|length) %}
     <div class="rk-grid">
       <div class="rk-card">
         <div class="rk-ttl">🏅 TOP 5</div>
         {% if top5 %}
           {% for r in top5 %}
-            <div class="rk-row" data-ticker="{{ r.ticker }}">
+            <div class="rk-row"
+                 hx-get="{% url 'realized_ranking_detail_partial' %}"
+                 hx-target="#pnlRankingDetailWrap"
+                 hx-swap="outerHTML"
+                 hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
+                 hx-vals='{"ticker":"{{ r.ticker }}"}'>
               <div class="rk-name">
-                <span>{% firstof r.name r.ticker %}</span>
+                <span>{{ r.name|default:r.ticker }}</span>
                 <span class="rk-ticker">{{ r.ticker }}</span>
               </div>
               <div class="rk-mets">
-                {% with p=r.pnl %}
-                  <div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>
-                {% endwith %}
-                <div class="muted">
-                  勝率
-                  {% if r.win_rate is not None %}{{ r.win_rate|floatformat:0 }}%{% else %}—{% endif %}
-                  /
-                  平均
-                  {% if r.avg is not None %}¥{{ r.avg|floatformat:0|intcomma }}{% else %}—{% endif %}
-                </div>
+                {% with p=r.pnl %}<div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>{% endwith %}
+                <div class="muted">勝率 {{ r.win_rate|floatformat:0 }}% / 平均 ¥{{ r.avg|floatformat:0|intcomma }}</div>
               </div>
             </div>
           {% endfor %}
@@ -59,22 +55,19 @@
         <div class="rk-ttl">📉 ワースト 5</div>
         {% if worst5 %}
           {% for r in worst5 %}
-            <div class="rk-row" data-ticker="{{ r.ticker }}">
+            <div class="rk-row"
+                 hx-get="{% url 'realized_ranking_detail_partial' %}"
+                 hx-target="#pnlRankingDetailWrap"
+                 hx-swap="outerHTML"
+                 hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
+                 hx-vals='{"ticker":"{{ r.ticker }}"}'>
               <div class="rk-name">
-                <span>{% firstof r.name r.ticker %}</span>
+                <span>{{ r.name|default:r.ticker }}</span>
                 <span class="rk-ticker">{{ r.ticker }}</span>
               </div>
               <div class="rk-mets">
-                {% with p=r.pnl %}
-                  <div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>
-                {% endwith %}
-                <div class="muted">
-                  勝率
-                  {% if r.win_rate is not None %}{{ r.win_rate|floatformat:0 }}%{% else %}—{% endif %}
-                  /
-                  平均
-                  {% if r.avg is not None %}¥{{ r.avg|floatformat:0|intcomma }}{% else %}—{% endif %}
-                </div>
+                {% with p=r.pnl %}<div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>{% endwith %}
+                <div class="muted">勝率 {{ r.win_rate|floatformat:0 }}% / 平均 ¥{{ r.avg|floatformat:0|intcomma }}</div>
               </div>
             </div>
           {% endfor %}
@@ -90,29 +83,19 @@
 
 <script>
 (() => {
-  // ランキング行クリック → 検索に ticker をセットして再描画
-  const wrap = document.getElementById('rkWrap');
+  // 既存の「#q」を使って全体フィルタ解除を実装
   const qEl  = document.getElementById('q');
-
-  function fireRefresh(){
-    // 既存の画面全体再取得トリガ
-    document.body.dispatchEvent(new Event('pnl:refresh', { bubbles:true }));
-    // 検索ボックスの hx-get を動かす
-    if (window.htmx && qEl) htmx.trigger(qEl, 'search');
-  }
-
-  wrap?.addEventListener('click', (e) => {
-    const row = e.target.closest('.rk-row');
-    if (!row || !qEl) return;
-    qEl.value = row.dataset.ticker || '';
-    fireRefresh();
-  });
-
-  // フィルタ解除
   document.getElementById('rkClear')?.addEventListener('click', () => {
     if (!qEl) return;
     qEl.value = '';
-    fireRefresh();
+    if (window.htmx) {
+      // 既存のリフレッシュ連鎖を利用（テーブル/サマリー/期間まとめ/チャート/ランキング 全部更新）
+      document.body.dispatchEvent(new Event('pnl:refresh', {bubbles:true}));
+      htmx.trigger(qEl, 'search');
+    }
+    // ドリルダウン領域をクリア
+    const d = document.getElementById('pnlRankingDetailWrap');
+    if (d) d.innerHTML = '';
   });
 })();
 </script>
