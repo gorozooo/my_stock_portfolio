@@ -1,0 +1,58 @@
+{% load humanize %}
+<style>
+  .rk-d-wrap{margin-top:10px}
+  .rk-d-card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px}
+  .rk-d-h{font-size:13px;color:#cbd5e1;margin-bottom:8px}
+  .rk-d-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:10px}
+  .rk-d-item{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px}
+  .k{font-size:12px;color:#94a3b8;margin-bottom:4px}
+  .v{font-variant-numeric:tabular-nums}
+  .pos{color:#86efac} .neg{color:#fca5a5}
+  table.rk-d-tbl{width:100%;border-collapse:separate;border-spacing:0}
+  table.rk-d-tbl th, table.rk-d-tbl td{padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.08);font-size:13px}
+  table.rk-d-tbl th{color:#94a3b8;text-align:left}
+</style>
+
+<div class="rk-d-wrap" id="rkDetail">
+  <div class="rk-d-card">
+    <div class="rk-d-h">🔎 銘柄詳細: {{ ticker|default:"(未選択)" }}</div>
+
+    {% if ticker %}
+      <div class="rk-d-grid">
+        <div class="rk-d-item"><div class="k">件数</div><div class="v">{{ agg.n|intcomma }}</div></div>
+        <div class="rk-d-item"><div class="k">数量</div><div class="v">{{ agg.qty|intcomma }}</div></div>
+        <div class="rk-d-item"><div class="k">📈PnL合計</div>
+          {% with p=agg.pnl %}<div class="v {% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>{% endwith %}
+        </div>
+        <div class="rk-d-item"><div class="k">勝率 / 平均</div>
+          <div class="v">{{ agg.win_rate|floatformat:0 }}% / ¥{{ agg.avg|floatformat:0|intcomma }}</div>
+        </div>
+      </div>
+
+      <table class="rk-d-tbl">
+        <thead>
+          <tr>
+            <th>日付</th><th>Side</th><th>数量</th><th>約定単価</th><th>📈PnL</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in rows %}
+            <tr>
+              <td>{{ t.trade_at|date:"Y-m-d" }}</td>
+              <td>{{ t.side }}</td>
+              <td>{{ t.qty|intcomma }}</td>
+              <td>¥{{ t.price|floatformat:0|intcomma }}</td>
+              {% with p=t.pnl_display %}
+                <td class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</td>
+              {% endwith %}
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" style="color:#94a3b8">直近の取引はありません</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div style="color:#94a3b8">銘柄を選択してください。</div>
+    {% endif %}
+  </div>
+</div>
