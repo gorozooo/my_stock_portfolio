@@ -140,33 +140,46 @@ def _aggregate(qs):
 
 def _aggregate_by_broker(qs):
     """
-    証券会社別の集計（📈PnL / 💰現金・現物/信用/合計）
+    証券会社別サマリー。
+    - 現物/NISA: cashflow_calc を合算
+    - 信用     : 手入力PnLの cashflow を合算
+    - PnL累計  : 常に cashflow を合算
     """
-    qs = _with_metrics(qs)  # cashflow_calc / pnl_display を付与
+    qs = _with_metrics(qs)
+
+    dec0 = Value(Decimal("0"), output_field=DEC2)
 
     rows = (
-        qs.values("broker")  # ← モデルフィールドでそのままグルーピング
+        qs.values("broker")
           .annotate(
               n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
-              qty = Coalesce(Sum("qty"),       Value(0), output_field=IntegerField()),
-              fee = Coalesce(Sum(Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))),
-                             Value(Decimal("0"), output_field=DEC2)),
+              qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
+              fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
 
-              # 現物・NISAは実キャッシュを合計
-              cash_spec   = Coalesce(
-                  Sum("cashflow_calc", filter=Q(account__in=["SPEC", "NISA"]), output_field=DEC2),
-                  Value(Decimal("0"), output_field=DEC2)
+              # 現物/NISA は実受渡（cashflow_calc）
+              cash_spec = Coalesce(
+                  Sum(
+                      Case(
+                          When(account__in=["SPEC", "NISA"], then=F("cashflow_calc")),
+                          default=dec0,
+                          output_field=DEC2,
+                      )
+                  ),
+                  dec0,
               ),
-              # 信用は現金フローを合計（_with_metrics 側の計算値）
+              # 信用は手入力PnL（cashflow）
               cash_margin = Coalesce(
-                  Sum("cashflow_calc", filter=Q(account="MARGIN"), output_field=DEC2),
-                  Value(Decimal("0"), output_field=DEC2)
+                  Sum(
+                      Case(
+                          When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
+                          default=dec0,
+                          output_field=DEC2,
+                      )
+                  ),
+                  dec0,
               ),
-              # 表示用PnL
-              pnl = Coalesce(
-                  Sum("pnl_display", output_field=DEC2),
-                  Value(Decimal("0"), output_field=DEC2)
-              ),
+              # 📈PnL 累計も常に cashflow 合算
+              pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
           )
           .order_by("broker")
     )
