@@ -15,6 +15,13 @@
 </style>
 
 <div id="pnlPeriodWrap" class="period-wrap" data-preset="{{ preset }}" data-freq="{{ freq }}">
+
+  {# ← ランキング等が hx-include で拾うための隠しフィールド #}
+  <input type="hidden" name="preset" id="periodPreset" value="{{ preset }}">
+  <input type="hidden" name="freq"   id="periodFreq"   value="{{ freq }}">
+  <input type="hidden" name="start"  id="periodStart"  value="{% if start %}{{ start|date:'Y-m-d' }}{% endif %}">
+  <input type="hidden" name="end"    id="periodEnd"    value="{% if end %}{{ end|date:'Y-m-d' }}{% endif %}">
+
   <div class="period-head">
     <div style="font-size:12px;color:#a7b1d8">期間まとめ</div>
 
@@ -44,12 +51,6 @@
       全体に戻る
     </button>
   </div>
-
-  {# ランキング連動用 hidden #}
-  <input type="hidden" name="preset" value="{{ preset }}">
-  <input type="hidden" name="freq"   value="{{ freq }}">
-  {% if start %}<input type="hidden" name="start" value="{{ start|date:'Y-m-d' }}">{% endif %}
-  {% if end   %}<input type="hidden" name="end"   value="{{ end|date:'Y-m-d' }}">{% endif %}
 
   {# ─ 選択サマリー ─ #}
   <div id="periodSelectedBox">
@@ -186,5 +187,15 @@
 
   // 全体に戻る
   btnClear?.addEventListener('click', clearFocus);
+
+  // ★ このパーシャルが差し替わった直後にランキング等を再読込させる
+  //   （ランキングは hx-trigger="pnl:refresh from:body" で待機中）
+  if (window.htmx) {
+    document.addEventListener('htmx:afterSwap', (ev) => {
+      if (ev.target && ev.target.id === 'pnlPeriodWrap') {
+        document.body.dispatchEvent(new Event('pnl:refresh', {bubbles:true}));
+      }
+    });
+  }
 })();
 </script>
