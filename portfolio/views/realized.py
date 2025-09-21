@@ -12,6 +12,7 @@ from django.db.models import (
     Count, Sum, F, Value, Case, When, ExpressionWrapper,
     DecimalField, IntegerField, Q, CharField, Avg
 )
+from django.db.models import DecimalField as DField
 from django.db.models.functions import Coalesce, TruncMonth, TruncYear
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, get_object_or_404
@@ -455,20 +456,20 @@ def realized_ranking_partial(request):
 def realized_ranking_detail_partial(request):
     """
     銘柄ドリルダウン（期間連動）
-    GET: ticker, preset/freq/start/end
+    GET: ticker, q, preset/freq/start/end
     返却: _ranking_detail.html
     """
-    from django.db.models import Count, Sum, Value, IntegerField, Case, When, F
-    from django.db.models.functions import Coalesce
-    from decimal import Decimal
-
     ticker = (request.GET.get("ticker") or "").strip()
-    if not ticker:
-        return render(request, "realized/_ranking_detail.html", {"ticker": "", "rows": [], "agg": {}})
+    q = (request.GET.get("q") or "").strip()
+    start, end, preset = _parse_period(request)
 
-    start, end, _preset = _parse_period(request)
+    if not ticker:
+        return render(request, "realized/_ranking_detail.html",
+                      {"ticker": "", "rows": [], "agg": {}})
 
     qs = RealizedTrade.objects.filter(user=request.user, ticker=ticker)
+    if q:
+        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
     if start:
         qs = qs.filter(trade_at__gte=start)
     if end:
@@ -476,27 +477,32 @@ def realized_ranking_detail_partial(request):
 
     qs = _with_metrics(qs).order_by("-trade_at", "-id")
 
-    DEC2 = RealizedTrade._meta.get_field("price").output_field  # 既存DECIMALと整合
+    # ここがポイント：dec0 は Value(...) で output_field を DEC2 に
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
     agg = qs.aggregate(
         n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
         qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
-        pnl = Coalesce(Sum(Coalesce(F("pnl_display"), dec0), output_field=DEC2), dec0),
+
+        # 型混在を避けるため Sum/Avg にも output_field=DEC2 を明示
+        pnl = Coalesce(
+            Sum(Coalesce(F("pnl_display"), dec0), output_field=DEC2),
+            dec0
+        ),
         avg = Coalesce(
-            # 平均は Sum/Count で安全に
-            Sum(Coalesce(F("pnl_display"), dec0), output_field=DEC2) /
-            Coalesce(Count("id"), Value(1), output_field=IntegerField()),
-            dec0,
+            Avg(Coalesce(F("pnl_display"), dec0), output_field=DEC2),
+            dec0
         ),
         wins = Coalesce(
-            Sum(Case(When(pnl_display__gt=0, then=1), default=0, output_field=IntegerField())),
-            Value(0),
-            output_field=IntegerField(),
+            Sum(Case(When(pnl_display__gt=0, then=1), default=0,
+                     output_field=IntegerField())),
+            Value(0), output_field=IntegerField()
         ),
     )
-    n = int(agg.get("n") or 0)
-    agg["win_rate"] = (float(agg.get("wins") or 0) * 100.0 / n) if n else 0.0
+
+    n = agg.get("n") or 0
+    wins = agg.get("wins") or 0
+    agg["win_rate"] = (wins * 100.0 / n) if n else 0.0
 
     rows = list(qs[:5])  # 直近5件
 
