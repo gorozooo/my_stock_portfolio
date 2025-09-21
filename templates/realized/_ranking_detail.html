@@ -1,109 +1,58 @@
 {% load humanize %}
 <style>
-  .rk-wrap{margin-top:14px}
-  .rk-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-  .rk-h{font-size:13px;color:#cbd5e1}
-  .rk-clear{font-size:11px;padding:4px 8px;border:1px solid rgba(148,163,184,.25);border-radius:8px;background:transparent;color:#cbd5e1}
-  .rk-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-  .rk-card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:10px}
-  .rk-ttl{font-size:12px;color:#94a3b8;margin-bottom:6px}
-  .rk-row{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:8px;cursor:pointer}
-  .rk-row:hover{background:rgba(255,255,255,.06)}
-  .rk-name{font-size:13px;color:#e5e7eb;display:flex;gap:6px;align-items:baseline}
-  .rk-ticker{font-size:11px;color:#94a3b8}
-  .rk-mets{font-variant-numeric:tabular-nums;text-align:right}
-  .rk-mets div{line-height:1.2}
+  .rk-d-wrap{margin-top:10px}
+  .rk-d-card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px}
+  .rk-d-h{font-size:13px;color:#cbd5e1;margin-bottom:8px}
+  .rk-d-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:10px}
+  .rk-d-item{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px}
+  .k{font-size:12px;color:#94a3b8;margin-bottom:4px}
+  .v{font-variant-numeric:tabular-nums}
   .pos{color:#86efac} .neg{color:#fca5a5}
-  .muted{color:#94a3b8}
-  @media (max-width: 640px){ .rk-grid{grid-template-columns:1fr} }
+  table.rk-d-tbl{width:100%;border-collapse:separate;border-spacing:0}
+  table.rk-d-tbl th, table.rk-d-tbl td{padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.08);font-size:13px}
+  table.rk-d-tbl th{color:#94a3b8;text-align:left}
 </style>
 
-{# 変数名ゆれ対策：存在する最初の配列を拾う。未定義/None は [] に落とす #}
-{% with t=top5|default:best5|default:top|default:tops|default_if_none:[] %}
-{% with w=worst5|default:bottom5|default:worst|default:bottom|default_if_none:[] %}
+<div class="rk-d-wrap" id="rkDetail">
+  <div class="rk-d-card">
+    <div class="rk-d-h">🔎 銘柄詳細: {{ ticker|default:"(未選択)" }}</div>
 
-<div class="rk-wrap" id="pnlRankingWrap">
-  <div class="rk-head">
-    <div class="rk-h">📊 銘柄別ランキング（実現PnL）</div>
-    <button type="button" class="rk-clear" id="rkClear">フィルタ解除</button>
+    {% if ticker %}
+      <div class="rk-d-grid">
+        <div class="rk-d-item"><div class="k">件数</div><div class="v">{{ agg.n|intcomma }}</div></div>
+        <div class="rk-d-item"><div class="k">数量</div><div class="v">{{ agg.qty|intcomma }}</div></div>
+        <div class="rk-d-item"><div class="k">📈PnL合計</div>
+          {% with p=agg.pnl %}<div class="v {% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>{% endwith %}
+        </div>
+        <div class="rk-d-item"><div class="k">勝率 / 平均</div>
+          <div class="v">{{ agg.win_rate|floatformat:0 }}% / ¥{{ agg.avg|floatformat:0|intcomma }}</div>
+        </div>
+      </div>
+
+      <table class="rk-d-tbl">
+        <thead>
+          <tr>
+            <th>日付</th><th>Side</th><th>数量</th><th>約定単価</th><th>📈PnL</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in rows %}
+            <tr>
+              <td>{{ t.trade_at|date:"Y-m-d" }}</td>
+              <td>{{ t.side }}</td>
+              <td>{{ t.qty|intcomma }}</td>
+              <td>¥{{ t.price|floatformat:0|intcomma }}</td>
+              {% with p=t.pnl_display %}
+                <td class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</td>
+              {% endwith %}
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" style="color:#94a3b8">直近の取引はありません</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div style="color:#94a3b8">銘柄を選択してください。</div>
+    {% endif %}
   </div>
-
-  {% if t|length or w|length %}
-    <div class="rk-grid">
-      <div class="rk-card">
-        <div class="rk-ttl">🏅 TOP 5</div>
-        {% if t|length %}
-          {% for r in t %}
-            <div class="rk-row"
-                 hx-get="{% url 'realized_ranking_detail_partial' %}"
-                 hx-target="#pnlRankingDetailWrap"
-                 hx-swap="outerHTML"
-                 hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
-                 hx-vals='{"ticker":"{{ r.ticker }}"}'>
-              <div class="rk-name">
-                <span>{{ r.name|default:r.ticker }}</span>
-                <span class="rk-ticker">{{ r.ticker }}</span>
-              </div>
-              <div class="rk-mets">
-                {% with p=r.pnl %}
-                  <div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>
-                {% endwith %}
-                <div class="muted">勝率 {{ r.win_rate|floatformat:0 }}% / 平均 ¥{{ r.avg|floatformat:0|intcomma }}</div>
-              </div>
-            </div>
-          {% endfor %}
-        {% else %}
-          <div class="muted" style="padding:8px 0">データなし</div>
-        {% endif %}
-      </div>
-
-      <div class="rk-card">
-        <div class="rk-ttl">📉 ワースト 5</div>
-        {% if w|length %}
-          {% for r in w %}
-            <div class="rk-row"
-                 hx-get="{% url 'realized_ranking_detail_partial' %}"
-                 hx-target="#pnlRankingDetailWrap"
-                 hx-swap="outerHTML"
-                 hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
-                 hx-vals='{"ticker":"{{ r.ticker }}"}'>
-              <div class="rk-name">
-                <span>{{ r.name|default:r.ticker }}</span>
-                <span class="rk-ticker">{{ r.ticker }}</span>
-              </div>
-              <div class="rk-mets">
-                {% with p=r.pnl %}
-                  <div class="{% if p >= 0 %}pos{% else %}neg{% endif %}">¥{{ p|floatformat:0|intcomma }}</div>
-                {% endwith %}
-                <div class="muted">勝率 {{ r.win_rate|floatformat:0 }}% / 平均 ¥{{ r.avg|floatformat:0|intcomma }}</div>
-              </div>
-            </div>
-          {% endfor %}
-        {% else %}
-          <div class="muted" style="padding:8px 0">データなし</div>
-        {% endif %}
-      </div>
-    </div>
-  {% else %}
-    <div class="muted" style="padding:8px 0">データなし</div>
-  {% endif %}
 </div>
-
-{% endwith %}
-{% endwith %}
-
-<script>
-(() => {
-  const qEl = document.getElementById('q');
-  document.getElementById('rkClear')?.addEventListener('click', () => {
-    if (!qEl) return;
-    qEl.value = '';
-    if (window.htmx) {
-      document.body.dispatchEvent(new Event('pnl:refresh', {bubbles:true}));
-      htmx.trigger(qEl, 'search');
-    }
-    const d = document.getElementById('pnlRankingDetailWrap');
-    if (d) d.innerHTML = '';
-  });
-})();
-</script>
