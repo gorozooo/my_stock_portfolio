@@ -16,7 +16,7 @@
 
 <div id="pnlPeriodWrap" class="period-wrap" data-preset="{{ preset }}" data-freq="{{ freq }}">
 
-  {# ← ランキング等が hx-include で拾うための隠しフィールド #}
+  {# ランキング等が hx-include で拾うための隠しフィールド #}
   <input type="hidden" name="preset" id="periodPreset" value="{{ preset }}">
   <input type="hidden" name="freq"   id="periodFreq"   value="{{ freq }}">
   <input type="hidden" name="start"  id="periodStart"  value="{% if start %}{{ start|date:'Y-m-d' }}{% endif %}">
@@ -133,9 +133,10 @@
 
   function buildSelectedHTML(row){
     const d = row.dataset;
-    const pnl = Number(d.pnl||0), cs = Number(d.cashSpec||d['cash-spec']||0),
-          cm = Number(d.cashMargin||d['cash-margin']||0),
-          ct = Number(d.cashTotal||d['cash-total']||(cs+cm));
+    const pnl = Number(d.pnl||0),
+          cs  = Number(d.cashSpec||d['cash-spec']||0),
+          cm  = Number(d.cashMargin||d['cash-margin']||0),
+          ct  = Number(d.cashTotal||d['cash-total']||(cs+cm));
     const cls = v => (Number(v)>=0 ? 'pos' : 'neg');
     return `
       <div class="rounded-xl p-3 mb-2" style="border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)">
@@ -173,14 +174,14 @@
     }
   }
 
-  // 行タップ
+  // 行タップで上部サマリー＆行ハイライト
   wrap.addEventListener('click', (e)=>{
     const tr = e.target.closest('tbody tr[data-period]');
     if (!tr) return;
     focusLabel(tr.dataset.period);
   });
 
-  // グラフからの通知
+  // チャートからの通知でフォーカス
   document.addEventListener('pnl:focus-period', (e)=>{
     if (e.detail && e.detail.label) focusLabel(e.detail.label);
   });
@@ -188,14 +189,16 @@
   // 全体に戻る
   btnClear?.addEventListener('click', clearFocus);
 
-  // ★ このパーシャルが差し替わった直後にランキング等を再読込させる
-  //   （ランキングは hx-trigger="pnl:refresh from:body" で待機中）
-  if (window.htmx) {
-    document.addEventListener('htmx:afterSwap', (ev) => {
-      if (ev.target && ev.target.id === 'pnlPeriodWrap') {
-        document.body.dispatchEvent(new Event('pnl:refresh', {bubbles:true}));
-      }
-    });
-  }
+  // ─ 重要 ─
+  // この部分テンプレが DOM に入ったタイミングで必ずランキング等を更新させる
+  // （ランキングは hx-trigger="pnl:refresh from:body" で待機）
+  document.body.dispatchEvent(new Event('pnl:refresh', { bubbles: true }));
+
+  // 参考: htmx差し替え直後にも保険で再発火（複数回発火でも問題なし）
+  document.addEventListener('htmx:afterSwap', (ev) => {
+    if (ev.target && ev.target.id === 'pnlPeriodWrap') {
+      document.body.dispatchEvent(new Event('pnl:refresh', { bubbles: true }));
+    }
+  });
 })();
 </script>
