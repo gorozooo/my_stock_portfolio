@@ -47,6 +47,12 @@
     </button>
   </div>
 
+  {# 🔑 ランキングやドリルダウンと連動するための hidden #}
+  <input type="hidden" name="preset" value="{{ preset }}">
+  <input type="hidden" name="freq"   value="{{ freq }}">
+  {% if start %}<input type="hidden" name="start" value="{{ start|date:'Y-m-d' }}">{% endif %}
+  {% if end   %}<input type="hidden" name="end"   value="{{ end|date:'Y-m-d' }}">{% endif %}
+
   {# ─ 選択サマリー ─ #}
   <div id="periodSelectedBox">
     {% if selected %}
@@ -176,7 +182,7 @@
     focusLabel(tr.dataset.period);
   });
 
-  // グラフからの通知（monthly_chart 側で dispatch しているイベント）
+  // グラフからの通知
   document.addEventListener('pnl:focus-period', (e)=>{
     if (e.detail && e.detail.label) focusLabel(e.detail.label);
   });
