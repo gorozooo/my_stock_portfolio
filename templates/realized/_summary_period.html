@@ -9,10 +9,8 @@
   .tbl th,.tbl td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.08)}
   .tbl thead th{font-size:12px;color:#a7b1d8;text-align:right;white-space:nowrap}
   .tbl thead th:first-child,.tbl tbody td:first-child{ text-align:left; white-space:nowrap }
-  /* ← 数値の折り返し防止＆桁揃え */
   .tbl .num{ text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums }
   .pos{color:#86efac} .neg{color:#fca5a5}
-  /* ← tr ではなく td に色を付けると確実に見える */
   .tbl tbody tr.is-focus > td{ background:rgba(59,130,246,.10) }
 </style>
 
@@ -47,7 +45,7 @@
     </button>
   </div>
 
-  {# 🔑 ランキングやドリルダウンと連動するための hidden #}
+  {# ランキング連動用 hidden #}
   <input type="hidden" name="preset" value="{{ preset }}">
   <input type="hidden" name="freq"   value="{{ freq }}">
   {% if start %}<input type="hidden" name="start" value="{{ start|date:'Y-m-d' }}">{% endif %}
@@ -95,7 +93,6 @@
     <tbody class="text-[15px]">
       {% if rows %}
         {% for r in rows %}
-          {# クリック時に使う値を data-* へ #}
           <tr
             data-period="{{ r.label }}"
             data-n="{{ r.n }}"
