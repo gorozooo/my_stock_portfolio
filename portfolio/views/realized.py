@@ -123,45 +123,56 @@ def _aggregate(qs):
         n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
         qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
         fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
-
-        cash_spec = Coalesce(
-            Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
-                     default=dec0, output_field=DEC2)),
-            dec0,
-        ),
-        cash_margin = Coalesce(
-            Sum(Case(When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
-                     default=dec0, output_field=DEC2)),
-            dec0,
-        ),
+        cash_spec = Coalesce(Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
+                                      default=dec0, output_field=DEC2)), dec0),
+        cash_margin = Coalesce(Sum(Case(When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
+                                        default=dec0, output_field=DEC2)), dec0),
         pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
 
-        # 👇 勝率計算用
-        wins = Sum(Case(When(cashflow__gt=0, then=1), default=0, output_field=IntegerField())),
+        # ✅ 利益合計（pnl>0）
+        profit_sum = Coalesce(Sum(Case(When(cashflow__gt=0, then=F("cashflow")),
+                                       default=dec0, output_field=DEC2)), dec0),
+        # ✅ 損失合計（pnl<0）
+        loss_sum = Coalesce(Sum(Case(When(cashflow__lt=0, then=F("cashflow")),
+                                     default=dec0, output_field=DEC2)), dec0),
+
+        # ✅ 平均PnL%（単純平均）
+        avg_pnl_pct = Avg(
+            Case(
+                When(qty__gt=0, then=(F("cashflow") / (F("price") * F("qty"))) * 100),
+                default=dec0,
+                output_field=DEC2
+            )
+        ),
+
+        # ✅ 平均保有日数
+        avg_hold_days = Avg(
+            Case(
+                When(
+                    # Holding から close_sheet 経由で trade に紐付ける場合は start_date/end_date を持ってる想定
+                    # 無い場合は 0 日扱い
+                    then=Cast(F("holding_days"), IntegerField()),
+                    default=Value(0),
+                    output_field=IntegerField()
+                )
+            )
+        ),
     )
+
+    # ✅ Profit Factor（PF）
+    profit = agg.get("profit_sum") or Decimal("0")
+    loss = agg.get("loss_sum") or Decimal("0")
+    agg["pf"] = (profit / abs(loss)) if loss and loss < 0 else None
 
     try:
         agg["cash_total"] = (agg["cash_spec"] or Decimal("0")) + (agg["cash_margin"] or Decimal("0"))
     except Exception:
         agg["cash_total"] = Decimal("0")
-
-    n = agg.get("n") or 0
-    wins = agg.get("wins") or 0
-    agg["win_rate"] = (wins * 100.0 / n) if n else 0.0  # ← 勝率[%]を追加
-
     return agg
 
 
 def _aggregate_by_broker(qs):
-    """
-    証券会社別サマリー。
-    - 現物/NISA: cashflow_calc を合算
-    - 信用     : 手入力PnLの cashflow を合算
-    - PnL累計  : 常に cashflow を合算
-    - 追加: 件数 n / 勝ち件数 wins / 勝率 win_rate
-    """
     qs = _with_metrics(qs)
-
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
     rows = (
@@ -170,37 +181,33 @@ def _aggregate_by_broker(qs):
               n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
               qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
               fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
-
-              # 現物/NISA は実受渡（cashflow_calc）
-              cash_spec = Coalesce(
-                  Sum(
-                      Case(
-                          When(account__in=["SPEC", "NISA"], then=F("cashflow_calc")),
-                          default=dec0,
-                          output_field=DEC2,
-                      )
-                  ),
-                  dec0,
-              ),
-              # 信用は手入力PnL（cashflow）
-              cash_margin = Coalesce(
-                  Sum(
-                      Case(
-                          When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
-                          default=dec0,
-                          output_field=DEC2,
-                      )
-                  ),
-                  dec0,
-              ),
-              # 📈PnL 累計も常に cashflow 合算
+              cash_spec = Coalesce(Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
+                                            default=dec0, output_field=DEC2)), dec0),
+              cash_margin = Coalesce(Sum(Case(When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
+                                              default=dec0, output_field=DEC2)), dec0),
               pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
 
-              # 追加: 勝ち件数（cashflow > 0）
-              wins = Coalesce(
-                  Sum(Case(When(cashflow__gt=0, then=1), default=0, output_field=IntegerField())),
-                  Value(0),
-                  output_field=IntegerField(),
+              profit_sum = Coalesce(Sum(Case(When(cashflow__gt=0, then=F("cashflow")),
+                                             default=dec0, output_field=DEC2)), dec0),
+              loss_sum = Coalesce(Sum(Case(When(cashflow__lt=0, then=F("cashflow")),
+                                           default=dec0, output_field=DEC2)), dec0),
+
+              avg_pnl_pct = Avg(
+                  Case(
+                      When(qty__gt=0, then=(F("cashflow") / (F("price") * F("qty"))) * 100),
+                      default=dec0,
+                      output_field=DEC2
+                  )
+              ),
+
+              avg_hold_days = Avg(
+                  Case(
+                      When(
+                          then=Cast(F("holding_days"), IntegerField()),
+                          default=Value(0),
+                          output_field=IntegerField()
+                      )
+                  )
               ),
           )
           .order_by("broker")
@@ -209,10 +216,12 @@ def _aggregate_by_broker(qs):
     out = []
     for r in rows:
         r = dict(r)
-        r["cash_total"] = (r.get("cash_spec") or Decimal("0")) + (r.get("cash_margin") or Decimal("0"))
-        n = r.get("n") or 0
-        wins = r.get("wins") or 0
-        r["win_rate"] = (wins * 100.0 / n) if n else 0.0  # ％
+        r["cash_total"] = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
+
+        profit = r.get("profit_sum") or Decimal("0")
+        loss = r.get("loss_sum") or Decimal("0")
+        r["pf"] = (profit / abs(loss)) if loss and loss < 0 else None
+
         out.append(r)
     return out
 
