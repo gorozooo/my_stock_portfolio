@@ -1,5 +1,5 @@
 /* ==== Bottom Tab ====================================================== */
-.btm-wrap{position:fixed;left:0;right:0;bottom:0;z-index:10000;pointer-events:none}
+.btm-wrap{position:fixed;left:0;right:0;bottom:0;z-index:999990;pointer-events:none}
 .btm-nav{pointer-events:auto;background:rgba(13,16,24,.78);backdrop-filter:blur(12px);
   border-top:1px solid rgba(255,255,255,.08);padding-bottom:max(0px,env(safe-area-inset-bottom))}
 .btm-grid{max-width:680px;margin:0 auto;display:grid;gap:2px;
@@ -37,12 +37,12 @@
 
 /* ==== Mask ============================================================ */
 .btm-mask{position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(2px);
-  opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:10001}
+  opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:999995}
 .btm-mask.show{opacity:1;pointer-events:auto}
 
 /* ==== Bottom Sheet ==================================================== */
 .submenu{
-  position:fixed;left:0;right:0;bottom:0;transform:translateY(110%);transition:transform .2s ease;z-index:10002;
+  position:fixed;left:0;right:0;bottom:0;transform:translateY(110%);transition:transform .2s ease;z-index:999996;
   max-width:680px;margin:0 auto;background:rgba(24,28,42,.96);backdrop-filter:blur(16px);
   border-top-left-radius:18px;border-top-right-radius:18px;border:1px solid rgba(255,255,255,.08);
   padding:8px 10px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -10px 40px rgba(0,0,0,.45);
