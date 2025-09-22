@@ -117,113 +117,171 @@ def _with_metrics(qs):
 #   - pnl        : 📈PnL累計 = 手入力PnL(cashflow) を合計
 # ============================================================
 def _aggregate(qs):
+    """
+    画面上部の大元サマリー。
+    - 現物/NISA は cashflow_calc（受渡）を合算
+    - 信用は cashflow（=手入力PnL）を“現金相当”として合算
+    - PnL は常に cashflow 合算
+    - 追加: 利益合計/損失合計/PF/勝率/平均PnL%/平均保有日数
+    """
     qs = _with_metrics(qs)
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
-    agg = qs.aggregate(
+    # まずは“素のフィールド”に対する一次集計だけを行う（←二重集計を避ける）
+    agg_map = dict(
         n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
         qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
         fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
-        cash_spec = Coalesce(Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
-                                      default=dec0, output_field=DEC2)), dec0),
-        cash_margin = Coalesce(Sum(Case(When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
-                                        default=dec0, output_field=DEC2)), dec0),
-        pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
 
-        # ✅ 利益合計（pnl>0）
-        profit_sum = Coalesce(Sum(Case(When(cashflow__gt=0, then=F("cashflow")),
-                                       default=dec0, output_field=DEC2)), dec0),
-        # ✅ 損失合計（pnl<0）
-        loss_sum = Coalesce(Sum(Case(When(cashflow__lt=0, then=F("cashflow")),
-                                     default=dec0, output_field=DEC2)), dec0),
-
-        # ✅ 平均PnL%（単純平均）
-        avg_pnl_pct = Avg(
-            Case(
-                When(qty__gt=0, then=(F("cashflow") / (F("price") * F("qty"))) * 100),
-                default=dec0,
-                output_field=DEC2
-            )
+        # 現金（現物/NISA は受渡、信用は手入力PnL）
+        cash_spec = Coalesce(
+            Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
+                     default=dec0, output_field=DEC2)),
+            dec0,
+        ),
+        cash_margin = Coalesce(
+            Sum(Case(When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
+                     default=dec0, output_field=DEC2)),
+            dec0,
         ),
 
-        # ✅ 平均保有日数
-        avg_hold_days = Avg(
-            Case(
-                When(
-                    # Holding から close_sheet 経由で trade に紐付ける場合は start_date/end_date を持ってる想定
-                    # 無い場合は 0 日扱い
-                    then=Cast(F("holding_days"), IntegerField()),
-                    default=Value(0),
-                    output_field=IntegerField()
-                )
-            )
+        # 総PnL（手入力PnLの合算）
+        pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
+
+        # 利益合計 / 損失合計 / 勝ち数
+        profit_total = Coalesce(
+            Sum(Case(When(cashflow__gt=0, then=F("cashflow")),
+                     default=dec0, output_field=DEC2)),
+            dec0,
+        ),
+        loss_total = Coalesce(
+            Sum(Case(When(cashflow__lt=0, then=F("cashflow")),
+                     default=dec0, output_field=DEC2)),
+            dec0,
+        ),
+        wins = Coalesce(
+            Sum(Case(When(cashflow__gt=0, then=1),
+                     default=0, output_field=IntegerField())),
+            Value(0), output_field=IntegerField()
         ),
     )
 
-    # ✅ Profit Factor（PF）
-    profit = agg.get("profit_sum") or Decimal("0")
-    loss = agg.get("loss_sum") or Decimal("0")
-    agg["pf"] = (profit / abs(loss)) if loss and loss < 0 else None
+    # モデルに pnl_pct / holding_days があるなら平均を計算（無ければ後で None を入れる）
+    has_pnl_pct = any(f.name == "pnl_pct" for f in RealizedTrade._meta.fields)
+    has_hold    = any(f.name == "holding_days" for f in RealizedTrade._meta.fields)
+    if has_pnl_pct:
+        agg_map["avg_pnl_pct"] = Avg("pnl_pct")
+    if has_hold:
+        agg_map["avg_holding_days"] = Avg("holding_days")
 
-    try:
-        agg["cash_total"] = (agg["cash_spec"] or Decimal("0")) + (agg["cash_margin"] or Decimal("0"))
-    except Exception:
-        agg["cash_total"] = Decimal("0")
+    agg = qs.aggregate(**agg_map)
+
+    # 派生値は Python で安全に算出
+    agg["cash_total"] = (agg.get("cash_spec") or Decimal("0")) + (agg.get("cash_margin") or Decimal("0"))
+
+    n = int(agg.get("n") or 0)
+    wins = int(agg.get("wins") or 0)
+    agg["win_rate"] = (wins * 100.0 / n) if n else 0.0
+
+    profit = agg.get("profit_total") or Decimal("0")
+    loss   = agg.get("loss_total")   or Decimal("0")
+    agg["pf"] = (float(profit / abs(loss)) if loss and loss != 0 else None)
+
+    if not has_pnl_pct:
+        agg["avg_pnl_pct"] = None
+    if not has_hold:
+        agg["avg_holding_days"] = None
+
     return agg
 
 
+# --- 証券会社別サマリー ---------------------------------------------------
 def _aggregate_by_broker(qs):
+    """
+    証券会社別の集計。
+    - 現物/NISA: cashflow_calc（受渡）
+    - 信用     : cashflow（手入力PnL）
+    - PnL      : 常に cashflow 合算
+    - 追加: 件数/勝率/利益合計/損失合計/PF/平均PnL%/平均保有日数
+    """
     qs = _with_metrics(qs)
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
-    rows = (
+    has_pnl_pct = any(f.name == "pnl_pct" for f in RealizedTrade._meta.fields)
+    has_hold    = any(f.name == "holding_days" for f in RealizedTrade._meta.fields)
+
+    base = (
         qs.values("broker")
           .annotate(
               n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
               qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
               fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
-              cash_spec = Coalesce(Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
-                                            default=dec0, output_field=DEC2)), dec0),
-              cash_margin = Coalesce(Sum(Case(When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
-                                              default=dec0, output_field=DEC2)), dec0),
+
+              cash_spec = Coalesce(
+                  Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
+                           default=dec0, output_field=DEC2)),
+                  dec0,
+              ),
+              cash_margin = Coalesce(
+                  Sum(Case(When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
+                           default=dec0, output_field=DEC2)),
+                  dec0,
+              ),
               pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
 
-              profit_sum = Coalesce(Sum(Case(When(cashflow__gt=0, then=F("cashflow")),
-                                             default=dec0, output_field=DEC2)), dec0),
-              loss_sum = Coalesce(Sum(Case(When(cashflow__lt=0, then=F("cashflow")),
-                                           default=dec0, output_field=DEC2)), dec0),
-
-              avg_pnl_pct = Avg(
-                  Case(
-                      When(qty__gt=0, then=(F("cashflow") / (F("price") * F("qty"))) * 100),
-                      default=dec0,
-                      output_field=DEC2
-                  )
+              profit_total = Coalesce(
+                  Sum(Case(When(cashflow__gt=0, then=F("cashflow")),
+                           default=dec0, output_field=DEC2)),
+                  dec0,
               ),
-
-              avg_hold_days = Avg(
-                  Case(
-                      When(
-                          then=Cast(F("holding_days"), IntegerField()),
-                          default=Value(0),
-                          output_field=IntegerField()
-                      )
-                  )
+              loss_total = Coalesce(
+                  Sum(Case(When(cashflow__lt=0, then=F("cashflow")),
+                           default=dec0, output_field=DEC2)),
+                  dec0,
+              ),
+              wins = Coalesce(
+                  Sum(Case(When(cashflow__gt=0, then=1),
+                           default=0, output_field=IntegerField())),
+                  Value(0), output_field=IntegerField()
+              ),
+              **(
+                  {"avg_pnl_pct": Avg("pnl_pct")} if has_pnl_pct else {}
+              ),
+              **(
+                  {"avg_holding_days": Avg("holding_days")} if has_hold else {}
               ),
           )
           .order_by("broker")
     )
 
     out = []
-    for r in rows:
-        r = dict(r)
-        r["cash_total"] = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
+    for r in base:
+        row = dict(r)
+        row["cash_total"] = (row.get("cash_spec") or Decimal("0")) + (row.get("cash_margin") or Decimal("0"))
 
-        profit = r.get("profit_sum") or Decimal("0")
-        loss = r.get("loss_sum") or Decimal("0")
-        r["pf"] = (profit / abs(loss)) if loss and loss < 0 else None
+        n = int(row.get("n") or 0)
+        wins = int(row.get("wins") or 0)
+        row["win_rate"] = (wins * 100.0 / n) if n else 0.0
 
-        out.append(r)
+        profit = row.get("profit_total") or Decimal("0")
+        loss   = row.get("loss_total")   or Decimal("0")
+        row["pf"] = (float(profit / abs(loss)) if loss and loss != 0 else None)
+
+        # ブローカー名を日本語に整形（テンプレ側でそのまま出せるように）
+        b = (row.get("broker") or "").upper()
+        if   b == "RAKUTEN": row["broker_label"] = "楽天証券"
+        elif b == "SBI":     row["broker_label"] = "SBI証券"
+        elif b == "MATSUI":  row["broker_label"] = "松井証券"
+        elif b == "OTHER":   row["broker_label"] = "その他"
+        else:                 row["broker_label"] = b or "その他"
+
+        if not has_pnl_pct:
+            row["avg_pnl_pct"] = None
+        if not has_hold:
+            row["avg_holding_days"] = None
+
+        out.append(row)
+
     return out
 
 
