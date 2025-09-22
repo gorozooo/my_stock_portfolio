@@ -19,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
       background:"rgba(30,32,46,.96)",color:"#fff",padding:"8px 12px",fontSize:"13px",
       borderRadius:"10px",border:"1px solid rgba(255,255,255,.08)",
       boxShadow:"0 10px 28px rgba(0,0,0,.45)",opacity:"0",pointerEvents:"none",
-      transition:"opacity .16s ease, transform .16s ease",zIndex:"10006"
+      transition:"opacity .16s ease, transform .16s ease",zIndex:"100060"
     });
     document.body.appendChild(toast);
   }
@@ -30,12 +30,12 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeout(()=>{ toast.style.opacity="0"; toast.style.transform="translate(-50%,24px)"; }, 1100);
   };
 
-  /* --- メニュー定義（実現損益タブを追加） --- */
+  /* --- メニュー定義 --- */
   const MENUS = {
     home: [
       { section:"クイック" },
       { label:"保有を追加",               action:"add_holding",   icon:"➕", tone:"add" },
-      { label:"実現損益を記録",           href:"/realized/",           icon:"💰", tone:"action" },
+      { label:"実現損益を記録",           href:"/realized/",      icon:"💰", tone:"action" },
       { label:"設定を開く",               href:"/settings/trade/",icon:"⚙️", tone:"info" },
     ],
     holdings: [
@@ -47,11 +47,12 @@ document.addEventListener("DOMContentLoaded", () => {
       { label:"売却（クローズ）",         action:"close_position", icon:"💱", tone:"action" },
       { label:"削除",                     action:"delete_holding", icon:"🗑️", tone:"danger" },
     ],
-    realized: [
+    // 実現損益（pnl/realized どちらのキーでも出す）
+    pnl: [
       { section:"実現損益" },
-      { label:"期間サマリー（グラフ付き）", action:"show_summary", icon:"📊", tone:"info" },
-      { label:"ランキング",               action:"show_ranking", icon:"🏅", tone:"info" },
-      { label:"明細",                     action:"show_details", icon:"📑", tone:"info" },
+      { label:"期間サマリー（グラフ付き）", action:"show_summary",  icon:"📊", tone:"info" },
+      { label:"ランキング",               action:"show_ranking",  icon:"🏅", tone:"info" },
+      { label:"明細",                     action:"show_details",  icon:"📑", tone:"info" },
     ],
     trend: [
       { section:"トレンド" },
@@ -61,6 +62,7 @@ document.addEventListener("DOMContentLoaded", () => {
       { label:"チャート設定",             action:"chart_settings", icon:"🛠️", tone:"action" },
     ],
   };
+  MENUS.realized = MENUS.pnl;   // ← エイリアス
 
   /* --- ナビゲーション --- */
   const normPath = (p)=>{
@@ -84,7 +86,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const triggerBounce = (btn)=>{
     btn.classList.remove("pressing");
     btn.classList.remove("clicked");
-    // 強制リフローでアニメを毎回起動
+    // 強制リフロー
     // eslint-disable-next-line no-unused-expressions
     btn.offsetWidth;
     btn.classList.add("clicked");
@@ -93,8 +95,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* --- ボトムシート --- */
   function renderMenu(type){
-    const items = MENUS[type] || [];
+    const items = MENUS[type] || MENUS.realized || MENUS.pnl || [];
     submenu.innerHTML = '<div class="grabber" aria-hidden="true"></div>';
+    if (!items.length){
+      const none = document.createElement("div");
+      none.className = "section";
+      none.textContent = "このタブのメニューは未設定です";
+      submenu.appendChild(none);
+      return;
+    }
     items.forEach(it=>{
       if (it.section){
         const sec = document.createElement("div");
@@ -117,8 +126,8 @@ document.addEventListener("DOMContentLoaded", () => {
     mask.classList.add("show");
     submenu.classList.add("show");
     submenu.setAttribute("aria-hidden","false");
-    btn.classList.add("shake");
-    setTimeout(()=>btn.classList.remove("shake"), 320);
+    btn?.classList.add("shake");
+    setTimeout(()=>btn?.classList.remove("shake"), 320);
     if (navigator.vibrate) navigator.vibrate(10);
     document.documentElement.style.overflow="hidden";
     document.body.style.overflow="hidden";
@@ -174,14 +183,25 @@ document.addEventListener("DOMContentLoaded", () => {
   submenu.addEventListener("touchend", endDrag, {passive:true});
   submenu.addEventListener("touchcancel", endDrag, {passive:true});
 
-  /* --- タブ：タップ遷移 + 長押し --- */
+  /* --- タブ：タップ遷移 + 長押し（アクティブ再タップでメニュー） --- */
   tabs.forEach(btn=>{
     const link = btn.dataset.link;
     const type = btn.dataset.menu;
     let timer=null, longPressed=false, moved=false;
 
+    // iOSのプレスメニュー抑止
+    btn.addEventListener("contextmenu", e => e.preventDefault());
+
     btn.addEventListener("click",(e)=>{
       if (longPressed){ e.preventDefault(); longPressed=false; return; }
+      const here = normPath(location.pathname);
+      const me   = normPath(link||"/");
+      // すでにそのタブに居るならメニューを開く
+      if (here.startsWith(me) && !submenu.classList.contains("show")){
+        e.preventDefault();
+        showMenu(type, btn);
+        return;
+      }
       triggerBounce(btn);
       if (!submenu.classList.contains("show") && link) navigateTo(link);
     });
@@ -209,4 +229,7 @@ document.addEventListener("DOMContentLoaded", () => {
       b.classList.toggle("active", !!hit);
     });
   })();
+
+  /* --- デバッグ：コンソールから強制表示 --- */
+  window.openBottomMenu = (type = "realized") => showMenu(type, null);
 });
