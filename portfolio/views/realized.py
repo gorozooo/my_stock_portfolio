@@ -8,12 +8,13 @@ import traceback
 
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.db.models import FloatField
 from django.db.models import (
     Count, Sum, F, Value, Case, When, ExpressionWrapper,
     DecimalField, IntegerField, Q, CharField, Avg
 )
 from django.db.models import DecimalField as DField
-from django.db.models.functions import Coalesce, TruncMonth, TruncYear
+from django.db.models.functions import Coalesce, TruncMonth, TruncYear, Cast
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, get_object_or_404
 from django.template.loader import render_to_string
