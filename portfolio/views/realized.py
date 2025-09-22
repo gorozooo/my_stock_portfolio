@@ -889,6 +889,7 @@ def close_submit(request, pk: int):
     - 実損（手数料控除前）＝ cashflow（±で手入力）
     - 手数料 = (売値 − basis) × 数量 − 実損
     - Holding.user の有無、通常POST/HTMX の両方に耐える
+    - ★ basis と hold_days を RealizedTrade に保存
     """
     try:
         # --- Holding 取得（user 有無の両対応） ---
@@ -957,6 +958,17 @@ def close_submit(request, pk: int):
         # --- 手数料を逆算 ---
         fee = (price - basis) * Decimal(qty_in) - pnl_input
 
+        # --- 保有日数（Holding.created_at があれば推定） ---
+        days_held = None
+        try:
+            opened = getattr(h, "created_at", None)
+            if opened:
+                days_held = (trade_at - opened.date()).days
+                if days_held is not None and days_held < 0:
+                    days_held = 0
+        except Exception:
+            days_held = None
+
         # --- 登録 ---
         rt_kwargs = dict(
             trade_at=trade_at,
@@ -968,7 +980,9 @@ def close_submit(request, pk: int):
             qty=qty_in,
             price=price,
             fee=fee,
-            cashflow=pnl_input,  # 実損（±）
+            cashflow=pnl_input,     # 実損（±）
+            basis=basis,            # ★ 追加：平均取得単価
+            hold_days=days_held,    # ★ 追加：保有日数（推定）
             memo=memo,
         )
         if any(f.name == "user" for f in RealizedTrade._meta.fields):
@@ -1020,7 +1034,6 @@ def close_submit(request, pk: int):
         if request.headers.get("HX-Request") == "true":
             return JsonResponse({"ok": True, "table": table_html, "summary": summary_html, "holdings": holdings_html})
         else:
-            # 通常POSTで来た場合はリダイレクト（JSONが丸見えにならないように）
             from django.shortcuts import redirect
             return redirect("realized_list")
 
@@ -1031,6 +1044,5 @@ def close_submit(request, pk: int):
                 {"ok": False, "error": str(e), "traceback": traceback.format_exc()},
                 status=400,
             )
-        # 通常POST時は見せない
         from django.shortcuts import redirect
         return redirect("realized_list")
