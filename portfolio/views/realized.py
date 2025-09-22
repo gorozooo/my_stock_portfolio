@@ -100,27 +100,23 @@ def _with_metrics(qs):
         default=Value(Decimal("0")),
         output_field=DEC2,
     )
+    # 画面に出す実損（= cashflow を採用）
     pnl_display = Coalesce(F("cashflow"), Value(Decimal("0"), output_field=DEC2))
 
-    # 行ごとの PnL% （SELL & basis>0 & qty>0 のときのみ）
-    # pnl% = pnl_display / (basis * qty) * 100
+    # 行ごとの PnL%（SELL かつ basis>0 & qty>0 のときのみ）
     denom = ExpressionWrapper(
-        Coalesce(F("basis"), Value(Decimal("0"), output_field=DEC2)) *
-        Cast(F("qty"), DEC2),
+        F("basis") * Cast(F("qty"), DEC2),
         output_field=DEC2,
     )
     pnl_pct_each = Case(
-        When(side="SELL", then=
-             Case(
-                 When(denom__gt=0,
-                      then=ExpressionWrapper(
-                          (pnl_display / denom) * Value(100, output_field=DEC2),
-                          output_field=DEC4
-                      )
-                 ),
-                 default=Value(None, output_field=DEC4),
-                 output_field=DEC4
-             )
+        When(
+            side="SELL",
+            basis__gt=0,
+            qty__gt=0,
+            then=ExpressionWrapper(
+                (pnl_display / denom) * Value(100, output_field=DEC2),
+                output_field=DEC4,
+            ),
         ),
         default=Value(None, output_field=DEC4),
         output_field=DEC4,
@@ -130,6 +126,7 @@ def _with_metrics(qs):
         cashflow_calc=ExpressionWrapper(cashflow_calc, output_field=DEC2),
         pnl_display=ExpressionWrapper(pnl_display, output_field=DEC2),
         pnl_pct_each=pnl_pct_each,
+    )
     
 
 # ============================================================
@@ -142,41 +139,37 @@ def _with_metrics(qs):
 # ============================================================
 def _aggregate(qs):
     """
-    画面上部サマリー用の集計。
-    既存の合計に加えて:
+    画面サマリー集計：
+      既存の合計に加えて
       - profit_sum / loss_sum / pf
-      - avg_pnl_pct（SELL行の pnL% の平均）
-      - avg_hold_days（SELL行の hold_days 平均）
+      - avg_pnl_pct（SELLの行PnL%平均）
+      - avg_hold_days（SELLの平均保有日数）
+      - win_rate
     """
     qs = _with_metrics(qs)
     dec0 = Value(Decimal("0"), output_field=DEC2)
-
-    # SELL だけ別に使う
-    sell_only = qs.filter(side="SELL")
 
     agg = qs.aggregate(
         n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
         qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
         fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
 
-        # 現物/NISA は実キャッシュ
         cash_spec = Coalesce(
             Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
                      default=dec0, output_field=DEC2)),
             dec0,
         ),
-        # 信用は手入力PnL（cashflow）
         cash_margin = Coalesce(
             Sum(Case(When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
                      default=dec0, output_field=DEC2)),
             dec0,
         ),
-        # PnL は手入力合算
         pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
     )
 
-    # 追加集計（SELL行のみ）
-    sell_agg = sell_only.aggregate(
+    sell = qs.filter(side="SELL")
+
+    sell_agg = sell.aggregate(
         profit_sum = Coalesce(
             Sum(Case(When(pnl_display__gt=0, then=F("pnl_display")),
                      default=None, output_field=DEC2)), dec0),
@@ -189,8 +182,10 @@ def _aggregate(qs):
             Value(None, output_field=DEC4)
         ),
         avg_hold_days = Coalesce(
-            Avg(Case(When(hold_days__isnull=False, then=Cast(F("hold_days"), DField(max_digits=12, decimal_places=2))),
-                     default=None, output_field=DEC2)),
+            Avg(Case(
+                When(hold_days__isnull=False,
+                     then=Cast(F("hold_days"), DField(max_digits=12, decimal_places=2))),
+                default=None, output_field=DEC2)),
             Value(None, output_field=DEC2)
         ),
         wins = Coalesce(
@@ -200,7 +195,6 @@ def _aggregate(qs):
         total_trades = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
     )
 
-    # PF と勝率
     profit_sum = sell_agg["profit_sum"] or Decimal("0")
     loss_sum   = sell_agg["loss_sum"] or Decimal("0")
     pf = float(profit_sum) / float(abs(loss_sum)) if loss_sum != 0 else None
@@ -209,13 +203,13 @@ def _aggregate(qs):
     wins  = sell_agg["wins"] or 0
     win_rate = (wins * 100.0 / total) if total else 0.0
 
-    agg["cash_total"]   = (agg["cash_spec"] or Decimal("0")) + (agg["cash_margin"] or Decimal("0"))
-    agg["profit_sum"]   = profit_sum
-    agg["loss_sum"]     = loss_sum
-    agg["pf"]           = pf
-    agg["avg_pnl_pct"]  = sell_agg["avg_pnl_pct"]  # None or 小数（%）
-    agg["avg_hold_days"]= sell_agg["avg_hold_days"] # None or 小数（日）
-    agg["win_rate"]     = win_rate
+    agg["cash_total"]     = (agg["cash_spec"] or Decimal("0")) + (agg["cash_margin"] or Decimal("0"))
+    agg["profit_sum"]     = profit_sum
+    agg["loss_sum"]       = loss_sum
+    agg["pf"]             = pf
+    agg["avg_pnl_pct"]    = sell_agg["avg_pnl_pct"]
+    agg["avg_hold_days"]  = sell_agg["avg_hold_days"]
+    agg["win_rate"]       = win_rate
 
     return agg
 
