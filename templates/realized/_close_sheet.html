@@ -21,7 +21,27 @@
     <button type="button" class="text-indigo-300 underline" data-dismiss="sheet">閉じる</button>
   </div>
 
-  <form action="{% url 'realized_close_submit' h.id %}" method="post" id="closeForm">
+  {# ★ HTMX で JSON を受け取り、DOM を差し替える #}
+  <form
+      id="closeForm"
+      action="{% url 'realized_close_submit' h.id %}" method="post"
+      hx-post="{% url 'realized_close_submit' h.id %}"
+      hx-swap="none"
+      hx-headers='{"Accept":"application/json"}'
+      hx-on::after-request="
+        try {
+          const xhr = event.detail.xhr;
+          const res = JSON.parse(xhr.responseText || '{}');
+          if (!res.ok) { alert(res.error || '保存に失敗しました'); return; }
+          if (res.table)    { const w = document.querySelector('#pnlTableWrap');    if (w) w.outerHTML = res.table; }
+          if (res.summary)  { const w = document.querySelector('#pnlSummaryWrap');  if (w) w.outerHTML = res.summary; }
+          if (res.holdings) { const w = document.querySelector('#holdingsListWrap');if (w) w.outerHTML = res.holdings; }
+          document.querySelector('[data-dismiss=&quot;sheet&quot;]')?.click();
+        } catch(e) {
+          // 非HTMX（通常POST）のときはビュー側でリダイレクトが走るのでここは無視
+          console.warn(e);
+        }">
+
     {% csrf_token %}
 
     <div class="sheet-row">
@@ -95,3 +115,21 @@
     <input type="hidden" name="ticker" value="{{ h.ticker }}">
   </form>
 </div>
+
+<script>
+  // ±トグル（負号/正号を先頭に付け替え）
+  (function(){
+    const root = document.getElementById('closeSheet');
+    if (!root) return;
+    const input = root.querySelector('input[name="cashflow"]');
+    root.querySelectorAll('.sign-btn').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        if (!input) return;
+        const s = btn.dataset.sgn === '-' ? '-' : '';
+        const v = (input.value || '').replace(/^[+-]?/, ''); // 先頭符号を除去
+        input.value = s + v;
+        input.focus();
+      });
+    });
+  })();
+</script>
