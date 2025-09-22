@@ -124,25 +124,31 @@ def _aggregate(qs):
         qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
         fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
 
-        # 現物/NISA は実キャッシュ
         cash_spec = Coalesce(
             Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
                      default=dec0, output_field=DEC2)),
             dec0,
         ),
-        # 信用は手入力PnL（cashflow）
         cash_margin = Coalesce(
             Sum(Case(When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
                      default=dec0, output_field=DEC2)),
             dec0,
         ),
-        # PnL も手入力合算
         pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
+
+        # 👇 勝率計算用
+        wins = Sum(Case(When(cashflow__gt=0, then=1), default=0, output_field=IntegerField())),
     )
+
     try:
         agg["cash_total"] = (agg["cash_spec"] or Decimal("0")) + (agg["cash_margin"] or Decimal("0"))
     except Exception:
         agg["cash_total"] = Decimal("0")
+
+    n = agg.get("n") or 0
+    wins = agg.get("wins") or 0
+    agg["win_rate"] = (wins * 100.0 / n) if n else 0.0  # ← 勝率[%]を追加
+
     return agg
 
 
