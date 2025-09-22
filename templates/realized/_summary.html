@@ -18,50 +18,73 @@
 </style>
 
 <div class="summary-grid">
+  <!-- 件数 -->
   <div class="sum-card">
     <div class="k">件数</div>
     <div class="v mono">{{ agg.n|intcomma }}</div>
   </div>
 
+  <!-- 勝率 -->
   <div class="sum-card">
     <div class="k">勝率</div>
-    <div class="v mono">
-      {{ agg.win_rate|floatformat:1 }}%
-    </div>
+    {% with v=agg.win_rate %}
+      <div class="v mono">{% if v is not None %}{{ v|floatformat:1 }}%{% else %}—{% endif %}</div>
+    {% endwith %}
   </div>
 
+  <!-- PnL累計 -->
   <div class="sum-card">
     <div class="k">📈PnL累計</div>
     {% with v=agg.pnl %}
       <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
     {% endwith %}
   </div>
-  
+
+  <!-- 平均PnL% -->
   <div class="sum-card">
     <div class="k">平均PnL%</div>
-    <div class="v mono">{{ agg.avg_pnl_pct|floatformat:2 }}%</div>
+    {% with v=agg.avg_pnl_pct %}
+      <div class="v mono">{% if v is not None %}{{ v|floatformat:2 }}%{% else %}—{% endif %}</div>
+    {% endwith %}
   </div>
-  
+
+  <!-- 利益合計 -->
   <div class="sum-card">
     <div class="k">利益合計</div>
-    <div class="v mono pos">¥{{ agg.profit_sum|floatformat:0|intcomma }}</div>
+    {% with v=agg.profit_total %}
+      <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
+        {% if v is not None %}¥{{ v|floatformat:0|intcomma }}{% else %}—{% endif %}
+      </div>
+    {% endwith %}
   </div>
-  
+
+  <!-- 損失合計（マイナスのまま表示。絶対値で見せたいなら |floatformat の前に |abs を） -->
   <div class="sum-card">
     <div class="k">損失合計</div>
-    <div class="v mono neg">¥{{ agg.loss_sum|floatformat:0|intcomma }}</div>
+    {% with v=agg.loss_total %}
+      <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
+        {% if v is not None %}¥{{ v|floatformat:0|intcomma }}{% else %}—{% endif %}
+      </div>
+    {% endwith %}
   </div>
 
+  <!-- PF -->
   <div class="sum-card">
-    <div class="k">PF</div>
-    <div class="v mono">{{ agg.pf|floatformat:2 }}</div>
+    <div class="k">PF（利益/|損失|）</div>
+    {% with v=agg.pf %}
+      <div class="v mono">{% if v %}{{ v|floatformat:2 }}{% else %}—{% endif %}</div>
+    {% endwith %}
   </div>
-  
+
+  <!-- 平均保有日数 -->
   <div class="sum-card">
     <div class="k">平均保有日数</div>
-    <div class="v mono">{{ agg.avg_hold_days|floatformat:1 }}日</div>
+    {% with v=agg.avg_holding_days %}
+      <div class="v mono">{% if v is not None %}{{ v|floatformat:1 }} 日{% else %}—{% endif %}</div>
+    {% endwith %}
   </div>
 
+  <!-- 現金フロー（現物/NISA） -->
   <div class="sum-card">
     <div class="k">💰現金フロー（現物：特定/NISA）</div>
     {% with v=agg.cash_spec %}
@@ -69,6 +92,7 @@
     {% endwith %}
   </div>
 
+  <!-- 現金フロー（信用） -->
   <div class="sum-card">
     <div class="k">💰現金フロー（信用）</div>
     {% with v=agg.cash_margin %}
@@ -76,18 +100,19 @@
     {% endwith %}
   </div>
 
+  <!-- 現金フロー合計 -->
   <div class="sum-card" style="grid-column: span 2 / span 2;">
     <div class="k">💰現金フロー合計（現物＋信用）</div>
     {% with v=agg.cash_total %}
       <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
     {% endwith %}
   </div>
-  
-  <div class="sum-card">
+
+  <!-- 手数料合計 -->
+  <div class="sum-card" style="grid-column: span 2 / span 2;">
     <div class="k">手数料合計</div>
     <div class="v mono">¥{{ agg.fee|floatformat:0|intcomma }}</div>
   </div>
-  
 </div>
 
 {# ── 証券会社別 ───────────────────────── #}
@@ -96,22 +121,48 @@
   <div class="broker-grid" style="margin-top:6px">
     {% for b in agg_brokers %}
       <div class="sum-card">
-        <div class="bname">
-          {# 表示名の整形（SBI は日本語化、それ以外は DB 値そのまま or 既に日本語） #}
-          {% if b.broker == 'SBI' or b.broker == 'SBI証券' %}SBI証券
-          {% else %}{{ b.broker|default:'その他' }}{% endif %}
-        </div>
+        <div class="bname">{{ b.broker_label|default:b.broker|default:"その他" }}</div>
 
-        {# 追加: 件数 / 勝率 #}
         <div class="k">件数</div>
-        <div class="v mono">{{ b.n|intcomma }}</div>
+        <div class="v mono">{{ b.n|default_if_none:"—" }}</div>
 
         <div class="k" style="margin-top:8px">勝率</div>
-        <div class="v mono">{{ b.win_rate|floatformat:1 }}%</div>
+        {% with v=b.win_rate %}
+          <div class="v mono">{% if v is not None %}{{ v|floatformat:1 }}%{% else %}—{% endif %}</div>
+        {% endwith %}
+
+        <div class="k" style="margin-top:8px">平均PnL%</div>
+        {% with v=b.avg_pnl_pct %}
+          <div class="v mono">{% if v is not None %}{{ v|floatformat:2 }}%{% else %}—{% endif %}</div>
+        {% endwith %}
+
+        <div class="k" style="margin-top:8px">平均保有日数</div>
+        {% with v=b.avg_holding_days %}
+          <div class="v mono">{% if v is not None %}{{ v|floatformat:1 }} 日{% else %}—{% endif %}</div>
+        {% endwith %}
 
         <div class="k" style="margin-top:8px">📈PnL</div>
         {% with v=b.pnl %}
           <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
+        {% endwith %}
+
+        <div class="k" style="margin-top:8px">利益合計</div>
+        {% with v=b.profit_total %}
+          <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
+            {% if v is not None %}¥{{ v|floatformat:0|intcomma }}{% else %}—{% endif %}
+          </div>
+        {% endwith %}
+
+        <div class="k" style="margin-top:8px">損失合計</div>
+        {% with v=b.loss_total %}
+          <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
+            {% if v is not None %}¥{{ v|floatformat:0|intcomma }}{% else %}—{% endif %}
+          </div>
+        {% endwith %}
+
+        <div class="k" style="margin-top:8px">PF</div>
+        {% with v=b.pf %}
+          <div class="v mono">{% if v %}{{ v|floatformat:2 }}{% else %}—{% endif %}</div>
         {% endwith %}
 
         <div class="k" style="margin-top:8px">💰現金（現物）</div>
