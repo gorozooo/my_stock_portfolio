@@ -89,43 +89,59 @@ def _parse_period(request):
 #         BUY : -(qty*price + fee)
 #    - pnl_display : “投資家PnL”として画面に出す手入力の実損（= モデルの cashflow を流用）
 # ============================================================
+
 def _with_metrics(qs):
-    """行ごとの派生値（現金/表示PnL/行ごとのPnL%）を付与"""
+    """
+    現金・PnL・比率計算に必要な注釈を付与
+    """
     gross = ExpressionWrapper(F("qty") * F("price"), output_field=DEC2)
-    fee   = Coalesce(F("fee"), Value(Decimal("0"), output_field=DEC2))
+    fee   = Coalesce(F("fee"), Value(0, output_field=DEC2))
+    tax   = Coalesce(F("tax"), Value(0, output_field=DEC2))
 
+    # 現金フロー（自動）
     cashflow_calc = Case(
-        When(side="SELL", then=gross - fee),
-        When(side="BUY",  then=-(gross + fee)),
-        default=Value(Decimal("0")),
+        When(side="SELL", then=gross - fee - tax),
+        When(side="BUY",  then=-(gross + fee + tax)),
+        default=Value(0),
         output_field=DEC2,
     )
-    # 画面に出す実損（= cashflow を採用）
-    pnl_display = Coalesce(F("cashflow"), Value(Decimal("0"), output_field=DEC2))
 
-    # 行ごとの PnL%（SELL かつ basis>0 & qty>0 のときのみ）
-    denom = ExpressionWrapper(
-        F("basis") * Cast(F("qty"), DEC2),
+    # 投資家PnL（画面表示に使う値：cashflow を優先。無ければ 0）
+    pnl_display = Coalesce(F("cashflow"), Value(0, output_field=DEC2))
+
+    # PnL% を計算できる行（SELL かつ basis>0）
+    basis_amount = Case(
+        When(side="SELL", basis__gt=0, then=ExpressionWrapper(F("basis") * F("qty"), output_field=DEC2)),
+        default=None,
         output_field=DEC2,
     )
-    pnl_pct_each = Case(
-        When(
-            side="SELL",
-            basis__gt=0,
-            qty__gt=0,
-            then=ExpressionWrapper(
-                (pnl_display / denom) * Value(100, output_field=DEC2),
-                output_field=DEC4,
-            ),
-        ),
-        default=Value(None, output_field=DEC4),
-        output_field=DEC4,
+
+    pnl_pct = Case(
+        When(basis_amount__gt=0,
+             then=ExpressionWrapper(
+                 (pnl_display * Value(100, output_field=DEC2)) / basis_amount,
+                 output_field=FloatField()
+             )),
+        default=None,
+        output_field=FloatField(),
+    )
+
+    # 勝敗 1/0
+    is_win = Case(When(pnl_display__gt=0, then=1), default=0, output_field=IntegerField())
+
+    # hold_days を float にキャスト（NULL はそのまま）
+    hold_days_f = Case(
+        When(hold_days__isnull=False, then=Cast(F("hold_days"), FloatField())),
+        default=None, output_field=FloatField()
     )
 
     return qs.annotate(
         cashflow_calc=ExpressionWrapper(cashflow_calc, output_field=DEC2),
         pnl_display=ExpressionWrapper(pnl_display, output_field=DEC2),
-        pnl_pct_each=pnl_pct_each,
+        basis_amount=basis_amount,
+        pnl_pct=pnl_pct,
+        is_win=is_win,
+        hold_days_f=hold_days_f,
     )
     
 
