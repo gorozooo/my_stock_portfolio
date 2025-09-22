@@ -888,11 +888,10 @@ def close_submit(request, pk: int):
     保有行の「売却」を登録（平均取得から手数料を逆算）。
     - 実損（手数料控除前）＝ cashflow（±で手入力）
     - 手数料 = (売値 − basis) × 数量 − 実損
-    - basis は Holding 側の代表的フィールド名から自動検出
-    失敗時は {ok:false, error:"..."} を 400 で返す。
+    - Holding.user の有無、通常POST/HTMX の両方に耐える
     """
     try:
-        # --- Holding (user有無の両対応) ---
+        # --- Holding 取得（user 有無の両対応） ---
         filters = {"pk": pk}
         if any(f.name == "user" for f in Holding._meta.fields):
             filters["user"] = request.user
@@ -908,32 +907,29 @@ def close_submit(request, pk: int):
         except Exception:
             trade_at = timezone.localdate()
 
-        side  = "SELL"
+        side = "SELL"
         try:
             qty_in = int(request.POST.get("qty") or 0)
         except Exception:
             qty_in = 0
+
         price       = _to_dec(request.POST.get("price"))
         cashflow_in = request.POST.get("cashflow")  # 実損（手数料控除前 / ±）
         pnl_input   = None if cashflow_in in (None, "") else _to_dec(cashflow_in)
 
-        # ★ broker/account はフォーム > Holding > 既定 の優先順で解決
-        broker_in  = (request.POST.get("broker")  or "").strip().upper()
-        account_in = (request.POST.get("account") or "").strip().upper()
-        broker  = broker_in  or getattr(h, "broker", "")  or "OTHER"
-        account = account_in or getattr(h, "account", "") or "SPEC"
-
+        broker  = (request.POST.get("broker")  or "OTHER").upper()
+        account = (request.POST.get("account") or "SPEC").upper()
         memo    = (request.POST.get("memo")    or "").strip()
         name    = (request.POST.get("name")    or "").strip() or getattr(h, "name", "") or ""
 
-        # --- バリデーション（数量フィールド両対応）---
+        # --- バリデーション（数量） ---
         held_qty = getattr(h, "quantity", None)
         if held_qty is None:
             held_qty = getattr(h, "qty", 0)
         if qty_in <= 0 or price <= 0 or qty_in > held_qty:
             return JsonResponse({"ok": False, "error": "数量/価格を確認してください"}, status=400)
 
-        # --- basis(平均取得単価/1株) を検出 ---
+        # --- basis(平均取得単価) 検出 ---
         basis_candidates = [
             "avg_cost", "average_cost", "avg_price", "average_price",
             "basis", "cost_price", "cost_per_share", "avg", "average",
@@ -950,10 +946,7 @@ def close_submit(request, pk: int):
                     continue
         if basis is None:
             return JsonResponse(
-                {
-                    "ok": False,
-                    "error": "保有の平均取得単価(basis)が見つかりません。Holding に avg_cost / average_cost / basis 等のいずれかを用意してください。"
-                },
+                {"ok": False, "error": "保有の平均取得単価(basis)が見つかりません。"},
                 status=400,
             )
 
@@ -962,13 +955,10 @@ def close_submit(request, pk: int):
             pnl_input = Decimal("0")
 
         # --- 手数料を逆算 ---
-        # 実損（±） = (売値 − basis) × 数量 − fee  →  fee = (売値 − basis) × 数量 − 実損
         fee = (price - basis) * Decimal(qty_in) - pnl_input
 
-        # --- 登録（cashflow に“実損（手数料控除前）”を保存）---
-        # RealizedTrade 側は user フィールドがある前提（このプロジェクトでは残存）
-        RealizedTrade.objects.create(
-            user=request.user,
+        # --- 登録 ---
+        rt_kwargs = dict(
             trade_at=trade_at,
             side=side,
             ticker=getattr(h, "ticker", ""),
@@ -978,9 +968,12 @@ def close_submit(request, pk: int):
             qty=qty_in,
             price=price,
             fee=fee,
-            cashflow=pnl_input,  # ← 実損（±）
+            cashflow=pnl_input,  # 実損（±）
             memo=memo,
         )
+        if any(f.name == "user" for f in RealizedTrade._meta.fields):
+            rt_kwargs["user"] = request.user
+        RealizedTrade.objects.create(**rt_kwargs)
 
         # --- 保有数量の更新（0 以下で削除）---
         if hasattr(h, "quantity"):
@@ -990,38 +983,54 @@ def close_submit(request, pk: int):
             if h.quantity <= 0:
                 h.delete()
         else:
+            # 旧フィールド名互換
             h.qty = F("qty") - qty_in
             h.save(update_fields=["qty"])
             h.refresh_from_db()
             if h.qty <= 0:
                 h.delete()
 
-        # --- 再描画片 ---
+        # --- 再描画片を用意 ---
         q = (request.POST.get("q") or "").strip()
-        qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
+        qs = RealizedTrade.objects.all()
+        if any(f.name == "user" for f in RealizedTrade._meta.fields):
+            qs = qs.filter(user=request.user)
         if q:
             qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+        qs = qs.order_by("-trade_at", "-id")
 
-        rows = _with_metrics(qs)   # ← ここを _with_metrics に統一
+        rows = _with_metrics(qs)
         agg  = _aggregate(qs)
 
         table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
-        summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
+        summary_html = render_to_string("realized/_summary.html", {"agg": agg, "q": q}, request=request)
 
-        # --- 保有一覧（user フィールドの有無で分岐して取得）---
+        # 保有一覧（user フィールド有無に対応）
         try:
-            h_qs = Holding.objects.all()
+            holdings_qs = Holding.objects.all()
             if any(f.name == "user" for f in Holding._meta.fields):
-                h_qs = h_qs.filter(user=request.user)
-            holdings_html = render_to_string("holdings/_list.html", {"holdings": h_qs}, request=request)
+                holdings_qs = holdings_qs.filter(user=request.user)
+            holdings_html = render_to_string(
+                "holdings/_list.html", {"holdings": holdings_qs}, request=request
+            )
         except Exception:
             holdings_html = ""
 
-        return JsonResponse({"ok": True, "table": table_html, "summary": summary_html, "holdings": holdings_html})
+        # --- HTMX / 通常POST 両対応 ---
+        if request.headers.get("HX-Request") == "true":
+            return JsonResponse({"ok": True, "table": table_html, "summary": summary_html, "holdings": holdings_html})
+        else:
+            # 通常POSTで来た場合はリダイレクト（JSONが丸見えにならないように）
+            from django.shortcuts import redirect
+            return redirect("realized_list")
 
     except Exception as e:
         import traceback
-        return JsonResponse(
-            {"ok": False, "error": str(e), "traceback": traceback.format_exc()},
-            status=400,
-        )
+        if request.headers.get("HX-Request") == "true":
+            return JsonResponse(
+                {"ok": False, "error": str(e), "traceback": traceback.format_exc()},
+                status=400,
+            )
+        # 通常POST時は見せない
+        from django.shortcuts import redirect
+        return redirect("realized_list")
