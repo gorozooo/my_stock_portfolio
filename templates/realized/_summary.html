@@ -23,10 +23,11 @@
     <div class="v mono">{{ agg.n|intcomma }}</div>
   </div>
 
-  {# ← ここはそのまま or 以前のご要望で「勝率」に置き換えているならこのカードを勝率表示に変更してください #}
   <div class="sum-card">
-    <div class="k">数量合計</div>
-    <div class="v mono">{{ agg.qty|intcomma }}</div>
+    <div class="k">勝率</div>
+    <div class="v mono">
+      {{ agg.win_rate|floatformat:1 }}%
+    </div>
   </div>
 
   <div class="sum-card">
