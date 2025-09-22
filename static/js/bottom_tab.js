@@ -30,12 +30,12 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeout(()=>{ toast.style.opacity="0"; toast.style.transform="translate(-50%,24px)"; }, 1100);
   };
 
-  /* --- メニュー定義 --- */
+  /* --- メニュー定義（実現損益タブを追加） --- */
   const MENUS = {
     home: [
       { section:"クイック" },
       { label:"保有を追加",               action:"add_holding",   icon:"➕", tone:"add" },
-      { label:"実現損益を記録",           href:"/pnl/",           icon:"💰", tone:"action" },
+      { label:"実現損益を記録",           href:"/realized/",           icon:"💰", tone:"action" },
       { label:"設定を開く",               href:"/settings/trade/",icon:"⚙️", tone:"info" },
     ],
     holdings: [
@@ -49,9 +49,9 @@ document.addEventListener("DOMContentLoaded", () => {
     ],
     realized: [
       { section:"実現損益" },
-      { label:"期間サマリー（グラフ付き）", action:"pnl_show_summary", icon:"📊", tone:"info" },
-      { label:"ランキング",               action:"pnl_show_ranking", icon:"🏅", tone:"info" },
-      { label:"明細",                     action:"pnl_show_details", icon:"📑", tone:"info" },
+      { label:"期間サマリー（グラフ付き）", action:"show_summary", icon:"📊", tone:"info" },
+      { label:"ランキング",               action:"show_ranking", icon:"🏅", tone:"info" },
+      { label:"明細",                     action:"show_details", icon:"📑", tone:"info" },
     ],
     trend: [
       { section:"トレンド" },
@@ -61,9 +61,6 @@ document.addEventListener("DOMContentLoaded", () => {
       { label:"チャート設定",             action:"chart_settings", icon:"🛠️", tone:"action" },
     ],
   };
-
-  /* --- エイリアス対応 --- */
-  const MENU_ALIASES = { pnl: "realized", realized: "realized" };
 
   /* --- ナビゲーション --- */
   const normPath = (p)=>{
@@ -87,15 +84,16 @@ document.addEventListener("DOMContentLoaded", () => {
   const triggerBounce = (btn)=>{
     btn.classList.remove("pressing");
     btn.classList.remove("clicked");
-    btn.offsetWidth; // 強制リフロー
+    // 強制リフローでアニメを毎回起動
+    // eslint-disable-next-line no-unused-expressions
+    btn.offsetWidth;
     btn.classList.add("clicked");
     setTimeout(()=> btn.classList.remove("clicked"), 220);
   };
 
   /* --- ボトムシート --- */
   function renderMenu(type){
-    const resolved = MENU_ALIASES[type] || type;
-    const items = MENUS[resolved] || [];
+    const items = MENUS[type] || [];
     submenu.innerHTML = '<div class="grabber" aria-hidden="true"></div>';
     items.forEach(it=>{
       if (it.section){
@@ -109,7 +107,7 @@ document.addEventListener("DOMContentLoaded", () => {
       b.addEventListener("click",(ev)=>{
         ev.stopPropagation(); hideMenu();
         if (it.href){ navigateTo(it.href); return; }
-        window.dispatchEvent(new CustomEvent("bottomtab:action",{detail:{menu:resolved,action:it.action}}));
+        window.dispatchEvent(new CustomEvent("bottomtab:action",{detail:{menu:type,action:it.action}}));
       });
       submenu.appendChild(b);
     });
