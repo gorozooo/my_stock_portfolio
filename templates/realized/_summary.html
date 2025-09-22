@@ -36,55 +36,47 @@
 
   <div class="sum-card">
     <div class="k">平均PnL%</div>
-    {% with v=agg.avg_pnl_pct %}
-      {% if v is not None %}
-        <div class="v mono">{{ v|floatformat:2 }}%</div>
-      {% else %}
-        <div class="v mono">—</div>
-      {% endif %}
-    {% endwith %}
+    {% if agg.avg_pnl_pct is not None %}
+      <div class="v mono">{{ agg.avg_pnl_pct|floatformat:2 }}%</div>
+    {% else %}
+      <div class="v mono">—</div>
+    {% endif %}
   </div>
 
   <div class="sum-card">
     <div class="k">利益合計</div>
-    {% with v=agg.profit_sum|default_if_none:0 %}
-      <div class="v mono pos">¥{{ v|floatformat:0|intcomma }}</div>
-    {% endwith %}
+    <div class="v mono pos">¥{{ agg.profit_sum|default_if_none:0|floatformat:0|intcomma }}</div>
   </div>
 
   <div class="sum-card">
     <div class="k">損失合計</div>
-    {% with v=agg.loss_sum %}
-      {% if v is not None %}
-        <div class="v mono neg">¥{{ v|floatformat:0|intcomma }}</div>
-      {% else %}
-        <div class="v mono">—</div>
-      {% endif %}
-    {% endwith %}
+    {% if agg.loss_sum is not None %}
+      <div class="v mono neg">¥{{ agg.loss_sum|floatformat:0|intcomma }}</div>
+    {% else %}
+      <div class="v mono">—</div>
+    {% endif %}
   </div>
 
   <div class="sum-card">
-    <div class="k">PF（利益/|損失|）</div>
-    {% with pf=agg.pf profit=agg.profit_sum loss=agg.loss_sum %}
-      {% if pf is not None %}
-        <div class="v mono">{{ pf|floatformat:2 }}</div>
-      {% elif profit and not loss %}
-        <div class="v mono">∞</div>
-      {% else %}
-        <div class="v mono">—</div>
+    <div class="k">PF（利益 / |損失|）</div>
+    {% if agg.pf is not None %}
+      {% if agg.pf == inf %}<div class="v mono">∞</div>{% else %}
+        <div class="v mono">{{ agg.pf|floatformat:2 }}</div>
       {% endif %}
-    {% endwith %}
+    {% elif agg.profit_sum and not agg.loss_sum %}
+      <div class="v mono">∞</div>
+    {% else %}
+      <div class="v mono">—</div>
+    {% endif %}
   </div>
 
   <div class="sum-card">
     <div class="k">平均保有日数</div>
-    {% with v=agg.avg_hold_days %}
-      {% if v is not None %}
-        <div class="v mono">{{ v|floatformat:1 }} 日</div>
-      {% else %}
-        <div class="v mono">—</div>
-      {% endif %}
-    {% endwith %}
+    {% if agg.avg_hold_days is not None %}
+      <div class="v mono">{{ agg.avg_hold_days|floatformat:1 }} 日</div>
+    {% else %}
+      <div class="v mono">—</div>
+    {% endif %}
   </div>
 
   <div class="sum-card">
@@ -99,6 +91,11 @@
     {% with v=agg.cash_margin %}
       <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
     {% endwith %}
+  </div>
+
+  <div class="sum-card">
+    <div class="k">手数料合計</div>
+    <div class="v mono">¥{{ agg.fee|floatformat:0|intcomma }}</div>
   </div>
 
   <div class="sum-card" style="grid-column: span 2 / span 2;">
@@ -127,6 +124,20 @@
 
         <div class="k" style="margin-top:8px">勝率</div>
         <div class="v mono">{{ b.win_rate|floatformat:1 }}%</div>
+
+        <div class="k" style="margin-top:8px">平均PnL%</div>
+        {% if b.avg_pnl_pct is not None %}
+          <div class="v mono">{{ b.avg_pnl_pct|floatformat:2 }}%</div>
+        {% else %}
+          <div class="v mono">—</div>
+        {% endif %}
+
+        <div class="k" style="margin-top:8px">平均保有日数</div>
+        {% if b.avg_hold_days is not None %}
+          <div class="v mono">{{ b.avg_hold_days|floatformat:1 }} 日</div>
+        {% else %}
+          <div class="v mono">—</div>
+        {% endif %}
 
         <div class="k" style="margin-top:8px">📈PnL</div>
         {% with v=b.pnl %}
