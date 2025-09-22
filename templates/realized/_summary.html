@@ -31,15 +31,35 @@
   </div>
 
   <div class="sum-card">
-    <div class="k">手数料合計</div>
-    <div class="v mono">¥{{ agg.fee|floatformat:0|intcomma }}</div>
-  </div>
-
-  <div class="sum-card">
     <div class="k">📈PnL累計</div>
     {% with v=agg.pnl %}
       <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
     {% endwith %}
+  </div>
+  
+  <div class="sum-card">
+    <div class="k">平均PnL%</div>
+    <div class="v mono">{{ agg.avg_pnl_pct|floatformat:2 }}%</div>
+  </div>
+  
+  <div class="sum-card">
+    <div class="k">利益合計</div>
+    <div class="v mono pos">¥{{ agg.profit_sum|floatformat:0|intcomma }}</div>
+  </div>
+  
+  <div class="sum-card">
+    <div class="k">損失合計</div>
+    <div class="v mono neg">¥{{ agg.loss_sum|floatformat:0|intcomma }}</div>
+  </div>
+
+  <div class="sum-card">
+    <div class="k">PF</div>
+    <div class="v mono">{{ agg.pf|floatformat:2 }}</div>
+  </div>
+  
+  <div class="sum-card">
+    <div class="k">平均保有日数</div>
+    <div class="v mono">{{ agg.avg_hold_days|floatformat:1 }}日</div>
   </div>
 
   <div class="sum-card">
@@ -62,6 +82,12 @@
       <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
     {% endwith %}
   </div>
+  
+  <div class="sum-card">
+    <div class="k">手数料合計</div>
+    <div class="v mono">¥{{ agg.fee|floatformat:0|intcomma }}</div>
+  </div>
+  
 </div>
 
 {# ── 証券会社別 ───────────────────────── #}
