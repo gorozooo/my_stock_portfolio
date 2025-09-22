@@ -69,9 +69,8 @@
     {% for b in agg_brokers %}
       <div class="sum-card">
         <div class="bname">
-          {% if b.broker == '楽天証券' %}楽天証券
-          {% elif b.broker == 'SBI証券' %}SBI証券
-          {% elif b.broker == '松井証券' %}松井証券
+          {# view 側で付けた broker_label を優先表示。無ければ原文、さらに無ければ「その他」 #}
+          {% if b.broker_label %}{{ b.broker_label }}
           {% elif b.broker %}{{ b.broker }}
           {% else %}その他{% endif %}
         </div>
