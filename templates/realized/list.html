@@ -3,7 +3,7 @@
 {% block title %}実現損益{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/realized.css' %}?v=9">
+<link rel="stylesheet" href="{% static 'css/realized.css' %}?v=10">
 <style>
   .view-hidden{display:none!important}
   section{margin-top:12px}
@@ -14,7 +14,7 @@
 <div class="pnl">
   <h1>実現損益</h1>
 
-  <!-- 検索 -->
+  {# ── 検索 ─────────────────────────────── #}
   <div class="fi fi-full mt-4">
     <input type="search" name="q" value="{{ q|default:'' }}" id="q"
            placeholder="ティッカー/名称で検索"
@@ -25,20 +25,23 @@
            class="w-full">
   </div>
 
-  <!-- Section 1: 上部サマリー（証券会社別まで） -->
+  {# ── Section 1: 上部サマリー（証券会社別まで） ─── #}
   <section id="realized-top">
     <div id="pnlSummaryWrap">
       {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
     </div>
   </section>
 
-  <!-- Section 2: 期間サマリー（グラフだけ） -->
+  {# ── Section 2: 期間サマリー（期間まとめ＋グラフ3枚） ─── #}
   <section id="realized-summary" class="view-hidden">
+    {# 期間まとめ（ボタンでHX再描画／hidden inputsあり） #}
+    {% include "realized/_summary_period.html" %}
+    {# グラフ #}
     {% include "realized/_monthly_chart.html" %}
     {% include "realized/_analysis_charts.html" %}
   </section>
 
-  <!-- Section 3: ランキング（従来どおり） -->
+  {# ── Section 3: ランキング ─────────────────── #}
   <section id="realized-ranking" class="view-hidden">
     <div id="pnlRankingWrap"
          hx-get="{% url 'realized_ranking_partial' %}"
@@ -50,7 +53,7 @@
     <div id="pnlRankingDetailWrap"></div>
   </section>
 
-  <!-- Section 4: 明細（従来どおり） -->
+  {# ── Section 4: 明細（テーブル） ───────────────── #}
   <section id="realized-details" class="view-hidden">
     <div class="csv-link">
       <a href="{% url 'realized_export_csv' %}?q={{ q|urlencode }}">CSVエクスポート</a>
@@ -77,12 +80,15 @@
     Object.values(sections).forEach(s => s && s.classList.add('view-hidden'));
     const tgt = sections[key] || sections.top;
     tgt.classList.remove('view-hidden');
-    // 見切れ防止に上へ
+
+    // スクロール位置を上げる
     try{ tgt.scrollIntoView({behavior:'smooth', block:'start'}); }catch(e){}
-    // グラフ面は可視化直後に再レイアウトさせる
+
+    // グラフ面は可視化直後に再レイアウト
     if (key === 'summary'){
       setTimeout(()=> window.dispatchEvent(new Event('resize')), 50);
     }
+
     // 初回ロード保証（HTMX領域）
     if (key === 'ranking'){
       const rk = document.getElementById('pnlRankingWrap');
@@ -94,24 +100,27 @@
     }
   }
 
-  // 初期：上部サマリーのみ
-  document.addEventListener('DOMContentLoaded', ()=> showOnly('top'));
+  // 初期表示：上部サマリー
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', ()=> showOnly('top'), {once:true});
+  }else{
+    showOnly('top');
+  }
 
-  // bottom_tab.js が投げるイベントを受信
+  // bottom_tab.js からのサブメニュー操作
   window.addEventListener('bottomtab:action', (ev)=>{
     const d = ev.detail || {};
     if (d.menu !== 'realized') return;
     switch(d.action){
-      case 'show_summary': showOnly('summary'); break;  // ← グラフだけ
-      case 'show_ranking': showOnly('ranking'); break;
-      case 'show_details': showOnly('details'); break;
-      default: showOnly('top'); break;                  // ← 指標カード～証券会社別
+      case 'show_summary': showOnly('summary'); break; // 期間まとめ＋グラフ
+      case 'show_ranking': showOnly('ranking'); break; // ランキングのみ
+      case 'show_details': showOnly('details'); break; // 明細のみ
+      default: showOnly('top'); break;                 // 上部サマリーのみ
     }
   });
 
-  // 検索→明細を前面に出す（任意）
-  const qEl = document.getElementById('q');
-  qEl?.addEventListener('search', ()=> showOnly('details'));
+  // 検索確定で明細を前面へ（任意）
+  document.getElementById('q')?.addEventListener('search', ()=> showOnly('details'));
 })();
 </script>
 {% endblock %}
