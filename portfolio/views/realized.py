@@ -752,13 +752,13 @@ def close_sheet(request, pk: int):
     ここは JSON ではなく “素のHTML” を返す。
     """
     try:
-        # Holding 取得（user フィールド有無に対応）
+        # --- Holding 取得（user フィールド有無の両対応）---
         holding_filters = {"pk": pk}
         if any(f.name == "user" for f in Holding._meta.fields):
             holding_filters["user"] = request.user
         h = get_object_or_404(Holding, **holding_filters)
 
-        # 直近 RealizedTrade（user フィールド有無に対応）
+        # --- 直近 RealizedTrade（user フィールド有無の両対応）---
         rt_qs = RealizedTrade.objects.all()
         if any(f.name == "user" for f in RealizedTrade._meta.fields):
             rt_qs = rt_qs.filter(user=request.user)
@@ -767,10 +767,14 @@ def close_sheet(request, pk: int):
         def g(obj, name, default=""):
             return getattr(obj, name, default) if obj is not None else default
 
-        # quantity / qty どちらでも
+        # quantity / qty 両対応（新 Holding は quantity 想定）
         h_qty = g(h, "quantity", None)
         if h_qty in (None, ""):
             h_qty = g(h, "qty", 0)
+
+        # ★ プリセット：可能なら Holding の broker / account を優先
+        pre_broker  = (g(h, "broker", "") or g(last, "broker", "") or "OTHER")
+        pre_account = (g(h, "account", "") or g(last, "account", "") or "SPEC")
 
         ctx = {
             "h": h,
@@ -785,8 +789,8 @@ def close_sheet(request, pk: int):
                 "fee":    g(last, "fee", 0),
                 "cashflow": g(last, "cashflow", ""),
                 "memo":   "",
-                "broker": g(last, "broker", "OTHER"),
-                "account": g(last, "account", "SPEC"),  # SPEC/MARGIN/NISA
+                "broker": pre_broker,        # ← Holding 優先
+                "account": pre_account,      # ← Holding 優先（SPEC/MARGIN/NISA）
             },
         }
 
@@ -815,6 +819,7 @@ def close_sheet(request, pk: int):
         </div>
         """
         return HttpResponse(error_html)
+
 
 @login_required
 @require_POST
@@ -853,8 +858,12 @@ def close_submit(request, pk: int):
         cashflow_in = request.POST.get("cashflow")  # 実損（手数料控除前 / ±）
         pnl_input   = None if cashflow_in in (None, "") else _to_dec(cashflow_in)
 
-        broker  = (request.POST.get("broker")  or "OTHER").upper()
-        account = (request.POST.get("account") or "SPEC").upper()
+        # ★ broker/account はフォーム > Holding > 既定 の優先順で解決
+        broker_in  = (request.POST.get("broker")  or "").strip().upper()
+        account_in = (request.POST.get("account") or "").strip().upper()
+        broker  = broker_in  or getattr(h, "broker", "")  or "OTHER"
+        account = account_in or getattr(h, "account", "") or "SPEC"
+
         memo    = (request.POST.get("memo")    or "").strip()
         name    = (request.POST.get("name")    or "").strip() or getattr(h, "name", "") or ""
 
@@ -898,6 +907,7 @@ def close_submit(request, pk: int):
         fee = (price - basis) * Decimal(qty_in) - pnl_input
 
         # --- 登録（cashflow に“実損（手数料控除前）”を保存）---
+        # RealizedTrade 側は user フィールドがある前提（このプロジェクトでは残存）
         RealizedTrade.objects.create(
             user=request.user,
             trade_at=trade_at,
@@ -939,13 +949,12 @@ def close_submit(request, pk: int):
         table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
         summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
 
-        # 保有一覧（存在しない場合は空文字）
+        # --- 保有一覧（user フィールドの有無で分岐して取得）---
         try:
-            holdings_html = render_to_string(
-                "holdings/_list.html",
-                {"holdings": Holding.objects.filter(user=request.user)},
-                request=request,
-            )
+            h_qs = Holding.objects.all()
+            if any(f.name == "user" for f in Holding._meta.fields):
+                h_qs = h_qs.filter(user=request.user)
+            holdings_html = render_to_string("holdings/_list.html", {"holdings": h_qs}, request=request)
         except Exception:
             holdings_html = ""
 
