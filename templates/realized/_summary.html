@@ -101,7 +101,7 @@
   </div>
 
   <!-- 現金フロー合計 -->
-  <div class="sum-card" style="grid-column: span 2 / span 2;">
+  <div class="sum-card">
     <div class="k">💰現金フロー合計（現物＋信用）</div>
     {% with v=agg.cash_total %}
       <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
@@ -109,7 +109,7 @@
   </div>
 
   <!-- 手数料合計 -->
-  <div class="sum-card" style="grid-column: span 2 / span 2;">
+  <div class="sum-card">
     <div class="k">手数料合計</div>
     <div class="v mono">¥{{ agg.fee|floatformat:0|intcomma }}</div>
   </div>
