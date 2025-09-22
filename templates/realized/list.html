@@ -1,16 +1,12 @@
-{# templates/realized/list.html #}
 {% extends "base.html" %}
 {% load static %}
 {% block title %}実現損益{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/realized.css' %}?v=8">
+<link rel="stylesheet" href="{% static 'css/realized.css' %}?v=9">
 <style>
-  /* セクションの出し分け用 */
-  .view-hidden{ display:none !important; }
-  .view-block{ display:block; }
-  /* ちょっと余白調整 */
-  section{ margin-top: 12px; }
+  .view-hidden{display:none!important}
+  section{margin-top:12px}
 </style>
 {% endblock %}
 
@@ -18,7 +14,7 @@
 <div class="pnl">
   <h1>実現損益</h1>
 
-  {# ── 検索 ─────────────────────────────── #}
+  <!-- 検索 -->
   <div class="fi fi-full mt-4">
     <input type="search" name="q" value="{{ q|default:'' }}" id="q"
            placeholder="ティッカー/名称で検索"
@@ -29,37 +25,20 @@
            class="w-full">
   </div>
 
-  <!-- =========================================================
-       Section 1 : 上部サマリー（証券会社別まで）
-       → 画面下タブ「実現損益」タップ時はココだけ表示
-  ========================================================== -->
-  <section id="realized-top" class="view-block">
+  <!-- Section 1: 上部サマリー（証券会社別まで） -->
+  <section id="realized-top">
     <div id="pnlSummaryWrap">
       {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
     </div>
   </section>
 
-  <!-- =========================================================
-       Section 2 : 期間サマリー（グラフ付き）
-       → サブメニュー「期間サマリー（グラフ付き）」でココだけ表示
-       （グラフ位置～下だけを見せたい＝このセクション単体表示）
-  ========================================================== -->
+  <!-- Section 2: 期間サマリー（グラフだけ） -->
   <section id="realized-summary" class="view-hidden">
     {% include "realized/_monthly_chart.html" %}
-
-    {# 期間まとめは従来どおり HTMX でロード #}
-    <div id="pnlPeriodWrap"
-         hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq=month&q={{ q|urlencode }}"
-         hx-trigger="load"
-         hx-swap="outerHTML">
-      <div style="color:#94a3b8; padding:8px 0">期間まとめを読み込み中…</div>
-    </div>
+    {% include "realized/_analysis_charts.html" %}
   </section>
 
-  <!-- =========================================================
-       Section 3 : ランキング
-       → サブメニュー「ランキング」でココだけ表示
-  ========================================================== -->
+  <!-- Section 3: ランキング（従来どおり） -->
   <section id="realized-ranking" class="view-hidden">
     <div id="pnlRankingWrap"
          hx-get="{% url 'realized_ranking_partial' %}"
@@ -71,15 +50,11 @@
     <div id="pnlRankingDetailWrap"></div>
   </section>
 
-  <!-- =========================================================
-       Section 4 : 明細テーブル
-       → サブメニュー「明細」でココだけ表示
-  ========================================================== -->
+  <!-- Section 4: 明細（従来どおり） -->
   <section id="realized-details" class="view-hidden">
     <div class="csv-link">
       <a href="{% url 'realized_export_csv' %}?q={{ q|urlencode }}">CSVエクスポート</a>
     </div>
-
     <div id="pnlTableWrap"
          hx-get="{% url 'realized_table_partial' %}?q={{ q|urlencode }}"
          hx-trigger="load"
@@ -90,16 +65,6 @@
 </div>
 
 <script>
-/**
- * セクション出し分け。
- * 既存 bottom_tab.js の `bottomtab:action` をフックして
- * 4つの section を “極端に” 切り替えるだけ。
- *
- * - 初期表示: top だけ表示
- * - show_summary → summary だけ表示
- * - show_ranking → ranking だけ表示
- * - show_details → details だけ表示
- */
 (function(){
   const sections = {
     top:     document.getElementById('realized-top'),
@@ -108,50 +73,45 @@
     details: document.getElementById('realized-details'),
   };
 
-  function setView(which){
-    // 全部隠す
-    Object.values(sections).forEach(sec => sec && sec.classList.add('view-hidden'));
-    // 指定だけ表示
-    const target = sections[which];
-    if (target){
-      target.classList.remove('view-hidden');
-      // スクロール位置を少し上に戻す（見切れ防止）
-      try { target.scrollIntoView({behavior:'smooth', block:'start'}); } catch(e){}
+  function showOnly(key){
+    Object.values(sections).forEach(s => s && s.classList.add('view-hidden'));
+    const tgt = sections[key] || sections.top;
+    tgt.classList.remove('view-hidden');
+    // 見切れ防止に上へ
+    try{ tgt.scrollIntoView({behavior:'smooth', block:'start'}); }catch(e){}
+    // グラフ面は可視化直後に再レイアウトさせる
+    if (key === 'summary'){
+      setTimeout(()=> window.dispatchEvent(new Event('resize')), 50);
     }
-    // ランキング or 明細に切り替えたら、関連HTMXを念のため再読込（初回ロード保証）
-    if (which === 'ranking') {
+    // 初回ロード保証（HTMX領域）
+    if (key === 'ranking'){
       const rk = document.getElementById('pnlRankingWrap');
       if (rk && window.htmx) htmx.trigger(rk, 'load');
-    } else if (which === 'details') {
+    }
+    if (key === 'details'){
       const tb = document.getElementById('pnlTableWrap');
       if (tb && window.htmx) htmx.trigger(tb, 'load');
-    } else if (which === 'summary') {
-      const pr = document.getElementById('pnlPeriodWrap');
-      if (pr && window.htmx) htmx.trigger(pr, 'load');
     }
   }
 
-  // 初期状態：タブ「実現損益」から来た時は “上部サマリーのみ”
-  document.addEventListener('DOMContentLoaded', () => setView('top'));
+  // 初期：上部サマリーのみ
+  document.addEventListener('DOMContentLoaded', ()=> showOnly('top'));
 
-  // 既存 bottom_tab.js が投げるイベントを受ける
-  window.addEventListener('bottomtab:action', (ev) => {
+  // bottom_tab.js が投げるイベントを受信
+  window.addEventListener('bottomtab:action', (ev)=>{
     const d = ev.detail || {};
     if (d.menu !== 'realized') return;
-    switch (d.action) {
-      case 'show_summary': setView('summary'); break;
-      case 'show_ranking': setView('ranking'); break;
-      case 'show_details': setView('details'); break;
-      default: setView('top'); break;  // 想定外 → とりあえず上部サマリー
+    switch(d.action){
+      case 'show_summary': showOnly('summary'); break;  // ← グラフだけ
+      case 'show_ranking': showOnly('ranking'); break;
+      case 'show_details': showOnly('details'); break;
+      default: showOnly('top'); break;                  // ← 指標カード～証券会社別
     }
   });
 
-  // 検索欄の更新で「明細セクションだけ」見たい場合も多いので、
-  // Enter押下（searchイベント）で明細を前面に出す小ワザ（任意）
+  // 検索→明細を前面に出す（任意）
   const qEl = document.getElementById('q');
-  if (qEl) {
-    qEl.addEventListener('search', () => setView('details'));
-  }
+  qEl?.addEventListener('search', ()=> showOnly('details'));
 })();
 </script>
 {% endblock %}
