@@ -23,11 +23,10 @@
     <div class="v mono">{{ agg.n|intcomma }}</div>
   </div>
 
+  {# ← ここはそのまま or 以前のご要望で「勝率」に置き換えているならこのカードを勝率表示に変更してください #}
   <div class="sum-card">
-    <div class="k">勝率</div>
-    <div class="v mono">
-      {{ agg.win_rate|floatformat:1 }}%
-    </div>
+    <div class="k">数量合計</div>
+    <div class="v mono">{{ agg.qty|intcomma }}</div>
   </div>
 
   <div class="sum-card">
@@ -71,13 +70,19 @@
     {% for b in agg_brokers %}
       <div class="sum-card">
         <div class="bname">
-          {# view 側で付けた broker_label を優先表示。無ければ原文、さらに無ければ「その他」 #}
-          {% if b.broker_label %}{{ b.broker_label }}
-          {% elif b.broker %}{{ b.broker }}
-          {% else %}その他{% endif %}
+          {# 表示名の整形（SBI は日本語化、それ以外は DB 値そのまま or 既に日本語） #}
+          {% if b.broker == 'SBI' or b.broker == 'SBI証券' %}SBI証券
+          {% else %}{{ b.broker|default:'その他' }}{% endif %}
         </div>
 
-        <div class="k">📈PnL</div>
+        {# 追加: 件数 / 勝率 #}
+        <div class="k">件数</div>
+        <div class="v mono">{{ b.n|intcomma }}</div>
+
+        <div class="k" style="margin-top:8px">勝率</div>
+        <div class="v mono">{{ b.win_rate|floatformat:1 }}%</div>
+
+        <div class="k" style="margin-top:8px">📈PnL</div>
         {% with v=b.pnl %}
           <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
         {% endwith %}
