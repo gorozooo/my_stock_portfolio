@@ -158,9 +158,10 @@ def _aggregate_by_broker(qs):
     - 現物/NISA: cashflow_calc を合算
     - 信用     : 手入力PnLの cashflow を合算
     - PnL累計  : 常に cashflow を合算
-    返却: 各行に broker と broker_label を含む dict
+    - 追加: 件数 n / 勝ち件数 wins / 勝率 win_rate
     """
     qs = _with_metrics(qs)
+
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
     rows = (
@@ -194,6 +195,13 @@ def _aggregate_by_broker(qs):
               ),
               # 📈PnL 累計も常に cashflow 合算
               pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
+
+              # 追加: 勝ち件数（cashflow > 0）
+              wins = Coalesce(
+                  Sum(Case(When(cashflow__gt=0, then=1), default=0, output_field=IntegerField())),
+                  Value(0),
+                  output_field=IntegerField(),
+              ),
           )
           .order_by("broker")
     )
@@ -201,8 +209,10 @@ def _aggregate_by_broker(qs):
     out = []
     for r in rows:
         r = dict(r)
-        r["cash_total"]   = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
-        r["broker_label"] = BROKER_LABELS.get(r["broker"], r["broker"])  # ★ 表示名
+        r["cash_total"] = (r.get("cash_spec") or Decimal("0")) + (r.get("cash_margin") or Decimal("0"))
+        n = r.get("n") or 0
+        wins = r.get("wins") or 0
+        r["win_rate"] = (wins * 100.0 / n) if n else 0.0  # ％
         out.append(r)
     return out
 
