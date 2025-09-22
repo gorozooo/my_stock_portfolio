@@ -26,6 +26,13 @@ from ..models import Holding, RealizedTrade
 
 logger = logging.getLogger(__name__)
 
+# 証券会社の表示名マッピング
+BROKER_LABELS = {
+    "MATSUI":  "松井証券",
+    "RAKUTEN": "楽天証券",
+    "SBI":     "SBI証券",
+}
+
 # ============================================================
 #  ユーティリティ
 # ============================================================
@@ -145,9 +152,9 @@ def _aggregate_by_broker(qs):
     - 現物/NISA: cashflow_calc を合算
     - 信用     : 手入力PnLの cashflow を合算
     - PnL累計  : 常に cashflow を合算
+    返却: 各行に broker と broker_label を含む dict
     """
     qs = _with_metrics(qs)
-
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
     rows = (
@@ -188,7 +195,8 @@ def _aggregate_by_broker(qs):
     out = []
     for r in rows:
         r = dict(r)
-        r["cash_total"] = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
+        r["cash_total"]   = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
+        r["broker_label"] = BROKER_LABELS.get(r["broker"], r["broker"])  # ★ 表示名
         out.append(r)
     return out
 
@@ -301,7 +309,7 @@ def realized_summary_partial(request):
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
     agg = _aggregate(qs)
-    agg_brokers = _aggregate_by_broker(qs)
+    agg_brokers = _aggregate_by_broker(qs)  # ★ broker_label 付き
 
     return render(
         request,
@@ -688,7 +696,8 @@ def summary_partial(request):
         if q:
             qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
         agg = _aggregate(qs)
-        return render(request, "realized/_summary.html", {"agg": agg, "q": q})
+        agg_brokers = _aggregate_by_broker(qs)  # ★ 追加
+        return render(request, "realized/_summary.html", {"agg": agg, "agg_brokers": agg_brokers, "q": q})
     except Exception as e:
         logger.exception("summary_partial error: %s", e)
         tb = traceback.format_exc()
