@@ -1,3 +1,4 @@
+{# templates/realized/list.html #}
 {% extends "base.html" %}
 {% load static %}
 {% block title %}実現損益{% endblock %}
@@ -5,52 +6,53 @@
 {% block head %}
 <link rel="stylesheet" href="{% static 'css/realized.css' %}?v=6">
 <style>
+  /* 表示切替用 */
   .is-hidden{display:none}
-  /* スクロール先の余白（固定ヘッダ等があれば調整） */
-  .anchor { scroll-margin-top: 16px; }
+  .anchor{scroll-margin-top:16px}
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="pnl">
-  <h1 id="pnlTopAnchor" class="anchor">実現損益</h1>
+  {# ================= 上側だけを見せるビュー（証券会社別より上） ================= #}
+  <section id="viewTopOnly">
+    <h1 id="pnlTopAnchor" class="anchor">実現損益</h1>
 
-  {# ── 検索 ─────────────────────────────── #}
-  <div class="fi fi-full mt-4">
-    <input type="search" name="q" value="{{ q|default:'' }}" id="q"
-           placeholder="ティッカー/名称で検索"
-           hx-get="{% url 'realized_table_partial' %}"
-           hx-target="#pnlTableWrap"
-           hx-trigger="keyup changed delay:300ms, search"
-           hx-include="#q"
-           class="w-full">
-  </div>
+    {# 検索 #}
+    <div class="fi fi-full mt-4">
+      <input type="search" name="q" value="{{ q|default:'' }}" id="q"
+             placeholder="ティッカー/名称で検索"
+             hx-get="{% url 'realized_table_partial' %}"
+             hx-target="#pnlTableWrap"
+             hx-trigger="keyup changed delay:300ms, search"
+             hx-include="#q"
+             class="w-full">
+    </div>
 
-  {# ===================== セクション：期間サマリー（グラフ付き） ===================== #}
-  <section id="pnlSectionSummary">
-    {# サマリー（SSR固定・上書きしない） #}
+    {# 上部サマリー（件数/現金フロー/証券会社別など） #}
     <div id="pnlSummaryWrap">
       {% include "realized/_summary.html" with agg=agg agg_brokers=agg_brokers %}
     </div>
+  </section>
 
-    {# 期間まとめ #}
+  {# ================ 下側だけを見せるビュー（期間まとめより下＝グラフ位置以降） ================ #}
+  <section id="viewBottomOnly" class="is-hidden">
+    {# 期間まとめ（プリセット＆qに連動） #}
     <div id="pnlPeriodWrap"
          hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq=month&q={{ q|urlencode }}"
-         hx-trigger="load"
+         hx-trigger="load, pnl:refresh from:body"
          hx-swap="outerHTML">
       <div style="color:#94a3b8; padding:8px 0">期間まとめを読み込み中…</div>
     </div>
 
-    {# ←「期間まとめより下」へ飛ぶためのアンカー #}
+    {# ← “期間まとめより下（グラフ位置）” アンカー #}
     <div id="pnlChartsAnchor" class="anchor"></div>
 
-    {# 月次チャート / 追加分析チャート #}
+    {# チャート群 #}
     {% include "realized/_monthly_chart.html" %}
     {% include "realized/_analysis_charts.html" %}
-  </section>
 
-  {# =========================== セクション：ランキング ============================ #}
-  <section id="pnlSectionRanking" class="is-hidden">
+    {# ランキング（期間連動） #}
     <div id="pnlRankingWrap"
        hx-get="{% url 'realized_ranking_partial' %}?preset=LAST_12M&freq=month"
        hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
@@ -61,86 +63,76 @@
 
   {# ドリルダウンの明細を表示する場所 #}
   <div id="pnlRankingDetailWrap"></div>
-  </section>
 
-  {# ============================= セクション：明細 ============================== #}
-  <section id="pnlSectionDetails" class="is-hidden">
+    {# 明細テーブル #}
     <div id="pnlTableWrap"
          hx-get="{% url 'realized_table_partial' %}?q={{ q|urlencode }}"
-         hx-trigger="revealed"
+         hx-trigger="revealed, pnl:refresh from:body"
          hx-swap="outerHTML">
       {% include "realized/_table.html" with trades=trades %}
     </div>
-  </section>
 
-  {# ── CSV ─────────────────────────────────── #}
-  <div class="csv-link">
-    <a href="{% url 'realized_export_csv' %}?q={{ q|urlencode }}">CSVエクスポート</a>
-  </div>
+    <div class="csv-link">
+      <a href="{% url 'realized_export_csv' %}?q={{ q|urlencode }}">CSVエクスポート</a>
+    </div>
+  </section>
 </div>
 
-{# ===== セクション切替 & スクロール制御 ===== #}
 <script>
+/**
+ * 画面表示の切替ルール（スクロールしない）
+ * - サブメニュー「期間サマリー（グラフ付き）」→ 下側ビューだけ表示（期間まとめより下）
+ * - 画面下のタブ「実現損益」をタップ       → 上側ビューだけ表示（証券会社別より上）
+ */
 (function(){
-  const sections = {
-    summary: document.getElementById('pnlSectionSummary'),
-    ranking: document.getElementById('pnlSectionRanking'),
-    details: document.getElementById('pnlSectionDetails'),
-  };
-  const elTop    = document.getElementById('pnlTopAnchor');
-  const elCharts = document.getElementById('pnlChartsAnchor');
+  const topV    = document.getElementById('viewTopOnly');
+  const bottomV = document.getElementById('viewBottomOnly');
 
-  function ensureLoadFor(id){
-    const box = document.getElementById(id);
-    if (!box) return;
-    if (!box.dataset.loaded && window.htmx) {
-      htmx.trigger(box, 'revealed');
-      htmx.trigger(box, 'load');
-    }
+  function showTop(){
+    topV?.classList.remove('is-hidden');
+    bottomV?.classList.add('is-hidden');
+    try{ sessionStorage.setItem('realized:view','top'); }catch{}
   }
-  document.body.addEventListener('htmx:afterSwap', (e) => {
-    if (e.target?.id === 'pnlRankingWrap') e.target.dataset.loaded = '1';
-    if (e.target?.id === 'pnlTableWrap')   e.target.dataset.loaded = '1';
+  function showBottom(){
+    bottomV?.classList.remove('is-hidden');
+    topV?.classList.add('is-hidden');
+    // 非表示中にロードされないものを起こす（revealed 代替）
+    if (window.htmx){
+      const r = document.getElementById('pnlRankingWrap');
+      const t = document.getElementById('pnlTableWrap');
+      if (r && !r.dataset._loaded) htmx.trigger(r,'revealed');
+      if (t && !t.dataset._loaded) htmx.trigger(t,'revealed');
+    }
+    try{ sessionStorage.setItem('realized:view','bottom'); }catch{}
+  }
+
+  // htmxロード完了マーキング
+  document.body.addEventListener('htmx:afterSwap', (e)=>{
+    if (e.target?.id === 'pnlRankingWrap') e.target.dataset._loaded = '1';
+    if (e.target?.id === 'pnlTableWrap')   e.target.dataset._loaded = '1';
+    if (e.target?.id === 'pnlPeriodWrap')  e.target.dataset._loaded = '1';
   });
 
-  function show(which){
-    Object.entries(sections).forEach(([k, el])=>{
-      if (!el) return;
-      el.classList.toggle('is-hidden', k !== which);
-    });
-    try { sessionStorage.setItem('realized:view', which); } catch {}
-  }
-
-  // --- bottom_tab からのイベントを受ける ---
+  // bottom_tab からの通知
   window.addEventListener('bottomtab:action', (e)=>{
     if (e.detail?.menu !== 'realized') return;
     const a = e.detail.action;
-    if (a === 'show_summary'){
-      show('summary');
-      // 「期間まとめより下」を表示
-      elCharts?.scrollIntoView({behavior:'smooth', block:'start'});
-    }
-    if (a === 'show_ranking'){
-      show('ranking'); ensureLoadFor('pnlRankingWrap');
-      document.getElementById('pnlRankingWrap')?.scrollIntoView({behavior:'smooth', block:'start'});
-    }
-    if (a === 'show_details'){
-      show('details'); ensureLoadFor('pnlTableWrap');
-      document.getElementById('pnlTableWrap')?.scrollIntoView({behavior:'smooth', block:'start'});
-    }
+    if (a === 'show_summary'){ showBottom(); }
+    if (a === 'show_ranking'){ showBottom(); }
+    if (a === 'show_details'){ showBottom(); }
   });
-
-  // アクティブな「実現損益」タブをタップした時 → 上部（証券会社別より上）へ
   window.addEventListener('bottomtab:jump', (e)=>{
     if (e.detail?.menu !== 'realized') return;
-    elTop?.scrollIntoView({behavior:'smooth', block:'start'});
+    showTop();
   });
 
-  // ページ初期表示は前回の表示状態を再現（既定は summary）
-  const initial = (()=>{
-    try { return sessionStorage.getItem('realized:view') || 'summary'; } catch { return 'summary'; }
+  // 初期状態（前回の選択を復元。なければ上側）
+  (function init(){
+    const last = (()=>{
+      try{ return sessionStorage.getItem('realized:view'); }catch{ return null; }
+    })();
+    if (last === 'bottom') showBottom(); else showTop();
   })();
-  show(initial);
 })();
 </script>
 {% endblock %}
