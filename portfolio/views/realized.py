@@ -156,33 +156,14 @@ def _with_metrics(qs):
 def _aggregate(qs):
     """
     画面上部の大元サマリー。
-    Avg('qty') / Avg('fee') のような「集計結果に対する Avg」は一切行わない。
-    必要なら “合計 ÷ 件数” を Python 後計算で出す。
+    二重集計を避けるため、平均PnL% / 平均保有日数は
+    _with_metrics で付与した 'pnl_pct' / 'hold_days_f' に対する Avg を使う。
     """
     qs = _with_metrics(qs)
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
-    # 平均PnL% 計算のための1トレードPnL%（SELL & basis>0 のものだけ）
+    # 「平均値」の対象にする行（SELL & basis>0 & qty>0）
     eligible = Q(side="SELL") & Q(qty__gt=0) & Q(basis__isnull=False) & ~Q(basis=0)
-
-    trade_pnl = Case(
-        When(
-            eligible,
-            then=(F("price") - F("basis")) * F("qty")
-                 - Coalesce(F("fee"), dec0) - Coalesce(F("tax"), dec0),
-        ),
-        default=None,
-        output_field=DEC2,
-    )
-    denom = Case(
-        When(eligible, then=ExpressionWrapper(F("basis") * F("qty"), output_field=DEC2)),
-        default=None, output_field=DEC2,
-    )
-    pct_expr = ExpressionWrapper(
-        Case(When(eligible, then=trade_pnl * Value(100, output_field=DEC2) / denom),
-             default=None, output_field=DEC2),
-        output_field=DEC2,
-    )
 
     agg = qs.aggregate(
         # 件数・数量・手数料
@@ -201,7 +182,7 @@ def _aggregate(qs):
         # PnL（手入力PnLの合算）
         pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
 
-        # 利益合計 / 損失合計
+        # 利益合計 / 損失合計（表示用PnLで集計）
         profit_sum = Coalesce(
             Sum(Case(When(pnl_display__gt=0, then=F("pnl_display")),
                      default=dec0, output_field=DEC2)), dec0),
@@ -209,13 +190,11 @@ def _aggregate(qs):
             Sum(Case(When(pnl_display__lt=0, then=F("pnl_display")),
                      default=dec0, output_field=DEC2)), dec0),
 
-        # 平均PnL%（売却 & basis>0 のトレードの単純平均）
-        avg_pnl_pct = Avg(pct_expr),
+        # ★ 平均PnL%：事前注釈 'pnl_pct' の単純平均（対象行のみ）
+        avg_pnl_pct = Avg("pnl_pct", filter=eligible),
 
-        # 平均保有日数（売却トレードのみの平均）
-        avg_hold_days = Avg(
-            Case(When(eligible, then=F("hold_days")), default=None, output_field=IntegerField())
-        ),
+        # ★ 平均保有日数：事前注釈 'hold_days_f' の単純平均（対象行のみ）
+        avg_hold_days = Avg("hold_days_f", filter=eligible),
     )
 
     # 後計算
@@ -223,38 +202,19 @@ def _aggregate(qs):
     loss_abs = abs(agg.get("loss_sum") or Decimal("0"))
     agg["pf"] = (agg.get("profit_sum") or Decimal("0")) / loss_abs if loss_abs else None
 
-    # ここで「平均数量」などが必要なら 後計算で出す（Avg('qty') は使わない）
-    # agg["avg_qty"] = (agg["qty"] / agg["n"]) if agg["n"] else None
-
     return agg
 
 
 def _aggregate_by_broker(qs):
     """
-    証券会社別サマリー。こちらも Avg('qty') / Avg('fee') は使わない。
+    証券会社別サマリー。
+    二重集計を避けるため、平均PnL% / 平均保有日数は
+    事前注釈 'pnl_pct' / 'hold_days_f' に対する Avg を使う。
     """
     qs = _with_metrics(qs)
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
     eligible = Q(side="SELL") & Q(qty__gt=0) & Q(basis__isnull=False) & ~Q(basis=0)
-
-    trade_pnl = Case(
-        When(
-            eligible,
-            then=(F("price") - F("basis")) * F("qty")
-                 - Coalesce(F("fee"), dec0) - Coalesce(F("tax"), dec0),
-        ),
-        default=None, output_field=DEC2,
-    )
-    denom = Case(
-        When(eligible, then=ExpressionWrapper(F("basis") * F("qty"), output_field=DEC2)),
-        default=None, output_field=DEC2,
-    )
-    pct_expr = ExpressionWrapper(
-        Case(When(eligible, then=trade_pnl * Value(100, output_field=DEC2) / denom),
-             default=None, output_field=DEC2),
-        output_field=DEC2,
-    )
 
     rows = (
         qs.values("broker")
@@ -279,10 +239,9 @@ def _aggregate_by_broker(qs):
                   Sum(Case(When(pnl_display__lt=0, then=F("pnl_display")),
                            default=dec0, output_field=DEC2)), dec0),
 
-              avg_pnl_pct   = Avg(pct_expr),
-              avg_hold_days = Avg(
-                  Case(When(eligible, then=F("hold_days")), default=None, output_field=IntegerField())
-              ),
+              # ★ 事前注釈列に対する Avg（対象行のみ）
+              avg_pnl_pct   = Avg("pnl_pct", filter=eligible),
+              avg_hold_days = Avg("hold_days_f", filter=eligible),
           )
           .order_by("broker")
     )
