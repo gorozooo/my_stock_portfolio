@@ -85,10 +85,6 @@ def _parse_period(request):
     return start, end, preset
 
 def _parse_ymd(s: str):
-    """
-    'YYYY-MM-DD' 形式の日付文字列を datetime.date に変換。
-    不正値なら None を返す。
-    """
     try:
         return datetime.strptime(s, "%Y-%m-%d").date()
     except Exception:
@@ -1203,47 +1199,78 @@ def _parse_ymd(s: str):
 @require_GET
 def table_partial(request):
     """
-    明細テーブル（部分テンプレ）
-      - ?q= 検索語（ticker/name）
-      - ?start=YYYY-MM-DD
-      - ?end=YYYY-MM-DD   ← ここまでを含む（inclusive）
-      - ?format=json      ← JS からは常に JSON を要求
+    明細テーブル
+      - q:      フリーワード
+      - ym:     'YYYY-MM'（これがあれば最優先で月フィルタ）
+      - start/end: 'YYYY-MM-DD'（ym が無い場合の期間指定）
+      - format: 'json' なら JSON で返す
     """
     try:
-        q = (request.GET.get("q") or "").strip()
-        start_s = (request.GET.get("start") or "").strip()
-        end_s   = (request.GET.get("end") or "").strip()
+        q         = (request.GET.get("q") or "").strip()
+        ym        = (request.GET.get("ym") or "").strip()
+        start_s   = (request.GET.get("start") or "").strip()
+        end_s     = (request.GET.get("end") or "").strip()
         want_json = (request.GET.get("format") or "").lower() == "json" \
                     or "application/json" in (request.headers.get("Accept") or "")
 
-        # ベース QuerySet
         qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
 
-        # 検索
         if q:
             qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-        # 期間フィルタ（DateTimeField を確実に含めるため end は翌日の 00:00 未満で切る）
-        start_d = _parse_ymd(start_s)
-        end_d   = _parse_ymd(end_s)
-        if start_d and end_d:
-            if end_d < start_d:
-                start_d, end_d = end_d, start_d
+        # ---- 月フィルタ（最優先で確実に 1 ヶ月に絞る）----
+        if ym and len(ym) == 7 and ym[4] == "-":
+            y = int(ym[:4]); m = int(ym[5:7])
+            # DateField/DateTimeField どちらでも確実に絞れるよう、日付帯で切る
+            start_d = date(y, m, 1)
+            # 月末日
+            if m == 12:
+                next_first = date(y + 1, 1, 1)
+            else:
+                next_first = date(y, m + 1, 1)
+
+            # DateTimeField でも安全に。end は翌月 1 日 00:00 未満
             tz = timezone.get_current_timezone()
             start_dt = datetime.combine(start_d, time.min).replace(tzinfo=tz)
-            end_dt_exclusive = datetime.combine(end_d + timedelta(days=1), time.min).replace(tzinfo=tz)
-            qs = qs.filter(trade_at__gte=start_dt, trade_at__lt=end_dt_exclusive)
+            end_dt   = datetime.combine(next_first, time.min).replace(tzinfo=tz)
+            qs = qs.filter(trade_at__gte=start_dt, trade_at__lt=end_dt)
 
-        # 表示用データに変換（あなたの既存ユーティリティ）
+        else:
+            # ---- 従来の start/end もサポート（指定がある場合のみ）----
+            start_d = _parse_ymd(start_s)
+            end_d   = _parse_ymd(end_s)
+            if start_d and end_d:
+                if end_d < start_d:
+                    start_d, end_d = end_d, start_d
+                tz = timezone.get_current_timezone()
+                start_dt = datetime.combine(start_d, time.min).replace(tzinfo=tz)
+                end_dt   = datetime.combine(end_d + timedelta(days=1), time.min).replace(tzinfo=tz)
+                qs = qs.filter(trade_at__gte=start_dt, trade_at__lt=end_dt)
+
         rows = _with_metrics(qs)
-
-        # 部分テンプレを文字列化
         html = render_to_string("realized/_table.html", {"trades": rows}, request=request)
 
-        # 返却（JS からは JSON、通常は HTML）
         if want_json:
             return JsonResponse({"ok": True, "html": html})
         return HttpResponse(html)
+
+    except Exception as e:
+        logger.exception("table_partial error: %s", e)
+        tb = traceback.format_exc()
+        err_html = f"""
+        <div class="p-3 rounded-lg" style="background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;">
+          <div style="font-weight:700;margin-bottom:6px">テーブル取得に失敗しました</div>
+          <div style="margin-bottom:8px">{str(e)}</div>
+          <details style="font-size:12px;opacity:.85">
+            <summary>詳細</summary>
+            <pre style="white-space:pre-wrap">{tb}</pre>
+          </details>
+        </div>
+        """
+        if (request.GET.get("format") or "").lower() == "json" \
+           or "application/json" in (request.headers.get("Accept") or ""):
+            return JsonResponse({"ok": False, "html": err_html, "error": str(e)})
+        return HttpResponse(err_html)
 
     except Exception as e:
         logger.exception("table_partial error: %s", e)
