@@ -1179,27 +1179,30 @@ def export_csv(request):
 # ============================================================
 #  部分テンプレ
 # ============================================================
-@login_required
+login_required
 @require_GET
 def table_partial(request):
     """
-    明細テーブルの部分テンプレを返す。
-    - q: ティッカー/名称 検索
-    - start, end: YYYY-MM-DD の範囲でフィルタ
-    - format=json もしくは Accept: application/json のとき {ok, html} を返す
+    明細テーブル（部分テンプレ）
+      - q: フリーテキスト
+      - start,end: YYYY-MM-DD（end は '翌日未満' 扱い）
+      - JSON: ?format=json または Accept: application/json
     """
     try:
         q = (request.GET.get("q") or "").strip()
-
         qs = RealizedTrade.objects.filter(user=request.user)
 
-        # 期間フィルタ（YYYY-MM-DD）
-        start = (request.GET.get("start") or "").strip()
-        end   = (request.GET.get("end") or "").strip()
-        if start:
-            qs = qs.filter(trade_at__date__gte=start)
-        if end:
-            qs = qs.filter(trade_at__date__lte=end)
+        # 期間フィルタ
+        start_s = (request.GET.get("start") or "").strip()
+        end_s   = (request.GET.get("end") or "").strip()
+        d_start = _parse_ymd(start_s)
+        d_end   = _parse_ymd(end_s)
+
+        # end は「翌日未満」にしてタイムゾーン差異や時刻を吸収
+        if d_start:
+            qs = qs.filter(trade_at__date__gte=d_start)
+        if d_end:
+            qs = qs.filter(trade_at__date__lt=(d_end + timedelta(days=1)))
 
         if q:
             qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
@@ -1213,11 +1216,9 @@ def table_partial(request):
             (request.GET.get("format") or "").lower() == "json"
             or "application/json" in (request.headers.get("Accept") or "")
         )
-
         if wants_json:
-            return JsonResponse({"ok": True, "html": html})
+            return JsonResponse({"ok": True, "count": len(rows), "html": html})
 
-        # 通常（HTML直返し）
         return HttpResponse(html)
 
     except Exception as e:
@@ -1234,7 +1235,6 @@ def table_partial(request):
         </div>
         """.strip()
 
-        # JSONを要求されている場合はJSONで返す（HTTP 200 のまま）
         wants_json = (
             (request.GET.get("format") or "").lower() == "json"
             or "application/json" in (request.headers.get("Accept") or "")
