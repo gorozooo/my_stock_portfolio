@@ -94,32 +94,49 @@ def _with_metrics(qs):
     """
     現金・PnL・比率計算に必要な注釈を付与
     """
-    gross = ExpressionWrapper(F("qty") * F("price"), output_field=DEC2)
-    fee   = Coalesce(F("fee"), Value(0, output_field=DEC2))
-    tax   = Coalesce(F("tax"), Value(0, output_field=DEC2))
+    # Decimal(0) を明示
+    dec0 = Value(Decimal("0"), output_field=DEC2)
 
-    # 現金フロー（自動）
+    gross = ExpressionWrapper(F("qty") * F("price"), output_field=DEC2)
+    fee   = Coalesce(F("fee"), dec0)
+    tax   = Coalesce(F("tax"), dec0)
+
+    # 現金フロー（受渡ベース）
     cashflow_calc = Case(
         When(side="SELL", then=gross - fee - tax),
         When(side="BUY",  then=-(gross + fee + tax)),
-        default=Value(0),
+        default=Value(Decimal("0"), output_field=DEC2),
         output_field=DEC2,
     )
 
-    # 投資家PnL（画面表示に使う値：cashflow を優先。無ければ 0）
-    pnl_display = Coalesce(F("cashflow"), Value(0, output_field=DEC2))
+    # 画面表示用の“投資家PnL”（手入力があればそれ、無ければ 0）
+    pnl_display = Coalesce(F("cashflow"), Value(Decimal("0"), output_field=DEC2))
 
-    # PnL% を計算できる行（SELL かつ basis>0）
-    basis_amount = Case(
-        When(side="SELL", basis__gt=0, then=ExpressionWrapper(F("basis") * F("qty"), output_field=DEC2)),
-        default=None,
-        output_field=DEC2,
+    # 分母: basis * qty （SELL かつ basis>0 の時のみ）
+    basis_amount_dec = Case(
+        When(side="SELL", basis__gt=0,
+             then=ExpressionWrapper(F("basis") * F("qty"), output_field=DEC2)),
+        default=None, output_field=DEC2,
     )
+
+    # 分子: (price - basis) * qty - fee - tax  （= 1トレードの損益）
+    trade_pnl_dec = Case(
+        When(side="SELL", basis__gt=0,
+             then=ExpressionWrapper(
+                 (F("price") - F("basis")) * F("qty") - fee - tax,
+                 output_field=DEC2
+             )),
+        default=None, output_field=DEC2,
+    )
+
+    # 型の不一致を避けるため、分子/分母とも Float にキャストしてから割り算
+    trade_pnl_f   = Cast(trade_pnl_dec, FloatField())
+    basis_amt_f   = Cast(basis_amount_dec, FloatField())
 
     pnl_pct = Case(
-        When(basis_amount__gt=0,
+        When(basis_amt_f__gt=0.0,
              then=ExpressionWrapper(
-                 (pnl_display * Value(100, output_field=DEC2)) / basis_amount,
+                 trade_pnl_f * Value(100.0, output_field=FloatField()) / basis_amt_f,
                  output_field=FloatField()
              )),
         default=None,
@@ -138,7 +155,6 @@ def _with_metrics(qs):
     return qs.annotate(
         cashflow_calc=ExpressionWrapper(cashflow_calc, output_field=DEC2),
         pnl_display=ExpressionWrapper(pnl_display, output_field=DEC2),
-        basis_amount=basis_amount,
         pnl_pct=pnl_pct,
         is_win=is_win,
         hold_days_f=hold_days_f,
