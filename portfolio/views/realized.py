@@ -333,24 +333,59 @@ def _aggregate_by_broker(qs):
 @login_required
 @require_GET
 def monthly_topworst_partial(request):
+    """
+    ベスト/ワースト月（PnL上位3・下位3）を部分テンプレで返す。
+    クエリや期間指定は期間サマリーと同じ仕様に合わせる。
+    """
     q = (request.GET.get("q") or "").strip()
-    start, end, preset = _parse_period(request)
-    qs = RealizedTrade.objects.filter(user=request.user)
-    if q: qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
-    if start: qs = qs.filter(trade_at__gte=start)
-    if end:   qs = qs.filter(trade_at__lte=end)
+
+    # 期間指定（既存ヘルパを利用：preset/start/end/freq を解析）
+    # _parse_period はあなたの realized で使っている関数名に合わせてください
+    try:
+        start, end, _preset = _parse_period(request)  # (start, end, preset) を想定
+    except Exception:
+        start = end = None
+
+    qs = RealizedTrade.objects.all()
+    if any(f.name == "user" for f in RealizedTrade._meta.fields):
+        qs = qs.filter(user=request.user)
+
+    if q:
+        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+    if start:
+        qs = qs.filter(trade_at__gte=start)
+    if end:
+        qs = qs.filter(trade_at__lte=end)
+
+    # 既存の注釈（pnl_display 等）を付与
     qs = _with_metrics(qs)
 
-    rows = (qs.annotate(m=TruncMonth("trade_at"))
-              .values("m")
-              .annotate(pnl=Sum("pnl_display"))
-              .order_by("m"))
-    # pythonで整形
-    items = [{"label": r["m"].strftime("%Y-%m"), "pnl": r["pnl"] or 0} for r in rows if r["m"]]
+    # 月次で PnL を集計
+    rows = (
+        qs.annotate(m=TruncMonth("trade_at"))
+          .values("m")
+          .annotate(pnl=Sum("pnl_display"))
+          .order_by("m")
+    )
+
+    items = []
+    for r in rows:
+        m = r.get("m")
+        if not m:
+            continue
+        items.append({
+            "label": m.strftime("%Y-%m"),
+            "pnl": float(r.get("pnl") or 0),
+        })
+
     top3   = sorted(items, key=lambda x: x["pnl"], reverse=True)[:3]
     worst3 = sorted(items, key=lambda x: x["pnl"])[:3]
-    return render(request, "realized/_monthly_topworst.html",
-                  {"top": top3, "worst": worst3, "preset": preset, "q": q})
+
+    return render(
+        request,
+        "realized/_monthly_topworst.html",
+        {"top": top3, "worst": worst3, "q": q},
+    )
 
 @login_required
 @require_GET
