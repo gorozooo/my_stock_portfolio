@@ -1,43 +1,71 @@
 {# templates/realized/_monthly_topworst.html #}
 {% load humanize %}
 <style>
-  /* ★ 常に2カラム（モバイルでも崩さない） */
-  .tw-grid{
-    display:grid; gap:10px; grid-template-columns:1fr 1fr; margin:10px 0;
-  }
+.tw-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr; /* 常に2カラム */
+  gap:10px;
+  margin:10px 0;
+}
 
-  .tw-card{
-    padding:10px 12px;
-    border:1px solid rgba(255,255,255,.08);
-    border-radius:12px;
-    background:rgba(255,255,255,.03);
-  }
-  .tw-title{
-    font-size:12px; color:#a7b1d8; margin-bottom:6px; display:flex; align-items:center; gap:6px;
-  }
+.tw-card{
+  padding:8px 10px;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:12px;
+  background:rgba(255,255,255,.03);
+  min-width:0; /* ★カード自体も縮む */
+}
 
-  /* ★ 行はFlexで、金額だけ右端へ押し出す（余白を作らない） */
-  .tw-row{
-    display:flex; align-items:center; gap:10px;
-    padding:8px 0; border-bottom:1px dashed rgba(255,255,255,.06);
-  }
-  .tw-row:last-child{ border-bottom:0; }
+.tw-title{
+  font-size:12px;
+  color:#a7b1d8;
+  margin-bottom:4px;
+  display:flex;
+  align-items:center;
+  gap:4px;
+}
 
-  .rank{ font-size:11px; color:#a7b1d8; width:2.4em; text-align:right; }
-  .ym-btn{
-    display:inline-block; padding:4px 10px; border-radius:999px;
-    border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.04);
-    font-size:12px; white-space:nowrap;
-  }
+.tw-row{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 0;
+  border-bottom:1px dashed rgba(255,255,255,.06);
+  min-width:0; /* ★行も縮む */
+}
+.tw-row:last-child{ border-bottom:0; }
 
-  /* ★ 右端寄せ＆桁揃え */
-  .tw-val{ margin-left:auto; font-variant-numeric:tabular-nums; white-space:nowrap; font-size:16px; }
+.rank{
+  font-size:11px;
+  color:#a7b1d8;
+  width:2em;
+  text-align:right;
+  flex-shrink:0;
+}
 
-  .pos{color:#86efac} .neg{color:#fca5a5} .muted{color:#94a3b8}
+.ym-btn{
+  padding:2px 6px;  /* ★スマホ用に縮小 */
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.04);
+  font-size:11px;
+  white-space:nowrap;
+  flex-shrink:0;
+}
 
-  /* タップでドリルダウン */
-  .tw-row[data-ym]{ cursor:pointer; }
-  .tw-row[data-ym]:active{ background:rgba(255,255,255,.04); border-radius:8px; }
+.tw-val{
+  margin-left:auto;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+  font-size:14px;  /* ★金額を少し小さく */
+  min-width:0;     /* ★横幅が狭いときは縮む */
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.pos{color:#86efac}
+.neg{color:#fca5a5}
+.muted{color:#94a3b8}
 </style>
 
 <div class="tw-grid">
