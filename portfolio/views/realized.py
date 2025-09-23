@@ -452,7 +452,7 @@ def monthly_kpis_partial(request):
         "pf":        float(pf) if pf is not None else None,
         "avg_hold":  float(avg_hold) if avg_hold is not None else None,
     }
-    return render(request, "realized/_month_kpis.html", ctx)
+    return render(request, "realized/_monthly_kpis.html", ctx)
 
 
 @login_required
@@ -498,7 +498,7 @@ def monthly_breakdown_partial(request):
         for row in accounts
     ]
 
-    return render(request, "realized/_month_breakdown.html", {
+    return render(request, "realized/_monthly_breakdown.html", {
         "brokers": brokers_view,
         "accounts": accounts_view,
     })
@@ -705,7 +705,6 @@ def summary_period_partial(request):
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-    # ✨ keep=all の場合は「単独月への絞り込み」はしない
     if start:
         qs = qs.filter(trade_at__gte=start)
     if end:
@@ -731,7 +730,8 @@ def summary_period_partial(request):
                              Value(Decimal("0"), output_field=DEC2)),
               cash_spec   = Coalesce(Sum("cashflow_calc", filter=Q(account__in=["SPEC","NISA"]), output_field=DEC2),
                                      Value(Decimal("0"), output_field=DEC2)),
-              cash_margin = Coalesce(Sum("cashflow_calc", filter=Q(account="MARGIN"), output_field=DEC2),
+              # ★信用は“現金相当”として pnl_display を使う（修正点）
+              cash_margin = Coalesce(Sum("pnl_display", filter=Q(account="MARGIN"), output_field=DEC2),
                                      Value(Decimal("0"), output_field=DEC2)),
               pnl = Coalesce(Sum("pnl_display", output_field=DEC2),
                              Value(Decimal("0"), output_field=DEC2)),
@@ -766,7 +766,7 @@ def summary_period_partial(request):
         "start": start,
         "end": end,
         "q": q,
-        "focus": focus if selected else "",  # 該当が無ければフォーカス解除
+        "focus": focus if selected else "",
         "selected": selected,
     }
     return render(request, "realized/_summary_period.html", ctx)
