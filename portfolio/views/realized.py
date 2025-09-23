@@ -1016,59 +1016,56 @@ def export_csv(request):
 #  部分テンプレ
 # ============================================================
 @login_required
+@require_GET
 def table_partial(request):
     """
-    明細テーブルの部分描画。
-    - q              … ティッカー/名称のあいまい検索
-    - start, end     … YYYY-MM-DD で期間フィルタ（どちらか片方だけでも可）
-    - as=json        … HTMLを {ok, html} のJSONで返す（fetch用）。未指定ならHTML断片をそのまま返す
+    明細テーブル部分。q（検索）に加えて start/end（日付, ISO YYYY-MM-DD）で絞り込み。
+    - HTMX / fetch のときは JSON {html: "..."} を返す
+    - 通常 GET でもそのまま HTML を返す
+    - 失敗時も 200 でエラーパネル HTML を返す（UIを崩さないため）
     """
     try:
-        q = (request.GET.get("q") or "").strip()
-        start_raw = (request.GET.get("start") or "").strip()
-        end_raw   = (request.GET.get("end") or "").strip()
+        q      = (request.GET.get("q") or "").strip()
+        start_s = (request.GET.get("start") or "").strip()
+        end_s   = (request.GET.get("end") or "").strip()
+
+        # ISO日付を date に
+        def _parse_date(s):
+            if not s:
+                return None
+            try:
+                # "YYYY-MM-DD" or ISO 8601
+                return timezone.datetime.fromisoformat(s).date()
+            except Exception:
+                return None
+
+        start_d = _parse_date(start_s)
+        end_d   = _parse_date(end_s)
 
         qs = RealizedTrade.objects.filter(user=request.user)
 
         if q:
             qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-        # --- 期間フィルタ（片側だけ指定でも動作） ---
-        start_dt = end_dt = None
-        if start_raw:
-            try:
-                start_dt = datetime.fromisoformat(start_raw).date()
-            except Exception:
-                start_dt = None
-        if end_raw:
-            try:
-                end_dt = datetime.fromisoformat(end_raw).date()
-            except Exception:
-                end_dt = None
-
-        if start_dt and end_dt:
-            qs = qs.filter(trade_at__range=[start_dt, end_dt])
-        elif start_dt:
-            qs = qs.filter(trade_at__gte=start_dt)
-        elif end_dt:
-            qs = qs.filter(trade_at__lte=end_dt)
+        if start_d:
+            qs = qs.filter(trade_at__gte=start_d)
+        if end_d:
+            qs = qs.filter(trade_at__lte=end_d)
 
         qs = qs.order_by("-trade_at", "-id")
 
         rows = _with_metrics(qs)
         html = render_to_string("realized/_table.html", {"trades": rows}, request=request)
 
-        # fetch などJSONで受け取りたい場合用（?as=json）
-        if (request.GET.get("as") or "").lower() == "json":
+        # HTMX / fetch / XHR のときは JSON、それ以外は素の HTML
+        xrw = (request.headers.get("X-Requested-With") or "").lower()
+        if request.headers.get("HX-Request") == "true" or xrw in ("fetch", "xmlhttprequest", "htmx"):
             return JsonResponse({"ok": True, "html": html})
-
-        # HTMX などHTML断片をそのまま置換するケース
         return HttpResponse(html)
 
     except Exception as e:
         logger.exception("table_partial error: %s", e)
         tb = traceback.format_exc()
-        # エラー時も 200 でHTML断片を返して差し替える
         html = f"""
         <div class="p-3 rounded-lg" style="background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;">
           <div style="font-weight:700;margin-bottom:6px">テーブル取得に失敗しました</div>
@@ -1079,10 +1076,10 @@ def table_partial(request):
           </details>
         </div>
         """
-        # JSON要求（?as=json）の場合も配慮
-        if (request.GET.get("as") or "").lower() == "json":
+        xrw = (request.headers.get("X-Requested-With") or "").lower()
+        if request.headers.get("HX-Request") == "true" or xrw in ("fetch", "xmlhttprequest", "htmx"):
             return JsonResponse({"ok": False, "html": html})
-        return HttpResponse(html)
+        return HttpResponse(html)  # 200で返す
 
 @login_required
 @require_GET
