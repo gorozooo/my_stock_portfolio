@@ -23,19 +23,19 @@
   </div>
 
   <div class="sum-card">
-    <div class="k">勝率</div>
+    <div class="k">勝率(%)</div>
     <div class="v mono">{{ agg.win_rate|floatformat:1 }}%</div>
   </div>
 
   <div class="sum-card">
-    <div class="k">📈PnL累計</div>
+    <div class="k">📈実現損益累計</div>
     {% with v=agg.pnl %}
       <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
     {% endwith %}
   </div>
 
   <div class="sum-card">
-    <div class="k">平均PnL%</div>
+    <div class="k">平均実現損益(%)</div>
     {% if agg.avg_pnl_pct is not None %}
       <div class="v mono">{{ agg.avg_pnl_pct|floatformat:2 }}%</div>
     {% else %}
