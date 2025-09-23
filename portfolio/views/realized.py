@@ -330,12 +330,6 @@ def _aggregate_by_broker(qs):
     return out
 
 # --- 期間まとめ（部分テンプレ） -------------------------
-# --- 追加インポート（なければ） ---
-from django.contrib.auth.decorators import login_required
-from django.views.decorators.http import require_GET
-from django.db.models import Sum, Q
-from django.db.models.functions import TruncMonth
-from django.shortcuts import render
 @login_required
 @require_GET
 def monthly_topworst_partial(request):
