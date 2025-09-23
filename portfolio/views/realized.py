@@ -335,10 +335,10 @@ def _aggregate_by_broker(qs):
 @require_GET
 def monthly_topworst_partial(request):
     """
-    PnLの 月別 Top3 / Worst3 を返す部分テンプレ。
-    - 検索 q を考慮
-    - 期間は preset/start/end を受け取れたら尊重（なければ過去12ヶ月）
-    - PnL は cashflow の合計を使用
+    月別 PnL の Top3 / Worst3 を返す部分テンプレ。
+    - PnL は cashflow 合計
+    - 期間は preset/start/end（_summary_period と同じ名前）を優先
+    - 期間指定が無ければ直近365日
     """
     q = (request.GET.get("q") or "").strip()
 
@@ -348,12 +348,12 @@ def monthly_topworst_partial(request):
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-    # 期間処理
+    # ---- 期間 ----
     preset = (request.GET.get("preset") or "").upper()
     start_raw = (request.GET.get("start") or "").strip()
-    end_raw   = (request.GET.get("end")   or "").strip()
-    start = None
-    end   = None
+    end_raw   = (request.GET.get("end") or "").strip()
+
+    start = end = None
     try:
         if start_raw:
             start = timezone.datetime.fromisoformat(start_raw).date()
@@ -362,41 +362,46 @@ def monthly_topworst_partial(request):
     except Exception:
         start = end = None
 
-    if start and end:
-        qs = qs.filter(trade_at__gte=start, trade_at__lte=end)
-    else:
-        today = timezone.localdate()
-        a_year_ago = (today.replace(day=1) - timezone.timedelta(days=1)).replace(day=1)
-        qs = qs.filter(trade_at__gte=a_year_ago, trade_at__lte=today)
+    today = timezone.localdate()
+
+    if not (start and end):
+        # preset が来ていればそれを解釈
+        if preset == "THIS_MONTH":
+            start = today.replace(day=1)
+            end   = today
+        elif preset == "THIS_YEAR":
+            start = today.replace(month=1, day=1)
+            end   = today
+        elif preset == "LAST_12M":
+            # 直近365日で代用（カバー範囲は十分）
+            start = today - timedelta(days=365)
+            end   = today
+        else:
+            start = today - timedelta(days=365)
+            end   = today
+
+    qs = qs.filter(trade_at__gte=start, trade_at__lte=end)
 
     dec0 = Value(0, output_field=DEC2)
 
     monthly = (
         qs.annotate(m=TruncMonth("trade_at"))
           .values("m")
-          .annotate(
-              pnl=Coalesce(Sum("cashflow", output_field=DEC2), dec0)  # ← cashflow を合計
-          )
+          .annotate(pnl=Coalesce(Sum("cashflow", output_field=DEC2), dec0))
           .order_by("m")
     )
 
     items = []
     for r in monthly:
-        d = r["m"]
-        label = d.strftime("%Y-%m") if d else ""
-        items.append({
-            "label": label,
-            "pnl": float(r.get("pnl") or 0),
-        })
+        dt = r["m"]
+        label = dt.strftime("%Y-%m") if dt else ""
+        items.append({"label": label, "pnl": float(r.get("pnl") or 0)})
 
-    non_empty = [x for x in items if x["pnl"] != 0] or items
-    top   = sorted(non_empty, key=lambda x: x["pnl"], reverse=True)[:3]
-    worst = sorted(non_empty, key=lambda x: x["pnl"])[:3]
+    # 値が0のみのときはそのまま使う（Topだけでも出す）
+    top   = sorted(items, key=lambda x: x["pnl"], reverse=True)[:3]
+    worst = sorted(items, key=lambda x: x["pnl"])[:3]
 
-    return render(request, "realized/_monthly_topworst.html", {
-        "top": top,
-        "worst": worst,
-    })
+    return render(request, "realized/_monthly_topworst.html", {"top": top, "worst": worst})
 
 @login_required
 @require_GET
