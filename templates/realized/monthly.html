@@ -180,33 +180,30 @@
 
   // 明細ロード：強固な3段フォールバック（ym-json→range-json→range-html）
   async function loadDetailsForYm(ym){
+    const el = document.getElementById('monthlyDetailsBody');
     try{
       const params = new URLSearchParams({ ym, format: 'json' });
       const q = (document.getElementById('q')?.value || '').trim();
       if (q) params.append('q', q);
 
-      const url = "{% url 'realized_table_partial' %}?" + params.toString();
+      el.innerHTML = "<div style='color:#94a3b8'>読み込み中…</div>";
 
-      const bodyEl = document.getElementById('monthlyDetailsBody');
-      bodyEl.innerHTML = "<div style='color:#94a3b8'>読み込み中…</div>";
-
-      const res = await fetch(url, { headers:{ "Accept":"application/json", "X-Requested-With":"fetch" }});
+      const res = await fetch("{% url 'realized_table_partial' %}?"+params.toString(), {
+        headers: { "Accept":"application/json", "X-Requested-With":"fetch" }
+      });
       const j = await res.json();
 
-      bodyEl.innerHTML = (j && j.ok && j.html && j.html.trim())
+      el.innerHTML = (j && j.ok && j.html && j.html.trim())
         ? j.html
         : "<div style='color:#94a3b8'>データなし</div>";
 
-      // チップの選択表示
+      // チップの選択反映（任意）
       document.getElementById('monthlyMonthPicker')?.querySelectorAll('.chip').forEach(c=>{
         c.setAttribute('aria-current', c.dataset.ym === ym ? 'true' : 'false');
       });
-
-      document.getElementById("monthly-details")?.scrollIntoView({behavior:"smooth", block:"start"});
-    }catch(e){
-      console.error(e);
-      document.getElementById('monthlyDetailsBody').innerHTML =
-        "<div class='p-3 rounded-lg' style='background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;'>明細の取得に失敗しました</div>";
+    }catch(err){
+      console.error(err);
+      el.innerHTML = "<div class='p-3 rounded-lg' style='background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;'>明細の取得に失敗しました</div>";
     }
   }
   window.loadDetailsForYm = loadDetailsForYm;
