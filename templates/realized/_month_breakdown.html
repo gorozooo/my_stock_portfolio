@@ -1,10 +1,58 @@
+{# templates/realized/_month_breakdown.html #}
 {% load humanize %}
 <style>
-  .bd-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
-  .bd-card{padding:10px 12px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03)}
+  .bd-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+    margin:10px 0;
+  }
+  @media (max-width: 380px){
+    .bd-grid{ grid-template-columns:1fr; } /* すごく狭い端末は1列に */
+  }
+  .bd-card{
+    padding:10px 12px;
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:12px;
+    background:rgba(255,255,255,.03);
+  }
   .bd-title{font-size:12px;color:#a7b1d8;margin-bottom:6px}
-  .bd-row{display:flex;justify-content:space-between;align-items:baseline;font-variant-numeric:tabular-nums;margin:4px 0}
-  .pos{color:#86efac} .neg{color:#fca5a5} .muted{color:#94a3b8}
+
+  /* 行のレイアウト：ラベルは複数行OK、数値は常に右端で1行 */
+  .bd-row{
+    display:grid;
+    grid-template-columns:1fr auto;
+    align-items:center;
+    gap:8px;
+    padding:4px 0;
+  }
+  .bd-label{
+    min-width:0;
+    line-height:1.25;
+    /* 2行まで許容して省略（iOS Safari対応） */
+    display:-webkit-box;
+    -webkit-line-clamp:2;
+    -webkit-box-orient:vertical;
+    overflow:hidden;
+  }
+  .bd-meta{
+    margin-top:2px;
+    display:flex; gap:6px; align-items:center;
+    font-size:11px; color:#94a3b8;
+  }
+  .chip{
+    border:1px solid rgba(255,255,255,.12);
+    border-radius:999px;
+    padding:1px 6px;
+  }
+  .bd-val{
+    font-variant-numeric:tabular-nums;
+    font-size:17px;
+    white-space:nowrap;     /* 数値は折り返さない */
+    text-align:right;
+  }
+  .pos{color:#86efac} .neg{color:#fca5a5}
+  .muted{color:#94a3b8}
 </style>
 
 <div class="bd-grid">
@@ -14,8 +62,13 @@
       {% for r in brokers %}
         {% with v=r.pnl %}
         <div class="bd-row">
-          <div>{{ r.label }}（{{ r.n }}件）</div>
-          <div class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
+          <div>
+            <div class="bd-label">{{ r.label }}</div>
+            <div class="bd-meta">
+              <span class="chip">{{ r.n }}件</span>
+            </div>
+          </div>
+          <div class="bd-val {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
         </div>
         {% endwith %}
       {% endfor %}
@@ -30,8 +83,13 @@
       {% for r in accounts %}
         {% with v=r.pnl %}
         <div class="bd-row">
-          <div>{{ r.label }}（{{ r.n }}件）</div>
-          <div class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
+          <div>
+            <div class="bd-label">{{ r.label }}</div>
+            <div class="bd-meta">
+              <span class="chip">{{ r.n }}件</span>
+            </div>
+          </div>
+          <div class="bd-val {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
         </div>
         {% endwith %}
       {% endfor %}
