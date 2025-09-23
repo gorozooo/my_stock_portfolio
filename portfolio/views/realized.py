@@ -962,7 +962,7 @@ def close_submit(request, pk: int):
         memo    = (request.POST.get("memo")    or "").strip()
         name    = (request.POST.get("name")    or "").strip() or getattr(h, "name", "") or ""
 
-        # --- バリデーション（数量） ---
+        # --- バリデーション（数量/価格） ---
         held_qty = getattr(h, "quantity", None)
         if held_qty is None:
             held_qty = getattr(h, "qty", 0)
@@ -997,14 +997,21 @@ def close_submit(request, pk: int):
         # --- 手数料を逆算 ---
         fee = (price - basis) * Decimal(qty_in) - pnl_input
 
-        # --- 保有日数（Holding.created_at があれば推定） ---
+        # --- 保有日数（opened_at を優先。無ければ created_at を使用） ---
         days_held = None
         try:
-            opened = getattr(h, "created_at", None)
-            if opened:
-                days_held = (trade_at - opened.date()).days
-                if days_held is not None and days_held < 0:
-                    days_held = 0
+            opened_date = None
+            oa = getattr(h, "opened_at", None)
+            if oa:
+                opened_date = oa  # DateField
+
+            ca = getattr(h, "created_at", None)
+            if not opened_date and ca:
+                opened_date = ca.date()  # DateTime -> date
+
+            if opened_date:
+                d = (trade_at - opened_date).days
+                days_held = max(d, 0)
         except Exception:
             days_held = None
 
@@ -1019,9 +1026,9 @@ def close_submit(request, pk: int):
             qty=qty_in,
             price=price,
             fee=fee,
-            cashflow=pnl_input,     # 実損（±）
-            basis=basis,            # ★ 追加：平均取得単価
-            hold_days=days_held,    # ★ 追加：保有日数（推定）
+            cashflow=pnl_input,   # 実損（±）
+            basis=basis,          # 平均取得単価
+            hold_days=days_held,  # 保有日数
             memo=memo,
         )
         if any(f.name == "user" for f in RealizedTrade._meta.fields):
