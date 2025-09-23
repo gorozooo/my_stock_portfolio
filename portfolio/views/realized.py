@@ -1195,40 +1195,38 @@ def _parse_ymd(s: str):
     except Exception:
         return None
 
-
 @login_required
 @require_GET
 def table_partial(request):
     """
     明細テーブル（部分描画）
-      - ym:     'YYYY-MM'（これが来たら最優先でその月だけに固定）
-      - q:      検索（ticker/name）
-      - start/end: 'YYYY-MM' or 'YYYY-MM-DD'（ym が無い時のフォールバック）
+      - ym=YYYY-MM があれば最優先でその月のみ
+      - それ以外は start/end（YYYY-MM / YYYY-MM-DD）でフォールバック
       - format=json のとき {ok, html, count}
     """
     import re
     try:
-        q        = (request.GET.get("q") or "").strip()
-        ym_s     = (request.GET.get("ym") or "").strip()
-        start_s  = (request.GET.get("start") or "").strip()
-        end_s    = (request.GET.get("end") or "").strip()
-        accept   = (request.headers.get("Accept") or "")
+        q         = (request.GET.get("q") or "").strip()
+        ym_s      = (request.GET.get("ym") or "").strip()
+        start_s   = (request.GET.get("start") or "").strip()
+        end_s     = (request.GET.get("end") or "").strip()
+        accept    = (request.headers.get("Accept") or "")
         want_json = (request.GET.get("format") == "json") or ("application/json" in accept)
 
         qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
         if q:
             qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-        # --- ① ym=YYYY-MM が来たらそれだけに固定 ---
-        if re.fullmatch(r"\d{4}-\d{2}", ym_s or ""):
+        # --- ym が来たら最優先で固定 ---
+        if re.fullmatch(r"\d{4}-\d{2}", ym_s):
             y, m = map(int, ym_s.split("-"))
             qs = qs.filter(trade_at__year=y, trade_at__month=m)
         else:
-            # --- ② start/end（YYYY-MM / YYYY-MM-DD 両対応）---
+            # --- start/end フォールバック ---
             def _to_date(s: str, end_side: bool = False):
                 if not s:
                     return None
-                if len(s) == 7 and s.count("-") == 1:
+                if len(s) == 7 and s.count("-") == 1:  # YYYY-MM
                     yy, mm = map(int, s.split("-"))
                     if end_side:
                         # 月末
@@ -1238,16 +1236,14 @@ def table_partial(request):
                     return date(yy, mm, 1)
                 return parse_date(s)
 
-            start_d = _to_date(start_s, end_side=False)
-            end_d   = _to_date(end_s,   end_side=True)
-
-            # DateField なので __date は不要
-            if start_d and end_d:
-                qs = qs.filter(trade_at__range=(start_d, end_d))
-            elif start_d:
-                qs = qs.filter(trade_at__gte=start_d)
-            elif end_d:
-                qs = qs.filter(trade_at__lte=end_d)
+            sd = _to_date(start_s, end_side=False)
+            ed = _to_date(end_s,   end_side=True)
+            if sd and ed:
+                qs = qs.filter(trade_at__date__range=(sd, ed)) if qs.model._meta.get_field("trade_at").get_internal_type().lower().startswith("date") is False else qs.filter(trade_at__range=(sd, ed))
+            elif sd:
+                qs = qs.filter(trade_at__date__gte=sd) if qs.model._meta.get_field("trade_at").get_internal_type().lower().startswith("date") is False else qs.filter(trade_at__gte=sd)
+            elif ed:
+                qs = qs.filter(trade_at__date__lte=ed) if qs.model._meta.get_field("trade_at").get_internal_type().lower().startswith("date") is False else qs.filter(trade_at__lte=ed)
 
         rows = _with_metrics(qs)
         html = render_to_string("realized/_table.html", {"trades": rows}, request=request)
