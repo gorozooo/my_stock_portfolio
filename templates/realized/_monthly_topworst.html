@@ -1,17 +1,33 @@
 {# templates/realized/_monthly_topworst.html #}
-<div class="grid grid-cols-2 gap-3">
-  <div class="card">
-    <div class="text-xs text-slate-400 mb-1">ベスト月</div>
+{% load humanize %}
+<style>
+  .mtw-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:12px}
+  .mtw-card{border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:10px; background:rgba(255,255,255,.04)}
+  .mtw-card h4{font-size:12px; color:#a7b1d8; margin-bottom:6px}
+  .mtw-row{display:flex; justify-content:space-between; font-size:14px; padding:4px 0}
+  .pos{color:#86efac} .neg{color:#fca5a5}
+</style>
+<div class="mtw-grid">
+  <div class="mtw-card">
+    <h4>ベスト月</h4>
     {% for it in top %}
-      <div class="flex justify-between"><span>{{ it.label }}</span>
-        <span class="text-emerald-300">¥{{ it.pnl|floatformat:0|intcomma }}</span></div>
-    {% empty %}<div class="text-slate-400">なし</div>{% endfor %}
+      <div class="mtw-row">
+        <span>{{ it.label }}</span>
+        <span class="pos">¥{{ it.pnl|floatformat:0|intcomma }}</span>
+      </div>
+    {% empty %}
+      <div class="mtw-row" style="color:#94a3b8">なし</div>
+    {% endfor %}
   </div>
-  <div class="card">
-    <div class="text-xs text-slate-400 mb-1">ワースト月</div>
+  <div class="mtw-card">
+    <h4>ワースト月</h4>
     {% for it in worst %}
-      <div class="flex justify-between"><span>{{ it.label }}</span>
-        <span class="text-rose-300">¥{{ it.pnl|floatformat:0|intcomma }}</span></div>
-    {% empty %}<div class="text-slate-400">なし</div>{% endfor %}
+      <div class="mtw-row">
+        <span>{{ it.label }}</span>
+        <span class="neg">¥{{ it.pnl|floatformat:0|intcomma }}</span>
+      </div>
+    {% empty %}
+      <div class="mtw-row" style="color:#94a3b8">なし</div>
+    {% endfor %}
   </div>
 </div>
