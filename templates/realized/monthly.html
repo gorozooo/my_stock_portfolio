@@ -40,7 +40,25 @@
            hx-swap="outerHTML">
     <div style="color:#94a3b8;padding:8px 0">読み込み中…</div>
   </section>
+  
+  {# ★ 追加: KPI（%/勝率/PF/保有日数） #}
+  <section id="monthly-kpis"
+           hx-get="{% url 'realized_monthly_kpis' %}"
+           hx-trigger="load, pnl:refresh from:body"
+           hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
+           hx-swap="outerHTML">
+    <div style="color:#94a3b8;padding:8px 0">KPIを読み込み中…</div>
+  </section>
 
+  {# ★ 追加: ブローカー/口座ブレークダウン #}
+  <section id="monthly-breakdown"
+           hx-get="{% url 'realized_monthly_breakdown' %}"
+           hx-trigger="load, pnl:refresh from:body"
+           hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
+           hx-swap="outerHTML">
+    <div style="color:#94a3b8;padding:8px 0">ブレークダウンを読み込み中…</div>
+  </section>
+  
   {# Top/Worst 月 #}
   <section id="monthly-topworst"
            hx-get="{% url 'realized_monthly_topworst' %}"
