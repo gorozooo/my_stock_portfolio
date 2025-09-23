@@ -157,7 +157,6 @@ def _aggregate(qs):
     qs = _with_metrics(qs)
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
-    # --- PnL% 用（対象外は None にして Avg から除外） ---
     eligible = (
         Q(side="SELL") & Q(qty__gt=0) &
         Q(basis__isnull=False) & ~Q(basis=0)
@@ -193,7 +192,6 @@ def _aggregate(qs):
         ),
         pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
 
-        # 追加：利益合計 / 損失合計
         profit_sum = Coalesce(
             Sum(Case(When(pnl_display__gt=0, then=F("pnl_display")),
                      default=dec0, output_field=DEC2)), dec0),
@@ -201,24 +199,18 @@ def _aggregate(qs):
             Sum(Case(When(pnl_display__lt=0, then=F("pnl_display")),
                      default=dec0, output_field=DEC2)), dec0),
 
-        # 追加：平均PnL% / 平均保有日数
         avg_pnl_pct = Avg(pct_expr),
         avg_hold_days = Avg(Case(When(eligible, then=F("hold_days")),
                                  default=None, output_field=IntegerField())),
     )
 
-    # 現金合計
-    try:
-        agg["cash_total"] = (agg["cash_spec"] or Decimal("0")) + (agg["cash_margin"] or Decimal("0"))
-    except Exception:
-        agg["cash_total"] = Decimal("0")
+    # 後計算
+    agg["cash_total"] = (agg.get("cash_spec") or Decimal("0")) + (agg.get("cash_margin") or Decimal("0"))
+    loss_abs = abs(agg.get("loss_sum") or Decimal("0"))
+    agg["pf"] = (agg.get("profit_sum") or Decimal("0")) / loss_abs if loss_abs else None
 
-    # ★ PF は Python 側で後計算（|loss| で割る / ゼロ除算回避）
-    try:
-        loss_abs = abs(agg.get("loss_sum") or Decimal("0"))
-        agg["pf"] = (agg.get("profit_sum") or Decimal("0")) / loss_abs if loss_abs else None
-    except Exception:
-        agg["pf"] = None
+    # ★ 平均数量が必要な場合はここで後計算（テンプレで使っていなければ不要）
+    # agg["avg_qty"] = (agg["qty"] / agg["n"]) if agg["n"] else None
 
     return agg
 
@@ -275,13 +267,11 @@ def _aggregate_by_broker(qs):
     out = []
     for r in rows:
         d = dict(r)
-        d["cash_total"] = (d["cash_spec"] or Decimal("0")) + (d["cash_margin"] or Decimal("0"))
-
-        # ★ PF をここで後計算
+        d["cash_total"] = (d.get("cash_spec") or Decimal("0")) + (d.get("cash_margin") or Decimal("0"))
         loss_abs = abs(d.get("loss_sum") or Decimal("0"))
         d["pf"] = (d.get("profit_sum") or Decimal("0")) / loss_abs if loss_abs else None
-
         out.append(d)
+
     return out
 
 # --- 期間まとめ（部分テンプレ） -------------------------
