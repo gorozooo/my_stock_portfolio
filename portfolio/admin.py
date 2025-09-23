@@ -61,7 +61,7 @@ except admin.sites.AlreadyRegistered:
 class RealizedTradeAdmin(admin.ModelAdmin):
     """
     broker/account は日本語のラベルを表示。
-    追加していれば holding_days も表示。
+    追加していれば hold_days も表示。
     """
 
     # 日本語ラベル表示
@@ -98,9 +98,9 @@ class RealizedTradeAdmin(admin.ModelAdmin):
             cols.append("cashflow")
         # プロパティ pnl をそのまま表示（数値）
         cols.append("pnl")
-        # もし保有日数フィールドを追加済みなら表示
-        if hasattr(RealizedTrade, "holding_days"):
-            cols.append("holding_days")
+        # ★ 修正: 正しいフィールド名は hold_days
+        if hasattr(RealizedTrade, "hold_days"):
+            cols.append("hold_days")
         return tuple(cols)
 
     def get_list_filter(self, request):
