@@ -7,6 +7,7 @@ from datetime import timedelta
 import csv
 import logging
 import traceback
+from datetime import date
 
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
