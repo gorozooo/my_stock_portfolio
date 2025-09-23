@@ -1182,45 +1182,48 @@ def export_csv(request):
 @login_required
 @require_GET
 def table_partial(request):
+    """
+    明細テーブルの部分テンプレを返す。
+    - q: ティッカー/名称 検索
+    - start, end: YYYY-MM-DD の範囲でフィルタ
+    - format=json もしくは Accept: application/json のとき {ok, html} を返す
+    """
     try:
         q = (request.GET.get("q") or "").strip()
 
-        # 期間（YYYY-MM-DD）
-        start_str = request.GET.get("start") or ""
-        end_str   = request.GET.get("end") or ""
-        start_d = parse_date(start_str) if start_str else None
-        end_d   = parse_date(end_str)   if end_str   else None
+        qs = RealizedTrade.objects.filter(user=request.user)
 
-        qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
+        # 期間フィルタ（YYYY-MM-DD）
+        start = (request.GET.get("start") or "").strip()
+        end   = (request.GET.get("end") or "").strip()
+        if start:
+            qs = qs.filter(trade_at__date__gte=start)
+        if end:
+            qs = qs.filter(trade_at__date__lte=end)
 
-        # キーワード
         if q:
             qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-        # 日付で絞り込み（DateField/DateTimeField 両対応）
-        # trade_at が DateTimeField の場合でも __date でOK
-        if start_d and end_d:
-            qs = qs.filter(trade_at__date__range=(start_d, end_d))
-        elif start_d:
-            qs = qs.filter(trade_at__date__gte=start_d)
-        elif end_d:
-            qs = qs.filter(trade_at__date__lte=end_d)
-
+        qs = qs.order_by("-trade_at", "-id")
         rows = _with_metrics(qs)
 
-        # --- JSON で返す（monthly.html が format=json を付けて呼びます） ---
-        if (request.GET.get("format") or "").lower() == "json":
-            html = render_to_string("realized/_table.html", {"trades": rows}, request=request)
+        html = render_to_string("realized/_table.html", {"trades": rows}, request=request)
+
+        wants_json = (
+            (request.GET.get("format") or "").lower() == "json"
+            or "application/json" in (request.headers.get("Accept") or "")
+        )
+
+        if wants_json:
             return JsonResponse({"ok": True, "html": html})
 
-        # --- 通常（部分テンプレとしてそのまま返す） ---
-        return render(request, "realized/_table.html", {"trades": rows})
+        # 通常（HTML直返し）
+        return HttpResponse(html)
 
     except Exception as e:
         logger.exception("table_partial error: %s", e)
         tb = traceback.format_exc()
-        # HTMX 置換用の簡易エラーパネル（200で返す）
-        html = f"""
+        err_html = f"""
         <div class="p-3 rounded-lg" style="background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;">
           <div style="font-weight:700;margin-bottom:6px">テーブル取得に失敗しました</div>
           <div style="margin-bottom:8px">{str(e)}</div>
@@ -1229,11 +1232,17 @@ def table_partial(request):
             <pre style="white-space:pre-wrap">{tb}</pre>
           </details>
         </div>
-        """
-        # JSON要求なら JSON で返す
-        if (request.GET.get("format") or "").lower() == "json":
-            return JsonResponse({"ok": False, "html": html})
-        return HttpResponse(html)
+        """.strip()
+
+        # JSONを要求されている場合はJSONで返す（HTTP 200 のまま）
+        wants_json = (
+            (request.GET.get("format") or "").lower() == "json"
+            or "application/json" in (request.headers.get("Accept") or "")
+        )
+        if wants_json:
+            return JsonResponse({"ok": False, "html": err_html, "error": str(e)})
+
+        return HttpResponse(err_html)
 
 @login_required
 @require_GET
