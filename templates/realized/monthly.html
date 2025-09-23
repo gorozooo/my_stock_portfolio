@@ -5,24 +5,30 @@
 
 {% block head %}
 <link rel="stylesheet" href="{% static 'css/realized.css' %}?v=10">
-<style>.view-hidden{display:none!important} section{margin-top:12px}</style>
+<style>
+  .view-hidden{display:none!important}
+  section{margin-top:12px}
+  .card{padding:10px 12px;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.03)}
+</style>
 {% endblock %}
 
 {% block content %}
 <div class="pnl">
   <h1>月別サマリー</h1>
 
+  {# ── 検索 ─────────────────────────────── #}
   <div class="fi fi-full mt-4">
-    <input type="search" name="q" value="{{ q|default:'' }}" id="q"
-           placeholder="ティッカー/名称で検索"
-           hx-get="{% url 'realized_summary_period' %}"
-           hx-target="#monthly-period"
-           hx-trigger="keyup changed delay:300ms, search"
-           hx-include="#q"
-           class="w-full">
+    <input
+      type="search" name="q" value="{{ q|default:'' }}" id="q"
+      placeholder="ティッカー/名称で検索"
+      hx-get="{% url 'realized_summary_period' %}"
+      hx-target="#monthly-period"
+      hx-trigger="keyup changed delay:300ms, search"
+      hx-include="#q"
+      class="w-full">
   </div>
 
-  {# 期間まとめ（既存部分テンプレ再利用） #}
+  {# ── 期間まとめ（既存の部分テンプレをそのまま再利用） ── #}
   <section id="monthly-period"
            hx-get="{% url 'realized_summary_period' %}?preset={{ preset|default:'LAST_12M' }}&freq=month&q={{ q|urlencode }}"
            hx-trigger="load"
@@ -30,17 +36,98 @@
     <div style="color:#94a3b8;padding:8px 0">読み込み中…</div>
   </section>
 
-  {# 1枚目：月次サマリー（棒＋折れ線） #}
-  <section id="monthly-chart"
-           hx-get="{% url 'realized_chart_monthly_json' %}"
-           hx-trigger="load"
-           hx-swap="outerHTML">
-    {% include "realized/_monthly_chart.html" %}
+  {# ── 1枚目：月次サマリー（棒：PnL、折れ線：累積PnL 右軸） ── #}
+  <section id="monthly-chart" class="card">
+    <div style="font-size:12px;color:#a7b1d8;margin-bottom:6px">累積PnLの推移</div>
+    <canvas id="monthlyChartCanvas" height="220"></canvas>
   </section>
 
-  {# 2,3枚目：累積PnLとヒストグラム（既存） #}
+  {# ── 2,3枚目：累積PnLとヒストグラム（既存パーツをそのまま） ── #}
   <section id="analysis-charts">
     {% include "realized/_analysis_charts.html" %}
   </section>
 </div>
+
+<script>
+(function(){
+  // Chart.js は base.html 側で読み込まれている前提
+  let chart;
+
+  function currentQ(){
+    return (document.getElementById('q')?.value || '').trim();
+  }
+
+  function buildApiUrl(){
+    const base = "{% url 'realized_chart_monthly_json' %}";
+    const q = encodeURIComponent(currentQ());
+    return q ? `${base}?q=${q}` : base;
+  }
+
+  async function drawMonthlyChart(){
+    try{
+      const resp = await fetch(buildApiUrl(), {headers:{'X-Requested-With':'fetch'}});
+      const data = await resp.json();
+
+      const ctx = document.getElementById('monthlyChartCanvas').getContext('2d');
+      if (chart) chart.destroy();
+
+      chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: data.labels || [],
+          datasets: [
+            // 月次PnL（棒）
+            {
+              type: 'bar',
+              label: 'PnL',
+              data: data.pnl || [],
+              borderWidth: 0
+            },
+            // 累積PnL（折れ線／右軸）
+            {
+              type: 'line',
+              label: '累積PnL',
+              data: data.pnl_cum || [],
+              borderWidth: 2,
+              pointRadius: 3,
+              yAxisID: 'y1'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true },
+            y1: {
+              beginAtZero: true,
+              position: 'right',
+              grid: { drawOnChartArea: false }
+            }
+          },
+          plugins: {
+            legend: { labels: { boxWidth: 10 } },
+            tooltip: { mode: 'index', intersect: false }
+          }
+        }
+      });
+    }catch(e){
+      console.error(e);
+    }
+  }
+
+  // 初期描画
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', drawMonthlyChart, {once:true});
+  }else{
+    drawMonthlyChart();
+  }
+
+  // 期間パネルが（再）描画されたらグラフも更新
+  document.addEventListener('pnl:refresh', drawMonthlyChart);
+
+  // 検索ボックスで確定（Enter/検索ボタン）したら更新
+  document.getElementById('q')?.addEventListener('search', drawMonthlyChart);
+})();
+</script>
 {% endblock %}
