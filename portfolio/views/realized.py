@@ -1189,46 +1189,60 @@ def export_csv(request):
 # ============================================================
 #  部分テンプレ
 # ============================================================
-login_required
+def _parse_ymd(s: str):
+    """
+    'YYYY-MM-DD' 文字列 -> date。失敗時 None。
+    """
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+@login_required
 @require_GET
 def table_partial(request):
     """
     明細テーブル（部分テンプレ）
-      - q: フリーテキスト
-      - start,end: YYYY-MM-DD（end は '翌日未満' 扱い）
-      - JSON: ?format=json または Accept: application/json
+      - ?q= 検索語（ticker/name）
+      - ?start=YYYY-MM-DD
+      - ?end=YYYY-MM-DD   ← ここまでを含む（inclusive）
+      - ?format=json      ← JS からは常に JSON を要求
     """
     try:
         q = (request.GET.get("q") or "").strip()
-        qs = RealizedTrade.objects.filter(user=request.user)
-
-        # 期間フィルタ
         start_s = (request.GET.get("start") or "").strip()
         end_s   = (request.GET.get("end") or "").strip()
-        d_start = _parse_ymd(start_s)
-        d_end   = _parse_ymd(end_s)
+        want_json = (request.GET.get("format") or "").lower() == "json" \
+                    or "application/json" in (request.headers.get("Accept") or "")
 
-        # end は「翌日未満」にしてタイムゾーン差異や時刻を吸収
-        if d_start:
-            qs = qs.filter(trade_at__date__gte=d_start)
-        if d_end:
-            qs = qs.filter(trade_at__date__lt=(d_end + timedelta(days=1)))
+        # ベース QuerySet
+        qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
 
+        # 検索
         if q:
             qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-        qs = qs.order_by("-trade_at", "-id")
+        # 期間フィルタ（DateTimeField を確実に含めるため end は翌日の 00:00 未満で切る）
+        start_d = _parse_ymd(start_s)
+        end_d   = _parse_ymd(end_s)
+        if start_d and end_d:
+            if end_d < start_d:
+                start_d, end_d = end_d, start_d
+            tz = timezone.get_current_timezone()
+            start_dt = datetime.combine(start_d, time.min).replace(tzinfo=tz)
+            end_dt_exclusive = datetime.combine(end_d + timedelta(days=1), time.min).replace(tzinfo=tz)
+            qs = qs.filter(trade_at__gte=start_dt, trade_at__lt=end_dt_exclusive)
+
+        # 表示用データに変換（あなたの既存ユーティリティ）
         rows = _with_metrics(qs)
 
+        # 部分テンプレを文字列化
         html = render_to_string("realized/_table.html", {"trades": rows}, request=request)
 
-        wants_json = (
-            (request.GET.get("format") or "").lower() == "json"
-            or "application/json" in (request.headers.get("Accept") or "")
-        )
-        if wants_json:
-            return JsonResponse({"ok": True, "count": len(rows), "html": html})
-
+        # 返却（JS からは JSON、通常は HTML）
+        if want_json:
+            return JsonResponse({"ok": True, "html": html})
         return HttpResponse(html)
 
     except Exception as e:
@@ -1243,15 +1257,10 @@ def table_partial(request):
             <pre style="white-space:pre-wrap">{tb}</pre>
           </details>
         </div>
-        """.strip()
-
-        wants_json = (
-            (request.GET.get("format") or "").lower() == "json"
-            or "application/json" in (request.headers.get("Accept") or "")
-        )
-        if wants_json:
+        """
+        if (request.GET.get("format") or "").lower() == "json" \
+           or "application/json" in (request.headers.get("Accept") or ""):
             return JsonResponse({"ok": False, "html": err_html, "error": str(e)})
-
         return HttpResponse(err_html)
 
 @login_required
