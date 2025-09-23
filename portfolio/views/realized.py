@@ -674,34 +674,52 @@ def list_page(request):
 @login_required
 @require_POST
 def create(request):
+    # --- 日付 ---
     date_raw = (request.POST.get("date") or "").strip()
     try:
-        trade_at = timezone.datetime.fromisoformat(date_raw).date() if date_raw else timezone.localdate()
+        trade_at = (
+            timezone.datetime.fromisoformat(date_raw).date()
+            if date_raw else timezone.localdate()
+        )
     except Exception:
         trade_at = timezone.localdate()
 
-    ticker = (request.POST.get("ticker") or "").strip()
-    name   = (request.POST.get("name")   or "").strip()
-    side   = (request.POST.get("side")   or "SELL").upper()
-    broker = (request.POST.get("broker") or "OTHER").upper()
-    account= (request.POST.get("account") or "SPEC").upper()
+    # --- 主要入力 ---
+    ticker  = (request.POST.get("ticker")  or "").strip()
+    name    = (request.POST.get("name")    or "").strip()
+    side    = (request.POST.get("side")    or "SELL").upper()
+    broker  = (request.POST.get("broker")  or "OTHER").upper()
+    account = (request.POST.get("account") or "SPEC").upper()
 
     try:
         qty = int(request.POST.get("qty") or 0)
     except Exception:
         qty = 0
 
-    price     = _to_dec(request.POST.get("price"))
-    fee       = _to_dec(request.POST.get("fee"))
-    pnl_input = _to_dec(request.POST.get("pnl_input"))  # ← 手入力の実損
+    price      = _to_dec(request.POST.get("price"))
+    fee        = _to_dec(request.POST.get("fee"))
+    tax        = _to_dec(request.POST.get("tax"))        # 無ければ 0 扱い
+    pnl_input  = _to_dec(request.POST.get("pnl_input"))  # “投資家PnL”（手入力の実損）
+    memo       = (request.POST.get("memo") or "").strip()
 
-    memo = (request.POST.get("memo") or "").strip()
-
+    # --- バリデーション ---
     if not ticker or qty <= 0 or price <= 0:
         return JsonResponse({"ok": False, "error": "入力が不足しています"}, status=400)
     if side not in ("SELL", "BUY"):
         return JsonResponse({"ok": False, "error": "Sideが不正です"}, status=400)
 
+    # --- SELL のときは basis を逆算して保存（平均PnL% 集計のため）---
+    basis = None
+    if side == "SELL" and qty > 0:
+        # basis = price - (pnl + fee + tax) / qty
+        try:
+            basis_calc = price - (pnl_input + fee + tax) / Decimal(qty)
+            # 0 以下など不自然な値は None にしておく（集計から除外）
+            basis = basis_calc if basis_calc > 0 else None
+        except Exception:
+            basis = None
+
+    # --- 登録 ---
     RealizedTrade.objects.create(
         user=request.user,
         trade_at=trade_at,
@@ -713,11 +731,13 @@ def create(request):
         qty=qty,
         price=price,
         fee=fee,
-        cashflow=pnl_input,     # ← “投資家PnL”として表示・集計する値
+        tax=tax,
+        cashflow=pnl_input,   # 画面に出す“投資家PnL”
+        basis=basis,          # ← SELL のときは逆算結果（BUY は None）
         memo=memo,
     )
 
-    # 再描画
+    # --- 再描画 ---
     q  = (request.POST.get("q") or "").strip()
     qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
     if q:
