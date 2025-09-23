@@ -332,6 +332,46 @@ def _aggregate_by_broker(qs):
 # --- 期間まとめ（部分テンプレ） -------------------------
 @login_required
 @require_GET
+def monthly_topworst_partial(request):
+    q = (request.GET.get("q") or "").strip()
+    start, end, preset = _parse_period(request)
+    qs = RealizedTrade.objects.filter(user=request.user)
+    if q: qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+    if start: qs = qs.filter(trade_at__gte=start)
+    if end:   qs = qs.filter(trade_at__lte=end)
+    qs = _with_metrics(qs)
+
+    rows = (qs.annotate(m=TruncMonth("trade_at"))
+              .values("m")
+              .annotate(pnl=Sum("pnl_display"))
+              .order_by("m"))
+    # pythonで整形
+    items = [{"label": r["m"].strftime("%Y-%m"), "pnl": r["pnl"] or 0} for r in rows if r["m"]]
+    top3   = sorted(items, key=lambda x: x["pnl"], reverse=True)[:3]
+    worst3 = sorted(items, key=lambda x: x["pnl"])[:3]
+    return render(request, "realized/_monthly_topworst.html",
+                  {"top": top3, "worst": worst3, "preset": preset, "q": q})
+
+@login_required
+@require_GET
+def chart_daily_heat_json(request, year: int, month: int):
+    q = (request.GET.get("q") or "").strip()
+    from calendar import monthrange
+    start = timezone.datetime(year, month, 1).date()
+    end   = timezone.datetime(year, month, monthrange(year, month)[1]).date()
+
+    qs = RealizedTrade.objects.filter(user=request.user, trade_at__range=(start, end))
+    if q: qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+    qs = _with_metrics(qs)
+    rows = (qs.annotate(d=Cast("trade_at", output_field=CharField()))
+              .values("trade_at")
+              .annotate(pnl=Sum("pnl_display"))
+              .order_by("trade_at"))
+    data = { r["trade_at"].strftime("%Y-%m-%d"): float(r["pnl"]) for r in rows }
+    return JsonResponse({"year":year, "month":month, "days":data})
+
+@login_required
+@require_GET
 def monthly_page(request):
     """
     月別サマリーの専用ページ。
