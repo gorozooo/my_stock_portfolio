@@ -50,7 +50,8 @@ document.addEventListener("DOMContentLoaded", () => {
     // 実現損益（pnl/realized どちらのキーでも出す）
     pnl: [
       { section:"実現損益" },
-      { label:"期間サマリー（グラフ付き）", action:"show_summary",  icon:"📊", tone:"info" },
+      { label:"期間サマリー", action:"show_summary",  icon:"📊", tone:"info" },
+      { label:"月別サマリー",             href:"/realized/monthly/", icon:"🗓️", tone:"info" },
       { label:"ランキング",               action:"show_ranking",  icon:"🏅", tone:"info" },
       { label:"明細",                     action:"show_details",  icon:"📑", tone:"info" },
     ],
