@@ -1,13 +1,11 @@
 # portfolio/views/realized.py
 from __future__ import annotations
 
-from decimal import Decimal
-from datetime import date as _date, timedelta as _timedelta
-from datetime import timedelta
 import csv
 import logging
 import traceback
-from datetime import date
+from decimal import Decimal
+from datetime import date, timedelta  # ← これだけで十分
 
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
@@ -1200,96 +1198,80 @@ def _parse_ymd(s: str):
 @require_GET
 def table_partial(request):
     """
-    明細テーブル
-      - q:      フリーワード
-      - ym:     'YYYY-MM'（これがあれば最優先で月フィルタ）
-      - start/end: 'YYYY-MM-DD'（ym が無い場合の期間指定）
-      - format: 'json' なら JSON で返す
+    明細テーブルの部分描画。
+    - パラメータ
+      q:  検索ワード（ticker/name に部分一致）
+      start, end: 'YYYY-MM' or 'YYYY-MM-DD'
+      format=json で JSON {ok, html, count} を返す（フロントが fetch で利用）
     """
     try:
-        q         = (request.GET.get("q") or "").strip()
-        ym        = (request.GET.get("ym") or "").strip()
-        start_s   = (request.GET.get("start") or "").strip()
-        end_s     = (request.GET.get("end") or "").strip()
-        want_json = (request.GET.get("format") or "").lower() == "json" \
-                    or "application/json" in (request.headers.get("Accept") or "")
+      q = (request.GET.get("q") or "").strip()
+      start_s = (request.GET.get("start") or "").strip()
+      end_s   = (request.GET.get("end") or "").strip()
+      want_json = (request.GET.get("format") == "json") or \
+                  ("application/json" in (request.headers.get("Accept") or ""))
 
-        qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
+      # 文字列 → date に変換（YYYY-MM / YYYY-MM-DD 両対応）
+      def _to_date(s: str, end_side: bool = False) -> date | None:
+          if not s:
+              return None
+          # YYYY-MM
+          if len(s) == 7 and s.count("-") == 1:
+              y, m = map(int, s.split("-"))
+              if end_side:
+                  # 月末日
+                  if m == 12:
+                      return date(y, 12, 31)
+                  return date(y, m + 1, 1) - timedelta(days=1)
+              return date(y, m, 1)
+          # YYYY-MM-DD
+          d = parse_date(s)
+          return d
 
-        if q:
-            qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+      start_d = _to_date(start_s, end_side=False)
+      end_d   = _to_date(end_s,   end_side=True)
 
-        # ---- 月フィルタ（最優先で確実に 1 ヶ月に絞る）----
-        if ym and len(ym) == 7 and ym[4] == "-":
-            y = int(ym[:4]); m = int(ym[5:7])
-            # DateField/DateTimeField どちらでも確実に絞れるよう、日付帯で切る
-            start_d = date(y, m, 1)
-            # 月末日
-            if m == 12:
-                next_first = date(y + 1, 1, 1)
-            else:
-                next_first = date(y, m + 1, 1)
+      qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
 
-            # DateTimeField でも安全に。end は翌月 1 日 00:00 未満
-            tz = timezone.get_current_timezone()
-            start_dt = datetime.combine(start_d, time.min).replace(tzinfo=tz)
-            end_dt   = datetime.combine(next_first, time.min).replace(tzinfo=tz)
-            qs = qs.filter(trade_at__gte=start_dt, trade_at__lt=end_dt)
+      if q:
+          qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-        else:
-            # ---- 従来の start/end もサポート（指定がある場合のみ）----
-            start_d = _parse_ymd(start_s)
-            end_d   = _parse_ymd(end_s)
-            if start_d and end_d:
-                if end_d < start_d:
-                    start_d, end_d = end_d, start_d
-                tz = timezone.get_current_timezone()
-                start_dt = datetime.combine(start_d, time.min).replace(tzinfo=tz)
-                end_dt   = datetime.combine(end_d + timedelta(days=1), time.min).replace(tzinfo=tz)
-                qs = qs.filter(trade_at__gte=start_dt, trade_at__lt=end_dt)
+      if start_d and end_d:
+          # trade_at が DateTime の場合も考慮して日付範囲で絞る
+          qs = qs.filter(trade_at__date__range=(start_d, end_d))
+      elif start_d:
+          qs = qs.filter(trade_at__date__gte=start_d)
+      elif end_d:
+          qs = qs.filter(trade_at__date__lte=end_d)
 
-        rows = _with_metrics(qs)
-        html = render_to_string("realized/_table.html", {"trades": rows}, request=request)
+      rows = _with_metrics(qs)  # 既存の整形関数
 
-        if want_json:
-            return JsonResponse({"ok": True, "html": html})
-        return HttpResponse(html)
+      html = render_to_string("realized/_table.html", {"trades": rows}, request=request)
 
-    except Exception as e:
-        logger.exception("table_partial error: %s", e)
-        tb = traceback.format_exc()
-        err_html = f"""
-        <div class="p-3 rounded-lg" style="background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;">
-          <div style="font-weight:700;margin-bottom:6px">テーブル取得に失敗しました</div>
-          <div style="margin-bottom:8px">{str(e)}</div>
-          <details style="font-size:12px;opacity:.85">
-            <summary>詳細</summary>
-            <pre style="white-space:pre-wrap">{tb}</pre>
-          </details>
-        </div>
-        """
-        if (request.GET.get("format") or "").lower() == "json" \
-           or "application/json" in (request.headers.get("Accept") or ""):
-            return JsonResponse({"ok": False, "html": err_html, "error": str(e)})
-        return HttpResponse(err_html)
+      if want_json:
+          return JsonResponse({"ok": True, "html": html, "count": len(rows)})
+
+      # HTMX 等の置換用（HTMLそのまま）
+      return HttpResponse(html)
 
     except Exception as e:
-        logger.exception("table_partial error: %s", e)
-        tb = traceback.format_exc()
-        err_html = f"""
-        <div class="p-3 rounded-lg" style="background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;">
-          <div style="font-weight:700;margin-bottom:6px">テーブル取得に失敗しました</div>
-          <div style="margin-bottom:8px">{str(e)}</div>
-          <details style="font-size:12px;opacity:.85">
-            <summary>詳細</summary>
-            <pre style="white-space:pre-wrap">{tb}</pre>
-          </details>
-        </div>
-        """
-        if (request.GET.get("format") or "").lower() == "json" \
-           or "application/json" in (request.headers.get("Accept") or ""):
-            return JsonResponse({"ok": False, "html": err_html, "error": str(e)})
-        return HttpResponse(err_html)
+      logger.exception("table_partial error: %s", e)
+      tb = traceback.format_exc()
+      # フロントは 200 で差し替える想定
+      html = f"""
+      <div class="p-3 rounded-lg" style="background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;">
+        <div style="font-weight:700;margin-bottom:6px">テーブル取得に失敗しました</div>
+        <div style="margin-bottom:8px">{str(e)}</div>
+        <details style="font-size:12px;opacity:.85">
+          <summary>詳細</summary>
+          <pre style="white-space:pre-wrap">{tb}</pre>
+        </details>
+      </div>
+      """
+      # JSON が欲しい呼び出しにも配慮
+      if (request.GET.get("format") == "json") or ("application/json" in (request.headers.get("Accept") or "")):
+          return JsonResponse({"ok": False, "html": html}, status=200)
+      return HttpResponse(html, status=200)
 
 @login_required
 @require_GET
