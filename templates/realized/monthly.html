@@ -181,50 +181,27 @@
   // 明細ロード：強固な3段フォールバック（ym-json→range-json→range-html）
   async function loadDetailsForYm(ym){
     try{
-      const [y,m] = ym.split("-");
-      const start = `${ym}-01`;
-      const endDate = new Date(+y, +m, 0); // 月末
-      const endStr  = `${endDate.getFullYear()}-${String(endDate.getMonth()+1).padStart(2,'0')}-${String(endDate.getDate()).padStart(2,'0')}`;
-
+      const params = new URLSearchParams({ ym, format: 'json' });
       const q = (document.getElementById('q')?.value || '').trim();
+      if (q) params.append('q', q);
 
-      // キャッシュ回避用のダミー param を付与
-      const params = new URLSearchParams();
-      params.set('start', start);
-      params.set('end',   endStr);
-      params.set('format','json');
-      if(q) params.set('q', q);
-      params.set('_', String(Date.now()));
+      const url = "{% url 'realized_table_partial' %}?" + params.toString();
 
-      const url = "{% url 'realized_table_partial' %}?"+params.toString();
+      const bodyEl = document.getElementById('monthlyDetailsBody');
+      bodyEl.innerHTML = "<div style='color:#94a3b8'>読み込み中…</div>";
 
-      // 読み込み中
-      document.getElementById('monthlyDetailsBody').innerHTML =
-        "<div style='color:#94a3b8'>読み込み中…</div>";
+      const res = await fetch(url, { headers:{ "Accept":"application/json", "X-Requested-With":"fetch" }});
+      const j = await res.json();
 
-      const res = await fetch(url, {
-        headers: { "Accept":"application/json", "X-Requested-With":"fetch" },
-        cache: 'no-store'
+      bodyEl.innerHTML = (j && j.ok && j.html && j.html.trim())
+        ? j.html
+        : "<div style='color:#94a3b8'>データなし</div>";
+
+      // チップの選択表示
+      document.getElementById('monthlyMonthPicker')?.querySelectorAll('.chip').forEach(c=>{
+        c.setAttribute('aria-current', c.dataset.ym === ym ? 'true' : 'false');
       });
 
-      let html = "";
-      let ok   = false;
-      if(res.headers.get('Content-Type')?.includes('application/json')){
-        const j = await res.json();
-        ok = !!j.ok;
-        html = (j && typeof j.html === 'string') ? j.html : '';
-      }else{
-        // もしサーバが HTML を返した場合も描画
-        html = await res.text();
-        ok = !!html;
-      }
-
-      document.getElementById('monthlyDetailsBody').innerHTML =
-        (ok && html && html.trim()) ? html : "<div style='color:#94a3b8'>データなし</div>";
-
-      // アクティブ表示 & スクロール
-      document.querySelector('#monthlyMonthPicker')?.querySelectorAll('.chip')
-        .forEach(c => c.setAttribute('aria-current', c.dataset.ym === ym ? 'true' : 'false'));
       document.getElementById("monthly-details")?.scrollIntoView({behavior:"smooth", block:"start"});
     }catch(e){
       console.error(e);
