@@ -1183,53 +1183,53 @@ def export_csv(request):
 @require_GET
 def table_partial(request):
     """
-    明細テーブル部分。q（検索）に加えて start/end（日付, ISO YYYY-MM-DD）で絞り込み。
-    - HTMX / fetch のときは JSON {html: "..."} を返す
-    - 通常 GET でもそのまま HTML を返す
-    - 失敗時も 200 でエラーパネル HTML を返す（UIを崩さないため）
+    明細テーブル（期間/検索でフィルタ）
+    - HTMX からのリクエスト: HTML を返す（そのまま置換）
+    - JS fetch からのリクエスト: JSON を返す {ok: True, html: "..."}  ※月別サマリーのドリルダウン用
     """
+    def wants_json(req) -> bool:
+        # 明示指定
+        if req.GET.get("format") == "json":
+            return True
+        # 月別サマリーの fetch で送っているヘッダ
+        if (req.headers.get("X-Requested-With", "") or "").lower() == "fetch":
+            return True
+        # 受理ヘッダでの判定（保険）
+        accept = req.headers.get("Accept", "")
+        return ("application/json" in accept) and ("text/html" not in accept)
+
     try:
         q      = (request.GET.get("q") or "").strip()
-        start_s = (request.GET.get("start") or "").strip()
-        end_s   = (request.GET.get("end") or "").strip()
+        start  = request.GET.get("start")
+        end    = request.GET.get("end")
 
-        # ISO日付を date に
-        def _parse_date(s):
-            if not s:
-                return None
-            try:
-                # "YYYY-MM-DD" or ISO 8601
-                return timezone.datetime.fromisoformat(s).date()
-            except Exception:
-                return None
-
-        start_d = _parse_date(start_s)
-        end_d   = _parse_date(end_s)
-
-        qs = RealizedTrade.objects.filter(user=request.user)
-
+        qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
         if q:
             qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
-
-        if start_d:
-            qs = qs.filter(trade_at__gte=start_d)
-        if end_d:
-            qs = qs.filter(trade_at__lte=end_d)
-
-        qs = qs.order_by("-trade_at", "-id")
+        if start:
+            qs = qs.filter(trade_at__date__gte=start)
+        if end:
+            qs = qs.filter(trade_at__date__lte=end)
 
         rows = _with_metrics(qs)
+
+        # HTML を一度レンダリング
         html = render_to_string("realized/_table.html", {"trades": rows}, request=request)
 
-        # HTMX / fetch / XHR のときは JSON、それ以外は素の HTML
-        xrw = (request.headers.get("X-Requested-With") or "").lower()
-        if request.headers.get("HX-Request") == "true" or xrw in ("fetch", "xmlhttprequest", "htmx"):
+        # 返し分岐
+        if wants_json(request):
             return JsonResponse({"ok": True, "html": html})
         return HttpResponse(html)
 
     except Exception as e:
         logger.exception("table_partial error: %s", e)
         tb = traceback.format_exc()
+
+        if wants_json(request):
+            # fetch 呼び出し向けは JSON で返す
+            return JsonResponse({"ok": False, "error": str(e), "traceback": tb}, status=200)
+
+        # HTMX 置換向けは 200 の HTML を返す
         html = f"""
         <div class="p-3 rounded-lg" style="background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;">
           <div style="font-weight:700;margin-bottom:6px">テーブル取得に失敗しました</div>
@@ -1240,10 +1240,7 @@ def table_partial(request):
           </details>
         </div>
         """
-        xrw = (request.headers.get("X-Requested-With") or "").lower()
-        if request.headers.get("HX-Request") == "true" or xrw in ("fetch", "xmlhttprequest", "htmx"):
-            return JsonResponse({"ok": False, "html": html})
-        return HttpResponse(html)  # 200で返す
+        return HttpResponse(html)
 
 @login_required
 @require_GET
