@@ -348,6 +348,23 @@ def monthly_page(request):
     }
     return render(request, "realized/monthly.html", ctx)
 
+@login_required
+def chart_monthly_json(request):
+    """
+    月別サマリー用のグラフデータを返す（JSON or 部分HTML）。
+    まずは既存の _monthly_chart.html をそのまま返す簡易版。
+    """
+    q = (request.GET.get("q") or "").strip()
+    qs = RealizedTrade.objects.filter(user=request.user)
+    if q:
+        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+
+    # 必要なら annotate で月別集計
+    # ここでは仮に rows を作って渡す
+    rows = _aggregate_by_month(qs)  # ← 集計関数が必要。なければダミーでOK。
+
+    return render(request, "realized/_monthly_chart.html", {"rows": rows})
+
 
 @login_required
 @require_GET
