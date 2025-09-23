@@ -698,7 +698,7 @@ def create(request):
 
     price      = _to_dec(request.POST.get("price"))
     fee        = _to_dec(request.POST.get("fee"))
-    tax        = _to_dec(request.POST.get("tax"))        # 無ければ 0 扱い
+    tax        = _to_dec(request.POST.get("tax"))        # 無ければ 0
     pnl_input  = _to_dec(request.POST.get("pnl_input"))  # “投資家PnL”（手入力の実損）
     memo       = (request.POST.get("memo") or "").strip()
 
@@ -708,16 +708,32 @@ def create(request):
     if side not in ("SELL", "BUY"):
         return JsonResponse({"ok": False, "error": "Sideが不正です"}, status=400)
 
-    # --- SELL のときは basis を逆算して保存（平均PnL% 集計のため）---
+    # --- basis の決定 ---
+    # BUY は平均PnL%計算に使わないので None のままでも可。
+    # SELL は平均PnL%のため逆算して保存する。
     basis = None
     if side == "SELL" and qty > 0:
-        # basis = price - (pnl + fee + tax) / qty
         try:
             basis_calc = price - (pnl_input + fee + tax) / Decimal(qty)
-            # 0 以下など不自然な値は None にしておく（集計から除外）
-            basis = basis_calc if basis_calc > 0 else None
+            basis = basis_calc if basis_calc > 0 else None  # 不自然な値は除外
         except Exception:
             basis = None
+
+    # --- 保有日数（任意）---
+    # 1) 明示 `hold_days`（数値）を優先
+    # 2) もしくは `opened_at`（YYYY-MM-DD）から trade_at との差で算出
+    hold_days = None
+    try:
+        hd_raw = (request.POST.get("hold_days") or "").strip()
+        if hd_raw != "":
+            hold_days = max(int(hd_raw), 0)
+        else:
+            opened_raw = (request.POST.get("opened_at") or "").strip()
+            if opened_raw:
+                opened_date = timezone.datetime.fromisoformat(opened_raw).date()
+                hold_days = max((trade_at - opened_date).days, 0)
+    except Exception:
+        hold_days = None
 
     # --- 登録 ---
     RealizedTrade.objects.create(
@@ -733,7 +749,8 @@ def create(request):
         fee=fee,
         tax=tax,
         cashflow=pnl_input,   # 画面に出す“投資家PnL”
-        basis=basis,          # ← SELL のときは逆算結果（BUY は None）
+        basis=basis,          # SELL のときは逆算結果
+        hold_days=hold_days,  # 任意保存（平均保有日数の計算に使う）
         memo=memo,
     )
 
@@ -749,7 +766,6 @@ def create(request):
     table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
     summary_html = render_to_string("realized/_summary.html", {"agg": agg},     request=request)
     return JsonResponse({"ok": True, "table": table_html, "summary": summary_html})
-
 
 # ============================================================
 #  削除（テーブル＋サマリーを同時更新して返す）
