@@ -1,0 +1,17 @@
+{# templates/realized/_monthly_topworst.html #}
+<div class="grid grid-cols-2 gap-3">
+  <div class="card">
+    <div class="text-xs text-slate-400 mb-1">ベスト月</div>
+    {% for it in top %}
+      <div class="flex justify-between"><span>{{ it.label }}</span>
+        <span class="text-emerald-300">¥{{ it.pnl|floatformat:0|intcomma }}</span></div>
+    {% empty %}<div class="text-slate-400">なし</div>{% endfor %}
+  </div>
+  <div class="card">
+    <div class="text-xs text-slate-400 mb-1">ワースト月</div>
+    {% for it in worst %}
+      <div class="flex justify-between"><span>{{ it.label }}</span>
+        <span class="text-rose-300">¥{{ it.pnl|floatformat:0|intcomma }}</span></div>
+    {% empty %}<div class="text-slate-400">なし</div>{% endfor %}
+  </div>
+</div>
