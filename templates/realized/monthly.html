@@ -1,63 +1,46 @@
+{# templates/realized/monthly.html #}
 {% extends "base.html" %}
-{% load static humanize %}
-
-{% block title %}月別サマリー — 実現損益{% endblock %}
+{% load static %}
+{% block title %}月別サマリー{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{% static 'css/realized.css' %}?v=10">
-  <style>
-    .page-head{display:flex;align-items:center;gap:12px;margin:8px 0 12px}
-    .page-head h1{margin:0}
-    .page-head a{color:#93c5fd}
-    .fi{margin-top:6px}
-  </style>
+<link rel="stylesheet" href="{% static 'css/realized.css' %}?v=10">
+<style>.view-hidden{display:none!important} section{margin-top:12px}</style>
 {% endblock %}
 
 {% block content %}
 <div class="pnl">
-  <div class="page-head">
-    <a href="{% url 'realized_list' %}">← 実現損益一覧へ</a>
-    <h1>月別サマリー</h1>
-  </div>
+  <h1>月別サマリー</h1>
 
-  {# 検索 #}
-  <div class="fi fi-full">
-    <input type="search" name="q" value="{{ q|default:'' }}" id="q-monthly"
+  <div class="fi fi-full mt-4">
+    <input type="search" name="q" value="{{ q|default:'' }}" id="q"
            placeholder="ティッカー/名称で検索"
            hx-get="{% url 'realized_summary_period' %}"
-           hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
            hx-target="#monthly-period"
            hx-trigger="keyup changed delay:300ms, search"
+           hx-include="#q"
            class="w-full">
   </div>
 
-  {# 期間まとめ（部分テンプレを HTMX で読み込む） #}
+  {# 期間まとめ（既存部分テンプレ再利用） #}
   <section id="monthly-period"
-           hx-get="{% url 'realized_summary_period' %}?preset={{ preset|default:'LAST_12M' }}&freq={{ freq|default:'month' }}&q={{ q|urlencode }}"
+           hx-get="{% url 'realized_summary_period' %}?preset={{ preset|default:'LAST_12M' }}&freq=month&q={{ q|urlencode }}"
            hx-trigger="load"
            hx-swap="outerHTML">
     <div style="color:#94a3b8;padding:8px 0">読み込み中…</div>
   </section>
 
-  
+  {# 1枚目：月次サマリー（棒＋折れ線） #}
+  <section id="monthly-chart"
+           hx-get="{% url 'realized_chart_monthly_json' %}"
+           hx-trigger="load"
+           hx-swap="outerHTML">
+    {% include "realized/_monthly_chart.html" %}
+  </section>
 
-  {# ヒストグラム等（既存部分テンプレ再利用） #}
+  {# 2,3枚目：累積PnLとヒストグラム（既存） #}
   <section id="analysis-charts">
     {% include "realized/_analysis_charts.html" %}
   </section>
 </div>
-
-<script>
-  // monthly.html 単体でもランキング等と連動できるよう軽く補助
-  document.addEventListener('DOMContentLoaded', () => {
-    // 期間まとめの再読込後にグラフ側へリフレッシュ通知
-    document.addEventListener('htmx:afterSwap', (ev) => {
-      if (ev.target && ev.target.id === 'monthly-period') {
-        document.body.dispatchEvent(new Event('pnl:refresh', { bubbles: true }));
-        // レイアウト調整
-        setTimeout(()=> window.dispatchEvent(new Event('resize')), 50);
-      }
-    });
-  });
-</script>
 {% endblock %}
