@@ -28,8 +28,8 @@
       class="w-full">
   </div>
 
-  {# ── 期間まとめ（既存の部分テンプレをそのまま再利用） ──
-     ※ preset/freq/start/end hidden は部分テンプレ側が出す #}
+  {# ── 期間まとめ（既存の部分テンプレをそのまま再利用） ──#}
+     {#※ preset/freq/start/end hidden は部分テンプレ側が出す #}
   <section id="monthly-period"
            hx-get="{% url 'realized_summary_period' %}?preset={{ preset|default:'LAST_12M' }}&freq=month&q={{ q|urlencode }}"
            hx-trigger="load"
