@@ -58,7 +58,9 @@ urlpatterns = [
     # 月別サマリー（専用ページ）
     path("realized/monthly/", monthly_page, name="realized_monthly"),
     path("realized/monthly/topworst/", realized_views.monthly_topworst_partial, name="realized_monthly_topworst"),
-
+    path("realized/monthly/kpis/", realized_views.monthly_kpis_partial, name="realized_monthly_kpis"),
+    path("realized/monthly/breakdown/", realized_views.monthly_breakdown_partial, name="realized_monthly_breakdown"),
+        
     # チャートJSON
     path("realized/chart-monthly.json", chart_monthly_json, name="realized_chart_monthly"),
     path("realized/chart/monthly.json", chart_monthly_json, name="realized_chart_monthly_json"),
