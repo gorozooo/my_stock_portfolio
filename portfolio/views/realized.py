@@ -520,69 +520,83 @@ def chart_monthly_json(request):
 
 from decimal import Decimal
 
+
 @login_required
 @require_GET
 def realized_ranking_partial(request):
     """
     銘柄別ランキング（期間連動）
-    GET: q / preset / freq / start / end（_parse_periodに準拠）
-    返却: _ranking.html
+    - 今月/指定期間で0件なら、自動で「直近12か月」にフォールバックして表示
     """
     q = (request.GET.get("q") or "").strip()
-
-    # 期間解釈（THIS_MONTHなどのプリセットやCUSTOMにも対応）
+    # 期間（デフォルト: THIS_MONTH）
     start, end, preset = _parse_period(request)
     freq = (request.GET.get("freq") or "month").lower()
 
-    qs = RealizedTrade.objects.filter(user=request.user)
+    base = RealizedTrade.objects.filter(user=request.user)
     if q:
-        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+        base = base.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-    if start:
-        qs = qs.filter(trade_at__gte=start)
-    if end:
-        qs = qs.filter(trade_at__lte=end)
+    def apply_period(qs, s, e):
+        if s:
+            qs = qs.filter(trade_at__gte=s)
+        if e:
+            qs = qs.filter(trade_at__lte=e)
+        return qs
 
-    qs = _with_metrics(qs)
+    def build_rows(qs):
+        qs = _with_metrics(qs)
+        grouped = (
+            qs.values("ticker", "name")
+              .annotate(
+                  n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
+                  qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
+                  pnl = Coalesce(Sum("pnl_display", output_field=DEC2),
+                                 Value(Decimal("0"), output_field=DEC2)),
+                  wins = Coalesce(
+                      Sum(Case(When(pnl_display__gt=0, then=1),
+                               default=0, output_field=IntegerField())),
+                      Value(0), output_field=IntegerField()
+                  ),
+              )
+        )
+        rows = []
+        for r in grouped:
+            n = int(r["n"] or 0)
+            wins = int(r["wins"] or 0)
+            rows.append({
+                "ticker": r["ticker"],
+                "name":   r["name"],
+                "n":      n,
+                "qty":    int(r["qty"] or 0),
+                "pnl":    r["pnl"] or Decimal("0"),
+                "avg":    (r["pnl"] / n) if n else Decimal("0"),
+                "win_rate": (wins * 100.0 / n) if n else 0.0,
+            })
+        return rows
 
-    grouped = (
-        qs.values("ticker", "name")
-          .annotate(
-              n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
-              qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
-              pnl = Coalesce(Sum("pnl_display", output_field=DEC2), Value(Decimal("0"), output_field=DEC2)),
-              avg = Coalesce(Avg("pnl_display", output_field=DEC2), Value(Decimal("0"), output_field=DEC2)),
-              wins = Coalesce(
-                  Sum(Case(When(pnl_display__gt=0, then=1), default=0, output_field=IntegerField())),
-                  Value(0),
-                  output_field=IntegerField(),
-              ),
-          )
-    )
+    # まずは指定期間（通常は今月）
+    rows = build_rows(apply_period(base, start, end))
+    used_preset = preset
 
-    rows = []
-    for r in grouped:
-        n = r["n"] or 0
-        win_rate = (r["wins"] * 100.0 / n) if n else 0.0
-        rows.append({
-            "ticker": r["ticker"],
-            "name":   r["name"],
-            "n":      n,
-            "qty":    r["qty"] or 0,
-            "pnl":    r["pnl"] or Decimal("0"),
-            "avg":    r["avg"] or Decimal("0"),
-            "win_rate": win_rate,
-        })
+    # 0件なら直近12か月にフォールバック
+    if not rows:
+        today = timezone.localdate()
+        start_fb = (today.replace(day=1) - timezone.timedelta(days=365)).replace(day=1)
+        end_fb = today
+        rows = build_rows(apply_period(base, start_fb, end_fb))
+        used_preset = "LAST_12M"
 
-    # TOP 5 / WORST 5
+    # TOP/WORST
     top5   = sorted(rows, key=lambda x: (x["pnl"], x["win_rate"]), reverse=True)[:5]
     worst5 = sorted(rows, key=lambda x: (x["pnl"], -x["win_rate"]))[:5]
 
     ctx = {
         "top5": top5,
         "worst5": worst5,
-        # 期間情報（テンプレ/JSが再リクエスト時に利用）
-        "preset": preset, "freq": freq, "start": start, "end": end, "q": q,
+        # テンプレ側のUI維持用
+        "preset": used_preset, "freq": freq,
+        "start": start, "end": end, "q": q,
     }
     return render(request, "realized/_ranking.html", ctx)
 
