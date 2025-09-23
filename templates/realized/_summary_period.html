@@ -5,6 +5,7 @@
   .period-head{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
   .btn{font-size:12px;padding:6px 10px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:transparent;color:#e5e7eb}
   .btn[aria-current="true"]{background:rgba(255,255,255,.10)}
+
   .tbl{width:100%;border-collapse:separate;border-spacing:0}
   .tbl th,.tbl td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.08)}
   .tbl thead th{font-size:12px;color:#a7b1d8;text-align:right;white-space:nowrap}
@@ -12,6 +13,10 @@
   .tbl .num{ text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums }
   .pos{color:#86efac} .neg{color:#fca5a5}
   .tbl tbody tr.is-focus > td{ background:rgba(59,130,246,.10) }
+
+  /* 追加：横スクロール用ラッパと最小幅 */
+  .h-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .tbl-wide{ min-width: 880px; } /* 列数に応じて調整OK */
 </style>
 
 <div id="pnlPeriodWrap" class="period-wrap" data-preset="{{ preset }}" data-freq="{{ freq }}">
@@ -78,47 +83,50 @@
     {% endif %}
   </div>
 
-  <table class="tbl">
-    <thead>
-      <tr>
-        <th>期間</th>
-        <th>件数</th>
-        <th>数量</th>
-        <th>手数料</th>
-        <th>💰現金(現物)</th>
-        <th>💰現金(信用)</th>
-        <th>💰現金(合計)</th>
-        <th>📈PnL</th>
-      </tr>
-    </thead>
-    <tbody class="text-[15px]">
-      {% if rows %}
-        {% for r in rows %}
-          <tr
-            data-period="{{ r.label }}"
-            data-n="{{ r.n }}"
-            data-qty="{{ r.qty }}"
-            data-fee="{{ r.fee }}"
-            data-cash-spec="{{ r.cash_spec }}"
-            data-cash-margin="{{ r.cash_margin }}"
-            data-cash-total="{{ r.cash_total }}"
-            data-pnl="{{ r.pnl }}"
-            class="{% if focus and r.label == focus %}is-focus{% endif %}">
-            <td>{{ r.label }}</td>
-            <td class="num">{{ r.n|intcomma }}</td>
-            <td class="num">{{ r.qty|intcomma }}</td>
-            <td class="num">¥{{ r.fee|floatformat:0|intcomma }}</td>
-            <td class="num">{% with v=r.cash_spec %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}</td>
-            <td class="num">{% with v=r.cash_margin %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}</td>
-            <td class="num">{% with v=r.cash_total %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}</td>
-            <td class="num">{% with v=r.pnl %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}</td>
-          </tr>
-        {% endfor %}
-      {% else %}
-        <tr><td colspan="8" style="color:#94a3b8">データなし</td></tr>
-      {% endif %}
-    </tbody>
-  </table>
+  {# ▼ テーブルを横スクロールラッパで包む ▼ #}
+  <div class="h-scroll">
+    <table class="tbl tbl-wide">
+      <thead>
+        <tr>
+          <th>期間</th>
+          <th>件数</th>
+          <th>数量</th>
+          <th>手数料</th>
+          <th>💰現金(現物)</th>
+          <th>💰現金(信用)</th>
+          <th>💰現金(合計)</th>
+          <th>📈PnL</th>
+        </tr>
+      </thead>
+      <tbody class="text-[15px]">
+        {% if rows %}
+          {% for r in rows %}
+            <tr
+              data-period="{{ r.label }}"
+              data-n="{{ r.n }}"
+              data-qty="{{ r.qty }}"
+              data-fee="{{ r.fee }}"
+              data-cash-spec="{{ r.cash_spec }}"
+              data-cash-margin="{{ r.cash_margin }}"
+              data-cash-total="{{ r.cash_total }}"
+              data-pnl="{{ r.pnl }}"
+              class="{% if focus and r.label == focus %}is-focus{% endif %}">
+              <td>{{ r.label }}</td>
+              <td class="num">{{ r.n|intcomma }}</td>
+              <td class="num">{{ r.qty|intcomma }}</td>
+              <td class="num">¥{{ r.fee|floatformat:0|intcomma }}</td>
+              <td class="num">{% with v=r.cash_spec %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}</td>
+              <td class="num">{% with v=r.cash_margin %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}</td>
+              <td class="num">{% with v=r.cash_total %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}</td>
+              <td class="num">{% with v=r.pnl %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}</td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="8" style="color:#94a3b8">データなし</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
 </div>
 
 <script>
@@ -189,12 +197,8 @@
   // 全体に戻る
   btnClear?.addEventListener('click', clearFocus);
 
-  // ─ 重要 ─
-  // この部分テンプレが DOM に入ったタイミングで必ずランキング等を更新させる
-  // （ランキングは hx-trigger="pnl:refresh from:body" で待機）
+  // ランキング等更新の発火
   document.body.dispatchEvent(new Event('pnl:refresh', { bubbles: true }));
-
-  // 参考: htmx差し替え直後にも保険で再発火（複数回発火でも問題なし）
   document.addEventListener('htmx:afterSwap', (ev) => {
     if (ev.target && ev.target.id === 'pnlPeriodWrap') {
       document.body.dispatchEvent(new Event('pnl:refresh', { bubbles: true }));
