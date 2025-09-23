@@ -1,39 +1,69 @@
-{# templates/realized/monthly.html #}
-{% load static %}
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8">
-  <title>月別サマリー</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="{% static 'css/app.css' %}" rel="stylesheet">{# 既存のCSSがあれば #}
-</head>
-<body class="bg-slate-900 text-slate-100">
-  <div class="max-w-4xl mx-auto px-4 py-4">
-    <div class="flex items-center justify-between mb-3">
-      <h1 class="text-xl font-semibold">月別サマリー</h1>
-      <a href="{% url 'realized_list' %}" class="text-sm opacity-80 hover:opacity-100">← 実現損益一覧へ</a>
-    </div>
+{% extends "base.html" %}
+{% load static humanize %}
 
-    {# 検索ボックス（任意） #}
-    <form id="monthlySearchForm" class="mb-3" hx-get="{% url 'realized_summary_period' %}"
-          hx-target="#pnlPeriodWrap" hx-swap="outerHTML">
-      <input type="hidden" name="preset" value="{{ default_preset }}">
-      <input type="hidden" name="freq"   value="{{ default_freq }}">
-      <input type="text" name="q" value="{{ q }}" placeholder="ティッカー/名称で検索"
-             class="w-full rounded-lg bg-slate-800 px-3 py-2 text-sm">
-    </form>
+{% block title %}月別サマリー — 実現損益{% endblock %}
 
-    {# ここに _summary_period.html を差し込む（既存テンプレをそのまま利用） #}
-    <div
-      id="pnlPeriodWrap"
-      hx-get="{% url 'realized_summary_period' %}?preset={{ default_preset }}&freq={{ default_freq }}&q={{ q|urlencode }}"
-      hx-trigger="load"
-      hx-swap="outerHTML">
-      <div class="text-sm opacity-70">読み込み中…</div>
-    </div>
+{% block head %}
+  <link rel="stylesheet" href="{% static 'css/realized.css' %}?v=10">
+  <style>
+    .page-head{display:flex;align-items:center;gap:12px;margin:8px 0 12px}
+    .page-head h1{margin:0}
+    .page-head a{color:#93c5fd}
+    .fi{margin-top:6px}
+  </style>
+{% endblock %}
+
+{% block content %}
+<div class="pnl">
+  <div class="page-head">
+    <a href="{% url 'realized_list' %}">← 実現損益一覧へ</a>
+    <h1>月別サマリー</h1>
   </div>
 
-  <script src="{% static 'htmx.min.js' %}"></script>{# 既に読み込んでいるなら不要 #}
-</body>
-</html>
+  {# 検索 #}
+  <div class="fi fi-full">
+    <input type="search" name="q" value="{{ q|default:'' }}" id="q-monthly"
+           placeholder="ティッカー/名称で検索"
+           hx-get="{% url 'realized_summary_period' %}"
+           hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
+           hx-target="#monthly-period"
+           hx-trigger="keyup changed delay:300ms, search"
+           class="w-full">
+  </div>
+
+  {# 期間まとめ（部分テンプレを HTMX で読み込む） #}
+  <section id="monthly-period"
+           hx-get="{% url 'realized_summary_period' %}?preset={{ preset|default:'LAST_12M' }}&freq={{ freq|default:'month' }}&q={{ q|urlencode }}"
+           hx-trigger="load"
+           hx-swap="outerHTML">
+    <div style="color:#94a3b8;padding:8px 0">読み込み中…</div>
+  </section>
+
+  {# 月次グラフ（既存部分テンプレ再利用） #}
+  <section id="monthly-chart"
+           hx-get="{% url 'realized_chart_monthly_json' %}"
+           hx-trigger="load"
+           hx-swap="outerHTML">
+    {% include "realized/_monthly_chart.html" %}
+  </section>
+
+  {# ヒストグラム等（既存部分テンプレ再利用） #}
+  <section id="analysis-charts">
+    {% include "realized/_analysis_charts.html" %}
+  </section>
+</div>
+
+<script>
+  // monthly.html 単体でもランキング等と連動できるよう軽く補助
+  document.addEventListener('DOMContentLoaded', () => {
+    // 期間まとめの再読込後にグラフ側へリフレッシュ通知
+    document.addEventListener('htmx:afterSwap', (ev) => {
+      if (ev.target && ev.target.id === 'monthly-period') {
+        document.body.dispatchEvent(new Event('pnl:refresh', { bubbles: true }));
+        // レイアウト調整
+        setTimeout(()=> window.dispatchEvent(new Event('resize')), 50);
+      }
+    });
+  });
+</script>
+{% endblock %}
