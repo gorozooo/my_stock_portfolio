@@ -1,3 +1,4 @@
+# portfolio/urls.py
 from django.urls import path
 from django.http import HttpResponse
 
@@ -5,7 +6,11 @@ from .views import core as core_views
 from .views import settings as settings_views
 from .views import api as api_views
 from .views import realized as realized_views
-from .views.realized import monthly_page, chart_monthly_json
+from .views.realized import (
+    monthly_page,
+    chart_monthly_json,
+    chart_daily_heat_json,   # ← 追加（インポート）
+)
 from .views import dev_tools as dev_views
 
 urlpatterns = [
@@ -31,29 +36,35 @@ urlpatterns = [
     
     # 保有
     path("holdings/", core_views.holdings_list, name="holdings_list"),
-    path("holdings/<int:pk>/close", realized_views.close_sheet, name="holding_close_sheet"),  # 画面
-    path("holdings/<int:pk>/close/submit", realized_views.close_submit, name="holding_close_submit"),  # POST
+    path("holdings/<int:pk>/close", realized_views.close_sheet, name="holding_close_sheet"),
+    path("holdings/<int:pk>/close/submit", realized_views.close_submit, name="holding_close_submit"),
 
-    # 実現損益
+    # 実現損益（メイン）
     path("realized/", realized_views.list_page, name="realized_list"),
     path("realized/create", realized_views.create, name="realized_create"),
     path("realized/delete/<int:pk>", realized_views.delete, name="realized_delete"),
     path("realized/close-sheet/<int:pk>/", realized_views.close_sheet, name="realized_close_sheet"),
     path("realized/close-submit/<int:pk>/", realized_views.close_submit, name="realized_close_submit"),
+
+    # サマリー/パーツ
     path("realized/summary-period", realized_views.summary_period_partial, name="realized_summary_period"),
-    path("realized/chart-monthly.json", realized_views.chart_monthly_json, name="realized_chart_monthly"),
-    path("realized/summary-partial/", realized_views.realized_summary_partial, name="realized_summary_partial"),
+    path("realized/summary-partial/", realized_views.summary_partial, name="realized_summary_partial"),
+    path("realized/partial/table", realized_views.table_partial, name="realized_table_partial"),
+
+    # ランキング
     path("realized/ranking/", realized_views.realized_ranking_partial, name="realized_ranking_partial"),
     path("realized/ranking_detail/", realized_views.realized_ranking_detail_partial, name="realized_ranking_detail_partial"),
-    path("realized/monthly/", realized_views.monthly_page, name="realized_monthly"),
+
+    # 月別サマリー（専用ページ）
+    path("realized/monthly/", monthly_page, name="realized_monthly"),
+    path("realized/monthly/topworst/", realized_views.monthly_topworst_partial, name="realized_monthly_topworst"),
+
+    # チャートJSON
+    path("realized/chart-monthly.json", chart_monthly_json, name="realized_chart_monthly"),
     path("realized/chart/monthly.json", chart_monthly_json, name="realized_chart_monthly_json"),
-    path("realized/monthly/topworst/", realized_views.monthly_topworst_partial,
-         name="realized_monthly_topworst"),
     path("realized/chart/daily/<int:year>/<int:month>.json",
-     chart_daily_heat_json, name="realized_chart_daily_heat_json"),
-    
-    # ← 追加：部分テンプレとCSV
-    path("realized/partial/table", realized_views.table_partial, name="realized_table_partial"),
-    path("realized/partial/summary", realized_views.summary_partial, name="realized_summary_partial"),
+         chart_daily_heat_json, name="realized_chart_daily_heat_json"),
+
+    # CSV
     path("realized/export/csv", realized_views.export_csv, name="realized_export_csv"),
 ]
