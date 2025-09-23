@@ -1201,10 +1201,10 @@ def _parse_ymd(s: str):
 def table_partial(request):
     """
     明細テーブルの部分描画。
-    - パラメータ
-      q:  検索ワード（ticker/name に部分一致）
-      start, end: 'YYYY-MM' or 'YYYY-MM-DD'
-      format=json で JSON {ok, html, count} を返す（フロントが fetch で利用）
+      - q:      検索ワード（ticker / name に部分一致）
+      - start:  'YYYY-MM' or 'YYYY-MM-DD'
+      - end:    'YYYY-MM' or 'YYYY-MM-DD'
+      - format: 'json' なら {ok, html, count} を返す（フロントの fetch 用）
     """
     try:
         q = (request.GET.get("q") or "").strip()
@@ -1213,11 +1213,11 @@ def table_partial(request):
         want_json = (request.GET.get("format") == "json") or \
                     ("application/json" in (request.headers.get("Accept") or ""))
 
-        # 文字列 → date に変換（YYYY-MM / YYYY-MM-DD 両対応）
-        def _to_date(s: str, end_side: bool = False) -> date | None:
+        # 'YYYY-MM' / 'YYYY-MM-DD' を date に変換
+        def _to_date(s: str, *, end_side: bool = False) -> date | None:
             if not s:
                 return None
-            # YYYY-MM
+            # YYYY-MM のとき
             if len(s) == 7 and s.count("-") == 1:
                 y, m = map(int, s.split("-"))
                 if end_side:
@@ -1226,9 +1226,8 @@ def table_partial(request):
                         return date(y, 12, 31)
                     return date(y, m + 1, 1) - timedelta(days=1)
                 return date(y, m, 1)
-            # YYYY-MM-DD
-            d = parse_date(s)
-            return d
+            # YYYY-MM-DD のとき
+            return parse_date(s)
 
         start_d = _to_date(start_s, end_side=False)
         end_d   = _to_date(end_s,   end_side=True)
@@ -1238,7 +1237,7 @@ def table_partial(request):
         if q:
             qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-        # trade_at は DateField なので __date は不要
+        # trade_at は DateField なので __date は付けない
         if start_d and end_d:
             qs = qs.filter(trade_at__range=(start_d, end_d))
         elif start_d:
@@ -1246,20 +1245,17 @@ def table_partial(request):
         elif end_d:
             qs = qs.filter(trade_at__lte=end_d)
 
-        rows = _with_metrics(qs)  # 既存の整形関数
-
+        rows = _with_metrics(qs)
         html = render_to_string("realized/_table.html", {"trades": rows}, request=request)
 
         if want_json:
             return JsonResponse({"ok": True, "html": html, "count": len(rows)})
 
-        # HTMX 等の置換用（HTMLそのまま）
         return HttpResponse(html)
 
     except Exception as e:
         logger.exception("table_partial error: %s", e)
         tb = traceback.format_exc()
-        # フロントは 200 で差し替える想定
         html = f"""
         <div class="p-3 rounded-lg" style="background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;">
           <div style="font-weight:700;margin-bottom:6px">テーブル取得に失敗しました</div>
@@ -1270,8 +1266,7 @@ def table_partial(request):
           </details>
         </div>
         """
-        # JSON が欲しい呼び出しにも配慮
-        if (request.GET.get("format") == "json") or ("application/json" in (request.headers.get("Accept") or "")):
+        if want_json:
             return JsonResponse({"ok": False, "html": html}, status=200)
         return HttpResponse(html, status=200)
 
