@@ -28,8 +28,8 @@
       class="w-full">
   </div>
 
-  {# ── 期間まとめ（既存の部分テンプレをそのまま再利用） ──#}
-     {#※ preset/freq/start/end hidden は部分テンプレ側が出す #}
+  {# ── 期間まとめ（既存部分テンプレそのまま） ── #}
+  {# ※ preset/freq/start/end の hidden は部分テンプレ側が出す #}
   <section id="monthly-period"
            hx-get="{% url 'realized_summary_period' %}?preset={{ preset|default:'LAST_12M' }}&freq=month&q={{ q|urlencode }}"
            hx-trigger="load"
@@ -37,7 +37,7 @@
            hx-swap="outerHTML">
     <div style="color:#94a3b8;padding:8px 0">読み込み中…</div>
   </section>
-  
+
   {# ── Top/Worst 月（PnL上位3・下位3） ── #}
   <section id="monthly-topworst"
            hx-get="{% url 'realized_monthly_topworst' %}"
@@ -46,26 +46,26 @@
            hx-swap="outerHTML">
     <div style="color:#94a3b8;padding:8px 0">トップ/ワースト月を読み込み中…</div>
   </section>
-  
+
+  {# ── 選択月の明細（ここに差し込む） ── #}
   <section id="monthly-details" class="card" style="margin-top:12px">
     <div class="text-xs text-slate-400 mb-1">選択月の明細</div>
     <div id="monthlyDetailsBody" style="color:#94a3b8">月をクリックすると明細を表示します</div>
   </section>
-  
+
   {# ── 1枚目：月次サマリー（棒：PnL、折線：累積PnL 右軸） ── #}
   <section id="monthly-chart" class="card">
     <div style="font-size:12px;color:#a7b1d8;margin-bottom:6px">累積PnLの推移</div>
-    <!-- 親に高さを与える -->
     <div id="monthlyChartBox" style="height:260px; position:relative;">
       <canvas id="monthlyChartCanvas"></canvas>
     </div>
   </section>
 
-  {# ── 2,3枚目：分析チャート（既存パーツをそのまま） ── #}
+  {# ── 2,3枚目：分析チャート（既存パーツ） ── #}
   <section id="analysis-charts">
     {% include "realized/_analysis_charts.html" %}
   </section>
-  
+
   {# ── 日別ヒートマップ ── #}
   <section class="card">
     <div class="text-xs text-slate-400 mb-1">日別ヒートマップ</div>
@@ -73,6 +73,7 @@
   </section>
 
   <script>
+  /* ===================== 日別ヒートマップ ===================== */
   (async function(){
     const heatWrap = document.getElementById('heatCal');
     if (!heatWrap) return;
@@ -119,7 +120,6 @@
         cell.style.padding="6px 0";
         cell.style.border="1px solid rgba(255,255,255,.08)";
         cell.style.borderRadius="6px";
-        // 値に応じて色（正=緑、負=赤）
         const a = Math.min(1, Math.abs(v)/5000); // スケールは必要に応じて調整
         cell.style.background = v>=0 ? `rgba(16,185,129,${0.12+0.45*a})`
                                      : `rgba(244,63,94,${0.12+0.45*a})`;
@@ -134,14 +134,15 @@
 </div>
 
 <script>
+/* ===================== 月次チャート & 明細ドリルダウン ===================== */
 (function(){
-  // Chart.js が base.html で読み込まれている前提
   if (!('Chart' in window)) {
     console.warn('Chart.js が見つかりません。base.html に読み込みを追加してください。');
   }
 
-  let chart;
-  let redrawTimer=null;
+  let chart;                 // この関数スコープのインスタンス
+  window.chart = null;       // 他IIFEからも参照できるように公開
+  let redrawTimer = null;
 
   function currentQ(){
     return (document.getElementById('q')?.value || '').trim();
@@ -152,9 +153,31 @@
     return q ? `${base}?q=${q}` : base;
   }
 
+  // 選択月明細の読み込み
+  async function loadDetailsForYm(ym){
+    const [y,m] = ym.split("-");
+    const start = `${ym}-01`;
+    const end   = new Date(+y, +m, 0);
+    const endStr= `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,'0')}-${String(end.getDate()).padStart(2,'0')}`;
+
+    const q = currentQ();
+    const params = new URLSearchParams({ start:start, end:endStr });
+    if (q) params.append("q", q);
+
+    const url = "{% url 'realized_table_partial' %}?" + params.toString();
+    const res = await fetch(url, { headers:{ "X-Requested-With":"fetch" }});
+    const j = await res.json();
+    document.getElementById("monthlyDetailsBody").innerHTML =
+      j.html || "<div style='color:#94a3b8'>データなし</div>";
+    document.getElementById("monthly-details")?.scrollIntoView({behavior:"smooth", block:"start"});
+  }
+  window.loadDetailsForYm = loadDetailsForYm; // 念のため公開
+
+  // チャート描画
   async function drawMonthlyChart(){
     const canvas = document.getElementById('monthlyChartCanvas');
     if (!canvas || !window.Chart) return;
+
     try{
       const resp = await fetch(buildApiUrl(), {headers:{'X-Requested-With':'fetch'}});
       const data = await resp.json();
@@ -173,8 +196,8 @@
         },
         options: {
           responsive: true,
-          maintainAspectRatio: false,   // 親(Box)の高さに合わせる
-          resizeDelay: 150,             // 過剰リサイズ抑制
+          maintainAspectRatio: false,
+          resizeDelay: 150,
           scales: {
             y:  { beginAtZero:true },
             y1: { beginAtZero:true, position:'right', grid:{ drawOnChartArea:false } }
@@ -182,11 +205,23 @@
           plugins: {
             legend: { labels:{ boxWidth:10 } },
             tooltip:{ mode:'index', intersect:false }
+          },
+          // バークリックで明細を出す
+          onClick: (_evt, elements)=>{
+            if (!elements || !elements.length) return;
+            const idx = elements[0].index;
+            const ym  = (chart.data.labels||[])[idx];
+            if (ym && /^\d{4}-\d{2}$/.test(ym)) loadDetailsForYm(ym);
           }
         }
       });
-    }catch(e){ console.error('monthly chart error', e); }
+
+      window.chart = chart; // 公開
+    }catch(e){
+      console.error('monthly chart error', e);
+    }
   }
+  window.drawMonthlyChart = drawMonthlyChart; // 公開
 
   // 初期描画
   if (document.readyState === 'loading'){
@@ -195,75 +230,39 @@
     drawMonthlyChart();
   }
 
-  // 再描画はデバウンスして一回にまとめる
+  // 再描画（デバウンス）
   function requestRedraw(){
     clearTimeout(redrawTimer);
     redrawTimer = setTimeout(drawMonthlyChart, 180);
   }
-
-  // 期間パネルの差し替え完了 → グラフ再描画
   document.addEventListener('pnl:refresh', requestRedraw);
-  // 検索確定時にも
   document.getElementById('q')?.addEventListener('search', requestRedraw);
-
-  // ウィンドウリサイズ時（iOSの回転など）
   window.addEventListener('resize', requestRedraw);
-})();
 
-(function(){
-  // 既存の drawMonthlyChart の下あたりに追記
-
-  async function loadDetailsForYm(ym){
-    // ym: "YYYY-MM"
-    const [y,m] = ym.split("-");
-    const start = `${ym}-01`;
-    const end   = new Date(+y, +m, 0); // 月末日を求める
-    const endStr= `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,'0')}-${String(end.getDate()).padStart(2,'0')}`;
-
-    const q = (document.getElementById('q')?.value || '').trim();
-    const params = new URLSearchParams({ start:start, end:endStr });
-    if (q) params.append("q", q);
-
-    const url = "{% url 'realized_table_partial' %}?" + params.toString();
-    const res = await fetch(url, { headers:{ "X-Requested-With":"fetch" }});
-    const j = await res.json();
-    document.getElementById("monthlyDetailsBody").innerHTML = j.html || "<div style='color:#94a3b8'>データなし</div>";
-    // テーブル上まで少しスクロール
-    document.getElementById("monthly-details")?.scrollIntoView({behavior:"smooth", block:"start"});
-  }
-
-  // ① チャートのバークリックでドリルダウン
-  const origDraw = window.drawMonthlyChart; // 既存関数名そのままなら不要
-  // 既存 drawMonthlyChart の chart = new Chart(...); 生成直後にこれを追加:
-  // chart.options.onClick = (evt, els)=>{ ... };
-
-  const _oldDraw = drawMonthlyChart;
-  drawMonthlyChart = async function(){
-    await _oldDraw();
-    if (window.chart){ // 既存スコープの chart 参照
-      window.chart.options.onClick = (evt, els)=>{
-        if (!els || !els.length) return;
-        const idx = els[0].index;
-        const ym  = (window.chart.data.labels||[])[idx]; // "YYYY-MM"
-        if (ym) loadDetailsForYm(ym);
-      };
-      window.chart.update();
-    }
-  };
-
-  // ② Top/Worst のカードクリックでドリルダウン
+  // Top/Worst カードクリック → data-ym から読み込み
   document.addEventListener("click", (e)=>{
-    const btn = e.target.closest("[data-ym]"); // 後述テンプレに data-ym を付与
+    const btn = e.target.closest("[data-ym]");
     if (btn) loadDetailsForYm(btn.dataset.ym);
   });
 
-  // 期間サマリの行クリックで既に period フォーカスは飛ぶので、
-  // 同時に明細も出したければ以下を追加
+  // 期間サマリーのフォーカス通知でも読み込み（行クリック時）
   document.addEventListener("pnl:focus-period", (ev)=>{
     const ym = ev?.detail?.label;
     if (/^\d{4}-\d{2}$/.test(ym)) loadDetailsForYm(ym);
   });
-})();
 
+  // ── 自動で直近の月を一度表示（白枠を空にしないため） ──
+  function autoPickLatestMonth(){
+    const lastRow = document.querySelector('#pnlPeriodWrap tbody tr:last-child');
+    let ym = lastRow?.dataset?.period || lastRow?.querySelector('td:first-child')?.textContent?.trim();
+    if (!ym && window.chart && Array.isArray(window.chart.data?.labels)){
+      const labels = window.chart.data.labels;
+      ym = labels[labels.length-1];
+    }
+    if (ym && /^\d{4}-\d{2}$/.test(ym)) loadDetailsForYm(ym);
+  }
+  window.addEventListener('load', ()=> setTimeout(autoPickLatestMonth, 300));
+  document.addEventListener('pnl:refresh', ()=> setTimeout(autoPickLatestMonth, 200));
+})();
 </script>
 {% endblock %}
