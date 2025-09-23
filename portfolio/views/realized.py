@@ -1016,19 +1016,59 @@ def export_csv(request):
 #  部分テンプレ
 # ============================================================
 @login_required
-@require_GET
 def table_partial(request):
+    """
+    明細テーブルの部分描画。
+    - q              … ティッカー/名称のあいまい検索
+    - start, end     … YYYY-MM-DD で期間フィルタ（どちらか片方だけでも可）
+    - as=json        … HTMLを {ok, html} のJSONで返す（fetch用）。未指定ならHTML断片をそのまま返す
+    """
     try:
-        q  = (request.GET.get("q") or "").strip()
-        qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
+        q = (request.GET.get("q") or "").strip()
+        start_raw = (request.GET.get("start") or "").strip()
+        end_raw   = (request.GET.get("end") or "").strip()
+
+        qs = RealizedTrade.objects.filter(user=request.user)
+
         if q:
             qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+
+        # --- 期間フィルタ（片側だけ指定でも動作） ---
+        start_dt = end_dt = None
+        if start_raw:
+            try:
+                start_dt = datetime.fromisoformat(start_raw).date()
+            except Exception:
+                start_dt = None
+        if end_raw:
+            try:
+                end_dt = datetime.fromisoformat(end_raw).date()
+            except Exception:
+                end_dt = None
+
+        if start_dt and end_dt:
+            qs = qs.filter(trade_at__range=[start_dt, end_dt])
+        elif start_dt:
+            qs = qs.filter(trade_at__gte=start_dt)
+        elif end_dt:
+            qs = qs.filter(trade_at__lte=end_dt)
+
+        qs = qs.order_by("-trade_at", "-id")
+
         rows = _with_metrics(qs)
-        return render(request, "realized/_table.html", {"trades": rows})
+        html = render_to_string("realized/_table.html", {"trades": rows}, request=request)
+
+        # fetch などJSONで受け取りたい場合用（?as=json）
+        if (request.GET.get("as") or "").lower() == "json":
+            return JsonResponse({"ok": True, "html": html})
+
+        # HTMX などHTML断片をそのまま置換するケース
+        return HttpResponse(html)
+
     except Exception as e:
         logger.exception("table_partial error: %s", e)
         tb = traceback.format_exc()
-        # ← ステータスは 200。HTMX がそのまま置換してくれる
+        # エラー時も 200 でHTML断片を返して差し替える
         html = f"""
         <div class="p-3 rounded-lg" style="background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;">
           <div style="font-weight:700;margin-bottom:6px">テーブル取得に失敗しました</div>
@@ -1039,7 +1079,10 @@ def table_partial(request):
           </details>
         </div>
         """
-        return HttpResponse(html)  # ★200で返す
+        # JSON要求（?as=json）の場合も配慮
+        if (request.GET.get("as") or "").lower() == "json":
+            return JsonResponse({"ok": False, "html": html})
+        return HttpResponse(html)
 
 @login_required
 @require_GET
