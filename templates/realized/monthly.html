@@ -209,5 +209,61 @@
   // ウィンドウリサイズ時（iOSの回転など）
   window.addEventListener('resize', requestRedraw);
 })();
+
+(function(){
+  // 既存の drawMonthlyChart の下あたりに追記
+
+  async function loadDetailsForYm(ym){
+    // ym: "YYYY-MM"
+    const [y,m] = ym.split("-");
+    const start = `${ym}-01`;
+    const end   = new Date(+y, +m, 0); // 月末日を求める
+    const endStr= `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,'0')}-${String(end.getDate()).padStart(2,'0')}`;
+
+    const q = (document.getElementById('q')?.value || '').trim();
+    const params = new URLSearchParams({ start:start, end:endStr });
+    if (q) params.append("q", q);
+
+    const url = "{% url 'realized_table_partial' %}?" + params.toString();
+    const res = await fetch(url, { headers:{ "X-Requested-With":"fetch" }});
+    const j = await res.json();
+    document.getElementById("monthlyDetailsBody").innerHTML = j.html || "<div style='color:#94a3b8'>データなし</div>";
+    // テーブル上まで少しスクロール
+    document.getElementById("monthly-details")?.scrollIntoView({behavior:"smooth", block:"start"});
+  }
+
+  // ① チャートのバークリックでドリルダウン
+  const origDraw = window.drawMonthlyChart; // 既存関数名そのままなら不要
+  // 既存 drawMonthlyChart の chart = new Chart(...); 生成直後にこれを追加:
+  // chart.options.onClick = (evt, els)=>{ ... };
+
+  const _oldDraw = drawMonthlyChart;
+  drawMonthlyChart = async function(){
+    await _oldDraw();
+    if (window.chart){ // 既存スコープの chart 参照
+      window.chart.options.onClick = (evt, els)=>{
+        if (!els || !els.length) return;
+        const idx = els[0].index;
+        const ym  = (window.chart.data.labels||[])[idx]; // "YYYY-MM"
+        if (ym) loadDetailsForYm(ym);
+      };
+      window.chart.update();
+    }
+  };
+
+  // ② Top/Worst のカードクリックでドリルダウン
+  document.addEventListener("click", (e)=>{
+    const btn = e.target.closest("[data-ym]"); // 後述テンプレに data-ym を付与
+    if (btn) loadDetailsForYm(btn.dataset.ym);
+  });
+
+  // 期間サマリの行クリックで既に period フォーカスは飛ぶので、
+  // 同時に明細も出したければ以下を追加
+  document.addEventListener("pnl:focus-period", (ev)=>{
+    const ym = ev?.detail?.label;
+    if (/^\d{4}-\d{2}$/.test(ym)) loadDetailsForYm(ym);
+  });
+})();
+
 </script>
 {% endblock %}
