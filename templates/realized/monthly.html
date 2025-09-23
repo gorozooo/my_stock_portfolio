@@ -16,7 +16,7 @@
 <div class="pnl">
   <h1>月別サマリー</h1>
 
-  {# ── 検索 ─────────────────────────────── #}
+  <!-- 検索 -->
   <div class="fi fi-full mt-4">
     <input
       type="search" name="q" value="{{ q|default:'' }}" id="q"
@@ -28,8 +28,7 @@
       class="w-full">
   </div>
 
-  {# ── 期間まとめ（既存部分テンプレそのまま） ── #}
-  {# ※ preset/freq/start/end の hidden は部分テンプレ側が出す #}
+  <!-- 期間まとめ（既存部分テンプレ） -->
   <section id="monthly-period"
            hx-get="{% url 'realized_summary_period' %}?preset={{ preset|default:'LAST_12M' }}&freq=month&q={{ q|urlencode }}"
            hx-trigger="load"
@@ -38,7 +37,7 @@
     <div style="color:#94a3b8;padding:8px 0">読み込み中…</div>
   </section>
 
-  {# ── Top/Worst 月（PnL上位3・下位3） ── #}
+  <!-- Top/Worst 月 -->
   <section id="monthly-topworst"
            hx-get="{% url 'realized_monthly_topworst' %}"
            hx-trigger="load, pnl:refresh from:body"
@@ -47,13 +46,13 @@
     <div style="color:#94a3b8;padding:8px 0">トップ/ワースト月を読み込み中…</div>
   </section>
 
-  {# ── 選択月の明細（ここに差し込む） ── #}
+  <!-- 選択明細 -->
   <section id="monthly-details" class="card" style="margin-top:12px">
     <div class="text-xs text-slate-400 mb-1">選択月の明細</div>
     <div id="monthlyDetailsBody" style="color:#94a3b8">月をクリックすると明細を表示します</div>
   </section>
 
-  {# ── 1枚目：月次サマリー（棒：PnL、折線：累積PnL 右軸） ── #}
+  <!-- 月次チャート -->
   <section id="monthly-chart" class="card">
     <div style="font-size:12px;color:#a7b1d8;margin-bottom:6px">累積PnLの推移</div>
     <div id="monthlyChartBox" style="height:260px; position:relative;">
@@ -61,24 +60,23 @@
     </div>
   </section>
 
-  {# ── 2,3枚目：分析チャート（既存パーツ） ── #}
+  <!-- 既存：分析チャート -->
   <section id="analysis-charts">
     {% include "realized/_analysis_charts.html" %}
   </section>
 
-  {# ── 日別ヒートマップ ── #}
+  <!-- 日別ヒートマップ -->
   <section class="card">
     <div class="text-xs text-slate-400 mb-1">日別ヒートマップ</div>
     <div id="heatCal" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>
   </section>
 
   <script>
-  /* ===================== 日別ヒートマップ ===================== */
+  /* ===== 日別ヒートマップ ===== */
   (async function(){
     const heatWrap = document.getElementById('heatCal');
     if (!heatWrap) return;
 
-    // 表示中の最新月（期間テーブルの最終行から推定。なければ今月）
     const guess = (()=>{
       const cell = document.querySelector('#pnlPeriodWrap tbody tr:last-child td:first-child');
       const label = cell?.textContent?.trim();
@@ -89,7 +87,6 @@
       const d=new Date(); return {y:d.getFullYear(), m:d.getMonth()+1};
     })();
 
-    // /realized/chart/daily/<year>/<month>.json を安全に置換
     const stub = "{% url 'realized_chart_daily_heat_json' year=2000 month=1 %}";
     const base = stub.replace(/\/2000\/1(\.json)?$/, `/${guess.y}/${guess.m}$1`);
     const qVal = (document.getElementById('q')?.value||'').trim();
@@ -105,11 +102,8 @@
       const last  = new Date(year, month, 0).getDate();
       heatWrap.innerHTML = "";
 
-      // 曜日オフセット（0=日）
       for(let i=0;i<first.getDay();i++){
-        const s=document.createElement('div');
-        s.style.opacity=.25;
-        heatWrap.appendChild(s);
+        const s=document.createElement('div'); s.style.opacity=.25; heatWrap.appendChild(s);
       }
       for(let d=1; d<=last; d++){
         const k = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
@@ -120,7 +114,7 @@
         cell.style.padding="6px 0";
         cell.style.border="1px solid rgba(255,255,255,.08)";
         cell.style.borderRadius="6px";
-        const a = Math.min(1, Math.abs(v)/5000); // スケールは必要に応じて調整
+        const a = Math.min(1, Math.abs(v)/5000);
         cell.style.background = v>=0 ? `rgba(16,185,129,${0.12+0.45*a})`
                                      : `rgba(244,63,94,${0.12+0.45*a})`;
         heatWrap.appendChild(cell);
@@ -134,52 +128,68 @@
 </div>
 
 <script>
-/* ===================== 月次チャート & 明細ドリルダウン ===================== */
+/* ===== 月次チャート & ドリルダウン（明細） ===== */
 (function(){
   if (!('Chart' in window)) {
     console.warn('Chart.js が見つかりません。base.html に読み込みを追加してください。');
   }
 
-  let chart;                 // この関数スコープのインスタンス
-  window.chart = null;       // 他IIFEからも参照できるように公開
+  let chart;                 // このスコープのインスタンス
+  window.chart = null;       // ほかの IIFE からも参照できるよう公開
   let redrawTimer = null;
+
+  const detailsBody   = () => document.getElementById("monthlyDetailsBody");
+  const detailsWrapEl = () => document.getElementById("monthly-details");
 
   function currentQ(){
     return (document.getElementById('q')?.value || '').trim();
   }
-  function buildApiUrl(){
+  function buildMonthlyApiUrl(){
     const base = "{% url 'realized_chart_monthly_json' %}";
     const q = encodeURIComponent(currentQ());
     return q ? `${base}?q=${q}` : base;
   }
 
-  // 選択月明細の読み込み
+  // --- 明細ロード：JSON/HTML 両方に対応 ---
   async function loadDetailsForYm(ym){
-    const [y,m] = ym.split("-");
-    const start = `${ym}-01`;
-    const end   = new Date(+y, +m, 0);
-    const endStr= `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,'0')}-${String(end.getDate()).padStart(2,'0')}`;
+    try{
+      const [y,m] = ym.split("-");
+      const start = `${ym}-01`;
+      const end   = new Date(+y, +m, 0);
+      const endStr= `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,'0')}-${String(end.getDate()).padStart(2,'0')}`;
 
-    const q = currentQ();
-    const params = new URLSearchParams({ start:start, end:endStr });
-    if (q) params.append("q", q);
+      const params = new URLSearchParams({ start:start, end:endStr });
+      const q = currentQ(); if (q) params.append("q", q);
 
-    const url = "{% url 'realized_table_partial' %}?" + params.toString();
-    const res = await fetch(url, { headers:{ "X-Requested-With":"fetch" }});
-    const j = await res.json();
-    document.getElementById("monthlyDetailsBody").innerHTML =
-      j.html || "<div style='color:#94a3b8'>データなし</div>";
-    document.getElementById("monthly-details")?.scrollIntoView({behavior:"smooth", block:"start"});
+      const url = "{% url 'realized_table_partial' %}?" + params.toString();
+
+      const res = await fetch(url, { headers:{ "X-Requested-With":"fetch" }});
+      const ct  = res.headers.get('Content-Type') || '';
+      let html = '';
+      if (ct.includes('application/json')) {
+        const j = await res.json();
+        html = j.html || '';
+      } else {
+        // 互換: サーバが HTML を返した場合も差し込む
+        html = await res.text();
+      }
+      detailsBody().innerHTML = html || "<div style='color:#94a3b8'>データなし</div>";
+      detailsWrapEl()?.scrollIntoView({behavior:"smooth", block:"start"});
+    }catch(e){
+      console.error(e);
+      detailsBody().innerHTML =
+        "<div class='p-3 rounded-lg' style='background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;'>明細の取得に失敗しました</div>";
+    }
   }
-  window.loadDetailsForYm = loadDetailsForYm; // 念のため公開
+  window.loadDetailsForYm = loadDetailsForYm;
 
-  // チャート描画
+  // --- チャート描画 ---
   async function drawMonthlyChart(){
     const canvas = document.getElementById('monthlyChartCanvas');
     if (!canvas || !window.Chart) return;
 
     try{
-      const resp = await fetch(buildApiUrl(), {headers:{'X-Requested-With':'fetch'}});
+      const resp = await fetch(buildMonthlyApiUrl(), {headers:{'X-Requested-With':'fetch'}});
       const data = await resp.json();
 
       const ctx = canvas.getContext('2d');
@@ -206,7 +216,6 @@
             legend: { labels:{ boxWidth:10 } },
             tooltip:{ mode:'index', intersect:false }
           },
-          // バークリックで明細を出す
           onClick: (_evt, elements)=>{
             if (!elements || !elements.length) return;
             const idx = elements[0].index;
@@ -216,12 +225,12 @@
         }
       });
 
-      window.chart = chart; // 公開
+      window.chart = chart;
     }catch(e){
       console.error('monthly chart error', e);
     }
   }
-  window.drawMonthlyChart = drawMonthlyChart; // 公開
+  window.drawMonthlyChart = drawMonthlyChart;
 
   // 初期描画
   if (document.readyState === 'loading'){
@@ -239,30 +248,42 @@
   document.getElementById('q')?.addEventListener('search', requestRedraw);
   window.addEventListener('resize', requestRedraw);
 
-  // Top/Worst カードクリック → data-ym から読み込み
+  // Top/Worst カード（data-ym）クリック
   document.addEventListener("click", (e)=>{
     const btn = e.target.closest("[data-ym]");
     if (btn) loadDetailsForYm(btn.dataset.ym);
   });
 
-  // 期間サマリーのフォーカス通知でも読み込み（行クリック時）
+  // 期間テーブル行クリックからの通知でも
   document.addEventListener("pnl:focus-period", (ev)=>{
     const ym = ev?.detail?.label;
     if (/^\d{4}-\d{2}$/.test(ym)) loadDetailsForYm(ym);
   });
 
-  // ── 自動で直近の月を一度表示（白枠を空にしないため） ──
-  function autoPickLatestMonth(){
-    const lastRow = document.querySelector('#pnlPeriodWrap tbody tr:last-child');
-    let ym = lastRow?.dataset?.period || lastRow?.querySelector('td:first-child')?.textContent?.trim();
-    if (!ym && window.chart && Array.isArray(window.chart.data?.labels)){
-      const labels = window.chart.data.labels;
-      ym = labels[labels.length-1];
+  // --- 初期に自動で何かを表示（期間空でも動く） ---
+  async function autoPickLatestMonth(){
+    // 1) チャートの最後のラベル
+    let ym = (window.chart && Array.isArray(window.chart.data?.labels))
+               ? window.chart.data.labels.slice(-1)[0] : null;
+
+    // 2) Top/Worst の最初の data-ym
+    if (!ym){
+      const tw = document.querySelector('#monthly-topworst [data-ym]');
+      ym = tw?.getAttribute('data-ym') || null;
     }
-    if (ym && /^\d{4}-\d{2}$/.test(ym)) loadDetailsForYm(ym);
+
+    // 3) 期間表の最後の行
+    if (!ym){
+      const lastRow = document.querySelector('#pnlPeriodWrap tbody tr:last-child');
+      ym = lastRow?.dataset?.period || lastRow?.querySelector('td:first-child')?.textContent?.trim();
+    }
+
+    if (ym && /^\d{4}-\d{2}$/.test(ym)) {
+      await loadDetailsForYm(ym);
+    }
   }
-  window.addEventListener('load', ()=> setTimeout(autoPickLatestMonth, 300));
-  document.addEventListener('pnl:refresh', ()=> setTimeout(autoPickLatestMonth, 200));
+  window.addEventListener('load', ()=> setTimeout(autoPickLatestMonth, 350));
+  document.addEventListener('pnl:refresh', ()=> setTimeout(autoPickLatestMonth, 250));
 })();
 </script>
 {% endblock %}
