@@ -332,6 +332,25 @@ def _aggregate_by_broker(qs):
 # --- 期間まとめ（部分テンプレ） -------------------------
 @login_required
 @require_GET
+def monthly_page(request):
+    """
+    月別サマリーの専用ページ。
+    本体は空のコンテナを出すだけで、内容は _summary_period.html を
+    preset=LAST_12M & freq=month で HTMX 取得して差し込む。
+    既存の期間サマリー部分テンプレをそのまま使うので、既存画面は壊れない。
+    """
+    q = (request.GET.get("q") or "").strip()
+    ctx = {
+        "q": q,
+        # デフォルト表示は「過去12ヶ月 × 月次」
+        "default_preset": "LAST_12M",
+        "default_freq": "month",
+    }
+    return render(request, "realized/monthly.html", ctx)
+
+
+@login_required
+@require_GET
 def summary_period_partial(request):
     """
     月次/年次で 📈PnL と 💰現金（現物/信用/合計）を集計して返す。
