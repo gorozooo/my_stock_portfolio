@@ -157,21 +157,20 @@ def _aggregate(qs):
     """
     画面上部の大元サマリー。
     二重集計を避けるため、平均PnL% / 平均保有日数は
-    _with_metrics で付与した 'pnl_pct' / 'hold_days_f' に対する Avg を使う。
+    _with_metrics で付けた 'pnl_pct' / 'hold_days_f' に対する Avg を使う。
     """
     qs = _with_metrics(qs)
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
-    # 「平均値」の対象にする行（SELL & basis>0 & qty>0）
     eligible = Q(side="SELL") & Q(qty__gt=0) & Q(basis__isnull=False) & ~Q(basis=0)
 
     agg = qs.aggregate(
-        # 件数・数量・手数料
+        # 件数・数量・手数料（Avg は使わない）
         n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
         qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
         fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
 
-        # 現金フロー（現物/NISA は受渡、信用は手入力PnL）
+        # 現金フロー
         cash_spec = Coalesce(
             Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
                      default=dec0, output_field=DEC2)), dec0),
@@ -179,7 +178,7 @@ def _aggregate(qs):
             Sum(Case(When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
                      default=dec0, output_field=DEC2)), dec0),
 
-        # PnL（手入力PnLの合算）
+        # 手入力PnLの合算
         pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
 
         # 利益合計 / 損失合計（表示用PnLで集計）
@@ -190,10 +189,8 @@ def _aggregate(qs):
             Sum(Case(When(pnl_display__lt=0, then=F("pnl_display")),
                      default=dec0, output_field=DEC2)), dec0),
 
-        # ★ 平均PnL%：事前注釈 'pnl_pct' の単純平均（対象行のみ）
-        avg_pnl_pct = Avg("pnl_pct", filter=eligible),
-
-        # ★ 平均保有日数：事前注釈 'hold_days_f' の単純平均（対象行のみ）
+        # ★ 平均PnL% と ★ 平均保有日数（事前注釈列に対する Avg）
+        avg_pnl_pct   = Avg("pnl_pct",     filter=eligible),
         avg_hold_days = Avg("hold_days_f", filter=eligible),
     )
 
@@ -201,19 +198,16 @@ def _aggregate(qs):
     agg["cash_total"] = (agg.get("cash_spec") or Decimal("0")) + (agg.get("cash_margin") or Decimal("0"))
     loss_abs = abs(agg.get("loss_sum") or Decimal("0"))
     agg["pf"] = (agg.get("profit_sum") or Decimal("0")) / loss_abs if loss_abs else None
-
     return agg
 
 
 def _aggregate_by_broker(qs):
     """
     証券会社別サマリー。
-    二重集計を避けるため、平均PnL% / 平均保有日数は
-    事前注釈 'pnl_pct' / 'hold_days_f' に対する Avg を使う。
+    平均は 'pnl_pct' / 'hold_days_f' に対する Avg（対象行のみ）。
     """
     qs = _with_metrics(qs)
     dec0 = Value(Decimal("0"), output_field=DEC2)
-
     eligible = Q(side="SELL") & Q(qty__gt=0) & Q(basis__isnull=False) & ~Q(basis=0)
 
     rows = (
@@ -239,8 +233,8 @@ def _aggregate_by_broker(qs):
                   Sum(Case(When(pnl_display__lt=0, then=F("pnl_display")),
                            default=dec0, output_field=DEC2)), dec0),
 
-              # ★ 事前注釈列に対する Avg（対象行のみ）
-              avg_pnl_pct   = Avg("pnl_pct", filter=eligible),
+              # ★ ここも Avg は“注釈列”に対してのみ
+              avg_pnl_pct   = Avg("pnl_pct",     filter=eligible),
               avg_hold_days = Avg("hold_days_f", filter=eligible),
           )
           .order_by("broker")
@@ -253,7 +247,6 @@ def _aggregate_by_broker(qs):
         loss_abs = abs(d.get("loss_sum") or Decimal("0"))
         d["pf"] = (d.get("profit_sum") or Decimal("0")) / loss_abs if loss_abs else None
         out.append(d)
-
     return out
 
 # --- 期間まとめ（部分テンプレ） -------------------------
