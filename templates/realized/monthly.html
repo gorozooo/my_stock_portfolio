@@ -28,80 +28,113 @@
       class="w-full">
   </div>
 
-  {# ── 期間まとめ（既存の部分テンプレをそのまま再利用） ── #}
+  {# ── 期間まとめ（既存の部分テンプレをそのまま再利用） ──
+     ※ preset/freq/start/end hidden は部分テンプレ側が出す #}
   <section id="monthly-period"
            hx-get="{% url 'realized_summary_period' %}?preset={{ preset|default:'LAST_12M' }}&freq=month&q={{ q|urlencode }}"
            hx-trigger="load"
+           hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
            hx-swap="outerHTML">
     <div style="color:#94a3b8;padding:8px 0">読み込み中…</div>
   </section>
   
+  {# ── Top/Worst 月（PnL上位3・下位3） ── #}
   <section id="monthly-topworst"
            hx-get="{% url 'realized_monthly_topworst' %}?q={{ q|urlencode }}"
            hx-trigger="load, pnl:refresh from:body"
+           hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
            hx-swap="outerHTML">
     <div style="color:#94a3b8;padding:8px 0">トップ/ワースト月を読み込み中…</div>
   </section>
   
-  {# ── 1枚目：月次サマリー（棒：PnL、折れ線：累積PnL 右軸） ── #}
+  {# ── 1枚目：月次サマリー（棒：PnL、折線：累積PnL 右軸） ── #}
   <section id="monthly-chart" class="card">
     <div style="font-size:12px;color:#a7b1d8;margin-bottom:6px">累積PnLの推移</div>
-    <!-- ✅ 親に高さを与える -->
+    <!-- 親に高さを与える -->
     <div id="monthlyChartBox" style="height:260px; position:relative;">
       <canvas id="monthlyChartCanvas"></canvas>
     </div>
   </section>
 
-
-  {# ── 2,3枚目：累積PnLとヒストグラム（既存パーツをそのまま） ── #}
+  {# ── 2,3枚目：分析チャート（既存パーツをそのまま） ── #}
   <section id="analysis-charts">
     {% include "realized/_analysis_charts.html" %}
   </section>
   
+  {# ── 日別ヒートマップ ── #}
   <section class="card">
-  <div class="text-xs text-slate-400 mb-1">日別ヒートマップ</div>
-  <div id="heatCal" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>
-</section>
-<script>
-(async function(){
-  // 表示中の最新月（テーブルの最後の row などから推定。なければ今月）
-  const guess = (()=>{
-    const last = document.querySelector('#pnlPeriodWrap tbody tr:last-child td:first-child')?.textContent?.trim();
-    if(last && /^\d{4}-\d{2}$/.test(last)){ const [y,m]=last.split('-'); return {y:+y,m:+m}; }
-    const d=new Date(); return {y:d.getFullYear(), m:d.getMonth()+1};
-  })();
-  const base = "{% url 'realized_chart_daily_heat_json' year=2000 month=1 %}".replace("2000/1",""+guess.y+"/"+guess.m);
-  const q = (document.getElementById('q')?.value||'').trim();
-  const url = q ? `${base}?q=${encodeURIComponent(q)}` : base;
-  const res = await fetch(url); const {year, month, days} = await res.json();
+    <div class="text-xs text-slate-400 mb-1">日別ヒートマップ</div>
+    <div id="heatCal" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>
+  </section>
 
-  const first = new Date(year, month-1, 1);
-  const last  = new Date(year, month, 0).getDate();
-  const wrap  = document.getElementById('heatCal');
-  wrap.innerHTML = "";
-  // 曜日オフセット
-  for(let i=0;i<first.getDay();i++){ const s=document.createElement('div'); s.style.opacity=.3; wrap.appendChild(s); }
-  for(let d=1; d<=last; d++){
-    const k = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const v = Number(days[k]||0);
-    const cell = document.createElement('div');
-    cell.textContent = d;
-    cell.style.textAlign="center";
-    cell.style.padding="6px 0";
-    cell.style.border="1px solid rgba(255,255,255,.08)";
-    cell.style.borderRadius="6px";
-    // 値に応じて色
-    const a = Math.min(1, Math.abs(v)/5000); // 閾値は適宜
-    cell.style.background = v>=0 ? `rgba(16,185,129,${0.12+0.45*a})` : `rgba(244,63,94,${0.12+0.45*a})`;
-    wrap.appendChild(cell);
-  }
-})();
-</script>
-  
+  <script>
+  (async function(){
+    const heatWrap = document.getElementById('heatCal');
+    if (!heatWrap) return;
+
+    // 表示中の最新月（期間テーブルの最終行から推定。なければ今月）
+    const guess = (()=>{
+      const cell = document.querySelector('#pnlPeriodWrap tbody tr:last-child td:first-child');
+      const label = cell?.textContent?.trim();
+      if (label && /^\d{4}-\d{2}$/.test(label)){
+        const [y,m] = label.split('-');
+        return {y:+y, m:+m};
+      }
+      const d=new Date(); return {y:d.getFullYear(), m:d.getMonth()+1};
+    })();
+
+    // /realized/chart/daily/<year>/<month>.json を安全に置換
+    const stub = "{% url 'realized_chart_daily_heat_json' year=2000 month=1 %}";
+    const base = stub.replace(/\/2000\/1(\.json)?$/, `/${guess.y}/${guess.m}$1`);
+    const qVal = (document.getElementById('q')?.value||'').trim();
+    const url  = qVal ? `${base}?q=${encodeURIComponent(qVal)}` : base;
+
+    try{
+      const res = await fetch(url, {headers:{'X-Requested-With':'fetch'}});
+      if (!res.ok) throw new Error('daily heat API error');
+      const payload = await res.json();
+      const year = +payload.year, month = +payload.month, days = payload.days || {};
+
+      const first = new Date(year, month-1, 1);
+      const last  = new Date(year, month, 0).getDate();
+      heatWrap.innerHTML = "";
+
+      // 曜日オフセット（0=日）
+      for(let i=0;i<first.getDay();i++){
+        const s=document.createElement('div');
+        s.style.opacity=.25;
+        heatWrap.appendChild(s);
+      }
+      for(let d=1; d<=last; d++){
+        const k = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const v = Number(days[k]||0);
+        const cell = document.createElement('div');
+        cell.textContent = d;
+        cell.style.textAlign="center";
+        cell.style.padding="6px 0";
+        cell.style.border="1px solid rgba(255,255,255,.08)";
+        cell.style.borderRadius="6px";
+        // 値に応じて色（正=緑、負=赤）
+        const a = Math.min(1, Math.abs(v)/5000); // スケールは必要に応じて調整
+        cell.style.background = v>=0 ? `rgba(16,185,129,${0.12+0.45*a})`
+                                     : `rgba(244,63,94,${0.12+0.45*a})`;
+        heatWrap.appendChild(cell);
+      }
+    }catch(e){
+      console.error(e);
+      heatWrap.innerHTML = '<div style="color:#fca5a5">ヒートマップの取得に失敗しました</div>';
+    }
+  })();
+  </script>
 </div>
 
 <script>
 (function(){
+  // Chart.js が base.html で読み込まれている前提
+  if (!('Chart' in window)) {
+    console.warn('Chart.js が見つかりません。base.html に読み込みを追加してください。');
+  }
+
   let chart;
   let redrawTimer=null;
 
@@ -115,12 +148,14 @@
   }
 
   async function drawMonthlyChart(){
+    const canvas = document.getElementById('monthlyChartCanvas');
+    if (!canvas || !window.Chart) return;
     try{
       const resp = await fetch(buildApiUrl(), {headers:{'X-Requested-With':'fetch'}});
       const data = await resp.json();
 
-      const ctx = document.getElementById('monthlyChartCanvas').getContext('2d');
-      if (chart) chart.destroy();
+      const ctx = canvas.getContext('2d');
+      if (chart) { chart.destroy(); chart = null; }
 
       chart = new Chart(ctx, {
         type: 'bar',
@@ -133,8 +168,8 @@
         },
         options: {
           responsive: true,
-          maintainAspectRatio: false,   // ✅ 親(Box)の高さに合わせる
-          resizeDelay: 150,             // ✅ 過剰リサイズ抑制
+          maintainAspectRatio: false,   // 親(Box)の高さに合わせる
+          resizeDelay: 150,             // 過剰リサイズ抑制
           scales: {
             y:  { beginAtZero:true },
             y1: { beginAtZero:true, position:'right', grid:{ drawOnChartArea:false } }
@@ -145,7 +180,7 @@
           }
         }
       });
-    }catch(e){ console.error(e); }
+    }catch(e){ console.error('monthly chart error', e); }
   }
 
   // 初期描画
@@ -165,6 +200,9 @@
   document.addEventListener('pnl:refresh', requestRedraw);
   // 検索確定時にも
   document.getElementById('q')?.addEventListener('search', requestRedraw);
+
+  // ウィンドウリサイズ時（iOSの回転など）
+  window.addEventListener('resize', requestRedraw);
 })();
 </script>
 {% endblock %}
