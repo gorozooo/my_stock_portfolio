@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from datetime import date as _date, timedelta as _timedelta
 import csv
 import logging
 import traceback
@@ -390,20 +391,84 @@ def monthly_topworst_partial(request):
 @login_required
 @require_GET
 def chart_daily_heat_json(request, year: int, month: int):
+    """
+    指定の year/month の日次ヒートマップ用 JSON を返す。
+    - pnl: その日の “投資家PnL”（= pnl_display）の合計
+    - cash_spec: 現物/NISA の現金フロー合計（cashflow_calc）
+    - cash_margin: 信用の現金相当（pnl_display）合計
+    """
     q = (request.GET.get("q") or "").strip()
-    from calendar import monthrange
-    start = timezone.datetime(year, month, 1).date()
-    end   = timezone.datetime(year, month, monthrange(year, month)[1]).date()
 
-    qs = RealizedTrade.objects.filter(user=request.user, trade_at__range=(start, end))
-    if q: qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+    # 期間境界 (start <= trade_at < next_first)
+    try:
+        start = _date(int(year), int(month), 1)
+    except Exception:
+        # 不正な月は今月を返す
+        start = timezone.localdate().replace(day=1)
+
+    if start.month == 12:
+        next_first = _date(start.year + 1, 1, 1)
+    else:
+        next_first = _date(start.year, start.month + 1, 1)
+
+    # ベースQS
+    qs = RealizedTrade.objects.filter(user=request.user,
+                                      trade_at__gte=start,
+                                      trade_at__lt=next_first)
+    if q:
+        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+
+    # 必要注釈を付与
     qs = _with_metrics(qs)
-    rows = (qs.annotate(d=Cast("trade_at", output_field=CharField()))
-              .values("trade_at")
-              .annotate(pnl=Sum("pnl_display"))
-              .order_by("trade_at"))
-    data = { r["trade_at"].strftime("%Y-%m-%d"): float(r["pnl"]) for r in rows }
-    return JsonResponse({"year":year, "month":month, "days":data})
+
+    # 日付ごとに集計
+    daily = (
+        qs.values("trade_at")
+          .annotate(
+              pnl = Coalesce(Sum("pnl_display", output_field=DEC2),
+                             Value(Decimal("0"), output_field=DEC2)),
+              cash_spec = Coalesce(
+                  Sum("cashflow_calc", filter=Q(account__in=["SPEC","NISA"]), output_field=DEC2),
+                  Value(Decimal("0"), output_field=DEC2)
+              ),
+              cash_margin = Coalesce(
+                  Sum("pnl_display", filter=Q(account="MARGIN"), output_field=DEC2),
+                  Value(Decimal("0"), output_field=DEC2)
+              ),
+          )
+          .order_by("trade_at")
+    )
+
+    # JSON 形式へ
+    labels, pnl, cash_spec, cash_margin = [], [], [], []
+    vmin = vmax = None
+    for r in daily:
+        d = r["trade_at"]
+        label = d.strftime("%Y-%m-%d") if d else ""
+        labels.append(label)
+
+        p = r["pnl"] or Decimal("0")
+        cs = r["cash_spec"] or Decimal("0")
+        cm = r["cash_margin"] or Decimal("0")
+
+        pf = float(p)
+        labels and pnl.append(pf)
+        cash_spec.append(float(cs))
+        cash_margin.append(float(cm))
+
+        vmin = pf if vmin is None else min(vmin, pf)
+        vmax = pf if vmax is None else max(vmax, pf)
+
+    return JsonResponse({
+        "year": start.year,
+        "month": start.month,
+        "labels": labels,        # ["2025-09-01", ...]
+        "pnl": pnl,              # 日次PnL（表示用）
+        "cash_spec": cash_spec,  # 現物/NISA
+        "cash_margin": cash_margin,  # 信用
+        "min": vmin if vmin is not None else 0.0,
+        "max": vmax if vmax is not None else 0.0,
+    })
 
 @login_required
 @require_GET
