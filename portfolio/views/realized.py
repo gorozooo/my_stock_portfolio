@@ -1,11 +1,13 @@
 # portfolio/views/realized.py
 from __future__ import annotations
 
+from decimal import Decimal
+from datetime import date as _date, timedelta as _timedelta
+from datetime import timedelta
 import csv
 import logging
 import traceback
-from decimal import Decimal
-from datetime import date, timedelta  # ← これだけで十分
+from datetime import date
 
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
