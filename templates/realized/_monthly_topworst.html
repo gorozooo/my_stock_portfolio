@@ -1,58 +1,86 @@
 {# templates/realized/_monthly_topworst.html #}
 {% load humanize %}
 <style>
-  .tw-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
-  .tw-card{padding:10px 12px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03)}
-  .tw-title{font-size:12px;color:#a7b1d8;margin-bottom:6px;display:flex;align-items:center;gap:6px}
-  .tw-list{display:flex;flex-direction:column;gap:6px}
-  .tw-row{display:flex;justify-content:space-between;align-items:baseline;font-variant-numeric:tabular-nums}
-  .pos{color:#86efac} .neg{color:#fca5a5}
-  .muted{color:#94a3b8}
+  .tw-grid{
+    display:grid; gap:10px; grid-template-columns:1fr 1fr; margin:10px 0;
+  }
+  @media (max-width: 420px){ .tw-grid{ grid-template-columns:1fr; } }
 
-  /* クリックでドリルダウンできるよう視覚的に示す */
-  .tw-row[role="button"]{cursor:pointer;border-radius:8px;padding:6px 8px;margin:-6px -8px}
-  .tw-row[role="button"]:hover{background:rgba(255,255,255,.05)}
-  .tw-row .tag{font-size:11px;color:#a7b1d8;margin-right:8px}
+  .tw-card{
+    padding:10px 12px;
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:12px;
+    background:rgba(255,255,255,.03);
+  }
+  .tw-title{
+    font-size:12px; color:#a7b1d8; margin-bottom:6px; display:flex; align-items:center; gap:6px;
+  }
+
+  /* 行：左にランク＋月、右に金額（常に1行・右寄せ） */
+  .tw-row{
+    display:grid; grid-template-columns:auto 1fr auto; align-items:center;
+    gap:8px; padding:6px 0; border-bottom:1px dashed rgba(255,255,255,.06);
+  }
+  .tw-row:last-child{ border-bottom:0; }
+
+  .rank{
+    font-size:11px; color:#a7b1d8; width:2.2em; text-align:right;
+  }
+  .ym{
+    display:inline-flex; align-items:center; gap:6px; min-width:0;
+  }
+  .ym-btn{
+    display:inline-block; padding:4px 8px; border-radius:999px;
+    border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.04);
+    font-size:12px; white-space:nowrap;
+  }
+  .tw-val{
+    font-variant-numeric:tabular-nums; white-space:nowrap; text-align:right; font-size:16px;
+  }
+
+  .pos{color:#86efac} .neg{color:#fca5a5} .muted{color:#94a3b8}
+
+  /* タップ領域を広げる（行全体クリックでドリルダウン） */
+  .tw-row[data-ym]{ cursor:pointer; }
+  .tw-row[data-ym]:active{ background:rgba(255,255,255,.04); border-radius:8px; }
 </style>
 
 <div class="tw-grid">
+  <!-- Top -->
   <div class="tw-card">
     <div class="tw-title">🏆 PnL Top 3（良い月）</div>
     {% if top %}
-      <div class="tw-list">
-        {% for r in top %}
-          <div class="tw-row" role="button" tabindex="0"
-               data-ym="{{ r.label }}" aria-label="{{ r.label }} を明細で開く">
-            <div class="muted">
-              <span class="tag">{{ forloop.counter }}位</span>{{ r.label }}
-            </div>
-            {% with v=r.pnl %}
-              <div class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
-            {% endwith %}
+      {% for r in top %}
+        {% with v=r.pnl %}
+        <div class="tw-row" data-ym="{{ r.label }}">
+          <div class="rank">{{ forloop.counter }}位</div>
+          <div class="ym">
+            <span class="ym-btn">{{ r.label }}</span>
           </div>
-        {% endfor %}
-      </div>
+          <div class="tw-val {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
+        </div>
+        {% endwith %}
+      {% endfor %}
     {% else %}
       <div class="muted">データなし</div>
     {% endif %}
   </div>
 
+  <!-- Worst -->
   <div class="tw-card">
     <div class="tw-title">🫤 PnL Worst 3（悪い月）</div>
     {% if worst %}
-      <div class="tw-list">
-        {% for r in worst %}
-          <div class="tw-row" role="button" tabindex="0"
-               data-ym="{{ r.label }}" aria-label="{{ r.label }} を明細で開く">
-            <div class="muted">
-              <span class="tag">{{ forloop.counter }}位</span>{{ r.label }}
-            </div>
-            {% with v=r.pnl %}
-              <div class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
-            {% endwith %}
+      {% for r in worst %}
+        {% with v=r.pnl %}
+        <div class="tw-row" data-ym="{{ r.label }}">
+          <div class="rank">{{ forloop.counter }}位</div>
+          <div class="ym">
+            <span class="ym-btn">{{ r.label }}</span>
           </div>
-        {% endfor %}
-      </div>
+          <div class="tw-val {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
+        </div>
+        {% endwith %}
+      {% endfor %}
     {% else %}
       <div class="muted">データなし</div>
     {% endif %}
