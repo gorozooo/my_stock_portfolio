@@ -154,32 +154,43 @@ def _with_metrics(qs):
 #   - pnl        : 📈PnL累計 = 手入力PnL(cashflow) を合計
 # ============================================================
 def _aggregate(qs):
+    """
+    画面上部の大元サマリー。
+    Avg('qty') / Avg('fee') のような「集計結果に対する Avg」は一切行わない。
+    必要なら “合計 ÷ 件数” を Python 後計算で出す。
+    """
     qs = _with_metrics(qs)
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
+    # 平均PnL% 計算のための1トレードPnL%（SELL & basis>0 のものだけ）
     eligible = Q(side="SELL") & Q(qty__gt=0) & Q(basis__isnull=False) & ~Q(basis=0)
 
     trade_pnl = Case(
-        When(eligible, then=(F("price") - F("basis")) * F("qty")
-                           - Coalesce(F("fee"), dec0) - Coalesce(F("tax"), dec0)),
-        default=None, output_field=DEC2,
+        When(
+            eligible,
+            then=(F("price") - F("basis")) * F("qty")
+                 - Coalesce(F("fee"), dec0) - Coalesce(F("tax"), dec0),
+        ),
+        default=None,
+        output_field=DEC2,
     )
     denom = Case(
         When(eligible, then=ExpressionWrapper(F("basis") * F("qty"), output_field=DEC2)),
         default=None, output_field=DEC2,
     )
     pct_expr = ExpressionWrapper(
-        Case(When(eligible, then=trade_pnl * Value(Decimal("100"), output_field=DEC2) / denom),
+        Case(When(eligible, then=trade_pnl * Value(100, output_field=DEC2) / denom),
              default=None, output_field=DEC2),
         output_field=DEC2,
     )
 
     agg = qs.aggregate(
+        # 件数・数量・手数料
         n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
         qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
+        fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
 
-        fee_total = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
-
+        # 現金フロー（現物/NISA は受渡、信用は手入力PnL）
         cash_spec = Coalesce(
             Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
                      default=dec0, output_field=DEC2)), dec0),
@@ -187,8 +198,10 @@ def _aggregate(qs):
             Sum(Case(When(account="MARGIN", then=Coalesce(F("cashflow"), dec0)),
                      default=dec0, output_field=DEC2)), dec0),
 
+        # PnL（手入力PnLの合算）
         pnl = Coalesce(Sum(Coalesce(F("cashflow"), dec0)), dec0),
 
+        # 利益合計 / 損失合計
         profit_sum = Coalesce(
             Sum(Case(When(pnl_display__gt=0, then=F("pnl_display")),
                      default=dec0, output_field=DEC2)), dec0),
@@ -196,9 +209,13 @@ def _aggregate(qs):
             Sum(Case(When(pnl_display__lt=0, then=F("pnl_display")),
                      default=dec0, output_field=DEC2)), dec0),
 
-        avg_pnl_pct   = Avg(pct_expr),
-        avg_hold_days = Avg(Case(When(eligible, then=F("hold_days")),
-                                 default=None, output_field=IntegerField())),
+        # 平均PnL%（売却 & basis>0 のトレードの単純平均）
+        avg_pnl_pct = Avg(pct_expr),
+
+        # 平均保有日数（売却トレードのみの平均）
+        avg_hold_days = Avg(
+            Case(When(eligible, then=F("hold_days")), default=None, output_field=IntegerField())
+        ),
     )
 
     # 後計算
@@ -206,22 +223,27 @@ def _aggregate(qs):
     loss_abs = abs(agg.get("loss_sum") or Decimal("0"))
     agg["pf"] = (agg.get("profit_sum") or Decimal("0")) / loss_abs if loss_abs else None
 
-    n = int(agg.get("n") or 0)
-    agg["avg_qty"] = ((agg.get("qty") or 0) / n) if n else None
-    agg["avg_fee"] = ((agg.get("fee_total") or Decimal("0")) / n) if n else None
+    # ここで「平均数量」などが必要なら 後計算で出す（Avg('qty') は使わない）
+    # agg["avg_qty"] = (agg["qty"] / agg["n"]) if agg["n"] else None
 
     return agg
 
 
 def _aggregate_by_broker(qs):
+    """
+    証券会社別サマリー。こちらも Avg('qty') / Avg('fee') は使わない。
+    """
     qs = _with_metrics(qs)
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
     eligible = Q(side="SELL") & Q(qty__gt=0) & Q(basis__isnull=False) & ~Q(basis=0)
 
     trade_pnl = Case(
-        When(eligible, then=(F("price") - F("basis")) * F("qty")
-                           - Coalesce(F("fee"), dec0) - Coalesce(F("tax"), dec0)),
+        When(
+            eligible,
+            then=(F("price") - F("basis")) * F("qty")
+                 - Coalesce(F("fee"), dec0) - Coalesce(F("tax"), dec0),
+        ),
         default=None, output_field=DEC2,
     )
     denom = Case(
@@ -229,7 +251,7 @@ def _aggregate_by_broker(qs):
         default=None, output_field=DEC2,
     )
     pct_expr = ExpressionWrapper(
-        Case(When(eligible, then=trade_pnl * Value(Decimal("100"), output_field=DEC2) / denom),
+        Case(When(eligible, then=trade_pnl * Value(100, output_field=DEC2) / denom),
              default=None, output_field=DEC2),
         output_field=DEC2,
     )
@@ -239,8 +261,7 @@ def _aggregate_by_broker(qs):
           .annotate(
               n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
               qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
-
-              fee_total = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
+              fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
 
               cash_spec = Coalesce(
                   Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")),
@@ -259,8 +280,9 @@ def _aggregate_by_broker(qs):
                            default=dec0, output_field=DEC2)), dec0),
 
               avg_pnl_pct   = Avg(pct_expr),
-              avg_hold_days = Avg(Case(When(eligible, then=F("hold_days")),
-                                       default=None, output_field=IntegerField())),
+              avg_hold_days = Avg(
+                  Case(When(eligible, then=F("hold_days")), default=None, output_field=IntegerField())
+              ),
           )
           .order_by("broker")
     )
@@ -271,11 +293,6 @@ def _aggregate_by_broker(qs):
         d["cash_total"] = (d.get("cash_spec") or Decimal("0")) + (d.get("cash_margin") or Decimal("0"))
         loss_abs = abs(d.get("loss_sum") or Decimal("0"))
         d["pf"] = (d.get("profit_sum") or Decimal("0")) / loss_abs if loss_abs else None
-
-        n = int(d.get("n") or 0)
-        d["avg_qty"] = ((d.get("qty") or 0) / n) if n else None
-        d["avg_fee"] = ((d.get("fee_total") or Decimal("0")) / n) if n else None
-
         out.append(d)
 
     return out
