@@ -25,7 +25,7 @@
 <div class="pnl">
   <h1>月別サマリー</h1>
 
-  {# 検索 #}
+  {# ── 検索 ── #}
   <div class="fi fi-full mt-4">
     <input
       type="search" name="q" value="{{ q|default:'' }}" id="q"
@@ -37,7 +37,7 @@
       class="w-full">
   </div>
 
-  {# 期間まとめ（既存の部分テンプレ） #}
+  {# ── 期間まとめ（既存の部分テンプレ） ── #}
   <section id="monthly-period"
            hx-get="{% url 'realized_summary_period' %}?preset={{ preset|default:'LAST_12M' }}&freq=month&q={{ q|urlencode }}"
            hx-trigger="load"
@@ -46,7 +46,7 @@
     <div style="color:#94a3b8;padding:8px 0">読み込み中…</div>
   </section>
   
-  {# KPI #}
+  {# ── KPI ── #}
   <section id="monthly-kpis"
            hx-get="{% url 'realized_monthly_kpis' %}"
            hx-trigger="load, pnl:refresh from:body"
@@ -55,7 +55,7 @@
     <div style="color:#94a3b8;padding:8px 0">KPIを読み込み中…</div>
   </section>
 
-  {# ブレークダウン #}
+  {# ── ブレークダウン ── #}
   <section id="monthly-breakdown"
            hx-get="{% url 'realized_monthly_breakdown' %}"
            hx-trigger="load, pnl:refresh from:body"
@@ -64,7 +64,7 @@
     <div style="color:#94a3b8;padding:8px 0">ブレークダウンを読み込み中…</div>
   </section>
   
-  {# Top/Worst 月 #}
+  {# ── Top/Worst 月 ── #}
   <section id="monthly-topworst"
            hx-get="{% url 'realized_monthly_topworst' %}"
            hx-trigger="load, pnl:refresh from:body"
@@ -73,13 +73,13 @@
     <div style="color:#94a3b8;padding:8px 0">トップ/ワースト月を読み込み中…</div>
   </section>
 
-  {# 月選択チップ #}
+  {# ── 月選択チップ ── #}
   <section id="month-picker" class="card">
     <div class="text-xs text-slate-400 mb-1">月を選択</div>
     <div id="monthlyMonthPicker" class="chips" aria-live="polite"></div>
   </section>
 
-  {# 選択月の明細（横スクロール対応） #}
+  {# ── 選択月の明細（横スクロール対応） ── #}
   <section id="monthly-details">
     <div class="text-xs text-slate-400 mb-1">選択月の明細</div>
     <div class="h-scroll">
@@ -89,7 +89,7 @@
     </div>
   </section>
 
-  {# 月次チャート #}
+  {# ── 月次チャート ── #}
   <section id="monthly-chart" class="card">
     <div style="font-size:12px;color:#a7b1d8;margin-bottom:6px">累積PnLの推移</div>
     <div id="monthlyChartBox" style="height:260px; position:relative;">
@@ -97,12 +97,12 @@
     </div>
   </section>
 
-  {# 既存の分析チャート #}
+  {# ── 既存の分析チャート ── #}
   <section id="analysis-charts">
     {% include "realized/_analysis_charts.html" %}
   </section>
 
-  {# 日別ヒートマップ #}
+  {# ── 日別ヒートマップ ── #}
   <section class="card">
     <div class="text-xs text-slate-400 mb-1">日別ヒートマップ</div>
     <div id="heatCal" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>
@@ -169,27 +169,21 @@
     return q ? `${base}?q=${q}` : base;
   };
 
-  // 明細ロード（JSON固定）
+  // ─ 明細を1ヶ月に絞って取得（JSON固定） ─
   async function loadDetailsForYm(ym){
     try{
       const [y,m] = ym.split("-");
       const start = `${ym}-01`;
-      const end   = new Date(+y, +m, 0);
-      const endStr= `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,'0')}-${String(end.getDate()).padStart(2,'0')}`;
+      const endDate = new Date(+y, +m, 0);            // 月末
+      const endStr = `${endDate.getFullYear()}-${String(endDate.getMonth()+1).padStart(2,'0')}-${String(endDate.getDate()).padStart(2,'0')}`;
 
-      const params = new URLSearchParams({ start, end: endStr, format: 'json' });  // JSON を強制
+      const params = new URLSearchParams({ start: start, end: endStr, format: 'json' });
       const q = currentQ(); if (q) params.append("q", q);
 
-      const url = "{% url 'realized_table_partial' %}?" + params.toString();
-
-      // 読み込み中表示
       detailsBody().innerHTML = "<div style='color:#94a3b8'>読み込み中…</div>";
 
-      const res = await fetch(url, {
-        headers:{
-          "Accept":"application/json",
-          "X-Requested-With":"fetch"
-        }
+      const res = await fetch("{% url 'realized_table_partial' %}?"+params.toString(), {
+        headers: { "Accept":"application/json", "X-Requested-With":"fetch" }
       });
       const j = await res.json();
 
@@ -207,7 +201,7 @@
   }
   window.loadDetailsForYm = loadDetailsForYm;
 
-  // 月チップ生成/更新
+  // ─ 月チップ生成/更新 ─
   function buildMonthChips(labels){
     const box = monthPicker(); if (!box) return;
     box.innerHTML = '';
@@ -228,7 +222,7 @@
     });
   }
 
-  // チャート描画
+  // ─ チャート描画 ─
   async function drawMonthlyChart(){
     const canvas = document.getElementById('monthlyChartCanvas');
     if (!canvas || !window.Chart) return;
@@ -275,7 +269,7 @@
   }
   window.drawMonthlyChart = drawMonthlyChart;
 
-  // 初期描画・再描画
+  // ─ 初期描画・再描画 ─
   if (document.readyState === 'loading'){
     document.addEventListener('DOMContentLoaded', drawMonthlyChart, {once:true});
   }else{
@@ -287,7 +281,7 @@
   document.getElementById('q')?.addEventListener('search', requestRedraw);
   window.addEventListener('resize', requestRedraw);
 
-  // Top/Worstクリック
+  // Top/Worst クリック
   document.addEventListener('click', (e)=>{
     const btn = e.target.closest('[data-ym]');
     if (btn) loadDetailsForYm(btn.dataset.ym);
@@ -299,7 +293,7 @@
     if (/^\d{4}-\d{2}$/.test(ym)) loadDetailsForYm(ym);
   });
 
-  // 自動初期選択
+  // ─ 自動初期選択（最後のラベル → Top/Worst → 期間表） ─
   async function autoPick(){
     let ym = (window.chart?.data?.labels||[]).slice(-1)[0] || null;
     if (!ym){
