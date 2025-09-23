@@ -1,0 +1,46 @@
+{% load humanize %}
+<style>
+  .kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
+  .kpi-card{padding:10px 12px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03)}
+  .kpi-title{font-size:12px;color:#a7b1d8;margin-bottom:4px}
+  .kpi-val{font-variant-numeric:tabular-nums;font-size:18px}
+  .muted{color:#94a3b8}
+</style>
+
+<div class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-title">平均実現損益(%)</div>
+    {% if avg_pct is not None %}
+      <div class="kpi-val">{{ avg_pct|floatformat:2 }}%</div>
+    {% else %}
+      <div class="muted">—</div>
+    {% endif %}
+  </div>
+
+  <div class="kpi-card">
+    <div class="kpi-title">勝率</div>
+    {% if winrate is not None %}
+      <div class="kpi-val">{{ winrate|floatformat:1 }}%</div>
+    {% else %}
+      <div class="muted">—</div>
+    {% endif %}
+  </div>
+
+  <div class="kpi-card">
+    <div class="kpi-title">PF（利益/損失）</div>
+    {% if pf is not None %}
+      <div class="kpi-val">{{ pf|floatformat:2 }}</div>
+    {% else %}
+      <div class="muted">—</div>
+    {% endif %}
+  </div>
+
+  <div class="kpi-card">
+    <div class="kpi-title">平均保有日数</div>
+    {% if avg_hold is not None %}
+      <div class="kpi-val">{{ avg_hold|floatformat:1 }} 日</div>
+    {% else %}
+      <div class="muted">—</div>
+    {% endif %}
+  </div>
+</div>
