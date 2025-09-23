@@ -45,7 +45,7 @@ urlpatterns = [
     path("realized/ranking/", realized_views.realized_ranking_partial, name="realized_ranking_partial"),
     path("realized/ranking_detail/", realized_views.realized_ranking_detail_partial, name="realized_ranking_detail_partial"),
     path("realized/monthly/", realized_views.monthly_page, name="realized_monthly"),
-    
+    path("realized/chart/monthly.json", chart_monthly_json, name="realized_chart_monthly_json"),
     
     # ← 追加：部分テンプレとCSV
     path("realized/partial/table", realized_views.table_partial, name="realized_table_partial"),
