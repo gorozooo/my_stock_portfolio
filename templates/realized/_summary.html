@@ -80,7 +80,7 @@
   </div>
 
   <div class="sum-card">
-    <div class="k">💰現金フロー（現物：特定/NISA）</div>
+    <div class="k">💰現金フロー（現物）</div>
     {% with v=agg.cash_spec %}
       <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
     {% endwith %}
@@ -94,7 +94,7 @@
   </div>
   
   <div class="sum-card">
-    <div class="k">💰現金フロー合計（現物＋信用）</div>
+    <div class="k">💰現金フロー合計 </div>
     {% with v=agg.cash_total %}
       <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
     {% endwith %}
