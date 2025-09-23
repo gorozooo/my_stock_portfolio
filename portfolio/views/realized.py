@@ -338,18 +338,17 @@ def monthly_topworst_partial(request):
     PnLの 月別 Top3 / Worst3 を返す部分テンプレ。
     - 検索 q を考慮
     - 期間は preset/start/end を受け取れたら尊重（なければ過去12ヶ月）
-    - PnL は pnl_display の合計
+    - PnL は cashflow の合計を使用
     """
     q = (request.GET.get("q") or "").strip()
 
-    # ベースQS（ユーザー絞り）
     qs = RealizedTrade.objects.all()
     if any(f.name == "user" for f in RealizedTrade._meta.fields):
         qs = qs.filter(user=request.user)
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-    # 期間 (summary_period の入力をなるべく尊重)
+    # 期間処理
     preset = (request.GET.get("preset") or "").upper()
     start_raw = (request.GET.get("start") or "").strip()
     end_raw   = (request.GET.get("end")   or "").strip()
@@ -366,24 +365,21 @@ def monthly_topworst_partial(request):
     if start and end:
         qs = qs.filter(trade_at__gte=start, trade_at__lte=end)
     else:
-        # デフォルト：過去12ヶ月
         today = timezone.localdate()
         a_year_ago = (today.replace(day=1) - timezone.timedelta(days=1)).replace(day=1)
         qs = qs.filter(trade_at__gte=a_year_ago, trade_at__lte=today)
 
     dec0 = Value(0, output_field=DEC2)
 
-    # 月単位に集計
     monthly = (
         qs.annotate(m=TruncMonth("trade_at"))
           .values("m")
           .annotate(
-              pnl=Coalesce(Sum("pnl_display", output_field=DEC2), dec0)
+              pnl=Coalesce(Sum("cashflow", output_field=DEC2), dec0)  # ← cashflow を合計
           )
           .order_by("m")
     )
 
-    # Python側で整形して Top3 / Worst3
     items = []
     for r in monthly:
         d = r["m"]
@@ -393,7 +389,6 @@ def monthly_topworst_partial(request):
             "pnl": float(r.get("pnl") or 0),
         })
 
-    # 値がある月だけで並べる（ゼロも一応含める。完全に全てゼロなら空扱い）
     non_empty = [x for x in items if x["pnl"] != 0] or items
     top   = sorted(non_empty, key=lambda x: x["pnl"], reverse=True)[:3]
     worst = sorted(non_empty, key=lambda x: x["pnl"])[:3]
