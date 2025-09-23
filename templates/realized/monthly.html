@@ -15,9 +15,9 @@
   .chip{font-size:12px;padding:6px 10px;border:1px solid rgba(255,255,255,.12);border-radius:9999px;background:transparent;color:#e5e7eb;white-space:nowrap}
   .chip[aria-current="true"]{background:rgba(255,255,255,.10)}
 
-  /* 追加：横スクロールラッパ & 明細の最小幅 */
+  /* 横スクロール（明細/期間表向け） */
   .h-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
-  .scroll-pad{ min-width: 900px; } /* 明細テーブル想定幅に応じて調整OK */
+  .scroll-pad{ min-width: 900px; }
 </style>
 {% endblock %}
 
@@ -79,7 +79,7 @@
     <div id="monthlyMonthPicker" class="chips" aria-live="polite"></div>
   </section>
 
-  {# 選択月の明細：横スクロールラップ #}
+  {# 選択月の明細（横スクロール対応） #}
   <section id="monthly-details">
     <div class="text-xs text-slate-400 mb-1">選択月の明細</div>
     <div class="h-scroll">
@@ -156,8 +156,8 @@
 <script>
 /* ===== 月次チャート & ドリルダウン ===== */
 (function(){
-  let chart;               // このIIFEのChartインスタンス
-  window.chart = null;     // 他から参照できるように
+  let chart;
+  window.chart = null;
 
   const detailsBody = () => document.getElementById('monthlyDetailsBody');
   const monthPicker = () => document.getElementById('monthlyMonthPicker');
@@ -169,22 +169,21 @@
     return q ? `${base}?q=${q}` : base;
   };
 
-  // 明細ロード（JSON/HTML両対応）
+  // 明細ロード（JSON固定）
   async function loadDetailsForYm(ym){
     try{
       const [y,m] = ym.split("-");
       const start = `${ym}-01`;
       const end   = new Date(+y, +m, 0);
       const endStr= `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,'0')}-${String(end.getDate()).padStart(2,'0')}`;
-      const params = new URLSearchParams({ start:start, end:endStr });
+      const params = new URLSearchParams({ start, end: endStr, format: 'json' }); // ★ JSON を強制
       const q = currentQ(); if (q) params.append("q", q);
+
       const url = "{% url 'realized_table_partial' %}?" + params.toString();
       const res = await fetch(url, { headers:{ "X-Requested-With":"fetch" }});
-      const ct  = res.headers.get('Content-Type') || '';
-      let html = '';
-      if (ct.includes('application/json')){ const j = await res.json(); html = j.html||''; }
-      else{ html = await res.text(); }
-      detailsBody().innerHTML = html || "<div style='color:#94a3b8'>データなし</div>";
+      const j   = await res.json();
+      detailsBody().innerHTML = (j && j.ok && j.html) ? j.html : "<div style='color:#94a3b8'>データなし</div>";
+
       setActiveChip(ym);
       document.getElementById("monthly-details")?.scrollIntoView({behavior:"smooth", block:"start"});
     }catch(e){
@@ -287,7 +286,7 @@
     if (/^\d{4}-\d{2}$/.test(ym)) loadDetailsForYm(ym);
   });
 
-  // 初期オート選択
+  // 自動初期選択
   async function autoPick(){
     let ym = (window.chart?.data?.labels||[]).slice(-1)[0] || null;
     if (!ym){
