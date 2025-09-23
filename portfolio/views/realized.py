@@ -452,7 +452,7 @@ def monthly_kpis_partial(request):
         "pf":        float(pf) if pf is not None else None,
         "avg_hold":  float(avg_hold) if avg_hold is not None else None,
     }
-    return render(request, "realized/_monthly_kpis.html", ctx)
+    return render(request, "realized/_month_kpis.html", ctx)
 
 
 @login_required
@@ -498,7 +498,7 @@ def monthly_breakdown_partial(request):
         for row in accounts
     ]
 
-    return render(request, "realized/_monthly_breakdown.html", {
+    return render(request, "realized/_month_breakdown.html", {
         "brokers": brokers_view,
         "accounts": accounts_view,
     })
