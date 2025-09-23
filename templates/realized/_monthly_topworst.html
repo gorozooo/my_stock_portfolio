@@ -1,4 +1,4 @@
-{# Top/Worst 月（部分テンプレ） #}
+{# templates/realized/_monthly_topworst.html #}
 {% load humanize %}
 <style>
   .tw-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
@@ -8,6 +8,11 @@
   .tw-row{display:flex;justify-content:space-between;align-items:baseline;font-variant-numeric:tabular-nums}
   .pos{color:#86efac} .neg{color:#fca5a5}
   .muted{color:#94a3b8}
+
+  /* クリックでドリルダウンできるよう視覚的に示す */
+  .tw-row[role="button"]{cursor:pointer;border-radius:8px;padding:6px 8px;margin:-6px -8px}
+  .tw-row[role="button"]:hover{background:rgba(255,255,255,.05)}
+  .tw-row .tag{font-size:11px;color:#a7b1d8;margin-right:8px}
 </style>
 
 <div class="tw-grid">
@@ -16,8 +21,11 @@
     {% if top %}
       <div class="tw-list">
         {% for r in top %}
-          <div class="tw-row">
-            <div class="muted">{{ r.label }}</div>
+          <div class="tw-row" role="button" tabindex="0"
+               data-ym="{{ r.label }}" aria-label="{{ r.label }} を明細で開く">
+            <div class="muted">
+              <span class="tag">{{ forloop.counter }}位</span>{{ r.label }}
+            </div>
             {% with v=r.pnl %}
               <div class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
             {% endwith %}
@@ -34,8 +42,11 @@
     {% if worst %}
       <div class="tw-list">
         {% for r in worst %}
-          <div class="tw-row">
-            <div class="muted">{{ r.label }}</div>
+          <div class="tw-row" role="button" tabindex="0"
+               data-ym="{{ r.label }}" aria-label="{{ r.label }} を明細で開く">
+            <div class="muted">
+              <span class="tag">{{ forloop.counter }}位</span>{{ r.label }}
+            </div>
             {% with v=r.pnl %}
               <div class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
             {% endwith %}
