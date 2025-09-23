@@ -125,8 +125,13 @@
 
         <div class="k" style="margin-top:8px">勝率</div>
         <div class="v mono">{{ b.win_rate|floatformat:1 }}%</div>
-
-        <div class="k" style="margin-top:8px">平均PnL%</div>
+        
+        <div class="k" style="margin-top:8px">📈実現損益</div>
+        {% with v=b.pnl %}
+          <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
+        {% endwith %}
+        
+        <div class="k" style="margin-top:8px">平均実現損益(%)</div>
         {% if b.avg_pnl_pct is not None %}
           <div class="v mono">{{ b.avg_pnl_pct|floatformat:2 }}%</div>
         {% else %}
@@ -139,11 +144,6 @@
         {% else %}
           <div class="v mono">—</div>
         {% endif %}
-
-        <div class="k" style="margin-top:8px">📈PnL</div>
-        {% with v=b.pnl %}
-          <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
-        {% endwith %}
 
         <div class="k" style="margin-top:8px">💰現金（現物）</div>
         {% with v=b.cash_spec %}
