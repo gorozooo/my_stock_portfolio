@@ -1200,55 +1200,48 @@ def _parse_ymd(s: str):
 @require_GET
 def table_partial(request):
     """
-    明細テーブルの部分描画。
-      - q:      検索ワード（ticker / name に部分一致）
-      - start:  'YYYY-MM' or 'YYYY-MM-DD'
-      - end:    'YYYY-MM' or 'YYYY-MM-DD'
-      - format: 'json' なら {ok, html, count} を返す
+    明細テーブル（部分描画）
+      - ym:     'YYYY-MM'（これが来たら最優先でその月だけに固定）
+      - q:      検索（ticker/name）
+      - start/end: 'YYYY-MM' or 'YYYY-MM-DD'（ym が無い時のフォールバック）
+      - format=json のとき {ok, html, count}
     """
+    import re
     try:
-        q = (request.GET.get("q") or "").strip()
-        start_s = (request.GET.get("start") or "").strip()
-        end_s   = (request.GET.get("end") or "").strip()
-        accept  = (request.headers.get("Accept") or "")
+        q        = (request.GET.get("q") or "").strip()
+        ym_s     = (request.GET.get("ym") or "").strip()
+        start_s  = (request.GET.get("start") or "").strip()
+        end_s    = (request.GET.get("end") or "").strip()
+        accept   = (request.headers.get("Accept") or "")
         want_json = (request.GET.get("format") == "json") or ("application/json" in accept)
-
-        # 'YYYY-MM' / 'YYYY-MM-DD' を date に変換
-        def _to_date(s: str, *, end_side: bool = False) -> date | None:
-            if not s:
-                return None
-            # YYYY-MM
-            if len(s) == 7 and s.count("-") == 1:
-                y, m = map(int, s.split("-"))
-                if end_side:
-                    # 月末日
-                    if m == 12:
-                        return date(y, 12, 31)
-                    return date(y, m + 1, 1) - timedelta(days=1)
-                return date(y, m, 1)
-            # YYYY-MM-DD
-            return parse_date(s)
-
-        start_d = _to_date(start_s, end_side=False)
-        end_d   = _to_date(end_s,   end_side=True)
 
         qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
         if q:
             qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-        # --- 月指定を“確実に1ヶ月”に絞るロジック ---
-        # 1) YYYY-MM で来た → その年・月に固定
-        # 2) start/end が同一月（1日〜月末） → year/month フィルタに落とし込む
-        forced_year = forced_month = None
-        if len(start_s) == 7 and start_s.count("-") == 1:
-            forced_year, forced_month = map(int, start_s.split("-"))
-        elif start_d and end_d and start_d.year == end_d.year and start_d.month == end_d.month:
-            forced_year, forced_month = start_d.year, start_d.month
-
-        if forced_year and forced_month:
-            qs = qs.filter(trade_at__year=forced_year, trade_at__month=forced_month)
+        # --- ① ym=YYYY-MM が来たらそれだけに固定 ---
+        if re.fullmatch(r"\d{4}-\d{2}", ym_s or ""):
+            y, m = map(int, ym_s.split("-"))
+            qs = qs.filter(trade_at__year=y, trade_at__month=m)
         else:
-            # 通常の範囲絞り
+            # --- ② start/end（YYYY-MM / YYYY-MM-DD 両対応）---
+            def _to_date(s: str, end_side: bool = False):
+                if not s:
+                    return None
+                if len(s) == 7 and s.count("-") == 1:
+                    yy, mm = map(int, s.split("-"))
+                    if end_side:
+                        # 月末
+                        if mm == 12:
+                            return date(yy, 12, 31)
+                        return date(yy, mm + 1, 1) - timedelta(days=1)
+                    return date(yy, mm, 1)
+                return parse_date(s)
+
+            start_d = _to_date(start_s, end_side=False)
+            end_d   = _to_date(end_s,   end_side=True)
+
+            # DateField なので __date は不要
             if start_d and end_d:
                 qs = qs.filter(trade_at__range=(start_d, end_d))
             elif start_d:
@@ -1261,7 +1254,6 @@ def table_partial(request):
 
         if want_json:
             return JsonResponse({"ok": True, "html": html, "count": len(rows)})
-
         return HttpResponse(html)
 
     except Exception as e:
