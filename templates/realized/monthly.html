@@ -9,6 +9,10 @@
   .view-hidden{display:none!important}
   section{margin-top:12px}
   .card{padding:10px 12px;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.03)}
+  /* 月選択チップ */
+  .chips{display:flex;gap:8px;overflow-x:auto;padding:6px 2px 2px 2px}
+  .chip{font-size:12px;padding:6px 10px;border:1px solid rgba(255,255,255,.12);border-radius:9999px;background:transparent;color:#e5e7eb;white-space:nowrap}
+  .chip[aria-current="true"]{background:rgba(255,255,255,.10)}
 </style>
 {% endblock %}
 
@@ -16,7 +20,7 @@
 <div class="pnl">
   <h1>月別サマリー</h1>
 
-  <!-- 検索 -->
+  {# 検索 #}
   <div class="fi fi-full mt-4">
     <input
       type="search" name="q" value="{{ q|default:'' }}" id="q"
@@ -28,7 +32,7 @@
       class="w-full">
   </div>
 
-  <!-- 期間まとめ（既存部分テンプレ） -->
+  {# 期間まとめ（既存の部分テンプレ） #}
   <section id="monthly-period"
            hx-get="{% url 'realized_summary_period' %}?preset={{ preset|default:'LAST_12M' }}&freq=month&q={{ q|urlencode }}"
            hx-trigger="load"
@@ -37,7 +41,7 @@
     <div style="color:#94a3b8;padding:8px 0">読み込み中…</div>
   </section>
 
-  <!-- Top/Worst 月 -->
+  {# Top/Worst 月 #}
   <section id="monthly-topworst"
            hx-get="{% url 'realized_monthly_topworst' %}"
            hx-trigger="load, pnl:refresh from:body"
@@ -46,13 +50,19 @@
     <div style="color:#94a3b8;padding:8px 0">トップ/ワースト月を読み込み中…</div>
   </section>
 
-  <!-- 選択明細 -->
-  <section id="monthly-details" class="card" style="margin-top:12px">
+  {# 月選択チップ（チャートのラベルから生成） #}
+  <section id="month-picker" class="card">
+    <div class="text-xs text-slate-400 mb-1">月を選択</div>
+    <div id="monthlyMonthPicker" class="chips" aria-live="polite"></div>
+  </section>
+
+  {# 選択月の明細（外枠カードは付けない：挿入されるテーブル側の枠を尊重） #}
+  <section id="monthly-details">
     <div class="text-xs text-slate-400 mb-1">選択月の明細</div>
     <div id="monthlyDetailsBody" style="color:#94a3b8">月をクリックすると明細を表示します</div>
   </section>
 
-  <!-- 月次チャート -->
+  {# 月次チャート #}
   <section id="monthly-chart" class="card">
     <div style="font-size:12px;color:#a7b1d8;margin-bottom:6px">累積PnLの推移</div>
     <div id="monthlyChartBox" style="height:260px; position:relative;">
@@ -60,12 +70,12 @@
     </div>
   </section>
 
-  <!-- 既存：分析チャート -->
+  {# 既存の分析チャート #}
   <section id="analysis-charts">
     {% include "realized/_analysis_charts.html" %}
   </section>
 
-  <!-- 日別ヒートマップ -->
+  {# 日別ヒートマップ #}
   <section class="card">
     <div class="text-xs text-slate-400 mb-1">日別ヒートマップ</div>
     <div id="heatCal" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>
@@ -76,17 +86,12 @@
   (async function(){
     const heatWrap = document.getElementById('heatCal');
     if (!heatWrap) return;
-
     const guess = (()=>{
       const cell = document.querySelector('#pnlPeriodWrap tbody tr:last-child td:first-child');
       const label = cell?.textContent?.trim();
-      if (label && /^\d{4}-\d{2}$/.test(label)){
-        const [y,m] = label.split('-');
-        return {y:+y, m:+m};
-      }
+      if (label && /^\d{4}-\d{2}$/.test(label)){ const [y,m] = label.split('-'); return {y:+y, m:+m}; }
       const d=new Date(); return {y:d.getFullYear(), m:d.getMonth()+1};
     })();
-
     const stub = "{% url 'realized_chart_daily_heat_json' year=2000 month=1 %}";
     const base = stub.replace(/\/2000\/1(\.json)?$/, `/${guess.y}/${guess.m}$1`);
     const qVal = (document.getElementById('q')?.value||'').trim();
@@ -94,17 +99,12 @@
 
     try{
       const res = await fetch(url, {headers:{'X-Requested-With':'fetch'}});
-      if (!res.ok) throw new Error('daily heat API error');
       const payload = await res.json();
       const year = +payload.year, month = +payload.month, days = payload.days || {};
-
       const first = new Date(year, month-1, 1);
       const last  = new Date(year, month, 0).getDate();
       heatWrap.innerHTML = "";
-
-      for(let i=0;i<first.getDay();i++){
-        const s=document.createElement('div'); s.style.opacity=.25; heatWrap.appendChild(s);
-      }
+      for(let i=0;i<first.getDay();i++){ const s=document.createElement('div'); s.style.opacity=.25; heatWrap.appendChild(s); }
       for(let d=1; d<=last; d++){
         const k = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         const v = Number(days[k]||0);
@@ -115,8 +115,7 @@
         cell.style.border="1px solid rgba(255,255,255,.08)";
         cell.style.borderRadius="6px";
         const a = Math.min(1, Math.abs(v)/5000);
-        cell.style.background = v>=0 ? `rgba(16,185,129,${0.12+0.45*a})`
-                                     : `rgba(244,63,94,${0.12+0.45*a})`;
+        cell.style.background = v>=0 ? `rgba(16,185,129,${0.12+0.45*a})` : `rgba(244,63,94,${0.12+0.45*a})`;
         heatWrap.appendChild(cell);
       }
     }catch(e){
@@ -128,53 +127,40 @@
 </div>
 
 <script>
-/* ===== 月次チャート & ドリルダウン（明細） ===== */
+/* ===== 月次チャート & ドリルダウン ===== */
 (function(){
-  if (!('Chart' in window)) {
-    console.warn('Chart.js が見つかりません。base.html に読み込みを追加してください。');
-  }
+  let chart;               // このIIFEのChartインスタンス
+  window.chart = null;     // 他から参照できるように
 
-  let chart;                 // このスコープのインスタンス
-  window.chart = null;       // ほかの IIFE からも参照できるよう公開
-  let redrawTimer = null;
+  const detailsBody = () => document.getElementById('monthlyDetailsBody');
+  const monthPicker = () => document.getElementById('monthlyMonthPicker');
 
-  const detailsBody   = () => document.getElementById("monthlyDetailsBody");
-  const detailsWrapEl = () => document.getElementById("monthly-details");
-
-  function currentQ(){
-    return (document.getElementById('q')?.value || '').trim();
-  }
-  function buildMonthlyApiUrl(){
+  const currentQ = () => (document.getElementById('q')?.value || '').trim();
+  const monthlyApi = () => {
     const base = "{% url 'realized_chart_monthly_json' %}";
     const q = encodeURIComponent(currentQ());
     return q ? `${base}?q=${q}` : base;
-  }
+  };
 
-  // --- 明細ロード：JSON/HTML 両方に対応 ---
+  // 明細ロード（JSON/HTML両対応）
   async function loadDetailsForYm(ym){
     try{
       const [y,m] = ym.split("-");
       const start = `${ym}-01`;
       const end   = new Date(+y, +m, 0);
       const endStr= `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,'0')}-${String(end.getDate()).padStart(2,'0')}`;
-
       const params = new URLSearchParams({ start:start, end:endStr });
       const q = currentQ(); if (q) params.append("q", q);
-
       const url = "{% url 'realized_table_partial' %}?" + params.toString();
-
       const res = await fetch(url, { headers:{ "X-Requested-With":"fetch" }});
       const ct  = res.headers.get('Content-Type') || '';
       let html = '';
-      if (ct.includes('application/json')) {
-        const j = await res.json();
-        html = j.html || '';
-      } else {
-        // 互換: サーバが HTML を返した場合も差し込む
-        html = await res.text();
-      }
+      if (ct.includes('application/json')){ const j = await res.json(); html = j.html||''; }
+      else{ html = await res.text(); }
       detailsBody().innerHTML = html || "<div style='color:#94a3b8'>データなし</div>";
-      detailsWrapEl()?.scrollIntoView({behavior:"smooth", block:"start"});
+      // チップのハイライト
+      setActiveChip(ym);
+      document.getElementById("monthly-details")?.scrollIntoView({behavior:"smooth", block:"start"});
     }catch(e){
       console.error(e);
       detailsBody().innerHTML =
@@ -183,17 +169,39 @@
   }
   window.loadDetailsForYm = loadDetailsForYm;
 
-  // --- チャート描画 ---
+  // 月チップ生成/更新
+  function buildMonthChips(labels){
+    const box = monthPicker(); if (!box) return;
+    box.innerHTML = '';
+    (labels||[]).forEach(ym=>{
+      if (!/^\d{4}-\d{2}$/.test(ym)) return;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.textContent = ym;
+      b.dataset.ym = ym;
+      b.addEventListener('click', ()=> loadDetailsForYm(ym));
+      box.appendChild(b);
+    });
+  }
+  function setActiveChip(ym){
+    monthPicker()?.querySelectorAll('.chip').forEach(c=>{
+      c.setAttribute('aria-current', c.dataset.ym === ym ? 'true' : 'false');
+    });
+  }
+
+  // チャート描画
   async function drawMonthlyChart(){
     const canvas = document.getElementById('monthlyChartCanvas');
     if (!canvas || !window.Chart) return;
-
     try{
-      const resp = await fetch(buildMonthlyApiUrl(), {headers:{'X-Requested-With':'fetch'}});
+      const resp = await fetch(monthlyApi(), {headers:{'X-Requested-With':'fetch'}});
       const data = await resp.json();
 
       const ctx = canvas.getContext('2d');
       if (chart) { chart.destroy(); chart = null; }
+
+      buildMonthChips(data.labels || []);
 
       chart = new Chart(ctx, {
         type: 'bar',
@@ -216,74 +224,58 @@
             legend: { labels:{ boxWidth:10 } },
             tooltip:{ mode:'index', intersect:false }
           },
-          onClick: (_evt, elements)=>{
-            if (!elements || !elements.length) return;
-            const idx = elements[0].index;
+          onClick: (_evt, els)=>{
+            if (!els || !els.length) return;
+            const idx = els[0].index;
             const ym  = (chart.data.labels||[])[idx];
-            if (ym && /^\d{4}-\d{2}$/.test(ym)) loadDetailsForYm(ym);
+            if (ym) loadDetailsForYm(ym);
           }
         }
       });
-
       window.chart = chart;
-    }catch(e){
-      console.error('monthly chart error', e);
-    }
+    }catch(e){ console.error('monthly chart error', e); }
   }
   window.drawMonthlyChart = drawMonthlyChart;
 
-  // 初期描画
+  // 初期描画・再描画
   if (document.readyState === 'loading'){
     document.addEventListener('DOMContentLoaded', drawMonthlyChart, {once:true});
   }else{
     drawMonthlyChart();
   }
-
-  // 再描画（デバウンス）
-  function requestRedraw(){
-    clearTimeout(redrawTimer);
-    redrawTimer = setTimeout(drawMonthlyChart, 180);
-  }
+  let redrawTimer=null;
+  function requestRedraw(){ clearTimeout(redrawTimer); redrawTimer=setTimeout(drawMonthlyChart,180); }
   document.addEventListener('pnl:refresh', requestRedraw);
   document.getElementById('q')?.addEventListener('search', requestRedraw);
   window.addEventListener('resize', requestRedraw);
 
-  // Top/Worst カード（data-ym）クリック
-  document.addEventListener("click", (e)=>{
-    const btn = e.target.closest("[data-ym]");
+  // Top/Worstクリック
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('[data-ym]');
     if (btn) loadDetailsForYm(btn.dataset.ym);
   });
 
-  // 期間テーブル行クリックからの通知でも
-  document.addEventListener("pnl:focus-period", (ev)=>{
+  // 期間テーブルからの通知でも
+  document.addEventListener('pnl:focus-period', (ev)=>{
     const ym = ev?.detail?.label;
     if (/^\d{4}-\d{2}$/.test(ym)) loadDetailsForYm(ym);
   });
 
-  // --- 初期に自動で何かを表示（期間空でも動く） ---
-  async function autoPickLatestMonth(){
-    // 1) チャートの最後のラベル
-    let ym = (window.chart && Array.isArray(window.chart.data?.labels))
-               ? window.chart.data.labels.slice(-1)[0] : null;
-
-    // 2) Top/Worst の最初の data-ym
+  // 初期オート選択（チャート末尾 → Top/Worst → 期間表）
+  async function autoPick(){
+    let ym = (window.chart?.data?.labels||[]).slice(-1)[0] || null;
     if (!ym){
       const tw = document.querySelector('#monthly-topworst [data-ym]');
       ym = tw?.getAttribute('data-ym') || null;
     }
-
-    // 3) 期間表の最後の行
     if (!ym){
-      const lastRow = document.querySelector('#pnlPeriodWrap tbody tr:last-child');
-      ym = lastRow?.dataset?.period || lastRow?.querySelector('td:first-child')?.textContent?.trim();
+      const last = document.querySelector('#pnlPeriodWrap tbody tr:last-child');
+      ym = last?.dataset?.period || last?.querySelector('td:first-child')?.textContent?.trim();
     }
-
-    if (ym && /^\d{4}-\d{2}$/.test(ym)) {
-      await loadDetailsForYm(ym);
-    }
+    if (ym && /^\d{4}-\d{2}$/.test(ym)) await loadDetailsForYm(ym);
   }
-  window.addEventListener('load', ()=> setTimeout(autoPickLatestMonth, 350));
-  document.addEventListener('pnl:refresh', ()=> setTimeout(autoPickLatestMonth, 250));
+  window.addEventListener('load', ()=> setTimeout(autoPick, 350));
+  document.addEventListener('pnl:refresh', ()=> setTimeout(autoPick, 250));
 })();
 </script>
 {% endblock %}
