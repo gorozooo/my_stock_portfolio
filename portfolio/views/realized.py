@@ -84,6 +84,16 @@ def _parse_period(request):
 
     return start, end, preset
 
+def _parse_ymd(s: str):
+    """
+    'YYYY-MM-DD' 形式の日付文字列を datetime.date に変換。
+    不正値なら None を返す。
+    """
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
 # ============================================================
 #  注釈（テーブル/サマリー兼用）
 #    - cashflow_calc: 現金の受渡 (+受取/-支払)  ※税は fee に含める前提
