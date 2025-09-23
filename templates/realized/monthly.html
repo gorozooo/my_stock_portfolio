@@ -4,7 +4,7 @@
 {% block title %}月別サマリー{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/realized.css' %}?v=10">
+<link rel="stylesheet" href="{% static 'css/realized.css' %}?v=11">
 <style>
   .view-hidden{display:none!important}
   section{margin-top:12px}
@@ -17,7 +17,7 @@
 
   /* 横スクロール（明細/期間表向け） */
   .h-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
-  .scroll-pad{ min-width: 900px; }  /* 明細テーブル幅に応じて調整OK */
+  .scroll-pad{ min-width: 900px; }
 </style>
 {% endblock %}
 
@@ -37,7 +37,7 @@
       class="w-full">
   </div>
 
-  {# ── 期間まとめ（既存の部分テンプレ） ── #}
+  {# ── 期間まとめ ── #}
   <section id="monthly-period"
            hx-get="{% url 'realized_summary_period' %}?preset={{ preset|default:'LAST_12M' }}&freq=month&q={{ q|urlencode }}"
            hx-trigger="load"
@@ -79,7 +79,7 @@
     <div id="monthlyMonthPicker" class="chips" aria-live="polite"></div>
   </section>
 
-  {# ── 選択月の明細（横スクロール対応） ── #}
+  {# ── 選択月の明細 ── #}
   <section id="monthly-details">
     <div class="text-xs text-slate-400 mb-1">選択月の明細</div>
     <div class="h-scroll">
@@ -161,7 +161,6 @@
 
   const detailsBody = () => document.getElementById('monthlyDetailsBody');
   const monthPicker = () => document.getElementById('monthlyMonthPicker');
-
   const currentQ = () => (document.getElementById('q')?.value || '').trim();
   const monthlyApi = () => {
     const base = "{% url 'realized_chart_monthly_json' %}";
@@ -169,15 +168,10 @@
     return q ? `${base}?q=${q}` : base;
   };
 
-  // ─ 明細を1ヶ月に絞って取得（JSON優先・テキストもフォールバック） ─
+  // ─ 明細を1ヶ月に絞って取得（ym=YYYY-MM を送る） ─
   async function loadDetailsForYm(ym){
     try{
-      const [y,m] = ym.split("-");
-      const start = `${ym}-01`;
-      const endDate = new Date(+y, +m, 0); // 月末
-      const endStr = `${endDate.getFullYear()}-${String(endDate.getMonth()+1).padStart(2,'0')}-${String(endDate.getDate()).padStart(2,'0')}`;
-
-      const params = new URLSearchParams({ start, end: endStr, format: 'json' });
+      const params = new URLSearchParams({ ym, format: 'json' });
       const q = currentQ(); if (q) params.append("q", q);
 
       detailsBody().innerHTML = "<div style='color:#94a3b8'>読み込み中…</div>";
@@ -186,24 +180,16 @@
         headers: { "Accept":"application/json", "X-Requested-With":"fetch" }
       });
 
-      // JSONを試す → 失敗したらtext、そのどちらでも中身を描画
-      let html = "";
-      let count = null;
-      try{
-        const j = await res.json();
-        if (j && typeof j.html === "string") html = j.html;
-        if (typeof j.count === "number") count = j.count;
-      }catch(_){
-        html = await res.text();
-      }
+      const j = await res.json();
+      detailsBody().innerHTML = (j && j.ok && j.html)
+        ? j.html
+        : "<div style='color:#94a3b8'>データなし</div>";
 
-      if ((count === 0) || !html || !html.trim()){
-        detailsBody().innerHTML = "<div style='color:#94a3b8'>データなし</div>";
-      } else {
-        detailsBody().innerHTML = html;
-      }
+      // 選択チップのハイライト
+      monthPicker()?.querySelectorAll('.chip').forEach(c=>{
+        c.setAttribute('aria-current', c.dataset.ym === ym ? 'true' : 'false');
+      });
 
-      setActiveChip(ym);
       document.getElementById("monthly-details")?.scrollIntoView({behavior:"smooth", block:"start"});
     }catch(e){
       console.error(e);
@@ -213,7 +199,7 @@
   }
   window.loadDetailsForYm = loadDetailsForYm;
 
-  // ─ 月チップ生成/更新 ─
+  // ─ 月チップ生成 ─
   function buildMonthChips(labels){
     const box = monthPicker(); if (!box) return;
     box.innerHTML = '';
@@ -226,11 +212,6 @@
       b.dataset.ym = ym;
       b.addEventListener('click', ()=> loadDetailsForYm(ym));
       box.appendChild(b);
-    });
-  }
-  function setActiveChip(ym){
-    monthPicker()?.querySelectorAll('.chip').forEach(c=>{
-      c.setAttribute('aria-current', c.dataset.ym === ym ? 'true' : 'false');
     });
   }
 
@@ -305,7 +286,7 @@
     if (/^\d{4}-\d{2}$/.test(ym)) loadDetailsForYm(ym);
   });
 
-  // ─ 自動初期選択（最後のラベル → Top/Worst → 期間表） ─
+  // ─ 自動初期選択 ─
   async function autoPick(){
     let ym = (window.chart?.data?.labels||[]).slice(-1)[0] || null;
     if (!ym){
@@ -316,8 +297,6 @@
       const last = document.querySelector('#pnlPeriodWrap tbody tr:last-child');
       ym = last?.dataset?.period || last?.querySelector('td:first-child')?.textContent?.trim();
     }
-    if (ym && /^\d{4}-\d2$/.test(ym)) await loadDetailsForYm(ym);
-    // ↑万一正規表現をタイポしたときに拾えないのを防ぐため、もう一回厳密版でもチェック
     if (/^\d{4}-\d{2}$/.test(ym || '')) await loadDetailsForYm(ym);
   }
   window.addEventListener('load', ()=> setTimeout(autoPick, 350));
