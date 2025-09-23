@@ -1204,7 +1204,7 @@ def table_partial(request):
       - q:      検索ワード（ticker / name に部分一致）
       - start:  'YYYY-MM' or 'YYYY-MM-DD'
       - end:    'YYYY-MM' or 'YYYY-MM-DD'
-      - format: 'json' なら {ok, html, count} を返す（フロントの fetch 用）
+      - format: 'json' なら {ok, html, count} を返す
     """
     try:
         q = (request.GET.get("q") or "").strip()
@@ -1233,17 +1233,28 @@ def table_partial(request):
         end_d   = _to_date(end_s,   end_side=True)
 
         qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
-
         if q:
             qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-        # trade_at は DateField なので __date は付けない
-        if start_d and end_d:
-            qs = qs.filter(trade_at__range=(start_d, end_d))
-        elif start_d:
-            qs = qs.filter(trade_at__gte=start_d)
-        elif end_d:
-            qs = qs.filter(trade_at__lte=end_d)
+        # --- 月指定を“確実に1ヶ月”に絞るロジック ---
+        # 1) YYYY-MM で来た → その年・月に固定
+        # 2) start/end が同一月（1日〜月末） → year/month フィルタに落とし込む
+        forced_year = forced_month = None
+        if len(start_s) == 7 and start_s.count("-") == 1:
+            forced_year, forced_month = map(int, start_s.split("-"))
+        elif start_d and end_d and start_d.year == end_d.year and start_d.month == end_d.month:
+            forced_year, forced_month = start_d.year, start_d.month
+
+        if forced_year and forced_month:
+            qs = qs.filter(trade_at__year=forced_year, trade_at__month=forced_month)
+        else:
+            # 通常の範囲絞り
+            if start_d and end_d:
+                qs = qs.filter(trade_at__range=(start_d, end_d))
+            elif start_d:
+                qs = qs.filter(trade_at__gte=start_d)
+            elif end_d:
+                qs = qs.filter(trade_at__lte=end_d)
 
         rows = _with_metrics(qs)
         html = render_to_string("realized/_table.html", {"trades": rows}, request=request)
@@ -1266,7 +1277,6 @@ def table_partial(request):
           </details>
         </div>
         """
-        # フロントの fetch は 200 前提なので 200 で返す
         if (request.GET.get("format") == "json") or ("application/json" in (request.headers.get("Accept") or "")):
             return JsonResponse({"ok": False, "html": html}, status=200)
         return HttpResponse(html, status=200)
