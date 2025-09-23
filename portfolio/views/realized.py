@@ -335,58 +335,73 @@ def _aggregate_by_broker(qs):
 @require_GET
 def monthly_topworst_partial(request):
     """
-    ベスト/ワースト月（PnL上位3・下位3）を部分テンプレで返す。
-    クエリや期間指定は期間サマリーと同じ仕様に合わせる。
+    PnLの 月別 Top3 / Worst3 を返す部分テンプレ。
+    - 検索 q を考慮
+    - 期間は preset/start/end を受け取れたら尊重（なければ過去12ヶ月）
+    - PnL は pnl_display の合計
     """
     q = (request.GET.get("q") or "").strip()
 
-    # 期間指定（既存ヘルパを利用：preset/start/end/freq を解析）
-    # _parse_period はあなたの realized で使っている関数名に合わせてください
-    try:
-        start, end, _preset = _parse_period(request)  # (start, end, preset) を想定
-    except Exception:
-        start = end = None
-
+    # ベースQS（ユーザー絞り）
     qs = RealizedTrade.objects.all()
     if any(f.name == "user" for f in RealizedTrade._meta.fields):
         qs = qs.filter(user=request.user)
-
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
-    if start:
-        qs = qs.filter(trade_at__gte=start)
-    if end:
-        qs = qs.filter(trade_at__lte=end)
 
-    # 既存の注釈（pnl_display 等）を付与
-    qs = _with_metrics(qs)
+    # 期間 (summary_period の入力をなるべく尊重)
+    preset = (request.GET.get("preset") or "").upper()
+    start_raw = (request.GET.get("start") or "").strip()
+    end_raw   = (request.GET.get("end")   or "").strip()
+    start = None
+    end   = None
+    try:
+        if start_raw:
+            start = timezone.datetime.fromisoformat(start_raw).date()
+        if end_raw:
+            end = timezone.datetime.fromisoformat(end_raw).date()
+    except Exception:
+        start = end = None
 
-    # 月次で PnL を集計
-    rows = (
+    if start and end:
+        qs = qs.filter(trade_at__gte=start, trade_at__lte=end)
+    else:
+        # デフォルト：過去12ヶ月
+        today = timezone.localdate()
+        a_year_ago = (today.replace(day=1) - timezone.timedelta(days=1)).replace(day=1)
+        qs = qs.filter(trade_at__gte=a_year_ago, trade_at__lte=today)
+
+    dec0 = Value(0, output_field=DEC2)
+
+    # 月単位に集計
+    monthly = (
         qs.annotate(m=TruncMonth("trade_at"))
           .values("m")
-          .annotate(pnl=Sum("pnl_display"))
+          .annotate(
+              pnl=Coalesce(Sum("pnl_display", output_field=DEC2), dec0)
+          )
           .order_by("m")
     )
 
+    # Python側で整形して Top3 / Worst3
     items = []
-    for r in rows:
-        m = r.get("m")
-        if not m:
-            continue
+    for r in monthly:
+        d = r["m"]
+        label = d.strftime("%Y-%m") if d else ""
         items.append({
-            "label": m.strftime("%Y-%m"),
+            "label": label,
             "pnl": float(r.get("pnl") or 0),
         })
 
-    top3   = sorted(items, key=lambda x: x["pnl"], reverse=True)[:3]
-    worst3 = sorted(items, key=lambda x: x["pnl"])[:3]
+    # 値がある月だけで並べる（ゼロも一応含める。完全に全てゼロなら空扱い）
+    non_empty = [x for x in items if x["pnl"] != 0] or items
+    top   = sorted(non_empty, key=lambda x: x["pnl"], reverse=True)[:3]
+    worst = sorted(non_empty, key=lambda x: x["pnl"])[:3]
 
-    return render(
-        request,
-        "realized/_monthly_topworst.html",
-        {"top": top3, "worst": worst3, "q": q},
-    )
+    return render(request, "realized/_monthly_topworst.html", {
+        "top": top,
+        "worst": worst,
+    })
 
 @login_required
 @require_GET
