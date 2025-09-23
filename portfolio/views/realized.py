@@ -1210,14 +1210,14 @@ def table_partial(request):
         q = (request.GET.get("q") or "").strip()
         start_s = (request.GET.get("start") or "").strip()
         end_s   = (request.GET.get("end") or "").strip()
-        want_json = (request.GET.get("format") == "json") or \
-                    ("application/json" in (request.headers.get("Accept") or ""))
+        accept  = (request.headers.get("Accept") or "")
+        want_json = (request.GET.get("format") == "json") or ("application/json" in accept)
 
         # 'YYYY-MM' / 'YYYY-MM-DD' を date に変換
         def _to_date(s: str, *, end_side: bool = False) -> date | None:
             if not s:
                 return None
-            # YYYY-MM のとき
+            # YYYY-MM
             if len(s) == 7 and s.count("-") == 1:
                 y, m = map(int, s.split("-"))
                 if end_side:
@@ -1226,7 +1226,7 @@ def table_partial(request):
                         return date(y, 12, 31)
                     return date(y, m + 1, 1) - timedelta(days=1)
                 return date(y, m, 1)
-            # YYYY-MM-DD のとき
+            # YYYY-MM-DD
             return parse_date(s)
 
         start_d = _to_date(start_s, end_side=False)
@@ -1266,7 +1266,8 @@ def table_partial(request):
           </details>
         </div>
         """
-        if want_json:
+        # フロントの fetch は 200 前提なので 200 で返す
+        if (request.GET.get("format") == "json") or ("application/json" in (request.headers.get("Accept") or "")):
             return JsonResponse({"ok": False, "html": html}, status=200)
         return HttpResponse(html, status=200)
 
