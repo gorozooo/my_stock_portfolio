@@ -1,44 +1,49 @@
-{# 月別トップ/ワースト部分 #}
+{# Top/Worst 月（部分テンプレ） #}
 {% load humanize %}
 <style>
-  .tw-wrap{ margin-top:12px }
-  .tw-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
-  .tw-card{ border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.04);
-            border-radius:12px; padding:12px }
-  .tw-title{ font-size:12px; color:#a7b1d8; margin-bottom:6px }
-  .tw-item{ display:flex; justify-content:space-between; padding:6px 0;
-            border-top:1px dashed rgba(255,255,255,.08) }
-  .pos{ color:#86efac } .neg{ color:#fca5a5 }
+  .tw-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+  .tw-card{padding:10px 12px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03)}
+  .tw-title{font-size:12px;color:#a7b1d8;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+  .tw-list{display:flex;flex-direction:column;gap:6px}
+  .tw-row{display:flex;justify-content:space-between;align-items:baseline;font-variant-numeric:tabular-nums}
+  .pos{color:#86efac} .neg{color:#fca5a5}
+  .muted{color:#94a3b8}
 </style>
 
-<div id="monthlyTopWorst" class="tw-wrap">
-  <div class="tw-grid">
-    <div class="tw-card">
-      <div class="tw-title">🏆 PnL Top 3（良い月）</div>
-      {% if top %}
+<div class="tw-grid">
+  <div class="tw-card">
+    <div class="tw-title">🏆 PnL Top 3（良い月）</div>
+    {% if top %}
+      <div class="tw-list">
         {% for r in top %}
-          <div class="tw-item">
-            <div>{{ r.label }}</div>
-            <div class="pos">¥{{ r.pnl|floatformat:0|intcomma }}</div>
+          <div class="tw-row">
+            <div class="muted">{{ r.label }}</div>
+            {% with v=r.pnl %}
+              <div class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
+            {% endwith %}
           </div>
         {% endfor %}
-      {% else %}
-        <div style="color:#94a3b8">データなし</div>
-      {% endif %}
-    </div>
+      </div>
+    {% else %}
+      <div class="muted">データなし</div>
+    {% endif %}
+  </div>
 
-    <div class="tw-card">
-      <div class="tw-title">🥀 PnL Worst 3（悪い月）</div>
-      {% if worst %}
+  <div class="tw-card">
+    <div class="tw-title">🫤 PnL Worst 3（悪い月）</div>
+    {% if worst %}
+      <div class="tw-list">
         {% for r in worst %}
-          <div class="tw-item">
-            <div>{{ r.label }}</div>
-            <div class="neg">¥{{ r.pnl|floatformat:0|intcomma }}</div>
+          <div class="tw-row">
+            <div class="muted">{{ r.label }}</div>
+            {% with v=r.pnl %}
+              <div class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</div>
+            {% endwith %}
           </div>
         {% endfor %}
-      {% else %}
-        <div style="color:#94a3b8">データなし</div>
-      {% endif %}
-    </div>
+      </div>
+    {% else %}
+      <div class="muted">データなし</div>
+    {% endif %}
   </div>
 </div>
