@@ -35,7 +35,14 @@
            hx-swap="outerHTML">
     <div style="color:#94a3b8;padding:8px 0">読み込み中…</div>
   </section>
-
+  
+  <section id="monthly-topworst"
+           hx-get="{% url 'realized_monthly_topworst' %}?preset={{ preset|default:'LAST_12M' }}&freq=month&q={{ q|urlencode }}"
+           hx-trigger="load, pnl:refresh from:body"
+           hx-swap="outerHTML">
+    <div class="text-slate-400" style="padding:8px 0">読み込み中…</div>
+  </section>
+  
   {# ── 1枚目：月次サマリー（棒：PnL、折れ線：累積PnL 右軸） ── #}
   <section id="monthly-chart" class="card">
     <div style="font-size:12px;color:#a7b1d8;margin-bottom:6px">累積PnLの推移</div>
@@ -50,6 +57,47 @@
   <section id="analysis-charts">
     {% include "realized/_analysis_charts.html" %}
   </section>
+  
+  <section class="card">
+  <div class="text-xs text-slate-400 mb-1">日別ヒートマップ</div>
+  <div id="heatCal" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>
+</section>
+<script>
+(async function(){
+  // 表示中の最新月（テーブルの最後の row などから推定。なければ今月）
+  const guess = (()=>{
+    const last = document.querySelector('#pnlPeriodWrap tbody tr:last-child td:first-child')?.textContent?.trim();
+    if(last && /^\d{4}-\d{2}$/.test(last)){ const [y,m]=last.split('-'); return {y:+y,m:+m}; }
+    const d=new Date(); return {y:d.getFullYear(), m:d.getMonth()+1};
+  })();
+  const base = "{% url 'realized_chart_daily_heat_json' year=2000 month=1 %}".replace("2000/1",""+guess.y+"/"+guess.m);
+  const q = (document.getElementById('q')?.value||'').trim();
+  const url = q ? `${base}?q=${encodeURIComponent(q)}` : base;
+  const res = await fetch(url); const {year, month, days} = await res.json();
+
+  const first = new Date(year, month-1, 1);
+  const last  = new Date(year, month, 0).getDate();
+  const wrap  = document.getElementById('heatCal');
+  wrap.innerHTML = "";
+  // 曜日オフセット
+  for(let i=0;i<first.getDay();i++){ const s=document.createElement('div'); s.style.opacity=.3; wrap.appendChild(s); }
+  for(let d=1; d<=last; d++){
+    const k = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const v = Number(days[k]||0);
+    const cell = document.createElement('div');
+    cell.textContent = d;
+    cell.style.textAlign="center";
+    cell.style.padding="6px 0";
+    cell.style.border="1px solid rgba(255,255,255,.08)";
+    cell.style.borderRadius="6px";
+    // 値に応じて色
+    const a = Math.min(1, Math.abs(v)/5000); // 閾値は適宜
+    cell.style.background = v>=0 ? `rgba(16,185,129,${0.12+0.45*a})` : `rgba(244,63,94,${0.12+0.45*a})`;
+    wrap.appendChild(cell);
+  }
+})();
+</script>
+  
 </div>
 
 <script>
