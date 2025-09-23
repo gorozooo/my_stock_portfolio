@@ -39,13 +39,7 @@
     <div style="color:#94a3b8;padding:8px 0">読み込み中…</div>
   </section>
 
-  {# 月次グラフ（既存部分テンプレ再利用） #}
-  <section id="monthly-chart"
-           hx-get="{% url 'realized_chart_monthly_json' %}"
-           hx-trigger="load"
-           hx-swap="outerHTML">
-    {% include "realized/_monthly_chart.html" %}
-  </section>
+  
 
   {# ヒストグラム等（既存部分テンプレ再利用） #}
   <section id="analysis-charts">
