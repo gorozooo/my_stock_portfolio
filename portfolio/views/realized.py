@@ -1207,73 +1207,73 @@ def table_partial(request):
       format=json で JSON {ok, html, count} を返す（フロントが fetch で利用）
     """
     try:
-      q = (request.GET.get("q") or "").strip()
-      start_s = (request.GET.get("start") or "").strip()
-      end_s   = (request.GET.get("end") or "").strip()
-      want_json = (request.GET.get("format") == "json") or \
-                  ("application/json" in (request.headers.get("Accept") or ""))
+        q = (request.GET.get("q") or "").strip()
+        start_s = (request.GET.get("start") or "").strip()
+        end_s   = (request.GET.get("end") or "").strip()
+        want_json = (request.GET.get("format") == "json") or \
+                    ("application/json" in (request.headers.get("Accept") or ""))
 
-      # 文字列 → date に変換（YYYY-MM / YYYY-MM-DD 両対応）
-      def _to_date(s: str, end_side: bool = False) -> date | None:
-          if not s:
-              return None
-          # YYYY-MM
-          if len(s) == 7 and s.count("-") == 1:
-              y, m = map(int, s.split("-"))
-              if end_side:
-                  # 月末日
-                  if m == 12:
-                      return date(y, 12, 31)
-                  return date(y, m + 1, 1) - timedelta(days=1)
-              return date(y, m, 1)
-          # YYYY-MM-DD
-          d = parse_date(s)
-          return d
+        # 文字列 → date に変換（YYYY-MM / YYYY-MM-DD 両対応）
+        def _to_date(s: str, end_side: bool = False) -> date | None:
+            if not s:
+                return None
+            # YYYY-MM
+            if len(s) == 7 and s.count("-") == 1:
+                y, m = map(int, s.split("-"))
+                if end_side:
+                    # 月末日
+                    if m == 12:
+                        return date(y, 12, 31)
+                    return date(y, m + 1, 1) - timedelta(days=1)
+                return date(y, m, 1)
+            # YYYY-MM-DD
+            d = parse_date(s)
+            return d
 
-      start_d = _to_date(start_s, end_side=False)
-      end_d   = _to_date(end_s,   end_side=True)
+        start_d = _to_date(start_s, end_side=False)
+        end_d   = _to_date(end_s,   end_side=True)
 
-      qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
+        qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
 
-      if q:
-          qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+        if q:
+            qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-      if start_d and end_d:
-          # trade_at が DateTime の場合も考慮して日付範囲で絞る
-          qs = qs.filter(trade_at__date__range=(start_d, end_d))
-      elif start_d:
-          qs = qs.filter(trade_at__date__gte=start_d)
-      elif end_d:
-          qs = qs.filter(trade_at__date__lte=end_d)
+        # trade_at は DateField なので __date は不要
+        if start_d and end_d:
+            qs = qs.filter(trade_at__range=(start_d, end_d))
+        elif start_d:
+            qs = qs.filter(trade_at__gte=start_d)
+        elif end_d:
+            qs = qs.filter(trade_at__lte=end_d)
 
-      rows = _with_metrics(qs)  # 既存の整形関数
+        rows = _with_metrics(qs)  # 既存の整形関数
 
-      html = render_to_string("realized/_table.html", {"trades": rows}, request=request)
+        html = render_to_string("realized/_table.html", {"trades": rows}, request=request)
 
-      if want_json:
-          return JsonResponse({"ok": True, "html": html, "count": len(rows)})
+        if want_json:
+            return JsonResponse({"ok": True, "html": html, "count": len(rows)})
 
-      # HTMX 等の置換用（HTMLそのまま）
-      return HttpResponse(html)
+        # HTMX 等の置換用（HTMLそのまま）
+        return HttpResponse(html)
 
     except Exception as e:
-      logger.exception("table_partial error: %s", e)
-      tb = traceback.format_exc()
-      # フロントは 200 で差し替える想定
-      html = f"""
-      <div class="p-3 rounded-lg" style="background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;">
-        <div style="font-weight:700;margin-bottom:6px">テーブル取得に失敗しました</div>
-        <div style="margin-bottom:8px">{str(e)}</div>
-        <details style="font-size:12px;opacity:.85">
-          <summary>詳細</summary>
-          <pre style="white-space:pre-wrap">{tb}</pre>
-        </details>
-      </div>
-      """
-      # JSON が欲しい呼び出しにも配慮
-      if (request.GET.get("format") == "json") or ("application/json" in (request.headers.get("Accept") or "")):
-          return JsonResponse({"ok": False, "html": html}, status=200)
-      return HttpResponse(html, status=200)
+        logger.exception("table_partial error: %s", e)
+        tb = traceback.format_exc()
+        # フロントは 200 で差し替える想定
+        html = f"""
+        <div class="p-3 rounded-lg" style="background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;">
+          <div style="font-weight:700;margin-bottom:6px">テーブル取得に失敗しました</div>
+          <div style="margin-bottom:8px">{str(e)}</div>
+          <details style="font-size:12px;opacity:.85">
+            <summary>詳細</summary>
+            <pre style="white-space:pre-wrap">{tb}</pre>
+          </details>
+        </div>
+        """
+        # JSON が欲しい呼び出しにも配慮
+        if (request.GET.get("format") == "json") or ("application/json" in (request.headers.get("Accept") or "")):
+            return JsonResponse({"ok": False, "html": html}, status=200)
+        return HttpResponse(html, status=200)
 
 @login_required
 @require_GET
