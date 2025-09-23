@@ -5,6 +5,7 @@ from .views import core as core_views
 from .views import settings as settings_views
 from .views import api as api_views
 from .views import realized as realized_views
+from .views.realized import monthly_page, chart_monthly_json
 from .views import dev_tools as dev_views
 
 urlpatterns = [
