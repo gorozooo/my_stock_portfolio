@@ -94,7 +94,6 @@ def _with_metrics(qs):
     """
     現金・PnL・比率計算に必要な注釈を付与
     """
-    # Decimal(0) を明示
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
     gross = ExpressionWrapper(F("qty") * F("price"), output_field=DEC2)
@@ -109,44 +108,34 @@ def _with_metrics(qs):
         output_field=DEC2,
     )
 
-    # 画面表示用の“投資家PnL”（手入力があればそれ、無ければ 0）
+    # 表示用PnL
     pnl_display = Coalesce(F("cashflow"), Value(Decimal("0"), output_field=DEC2))
 
-    # 分母: basis * qty （SELL かつ basis>0 の時のみ）
-    basis_amount_dec = Case(
-        When(side="SELL", basis__gt=0,
-             then=ExpressionWrapper(F("basis") * F("qty"), output_field=DEC2)),
-        default=None, output_field=DEC2,
+    # 分母: basis * qty
+    basis_amount = ExpressionWrapper(F("basis") * F("qty"), output_field=DEC2)
+
+    # 分子: (price - basis) * qty - fee - tax
+    trade_pnl = ExpressionWrapper(
+        (F("price") - F("basis")) * F("qty") - fee - tax,
+        output_field=DEC2,
     )
 
-    # 分子: (price - basis) * qty - fee - tax  （= 1トレードの損益）
-    trade_pnl_dec = Case(
-        When(side="SELL", basis__gt=0,
-             then=ExpressionWrapper(
-                 (F("price") - F("basis")) * F("qty") - fee - tax,
-                 output_field=DEC2
-             )),
-        default=None, output_field=DEC2,
-    )
-
-    # 型の不一致を避けるため、分子/分母とも Float にキャストしてから割り算
-    trade_pnl_f   = Cast(trade_pnl_dec, FloatField())
-    basis_amt_f   = Cast(basis_amount_dec, FloatField())
-
+    # Float にキャストして割り算
     pnl_pct = Case(
-        When(basis_amt_f__gt=0.0,
+        When(side="SELL", basis__gt=0,
              then=ExpressionWrapper(
-                 trade_pnl_f * Value(100.0, output_field=FloatField()) / basis_amt_f,
+                 Cast(trade_pnl, FloatField()) * Value(100.0, output_field=FloatField()) /
+                 Cast(basis_amount, FloatField()),
                  output_field=FloatField()
              )),
         default=None,
         output_field=FloatField(),
     )
 
-    # 勝敗 1/0
+    # 勝敗
     is_win = Case(When(pnl_display__gt=0, then=1), default=0, output_field=IntegerField())
 
-    # hold_days を float にキャスト（NULL はそのまま）
+    # 保有日数
     hold_days_f = Case(
         When(hold_days__isnull=False, then=Cast(F("hold_days"), FloatField())),
         default=None, output_field=FloatField()
