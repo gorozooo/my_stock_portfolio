@@ -332,6 +332,170 @@ def _aggregate_by_broker(qs):
     return out
 
 # --- 期間まとめ（部分テンプレ） -------------------------
+def _parse_period_from_request(request):
+    """
+    summary_period_partial と同等の指定を受け取って期間を返す軽量版。
+    start/end を優先。無ければ preset から解決（THIS_MONTH/THIS_YEAR/LAST_12M）。
+    """
+    from datetime import date, timedelta
+
+    # 明示指定があればそれを使う
+    start_s = (request.GET.get("start") or "").strip()
+    end_s   = (request.GET.get("end")   or "").strip()
+    if start_s and end_s:
+        try:
+            y1,m1,d1 = [int(x) for x in start_s.split("-")]
+            y2,m2,d2 = [int(x) for x in end_s.split("-")]
+            return date(y1,m1,d1), date(y2,m2,d2)
+        except Exception:
+            pass
+
+    # preset でざっくり
+    today  = timezone.localdate()
+    first_day_this_month = today.replace(day=1)
+    preset = (request.GET.get("preset") or "LAST_12M").upper()
+
+    if preset == "THIS_MONTH":
+        start = first_day_this_month
+        # 月末
+        if first_day_this_month.month == 12:
+            end = first_day_this_month.replace(year=first_day_this_month.year+1, month=1, day=1) - timedelta(days=1)
+        else:
+            end = first_day_this_month.replace(month=first_day_this_month.month+1, day=1) - timedelta(days=1)
+    elif preset == "THIS_YEAR":
+        start = today.replace(month=1, day=1)
+        end   = today
+    else:  # LAST_12M など
+        # 12ヶ月前の翌日〜今日
+        y = first_day_this_month.year
+        m = first_day_this_month.month
+        m_prev = ((m - 1) or 12)
+        y_prev = (y - 1) if m == 1 else y
+        start  = first_day_this_month.replace(year=y_prev, month=m_prev, day=1)
+        end    = today
+    return start, end
+
+
+@login_required
+@require_GET
+def monthly_kpis_partial(request):
+    """
+    月別のKPI（平均実現損益(%) / 勝率 / PF / 平均保有日数）を返す。
+    ※ BUY/SELL 両方あってもフィルタ期間内の SELL を対象に集計。
+    ※ %の平均はトレードごとの％の単純平均（basis×qty が妥当なもののみ）。
+    """
+    q = (request.GET.get("q") or "").strip()
+    start, end = _parse_period_from_request(request)
+
+    qs = RealizedTrade.objects.filter(
+        user=request.user,
+        trade_at__range=(start, end)
+    )
+    if q:
+        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+
+    # 集計
+    total = 0
+    win   = 0
+    pnl_pos = Decimal("0")
+    pnl_neg = Decimal("0")
+    pct_list = []
+    hold_list = []
+
+    for t in qs:
+        # 勝率/PF は cashflow（あなたの“投資家PnL”）を使用
+        cf = Decimal(str(t.cashflow or 0))
+        if cf > 0:
+            pnl_pos += cf
+        elif cf < 0:
+            pnl_neg += cf  # 負のまま
+
+        # 勝率は SELL のみカウント（BUY は仕込段階想定）
+        if t.side == "SELL":
+            total += 1
+            if cf > 0:
+                win += 1
+            # %: basis×qty が正なら計算
+            try:
+                if t.basis is not None and t.qty and Decimal(str(t.qty)) > 0:
+                    denom = Decimal(str(t.basis)) * Decimal(str(t.qty))
+                    if denom > 0:
+                        pct_list.append((cf / denom) * Decimal("100"))
+            except Exception:
+                pass
+
+        # 平均保有日数
+        if t.hold_days is not None:
+            try:
+                hd = int(t.hold_days)
+                if hd >= 0:
+                    hold_list.append(hd)
+            except Exception:
+                pass
+
+    # KPI 値
+    avg_pct = (sum(pct_list) / Decimal(len(pct_list))) if pct_list else None
+    winrate = (win / total * 100.0) if total > 0 else None
+    pf      = (float(pnl_pos) / abs(float(pnl_neg))) if pnl_neg != 0 else None
+    avg_hold= (sum(hold_list) / len(hold_list)) if hold_list else None
+
+    ctx = {
+        "avg_pct":   float(avg_pct) if avg_pct is not None else None,
+        "winrate":   float(winrate) if winrate is not None else None,
+        "pf":        float(pf) if pf is not None else None,
+        "avg_hold":  float(avg_hold) if avg_hold is not None else None,
+    }
+    return render(request, "realized/_month_kpis.html", ctx)
+
+
+@login_required
+@require_GET
+def monthly_breakdown_partial(request):
+    """
+    期間内のブローカー別 / 口座区分別のブレークダウン。
+    """
+    q = (request.GET.get("q") or "").strip()
+    start, end = _parse_period_from_request(request)
+
+    qs = RealizedTrade.objects.filter(
+        user=request.user,
+        trade_at__range=(start, end)
+    )
+    if q:
+        qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
+
+    # ブローカー表示名マップ
+    broker_label = dict(RealizedTrade.BROKER_CHOICES)
+    acct_label   = dict(RealizedTrade.ACCOUNT_CHOICES)
+
+    # values で集計（PnL=cashflow の合計、件数）
+    brokers = (
+        qs.values("broker")
+          .annotate(n=Count("id"), pnl=Sum("cashflow"))
+          .order_by("broker")
+    )
+    accounts = (
+        qs.values("account")
+          .annotate(n=Count("id"), pnl=Sum("cashflow"))
+          .order_by("account")
+    )
+
+    brokers_view = [
+        {"label": broker_label.get(row["broker"], row["broker"]),
+         "pnl": float(row["pnl"] or 0), "n": row["n"]}
+        for row in brokers
+    ]
+    accounts_view = [
+        {"label": acct_label.get(row["account"], row["account"]),
+         "pnl": float(row["pnl"] or 0), "n": row["n"]}
+        for row in accounts
+    ]
+
+    return render(request, "realized/_month_breakdown.html", {
+        "brokers": brokers_view,
+        "accounts": accounts_view,
+    })
+
 @login_required
 @require_GET
 def monthly_topworst_partial(request):
