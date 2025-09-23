@@ -37,10 +37,10 @@
   </section>
   
   <section id="monthly-topworst"
-           hx-get="{% url 'realized_monthly_topworst' %}?preset={{ preset|default:'LAST_12M' }}&freq=month&q={{ q|urlencode }}"
+           hx-get="{% url 'realized_monthly_topworst' %}?q={{ q|urlencode }}"
            hx-trigger="load, pnl:refresh from:body"
            hx-swap="outerHTML">
-    <div class="text-slate-400" style="padding:8px 0">読み込み中…</div>
+    <div style="color:#94a3b8;padding:8px 0">トップ/ワースト月を読み込み中…</div>
   </section>
   
   {# ── 1枚目：月次サマリー（棒：PnL、折れ線：累積PnL 右軸） ── #}
