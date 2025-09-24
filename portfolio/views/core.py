@@ -52,11 +52,6 @@ def trend_card_partial(request):
 
     return render(request, "portfolio/_trend_card.html", ctx)
 
-@login_required
-def holdings_list(request):
-    qs = Holding.objects.filter(user=request.user).order_by("-updated_at")
-    return render(request, "portfolio/holdings_list.html", {"rows": qs})
-
 
 # ========= API =========
 @require_GET
