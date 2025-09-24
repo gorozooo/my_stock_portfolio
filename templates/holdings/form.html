@@ -80,14 +80,47 @@
   const $name   = document.querySelector('input[name="name"]');
   if (!$ticker || !$name) return;
 
-  let userEditedName = false;
+  let userEditedName = false;         // ユーザーが手で編集したら true
+  let nameAutofilled = false;         // 直前に自動で入れたら true
+  let lastResolved   = { code: "", name: "" }; // 直前の自動入力値
+
+  // ユーザーが銘柄名を手入力したら上書きは控える
   $name.addEventListener('input', ()=>{
-    // ユーザーが自分で入力を始めたら自動上書きは控える
     userEditedName = true;
+    nameAutofilled = false;
+  });
+
+  // ★ コードが変わったら再び自動上書きを許可（手間なく反映させる）
+  $ticker.addEventListener('input', ()=>{
+    const v = ($ticker.value || '').trim();
+    if (v !== lastResolved.code) {
+      userEditedName = false;   // 次の lookup で上書きOKに戻す
+    }
   });
 
   function debounce(fn, ms){
     let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn.apply(null,args), ms); };
+  }
+
+  function applyName(data){
+    if (!data || !data.name) return;
+    const curCode = ($ticker.value || '').trim();
+    const curName = ($name.value  || '').trim();
+
+    const codeChanged = data.code && data.code !== lastResolved.code;
+    const safeToOverwrite =
+      !userEditedName        // まだユーザー未編集
+      || nameAutofilled      // 直前も自動入力（連続上書きOK）
+      || !curName            // 現在空
+      || curName === lastResolved.name; // 以前の自動値のまま
+
+    if (codeChanged || safeToOverwrite) {
+      if (data.code) $ticker.value = data.code;
+      $name.value = data.name;
+      nameAutofilled = true;
+      userEditedName = false;                 // 自動入力直後は未編集扱い
+      lastResolved = { code: data.code || curCode, name: data.name };
+    }
   }
 
   function lookup(){
@@ -95,22 +128,13 @@
     if (!v) return;
     fetch(`${endpoint}?code=${encodeURIComponent(v)}`, {credentials:'same-origin'})
       .then(r => r.ok ? r.json() : Promise.reject())
-      .then(data => {
-        // コード正規化（'7203.T' → '7203'）
-        if (data.code && data.code !== $ticker.value.trim()){
-          $ticker.value = data.code;
-        }
-        // ユーザー未編集 or name が空のときだけ自動反映
-        if (data.name && (!userEditedName || !$name.value.trim())){
-          $name.value = data.name;
-        }
-      })
-      .catch(()=>{ /* 失敗時は何もしない */ });
+      .then(applyName)
+      .catch(()=>{ /* 無視 */ });
   }
 
-  $ticker.addEventListener('input', debounce(lookup, 250));
+  $ticker.addEventListener('input',  debounce(lookup, 250));
   $ticker.addEventListener('change', lookup);
-  $ticker.addEventListener('blur', lookup);
+  $ticker.addEventListener('blur',   lookup);
 })();
 </script>
 {% endblock %}
