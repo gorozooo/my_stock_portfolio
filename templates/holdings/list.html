@@ -8,10 +8,13 @@
     <tr>
       <th>証券コード</th>
       <th>銘柄名</th>
-      <th>株数</th>
-      <th>取得単価</th>
+      <th>証券会社</th>
+      <th>口座</th>
+      <th>方向</th>
+      <th>数量</th>
+      <th>平均取得単価</th>
       <th>取得額</th>
-      <th>購入日</th>
+      <th>保有開始日</th>
       <th></th>
     </tr>
   </thead>
@@ -20,14 +23,17 @@
     <tr>
       <td>{{ h.ticker }}</td>
       <td>{{ h.name }}</td>
-      <td>{{ h.shares }}</td>
-      <td>{{ h.unit_price|floatformat:0 }}</td>
-      <td>{{ h.acquisition_value|floatformat:0 }}</td>
-      <td>{{ h.trade_at|date:"Y-m-d" }}</td>
+      <td>{{ h.get_broker_display }}</td>
+      <td>{{ h.get_account_display }}</td>
+      <td>{{ h.get_side_display }}</td>
+      <td>{{ h.quantity }}</td>
+      <td>{{ h.avg_cost|floatformat:0 }}</td>
+      <td>{{ h.quantity|mul:h.avg_cost|floatformat:0 }}</td>
+      <td>{{ h.opened_at|date:"Y-m-d" }}</td>
       <td><a href="{% url 'holding_edit' h.pk %}">編集</a></td>
     </tr>
     {% empty %}
-    <tr><td colspan="7">データなし</td></tr>
+    <tr><td colspan="10">データなし</td></tr>
     {% endfor %}
   </tbody>
 </table>
