@@ -6,62 +6,52 @@
 
 {% block head %}
 <style>
-  .h-wrap{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .page-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 
-  .h-card{position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.08);
-          border-radius:16px;background:rgba(255,255,255,.04)}
+  .card{position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.08);
+        border-radius:16px;background:rgba(255,255,255,.04)}
 
-  /* スワイプ行 */
-  .h-row{position:relative}
-  .h-track{
-    position:relative;         /* ← レイヤーの基準 */
-    width:100%;                /* ← アクションを完全に覆う */
-    z-index:2;                 /* ← 常にアクションより上 */
-    transform:translateX(0);
-    transition:transform .18s ease-out;
-    will-change:transform;
+  /* ===== スワイプ行 ===== */
+  .row{position:relative}
+  .track{
+    position:relative; width:100%; z-index:2;
+    transform:translateX(0); transition:transform .18s ease-out; will-change:transform;
   }
-  .h-actions{
-    position:absolute;
-    top:0; right:0; bottom:0;  /* ← 右側に固定 */
-    width:230px;
-    display:flex; gap:8px; align-items:center; justify-content:flex-end;
-    padding:0 12px;
-    z-index:1;                 /* ← トラックの下に置く */
-    background:rgba(14,21,34,.92);
-    backdrop-filter:blur(2px);
-    border-left:1px solid rgba(255,255,255,.06);
+  .actions{
+    position:absolute; top:0; right:0; bottom:0; z-index:1;
+    width:260px; display:flex; gap:8px; align-items:center; justify-content:flex-end;
+    padding:0 12px; background:rgba(12,18,28,.96);
+    border-left:1px solid rgba(255,255,255,.07); backdrop-filter:blur(2px);
   }
+  .btn-ghost{padding:9px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.18);font-size:13px;background:transparent}
+  .btn-warn{padding:9px 12px;border-radius:12px;border:1px solid rgba(244,63,94,.35);background:rgba(244,63,94,.12);font-size:13px}
 
-  .h-btn{padding:9px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.18);font-size:13px}
-  .h-btn.warn{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
-  .h-btn.ghost{background:transparent}
+  /* ===== 表示部 ===== */
+  .body{padding:14px}
+  .title{display:flex;align-items:center;gap:10px}
+  .name{font-weight:800;font-size:20px;letter-spacing:.02em}
+  .code{font-size:12px;color:#9aa4b2}
+  .badges{display:flex;flex-wrap:wrap;gap:6px;margin-left:6px}
+  .badge{font-size:11px;padding:3px 8px;border:1px solid rgba(255,255,255,.16);border-radius:9999px;color:#dbe3f4}
+  .badge.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35)}
+  .badge.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
 
-  .h-body{padding:14px}
-  .h-title{display:flex;align-items:center;gap:10px}
-  .h-name{font-weight:800;font-size:20px;letter-spacing:.02em}
-  .h-code{font-size:12px;color:#9aa4b2}
-  .h-badges{display:flex;flex-wrap:wrap;gap:6px;margin-left:6px}
-  .h-badge{font-size:11px;padding:3px 8px;border:1px solid rgba(255,255,255,.16);border-radius:9999px;color:#dbe3f4}
-  .h-badge.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35)}
-  .h-badge.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
-
-  .h-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;
-          border-top:1px dashed rgba(255,255,255,.08);padding-top:10px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;
+        border-top:1px dashed rgba(255,255,255,.08);padding-top:10px}
   .kv{display:flex;justify-content:space-between;gap:8px}
   .kv .k{font-size:12px;color:#97a3b6}
   .kv .v{font-size:18px}
 
-  details.h-more{border-top:1px dashed rgba(255,255,255,.08);padding:10px 14px}
-  details.h-more summary{cursor:pointer;list-style:none;color:#aeb8cc}
-  details.h-more summary::-webkit-details-marker{display:none}
-  .h-moregrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:8px}
-  @media (max-width:480px){ .h-grid{grid-template-columns:1fr 1fr} }
+  /* “詳細”は初期非表示。カードに .show-detail が付いたときだけ表示 */
+  .more{display:none;border-top:1px dashed rgba(255,255,255,.08);padding:10px 14px}
+  .row.show-detail .more{display:block}
+  .moregrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:6px}
+  @media (max-width:480px){ .grid{grid-template-columns:1fr 1fr} }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="h-wrap">
+<div class="page-head">
   <h1>保有一覧</h1>
   <a href="{% url 'holding_create' %}" class="btn btn-outline">＋ 新規登録</a>
 </div>
@@ -69,40 +59,40 @@
 {% if holdings %}
   <div class="vstack" style="gap:14px">
     {% for h in holdings %}
-      <article class="h-card h-row" data-swipe>
-        {# 右側アクション（初期はトラックの下で非表示） #}
-        <div class="h-actions" aria-hidden="true">
-          <a class="h-btn ghost" href="{% url 'holding_edit' h.id %}">編集</a>
-          <button class="h-btn warn"
+      <article class="card row" data-swipe>
+        {# 右側アクション（初期は完全に隠れる） #}
+        <div class="actions" aria-hidden="true">
+          <button type="button" class="btn-ghost" data-action="detail">詳細</button>
+          <a class="btn-ghost" href="{% url 'holding_edit' h.id %}">編集</a>
+          <button class="btn-warn"
                   hx-post="{% url 'holding_delete' h.id %}"
                   hx-confirm="削除しますか？"
                   hx-target="closest [data-swipe]"
                   hx-swap="outerHTML swap:15ms">削除</button>
         </div>
 
-        {# 本体（左にスライドしてアクションを露出） #}
-        <div class="h-track">
-          <div class="h-body">
-            <header class="h-title">
-              <div class="h-name">{{ h.name|default:"-" }}</div>
-              <div class="h-code">{{ h.ticker }}</div>
-              <div class="h-badges">
-                <span class="h-badge">{{ h.get_broker_display }}</span>
-                <span class="h-badge">{{ h.get_account_display }}</span>
-                <span class="h-badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
+        {# 表示本体（ここを左にスライド） #}
+        <div class="track">
+          <div class="body">
+            <header class="title">
+              <div class="name">{{ h.name|default:"-" }}</div>
+              <div class="code">{{ h.ticker }}</div>
+              <div class="badges">
+                <span class="badge">{{ h.get_broker_display }}</span>
+                <span class="badge">{{ h.get_account_display }}</span>
+                <span class="badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
               </div>
             </header>
 
-            <div class="h-grid">
+            <div class="grid">
               <div class="kv"><div class="k">数量</div><div class="v">{{ h.quantity|intcomma }}</div></div>
               <div class="kv"><div class="k">平均取得</div><div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div></div>
             </div>
           </div>
 
-          {# ▼ 詳細（要望どおり復活） #}
-          <details class="h-more">
-            <summary>詳細</summary>
-            <div class="h-moregrid">
+          {# 隠し“詳細”（初期は非表示。アクションの「詳細」でトグル） #}
+          <div class="more">
+            <div class="moregrid">
               <div class="kv" style="border:none;padding:0">
                 <div class="k">取得額</div>
                 <div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div>
@@ -114,7 +104,7 @@
               <div class="kv"><div class="k">作成</div><div class="v">{{ h.created_at|date:"Y-m-d" }}</div></div>
               <div class="kv"><div class="k">更新</div><div class="v">{{ h.updated_at|date:"Y-m-d" }}</div></div>
             </div>
-          </details>
+          </div>
         </div>
       </article>
     {% endfor %}
@@ -124,55 +114,48 @@
 {% endif %}
 
 <script>
-/* ===== 左スワイプでアクション表示（初期は非表示） ===== */
+/* ===== 左スワイプでアクション露出（初期は非表示） ===== */
 (function(){
   const rows = document.querySelectorAll('[data-swipe]');
-  rows.forEach(row=>{
-    const track = row.querySelector('.h-track');
-    const actions = row.querySelector('.h-actions');
-    const OPEN_X = actions.offsetWidth || 230; // スライド量
+  const OPEN_W = 260; // アクション幅と一致
 
+  function closeAll(except){
+    document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
+      if (r===except) return;
+      r.classList.remove('is-open');
+      r.querySelector('.track').style.transform = 'translateX(0)';
+    });
+  }
+
+  rows.forEach(row=>{
+    const track = row.querySelector('.track');
     let startX=0, dragging=false, opened=false, baseX=0;
 
-    const setX = x => { track.style.transform = `translateX(${x}px)`; };
+    const setX = x => track.style.transform = `translateX(${x}px)`;
 
-    const closeAll = () => {
-      document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
-        r.classList.remove('is-open');
-        r.querySelector('.h-track').style.transform = 'translateX(0)';
-      });
-    };
-
-    const onStart = (e)=>{
+    const onStart = e=>{
       dragging = true;
       startX = (e.touches ? e.touches[0].clientX : e.clientX);
-      baseX = opened ? -OPEN_X : 0;
+      baseX = opened ? -OPEN_W : 0;
       track.style.transition = 'none';
     };
-    const onMove = (e)=>{
+    const onMove = e=>{
       if(!dragging) return;
       const cur = (e.touches ? e.touches[0].clientX : e.clientX);
       let nx = Math.min(0, baseX + (cur - startX));
-      nx = Math.max(-OPEN_X, nx);
+      nx = Math.max(-OPEN_W, nx);
       setX(nx);
     };
     const onEnd = ()=>{
       if(!dragging) return;
       dragging = false;
       track.style.transition = '';
-      const curX = new WebKitCSSMatrix(getComputedStyle(track).transform).m41;
-      opened = (curX < -OPEN_X/2);
-      if (opened){
-        closeAll();
-        row.classList.add('is-open');
-        setX(-OPEN_X);
-      }else{
-        row.classList.remove('is-open');
-        setX(0);
-      }
+      const m = new WebKitCSSMatrix(getComputedStyle(track).transform);
+      opened = (m.m41 < -OPEN_W/2);
+      if (opened){ closeAll(row); row.classList.add('is-open'); setX(-OPEN_W); }
+      else       { row.classList.remove('is-open'); setX(0); }
     };
 
-    // タッチ/マウス両対応
     track.addEventListener('touchstart', onStart, {passive:true});
     track.addEventListener('touchmove',  onMove,  {passive:true});
     track.addEventListener('touchend',   onEnd);
@@ -180,10 +163,18 @@
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup',   onEnd);
 
-    // 外側タップで閉じる
-    document.addEventListener('click', (ev)=>{
-      if (!row.contains(ev.target)) { opened=false; row.classList.remove('is-open'); setX(0); }
+    // アクション「詳細」 → カード内の .more をトグル
+    row.querySelector('[data-action="detail"]').addEventListener('click', ()=>{
+      row.classList.toggle('show-detail');
+      // 詳細開閉後もメニューは閉じる
+      opened = false; row.classList.remove('is-open'); setX(0);
     });
+  });
+
+  // 外側タップで閉じる
+  document.addEventListener('click', (ev)=>{
+    const r = ev.target.closest('[data-swipe]');
+    if (!r) closeAll(null);
   });
 })();
 </script>
