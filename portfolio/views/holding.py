@@ -36,3 +36,12 @@ def holding_edit(request, pk):
     else:
         form = HoldingForm(instance=obj)
     return render(request, "holdings/form.html", {"form": form, "mode": "edit", "obj": obj})
+    
+    def holding_delete(request, pk):
+    holding = get_object_or_404(Holding, pk=pk)
+    holding.delete()
+    # HTMX用に空レスポンス
+    if request.headers.get("HX-Request"):
+        return HttpResponse("")  
+    return redirect("holding_list")
+    
