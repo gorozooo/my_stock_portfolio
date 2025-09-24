@@ -7,52 +7,27 @@ from django.views.decorators.http import require_POST
 
 from ..models import Holding
 from ..forms import HoldingForm
+from ..services import trend as svc_trend
 
 # 追加：コード→銘柄名の簡易API（フロントのオートフィル用）
 from ..services.tickers import resolve_name as resolve_tse_name
 from ..services.tickers import _normalize_to_code as normalize_code  # 既存ユーティリティ流用
 
 def _normalize_code4(s: str) -> str:
-    """'7203' / '7203.T' など → '7203' に正規化。無効なら空文字。"""
     t = (s or "").strip().upper()
-    if not t:
-        return ""
-    if "." in t:
-        t = t.split(".", 1)[0]
+    if "." in t: t = t.split(".", 1)[0]
     return t if (len(t) == 4 and t.isdigit()) else ""
 
 @login_required
 def api_ticker_name(request):
     raw = request.GET.get("code") or request.GET.get("q") or ""
     code4 = _normalize_code4(raw)
-
-    name = None
-
-    # 1) 軽量: tickers.csv キャッシュ
+    ticker = f"{code4}.T" if code4 else str(raw or "")
     try:
-        if code4:
-            name = svc_tickers.resolve_name(code4)
+        name = svc_trend._fetch_name_prefer_jp(ticker) or ""
     except Exception:
-        name = None
-
-    # 2) 次点: トレンド側のローダ（json/csvの両対応）
-    if not name:
-        try:
-            # 4桁コード→ “.T” 正規化して問い合わせ
-            t = f"{code4}.T" if code4 else str(raw or "")
-            name = svc_trend._lookup_name_jp_from_list(t)  # 公開APIでないが、安価で高速
-        except Exception:
-            name = None
-
-    # 3) 最終: yfinance 情報（ネット呼び出し）— 成功すればクリーン名が返る
-    if not name:
-        try:
-            t = f"{code4}.T" if code4 else str(raw or "")
-            name = svc_trend._fetch_name_prefer_jp(t)
-        except Exception:
-            name = None
-
-    return JsonResponse({"code": code4, "name": name or ""})
+        name = ""
+    return JsonResponse({"code": code4, "name": name})
 
 @login_required
 def holding_list(request):
