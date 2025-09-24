@@ -42,7 +42,8 @@ class Holding(models.Model):
 
     # ★ 追加: オープン日（保有日数を計算する基準。未設定なら created_at を使用）
     opened_at  = models.DateField(null=True, blank=True)
-
+    memo = models.TextField(blank=True, default="")
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
