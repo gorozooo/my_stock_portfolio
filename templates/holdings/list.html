@@ -12,37 +12,46 @@
     position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.08);
     border-radius:16px;background:rgba(255,255,255,.04)
   }
-
-  /* ===== 行ラッパ ===== */
   .row{position:relative}
 
-  /* 本文は固定。もう transform で動かさない！ */
+  /* 本文は固定（動かさない） */
   .track{
     position:relative;z-index:1;
-    /* 透け防止（任意） */
     background: linear-gradient(180deg, rgba(12,18,28,.72), rgba(12,18,28,.72));
   }
 
-  /* 右ボタン群：初期は画面外（right:-260px）→ 開いたら 0 */
+  /* ===== アクション：1つの“パネル”で出す／スワイプ幅は小さめ ===== */
   .actions{
-    position:absolute;top:0;right:-260px;bottom:0;z-index:2; /* ←本文より前面 */
-    width:260px;display:flex;gap:8px;align-items:center;justify-content:flex-end;
-    padding:0 12px;background:rgba(12,18,28,.96);
-    border-left:1px solid rgba(255,255,255,.07);backdrop-filter:blur(2px);
-    transition:right .18s ease-out; will-change: right;
+    position:absolute;top:0;right:-190px;bottom:0;z-index:2;
+    width:190px;display:flex;align-items:center;justify-content:center;
+    padding:0 10px; transition:right .18s ease-out; will-change:right;
+    /* 透け感のレイヤー：うっすら暗く */
+    background: linear-gradient(90deg, rgba(0,0,0,0), rgba(8,12,20,.65));
   }
   .row.is-open .actions{ right:0; }
 
-  .btn-ghost{
-    padding:9px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.18);
-    font-size:13px;background:transparent;color:#e6ebff
+  /* パネル本体（1セクション） */
+  .action-panel{
+    width:100%;
+    border-radius:14px; padding:10px;
+    background: rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.18);
+    box-shadow: 0 6px 24px rgba(0,0,0,.3);
+    display:flex; flex-direction:column; gap:8px;
+    backdrop-filter: blur(8px);
   }
-  .btn-warn{
-    padding:9px 12px;border-radius:12px;border:1px solid rgba(244,63,94,.35);
-    background:rgba(244,63,94,.12);font-size:13px;color:#ffdbe1
+  .action-panel .item{
+    display:flex; align-items:center; gap:10px;
+    padding:10px 12px; border-radius:10px;
+    text-decoration:none; color:#e6ebff; font-weight:600; font-size:14px;
+    border:1px solid rgba(255,255,255,.12);
+    background: rgba(255,255,255,.05);
   }
+  .item.detail{ background: rgba(110,168,255,.18); }
+  .item.edit  { background: rgba(0,255,209,.16); }
+  .item.delete{ background: rgba(255,77,103,.20); }
 
-  /* ===== 本文レイアウト ===== */
+  /* 本文レイアウト */
   .body{padding:14px}
   .title{display:flex;align-items:center;gap:10px}
   .name{font-weight:800;font-size:20px;letter-spacing:.02em}
@@ -51,21 +60,20 @@
   .badge{font-size:11px;padding:3px 8px;border:1px solid rgba(255,255,255,.16);border-radius:9999px;color:#dbe3f4}
   .badge.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35)}
   .badge.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
-
-  .grid{
-    display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;
-    border-top:1px dashed rgba(255,255,255,.08);padding-top:10px
-  }
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;
+        border-top:1px dashed rgba(255,255,255,.08);padding-top:10px}
   .kv{display:flex;justify-content:space-between;gap:8px}
   .kv .k{font-size:12px;color:#97a3b6}
   .kv .v{font-size:18px}
 
-  /* 詳細はトグル */
+  /* 詳細はトグル表示（メニュー内「詳細」で開閉） */
   .more{display:none;border-top:1px dashed rgba(255,255,255,.08);padding:10px 14px}
   .row.show-detail .more{display:block}
   .moregrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:6px}
 
-  @media (max-width:480px){ .grid{grid-template-columns:1fr 1fr} }
+  @media (max-width:480px){
+    .grid{grid-template-columns:1fr 1fr}
+  }
 </style>
 {% endblock %}
 
@@ -79,15 +87,20 @@
   <div class="vstack" style="gap:14px">
     {% for h in holdings %}
       <article class="card row" data-swipe>
-        {# 右側アクション（本文は固定。ボタンだけ滑り込む） #}
+        {# 右のアクションは “1つのセクション” #}
         <div class="actions" aria-hidden="true">
-          <button type="button" class="btn-ghost" data-action="detail">詳細</button>
-          <a class="btn-ghost" href="{% url 'holding_edit' h.id %}">編集</a>
-          <button class="btn-warn"
-                  hx-post="{% url 'holding_delete' h.id %}"
-                  hx-confirm="削除しますか？"
-                  hx-target="closest [data-swipe]"
-                  hx-swap="outerHTML swap:15ms">削除</button>
+          <div class="action-panel">
+            <button type="button" class="item detail" data-action="detail">📄 詳細</button>
+            <a class="item edit" href="{% url 'holding_edit' h.id %}">✏️ 編集</a>
+            <form action="{% url 'holding_delete' h.id %}" method="post" style="margin:0">
+              {% csrf_token %}
+              <button class="item delete" type="submit"
+                      hx-post="{% url 'holding_delete' h.id %}"
+                      hx-confirm="削除しますか？"
+                      hx-target="closest [data-swipe]"
+                      hx-swap="outerHTML swap:15ms">🗑️ 削除</button>
+            </form>
+          </div>
         </div>
 
         {# 本文（固定） #}
@@ -132,17 +145,16 @@
 {% endif %}
 
 <script>
-/* ===== 右ボタンだけスワイプで露出（本文は固定） ===== */
+/* ===== 右“パネル”だけスワイプで露出（本文は固定） ===== */
 (function(){
   const rows = document.querySelectorAll('[data-swipe]');
-  const OPEN_W = 260; // .actions の幅と一致
+  const OPEN_W = 190; // スワイプ幅を小さく
 
   function closeAll(except){
     document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
       if (r===except) return;
       r.classList.remove('is-open');
-      const a = r.querySelector('.actions');
-      a.style.right = -OPEN_W + 'px';
+      r.querySelector('.actions').style.right = -OPEN_W + 'px';
     });
   }
 
@@ -150,10 +162,9 @@
     const actions = row.querySelector('.actions');
     const detailBtn = row.querySelector('[data-action="detail"]');
 
-    let startX=0, startY=0, dragging=false, horiz=false;
-    let opened=false, baseRight=-OPEN_W; // 右位置：-260(隠)〜0(表示)
+    let startX=0,startY=0,drag=false,horiz=false,opened=false,baseRight=-OPEN_W;
 
-    // 初期位置を念のため確定
+    // 念のため初期化
     actions.style.right = -OPEN_W + 'px';
 
     const setRight = (px)=> actions.style.right = px + 'px';
@@ -161,7 +172,7 @@
     const onStart = (e)=>{
       const t = e.touches ? e.touches[0] : e;
       startX = t.clientX; startY = t.clientY;
-      dragging = true; horiz = false;
+      drag = true; horiz = false;
       baseRight = opened ? 0 : -OPEN_W;
       actions.style.transition = 'none';
       if (document.querySelector('[data-swipe].is-open') && !row.classList.contains('is-open')){
@@ -170,18 +181,18 @@
     };
 
     const onMove = (e)=>{
-      if(!dragging) return;
+      if(!drag) return;
       const t = e.touches ? e.touches[0] : e;
       const dx = t.clientX - startX;
       const dy = t.clientY - startY;
 
       if(!horiz){
         if(Math.abs(dx) < 8) return;
-        if(Math.abs(dx) > Math.abs(dy)) horiz = true; else { dragging=false; actions.style.transition=''; return; }
+        if(Math.abs(dx) > Math.abs(dy)) horiz = true; else { drag=false; actions.style.transition=''; return; }
       }
       if(e.cancelable) e.preventDefault();
 
-      // 左へスワイプ（dx<0）で right を -260 → 0 へ近づける
+      // 左へスワイプで -OPEN_W → 0 へ
       let nr = baseRight - dx;
       if (nr > 0) nr = 0;
       if (nr < -OPEN_W) nr = -OPEN_W;
@@ -189,15 +200,15 @@
     };
 
     const onEnd = ()=>{
-      if(!dragging) return;
-      dragging=false; actions.style.transition = 'right .18s ease-out';
+      if(!drag) return;
+      drag=false; actions.style.transition = 'right .18s ease-out';
       const curRight = parseFloat(getComputedStyle(actions).right) || -OPEN_W;
       opened = (curRight > -OPEN_W/2);
       if (opened){ row.classList.add('is-open'); setRight(0); }
       else       { row.classList.remove('is-open'); setRight(-OPEN_W); }
     };
 
-    // タッチ/マウス両対応
+    // タッチ/マウス
     row.addEventListener('touchstart', onStart, {passive:true});
     row.addEventListener('touchmove',  onMove,  {passive:false});
     row.addEventListener('touchend',   onEnd);
@@ -205,7 +216,7 @@
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup',   onEnd);
 
-    // 「詳細」→ .more トグル（メニューは閉じる）
+    // 「📄 詳細」→ .more トグル（パネルは閉じる）
     detailBtn.addEventListener('click', ()=>{
       row.classList.toggle('show-detail');
       opened = false; row.classList.remove('is-open'); setRight(-OPEN_W);
