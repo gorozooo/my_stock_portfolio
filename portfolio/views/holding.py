@@ -1,11 +1,23 @@
+# views.py
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse   # ← 追加
 from django.views.decorators.http import require_POST
 
 from ..models import Holding
 from ..forms import HoldingForm
+
+# 追加：コード→銘柄名の簡易API（フロントのオートフィル用）
+from ..services.tickers import resolve_name as resolve_tse_name
+from ..services.tickers import _normalize_to_code as normalize_code  # 既存ユーティリティ流用
+
+@login_required
+def api_ticker_name(request):
+    q = request.GET.get("code") or request.GET.get("q") or ""
+    code = normalize_code(q) or ""
+    name = resolve_tse_name(code or q) or ""
+    return JsonResponse({"code": code, "name": name})
 
 @login_required
 def holding_list(request):
@@ -38,22 +50,15 @@ def holding_edit(request, pk):
     else:
         form = HoldingForm(instance=obj)
     return render(request, "holdings/form.html", {"form": form, "mode": "edit", "obj": obj})
-    
+
 @login_required
 @require_POST
 def holding_delete(request, pk: int):
-    """保有を削除（HTMX/通常POST両対応）"""
-    # user フィールド有無の両対応で安全に取得
     filters = {"pk": pk}
     if any(f.name == "user" for f in Holding._meta.fields):
         filters["user"] = request.user
-
     h = get_object_or_404(Holding, **filters)
     h.delete()
-
-    # HTMX なら対象DOMを消すだけで良いので空レスポンス
     if request.headers.get("HX-Request") == "true":
         return HttpResponse("")
-
     return redirect("holding_list")
-    
