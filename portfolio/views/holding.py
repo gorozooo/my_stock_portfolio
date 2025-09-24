@@ -4,6 +4,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.http import HttpResponse, JsonResponse   # ← 追加
 from django.views.decorators.http import require_POST
+from django.conf import settings
 
 from ..models import Holding
 from ..forms import HoldingForm
@@ -20,23 +21,26 @@ def _normalize_code4(s: str) -> str:
 
 @login_required
 def api_ticker_name(request):
-    """
-    コード or ティッカーから銘柄名を返す。
-    - trend._normalize_ticker を使って '167A' などの英字混在も許容
-    - JSON/CSV/yfinance の順でフォールバック（trend側の実装に依存）
-    """
     raw = (request.GET.get("code") or request.GET.get("q") or "").strip()
-    # trend の正規化を使用（'167A' → '167A.T'、'7203' → '7203.T' など）
-    norm_ticker = svc_trend._normalize_ticker(raw)
-    # 表示用・保存用の「コード」は '.T' を外したヘッド（英字混在OK）
-    code_head = norm_ticker.split(".", 1)[0] if norm_ticker else raw.upper()
+    norm  = svc_trend._normalize_ticker(raw)                  # 例: '167A' -> '167A.T'
+    code  = (norm.split(".", 1)[0] if norm else raw).upper()  # 例: '167A'
 
-    try:
-        name = svc_trend._fetch_name_prefer_jp(norm_ticker) or ""
-    except Exception:
-        name = ""
+    # ★ まずは上書き辞書を優先
+    override = getattr(settings, "TSE_NAME_OVERRIDES", {}).get(code)
+    if override:
+        return JsonResponse({"code": code, "name": override})
 
-    return JsonResponse({"code": code_head, "name": name})
+    # つぎに JSON/CSV マップ
+    name = svc_trend._lookup_name_jp_from_list(norm) or ""
+
+    # それでも空なら yfinance
+    if not name:
+        try:
+            name = svc_trend._fetch_name_prefer_jp(norm) or ""
+        except Exception:
+            name = ""
+
+    return JsonResponse({"code": code, "name": name})
 
 @login_required
 def holding_list(request):
