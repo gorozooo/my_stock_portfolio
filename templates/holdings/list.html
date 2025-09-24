@@ -14,40 +14,39 @@
   }
   .row{position:relative}
 
-  /* 本文は固定 */
+  /* 本文は固定（動かさない） */
   .track{
     position:relative;z-index:1;
     background: linear-gradient(180deg, rgba(12,18,28,.72), rgba(12,18,28,.72));
   }
 
-  /* ===== 横並びアクションパネル ===== */
-  /* スワイプ幅は控えめ */
+  /* ===== 横並びアクション（外枠なし／カードの高さにフィット） ===== */
   .actions{
-    --open-w: 220px;            /* ★横幅ここで調整（190〜240推奨） */
-    position:absolute;top:0;bottom:0;right:calc(var(--open-w)*-1);
-    z-index:2;width:var(--open-w);
-    display:flex;align-items:center;justify-content:center;
-    padding:0 8px;transition:right .18s ease-out;will-change:right;
-    background:linear-gradient(90deg, rgba(0,0,0,0), rgba(8,12,20,.65));
-    backdrop-filter:blur(6px);
+    --open-w: 220px; /* スワイプ幅（好みで 200〜240） */
+    position:absolute;inset:0 auto 0 calc(var(--open-w)*-1);
+    right:calc(var(--open-w)*-1); /* 初期は画面外 */
+    width:var(--open-w);
+    z-index:2; display:flex; align-items:stretch; justify-content:center;
+    padding:0; transition:right .18s ease-out; will-change:right;
+    background: none; /* ← 外枠や板をなくす */
+    pointer-events:auto;
   }
   .row.is-open .actions{ right:0; }
 
+  /* 中身は横3分割。カード高にフィット */
   .action-panel{
-    width:100%;display:flex;flex-direction:row;gap:6px;
-    padding:8px;border-radius:14px;
-    background:rgba(255,255,255,.08);
-    border:1px solid rgba(255,255,255,.18);
-    box-shadow:0 6px 24px rgba(0,0,0,.28);
+    display:flex; flex-direction:row; gap:8px;
+    width:100%; height:100%; padding:8px 10px 8px 8px; /* 右端少し余白 */
   }
   .action-panel .item{
-    flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:4px;text-decoration:none;color:#e6ebff;font-weight:700;font-size:12px;
-    border-radius:10px;border:1px solid rgba(255,255,255,.14);
-    padding:10px 6px;min-width:0;text-align:center;
-    background:rgba(255,255,255,.06);
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:6px; text-decoration:none; color:#e6ebff; font-weight:700; font-size:12px;
+    border-radius:12px; border:1px solid rgba(255,255,255,.14);
+    background: rgba(255,255,255,.06); min-width:0; text-align:center;
+    box-shadow: 0 4px 18px rgba(0,0,0,.25);
+    touch-action: manipulation; /* iOSでのクリック遅延回避 */
   }
-  .item .ico{font-size:16px;line-height:1}
+  .item .ico{font-size:18px; line-height:1}
   .item.detail{ background: rgba(110,168,255,.18); }
   .item.edit  { background: rgba(0,255,209,.16); }
   .item.delete{ background: rgba(255,77,103,.20); }
@@ -87,8 +86,8 @@
   <div class="vstack" style="gap:14px">
     {% for h in holdings %}
       <article class="card row" data-swipe>
-        <!-- 横並びアクション（本文は固定。右から控えめに出現） -->
-        <div class="actions" aria-hidden="true">
+        <!-- 横並びアクション（外枠ナシ、カード高フィット） -->
+        <div class="actions">
           <div class="action-panel">
             <button type="button" class="item detail" data-action="detail">
               <span class="ico">📄</span><span>詳細</span>
@@ -96,16 +95,14 @@
             <a class="item edit" href="{% url 'holding_edit' h.id %}">
               <span class="ico">✏️</span><span>編集</span>
             </a>
-            <form action="{% url 'holding_delete' h.id %}" method="post" style="margin:0">
-              {% csrf_token %}
-              <button class="item delete" type="submit"
-                      hx-post="{% url 'holding_delete' h.id %}"
-                      hx-confirm="削除しますか？"
-                      hx-target="closest [data-swipe]"
-                      hx-swap="outerHTML swap:15ms">
-                <span class="ico">🗑️</span><span>削除</span>
-              </button>
-            </form>
+            <!-- 削除はフォーム不要。HTMXでPOSTする -->
+            <button class="item delete"
+                    hx-post="{% url 'holding_delete' h.id %}"
+                    hx-confirm="削除しますか？"
+                    hx-target="closest [data-swipe]"
+                    hx-swap="outerHTML swap:15ms">
+              <span class="ico">🗑️</span><span>削除</span>
+            </button>
           </div>
         </div>
 
@@ -151,13 +148,12 @@
 {% endif %}
 
 <script>
-/* 右“横並びパネル”だけを露出（本文は固定） */
+/* 右“横並びパネル”だけを露出（本文は固定）＋ クリック反応改善 */
 (function(){
   const rows = document.querySelectorAll('[data-swipe]');
 
-  function getOpenW(el){
-    // CSS変数 --open-w を取得（未設定時は 220）
-    const v = getComputedStyle(el).getPropertyValue('--open-w').trim().replace('px','');
+  function getOpenW(actions){
+    const v = getComputedStyle(actions).getPropertyValue('--open-w').trim().replace('px','');
     return parseFloat(v || '220');
   }
 
@@ -183,11 +179,15 @@
     const setRight = (px)=> actions.style.right = px + 'px';
 
     const onStart = (e)=>{
+      // ★ アクションパネル上のタップはスワイプ処理を開始しない（反応しない問題の根治）
+      if (e.target.closest('.actions')) return;
+
       const t = e.touches ? e.touches[0] : e;
       startX=t.clientX; startY=t.clientY;
       drag=true; horiz=false;
       baseRight = opened ? 0 : -OPEN_W;
       actions.style.transition='none';
+
       if(document.querySelector('[data-swipe].is-open') && !row.classList.contains('is-open')){
         closeAll(row);
       }
@@ -204,8 +204,7 @@
       }
       if(e.cancelable) e.preventDefault();
 
-      // 左へで -OPEN_W → 0
-      let nr = baseRight - dx;
+      let nr = baseRight - dx;          // 左へで -OPEN_W → 0
       if(nr>0) nr=0;
       if(nr<-OPEN_W) nr=-OPEN_W;
       setRight(nr);
@@ -220,22 +219,21 @@
       else      { row.classList.remove('is-open'); setRight(-OPEN_W); }
     };
 
+    // タッチのみでOK（iPhone前提）。デスクトップでも使うなら mousedown 系も追加可。
     row.addEventListener('touchstart', onStart, {passive:true});
     row.addEventListener('touchmove',  onMove,  {passive:false});
     row.addEventListener('touchend',   onEnd);
-    row.addEventListener('mousedown',  onStart);
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup',   onEnd);
 
-    // 詳細トグル（開いたら閉じる）
+    // 詳細トグル（押下後はパネルを閉じる）
     detailBtn.addEventListener('click', ()=>{
       row.classList.toggle('show-detail');
       opened=false; row.classList.remove('is-open'); setRight(-OPEN_W);
     });
   });
 
-  // 外側タップで閉じる
+  // 外側タップで閉じる（アクション内は除外）
   document.addEventListener('click', (e)=>{
+    if (e.target.closest('.actions')) return;
     const r = e.target.closest('[data-swipe]');
     if(!r) closeAll(null);
   });
