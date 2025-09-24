@@ -9,7 +9,7 @@ from .views import realized as realized_views
 from .views.realized import (
     monthly_page,
     chart_monthly_json,
-    chart_daily_heat_json,   # ← 追加（インポート）
+    chart_daily_heat_json,   
 )
 from .views import dev_tools as dev_views
 from .views import holding as hv
@@ -42,6 +42,7 @@ urlpatterns = [
     path("holdings/new/", hv.holding_create, name="holding_create"),
     path("holdings/<int:pk>/edit/", hv.holding_edit, name="holding_edit"),
     path("holdings/<int:pk>/delete/", hv.holding_delete, name="holding_delete"),
+    path("api/ticker-name", hv.api_ticker_name, name="api_ticker_name"),
     
     # 実現損益（メイン）
     path("realized/", realized_views.list_page, name="realized_list"),
