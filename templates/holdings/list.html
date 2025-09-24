@@ -8,9 +8,13 @@
 <style>
   .page-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 
+  /* 縦積みの隙間を確実に */
+  .vstack{ display:flex; flex-direction:column; gap:16px; }
+
   .card{
     position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.08);
-    border-radius:16px;background:rgba(255,255,255,.04)
+    border-radius:16px;background:rgba(255,255,255,.04);
+    box-shadow:0 6px 22px rgba(0,0,0,.18);
   }
   .row{position:relative}
 
@@ -20,20 +24,16 @@
     background:linear-gradient(180deg, rgba(12,18,28,.72), rgba(12,18,28,.72));
   }
 
-  /* ===== 横並びアクション（外枠なし／カード高フィット） ===== */
+  /* ===== 右の横並びアクション（外枠なし／カード高フィット） ===== */
   .actions{
-    --open-w: 220px;                   /* スワイプ幅（200〜240で調整OK） */
+    --open-w: 220px;
     position:absolute; top:0; bottom:0; right:calc(var(--open-w)*-1); left:auto;
     width:var(--open-w); z-index:2;
     display:flex; align-items:stretch; justify-content:center;
     padding:0; transition:right .18s ease-out; will-change:right;
-    background:none; 
-    pointer-events:none;               /* ★閉じている間は当たり判定オフ */
+    background:none; pointer-events:none;               /* 閉じてる時は無効 */
   }
-  .row.is-open .actions{
-    right:0;
-    pointer-events:auto;               /* ★開いたらボタンを押せる */
-  }
+  .row.is-open .actions{ right:0; pointer-events:auto; }
 
   .action-panel{
     display:flex; flex-direction:row; gap:8px;
@@ -52,18 +52,41 @@
   .item.edit  { background:rgba(0,255,209,.16) }
   .item.delete{ background:rgba(255,77,103,.20) }
 
-  /* 本文レイアウト */
+  /* ===== 本文レイアウト（銘柄を中央表示） ===== */
   .body{padding:14px}
-  .title{display:flex;align-items:center;gap:10px}
-  .name{font-weight:800;font-size:20px;letter-spacing:.02em}
-  .code{font-size:12px;color:#9aa4b2}
-  .badges{display:flex;flex-wrap:wrap;gap:6px;margin-left:6px}
-  .badge{font-size:11px;padding:3px 8px;border:1px solid rgba(255,255,255,.16);border-radius:9999px;color:#dbe3f4}
+
+  .title{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:6px; text-align:center;
+  }
+  /* 銘柄名：中央・1行・自動縮小で必ず収める（JSで微調整） */
+  .name{
+    font-weight:800;
+    /* 初期サイズ（JSが必要に応じて下げる） */
+    font-size:20px;
+    line-height:1.15;
+    white-space:nowrap;                /* 折り返さない */
+    overflow:hidden;                   /* はみ出し非表示（縮小で収める） */
+  }
+
+  /* サブ行（コード＋バッジ3つ） */
+  .subline{
+    display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap;
+    color:#9aa4b2; font-size:12px;
+  }
+  .code{ font-size:12px; color:#9aa4b2; }
+
+  .badges{ display:flex; gap:6px; }
+  .badge{
+    font-size:11px; padding:3px 8px; border:1px solid rgba(255,255,255,.16);
+    border-radius:9999px; color:#dbe3f4; white-space:nowrap;
+  }
   .badge.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35)}
   .badge.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
+
   .grid{
-    display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;
-    border-top:1px dashed rgba(255,255,255,.08);padding-top:10px
+    display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px;
+    border-top:1px dashed rgba(255,255,255,.08); padding-top:10px;
   }
   .kv{display:flex;justify-content:space-between;gap:8px}
   .kv .k{font-size:12px;color:#97a3b6}
@@ -83,7 +106,7 @@
 </div>
 
 {% if holdings %}
-  <div class="vstack" style="gap:14px">
+  <div class="vstack">
     {% for h in holdings %}
       <article class="card row" data-swipe>
         <!-- 横並びアクション -->
@@ -109,14 +132,20 @@
         <div class="track">
           <div class="body">
             <header class="title">
-              <div class="name">{{ h.name|default:"-" }}</div>
-              <div class="code">{{ h.ticker }}</div>
-              <div class="badges">
-                <span class="badge">{{ h.get_broker_display }}</span>
-                <span class="badge">{{ h.get_account_display }}</span>
-                <span class="badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
+              <!-- 銘柄名：中央・1行・自動縮小 -->
+              <div class="name name-fit" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
+
+              <!-- 下段：コード＋バッジ3つ（中央） -->
+              <div class="subline">
+                <span class="code">{{ h.ticker }}</span>
+                <div class="badges">
+                  <span class="badge">{{ h.get_broker_display }}</span>
+                  <span class="badge">{{ h.get_account_display }}</span>
+                  <span class="badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
+                </div>
               </div>
             </header>
+
             <div class="grid">
               <div class="kv"><div class="k">数量</div><div class="v">{{ h.quantity|intcomma }}</div></div>
               <div class="kv"><div class="k">平均取得</div><div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div></div>
@@ -146,7 +175,7 @@
 {% endif %}
 
 <script>
-/* 右“横並びパネル”だけを露出（本文は固定） */
+/* ===== 右“横並びパネル”だけを露出（本文は固定） ===== */
 (function(){
   const rows = document.querySelectorAll('[data-swipe]');
 
@@ -179,15 +208,12 @@
     const setRight = (px)=> actions.style.right = px + 'px';
 
     const onStart = (e)=>{
-      // ★ アクション上のタップはスワイプ開始しない（でも開いてる時はボタン押せる）
-      if (e.target.closest('.actions')) return;
-
+      if (e.target.closest('.actions')) return; // パネル上のタップではスワイプ開始しない
       const t = e.touches ? e.touches[0] : e;
       startX=t.clientX; startY=t.clientY;
       drag=true; horiz=false;
       baseRight = opened ? 0 : -OPEN_W;
       actions.style.transition='none';
-
       if(document.querySelector('[data-swipe].is-open') && !row.classList.contains('is-open')){
         closeAll(row);
       }
@@ -233,6 +259,8 @@
       row.classList.toggle('show-detail');
       opened=false; row.classList.remove('is-open'); setRight(-OPEN_W);
       actions.style.pointerEvents = 'none';
+      // クリック後にフォント再フィット（詳細開閉で幅が変わる可能性）
+      window.requestAnimationFrame(autoFitNames);
     });
   });
 
@@ -243,5 +271,33 @@
     if(!r) closeAll(null);
   });
 })();
+
+/* ===== 銘柄名を1行で収めるために自動縮小 =====
+   - .name-fit 要素の scrollWidth を見て、最大20px → 最小14px の範囲で縮小
+   - 画面回転やリサイズでも再計算
+*/
+function autoFitNames(){
+  const els = document.querySelectorAll('.name-fit');
+  els.forEach(el=>{
+    const max = 20; const min = 14;   // px（必要なら調整）
+    // まず最大に戻してから判定
+    el.style.fontSize = max + 'px';
+    // 安全のため親幅を取得
+    const container = el.parentElement; // .title 内
+    const limit = container.clientWidth - 20; // 左右余白分
+    let size = max;
+    // はみ出している間は1pxずつ下げる（行数は常に1行）
+    while (el.scrollWidth > limit && size > min){
+      size -= 1;
+      el.style.fontSize = size + 'px';
+    }
+  });
+}
+window.addEventListener('load', autoFitNames);
+window.addEventListener('resize', ()=>{
+  // リサイズで連続発火しすぎないように
+  clearTimeout(window.__fitT);
+  window.__fitT = setTimeout(autoFitNames, 120);
+});
 </script>
 {% endblock %}
