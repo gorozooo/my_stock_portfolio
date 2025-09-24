@@ -17,39 +17,40 @@
   /* 本文は固定（動かさない） */
   .track{
     position:relative;z-index:1;
-    background: linear-gradient(180deg, rgba(12,18,28,.72), rgba(12,18,28,.72));
+    background:linear-gradient(180deg, rgba(12,18,28,.72), rgba(12,18,28,.72));
   }
 
-  /* ===== 横並びアクション（外枠なし／カードの高さにフィット） ===== */
+  /* ===== 横並びアクション（外枠なし／カード高フィット） ===== */
   .actions{
-    --open-w: 220px; /* スワイプ幅（好みで 200〜240） */
-    position:absolute;inset:0 auto 0 calc(var(--open-w)*-1);
-    right:calc(var(--open-w)*-1); /* 初期は画面外 */
-    width:var(--open-w);
-    z-index:2; display:flex; align-items:stretch; justify-content:center;
+    --open-w: 220px;                   /* スワイプ幅（200〜240で調整OK） */
+    position:absolute; top:0; bottom:0; right:calc(var(--open-w)*-1); left:auto;
+    width:var(--open-w); z-index:2;
+    display:flex; align-items:stretch; justify-content:center;
     padding:0; transition:right .18s ease-out; will-change:right;
-    background: none; /* ← 外枠や板をなくす */
-    pointer-events:auto;
+    background:none; 
+    pointer-events:none;               /* ★閉じている間は当たり判定オフ */
   }
-  .row.is-open .actions{ right:0; }
+  .row.is-open .actions{
+    right:0;
+    pointer-events:auto;               /* ★開いたらボタンを押せる */
+  }
 
-  /* 中身は横3分割。カード高にフィット */
   .action-panel{
     display:flex; flex-direction:row; gap:8px;
-    width:100%; height:100%; padding:8px 10px 8px 8px; /* 右端少し余白 */
+    width:100%; height:100%; padding:8px 10px 8px 8px;
   }
   .action-panel .item{
     flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
     gap:6px; text-decoration:none; color:#e6ebff; font-weight:700; font-size:12px;
     border-radius:12px; border:1px solid rgba(255,255,255,.14);
-    background: rgba(255,255,255,.06); min-width:0; text-align:center;
-    box-shadow: 0 4px 18px rgba(0,0,0,.25);
-    touch-action: manipulation; /* iOSでのクリック遅延回避 */
+    background:rgba(255,255,255,.06); min-width:0; text-align:center;
+    box-shadow:0 4px 18px rgba(0,0,0,.25);
+    touch-action:manipulation;
   }
   .item .ico{font-size:18px; line-height:1}
-  .item.detail{ background: rgba(110,168,255,.18); }
-  .item.edit  { background: rgba(0,255,209,.16); }
-  .item.delete{ background: rgba(255,77,103,.20); }
+  .item.detail{ background:rgba(110,168,255,.18) }
+  .item.edit  { background:rgba(0,255,209,.16) }
+  .item.delete{ background:rgba(255,77,103,.20) }
 
   /* 本文レイアウト */
   .body{padding:14px}
@@ -60,7 +61,6 @@
   .badge{font-size:11px;padding:3px 8px;border:1px solid rgba(255,255,255,.16);border-radius:9999px;color:#dbe3f4}
   .badge.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35)}
   .badge.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
-
   .grid{
     display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;
     border-top:1px dashed rgba(255,255,255,.08);padding-top:10px
@@ -86,7 +86,7 @@
   <div class="vstack" style="gap:14px">
     {% for h in holdings %}
       <article class="card row" data-swipe>
-        <!-- 横並びアクション（外枠ナシ、カード高フィット） -->
+        <!-- 横並びアクション -->
         <div class="actions">
           <div class="action-panel">
             <button type="button" class="item detail" data-action="detail">
@@ -95,7 +95,6 @@
             <a class="item edit" href="{% url 'holding_edit' h.id %}">
               <span class="ico">✏️</span><span>編集</span>
             </a>
-            <!-- 削除はフォーム不要。HTMXでPOSTする -->
             <button class="item delete"
                     hx-post="{% url 'holding_delete' h.id %}"
                     hx-confirm="削除しますか？"
@@ -118,7 +117,6 @@
                 <span class="badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
               </div>
             </header>
-
             <div class="grid">
               <div class="kv"><div class="k">数量</div><div class="v">{{ h.quantity|intcomma }}</div></div>
               <div class="kv"><div class="k">平均取得</div><div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div></div>
@@ -148,7 +146,7 @@
 {% endif %}
 
 <script>
-/* 右“横並びパネル”だけを露出（本文は固定）＋ クリック反応改善 */
+/* 右“横並びパネル”だけを露出（本文は固定） */
 (function(){
   const rows = document.querySelectorAll('[data-swipe]');
 
@@ -163,6 +161,7 @@
       r.classList.remove('is-open');
       const a = r.querySelector('.actions');
       a.style.right = (-getOpenW(a)) + 'px';
+      a.style.pointerEvents = 'none';
     });
   }
 
@@ -173,13 +172,14 @@
 
     // 初期位置
     actions.style.right = (-OPEN_W) + 'px';
+    actions.style.pointerEvents = 'none';
 
     let startX=0,startY=0,drag=false,horiz=false,opened=false,baseRight=-OPEN_W;
 
     const setRight = (px)=> actions.style.right = px + 'px';
 
     const onStart = (e)=>{
-      // ★ アクションパネル上のタップはスワイプ処理を開始しない（反応しない問題の根治）
+      // ★ アクション上のタップはスワイプ開始しない（でも開いてる時はボタン押せる）
       if (e.target.closest('.actions')) return;
 
       const t = e.touches ? e.touches[0] : e;
@@ -204,7 +204,7 @@
       }
       if(e.cancelable) e.preventDefault();
 
-      let nr = baseRight - dx;          // 左へで -OPEN_W → 0
+      let nr = baseRight - dx;     // 左へで -OPEN_W → 0
       if(nr>0) nr=0;
       if(nr<-OPEN_W) nr=-OPEN_W;
       setRight(nr);
@@ -215,19 +215,24 @@
       drag=false; actions.style.transition='right .18s ease-out';
       const curRight = parseFloat(getComputedStyle(actions).right) || -OPEN_W;
       opened = (curRight > -OPEN_W/2);
-      if(opened){ row.classList.add('is-open'); setRight(0); }
-      else      { row.classList.remove('is-open'); setRight(-OPEN_W); }
+      if(opened){
+        row.classList.add('is-open'); setRight(0);
+        actions.style.pointerEvents = 'auto';
+      }else{
+        row.classList.remove('is-open'); setRight(-OPEN_W);
+        actions.style.pointerEvents = 'none';
+      }
     };
 
-    // タッチのみでOK（iPhone前提）。デスクトップでも使うなら mousedown 系も追加可。
     row.addEventListener('touchstart', onStart, {passive:true});
     row.addEventListener('touchmove',  onMove,  {passive:false});
     row.addEventListener('touchend',   onEnd);
 
-    // 詳細トグル（押下後はパネルを閉じる）
+    // 「詳細」→ .more トグル（押したら閉じる）
     detailBtn.addEventListener('click', ()=>{
       row.classList.toggle('show-detail');
       opened=false; row.classList.remove('is-open'); setRight(-OPEN_W);
+      actions.style.pointerEvents = 'none';
     });
   });
 
