@@ -1,40 +1,60 @@
 {% extends "base.html" %}
-{% block content %}
-<h1>保有株一覧</h1>
-<a href="{% url 'holding_create' %}" class="btn">＋ 新規登録</a>
+{% load humanize %}
+{% block title %}保有一覧{% endblock %}
 
-<table class="table">
-  <thead>
-    <tr>
-      <th>証券コード</th>
-      <th>銘柄名</th>
-      <th>証券会社</th>
-      <th>口座</th>
-      <th>方向</th>
-      <th>数量</th>
-      <th>平均取得単価</th>
-      <th>取得額</th>
-      <th>保有開始日</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for h in holdings %}
-    <tr>
-      <td>{{ h.ticker }}</td>
-      <td>{{ h.name }}</td>
-      <td>{{ h.get_broker_display }}</td>
-      <td>{{ h.get_account_display }}</td>
-      <td>{{ h.get_side_display }}</td>
-      <td>{{ h.quantity }}</td>
-      <td>{{ h.avg_cost|floatformat:0 }}</td>
-      <td>{{ h.quantity|mul:h.avg_cost|floatformat:0 }}</td>
-      <td>{{ h.opened_at|date:"Y-m-d" }}</td>
-      <td><a href="{% url 'holding_edit' h.pk %}">編集</a></td>
-    </tr>
-    {% empty %}
-    <tr><td colspan="10">データなし</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+{% block content %}
+<div class="pnl">
+  <h1>保有一覧</h1>
+
+  <div class="mt-3 mb-3">
+    <a href="{% url 'holding_create' %}"
+       class="px-3 py-2 rounded-lg"
+       style="border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);">
+      ＋ 新規登録
+    </a>
+  </div>
+
+  <div class="card">
+    <table class="w-full" style="border-collapse:separate;border-spacing:0">
+      <thead>
+        <tr style="font-size:12px;color:#a7b1d8">
+          <th class="text-left py-2">ティッカー</th>
+          <th class="text-left py-2">名称</th>
+          <th class="text-left py-2">証券会社</th>
+          <th class="text-left py-2">口座</th>
+          <th class="text-left py-2">方向</th>
+          <th class="text-right py-2">数量</th>
+          <th class="text-right py-2">平均取得</th>
+          <th class="text-right py-2">取得額</th>
+          <th class="text-left py-2">保有開始</th>
+          <th class="py-2"></th>
+        </tr>
+      </thead>
+      <tbody class="text-[15px]">
+        {% for h in holdings %}
+        <tr style="border-top:1px solid rgba(255,255,255,.08)">
+          <td class="py-2">{{ h.ticker }}</td>
+          <td class="py-2">{{ h.name }}</td>
+          <td class="py-2">{{ h.get_broker_display }}</td>
+          <td class="py-2">{{ h.get_account_display }}</td>
+          <td class="py-2">{{ h.get_side_display }}</td>
+          <td class="py-2 text-right">{{ h.quantity|intcomma }}</td>
+          <td class="py-2 text-right">¥{{ h.avg_cost|floatformat:0|intcomma }}</td>
+          <td class="py-2 text-right">¥{{ h.acquisition_value|floatformat:0|intcomma }}</td>
+          <td class="py-2">{{ h.opened_at|date:"Y-m-d" }}</td>
+          <td class="py-2">
+            <a href="{% url 'holding_edit' h.pk %}"
+               class="px-2 py-1 rounded-md"
+               style="border:1px solid rgba(255,255,255,.14);">編集</a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="10" class="py-4" style="color:#94a3b8">データなし</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% endblock %}
