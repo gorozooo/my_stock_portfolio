@@ -49,11 +49,11 @@
     {% csrf_token %}
 
     <div class="fi">
-      <label>ティッカー <span style="font-size:12px;color:#888">例: 7203</span></label>
+      <label>コード <span style="font-size:12px;color:#888">例: 7203</span></label>
       {{ form.ticker }}
     </div>
     <div class="fi">
-      <label>名称 <span style="font-size:12px;color:#888">例: トヨタ自動車</span></label>
+      <label>銘柄 <span style="font-size:12px;color:#888">例: トヨタ自動車</span></label>
       {{ form.name }}
     </div>
 
@@ -63,18 +63,18 @@
         {{ form.broker }}
       </div>
       <div class="fi">
-        <label>口座</label>
+        <label>口座区分</label>
         {{ form.account }}
       </div>
       <div class="fi">
-        <label>方向</label>
+        <label>BUY/SELL</label>
         {{ form.side }}
       </div>
     </div>
 
     <div class="grid-fields">
       <div class="fi">
-        <label>数量</label>
+        <label>株数</label>
         {{ form.quantity }}
       </div>
       <div class="fi">
