@@ -5,93 +5,128 @@
 
 {% block head %}
 <style>
-  .h-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px 14px 12px}
-  .h-title{display:flex;align-items:center;gap:10px}
-  .h-name{font-weight:700;font-size:18px;letter-spacing:.02em}
-  .h-code{font-size:12px;color:#9aa4b2}
-  .h-badges{display:flex;flex-wrap:wrap;gap:6px;margin-left:8px}
-  .h-badge{font-size:11px;padding:3px 8px;border:1px solid rgba(255,255,255,.16);border-radius:9999px;color:#dbe3f4}
-  .h-badge.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35)}
-  .h-badge.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
+  .h-wrap{display:grid;gap:14px}
+
+  .h-card{
+    border:1px solid rgba(255,255,255,.10);
+    border-radius:14px;
+    background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.02));
+    padding:12px 12px 10px;
+  }
+
+  /* ヘッダ行：銘柄・コード・チップ・編集 */
+  .h-top{display:flex;align-items:center;gap:10px}
+  .h-name{font-weight:700;font-size:18px;letter-spacing:.01em}
+  .h-code{font-size:12px;color:#93a0b4}
+  .h-chips{display:flex;gap:6px;flex-wrap:wrap;margin-left:6px}
+  .chip{
+    font-size:11px; padding:3px 8px; border-radius:9999px;
+    border:1px solid rgba(255,255,255,.14); color:#dbe3f4; background:transparent
+  }
+  .chip--buy{background:rgba(16,185,129,.14);border-color:rgba(16,185,129,.35)}
+  .chip--sell{background:rgba(244,63,94,.14);border-color:rgba(244,63,94,.35)}
+
   .h-edit{margin-left:auto}
-  .h-edit a{display:inline-block;padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.18)}
-  .h-main{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px}
-  .h-kv{display:flex;justify-content:space-between;gap:8px;border-top:1px dashed rgba(255,255,255,.07);padding:10px 2px 0}
-  .h-kv .k{font-size:12px;color:#97a3b6}
-  .h-kv .v{font-size:16px}
-  details.h-more{border-top:1px dashed rgba(255,255,255,.08);margin-top:10px;padding-top:10px}
-  details.h-more summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;color:#aeb8cc}
+  .h-edit a{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:6px 10px;border-radius:10px;
+    border:1px solid rgba(255,255,255,.18);
+    font-size:12px;opacity:.9
+  }
+
+  /* キー情報：左2列（数量/平均取得）＋ 右に損益(評価) */
+  .h-main{
+    display:grid;grid-template-columns:1fr auto;gap:12px;
+    margin-top:10px; align-items:center;
+  }
+  .h-kvs{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .kv{display:flex;justify-content:space-between;gap:8px;
+      padding:8px 10px;border:1px dashed rgba(255,255,255,.08);border-radius:10px}
+  .kv .k{font-size:12px;color:#9aa7bb}
+  .kv .v{font-size:16px}
+
+  .h-pnl{
+    text-align:right;min-width:120px;
+    padding:8px 0 8px 12px;border-left:1px solid rgba(255,255,255,.08)
+  }
+  .h-pnl .k{font-size:12px;color:#9aa7bb}
+  .h-pnl .v{font-size:18px}
+
+  /* 詳細 */
+  details.h-more{margin-top:8px}
+  details.h-more summary{
+    cursor:pointer; list-style:none; color:#aeb8cc; display:inline-flex; gap:8px; align-items:center
+  }
   details.h-more summary::-webkit-details-marker{display:none}
-  .h-moregrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:8px}
+  .h-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:6px}
   .muted{color:#9aa4b2}
+
+  /* モバイル最適化 */
   @media (max-width:480px){
-    .h-title{flex-wrap:wrap}
-    .h-edit{order:3;width:100%}
-    .h-edit a{width:100%;text-align:center}
-    .h-main{grid-template-columns:1fr 1fr;gap:8px}
+    .h-edit a{padding:6px 10px}
+    .h-main{grid-template-columns:1fr;gap:8px}
+    .h-pnl{border-left:none;border-top:1px solid rgba(255,255,255,.08);padding-left:0;padding-top:10px}
+    .h-grid{grid-template-columns:1fr}
   }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="fi fi-between" style="margin-bottom:10px">
+<div class="fi fi-between" style="margin-bottom:12px">
   <h1>保有一覧</h1>
   <a href="{% url 'holding_create' %}" class="btn btn-outline">＋ 新規登録</a>
 </div>
 
 {% if holdings %}
-  <div class="vstack" style="gap:14px">
+  <div class="h-wrap">
     {% for h in holdings %}
       <article class="h-card">
-        {# --- ヘッダ：銘柄名の右にチップ --- #}
-        <header class="h-title">
+        <div class="h-top">
           <div class="h-name">{{ h.name|default:"-" }}</div>
           <div class="h-code">{{ h.ticker }}</div>
-          <div class="h-badges">
-            <span class="h-badge">{{ h.get_broker_display }}</span>
-            <span class="h-badge">{{ h.get_account_display }}</span>
-            <span class="h-badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
+          <div class="h-chips">
+            <span class="chip">{{ h.get_broker_display }}</span>
+            <span class="chip">{{ h.get_account_display }}</span>
+            <span class="chip {% if h.side == 'SELL' %}chip--sell{% else %}chip--buy{% endif %}">{{ h.side }}</span>
           </div>
           <div class="h-edit">
             <a href="{% url 'holding_edit' h.id %}">編集</a>
           </div>
-        </header>
+        </div>
 
-        {# --- メイン：数量 / 平均取得 / 損益（評価は後日） --- #}
         <div class="h-main">
-          <div class="h-kv">
-            <div class="k">数量</div>
-            <div class="v">{{ h.quantity|intcomma }}</div>
+          <div class="h-kvs">
+            <div class="kv">
+              <div class="k">数量</div>
+              <div class="v">{{ h.quantity|intcomma }}</div>
+            </div>
+            <div class="kv">
+              <div class="k">平均取得</div>
+              <div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
+            </div>
           </div>
-          <div class="h-kv">
-            <div class="k">平均取得</div>
-            <div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
-          </div>
-          <div class="h-kv">
+          <div class="h-pnl">
             <div class="k">損益（評価）</div>
-            <div class="v muted">—</div> {# TODO: 現在値連動で実装 #}
+            <div class="v muted">—</div> {# TODO: 株価連携で実装 #}
           </div>
         </div>
 
-        {# --- 詳細（開閉）: 取得額 / 保有開始など --- #}
         <details class="h-more">
           <summary>詳細を表示</summary>
-          <div class="h-moregrid">
-            <div class="h-kv" style="border-top:none;padding-top:0">
+          <div class="h-grid">
+            <div class="kv" style="border-style:solid">
               <div class="k">取得額</div>
-              <div class="v">
-                ¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}
-              </div>
+              <div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div>
             </div>
-            <div class="h-kv" style="border-top:none;padding-top:0">
+            <div class="kv" style="border-style:solid">
               <div class="k">保有開始</div>
               <div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div>
             </div>
-            <div class="h-kv">
+            <div class="kv" style="border-style:solid">
               <div class="k">作成</div>
               <div class="v">{{ h.created_at|date:"Y-m-d" }}</div>
             </div>
-            <div class="h-kv">
+            <div class="kv" style="border-style:solid">
               <div class="k">更新</div>
               <div class="v">{{ h.updated_at|date:"Y-m-d" }}</div>
             </div>
