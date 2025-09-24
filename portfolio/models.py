@@ -52,7 +52,14 @@ class Holding(models.Model):
     def __str__(self):
         return f"{self.ticker} x{self.quantity}"
 
-
+    def acquisition_value(self):
+        """取得額 = quantity * avg_cost"""
+        try:
+            return (self.quantity or 0) * (self.avg_cost or 0)
+        except Exception:
+            return 0
+            
+    
 # ==== RealizedTrade ======================================================
 class RealizedTrade(models.Model):
     BROKER_CHOICES = (
