@@ -13,22 +13,23 @@
     border-radius:16px;background:rgba(255,255,255,.04)
   }
 
-  /* ===== スワイプ行 ===== */
+  /* ===== 行ラッパ ===== */
   .row{position:relative}
+
+  /* 本文は固定。もう transform で動かさない！ */
   .track{
-    position:relative;width:100%;z-index:2;
-    transform:translateX(0);transition:transform .18s ease-out;will-change:transform;
-    /* 透け防止：背景をうっすら敷いて背面のactionsが見えないようにする */
+    position:relative;z-index:1;
+    /* 透け防止（任意） */
     background: linear-gradient(180deg, rgba(12,18,28,.72), rgba(12,18,28,.72));
   }
 
-  /* 初期は画面の外へ退避（右:-260px）。開いたら0に。 */
+  /* 右ボタン群：初期は画面外（right:-260px）→ 開いたら 0 */
   .actions{
-    position:absolute;top:0;right:-260px;bottom:0;z-index:1;
+    position:absolute;top:0;right:-260px;bottom:0;z-index:2; /* ←本文より前面 */
     width:260px;display:flex;gap:8px;align-items:center;justify-content:flex-end;
     padding:0 12px;background:rgba(12,18,28,.96);
     border-left:1px solid rgba(255,255,255,.07);backdrop-filter:blur(2px);
-    transition:right .18s ease-out;
+    transition:right .18s ease-out; will-change: right;
   }
   .row.is-open .actions{ right:0; }
 
@@ -41,7 +42,7 @@
     background:rgba(244,63,94,.12);font-size:13px;color:#ffdbe1
   }
 
-  /* ===== 表示部 ===== */
+  /* ===== 本文レイアウト ===== */
   .body{padding:14px}
   .title{display:flex;align-items:center;gap:10px}
   .name{font-weight:800;font-size:20px;letter-spacing:.02em}
@@ -59,14 +60,12 @@
   .kv .k{font-size:12px;color:#97a3b6}
   .kv .v{font-size:18px}
 
-  /* “詳細”は初期非表示。カードに .show-detail が付いたときだけ表示 */
+  /* 詳細はトグル */
   .more{display:none;border-top:1px dashed rgba(255,255,255,.08);padding:10px 14px}
   .row.show-detail .more{display:block}
   .moregrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:6px}
 
-  @media (max-width:480px){
-    .grid{grid-template-columns:1fr 1fr}
-  }
+  @media (max-width:480px){ .grid{grid-template-columns:1fr 1fr} }
 </style>
 {% endblock %}
 
@@ -80,7 +79,7 @@
   <div class="vstack" style="gap:14px">
     {% for h in holdings %}
       <article class="card row" data-swipe>
-        {# 右側アクション（初期は画面外に退避。CSSで right:-260px ） #}
+        {# 右側アクション（本文は固定。ボタンだけ滑り込む） #}
         <div class="actions" aria-hidden="true">
           <button type="button" class="btn-ghost" data-action="detail">詳細</button>
           <a class="btn-ghost" href="{% url 'holding_edit' h.id %}">編集</a>
@@ -91,7 +90,7 @@
                   hx-swap="outerHTML swap:15ms">削除</button>
         </div>
 
-        {# 表示本体（ここを左にスライド） #}
+        {# 本文（固定） #}
         <div class="track">
           <div class="body">
             <header class="title">
@@ -110,7 +109,6 @@
             </div>
           </div>
 
-          {# 隠し“詳細”（初期は非表示。アクションの「詳細」でトグル） #}
           <div class="more">
             <div class="moregrid">
               <div class="kv" style="border:none;padding:0">
@@ -134,80 +132,87 @@
 {% endif %}
 
 <script>
-/* ===== 左スワイプでアクション露出（初期は完全非表示） ===== */
+/* ===== 右ボタンだけスワイプで露出（本文は固定） ===== */
 (function(){
   const rows = document.querySelectorAll('[data-swipe]');
-  const OPEN_W = 260; // アクション幅と一致させる
+  const OPEN_W = 260; // .actions の幅と一致
 
   function closeAll(except){
     document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
       if (r===except) return;
       r.classList.remove('is-open');
-      r.querySelector('.track').style.transform = 'translateX(0)';
+      const a = r.querySelector('.actions');
+      a.style.right = -OPEN_W + 'px';
     });
   }
 
   rows.forEach(row=>{
-    const track = row.querySelector('.track');
+    const actions = row.querySelector('.actions');
     const detailBtn = row.querySelector('[data-action="detail"]');
-    let startX=0, startY=0, dragging=false, horiz=false, opened=false, baseX=0;
 
-    const setX = x => track.style.transform = `translateX(${x}px)`;
+    let startX=0, startY=0, dragging=false, horiz=false;
+    let opened=false, baseRight=-OPEN_W; // 右位置：-260(隠)〜0(表示)
 
-    const onStart = e=>{
+    // 初期位置を念のため確定
+    actions.style.right = -OPEN_W + 'px';
+
+    const setRight = (px)=> actions.style.right = px + 'px';
+
+    const onStart = (e)=>{
       const t = e.touches ? e.touches[0] : e;
       startX = t.clientX; startY = t.clientY;
       dragging = true; horiz = false;
-      baseX = opened ? -OPEN_W : 0;
-      track.style.transition = 'none';
-      // 他の開いている行を閉じる
+      baseRight = opened ? 0 : -OPEN_W;
+      actions.style.transition = 'none';
       if (document.querySelector('[data-swipe].is-open') && !row.classList.contains('is-open')){
         closeAll(row);
       }
     };
 
-    const onMove = e=>{
+    const onMove = (e)=>{
       if(!dragging) return;
       const t = e.touches ? e.touches[0] : e;
       const dx = t.clientX - startX;
       const dy = t.clientY - startY;
 
-      // 横スワイプだけ反応（縦スクロール誤作動防止）
       if(!horiz){
         if(Math.abs(dx) < 8) return;
-        if(Math.abs(dx) > Math.abs(dy)) horiz = true; else { dragging=false; track.style.transition=''; return; }
+        if(Math.abs(dx) > Math.abs(dy)) horiz = true; else { dragging=false; actions.style.transition=''; return; }
       }
       if(e.cancelable) e.preventDefault();
 
-      let nx = Math.min(0, baseX + dx);
-      nx = Math.max(-OPEN_W, nx);
-      setX(nx);
+      // 左へスワイプ（dx<0）で right を -260 → 0 へ近づける
+      let nr = baseRight - dx;
+      if (nr > 0) nr = 0;
+      if (nr < -OPEN_W) nr = -OPEN_W;
+      setRight(nr);
     };
 
     const onEnd = ()=>{
       if(!dragging) return;
-      dragging=false; track.style.transition='';
-      const m = new WebKitCSSMatrix(getComputedStyle(track).transform);
-      opened = (m.m41 < -OPEN_W/2);
-      if (opened){ row.classList.add('is-open'); setX(-OPEN_W); }
-      else       { row.classList.remove('is-open'); setX(0); }
+      dragging=false; actions.style.transition = 'right .18s ease-out';
+      const curRight = parseFloat(getComputedStyle(actions).right) || -OPEN_W;
+      opened = (curRight > -OPEN_W/2);
+      if (opened){ row.classList.add('is-open'); setRight(0); }
+      else       { row.classList.remove('is-open'); setRight(-OPEN_W); }
     };
 
-    track.addEventListener('touchstart', onStart, {passive:true});
-    track.addEventListener('touchmove',  onMove,  {passive:false});
-    track.addEventListener('touchend',   onEnd);
-    track.addEventListener('mousedown',  onStart);
+    // タッチ/マウス両対応
+    row.addEventListener('touchstart', onStart, {passive:true});
+    row.addEventListener('touchmove',  onMove,  {passive:false});
+    row.addEventListener('touchend',   onEnd);
+    row.addEventListener('mousedown',  onStart);
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup',   onEnd);
 
-    // アクション「詳細」 → .more をトグル（メニューは閉じる）
+    // 「詳細」→ .more トグル（メニューは閉じる）
     detailBtn.addEventListener('click', ()=>{
       row.classList.toggle('show-detail');
-      opened = false; row.classList.remove('is-open'); setX(0);
+      opened = false; row.classList.remove('is-open'); setRight(-OPEN_W);
     });
   });
 
-  // 画面外側タップで閉じる
+  // 外側タップで閉じる
   document.addEventListener('click', (ev)=>{
     const r = ev.target.closest('[data-swipe]');
     if (!r) closeAll(null);
