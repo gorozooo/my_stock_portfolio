@@ -20,14 +20,23 @@ def _normalize_code4(s: str) -> str:
 
 @login_required
 def api_ticker_name(request):
-    raw = request.GET.get("code") or request.GET.get("q") or ""
-    code4 = _normalize_code4(raw)
-    ticker = f"{code4}.T" if code4 else str(raw or "")
+    """
+    コード or ティッカーから銘柄名を返す。
+    - trend._normalize_ticker を使って '167A' などの英字混在も許容
+    - JSON/CSV/yfinance の順でフォールバック（trend側の実装に依存）
+    """
+    raw = (request.GET.get("code") or request.GET.get("q") or "").strip()
+    # trend の正規化を使用（'167A' → '167A.T'、'7203' → '7203.T' など）
+    norm_ticker = svc_trend._normalize_ticker(raw)
+    # 表示用・保存用の「コード」は '.T' を外したヘッド（英字混在OK）
+    code_head = norm_ticker.split(".", 1)[0] if norm_ticker else raw.upper()
+
     try:
-        name = svc_trend._fetch_name_prefer_jp(ticker) or ""
+        name = svc_trend._fetch_name_prefer_jp(norm_ticker) or ""
     except Exception:
         name = ""
-    return JsonResponse({"code": code4, "name": name})
+
+    return JsonResponse({"code": code_head, "name": name})
 
 @login_required
 def holding_list(request):
