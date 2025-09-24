@@ -8,7 +8,7 @@
 <style>
   .page-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 
-  /* 縦積みの隙間を確実に */
+  /* 縦積みの隙間 */
   .vstack{ display:flex; flex-direction:column; gap:16px; }
 
   .card{
@@ -31,7 +31,7 @@
     width:var(--open-w); z-index:2;
     display:flex; align-items:stretch; justify-content:center;
     padding:0; transition:right .18s ease-out; will-change:right;
-    background:none; pointer-events:none;               /* 閉じてる時は無効 */
+    background:none; pointer-events:none;
   }
   .row.is-open .actions{ right:0; pointer-events:auto; }
 
@@ -57,30 +57,28 @@
 
   .title{
     display:flex; flex-direction:column; align-items:center; justify-content:center;
-    gap:6px; text-align:center;
+    gap:10px; text-align:center;
   }
-  /* 銘柄名：中央・1行・自動縮小で必ず収める（JSで微調整） */
+  /* 銘柄名：中央・1行・自動縮小（JSで微調整） */
   .name{
-    font-weight:800;
-    /* 初期サイズ（JSが必要に応じて下げる） */
-    font-size:20px;
-    line-height:1.15;
-    white-space:nowrap;                /* 折り返さない */
-    overflow:hidden;                   /* はみ出し非表示（縮小で収める） */
+    font-weight:800; font-size:20px; line-height:1.15;
+    white-space:nowrap; overflow:hidden;
   }
 
-  /* サブ行（コード＋バッジ3つ） */
+  /* 下段：コードもバッジ化して4つを中央に並べる */
   .subline{
-    display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap;
-    color:#9aa4b2; font-size:12px;
+    display:flex; align-items:center; justify-content:center;
+    gap:8px; flex-wrap:wrap;
   }
-  .code{ font-size:12px; color:#9aa4b2; }
+  .badges{ display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
 
-  .badges{ display:flex; gap:6px; }
   .badge{
-    font-size:11px; padding:3px 8px; border:1px solid rgba(255,255,255,.16);
+    font-size:11px; padding:3px 10px;
+    border:1px solid rgba(255,255,255,.16);
     border-radius:9999px; color:#dbe3f4; white-space:nowrap;
+    background:rgba(255,255,255,.06);
   }
+  .badge--code{ color:#c7d2fe; border-color:rgba(110,168,255,.35); background:rgba(110,168,255,.12); }
   .badge.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35)}
   .badge.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
 
@@ -135,10 +133,10 @@
               <!-- 銘柄名：中央・1行・自動縮小 -->
               <div class="name name-fit" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
 
-              <!-- 下段：コード＋バッジ3つ（中央） -->
+              <!-- 下段：コードもバッジ化して中央 -->
               <div class="subline">
-                <span class="code">{{ h.ticker }}</span>
                 <div class="badges">
+                  <span class="badge badge--code">{{ h.ticker }}</span>
                   <span class="badge">{{ h.get_broker_display }}</span>
                   <span class="badge">{{ h.get_account_display }}</span>
                   <span class="badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
@@ -183,7 +181,6 @@
     const v = getComputedStyle(actions).getPropertyValue('--open-w').trim().replace('px','');
     return parseFloat(v || '220');
   }
-
   function closeAll(except){
     document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
       if(r===except) return;
@@ -199,7 +196,6 @@
     const detailBtn = row.querySelector('[data-action="detail"]');
     const OPEN_W = getOpenW(actions);
 
-    // 初期位置
     actions.style.right = (-OPEN_W) + 'px';
     actions.style.pointerEvents = 'none';
 
@@ -208,7 +204,7 @@
     const setRight = (px)=> actions.style.right = px + 'px';
 
     const onStart = (e)=>{
-      if (e.target.closest('.actions')) return; // パネル上のタップではスワイプ開始しない
+      if (e.target.closest('.actions')) return; // パネル上のタップはスワイプ開始しない
       const t = e.touches ? e.touches[0] : e;
       startX=t.clientX; startY=t.clientY;
       drag=true; horiz=false;
@@ -218,84 +214,67 @@
         closeAll(row);
       }
     };
-
     const onMove = (e)=>{
       if(!drag) return;
       const t = e.touches ? e.touches[0] : e;
       const dx=t.clientX-startX, dy=t.clientY-startY;
-
       if(!horiz){
         if(Math.abs(dx)<8) return;
         if(Math.abs(dx)>Math.abs(dy)) horiz=true; else { drag=false; actions.style.transition=''; return; }
       }
       if(e.cancelable) e.preventDefault();
-
-      let nr = baseRight - dx;     // 左へで -OPEN_W → 0
-      if(nr>0) nr=0;
-      if(nr<-OPEN_W) nr=-OPEN_W;
-      setRight(nr);
+      let nr = baseRight - dx; if(nr>0) nr=0; if(nr<-OPEN_W) nr=-OPEN_W; setRight(nr);
     };
-
     const onEnd = ()=>{
       if(!drag) return;
       drag=false; actions.style.transition='right .18s ease-out';
       const curRight = parseFloat(getComputedStyle(actions).right) || -OPEN_W;
       opened = (curRight > -OPEN_W/2);
-      if(opened){
-        row.classList.add('is-open'); setRight(0);
-        actions.style.pointerEvents = 'auto';
-      }else{
-        row.classList.remove('is-open'); setRight(-OPEN_W);
-        actions.style.pointerEvents = 'none';
-      }
+      if(opened){ row.classList.add('is-open'); setRight(0); actions.style.pointerEvents='auto'; }
+      else      { row.classList.remove('is-open'); setRight(-OPEN_W); actions.style.pointerEvents='none'; }
     };
 
     row.addEventListener('touchstart', onStart, {passive:true});
     row.addEventListener('touchmove',  onMove,  {passive:false});
     row.addEventListener('touchend',   onEnd);
 
-    // 「詳細」→ .more トグル（押したら閉じる）
+    // 「詳細」→ .more トグル（押したら閉じる＆再フィット）
     detailBtn.addEventListener('click', ()=>{
       row.classList.toggle('show-detail');
       opened=false; row.classList.remove('is-open'); setRight(-OPEN_W);
       actions.style.pointerEvents = 'none';
-      // クリック後にフォント再フィット（詳細開閉で幅が変わる可能性）
       window.requestAnimationFrame(autoFitNames);
     });
   });
 
-  // 外側タップで閉じる（アクション内は除外）
+  // 外側タップで閉じる
   document.addEventListener('click', (e)=>{
     if (e.target.closest('.actions')) return;
     const r = e.target.closest('[data-swipe]');
-    if(!r) closeAll(null);
+    if(!r) document.querySelectorAll('[data-swipe].is-open').forEach(rr=>{
+      rr.classList.remove('is-open');
+      const a = rr.querySelector('.actions');
+      a.style.right = (-getOpenW(a)) + 'px';
+      a.style.pointerEvents = 'none';
+    });
   });
 })();
 
-/* ===== 銘柄名を1行で収めるために自動縮小 =====
-   - .name-fit 要素の scrollWidth を見て、最大20px → 最小14px の範囲で縮小
-   - 画面回転やリサイズでも再計算
-*/
+/* ===== 銘柄名を1行で収めるための自動縮小 ===== */
 function autoFitNames(){
   const els = document.querySelectorAll('.name-fit');
   els.forEach(el=>{
-    const max = 20; const min = 14;   // px（必要なら調整）
-    // まず最大に戻してから判定
+    const max = 20, min = 14; // px
     el.style.fontSize = max + 'px';
-    // 安全のため親幅を取得
-    const container = el.parentElement; // .title 内
-    const limit = container.clientWidth - 20; // 左右余白分
+    const limit = el.parentElement.clientWidth - 20; // 左右余白分
     let size = max;
-    // はみ出している間は1pxずつ下げる（行数は常に1行）
     while (el.scrollWidth > limit && size > min){
-      size -= 1;
-      el.style.fontSize = size + 'px';
+      size -= 1; el.style.fontSize = size + 'px';
     }
   });
 }
 window.addEventListener('load', autoFitNames);
 window.addEventListener('resize', ()=>{
-  // リサイズで連続発火しすぎないように
   clearTimeout(window.__fitT);
   window.__fitT = setTimeout(autoFitNames, 120);
 });
