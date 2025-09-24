@@ -29,9 +29,6 @@
     }
   </script>
 
-  <!-- 下タブの専用CSS -->
-  <!--<link rel="stylesheet" href="{% static 'css/bottom_tab.css' %}?v=9">-->
-
   {% block head %}{% endblock %}
 </head>
 <body class="bg-slate-950 text-slate-100" hx-ext="swap-on-error">
@@ -44,9 +41,6 @@
 
   <!-- 共通下タブ（マークアップのみ） -->
   {% include "partials/bottom_tab.html" %}
-
-  <!-- 下タブJS -->
-  <!--<script src="{% static 'js/bottom_tab.js' %}?v=16"></script>-->
 
   <!-- 売却シート配線（外部JSにしているなら static 経由で） -->
   <script src="{% static 'js/realized_close.js' %}?v=2"></script>
