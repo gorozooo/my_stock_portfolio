@@ -12,6 +12,7 @@ from .views.realized import (
     chart_daily_heat_json,   # ← 追加（インポート）
 )
 from .views import dev_tools as dev_views
+from .views import holding as hv
 
 urlpatterns = [
     path("", core_views.main, name="home"),
@@ -35,11 +36,11 @@ urlpatterns = [
     path("dev/scan-avg/", dev_views.scan_avg, name="scan_avg"),
     
     # 保有
-    path("holdings/", holding.holding_list, name="holding_list"),
+    path("holdings/", hv.holding_list, name="holding_list"),
     path("holdings/<int:pk>/close", realized_views.close_sheet, name="holding_close_sheet"),
     path("holdings/<int:pk>/close/submit", realized_views.close_submit, name="holding_close_submit"),
-    path("holdings/new/", holding.holding_create, name="holding_create"),
-    path("holdings/<int:pk>/edit/", holding.holding_edit, name="holding_edit"),
+    path("holdings/new/", hv.holding_create, name="holding_create"),
+    path("holdings/<int:pk>/edit/", hv.holding_edit, name="holding_edit"),
 
     # 実現損益（メイン）
     path("realized/", realized_views.list_page, name="realized_list"),
