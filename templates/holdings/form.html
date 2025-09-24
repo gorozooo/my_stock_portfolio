@@ -1,65 +1,101 @@
 {% extends "base.html" %}
 {% block title %}{% if mode == "edit" %}保有を編集{% else %}保有を追加{% endif %}{% endblock %}
 
+{% block head %}
+<style>
+  .form-card{
+    display:grid; gap:16px; padding:18px;
+    border-radius:16px; background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.08);
+    max-width:600px; margin:0 auto;   /* 中央寄せ＋横幅制限 */
+  }
+  .fi label{
+    display:block; font-size:13px; color:#9aa4b2; margin-bottom:4px;
+  }
+  .fi input, .fi select{
+    width:100%; padding:8px 10px; font-size:15px;
+    border-radius:8px; border:1px solid rgba(255,255,255,.16);
+    background:rgba(255,255,255,.06); color:#e6ebff;
+  }
+  .grid-fields{
+    display:grid; gap:12px;
+    grid-template-columns:repeat(auto-fit, minmax(120px,1fr));
+  }
+  .btn-bar{
+    display:flex; gap:12px; margin-top:4px;
+  }
+  .btn-bar button, .btn-bar a{
+    flex:1; text-align:center; padding:10px;
+    border-radius:8px; border:1px solid rgba(255,255,255,.16);
+    background:rgba(255,255,255,.06); color:#e6ebff;
+    text-decoration:none;
+  }
+  .btn-bar button:hover, .btn-bar a:hover{
+    background:rgba(255,255,255,.12);
+  }
+  .error-box{
+    padding:10px; border:1px solid #ff9aa9;
+    background:#2b1f24; color:#ffd1d1;
+    border-radius:8px; font-size:14px;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="pnl">
-  <h1>{% if mode == "edit" %}保有を編集{% else %}保有を追加{% endif %}</h1>
+  <h1 style="margin-bottom:12px">{% if mode == "edit" %}保有を編集{% else %}保有を追加{% endif %}</h1>
 
-  <form method="post" class="mt-4 card" style="display:grid;gap:12px;padding:14px">
+  <form method="post" class="form-card">
     {% csrf_token %}
 
     <div class="fi">
-      <label>ティッカー</label>
+      <label>ティッカー <span style="font-size:12px;color:#888">例: 7203</span></label>
       {{ form.ticker }}
     </div>
     <div class="fi">
-      <label>名称</label>
+      <label>名称 <span style="font-size:12px;color:#888">例: トヨタ自動車</span></label>
       {{ form.name }}
     </div>
 
-    <div class="fi" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
-      <div>
+    <div class="grid-fields">
+      <div class="fi">
         <label>証券会社</label>
         {{ form.broker }}
       </div>
-      <div>
+      <div class="fi">
         <label>口座</label>
         {{ form.account }}
       </div>
-      <div>
+      <div class="fi">
         <label>方向</label>
         {{ form.side }}
       </div>
     </div>
 
-    <div class="fi" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
-      <div>
+    <div class="grid-fields">
+      <div class="fi">
         <label>数量</label>
         {{ form.quantity }}
       </div>
-      <div>
+      <div class="fi">
         <label>平均取得単価</label>
         {{ form.avg_cost }}
       </div>
-      <div>
+      <div class="fi">
         <label>保有開始日</label>
         {{ form.opened_at }}
       </div>
     </div>
 
     {% if form.errors %}
-      <div class="rounded-lg" style="padding:10px;border:1px solid #ff9aa9;background:#2b1f24;color:#ffd1d1">
+      <div class="error-box">
         入力に誤りがあります。確認してください。
       </div>
     {% endif %}
 
-    <div class="mt-2" style="display:flex;gap:10px">
-      <button type="submit" class="px-3 py-2 rounded-lg"
-              style="border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);">
-        保存
-      </button>
-      <a href="{% url 'holding_list' %}" class="px-3 py-2 rounded-lg"
-         style="border:1px solid rgba(255,255,255,.14);">戻る</a>
+    <div class="btn-bar">
+      <button type="submit">保存</button>
+      <a href="{% url 'holding_list' %}">戻る</a>
     </div>
   </form>
 </div>
