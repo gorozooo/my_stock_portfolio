@@ -1,5 +1,9 @@
-{# === 保有一覧カード === #}
-{% load humanize num %}
+{# templates/holdings/list.html #}
+{% extends "base.html" %}
+{% load static humanize num %}
+{% block title %}保有一覧{% endblock %}
+
+{% block head %}
 <style>
   .h-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px 14px 12px}
   .h-title{display:flex;align-items:center;gap:10px}
@@ -15,7 +19,6 @@
   .h-kv{display:flex;justify-content:space-between;gap:8px;border-top:1px dashed rgba(255,255,255,.07);padding:10px 2px 0}
   .h-kv .k{font-size:12px;color:#97a3b6}
   .h-kv .v{font-size:16px}
-  .h-foot{margin-top:8px}
   details.h-more{border-top:1px dashed rgba(255,255,255,.08);margin-top:10px;padding-top:10px}
   details.h-more summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;color:#aeb8cc}
   details.h-more summary::-webkit-details-marker{display:none}
@@ -28,7 +31,9 @@
     .h-main{grid-template-columns:1fr 1fr;gap:8px}
   }
 </style>
+{% endblock %}
 
+{% block content %}
 <div class="fi fi-between" style="margin-bottom:10px">
   <h1>保有一覧</h1>
   <a href="{% url 'holding_create' %}" class="btn btn-outline">＋ 新規登録</a>
@@ -38,23 +43,21 @@
   <div class="vstack" style="gap:14px">
     {% for h in holdings %}
       <article class="h-card">
-        {# --- ヘッダ行：銘柄名の右にチップを横並び --- #}
+        {# --- ヘッダ：銘柄名の右にチップ --- #}
         <header class="h-title">
           <div class="h-name">{{ h.name|default:"-" }}</div>
           <div class="h-code">{{ h.ticker }}</div>
           <div class="h-badges">
             <span class="h-badge">{{ h.get_broker_display }}</span>
             <span class="h-badge">{{ h.get_account_display }}</span>
-            <span class="h-badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">
-              {{ h.side }}
-            </span>
+            <span class="h-badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
           </div>
           <div class="h-edit">
             <a href="{% url 'holding_edit' h.id %}">編集</a>
           </div>
         </header>
 
-        {# --- メイン3カラム：数量 / 平均取得 / 損益（後で実装） --- #}
+        {# --- メイン：数量 / 平均取得 / 損益（評価は後日） --- #}
         <div class="h-main">
           <div class="h-kv">
             <div class="k">数量</div>
@@ -66,18 +69,19 @@
           </div>
           <div class="h-kv">
             <div class="k">損益（評価）</div>
-            {# TODO: 後で現在値から計算。とりあえずダッシュを表示 #}
-            <div class="v muted">—</div>
+            <div class="v muted">—</div> {# TODO: 現在値連動で実装 #}
           </div>
         </div>
 
-        {# --- 詳細タブ（開閉）: 取得額 / 保有開始など旧項目はここへ --- #}
+        {# --- 詳細（開閉）: 取得額 / 保有開始など --- #}
         <details class="h-more">
           <summary>詳細を表示</summary>
           <div class="h-moregrid">
             <div class="h-kv" style="border-top:none;padding-top:0">
               <div class="k">取得額</div>
-              <div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div>
+              <div class="v">
+                ¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}
+              </div>
             </div>
             <div class="h-kv" style="border-top:none;padding-top:0">
               <div class="k">保有開始</div>
@@ -99,3 +103,4 @@
 {% else %}
   <div class="muted">保有はまだありません。</div>
 {% endif %}
+{% endblock %}
