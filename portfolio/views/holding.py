@@ -38,11 +38,21 @@ def holding_edit(request, pk):
         form = HoldingForm(instance=obj)
     return render(request, "holdings/form.html", {"form": form, "mode": "edit", "obj": obj})
     
-    def holding_delete(request, pk):
-    holding = get_object_or_404(Holding, pk=pk)
-    holding.delete()
-    # HTMX用に空レスポンス
-    if request.headers.get("HX-Request"):
-        return HttpResponse("")  
+@login_required
+@require_POST
+def holding_delete(request, pk: int):
+    """保有を削除（HTMX/通常POST両対応）"""
+    # user フィールド有無の両対応で安全に取得
+    filters = {"pk": pk}
+    if any(f.name == "user" for f in Holding._meta.fields):
+        filters["user"] = request.user
+
+    h = get_object_or_404(Holding, **filters)
+    h.delete()
+
+    # HTMX なら対象DOMを消すだけで良いので空レスポンス
+    if request.headers.get("HX-Request") == "true":
+        return HttpResponse("")
+
     return redirect("holding_list")
     
