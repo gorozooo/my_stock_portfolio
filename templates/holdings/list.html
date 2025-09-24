@@ -4,46 +4,59 @@
 
 {% block head %}
 <style>
+  :root{
+    --fg-muted:#94a3b8;
+    --chip-bd:rgba(255,255,255,.22);
+    --card-bd:rgba(255,255,255,.14);
+    --div-bd:rgba(255,255,255,.08);
+  }
   /* 共通 */
-  .card{padding:12px;border:1px solid rgba(255,255,255,.10);border-radius:12px;background:rgba(255,255,255,.04)}
-  .badge{font-size:12px;padding:2px 8px;border:1px solid rgba(255,255,255,.18);border-radius:9999px}
-  .muted{color:#94a3b8}
+  .muted{color:var(--fg-muted)}
   .mono{font-variant-numeric: tabular-nums}
+  .num{text-align:right;font-variant-numeric: tabular-nums}
   .nowrap{white-space:nowrap}
-  .grid-2{display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:center}
-  .num{ text-align:right; font-variant-numeric: tabular-nums }
-  .row + .row{border-top:1px dashed rgba(255,255,255,.08);margin-top:8px;padding-top:8px}
+  .chip{
+    font-size:12px;padding:4px 10px;border:1px solid var(--chip-bd);
+    border-radius:9999px;background:rgba(255,255,255,.06)
+  }
+  .chip-acc{border-color:rgba(148,163,184,.35)}
+  .chip-acc.margin{border-color:rgba(234,179,8,.55);background:rgba(234,179,8,.08)}
+  .chip-acc.nisa{border-color:rgba(59,130,246,.60);background:rgba(59,130,246,.10)}
+  .chip-side.buy{border-color:rgba(16,185,129,.55);background:rgba(16,185,129,.10)}
+  .chip-side.sell{border-color:rgba(244,63,94,.55);background:rgba(244,63,94,.10)}
 
-  /* スマホ = カード表示 */
-  .holdings-cards{display:grid;gap:10px}
-  .hcard-head{display:flex;justify-content:space-between;gap:8px;align-items:center}
-  .hcard-title{font-size:16px;font-weight:600}
-  .hcard-ticker{font-size:12px;opacity:.85}
-  .badges{display:flex;gap:6px;flex-wrap:wrap}
-  .kv{display:grid;grid-template-columns:90px 1fr;gap:4px 8px;margin-top:8px}
-  .kv b{font-size:12px;color:#a7b1d8;font-weight:500}
-  .kv div{justify-self:end}
+  /* ===== モバイル：カード表示 ===== */
+  .cards{display:grid;gap:14px}
+  .card{
+    padding:14px 14px 10px;border:1px solid var(--card-bd);
+    border-radius:14px;background:rgba(255,255,255,.04)
+  }
+  .head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px}
+  .title{font-size:17px;font-weight:700;line-height:1.15;margin-bottom:2px}
+  .ticker{font-size:12px;color:var(--fg-muted)}
+  .edit{font-size:12px;padding:6px 10px;border-radius:10px;border:1px solid var(--chip-bd)}
+  .badges{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 4px}
 
-  /* PC = テーブル表示 */
+  /* ラベル列は小さく薄く、値は大きく太く */
+  .kv{display:grid;grid-template-columns:96px 1fr;align-items:baseline;row-gap:10px}
+  .kv .k{font-size:12px;color:#a7b1d8}
+  .kv .v{font-size:16px;font-weight:600;letter-spacing:.2px}
+  .kv .v.num{font-size:17px}
+  .divider{border-top:1px dashed var(--div-bd);margin:10px 0 8px}
+
+  /* ===== PC：表 ===== */
   @media (min-width: 820px){
-    .holdings-cards{display:none}
-    .holdings-table{display:block}
+    .cards{display:none}
+    .table-wrap{display:block}
     table{width:100%;border-collapse:separate;border-spacing:0}
-    thead th{font-size:12px;color:#a7b1d8;padding:8px 8px;text-align:left;position:sticky;top:0;background:rgba(0,0,0,.25);backdrop-filter: blur(4px)}
-    tbody td{padding:10px 8px;border-top:1px solid rgba(255,255,255,.08)}
+    thead th{font-size:12px;color:#a7b1d8;padding:10px 8px;text-align:left;
+      position:sticky;top:0;background:rgba(0,0,0,.25);backdrop-filter: blur(4px)}
+    tbody td{padding:12px 8px;border-top:1px solid var(--div-bd)}
     tbody tr:hover{background:rgba(255,255,255,.03)}
   }
-  /* モバイルではテーブル非表示 */
   @media (max-width: 819.98px){
-    .holdings-table{display:none}
+    .table-wrap{display:none}
   }
-
-  /* 色味（方向/口座） */
-  .side-buy{border-color:rgba(16,185,129,.35)}
-  .side-sell{border-color:rgba(244,63,94,.35)}
-  .acc-spec{border-color:rgba(148,163,184,.35)}
-  .acc-margin{border-color:rgba(234,179,8,.45)}
-  .acc-nisa{border-color:rgba(59,130,246,.45)}
 </style>
 {% endblock %}
 
@@ -53,40 +66,45 @@
 
   <div class="mt-3 mb-3">
     <a href="{% url 'holding_create' %}"
-       class="px-3 py-2 rounded-lg"
-       style="border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);">
-      ＋ 新規登録
-    </a>
+       class="chip">＋ 新規登録</a>
   </div>
 
-  {# ===== モバイル：カード表示 ===== #}
-  <div class="holdings-cards">
+  <!-- ===== モバイル：カード ===== -->
+  <div class="cards">
     {% for h in holdings %}
       <div class="card">
-        <div class="hcard-head">
+        <div class="head">
           <div>
-            <div class="hcard-title">{{ h.name|default:h.ticker }}</div>
-            <div class="hcard-ticker muted">{{ h.ticker }}</div>
+            <div class="title">{{ h.name|default:h.ticker }}</div>
+            <div class="ticker">{{ h.ticker }}</div>
           </div>
-          <a href="{% url 'holding_edit' h.pk %}"
-             class="badge">編集</a>
+          <a href="{% url 'holding_edit' h.pk %}" class="edit">編集</a>
         </div>
 
-        <div class="badges" style="margin-top:8px">
-          <span class="badge">{{ h.get_broker_display }}</span>
-          <span class="badge acc-{% if h.account == 'MARGIN' %}margin{% elif h.account == 'NISA' %}nisa{% else %}spec{% endif %}">
+        <div class="badges">
+          <span class="chip">{{ h.get_broker_display }}</span>
+          <span class="chip chip-acc {% if h.account == 'MARGIN' %}margin{% elif h.account == 'NISA' %}nisa{% endif %}">
             {{ h.get_account_display }}
           </span>
-          <span class="badge side-{% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">
+          <span class="chip chip-side {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">
             {{ h.get_side_display }}
           </span>
         </div>
 
+        <div class="divider"></div>
+
         <div class="kv mono">
-          <b>数量</b><div class="num">{{ h.quantity|intcomma }}</div>
-          <b>平均取得</b><div class="num">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
-          <b>取得額</b><div class="num">¥{{ h.acquisition_value|floatformat:0|intcomma }}</div>
-          <b>保有開始</b><div class="nowrap">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div>
+          <div class="k">数量</div>
+          <div class="v num">{{ h.quantity|intcomma }}</div>
+
+          <div class="k">平均取得</div>
+          <div class="v num">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
+
+          <div class="k">取得額</div>
+          <div class="v num">¥{{ h.acquisition_value|floatformat:0|intcomma }}</div>
+
+          <div class="k">保有開始</div>
+          <div class="v nowrap">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div>
         </div>
       </div>
     {% empty %}
@@ -94,9 +112,9 @@
     {% endfor %}
   </div>
 
-  {# ===== PC：テーブル表示 ===== #}
-  <div class="holdings-table card" style="overflow:auto">
-    <table>
+  <!-- ===== PC：テーブル ===== -->
+  <div class="table-wrap">
+    <table class="mono">
       <thead>
         <tr>
           <th>ティッカー</th>
@@ -111,7 +129,7 @@
           <th></th>
         </tr>
       </thead>
-      <tbody class="mono">
+      <tbody>
         {% for h in holdings %}
           <tr>
             <td>{{ h.ticker }}</td>
@@ -123,7 +141,7 @@
             <td class="num">¥{{ h.avg_cost|floatformat:0|intcomma }}</td>
             <td class="num">¥{{ h.acquisition_value|floatformat:0|intcomma }}</td>
             <td class="nowrap">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</td>
-            <td><a href="{% url 'holding_edit' h.pk %}" class="badge">編集</a></td>
+            <td><a href="{% url 'holding_edit' h.pk %}" class="chip">編集</a></td>
           </tr>
         {% empty %}
           <tr><td colspan="10" class="muted" style="padding:12px">データなし</td></tr>
