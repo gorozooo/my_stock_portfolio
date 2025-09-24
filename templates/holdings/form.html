@@ -7,7 +7,7 @@
     display:grid; gap:16px; padding:18px;
     border-radius:16px; background:rgba(255,255,255,.04);
     border:1px solid rgba(255,255,255,.08);
-    max-width:600px; margin:0 auto;   /* 中央寄せ＋横幅制限（はみ出し防止） */
+    max-width:600px; margin:0 auto;
   }
   .fi label{
     display:block; font-size:13px; color:#9aa4b2; margin-bottom:4px;
@@ -23,7 +23,7 @@
   }
   .grid-fields{
     display:grid; gap:12px;
-    grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); /* 画面幅で自動折り返し */
+    grid-template-columns:repeat(auto-fit, minmax(120px,1fr));
   }
   .btn-bar{
     display:flex; gap:12px; margin-top:4px;
@@ -91,7 +91,7 @@
       </div>
     </div>
 
-    <!-- ★ 追加：メモ -->
+    <!-- ★ メモ欄 -->
     <div class="fi">
       <label>メモ <span style="font-size:12px;color:#888">自由記入（売買理由・補足など）</span></label>
       {{ form.memo }}
