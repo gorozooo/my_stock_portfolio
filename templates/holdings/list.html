@@ -1,201 +1,156 @@
 {# templates/holdings/list.html #}
 {% extends "base.html" %}
 {% load static humanize num %}
+
 {% block title %}保有一覧{% endblock %}
 
 {% block head %}
 <style>
-  .h-wrap{display:grid;gap:14px}
-
-  /* --- Swipeable Card -------------------------------------------------- */
-  .h-row{position:relative; overflow:hidden; border-radius:14px}
-  .h-actions{
-    position:absolute; inset:0 0 0 auto;      /* 右側に固定 */
-    width:220px; display:flex; gap:8px; align-items:center; justify-content:center;
-    background:linear-gradient(180deg,rgba(15,23,42,.94),rgba(15,23,42,.92));
-    border:1px solid rgba(255,255,255,.12); border-left:0; border-radius:14px;
-  }
-  .h-action{display:flex;flex-direction:column;align-items:center;gap:6px;
-            padding:10px 12px;border:1px solid rgba(255,255,255,.18);border-radius:12px;
-            min-width:60px;font-size:12px}
-  .h-action--edit{background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.35)}
-  .h-action--more{background:rgba(148,163,184,.10)}
-  .h-action--del {background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35); color:#fecaca}
-  .h-track{
-    position:relative; z-index:2;
-    background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.02));
-    border:1px solid rgba(255,255,255,.10); border-radius:14px;
-    padding:12px; will-change: transform;
-    touch-action: pan-y;   /* 縦スクロールはOK、横は自前で */
-  }
-  .h-row[data-open="1"] .h-track{ transform: translateX(-220px); }
-
-  /* --- Card content ---------------------------------------------------- */
-  .h-top{display:flex;align-items:center;gap:10px}
-  .h-name{font-weight:700;font-size:18px;letter-spacing:.01em}
-  .h-code{font-size:12px;color:#93a0b4}
-  .h-chips{display:flex;gap:6px;flex-wrap:wrap;margin-left:6px}
-  .chip{font-size:11px;padding:3px 8px;border-radius:9999px;border:1px solid rgba(255,255,255,.14);color:#dbe3f4}
-  .chip--buy{background:rgba(16,185,129,.14);border-color:rgba(16,185,129,.35)}
-  .chip--sell{background:rgba(244,63,94,.14);border-color:rgba(244,63,94,.35)}
-  .kebab{margin-left:auto;display:inline-flex;align-items:center; justify-content:center;
-         width:32px;height:32px;border-radius:8px;border:1px solid rgba(255,255,255,.18);opacity:.8}
-
-  .h-main{display:grid;grid-template-columns:1fr auto;gap:12px;margin-top:10px;align-items:center}
-  .h-kvs{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
-  .kv{display:flex;justify-content:space-between;gap:8px;padding:10px;border:1px dashed rgba(255,255,255,.08);border-radius:10px}
-  .kv .k{font-size:12px;color:#9aa7bb}
-  .kv .v{font-size:16px}
-  .h-pnl{text-align:right;min-width:120px;padding:8px 0 8px 12px;border-left:1px solid rgba(255,255,255,.08)}
-  .h-pnl .k{font-size:12px;color:#9aa7bb}
-  .h-pnl .v{font-size:18px}
-  .muted{color:#9aa4b2}
-
-  details.h-more{margin-top:8px}
-  details.h-more summary{cursor:pointer;list-style:none;color:#aeb8cc;display:inline-flex;gap:8px;align-items:center}
-  details.h-more summary::-webkit-details-marker{display:none}
-  .h-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:6px}
-  @media (max-width:480px){
-    .h-main{grid-template-columns:1fr;gap:8px}
-    .h-pnl{border-left:none;border-top:1px solid rgba(255,255,255,.08);padding-left:0;padding-top:10px}
-    .h-grid{grid-template-columns:1fr}
-  }
+  .h-wrap{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .h-card{position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.08);
+          border-radius:16px;background:rgba(255,255,255,.04)}
+  .h-row{position:relative;height:100%}
+  .h-track{position:relative;z-index:2;transform:translateX(0);transition:transform .18s ease-out}
+  .h-actions{position:absolute;inset:0 0 0 auto;width:230px;display:flex;gap:8px;align-items:center;justify-content:flex-end;
+             padding:0 12px;z-index:1; background:rgba(14,21,34,.9);backdrop-filter:blur(2px);border-left:1px solid rgba(255,255,255,.06)}
+  .h-btn{padding:9px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.18);font-size:13px}
+  .h-btn.warn{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
+  .h-btn.ghost{background:transparent}
+  .h-body{padding:14px}
+  .h-title{display:flex;align-items:center;gap:10px}
+  .h-name{font-weight:800;font-size:20px;letter-spacing:.02em}
+  .h-code{font-size:12px;color:#9aa4b2}
+  .h-badges{display:flex;flex-wrap:wrap;gap:6px;margin-left:6px}
+  .h-badge{font-size:11px;padding:3px 8px;border:1px solid rgba(255,255,255,.16);border-radius:9999px;color:#dbe3f4}
+  .h-badge.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35)}
+  .h-badge.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
+  .h-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;
+          border-top:1px dashed rgba(255,255,255,.08);padding-top:10px}
+  .kv{display:flex;justify-content:space-between;gap:8px}
+  .kv .k{font-size:12px;color:#97a3b6}
+  .kv .v{font-size:18px}
+  @media (max-width:480px){ .h-grid{grid-template-columns:1fr 1fr} }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="fi fi-between" style="margin-bottom:12px">
+<div class="h-wrap">
   <h1>保有一覧</h1>
   <a href="{% url 'holding_create' %}" class="btn btn-outline">＋ 新規登録</a>
 </div>
 
 {% if holdings %}
-  <div class="h-wrap">
+  <div class="vstack" style="gap:14px">
     {% for h in holdings %}
-      <div class="h-row" data-open="0">
-        <!-- 右側アクション（スワイプで出現） -->
+      <article class="h-card h-row" data-swipe>
+        <!-- アクション（右固定／最初は隠れている） -->
         <div class="h-actions" aria-hidden="true">
-          <a class="h-action h-action--more" href="#"
-             onclick="this.closest('.h-row').querySelector('details.h-more').open = true; return false;">詳細</a>
-          <a class="h-action h-action--edit" href="{% url 'holding_edit' h.id %}">編集</a>
-          <button class="h-action h-action--del"
+          <a class="h-btn ghost" href="{% url 'holding_edit' h.id %}">編集</a>
+          <button class="h-btn warn"
                   hx-post="{% url 'holding_delete' h.id %}"
                   hx-confirm="削除しますか？"
-                  hx-target="closest .h-row"
-                  hx-swap="outerHTML swap:1s"
-                  >削除</button>
+                  hx-target="closest [data-swipe]"
+                  hx-swap="outerHTML swap:15ms">削除</button>
         </div>
 
-        <!-- 表示面（スワイプ対象） -->
+        <!-- 本体（スワイプで左にスライド） -->
         <div class="h-track">
-          <div class="h-top">
-            <div class="h-name">{{ h.name|default:"-" }}</div>
-            <div class="h-code">{{ h.ticker }}</div>
-            <div class="h-chips">
-              <span class="chip">{{ h.get_broker_display }}</span>
-              <span class="chip">{{ h.get_account_display }}</span>
-              <span class="chip {% if h.side == 'SELL' %}chip--sell{% else %}chip--buy{% endif %}">{{ h.side }}</span>
-            </div>
-            <!-- スワイプ非対応時のフォールバック（開閉メニュー） -->
-            <button class="kebab" type="button" aria-label="メニュー"
-              onclick="toggleRowMenu(this)"><span>⋯</span></button>
-          </div>
+          <div class="h-body">
+            <header class="h-title">
+              <div class="h-name">{{ h.name|default:"-" }}</div>
+              <div class="h-code">{{ h.ticker }}</div>
+              <div class="h-badges">
+                <span class="h-badge">{{ h.get_broker_display }}</span>
+                <span class="h-badge">{{ h.get_account_display }}</span>
+                <span class="h-badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
+              </div>
+            </header>
 
-          <div class="h-main">
-            <div class="h-kvs">
-              <div class="kv"><div class="k">数量</div><div class="v">{{ h.quantity|intcomma }}</div></div>
-              <div class="kv"><div class="k">平均取得</div><div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div></div>
-            </div>
-            <div class="h-pnl">
-              <div class="k">損益（評価）</div>
-              <div class="v muted">—</div>
-            </div>
-          </div>
-
-          <details class="h-more">
-            <summary>詳細を表示</summary>
             <div class="h-grid">
-              <div class="kv" style="border-style:solid"><div class="k">取得額</div>
-                <div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div></div>
-              <div class="kv" style="border-style:solid"><div class="k">保有開始</div>
-                <div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div></div>
-              <div class="kv" style="border-style:solid"><div class="k">作成</div>
-                <div class="v">{{ h.created_at|date:"Y-m-d" }}</div></div>
-              <div class="kv" style="border-style:solid"><div class="k">更新</div>
-                <div class="v">{{ h.updated_at|date:"Y-m-d" }}</div></div>
+              <div class="kv">
+                <div class="k">数量</div>
+                <div class="v">{{ h.quantity|intcomma }}</div>
+              </div>
+              <div class="kv">
+                <div class="k">平均取得</div>
+                <div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
+              </div>
+              {# 評価損益は後で実装（現在値×数量 − 取得額） #}
             </div>
-          </details>
+          </div>
         </div>
-      </div>
+      </article>
     {% endfor %}
   </div>
 {% else %}
-  <div class="muted">保有はまだありません。</div>
+  <div class="text-slate-400">保有はまだありません。</div>
 {% endif %}
 
 <script>
-/* ---- Swipe logic (vanilla JS) --------------------------------------- */
+/* ===== 左スワイプでアクション表示 ===== */
 (function(){
-  const OPEN_X = -220;   // 開いた位置
-  const THRESH = 70;     // スワイプ判定閾値
-  let active=null, startX=0, curX=0, open=false;
-
-  function onStart(e){
-    const row = e.currentTarget.closest('.h-row');
-    active = row;
-    open = row.dataset.open === '1';
-    startX = (e.touches? e.touches[0].clientX : e.clientX);
-    curX = 0;
-    row.querySelector('.h-track').style.transition='none';
-  }
-  function onMove(e){
-    if(!active) return;
-    const x = (e.touches? e.touches[0].clientX : e.clientX);
-    curX = x - startX;
-    // 右スワイプで閉じ、左スワイプで開き方向
-    let tx = open ? OPEN_X + curX : curX;
-    tx = Math.min(0, Math.max(OPEN_X-40, tx));      // 左に行き過ぎない
-    active.querySelector('.h-track').style.transform = `translateX(${tx}px)`;
-  }
-  function onEnd(){
-    if(!active) return;
-    const row = active;
+  const rows = document.querySelectorAll('[data-swipe]');
+  rows.forEach(row=>{
     const track = row.querySelector('.h-track');
-    track.style.transition='transform .18s ease';
-    // 開閉判定
-    let willOpen = open ? !(curX > THRESH) : (curX < -THRESH);
-    row.dataset.open = willOpen ? '1' : '0';
-    track.style.transform = willOpen ? `translateX(${OPEN_X}px)` : 'translateX(0)';
-    active=null;
-  }
+    const actions = row.querySelector('.h-actions');
+    const OPEN_X = actions.offsetWidth || 230; // スライド量
 
-  document.querySelectorAll('.h-track').forEach(t=>{
-    t.addEventListener('touchstart', onStart, {passive:true});
-    t.addEventListener('touchmove',  onMove,  {passive:true});
-    t.addEventListener('touchend',   onEnd);
-    t.addEventListener('mousedown',  onStart);
-    t.addEventListener('mousemove',  onMove);
-    t.addEventListener('mouseup',    onEnd);
-    t.addEventListener('mouseleave', onEnd);
-  });
+    let startX=0, curX=0, dragging=false, opened=false;
 
-  // 画面をタップしたら他の開いている行は閉じる
-  document.addEventListener('click', (e)=>{
-    document.querySelectorAll('.h-row[data-open="1"]').forEach(r=>{
-      if(!r.contains(e.target)){
-        r.dataset.open='0';
-        r.querySelector('.h-track').style.transform='translateX(0)';
+    const setX = x => { track.style.transform = `translateX(${x}px)`; };
+
+    const closeAll = () => {
+      document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
+        r.classList.remove('is-open');
+        r.querySelector('.h-track').style.transform = 'translateX(0)';
+      });
+    };
+
+    const onStart = (e)=>{
+      dragging = true;
+      startX = (e.touches ? e.touches[0].clientX : e.clientX);
+      curX = opened ? -OPEN_X : 0;
+      track.style.transition = 'none';
+    };
+    const onMove = (e)=>{
+      if(!dragging) return;
+      const x = (e.touches ? e.touches[0].clientX : e.clientX) - startX;
+      // 左へのみ
+      let nx = Math.min(0, curX + x);
+      nx = Math.max(-OPEN_X, nx);
+      setX(nx);
+    };
+    const onEnd = (e)=>{
+      if(!dragging) return;
+      dragging = false;
+      track.style.transition = '';
+      const matrix = new WebKitCSSMatrix(getComputedStyle(track).transform);
+      const moved = matrix.m41; // 現在のtranslateX
+      const shouldOpen = moved < -OPEN_X/2;
+      opened = shouldOpen;
+      if (shouldOpen){
+        closeAll();
+        row.classList.add('is-open');
+        setX(-OPEN_X);
+      }else{
+        row.classList.remove('is-open');
+        setX(0);
       }
+    };
+
+    // タッチ/マウス両対応
+    track.addEventListener('touchstart', onStart, {passive:true});
+    track.addEventListener('touchmove',  onMove,  {passive:true});
+    track.addEventListener('touchend',   onEnd);
+    track.addEventListener('mousedown',  onStart);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup',   onEnd);
+
+    // どこか他をタップしたら閉じる
+    document.addEventListener('click', (ev)=>{
+      if (!row.contains(ev.target)) { opened=false; row.classList.remove('is-open'); setX(0); }
     });
   });
 })();
-
-// kebab フォールバック：タップで開閉
-function toggleRowMenu(btn){
-  const row = btn.closest('.h-row');
-  const opened = row.dataset.open === '1';
-  row.dataset.open = opened ? '0' : '1';
-  row.querySelector('.h-track').style.transform = opened ? 'translateX(0)' : 'translateX(-220px)';
-}
 </script>
 {% endblock %}
