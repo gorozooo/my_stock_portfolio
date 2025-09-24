@@ -41,7 +41,7 @@
       {{ form.ticker }}
     </div>
     <div class="fi">
-      <label>銘柄 <span class="hint">例: トヨタ自動車（コード入力で自動反映）</span></label>
+      <label>銘柄 <span class="hint">コード入力で自動反映（上書き可能）</span></label>
       {{ form.name }}
     </div>
 
@@ -57,7 +57,6 @@
       <div class="fi"><label>保有開始日</label>{{ form.opened_at }}</div>
     </div>
 
-    <!-- メモ -->
     <div class="fi">
       <label>メモ <span class="hint">自由記入（売買理由・補足など）</span></label>
       {{ form.memo }}
@@ -82,7 +81,10 @@
   if (!$ticker || !$name) return;
 
   let userEditedName = false;
-  $name.addEventListener('input', ()=>{ userEditedName = true; });
+  $name.addEventListener('input', ()=>{
+    // ユーザーが自分で入力を始めたら自動上書きは控える
+    userEditedName = true;
+  });
 
   function debounce(fn, ms){
     let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn.apply(null,args), ms); };
@@ -90,23 +92,23 @@
 
   function lookup(){
     const v = ($ticker.value || '').trim();
-    if (v.length < 3) return;
+    if (!v) return;
     fetch(`${endpoint}?code=${encodeURIComponent(v)}`, {credentials:'same-origin'})
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(data => {
-        // コード正規化（'7203.T' → '7203' など）
+        // コード正規化（'7203.T' → '7203'）
         if (data.code && data.code !== $ticker.value.trim()){
           $ticker.value = data.code;
         }
-        // ユーザーが自分で編集していない／空欄なら自動補完
+        // ユーザー未編集 or name が空のときだけ自動反映
         if (data.name && (!userEditedName || !$name.value.trim())){
           $name.value = data.name;
         }
       })
-      .catch(()=>{ /* 無視 */});
+      .catch(()=>{ /* 失敗時は何もしない */ });
   }
 
-  $ticker.addEventListener('input', debounce(lookup, 300));
+  $ticker.addEventListener('input', debounce(lookup, 250));
   $ticker.addEventListener('change', lookup);
   $ticker.addEventListener('blur', lookup);
 })();
