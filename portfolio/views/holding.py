@@ -6,7 +6,7 @@ from ..forms import HoldingForm
 
 @login_required
 def holding_list(request):
-    holdings = Holding.objects.filter(user=request.user).order_by("-trade_at")
+    holdings = Holding.objects.filter(user=request.user).order_by("-opened_at", "-id")
     return render(request, "holdings/list.html", {"holdings": holdings})
 
 @login_required
