@@ -2,6 +2,51 @@
 {% load humanize %}
 {% block title %}保有一覧{% endblock %}
 
+{% block head %}
+<style>
+  /* 共通 */
+  .card{padding:12px;border:1px solid rgba(255,255,255,.10);border-radius:12px;background:rgba(255,255,255,.04)}
+  .badge{font-size:12px;padding:2px 8px;border:1px solid rgba(255,255,255,.18);border-radius:9999px}
+  .muted{color:#94a3b8}
+  .mono{font-variant-numeric: tabular-nums}
+  .nowrap{white-space:nowrap}
+  .grid-2{display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:center}
+  .num{ text-align:right; font-variant-numeric: tabular-nums }
+  .row + .row{border-top:1px dashed rgba(255,255,255,.08);margin-top:8px;padding-top:8px}
+
+  /* スマホ = カード表示 */
+  .holdings-cards{display:grid;gap:10px}
+  .hcard-head{display:flex;justify-content:space-between;gap:8px;align-items:center}
+  .hcard-title{font-size:16px;font-weight:600}
+  .hcard-ticker{font-size:12px;opacity:.85}
+  .badges{display:flex;gap:6px;flex-wrap:wrap}
+  .kv{display:grid;grid-template-columns:90px 1fr;gap:4px 8px;margin-top:8px}
+  .kv b{font-size:12px;color:#a7b1d8;font-weight:500}
+  .kv div{justify-self:end}
+
+  /* PC = テーブル表示 */
+  @media (min-width: 820px){
+    .holdings-cards{display:none}
+    .holdings-table{display:block}
+    table{width:100%;border-collapse:separate;border-spacing:0}
+    thead th{font-size:12px;color:#a7b1d8;padding:8px 8px;text-align:left;position:sticky;top:0;background:rgba(0,0,0,.25);backdrop-filter: blur(4px)}
+    tbody td{padding:10px 8px;border-top:1px solid rgba(255,255,255,.08)}
+    tbody tr:hover{background:rgba(255,255,255,.03)}
+  }
+  /* モバイルではテーブル非表示 */
+  @media (max-width: 819.98px){
+    .holdings-table{display:none}
+  }
+
+  /* 色味（方向/口座） */
+  .side-buy{border-color:rgba(16,185,129,.35)}
+  .side-sell{border-color:rgba(244,63,94,.35)}
+  .acc-spec{border-color:rgba(148,163,184,.35)}
+  .acc-margin{border-color:rgba(234,179,8,.45)}
+  .acc-nisa{border-color:rgba(59,130,246,.45)}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="pnl">
   <h1>保有一覧</h1>
@@ -14,44 +59,74 @@
     </a>
   </div>
 
-  <div class="card">
-    <table class="w-full" style="border-collapse:separate;border-spacing:0">
+  {# ===== モバイル：カード表示 ===== #}
+  <div class="holdings-cards">
+    {% for h in holdings %}
+      <div class="card">
+        <div class="hcard-head">
+          <div>
+            <div class="hcard-title">{{ h.name|default:h.ticker }}</div>
+            <div class="hcard-ticker muted">{{ h.ticker }}</div>
+          </div>
+          <a href="{% url 'holding_edit' h.pk %}"
+             class="badge">編集</a>
+        </div>
+
+        <div class="badges" style="margin-top:8px">
+          <span class="badge">{{ h.get_broker_display }}</span>
+          <span class="badge acc-{% if h.account == 'MARGIN' %}margin{% elif h.account == 'NISA' %}nisa{% else %}spec{% endif %}">
+            {{ h.get_account_display }}
+          </span>
+          <span class="badge side-{% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">
+            {{ h.get_side_display }}
+          </span>
+        </div>
+
+        <div class="kv mono">
+          <b>数量</b><div class="num">{{ h.quantity|intcomma }}</div>
+          <b>平均取得</b><div class="num">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
+          <b>取得額</b><div class="num">¥{{ h.acquisition_value|floatformat:0|intcomma }}</div>
+          <b>保有開始</b><div class="nowrap">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="muted">データなし</div>
+    {% endfor %}
+  </div>
+
+  {# ===== PC：テーブル表示 ===== #}
+  <div class="holdings-table card" style="overflow:auto">
+    <table>
       <thead>
-        <tr style="font-size:12px;color:#a7b1d8">
-          <th class="text-left py-2">ティッカー</th>
-          <th class="text-left py-2">名称</th>
-          <th class="text-left py-2">証券会社</th>
-          <th class="text-left py-2">口座</th>
-          <th class="text-left py-2">方向</th>
-          <th class="text-right py-2">数量</th>
-          <th class="text-right py-2">平均取得</th>
-          <th class="text-right py-2">取得額</th>
-          <th class="text-left py-2">保有開始</th>
-          <th class="py-2"></th>
+        <tr>
+          <th>ティッカー</th>
+          <th>名称</th>
+          <th>証券会社</th>
+          <th>口座</th>
+          <th>方向</th>
+          <th class="num">数量</th>
+          <th class="num">平均取得</th>
+          <th class="num">取得額</th>
+          <th>保有開始</th>
+          <th></th>
         </tr>
       </thead>
-      <tbody class="text-[15px]">
+      <tbody class="mono">
         {% for h in holdings %}
-        <tr style="border-top:1px solid rgba(255,255,255,.08)">
-          <td class="py-2">{{ h.ticker }}</td>
-          <td class="py-2">{{ h.name }}</td>
-          <td class="py-2">{{ h.get_broker_display }}</td>
-          <td class="py-2">{{ h.get_account_display }}</td>
-          <td class="py-2">{{ h.get_side_display }}</td>
-          <td class="py-2 text-right">{{ h.quantity|intcomma }}</td>
-          <td class="py-2 text-right">¥{{ h.avg_cost|floatformat:0|intcomma }}</td>
-          <td class="py-2 text-right">¥{{ h.acquisition_value|floatformat:0|intcomma }}</td>
-          <td class="py-2">{{ h.opened_at|date:"Y-m-d" }}</td>
-          <td class="py-2">
-            <a href="{% url 'holding_edit' h.pk %}"
-               class="px-2 py-1 rounded-md"
-               style="border:1px solid rgba(255,255,255,.14);">編集</a>
-          </td>
-        </tr>
+          <tr>
+            <td>{{ h.ticker }}</td>
+            <td>{{ h.name }}</td>
+            <td>{{ h.get_broker_display }}</td>
+            <td>{{ h.get_account_display }}</td>
+            <td>{{ h.get_side_display }}</td>
+            <td class="num">{{ h.quantity|intcomma }}</td>
+            <td class="num">¥{{ h.avg_cost|floatformat:0|intcomma }}</td>
+            <td class="num">¥{{ h.acquisition_value|floatformat:0|intcomma }}</td>
+            <td class="nowrap">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</td>
+            <td><a href="{% url 'holding_edit' h.pk %}" class="badge">編集</a></td>
+          </tr>
         {% empty %}
-        <tr>
-          <td colspan="10" class="py-4" style="color:#94a3b8">データなし</td>
-        </tr>
+          <tr><td colspan="10" class="muted" style="padding:12px">データなし</td></tr>
         {% endfor %}
       </tbody>
     </table>
