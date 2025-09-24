@@ -41,7 +41,8 @@ urlpatterns = [
     path("holdings/<int:pk>/close/submit", realized_views.close_submit, name="holding_close_submit"),
     path("holdings/new/", hv.holding_create, name="holding_create"),
     path("holdings/<int:pk>/edit/", hv.holding_edit, name="holding_edit"),
-
+    path("holdings/<int:pk>/delete/", hv.holding_delete, name="holding_delete"),
+    
     # 実現損益（メイン）
     path("realized/", realized_views.list_page, name="realized_list"),
     path("realized/create", realized_views.create, name="realized_create"),
