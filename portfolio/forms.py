@@ -18,4 +18,5 @@ class HoldingForm(forms.ModelForm):
             "name":     forms.TextInput(attrs={"placeholder": "例: トヨタ自動車"}),
             "quantity": forms.NumberInput(attrs={"min": "0", "step": "1"}),
             "avg_cost": forms.NumberInput(attrs={"min": "0", "step": "0.01"}),
+            "memo":     forms.Textarea(attrs={"placeholder":"売買理由やメモを自由に", "rows":4}),
         }
