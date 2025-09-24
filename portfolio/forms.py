@@ -11,12 +11,18 @@ class HoldingForm(forms.ModelForm):
         model = Holding
         fields = [
             "ticker", "name", "broker", "account", "side",
-            "quantity", "avg_cost", "opened_at",
+            "quantity", "avg_cost", "opened_at", "memo",  # ★ memo を追加
         ]
         widgets = {
-            "ticker":   forms.TextInput(attrs={"placeholder": "例: 7203"}),
-            "name":     forms.TextInput(attrs={"placeholder": "例: トヨタ自動車"}),
+            "ticker": forms.TextInput(attrs={"placeholder": "例: 7203"}),
+            "name": forms.TextInput(attrs={"placeholder": "例: トヨタ自動車"}),
             "quantity": forms.NumberInput(attrs={"min": "0", "step": "1"}),
             "avg_cost": forms.NumberInput(attrs={"min": "0", "step": "0.01"}),
-            "memo":     forms.Textarea(attrs={"placeholder":"売買理由やメモを自由に", "rows":4}),
+            "memo": forms.Textarea(
+                attrs={
+                    "placeholder": "売買理由やメモを自由に入力",
+                    "rows": 4,
+                    "style": "resize: vertical;",
+                }
+            ),
         }
