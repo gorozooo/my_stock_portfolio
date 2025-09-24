@@ -4,7 +4,7 @@
 {% block title %}月別サマリー{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/realized.css' %}?v=12">
+<link rel="stylesheet" href="{% static 'css/realized.css' %}?v=13">
 <style>
   .view-hidden{display:none!important}
   section{margin-top:12px}
@@ -59,7 +59,7 @@
   <section id="monthly-breakdown"
            hx-get="{% url 'realized_monthly_breakdown' %}"
            hx-trigger="load, pnl:refresh from:body"
-           hx-include="[name=q],[name=preset],[name/freq],[name=start],[name=end]"
+           hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"  {# ← 修正 #}
            hx-swap="outerHTML">
     <div style="color:#94a3b8;padding:8px 0">ブレークダウンを読み込み中…</div>
   </section>
@@ -68,7 +68,7 @@
   <section id="monthly-topworst"
            hx-get="{% url 'realized_monthly_topworst' %}"
            hx-trigger="load, pnl:refresh from:body"
-           hx-include="[name=q],[name=preset],[name/freq],[name=start],[name=end]"
+           hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"  {# ← 修正 #}
            hx-swap="outerHTML">
     <div style="color:#94a3b8;padding:8px 0">トップ/ワースト月を読み込み中…</div>
   </section>
@@ -168,7 +168,7 @@
     return q ? `${base}?q=${q}` : base;
   };
 
-  // ym => start/end
+  // ym -> start/end（YYYY-MM-01〜YYYY-MM-末）
   function ymToRange(ym){
     const [y,m] = (ym||'').split('-').map(Number);
     if (!y || !m) return null;
@@ -178,59 +178,41 @@
     return {startStr, endStr};
   }
 
-  // 明細ロード：強固な3段フォールバック（ym-json→range-json→range-html）
+  // 明細ロード：start/end + JSON 固定
   async function loadDetailsForYm(ym){
-    const el = document.getElementById('monthlyDetailsBody');
+    const el = detailsBody();
     try{
-      const params = new URLSearchParams({ ym, format: 'json' });
-      const q = (document.getElementById('q')?.value || '').trim();
-      if (q) params.append('q', q);
+      const range = ymToRange(ym);
+      if (!range){ el.innerHTML = "<div style='color:#94a3b8'>データなし</div>"; return; }
+
+      const params = new URLSearchParams({ start: range.startStr, end: range.endStr, format: 'json' });
+      const q = currentQ(); if (q) params.append('q', q);
 
       el.innerHTML = "<div style='color:#94a3b8'>読み込み中…</div>";
 
+      // ★ URL は必ず Django の url タグを使う（/realized/partial/table）
       const res = await fetch("{% url 'realized_table_partial' %}?"+params.toString(), {
-          headers: { "Accept":"application/json", "X-Requested-With":"fetch" }
-        });
+        headers: { "Accept":"application/json", "X-Requested-With":"fetch" }
+      });
       const j = await res.json();
 
       el.innerHTML = (j && j.ok && j.html && j.html.trim())
         ? j.html
         : "<div style='color:#94a3b8'>データなし</div>";
 
-      // チップの選択反映（任意）
+      // チップ選択反映
       document.getElementById('monthlyMonthPicker')?.querySelectorAll('.chip').forEach(c=>{
         c.setAttribute('aria-current', c.dataset.ym === ym ? 'true' : 'false');
       });
+
+      document.getElementById("monthly-details")?.scrollIntoView({behavior:"smooth", block:"start"});
     }catch(err){
       console.error(err);
-      el.innerHTML = "<div class='p-3 rounded-lg' style='background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;'>明細の取得に失敗しました</div>";
+      el.innerHTML =
+        "<div class='p-3 rounded-lg' style='background:#2b1f24;color:#ffd1d1;border:1px solid #ff9aa9;'>明細の取得に失敗しました</div>";
     }
   }
   window.loadDetailsForYm = loadDetailsForYm;
-
-
-  // fetch helper: wantJson=true なら JSON の {html} を取り出す。false なら text() を返す
-  async function tryFetch(url, wantJson){
-    try{
-      const res = await fetch(url, {
-        headers: {
-          "Accept": wantJson ? "application/json" : "text/html, */*;q=0.1",
-          "X-Requested-With":"fetch"
-        }
-      });
-      if (wantJson){
-        const j = await res.json();
-        if (j && typeof j.html === 'string' && j.html.trim()) return j.html;
-        if (typeof j.count === 'number' && j.count > 0 && typeof j.table === 'string') return j.table; // 万一キー名違いでも
-        return "";
-      }else{
-        const t = await res.text();
-        return (t && t.trim()) ? t : "";
-      }
-    }catch(_e){
-      return "";
-    }
-  }
 
   // 月チップ生成
   function buildMonthChips(labels){
