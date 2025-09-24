@@ -31,7 +31,7 @@
     width:var(--open-w); z-index:2;
     display:flex; align-items:stretch; justify-content:center;
     padding:0; transition:right .18s ease-out; will-change:right;
-    background:none; pointer-events:none;
+    background:none; pointer-events:none;                /* 閉じてる時は無効 */
   }
   .row.is-open .actions{ right:0; pointer-events:auto; }
 
@@ -52,20 +52,18 @@
   .item.edit  { background:rgba(0,255,209,.16) }
   .item.delete{ background:rgba(255,77,103,.20) }
 
-  /* ===== 本文レイアウト（銘柄を中央表示） ===== */
+  /* ===== 本文レイアウト（銘柄＝中央1行、下段＝バッジ群） ===== */
   .body{padding:14px}
 
   .title{
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     gap:10px; text-align:center;
   }
-  /* 銘柄名：中央・1行・自動縮小（JSで微調整） */
   .name{
     font-weight:800; font-size:20px; line-height:1.15;
-    white-space:nowrap; overflow:hidden;
+    white-space:nowrap; overflow:hidden;                 /* 折り返さず1行 */
   }
 
-  /* 下段：コードもバッジ化して4つを中央に並べる */
   .subline{
     display:flex; align-items:center; justify-content:center;
     gap:8px; flex-wrap:wrap;
@@ -130,10 +128,7 @@
         <div class="track">
           <div class="body">
             <header class="title">
-              <!-- 銘柄名：中央・1行・自動縮小 -->
               <div class="name name-fit" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
-
-              <!-- 下段：コードもバッジ化して中央 -->
               <div class="subline">
                 <div class="badges">
                   <span class="badge badge--code">{{ h.ticker }}</span>
@@ -173,7 +168,7 @@
 {% endif %}
 
 <script>
-/* ===== 右“横並びパネル”だけを露出（本文は固定） ===== */
+/* ===== スワイプパネル（本文は固定）＋ 詳細の閉じやすさ改善 ===== */
 (function(){
   const rows = document.querySelectorAll('[data-swipe]');
 
@@ -194,6 +189,7 @@
   rows.forEach(row=>{
     const actions = row.querySelector('.actions');
     const detailBtn = row.querySelector('[data-action="detail"]');
+    const track = row.querySelector('.track');
     const OPEN_W = getOpenW(actions);
 
     actions.style.right = (-OPEN_W) + 'px';
@@ -204,7 +200,7 @@
     const setRight = (px)=> actions.style.right = px + 'px';
 
     const onStart = (e)=>{
-      if (e.target.closest('.actions')) return; // パネル上のタップはスワイプ開始しない
+      if (e.target.closest('.actions')) return; // パネル上タップでスワイプ開始しない
       const t = e.touches ? e.touches[0] : e;
       startX=t.clientX; startY=t.clientY;
       drag=true; horiz=false;
@@ -238,16 +234,29 @@
     row.addEventListener('touchmove',  onMove,  {passive:false});
     row.addEventListener('touchend',   onEnd);
 
-    // 「詳細」→ .more トグル（押したら閉じる＆再フィット）
+    /* 「詳細」→ .more トグル（押したら閉じる＆再フィット） */
     detailBtn.addEventListener('click', ()=>{
       row.classList.toggle('show-detail');
       opened=false; row.classList.remove('is-open'); setRight(-OPEN_W);
       actions.style.pointerEvents = 'none';
       window.requestAnimationFrame(autoFitNames);
     });
+
+    /* ★ カード本体タップで“閉じるだけ”できるように */
+    track.addEventListener('click', (ev)=>{
+      const hitAction = ev.target.closest('.actions, .item, a, button');
+      if (hitAction) return;                  // アクション操作は邪魔しない
+      if (row.classList.contains('show-detail')){
+        row.classList.remove('show-detail');  // 詳細が開いていたら閉じる
+      }
+      // スワイプパネルが開いてたら閉じる（ついでに）
+      if (row.classList.contains('is-open')){
+        row.classList.remove('is-open'); setRight(-OPEN_W); actions.style.pointerEvents='none';
+      }
+    });
   });
 
-  // 外側タップで閉じる
+  // 外側タップでパネルを閉じる
   document.addEventListener('click', (e)=>{
     if (e.target.closest('.actions')) return;
     const r = e.target.closest('[data-swipe]');
