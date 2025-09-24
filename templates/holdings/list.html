@@ -14,39 +14,40 @@
   }
   .row{position:relative}
 
-  /* 本文は固定（動かさない） */
+  /* 本文は固定 */
   .track{
     position:relative;z-index:1;
     background: linear-gradient(180deg, rgba(12,18,28,.72), rgba(12,18,28,.72));
   }
 
-  /* ===== アクション：1つの“パネル”で出す／スワイプ幅は小さめ ===== */
+  /* ===== 横並びアクションパネル ===== */
+  /* スワイプ幅は控えめ */
   .actions{
-    position:absolute;top:0;right:-190px;bottom:0;z-index:2;
-    width:190px;display:flex;align-items:center;justify-content:center;
-    padding:0 10px; transition:right .18s ease-out; will-change:right;
-    /* 透け感のレイヤー：うっすら暗く */
-    background: linear-gradient(90deg, rgba(0,0,0,0), rgba(8,12,20,.65));
+    --open-w: 220px;            /* ★横幅ここで調整（190〜240推奨） */
+    position:absolute;top:0;bottom:0;right:calc(var(--open-w)*-1);
+    z-index:2;width:var(--open-w);
+    display:flex;align-items:center;justify-content:center;
+    padding:0 8px;transition:right .18s ease-out;will-change:right;
+    background:linear-gradient(90deg, rgba(0,0,0,0), rgba(8,12,20,.65));
+    backdrop-filter:blur(6px);
   }
   .row.is-open .actions{ right:0; }
 
-  /* パネル本体（1セクション） */
   .action-panel{
-    width:100%;
-    border-radius:14px; padding:10px;
-    background: rgba(255,255,255,.08);
+    width:100%;display:flex;flex-direction:row;gap:6px;
+    padding:8px;border-radius:14px;
+    background:rgba(255,255,255,.08);
     border:1px solid rgba(255,255,255,.18);
-    box-shadow: 0 6px 24px rgba(0,0,0,.3);
-    display:flex; flex-direction:column; gap:8px;
-    backdrop-filter: blur(8px);
+    box-shadow:0 6px 24px rgba(0,0,0,.28);
   }
   .action-panel .item{
-    display:flex; align-items:center; gap:10px;
-    padding:10px 12px; border-radius:10px;
-    text-decoration:none; color:#e6ebff; font-weight:600; font-size:14px;
-    border:1px solid rgba(255,255,255,.12);
-    background: rgba(255,255,255,.05);
+    flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:4px;text-decoration:none;color:#e6ebff;font-weight:700;font-size:12px;
+    border-radius:10px;border:1px solid rgba(255,255,255,.14);
+    padding:10px 6px;min-width:0;text-align:center;
+    background:rgba(255,255,255,.06);
   }
+  .item .ico{font-size:16px;line-height:1}
   .item.detail{ background: rgba(110,168,255,.18); }
   .item.edit  { background: rgba(0,255,209,.16); }
   .item.delete{ background: rgba(255,77,103,.20); }
@@ -60,20 +61,19 @@
   .badge{font-size:11px;padding:3px 8px;border:1px solid rgba(255,255,255,.16);border-radius:9999px;color:#dbe3f4}
   .badge.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35)}
   .badge.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;
-        border-top:1px dashed rgba(255,255,255,.08);padding-top:10px}
+
+  .grid{
+    display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;
+    border-top:1px dashed rgba(255,255,255,.08);padding-top:10px
+  }
   .kv{display:flex;justify-content:space-between;gap:8px}
   .kv .k{font-size:12px;color:#97a3b6}
   .kv .v{font-size:18px}
 
-  /* 詳細はトグル表示（メニュー内「詳細」で開閉） */
+  /* 詳細トグル部 */
   .more{display:none;border-top:1px dashed rgba(255,255,255,.08);padding:10px 14px}
   .row.show-detail .more{display:block}
   .moregrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:6px}
-
-  @media (max-width:480px){
-    .grid{grid-template-columns:1fr 1fr}
-  }
 </style>
 {% endblock %}
 
@@ -87,23 +87,29 @@
   <div class="vstack" style="gap:14px">
     {% for h in holdings %}
       <article class="card row" data-swipe>
-        {# 右のアクションは “1つのセクション” #}
+        <!-- 横並びアクション（本文は固定。右から控えめに出現） -->
         <div class="actions" aria-hidden="true">
           <div class="action-panel">
-            <button type="button" class="item detail" data-action="detail">📄 詳細</button>
-            <a class="item edit" href="{% url 'holding_edit' h.id %}">✏️ 編集</a>
+            <button type="button" class="item detail" data-action="detail">
+              <span class="ico">📄</span><span>詳細</span>
+            </button>
+            <a class="item edit" href="{% url 'holding_edit' h.id %}">
+              <span class="ico">✏️</span><span>編集</span>
+            </a>
             <form action="{% url 'holding_delete' h.id %}" method="post" style="margin:0">
               {% csrf_token %}
               <button class="item delete" type="submit"
                       hx-post="{% url 'holding_delete' h.id %}"
                       hx-confirm="削除しますか？"
                       hx-target="closest [data-swipe]"
-                      hx-swap="outerHTML swap:15ms">🗑️ 削除</button>
+                      hx-swap="outerHTML swap:15ms">
+                <span class="ico">🗑️</span><span>削除</span>
+              </button>
             </form>
           </div>
         </div>
 
-        {# 本文（固定） #}
+        <!-- 本文（固定） -->
         <div class="track">
           <div class="body">
             <header class="title">
@@ -145,37 +151,44 @@
 {% endif %}
 
 <script>
-/* ===== 右“パネル”だけスワイプで露出（本文は固定） ===== */
+/* 右“横並びパネル”だけを露出（本文は固定） */
 (function(){
   const rows = document.querySelectorAll('[data-swipe]');
-  const OPEN_W = 190; // スワイプ幅を小さく
+
+  function getOpenW(el){
+    // CSS変数 --open-w を取得（未設定時は 220）
+    const v = getComputedStyle(el).getPropertyValue('--open-w').trim().replace('px','');
+    return parseFloat(v || '220');
+  }
 
   function closeAll(except){
     document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
-      if (r===except) return;
+      if(r===except) return;
       r.classList.remove('is-open');
-      r.querySelector('.actions').style.right = -OPEN_W + 'px';
+      const a = r.querySelector('.actions');
+      a.style.right = (-getOpenW(a)) + 'px';
     });
   }
 
   rows.forEach(row=>{
     const actions = row.querySelector('.actions');
     const detailBtn = row.querySelector('[data-action="detail"]');
+    const OPEN_W = getOpenW(actions);
+
+    // 初期位置
+    actions.style.right = (-OPEN_W) + 'px';
 
     let startX=0,startY=0,drag=false,horiz=false,opened=false,baseRight=-OPEN_W;
-
-    // 念のため初期化
-    actions.style.right = -OPEN_W + 'px';
 
     const setRight = (px)=> actions.style.right = px + 'px';
 
     const onStart = (e)=>{
       const t = e.touches ? e.touches[0] : e;
-      startX = t.clientX; startY = t.clientY;
-      drag = true; horiz = false;
+      startX=t.clientX; startY=t.clientY;
+      drag=true; horiz=false;
       baseRight = opened ? 0 : -OPEN_W;
-      actions.style.transition = 'none';
-      if (document.querySelector('[data-swipe].is-open') && !row.classList.contains('is-open')){
+      actions.style.transition='none';
+      if(document.querySelector('[data-swipe].is-open') && !row.classList.contains('is-open')){
         closeAll(row);
       }
     };
@@ -183,32 +196,30 @@
     const onMove = (e)=>{
       if(!drag) return;
       const t = e.touches ? e.touches[0] : e;
-      const dx = t.clientX - startX;
-      const dy = t.clientY - startY;
+      const dx=t.clientX-startX, dy=t.clientY-startY;
 
       if(!horiz){
-        if(Math.abs(dx) < 8) return;
-        if(Math.abs(dx) > Math.abs(dy)) horiz = true; else { drag=false; actions.style.transition=''; return; }
+        if(Math.abs(dx)<8) return;
+        if(Math.abs(dx)>Math.abs(dy)) horiz=true; else { drag=false; actions.style.transition=''; return; }
       }
       if(e.cancelable) e.preventDefault();
 
-      // 左へスワイプで -OPEN_W → 0 へ
+      // 左へで -OPEN_W → 0
       let nr = baseRight - dx;
-      if (nr > 0) nr = 0;
-      if (nr < -OPEN_W) nr = -OPEN_W;
+      if(nr>0) nr=0;
+      if(nr<-OPEN_W) nr=-OPEN_W;
       setRight(nr);
     };
 
     const onEnd = ()=>{
       if(!drag) return;
-      drag=false; actions.style.transition = 'right .18s ease-out';
+      drag=false; actions.style.transition='right .18s ease-out';
       const curRight = parseFloat(getComputedStyle(actions).right) || -OPEN_W;
       opened = (curRight > -OPEN_W/2);
-      if (opened){ row.classList.add('is-open'); setRight(0); }
-      else       { row.classList.remove('is-open'); setRight(-OPEN_W); }
+      if(opened){ row.classList.add('is-open'); setRight(0); }
+      else      { row.classList.remove('is-open'); setRight(-OPEN_W); }
     };
 
-    // タッチ/マウス
     row.addEventListener('touchstart', onStart, {passive:true});
     row.addEventListener('touchmove',  onMove,  {passive:false});
     row.addEventListener('touchend',   onEnd);
@@ -216,17 +227,17 @@
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup',   onEnd);
 
-    // 「📄 詳細」→ .more トグル（パネルは閉じる）
+    // 詳細トグル（開いたら閉じる）
     detailBtn.addEventListener('click', ()=>{
       row.classList.toggle('show-detail');
-      opened = false; row.classList.remove('is-open'); setRight(-OPEN_W);
+      opened=false; row.classList.remove('is-open'); setRight(-OPEN_W);
     });
   });
 
   // 外側タップで閉じる
-  document.addEventListener('click', (ev)=>{
-    const r = ev.target.closest('[data-swipe]');
-    if (!r) closeAll(null);
+  document.addEventListener('click', (e)=>{
+    const r = e.target.closest('[data-swipe]');
+    if(!r) closeAll(null);
   });
 })();
 </script>
