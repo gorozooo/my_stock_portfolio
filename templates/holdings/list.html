@@ -31,7 +31,7 @@
 
 <div class="fi fi-between" style="margin-bottom:10px">
   <h1>保有一覧</h1>
-  <a href="{% url 'holdings_create' %}" class="btn btn-outline">＋ 新規登録</a>
+  <a href="{% url 'holding_create' %}" class="btn btn-outline">＋ 新規登録</a>
 </div>
 
 {% if holdings %}
@@ -50,7 +50,7 @@
             </span>
           </div>
           <div class="h-edit">
-            <a href="{% url 'holdings_edit' h.id %}">編集</a>
+            <a href="{% url 'holding_edit' h.id %}">編集</a>
           </div>
         </header>
 
