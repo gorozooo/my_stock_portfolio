@@ -11,3 +11,13 @@ def mul(a, b):
         return Decimal(a) * Decimal(b)
     except Exception:
         return 0
+        
+@register.filter
+def months_from_days(value):
+    """日数からおおよその月数（30日換算）を返す"""
+    try:
+        days = int(value)
+        months = round(days / 30)
+        return f"{days}日（約{months}ヶ月）"
+    except Exception:
+        return "-"
