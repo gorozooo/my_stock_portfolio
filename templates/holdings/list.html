@@ -57,11 +57,11 @@
   .title{
     display:flex; align-items:center; justify-content:space-between; gap:10px;
   }
-  .namewrap{ flex:1; display:flex; flex-direction:column; gap:10px; }
+  .namewrap{ flex:1; display:flex; flex-direction:column; gap:10px; min-width:0; }
   .name{
     font-weight:800; font-size:22px; line-height:1.15;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-    text-align:center;           /* ← 中央寄せ */
+    text-align:center;     /* 中央寄せ */
   }
   .badges{
     display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:center;
@@ -77,22 +77,15 @@
   .badge.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
 
   /* スパーク（バッジの右） */
-  .spark-wrap{
-    width:120px; height:34px; flex:0 0 auto;
-    display:flex; align-items:center; justify-content:flex-end;
-  }
-  .spark{
-    width:120px; height:34px; opacity:.9;
-  }
+  .spark-wrap{ width:120px; height:34px; flex:0 0 auto; display:flex; align-items:center; justify-content:flex-end; }
+  .spark{ width:120px; height:34px; opacity:.9; }
 
   /* 1行メトリクス（中央寄せ） */
   .metrics{
     display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:10px;
     border-top:1px dashed rgba(255,255,255,.08); padding-top:10px;
   }
-  .metric{
-    text-align:center;           /* ← 中央寄せ */
-  }
+  .metric{ text-align:center; }
   .metric .k{font-size:12px;color:#97a3b6}
   .metric .v{font-size:22px}
   .metric .v.gain{ color:#22c55e }
@@ -111,10 +104,11 @@
   <a href="{% url 'holding_create' %}" class="btn btn-outline">＋ 新規登録</a>
 </div>
 
-{% if holdings %}
+{# ← length で確実に真偽判定 #}
+{% if holdings|length %}
   <div class="vstack">
     {% for h in holdings %}
-      {# ビュー側で h.spark (list[float]), h.pnl_amount, h.pnl_rate が入っている想定 #}
+      {# ビュー側: h.spark (list[float]), h.pnl_amount, h.pnl_rate を付与済み想定 #}
       <article class="card row" data-swipe>
         <!-- 横並びアクション -->
         <div class="actions">
@@ -127,6 +121,7 @@
             </a>
             <button class="item delete"
                     hx-post="{% url 'holding_delete' h.id %}"
+                    hx-headers='{"X-CSRFToken":"{{ csrf_token }}"}'
                     hx-confirm="削除しますか？"
                     hx-target="closest [data-swipe]"
                     hx-swap="outerHTML swap:15ms">
@@ -139,7 +134,7 @@
         <div class="track">
           <div class="body">
             <header class="title">
-              <div class="namewrap" style="min-width:0">
+              <div class="namewrap">
                 <div class="name" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
                 <div class="badges">
                   <span class="badge badge--code">{{ h.ticker }}</span>
@@ -174,7 +169,6 @@
                   </div>
                 {% endwith %}
               </div>
-              
               <div class="metric">
                 <div class="k">損益率</div>
                 {% with pr=h.pnl_rate|default:0 %}
@@ -237,13 +231,12 @@
     actions.style.right = (-OPEN_W) + 'px';
     actions.style.pointerEvents = 'none';
 
-    let startX=0,startY=0,drag=false,horiz=false,opened=false,baseRight=-OPEN_W;
+    let startX=0,startY=0,drag=false,horiz=false,baseRight=-OPEN_W;
 
     const setRight = (px)=> actions.style.right = px + 'px';
 
     const onStart = (e)=>{
-      // アクション上でのドラッグ開始は無効化（クリック可能にする）
-      if (e.target.closest('.actions')) return;
+      if (e.target.closest('.actions')) return; // パネル上はドラッグ開始しない
       const t = e.touches ? e.touches[0] : e;
       startX=t.clientX; startY=t.clientY;
       drag=true; horiz=false;
@@ -280,7 +273,6 @@
     row.addEventListener('touchmove',  onMove,  {passive:false});
     row.addEventListener('touchend',   onEnd);
 
-    // アクション内のクリックは行の click にバブリングさせない（選択できない問題の元）
     actions.addEventListener('click', (e)=> e.stopPropagation());
 
     // 「詳細」→ .more トグル（押したら閉じる）
@@ -290,7 +282,7 @@
       row.classList.remove('is-open'); setRight(-OPEN_W); actions.style.pointerEvents='none';
     });
 
-    /* カード本体タップで“閉じるだけ” */
+    // カード本体タップで閉じる
     track.addEventListener('click', ()=>{
       if (row.classList.contains('show-detail')){
         row.classList.remove('show-detail');
@@ -315,7 +307,6 @@
     const w = svg.viewBox.baseVal.width || 120;
     const h = svg.viewBox.baseVal.height || 34;
     if(!points || points.length===0){ svg.innerHTML=''; return; }
-    // 0..1 に正規化 → パディング少し
     let min = Math.min(...points), max = Math.max(...points);
     if (max === min){ max = min + 1e-6; }
     const pad = 2;
