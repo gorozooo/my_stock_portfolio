@@ -67,18 +67,18 @@
 /* ===== スワイプアクション（translateX で確実固定） ===== */
 .actions{
   --open-w:208px;
-  position:absolute; top:0; bottom:0; right:0;         /* 右端に据え置き */
+  position:absolute; top:0; bottom:0; right:0;
   width:var(--open-w); z-index:2;
   display:flex; align-items:stretch; justify-content:center;
   background:none;
-  transform:translateX(100%);                           /* 初期は画面外 */
+  transform:translateX(100%);           /* 初期は画面外 */
   transition:transform .18s ease-out;
-  pointer-events:none;                                   /* 初期は無効 */
+  pointer-events:none;                   /* 初期は無効 */
   will-change:transform;
 }
 .row.is-open .actions{
-  transform:translateX(0);                              /* 開いたら固定 */
-  pointer-events:auto;                                  /* クリック有効 */
+  transform:translateX(0);              /* 開いたら固定 */
+  pointer-events:auto;                  /* クリック可 */
 }
 .action-panel{display:flex;gap:8px;width:100%;height:100%;padding:8px 8px}
 .action-panel .item{
@@ -100,5 +100,5 @@
 .track{
   -webkit-user-select: none;
   user-select: none;
-  touch-action: pan-y; /* 上下スクロールのみブラウザに任せ、横方向はJSで扱う */
+  touch-action: pan-y; /* 縦スクロールはOS、横はJS */
 }
