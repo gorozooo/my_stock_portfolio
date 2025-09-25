@@ -1,128 +1,157 @@
-// --- holdings.js (force-stable swipe + detail toggle) ---
+// holdings.js v9 (delegation + htmx-aware, stable swipe & detail)
 (function () {
-  const rows = Array.from(document.querySelectorAll('[data-swipe]'));
-  if (!rows.length) return;
+  const STATE = new WeakMap(); // row -> {openW, opened, baseRight, dragging, horiz, sx, sy}
 
-  const px = (n) => n + 'px';
+  const px = n => n + 'px';
   const getOpenW = (actions) => {
     const v = getComputedStyle(actions).getPropertyValue('--open-w').trim().replace('px','');
     return parseFloat(v || '220');
   };
 
-  const setOpen = (row, open) => {
-    const a = row._actions, OPEN = row._OPEN;
-    a.style.transition = 'right .18s ease-out';
-    if (open) {
-      row.classList.add('is-open');
-      row._opened = true;
-      a.style.right = '0px';
-      a.style.pointerEvents = 'auto';
-    } else {
-      row.classList.remove('is-open');
-      row._opened = false;
-      a.style.right = px(-OPEN);
-      a.style.pointerEvents = 'none';
-    }
-  };
+  function initRow(row){
+    if (!row || STATE.has(row)) return;
+    const actions = row.querySelector('.actions');
+    const track   = row.querySelector('.track');
+    const detail  = row.querySelector('[data-action="detail"]');
+    if (!actions || !track) return;
 
-  const closeAll = (except) => {
-    rows.forEach(r => { if (r !== except) setOpen(r, false); });
-  };
+    const s = {
+      actions, track, detail,
+      openW: getOpenW(actions),
+      opened: row.classList.contains('is-open'),
+      dragging: false, horiz: false, sx:0, sy:0, baseRight:0,
+    };
+    STATE.set(row, s);
 
-  rows.forEach(row => {
-    const actions   = row.querySelector('.actions');
-    const track     = row.querySelector('.track');
-    const detailBtn = row.querySelector('[data-action="detail"]');
-
-    // cache
-    row._actions = actions;
-    row._OPEN    = getOpenW(actions);
-    row._opened  = row.classList.contains('is-open');
-
-    // init position
-    actions.style.right = px(-row._OPEN);
+    // 初期位置
+    actions.style.right = px(-s.openW);
     actions.style.pointerEvents = 'none';
 
-    // avoid closing when tapping inside actions
+    // アクション領域のクリックは行クリックに伝播させない（固定されない問題の原因）
     actions.addEventListener('click', e => e.stopPropagation());
 
-    // -------- swipe state
-    let sx=0, sy=0, dragging=false, horiz=false, baseRight=0;
+    // ディテール
+    if (detail){
+      detail.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        closeSwipe(row);
+        row.classList.toggle('show-detail');
+      });
+    }
+  }
 
-    const start = (clientX, clientY, fromActions) => {
-      if (fromActions) return;                      // do not start from action buttons
-      // ★ if detail is open, close it immediately then continue to swipe
-      if (row.classList.contains('show-detail')) {
-        row.classList.remove('show-detail');
-      }
-      dragging = true; horiz = false;
-      sx = clientX; sy = clientY;
-      actions.style.transition = 'none';
-      baseRight = row._opened ? 0 : -row._OPEN;
-      if (!row._opened) closeAll(row);             // keep one row open at a time
-    };
-
-    const move = (clientX, clientY, cancelable) => {
-      if (!dragging) return;
-      const dx = clientX - sx, dy = clientY - sy;
-      if (!horiz) {
-        if (Math.abs(dx) < 8) return;
-        if (Math.abs(dx) > Math.abs(dy)) horiz = true;
-        else { dragging = false; actions.style.transition=''; return; }
-      }
-      if (cancelable) cancelable.preventDefault?.();
-
-      let nr = baseRight - dx;                     // drag right to open
-      if (nr > 0) nr = 0;
-      if (nr < -row._OPEN) nr = -row._OPEN;
-      actions.style.right = px(nr);
-    };
-
-    const end = () => {
-      if (!dragging) return;
-      dragging = false;
-      actions.style.transition = 'right .18s ease-out';
-      const cur = parseFloat(getComputedStyle(actions).right) || -row._OPEN;
-      const willOpen = cur > -row._OPEN / 2;
-      setOpen(row, willOpen);
-    };
-
-    // touch
-    row.addEventListener('touchstart', (e)=>{
-      const t = e.touches[0];
-      start(t.clientX, t.clientY, !!e.target.closest('.actions'));
-    }, {passive:true});
-    row.addEventListener('touchmove',  (e)=> move(e.touches[0].clientX, e.touches[0].clientY, e), {passive:false});
-    row.addEventListener('touchend', end);
-    row.addEventListener('touchcancel', end);
-
-    // mouse (for desktop操作)
-    row.addEventListener('mousedown', (e)=>{
-      start(e.clientX, e.clientY, !!e.target.closest('.actions'));
+  function openSwipe(row){
+    const s = STATE.get(row); if(!s) return;
+    s.actions.style.transition = 'right .18s ease-out';
+    row.classList.add('is-open'); s.opened = true;
+    s.actions.style.right = '0px'; s.actions.style.pointerEvents='auto';
+  }
+  function closeSwipe(row){
+    const s = STATE.get(row); if(!s) return;
+    s.actions.style.transition = 'right .18s ease-out';
+    row.classList.remove('is-open'); s.opened = false;
+    s.actions.style.right = px(-s.openW); s.actions.style.pointerEvents='none';
+  }
+  function closeAll(except){
+    document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
+      if (r!==except) closeSwipe(r);
     });
-    window.addEventListener('mousemove', (e)=> move(e.clientX, e.clientY, e));
-    window.addEventListener('mouseup', end);
+  }
 
-    // card tap -> close detail first, then close swipe if open
-    track.addEventListener('click', (e)=>{
-      if (row.classList.contains('show-detail')) {
-        row.classList.remove('show-detail');
-        e.stopPropagation();      // prevent immediate close/open race
-        return;
-      }
-      if (row._opened) setOpen(row, false);
-    });
+  // ---- Delegated handlers -------------------------------------------------
+  function onStart(e){
+    const row = e.target.closest('[data-swipe]'); if(!row) return;
+    const s = STATE.get(row); if(!s) return;
 
-    // detail button toggles detail and closes swipe
-    detailBtn?.addEventListener('click', (e)=>{
-      e.stopPropagation();
-      row.classList.toggle('show-detail');
-      setOpen(row, false);
-    });
-  });
+    // actions上で開始したスワイプは無効化（ボタンを押せるように）
+    if (e.target.closest('.actions')) return;
 
-  // tap outside -> close all
+    // 詳細が開いていたら先に閉じる（2回目以降の固着を防止）
+    if (row.classList.contains('show-detail')) row.classList.remove('show-detail');
+
+    s.dragging = true; s.horiz = false;
+    s.sx = ('touches' in e ? e.touches[0].clientX : e.clientX);
+    s.sy = ('touches' in e ? e.touches[0].clientY : e.clientY);
+    s.actions.style.transition = 'none';
+    s.baseRight = s.opened ? 0 : -s.openW;
+
+    if (!s.opened) closeAll(row);
+  }
+  function onMove(e){
+    // ドキュメント委譲では対象 row を毎回再取得
+    const t = ('touches' in e ? e.touches[0] : e);
+    const row = document.elementFromPoint(t.clientX, t.clientY)?.closest('[data-swipe]');
+    // 直近開始した行がわかるように、is-movingな行を優先
+    const moving = document.querySelector('[data-swipe].__moving') || row;
+    if (!moving) return;
+    const s = STATE.get(moving); if(!s || !s.dragging) return;
+
+    const dx = t.clientX - s.sx, dy = t.clientY - s.sy;
+    if (!s.horiz){
+      if (Math.abs(dx) < 8) return;
+      if (Math.abs(dx) > Math.abs(dy)) s.horiz = true;
+      else { s.dragging=false; s.actions.style.transition=''; return; }
+      moving.classList.add('__moving');
+    }
+    // 横スクロールはJS管理
+    if (e.cancelable) e.preventDefault();
+    let nr = s.baseRight - dx; if (nr > 0) nr = 0; if (nr < -s.openW) nr = -s.openW;
+    s.actions.style.right = px(nr);
+  }
+  function onEnd(){
+    const moving = document.querySelector('[data-swipe].__moving');
+    if (!moving) {
+      // すべての行を確認してdragging終端処理
+      document.querySelectorAll('[data-swipe]').forEach(row=>{
+        const s = STATE.get(row); if (!s || !s.dragging) return;
+        s.dragging=false; s.actions.style.transition='right .18s ease-out';
+        const cur = parseFloat(getComputedStyle(s.actions).right) || -s.openW;
+        const willOpen = (cur > -s.openW/2);
+        willOpen ? openSwipe(row) : closeSwipe(row);
+      });
+      return;
+    }
+    const s = STATE.get(moving); if(!s) return;
+    s.dragging=false; s.actions.style.transition='right .18s ease-out';
+    const cur = parseFloat(getComputedStyle(s.actions).right) || -s.openW;
+    const willOpen = (cur > -s.openW/2);
+    willOpen ? openSwipe(moving) : closeSwipe(moving);
+    moving.classList.remove('__moving');
+  }
+
+  // カード本体タップで「詳細を閉じる → スワイプも閉じる」
   document.addEventListener('click', (e)=>{
-    if (!e.target.closest('[data-swipe]')) closeAll(null);
+    const row = e.target.closest('[data-swipe]');
+    if (!row) { closeAll(null); return; }
+    if (row.classList.contains('show-detail')) {
+      row.classList.remove('show-detail');
+      return; // ここで止める：次のタップでスワイプ操作に入れる
+    }
+    if (row.classList.contains('is-open')) closeSwipe(row);
   });
+
+  // 委譲でスワイプ（touch + mouse）
+  document.addEventListener('touchstart', onStart, {passive:true});
+  document.addEventListener('touchmove',  onMove,  {passive:false});
+  document.addEventListener('touchend',   onEnd);
+  document.addEventListener('touchcancel',onEnd);
+  document.addEventListener('mousedown',  onStart);
+  document.addEventListener('mousemove',  onMove);
+  document.addEventListener('mouseup',    onEnd);
+
+  // 初期化（初期DOM）
+  document.querySelectorAll('[data-swipe]').forEach(initRow);
+
+  // HTMX で差し替わったときに再初期化
+  document.body.addEventListener('htmx:load', ()=>{
+    document.querySelectorAll('[data-swipe]').forEach(initRow);
+  });
+
+  // 安定化：横スワイプはJSで扱い、縦スクロールはブラウザに任せる
+  const style = document.createElement('style');
+  style.textContent = `.track{touch-action:pan-y;-webkit-user-select:none;user-select:none}`;
+  document.head.appendChild(style);
+
+  // デバッグ用（本当に読まれているか確認）
+  console.log('[holdings.js v9] initialized', document.querySelectorAll('[data-swipe]').length);
 })();
