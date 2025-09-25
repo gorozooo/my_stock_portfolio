@@ -1,175 +1,212 @@
-// holdings.js v13 — Swipe固定を最優先で安定化
+// holdings.js v14 — 初回から確実固定 / ゴーストクリック排除 / PointerEvents化
 (function(){
-  const STATE = new WeakMap();
-  const px = n => n + 'px';
-  const OPEN_MS_CLICK_GUARD = 600; // スワイプ直後のクリック抑止を少し長めに
-  let lastSwipeEndedAt = 0;
+  const ROWS = new WeakMap();
+  const now = () => performance.now();
+  const px  = v => `${v}px`;
+  const GUARD_MS = 500;  // スワイプ直後のクリック無視時間
+  const START_SLOP = 8;  // スワイプ判定の初期スロープ
+  const OPEN_FRACTION = 0.45; // これ以上開いていれば固定
+  const VEL_OPEN = 0.35; // px/ms 相当の開放しきい値（素早いスワイプは距離未満でも開く）
 
-  const getOpenW = (a) => {
-    const v = getComputedStyle(a).getPropertyValue('--open-w').trim().replace('px','');
+  let lastGestureAt = 0;
+
+  const getOpenW = (actions) => {
+    const v = getComputedStyle(actions).getPropertyValue('--open-w').trim().replace('px','');
     return parseFloat(v || '220');
   };
-  const justSwiped = () => (performance.now() - lastSwipeEndedAt) < OPEN_MS_CLICK_GUARD;
 
-  function initRow(row){
-    if (!row) return;
-    let s = STATE.get(row);
+  function stateOf(row){
+    let st = ROWS.get(row);
+    if (st) return st;
     const actions = row.querySelector('.actions');
     const track   = row.querySelector('.track');
     const detail  = row.querySelector('[data-action="detail"]');
-    if (!actions || !track) return;
+    if (!actions || !track) return null;
 
-    if (!s){
-      s = { actions, track, detail, openW:getOpenW(actions), dragging:false, horiz:false, sx:0, sy:0, baseRight:0, opened:false, sticky:true };
-      STATE.set(row, s);
-    }else{
-      s.actions = actions; s.track = track; s.detail = detail; s.openW = getOpenW(actions);
-    }
-
-    // 初期状態：必ず閉じる（描画直後のブレ防止）
-    hardClose(row, s);
-
-    // パネル内クリックはバブリングさせない（操作可能に）
-    actions.addEventListener('click', e => e.stopPropagation(), {capture:true});
-
-    // 詳細トグルはパネルを閉じてから
-    if (detail){
-      detail.addEventListener('click', (e)=>{
-        e.stopPropagation();
-        hardClose(row, s);
-        row.classList.toggle('show-detail');
-      });
-    }
-
-    // トラック単体タップで「閉じるだけ」
-    track.addEventListener('click', (e)=>{
-      // 直後の誤クリックは無視
-      if (justSwiped()) return;
-      if (row.classList.contains('is-open')) {
-        hardClose(row, s);
-      } else if (row.classList.contains('show-detail')) {
-        row.classList.remove('show-detail');
-      }
-    });
+    st = {
+      actions, track, detail,
+      openW: getOpenW(actions),
+      // pointer gesture
+      active:false, horiz:false, sx:0, sy:0, dx:0, dy:0,
+      t0:0, lastX:0, lastT:0, vx:0,
+      // open state
+      opened:false,
+      suppressClicksUntil: 0
+    };
+    ROWS.set(row, st);
+    return st;
   }
 
-  function hardOpen(row, s){
-    s.actions.style.transition = 'right .18s ease-out';
-    row.classList.add('is-open');
-    s.opened = true;
-    s.actions.style.right = '0px';
-    s.actions.style.pointerEvents = 'auto';
-    lastSwipeEndedAt = performance.now();
-  }
-  function hardClose(row, s){
-    s.actions.style.transition = 'right .18s ease-out';
+  function hardClose(row, st){
+    st.actions.style.transition = 'right .18s ease-out';
     row.classList.remove('is-open');
-    s.opened = false;
-    s.actions.style.right = px(-s.openW);
-    s.actions.style.pointerEvents = 'none';
-    lastSwipeEndedAt = performance.now();
+    st.opened = false;
+    st.actions.style.right = px(-st.openW);
+    st.actions.style.pointerEvents = 'none';
+    st.suppressClicksUntil = now() + GUARD_MS; // 直後の誤クリック無視
+    lastGestureAt = now();
+  }
+  function hardOpen(row, st){
+    st.actions.style.transition = 'right .18s ease-out';
+    row.classList.add('is-open');
+    st.opened = true;
+    st.actions.style.right = '0px';
+    st.actions.style.pointerEvents = 'auto';
+    st.suppressClicksUntil = now() + GUARD_MS;
+    lastGestureAt = now();
   }
   function closeAll(except){
     document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
-      if (r===except) return;
-      const st = STATE.get(r); if (!st) return;
-      hardClose(r, st);
+      if (r === except) return;
+      const s = stateOf(r); if (!s) return;
+      hardClose(r, s);
     });
   }
 
-  // ===== スワイプ（委譲） =====
-  let movingRow = null;
+  function initRow(row){
+    const st = stateOf(row); if (!st) return;
 
-  function onStart(e){
-    const row = e.target.closest?.('[data-swipe]');
-    if (!row) return;
+    // リサイズ等で幅更新
+    st.openW = getOpenW(st.actions);
 
-    initRow(row); // 冪等
-    const s = STATE.get(row); if (!s) return;
+    // 初期は必ず閉じる（初回ブレ防止）
+    st.actions.style.transition = 'none';
+    st.actions.style.right = px(-st.openW);
+    st.actions.style.pointerEvents = 'none';
+    row.classList.remove('is-open');
+    st.opened = false;
 
-    // アクション上からのドラッグ開始はしない
-    if (e.target.closest('.actions')) return;
+    // パネル内のクリックはバブリングさせない（操作可能に）
+    st.actions.addEventListener('click', e => e.stopPropagation(), {capture:true, passive:true});
 
-    // 詳細が開いてたら閉じる（スワイプ優先）
-    if (row.classList.contains('show-detail')) row.classList.remove('show-detail');
-
-    // ★ 毎回 DOM から再評価して基準更新（初回含め確実に固定）
-    s.openW  = getOpenW(s.actions);
-    s.opened = row.classList.contains('is-open');
-
-    s.dragging = true; s.horiz = false;
-    const t = e.touches ? e.touches[0] : e;
-    s.sx = t.clientX; s.sy = t.clientY;
-    s.actions.style.transition = 'none';
-    s.baseRight = s.opened ? 0 : -s.openW;
-
-    if (!s.opened) closeAll(row); // 他を閉じる（自分が開いてる時はそのまま）
-    movingRow = row;
-  }
-
-  function onMove(e){
-    if (!movingRow) return;
-    const s = STATE.get(movingRow); if (!s || !s.dragging) return;
-
-    const t = e.touches ? e.touches[0] : e;
-    const dx = t.clientX - s.sx, dy = t.clientY - s.sy;
-
-    if (!s.horiz){
-      if (Math.abs(dx) < 8) return;
-      if (Math.abs(dx) > Math.abs(dy)) s.horiz = true;
-      else { s.dragging = false; s.actions.style.transition=''; movingRow = null; return; }
+    // 詳細は押下でトグル＆パネルは閉じる
+    if (st.detail && !st._detailBound){
+      st._detailBound = true;
+      st.detail.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        hardClose(row, st);
+        row.classList.toggle('show-detail');
+      }, {passive:true});
     }
-    if (e.cancelable) e.preventDefault();
 
-    // 右プロパティで位置を管理（0〜-openW にクランプ）
-    let nr = s.baseRight - dx;
-    if (nr > 0) nr = 0;
-    if (nr < -s.openW) nr = -s.openW;
-    s.actions.style.right = px(nr);
-  }
+    // トラックの「単独タップ」で閉じる（外側タップでも閉じる）
+    if (!st._trackClickBound){
+      st._trackClickBound = true;
+      st.track.addEventListener('click', (e)=>{
+        if (now() < st.suppressClicksUntil) return; // 直後は無視
+        if (row.classList.contains('is-open')) { hardClose(row, st); return; }
+        if (row.classList.contains('show-detail')) { row.classList.remove('show-detail'); }
+      }, {passive:true});
+    }
 
-  function onEnd(){
-    if (!movingRow) return;
-    const row = movingRow; movingRow = null;
-    const s = STATE.get(row); if (!s) return;
+    // Pointer Events で統一
+    if (!st._peBound){
+      st._peBound = true;
 
-    s.dragging = false;
-    s.actions.style.transition = 'right .18s ease-out';
-    const cur = parseFloat(getComputedStyle(s.actions).right) || -s.openW;
-    const willOpen = cur > -s.openW / 2;
+      st.track.addEventListener('pointerdown', (e)=>{
+        // アクション領域から開始しない
+        if (e.target.closest('.actions')) return;
 
-    if (willOpen){
-      hardOpen(row, s);  // ← 開いたら“固定”状態に
-    }else{
-      hardClose(row, s);
+        // 既に他が開いていて、自分は閉じてるなら他を閉じる
+        if (!row.classList.contains('is-open')) closeAll(row);
+
+        st.active = true; st.horiz = false;
+        st.sx = e.clientX; st.sy = e.clientY;
+        st.dx = 0; st.dy = 0;
+        st.t0 = e.timeStamp; st.lastX = e.clientX; st.lastT = e.timeStamp; st.vx = 0;
+
+        // 現在の開閉状態を DOM から毎回再評価（初回ズレ対策）
+        st.opened = row.classList.contains('is-open');
+        st.openW  = getOpenW(st.actions);
+
+        st.actions.style.transition = 'none';
+        st.baseRight = st.opened ? 0 : -st.openW;
+
+        // このトラックで pointer を捕捉
+        st.track.setPointerCapture(e.pointerId);
+      });
+
+      st.track.addEventListener('pointermove', (e)=>{
+        if (!st.active) return;
+
+        st.dx = e.clientX - st.sx;
+        st.dy = e.clientY - st.sy;
+
+        // 方向判定（横に入ったらスワイプ成立）
+        if (!st.horiz){
+          const ax = Math.abs(st.dx), ay = Math.abs(st.dy);
+          if (ax < START_SLOP) return;
+          if (ax > ay) st.horiz = true;
+          else { // 縦スクロールと判断
+            st.active = false;
+            st.actions.style.transition = '';
+            try { st.track.releasePointerCapture(e.pointerId); } catch(_){}
+            return;
+          }
+        }
+
+        e.preventDefault(); // スクロール抑止
+
+        // 右（マイナス方向）プロパティで位置管理：0..-openW にクランプ
+        let nr = st.baseRight - st.dx;     // 左へスワイプで 0 に近づく
+        if (nr > 0) nr = 0;
+        if (nr < -st.openW) nr = -st.openW;
+        st.actions.style.right = px(nr);
+
+        // 速度（簡易）
+        const dt = e.timeStamp - st.lastT;
+        if (dt > 0){
+          st.vx = (e.clientX - st.lastX) / dt; // px/ms
+          st.lastX = e.clientX; st.lastT = e.timeStamp;
+        }
+      }, {passive:false});
+
+      const finish = (e)=>{
+        if (!st.active) return;
+        st.active = false;
+        try { st.track.releasePointerCapture(e.pointerId); } catch(_){}
+
+        st.actions.style.transition = 'right .18s ease-out';
+        const curRight = parseFloat(getComputedStyle(st.actions).right) || -st.openW;
+
+        const fraction = 1 - Math.abs(curRight / st.openW); // 開き具合（0..1）
+        const fastOpen = (-st.vx) > VEL_OPEN;               // 左方向に速ければ開く
+        const willOpen = fastOpen || (fraction > OPEN_FRACTION);
+
+        if (willOpen) hardOpen(row, st);
+        else          hardClose(row, st);
+      };
+
+      st.track.addEventListener('pointerup', finish);
+      st.track.addEventListener('pointercancel', finish);
+      st.track.addEventListener('pointerleave', (e)=>{ if(st.active) finish(e); });
     }
   }
 
-  // 外側タップでだけ全閉（行内のクリックでは閉じない＝勝手に戻らない）
-  document.addEventListener('click', (e)=>{
-    if (justSwiped()) return; // スワイプ直後の誤クリック無視
-    if (!e.target.closest('[data-swipe]')) closeAll(null);
-  });
-
-  // リスナー（委譲）
-  document.addEventListener('touchstart', onStart, {passive:true});
-  document.addEventListener('touchmove',  onMove,  {passive:false});
-  document.addEventListener('touchend',   onEnd);
-  document.addEventListener('touchcancel',onEnd);
-  document.addEventListener('mousedown',  onStart);
-  document.addEventListener('mousemove',  onMove);
-  document.addEventListener('mouseup',    onEnd);
-
-  // 初期化 & HTMX差し替え対応
-  document.querySelectorAll('[data-swipe]').forEach(initRow);
-  document.body.addEventListener('htmx:load', ()=>{
+  function boot(){
     document.querySelectorAll('[data-swipe]').forEach(initRow);
+  }
+
+  // 初期化
+  boot();
+
+  // HTMX差し替え後も再初期化
+  document.body.addEventListener('htmx:load', boot);
+
+  // 外側タップでだけ全閉（行内は閉じない＝勝手に戻らない）
+  document.addEventListener('click', (e)=>{
+    if (now() - lastGestureAt < GUARD_MS) return; // 直後の誤クリック無視（全体）
+    if (!e.target.closest('[data-swipe]')) {
+      document.querySelectorAll('[data-swipe].is-open').forEach(row=>{
+        const st = stateOf(row); if (st) hardClose(row, st);
+      });
+    }
   });
 
-  // iOSの誤スクロール対策
+  // iOS 誤スクロール対策
   const style = document.createElement('style');
   style.textContent = `.track{touch-action:pan-y;-webkit-user-select:none;user-select:none}`;
   document.head.appendChild(style);
 
-  console.log('[holdings.js v13] ready');
+  console.log('[holdings.js v14] ready');
 })();
