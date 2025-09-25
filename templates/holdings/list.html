@@ -7,65 +7,98 @@
 {% block head %}
 <style>
   .page-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-  .vstack{display:flex;flex-direction:column;gap:16px}
+
+  .vstack{ display:flex; flex-direction:column; gap:16px; }
+
   .card{
     position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.08);
-    border-radius:16px;background:rgba(255,255,255,.04); box-shadow:0 6px 22px rgba(0,0,0,.18);
+    border-radius:16px;background:rgba(255,255,255,.04);
+    box-shadow:0 6px 22px rgba(0,0,0,.18);
   }
   .row{position:relative}
 
   /* 本文は固定（動かさない） */
-  .track{position:relative;z-index:1;background:linear-gradient(180deg, rgba(12,18,28,.72), rgba(12,18,28,.72));}
+  .track{
+    position:relative;z-index:1;
+    background:linear-gradient(180deg, rgba(12,18,28,.72), rgba(12,18,28,.72));
+  }
 
-  /* 右の横並びアクション */
+  /* ===== 横並びアクション（外枠なし／カード高フィット） ===== */
   .actions{
-    --open-w:220px;
-    position:absolute;inset:auto 0 0 auto;top:0;right:calc(var(--open-w)*-1);
-    width:var(--open-w);z-index:2;display:flex;align-items:stretch;justify-content:center;
-    transition:right .18s ease-out;pointer-events:none;background:none
+    --open-w: 220px;
+    position:absolute; top:0; bottom:0; right:calc(var(--open-w)*-1);
+    width:var(--open-w); z-index:2;
+    display:flex; align-items:stretch; justify-content:center;
+    padding:0; transition:right .18s ease-out; will-change:right;
+    background:none; pointer-events:none;
   }
-  .row.is-open .actions{right:0;pointer-events:auto}
-  .action-panel{display:flex;gap:8px;width:100%;height:100%;padding:8px 10px 8px 8px}
+  .row.is-open .actions{ right:0; pointer-events:auto; }
+
+  .action-panel{
+    display:flex; flex-direction:row; gap:8px;
+    width:100%; height:100%; padding:8px 10px 8px 8px;
+  }
   .action-panel .item{
-    flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
-    text-decoration:none;color:#e6ebff;font-weight:700;font-size:12px;border-radius:12px;
-    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);box-shadow:0 4px 18px rgba(0,0,0,.25)
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:6px; text-decoration:none; color:#e6ebff; font-weight:700; font-size:12px;
+    border-radius:12px; border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.06); min-width:0; text-align:center;
+    box-shadow:0 4px 18px rgba(0,0,0,.25);
+    touch-action:manipulation;
   }
-  .item.detail{background:rgba(110,168,255,.18)} .item.edit{background:rgba(0,255,209,.16)} .item.delete{background:rgba(255,77,103,.20)}
-  .item .ico{font-size:18px;line-height:1}
+  .item .ico{font-size:18px; line-height:1}
+  .item.detail{ background:rgba(110,168,255,.18) }
+  .item.edit  { background:rgba(0,255,209,.16) }
+  .item.delete{ background:rgba(255,77,103,.20) }
 
-  /* 本文 */
+  /* ===== 本文 ===== */
   .body{padding:14px}
-  .title{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
-  .name{font-weight:800;font-size:20px;line-height:1.15;white-space:nowrap;overflow:hidden}
 
-  /* バッジ＋スパークを同一行に */
-  .meta-row{display:flex;align-items:center;gap:8px;justify-content:space-between}
-  .badges{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;flex:1;min-width:0}
-  .badge{
-    font-size:11px;padding:3px 10px;border:1px solid rgba(255,255,255,.16);
-    border-radius:9999px;color:#dbe3f4;background:rgba(255,255,255,.06);white-space:nowrap
+  .title{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
   }
-  .badge--code{color:#c7d2fe;border-color:rgba(110,168,255,.35);background:rgba(110,168,255,.12)}
+  .namewrap{ flex:1; display:flex; flex-direction:column; gap:10px; }
+  .name{
+    font-weight:800; font-size:22px; line-height:1.15;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    text-align:center;           /* ← 中央寄せ */
+  }
+  .badges{
+    display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:center;
+  }
+  .badge{
+    font-size:11px; padding:3px 10px;
+    border:1px solid rgba(255,255,255,.16);
+    border-radius:9999px; color:#dbe3f4; white-space:nowrap;
+    background:rgba(255,255,255,.06);
+  }
+  .badge--code{ color:#c7d2fe; border-color:rgba(110,168,255,.35); background:rgba(110,168,255,.12); }
   .badge.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35)}
   .badge.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
 
-  /* スパークを右に固定サイズで */
-  .spark-head{flex:0 0 92px;display:flex;justify-content:flex-end}
-  .spark{width:92px;height:28px;opacity:.8;filter:drop-shadow(0 0 2px rgba(0,0,0,.25))}
-
-  /* メトリクス行（数値に専念） */
-  .metrics{
-    display:grid;gap:10px;margin-top:12px;align-items:center;
-    border-top:1px dashed rgba(255,255,255,.08);padding-top:10px;
-    grid-template-columns:repeat(4, minmax(0,1fr));
+  /* スパーク（バッジの右） */
+  .spark-wrap{
+    width:120px; height:34px; flex:0 0 auto;
+    display:flex; align-items:center; justify-content:flex-end;
   }
-  .kv{display:flex;flex-direction:column;min-width:0}
-  .kv .k{font-size:12px;color:#97a3b6;line-height:1}
-  .kv .v{font-size:18px;line-height:1.15;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .v-pnl{color:#34d399}
+  .spark{
+    width:120px; height:34px; opacity:.9;
+  }
 
-  /* 詳細 */
+  /* 1行メトリクス（中央寄せ） */
+  .metrics{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:10px;
+    border-top:1px dashed rgba(255,255,255,.08); padding-top:10px;
+  }
+  .metric{
+    text-align:center;           /* ← 中央寄せ */
+  }
+  .metric .k{font-size:12px;color:#97a3b6}
+  .metric .v{font-size:22px}
+  .metric .v.gain{ color:#22c55e }
+  .metric .v.loss{ color:#ef4444 }
+
+  /* 詳細トグル部 */
   .more{display:none;border-top:1px dashed rgba(255,255,255,.08);padding:10px 14px}
   .row.show-detail .more{display:block}
   .moregrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:6px}
@@ -78,23 +111,27 @@
   <a href="{% url 'holding_create' %}" class="btn btn-outline">＋ 新規登録</a>
 </div>
 
-{# 並び替え/フィルタUI（省略：前回そのまま） #}
-
-{% if page.object_list %}
+{% if holdings %}
   <div class="vstack">
-    {% for r in page.object_list %}
-      {% with h=r.obj %}
+    {% for h in holdings %}
+      {# ビュー側で h.spark (list[float]), h.pnl_amount, h.pnl_rate が入っている想定 #}
       <article class="card row" data-swipe>
         <!-- 横並びアクション -->
         <div class="actions">
-          <div class="action-panel">
-            <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
-            <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
+          <div class="action-panel" onclick="event.stopPropagation()">
+            <button type="button" class="item detail" data-action="detail">
+              <span class="ico">📄</span><span>詳細</span>
+            </button>
+            <a class="item edit" href="{% url 'holding_edit' h.id %}">
+              <span class="ico">✏️</span><span>編集</span>
+            </a>
             <button class="item delete"
-              hx-post="{% url 'holding_delete' h.id %}"
-              hx-confirm="削除しますか？"
-              hx-target="closest [data-swipe]"
-              hx-swap="outerHTML swap:15ms"><span class="ico">🗑️</span><span>削除</span></button>
+                    hx-post="{% url 'holding_delete' h.id %}"
+                    hx-confirm="削除しますか？"
+                    hx-target="closest [data-swipe]"
+                    hx-swap="outerHTML swap:15ms">
+              <span class="ico">🗑️</span><span>削除</span>
+            </button>
           </div>
         </div>
 
@@ -102,50 +139,69 @@
         <div class="track">
           <div class="body">
             <header class="title">
-              <div class="name name-fit" title="{{ h.name|default:'-' }}">{{ h.name|default:'-' }}</div>
-
-              <!-- バッジ + スパーク（右） -->
-              <div class="meta-row">
+              <div class="namewrap" style="min-width:0">
+                <div class="name" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
                 <div class="badges">
                   <span class="badge badge--code">{{ h.ticker }}</span>
                   <span class="badge">{{ h.get_broker_display }}</span>
                   <span class="badge">{{ h.get_account_display }}</span>
                   <span class="badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
                 </div>
-                <div class="spark-head">
-                  {% if r.spark %}
-                    <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none"
-                         data-spark='{{ r.spark|safe }}'></svg>
-                  {% endif %}
-                </div>
+              </div>
+              <div class="spark-wrap">
+                <svg class="spark"
+                     data-rate="{{ h.pnl_rate|default:0 }}"
+                     data-spark='{{ h.spark|default:"[]"|safe }}'
+                     viewBox="0 0 120 34" preserveAspectRatio="none"></svg>
               </div>
             </header>
 
-            <!-- 数値4列のみ -->
+            <!-- 1行メトリクス -->
             <div class="metrics">
-              <div class="kv"><div class="k">数量</div><div class="v">{{ h.quantity|intcomma }}</div></div>
-              <div class="kv"><div class="k">平均取得</div><div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div></div>
-              <div class="kv"><div class="k">含み損益</div>
-                <div class="v v-pnl">{% if r.pnl is not None %}¥{{ r.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
+              <div class="metric">
+                <div class="k">数量</div>
+                <div class="v">{{ h.quantity|intcomma }}</div>
               </div>
-              <div class="kv"><div class="k">損益率</div>
-                <div class="v">{% if r.pnl_pct is not None %}{{ r.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div>
+              <div class="metric">
+                <div class="k">平均取得</div>
+                <div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
+              </div>
+              <div class="metric">
+                <div class="k">含み損益</div>
+                {% with pa=h.pnl_amount|default:0 %}
+                  <div class="v {% if pa|floatformat:2|floatval >= 0 %}gain{% else %}loss{% endif %}">
+                    ¥{{ pa|floatformat:0|intcomma }}
+                  </div>
+                {% endwith %}
+              </div>
+              <div class="metric">
+                <div class="k">損益率</div>
+                {% with pr=h.pnl_rate|default:0 %}
+                  <div class="v {% if pr|floatformat:2|floatval >= 0 %}gain{% else %}loss{% endif %}">
+                    {{ pr|floatformat:2 }}%
+                  </div>
+                {% endwith %}
               </div>
             </div>
           </div>
 
-          <!-- 詳細 -->
           <div class="more">
             <div class="moregrid">
-              <div class="kv"><div class="k">取得額</div><div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div></div>
-              <div class="kv"><div class="k">保有開始</div><div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div></div>
+              <div class="kv" style="border:none;padding:0">
+                <div class="k">取得額</div>
+                <div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div>
+              </div>
+              <div class="kv" style="border:none;padding:0">
+                <div class="k">保有開始</div>
+                <div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div>
+              </div>
               <div class="kv"><div class="k">作成</div><div class="v">{{ h.created_at|date:"Y-m-d" }}</div></div>
               <div class="kv"><div class="k">更新</div><div class="v">{{ h.updated_at|date:"Y-m-d" }}</div></div>
+              {% if h.memo %}<div class="kv" style="grid-column:1/-1"><div class="k">メモ</div><div class="v">{{ h.memo }}</div></div>{% endif %}
             </div>
           </div>
         </div>
       </article>
-      {% endwith %}
     {% endfor %}
   </div>
 {% else %}
@@ -153,79 +209,133 @@
 {% endif %}
 
 <script>
-/* ===== スワイプ＋詳細トグル ===== */
+/* ===== スワイプパネル（本文は固定）＋安定化 ===== */
 (function(){
-  const rows=document.querySelectorAll('[data-swipe]');
-  function getOpenW(a){return parseFloat(getComputedStyle(a).getPropertyValue('--open-w'))||220}
+  const rows = document.querySelectorAll('[data-swipe]');
+
+  function getOpenW(actions){
+    const v = getComputedStyle(actions).getPropertyValue('--open-w').trim().replace('px','');
+    return parseFloat(v || '220');
+  }
   function closeAll(except){
     document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
       if(r===except) return;
       r.classList.remove('is-open');
-      const a=r.querySelector('.actions'); a.style.right=(-getOpenW(a))+'px'; a.style.pointerEvents='none';
+      const a = r.querySelector('.actions');
+      a.style.right = (-getOpenW(a)) + 'px';
+      a.style.pointerEvents = 'none';
     });
   }
+
   rows.forEach(row=>{
-    const a=row.querySelector('.actions'), btn=row.querySelector('[data-action="detail"]'), track=row.querySelector('.track');
-    const OPEN=getOpenW(a); a.style.right=(-OPEN)+'px'; a.style.pointerEvents='none';
-    let sx=0,sy=0,drag=false,horiz=false,opened=false,baseR=-OPEN;
-    const setR=px=>a.style.right=px+'px';
-    const start=e=>{
-      if(e.target.closest('.actions')) return;
-      const t=e.touches?e.touches[0]:e; sx=t.clientX; sy=t.clientY; drag=true; horiz=false; baseR=opened?0:-OPEN; a.style.transition='none';
-      if(document.querySelector('[data-swipe].is-open') && !row.classList.contains('is-open')) closeAll(row);
+    const actions = row.querySelector('.actions');
+    const detailBtn = row.querySelector('[data-action="detail"]');
+    const track = row.querySelector('.track');
+    const OPEN_W = getOpenW(actions);
+
+    actions.style.right = (-OPEN_W) + 'px';
+    actions.style.pointerEvents = 'none';
+
+    let startX=0,startY=0,drag=false,horiz=false,opened=false,baseRight=-OPEN_W;
+
+    const setRight = (px)=> actions.style.right = px + 'px';
+
+    const onStart = (e)=>{
+      // アクション上でのドラッグ開始は無効化（クリック可能にする）
+      if (e.target.closest('.actions')) return;
+      const t = e.touches ? e.touches[0] : e;
+      startX=t.clientX; startY=t.clientY;
+      drag=true; horiz=false;
+      baseRight = row.classList.contains('is-open') ? 0 : -OPEN_W;
+      actions.style.transition='none';
+      if(document.querySelector('[data-swipe].is-open') && !row.classList.contains('is-open')){
+        closeAll(row);
+      }
     };
-    const move=e=>{
-      if(!drag) return; const t=e.touches?e.touches[0]:e; const dx=t.clientX-sx, dy=t.clientY-sy;
-      if(!horiz){ if(Math.abs(dx)<8) return; if(Math.abs(dx)>Math.abs(dy)) horiz=true; else {drag=false;a.style.transition='';return;} }
+    const onMove = (e)=>{
+      if(!drag) return;
+      const t = e.touches ? e.touches[0] : e;
+      const dx=t.clientX-startX, dy=t.clientY-startY;
+      if(!horiz){
+        if(Math.abs(dx)<8) return;
+        if(Math.abs(dx)>Math.abs(dy)) horiz=true; else { drag=false; actions.style.transition=''; return; }
+      }
       if(e.cancelable) e.preventDefault();
-      let nr=baseR-dx; if(nr>0) nr=0; if(nr<-OPEN) nr=-OPEN; setR(nr);
+      let nr = baseRight - dx; if(nr>0) nr=0; if(nr<-OPEN_W) nr=-OPEN_W; setRight(nr);
     };
-    const end=()=>{ if(!drag) return; drag=false; a.style.transition='right .18s ease-out';
-      const cur=parseFloat(getComputedStyle(a).right)||-OPEN; opened=(cur>-OPEN/2);
-      if(opened){row.classList.add('is-open'); setR(0); a.style.pointerEvents='auto';}
-      else{row.classList.remove('is-open'); setR(-OPEN); a.style.pointerEvents='none';}
+    const onEnd = ()=>{
+      if(!drag) return;
+      drag=false; actions.style.transition='right .18s ease-out';
+      const curRight = parseFloat(getComputedStyle(actions).right) || -OPEN_W;
+      const willOpen = (curRight > -OPEN_W/2);
+      if(willOpen){
+        row.classList.add('is-open'); setRight(0); actions.style.pointerEvents='auto';
+      }else{
+        row.classList.remove('is-open'); setRight(-OPEN_W); actions.style.pointerEvents='none';
+      }
     };
-    row.addEventListener('touchstart',start,{passive:true});
-    row.addEventListener('touchmove',move,{passive:false});
-    row.addEventListener('touchend',end);
-    btn.addEventListener('click',()=>{ row.classList.toggle('show-detail'); opened=false; row.classList.remove('is-open'); setR(-OPEN); a.style.pointerEvents='none'; requestAnimationFrame(autoFitNames);});
-    track.addEventListener('click',(ev)=>{ if(ev.target.closest('.actions,.item,a,button')) return;
-      if(row.classList.contains('show-detail')) row.classList.remove('show-detail');
-      if(row.classList.contains('is-open')){ row.classList.remove('is-open'); setR(-OPEN); a.style.pointerEvents='none'; }
+
+    row.addEventListener('touchstart', onStart, {passive:true});
+    row.addEventListener('touchmove',  onMove,  {passive:false});
+    row.addEventListener('touchend',   onEnd);
+
+    // アクション内のクリックは行の click にバブリングさせない（選択できない問題の元）
+    actions.addEventListener('click', (e)=> e.stopPropagation());
+
+    // 「詳細」→ .more トグル（押したら閉じる）
+    detailBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      row.classList.toggle('show-detail');
+      row.classList.remove('is-open'); setRight(-OPEN_W); actions.style.pointerEvents='none';
+    });
+
+    /* カード本体タップで“閉じるだけ” */
+    track.addEventListener('click', ()=>{
+      if (row.classList.contains('show-detail')){
+        row.classList.remove('show-detail');
+      }
+      if (row.classList.contains('is-open')){
+        row.classList.remove('is-open'); setRight(-OPEN_W); actions.style.pointerEvents='none';
+      }
     });
   });
-  document.addEventListener('click',(e)=>{ if(e.target.closest('.actions')) return; if(!e.target.closest('[data-swipe]')) closeAll(null); });
+
+  // 外側タップでパネルを閉じる
+  document.addEventListener('click', (e)=>{
+    if (e.target.closest('.actions')) return;
+    const r = e.target.closest('[data-swipe]');
+    if(!r) closeAll(null);
+  });
 })();
 
-/* ===== 銘柄名フィット ===== */
-function autoFitNames(){
-  document.querySelectorAll('.name-fit').forEach(el=>{
-    const max=20,min=14; el.style.fontSize=max+'px';
-    const limit=el.parentElement.clientWidth-20; let size=max;
-    while(el.scrollWidth>limit && size>min){ size-=1; el.style.fontSize=size+'px'; }
-  });
-}
-window.addEventListener('load', autoFitNames);
-window.addEventListener('resize', ()=>{ clearTimeout(window.__fitT); window.__fitT=setTimeout(autoFitNames,120); });
-
-/* ===== スパーク描画（SVG） ===== */
-function renderSparkOne(svg, data){
-  try{
-    if(!data || !data.length){ svg.replaceChildren(); return; }
-    let min=Math.min(...data), max=Math.max(...data); if(min===max){ min-=1e-6; max+=1e-6; }
-    const pts=data.map((v,i)=>{
-      const x=(i/(data.length-1))*100, y=(1-(v-min)/(max-min))*30;
-      return `${x},${y}`;
+/* ===== スパークライン描画（色=損益率） ===== */
+(function(){
+  function draw(svg, points, color){
+    const w = svg.viewBox.baseVal.width || 120;
+    const h = svg.viewBox.baseVal.height || 34;
+    if(!points || points.length===0){ svg.innerHTML=''; return; }
+    // 0..1 に正規化 → パディング少し
+    let min = Math.min(...points), max = Math.max(...points);
+    if (max === min){ max = min + 1e-6; }
+    const pad = 2;
+    const step = (w - pad*2) / Math.max(points.length-1,1);
+    const path = points.map((v,i)=>{
+      const x = pad + i*step;
+      const y = h - pad - ((v - min) / (max - min)) * (h - pad*2);
+      return `${i?'L':'M'}${x.toFixed(2)},${y.toFixed(2)}`;
     }).join(' ');
-    svg.innerHTML=`<polyline points="${pts}" fill="none" stroke="rgba(34,197,94,.9)" stroke-width="1.5"/>`;
-  }catch(_){ svg.replaceChildren(); }
-}
-function renderSparks(){
-  document.querySelectorAll('svg.spark[data-spark]').forEach(svg=>{
-    let arr=[]; try{ const raw=svg.getAttribute('data-spark'); arr=Array.isArray(raw)?raw:JSON.parse(raw||'[]'); }catch(_){}
-    renderSparkOne(svg, arr);
+    svg.innerHTML =
+      `<path d="${path}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" opacity="0.95"/>`;
+  }
+
+  document.querySelectorAll('.spark').forEach(svg=>{
+    try{
+      const arr = JSON.parse(svg.dataset.spark || '[]');
+      const rate = parseFloat(svg.dataset.rate || '0');
+      const col = (isFinite(rate) && rate < 0) ? '#ef4444' : '#22c55e';  // 赤/緑
+      draw(svg, arr, col);
+    }catch(_){}
   });
-}
-window.addEventListener('load', renderSparks);
+})();
 </script>
 {% endblock %}
