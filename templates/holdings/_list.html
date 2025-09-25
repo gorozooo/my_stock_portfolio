@@ -1,36 +1,77 @@
 {# templates/holdings/_list.html #}
-{% load humanize %}
+{% load humanize num %}
+
 {% if page.object_list %}
-  <div class="vstack" style="display:flex;flex-direction:column;gap:14px">
+  <div class="vstack">
     {% for r in page.object_list %}
       {% with h=r.obj %}
-      <article class="card" style="border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.04);overflow:hidden">
-        <div style="padding:14px">
-          <div style="text-align:center;font-weight:800;font-size:22px;letter-spacing:.02em">{{ h.name|default:"-" }}</div>
-          <div style="display:flex;gap:6px;justify-content:center;margin-top:6px">
-            <span class="badge">{{ h.ticker }}</span>
-            <span class="badge">{{ h.get_broker_display }}</span>
-            <span class="badge">{{ h.get_account_display }}</span>
-            <span class="badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;border-top:1px dashed rgba(255,255,255,.08);padding-top:10px">
-            <div class="kv"><div class="k">数量</div><div class="v">{{ h.quantity|intcomma }}</div></div>
-            <div class="kv"><div class="k">平均取得</div><div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div></div>
-            <div class="kv"><div class="k">評価額</div>
-              <div class="v">{% if r.valuation is not None %}¥{{ r.valuation|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
-            </div>
-            <div class="kv"><div class="k">含み損益</div>
-              <div class="v">{% if r.pnl is not None %}¥{{ r.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
-            </div>
-            <div class="kv"><div class="k">保有日数</div><div class="v">{{ r.days|default:"—" }}</div></div>
-          </div>
-          <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
-            <a class="btn-ghost" href="{% url 'holding_edit' h.id %}">編集</a>
-            <button class="btn-warn"
+      <article class="card row" data-swipe>
+        <!-- 横並びアクション -->
+        <div class="actions">
+          <div class="action-panel">
+            <button type="button" class="item detail" data-action="detail" aria-label="詳細を開く">
+              <span class="ico">📄</span><span>詳細</span>
+            </button>
+            <a class="item edit" href="{% url 'holding_edit' h.id %}" aria-label="編集へ">
+              <span class="ico">✏️</span><span>編集</span>
+            </a>
+            <button class="item delete"
                     hx-post="{% url 'holding_delete' h.id %}"
                     hx-confirm="削除しますか？"
-                    hx-target="closest article"
-                    hx-swap="outerHTML swap:15ms">削除</button>
+                    hx-target="closest [data-swipe]"
+                    hx-swap="outerHTML swap:15ms"
+                    aria-label="削除">
+              <span class="ico">🗑️</span><span>削除</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 本文（固定） -->
+        <div class="track">
+          <div class="body">
+            <header class="title">
+              <div class="name name-fit" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
+              <div class="subline">
+                <div class="badges">
+                  <span class="badge badge--code">{{ h.ticker }}</span>
+                  <span class="badge">{{ h.get_broker_display }}</span>
+                  <span class="badge">{{ h.get_account_display }}</span>
+                  <span class="badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
+                </div>
+              </div>
+            </header>
+
+            <div class="grid">
+              <div class="kv"><div class="k">数量</div><div class="v">{{ h.quantity|intcomma }}</div></div>
+              <div class="kv"><div class="k">平均取得</div><div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div></div>
+
+              <div class="kv"><div class="k">評価額</div>
+                <div class="v">
+                  {% if r.valuation is not None %}¥{{ r.valuation|floatformat:0|intcomma }}{% else %}—{% endif %}
+                </div>
+              </div>
+              <div class="kv"><div class="k">含み損益</div>
+                <div class="v">
+                  {% if r.pnl is not None %}¥{{ r.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
+                </div>
+              </div>
+              <div class="kv"><div class="k">保有日数</div><div class="v">{{ r.days|default:"—" }}</div></div>
+            </div>
+          </div>
+
+          <div class="more">
+            <div class="moregrid">
+              <div class="kv" style="border:none;padding:0">
+                <div class="k">取得額</div>
+                <div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div>
+              </div>
+              <div class="kv" style="border:none;padding:0">
+                <div class="k">保有開始</div>
+                <div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div>
+              </div>
+              <div class="kv"><div class="k">作成</div><div class="v">{{ h.created_at|date:"Y-m-d" }}</div></div>
+              <div class="kv"><div class="k">更新</div><div class="v">{{ h.updated_at|date:"Y-m-d" }}</div></div>
+            </div>
           </div>
         </div>
       </article>
@@ -56,13 +97,103 @@
   <div class="text-slate-400">保有はまだありません。</div>
 {% endif %}
 
-<style>
-.badge{font-size:11px;padding:3px 8px;border:1px solid rgba(255,255,255,.16);border-radius:9999px;color:#dbe3f4}
-.badge.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35)}
-.badge.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
-.kv{display:flex;justify-content:space-between;gap:8px}
-.kv .k{font-size:12px;color:#97a3b6}
-.kv .v{font-size:18px}
-.btn-ghost{padding:9px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.18);background:transparent}
-.btn-warn{padding:9px 12px;border-radius:12px;border:1px solid rgba(244,63,94,.35);background:rgba(244,63,94,.12)}
-</style>
+<script>
+/* ===== スワイプパネル（本文は固定）＋ 詳細の閉じやすさ改善 ===== */
+(function(){
+  const rows = document.querySelectorAll('[data-swipe]');
+
+  function getOpenW(actions){
+    const v = getComputedStyle(actions).getPropertyValue('--open-w').trim().replace('px','');
+    return parseFloat(v || '220');
+  }
+  function closeAll(except){
+    document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
+      if(r===except) return;
+      r.classList.remove('is-open');
+      const a = r.querySelector('.actions');
+      a.style.right = (-getOpenW(a)) + 'px';
+      a.style.pointerEvents = 'none';
+    });
+  }
+
+  rows.forEach(row=>{
+    const actions = row.querySelector('.actions');
+    const detailBtn = row.querySelector('[data-action="detail"]');
+    const track = row.querySelector('.track');
+    const OPEN_W = getOpenW(actions);
+
+    actions.style.right = (-OPEN_W) + 'px';
+    actions.style.pointerEvents = 'none';
+
+    let startX=0,startY=0,drag=false,horiz=false,opened=false,baseRight=-OPEN_W;
+
+    const setRight = (px)=> actions.style.right = px + 'px';
+
+    const onStart = (e)=>{
+      if (e.target.closest('.actions')) return;
+      const t = e.touches ? e.touches[0] : e;
+      startX=t.clientX; startY=t.clientY;
+      drag=true; horiz=false;
+      baseRight = opened ? 0 : -OPEN_W;
+      actions.style.transition='none';
+      if(document.querySelector('[data-swipe].is-open') && !row.classList.contains('is-open')){
+        closeAll(row);
+      }
+    };
+    const onMove = (e)=>{
+      if(!drag) return;
+      const t = e.touches ? e.touches[0] : e;
+      const dx=t.clientX-startX, dy=t.clientY-startY;
+      if(!horiz){
+        if(Math.abs(dx)<8) return;
+        if(Math.abs(dx)>Math.abs(dy)) horiz=true; else { drag=false; actions.style.transition=''; return; }
+      }
+      if(e.cancelable) e.preventDefault();
+      let nr = baseRight - dx; if(nr>0) nr=0; if(nr<-OPEN_W) nr=-OPEN_W; setRight(nr);
+    };
+    const onEnd = ()=>{
+      if(!drag) return;
+      drag=false; actions.style.transition='right .18s ease-out';
+      const curRight = parseFloat(getComputedStyle(actions).right) || -OPEN_W;
+      opened = (curRight > -OPEN_W/2);
+      if(opened){ row.classList.add('is-open'); setRight(0); actions.style.pointerEvents='auto'; }
+      else      { row.classList.remove('is-open'); setRight(-OPEN_W); actions.style.pointerEvents='none'; }
+    };
+
+    row.addEventListener('touchstart', onStart, {passive:true});
+    row.addEventListener('touchmove',  onMove,  {passive:false});
+    row.addEventListener('touchend',   onEnd);
+
+    detailBtn.addEventListener('click', ()=>{
+      row.classList.toggle('show-detail');
+      opened=false; row.classList.remove('is-open'); setRight(-OPEN_W);
+      actions.style.pointerEvents = 'none';
+      window.requestAnimationFrame(()=> {
+        const ev = new Event('reflow'); document.dispatchEvent(ev);
+      });
+    });
+
+    track.addEventListener('click', (ev)=>{
+      const hitAction = ev.target.closest('.actions, .item, a, button');
+      if (hitAction) return;
+      if (row.classList.contains('show-detail')){
+        row.classList.remove('show-detail');
+      }
+      if (row.classList.contains('is-open')){
+        row.classList.remove('is-open'); setRight(-OPEN_W); actions.style.pointerEvents='none';
+      }
+    });
+  });
+
+  document.addEventListener('click', (e)=>{
+    if (e.target.closest('.actions')) return;
+    const r = e.target.closest('[data-swipe]');
+    if(!r) document.querySelectorAll('[data-swipe].is-open').forEach(rr=>{
+      rr.classList.remove('is-open');
+      const a = rr.querySelector('.actions');
+      a.style.right = (-getOpenW(a)) + 'px';
+      a.style.pointerEvents = 'none';
+    });
+  });
+})();
+</script>
