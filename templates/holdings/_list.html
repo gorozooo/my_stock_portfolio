@@ -1,0 +1,68 @@
+{# templates/holdings/_list.html #}
+{% load humanize %}
+{% if page.object_list %}
+  <div class="vstack" style="display:flex;flex-direction:column;gap:14px">
+    {% for r in page.object_list %}
+      {% with h=r.obj %}
+      <article class="card" style="border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.04);overflow:hidden">
+        <div style="padding:14px">
+          <div style="text-align:center;font-weight:800;font-size:22px;letter-spacing:.02em">{{ h.name|default:"-" }}</div>
+          <div style="display:flex;gap:6px;justify-content:center;margin-top:6px">
+            <span class="badge">{{ h.ticker }}</span>
+            <span class="badge">{{ h.get_broker_display }}</span>
+            <span class="badge">{{ h.get_account_display }}</span>
+            <span class="badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;border-top:1px dashed rgba(255,255,255,.08);padding-top:10px">
+            <div class="kv"><div class="k">数量</div><div class="v">{{ h.quantity|intcomma }}</div></div>
+            <div class="kv"><div class="k">平均取得</div><div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div></div>
+            <div class="kv"><div class="k">評価額</div>
+              <div class="v">{% if r.valuation is not None %}¥{{ r.valuation|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
+            </div>
+            <div class="kv"><div class="k">含み損益</div>
+              <div class="v">{% if r.pnl is not None %}¥{{ r.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
+            </div>
+            <div class="kv"><div class="k">保有日数</div><div class="v">{{ r.days|default:"—" }}</div></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
+            <a class="btn-ghost" href="{% url 'holding_edit' h.id %}">編集</a>
+            <button class="btn-warn"
+                    hx-post="{% url 'holding_delete' h.id %}"
+                    hx-confirm="削除しますか？"
+                    hx-target="closest article"
+                    hx-swap="outerHTML swap:15ms">削除</button>
+          </div>
+        </div>
+      </article>
+      {% endwith %}
+    {% endfor %}
+  </div>
+
+  {# ページング #}
+  {% if page.paginator.num_pages > 1 %}
+  <div style="display:flex;gap:8px;justify-content:center;margin-top:14px">
+    {% if page.has_previous %}
+      <a hx-get="{% url 'holding_list_partial' %}?page={{page.previous_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}"
+         hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">前へ</a>
+    {% endif %}
+    <div style="opacity:.75;padding:8px 12px">Page {{page.number}} / {{page.paginator.num_pages}}</div>
+    {% if page.has_next %}
+      <a hx-get="{% url 'holding_list_partial' %}?page={{page.next_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}"
+         hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">次へ</a>
+    {% endif %}
+  </div>
+  {% endif %}
+{% else %}
+  <div class="text-slate-400">保有はまだありません。</div>
+{% endif %}
+
+<style>
+.badge{font-size:11px;padding:3px 8px;border:1px solid rgba(255,255,255,.16);border-radius:9999px;color:#dbe3f4}
+.badge.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35)}
+.badge.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
+.kv{display:flex;justify-content:space-between;gap:8px}
+.kv .k{font-size:12px;color:#97a3b6}
+.kv .v{font-size:18px}
+.btn-ghost{padding:9px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.18);background:transparent}
+.btn-warn{padding:9px 12px;border-radius:12px;border:1px solid rgba(244,63,94,.35);background:rgba(244,63,94,.12)}
+</style>
