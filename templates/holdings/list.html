@@ -7,85 +7,68 @@
 {% block head %}
 <style>
   .page-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-
   .vstack{display:flex;flex-direction:column;gap:16px}
-
   .card{
     position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.08);
-    border-radius:16px;background:rgba(255,255,255,.04);
-    box-shadow:0 6px 22px rgba(0,0,0,.18);
+    border-radius:16px;background:rgba(255,255,255,.04); box-shadow:0 6px 22px rgba(0,0,0,.18);
   }
   .row{position:relative}
 
   /* 本文は固定（動かさない） */
-  .track{
-    position:relative;z-index:1;
-    background:linear-gradient(180deg, rgba(12,18,28,.72), rgba(12,18,28,.72));
-  }
+  .track{position:relative;z-index:1;background:linear-gradient(180deg, rgba(12,18,28,.72), rgba(12,18,28,.72));}
 
-  /* ===== 右の横並びアクション（外枠なし／カード高フィット） ===== */
+  /* 右の横並びアクション */
   .actions{
-    --open-w: 220px;
-    position:absolute; top:0; bottom:0; right:calc(var(--open-w)*-1); left:auto;
-    width:var(--open-w); z-index:2;
-    display:flex; align-items:stretch; justify-content:center;
-    padding:0; transition:right .18s ease-out; will-change:right;
-    background:none; pointer-events:none;
+    --open-w:220px;
+    position:absolute;inset:auto 0 0 auto;top:0;right:calc(var(--open-w)*-1);
+    width:var(--open-w);z-index:2;display:flex;align-items:stretch;justify-content:center;
+    transition:right .18s ease-out;pointer-events:none;background:none
   }
-  .row.is-open .actions{ right:0; pointer-events:auto; }
-
-  .action-panel{display:flex;flex-direction:row;gap:8px;width:100%;height:100%;padding:8px 10px 8px 8px}
+  .row.is-open .actions{right:0;pointer-events:auto}
+  .action-panel{display:flex;gap:8px;width:100%;height:100%;padding:8px 10px 8px 8px}
   .action-panel .item{
-    flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:6px;text-decoration:none;color:#e6ebff;font-weight:700;font-size:12px;
-    border-radius:12px;border:1px solid rgba(255,255,255,.14);
-    background:rgba(255,255,255,.06);min-width:0;text-align:center;
-    box-shadow:0 4px 18px rgba(0,0,0,.25);touch-action:manipulation;
+    flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+    text-decoration:none;color:#e6ebff;font-weight:700;font-size:12px;border-radius:12px;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);box-shadow:0 4px 18px rgba(0,0,0,.25)
   }
+  .item.detail{background:rgba(110,168,255,.18)} .item.edit{background:rgba(0,255,209,.16)} .item.delete{background:rgba(255,77,103,.20)}
   .item .ico{font-size:18px;line-height:1}
-  .item.detail{background:rgba(110,168,255,.18)}
-  .item.edit  {background:rgba(0,255,209,.16)}
-  .item.delete{background:rgba(255,77,103,.20)}
 
-  /* ===== 本文レイアウト ===== */
+  /* 本文 */
   .body{padding:14px}
-
   .title{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
   .name{font-weight:800;font-size:20px;line-height:1.15;white-space:nowrap;overflow:hidden}
 
-  .badges{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  /* バッジ＋スパークを同一行に */
+  .meta-row{display:flex;align-items:center;gap:8px;justify-content:space-between}
+  .badges{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;flex:1;min-width:0}
   .badge{
     font-size:11px;padding:3px 10px;border:1px solid rgba(255,255,255,.16);
-    border-radius:9999px;color:#dbe3f4;white-space:nowrap;background:rgba(255,255,255,.06)
+    border-radius:9999px;color:#dbe3f4;background:rgba(255,255,255,.06);white-space:nowrap
   }
   .badge--code{color:#c7d2fe;border-color:rgba(110,168,255,.35);background:rgba(110,168,255,.12)}
   .badge.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35)}
   .badge.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
 
-  /* ===== メトリクス行：4列＋スパーク専用列 ===== */
+  /* スパークを右に固定サイズで */
+  .spark-head{flex:0 0 92px;display:flex;justify-content:flex-end}
+  .spark{width:92px;height:28px;opacity:.8;filter:drop-shadow(0 0 2px rgba(0,0,0,.25))}
+
+  /* メトリクス行（数値に専念） */
   .metrics{
-    display:grid;gap:8px;margin-top:12px;align-items:center;
+    display:grid;gap:10px;margin-top:12px;align-items:center;
     border-top:1px dashed rgba(255,255,255,.08);padding-top:10px;
-    grid-template-columns: repeat(4, minmax(0,1fr)) 80px;  /* ← 最後がスパーク */
+    grid-template-columns:repeat(4, minmax(0,1fr));
   }
   .kv{display:flex;flex-direction:column;min-width:0}
   .kv .k{font-size:12px;color:#97a3b6;line-height:1}
-  .kv .v{
-    font-size:18px;line-height:1.15;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  }
-  .v-pnl{color:#34d399}  /* 含み益（将来マイナスは赤に） */
-  .v-pct{padding-right:6px}
-  .spark-cell{grid-column:5/6;display:flex;justify-content:flex-end}
-  .spark{
-    width:76px;height:26px;opacity:.75;filter:drop-shadow(0 0 2px rgba(0,0,0,.25));
-  }
+  .kv .v{font-size:18px;line-height:1.15;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .v-pnl{color:#34d399}
 
   /* 詳細 */
   .more{display:none;border-top:1px dashed rgba(255,255,255,.08);padding:10px 14px}
   .row.show-detail .more{display:block}
   .moregrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:6px}
-
-  /* 上部コントロール（並び替え等）の見た目は既存を使用 */
 </style>
 {% endblock %}
 
@@ -95,7 +78,7 @@
   <a href="{% url 'holding_create' %}" class="btn btn-outline">＋ 新規登録</a>
 </div>
 
-{# ここに並び替え/フィルタ/検索UI（既存のまま） #}
+{# 並び替え/フィルタUI（省略：前回そのまま） #}
 
 {% if page.object_list %}
   <div class="vstack">
@@ -108,12 +91,10 @@
             <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
             <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
             <button class="item delete"
-                    hx-post="{% url 'holding_delete' h.id %}"
-                    hx-confirm="削除しますか？"
-                    hx-target="closest [data-swipe]"
-                    hx-swap="outerHTML swap:15ms">
-              <span class="ico">🗑️</span><span>削除</span>
-            </button>
+              hx-post="{% url 'holding_delete' h.id %}"
+              hx-confirm="削除しますか？"
+              hx-target="closest [data-swipe]"
+              hx-swap="outerHTML swap:15ms"><span class="ico">🗑️</span><span>削除</span></button>
           </div>
         </div>
 
@@ -121,43 +102,34 @@
         <div class="track">
           <div class="body">
             <header class="title">
-              <div class="name name-fit" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
-              <div class="badges">
-                <span class="badge badge--code">{{ h.ticker }}</span>
-                <span class="badge">{{ h.get_broker_display }}</span>
-                <span class="badge">{{ h.get_account_display }}</span>
-                <span class="badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
+              <div class="name name-fit" title="{{ h.name|default:'-' }}">{{ h.name|default:'-' }}</div>
+
+              <!-- バッジ + スパーク（右） -->
+              <div class="meta-row">
+                <div class="badges">
+                  <span class="badge badge--code">{{ h.ticker }}</span>
+                  <span class="badge">{{ h.get_broker_display }}</span>
+                  <span class="badge">{{ h.get_account_display }}</span>
+                  <span class="badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
+                </div>
+                <div class="spark-head">
+                  {% if r.spark %}
+                    <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none"
+                         data-spark='{{ r.spark|safe }}'></svg>
+                  {% endif %}
+                </div>
               </div>
             </header>
 
-            <!-- 4列＋スパーク専用列 -->
+            <!-- 数値4列のみ -->
             <div class="metrics">
-              <div class="kv">
-                <div class="k">数量</div>
-                <div class="v">{{ h.quantity|intcomma }}</div>
+              <div class="kv"><div class="k">数量</div><div class="v">{{ h.quantity|intcomma }}</div></div>
+              <div class="kv"><div class="k">平均取得</div><div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div></div>
+              <div class="kv"><div class="k">含み損益</div>
+                <div class="v v-pnl">{% if r.pnl is not None %}¥{{ r.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
               </div>
-              <div class="kv">
-                <div class="k">平均取得</div>
-                <div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
-              </div>
-              <div class="kv">
-                <div class="k">含み損益</div>
-                <div class="v v-pnl">
-                  {% if r.pnl is not None %}¥{{ r.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
-                </div>
-              </div>
-              <div class="kv">
-                <div class="k">損益率</div>
-                <div class="v v-pct">
-                  {% if r.pnl_pct is not None %}{{ r.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
-                </div>
-              </div>
-
-              <div class="spark-cell">
-                {% if r.spark %}
-                  <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none"
-                       data-spark='{{ r.spark|safe }}'></svg>
-                {% endif %}
+              <div class="kv"><div class="k">損益率</div>
+                <div class="v">{% if r.pnl_pct is not None %}{{ r.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div>
               </div>
             </div>
           </div>
@@ -181,9 +153,9 @@
 {% endif %}
 
 <script>
-/* ===== スワイプ（本文固定）＋詳細トグル & 名称フィット ===== */
+/* ===== スワイプ＋詳細トグル ===== */
 (function(){
-  const rows = document.querySelectorAll('[data-swipe]');
+  const rows=document.querySelectorAll('[data-swipe]');
   function getOpenW(a){return parseFloat(getComputedStyle(a).getPropertyValue('--open-w'))||220}
   function closeAll(except){
     document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
@@ -193,37 +165,33 @@
     });
   }
   rows.forEach(row=>{
-    const actions=row.querySelector('.actions');
-    const detailBtn=row.querySelector('[data-action="detail"]');
-    const track=row.querySelector('.track');
-    const OPEN_W=getOpenW(actions);
-    actions.style.right=(-OPEN_W)+'px'; actions.style.pointerEvents='none';
-    let sx=0,sy=0,drag=false,horiz=false,opened=false,baseR=-OPEN_W;
-    const setR=px=>actions.style.right=px+'px';
+    const a=row.querySelector('.actions'), btn=row.querySelector('[data-action="detail"]'), track=row.querySelector('.track');
+    const OPEN=getOpenW(a); a.style.right=(-OPEN)+'px'; a.style.pointerEvents='none';
+    let sx=0,sy=0,drag=false,horiz=false,opened=false,baseR=-OPEN;
+    const setR=px=>a.style.right=px+'px';
     const start=e=>{
       if(e.target.closest('.actions')) return;
-      const t=e.touches?e.touches[0]:e; sx=t.clientX; sy=t.clientY; drag=true; horiz=false;
-      baseR=opened?0:-OPEN_W; actions.style.transition='none';
+      const t=e.touches?e.touches[0]:e; sx=t.clientX; sy=t.clientY; drag=true; horiz=false; baseR=opened?0:-OPEN; a.style.transition='none';
       if(document.querySelector('[data-swipe].is-open') && !row.classList.contains('is-open')) closeAll(row);
     };
     const move=e=>{
-      if(!drag)return; const t=e.touches?e.touches[0]:e; const dx=t.clientX-sx, dy=t.clientY-sy;
-      if(!horiz){ if(Math.abs(dx)<8)return; if(Math.abs(dx)>Math.abs(dy))horiz=true; else {drag=false; actions.style.transition=''; return;} }
+      if(!drag) return; const t=e.touches?e.touches[0]:e; const dx=t.clientX-sx, dy=t.clientY-sy;
+      if(!horiz){ if(Math.abs(dx)<8) return; if(Math.abs(dx)>Math.abs(dy)) horiz=true; else {drag=false;a.style.transition='';return;} }
       if(e.cancelable) e.preventDefault();
-      let nr=baseR-dx; if(nr>0)nr=0; if(nr<-OPEN_W)nr=-OPEN_W; setR(nr);
+      let nr=baseR-dx; if(nr>0) nr=0; if(nr<-OPEN) nr=-OPEN; setR(nr);
     };
-    const end=()=>{ if(!drag)return; drag=false; actions.style.transition='right .18s ease-out';
-      const cur=parseFloat(getComputedStyle(actions).right)||-OPEN_W; opened=(cur>-OPEN_W/2);
-      if(opened){row.classList.add('is-open'); setR(0); actions.style.pointerEvents='auto';}
-      else{row.classList.remove('is-open'); setR(-OPEN_W); actions.style.pointerEvents='none';}
+    const end=()=>{ if(!drag) return; drag=false; a.style.transition='right .18s ease-out';
+      const cur=parseFloat(getComputedStyle(a).right)||-OPEN; opened=(cur>-OPEN/2);
+      if(opened){row.classList.add('is-open'); setR(0); a.style.pointerEvents='auto';}
+      else{row.classList.remove('is-open'); setR(-OPEN); a.style.pointerEvents='none';}
     };
     row.addEventListener('touchstart',start,{passive:true});
     row.addEventListener('touchmove',move,{passive:false});
     row.addEventListener('touchend',end);
-    detailBtn.addEventListener('click',()=>{ row.classList.toggle('show-detail'); opened=false; row.classList.remove('is-open'); setR(-OPEN_W); actions.style.pointerEvents='none'; window.requestAnimationFrame(autoFitNames);});
+    btn.addEventListener('click',()=>{ row.classList.toggle('show-detail'); opened=false; row.classList.remove('is-open'); setR(-OPEN); a.style.pointerEvents='none'; requestAnimationFrame(autoFitNames);});
     track.addEventListener('click',(ev)=>{ if(ev.target.closest('.actions,.item,a,button')) return;
       if(row.classList.contains('show-detail')) row.classList.remove('show-detail');
-      if(row.classList.contains('is-open')){ row.classList.remove('is-open'); setR(-OPEN_W); actions.style.pointerEvents='none'; }
+      if(row.classList.contains('is-open')){ row.classList.remove('is-open'); setR(-OPEN); a.style.pointerEvents='none'; }
     });
   });
   document.addEventListener('click',(e)=>{ if(e.target.closest('.actions')) return; if(!e.target.closest('[data-swipe]')) closeAll(null); });
@@ -231,8 +199,7 @@
 
 /* ===== 銘柄名フィット ===== */
 function autoFitNames(){
-  const els=document.querySelectorAll('.name-fit');
-  els.forEach(el=>{
+  document.querySelectorAll('.name-fit').forEach(el=>{
     const max=20,min=14; el.style.fontSize=max+'px';
     const limit=el.parentElement.clientWidth-20; let size=max;
     while(el.scrollWidth>limit && size>min){ size-=1; el.style.fontSize=size+'px'; }
@@ -241,27 +208,21 @@ function autoFitNames(){
 window.addEventListener('load', autoFitNames);
 window.addEventListener('resize', ()=>{ clearTimeout(window.__fitT); window.__fitT=setTimeout(autoFitNames,120); });
 
-/* ===== スパーク描画（SVG, 0-100 x 0-30） ===== */
+/* ===== スパーク描画（SVG） ===== */
 function renderSparkOne(svg, data){
   try{
     if(!data || !data.length){ svg.replaceChildren(); return; }
-    // 正規化（最小=0, 最大=1）
-    let min=Math.min.apply(null,data), max=Math.max.apply(null,data);
-    if(min===max){ min-=1e-6; max+=1e-6; }
+    let min=Math.min(...data), max=Math.max(...data); if(min===max){ min-=1e-6; max+=1e-6; }
     const pts=data.map((v,i)=>{
-      const x=(i/(data.length-1))*100;
-      const y=(1-(v-min)/(max-min))*30;
+      const x=(i/(data.length-1))*100, y=(1-(v-min)/(max-min))*30;
       return `${x},${y}`;
     }).join(' ');
-    svg.innerHTML =
-      `<polyline points="${pts}" fill="none" stroke="rgba(34,197,94,.9)" stroke-width="1.5"/>`+
-      `<polyline points="0,29 100,29" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="1"/>`;
+    svg.innerHTML=`<polyline points="${pts}" fill="none" stroke="rgba(34,197,94,.9)" stroke-width="1.5"/>`;
   }catch(_){ svg.replaceChildren(); }
 }
 function renderSparks(){
   document.querySelectorAll('svg.spark[data-spark]').forEach(svg=>{
-    let arr = [];
-    try{ const raw = svg.getAttribute('data-spark'); arr = Array.isArray(raw)?raw:JSON.parse(raw||'[]'); }catch(_){}
+    let arr=[]; try{ const raw=svg.getAttribute('data-spark'); arr=Array.isArray(raw)?raw:JSON.parse(raw||'[]'); }catch(_){}
     renderSparkOne(svg, arr);
   });
 }
