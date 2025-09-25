@@ -169,15 +169,16 @@
               <div class="metric">
                 <div class="k">含み損益</div>
                 {% with pa=h.pnl_amount|default:0 %}
-                  <div class="v {% if pa|floatformat:2|floatval >= 0 %}gain{% else %}loss{% endif %}">
+                  <div class="v {% if pa >= 0 %}gain{% else %}loss{% endif %}">
                     ¥{{ pa|floatformat:0|intcomma }}
                   </div>
                 {% endwith %}
               </div>
+              
               <div class="metric">
                 <div class="k">損益率</div>
                 {% with pr=h.pnl_rate|default:0 %}
-                  <div class="v {% if pr|floatformat:2|floatval >= 0 %}gain{% else %}loss{% endif %}">
+                  <div class="v {% if pr >= 0 %}gain{% else %}loss{% endif %}">
                     {{ pr|floatformat:2 }}%
                   </div>
                 {% endwith %}
