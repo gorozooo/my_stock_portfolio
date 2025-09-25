@@ -1,73 +1,82 @@
-/* holdings.js v106 — translateX方式で“確実固定” + HTMX対応
-   - スワイプで .row に is-open を付与 → パネル固定（iOS Safari安定）
-   - 外側タップで閉じる / パネル内は行クリックへバブリングさせない
-   - actions内のclickは capture=false で stopPropagation のみに変更（HTMXのhx-postが効く）
-   - 削除ボタンの二度押し防止＆ローディング表示を追加
-   - スパークライン描画も同梱（data-spark='[...]', data-rate）
+/* holdings.js v120 — iOS Safari安定版
+   - スワイプ: translateX + .is-open で確実固定（本文は動かさない）
+   - アクション: 詳細/編集/削除すべて動作（HTMXと競合しない伝播制御）
+   - 削除: 二度押し防止（busyフラグ）
+   - スパークライン描画同梱（<svg class="spark" data-spark='[...]' data-rate='xx'>）
 */
 (() => {
-  const START_SLOP = 8;           // スワイプ判定のしきい値(px)
-  const GUARD_MS   = 320;         // 開閉直後のゴーストタップ抑止
+  const START_SLOP = 8;   // 水平判定しきい値(px)
+  const THRESHOLD  = 0.35; // 開閉の確定閾値（横幅の割合）
+  const GUARD_MS   = 280;  // 直後のゴーストタップ抑止
   const now = () => Date.now();
 
-  /* ========== 共通ユーティリティ ========== */
+  /* ========== ユーティリティ ========== */
   function closeAll(except){
-    document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
-      if (r === except) return;
-      r.classList.remove('is-open');
+    document.querySelectorAll('[data-swipe].is-open').forEach(row=>{
+      if (row !== except) row.classList.remove('is-open');
     });
   }
+  function widthOf(el){
+    const r = el.getBoundingClientRect();
+    return r.width || parseFloat(getComputedStyle(el).getPropertyValue('--open-w')) || 220;
+  }
 
-  /* ========== 1行にバインド ========== */
+  /* ========== 1カードにバインド ========== */
   function bindRow(row){
-    if (!row || row.__bound_v106) return;
-    row.__bound_v106 = true;
+    if (!row || row.__bound_v120) return;
+    row.__bound_v120 = true;
 
     const actions = row.querySelector('.actions');
     const track   = row.querySelector('.track');
-    const detail  = row.querySelector('[data-action="detail"]');
-    const delBtn  = row.querySelector('.item.delete');
+    const btnDetail = row.querySelector('[data-action="detail"]');
+    const btnDelete = row.querySelector('.item.delete');
 
     if (!actions || !track) return;
 
-    let guardUntil = 0;   // ゴーストタップ抑止タイムスタンプ
-    let sx=0, sy=0, drag=false, horiz=false, dx=0;
+    let guardUntil = 0;
 
-    // パネル内のクリックは「行のクリック」へは伝えない（BUT: HTMXには届くように capture=false）
-    actions.addEventListener('click', (e) => {
-      e.stopPropagation(); // 行(track)のclickは止める
-      // ここでは preventDefault しない → a/hx-post はそのまま動く
-    }, { capture:false });
+    // アクション内のクリックは行クリックへバブリングさせない（でもHTMXは効く）
+    actions.addEventListener('click', e => { e.stopPropagation(); }, {capture:false});
 
-    // 詳細トグル
-    if (detail){
-      detail.addEventListener('click', (e)=>{
-        e.stopPropagation();                 // 行clickへは伝えない
-        row.classList.toggle('show-detail'); // 詳細表示/非表示
-        row.classList.remove('is-open');     // パネルは閉じる
+    // 詳細トグル：押下で詳細開閉＋パネルは閉じる
+    if (btnDetail){
+      btnDetail.addEventListener('click', e=>{
+        e.stopPropagation();
+        row.classList.toggle('show-detail');
+        row.classList.remove('is-open');
         guardUntil = now() + GUARD_MS;
       });
     }
 
-    // 削除：二度押しガード＋ローディング表示（HTMXは通常通り発火）
-    if (delBtn){
-      delBtn.addEventListener('click', (e)=>{
-        // ここでは stopPropagation 済み（actionsのリスナー）だが、HTMXは要素自身で拾うのでOK
-        if (delBtn.dataset.busy === '1') { e.preventDefault(); return; }
-        delBtn.dataset.busy = '1';
-        const prev = delBtn.innerHTML;
-        delBtn.innerHTML = '⏳<span>削除</span>';
-
-        // HTMX完了/エラーで元に戻す
-        const restore = () => { delBtn.dataset.busy = '0'; delBtn.innerHTML = prev; };
-        delBtn.addEventListener('htmx:afterOnLoad', restore, { once:true });
-        delBtn.addEventListener('htmx:responseError', restore, { once:true });
-        delBtn.addEventListener('htmx:sendError', restore, { once:true });
+    // 削除ボタン：二度押し防止（HTMXはそのまま動く）
+    if (btnDelete){
+      btnDelete.addEventListener('click', e=>{
+        if (btnDelete.dataset.busy === '1'){
+          e.preventDefault(); // 連打防止
+          return;
+        }
+        btnDelete.dataset.busy = '1';
+        // htmx:afterOnLoad でアンセット（成功時）
+        document.body.addEventListener('htmx:afterOnLoad', function onload(ev){
+          const tgt = ev.target;
+          if (!tgt) return;
+          // この行が消えた（削除成功）か、何かしら応答が返ってきたら解除
+          if (!document.body.contains(row) || !document.body.contains(btnDelete)){
+            document.body.removeEventListener('htmx:afterOnLoad', onload);
+            return;
+          }
+          btnDelete.dataset.busy = '0';
+          document.body.removeEventListener('htmx:afterOnLoad', onload);
+        }, {once:true});
+        // エラー時も解除
+        document.body.addEventListener('htmx:responseError', ()=>{
+          btnDelete.dataset.busy = '0';
+        }, {once:true});
       });
     }
 
-    // 本文クリック：開いていたら閉じる／詳細開いてたら閉じる
-    track.addEventListener('click', () => {
+    // 本文タップ：開いていれば閉じる／詳細が開いていれば閉じる
+    track.addEventListener('click', ()=>{
       if (now() < guardUntil) return;
       if (row.classList.contains('is-open')){
         row.classList.remove('is-open');
@@ -77,62 +86,86 @@
       }
     });
 
-    // ドキュメント外側タップで全閉
+    // 画面外タップで閉じる（アクション領域は stopPropagation 済み）
     document.addEventListener('click', (e)=>{
       if (now() < guardUntil) return;
       if (!e.target.closest('[data-swipe]')) closeAll();
     });
 
-    // ===== タッチスワイプ（本文(track)上のみ） =====
-    const follow = (dist) => {
-      // dist: 正→右 / 負→左。右側から出すUIなので負方向のみ引き出し
-      const w = actions.getBoundingClientRect().width || 220;
-      const clamped = Math.max(-w, Math.min(0, dist)); // [-w, 0]
-      actions.style.transition = 'none';
-      // 初期は translateX(100%) → clamped=-w で 0%, clamped=0 で 100%
-      actions.style.transform  = `translateX(${100 + (clamped / w) * 100}%)`;
-      if (clamped < -12) actions.style.pointerEvents = 'auto';
-    };
+    // ======== タッチスワイプ（translateXで追従、確定はクラス） ========
+    let sx=0, sy=0, dragging=false, horiz=false, baseOpen=false, openPull=0, closePush=0;
 
-    const snap = (open) => {
+    function follow(dist){ // dist: [-w..0] で進行
+      const w = widthOf(actions);
+      const clamped = Math.max(-w, Math.min(0, dist));
+      actions.style.transition = 'none';
+      // 0% = open（画面内）、100% = close（画面外）
+      const pct = 100 + (clamped / w) * 100; // [-w..0] → [0..100]
+      actions.style.transform = `translateX(${pct}%)`;
+      // ボタンの誤タップ防止：ある程度開いたらだけ有効化
+      actions.style.pointerEvents = (pct < 85) ? 'auto' : 'none';
+    }
+    function snap(open){
       actions.style.transition = '';
+      actions.style.transform  = ''; // 最終状態はCSSに任せる
       if (open){
         closeAll(row);
         row.classList.add('is-open');
       }else{
         row.classList.remove('is-open');
       }
-      // CSSに任せる
-      actions.style.transform = '';
       guardUntil = now() + GUARD_MS;
-    };
+    }
 
     track.addEventListener('touchstart', (e)=>{
-      if (e.target.closest('.actions')) return;     // パネル内からの開始は無視
-      if (!row.classList.contains('is-open')) closeAll(row);
-      const t = e.touches[0]; sx = t.clientX; sy = t.clientY; dx = 0;
-      drag = true; horiz = false;
-    }, { passive:true });
+      if (e.target.closest('.actions')) return; // パネル内から開始しない
+      if (!row.classList.contains('is-open')) closeAll(row); // 他行を閉じる
+
+      const t = e.touches[0];
+      sx = t.clientX; sy = t.clientY;
+      dragging = true; horiz = false;
+      baseOpen = row.classList.contains('is-open');
+      openPull = 0; closePush = 0;
+    }, {passive:true});
 
     track.addEventListener('touchmove', (e)=>{
-      if (!drag) return;
+      if (!dragging) return;
       const t = e.touches[0];
-      const mx = t.clientX - sx;
-      const my = t.clientY - sy;
+      const dx = t.clientX - sx;
+      const dy = t.clientY - sy;
+
       if (!horiz){
-        if (Math.abs(mx) < START_SLOP) return;
-        if (Math.abs(mx) > Math.abs(my)) horiz = true; else { drag=false; return; }
+        if (Math.abs(dx) < START_SLOP) return;
+        if (Math.abs(dx) > Math.abs(dy)){ horiz = true; } else { dragging = false; return; }
       }
-      e.preventDefault(); // iOSの縦スクロールを抑止
-      dx = row.classList.contains('is-open') ? mx : -mx;
-      follow(-dx); // “負方向で開く”に統一
-    }, { passive:false });
+
+      // 横操作をJSで扱う（iOSの縦スクロールは殺さない）
+      e.preventDefault();
+
+      const w = widthOf(actions);
+      if (!baseOpen){
+        // 閉 → 開（左へ引く）
+        openPull = Math.max(0, -dx); // 左へ動かすと増える
+        follow(-openPull);           // 0..w → 0..-w
+      }else{
+        // 開 → 閉（右へ押す）
+        closePush = Math.max(0, dx);       // 右へ動かすと増える
+        follow(-w + closePush);            // -w..0 へ戻す
+      }
+    }, {passive:false});
 
     track.addEventListener('touchend', ()=>{
-      if (!drag) return; drag=false;
-      const w = actions.getBoundingClientRect().width || 220;
-      const openedEnough = (-dx) > (w * 0.35); // 35%で確定
-      snap(openedEnough);
+      if (!dragging) return;
+      dragging = false;
+      const w = widthOf(actions);
+      if (!baseOpen){
+        // 開く判定
+        snap(openPull > w * THRESHOLD);
+      }else{
+        // 閉じる判定
+        const shouldClose = closePush > w * THRESHOLD;
+        snap(!shouldClose);
+      }
     });
   }
 
@@ -140,19 +173,20 @@
     document.querySelectorAll('[data-swipe]').forEach(bindRow);
   }
 
-  /* ========== スパークライン描画（svg.spark + data-spark='[...]'） ========== */
+  /* ========== スパークライン ========== */
   function drawSpark(svg){
     try{
+      let arr;
       const raw = svg.getAttribute('data-spark') || '[]';
-      const arr = JSON.parse(raw);
+      try{ arr = JSON.parse(raw); }catch{ arr = String(raw).split(',').map(s=>parseFloat(s)); }
       if (!Array.isArray(arr) || arr.length < 2){ svg.replaceChildren(); return; }
 
-      const rate = parseFloat(svg.getAttribute('data-rate')||'0');
-      const stroke = (isFinite(rate) && rate < 0) ? '#f87171' : '#34d399';
+      const rate = parseFloat(svg.getAttribute('data-rate') || '0');
+      const stroke = (isFinite(rate) && rate < 0) ? '#ef4444' : '#22c55e';
 
-      const vb = svg.viewBox.baseVal;
-      const W = vb && vb.width  ? vb.width  : 96;
-      const H = vb && vb.height ? vb.height : 24;
+      const vb = svg.viewBox.baseVal || {width:96, height:24};
+      const W = vb.width  || 96;
+      const H = vb.height || 24;
       const pad = 1;
 
       let min = Math.min(...arr), max = Math.max(...arr);
@@ -162,10 +196,9 @@
       const ny = v => H - pad - ((v - min) / (max - min)) * (H - 2*pad);
 
       let d = `M${nx(0)},${ny(arr[0])}`;
-      for (let i=1;i<arr.length;i++){ d += ` L${nx(i)},${ny(arr[i])}`; }
+      for (let i=1;i<arr.length;i++) d += ` L${nx(i)},${ny(arr[i])}`;
 
-      svg.innerHTML =
-        `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="1.6" stroke-linecap="round" />`;
+      svg.innerHTML = `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="1.6" stroke-linecap="round"/>`;
     }catch(_){
       svg.replaceChildren();
     }
@@ -174,12 +207,17 @@
     document.querySelectorAll('svg.spark[data-spark]').forEach(drawSpark);
   }
 
-  /* ========== Boot ========== */
-  function boot(){ bindAll(); drawAllSparks(); }
+  /* ========== 初期化 & 再バインド ========== */
+  function boot(){
+    bindAll();
+    drawAllSparks();
+  }
 
   window.addEventListener('load', boot);
+  // HTMXでリスト差し替え時にも再バインド
   document.body.addEventListener('htmx:load', boot);
   window.addEventListener('resize', ()=>{ requestAnimationFrame(drawAllSparks); });
 
-  console.log('[holdings.js v106] ready');
+  // デバッグログ
+  console.log('[holdings.js v120] ready');
 })();
