@@ -1,9 +1,12 @@
+/* ===== レイアウト共通 ===== */
 .page-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-.vstack{display:flex;flex-direction:column;gap:16px}
+.vstack{display:flex;flex-direction:column;gap:14px}
 
+/* ===== カード ===== */
 .card{
   position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.08);
-  border-radius:16px;background:rgba(255,255,255,.04); box-shadow:0 6px 22px rgba(0,0,0,.18);
+  border-radius:14px;background:rgba(255,255,255,.04);
+  box-shadow:0 6px 18px rgba(0,0,0,.18);
 }
 .row{position:relative}
 
@@ -28,85 +31,76 @@
 .item.detail{background:rgba(110,168,255,.18)} .item.edit{background:rgba(0,255,209,.16)} .item.delete{background:rgba(255,77,103,.20)}
 .item .ico{font-size:18px;line-height:1}
 
-/* 本文 */
-.body{padding:14px}
-.title{display:flex;flex-direction:column;gap:10px;text-align:center}
-.name{font-weight:800;font-size:20px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 auto}
+/* ===== 本文（コンパクト化） ===== */
+.body{padding:12px 12px 10px}
+.title{display:flex;flex-direction:column;gap:8px;text-align:center}
+.name{
+  font-weight:800;font-size:19px;line-height:1.15;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 auto;
+}
 
 /* バッジ＋スパーク */
-.meta-row{display:flex;align-items:center;gap:8px;justify-content:space-between}
-.badges{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;flex:1;min-width:0}
+.meta-row{display:flex;align-items:center;gap:6px;justify-content:space-between}
+.badges{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;flex:1;min-width:0}
 .badge{
-  font-size:11px;padding:3px 10px;border:1px solid rgba(255,255,255,.16);
+  font-size:10.5px;padding:3px 9px;border:1px solid rgba(255,255,255,.16);
   border-radius:9999px;color:#dbe3f4;background:rgba(255,255,255,.06);white-space:nowrap
 }
 .badge--code{color:#c7d2fe;border-color:rgba(110,168,255,.35);background:rgba(110,168,255,.12)}
 .badge.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35)}
 .badge.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
-.spark-head{flex:0 0 100px;display:flex;justify-content:flex-end}
-.spark{width:100px;height:28px;opacity:.9;filter:drop-shadow(0 0 2px rgba(0,0,0,.25))}
+.spark-head{flex:0 0 86px;display:flex;justify-content:flex-end}
+.spark{width:86px;height:24px;opacity:.9;filter:drop-shadow(0 0 2px rgba(0,0,0,.25))}
 
-/* ===== メトリクス（バッジ化） ===== */
+/* ===== メトリクス（バッジ化・重なり防止・左右寄せ） ===== */
 .metrics{
-  display:flex;
-  justify-content:space-between;
-  align-items:flex-end;
-  gap:10px;
+  display:grid;
+  grid-template-columns:repeat(4, minmax(0,1fr));   /* 4等分で衝突しない */
+  column-gap:10px;
+  align-items:center;
   margin-top:10px;
   padding-top:10px;
   border-top:1px dashed rgba(255,255,255,.08);
 }
-
-.kv{flex:1;min-width:0}
+.kv{min-width:0}
 .kv .k{
-  font-size:12px;color:#97a3b6;line-height:1;margin-bottom:6px;
+  font-size:11.5px;color:#97a3b6;line-height:1;margin-bottom:6px;
 }
+.kv .v{font-size:0} /* pillのサイズに委ねる */
 
 /* 値はバッジ(pill)に */
-.kv .v{font-size:0} /* 余白調整用：中に置く .pill のサイズに任せる */
 .pill{
-  display:inline-block;
-  padding:6px 12px;
-  border-radius:9999px;
-  border:1px solid rgba(255,255,255,.12);
-  background:rgba(255,255,255,.06);
-  font-size:18px;            /* 実数値のサイズ */
-  font-weight:700;
-  font-variant-numeric:tabular-nums;
-  white-space:nowrap;
+  display:inline-flex;align-items:center;justify-content:center;
+  padding:6px 10px;border-radius:9999px;
+  border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);
+  font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;
+  max-width:100%;     /* はみ出し防止 */
 }
 
-/* 左側（数量/平均取得）：ニュートラル */
+/* 左右の寄せ：左2つは左寄せ、右2つは右寄せ */
+.metrics .kv:nth-child(1), .metrics .kv:nth-child(2){ text-align:left }
+.metrics .kv:nth-child(3), .metrics .kv:nth-child(4){ text-align:right }
+
+/* 色分け */
 .pill--neutral{
-  color:#dbeafe;                           /* 明るいブルー系 */
-  border-color:rgba(110,168,255,.30);
-  background:rgba(110,168,255,.10);
+  color:#dbeafe;border-color:rgba(110,168,255,.30);background:rgba(110,168,255,.10);
 }
-
-/* 右側（損益/率）：増減で色分け */
 .pill--gain{
-  color:#22c55e;
-  border-color:rgba(34,197,94,.35);
-  background:rgba(34,197,94,.12);
+  color:#22c55e;border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.12);
 }
 .pill--loss{
-  color:#ef4444;
-  border-color:rgba(239,68,68,.40);
-  background:rgba(239,68,68,.12);
+  color:#ef4444;border-color:rgba(239,68,68,.40);background:rgba(239,68,68,.12);
 }
 
-/* 寄せ方向（左2つは左寄せ／右2つは右寄せ） */
-.metrics .kv:nth-child(1),
-.metrics .kv:nth-child(2){ text-align:left; }
-.metrics .kv:nth-child(3),
-.metrics .kv:nth-child(4){ text-align:right; }
-
-/* 画面が狭い端末での微調整 */
+/* さらにコンパクトに（狭い端末） */
 @media (max-width: 380px){
-  .pill{ font-size:17px; padding:6px 10px; }
+  .name{font-size:18px}
+  .badge{font-size:10px;padding:3px 8px}
+  .spark-head{flex-basis:78px}.spark{width:78px;height:22px}
+  .pill{font-size:15px;padding:5px 9px}
 }
- 
-/* 詳細 */
-.more{display:none;border-top:1px dashed rgba(255,255,255,.08);padding:10px 14px}
+
+/* ===== 詳細 ===== */
+.more{display:none;border-top:1px dashed rgba(255,255,255,.08);padding:10px 12px}
 .row.show-detail .more{display:block}
 .moregrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:6px}
