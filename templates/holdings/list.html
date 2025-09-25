@@ -72,16 +72,33 @@
           </div>
         </section>
 
-        <!-- 詳細 -->
-        <section class="more">
-          <div class="moregrid">
-            <div class="kv"><div class="k">取得額</div><div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div></div>
-            <div class="kv"><div class="k">保有開始</div><div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div></div>
-            <div class="kv"><div class="k">作成</div><div class="v">{{ h.created_at|date:"Y-m-d" }}</div></div>
-            <div class="kv"><div class="k">更新</div><div class="v">{{ h.updated_at|date:"Y-m-d" }}</div></div>
-            {% if h.memo %}<div class="kv" style="grid-column:1/-1"><div class="k">メモ</div><div class="v">{{ h.memo }}</div></div>{% endif %}
-          </div>
-        </section>
+        <!-- 折りたたみ詳細（必要なら） -->
+<section class="more">
+  <div class="moregrid">
+    <div class="kv">
+      <div class="k">取得額</div>
+      <div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div>
+    </div>
+    <div class="kv">
+      <div class="k">保有開始</div>
+      <div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div>
+    </div>
+    <div class="kv">
+      <div class="k">保有日数</div>
+      <div class="v">{{ r.days|default:"—" }}</div>
+    </div>
+    <div class="kv">
+      <div class="k">更新</div>
+      <div class="v">{{ h.updated_at|date:"Y-m-d" }}</div>
+    </div>
+    {% if h.memo %}
+      <div class="kv" style="grid-column:1/-1">
+        <div class="k">メモ</div>
+        <div class="v">{{ h.memo }}</div>
+      </div>
+    {% endif %}
+  </div>
+</section>
       </div>
     </article>
     {% endwith %}{% endfor %}
