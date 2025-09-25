@@ -87,3 +87,10 @@
   .stat__v{font-size:15px}
   .spark{width:88px}
 }
+
+/* 横スワイプ安定化（縦スクロールは許可） */
+.track{
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: pan-y; /* 上下スクロールのみブラウザに任せ、横方向はJSで扱う */
+}
