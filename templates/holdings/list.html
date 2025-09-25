@@ -7,9 +7,15 @@
 {% block head %}
 <style>
   .page-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-
-  /* 縦積みの隙間 */
   .vstack{ display:flex; flex-direction:column; gap:16px; }
+
+  /* ── フィルタ/ソート ツールバー ── */
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .toolbar select,.toolbar input{
+    padding:7px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.06);color:#e6ebff
+  }
+  .toolbar .btn{padding:7px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.14)}
 
   .card{
     position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.08);
@@ -19,61 +25,41 @@
   .row{position:relative}
 
   /* 本文は固定（動かさない） */
-  .track{
-    position:relative;z-index:1;
-    background:linear-gradient(180deg, rgba(12,18,28,.72), rgba(12,18,28,.72));
-  }
+  .track{ position:relative; z-index:1; background:linear-gradient(180deg, rgba(12,18,28,.72), rgba(12,18,28,.72)); }
 
-  /* ===== 右の横並びアクション（外枠なし／カード高フィット） ===== */
+  /* 右の横並びアクション */
   .actions{
     --open-w: 220px;
     position:absolute; top:0; bottom:0; right:calc(var(--open-w)*-1); left:auto;
     width:var(--open-w); z-index:2;
     display:flex; align-items:stretch; justify-content:center;
     padding:0; transition:right .18s ease-out; will-change:right;
-    background:none; pointer-events:none;                /* 閉じてる時は無効 */
+    background:none; pointer-events:none;
   }
   .row.is-open .actions{ right:0; pointer-events:auto; }
 
-  .action-panel{
-    display:flex; flex-direction:row; gap:8px;
-    width:100%; height:100%; padding:8px 10px 8px 8px;
-  }
+  .action-panel{ display:flex; flex-direction:row; gap:8px; width:100%; height:100%; padding:8px 10px 8px 8px; }
   .action-panel .item{
     flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
     gap:6px; text-decoration:none; color:#e6ebff; font-weight:700; font-size:12px;
     border-radius:12px; border:1px solid rgba(255,255,255,.14);
     background:rgba(255,255,255,.06); min-width:0; text-align:center;
-    box-shadow:0 4px 18px rgba(0,0,0,.25);
-    touch-action:manipulation;
+    box-shadow:0 4px 18px rgba(0,0,0,.25); touch-action:manipulation;
   }
   .item .ico{font-size:18px; line-height:1}
   .item.detail{ background:rgba(110,168,255,.18) }
   .item.edit  { background:rgba(0,255,209,.16) }
   .item.delete{ background:rgba(255,77,103,.20) }
 
-  /* ===== 本文レイアウト（銘柄＝中央1行、下段＝バッジ群） ===== */
   .body{padding:14px}
-
-  .title{
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    gap:10px; text-align:center;
-  }
-  .name{
-    font-weight:800; font-size:20px; line-height:1.15;
-    white-space:nowrap; overflow:hidden;                 /* 折り返さず1行 */
-  }
-
-  .subline{
-    display:flex; align-items:center; justify-content:center;
-    gap:8px; flex-wrap:wrap;
-  }
+  .title{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; text-align:center; }
+  .name{ font-weight:800; font-size:20px; line-height:1.15; white-space:nowrap; overflow:hidden; }
+  .subline{ display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap; }
   .badges{ display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
 
   .badge{
     font-size:11px; padding:3px 10px;
-    border:1px solid rgba(255,255,255,.16);
-    border-radius:9999px; color:#dbe3f4; white-space:nowrap;
+    border:1px solid rgba(255,255,255,.16); border-radius:9999px; color:#dbe3f4; white-space:nowrap;
     background:rgba(255,255,255,.06);
   }
   .badge--code{ color:#c7d2fe; border-color:rgba(110,168,255,.35); background:rgba(110,168,255,.12); }
@@ -88,7 +74,6 @@
   .kv .k{font-size:12px;color:#97a3b6}
   .kv .v{font-size:18px}
 
-  /* 詳細トグル部 */
   .more{display:none;border-top:1px dashed rgba(255,255,255,.08);padding:10px 14px}
   .row.show-detail .more{display:block}
   .moregrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:6px}
@@ -101,191 +86,59 @@
   <a href="{% url 'holding_create' %}" class="btn btn-outline">＋ 新規登録</a>
 </div>
 
-{% if holdings %}
-  <div class="vstack">
-    {% for h in holdings %}
-      <article class="card row" data-swipe>
-        <!-- 横並びアクション -->
-        <div class="actions">
-          <div class="action-panel">
-            <button type="button" class="item detail" data-action="detail">
-              <span class="ico">📄</span><span>詳細</span>
-            </button>
-            <a class="item edit" href="{% url 'holding_edit' h.id %}">
-              <span class="ico">✏️</span><span>編集</span>
-            </a>
-            <button class="item delete"
-                    hx-post="{% url 'holding_delete' h.id %}"
-                    hx-confirm="削除しますか？"
-                    hx-target="closest [data-swipe]"
-                    hx-swap="outerHTML swap:15ms">
-              <span class="ico">🗑️</span><span>削除</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- 本文（固定） -->
-        <div class="track">
-          <div class="body">
-            <header class="title">
-              <div class="name name-fit" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
-              <div class="subline">
-                <div class="badges">
-                  <span class="badge badge--code">{{ h.ticker }}</span>
-                  <span class="badge">{{ h.get_broker_display }}</span>
-                  <span class="badge">{{ h.get_account_display }}</span>
-                  <span class="badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
-                </div>
-              </div>
-            </header>
-
-            <div class="grid">
-              <div class="kv"><div class="k">数量</div><div class="v">{{ h.quantity|intcomma }}</div></div>
-              <div class="kv"><div class="k">平均取得</div><div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div></div>
-            </div>
-          </div>
-
-          <div class="more">
-            <div class="moregrid">
-              <div class="kv" style="border:none;padding:0">
-                <div class="k">取得額</div>
-                <div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div>
-              </div>
-              <div class="kv" style="border:none;padding:0">
-                <div class="k">保有開始</div>
-                <div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div>
-              </div>
-              <div class="kv"><div class="k">作成</div><div class="v">{{ h.created_at|date:"Y-m-d" }}</div></div>
-              <div class="kv"><div class="k">更新</div><div class="v">{{ h.updated_at|date:"Y-m-d" }}</div></div>
-            </div>
-          </div>
-        </div>
-      </article>
+{# ── フィルタ/ソート ツールバー（HTMXで本体を差し替え）── #}
+<div class="toolbar"
+     hx-get="{% url 'holding_list_partial' %}"
+     hx-target="#holdingsBody"
+     hx-swap="innerHTML"
+     hx-trigger="change, keyup delay:250ms from:.js-filter">
+  <select name="sort" class="js-filter">
+    <option value="">並び替え: 更新順</option>
+    <option value="value" {% if sort == "value" %}selected{% endif %}>評価額</option>
+    <option value="pnl"   {% if sort == "pnl" %}selected{% endif %}>含み損益</option>
+    <option value="days"  {% if sort == "days" %}selected{% endif %}>保有日数</option>
+  </select>
+  <select name="order" class="js-filter">
+    <option value="desc" {% if order != "asc" %}selected{% endif %}>降順</option>
+    <option value="asc"  {% if order == "asc" %}selected{% endif %}>昇順</option>
+  </select>
+  <select name="broker" class="js-filter">
+    <option value="">ブローカー: 全て</option>
+    {% for k,v in request.user.holding_set.model.BROKER_CHOICES %}
+      <option value="{{k}}" {% if filters.broker == k %}selected{% endif %}>{{v}}</option>
     {% endfor %}
-  </div>
-{% else %}
-  <div class="text-slate-400">保有はまだありません。</div>
-{% endif %}
+  </select>
+  <select name="account" class="js-filter">
+    <option value="">口座: 全て</option>
+    {% for k,v in request.user.holding_set.model.ACCOUNT_CHOICES %}
+      <option value="{{k}}" {% if filters.account == k %}selected{% endif %}>{{v}}</option>
+    {% endfor %}
+  </select>
+  <input type="text" name="ticker" class="js-filter" placeholder="ティッカーで絞込" value="{{filters.ticker}}">
+</div>
+
+<div id="holdingsBody">
+  {% include "holdings/_list.html" %}
+</div>
 
 <script>
-/* ===== スワイプパネル（本文は固定）＋ 詳細の閉じやすさ改善 ===== */
-(function(){
-  const rows = document.querySelectorAll('[data-swipe]');
-
-  function getOpenW(actions){
-    const v = getComputedStyle(actions).getPropertyValue('--open-w').trim().replace('px','');
-    return parseFloat(v || '220');
-  }
-  function closeAll(except){
-    document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
-      if(r===except) return;
-      r.classList.remove('is-open');
-      const a = r.querySelector('.actions');
-      a.style.right = (-getOpenW(a)) + 'px';
-      a.style.pointerEvents = 'none';
-    });
-  }
-
-  rows.forEach(row=>{
-    const actions = row.querySelector('.actions');
-    const detailBtn = row.querySelector('[data-action="detail"]');
-    const track = row.querySelector('.track');
-    const OPEN_W = getOpenW(actions);
-
-    actions.style.right = (-OPEN_W) + 'px';
-    actions.style.pointerEvents = 'none';
-
-    let startX=0,startY=0,drag=false,horiz=false,opened=false,baseRight=-OPEN_W;
-
-    const setRight = (px)=> actions.style.right = px + 'px';
-
-    const onStart = (e)=>{
-      if (e.target.closest('.actions')) return; // パネル上タップでスワイプ開始しない
-      const t = e.touches ? e.touches[0] : e;
-      startX=t.clientX; startY=t.clientY;
-      drag=true; horiz=false;
-      baseRight = opened ? 0 : -OPEN_W;
-      actions.style.transition='none';
-      if(document.querySelector('[data-swipe].is-open') && !row.classList.contains('is-open')){
-        closeAll(row);
-      }
-    };
-    const onMove = (e)=>{
-      if(!drag) return;
-      const t = e.touches ? e.touches[0] : e;
-      const dx=t.clientX-startX, dy=t.clientY-startY;
-      if(!horiz){
-        if(Math.abs(dx)<8) return;
-        if(Math.abs(dx)>Math.abs(dy)) horiz=true; else { drag=false; actions.style.transition=''; return; }
-      }
-      if(e.cancelable) e.preventDefault();
-      let nr = baseRight - dx; if(nr>0) nr=0; if(nr<-OPEN_W) nr=-OPEN_W; setRight(nr);
-    };
-    const onEnd = ()=>{
-      if(!drag) return;
-      drag=false; actions.style.transition='right .18s ease-out';
-      const curRight = parseFloat(getComputedStyle(actions).right) || -OPEN_W;
-      opened = (curRight > -OPEN_W/2);
-      if(opened){ row.classList.add('is-open'); setRight(0); actions.style.pointerEvents='auto'; }
-      else      { row.classList.remove('is-open'); setRight(-OPEN_W); actions.style.pointerEvents='none'; }
-    };
-
-    row.addEventListener('touchstart', onStart, {passive:true});
-    row.addEventListener('touchmove',  onMove,  {passive:false});
-    row.addEventListener('touchend',   onEnd);
-
-    /* 「詳細」→ .more トグル（押したら閉じる＆再フィット） */
-    detailBtn.addEventListener('click', ()=>{
-      row.classList.toggle('show-detail');
-      opened=false; row.classList.remove('is-open'); setRight(-OPEN_W);
-      actions.style.pointerEvents = 'none';
-      window.requestAnimationFrame(autoFitNames);
-    });
-
-    /* ★ カード本体タップで“閉じるだけ”できるように */
-    track.addEventListener('click', (ev)=>{
-      const hitAction = ev.target.closest('.actions, .item, a, button');
-      if (hitAction) return;                  // アクション操作は邪魔しない
-      if (row.classList.contains('show-detail')){
-        row.classList.remove('show-detail');  // 詳細が開いていたら閉じる
-      }
-      // スワイプパネルが開いてたら閉じる（ついでに）
-      if (row.classList.contains('is-open')){
-        row.classList.remove('is-open'); setRight(-OPEN_W); actions.style.pointerEvents='none';
-      }
-    });
-  });
-
-  // 外側タップでパネルを閉じる
-  document.addEventListener('click', (e)=>{
-    if (e.target.closest('.actions')) return;
-    const r = e.target.closest('[data-swipe]');
-    if(!r) document.querySelectorAll('[data-swipe].is-open').forEach(rr=>{
-      rr.classList.remove('is-open');
-      const a = rr.querySelector('.actions');
-      a.style.right = (-getOpenW(a)) + 'px';
-      a.style.pointerEvents = 'none';
-    });
-  });
-})();
-
 /* ===== 銘柄名を1行で収めるための自動縮小 ===== */
 function autoFitNames(){
   const els = document.querySelectorAll('.name-fit');
   els.forEach(el=>{
     const max = 20, min = 14; // px
     el.style.fontSize = max + 'px';
-    const limit = el.parentElement.clientWidth - 20; // 左右余白分
+    const limit = el.clientWidth || el.parentElement.clientWidth;
     let size = max;
-    while (el.scrollWidth > limit && size > min){
+    const hardLimit = Math.max(60, (limit - 12));
+    while (el.scrollWidth > hardLimit && size > min){
       size -= 1; el.style.fontSize = size + 'px';
     }
   });
 }
 window.addEventListener('load', autoFitNames);
 window.addEventListener('resize', ()=>{
-  clearTimeout(window.__fitT);
-  window.__fitT = setTimeout(autoFitNames, 120);
+  clearTimeout(window.__fitT); window.__fitT = setTimeout(autoFitNames, 120);
 });
 </script>
 {% endblock %}
