@@ -1,15 +1,18 @@
-// holdings.js v9 (delegation + htmx-aware, stable swipe & detail)
-(function () {
-  const STATE = new WeakMap(); // row -> {openW, opened, baseRight, dragging, horiz, sx, sy}
-
+// static/js/holdings.js  v10  (delegated + htmx-aware, stable)
+(function(){
+  const STATE = new WeakMap();
   const px = n => n + 'px';
-  const getOpenW = (actions) => {
-    const v = getComputedStyle(actions).getPropertyValue('--open-w').trim().replace('px','');
+  const getOpenW = (a) => {
+    const v = getComputedStyle(a).getPropertyValue('--open-w').trim().replace('px','');
     return parseFloat(v || '220');
   };
 
+  // 初期スタイルだけ与える（HTMX置換で新規行が来てもOK）
   function initRow(row){
-    if (!row || STATE.has(row)) return;
+    if (!row || STATE.has(row)) {
+      // 既に状態がある行はスキップ（重複バインド防止）
+      return;
+    }
     const actions = row.querySelector('.actions');
     const track   = row.querySelector('.track');
     const detail  = row.querySelector('[data-action="detail"]');
@@ -19,18 +22,13 @@
       actions, track, detail,
       openW: getOpenW(actions),
       opened: row.classList.contains('is-open'),
-      dragging: false, horiz: false, sx:0, sy:0, baseRight:0,
+      dragging:false, horiz:false, sx:0, sy:0, baseRight:0
     };
     STATE.set(row, s);
 
-    // 初期位置
     actions.style.right = px(-s.openW);
     actions.style.pointerEvents = 'none';
-
-    // アクション領域のクリックは行クリックに伝播させない（固定されない問題の原因）
-    actions.addEventListener('click', e => e.stopPropagation());
-
-    // ディテール
+    actions.addEventListener('click', e => e.stopPropagation()); // ボタン押しやすく
     if (detail){
       detail.addEventListener('click', (e)=>{
         e.stopPropagation();
@@ -44,93 +42,89 @@
     const s = STATE.get(row); if(!s) return;
     s.actions.style.transition = 'right .18s ease-out';
     row.classList.add('is-open'); s.opened = true;
-    s.actions.style.right = '0px'; s.actions.style.pointerEvents='auto';
+    s.actions.style.right = '0px'; s.actions.style.pointerEvents = 'auto';
   }
   function closeSwipe(row){
     const s = STATE.get(row); if(!s) return;
     s.actions.style.transition = 'right .18s ease-out';
     row.classList.remove('is-open'); s.opened = false;
-    s.actions.style.right = px(-s.openW); s.actions.style.pointerEvents='none';
+    s.actions.style.right = px(-s.openW); s.actions.style.pointerEvents = 'none';
   }
   function closeAll(except){
     document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
-      if (r!==except) closeSwipe(r);
+      if (r !== except) closeSwipe(r);
     });
   }
 
-  // ---- Delegated handlers -------------------------------------------------
+  // ---- Delegated swipe handlers（全体に1回だけ） ----
+  let movingRow = null;
+
   function onStart(e){
-    const row = e.target.closest('[data-swipe]'); if(!row) return;
-    const s = STATE.get(row); if(!s) return;
+    const row = e.target.closest?.('[data-swipe]');
+    if (!row) return;
 
-    // actions上で開始したスワイプは無効化（ボタンを押せるように）
-    if (e.target.closest('.actions')) return;
+    const s = STATE.get(row) || (initRow(row), STATE.get(row));
+    if (!s) return;
 
-    // 詳細が開いていたら先に閉じる（2回目以降の固着を防止）
+    if (e.target.closest('.actions')) return; // アクション領域からは開始しない
     if (row.classList.contains('show-detail')) row.classList.remove('show-detail');
 
     s.dragging = true; s.horiz = false;
-    s.sx = ('touches' in e ? e.touches[0].clientX : e.clientX);
-    s.sy = ('touches' in e ? e.touches[0].clientY : e.clientY);
+    const t = e.touches ? e.touches[0] : e;
+    s.sx = t.clientX; s.sy = t.clientY;
     s.actions.style.transition = 'none';
     s.baseRight = s.opened ? 0 : -s.openW;
 
     if (!s.opened) closeAll(row);
+    movingRow = row;
   }
-  function onMove(e){
-    // ドキュメント委譲では対象 row を毎回再取得
-    const t = ('touches' in e ? e.touches[0] : e);
-    const row = document.elementFromPoint(t.clientX, t.clientY)?.closest('[data-swipe]');
-    // 直近開始した行がわかるように、is-movingな行を優先
-    const moving = document.querySelector('[data-swipe].__moving') || row;
-    if (!moving) return;
-    const s = STATE.get(moving); if(!s || !s.dragging) return;
 
+  function onMove(e){
+    if (!movingRow) return;
+    const s = STATE.get(movingRow); if (!s || !s.dragging) return;
+
+    const t = e.touches ? e.touches[0] : e;
     const dx = t.clientX - s.sx, dy = t.clientY - s.sy;
+
     if (!s.horiz){
       if (Math.abs(dx) < 8) return;
       if (Math.abs(dx) > Math.abs(dy)) s.horiz = true;
-      else { s.dragging=false; s.actions.style.transition=''; return; }
-      moving.classList.add('__moving');
+      else { s.dragging=false; s.actions.style.transition=''; movingRow=null; return; }
     }
-    // 横スクロールはJS管理
     if (e.cancelable) e.preventDefault();
-    let nr = s.baseRight - dx; if (nr > 0) nr = 0; if (nr < -s.openW) nr = -s.openW;
+
+    let nr = s.baseRight - dx;
+    if (nr > 0) nr = 0;
+    if (nr < -s.openW) nr = -s.openW;
     s.actions.style.right = px(nr);
   }
+
   function onEnd(){
-    const moving = document.querySelector('[data-swipe].__moving');
-    if (!moving) {
-      // すべての行を確認してdragging終端処理
-      document.querySelectorAll('[data-swipe]').forEach(row=>{
-        const s = STATE.get(row); if (!s || !s.dragging) return;
-        s.dragging=false; s.actions.style.transition='right .18s ease-out';
-        const cur = parseFloat(getComputedStyle(s.actions).right) || -s.openW;
-        const willOpen = (cur > -s.openW/2);
-        willOpen ? openSwipe(row) : closeSwipe(row);
-      });
-      return;
-    }
-    const s = STATE.get(moving); if(!s) return;
-    s.dragging=false; s.actions.style.transition='right .18s ease-out';
+    if (!movingRow) return;
+    const row = movingRow; movingRow = null;
+    const s = STATE.get(row); if (!s) return;
+
+    s.dragging = false;
+    s.actions.style.transition = 'right .18s ease-out';
     const cur = parseFloat(getComputedStyle(s.actions).right) || -s.openW;
-    const willOpen = (cur > -s.openW/2);
-    willOpen ? openSwipe(moving) : closeSwipe(moving);
-    moving.classList.remove('__moving');
+    const willOpen = cur > -s.openW/2;
+    willOpen ? openSwipe(row) : closeSwipe(row);
   }
 
-  // カード本体タップで「詳細を閉じる → スワイプも閉じる」
+  // カード本体タップ：詳細→閉じる。次にスワイプが開いていれば閉じる
   document.addEventListener('click', (e)=>{
-    const row = e.target.closest('[data-swipe]');
+    const row = e.target.closest?.('[data-swipe]');
     if (!row) { closeAll(null); return; }
+    const s = STATE.get(row) || (initRow(row), STATE.get(row));
+    if (!s) return;
     if (row.classList.contains('show-detail')) {
       row.classList.remove('show-detail');
-      return; // ここで止める：次のタップでスワイプ操作に入れる
+      return;
     }
     if (row.classList.contains('is-open')) closeSwipe(row);
   });
 
-  // 委譲でスワイプ（touch + mouse）
+  // スワイプ（委譲）
   document.addEventListener('touchstart', onStart, {passive:true});
   document.addEventListener('touchmove',  onMove,  {passive:false});
   document.addEventListener('touchend',   onEnd);
@@ -139,19 +133,18 @@
   document.addEventListener('mousemove',  onMove);
   document.addEventListener('mouseup',    onEnd);
 
-  // 初期化（初期DOM）
+  // 初期行をセット
   document.querySelectorAll('[data-swipe]').forEach(initRow);
 
-  // HTMX で差し替わったときに再初期化
-  document.body.addEventListener('htmx:load', ()=>{
+  // HTMX差し替え後に新行を初期化
+  document.body.addEventListener('htmx:load', () => {
     document.querySelectorAll('[data-swipe]').forEach(initRow);
   });
 
-  // 安定化：横スワイプはJSで扱い、縦スクロールはブラウザに任せる
+  // 安定化（iOS）
   const style = document.createElement('style');
   style.textContent = `.track{touch-action:pan-y;-webkit-user-select:none;user-select:none}`;
   document.head.appendChild(style);
 
-  // デバッグ用（本当に読まれているか確認）
-  console.log('[holdings.js v9] initialized', document.querySelectorAll('[data-swipe]').length);
+  console.log('[holdings.js v10] ready');
 })();
