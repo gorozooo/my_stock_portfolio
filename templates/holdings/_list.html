@@ -1,122 +1,81 @@
-{# templates/holdings/_list.html #}
 {% load humanize num %}
 
-<style>
-  .summary-line{ display:flex; align-items:stretch; gap:12px; margin-top:12px;
-                 border-top:1px dashed rgba(255,255,255,.08); padding-top:12px; }
-  .summary-item{ flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; gap:2px; }
-  .summary-item + .summary-item{ border-left:1px dashed rgba(255,255,255,.10); padding-left:12px; }
-  .summary-k{ font-size:12px; color:#97a3b6; white-space:nowrap }
-  .summary-v{ font-size:clamp(14px, 4.6vw, 20px); line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .pnl-pos{ color:#34d399 } .pnl-neg{ color:#f87171 }
-
-  /* スパーク（損益率の右） */
-  .pnl-rate{ display:flex; align-items:center; gap:8px; }
-  .spark-wrap{ width:64px; height:20px; opacity:.55; }
-  .spark-wrap svg{ width:100%; height:100%; display:block; }
-  .spark-path{ fill:none; stroke-width:1.6; }
-  .spark-pos{ stroke:#34d399 }
-  .spark-neg{ stroke:#f87171 }
-  .spark-base{ stroke:rgba(255,255,255,.20); stroke-dasharray:2 3; }
-
-  @media (max-width:360px){
-    .summary-v{ font-size:clamp(13px, 4.2vw, 18px); }
-    .spark-wrap{ width:56px; }
-  }
-</style>
-
 {% if page.object_list %}
-  <div class="vstack">
-    {% for r in page.object_list %}
-      {% with h=r.obj %}
-      <article class="card row" data-swipe>
-        <div class="actions">
-          <div class="action-panel">
-            <button type="button" class="item detail" data-action="detail" aria-label="詳細を開く">
-              <span class="ico">📄</span><span>詳細</span>
-            </button>
-            <a class="item edit" href="{% url 'holding_edit' h.id %}" aria-label="編集へ">
-              <span class="ico">✏️</span><span>編集</span>
-            </a>
-            <button class="item delete"
-                    hx-post="{% url 'holding_delete' h.id %}"
-                    hx-confirm="削除しますか？"
-                    hx-target="closest [data-swipe]"
-                    hx-swap="outerHTML swap:15ms"
-                    aria-label="削除">
-              <span class="ico">🗑️</span><span>削除</span>
-            </button>
-          </div>
+  <div class="stack">
+    {% for r in page.object_list %}{% with h=r.obj %}
+    <article class="card row" data-swipe>
+      <div class="actions">
+        <div class="action-panel">
+          <button type="button" class="item detail" data-action="detail" aria-label="詳細を開く">
+            <span class="ico">📄</span><span>詳細</span>
+          </button>
+          <a class="item edit" href="{% url 'holding_edit' h.id %}" aria-label="編集へ">
+            <span class="ico">✏️</span><span>編集</span>
+          </a>
+          <button class="item delete"
+                  hx-post="{% url 'holding_delete' h.id %}"
+                  hx-confirm="削除しますか？"
+                  hx-target="closest [data-swipe]"
+                  hx-swap="outerHTML swap:15ms"
+                  aria-label="削除">
+            <span class="ico">🗑️</span><span>削除</span>
+          </button>
         </div>
+      </div>
 
-        <div class="track">
-          <div class="body">
-            <header class="title">
-              <div class="name name-fit" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
-              <div class="subline">
-                <div class="badges">
-                  <span class="badge badge--code">{{ h.ticker }}</span>
-                  <span class="badge">{{ h.get_broker_display }}</span>
-                  <span class="badge">{{ h.get_account_display }}</span>
-                  <span class="badge {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
-                </div>
-              </div>
-            </header>
-
-            <!-- 1行サマリー -->
-            <div class="summary-line">
-              <div class="summary-item">
-                <div class="summary-k">数量</div>
-                <div class="summary-v">{{ h.quantity|intcomma }}</div>
-              </div>
-              <div class="summary-item">
-                <div class="summary-k">平均取得</div>
-                <div class="summary-v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
-              </div>
-              <div class="summary-item">
-                <div class="summary-k">含み損益</div>
-                <div class="summary-v {% if r.pnl and r.pnl > 0 %}pnl-pos{% elif r.pnl and r.pnl < 0 %}pnl-neg{% endif %}">
-                  {% if r.pnl is not None %}¥{{ r.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
-                </div>
-              </div>
-              <div class="summary-item">
-                <div class="summary-k">損益率</div>
-                <div class="pnl-rate">
-                  <div class="summary-v {% if r.pnl_pct and r.pnl_pct > 0 %}pnl-pos{% elif r.pnl_pct and r.pnl_pct < 0 %}pnl-neg{% endif %}">
-                    {% if r.pnl_pct is not None %}{{ r.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
-                  </div>
-                  {% if r.spark %}
-                    <div class="spark-wrap"
-                         data-spark="{{ r.spark|join:',' }}"
-                         data-pos="{% if r.pnl_pct and r.pnl_pct >= 0 %}1{% else %}0{% endif %}">
-                    </div>
-                  {% endif %}
-                </div>
-              </div>
+      <div class="track">
+        <header class="head">
+          <div class="head__left">
+            <div class="name" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
+            <div class="chips">
+              <span class="chip code">{{ h.ticker }}</span>
+              <span class="chip">{{ h.get_broker_display }}</span>
+              <span class="chip">{{ h.get_account_display }}</span>
+              <span class="chip {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
             </div>
           </div>
-
-          <!-- 詳細 -->
-          <div class="more">
-            <div class="moregrid">
-              <div class="kv" style="border:none;padding:0">
-                <div class="k">評価額</div>
-                <div class="v">{% if r.valuation is not None %}¥{{ r.valuation|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
-              </div>
-              <div class="kv" style="border:none;padding:0">
-                <div class="k">取得額</div>
-                <div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div>
-              </div>
-              <div class="kv"><div class="k">保有開始</div><div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div></div>
-              <div class="kv"><div class="k">保有日数</div><div class="v">{{ r.days|default:"—" }}</div></div>
-              <div class="kv"><div class="k">作成</div><div class="v">{{ h.created_at|date:"Y-m-d" }}</div></div>
-              <div class="kv"><div class="k">更新</div><div class="v">{{ h.updated_at|date:"Y-m-d" }}</div></div>
-            </div>
+          <div class="head__spark">
+            {% if r.spark %}
+              {# ここは“カンマ区切り”にしておく。JSはJSON/カンマ両対応 #}
+              <svg class="spark" viewBox="0 0 96 24" preserveAspectRatio="none"
+                   data-spark='[{{ r.spark|join:"," }}]'
+                   data-rate='{{ r.pnl_pct|default:0 }}'></svg>
+            {% endif %}
           </div>
-        </div>
-      </article>
-      {% endwith %}
-    {% endfor %}
+        </header>
+
+        <section class="stats">
+          <div class="stat">
+            <div class="stat__k">数量</div>
+            <div class="stat__v">{{ h.quantity|intcomma }}</div>
+          </div>
+          <div class="stat">
+            <div class="stat__k">平均取得</div>
+            <div class="stat__v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
+          </div>
+          <div class="stat {% if r.pnl is not None and r.pnl < 0 %}neg{% else %}pos{% endif %}">
+            <div class="stat__k">含み損益</div>
+            <div class="stat__v">{% if r.pnl is not None %}¥{{ r.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
+          </div>
+          <div class="stat {% if r.pnl_pct is not None and r.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
+            <div class="stat__k">損益率</div>
+            <div class="stat__v">{% if r.pnl_pct is not None %}{{ r.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div>
+          </div>
+        </section>
+
+        <section class="more">
+          <div class="moregrid">
+            <div class="kv"><div class="k">評価額</div><div class="v">{% if r.valuation is not None %}¥{{ r.valuation|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+            <div class="kv"><div class="k">取得額</div><div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div></div>
+            <div class="kv"><div class="k">保有開始</div><div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div></div>
+            <div class="kv"><div class="k">保有日数</div><div class="v">{{ r.days|default:"—" }}</div></div>
+            <div class="kv"><div class="k">作成</div><div class="v">{{ h.created_at|date:"Y-m-d" }}</div></div>
+            <div class="kv"><div class="k">更新</div><div class="v">{{ h.updated_at|date:"Y-m-d" }}</div></div>
+          </div>
+        </section>
+      </div>
+    </article>
+    {% endwith %}{% endfor %}
   </div>
 
   {% if page.paginator.num_pages > 1 %}
