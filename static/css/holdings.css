@@ -1,0 +1,65 @@
+.page-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.vstack{display:flex;flex-direction:column;gap:16px}
+
+.card{
+  position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.08);
+  border-radius:16px;background:rgba(255,255,255,.04); box-shadow:0 6px 22px rgba(0,0,0,.18);
+}
+.row{position:relative}
+
+/* 本文は固定 */
+.track{position:relative;z-index:1;background:linear-gradient(180deg, rgba(12,18,28,.72), rgba(12,18,28,.72));}
+
+/* 右の横並びアクション（固定できるようクリックを殺さない） */
+.actions{
+  --open-w:220px;
+  position:absolute;inset:auto 0 0 auto;top:0;right:calc(var(--open-w)*-1);
+  width:var(--open-w);z-index:2;display:flex;align-items:stretch;justify-content:center;
+  transition:right .18s ease-out;pointer-events:none;background:none
+}
+.row.is-open .actions{right:0;pointer-events:auto}
+.action-panel{display:flex;gap:8px;width:100%;height:100%;padding:8px 10px 8px 8px}
+.action-panel .item{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  text-decoration:none;color:#e6ebff;font-weight:700;font-size:12px;border-radius:12px;
+  border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);box-shadow:0 4px 18px rgba(0,0,0,.25);
+  touch-action:manipulation;
+}
+.item.detail{background:rgba(110,168,255,.18)} .item.edit{background:rgba(0,255,209,.16)} .item.delete{background:rgba(255,77,103,.20)}
+.item .ico{font-size:18px;line-height:1}
+
+/* 本文 */
+.body{padding:14px}
+.title{display:flex;flex-direction:column;gap:10px;text-align:center}
+.name{font-weight:800;font-size:20px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 auto}
+
+/* バッジ＋スパーク */
+.meta-row{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.badges{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;flex:1;min-width:0}
+.badge{
+  font-size:11px;padding:3px 10px;border:1px solid rgba(255,255,255,.16);
+  border-radius:9999px;color:#dbe3f4;background:rgba(255,255,255,.06);white-space:nowrap
+}
+.badge--code{color:#c7d2fe;border-color:rgba(110,168,255,.35);background:rgba(110,168,255,.12)}
+.badge.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35)}
+.badge.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.35)}
+.spark-head{flex:0 0 100px;display:flex;justify-content:flex-end}
+.spark{width:100px;height:28px;opacity:.9;filter:drop-shadow(0 0 2px rgba(0,0,0,.25))}
+
+/* メトリクス（中央表示） */
+.metrics{
+  display:grid;gap:10px;margin-top:12px;align-items:center;
+  border-top:1px dashed rgba(255,255,255,.08);padding-top:10px;
+  grid-template-columns:repeat(4, minmax(0,1fr));
+  text-align:center;
+}
+.kv{display:flex;flex-direction:column;min-width:0;align-items:center}
+.kv .k{font-size:12px;color:#97a3b6;line-height:1;text-align:center}
+.kv .v{font-size:18px;line-height:1.15;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v-gain{color:#22c55e}
+.v-loss{color:#ef4444}
+
+/* 詳細 */
+.more{display:none;border-top:1px dashed rgba(255,255,255,.08);padding:10px 14px}
+.row.show-detail .more{display:block}
+.moregrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:6px}
