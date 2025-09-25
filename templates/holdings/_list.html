@@ -1,6 +1,22 @@
 {# templates/holdings/_list.html #}
 {% load humanize num %}
 
+<style>
+  /* 1行サマリー */
+  .summary-row{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:10px;
+    margin-top:10px; align-items:center;
+  }
+  .kv-inline{display:flex;flex-direction:column;gap:2px;align-items:center}
+  .kv-inline .k{font-size:11px;color:#97a3b6}
+  .kv-inline .v{font-size:18px}
+  .pnl-pos{color:#34d399}   /* 緑 */
+  .pnl-neg{color:#f87171}   /* 赤 */
+  @media (max-width:420px){
+    .summary-row{grid-template-columns:repeat(2,1fr);}
+  }
+</style>
+
 {% if page.object_list %}
   <div class="vstack">
     {% for r in page.object_list %}
@@ -41,34 +57,44 @@
               </div>
             </header>
 
-            <div class="grid">
-              <div class="kv"><div class="k">数量</div><div class="v">{{ h.quantity|intcomma }}</div></div>
-              <div class="kv"><div class="k">平均取得</div><div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div></div>
-
-              <div class="kv"><div class="k">評価額</div>
-                <div class="v">
-                  {% if r.valuation is not None %}¥{{ r.valuation|floatformat:0|intcomma }}{% else %}—{% endif %}
-                </div>
+            {# ==== 1行サマリー（数量／平均取得／含み損益／損益率） ==== #}
+            <div class="summary-row">
+              <div class="kv-inline">
+                <div class="k">数量</div>
+                <div class="v">{{ h.quantity|intcomma }}</div>
               </div>
-              <div class="kv"><div class="k">含み損益</div>
-                <div class="v">
+              <div class="kv-inline">
+                <div class="k">平均取得</div>
+                <div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
+              </div>
+              <div class="kv-inline">
+                <div class="k">含み損益</div>
+                <div class="v {% if r.pnl and r.pnl > 0 %}pnl-pos{% elif r.pnl and r.pnl < 0 %}pnl-neg{% endif %}">
                   {% if r.pnl is not None %}¥{{ r.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
                 </div>
               </div>
-              <div class="kv"><div class="k">保有日数</div><div class="v">{{ r.days|default:"—" }}</div></div>
+              <div class="kv-inline">
+                <div class="k">損益率</div>
+                <div class="v {% if r.pnl_pct and r.pnl_pct > 0 %}pnl-pos{% elif r.pnl_pct and r.pnl_pct < 0 %}pnl-neg{% endif %}">
+                  {% if r.pnl_pct is not None %}{{ r.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
+                </div>
+              </div>
             </div>
           </div>
 
+          {# ==== 詳細（評価額・保有開始・保有日数・作成/更新・取得額） ==== #}
           <div class="more">
             <div class="moregrid">
+              <div class="kv" style="border:none;padding:0">
+                <div class="k">評価額</div>
+                <div class="v">{% if r.valuation is not None %}¥{{ r.valuation|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
+              </div>
               <div class="kv" style="border:none;padding:0">
                 <div class="k">取得額</div>
                 <div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div>
               </div>
-              <div class="kv" style="border:none;padding:0">
-                <div class="k">保有開始</div>
-                <div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div>
-              </div>
+              <div class="kv"><div class="k">保有開始</div><div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div></div>
+              <div class="kv"><div class="k">保有日数</div><div class="v">{{ r.days|default:"—" }}</div></div>
               <div class="kv"><div class="k">作成</div><div class="v">{{ h.created_at|date:"Y-m-d" }}</div></div>
               <div class="kv"><div class="k">更新</div><div class="v">{{ h.updated_at|date:"Y-m-d" }}</div></div>
             </div>
@@ -79,7 +105,6 @@
     {% endfor %}
   </div>
 
-  {# ページング #}
   {% if page.paginator.num_pages > 1 %}
   <div style="display:flex;gap:8px;justify-content:center;margin-top:14px">
     {% if page.has_previous %}
@@ -98,101 +123,57 @@
 {% endif %}
 
 <script>
-/* ===== スワイプパネル（本文は固定）＋ 詳細の閉じやすさ改善 ===== */
+/* スワイプ＋詳細はそのまま（前回のJSと同じ） */
 (function(){
   const rows = document.querySelectorAll('[data-swipe]');
-
-  function getOpenW(actions){
-    const v = getComputedStyle(actions).getPropertyValue('--open-w').trim().replace('px','');
-    return parseFloat(v || '220');
-  }
+  function getOpenW(actions){ const v=getComputedStyle(actions).getPropertyValue('--open-w').trim().replace('px',''); return parseFloat(v||'220'); }
   function closeAll(except){
     document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
       if(r===except) return;
       r.classList.remove('is-open');
-      const a = r.querySelector('.actions');
-      a.style.right = (-getOpenW(a)) + 'px';
-      a.style.pointerEvents = 'none';
+      const a=r.querySelector('.actions'); a.style.right=(-getOpenW(a))+'px'; a.style.pointerEvents='none';
     });
   }
-
   rows.forEach(row=>{
-    const actions = row.querySelector('.actions');
-    const detailBtn = row.querySelector('[data-action="detail"]');
-    const track = row.querySelector('.track');
-    const OPEN_W = getOpenW(actions);
-
-    actions.style.right = (-OPEN_W) + 'px';
-    actions.style.pointerEvents = 'none';
-
+    const actions=row.querySelector('.actions');
+    const detailBtn=row.querySelector('[data-action="detail"]');
+    const track=row.querySelector('.track');
+    const OPEN_W=getOpenW(actions);
+    actions.style.right=(-OPEN_W)+'px'; actions.style.pointerEvents='none';
     let startX=0,startY=0,drag=false,horiz=false,opened=false,baseRight=-OPEN_W;
-
-    const setRight = (px)=> actions.style.right = px + 'px';
-
-    const onStart = (e)=>{
-      if (e.target.closest('.actions')) return;
-      const t = e.touches ? e.touches[0] : e;
-      startX=t.clientX; startY=t.clientY;
-      drag=true; horiz=false;
-      baseRight = opened ? 0 : -OPEN_W;
-      actions.style.transition='none';
-      if(document.querySelector('[data-swipe].is-open') && !row.classList.contains('is-open')){
-        closeAll(row);
-      }
+    const setRight=(px)=> actions.style.right=px+'px';
+    const onStart=(e)=>{
+      if(e.target.closest('.actions')) return;
+      const t=e.touches?e.touches[0]:e; startX=t.clientX; startY=t.clientY;
+      drag=true; horiz=false; baseRight=opened?0:-OPEN_W; actions.style.transition='none';
+      if(document.querySelector('[data-swipe].is-open') && !row.classList.contains('is-open')) closeAll(row);
     };
-    const onMove = (e)=>{
+    const onMove=(e)=>{
       if(!drag) return;
-      const t = e.touches ? e.touches[0] : e;
-      const dx=t.clientX-startX, dy=t.clientY-startY;
-      if(!horiz){
-        if(Math.abs(dx)<8) return;
-        if(Math.abs(dx)>Math.abs(dy)) horiz=true; else { drag=false; actions.style.transition=''; return; }
-      }
+      const t=e.touches?e.touches[0]:e; const dx=t.clientX-startX, dy=t.clientY-startY;
+      if(!horiz){ if(Math.abs(dx)<8) return; if(Math.abs(dx)>Math.abs(dy)) horiz=true; else {drag=false; actions.style.transition=''; return;} }
       if(e.cancelable) e.preventDefault();
-      let nr = baseRight - dx; if(nr>0) nr=0; if(nr<-OPEN_W) nr=-OPEN_W; setRight(nr);
+      let nr=baseRight-dx; if(nr>0) nr=0; if(nr<-OPEN_W) nr=-OPEN_W; setRight(nr);
     };
-    const onEnd = ()=>{
-      if(!drag) return;
-      drag=false; actions.style.transition='right .18s ease-out';
-      const curRight = parseFloat(getComputedStyle(actions).right) || -OPEN_W;
-      opened = (curRight > -OPEN_W/2);
+    const onEnd=()=>{
+      if(!drag) return; drag=false; actions.style.transition='right .18s ease-out';
+      const curRight=parseFloat(getComputedStyle(actions).right)||-OPEN_W;
+      opened=(curRight>-OPEN_W/2);
       if(opened){ row.classList.add('is-open'); setRight(0); actions.style.pointerEvents='auto'; }
       else      { row.classList.remove('is-open'); setRight(-OPEN_W); actions.style.pointerEvents='none'; }
     };
-
     row.addEventListener('touchstart', onStart, {passive:true});
     row.addEventListener('touchmove',  onMove,  {passive:false});
     row.addEventListener('touchend',   onEnd);
-
     detailBtn.addEventListener('click', ()=>{
       row.classList.toggle('show-detail');
-      opened=false; row.classList.remove('is-open'); setRight(-OPEN_W);
-      actions.style.pointerEvents = 'none';
-      window.requestAnimationFrame(()=> {
-        const ev = new Event('reflow'); document.dispatchEvent(ev);
-      });
+      opened=false; row.classList.remove('is-open'); setRight(-OPEN_W); actions.style.pointerEvents='none';
+      window.requestAnimationFrame(()=>{ const ev=new Event('reflow'); document.dispatchEvent(ev); });
     });
-
     track.addEventListener('click', (ev)=>{
-      const hitAction = ev.target.closest('.actions, .item, a, button');
-      if (hitAction) return;
-      if (row.classList.contains('show-detail')){
-        row.classList.remove('show-detail');
-      }
-      if (row.classList.contains('is-open')){
-        row.classList.remove('is-open'); setRight(-OPEN_W); actions.style.pointerEvents='none';
-      }
-    });
-  });
-
-  document.addEventListener('click', (e)=>{
-    if (e.target.closest('.actions')) return;
-    const r = e.target.closest('[data-swipe]');
-    if(!r) document.querySelectorAll('[data-swipe].is-open').forEach(rr=>{
-      rr.classList.remove('is-open');
-      const a = rr.querySelector('.actions');
-      a.style.right = (-getOpenW(a)) + 'px';
-      a.style.pointerEvents = 'none';
+      if (ev.target.closest('.actions, .item, a, button')) return;
+      if (row.classList.contains('show-detail')) row.classList.remove('show-detail');
+      if (row.classList.contains('is-open')) { row.classList.remove('is-open'); setRight(-OPEN_W); actions.style.pointerEvents='none'; }
     });
   });
 })();
