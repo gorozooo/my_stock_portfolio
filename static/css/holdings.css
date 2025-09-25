@@ -1,20 +1,21 @@
-/* ===== ヘッダー/枠 ===== */
 .page-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .vstack{display:flex;flex-direction:column;gap:16px}
 
 .card{
   position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.08);
-  border-radius:16px;background:rgba(255,255,255,.04);box-shadow:0 6px 22px rgba(0,0,0,.18);
+  border-radius:16px;background:rgba(255,255,255,.04); box-shadow:0 6px 22px rgba(0,0,0,.18);
 }
 .row{position:relative}
+
+/* 本文は固定 */
 .track{position:relative;z-index:1;background:linear-gradient(180deg, rgba(12,18,28,.72), rgba(12,18,28,.72));}
 
-/* ===== スワイプアクション ===== */
+/* 右の横並びアクション（固定できるようクリックを殺さない） */
 .actions{
   --open-w:220px;
   position:absolute;inset:auto 0 0 auto;top:0;right:calc(var(--open-w)*-1);
   width:var(--open-w);z-index:2;display:flex;align-items:stretch;justify-content:center;
-  transition:right .18s ease-out;pointer-events:none;background:none;
+  transition:right .18s ease-out;pointer-events:none;background:none
 }
 .row.is-open .actions{right:0;pointer-events:auto}
 .action-panel{display:flex;gap:8px;width:100%;height:100%;padding:8px 10px 8px 8px}
@@ -27,7 +28,7 @@
 .item.detail{background:rgba(110,168,255,.18)} .item.edit{background:rgba(0,255,209,.16)} .item.delete{background:rgba(255,77,103,.20)}
 .item .ico{font-size:18px;line-height:1}
 
-/* ===== 本文ヘッダ ===== */
+/* 本文 */
 .body{padding:14px}
 .title{display:flex;flex-direction:column;gap:10px;text-align:center}
 .name{font-weight:800;font-size:20px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 auto}
@@ -37,7 +38,7 @@
 .badges{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;flex:1;min-width:0}
 .badge{
   font-size:11px;padding:3px 10px;border:1px solid rgba(255,255,255,.16);
-  border-radius:9999px;color:#dbe3f4;background:rgba(255,255,255,.06);white-space:nowrap;
+  border-radius:9999px;color:#dbe3f4;background:rgba(255,255,255,.06);white-space:nowrap
 }
 .badge--code{color:#c7d2fe;border-color:rgba(110,168,255,.35);background:rgba(110,168,255,.12)}
 .badge.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35)}
@@ -45,53 +46,66 @@
 .spark-head{flex:0 0 100px;display:flex;justify-content:flex-end}
 .spark{width:100px;height:28px;opacity:.9;filter:drop-shadow(0 0 2px rgba(0,0,0,.25))}
 
-/* =========================================================
-   数値メトリクス
-   - 両対応:
-     1) フラット: .metrics 直下に .kv ×4
-     2) 分割: .metrics-left と .metrics-right を子に持つ
-   ========================================================= */
+/* ===== メトリクス（バッジ化） ===== */
 .metrics{
-  display:flex;justify-content:space-between;align-items:flex-end;
-  margin-top:10px;padding-top:10px;border-top:1px dashed rgba(255,255,255,.08);
-  gap:16px;
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  gap:10px;
+  margin-top:10px;
+  padding-top:10px;
+  border-top:1px dashed rgba(255,255,255,.08);
 }
 
-/* --- 分割レイアウトを優先（あればこちらが効く） --- */
-.metrics-left,.metrics-right{
-  flex:1 1 0;
-  display:flex;gap:22px;align-items:flex-end;
-}
-.metrics-left  { justify-content:flex-start; }
-.metrics-right { justify-content:flex-end; }
-
-/* --- フラット（.kv×4 が直下）のときのフォールバック --- */
-.metrics:not(:has(.metrics-left)) .kv{flex:1 1 0;min-width:0}
-.metrics:not(:has(.metrics-left)) .kv:nth-child(1),
-.metrics:not(:has(.metrics-left)) .kv:nth-child(2){ text-align:left; }
-.metrics:not(:has(.metrics-left)) .kv:nth-child(3),
-.metrics:not(:has(.metrics-left)) .kv:nth-child(4){ text-align:right; }
-
-/* ラベルと値の共通スタイル */
+.kv{flex:1;min-width:0}
 .kv .k{
-  font-size:12px;color:#97a3b6;line-height:1;margin-bottom:4px;
-}
-.kv .v{
-  font-size:18px;font-variant-numeric:tabular-nums;white-space:nowrap;
+  font-size:12px;color:#97a3b6;line-height:1;margin-bottom:6px;
 }
 
-/* 色 */
-.v-gain{ color:#22c55e }
-.v-loss{ color:#ef4444 }
+/* 値はバッジ(pill)に */
+.kv .v{font-size:0} /* 余白調整用：中に置く .pill のサイズに任せる */
+.pill{
+  display:inline-block;
+  padding:6px 12px;
+  border-radius:9999px;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.06);
+  font-size:18px;            /* 実数値のサイズ */
+  font-weight:700;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
 
-/* 狭小端末調整 */
+/* 左側（数量/平均取得）：ニュートラル */
+.pill--neutral{
+  color:#dbeafe;                           /* 明るいブルー系 */
+  border-color:rgba(110,168,255,.30);
+  background:rgba(110,168,255,.10);
+}
+
+/* 右側（損益/率）：増減で色分け */
+.pill--gain{
+  color:#22c55e;
+  border-color:rgba(34,197,94,.35);
+  background:rgba(34,197,94,.12);
+}
+.pill--loss{
+  color:#ef4444;
+  border-color:rgba(239,68,68,.40);
+  background:rgba(239,68,68,.12);
+}
+
+/* 寄せ方向（左2つは左寄せ／右2つは右寄せ） */
+.metrics .kv:nth-child(1),
+.metrics .kv:nth-child(2){ text-align:left; }
+.metrics .kv:nth-child(3),
+.metrics .kv:nth-child(4){ text-align:right; }
+
+/* 画面が狭い端末での微調整 */
 @media (max-width: 380px){
-  .metrics{ gap:12px }
-  .metrics-left,.metrics-right{ gap:16px }
-  .kv .k{ font-size:11px }
-  .kv .v{ font-size:17px }
+  .pill{ font-size:17px; padding:6px 10px; }
 }
-
+ 
 /* 詳細 */
 .more{display:none;border-top:1px dashed rgba(255,255,255,.08);padding:10px 14px}
 .row.show-detail .more{display:block}
