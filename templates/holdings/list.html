@@ -4,7 +4,7 @@
 {% block title %}保有一覧{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/holdings.css' %}?v=5.1">
+<link rel="stylesheet" href="{% static 'css/holdings.css' %}?v=6.0">
 {% endblock %}
 
 {% block content %}
@@ -17,7 +17,7 @@
   <div class="stack">
     {% for r in page.object_list %}{% with h=r.obj %}
     <article class="card row" data-swipe>
-      <!-- 右スワイプアクション -->
+      <!-- 右スワイプアクション（固定表示） -->
       <div class="actions">
         <div class="action-panel" onclick="event.stopPropagation()">
           <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
@@ -32,7 +32,6 @@
 
       <!-- 本文 -->
       <div class="track">
-        <!-- 1行ヘッダ：左=銘柄名/チップ、右=スパーク -->
         <header class="head">
           <div class="head__left">
             <div class="name" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
@@ -45,6 +44,7 @@
           </div>
           <div class="head__spark">
             {% if r.spark %}
+              {# JSONでもカンマでもOK：JS側で両対応 #}
               <svg class="spark" viewBox="0 0 96 24" preserveAspectRatio="none"
                    data-spark='{{ r.spark|safe }}'
                    data-rate='{{ r.pnl_pct|default:0 }}'></svg>
@@ -52,7 +52,7 @@
           </div>
         </header>
 
-        <!-- メトリクス 1段だけ：4つの極小ピル -->
+        <!-- メトリクス -->
         <section class="stats">
           <div class="stat">
             <div class="stat__k">数量</div>
@@ -72,7 +72,7 @@
           </div>
         </section>
 
-        <!-- 折りたたみ詳細（必要なら） -->
+        <!-- 詳細 -->
         <section class="more">
           <div class="moregrid">
             <div class="kv"><div class="k">取得額</div><div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div></div>
@@ -90,6 +90,5 @@
   <div class="text-slate-400">保有はまだありません。</div>
 {% endif %}
 
-<!-- 既存の swipe/描画JS を流用。ファイル名はそのままでもOK -->
-<script src="{% static 'js/holdings.js' %}?v=103"></script>
+<script src="{% static 'js/holdings.js' %}?v=110"></script>
 {% endblock %}
