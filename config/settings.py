@@ -12,11 +12,23 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # === 基本設定 ===
 # ※ 本番では環境変数で管理しましょう（開発中はこのままでOK）
 SECRET_KEY = 'django-insecure-(f8%22e=p67$pa(7pd!%z3p7f$6w8z)_%o7lgti6i#8pi_%(59'
-#DEBUG = False
+# DEBUG = False
 DEBUG = True
 
 # 開発中: 空でOK / 本番(ConoHa等): ドメイン or IP を追加
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "gorozooo.com", "www.gorozooo.com", "192.168.1.16"]
+ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    "gorozooo.com",
+    "www.gorozooo.com",
+    "192.168.1.16",
+]
+
+# ★ CSRF: 本番ドメインを信頼（HTTPSでのHTMX/POST対策）
+CSRF_TRUSTED_ORIGINS = [
+    "https://gorozooo.com",
+    "https://www.gorozooo.com",
+]
 
 # === アプリケーション ===
 INSTALLED_APPS = [
@@ -27,10 +39,13 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
+    # 追加
     'django_htmx',
-    # ここに自作アプリを足していきます（作ったらコメントアウト解除）
-     'portfolio',
-     'django.contrib.humanize',
+    'django.contrib.humanize',
+
+    # 自作アプリ
+    'portfolio',
 ]
 
 MIDDLEWARE = [
@@ -41,6 +56,9 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+
+    # ★ 追加: request.htmx や htmx の便利フラグを付与
+    'django_htmx.middleware.HtmxMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -76,10 +94,10 @@ DATABASES = {
 
 # === パスワードバリデータ ===
 AUTH_PASSWORD_VALIDATORS = [
-    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',},
-    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',},
-    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',},
-    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',},
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
 # === i18n/L10n ===
@@ -91,10 +109,8 @@ USE_TZ = True  # DBはUTCで保存、表示はAsia/Tokyo
 
 # === Static（CSS/JS/画像）===
 STATIC_URL = 'static/'
-
-# （集約先フォルダ）
-STATIC_ROOT = BASE_DIR / 'staticfiles' 
-
+# 集約先フォルダ
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 # ← ここがポイント：プロジェクト直下の static/ を読む
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
@@ -106,8 +122,13 @@ LOGIN_URL = "/accounts/login/"
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/"
 
+# ★ 銘柄名の上書き（yfinanceが英名になるケースの対策）
 TSE_NAME_OVERRIDES = {
-    "167A": "リョーサン菱洋ホールディングス",  
+    "167A": "リョーサン菱洋ホールディングス",
     # 追加したいコードがあればここに並べる
 }
 
+# --- 参考（本番切替時の推奨。今は DEBUG=True なのでコメントのままでOK） ---
+# SESSION_COOKIE_SECURE = True
+# CSRF_COOKIE_SECURE = True
+# SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
