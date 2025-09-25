@@ -2,18 +2,29 @@
 {% load humanize num %}
 
 <style>
-  /* 1行サマリー */
-  .summary-row{
-    display:grid; grid-template-columns:repeat(4,1fr); gap:10px;
-    margin-top:10px; align-items:center;
+  /* 1行サマリー（横一列） */
+  .summary-line{
+    display:flex; align-items:stretch; gap:12px; margin-top:12px;
+    border-top:1px dashed rgba(255,255,255,.08); padding-top:12px;
   }
-  .kv-inline{display:flex;flex-direction:column;gap:2px;align-items:center}
-  .kv-inline .k{font-size:11px;color:#97a3b6}
-  .kv-inline .v{font-size:18px}
-  .pnl-pos{color:#34d399}   /* 緑 */
-  .pnl-neg{color:#f87171}   /* 赤 */
-  @media (max-width:420px){
-    .summary-row{grid-template-columns:repeat(2,1fr);}
+  .summary-item{
+    flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; gap:2px;
+  }
+  .summary-item + .summary-item{
+    border-left:1px dashed rgba(255,255,255,.10);
+    padding-left:12px;
+  }
+  .summary-k{ font-size:12px; color:#97a3b6; white-space:nowrap }
+  .summary-v{
+    font-size:clamp(14px, 4.6vw, 20px);
+    line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .pnl-pos{ color:#34d399 }  /* 緑 */
+  .pnl-neg{ color:#f87171 }  /* 赤 */
+
+  /* 端末が極端に狭い時だけ数値を少し圧縮 */
+  @media (max-width: 360px){
+    .summary-v{ font-size:clamp(13px, 4.2vw, 18px); }
   }
 </style>
 
@@ -58,31 +69,31 @@
             </header>
 
             {# ==== 1行サマリー（数量／平均取得／含み損益／損益率） ==== #}
-            <div class="summary-row">
-              <div class="kv-inline">
-                <div class="k">数量</div>
-                <div class="v">{{ h.quantity|intcomma }}</div>
+            <div class="summary-line">
+              <div class="summary-item">
+                <div class="summary-k">数量</div>
+                <div class="summary-v">{{ h.quantity|intcomma }}</div>
               </div>
-              <div class="kv-inline">
-                <div class="k">平均取得</div>
-                <div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
+              <div class="summary-item">
+                <div class="summary-k">平均取得</div>
+                <div class="summary-v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
               </div>
-              <div class="kv-inline">
-                <div class="k">含み損益</div>
-                <div class="v {% if r.pnl and r.pnl > 0 %}pnl-pos{% elif r.pnl and r.pnl < 0 %}pnl-neg{% endif %}">
+              <div class="summary-item">
+                <div class="summary-k">含み損益</div>
+                <div class="summary-v {% if r.pnl and r.pnl > 0 %}pnl-pos{% elif r.pnl and r.pnl < 0 %}pnl-neg{% endif %}">
                   {% if r.pnl is not None %}¥{{ r.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
                 </div>
               </div>
-              <div class="kv-inline">
-                <div class="k">損益率</div>
-                <div class="v {% if r.pnl_pct and r.pnl_pct > 0 %}pnl-pos{% elif r.pnl_pct and r.pnl_pct < 0 %}pnl-neg{% endif %}">
+              <div class="summary-item">
+                <div class="summary-k">損益率</div>
+                <div class="summary-v {% if r.pnl_pct and r.pnl_pct > 0 %}pnl-pos{% elif r.pnl_pct and r.pnl_pct < 0 %}pnl-neg{% endif %}">
                   {% if r.pnl_pct is not None %}{{ r.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
                 </div>
               </div>
             </div>
           </div>
 
-          {# ==== 詳細（評価額・保有開始・保有日数・作成/更新・取得額） ==== #}
+          {# ==== 詳細（評価額・取得額・保有開始・保有日数・作成/更新） ==== #}
           <div class="more">
             <div class="moregrid">
               <div class="kv" style="border:none;padding:0">
@@ -123,10 +134,10 @@
 {% endif %}
 
 <script>
-/* スワイプ＋詳細はそのまま（前回のJSと同じ） */
+/* 前回のスワイプ＆詳細JSをそのまま同梱（変更なし） */
 (function(){
-  const rows = document.querySelectorAll('[data-swipe]');
-  function getOpenW(actions){ const v=getComputedStyle(actions).getPropertyValue('--open-w').trim().replace('px',''); return parseFloat(v||'220'); }
+  const rows=document.querySelectorAll('[data-swipe]');
+  function getOpenW(a){const v=getComputedStyle(a).getPropertyValue('--open-w').trim().replace('px','');return parseFloat(v||'220');}
   function closeAll(except){
     document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
       if(r===except) return;
@@ -168,7 +179,6 @@
     detailBtn.addEventListener('click', ()=>{
       row.classList.toggle('show-detail');
       opened=false; row.classList.remove('is-open'); setRight(-OPEN_W); actions.style.pointerEvents='none';
-      window.requestAnimationFrame(()=>{ const ev=new Event('reflow'); document.dispatchEvent(ev); });
     });
     track.addEventListener('click', (ev)=>{
       if (ev.target.closest('.actions, .item, a, button')) return;
