@@ -41,9 +41,10 @@
                 <span class="chip code">{{ h.ticker }}</span>
                 <span class="chip">{{ h.get_broker_display }}</span>
                 <span class="chip">{{ h.get_account_display }}</span>
-                <span class="chip {{ 'sell' if h.side == 'SELL' else 'buy' }}">{{ h.side }}</span>
+                <span class="chip {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">
+                  {{ h.side }}
+                </span>
               </div>
-            </div>
             <div class="sparkbox">
               {% if r.spark %}
                 <svg class="spark"
