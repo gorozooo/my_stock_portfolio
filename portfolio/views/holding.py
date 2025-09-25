@@ -1,17 +1,18 @@
 # portfolio/views/holding.py
+from datetime import date
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_POST
 from django.conf import settings
-from datetime import date
 from django.core.paginator import Paginator
 
 from ..models import Holding
 from ..forms import HoldingForm
 from ..services import trend as svc_trend
 from ..services.quotes import last_price
+
 
 # -------------------------------------------------------------
 # コード → 銘柄名 ルックアップAPI
@@ -26,15 +27,15 @@ def api_ticker_name(request):
     norm = svc_trend._normalize_ticker(raw)                    # 例: '167A' -> '167A.T'
     code = (norm.split(".", 1)[0] if norm else raw).upper()    # 例: '167A'
 
-    # 0) 上書き辞書（任意の表記で固定したい時用）
+    # 0) 上書き辞書
     override = getattr(settings, "TSE_NAME_OVERRIDES", {}).get(code)
     if override:
         return JsonResponse({"code": code, "name": override})
 
-    # 1) JSON/CSV マップ（tse_list.json/csv）
+    # 1) JSON/CSV マップ
     name = svc_trend._lookup_name_jp_from_list(norm) or ""
 
-    # 2) フォールバック: yfinance（英名になる可能性あり）
+    # 2) yfinance フォールバック
     if not name:
         try:
             name = svc_trend._fetch_name_prefer_jp(norm) or ""
@@ -43,35 +44,10 @@ def api_ticker_name(request):
 
     return JsonResponse({"code": code, "name": name})
 
-# 内部ユーティリティ：並び替えキーを解決
-def _sort_key(item, key):
-    return {
-        "value": item["valuation"] or -1,
-        "pnl":   item["pnl"] or -10**18,
-        "days":  item["days"] or -1,
-        # フォールバック（更新順）
-        "updated": item["obj"].updated_at.timestamp(),
-    }.get(key, item["obj"].updated_at.timestamp())
 
-def _build_rows(qs):
-    """テンプレに渡す描画用 dict のリストを作る（数式はここで計算）"""
-    rows = []
-    today = date.today()
-    for h in qs:
-        px = last_price(h.ticker)  # None 許容
-        valuation = (px or 0) * (h.quantity or 0)
-        pnl = ((px or 0) - float(h.avg_cost or 0)) * (h.quantity or 0)
-        opened = h.opened_at or (h.created_at.date() if h.created_at else None)
-        days = (today - opened).days if opened else None
-        rows.append({
-            "obj": h,
-            "price": px,
-            "valuation": valuation if px is not None else None,
-            "pnl": pnl if px is not None else None,
-            "days": days,
-        })
-    return rows
-
+# -------------------------------------------------------------
+# 一覧：並び替え/フィルタ/ページング
+# -------------------------------------------------------------
 def _apply_filters(request, qs):
     broker = request.GET.get("broker") or ""
     account = request.GET.get("account") or ""
@@ -81,25 +57,59 @@ def _apply_filters(request, qs):
     if ticker:  qs = qs.filter(ticker__icontains=ticker)
     return qs
 
+def _build_rows(qs):
+    """
+    テンプレに渡す描画用 dict のリストを作る。
+    - valuation: 評価額 (= price * quantity) 価格取得失敗なら None
+    - pnl: 含み損益 (= (price - avg_cost) * quantity) 同上
+    - days: 保有日数
+    """
+    rows = []
+    today = date.today()
+    for h in qs:
+        px = last_price(h.ticker)  # None 許容
+        qty = h.quantity or 0
+        avg = float(h.avg_cost or 0)
+        valuation = (px or 0) * qty if px is not None else None
+        pnl = ((px or 0) - avg) * qty if px is not None else None
+        opened = h.opened_at or (h.created_at.date() if h.created_at else None)
+        days = (today - opened).days if opened else None
+        rows.append({
+            "obj": h,
+            "price": px,
+            "valuation": valuation,
+            "pnl": pnl,
+            "days": days,
+        })
+    return rows
+
+def _sort_key(r, key):
+    # None を末尾に追いやるため超小/超大で代替
+    if key == "value":
+        return (r["valuation"] is None, r["valuation"] or 0.0)
+    if key == "pnl":
+        return (r["pnl"] is None, r["pnl"] or 0.0)
+    if key == "days":
+        return (r["days"] is None, r["days"] or 0)
+    # デフォ：更新新しい順（降順が既定）
+    return (False, r["obj"].updated_at.timestamp())
+
 def _render_list(request, *, template):
-    qs = Holding.objects.filter(user=request.user)
+    qs = Holding.objects.filter(user=request.user).order_by("-opened_at", "-updated_at", "-id")
     qs = _apply_filters(request, qs)
 
-    # rows 構築
     rows = _build_rows(qs)
 
-    # 並び替え
-    sort = (request.GET.get("sort") or "").lower()   # value|pnl|days
+    sort = (request.GET.get("sort") or "").lower()     # value|pnl|days
     order = (request.GET.get("order") or "desc").lower()
     reverse = (order != "asc")
     rows.sort(key=lambda r: _sort_key(r, sort), reverse=reverse)
 
-    # ページング（20件/頁）
     paginator = Paginator(rows, 20)
     page = paginator.get_page(request.GET.get("page") or 1)
 
     ctx = {
-        "page": page,                 # page.object_list が rows のサブセット
+        "page": page,
         "paginator": paginator,
         "sort": sort,
         "order": order,
@@ -111,9 +121,6 @@ def _render_list(request, *, template):
     }
     return render(request, template, ctx)
 
-# -------------------------------------------------------------
-# 保有一覧
-# -------------------------------------------------------------
 @login_required
 def holding_list(request):
     # フィルタUI + 本体（_list を include）
@@ -121,11 +128,12 @@ def holding_list(request):
 
 @login_required
 def holding_list_partial(request):
-    # 本体のみ（HTMXで差し替え）
+    # 本体のみ（HTMX差し替え）
     return _render_list(request, template="holdings/_list.html")
 
+
 # -------------------------------------------------------------
-# 保有作成
+# CRUD（既存のまま）
 # -------------------------------------------------------------
 @login_required
 def holding_create(request):
@@ -141,10 +149,6 @@ def holding_create(request):
         form = HoldingForm()
     return render(request, "holdings/form.html", {"form": form, "mode": "create"})
 
-
-# -------------------------------------------------------------
-# 保有編集
-# -------------------------------------------------------------
 @login_required
 def holding_edit(request, pk):
     obj = get_object_or_404(Holding, pk=pk, user=request.user)
@@ -158,10 +162,6 @@ def holding_edit(request, pk):
         form = HoldingForm(instance=obj)
     return render(request, "holdings/form.html", {"form": form, "mode": "edit", "obj": obj})
 
-
-# -------------------------------------------------------------
-# 保有削除（HTMX/通常POST両対応）
-# -------------------------------------------------------------
 @login_required
 @require_POST
 def holding_delete(request, pk: int):
@@ -170,7 +170,6 @@ def holding_delete(request, pk: int):
         filters["user"] = request.user
     h = get_object_or_404(Holding, **filters)
     h.delete()
-    # HTMX：対象DOMを消すだけ
     if request.headers.get("HX-Request") == "true":
         return HttpResponse("")
     return redirect("holding_list")
