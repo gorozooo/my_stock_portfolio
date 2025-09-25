@@ -4,7 +4,7 @@
 {% block title %}保有一覧{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/holdings.css' %}?v=8">
+<link rel="stylesheet" href="{% static 'css/holdings.css' %}?v=9">
 {% endblock %}
 
 {% block content %}
@@ -56,39 +56,38 @@
             </header>
 
             <!-- 数値（左右分割） -->
-            <div class="metrics">
-              <div class="metrics-left">
-                <div class="kv">
-                  <div class="k">数量</div>
-                  <div class="v">{{ h.quantity|intcomma }}</div>
+            <!-- 数値4列（バッジ化） -->
+          <div class="metrics">
+            <div class="kv">
+              <div class="k">数量</div>
+              <div class="v"><span class="pill pill--neutral">{{ h.quantity|intcomma }}</span></div>
+            </div>
+          
+            <div class="kv">
+              <div class="k">平均取得</div>
+              <div class="v"><span class="pill pill--neutral">¥{{ h.avg_cost|floatformat:0|intcomma }}</span></div>
+            </div>
+          
+            <div class="kv">
+              <div class="k">含み損益</div>
+              {% if r.pnl is not None %}
+                <div class="v">
+                  <span class="pill {% if r.pnl >= 0 %}pill--gain{% else %}pill--loss{% endif %}">
+                    ¥{{ r.pnl|floatformat:0|intcomma }}
+                  </span>
                 </div>
-                <div class="kv">
-                  <div class="k">平均取得</div>
-                  <div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
+              {% else %}<div class="v"><span class="pill pill--neutral">—</span></div>{% endif %}
+            </div>
+          
+            <div class="kv">
+              <div class="k">損益率</div>
+              {% if r.pnl_pct is not None %}
+                <div class="v">
+                  <span class="pill {% if r.pnl_pct >= 0 %}pill--gain{% else %}pill--loss{% endif %}">
+                    {{ r.pnl_pct|floatformat:2 }}%
+                  </span>
                 </div>
-              </div>
-              <div class="metrics-right">
-                <div class="kv">
-                  <div class="k">含み損益</div>
-                  {% if r.pnl is not None %}
-                    <div class="v {% if r.pnl >= 0 %}v-gain{% else %}v-loss{% endif %}">
-                      ¥{{ r.pnl|floatformat:0|intcomma }}
-                    </div>
-                  {% else %}
-                    <div class="v">—</div>
-                  {% endif %}
-                </div>
-                <div class="kv">
-                  <div class="k">損益率</div>
-                  {% if r.pnl_pct is not None %}
-                    <div class="v {% if r.pnl_pct >= 0 %}v-gain{% else %}v-loss{% endif %}">
-                      {{ r.pnl_pct|floatformat:2 }}%
-                    </div>
-                  {% else %}
-                    <div class="v">—</div>
-                  {% endif %}
-                </div>
-              </div>
+              {% else %}<div class="v"><span class="pill pill--neutral">—</span></div>{% endif %}
             </div>
           </div>
 
