@@ -1,83 +1,112 @@
-/* ====== Cards ====== */
+/* ===== Reset/Vars ===== */
+:root{
+  --card-bg: rgba(16,23,35,.72);
+  --stroke: rgba(255,255,255,.08);
+  --muted: #9aa7bd;
+  --pos: #22c55e;
+  --neg: #ef4444;
+  --chip-bg: rgba(255,255,255,.06);
+  --chip-bd: rgba(255,255,255,.14);
+  --pill-bg: rgba(255,255,255,.08);
+  --pill-hi: rgba(34,197,94,.10);
+  --pill-hi-neg: rgba(239,68,68,.10);
+  --radius: 16px;
+  --gap: 10px;
+  --pad: 12px;         /* ★全体をコンパクトにするキー */
+  --font-lg: 18px;     /* 見出し */
+  --font-v: 17px;      /* 数字 */
+  --font-k: 12px;      /* ラベル */
+}
+
+/* 上部 */
 .page-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-.vstack{display:flex;flex-direction:column;gap:12px}
 
-.card{
-  position:relative;overflow:hidden;
-  border:1px solid rgba(255,255,255,.08);
-  border-radius:14px;background:rgba(255,255,255,.04);
-  box-shadow:0 8px 28px rgba(0,0,0,.24);
+/* リストラッパ */
+.stack{display:flex;flex-direction:column;gap:12px}
+
+/* ===== Card ===== */
+.neo{
+  position:relative;
+  border:1px solid var(--stroke);
+  border-radius:var(--radius);
+  background:var(--card-bg);
+  box-shadow:0 6px 20px rgba(0,0,0,.18);
+  overflow:hidden;
 }
-.row{position:relative}
-.track{position:relative;z-index:1;background:linear-gradient(180deg, rgba(11,16,26,.78), rgba(11,16,26,.78));}
 
-/* ====== Swipe actions ====== */
+/* スワイプアクション（そのまま） */
 .actions{
-  --open-w:220px;
-  position:absolute;top:0;bottom:0;right:calc(var(--open-w)*-1);
-  width:var(--open-w);z-index:2;display:flex;align-items:stretch;justify-content:center;
-  transition:right .18s ease-out;pointer-events:none;background:none
+  --open-w: 200px;
+  position:absolute; inset:auto 0 0 auto; top:0; right:calc(var(--open-w)*-1);
+  width:var(--open-w); z-index:2; display:flex; align-items:stretch; justify-content:center;
+  transition:right .18s ease-out; pointer-events:none; background:none;
 }
-.row.is-open .actions{right:0;pointer-events:auto}
-.action-panel{display:flex;gap:8px;width:100%;height:100%;padding:8px 10px 8px 8px}
+.row.is-open .actions{ right:0; pointer-events:auto; }
+.action-panel{ display:flex; gap:8px; width:100%; height:100%; padding:8px 10px 8px 8px; }
 .action-panel .item{
-  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
-  text-decoration:none;color:#e6ebff;font-weight:700;font-size:12px;border-radius:10px;
-  border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);box-shadow:0 4px 18px rgba(0,0,0,.25);
+  flex:1; display:flex; align-items:center; justify-content:center;
+  font-weight:700; font-size:12px; border-radius:12px;
+  border:1px solid var(--chip-bd); background:var(--chip-bg); color:#e6ebff;
   touch-action:manipulation;
 }
-.item.detail{background:rgba(110,168,255,.18)}
-.item.edit  {background:rgba(0,255,209,.16)}
-.item.delete{background:rgba(255,77,103,.20)}
-.item .ico{font-size:18px;line-height:1}
+.action-panel .detail{ background:rgba(110,168,255,.18) }
+.action-panel .edit  { background:rgba(0,255,209,.16) }
+.action-panel .delete{ background:rgba(255,77,103,.20) }
 
-/* ====== Header ====== */
-.body{padding:10px 12px 8px}
-.head{display:flex;align-items:center;gap:10px}
-.head__left{min-width:0;flex:1}
+/* 本文 */
+.track{ padding: var(--pad); }
+
+/* ヘッダー行（左：タイトル/チップ、右：スパーク） */
+.head{ display:flex; align-items:center; gap:12px; }
+.title{ flex:1; min-width:0; display:flex; flex-direction:column; gap:6px; }
 .name{
-  font-weight:800;font-size:18px;line-height:1.15;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px;
+  font-weight:800; font-size:var(--font-lg); line-height:1.1;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips{ display:flex; gap:6px; flex-wrap:wrap; }
 .chip{
-  font-size:11px;padding:2px 8px;border-radius:9999px;
-  border:1px dashed rgba(255,255,255,.16);color:#cfd7e6;background:rgba(255,255,255,.04);
+  font-size:11px; padding:3px 8px; border-radius:999px;
+  border:1px solid var(--chip-bd); background:var(--chip-bg); color:#dbe3f4;
 }
-.chip--green{background:rgba(16,185,129,.14);border-color:rgba(16,185,129,.35);color:#bff3d6}
-.chip--red  {background:rgba(244,63,94,.14);border-color:rgba(244,63,94,.35);color:#ffd0d6}
+.chip.code{ color:#c7d2fe; border-color:rgba(110,168,255,.35); background:rgba(110,168,255,.12) }
+.chip.buy{  background:rgba(16,185,129,.16); border-color:rgba(16,185,129,.35) }
+.chip.sell{ background:rgba(244,63,94,.16);  border-color:rgba(244,63,94,.35) }
 
-.head__right{flex:0 0 104px;display:flex;justify-content:flex-end;align-items:center}
-.spark{width:104px;height:30px;opacity:.95;filter:drop-shadow(0 0 2px rgba(0,0,0,.22))}
+.sparkbox{ flex:0 0 108px; display:flex; justify-content:flex-end; }
+.spark{ width:108px; height:30px; opacity:.95; filter:drop-shadow(0 0 2px rgba(0,0,0,.25)) }
 
-/* ====== Stat Rail（4つの数値を同幅ピルで） ====== */
-.stats{
-  margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.08);
+/* メトリクスPill（4つ） */
+.pillgrid{
+  display:grid; grid-template-columns:repeat(4, minmax(0,1fr));
+  gap:var(--gap);
+  padding-top:10px; margin-top:10px;
+  border-top:1px dashed var(--stroke);
 }
-.stats-rail{
-  display:grid;
-  grid-template-columns:repeat(4, minmax(0,1fr)); /* 完全に均等 */
-  gap:12px;                                       /* 被り防止 */
-}
-.stat{min-width:0}
-.stat__k{font-size:11px;color:#96a2b6;margin-bottom:6px;line-height:1}
-
-/* ピル本体（幅・高さ・フォントを完全統一） */
 .pill{
-  display:flex;align-items:center;justify-content:center;
-  height:36px;                                   /* 触りやすい最低高さ */
-  border-radius:9999px;font-weight:800;
-  font-size:16px;line-height:1;white-space:nowrap;font-variant-numeric:tabular-nums;
-  border:1px solid transparent;background:rgba(180,192,210,.10);color:#e9eefc;
-  box-shadow:inset 0 -1px 0 rgba(255,255,255,.06), 0 2px 10px rgba(0,0,0,.18);
+  padding:8px 10px; border-radius:12px;
+  background:var(--pill-bg); border:1px solid var(--chip-bd);
+  display:flex; flex-direction:column; gap:2px; min-width:0;
 }
-.pill--muted{border-color:rgba(180,192,210,.20)}
-.pill--gain {border-color:rgba(16,185,129,.35);background:linear-gradient(180deg,rgba(16,185,129,.18),rgba(16,185,129,.12));color:#bff3d6}
-.pill--loss {border-color:rgba(244,63,94,.35); background:linear-gradient(180deg,rgba(244,63,94,.20),rgba(244,63,94,.12)); color:#ffd0d6}
+.pill.hi{ background:var(--pill-hi); border-color:rgba(34,197,94,.35) }
+.pill.hi.neg{ background:var(--pill-hi-neg); border-color:rgba(239,68,68,.35) }
 
-/* コンパクト端末 */
+.pill .k{ font-size:var(--font-k); color:var(--muted); line-height:1; }
+.pill .v{
+  font-size:var(--font-v); line-height:1.1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  font-variant-numeric:tabular-nums;
+}
+
+/* 詳細（デフォルト非表示） */
+.more{ display:none; padding-top:8px; }
+.row.show-detail .more{ display:block; }
+.moregrid{ display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-top:6px }
+.moregrid .kv{ display:flex; justify-content:space-between; gap:8px; }
+.moregrid .k{ color:var(--muted); font-size:12px }
+.moregrid .v{ font-size:14px }
+
+/* さらにコンパクトにするミニ端末 */
 @media (max-width:380px){
-  .spark{width:96px;height:28px}
-  .stats-rail{gap:10px}
-  .pill{height:34px;font-size:15px}
+  :root{ --pad:10px; --gap:8px; --font-lg:17px; --font-v:16px; }
+  .sparkbox{ flex-basis:96px }
+  .spark{ width:96px; height:28px }
 }
