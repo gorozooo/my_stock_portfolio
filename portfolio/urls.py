@@ -43,6 +43,7 @@ urlpatterns = [
     path("holdings/<int:pk>/edit/", hv.holding_edit, name="holding_edit"),
     path("holdings/<int:pk>/delete/", hv.holding_delete, name="holding_delete"),
     path("api/ticker-name", hv.api_ticker_name, name="api_ticker_name"),
+    path("holdings/partial/list", hv.holding_list_partial, name="holding_list_partial"),
     
     # 実現損益（メイン）
     path("realized/", realized_views.list_page, name="realized_list"),
