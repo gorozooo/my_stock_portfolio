@@ -1,4 +1,4 @@
-// static/js/holdings.js  v10  (delegated + htmx-aware, stable)
+// static/js/holdings.js  v12  (fix: re-open stability & post-swipe click guard)
 (function(){
   const STATE = new WeakMap();
   const px = n => n + 'px';
@@ -7,28 +7,34 @@
     return parseFloat(v || '220');
   };
 
-  // 初期スタイルだけ与える（HTMX置換で新規行が来てもOK）
+  // スワイプ直後クリック抑止用
+  let lastSwipeEndedAt = 0;
+  const justSwiped = () => (performance.now() - lastSwipeEndedAt) < 300;
+
   function initRow(row){
-    if (!row || STATE.has(row)) {
-      // 既に状態がある行はスキップ（重複バインド防止）
-      return;
-    }
+    if (!row) return;
+    // 既存stateがあっても、DOMが差し替わってる可能性があるので actions 存在チェック
+    let s = STATE.get(row);
     const actions = row.querySelector('.actions');
     const track   = row.querySelector('.track');
     const detail  = row.querySelector('[data-action="detail"]');
     if (!actions || !track) return;
 
-    const s = {
-      actions, track, detail,
-      openW: getOpenW(actions),
-      opened: row.classList.contains('is-open'),
-      dragging:false, horiz:false, sx:0, sy:0, baseRight:0
-    };
-    STATE.set(row, s);
+    if (!s){
+      s = { actions, track, detail, openW: getOpenW(actions), opened:false, dragging:false, horiz:false, sx:0, sy:0, baseRight:0 };
+      STATE.set(row, s);
+    }else{
+      s.actions = actions; s.track = track; s.detail = detail; s.openW = getOpenW(actions);
+    }
 
+    // 初期位置を必ず閉じ状態に
     actions.style.right = px(-s.openW);
     actions.style.pointerEvents = 'none';
-    actions.addEventListener('click', e => e.stopPropagation()); // ボタン押しやすく
+    row.classList.remove('is-open');
+    s.opened = false;
+
+    // パネル内クリックはバブリング阻止（選択できない問題を排除）
+    actions.addEventListener('click', e => e.stopPropagation());
     if (detail){
       detail.addEventListener('click', (e)=>{
         e.stopPropagation();
@@ -41,33 +47,39 @@
   function openSwipe(row){
     const s = STATE.get(row); if(!s) return;
     s.actions.style.transition = 'right .18s ease-out';
-    row.classList.add('is-open'); s.opened = true;
-    s.actions.style.right = '0px'; s.actions.style.pointerEvents = 'auto';
+    row.classList.add('is-open');
+    s.opened = true;
+    s.actions.style.right = '0px';
+    s.actions.style.pointerEvents = 'auto';
   }
   function closeSwipe(row){
     const s = STATE.get(row); if(!s) return;
     s.actions.style.transition = 'right .18s ease-out';
-    row.classList.remove('is-open'); s.opened = false;
-    s.actions.style.right = px(-s.openW); s.actions.style.pointerEvents = 'none';
+    row.classList.remove('is-open');
+    s.opened = false;
+    s.actions.style.right = px(-s.openW);
+    s.actions.style.pointerEvents = 'none';
   }
   function closeAll(except){
-    document.querySelectorAll('[data-swipe].is-open').forEach(r=>{
-      if (r !== except) closeSwipe(r);
-    });
+    document.querySelectorAll('[data-swipe].is-open').forEach(r=>{ if(r!==except) closeSwipe(r); });
   }
 
-  // ---- Delegated swipe handlers（全体に1回だけ） ----
+  // ---- Delegated handlers ----
   let movingRow = null;
 
   function onStart(e){
     const row = e.target.closest?.('[data-swipe]');
     if (!row) return;
 
-    const s = STATE.get(row) || (initRow(row), STATE.get(row));
-    if (!s) return;
+    initRow(row); // 冪等
+    const s = STATE.get(row); if (!s) return;
 
-    if (e.target.closest('.actions')) return; // アクション領域からは開始しない
+    if (e.target.closest('.actions')) return; // アクションから開始しない
     if (row.classList.contains('show-detail')) row.classList.remove('show-detail');
+
+    // ★ 毎回“今開いているか”をDOMから再評価（古いstate参照しない）
+    s.opened = row.classList.contains('is-open');
+    s.openW  = getOpenW(s.actions);
 
     s.dragging = true; s.horiz = false;
     const t = e.touches ? e.touches[0] : e;
@@ -108,19 +120,22 @@
     s.actions.style.transition = 'right .18s ease-out';
     const cur = parseFloat(getComputedStyle(s.actions).right) || -s.openW;
     const willOpen = cur > -s.openW/2;
-    willOpen ? openSwipe(row) : closeSwipe(row);
+    if (willOpen) {
+      openSwipe(row);
+      lastSwipeEndedAt = performance.now(); // ★ 直後のクリック無視
+    } else {
+      closeSwipe(row);
+      lastSwipeEndedAt = performance.now();
+    }
   }
 
-  // カード本体タップ：詳細→閉じる。次にスワイプが開いていれば閉じる
+  // 本体クリック：スワイプ直後は無視。詳細が開いていれば閉じる。スワイプ開いていれば閉じる。
   document.addEventListener('click', (e)=>{
+    if (justSwiped()) return; // ★ 直後の誤タップ抑止
     const row = e.target.closest?.('[data-swipe]');
     if (!row) { closeAll(null); return; }
-    const s = STATE.get(row) || (initRow(row), STATE.get(row));
-    if (!s) return;
-    if (row.classList.contains('show-detail')) {
-      row.classList.remove('show-detail');
-      return;
-    }
+    initRow(row);
+    if (row.classList.contains('show-detail')) { row.classList.remove('show-detail'); return; }
     if (row.classList.contains('is-open')) closeSwipe(row);
   });
 
@@ -133,18 +148,18 @@
   document.addEventListener('mousemove',  onMove);
   document.addEventListener('mouseup',    onEnd);
 
-  // 初期行をセット
+  // 初期化
   document.querySelectorAll('[data-swipe]').forEach(initRow);
 
-  // HTMX差し替え後に新行を初期化
+  // HTMX差し替え後も初期化
   document.body.addEventListener('htmx:load', () => {
     document.querySelectorAll('[data-swipe]').forEach(initRow);
   });
 
-  // 安定化（iOS）
+  // iOS安定化
   const style = document.createElement('style');
   style.textContent = `.track{touch-action:pan-y;-webkit-user-select:none;user-select:none}`;
   document.head.appendChild(style);
 
-  console.log('[holdings.js v10] ready');
+  console.log('[holdings.js v12] ready');
 })();
