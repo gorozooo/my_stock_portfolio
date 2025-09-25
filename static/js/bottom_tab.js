@@ -40,12 +40,9 @@ document.addEventListener("DOMContentLoaded", () => {
     ],
     holdings: [
       { section:"保有" },
-      { label:"＋ 追加",                  action:"add_holding",    icon:"📥", tone:"add" },
+      { label:"＋ 新規登録",                  action:"add_holding",    icon:"📥", tone:"add" },
       { label:"CSVエクスポート",          action:"export_csv",     icon:"🧾", tone:"info" },
       { label:"並び替え/フィルタ",        action:"open_filter",    icon:"🧮", tone:"action" },
-      { section:"選択中" },
-      { label:"売却（クローズ）",         action:"close_position", icon:"💱", tone:"action" },
-      { label:"削除",                     action:"delete_holding", icon:"🗑️", tone:"danger" },
     ],
     // 実現損益（pnl/realized どちらのキーでも出す）
     pnl: [
