@@ -15,14 +15,6 @@
   }
   .quickbar .btn{padding:6px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.14)}
 
-  /* summary bar */
-  .summary-bar{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 12px}
-  .sb-item{min-width:120px;flex:1;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;background:rgba(255,255,255,.04)}
-  .sb-k{font-size:12px;color:#9fb0c8}
-  .sb-v{font-size:16px}
-  .sb-v.pos{color:#22c55e}
-  .sb-v.neg{color:#ef4444}
-
   /* Spark modal */
   .spark-modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:50}
   .spark-modal.is-open{display:flex}
@@ -41,33 +33,7 @@
   <a href="{% url 'holding_create' %}" class="btn btn-outline">＋ 新規登録</a>
 </div>
 
-{# === ページ内サマリー（フェーズ2） === #}
-<div class="summary-bar">
-  <div class="sb-item">
-    <div class="sb-k">取得額合計</div>
-    <div class="sb-v">¥{{ summary.acq|floatformat:0|intcomma }}</div>
-  </div>
-  <div class="sb-item">
-    <div class="sb-k">評価額合計</div>
-    <div class="sb-v">{% if summary.val is not None %}¥{{ summary.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
-  </div>
-  <div class="sb-item">
-    <div class="sb-k">含み損益</div>
-    <div class="sb-v {% if summary.pnl and summary.pnl < 0 %}neg{% else %}pos{% endif %}">
-      {% if summary.pnl is not None %}¥{{ summary.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
-    </div>
-  </div>
-  <div class="sb-item">
-    <div class="sb-k">損益率</div>
-    <div class="sb-v {% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
-      {% if summary.pnl_pct is not None %}{{ summary.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
-    </div>
-  </div>
-  <div class="sb-item">
-    <div class="sb-k">勝率</div>
-    <div class="sb-v">{% if summary.win_rate is not None %}{{ summary.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div>
-  </div>
-</div>
+{# ← 重複の原因だった summary-bar は削除しました #}
 
 <!-- クイックフィルタ/並び替え -->
 <div class="quickbar" id="qb">
@@ -111,8 +77,8 @@
       <option value="updated">更新日</option>
       <option value="created">作成日</option>
       <option value="opened">保有開始</option>
-      <option value="pnl">含み損益</option>      <!-- 追加 -->
-      <option value="days">保有日数</option>     <!-- 追加 -->
+      <option value="pnl">含み損益</option>
+      <option value="days">保有日数</option>
     </select>
     <select id="qb-order">
       <option value="desc">↓</option>
@@ -126,10 +92,11 @@
 </div>
 
 <div id="holdingsBody">
+  {# ここで _list.html を読み込む（KPIは _list 側で1回だけ描画） #}
   {% include "holdings/_list.html" %}
 </div>
 
-<!-- スパークモーダル（JSが中身を描画） -->
+<!-- スパークモーダル -->
 <div class="spark-modal" id="sparkModal" aria-hidden="true">
   <div class="spark-dlg">
     <h3 id="sparkTitle">Spark</h3>
@@ -190,12 +157,8 @@
         document.body.dispatchEvent(new CustomEvent('htmx:load')); // 再バインド
       });
     }
-    $('qb-apply').addEventListener('click', ()=>{
-      const st = gather(); save(st); load();
-    });
-    // Enter でも適用
+    $('qb-apply').addEventListener('click', ()=>{ const st = gather(); save(st); load(); });
     $('qb-q').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ $('qb-apply').click(); }});
-    // 初期ロード
     load();
   })();
 </script>
