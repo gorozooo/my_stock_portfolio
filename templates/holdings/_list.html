@@ -17,7 +17,35 @@
                   hx-swap="outerHTML swap:15ms"><span class="ico">🗑️</span><span>削除</span></button>
         </div>
       </div>
-
+      
+      {# === フェーズ2：集計サマリー === #}
+      <div class="summary-bar">
+        <div class="sb-item">
+          <div class="sb-k">取得額合計</div>
+          <div class="sb-v">¥{{ summary.acq|floatformat:0|intcomma }}</div>
+        </div>
+        <div class="sb-item">
+          <div class="sb-k">評価額合計</div>
+          <div class="sb-v">{% if summary.val is not None %}¥{{ summary.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
+        </div>
+        <div class="sb-item">
+          <div class="sb-k">含み損益</div>
+          <div class="sb-v {% if summary.pnl and summary.pnl < 0 %}neg{% else %}pos{% endif %}">
+            {% if summary.pnl is not None %}¥{{ summary.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
+          </div>
+        </div>
+        <div class="sb-item">
+          <div class="sb-k">損益率</div>
+          <div class="sb-v {% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
+            {% if summary.pnl_pct is not None %}{{ summary.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
+          </div>
+        </div>
+        <div class="sb-item">
+          <div class="sb-k">勝率</div>
+          <div class="sb-v">{% if summary.win_rate is not None %}{{ summary.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div>
+        </div>
+      </div>
+      
       <!-- 本文 -->
       <div class="track">
         <!-- ヘッダ：左=銘柄名/チップ、右=スパーク -->
