@@ -153,38 +153,90 @@
 
   function bindAll(){ document.querySelectorAll('[data-swipe]').forEach(bindRow); }
 
-  // ===== スパークライン =====
-  function drawSpark(svg){
-    try{
-      let arr;
-      const raw = svg.getAttribute('data-spark') || '[]';
-      try{ arr = JSON.parse(raw); }catch{ arr = String(raw).split(',').map(s=>parseFloat(s)); }
-      if (!Array.isArray(arr) || arr.length < 2){ svg.replaceChildren(); return; }
+  // ===== スパークモーダル =====
+const modal = {
+  root:null, canvas:null, ctx:null, title:null,
+  span:30, mode:'idx', data:null, color:'#22c55e'
+};
 
-      const rate = parseFloat(svg.getAttribute('data-rate') || '0');
-      const stroke = (isFinite(rate) && rate < 0) ? '#ef4444' : '#22c55e';
+function openSparkModal(svg){
+  modal.root   = document.getElementById('sparkModal');
+  modal.canvas = document.getElementById('sparkCanvas');
+  modal.title  = document.getElementById('sparkTitle');
+  modal.ctx    = modal.canvas.getContext('2d');
 
-      const vb = svg.viewBox.baseVal || {width:96, height:24};
-      const W = vb.width  || 96, H = vb.height || 24, pad = 1;
+  const rate = parseFloat(svg.getAttribute('data-rate')||'0');
+  modal.color = (isFinite(rate) && rate<0) ? '#ef4444' : '#22c55e';
 
-      let min = Math.min(...arr), max = Math.max(...arr);
-      if (min === max){ min -= 1e-6; max += 1e-6; }
+  const reads = k => { try{return JSON.parse(svg.getAttribute(k)||'[]');}catch(_){return[];} };
+  modal.data = {
+    '7':  {idx:reads('data-s7i'),  raw:reads('data-s7r')},
+    '30': {idx:reads('data-s30i'), raw:reads('data-s30r')},
+    '90': {idx:reads('data-s90i'), raw:reads('data-s90r')}
+  };
+  modal.span = modal.data['7'].idx?.length ? 7 : (modal.data['30'].idx?.length ? 30 : 90);
+  modal.mode = 'idx';
+  modal.root.classList.add('is-open');
+  renderSparkModal();
+}
 
-      const nx = i => pad + (i*(W-2*pad)/(arr.length-1));
-      const ny = v => H - pad - ((v-min)/(max-min)) * (H-2*pad);
+function renderSparkModal(){
+  const d = modal.data[String(modal.span)][modal.mode] || [];
+  const cvs=modal.canvas, ctx=modal.ctx;
+  cvs.width=cvs.clientWidth; cvs.height=cvs.clientHeight;
+  ctx.clearRect(0,0,cvs.width,cvs.height);
+  if(d.length<2) return;
 
-      let d = `M${nx(0)},${ny(arr[0])}`;
-      for (let i=1;i<arr.length;i++) d += ` L${nx(i)},${ny(arr[i])}`;
+  let min=Math.min(...d), max=Math.max(...d);
+  if(min===max){min-=1e-6;max+=1e-6;}
+  const pad=8,W=cvs.width,H=cvs.height;
+  const nx=i=>pad+(i*(W-2*pad)/(d.length-1));
+  const ny=v=>H-pad-((v-min)/(max-min))*(H-2*pad);
 
-      svg.innerHTML = `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="1.6" stroke-linecap="round"/>`;
-    }catch(_){ svg.replaceChildren(); }
-  }
-  function drawAllSparks(){ document.querySelectorAll('svg.spark[data-spark]').forEach(drawSpark); }
+  ctx.strokeStyle='rgba(255,255,255,.25)';
+  ctx.setLineDash([3,3]);ctx.beginPath();
+  ctx.moveTo(pad,ny((modal.mode==='idx')?1:(min+(max-min)/2)));
+  ctx.lineTo(W-pad,ny((modal.mode==='idx')?1:(min+(max-min)/2)));
+  ctx.stroke();ctx.setLineDash([]);
 
-  function boot(){ bindAll(); drawAllSparks(); }
-  window.addEventListener('load', boot);
-  document.body.addEventListener('htmx:load', boot);
-  window.addEventListener('resize', ()=>{ requestAnimationFrame(drawAllSparks); });
+  ctx.strokeStyle=modal.color;ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(nx(0),ny(d[0]));
+  for(let i=1;i<d.length;i++)ctx.lineTo(nx(i),ny(d[i]));
+  ctx.stroke();
+
+  modal.title.textContent=`${modal.span}日 / ${modal.mode==='idx'?'指数':'実値'}`;
+}
+
+function bindSparkModal(){
+  const root=document.getElementById('sparkModal');
+  if(!root) return;
+  root.addEventListener('click',e=>{
+    if(e.target.id==='sparkClose'||e.target.id==='sparkModal') root.classList.remove('is-open');
+  });
+  root.querySelectorAll('.spark-ctrl .btn[data-span]').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      root.querySelectorAll('.spark-ctrl .btn[data-span]').forEach(b=>b.classList.remove('is-on'));
+      btn.classList.add('is-on');
+      modal.span=parseInt(btn.getAttribute('data-span'),10);
+      renderSparkModal();
+    });
+  });
+  root.querySelectorAll('.spark-ctrl .btn[data-mode]').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      root.querySelectorAll('.spark-ctrl .btn[data-mode]').forEach(b=>b.classList.remove('is-on'));
+      btn.classList.add('is-on');
+      modal.mode=btn.getAttribute('data-mode');
+      renderSparkModal();
+    });
+  });
+  document.addEventListener('click',e=>{
+    const svg=e.target.closest&&e.target.closest('svg.spark');
+    if(svg) openSparkModal(svg);
+  });
+}
+
+// boot の最後に追加
+function boot(){ bindAll(); drawAllSparks(); bindSparkModal(); }
 
   console.log('[holdings.js v121-fix] ready');
 })();
