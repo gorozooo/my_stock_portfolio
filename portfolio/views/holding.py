@@ -5,11 +5,13 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
+import pandas as pd
 import yfinance as yf
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
+from django.db import models
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render, redirect
 from django.views.decorators.http import require_POST
@@ -106,20 +108,24 @@ def _preload_closes(tickers: List[str], days: int) -> Dict[str, List[float]]:
             if df is None:
                 return []
             try:
-                # 単銘柄/複数銘柄の両ケースを吸収
-                if isinstance(df.columns, yf.pandas.MultiIndex):  # type: ignore[attr-defined]
-                    s = df[(nsym, "Close")]
+                if isinstance(df.columns, pd.MultiIndex):
+                    # MultiIndex: (TICKER, FIELD)
+                    # Close の列を取り出す
+                    if (nsym, "Close") in df.columns:
+                        s = df[(nsym, "Close")]
+                    else:
+                        # yfinance の仕様揺れ対策
+                        try:
+                            s = df.xs(nsym, axis=1)[ "Close" ]  # type: ignore[index]
+                        except Exception:
+                            return []
                 else:
-                    # need が一つの時
-                    s = df["Close"]
-                s = svc_trend._pick_field(df if nsym in need and isinstance(df.columns, yf.pandas.MultiIndex) else s, "Close", required=False)  # type: ignore
+                    # 単一ティッカー（Series 相当）
+                    s = df["Close"]  # type: ignore[index]
             except Exception:
-                try:
-                    s = df[nsym]["Close"]  # type: ignore[index]
-                except Exception:
-                    return []
+                return []
             try:
-                vs = s.dropna().tail(ndays).values
+                vs = pd.Series(s).dropna().tail(ndays).values  # type: ignore[arg-type]
                 return [float(v) for v in list(vs)]
             except Exception:
                 return []
@@ -170,7 +176,7 @@ def _build_row(h: Holding) -> RowVM:
     start = h.opened_at or h.created_at.date()
     days = (_today_jst() - start).days if start else None
 
-    # 指数化（評価額の指数にするより、価格の指数の方が直感的）
+    # 指数化（価格の指数化）
     s7_idx  = _indexize(raw7)
     s30_idx = _indexize(raw30)
     s90_idx = _indexize(raw90)
@@ -187,6 +193,39 @@ def _build_row(h: Holding) -> RowVM:
         s7_raw=raw7 or None,
         s30_raw=raw30 or None,
         s90_raw=raw90 or None,
+    )
+
+# ---------- 集計（フェーズ2：ページ内） ----------
+def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
+    acq_sum = 0.0
+    val_sum = 0.0
+    have_val = 0
+    winners = losers = 0
+
+    for r in rows:
+        q = int(r.obj.quantity or 0)
+        cost = _to_float(r.obj.avg_cost or 0) or 0.0
+        acq_sum += q * cost
+        if r.valuation is not None:
+            val_sum += float(r.valuation)
+            have_val += 1
+        if r.pnl is not None:
+            if r.pnl > 0: winners += 1
+            elif r.pnl < 0: losers += 1
+
+    pnl_sum = (val_sum - acq_sum) if have_val else None
+    pnl_pct = (pnl_sum / acq_sum * 100.0) if (pnl_sum is not None and acq_sum > 0) else None
+    win_rate = (winners / (winners + losers) * 100.0) if (winners + losers) > 0 else None
+
+    return dict(
+        count=len(rows),
+        acq=acq_sum,
+        val=val_sum if have_val else None,
+        pnl=pnl_sum,
+        pnl_pct=pnl_pct,
+        winners=winners,
+        losers=losers,
+        win_rate=win_rate,
     )
 
 # =========================================================
@@ -258,12 +297,10 @@ def _apply_filters(qs, request):
         qs = qs.filter(side=side)
 
     # テキスト検索：コード/名称にゆるくヒット
-    # UI が 'q' でも 'ticker' でも来ても拾う
     q = (request.GET.get("q") or request.GET.get("ticker") or "").strip()
     if q:
         qs = qs.filter(
-            # icontains の OR
-            (models.Q(ticker__icontains=q) | models.Q(name__icontains=q))
+            models.Q(ticker__icontains=q) | models.Q(name__icontains=q)
         )
 
     return qs
@@ -311,6 +348,9 @@ def holding_list(request):
     rows = _build_rows_for_page(page)
     rows = _apply_post_filters(rows, request)
 
+    # ページ内集計（フェーズ2）
+    summary = _aggregate(rows)
+
     class _PageWrap:
         def __init__(self, src, objs):
             self.number = src.number
@@ -333,6 +373,7 @@ def holding_list(request):
             "side":   request.GET.get("side") or "",
             "pnl":    request.GET.get("pnl") or "",
         },
+        "summary": summary,  # ← 追加
     }
     return render(request, "holdings/list.html", ctx)
 
@@ -346,6 +387,8 @@ def holding_list_partial(request):
     rows = _build_rows_for_page(page)
     rows = _apply_post_filters(rows, request)
 
+    summary = _aggregate(rows)
+
     class _PageWrap:
         def __init__(self, src, objs):
             self.number = src.number
@@ -368,6 +411,7 @@ def holding_list_partial(request):
             "side":   request.GET.get("side") or "",
             "pnl":    request.GET.get("pnl") or "",
         },
+        "summary": summary,  # ← 追加
     }
     return render(request, "holdings/_list.html", ctx)
 
