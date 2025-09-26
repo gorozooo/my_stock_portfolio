@@ -7,6 +7,7 @@
 (() => {
   const NS='__swipe_v200__';
   const START_SLOP=8;
+  const THRESHOLD  = 0.35;
   const GUARD_MS=280;
   const now = () => Date.now();
 
