@@ -1,16 +1,5 @@
 {% load humanize num %}
 
-{# === sheetRoot が無ければ作る（この部分が重要） === #}
-<script>
-(function ensureSheetRoot(){
-  if(!document.getElementById('sheetRoot')){
-    const d=document.createElement('div');
-    d.id='sheetRoot';
-    document.body.appendChild(d);
-  }
-})();
-</script>
-
 {# ========== sumbox（折りたたみ式サマリー） ========== #}
 <style>
   .sumbox{border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(255,255,255,.03);margin:6px 0 12px}
@@ -21,6 +10,7 @@
   .sumbox .sumhint{opacity:.6;font-size:12px}
   .sumbox:not(.is-open) .sumtitle{display:none}
 
+  /* ミニピル（閉じているときだけ1行で表示） */
   .summini{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding-bottom:2px}
   .summini .pill{white-space:nowrap;font-size:11px;border:1px solid rgba(255,255,255,.12);border-radius:9999px;padding:4px 8px;background:rgba(255,255,255,.05)}
   .summini .pill .k{opacity:.7;margin-right:4px}
@@ -30,12 +20,14 @@
   .sumbox .sumbody{display:none;padding:10px}
   .sumbox.is-open .sumbody{display:block}
 
+  /* KPI（本体表示） */
   .kpi-grid{display:flex;gap:10px;flex-wrap:wrap}
   .kpi{min-width:120px;flex:1;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;background:rgba(255,255,255,.04)}
   .kpi-k{font-size:12px;color:#9fb0c8}
   .kpi-v{font-size:16px}
   .kpi-v.pos{color:#22c55e}.kpi-v.neg{color:#ef4444}
 
+  /* Breakdown（KPIピルと同調） */
   .bd-wrap{display:grid;grid-template-columns:1fr;gap:12px;margin-top:10px}
   .bd-sec{border:1px solid rgba(255,255,255,.10);border-radius:12px;background:rgba(255,255,255,.02)}
   .bd-head{display:flex;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px dashed rgba(255,255,255,.08)}
@@ -45,23 +37,25 @@
   .bd-label{font-weight:800}
   .bd-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
   @media (min-width:460px){ .bd-kpis{grid-template-columns:repeat(6,minmax(0,1fr));} }
-
-  /* --- Bottom Sheet minimal patch --- */
-  #sheetRoot{position:fixed;inset:0;z-index:70;pointer-events:none}
-  #sheetRoot .sheet{position:absolute;left:0;right:0;bottom:0;max-height:88vh;display:flex;flex-direction:column;border-top-left-radius:14px;border-top-right-radius:14px;background:rgba(18,24,33,.98);border:1px solid rgba(255,255,255,.12);box-shadow:0 -10px 30px rgba(0,0,0,.4);pointer-events:auto}
-  #sheetRoot .sheet-head{padding:12px 14px;border-bottom:1px dashed rgba(255,255,255,.12)}
-  #sheetRoot .sheet-body{overflow:auto;-webkit-overflow-scrolling:touch;padding:12px}
-  #sheetRoot .sheet-foot{position:sticky;bottom:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(180deg, rgba(18,24,33,.6), rgba(18,24,33,.98) 36%)}
-  html.lock-scroll,html.lock-scroll body{overflow:hidden;touch-action:none}
 </style>
 
 <div class="sumbox" id="holdings-sumbox">
   <div class="sumhead" data-toggle>
-    <div class="sumtitle"><span class="sumchev">▸</span><span>サマリー / 内訳</span></div>
+    <div class="sumtitle">
+      <span class="sumchev">▸</span><span>サマリー / 内訳</span>
+    </div>
     <div class="summini">
       <span class="pill"><span class="k">取得</span>¥{{ summary.acq|floatformat:0|intcomma }}</span>
-      <span class="pill"><span class="k">含み損益</span><span class="{% if summary.pnl and summary.pnl < 0 %}neg{% else %}pos{% endif %}">{% if summary.pnl is not None %}¥{{ summary.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</span></span>
-      <span class="pill"><span class="k">損益率</span><span class="{% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">{% if summary.pnl_pct is not None %}{{ summary.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</span></span>
+      <span class="pill"><span class="k">含み損益</span>
+        <span class="{% if summary.pnl and summary.pnl < 0 %}neg{% else %}pos{% endif %}">
+          {% if summary.pnl is not None %}¥{{ summary.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
+        </span>
+      </span>
+      <span class="pill"><span class="k">損益率</span>
+        <span class="{% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
+          {% if summary.pnl_pct is not None %}{{ summary.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
+        </span>
+      </span>
     </div>
     <div class="sumhint">タップで開閉</div>
   </div>
@@ -124,24 +118,20 @@
 </div>
 
 <script>
-  // 折りたたみの初期化
-  (function initHoldingsSumbox(ctx){
+  function initHoldingsSumbox(ctx){
     const box = (ctx||document).querySelector('#holdings-sumbox');
-    if(!box) return; const KEY='holdings.sumbox.open.v2';
-    const head=box.querySelector('[data-toggle]')||box.querySelector('.sumhead');
-    const saved=localStorage.getItem(KEY);
-    (saved==='1')?box.classList.add('is-open'):box.classList.remove('is-open');
-    head.onclick=()=>{box.classList.toggle('is-open');localStorage.setItem(KEY,box.classList.contains('is-open')?'1':'0');};
-  })(document);
-
-  // シート差し込み後の振る舞い：背景スクロールをロック、シートは中スクロール
-  document.body.addEventListener('htmx:afterSwap', function(ev){
-    if(ev.target && ev.target.id==='sheetRoot'){ document.documentElement.classList.add('lock-scroll'); }
-  });
-  document.addEventListener('click', function(e){
-    const btn=e.target.closest('[data-dismiss="sheet"]');
-    if(btn){ const root=document.getElementById('sheetRoot'); if(root) root.innerHTML=''; document.documentElement.classList.remove('lock-scroll'); }
-  });
+    if(!box) return;
+    const KEY = 'holdings.sumbox.open.v2';
+    const head = box.querySelector('[data-toggle]');
+    const saved = localStorage.getItem(KEY);
+    if(saved === '1'){ box.classList.add('is-open'); } else { box.classList.remove('is-open'); }
+    head.onclick = function(){
+      box.classList.toggle('is-open');
+      localStorage.setItem(KEY, box.classList.contains('is-open') ? '1' : '0');
+    };
+  }
+  // 初期化（partial 挿入直後にも効くように）
+  initHoldingsSumbox(document);
 </script>
 
 {# ========== ここから既存カード一覧 ========== #}
@@ -154,7 +144,7 @@
           <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
           <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
 
-          {# ★ 売却（Realized のボトムシートを表示） #}
+          {# ★ 売却（Realized のシートをボトムに差し込み） #}
           <button type="button"
                   class="item sell"
                   hx-get="{% url 'realized_close_sheet' h.id %}"
@@ -236,3 +226,15 @@
 {% else %}
   <div class="text-slate-400">保有はまだありません。</div>
 {% endif %}
+
+{# --- この partial が差し込まれた直後に htmx を再スキャンさせる --- #}
+<script>
+(function(){
+  try{
+    var s = document.currentScript;
+    var root = s ? s.parentElement : document;
+    if (window.htmx && root) { window.htmx.process(root); }
+    if (typeof initHoldingsSumbox === 'function') { initHoldingsSumbox(root); }
+  }catch(_){}
+})();
+</script>
