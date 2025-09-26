@@ -130,7 +130,6 @@
       localStorage.setItem(KEY, box.classList.contains('is-open') ? '1' : '0');
     };
   }
-  // 初期化（partial 挿入直後にも効くように）
   initHoldingsSumbox(document);
 </script>
 
@@ -144,7 +143,7 @@
           <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
           <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
 
-          {# ★ 売却（Realized のシートをボトムに差し込み） #}
+          {# ★ 売却（Realized のボトムシートを #sheetRoot に差し込み） #}
           <button type="button"
                   class="item sell"
                   hx-get="{% url 'realized_close_sheet' h.id %}"
@@ -227,14 +226,37 @@
   <div class="text-slate-400">保有はまだありません。</div>
 {% endif %}
 
-{# --- この partial が差し込まれた直後に htmx を再スキャンさせる --- #}
+{# --- htmx 挿入後：ボトムシートを“中でスクロール可能”にする最小パッチ --- #}
 <script>
 (function(){
-  try{
-    var s = document.currentScript;
-    var root = s ? s.parentElement : document;
-    if (window.htmx && root) { window.htmx.process(root); }
-    if (typeof initHoldingsSumbox === 'function') { initHoldingsSumbox(root); }
-  }catch(_){}
+  // #sheetRoot へシートが差し込まれた直後に CSS を注入し、iOS でも底までスクロールできるようにする
+  document.body.addEventListener('htmx:afterSwap', function(ev){
+    if(ev.target && ev.target.id === 'sheetRoot'){
+      // 1) 最小CSSを一度だけ注入
+      if(!document.getElementById('sheetPatch')){
+        const css = `
+#sheetRoot{position:fixed;inset:0;z-index:70}
+#sheetRoot .sheet{position:absolute;left:0;right:0;bottom:0;max-height:88vh;display:flex;flex-direction:column;border-top-left-radius:14px;border-top-right-radius:14px;background:rgba(18,24,33,.98);border:1px solid rgba(255,255,255,.12);box-shadow:0 -10px 30px rgba(0,0,0,.4)}
+#sheetRoot .sheet-head{padding:12px 14px;border-bottom:1px dashed rgba(255,255,255,.12)}
+#sheetRoot .sheet-body{overflow:auto;-webkit-overflow-scrolling:touch;padding:12px}
+#sheetRoot .sheet-foot{position:sticky;bottom:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(180deg, rgba(18,24,33,.6), rgba(18,24,33,.98) 36%)}
+html.lock-scroll,html.lock-scroll body{overflow:hidden;touch-action:none}
+        `;
+        const st = document.createElement('style'); st.id='sheetPatch'; st.textContent = css; document.head.appendChild(st);
+      }
+      // 2) 背景スクロールをロック
+      document.documentElement.classList.add('lock-scroll');
+    }
+  });
+
+  // sheet を空にしたらロック解除（closeボタンは data-dismiss="sheet" を付けておく）
+  document.addEventListener('click', function(e){
+    const btn = e.target.closest('[data-dismiss="sheet"]');
+    if(btn){
+      const root = document.getElementById('sheetRoot');
+      if(root){ root.innerHTML = ''; }
+      document.documentElement.classList.remove('lock-scroll');
+    }
+  });
 })();
 </script>
