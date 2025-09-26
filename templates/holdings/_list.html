@@ -8,7 +8,6 @@
   .sumbox .sumchev{font-size:14px;opacity:.8;transform:rotate(-90deg);transition:transform .15s ease}
   .sumbox.is-open  .sumchev{transform:rotate(0deg)}
   .sumbox .sumhint{opacity:.6;font-size:12px}
-  /* ←閉じているときはタイトルを隠す */
   .sumbox:not(.is-open) .sumtitle{display:none}
 
   /* ミニピル（閉じているときだけ1行で表示） */
@@ -45,7 +44,7 @@
     <div class="sumtitle">
       <span class="sumchev">▸</span><span>サマリー / 内訳</span>
     </div>
-    {# ミニピル行（閉じているときだけ見える） #}
+    {# ミニピル（閉時のみ表示） #}
     <div class="summini">
       <span class="pill"><span class="k">取得</span>¥{{ summary.acq|floatformat:0|intcomma }}</span>
       <span class="pill"><span class="k">含み損益</span>
@@ -63,7 +62,7 @@
   </div>
 
   <div class="sumbody">
-    {# --- KPI 本体（5ピル） --- #}
+    {# KPI 5つ #}
     <div class="kpi-grid">
       <div class="kpi"><div class="kpi-k">取得額合計</div><div class="kpi-v">¥{{ summary.acq|floatformat:0|intcomma }}</div></div>
       <div class="kpi"><div class="kpi-k">評価額合計</div><div class="kpi-v">{% if summary.val is not None %}¥{{ summary.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
@@ -72,7 +71,7 @@
       <div class="kpi"><div class="kpi-k">勝率</div><div class="kpi-v">{% if summary.win_rate is not None %}{{ summary.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
     </div>
 
-    {# --- Breakdown --- #}
+    {# Breakdown #}
     {% if breakdown.broker or breakdown.account %}
       <div class="bd-wrap">
         {% if breakdown.broker %}
@@ -122,13 +121,12 @@
 </div>
 
 <script>
-  // HTMX差し替え後も動くよう、関数化して2タイミングで初期化
+  // sumbox: 折りたたみ（HTMX差し替え後も再初期化）
   function initHoldingsSumbox(ctx){
     const box = (ctx||document).querySelector('#holdings-sumbox');
     if(!box) return;
     const KEY = 'holdings.sumbox.open.v2';
     const head = box.querySelector('[data-toggle]');
-    // 状態復元（デフォルトは閉じる＝ミニピルだけ）
     const saved = localStorage.getItem(KEY);
     if(saved === '1'){ box.classList.add('is-open'); } else { box.classList.remove('is-open'); }
     head.onclick = function(){
@@ -136,9 +134,7 @@
       localStorage.setItem(KEY, box.classList.contains('is-open') ? '1' : '0');
     };
   }
-  // 初期ロード
   initHoldingsSumbox(document);
-  // HTMXで #holdingsBody を差し替えたあとも再初期化
   document.body.addEventListener('htmx:load', (e)=>{ initHoldingsSumbox(e.target); });
 </script>
 
@@ -149,13 +145,30 @@
     <article class="card row" data-swipe>
       <div class="actions">
         <div class="action-panel" onclick="event.stopPropagation()">
-          <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
-          <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
+          <button type="button" class="item detail" data-action="detail">
+            <span class="ico">📄</span><span>詳細</span>
+          </button>
+          <a class="item edit" href="{% url 'holding_edit' h.id %}">
+            <span class="ico">✏️</span><span>編集</span>
+          </a>
+
+          {# ★ 売却：Realized の close_sheet を #sheetRoot に差し込み #}
+          <button type="button"
+                  class="item sell"
+                  hx-get="{% url 'close_sheet' h.id %}"
+                  hx-target="#sheetRoot"
+                  hx-swap="innerHTML"
+                  onclick="event.stopPropagation()">
+            <span class="ico">💱</span><span>売却</span>
+          </button>
+
           <button class="item delete"
                   hx-post="{% url 'holding_delete' h.id %}"
                   hx-confirm="削除しますか？"
                   hx-target="closest [data-swipe]"
-                  hx-swap="outerHTML swap:15ms"><span class="ico">🗑️</span><span>削除</span></button>
+                  hx-swap="outerHTML swap:15ms">
+            <span class="ico">🗑️</span><span>削除</span>
+          </button>
         </div>
       </div>
 
