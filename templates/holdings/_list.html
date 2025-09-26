@@ -1,3 +1,4 @@
+{# templates/holdings/_list.html #}
 {% load humanize num %}
 
 {% if page.object_list %}
@@ -5,21 +6,14 @@
     {% for r in page.object_list %}{% with h=r.obj %}
     <article class="card row" data-swipe>
       <div class="actions">
-        <div class="action-panel">
-          <button type="button" class="item detail" data-action="detail" aria-label="詳細を開く">
-            <span class="ico">📄</span><span>詳細</span>
-          </button>
-          <a class="item edit" href="{% url 'holding_edit' h.id %}" aria-label="編集へ">
-            <span class="ico">✏️</span><span>編集</span>
-          </a>
+        <div class="action-panel" onclick="event.stopPropagation()">
+          <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
+          <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
           <button class="item delete"
                   hx-post="{% url 'holding_delete' h.id %}"
                   hx-confirm="削除しますか？"
                   hx-target="closest [data-swipe]"
-                  hx-swap="outerHTML swap:15ms"
-                  aria-label="削除">
-            <span class="ico">🗑️</span><span>削除</span>
-          </button>
+                  hx-swap="outerHTML swap:15ms"><span class="ico">🗑️</span><span>削除</span></button>
         </div>
       </div>
 
@@ -35,24 +29,21 @@
             </div>
           </div>
           <div class="head__spark">
-            {% if r.spark %}
-              {# ここは“カンマ区切り”にしておく。JSはJSON/カンマ両対応 #}
-              <svg class="spark" viewBox="0 0 96 24" preserveAspectRatio="none"
-                   data-spark='[{{ r.spark|join:"," }}]'
-                   data-rate='{{ r.pnl_pct|default:0 }}'></svg>
-            {% endif %}
+            <svg class="spark"
+                 viewBox="0 0 96 24" preserveAspectRatio="none"
+                 data-rate="{{ r.pnl_pct|default:0 }}"
+                 data-s7i='{{ r.s7_idx|default:"[]"|safe }}'
+                 data-s30i='{{ r.s30_idx|default:"[]"|safe }}'
+                 data-s90i='{{ r.s90_idx|default:"[]"|safe }}'
+                 data-s7r='{{ r.s7_raw|default:"[]"|safe }}'
+                 data-s30r='{{ r.s30_raw|default:"[]"|safe }}'
+                 data-s90r='{{ r.s90_raw|default:"[]"|safe }}'></svg>
           </div>
         </header>
 
         <section class="stats">
-          <div class="stat">
-            <div class="stat__k">数量</div>
-            <div class="stat__v">{{ h.quantity|intcomma }}</div>
-          </div>
-          <div class="stat">
-            <div class="stat__k">平均取得</div>
-            <div class="stat__v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
-          </div>
+          <div class="stat"><div class="stat__k">数量</div><div class="stat__v">{{ h.quantity|intcomma }}</div></div>
+          <div class="stat"><div class="stat__k">平均取得</div><div class="stat__v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div></div>
           <div class="stat {% if r.pnl is not None and r.pnl < 0 %}neg{% else %}pos{% endif %}">
             <div class="stat__k">含み損益</div>
             <div class="stat__v">{% if r.pnl is not None %}¥{{ r.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
@@ -63,51 +54,19 @@
           </div>
         </section>
 
-        <!-- 折りたたみ詳細（必要なら） -->
-<section class="more">
-  <div class="moregrid">
-    <div class="kv">
-      <div class="k">取得額</div>
-      <div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div>
-    </div>
-    <div class="kv">
-      <div class="k">保有開始</div>
-      <div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div>
-    </div>
-    <div class="kv">
-      <div class="k">保有日数</div>
-      <div class="v">{{ r.days|months_from_days }}</div>
-    </div>
-    <div class="kv">
-      <div class="k">更新</div>
-      <div class="v">{{ h.updated_at|date:"Y-m-d" }}</div>
-    </div>
-    {% if h.memo %}
-      <div class="kv" style="grid-column:1/-1">
-        <div class="k">メモ</div>
-        <div class="v">{{ h.memo }}</div>
-      </div>
-    {% endif %}
-  </div>
-</section>
+        <section class="more">
+          <div class="moregrid">
+            <div class="kv"><div class="k">取得額</div><div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div></div>
+            <div class="kv"><div class="k">保有開始</div><div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div></div>
+            <div class="kv"><div class="k">保有日数</div><div class="v">{{ r.days|default:"—" }}</div></div>
+            <div class="kv"><div class="k">更新</div><div class="v">{{ h.updated_at|date:"Y-m-d" }}</div></div>
+            {% if h.memo %}<div class="kv" style="grid-column:1/-1"><div class="k">メモ</div><div class="v">{{ h.memo }}</div></div>{% endif %}
+          </div>
+        </section>
       </div>
     </article>
     {% endwith %}{% endfor %}
   </div>
-
-  {% if page.paginator.num_pages > 1 %}
-  <div style="display:flex;gap:8px;justify-content:center;margin-top:14px">
-    {% if page.has_previous %}
-      <a hx-get="{% url 'holding_list_partial' %}?page={{page.previous_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}"
-         hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">前へ</a>
-    {% endif %}
-    <div style="opacity:.75;padding:8px 12px">Page {{page.number}} / {{page.paginator.num_pages}}</div>
-    {% if page.has_next %}
-      <a hx-get="{% url 'holding_list_partial' %}?page={{page.next_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}"
-         hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">次へ</a>
-    {% endif %}
-  </div>
-  {% endif %}
 {% else %}
   <div class="text-slate-400">保有はまだありません。</div>
 {% endif %}
