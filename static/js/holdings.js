@@ -1,9 +1,10 @@
-/* holdings.js v121 — iOS Safari安定版
+/* holdings.js v121-fix — iOS Safari安定版 + Spark Modal
    - スワイプ固定維持（translateX + .is-open）
-   - 詳細/編集/削除 全部動作
-   - 「詳細開いた後、カードタップで閉じる」をガード無しで最優先
+   - 詳細/編集/削除 すべて動作（パネル内バブリング停止）
+   - 「詳細開いた後、カードタップで閉じる」を最優先で実装
    - 削除連打防止
-   - スパークライン描画同梱
+   - カード内スパーク描画
+   - スパークタップでモーダル（7/30/90 × 指数/実値）
 */
 (() => {
   const START_SLOP = 8;
@@ -11,6 +12,7 @@
   const GUARD_MS   = 280;
   const now = () => Date.now();
 
+  /* ===== 共通 ===== */
   function closeAll(except){
     document.querySelectorAll('[data-swipe].is-open').forEach(row=>{
       if (row !== except) row.classList.remove('is-open');
@@ -21,9 +23,10 @@
     return r.width || parseFloat(getComputedStyle(el).getPropertyValue('--open-w')) || 220;
   }
 
+  /* ===== 1行バインド ===== */
   function bindRow(row){
-    if (!row || row.__bound_v121) return;
-    row.__bound_v121 = true;
+    if (!row || row.__bound_v121fix) return;
+    row.__bound_v121fix = true;
 
     const actions   = row.querySelector('.actions');
     const track     = row.querySelector('.track');
@@ -33,9 +36,8 @@
 
     let guardUntil = 0;
 
-    // アクション内操作は確実に効かせる（HTMXの動作は阻害しない）
+    // アクション内：クリック/タッチは確実に効かせる（HTMXを殺さない）
     actions.addEventListener('click', e => { e.stopPropagation(); }, {capture:false});
-    // ★ iOSでのゴーストタップ抑制（追加）
     actions.addEventListener('touchstart', e => { e.stopPropagation(); }, {passive:true});
 
     // 詳細トグル：開閉＋パネルは閉じる
@@ -48,7 +50,7 @@
       });
     }
 
-    // 削除：二度押し防止
+    // 削除：二度押し防止（HTMX応答までbusy）
     if (btnDelete){
       btnDelete.addEventListener('click', e=>{
         if (btnDelete.dataset.busy === '1'){
@@ -56,27 +58,19 @@
           return;
         }
         btnDelete.dataset.busy = '1';
-        document.body.addEventListener('htmx:afterOnLoad', function onload(){
-          btnDelete.dataset.busy = '0';
-          document.body.removeEventListener('htmx:afterOnLoad', onload);
-        }, {once:true});
-        document.body.addEventListener('htmx:responseError', ()=>{
-          btnDelete.dataset.busy = '0';
-        }, {once:true});
+        const reset = ()=>{ btnDelete.dataset.busy = '0'; };
+        document.body.addEventListener('htmx:afterOnLoad', reset, {once:true});
+        document.body.addEventListener('htmx:responseError', reset, {once:true});
       });
     }
 
-    // ★ カードタップで閉じる（詳細 → 無条件で最優先、パネル → ガードあり）
+    // カードタップ：詳細 → 無条件クローズ、パネル → ガードありでクローズ
     track.addEventListener('click', (e)=>{
-      // インタラクティブ要素は尊重
       if (e.target.closest('.actions, .item, a, button, input, select, textarea, label')) return;
-
-      // 1) 詳細が開いていれば、ガード無視で閉じる（最優先）
       if (row.classList.contains('show-detail')){
         row.classList.remove('show-detail');
         return;
       }
-      // 2) パネルが開いていれば閉じる（ガードあり）
       if (row.classList.contains('is-open')){
         if (now() < guardUntil) return;
         row.classList.remove('is-open');
@@ -84,7 +78,7 @@
       }
     });
 
-    // 画面外タップで全閉
+    // 外側タップで全閉
     document.addEventListener('click', (e)=>{
       if (now() < guardUntil) return;
       if (!e.target.closest('[data-swipe]')) closeAll();
@@ -128,7 +122,7 @@
         if (Math.abs(dx) < START_SLOP) return;
         if (Math.abs(dx) > Math.abs(dy)) horiz=true; else { dragging=false; return; }
       }
-      e.preventDefault();
+      e.preventDefault(); // iOS 縦スクロール抑止
       const w = widthOf(actions);
       if (!baseOpen){
         openPull = Math.max(0, -dx);
@@ -151,92 +145,142 @@
     });
   }
 
-  function bindAll(){ document.querySelectorAll('[data-swipe]').forEach(bindRow); }
+  function bindAllRows(){ document.querySelectorAll('[data-swipe]').forEach(bindRow); }
 
-  // ===== スパークモーダル =====
-const modal = {
-  root:null, canvas:null, ctx:null, title:null,
-  span:30, mode:'idx', data:null, color:'#22c55e'
-};
+  /* ===== カード内スパーク描画（既定：30日・指数） ===== */
+  function drawInlineSpark(svg){
+    let arr = [];
+    try{
+      arr = JSON.parse(svg.getAttribute('data-s30i')||'[]');
+    }catch(_){}
+    if (!Array.isArray(arr) || arr.length < 2){ svg.replaceChildren(); return; }
+    const rate   = parseFloat(svg.getAttribute('data-rate')||'0');
+    const stroke = (isFinite(rate) && rate < 0) ? '#ef4444' : '#22c55e';
+    const vb = svg.viewBox.baseVal || {width:96, height:24};
+    const W = vb.width  || 96, H = vb.height || 24, pad = 1;
+    let min = Math.min(...arr), max = Math.max(...arr);
+    if (min === max){ min -= 1e-6; max += 1e-6; }
+    const nx = i => pad + (i*(W-2*pad)/(arr.length-1));
+    const ny = v => H - pad - ((v-min)/(max-min))*(H-2*pad);
+    let d = `M${nx(0)},${ny(arr[0])}`;
+    for (let i=1;i<arr.length;i++){ d += ` L${nx(i)},${ny(arr[i])}`; }
+    svg.innerHTML = `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="1.6" stroke-linecap="round" />`;
+  }
+  function drawAllInlineSparks(){ document.querySelectorAll('svg.spark').forEach(drawInlineSpark); }
 
-function openSparkModal(svg){
-  modal.root   = document.getElementById('sparkModal');
-  modal.canvas = document.getElementById('sparkCanvas');
-  modal.title  = document.getElementById('sparkTitle');
-  modal.ctx    = modal.canvas.getContext('2d');
-
-  const rate = parseFloat(svg.getAttribute('data-rate')||'0');
-  modal.color = (isFinite(rate) && rate<0) ? '#ef4444' : '#22c55e';
-
-  const reads = k => { try{return JSON.parse(svg.getAttribute(k)||'[]');}catch(_){return[];} };
-  modal.data = {
-    '7':  {idx:reads('data-s7i'),  raw:reads('data-s7r')},
-    '30': {idx:reads('data-s30i'), raw:reads('data-s30r')},
-    '90': {idx:reads('data-s90i'), raw:reads('data-s90r')}
+  /* ===== スパークモーダル ===== */
+  const modal = {
+    root:null, canvas:null, ctx:null, title:null,
+    span:30, mode:'idx', data:null, color:'#22c55e'
   };
-  modal.span = modal.data['7'].idx?.length ? 7 : (modal.data['30'].idx?.length ? 30 : 90);
-  modal.mode = 'idx';
-  modal.root.classList.add('is-open');
-  renderSparkModal();
-}
 
-function renderSparkModal(){
-  const d = modal.data[String(modal.span)][modal.mode] || [];
-  const cvs=modal.canvas, ctx=modal.ctx;
-  cvs.width=cvs.clientWidth; cvs.height=cvs.clientHeight;
-  ctx.clearRect(0,0,cvs.width,cvs.height);
-  if(d.length<2) return;
+  function openSparkModal(svg){
+    modal.root   = document.getElementById('sparkModal');
+    if (!modal.root) return; // モーダルDOMがないページでは何もしない
+    modal.canvas = document.getElementById('sparkCanvas');
+    modal.title  = document.getElementById('sparkTitle');
+    modal.ctx    = modal.canvas.getContext('2d');
 
-  let min=Math.min(...d), max=Math.max(...d);
-  if(min===max){min-=1e-6;max+=1e-6;}
-  const pad=8,W=cvs.width,H=cvs.height;
-  const nx=i=>pad+(i*(W-2*pad)/(d.length-1));
-  const ny=v=>H-pad-((v-min)/(max-min))*(H-2*pad);
+    const rate = parseFloat(svg.getAttribute('data-rate')||'0');
+    modal.color = (isFinite(rate) && rate < 0) ? '#ef4444' : '#22c55e';
 
-  ctx.strokeStyle='rgba(255,255,255,.25)';
-  ctx.setLineDash([3,3]);ctx.beginPath();
-  ctx.moveTo(pad,ny((modal.mode==='idx')?1:(min+(max-min)/2)));
-  ctx.lineTo(W-pad,ny((modal.mode==='idx')?1:(min+(max-min)/2)));
-  ctx.stroke();ctx.setLineDash([]);
+    const reads = k => { try{return JSON.parse(svg.getAttribute(k)||'[]');}catch(_){return[];} };
+    modal.data = {
+      '7':  { idx:reads('data-s7i'),  raw:reads('data-s7r')  },
+      '30': { idx:reads('data-s30i'), raw:reads('data-s30r') },
+      '90': { idx:reads('data-s90i'), raw:reads('data-s90r') },
+    };
+    modal.span = modal.data['7'].idx?.length ? 7 : (modal.data['30'].idx?.length ? 30 : 90);
+    modal.mode = 'idx';
 
-  ctx.strokeStyle=modal.color;ctx.lineWidth=2;
-  ctx.beginPath();ctx.moveTo(nx(0),ny(d[0]));
-  for(let i=1;i<d.length;i++)ctx.lineTo(nx(i),ny(d[i]));
-  ctx.stroke();
+    modal.root.style.display = 'flex';
+    renderSparkModal();
+  }
 
-  modal.title.textContent=`${modal.span}日 / ${modal.mode==='idx'?'指数':'実値'}`;
-}
+  function renderSparkModal(){
+    if (!modal.canvas || !modal.ctx) return;
+    const d = modal.data[String(modal.span)][modal.mode] || [];
+    const cvs = modal.canvas, ctx = modal.ctx;
+    cvs.width = cvs.clientWidth; cvs.height = cvs.clientHeight;
+    ctx.clearRect(0,0,cvs.width,cvs.height);
+    if (d.length < 2){
+      modal.title && (modal.title.textContent = '—');
+      return;
+    }
+    let min=Math.min(...d), max=Math.max(...d);
+    if (min===max){ min-=1e-6; max+=1e-6; }
+    const pad=8, W=cvs.width, H=cvs.height;
+    const nx=i=>pad+(i*(W-2*pad)/(d.length-1));
+    const baseY=(modal.mode==='idx')?1:(min+(max-min)/2);
+    const ny=v=>H-pad-((v-min)/(max-min))*(H-2*pad);
 
-function bindSparkModal(){
-  const root=document.getElementById('sparkModal');
-  if(!root) return;
-  root.addEventListener('click',e=>{
-    if(e.target.id==='sparkClose'||e.target.id==='sparkModal') root.classList.remove('is-open');
-  });
-  root.querySelectorAll('.spark-ctrl .btn[data-span]').forEach(btn=>{
-    btn.addEventListener('click',()=>{
-      root.querySelectorAll('.spark-ctrl .btn[data-span]').forEach(b=>b.classList.remove('is-on'));
-      btn.classList.add('is-on');
-      modal.span=parseInt(btn.getAttribute('data-span'),10);
-      renderSparkModal();
+    // ベース線
+    ctx.strokeStyle='rgba(255,255,255,.25)';
+    ctx.setLineDash([3,3]); ctx.beginPath();
+    ctx.moveTo(pad, ny(baseY)); ctx.lineTo(W-pad, ny(baseY));
+    ctx.stroke(); ctx.setLineDash([]);
+
+    // 折れ線
+    ctx.strokeStyle = modal.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(nx(0), ny(d[0]));
+    for (let i=1;i<d.length;i++) ctx.lineTo(nx(i), ny(d[i]));
+    ctx.stroke();
+
+    if (modal.title){
+      modal.title.textContent = `${modal.span}日 / ${modal.mode==='idx'?'指数':'実値'}`;
+    }
+  }
+
+  function bindSparkModal(){
+    const root = document.getElementById('sparkModal');
+    if (!root) return;
+
+    // 閉じる
+    root.addEventListener('click', (e)=>{
+      if (e.target.id === 'sparkClose' || e.target.id === 'sparkModal'){
+        root.style.display = 'none';
+      }
     });
-  });
-  root.querySelectorAll('.spark-ctrl .btn[data-mode]').forEach(btn=>{
-    btn.addEventListener('click',()=>{
-      root.querySelectorAll('.spark-ctrl .btn[data-mode]').forEach(b=>b.classList.remove('is-on'));
-      btn.classList.add('is-on');
-      modal.mode=btn.getAttribute('data-mode');
-      renderSparkModal();
-    });
-  });
-  document.addEventListener('click',e=>{
-    const svg=e.target.closest&&e.target.closest('svg.spark');
-    if(svg) openSparkModal(svg);
-  });
-}
 
-// boot の最後に追加
-function boot(){ bindAll(); drawAllSparks(); bindSparkModal(); }
+    // 期間切替
+    root.querySelectorAll('.spark-ctrl .btn[data-span]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        root.querySelectorAll('.spark-ctrl .btn[data-span]').forEach(b=>b.classList.remove('is-on'));
+        btn.classList.add('is-on');
+        modal.span = parseInt(btn.getAttribute('data-span'), 10);
+        renderSparkModal();
+      });
+    });
+
+    // 表示モード切替
+    root.querySelectorAll('.spark-ctrl .btn[data-mode]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        root.querySelectorAll('.spark-ctrl .btn[data-mode]').forEach(b=>b.classList.remove('is-on'));
+        btn.classList.add('is-on');
+        modal.mode = btn.getAttribute('data-mode');
+        renderSparkModal();
+      });
+    });
+
+    // カード内スパークをタップでモーダル起動
+    document.addEventListener('click', (e)=>{
+      const svg = e.target.closest && e.target.closest('svg.spark');
+      if (svg) openSparkModal(svg);
+    });
+  }
+
+  /* ===== Boot ===== */
+  function boot(){
+    bindAllRows();
+    drawAllInlineSparks();
+    bindSparkModal();
+  }
+
+  window.addEventListener('load', boot);
+  document.body.addEventListener('htmx:load', boot);
+  window.addEventListener('resize', ()=>{ requestAnimationFrame(drawAllInlineSparks); });
 
   console.log('[holdings.js v121-fix] ready');
 })();
