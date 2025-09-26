@@ -109,18 +109,16 @@ def _preload_closes(tickers: List[str], days: int) -> Dict[str, List[float]]:
                 return []
             try:
                 if isinstance(df.columns, pd.MultiIndex):
-                    # MultiIndex: (TICKER, FIELD)
-                    # Close の列を取り出す
+                    # (TICKER, FIELD) の MultiIndex
                     if (nsym, "Close") in df.columns:
                         s = df[(nsym, "Close")]
                     else:
-                        # yfinance の仕様揺れ対策
                         try:
-                            s = df.xs(nsym, axis=1)[ "Close" ]  # type: ignore[index]
+                            s = df.xs(nsym, axis=1)["Close"]  # type: ignore[index]
                         except Exception:
                             return []
                 else:
-                    # 単一ティッカー（Series 相当）
+                    # 単一ティッカー
                     s = df["Close"]  # type: ignore[index]
             except Exception:
                 return []
@@ -315,6 +313,7 @@ def _sort_qs(qs, request):
         else:
             qs = qs.order_by(f"-{field}", "-id")
     else:
+        # pnl/days は DB で並べ替えできないため、ここでは更新日の降順にしておく
         qs = qs.order_by("-updated_at", "-id")
     return qs
 
@@ -338,6 +337,21 @@ def _apply_post_filters(rows: List[RowVM], request) -> List[RowVM]:
         rows = [r for r in rows if (r.pnl or 0) < 0]
     return rows
 
+def _sort_rows(rows: List[RowVM], request) -> List[RowVM]:
+    """
+    pnl / days ソートを行う（“ページ内”での見た目ソート）。
+    """
+    sort = (request.GET.get("sort") or "").lower()
+    order = (request.GET.get("order") or "desc").lower()
+    reverse = (order != "asc")
+
+    if sort == "pnl":
+        rows.sort(key=lambda r: (r.pnl is None, r.pnl or 0.0), reverse=reverse)
+    elif sort == "days":
+        rows.sort(key=lambda r: (r.days is None, r.days or 0), reverse=reverse)
+    # それ以外（updated/created/opened）は DB ソート済み
+    return rows
+
 @login_required
 def holding_list(request):
     qs = Holding.objects.filter(user=request.user)
@@ -347,6 +361,7 @@ def holding_list(request):
 
     rows = _build_rows_for_page(page)
     rows = _apply_post_filters(rows, request)
+    rows = _sort_rows(rows, request)  # ← pnl/days の見た目ソート
 
     # ページ内集計（フェーズ2）
     summary = _aggregate(rows)
@@ -373,7 +388,7 @@ def holding_list(request):
             "side":   request.GET.get("side") or "",
             "pnl":    request.GET.get("pnl") or "",
         },
-        "summary": summary,  # ← 追加
+        "summary": summary,
     }
     return render(request, "holdings/list.html", ctx)
 
@@ -386,6 +401,7 @@ def holding_list_partial(request):
 
     rows = _build_rows_for_page(page)
     rows = _apply_post_filters(rows, request)
+    rows = _sort_rows(rows, request)
 
     summary = _aggregate(rows)
 
@@ -411,7 +427,7 @@ def holding_list_partial(request):
             "side":   request.GET.get("side") or "",
             "pnl":    request.GET.get("pnl") or "",
         },
-        "summary": summary,  # ← 追加
+        "summary": summary,
     }
     return render(request, "holdings/_list.html", ctx)
 
