@@ -130,8 +130,8 @@
       localStorage.setItem(KEY, box.classList.contains('is-open') ? '1' : '0');
     };
   }
+  // 初期化（partial 挿入直後にも効くように）
   initHoldingsSumbox(document);
-  document.body.addEventListener('htmx:load', (e)=>{ initHoldingsSumbox(e.target); });
 </script>
 
 {# ========== ここから既存カード一覧 ========== #}
@@ -144,7 +144,7 @@
           <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
           <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
 
-          {# ★ 売却（正しい URL 名に修正） #}
+          {# ★ 売却（Realized のシートをボトムに差し込み） #}
           <button type="button"
                   class="item sell"
                   hx-get="{% url 'realized_close_sheet' h.id %}"
@@ -226,3 +226,15 @@
 {% else %}
   <div class="text-slate-400">保有はまだありません。</div>
 {% endif %}
+
+{# --- この partial が差し込まれた直後に htmx を再スキャンさせる --- #}
+<script>
+(function(){
+  try{
+    var s = document.currentScript;
+    var root = s ? s.parentElement : document;
+    if (window.htmx && root) { window.htmx.process(root); }
+    if (typeof initHoldingsSumbox === 'function') { initHoldingsSumbox(root); }
+  }catch(_){}
+})();
+</script>
