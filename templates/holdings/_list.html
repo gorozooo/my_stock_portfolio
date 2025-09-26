@@ -154,7 +154,8 @@
             <span class="ico">💱</span><span>売却</span>
           </button>
 
-          <button class="item delete"
+          <button type="button"
+                  class="item delete"
                   hx-post="{% url 'holding_delete' h.id %}"
                   hx-confirm="削除しますか？"
                   hx-target="closest [data-swipe]"
