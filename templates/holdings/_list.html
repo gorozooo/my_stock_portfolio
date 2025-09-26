@@ -5,6 +5,7 @@
   <div class="stack">
     {% for r in page.object_list %}{% with h=r.obj %}
     <article class="card row" data-swipe>
+      <!-- 右スワイプアクション -->
       <div class="actions">
         <div class="action-panel" onclick="event.stopPropagation()">
           <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
@@ -17,7 +18,9 @@
         </div>
       </div>
 
+      <!-- 本文 -->
       <div class="track">
+        <!-- ヘッダ：左=銘柄名/チップ、右=スパーク -->
         <header class="head">
           <div class="head__left">
             <div class="name" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
@@ -41,19 +44,31 @@
           </div>
         </header>
 
+        <!-- メトリクス -->
         <section class="stats">
-          <div class="stat"><div class="stat__k">数量</div><div class="stat__v">{{ h.quantity|intcomma }}</div></div>
-          <div class="stat"><div class="stat__k">平均取得</div><div class="stat__v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div></div>
+          <div class="stat">
+            <div class="stat__k">数量</div>
+            <div class="stat__v">{{ h.quantity|intcomma }}</div>
+          </div>
+          <div class="stat">
+            <div class="stat__k">平均取得</div>
+            <div class="stat__v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
+          </div>
           <div class="stat {% if r.pnl is not None and r.pnl < 0 %}neg{% else %}pos{% endif %}">
             <div class="stat__k">含み損益</div>
-            <div class="stat__v">{% if r.pnl is not None %}¥{{ r.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
+            <div class="stat__v">
+              {% if r.pnl is not None %}¥{{ r.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
+            </div>
           </div>
           <div class="stat {% if r.pnl_pct is not None and r.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
             <div class="stat__k">損益率</div>
-            <div class="stat__v">{% if r.pnl_pct is not None %}{{ r.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div>
+            <div class="stat__v">
+              {% if r.pnl_pct is not None %}{{ r.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
+            </div>
           </div>
         </section>
 
+        <!-- 詳細 -->
         <section class="more">
           <div class="moregrid">
             <div class="kv"><div class="k">取得額</div><div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div></div>
@@ -66,6 +81,42 @@
       </div>
     </article>
     {% endwith %}{% endfor %}
+  </div>
+
+  {# ページング（必要ならそのまま） #}
+  {% if page.paginator.num_pages > 1 %}
+  <div style="display:flex;gap:8px;justify-content:center;margin-top:14px">
+    {% if page.has_previous %}
+      <a hx-get="{% url 'holding_list_partial' %}?page={{page.previous_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}"
+         hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">前へ</a>
+    {% endif %}
+    <div style="opacity:.75;padding:8px 12px">Page {{page.number}} / {{page.paginator.num_pages}}</div>
+    {% if page.has_next %}
+      <a hx-get="{% url 'holding_list_partial' %}?page={{page.next_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}"
+         hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">次へ</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {# スパークモーダル（ここに置く。base.html に置いてもOK） #}
+  <div id="sparkModal" class="spark-modal" style="position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);z-index:9999">
+    <div class="spark-modal-content" style="width:min(540px,90vw);background:#0b1220;border:1px solid #223046;border-radius:12px;overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #223046">
+        <div id="sparkTitle" style="font-weight:700">—</div>
+        <button id="sparkClose" class="btn-ghost" style="padding:6px 10px;border:1px solid #334155;border-radius:8px;background:transparent;color:#e5e7eb">閉じる</button>
+      </div>
+      <div style="padding:12px">
+        <canvas id="sparkCanvas" style="width:100%;height:240px;display:block"></canvas>
+        <div class="spark-ctrl" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:10px">
+          <div style="margin-right:auto;opacity:.8">期間 / 表示</div>
+          <button class="btn" data-span="7">7日</button>
+          <button class="btn" data-span="30">30日</button>
+          <button class="btn" data-span="90">90日</button>
+          <button class="btn" data-mode="idx">指数</button>
+          <button class="btn" data-mode="raw">実値</button>
+        </div>
+      </div>
+    </div>
   </div>
 {% else %}
   <div class="text-slate-400">保有はまだありません。</div>
