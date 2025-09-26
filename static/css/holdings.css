@@ -134,9 +134,60 @@
 .summary-bar .sb-v.pos{ color:#22c55e; }
 .summary-bar .sb-v.neg{ color:#ef4444; }
 
+/* リスト内部で誤って差し込まれた summary-bar を隠す（重複対策） */
+.stack .summary-bar{ display:none; }
+
 /* 小さい端末では4列→スクロール抑止で2行に */
 @media (max-width:420px){
   .summary-bar{
     grid-template-columns: repeat(2, minmax(0,1fr));
   }
+}
+
+/* ===== Phase2: ブレークダウン（ブローカー別・口座別） ===== */
+.breakdown{display:flex;flex-direction:column;gap:10px;margin:10px 0 14px}
+.bd-section{display:flex;flex-direction:column;gap:8px}
+.bd-head{
+  font-size:12px;color:#9fb0c8;opacity:.95;
+  display:flex;align-items:center;gap:8px;margin:2px 2px 0;
+}
+.bd-list{display:flex;flex-direction:column;gap:8px}
+
+/* 行カード（見た目は .card と揃える） */
+.bd-row{
+  display:flex;align-items:center;gap:10px;
+  border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.04);
+  border-radius:14px;
+  padding:10px;
+  box-shadow:0 6px 18px rgba(0,0,0,.18);
+}
+
+/* 左側ラベル（例: 楽天証券 / 特定 など） */
+.bd-label{
+  font-weight:800;min-width:6.5em;white-space:nowrap;
+}
+
+/* 右側メトリクス：件数 / 取得 / 評価 / PnL / PnL% */
+.bd-metrics{
+  display:grid;grid-template-columns: 56px 1fr 1fr 1fr 72px;
+  gap:8px;align-items:center;flex:1;min-width:0;
+}
+.bd-cell{
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font-size:15px;
+}
+.bd-note{font-size:11px;color:#9fb0c8}
+
+/* PnL着色 */
+.bd-pnl{font-weight:700}
+.bd-pnl.pos{color:#22c55e}
+.bd-pnl.neg{color:#ef4444}
+
+/* 小さめ端末：列幅を調整 */
+@media (max-width:420px){
+  .bd-metrics{grid-template-columns: 44px 1fr 1fr 1fr 64px}
+  .bd-label{min-width:5.5em}
+  .bd-cell{font-size:14px}
 }
