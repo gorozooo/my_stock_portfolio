@@ -8,9 +8,11 @@
   .sumbox .sumchev{font-size:14px;opacity:.8;transform:rotate(-90deg);transition:transform .15s ease}
   .sumbox.is-open  .sumchev{transform:rotate(0deg)}
   .sumbox .sumhint{opacity:.6;font-size:12px}
+  /* ←閉じているときはタイトルを隠す */
+  .sumbox:not(.is-open) .sumtitle{display:none}
 
   /* ミニピル（閉じているときだけ1行で表示） */
-  .summini{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;max-width:72%;padding-bottom:2px}
+  .summini{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding-bottom:2px}
   .summini .pill{white-space:nowrap;font-size:11px;border:1px solid rgba(255,255,255,.12);border-radius:9999px;padding:4px 8px;background:rgba(255,255,255,.05)}
   .summini .pill .k{opacity:.7;margin-right:4px}
   .summini .pos{color:#22c55e}.summini .neg{color:#ef4444}
