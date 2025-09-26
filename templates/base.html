@@ -15,16 +15,19 @@
   <!-- HTMX（deferでOK。DOMContentLoaded後に自動でhx-属性をバインド） -->
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
 
-  <!-- ★ HTMXにCSRFヘッダを自動付与（Djangoのcsrftokenクッキーを使用） -->
+  <!-- ★ HTMX に CSRF ヘッダを自動付与：hidden input を優先し、無ければ cookie をフォールバック -->
   <script>
     (function () {
       function getCookie(name) {
         const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
         return m ? m.pop() : '';
       }
-      // htmxが読み込まれる前でもOK：イベントリスナーは後で有効化される
       document.addEventListener('htmx:configRequest', function (e) {
-        e.detail.headers['X-CSRFToken'] = getCookie('csrftoken');
+        // 1) ページ内の hidden input を最優先（Djangoフォームが出している値）
+        let token = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
+        // 2) なければ cookie から取得（CSRF_COOKIE_HTTPONLY=False の場合）
+        if (!token) token = getCookie('csrftoken');
+        if (token) e.detail.headers['X-CSRFToken'] = token;
       });
     })();
   </script>
@@ -42,6 +45,38 @@
       });
     }
   </script>
+
+  <!-- 共通: ボトムシートの表示を安定化（最前面 & スクロール可能 & クリック遮断） -->
+  <style>
+    /* シートの差し込み先は常に全画面レイヤー化 */
+    #sheetRoot {
+      position: fixed;
+      inset: 0;
+      z-index: 10050;           /* 下タブ等より常に上 */
+      pointer-events: none;     /* 子要素のみ操作可能にする */
+    }
+    #sheetRoot > * { pointer-events: auto; }
+
+    /* 汎用クラス（テンプレ側が .sheet / .sheet-backdrop を使っている場合に効く） */
+    #sheetRoot .sheet-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.55);
+      -webkit-backdrop-filter: blur(2px);
+      backdrop-filter: blur(2px);
+    }
+    #sheetRoot .sheet {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      max-height: 85vh;
+      overflow: auto;            /* フォームが長いときに最下部まで到達可能に */
+      background: #0b1220;
+      border-top-left-radius: 14px;
+      border-top-right-radius: 14px;
+      border: 1px solid rgba(255,255,255,.14);
+      box-shadow: 0 -10px 30px rgba(0,0,0,.45);
+    }
+  </style>
 
   {% block head %}{% endblock %}
 </head>
