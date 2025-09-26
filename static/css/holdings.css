@@ -11,7 +11,7 @@
 }
 .track{padding:10px 10px 8px}
 
-/* ヘッダ行：左=名前+チップ / 右=スパーク */
+/* ヘッダ：左=名前/チップ、右=スパーク */
 .head{display:flex;align-items:center;gap:10px}
 .head__left{min-width:0;display:flex;flex-direction:column;gap:4px}
 .name{
@@ -31,11 +31,11 @@
 .chip.buy{background:rgba(16,185,129,.15);border-color:rgba(16,185,129,.35)}
 .chip.sell{background:rgba(244,63,94,.15);border-color:rgba(244,63,94,.35)}
 
-/* スパーク（右端固定・極小） */
+/* スパーク */
 .head__spark{flex:0 0 auto;margin-left:auto}
 .spark{width:96px;height:24px;opacity:.95;filter:drop-shadow(0 0 2px rgba(0,0,0,.25))}
 
-/* メトリクス：1段4個の極小ピル */
+/* メトリクス */
 .stats{
   margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.08);
   display:grid;grid-template-columns:repeat(4,1fr);gap:6px;
@@ -47,17 +47,13 @@
   padding:8px 10px;min-width:0;
 }
 .stat__k{font-size:11px;color:#9fb0c8;line-height:1}
-.stat__v{
-  font-size:16px;line-height:1;
-  font-variant-numeric:tabular-nums;
-  white-space:nowrap;
-}
+.stat__v{font-size:16px;line-height:1;font-variant-numeric:tabular-nums;white-space:nowrap}
 .stat.pos{background:linear-gradient(0deg, rgba(34,197,94,.14), rgba(34,197,94,.12))}
 .stat.neg{background:linear-gradient(0deg, rgba(239,68,68,.16), rgba(239,68,68,.12))}
 .stat.pos .stat__v{color:#22c55e}
 .stat.neg .stat__v{color:#ef4444}
 
-/* 詳細（必要時だけ開く） */
+/* 詳細 */
 .more{display:none;margin-top:6px;border-top:1px dashed rgba(255,255,255,.08);padding-top:6px}
 .row.show-detail .more{display:block}
 .moregrid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
@@ -65,22 +61,19 @@
 .kv .k{font-size:12px;color:#9fb0c8}
 .kv .v{font-size:14px}
 
-/* ===== スワイプアクション（translateX で確実固定） ===== */
+/* ===== スワイプアクション ===== */
 .actions{
   --open-w:208px;
   position:absolute; top:0; bottom:0; right:0;
   width:var(--open-w); z-index:2;
   display:flex; align-items:stretch; justify-content:center;
   background:none;
-  transform:translateX(100%);           /* 初期は画面外 */
+  transform:translateX(100%);
   transition:transform .18s ease-out;
-  pointer-events:none;                   /* 初期は無効 */
+  pointer-events:none;
   will-change:transform;
 }
-.row.is-open .actions{
-  transform:translateX(0);              /* 開いたら固定 */
-  pointer-events:auto;                  /* クリック可 */
-}
+.row.is-open .actions{ transform:translateX(0); pointer-events:auto; }
 .action-panel{display:flex;gap:8px;width:100%;height:100%;padding:8px 8px}
 .action-panel .item{
   flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
@@ -90,54 +83,32 @@
 .item.detail{background:rgba(110,168,255,.18)} .item.edit{background:rgba(0,255,209,.16)} .item.delete{background:rgba(255,77,103,.20)}
 .item .ico{font-size:16px;line-height:1}
 
-/* さらに狭い端末向け縮小 */
-@media (max-width:380px){
-  .name{font-size:16px}
-  .stat__v{font-size:15px}
-  .spark{width:88px}
-}
+/* 横スワイプ安定化 */
+.track{-webkit-user-select:none;user-select:none;touch-action:pan-y}
 
-/* 横スワイプ安定化（縦スクロールは許可） */
-.track{
-  -webkit-user-select: none;
-  user-select: none;
-  touch-action: pan-y; /* 縦スクロールはOS、横はJS */
-}
-
-/* ===== Phase2: compact summary bar ===== */
+/* ===== Phase2: サマリーKPI（端末幅で2/3/5列に自動切替） ===== */
 .summary-bar{
-  display:grid;
-  grid-template-columns: repeat(5, minmax(0,1fr));
-  gap:8px;
-  margin:6px 0 12px;
+  display:grid; gap:8px; margin:6px 0 12px;
+  grid-template-columns: repeat(2, minmax(0,1fr)); /* モバイル */
+}
+@media (min-width:440px){
+  .summary-bar{ grid-template-columns: repeat(3, minmax(0,1fr)); }
+}
+@media (min-width:720px){
+  .summary-bar{ grid-template-columns: repeat(5, minmax(0,1fr)); }
 }
 .summary-bar .sb-item{
+  display:flex;flex-direction:column;justify-content:center;
   border:1px solid rgba(255,255,255,.08);
   background:rgba(255,255,255,.04);
-  border-radius:12px;
-  padding:8px 10px;
-  min-width:0;
+  border-radius:12px;padding:8px 10px;min-width:0;
 }
-.summary-bar .sb-k{
-  font-size:11px;
-  color:#9fb0c8;
-  line-height:1;
-  margin-bottom:4px;
-  white-space:nowrap;
-}
-/* ← 省略しない（…を撤去） */
+.summary-bar .sb-k{font-size:11px;color:#9fb0c8;line-height:1;margin-bottom:4px;white-space:nowrap}
 .summary-bar .sb-v{
-  font-size:16px;
-  font-variant-numeric: tabular-nums;
-  white-space:nowrap;
+  font-size:16px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.summary-bar .sb-v.pos{ color:#22c55e; }
-.summary-bar .sb-v.neg{ color:#ef4444; }
-
-/* 小さい端末では2列 */
-@media (max-width:420px){
-  .summary-bar{ grid-template-columns: repeat(2, minmax(0,1fr)); }
-}
+.summary-bar .sb-v.pos{color:#22c55e}
+.summary-bar .sb-v.neg{color:#ef4444}
 
 /* ===== Phase2: breakdown（ブローカー別/口座別） ===== */
 .breakdown{display:grid;grid-template-columns:1fr;gap:10px;margin:6px 0 12px}
@@ -146,14 +117,9 @@
   background:rgba(255,255,255,.04);
   border-radius:14px;
 }
-.bd-head{
-  display:flex;align-items:center;gap:8px;
-  padding:10px;border-bottom:1px dashed rgba(255,255,255,.08)
-}
+.bd-head{display:flex;align-items:center;gap:8px;padding:10px;border-bottom:1px dashed rgba(255,255,255,.08)}
 .bd-note{opacity:.65;font-size:12px}
 .bd-list{display:flex;flex-direction:column;gap:8px;padding:10px}
-
-/* 各行はカードトーンに合わせる */
 .bd-row{
   display:grid;
   grid-template-columns: minmax(7.5em,1.2fr) minmax(0,1fr);
@@ -164,28 +130,23 @@
   padding:8px 10px;
 }
 .bd-label{font-weight:700;white-space:nowrap}
-
-/* 数字側：右寄せ・省略なし・タブラー数字 */
 .bd-metrics{
   display:grid;
-  grid-template-columns: repeat(6, minmax(8ch, auto));
+  grid-template-columns: repeat(6, minmax(8.5ch, auto));
   justify-content:end;
   gap:12px;
 }
-.bd-cell{
-  text-align:right;
-  white-space:nowrap;
-  font-variant-numeric: tabular-nums;
-}
-/* 色 */
-.bd-pnl.pos, .bd-cell.pos{color:#22c55e}
-.bd-pnl.neg, .bd-cell.neg{color:#ef4444}
-
-/* モバイル：2段に折り返し */
+.bd-cell{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.bd-pnl.pos,.bd-cell.pos{color:#22c55e}
+.bd-pnl.neg,.bd-cell.neg{color:#ef4444}
 @media (max-width:420px){
   .bd-row{grid-template-columns:1fr}
-  .bd-metrics{
-    grid-template-columns: repeat(3, minmax(8ch, auto));
-    row-gap:6px;
-  }
+  .bd-metrics{grid-template-columns: repeat(3, minmax(8.5ch, auto)); row-gap:6px}
+}
+
+/* さらに狭い端末向け縮小 */
+@media (max-width:380px){
+  .name{font-size:16px}
+  .stat__v{font-size:15px}
+  .spark{width:88px}
 }
