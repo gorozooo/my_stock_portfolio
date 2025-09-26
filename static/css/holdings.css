@@ -49,7 +49,8 @@
 .stat__k{font-size:11px;color:#9fb0c8;line-height:1}
 .stat__v{
   font-size:16px;line-height:1;
-  font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
 }
 .stat.pos{background:linear-gradient(0deg, rgba(34,197,94,.14), rgba(34,197,94,.12))}
 .stat.neg{background:linear-gradient(0deg, rgba(239,68,68,.16), rgba(239,68,68,.12))}
@@ -124,70 +125,67 @@
   margin-bottom:4px;
   white-space:nowrap;
 }
+/* ← 省略しない（…を撤去） */
 .summary-bar .sb-v{
   font-size:16px;
   font-variant-numeric: tabular-nums;
   white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
 }
 .summary-bar .sb-v.pos{ color:#22c55e; }
 .summary-bar .sb-v.neg{ color:#ef4444; }
 
-/* リスト内部で誤って差し込まれた summary-bar を隠す（重複対策） */
-.stack .summary-bar{ display:none; }
-
-/* 小さい端末では4列→スクロール抑止で2行に */
+/* 小さい端末では2列 */
 @media (max-width:420px){
-  .summary-bar{
-    grid-template-columns: repeat(2, minmax(0,1fr));
-  }
+  .summary-bar{ grid-template-columns: repeat(2, minmax(0,1fr)); }
 }
 
-/* ===== Phase2: ブレークダウン（ブローカー別・口座別） ===== */
-.breakdown{display:flex;flex-direction:column;gap:10px;margin:10px 0 14px}
-.bd-section{display:flex;flex-direction:column;gap:8px}
-.bd-head{
-  font-size:12px;color:#9fb0c8;opacity:.95;
-  display:flex;align-items:center;gap:8px;margin:2px 2px 0;
-}
-.bd-list{display:flex;flex-direction:column;gap:8px}
-
-/* 行カード（見た目は .card と揃える） */
-.bd-row{
-  display:flex;align-items:center;gap:10px;
+/* ===== Phase2: breakdown（ブローカー別/口座別） ===== */
+.breakdown{display:grid;grid-template-columns:1fr;gap:10px;margin:6px 0 12px}
+.bd-section{
   border:1px solid rgba(255,255,255,.08);
   background:rgba(255,255,255,.04);
   border-radius:14px;
-  padding:10px;
-  box-shadow:0 6px 18px rgba(0,0,0,.18);
 }
-
-/* 左側ラベル（例: 楽天証券 / 特定 など） */
-.bd-label{
-  font-weight:800;min-width:6.5em;white-space:nowrap;
+.bd-head{
+  display:flex;align-items:center;gap:8px;
+  padding:10px;border-bottom:1px dashed rgba(255,255,255,.08)
 }
+.bd-note{opacity:.65;font-size:12px}
+.bd-list{display:flex;flex-direction:column;gap:8px;padding:10px}
 
-/* 右側メトリクス：件数 / 取得 / 評価 / PnL / PnL% */
+/* 各行はカードトーンに合わせる */
+.bd-row{
+  display:grid;
+  grid-template-columns: minmax(7.5em,1.2fr) minmax(0,1fr);
+  gap:10px;align-items:center;
+  border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.04);
+  border-radius:12px;
+  padding:8px 10px;
+}
+.bd-label{font-weight:700;white-space:nowrap}
+
+/* 数字側：右寄せ・省略なし・タブラー数字 */
 .bd-metrics{
-  display:grid;grid-template-columns: 56px 1fr 1fr 1fr 72px;
-  gap:8px;align-items:center;flex:1;min-width:0;
+  display:grid;
+  grid-template-columns: repeat(6, minmax(8ch, auto));
+  justify-content:end;
+  gap:12px;
 }
 .bd-cell{
-  font-variant-numeric:tabular-nums;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  font-size:15px;
+  text-align:right;
+  white-space:nowrap;
+  font-variant-numeric: tabular-nums;
 }
-.bd-note{font-size:11px;color:#9fb0c8}
+/* 色 */
+.bd-pnl.pos, .bd-cell.pos{color:#22c55e}
+.bd-pnl.neg, .bd-cell.neg{color:#ef4444}
 
-/* PnL着色 */
-.bd-pnl{font-weight:700}
-.bd-pnl.pos{color:#22c55e}
-.bd-pnl.neg{color:#ef4444}
-
-/* 小さめ端末：列幅を調整 */
+/* モバイル：2段に折り返し */
 @media (max-width:420px){
-  .bd-metrics{grid-template-columns: 44px 1fr 1fr 1fr 64px}
-  .bd-label{min-width:5.5em}
-  .bd-cell{font-size:14px}
+  .bd-row{grid-template-columns:1fr}
+  .bd-metrics{
+    grid-template-columns: repeat(3, minmax(8ch, auto));
+    row-gap:6px;
+  }
 }
