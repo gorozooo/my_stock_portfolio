@@ -1,69 +1,26 @@
+{# templates/holdings/_list.html #}
 {% load humanize num %}
 
-{# ========== sumbox（折りたたみ式サマリー） ========== #}
-<style>
-  .sumbox{border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(255,255,255,.03);margin:6px 0 12px}
-  .sumbox .sumhead{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px dashed rgba(255,255,255,.10);cursor:pointer}
-  .sumbox .sumtitle{display:flex;gap:8px;align-items:center;font-weight:800}
-  .sumbox .sumchev{font-size:14px;opacity:.8;transform:rotate(-90deg);transition:transform .15s ease}
-  .sumbox.is-open  .sumchev{transform:rotate(0deg)}
-  .sumbox .sumhint{opacity:.6;font-size:12px}
-
-  /* ミニピル（閉じているときだけ1行で表示） */
-  .summini{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;max-width:72%;padding-bottom:2px}
-  .summini .pill{white-space:nowrap;font-size:11px;border:1px solid rgba(255,255,255,.12);border-radius:9999px;padding:4px 8px;background:rgba(255,255,255,.05)}
-  .summini .pill .k{opacity:.7;margin-right:4px}
-  .summini .pos{color:#22c55e}.summini .neg{color:#ef4444}
-  .sumbox.is-open .summini{display:none}
-
-  .sumbox .sumbody{display:none;padding:10px}
-  .sumbox.is-open .sumbody{display:block}
-
-  /* KPI（本体表示） */
-  .kpi-grid{display:flex;gap:10px;flex-wrap:wrap}
-  .kpi{min-width:120px;flex:1;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;background:rgba(255,255,255,.04)}
-  .kpi-k{font-size:12px;color:#9fb0c8}
-  .kpi-v{font-size:16px}
-  .kpi-v.pos{color:#22c55e}.kpi-v.neg{color:#ef4444}
-
-  /* Breakdown（KPIピルと同調） */
-  .bd-wrap{display:grid;grid-template-columns:1fr;gap:12px;margin-top:10px}
-  .bd-sec{border:1px solid rgba(255,255,255,.10);border-radius:12px;background:rgba(255,255,255,.02)}
-  .bd-head{display:flex;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px dashed rgba(255,255,255,.08)}
-  .bd-note{opacity:.65;font-size:12px}
-  .bd-list{display:flex;flex-direction:column;gap:10px;padding:10px}
-  .bd-row{display:flex;flex-direction:column;gap:8px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:rgba(255,255,255,.04);padding:10px}
-  .bd-label{font-weight:800}
-  .bd-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-  @media (min-width:460px){ .bd-kpis{grid-template-columns:repeat(6,minmax(0,1fr));} }
-</style>
-
-<div class="sumbox" id="holdings-sumbox">
-  <div class="sumhead" data-toggle>
-    <div class="sumtitle">
-      <span class="sumchev">▸</span><span>サマリー / 内訳</span>
-    </div>
-    {# ミニピル行（閉じているときだけ見える） #}
-    <div class="summini">
-      <span class="pill"><span class="k">取得</span>¥{{ summary.acq|floatformat:0|intcomma }}</span>
-      <span class="pill"><span class="k">評価</span>{% if summary.val is not None %}¥{{ summary.val|floatformat:0|intcomma }}{% else %}—{% endif %}</span>
-      <span class="pill"><span class="k">PnL</span>
-        <span class="{% if summary.pnl and summary.pnl < 0 %}neg{% else %}pos{% endif %}">
-          {% if summary.pnl is not None %}¥{{ summary.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
-        </span>
+{# ===== サマリー / 内訳（折りたたみ） ===== #}
+<div class="sumbox" id="holdingsSummaryBox">
+  <div class="sumbox-head" onclick="document.getElementById('holdingsSummaryBox').classList.toggle('is-open')">
+    <div class="sumbox-title">サマリー / 内訳</div>
+    <div class="sumbox-mini">
+      <span class="mini-item">取得 ¥{{ summary.acq|floatformat:0|intcomma }}</span>
+      <span class="mini-sep">｜</span>
+      <span class="mini-item {% if summary.pnl and summary.pnl < 0 %}neg{% else %}pos{% endif %}">
+        含み損益 {% if summary.pnl is not None %}¥{{ summary.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
       </span>
-      <span class="pill"><span class="k">PnL%</span>
-        <span class="{% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
-          {% if summary.pnl_pct is not None %}{{ summary.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
-        </span>
+      <span class="mini-sep">｜</span>
+      <span class="mini-item {% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
+        損益率 {% if summary.pnl_pct is not None %}{{ summary.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
       </span>
-      <span class="pill"><span class="k">勝率</span>{% if summary.win_rate is not None %}{{ summary.win_rate|floatformat:1 }}%{% else %}—{% endif %}</span>
     </div>
-    <div class="sumhint">タップで開閉</div>
+    <div class="sumbox-toggle">タップで開閉</div>
   </div>
 
-  <div class="sumbody">
-    {# --- KPI 本体 --- #}
+  <div class="sumbox-body">
+    {# ---- 上部KPI（5ピル） ---- #}
     <div class="kpi-grid">
       <div class="kpi"><div class="kpi-k">取得額合計</div><div class="kpi-v">¥{{ summary.acq|floatformat:0|intcomma }}</div></div>
       <div class="kpi"><div class="kpi-k">評価額合計</div><div class="kpi-v">{% if summary.val is not None %}¥{{ summary.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
@@ -72,7 +29,7 @@
       <div class="kpi"><div class="kpi-k">勝率</div><div class="kpi-v">{% if summary.win_rate is not None %}{{ summary.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
     </div>
 
-    {# --- Breakdown --- #}
+    {# ---- Breakdown：KPIピルを流用した見た目 ---- #}
     {% if breakdown.broker or breakdown.account %}
       <div class="bd-wrap">
         {% if breakdown.broker %}
@@ -121,28 +78,7 @@
   </div>
 </div>
 
-<script>
-  // HTMX差し替え後も動くよう、関数化して2タイミングで初期化
-  function initHoldingsSumbox(ctx){
-    const box = (ctx||document).querySelector('#holdings-sumbox');
-    if(!box) return;
-    const KEY = 'holdings.sumbox.open.v2';
-    const head = box.querySelector('[data-toggle]');
-    // 状態復元（デフォルトは閉じる＝ミニピルだけ）
-    const saved = localStorage.getItem(KEY);
-    if(saved === '1'){ box.classList.add('is-open'); } else { box.classList.remove('is-open'); }
-    head.onclick = function(){
-      box.classList.toggle('is-open');
-      localStorage.setItem(KEY, box.classList.contains('is-open') ? '1' : '0');
-    };
-  }
-  // 初期ロード
-  initHoldingsSumbox(document);
-  // HTMXで #holdingsBody を差し替えたあとも再初期化
-  document.body.addEventListener('htmx:load', (e)=>{ initHoldingsSumbox(e.target); });
-</script>
-
-{# ========== ここから既存カード一覧 ========== #}
+{# ===== 一覧カード ===== #}
 {% if page.object_list %}
   <div class="stack">
     {% for r in page.object_list %}{% with h=r.obj %}
