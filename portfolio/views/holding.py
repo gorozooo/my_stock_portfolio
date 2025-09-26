@@ -226,6 +226,53 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
         win_rate=win_rate,
     )
 
+# ---------- 内訳（ブローカー別・口座別） ----------
+def _breakdown(rows: List[RowVM]) -> Dict[str, List[Dict[str, Optional[float]]]]:
+    """
+    実現損益UIと同じ考え方で、ブローカー別・口座別のサマリを返す。
+    各要素: {label, count, acq, val, pnl, pnl_pct, win_rate}
+    """
+    def agg(items: List[RowVM]):
+        acq = val = 0.0
+        have_val = 0
+        w = l = 0
+        for r in items:
+            q = int(r.obj.quantity or 0)
+            cost = _to_float(r.obj.avg_cost or 0) or 0.0
+            acq += q * cost
+            if r.valuation is not None:
+                val += float(r.valuation); have_val += 1
+            if r.pnl is not None:
+                if r.pnl > 0: w += 1
+                elif r.pnl < 0: l += 1
+        pnl = (val - acq) if have_val else None
+        pnl_pct = (pnl / acq * 100.0) if (pnl is not None and acq > 0) else None
+        win_rate = (w / (w + l) * 100.0) if (w + l) > 0 else None
+        return dict(count=len(items), acq=acq, val=(val if have_val else None),
+                    pnl=pnl, pnl_pct=pnl_pct, win_rate=win_rate)
+
+    # broker
+    by_broker: Dict[str, List[RowVM]] = {}
+    for r in rows:
+        key = r.obj.get_broker_display()
+        by_broker.setdefault(key, []).append(r)
+    broker_rows = []
+    for label, items in by_broker.items():
+        row = agg(items); row["label"] = label; broker_rows.append(row)
+    broker_rows.sort(key=lambda x: (x["pnl"] or 0.0), reverse=True)
+
+    # account
+    by_account: Dict[str, List[RowVM]] = {}
+    for r in rows:
+        key = r.obj.get_account_display()
+        by_account.setdefault(key, []).append(r)
+    account_rows = []
+    for label, items in by_account.items():
+        row = agg(items); row["label"] = label; account_rows.append(row)
+    account_rows.sort(key=lambda x: (x["pnl"] or 0.0), reverse=True)
+
+    return {"broker": broker_rows, "account": account_rows}
+
 # =========================================================
 # API: コード→銘柄名（既存）
 # =========================================================
@@ -365,6 +412,7 @@ def holding_list(request):
 
     # ページ内集計（フェーズ2）
     summary = _aggregate(rows)
+    breakdown = _breakdown(rows)  # 追加
 
     class _PageWrap:
         def __init__(self, src, objs):
@@ -389,6 +437,7 @@ def holding_list(request):
             "pnl":    request.GET.get("pnl") or "",
         },
         "summary": summary,
+        "breakdown": breakdown,  # 追加
     }
     return render(request, "holdings/list.html", ctx)
 
@@ -404,6 +453,7 @@ def holding_list_partial(request):
     rows = _sort_rows(rows, request)
 
     summary = _aggregate(rows)
+    breakdown = _breakdown(rows)  # 追加
 
     class _PageWrap:
         def __init__(self, src, objs):
@@ -428,6 +478,7 @@ def holding_list_partial(request):
             "pnl":    request.GET.get("pnl") or "",
         },
         "summary": summary,
+        "breakdown": breakdown,  # 追加
     }
     return render(request, "holdings/_list.html", ctx)
 
