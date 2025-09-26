@@ -1,13 +1,14 @@
-/* holdings.js v200
+/* holdings.js v201
    - 横スワイプ（translateX 固定方式）
-   - 詳細トグル／カードタップで閉じる
+   - is-open: 開いた行を固定
+   - ボタン（詳細/編集/削除）すべて正常動作
+   - 詳細開いたあとにカードタップで閉じる
    - スパーク描画 & モーダル（7/30/90 × 指数/実値）
 */
 
 (() => {
-  const NS='__swipe_v200__';
+  const NS='__swipe_v201__';
   const START_SLOP=8;
-  const THRESHOLD  = 0.35;
   const GUARD_MS=280;
   const now = () => Date.now();
 
@@ -29,6 +30,7 @@
 
     let guardUntil = 0;
 
+    // パネル内イベントは伝播させない（削除/編集/詳細ボタンが効くように）
     actions.addEventListener('click', e => e.stopPropagation(), {capture:true});
     actions.addEventListener('touchstart', e => e.stopPropagation(), {passive:true});
 
@@ -42,7 +44,7 @@
       });
     }
 
-    // カード本体タップで閉じる（詳細を開いていたら閉じる）
+    // カード本体タップ → パネル/詳細を閉じる
     track.addEventListener('click', ()=>{
       if (now() < guardUntil) return;
       if (row.classList.contains('is-open')){
@@ -53,6 +55,7 @@
       }
     });
 
+    // 外側タップで全閉
     document.addEventListener('click', (e)=>{
       if (now() < guardUntil) return;
       if (!e.target.closest('[data-swipe]')) closeAll();
@@ -108,11 +111,8 @@
 
   /* ---------- スパーク描画（カード内） ---------- */
   function drawInlineSpark(svg){
-    // 既定は 30日指数
     let arr = [];
-    try{
-      arr = JSON.parse(svg.getAttribute('data-s30i')||'[]');
-    }catch(_){}
+    try{ arr = JSON.parse(svg.getAttribute('data-s30i')||'[]'); }catch(_){}
     if(!arr || arr.length < 2){ svg.replaceChildren(); return; }
     const rate = parseFloat(svg.getAttribute('data-rate')||'0');
     const stroke = (isFinite(rate) && rate<0) ? '#f87171' : '#34d399';
@@ -127,13 +127,12 @@
     for(let i=1;i<arr.length;i++){ d+=` L${nx(i)},${ny(arr[i])}`; }
     svg.innerHTML = `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="1.6" stroke-linecap="round" />`;
   }
-
   function drawAllInlineSparks(){ document.querySelectorAll('svg.spark').forEach(drawInlineSpark); }
 
   /* ---------- スパークモーダル ---------- */
   const modal = {
     root: null, canvas: null, ctx: null, title: null,
-    span: 7, mode: 'idx', // 'idx' | 'raw'
+    span: 7, mode: 'idx',
     data: null, color: '#34d399'
   };
 
@@ -146,7 +145,6 @@
     const rate = parseFloat(svg.getAttribute('data-rate')||'0');
     modal.color = (isFinite(rate) && rate<0) ? '#f87171' : '#34d399';
 
-    // データ取り出し
     const reads = (k)=>{ try{return JSON.parse(svg.getAttribute(k)||'[]')}catch(_){return[]} };
     modal.data = {
       '7':  { idx: reads('data-s7i'),  raw: reads('data-s7r')  },
@@ -164,7 +162,6 @@
     const d = modal.data[String(modal.span)][modal.mode] || [];
     const cvs = modal.canvas, ctx = modal.ctx;
     if (!ctx){ return; }
-    // クリア
     cvs.width = cvs.clientWidth; cvs.height = cvs.clientHeight;
     ctx.clearRect(0,0,cvs.width,cvs.height);
 
@@ -175,13 +172,12 @@
     const nx=i => pad + (i*(W-2*pad)/(d.length-1));
     const ny=v => H - pad - ((v-min)/(max-min))*(H-2*pad);
 
-    // ベース線
     ctx.strokeStyle = 'rgba(255,255,255,.25)';
     ctx.setLineDash([3,3]); ctx.beginPath();
-    ctx.moveTo(pad, ny((modal.mode==='idx')?1:(min+(max-min)/2))); ctx.lineTo(W-pad, ny((modal.mode==='idx')?1:(min+(max-min)/2)));
+    ctx.moveTo(pad, ny((modal.mode==='idx')?1:(min+(max-min)/2)));
+    ctx.lineTo(W-pad, ny((modal.mode==='idx')?1:(min+(max-min)/2)));
     ctx.stroke(); ctx.setLineDash([]);
 
-    // 線
     ctx.strokeStyle = modal.color;
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -218,7 +214,6 @@
       });
     });
 
-    // カード内スパークタップで開く
     document.addEventListener('click', (e)=>{
       const svg = e.target.closest && e.target.closest('svg.spark');
       if (svg){ openSparkModal(svg); }
@@ -236,5 +231,5 @@
   document.body.addEventListener('htmx:load', boot);
   window.addEventListener('resize', ()=>{ drawAllInlineSparks(); });
 
-  console.log('[holdings.js v200] ready');
+  console.log('[holdings.js v201] ready');
 })();
