@@ -29,7 +29,13 @@ class RowVM:
     pnl: Optional[float] = None         # 含み損益（額）
     pnl_pct: Optional[float] = None     # 含み損益（%）
     days: Optional[int] = None          # 保有日数
-    spark: Optional[List[float]] = None # スパークライン用配列（30本まで）
+    # スパーク：指数化（index）と実値（raw）の両方を 7/30/90 日分
+    s7_idx: Optional[List[float]] = None
+    s30_idx: Optional[List[float]] = None
+    s90_idx: Optional[List[float]] = None
+    s7_raw: Optional[List[float]] = None
+    s30_raw: Optional[List[float]] = None
+    s90_raw: Optional[List[float]] = None
 
 def _to_float(x) -> Optional[float]:
     try:
@@ -46,63 +52,112 @@ def _norm_ticker(raw: str) -> str:
 def _today_jst() -> date:
     return date.today()
 
-# ------- yfinance ベースの簡易価格取得 -------
-_SPARK_CACHE: Dict[Tuple[str, int], Tuple[float, List[float]]] = {}  # (ts, close_list)
+# ------- yfinance 価格バッチ取得（15分キャッシュ） -------
+# key = (ticker_norm, days) -> (ts, [closes...])
+_SPARK_CACHE: Dict[Tuple[str, int], Tuple[float, List[float]]] = {}
 
-def _recent_closes(ticker: str, days: int = 30) -> List[float]:
-    """
-    直近days営業日の終値を返す（最大30）/ メモリキャッシュ1時間
-    """
-    key = (_norm_ticker(ticker), days)
-    now = time.time()
-    cached = _SPARK_CACHE.get(key)
-    if cached and now - cached[0] < 3600:  # 1h
-        return cached[1]
-
-    yf_t = key[0]
-    # バッファを少し広めに（市場休場対策）
-    period_days = max(days + 10, 40)
-    df = yf.download(
-        yf_t,
-        period=f"{period_days}d",
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-    )
-    if df is None or df.empty:
-        closes: List[float] = []
-    else:
-        s = svc_trend._pick_field(df, "Close", required=True).dropna().tail(days)
-        closes = [float(v) for v in list(s.values)]
-
-    _SPARK_CACHE[key] = (now, closes)
-    return closes
-
-def _valuation_now(ticker: str, quantity: int) -> Optional[float]:
-    closes = _recent_closes(ticker, days=1)
-    if not closes:
+def _cache_get(ticker_norm: str, days: int) -> Optional[List[float]]:
+    item = _SPARK_CACHE.get((ticker_norm, days))
+    if not item:
         return None
-    try:
-        return float(closes[-1]) * int(quantity or 0)
-    except Exception:
-        return None
+    ts, arr = item
+    # 15分キャッシュ
+    if time.time() - ts < 15 * 60:
+        return arr
+    return None
 
-def _build_row(h: Holding, *, want_spark: bool = True) -> RowVM:
+def _cache_put(ticker_norm: str, days: int, closes: List[float]) -> None:
+    _SPARK_CACHE[(ticker_norm, days)] = (time.time(), closes)
+
+def _preload_closes(tickers: List[str], days: int) -> Dict[str, List[float]]:
+    """
+    複数のティッカーをまとめて days 日分の終値に解決する。
+    可能な限りキャッシュを使い、未キャッシュ分だけ yfinance を呼ぶ。
+    戻り値は {ticker_norm: [closes...]}。
+    """
+    need: List[str] = []
+    out: Dict[str, List[float]] = {}
+    ndays = max(days, 1)
+
+    for t in tickers:
+        n = _norm_ticker(t)
+        cached = _cache_get(n, ndays)
+        if cached is not None:
+            out[n] = cached
+        else:
+            need.append(n)
+
+    if need:
+        # 市場休場などを考慮し少し広めに取得
+        period_days = max(ndays + 10, 40 if ndays <= 30 else 110)
+        try:
+            df = yf.download(
+                tickers=need if len(need) > 1 else need[0],
+                period=f"{period_days}d",
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+                group_by="ticker",
+            )
+        except Exception:
+            df = None
+
+        def _pick_one(nsym: str) -> List[float]:
+            if df is None:
+                return []
+            try:
+                # 単銘柄/複数銘柄の両ケースを吸収
+                if isinstance(df.columns, yf.pandas.MultiIndex):  # type: ignore[attr-defined]
+                    s = df[(nsym, "Close")]
+                else:
+                    # need が一つの時
+                    s = df["Close"]
+                s = svc_trend._pick_field(df if nsym in need and isinstance(df.columns, yf.pandas.MultiIndex) else s, "Close", required=False)  # type: ignore
+            except Exception:
+                try:
+                    s = df[nsym]["Close"]  # type: ignore[index]
+                except Exception:
+                    return []
+            try:
+                vs = s.dropna().tail(ndays).values
+                return [float(v) for v in list(vs)]
+            except Exception:
+                return []
+
+        for n in need:
+            closes = _pick_one(n)
+            _cache_put(n, ndays, closes)
+            out[n] = closes
+
+    return out
+
+def _indexize(arr: List[float]) -> List[float]:
+    if not arr:
+        return []
+    base = arr[0]
+    if base == 0:
+        return arr[:]
+    return [round(v / base, 4) for v in arr]
+
+def _build_row(h: Holding) -> RowVM:
     """
     1件分の表示用データを作る。
     - 現在評価額 / 含み損益 / % / 保有日数
-    - spark: 直近30日の評価額推移を「始値=1.0」基準指数化して返す
+    - スパーク：7/30/90日（指数/実値）
     """
     q = int(h.quantity or 0)
     acq = (q * _to_float(h.avg_cost or 0)) or 0.0
 
-    closes = _recent_closes(h.ticker, days=30)
+    # 必要分をキャッシュ/バッチ取得
+    n = _norm_ticker(h.ticker)
+    raw7  = _preload_closes([h.ticker], 7).get(n, [])
+    raw30 = _preload_closes([h.ticker], 30).get(n, [])
+    raw90 = _preload_closes([h.ticker], 90).get(n, [])
+
     val_now = None
-    if closes:
-        val_now = closes[-1] * q
-    elif q:
-        # 価格が取れない時は評価額＝None（表示は—）
-        val_now = None
+    if raw7 or raw30 or raw90:
+        last = (raw30 or raw7 or raw90)[-1]
+        val_now = last * q
 
     pnl = None
     pnl_pct = None
@@ -115,18 +170,24 @@ def _build_row(h: Holding, *, want_spark: bool = True) -> RowVM:
     start = h.opened_at or h.created_at.date()
     days = (_today_jst() - start).days if start else None
 
-    # spark（直近30日の評価額を index 化：最初の値を1.0）
-    spark: Optional[List[float]] = None
-    if want_spark and closes and q > 0:
-        vals = [c * q for c in closes]
-        base = vals[0] if vals else 0.0
-        if base and base > 0:
-            spark = [round(v / base, 3) for v in vals]  # 例: 0.98, 1.01, 1.05 ...
-        else:
-            # 万一base=0ならそのまま（前段のSVGがmin/maxで正規化）
-            spark = [round(v, 2) for v in vals]
+    # 指数化（評価額の指数にするより、価格の指数の方が直感的）
+    s7_idx  = _indexize(raw7)
+    s30_idx = _indexize(raw30)
+    s90_idx = _indexize(raw90)
 
-    return RowVM(obj=h, valuation=val_now, pnl=pnl, pnl_pct=pnl_pct, days=days, spark=spark)
+    return RowVM(
+        obj=h,
+        valuation=val_now,
+        pnl=pnl,
+        pnl_pct=pnl_pct,
+        days=days,
+        s7_idx=s7_idx or None,
+        s30_idx=s30_idx or None,
+        s90_idx=s90_idx or None,
+        s7_raw=raw7 or None,
+        s30_raw=raw30 or None,
+        s90_raw=raw90 or None,
+    )
 
 # =========================================================
 # API: コード→銘柄名（既存）
@@ -150,31 +211,29 @@ def api_ticker_name(request):
     return JsonResponse({"code": code, "name": name})
 
 # =========================================================
-# 一覧（フィルタ/並び替え/ページングは既存のGETクエリ仕様を踏襲）
+# 一覧（フィルタ/並び替え/ページング）
 # =========================================================
 def _apply_filters(qs, request):
     broker = request.GET.get("broker") or ""
     account = request.GET.get("account") or ""
     ticker = (request.GET.get("ticker") or "").strip()
+    side   = (request.GET.get("side") or "").upper()
+
     if broker and broker != "ALL":
         qs = qs.filter(broker=broker)
     if account and account != "ALL":
         qs = qs.filter(account=account)
+    if side in ("BUY", "SELL"):
+        qs = qs.filter(side=side)
     if ticker:
-        qs = qs.filter(ticker__icontains=ticker)
+        qs = qs.filter(ticker__icontains=ticker) | qs.filter(name__icontains=ticker)
     return qs
 
 def _sort_qs(qs, request):
-    sort = request.GET.get("sort") or "updated"  # updated|pnl|days
+    sort = request.GET.get("sort") or "updated"  # updated|created|opened
     order = request.GET.get("order") or "desc"   # asc|desc
-    # ここではDBソートは更新日/作成日程度にし、
-    # pnl/daysはページング後にPythonで整列する（価格が必要なため）
     if sort in ("updated", "created", "opened"):
-        field = {
-            "updated": "updated_at",
-            "created": "created_at",
-            "opened":  "opened_at",
-        }[sort]
+        field = {"updated":"updated_at","created":"created_at","opened":"opened_at"}[sort]
         if order == "asc":
             qs = qs.order_by(field, "-id")
         else:
@@ -188,6 +247,21 @@ def _page(request, qs, per_page: int = 10):
     paginator = Paginator(qs, per_page)
     return paginator.get_page(p)
 
+def _build_rows_for_page(page):
+    return [_build_row(h) for h in page.object_list]
+
+def _apply_post_filters(rows: List[RowVM], request) -> List[RowVM]:
+    """
+    価格計算後でしかフィルタできない条件（損益プラス/マイナスなど）を
+    “ページ内” に適用。※ページング越えの厳密さは必要なら別途実装
+    """
+    pnl_sign = (request.GET.get("pnl") or "").upper()  # POS|NEG|""(all)
+    if pnl_sign == "POS":
+        rows = [r for r in rows if (r.pnl or 0) > 0]
+    elif pnl_sign == "NEG":
+        rows = [r for r in rows if (r.pnl or 0) < 0]
+    return rows
+
 @login_required
 def holding_list(request):
     qs = Holding.objects.filter(user=request.user)
@@ -195,17 +269,9 @@ def holding_list(request):
     qs = _sort_qs(qs, request)
     page = _page(request, qs)
 
-    # ページに出る分だけSpark等を計算（軽量化）
-    rows: List[RowVM] = [_build_row(h, want_spark=True) for h in page.object_list]
+    rows = _build_rows_for_page(page)
+    rows = _apply_post_filters(rows, request)
 
-    # Python側ソート（損益/日数など、価格に依存する項目）
-    sort = request.GET.get("sort") or "updated"
-    order = request.GET.get("order") or "desc"
-    if sort in ("pnl", "days"):
-        key = (lambda r: (r.pnl if sort == "pnl" else (r.days or 0)))
-        rows.sort(key=key, reverse=(order != "asc"))
-
-    # 置き換えた配列をpage風の薄いオブジェクトに詰め直してテンプレへ
     class _PageWrap:
         def __init__(self, src, objs):
             self.number = src.number
@@ -219,17 +285,18 @@ def holding_list(request):
 
     ctx = {
         "page": page_wrap,
-        "sort": sort,
-        "order": order,
+        "sort": request.GET.get("sort") or "updated",
+        "order": request.GET.get("order") or "desc",
         "filters": {
             "broker": request.GET.get("broker") or "",
             "account": request.GET.get("account") or "",
             "ticker": request.GET.get("ticker") or "",
+            "side":   request.GET.get("side") or "",
+            "pnl":    request.GET.get("pnl") or "",
         },
     }
     return render(request, "holdings/list.html", ctx)
 
-# HTMX用：一覧だけ差し替え（既存テンプレ `_list.html` を返す）
 @login_required
 def holding_list_partial(request):
     qs = Holding.objects.filter(user=request.user)
@@ -237,13 +304,8 @@ def holding_list_partial(request):
     qs = _sort_qs(qs, request)
     page = _page(request, qs)
 
-    rows: List[RowVM] = [_build_row(h, want_spark=True) for h in page.object_list]
-
-    sort = request.GET.get("sort") or "updated"
-    order = request.GET.get("order") or "desc"
-    if sort in ("pnl", "days"):
-        key = (lambda r: (r.pnl if sort == "pnl" else (r.days or 0)))
-        rows.sort(key=key, reverse=(order != "asc"))
+    rows = _build_rows_for_page(page)
+    rows = _apply_post_filters(rows, request)
 
     class _PageWrap:
         def __init__(self, src, objs):
@@ -258,12 +320,14 @@ def holding_list_partial(request):
 
     ctx = {
         "page": page_wrap,
-        "sort": sort,
-        "order": order,
+        "sort": request.GET.get("sort") or "updated",
+        "order": request.GET.get("order") or "desc",
         "filters": {
             "broker": request.GET.get("broker") or "",
             "account": request.GET.get("account") or "",
             "ticker": request.GET.get("ticker") or "",
+            "side":   request.GET.get("side") or "",
+            "pnl":    request.GET.get("pnl") or "",
         },
     }
     return render(request, "holdings/_list.html", ctx)
