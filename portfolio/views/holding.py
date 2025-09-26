@@ -214,19 +214,58 @@ def api_ticker_name(request):
 # 一覧（フィルタ/並び替え/ページング）
 # =========================================================
 def _apply_filters(qs, request):
-    broker = request.GET.get("broker") or ""
-    account = request.GET.get("account") or ""
-    ticker = (request.GET.get("ticker") or "").strip()
-    side   = (request.GET.get("side") or "").upper()
+    """
+    クエリの値が「choicesのコード」でも「表示名」でもヒットするように正規化してから絞り込み。
+    例）broker= 'MATSUI' でも '松井証券' でも可。
+    """
+    def _normalize_choice(field_name: str, raw: str) -> Optional[str]:
+        """
+        Holding.<field_name>.choices から raw をコードに変換する。
+        - raw がコード or 表示名のどちらでも受け付ける
+        - 大文字小文字/全角半角/前後空白をゆるく吸収
+        - 'ALL' / 'すべて' / '' は None を返してフィルタ無しに
+        """
+        if raw is None:
+            return None
+        s = str(raw).strip()
+        if s == "" or s.upper() == "ALL" or s == "すべて":
+            return None
 
-    if broker and broker != "ALL":
+        # 正規化（大文字/全角半角）
+        import unicodedata
+        key = unicodedata.normalize("NFKC", s).strip()
+
+        field = Holding._meta.get_field(field_name)
+        for value, label in (field.choices or []):
+            v = str(value)
+            l = unicodedata.normalize("NFKC", str(label)).strip()
+            # コード一致 or 表示名一致のどちらでもOK
+            if key == v or key == l:
+                return value
+        # choices に無い値はそのまま返す（既にコードを渡しているケース等）
+        return s
+
+    # 証券（broker）、口座（account）、売買（side）
+    broker  = _normalize_choice("broker",  request.GET.get("broker"))
+    account = _normalize_choice("account", request.GET.get("account"))
+    side    = _normalize_choice("side",    request.GET.get("side"))
+
+    if broker:
         qs = qs.filter(broker=broker)
-    if account and account != "ALL":
+    if account:
         qs = qs.filter(account=account)
-    if side in ("BUY", "SELL"):
+    if side:
         qs = qs.filter(side=side)
-    if ticker:
-        qs = qs.filter(ticker__icontains=ticker) | qs.filter(name__icontains=ticker)
+
+    # テキスト検索：コード/名称にゆるくヒット
+    # UI が 'q' でも 'ticker' でも来ても拾う
+    q = (request.GET.get("q") or request.GET.get("ticker") or "").strip()
+    if q:
+        qs = qs.filter(
+            # icontains の OR
+            (models.Q(ticker__icontains=q) | models.Q(name__icontains=q))
+        )
+
     return qs
 
 def _sort_qs(qs, request):
