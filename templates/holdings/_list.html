@@ -1,68 +1,54 @@
-{# templates/holdings/_list.html #}
 {% load humanize num %}
 
-{# ---- 内訳（ブローカー別 / 口座別） ---- #}
+{# ---- 上部KPI（全体サマリー） ---- #}
+<div class="kpi-grid">
+  <div class="kpi"><div class="kpi-k">取得額合計</div><div class="kpi-v">¥{{ summary.acq|floatformat:0|intcomma }}</div></div>
+  <div class="kpi"><div class="kpi-k">評価額合計</div><div class="kpi-v">{% if summary.val is not None %}¥{{ summary.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+  <div class="kpi"><div class="kpi-k">含み損益</div><div class="kpi-v {% if summary.pnl and summary.pnl < 0 %}neg{% else %}pos{% endif %}">{% if summary.pnl is not None %}¥{{ summary.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+  <div class="kpi"><div class="kpi-k">損益率</div><div class="kpi-v {% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">{% if summary.pnl_pct is not None %}{{ summary.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div></div>
+  <div class="kpi"><div class="kpi-k">勝率</div><div class="kpi-v">{% if summary.win_rate is not None %}{{ summary.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
+</div>
+
+{# ---- Breakdown：KPIピルを使って同じ見た目 ---- #}
 {% if breakdown.broker or breakdown.account %}
-  <div class="breakdown">
+  <div class="bd-wrap">
     {% if breakdown.broker %}
-      <section class="bd-section">
-        <div class="bd-head">
-          <strong>ブローカー別</strong>
-          <span class="bd-note">（件数 / 取得 / 評価 / PnL / PnL% / 勝率）</span>
-        </div>
+      <section class="bd-sec">
+        <div class="bd-head"><strong>ブローカー別</strong><span class="bd-note">（件数 / 取得 / 評価 / PnL / PnL% / 勝率）</span></div>
         <div class="bd-list">
           {% for b in breakdown.broker %}
-          <div class="bd-row">
-            <div class="bd-label">{{ b.label }}</div>
-            <div class="bd-metrics">
-              <div class="bd-cell">{{ b.count }}</div>
-              <div class="bd-cell">¥{{ b.acq|floatformat:0|intcomma }}</div>
-              <div class="bd-cell">
-                {% if b.val is not None %}¥{{ b.val|floatformat:0|intcomma }}{% else %}—{% endif %}
-              </div>
-              <div class="bd-cell bd-pnl {% if b.pnl and b.pnl < 0 %}neg{% else %}pos{% endif %}">
-                {% if b.pnl is not None %}¥{{ b.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
-              </div>
-              <div class="bd-cell {% if b.pnl_pct and b.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
-                {% if b.pnl_pct is not None %}{{ b.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
-              </div>
-              <div class="bd-cell">
-                {% if b.win_rate is not None %}{{ b.win_rate|floatformat:1 }}%{% else %}—{% endif %}
+            <div class="bd-row">
+              <div class="bd-label">{{ b.label }}</div>
+              <div class="bd-kpis">
+                <div class="kpi"><div class="kpi-k">件数</div><div class="kpi-v">{{ b.count }}</div></div>
+                <div class="kpi"><div class="kpi-k">取得額</div><div class="kpi-v">¥{{ b.acq|floatformat:0|intcomma }}</div></div>
+                <div class="kpi"><div class="kpi-k">評価額</div><div class="kpi-v">{% if b.val is not None %}¥{{ b.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+                <div class="kpi"><div class="kpi-k">含み損益</div><div class="kpi-v {% if b.pnl and b.pnl < 0 %}neg{% else %}pos{% endif %}">{% if b.pnl is not None %}¥{{ b.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+                <div class="kpi"><div class="kpi-k">損益率</div><div class="kpi-v {% if b.pnl_pct and b.pnl_pct < 0 %}neg{% else %}pos{% endif %}">{% if b.pnl_pct is not None %}{{ b.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div></div>
+                <div class="kpi"><div class="kpi-k">勝率</div><div class="kpi-v">{% if b.win_rate is not None %}{{ b.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
               </div>
             </div>
-          </div>
           {% endfor %}
         </div>
       </section>
     {% endif %}
 
     {% if breakdown.account %}
-      <section class="bd-section">
-        <div class="bd-head">
-          <strong>口座別</strong>
-          <span class="bd-note">（件数 / 取得 / 評価 / PnL / PnL% / 勝率）</span>
-        </div>
+      <section class="bd-sec">
+        <div class="bd-head"><strong>口座別</strong><span class="bd-note">（件数 / 取得 / 評価 / PnL / PnL% / 勝率）</span></div>
         <div class="bd-list">
           {% for a in breakdown.account %}
-          <div class="bd-row">
-            <div class="bd-label">{{ a.label }}</div>
-            <div class="bd-metrics">
-              <div class="bd-cell">{{ a.count }}</div>
-              <div class="bd-cell">¥{{ a.acq|floatformat:0|intcomma }}</div>
-              <div class="bd-cell">
-                {% if a.val is not None %}¥{{ a.val|floatformat:0|intcomma }}{% else %}—{% endif %}
-              </div>
-              <div class="bd-cell bd-pnl {% if a.pnl and a.pnl < 0 %}neg{% else %}pos{% endif %}">
-                {% if a.pnl is not None %}¥{{ a.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
-              </div>
-              <div class="bd-cell {% if a.pnl_pct and a.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
-                {% if a.pnl_pct is not None %}{{ a.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
-              </div>
-              <div class="bd-cell">
-                {% if a.win_rate is not None %}{{ a.win_rate|floatformat:1 }}%{% else %}—{% endif %}
+            <div class="bd-row">
+              <div class="bd-label">{{ a.label }}</div>
+              <div class="bd-kpis">
+                <div class="kpi"><div class="kpi-k">件数</div><div class="kpi-v">{{ a.count }}</div></div>
+                <div class="kpi"><div class="kpi-k">取得額</div><div class="kpi-v">¥{{ a.acq|floatformat:0|intcomma }}</div></div>
+                <div class="kpi"><div class="kpi-k">評価額</div><div class="kpi-v">{% if a.val is not None %}¥{{ a.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+                <div class="kpi"><div class="kpi-k">含み損益</div><div class="kpi-v {% if a.pnl and a.pnl < 0 %}neg{% else %}pos{% endif %}">{% if a.pnl is not None %}¥{{ a.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+                <div class="kpi"><div class="kpi-k">損益率</div><div class="kpi-v {% if a.pnl_pct and a.pnl_pct < 0 %}neg{% else %}pos{% endif %}">{% if a.pnl_pct is not None %}{{ a.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div></div>
+                <div class="kpi"><div class="kpi-k">勝率</div><div class="kpi-v">{% if a.win_rate is not None %}{{ a.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
               </div>
             </div>
-          </div>
           {% endfor %}
         </div>
       </section>
@@ -70,12 +56,11 @@
   </div>
 {% endif %}
 
-{# ---- ここからカード一覧 ---- #}
+{# ---- 既存カード一覧 ---- #}
 {% if page.object_list %}
   <div class="stack">
     {% for r in page.object_list %}{% with h=r.obj %}
     <article class="card row" data-swipe>
-      <!-- 右スワイプアクション -->
       <div class="actions">
         <div class="action-panel" onclick="event.stopPropagation()">
           <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
@@ -89,7 +74,6 @@
       </div>
 
       <div class="track">
-        <!-- ヘッダ -->
         <header class="head">
           <div class="head__left">
             <div class="name" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
@@ -101,8 +85,7 @@
             </div>
           </div>
           <div class="head__spark">
-            <svg class="spark"
-                 viewBox="0 0 96 24" preserveAspectRatio="none"
+            <svg class="spark" viewBox="0 0 96 24" preserveAspectRatio="none"
                  data-rate="{{ r.pnl_pct|default:0 }}"
                  data-s7i='{{ r.s7_idx|default:"[]"|safe }}'
                  data-s30i='{{ r.s30_idx|default:"[]"|safe }}'
@@ -113,29 +96,22 @@
           </div>
         </header>
 
-        <!-- メトリクス -->
         <section class="stats">
           <div class="stat"><div class="stat__k">数量</div><div class="stat__v">{{ h.quantity|intcomma }}</div></div>
           <div class="stat"><div class="stat__k">平均取得</div><div class="stat__v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div></div>
           <div class="stat {% if r.pnl is not None and r.pnl < 0 %}neg{% else %}pos{% endif %}">
-            <div class="stat__k">含み損益</div>
-            <div class="stat__v">{% if r.pnl is not None %}¥{{ r.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
+            <div class="stat__k">含み損益</div><div class="stat__v">{% if r.pnl is not None %}¥{{ r.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
           </div>
           <div class="stat {% if r.pnl_pct is not None and r.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
-            <div class="stat__k">損益率</div>
-            <div class="stat__v">{% if r.pnl_pct is not None %}{{ r.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div>
+            <div class="stat__k">損益率</div><div class="stat__v">{% if r.pnl_pct is not None %}{{ r.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div>
           </div>
         </section>
 
-        <!-- 詳細 -->
         <section class="more">
           <div class="moregrid">
             <div class="kv"><div class="k">取得額</div><div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div></div>
             <div class="kv"><div class="k">保有開始</div><div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div></div>
-            <div class="kv">
-              <div class="k">保有日数</div>
-              <div class="v">{{ r.days|months_from_days }}</div>
-            </div>
+            <div class="kv"><div class="k">保有日数</div><div class="v">{{ r.days|default:"—" }}</div></div>
             <div class="kv"><div class="k">更新</div><div class="v">{{ h.updated_at|date:"Y-m-d" }}</div></div>
             {% if h.memo %}<div class="kv" style="grid-column:1/-1"><div class="k">メモ</div><div class="v">{{ h.memo }}</div></div>{% endif %}
           </div>
@@ -145,7 +121,6 @@
     {% endwith %}{% endfor %}
   </div>
 
-  {# ページング #}
   {% if page.paginator.num_pages > 1 %}
   <div style="display:flex;gap:8px;justify-content:center;margin-top:14px">
     {% if page.has_previous %}
