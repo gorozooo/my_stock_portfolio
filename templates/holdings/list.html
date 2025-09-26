@@ -4,7 +4,7 @@
 {% block title %}保有一覧{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/holdings.css' %}?v=6.2">
+<link rel="stylesheet" href="{% static 'css/holdings.css' %}?v=6.1">
 <style>
   /* --- クイックバー & モーダル最小スタイル --- */
   .quickbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 10px}
@@ -32,6 +32,8 @@
   <h1>保有一覧</h1>
   <a href="{% url 'holding_create' %}" class="btn btn-outline">＋ 新規登録</a>
 </div>
+
+{# ← 重複の原因だった summary-bar は削除しました #}
 
 <!-- クイックフィルタ/並び替え -->
 <div class="quickbar" id="qb">
@@ -90,6 +92,7 @@
 </div>
 
 <div id="holdingsBody">
+  {# ここで _list.html を読み込む（KPIは _list 側で1回だけ描画） #}
   {% include "holdings/_list.html" %}
 </div>
 
@@ -109,7 +112,7 @@
   </div>
 </div>
 
-<script src="{% static 'js/holdings.js' %}?v=131"></script>
+<script src="{% static 'js/holdings.js' %}?v=130"></script>
 <script>
   // Quickbar: 状態保存＆適用
   (function(){
@@ -150,16 +153,8 @@
       const qs = queryString(st);
       fetch("{% url 'holding_list_partial' %}?"+qs, {headers:{'HX-Request':'true'}})
       .then(r=>r.text()).then(html=>{
-        const body = document.getElementById('holdingsBody');
-        body.innerHTML = html;
-
-        // ★ 差し替え後に必ず HTMX を再スキャン
-        if (window.htmx) { window.htmx.process(body); }
-
-        // sumbox の再初期化（もし定義されていれば）
-        if (typeof initHoldingsSumbox === 'function') { initHoldingsSumbox(body); }
-
-        // Spark や swipe など他の再バインド処理もここで呼べる
+        document.getElementById('holdingsBody').innerHTML = html;
+        document.body.dispatchEvent(new CustomEvent('htmx:load')); // 再バインド
       });
     }
     $('qb-apply').addEventListener('click', ()=>{ const st = gather(); save(st); load(); });
