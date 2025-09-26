@@ -102,3 +102,41 @@
   user-select: none;
   touch-action: pan-y; /* 縦スクロールはOS、横はJS */
 }
+
+/* ===== Phase2: compact summary bar ===== */
+.summary-bar{
+  display:grid;
+  grid-template-columns: repeat(5, minmax(0,1fr));
+  gap:8px;
+  margin:6px 0 12px;
+}
+.summary-bar .sb-item{
+  border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.04);
+  border-radius:12px;
+  padding:8px 10px;
+  min-width:0;
+}
+.summary-bar .sb-k{
+  font-size:11px;
+  color:#9fb0c8;
+  line-height:1;
+  margin-bottom:4px;
+  white-space:nowrap;
+}
+.summary-bar .sb-v{
+  font-size:16px;
+  font-variant-numeric: tabular-nums;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.summary-bar .sb-v.pos{ color:#22c55e; }
+.summary-bar .sb-v.neg{ color:#ef4444; }
+
+/* 小さい端末では4列→スクロール抑止で2行に */
+@media (max-width:420px){
+  .summary-bar{
+    grid-template-columns: repeat(2, minmax(0,1fr));
+  }
+}
