@@ -138,9 +138,18 @@
       <div class="actions">
         <div class="action-panel" onclick="event.stopPropagation()">
           <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
-          <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
 
-          {# ★ HTMX削除：行をスムーズに消す #}
+          {# 編集：ページ遷移 #}
+          <a class="item edit" href="{% url 'holding_edit' h.id %}">
+            <span class="ico">✏️</span><span>編集</span>
+          </a>
+
+          {# 売却：ページ遷移（編集と同様に href ） #}
+          <a class="item sell" href="{% url 'holding_close_sheet' h.id %}">
+            <span class="ico">💱</span><span>売却</span>
+          </a>
+
+          {# 削除：HTMXでスムーズ削除（行DOMを消す） #}
           <button class="item delete"
                   hx-post="{% url 'holding_delete' h.id %}"
                   hx-confirm="削除しますか？"
