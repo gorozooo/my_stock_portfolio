@@ -1,6 +1,12 @@
 {# templates/realized/_close_sheet.html #}
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}{{ h.ticker }} をクローズ{% endblock %}
+
+{% block head %}
 <style>
-  /* フォームの見た目（単体ページ/インラインどちらでも成立） */
+  /* 単体ページとして見やすい余白と入力UI */
   .sheet { max-width: 720px; margin: 12px auto; padding: 12px; }
   .sheet .in{appearance:none;-webkit-appearance:none;width:100%;border-radius:12px;padding:12px 14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#e9ecff;outline:none;transition:.15s}
   .sheet .in::placeholder{color:rgba(233,236,255,.45)}
@@ -15,17 +21,18 @@
   .sign-btn{min-width:38px;padding:10px 0;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e9ecff}
   @media (max-width: 420px){ .sheet { padding: 8px } }
 </style>
+{% endblock %}
 
+{% block content %}
 <div class="sheet" id="closeSheet">
   <div class="sheet-head">
     <div class="sheet-title">
       {{ h.ticker }}{% if h.name %}<span class="text-slate-400 text-xs font-normal">（{{ h.name }}）</span>{% endif %} をクローズ
     </div>
-    {# モーダル前提の data-dismiss はやめ、ページ遷移に合わせて history.back() #}
     <button type="button" class="text-indigo-300 underline" onclick="history.back()">閉じる</button>
   </div>
 
-  {# ★ ページ遷移での通常POST。ビュー(close_submit)側は非HTMXならリダイレクトする実装なのでOK #}
+  {# ページ遷移で通常POST。成功時は close_submit 側のリダイレクトで一覧へ戻る #}
   <form id="closeForm" action="{% url 'holding_close_submit' h.id %}" method="post">
     {% csrf_token %}
 
@@ -102,7 +109,7 @@
 </div>
 
 <script>
-  // ±トグル（負号/正号を先頭に付け替え）
+  // ±トグル（先頭の符号を切替）
   (function(){
     const root = document.getElementById('closeSheet');
     if (!root) return;
@@ -111,10 +118,11 @@
       btn.addEventListener('click', ()=>{
         if (!input) return;
         const s = btn.dataset.sgn === '-' ? '-' : '';
-        const v = (input.value || '').replace(/^[+-]?/, ''); // 先頭符号を除去
+        const v = (input.value || '').replace(/^[+-]?/, '');
         input.value = s + v;
         input.focus();
       });
     });
   })();
 </script>
+{% endblock %}
