@@ -151,11 +151,13 @@
         <div class="action-panel" onclick="event.stopPropagation()">
           <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
           <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
-          <button class="item delete"
-                  hx-post="{% url 'holding_delete' h.id %}"
-                  hx-confirm="削除しますか？"
-                  hx-target="closest [data-swipe]"
-                  hx-swap="outerHTML swap:15ms"><span class="ico">🗑️</span><span>削除</span></button>
+          <form method="post" action="{% url 'holding_delete' h.id %}" style="display:inline"
+                onsubmit="return confirm('削除しますか？')">
+            {% csrf_token %}
+            <button type="submit" class="item delete">
+              <span class="ico">🗑️</span><span>削除</span>
+            </button>
+          </form>
         </div>
       </div>
 
