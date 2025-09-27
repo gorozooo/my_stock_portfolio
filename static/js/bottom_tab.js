@@ -39,10 +39,10 @@ document.addEventListener("DOMContentLoaded", () => {
       { label:"設定を開く",               href:"/settings/trade/",icon:"⚙️", tone:"info" },
     ],
     holdings: [
-      { section:"保有" },
-      { label:"＋ 新規登録",                  action:"add_holding",    icon:"📥", tone:"add" },
-      { label:"CSVエクスポート",          action:"export_csv",     icon:"🧾", tone:"info" },
-      { label:"並び替え/フィルタ",        action:"open_filter",    icon:"🧮", tone:"action" },
+    { section: "保有" },
+    { label: "＋ 新規登録",        action: "add_holding",  icon: "📥", tone: "add" },
+    { label: "CSVエクスポート",    action: "export_csv",   icon: "🧾", tone: "info" },
+    { label: "並び替え/フィルタ",  action: "open_filter",  icon: "🧮", tone: "action" },
     ],
     // 実現損益（pnl/realized どちらのキーでも出す）
     pnl: [
