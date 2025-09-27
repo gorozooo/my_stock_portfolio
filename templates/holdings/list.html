@@ -4,7 +4,7 @@
 {% block title %}保有一覧{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/holdings.css' %}?v=6.1">
+<link rel="stylesheet" href="{% static 'css/holdings.css' %}?v=6.2">
 <style>
   /* --- クイックバー & モーダル最小スタイル --- */
   .quickbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 10px}
@@ -32,8 +32,6 @@
   <h1>保有一覧</h1>
   <a href="{% url 'holding_create' %}" class="btn btn-outline">＋ 新規登録</a>
 </div>
-
-{# ← 重複の原因だった summary-bar は削除しました #}
 
 <!-- クイックフィルタ/並び替え -->
 <div class="quickbar" id="qb">
@@ -92,7 +90,6 @@
 </div>
 
 <div id="holdingsBody">
-  {# ここで _list.html を読み込む（KPIは _list 側で1回だけ描画） #}
   {% include "holdings/_list.html" %}
 </div>
 
@@ -114,7 +111,7 @@
 
 <script src="{% static 'js/holdings.js' %}?v=130"></script>
 <script>
-  // Quickbar: 状態保存＆適用
+  // Quickbar: 状態保存＆適用（差し替え後は htmx.process を必ず実行）
   (function(){
     const LSKEY='holdings.qb.v1';
     const $ = (id)=>document.getElementById(id);
@@ -153,8 +150,12 @@
       const qs = queryString(st);
       fetch("{% url 'holding_list_partial' %}?"+qs, {headers:{'HX-Request':'true'}})
       .then(r=>r.text()).then(html=>{
-        document.getElementById('holdingsBody').innerHTML = html;
-        document.body.dispatchEvent(new CustomEvent('htmx:load')); // 再バインド
+        const body = document.getElementById('holdingsBody');
+        body.innerHTML = html;
+        // ★ 差し替えた DOM を HTMX に再スキャンさせる（これが無いと売却/削除が2回目以降死ぬ）
+        if (window.htmx) window.htmx.process(body);
+        // sumbox 再初期化（_list 側でも保険として呼んでいるが、二重に呼んでも副作用なし）
+        if (typeof initHoldingsSumbox === 'function') initHoldingsSumbox(body);
       });
     }
     $('qb-apply').addEventListener('click', ()=>{ const st = gather(); save(st); load(); });
