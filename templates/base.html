@@ -9,10 +9,10 @@
   <!-- Tailwind CDN（後でビルドに移行） -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- 追加（<head>内） -->
+  <!-- Chart.js（必要ページのみ使われる想定だが共通読込でもOK） -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
 
-  <!-- HTMX（deferでOK。DOMContentLoaded後に自動でhx-属性をバインド） -->
+  <!-- HTMX（defer） -->
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
 
   <!-- ★ HTMXにCSRFヘッダを自動付与（Djangoのcsrftokenクッキーを使用） -->
@@ -22,7 +22,6 @@
         const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
         return m ? m.pop() : '';
       }
-      // htmxが読み込まれる前でもOK：イベントリスナーは後で有効化される
       document.addEventListener('htmx:configRequest', function (e) {
         e.detail.headers['X-CSRFToken'] = getCookie('csrftoken');
       });
@@ -43,6 +42,37 @@
     }
   </script>
 
+  {# シートのベースCSS（最前面＆スクロール可能に） #}
+  <style>
+    #sheetRoot{
+      position: fixed;
+      inset: 0;
+      z-index: 1000;               /* 何が来ても最前面 */
+      pointer-events: none;        /* 中身が無いときはクリックを通す */
+    }
+    #sheetRoot > *{
+      pointer-events: auto;        /* 中身があるときだけ操作可 */
+    }
+    /* realized/_close_sheet.html 側で .sheet をルートとして返す想定 */
+    #sheetRoot .sheet{
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      max-height: 90vh;            /* ← 下までスクロールできるように */
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
+      background: rgba(17,24,39,.98);
+      border-top-left-radius: 14px;
+      border-top-right-radius: 14px;
+      border: 1px solid rgba(255,255,255,.12);
+      box-shadow: 0 -10px 30px rgba(0,0,0,.5);
+    }
+    /* 背景の半透明オーバーレイ（close_sheet 側で .sheet-overlay を出しているなら） */
+    #sheetRoot .sheet-overlay{
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.45);
+    }
+  </style>
+
   {% block head %}{% endblock %}
 </head>
 <body class="bg-slate-950 text-slate-100" hx-ext="swap-on-error">
@@ -53,11 +83,11 @@
   <!-- 全ページ共通：ボトムシート差し込み先（HTMXターゲット） -->
   <div id="sheetRoot" aria-live="polite"></div>
 
-  <!-- 共通下タブ（マークアップのみ） -->
+  <!-- 共通下タブ -->
   {% include "partials/bottom_tab.html" %}
 
-  <!-- 売却シート配線（外部JSにしているなら static 経由で） -->
-  <script src="{% static 'js/realized_close.js' %}?v=2"></script>
+  <!-- 売却シートのJS（クローズ等の細かい挙動） -->
+  <script src="{% static 'js/realized_close.js' %}?v=3"></script>
   <script src="{% static 'js/realized_monthly_chart.js' %}?v=1"></script>
 
   <!-- HTMX 拡張: エラーでも強制スワップ -->
@@ -114,6 +144,16 @@
           try { body = '<pre>'+JSON.stringify(JSON.parse(body), null, 2)+'</pre>'; } catch(_){}
         }
         showOverlay('HTTP '+xhr.status, body || '(空のレスポンス)');
+      });
+
+      // シートが差し込まれたら自動で最下部までスクロール可能な状態に
+      document.body.addEventListener('htmx:afterSwap', function(e){
+        if (!e || !e.detail || !e.detail.target) return;
+        if (e.detail.target.id === 'sheetRoot') {
+          // iOS系での慣性スクロールを確実化
+          var sheet = document.querySelector('#sheetRoot .sheet');
+          if (sheet) sheet.style.webkitOverflowScrolling = 'touch';
+        }
       });
     })();
   </script>
