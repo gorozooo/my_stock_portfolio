@@ -33,8 +33,6 @@
   <a href="{% url 'holding_create' %}" class="btn btn-outline">＋ 新規登録</a>
 </div>
 
-{# ← 重複の原因だった summary-bar は削除しました #}
-
 <!-- クイックフィルタ/並び替え -->
 <div class="quickbar" id="qb">
   <div class="fld">
@@ -92,11 +90,10 @@
 </div>
 
 <div id="holdingsBody">
-  {# ここで _list.html を読み込む（KPIは _list 側で1回だけ描画） #}
   {% include "holdings/_list.html" %}
 </div>
 
-<!-- スパークモーダル -->
+<!-- スパークモーダル（未使用なら無視してOK） -->
 <div class="spark-modal" id="sparkModal" aria-hidden="true">
   <div class="spark-dlg">
     <h3 id="sparkTitle">Spark</h3>
@@ -151,11 +148,14 @@
       }, read());
       applyState(st);
       const qs = queryString(st);
-      fetch("{% url 'holding_list_partial' %}?"+qs, {headers:{'HX-Request':'true'}})
-      .then(r=>r.text()).then(html=>{
-        document.getElementById('holdingsBody').innerHTML = html;
-        document.body.dispatchEvent(new CustomEvent('htmx:load')); // 再バインド
-      });
+      fetch("{% url 'holding_list_partial' %}?"+qs)
+        .then(r=>r.text())
+        .then(html=>{
+          const box = document.getElementById('holdingsBody');
+          box.innerHTML = html;
+          // ← 新しく入れたDOMの hx-* を有効化
+          if (window.htmx) { window.htmx.process(box); }
+        });
     }
     $('qb-apply').addEventListener('click', ()=>{ const st = gather(); save(st); load(); });
     $('qb-q').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ $('qb-apply').click(); }});
