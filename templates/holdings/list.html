@@ -93,7 +93,7 @@
   {% include "holdings/_list.html" %}
 </div>
 
-<!-- スパークモーダル（未使用なら無視してOK） -->
+<!-- Sparkモーダル（そのまま） -->
 <div class="spark-modal" id="sparkModal" aria-hidden="true">
   <div class="spark-dlg">
     <h3 id="sparkTitle">Spark</h3>
@@ -148,14 +148,17 @@
       }, read());
       applyState(st);
       const qs = queryString(st);
-      fetch("{% url 'holding_list_partial' %}?"+qs)
-        .then(r=>r.text())
-        .then(html=>{
-          const box = document.getElementById('holdingsBody');
-          box.innerHTML = html;
-          // ← 新しく入れたDOMの hx-* を有効化
-          if (window.htmx) { window.htmx.process(box); }
-        });
+      fetch("{% url 'holding_list_partial' %}?"+qs, {headers:{'HX-Request':'true'}})
+      .then(r=>r.text()).then(html=>{
+        const target = document.getElementById('holdingsBody');
+        target.innerHTML = html;
+
+        // ★★★ これが肝心：差し替えたDOMをHTMXに再スキャンさせる
+        if (window.htmx) { htmx.process(target); }
+
+        // （必要なら）あなたの既存ハンドラに通知
+        document.body.dispatchEvent(new CustomEvent('htmx:load', {detail:{target}}));
+      });
     }
     $('qb-apply').addEventListener('click', ()=>{ const st = gather(); save(st); load(); });
     $('qb-q').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ $('qb-apply').click(); }});
