@@ -1343,8 +1343,8 @@ def close_sheet(request, pk: int):
                 "name":   g(h, "name", ""),
                 "qty":    h_qty,
                 "price":  "",
-                "fee":    g(last, "fee", 0),
-                "cashflow": g(last, "cashflow", ""),
+                "fee":    "",
+                "cashflow": "",
                 "memo":   "",
                 "broker": pre_broker,        # ← Holding 優先
                 "account": pre_account,      # ← Holding 優先（SPEC/MARGIN/NISA）
