@@ -38,7 +38,7 @@
 
     <div class="fi">
       <label>コード <span class="hint">例: 7203</span></label>
-      {{ form.ticker }}
+      <input type="number" name="ticker" inputmode="numeric" pattern="\d*" value="{{ form.ticker.value|default_if_none:'' }}">
     </div>
     <div class="fi">
       <label>銘柄 <span class="hint">コード入力で自動反映（上書き可能）</span></label>
@@ -52,8 +52,14 @@
     </div>
 
     <div class="grid-fields">
-      <div class="fi"><label>株数</label>{{ form.quantity }}</div>
-      <div class="fi"><label>平均取得単価</label>{{ form.avg_cost }}</div>
+      <div class="fi">
+        <label>株数</label>
+        <input type="number" name="quantity" inputmode="numeric" pattern="\d*" value="{{ form.quantity.value|default_if_none:'' }}">
+      </div>
+      <div class="fi">
+        <label>平均取得単価</label>
+        <input type="number" name="avg_cost" inputmode="numeric" pattern="\d*" step="any" value="{{ form.avg_cost.value|default_if_none:'' }}">
+      </div>
       <div class="fi"><label>保有開始日</label>{{ form.opened_at }}</div>
     </div>
 
@@ -80,21 +86,19 @@
   const $name   = document.querySelector('input[name="name"]');
   if (!$ticker || !$name) return;
 
-  let userEditedName = false;         // ユーザーが手で編集したら true
-  let nameAutofilled = false;         // 直前に自動で入れたら true
-  let lastResolved   = { code: "", name: "" }; // 直前の自動入力値
+  let userEditedName = false;
+  let nameAutofilled = false;
+  let lastResolved   = { code: "", name: "" };
 
-  // ユーザーが銘柄名を手入力したら上書きは控える
   $name.addEventListener('input', ()=>{
     userEditedName = true;
     nameAutofilled = false;
   });
 
-  // ★ コードが変わったら再び自動上書きを許可（手間なく反映させる）
   $ticker.addEventListener('input', ()=>{
     const v = ($ticker.value || '').trim();
     if (v !== lastResolved.code) {
-      userEditedName = false;   // 次の lookup で上書きOKに戻す
+      userEditedName = false;
     }
   });
 
@@ -106,19 +110,15 @@
     if (!data || !data.name) return;
     const curCode = ($ticker.value || '').trim();
     const curName = ($name.value  || '').trim();
-
     const codeChanged = data.code && data.code !== lastResolved.code;
     const safeToOverwrite =
-      !userEditedName        // まだユーザー未編集
-      || nameAutofilled      // 直前も自動入力（連続上書きOK）
-      || !curName            // 現在空
-      || curName === lastResolved.name; // 以前の自動値のまま
+      !userEditedName || nameAutofilled || !curName || curName === lastResolved.name;
 
     if (codeChanged || safeToOverwrite) {
       if (data.code) $ticker.value = data.code;
       $name.value = data.name;
       nameAutofilled = true;
-      userEditedName = false;                 // 自動入力直後は未編集扱い
+      userEditedName = false;
       lastResolved = { code: data.code || curCode, name: data.name };
     }
   }
@@ -129,7 +129,7 @@
     fetch(`${endpoint}?code=${encodeURIComponent(v)}`, {credentials:'same-origin'})
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(applyName)
-      .catch(()=>{ /* 無視 */ });
+      .catch(()=>{});
   }
 
   $ticker.addEventListener('input',  debounce(lookup, 250));
