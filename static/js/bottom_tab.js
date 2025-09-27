@@ -41,43 +41,62 @@ document.addEventListener("DOMContentLoaded", () => {
   const MENUS = {
     home: [
       { section:"クイック" },
-      { label:"保有を追加",               href:"/holdings/new",   icon:"➕", tone:"add" },
-      { label:"実現損益を記録",           href:"/realized/",      icon:"💰", tone:"action" },
-      { label:"設定を開く",               href:"/settings/trade/",icon:"⚙️", tone:"info" },
+      // 保有を追加 → holding_create へ
+      { label:"保有を追加",               href: URLS.holding_create, icon:"➕", tone:"add" },
+      { label:"実現損益を記録",           href:"/realized/",         icon:"💰", tone:"action" },
+      { label:"設定を開く",               href:"/settings/trade/",   icon:"⚙️", tone:"info" },
     ],
     holdings: [
       { section: "保有" },
-      { label: "＋ 新規登録",        href:"/holdings/new",  icon: "➕", tone: "add" },
-      { label:"楽天証券", href: "/holdings/?broker=RAKUTEN", icon:"🏯", tone:"info" },
-      { label:"松井証券", href: "/holdings/?broker=MATSUI", icon:"📊", tone:"info" },
-      { label:"SBI証券", href: "/holdings/?broker=SBI", icon:"🏦", tone:"info" },
+      // ＋ 新規登録 → holding_create へ
+      { label: "＋ 新規登録",             href: URLS.holding_create, icon: "➕", tone: "add" },
+      // ブローカー直フィルタ
+      { label:"楽天証券",                 href: "/holdings/?broker=RAKUTEN", icon:"🏯", tone:"info" },
+      { label:"松井証券",                 href: "/holdings/?broker=MATSUI",  icon:"📊", tone:"info" },
+      { label:"SBI証券",                  href: "/holdings/?broker=SBI",     icon:"🏦", tone:"info" },
+      // 必要なら他のメニューを戻す
+      // { label:"CSVエクスポート", action:"export_csv",  icon:"🧾", tone:"info" },
+      // { label:"並び替え/フィルタ", action:"open_filter", icon:"🧮", tone:"action" },
     ],
     // 実現損益（pnl/realized どちらのキーでも出す）
     pnl: [
       { section:"実現損益" },
-      { label:"期間サマリー", action:"show_summary",  icon:"📊", tone:"info" },
+      { label:"期間サマリー", action:"show_summary",           icon:"📊", tone:"info" },
       { label:"月別サマリー",             href:"/realized/monthly/", icon:"🗓️", tone:"info" },
-      { label:"ランキング",               action:"show_ranking",  icon:"🏅", tone:"info" },
-      { label:"明細",                     action:"show_details",  icon:"📑", tone:"info" },
+      { label:"ランキング",               action:"show_ranking",      icon:"🏅", tone:"info" },
+      { label:"明細",                     action:"show_details",      icon:"📑", tone:"info" },
     ],
     trend: [
       { section:"トレンド" },
-      { label:"監視に追加",               action:"watch_symbol",   icon:"👁️", tone:"add" },
-      { label:"エントリー/ストップ計算",   action:"calc_entry_stop",icon:"🎯", tone:"info" },
-      { label:"共有リンクをコピー",       action:"share_link",     icon:"🔗", tone:"info" },
-      { label:"チャート設定",             action:"chart_settings", icon:"🛠️", tone:"action" },
+      { label:"監視に追加",               action:"watch_symbol",    icon:"👁️", tone:"add" },
+      { label:"エントリー/ストップ計算",   action:"calc_entry_stop", icon:"🎯", tone:"info" },
+      { label:"共有リンクをコピー",       action:"share_link",      icon:"🔗", tone:"info" },
+      { label:"チャート設定",             action:"chart_settings",  icon:"🛠️", tone:"action" },
     ],
   };
   MENUS.realized = MENUS.pnl;   // ← エイリアス
 
   /* --- ナビゲーション --- */
   const normPath = (p)=>{
-    try{ const u = new URL(p, location.origin); let x=u.pathname; if(x!=="/" && !x.endsWith("/")) x+="/"; return x; }
-    catch{ return "/"; }
+    try{
+      const u = new URL(p, location.origin);
+      let x = u.pathname;
+      if (x !== "/" && !x.endsWith("/")) x += "/";
+      return x;
+    }catch{
+      return "/";
+    }
   };
+
+  // ★ クエリを保持したまま遷移。アクティブ判定だけ pathname で行う
   const navigateTo = (link)=>{
-    const url = normPath(link||"/");
-    const active = Array.from(tabs).find(b => normPath(b.dataset.link||"/") === url);
+    const url = link || "/";
+    let targetPath = "/";
+    try{
+      targetPath = normPath(new URL(url, location.origin).pathname);
+    }catch{ /* noop */ }
+
+    const active = Array.from(tabs).find(b => normPath(b.dataset.link||"/") === targetPath);
     if (active){
       tabs.forEach(b=> b.classList.remove("active"));
       active.classList.add("active");
@@ -236,25 +255,19 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   })();
 
-  /* --- サブメニューのアクション受け取り（ここで遷移を定義） --- */
+  /* --- サブメニューのアクション受け取り（必要分のみ） --- */
   window.addEventListener("bottomtab:action", (e)=>{
-    const { action } = e.detail || {};
+    const { action } = (e.detail||{});
     switch (action) {
       case "add_holding":
-        // 「保有を追加」「＋ 新規登録」→ holding_create へ
         navigateTo(URLS.holding_create);
         break;
-
       case "export_csv":
-        // 必要に応じて実装/URL差し替え
-        // navigateTo(URLS.holdings_export_csv || "/holdings/export/");
         alert("CSVエクスポートは未実装です");
         break;
-
       case "open_filter":
         document.getElementById("qb")?.scrollIntoView({behavior:"smooth", block:"start"});
         break;
-
       default:
         break;
     }
