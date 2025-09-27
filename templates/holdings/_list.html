@@ -9,22 +9,18 @@
   .sumbox.is-open  .sumchev{transform:rotate(0deg)}
   .sumbox .sumhint{opacity:.6;font-size:12px}
   .sumbox:not(.is-open) .sumtitle{display:none}
-
   .summini{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding-bottom:2px}
   .summini .pill{white-space:nowrap;font-size:11px;border:1px solid rgba(255,255,255,.12);border-radius:9999px;padding:4px 8px;background:rgba(255,255,255,.05)}
   .summini .pill .k{opacity:.7;margin-right:4px}
   .summini .pos{color:#22c55e}.summini .neg{color:#ef4444}
   .sumbox.is-open .summini{display:none}
-
   .sumbox .sumbody{display:none;padding:10px}
   .sumbox.is-open .sumbody{display:block}
-
   .kpi-grid{display:flex;gap:10px;flex-wrap:wrap}
   .kpi{min-width:120px;flex:1;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;background:rgba(255,255,255,.04)}
   .kpi-k{font-size:12px;color:#9fb0c8}
   .kpi-v{font-size:16px}
   .kpi-v.pos{color:#22c55e}.kpi-v.neg{color:#ef4444}
-
   .bd-wrap{display:grid;grid-template-columns:1fr;gap:12px;margin-top:10px}
   .bd-sec{border:1px solid rgba(255,255,255,.10);border-radius:12px;background:rgba(255,255,255,.02)}
   .bd-head{display:flex;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px dashed rgba(255,255,255,.08)}
@@ -128,7 +124,9 @@
       localStorage.setItem(KEY, box.classList.contains('is-open') ? '1' : '0');
     };
   }
+  // 初期ロード
   initHoldingsSumbox(document);
+  // HTMXで #holdingsBody を差し替えたあとも再初期化（親からもdispatchされるが二重でも無害）
   document.body.addEventListener('htmx:load', (e)=>{ initHoldingsSumbox(e.target); });
 </script>
 
@@ -142,11 +140,11 @@
           <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
           <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
 
-          {# ★ HTMX削除：カード単体をターゲットにして安定動作 #}
+          {# ★ HTMX削除：行をスムーズに消す #}
           <button class="item delete"
                   hx-post="{% url 'holding_delete' h.id %}"
                   hx-confirm="削除しますか？"
-                  hx-target="closest article"
+                  hx-target="closest [data-swipe]"
                   hx-swap="outerHTML swap:15ms">
             <span class="ico">🗑️</span><span>削除</span>
           </button>
