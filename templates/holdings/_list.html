@@ -122,13 +122,12 @@
 </div>
 
 <script>
-  // HTMX差し替え後も動くよう、関数化して2タイミングで初期化
+  // HTMX差し替えに依存しないが、関数は残しておく（ページロード時のみ実行）
   function initHoldingsSumbox(ctx){
     const box = (ctx||document).querySelector('#holdings-sumbox');
     if(!box) return;
     const KEY = 'holdings.sumbox.open.v2';
     const head = box.querySelector('[data-toggle]');
-    // 状態復元（デフォルトは閉じる＝ミニピルだけ）
     const saved = localStorage.getItem(KEY);
     if(saved === '1'){ box.classList.add('is-open'); } else { box.classList.remove('is-open'); }
     head.onclick = function(){
@@ -136,10 +135,7 @@
       localStorage.setItem(KEY, box.classList.contains('is-open') ? '1' : '0');
     };
   }
-  // 初期ロード
   initHoldingsSumbox(document);
-  // HTMXで #holdingsBody を差し替えたあとも再初期化
-  document.body.addEventListener('htmx:load', (e)=>{ initHoldingsSumbox(e.target); });
 </script>
 
 {# ========== ここから既存カード一覧 ========== #}
@@ -149,10 +145,15 @@
     <article class="card row" data-swipe>
       <div class="actions">
         <div class="action-panel" onclick="event.stopPropagation()">
-          <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
-          <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
-          <form method="post" action="{% url 'holding_delete' h.id %}" style="display:inline"
-                onsubmit="return confirm('削除しますか？')">
+          <button type="button" class="item detail" data-action="detail">
+            <span class="ico">📄</span><span>詳細</span>
+          </button>
+          <a class="item edit" href="{% url 'holding_edit' h.id %}">
+            <span class="ico">✏️</span><span>編集</span>
+          </a>
+
+          {# ★ 安定最優先: 通常フォームで削除（毎回確実に効く） #}
+          <form method="post" action="{% url 'holding_delete' h.id %}" style="display:inline" onsubmit="return confirm('削除しますか？')">
             {% csrf_token %}
             <button type="submit" class="item delete">
               <span class="ico">🗑️</span><span>削除</span>
@@ -212,13 +213,13 @@
   {% if page.paginator.num_pages > 1 %}
   <div style="display:flex;gap:8px;justify-content:center;margin-top:14px">
     {% if page.has_previous %}
-      <a hx-get="{% url 'holding_list_partial' %}?page={{page.previous_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
-         hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">前へ</a>
+      <a href="{% url 'holding_list' %}?page={{page.previous_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
+         class="btn-ghost">前へ</a>
     {% endif %}
     <div style="opacity:.75;padding:8px 12px">Page {{page.number}} / {{page.paginator.num_pages}}</div>
     {% if page.has_next %}
-      <a hx-get="{% url 'holding_list_partial' %}?page={{page.next_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
-         hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">次へ</a>
+      <a href="{% url 'holding_list' %}?page={{page.next_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
+         class="btn-ghost">次へ</a>
     {% endif %}
   </div>
   {% endif %}
