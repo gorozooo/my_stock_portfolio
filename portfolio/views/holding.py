@@ -15,6 +15,7 @@ from django.db import models
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render, redirect
 from django.views.decorators.http import require_POST
+from statistics import median  # ★ 追加：中央値
 
 from ..forms import HoldingForm
 from ..models import Holding
@@ -193,30 +194,57 @@ def _build_row(h: Holding) -> RowVM:
         s90_raw=raw90 or None,
     )
 
-# ---------- 集計（フェーズ2：ページ内） ----------
+# ---------- 集計（ページ内KPIを“濃く”） ----------
 def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
+    """
+    ブローカー/口座などのフィルタ後の rows だけを対象に、
+    画面上部のKPIをまとめて返す。
+    """
+    n = 0
     acq_sum = 0.0
     val_sum = 0.0
     have_val = 0
     winners = losers = 0
+    days_list: List[int] = []
+    top_gain: Optional[Tuple[float, Holding]] = None
+    top_loss: Optional[Tuple[float, Holding]] = None
 
     for r in rows:
-        q = int(r.obj.quantity or 0)
-        cost = _to_float(r.obj.avg_cost or 0) or 0.0
-        acq_sum += q * cost
+        h = r.obj
+        n += 1
+        q = int(h.quantity or 0)
+        cost = _to_float(h.avg_cost or 0) or 0.0
+        acq_i = q * cost
+        acq_sum += acq_i
+
         if r.valuation is not None:
             val_sum += float(r.valuation)
             have_val += 1
+
         if r.pnl is not None:
-            if r.pnl > 0: winners += 1
-            elif r.pnl < 0: losers += 1
+            if r.pnl > 0:
+                winners += 1
+            elif r.pnl < 0:
+                losers += 1
+            # トップ益/損
+            if top_gain is None or r.pnl > top_gain[0]:
+                top_gain = (r.pnl, h)
+            if top_loss is None or r.pnl < top_loss[0]:
+                top_loss = (r.pnl, h)
 
-    pnl_sum = (val_sum - acq_sum) if have_val else None
-    pnl_pct = (pnl_sum / acq_sum * 100.0) if (pnl_sum is not None and acq_sum > 0) else None
-    win_rate = (winners / (winners + losers) * 100.0) if (winners + losers) > 0 else None
+        if r.days is not None:
+            days_list.append(int(r.days))
 
-    return dict(
-        count=len(rows),
+    pnl_sum: Optional[float] = (val_sum - acq_sum) if have_val else None
+    pnl_pct: Optional[float] = (pnl_sum / acq_sum * 100.0) if (pnl_sum is not None and acq_sum > 0) else None
+    win_rate: Optional[float] = (winners / (winners + losers) * 100.0) if (winners + losers) > 0 else None
+
+    avg_days: Optional[float] = (sum(days_list) / len(days_list)) if days_list else None
+    med_days: Optional[float] = (median(days_list) if days_list else None)
+    avg_pos_size: Optional[float] = (acq_sum / n) if n else None
+
+    summary: Dict[str, Optional[float]] = dict(
+        count=n,
         acq=acq_sum,
         val=val_sum if have_val else None,
         pnl=pnl_sum,
@@ -224,54 +252,18 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
         winners=winners,
         losers=losers,
         win_rate=win_rate,
+        avg_days=avg_days,
+        med_days=med_days,
+        avg_pos_size=avg_pos_size,
     )
-
-# ---------- 内訳（ブローカー別・口座別） ----------
-def _breakdown(rows: List[RowVM]) -> Dict[str, List[Dict[str, Optional[float]]]]:
-    """
-    実現損益UIと同じ考え方で、ブローカー別・口座別のサマリを返す。
-    各要素: {label, count, acq, val, pnl, pnl_pct, win_rate}
-    """
-    def agg(items: List[RowVM]):
-        acq = val = 0.0
-        have_val = 0
-        w = l = 0
-        for r in items:
-            q = int(r.obj.quantity or 0)
-            cost = _to_float(r.obj.avg_cost or 0) or 0.0
-            acq += q * cost
-            if r.valuation is not None:
-                val += float(r.valuation); have_val += 1
-            if r.pnl is not None:
-                if r.pnl > 0: w += 1
-                elif r.pnl < 0: l += 1
-        pnl = (val - acq) if have_val else None
-        pnl_pct = (pnl / acq * 100.0) if (pnl is not None and acq > 0) else None
-        win_rate = (w / (w + l) * 100.0) if (w + l) > 0 else None
-        return dict(count=len(items), acq=acq, val=(val if have_val else None),
-                    pnl=pnl, pnl_pct=pnl_pct, win_rate=win_rate)
-
-    # broker
-    by_broker: Dict[str, List[RowVM]] = {}
-    for r in rows:
-        key = r.obj.get_broker_display()
-        by_broker.setdefault(key, []).append(r)
-    broker_rows = []
-    for label, items in by_broker.items():
-        row = agg(items); row["label"] = label; broker_rows.append(row)
-    broker_rows.sort(key=lambda x: (x["pnl"] or 0.0), reverse=True)
-
-    # account
-    by_account: Dict[str, List[RowVM]] = {}
-    for r in rows:
-        key = r.obj.get_account_display()
-        by_account.setdefault(key, []).append(r)
-    account_rows = []
-    for label, items in by_account.items():
-        row = agg(items); row["label"] = label; account_rows.append(row)
-    account_rows.sort(key=lambda x: (x["pnl"] or 0.0), reverse=True)
-
-    return {"broker": broker_rows, "account": account_rows}
+    # 表示用の補助情報（テンプレで存在チェックして使う）
+    if top_gain:
+        summary["top_gain_pnl"] = top_gain[0]
+        summary["top_gain_id"] = top_gain[1].id
+    if top_loss:
+        summary["top_loss_pnl"] = top_loss[0]
+        summary["top_loss_id"] = top_loss[1].id
+    return summary
 
 # =========================================================
 # API: コード→銘柄名（既存）
@@ -408,11 +400,10 @@ def holding_list(request):
 
     rows = _build_rows_for_page(page)
     rows = _apply_post_filters(rows, request)
-    rows = _sort_rows(rows, request)  # ← pnl/days の見た目ソート
+    rows = _sort_rows(rows, request)
 
-    # ページ内集計（フェーズ2）
+    # KPI集計（ブレイクダウンは廃止）
     summary = _aggregate(rows)
-    breakdown = _breakdown(rows)  # 追加
 
     class _PageWrap:
         def __init__(self, src, objs):
@@ -437,7 +428,6 @@ def holding_list(request):
             "pnl":    request.GET.get("pnl") or "",
         },
         "summary": summary,
-        "breakdown": breakdown,  # 追加
     }
     return render(request, "holdings/list.html", ctx)
 
@@ -453,7 +443,6 @@ def holding_list_partial(request):
     rows = _sort_rows(rows, request)
 
     summary = _aggregate(rows)
-    breakdown = _breakdown(rows)  # 追加
 
     class _PageWrap:
         def __init__(self, src, objs):
@@ -478,7 +467,6 @@ def holding_list_partial(request):
             "pnl":    request.GET.get("pnl") or "",
         },
         "summary": summary,
-        "breakdown": breakdown,  # 追加
     }
     return render(request, "holdings/_list.html", ctx)
 
