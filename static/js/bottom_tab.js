@@ -41,13 +41,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const MENUS = {
     home: [
       { section:"クイック" },
-      { label:"保有を追加",               action:"add_holding",   icon:"➕", tone:"add" },
+      { label:"保有を追加",               href:"/holdings/new",   icon:"➕", tone:"add" },
       { label:"実現損益を記録",           href:"/realized/",      icon:"💰", tone:"action" },
       { label:"設定を開く",               href:"/settings/trade/",icon:"⚙️", tone:"info" },
     ],
     holdings: [
       { section: "保有" },
-      { label: "＋ 新規登録",        action: "add_holding",  icon: "📥", tone: "add" },
+      { label: "＋ 新規登録",        href:"/holdings/new",  icon: "📥", tone: "add" },
       { label: "CSVエクスポート",    action: "export_csv",   icon: "🧾", tone: "info" },
       { label: "並び替え/フィルタ",  action: "open_filter",  icon: "🧮", tone: "action" },
     ],
