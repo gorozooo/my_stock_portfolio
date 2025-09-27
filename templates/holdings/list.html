@@ -6,7 +6,6 @@
 {% block head %}
 <link rel="stylesheet" href="{% static 'css/holdings.css' %}?v=6.2">
 <style>
-  /* --- クイックバー & モーダル最小スタイル --- */
   .quickbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 10px}
   .quickbar .fld{display:flex;gap:6px;align-items:center}
   .quickbar select,.quickbar input[type="text"]{
@@ -14,8 +13,6 @@
     color:#dbe3f4;border-radius:10px;padding:6px 8px;font-size:12px
   }
   .quickbar .btn{padding:6px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.14)}
-
-  /* Spark modal */
   .spark-modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:50}
   .spark-modal.is-open{display:flex}
   .spark-dlg{width:min(92vw,520px);background:rgba(18,24,33,.98);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px}
@@ -33,7 +30,7 @@
   <a href="{% url 'holding_create' %}" class="btn btn-outline">＋ 新規登録</a>
 </div>
 
-<!-- クイックフィルタ/並び替え -->
+<!-- クイックフィルタ/並び替え（fetch で _list を差し替え、ただしアクションは純粋リンク/POSTなので安定） -->
 <div class="quickbar" id="qb">
   <div class="fld">
     <label>証券</label>
@@ -93,7 +90,7 @@
   {% include "holdings/_list.html" %}
 </div>
 
-<!-- スパークモーダル -->
+<!-- Spark（必要なら使う。売却はページ遷移に統一したので依存なし） -->
 <div class="spark-modal" id="sparkModal" aria-hidden="true">
   <div class="spark-dlg">
     <h3 id="sparkTitle">Spark</h3>
@@ -109,9 +106,8 @@
   </div>
 </div>
 
-<script src="{% static 'js/holdings.js' %}?v=130"></script>
 <script>
-  // Quickbar: 状態保存＆適用（差し替え後は htmx.process を必ず実行）
+  // Quickbar: 状態保存＆適用（差し替え後もアクションはリンク/フォームなので再バインド不要）
   (function(){
     const LSKEY='holdings.qb.v1';
     const $ = (id)=>document.getElementById(id);
@@ -148,14 +144,9 @@
       }, read());
       applyState(st);
       const qs = queryString(st);
-      fetch("{% url 'holding_list_partial' %}?"+qs, {headers:{'HX-Request':'true'}})
+      fetch("{% url 'holding_list_partial' %}?"+qs, {headers:{'X-Requested-With':'fetch'}})
       .then(r=>r.text()).then(html=>{
-        const body = document.getElementById('holdingsBody');
-        body.innerHTML = html;
-        // ★ 差し替えた DOM を HTMX に再スキャンさせる（これが無いと売却/削除が2回目以降死ぬ）
-        if (window.htmx) window.htmx.process(body);
-        // sumbox 再初期化（_list 側でも保険として呼んでいるが、二重に呼んでも副作用なし）
-        if (typeof initHoldingsSumbox === 'function') initHoldingsSumbox(body);
+        document.getElementById('holdingsBody').innerHTML = html;
       });
     }
     $('qb-apply').addEventListener('click', ()=>{ const st = gather(); save(st); load(); });
