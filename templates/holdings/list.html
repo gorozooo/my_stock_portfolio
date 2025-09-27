@@ -1,165 +1,227 @@
-{% extends "base.html" %}
-{% load static humanize num %}
+{% load humanize num %}
 
-{% block title %}保有一覧{% endblock %}
-
-{% block head %}
-<link rel="stylesheet" href="{% static 'css/holdings.css' %}?v=5.5">
+{# ========== sumbox（折りたたみ式サマリー） ========== #}
 <style>
-  /* --- クイックバー & モーダル最小スタイル --- */
-  .quickbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 10px}
-  .quickbar .fld{display:flex;gap:6px;align-items:center}
-  .quickbar select,.quickbar input[type="text"]{
-    background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);
-    color:#dbe3f4;border-radius:10px;padding:6px 8px;font-size:12px
-  }
-  .quickbar .btn{padding:6px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.14)}
+  .sumbox{border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(255,255,255,.03);margin:6px 0 12px}
+  .sumbox .sumhead{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px dashed rgba(255,255,255,.10);cursor:pointer}
+  .sumbox .sumtitle{display:flex;gap:8px;align-items:center;font-weight:800}
+  .sumbox .sumchev{font-size:14px;opacity:.8;transform:rotate(-90deg);transition:transform .15s ease}
+  .sumbox.is-open  .sumchev{transform:rotate(0deg)}
+  .sumbox .sumhint{opacity:.6;font-size:12px}
+  /* ←閉じているときはタイトルを隠す */
+  .sumbox:not(.is-open) .sumtitle{display:none}
 
-  /* Spark modal */
-  .spark-modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:50}
-  .spark-modal.is-open{display:flex}
-  .spark-dlg{width:min(92vw,520px);background:rgba(18,24,33,.98);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px}
-  .spark-dlg h3{margin:0 0 8px}
-  .spark-ctrl{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
-  .spark-ctrl .btn{padding:6px 10px;border:1px solid rgba(255,255,255,.14);border-radius:10px;font-size:12px;background:rgba(255,255,255,.05);color:#dbe3f4}
-  .spark-ctrl .btn.is-on{outline:2px solid rgba(110,168,255,.55)}
-  .spark-canvas{width:100%;height:140px}
+  /* ミニピル（閉じているときだけ1行で表示） */
+  .summini{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding-bottom:2px}
+  .summini .pill{white-space:nowrap;font-size:11px;border:1px solid rgba(255,255,255,.12);border-radius:9999px;padding:4px 8px;background:rgba(255,255,255,.05)}
+  .summini .pill .k{opacity:.7;margin-right:4px}
+  .summini .pos{color:#22c55e}.summini .neg{color:#ef4444}
+  .sumbox.is-open .summini{display:none}
+
+  .sumbox .sumbody{display:none;padding:10px}
+  .sumbox.is-open .sumbody{display:block}
+
+  /* KPI（本体表示） */
+  .kpi-grid{display:flex;gap:10px;flex-wrap:wrap}
+  .kpi{min-width:120px;flex:1;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;background:rgba(255,255,255,.04)}
+  .kpi-k{font-size:12px;color:#9fb0c8}
+  .kpi-v{font-size:16px}
+  .kpi-v.pos{color:#22c55e}.kpi-v.neg{color:#ef4444}
+
+  /* Breakdown（KPIピルと同調） */
+  .bd-wrap{display:grid;grid-template-columns:1fr;gap:12px;margin-top:10px}
+  .bd-sec{border:1px solid rgba(255,255,255,.10);border-radius:12px;background:rgba(255,255,255,.02)}
+  .bd-head{display:flex;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px dashed rgba(255,255,255,.08)}
+  .bd-note{opacity:.65;font-size:12px}
+  .bd-list{display:flex;flex-direction:column;gap:10px;padding:10px}
+  .bd-row{display:flex;flex-direction:column;gap:8px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:rgba(255,255,255,.04);padding:10px}
+  .bd-label{font-weight:800}
+  .bd-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  @media (min-width:460px){ .bd-kpis{grid-template-columns:repeat(6,minmax(0,1fr));} }
 </style>
-{% endblock %}
 
-{% block content %}
-<div class="page-head">
-  <h1>保有一覧</h1>
-  <a href="{% url 'holding_create' %}" class="btn btn-outline">＋ 新規登録</a>
-</div>
-
-{# ← 重複の原因だった summary-bar は削除しました #}
-
-<!-- クイックフィルタ/並び替え -->
-<div class="quickbar" id="qb">
-  <div class="fld">
-    <label>証券</label>
-    <select id="qb-broker">
-      <option value="">ALL</option>
-      <option>松井証券</option>
-      <option>楽天証券</option>
-      <option>SBI</option>
-    </select>
-  </div>
-  <div class="fld">
-    <label>口座</label>
-    <select id="qb-account">
-      <option value="">ALL</option>
-      <option>特定</option>
-      <option>信用</option>
-      <option>NISA</option>
-    </select>
-  </div>
-  <div class="fld">
-    <label>売買</label>
-    <select id="qb-side">
-      <option value="">ALL</option>
-      <option value="BUY">BUY</option>
-      <option value="SELL">SELL</option>
-    </select>
-  </div>
-  <div class="fld">
-    <label>損益</label>
-    <select id="qb-pnl">
-      <option value="">ALL</option>
-      <option value="POS">＋</option>
-      <option value="NEG">−</option>
-    </select>
-  </div>
-  <div class="fld">
-    <label>並び</label>
-    <select id="qb-sort">
-      <option value="updated">更新日</option>
-      <option value="created">作成日</option>
-      <option value="opened">保有開始</option>
-      <option value="pnl">含み損益</option>
-      <option value="days">保有日数</option>
-    </select>
-    <select id="qb-order">
-      <option value="desc">↓</option>
-      <option value="asc">↑</option>
-    </select>
-  </div>
-  <div class="fld">
-    <input id="qb-q" type="text" placeholder="コード/名称 検索">
-  </div>
-  <button class="btn" id="qb-apply">適用</button>
-</div>
-
-<div id="holdingsBody">
-  {# ここで _list.html を読み込む（KPIは _list 側で1回だけ描画） #}
-  {% include "holdings/_list.html" %}
-</div>
-
-<!-- スパークモーダル -->
-<div class="spark-modal" id="sparkModal" aria-hidden="true">
-  <div class="spark-dlg">
-    <h3 id="sparkTitle">Spark</h3>
-    <div class="spark-ctrl">
-      <button class="btn is-on" data-span="7">7日</button>
-      <button class="btn" data-span="30">30日</button>
-      <button class="btn" data-span="90">90日</button>
-      <button class="btn is-on" data-mode="idx">指数</button>
-      <button class="btn" data-mode="raw">実値</button>
-      <button class="btn" id="sparkClose" style="margin-left:auto">閉じる</button>
+<div class="sumbox" id="holdings-sumbox">
+  <div class="sumhead" data-toggle>
+    <div class="sumtitle">
+      <span class="sumchev">▸</span><span>サマリー / 内訳</span>
     </div>
-    <canvas class="spark-canvas" id="sparkCanvas"></canvas>
+    {# ミニピル行（閉じているときだけ見える） #}
+    <div class="summini">
+      <span class="pill"><span class="k">取得</span>¥{{ summary.acq|floatformat:0|intcomma }}</span>
+      <span class="pill"><span class="k">含み損益</span>
+        <span class="{% if summary.pnl and summary.pnl < 0 %}neg{% else %}pos{% endif %}">
+          {% if summary.pnl is not None %}¥{{ summary.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
+        </span>
+      </span>
+      <span class="pill"><span class="k">損益率</span>
+        <span class="{% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
+          {% if summary.pnl_pct is not None %}{{ summary.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
+        </span>
+      </span>
+    </div>
+    <div class="sumhint">タップで開閉</div>
+  </div>
+
+  <div class="sumbody">
+    {# --- KPI 本体（5ピル） --- #}
+    <div class="kpi-grid">
+      <div class="kpi"><div class="kpi-k">取得額合計</div><div class="kpi-v">¥{{ summary.acq|floatformat:0|intcomma }}</div></div>
+      <div class="kpi"><div class="kpi-k">評価額合計</div><div class="kpi-v">{% if summary.val is not None %}¥{{ summary.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+      <div class="kpi"><div class="kpi-k">含み損益</div><div class="kpi-v {% if summary.pnl and summary.pnl < 0 %}neg{% else %}pos{% endif %}">{% if summary.pnl is not None %}¥{{ summary.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+      <div class="kpi"><div class="kpi-k">損益率</div><div class="kpi-v {% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">{% if summary.pnl_pct is not None %}{{ summary.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div></div>
+      <div class="kpi"><div class="kpi-k">勝率</div><div class="kpi-v">{% if summary.win_rate is not None %}{{ summary.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
+    </div>
+
+    {# --- Breakdown --- #}
+    {% if breakdown.broker or breakdown.account %}
+      <div class="bd-wrap">
+        {% if breakdown.broker %}
+          <section class="bd-sec">
+            <div class="bd-head"><strong>ブローカー別</strong><span class="bd-note">（件数 / 取得 / 評価 / PnL / PnL% / 勝率）</span></div>
+            <div class="bd-list">
+              {% for b in breakdown.broker %}
+                <div class="bd-row">
+                  <div class="bd-label">{{ b.label }}</div>
+                  <div class="bd-kpis">
+                    <div class="kpi"><div class="kpi-k">件数</div><div class="kpi-v">{{ b.count }}</div></div>
+                    <div class="kpi"><div class="kpi-k">取得額</div><div class="kpi-v">¥{{ b.acq|floatformat:0|intcomma }}</div></div>
+                    <div class="kpi"><div class="kpi-k">評価額</div><div class="kpi-v">{% if b.val is not None %}¥{{ b.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+                    <div class="kpi"><div class="kpi-k">含み損益</div><div class="kpi-v {% if b.pnl and b.pnl < 0 %}neg{% else %}pos{% endif %}">{% if b.pnl is not None %}¥{{ b.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+                    <div class="kpi"><div class="kpi-k">損益率</div><div class="kpi-v {% if b.pnl_pct and b.pnl_pct < 0 %}neg{% else %}pos{% endif %}">{% if b.pnl_pct is not None %}{{ b.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div></div>
+                    <div class="kpi"><div class="kpi-k">勝率</div><div class="kpi-v">{% if b.win_rate is not None %}{{ b.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </section>
+        {% endif %}
+
+        {% if breakdown.account %}
+          <section class="bd-sec">
+            <div class="bd-head"><strong>口座別</strong><span class="bd-note">（件数 / 取得 / 評価 / PnL / PnL% / 勝率）</span></div>
+            <div class="bd-list">
+              {% for a in breakdown.account %}
+                <div class="bd-row">
+                  <div class="bd-label">{{ a.label }}</div>
+                  <div class="bd-kpis">
+                    <div class="kpi"><div class="kpi-k">件数</div><div class="kpi-v">{{ a.count }}</div></div>
+                    <div class="kpi"><div class="kpi-k">取得額</div><div class="kpi-v">¥{{ a.acq|floatformat:0|intcomma }}</div></div>
+                    <div class="kpi"><div class="kpi-k">評価額</div><div class="kpi-v">{% if a.val is not None %}¥{{ a.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+                    <div class="kpi"><div class="kpi-k">含み損益</div><div class="kpi-v {% if a.pnl and a.pnl < 0 %}neg{% else %}pos{% endif %}">{% if a.pnl is not None %}¥{{ a.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+                    <div class="kpi"><div class="kpi-k">損益率</div><div class="kpi-v {% if a.pnl_pct and a.pnl_pct < 0 %}neg{% else %}pos{% endif %}">{% if a.pnl_pct is not None %}{{ a.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div></div>
+                    <div class="kpi"><div class="kpi-k">勝率</div><div class="kpi-v">{% if a.win_rate is not None %}{{ a.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </section>
+        {% endif %}
+      </div>
+    {% endif %}
   </div>
 </div>
 
-<script src="{% static 'js/holdings.js' %}?v=130"></script>
 <script>
-  // Quickbar: 状態保存＆適用
-  (function(){
-    const LSKEY='holdings.qb.v1';
-    const $ = (id)=>document.getElementById(id);
-
-    function read(){ try{return JSON.parse(localStorage.getItem(LSKEY)||'{}')}catch(_){return{}} }
-    function save(v){ localStorage.setItem(LSKEY, JSON.stringify(v||{})) }
-    function gather(){
-      return {
-        broker: $('qb-broker').value || '',
-        account:$('qb-account').value || '',
-        side:   $('qb-side').value || '',
-        pnl:    $('qb-pnl').value || '',
-        sort:   $('qb-sort').value || 'updated',
-        order:  $('qb-order').value || 'desc',
-        ticker: $('qb-q').value || ''
-      }
-    }
-    function applyState(st){
-      $('qb-broker').value = st.broker||'';
-      $('qb-account').value= st.account||'';
-      $('qb-side').value   = st.side||'';
-      $('qb-pnl').value    = st.pnl||'';
-      $('qb-sort').value   = st.sort||'updated';
-      $('qb-order').value  = st.order||'desc';
-      $('qb-q').value      = st.ticker||'';
-    }
-    function queryString(st){
-      const p = new URLSearchParams(st);
-      return p.toString();
-    }
-    function load(){
-      const st = Object.assign({
-        broker:'',account:'',side:'',pnl:'',sort:'updated',order:'desc',ticker:''
-      }, read());
-      applyState(st);
-      const qs = queryString(st);
-      fetch("{% url 'holding_list_partial' %}?"+qs, {headers:{'HX-Request':'true'}})
-      .then(r=>r.text()).then(html=>{
-        document.getElementById('holdingsBody').innerHTML = html;
-        document.body.dispatchEvent(new CustomEvent('htmx:load')); // 再バインド
-      });
-    }
-    $('qb-apply').addEventListener('click', ()=>{ const st = gather(); save(st); load(); });
-    $('qb-q').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ $('qb-apply').click(); }});
-    load();
-  })();
+  // HTMX差し替え後も動くよう、関数化して2タイミングで初期化
+  function initHoldingsSumbox(ctx){
+    const box = (ctx||document).querySelector('#holdings-sumbox');
+    if(!box) return;
+    const KEY = 'holdings.sumbox.open.v2';
+    const head = box.querySelector('[data-toggle]');
+    // 状態復元（デフォルトは閉じる＝ミニピルだけ）
+    const saved = localStorage.getItem(KEY);
+    if(saved === '1'){ box.classList.add('is-open'); } else { box.classList.remove('is-open'); }
+    head.onclick = function(){
+      box.classList.toggle('is-open');
+      localStorage.setItem(KEY, box.classList.contains('is-open') ? '1' : '0');
+    };
+  }
+  // 初期ロード
+  initHoldingsSumbox(document);
+  // HTMXで #holdingsBody を差し替えたあとも再初期化
+  document.body.addEventListener('htmx:load', (e)=>{ initHoldingsSumbox(e.target); });
 </script>
-{% endblock %}
+
+{# ========== ここから既存カード一覧 ========== #}
+{% if page.object_list %}
+  <div class="stack">
+    {% for r in page.object_list %}{% with h=r.obj %}
+    <article class="card row" data-swipe>
+      <div class="actions">
+        <div class="action-panel" onclick="event.stopPropagation()">
+          <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
+          <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
+          <button class="item delete"
+                  hx-post="{% url 'holding_delete' h.id %}"
+                  hx-confirm="削除しますか？"
+                  hx-target="closest [data-swipe]"
+                  hx-swap="outerHTML swap:15ms"><span class="ico">🗑️</span><span>削除</span></button>
+        </div>
+      </div>
+
+      <div class="track">
+        <header class="head">
+          <div class="head__left">
+            <div class="name" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
+            <div class="chips">
+              <span class="chip code">{{ h.ticker }}</span>
+              <span class="chip">{{ h.get_broker_display }}</span>
+              <span class="chip">{{ h.get_account_display }}</span>
+              <span class="chip {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
+            </div>
+          </div>
+          <div class="head__spark">
+            <svg class="spark" viewBox="0 0 96 24" preserveAspectRatio="none"
+                 data-rate="{{ r.pnl_pct|default:0 }}"
+                 data-s7i='{{ r.s7_idx|default:"[]"|safe }}'
+                 data-s30i='{{ r.s30_idx|default:"[]"|safe }}'
+                 data-s90i='{{ r.s90_idx|default:"[]"|safe }}'
+                 data-s7r='{{ r.s7_raw|default:"[]"|safe }}'
+                 data-s30r='{{ r.s30_raw|default:"[]"|safe }}'
+                 data-s90r='{{ r.s90_raw|default:"[]"|safe }}'></svg>
+          </div>
+        </header>
+
+        <section class="stats">
+          <div class="stat"><div class="stat__k">数量</div><div class="stat__v">{{ h.quantity|intcomma }}</div></div>
+          <div class="stat"><div class="stat__k">平均取得</div><div class="stat__v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div></div>
+          <div class="stat {% if r.pnl is not None and r.pnl < 0 %}neg{% else %}pos{% endif %}">
+            <div class="stat__k">含み損益</div><div class="stat__v">{% if r.pnl is not None %}¥{{ r.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
+          </div>
+          <div class="stat {% if r.pnl_pct is not None and r.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
+            <div class="stat__k">損益率</div><div class="stat__v">{% if r.pnl_pct is not None %}{{ r.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div>
+          </div>
+        </section>
+
+        <section class="more">
+          <div class="moregrid">
+            <div class="kv"><div class="k">取得額</div><div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div></div>
+            <div class="kv"><div class="k">保有開始</div><div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div></div>
+            <div class="kv"><div class="k">保有日数</div><div class="v">{{ r.days|months_from_days }}</div></div>
+            <div class="kv"><div class="k">更新</div><div class="v">{{ h.updated_at|date:"Y-m-d" }}</div></div>
+            {% if h.memo %}<div class="kv" style="grid-column:1/-1"><div class="k">メモ</div><div class="v">{{ h.memo }}</div></div>{% endif %}
+          </div>
+        </section>
+      </div>
+    </article>
+    {% endwith %}{% endfor %}
+  </div>
+
+  {% if page.paginator.num_pages > 1 %}
+  <div style="display:flex;gap:8px;justify-content:center;margin-top:14px">
+    {% if page.has_previous %}
+      <a hx-get="{% url 'holding_list_partial' %}?page={{page.previous_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
+         hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">前へ</a>
+    {% endif %}
+    <div style="opacity:.75;padding:8px 12px">Page {{page.number}} / {{page.paginator.num_pages}}</div>
+    {% if page.has_next %}
+      <a hx-get="{% url 'holding_list_partial' %}?page={{page.next_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
+         hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">次へ</a>
+    {% endif %}
+  </div>
+  {% endif %}
+{% else %}
+  <div class="text-slate-400">保有はまだありません。</div>
+{% endif %}
+
+今ここまで戻したんだけど、削除ボタンが反応しない
