@@ -8,7 +8,6 @@
   .sumbox .sumchev{font-size:14px;opacity:.8;transform:rotate(-90deg);transition:transform .15s ease}
   .sumbox.is-open  .sumchev{transform:rotate(0deg)}
   .sumbox .sumhint{opacity:.6;font-size:12px}
-  /* ←閉じているときはタイトルを隠す */
   .sumbox:not(.is-open) .sumtitle{display:none}
 
   /* ミニピル（閉じているときだけ1行で表示） */
@@ -38,6 +37,13 @@
   .bd-label{font-weight:800}
   .bd-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
   @media (min-width:460px){ .bd-kpis{grid-template-columns:repeat(6,minmax(0,1fr));} }
+
+  /* 行アクション（リンク／フォーム） */
+  .action-panel{display:flex;gap:8px;flex-wrap:wrap}
+  .action-panel .item{display:inline-flex;gap:6px;align-items:center;padding:6px 10px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(255,255,255,.05);font-size:12px;color:#dbe3f4;text-decoration:none}
+  .action-panel .item .ico{font-size:14px}
+  .action-panel form{display:inline}
+  .action-panel button.item{cursor:pointer;background:rgba(255,255,255,.05)}
 </style>
 
 <div class="sumbox" id="holdings-sumbox">
@@ -45,7 +51,6 @@
     <div class="sumtitle">
       <span class="sumchev">▸</span><span>サマリー / 内訳</span>
     </div>
-    {# ミニピル（閉） #}
     <div class="summini">
       <span class="pill"><span class="k">取得</span>¥{{ summary.acq|floatformat:0|intcomma }}</span>
       <span class="pill"><span class="k">含み損益</span>
@@ -63,7 +68,6 @@
   </div>
 
   <div class="sumbody">
-    {# KPI 本体 #}
     <div class="kpi-grid">
       <div class="kpi"><div class="kpi-k">取得額合計</div><div class="kpi-v">¥{{ summary.acq|floatformat:0|intcomma }}</div></div>
       <div class="kpi"><div class="kpi-k">評価額合計</div><div class="kpi-v">{% if summary.val is not None %}¥{{ summary.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
@@ -72,7 +76,6 @@
       <div class="kpi"><div class="kpi-k">勝率</div><div class="kpi-v">{% if summary.win_rate is not None %}{{ summary.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
     </div>
 
-    {# Breakdown #}
     {% if breakdown.broker or breakdown.account %}
       <div class="bd-wrap">
         {% if breakdown.broker %}
@@ -122,26 +125,21 @@
 </div>
 
 <script>
-  // sumbox の開閉（差し替え後も動作）
-  function initHoldingsSumbox(ctx){
-    const box = (ctx||document).querySelector('#holdings-sumbox');
-    if(!box) return;
-    const KEY = 'holdings.sumbox.open.v2';
-    const head = box.querySelector('[data-toggle]');
-    const saved = localStorage.getItem(KEY);
-    if(saved === '1'){ box.classList.add('is-open'); } else { box.classList.remove('is-open'); }
-    head.onclick = function(e){
-      box.classList.toggle('is-open');
-      localStorage.setItem(KEY, box.classList.contains('is-open') ? '1' : '0');
-    };
-  }
-  // この partial が挿入された直後に HTMX を再スキャンし、sumboxも再初期化
+  // 依存のない素のトグル（HTMX不要）
   (function(){
-    try{
-      var root = (document.currentScript && document.currentScript.parentElement) || document;
-      if (window.htmx) window.htmx.process(root);         // ★ 何度差し替えても有効
-      initHoldingsSumbox(root);
-    }catch(_){}
+    function initHoldingsSumbox(ctx){
+      var box = (ctx||document).querySelector('#holdings-sumbox');
+      if(!box) return;
+      var KEY='holdings.sumbox.open.v2';
+      var head= box.querySelector('[data-toggle]');
+      var saved = localStorage.getItem(KEY);
+      if(saved==='1'){ box.classList.add('is-open'); } else { box.classList.remove('is-open'); }
+      head.onclick=function(){
+        box.classList.toggle('is-open');
+        localStorage.setItem(KEY, box.classList.contains('is-open')?'1':'0');
+      };
+    }
+    initHoldingsSumbox(document);
   })();
 </script>
 
@@ -149,27 +147,26 @@
 {% if page.object_list %}
   <div class="stack">
     {% for r in page.object_list %}{% with h=r.obj %}
-    <article class="card row" data-swipe>
+    <article class="card row">
       <div class="actions">
         <div class="action-panel" onclick="event.stopPropagation()">
-          <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
-          <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
+          <a class="item detail" href="{% url 'holding_detail' h.id %}">
+            <span class="ico">📄</span><span>詳細</span>
+          </a>
+          <a class="item edit" href="{% url 'holding_edit' h.id %}">
+            <span class="ico">✏️</span><span>編集</span>
+          </a>
 
-          {# 売却：Realized のボトムシートを #sheetRoot に挿入 #}
-          <button type="button"
-                  class="item sell"
-                  hx-get="{% url 'realized_close_sheet' h.id %}"
-                  hx-target="#sheetRoot"
-                  hx-swap="innerHTML"
-                  onclick="event.stopPropagation()">
+          {# ★ 売却：ページ遷移に統一（close_sheet を通常ページとして表示） #}
+          <a class="item sell" href="{% url 'realized_close_sheet' h.id %}">
             <span class="ico">💱</span><span>売却</span>
-          </button>
+          </a>
 
-          <button class="item delete"
-                  hx-post="{% url 'holding_delete' h.id %}"
-                  hx-confirm="削除しますか？"
-                  hx-target="closest [data-swipe]"
-                  hx-swap="outerHTML swap:15ms"><span class="ico">🗑️</span><span>削除</span></button>
+          {# ★ 削除：通常POSTに統一（HTMX依存を排除） #}
+          <form method="post" action="{% url 'holding_delete' h.id %}" onsubmit="return confirm('削除しますか？')">
+            {% csrf_token %}
+            <button type="submit" class="item delete"><span class="ico">🗑️</span><span>削除</span></button>
+          </form>
         </div>
       </div>
 
@@ -224,13 +221,11 @@
   {% if page.paginator.num_pages > 1 %}
   <div style="display:flex;gap:8px;justify-content:center;margin-top:14px">
     {% if page.has_previous %}
-      <a hx-get="{% url 'holding_list_partial' %}?page={{page.previous_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
-         hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">前へ</a>
+      <a href="{% url 'holding_list_partial' %}?page={{page.previous_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}" class="btn-ghost">前へ</a>
     {% endif %}
     <div style="opacity:.75;padding:8px 12px">Page {{page.number}} / {{page.paginator.num_pages}}</div>
     {% if page.has_next %}
-      <a hx-get="{% url 'holding_list_partial' %}?page={{page.next_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
-         hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">次へ</a>
+      <a href="{% url 'holding_list_partial' %}?page={{page.next_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}" class="btn-ghost">次へ</a>
     {% endif %}
   </div>
   {% endif %}
