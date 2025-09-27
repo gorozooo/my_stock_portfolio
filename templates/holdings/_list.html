@@ -9,34 +9,31 @@
   .sumbox.is-open  .sumchev{transform:rotate(0deg)}
   .sumbox .sumhint{opacity:.6;font-size:12px}
   .sumbox:not(.is-open) .sumtitle{display:none}
+
+  /* ミニピル */
   .summini{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding-bottom:2px}
   .summini .pill{white-space:nowrap;font-size:11px;border:1px solid rgba(255,255,255,.12);border-radius:9999px;padding:4px 8px;background:rgba(255,255,255,.05)}
   .summini .pill .k{opacity:.7;margin-right:4px}
   .summini .pos{color:#22c55e}.summini .neg{color:#ef4444}
   .sumbox.is-open .summini{display:none}
+
   .sumbox .sumbody{display:none;padding:10px}
   .sumbox.is-open .sumbody{display:block}
-  .kpi-grid{display:flex;gap:10px;flex-wrap:wrap}
+
+  /* KPI */
+  .kpi-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
   .kpi{min-width:120px;flex:1;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;background:rgba(255,255,255,.04)}
   .kpi-k{font-size:12px;color:#9fb0c8}
   .kpi-v{font-size:16px}
   .kpi-v.pos{color:#22c55e}.kpi-v.neg{color:#ef4444}
-  .bd-wrap{display:grid;grid-template-columns:1fr;gap:12px;margin-top:10px}
-  .bd-sec{border:1px solid rgba(255,255,255,.10);border-radius:12px;background:rgba(255,255,255,.02)}
-  .bd-head{display:flex;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px dashed rgba(255,255,255,.08)}
-  .bd-note{opacity:.65;font-size:12px}
-  .bd-list{display:flex;flex-direction:column;gap:10px;padding:10px}
-  .bd-row{display:flex;flex-direction:column;gap:8px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:rgba(255,255,255,.04);padding:10px}
-  .bd-label{font-weight:800}
-  .bd-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-  @media (min-width:460px){ .bd-kpis{grid-template-columns:repeat(6,minmax(0,1fr));} }
 </style>
 
 <div class="sumbox" id="holdings-sumbox">
   <div class="sumhead" data-toggle>
     <div class="sumtitle">
-      <span class="sumchev">▸</span><span>サマリー / 内訳</span>
+      <span class="sumchev">▸</span><span>KPIサマリー</span>
     </div>
+    {# ミニピル（閉じているときだけ表示） #}
     <div class="summini">
       <span class="pill"><span class="k">取得</span>¥{{ summary.acq|floatformat:0|intcomma }}</span>
       <span class="pill"><span class="k">含み損益</span>
@@ -55,58 +52,49 @@
 
   <div class="sumbody">
     <div class="kpi-grid">
-      <div class="kpi"><div class="kpi-k">取得額合計</div><div class="kpi-v">¥{{ summary.acq|floatformat:0|intcomma }}</div></div>
-      <div class="kpi"><div class="kpi-k">評価額合計</div><div class="kpi-v">{% if summary.val is not None %}¥{{ summary.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
-      <div class="kpi"><div class="kpi-k">含み損益</div><div class="kpi-v {% if summary.pnl and summary.pnl < 0 %}neg{% else %}pos{% endif %}">{% if summary.pnl is not None %}¥{{ summary.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
-      <div class="kpi"><div class="kpi-k">損益率</div><div class="kpi-v {% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">{% if summary.pnl_pct is not None %}{{ summary.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div></div>
-      <div class="kpi"><div class="kpi-k">勝率</div><div class="kpi-v">{% if summary.win_rate is not None %}{{ summary.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
+      <div class="kpi"><div class="kpi-k">件数</div><div class="kpi-v">{{ summary.count|default:"0" }}</div></div>
+
+      <div class="kpi"><div class="kpi-k">取得額合計</div>
+        <div class="kpi-v">¥{{ summary.acq|floatformat:0|intcomma }}</div></div>
+
+      <div class="kpi"><div class="kpi-k">評価額合計</div>
+        <div class="kpi-v">{% if summary.val is not None %}¥{{ summary.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+
+      <div class="kpi"><div class="kpi-k">含み損益</div>
+        <div class="kpi-v {% if summary.pnl and summary.pnl < 0 %}neg{% else %}pos{% endif %}">
+          {% if summary.pnl is not None %}¥{{ summary.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
+        </div></div>
+
+      <div class="kpi"><div class="kpi-k">損益率</div>
+        <div class="kpi-v {% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
+          {% if summary.pnl_pct is not None %}{{ summary.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
+        </div></div>
+
+      <div class="kpi"><div class="kpi-k">勝率</div>
+        <div class="kpi-v">{% if summary.win_rate is not None %}{{ summary.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
+
+      <div class="kpi"><div class="kpi-k">勝ち件数 / 負け件数</div>
+        <div class="kpi-v">{{ summary.winners|default:"0" }} / {{ summary.losers|default:"0" }}</div></div>
+
+      <div class="kpi"><div class="kpi-k">平均保有日数</div>
+        <div class="kpi-v">{% if summary.avg_days is not None %}{{ summary.avg_days|floatformat:0 }}日{% else %}—{% endif %}</div></div>
+
+      <div class="kpi"><div class="kpi-k">中央値（保有日数）</div>
+        <div class="kpi-v">{% if summary.med_days is not None %}{{ summary.med_days|floatformat:0 }}日{% else %}—{% endif %}</div></div>
+
+      <div class="kpi"><div class="kpi-k">平均ポジションサイズ</div>
+        <div class="kpi-v">{% if summary.avg_pos_size is not None %}¥{{ summary.avg_pos_size|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+
+      <div class="kpi"><div class="kpi-k">最大益</div>
+        <div class="kpi-v {% if summary.top_gain_pnl and summary.top_gain_pnl < 0 %}neg{% else %}pos{% endif %}">
+          {% if summary.top_gain_pnl is not None %}¥{{ summary.top_gain_pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
+        </div></div>
+
+      <div class="kpi"><div class="kpi-k">最大損</div>
+        <div class="kpi-v {% if summary.top_loss_pnl and summary.top_loss_pnl < 0 %}neg{% else %}pos{% endif %}">
+          {% if summary.top_loss_pnl is not None %}¥{{ summary.top_loss_pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
+        </div></div>
     </div>
-
-    {% if breakdown.broker or breakdown.account %}
-      <div class="bd-wrap">
-        {% if breakdown.broker %}
-          <section class="bd-sec">
-            <div class="bd-head"><strong>ブローカー別</strong><span class="bd-note">（件数 / 取得 / 評価 / PnL / PnL% / 勝率）</span></div>
-            <div class="bd-list">
-              {% for b in breakdown.broker %}
-                <div class="bd-row">
-                  <div class="bd-label">{{ b.label }}</div>
-                  <div class="bd-kpis">
-                    <div class="kpi"><div class="kpi-k">件数</div><div class="kpi-v">{{ b.count }}</div></div>
-                    <div class="kpi"><div class="kpi-k">取得額</div><div class="kpi-v">¥{{ b.acq|floatformat:0|intcomma }}</div></div>
-                    <div class="kpi"><div class="kpi-k">評価額</div><div class="kpi-v">{% if b.val is not None %}¥{{ b.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
-                    <div class="kpi"><div class="kpi-k">含み損益</div><div class="kpi-v {% if b.pnl and b.pnl < 0 %}neg{% else %}pos{% endif %}">{% if b.pnl is not None %}¥{{ b.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
-                    <div class="kpi"><div class="kpi-k">損益率</div><div class="kpi-v {% if b.pnl_pct and b.pnl_pct < 0 %}neg{% else %}pos{% endif %}">{% if b.pnl_pct is not None %}{{ b.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div></div>
-                    <div class="kpi"><div class="kpi-k">勝率</div><div class="kpi-v">{% if b.win_rate is not None %}{{ b.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
-                  </div>
-                </div>
-              {% endfor %}
-            </div>
-          </section>
-        {% endif %}
-
-        {% if breakdown.account %}
-          <section class="bd-sec">
-            <div class="bd-head"><strong>口座別</strong><span class="bd-note">（件数 / 取得 / 評価 / PnL / PnL% / 勝率）</span></div>
-            <div class="bd-list">
-              {% for a in breakdown.account %}
-                <div class="bd-row">
-                  <div class="bd-label">{{ a.label }}</div>
-                  <div class="bd-kpis">
-                    <div class="kpi"><div class="kpi-k">件数</div><div class="kpi-v">{{ a.count }}</div></div>
-                    <div class="kpi"><div class="kpi-k">取得額</div><div class="kpi-v">¥{{ a.acq|floatformat:0|intcomma }}</div></div>
-                    <div class="kpi"><div class="kpi-k">評価額</div><div class="kpi-v">{% if a.val is not None %}¥{{ a.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
-                    <div class="kpi"><div class="kpi-k">含み損益</div><div class="kpi-v {% if a.pnl and a.pnl < 0 %}neg{% else %}pos{% endif %}">{% if a.pnl is not None %}¥{{ a.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
-                    <div class="kpi"><div class="kpi-k">損益率</div><div class="kpi-v {% if a.pnl_pct and a.pnl_pct < 0 %}neg{% else %}pos{% endif %}">{% if a.pnl_pct is not None %}{{ a.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div></div>
-                    <div class="kpi"><div class="kpi-k">勝率</div><div class="kpi-v">{% if a.win_rate is not None %}{{ a.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
-                  </div>
-                </div>
-              {% endfor %}
-            </div>
-          </section>
-        {% endif %}
-      </div>
-    {% endif %}
   </div>
 </div>
 
