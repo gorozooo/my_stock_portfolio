@@ -53,7 +53,10 @@
   <div class="sumbody">
     <div class="kpi-grid">
       <div class="kpi"><div class="kpi-k">件数</div><div class="kpi-v">{{ summary.count|default:"0" }}</div></div>
-
+      
+      <div class="kpi"><div class="kpi-k">勝率</div>
+        <div class="kpi-v">{% if summary.win_rate is not None %}{{ summary.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
+      
       <div class="kpi"><div class="kpi-k">取得額合計</div>
         <div class="kpi-v">¥{{ summary.acq|floatformat:0|intcomma }}</div></div>
 
@@ -69,9 +72,6 @@
         <div class="kpi-v {% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
           {% if summary.pnl_pct is not None %}{{ summary.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
         </div></div>
-
-      <div class="kpi"><div class="kpi-k">勝率</div>
-        <div class="kpi-v">{% if summary.win_rate is not None %}{{ summary.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
 
       <div class="kpi"><div class="kpi-k">勝ち件数 / 負け件数</div>
         <div class="kpi-v">{{ summary.winners|default:"0" }} / {{ summary.losers|default:"0" }}</div></div>
