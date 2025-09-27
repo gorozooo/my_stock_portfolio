@@ -1,5 +1,7 @@
 {# templates/realized/_close_sheet.html #}
 <style>
+  /* フォームの見た目（単体ページ/インラインどちらでも成立） */
+  .sheet { max-width: 720px; margin: 12px auto; padding: 12px; }
   .sheet .in{appearance:none;-webkit-appearance:none;width:100%;border-radius:12px;padding:12px 14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#e9ecff;outline:none;transition:.15s}
   .sheet .in::placeholder{color:rgba(233,236,255,.45)}
   .sheet .in:focus{border-color:rgba(99,102,241,.55);box-shadow:0 0 0 3px rgba(99,102,241,.22)}
@@ -11,6 +13,7 @@
   .sheet .label{font-size:12px;color:#a7b1d8}
   .sign-wrap{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center}
   .sign-btn{min-width:38px;padding:10px 0;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e9ecff}
+  @media (max-width: 420px){ .sheet { padding: 8px } }
 </style>
 
 <div class="sheet" id="closeSheet">
@@ -18,30 +21,12 @@
     <div class="sheet-title">
       {{ h.ticker }}{% if h.name %}<span class="text-slate-400 text-xs font-normal">（{{ h.name }}）</span>{% endif %} をクローズ
     </div>
-    <button type="button" class="text-indigo-300 underline" data-dismiss="sheet">閉じる</button>
+    {# モーダル前提の data-dismiss はやめ、ページ遷移に合わせて history.back() #}
+    <button type="button" class="text-indigo-300 underline" onclick="history.back()">閉じる</button>
   </div>
 
-  {# ★ HTMX で JSON を受け取り、DOM を差し替える #}
-  <form
-      id="closeForm"
-      action="{% url 'realized_close_submit' h.id %}" method="post"
-      hx-post="{% url 'realized_close_submit' h.id %}"
-      hx-swap="none"
-      hx-headers='{"Accept":"application/json"}'
-      hx-on::after-request="
-        try {
-          const xhr = event.detail.xhr;
-          const res = JSON.parse(xhr.responseText || '{}');
-          if (!res.ok) { alert(res.error || '保存に失敗しました'); return; }
-          if (res.table)    { const w = document.querySelector('#pnlTableWrap');    if (w) w.outerHTML = res.table; }
-          if (res.summary)  { const w = document.querySelector('#pnlSummaryWrap');  if (w) w.outerHTML = res.summary; }
-          if (res.holdings) { const w = document.querySelector('#holdingsListWrap');if (w) w.outerHTML = res.holdings; }
-          document.querySelector('[data-dismiss=&quot;sheet&quot;]')?.click();
-        } catch(e) {
-          // 非HTMX（通常POST）のときはビュー側でリダイレクトが走るのでここは無視
-          console.warn(e);
-        }">
-
+  {# ★ ページ遷移での通常POST。ビュー(close_submit)側は非HTMXならリダイレクトする実装なのでOK #}
+  <form id="closeForm" action="{% url 'holding_close_submit' h.id %}" method="post">
     {% csrf_token %}
 
     <div class="sheet-row">
@@ -105,7 +90,7 @@
     </label>
 
     <div class="grid grid-cols-2 gap-2 mt-4">
-      <button type="button" class="btn-ghost" data-dismiss="sheet">キャンセル</button>
+      <button type="button" class="btn-ghost" onclick="history.back()">キャンセル</button>
       <button class="btn-primary">売却を記録</button>
     </div>
 
