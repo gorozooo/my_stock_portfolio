@@ -14,10 +14,10 @@
   <!-- Chart.js（必要なら） -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
 
-  <!-- HTMX（読み込んでも今回のアクションは未使用） -->
+  <!-- HTMX -->
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
 
-  <!-- ★ HTMXにCSRFヘッダを自動付与（将来HTMXを使う場合の保険） -->
+  <!-- ★ HTMXにCSRFヘッダを自動付与 -->
   <script>
     (function () {
       function getCookie(name) {
@@ -40,7 +40,7 @@
     })();
   </script>
 
-  <!-- ダブルタップ拡大の誤作動を抑える（主要要素のみ） -->
+  <!-- ダブルタップ拡大の誤作動を抑える -->
   <style>
     html, body { touch-action: manipulation; }
     a, button { touch-action: manipulation; }
@@ -60,6 +60,13 @@
     }
   </script>
 
+  <!-- ★ DjangoのURLをJSに渡す -->
+  <script>
+    window.APP_URLS = {
+      holding_create: "{% url 'holding_create' %}"
+    };
+  </script>
+
   {% block head %}{% endblock %}
 </head>
 <body class="bg-slate-950 text-slate-100">
@@ -67,16 +74,16 @@
     {% block content %}{% endblock %}
   </main>
 
-  <!-- （今は未使用）ボトムシート差し込み先 -->
+  <!-- ボトムシート差し込み先 -->
   <div id="sheetRoot" aria-live="polite"></div>
 
   {% include "partials/bottom_tab.html" %}
 
-  <!-- 旧：モーダル売却用JSは読み込んでも害なし／不要なら外してOK -->
+  <!-- 旧：モーダル売却用JS（不要なら外してOK） -->
   <script src="{% static 'js/realized_close.js' %}?v=2" defer></script>
   <script src="{% static 'js/realized_monthly_chart.js' %}?v=1" defer></script>
 
-  <!-- HTMX エラー表示（将来のために維持。未使用なら消してOK） -->
+  <!-- HTMX エラー表示 -->
   <script>
     (function () {
       if (!window.htmx || htmx.defineExtension === undefined) return;
