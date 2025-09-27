@@ -3,7 +3,9 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <!-- ズーム禁止（ダブルタップ/ピンチ）＋ セーフエリア -->
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>{% block title %}My Stock{% endblock %}</title>
 
   <!-- Tailwind CDN -->
@@ -27,6 +29,22 @@
       });
     })();
   </script>
+
+  <!-- iOS向けの保険：ピンチ系ジェスチャを抑止 -->
+  <script>
+    (function () {
+      const opts = { passive: false };
+      ['gesturestart', 'gesturechange'].forEach(type => {
+        document.addEventListener(type, function (e) { e.preventDefault(); }, opts);
+      });
+    })();
+  </script>
+
+  <!-- ダブルタップ拡大の誤作動を抑える（主要要素のみ） -->
+  <style>
+    html, body { touch-action: manipulation; }
+    a, button { touch-action: manipulation; }
+  </style>
 
   <!-- Alpine（必要なら） -->
   <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
