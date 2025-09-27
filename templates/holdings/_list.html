@@ -38,12 +38,12 @@
   .bd-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
   @media (min-width:460px){ .bd-kpis{grid-template-columns:repeat(6,minmax(0,1fr));} }
 
-  /* 行アクション（リンク／フォーム） */
-  .action-panel{display:flex;gap:8px;flex-wrap:wrap}
-  .action-panel .item{display:inline-flex;gap:6px;align-items:center;padding:6px 10px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(255,255,255,.05);font-size:12px;color:#dbe3f4;text-decoration:none}
-  .action-panel .item .ico{font-size:14px}
-  .action-panel form{display:inline}
-  .action-panel button.item{cursor:pointer;background:rgba(255,255,255,.05)}
+  /* ===== 売却モーダル（簡易） ===== */
+  .close-modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:70}
+  .close-modal.is-open{display:flex}
+  .close-dlg{width:min(92vw,560px);background:rgba(13,18,28,.98);border:1px solid rgba(255,255,255,.12);border-radius:14px;overflow:hidden}
+  .close-dlg-h{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08);font-weight:700}
+  .close-dlg-b{padding:12px}
 </style>
 
 <div class="sumbox" id="holdings-sumbox">
@@ -125,48 +125,80 @@
 </div>
 
 <script>
-  // 依存のない素のトグル（HTMX不要）
-  (function(){
-    function initHoldingsSumbox(ctx){
-      var box = (ctx||document).querySelector('#holdings-sumbox');
-      if(!box) return;
-      var KEY='holdings.sumbox.open.v2';
-      var head= box.querySelector('[data-toggle]');
-      var saved = localStorage.getItem(KEY);
-      if(saved==='1'){ box.classList.add('is-open'); } else { box.classList.remove('is-open'); }
-      head.onclick=function(){
-        box.classList.toggle('is-open');
-        localStorage.setItem(KEY, box.classList.contains('is-open')?'1':'0');
-      };
-    }
-    initHoldingsSumbox(document);
-  })();
+  // --- sumbox init ---
+  function initHoldingsSumbox(ctx){
+    const box = (ctx||document).querySelector('#holdings-sumbox');
+    if(!box) return;
+    const KEY = 'holdings.sumbox.open.v2';
+    const head = box.querySelector('[data-toggle]');
+    const saved = localStorage.getItem(KEY);
+    if(saved === '1'){ box.classList.add('is-open'); } else { box.classList.remove('is-open'); }
+    head.onclick = function(){
+      box.classList.toggle('is-open');
+      localStorage.setItem(KEY, box.classList.contains('is-open') ? '1' : '0');
+    };
+  }
+  initHoldingsSumbox(document);
+  document.body.addEventListener('htmx:load', (e)=>{ initHoldingsSumbox(e.target); });
+
+  // --- 売却モーダル helper ---
+  function refreshHoldingsList(){
+    const target = document.querySelector('#holdingsBody');
+    if(!target) return;
+    const qs = window.location.search.replace(/^\?/, '');
+    fetch("{% url 'holding_list_partial' %}"+(qs?("?"+qs):""), {headers:{'HX-Request':'true'}})
+      .then(r=>r.text()).then(html=>{
+        target.innerHTML = html;
+        document.body.dispatchEvent(new CustomEvent('htmx:load', {detail:{target}}));
+      });
+  }
+  function openCloseModal(){ document.getElementById('closeModal').classList.add('is-open'); }
+  function closeCloseModal(){
+    const m = document.getElementById('closeModal');
+    m.classList.remove('is-open');
+    document.getElementById('closeSheet').innerHTML = '';
+  }
+
+  // HTMX: 売却シート読み込み後にモーダルを開く
+  document.addEventListener('htmx:afterSwap', (e)=>{
+    if(e.detail && e.detail.target && e.detail.target.id === 'closeSheet'){ openCloseModal(); }
+  });
+  // 既存フローがカスタムイベントを投げるケースを拾って再描画
+  ['close:success','holding:updated','positions:updated'].forEach(ev=>{
+    document.body.addEventListener(ev, ()=>{ closeCloseModal(); refreshHoldingsList(); });
+  });
 </script>
 
 {# ========== ここから既存カード一覧 ========== #}
 {% if page.object_list %}
   <div class="stack">
     {% for r in page.object_list %}{% with h=r.obj %}
-    <article class="card row">
+    <article class="card row" data-swipe>
       <div class="actions">
         <div class="action-panel" onclick="event.stopPropagation()">
-          <a class="item detail" href="{% url 'holding_detail' h.id %}">
-            <span class="ico">📄</span><span>詳細</span>
-          </a>
-          <a class="item edit" href="{% url 'holding_edit' h.id %}">
-            <span class="ico">✏️</span><span>編集</span>
-          </a>
+          <button type="button"
+                  class="item detail"
+                  data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
 
-          {# ★ 売却：ページ遷移に統一（close_sheet を通常ページとして表示） #}
-          <a class="item sell" href="{% url 'realized_close_sheet' h.id %}">
+          <button type="button"
+                  class="item edit"
+                  onclick="location.href='{% url 'holding_edit' h.id %}'"><span class="ico">✏️</span><span>編集</span></button>
+
+          {# === 追加：売却（close_sheet を直起動） === #}
+          <button type="button"
+                  class="item sell"
+                  hx-get="{% url 'close_sheet' h.id %}"
+                  hx-target="#closeSheet"
+                  hx-swap="innerHTML"
+                  onclick="event.stopPropagation()">
             <span class="ico">💱</span><span>売却</span>
-          </a>
+          </button>
 
-          {# ★ 削除：通常POSTに統一（HTMX依存を排除） #}
-          <form method="post" action="{% url 'holding_delete' h.id %}" onsubmit="return confirm('削除しますか？')">
-            {% csrf_token %}
-            <button type="submit" class="item delete"><span class="ico">🗑️</span><span>削除</span></button>
-          </form>
+          <button class="item delete"
+                  hx-post="{% url 'holding_delete' h.id %}"
+                  hx-confirm="削除しますか？"
+                  hx-target="closest [data-swipe]"
+                  hx-swap="outerHTML swap:15ms"><span class="ico">🗑️</span><span>削除</span></button>
         </div>
       </div>
 
@@ -221,14 +253,27 @@
   {% if page.paginator.num_pages > 1 %}
   <div style="display:flex;gap:8px;justify-content:center;margin-top:14px">
     {% if page.has_previous %}
-      <a href="{% url 'holding_list_partial' %}?page={{page.previous_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}" class="btn-ghost">前へ</a>
+      <a hx-get="{% url 'holding_list_partial' %}?page={{page.previous_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
+         hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">前へ</a>
     {% endif %}
     <div style="opacity:.75;padding:8px 12px">Page {{page.number}} / {{page.paginator.num_pages}}</div>
     {% if page.has_next %}
-      <a href="{% url 'holding_list_partial' %}?page={{page.next_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}" class="btn-ghost">次へ</a>
+      <a hx-get="{% url 'holding_list_partial' %}?page={{page.next_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
+         hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">次へ</a>
     {% endif %}
   </div>
   {% endif %}
 {% else %}
   <div class="text-slate-400">保有はまだありません。</div>
 {% endif %}
+
+{# ==== 売却モーダルの入れ物（HTMXで close_sheet を差し込み） ==== #}
+<div id="closeModal" class="close-modal" aria-hidden="true" onclick="if(event.target.id==='closeModal'){closeCloseModal()}">
+  <div class="close-dlg" role="dialog" aria-modal="true" aria-labelledby="closeTitle">
+    <div class="close-dlg-h">
+      <div id="closeTitle">売却</div>
+      <button class="btn-ghost" style="padding:6px 10px;border:1px solid rgba(255,255,255,.14);border-radius:8px" onclick="closeCloseModal()">閉じる</button>
+    </div>
+    <div class="close-dlg-b" id="closeSheet"><!-- close_sheet がここに入る --></div>
+  </div>
+</div>
