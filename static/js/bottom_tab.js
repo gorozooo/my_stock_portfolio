@@ -48,9 +48,9 @@ document.addEventListener("DOMContentLoaded", () => {
     holdings: [
       { section: "保有" },
       { label: "＋ 新規登録",        href:"/holdings/new",  icon: "➕", tone: "add" },
-      { label:"楽天証券", url:"/holdings/?broker=RAKUTEN", icon:"🏯", tone:"info" },
-      { label:"松井証券", url:"/holdings/?broker=MATSUI", icon:"📊", tone:"info" },
-      { label:"SBI証券", url:"/holdings/?broker=SBI", icon:"🏦", tone:"info" },
+      { label:"楽天証券", href: "/holdings/?broker=RAKUTEN", icon:"🏯", tone:"info" },
+      { label:"松井証券", href: "/holdings/?broker=MATSUI", icon:"📊", tone:"info" },
+      { label:"SBI証券", href: "/holdings/?broker=SBI", icon:"🏦", tone:"info" },
     ],
     // 実現損益（pnl/realized どちらのキーでも出す）
     pnl: [
