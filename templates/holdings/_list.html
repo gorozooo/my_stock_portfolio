@@ -45,7 +45,7 @@
     <div class="sumtitle">
       <span class="sumchev">▸</span><span>サマリー / 内訳</span>
     </div>
-    {# ミニピル行（閉じているときだけ見える） #}
+    {# ミニピル（閉） #}
     <div class="summini">
       <span class="pill"><span class="k">取得</span>¥{{ summary.acq|floatformat:0|intcomma }}</span>
       <span class="pill"><span class="k">含み損益</span>
@@ -63,7 +63,7 @@
   </div>
 
   <div class="sumbody">
-    {# --- KPI 本体（5ピル） --- #}
+    {# KPI 本体 #}
     <div class="kpi-grid">
       <div class="kpi"><div class="kpi-k">取得額合計</div><div class="kpi-v">¥{{ summary.acq|floatformat:0|intcomma }}</div></div>
       <div class="kpi"><div class="kpi-k">評価額合計</div><div class="kpi-v">{% if summary.val is not None %}¥{{ summary.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
@@ -72,7 +72,7 @@
       <div class="kpi"><div class="kpi-k">勝率</div><div class="kpi-v">{% if summary.win_rate is not None %}{{ summary.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
     </div>
 
-    {# --- Breakdown --- #}
+    {# Breakdown #}
     {% if breakdown.broker or breakdown.account %}
       <div class="bd-wrap">
         {% if breakdown.broker %}
@@ -122,24 +122,27 @@
 </div>
 
 <script>
-  // HTMX差し替え後も動くよう、関数化して2タイミングで初期化
+  // sumbox の開閉（差し替え後も動作）
   function initHoldingsSumbox(ctx){
     const box = (ctx||document).querySelector('#holdings-sumbox');
     if(!box) return;
     const KEY = 'holdings.sumbox.open.v2';
     const head = box.querySelector('[data-toggle]');
-    // 状態復元（デフォルトは閉じる＝ミニピルだけ）
     const saved = localStorage.getItem(KEY);
     if(saved === '1'){ box.classList.add('is-open'); } else { box.classList.remove('is-open'); }
-    head.onclick = function(){
+    head.onclick = function(e){
       box.classList.toggle('is-open');
       localStorage.setItem(KEY, box.classList.contains('is-open') ? '1' : '0');
     };
   }
-  // 初期ロード
-  initHoldingsSumbox(document);
-  // HTMXで #holdingsBody を差し替えたあとも再初期化
-  document.body.addEventListener('htmx:load', (e)=>{ initHoldingsSumbox(e.target); });
+  // この partial が挿入された直後に HTMX を再スキャンし、sumboxも再初期化
+  (function(){
+    try{
+      var root = (document.currentScript && document.currentScript.parentElement) || document;
+      if (window.htmx) window.htmx.process(root);         // ★ 何度差し替えても有効
+      initHoldingsSumbox(root);
+    }catch(_){}
+  })();
 </script>
 
 {# ========== ここから既存カード一覧 ========== #}
@@ -151,6 +154,17 @@
         <div class="action-panel" onclick="event.stopPropagation()">
           <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
           <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
+
+          {# 売却：Realized のボトムシートを #sheetRoot に挿入 #}
+          <button type="button"
+                  class="item sell"
+                  hx-get="{% url 'realized_close_sheet' h.id %}"
+                  hx-target="#sheetRoot"
+                  hx-swap="innerHTML"
+                  onclick="event.stopPropagation()">
+            <span class="ico">💱</span><span>売却</span>
+          </button>
+
           <button class="item delete"
                   hx-post="{% url 'holding_delete' h.id %}"
                   hx-confirm="削除しますか？"
@@ -223,6 +237,3 @@
 {% else %}
   <div class="text-slate-400">保有はまだありません。</div>
 {% endif %}
-
-
-この_list.htmlを修正して全文送って
