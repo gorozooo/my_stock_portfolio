@@ -30,6 +30,13 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeout(()=>{ toast.style.opacity="0"; toast.style.transform="translate(-50%,24px)"; }, 1100);
   };
 
+  /* --- Django 側で base.html 等から差し込めるURL辞書（なければフォールバック） --- */
+  // 例: <script>window.APP_URLS={holding_create:"{% url 'holding_create' %}"};</script>
+  const URLS = Object.assign({},
+    { holding_create: "/holdings/create/" },   // フォールバック
+    window.APP_URLS || {}
+  );
+
   /* --- メニュー定義 --- */
   const MENUS = {
     home: [
@@ -39,10 +46,10 @@ document.addEventListener("DOMContentLoaded", () => {
       { label:"設定を開く",               href:"/settings/trade/",icon:"⚙️", tone:"info" },
     ],
     holdings: [
-    { section: "保有" },
-    { label: "＋ 新規登録",        action: "add_holding",  icon: "📥", tone: "add" },
-    { label: "CSVエクスポート",    action: "export_csv",   icon: "🧾", tone: "info" },
-    { label: "並び替え/フィルタ",  action: "open_filter",  icon: "🧮", tone: "action" },
+      { section: "保有" },
+      { label: "＋ 新規登録",        action: "add_holding",  icon: "📥", tone: "add" },
+      { label: "CSVエクスポート",    action: "export_csv",   icon: "🧾", tone: "info" },
+      { label: "並び替え/フィルタ",  action: "open_filter",  icon: "🧮", tone: "action" },
     ],
     // 実現損益（pnl/realized どちらのキーでも出す）
     pnl: [
@@ -227,6 +234,30 @@ document.addEventListener("DOMContentLoaded", () => {
       b.classList.toggle("active", !!hit);
     });
   })();
+
+  /* --- サブメニューのアクション受け取り（ここで遷移を定義） --- */
+  window.addEventListener("bottomtab:action", (e)=>{
+    const { action } = e.detail || {};
+    switch (action) {
+      case "add_holding":
+        // 「保有を追加」「＋ 新規登録」→ holding_create へ
+        navigateTo(URLS.holding_create);
+        break;
+
+      case "export_csv":
+        // 必要に応じて実装/URL差し替え
+        // navigateTo(URLS.holdings_export_csv || "/holdings/export/");
+        alert("CSVエクスポートは未実装です");
+        break;
+
+      case "open_filter":
+        document.getElementById("qb")?.scrollIntoView({behavior:"smooth", block:"start"});
+        break;
+
+      default:
+        break;
+    }
+  });
 
   /* --- デバッグ：コンソールから強制表示 --- */
   window.openBottomMenu = (type = "realized") => showMenu(type, null);
