@@ -1,0 +1,42 @@
+{# templates/dividends/form.html #}
+{% extends "base.html" %}
+{% block title %}配当を記録{% endblock %}
+
+{% block head %}
+<style>
+  .form-card{display:grid;gap:16px;max-width:560px;margin:0 auto;padding:18px;border-radius:16px;
+             background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+  .fi label{display:block;font-size:13px;color:#9aa4b2;margin-bottom:4px}
+  .fi input,.fi select,.fi textarea{width:100%;padding:10px 12px;font-size:15px;border-radius:12px;
+    border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e6ebff;outline:none}
+  .btnbar{display:flex;gap:10px}
+  .btnbar a,.btnbar button{flex:1;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);
+    background:rgba(255,255,255,.06);color:#e6ebff;text-align:center;text-decoration:none}
+  .hint{font-size:12px;color:#888}
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="mb-3">配当を記録 <span class="text-slate-400 text-sm">（{{ holding.ticker }}{% if holding.name %} / {{ holding.name }}{% endif %}）</span></h1>
+
+<form method="post" class="form-card">
+  {% csrf_token %}
+  <div class="fi"><label>日付</label>{{ form.date }}</div>
+  <div class="fi"><label>受取額 <span class="hint">税引後がデフォルト</span></label>{{ form.amount }}</div>
+  <div class="fi"><label>税込/税引後</label>{{ form.is_net }}</div>
+  <div class="fi"><label>税額 <span class="hint">任意</span></label>{{ form.tax }}</div>
+  <div class="fi"><label>手数料 <span class="hint">任意</span></label>{{ form.fee }}</div>
+  <div class="fi"><label>メモ</label>{{ form.memo }}</div>
+
+  {% if form.errors %}
+    <div class="p-3 rounded border border-rose-400 text-rose-100 bg-rose-900/30">
+      入力に誤りがあります。確認してください。
+    </div>
+  {% endif %}
+
+  <div class="btnbar">
+    <button type="submit">保存</button>
+    <a href="{% url 'holding_list' %}">戻る</a>
+  </div>
+</form>
+{% endblock %}
