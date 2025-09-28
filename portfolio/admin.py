@@ -118,9 +118,22 @@ class RealizedTradeAdmin(admin.ModelAdmin):
 # --------- Dividend ---------
 @admin.register(Dividend)
 class DividendAdmin(admin.ModelAdmin):
-    list_display = ("date", "holding", "amount", "is_net", "tax", "fee", "updated_at")
-    list_filter = ("is_net", "date")
-    search_fields = ("holding__ticker", "holding__name", "memo")
-    date_hierarchy = "date"
+    list_display = (
+        "id", "date", "ticker", "name",
+        "amount",        # 受取額（税引後）
+        "tax",           # 税額（自動計算）
+        "gross_display", # 税引前の概算（表示用メソッド）
+        "holding",
+    )
+    list_filter = ("date", "is_net")
+    search_fields = ("ticker", "name", "holding__ticker", "holding__name", "memo")
+    ordering = ("-date", "-id")
+
+    def gross_display(self, obj):
+        """税引前（概算）表示用。is_net=True を前提に amount + tax を返す。"""
+        amt = float(obj.amount or 0)
+        tax = float(obj.tax or 0)
+        return amt + tax if obj.is_net else amt
+    gross_display.short_description = "税引前(概算)"
 
         
