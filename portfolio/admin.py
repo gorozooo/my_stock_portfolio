@@ -1,6 +1,6 @@
 # portfolio/admin.py
 from django.contrib import admin
-from .models import Holding, UserSetting, RealizedTrade
+from .models import Holding, UserSetting, RealizedTrade, Dividend
 
 
 # --------- Holding ---------
@@ -114,3 +114,13 @@ class RealizedTradeAdmin(admin.ModelAdmin):
     def get_search_fields(self, request):
         fields = ["ticker", "name", "memo"]
         return tuple([f for f in fields if hasattr(RealizedTrade, f.split("__")[0])])
+        
+# --------- Dividend ---------
+@admin.register(Dividend)
+class DividendAdmin(admin.ModelAdmin):
+    list_display = ("date", "holding", "amount", "is_net", "tax", "fee", "updated_at")
+    list_filter = ("is_net", "date")
+    search_fields = ("holding__ticker", "holding__name", "memo")
+    date_hierarchy = "date"
+
+        
