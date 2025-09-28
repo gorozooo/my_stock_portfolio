@@ -31,9 +31,20 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   /* --- Django 側から差し込めるURL辞書（フォールバック付き） --- */
-  // 例: <script>window.APP_URLS={holding_create:"{% url 'holding_create' %}", holdings_base:"{% url 'holding_list' %}", dividend_create:"{% url 'dividend_create' %}"};</script>
+  // 例:
+  // <script>
+  //   window.APP_URLS = {
+  //     holding_create: "{% url 'holding_create' %}",
+  //     holdings_base : "{% url 'holding_list' %}",
+  //     dividend_create: "{% url 'dividend_create' %}"
+  //   };
+  // </script>
   const URLS = Object.assign(
-    { holding_create: "/holdings/create/", holdings_base: "/holdings/", dividend_create: "/dividends/create/" },
+    {
+      holding_create : "/holdings/create/",
+      holdings_base  : "/holdings/",
+      dividend_create: "/dividends/new/"      // ← フォールバックは new に合わせる
+    },
     window.APP_URLS || {}
   );
 
@@ -73,31 +84,31 @@ document.addEventListener("DOMContentLoaded", () => {
   const MENUS = {
     home: [
       { section:"クイック" },
-      { label:"保有追加",               href: URLS.holding_create,  icon:"➕", tone:"add" },
-      { label:"配当登録",               href:"/dividends/new/", icon:"💸", tone:"add" },
-      { label:"設定を開く",               href:"/settings/trade/",    icon:"⚙️", tone:"info" },
+      { label:"保有追加",   href: URLS.holding_create,  icon:"➕", tone:"add" },
+      { label:"配当登録", href: URLS.dividend_create, icon:"💸", tone:"add" },
+      { label:"設定を開く", href:"/settings/trade/",    icon:"⚙️", tone:"info" },
     ],
     holdings: [
-      { section: "保有" },
-      { label: "新規登録",             href: URLS.holding_create,  icon: "➕", tone: "add" },
-      { label:"配当登録",               href:"/dividends/new/", icon:"💸", tone:"add" },#
-      { label:"楽天証券",                 action:"goto_broker", broker:"RAKUTEN", icon:"🏯", tone:"info" },
-      { label:"松井証券",                 action:"goto_broker", broker:"MATSUI",  icon:"📊", tone:"info" },
-      { label:"SBI証券",                  action:"goto_broker", broker:"SBI",     icon:"🏦", tone:"info" },
+      { section:"保有" },
+      { label:"新規登録",   href: URLS.holding_create,  icon:"➕", tone:"add" },
+      { label:"配当登録", href: URLS.dividend_create, icon:"💸", tone:"add" },
+      { label:"楽天証券",   action:"goto_broker", broker:"RAKUTEN", icon:"🏯", tone:"info" },
+      { label:"松井証券",   action:"goto_broker", broker:"MATSUI",  icon:"📊", tone:"info" },
+      { label:"SBI証券",    action:"goto_broker", broker:"SBI",     icon:"🏦", tone:"info" },
     ],
     pnl: [
       { section:"実現損益" },
       { label:"期間サマリー", action:"show_summary",           icon:"📊", tone:"info" },
-      { label:"月別サマリー",             href:"/realized/monthly/", icon:"🗓️", tone:"info" },
-      { label:"ランキング",               action:"show_ranking",      icon:"🏅", tone:"info" },
-      { label:"明細",                     action:"show_details",      icon:"📑", tone:"info" },
+      { label:"月別サマリー", href:"/realized/monthly/",       icon:"🗓️", tone:"info" },
+      { label:"ランキング",   action:"show_ranking",            icon:"🏅", tone:"info" },
+      { label:"明細",         action:"show_details",            icon:"📑", tone:"info" },
     ],
     trend: [
       { section:"トレンド" },
-      { label:"監視に追加",               action:"watch_symbol",    icon:"👁️", tone:"add" },
-      { label:"エントリー/ストップ計算",   action:"calc_entry_stop", icon:"🎯", tone:"info" },
-      { label:"共有リンクをコピー",       action:"share_link",      icon:"🔗", tone:"info" },
-      { label:"チャート設定",             action:"chart_settings",  icon:"🛠️", tone:"action" },
+      { label:"監視に追加",   action:"watch_symbol",    icon:"👁️", tone:"add" },
+      { label:"エントリー/ストップ計算", action:"calc_entry_stop", icon:"🎯", tone:"info" },
+      { label:"共有リンクをコピー", action:"share_link",      icon:"🔗", tone:"info" },
+      { label:"チャート設定", action:"chart_settings",  icon:"🛠️", tone:"action" },
     ],
   };
   MENUS.realized = MENUS.pnl;
@@ -246,7 +257,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const here = normPath(location.pathname);
       const me   = normPath(link||"/");
 
-      // ★ 保有タブはシングルタップで broker をクリアして全件表示へ
+      // 保有タブはシングルタップで broker をクリアして全件表示へ
       if (type === "holdings"){
         e.preventDefault();
         triggerBounce(btn);
@@ -276,7 +287,6 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener("touchend",()=>{
       clearTimeout(timer);
       if (longPressed || moved) return;
-      // ★ 保有タブはタップで全件表示
       if (type === "holdings"){
         navigateTo(buildHoldingsURL({ broker: "" }));
       }else if (link){
