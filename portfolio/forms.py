@@ -122,25 +122,29 @@ class HoldingForm(forms.ModelForm):
         return cd
         
 class DividendForm(forms.ModelForm):
+    """
+    - holding をドロップダウンで選択（ユーザーの保有のみ）
+    - 金額系は数字だけ入力しやすいよう inputmode/pattern を付与
+    """
     class Meta:
         model = Dividend
-        fields = ["date", "amount", "is_net", "tax", "fee", "memo"]
+        fields = ["holding", "date", "amount", "is_net", "tax", "fee", "memo"]
         widgets = {
-            "date": forms.DateInput(attrs={"type": "date"}),
-            "amount": forms.NumberInput(attrs={"inputmode": "decimal", "step": "0.01", "min": "0"}),
-            "tax": forms.NumberInput(attrs={"inputmode": "decimal", "step": "0.01"}),
-            "fee": forms.NumberInput(attrs={"inputmode": "decimal", "step": "0.01"}),
-            "memo": forms.TextInput(attrs={"placeholder": "任意メモ"}),
+            "date":   forms.DateInput(attrs={"type": "date", "class": "in"}),
+            "amount": forms.NumberInput(attrs={"inputmode": "decimal", "pattern": "[0-9.]*", "class": "in"}),
+            "tax":    forms.NumberInput(attrs={"inputmode": "decimal", "pattern": "[0-9.]*", "class": "in"}),
+            "fee":    forms.NumberInput(attrs={"inputmode": "decimal", "pattern": "[0-9.]*", "class": "in"}),
+            "memo":   forms.TextInput(attrs={"placeholder": "任意メモ", "class": "in"}),
         }
 
-    def clean_amount(self):
-        v = self.cleaned_data.get("amount")
-        if v is None or v <= 0:
-            raise forms.ValidationError("金額は 0 より大きい値を入力してください。")
-        return v
-
-    def clean_date(self):
-        d = self.cleaned_data.get("date")
-        if d and d > timezone.localdate():
-            raise forms.ValidationError("未来日は指定できません。")
-        return d
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 自分の保有だけ選ばせる
+        qs = Holding.objects.all()
+        if user is not None:
+            qs = qs.filter(user=user)
+        self.fields["holding"].queryset = qs.order_by("ticker", "name")
+        self.fields["holding"].widget.attrs.update({"class": "in"})
+        # チェックボックスの見た目調整
+        self.fields["is_net"].widget.attrs.update({"class": "chk"}) 
+        
