@@ -5,22 +5,45 @@
 
 {% block head %}
 <style>
-  /* 保有フォームに寄せた見た目 */
   .form-card{
     display:grid; gap:16px; padding:18px;
     border-radius:16px; background:rgba(255,255,255,.04);
     border:1px solid rgba(255,255,255,.08);
-    max-width:600px; margin:0 auto;
+    max-width:640px; margin:0 auto;
   }
-  .fi label{ display:block; font-size:13px; color:#9aa4b2; margin-bottom:6px; }
+  .fi label{ display:block; font-size:13px; color:#9aa4b2; margin:0 0 6px; }
   .hint{ font-size:12px; color:#8a93a5; margin-top:6px; }
-  .fi input,.fi select,.fi textarea{
-    width:100%; padding:10px 12px; font-size:15px;
-    border-radius:12px; border:1px solid rgba(255,255,255,.16);
-    background:rgba(255,255,255,.06); color:#e6ebff; outline:none;
+
+  /* 入力系の共通スタイル（高さを統一） */
+  .ctrl{ width:100%; padding:11px 12px; font-size:15px;
+         border-radius:12px; border:1px solid rgba(255,255,255,.16);
+         background:rgba(255,255,255,.06); color:#e6ebff; outline:none;
+         min-height:44px; }
+  select.ctrl{ padding-right:34px; }
+  textarea.ctrl{ min-height:96px; line-height:1.5; resize:vertical; }
+
+  /* 2カラム・スマホでは縦積み */
+  .grid-2{ display:grid; gap:12px; grid-template-columns:1fr 1fr; }
+  @media (max-width: 520px){
+    .grid-2{ grid-template-columns:1fr; }
   }
-  .fi textarea{ min-height:96px; resize:vertical; line-height:1.5; }
-  .grid-2{ display:grid; gap:12px; grid-template-columns:repeat(2, minmax(0,1fr)); }
+
+  /* 税込/税引後の行を箱にして視認性UP */
+  .inline-chip{
+    display:flex; align-items:center; gap:10px;
+    padding:8px 12px; border-radius:12px;
+    border:1px solid rgba(255,255,255,.16);
+    background:rgba(255,255,255,.06); color:#e6ebff;
+    min-height:44px;
+  }
+  .inline-chip input[type="checkbox"]{
+    width:18px; height:18px;
+    accent-color:#94c1ff; /* 対応ブラウザは青系に */
+  }
+
+  /* ラベル右寄せのサブラベル（小さく薄く） */
+  .subnote{ font-size:12px; color:#8a93a5; margin-left:8px; }
+
   .btn-bar{ display:flex; gap:12px; margin-top:4px; }
   .btn-bar button,.btn-bar a{
     flex:1; text-align:center; padding:12px; border-radius:12px;
@@ -40,23 +63,25 @@
   <!-- 保有（任意） -->
   <div class="fi">
     <label>保有（任意）</label>
-    {{ form.holding }}
+    {{ form.holding|add_class:"ctrl" }}
     <div class="hint">未登録の銘柄でも、下のティッカー/銘柄名で直接登録できます</div>
   </div>
 
-  <!-- ティッカー / 銘柄名（保有未選択時はここで登録） -->
+  <!-- ティッカー / 銘柄名 -->
   <div class="fi">
-    <label>ティッカー/コード（保有未選択時は必須） <span class="hint">例: 7203 / 167A</span></label>
-    <!-- 数字＋英字を許容。headコード(3〜5桁/英数)想定 -->
+    <label>ティッカー/コード（保有未選択時は必須）
+      <span class="subnote">例: 7203 / 167A</span>
+    </label>
     <input id="id_ticker" name="ticker" type="text"
            inputmode="text" pattern="[0-9A-Za-z]{3,6}"
-           placeholder="7203 / 167A"
+           class="ctrl" placeholder="7203 / 167A"
            value="{{ form.ticker.value|default_if_none:'' }}">
   </div>
 
   <div class="fi">
     <label>銘柄名（任意・自動補完／手入力可）</label>
-    <input id="id_name" name="name" type="text" placeholder="自動補完／手入力可"
+    <input id="id_name" name="name" type="text" class="ctrl"
+           placeholder="自動補完／手入力可"
            value="{{ form.name.value|default_if_none:'' }}">
     <div class="hint">ティッカー入力後、自動で補完されます（取得できない場合は手入力）</div>
   </div>
@@ -65,31 +90,34 @@
   <div class="grid-2">
     <div class="fi">
       <label>受取日</label>
-      {{ form.date }}
+      {{ form.date|add_class:"ctrl" }}
     </div>
     <div class="fi">
       <label>受取額（税引後）</label>
-      {{ form.amount }}
+      {{ form.amount|add_class:"ctrl" }}
     </div>
   </div>
 
-  <!-- 税率 / 税込フラグ -->
+  <!-- 税率 / 税込フラグ（見た目改善） -->
   <div class="grid-2">
     <div class="fi">
       <label>税率</label>
-      {{ form.tax_rate }}
+      {{ form.tax_rate|add_class:"ctrl" }}
     </div>
-    <div class="fi" style="display:flex;align-items:center;gap:10px">
-      <label style="margin:0">税込/税引後</label>
-      {{ form.is_net }}
-      <span class="hint">チェックON＝税引後（デフォルト）</span>
+    <div class="fi">
+      <label>税込/税引後</label>
+      <div class="inline-chip">
+        {{ form.is_net }}
+        <span>税引後に入力（推奨）</span>
+      </div>
+      <div class="hint">チェックON＝税引後（デフォルト）</div>
     </div>
   </div>
 
   <!-- メモ -->
   <div class="fi">
     <label>メモ</label>
-    {{ form.memo }}
+    {{ form.memo|add_class:"ctrl" }}
   </div>
 
   <div class="btn-bar">
@@ -100,13 +128,13 @@
 
 <script>
 (function(){
-  // 保有フォームと同等の「コード→自動銘柄名」ロジック
+  // コード→銘柄名の自動補完
   const endpoint = "{% url 'dividend_lookup_name' %}";
   const $ticker  = document.getElementById('id_ticker');
   const $name    = document.getElementById('id_name');
   const $holding = document.getElementById('id_holding');
 
-  // 保有選択 → optionテキストから ticker/name を補完（空欄のときのみ）
+  // 保有選択 → optionテキストから補完（空欄時のみ）
   $holding?.addEventListener('change', ()=>{
     const opt = $holding.options[$holding.selectedIndex];
     if (!opt) return;
@@ -130,9 +158,7 @@
     nameAutofilled = false;
   });
 
-  function debounce(fn, ms){
-    let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn.apply(null,args), ms); };
-  }
+  function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
 
   function applyName(data){
     if (!data || !data.name) return;
@@ -156,8 +182,7 @@
     if (!v) return;
     fetch(`${endpoint}?q=${encodeURIComponent(v)}`, {credentials:'same-origin'})
       .then(r => r.ok ? r.json() : Promise.reject())
-      .then(applyName)
-      .catch(()=>{});
+      .then(applyName).catch(()=>{});
   }
 
   $ticker?.addEventListener('input',  debounce(lookup, 250));
