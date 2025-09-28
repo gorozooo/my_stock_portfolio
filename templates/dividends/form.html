@@ -3,87 +3,112 @@
 
 {% block title %}配当を記録{% endblock %}
 
+{% block head %}
+<style>
+  .card{border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.03);
+        border-radius:14px;padding:14px}
+  .grid{display:grid;grid-template-columns:1fr;gap:12px}
+  @media (min-width:520px){ .grid{grid-template-columns:1fr 1fr} }
+  .fld{display:flex;flex-direction:column;gap:6px}
+  .lbl{font-size:12px;color:#9fb0c8}
+  .in, .sel{
+    width:100%;padding:10px 12px;border-radius:10px;font-size:14px;
+    background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:#e8efff
+  }
+  .row2{grid-column:1/-1}
+  .btns{display:flex;gap:10px;margin-top:6px}
+  .btn{padding:10px 14px;border:1px solid rgba(255,255,255,.16);border-radius:10px}
+  .btn.primary{background:#1f3b77;border-color:#3556a6}
+  .hint{font-size:11px;opacity:.7}
+</style>
+{% endblock %}
+
 {% block content %}
-<h1 class="text-xl font-bold mb-3">配当を記録</h1>
+<h2 class="text-xl font-bold mb-3">配当を記録</h2>
 
-<form method="post" class="space-y-4">
+<form method="post" class="card">
   {% csrf_token %}
+  <div class="grid">
 
-  <div class="p-3 rounded-lg border border-slate-700/60 bg-slate-800/40">
-    <label class="block text-slate-300 mb-1">保有（任意）</label>
-    {{ form.holding }}
-    {% if form.holding.errors %}<div class="text-red-400 text-sm">{{ form.holding.errors }}</div>{% endif %}
-  </div>
+    <!-- 保有（任意） -->
+    <div class="fld row2">
+      <div class="lbl">保有（任意）</div>
+      {{ form.holding }}
+    </div>
 
-  <div class="p-3 rounded-lg border border-slate-700/60 bg-slate-800/40">
-    <label class="block text-slate-300 mb-1">ティッカー/コード（保有未選択時は必須）</label>
-    {{ form.ticker }}
-    {% if form.ticker.errors %}<div class="text-red-400 text-sm">{{ form.ticker.errors }}</div>{% endif %}
-  </div>
+    <!-- ティッカー / 名称（保有未選択なら必須） -->
+    <div class="fld">
+      <div class="lbl">ティッカー/コード（保有未選択時は必須）</div>
+      {{ form.ticker_input }}
+      <div class="hint" id="codeHint" style="display:none"></div>
+    </div>
 
-  <div class="p-3 rounded-lg border border-slate-700/60 bg-slate-800/40">
-    <label class="block text-slate-300 mb-1">銘柄名（任意）</label>
-    {{ form.name }}
-    {% if form.name.errors %}<div class="text-red-400 text-sm">{{ form.name.errors }}</div>{% endif %}
-  </div>
+    <div class="fld">
+      <div class="lbl">銘柄名（任意・自動補完／手入力可）</div>
+      {{ form.name_input }}
+    </div>
 
-  <div class="grid grid-cols-2 gap-3">
-    <div class="p-3 rounded-lg border border-slate-700/60 bg-slate-800/40">
-      <label class="block text-slate-300 mb-1">受取日</label>
+    <!-- 受取日 / 金額 -->
+    <div class="fld">
+      <div class="lbl">受取日</div>
       {{ form.date }}
-      {% if form.date.errors %}<div class="text-red-400 text-sm">{{ form.date.errors }}</div>{% endif %}
     </div>
-    <div class="p-3 rounded-lg border border-slate-700/60 bg-slate-800/40">
-      <label class="block text-slate-300 mb-1">受取額（税引後）</label>
-      {{ form.amount }}
-      {% if form.amount.errors %}<div class="text-red-400 text-sm">{{ form.amount.errors }}</div>{% endif %}
-    </div>
-  </div>
 
-  <div class="grid grid-cols-2 gap-3">
-    <div class="p-3 rounded-lg border border-slate-700/60 bg-slate-800/40">
-      <label class="block text-slate-300 mb-1">税率</label>
+    <div class="fld">
+      <div class="lbl">受取額（税引後）</div>
+      {{ form.amount }}
+    </div>
+
+    <!-- 税率 / 税引後フラグ -->
+    <div class="fld">
+      <div class="lbl">税率</div>
       {{ form.tax_rate }}
     </div>
-    <div class="p-3 rounded-lg border border-slate-700/60 bg-slate-800/40">
-      <label class="block text-slate-300 mb-1">税込/税引後</label>
+
+    <div class="fld">
+      <div class="lbl">税込/税引後</div>
       {{ form.is_net }}
+    </div>
+
+    <!-- メモ -->
+    <div class="fld row2">
+      <div class="lbl">メモ</div>
+      {{ form.memo }}
     </div>
   </div>
 
-  {{ form.tax }} {# Hidden: 自動計算で埋まる #}
-
-  <div class="p-3 rounded-lg border border-slate-700/60 bg-slate-800/40">
-    <label class="block text-slate-300 mb-1">メモ</label>
-    {{ form.memo }}
-  </div>
-
-  <div class="flex gap-3 pt-2">
-    <button class="px-4 py-2 rounded-lg border border-slate-600 bg-slate-700">保存</button>
-    <a href="{% url 'dividend_list' %}" class="px-4 py-2 rounded-lg border border-slate-600">一覧へ戻る</a>
+  <div class="btns">
+    <button class="btn primary" type="submit">保存</button>
+    <a class="btn" href="{% url 'dividend_list' %}">一覧へ戻る</a>
   </div>
 </form>
 
 <script>
-  // Holdingを選んだら ticker/name を薄く補完（空欄のときだけ）
-  (function(){
-    const sel = document.getElementById("id_holding");
-    const tck = document.getElementById("id_ticker");
-    const nam = document.getElementById("id_name");
-    if (!sel) return;
-    sel.addEventListener("change", ()=>{
-      const opt = sel.selectedOptions[0];
-      if (!opt) return;
-      const txt = opt.textContent || "";
-      // ラベルが「銘柄名 (CODE)」形式ならざっくり抽出（フォーム側でoptions整えてもOK）
-      const m = txt.match(/\(([^)]+)\)/);
-      const code = m ? m[1] : "";
-      if (!tck.value && code) tck.value = code;
-      if (!nam.value) {
-        const nameOnly = txt.replace(/\s*\([^)]+\)\s*$/, "");
-        if (nameOnly) nam.value = nameOnly;
-      }
-    });
-  })();
+(function(){
+  const $ = (s)=>document.querySelector(s);
+  const code = document.getElementById("id_ticker_input");
+  const name = document.getElementById("id_name_input");
+  const hint = document.getElementById("codeHint");
+
+  let t=null;
+  function lookupNow(){
+    const q = (code.value||"").trim();
+    if (!q) { hint.style.display="none"; return; }
+    fetch("{% url 'dividend_lookup_name' %}?q="+encodeURIComponent(q))
+      .then(r=>r.json()).then(j=>{
+        const nm = j && j.name || "";
+        hint.style.display = "block";
+        hint.textContent   = nm ? `候補: ${nm}` : "候補なし";
+        // ユーザーが手入力していなければ自動挿入
+        if (!name.value && nm) name.value = nm;
+      }).catch(()=>{ /* ignore */ });
+  }
+  ["input","change","blur"].forEach(ev=>{
+    code.addEventListener(ev, ()=>{
+      clearTimeout(t);
+      t = setTimeout(lookupNow, ev==="blur" ? 0 : 220);
+    }, {passive:true});
+  });
+})();
 </script>
 {% endblock %}
