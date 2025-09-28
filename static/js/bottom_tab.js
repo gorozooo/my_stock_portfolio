@@ -40,9 +40,8 @@ document.addEventListener("DOMContentLoaded", () => {
   /* =========================
      URL方式: クエリ維持して遷移
      ========================= */
-  const DEFAULTS = { sort:"updated", order:"desc" }; // 既定の並び
+  const DEFAULTS = { sort:"updated", order:"desc" };
 
-  // 現在のクエリを取得（保持したいキーはここで許可）
   function getCurrentParams(){
     const keepKeys = new Set(["sort","order","side","account","pnl","q","ticker","page"]);
     const cur = new URLSearchParams(location.search);
@@ -50,11 +49,9 @@ document.addEventListener("DOMContentLoaded", () => {
     for (const [k,v] of cur.entries()){
       if (keepKeys.has(k) && v !== "") out.set(k, v);
     }
-    // 既定の並びが無ければ付与
     if (!out.has("sort"))  out.set("sort",  DEFAULTS.sort);
     if (!out.has("order")) out.set("order", DEFAULTS.order);
-    // ページはフィルタ切り替え時に1へ戻す
-    out.delete("page");
+    out.delete("page"); // 切替時は1ページ目へ
     return out;
   }
 
@@ -72,7 +69,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return qs ? `${URLS.holdings_base}?${qs}` : `${URLS.holdings_base}`;
   }
 
-  /* --- メニュー定義（broker は href ではなく action で処理） --- */
+  /* --- メニュー定義（broker は action で処理） --- */
   const MENUS = {
     home: [
       { section:"クイック" },
@@ -83,10 +80,10 @@ document.addEventListener("DOMContentLoaded", () => {
     holdings: [
       { section: "保有" },
       { label: "＋ 新規登録",             href: URLS.holding_create, icon: "➕", tone: "add" },
-      // ↓ action で broker を差し替え、現在の sort/order を維持
       { label:"楽天証券",                 action:"goto_broker", broker:"RAKUTEN", icon:"🏯", tone:"info" },
       { label:"松井証券",                 action:"goto_broker", broker:"MATSUI",  icon:"📊", tone:"info" },
       { label:"SBI証券",                  action:"goto_broker", broker:"SBI",     icon:"🏦", tone:"info" },
+      { label:"すべて表示",               action:"goto_all_brokers",              icon:"📑", tone:"info" },
     ],
     pnl: [
       { section:"実現損益" },
@@ -234,7 +231,7 @@ document.addEventListener("DOMContentLoaded", () => {
   submenu.addEventListener("touchend", endDrag, {passive:true});
   submenu.addEventListener("touchcancel", endDrag, {passive:true});
 
-  /* --- タブ：タップ遷移 + 長押し（アクティブ再タップでメニュー） --- */
+  /* --- タブ：タップ遷移 + 長押し --- */
   tabs.forEach(btn=>{
     const link = btn.dataset.link;
     const type = btn.dataset.menu;
@@ -243,20 +240,32 @@ document.addEventListener("DOMContentLoaded", () => {
     // iOSのプレスメニュー抑止
     btn.addEventListener("contextmenu", e => e.preventDefault());
 
+    // クリック（マウス/タップ共通）
     btn.addEventListener("click",(e)=>{
       if (longPressed){ e.preventDefault(); longPressed=false; return; }
       const here = normPath(location.pathname);
       const me   = normPath(link||"/");
-      // すでにそのタブに居るならメニューを開く
+
+      // ★ 保有タブはシングルタップで broker をクリアして全件表示へ
+      if (type === "holdings"){
+        e.preventDefault();
+        triggerBounce(btn);
+        navigateTo(buildHoldingsURL({ broker: "" }));
+        return;
+      }
+
+      // 既にそのタブに居る → メニューを開く（保有以外）
       if (here.startsWith(me) && !submenu.classList.contains("show")){
         e.preventDefault();
         showMenu(type, btn);
         return;
       }
+
       triggerBounce(btn);
       if (!submenu.classList.contains("show") && link) navigateTo(link);
     });
 
+    // タッチ（長押し判定）
     btn.addEventListener("touchstart",(e)=>{
       e.preventDefault();
       longPressed=false; moved=false; clearTimeout(timer);
@@ -266,7 +275,13 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener("touchcancel",()=> clearTimeout(timer), {passive:true});
     btn.addEventListener("touchend",()=>{
       clearTimeout(timer);
-      if (!longPressed && !moved && link) navigateTo(link);
+      if (longPressed || moved) return;
+      // ★ 保有タブはタップで全件表示
+      if (type === "holdings"){
+        navigateTo(buildHoldingsURL({ broker: "" }));
+      }else if (link){
+        navigateTo(link);
+      }
     }, {passive:true});
   });
 
@@ -281,34 +296,29 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   })();
 
-  /* --- サブメニューのアクション受け取り --- */
+  /* --- サブメニューのアクション --- */
   window.addEventListener("bottomtab:action", (e)=>{
     const { action, payload } = (e.detail||{});
     switch (action) {
       case "add_holding":
         navigateTo(URLS.holding_create);
         break;
-
       case "goto_broker": {
-        const code = payload?.broker || ""; // RAKUTEN / MATSUI / SBI
+        const code = payload?.broker || "";
         const url  = buildHoldingsURL({ broker: code });
         navigateTo(url);
         break;
       }
-
-      case "export_csv":
-        alert("CSVエクスポートは未実装です");
+      case "goto_all_brokers": {
+        const url = buildHoldingsURL({ broker: "" });
+        navigateTo(url);
         break;
-
-      case "open_filter":
-        document.getElementById("qb")?.scrollIntoView({behavior:"smooth", block:"start"});
-        break;
-
+      }
       default:
         break;
     }
   });
 
-  /* --- デバッグ：コンソールから強制表示 --- */
+  /* --- デバッグ --- */
   window.openBottomMenu = (type = "realized") => showMenu(type, null);
 });
