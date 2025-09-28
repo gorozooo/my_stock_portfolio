@@ -1,7 +1,8 @@
 from django import forms
 from django.core.exceptions import ValidationError
 from django.conf import settings
-from .models import Holding
+from django.utils import timezone
+from .models import Holding, Dividend
 from .services import tickers as svc_tickers
 from .services import trend as svc_trend
 
@@ -119,3 +120,27 @@ class HoldingForm(forms.ModelForm):
         if self.errors:
             raise ValidationError("入力に誤りがあります。")
         return cd
+        
+class DividendForm(forms.ModelForm):
+    class Meta:
+        model = Dividend
+        fields = ["date", "amount", "is_net", "tax", "fee", "memo"]
+        widgets = {
+            "date": forms.DateInput(attrs={"type": "date"}),
+            "amount": forms.NumberInput(attrs={"inputmode": "decimal", "step": "0.01", "min": "0"}),
+            "tax": forms.NumberInput(attrs={"inputmode": "decimal", "step": "0.01"}),
+            "fee": forms.NumberInput(attrs={"inputmode": "decimal", "step": "0.01"}),
+            "memo": forms.TextInput(attrs={"placeholder": "任意メモ"}),
+        }
+
+    def clean_amount(self):
+        v = self.cleaned_data.get("amount")
+        if v is None or v <= 0:
+            raise forms.ValidationError("金額は 0 より大きい値を入力してください。")
+        return v
+
+    def clean_date(self):
+        d = self.cleaned_data.get("date")
+        if d and d > timezone.localdate():
+            raise forms.ValidationError("未来日は指定できません。")
+        return d
