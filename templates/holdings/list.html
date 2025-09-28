@@ -29,7 +29,6 @@
 
 {% block content %}
 
-
 <!-- クイックフィルタ/並び替え -->
 <div class="quickbar" id="qb">
   <div class="fld">
@@ -108,58 +107,129 @@
 
 <script src="{% static 'js/holdings.js' %}?v=130"></script>
 <script>
-  // Quickbar: 状態保存＆適用
+  // Quickbar: URL > localStorage を優先。適用で URL も更新（pushState）
   (function(){
     const LSKEY='holdings.qb.v1';
     const $ = (id)=>document.getElementById(id);
 
-    function read(){ try{return JSON.parse(localStorage.getItem(LSKEY)||'{}')}catch(_){return{}} }
-    function save(v){ localStorage.setItem(LSKEY, JSON.stringify(v||{})) }
-    function gather(){
+    // 表示名 ↔ コード の相互変換（サブメニューはコード、セレクトは表示名）
+    const BROKER = {
+      toLabel(code){ return ({MATSUI:'松井証券', RAKUTEN:'楽天証券', SBI:'SBI'})[code] || code || ''; },
+      toCode(label){ const m={'松井証券':'MATSUI','楽天証券':'RAKUTEN','SBI':'SBI'}; return m[label] || label || ''; }
+    };
+    const ACCOUNT = {
+      toLabel(code){ return ({SPEC:'特定', MARGIN:'信用', NISA:'NISA'})[code] || code || ''; },
+      toCode(label){ const m={'特定':'SPEC','信用':'MARGIN','NISA':'NISA'}; return m[label] || label || ''; }
+    };
+
+    function readLS(){ try{return JSON.parse(localStorage.getItem(LSKEY)||'{}')}catch(_){return{}} }
+    function saveLS(v){ localStorage.setItem(LSKEY, JSON.stringify(v||{})) }
+
+    function readURL(){
+      const u = new URL(location.href);
+      const p = u.searchParams;
+      // URL はコード前提で受取
       return {
-        broker: $('qb-broker').value || '',
-        account:$('qb-account').value || '',
-        side:   $('qb-side').value || '',
-        pnl:    $('qb-pnl').value || '',
-        sort:   $('qb-sort').value || 'updated',
-        order:  $('qb-order').value || 'desc',
-        ticker: $('qb-q').value || ''
-      }
+        broker: p.get('broker') || '',
+        account:p.get('account')||'',
+        side:   p.get('side')   ||'',
+        pnl:    p.get('pnl')    ||'',
+        sort:   p.get('sort')   ||'',
+        order:  p.get('order')  ||'',
+        // q or ticker のどちらでも拾う
+        ticker: p.get('ticker') || p.get('q') || ''
+      };
     }
+
     function applyState(st){
-      $('qb-broker').value = st.broker||'';
-      $('qb-account').value= st.account||'';
+      // セレクトは「表示名」で選択されるので変換してから入れる
+      $('qb-broker').value = st.broker ? BROKER.toLabel(st.broker) : '';
+      $('qb-account').value= st.account? ACCOUNT.toLabel(st.account): '';
       $('qb-side').value   = st.side||'';
       $('qb-pnl').value    = st.pnl||'';
       $('qb-sort').value   = st.sort||'updated';
       $('qb-order').value  = st.order||'desc';
       $('qb-q').value      = st.ticker||'';
     }
-    function queryString(st){
-      const p = new URLSearchParams(st);
+
+    function gather(){
+      // 画面から拾う → URLへはコードで渡す
+      const brokerLabel  = $('qb-broker').value || '';
+      const accountLabel = $('qb-account').value || '';
+      return {
+        broker: BROKER.toCode(brokerLabel),
+        account:ACCOUNT.toCode(accountLabel),
+        side:   $('qb-side').value || '',
+        pnl:    $('qb-pnl').value || '',
+        sort:   $('qb-sort').value || 'updated',
+        order:  $('qb-order').value || 'desc',
+        ticker: $('qb-q').value || ''
+      };
+    }
+
+    function buildQuery(st){
+      const p = new URLSearchParams();
+      if (st.broker) p.set('broker', st.broker);
+      if (st.account) p.set('account', st.account);
+      if (st.side) p.set('side', st.side);
+      if (st.pnl) p.set('pnl', st.pnl);
+      if (st.sort) p.set('sort', st.sort);
+      if (st.order) p.set('order', st.order);
+      if (st.ticker) p.set('ticker', st.ticker);
       return p.toString();
     }
-    function load(){
-      const st = Object.assign({
-        broker:'',account:'',side:'',pnl:'',sort:'updated',order:'desc',ticker:''
-      }, read());
-      applyState(st);
-      const qs = queryString(st);
-      fetch("{% url 'holding_list_partial' %}?"+qs, {headers:{'HX-Request':'true'}})
-      .then(r=>r.text()).then(html=>{
-        const target = document.getElementById('holdingsBody');
-        target.innerHTML = html;
 
-        // ★★★ これが肝心：差し替えたDOMをHTMXに再スキャンさせる
-        if (window.htmx) { htmx.process(target); }
-
-        // （必要なら）あなたの既存ハンドラに通知
-        document.body.dispatchEvent(new CustomEvent('htmx:load', {detail:{target}}));
-      });
+    function fetchList(st){
+      const qs = buildQuery(st);
+      const url = "{% url 'holding_list_partial' %}" + (qs ? ("?"+qs) : "");
+      fetch(url, {headers:{'HX-Request':'true'}})
+        .then(r=>r.text())
+        .then(html=>{
+          const target = document.getElementById('holdingsBody');
+          target.innerHTML = html;
+          // HTMX 再スキャン（hx-* を有効化）
+          if (window.htmx) htmx.process(target);
+          // 既存の初期化フックがあれば通知
+          document.body.dispatchEvent(new CustomEvent('htmx:load', {detail:{target}}));
+        });
     }
-    $('qb-apply').addEventListener('click', ()=>{ const st = gather(); save(st); load(); });
-    $('qb-q').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ $('qb-apply').click(); }});
-    load();
+
+    function applyAndRender(st, push=true){
+      applyState(st);
+      // URL 更新（ブックマーク可能）。初回は replace、以降は push でもOK
+      const qs = buildQuery(st);
+      const newURL = location.pathname + (qs ? ("?"+qs) : "");
+      if (push) history.pushState(st, '', newURL); else history.replaceState(st, '', newURL);
+      // 保存（次回のデフォルトに）
+      saveLS(st);
+      // 描画
+      fetchList(st);
+    }
+
+    // 初期ロード：URL が優先（URLに何か入っていなければ LS）
+    (function init(){
+      const urlSt = readURL();
+      const hasURL = Object.values(urlSt).some(v => !!v);
+      const base = hasURL ? urlSt : Object.assign({
+        broker:'',account:'',side:'',pnl:'',sort:'updated',order:'desc',ticker:''
+      }, readLS());
+      applyAndRender(base, /*push=*/false);
+    })();
+
+    // 適用ボタン：pushState して反映
+    $('qb-apply').addEventListener('click', ()=>{
+      const st = gather();
+      applyAndRender(st, /*push=*/true);
+    });
+    // Enter でも適用
+    $('qb-q').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); $('qb-apply').click(); }});
+
+    // 戻る/進む対応
+    window.addEventListener('popstate', (e)=>{
+      const st = e.state || readURL();  // state が無ければURLを読む
+      applyState(st||{});
+      fetchList(st||{});
+    });
   })();
 </script>
 {% endblock %}
