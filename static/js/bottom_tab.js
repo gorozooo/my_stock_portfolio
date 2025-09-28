@@ -43,7 +43,7 @@ document.addEventListener("DOMContentLoaded", () => {
     {
       holding_create : "/holdings/create/",
       holdings_base  : "/holdings/",
-      dividend_create: "/dividends/new/"      // ← フォールバックは new に合わせる
+      dividend_create: "dividends/create/"      // ← フォールバックは new に合わせる
     },
     window.APP_URLS || {}
   );
