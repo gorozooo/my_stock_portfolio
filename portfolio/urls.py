@@ -46,7 +46,9 @@ urlpatterns = [
     path("api/ticker-name", hv.api_ticker_name, name="api_ticker_name"),
     path("holdings/partial/list", hv.holding_list_partial, name="holding_list_partial"),
     
-    path("holdings/<int:pk>/dividend/new", dividend_views.create, name="dividend_create"),
+    # 配当
+    path("dividends/new/",  dividend_views.dividend_create,      name="dividend_create"),
+    path("dividends/done/", dividend_views.dividend_create_done, name="dividend_create_done"),
     
     # 実現損益（メイン）
     path("realized/", realized_views.list_page, name="realized_list"),
