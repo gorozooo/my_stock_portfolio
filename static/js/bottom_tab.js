@@ -31,9 +31,9 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   /* --- Django 側から差し込めるURL辞書（フォールバック付き） --- */
-  // 例: <script>window.APP_URLS={holding_create:"{% url 'holding_create' %}", holdings_base:"{% url 'holding_list' %}"};</script>
+  // 例: <script>window.APP_URLS={holding_create:"{% url 'holding_create' %}", holdings_base:"{% url 'holding_list' %}", dividend_create:"{% url 'dividend_create' %}"};</script>
   const URLS = Object.assign(
-    { holding_create: "/holdings/create/", holdings_base: "/holdings/" },
+    { holding_create: "/holdings/create/", holdings_base: "/holdings/", dividend_create: "/dividends/create/" },
     window.APP_URLS || {}
   );
 
@@ -73,17 +73,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const MENUS = {
     home: [
       { section:"クイック" },
-      { label:"保有を追加",               href: URLS.holding_create, icon:"➕", tone:"add" },
-      { label:"実現損益を記録",           href:"/realized/",         icon:"💰", tone:"action" },
-      { label:"設定を開く",               href:"/settings/trade/",   icon:"⚙️", tone:"info" },
+      { label:"保有追加",               href: URLS.holding_create,  icon:"➕", tone:"add" },
+      { label:"配当登録",               href: URLS.dividend_create,  icon:"💸", tone:"add" }, // ← 追加
+      { label:"設定を開く",               href:"/settings/trade/",    icon:"⚙️", tone:"info" },
     ],
     holdings: [
       { section: "保有" },
-      { label: "＋ 新規登録",             href: URLS.holding_create, icon: "➕", tone: "add" },
+      { label: "新規登録",             href: URLS.holding_create,  icon: "➕", tone: "add" },
+      { label:"配当登録",               href: URLS.dividend_create,  icon:"💸", tone:"add" }, // ← 追加
       { label:"楽天証券",                 action:"goto_broker", broker:"RAKUTEN", icon:"🏯", tone:"info" },
       { label:"松井証券",                 action:"goto_broker", broker:"MATSUI",  icon:"📊", tone:"info" },
       { label:"SBI証券",                  action:"goto_broker", broker:"SBI",     icon:"🏦", tone:"info" },
-      { label:"すべて表示",               action:"goto_all_brokers",              icon:"📑", tone:"info" },
     ],
     pnl: [
       { section:"実現損益" },
