@@ -1,67 +1,33 @@
 {% extends "base.html" %}
-{% load humanize %}
-
 {% block title %}配当一覧{% endblock %}
 
 {% block content %}
-<div class="pnl">
-  <div class="flex items-center justify-between mb-3">
-    <h1 class="text-lg font-bold">配当一覧</h1>
-    <a href="{% url 'dividend_create' %}"
-       class="px-3 py-2 rounded-lg border border-white/20 bg-white/10 hover:bg-white/15">
-      ＋ 配当を記録
-    </a>
-  </div>
+<h1 class="text-xl font-bold mb-3">配当一覧</h1>
 
-  {% if messages %}
-    <div class="space-y-2 mb-3">
-      {% for m in messages %}
-        <div class="px-3 py-2 rounded bg-emerald-600/20 border border-emerald-500/30 text-emerald-200 text-sm">
-          {{ m }}
-        </div>
-      {% endfor %}
-    </div>
-  {% endif %}
+<p class="mb-3"><a class="underline" href="{% url 'dividend_create' %}">＋ 新規登録</a></p>
 
-  {% if page.object_list %}
-    <div class="overflow-x-auto rounded-lg border border-white/10">
-      <table class="min-w-full text-sm">
-        <thead class="bg-white/5 text-slate-300">
-          <tr>
-            <th class="px-3 py-2 text-left">受取日</th>
-            <th class="px-3 py-2 text-left">コード</th>
-            <th class="px-3 py-2 text-left">銘柄</th>
-            <th class="px-3 py-2 text-right">受取額</th>
-            <th class="px-3 py-2 text-left">メモ</th>
-          </tr>
-        </thead>
-        <tbody>
-        {% for d in page.object_list %}
-          <tr class="border-t border-white/10">
-            <td class="px-3 py-2 whitespace-nowrap">{{ d.date|date:"Y-m-d" }}</td>
-            <td class="px-3 py-2 whitespace-nowrap">{{ d.holding.ticker }}</td>
-            <td class="px-3 py-2">{{ d.holding.name|default:"-" }}</td>
-            <td class="px-3 py-2 text-right">¥{{ d.amount|floatformat:0|intcomma }}</td>
-            <td class="px-3 py-2">{{ d.memo }}</td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    {% if page.paginator.num_pages > 1 %}
-      <div class="flex justify-center gap-2 mt-3">
-        {% if page.has_previous %}
-          <a href="?page={{ page.previous_page_number }}" class="px-3 py-2 rounded border border-white/15 bg-white/5">前へ</a>
-        {% endif %}
-        <div class="px-3 py-2 text-slate-400">Page {{ page.number }} / {{ page.paginator.num_pages }}</div>
-        {% if page.has_next %}
-          <a href="?page={{ page.next_page_number }}" class="px-3 py-2 rounded border border-white/15 bg-white/5">次へ</a>
-        {% endif %}
-      </div>
-    {% endif %}
-  {% else %}
-    <div class="text-slate-400">まだ配当は登録されていません。</div>
-  {% endif %}
-</div>
+<table class="w-full text-sm border-separate border-spacing-y-2">
+  <thead class="text-slate-300">
+    <tr>
+      <th class="text-left">日付</th>
+      <th class="text-left">コード</th>
+      <th class="text-left">銘柄</th>
+      <th class="text-right">税引後</th>
+      <th class="text-right">税額</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for d in items %}
+      <tr class="bg-slate-800/40">
+        <td class="px-2 py-2">{{ d.date }}</td>
+        <td class="px-2 py-2">{{ d.display_ticker }}</td>
+        <td class="px-2 py-2">{{ d.display_name }}</td>
+        <td class="px-2 py-2 text-right">¥{{ d.net_amount|floatformat:0 }}</td>
+        <td class="px-2 py-2 text-right">¥{{ d.tax|default:0|floatformat:0 }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="5" class="py-6 text-slate-400">まだ配当はありません。</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
 {% endblock %}
