@@ -5,23 +5,21 @@
 
 {% block head %}
 <style>
-  /* ----- 見やすさ強化 ----- */
-  .card{background:rgba(18,24,33,.96);border:1px solid rgba(255,255,255,.10);border-radius:14px;
-        padding:14px 14px 18px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
-  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .fld{margin:10px 0 12px}
-  .lbl{display:block;font-size:13px;color:#b9c3dc;margin:6px 0 6px}
-  .in, .sel, .chkwrap input[type="checkbox"]{
-      width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);
-      color:#e8eeff;border-radius:12px;padding:12px 12px;font-size:15px;line-height:1.2
+  /* 見やすさのための最小スタイル（既存テーマに馴染む程度） */
+  .card{background:rgba(17,24,39,.85);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:14px}
+  .fld{margin:12px 0}
+  .lbl{display:block;font-size:13px;opacity:.9;margin:0 0 6px}
+  .hint{font-size:12px;opacity:.65;margin-top:6px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .btns{display:flex;gap:10px;margin-top:14px}
+  .btn{display:inline-block;padding:10px 14px;border:1px solid rgba(255,255,255,.14);border-radius:12px}
+  .btn.primary{background:rgba(255,255,255,.08)}
+  /* フォーム素の要素にも最低限の見た目を付与 */
+  .in, .sel, textarea, select, input[type="text"], input[type="date"], input[type="number"]{
+    width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);
+    color:#e6ebff;border-radius:12px;padding:10px 12px;font-size:14px;outline:none;
   }
-  .sel{appearance:none}
-  .hint{font-size:12px;color:#90a1c2;margin-top:6px}
-  .actions{display:flex;gap:10px;margin-top:14px}
-  .btn{flex:1;padding:12px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.16)}
-  .btn.primary{background:#2748ff;border-color:#3453ff;color:#fff}
-  .btn.ghost{background:transparent;color:#e6ecff}
-  .note{font-size:12px;color:#91a0bd}
+  .chk{width:18px;height:18px;vertical-align:middle}
 </style>
 {% endblock %}
 
@@ -35,97 +33,102 @@
     <!-- 保有（任意） -->
     <div class="fld">
       <label class="lbl">保有（任意）</label>
-      {{ form.holding|add_class:"sel" }}
-      <div class="hint">未登録の銘柄でも下のティッカー/銘柄名で直接登録できます</div>
+      {{ form.holding }}
+      <div class="hint">未登録の銘柄でも、下のティッカー/銘柄名で直接登録できます</div>
     </div>
 
     <!-- ティッカー / 銘柄名 -->
     <div class="fld">
       <label class="lbl">ティッカー/コード（保有未選択時は必須）</label>
-      {{ form.ticker|add_class:"in" }}
+      {{ form.ticker }}
     </div>
+
     <div class="fld">
-      <label class="lbl">銘柄名（任意・自動補完/手入力可）</label>
-      {{ form.name|add_class:"in" }}
-      <div class="hint">コード入力後に自動補完を試みます（見つからない場合は手入力してください）</div>
+      <label class="lbl">銘柄名（任意・自動補完／手入力可）</label>
+      {{ form.name }}
+      <div class="hint">ティッカー入力後、自動で補完されます（取得できない場合は手入力）</div>
     </div>
 
     <!-- 受取日 / 受取額 -->
     <div class="row">
       <div class="fld">
         <label class="lbl">受取日</label>
-        {{ form.date|add_class:"in" }}
+        {{ form.date }}
       </div>
       <div class="fld">
         <label class="lbl">受取額（税引後）</label>
-        {{ form.amount|add_class:"in" }}
+        {{ form.amount }}
       </div>
     </div>
 
-    <!-- 税率 / 税込 or 税引後 -->
+    <!-- 税率 / 税込フラグ -->
     <div class="row">
       <div class="fld">
         <label class="lbl">税率</label>
-        {{ form.tax_rate|add_class:"sel" }}
+        {{ form.tax_rate }}
       </div>
-      <div class="fld">
-        <label class="lbl">税込/税引後</label>
-        <div class="chkwrap">
-          {{ form.is_net }}
-        </div>
-        <div class="hint">チェックON＝税引後（デフォルト）</div>
+      <div class="fld" style="display:flex;align-items:center;gap:10px">
+        <label class="lbl" style="margin:0">税込/税引後</label>
+        {{ form.is_net }}
+        <span class="hint">チェックON＝税引後（デフォルト）</span>
       </div>
     </div>
 
     <!-- メモ -->
     <div class="fld">
       <label class="lbl">メモ</label>
-      {{ form.memo|add_class:"in" }}
+      {{ form.memo }}
     </div>
 
-    <div class="actions">
+    <div class="btns">
       <button class="btn primary" type="submit">保存</button>
-      <a class="btn ghost" href="{% url 'dividend_list' %}">一覧へ戻る</a>
+      <a class="btn" href="{% url 'dividend_list' %}">一覧へ戻る</a>
     </div>
-
-    <p class="note mt-2">コード入力で銘柄名が自動補完されます。必要なら上書きしてください。</p>
   </form>
 </div>
 
-<!-- 自動補完用JS：holding に関係なくティッカー/銘柄名は常に編集可能 -->
 <script>
   (function(){
-    const $ = s => document.querySelector(s);
-    const code = document.getElementById("id_ticker");
-    const name = document.getElementById("id_name");
-    const holding = document.getElementById("id_holding");
+    const $ = (sel)=>document.querySelector(sel);
+    const ticker = document.getElementById("id_ticker");
+    const name   = document.getElementById("id_name");
+    const holding= document.getElementById("id_holding");
 
-    // どの状態でも編集可能に（誤って disabled にされないよう明示）
-    [code, name].forEach(el => { if (el){ el.removeAttribute("disabled"); el.readOnly = false; } });
+    // 保有を選んだら、空欄なら ticker/name を埋める（可能な範囲で）
+    holding?.addEventListener("change", ()=>{
+      // optionの表示テキストを素直に使う（例: '7203 トヨタ自動車' などにしておくと便利）
+      const opt = holding.options[holding.selectedIndex];
+      if (!opt) return;
+      if (ticker && !ticker.value && opt.textContent){
+        const m = opt.textContent.trim().match(/^([0-9A-Z]{3,5})\s+/);
+        if (m) ticker.value = m[1];
+      }
+      if (name && !name.value){
+        const txt = opt.textContent.trim();
+        const sp  = txt.indexOf(" ");
+        if (sp > 0) name.value = txt.slice(sp+1);
+      }
+    });
 
-    // ティッカー入力→銘柄名をゆるく補完
-    function lookupName(q){
-      if (!q || q.trim().length < 3) return;
-      fetch("{% url 'dividend_lookup_name' %}?q=" + encodeURIComponent(q.trim()))
-        .then(r => r.ok ? r.json() : Promise.reject())
-        .then(j => {
-          if (j && j.name && !name.value.trim()){
-            name.value = j.name;
+    // ティッカー入力で銘柄名を自動補完
+    let tId=null, lastQ="";
+    ticker?.addEventListener("input", ()=>{
+      const q = (ticker.value||"").trim();
+      if (q === lastQ) return;
+      lastQ = q;
+      clearTimeout(tId);
+      if (!q){ return; }
+      tId = setTimeout(async ()=>{
+        try{
+          const r = await fetch(`/dividends/lookup-name/?q=${encodeURIComponent(q)}`);
+          if (!r.ok) return;
+          const js = await r.json();
+          if (js && js.name && name && !name.value){
+            name.value = js.name;
           }
-        })
-        .catch(() => {});
-    }
-    if (code){
-      code.addEventListener("blur", () => lookupName(code.value));
-      code.addEventListener("change", () => lookupName(code.value));
-    }
-
-    // 保有を選んでもティッカー/銘柄名はロックしない（いつでも上書き可）
-    if (holding){
-      holding.addEventListener("change", () => {
-        // ここでは何もしない：ユーザーの手で自由に入力させる
-      });
-    }
+        }catch(_){ /* noop */ }
+      }, 280);
+    });
   })();
 </script>
 {% endblock %}
