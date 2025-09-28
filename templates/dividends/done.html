@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}配当の登録が完了しました{% endblock %}
+{% block content %}
+  <div class="max-w-screen-sm mx-auto p-4">
+    <h1 class="text-xl font-bold mb-3">配当の登録が完了しました</h1>
+    <p class="text-slate-300 mb-6">入力した内容は保存されました。</p>
+    <div class="grid grid-cols-2 gap-3">
+      <a href="{% url 'dividend_create' %}"
+         class="text-center px-4 py-3 rounded-lg border border-slate-600 bg-slate-800">
+        もう一件登録
+      </a>
+      <a href="{% url 'holding_list' %}"
+         class="text-center px-4 py-3 rounded-lg border border-indigo-600 bg-indigo-700">
+        保有一覧へ戻る
+      </a>
+    </div>
+  </div>
+{% endblock %}
