@@ -123,28 +123,116 @@ class HoldingForm(forms.ModelForm):
         
 class DividendForm(forms.ModelForm):
     """
-    - holding をドロップダウンで選択（ユーザーの保有のみ）
-    - 金額系は数字だけ入力しやすいよう inputmode/pattern を付与
+    - holding は任意（未選択でも登録可）
+    - holding 未選択なら ticker を必須にし、コードから銘柄名を自動補完
+    - 税率は 0% / 20.315% を選択 → tax を自動計算して保存（is_net は固定で True）
     """
+    TAX_RATE_CHOICES = (
+        ("0", "課税なし（0%）"),
+        ("20.315", "国内源泉 20.315%"),
+    )
+
+    # 任意で保有を指定（自分の保有のみ）
+    holding = forms.ModelChoiceField(
+        queryset=Holding.objects.none(), required=False, label="保有（任意）"
+    )
+
+    # 保有が無い時でも登録できるよう自由入力を追加
+    ticker = forms.CharField(label="ティッカー/コード", required=False,
+                             widget=forms.TextInput(attrs={"placeholder": "例: 7203 / 167A", "class": "in"}))
+    name   = forms.CharField(label="銘柄名（任意）", required=False,
+                             widget=forms.TextInput(attrs={"placeholder": "自動補完／手入力可", "class": "in"}))
+
+    date   = forms.DateField(label="受取日",
+                             widget=forms.DateInput(attrs={"type": "date", "class": "in"}))
+    amount = forms.DecimalField(label="受取額（税引後）", min_value=0,
+                                widget=forms.NumberInput(attrs={"inputmode": "decimal", "pattern": "[0-9.]*", "class": "in"}))
+
+    # 表示だけ残す（固定ON）
+    is_net = forms.BooleanField(label="税引後として入力（固定）", required=False, initial=True, disabled=True)
+
+    tax_rate = forms.ChoiceField(label="税率", choices=TAX_RATE_CHOICES, initial="20.315")
+
+    # 保存用（自動計算）— 画面には出さない
+    tax  = forms.DecimalField(required=False, widget=forms.HiddenInput())
+    memo = forms.CharField(label="メモ", required=False,
+                           widget=forms.TextInput(attrs={"placeholder": "任意メモ", "class": "in"}))
+
     class Meta:
         model = Dividend
-        fields = ["holding", "date", "amount", "is_net", "tax", "fee", "memo"]
-        widgets = {
-            "date":   forms.DateInput(attrs={"type": "date", "class": "in"}),
-            "amount": forms.NumberInput(attrs={"inputmode": "decimal", "pattern": "[0-9.]*", "class": "in"}),
-            "tax":    forms.NumberInput(attrs={"inputmode": "decimal", "pattern": "[0-9.]*", "class": "in"}),
-            "fee":    forms.NumberInput(attrs={"inputmode": "decimal", "pattern": "[0-9.]*", "class": "in"}),
-            "memo":   forms.TextInput(attrs={"placeholder": "任意メモ", "class": "in"}),
-        }
+        fields = ["holding", "ticker", "name", "date", "amount", "is_net", "tax_rate", "tax", "memo"]
 
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
-        # 自分の保有だけ選ばせる
         qs = Holding.objects.all()
         if user is not None:
             qs = qs.filter(user=user)
         self.fields["holding"].queryset = qs.order_by("ticker", "name")
-        self.fields["holding"].widget.attrs.update({"class": "in"})
-        # チェックボックスの見た目調整
-        self.fields["is_net"].widget.attrs.update({"class": "chk"}) 
+
+    # --- 銘柄名の補完ロジック（HoldingFormと同等の方針） ---
+    @staticmethod
+    def _resolve_name_fallback(code_head: str, raw: str) -> str:
+        # 0) 任意の上書き辞書
+        override = getattr(settings, "TSE_NAME_OVERRIDES", {}).get((code_head or "").upper())
+        if override:
+            return override
+
+        name = None
+        # 1) 4桁数字 → tickers.csv
+        try:
+            if code_head and len(code_head) == 4 and code_head.isdigit():
+                name = svc_tickers.resolve_name(code_head)
+        except Exception:
+            pass
+        # 2) trend のローカル辞書
+        if not name:
+            try:
+                norm = svc_trend._normalize_ticker(code_head)
+                name = svc_trend._lookup_name_jp_from_list(norm)
+            except Exception:
+                pass
+        # 3) 最終：外部取得（英名の可能性あり）
+        if not name:
+            try:
+                norm = svc_trend._normalize_ticker(code_head or raw)
+                name = svc_trend._fetch_name_prefer_jp(norm)
+            except Exception:
+                pass
+        return (name or "").strip()
+
+    def clean(self):
+        cd = super().clean()
+
+        holding = cd.get("holding")
+        raw_ticker = (cd.get("ticker") or "").strip()
+        ticker = _normalize_code_head(raw_ticker) if raw_ticker else ""
+
+        # holding 未選択なら ticker 必須
+        if not holding and not ticker:
+            self.add_error("ticker", "保有が未選択の場合はティッカー/コードを入力してください。")
+        cd["ticker"] = ticker or raw_ticker  # 正規化できたら置換
+
+        # 銘柄名の自動補完
+        name = (cd.get("name") or "").strip()
+        if not name:
+            # holding 優先で補完、無ければコードから補完
+            if holding:
+                name = holding.name or name
+                if not ticker:
+                    cd["ticker"] = holding.ticker
+            if not name:
+                name = self._resolve_name_fallback(cd.get("ticker") or "", raw_ticker)
+            cd["name"] = name
+
+        # 税額を自動計算（is_net固定 True 前提）
+        amount = cd.get("amount") or 0
+        try:
+            rate = float(self.cleaned_data.get("tax_rate", "20.315"))
+        except Exception:
+            rate = 20.315
+        r = rate / 100.0
+        cd["tax"] = amount * r if rate > 0 else 0
+        cd["is_net"] = True
+
+        return cd
         
