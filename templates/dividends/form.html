@@ -1,58 +1,89 @@
 {% extends "base.html" %}
+{% load static %}
+
 {% block title %}配当を記録{% endblock %}
 
-{% block head %}
-<style>
-  .form-card{display:grid;gap:12px;padding:16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);max-width:640px;margin:0 auto;}
-  .fi label{display:block;font-size:13px;color:#9aa4b2;margin-bottom:4px}
-  .in{width:100%;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e6ebff;outline:none}
-  .row{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
-  .btnbar{display:flex;gap:10px}
-  .btn{padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e6ebff}
-  .chk{width:18px;height:18px;vertical-align:middle}
-</style>
-{% endblock %}
-
 {% block content %}
-<div class="pnl">
-  <h1 class="text-lg font-bold mb-3">配当を記録</h1>
+<h1 class="text-xl font-bold mb-3">配当を記録</h1>
 
-  <form method="post" class="form-card">
-    {% csrf_token %}
+<form method="post" class="space-y-4">
+  {% csrf_token %}
 
-    <div class="fi">
-      <label>保有（銘柄）</label>
-      {{ form.holding }}
+  <div class="p-3 rounded-lg border border-slate-700/60 bg-slate-800/40">
+    <label class="block text-slate-300 mb-1">保有（任意）</label>
+    {{ form.holding }}
+    {% if form.holding.errors %}<div class="text-red-400 text-sm">{{ form.holding.errors }}</div>{% endif %}
+  </div>
+
+  <div class="p-3 rounded-lg border border-slate-700/60 bg-slate-800/40">
+    <label class="block text-slate-300 mb-1">ティッカー/コード（保有未選択時は必須）</label>
+    {{ form.ticker }}
+    {% if form.ticker.errors %}<div class="text-red-400 text-sm">{{ form.ticker.errors }}</div>{% endif %}
+  </div>
+
+  <div class="p-3 rounded-lg border border-slate-700/60 bg-slate-800/40">
+    <label class="block text-slate-300 mb-1">銘柄名（任意）</label>
+    {{ form.name }}
+    {% if form.name.errors %}<div class="text-red-400 text-sm">{{ form.name.errors }}</div>{% endif %}
+  </div>
+
+  <div class="grid grid-cols-2 gap-3">
+    <div class="p-3 rounded-lg border border-slate-700/60 bg-slate-800/40">
+      <label class="block text-slate-300 mb-1">受取日</label>
+      {{ form.date }}
+      {% if form.date.errors %}<div class="text-red-400 text-sm">{{ form.date.errors }}</div>{% endif %}
     </div>
-
-    <div class="row">
-      <div class="fi"><label>受取日</label>{{ form.date }}</div>
-      <div class="fi"><label>受取額</label>{{ form.amount }}</div>
-      <div class="fi">
-        <label>税込/税引後</label>
-        <div style="display:flex;align-items:center;gap:8px">
-          {{ form.is_net }} <span style="font-size:13px;opacity:.8">税引後（チェックON）</span>
-        </div>
-      </div>
+    <div class="p-3 rounded-lg border border-slate-700/60 bg-slate-800/40">
+      <label class="block text-slate-300 mb-1">受取額（税引後）</label>
+      {{ form.amount }}
+      {% if form.amount.errors %}<div class="text-red-400 text-sm">{{ form.amount.errors }}</div>{% endif %}
     </div>
+  </div>
 
-    <div class="row">
-      <div class="fi"><label>税額（任意）</label>{{ form.tax }}</div>
-      <div class="fi"><label>手数料（任意）</label>{{ form.fee }}</div>
+  <div class="grid grid-cols-2 gap-3">
+    <div class="p-3 rounded-lg border border-slate-700/60 bg-slate-800/40">
+      <label class="block text-slate-300 mb-1">税率</label>
+      {{ form.tax_rate }}
     </div>
-
-    <div class="fi"><label>メモ</label>{{ form.memo }}</div>
-
-    {% if form.errors %}
-      <div class="px-3 py-2 rounded bg-rose-900/40 border border-rose-500/30 text-rose-100 text-sm">
-        入力に誤りがあります。確認してください。
-      </div>
-    {% endif %}
-
-    <div class="btnbar">
-      <button class="btn" type="submit">保存</button>
-      <a class="btn" href="{% url 'dividend_list' %}">一覧へ戻る</a>
+    <div class="p-3 rounded-lg border border-slate-700/60 bg-slate-800/40">
+      <label class="block text-slate-300 mb-1">税込/税引後</label>
+      {{ form.is_net }}
     </div>
-  </form>
-</div>
+  </div>
+
+  {{ form.tax }} {# Hidden: 自動計算で埋まる #}
+
+  <div class="p-3 rounded-lg border border-slate-700/60 bg-slate-800/40">
+    <label class="block text-slate-300 mb-1">メモ</label>
+    {{ form.memo }}
+  </div>
+
+  <div class="flex gap-3 pt-2">
+    <button class="px-4 py-2 rounded-lg border border-slate-600 bg-slate-700">保存</button>
+    <a href="{% url 'dividend_list' %}" class="px-4 py-2 rounded-lg border border-slate-600">一覧へ戻る</a>
+  </div>
+</form>
+
+<script>
+  // Holdingを選んだら ticker/name を薄く補完（空欄のときだけ）
+  (function(){
+    const sel = document.getElementById("id_holding");
+    const tck = document.getElementById("id_ticker");
+    const nam = document.getElementById("id_name");
+    if (!sel) return;
+    sel.addEventListener("change", ()=>{
+      const opt = sel.selectedOptions[0];
+      if (!opt) return;
+      const txt = opt.textContent || "";
+      // ラベルが「銘柄名 (CODE)」形式ならざっくり抽出（フォーム側でoptions整えてもOK）
+      const m = txt.match(/\(([^)]+)\)/);
+      const code = m ? m[1] : "";
+      if (!tck.value && code) tck.value = code;
+      if (!nam.value) {
+        const nameOnly = txt.replace(/\s*\([^)]+\)\s*$/, "");
+        if (nameOnly) nam.value = nameOnly;
+      }
+    });
+  })();
+</script>
 {% endblock %}
