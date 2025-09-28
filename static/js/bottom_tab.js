@@ -43,7 +43,7 @@ document.addEventListener("DOMContentLoaded", () => {
     {
       holding_create : "/holdings/create/",
       holdings_base  : "/holdings/",
-      dividend_create: "dividends/create/"      // ← フォールバックは new に合わせる
+      dividend_create: "/dividends/create/"   // ← 先頭スラッシュ付きに修正
     },
     window.APP_URLS || {}
   );
@@ -84,31 +84,31 @@ document.addEventListener("DOMContentLoaded", () => {
   const MENUS = {
     home: [
       { section:"クイック" },
-      { label:"保有追加",   href: URLS.holding_create,  icon:"➕", tone:"add" },
-      { label:"配当登録", href: URLS.dividend_create, icon:"💸", tone:"add" },
-      { label:"設定を開く", href:"/settings/trade/",    icon:"⚙️", tone:"info" },
+      { label:"新規登録",     href: URLS.holding_create,  icon:"➕", tone:"add" },
+      { label:"配当登録",     href: URLS.dividend_create, icon:"💸", tone:"add" },
+      { label:"設定を開く",     href:"/settings/trade/",    icon:"⚙️", tone:"info" },
     ],
     holdings: [
       { section:"保有" },
-      { label:"新規登録",   href: URLS.holding_create,  icon:"➕", tone:"add" },
-      { label:"配当登録", href: URLS.dividend_create, icon:"💸", tone:"add" },
-      { label:"楽天証券",   action:"goto_broker", broker:"RAKUTEN", icon:"🏯", tone:"info" },
-      { label:"松井証券",   action:"goto_broker", broker:"MATSUI",  icon:"📊", tone:"info" },
-      { label:"SBI証券",    action:"goto_broker", broker:"SBI",     icon:"🏦", tone:"info" },
+      { label:"新規登録",       href: URLS.holding_create,  icon:"➕", tone:"add" },
+      { label:"配当登録",     href: URLS.dividend_create, icon:"💸", tone:"add" },
+      { label:"楽天証券",       action:"goto_broker", broker:"RAKUTEN", icon:"🏯", tone:"info" },
+      { label:"松井証券",       action:"goto_broker", broker:"MATSUI",  icon:"📊", tone:"info" },
+      { label:"SBI証券",        action:"goto_broker", broker:"SBI",     icon:"🏦", tone:"info" },
     ],
     pnl: [
       { section:"実現損益" },
-      { label:"期間サマリー", action:"show_summary",           icon:"📊", tone:"info" },
-      { label:"月別サマリー", href:"/realized/monthly/",       icon:"🗓️", tone:"info" },
-      { label:"ランキング",   action:"show_ranking",            icon:"🏅", tone:"info" },
-      { label:"明細",         action:"show_details",            icon:"📑", tone:"info" },
+      { label:"期間サマリー",   action:"show_summary",      icon:"📊", tone:"info" },
+      { label:"月別サマリー",   href:"/realized/monthly/",  icon:"🗓️", tone:"info" },
+      { label:"ランキング",     action:"show_ranking",       icon:"🏅", tone:"info" },
+      { label:"明細",           action:"show_details",       icon:"📑", tone:"info" },
     ],
     trend: [
       { section:"トレンド" },
-      { label:"監視に追加",   action:"watch_symbol",    icon:"👁️", tone:"add" },
+      { label:"監視に追加",     action:"watch_symbol",       icon:"👁️", tone:"add" },
       { label:"エントリー/ストップ計算", action:"calc_entry_stop", icon:"🎯", tone:"info" },
-      { label:"共有リンクをコピー", action:"share_link",      icon:"🔗", tone:"info" },
-      { label:"チャート設定", action:"chart_settings",  icon:"🛠️", tone:"action" },
+      { label:"共有リンクをコピー", action:"share_link",    icon:"🔗", tone:"info" },
+      { label:"チャート設定",   action:"chart_settings",     icon:"🛠️", tone:"action" },
     ],
   };
   MENUS.realized = MENUS.pnl;
