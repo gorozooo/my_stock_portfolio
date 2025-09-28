@@ -126,16 +126,16 @@ class RealizedTrade(models.Model):
 # ==== Dividend ======================================================
 class Dividend(models.Model):
     """
-    配当（銘柄＝Holding にひも付く。ユーザーは Holding.user で判定）
+    配当（銘柄＝Holding にひも付く）
+    amount は入力額。デフォルトは「税引後（受取額）」を想定し is_net=True。
+    tax は保存時に税率から自動計算して格納する。
     """
-    holding = models.ForeignKey(Holding, on_delete=models.CASCADE, related_name="dividends")
-    date = models.DateField()
-    # 受取額：当面は税引後(net)を想定。税込対応するなら is_net=False ＋ tax を使う想定
-    amount = models.DecimalField(max_digits=12, decimal_places=2)
-    is_net = models.BooleanField(default=True, help_text="True=税引後, False=税引前")
-    tax = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, help_text="源泉など（任意）")
-    fee = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, help_text="手数料（任意）")
-    memo = models.CharField(max_length=255, blank=True, default="")
+    holding = models.ForeignKey('Holding', on_delete=models.CASCADE, related_name="dividends")
+    date    = models.DateField("受取日")
+    amount  = models.DecimalField("受取額", max_digits=12, decimal_places=2)
+    is_net  = models.BooleanField("税込/税引後", default=True, help_text="チェックON=税引後（受取額）")
+    tax     = models.DecimalField("税額", max_digits=12, decimal_places=2, null=True, blank=True)
+    memo    = models.CharField("メモ", max_length=255, blank=True, default="")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -145,3 +145,22 @@ class Dividend(models.Model):
 
     def __str__(self):
         return f"{self.holding.ticker} {self.date} {self.amount}"
+
+    # 表示用のヘルパ
+    def gross_amount(self) -> Decimal:
+        """税引前金額（推定）。is_net=True なら amount/(1-r) - fee を返す想定だが fee は撤去済み。"""
+        if self.tax is None:
+            return self.amount
+        if self.is_net:
+            return (Decimal(self.amount) + Decimal(self.tax))
+        # is_net=False（税引前入力）なら amount がそのまま税引前
+        return Decimal(self.amount)
+
+    def net_amount(self) -> Decimal:
+        """受取額（税引後）。"""
+        if self.tax is None:
+            return self.amount
+        if self.is_net:
+            return Decimal(self.amount)
+        # is_net=False（税引前入力）→ 税引後 = amount - tax
+        return Decimal(self.amount) - Decimal(self.tax)
