@@ -13,6 +13,7 @@ from .views.realized import (
 )
 from .views import dev_tools as dev_views
 from .views import holding as hv
+from .views import dividend as dividend_views
 
 urlpatterns = [
     path("", core_views.main, name="home"),
@@ -44,6 +45,8 @@ urlpatterns = [
     path("holdings/<int:pk>/delete/", hv.holding_delete, name="holding_delete"),
     path("api/ticker-name", hv.api_ticker_name, name="api_ticker_name"),
     path("holdings/partial/list", hv.holding_list_partial, name="holding_list_partial"),
+    
+    path("holdings/<int:pk>/dividend/new", dividend_views.create, name="dividend_create"),
     
     # 実現損益（メイン）
     path("realized/", realized_views.list_page, name="realized_list"),
