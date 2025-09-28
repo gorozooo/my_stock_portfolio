@@ -122,3 +122,26 @@ class RealizedTrade(models.Model):
             return float(self.cashflow)
         signed = self.amount if self.side == "SELL" else -self.amount
         return signed - float(self.fee) - float(self.tax)
+        
+# ==== Dividend ======================================================
+class Dividend(models.Model):
+    """
+    配当（銘柄＝Holding にひも付く。ユーザーは Holding.user で判定）
+    """
+    holding = models.ForeignKey(Holding, on_delete=models.CASCADE, related_name="dividends")
+    date = models.DateField()
+    # 受取額：当面は税引後(net)を想定。税込対応するなら is_net=False ＋ tax を使う想定
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    is_net = models.BooleanField(default=True, help_text="True=税引後, False=税引前")
+    tax = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, help_text="源泉など（任意）")
+    fee = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, help_text="手数料（任意）")
+    memo = models.CharField(max_length=255, blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-date", "-id")
+
+    def __str__(self):
+        return f"{self.holding.ticker} {self.date} {self.amount}"
