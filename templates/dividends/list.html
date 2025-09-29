@@ -4,177 +4,79 @@
 
 {% block head %}
 <style>
-  :root{
-    --card-bg: rgba(255,255,255,.04);
-    --card-bd: rgba(255,255,255,.10);
-    --txt: #e8edff;
-    --sub: #9aa4b2;
-    --pill-bg: rgba(255,255,255,.06);
-    --pill-bd: rgba(255,255,255,.16);
-    --open-w: 168px; /* 編集84 + 削除84（holdings.js が width を読む） */
-  }
-  .wrap{max-width:960px;margin:0 auto;padding:0 10px}
-  .title{font-size:22px;font-weight:700;color:var(--txt);margin:12px 0}
+  .kpis{display:grid;gap:14px;grid-template-columns:1fr 1fr}
+  .kpi{border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.04);border-radius:16px;padding:14px}
+  .kpi .lbl{font-size:12px;color:#9aa4b2;margin-bottom:6px}
+  .kpi .val{font-size:24px;font-weight:700;letter-spacing:.4px}
 
-  /* KPI */
-  .stats{display:grid;gap:10px;margin:0 0 14px;grid-template-columns:repeat(2,minmax(0,1fr))}
-  @media (min-width:720px){ .stats{grid-template-columns:repeat(4,minmax(0,1fr))} }
-  .stat{padding:10px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-bd)}
-  .stat .l{font-size:12px;color:var(--sub)}
-  .stat .v{font-size:18px;font-weight:800;color:var(--txt);font-variant-numeric:tabular-nums}
-
-  /* リスト（holdings.js 準拠の構造） */
-  .list{display:grid;gap:10px}
-
-  /* 1カード */
-  [data-swipe]{
-    position:relative;border-radius:14px;background:var(--card-bg);border:1px solid var(--card-bd);
-    overflow:hidden;
-  }
-  /* 右側アクション：初期は非表示（translateX(100%)） */
+  /* ===== swipe cards ===== */
+  .list{margin-top:16px;display:grid;gap:14px}
+  [data-swipe]{position:relative;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.04);border-radius:16px;overflow:hidden}
+  [data-swipe] .track{padding:16px}
   [data-swipe] .actions{
-    position:absolute;right:0;top:0;bottom:0;width:var(--open-w);
-    display:flex;gap:0;
-    transform:translateX(100%); /* 重要：常に表示されないように */
-    transition:transform .18s ease;
-    pointer-events:none; /* 閉じてる時はクリック不可 */
+    position:absolute; inset:0 0 0 auto; width:220px; display:flex;
+    transform:translateX(100%); transition:transform .18s ease;
   }
-  [data-swipe].is-open .actions{ transform:translateX(0); pointer-events:auto; }
-
-  .actions .item{
-    flex:1;display:flex;align-items:center;justify-content:center;
-    padding:0 8px;font-weight:700;font-size:14px;color:#fff;text-decoration:none;
-    border-left:1px solid rgba(255,255,255,.15);
+  [data-swipe] .actions .item{
+    width:110px; display:flex; align-items:center; justify-content:center;
+    font-weight:700; letter-spacing:.2px;
   }
-  .actions .edit{ background:rgba(110,168,255,.45); }
-  .actions .delete{background:rgba(255,61,61,.55); }
-
-  /* 表示本体 */
-  .track{position:relative;z-index:1;padding:10px 12px;display:grid;gap:10px;grid-template-columns:1fr auto}
-  @media (max-width:640px){ .track{grid-template-columns:1fr} }
-  .name{font-size:16px;font-weight:800;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .date{font-size:12px;color:var(--sub);margin-top:2px}
-  .badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
-  .badge{padding:4px 8px;border-radius:999px;font-size:11px;background:var(--pill-bg);border:1px solid var(--pill-bd);color:#cfd7ff}
-  .memo{margin-top:6px;font-size:12px;color:#cfd4eb}
-  .money{align-self:center;text-align:right;min-width:180px}
-  .money .net{font-size:18px;font-weight:900;color:var(--txt);font-variant-numeric:tabular-nums}
-  .money .sub{font-size:11px;color:var(--sub);margin-top:2px}
-
-  .empty{padding:24px;text-align:center;color:var(--sub);border:1px dashed var(--card-bd);border-radius:14px;background:rgba(255,255,255,.02)}
-
-  /* 削除モーダル */
-  .modal-mask{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);backdrop-filter:blur(2px);z-index:100050}
-  .modal-mask.show{display:flex}
-  .modal{width:min(520px,92vw);background:#141827;color:var(--txt);border:1px solid var(--card-bd);border-radius:14px;padding:16px}
-  .modal h3{margin:0 0 6px;font-size:18px;font-weight:700}
-  .modal .desc{font-size:13px;color:var(--sub);margin-bottom:10px}
-  .btns{display:flex;gap:8px;justify-content:flex-end}
-  .btn{padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid var(--pill-bd);color:var(--txt);text-decoration:none;font-size:13px;font-weight:600}
-  .btn.danger{background:rgba(255,0,0,.07);border-color:rgba(255,0,0,.22);color:#ffd5d5}
+  [data-swipe] .actions .edit{background:rgba(255,255,255,.10); border-left:1px solid rgba(255,255,255,.08)}
+  [data-swipe] .actions .delete{background:#7f232c;border-left:1px solid rgba(255,255,255,.08)}
+  [data-swipe].is-open .actions{transform:translateX(0)}
+  .meta-row{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+  .chip{padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e6ebff;font-size:13px}
+  .net{font-size:24px;font-weight:800;text-align:right;margin-top:8px}
+  .sub{color:#9aa4b2;font-size:13px;text-align:right}
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="wrap">
-  <div class="title">配当一覧</div>
+<h1 class="text-xl font-semibold mb-3">配当一覧</h1>
 
-  <div class="stats">
-    <div class="stat"><div class="l">件数</div><div class="v">{{ items|length }} 件</div></div>
-    <div class="stat"><div class="l">税引前合計</div><div class="v">{{ total_gross|floatformat:2 }}</div></div>
-    <div class="stat"><div class="l">税額合計</div><div class="v">{{ total_tax|floatformat:2 }}</div></div>
-    <div class="stat"><div class="l">税引後合計</div><div class="v">{{ total_net|floatformat:2 }}</div></div>
-  </div>
+<div class="kpis">
+  <div class="kpi"><div class="lbl">件数</div><div class="val">{{ stats.count|default:0 }} 件</div></div>
+  <div class="kpi"><div class="lbl">税引前合計</div><div class="val">{{ stats.gross_sum|floatformat:2 }}</div></div>
+  <div class="kpi"><div class="lbl">税額合計</div><div class="val">{{ stats.tax_sum|floatformat:2 }}</div></div>
+  <div class="kpi"><div class="lbl">税引後合計</div><div class="val">{{ stats.net_sum|floatformat:2 }}</div></div>
+</div>
 
-  {% if not items %}
-    <div class="empty">まだ配当がありません。</div>
-  {% else %}
-    <div class="list">
-      {% for it in items %}
-      <div data-swipe>
-        <!-- 右アクション（初期は非表示 / 左スワイプで表示） -->
-        <div class="actions">
-          <a class="item edit" href="{% url 'dividend_edit' it.id %}" data-action="edit">編集</a>
-          <button type="button"
-                  class="item delete js-del"
-                  data-url="{% url 'dividend_delete' it.id %}"
-                  data-title="{{ it.display_ticker }}{% if it.display_name %} / {{ it.display_name }}{% endif %}"
-                  data-date="{{ it.date|date:'Y-m-d' }}"
-                  data-net="{{ it.net_amount|floatformat:2 }}">削除</button>
-        </div>
+<div class="list">
+  {% for d in items %}
+  <div class="row" data-swipe>
+    <!-- 操作用パネル（右側） -->
+    <div class="actions">
+      <a class="item edit" href="{% url 'dividend_edit' d.id %}">編集</a>
+      <form class="item delete" method="post" action="{% url 'dividend_delete' d.id %}"
+            onsubmit="return confirm('削除してよろしいですか？');">
+        {% csrf_token %}
+        <button type="submit" style="all:unset;cursor:pointer;font:inherit;color:inherit">削除</button>
+      </form>
+    </div>
 
-        <!-- カード本体（タップで閉じる / holdings.js がバインド） -->
-        <div class="track">
-          <div>
-            <div class="name">
-              {{ it.display_ticker }}{% if it.display_name %} / {{ it.display_name }}{% endif %}
-            </div>
-            <div class="date">{{ it.date|date:"Y-m-d" }}</div>
-
-            <div class="badges">
-              {% if it.broker %}<span class="badge">証券: {{ it.get_broker_display|default:it.broker }}</span>{% endif %}
-              {% if it.account %}<span class="badge">口座: {{ it.get_account_display|default:it.account }}</span>{% endif %}
-              {% if it.quantity %}<span class="badge">株数: {{ it.quantity }}</span>{% endif %}
-              {% if it.purchase_price %}<span class="badge">取得単価: {{ it.purchase_price }}</span>{% endif %}
-            </div>
-
-            {% if it.memo %}<div class="memo">{{ it.memo }}</div>{% endif %}
-          </div>
-
-          <div class="money">
-            <div class="net">税引後 {{ it.net_amount|floatformat:2 }}</div>
-            <div class="sub">税引前 {{ it.gross_amount|floatformat:2 }} ／ 税額 {{ it.tax|default:0|floatformat:2 }}</div>
-          </div>
-        </div>
+    <!-- 表示面 -->
+    <div class="track">
+      <div class="title text-lg font-semibold mb-1">
+        {{ d.display_ticker }} / {{ d.display_name }}
       </div>
-      {% endfor %}
-    </div>
-  {% endif %}
-</div>
+      <div class="date text-sm text-slate-400 mb-2">{{ d.date }}</div>
 
-<form id="delForm" method="post" style="display:none">{% csrf_token %}</form>
+      <div class="meta-row">
+        {% if d.broker %}<span class="chip">証券: {{ d.get_broker_display }}</span>{% endif %}
+        {% if d.account %}<span class="chip">口座: {{ d.get_account_display }}</span>{% endif %}
+        {% if d.quantity %}<span class="chip">株数: {{ d.quantity }}</span>{% endif %}
+        {% if d.purchase_price %}<span class="chip">取得単価: {{ d.purchase_price|floatformat:2 }}</span>{% endif %}
+      </div>
+      {% if d.memo %}<div class="text-sm mb-2">{{ d.memo }}</div>{% endif %}
 
-<!-- 簡易モーダル -->
-<div class="modal-mask" id="delModal" aria-hidden="true">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delTitle">
-    <h3 id="delTitle">配当を削除しますか？</h3>
-    <div class="desc" id="delDesc"></div>
-    <div class="btns">
-      <button type="button" class="btn" id="delCancel">キャンセル</button>
-      <button type="button" class="btn danger" id="delOk">削除する</button>
+      <div class="net">税引後 {{ d.net_amount|floatformat:2 }}</div>
+      <div class="sub">税引前 {{ d.gross_amount|floatformat:2 }} ／ 税額 {{ d.tax|default:0|floatformat:2 }}</div>
     </div>
   </div>
+  {% empty %}
+  <div class="text-slate-400">まだ配当の記録がありません。</div>
+  {% endfor %}
 </div>
 
-{% endblock %}
-
-{% block extra_js %}
-  <!-- スワイプ挙動は holdings.js をそのまま流用 -->
-  <script src="{% static 'js/holdings.js' %}"></script>
-  <script>
-  // 配当用：削除モーダル（holdings.js のスワイプとは独立）
-  (function(){
-    const modal = document.getElementById('delModal');
-    const desc  = document.getElementById('delDesc');
-    const btnOk = document.getElementById('delOk');
-    const btnNg = document.getElementById('delCancel');
-    const form  = document.getElementById('delForm');
-    let url=null;
-
-    function open(p){ url=p.url; desc.textContent = `${p.title} ／ ${p.date} ／ 税引後 ${p.net}`; modal.classList.add('show'); }
-    function close(){ modal.classList.remove('show'); url=null; }
-
-    document.querySelectorAll('.js-del').forEach(b=>{
-      // holdings.js が actions 内クリックのバブリングを止めるのでここで直接拾える
-      b.addEventListener('click', (e)=>{
-        e.preventDefault();
-        open({ url:b.dataset.url, title:b.dataset.title||'', date:b.dataset.date||'', net:b.dataset.net||'' });
-      });
-    });
-    btnNg.addEventListener('click', close);
-    modal.addEventListener('click', (e)=>{ if (e.target === modal) close(); });
-    document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') close(); });
-    btnOk.addEventListener('click', ()=>{ if(url){ form.action=url; form.submit(); } close(); });
-  })();
-  </script>
+<script src="{% static 'js/dividends.js' %}"></script>
 {% endblock %}
