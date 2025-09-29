@@ -5,68 +5,72 @@
 {% block head %}
 <style>
   :root{
-    --bg-card: rgba(255,255,255,.04);
-    --bd-card: rgba(255,255,255,.10);
-    --txt-main: #e8edff;
-    --txt-sub : #9aa4b2;
-    --pill-bg : rgba(255,255,255,.06);
-    --pill-bd : rgba(255,255,255,.16);
-    --act-w   : 168px; /* 露出時のアクション幅（編集84 + 削除84）*/
+    --card-bg: rgba(255,255,255,.04);
+    --card-bd: rgba(255,255,255,.10);
+    --txt: #e8edff;
+    --sub: #9aa4b2;
+    --pill-bg: rgba(255,255,255,.06);
+    --pill-bd: rgba(255,255,255,.16);
+    --open-w: 168px; /* 編集84 + 削除84（holdings.js が width を読む） */
   }
-  .wrap{max-width:960px;margin:0 auto;padding-inline:8px}
-  .title{font-size:22px;font-weight:700;color:var(--txt-main);margin:10px 0 12px}
+  .wrap{max-width:960px;margin:0 auto;padding:0 10px}
+  .title{font-size:22px;font-weight:700;color:var(--txt);margin:12px 0}
 
-  /* KPI（通常グリッド） */
-  .stats-grid{display:grid;gap:10px;margin:0 0 14px;grid-template-columns:repeat(2,minmax(0,1fr))}
-  @media (min-width:720px){ .stats-grid{grid-template-columns:repeat(4,minmax(0,1fr))} }
-  .stat{padding:10px 12px;border-radius:12px;background:var(--bg-card);border:1px solid var(--bd-card)}
-  .stat .label{font-size:12px;color:var(--txt-sub);margin-bottom:2px}
-  .stat .value{font-size:18px;font-weight:700;color:var(--txt-main);font-variant-numeric:tabular-nums}
+  /* KPI */
+  .stats{display:grid;gap:10px;margin:0 0 14px;grid-template-columns:repeat(2,minmax(0,1fr))}
+  @media (min-width:720px){ .stats{grid-template-columns:repeat(4,minmax(0,1fr))} }
+  .stat{padding:10px 12px;border-radius:12px;background:var(--card-bg);border:1px solid var(--card-bd)}
+  .stat .l{font-size:12px;color:var(--sub)}
+  .stat .v{font-size:18px;font-weight:800;color:var(--txt);font-variant-numeric:tabular-nums}
 
-  /* スワイプ行（アクションは右側に固定配置。track を左へスライド） */
+  /* リスト（holdings.js 準拠の構造） */
   .list{display:grid;gap:10px}
-  .swipe{
-    position:relative; overflow:hidden; border-radius:14px;
-    background:var(--bg-card); border:1px solid var(--bd-card);
-  }
-  .swipe-actions{
-    position:absolute; inset:0 0 0 auto; width:var(--act-w);
-    display:flex; align-items:stretch; justify-content:stretch; gap:0;
-  }
-  .swipe-actions .btn{
-    flex:1; display:flex; align-items:center; justify-content:center;
-    padding:0 8px; font-weight:700; font-size:14px; color:#fff; text-decoration:none;
-  }
-  .btn-edit{background:rgba(110,168,255,.45); border-left:1px solid rgba(110,168,255,.6)}
-  .btn-del {background:rgba(255,61,61,.55);  border-left:1px solid rgba(255,61,61,.7)}
-  .btn-edit:active{filter:brightness(1.05)} .btn-del:active{filter:brightness(1.05)}
 
-  .swipe-track{
-    position:relative; z-index:1; background:transparent;
-    transform:translateX(0); transition:transform .18s ease;
-    display:grid; grid-template-columns:1fr auto; gap:10px; padding:10px 12px;
+  /* 1カード */
+  [data-swipe]{
+    position:relative;border-radius:14px;background:var(--card-bg);border:1px solid var(--card-bd);
+    overflow:hidden;
   }
-  @media (max-width:640px){ .swipe-track{grid-template-columns:1fr} }
+  /* 右側アクション：初期は非表示（translateX(100%)） */
+  [data-swipe] .actions{
+    position:absolute;right:0;top:0;bottom:0;width:var(--open-w);
+    display:flex;gap:0;
+    transform:translateX(100%); /* 重要：常に表示されないように */
+    transition:transform .18s ease;
+    pointer-events:none; /* 閉じてる時はクリック不可 */
+  }
+  [data-swipe].is-open .actions{ transform:translateX(0); pointer-events:auto; }
 
-  .name{font-size:16px;font-weight:700;color:var(--txt-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .date{font-size:12px;color:var(--txt-sub);margin-top:2px}
+  .actions .item{
+    flex:1;display:flex;align-items:center;justify-content:center;
+    padding:0 8px;font-weight:700;font-size:14px;color:#fff;text-decoration:none;
+    border-left:1px solid rgba(255,255,255,.15);
+  }
+  .actions .edit{ background:rgba(110,168,255,.45); }
+  .actions .delete{background:rgba(255,61,61,.55); }
+
+  /* 表示本体 */
+  .track{position:relative;z-index:1;padding:10px 12px;display:grid;gap:10px;grid-template-columns:1fr auto}
+  @media (max-width:640px){ .track{grid-template-columns:1fr} }
+  .name{font-size:16px;font-weight:800;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .date{font-size:12px;color:var(--sub);margin-top:2px}
   .badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
   .badge{padding:4px 8px;border-radius:999px;font-size:11px;background:var(--pill-bg);border:1px solid var(--pill-bd);color:#cfd7ff}
   .memo{margin-top:6px;font-size:12px;color:#cfd4eb}
   .money{align-self:center;text-align:right;min-width:180px}
-  .money .net{font-size:18px;font-weight:800;color:var(--txt-main);font-variant-numeric:tabular-nums}
-  .money .labels{font-size:10.5px;color:var(--txt-sub);margin-top:2px}
+  .money .net{font-size:18px;font-weight:900;color:var(--txt);font-variant-numeric:tabular-nums}
+  .money .sub{font-size:11px;color:var(--sub);margin-top:2px}
 
-  .empty{padding:24px;text-align:center;color:var(--txt-sub);border:1px dashed var(--bd-card);border-radius:14px;background:rgba(255,255,255,.02)}
+  .empty{padding:24px;text-align:center;color:var(--sub);border:1px dashed var(--card-bd);border-radius:14px;background:rgba(255,255,255,.02)}
 
   /* 削除モーダル */
   .modal-mask{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);backdrop-filter:blur(2px);z-index:100050}
   .modal-mask.show{display:flex}
-  .modal{width:min(520px,92vw);background:#141827;color:var(--txt-main);border:1px solid var(--bd-card);border-radius:14px;padding:16px}
+  .modal{width:min(520px,92vw);background:#141827;color:var(--txt);border:1px solid var(--card-bd);border-radius:14px;padding:16px}
   .modal h3{margin:0 0 6px;font-size:18px;font-weight:700}
-  .modal .desc{font-size:13px;color:var(--txt-sub);margin-bottom:10px}
-  .modal .btns{display:flex;gap:8px;justify-content:flex-end}
-  .btn{padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid var(--pill-bd);color:var(--txt-main);text-decoration:none;font-size:13px;font-weight:600}
+  .modal .desc{font-size:13px;color:var(--sub);margin-bottom:10px}
+  .btns{display:flex;gap:8px;justify-content:flex-end}
+  .btn{padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid var(--pill-bd);color:var(--txt);text-decoration:none;font-size:13px;font-weight:600}
   .btn.danger{background:rgba(255,0,0,.07);border-color:rgba(255,0,0,.22);color:#ffd5d5}
 </style>
 {% endblock %}
@@ -75,11 +79,11 @@
 <div class="wrap">
   <div class="title">配当一覧</div>
 
-  <div class="stats-grid">
-    <div class="stat"><div class="label">件数</div><div class="value">{{ items|length }} 件</div></div>
-    <div class="stat"><div class="label">税引前合計</div><div class="value">{{ total_gross|floatformat:2 }}</div></div>
-    <div class="stat"><div class="label">税額合計</div><div class="value">{{ total_tax|floatformat:2 }}</div></div>
-    <div class="stat"><div class="label">税引後合計</div><div class="value">{{ total_net|floatformat:2 }}</div></div>
+  <div class="stats">
+    <div class="stat"><div class="l">件数</div><div class="v">{{ items|length }} 件</div></div>
+    <div class="stat"><div class="l">税引前合計</div><div class="v">{{ total_gross|floatformat:2 }}</div></div>
+    <div class="stat"><div class="l">税額合計</div><div class="v">{{ total_tax|floatformat:2 }}</div></div>
+    <div class="stat"><div class="l">税引後合計</div><div class="v">{{ total_net|floatformat:2 }}</div></div>
   </div>
 
   {% if not items %}
@@ -87,21 +91,20 @@
   {% else %}
     <div class="list">
       {% for it in items %}
-      <div class="swipe" data-id="{{ it.id }}">
-        <!-- 右側のアクション -->
-        <div class="swipe-actions" aria-hidden="true">
-          <a class="btn btn-edit" href="{% url 'dividend_edit' it.id %}">編集</a>
-          <button
-            type="button"
-            class="btn btn-del js-del"
-            data-url="{% url 'dividend_delete' it.id %}"
-            data-title="{{ it.display_ticker }}{% if it.display_name %} / {{ it.display_name }}{% endif %}"
-            data-date="{{ it.date|date:'Y-m-d' }}"
-            data-net="{{ it.net_amount|floatformat:2 }}"
-          >削除</button>
+      <div data-swipe>
+        <!-- 右アクション（初期は非表示 / 左スワイプで表示） -->
+        <div class="actions">
+          <a class="item edit" href="{% url 'dividend_edit' it.id %}" data-action="edit">編集</a>
+          <button type="button"
+                  class="item delete js-del"
+                  data-url="{% url 'dividend_delete' it.id %}"
+                  data-title="{{ it.display_ticker }}{% if it.display_name %} / {{ it.display_name }}{% endif %}"
+                  data-date="{{ it.date|date:'Y-m-d' }}"
+                  data-net="{{ it.net_amount|floatformat:2 }}">削除</button>
         </div>
-        <!-- 本体（スライドする） -->
-        <div class="swipe-track">
+
+        <!-- カード本体（タップで閉じる / holdings.js がバインド） -->
+        <div class="track">
           <div>
             <div class="name">
               {{ it.display_ticker }}{% if it.display_name %} / {{ it.display_name }}{% endif %}
@@ -120,7 +123,7 @@
 
           <div class="money">
             <div class="net">税引後 {{ it.net_amount|floatformat:2 }}</div>
-            <div class="labels">税引前 {{ it.gross_amount|floatformat:2 }} ／ 税額 {{ it.tax|default:0|floatformat:2 }}</div>
+            <div class="sub">税引前 {{ it.gross_amount|floatformat:2 }} ／ 税額 {{ it.tax|default:0|floatformat:2 }}</div>
           </div>
         </div>
       </div>
@@ -131,6 +134,7 @@
 
 <form id="delForm" method="post" style="display:none">{% csrf_token %}</form>
 
+<!-- 簡易モーダル -->
 <div class="modal-mask" id="delModal" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delTitle">
     <h3 id="delTitle">配当を削除しますか？</h3>
@@ -142,101 +146,35 @@
   </div>
 </div>
 
-<script>
-(function(){
-  /* ========= スワイプ動作 ========= */
-  const ROWS = document.querySelectorAll('.swipe');
-  let opened = null; // 開いている行（track）
+{% endblock %}
 
-  function closeRow(track){
-    if (!track) return;
-    track.style.transition = 'transform .18s ease';
-    track.style.transform = 'translateX(0)';
-    opened = null;
-    track.addEventListener('transitionend', ()=>{ track.style.transition=''; }, {once:true});
-  }
-  function openRow(track){
-    if (opened && opened !== track) closeRow(opened);
-    track.style.transition = 'transform .18s ease';
-    track.style.transform = `translateX(calc(-1 * var(--act-w)))`;
-    opened = track;
-    track.addEventListener('transitionend', ()=>{ track.style.transition=''; }, {once:true});
-  }
+{% block extra_js %}
+  <!-- スワイプ挙動は holdings.js をそのまま流用 -->
+  <script src="{% static 'js/holdings.js' %}"></script>
+  <script>
+  // 配当用：削除モーダル（holdings.js のスワイプとは独立）
+  (function(){
+    const modal = document.getElementById('delModal');
+    const desc  = document.getElementById('delDesc');
+    const btnOk = document.getElementById('delOk');
+    const btnNg = document.getElementById('delCancel');
+    const form  = document.getElementById('delForm');
+    let url=null;
 
-  ROWS.forEach(row=>{
-    const track = row.querySelector('.swipe-track');
-    const actW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--act-w')) || 168;
+    function open(p){ url=p.url; desc.textContent = `${p.title} ／ ${p.date} ／ 税引後 ${p.net}`; modal.classList.add('show'); }
+    function close(){ modal.classList.remove('show'); url=null; }
 
-    let sx=0, dx=0, dragging=false;
-
-    row.addEventListener('touchstart', e=>{
-      const t = e.touches[0]; sx = t.clientX; dx = 0; dragging = true;
-      track.style.transition='none';
-    }, {passive:true});
-
-    row.addEventListener('touchmove', e=>{
-      if(!dragging) return;
-      const t = e.touches[0]; dx = t.clientX - sx;
-      // 左へドラッグのみ反応（右は閉じる方向）
-      const base = (opened===track) ? -actW : 0;
-      let next = base + dx;
-      next = Math.min(0, Math.max(-actW, next));
-      track.style.transform = `translateX(${next}px)`;
-    }, {passive:true});
-
-    row.addEventListener('touchend', ()=>{
-      if(!dragging) return;
-      dragging=false;
-      // 閾値で判定
-      const m = new WebKitCSSMatrix(getComputedStyle(track).transform);
-      const x = m.m41; // 現在のX
-      if (x < -actW*0.4) openRow(track);
-      else closeRow(track);
-    }, {passive:true});
-
-    // クリック外で閉じる
-    document.addEventListener('click', (e)=>{
-      if (opened && !row.contains(e.target)) closeRow(opened);
-    });
-  });
-
-  // 右スワイプで閉じたい人向け（トラック上のクリック）
-  document.addEventListener('swiped-right', ()=>{ if (opened) closeRow(opened); });
-
-  /* ========= 削除モーダル ========= */
-  const modal = document.getElementById('delModal');
-  const desc  = document.getElementById('delDesc');
-  const btnOk = document.getElementById('delOk');
-  const btnCancel = document.getElementById('delCancel');
-  const form  = document.getElementById('delForm');
-  let pendingUrl = null;
-
-  function openModal(payload){
-    pendingUrl = payload.url;
-    desc.textContent = `${payload.title} ／ ${payload.date} ／ 税引後 ${payload.net}`;
-    modal.classList.add('show'); modal.setAttribute('aria-hidden','false');
-  }
-  function closeModal(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); pendingUrl=null; }
-
-  document.querySelectorAll('.js-del').forEach(btn=>{
-    btn.addEventListener('click', (e)=>{
-      e.stopPropagation();
-      openModal({
-        url: btn.dataset.url,
-        title: btn.dataset.title || '',
-        date: btn.dataset.date || '',
-        net: btn.dataset.net || ''
+    document.querySelectorAll('.js-del').forEach(b=>{
+      // holdings.js が actions 内クリックのバブリングを止めるのでここで直接拾える
+      b.addEventListener('click', (e)=>{
+        e.preventDefault();
+        open({ url:b.dataset.url, title:b.dataset.title||'', date:b.dataset.date||'', net:b.dataset.net||'' });
       });
     });
-  });
-  btnCancel.addEventListener('click', closeModal);
-  modal.addEventListener('click', (e)=>{ if (e.target === modal) closeModal(); });
-  document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') closeModal(); });
-
-  btnOk.addEventListener('click', ()=>{
-    if (!pendingUrl) return closeModal();
-    form.setAttribute('action', pendingUrl); form.submit();
-  });
-})();
-</script>
+    btnNg.addEventListener('click', close);
+    modal.addEventListener('click', (e)=>{ if (e.target === modal) close(); });
+    document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') close(); });
+    btnOk.addEventListener('click', ()=>{ if(url){ form.action=url; form.submit(); } close(); });
+  })();
+  </script>
 {% endblock %}
