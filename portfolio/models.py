@@ -124,50 +124,65 @@ class RealizedTrade(models.Model):
         return signed - float(self.fee) - float(self.tax)
         
 # ==== Dividend ======================================================
-# portfolio/models.py の Dividend をこれに置き換え
-
-from decimal import Decimal
-from django.db import models
-
 class Dividend(models.Model):
     """
     配当（Holding が無くても記録可）
-    - holding を指定したら、ticker/name は空なら自動補完
-    - holding 未指定の場合はフォーム側で ticker を必須としてバリデーション
-    - amount は UI 運用として「税引後」を保存（is_net=True 固定運用を推奨）
+    - holding を指定したら ticker/name/broker/account/purchase_price を不足分だけ補完
+    - holding 未指定なら ticker は必須（バリデーションは Form 側で実施する前提）
+    - KPI 用に数量・取得単価・証券会社・口座区分も保持
     """
 
-    # 任意で紐づけ（保有を消しても配当は残す）
+    # ====== 参照 ======
     holding = models.ForeignKey(
         'portfolio.Holding',
-        on_delete=models.SET_NULL,
+        on_delete=models.SET_NULL,           # 保有を消しても配当は残す
         null=True, blank=True,
         related_name='dividends'
     )
 
-    # ★ 追加: 配当対象の株数（KPI 集計に使用）
-    quantity = models.IntegerField(
-        null=True, blank=True,
-        help_text="配当対象の株数（保有未選択のときは入力推奨）"
-    )
-
-    # Holding が無いとき用の手入力フィールド（あってもOK）
+    # ====== 基本情報（holding 無しでも記録できるように） ======
     ticker = models.CharField(max_length=16, blank=True, default="")
     name   = models.CharField(max_length=128, blank=True, default="")
-
     date   = models.DateField()
 
-    # 受取額（デフォルトは税引後）
-    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    # 数量（何株分の配当か）
+    quantity = models.IntegerField(default=0, help_text="株数（KPI計算に使用）")
 
-    # True=税引後として入力、False=税引前入力（今回は常に True 運用を推奨）
-    is_net = models.BooleanField(default=True)
+    # 取得単価（holding が無い場合に利回りを出すための単価）
+    purchase_price = models.DecimalField(
+        max_digits=14, decimal_places=2, null=True, blank=True,
+        help_text="1株あたりの取得単価（holding未指定時に利回り算出で使用）"
+    )
 
-    # 源泉税（0% or 20.315% 等をフォームで選択し自動計算して保存）
-    tax    = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    # ====== 金額（UIは税引後入力がデフォルト） ======
+    amount = models.DecimalField(max_digits=12, decimal_places=2, help_text="受取額")
+    is_net = models.BooleanField(default=True, help_text="True=税引後として入力 / False=税引前")
+
+    # 税額／税率（保存しておくと集計が速い）
+    tax            = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    tax_rate_pct   = models.DecimalField(
+        max_digits=6, decimal_places=3, null=True, blank=True,
+        help_text="適用税率（例 20.315）"
+    )
+
+    # ====== 区分（証券会社別KPI用） ======
+    BROKER_CHOICES = (
+        ("RAKUTEN", "楽天証券"),
+        ("SBI",     "SBI証券"),
+        ("MATSUI",  "松井証券"),
+        ("OTHER",   "その他"),
+    )
+    ACCOUNT_CHOICES = (
+        ("SPEC",   "特定"),
+        ("MARGIN", "信用"),
+        ("NISA",   "NISA"),
+        ("OTHER",  "その他"),
+    )
+
+    broker  = models.CharField(max_length=16, choices=BROKER_CHOICES, default="OTHER")
+    account = models.CharField(max_length=10, choices=ACCOUNT_CHOICES, default="SPEC")
 
     memo   = models.CharField(max_length=255, blank=True, default="")
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -178,37 +193,104 @@ class Dividend(models.Model):
         label = self.display_ticker or "—"
         return f"{label} {self.date} {self.amount}"
 
-    # 表示用（holding 優先）
+    # ---- 表示用（holding 優先） ----
     @property
     def display_ticker(self) -> str:
-        if self.holding and getattr(self.holding, "ticker", ""):
+        if self.holding and self.holding.ticker:
             return self.holding.ticker
         return (self.ticker or "").upper()
 
     @property
     def display_name(self) -> str:
-        if self.holding and getattr(self.holding, "name", ""):
+        if self.holding and self.holding.name:
             return self.holding.name
         return self.name or ""
 
-    # 税引前/税引後（計算）
-    def gross_amount(self) -> Decimal:
+    # ---- 金額：税引前/税引後 ----
+    def gross_amount(self):
         """税引前金額"""
-        amt = Decimal(self.amount or 0)
-        tax = Decimal(self.tax or 0)
-        return (amt + tax) if self.is_net else amt
+        try:
+            amt = float(self.amount or 0)
+            tx  = float(self.tax or 0)
+            return amt + tx if self.is_net else amt
+        except Exception:
+            return 0.0
 
-    def net_amount(self) -> Decimal:
+    def net_amount(self):
         """税引後金額"""
-        amt = Decimal(self.amount or 0)
-        tax = Decimal(self.tax or 0)
-        return amt if self.is_net else (amt - tax)
+        try:
+            amt = float(self.amount or 0)
+            tx  = float(self.tax or 0)
+            return amt if self.is_net else max(0.0, amt - tx)
+        except Exception:
+            return 0.0
 
+    # ---- 利回り計算（KPI）----
+    def _unit_cost(self):
+        """
+        単価の優先度:
+        1) holding.avg_cost があればそれ
+        2) purchase_price（手入力）
+        """
+        if self.holding and self.holding.avg_cost:
+            return float(self.holding.avg_cost)
+        if self.purchase_price:
+            return float(self.purchase_price)
+        return 0.0
+
+    def acquisition_value(self):
+        """取得額 = 単価 × 株数（利回りの分母）"""
+        unit = self._unit_cost()
+        qty  = int(self.quantity or 0)
+        return unit * qty if unit > 0 and qty > 0 else 0.0
+
+    def yoc_net_pct(self):
+        """配当利回り（取得ベース・税引後%）"""
+        base = self.acquisition_value()
+        return (self.net_amount() / base * 100.0) if base > 0 else None
+
+    def yoc_gross_pct(self):
+        """配当利回り（取得ベース・税引前%）"""
+        base = self.acquisition_value()
+        return (self.gross_amount() / base * 100.0) if base > 0 else None
+
+    def per_share_dividend_net(self):
+        """1株あたり配当（税引後）"""
+        qty = int(self.quantity or 0)
+        return (self.net_amount() / qty) if qty > 0 else None
+
+    def per_share_dividend_gross(self):
+        """1株あたり配当（税引前）"""
+        qty = int(self.quantity or 0)
+        return (self.gross_amount() / qty) if qty > 0 else None
+
+    # ---- 補完 & 整合性 ----
     def save(self, *args, **kwargs):
-        # holding があれば ticker/name を自動補完（空のときのみ）
+        # holding があれば不足分を補完
         if self.holding:
             if not self.ticker:
                 self.ticker = self.holding.ticker
             if not self.name:
                 self.name = self.holding.name
+            # broker/account/purchase_price も穴埋め
+            if (not self.broker or self.broker == "OTHER") and self.holding.broker:
+                self.broker = self.holding.broker
+            if (not self.account or self.account == "SPEC") and self.holding.account:
+                self.account = self.holding.account
+            if not self.purchase_price and self.holding.avg_cost:
+                self.purchase_price = self.holding.avg_cost
+
+        # 税率が入っていれば税額を補完（is_net=True 前提のUI）
+        try:
+            if (self.tax is None or float(self.tax) == 0.0) and self.tax_rate_pct:
+                rate = float(self.tax_rate_pct) / 100.0
+                if self.is_net:
+                    # amount は税引後 → 税額 = net * rate
+                    self.tax = float(self.amount or 0) * rate
+                else:
+                    # amount は税引前 → 税額 = gross * rate
+                    self.tax = float(self.amount or 0) * rate
+        except Exception:
+            pass
+
         super().save(*args, **kwargs)
