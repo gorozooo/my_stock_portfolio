@@ -14,6 +14,17 @@
   .btns    {display:flex;gap:12px;margin-top:14px}
   .btns .btn{flex:1;text-align:center;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e6ebff;text-decoration:none}
   .btns .btn:hover{background:rgba(255,255,255,.12)}
+
+  /* 税率トグル（見やすい行） */
+  .tax-row{display:flex;gap:12px;align-items:center}
+  .tax-row .toggle{
+    display:flex;align-items:center;gap:10px;
+    width:100%;padding:12px;border-radius:12px;
+    border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);
+    color:#e6ebff;font-size:15px
+  }
+  .tax-row .toggle input[type="checkbox"]{width:18px;height:18px}
+  .subnote{font-size:12px;color:#8b93a7}
 </style>
 {% endblock %}
 
@@ -53,14 +64,19 @@
     </div>
   </div>
 
-  <!-- 税率のみ（トグルは撤去） -->
+  <!-- 税率（チェックボックスON=20.315% / OFF=0%） -->
   <div class="fi">
     <label class="lbl">税率</label>
-    {{ form.tax_rate }}
+    <label class="toggle">
+      {{ form.apply_tax }}
+      <span>国内源泉 20.315% を適用</span>
+    </label>
+    <div class="subnote">OFF にすると課税なし（0%）として登録されます</div>
   </div>
 
-  <!-- is_net は HiddenInput（常に True） -->
+  <!-- 隠し項目: 税引後固定 / 計算済み税額 -->
   {{ form.is_net }}
+  {{ form.tax }}
 
   <div class="fi">
     <label class="lbl">メモ</label>
