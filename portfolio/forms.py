@@ -3,7 +3,6 @@ from decimal import Decimal
 from django import forms
 from django.core.exceptions import ValidationError
 from django.conf import settings
-from django.utils import timezone
 
 from .models import Holding, Dividend
 from .services import tickers as svc_tickers
@@ -20,7 +19,7 @@ def _normalize_code_head(raw: str) -> str:
         return ""
     norm = svc_trend._normalize_ticker(t)  # 例: '167A' -> '167A.T'
     head = norm.split(".", 1)[0] if norm else t.upper()
-    # 3〜5文字の英数字のみ許容（必要に応じて緩めてOK）
+    # 3〜5文字の英数字のみ許容
     if not (3 <= len(head) <= 5) or any(c not in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" for c in head.upper()):
         return ""
     return head.upper()
@@ -55,26 +54,22 @@ class HoldingForm(forms.ModelForm):
         return head
 
     def _resolve_name_fallback(self, code_head: str, raw: str) -> str:
-        # 0) 任意の上書き辞書（和名固定したいとき）
         override = getattr(settings, "TSE_NAME_OVERRIDES", {}).get((code_head or "").upper())
         if override:
             return override
 
         name = None
-        # 1) 軽量: 4桁数字だけ tickers.csv 参照
         try:
             if code_head and len(code_head) == 4 and code_head.isdigit():
                 name = svc_tickers.resolve_name(code_head)
         except Exception:
             pass
-        # 2) trend の JSON/CSV マップ
         if not name:
             try:
                 norm = svc_trend._normalize_ticker(code_head)
                 name = svc_trend._lookup_name_jp_from_list(norm)
             except Exception:
                 pass
-        # 3) 最終: 外部取得
         if not name:
             try:
                 norm = svc_trend._normalize_ticker(code_head or raw)
@@ -89,7 +84,7 @@ class HoldingForm(forms.ModelForm):
         # 必須（opened_at・memo 以外）
         req = ["ticker", "name", "broker", "account", "side", "quantity", "avg_cost"]
         missing = [k for k in req if not str(cd.get(k) or "").strip()]
-        if "name" in missing:  # name は最後に補完を試す
+        if "name" in missing:
             missing.remove("name")
 
         # 数量
@@ -132,8 +127,6 @@ class DividendForm(forms.ModelForm):
     - 保有未選択の場合：ticker 必須、さらに quantity / purchase_price も実質必須
     """
 
-    TAX_RATE_CHOICES = (("0", "0%"), ("20.315", "20.315%"))
-
     # 保有（任意）
     holding = forms.ModelChoiceField(
         queryset=Holding.objects.none(), required=False, label="保有（任意）",
@@ -170,27 +163,28 @@ class DividendForm(forms.ModelForm):
         widget=forms.NumberInput(attrs={"class": "in", "inputmode": "decimal", "step": "0.01", "id": "id_purchase_price"})
     )
 
-    # 税率はラジオ（0 / 20.315）
-    tax_rate_pct = forms.ChoiceField(
-        label="税率", choices=TAX_RATE_CHOICES, initial="20.315",
-        widget=forms.RadioSelect(attrs={"class": "taxrate"})
+    # 税率：テンプレ側でピルUI（checkbox）→ hidden に同期する前提
+    tax_rate_pct = forms.CharField(
+        label="税率", required=False, initial="20.315",
+        widget=forms.HiddenInput(attrs={"id": "id_tax_rate_pct"})
     )
 
     # 区分
     broker = forms.ChoiceField(
         label="証券会社", choices=Dividend.BROKER_CHOICES, required=False,
-        widget=forms.Select(attrs={"class": "sel"})
+        widget=forms.Select(attrs={"class": "sel", "id": "id_broker"})
     )
     account = forms.ChoiceField(
         label="口座区分", choices=Dividend.ACCOUNT_CHOICES, required=False,
-        widget=forms.Select(attrs={"class": "sel"})
+        widget=forms.Select(attrs={"class": "sel", "id": "id_account"})
     )
 
     # 保存用（自動計算）
     tax = forms.DecimalField(required=False, widget=forms.HiddenInput())
     is_net = forms.BooleanField(required=False, widget=forms.HiddenInput())
 
-    memo = forms.CharField(label="メモ", required=False, widget=forms.TextInput(attrs={"class": "in", "placeholder": "任意メモ"}))
+    memo = forms.CharField(label="メモ", required=False,
+                           widget=forms.TextInput(attrs={"class": "in", "placeholder": "任意メモ"}))
 
     class Meta:
         model = Dividend
@@ -239,12 +233,13 @@ class DividendForm(forms.ModelForm):
         self.fields["holding"].queryset = qs.order_by("ticker", "name")
 
         # 既定値
-        self.fields["is_net"].initial = False   # ← 税引前入力として扱う
-        # broker/account デフォルト
+        self.fields["is_net"].initial = False   # 税引前入力として扱う
         if not self.initial.get("broker"):
             self.initial["broker"] = "OTHER"
         if not self.initial.get("account"):
             self.initial["account"] = "SPEC"
+        if not self.initial.get("tax_rate_pct"):
+            self.initial["tax_rate_pct"] = "20.315"
 
         # holding 初期指定があれば各値を補完（上書き可能）
         inst_holding = None
@@ -295,22 +290,24 @@ class DividendForm(forms.ModelForm):
 
         # 税額を自動計算（amount は税引前 / is_net=False）
         gross = Decimal(cd.get("amount") or 0)
+        # hidden から渡ってくる値（"0" または "20.315"）を解釈
         try:
             rate_pct = Decimal(str(cd.get("tax_rate_pct") or "20.315"))
         except Exception:
             rate_pct = Decimal("20.315")
+        # 想定外の値は 20.315% にフォールバック
+        if rate_pct not in (Decimal("0"), Decimal("20.315")):
+            rate_pct = Decimal("20.315")
         rate = rate_pct / Decimal("100")
         cd["tax"] = (gross * rate).quantize(Decimal("0.01")) if rate_pct > 0 else Decimal("0")
         cd["is_net"] = False
-        cd["tax_rate_pct"] = rate_pct
+        cd["tax_rate_pct"] = rate_pct  # 後工程で必要なら参照
 
         # broker/account 補完（holding があれば初期値として使う）
         if holding:
             cd["broker"] = cd.get("broker") or holding.broker or "OTHER"
             cd["account"] = cd.get("account") or holding.account or "SPEC"
 
-        # 最終エラー
         if self.errors:
             raise ValidationError("入力に誤りがあります。")
         return cd
-        
