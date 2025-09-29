@@ -1,12 +1,13 @@
+# portfolio/views_dividend.py
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.db.models import Q
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 
 from ..forms import DividendForm, _normalize_code_head
-from ..models import Dividend, Holding  # ← Holding を追加
+from ..models import Dividend
 from ..services import tickers as svc_tickers
 from ..services import trend as svc_trend
 
@@ -22,7 +23,26 @@ def dividend_list(request):
         )
         .order_by("-date", "-id")
     )
-    return render(request, "dividends/list.html", {"items": qs})
+
+    # ざっくり合計（Python側で計算：gross/net はプロパティ）
+    total_gross = 0
+    total_net = 0
+    total_tax = 0
+    for it in qs:
+        try:
+            total_gross += float(it.gross_amount())
+            total_net   += float(it.net_amount())
+            total_tax   += float(it.tax or 0)
+        except Exception:
+            pass
+
+    ctx = {
+        "items": qs,
+        "total_gross": total_gross,
+        "total_net": total_net,
+        "total_tax": total_tax,
+    }
+    return render(request, "dividends/list.html", ctx)
 
 
 @login_required
@@ -31,10 +51,8 @@ def dividend_create(request):
         form = DividendForm(request.POST, user=request.user)
         if form.is_valid():
             obj = form.save(commit=False)
-
-            # 保険：サーバ側でも常に税引後に固定
-            obj.is_net = True
-
+            # サーバ側の最終整合性
+            obj.is_net = False  # amount=税引前前提
             if obj.holding and obj.holding.user_id != request.user.id:
                 messages.error(request, "別ユーザーの保有は選べません。")
             else:
@@ -44,20 +62,44 @@ def dividend_create(request):
     else:
         form = DividendForm(user=request.user)
 
-    # ★ 追加: 保有メタをテンプレへ（保有選択時の自動補完に使用）
-    holding_meta = list(
-        Holding.objects.filter(user=request.user)
-        .values("id", "ticker", "name", "quantity", "avg_cost", "broker", "account")
-    )
+    return render(request, "dividends/form.html", {"form": form})
 
-    return render(
-        request,
-        "dividends/form.html",
-        {
-            "form": form,
-            "holding_meta": holding_meta,  # ← 追加
-        },
-    )
+
+@login_required
+def dividend_edit(request, pk: int):
+    obj = get_object_or_404(Dividend, pk=pk)
+    # 所有権チェック（holdingがある場合）
+    if obj.holding and obj.holding.user_id != request.user.id:
+        messages.error(request, "この配当は編集できません。")
+        return redirect("dividend_list")
+
+    if request.method == "POST":
+        form = DividendForm(request.POST, instance=obj, user=request.user)
+        if form.is_valid():
+            edited = form.save(commit=False)
+            edited.is_net = False  # 税引前入力の前提を維持
+            edited.save()
+            messages.success(request, "配当を更新しました。")
+            return redirect("dividend_list")
+    else:
+        form = DividendForm(instance=obj, user=request.user)
+
+    return render(request, "dividends/form.html", {"form": form})
+
+
+@login_required
+def dividend_delete(request, pk: int):
+    obj = get_object_or_404(Dividend, pk=pk)
+    if obj.holding and obj.holding.user_id != request.user.id:
+        messages.error(request, "この配当は削除できません。")
+        return redirect("dividend_list")
+
+    if request.method == "POST":
+        obj.delete()
+        messages.success(request, "配当を削除しました。")
+        return redirect("dividend_list")
+
+    return render(request, "dividends/confirm_delete.html", {"item": obj})
 
 
 # ========= 銘柄名ルックアップ API =========
