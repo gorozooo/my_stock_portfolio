@@ -4,53 +4,61 @@
 
 {% block head %}
 <style>
-  .kpis{display:grid;gap:12px;grid-template-columns:repeat(4,1fr);max-width:960px;margin:0 auto 10px}
-  @media (max-width:700px){ .kpis{grid-template-columns:repeat(2,1fr);} }
-  .kpi{border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.04);border-radius:12px;padding:10px 12px}
-  .kpi .lbl{font-size:12px;color:#9aa4b2;margin-bottom:4px}
-  .kpi .val{font-size:18px;font-weight:700;letter-spacing:.3px}
+  .kpis{
+    display:grid;gap:12px;
+    grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+    max-width:960px;margin:0 auto 16px
+  }
+  .kpi{
+    border:1px solid rgba(255,255,255,.09);
+    background:rgba(255,255,255,.04);
+    border-radius:12px;padding:10px
+  }
+  .kpi .lbl{font-size:12px;color:#9aa4b2;margin-bottom:2px}
+  .kpi .val{font-size:18px;font-weight:700}
 
-  /* ===== swipe cards ===== */
-  .list{max-width:960px;margin:12px auto 0;display:grid;gap:10px}
+  .list{max-width:960px;margin:0 auto;display:grid;gap:10px}
   [data-swipe]{position:relative;border:1px solid rgba(255,255,255,.09);
                background:rgba(255,255,255,.04);border-radius:12px;overflow:hidden}
-  [data-swipe] .track{padding:12px;}
+  [data-swipe] .track{padding:10px;}
   [data-swipe] .actions{
-    position:absolute; inset:0 0 0 auto; width:200px; display:flex;
-    transform:translateX(100%); transition:transform .18s ease;
+    position:absolute; inset:0 0 0 auto; width:180px; display:flex;
+    transform:translateX(100%); transition:transform .2s ease;
   }
-  [data-swipe] .actions .item{width:100px;display:flex;align-items:center;justify-content:center;
-    font-weight:700;letter-spacing:.2px}
-  [data-swipe] .actions .edit{background:rgba(255,255,255,.10); border-left:1px solid rgba(255,255,255,.08)}
-  [data-swipe] .actions .delete{background:#7f232c;border-left:1px solid rgba(255,255,255,.08)}
+  [data-swipe] .actions .item{
+    flex:1;display:flex;align-items:center;justify-content:center;
+    font-weight:600;cursor:pointer
+  }
+  [data-swipe] .actions .edit{background:rgba(255,255,255,.12)}
+  [data-swipe] .actions .delete{background:#7f232c}
   [data-swipe].is-open .actions{transform:translateX(0)}
 
-  .title{font-size:16px;font-weight:700;margin-bottom:2px}
+  .title{font-size:15px;font-weight:700;margin-bottom:2px}
   .date{font-size:12px;color:#9aa4b2;margin-bottom:6px}
-  .meta-row{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 6px}
-  .chip{padding:4px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.16);
-        background:rgba(255,255,255,.06);color:#e6ebff;font-size:12px}
-  .memo{font-size:12px;margin:4px 0}
-  .nums{display:flex;justify-content:flex-end;align-items:baseline;gap:10px;margin-top:6px}
-  .net{font-size:18px;font-weight:800}
-  .sub{color:#9aa4b2;font-size:12px}
+  .meta-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
+  .chip{padding:2px 6px;border-radius:999px;border:1px solid rgba(255,255,255,.16);
+        background:rgba(255,255,255,.06);font-size:11px}
+  .nums{display:flex;justify-content:space-between;align-items:baseline;margin-top:4px}
+  .net{font-size:16px;font-weight:700}
+  .sub{color:#9aa4b2;font-size:11px}
 </style>
 {% endblock %}
 
 {% block content %}
 <h1 class="text-xl font-semibold mb-3">配当一覧</h1>
 
+<!-- KPI -->
 <div class="kpis">
-  <div class="kpi"><div class="lbl">件数</div><div class="val">{{ stats.count|default:0 }} 件</div></div>
-  <div class="kpi"><div class="lbl">税引前合計</div><div class="val">{{ stats.gross_sum|floatformat:2 }}</div></div>
-  <div class="kpi"><div class="lbl">税額合計</div><div class="val">{{ stats.tax_sum|floatformat:2 }}</div></div>
-  <div class="kpi"><div class="lbl">税引後合計</div><div class="val">{{ stats.net_sum|floatformat:2 }}</div></div>
+  <div class="kpi"><div class="lbl">件数</div><div class="val">{{ stats.count|default:"0" }}</div></div>
+  <div class="kpi"><div class="lbl">税引前合計</div><div class="val">{{ stats.gross_sum|default:"0"|floatformat:2 }}</div></div>
+  <div class="kpi"><div class="lbl">税額合計</div><div class="val">{{ stats.tax_sum|default:"0"|floatformat:2 }}</div></div>
+  <div class="kpi"><div class="lbl">税引後合計</div><div class="val">{{ stats.net_sum|default:"0"|floatformat:2 }}</div></div>
 </div>
 
+<!-- List -->
 <div class="list">
   {% for d in items %}
   <div class="row" data-swipe>
-    <!-- 操作用パネル -->
     <div class="actions">
       <a class="item edit" href="{% url 'dividend_edit' d.id %}">編集</a>
       <form class="item delete" method="post" action="{% url 'dividend_delete' d.id %}"
@@ -60,18 +68,16 @@
       </form>
     </div>
 
-    <!-- 本体 -->
     <div class="track">
       <div class="title">{{ d.display_ticker }} / {{ d.display_name }}</div>
       <div class="date">{{ d.date|date:"Y年n月j日" }}</div>
 
       <div class="meta-row">
-        {% if d.broker %}<span class="chip">証券: {{ d.get_broker_display }}</span>{% endif %}
-        {% if d.account %}<span class="chip">口座: {{ d.get_account_display }}</span>{% endif %}
+        {% if d.broker %}<span class="chip">{{ d.get_broker_display }}</span>{% endif %}
+        {% if d.account %}<span class="chip">{{ d.get_account_display }}</span>{% endif %}
         {% if d.quantity %}<span class="chip">株数: {{ d.quantity }}</span>{% endif %}
-        {% if d.purchase_price %}<span class="chip">取得単価: {{ d.purchase_price|floatformat:2 }}</span>{% endif %}
+        {% if d.purchase_price %}<span class="chip">取得: {{ d.purchase_price|floatformat:2 }}</span>{% endif %}
       </div>
-      {% if d.memo %}<div class="memo">{{ d.memo }}</div>{% endif %}
 
       <div class="nums">
         <div class="net">税引後 {{ d.net_amount|floatformat:2 }}</div>
