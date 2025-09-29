@@ -11,135 +11,96 @@
     --txt-sub : #9aa4b2;
     --pill-bg : rgba(255,255,255,.06);
     --pill-bd : rgba(255,255,255,.16);
-    --accent  : #6ea8ff;
-    --danger  : #ff6b6b;
   }
+  .wrap{max-width:960px;margin:0 auto;padding-inline:8px}
 
-  .wrap{max-width:1000px;margin:0 auto;padding-inline:6px}
+  .title{font-size:22px;font-weight:700;color:var(--txt-main);margin:10px 0 12px}
 
-  /* タイトル & 追加ボタン */
-  .headerbar{
-    display:flex;align-items:center;justify-content:space-between;gap:12px;
-    margin:8px 0 14px;
+  /* KPI: 横スクロールをやめてグリッド表示 */
+  .stats-grid{
+    display:grid; gap:10px; margin:0 0 14px;
+    grid-template-columns:repeat(2,minmax(0,1fr));
   }
-  .title{
-    font-size:22px; font-weight:700; color:var(--txt-main); letter-spacing:.2px;
-  }
-  .btn{
-    display:inline-flex;align-items:center;justify-content:center;gap:.5em;
-    padding:10px 14px;border-radius:12px;
-    background:var(--pill-bg); border:1px solid var(--pill-bd);
-    color:var(--txt-main); text-decoration:none; font-weight:600;
-  }
-  .btn:hover{ background:rgba(255,255,255,.10) }
-  .btn.small{ padding:8px 10px;font-weight:600 }
-  .btn.ghost{ background:transparent }
-  .btn.danger{ background:rgba(255,0,0,.07); border-color:rgba(255,0,0,.22); color:#ffd5d5 }
-  .btn.danger:hover{ background:rgba(255,0,0,.12) }
-
-  /* サマリー（横スクロール可） */
-  .stats{
-    display:flex; gap:10px; overflow:auto; padding-bottom:6px; margin-bottom:12px;
-    scroll-snap-type:x proximity;
-  }
+  @media (min-width:720px){ .stats-grid{ grid-template-columns:repeat(4, minmax(0,1fr)); } }
   .stat{
-    min-width:180px; flex:0 0 auto; scroll-snap-align:start;
-    padding:12px 14px;border-radius:14px;
+    padding:10px 12px; border-radius:12px;
     background:var(--bg-card); border:1px solid var(--bd-card);
   }
-  .stat .label{font-size:12px;color:var(--txt-sub);margin-bottom:4px}
-  .stat .value{font-size:18px;font-variant-numeric:tabular-nums;color:var(--txt-main);font-weight:700}
+  .stat .label{font-size:12px;color:var(--txt-sub);margin-bottom:2px}
+  .stat .value{font-size:18px;font-weight:700;color:var(--txt-main);font-variant-numeric:tabular-nums}
 
-  /* リスト */
-  .list{ display:grid; gap:12px }
+  /* リスト（カードをコンパクトに） */
+  .list{display:grid; gap:10px}
   .item{
-    display:grid; grid-template-columns: 1fr auto; gap:12px;
-    padding:14px;border-radius:16px;
+    display:grid; grid-template-columns:1fr auto; gap:10px;
+    padding:10px 12px; border-radius:14px;
     background:var(--bg-card); border:1px solid var(--bd-card);
   }
   @media (max-width:640px){ .item{ grid-template-columns:1fr } }
 
-  .left .name{
-    font-size:18px; font-weight:700; color:var(--txt-main); letter-spacing:.2px;
+  .name{
+    font-size:16px; font-weight:700; color:var(--txt-main);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
-  .left .date{ font-size:12px; color:var(--txt-sub); margin-top:2px }
+  .date{font-size:12px;color:var(--txt-sub);margin-top:2px}
 
-  /* バッジ群 */
-  .badges{ display:flex; flex-wrap:wrap; gap:8px; margin-top:8px }
+  .badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
   .badge{
-    padding:6px 10px; border-radius:999px; font-size:12px;
+    padding:4px 8px;border-radius:999px;font-size:11px;
     background:var(--pill-bg); border:1px solid var(--pill-bd); color:#cfd7ff;
   }
 
-  /* 金額カラム */
-  .money{
-    text-align:right; align-self:center; min-width:210px;
-  }
-  .money .net{
-    font-size:20px; font-weight:800; color:var(--txt-main);
-    font-variant-numeric:tabular-nums;
-  }
-  .money .labels{ font-size:11px; color:var(--txt-sub); margin-top:2px }
+  .memo{margin-top:6px;font-size:12px;color:#cfd4eb}
 
-  /* メモ & アクション */
-  .memo{ margin-top:8px; font-size:13px; color:#cfd4eb }
-  .actions{ display:flex; gap:8px; margin-top:10px }
+  .actions{display:flex;gap:6px;margin-top:8px}
+  .btn{
+    padding:8px 10px;border-radius:10px;
+    background:var(--pill-bg); border:1px solid var(--pill-bd);
+    color:var(--txt-main); text-decoration:none; font-size:13px; font-weight:600;
+  }
+  .btn:hover{background:rgba(255,255,255,.10)}
+  .btn.danger{background:rgba(255,0,0,.07);border-color:rgba(255,0,0,.22);color:#ffd5d5}
+  .btn.danger:hover{background:rgba(255,0,0,.12)}
 
-  /* 空表示 */
+  .money{align-self:center;text-align:right;min-width:180px}
+  .money .net{font-size:18px;font-weight:800;color:var(--txt-main);font-variant-numeric:tabular-nums}
+  .money .labels{font-size:10.5px;color:var(--txt-sub);margin-top:2px}
+
   .empty{
-    padding:28px;text-align:center;color:var(--txt-sub);
-    border:1px dashed var(--bd-card); border-radius:16px;
-    background:rgba(255,255,255,.02);
+    padding:24px;text-align:center;color:var(--txt-sub);
+    border:1px dashed var(--bd-card); border-radius:14px; background:rgba(255,255,255,.02);
   }
 
   /* モーダル */
-  .modal-mask{position:fixed; inset:0; display:none; align-items:center; justify-content:center;
-    background:rgba(0,0,0,.55); backdrop-filter: blur(2px); z-index:100050}
-  .modal-mask.show{ display:flex }
-  .modal{
-    width:min(520px,92vw); background:#141827; color:var(--txt-main);
-    border:1px solid var(--bd-card); border-radius:16px; padding:18px;
-  }
-  .modal h3{ margin:0 0 6px; font-size:18px; font-weight:700 }
-  .modal .desc{ font-size:13px; color:var(--txt-sub); margin-bottom:12px }
-  .modal .btns{ display:flex; gap:10px; justify-content:flex-end }
+  .modal-mask{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.55);backdrop-filter:blur(2px);z-index:100050}
+  .modal-mask.show{display:flex}
+  .modal{width:min(520px,92vw);background:#141827;color:var(--txt-main);
+    border:1px solid var(--bd-card);border-radius:14px;padding:16px}
+  .modal h3{margin:0 0 6px;font-size:18px;font-weight:700}
+  .modal .desc{font-size:13px;color:var(--txt-sub);margin-bottom:10px}
+  .modal .btns{display:flex;gap:8px;justify-content:flex-end}
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="wrap">
+  <div class="title">配当一覧</div>
 
-  <div class="headerbar">
-    <div class="title">配当一覧</div>
-    <a class="btn" href="{% url 'dividend_create' %}">＋ 配当を記録</a>
-  </div>
-
-  <div class="stats">
-    <div class="stat">
-      <div class="label">件数</div>
-      <div class="value">{{ items|length }} 件</div>
-    </div>
-    <div class="stat">
-      <div class="label">税引前合計</div>
-      <div class="value">{{ total_gross|floatformat:2 }}</div>
-    </div>
-    <div class="stat">
-      <div class="label">税額合計</div>
-      <div class="value">{{ total_tax|floatformat:2 }}</div>
-    </div>
-    <div class="stat">
-      <div class="label">税引後合計</div>
-      <div class="value">{{ total_net|floatformat:2 }}</div>
-    </div>
+  <div class="stats-grid">
+    <div class="stat"><div class="label">件数</div><div class="value">{{ items|length }} 件</div></div>
+    <div class="stat"><div class="label">税引前合計</div><div class="value">{{ total_gross|floatformat:2 }}</div></div>
+    <div class="stat"><div class="label">税額合計</div><div class="value">{{ total_tax|floatformat:2 }}</div></div>
+    <div class="stat"><div class="label">税引後合計</div><div class="value">{{ total_net|floatformat:2 }}</div></div>
   </div>
 
   {% if not items %}
-    <div class="empty">まだ配当がありません。右上の「＋ 配当を記録」から登録してください。</div>
+    <div class="empty">まだ配当がありません。</div>
   {% else %}
     <div class="list">
       {% for it in items %}
       <div class="item">
-        <div class="left">
+        <div>
           <div class="name">
             {{ it.display_ticker }}{% if it.display_name %} / {{ it.display_name }}{% endif %}
           </div>
@@ -160,15 +121,13 @@
             {% endif %}
           </div>
 
-          {% if it.memo %}
-            <div class="memo">{{ it.memo }}</div>
-          {% endif %}
+          {% if it.memo %}<div class="memo">{{ it.memo }}</div>{% endif %}
 
           <div class="actions">
-            <a class="btn small" href="{% url 'dividend_edit' it.id %}">編集</a>
+            <a class="btn" href="{% url 'dividend_edit' it.id %}">編集</a>
             <button
               type="button"
-              class="btn small danger js-del"
+              class="btn danger js-del"
               data-url="{% url 'dividend_delete' it.id %}"
               data-title="{{ it.display_ticker }}{% if it.display_name %} / {{ it.display_name }}{% endif %}"
               data-date="{{ it.date|date:'Y-m-d' }}"
@@ -187,18 +146,14 @@
   {% endif %}
 </div>
 
-<!-- 削除POST用の隠しフォーム（CSRF付き） -->
-<form id="delForm" method="post" style="display:none">
-  {% csrf_token %}
-</form>
+<form id="delForm" method="post" style="display:none">{% csrf_token %}</form>
 
-<!-- 確認モーダル -->
 <div class="modal-mask" id="delModal" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delTitle">
     <h3 id="delTitle">配当を削除しますか？</h3>
     <div class="desc" id="delDesc"></div>
     <div class="btns">
-      <button type="button" class="btn ghost" id="delCancel">キャンセル</button>
+      <button type="button" class="btn" id="delCancel">キャンセル</button>
       <button type="button" class="btn danger" id="delOk">削除する</button>
     </div>
   </div>
@@ -217,14 +172,9 @@
   function openModal(payload){
     pendingUrl = payload.url;
     desc.textContent = `${payload.title} ／ ${payload.date} ／ 税引後 ${payload.net}`;
-    modal.classList.add('show');
-    modal.setAttribute('aria-hidden','false');
+    modal.classList.add('show'); modal.setAttribute('aria-hidden','false');
   }
-  function closeModal(){
-    modal.classList.remove('show');
-    modal.setAttribute('aria-hidden','true');
-    pendingUrl = null;
-  }
+  function closeModal(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); pendingUrl=null; }
 
   document.querySelectorAll('.js-del').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -236,15 +186,13 @@
       });
     });
   });
-
   btnCancel.addEventListener('click', closeModal);
   modal.addEventListener('click', (e)=>{ if (e.target === modal) closeModal(); });
   document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') closeModal(); });
 
   btnOk.addEventListener('click', ()=>{
     if (!pendingUrl) return closeModal();
-    form.setAttribute('action', pendingUrl);
-    form.submit();
+    form.setAttribute('action', pendingUrl); form.submit();
   });
 })();
 </script>
