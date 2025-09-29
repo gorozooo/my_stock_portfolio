@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load static %}
+{% load json_script %}
 {% block title %}配当を記録{% endblock %}
 
 {% block head %}
@@ -114,9 +115,12 @@
   </div>
 </form>
 
+<!-- ★ 保有メタを安全に埋め込み（自動補完用） -->
+{{ holding_meta|json_script:"js-holdings" }}
+
 <script>
 (function(){
-  // コード→銘柄名 自動補完（既存の /api/ticker-name を利用）
+  // --- コード→銘柄名 自動補完（既存API /api/ticker-name を利用） ---
   const endpoint = "{% url 'api_ticker_name' %}";
   const $ticker  = document.getElementById('id_ticker');
   const $name    = document.getElementById('id_name');
@@ -142,9 +146,13 @@
     $ticker.addEventListener('blur',   lookup);
   }
 
-  // 税額・税引後プレビュー（amount は税引前）
+  // --- 税額・税引後プレビュー（amount は税引前） ---
   const $amount = document.getElementById('id_amount');
-  const $rates  = document.querySelectorAll('.taxrate input[type="radio"]');
+  let $rateRadios = document.querySelectorAll('.taxrate input[type="radio"]');
+  if (!$rateRadios.length){
+    // 予備: class が付いていない場合は name で拾う
+    $rateRadios = document.querySelectorAll('input[name="tax_rate_pct"]');
+  }
   const $prev   = document.getElementById('js-preview');
   function num(x){ const v = parseFloat(x); return isNaN(v)?0:v; }
   function fmt(n){ return (Math.round(n*100)/100).toLocaleString(); }
@@ -152,14 +160,62 @@
     if (!$amount || !$prev) return;
     const gross = num($amount.value);
     let rate = 0;
-    $rates.forEach(r => { if (r.checked) rate = parseFloat(r.value)||0; });
+    $rateRadios.forEach(r => { if (r.checked) rate = parseFloat(r.value)||0; });
     const tax = gross * (rate/100.0);
     const net = gross - tax;
     $prev.textContent = `税額: ${fmt(tax)} ／ 税引後: ${fmt(net)}`;
   }
   if ($amount) $amount.addEventListener('input', updatePreview);
-  $rates.forEach(r => r.addEventListener('change', updatePreview));
+  $rateRadios.forEach(r => r.addEventListener('change', updatePreview));
   updatePreview();
+
+  // --- 保有選択 → 自動補完 ---
+  const HOLDINGS = (()=>{
+    const el = document.getElementById('js-holdings');
+    if (!el) return [];
+    try { return JSON.parse(el.textContent || '[]'); } catch(_) { return []; }
+  })();
+  const $holding = document.getElementById('id_holding');
+
+  function findHoldingMeta(id){
+    return HOLDINGS.find(h => String(h.id) === String(id));
+  }
+  function setVal(id, v, overwriteIfEmpty=true){
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (overwriteIfEmpty){
+      if (!el.value) el.value = (v ?? '');
+    }else{
+      el.value = (v ?? '');
+    }
+  }
+  function setSelect(id, v){
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (v !== undefined && v !== null && v !== '') el.value = v;
+  }
+  function applyHoldingMeta(h){
+    if (!h) return;
+    setVal('id_ticker', h.ticker, true);          // コード（空なら）
+    setVal('id_name',   h.name,   true);          // 銘柄名（空なら）
+    setVal('id_quantity',       h.quantity, true);      // 株数（空なら）
+    setVal('id_purchase_price', h.avg_cost, true);      // 取得単価（空なら）
+    setSelect('id_broker',  h.broker);            // 証券会社
+    setSelect('id_account', h.account);           // 口座区分
+    updatePreview();
+  }
+
+  if ($holding){
+    $holding.addEventListener('change', ()=>{
+      const h = findHoldingMeta($holding.value);
+      applyHoldingMeta(h);
+    });
+    // 初期選択があれば即反映
+    if ($holding.value){
+      const h = findHoldingMeta($holding.value);
+      applyHoldingMeta(h);
+    }
+  }
 })();
 </script>
 {% endblock %}
