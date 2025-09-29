@@ -47,6 +47,7 @@ urlpatterns = [
     path("holdings/partial/list", hv.holding_list_partial, name="holding_list_partial"),
     
     # 配当
+    path("dividends/dashboard/", v_div.dividend_list, name="dividend_dashboard"),
     path("dividends/", v_div.dividend_list, name="dividend_list"),
     path("dividends/create/", v_div.dividend_create, name="dividend_create"),
     path("dividends/<int:pk>/edit/", v_div.dividend_edit, name="dividend_edit"),
