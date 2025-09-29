@@ -1,143 +1,107 @@
 # portfolio/views_dividend.py
+from calendar import monthrange
+
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
-from django.db.models import Q, Sum, F
+from django.db.models import Q
 from django.utils import timezone
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
-from calendar import monthrange
 
 from ..forms import DividendForm, _normalize_code_head
 from ..models import Dividend
 from ..services import tickers as svc_tickers
 from ..services import trend as svc_trend
+from ..services import dividends as svc_div  # ★ 集計系はサービスに集約
 
+
+# ===== ダッシュボード（集計・可視化専用） =====
 @login_required
-def dashboard(request):
-    """配当ダッシュボード：KPI / 月次推移 / 証券会社別 / トップ配当銘柄"""
-    qs = (
-        Dividend.objects.select_related("holding")
-        .filter(Q(holding__user=request.user) | Q(holding__isnull=True, ticker__isnull=False))
-    )
-
-    # 期間（デフォ: 今年）
+def dividend_dashboard(request):
+    """
+    /dividends/dashboard/
+    KPI、月次推移、証券会社別、トップ銘柄などの俯瞰画面。
+    year / broker / account を受けて集計。
+    """
+    # パラメータ
     try:
         year = int(request.GET.get("year", timezone.localdate().year))
     except Exception:
         year = timezone.localdate().year
-    qs_year = qs.filter(date__year=year)
+    broker  = (request.GET.get("broker") or "").strip()
+    account = (request.GET.get("account") or "").strip()
 
-    # --- KPI ---
-    total_cnt  = qs_year.count()
-    total_tax  = float(qs_year.aggregate(s=Sum("tax"))["s"] or 0)
-    # 税引前/税引後（is_net=False=税引前、True=税引後保存）に関わらず計算
-    gross_sum = 0.0
-    net_sum   = 0.0
-    for d in qs_year:
-        try:
-            gross_sum += float(d.gross_amount() or 0)
-            net_sum   += float(d.net_amount() or 0)
-        except Exception:
-            pass
+    # ベースQS（ログインユーザーのみ）
+    base_qs = svc_div.build_user_dividend_qs(request.user)
+    qs = svc_div.apply_filters(base_qs, year=year, broker=broker, account=account)
 
-    # --- 月次推移（1〜12月） ---
-    monthly = []
-    for m in range(1, 13):
-        m_qs = qs_year.filter(date__month=m)
-        g = n = t = 0.0
-        for d in m_qs:
-            g += float(d.gross_amount() or 0)
-            n += float(d.net_amount() or 0)
-            t += float(d.tax or 0)
-        monthly.append({"m": m, "gross": round(g,2), "net": round(n,2), "tax": round(t,2)})
+    # 集計
+    kpi        = svc_div.sum_kpis(qs)                     # gross / net / tax / count / yield_pct
+    monthly    = svc_div.group_by_month(qs)               # 1..12 のリスト
+    by_broker  = svc_div.group_by_broker(qs)              # [{"broker":..., "net":...}, ...]
+    top_symbols= svc_div.top_symbols(qs, n=10)            # [{"label":..., "net":...}, ...]
 
-    # --- 証券会社別（税引後合計） ---
-    by_broker = {}
-    for d in qs_year:
-        broker = (d.broker or (d.holding.broker if d.holding else "") or "OTHER")
-        by_broker.setdefault(broker, 0.0)
-        by_broker[broker] += float(d.net_amount() or 0)
-    broker_rows = sorted(
-        [{"broker": k, "net": round(v,2)} for k,v in by_broker.items()],
-        key=lambda x: x["net"], reverse=True
-    )
-
-    # --- トップ配当銘柄（税引後合計 TOP10） ---
-    by_symbol = {}
-    for d in qs_year:
-        key = d.display_ticker or d.display_name or "—"
-        by_symbol.setdefault(key, 0.0)
-        by_symbol[key] += float(d.net_amount() or 0)
-    top_symbols = sorted(
-        [{"label": k, "net": round(v,2)} for k,v in by_symbol.items()],
-        key=lambda x: x["net"], reverse=True
-    )[:10]
-
-    # --- 利回り（可用データのみで概算 = 年間税引後 / 元本） ---
-    # 元本 = quantity*purchase_price（無ければ holding の quantity/avg_cost を補完）
-    cost_sum = 0.0
-    for d in qs_year:
-        qty = d.quantity or (d.holding.quantity if d.holding and d.holding.quantity else None)
-        pp  = d.purchase_price or (d.holding.avg_cost if d.holding and d.holding.avg_cost is not None else None)
-        if qty and pp is not None:
-            cost_sum += float(qty) * float(pp)
-    yield_pct = (net_sum / cost_sum * 100.0) if cost_sum > 0 else 0.0
+    # 年の候補（±4年）
+    cur_y = timezone.localdate().year
+    year_options = [cur_y - 4 + i for i in range(9)]
 
     ctx = {
-        "year": year,
-        "kpi": {
-            "count": total_cnt,
-            "gross": round(gross_sum,2),
-            "net": round(net_sum,2),
-            "tax": round(total_tax,2),
-            "yield_pct": round(yield_pct, 2),
-        },
+        "flt": {"year": year, "broker": broker, "account": account},
+        "year_options": year_options,
+        "kpi": kpi,
         "monthly": monthly,
-        "by_broker": broker_rows,
+        "by_broker": by_broker,
         "top_symbols": top_symbols,
+        "BROKERS": getattr(Dividend, "BROKER_CHOICES", []),
+        "ACCOUNTS": getattr(Dividend, "ACCOUNT_CHOICES", []),
+        "urls": {"list": "dividend_list"},
     }
     return render(request, "dividends/dashboard.html", ctx)
 
 
+# ===== 明細（スワイプ編集/削除・軽いフィルタ） =====
 @login_required
 def dividend_list(request):
-    qs = (
-        Dividend.objects.select_related("holding")
-        .filter(
-            Q(holding__user=request.user) |
-            Q(holding__isnull=True, ticker__isnull=False)
-        )
-        .order_by("-date", "-id")
-    )
+    """
+    /dividends/?year=YYYY&month=MM&broker=...&account=...
+    明細表示用。KPIは合計のみを上部に表示。
+    """
+    year_q  = request.GET.get("year")
+    month_q = request.GET.get("month")
+    broker  = (request.GET.get("broker") or "").strip()
+    account = (request.GET.get("account") or "").strip()
 
-    total_gross = 0
-    total_net = 0
-    total_tax = 0
-    for it in qs:
-        try:
-            total_gross += float(it.gross_amount())
-            total_net   += float(it.net_amount())
-            total_tax   += float(it.tax or 0)
-        except Exception:
-            pass
+    base_qs = svc_div.build_user_dividend_qs(request.user)
+    qs = svc_div.apply_filters(
+        base_qs,
+        year=int(year_q) if (year_q and year_q.isdigit()) else None,
+        month=int(month_q) if (month_q and month_q.isdigit()) else None,
+        broker=broker or None,
+        account=account or None,
+    ).order_by("-date", "-id")
+
+    # KPI（合計だけ）
+    kpi = svc_div.sum_kpis(qs)
 
     ctx = {
         "items": qs,
-        "total_gross": total_gross,
-        "total_net": total_net,
-        "total_tax": total_tax,
+        "total_gross": kpi["gross"],
+        "total_net":   kpi["net"],
+        "total_tax":   kpi["tax"],
+        "flt": {"year": year_q, "month": month_q, "broker": broker, "account": account},
     }
     return render(request, "dividends/list.html", ctx)
 
 
+# ===== 作成 =====
 @login_required
 def dividend_create(request):
     if request.method == "POST":
         form = DividendForm(request.POST, user=request.user)
         if form.is_valid():
             obj = form.save(commit=False)
-            obj.is_net = False  # amount=税引前
+            obj.is_net = False  # amount=税引前（フォーム仕様）
             if obj.holding and obj.holding.user_id != request.user.id:
                 messages.error(request, "別ユーザーの保有は選べません。")
             else:
@@ -150,6 +114,7 @@ def dividend_create(request):
     return render(request, "dividends/form.html", {"form": form})
 
 
+# ===== 編集 =====
 @login_required
 def dividend_edit(request, pk: int):
     obj = get_object_or_404(Dividend, pk=pk)
@@ -161,7 +126,7 @@ def dividend_edit(request, pk: int):
         form = DividendForm(request.POST, instance=obj, user=request.user)
         if form.is_valid():
             edited = form.save(commit=False)
-            edited.is_net = False
+            edited.is_net = False  # 税引前仕様に合わせる
             edited.save()
             messages.success(request, "配当を更新しました。")
             return redirect("dividend_list")
@@ -171,9 +136,9 @@ def dividend_edit(request, pk: int):
     return render(request, "dividends/form.html", {"form": form})
 
 
+# ===== 削除（確認モーダル想定：POSTのみ削除） =====
 @login_required
 def dividend_delete(request, pk: int):
-    """一覧ページの確認モーダルからのPOSTのみで削除する。GETは一覧へ戻す。"""
     obj = get_object_or_404(Dividend, pk=pk)
     if obj.holding and obj.holding.user_id != request.user.id:
         messages.error(request, "この配当は削除できません。")
@@ -189,6 +154,10 @@ def dividend_delete(request, pk: int):
 
 # ========= 銘柄名ルックアップ API =========
 def _resolve_name_fallback(code_head: str, raw: str) -> str:
+    """
+    HoldingForm と同等のゆるい銘柄名解決。
+    4桁→tickers.csv、だめなら trend のマップ、最終的に外部取得。
+    """
     name = None
     try:
         if code_head and len(code_head) == 4 and code_head.isdigit():
@@ -212,6 +181,9 @@ def _resolve_name_fallback(code_head: str, raw: str) -> str:
 
 @require_GET
 def dividend_lookup_name(request):
+    """
+    GET /dividends/lookup-name/?q=7203 → {"name": "..."}
+    """
     raw = request.GET.get("q", "")
     head = _normalize_code_head(raw)
     name = _resolve_name_fallback(head, raw) if head else ""
