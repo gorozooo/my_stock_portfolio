@@ -15,15 +15,9 @@
   .btns .btn{flex:1;text-align:center;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e6ebff;text-decoration:none}
   .btns .btn:hover{background:rgba(255,255,255,.12)}
 
-  /* 税率トグル（見やすい行） */
   .tax-row{display:flex;gap:12px;align-items:center}
-  .tax-row .toggle{
-    display:flex;align-items:center;gap:10px;
-    width:100%;padding:12px;border-radius:12px;
-    border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);
-    color:#e6ebff;font-size:15px
-  }
-  .tax-row .toggle input[type="checkbox"]{width:18px;height:18px}
+  .toggle{display:flex;align-items:center;gap:10px;width:100%;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e6ebff;font-size:15px}
+  .toggle input[type="checkbox"]{width:18px;height:18px}
   .subnote{font-size:12px;color:#8b93a7}
 </style>
 {% endblock %}
@@ -52,19 +46,25 @@
     <div class="hint">ティッカー入力後、自動で補完されます（取得できない場合は手入力）</div>
   </div>
 
-  <!-- 受取日 / 受取額 -->
+  <!-- ★ 追加: 株数 -->
+  <div class="fi">
+    <label class="lbl">株数（保有未選択時は必須）</label>
+    {{ form.quantity }}
+  </div>
+
+  <!-- 受取日 / 受取額（税引前） -->
   <div class="row-2">
     <div class="fi">
       <label class="lbl">受取日</label>
       {{ form.date }}
     </div>
     <div class="fi">
-      <label class="lbl">受取額（税引後）</label>
+      <label class="lbl">受取額（税引前）</label>
       {{ form.amount }}
     </div>
   </div>
 
-  <!-- 税率（チェックボックスON=20.315% / OFF=0%） -->
+  <!-- 税率トグル -->
   <div class="fi">
     <label class="lbl">税率</label>
     <label class="toggle">
@@ -74,7 +74,7 @@
     <div class="subnote">OFF にすると課税なし（0%）として登録されます</div>
   </div>
 
-  <!-- 隠し項目: 税引後固定 / 計算済み税額 -->
+  <!-- 隠し項目 -->
   {{ form.is_net }}
   {{ form.tax }}
 
@@ -91,14 +91,12 @@
 
 <script>
 (function(){
-  // コード→銘柄名 自動補完（既存の /api/ticker-name を利用）
   const endpoint = "{% url 'api_ticker_name' %}";
   const $ticker  = document.getElementById('id_ticker');
   const $name    = document.getElementById('id_name');
   if (!$ticker || !$name) return;
 
   let edited = false, last = {code:"", name:""};
-
   $name.addEventListener('input', ()=> edited = true);
 
   function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
