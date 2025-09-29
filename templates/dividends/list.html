@@ -29,6 +29,19 @@
   .btn:hover{background:rgba(255,255,255,.12)}
   .btn.del{border-color:rgba(255,128,128,.25);background:rgba(255,80,80,.08)}
   .empty{padding:24px;text-align:center;color:#9aa4b2;border:1px dashed rgba(255,255,255,.18);border-radius:14px}
+
+  /* --- Modal --- */
+  .modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(2px);
+    display:none;align-items:center;justify-content:center;z-index:100050}
+  .modal-mask.show{display:flex}
+  .modal{width:min(520px,92vw);background:#151926;border:1px solid rgba(255,255,255,.12);
+    border-radius:14px;padding:18px}
+  .modal h3{margin:0 0 6px;font-size:18px;color:#e6ebff}
+  .modal .desc{font-size:13px;color:#9aa4b2;margin-bottom:12px}
+  .modal .btns{display:flex;gap:10px;justify-content:flex-end}
+  .modal .btn{padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.16);
+    background:rgba(255,255,255,.06);color:#e6ebff}
+  .modal .btn.del{border-color:rgba(255,128,128,.25);background:rgba(255,80,80,.1)}
 </style>
 {% endblock %}
 
@@ -68,7 +81,15 @@
           {% endif %}
           <div class="act">
             <a class="btn" href="{% url 'dividend_edit' it.id %}">編集</a>
-            <a class="btn del" href="{% url 'dividend_delete' it.id %}">削除</a>
+            <!-- 削除はモーダルで確認してPOST -->
+            <button
+              type="button"
+              class="btn del js-del"
+              data-url="{% url 'dividend_delete' it.id %}"
+              data-title="{{ it.display_ticker }}{% if it.display_name %} / {{ it.display_name }}{% endif %}"
+              data-date="{{ it.date|date:'Y-m-d' }}"
+              data-net="{{ it.net_amount|floatformat:2 }}"
+            >削除</button>
           </div>
         </div>
         <div class="money">
@@ -80,4 +101,66 @@
     </div>
   {% endif %}
 </div>
+
+<!-- 削除POST用の隠しフォーム（CSRF付き） -->
+<form id="delForm" method="post" style="display:none">
+  {% csrf_token %}
+</form>
+
+<!-- 確認モーダル -->
+<div class="modal-mask" id="delModal" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delTitle">
+    <h3 id="delTitle">配当を削除しますか？</h3>
+    <div class="desc" id="delDesc"></div>
+    <div class="btns">
+      <button type="button" class="btn" id="delCancel">キャンセル</button>
+      <button type="button" class="btn del" id="delOk">削除する</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const modal = document.getElementById('delModal');
+  const desc  = document.getElementById('delDesc');
+  const btnOk = document.getElementById('delOk');
+  const btnCancel = document.getElementById('delCancel');
+  const form  = document.getElementById('delForm');
+
+  let pendingUrl = null;
+
+  function openModal(payload){
+    pendingUrl = payload.url;
+    desc.textContent = `${payload.title} ／ ${payload.date} ／ 税引後 ${payload.net}`;
+    modal.classList.add('show');
+    modal.setAttribute('aria-hidden','false');
+  }
+  function closeModal(){
+    modal.classList.remove('show');
+    modal.setAttribute('aria-hidden','true');
+    pendingUrl = null;
+  }
+
+  document.querySelectorAll('.js-del').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      openModal({
+        url: btn.dataset.url,
+        title: btn.dataset.title || '',
+        date: btn.dataset.date || '',
+        net: btn.dataset.net || ''
+      });
+    });
+  });
+
+  btnCancel.addEventListener('click', closeModal);
+  modal.addEventListener('click', (e)=>{ if (e.target === modal) closeModal(); });
+  document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') closeModal(); });
+
+  btnOk.addEventListener('click', ()=>{
+    if (!pendingUrl) return closeModal();
+    form.setAttribute('action', pendingUrl);
+    form.submit();
+  });
+})();
+</script>
 {% endblock %}
