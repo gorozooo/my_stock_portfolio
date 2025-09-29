@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}配当ダッシュボード{% endblock %}
+
+{% block head %}
+<style>
+  .wrap{max-width:900px;margin:0 auto}
+  .grid{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+  @media (max-width:720px){ .grid{grid-template-columns:1fr} }
+  .card{padding:14px 16px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);border-radius:14px}
+  .kpis{display:grid;gap:12px;grid-template-columns:repeat(4,1fr)}
+  @media (max-width:720px){ .kpis{grid-template-columns:repeat(2,1fr)} }
+  .kpi{padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03)}
+  .kpi .t{font-size:12px;color:#a7b0c6}
+  .kpi .v{font-size:22px;margin-top:4px;color:#eaf0ff}
+  .sec-title{font-weight:600;margin:6px 0 10px 0}
+  table{width:100%;border-collapse:separate;border-spacing:0 8px}
+  th{font-size:12px;color:#9aa4b2;text-align:left;padding:0 8px}
+  td{padding:10px 12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+  td:first-child{border-radius:10px 0 0 10px}
+  td:last-child{border-radius:0 10px 10px 0;text-align:right}
+  .muted{color:#9aa4b2;font-size:12px}
+  /* 簡易バー */
+  .barwrap{height:150px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03);padding:8px}
+  .legend{display:flex;gap:12px;margin-top:6px}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="wrap">
+  <h1 class="text-xl font-semibold mb-3">配当ダッシュボード</h1>
+
+  <!-- KPI -->
+  <div class="kpis mb-3">
+    <div class="kpi"><div class="t">件数（{{ year }}）</div><div class="v">{{ kpi.count|default:"0" }}</div></div>
+    <div class="kpi"><div class="t">税引前合計</div><div class="v">{{ kpi.gross|floatformat:2 }}</div></div>
+    <div class="kpi"><div class="t">税額合計</div><div class="v">{{ kpi.tax|floatformat:2 }}</div></div>
+    <div class="kpi"><div class="t">税引後合計</div><div class="v">{{ kpi.net|floatformat:2 }}</div></div>
+  </div>
+  <div class="kpis mb-4">
+    <div class="kpi" style="grid-column: span 2">
+      <div class="t">概算利回り（年・税引後/元本）</div>
+      <div class="v">{{ kpi.yield_pct|floatformat:2 }}%</div>
+      <div class="muted" style="margin-top:6px">※ 元本＝株数×取得単価（保有/配当のいずれかに入力があるもののみ合算）</div>
+    </div>
+    <div class="kpi" style="grid-column: span 2">
+      <div class="t">表示年</div>
+      <div class="v">{{ year }}</div>
+    </div>
+  </div>
+
+  <div class="grid mb-4">
+    <!-- 月次推移 -->
+    <div class="card">
+      <div class="sec-title">月次推移（税引後）</div>
+      <div class="barwrap">
+        <svg id="monthlyChart" viewBox="0 0 360 150" width="100%" height="100%" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="legend">
+        <span><i class="dot" style="background:#6ea8ff"></i> 税引後</span>
+        <span><i class="dot" style="background:#a0aec0"></i> 税額</span>
+      </div>
+      <div class="muted" style="margin-top:6px">タップで年はクエリ ?year=YYYY で切替可</div>
+    </div>
+
+    <!-- 証券会社別 -->
+    <div class="card">
+      <div class="sec-title">証券会社別（税引後合計）</div>
+      <table>
+        <thead><tr><th>証券会社</th><th>税引後</th></tr></thead>
+        <tbody>
+          {% for r in by_broker %}
+            <tr><td>{{ r.broker }}</td><td>{{ r.net|floatformat:2 }}</td></tr>
+          {% empty %}
+            <tr><td colspan="2" class="muted">データなし</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- トップ銘柄 -->
+  <div class="card">
+    <div class="sec-title">税引後 上位銘柄（{{ year }} / Top 10）</div>
+    <table>
+      <thead><tr><th>銘柄/コード</th><th>税引後</th></tr></thead>
+      <tbody>
+        {% for r in top_symbols %}
+          <tr><td>{{ r.label }}</td><td>{{ r.net|floatformat:2 }}</td></tr>
+        {% empty %}
+          <tr><td colspan="2" class="muted">データなし</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{{ monthly|json_script:"js-monthly" }}
+
+<script>
+(function(){
+  // 月次棒グラフ（税引後＋税額）
+  const data = (()=>{try{return JSON.parse(document.getElementById('js-monthly').textContent)}catch(_){return []}})();
+  const svg = document.getElementById('monthlyChart');
+  if (!svg || !data.length) return;
+
+  const W = 360, H = 150, pad = 18, barW = 18, gap = 12;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = '';
+
+  const maxVal = Math.max(1, ...data.map(d => (d.net + d.tax)));
+  const scaleY = v => H - pad - (v / maxVal) * (H - pad*2);
+
+  // 軸線
+  const axis = document.createElementNS('http://www.w3.org/2000/svg','path');
+  axis.setAttribute('d', `M${pad},${H-pad} H${W-pad}`);
+  axis.setAttribute('stroke','rgba(255,255,255,.25)');
+  axis.setAttribute('fill','none');
+  svg.appendChild(axis);
+
+  data.forEach((d, i) => {
+    const x = pad + i*(barW+gap);
+    // 税引後
+    const hNet = (H - pad) - scaleY(d.net);
+    const r1 = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    r1.setAttribute('x', x);
+    r1.setAttribute('y', scaleY(d.net));
+    r1.setAttribute('width', barW);
+    r1.setAttribute('height', hNet);
+    r1.setAttribute('rx', 3);
+    r1.setAttribute('fill', '#6ea8ff');
+    svg.appendChild(r1);
+
+    // 税額（上に重ねる）
+    const hTax = (H - pad) - scaleY(d.net + d.tax) - hNet;
+    const r2 = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    r2.setAttribute('x', x);
+    r2.setAttribute('y', scaleY(d.net + d.tax));
+    r2.setAttribute('width', barW);
+    r2.setAttribute('height', hTax);
+    r2.setAttribute('rx', 3);
+    r2.setAttribute('fill', '#a0aec0');
+    svg.appendChild(r2);
+
+    // 月ラベル
+    const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x', x + barW/2);
+    t.setAttribute('y', H - 4);
+    t.setAttribute('text-anchor','middle');
+    t.setAttribute('font-size','9');
+    t.setAttribute('fill','rgba(255,255,255,.75)');
+    t.textContent = d.m;
+    svg.appendChild(t);
+  });
+})();
+</script>
+{% endblock %}
