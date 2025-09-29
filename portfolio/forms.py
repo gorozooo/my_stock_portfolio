@@ -1,7 +1,10 @@
+from decimal import Decimal
+
 from django import forms
 from django.core.exceptions import ValidationError
 from django.conf import settings
 from django.utils import timezone
+
 from .models import Holding, Dividend
 from .services import tickers as svc_tickers
 from .services import trend as svc_trend
@@ -33,7 +36,6 @@ class HoldingForm(forms.ModelForm):
             "ticker":   forms.TextInput(attrs={"placeholder": "例: 7203 / 167A"}),
             "name":     forms.TextInput(attrs={"placeholder": "例: トヨタ自動車"}),
             "quantity": forms.NumberInput(attrs={"min": "1", "step": "1"}),
-            # ← ここが原因だった箇所。attrs({...}) ではなく attrs={...}
             "avg_cost": forms.NumberInput(attrs={"min": "0", "step": "0.01"}),
             "memo":     forms.Textarea(attrs={"rows": 4, "style": "resize:vertical;", "placeholder": "売買理由など"}),
         }
@@ -59,7 +61,7 @@ class HoldingForm(forms.ModelForm):
             return override
 
         name = None
-        # 1) 軽量: 4桁数字だけ tickers.csv 参照（tickers.py は未改変でOK）
+        # 1) 軽量: 4桁数字だけ tickers.csv 参照
         try:
             if code_head and len(code_head) == 4 and code_head.isdigit():
                 name = svc_tickers.resolve_name(code_head)
@@ -72,7 +74,7 @@ class HoldingForm(forms.ModelForm):
                 name = svc_trend._lookup_name_jp_from_list(norm)
             except Exception:
                 pass
-        # 3) 最終: yfinance（外部到達時は英名の可能性）
+        # 3) 最終: 外部取得
         if not name:
             try:
                 norm = svc_trend._normalize_ticker(code_head or raw)
@@ -120,12 +122,14 @@ class HoldingForm(forms.ModelForm):
         if self.errors:
             raise ValidationError("入力に誤りがあります。")
         return cd
-        
+
+
 class DividendForm(forms.ModelForm):
     """
     - holding は任意（未選択でも登録可）
     - holding 未選択なら ticker を必須にし、コードから銘柄名を自動補完
-    - 税率は 0% / 20.315% を選択 → tax を自動計算して保存（is_net は固定で True）
+    - UI は「税引後のみ」。is_net は Hidden で True 固定。
+    - 税率（0% / 20.315%）を選択 → 税額(tax)を自動計算して保存
     """
     TAX_RATE_CHOICES = (
         ("0", "課税なし（0%）"),
@@ -134,33 +138,53 @@ class DividendForm(forms.ModelForm):
 
     # 任意で保有を指定（自分の保有のみ）
     holding = forms.ModelChoiceField(
-        queryset=Holding.objects.none(), required=False, label="保有（任意）"
+        queryset=Holding.objects.none(), required=False, label="保有（任意）",
+        widget=forms.Select(attrs={"class": "sel"})
     )
 
     # 保有が無い時でも登録できるよう自由入力を追加
-    ticker = forms.CharField(label="ティッカー/コード", required=False,
-                             widget=forms.TextInput(attrs={"placeholder": "例: 7203 / 167A", "class": "in"}))
-    name   = forms.CharField(label="銘柄名（任意）", required=False,
-                             widget=forms.TextInput(attrs={"placeholder": "自動補完／手入力可", "class": "in"}))
+    ticker = forms.CharField(
+        label="ティッカー/コード", required=False,
+        widget=forms.TextInput(attrs={
+            "id": "id_ticker", "class": "in", "placeholder": "例: 7203 / 167A",
+            "inputmode": "text", "pattern": "[0-9A-Za-z]{3,6}"
+        })
+    )
+    name = forms.CharField(
+        label="銘柄名（任意）", required=False,
+        widget=forms.TextInput(attrs={"id": "id_name", "class": "in", "placeholder": "自動補完／手入力可"})
+    )
 
-    date   = forms.DateField(label="受取日",
-                             widget=forms.DateInput(attrs={"type": "date", "class": "in"}))
-    amount = forms.DecimalField(label="受取額（税引後）", min_value=0,
-                                widget=forms.NumberInput(attrs={"inputmode": "decimal", "pattern": "[0-9.]*", "class": "in"}))
+    date = forms.DateField(
+        label="受取日",
+        widget=forms.DateInput(attrs={"type": "date", "class": "in"})
+    )
+    amount = forms.DecimalField(
+        label="受取額（税引後）", min_value=Decimal("0"),
+        widget=forms.NumberInput(attrs={"class": "in", "inputmode": "decimal", "step": "0.01"})
+    )
 
-    # 表示だけ残す（固定ON）
-    is_net = forms.BooleanField(label="税引後として入力（固定）", required=False, initial=True, disabled=True)
-
-    tax_rate = forms.ChoiceField(label="税率", choices=TAX_RATE_CHOICES, initial="20.315")
+    # 税率（セレクト）
+    tax_rate = forms.ChoiceField(
+        label="税率", choices=TAX_RATE_CHOICES, initial="20.315",
+        widget=forms.Select(attrs={"class": "sel"})
+    )
 
     # 保存用（自動計算）— 画面には出さない
-    tax  = forms.DecimalField(required=False, widget=forms.HiddenInput())
-    memo = forms.CharField(label="メモ", required=False,
-                           widget=forms.TextInput(attrs={"placeholder": "任意メモ", "class": "in"}))
+    tax = forms.DecimalField(required=False, widget=forms.HiddenInput())
+
+    memo = forms.CharField(
+        label="メモ", required=False,
+        widget=forms.TextInput(attrs={"class": "in", "placeholder": "任意メモ"})
+    )
 
     class Meta:
         model = Dividend
-        fields = ["holding", "ticker", "name", "date", "amount", "is_net", "tax_rate", "tax", "memo"]
+        # is_net は Hidden にして常に True
+        fields = ["holding", "ticker", "name", "date", "amount", "tax_rate", "tax", "is_net", "memo"]
+        widgets = {
+            "is_net": forms.HiddenInput(),  # ← フォームには出さない
+        }
 
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -169,7 +193,11 @@ class DividendForm(forms.ModelForm):
             qs = qs.filter(user=user)
         self.fields["holding"].queryset = qs.order_by("ticker", "name")
 
-    # --- 銘柄名の補完ロジック（HoldingFormと同等の方針） ---
+        # サーバ側でも税引後固定
+        self.fields["is_net"].initial = True
+        self.fields["is_net"].required = False
+
+    # --- 銘柄名の補完ロジック（HoldingForm と同等の方針） ---
     @staticmethod
     def _resolve_name_fallback(code_head: str, raw: str) -> str:
         # 0) 任意の上書き辞書
@@ -191,7 +219,7 @@ class DividendForm(forms.ModelForm):
                 name = svc_trend._lookup_name_jp_from_list(norm)
             except Exception:
                 pass
-        # 3) 最終：外部取得（英名の可能性あり）
+        # 3) 最終：外部取得
         if not name:
             try:
                 norm = svc_trend._normalize_ticker(code_head or raw)
@@ -215,8 +243,8 @@ class DividendForm(forms.ModelForm):
         # 銘柄名の自動補完
         name = (cd.get("name") or "").strip()
         if not name:
-            # holding 優先で補完、無ければコードから補完
             if holding:
+                # 保有から補完
                 name = holding.name or name
                 if not ticker:
                     cd["ticker"] = holding.ticker
@@ -224,15 +252,15 @@ class DividendForm(forms.ModelForm):
                 name = self._resolve_name_fallback(cd.get("ticker") or "", raw_ticker)
             cd["name"] = name
 
-        # 税額を自動計算（is_net固定 True 前提）
-        amount = cd.get("amount") or 0
+        # 税額を自動計算（常に税引後として扱う）
+        amount = Decimal(cd.get("amount") or 0)
         try:
-            rate = float(self.cleaned_data.get("tax_rate", "20.315"))
+            # "20.315" → Decimal("20.315") / 100
+            rate_pct = Decimal(str(self.cleaned_data.get("tax_rate", "20.315")))
         except Exception:
-            rate = 20.315
-        r = rate / 100.0
-        cd["tax"] = amount * r if rate > 0 else 0
+            rate_pct = Decimal("20.315")
+        rate = rate_pct / Decimal("100")
+        cd["tax"] = (amount * rate).quantize(Decimal("0.01")) if rate_pct > 0 else Decimal("0")
         cd["is_net"] = True
 
         return cd
-        
