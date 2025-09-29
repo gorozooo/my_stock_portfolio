@@ -4,87 +4,171 @@
 
 {% block head %}
 <style>
-  .wrap{max-width:900px;margin:0 auto}
-  .toolbar{display:flex;gap:8px;align-items:center;justify-content:space-between;margin:8px 0 14px}
-  .toolbar a.btn{padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);
-    background:rgba(255,255,255,.06);color:#e6ebff;text-decoration:none;font-size:14px}
-  .sum{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}
-  .chip{padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.06);
-    border:1px solid rgba(255,255,255,.12);font-size:13px;color:#cfd7ff}
-  .list{display:grid;gap:10px}
-  .row{display:grid;grid-template-columns:1fr auto;gap:8px;
-    padding:12px;border-radius:14px;background:rgba(255,255,255,.04);
-    border:1px solid rgba(255,255,255,.08)}
-  .h1{font-weight:600;color:#e6ebff}
-  .sub{font-size:12px;color:#9aa4b2}
-  .badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
-  .badge{font-size:11px;padding:4px 8px;border-radius:999px;background:rgba(255,255,255,.06);
-    border:1px solid rgba(255,255,255,.14);color:#cfd7ff}
-  .money{text-align:right}
-  .money .big{font-size:18px;color:#e6ebff;font-variant-numeric:tabular-nums}
-  .money .sm{font-size:12px;color:#9aa4b2}
-  .act{display:flex;gap:8px;margin-top:8px}
-  .btn{padding:6px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.16);
-    background:rgba(255,255,255,.06);color:#e6ebff;text-decoration:none;font-size:13px}
-  .btn:hover{background:rgba(255,255,255,.12)}
-  .btn.del{border-color:rgba(255,128,128,.25);background:rgba(255,80,80,.08)}
-  .empty{padding:24px;text-align:center;color:#9aa4b2;border:1px dashed rgba(255,255,255,.18);border-radius:14px}
+  :root{
+    --bg-card: rgba(255,255,255,.04);
+    --bd-card: rgba(255,255,255,.10);
+    --txt-main: #e8edff;
+    --txt-sub : #9aa4b2;
+    --pill-bg : rgba(255,255,255,.06);
+    --pill-bd : rgba(255,255,255,.16);
+    --accent  : #6ea8ff;
+    --danger  : #ff6b6b;
+  }
 
-  /* --- Modal --- */
-  .modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(2px);
-    display:none;align-items:center;justify-content:center;z-index:100050}
-  .modal-mask.show{display:flex}
-  .modal{width:min(520px,92vw);background:#151926;border:1px solid rgba(255,255,255,.12);
-    border-radius:14px;padding:18px}
-  .modal h3{margin:0 0 6px;font-size:18px;color:#e6ebff}
-  .modal .desc{font-size:13px;color:#9aa4b2;margin-bottom:12px}
-  .modal .btns{display:flex;gap:10px;justify-content:flex-end}
-  .modal .btn{padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.16);
-    background:rgba(255,255,255,.06);color:#e6ebff}
-  .modal .btn.del{border-color:rgba(255,128,128,.25);background:rgba(255,80,80,.1)}
+  .wrap{max-width:1000px;margin:0 auto;padding-inline:6px}
+
+  /* タイトル & 追加ボタン */
+  .headerbar{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    margin:8px 0 14px;
+  }
+  .title{
+    font-size:22px; font-weight:700; color:var(--txt-main); letter-spacing:.2px;
+  }
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:.5em;
+    padding:10px 14px;border-radius:12px;
+    background:var(--pill-bg); border:1px solid var(--pill-bd);
+    color:var(--txt-main); text-decoration:none; font-weight:600;
+  }
+  .btn:hover{ background:rgba(255,255,255,.10) }
+  .btn.small{ padding:8px 10px;font-weight:600 }
+  .btn.ghost{ background:transparent }
+  .btn.danger{ background:rgba(255,0,0,.07); border-color:rgba(255,0,0,.22); color:#ffd5d5 }
+  .btn.danger:hover{ background:rgba(255,0,0,.12) }
+
+  /* サマリー（横スクロール可） */
+  .stats{
+    display:flex; gap:10px; overflow:auto; padding-bottom:6px; margin-bottom:12px;
+    scroll-snap-type:x proximity;
+  }
+  .stat{
+    min-width:180px; flex:0 0 auto; scroll-snap-align:start;
+    padding:12px 14px;border-radius:14px;
+    background:var(--bg-card); border:1px solid var(--bd-card);
+  }
+  .stat .label{font-size:12px;color:var(--txt-sub);margin-bottom:4px}
+  .stat .value{font-size:18px;font-variant-numeric:tabular-nums;color:var(--txt-main);font-weight:700}
+
+  /* リスト */
+  .list{ display:grid; gap:12px }
+  .item{
+    display:grid; grid-template-columns: 1fr auto; gap:12px;
+    padding:14px;border-radius:16px;
+    background:var(--bg-card); border:1px solid var(--bd-card);
+  }
+  @media (max-width:640px){ .item{ grid-template-columns:1fr } }
+
+  .left .name{
+    font-size:18px; font-weight:700; color:var(--txt-main); letter-spacing:.2px;
+  }
+  .left .date{ font-size:12px; color:var(--txt-sub); margin-top:2px }
+
+  /* バッジ群 */
+  .badges{ display:flex; flex-wrap:wrap; gap:8px; margin-top:8px }
+  .badge{
+    padding:6px 10px; border-radius:999px; font-size:12px;
+    background:var(--pill-bg); border:1px solid var(--pill-bd); color:#cfd7ff;
+  }
+
+  /* 金額カラム */
+  .money{
+    text-align:right; align-self:center; min-width:210px;
+  }
+  .money .net{
+    font-size:20px; font-weight:800; color:var(--txt-main);
+    font-variant-numeric:tabular-nums;
+  }
+  .money .labels{ font-size:11px; color:var(--txt-sub); margin-top:2px }
+
+  /* メモ & アクション */
+  .memo{ margin-top:8px; font-size:13px; color:#cfd4eb }
+  .actions{ display:flex; gap:8px; margin-top:10px }
+
+  /* 空表示 */
+  .empty{
+    padding:28px;text-align:center;color:var(--txt-sub);
+    border:1px dashed var(--bd-card); border-radius:16px;
+    background:rgba(255,255,255,.02);
+  }
+
+  /* モーダル */
+  .modal-mask{position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+    background:rgba(0,0,0,.55); backdrop-filter: blur(2px); z-index:100050}
+  .modal-mask.show{ display:flex }
+  .modal{
+    width:min(520px,92vw); background:#141827; color:var(--txt-main);
+    border:1px solid var(--bd-card); border-radius:16px; padding:18px;
+  }
+  .modal h3{ margin:0 0 6px; font-size:18px; font-weight:700 }
+  .modal .desc{ font-size:13px; color:var(--txt-sub); margin-bottom:12px }
+  .modal .btns{ display:flex; gap:10px; justify-content:flex-end }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="wrap">
-  <div class="toolbar">
-    <div class="h1">配当一覧</div>
+
+  <div class="headerbar">
+    <div class="title">配当一覧</div>
     <a class="btn" href="{% url 'dividend_create' %}">＋ 配当を記録</a>
   </div>
 
-  <div class="sum">
-    <div class="chip">件数: {{ items|length }} 件</div>
-    <div class="chip">税引前合計: {{ total_gross|floatformat:2 }}</div>
-    <div class="chip">税額合計: {{ total_tax|floatformat:2 }}</div>
-    <div class="chip">税引後合計: {{ total_net|floatformat:2 }}</div>
+  <div class="stats">
+    <div class="stat">
+      <div class="label">件数</div>
+      <div class="value">{{ items|length }} 件</div>
+    </div>
+    <div class="stat">
+      <div class="label">税引前合計</div>
+      <div class="value">{{ total_gross|floatformat:2 }}</div>
+    </div>
+    <div class="stat">
+      <div class="label">税額合計</div>
+      <div class="value">{{ total_tax|floatformat:2 }}</div>
+    </div>
+    <div class="stat">
+      <div class="label">税引後合計</div>
+      <div class="value">{{ total_net|floatformat:2 }}</div>
+    </div>
   </div>
 
   {% if not items %}
-    <div class="empty">まだ配当がありません。右上の「＋配当を記録」から追加してください。</div>
+    <div class="empty">まだ配当がありません。右上の「＋ 配当を記録」から登録してください。</div>
   {% else %}
     <div class="list">
       {% for it in items %}
-      <div class="row">
-        <div>
-          <div class="h1">
+      <div class="item">
+        <div class="left">
+          <div class="name">
             {{ it.display_ticker }}{% if it.display_name %} / {{ it.display_name }}{% endif %}
           </div>
-          <div class="sub">{{ it.date|date:"Y-m-d" }}</div>
+          <div class="date">{{ it.date|date:"Y-m-d" }}</div>
+
           <div class="badges">
-            {% if it.broker %}<span class="badge">証券: {{ it.get_broker_display|default:it.broker }}</span>{% endif %}
-            {% if it.account %}<span class="badge">口座: {{ it.get_account_display|default:it.account }}</span>{% endif %}
-            {% if it.quantity %}<span class="badge">株数: {{ it.quantity }}</span>{% endif %}
-            {% if it.purchase_price %}<span class="badge">取得単価: {{ it.purchase_price }}</span>{% endif %}
+            {% if it.broker %}
+              <span class="badge">証券: {{ it.get_broker_display|default:it.broker }}</span>
+            {% endif %}
+            {% if it.account %}
+              <span class="badge">口座: {{ it.get_account_display|default:it.account }}</span>
+            {% endif %}
+            {% if it.quantity %}
+              <span class="badge">株数: {{ it.quantity }}</span>
+            {% endif %}
+            {% if it.purchase_price %}
+              <span class="badge">取得単価: {{ it.purchase_price }}</span>
+            {% endif %}
           </div>
+
           {% if it.memo %}
-            <div class="sub" style="margin-top:6px">{{ it.memo }}</div>
+            <div class="memo">{{ it.memo }}</div>
           {% endif %}
-          <div class="act">
-            <a class="btn" href="{% url 'dividend_edit' it.id %}">編集</a>
-            <!-- 削除はモーダルで確認してPOST -->
+
+          <div class="actions">
+            <a class="btn small" href="{% url 'dividend_edit' it.id %}">編集</a>
             <button
               type="button"
-              class="btn del js-del"
+              class="btn small danger js-del"
               data-url="{% url 'dividend_delete' it.id %}"
               data-title="{{ it.display_ticker }}{% if it.display_name %} / {{ it.display_name }}{% endif %}"
               data-date="{{ it.date|date:'Y-m-d' }}"
@@ -92,9 +176,10 @@
             >削除</button>
           </div>
         </div>
+
         <div class="money">
-          <div class="big">税引後 {{ it.net_amount|floatformat:2 }}</div>
-          <div class="sm">税引前 {{ it.gross_amount|floatformat:2 }} / 税額 {{ it.tax|default:0|floatformat:2 }}</div>
+          <div class="net">税引後 {{ it.net_amount|floatformat:2 }}</div>
+          <div class="labels">税引前 {{ it.gross_amount|floatformat:2 }} ／ 税額 {{ it.tax|default:0|floatformat:2 }}</div>
         </div>
       </div>
       {% endfor %}
@@ -113,8 +198,8 @@
     <h3 id="delTitle">配当を削除しますか？</h3>
     <div class="desc" id="delDesc"></div>
     <div class="btns">
-      <button type="button" class="btn" id="delCancel">キャンセル</button>
-      <button type="button" class="btn del" id="delOk">削除する</button>
+      <button type="button" class="btn ghost" id="delCancel">キャンセル</button>
+      <button type="button" class="btn danger" id="delOk">削除する</button>
     </div>
   </div>
 </div>
