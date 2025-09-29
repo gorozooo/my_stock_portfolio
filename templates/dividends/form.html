@@ -15,17 +15,20 @@
   .btns{display:flex;gap:12px;margin-top:14px}
   .btns .btn{flex:1;text-align:center;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e6ebff;text-decoration:none}
   .btns .btn:hover{background:rgba(255,255,255,.12)}
-  /* tax rate radios */
-  .taxrate li{list-style:none}
-  .taxrate input[type="radio"]{display:none}
-  .taxrate label{
-    display:inline-block;margin-right:8px;margin-bottom:6px;
-    padding:8px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.18);
-    background:rgba(255,255,255,.06);color:#e6ebff;cursor:pointer;font-size:14px;
-  }
-  .taxrate input[type="radio"]:checked + label{outline:2px solid rgba(110,168,255,.55);background:rgba(110,168,255,.15)}
   .preview{font-size:13px;color:#cdd6f6;margin-top:6px}
   .err{padding:10px;border-radius:10px;border:1px solid #ff9aa9;background:#2b1f24;color:#ffd1d1;margin-bottom:8px}
+
+  /* 税率：横並びチェックボックス（見た目はピル） */
+  .taxbox{display:flex;gap:10px;flex-wrap:wrap}
+  .taxbox input[type="checkbox"]{display:none}
+  .taxbox label{
+    display:inline-block; padding:8px 12px; border-radius:999px;
+    border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.06);
+    color:#e6ebff; cursor:pointer; font-size:14px; user-select:none;
+  }
+  .taxbox input[type="checkbox"]:checked + label{
+    outline:2px solid rgba(110,168,255,.55); background:rgba(110,168,255,.15);
+  }
 </style>
 {% endblock %}
 
@@ -84,7 +87,14 @@
     </div>
     <div class="fi">
       <label class="lbl">税率</label>
-      {{ form.tax_rate_pct }}
+      <!-- 見た目チェックボックス。送信用は hidden に同期 -->
+      <div class="taxbox" id="js-taxbox">
+        <input type="checkbox" id="rate0" value="0">
+        <label for="rate0">0%</label>
+        <input type="checkbox" id="rate20315" value="20.315">
+        <label for="rate20315">20.315%</label>
+      </div>
+      <input type="hidden" name="tax_rate_pct" id="id_tax_rate_pct" value="20.315">
     </div>
   </div>
 
@@ -114,30 +124,27 @@
   </div>
 </form>
 
-<!-- ★ 保有メタを安全に埋め込み（自動補完用） -->
+<!-- 保有メタを安全に埋め込み（自動補完/一括入力） -->
 {{ holding_meta|json_script:"js-holdings" }}
 
 <script>
 (function(){
-  // --- コード→銘柄名 自動補完（既存API /api/ticker-name を利用） ---
+  // ---- コード→銘柄名 自動補完 ----
   const endpoint = "{% url 'api_ticker_name' %}";
   const $ticker  = document.getElementById('id_ticker');
   const $name    = document.getElementById('id_name');
   if ($ticker && $name){
     let edited=false, last={name:""};
     $name.addEventListener('input', ()=> edited=true);
-    function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+    const debounce=(fn,ms)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}};
     function apply(data){
       if (!data || !data.name) return;
       const cur = ($name.value||'').trim();
-      if (!edited || !cur || cur===last.name){
-        $name.value = data.name; last.name=data.name; edited=false;
-      }
+      if (!edited || !cur || cur===last.name){ $name.value=data.name; last.name=data.name; edited=false; }
     }
     function lookup(){
-      const v = ($ticker.value||'').trim();
-      if (!v) return;
-      fetch(`${endpoint}?code=${encodeURIComponent(v)}`, {credentials:'same-origin'})
+      const v = ($ticker.value||'').trim(); if(!v) return;
+      fetch(`${endpoint}?code=${encodeURIComponent(v)}`,{credentials:'same-origin'})
         .then(r=>r.ok?r.json():Promise.reject()).then(apply).catch(()=>{});
     }
     $ticker.addEventListener('input', debounce(lookup, 250));
@@ -145,74 +152,77 @@
     $ticker.addEventListener('blur',   lookup);
   }
 
-  // --- 税額・税引後プレビュー（amount は税引前） ---
+  // ---- 税率チェックボックス（擬似ラジオ） + プレビュー ----
   const $amount = document.getElementById('id_amount');
-  let $rateRadios = document.querySelectorAll('.taxrate input[type="radio"]');
-  if (!$rateRadios.length){
-    // 予備: class が付いていない場合は name で拾う
-    $rateRadios = document.querySelectorAll('input[name="tax_rate_pct"]');
-  }
   const $prev   = document.getElementById('js-preview');
-  function num(x){ const v = parseFloat(x); return isNaN(v)?0:v; }
+  const $rateHidden = document.getElementById('id_tax_rate_pct');
+  const $taxBox = document.getElementById('js-taxbox');
+  const pills   = Array.from($taxBox.querySelectorAll('input[type="checkbox"]'));
+
+  function selectRate(val){
+    pills.forEach(cb => cb.checked = (cb.value === String(val)));
+    $rateHidden.value = String(val);
+    updatePreview();
+  }
+  // 初期値：サーバの初期値（20.315）に合わせる
+  selectRate($rateHidden.value || "20.315");
+
+  pills.forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      if (!cb.checked){ // 何も選ばれてないのを防ぐ：自分を戻す
+        cb.checked = true;
+        return;
+      }
+      selectRate(cb.value); // 単一選択に強制
+    });
+  });
+
+  function num(x){ const v=parseFloat(x); return isNaN(v)?0:v; }
   function fmt(n){ return (Math.round(n*100)/100).toLocaleString(); }
   function updatePreview(){
     if (!$amount || !$prev) return;
     const gross = num($amount.value);
-    let rate = 0;
-    $rateRadios.forEach(r => { if (r.checked) rate = parseFloat(r.value)||0; });
-    const tax = gross * (rate/100.0);
-    const net = gross - tax;
+    const rate  = parseFloat($rateHidden.value || "0") || 0;
+    const tax   = gross * (rate/100);
+    const net   = gross - tax;
     $prev.textContent = `税額: ${fmt(tax)} ／ 税引後: ${fmt(net)}`;
   }
   if ($amount) $amount.addEventListener('input', updatePreview);
-  $rateRadios.forEach(r => r.addEventListener('change', updatePreview));
   updatePreview();
 
-  // --- 保有選択 → 自動補完 ---
+  // ---- 保有選択 → 自動補完 ----
   const HOLDINGS = (()=>{
     const el = document.getElementById('js-holdings');
     if (!el) return [];
     try { return JSON.parse(el.textContent || '[]'); } catch(_) { return []; }
   })();
   const $holding = document.getElementById('id_holding');
-
-  function findHoldingMeta(id){
-    return HOLDINGS.find(h => String(h.id) === String(id));
-  }
+  function findHoldingMeta(id){ return HOLDINGS.find(h => String(h.id) === String(id)); }
   function setVal(id, v, overwriteIfEmpty=true){
-    const el = document.getElementById(id);
-    if (!el) return;
-    if (overwriteIfEmpty){
-      if (!el.value) el.value = (v ?? '');
-    }else{
-      el.value = (v ?? '');
-    }
+    const el=document.getElementById(id); if(!el) return;
+    if (overwriteIfEmpty){ if(!el.value) el.value = (v ?? ''); }
+    else { el.value = (v ?? ''); }
   }
   function setSelect(id, v){
-    const el = document.getElementById(id);
-    if (!el) return;
+    const el=document.getElementById(id); if(!el) return;
     if (v !== undefined && v !== null && v !== '') el.value = v;
   }
   function applyHoldingMeta(h){
     if (!h) return;
-    setVal('id_ticker', h.ticker, true);          // コード（空なら）
-    setVal('id_name',   h.name,   true);          // 銘柄名（空なら）
-    setVal('id_quantity',       h.quantity, true);      // 株数（空なら）
-    setVal('id_purchase_price', h.avg_cost, true);      // 取得単価（空なら）
-    setSelect('id_broker',  h.broker);            // 証券会社
-    setSelect('id_account', h.account);           // 口座区分
+    setVal('id_ticker', h.ticker, true);
+    setVal('id_name',   h.name,   true);
+    setVal('id_quantity',       h.quantity, true);
+    setVal('id_purchase_price', h.avg_cost, true);
+    setSelect('id_broker',  h.broker);
+    setSelect('id_account', h.account);
     updatePreview();
   }
-
   if ($holding){
     $holding.addEventListener('change', ()=>{
-      const h = findHoldingMeta($holding.value);
-      applyHoldingMeta(h);
+      applyHoldingMeta(findHoldingMeta($holding.value));
     });
-    // 初期選択があれば即反映
     if ($holding.value){
-      const h = findHoldingMeta($holding.value);
-      applyHoldingMeta(h);
+      applyHoldingMeta(findHoldingMeta($holding.value));
     }
   }
 })();
