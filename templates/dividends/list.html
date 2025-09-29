@@ -8,7 +8,7 @@
   .toolbar{display:flex;gap:8px;align-items:center;justify-content:space-between;margin:8px 0 14px}
   .toolbar a.btn{padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);
     background:rgba(255,255,255,.06);color:#e6ebff;text-decoration:none;font-size:14px}
-  .sum{display:flex;gap:12px;flex-wrap:wrap}
+  .sum{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}
   .chip{padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.06);
     border:1px solid rgba(255,255,255,.12);font-size:13px;color:#cfd7ff}
   .list{display:grid;gap:10px}
@@ -20,10 +20,14 @@
   .badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
   .badge{font-size:11px;padding:4px 8px;border-radius:999px;background:rgba(255,255,255,.06);
     border:1px solid rgba(255,255,255,.14);color:#cfd7ff}
-  .money{ text-align:right }
+  .money{text-align:right}
   .money .big{font-size:18px;color:#e6ebff;font-variant-numeric:tabular-nums}
   .money .sm{font-size:12px;color:#9aa4b2}
-  .muted{opacity:.9}
+  .act{display:flex;gap:8px;margin-top:8px}
+  .btn{padding:6px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.16);
+    background:rgba(255,255,255,.06);color:#e6ebff;text-decoration:none;font-size:13px}
+  .btn:hover{background:rgba(255,255,255,.12)}
+  .btn.del{border-color:rgba(255,128,128,.25);background:rgba(255,80,80,.08)}
   .empty{padding:24px;text-align:center;color:#9aa4b2;border:1px dashed rgba(255,255,255,.18);border-radius:14px}
 </style>
 {% endblock %}
@@ -35,21 +39,11 @@
     <a class="btn" href="{% url 'dividend_create' %}">＋ 配当を記録</a>
   </div>
 
-  {# ざっくり合計（当月などの条件は今後） #}
-  {% if items %}
-    {% comment %} 軽い合計（テンプレ側） {% endcomment %}
-    {% with total_net=0 total_tax=0 %}
-      {% for it in items %}
-        {% with n=it.net_amount t=it.tax %}
-          {% if forloop.first %}{% endif %}
-        {% endwith %}
-      {% endfor %}
-    {% endwith %}
-  {% endif %}
-
-  <div class="sum" style="margin-bottom:10px">
+  <div class="sum">
     <div class="chip">件数: {{ items|length }} 件</div>
-    {# 合計はビュー側で注入したくなったら later。今は件数のみ。 #}
+    <div class="chip">税引前合計: {{ total_gross|floatformat:2 }}</div>
+    <div class="chip">税額合計: {{ total_tax|floatformat:2 }}</div>
+    <div class="chip">税引後合計: {{ total_net|floatformat:2 }}</div>
   </div>
 
   {% if not items %}
@@ -62,11 +56,9 @@
           <div class="h1">
             {{ it.display_ticker }}{% if it.display_name %} / {{ it.display_name }}{% endif %}
           </div>
-          <div class="sub">
-            {{ it.date|date:"Y-m-d" }}
-          </div>
+          <div class="sub">{{ it.date|date:"Y-m-d" }}</div>
           <div class="badges">
-            {% if it.broker %}<span class="badge">証券会社: {{ it.get_broker_display|default:it.broker }}</span>{% endif %}
+            {% if it.broker %}<span class="badge">証券: {{ it.get_broker_display|default:it.broker }}</span>{% endif %}
             {% if it.account %}<span class="badge">口座: {{ it.get_account_display|default:it.account }}</span>{% endif %}
             {% if it.quantity %}<span class="badge">株数: {{ it.quantity }}</span>{% endif %}
             {% if it.purchase_price %}<span class="badge">取得単価: {{ it.purchase_price }}</span>{% endif %}
@@ -74,10 +66,14 @@
           {% if it.memo %}
             <div class="sub" style="margin-top:6px">{{ it.memo }}</div>
           {% endif %}
+          <div class="act">
+            <a class="btn" href="{% url 'dividend_edit' it.id %}">編集</a>
+            <a class="btn del" href="{% url 'dividend_delete' it.id %}">削除</a>
+          </div>
         </div>
         <div class="money">
           <div class="big">税引後 {{ it.net_amount|floatformat:2 }}</div>
-          <div class="sm muted">税引前 {{ it.gross_amount|floatformat:2 }} / 税額 {{ it.tax|default:0|floatformat:2 }}</div>
+          <div class="sm">税引前 {{ it.gross_amount|floatformat:2 }} / 税額 {{ it.tax|default:0|floatformat:2 }}</div>
         </div>
       </div>
       {% endfor %}
