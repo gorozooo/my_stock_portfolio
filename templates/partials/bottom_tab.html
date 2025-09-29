@@ -47,7 +47,7 @@
   // タブ数に応じて列数を自動設定（外部CSSが来る前でも効く）
   (function(){
     const root = document.documentElement;
-    const count = document.querySelectorAll('#bottomTabRoot .tab-btn').length || 4;
+    const count = document.querySelectorAll('#bottomTabRoot .tab-btn').length || 5;
     root.style.setProperty('--tab-cols', String(count));
   })();
 </script>
