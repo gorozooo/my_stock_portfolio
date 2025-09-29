@@ -18,7 +18,7 @@ from ..services import dividends as svc_div  # ★ 集計系はサービスに�
 
 # ===== ダッシュボード（集計・可視化専用） =====
 @login_required
-def dividend_dashboard(request):
+def dashboard(request):
     """
     /dividends/dashboard/
     KPI、月次推移、証券会社別、トップ銘柄などの俯瞰画面。
