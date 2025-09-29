@@ -83,13 +83,11 @@ document.addEventListener("DOMContentLoaded", () => {
     home: [
       { section:"クイック" },
       { label:"新規登録",     href: URLS.holding_create,     icon:"➕", tone:"add" },
-      { label:"配当を記録",   href: URLS.dividend_create,    icon:"💸", tone:"add" },
       { label:"設定を開く",   href:"/settings/trade/",       icon:"⚙️", tone:"info" },
     ],
     holdings: [
       { section:"保有" },
       { label:"新規登録",     href: URLS.holding_create,     icon:"➕", tone:"add" },
-      { label:"配当を記録",   href: URLS.dividend_create,    icon:"💸", tone:"add" },
       { label:"楽天証券",     action:"goto_broker", broker:"RAKUTEN", icon:"🏯", tone:"info" },
       { label:"松井証券",     action:"goto_broker", broker:"MATSUI",  icon:"📊", tone:"info" },
       { label:"SBI証券",      action:"goto_broker", broker:"SBI",     icon:"🏦", tone:"info" },
@@ -99,7 +97,7 @@ document.addEventListener("DOMContentLoaded", () => {
       { section:"配当" },
       { label:"ダッシュボード", href: URLS.dividends_dashboard, icon:"📈", tone:"info" },
       { label:"明細",           href: URLS.dividends_base,      icon:"📑", tone:"info" },
-      { label:"配当を記録",     href: URLS.dividend_create,     icon:"💸", tone:"add" },
+      { label:"配当を記録",     href: URLS.dividend_create,     icon:"➕", tone:"add" },
     ],
     pnl: [
       { section:"実現損益" },
