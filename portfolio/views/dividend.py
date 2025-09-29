@@ -2,14 +2,102 @@
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
-from django.db.models import Q
+from django.db.models import Q, Sum, F
+from django.utils import timezone
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
+from calendar import monthrange
 
 from ..forms import DividendForm, _normalize_code_head
 from ..models import Dividend
 from ..services import tickers as svc_tickers
 from ..services import trend as svc_trend
+
+@login_required
+def dashboard(request):
+    """配当ダッシュボード：KPI / 月次推移 / 証券会社別 / トップ配当銘柄"""
+    qs = (
+        Dividend.objects.select_related("holding")
+        .filter(Q(holding__user=request.user) | Q(holding__isnull=True, ticker__isnull=False))
+    )
+
+    # 期間（デフォ: 今年）
+    try:
+        year = int(request.GET.get("year", timezone.localdate().year))
+    except Exception:
+        year = timezone.localdate().year
+    qs_year = qs.filter(date__year=year)
+
+    # --- KPI ---
+    total_cnt  = qs_year.count()
+    total_tax  = float(qs_year.aggregate(s=Sum("tax"))["s"] or 0)
+    # 税引前/税引後（is_net=False=税引前、True=税引後保存）に関わらず計算
+    gross_sum = 0.0
+    net_sum   = 0.0
+    for d in qs_year:
+        try:
+            gross_sum += float(d.gross_amount() or 0)
+            net_sum   += float(d.net_amount() or 0)
+        except Exception:
+            pass
+
+    # --- 月次推移（1〜12月） ---
+    monthly = []
+    for m in range(1, 13):
+        m_qs = qs_year.filter(date__month=m)
+        g = n = t = 0.0
+        for d in m_qs:
+            g += float(d.gross_amount() or 0)
+            n += float(d.net_amount() or 0)
+            t += float(d.tax or 0)
+        monthly.append({"m": m, "gross": round(g,2), "net": round(n,2), "tax": round(t,2)})
+
+    # --- 証券会社別（税引後合計） ---
+    by_broker = {}
+    for d in qs_year:
+        broker = (d.broker or (d.holding.broker if d.holding else "") or "OTHER")
+        by_broker.setdefault(broker, 0.0)
+        by_broker[broker] += float(d.net_amount() or 0)
+    broker_rows = sorted(
+        [{"broker": k, "net": round(v,2)} for k,v in by_broker.items()],
+        key=lambda x: x["net"], reverse=True
+    )
+
+    # --- トップ配当銘柄（税引後合計 TOP10） ---
+    by_symbol = {}
+    for d in qs_year:
+        key = d.display_ticker or d.display_name or "—"
+        by_symbol.setdefault(key, 0.0)
+        by_symbol[key] += float(d.net_amount() or 0)
+    top_symbols = sorted(
+        [{"label": k, "net": round(v,2)} for k,v in by_symbol.items()],
+        key=lambda x: x["net"], reverse=True
+    )[:10]
+
+    # --- 利回り（可用データのみで概算 = 年間税引後 / 元本） ---
+    # 元本 = quantity*purchase_price（無ければ holding の quantity/avg_cost を補完）
+    cost_sum = 0.0
+    for d in qs_year:
+        qty = d.quantity or (d.holding.quantity if d.holding and d.holding.quantity else None)
+        pp  = d.purchase_price or (d.holding.avg_cost if d.holding and d.holding.avg_cost is not None else None)
+        if qty and pp is not None:
+            cost_sum += float(qty) * float(pp)
+    yield_pct = (net_sum / cost_sum * 100.0) if cost_sum > 0 else 0.0
+
+    ctx = {
+        "year": year,
+        "kpi": {
+            "count": total_cnt,
+            "gross": round(gross_sum,2),
+            "net": round(net_sum,2),
+            "tax": round(total_tax,2),
+            "yield_pct": round(yield_pct, 2),
+        },
+        "monthly": monthly,
+        "by_broker": broker_rows,
+        "top_symbols": top_symbols,
+    }
+    return render(request, "dividends/dashboard.html", ctx)
 
 
 @login_required
