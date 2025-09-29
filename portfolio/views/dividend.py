@@ -1,4 +1,3 @@
-# portfolio/views_dividend.py
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect
 from django.contrib import messages
@@ -7,7 +6,7 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 
 from ..forms import DividendForm, _normalize_code_head
-from ..models import Dividend
+from ..models import Dividend, Holding  # ← Holding を追加
 from ..services import tickers as svc_tickers
 from ..services import trend as svc_trend
 
@@ -26,7 +25,6 @@ def dividend_list(request):
     return render(request, "dividends/list.html", {"items": qs})
 
 
-# ...（前略）
 @login_required
 def dividend_create(request):
     if request.method == "POST":
@@ -46,7 +44,20 @@ def dividend_create(request):
     else:
         form = DividendForm(user=request.user)
 
-    return render(request, "dividends/form.html", {"form": form})
+    # ★ 追加: 保有メタをテンプレへ（保有選択時の自動補完に使用）
+    holding_meta = list(
+        Holding.objects.filter(user=request.user)
+        .values("id", "ticker", "name", "quantity", "avg_cost", "broker", "account")
+    )
+
+    return render(
+        request,
+        "dividends/form.html",
+        {
+            "form": form,
+            "holding_meta": holding_meta,  # ← 追加
+        },
+    )
 
 
 # ========= 銘柄名ルックアップ API =========
