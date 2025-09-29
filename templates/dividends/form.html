@@ -1,158 +1,112 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}配当を記録{% endblock %}
 
 {% block head %}
 <style>
-  /* カード */
-  .form-card{
-    display:grid; gap:16px; padding:18px;
-    border-radius:16px; background:rgba(255,255,255,.04);
-    border:1px solid rgba(255,255,255,.08);
-    max-width:680px; margin:0 auto;
-  }
-  /* フィールド共通 */
-  .fi label{ display:block; font-size:13px; color:#a7b0c0; margin:0 0 6px; }
-  .fi input, .fi select, .fi textarea{
-    width:100%; padding:12px 14px; font-size:16px; line-height:1.25;
-    border-radius:12px; border:1px solid rgba(255,255,255,.16);
-    background:rgba(255,255,255,.06); color:#e8eeff; outline:none;
-  }
-  .fi input::placeholder, .fi textarea::placeholder{ color:#9aa3b2; }
-  .fi textarea{ min-height:96px; resize:vertical; }
-  .hint{ font-size:12px; color:#8a93a6; margin-top:6px; }
-
-  /* グリッド */
-  .grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-  @media (max-width: 420px){ .grid-2{ grid-template-columns:1fr; } }
-
-  /* 税率＋税込行を整える */
-  .tax-row{ display:grid; grid-template-columns:1fr auto; gap:12px; align-items:end; }
-  @media (max-width: 420px){
-    .tax-row{ grid-template-columns:1fr; }
-  }
-  .chk-line{
-    display:flex; align-items:center; gap:10px;
-    border:1px solid rgba(255,255,255,.16);
-    background:rgba(255,255,255,.06); color:#e8eeff;
-    border-radius:12px; padding:12px 14px; height:48px;
-  }
-  .chk-line input[type="checkbox"]{ width:18px; height:18px; }
-
-  /* ボタン */
-  .btn-bar{ display:flex; gap:12px; margin-top:4px; }
-  .btn-bar button, .btn-bar a{
-    flex:1; text-align:center; padding:12px; border-radius:12px;
-    border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.08);
-    color:#e8eeff; text-decoration:none;
-  }
-  .btn-bar button:hover, .btn-bar a:hover{ background:rgba(255,255,255,.16); }
-
-  .error-box{ padding:10px; border:1px solid #ff9aa9; background:#2b1f24; color:#ffd1d1; border-radius:8px; font-size:14px; }
+  .card    {padding:18px;border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.04);max-width:680px;margin:0 auto}
+  .fi      {margin:10px 0}
+  .lbl     {display:block;font-size:13px;color:#9aa4b2;margin:0 0 6px}
+  .in,.sel {width:100%;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e6ebff;font-size:16px}
+  .row-2   {display:grid;gap:12px;grid-template-columns:1fr 1fr}
+  @media (max-width:480px){ .row-2{grid-template-columns:1fr} }
+  .hint    {font-size:12px;color:#8b93a7;margin-top:6px}
+  .btns    {display:flex;gap:12px;margin-top:14px}
+  .btns .btn{flex:1;text-align:center;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e6ebff;text-decoration:none}
+  .btns .btn:hover{background:rgba(255,255,255,.12)}
 </style>
 {% endblock %}
 
 {% block content %}
 <h1 class="text-xl font-semibold mb-3">配当を記録</h1>
 
-<form method="post" class="form-card" novalidate>
+<form method="post" class="card" novalidate>
   {% csrf_token %}
 
   <!-- 保有（任意） -->
   <div class="fi">
-    <label>保有（任意）</label>
+    <label class="lbl">保有（任意）</label>
     {{ form.holding }}
     <div class="hint">未登録の銘柄でも、下のティッカー/銘柄名で直接登録できます</div>
   </div>
 
   <!-- ティッカー / 銘柄名 -->
   <div class="fi">
-    <label>ティッカー/コード（保有未選択時は必須） <span class="hint">例: 7203 / 167A</span></label>
+    <label class="lbl">ティッカー/コード（保有未選択時は必須） 例: 7203 / 167A</label>
     {{ form.ticker }}
   </div>
   <div class="fi">
-    <label>銘柄名（任意・自動補完／手入力可）</label>
+    <label class="lbl">銘柄名（任意・自動補完／手入力可）</label>
     {{ form.name }}
     <div class="hint">ティッカー入力後、自動で補完されます（取得できない場合は手入力）</div>
   </div>
 
   <!-- 受取日 / 受取額 -->
-  <div class="grid-2">
+  <div class="row-2">
     <div class="fi">
-      <label>受取日</label>
+      <label class="lbl">受取日</label>
       {{ form.date }}
     </div>
     <div class="fi">
-      <label>受取額（税引後）</label>
+      <label class="lbl">受取額（税引後）</label>
       {{ form.amount }}
     </div>
   </div>
 
-  <!-- 税率 / 税込-税引後 -->
-  <div class="tax-row">
-    <div class="fi">
-      <label>税率</label>
-      {{ form.tax_rate }}
-    </div>
-    <div class="fi">
-      <label>税込/税引後</label>
-      <div class="chk-line">
-        {{ form.is_net }} <span>チェックON＝税引後（デフォルト）</span>
-      </div>
-    </div>
+  <!-- 税率のみ（トグルは撤去） -->
+  <div class="fi">
+    <label class="lbl">税率</label>
+    {{ form.tax_rate }}
   </div>
 
-  <!-- メモ -->
+  <!-- is_net は HiddenInput（常に True） -->
+  {{ form.is_net }}
+
   <div class="fi">
-    <label>メモ</label>
+    <label class="lbl">メモ</label>
     {{ form.memo }}
   </div>
 
-  {% if form.errors %}
-    <div class="error-box">入力に誤りがあります。確認してください。</div>
-  {% endif %}
-
-  <div class="btn-bar">
-    <button type="submit">保存</button>
-    <a href="{% url 'dividend_list' %}">一覧へ戻る</a>
+  <div class="btns">
+    <button class="btn" type="submit">保存</button>
+    <a class="btn" href="{% url 'dividend_list' %}">一覧へ戻る</a>
   </div>
 </form>
 
-<!-- ティッカー → 銘柄名 自動補完 -->
 <script>
 (function(){
-  const endpoint = "{% url 'dividend_lookup_name' %}";
-  const $ticker = document.getElementById("id_ticker");
-  const $name   = document.getElementById("id_name");
+  // コード→銘柄名 自動補完（既存の /api/ticker-name を利用）
+  const endpoint = "{% url 'api_ticker_name' %}";
+  const $ticker  = document.getElementById('id_ticker');
+  const $name    = document.getElementById('id_name');
   if (!$ticker || !$name) return;
 
-  let userEditedName = false;
-  let nameAutofilled = false;
-  let lastCode = "";
+  let edited = false, last = {code:"", name:""};
 
-  $name.addEventListener("input", ()=>{ userEditedName = true; nameAutofilled = false; });
+  $name.addEventListener('input', ()=> edited = true);
 
-  function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn.apply(null,a), ms); } }
-
-  function applyName(nm){
-    if (!nm) return;
-    const curName = ($name.value||"").trim();
-    const canOverwrite = !userEditedName || nameAutofilled || !curName;
-    if (canOverwrite){ $name.value = nm; nameAutofilled = true; userEditedName = false; }
+  function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+  function apply(data){
+    if (!data || !data.name) return;
+    const curCode = ($ticker.value||'').trim();
+    const curName = ($name.value||'').trim();
+    const canOverwrite = !edited || !curName || curName === last.name;
+    if (canOverwrite){
+      $name.value = data.name;
+      last = {code: curCode, name: data.name};
+      edited = false;
+    }
   }
-
   function lookup(){
-    const raw = ($ticker.value||"").trim();
-    if (!raw || raw === lastCode) return;
-    lastCode = raw;
-    fetch(`${endpoint}?q=${encodeURIComponent(raw)}`, {credentials:"same-origin"})
+    const v = ($ticker.value||'').trim();
+    if (!v) return;
+    fetch(`${endpoint}?code=${encodeURIComponent(v)}`, {credentials:'same-origin'})
       .then(r => r.ok ? r.json() : Promise.reject())
-      .then(j => applyName(j && j.name))
-      .catch(()=>{});
+      .then(apply).catch(()=>{});
   }
-
-  $ticker.addEventListener("input",  debounce(lookup, 220));
-  $ticker.addEventListener("change", lookup);
-  $ticker.addEventListener("blur",   lookup);
+  $ticker.addEventListener('input', debounce(lookup, 250));
+  $ticker.addEventListener('change', lookup);
+  $ticker.addEventListener('blur',   lookup);
 })();
 </script>
 {% endblock %}
