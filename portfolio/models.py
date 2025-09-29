@@ -124,32 +124,46 @@ class RealizedTrade(models.Model):
         return signed - float(self.fee) - float(self.tax)
         
 # ==== Dividend ======================================================
+# portfolio/models.py の Dividend をこれに置き換え
+
+from decimal import Decimal
+from django.db import models
+
 class Dividend(models.Model):
     """
-    配当（Holdingが無くても記録可）
-    - holding を指定したら、ticker/name は自動補完（空の場合）
-    - holding 未指定の場合は ticker を必須としてバリデーション
+    配当（Holding が無くても記録可）
+    - holding を指定したら、ticker/name は空なら自動補完
+    - holding 未指定の場合はフォーム側で ticker を必須としてバリデーション
+    - amount は UI 運用として「税引後」を保存（is_net=True 固定運用を推奨）
     """
+
+    # 任意で紐づけ（保有を消しても配当は残す）
     holding = models.ForeignKey(
         'portfolio.Holding',
-        on_delete=models.SET_NULL,   # 保有を消しても配当は残す
+        on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name='dividends'
     )
 
-    # Holdingが無いとき用の手入力フィールド（あってもOK）
+    # ★ 追加: 配当対象の株数（KPI 集計に使用）
+    quantity = models.IntegerField(
+        null=True, blank=True,
+        help_text="配当対象の株数（保有未選択のときは入力推奨）"
+    )
+
+    # Holding が無いとき用の手入力フィールド（あってもOK）
     ticker = models.CharField(max_length=16, blank=True, default="")
     name   = models.CharField(max_length=128, blank=True, default="")
 
     date   = models.DateField()
 
-    # 受取額（フォームでは税引後入力がデフォルト）
+    # 受取額（デフォルトは税引後）
     amount = models.DecimalField(max_digits=12, decimal_places=2)
 
-    # True=税引後として入力、False=税引前入力（今回は常に True 推奨）
+    # True=税引後として入力、False=税引前入力（今回は常に True 運用を推奨）
     is_net = models.BooleanField(default=True)
 
-    # 源泉税（自動計算して保存：0 or 20.315% ベース）
+    # 源泉税（0% or 20.315% 等をフォームで選択し自動計算して保存）
     tax    = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
 
     memo   = models.CharField(max_length=255, blank=True, default="")
@@ -164,34 +178,34 @@ class Dividend(models.Model):
         label = self.display_ticker or "—"
         return f"{label} {self.date} {self.amount}"
 
-    # 表示用（holding優先）
+    # 表示用（holding 優先）
     @property
     def display_ticker(self) -> str:
-        if self.holding and self.holding.ticker:
+        if self.holding and getattr(self.holding, "ticker", ""):
             return self.holding.ticker
         return (self.ticker or "").upper()
 
     @property
     def display_name(self) -> str:
-        if self.holding and self.holding.name:
+        if self.holding and getattr(self.holding, "name", ""):
             return self.holding.name
         return self.name or ""
 
     # 税引前/税引後（計算）
-    def gross_amount(self):
-        # 税引前
-        if self.is_net:
-            return (self.amount or 0) + (self.tax or 0)
-        return self.amount or 0
+    def gross_amount(self) -> Decimal:
+        """税引前金額"""
+        amt = Decimal(self.amount or 0)
+        tax = Decimal(self.tax or 0)
+        return (amt + tax) if self.is_net else amt
 
-    def net_amount(self):
-        # 税引後
-        if self.is_net:
-            return self.amount or 0
-        return (self.amount or 0) - (self.tax or 0)
+    def net_amount(self) -> Decimal:
+        """税引後金額"""
+        amt = Decimal(self.amount or 0)
+        tax = Decimal(self.tax or 0)
+        return amt if self.is_net else (amt - tax)
 
     def save(self, *args, **kwargs):
-        # holdingがあればticker/nameを自動補完（空のとき）
+        # holding があれば ticker/name を自動補完（空のときのみ）
         if self.holding:
             if not self.ticker:
                 self.ticker = self.holding.ticker
