@@ -95,9 +95,9 @@ document.addEventListener("DOMContentLoaded", () => {
     ],
     dividends: [
       { section:"配当" },
+      { label:"配当登録",     href: URLS.dividend_create,     icon:"➕", tone:"add" },
       { label:"ダッシュボード", href: URLS.dividends_dashboard, icon:"📈", tone:"info" },
       { label:"明細",           href: URLS.dividends_base,      icon:"📑", tone:"info" },
-      { label:"配当を記録",     href: URLS.dividend_create,     icon:"➕", tone:"add" },
     ],
     pnl: [
       { section:"実現損益" },
