@@ -26,13 +26,17 @@ def dividend_list(request):
     return render(request, "dividends/list.html", {"items": qs})
 
 
+# ...（前略）
 @login_required
 def dividend_create(request):
     if request.method == "POST":
         form = DividendForm(request.POST, user=request.user)
         if form.is_valid():
             obj = form.save(commit=False)
-            # 保有選択時はユーザー整合性だけ最低限チェック
+
+            # 保険：サーバ側でも常に税引後に固定
+            obj.is_net = True
+
             if obj.holding and obj.holding.user_id != request.user.id:
                 messages.error(request, "別ユーザーの保有は選べません。")
             else:
@@ -40,15 +44,7 @@ def dividend_create(request):
                 messages.success(request, "配当を登録しました。")
                 return redirect("dividend_list")
     else:
-        # GET パラメータで事前入力（例: /dividends/create/?ticker=7203）
-        initial = {}
-        if "ticker" in request.GET:
-            initial["ticker_input"] = request.GET.get("ticker", "")
-        if "name" in request.GET:
-            initial["name_input"] = request.GET.get("name", "")
-        if "holding" in request.GET:
-            initial["holding"] = request.GET.get("holding")
-        form = DividendForm(user=request.user, initial=initial)
+        form = DividendForm(user=request.user)
 
     return render(request, "dividends/form.html", {"form": form})
 
