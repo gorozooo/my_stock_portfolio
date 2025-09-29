@@ -14,7 +14,6 @@ from ..services import trend as svc_trend
 
 @login_required
 def dividend_list(request):
-    # 自分の保有に紐づく配当 ＋（保有未選択でティッカー登録した配当）
     qs = (
         Dividend.objects.select_related("holding")
         .filter(
@@ -24,7 +23,6 @@ def dividend_list(request):
         .order_by("-date", "-id")
     )
 
-    # ざっくり合計（Python側で計算：gross/net はプロパティ）
     total_gross = 0
     total_net = 0
     total_tax = 0
@@ -51,8 +49,7 @@ def dividend_create(request):
         form = DividendForm(request.POST, user=request.user)
         if form.is_valid():
             obj = form.save(commit=False)
-            # サーバ側の最終整合性
-            obj.is_net = False  # amount=税引前前提
+            obj.is_net = False  # amount=税引前
             if obj.holding and obj.holding.user_id != request.user.id:
                 messages.error(request, "別ユーザーの保有は選べません。")
             else:
@@ -68,7 +65,6 @@ def dividend_create(request):
 @login_required
 def dividend_edit(request, pk: int):
     obj = get_object_or_404(Dividend, pk=pk)
-    # 所有権チェック（holdingがある場合）
     if obj.holding and obj.holding.user_id != request.user.id:
         messages.error(request, "この配当は編集できません。")
         return redirect("dividend_list")
@@ -77,7 +73,7 @@ def dividend_edit(request, pk: int):
         form = DividendForm(request.POST, instance=obj, user=request.user)
         if form.is_valid():
             edited = form.save(commit=False)
-            edited.is_net = False  # 税引前入力の前提を維持
+            edited.is_net = False
             edited.save()
             messages.success(request, "配当を更新しました。")
             return redirect("dividend_list")
@@ -89,6 +85,7 @@ def dividend_edit(request, pk: int):
 
 @login_required
 def dividend_delete(request, pk: int):
+    """一覧ページの確認モーダルからのPOSTのみで削除する。GETは一覧へ戻す。"""
     obj = get_object_or_404(Dividend, pk=pk)
     if obj.holding and obj.holding.user_id != request.user.id:
         messages.error(request, "この配当は削除できません。")
@@ -97,17 +94,13 @@ def dividend_delete(request, pk: int):
     if request.method == "POST":
         obj.delete()
         messages.success(request, "配当を削除しました。")
-        return redirect("dividend_list")
-
-    return render(request, "dividends/confirm_delete.html", {"item": obj})
+    else:
+        messages.info(request, "削除をキャンセルしました。")
+    return redirect("dividend_list")
 
 
 # ========= 銘柄名ルックアップ API =========
 def _resolve_name_fallback(code_head: str, raw: str) -> str:
-    """
-    HoldingForm と同等のゆるい銘柄名解決。
-    4桁→tickers.csv、だめなら trend のマップ、最終的に外部取得。
-    """
     name = None
     try:
         if code_head and len(code_head) == 4 and code_head.isdigit():
@@ -131,10 +124,6 @@ def _resolve_name_fallback(code_head: str, raw: str) -> str:
 
 @require_GET
 def dividend_lookup_name(request):
-    """
-    GET /dividends/lookup-name/?q=7203  → {"name": "トヨタ自動車"}
-    見つからなければ {"name": ""}.
-    """
     raw = request.GET.get("q", "")
     head = _normalize_code_head(raw)
     name = _resolve_name_fallback(head, raw) if head else ""
