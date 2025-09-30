@@ -54,6 +54,7 @@ urlpatterns = [
     path("dividends/<int:pk>/delete/", v_div.dividend_delete, name="dividend_delete"),
     path("dividends/lookup-name/", v_div.dividend_lookup_name, name="dividend_lookup_name"),
     path("dividends/dashboard.json", v_div.dashboard_json, name="dividend_dashboard_json"),
+    path("dividends/export.csv", v_div.export_csv, name="dividends_export_csv"),
     
     # 実現損益（メイン）
     path("realized/", realized_views.list_page, name="realized_list"),
