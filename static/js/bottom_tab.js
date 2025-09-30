@@ -1,4 +1,31 @@
 // bottom_tab.js – Tab nav / Long-press sheet / Drag-to-close / Toast / Bounce (+ Dividends)
+// 固定バーを <body> 直下へ移動して transform/backdrop-filter の影響を遮断
+document.addEventListener("DOMContentLoaded", () => {
+  const root = document.getElementById("bottomTabRoot");
+  if (root && root.parentElement !== document.body) {
+    document.body.appendChild(root);
+  }
+});
+
+(function iosFixedFollowViewport(){
+  // iOS のアドレスバー・キーボードで viewport 高さが揺れる問題に追従
+  const isIOS = /iP(hone|ad|od)/.test(navigator.platform) ||
+                (navigator.userAgent.includes("Mac") && "ontouchend" in document);
+  if (!isIOS || !window.visualViewport) return;
+  const root = document.getElementById("bottomTabRoot");
+  if (!root) return;
+
+  const apply = () => {
+    const vv = window.visualViewport;
+    const offset = Math.max(0, (window.innerHeight - vv.height - vv.offsetTop));
+    root.style.bottom = offset + "px";
+  };
+  visualViewport.addEventListener("resize", apply);
+  visualViewport.addEventListener("scroll", apply);
+  window.addEventListener("orientationchange", apply);
+  apply();
+})();
+
 document.addEventListener("DOMContentLoaded", () => {
   const submenu = document.getElementById("submenu");
   const tabs    = document.querySelectorAll(".tab-btn");
@@ -83,7 +110,7 @@ document.addEventListener("DOMContentLoaded", () => {
     home: [
       { section:"クイック" },
       { label:"新規登録",     href: URLS.holding_create,     icon:"➕", tone:"add" },
-      { label:"設定を開く",   href:"/settings/trade/",       icon:"⚙️", tone:"info" },
+      { label:"設定を開く",   href:"/settings/trade",        icon:"⚙️", tone:"info" },
     ],
     holdings: [
       { section:"保有" },
@@ -91,12 +118,10 @@ document.addEventListener("DOMContentLoaded", () => {
       { label:"楽天証券",     action:"goto_broker", broker:"RAKUTEN", icon:"🏯", tone:"info" },
       { label:"松井証券",     action:"goto_broker", broker:"MATSUI",  icon:"📊", tone:"info" },
       { label:"SBI証券",      action:"goto_broker", broker:"SBI",     icon:"🏦", tone:"info" },
-      { label:"全社表示",     action:"goto_all_brokers",     icon:"🗂️", tone:"info" },
     ],
     dividends: [
       { section:"配当" },
-      { label:"配当登録",     href: URLS.dividend_create,     icon:"➕", tone:"add" },
-      { label:"ダッシュボード", href: URLS.dividends_dashboard, icon:"📈", tone:"info" },
+      { label:"配当登録",       href: URLS.dividend_create,     icon:"➕", tone:"add" },
       { label:"明細",           href: URLS.dividends_base,      icon:"📑", tone:"info" },
     ],
     pnl: [
@@ -148,6 +173,7 @@ document.addEventListener("DOMContentLoaded", () => {
   /* --- バウンス --- */
   const triggerBounce = (btn)=>{
     btn.classList.remove("pressing","clicked");
+    // 強制リフロー
     // eslint-disable-next-line no-unused-expressions
     btn.offsetWidth;
     btn.classList.add("clicked");
@@ -314,10 +340,7 @@ document.addEventListener("DOMContentLoaded", () => {
     tabs.forEach(b=>{
       const link = normPath(b.dataset.link||"/");
       const isHome = link === "/";
-      // /dividends/dashboard/ と /dividends/ の両方を「配当」扱い
-      const hit = isHome
-        ? (here === "/")
-        : (here.startsWith(link));
+      const hit = isHome ? (here === "/") : here.startsWith(link);
       b.classList.toggle("active", !!hit);
     });
   })();
@@ -353,7 +376,6 @@ document.addEventListener("DOMContentLoaded", () => {
         break;
 
       default:
-        // ほかの画面固有のアクションは各ページ側でハンドル
         break;
     }
   });
