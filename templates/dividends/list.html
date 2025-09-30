@@ -19,26 +19,37 @@
 
   .list{max-width:960px;margin:0 auto;display:grid;gap:10px}
 
-  /* swipe（holdings.js v121-fix 互換の構造） */
+  /* swipe actions */
   [data-swipe]{position:relative;border:1px solid rgba(255,255,255,.09);
                background:rgba(255,255,255,.04);border-radius:12px;overflow:hidden}
-  [data-swipe] .track{position:relative;padding:12px 12px 10px; z-index:1;}
+  [data-swipe] .track{position:relative;padding:12px 12px 10px;z-index:1;}
   [data-swipe] .actions{
     position:absolute; inset:0 0 0 auto; width:220px; display:flex;
     transform:translateX(100%); transition:transform .16s ease;
-    pointer-events:none; z-index:2; /* ← 上に載せる */
+    pointer-events:none; z-index:2;
   }
-  [data-swipe] .actions .pane{flex:1;display:flex;align-items:center;justify-content:center}
-  /* クリック面を100%にして確実に当てる */
+  [data-swipe] .actions .pane{flex:1;display:flex;}
   [data-swipe] .actions .pane a,
   [data-swipe] .actions .pane button{
-    display:block; width:100%; height:100%;
-    pointer-events:auto; text-align:center; font-weight:700; border:0; background:none; color:inherit;
+    display:flex; width:100%; height:100%;
+    align-items:center; justify-content:center;
+    pointer-events:auto; text-align:center; font-weight:700;
+    border:0; background:none; color:inherit;
     padding:0; margin:0; cursor:pointer;
   }
-  [data-swipe] .actions .edit{background:#1f3a5a;color:#eaf3ff}
-  [data-swipe] .actions .del{background:#5a1f2a;color:#ffeaf0}
-  /* 開いた時だけアクションを有効化 */
+
+  /* 透け感ありボタン */
+  [data-swipe] .actions .edit{
+    background:rgba(31,58,90,.55);
+    color:#eef6ff;
+    backdrop-filter:blur(2px);
+  }
+  [data-swipe] .actions .del{
+    background:rgba(90,31,42,.56);
+    color:#ffeef1;
+    backdrop-filter:blur(2px);
+  }
+
   [data-swipe].is-open .actions{
     transform:translateX(0);
     pointer-events:auto;
@@ -67,7 +78,7 @@
 {% block content %}
 <h1 class="text-xl font-semibold mb-3">配当一覧</h1>
 
-<!-- KPI（合計はビュー計算、件数は全件数優先） -->
+<!-- KPI -->
 <div class="kpis">
   <div class="kpi">
     <div class="lbl">件数</div>
@@ -84,7 +95,6 @@
 <div class="list">
   {% for d in items %}
   <div class="row" data-swipe>
-    <!-- swipe actions -->
     <div class="actions">
       <div class="pane edit">
         <a class="item" href="{% url 'dividend_edit' d.id %}">編集</a>
@@ -142,7 +152,7 @@
 {% if page_obj %}
   <div class="pager">
     {% if page_obj.has_previous %}
-      <a href="?page={{ page_obj.previous_page_number }}{% if flt.year %}&year={{ flt.year }}{% endif %}{% if flt.month %}&month={{ flt.month }}{% endif %}{% if flt.broker %}&broker={{ flt.broker }}{% endif %}{% if flt.account %}&account={{ flt.account }}{% endif %}{% if flt.q %}&q={{ flt.q }}{% endif %}">← 前へ</a>
+      <a href="?page={{ page_obj.previous_page_number }}">← 前へ</a>
     {% else %}
       <span class="muted">← 前へ</span>
     {% endif %}
@@ -150,13 +160,12 @@
     <span class="badge">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
 
     {% if page_obj.has_next %}
-      <a href="?page={{ page_obj.next_page_number }}{% if flt.year %}&year={{ flt.year }}{% endif %}{% if flt.month %}&month={{ flt.month }}{% endif %}{% if flt.broker %}&broker={{ flt.broker }}{% endif %}{% if flt.account %}&account={{ flt.account }}{% endif %}{% if flt.q %}&q={{ flt.q }}{% endif %}">次へ →</a>
+      <a href="?page={{ page_obj.next_page_number }}">次へ →</a>
     {% else %}
       <span class="muted">次へ →</span>
     {% endif %}
   </div>
 {% endif %}
 
-<!-- スワイプ挙動（holdings.js v121-fix 互換マークアップで動作） -->
 <script src="{% static 'js/dividends.js' %}"></script>
 {% endblock %}
