@@ -1,14 +1,24 @@
 /* ==== Bottom Tab ====================================================== */
-.btm-wrap{position:fixed;left:0;right:0;bottom:0;z-index:999990;pointer-events:none}
-.btm-nav{pointer-events:auto;background:rgba(13,16,24,.78);backdrop-filter:blur(12px);
-  border-top:1px solid rgba(255,255,255,.08);padding-bottom:max(0px,env(safe-area-inset-bottom))}
-.btm-grid{max-width:680px;margin:0 auto;display:grid;gap:2px;
-  grid-template-columns:repeat(var(--tab-cols,4),1fr)} /* ← ここがミソ */
+.btm-wrap{
+  position:fixed;left:0;right:0;bottom:0;z-index:100000;pointer-events:none;
+  transform:translateZ(0);will-change:transform;
+}
+.btm-nav{
+  pointer-events:auto;background:rgba(13,16,24,.78);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border-top:1px solid rgba(255,255,255,.08);
+  padding-bottom:max(0px,env(safe-area-inset-bottom));
+}
+.btm-grid{
+  max-width:680px;margin:0 auto;display:grid;gap:2px;
+  grid-template-columns:repeat(var(--tab-cols,5),1fr);
+}
 
 .tab-btn{
   position:relative;appearance:none;-webkit-appearance:none;background:none;border:0;color:#cfd6ee;
-  padding:10px 2px calc(12px + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:3px;
-  cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;user-select:none;outline:none;min-width:0
+  padding:10px 2px calc(12px + env(safe-area-inset-bottom));
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;user-select:none;outline:none;min-width:0;
 }
 .tab-btn .ico{font-size:20px;line-height:1}
 .tab-btn span{font-size:11px;white-space:nowrap}
@@ -30,23 +40,22 @@
   background:linear-gradient(90deg,#4f7bff,#9f7aea,#4f7bff);background-size:200% 100%;
   animation:gradient-scan 6s ease-in-out infinite;
 }
-/* 長押しの揺れ */
-@keyframes tiny-shake{0%,100%{transform:translateX(0)}40%{transform:translateX(-1px)}70%{transform:translateX(1px)}}
-.tab-btn.shake{animation:tiny-shake .28s ease}
-@media (prefers-reduced-motion: reduce){.tab-btn.clicked,.tab-btn.shake,.tab-btn.active::after{animation:none}}
+@media (prefers-reduced-motion: reduce){.tab-btn.clicked,.tab-btn.active::after{animation:none}}
 
 /* ==== Mask ============================================================ */
-.btm-mask{position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(2px);
-  opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:999995}
+.btm-mask{
+  position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(2px);
+  opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:99995;
+}
 .btm-mask.show{opacity:1;pointer-events:auto}
 
 /* ==== Bottom Sheet ==================================================== */
 .submenu{
-  position:fixed;left:0;right:0;bottom:0;transform:translateY(110%);transition:transform .2s ease;z-index:999996;
-  max-width:680px;margin:0 auto;background:rgba(24,28,42,.96);backdrop-filter:blur(16px);
+  position:fixed;left:0;right:0;bottom:0;transform:translateY(110%);transition:transform .2s ease;z-index:99996;
+  max-width:680px;margin:0 auto;background:rgba(24,28,42,.96);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
   border-top-left-radius:18px;border-top-right-radius:18px;border:1px solid rgba(255,255,255,.08);
   padding:8px 10px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -10px 40px rgba(0,0,0,.45);
-  pointer-events:auto;max-height:min(72vh,560px);overflow:auto
+  pointer-events:auto;max-height:min(72vh,560px);overflow:auto;
 }
 .submenu.show{transform:translateY(0)}
 .submenu.dragging{transition:none}
