@@ -48,13 +48,13 @@
   .achieved .goal-bar{border-color:rgba(255,215,81,.55)}
   .achieved .goal-bar > i{background:linear-gradient(90deg,#ffd751,#ffb300)}
 
-  /* ダッシュボード内トースト（下タブのトーストと干渉しない） */
+  /* ダッシュボード用トースト */
   #dashToast{position:fixed;left:50%;bottom:120px;transform:translate(-50%,24px);
     background:rgba(30,32,46,.96);color:#fff;padding:8px 12px;font-size:13px;border-radius:10px;
     border:1px solid rgba(255,255,255,.08);box-shadow:0 10px 28px rgba(0,0,0,.45);opacity:0;pointer-events:none;
     transition:opacity .16s ease, transform .16s ease;z-index:100050}
 
-  /* link rows (JS描画時の簡易見た目) */
+  /* link rows(簡易見た目) */
   .rows .row{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:6px 0;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);border-radius:10px;text-decoration:none;color:inherit}
   .rows .row .l{opacity:.9}
   .rows .row .r{opacity:.9}
@@ -189,7 +189,7 @@
 <!-- 初期月次データ（JS未対応の環境向け） -->
 {{ monthly|json_script:"js-monthly" }}
 
-<!-- JS が使うルート -->
+<!-- ルーティング（JS用） -->
 <script>
   window.DIVD_URLS = {
     json: "{% url 'dividend_dashboard_json' %}",
@@ -200,5 +200,5 @@
     account: "{{ flt.account|default_if_none:'' }}"
   };
 </script>
-<script src="{% static 'js/dividends_dashboard.js' %}?v=5" defer></script>
+<script src="{% static 'js/dividends_dashboard.js' %}?v=6" defer></script>
 {% endblock %}
