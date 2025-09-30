@@ -59,6 +59,29 @@ def dashboard(request):
     }
     return render(request, "dividends/dashboard.html", ctx)
 
+@login_required
+def dashboard_json(request):
+    """GET /dividends/dashboard.json?year=YYYY&broker=...&account=..."""
+    try:
+        year = int(request.GET.get("year", timezone.localdate().year))
+    except Exception:
+        year = timezone.localdate().year
+    broker  = (request.GET.get("broker") or "").strip() or None
+    account = (request.GET.get("account") or "").strip() or None
+
+    base_qs = svc_div.build_user_dividend_qs(request.user)
+    qs = svc_div.apply_filters(base_qs, year=year, broker=broker, account=account)
+    rows = svc_div.materialize(qs)  # 1回だけ評価
+
+    data = {
+        "kpi":        svc_div.sum_kpis(rows),
+        "monthly":    svc_div.group_by_month(rows),
+        "by_broker":  svc_div.group_by_broker(rows),
+        "by_account": svc_div.group_by_account(rows),
+        "top_symbols":svc_div.top_symbols(rows, n=10),
+    }
+    return JsonResponse(data)
+
 
 # ===== 明細（スワイプ編集/削除・軽いフィルタ） =====
 @login_required
