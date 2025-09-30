@@ -35,9 +35,13 @@
     const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     svg.setAttribute("width", "100%"); svg.setAttribute("height", "100%");
-    svg.innerHTML = `<path d="M${pad},${H-pad}H${W-pad}" stroke="rgba(255,255,255,.25)" fill="none"/>`;
-    let x = pad;
+    // 軸線
+    const axis = document.createElementNS("http://www.w3.org/2000/svg","path");
+    axis.setAttribute("d", `M${pad},${H-pad}H${W-pad}`);
+    axis.setAttribute("stroke","rgba(255,255,255,.25)"); axis.setAttribute("fill","none");
+    svg.appendChild(axis);
 
+    let x = pad;
     const tip  = $("#chartTip");
     const wrapRect = () => (wrap.getBoundingClientRect ? wrap.getBoundingClientRect() : {left:0,top:0});
     function showTip(cx,cy, m, net, tax){
@@ -51,6 +55,7 @@
     function hideTip(){ if (tip) tip.style.display="none"; }
 
     list.forEach((d)=>{
+      // net
       const hNet = (H - pad) - sy(d.net);
       const r1 = document.createElementNS("http://www.w3.org/2000/svg","rect");
       r1.setAttribute("x", x); r1.setAttribute("y", sy(d.net));
@@ -59,6 +64,7 @@
       r1.dataset.m = d.m; r1.dataset.net = d.net; r1.dataset.tax = d.tax;
       svg.appendChild(r1);
 
+      // tax
       const hTax = (H - pad) - sy(d.net + d.tax) - hNet;
       const r2 = document.createElementNS("http://www.w3.org/2000/svg","rect");
       r2.setAttribute("x", x); r2.setAttribute("y", sy(d.net + d.tax));
@@ -67,6 +73,7 @@
       r2.dataset.m = d.m; r2.dataset.net = d.net; r2.dataset.tax = d.tax;
       svg.appendChild(r2);
 
+      // label
       const t = document.createElementNS("http://www.w3.org/2000/svg","text");
       t.setAttribute("x", x + bw/2); t.setAttribute("y", H-4);
       t.setAttribute("text-anchor","middle"); t.setAttribute("font-size","9");
@@ -99,25 +106,35 @@
   }
 
   /* ---------- ドーナツ（SVG） ---------- */
+  const NS = "http://www.w3.org/2000/svg";
   function polar(cx, cy, r, ang){ return [cx + r*Math.cos(ang), cy + r*Math.sin(ang)]; }
 
   function drawDonut(svgSel, legendSel, rows, labelKey, drillKey){
     const svg = $(svgSel), legend = $(legendSel);
     if (!svg || !legend) return;
 
-    // 空データ
-    if (!rows || !rows.length || rows.every(x => Number(x.net||0) <= 0)){
-      svg.innerHTML = `<circle cx="60" cy="60" r="46" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="12"/>` +
-                      `<text x="60" y="64" fill="rgba(255,255,255,.6)" font-size="10" text-anchor="middle">データなし</text>`;
+    svg.replaceChildren(); // まず空っぽに
+
+    // データなし
+    const empty = (!rows || !rows.length || rows.every(x => Number(x.net||0) <= 0));
+    if (empty){
+      const ring = document.createElementNS(NS,"circle");
+      ring.setAttribute("cx","60"); ring.setAttribute("cy","60"); ring.setAttribute("r","46");
+      ring.setAttribute("fill","none"); ring.setAttribute("stroke","rgba(255,255,255,.12)"); ring.setAttribute("stroke-width","12");
+      svg.appendChild(ring);
+      const txt = document.createElementNS(NS,"text");
+      txt.setAttribute("x","60"); txt.setAttribute("y","64"); txt.setAttribute("text-anchor","middle");
+      txt.setAttribute("fill","rgba(255,255,255,.65)"); txt.setAttribute("font-size","10"); txt.textContent = "データなし";
+      svg.appendChild(txt);
       legend.innerHTML = `<div class="muted">データなし</div>`;
       return;
     }
 
     const total = rows.reduce((s,x)=> s + Number(x.net||0), 0);
     const cx=60, cy=60, r=46, w=12;
-    svg.innerHTML = ""; // reset
+
     // 背景リング
-    const bg = document.createElementNS("http://www.w3.org/2000/svg","circle");
+    const bg = document.createElementNS(NS,"circle");
     bg.setAttribute("cx", cx); bg.setAttribute("cy", cy); bg.setAttribute("r", r);
     bg.setAttribute("fill","none"); bg.setAttribute("stroke","rgba(255,255,255,.12)"); bg.setAttribute("stroke-width", String(w));
     svg.appendChild(bg);
@@ -129,20 +146,15 @@
       const ang = frac * Math.PI * 2;
       const end = start + ang;
 
-      // 小さすぎるセグメントも可視化できるよう最小角度
-      const minAng = Math.PI/180 * 2; // 2度
+      const minAng = Math.PI/180 * 2;
       const drawEnd = end - start < minAng ? start + minAng : end;
 
       const [sx,sy] = polar(cx,cy,r, start);
       const [ex,ey] = polar(cx,cy,r, drawEnd);
       const large = drawEnd - start > Math.PI ? 1 : 0;
 
-      const path = document.createElementNS("http://www.w3.org/2000/svg","path");
-      const d = [
-        `M ${sx} ${sy}`,
-        `A ${r} ${r} 0 ${large} 1 ${ex} ${ey}`
-      ].join(" ");
-      path.setAttribute("d", d);
+      const path = document.createElementNS(NS,"path");
+      path.setAttribute("d", `M ${sx} ${sy} A ${r} ${r} 0 ${large} 1 ${ex} ${ey}`);
       path.setAttribute("fill","none");
       path.setAttribute("stroke", COLORS[i % COLORS.length]);
       path.setAttribute("stroke-width", String(w));
@@ -159,11 +171,11 @@
     });
 
     // 中央テキスト（合計）
-    const t1 = document.createElementNS("http://www.w3.org/2000/svg","text");
+    const t1 = document.createElementNS(NS,"text");
     t1.setAttribute("x","60"); t1.setAttribute("y","57"); t1.setAttribute("text-anchor","middle");
     t1.setAttribute("fill","#cfd6ee"); t1.setAttribute("font-size","10"); t1.textContent = "合計";
     svg.appendChild(t1);
-    const t2 = document.createElementNS("http://www.w3.org/2000/svg","text");
+    const t2 = document.createElementNS(NS,"text");
     t2.setAttribute("x","60"); t2.setAttribute("y","72"); t2.setAttribute("text-anchor","middle");
     t2.setAttribute("fill","#fff"); t2.setAttribute("font-size","12"); t2.setAttribute("font-weight","700");
     t2.textContent = fmt(total);
@@ -173,14 +185,13 @@
     legend.innerHTML = rows.map((row,i)=>{
       const name = row[labelKey] || row[drillKey] || "—";
       const pct  = total > 0 ? ((Number(row.net||0)/total)*100).toFixed(1) : "0.0";
-      return `<div class="row" data-key="${name}">
+      return `<div class="row" data-idx="${i}">
         <div class="l"><i class="swatch" style="background:${COLORS[i%COLORS.length]}"></i><span>${name}</span></div>
         <div class="r"><span>${fmt(row.net||0)}</span><span class="muted" style="margin-left:8px">${pct}%</span></div>
       </div>`;
     }).join("");
-
-    // 凡例クリックでもドリルダウン
     $$("#"+legend.id+" .row").forEach((el, idx)=>{
+      el.style.cursor = "pointer";
       el.addEventListener("click", ()=>{
         const key = rows[idx][labelKey] || rows[idx][drillKey];
         const year = $("#flt_year").value;
@@ -188,7 +199,6 @@
         params[drillKey] = key;
         location.href = drill(params);
       });
-      el.style.cursor = "pointer";
     });
   }
 
