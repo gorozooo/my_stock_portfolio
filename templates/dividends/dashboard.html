@@ -18,6 +18,7 @@
   .card{padding:14px 16px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.04)}
   .sec-title{font-weight:600;margin-bottom:8px}
   .muted{font-size:12px;color:#9aa4b2}
+
   .barwrap{height:160px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03);padding:8px;position:relative}
   .legend{display:flex;gap:12px;margin-top:6px}
   .dot{display:inline-block;width:10px;height:10px;border-radius:50%}
@@ -25,7 +26,7 @@
        padding:6px 8px;border-radius:8px;font-size:12px;transform:translate(-50%,-100%);display:none;z-index:5}
   .clear-btn{background:none;border:1px dashed rgba(255,255,255,.22)}
 
-  /* 目標 */
+  /* ---- 年間目標（進捗） ---- */
   .goal-card{margin-top:12px}
   .goal-grid{display:grid;gap:10px;grid-template-columns:1fr 1fr}
   @media (max-width:780px){ .goal-grid{grid-template-columns:1fr} }
@@ -39,18 +40,23 @@
   .achieved{border-color:rgba(255,215,81,.65)!important;box-shadow:0 0 0 1px rgba(255,215,81,.25) inset, 0 0 28px rgba(255,215,81,.18)}
   .achieved .goal-bar{border-color:rgba(255,215,81,.55)}
   .achieved .goal-bar > i{background:linear-gradient(90deg,#ffd751,#ffb300)}
-
   #dashToast{position:fixed;left:50%;bottom:120px;transform:translate(-50%,24px);
     background:rgba(30,32,46,.96);color:#fff;padding:8px 12px;font-size:13px;border-radius:10px;
     border:1px solid rgba(255,255,255,.08);box-shadow:0 10px 28px rgba(0,0,0,.45);opacity:0;pointer-events:none;
     transition:opacity .16s ease, transform .16s ease;z-index:100050}
 
-  /* ドーナツ */
-  .donut{display:flex;gap:12px;align-items:center}
-  .donut canvas{width:160px;height:160px}
-  .donut .legend{flex:1;display:grid;gap:6px}
-  .legend .item{display:flex;justify-content:space-between;gap:8px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);border-radius:10px;padding:8px 10px}
-  .legend .key{display:flex;align-items:center;gap:8px}
+  /* ---- ドーナツ（SVG） ---- */
+  .donut-wrap{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:780px){ .donut-wrap{grid-template-columns:1fr} }
+  .donut{display:flex;gap:10px;align-items:center}
+  .donut-fig{width:140px;height:140px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);display:flex;align-items:center;justify-content:center}
+  .donut-legend{flex:1;min-width:0}
+  .donut-legend .row{display:flex;justify-content:space-between;gap:8px;padding:6px 8px;border-radius:8px}
+  .donut-legend .row .l{display:flex;gap:8px;align-items:center}
+  .donut-legend .swatch{width:10px;height:10px;border-radius:50%}
+  .rows .row{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:6px 0;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);border-radius:10px;text-decoration:none;color:inherit}
+  .rows .row .l{opacity:.9}
+  .rows .row .r{opacity:.9}
 </style>
 {% endblock %}
 
@@ -120,7 +126,9 @@
       <div class="goal-box">
         <div class="ttl">達成率</div>
         <div class="v" id="goal_progress_view">{{ goal.progress_pct|default:0|floatformat:2 }}%</div>
-        <div class="goal-bar" aria-label="進捗ゲージ"><i id="goal_bar_inner" style="width: {{ goal.progress_pct|default:0 }}%"></i></div>
+        <div class="goal-bar" aria-label="進捗ゲージ">
+          <i id="goal_bar_inner" style="width: {{ goal.progress_pct|default:0 }}%"></i>
+        </div>
         <div class="ttl" style="margin-top:10px">残額</div>
         <div class="v" id="goal_remaining_view">{{ goal.remaining|default:0|floatformat:2 }}</div>
       </div>
@@ -128,7 +136,7 @@
   </div>
 
   <div class="grid">
-    <!-- 月次グラフ -->
+    <!-- 月次（棒） -->
     <div class="card">
       <div class="sec-title">月次（税引後＋税額）</div>
       <div class="barwrap" id="chartWrap">
@@ -142,40 +150,41 @@
       <div class="muted" style="margin-top:6px">バーをタップで明細へ移動します。</div>
     </div>
 
-    <!-- 証券会社別（ドーナツ） -->
+    <!-- ドーナツ（ブローカー/口座） -->
     <div class="card">
-      <div class="sec-title">証券会社別（税引後合計）</div>
-      <div class="donut">
-        <canvas id="donut_broker" width="160" height="160" aria-label="証券会社別"></canvas>
-        <div class="legend" id="legend_broker"></div>
+      <div class="sec-title">構成（税引後合計）</div>
+      <div class="donut-wrap">
+        <div class="donut">
+          <div class="donut-fig">
+            <svg id="donut_broker" viewBox="0 0 120 120" width="120" height="120" aria-label="証券会社ドーナツ"></svg>
+          </div>
+          <div class="donut-legend" id="legend_broker"></div>
+        </div>
+        <div class="donut">
+          <div class="donut-fig">
+            <svg id="donut_account" viewBox="0 0 120 120" width="120" height="120" aria-label="口座区分ドーナツ"></svg>
+          </div>
+          <div class="donut-legend" id="legend_account"></div>
+        </div>
       </div>
+      <div class="muted" style="margin-top:6px">凡例をタップで明細にドリルダウンします。</div>
     </div>
   </div>
 
-  <div class="grid">
-    <!-- 口座区分別（ドーナツ） -->
-    <div class="card">
-      <div class="sec-title">口座区分別（税引後合計）</div>
-      <div class="donut">
-        <canvas id="donut_account" width="160" height="160" aria-label="口座区分別"></canvas>
-        <div class="legend" id="legend_account"></div>
-      </div>
-    </div>
-
-    <!-- トップ銘柄 -->
-    <div class="card">
-      <div class="sec-title">税引後 上位銘柄（Top 10 / {{ flt.year }}）</div>
-      <div class="rows" id="tbl_top">
-        {% for r in top_symbols %}
-          <div class="row"><span class="l">{{ r.label }}</span><span class="r">{{ r.net|floatformat:2 }}</span></div>
-        {% empty %}
-          <div class="muted">データなし</div>
-        {% endfor %}
-      </div>
+  <!-- ランキング -->
+  <div class="card" style="margin-top:12px">
+    <div class="sec-title">税引後 上位銘柄（Top 10 / {{ flt.year }}）</div>
+    <div class="rows" id="tbl_top">
+      {% for r in top_symbols %}
+        <div class="row"><span class="l">{{ r.label }}</span><span class="r">{{ r.net|floatformat:2 }}</span></div>
+      {% empty %}
+        <div class="muted">データなし</div>
+      {% endfor %}
     </div>
   </div>
 </div>
 
+<!-- ダッシュボード用トースト -->
 <div id="dashToast" role="status" aria-live="polite"></div>
 
 {{ monthly|json_script:"js-monthly" }}
@@ -184,7 +193,10 @@
   window.DIVD_URLS = {
     json: "{% url 'dividend_dashboard_json' %}",
     save_goal: "{% url 'dividend_save_goal' %}",
-    list: "{% url urls.list %}",
+    list: "{% url 'dividend_list' %}",
+    year: "{{ flt.year|default_if_none:'' }}",
+    broker: "{{ flt.broker|default_if_none:'' }}",
+    account: "{{ flt.account|default_if_none:'' }}"
   };
 </script>
 <script src="{% static 'js/dividends_dashboard.js' %}?v=3" defer></script>
