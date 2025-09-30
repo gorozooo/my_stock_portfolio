@@ -97,8 +97,6 @@
     const box = $(containerSel); if (!box) return;
     if (!rows || !rows.length){ box.innerHTML = '<div class="muted">—</div>'; return; }
     const year = $("#flt_year").value;
-    const broker = $("#flt_broker").value;
-    const account= $("#flt_account").value;
     box.innerHTML = rows.map(r=>{
       const v = r[key] || r[drillKey] || "—";
       let href = "#";
@@ -143,7 +141,6 @@
   // 初期：JS対応なら JSON で最新値へ置き換え
   fetchAndRender().catch(()=> {
     // JS失敗時はフォールバックとしてサーバー描画のまま
-    // 既存の js-monthly があれば最小表示だけしておく
     try{
       const el = document.getElementById("js-monthly");
       if (!el) return;
