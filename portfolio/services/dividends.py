@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from django.db.models import Q, Sum
 
-from ..models import Dividend
+from ..models import Dividend, DividendGoal
 
 
 # ========== ベース QS ==========
