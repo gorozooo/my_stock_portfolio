@@ -12,6 +12,8 @@ from django.utils import timezone
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_GET, require_POST
 from django.urls import reverse  # ★ 追加
+import csv
+from io import StringIO
 
 from ..forms import DividendForm, _normalize_code_head
 from ..models import Dividend
@@ -276,3 +278,93 @@ def dividend_lookup_name(request):
     head = _normalize_code_head(raw)
     name = _resolve_name_fallback(head, raw) if head else ""
     return JsonResponse({"name": name})
+    
+@login_required
+@require_GET
+def export_csv(request):
+    """
+    GET /dividends/export.csv?year=&month=&broker=&account=&q=
+    現在のフィルタ条件で配当明細をCSVダウンロード。
+    """
+    # クエリ取得
+    year_q  = (request.GET.get("year") or "").strip()
+    month_q = (request.GET.get("month") or "").strip()
+    broker  = (request.GET.get("broker") or "").strip()
+    account = (request.GET.get("account") or "").strip()
+    q       = (request.GET.get("q") or "").strip()
+
+    year  = int(year_q) if year_q.isdigit() else None
+    month = int(month_q) if month_q.isdigit() else None
+
+    # 絞り込み
+    base_qs = svc_div.build_user_dividend_qs(request.user)
+    qs = svc_div.apply_filters(
+        base_qs,
+        year=year, month=month,
+        broker=broker or None,
+        account=account or None,
+        q=q or None,
+    ).order_by("date", "id")
+
+    # CSV 準備
+    sio = StringIO()
+    writer = csv.writer(sio)
+    writer.writerow([
+        "id", "date", "ticker", "name",
+        "broker", "account",
+        "quantity", "purchase_price",
+        "gross_amount", "tax", "net_amount",
+        "memo",
+    ])
+
+    # 安全に gross/net を取得する小ヘルパ
+    def _gross(d):
+        try:
+            return float(d.gross_amount())
+        except Exception:
+            try:
+                return float(d.gross_amount)
+            except Exception:
+                # フォールバック計算
+                amt = float(d.amount or 0)
+                return amt if not getattr(d, "is_net", False) else (amt + float(d.tax or 0))
+
+    def _net(d):
+        try:
+            return float(d.net_amount())
+        except Exception:
+            try:
+                return float(d.net_amount)
+            except Exception:
+                amt = float(d.amount or 0)
+                tax = float(d.tax or 0)
+                return (amt - tax) if not getattr(d, "is_net", False) else amt
+
+    for d in qs:
+        writer.writerow([
+            d.id,
+            d.date.isoformat() if d.date else "",
+            (d.display_ticker or d.ticker or ""),
+            (d.display_name or d.name or ""),
+            (d.get_broker_display() if d.broker else (d.holding.get_broker_display() if getattr(d, "holding", None) and d.holding.broker else "")),
+            (d.get_account_display() if d.account else (d.holding.get_account_display() if getattr(d, "holding", None) and d.holding.account else "")),
+            d.quantity or (getattr(d.holding, "quantity", "") if getattr(d, "holding", None) else ""),
+            (f"{d.purchase_price:.2f}" if d.purchase_price is not None else (f"{getattr(d.holding, 'avg_cost'):.2f}" if getattr(d, "holding", None) and d.holding.avg_cost is not None else "")),
+            f"{_gross(d):.2f}",
+            f"{float(d.tax or 0):.2f}",
+            f"{_net(d):.2f}",
+            d.memo or "",
+        ])
+
+    # レスポンス
+    filename_bits = ["dividends"]
+    if year_q:  filename_bits.append(str(year_q))
+    if month_q: filename_bits.append(f"{int(month_q):02d}")
+    filename = "_".join(filename_bits) + ".csv"
+
+    resp = HttpResponse(
+        content_type="text/csv; charset=utf-8"
+    )
+    resp["Content-Disposition"] = f'attachment; filename="{filename}"'
+    resp.write(sio.getvalue())
+    return resp
