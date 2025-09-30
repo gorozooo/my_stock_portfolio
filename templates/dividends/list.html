@@ -18,7 +18,8 @@
   .kpi .val{font-size:18px;font-weight:700}
 
   .list{max-width:960px;margin:0 auto;display:grid;gap:10px}
-  /* holdings.js と同じ構造に揃える（.track / .actions / .item.delete） */
+
+  /* swipe（holdings.js v121-fix 互換の構造） */
   [data-swipe]{position:relative;border:1px solid rgba(255,255,255,.09);
                background:rgba(255,255,255,.04);border-radius:12px;overflow:hidden}
   [data-swipe] .track{position:relative;padding:12px 12px 10px}
@@ -42,15 +43,29 @@
   .nums{display:flex;justify-content:space-between;align-items:baseline;margin-top:2px;gap:8px}
   .net{font-size:16px;font-weight:700}
   .sub{color:#9aa4b2;font-size:11px;white-space:nowrap}
+
+  /* pagination */
+  .pager{max-width:960px;margin:14px auto 4px;display:flex;justify-content:center;gap:10px;align-items:center}
+  .pager a,.pager span.badge{
+    padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.05);color:#e6ebff;text-decoration:none;font-size:14px
+  }
+  .pager a:hover{background:rgba(255,255,255,.12)}
+  .pager .muted{color:#9aa4b2}
 </style>
 {% endblock %}
 
 {% block content %}
 <h1 class="text-xl font-semibold mb-3">配当一覧</h1>
 
-<!-- KPI（ビューの total_* を使用） -->
+<!-- KPI（合計はビュー計算、件数は全件数優先） -->
 <div class="kpis">
-  <div class="kpi"><div class="lbl">件数</div><div class="val">{{ items|length }}</div></div>
+  <div class="kpi">
+    <div class="lbl">件数</div>
+    <div class="val">
+      {% if page_obj %}{{ page_obj.paginator.count }}{% else %}{{ items|length }}{% endif %}
+    </div>
+  </div>
   <div class="kpi"><div class="lbl">税引前合計</div><div class="val">{{ total_gross|default:0|floatformat:2 }}</div></div>
   <div class="kpi"><div class="lbl">税額合計</div><div class="val">{{ total_tax|default:0|floatformat:2 }}</div></div>
   <div class="kpi"><div class="lbl">税引後合計</div><div class="val">{{ total_net|default:0|floatformat:2 }}</div></div>
@@ -60,7 +75,7 @@
 <div class="list">
   {% for d in items %}
   <div class="row" data-swipe>
-    <!-- swipe actions (holdings.js 互換のクラス構成) -->
+    <!-- swipe actions -->
     <div class="actions">
       <div class="pane edit">
         <a class="item" href="{% url 'dividend_edit' d.id %}">編集</a>
@@ -79,14 +94,14 @@
       <div class="date">{{ d.date|date:"Y年n月j日" }}</div>
 
       <div class="meta-row">
-        {# 証券会社：配当側 → 無ければ保有側をフォールバック #}
+        {# 証券会社（配当→保有フォールバック） #}
         {% if d.broker %}
           <span class="chip">{{ d.get_broker_display }}</span>
         {% elif d.holding and d.holding.broker %}
           <span class="chip">{{ d.holding.get_broker_display }}</span>
         {% endif %}
 
-        {# 口座区分：同様にフォールバック #}
+        {# 口座区分（配当→保有フォールバック） #}
         {% if d.account %}
           <span class="chip">{{ d.get_account_display }}</span>
         {% elif d.holding and d.holding.account %}
@@ -97,7 +112,7 @@
           <span class="chip">株数: {{ d.quantity }}</span>
         {% endif %}
 
-        {# 取得単価：配当側が無ければ保有の平均取得を表示 #}
+        {# 取得単価（配当→保有フォールバック） #}
         {% if d.purchase_price is not None %}
           <span class="chip">取得: {{ d.purchase_price|floatformat:2 }}</span>
         {% elif d.holding and d.holding.avg_cost is not None %}
@@ -118,6 +133,25 @@
   {% endfor %}
 </div>
 
-<!-- スワイプ挙動（既存 holdings.js v121-fix と同じマークアップで動作） -->
+{# ページネーション（クエリ維持） #}
+{% if page_obj %}
+  <div class="pager">
+    {% if page_obj.has_previous %}
+      <a href="?page={{ page_obj.previous_page_number }}{% if flt.year %}&year={{ flt.year }}{% endif %}{% if flt.month %}&month={{ flt.month }}{% endif %}{% if flt.broker %}&broker={{ flt.broker }}{% endif %}{% if flt.account %}&account={{ flt.account }}{% endif %}{% if flt.q %}&q={{ flt.q }}{% endif %}">← 前へ</a>
+    {% else %}
+      <span class="muted">← 前へ</span>
+    {% endif %}
+
+    <span class="badge">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+
+    {% if page_obj.has_next %}
+      <a href="?page={{ page_obj.next_page_number }}{% if flt.year %}&year={{ flt.year }}{% endif %}{% if flt.month %}&month={{ flt.month }}{% endif %}{% if flt.broker %}&broker={{ flt.broker }}{% endif %}{% if flt.account %}&account={{ flt.account }}{% endif %}{% if flt.q %}&q={{ flt.q }}{% endif %}">次へ →</a>
+    {% else %}
+      <span class="muted">次へ →</span>
+    {% endif %}
+  </div>
+{% endif %}
+
+<!-- スワイプ挙動（holdings.js v121-fix 互換マークアップで動作） -->
 <script src="{% static 'js/dividends.js' %}"></script>
 {% endblock %}
