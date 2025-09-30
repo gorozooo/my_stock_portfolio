@@ -7,7 +7,7 @@
   .wrap{max-width:960px;margin:0 auto}
   .bar{padding:10px 12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);border-radius:12px;display:grid;gap:10px;grid-template-columns:1fr 1fr 1fr 1fr}
   @media (max-width:780px){ .bar{grid-template-columns:1fr 1fr} }
-  .bar select,.bar button{width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#eaf0ff}
+  .bar select,.bar button,.bar a{width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#eaf0ff;text-align:center;text-decoration:none;display:inline-block}
   .kpis{display:grid;gap:12px;margin-top:12px;grid-template-columns:repeat(4,1fr)}
   @media (max-width:780px){ .kpis{grid-template-columns:repeat(2,1fr)} }
   .kpi{padding:14px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.04)}
@@ -16,6 +16,7 @@
   .grid{display:grid;gap:12px;margin-top:14px;grid-template-columns:1fr 1fr}
   @media (max-width:780px){ .grid{grid-template-columns:1fr} }
   .card{padding:14px 16px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.04)}
+  .sec-title{font-weight:600;margin-bottom:8px}
   table{width:100%;border-collapse:separate;border-spacing:0 8px}
   th{font-size:12px;color:#9aa4b2;text-align:left;padding:0 8px}
   td{padding:10px 12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
@@ -28,6 +29,10 @@
   .tip{position:absolute;pointer-events:none;background:rgba(30,32,46,.95);border:1px solid rgba(255,255,255,.08);
        padding:6px 8px;border-radius:8px;font-size:12px;transform:translate(-50%,-100%);display:none;z-index:5}
   .clear-btn{background:none;border:1px dashed rgba(255,255,255,.22)}
+  /* link rows (JSで生成するときの簡易見た目) */
+  .rows .row{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:6px 0;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);border-radius:10px;text-decoration:none;color:inherit}
+  .rows .row .l{opacity:.9}
+  .rows .row .r{opacity:.9}
 </style>
 {% endblock %}
 
@@ -36,10 +41,10 @@
   <h1 class="text-xl font-semibold mb-3">配当ダッシュボード</h1>
 
   <!-- フィルタバー -->
-  <form class="bar" method="get">
+  <form class="bar" method="get" id="flt_form">
     <div>
       <label class="muted">年</label>
-      <select name="year">
+      <select name="year" id="flt_year">
         {% for y in year_options %}
           <option value="{{ y }}" {% if flt.year == y %}selected{% endif %}>{{ y }}</option>
         {% endfor %}
@@ -47,7 +52,7 @@
     </div>
     <div>
       <label class="muted">証券会社</label>
-      <select name="broker">
+      <select name="broker" id="flt_broker">
         <option value="">すべて</option>
         {% for val,label in BROKERS %}
           <option value="{{ val }}" {% if flt.broker == val %}selected{% endif %}>{{ label }}</option>
@@ -56,7 +61,7 @@
     </div>
     <div>
       <label class="muted">口座区分</label>
-      <select name="account">
+      <select name="account" id="flt_account">
         <option value="">すべて</option>
         {% for val,label in ACCOUNTS %}
           <option value="{{ val }}" {% if flt.account == val %}selected{% endif %}>{{ label }}</option>
@@ -64,21 +69,21 @@
       </select>
     </div>
     <div style="align-self:end;display:flex;gap:8px">
-      <button type="submit">反映</button>
-      <a class="clear-btn" href="?year={{ flt.year }}">条件クリア</a>
+      <button type="submit" id="btn_apply">反映</button>
+      <a class="clear-btn" href="?year={{ flt.year }}" id="btn_clear">条件クリア</a>
     </div>
   </form>
 
-  <!-- KPI -->
+  <!-- KPI（初期はサーバー値、JSで差し替え） -->
   <div class="kpis">
-    <div class="kpi"><div class="t">件数（{{ flt.year }}）</div><div class="v">{{ kpi.count|default:"0" }}</div></div>
-    <div class="kpi"><div class="t">税引前合計</div><div class="v">{{ kpi.gross|floatformat:2 }}</div></div>
-    <div class="kpi"><div class="t">税額合計</div><div class="v">{{ kpi.tax|floatformat:2 }}</div></div>
-    <div class="kpi"><div class="t">税引後合計</div><div class="v">{{ kpi.net|floatformat:2 }}</div></div>
+    <div class="kpi"><div class="t">件数（{{ flt.year }}）</div><div class="v" id="kpi_count">{{ kpi.count|default:"0" }}</div></div>
+    <div class="kpi"><div class="t">税引前合計</div><div class="v" id="kpi_gross">{{ kpi.gross|floatformat:2 }}</div></div>
+    <div class="kpi"><div class="t">税額合計</div><div class="v" id="kpi_tax">{{ kpi.tax|floatformat:2 }}</div></div>
+    <div class="kpi"><div class="t">税引後合計</div><div class="v" id="kpi_net">{{ kpi.net|floatformat:2 }}</div></div>
   </div>
   <div class="kpi" style="margin-top:12px">
     <div class="t">概算利回り（年・税引後/元本）</div>
-    <div class="v">{{ kpi.yield_pct|floatformat:2 }}%</div>
+    <div class="v"><span id="kpi_yield">{{ kpi.yield_pct|floatformat:2 }}</span>%</div>
     <div class="muted" style="margin-top:6px">※ 元本＝株数×取得単価（保有/配当のいずれか入力がある明細のみ合算）</div>
   </div>
 
@@ -87,7 +92,7 @@
     <div class="card">
       <div class="sec-title">月次（税引後＋税額）</div>
       <div class="barwrap" id="chartWrap">
-        <svg id="monthlyChart" viewBox="0 0 360 160" width="100%" height="100%" preserveAspectRatio="none"></svg>
+        <div id="monthly_svg" style="width:100%;height:100%"></div>
         <div class="tip" id="chartTip"></div>
       </div>
       <div class="legend">
@@ -100,144 +105,47 @@
     <!-- 証券会社別 -->
     <div class="card">
       <div class="sec-title">証券会社別（税引後合計）</div>
-      <table>
-        <thead><tr><th>証券会社</th><th>税引後</th></tr></thead>
-        <tbody>
-          {% for r in by_broker %}
-            <tr><td>{{ r.broker }}</td><td>{{ r.net|floatformat:2 }}</td></tr>
-          {% empty %}
-            <tr><td colspan="2" class="muted">データなし</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="rows" id="tbl_broker">
+        {% for r in by_broker %}
+          <a class="row" href="{% url urls.list %}?year={{ flt.year }}&broker={{ r.broker }}"><span class="l">{{ r.broker }}</span><span class="r">{{ r.net|floatformat:2 }}</span></a>
+        {% empty %}
+          <div class="muted">データなし</div>
+        {% endfor %}
+      </div>
     </div>
   </div>
 
-  <!-- トップ銘柄 -->
-  <div class="card" style="margin-top:12px">
-    <div class="sec-title">税引後 上位銘柄（Top 10 / {{ flt.year }}）</div>
-    <table>
-      <thead><tr><th>銘柄/コード</th><th>税引後</th></tr></thead>
-      <tbody>
+  <!-- 口座区分別 & トップ銘柄 -->
+  <div class="grid">
+    <div class="card">
+      <div class="sec-title">口座区分別（税引後合計）</div>
+      <div class="rows" id="tbl_account"><div class="muted">—</div></div>
+    </div>
+    <div class="card">
+      <div class="sec-title">税引後 上位銘柄（Top 10 / {{ flt.year }}）</div>
+      <div class="rows" id="tbl_top">
         {% for r in top_symbols %}
-          <tr><td>{{ r.label }}</td><td>{{ r.net|floatformat:2 }}</td></tr>
+          <div class="row"><span class="l">{{ r.label }}</span><span class="r">{{ r.net|floatformat:2 }}</span></div>
         {% empty %}
-          <tr><td colspan="2" class="muted">データなし</td></tr>
+          <div class="muted">データなし</div>
         {% endfor %}
-      </tbody>
-    </table>
+      </div>
+    </div>
   </div>
 </div>
 
+<!-- 初期月次データ（JS未対応の環境向け） -->
 {{ monthly|json_script:"js-monthly" }}
+
+<!-- ルーティング（JS用） -->
 <script>
-(function(){
-  const data = (()=>{try{return JSON.parse(document.getElementById('js-monthly').textContent)}catch(_){return []}})();
-  const svg  = document.getElementById('monthlyChart');
-  const tip  = document.getElementById('chartTip');
-  const wrap = document.getElementById('chartWrap');
-  if (!svg || !data.length) return;
-
-  const W = 360, H = 160, pad = 18, barW = 18, gap = 12;
-  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  svg.innerHTML = '';
-
-  const maxVal = Math.max(1, ...data.map(d => (d.net + d.tax)));
-  const scaleY = v => H - pad - (v / maxVal) * (H - pad*2);
-
-  // xに対して遷移URLを作る
-  const toListURL = (m)=>{
-    const params = new URLSearchParams();
-    params.set('year', '{{ flt.year }}');
-    params.set('month', String(m));
-    {% if flt.broker %}params.set('broker', '{{ flt.broker }}');{% endif %}
-    {% if flt.account %}params.set('account', '{{ flt.account }}');{% endif %}
-    return "{% url urls.list %}?" + params.toString();
+  window.DIVD_URLS = {
+    json: "{% url 'dividend_dashboard_json' %}",
+    list: "{% url urls.list %}",
+    year: "{{ flt.year|default_if_none:'' }}",
+    broker: "{{ flt.broker|default_if_none:'' }}",
+    account: "{{ flt.account|default_if_none:'' }}"
   };
-
-  // 軸
-  const axis = document.createElementNS('http://www.w3.org/2000/svg','path');
-  axis.setAttribute('d', `M${pad},${H-pad} H${W-pad}`);
-  axis.setAttribute('stroke','rgba(255,255,255,.25)');
-  axis.setAttribute('fill','none');
-  svg.appendChild(axis);
-
-  function showTip(x,y, m, net, tax){
-    tip.textContent = `${m}月  税引後 ${net.toLocaleString()} / 税額 ${tax.toLocaleString()}`;
-    tip.style.left = x + 'px';
-    tip.style.top  = y + 'px';
-    tip.style.display = 'block';
-  }
-  function hideTip(){ tip.style.display='none'; }
-
-  data.forEach((d, i) => {
-    const x = pad + i*(barW+gap);
-    // net
-    const hNet = (H - pad) - scaleY(d.net);
-    const r1 = document.createElementNS('http://www.w3.org/2000/svg','rect');
-    Object.assign(r1, {__m:d.m, __net:d.net, __tax:d.tax});
-    r1.setAttribute('x', x);
-    r1.setAttribute('y', scaleY(d.net));
-    r1.setAttribute('width', barW);
-    r1.setAttribute('height', hNet);
-    r1.setAttribute('rx', 3);
-    r1.setAttribute('fill', '#6ea8ff');
-    svg.appendChild(r1);
-
-    // tax (stack)
-    const hTax = (H - pad) - scaleY(d.net + d.tax) - hNet;
-    const r2 = document.createElementNS('http://www.w3.org/2000/svg','rect');
-    Object.assign(r2, {__m:d.m, __net:d.net, __tax:d.tax});
-    r2.setAttribute('x', x);
-    r2.setAttribute('y', scaleY(d.net + d.tax));
-    r2.setAttribute('width', barW);
-    r2.setAttribute('height', hTax);
-    r2.setAttribute('rx', 3);
-    r2.setAttribute('fill', '#a0aec0');
-    svg.appendChild(r2);
-
-    // label
-    const t = document.createElementNS('http://www.w3.org/2000/svg','text');
-    t.setAttribute('x', x + barW/2);
-    t.setAttribute('y', H - 4);
-    t.setAttribute('text-anchor','middle');
-    t.setAttribute('font-size','9');
-    t.setAttribute('fill','rgba(255,255,255,.75)');
-    t.textContent = d.m;
-    svg.appendChild(t);
-  });
-
-  function onPoint(el, clientX, clientY){
-    const m = el.__m, net = el.__net||0, tax = el.__tax||0;
-    const rect = wrap.getBoundingClientRect();
-    showTip(clientX - rect.left, clientY - rect.top - 8, m, net, tax);
-  }
-
-  // PC: hover / click
-  svg.addEventListener('mousemove', (e)=>{
-    const target = e.target;
-    if (target.tagName === 'rect' && target.__m) onPoint(target, e.clientX, e.clientY);
-    else hideTip();
-  });
-  svg.addEventListener('mouseleave', hideTip);
-  svg.addEventListener('click', (e)=>{
-    const t = e.target;
-    if (t.tagName === 'rect' && t.__m){
-      location.href = toListURL(t.__m);
-    }
-  });
-
-  // モバイル: touch
-  let tTimer=null; // long-tapで遷移
-  svg.addEventListener('touchstart', (e)=>{
-    const t = e.target;
-    if (!(t && t.tagName === 'rect' && t.__m)) return;
-    const touch = e.touches[0];
-    onPoint(t, touch.clientX, touch.clientY);
-    clearTimeout(tTimer);
-    tTimer = setTimeout(()=>{ location.href = toListURL(t.__m); }, 450);
-  }, {passive:true});
-  svg.addEventListener('touchend', ()=>{ clearTimeout(tTimer); hideTip(); }, {passive:true});
-})();
 </script>
+<script src="{% static 'js/dividends_dashboard.js' %}?v=1" defer></script>
 {% endblock %}
