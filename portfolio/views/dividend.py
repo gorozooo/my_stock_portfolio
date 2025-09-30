@@ -8,6 +8,7 @@ from django.db.models import Q
 from django.utils import timezone
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
+from django.core.paginator import Paginator
 
 from ..forms import DividendForm, _normalize_code_head
 from ..models import Dividend
