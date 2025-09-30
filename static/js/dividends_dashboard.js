@@ -7,6 +7,13 @@
   function fmt(n){ return Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
   function q(v){ return encodeURIComponent(v||""); }
 
+  // --- CSRF -------------------------------------------------------------
+  function getCookie(name){
+    const m = document.cookie.match('(?:^|; )' + name.replace(/([.$?*|{}()[\]\\/+^])/g,'\\$1') + '=([^;]*)');
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  const CSRF = getCookie('csrftoken');
+
   // -------------------- Toast --------------------
   const toast = $("#dashToast");
   function showToast(msg){
@@ -183,14 +190,21 @@
   // 目標保存（Ajax → 再取得）
   $("#goal_save_btn")?.addEventListener("click", async ()=>{
     const year = $("#flt_year").value;
-    const amount = $("#goal_amount_input").value || "0";
+    // 3桁区切りを誤って入れても安全にする
+    const raw = ($("#goal_amount_input").value || "0").replace(/,/g,'');
     try{
       const resp = await fetch(URLS.save_goal, {
         method:"POST",
-        headers:{ "Content-Type":"application/x-www-form-urlencoded", "X-Requested-With":"fetch" },
-        body:`year=${q(year)}&amount=${q(amount)}`
+        credentials:"same-origin",
+        redirect:"follow",
+        headers:{
+          "Content-Type":"application/x-www-form-urlencoded",
+          "X-Requested-With":"fetch",
+          "X-CSRFToken": CSRF
+        },
+        body:`year=${q(year)}&amount=${q(raw)}`
       });
-      if (!resp.ok) throw new Error("save failed");
+      if (!resp.ok){ throw new Error(String(resp.status||"error")); }
       showToast("保存しました");
       fetchAndRender();
     }catch(_){
