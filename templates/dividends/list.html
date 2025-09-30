@@ -18,29 +18,30 @@
   .kpi .val{font-size:18px;font-weight:700}
 
   .list{max-width:960px;margin:0 auto;display:grid;gap:10px}
+  /* holdings.js と同じ構造に揃える（.track / .actions / .item.delete） */
   [data-swipe]{position:relative;border:1px solid rgba(255,255,255,.09);
                background:rgba(255,255,255,.04);border-radius:12px;overflow:hidden}
-  [data-swipe] .track{padding:12px 12px 10px}
+  [data-swipe] .track{position:relative;padding:12px 12px 10px}
   [data-swipe] .actions{
-    position:absolute; inset:0 0 0 auto; width:180px; display:flex;
-    transform:translateX(100%); transition:transform .2s ease;
+    position:absolute; inset:0 0 0 auto; width:220px; display:flex;
+    transform:translateX(100%); transition:transform .16s ease;
+    pointer-events:none;
   }
-  [data-swipe] .actions .item{
-    flex:1;display:flex;align-items:center;justify-content:center;
-    font-weight:600;cursor:pointer
-  }
-  [data-swipe] .actions .edit{background:rgba(255,255,255,.12)}
-  [data-swipe] .actions .delete{background:#7f232c}
+  [data-swipe] .actions .pane{flex:1;display:flex;align-items:center;justify-content:center}
+  [data-swipe] .actions .pane a,
+  [data-swipe] .actions .pane button{pointer-events:auto}
+  [data-swipe] .actions .edit{background:#1f3a5a;color:#eaf3ff}
+  [data-swipe] .actions .del{background:#5a1f2a;color:#ffeaf0}
   [data-swipe].is-open .actions{transform:translateX(0)}
 
   .title{font-size:15px;font-weight:700;margin-bottom:2px}
   .date{font-size:12px;color:#9aa4b2;margin-bottom:6px}
   .meta-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
-  .chip{padding:2px 6px;border-radius:999px;border:1px solid rgba(255,255,255,.16);
+  .chip{padding:4px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.16);
         background:rgba(255,255,255,.06);font-size:11px}
-  .nums{display:flex;justify-content:space-between;align-items:baseline;margin-top:2px}
+  .nums{display:flex;justify-content:space-between;align-items:baseline;margin-top:2px;gap:8px}
   .net{font-size:16px;font-weight:700}
-  .sub{color:#9aa4b2;font-size:11px}
+  .sub{color:#9aa4b2;font-size:11px;white-space:nowrap}
 </style>
 {% endblock %}
 
@@ -59,13 +60,18 @@
 <div class="list">
   {% for d in items %}
   <div class="row" data-swipe>
+    <!-- swipe actions (holdings.js 互換のクラス構成) -->
     <div class="actions">
-      <a class="item edit" href="{% url 'dividend_edit' d.id %}">編集</a>
-      <form class="item delete" method="post" action="{% url 'dividend_delete' d.id %}"
-            onsubmit="return confirm('削除してよろしいですか？');">
-        {% csrf_token %}
-        <button type="submit" style="all:unset;cursor:pointer;font:inherit;color:inherit">削除</button>
-      </form>
+      <div class="pane edit">
+        <a class="item" href="{% url 'dividend_edit' d.id %}">編集</a>
+      </div>
+      <div class="pane del">
+        <form method="post" action="{% url 'dividend_delete' d.id %}"
+              onsubmit="return confirm('削除してよろしいですか？');">
+          {% csrf_token %}
+          <button type="submit" class="item delete">削除</button>
+        </form>
+      </div>
     </div>
 
     <div class="track">
@@ -73,15 +79,37 @@
       <div class="date">{{ d.date|date:"Y年n月j日" }}</div>
 
       <div class="meta-row">
-        {% if d.broker %}<span class="chip">{{ d.get_broker_display }}</span>{% endif %}
-        {% if d.account %}<span class="chip">{{ d.get_account_display }}</span>{% endif %}
-        {% if d.quantity %}<span class="chip">株数: {{ d.quantity }}</span>{% endif %}
-        {% if d.purchase_price %}<span class="chip">取得: {{ d.purchase_price|floatformat:2 }}</span>{% endif %}
+        {# 証券会社：配当側 → 無ければ保有側をフォールバック #}
+        {% if d.broker %}
+          <span class="chip">{{ d.get_broker_display }}</span>
+        {% elif d.holding and d.holding.broker %}
+          <span class="chip">{{ d.holding.get_broker_display }}</span>
+        {% endif %}
+
+        {# 口座区分：同様にフォールバック #}
+        {% if d.account %}
+          <span class="chip">{{ d.get_account_display }}</span>
+        {% elif d.holding and d.holding.account %}
+          <span class="chip">{{ d.holding.get_account_display }}</span>
+        {% endif %}
+
+        {% if d.quantity %}
+          <span class="chip">株数: {{ d.quantity }}</span>
+        {% endif %}
+
+        {# 取得単価：配当側が無ければ保有の平均取得を表示 #}
+        {% if d.purchase_price is not None %}
+          <span class="chip">取得: {{ d.purchase_price|floatformat:2 }}</span>
+        {% elif d.holding and d.holding.avg_cost is not None %}
+          <span class="chip">取得: {{ d.holding.avg_cost|floatformat:2 }}</span>
+        {% endif %}
       </div>
 
       <div class="nums">
-        <div class="net">税引後 {{ d.net_amount|floatformat:2 }}</div>
-        <div class="sub">税引前 {{ d.gross_amount|floatformat:2 }} ／ 税額 {{ d.tax|default:0|floatformat:2 }}</div>
+        <div class="net">税引後 {{ d.net_amount|default:0|floatformat:2 }}</div>
+        <div class="sub">
+          税引前 {{ d.gross_amount|default:0|floatformat:2 }} ／ 税額 {{ d.tax|default:0|floatformat:2 }}
+        </div>
       </div>
     </div>
   </div>
@@ -90,5 +118,6 @@
   {% endfor %}
 </div>
 
+<!-- スワイプ挙動（既存 holdings.js v121-fix と同じマークアップで動作） -->
 <script src="{% static 'js/dividends.js' %}"></script>
 {% endblock %}
