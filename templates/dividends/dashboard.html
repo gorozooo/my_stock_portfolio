@@ -17,11 +17,6 @@
   @media (max-width:780px){ .grid{grid-template-columns:1fr} }
   .card{padding:14px 16px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.04)}
   .sec-title{font-weight:600;margin-bottom:8px}
-  table{width:100%;border-collapse:separate;border-spacing:0 8px}
-  th{font-size:12px;color:#9aa4b2;text-align:left;padding:0 8px}
-  td{padding:10px 12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
-  td:first-child{border-radius:10px 0 0 10px}
-  td:last-child{border-radius:0 10px 10px 0;text-align:right}
   .muted{font-size:12px;color:#9aa4b2}
   .barwrap{height:160px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03);padding:8px;position:relative}
   .legend{display:flex;gap:12px;margin-top:6px}
@@ -30,7 +25,7 @@
        padding:6px 8px;border-radius:8px;font-size:12px;transform:translate(-50%,-100%);display:none;z-index:5}
   .clear-btn{background:none;border:1px dashed rgba(255,255,255,.22)}
 
-  /* ---- 年間目標（進捗） ---- */
+  /* 目標 */
   .goal-card{margin-top:12px}
   .goal-grid{display:grid;gap:10px;grid-template-columns:1fr 1fr}
   @media (max-width:780px){ .goal-grid{grid-template-columns:1fr} }
@@ -39,25 +34,23 @@
   .goal-input{display:flex;gap:8px;margin-top:10px}
   .goal-input input{flex:1;min-width:0;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#eaf0ff}
   .goal-input button{padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.10);color:#eaf0ff}
-
   .goal-bar{height:14px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;border:1px solid rgba(255,255,255,.10)}
   .goal-bar > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#6ea8ff,#9f7aea);transition:width .35s ease}
-
-  /* 達成時の金枠強調 */
   .achieved{border-color:rgba(255,215,81,.65)!important;box-shadow:0 0 0 1px rgba(255,215,81,.25) inset, 0 0 28px rgba(255,215,81,.18)}
   .achieved .goal-bar{border-color:rgba(255,215,81,.55)}
   .achieved .goal-bar > i{background:linear-gradient(90deg,#ffd751,#ffb300)}
 
-  /* ダッシュボード用トースト */
   #dashToast{position:fixed;left:50%;bottom:120px;transform:translate(-50%,24px);
     background:rgba(30,32,46,.96);color:#fff;padding:8px 12px;font-size:13px;border-radius:10px;
     border:1px solid rgba(255,255,255,.08);box-shadow:0 10px 28px rgba(0,0,0,.45);opacity:0;pointer-events:none;
     transition:opacity .16s ease, transform .16s ease;z-index:100050}
 
-  /* link rows(簡易見た目) */
-  .rows .row{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:6px 0;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);border-radius:10px;text-decoration:none;color:inherit}
-  .rows .row .l{opacity:.9}
-  .rows .row .r{opacity:.9}
+  /* ドーナツ */
+  .donut{display:flex;gap:12px;align-items:center}
+  .donut canvas{width:160px;height:160px}
+  .donut .legend{flex:1;display:grid;gap:6px}
+  .legend .item{display:flex;justify-content:space-between;gap:8px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);border-radius:10px;padding:8px 10px}
+  .legend .key{display:flex;align-items:center;gap:8px}
 </style>
 {% endblock %}
 
@@ -65,7 +58,7 @@
 <div class="wrap">
   <h1 class="text-xl font-semibold mb-3">配当ダッシュボード</h1>
 
-  <!-- フィルタバー（年/証券会社/口座。変更でAjax即反映） -->
+  <!-- フィルタバー -->
   <form class="bar" method="get" id="flt_form">
     <div>
       <label class="muted">年</label>
@@ -112,7 +105,7 @@
     <div class="muted" style="margin-top:6px">※ 元本＝株数×取得単価（保有/配当のいずれか入力がある明細のみ合算）</div>
   </div>
 
-  <!-- 年間目標（税引後） -->
+  <!-- 年間目標 -->
   <div class="card goal-card" id="goal_card">
     <div class="sec-title">年間目標（税引後）</div>
     <div class="goal-grid">
@@ -127,9 +120,7 @@
       <div class="goal-box">
         <div class="ttl">達成率</div>
         <div class="v" id="goal_progress_view">{{ goal.progress_pct|default:0|floatformat:2 }}%</div>
-        <div class="goal-bar" aria-label="進捗ゲージ">
-          <i id="goal_bar_inner" style="width: {{ goal.progress_pct|default:0 }}%"></i>
-        </div>
+        <div class="goal-bar" aria-label="進捗ゲージ"><i id="goal_bar_inner" style="width: {{ goal.progress_pct|default:0 }}%"></i></div>
         <div class="ttl" style="margin-top:10px">残額</div>
         <div class="v" id="goal_remaining_view">{{ goal.remaining|default:0|floatformat:2 }}</div>
       </div>
@@ -151,25 +142,27 @@
       <div class="muted" style="margin-top:6px">バーをタップで明細へ移動します。</div>
     </div>
 
-    <!-- 証券会社別 -->
+    <!-- 証券会社別（ドーナツ） -->
     <div class="card">
       <div class="sec-title">証券会社別（税引後合計）</div>
-      <div class="rows" id="tbl_broker">
-        {% for r in by_broker %}
-          <a class="row" href="{% url urls.list %}?year={{ flt.year }}&broker={{ r.broker }}"><span class="l">{{ r.broker }}</span><span class="r">{{ r.net|floatformat:2 }}</span></a>
-        {% empty %}
-          <div class="muted">データなし</div>
-        {% endfor %}
+      <div class="donut">
+        <canvas id="donut_broker" width="160" height="160" aria-label="証券会社別"></canvas>
+        <div class="legend" id="legend_broker"></div>
       </div>
     </div>
   </div>
 
-  <!-- 口座区分別 & トップ銘柄 -->
   <div class="grid">
+    <!-- 口座区分別（ドーナツ） -->
     <div class="card">
       <div class="sec-title">口座区分別（税引後合計）</div>
-      <div class="rows" id="tbl_account"><div class="muted">—</div></div>
+      <div class="donut">
+        <canvas id="donut_account" width="160" height="160" aria-label="口座区分別"></canvas>
+        <div class="legend" id="legend_account"></div>
+      </div>
     </div>
+
+    <!-- トップ銘柄 -->
     <div class="card">
       <div class="sec-title">税引後 上位銘柄（Top 10 / {{ flt.year }}）</div>
       <div class="rows" id="tbl_top">
@@ -183,22 +176,16 @@
   </div>
 </div>
 
-<!-- ダッシュボード用トースト -->
 <div id="dashToast" role="status" aria-live="polite"></div>
 
-<!-- 初期月次データ（JS未対応の環境向け） -->
 {{ monthly|json_script:"js-monthly" }}
 
-<!-- ルーティング（JS用） -->
 <script>
   window.DIVD_URLS = {
     json: "{% url 'dividend_dashboard_json' %}",
     save_goal: "{% url 'dividend_save_goal' %}",
     list: "{% url urls.list %}",
-    year: "{{ flt.year|default_if_none:'' }}",
-    broker: "{{ flt.broker|default_if_none:'' }}",
-    account: "{{ flt.account|default_if_none:'' }}"
   };
 </script>
-<script src="{% static 'js/dividends_dashboard.js' %}?v=6" defer></script>
+<script src="{% static 'js/dividends_dashboard.js' %}?v=3" defer></script>
 {% endblock %}
