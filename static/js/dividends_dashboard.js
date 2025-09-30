@@ -7,7 +7,7 @@
   function fmt(n){ return Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
   function q(v){ return encodeURIComponent(v||""); }
 
-  // Toast
+  // -------------------- Toast --------------------
   const toast = $("#dashToast");
   function showToast(msg){
     if(!toast) return;
@@ -17,13 +17,14 @@
     setTimeout(()=>{ toast.style.opacity="0"; toast.style.transform="translate(-50%,24px)"; }, 1400);
   }
 
+  // 明細へ遷移用URL生成
   function drill(params){
     const u = new URL(URLS.list, location.origin);
     Object.entries(params).forEach(([k,v])=>{ if(v!==undefined && v!==null && v!=="") u.searchParams.set(k, v); });
     return u.toString();
   }
 
-  // -------- 月次ミニ棒グラフ（税引後＋税額の積上げ） --------
+  // -------------------- 月次バー（税引後＋税額の積上げ） --------------------
   function drawMonthly(list){
     const wrap = $("#monthly_svg"); if(!wrap) return;
     const W=360,H=160,pad=18,bw=18,gap=12;
@@ -102,7 +103,7 @@
     wrap.replaceChildren(svg);
   }
 
-  // -------- リスト（表）描画 --------
+  // -------------------- 表レンダリング（証券会社/口座/トップ銘柄） --------------------
   function renderRows(containerSel, rows, key, drillKey){
     const box = $(containerSel); if (!box) return;
     if (!rows || !rows.length){ box.innerHTML = '<div class="muted">—</div>'; return; }
@@ -119,7 +120,7 @@
     }).join("");
   }
 
-  // ---- 目標UI反映 & 達成演出 ----
+  // -------------------- 目標UI反映 & 達成演出 --------------------
   let prevAchieved = false;
   function setGoalUI(goal){
     const amount = Number(goal?.amount || 0);
@@ -136,7 +137,6 @@
     const achieved = pct >= 100;
     card.classList.toggle("achieved", achieved);
 
-    // 初回以外で100%到達したらトースト
     if (achieved && !prevAchieved){
       showToast("🎉 目標を達成しました！");
       if (navigator.vibrate) { try{ navigator.vibrate(20); }catch(_){ } }
@@ -144,7 +144,7 @@
     prevAchieved = achieved;
   }
 
-  // -------- 取得＆反映 --------
+  // -------------------- 取得＆反映（KPI/目標/月次/表） --------------------
   async function fetchAndRender(){
     const year = $("#flt_year").value, broker=$("#flt_broker").value, account=$("#flt_account").value;
     const url = `${URLS.json}?year=${q(year)}&broker=${q(broker)}&account=${q(account)}`;
@@ -170,19 +170,18 @@
     renderRows("#tbl_top",     data.top_symbols,"label",   null);
   }
 
-  // 反映ボタン：Ajax置換
-  const form = $("#flt_form");
-  form?.addEventListener("submit",(e)=>{ e.preventDefault(); fetchAndRender(); });
-
-  // 年/ブローカー/口座 変更で即反映（UX改善）
+  // フィルタ：年/ブローカー/口座 変更で即反映
   ["#flt_year","#flt_broker","#flt_account"].forEach(sel=>{
     const el = $(sel);
     el?.addEventListener("change", ()=> fetchAndRender());
   });
 
-  // 年間目標の保存：Ajax → 再取得
-  const saveBtn = $("#goal_save_btn");
-  saveBtn?.addEventListener("click", async ()=>{
+  // 反映ボタン：Ajax置換
+  const form = $("#flt_form");
+  form?.addEventListener("submit",(e)=>{ e.preventDefault(); fetchAndRender(); });
+
+  // 目標保存（Ajax → 再取得）
+  $("#goal_save_btn")?.addEventListener("click", async ()=>{
     const year = $("#flt_year").value;
     const amount = $("#goal_amount_input").value || "0";
     try{
@@ -191,7 +190,7 @@
         headers:{ "Content-Type":"application/x-www-form-urlencoded", "X-Requested-With":"fetch" },
         body:`year=${q(year)}&amount=${q(amount)}`
       });
-      if (!resp.ok){ throw new Error("save failed"); }
+      if (!resp.ok) throw new Error("save failed");
       showToast("保存しました");
       fetchAndRender();
     }catch(_){
@@ -199,7 +198,7 @@
     }
   });
 
-  // 初期：JSONで最新化（失敗したらサーバ描画のまま）
+  // 初期：JSONで最新化（失敗時はサーバ描画を維持）
   fetchAndRender().catch(()=> {
     try{
       const el = document.getElementById("js-monthly");
