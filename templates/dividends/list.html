@@ -19,16 +19,24 @@
 
   .list{max-width:960px;margin:0 auto;display:grid;gap:10px}
 
-  /* swipe actions */
-  [data-swipe]{position:relative;border:1px solid rgba(255,255,255,.09);
-               background:rgba(255,255,255,.04);border-radius:12px;overflow:hidden}
-  [data-swipe] .track{position:relative;padding:12px 12px 10px;z-index:1;}
+  /* swipe（holdings.js v121-fix と互換の構造） */
+  [data-swipe]{
+    position:relative;border:1px solid rgba(255,255,255,.09);
+    background:rgba(255,255,255,.04);border-radius:12px;overflow:hidden
+  }
+  [data-swipe] .track{position:relative;padding:12px 12px 10px;z-index:1}
+
+  /* 開く幅＝カードの1/3。holdings.js は要素幅を計測するので%指定でOK */
   [data-swipe] .actions{
-    position:absolute; inset:0 0 0 auto; width:220px; display:flex;
-    transform:translateX(100%); transition:transform .16s ease;
+    position:absolute; inset:0 0 0 auto;
+    width:33.333%;
+    display:flex; transform:translateX(100%);
+    transition:transform .16s ease;
     pointer-events:none; z-index:2;
   }
-  [data-swipe] .actions .pane{flex:1;display:flex;}
+  [data-swipe] .actions .pane{
+    flex:1; display:flex;
+  }
   [data-swipe] .actions .pane a,
   [data-swipe] .actions .pane button{
     display:flex; width:100%; height:100%;
@@ -38,21 +46,18 @@
     padding:0; margin:0; cursor:pointer;
   }
 
-  /* 透け感ありボタン */
+  /* 透け感ボタン（両方とも中央に来る） */
   [data-swipe] .actions .edit{
-    background:rgba(31,58,90,.55);
-    color:#eef6ff;
-    backdrop-filter:blur(2px);
+    background:rgba(31,58,90,.45);   /* 透明度↑ */
+    color:#eef6ff; backdrop-filter:blur(2px);
   }
   [data-swipe] .actions .del{
-    background:rgba(90,31,42,.56);
-    color:#ffeef1;
-    backdrop-filter:blur(2px);
+    background:rgba(90,31,42,.46);   /* 透明度↑ */
+    color:#ffeef1; backdrop-filter:blur(2px);
   }
 
   [data-swipe].is-open .actions{
-    transform:translateX(0);
-    pointer-events:auto;
+    transform:translateX(0); pointer-events:auto;
   }
 
   .title{font-size:15px;font-weight:700;margin-bottom:2px}
@@ -95,6 +100,7 @@
 <div class="list">
   {% for d in items %}
   <div class="row" data-swipe>
+    <!-- swipe actions（左右1/2ずつ＝編集/削除が同じ位置に出る） -->
     <div class="actions">
       <div class="pane edit">
         <a class="item" href="{% url 'dividend_edit' d.id %}">編集</a>
@@ -125,9 +131,7 @@
           <span class="chip">{{ d.holding.get_account_display }}</span>
         {% endif %}
 
-        {% if d.quantity %}
-          <span class="chip">株数: {{ d.quantity }}</span>
-        {% endif %}
+        {% if d.quantity %}<span class="chip">株数: {{ d.quantity }}</span>{% endif %}
 
         {% if d.purchase_price is not None %}
           <span class="chip">取得: {{ d.purchase_price|floatformat:2 }}</span>
@@ -138,9 +142,7 @@
 
       <div class="nums">
         <div class="net">税引後 {{ d.net_amount|default:0|floatformat:2 }}</div>
-        <div class="sub">
-          税引前 {{ d.gross_amount|default:0|floatformat:2 }} ／ 税額 {{ d.tax|default:0|floatformat:2 }}
-        </div>
+        <div class="sub">税引前 {{ d.gross_amount|default:0|floatformat:2 }} ／ 税額 {{ d.tax|default:0|floatformat:2 }}</div>
       </div>
     </div>
   </div>
@@ -156,9 +158,7 @@
     {% else %}
       <span class="muted">← 前へ</span>
     {% endif %}
-
     <span class="badge">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
-
     {% if page_obj.has_next %}
       <a href="?page={{ page_obj.next_page_number }}">次へ →</a>
     {% else %}
