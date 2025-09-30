@@ -87,34 +87,85 @@ def dashboard_json(request):
 @login_required
 def dividend_list(request):
     """
-    /dividends/?year=YYYY&month=MM&broker=...&account=...
-    明細表示用。KPIは合計のみを上部に表示。
+    /dividends/?year=&month=&broker=&account=&q=&page=
+    明細＋簡易KPI（合計）。20件/ページ。
     """
-    year_q  = request.GET.get("year")
-    month_q = request.GET.get("month")
-    broker  = (request.GET.get("broker") or "").strip()
-    account = (request.GET.get("account") or "").strip()
+    p = request.GET
+    year   = int(p.get("year"))   if (p.get("year")  or "").isdigit() else None
+    month  = int(p.get("month"))  if (p.get("month") or "").isdigit() else None
+    broker = (p.get("broker") or "").strip() or None
+    account= (p.get("account") or "").strip() or None
+    q      = (p.get("q") or "").strip() or None
 
     base_qs = svc_div.build_user_dividend_qs(request.user)
-    qs = svc_div.apply_filters(
-        base_qs,
-        year=int(year_q) if (year_q and year_q.isdigit()) else None,
-        month=int(month_q) if (month_q and month_q.isdigit()) else None,
-        broker=broker or None,
-        account=account or None,
-    ).order_by("-date", "-id")
+    qs = svc_div.apply_filters(base_qs, year=year, month=month, broker=broker, account=account, q=q).order_by("-date","-id")
 
-    # KPI（合計だけ）
+    # KPI（合計のみ）
     kpi = svc_div.sum_kpis(qs)
 
+    # ページング
+    paginator = Paginator(qs, 20)
+    page_num  = int(p.get("page") or 1)
+    page_obj  = paginator.get_page(page_num)
+
+    # 次ページURL（あれば）
+    next_url = None
+    if page_obj.has_next():
+        params = dict(p.items())
+        params["page"] = str(page_obj.next_page_number())
+        next_url = f"{request.path}?{urlencode(params)}"
+
     ctx = {
-        "items": qs,
+        "items": page_obj.object_list,
+        "page_obj": page_obj,
+        "next_url": next_url,
         "total_gross": kpi["gross"],
         "total_net":   kpi["net"],
         "total_tax":   kpi["tax"],
-        "flt": {"year": year_q, "month": month_q, "broker": broker, "account": account},
+        "flt": {"year": year, "month": month, "broker": broker or "", "account": account or "", "q": q or ""},
     }
     return render(request, "dividends/list.html", ctx)
+
+@login_required
+def export_csv(request):
+    """
+    クエリ条件を反映したCSVを出力（UTF-8 BOM付き）
+    """
+    p = request.GET
+    year   = int(p.get("year"))   if (p.get("year")  or "").isdigit() else None
+    month  = int(p.get("month"))  if (p.get("month") or "").isdigit() else None
+    broker = (p.get("broker") or "").strip() or None
+    account= (p.get("account") or "").strip() or None
+    q      = (p.get("q") or "").strip() or None
+
+    base_qs = svc_div.build_user_dividend_qs(request.user)
+    qs = svc_div.apply_filters(base_qs, year=year, month=month, broker=broker, account=account, q=q).order_by("date","id")
+
+    # レスポンス
+    resp = HttpResponse(content_type="text/csv; charset=utf-8")
+    resp["Content-Disposition"] = 'attachment; filename="dividends.csv"'
+    # Excel対策のBOM
+    resp.write("\ufeff")
+
+    writer = csv.writer(resp)
+    writer.writerow(["日付","コード","銘柄名","株数","取得単価","税引前","税額","税引後","証券会社","口座区分","メモ"])
+    for d in qs:
+        gross = d.gross_amount() or 0
+        net   = d.net_amount()   or 0
+        writer.writerow([
+            d.date.isoformat(),
+            d.display_ticker,
+            d.display_name,
+            d.quantity or (d.holding.quantity if d.holding else ""),
+            d.purchase_price if (d.purchase_price is not None) else (d.holding.avg_cost if d.holding else ""),
+            f"{gross:.2f}",
+            f"{(d.tax or 0):.2f}",
+            f"{net:.2f}",
+            d.broker or (d.holding.broker if d.holding else ""),
+            d.account or (d.holding.account if d.holding else ""),
+            d.memo or "",
+        ])
+    return resp
 
 
 # ===== 作成 =====
