@@ -23,16 +23,25 @@
   td:first-child{border-radius:10px 0 0 10px}
   td:last-child{border-radius:0 10px 10px 0;text-align:right}
   .muted{font-size:12px;color:#9aa4b2}
+
   .barwrap{height:160px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03);padding:8px;position:relative}
   .legend{display:flex;gap:12px;margin-top:6px}
   .dot{display:inline-block;width:10px;height:10px;border-radius:50%}
   .tip{position:absolute;pointer-events:none;background:rgba(30,32,46,.95);border:1px solid rgba(255,255,255,.08);
        padding:6px 8px;border-radius:8px;font-size:12px;transform:translate(-50%,-100%);display:none;z-index:5}
   .clear-btn{background:none;border:1px dashed rgba(255,255,255,.22)}
+
   /* link rows (JSで生成するときの簡易見た目) */
   .rows .row{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:6px 0;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);border-radius:10px;text-decoration:none;color:inherit}
   .rows .row .l{opacity:.9}
   .rows .row .r{opacity:.9}
+
+  /* goal */
+  .goal-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  @media (max-width:780px){ .goal-grid{grid-template-columns:1fr} }
+  .goal-form{display:flex;gap:8px;margin-top:10px}
+  .goal-form input[type="number"]{flex:1;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#eaf0ff}
+  .goal-form button{padding:10px 16px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(79,123,255,.25);color:#fff}
 </style>
 {% endblock %}
 
@@ -74,7 +83,7 @@
     </div>
   </form>
 
-  <!-- KPI（初期はサーバー値、JSで差し替え） -->
+  <!-- KPI -->
   <div class="kpis">
     <div class="kpi"><div class="t">件数（{{ flt.year }}）</div><div class="v" id="kpi_count">{{ kpi.count|default:"0" }}</div></div>
     <div class="kpi"><div class="t">税引前合計</div><div class="v" id="kpi_gross">{{ kpi.gross|floatformat:2 }}</div></div>
@@ -85,6 +94,22 @@
     <div class="t">概算利回り（年・税引後/元本）</div>
     <div class="v"><span id="kpi_yield">{{ kpi.yield_pct|floatformat:2 }}</span>%</div>
     <div class="muted" style="margin-top:6px">※ 元本＝株数×取得単価（保有/配当のいずれか入力がある明細のみ合算）</div>
+  </div>
+
+  <!-- 年間目標（税引後） -->
+  <div class="card" style="margin-top:12px">
+    <div class="sec-title">年間目標（税引後）</div>
+    <div class="goal-grid">
+      <div class="kpi"><div class="t">目標</div><div class="v" id="goal_amount">{{ goal.amount|floatformat:2 }}</div></div>
+      <div class="kpi"><div class="t">達成率</div><div class="v"><span id="goal_progress">{{ goal.progress_pct|floatformat:2 }}</span>%</div></div>
+      <div class="kpi"><div class="t">残額</div><div class="v" id="goal_remaining">{{ goal.remaining|floatformat:2 }}</div></div>
+    </div>
+    <form method="post" action="{% url 'dividend_save_goal' %}" class="goal-form">
+      {% csrf_token %}
+      <input type="hidden" id="goal_year" name="year" value="{{ flt.year }}">
+      <input type="number" name="amount" id="goal_amount_input" step="0.01" min="0" placeholder="目標額 (税引後)" value="{{ goal.amount }}">
+      <button type="submit">保存</button>
+    </form>
   </div>
 
   <div class="grid">
