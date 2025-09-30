@@ -1,13 +1,12 @@
 {% load static %}
 <div class="btm-wrap" id="bottomTabRoot" aria-label="Bottom Navigation">
-  <!-- クリティカルCSS（最低限） -->
+  <!-- クリティカルCSS（最低限：外部CSSが無くても破綻しない） -->
   <style>
-    /* ★ 最低限の見た目（外部CSSが死んでも崩れない） */
-    .btm-wrap{position:fixed;left:0;right:0;bottom:0;z-index:999990;pointer-events:none}
-    .btm-nav{pointer-events:auto;background:rgba(13,16,24,.78);backdrop-filter:blur(12px);
+    .btm-wrap{position:fixed;left:0;right:0;bottom:0;z-index:100000;pointer-events:none;transform:translateZ(0)}
+    .btm-nav{pointer-events:auto;background:rgba(13,16,24,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
       border-top:1px solid rgba(255,255,255,.08);padding-bottom:max(0px,env(safe-area-inset-bottom))}
     .btm-grid{max-width:680px;margin:0 auto;display:grid;gap:2px;
-      grid-template-columns:repeat(var(--tab-cols,5),1fr)} /* ← タブ数に自動追従（配当タブ追加でデフォ5） */
+      grid-template-columns:repeat(var(--tab-cols,5),1fr)}
     .tab-btn{position:relative;background:none;border:0;color:#cfd6ee;
       padding:10px 2px calc(12px + env(safe-area-inset-bottom));
       display:flex;flex-direction:column;align-items:center;gap:3px;
@@ -22,21 +21,15 @@
       <button class="tab-btn" data-link="/"                         data-menu="home"      aria-label="ホーム">
         <div class="ico">🏠</div><span>ホーム</span>
       </button>
-
       <button class="tab-btn" data-link="/holdings/"                data-menu="holdings"  aria-label="保有">
         <div class="ico">📄</div><span>保有</span>
       </button>
-
-      <!-- ★ 新設：配当（タップ=ダッシュボード / 長押し=メニュー） -->
       <button class="tab-btn" data-link="/dividends/dashboard/"     data-menu="dividends" aria-label="配当">
-        <div class="ico">🏦</div><span>配当</span>
+        <div class="ico">🏛️</div><span>配当</span>
       </button>
-
-      <!-- 実現損益（realized でも pnl でも開ける） -->
       <button class="tab-btn" data-link="/realized/"                data-menu="realized"  aria-label="実現損益">
         <div class="ico">💰</div><span>実現損益</span>
       </button>
-
       <button class="tab-btn" data-link="/trend/"                   data-menu="trend"     aria-label="トレンド">
         <div class="ico">📈</div><span>トレンド</span>
       </button>
@@ -46,7 +39,6 @@
   <!-- ボトムシート（長押し / 再タップで開く） -->
   <div class="submenu" id="submenu" role="menu" aria-hidden="true">
     <div class="grabber" aria-hidden="true"></div>
-    <!-- JSが項目を差し込む -->
   </div>
   <div class="btm-mask"></div>
 </div>
@@ -61,18 +53,17 @@
     trend_base            : "{% url 'trend' %}",
     dividends_dashboard   : "{% url 'dividend_dashboard' %}",
     dividends_base        : "{% url 'dividend_list' %}",
-    dividend_create       : "{% url 'dividend_create' %}",
+    dividend_create       : "{% url 'dividend_create' %}"
   };
 </script>
 
-<!-- 本番CSS（必ずキャッシュバスターを上げる） -->
-<link rel="stylesheet" href="{% static 'css/bottom_tab.css' %}?v=13">
+<link rel="stylesheet" href="{% static 'css/bottom_tab.css' %}?v=14">
 <script>
-  // タブ数に応じて列数を自動設定（外部CSSが来る前でも効く）
+  // タブ数に応じて列数を自動設定（外部CSS到着前でも効く）
   (function(){
     const root = document.documentElement;
     const count = document.querySelectorAll('#bottomTabRoot .tab-btn').length || 5;
     root.style.setProperty('--tab-cols', String(count));
   })();
 </script>
-<script src="{% static 'js/bottom_tab.js' %}?v=93" defer></script>
+<script src="{% static 'js/bottom_tab.js' %}?v=94" defer></script>
