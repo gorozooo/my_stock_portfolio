@@ -1,4 +1,4 @@
-// dividends_dashboard.js – ダッシュボード非同期更新 + 軽量SVGバー描画 + ドリルダウン
+// dividends_dashboard.js – ダッシュボード非同期更新 + 軽量SVGバー描画 + ドリルダウン + 目標同期
 (function(){
   const $  = (s, r=document)=> r.querySelector(s);
   const $$ = (s, r=document)=> Array.from(r.querySelectorAll(s));
@@ -122,6 +122,16 @@
     $("#kpi_net").textContent   = fmt(data.kpi?.net ?? 0);
     $("#kpi_yield").textContent = (Number(data.kpi?.yield_pct||0)).toFixed(2);
 
+    // 目標（年切替で都度更新）
+    if (data.goal){
+      $("#goal_amount").textContent    = fmt(data.goal.amount ?? 0);
+      $("#goal_progress").textContent  = (Number(data.goal.progress_pct||0)).toFixed(2);
+      $("#goal_remaining").textContent = fmt(data.goal.remaining ?? 0);
+      const gy = $("#goal_year"); if (gy) gy.value = year; // 保存フォームの year も更新
+      const gi = $("#goal_amount_input");
+      if (gi && (gi.value === "" || Number(gi.value) === 0)) gi.value = data.goal.amount ?? 0;
+    }
+
     // 月次
     const monthly = (data.monthly||[]).map(x=>({m:x.m, net:+x.net, tax:+x.tax}));
     drawMonthly(monthly);
@@ -133,14 +143,13 @@
   }
 
   // 反映ボタン：AJAX置換
-  const apply = $("#btn_apply");
-  if (apply){
-    $("#flt_form").addEventListener("submit",(e)=>{ e.preventDefault(); fetchAndRender(); });
+  const form = $("#flt_form");
+  if (form){
+    form.addEventListener("submit",(e)=>{ e.preventDefault(); fetchAndRender(); });
   }
 
-  // 初期：JS対応なら JSON で最新値へ置き換え
+  // 初期：JSON で最新値へ置き換え（失敗時はサーバーレンダのまま）
   fetchAndRender().catch(()=> {
-    // JS失敗時はフォールバックとしてサーバー描画のまま
     try{
       const el = document.getElementById("js-monthly");
       if (!el) return;
