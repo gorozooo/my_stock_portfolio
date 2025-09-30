@@ -1,4 +1,4 @@
-# portfolio/views/dividend.py  （ファイル全文）
+# portfolio/views/dividend.py
 
 from calendar import monthrange
 from decimal import Decimal
@@ -11,13 +11,14 @@ from django.db.models import Q
 from django.utils import timezone
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_GET, require_POST
-from django.urls import reverse  # ← 追加
+from django.urls import reverse  # ★ 追加
 
 from ..forms import DividendForm, _normalize_code_head
 from ..models import Dividend
 from ..services import tickers as svc_tickers
 from ..services import trend as svc_trend
 from ..services import dividends as svc_div  # 集計/目標
+
 
 # ===== ダッシュボード（集計・可視化専用） =====
 @login_required
@@ -78,6 +79,52 @@ def dashboard(request):
     return render(request, "dividends/dashboard.html", ctx)
 
 
+# ===== ダッシュボード用 JSON（AJAX） =====
+@login_required
+@require_GET
+def dashboard_json(request):
+    """
+    GET /dividends/dashboard.json?year=YYYY&broker=...&account=...
+    画面の非同期更新用に、集計値をJSONで返す。
+    """
+    try:
+        year = int(request.GET.get("year", timezone.localdate().year))
+    except Exception:
+        year = timezone.localdate().year
+    broker  = (request.GET.get("broker") or "").strip()
+    account = (request.GET.get("account") or "").strip()
+
+    base_qs = svc_div.build_user_dividend_qs(request.user)
+    qs = svc_div.apply_filters(base_qs, year=year, broker=broker or None, account=account or None)
+
+    kpi          = svc_div.sum_kpis(qs)
+    monthly      = svc_div.group_by_month(qs)
+    by_broker    = svc_div.group_by_broker(qs)
+    by_account   = svc_div.group_by_account(qs)
+    top_symbols  = svc_div.top_symbols(qs, n=10)
+
+    goal_amount  = Decimal(str(svc_div.get_goal_amount(request.user, year) or 0))
+    net_sum      = Decimal(str(kpi.get("net", 0)))
+    progress_pct = float((net_sum / goal_amount * 100) if goal_amount > 0 else 0)
+    progress_pct = round(min(100.0, max(0.0, progress_pct)), 2)
+    remaining    = float(max(Decimal("0"), goal_amount - net_sum))
+
+    data = {
+        "kpi": kpi,
+        "monthly": monthly,
+        "by_broker": by_broker,
+        "by_account": by_account,
+        "top_symbols": top_symbols,
+        "goal": {
+            "amount": float(goal_amount),
+            "progress_pct": progress_pct,
+            "remaining": remaining,
+        },
+        "flt": {"year": year, "broker": broker, "account": account},
+    }
+    return JsonResponse(data)
+
+
 # ===== 年間目標の保存（POST） =====
 @login_required
 @require_POST
@@ -95,8 +142,10 @@ def dividend_save_goal(request):
 
     svc_div.set_goal_amount(request.user, year, amount)
     messages.success(request, "年間目標を保存しました。")
-    # ← reverse でURLを組み立て、クエリに year を付与
-    return redirect(f"{reverse('dividend_dashboard')}?year={year}")
+
+    # ★ 修正：reverse を使って正しいURLへ
+    url = f"{reverse('dividend_dashboard')}?year={year}"
+    return redirect(url)
 
 
 # ===== 明細（スワイプ編集/削除・軽いフィルタ） =====
@@ -118,12 +167,7 @@ def dividend_list(request):
 
     base_qs = svc_div.build_user_dividend_qs(request.user)
     qs = svc_div.apply_filters(
-        base_qs,
-        year=year,
-        month=month,
-        broker=broker or None,
-        account=account or None,
-        q=q or None,
+        base_qs, year=year, month=month, broker=broker or None, account=account or None, q=q or None
     ).order_by("-date", "-id")
 
     # KPI（合計だけ）
