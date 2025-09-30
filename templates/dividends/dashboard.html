@@ -17,8 +17,12 @@
   @media (max-width:780px){ .grid{grid-template-columns:1fr} }
   .card{padding:14px 16px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.04)}
   .sec-title{font-weight:600;margin-bottom:8px}
+  table{width:100%;border-collapse:separate;border-spacing:0 8px}
+  th{font-size:12px;color:#9aa4b2;text-align:left;padding:0 8px}
+  td{padding:10px 12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+  td:first-child{border-radius:10px 0 0 10px}
+  td:last-child{border-radius:0 10px 10px 0;text-align:right}
   .muted{font-size:12px;color:#9aa4b2}
-
   .barwrap{height:160px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03);padding:8px;position:relative}
   .legend{display:flex;gap:12px;margin-top:6px}
   .dot{display:inline-block;width:10px;height:10px;border-radius:50%}
@@ -35,28 +39,29 @@
   .goal-input{display:flex;gap:8px;margin-top:10px}
   .goal-input input{flex:1;min-width:0;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#eaf0ff}
   .goal-input button{padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.10);color:#eaf0ff}
+
   .goal-bar{height:14px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;border:1px solid rgba(255,255,255,.10)}
   .goal-bar > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#6ea8ff,#9f7aea);transition:width .35s ease}
+
   .achieved{border-color:rgba(255,215,81,.65)!important;box-shadow:0 0 0 1px rgba(255,215,81,.25) inset, 0 0 28px rgba(255,215,81,.18)}
   .achieved .goal-bar{border-color:rgba(255,215,81,.55)}
   .achieved .goal-bar > i{background:linear-gradient(90deg,#ffd751,#ffb300)}
+
   #dashToast{position:fixed;left:50%;bottom:120px;transform:translate(-50%,24px);
     background:rgba(30,32,46,.96);color:#fff;padding:8px 12px;font-size:13px;border-radius:10px;
     border:1px solid rgba(255,255,255,.08);box-shadow:0 10px 28px rgba(0,0,0,.45);opacity:0;pointer-events:none;
     transition:opacity .16s ease, transform .16s ease;z-index:100050}
 
-  /* ---- ドーナツ（SVG） ---- */
-  .donut-wrap{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  @media (max-width:780px){ .donut-wrap{grid-template-columns:1fr} }
-  .donut{display:flex;gap:10px;align-items:center}
-  .donut-fig{width:140px;height:140px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);display:flex;align-items:center;justify-content:center}
-  .donut-legend{flex:1;min-width:0}
-  .donut-legend .row{display:flex;justify-content:space-between;gap:8px;padding:6px 8px;border-radius:8px}
-  .donut-legend .row .l{display:flex;gap:8px;align-items:center}
-  .donut-legend .swatch{width:10px;height:10px;border-radius:50%}
+  /* donut レイアウト */
+  .pie-grid{display:grid;grid-template-columns:160px 1fr;gap:12px}
+  @media (max-width:780px){ .pie-grid{grid-template-columns:1fr} }
+  .pie{width:120px;height:120px;margin:0 auto}
+  .legend-list .row{display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-radius:8px}
+  .legend-list .row:hover{background:rgba(255,255,255,.06);cursor:pointer}
+  .legend-list .l{display:flex;align-items:center;gap:8px}
+  .legend-list .swatch{display:inline-block;width:10px;height:10px;border-radius:50%}
   .rows .row{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;margin:6px 0;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);border-radius:10px;text-decoration:none;color:inherit}
-  .rows .row .l{opacity:.9}
-  .rows .row .r{opacity:.9}
+  .rows .row .l{opacity:.9}.rows .row .r{opacity:.9}
 </style>
 {% endblock %}
 
@@ -111,7 +116,7 @@
     <div class="muted" style="margin-top:6px">※ 元本＝株数×取得単価（保有/配当のいずれか入力がある明細のみ合算）</div>
   </div>
 
-  <!-- 年間目標 -->
+  <!-- 年間目標（税引後） -->
   <div class="card goal-card" id="goal_card">
     <div class="sec-title">年間目標（税引後）</div>
     <div class="goal-grid">
@@ -136,7 +141,7 @@
   </div>
 
   <div class="grid">
-    <!-- 月次（棒） -->
+    <!-- 月次グラフ -->
     <div class="card">
       <div class="sec-title">月次（税引後＋税額）</div>
       <div class="barwrap" id="chartWrap">
@@ -150,28 +155,24 @@
       <div class="muted" style="margin-top:6px">バーをタップで明細へ移動します。</div>
     </div>
 
-    <!-- ドーナツ（ブローカー/口座） -->
+    <!-- 構成（ブローカー・口座） -->
     <div class="card">
       <div class="sec-title">構成（税引後合計）</div>
-      <div class="donut-wrap">
-        <div class="donut">
-          <div class="donut-fig">
-            <svg id="donut_broker" viewBox="0 0 120 120" width="120" height="120" aria-label="証券会社ドーナツ"></svg>
-          </div>
-          <div class="donut-legend" id="legend_broker"></div>
+      <div class="pie-grid">
+        <div>
+          <svg class="pie" id="donut_broker" viewBox="0 0 120 120" width="120" height="120" aria-label="証券会社別"></svg>
         </div>
-        <div class="donut">
-          <div class="donut-fig">
-            <svg id="donut_account" viewBox="0 0 120 120" width="120" height="120" aria-label="口座区分ドーナツ"></svg>
-          </div>
-          <div class="donut-legend" id="legend_account"></div>
+        <div class="legend-list" id="legend_broker"></div>
+        <div>
+          <svg class="pie" id="donut_account" viewBox="0 0 120 120" width="120" height="120" aria-label="口座区分別"></svg>
         </div>
+        <div class="legend-list" id="legend_account"></div>
       </div>
-      <div class="muted" style="margin-top:6px">凡例をタップで明細にドリルダウンします。</div>
+      <div class="muted" style="margin-top:8px">凡例をタップで明細にドリルダウンします。</div>
     </div>
   </div>
 
-  <!-- ランキング -->
+  <!-- トップ銘柄 -->
   <div class="card" style="margin-top:12px">
     <div class="sec-title">税引後 上位銘柄（Top 10 / {{ flt.year }}）</div>
     <div class="rows" id="tbl_top">
@@ -189,15 +190,21 @@
 
 {{ monthly|json_script:"js-monthly" }}
 
+<!-- ルーティング / ラベルマップ（JS用） -->
 <script>
   window.DIVD_URLS = {
     json: "{% url 'dividend_dashboard_json' %}",
     save_goal: "{% url 'dividend_save_goal' %}",
-    list: "{% url 'dividend_list' %}",
+    list: "{% url urls.list %}",
     year: "{{ flt.year|default_if_none:'' }}",
     broker: "{{ flt.broker|default_if_none:'' }}",
     account: "{{ flt.account|default_if_none:'' }}"
   };
+  // ★ 日本語表記マッピング
+  window.DIVD_LABELS = {
+    broker: { {% for v,l in BROKERS %}"{{ v }}":"{{ l|escapejs }}"{% if not forloop.last %},{% endif %}{% endfor %} },
+    account: { {% for v,l in ACCOUNTS %}"{{ v }}":"{{ l|escapejs }}"{% if not forloop.last %},{% endif %}{% endfor %} }
+  };
 </script>
-<script src="{% static 'js/dividends_dashboard.js' %}?v=7" defer></script>
+<script src="{% static 'js/dividends_dashboard.js' %}?v=8" defer></script>
 {% endblock %}
