@@ -17,48 +17,31 @@
   .kpi .lbl{font-size:12px;color:#9aa4b2;margin-bottom:2px}
   .kpi .val{font-size:18px;font-weight:700}
 
+  .filter{
+    max-width:960px;margin:0 auto 14px;
+    display:grid;gap:8px;grid-template-columns:1fr 1fr 1fr 1.4fr .8fr;
+  }
+  @media (max-width:860px){ .filter{grid-template-columns:1fr 1fr 1fr} .filter .more{grid-column:1/-1;display:flex;gap:8px} }
+  .filter select,.filter input,.filter button,.filter a{
+    width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.06);color:#eaf0ff;text-decoration:none;text-align:center
+  }
+
   .list{max-width:960px;margin:0 auto;display:grid;gap:10px}
 
-  /* swipe（holdings.js v121-fix と互換の構造） */
-  [data-swipe]{
-    position:relative;border:1px solid rgba(255,255,255,.09);
-    background:rgba(255,255,255,.04);border-radius:12px;overflow:hidden
-  }
-  [data-swipe] .track{position:relative;padding:12px 12px 10px;z-index:1}
-
-  /* 開く幅＝カードの1/3。holdings.js は要素幅を計測するので%指定でOK */
+  /* swipe */
+  [data-swipe]{position:relative;border:1px solid rgba(255,255,255,.09);
+               background:rgba(255,255,255,.04);border-radius:12px;overflow:hidden}
+  [data-swipe] .track{position:relative;padding:12px 12px 10px}
   [data-swipe] .actions{
-    position:absolute; inset:0 0 0 auto;
-    width:33.333%;
-    display:flex; transform:translateX(100%);
-    transition:transform .16s ease;
-    pointer-events:none; z-index:2;
+    position:absolute; inset:0 0 0 auto; width:180px; display:flex;
+    transform:translateX(100%); transition:transform .16s ease; pointer-events:none;
   }
-  [data-swipe] .actions .pane{
-    flex:1; display:flex;
-  }
-  [data-swipe] .actions .pane a,
-  [data-swipe] .actions .pane button{
-    display:flex; width:100%; height:100%;
-    align-items:center; justify-content:center;
-    pointer-events:auto; text-align:center; font-weight:700;
-    border:0; background:none; color:inherit;
-    padding:0; margin:0; cursor:pointer;
-  }
-
-  /* 透け感ボタン（両方とも中央に来る） */
-  [data-swipe] .actions .edit{
-    background:rgba(31,58,90,.45);   /* 透明度↑ */
-    color:#eef6ff; backdrop-filter:blur(2px);
-  }
-  [data-swipe] .actions .del{
-    background:rgba(90,31,42,.46);   /* 透明度↑ */
-    color:#ffeef1; backdrop-filter:blur(2px);
-  }
-
-  [data-swipe].is-open .actions{
-    transform:translateX(0); pointer-events:auto;
-  }
+  [data-swipe] .actions .pane{flex:1;display:flex;align-items:center;justify-content:center}
+  [data-swipe] .actions .pane a, [data-swipe] .actions .pane button{pointer-events:auto}
+  [data-swipe] .actions .edit{background:rgba(39,71,109,.55);color:#eaf3ff}
+  [data-swipe] .actions .del{background:rgba(127,35,44,.55);color:#ffeaf0}
+  [data-swipe].is-open .actions{transform:translateX(0)}
 
   .title{font-size:15px;font-weight:700;margin-bottom:2px}
   .date{font-size:12px;color:#9aa4b2;margin-bottom:6px}
@@ -83,6 +66,33 @@
 {% block content %}
 <h1 class="text-xl font-semibold mb-3">配当一覧</h1>
 
+<!-- フィルタバー -->
+<form class="filter" method="get">
+  <select name="year">
+    <option value="">年(すべて)</option>
+    {% for y in year_options %}
+      <option value="{{ y }}" {% if flt.year|default:'' == y|stringformat:"s" %}selected{% endif %}>{{ y }}</option>
+    {% endfor %}
+  </select>
+  <select name="broker">
+    <option value="">証券会社(すべて)</option>
+    {% for val,label in BROKERS %}
+      <option value="{{ val }}" {% if flt.broker == val %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <select name="account">
+    <option value="">口座(すべて)</option>
+    {% for val,label in ACCOUNTS %}
+      <option value="{{ val }}" {% if flt.account == val %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <div class="more">
+    <input type="search" name="q" value="{{ flt.q }}" placeholder="銘柄/コード/キーワード">
+    <button type="submit">反映</button>
+    <a href="{% url 'dividend_list' %}">条件クリア</a>
+  </div>
+</form>
+
 <!-- KPI -->
 <div class="kpis">
   <div class="kpi">
@@ -100,16 +110,11 @@
 <div class="list">
   {% for d in items %}
   <div class="row" data-swipe>
-    <!-- swipe actions（左右1/2ずつ＝編集/削除が同じ位置に出る） -->
     <div class="actions">
-      <div class="pane edit">
-        <a class="item" href="{% url 'dividend_edit' d.id %}">編集</a>
-      </div>
+      <div class="pane edit"><a class="item" href="{% url 'dividend_edit' d.id %}">編集</a></div>
       <div class="pane del">
-        <form method="post" action="{% url 'dividend_delete' d.id %}"
-              onsubmit="return confirm('削除してよろしいですか？');">
-          {% csrf_token %}
-          <button type="submit" class="item delete">削除</button>
+        <form method="post" action="{% url 'dividend_delete' d.id %}" onsubmit="return confirm('削除してよろしいですか？');">
+          {% csrf_token %}<button type="submit" class="item delete">削除</button>
         </form>
       </div>
     </div>
@@ -119,25 +124,13 @@
       <div class="date">{{ d.date|date:"Y年n月j日" }}</div>
 
       <div class="meta-row">
-        {% if d.broker %}
-          <span class="chip">{{ d.get_broker_display }}</span>
-        {% elif d.holding and d.holding.broker %}
-          <span class="chip">{{ d.holding.get_broker_display }}</span>
-        {% endif %}
-
-        {% if d.account %}
-          <span class="chip">{{ d.get_account_display }}</span>
-        {% elif d.holding and d.holding.account %}
-          <span class="chip">{{ d.holding.get_account_display }}</span>
-        {% endif %}
-
+        {% if d.broker %}<span class="chip">{{ d.get_broker_display }}</span>
+        {% elif d.holding and d.holding.broker %}<span class="chip">{{ d.holding.get_broker_display }}</span>{% endif %}
+        {% if d.account %}<span class="chip">{{ d.get_account_display }}</span>
+        {% elif d.holding and d.holding.account %}<span class="chip">{{ d.holding.get_account_display }}</span>{% endif %}
         {% if d.quantity %}<span class="chip">株数: {{ d.quantity }}</span>{% endif %}
-
-        {% if d.purchase_price is not None %}
-          <span class="chip">取得: {{ d.purchase_price|floatformat:2 }}</span>
-        {% elif d.holding and d.holding.avg_cost is not None %}
-          <span class="chip">取得: {{ d.holding.avg_cost|floatformat:2 }}</span>
-        {% endif %}
+        {% if d.purchase_price is not None %}<span class="chip">取得: {{ d.purchase_price|floatformat:2 }}</span>
+        {% elif d.holding and d.holding.avg_cost is not None %}<span class="chip">取得: {{ d.holding.avg_cost|floatformat:2 }}</span>{% endif %}
       </div>
 
       <div class="nums">
@@ -154,13 +147,13 @@
 {% if page_obj %}
   <div class="pager">
     {% if page_obj.has_previous %}
-      <a href="?page={{ page_obj.previous_page_number }}">← 前へ</a>
+      <a href="?page={{ page_obj.previous_page_number }}&year={{ flt.year }}&broker={{ flt.broker }}&account={{ flt.account }}&q={{ flt.q }}">← 前へ</a>
     {% else %}
       <span class="muted">← 前へ</span>
     {% endif %}
     <span class="badge">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
     {% if page_obj.has_next %}
-      <a href="?page={{ page_obj.next_page_number }}">次へ →</a>
+      <a href="?page={{ page_obj.next_page_number }}&year={{ flt.year }}&broker={{ flt.broker }}&account={{ flt.account }}&q={{ flt.q }}">次へ →</a>
     {% else %}
       <span class="muted">次へ →</span>
     {% endif %}
