@@ -294,3 +294,18 @@ class Dividend(models.Model):
             pass
 
         super().save(*args, **kwargs)
+
+class DividendGoal(models.Model):
+    user      = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_index=True)
+    year      = models.IntegerField(db_index=True)
+    amount    = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "year"], name="uniq_dividend_goal_user_year"),
+        ]
+        indexes = [models.Index(fields=["user", "year"])]
+
+    def __str__(self):
+        return f"{self.user} {self.year} → {self.amount}"
