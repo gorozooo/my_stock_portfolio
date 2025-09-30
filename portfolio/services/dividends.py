@@ -12,8 +12,8 @@ def build_user_dividend_qs(user):
         .filter(Q(holding__user=user) | Q(holding__isnull=True, ticker__isnull=False))
     )
 
-def apply_filters(qs, *, year: Optional[int]=None, month: Optional[int]=None,
-                  broker: Optional[str]=None, account: Optional[str]=None):
+def apply_filters(qs, *, year=None, month=None,
+                  broker=None, account=None, q=None):
     if year:
         qs = qs.filter(date__year=year)
     if month:
@@ -22,6 +22,12 @@ def apply_filters(qs, *, year: Optional[int]=None, month: Optional[int]=None,
         qs = qs.filter(Q(broker=broker) | Q(broker__isnull=True, holding__broker=broker))
     if account:
         qs = qs.filter(Q(account=account) | Q(account__isnull=True, holding__account=account))
+    if q:
+        qs = qs.filter(
+            Q(display_ticker__icontains=q) |
+            Q(display_name__icontains=q) |
+            Q(ticker__icontains=q)
+        )
     return qs
 
 # 一回だけ評価して複数集計で使い回す
