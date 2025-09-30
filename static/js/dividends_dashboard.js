@@ -1,79 +1,32 @@
-// dividends_dashboard.js – ダッシュボード非同期更新 + 進捗バー + ドーナツ + 達成トースト + ドリルダウン
+// dividends_dashboard.js – ダッシュボード非同期更新 + 進捗バー + ドーナツ + ドリルダウン
 (function(){
   const $  = (s, r=document)=> r.querySelector(s);
+  const $$ = (s, r=document)=> Array.from(r.querySelectorAll(s));
   const URLS = (window.DIVD_URLS||{});
 
-  const fmt = n => Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
-  const q   = v => encodeURIComponent(v||"");
+  const COLORS = [
+    "#6ea8ff","#9f7aea","#60d394","#f6bd60","#f28482",
+    "#82caff","#c084fc","#7ad3a1","#ffd27f","#ff9aa2"
+  ];
 
-  // Toast
-  const toast = (function(){
-    let el = $("#dashToast");
-    return (msg)=>{
-      if(!el) return;
-      el.textContent = msg;
-      el.style.opacity = "1";
-      el.style.transform = "translate(-50%,0)";
-      setTimeout(()=>{ el.style.opacity="0"; el.style.transform="translate(-50%,24px)"; }, 1400);
-    };
-  })();
-
-  // ドーナツ（Canvas だけでシンプル描画）
-  function drawDonut(canvasId, legendId, rows){
-    const cv = document.getElementById(canvasId);
-    const lg = document.getElementById(legendId);
-    if (!cv || !lg){ return; }
-    const ctx = cv.getContext("2d");
-    ctx.clearRect(0,0,cv.width,cv.height);
-
-    const total = rows.reduce((s,r)=> s + Number(r.net||0), 0) || 1;
-    const cx = cv.width/2, cy = cv.height/2, r = Math.min(cx,cy)-4, inner = r*0.62;
-
-    // 色は固定配列（環境を選ばない中間色）
-    const COLORS = ["#6ea8ff","#9f7aea","#60c3a3","#f6c164","#f57ba0","#9ec27b","#c49bd8","#7bc0f7","#d18f6b","#b8b9ff"];
-
-    let ang = -Math.PI/2;
-    rows.forEach((row, i)=>{
-      const val = Number(row.net||0);
-      if (val <= 0) return;
-      const ratio = val / total;
-      const end = ang + Math.PI*2*ratio;
-      ctx.beginPath();
-      ctx.moveTo(cx,cy);
-      ctx.arc(cx,cy,r, ang, end);
-      ctx.closePath();
-      ctx.fillStyle = COLORS[i % COLORS.length];
-      ctx.globalAlpha = 0.95;
-      ctx.fill();
-      ang = end;
-    });
-
-    // 穴
-    ctx.globalCompositeOperation = "destination-out";
-    ctx.beginPath(); ctx.arc(cx,cy,inner,0,Math.PI*2); ctx.fill();
-    ctx.globalCompositeOperation = "source-over";
-
-    // 真ん中に合計
-    ctx.fillStyle = "rgba(255,255,255,.9)";
-    ctx.font = "600 14px system-ui, -apple-system, Segoe UI, Roboto";
-    ctx.textAlign = "center";
-    ctx.fillText(fmt(total), cx, cy+5);
-
-    // 凡例
-    lg.innerHTML = rows.map((r,i)=>{
-      const color = COLORS[i%COLORS.length];
-      const label = r.broker || r.account || r.label || "—";
-      return `<div class="item"><div class="key"><span class="dot" style="background:${color}"></span>${label}</div><div>${fmt(r.net||0)}</div></div>`;
-    }).join("") || '<div class="muted">—</div>';
+  const toast = $("#dashToast");
+  function showToast(msg){
+    if(!toast) return;
+    toast.textContent = msg;
+    toast.style.opacity = "1";
+    toast.style.transform = "translate(-50%,0)";
+    setTimeout(()=>{ toast.style.opacity="0"; toast.style.transform="translate(-50%,24px)"; }, 1400);
   }
 
+  function fmt(n){ return Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  function q(v){ return encodeURIComponent(v||""); }
   function drill(params){
-    const u = new URL(URLS.list || "/dividends/", location.origin);
+    const u = new URL(URLS.list, location.origin);
     Object.entries(params).forEach(([k,v])=>{ if(v!==undefined && v!==null && v!=="") u.searchParams.set(k, v); });
     return u.toString();
   }
 
-  // 月次ミニ棒（積み上げ）
+  /* ---------- 月次（棒） ---------- */
   function drawMonthly(list){
     const wrap = $("#monthly_svg"); if(!wrap) return;
     const W=360,H=160,pad=18,bw=18,gap=12;
@@ -85,9 +38,8 @@
     svg.innerHTML = `<path d="M${pad},${H-pad}H${W-pad}" stroke="rgba(255,255,255,.25)" fill="none"/>`;
     let x = pad;
 
-    const tip  = document.getElementById("chartTip");
+    const tip  = $("#chartTip");
     const wrapRect = () => (wrap.getBoundingClientRect ? wrap.getBoundingClientRect() : {left:0,top:0});
-
     function showTip(cx,cy, m, net, tax){
       if (!tip) return;
       const r = wrapRect();
@@ -126,22 +78,131 @@
 
     svg.addEventListener("mousemove", (e)=>{
       const el = e.target;
-      if (el.tagName === "rect" && el.dataset.m){
-        showTip(e.clientX, e.clientY, el.dataset.m, +el.dataset.net, +el.dataset.tax);
-      }else{ hideTip(); }
+      if (el.tagName === "rect" && el.dataset.m){ showTip(e.clientX, e.clientY, el.dataset.m, +el.dataset.net, +el.dataset.tax); }
+      else { hideTip(); }
     });
-    svg.addEventListener("mouseleave", ()=>{ const tip = document.getElementById("chartTip"); if(tip) tip.style.display="none"; });
+    svg.addEventListener("mouseleave", hideTip);
     svg.addEventListener("click", (e)=>{
       const el = e.target;
       if (el.tagName === "rect" && el.dataset.m){
-        const year = $("#flt_year")?.value, broker=$("#flt_broker")?.value, account=$("#flt_account")?.value;
+        const year = $("#flt_year").value, broker=$("#flt_broker").value, account=$("#flt_account").value;
         location.href = drill({year, month: el.dataset.m, broker, account});
       }
     });
+    svg.addEventListener("touchstart", (e)=>{
+      const el = e.target; if(!(el && el.tagName==="rect" && el.dataset.m)) return;
+      const t = e.touches[0]; showTip(t.clientX, t.clientY, el.dataset.m, +el.dataset.net, +el.dataset.tax);
+    }, {passive:true});
+    svg.addEventListener("touchend", ()=>{ hideTip(); }, {passive:true});
+
     wrap.replaceChildren(svg);
   }
 
-  // 目標UI
+  /* ---------- ドーナツ（SVG） ---------- */
+  function polar(cx, cy, r, ang){ return [cx + r*Math.cos(ang), cy + r*Math.sin(ang)]; }
+
+  function drawDonut(svgSel, legendSel, rows, labelKey, drillKey){
+    const svg = $(svgSel), legend = $(legendSel);
+    if (!svg || !legend) return;
+
+    // 空データ
+    if (!rows || !rows.length || rows.every(x => Number(x.net||0) <= 0)){
+      svg.innerHTML = `<circle cx="60" cy="60" r="46" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="12"/>` +
+                      `<text x="60" y="64" fill="rgba(255,255,255,.6)" font-size="10" text-anchor="middle">データなし</text>`;
+      legend.innerHTML = `<div class="muted">データなし</div>`;
+      return;
+    }
+
+    const total = rows.reduce((s,x)=> s + Number(x.net||0), 0);
+    const cx=60, cy=60, r=46, w=12;
+    svg.innerHTML = ""; // reset
+    // 背景リング
+    const bg = document.createElementNS("http://www.w3.org/2000/svg","circle");
+    bg.setAttribute("cx", cx); bg.setAttribute("cy", cy); bg.setAttribute("r", r);
+    bg.setAttribute("fill","none"); bg.setAttribute("stroke","rgba(255,255,255,.12)"); bg.setAttribute("stroke-width", String(w));
+    svg.appendChild(bg);
+
+    let start = -Math.PI/2;
+    rows.forEach((row, i)=>{
+      const v = Number(row.net||0);
+      const frac = v/Math.max(1,total);
+      const ang = frac * Math.PI * 2;
+      const end = start + ang;
+
+      // 小さすぎるセグメントも可視化できるよう最小角度
+      const minAng = Math.PI/180 * 2; // 2度
+      const drawEnd = end - start < minAng ? start + minAng : end;
+
+      const [sx,sy] = polar(cx,cy,r, start);
+      const [ex,ey] = polar(cx,cy,r, drawEnd);
+      const large = drawEnd - start > Math.PI ? 1 : 0;
+
+      const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+      const d = [
+        `M ${sx} ${sy}`,
+        `A ${r} ${r} 0 ${large} 1 ${ex} ${ey}`
+      ].join(" ");
+      path.setAttribute("d", d);
+      path.setAttribute("fill","none");
+      path.setAttribute("stroke", COLORS[i % COLORS.length]);
+      path.setAttribute("stroke-width", String(w));
+      path.style.cursor = "pointer";
+      path.addEventListener("click", ()=>{
+        const year = $("#flt_year").value;
+        const params = {year};
+        params[drillKey] = row[labelKey] || row[drillKey];
+        location.href = drill(params);
+      });
+      svg.appendChild(path);
+
+      start = end;
+    });
+
+    // 中央テキスト（合計）
+    const t1 = document.createElementNS("http://www.w3.org/2000/svg","text");
+    t1.setAttribute("x","60"); t1.setAttribute("y","57"); t1.setAttribute("text-anchor","middle");
+    t1.setAttribute("fill","#cfd6ee"); t1.setAttribute("font-size","10"); t1.textContent = "合計";
+    svg.appendChild(t1);
+    const t2 = document.createElementNS("http://www.w3.org/2000/svg","text");
+    t2.setAttribute("x","60"); t2.setAttribute("y","72"); t2.setAttribute("text-anchor","middle");
+    t2.setAttribute("fill","#fff"); t2.setAttribute("font-size","12"); t2.setAttribute("font-weight","700");
+    t2.textContent = fmt(total);
+    svg.appendChild(t2);
+
+    // 凡例
+    legend.innerHTML = rows.map((row,i)=>{
+      const name = row[labelKey] || row[drillKey] || "—";
+      const pct  = total > 0 ? ((Number(row.net||0)/total)*100).toFixed(1) : "0.0";
+      return `<div class="row" data-key="${name}">
+        <div class="l"><i class="swatch" style="background:${COLORS[i%COLORS.length]}"></i><span>${name}</span></div>
+        <div class="r"><span>${fmt(row.net||0)}</span><span class="muted" style="margin-left:8px">${pct}%</span></div>
+      </div>`;
+    }).join("");
+
+    // 凡例クリックでもドリルダウン
+    $$("#"+legend.id+" .row").forEach((el, idx)=>{
+      el.addEventListener("click", ()=>{
+        const key = rows[idx][labelKey] || rows[idx][drillKey];
+        const year = $("#flt_year").value;
+        const params = {year};
+        params[drillKey] = key;
+        location.href = drill(params);
+      });
+      el.style.cursor = "pointer";
+    });
+  }
+
+  /* ---------- ランキング行 ---------- */
+  function renderRows(containerSel, rows, key, drillKey){
+    const box = $(containerSel); if (!box) return;
+    if (!rows || !rows.length){ box.innerHTML = '<div class="muted">データなし</div>'; return; }
+    box.innerHTML = rows.map(r=>{
+      const v = r[key] ?? r[drillKey] ?? "—";
+      return `<div class="row"><span class="l">${v}</span><span class="r">${fmt(r.net)}</span></div>`;
+    }).join("");
+  }
+
+  /* ---------- 目標UI ---------- */
   let prevAchieved = false;
   function setGoalUI(goal){
     const amount = Number(goal?.amount || 0);
@@ -149,60 +210,56 @@
     const remain = Number(goal?.remaining || 0);
 
     $("#goal_amount_view").textContent   = fmt(amount);
-    const inp = $("#goal_amount_input"); if (inp) inp.value = amount ? amount.toFixed(2) : "";
+    $("#goal_amount_input").value        = amount ? amount.toFixed(2) : "";
     $("#goal_progress_view").textContent = pct.toFixed(2) + "%";
     $("#goal_remaining_view").textContent= fmt(remain);
     $("#goal_bar_inner").style.width     = pct + "%";
 
     const card = $("#goal_card");
     const achieved = pct >= 100;
-    card?.classList.toggle("achieved", achieved);
-
-    if (achieved && !prevAchieved){
-      toast("🎉 目標を達成しました！");
-      try{ navigator.vibrate && navigator.vibrate(20); }catch(_){}
-    }
+    card.classList.toggle("achieved", achieved);
+    if (achieved && !prevAchieved){ showToast("🎉 目標を達成しました！"); try{ navigator.vibrate(20); }catch(_){ } }
     prevAchieved = achieved;
   }
 
-  // 取得＆反映
+  /* ---------- データ取得＆反映 ---------- */
   async function fetchAndRender(){
-    const year = $("#flt_year")?.value || "", broker=$("#flt_broker")?.value || "", account=$("#flt_account")?.value || "";
+    const year = $("#flt_year").value, broker=$("#flt_broker").value, account=$("#flt_account").value;
     const url = `${URLS.json}?year=${q(year)}&broker=${q(broker)}&account=${q(account)}`;
     const data = await fetch(url, {credentials:"same-origin"}).then(r=>r.json());
 
+    // KPI
     $("#kpi_count").textContent = (data.kpi?.count ?? 0);
     $("#kpi_gross").textContent = fmt(data.kpi?.gross ?? 0);
     $("#kpi_tax").textContent   = fmt(data.kpi?.tax ?? 0);
     $("#kpi_net").textContent   = fmt(data.kpi?.net ?? 0);
     $("#kpi_yield").textContent = (Number(data.kpi?.yield_pct||0)).toFixed(2);
 
+    // 目標
     setGoalUI(data.goal || {});
 
+    // 月次
     const monthly = (data.monthly||[]).map(x=>({m:x.m, net:+x.net, tax:+x.tax}));
     drawMonthly(monthly);
 
-    drawDonut("donut_broker",  "legend_broker",  data.by_broker  || []);
-    drawDonut("donut_account", "legend_account", data.by_account || []);
+    // ドーナツ（ブローカー / 口座）
+    drawDonut("#donut_broker",  "#legend_broker",  data.by_broker||[],  "broker",  "broker");
+    drawDonut("#donut_account", "#legend_account", data.by_account||[], "account", "account");
 
-    // Topも差し替え
-    const topBox = document.getElementById("tbl_top");
-    if (topBox){
-      const rows = (data.top_symbols||[]).map(r=>`<div class="row"><span class="l">${r.label}</span><span class="r">${fmt(r.net)}</span></div>`).join("");
-      topBox.innerHTML = rows || '<div class="muted">データなし</div>';
-    }
+    // ランキング
+    renderRows("#tbl_top", data.top_symbols||[], "label", null);
   }
 
-  // 反映・セレクト変更でAjax更新
-  document.getElementById("flt_form")?.addEventListener("submit",(e)=>{ e.preventDefault(); fetchAndRender(); });
+  // 反映ボタン & セレクト変更で即反映
+  $("#flt_form")?.addEventListener("submit",(e)=>{ e.preventDefault(); fetchAndRender(); });
   ["#flt_year","#flt_broker","#flt_account"].forEach(sel=>{
-    document.querySelector(sel)?.addEventListener("change", ()=> fetchAndRender());
+    $(sel)?.addEventListener("change", ()=> fetchAndRender());
   });
 
-  // 目標保存
-  document.getElementById("goal_save_btn")?.addEventListener("click", async ()=>{
-    const year = document.getElementById("flt_year")?.value || "";
-    const amount = document.getElementById("goal_amount_input")?.value || "0";
+  // 目標保存（Ajax）
+  $("#goal_save_btn")?.addEventListener("click", async ()=>{
+    const year = $("#flt_year").value;
+    const amount = $("#goal_amount_input").value || "0";
     try{
       const resp = await fetch(URLS.save_goal, {
         method:"POST",
@@ -210,14 +267,13 @@
         body:`year=${q(year)}&amount=${q(amount)}`
       });
       if (!resp.ok) throw new Error("save failed");
-      toast("保存しました");
+      showToast("保存しました");
       fetchAndRender();
-    }catch(_){ toast("保存に失敗しました"); }
+    }catch(_){ showToast("保存に失敗しました"); }
   });
 
-  // 初期描画
+  // 初期ロード（失敗時はサーバー描画 fallback）
   fetchAndRender().catch(()=> {
-    // 月次だけフォールバック描画
     try{
       const el = document.getElementById("js-monthly");
       if (!el) return;
