@@ -1,4 +1,4 @@
-// dividends_dashboard.js – ダッシュボード非同期更新 + 軽量SVGバー描画 + ドリルダウン + 目標同期
+// dividends_dashboard.js – ダッシュボード非同期更新 + 進捗バー + 達成トースト + ドリルダウン
 (function(){
   const $  = (s, r=document)=> r.querySelector(s);
   const $$ = (s, r=document)=> Array.from(r.querySelectorAll(s));
@@ -6,6 +6,16 @@
 
   function fmt(n){ return Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
   function q(v){ return encodeURIComponent(v||""); }
+
+  // Toast
+  const toast = $("#dashToast");
+  function showToast(msg){
+    if(!toast) return;
+    toast.textContent = msg;
+    toast.style.opacity = "1";
+    toast.style.transform = "translate(-50%,0)";
+    setTimeout(()=>{ toast.style.opacity="0"; toast.style.transform="translate(-50%,24px)"; }, 1400);
+  }
 
   function drill(params){
     const u = new URL(URLS.list, location.origin);
@@ -17,7 +27,7 @@
   function drawMonthly(list){
     const wrap = $("#monthly_svg"); if(!wrap) return;
     const W=360,H=160,pad=18,bw=18,gap=12;
-    const max = Math.max(1, ...list.map(x=> x.net + x.tax));
+    const max = Math.max(1, ...list.map(x=> (x.net + x.tax)));
     const sy = v => H - pad - (v/max)*(H - pad*2);
     const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
@@ -98,7 +108,7 @@
     if (!rows || !rows.length){ box.innerHTML = '<div class="muted">—</div>'; return; }
     const year = $("#flt_year").value;
     box.innerHTML = rows.map(r=>{
-      const v = r[key] || r[drillKey] || "—";
+      const v = r[key] ?? r[drillKey] ?? "—";
       let href = "#";
       if (drillKey){
         const params = {year};
@@ -107,6 +117,31 @@
       }
       return `<a class="row" href="${href}"><span class="l">${v}</span><span class="r">${fmt(r.net)}</span></a>`;
     }).join("");
+  }
+
+  // ---- 目標UI反映 & 達成演出 ----
+  let prevAchieved = false;
+  function setGoalUI(goal){
+    const amount = Number(goal?.amount || 0);
+    const pct    = Math.max(0, Math.min(100, Number(goal?.progress_pct || 0)));
+    const remain = Number(goal?.remaining || 0);
+
+    $("#goal_amount_view").textContent   = fmt(amount);
+    $("#goal_amount_input").value        = amount ? amount.toFixed(2) : "";
+    $("#goal_progress_view").textContent = pct.toFixed(2) + "%";
+    $("#goal_remaining_view").textContent= fmt(remain);
+    $("#goal_bar_inner").style.width     = pct + "%";
+
+    const card = $("#goal_card");
+    const achieved = pct >= 100;
+    card.classList.toggle("achieved", achieved);
+
+    // 初回以外で100%到達したらトースト
+    if (achieved && !prevAchieved){
+      showToast("🎉 目標を達成しました！");
+      if (navigator.vibrate) { try{ navigator.vibrate(20); }catch(_){ } }
+    }
+    prevAchieved = achieved;
   }
 
   // -------- 取得＆反映 --------
@@ -122,15 +157,8 @@
     $("#kpi_net").textContent   = fmt(data.kpi?.net ?? 0);
     $("#kpi_yield").textContent = (Number(data.kpi?.yield_pct||0)).toFixed(2);
 
-    // 目標（年切替で都度更新）
-    if (data.goal){
-      $("#goal_amount").textContent    = fmt(data.goal.amount ?? 0);
-      $("#goal_progress").textContent  = (Number(data.goal.progress_pct||0)).toFixed(2);
-      $("#goal_remaining").textContent = fmt(data.goal.remaining ?? 0);
-      const gy = $("#goal_year"); if (gy) gy.value = year; // 保存フォームの year も更新
-      const gi = $("#goal_amount_input");
-      if (gi && (gi.value === "" || Number(gi.value) === 0)) gi.value = data.goal.amount ?? 0;
-    }
+    // 目標
+    setGoalUI(data.goal || {});
 
     // 月次
     const monthly = (data.monthly||[]).map(x=>({m:x.m, net:+x.net, tax:+x.tax}));
@@ -142,13 +170,36 @@
     renderRows("#tbl_top",     data.top_symbols,"label",   null);
   }
 
-  // 反映ボタン：AJAX置換
+  // 反映ボタン：Ajax置換
   const form = $("#flt_form");
-  if (form){
-    form.addEventListener("submit",(e)=>{ e.preventDefault(); fetchAndRender(); });
-  }
+  form?.addEventListener("submit",(e)=>{ e.preventDefault(); fetchAndRender(); });
 
-  // 初期：JSON で最新値へ置き換え（失敗時はサーバーレンダのまま）
+  // 年/ブローカー/口座 変更で即反映（UX改善）
+  ["#flt_year","#flt_broker","#flt_account"].forEach(sel=>{
+    const el = $(sel);
+    el?.addEventListener("change", ()=> fetchAndRender());
+  });
+
+  // 年間目標の保存：Ajax → 再取得
+  const saveBtn = $("#goal_save_btn");
+  saveBtn?.addEventListener("click", async ()=>{
+    const year = $("#flt_year").value;
+    const amount = $("#goal_amount_input").value || "0";
+    try{
+      const resp = await fetch(URLS.save_goal, {
+        method:"POST",
+        headers:{ "Content-Type":"application/x-www-form-urlencoded", "X-Requested-With":"fetch" },
+        body:`year=${q(year)}&amount=${q(amount)}`
+      });
+      if (!resp.ok){ throw new Error("save failed"); }
+      showToast("保存しました");
+      fetchAndRender();
+    }catch(_){
+      showToast("保存に失敗しました");
+    }
+  });
+
+  // 初期：JSONで最新化（失敗したらサーバ描画のまま）
   fetchAndRender().catch(()=> {
     try{
       const el = document.getElementById("js-monthly");
