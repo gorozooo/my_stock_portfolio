@@ -110,12 +110,12 @@
     </div>
   </form>
 
-  <!-- KPI -->
+  <!-- KPI（整数＋円） -->
   <div class="kpis">
     <div class="kpi"><div class="t">件数（{{ flt.year }}）</div><div class="v" id="kpi_count">{{ kpi.count|default:"0" }}</div></div>
-    <div class="kpi"><div class="t">税引前合計</div><div class="v" id="kpi_gross">{{ kpi.gross|floatformat:2 }}</div></div>
-    <div class="kpi"><div class="t">税額合計</div><div class="v" id="kpi_tax">{{ kpi.tax|floatformat:2 }}</div></div>
-    <div class="kpi"><div class="t">税引後合計</div><div class="v" id="kpi_net">{{ kpi.net|floatformat:2 }}</div></div>
+    <div class="kpi"><div class="t">税引前合計</div><div class="v" id="kpi_gross">{{ kpi.gross|floatformat:0 }}円</div></div>
+    <div class="kpi"><div class="t">税額合計</div><div class="v" id="kpi_tax">{{ kpi.tax|floatformat:0 }}円</div></div>
+    <div class="kpi"><div class="t">税引後合計</div><div class="v" id="kpi_net">{{ kpi.net|floatformat:0 }}円</div></div>
   </div>
   <div class="kpi" style="margin-top:12px">
     <div class="t">概算利回り（年・税引後/元本）</div>
@@ -129,9 +129,9 @@
     <div class="goal-grid">
       <div class="goal-box">
         <div class="ttl">目標</div>
-        <div class="v" id="goal_amount_view">{{ goal.amount|floatformat:2 }}</div>
+        <div class="v" id="goal_amount_view">{{ goal.amount|floatformat:0 }}円</div>
         <div class="goal-input">
-          <input type="number" step="0.01" inputmode="decimal" id="goal_amount_input" value="{{ goal.amount|floatformat:2 }}" placeholder="500000.00">
+          <input type="number" step="1" inputmode="numeric" id="goal_amount_input" value="{{ goal.amount|floatformat:0 }}" placeholder="500000">
           <button type="button" id="goal_save_btn">保存</button>
         </div>
       </div>
@@ -140,7 +140,7 @@
         <div class="v" id="goal_progress_view">{{ goal.progress_pct|default:0|floatformat:2 }}%</div>
         <div class="goal-bar" aria-label="進捗ゲージ"><i id="goal_bar_inner" style="width: {{ goal.progress_pct|default:0 }}%"></i></div>
         <div class="ttl" style="margin-top:10px">残額</div>
-        <div class="v" id="goal_remaining_view">{{ goal.remaining|default:0|floatformat:2 }}</div>
+        <div class="v" id="goal_remaining_view">{{ goal.remaining|default:0|floatformat:0 }}円</div>
       </div>
     </div>
   </div>
@@ -184,7 +184,7 @@
     <div class="sec-title">税引後 上位銘柄（Top 10 / {{ flt.year }}）</div>
     <div class="rows" id="tbl_top">
       {% for r in top_symbols %}
-        <div class="row"><span class="l">{{ r.label }}</span><span class="r">{{ r.net|floatformat:2 }}</span></div>
+        <div class="row"><span class="l">{{ r.label }}</span><span class="r">{{ r.net|floatformat:0 }}円</span></div>
       {% empty %}
         <div class="muted">データなし</div>
       {% endfor %}
@@ -213,5 +213,5 @@
     account: { {% for v,l in ACCOUNTS %}"{{ v }}":"{{ l|escapejs }}"{% if not forloop.last %},{% endif %}{% endfor %} }
   };
 </script>
-<script src="{% static 'js/dividends_dashboard.js' %}?v=9" defer></script>
+<script src="{% static 'js/dividends_dashboard.js' %}?v=10" defer></script>
 {% endblock %}
