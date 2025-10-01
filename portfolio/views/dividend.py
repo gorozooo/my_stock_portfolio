@@ -388,11 +388,11 @@ def _flt(req):
 
 
 # ===== カレンダー（ページ） =====
-@login_required
 def dividends_calendar(request):
     ctx = {
         "flt": _flt(request),
         "year_options": list(range(timezone.now().year + 1, timezone.now().year - 7, -1)),
+        "month_options": list(range(1, 13)),  # ★ 追加：1〜12月
     }
     return render(request, "dividends/calendar.html", ctx)
 
