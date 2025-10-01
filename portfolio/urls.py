@@ -14,6 +14,7 @@ from .views.realized import (
 from .views import dev_tools as dev_views
 from .views import holding as hv
 from .views import dividend as v_div   
+from .views import dividends_calendar, dividends_calendar_json, dividends_forecast, dividends_forecast_json
 
 urlpatterns = [
     path("", core_views.main, name="home"),
@@ -56,6 +57,10 @@ urlpatterns = [
     path("dividends/dashboard.json", v_div.dashboard_json, name="dividend_dashboard_json"),
     path("dividends/export.csv", v_div.export_csv, name="dividends_export_csv"),
     path("dividends/goal/", v_div.dividend_save_goal, name="dividend_save_goal"),
+    path("dividends/calendar/", dividends_calendar, name="dividend_calendar"),
+    path("dividends/calendar.json", dividends_calendar_json, name="dividend_calendar_json"),
+    path("dividends/forecast/", dividends_forecast, name="dividend_forecast"),
+    path("dividends/forecast.json", dividends_forecast_json, name="dividend_forecast_json"),
     
     # 実現損益（メイン）
     path("realized/", realized_views.list_page, name="realized_list"),
