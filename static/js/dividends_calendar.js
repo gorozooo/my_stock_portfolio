@@ -1,108 +1,77 @@
 (function(){
-  const $  = (s, r=document)=> r.querySelector(s);
-  const $$ = (s, r=document)=> Array.from(r.querySelectorAll(s));
-  const URL = window.DIVD_CAL?.json;
+  const grid = document.getElementById('calGrid');
+  const ySel = document.getElementById('selYear');
+  const mSel = document.getElementById('selMonth');
+  const bSel = document.getElementById('selBroker');
+  const aSel = document.getElementById('selAccount');
 
-  const yen = n => `${Math.round(Number(n||0)).toLocaleString()}円`;
+  function firstWeekday(y,m){ // 0=Sun
+    return new Date(y, m-1, 1).getDay();
+  }
+  function lastDay(y,m){
+    return new Date(y, m, 0).getDate();
+  }
 
-  // カレンダー骨格（必ず描く）
-  function buildGrid(year, month){
-    const first = new Date(year, month-1, 1);
-    const firstDow = first.getDay(); // 0=Sun
-    const lastDay = new Date(year, month, 0).getDate();
-
-    const tb = $("#calBody");
-    tb.innerHTML = "";
-    let d = 1 - firstDow; // 前月分の空白を含めて計算
-    for (let r=0; r<6; r++){
-      const tr = document.createElement("tr");
-      for (let c=0; c<7; c++){
-        const td = document.createElement("td");
-        const cell = document.createElement("div");
-        cell.className = "cell";
-        td.appendChild(cell);
-
-        if (d>=1 && d<=lastDay){
-          const day = document.createElement("div");
-          day.className = "day";
-          day.textContent = d;
-          cell.appendChild(day);
-          cell.dataset.d = d; // バッジ配置＆クリック用
-        }
-        tr.appendChild(td);
-        d++;
-      }
-      tb.appendChild(tr);
+  function buildSkeleton(y,m){
+    grid.innerHTML = '';
+    const pad = firstWeekday(y,m);
+    const last = lastDay(y,m);
+    for (let i=0;i<pad;i++){
+      const d = document.createElement('div');
+      d.className = 'cell';
+      grid.appendChild(d);
+    }
+    for (let d=1; d<=last; d++){
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.day = d;
+      cell.innerHTML = `<div class="d">${d}</div><div class="list"></div>`;
+      grid.appendChild(cell);
     }
   }
 
-  // バッジを重ねるだけ（グリッドは壊さない）
-  function applyBadges(days, y, m){
-    // 既存バッジを消す
-    $$(".cell .badge").forEach(b=> b.remove());
-
-    (days||[]).forEach(bucket=>{
-      if (!bucket.d || !bucket.total) return;
-      const cell = document.querySelector(`.cell[data-d="${bucket.d}"]`);
+  function renderPayload(p){
+    const y = parseInt(p.year,10), m = parseInt(p.month,10);
+    buildSkeleton(y,m);
+    (p.days||[]).forEach(bucket=>{
+      const cell = grid.querySelector(`[data-day="${bucket.d}"]`);
       if (!cell) return;
-      const badge = document.createElement("div");
-      badge.className = "badge";
-      badge.textContent = yen(bucket.total);
-      badge.addEventListener("click", (e)=>{
-        e.stopPropagation();
-        showPop(y, m, bucket);
-      });
-      cell.appendChild(badge);
-      cell.addEventListener("click", ()=> showPop(y, m, bucket)); // セル全体でもOK
+      // バッジ（合計 > 0 のときだけ）
+      if ((bucket.total||0) > 0){
+        const badge = document.createElement('div');
+        badge.className = 'badge';
+        badge.textContent = `${Math.round(bucket.total).toLocaleString()}円`;
+        cell.appendChild(badge);
+      }
+      // 先頭1件だけ銘柄名メモ（あると “出てる感” が出る）
+      if (bucket.items && bucket.items.length){
+        const list = cell.querySelector('.list');
+        const top = bucket.items[0];
+        list.textContent = `${top.name} など`;
+      }
     });
   }
 
-  // 明細ポップ
-  function showPop(y, m, bucket){
-    $("#popTitle").textContent = `${y}/${m}/${bucket.d} の配当`;
-    const list = $("#popList");
-    list.innerHTML = (bucket.items||[]).map(it=>{
-      const left = `${it.ticker || ""} ${it.name || ""}`.trim();
-      return `<div class="item"><span>${left}</span><span>${yen(it.net)}</span></div>`;
-    }).join("") || `<div class="muted">明細なし</div>`;
-    $("#dayPop").style.display = "block";
-  }
-  $("#popClose").addEventListener("click", ()=> $("#dayPop").style.display="none");
-  window.addEventListener("click", (e)=>{ if (!e.target.closest(".pop")) $("#dayPop").style.display="none"; });
+  async function fetchAndRender(){
+    const y = ySel.value, m = mSel.value;
+    const broker  = bSel.value;
+    const account = aSel.value;
+    const qs = new URLSearchParams({year:y, month:m});
+    if (broker) qs.append('broker', broker);
+    if (account) qs.append('account', account);
 
-  async function fetchJson(y, m, broker, account){
-    try{
-      const u = new URL(URL, location.origin);
-      u.searchParams.set("year", y);
-      u.searchParams.set("month", m);
-      if (broker)  u.searchParams.set("broker", broker);
-      if (account) u.searchParams.set("account", account);
-      const res = await fetch(u, {credentials:"same-origin"});
-      if (!res.ok) throw new Error("bad status");
-      return await res.json();
-    }catch(e){
-      console.warn("[calendar] fetch failed:", e);
-      return { days: [], year: Number(y), month: Number(m) };
-    }
+    const r = await fetch(`/dividends/calendar.json?${qs.toString()}`, {credentials:'same-origin'});
+    if (!r.ok) return;
+    const data = await r.json();
+    renderPayload(data);
   }
 
-  // 読み込み＋反映（常に先にグリッドを描く）
-  async function loadAndRender(){
-    const y = $("#year").value || new Date().getFullYear();
-    const m = $("#month").value || (new Date().getMonth()+1);
-    const broker  = $("#broker").value;
-    const account = $("#account").value;
-
-    buildGrid(Number(y), Number(m));              // ここで先に描画
-    const data = await fetchJson(y, m, broker, account);
-    applyBadges(data.days, Number(y), Number(m)); // バッジだけ後から
+  // 初期描画（サーバから埋めた JSON があればそれで即表示）
+  if (window.__CAL_INIT__){
+    renderPayload(window.__CAL_INIT__);
+  }else{
+    fetchAndRender();
   }
 
-  // 変更で再読込
-  ["#year","#month","#broker","#account"].forEach(sel=>{
-    $(sel)?.addEventListener("change", loadAndRender);
-  });
-
-  // 初期表示（DOMContentLoaded で即）
-  document.addEventListener("DOMContentLoaded", loadAndRender);
+  [ySel,mSel,bSel,aSel].forEach(el => el && el.addEventListener('change', fetchAndRender));
 })();
