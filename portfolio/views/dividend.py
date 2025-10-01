@@ -1,3 +1,4 @@
+# portfolio/views/dividend.py
 from __future__ import annotations
 from decimal import Decimal
 from datetime import date
@@ -7,7 +8,6 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.core.paginator import Paginator
-from django.db.models import Q
 from django.utils import timezone
 from django.http import JsonResponse, HttpResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_GET, require_POST
@@ -22,8 +22,110 @@ from ..services import tickers as svc_tickers
 from ..services import trend as svc_trend
 from ..services import dividends as svc_div  # 集計/目標
 
+# ===================== 共通ユーティリティ =====================
 
-# ===== ダッシュボード（集計・可視化専用） =====
+def _parse_year(req):
+    try:
+        return int(req.GET.get("year") or req.GET.get("y") or timezone.localdate().year)
+    except Exception:
+        return timezone.localdate().year
+
+def _flt(req):
+    """共通フィルタ（year / broker / account）。"""
+    return {
+        "year":   req.GET.get("year") or "",
+        "broker": req.GET.get("broker") or "",
+        "account":req.GET.get("account") or "",
+    }
+
+def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|None):
+    """
+    カレンダー用の月次明細サマリを計算して返す（サーバ描画/JSON 共通）。
+    返り値:
+      {
+        "year": y, "month": m,
+        "days": [{"d":1,"total":12345.0,"items":[{"ticker":"xxxx","name":"…","net":…}, …]}, …],
+        "sum_month": 99999.0
+      }
+    """
+    qs = svc_div.build_user_dividend_qs(user)
+    qs = svc_div.apply_filters(qs, year=y, month=m, broker=broker or None, account=account or None)
+    rows = svc_div.materialize(qs)
+
+    last = monthrange(y, m)[1]
+    days = [{"d": d, "total": 0.0, "items": []} for d in range(1, last + 1)]
+    month_sum = 0.0
+
+    for d in rows:
+        # 念のため年/月を再確認（フィルタ済みだが保険）
+        if not d.date or d.date.year != y or d.date.month != m:
+            continue
+        idx = d.date.day - 1
+        net = float(d.net_amount() or 0.0)
+        if net <= 0:
+            continue
+        month_sum += net
+        days[idx]["total"] += net
+        days[idx]["items"].append({
+            "ticker": d.display_ticker,
+            "name":   d.display_name or d.display_ticker,
+            "net":    round(net, 2),
+        })
+
+    for bucket in days:
+        bucket["items"].sort(key=lambda x: x["net"], reverse=True)
+        bucket["total"] = round(bucket["total"], 2)
+
+    return {"year": y, "month": m, "days": days, "sum_month": round(month_sum, 2)}
+
+def _build_forecast_payload(user, year:int):
+    """
+    超シンプル予測（直近1株配当 × 現在株数 × 想定回数）。
+    返り値: {"months":[{"yyyymm":"YYYY-MM","net":…},…], "sum12": …}
+    """
+    qs = svc_div.build_user_dividend_qs(user)
+    qs = svc_div.apply_filters(qs, year=year)
+    rows = svc_div.materialize(qs)
+
+    last_per_share: dict[str, float] = {}
+    qty_by_symbol : dict[str, int]   = {}
+
+    for d in rows:
+        ps = d.per_share_dividend_net()
+        if ps:
+            last_per_share[d.display_ticker] = float(ps)  # 直近が後勝ち
+        q = d.quantity or (d.holding.quantity if d.holding and d.holding.quantity else 0)
+        if q:
+            qty_by_symbol[d.display_ticker] = int(q)
+
+    months_by_symbol: dict[str, set[tuple[int,int]]] = defaultdict(set)
+    for d in rows:
+        if d.date:
+            months_by_symbol[d.display_ticker].add((d.date.year, d.date.month))
+
+    freq_by_symbol: dict[str,int] = {}
+    for sym, ms in months_by_symbol.items():
+        cnt = len([1 for y_m in ms if y_m[0] == year])
+        freq_by_symbol[sym] = 4 if cnt >= 4 else 2 if cnt >= 2 else 1
+
+    yymm = [f"{year}-{m:02d}" for m in range(1, 13)]
+    monthly = {m: 0.0 for m in yymm}
+
+    for sym, ps in last_per_share.items():
+        qty = qty_by_symbol.get(sym, 0)
+        f   = freq_by_symbol.get(sym, 1)
+        est_total = ps * qty * f
+        each = est_total / f if f > 0 else 0.0
+        # とりあえず前ろから f 回だけ均等に置く（Phase3で賢く）
+        for i in range(f):
+            monthly[yymm[i]] += each
+
+    months = [{"yyyymm": k, "net": round(v, 2)} for k, v in monthly.items()]
+    sum12  = round(sum(monthly.values()), 2)
+    return {"months": months, "sum12": sum12}
+
+# ===================== ダッシュボード =====================
+
 @login_required
 def dashboard(request):
     try:
@@ -34,7 +136,7 @@ def dashboard(request):
     account = (request.GET.get("account") or "").strip()
 
     base_qs = svc_div.build_user_dividend_qs(request.user)
-    qs = svc_div.apply_filters(base_qs, year=year, broker=broker, account=account)
+    qs = svc_div.apply_filters(base_qs, year=year, broker=broker or None, account=account or None)
 
     kpi          = svc_div.sum_kpis(qs)
     monthly      = svc_div.group_by_month(qs)
@@ -71,8 +173,6 @@ def dashboard(request):
     }
     return render(request, "dividends/dashboard.html", ctx)
 
-
-# ===== ダッシュボード用 JSON（AJAX） =====
 @login_required
 @require_GET
 def dashboard_json(request):
@@ -113,8 +213,8 @@ def dashboard_json(request):
     }
     return JsonResponse(data)
 
+# ===================== 目標 =====================
 
-# ===== 年間目標の保存（POST） =====
 @login_required
 @require_POST
 def dividend_save_goal(request):
@@ -126,11 +226,10 @@ def dividend_save_goal(request):
 
     svc_div.set_goal_amount(request.user, year, amount)
     messages.success(request, "年間目標を保存しました。")
-    url = f"{reverse('dividend_dashboard')}?year={year}"
-    return redirect(url)
+    return redirect(f"{reverse('dividend_dashboard')}?year={year}")
 
+# ===================== 明細 =====================
 
-# ===== 明細（スワイプ編集/削除・軽いフィルタ） =====
 @login_required
 def dividend_list(request):
     year_q  = request.GET.get("year")
@@ -163,8 +262,6 @@ def dividend_list(request):
     }
     return render(request, "dividends/list.html", ctx)
 
-
-# ===== 作成 =====
 @login_required
 def dividend_create(request):
     if request.method == "POST":
@@ -180,10 +277,9 @@ def dividend_create(request):
                 return redirect("dividend_list")
     else:
         form = DividendForm(user=request.user)
+
     return render(request, "dividends/form.html", {"form": form})
 
-
-# ===== 編集 =====
 @login_required
 def dividend_edit(request, pk: int):
     obj = get_object_or_404(Dividend, pk=pk)
@@ -195,16 +291,15 @@ def dividend_edit(request, pk: int):
         form = DividendForm(request.POST, instance=obj, user=request.user)
         if form.is_valid():
             edited = form.save(commit=False)
-            edited.is_net = False
+            edited.is_net = False  # 税引前仕様に合わせる
             edited.save()
             messages.success(request, "配当を更新しました。")
             return redirect("dividend_list")
     else:
         form = DividendForm(instance=obj, user=request.user)
+
     return render(request, "dividends/form.html", {"form": form})
 
-
-# ===== 削除 =====
 @login_required
 def dividend_delete(request, pk: int):
     obj = get_object_or_404(Dividend, pk=pk)
@@ -219,8 +314,8 @@ def dividend_delete(request, pk: int):
         messages.info(request, "削除をキャンセルしました。")
     return redirect("dividend_list")
 
+# ===================== ルックアップ =====================
 
-# ========= 銘柄名ルックアップ API =========
 def _resolve_name_fallback(code_head: str, raw: str) -> str:
     name = None
     try:
@@ -242,7 +337,6 @@ def _resolve_name_fallback(code_head: str, raw: str) -> str:
             pass
     return (name or "").strip()
 
-
 @require_GET
 def dividend_lookup_name(request):
     raw = request.GET.get("q", "")
@@ -250,6 +344,7 @@ def dividend_lookup_name(request):
     name = _resolve_name_fallback(head, raw) if head else ""
     return JsonResponse({"name": name})
 
+# ===================== CSV =====================
 
 @login_required
 @require_GET
@@ -265,7 +360,11 @@ def export_csv(request):
 
     base_qs = svc_div.build_user_dividend_qs(request.user)
     qs = svc_div.apply_filters(
-        base_qs, year=year, month=month, broker=broker or None, account=account or None, q=q or None
+        base_qs,
+        year=year, month=month,
+        broker=broker or None,
+        account=account or None,
+        q=q or None,
     ).order_by("date", "id")
 
     sio = StringIO()
@@ -325,138 +424,62 @@ def export_csv(request):
     resp.write(sio.getvalue())
     return resp
 
+# ===================== カレンダー =====================
 
-# ===== 共通フィルタヘルパ =====
-def _parse_year(req):
-    try:
-        return int(req.GET.get("year") or req.GET.get("y") or timezone.now().year)
-    except Exception:
-        return timezone.now().year
-
-def _flt(req):
-    return {
-        "year":   req.GET.get("year") or "",
-        "broker": req.GET.get("broker") or "",
-        "account":req.GET.get("account") or "",
-    }
-
-
-# ===== カレンダー（ページ） =====
 @login_required
 def dividends_calendar(request):
+    y = int(request.GET.get("year") or timezone.localdate().year)
+    m = int(request.GET.get("month") or timezone.localdate().month)
+    broker  = request.GET.get("broker") or None
+    account = request.GET.get("account") or None
+
+    payload = _build_calendar_payload(request.user, y, m, broker=broker, account=account)
+
     ctx = {
         "flt": _flt(request),
         "year_options": list(range(timezone.now().year + 1, timezone.now().year - 7, -1)),
         "month_options": list(range(1, 13)),
         "BROKERS": getattr(Dividend, "BROKER_CHOICES", []),
         "ACCOUNTS": getattr(Dividend, "ACCOUNT_CHOICES", []),
+        # 初期描画用
+        "days": payload["days"],
+        "sum_month": payload["sum_month"],
+        "year": y,
+        "month": m,
+        # JS フォールバック用
+        "payload_json": payload,
     }
     return render(request, "dividends/calendar.html", ctx)
 
-
-# ===== カレンダー JSON（互換キーを同梱） =====
 @login_required
 def dividends_calendar_json(request):
-    """
-    出力 days の各要素に互換キーを同梱:
-      - day / d（同値）
-      - sum / total（同値・小数2桁丸め）
-      - list / items（同値, {ticker,name,net}）
-    """
-    y = int(request.GET.get("year") or timezone.now().year)
-    m = int(request.GET.get("month") or timezone.now().month)
+    y = int(request.GET.get("year") or timezone.localdate().year)
+    m = int(request.GET.get("month") or timezone.localdate().month)
     broker  = request.GET.get("broker") or None
     account = request.GET.get("account") or None
 
-    qs = svc_div.build_user_dividend_qs(request.user)
-    qs = svc_div.apply_filters(qs, year=y, month=m, broker=broker, account=account)
-    rows = svc_div.materialize(qs)
+    payload = _build_calendar_payload(request.user, y, m, broker=broker, account=account)
+    return JsonResponse(payload)
 
-    last = monthrange(y, m)[1]
-    days = [{"day": d, "d": d, "sum": 0.0, "total": 0.0, "list": [], "items": []}
-            for d in range(1, last + 1)]
+# ===================== 予測 =====================
 
-    month_sum = 0.0
-    for rec in rows:
-        if not rec.date or rec.date.year != y or rec.date.month != m:
-            continue
-        idx = rec.date.day - 1
-        net = float(rec.net_amount() or 0.0)
-        month_sum += net
-        days[idx]["sum"]   += net
-        days[idx]["total"] += net
-        item = {
-            "ticker": rec.display_ticker,
-            "name":   rec.display_name or rec.display_ticker,
-            "net":    round(net, 2),
-        }
-        days[idx]["list"].append(item)
-        days[idx]["items"].append(item)
-
-    for bucket in days:
-        bucket["list"].sort(key=lambda x: x["net"], reverse=True)
-        bucket["items"].sort(key=lambda x: x["net"], reverse=True)
-        bucket["sum"]   = round(bucket["sum"], 2)
-        bucket["total"] = round(bucket["total"], 2)
-
-    return JsonResponse({
-        "year": y,
-        "month": m,
-        "days": days,
-        "sum_month": round(month_sum, 2),
-    })
-
-
-# ===== 予測ページ（ベース UI） =====
 @login_required
 def dividends_forecast(request):
+    y = _parse_year(request)
+    payload = _build_forecast_payload(request.user, y)
     ctx = {
         "flt": _flt(request),
         "year_options": list(range(timezone.now().year + 1, timezone.now().year - 7, -1)),
+        # 初期描画用
+        "months": payload["months"],
+        "sum12": payload["sum12"],
+        # JS フォールバック用
+        "payload_json": payload,
     }
     return render(request, "dividends/forecast.html", ctx)
 
-
-# ===== 予測 JSON（シンプル版） =====
 @login_required
 def dividends_forecast_json(request):
-    """
-    直近の1株配当×現在株数×想定回数の超簡易見込み。
-    """
-    year = _parse_year(request)
-
-    qs = svc_div.build_user_dividend_qs(request.user)
-    qs = svc_div.apply_filters(qs, year=year)
-    rows = svc_div.materialize(qs)
-
-    last_per_share = {}
-    qty_by_symbol  = {}
-    for d in rows:
-        ps = d.per_share_dividend_net()
-        if ps:
-            last_per_share[d.display_ticker] = float(ps)
-        q = d.quantity or (d.holding.quantity if d.holding and d.holding.quantity else 0)
-        if q:
-            qty_by_symbol[d.display_ticker] = int(q)
-
-    months_by_symbol = defaultdict(set)
-    for d in rows:
-        months_by_symbol[d.display_ticker].add((d.date.year, d.date.month))
-    freq_by_symbol = {}
-    for sym, ms in months_by_symbol.items():
-        cnt = len([1 for y_m in ms if y_m[0] == year])
-        freq_by_symbol[sym] = 4 if cnt >= 4 else 2 if cnt >= 2 else 1
-
-    yymm = [f"{year}-{m:02d}" for m in range(1, 13)]
-    monthly = {m: 0.0 for m in yymm}
-    for sym, ps in last_per_share.items():
-        qty = qty_by_symbol.get(sym, 0)
-        f   = freq_by_symbol.get(sym, 1)
-        est_total = ps * qty * f
-        each = est_total / f if f > 0 else 0.0
-        for i in range(f):
-            monthly[yymm[i]] += each
-
-    out = [{"yyyymm": k, "net": round(v, 2)} for k, v in monthly.items()]
-    sum12 = round(sum(monthly.values()), 2)
-    return JsonResponse({"months": out, "sum12": sum12})
+    y = _parse_year(request)
+    payload = _build_forecast_payload(request.user, y)
+    return JsonResponse(payload)
