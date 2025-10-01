@@ -123,6 +123,8 @@ document.addEventListener("DOMContentLoaded", () => {
       { section:"配当" },
       { label:"配当登録",       href: URLS.dividend_create,     icon:"➕", tone:"add" },
       { label:"明細",           href: URLS.dividends_base,      icon:"📑", tone:"info" },
+      { label:"カレンダー", href:"/dividends/calendar/", icon:"📅", tone:"info" },
+      { label:"予測",       href:"/dividends/forecast/", icon:"📈", tone:"info" },
     ],
     pnl: [
       { section:"実現損益" },
