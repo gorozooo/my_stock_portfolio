@@ -5,7 +5,8 @@
   const URLS   = window.DIVD_URLS   || {};
   const LABELS = window.DIVD_LABELS || {broker:{}, account:{}};
 
-  const fmt =(n)=> Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  // 金額フォーマッタ（整数＋円）
+  const fmt =(n)=> Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0}) + "円";
   const q   =(v)=> encodeURIComponent(v||"");
 
   /* ------------ Toast ------------ */
@@ -151,7 +152,7 @@
       legend.appendChild(a);
     });
 
-    // 中央値
+    // 中央合計
     const t = document.createElementNS("http://www.w3.org/2000/svg","text");
     t.setAttribute("x", cx); t.setAttribute("y", cy+4);
     t.setAttribute("text-anchor","middle"); t.setAttribute("font-size","11");
@@ -166,7 +167,7 @@
     const pct    = Math.max(0, Math.min(100, Number(goal?.progress_pct||0)));
     const remain = Number(goal?.remaining||0);
     $("#goal_amount_view").textContent   = fmt(amount);
-    $("#goal_amount_input").value        = amount ? amount.toFixed(2) : "";
+    $("#goal_amount_input").value        = amount ? Math.round(amount) : "";
     $("#goal_progress_view").textContent = pct.toFixed(2) + "%";
     $("#goal_remaining_view").textContent= fmt(remain);
     $("#goal_bar_inner").style.width     = pct + "%";
@@ -183,7 +184,7 @@
     const url = `${URLS.json}?year=${q(year)}&broker=${q(broker)}&account=${q(account)}`;
     const data = await fetch(url, {credentials:"same-origin"}).then(r=>r.json());
 
-    // KPI
+    // KPI（整数＋円）
     $("#kpi_count").textContent = (data.kpi?.count ?? 0);
     $("#kpi_gross").textContent = fmt(data.kpi?.gross ?? 0);
     $("#kpi_tax").textContent   = fmt(data.kpi?.tax ?? 0);
@@ -200,7 +201,7 @@
     drawDonut("donut_broker","legend_broker", data.by_broker||[],  {key:"broker",  labels:LABELS.broker});
     drawDonut("donut_account","legend_account", data.by_account||[], {key:"account", labels:LABELS.account});
 
-    // Top銘柄
+    // Top銘柄（整数＋円）
     const top = data.top_symbols||[];
     const box = $("#tbl_top");
     if (box){
