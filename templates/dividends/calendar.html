@@ -4,81 +4,62 @@
 
 {% block head %}
 <style>
-  .wrap{max-width:960px;margin:0 auto}
-  .bar{display:grid;gap:10px;grid-template-columns:1fr 1fr;max-width:640px}
-  @media (min-width:700px){ .bar{grid-template-columns:repeat(4,1fr)} }
-  .bar select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#eaf0ff}
+  .toolbar{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:960px;margin:0 auto 12px}
+  .toolbar select{width:100%;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);
+                  background:rgba(255,255,255,.06);color:#eaf0ff}
 
-  .cal{margin-top:12px;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.04);overflow:hidden}
-  .cal table{width:100%;border-collapse:separate;border-spacing:0}
-  .cal th,.cal td{width:14.285%;border:1px solid rgba(255,255,255,.06)}
-  .cal thead th{padding:10px 0;color:#aeb6c4;background:rgba(255,255,255,.03);font-weight:600}
-  .cell{position:relative; height:72px; padding:8px 10px}
-  .day{font-size:14px;opacity:.85}
-  .badge{position:absolute; right:8px; bottom:8px; padding:2px 6px;border-radius:10px;background:rgba(110,168,255,.18);border:1px solid rgba(110,168,255,.35);font-size:12px}
-  .cell:hover{background:rgba(255,255,255,.04);cursor:pointer}
-
-  /* 明細ポップ */
-  .pop{position:fixed;inset:auto 12px 16px 12px;max-width:560px;margin:0 auto;transform:translateY(12px);
-       background:rgba(21,23,33,.98);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 12px;
-       box-shadow:0 10px 28px rgba(0,0,0,.4);display:none;z-index:10010}
-  .pop .ttl{font-weight:600;margin-bottom:6px}
-  .pop .item{display:flex;justify-content:space-between;gap:10px;padding:8px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);border-radius:8px;margin:6px 0}
-  .pop .muted{color:#9aa4b2;font-size:12px}
-  .pop-close{position:absolute;right:8px;top:8px;border:1px solid rgba(255,255,255,.15);background:transparent;border-radius:8px;color:#eaf0ff;padding:4px 8px}
+  .calwrap{max-width:960px;margin:0 auto}
+  .dow{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin:10px 0 6px}
+  .dow div{padding:10px;text-align:center;color:#9aa4b2;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+  .grid{display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:100px;gap:6px}
+  .cell{position:relative;border-radius:12px;background:#202635;border:1px solid rgba(255,255,255,.08);padding:10px}
+  .cell .d{color:#cfd6e6;font-size:16px;font-weight:700}
+  .badge{position:absolute;right:8px;bottom:8px;padding:4px 8px;border-radius:999px;background:rgba(69,118,221,.18);
+         border:1px solid rgba(69,118,221,.45);font-size:12px}
+  .list{position:absolute;left:8px;bottom:8px;font-size:11px;color:#9aa4b2}
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="wrap">
-  <h1 class="text-xl font-semibold mb-3">配当カレンダー</h1>
+<h1 class="text-xl font-semibold mb-3">配当カレンダー</h1>
 
-  <!-- フィルタ -->
-  <form class="bar" id="calForm">
-    <select id="year">
-      {% for y in year_options %}
-        <option value="{{ y }}" {% if flt.year == y|stringformat:"s" %}selected{% endif %}>{{ y }}</option>
-      {% endfor %}
-    </select>
-    <select id="month">
-      {% for m in month_options %}
-        <option value="{{ m }}" {% if flt.month == m|stringformat:"s" %}selected{% endif %}>{{ m }}</option>
-      {% endfor %}
-    </select>
-    <select id="broker">
-      <option value="">証券会社(すべて)</option>
-      {% for v,l in BROKERS %}<option value="{{ v }}" {% if flt.broker == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
-    </select>
-    <select id="account">
-      <option value="">口座(すべて)</option>
-      {% for v,l in ACCOUNTS %}<option value="{{ v }}" {% if flt.account == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
-    </select>
-  </form>
+<div class="toolbar" id="calbar">
+  <select id="selYear">
+    {% for y in year_options %}
+      <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>
+    {% endfor %}
+  </select>
+  <select id="selMonth">
+    {% for m in month_options %}
+      <option value="{{ m }}" {% if month == m %}selected{% endif %}>{{ m }}</option>
+    {% endfor %}
+  </select>
 
-  <!-- カレンダー -->
-  <div class="cal" id="calBox">
-    <table>
-      <thead>
-        <tr><th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th></tr>
-      </thead>
-      <tbody id="calBody"><!-- JS で描画 --></tbody>
-    </table>
-  </div>
-
-  <p class="muted" style="margin-top:8px">セルのバッジをタップでその日の明細を表示します。</p>
+  <select id="selBroker" style="grid-column:1/-1">
+    <option value="">証券会社(すべて)</option>
+    {% for v,l in BROKERS %}
+      <option value="{{ v }}" {% if flt.broker == v %}selected{% endif %}>{{ l }}</option>
+    {% endfor %}
+  </select>
+  <select id="selAccount" style="grid-column:1/-1">
+    <option value="">口座(すべて)</option>
+    {% for v,l in ACCOUNTS %}
+      <option value="{{ v }}" {% if flt.account == v %}selected{% endif %}>{{ l }}</option>
+    {% endfor %}
+  </select>
 </div>
 
-<!-- 明細ポップ -->
-<div class="pop" id="dayPop" role="dialog" aria-modal="true">
-  <button class="pop-close" id="popClose">閉じる</button>
-  <div class="ttl" id="popTitle"></div>
-  <div id="popList"></div>
+<div class="calwrap">
+  <div class="dow">
+    <div>日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div>土</div>
+  </div>
+  <div class="grid" id="calGrid" data-year="{{ year }}" data-month="{{ month }}"></div>
+  <div class="text-slate-400 mt-2">セルのバッジをタップでその日の明細を表示します。</div>
 </div>
 
 <script>
-  window.DIVD_CAL = {
-    json: "{% url 'dividend_calendar_json' %}"
-  };
+  // 初期ペイロード（バックエンドで作ってある）
+  window.__CAL_INIT__ = {{ payload_json|safe }};
 </script>
-<script src="{% static 'js/dividends_calendar.js' %}?v=2" defer></script>
+<script src="{% static 'js/dividends_calendar.js' %}?v=5"></script>
 {% endblock %}
