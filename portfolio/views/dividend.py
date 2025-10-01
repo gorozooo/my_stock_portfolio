@@ -1,8 +1,8 @@
 # portfolio/views/dividend.py
 
+from __future__ import annotations
 from calendar import monthrange
 from decimal import Decimal
-from __future__ import annotations
 from datetime import date
 from calendar import monthrange
 
