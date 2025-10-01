@@ -4,82 +4,71 @@
 
 {% block head %}
 <style>
-  .wrap{max-width:960px;margin:0 auto}
+  .cal-wrap{max-width:980px;margin:0 auto}
+  .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}
+  .filters select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);
+                  background:rgba(255,255,255,.06);color:#eaf0ff}
 
-  /* フィルタ：1行/2行に自動折返し（省スペース） */
-  .bar{display:grid;gap:8px;margin:6px 0 8px}
-  @media (min-width:740px){ .bar{grid-template-columns:repeat(4,1fr)} }
-  @media (max-width:739px){ .bar{grid-template-columns:repeat(2,1fr)} }
-  .bar select{
-    width:100%;padding:8px 10px;border-radius:10px;
-    border:1px solid rgba(255,255,255,.12);
-    background:rgba(255,255,255,.06);color:#eaf0ff;font-size:14px
-  }
+  .dow{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin:10px 2px 6px}
+  .dow span{font-size:13px;color:#9aa4b2;text-align:center}
 
-  /* カレンダー */
-  .cal-head,.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
-  .cal-head{margin:6px 0 6px}
-  .cal-head>div{text-align:center;color:#aab3c2;font-size:12px}
+  /* カレンダーグリッド（42セル固定で骨組み出す。JSは中身だけ埋める） */
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+  .cell{position:relative;padding-top:96px;border-radius:16px;
+        background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);overflow:hidden}
+  .cell .d{position:absolute;top:8px;left:10px;font-weight:700;color:#cfd7ff;font-size:14px}
 
-  .cal-grid{grid-auto-rows:56px}
-  .day{
-    position:relative;border-radius:14px;overflow:hidden;
-    background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
-    display:flex;align-items:flex-start;justify-content:flex-start;padding:6px 8px
-  }
-  .day-num{font-weight:800;color:#eaf1ff;font-size:14px;line-height:1}
-  .day.today{outline:2px solid rgba(120,160,255,.55)}
-  .day.selected{box-shadow:0 0 0 3px rgba(120,160,255,.28) inset}
-
-  .badge{
-    position:absolute;right:6px;top:6px;
-    padding:2px 6px;border-radius:999px;font-size:11px;font-weight:800;
-    background:rgba(76,110,220,.92);color:#fff
-  }
-
-  .hint{color:#aab3c2;margin:10px 0 2px;font-size:13px}
+  /* バッジ（合計） */
+  .badge{position:absolute;right:8px;bottom:8px;min-width:58px;
+         border-radius:999px;padding:6px 8px;text-align:center;font-weight:800;
+         background:rgba(52,87,170,.9);color:#fff;backdrop-filter:blur(2px);font-size:13px}
+  .badge small{display:block;opacity:.85;font-weight:600;font-size:11px;margin-bottom:2px}
 
   /* ボトムシート */
-  .sheet{position:fixed;left:0;right:0;bottom:0;transform:translateY(110%);transition:transform .18s ease;z-index:40}
-  .sheet.open{transform:translateY(0)}
-  .sheet-body{margin:0 8px 10px;border-radius:14px;background:#121723;border:1px solid rgba(255,255,255,.1);padding:12px}
-  .sheet-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
-  .sheet-title{font-weight:800;font-size:16px}
-  .sheet-close{padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#e9f1ff}
-  .sheet-total{font-weight:800;margin:6px 0 6px}
-  .sheet-list{list-style:none;margin:0;padding:0}
-  .sheet-list li{padding:8px 0;border-top:1px solid rgba(255,255,255,.08)}
-  .row1{display:flex;justify-content:space-between;gap:10px}
-  .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .amt{white-space:nowrap;font-weight:800}
-  .row2{display:flex;gap:6px;margin-top:4px}
-  .chip{font-size:11px;border-radius:999px;border:1px solid rgba(255,255,255,.16);
-        background:rgba(255,255,255,.06);padding:2px 8px;color:#cfd8ea}
+  .sheet{position:fixed;left:0;right:0;bottom:-100%;transition:transform .2s ease, bottom .2s ease;
+         background:rgba(26,33,48,.98);border-top-left-radius:18px;border-top-right-radius:18px;
+         border:1px solid rgba(255,255,255,.08);padding:14px 16px 18px;max-height:62vh;overflow:auto}
+  .sheet.is-open{bottom:0}
+  .sheet h3{font-size:16px;font-weight:800;margin:2px 0 10px}
+  .sheet .sum{font-weight:800;font-size:16px;margin-bottom:10px}
+  .sheet .list{display:grid;gap:8px}
+  .sheet .row{display:flex;justify-content:space-between;gap:8px;
+              border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);
+              border-radius:10px;padding:8px 10px}
+  .sheet .row .name{font-weight:700}
+  .sheet .row .amt{white-space:nowrap}
+  .sheet .close{position:sticky;bottom:0;margin-top:8px;display:flex;justify-content:flex-end}
+  .sheet .close button{padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.16);
+                       background:rgba(255,255,255,.06);color:#eaf0ff}
+
+  @media (min-width:880px){
+    .filters{grid-template-columns:repeat(4,1fr)}
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="wrap">
-  <h1 class="text-xl font-semibold mb-2">配当カレンダー</h1>
+<div class="cal-wrap">
+  <h1 class="text-xl font-semibold mb-3">配当カレンダー</h1>
 
-  <form id="calForm" class="bar" method="get">
-    <select name="year" onchange="this.form.submit()">
+  <form id="calFilter" class="filters">
+    <select name="year" id="fYear">
       {% for y in year_options %}
-        <option value="{{ y }}" {% if flt.year|default:'' == y|stringformat:"s" %}selected{% endif %}>{{ y }}</option>
+        <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>
       {% endfor %}
     </select>
-    <select name="month" onchange="this.form.submit()">
+    <select name="month" id="fMonth">
       {% for m in month_options %}
         <option value="{{ m }}" {% if month == m %}selected{% endif %}>{{ m }}</option>
       {% endfor %}
     </select>
-    <select name="broker" onchange="this.form.submit()">
+    <select name="broker" id="fBroker">
       <option value="">証券会社(すべて)</option>
       {% for v,l in BROKERS %}
         <option value="{{ v }}" {% if flt.broker == v %}selected{% endif %}>{{ l }}</option>
       {% endfor %}
     </select>
-    <select name="account" onchange="this.form.submit()">
+    <select name="account" id="fAccount">
       <option value="">口座(すべて)</option>
       {% for v,l in ACCOUNTS %}
         <option value="{{ v }}" {% if flt.account == v %}selected{% endif %}>{{ l }}</option>
@@ -87,26 +76,31 @@
     </select>
   </form>
 
-  <div class="cal">
-    <div class="cal-head"><div>日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div>土</div></div>
-    <div id="calGrid" class="cal-grid" data-year="{{ year }}" data-month="{{ month }}"></div>
+  <div class="dow">
+    <span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span>
   </div>
 
-  <p class="hint">セルのバッジをタップすると内訳を表示します。</p>
+  <!-- ここは必ず 42 セルの骨組みを出す。JS が中身を上書き -->
+  <div id="cal" class="cal" data-year="{{ year }}" data-month="{{ month }}">
+    {% for i in "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" %}
+      <div class="cell" data-idx="{{ forloop.counter0 }}"><div class="d"></div></div>
+    {% endfor %}
+  </div>
+
+  <p style="color:#9aa4b2;margin:12px 4px 0">セルのバッジをタップすると内訳を表示します。</p>
 </div>
 
 <!-- ボトムシート -->
-<div id="daySheet" class="sheet" aria-hidden="true">
-  <div class="sheet-body">
-    <div class="sheet-head">
-      <div id="sheetDate" class="sheet-title"></div>
-      <button type="button" id="sheetClose" class="sheet-close">閉じる</button>
-    </div>
-    <div id="sheetTotal" class="sheet-total"></div>
-    <ul id="sheetList" class="sheet-list"></ul>
-  </div>
+<div id="sheet" class="sheet" aria-hidden="true">
+  <h3 id="sheetTitle"></h3>
+  <div class="sum" id="sheetSum"></div>
+  <div class="list" id="sheetList"></div>
+  <div class="close"><button type="button" id="sheetClose">閉じる</button></div>
 </div>
 
-<script id="payload_json" type="application/json">{{ payload_json|safe }}</script>
-<script src="{% static 'js/dividends_calendar.js' %}?v=5"></script>
+<script src="{% static 'js/dividends_calendar.js' %}?v=8"></script>
+<script>
+  // 初期ペイロード（サーバ側から JSON を埋め込んでおく→JS が無くても壊れない）
+  window.__DIVCAL_INIT__ = {{ payload_json|safe }};
+</script>
 {% endblock %}
