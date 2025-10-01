@@ -1,58 +1,60 @@
 {% extends "base.html" %}
 {% load static %}
-
 {% block title %}配当カレンダー{% endblock %}
 
 {% block head %}
 <style>
   .wrap{max-width:960px;margin:0 auto}
 
-  /* ---- フィルタ（極力コンパクト） ---- */
+  /* フィルタ：1行/2行に自動折返し（省スペース） */
   .bar{display:grid;gap:8px;margin:6px 0 8px}
-  @media (min-width:680px){ .bar{grid-template-columns:repeat(4,1fr)} }
-  @media (max-width:679px){ .bar{grid-template-columns:repeat(2,1fr)} }
+  @media (min-width:740px){ .bar{grid-template-columns:repeat(4,1fr)} }
+  @media (max-width:739px){ .bar{grid-template-columns:repeat(2,1fr)} }
   .bar select{
     width:100%;padding:8px 10px;border-radius:10px;
     border:1px solid rgba(255,255,255,.12);
     background:rgba(255,255,255,.06);color:#eaf0ff;font-size:14px
   }
 
-  /* ---- カレンダー ---- */
-  .cal-head, .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  /* カレンダー */
+  .cal-head,.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
   .cal-head{margin:6px 0 6px}
   .cal-head>div{text-align:center;color:#aab3c2;font-size:12px}
-  .cal-grid{grid-auto-rows:56px} /* ← 固定高さで省スペース */
 
+  .cal-grid{grid-auto-rows:56px}
   .day{
-    position:relative;border-radius:12px;overflow:hidden;
+    position:relative;border-radius:14px;overflow:hidden;
     background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
-    display:flex;align-items:flex-start;justify-content:flex-start;
-    padding:6px 8px
+    display:flex;align-items:flex-start;justify-content:flex-start;padding:6px 8px
   }
-  .day-num{font-weight:700;color:#eaf1ff;font-size:14px;line-height:1}
+  .day-num{font-weight:800;color:#eaf1ff;font-size:14px;line-height:1}
   .day.today{outline:2px solid rgba(120,160,255,.55)}
-  .day.selected{box-shadow:0 0 0 3px rgba(120,160,255,.30) inset}
+  .day.selected{box-shadow:0 0 0 3px rgba(120,160,255,.28) inset}
 
   .badge{
     position:absolute;right:6px;top:6px;
     padding:2px 6px;border-radius:999px;font-size:11px;font-weight:800;
-    background:rgba(78,111,220,.9);color:#fff
+    background:rgba(76,110,220,.92);color:#fff
   }
 
-  /* ---- ボトムシート（軽量） ---- */
+  .hint{color:#aab3c2;margin:10px 0 2px;font-size:13px}
+
+  /* ボトムシート */
   .sheet{position:fixed;left:0;right:0;bottom:0;transform:translateY(110%);transition:transform .18s ease;z-index:40}
   .sheet.open{transform:translateY(0)}
-  .sheet-body{margin:0 8px 10px;border-radius:14px;background:#121723;border:1px solid rgba(255,255,255,.1);padding:10px}
-  .sheet-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-  .sheet-title{font-weight:700;font-size:16px}
+  .sheet-body{margin:0 8px 10px;border-radius:14px;background:#121723;border:1px solid rgba(255,255,255,.1);padding:12px}
+  .sheet-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+  .sheet-title{font-weight:800;font-size:16px}
   .sheet-close{padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#e9f1ff}
-  .sheet-total{font-weight:700;margin:4px 0 6px}
+  .sheet-total{font-weight:800;margin:6px 0 6px}
   .sheet-list{list-style:none;margin:0;padding:0}
-  .sheet-list li{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid rgba(255,255,255,.08)}
-  .sheet-list .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .sheet-list .amt{white-space:nowrap;font-weight:700}
-
-  .hint{color:#aab3c2;margin:10px 0 2px;font-size:13px}
+  .sheet-list li{padding:8px 0;border-top:1px solid rgba(255,255,255,.08)}
+  .row1{display:flex;justify-content:space-between;gap:10px}
+  .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .amt{white-space:nowrap;font-weight:800}
+  .row2{display:flex;gap:6px;margin-top:4px}
+  .chip{font-size:11px;border-radius:999px;border:1px solid rgba(255,255,255,.16);
+        background:rgba(255,255,255,.06);padding:2px 8px;color:#cfd8ea}
 </style>
 {% endblock %}
 
@@ -106,5 +108,5 @@
 </div>
 
 <script id="payload_json" type="application/json">{{ payload_json|safe }}</script>
-<script src="{% static 'js/dividends_calendar.js' %}?v=4"></script>
+<script src="{% static 'js/dividends_calendar.js' %}?v=5"></script>
 {% endblock %}
