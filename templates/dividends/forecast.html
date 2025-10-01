@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}配当予測{% endblock %}
+
+{% block head %}
+<style>
+  .wrap{max-width:960px;margin:0 auto}
+  .chart{height:180px;border:1px solid rgba(255,255,255,.1);border-radius:12px;background:rgba(255,255,255,.03);padding:8px}
+  .grid{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+  @media (max-width:780px){ .grid{grid-template-columns:1fr} }
+  table{width:100%;border-collapse:separate;border-spacing:0 6px}
+  td{padding:8px 10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);border-radius:8px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="wrap">
+  <h1 class="text-xl font-semibold mb-3">配当予測（12ヶ月）</h1>
+  <div class="grid">
+    <div class="chart"><svg id="fcSvg" viewBox="0 0 360 180" width="100%" height="100%"></svg></div>
+    <div>
+      <table id="fcTable"></table>
+    </div>
+  </div>
+</div>
+<script src="{% static 'js/dividends_forecast.js' %}?v=1" defer></script>
+{% endblock %}
