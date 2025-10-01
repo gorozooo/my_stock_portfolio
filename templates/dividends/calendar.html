@@ -5,45 +5,68 @@
 {% block head %}
 <style>
   .cal-wrap{max-width:980px;margin:0 auto}
-  .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}
-  .filters select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);
-                  background:rgba(255,255,255,.06);color:#eaf0ff}
 
-  .dow{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin:10px 2px 6px}
+  /* フィルター: 2列→広い時は4列 */
+  .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px}
+  .filters select{
+    width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.06);color:#eaf0ff
+  }
+  @media (min-width:880px){ .filters{grid-template-columns:repeat(4,1fr)} }
+
+  /* 曜日 */
+  .dow{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin:10px 2px 6px}
   .dow span{font-size:13px;color:#9aa4b2;text-align:center}
 
-  /* カレンダーグリッド（42セル固定で骨組み出す。JSは中身だけ埋める） */
-  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
-  .cell{position:relative;padding-top:96px;border-radius:16px;
-        background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);overflow:hidden}
-  .cell .d{position:absolute;top:8px;left:10px;font-weight:700;color:#cfd7ff;font-size:14px}
+  /* 42セルの骨組み（JSが中身を埋める） */
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  .cell{
+    position:relative;height:72px;border-radius:18px;
+    background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
+    overflow:hidden
+  }
+  .cell .d{position:absolute;top:7px;left:10px;font-weight:700;color:#cfd7ff;font-size:13px}
 
-  /* バッジ（合計） */
-  .badge{position:absolute;right:8px;bottom:8px;min-width:58px;
-         border-radius:999px;padding:6px 8px;text-align:center;font-weight:800;
-         background:rgba(52,87,170,.9);color:#fff;backdrop-filter:blur(2px);font-size:13px}
-  .badge small{display:block;opacity:.85;font-weight:600;font-size:11px;margin-bottom:2px}
+  /* —— 件数ドット（小さな白丸） —— */
+  .dot{
+    position:absolute;top:6px;right:8px;
+    width:26px;height:26px;border-radius:50%;
+    background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.85);
+    color:#0b1020;font-weight:800;display:flex;align-items:center;justify-content:center;
+    font-size:12px;line-height:1;box-shadow:0 2px 10px rgba(0,0,0,.25)
+  }
+  .cell.has-items{cursor:pointer}
+  .cell.has-items:active{transform:translateY(1px)}
 
-  /* ボトムシート */
-  .sheet{position:fixed;left:0;right:0;bottom:-100%;transition:transform .2s ease, bottom .2s ease;
-         background:rgba(26,33,48,.98);border-top-left-radius:18px;border-top-right-radius:18px;
-         border:1px solid rgba(255,255,255,.08);padding:14px 16px 18px;max-height:62vh;overflow:auto}
+  /* ボトムシート + バックドロップ */
+  .backdrop{
+    position:fixed;inset:0;background:rgba(0,0,0,.35);backdrop-filter:blur(1px);
+    opacity:0;pointer-events:none;transition:opacity .18s ease;
+  }
+  .backdrop.is-open{opacity:1;pointer-events:auto}
+
+  .sheet{
+    position:fixed;left:0;right:0;bottom:-100%;
+    background:rgba(26,33,48,.98);border-top-left-radius:18px;border-top-right-radius:18px;
+    border:1px solid rgba(255,255,255,.08);padding:14px 16px 18px;max-height:65vh;overflow:auto;
+    transition:bottom .18s ease; box-shadow:0 -10px 30px rgba(0,0,0,.35)
+  }
   .sheet.is-open{bottom:0}
-  .sheet h3{font-size:16px;font-weight:800;margin:2px 0 10px}
-  .sheet .sum{font-weight:800;font-size:16px;margin-bottom:10px}
+  .sheet .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .sheet h3{font-size:16px;font-weight:800;margin:0}
+  .sheet .x{
+    border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);
+    color:#eaf0ff;border-radius:10px;padding:6px 10px
+  }
+  .sheet .sum{font-weight:800;font-size:16px;margin:8px 0 12px}
   .sheet .list{display:grid;gap:8px}
-  .sheet .row{display:flex;justify-content:space-between;gap:8px;
-              border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);
-              border-radius:10px;padding:8px 10px}
+  .sheet .row{
+    display:flex;justify-content:space-between;gap:8px;
+    border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);
+    border-radius:10px;padding:8px 10px
+  }
   .sheet .row .name{font-weight:700}
   .sheet .row .amt{white-space:nowrap}
-  .sheet .close{position:sticky;bottom:0;margin-top:8px;display:flex;justify-content:flex-end}
-  .sheet .close button{padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.16);
-                       background:rgba(255,255,255,.06);color:#eaf0ff}
-
-  @media (min-width:880px){
-    .filters{grid-template-columns:repeat(4,1fr)}
-  }
 </style>
 {% endblock %}
 
@@ -53,34 +76,24 @@
 
   <form id="calFilter" class="filters">
     <select name="year" id="fYear">
-      {% for y in year_options %}
-        <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>
-      {% endfor %}
+      {% for y in year_options %}<option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>{% endfor %}
     </select>
     <select name="month" id="fMonth">
-      {% for m in month_options %}
-        <option value="{{ m }}" {% if month == m %}selected{% endif %}>{{ m }}</option>
-      {% endfor %}
+      {% for m in month_options %}<option value="{{ m }}" {% if month == m %}selected{% endif %}>{{ m }}</option>{% endfor %}
     </select>
     <select name="broker" id="fBroker">
       <option value="">証券会社(すべて)</option>
-      {% for v,l in BROKERS %}
-        <option value="{{ v }}" {% if flt.broker == v %}selected{% endif %}>{{ l }}</option>
-      {% endfor %}
+      {% for v,l in BROKERS %}<option value="{{ v }}" {% if flt.broker == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
     </select>
     <select name="account" id="fAccount">
       <option value="">口座(すべて)</option>
-      {% for v,l in ACCOUNTS %}
-        <option value="{{ v }}" {% if flt.account == v %}selected{% endif %}>{{ l }}</option>
-      {% endfor %}
+      {% for v,l in ACCOUNTS %}<option value="{{ v }}" {% if flt.account == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
     </select>
   </form>
 
-  <div class="dow">
-    <span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span>
-  </div>
+  <div class="dow"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
 
-  <!-- ここは必ず 42 セルの骨組みを出す。JS が中身を上書き -->
+  <!-- 42 セルの骨組み（JS が上書き） -->
   <div id="cal" class="cal" data-year="{{ year }}" data-month="{{ month }}">
     {% for i in "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" %}
       <div class="cell" data-idx="{{ forloop.counter0 }}"><div class="d"></div></div>
@@ -90,17 +103,17 @@
   <p style="color:#9aa4b2;margin:12px 4px 0">セルのバッジをタップすると内訳を表示します。</p>
 </div>
 
-<!-- ボトムシート -->
+<!-- backdrop + bottom sheet -->
+<div id="backdrop" class="backdrop" aria-hidden="true"></div>
 <div id="sheet" class="sheet" aria-hidden="true">
-  <h3 id="sheetTitle"></h3>
+  <div class="head">
+    <h3 id="sheetTitle"></h3>
+    <button type="button" class="x" id="sheetClose">閉じる</button>
+  </div>
   <div class="sum" id="sheetSum"></div>
   <div class="list" id="sheetList"></div>
-  <div class="close"><button type="button" id="sheetClose">閉じる</button></div>
 </div>
 
-<script src="{% static 'js/dividends_calendar.js' %}?v=8"></script>
-<script>
-  // 初期ペイロード（サーバ側から JSON を埋め込んでおく→JS が無くても壊れない）
-  window.__DIVCAL_INIT__ = {{ payload_json|safe }};
-</script>
+<script src="{% static 'js/dividends_calendar.js' %}?v=9"></script>
+<script>window.__DIVCAL_INIT__ = {{ payload_json|safe }};</script>
 {% endblock %}
