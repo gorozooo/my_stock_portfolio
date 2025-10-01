@@ -61,7 +61,7 @@ class Holding(models.Model):
         except Exception:
             return 0
             
-    
+
 # ==== RealizedTrade ======================================================
 class RealizedTrade(models.Model):
     BROKER_CHOICES = (
@@ -124,6 +124,7 @@ class RealizedTrade(models.Model):
         signed = self.amount if self.side == "SELL" else -self.amount
         return signed - float(self.fee) - float(self.tax)
         
+
 # ==== Dividend ======================================================
 class Dividend(models.Model):
     """
@@ -144,7 +145,26 @@ class Dividend(models.Model):
     # ====== 基本情報（holding 無しでも記録できるように） ======
     ticker = models.CharField(max_length=16, blank=True, default="")
     name   = models.CharField(max_length=128, blank=True, default="")
+
+    # 支払日（既存の date を Phase2 でも支払日として利用）
     date   = models.DateField()
+
+    # --- Phase2: 予測・カレンダー強化用の日時/属性 ---
+    ex_date     = models.DateField(null=True, blank=True, help_text="権利落ち日（任意）")
+    record_date = models.DateField(null=True, blank=True, help_text="基準日（任意）")
+
+    PERIOD_CHOICES = (
+        ("FY",  "期末"),
+        ("HY",  "中間"),
+        ("Q",   "四半期"),
+        ("UNK", "不明/その他"),
+    )
+    period = models.CharField(max_length=8, choices=PERIOD_CHOICES, default="UNK", blank=True)
+
+    # 想定頻度のヒント（年1/2/4）
+    FREQ_CHOICES = ((1, "年1"), (2, "年2"), (4, "年4"))
+    freq_hint = models.PositiveSmallIntegerField(choices=FREQ_CHOICES, null=True, blank=True,
+                                                 help_text="配当頻度の推定（任意）")
 
     # 数量（何株分の配当か）
     quantity = models.IntegerField(default=0, help_text="株数（KPI計算に使用）")
@@ -189,6 +209,11 @@ class Dividend(models.Model):
 
     class Meta:
         ordering = ("-date", "-id")
+        indexes = [
+            models.Index(fields=["date"]),
+            models.Index(fields=["broker"]),
+            models.Index(fields=["account"]),
+        ]
 
     def __str__(self):
         label = self.display_ticker or "—"
@@ -206,6 +231,11 @@ class Dividend(models.Model):
         if self.holding and self.holding.name:
             return self.holding.name
         return self.name or ""
+
+    # alias: pay_date（カレンダー側の語彙に合わせたい時に使える）
+    @property
+    def pay_date(self):
+        return self.date
 
     # ---- 金額：税引前/税引後 ----
     def gross_amount(self):
@@ -295,6 +325,7 @@ class Dividend(models.Model):
             pass
 
         super().save(*args, **kwargs)
+
 
 class DividendGoal(models.Model):
     user      = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_index=True)
