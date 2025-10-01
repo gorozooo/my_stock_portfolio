@@ -22,6 +22,7 @@ from ..services import tickers as svc_tickers
 from ..services import trend as svc_trend
 from ..services import dividends as svc_div  # 集計/目標
 
+
 # ===================== 共通ユーティリティ =====================
 
 def _parse_year(req):
@@ -30,15 +31,45 @@ def _parse_year(req):
     except Exception:
         return timezone.localdate().year
 
+
 def _flt(req):
     """共通フィルタ（year / broker / account）。"""
     return {
         "year":   req.GET.get("year") or "",
         "broker": req.GET.get("broker") or "",
-        "account":req.GET.get("account") or "",
+        "account": req.GET.get("account") or "",
     }
 
-def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|None):
+
+def _safe_net(d) -> float:
+    """Dividend の税引後金額を常に float で返す（None/例外は 0.0）。"""
+    try:
+        v = d.net_amount()  # メソッド
+        return float(v or 0.0)
+    except Exception:
+        try:
+            return float(getattr(d, "net_amount", 0.0) or 0.0)
+        except Exception:
+            try:
+                amt = float(d.amount or 0.0)
+                tax = float(d.tax or 0.0)
+                return amt if getattr(d, "is_net", False) else max(0.0, amt - tax)
+            except Exception:
+                return 0.0
+
+
+def _label_ticker(d) -> str:
+    """表示用ティッカー（必ず文字列）"""
+    return (getattr(d, "display_ticker", None) or getattr(d, "ticker", "") or "").upper()
+
+
+def _label_name(d) -> str:
+    """表示用名称（必ず文字列 / ティッカーでフォールバック）"""
+    tkr = _label_ticker(d)
+    return (getattr(d, "display_name", None) or getattr(d, "name", "") or tkr)
+
+
+def _build_calendar_payload(user, y: int, m: int, *, broker: str | None, account: str | None):
     """
     カレンダー用の月次明細サマリを計算して返す（サーバ描画/JSON 共通）。
     返り値:
@@ -57,19 +88,19 @@ def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|
     month_sum = 0.0
 
     for d in rows:
-        # 念のため年/月を再確認（フィルタ済みだが保険）
         if not d.date or d.date.year != y or d.date.month != m:
             continue
         idx = d.date.day - 1
-        net = float(d.net_amount() or 0.0)
+        net = _safe_net(d)
         if net <= 0:
+            # 0 でも表示したいならこの if を削除
             continue
         month_sum += net
         days[idx]["total"] += net
         days[idx]["items"].append({
-            "ticker": d.display_ticker,
-            "name":   d.display_name or d.display_ticker,
-            "net":    round(net, 2),
+            "ticker": _label_ticker(d),
+            "name": _label_name(d),
+            "net": round(net, 2),
         })
 
     for bucket in days:
@@ -78,7 +109,8 @@ def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|
 
     return {"year": y, "month": m, "days": days, "sum_month": round(month_sum, 2)}
 
-def _build_forecast_payload(user, year:int):
+
+def _build_forecast_payload(user, year: int):
     """
     超シンプル予測（直近1株配当 × 現在株数 × 想定回数）。
     返り値: {"months":[{"yyyymm":"YYYY-MM","net":…},…], "sum12": …}
@@ -88,22 +120,36 @@ def _build_forecast_payload(user, year:int):
     rows = svc_div.materialize(qs)
 
     last_per_share: dict[str, float] = {}
-    qty_by_symbol : dict[str, int]   = {}
+    qty_by_symbol: dict[str, int] = {}
 
     for d in rows:
-        ps = d.per_share_dividend_net()
-        if ps:
-            last_per_share[d.display_ticker] = float(ps)  # 直近が後勝ち
-        q = d.quantity or (d.holding.quantity if d.holding and d.holding.quantity else 0)
-        if q:
-            qty_by_symbol[d.display_ticker] = int(q)
+        try:
+            ps = d.per_share_dividend_net()
+        except Exception:
+            ps = None
+        if ps is not None:
+            last_per_share[_label_ticker(d)] = float(ps)
 
-    months_by_symbol: dict[str, set[tuple[int,int]]] = defaultdict(set)
+        # 株数: Dividend.quantity → Holding.quantity
+        q = 0
+        try:
+            q = int(d.quantity or 0)
+        except Exception:
+            q = 0
+        if q <= 0 and getattr(d, "holding", None):
+            try:
+                q = int(d.holding.quantity or 0)
+            except Exception:
+                q = 0
+        if q > 0:
+            qty_by_symbol[_label_ticker(d)] = q
+
+    months_by_symbol: dict[str, set[tuple[int, int]]] = defaultdict(set)
     for d in rows:
         if d.date:
-            months_by_symbol[d.display_ticker].add((d.date.year, d.date.month))
+            months_by_symbol[_label_ticker(d)].add((d.date.year, d.date.month))
 
-    freq_by_symbol: dict[str,int] = {}
+    freq_by_symbol: dict[str, int] = {}
     for sym, ms in months_by_symbol.items():
         cnt = len([1 for y_m in ms if y_m[0] == year])
         freq_by_symbol[sym] = 4 if cnt >= 4 else 2 if cnt >= 2 else 1
@@ -113,16 +159,19 @@ def _build_forecast_payload(user, year:int):
 
     for sym, ps in last_per_share.items():
         qty = qty_by_symbol.get(sym, 0)
-        f   = freq_by_symbol.get(sym, 1)
-        est_total = ps * qty * f
-        each = est_total / f if f > 0 else 0.0
-        # とりあえず前ろから f 回だけ均等に置く（Phase3で賢く）
+        f = freq_by_symbol.get(sym, 1)
+        if qty <= 0 or ps is None or f <= 0:
+            continue
+        est_total = float(ps) * float(qty) * float(f)
+        each = est_total / f
+        # 第1月から f 回に均等配賦（Phase3 で賢く割付予定）
         for i in range(f):
             monthly[yymm[i]] += each
 
     months = [{"yyyymm": k, "net": round(v, 2)} for k, v in monthly.items()]
-    sum12  = round(sum(monthly.values()), 2)
+    sum12 = round(sum(monthly.values()), 2)
     return {"months": months, "sum12": sum12}
+
 
 # ===================== ダッシュボード =====================
 
@@ -132,24 +181,24 @@ def dashboard(request):
         year = int(request.GET.get("year", timezone.localdate().year))
     except Exception:
         year = timezone.localdate().year
-    broker  = (request.GET.get("broker") or "").strip()
+    broker = (request.GET.get("broker") or "").strip()
     account = (request.GET.get("account") or "").strip()
 
     base_qs = svc_div.build_user_dividend_qs(request.user)
     qs = svc_div.apply_filters(base_qs, year=year, broker=broker or None, account=account or None)
 
-    kpi          = svc_div.sum_kpis(qs)
-    monthly      = svc_div.group_by_month(qs)
-    by_broker    = svc_div.group_by_broker(qs)
-    by_account   = svc_div.group_by_account(qs)
-    top_symbols  = svc_div.top_symbols(qs, n=10)
+    kpi = svc_div.sum_kpis(qs)
+    monthly = svc_div.group_by_month(qs)
+    by_broker = svc_div.group_by_broker(qs)
+    by_account = svc_div.group_by_account(qs)
+    top_symbols = svc_div.top_symbols(qs, n=10)
 
-    goal_amount  = svc_div.get_goal_amount(request.user, year)
-    net_sum      = Decimal(str(kpi["net"] or 0))
-    goal_amount  = Decimal(str(goal_amount or 0))
+    goal_amount = svc_div.get_goal_amount(request.user, year)
+    net_sum = Decimal(str(kpi["net"] or 0))
+    goal_amount = Decimal(str(goal_amount or 0))
     progress_pct = float((net_sum / goal_amount * 100) if goal_amount > 0 else 0)
     progress_pct = round(min(100.0, max(0.0, progress_pct)), 2)
-    remaining    = float(max(Decimal("0"), goal_amount - net_sum))
+    remaining = float(max(Decimal("0"), goal_amount - net_sum))
 
     cur_y = timezone.localdate().year
     year_options = [cur_y - 4 + i for i in range(9)]
@@ -173,6 +222,7 @@ def dashboard(request):
     }
     return render(request, "dividends/dashboard.html", ctx)
 
+
 @login_required
 @require_GET
 def dashboard_json(request):
@@ -180,23 +230,23 @@ def dashboard_json(request):
         year = int(request.GET.get("year", timezone.localdate().year))
     except Exception:
         year = timezone.localdate().year
-    broker  = (request.GET.get("broker") or "").strip()
+    broker = (request.GET.get("broker") or "").strip()
     account = (request.GET.get("account") or "").strip()
 
     base_qs = svc_div.build_user_dividend_qs(request.user)
     qs = svc_div.apply_filters(base_qs, year=year, broker=broker or None, account=account or None)
 
-    kpi          = svc_div.sum_kpis(qs)
-    monthly      = svc_div.group_by_month(qs)
-    by_broker    = svc_div.group_by_broker(qs)
-    by_account   = svc_div.group_by_account(qs)
-    top_symbols  = svc_div.top_symbols(qs, n=10)
+    kpi = svc_div.sum_kpis(qs)
+    monthly = svc_div.group_by_month(qs)
+    by_broker = svc_div.group_by_broker(qs)
+    by_account = svc_div.group_by_account(qs)
+    top_symbols = svc_div.top_symbols(qs, n=10)
 
-    goal_amount  = Decimal(str(svc_div.get_goal_amount(request.user, year) or 0))
-    net_sum      = Decimal(str(kpi.get("net", 0)))
+    goal_amount = Decimal(str(svc_div.get_goal_amount(request.user, year) or 0))
+    net_sum = Decimal(str(kpi.get("net", 0)))
     progress_pct = float((net_sum / goal_amount * 100) if goal_amount > 0 else 0)
     progress_pct = round(min(100.0, max(0.0, progress_pct)), 2)
-    remaining    = float(max(Decimal("0"), goal_amount - net_sum))
+    remaining = float(max(Decimal("0"), goal_amount - net_sum))
 
     data = {
         "kpi": kpi,
@@ -213,6 +263,7 @@ def dashboard_json(request):
     }
     return JsonResponse(data)
 
+
 # ===================== 目標 =====================
 
 @login_required
@@ -228,17 +279,18 @@ def dividend_save_goal(request):
     messages.success(request, "年間目標を保存しました。")
     return redirect(f"{reverse('dividend_dashboard')}?year={year}")
 
+
 # ===================== 明細 =====================
 
 @login_required
 def dividend_list(request):
-    year_q  = request.GET.get("year")
+    year_q = request.GET.get("year")
     month_q = request.GET.get("month")
-    broker  = (request.GET.get("broker") or "").strip()
+    broker = (request.GET.get("broker") or "").strip()
     account = (request.GET.get("account") or "").strip()
-    q       = (request.GET.get("q") or "").strip()
+    q = (request.GET.get("q") or "").strip()
 
-    year  = int(year_q) if (year_q and year_q.isdigit()) else None
+    year = int(year_q) if (year_q and year_q.isdigit()) else None
     month = int(month_q) if (month_q and month_q.isdigit()) else None
 
     base_qs = svc_div.build_user_dividend_qs(request.user)
@@ -249,18 +301,19 @@ def dividend_list(request):
     kpi = svc_div.sum_kpis(qs)
 
     paginator = Paginator(qs, 20)
-    page_obj  = paginator.get_page(request.GET.get("page") or 1)
-    items     = page_obj.object_list
+    page_obj = paginator.get_page(request.GET.get("page") or 1)
+    items = page_obj.object_list
 
     ctx = {
         "items": items,
         "page_obj": page_obj,
         "total_gross": kpi["gross"],
-        "total_net":   kpi["net"],
-        "total_tax":   kpi["tax"],
+        "total_net": kpi["net"],
+        "total_tax": kpi["tax"],
         "flt": {"year": year_q, "month": month_q, "broker": broker, "account": account, "q": q},
     }
     return render(request, "dividends/list.html", ctx)
+
 
 @login_required
 def dividend_create(request):
@@ -279,6 +332,7 @@ def dividend_create(request):
         form = DividendForm(user=request.user)
 
     return render(request, "dividends/form.html", {"form": form})
+
 
 @login_required
 def dividend_edit(request, pk: int):
@@ -300,6 +354,7 @@ def dividend_edit(request, pk: int):
 
     return render(request, "dividends/form.html", {"form": form})
 
+
 @login_required
 def dividend_delete(request, pk: int):
     obj = get_object_or_404(Dividend, pk=pk)
@@ -313,6 +368,7 @@ def dividend_delete(request, pk: int):
     else:
         messages.info(request, "削除をキャンセルしました。")
     return redirect("dividend_list")
+
 
 # ===================== ルックアップ =====================
 
@@ -337,6 +393,7 @@ def _resolve_name_fallback(code_head: str, raw: str) -> str:
             pass
     return (name or "").strip()
 
+
 @require_GET
 def dividend_lookup_name(request):
     raw = request.GET.get("q", "")
@@ -344,38 +401,44 @@ def dividend_lookup_name(request):
     name = _resolve_name_fallback(head, raw) if head else ""
     return JsonResponse({"name": name})
 
+
 # ===================== CSV =====================
 
 @login_required
 @require_GET
 def export_csv(request):
-    year_q  = (request.GET.get("year") or "").strip()
+    year_q = (request.GET.get("year") or "").strip()
     month_q = (request.GET.get("month") or "").strip()
-    broker  = (request.GET.get("broker") or "").strip()
+    broker = (request.GET.get("broker") or "").strip()
     account = (request.GET.get("account") or "").strip()
-    q       = (request.GET.get("q") or "").strip()
+    q = (request.GET.get("q") or "").strip()
 
-    year  = int(year_q) if year_q.isdigit() else None
+    year = int(year_q) if year_q.isdigit() else None
     month = int(month_q) if month_q.isdigit() else None
 
     base_qs = svc_div.build_user_dividend_qs(request.user)
     qs = svc_div.apply_filters(
-        base_qs,
-        year=year, month=month,
-        broker=broker or None,
-        account=account or None,
-        q=q or None,
+        base_qs, year=year, month=month, broker=broker or None, account=account or None, q=q or None
     ).order_by("date", "id")
 
     sio = StringIO()
     writer = csv.writer(sio)
-    writer.writerow([
-        "id", "date", "ticker", "name",
-        "broker", "account",
-        "quantity", "purchase_price",
-        "gross_amount", "tax", "net_amount",
-        "memo",
-    ])
+    writer.writerow(
+        [
+            "id",
+            "date",
+            "ticker",
+            "name",
+            "broker",
+            "account",
+            "quantity",
+            "purchase_price",
+            "gross_amount",
+            "tax",
+            "net_amount",
+            "memo",
+        ]
+    )
 
     def _gross(d):
         try:
@@ -399,24 +462,44 @@ def export_csv(request):
                 return (amt - tax) if not getattr(d, "is_net", False) else amt
 
     for d in qs:
-        writer.writerow([
-            d.id,
-            d.date.isoformat() if d.date else "",
-            (d.display_ticker or d.ticker or ""),
-            (d.display_name or d.name or ""),
-            (d.get_broker_display() if d.broker else (d.holding.get_broker_display() if getattr(d, "holding", None) and d.holding.broker else "")),
-            (d.get_account_display() if d.account else (d.holding.get_account_display() if getattr(d, "holding", None) and d.holding.account else "")),
-            d.quantity or (getattr(d.holding, "quantity", "") if getattr(d, "holding", None) else ""),
-            (f"{d.purchase_price:.2f}" if d.purchase_price is not None else (f"{getattr(d.holding, 'avg_cost'):.2f}" if getattr(d, "holding", None) and d.holding.avg_cost is not None else "")),
-            f"{_gross(d):.2f}",
-            f"{float(d.tax or 0):.2f}",
-            f"{_net(d):.2f}",
-            d.memo or "",
-        ])
+        writer.writerow(
+            [
+                d.id,
+                d.date.isoformat() if d.date else "",
+                _label_ticker(d),
+                _label_name(d),
+                (
+                    d.get_broker_display()
+                    if d.broker
+                    else (d.holding.get_broker_display() if getattr(d, "holding", None) and d.holding.broker else "")
+                ),
+                (
+                    d.get_account_display()
+                    if d.account
+                    else (d.holding.get_account_display() if getattr(d, "holding", None) and d.holding.account else "")
+                ),
+                d.quantity or (getattr(d.holding, "quantity", "") if getattr(d, "holding", None) else ""),
+                (
+                    f"{d.purchase_price:.2f}"
+                    if d.purchase_price is not None
+                    else (
+                        f"{getattr(d.holding, 'avg_cost'):.2f}"
+                        if getattr(d, "holding", None) and d.holding.avg_cost is not None
+                        else ""
+                    )
+                ),
+                f"{_gross(d):.2f}",
+                f"{float(d.tax or 0):.2f}",
+                f"{_net(d):.2f}",
+                d.memo or "",
+            ]
+        )
 
     filename_bits = ["dividends"]
-    if year_q:  filename_bits.append(str(year_q))
-    if month_q: filename_bits.append(f"{int(month_q):02d}")
+    if year_q:
+        filename_bits.append(str(year_q))
+    if month_q:
+        filename_bits.append(f"{int(month_q):02d}")
     filename = "_".join(filename_bits) + ".csv"
 
     resp = HttpResponse(content_type="text/csv; charset=utf-8")
@@ -424,13 +507,14 @@ def export_csv(request):
     resp.write(sio.getvalue())
     return resp
 
+
 # ===================== カレンダー =====================
 
 @login_required
 def dividends_calendar(request):
     y = int(request.GET.get("year") or timezone.localdate().year)
     m = int(request.GET.get("month") or timezone.localdate().month)
-    broker  = request.GET.get("broker") or None
+    broker = request.GET.get("broker") or None
     account = request.GET.get("account") or None
 
     payload = _build_calendar_payload(request.user, y, m, broker=broker, account=account)
@@ -446,20 +530,22 @@ def dividends_calendar(request):
         "sum_month": payload["sum_month"],
         "year": y,
         "month": m,
-        # JS フォールバック用
+        # JS でそのまま再利用できるように
         "payload_json": payload,
     }
     return render(request, "dividends/calendar.html", ctx)
+
 
 @login_required
 def dividends_calendar_json(request):
     y = int(request.GET.get("year") or timezone.localdate().year)
     m = int(request.GET.get("month") or timezone.localdate().month)
-    broker  = request.GET.get("broker") or None
+    broker = request.GET.get("broker") or None
     account = request.GET.get("account") or None
 
     payload = _build_calendar_payload(request.user, y, m, broker=broker, account=account)
     return JsonResponse(payload)
+
 
 # ===================== 予測 =====================
 
@@ -470,13 +556,12 @@ def dividends_forecast(request):
     ctx = {
         "flt": _flt(request),
         "year_options": list(range(timezone.now().year + 1, timezone.now().year - 7, -1)),
-        # 初期描画用
         "months": payload["months"],
         "sum12": payload["sum12"],
-        # JS フォールバック用
         "payload_json": payload,
     }
     return render(request, "dividends/forecast.html", ctx)
+
 
 @login_required
 def dividends_forecast_json(request):
