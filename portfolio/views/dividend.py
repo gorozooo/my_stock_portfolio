@@ -71,11 +71,16 @@ def _label_name(d) -> str:
 
 def _build_calendar_payload(user, y: int, m: int, *, broker: str | None, account: str | None):
     """
-    カレンダー用の月次明細サマリを計算して返す（サーバ描画/JSON 共通）。
+    カレンダー用の月次明細サマリを計算して返す。
     返り値:
       {
         "year": y, "month": m,
-        "days": [{"d":1,"total":12345.0,"items":[{"ticker":"xxxx","name":"…","net":…}, …]}, …],
+        "days": [
+          {"d":1,"total":12345.0,"items":[
+            {"ticker":"7272","name":"ヤマハ発動機","net":10000.0,
+             "broker":"楽天証券","account":"NISA","qty":400}
+          ]}
+        ],
         "sum_month": 99999.0
       }
     """
@@ -91,16 +96,24 @@ def _build_calendar_payload(user, y: int, m: int, *, broker: str | None, account
         if not d.date or d.date.year != y or d.date.month != m:
             continue
         idx = d.date.day - 1
-        net = _safe_net(d)
+        net = float(d.net_amount() or 0.0)
         if net <= 0:
-            # 0 でも表示したいならこの if を削除
             continue
         month_sum += net
         days[idx]["total"] += net
+
+        # 表示名・証券会社・口座・株数をできるだけ埋める
+        brk = d.get_broker_display() if d.broker else (d.holding.get_broker_display() if getattr(d, "holding", None) and d.holding.broker else "")
+        acc = d.get_account_display() if d.account else (d.holding.get_account_display() if getattr(d, "holding", None) and d.holding.account else "")
+        qty = d.quantity or (d.holding.quantity if getattr(d, "holding", None) and d.holding.quantity else None)
+
         days[idx]["items"].append({
-            "ticker": _label_ticker(d),
-            "name": _label_name(d),
-            "net": round(net, 2),
+            "ticker": d.display_ticker,
+            "name":   d.display_name or d.display_ticker,
+            "net":    round(net, 2),
+            "broker": brk or "",
+            "account": acc or "",
+            "qty":    qty if qty is not None else "",
         })
 
     for bucket in days:
