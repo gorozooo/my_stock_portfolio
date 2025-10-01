@@ -1,9 +1,8 @@
-# portfolio/services/dividends.py
 from __future__ import annotations
 from typing import Optional, List, Dict
 from decimal import Decimal
 
-from django.db.models import Q, Sum
+from django.db.models import Q
 
 from ..models import Dividend, DividendGoal
 
@@ -210,6 +209,7 @@ def top_symbols(qs_or_list, n: int = 10) -> List[Dict]:
     out.sort(key=lambda x: x["net"], reverse=True)
     return out[:n]
     
+
 # ========== 目標（年間） ==========
 def get_goal_amount(user, year: int) -> Decimal:
     try:
@@ -217,6 +217,7 @@ def get_goal_amount(user, year: int) -> Decimal:
         return g.amount or Decimal("0")
     except DividendGoal.DoesNotExist:
         return Decimal("0")
+
 
 def set_goal_amount(user, year: int, amount: Decimal) -> Decimal:
     obj, _ = DividendGoal.objects.update_or_create(
