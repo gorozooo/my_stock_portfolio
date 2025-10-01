@@ -4,26 +4,80 @@
 
 {% block head %}
 <style>
-  .toolbar{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:960px;margin:0 auto 12px}
-  .toolbar select{width:100%;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);
-                  background:rgba(255,255,255,.06);color:#eaf0ff}
+  .toolbar{
+    display:grid;gap:12px;max-width:960px;margin:0 auto 12px;
+    grid-template-columns:1fr 1fr;
+  }
+  .toolbar select{
+    width:100%;padding:12px;border-radius:12px;
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.06);color:#eaf0ff
+  }
+  .toolbar .wide{grid-column:1/-1}
 
   .calwrap{max-width:960px;margin:0 auto}
-  .dow{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin:10px 0 6px}
-  .dow div{padding:10px;text-align:center;color:#9aa4b2;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
-  .grid{display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:100px;gap:6px}
-  .cell{position:relative;border-radius:12px;background:#202635;border:1px solid rgba(255,255,255,.08);padding:10px}
-  .cell .d{color:#cfd6e6;font-size:16px;font-weight:700}
-  .badge{position:absolute;right:8px;bottom:8px;padding:4px 8px;border-radius:999px;background:rgba(69,118,221,.18);
-         border:1px solid rgba(69,118,221,.45);font-size:12px}
-  .list{position:absolute;left:8px;bottom:8px;font-size:11px;color:#9aa4b2}
+  .dow{
+    display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin:8px 0 8px
+  }
+  .dow div{
+    padding:10px;text-align:center;color:#9aa4b2;border-radius:10px;
+    background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)
+  }
+
+  /* グリッド本体 */
+  .grid{
+    display:grid;grid-template-columns:repeat(7,1fr);gap:8px
+  }
+  .cell{
+    position:relative;border-radius:16px;padding:10px 10px 12px;
+    background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
+    border:1px solid rgba(255,255,255,.09);
+    box-shadow:0 1px 0 rgba(0,0,0,.15) inset;
+    aspect-ratio: 1 / 1.05;   /* スクエアに近い比率で見やすく */
+    overflow:hidden;
+  }
+  .cell .d{
+    font-weight:700;font-size:16px;color:#e7edff;opacity:.9
+  }
+  .cell .label{
+    position:absolute;left:10px;right:10px;bottom:12px;
+    font-size:12px;color:#aab3c7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .cell.has-data{ background:linear-gradient(180deg, rgba(63,86,132,.22), rgba(36,48,73,.18)); }
+  .badge{
+    position:absolute;right:8px;top:8px;border-radius:999px;
+    padding:4px 8px;font-size:12px;font-weight:700;
+    background:rgba(79,140,255,.18);
+    border:1px solid rgba(79,140,255,.55);
+    color:#dfe8ff;backdrop-filter: blur(3px);
+  }
+
+  .hint{color:#9aa4b2;max-width:960px;margin:10px auto 0}
+
+  /* ---- モーダル（ボトムシート） ---- */
+  .modal-mask{
+    position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;z-index:40
+  }
+  .modal{
+    position:fixed;left:0;right:0;bottom:0;z-index:41;display:none;
+  }
+  .sheet{
+    margin:0 auto;max-width:960px;background:#121622;color:#e9eeff;
+    border-radius:16px 16px 0 0;border:1px solid rgba(255,255,255,.12);
+    padding:12px 12px 6px;
+  }
+  .sheet .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .sheet .head .ttl{font-weight:700}
+  .sheet .row{display:flex;justify-content:space-between;gap:10px;padding:10px 2px;border-bottom:1px dashed rgba(255,255,255,.12)}
+  .sheet .row:last-child{border-bottom:none}
+  .btn-close{border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.06);color:#e9eeff;border-radius:10px;padding:6px 10px}
 </style>
 {% endblock %}
 
 {% block content %}
 <h1 class="text-xl font-semibold mb-3">配当カレンダー</h1>
 
-<div class="toolbar" id="calbar">
+<div class="toolbar">
   <select id="selYear">
     {% for y in year_options %}
       <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>
@@ -34,14 +88,13 @@
       <option value="{{ m }}" {% if month == m %}selected{% endif %}>{{ m }}</option>
     {% endfor %}
   </select>
-
-  <select id="selBroker" style="grid-column:1/-1">
+  <select id="selBroker" class="wide">
     <option value="">証券会社(すべて)</option>
     {% for v,l in BROKERS %}
       <option value="{{ v }}" {% if flt.broker == v %}selected{% endif %}>{{ l }}</option>
     {% endfor %}
   </select>
-  <select id="selAccount" style="grid-column:1/-1">
+  <select id="selAccount" class="wide">
     <option value="">口座(すべて)</option>
     {% for v,l in ACCOUNTS %}
       <option value="{{ v }}" {% if flt.account == v %}selected{% endif %}>{{ l }}</option>
@@ -50,16 +103,24 @@
 </div>
 
 <div class="calwrap">
-  <div class="dow">
-    <div>日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div>土</div>
-  </div>
+  <div class="dow"><div>日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div>土</div></div>
   <div class="grid" id="calGrid" data-year="{{ year }}" data-month="{{ month }}"></div>
-  <div class="text-slate-400 mt-2">セルのバッジをタップでその日の明細を表示します。</div>
+  <div class="hint">セル（バッジ）をタップすると、その日の内訳を表示します。</div>
 </div>
 
-<script>
-  // 初期ペイロード（バックエンドで作ってある）
-  window.__CAL_INIT__ = {{ payload_json|safe }};
-</script>
-<script src="{% static 'js/dividends_calendar.js' %}?v=5"></script>
+<!-- 明細モーダル -->
+<div id="modalMask" class="modal-mask"></div>
+<div id="modal" class="modal">
+  <div class="sheet">
+    <div class="head">
+      <div class="ttl" id="mTitle"></div>
+      <button class="btn-close" id="mClose">閉じる</button>
+    </div>
+    <div class="row" id="mTotal"></div>
+    <div id="mList"></div>
+  </div>
+</div>
+
+<script>window.__CAL_INIT__ = {{ payload_json|safe }};</script>
+<script src="{% static 'js/dividends_calendar.js' %}?v=3"></script>
 {% endblock %}
