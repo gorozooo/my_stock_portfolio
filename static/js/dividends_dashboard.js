@@ -6,8 +6,8 @@
   const LABELS = window.DIVD_LABELS || {broker:{}, account:{}};
 
   // 金額フォーマッタ（整数＋円）
-  const fmt =(n)=> Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0}) + "円";
-  const q   =(v)=> encodeURIComponent(v||"");
+  const fmtYen =(n)=> Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0}) + "円";
+  const q      =(v)=> encodeURIComponent(v||"");
 
   /* ------------ Toast ------------ */
   const toast = $("#dashToast");
@@ -42,7 +42,7 @@
     const showTip=(cx,cy,m,net,tax)=>{
       if(!tip) return;
       const r = wrapRect();
-      tip.textContent = `${m}月  税引後 ${fmt(net)} / 税額 ${fmt(tax)}`;
+      tip.textContent = `${m}月  税引後 ${fmtYen(net)} / 税額 ${fmtYen(tax)}`;
       tip.style.left = (cx - r.left) + "px";
       tip.style.top  = (cy - r.top - 8) + "px";
       tip.style.display = "block";
@@ -97,7 +97,7 @@
     wrap.replaceChildren(svg);
   }
 
-  /* ------------ ドーナツ（右凡例） ------------ */
+  /* ------------ ドーナツ（右凡例：1行・省略・金額は改行禁止） ------------ */
   function drawDonut(svgId, legendId, rows, opts){
     const svg = document.getElementById(svgId);
     const legend = document.getElementById(legendId);
@@ -138,16 +138,19 @@
       svg.appendChild(circle);
       acc += ratio;
 
-      // 凡例
+      // ラベル（日本語名テーブル→なければ生値）
       const raw = row[opts.key];
       const shown = (opts.labels||{})[raw] || raw || "—";
       const pct = (val/total*100)||0;
+
       const a = document.createElement("a");
       a.className = "row";
       a.href = drill({ year: $("#flt_year").value, [opts.key]: raw });
       a.innerHTML = `
-        <span class="l"><i class="swatch" style="background:${color}"></i>${shown}</span>
-        <span class="r">${fmt(val)}&nbsp;&nbsp;<span class="muted">${pct.toFixed(1)}%</span></span>
+        <span class="l" title="${shown}">
+          <i class="swatch" style="background:${color}"></i><span class="label">${shown}</span>
+        </span>
+        <span class="r"><span class="money">${fmtYen(val)}</span><span class="pct">${pct.toFixed(1)}%</span></span>
       `;
       legend.appendChild(a);
     });
@@ -156,7 +159,7 @@
     const t = document.createElementNS("http://www.w3.org/2000/svg","text");
     t.setAttribute("x", cx); t.setAttribute("y", cy+4);
     t.setAttribute("text-anchor","middle"); t.setAttribute("font-size","11");
-    t.setAttribute("fill","rgba(255,255,255,.85)"); t.textContent = fmt(total);
+    t.setAttribute("fill","rgba(255,255,255,.85)"); t.textContent = fmtYen(total);
     svg.appendChild(t);
   }
 
@@ -166,10 +169,10 @@
     const amount = Number(goal?.amount||0);
     const pct    = Math.max(0, Math.min(100, Number(goal?.progress_pct||0)));
     const remain = Number(goal?.remaining||0);
-    $("#goal_amount_view").textContent   = fmt(amount);
+    $("#goal_amount_view").textContent   = fmtYen(amount);
     $("#goal_amount_input").value        = amount ? Math.round(amount) : "";
     $("#goal_progress_view").textContent = pct.toFixed(2) + "%";
-    $("#goal_remaining_view").textContent= fmt(remain);
+    $("#goal_remaining_view").textContent= fmtYen(remain);
     $("#goal_bar_inner").style.width     = pct + "%";
     const card = $("#goal_card");
     const achieved = pct >= 100;
@@ -186,9 +189,9 @@
 
     // KPI（整数＋円）
     $("#kpi_count").textContent = (data.kpi?.count ?? 0);
-    $("#kpi_gross").textContent = fmt(data.kpi?.gross ?? 0);
-    $("#kpi_tax").textContent   = fmt(data.kpi?.tax ?? 0);
-    $("#kpi_net").textContent   = fmt(data.kpi?.net ?? 0);
+    $("#kpi_gross").textContent = fmtYen(data.kpi?.gross ?? 0);
+    $("#kpi_tax").textContent   = fmtYen(data.kpi?.tax ?? 0);
+    $("#kpi_net").textContent   = fmtYen(data.kpi?.net ?? 0);
     $("#kpi_yield").textContent = (Number(data.kpi?.yield_pct||0)).toFixed(2);
 
     // 目標
@@ -198,15 +201,18 @@
     drawMonthly((data.monthly||[]).map(x=>({m:x.m, net:+x.net, tax:+x.tax})));
 
     // ドーナツ（右凡例・日本語ラベル）
-    drawDonut("donut_broker","legend_broker", data.by_broker||[],  {key:"broker",  labels:LABELS.broker});
-    drawDonut("donut_account","legend_account", data.by_account||[], {key:"account", labels:LABELS.account});
+    drawDonut("donut_broker","legend_broker",  data.by_broker||[],  {key:"broker",  labels:LABELS.broker});
+    drawDonut("donut_account","legend_account",data.by_account||[], {key:"account", labels:LABELS.account});
 
-    // Top銘柄（整数＋円）
+    // Top銘柄（コードではなく“銘柄名”を優先表示）
     const top = data.top_symbols||[];
     const box = $("#tbl_top");
     if (box){
       box.innerHTML = top.length
-        ? top.map(r=>`<div class="row"><span class="l">${r.label}</span><span class="r">${fmt(r.net)}</span></div>`).join("")
+        ? top.map(r=>{
+            const name = r.name || r.display_name || r.label || ""; // name優先
+            return `<div class="row"><span class="l">${name}</span><span class="r">${fmtYen(r.net)}</span></div>`;
+          }).join("")
         : `<div class="muted">データなし</div>`;
     }
   }
