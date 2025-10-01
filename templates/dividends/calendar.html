@@ -30,8 +30,11 @@
         <option value="{{ y }}" {% if flt.year == y %}selected{% endif %}>{{ y }}</option>
       {% endfor %}
     </select>
-    <select id="month">
-      {% for m in "123456789101112".split " " %}{% endfor %}
+    <select id="month" name="month">
+      <option value="">月(すべて)</option>
+      {% for m in month_options %}
+        <option value="{{ m }}" {% if flt.month == m|stringformat:"s" %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
     </select>
     <select id="broker">
       <option value="">証券会社(すべて)</option>
