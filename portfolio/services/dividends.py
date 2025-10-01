@@ -167,19 +167,46 @@ def group_by_account(qs_or_list) -> List[Dict]:
 
 def top_symbols(qs_or_list, n: int = 10) -> List[Dict]:
     """
-    税引後合計の上位銘柄 [{label, net}] を返す（降順で n 件）。
-    label は display_ticker（無ければ display_name）。
+    税引後合計の上位銘柄を返す（降順で n 件）。
+    - 集計キーは ticker（コード）でまとめる
+    - 表示名は「name → holding.name → ticker」の順でフォールバック
+    返り値: [{ticker, name, label, net}]
     """
     rows = materialize(qs_or_list) if not isinstance(qs_or_list, list) else qs_or_list
-    buckets: Dict[str, float] = {}
+
+    buckets: Dict[str, Dict[str, float | str]] = {}
     for d in rows:
-        label = d.display_ticker or d.display_name or "—"
-        buckets.setdefault(label, 0.0)
+        # 集計キー（コード）
+        ticker = (d.display_ticker or d.ticker or "").upper() or "—"
+
+        # 表示名（フォールバック順：Dividend.name → Holding.name → ticker）
+        disp_name = (d.name or (d.holding.name if d.holding else "") or ticker)
+
+        # 初期化
+        if ticker not in buckets:
+            buckets[ticker] = {"net": 0.0, "name": disp_name}
+
+        # name がまだ空で今回得られたら更新（保険）
+        if not buckets[ticker]["name"] and disp_name:
+            buckets[ticker]["name"] = disp_name
+
+        # 税引後で加算
         try:
-            buckets[label] += float(d.net_amount() or 0)
+            buckets[ticker]["net"] += float(d.net_amount() or 0)
         except Exception:
             pass
-    out = [{"label": k, "net": round(v, 2)} for k, v in buckets.items()]
+
+    out: List[Dict] = []
+    for tkr, rec in buckets.items():
+        net = float(rec["net"] or 0)
+        name = str(rec["name"] or tkr)
+        out.append({
+            "ticker": tkr,
+            "name":   name,          # ← JS が最優先で使う
+            "label":  name,          # ← 既存互換（名前を label にも入れておく）
+            "net":    round(net, 2),
+        })
+
     out.sort(key=lambda x: x["net"], reverse=True)
     return out[:n]
     
