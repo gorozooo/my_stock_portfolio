@@ -1,7 +1,6 @@
 # portfolio/views/dividend.py
 
 from __future__ import annotations
-from calendar import monthrange
 from decimal import Decimal
 from datetime import date
 from calendar import monthrange
@@ -12,11 +11,12 @@ from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db.models import Q
 from django.utils import timezone
-from django.http import JsonResponse, HttpResponseBadRequest
+from django.http import JsonResponse, HttpResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_GET, require_POST
-from django.urls import reverse  # ★ 追加
+from django.urls import reverse
 import csv
 from io import StringIO
+from collections import defaultdict
 
 from ..forms import DividendForm, _normalize_code_head
 from ..models import Dividend
@@ -148,7 +148,6 @@ def dividend_save_goal(request):
     svc_div.set_goal_amount(request.user, year, amount)
     messages.success(request, "年間目標を保存しました。")
 
-    # ★ 修正：reverse を使って正しいURLへ
     url = f"{reverse('dividend_dashboard')}?year={year}"
     return redirect(url)
 
@@ -281,7 +280,8 @@ def dividend_lookup_name(request):
     head = _normalize_code_head(raw)
     name = _resolve_name_fallback(head, raw) if head else ""
     return JsonResponse({"name": name})
-    
+
+
 @login_required
 @require_GET
 def export_csv(request):
@@ -328,7 +328,6 @@ def export_csv(request):
             try:
                 return float(d.gross_amount)
             except Exception:
-                # フォールバック計算
                 amt = float(d.amount or 0)
                 return amt if not getattr(d, "is_net", False) else (amt + float(d.tax or 0))
 
@@ -359,7 +358,6 @@ def export_csv(request):
             d.memo or "",
         ])
 
-    # レスポンス
     filename_bits = ["dividends"]
     if year_q:  filename_bits.append(str(year_q))
     if month_q: filename_bits.append(f"{int(month_q):02d}")
@@ -372,6 +370,8 @@ def export_csv(request):
     resp.write(sio.getvalue())
     return resp
 
+
+# ===== 共通フィルタヘルパ =====
 def _parse_year(req):
     try:
         return int(req.GET.get("year") or req.GET.get("y") or timezone.now().year)
@@ -386,7 +386,9 @@ def _flt(req):
         "account":req.GET.get("account") or "",
     }
 
+
 # ===== カレンダー（ページ） =====
+@login_required
 def dividends_calendar(request):
     ctx = {
         "flt": _flt(request),
@@ -394,7 +396,10 @@ def dividends_calendar(request):
     }
     return render(request, "dividends/calendar.html", ctx)
 
+
 # ===== カレンダー JSON =====
+@login_required
+@require_GET
 def dividends_calendar_json(request):
     """
     月カレンダー用データ。
@@ -414,10 +419,9 @@ def dividends_calendar_json(request):
     account = request.GET.get("account") or None
 
     # ベース QS → 絞り込み（date は支払日として運用）
-    qs = svc.build_user_dividend_qs(request.user)
-    qs = svc.apply_filters(qs, year=y, month=m, broker=broker, account=account)
-
-    rows = svc.materialize(qs)
+    qs = svc_div.build_user_dividend_qs(request.user)
+    qs = svc_div.apply_filters(qs, year=y, month=m, broker=broker, account=account)
+    rows = svc_div.materialize(qs)
 
     # 1..末日でバケツを用意
     last = monthrange(y, m)[1]
@@ -438,7 +442,7 @@ def dividends_calendar_json(request):
             "net":    round(net, 2),
         })
 
-    # 小計の大きい順に同日の items を並べ替え
+    # 同日の items を大きい順に
     for bucket in days:
         bucket["items"].sort(key=lambda x: x["net"], reverse=True)
         bucket["total"] = round(bucket["total"], 2)
@@ -447,7 +451,9 @@ def dividends_calendar_json(request):
         "year": y, "month": m, "days": days, "sum_month": round(month_sum, 2)
     })
 
+
 # ===== 予測ページ（ベース UI） =====
+@login_required
 def dividends_forecast(request):
     ctx = {
         "flt": _flt(request),
@@ -455,26 +461,25 @@ def dividends_forecast(request):
     }
     return render(request, "dividends/forecast.html", ctx)
 
+
 # ===== 予測 JSON（シンプル版） =====
+@login_required
+@require_GET
 def dividends_forecast_json(request):
     """
-    直近の 1株配当 × 現在株数 × 想定回数(freq_hint: 年1/2/4) の超シンプル見込み。
+    直近の 1株配当 × 現在株数 × 想定回数(freq_hint の簡易推定: 年1/2/4) の超シンプル見込み。
     出力: { "months": [ {"yyyymm": "2025-06", "net": 12345.0}, ... ], "sum12": 99999.0 }
     """
-    from collections import defaultdict
-    import math
-
     year = _parse_year(request)
 
     # 対象はフィルタ済みの配当レコード
-    qs = svc.build_user_dividend_qs(request.user)
-    qs = svc.apply_filters(qs, year=year)  # 年でフィルタ（来期は年跨ぎの都合で簡易）
-
-    rows = svc.materialize(qs)
+    qs = svc_div.build_user_dividend_qs(request.user)
+    qs = svc_div.apply_filters(qs, year=year)  # 年でフィルタ（来期は年跨ぎの都合で簡易）
+    rows = svc_div.materialize(qs)
 
     # 銘柄ごとに「直近1回の1株配当（税引後）」「現在株数」を推定
-    last_per_share = {}
-    qty_by_symbol  = {}
+    last_per_share: dict[str, float] = {}
+    qty_by_symbol:  dict[str, int]   = {}
 
     for d in rows:
         ps = d.per_share_dividend_net()
@@ -486,25 +491,23 @@ def dividends_forecast_json(request):
         if q:
             qty_by_symbol[d.display_ticker] = int(q)
 
-    # 想定回数 = 超簡易: 直近 1 年間の支払月のユニーク数（1/2/4 のいずれかに丸め）
-    from collections import defaultdict
+    # 想定回数 = 直近 1 年間の支払月ユニーク数（1/2/4 のいずれかに丸め）
     months_by_symbol = defaultdict(set)
     for d in rows:
-        months_by_symbol[d.display_ticker].add((d.date.year, d.date.month))
-    freq_by_symbol = {}
+        if d.date:
+            months_by_symbol[d.display_ticker].add((d.date.year, d.date.month))
+
+    freq_by_symbol: dict[str, int] = {}
     for sym, ms in months_by_symbol.items():
         cnt = len([1 for y_m in ms if y_m[0] == year])
-        if cnt >= 4: f = 4
+        if   cnt >= 4: f = 4
         elif cnt >= 2: f = 2
         elif cnt >= 1: f = 1
-        else: f = 1
+        else:          f = 1
         freq_by_symbol[sym] = f
 
     # 12ヶ月へ素朴配賦（実際の月割りは Phase 3 で改良）
-    yymm = []
-    today = date(year, 1, 1)
-    for m in range(1,13):
-        yymm.append(f"{year}-{m:02d}")
+    yymm = [f"{year}-{m:02d}" for m in range(1, 13)]
     monthly = {m: 0.0 for m in yymm}
 
     for sym, ps in last_per_share.items():
@@ -515,7 +518,8 @@ def dividends_forecast_json(request):
         # 均等に f 回分だけ前から埋める（ダミー）
         placed = 0
         for m in yymm:
-            if placed >= f: break
+            if placed >= f:
+                break
             monthly[m] += each
             placed += 1
 
