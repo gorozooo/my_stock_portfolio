@@ -9,12 +9,11 @@ from .views import realized as realized_views
 from .views.realized import (
     monthly_page,
     chart_monthly_json,
-    chart_daily_heat_json,   
+    chart_daily_heat_json,
 )
 from .views import dev_tools as dev_views
 from .views import holding as hv
-from .views import dividend as v_div   
-from .views import dividends_calendar, dividends_calendar_json, dividends_forecast, dividends_forecast_json
+from .views import dividend as v_div  # ← 配当まわりはこのモジュールに集約
 
 urlpatterns = [
     path("", core_views.main, name="home"),
@@ -33,10 +32,10 @@ urlpatterns = [
 
     # 設定
     path("settings/trade", settings_views.trade_setting, name="trade_setting"),
-    
+
     # デバグ
     path("dev/scan-avg/", dev_views.scan_avg, name="scan_avg"),
-    
+
     # 保有
     path("holdings/", hv.holding_list, name="holding_list"),
     path("holdings/<int:pk>/close", realized_views.close_sheet, name="holding_close_sheet"),
@@ -46,22 +45,22 @@ urlpatterns = [
     path("holdings/<int:pk>/delete/", hv.holding_delete, name="holding_delete"),
     path("api/ticker-name", hv.api_ticker_name, name="api_ticker_name"),
     path("holdings/partial/list", hv.holding_list_partial, name="holding_list_partial"),
-    
-    # 配当
+
+    # 配当（ダッシュボード/一覧/作成・編集・削除/名前ルックアップ/CSV/目標保存/カレンダー/予測）
     path("dividends/dashboard/", v_div.dashboard, name="dividend_dashboard"),
+    path("dividends/dashboard.json", v_div.dashboard_json, name="dividend_dashboard_json"),
     path("dividends/", v_div.dividend_list, name="dividend_list"),
     path("dividends/create/", v_div.dividend_create, name="dividend_create"),
     path("dividends/<int:pk>/edit/", v_div.dividend_edit, name="dividend_edit"),
     path("dividends/<int:pk>/delete/", v_div.dividend_delete, name="dividend_delete"),
     path("dividends/lookup-name/", v_div.dividend_lookup_name, name="dividend_lookup_name"),
-    path("dividends/dashboard.json", v_div.dashboard_json, name="dividend_dashboard_json"),
     path("dividends/export.csv", v_div.export_csv, name="dividends_export_csv"),
     path("dividends/goal/", v_div.dividend_save_goal, name="dividend_save_goal"),
-    path("dividends/calendar/", dividends_calendar, name="dividend_calendar"),
-    path("dividends/calendar.json", dividends_calendar_json, name="dividend_calendar_json"),
-    path("dividends/forecast/", dividends_forecast, name="dividend_forecast"),
-    path("dividends/forecast.json", dividends_forecast_json, name="dividend_forecast_json"),
-    
+    path("dividends/calendar/", v_div.dividends_calendar, name="dividend_calendar"),
+    path("dividends/calendar.json", v_div.dividends_calendar_json, name="dividend_calendar_json"),
+    path("dividends/forecast/", v_div.dividends_forecast, name="dividend_forecast"),
+    path("dividends/forecast.json", v_div.dividends_forecast_json, name="dividend_forecast_json"),
+
     # 実現損益（メイン）
     path("realized/", realized_views.list_page, name="realized_list"),
     path("realized/create", realized_views.create, name="realized_create"),
@@ -83,7 +82,7 @@ urlpatterns = [
     path("realized/monthly/topworst/", realized_views.monthly_topworst_partial, name="realized_monthly_topworst"),
     path("realized/monthly/kpis/", realized_views.monthly_kpis_partial, name="realized_monthly_kpis"),
     path("realized/monthly/breakdown/", realized_views.monthly_breakdown_partial, name="realized_monthly_breakdown"),
-        
+
     # チャートJSON
     path("realized/chart-monthly.json", chart_monthly_json, name="realized_chart_monthly"),
     path("realized/chart/monthly.json", chart_monthly_json, name="realized_chart_monthly_json"),
