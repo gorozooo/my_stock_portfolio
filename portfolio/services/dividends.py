@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Optional, List, Dict
 from decimal import Decimal
+from datetime import date
 
 from django.db.models import Q
 
@@ -10,11 +11,17 @@ from ..models import Dividend, DividendGoal
 # ========== ベース QS ==========
 def build_user_dividend_qs(user):
     """
-    ログインユーザーの配当（Holdingあり or 無し(ティッカー有)）に限定したベースQS。
+    ログインユーザーの配当（
+      1) holding 経由で user が一致、または
+      2) holding が無い（スタンドアロン）
+    ）に限定したベースQS。
     """
     return (
         Dividend.objects.select_related("holding")
-        .filter(Q(holding__user=user) | Q(holding__isnull=True, ticker__isnull=False))
+        .filter(
+            Q(holding__isnull=False, holding__user=user) |
+            Q(holding__isnull=True)
+        )
     )
 
 
@@ -31,16 +38,31 @@ def apply_filters(
     年/月/ブローカー/口座/キーワードで絞り込み。
 
     - broker/account は Dividend 側の値が優先。無い場合は Holding 側で一致させる。
+    - 月の絞り込みは year と組み合わせた「年月の範囲」で厳密に。
     - q は DB カラムに対してのみ検索（display_* はプロパティのため不可）。
     """
-    if year:
+    # 年・月（範囲で絞る）
+    if year and month:
+        # 当月の1日〜末日
+        if month == 12:
+            start = date(year, month, 1)
+            end   = date(year + 1, 1, 1)
+        else:
+            start = date(year, month, 1)
+            end   = date(year, month + 1, 1)
+        qs = qs.filter(date__gte=start, date__lt=end)
+    elif year:
         qs = qs.filter(date__year=year)
-    if month:
+    elif month:
         qs = qs.filter(date__month=month)
+
+    # ブローカー / 口座
     if broker:
         qs = qs.filter(Q(broker=broker) | Q(broker__isnull=True, holding__broker=broker))
     if account:
         qs = qs.filter(Q(account=account) | Q(account__isnull=True, holding__account=account))
+
+    # キーワード（コード/名称）
     if q:
         q = q.strip()
         if q:
@@ -75,17 +97,16 @@ def sum_kpis(qs_or_list) -> Dict[str, float]:
     for d in rows:
         try:
             gross += float(d.gross_amount() or 0)
-            net += float(d.net_amount() or 0)
-            tax += float(d.tax or 0)
+            net   += float(d.net_amount() or 0)
+            tax   += float(d.tax or 0)
         except Exception:
-            # どれか欠けてもスキップして続行
             pass
 
     # 概算利回りの元本
     cost_sum = 0.0
     for d in rows:
         qty = d.quantity or (d.holding.quantity if d.holding and d.holding.quantity else None)
-        pp = d.purchase_price or (
+        pp  = d.purchase_price or (
             d.holding.avg_cost if d.holding and d.holding.avg_cost is not None else None
         )
         if qty and pp is not None:
@@ -175,21 +196,15 @@ def top_symbols(qs_or_list, n: int = 10) -> List[Dict]:
 
     buckets: Dict[str, Dict[str, float | str]] = {}
     for d in rows:
-        # 集計キー（コード）
         ticker = (d.display_ticker or d.ticker or "").upper() or "—"
-
-        # 表示名（フォールバック順：Dividend.name → Holding.name → ticker）
         disp_name = (d.name or (d.holding.name if d.holding else "") or ticker)
 
-        # 初期化
         if ticker not in buckets:
             buckets[ticker] = {"net": 0.0, "name": disp_name}
 
-        # name がまだ空で今回得られたら更新（保険）
         if not buckets[ticker]["name"] and disp_name:
             buckets[ticker]["name"] = disp_name
 
-        # 税引後で加算
         try:
             buckets[ticker]["net"] += float(d.net_amount() or 0)
         except Exception:
@@ -201,14 +216,14 @@ def top_symbols(qs_or_list, n: int = 10) -> List[Dict]:
         name = str(rec["name"] or tkr)
         out.append({
             "ticker": tkr,
-            "name":   name,          # ← JS が最優先で使う
-            "label":  name,          # ← 既存互換（名前を label にも入れておく）
+            "name":   name,
+            "label":  name,
             "net":    round(net, 2),
         })
 
     out.sort(key=lambda x: x["net"], reverse=True)
     return out[:n]
-    
+
 
 # ========== 目標（年間） ==========
 def get_goal_amount(user, year: int) -> Decimal:
