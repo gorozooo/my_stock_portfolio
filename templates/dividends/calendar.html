@@ -7,83 +7,58 @@
 <style>
   .wrap{max-width:960px;margin:0 auto}
 
-  /* フィルタバー */
-  .bar{display:grid;gap:10px;margin:12px 0 8px}
-  @media (min-width:680px){
-    .bar{grid-template-columns:repeat(2,1fr)}
-  }
-  @media (min-width:900px){
-    .bar{grid-template-columns:repeat(4,1fr)}
-  }
+  /* ---- フィルタ（極力コンパクト） ---- */
+  .bar{display:grid;gap:8px;margin:6px 0 8px}
+  @media (min-width:680px){ .bar{grid-template-columns:repeat(4,1fr)} }
+  @media (max-width:679px){ .bar{grid-template-columns:repeat(2,1fr)} }
   .bar select{
-    width:100%;padding:12px;border-radius:12px;
+    width:100%;padding:8px 10px;border-radius:10px;
     border:1px solid rgba(255,255,255,.12);
-    background:rgba(255,255,255,.06);color:#eaf0ff;
+    background:rgba(255,255,255,.06);color:#eaf0ff;font-size:14px
   }
 
-  /* グリッドヘッダ/本体 */
-  .cal{margin-top:10px}
-  .cal-head, .cal-grid{
-    display:grid; grid-template-columns:repeat(7,1fr); gap:8px
-  }
-  .cal-head > div{
-    text-align:center; padding:10px 0; color:#aab3c2; font-size:13px
-  }
-  .cal-grid > div{ /* 空マス占位用 */ }
+  /* ---- カレンダー ---- */
+  .cal-head, .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  .cal-head{margin:6px 0 6px}
+  .cal-head>div{text-align:center;color:#aab3c2;font-size:12px}
+  .cal-grid{grid-auto-rows:56px} /* ← 固定高さで省スペース */
 
-  /* 日セル */
   .day{
-    position:relative; border-radius:14px;
-    background:rgba(255,255,255,.05);
-    border:1px solid rgba(255,255,255,.08);
-    aspect-ratio:1/1; padding:8px; overflow:hidden;
-    display:block; width:100%;
+    position:relative;border-radius:12px;overflow:hidden;
+    background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
+    display:flex;align-items:flex-start;justify-content:flex-start;
+    padding:6px 8px
   }
-  .day-num{ font-weight:700; color:#eaf1ff; }
-  .day.today{ outline:2px solid rgba(125,170,255,.6); }
-  .day.selected{ box-shadow:0 0 0 3px rgba(125,170,255,.35) inset }
+  .day-num{font-weight:700;color:#eaf1ff;font-size:14px;line-height:1}
+  .day.today{outline:2px solid rgba(120,160,255,.55)}
+  .day.selected{box-shadow:0 0 0 3px rgba(120,160,255,.30) inset}
 
-  /* 右上ピルバッジ */
   .badge{
-    position:absolute; right:6px; top:6px;
-    padding:2px 8px; border-radius:999px;
-    background:linear-gradient(145deg, rgba(86,129,255,.85), rgba(50,86,196,.85));
-    color:#fff; font-size:12px; font-weight:700;
-    backdrop-filter: blur(4px);
+    position:absolute;right:6px;top:6px;
+    padding:2px 6px;border-radius:999px;font-size:11px;font-weight:800;
+    background:rgba(78,111,220,.9);color:#fff
   }
-  .badge small{opacity:.85; font-weight:600}
 
-  /* ボトムシート（内訳） */
-  .sheet{
-    position:fixed; left:0; right:0; bottom:0; transform:translateY(110%);
-    transition:transform .22s ease; z-index:40;
-  }
-  .sheet.open{ transform:translateY(0) }
-  .sheet-body{
-    margin:0 8px 12px; border-radius:16px;
-    background:rgba(20,26,40,.96); border:1px solid rgba(255,255,255,.1);
-    padding:12px 12px 14px;
-  }
-  .sheet-handle{ width:42px; height:4px; border-radius:999px; background:#5c6476; margin:6px auto 10px; opacity:.6 }
-  .sheet-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px }
-  .sheet-title{ font-weight:700; font-size:16px }
-  .sheet-close{ padding:6px 10px; border-radius:8px; border:1px solid rgba(255,255,255,.15); background:rgba(255,255,255,.06); color:#e9f1ff }
-  .sheet-total{ font-weight:700; margin:4px 0 10px }
-  .sheet-list{ list-style:none; margin:0; padding:0 }
-  .sheet-list li{
-    display:flex; justify-content:space-between; gap:10px;
-    padding:8px 0; border-top:1px solid rgba(255,255,255,.08);
-  }
-  .sheet-list .name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
-  .sheet-list .amt{ white-space:nowrap; font-weight:700 }
+  /* ---- ボトムシート（軽量） ---- */
+  .sheet{position:fixed;left:0;right:0;bottom:0;transform:translateY(110%);transition:transform .18s ease;z-index:40}
+  .sheet.open{transform:translateY(0)}
+  .sheet-body{margin:0 8px 10px;border-radius:14px;background:#121723;border:1px solid rgba(255,255,255,.1);padding:10px}
+  .sheet-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .sheet-title{font-weight:700;font-size:16px}
+  .sheet-close{padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#e9f1ff}
+  .sheet-total{font-weight:700;margin:4px 0 6px}
+  .sheet-list{list-style:none;margin:0;padding:0}
+  .sheet-list li{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid rgba(255,255,255,.08)}
+  .sheet-list .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sheet-list .amt{white-space:nowrap;font-weight:700}
 
-  .hint{color:#aab3c2;margin:14px 0 6px}
+  .hint{color:#aab3c2;margin:10px 0 2px;font-size:13px}
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="wrap">
-  <h1 class="text-xl font-semibold mb-3">配当カレンダー</h1>
+  <h1 class="text-xl font-semibold mb-2">配当カレンダー</h1>
 
   <form id="calForm" class="bar" method="get">
     <select name="year" onchange="this.form.submit()">
@@ -91,20 +66,17 @@
         <option value="{{ y }}" {% if flt.year|default:'' == y|stringformat:"s" %}selected{% endif %}>{{ y }}</option>
       {% endfor %}
     </select>
-
     <select name="month" onchange="this.form.submit()">
       {% for m in month_options %}
         <option value="{{ m }}" {% if month == m %}selected{% endif %}>{{ m }}</option>
       {% endfor %}
     </select>
-
     <select name="broker" onchange="this.form.submit()">
       <option value="">証券会社(すべて)</option>
       {% for v,l in BROKERS %}
         <option value="{{ v }}" {% if flt.broker == v %}selected{% endif %}>{{ l }}</option>
       {% endfor %}
     </select>
-
     <select name="account" onchange="this.form.submit()">
       <option value="">口座(すべて)</option>
       {% for v,l in ACCOUNTS %}
@@ -114,19 +86,16 @@
   </form>
 
   <div class="cal">
-    <div class="cal-head">
-      <div>日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div>土</div>
-    </div>
+    <div class="cal-head"><div>日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div>土</div></div>
     <div id="calGrid" class="cal-grid" data-year="{{ year }}" data-month="{{ month }}"></div>
   </div>
 
-  <p class="hint">セル（バッジ）をタップすると、その日の内訳を表示します。</p>
+  <p class="hint">セルのバッジをタップすると内訳を表示します。</p>
 </div>
 
 <!-- ボトムシート -->
 <div id="daySheet" class="sheet" aria-hidden="true">
   <div class="sheet-body">
-    <div class="sheet-handle"></div>
     <div class="sheet-head">
       <div id="sheetDate" class="sheet-title"></div>
       <button type="button" id="sheetClose" class="sheet-close">閉じる</button>
@@ -136,7 +105,6 @@
   </div>
 </div>
 
-<!-- サーバが組み立てた初期 payload をそのまま JS に渡す -->
 <script id="payload_json" type="application/json">{{ payload_json|safe }}</script>
-<script src="{% static 'js/dividends_calendar.js' %}?v=6"></script>
+<script src="{% static 'js/dividends_calendar.js' %}?v=4"></script>
 {% endblock %}
