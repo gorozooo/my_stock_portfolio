@@ -111,9 +111,12 @@
       {% if page_obj %}{{ page_obj.paginator.count }}{% else %}{{ items|length }}{% endif %}
     </div>
   </div>
-  <div class="kpi"><div class="lbl">税引前合計</div><div class="val">{{ total_gross|default:0|floatformat:2 }}</div></div>
-  <div class="kpi"><div class="lbl">税額合計</div><div class="val">{{ total_tax|default:0|floatformat:2 }}</div></div>
-  <div class="kpi"><div class="lbl">税引後合計</div><div class="val">{{ total_net|default:0|floatformat:2 }}</div></div>
+  <div class="kpi"><div class="lbl">税引前合計</div>
+    <div class="val">{{ total_gross|default:0|floatformat:0 }}円</div></div>
+  <div class="kpi"><div class="lbl">税額合計</div>
+    <div class="val">{{ total_tax|default:0|floatformat:0 }}円</div></div>
+  <div class="kpi"><div class="lbl">税引後合計</div>
+    <div class="val">{{ total_net|default:0|floatformat:0 }}円</div></div>
 </div>
 
 <!-- List -->
@@ -155,16 +158,16 @@
         {% endif %}
 
         {% if d.purchase_price is not None %}
-          <span class="chip">取得: {{ d.purchase_price|floatformat:2 }}</span>
+          <span class="chip">取得: {{ d.purchase_price|floatformat:0 }}円</span>
         {% elif d.holding and d.holding.avg_cost is not None %}
-          <span class="chip">取得: {{ d.holding.avg_cost|floatformat:2 }}</span>
+          <span class="chip">取得: {{ d.holding.avg_cost|floatformat:0 }}円</span>
         {% endif %}
       </div>
 
       <div class="nums">
-        <div class="net">税引後 {{ d.net_amount|default:0|floatformat:2 }}</div>
+        <div class="net">税引後 {{ d.net_amount|default:0|floatformat:0 }}円</div>
         <div class="sub">
-          税引前 {{ d.gross_amount|default:0|floatformat:2 }} ／ 税額 {{ d.tax|default:0|floatformat:2 }}
+          税引前 {{ d.gross_amount|default:0|floatformat:0 }}円 ／ 税額 {{ d.tax|default:0|floatformat:0 }}円
         </div>
       </div>
     </div>
