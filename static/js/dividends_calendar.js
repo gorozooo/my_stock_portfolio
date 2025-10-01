@@ -5,7 +5,7 @@
 
   const yen = n => `${Math.round(Number(n||0)).toLocaleString()}円`;
 
-  // カレンダー骨格を作る
+  // カレンダー骨格（必ず描く）
   function buildGrid(year, month){
     const first = new Date(year, month-1, 1);
     const firstDow = first.getDay(); // 0=Sun
@@ -13,7 +13,7 @@
 
     const tb = $("#calBody");
     tb.innerHTML = "";
-    let d = 1 - firstDow; // 前月の空白も含めて進める
+    let d = 1 - firstDow; // 前月分の空白を含めて計算
     for (let r=0; r<6; r++){
       const tr = document.createElement("tr");
       for (let c=0; c<7; c++){
@@ -36,23 +36,12 @@
     }
   }
 
-  // JSON 取得してバッジ描画
-  async function loadAndRender(){
-    const y = $("#year").value;
-    const m = $("#month").value;
-    const broker  = $("#broker").value;
-    const account = $("#account").value;
-    const u = new URL(URL, location.origin);
-    u.searchParams.set("year", y);
-    u.searchParams.set("month", m);
-    if (broker)  u.searchParams.set("broker", broker);
-    if (account) u.searchParams.set("account", account);
+  // バッジを重ねるだけ（グリッドは壊さない）
+  function applyBadges(days, y, m){
+    // 既存バッジを消す
+    $$(".cell .badge").forEach(b=> b.remove());
 
-    const data = await fetch(u, {credentials:"same-origin"}).then(r=>r.json());
-
-    buildGrid(Number(y), Number(m));
-
-    (data.days||[]).forEach(bucket=>{
+    (days||[]).forEach(bucket=>{
       if (!bucket.d || !bucket.total) return;
       const cell = document.querySelector(`.cell[data-d="${bucket.d}"]`);
       if (!cell) return;
@@ -81,11 +70,39 @@
   $("#popClose").addEventListener("click", ()=> $("#dayPop").style.display="none");
   window.addEventListener("click", (e)=>{ if (!e.target.closest(".pop")) $("#dayPop").style.display="none"; });
 
+  async function fetchJson(y, m, broker, account){
+    try{
+      const u = new URL(URL, location.origin);
+      u.searchParams.set("year", y);
+      u.searchParams.set("month", m);
+      if (broker)  u.searchParams.set("broker", broker);
+      if (account) u.searchParams.set("account", account);
+      const res = await fetch(u, {credentials:"same-origin"});
+      if (!res.ok) throw new Error("bad status");
+      return await res.json();
+    }catch(e){
+      console.warn("[calendar] fetch failed:", e);
+      return { days: [], year: Number(y), month: Number(m) };
+    }
+  }
+
+  // 読み込み＋反映（常に先にグリッドを描く）
+  async function loadAndRender(){
+    const y = $("#year").value || new Date().getFullYear();
+    const m = $("#month").value || (new Date().getMonth()+1);
+    const broker  = $("#broker").value;
+    const account = $("#account").value;
+
+    buildGrid(Number(y), Number(m));              // ここで先に描画
+    const data = await fetchJson(y, m, broker, account);
+    applyBadges(data.days, Number(y), Number(m)); // バッジだけ後から
+  }
+
   // 変更で再読込
   ["#year","#month","#broker","#account"].forEach(sel=>{
-    $(sel).addEventListener("change", loadAndRender);
+    $(sel)?.addEventListener("change", loadAndRender);
   });
 
-  // 初期表示
+  // 初期表示（DOMContentLoaded で即）
   document.addEventListener("DOMContentLoaded", loadAndRender);
 })();
