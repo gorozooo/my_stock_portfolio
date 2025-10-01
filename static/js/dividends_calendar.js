@@ -2,64 +2,65 @@
   const grid = document.getElementById('calGrid');
   if (!grid) return;
 
-  const fmtYen = n =>
-    '¥' + (Math.round(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  // 目に入る情報をシンプルに
+  const fmtY = n => '¥' + Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
-  const sheet = document.getElementById('daySheet');
-  const shDate = document.getElementById('sheetDate');
-  const shTotal = document.getElementById('sheetTotal');
-  const shList = document.getElementById('sheetList');
-  const shClose = document.getElementById('sheetClose');
-  shClose.addEventListener('click',()=>sheet.classList.remove('open'));
+  // ---- ボトムシート ----
+  const sheet     = document.getElementById('daySheet');
+  const shDate    = document.getElementById('sheetDate');
+  const shTotal   = document.getElementById('sheetTotal');
+  const shList    = document.getElementById('sheetList');
+  const shClose   = document.getElementById('sheetClose');
+  shClose.addEventListener('click', () => sheet.classList.remove('open'));
 
+  // ---- 描画：HTML一括生成で高速化 ----
   function render(payload){
-    grid.innerHTML = '';
     const y = payload.year, m = payload.month;
-
-    // 1日の曜日オフセット(0=Sun)
     const firstDow = new Date(y, m - 1, 1).getDay();
-    for (let i=0;i<firstDow;i++) grid.appendChild(document.createElement('div'));
-
     const today = new Date();
-    payload.days.forEach(b => {
-      const cell = document.createElement('button');
-      cell.type = 'button';
-      cell.className = 'day';
+    const isToday = (d) => (y===today.getFullYear() && m===(today.getMonth()+1) && d===today.getDate());
 
-      if (y === today.getFullYear() &&
-          m === (today.getMonth()+1) &&
-          b.d === today.getDate()){
-        cell.classList.add('today');
-      }
+    // クリックに使う辞書
+    const byDay = {};
+    payload.days.forEach(b => { byDay[b.d] = b; });
 
-      const num = document.createElement('div');
-      num.className = 'day-num';
-      num.textContent = b.d;
-      cell.appendChild(num);
+    let html = '';
+    // 空白（前月ぶん）
+    for (let i=0;i<firstDow;i++) html += '<div></div>';
 
-      if ((b.total||0) > 0){
-        const badge = document.createElement('div');
-        badge.className = 'badge';
-        badge.innerHTML = `<small>計</small> ${fmtYen(b.total)}`;
-        cell.appendChild(badge);
+    // 日セル
+    for (const b of payload.days){
+      const d = b.d;
+      const has = (b.total||0) > 0;
+      const cls = 'day' + (isToday(d) ? ' today' : '');
+      html += `<div class="${cls}" data-d="${d}">
+        <span class="day-num">${d}</span>
+        ${has ? `<span class="badge">${fmtY(b.total)}</span>` : ``}
+      </div>`;
+    }
+    grid.innerHTML = html;
 
-        cell.addEventListener('click', ()=>{
-          document.querySelectorAll('.day.selected').forEach(x=>x.classList.remove('selected'));
-          cell.classList.add('selected');
-          shDate.textContent = `${y}年${m}月${b.d}日`;
-          shTotal.textContent = `合計：${fmtYen(b.total)}`;
-          shList.innerHTML = (b.items||[])
-            .map(it=>`<li><span class="name">${it.name}</span><span class="amt">${fmtYen(it.net)}</span></li>`)
-            .join('') || `<li><span class="name">内訳なし</span><span class="amt">—</span></li>`;
-          sheet.classList.add('open');
-        });
-      }
+    // イベント委譲（1つだけで済む）
+    grid.onclick = (e)=>{
+      const cell = e.target.closest('.day');
+      if (!cell) return;
+      const d = Number(cell.dataset.d);
+      const bucket = byDay[d];
+      if (!bucket || (bucket.total||0)<=0) return;
 
-      grid.appendChild(cell);
-    });
+      grid.querySelectorAll('.day.selected').forEach(x=>x.classList.remove('selected'));
+      cell.classList.add('selected');
+
+      shDate.textContent  = `${y}年${m}月${d}日`;
+      shTotal.textContent = `合計：${fmtY(bucket.total)}`;
+      shList.innerHTML = (bucket.items||[])
+        .map(it => `<li><span class="name">${it.name}</span><span class="amt">${fmtY(it.net)}</span></li>`)
+        .join('') || `<li><span class="name">内訳なし</span><span class="amt">—</span></li>`;
+      sheet.classList.add('open');
+    };
   }
 
-  // 初期 payload（サーバ埋め込み）→ 無ければ fetch
+  // ---- 初期 payload を使い、無ければ fetch（GET のまま） ----
   let initial = null;
   try { initial = JSON.parse(document.getElementById('payload_json')?.textContent || 'null'); }
   catch(e){ initial = null; }
@@ -69,8 +70,6 @@
   } else {
     const qs = new URLSearchParams(location.search);
     fetch(`/dividends/calendar.json?${qs}`)
-      .then(r=>r.json())
-      .then(render)
-      .catch(()=>{ /* 失敗時は何もしない */ });
+      .then(r => r.json()).then(render).catch(()=>{});
   }
 })();
