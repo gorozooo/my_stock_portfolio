@@ -5,7 +5,6 @@
   const URLS   = window.DIVD_URLS   || {};
   const LABELS = window.DIVD_LABELS || {broker:{}, account:{}};
 
-  // 金額フォーマッタ（整数＋円）
   const fmtYen =(n)=> Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0}) + "円";
   const q      =(v)=> encodeURIComponent(v||"");
 
@@ -28,12 +27,21 @@
   /* ------------ 月次（税引後+税額） ------------ */
   function drawMonthly(list){
     const wrap = $("#monthly_svg"); if(!wrap) return;
-    const W=360,H=160,pad=18,bw=18,gap=12;
+
+    // コンテナ幅ベースで可変描画（はみ出し防止）
+    const rect = wrap.getBoundingClientRect();
+    const W = Math.max(260, Math.floor(rect.width || 320));
+    const H = 160, pad=18;
+    const months = 12;
+    const gap = 8;
+    const bw = Math.max(10, Math.floor((W - pad*2 - (months-1)*gap) / months));
+
     const max = Math.max(1, ...list.map(x=> (x.net + x.tax)));
     const sy = v => H - pad - (v/max)*(H - pad*2);
     const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    svg.setAttribute("width","100%"); svg.setAttribute("height","100%");
+    svg.setAttribute("width","100%");
+    svg.setAttribute("height","100%");
     svg.innerHTML = `<path d="M${pad},${H-pad}H${W-pad}" stroke="rgba(255,255,255,.25)" fill="none"/>`;
     let x = pad;
 
@@ -49,23 +57,27 @@
     };
     const hideTip=()=>{ if(tip) tip.style.display="none"; };
 
-    list.forEach(d=>{
+    for (let i=0;i<months;i++){
+      const d = list.find(v => Number(v.m)===i+1) || {m:i+1, net:0, tax:0};
+      // net
       const hNet = (H - pad) - sy(d.net);
       const r1 = document.createElementNS("http://www.w3.org/2000/svg","rect");
       r1.setAttribute("x", x); r1.setAttribute("y", sy(d.net));
-      r1.setAttribute("width", bw); r1.setAttribute("height", hNet);
+      r1.setAttribute("width", bw); r1.setAttribute("height", Math.max(0,hNet));
       r1.setAttribute("rx", 3); r1.setAttribute("fill", "#6ea8ff");
       r1.dataset.m=d.m; r1.dataset.net=d.net; r1.dataset.tax=d.tax;
       svg.appendChild(r1);
 
+      // tax
       const hTax = (H - pad) - sy(d.net + d.tax) - hNet;
       const r2 = document.createElementNS("http://www.w3.org/2000/svg","rect");
       r2.setAttribute("x", x); r2.setAttribute("y", sy(d.net + d.tax));
-      r2.setAttribute("width", bw); r2.setAttribute("height", hTax);
+      r2.setAttribute("width", bw); r2.setAttribute("height", Math.max(0,hTax));
       r2.setAttribute("rx", 3); r2.setAttribute("fill", "#a0aec0");
       r2.dataset.m=d.m; r2.dataset.net=d.net; r2.dataset.tax=d.tax;
       svg.appendChild(r2);
 
+      // label
       const t = document.createElementNS("http://www.w3.org/2000/svg","text");
       t.setAttribute("x", x + bw/2); t.setAttribute("y", H-4);
       t.setAttribute("text-anchor","middle"); t.setAttribute("font-size","9");
@@ -73,7 +85,7 @@
       svg.appendChild(t);
 
       x += bw + gap;
-    });
+    }
 
     svg.addEventListener("mousemove",(e)=>{
       const el = e.target;
@@ -97,7 +109,7 @@
     wrap.replaceChildren(svg);
   }
 
-  /* ------------ ドーナツ（右凡例：1行・省略・金額は改行禁止） ------------ */
+  /* ------------ ドーナツ（右凡例） ------------ */
   function drawDonut(svgId, legendId, rows, opts){
     const svg = document.getElementById(svgId);
     const legend = document.getElementById(legendId);
@@ -138,7 +150,7 @@
       svg.appendChild(circle);
       acc += ratio;
 
-      // ラベル（日本語名テーブル→なければ生値）
+      // ラベル
       const raw = row[opts.key];
       const shown = (opts.labels||{})[raw] || raw || "—";
       const pct = (val/total*100)||0;
@@ -204,13 +216,13 @@
     drawDonut("donut_broker","legend_broker",  data.by_broker||[],  {key:"broker",  labels:LABELS.broker});
     drawDonut("donut_account","legend_account",data.by_account||[], {key:"account", labels:LABELS.account});
 
-    // Top銘柄（コードではなく“銘柄名”を優先表示）
+    // Top銘柄名表示
     const top = data.top_symbols||[];
     const box = $("#tbl_top");
     if (box){
       box.innerHTML = top.length
         ? top.map(r=>{
-            const name = r.name || r.display_name || r.label || ""; // name優先
+            const name = r.name || r.display_name || r.label || "";
             return `<div class="row"><span class="l">${name}</span><span class="r">${fmtYen(r.net)}</span></div>`;
           }).join("")
         : `<div class="muted">データなし</div>`;
@@ -243,6 +255,15 @@
       if (!el) return;
       const list = JSON.parse(el.textContent||"[]").map(x=>({m:x.m, net:+x.net, tax:+x.tax}));
       drawMonthly(list);
+    }catch(_){}
+  });
+
+  // 画面リサイズにも追随
+  window.addEventListener("resize", ()=> {
+    try{
+      const el = document.getElementById("js-monthly");
+      const list = el ? JSON.parse(el.textContent||"[]").map(x=>({m:x.m, net:+x.net, tax:+x.tax})) : [];
+      drawMonthly(list.length ? list : []);
     }catch(_){}
   });
 })();
