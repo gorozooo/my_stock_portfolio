@@ -402,57 +402,46 @@ def dividends_calendar(request):
 
 # ===== カレンダー JSON =====
 @login_required
-@require_GET
 def dividends_calendar_json(request):
     """
     月カレンダー用データ。
-    入力: year(必須)/month(必須), broker/account(任意)
-    出力:
-      {
-        "year": 2025, "month": 6, "days": [
-          {"d":1, "total": 8750.0, "items":[{"ticker":"3231","name":"野村不動産…","net":8750.0}]},
-          ...
-        ],
-        "sum_month": 28312.0
-      }
+    入力: year/month, broker/account(任意)
+    出力: { "year": 2025, "month": 9, "days":[{"d":3,"total":10000,"items":[...]}], "sum_month": ... }
     """
+    from calendar import monthrange
+
     y = int(request.GET.get("year") or timezone.now().year)
     m = int(request.GET.get("month") or timezone.now().month)
     broker  = request.GET.get("broker") or None
     account = request.GET.get("account") or None
 
-    # ベース QS → 絞り込み（date は支払日として運用）
+    # ← ここを svc_div に
     qs = svc_div.build_user_dividend_qs(request.user)
     qs = svc_div.apply_filters(qs, year=y, month=m, broker=broker, account=account)
     rows = svc_div.materialize(qs)
 
-    # 1..末日でバケツを用意
     last = monthrange(y, m)[1]
     days = [{"d": d, "total": 0.0, "items": []} for d in range(1, last + 1)]
-
     month_sum = 0.0
+
     for d in rows:
-        if not d.date or d.date.month != m or d.date.year != y:
+        if not d.date or d.date.year != y or d.date.month != m:
             continue
         idx = d.date.day - 1
         net = float(d.net_amount() or 0.0)
         month_sum += net
         days[idx]["total"] += net
-        # 明細（銘柄名は holding.name → Dividend.name の順で）
         days[idx]["items"].append({
             "ticker": d.display_ticker,
             "name":   d.display_name or d.display_ticker,
             "net":    round(net, 2),
         })
 
-    # 同日の items を大きい順に
     for bucket in days:
         bucket["items"].sort(key=lambda x: x["net"], reverse=True)
         bucket["total"] = round(bucket["total"], 2)
 
-    return JsonResponse({
-        "year": y, "month": m, "days": days, "sum_month": round(month_sum, 2)
-    })
+    return JsonResponse({"year": y, "month": m, "days": days, "sum_month": round(month_sum, 2)})
 
 
 # ===== 予測ページ（ベース UI） =====
@@ -467,65 +456,49 @@ def dividends_forecast(request):
 
 # ===== 予測 JSON（シンプル版） =====
 @login_required
-@require_GET
 def dividends_forecast_json(request):
     """
-    直近の 1株配当 × 現在株数 × 想定回数(freq_hint の簡易推定: 年1/2/4) の超シンプル見込み。
-    出力: { "months": [ {"yyyymm": "2025-06", "net": 12345.0}, ... ], "sum12": 99999.0 }
+    直近の1株配当×現在株数×想定回数の超簡易見込み。
+    出力: { "months":[{"yyyymm":"2025-09","net":...}, ...], "sum12": ... }
     """
+    from collections import defaultdict
+    from datetime import date
+
     year = _parse_year(request)
 
-    # 対象はフィルタ済みの配当レコード
+    # ← ここも svc_div に
     qs = svc_div.build_user_dividend_qs(request.user)
-    qs = svc_div.apply_filters(qs, year=year)  # 年でフィルタ（来期は年跨ぎの都合で簡易）
+    qs = svc_div.apply_filters(qs, year=year)
     rows = svc_div.materialize(qs)
 
-    # 銘柄ごとに「直近1回の1株配当（税引後）」「現在株数」を推定
-    last_per_share: dict[str, float] = {}
-    qty_by_symbol:  dict[str, int]   = {}
-
+    last_per_share = {}
+    qty_by_symbol  = {}
     for d in rows:
         ps = d.per_share_dividend_net()
         if ps:
-            key = d.display_ticker
-            last_per_share[key] = float(ps)  # 直近が後勝ちでOK
-        # 株数は Dividend の quantity → Holding.quantity
+            last_per_share[d.display_ticker] = float(ps)
         q = d.quantity or (d.holding.quantity if d.holding and d.holding.quantity else 0)
         if q:
             qty_by_symbol[d.display_ticker] = int(q)
 
-    # 想定回数 = 直近 1 年間の支払月ユニーク数（1/2/4 のいずれかに丸め）
     months_by_symbol = defaultdict(set)
     for d in rows:
-        if d.date:
-            months_by_symbol[d.display_ticker].add((d.date.year, d.date.month))
-
-    freq_by_symbol: dict[str, int] = {}
+        months_by_symbol[d.display_ticker].add((d.date.year, d.date.month))
+    freq_by_symbol = {}
     for sym, ms in months_by_symbol.items():
         cnt = len([1 for y_m in ms if y_m[0] == year])
-        if   cnt >= 4: f = 4
-        elif cnt >= 2: f = 2
-        elif cnt >= 1: f = 1
-        else:          f = 1
-        freq_by_symbol[sym] = f
+        freq_by_symbol[sym] = 4 if cnt >= 4 else 2 if cnt >= 2 else 1
 
-    # 12ヶ月へ素朴配賦（実際の月割りは Phase 3 で改良）
     yymm = [f"{year}-{m:02d}" for m in range(1, 13)]
     monthly = {m: 0.0 for m in yymm}
-
     for sym, ps in last_per_share.items():
         qty = qty_by_symbol.get(sym, 0)
         f   = freq_by_symbol.get(sym, 1)
         est_total = ps * qty * f
         each = est_total / f if f > 0 else 0.0
-        # 均等に f 回分だけ前から埋める（ダミー）
-        placed = 0
-        for m in yymm:
-            if placed >= f:
-                break
-            monthly[m] += each
-            placed += 1
+        for i in range(f):
+            monthly[yymm[i]] += each
 
     out = [{"yyyymm": k, "net": round(v, 2)} for k, v in monthly.items()]
-    sum12 = round(sum(v for v in monthly.values()), 2)
+    sum12 = round(sum(monthly.values()), 2)
     return JsonResponse({"months": out, "sum12": sum12})
