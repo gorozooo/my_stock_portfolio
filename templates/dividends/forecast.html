@@ -23,7 +23,7 @@
     border-radius:14px;padding:12px
   }
 
-  /* グラフの無限伸張を防ぐ：親に固定高さ、canvas は絶対配置 */
+  /* 親に固定高さ → canvas は絶対配置で伸び止め */
   .chartbox{position:relative;height:260px}
   #fcChart{position:absolute;inset:0;display:block;width:100%;height:100%}
 
@@ -44,17 +44,15 @@
       {% endfor %}
     </select>
 
-    <!-- 集計基準: 支払い月 / 権利確定月  -->
     <div class="seg" id="segBasis" role="tablist" aria-label="集計基準">
-      <button type="button" class="pill is-active" data-v="pay" role="tab" aria-selected="true">支払い月</button>
-      <button type="button" class="pill"         data-v="ex"  role="tab" aria-selected="false">権利確定月</button>
+      <button type="button" class="pill is-active" data-v="pay"  role="tab" aria-selected="true">支払い月</button>
+      <button type="button" class="pill"         data-v="ex"   role="tab" aria-selected="false">権利確定月</button>
     </div>
 
-    <!-- 表示軸（現状は見た目ラベルのみ。サーバは mode のみ参照） -->
     <div class="seg" id="segStack" role="tablist" aria-label="表示軸">
       <button type="button" class="pill is-active" data-v="none"    role="tab" aria-selected="true">合計</button>
-      <button type="button" class="pill"           data-v="broker"  role="tab" aria-selected="false">証券会社</button>
-      <button type="button" class="pill"           data-v="account" role="tab" aria-selected="false">口座</button>
+      <button type="button" class="pill"           data-v="broker"  role="tab" aria-selected="false">証券会社別</button>
+      <button type="button" class="pill"           data-v="account" role="tab" aria-selected="false">口座別</button>
     </div>
   </div>
 
@@ -67,8 +65,9 @@
   </div>
 </div>
 
-<script src="{% static 'js/dividends_forecast.js' %}?v=13"></script>
+<script src="{% static 'js/dividends_forecast.js' %}?v=14"></script>
 <script>
+  // サーバが初期 payload を埋め込むなら series 形式で
   window.__DIVFC_INIT__ = {{ payload_json|safe }};
   window.__DIVFC_YEAR__ = {{ year }};
 </script>
