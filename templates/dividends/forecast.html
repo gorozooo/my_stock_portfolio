@@ -4,35 +4,51 @@
 
 {% block head %}
 <style>
-  .toolbar{display:grid;grid-template-columns:1fr;gap:12px;max-width:960px;margin:0 auto 12px}
-  .toolbar select{width:100%;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);
-                  background:rgba(255,255,255,.06);color:#eaf0ff}
-  .box{max-width:960px;margin:0 auto;border:1px solid rgba(255,255,255,.09);
-       background:rgba(255,255,255,.04);border-radius:12px;padding:12px}
-  .row{display:flex;justify-content:space-between;padding:8px 6px;border-bottom:1px dashed rgba(255,255,255,.08)}
-  .row:last-child{border-bottom:none}
-  .sum{font-weight:700;margin-top:12px}
+  .wrap{max-width:980px;margin:0 auto}
+  .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0 10px}
+  .filters select,.filters button{
+    padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.06);color:#eaf0ff
+  }
+  .seg{display:flex;border:1px solid rgba(255,255,255,.14);border-radius:10px;overflow:hidden}
+  .seg button{background:transparent;border:0;padding:10px 14px;color:#cfd7ff}
+  .seg button.active{background:rgba(255,255,255,.12);font-weight:700}
+  .card{
+    border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.03);
+    border-radius:14px;padding:12px
+  }
+  .sum{margin-top:8px;color:#cfd7ff}
 </style>
+<!-- Chart.js（CDN） -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 {% endblock %}
 
 {% block content %}
-<h1 class="text-xl font-semibold mb-3">配当予測（12ヶ月）</h1>
+<div class="wrap">
+  <h1 class="text-xl font-semibold mb-3">配当予測（12ヶ月）</h1>
 
-<div class="toolbar">
-  <select id="selYear">
-    {% for y in year_options %}
-      <option value="{{ y }}" {% if flt.year == y|stringformat:"s" %}selected{% endif %}>{{ y }}</option>
-    {% endfor %}
-  </select>
+  <div class="filters">
+    <select id="fYear">
+      {% for y in year_options %}
+        <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>
+      {% endfor %}
+    </select>
+    <div class="seg" id="segStack">
+      <button type="button" data-v="none"    class="{% if stack == 'none' %}active{% endif %}">合計</button>
+      <button type="button" data-v="broker"  class="{% if stack == 'broker' %}active{% endif %}">証券会社</button>
+      <button type="button" data-v="account" class="{% if stack == 'account' %}active{% endif %}">口座</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <canvas id="fcChart" height="140"></canvas>
+    <div class="sum" id="fcSum"></div>
+  </div>
 </div>
 
-<div class="box">
-  <div id="fcRows"></div>
-  <div class="sum" id="fcSum"></div>
-</div>
-
+<script src="{% static 'js/dividends_forecast.js' %}?v=6"></script>
 <script>
-  window.__FORECAST_INIT__ = {{ payload_json|safe }};
+  window.__DIVFC_INIT__ = {{ payload_json|safe }};
+  window.__DIVFC_YEAR__ = {{ year }};
 </script>
-<script src="{% static 'js/dividends_forecast.js' %}?v=5"></script>
 {% endblock %}
