@@ -4,9 +4,10 @@
   const API = "/dividends/calendar.json";
 
   const yen = n => {
-    try { return Math.round(parseFloat(n||0))
-      .toLocaleString("ja-JP",{style:"currency",currency:"JPY",maximumFractionDigits:0}); }
-    catch(_){ return "¥0"; }
+    try {
+      return Math.round(parseFloat(n||0))
+        .toLocaleString("ja-JP",{style:"currency",currency:"JPY",maximumFractionDigits:0});
+    } catch(_){ return "¥0"; }
   };
 
   const firstDow = (y,m)=> new Date(y,m-1,1).getDay();
@@ -20,31 +21,33 @@
     // 初期化
     $$(".cell", cal).forEach(c=>{
       c.classList.remove("has-items");
-      c.innerHTML = '<div class="d"></div><div class="ring"><span class="cnt"></span></div>';
+      c.innerHTML = '<div class="d"></div>';   // 日付だけ入れておく
       c.dataset.day = "";
       c.onclick = null;
     });
 
-    // 日付入れ
+    // 日付
     for(let d=1; d<=ld; d++){
-      const idx  = fd + (d-1);
+      const idx = fd + (d-1);
       const cell = cal.querySelector(`.cell[data-idx="${idx}"]`);
       if(!cell) continue;
       cell.dataset.day = String(d);
       cell.querySelector(".d").textContent = d;
     }
 
-    // 件数（白丸の中）
+    // 件数バッジ（右下、小さな角丸ピル）
     (payload.days||[]).forEach(day=>{
       if(!day || !day.d) return;
-      const idx  = fd + (day.d-1);
+      const idx = fd + (day.d-1);
       const cell = cal.querySelector(`.cell[data-idx="${idx}"]`);
       if(!cell) return;
 
       const count = (day.items||[]).length;
       if(count>0){
-        const cntEl = cell.querySelector(".cnt");
-        if (cntEl) cntEl.textContent = String(count);
+        const badge = document.createElement("div");
+        badge.className = "badge";
+        badge.textContent = count; // 件数のみ
+        cell.appendChild(badge);
         cell.classList.add("has-items");
         cell.onclick = ()=>openSheet(y,m,day);
       }
@@ -56,21 +59,27 @@
   // ====== Bottom Sheet ======
   function openSheet(y,m,day){
     $("#sheetTitle").textContent = `${y}年${m}月${day.d}日`;
-    $("#sheetSum").textContent   = `合計：${yen(day.total||0)}`;
+    $("#sheetSum").textContent = `合計：${yen(day.total||0)}`;
 
     const list = $("#sheetList"); list.innerHTML = "";
     (day.items||[]).forEach(it=>{
+      const name = escapeHtml(it.name || it.ticker || "—");
+      const amt  = yen(it.net || 0);
+
+      const broker  = it.broker_label  || it.broker  || "";
+      const account = it.account_label || it.account || "";
+
+      const meta = [broker, account].filter(Boolean)
+        .map(x=>`<span class="chip">${escapeHtml(String(x))}</span>`).join("");
+
       const row = document.createElement("div");
       row.className = "row";
       row.innerHTML = `
-        <div class="left">
-          <div class="name">${escapeHtml(it.name||it.ticker||"—")}</div>
-          <div class="meta">
-            ${it.broker_label ? `<span class="badge">${escapeHtml(it.broker_label)}</span>` : ""}
-            ${it.account_label ? `<span class="badge">${escapeHtml(it.account_label)}</span>` : ""}
-          </div>
+        <div class="info">
+          <div class="name">${name}</div>
+          ${ meta ? `<div class="meta">${meta}</div>` : "" }
         </div>
-        <div class="amt">${yen(it.net||0)}</div>
+        <div class="amt">${amt}</div>
       `;
       list.appendChild(row);
     });
