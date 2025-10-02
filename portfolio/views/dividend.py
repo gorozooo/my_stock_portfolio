@@ -722,20 +722,35 @@ def dividends_forecast(request):
 
 @login_required
 def dividends_forecast_json(request):
-    year  = _parse_year(request)
-    basis = (request.GET.get("basis") or "pay").strip().lower()    # "pay" or "ex"
-    stack = (request.GET.get("stack") or "none").strip().lower()   # "none" | "broker" | "account"
+    """
+    GET /dividends/forecast.json?year=YYYY&basis=pay|ex&stack=none|broker|account
 
-    if basis not in ("pay", "ex"):
+    basis:
+      - "pay" … 支払い月で集計
+      - "ex"  … 権利確定月で集計（JP: -3ヶ月 / 海外: -1ヶ月へシフト）
+    stack:
+      - "none"   … 合計のみ
+      - "broker" … 証券会社別
+      - "account"… 口座区分別
+    """
+    year = _parse_year(request)
+
+    # 後方互換（古いクエリで mode=pay|record が来ても受ける）
+    basis = (request.GET.get("basis") or request.GET.get("mode") or "pay").strip().lower()
+    if basis not in ("pay", "ex", "record"):
         basis = "pay"
+    # mode=record を ex に寄せる
+    if basis == "record":
+        basis = "ex"
+
+    stack = (request.GET.get("stack") or "none").strip().lower()
     if stack not in ("none", "broker", "account"):
         stack = "none"
 
     payload = _build_forecast_payload(
         user=request.user,
         year=year,
-        basis=basis,
-        stack=stack,
+        basis=basis,   # "pay" or "ex"
+        stack=stack,   # "none" | "broker" | "account"
     )
-
     return JsonResponse(payload)
