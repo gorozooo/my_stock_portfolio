@@ -6,7 +6,7 @@
 <style>
   .cal-wrap{max-width:980px;margin:0 auto}
 
-  /* フィルター: 2列（スマホ）→ 4列（広い画面） */
+  /* フィルター: 2列→広い時は4列 */
   .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px}
   .filters select{
     width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);
@@ -25,19 +25,24 @@
     background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
     overflow:hidden
   }
-  /* 左下→左上にすると親指で隠れやすいので左上配置 */
+  /* --- 白丸（中央のリング） --- */
   .cell .d{
-    position:absolute;top:7px;left:10px;font-weight:700;color:#cfd7ff;font-size:13px
+    position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    width:100%;height:100%;
   }
-
-  /* —— 件数ドット（白丸・右上固定） —— */
-  .dot{
-    position:absolute;top:6px;right:8px;
-    width:26px;height:26px;border-radius:50%;
-    background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.85);
-    color:#0b1020;font-weight:800;display:flex;align-items:center;justify-content:center;
-    font-size:12px;line-height:1;box-shadow:0 2px 10px rgba(0,0,0,.25)
+  .cell .d::before{
+    content:""; width:42px;height:42px;border-radius:999px;border:2px solid rgba(255,255,255,.85);
+    background:transparent; display:block;
   }
+  .cell .day{
+    position:absolute; top:18px; font-weight:800; color:#e9eeff; font-size:14px; line-height:1;
+  }
+  .cell .cnt{
+    position:absolute; bottom:18px; font-weight:800; color:#0b1020; font-size:12px; line-height:1;
+    background:rgba(255,255,255,.85); border-radius:8px; padding:2px 6px; min-width:20px; text-align:center;
+    transform:translateY(6px);   /* 白丸の内側下寄せに見えるよう微調整 */
+  }
+  .cell .d:not(.has-items) .cnt{ display:none; }
   .cell.has-items{cursor:pointer}
   .cell.has-items:active{transform:translateY(1px)}
 
@@ -66,10 +71,10 @@
   .sheet .row{
     display:flex;justify-content:space-between;gap:8px;
     border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);
-    border-radius:10px;padding:8px 10px
+    border-radius:10px;padding:10px 12px
   }
-  .sheet .row .name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .sheet .row .amt{white-space:nowrap;font-variant-numeric:tabular-nums}
+  .sheet .row .name{font-weight:700}
+  .sheet .row .amt{white-space:nowrap}
 </style>
 {% endblock %}
 
@@ -79,26 +84,18 @@
 
   <form id="calFilter" class="filters">
     <select name="year" id="fYear">
-      {% for y in year_options %}
-        <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>
-      {% endfor %}
+      {% for y in year_options %}<option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>{% endfor %}
     </select>
     <select name="month" id="fMonth">
-      {% for m in month_options %}
-        <option value="{{ m }}" {% if month == m %}selected{% endif %}>{{ m }}</option>
-      {% endfor %}
+      {% for m in month_options %}<option value="{{ m }}" {% if month == m %}selected{% endif %}>{{ m }}</option>{% endfor %}
     </select>
     <select name="broker" id="fBroker">
       <option value="">証券会社(すべて)</option>
-      {% for v,l in BROKERS %}
-        <option value="{{ v }}" {% if flt.broker == v %}selected{% endif %}>{{ l }}</option>
-      {% endfor %}
+      {% for v,l in BROKERS %}<option value="{{ v }}" {% if flt.broker == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
     </select>
     <select name="account" id="fAccount">
       <option value="">口座(すべて)</option>
-      {% for v,l in ACCOUNTS %}
-        <option value="{{ v }}" {% if flt.account == v %}selected{% endif %}>{{ l }}</option>
-      {% endfor %}
+      {% for v,l in ACCOUNTS %}<option value="{{ v }}" {% if flt.account == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
     </select>
   </form>
 
@@ -106,9 +103,13 @@
 
   <!-- 42 セルの骨組み（JS が上書き） -->
   <div id="cal" class="cal" data-year="{{ year }}" data-month="{{ month }}">
-    {# 42 個のプレースホルダー #}
     {% for i in "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" %}
-      <div class="cell" data-idx="{{ forloop.counter0 }}"><div class="d"></div></div>
+      <div class="cell" data-idx="{{ forloop.counter0 }}">
+        <div class="d">
+          <span class="day"></span>
+          <span class="cnt"></span>
+        </div>
+      </div>
     {% endfor %}
   </div>
 
@@ -126,6 +127,6 @@
   <div class="list" id="sheetList"></div>
 </div>
 
-<script src="{% static 'js/dividends_calendar.js' %}?v=11"></script>
+<script src="{% static 'js/dividends_calendar.js' %}?v=12"></script>
 <script>window.__DIVCAL_INIT__ = {{ payload_json|safe }};</script>
 {% endblock %}
