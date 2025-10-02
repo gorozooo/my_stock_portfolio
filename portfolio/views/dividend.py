@@ -3,7 +3,8 @@ from __future__ import annotations
 from decimal import Decimal
 from datetime import date
 from calendar import monthrange
-from collections import defaultdict, Counter
+
+from functools import lru_cache
 
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
@@ -15,13 +16,13 @@ from django.views.decorators.http import require_GET, require_POST
 from django.urls import reverse
 import csv
 from io import StringIO
+from collections import defaultdict
 
 from ..forms import DividendForm, _normalize_code_head
 from ..models import Dividend
 from ..services import tickers as svc_tickers
 from ..services import trend as svc_trend
 from ..services import dividends as svc_div  # 集計/目標
-
 
 # ===================== 共通ユーティリティ =====================
 
@@ -41,40 +42,102 @@ def _flt(req):
     }
 
 
-def _safe_net(d) -> float:
-    """Dividend の税引後金額を常に float で返す（None/例外は 0.0）。"""
-    try:
-        v = d.net_amount()
-        return float(v or 0.0)
-    except Exception:
-        try:
-            return float(getattr(d, "net_amount", 0.0) or 0.0)
-        except Exception:
-            try:
-                amt = float(d.amount or 0.0)
-                tax = float(d.tax or 0.0)
-                return amt if getattr(d, "is_net", False) else max(0.0, amt - tax)
-            except Exception:
-                return 0.0
-
-
 def _label_ticker(d) -> str:
-    """表示用ティッカー（必ず文字列・大文字）"""
     return (getattr(d, "display_ticker", None) or getattr(d, "ticker", "") or "").upper()
 
 
 def _label_name(d) -> str:
-    """表示用名称（必ず文字列 / ティッカーでフォールバック）"""
     tkr = _label_ticker(d)
     return (getattr(d, "display_name", None) or getattr(d, "name", "") or tkr)
+
+
+# ===================== yfinance (ex/pay) 補助 =====================
+
+def _market_hint_from_symbol(sym: str) -> str:
+    """銘柄コードから市場ヒントを決める（雑に suffix で判定）。"""
+    s = (sym or "").upper()
+    if s.endswith(".T"):   # JP 東証
+        return "JP"
+    if s.endswith(".AX"):  # AU
+        return "AU"
+    if s.endswith(".L"):   # UK
+        return "UK"
+    # 米国(無印/NASDAQ/NYSE想定) などは US
+    return "US"
+
+
+@lru_cache(maxsize=512)
+def _fetch_div_months_from_yf(sym: str) -> dict:
+    """
+    yfinance 優先で「権利確定(ex)」「支払(pay)」の各月を抽出。
+    返り値: {"ex": [1..12], "pay": [1..12]}
+    - yfinance に paymentDate 列があればそれを利用
+    - なければ市場別のフォールバックで推定
+    """
+    out = {"ex": [], "pay": []}
+    try:
+        import yfinance as yf  # 実行環境に無ければ except へ
+        tk = yf.Ticker(sym)
+
+        # 1) ex-date 候補: actions か dividends
+        ex_months = []
+        try:
+            # 新しめの yfinance だと get_actions() が DataFrame を返す
+            acts = tk.get_actions(prepost=False)
+        except Exception:
+            acts = None
+
+        if acts is not None and not acts.empty and ("Dividends" in acts.columns or "dividends" in acts.columns):
+            # index が日付、配当行だけ抽出
+            col = "Dividends" if "Dividends" in acts.columns else "dividends"
+            ex_idx = acts[acts[col] > 0].index
+            ex_months = sorted({int(d.month) for d in ex_idx})
+        else:
+            # 従来の .dividends （多くは ex-date 相当）
+            divs = tk.dividends
+            if divs is not None and getattr(divs, "empty", True) is False:
+                ex_months = sorted({int(d.month) for d in divs.index})
+
+        # 2) payment-date 候補
+        pay_months = []
+        df_pay = None
+        try:
+            # 一部のバージョンにある get_dividends()（exDate/paymentDate を含むことがある）
+            df_pay = tk.get_dividends()
+        except Exception:
+            df_pay = None
+
+        if df_pay is not None and not df_pay.empty:
+            # カラム候補のゆらぎ吸収
+            # 例: ['exDate','recordDate','paymentDate','declarationDate','amount']
+            cols = {c.lower(): c for c in df_pay.columns}
+            if "paymentdate" in cols:
+                col_pay = cols["paymentdate"]
+                # NaT/None を除外
+                pay_months = sorted({int(pd.to_datetime(x).month) for x in df_pay[col_pay].dropna().tolist()})
+            # ex-date もここから拾えたら更新
+            if "exdate" in cols:
+                col_ex = cols["exdate"]
+                ex_months = sorted({int(pd.to_datetime(x).month) for x in df_pay[col_ex].dropna().tolist()})
+        # フォールバック：payment が取れなければ市場別の経験則で ex→pay を推定
+        if not pay_months:
+            hint = _market_hint_from_symbol(sym)
+            # JP: 3/9 の ex が多く、支払は +2〜3 ヶ月が多い（期末決算→6月/12月）
+            # US: だいたい +1 ヶ月程度のことが多い（もちろん銘柄差あり、暫定）
+            delta = 2 if hint == "JP" else 1
+            pay_months = sorted({((m - 1 + delta) % 12) + 1 for m in ex_months})
+
+        out["ex"] = ex_months
+        out["pay"] = pay_months
+        return out
+    except Exception:
+        # yfinance が使えない/失敗した場合は空で返す
+        return out
 
 
 # ===================== カレンダー用ペイロード =====================
 
 def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|None):
-    """
-    カレンダー用の月次明細サマリを計算して返す（サーバ描画/JSON 共通）。
-    """
     qs = svc_div.build_user_dividend_qs(user)
     qs = svc_div.apply_filters(qs, year=y, month=m, broker=broker or None, account=account or None)
     rows = svc_div.materialize(qs)
@@ -90,7 +153,10 @@ def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|
         if not d.date or d.date.year != y or d.date.month != m:
             continue
         idx = d.date.day - 1
-        net = float(d.net_amount() or 0.0)
+        try:
+            net = float(d.net_amount() or 0.0)
+        except Exception:
+            net = 0.0
         if net <= 0:
             continue
 
@@ -100,8 +166,8 @@ def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|
         month_sum += net
         days[idx]["total"] += net
         days[idx]["items"].append({
-            "ticker":        d.display_ticker,
-            "name":          d.display_name or d.display_ticker,
+            "ticker":        _label_ticker(d),
+            "name":          _label_name(d),
             "net":           round(net, 2),
             "broker":        b_code,
             "broker_label":  broker_map.get(b_code, b_code),
@@ -116,35 +182,34 @@ def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|
     return {"year": y, "month": m, "days": days, "sum_month": round(month_sum, 2)}
 
 
-# ===================== 予測（yfinance 優先 + 実月割付） =====================
+# ===================== 予測（yfinance 優先 / 支払月・権利確定月 切替） =====================
 
-def _build_forecast_payload(user, year: int, *, mode: str = "pay", stack: str = "none"):
+def _build_forecast_payload(user, year: int, *, mode: str = "pay"):
     """
-    配当予測（12ヶ月）
-      - yfinance の配当履歴/直近配当を優先（fallback: DB）
-      - 過去の「発生月の頻度」から、その銘柄の“よく出る月”に割付
-      - mode: "pay"（支払月扱い）/ "record"（権利確定月扱い）
-      - stack: "none"(合計) / "broker" / "account"
-    返り値: {"months":[{"yyyymm":"YYYY-MM","values":{key:amt,...},"net":sum}], "sum12": ... , "stack":stack}
+    mode: 'pay' (支払い月) / 'record' (権利確定月)
+    - yfinance で ex/pay の月を取得して該当月に配賦
+    - 取れない銘柄は DB の直近税後/株数から frequency を推定して均等配賦
     """
-    try:
-        import yfinance as yf  # インストール済み想定
-    except Exception:
-        yf = None  # 使えなくてもフォールバックで継続
-
     qs = svc_div.build_user_dividend_qs(user)
+    qs = svc_div.apply_filters(qs, year=year)
     rows = svc_div.materialize(qs)
 
-    # 株数・属性
+    # 直近1株配当(税後) と 株数
+    last_per_share: dict[str, float] = {}
     qty_by_symbol: dict[str, int] = {}
-    broker_by_symbol: dict[str, str] = {}
-    account_by_symbol: dict[str, str] = {}
 
     for d in rows:
         sym = _label_ticker(d)
-        if not sym:
-            continue
+        # 1株配当（税後）
+        ps = None
+        try:
+            ps = d.per_share_dividend_net()
+        except Exception:
+            ps = None
+        if ps is not None:
+            last_per_share[sym] = float(ps)
 
+        # 株数
         q = 0
         try:
             q = int(d.quantity or 0)
@@ -152,113 +217,62 @@ def _build_forecast_payload(user, year: int, *, mode: str = "pay", stack: str = 
             q = 0
         if q <= 0 and getattr(d, "holding", None):
             try:
-                q = int(getattr(d.holding, "quantity", 0) or 0)
+                q = int(d.holding.quantity or 0)
             except Exception:
                 q = 0
-        if q <= 0:
-            continue
+        if q > 0:
+            qty_by_symbol[sym] = q
 
-        qty_by_symbol[sym] = q
-        broker_by_symbol[sym]  = (d.broker or (d.holding.broker if getattr(d, "holding", None) else "") or "OTHER")
-        account_by_symbol[sym] = (d.account or (d.holding.account if getattr(d, "holding", None) else "") or "SPEC")
+    # yfinance 優先で ex/pay の月を得る
+    months_by_symbol = {}  # {sym: {"ex":[...], "pay":[...]}}
+    for sym in set(list(last_per_share.keys()) + list(qty_by_symbol.keys())):
+        months_by_symbol[sym] = _fetch_div_months_from_yf(sym)
 
-    # 直近配当（1株あたり）: yfinance 優先
-    last_per_share: dict[str, float] = {}
-    for sym in qty_by_symbol:
-        ps = None
-        # yfinance
-        if yf:
-            try:
-                tk = yf.Ticker(sym)
-                divs = tk.dividends  # index は多くの銘柄で ex-div（実質「権利落ち」）※市場差異はある
-                if divs is not None and getattr(divs, "empty", True) is False:
-                    ps = float(divs.iloc[-1])
-            except Exception:
-                ps = None
-        # fallback: DB
-        if ps is None:
-            for d in rows:
-                if _label_ticker(d) == sym:
-                    try:
-                        tmp = d.per_share_dividend_net()
-                        if tmp:
-                            ps = float(tmp)
-                    except Exception:
-                        pass
-        if ps and ps > 0:
-            last_per_share[sym] = ps
+    # DB から frequency の推定（yfinance が空の時のフォールバック）
+    freq_by_symbol: dict[str, int] = {}
+    seen_months_by_symbol: dict[str, set[int]] = defaultdict(set)
+    for d in rows:
+        if d.date:
+            seen_months_by_symbol[_label_ticker(d)].add(d.date.month)
+    for sym, ms in seen_months_by_symbol.items():
+        cnt = len([m for m in ms])
+        freq_by_symbol[sym] = 4 if cnt >= 4 else 2 if cnt >= 2 else 1
 
-    # “よく出る月”の推定：yfinance の履歴 or DB 全期間の実績から頻度上位を採用
-    month_candidates: dict[str, list[int]] = {}
-    for sym in qty_by_symbol:
-        cnt = Counter()
-
-        # yfinance の履歴から
-        used_yf = False
-        if yf:
-            try:
-                tk = yf.Ticker(sym)
-                divs = tk.dividends
-                if divs is not None and getattr(divs, "empty", True) is False:
-                    # index は Timestamp。mode に応じて ex-div ＝ record と見なす
-                    for ts in divs.index:
-                        m = int(getattr(ts, "month", None) or ts.month)
-                        cnt[m] += 1
-                    used_yf = True
-            except Exception:
-                used_yf = False
-
-        # フォールバック：DB 全期間
-        if not used_yf:
-            for d in rows:
-                if _label_ticker(d) == sym and d.date:
-                    m = d.date.month
-                    cnt[m] += 1
-
-        if cnt:
-            # 出現回数の多い順に最大4つ
-            top = [m for m, _c in cnt.most_common(4)]
-            month_candidates[sym] = sorted(top)
-        else:
-            # 何も情報が無ければ四半期デフォルト
-            month_candidates[sym] = [3, 6, 9, 12]
-
-    # 対象年 12ヶ月の器
+    # 12 ヶ月バケツ
     yymm = [f"{year}-{m:02d}" for m in range(1, 13)]
-    monthly: dict[str, dict[str, float]] = {m: {} for m in yymm}
+    monthly = {k: 0.0 for k in yymm}
 
-    # 配賦
     for sym, ps in last_per_share.items():
         qty = qty_by_symbol.get(sym, 0)
-        months = month_candidates.get(sym, [3, 6, 9, 12])
-        if qty <= 0 or ps <= 0 or not months:
+        if qty <= 0 or ps is None:
             continue
+        months_info = months_by_symbol.get(sym) or {}
+        ex_ms  = months_info.get("ex")  or []
+        pay_ms = months_info.get("pay") or []
 
-        # その銘柄の想定回数
-        f = min(4, len(months))
-        est_total = ps * qty * f
-        each = est_total / f
+        # 採用する月セット
+        target_months = pay_ms if mode == "pay" else ex_ms
 
-        for mm in months[:f]:
-            key = f"{year}-{mm:02d}"
-            if stack == "broker":
-                k = broker_by_symbol.get(sym, "OTHER")
-            elif stack == "account":
-                k = account_by_symbol.get(sym, "SPEC")
-            else:
-                k = "合計"
-            monthly[key][k] = monthly[key].get(k, 0.0) + each
+        if target_months:
+            # yfinance から得た月に等分して入れる
+            each = float(ps) * float(qty)
+            # 1配当あたり each を対象月数で加算
+            for m in target_months:
+                key = f"{year}-{int(m):02d}"
+                if key in monthly:
+                    monthly[key] += each
+        else:
+            # yfinance が得られない場合はフォールバック（frequency に均等配賦）
+            f = max(1, int(freq_by_symbol.get(sym, 1)))
+            est_total = float(ps) * float(qty) * f
+            each = est_total / f
+            for i in range(f):
+                key = yymm[i]
+                monthly[key] += each
 
-    # 整形
-    months_out = []
-    sum12 = 0.0
-    for k in yymm:
-        bucket = monthly[k]
-        total = round(sum(bucket.values()), 2)
-        sum12 += total
-        months_out.append({"yyyymm": k, "values": bucket, "net": total})
-
-    return {"months": months_out, "sum12": round(sum12, 2), "stack": stack, "mode": mode}
+    months = [{"yyyymm": k, "net": round(v, 2)} for k, v in monthly.items()]
+    sum12 = round(sum(monthly.values()), 2)
+    return {"months": months, "sum12": sum12}
 
 
 # ===================== ダッシュボード =====================
@@ -513,8 +527,18 @@ def export_csv(request):
     writer = csv.writer(sio)
     writer.writerow(
         [
-            "id","date","ticker","name","broker","account",
-            "quantity","purchase_price","gross_amount","tax","net_amount","memo",
+            "id",
+            "date",
+            "ticker",
+            "name",
+            "broker",
+            "account",
+            "quantity",
+            "purchase_price",
+            "gross_amount",
+            "tax",
+            "net_amount",
+            "memo",
         ]
     )
 
@@ -574,8 +598,10 @@ def export_csv(request):
         )
 
     filename_bits = ["dividends"]
-    if year_q:  filename_bits.append(str(year_q))
-    if month_q: filename_bits.append(f"{int(month_q):02d}")
+    if year_q:
+        filename_bits.append(str(year_q))
+    if month_q:
+        filename_bits.append(f"{int(month_q):02d}")
     filename = "_".join(filename_bits) + ".csv"
 
     resp = HttpResponse(content_type="text/csv; charset=utf-8")
@@ -628,9 +654,12 @@ def dividends_calendar_json(request):
 @login_required
 def dividends_forecast(request):
     y = _parse_year(request)
-    mode  = (request.GET.get("mode")  or "pay").strip()       # "pay" / "record"
-    stack = (request.GET.get("stack") or "none").strip()      # "none" / "broker" / "account"
-    payload = _build_forecast_payload(request.user, y, mode=mode, stack=stack)
+    # 切替: mode=pay / record（既定は pay）
+    mode = (request.GET.get("mode") or "pay").lower()
+    if mode not in ("pay", "record"):
+        mode = "pay"
+
+    payload = _build_forecast_payload(request.user, y, mode=mode)
     ctx = {
         "flt": _flt(request),
         "year_options": list(range(timezone.now().year + 1, timezone.now().year - 7, -1)),
@@ -639,7 +668,6 @@ def dividends_forecast(request):
         "payload_json": payload,
         "year": y,
         "mode": mode,
-        "stack": stack,
     }
     return render(request, "dividends/forecast.html", ctx)
 
@@ -647,7 +675,8 @@ def dividends_forecast(request):
 @login_required
 def dividends_forecast_json(request):
     y = _parse_year(request)
-    mode  = (request.GET.get("mode")  or "pay").strip()
-    stack = (request.GET.get("stack") or "none").strip()
-    payload = _build_forecast_payload(request.user, y, mode=mode, stack=stack)
+    mode = (request.GET.get("mode") or "pay").lower()
+    if mode not in ("pay", "record"):
+        mode = "pay"
+    payload = _build_forecast_payload(request.user, y, mode=mode)
     return JsonResponse(payload)
