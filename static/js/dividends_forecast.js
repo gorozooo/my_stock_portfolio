@@ -10,140 +10,151 @@
   };
   const yen = (n)=> "¥" + Math.round(Number(n||0)).toLocaleString("ja-JP");
 
+  const PAL = [
+    "rgba(66,133,244,0.70)","rgba(244,180,0,0.70)","rgba(15,157,88,0.70)",
+    "rgba(219,68,55,0.70)","rgba(171,71,188,0.70)","rgba(0,172,193,0.70)",
+    "rgba(255,112,67,0.70)","rgba(124,179,66,0.70)"
+  ];
+  const PAL_HOVER = PAL.map(c=>c.replace("0.70","0.85"));
+
   let chart;
 
   function qNow(){
     const year  = Number($("#fYear")?.value || new Date().getFullYear());
-    const basis = $("#segBasis .pill.is-active")?.dataset.v || "pay";      // pay or ex
-    const stack = $("#segStack .pill.is-active")?.dataset.v || "none";     // none | broker | account
+    const basis = $("#segBasis .pill.is-active")?.dataset.v || "pay";     // "pay" | "ex"
+    const stack = $("#segStack .pill.is-active")?.dataset.v || "none";    // "none" | "broker" | "account"
     return {year, basis, stack};
   }
 
-  // ランダム系じゃなく固定の色セット（見やすさ優先）
-  const PALETTE = [
-    "rgba(66,133,244,0.75)",
-    "rgba(234,67,53,0.75)",
-    "rgba(251,188,5,0.75)",
-    "rgba(52,168,83,0.75)",
-    "rgba(171,71,188,0.75)",
-    "rgba(0,172,193,0.75)",
-    "rgba(255,112,67,0.75)",
-    "rgba(124,179,66,0.75)"
-  ];
+  function months12(payload){
+    const arr = Array(12).fill(0);
+    (payload?.months||[]).forEach(m=>{
+      const i = Number(String(m.yyyymm).slice(-2)) - 1;
+      if (i>=0 && i<12) arr[i] = Number(m.net||0);
+    });
+    return arr;
+  }
 
-  // 値ラベル（合計時のみ描画）
+  // 値ラベルプラグイン
   const valueLabelPlugin = {
     id: "valueLabels",
-    afterDatasetsDraw(chart, args, opts){
-      const stacked = chart.options.scales?.y?.stacked;
-      if (stacked) return; // 積み上げ時は読みにくいので非表示
-      const {ctx} = chart;
-      const meta = chart.getDatasetMeta(0);
-      const data = chart.data.datasets[0]?.data || [];
+    afterDatasetsDraw(chart){
+      const {ctx, data} = chart;
+      const meta0 = chart.getDatasetMeta(0);
+      if (!meta0) return;
       ctx.save();
       ctx.fillStyle = "#cfd7ff";
       ctx.font = "600 11px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
       ctx.textAlign = "center";
-      meta.data.forEach((el, i)=>{
-        const v = Number(data[i]||0);
-        if (v<=0 || !el) return;
+
+      // 各x座標ごとに合計値（スタック時は積み上げ後の頂点）を出して表示
+      const stacked = chart.options.scales?.y?.stacked;
+      const bars = meta0.data || [];
+      const nBars = bars.length;
+      for (let i=0; i<nBars; i++){
+        let val = 0;
+        if (stacked) {
+          // すべてのdatasetの i 番目の値を合算
+          (data.datasets||[]).forEach(ds=>{ val += Number(ds.data?.[i]||0); });
+        } else {
+          val = Number(data.datasets?.[0]?.data?.[i]||0);
+        }
+        if (val <= 0) continue;
+        const el = bars[i];
+        if (!el) continue;
         const p = el.tooltipPosition();
-        ctx.fillText(compactJPY(v), p.x, p.y - 6);
-      });
+        ctx.fillText(compactJPY(val), p.x, p.y - 6);
+      }
       ctx.restore();
     }
   };
 
-  function buildDatasets(series){
-    // series: [{key,label,data:[12 nums]}]
-    if (!Array.isArray(series) || series.length===0) {
-      return [{
+  function render(payload, query){
+    const labels = ["01","02","03","04","05","06","07","08","09","10","11","12"];
+
+    // datasets 構築
+    let datasets = [];
+    if (query.stack === "none") {
+      datasets = [{
         label: "合計（税後）",
-        data: Array(12).fill(0),
-        backgroundColor: PALETTE[0],
+        data: months12(payload),
+        backgroundColor: PAL[0],
+        hoverBackgroundColor: PAL_HOVER[0],
         borderRadius: 6,
         barThickness: 18,
-        stack: "S",
       }];
-    }
-    return series.map((s, i)=>({
-      label: s.label || s.key || `系列${i+1}`,
-      data: (s.data || Array(12).fill(0)).map(n=>Number(n||0)),
-      backgroundColor: PALETTE[i % PALETTE.length],
-      borderRadius: 6,
-      barThickness: 18,
-      stack: "S",
-    }));
-  }
-
-  function render(payload, query){
-    const labels = payload?.labels || ["01","02","03","04","05","06","07","08","09","10","11","12"];
-    const series = payload?.series || [];
-    const isStacked = (series.length > 1); // 2本以上なら積み上げ
-
-    // 合計（凡例/平均用）
-    let sum12 = 0;
-    if (series.length === 0) {
-      sum12 = 0;
-    } else if (series.length === 1) {
-      sum12 = series[0].data.reduce((a,b)=>a+Number(b||0), 0);
     } else {
-      // 積み上げは全系列合計
-      sum12 = series.reduce((acc,s)=> acc + s.data.reduce((a,b)=>a+Number(b||0),0), 0);
+      const groups = Array.isArray(payload?.groups) ? payload.groups : [];
+      groups.forEach((g, idx)=>{
+        const color = PAL[idx % PAL.length];
+        const colorH = PAL_HOVER[idx % PAL_HOVER.length];
+        datasets.push({
+          label: String(g.label || g.key || `Group ${idx+1}`),
+          data: months12(g),
+          backgroundColor: color,
+          hoverBackgroundColor: colorH,
+          borderRadius: 6,
+          barThickness: 18,
+          stack: "S1",
+        });
+      });
+
+      // グループが空でもキャンバスを保つ（0データ1本）
+      if (datasets.length === 0){
+        datasets.push({
+          label: "データなし",
+          data: Array(12).fill(0),
+          backgroundColor: PAL[0],
+          hoverBackgroundColor: PAL_HOVER[0],
+          borderRadius: 6,
+          barThickness: 18,
+          stack: "S1",
+        });
+      }
     }
 
-    // 既存破棄
+    // 合計・平均
+    let sum12 = 0;
+    if (query.stack === "none") {
+      sum12 = payload?.sum12 ?? datasets[0].data.reduce((a,b)=>a+b,0);
+    } else {
+      const groups = Array.isArray(payload?.groups) ? payload.groups : [];
+      sum12 = groups.reduce((s,g)=> s + (Number(g.sum12)||0), 0);
+    }
+
+    // 破棄→再生成
     chart?.destroy();
     const ctx = $("#fcChart").getContext("2d");
 
     chart = new Chart(ctx, {
       type: "bar",
-      data: {
-        labels,
-        datasets: buildDatasets(series)
-      },
+      data: { labels, datasets },
       options: {
         responsive: true,
-        maintainAspectRatio: false,
-        resizeDelay: 180,
+        maintainAspectRatio: false,  // 親 .chartbox にだけ従う
+        resizeDelay: 200,
         animation: { duration: 250 },
         plugins: {
-          legend: { display: isStacked }, // 合計だけなら凡例オフ
-          tooltip: {
-            callbacks: {
-              label: (c)=>{
-                const lab = c.dataset?.label ? `${c.dataset.label}: ` : "";
-                return lab + yen(c.parsed.y);
-              },
-              footer: (items)=>{
-                // 月合計（積み上げ時）
-                if (!isStacked) return "";
-                const s = items.reduce((a,it)=> a + (it.parsed?.y||0), 0);
-                return "月合計: " + yen(s);
-              }
-            }
-          }
+          legend: { display: true, labels: { color: "#cfd7ff" } },
+          tooltip: { callbacks: { label: (c)=> `${c.dataset.label}: ${yen(c.parsed.y)}` } }
         },
         scales: {
-          x: { ticks:{color:"#cfd7ff"}, grid:{display:false}, stacked: isStacked },
+          x: { ticks:{color:"#cfd7ff"}, grid:{display:false}, stacked: (query.stack!=="none") },
           y: {
             beginAtZero:true,
             ticks:{ color:"#9aa4b2", callback:(v)=> yen(v) },
             grid:{ color:"rgba(255,255,255,.06)" },
-            stacked: isStacked
+            stacked: (query.stack!=="none")
           }
         }
       },
       plugins: [valueLabelPlugin]
     });
 
-    // 表示テキスト
-    const basisLabel = (query.basis==="ex" ? "権利確定月" : "支払い月");
-    const stackLabel =
+    $("#fcAvg").textContent = `月平均：${yen(sum12/12)}`;
+    $("#fcLegend").textContent =
       query.stack==="none" ? "合計（税後）" :
       (query.stack==="broker" ? "証券会社別（税後）" : "口座別（税後）");
-    $("#fcLegend").textContent = `${basisLabel} / ${stackLabel}`;
-    $("#fcAvg").textContent = `月平均：${yen(sum12/12)}`;
   }
 
   function fetchAndRender(q){
@@ -154,10 +165,10 @@
       .catch(()=>{/* no-op */});
   }
 
-  // 初期描画（埋め込み or API）
+  // 初期描画
   const init = window.__DIVFC_INIT__;
   const initYear = window.__DIVFC_YEAR__ || new Date().getFullYear();
-  if (init && init.series) render(init, {year:initYear, basis:"pay", stack:"none"});
+  if (init) render(init, {year:initYear, basis:"pay", stack:"none"});
   else fetchAndRender(qNow());
 
   // UI
