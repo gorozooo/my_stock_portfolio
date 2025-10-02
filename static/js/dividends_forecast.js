@@ -12,13 +12,16 @@
 
   let chart;
 
+  // ← UIの選択値をAPIクエリに変換
   function qNow(){
-    const year  = Number($("#fYear")?.value || new Date().getFullYear());
-    const basis = $("#segBasis .pill.is-active")?.dataset.v || "pay";
-    const stack = $("#segStack .pill.is-active")?.dataset.v || "none";
-    return {year, basis, stack};
+    const year   = Number($("#fYear")?.value || new Date().getFullYear());
+    const basisV = $("#segBasis .pill.is-active")?.dataset.v || "pay";   // pay | ex(=record)
+    const stack  = $("#segStack .pill.is-active")?.dataset.v || "none";  // 画面表示用のみ
+    const mode   = (basisV === "ex") ? "record" : "pay";                  // ← バックエンドに合わせる
+    return {year, mode, stack};
   }
 
+  // APIペイロード → 12ヶ月配列
   function months12(payload){
     const arr = Array(12).fill(0);
     (payload?.months||[]).forEach(m=>{
@@ -28,18 +31,18 @@
     return arr;
   }
 
-  // 値ラベルを描く軽量プラグイン（リサイズでも増殖しない）
+  // 値ラベルプラグイン
   const valueLabelPlugin = {
     id: "valueLabels",
-    afterDatasetsDraw(chart, args, opts){
+    afterDatasetsDraw(chart){
       const {ctx} = chart;
-      const ds0 = chart.getDatasetMeta(0);
       const data = chart.data.datasets[0]?.data || [];
+      const meta = chart.getDatasetMeta(0);
       ctx.save();
       ctx.fillStyle = "#cfd7ff";
       ctx.font = "600 11px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial";
       ctx.textAlign = "center";
-      ds0.data.forEach((el, i)=>{
+      meta.data.forEach((el, i)=>{
         const v = Number(data[i]||0);
         if (v<=0 || !el) return;
         const p = el.tooltipPosition();
@@ -70,9 +73,8 @@
         }]
       },
       options: {
-        // 🔧 伸び続ける対策：親の固定高さにだけ追従
         responsive: true,
-        maintainAspectRatio: false,
+        maintainAspectRatio: false,   // 親の固定高さに追従
         resizeDelay: 200,
         animation: { duration: 250 },
         plugins: {
@@ -93,9 +95,13 @@
 
     const sum = payload?.sum12 ?? data12.reduce((a,b)=>a+b,0);
     $("#fcAvg").textContent = `月平均：${yen(sum/12)}`;
-    $("#fcLegend").textContent =
-      query.stack==="none" ? "合計（税後）" :
-      (query.stack==="broker" ? "証券会社別（税後）" : "口座別（税後）");
+
+    const basisLabel = (query.mode === "record") ? "権利確定月" : "支払い月";
+    const stackLabel =
+      query.stack==="none"    ? "合計（税後）" :
+      query.stack==="broker"  ? "証券会社別（税後）" :
+                                "口座別（税後）";
+    $("#fcLegend").textContent = `${basisLabel}・${stackLabel}`;
   }
 
   function fetchAndRender(q){
@@ -109,10 +115,13 @@
   // 初期描画
   const init = window.__DIVFC_INIT__;
   const initYear = window.__DIVFC_YEAR__ || new Date().getFullYear();
-  if (init) render(init, {year:initYear, basis:"pay", stack:"none"});
-  else fetchAndRender(qNow());
+  if (init) {
+    render(init, {year:initYear, mode:"pay", stack:"none"});
+  } else {
+    fetchAndRender(qNow());
+  }
 
-  // UI
+  // UIイベント
   $("#fYear")?.addEventListener("change", ()=> fetchAndRender(qNow()));
   ["segBasis","segStack"].forEach(id=>{
     const box = $("#"+id);
