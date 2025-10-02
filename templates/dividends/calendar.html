@@ -6,7 +6,7 @@
 <style>
   .cal-wrap{max-width:980px;margin:0 auto}
 
-  /* フィルター: 2列→広い時は4列 */
+  /* フィルター: 2列（スマホ）→ 4列（広い画面） */
   .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px}
   .filters select{
     width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);
@@ -25,9 +25,12 @@
     background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
     overflow:hidden
   }
-  .cell .d{position:absolute;top:7px;left:10px;font-weight:700;color:#cfd7ff;font-size:13px}
+  /* 左下→左上にすると親指で隠れやすいので左上配置 */
+  .cell .d{
+    position:absolute;top:7px;left:10px;font-weight:700;color:#cfd7ff;font-size:13px
+  }
 
-  /* —— 件数ドット（小さな白丸） —— */
+  /* —— 件数ドット（白丸・右上固定） —— */
   .dot{
     position:absolute;top:6px;right:8px;
     width:26px;height:26px;border-radius:50%;
@@ -65,8 +68,8 @@
     border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);
     border-radius:10px;padding:8px 10px
   }
-  .sheet .row .name{font-weight:700}
-  .sheet .row .amt{white-space:nowrap}
+  .sheet .row .name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .sheet .row .amt{white-space:nowrap;font-variant-numeric:tabular-nums}
 </style>
 {% endblock %}
 
@@ -76,18 +79,26 @@
 
   <form id="calFilter" class="filters">
     <select name="year" id="fYear">
-      {% for y in year_options %}<option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>{% endfor %}
+      {% for y in year_options %}
+        <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>
+      {% endfor %}
     </select>
     <select name="month" id="fMonth">
-      {% for m in month_options %}<option value="{{ m }}" {% if month == m %}selected{% endif %}>{{ m }}</option>{% endfor %}
+      {% for m in month_options %}
+        <option value="{{ m }}" {% if month == m %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
     </select>
     <select name="broker" id="fBroker">
       <option value="">証券会社(すべて)</option>
-      {% for v,l in BROKERS %}<option value="{{ v }}" {% if flt.broker == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
+      {% for v,l in BROKERS %}
+        <option value="{{ v }}" {% if flt.broker == v %}selected{% endif %}>{{ l }}</option>
+      {% endfor %}
     </select>
     <select name="account" id="fAccount">
       <option value="">口座(すべて)</option>
-      {% for v,l in ACCOUNTS %}<option value="{{ v }}" {% if flt.account == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
+      {% for v,l in ACCOUNTS %}
+        <option value="{{ v }}" {% if flt.account == v %}selected{% endif %}>{{ l }}</option>
+      {% endfor %}
     </select>
   </form>
 
@@ -95,6 +106,7 @@
 
   <!-- 42 セルの骨組み（JS が上書き） -->
   <div id="cal" class="cal" data-year="{{ year }}" data-month="{{ month }}">
+    {# 42 個のプレースホルダー #}
     {% for i in "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" %}
       <div class="cell" data-idx="{{ forloop.counter0 }}"><div class="d"></div></div>
     {% endfor %}
