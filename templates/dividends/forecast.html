@@ -23,7 +23,7 @@
     border-radius:14px;padding:12px
   }
 
-  /* 親に固定高さ → canvas は絶対配置で伸び止め */
+  /* キャンバス無限伸び対策：親に固定高さ、canvasは100%絶対配置 */
   .chartbox{position:relative;height:260px}
   #fcChart{position:absolute;inset:0;display:block;width:100%;height:100%}
 
@@ -65,9 +65,8 @@
   </div>
 </div>
 
-<script src="{% static 'js/dividends_forecast.js' %}?v=14"></script>
+<script src="{% static 'js/dividends_forecast.js' %}?v=15"></script>
 <script>
-  // サーバが初期 payload を埋め込むなら series 形式で
   window.__DIVFC_INIT__ = {{ payload_json|safe }};
   window.__DIVFC_YEAR__ = {{ year }};
 </script>
