@@ -10,11 +10,10 @@
     padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.14);
     background:rgba(255,255,255,.06);color:#eaf0ff
   }
-  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg{display:flex;gap:8px;flex-wrap:wrap}
   .pill{
-    border:1px solid rgba(255,255,255,.14);
-    background:rgba(255,255,255,.06);
-    color:#cfd7ff;border-radius:999px;padding:8px 14px;font-weight:600
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);
+    color:#cfd7ff;border-radius:999px;padding:8px 14px;font-weight:700
   }
   .pill.is-active{background:rgba(66,133,244,.18);border-color:rgba(66,133,244,.45);color:#eaf0ff}
 
@@ -23,12 +22,19 @@
     border-radius:14px;padding:12px
   }
 
-  /* キャンバス無限伸び対策：親に固定高さ、canvasは100%絶対配置 */
+  /* グラフ枠：固定高で Chart.js の無限伸長を回避 */
   .chartbox{position:relative;height:260px}
   #fcChart{position:absolute;inset:0;display:block;width:100%;height:100%}
 
   .legend-row{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
   .avg{color:#cfd7ff;font-weight:700}
+
+  /* Skeleton & Empty */
+  .skeleton{display:none;height:260px;border-radius:10px;background:
+      linear-gradient(90deg, rgba(255,255,255,.05), rgba(255,255,255,.08), rgba(255,255,255,.05));
+    background-size:200% 100%; animation:sk 1.2s ease-in-out infinite}
+  @keyframes sk { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+  .empty{display:none;align-items:center;justify-content:center;height:260px;color:#9aa4b2}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 {% endblock %}
@@ -45,19 +51,21 @@
     </select>
 
     <div class="seg" id="segBasis" role="tablist" aria-label="集計基準">
-      <button type="button" class="pill is-active" data-v="pay"  role="tab" aria-selected="true">支払い月</button>
-      <button type="button" class="pill"         data-v="ex"   role="tab" aria-selected="false">権利確定月</button>
+      <button type="button" class="pill is-active" data-v="pay" role="tab" aria-selected="true">支払い月</button>
+      <button type="button" class="pill" data-v="ex" role="tab" aria-selected="false">権利確定月</button>
     </div>
 
     <div class="seg" id="segStack" role="tablist" aria-label="表示軸">
-      <button type="button" class="pill is-active" data-v="none"    role="tab" aria-selected="true">合計</button>
-      <button type="button" class="pill"           data-v="broker"  role="tab" aria-selected="false">証券会社別</button>
-      <button type="button" class="pill"           data-v="account" role="tab" aria-selected="false">口座別</button>
+      <button type="button" class="pill is-active" data-v="none" role="tab" aria-selected="true">合計</button>
+      <button type="button" class="pill" data-v="broker" role="tab" aria-selected="false">証券会社別</button>
+      <button type="button" class="pill" data-v="account" role="tab" aria-selected="false">口座別</button>
     </div>
   </div>
 
   <div class="card">
-    <div class="chartbox"><canvas id="fcChart"></canvas></div>
+    <div id="skeleton" class="skeleton"></div>
+    <div id="empty" class="empty">データがありません</div>
+    <div id="chartBox" class="chartbox"><canvas id="fcChart"></canvas></div>
     <div class="legend-row">
       <div id="fcLegend"></div>
       <div class="avg" id="fcAvg"></div>
@@ -65,7 +73,7 @@
   </div>
 </div>
 
-<script src="{% static 'js/dividends_forecast.js' %}?v=15"></script>
+<script src="{% static 'js/dividends_forecast.js' %}?v=16"></script>
 <script>
   window.__DIVFC_INIT__ = {{ payload_json|safe }};
   window.__DIVFC_YEAR__ = {{ year }};
