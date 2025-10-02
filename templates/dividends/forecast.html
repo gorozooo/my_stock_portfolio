@@ -13,10 +13,25 @@
   .seg{display:flex;border:1px solid rgba(255,255,255,.14);border-radius:10px;overflow:hidden}
   .seg button{background:transparent;border:0;padding:10px 14px;color:#cfd7ff}
   .seg button.active{background:rgba(255,255,255,.12);font-weight:700}
+
   .card{
     border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.03);
     border-radius:14px;padding:12px
   }
+
+  /* ← グラフが伸び続けないように親に固定高を持たせる */
+  .chart-box{
+    position:relative;
+    height:320px;        /* モバイル向け高さ */
+    max-width:980px;
+    margin:8px auto 0;
+  }
+  @media (min-width:768px){
+    .chart-box{ height:360px; }
+  }
+  /* Chart.js を親の高さにフィットさせる */
+  #fChart{ width:100% !important; height:100% !important; display:block; }
+
   .sum{margin-top:8px;color:#cfd7ff}
 </style>
 <!-- Chart.js（CDN） -->
@@ -27,28 +42,56 @@
 <div class="wrap">
   <h1 class="text-xl font-semibold mb-3">配当予測（12ヶ月）</h1>
 
-  <div class="filters">
-    <select id="fYear">
+  <!-- フィルター -->
+  <form id="forecastFilter" class="filters">
+    <select id="fYear" name="year">
       {% for y in year_options %}
         <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>
       {% endfor %}
     </select>
+
+    <!-- セグメント切替（hidden に反映して JS は hidden を読む） -->
     <div class="seg" id="segStack">
       <button type="button" data-v="none"    class="{% if stack == 'none' %}active{% endif %}">合計</button>
       <button type="button" data-v="broker"  class="{% if stack == 'broker' %}active{% endif %}">証券会社</button>
       <button type="button" data-v="account" class="{% if stack == 'account' %}active{% endif %}">口座</button>
     </div>
-  </div>
+    <input type="hidden" id="fStack" name="stack" value="{{ stack|default:'none' }}">
+  </form>
 
   <div class="card">
-    <canvas id="fcChart" height="140"></canvas>
+    <!-- 1枚のキャンバスを使い回す。高さは .chart-box が管理 -->
+    <div class="chart-box">
+      <canvas id="fChart"></canvas>
+    </div>
     <div class="sum" id="fcSum"></div>
   </div>
 </div>
 
-<script src="{% static 'js/dividends_forecast.js' %}?v=6"></script>
 <script>
-  window.__DIVFC_INIT__ = {{ payload_json|safe }};
-  window.__DIVFC_YEAR__ = {{ year }};
+  // セグメント押下で hidden を更新して change を投げる
+  (()=>{
+    const $ = (s,r=document)=>r.querySelector(s);
+    const $$ = (s,r=document)=>Array.from(r.querySelectorAll(s));
+    const seg = $("#segStack"), hidden = $("#fStack"), form = $("#forecastFilter");
+    if(seg && hidden && form){
+      seg.addEventListener("click",(e)=>{
+        const btn = e.target.closest("button[data-v]");
+        if(!btn) return;
+        $$("#segStack button").forEach(b=>b.classList.remove("active"));
+        btn.classList.add("active");
+        hidden.value = btn.dataset.v || "none";
+        // フィルター変更通知（外部JSが拾う）
+        form.dispatchEvent(new Event("change",{bubbles:false}));
+      }, {passive:true});
+    }
+  })();
+</script>
+
+<!-- 予測描画スクリプト（destroy して再生成する版） -->
+<script src="{% static 'js/dividends_forecast.js' %}?v=10"></script>
+<script>
+  // 初期ペイロード（JS はこれがあればAPI叩かず即描画）
+  window.__FORECAST_INIT__ = {{ payload_json|safe }};
 </script>
 {% endblock %}
