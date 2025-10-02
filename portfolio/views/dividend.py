@@ -52,16 +52,36 @@ def _label_name(d) -> str:
 
 
 def _is_jp_symbol(sym: str) -> bool:
+    """
+    日本株かどうかの緩め判定。
+    - 4桁数字（例: 7272）
+    - サフィックス .T / .JP / -T 等
+    - 先頭が JP〜 のコード
+    """
     s = (sym or "").upper()
-    return (s.endswith(".T") or (s.isdigit() and len(s) == 4))
+    if len(s) == 4 and s.isdigit():
+        return True
+    if s.endswith(".T") or s.endswith(".JP") or s.endswith("-T"):
+        return True
+    if s.startswith("JP"):
+        return True
+    return False
+
 
 def _shift_months(months: list[int], delta: int) -> list[int]:
-    # 1..12 を delta シフト（負もOK）
+    """
+    月配列を delta ヶ月ずらす（1..12 に wrap）。
+    例: 9月, delta=-3 → 6月
+    """
     out = []
     for m in months:
-        z = ((m - 1 + delta) % 12) + 1
-        out.append(z)
-    return out
+        try:
+            mi = int(m)
+        except Exception:
+            continue
+        if 1 <= mi <= 12:
+            out.append(((mi - 1 + delta) % 12) + 1)
+    return sorted(out)
 
 
 # ===================== yfinance (ex/pay) 補助 =====================
@@ -212,6 +232,10 @@ def _build_forecast_payload(user, year: int, mode: str = "pay"):
       - それ以外: 支払月 -1 ヶ月
     返り値: {"months":[{"yyyymm":"YYYY-MM","net":…},…], "sum12": …}
     """
+    mode = (mode or "pay").strip().lower()
+    if mode not in ("pay", "record", "ex"):
+        mode = "pay"
+
     # 1) 元データ取得（年で制限せず全体からパターン抽出）
     base_qs = svc_div.build_user_dividend_qs(user)
     rows = svc_div.materialize(base_qs)
@@ -246,39 +270,43 @@ def _build_forecast_payload(user, year: int, mode: str = "pay"):
             qty_by_symbol[sym] = q
 
     # 3) 支払月の抽出（全期間の実績からユニーク月を採用）
-    pay_months_by_symbol: dict[str, list[int]] = {}
     from collections import defaultdict
-    tmp = defaultdict(set)
+    tmp: dict[str, set[int]] = defaultdict(set)
     for d in rows:
-        if not d.date:
+        if not getattr(d, "date", None):
             continue
         sym = (getattr(d, "display_ticker", None) or getattr(d, "ticker", "") or "").upper()
-        tmp[sym].add(d.date.month)
+        try:
+            mm = int(d.date.month)
+            if 1 <= mm <= 12:
+                tmp[sym].add(mm)
+        except Exception:
+            pass
 
+    pay_months_by_symbol: dict[str, list[int]] = {}
     for sym, ms in tmp.items():
         pay_months_by_symbol[sym] = sorted(ms)
 
-    # 実績がない銘柄のフォールバック
+    # 実績がない銘柄のフォールバック（月パターン）
+    # - 日本株: 6月/12月
+    # - 海外（四半期想定）: 3/6/9/12
     for sym in set(list(last_per_share.keys()) + list(qty_by_symbol.keys())):
         if sym not in pay_months_by_symbol or not pay_months_by_symbol[sym]:
-            if _is_jp_symbol(sym):
-                pay_months_by_symbol[sym] = [6, 12]           # 日本株の一般的パターン
-            else:
-                pay_months_by_symbol[sym] = [3, 6, 9, 12]     # 四半期想定
+            pay_months_by_symbol[sym] = [6, 12] if _is_jp_symbol(sym) else [3, 6, 9, 12]
 
-    # 4) 集計月の決定（mode: pay or record）
+    # 4) 集計月の決定（mode: "pay" or "record"/"ex"）
     months = [f"{year}-{m:02d}" for m in range(1, 13)]
     monthly = {m: 0.0 for m in months}
 
     for sym, pay_months in pay_months_by_symbol.items():
-        ps  = last_per_share.get(sym)
+        ps = last_per_share.get(sym)
         qty = qty_by_symbol.get(sym, 0)
         if ps is None or qty <= 0:
             continue
 
         per_event = float(ps) * float(qty)
 
-        if mode == "record":
+        if mode in ("record", "ex"):
             # 市場ごとに支払月 → 権利確定月へシフト
             delta = -3 if _is_jp_symbol(sym) else -1
             target_months = _shift_months(pay_months, delta)
@@ -694,9 +722,20 @@ def dividends_forecast(request):
 
 @login_required
 def dividends_forecast_json(request):
-    y = _parse_year(request)
-    mode = (request.GET.get("mode") or "pay").strip().lower()  # "pay" | "record"
-    if mode not in ("pay", "record"):
-        mode = "pay"
-    payload = _build_forecast_payload(request.user, y, mode=mode)
+    year  = _parse_year(request)
+    basis = (request.GET.get("basis") or "pay").strip().lower()    # "pay" or "ex"
+    stack = (request.GET.get("stack") or "none").strip().lower()   # "none" | "broker" | "account"
+
+    if basis not in ("pay", "ex"):
+        basis = "pay"
+    if stack not in ("none", "broker", "account"):
+        stack = "none"
+
+    payload = _build_forecast_payload(
+        user=request.user,
+        year=year,
+        basis=basis,
+        stack=stack,
+    )
+
     return JsonResponse(payload)
