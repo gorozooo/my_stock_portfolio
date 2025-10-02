@@ -69,18 +69,17 @@ def _label_name(d) -> str:
     return (getattr(d, "display_name", None) or getattr(d, "name", "") or tkr)
 
 
-def _build_calendar_payload(user, y: int, m: int, *, broker: str | None, account: str | None):
+def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|None):
     """
-    カレンダー用の月次明細サマリを計算して返す。
+    カレンダー用の月次明細サマリを計算して返す（サーバ描画/JSON 共通）。
     返り値:
       {
         "year": y, "month": m,
-        "days": [
-          {"d":1,"total":12345.0,"items":[
-            {"ticker":"7272","name":"ヤマハ発動機","net":10000.0,
-             "broker":"楽天証券","account":"NISA","qty":400}
-          ]}
-        ],
+        "days": [{"d":1,"total":12345.0,"items":[
+            {"ticker":"xxxx","name":"…","net":…,
+             "broker":"RAKUTEN","broker_label":"楽天証券",
+             "account":"SPEC","account_label":"特定"}
+        ]}, …],
         "sum_month": 99999.0
       }
     """
@@ -92,6 +91,10 @@ def _build_calendar_payload(user, y: int, m: int, *, broker: str | None, account
     days = [{"d": d, "total": 0.0, "items": []} for d in range(1, last + 1)]
     month_sum = 0.0
 
+    # ラベル辞書（高速化）
+    broker_map  = dict(getattr(Dividend, "BROKER_CHOICES", []))
+    account_map = dict(getattr(Dividend, "ACCOUNT_CHOICES", []))
+
     for d in rows:
         if not d.date or d.date.year != y or d.date.month != m:
             continue
@@ -99,21 +102,21 @@ def _build_calendar_payload(user, y: int, m: int, *, broker: str | None, account
         net = float(d.net_amount() or 0.0)
         if net <= 0:
             continue
+
+        # broker/account（Dividend優先 → Holding → デフォルト）
+        b_code = d.broker or (d.holding.broker if getattr(d, "holding", None) else None) or "OTHER"
+        a_code = d.account or (d.holding.account if getattr(d, "holding", None) else None) or "SPEC"
+
         month_sum += net
         days[idx]["total"] += net
-
-        # 表示名・証券会社・口座・株数をできるだけ埋める
-        brk = d.get_broker_display() if d.broker else (d.holding.get_broker_display() if getattr(d, "holding", None) and d.holding.broker else "")
-        acc = d.get_account_display() if d.account else (d.holding.get_account_display() if getattr(d, "holding", None) and d.holding.account else "")
-        qty = d.quantity or (d.holding.quantity if getattr(d, "holding", None) and d.holding.quantity else None)
-
         days[idx]["items"].append({
-            "ticker": d.display_ticker,
-            "name":   d.display_name or d.display_ticker,
-            "net":    round(net, 2),
-            "broker": brk or "",
-            "account": acc or "",
-            "qty":    qty if qty is not None else "",
+            "ticker":        d.display_ticker,
+            "name":          d.display_name or d.display_ticker,
+            "net":           round(net, 2),
+            "broker":        b_code,
+            "broker_label":  broker_map.get(b_code, b_code),
+            "account":       a_code,
+            "account_label": account_map.get(a_code, a_code),
         })
 
     for bucket in days:
