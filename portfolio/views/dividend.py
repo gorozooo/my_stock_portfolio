@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from datetime import date
 from calendar import monthrange
+from collections import defaultdict, Counter
 
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
@@ -14,7 +15,6 @@ from django.views.decorators.http import require_GET, require_POST
 from django.urls import reverse
 import csv
 from io import StringIO
-from collections import defaultdict, Counter
 
 from ..forms import DividendForm, _normalize_code_head
 from ..models import Dividend
@@ -22,82 +22,8 @@ from ..services import tickers as svc_tickers
 from ..services import trend as svc_trend
 from ..services import dividends as svc_div  # 集計/目標
 
-import yfinance as yf
 
 # ===================== 共通ユーティリティ =====================
-
-# --- yfinance ヘルパ（ネットワーク失敗時は None を返す） ---
-def _yf_predict_months(symbol: str, year: int, qty: int, *, basis: str = "pay"):
-    """
-    symbol の今後12ヶ月（指定 year の 1–12 月）見込みを dict で返す。
-    例: {"2025-03": 1234.5, ...}
-    - basis="pay" 固定運用（支払い月基準）。ex 基準は必要になったら拡張。
-    - データが無い/失敗時は None を返す（呼び側でフォールバック）。
-    """
-    try:
-        import datetime as dt
-        import math
-        try:
-            import yfinance as yf
-        except Exception:
-            return None
-
-        t = yf.Ticker(symbol)
-        div = t.dividends  # pandas Series (payment-date index, per-share)
-        if div is None or len(div) == 0 or qty <= 0:
-            return None
-
-        # 直近3年程度に絞る
-        cutoff = dt.date(year, 1, 1) - dt.timedelta(days=365*3)
-        # pandas → list に落として扱う
-        pay_dates = []
-        per_shares = []
-        for idx, val in div.items():
-            d = getattr(idx, "date", lambda: None)()
-            if d and d >= cutoff:
-                pay_dates.append(d)
-                try:
-                    per_shares.append(float(val))
-                except Exception:
-                    per_shares.append(0.0)
-
-        if not pay_dates:
-            return None
-
-        # 年間頻度推定（年別件数の平均を丸め）
-        from collections import defaultdict, Counter
-        by_year = defaultdict(int)
-        for d in pay_dates:
-            by_year[d.year] += 1
-        freq = max(1, min(12, round(sum(by_year.values()) / max(1, len(by_year)))))
-
-        # 支払月の“定番”を推定（出現回数の多い月を上位 freq 個）
-        month_counter = Counter(d.month for d in pay_dates)
-        typical_months = [m for m, _ in month_counter.most_common(freq)]
-        # それでも足りない時は四半期などを足して埋める
-        if len(typical_months) < freq:
-            fallback = [3, 6, 9, 12, 2, 5, 8, 11, 1, 4, 7, 10]
-            for m in fallback:
-                if m not in typical_months:
-                    typical_months.append(m)
-                if len(typical_months) >= freq:
-                    break
-        typical_months = sorted(typical_months[:freq])
-
-        # 金額は直近N回の平均（N=4, 無ければあるだけ）
-        N = 4
-        tail = per_shares[-N:] if len(per_shares) >= N else per_shares
-        ps = sum(tail) / max(1, len(tail))
-
-        # 支払い月ベースで割り付け
-        alloc = {f"{year}-{m:02d}": 0.0 for m in range(1, 13)}
-        for m in typical_months:
-            key = f"{year}-{m:02d}"
-            alloc[key] = alloc.get(key, 0.0) + ps * float(qty)
-
-        return alloc
-    except Exception:
-        return None
 
 def _parse_year(req):
     try:
@@ -118,7 +44,7 @@ def _flt(req):
 def _safe_net(d) -> float:
     """Dividend の税引後金額を常に float で返す（None/例外は 0.0）。"""
     try:
-        v = d.net_amount()  # メソッド
+        v = d.net_amount()
         return float(v or 0.0)
     except Exception:
         try:
@@ -133,7 +59,7 @@ def _safe_net(d) -> float:
 
 
 def _label_ticker(d) -> str:
-    """表示用ティッカー（必ず文字列）"""
+    """表示用ティッカー（必ず文字列・大文字）"""
     return (getattr(d, "display_ticker", None) or getattr(d, "ticker", "") or "").upper()
 
 
@@ -143,21 +69,11 @@ def _label_name(d) -> str:
     return (getattr(d, "display_name", None) or getattr(d, "name", "") or tkr)
 
 
-# ===================== カレンダー用Payload =====================
+# ===================== カレンダー用ペイロード =====================
 
 def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|None):
     """
     カレンダー用の月次明細サマリを計算して返す（サーバ描画/JSON 共通）。
-    返り値:
-      {
-        "year": y, "month": m,
-        "days": [{"d":1,"total":12345.0,"items":[
-            {"ticker":"xxxx","name":"…","net":…,
-             "broker":"RAKUTEN","broker_label":"楽天証券",
-             "account":"SPEC","account_label":"特定"}
-        ]}, …],
-        "sum_month": 99999.0
-      }
     """
     qs = svc_div.build_user_dividend_qs(user)
     qs = svc_div.apply_filters(qs, year=y, month=m, broker=broker or None, account=account or None)
@@ -167,7 +83,6 @@ def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|
     days = [{"d": d, "total": 0.0, "items": []} for d in range(1, last + 1)]
     month_sum = 0.0
 
-    # ラベル辞書（高速化）
     broker_map  = dict(getattr(Dividend, "BROKER_CHOICES", []))
     account_map = dict(getattr(Dividend, "ACCOUNT_CHOICES", []))
 
@@ -175,11 +90,10 @@ def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|
         if not d.date or d.date.year != y or d.date.month != m:
             continue
         idx = d.date.day - 1
-        net = _safe_net(d)
+        net = float(d.net_amount() or 0.0)
         if net <= 0:
             continue
 
-        # broker/account（Dividend優先 → Holding → デフォルト）
         b_code = d.broker or (d.holding.broker if getattr(d, "holding", None) else None) or "OTHER"
         a_code = d.account or (d.holding.account if getattr(d, "holding", None) else None) or "SPEC"
 
@@ -202,42 +116,26 @@ def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|
     return {"year": y, "month": m, "days": days, "sum_month": round(month_sum, 2)}
 
 
-# ===================== 予測（合計 / 証券会社 / 口座） =====================
+# ===================== 予測（yfinance 優先 + 実月割付） =====================
 
-def _choose_months_for_symbol(year: int, ym_counts: Counter, freq: int) -> list[int]:
-    """
-    その銘柄の「どの月に支払われがちか」を決める。
-    - まず選択年に実績がある月を優先
-    - それでも足りない場合、全期間の出現頻度の高い月を追加
-    - 最終的に freq 個の月を昇順で返す
-    """
-    months_in_year = [m for (y, m), c in ym_counts.items() if y == year]
-    months_in_year = sorted(set(months_in_year))
-    if len(months_in_year) >= freq:
-        return months_in_year[:freq]
-
-    # 年内が不足 → 全期間の多い月を補充
-    month_total = Counter()
-    for (y, m), c in ym_counts.items():
-        month_total[m] += c
-    # 既に入っている月は除いて、頻度降順 → 月番号昇順で補充
-    candidates = [m for m, _c in month_total.most_common() if m not in months_in_year]
-    chosen = months_in_year + candidates[: max(0, freq - len(months_in_year))]
-    chosen = sorted(set(chosen))[:freq]
-    return chosen
-
-
-def _build_forecast_payload(user, year: int, *, stack: str = "none"):
+def _build_forecast_payload(user, year: int, *, mode: str = "pay", stack: str = "none"):
     """
     配当予測（12ヶ月）
-    stack: "none"=合計, "broker"=証券会社別, "account"=口座別
+      - yfinance の配当履歴/直近配当を優先（fallback: DB）
+      - 過去の「発生月の頻度」から、その銘柄の“よく出る月”に割付
+      - mode: "pay"（支払月扱い）/ "record"（権利確定月扱い）
+      - stack: "none"(合計) / "broker" / "account"
+    返り値: {"months":[{"yyyymm":"YYYY-MM","values":{key:amt,...},"net":sum}], "sum12": ... , "stack":stack}
     """
-    import yfinance as yf
+    try:
+        import yfinance as yf  # インストール済み想定
+    except Exception:
+        yf = None  # 使えなくてもフォールバックで継続
 
     qs = svc_div.build_user_dividend_qs(user)
     rows = svc_div.materialize(qs)
 
-    # 株数保持
+    # 株数・属性
     qty_by_symbol: dict[str, int] = {}
     broker_by_symbol: dict[str, str] = {}
     account_by_symbol: dict[str, str] = {}
@@ -247,83 +145,120 @@ def _build_forecast_payload(user, year: int, *, stack: str = "none"):
         if not sym:
             continue
 
-        # 株数（Dividend優先 → Holding）
-        q = int(d.quantity or 0)
+        q = 0
+        try:
+            q = int(d.quantity or 0)
+        except Exception:
+            q = 0
         if q <= 0 and getattr(d, "holding", None):
-            q = int(getattr(d.holding, "quantity", 0) or 0)
+            try:
+                q = int(getattr(d.holding, "quantity", 0) or 0)
+            except Exception:
+                q = 0
         if q <= 0:
             continue
-        qty_by_symbol[sym] = q
-        broker_by_symbol[sym] = getattr(d, "broker", None) or getattr(d.holding, "broker", "") or "OTHER"
-        account_by_symbol[sym] = getattr(d, "account", None) or getattr(d.holding, "account", "") or "SPEC"
 
-    # 最新配当 per share を yfinance から取得（fallback: DB）
+        qty_by_symbol[sym] = q
+        broker_by_symbol[sym]  = (d.broker or (d.holding.broker if getattr(d, "holding", None) else "") or "OTHER")
+        account_by_symbol[sym] = (d.account or (d.holding.account if getattr(d, "holding", None) else "") or "SPEC")
+
+    # 直近配当（1株あたり）: yfinance 優先
     last_per_share: dict[str, float] = {}
-    for sym in qty_by_symbol.keys():
+    for sym in qty_by_symbol:
         ps = None
-        try:
-            ticker = yf.Ticker(sym)
-            divs = ticker.dividends
-            if not divs.empty:
-                ps = float(divs.iloc[-1])
-        except Exception:
-            pass
+        # yfinance
+        if yf:
+            try:
+                tk = yf.Ticker(sym)
+                divs = tk.dividends  # index は多くの銘柄で ex-div（実質「権利落ち」）※市場差異はある
+                if divs is not None and getattr(divs, "empty", True) is False:
+                    ps = float(divs.iloc[-1])
+            except Exception:
+                ps = None
+        # fallback: DB
         if ps is None:
-            # fallback: DB から
             for d in rows:
                 if _label_ticker(d) == sym:
                     try:
-                        ps = float(d.per_share_dividend_net() or 0)
+                        tmp = d.per_share_dividend_net()
+                        if tmp:
+                            ps = float(tmp)
                     except Exception:
-                        continue
-        if ps:
+                        pass
+        if ps and ps > 0:
             last_per_share[sym] = ps
 
-    # 頻度判定（年4回/2回/1回）
-    freq_by_symbol: dict[str, int] = {}
-    months_by_symbol: dict[str, set[int]] = defaultdict(set)
-    for d in rows:
-        if d.date and d.date.year == year:
-            months_by_symbol[_label_ticker(d)].add(d.date.month)
+    # “よく出る月”の推定：yfinance の履歴 or DB 全期間の実績から頻度上位を採用
+    month_candidates: dict[str, list[int]] = {}
+    for sym in qty_by_symbol:
+        cnt = Counter()
 
-    for sym, ms in months_by_symbol.items():
-        cnt = len(ms)
-        freq_by_symbol[sym] = 4 if cnt >= 4 else 2 if cnt >= 2 else 1
+        # yfinance の履歴から
+        used_yf = False
+        if yf:
+            try:
+                tk = yf.Ticker(sym)
+                divs = tk.dividends
+                if divs is not None and getattr(divs, "empty", True) is False:
+                    # index は Timestamp。mode に応じて ex-div ＝ record と見なす
+                    for ts in divs.index:
+                        m = int(getattr(ts, "month", None) or ts.month)
+                        cnt[m] += 1
+                    used_yf = True
+            except Exception:
+                used_yf = False
 
-    # 月ごとの合計
+        # フォールバック：DB 全期間
+        if not used_yf:
+            for d in rows:
+                if _label_ticker(d) == sym and d.date:
+                    m = d.date.month
+                    cnt[m] += 1
+
+        if cnt:
+            # 出現回数の多い順に最大4つ
+            top = [m for m, _c in cnt.most_common(4)]
+            month_candidates[sym] = sorted(top)
+        else:
+            # 何も情報が無ければ四半期デフォルト
+            month_candidates[sym] = [3, 6, 9, 12]
+
+    # 対象年 12ヶ月の器
     yymm = [f"{year}-{m:02d}" for m in range(1, 13)]
     monthly: dict[str, dict[str, float]] = {m: {} for m in yymm}
 
+    # 配賦
     for sym, ps in last_per_share.items():
         qty = qty_by_symbol.get(sym, 0)
-        f = freq_by_symbol.get(sym, 1)
-        if qty <= 0 or ps <= 0:
+        months = month_candidates.get(sym, [3, 6, 9, 12])
+        if qty <= 0 or ps <= 0 or not months:
             continue
 
+        # その銘柄の想定回数
+        f = min(4, len(months))
         est_total = ps * qty * f
         each = est_total / f
 
-        for i in range(f):
-            key = yymm[i]  # ←単純に1月から割当（今後改良可）
+        for mm in months[:f]:
+            key = f"{year}-{mm:02d}"
             if stack == "broker":
-                b = broker_by_symbol.get(sym, "OTHER")
-                monthly[key][b] = monthly[key].get(b, 0) + each
+                k = broker_by_symbol.get(sym, "OTHER")
             elif stack == "account":
-                a = account_by_symbol.get(sym, "SPEC")
-                monthly[key][a] = monthly[key].get(a, 0) + each
+                k = account_by_symbol.get(sym, "SPEC")
             else:
-                monthly[key]["合計"] = monthly[key].get("合計", 0) + each
+                k = "合計"
+            monthly[key][k] = monthly[key].get(k, 0.0) + each
 
     # 整形
-    months = []
+    months_out = []
     sum12 = 0.0
     for k in yymm:
-        data = monthly[k]
-        total = sum(data.values())
+        bucket = monthly[k]
+        total = round(sum(bucket.values()), 2)
         sum12 += total
-        months.append({"yyyymm": k, "values": data, "net": round(total, 2)})
+        months_out.append({"yyyymm": k, "values": bucket, "net": total})
 
-    return {"months": months, "sum12": round(sum12, 2), "stack": stack}
+    return {"months": months_out, "sum12": round(sum12, 2), "stack": stack, "mode": mode}
 
 
 # ===================== ダッシュボード =====================
@@ -578,18 +513,8 @@ def export_csv(request):
     writer = csv.writer(sio)
     writer.writerow(
         [
-            "id",
-            "date",
-            "ticker",
-            "name",
-            "broker",
-            "account",
-            "quantity",
-            "purchase_price",
-            "gross_amount",
-            "tax",
-            "net_amount",
-            "memo",
+            "id","date","ticker","name","broker","account",
+            "quantity","purchase_price","gross_amount","tax","net_amount","memo",
         ]
     )
 
@@ -649,10 +574,8 @@ def export_csv(request):
         )
 
     filename_bits = ["dividends"]
-    if year_q:
-        filename_bits.append(str(year_q))
-    if month_q:
-        filename_bits.append(f"{int(month_q):02d}")
+    if year_q:  filename_bits.append(str(year_q))
+    if month_q: filename_bits.append(f"{int(month_q):02d}")
     filename = "_".join(filename_bits) + ".csv"
 
     resp = HttpResponse(content_type="text/csv; charset=utf-8")
@@ -705,8 +628,9 @@ def dividends_calendar_json(request):
 @login_required
 def dividends_forecast(request):
     y = _parse_year(request)
-    stack = (request.GET.get("stack") or "none").lower()  # "none" / "broker" / "account"
-    payload = _build_forecast_payload(request.user, y, stack=stack)
+    mode  = (request.GET.get("mode")  or "pay").strip()       # "pay" / "record"
+    stack = (request.GET.get("stack") or "none").strip()      # "none" / "broker" / "account"
+    payload = _build_forecast_payload(request.user, y, mode=mode, stack=stack)
     ctx = {
         "flt": _flt(request),
         "year_options": list(range(timezone.now().year + 1, timezone.now().year - 7, -1)),
@@ -714,6 +638,7 @@ def dividends_forecast(request):
         "sum12": payload["sum12"],
         "payload_json": payload,
         "year": y,
+        "mode": mode,
         "stack": stack,
     }
     return render(request, "dividends/forecast.html", ctx)
@@ -722,6 +647,7 @@ def dividends_forecast(request):
 @login_required
 def dividends_forecast_json(request):
     y = _parse_year(request)
-    stack = (request.GET.get("stack") or "none").lower()
-    payload = _build_forecast_payload(request.user, y, stack=stack)
+    mode  = (request.GET.get("mode")  or "pay").strip()
+    stack = (request.GET.get("stack") or "none").strip()
+    payload = _build_forecast_payload(request.user, y, mode=mode, stack=stack)
     return JsonResponse(payload)
