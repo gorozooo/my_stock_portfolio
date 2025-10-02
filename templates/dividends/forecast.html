@@ -6,92 +6,70 @@
 <style>
   .wrap{max-width:980px;margin:0 auto}
   .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0 10px}
-  .filters select,.filters button{
-    padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.14);
+  .filters select{
+    padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.14);
     background:rgba(255,255,255,.06);color:#eaf0ff
   }
-  .seg{display:flex;border:1px solid rgba(255,255,255,.14);border-radius:10px;overflow:hidden}
-  .seg button{background:transparent;border:0;padding:10px 14px;color:#cfd7ff}
-  .seg button.active{background:rgba(255,255,255,.12);font-weight:700}
+  /* セグメント（権利確定月/支払い月 と 合計/証券/口座） */
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .pill{
+    border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.06);
+    color:#cfd7ff;border-radius:999px;padding:8px 14px;font-weight:600
+  }
+  .pill.is-active{background:rgba(66,133,244,.18);border-color:rgba(66,133,244,.45);color:#eaf0ff}
 
   .card{
     border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.03);
     border-radius:14px;padding:12px
   }
 
-  /* ← グラフが伸び続けないように親に固定高を持たせる */
-  .chart-box{
-    position:relative;
-    height:320px;        /* モバイル向け高さ */
-    max-width:980px;
-    margin:8px auto 0;
-  }
-  @media (min-width:768px){
-    .chart-box{ height:360px; }
-  }
-  /* Chart.js を親の高さにフィットさせる */
-  #fChart{ width:100% !important; height:100% !important; display:block; }
-
-  .sum{margin-top:8px;color:#cfd7ff}
+  .legend-row{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+  .avg{color:#cfd7ff;font-weight:700}
 </style>
-<!-- Chart.js（CDN） -->
+<!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
 {% endblock %}
 
 {% block content %}
 <div class="wrap">
   <h1 class="text-xl font-semibold mb-3">配当予測（12ヶ月）</h1>
 
-  <!-- フィルター -->
-  <form id="forecastFilter" class="filters">
-    <select id="fYear" name="year">
+  <div class="filters">
+    <select id="fYear">
       {% for y in year_options %}
         <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>
       {% endfor %}
     </select>
 
-    <!-- セグメント切替（hidden に反映して JS は hidden を読む） -->
-    <div class="seg" id="segStack">
-      <button type="button" data-v="none"    class="{% if stack == 'none' %}active{% endif %}">合計</button>
-      <button type="button" data-v="broker"  class="{% if stack == 'broker' %}active{% endif %}">証券会社</button>
-      <button type="button" data-v="account" class="{% if stack == 'account' %}active{% endif %}">口座</button>
+    <!-- 基準（月の解釈） -->
+    <div class="seg" id="segBasis" role="tablist" aria-label="集計基準">
+      <button type="button" class="pill is-active" data-v="pay"  role="tab" aria-selected="true">支払い月</button>
+      <button type="button" class="pill"         data-v="ex"   role="tab" aria-selected="false">権利確定月</button>
     </div>
-    <input type="hidden" id="fStack" name="stack" value="{{ stack|default:'none' }}">
-  </form>
+
+    <!-- 積み上げ軸 -->
+    <div class="seg" id="segStack" role="tablist" aria-label="表示軸">
+      <button type="button" class="pill is-active" data-v="none"    role="tab" aria-selected="true">合計</button>
+      <button type="button" class="pill"           data-v="broker"  role="tab" aria-selected="false">証券会社</button>
+      <button type="button" class="pill"           data-v="account" role="tab" aria-selected="false">口座</button>
+    </div>
+  </div>
 
   <div class="card">
-    <!-- 1枚のキャンバスを使い回す。高さは .chart-box が管理 -->
-    <div class="chart-box">
-      <canvas id="fChart"></canvas>
+    <canvas id="fcChart" height="170"></canvas>
+    <div class="legend-row">
+      <div id="fcLegend"></div>
+      <div class="avg" id="fcAvg"></div>
     </div>
-    <div class="sum" id="fcSum"></div>
   </div>
 </div>
 
+<script src="{% static 'js/dividends_forecast.js' %}?v=11"></script>
 <script>
-  // セグメント押下で hidden を更新して change を投げる
-  (()=>{
-    const $ = (s,r=document)=>r.querySelector(s);
-    const $$ = (s,r=document)=>Array.from(r.querySelectorAll(s));
-    const seg = $("#segStack"), hidden = $("#fStack"), form = $("#forecastFilter");
-    if(seg && hidden && form){
-      seg.addEventListener("click",(e)=>{
-        const btn = e.target.closest("button[data-v]");
-        if(!btn) return;
-        $$("#segStack button").forEach(b=>b.classList.remove("active"));
-        btn.classList.add("active");
-        hidden.value = btn.dataset.v || "none";
-        // フィルター変更通知（外部JSが拾う）
-        form.dispatchEvent(new Event("change",{bubbles:false}));
-      }, {passive:true});
-    }
-  })();
-</script>
-
-<!-- 予測描画スクリプト（destroy して再生成する版） -->
-<script src="{% static 'js/dividends_forecast.js' %}?v=10"></script>
-<script>
-  // 初期ペイロード（JS はこれがあればAPI叩かず即描画）
-  window.__FORECAST_INIT__ = {{ payload_json|safe }};
+  // サーバが埋め込む初期データ（従来のまま）
+  window.__DIVFC_INIT__ = {{ payload_json|safe }};
+  window.__DIVFC_YEAR__ = {{ year }};
 </script>
 {% endblock %}
