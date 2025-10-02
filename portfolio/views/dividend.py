@@ -753,21 +753,29 @@ def dividends_calendar_json(request):
 
 @login_required
 def dividends_forecast(request):
-    y = _parse_year(request)
-    # 切替: mode=pay / record（既定は pay）
-    mode = (request.GET.get("mode") or "pay").lower()
-    if mode not in ("pay", "record"):
-        mode = "pay"
+    year  = _parse_year(request)
+    basis = (request.GET.get("basis") or "pay").strip().lower()    # "pay" or "ex"
+    stack = (request.GET.get("stack") or "none").strip().lower()   # "none" | "broker" | "account"
 
-    payload = _build_forecast_payload(request.user, y, mode=mode)
+    if basis not in ("pay", "ex"):
+        basis = "pay"
+    if stack not in ("none", "broker", "account"):
+        stack = "none"
+
+    payload = _build_forecast_payload(
+        user=request.user,
+        year=year,
+        basis=basis,   # ← ここを mode じゃなく basis
+        stack=stack,
+    )
+
     ctx = {
         "flt": _flt(request),
         "year_options": list(range(timezone.now().year + 1, timezone.now().year - 7, -1)),
-        "months": payload["months"],
-        "sum12": payload["sum12"],
+        "year": year,
+        "basis": basis,
+        "stack": stack,
         "payload_json": payload,
-        "year": y,
-        "mode": mode,
     }
     return render(request, "dividends/forecast.html", ctx)
 
@@ -777,7 +785,16 @@ def dividends_forecast_json(request):
     year  = _parse_year(request)
     basis = (request.GET.get("basis") or "pay").strip().lower()    # "pay" or "ex"
     stack = (request.GET.get("stack") or "none").strip().lower()   # "none" | "broker" | "account"
-    if basis not in ("pay", "ex"): basis = "pay"
-    if stack not in ("none", "broker", "account"): stack = "none"
-    payload = _build_forecast_payload(user=request.user, year=year, basis=basis, stack=stack)
+
+    if basis not in ("pay", "ex"):
+        basis = "pay"
+    if stack not in ("none", "broker", "account"):
+        stack = "none"
+
+    payload = _build_forecast_payload(
+        user=request.user,
+        year=year,
+        basis=basis,   # ← 同じく basis
+        stack=stack,
+    )
     return JsonResponse(payload)
