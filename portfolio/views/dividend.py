@@ -227,92 +227,103 @@ def _choose_months_for_symbol(year: int, ym_counts: Counter, freq: int) -> list[
     return chosen
 
 
-def _build_forecast_payload(user, year: int):
+def _build_forecast_payload(user, year: int, *, stack: str = "none"):
     """
-    予測は yfinance を最優先。
-    - yfinance で取れた銘柄はその値を使用
-    - 取れない銘柄のみ、従来の簡易ロジックでフォールバック
-    出力: {"months":[{"yyyymm":"YYYY-MM","net":…},…], "sum12": …}
+    配当予測（12ヶ月）
+    stack: "none"=合計, "broker"=証券会社別, "account"=口座別
     """
-    from collections import defaultdict
+    import yfinance as yf
 
-    # まずはユーザー配当のベース情報（銘柄と数量）を取得
     qs = svc_div.build_user_dividend_qs(user)
-    rows = svc_div.materialize(svc_div.apply_filters(qs, year=year))
+    rows = svc_div.materialize(qs)
 
-    # symbol -> qty（最後に見つかった/大きい方を採用）
+    # 株数保持
     qty_by_symbol: dict[str, int] = {}
-    # year 指定に限らず、持株数量は Holding を優先し、無ければ Dividend.quantity を使う
+    broker_by_symbol: dict[str, str] = {}
+    account_by_symbol: dict[str, str] = {}
+
     for d in rows:
-        sym = (getattr(d, "display_ticker", None) or getattr(d, "ticker", "") or "").upper()
+        sym = _label_ticker(d)
         if not sym:
             continue
-        q = 0
-        try:
-            q = int(d.quantity or 0)
-        except Exception:
-            q = 0
+
+        # 株数（Dividend優先 → Holding）
+        q = int(d.quantity or 0)
         if q <= 0 and getattr(d, "holding", None):
-            try:
-                q = int(d.holding.quantity or 0)
-            except Exception:
-                q = 0
-        if q > 0:
-            # 既存より大きい方を採用（より最新とみなす）
-            qty_by_symbol[sym] = max(qty_by_symbol.get(sym, 0), q)
+            q = int(getattr(d.holding, "quantity", 0) or 0)
+        if q <= 0:
+            continue
+        qty_by_symbol[sym] = q
+        broker_by_symbol[sym] = getattr(d, "broker", None) or getattr(d.holding, "broker", "") or "OTHER"
+        account_by_symbol[sym] = getattr(d, "account", None) or getattr(d.holding, "account", "") or "SPEC"
 
-    # yfinance 予測で集計
-    monthly = {f"{year}-{m:02d}": 0.0 for m in range(1, 13)}
-    used_yf: set[str] = set()
+    # 最新配当 per share を yfinance から取得（fallback: DB）
+    last_per_share: dict[str, float] = {}
+    for sym in qty_by_symbol.keys():
+        ps = None
+        try:
+            ticker = yf.Ticker(sym)
+            divs = ticker.dividends
+            if not divs.empty:
+                ps = float(divs.iloc[-1])
+        except Exception:
+            pass
+        if ps is None:
+            # fallback: DB から
+            for d in rows:
+                if _label_ticker(d) == sym:
+                    try:
+                        ps = float(d.per_share_dividend_net() or 0)
+                    except Exception:
+                        continue
+        if ps:
+            last_per_share[sym] = ps
 
-    for sym, qty in qty_by_symbol.items():
-        alloc = _yf_predict_months(sym, year, qty, basis="pay")
-        if alloc:
-            used_yf.add(sym)
-            for k, v in alloc.items():
-                monthly[k] = monthly.get(k, 0.0) + float(v or 0.0)
+    # 頻度判定（年4回/2回/1回）
+    freq_by_symbol: dict[str, int] = {}
+    months_by_symbol: dict[str, set[int]] = defaultdict(set)
+    for d in rows:
+        if d.date and d.date.year == year:
+            months_by_symbol[_label_ticker(d)].add(d.date.month)
 
-    # yfinance が取れなかった銘柄は、従来ロジック（超簡易）でフォールバック
-    if len(used_yf) < len(qty_by_symbol):
-        # year 全体の rows から、銘柄別の頻度/直近 per-share を推定
-        last_ps = {}
-        months_by_symbol = defaultdict(set)
+    for sym, ms in months_by_symbol.items():
+        cnt = len(ms)
+        freq_by_symbol[sym] = 4 if cnt >= 4 else 2 if cnt >= 2 else 1
 
-        for d in rows:
-            sym = (getattr(d, "display_ticker", None) or getattr(d, "ticker", "") or "").upper()
-            if not sym or sym in used_yf:
-                continue
-            try:
-                ps = d.per_share_dividend_net()
-            except Exception:
-                ps = None
-            if ps:
-                last_ps[sym] = float(ps)
-            if d.date:
-                months_by_symbol[sym].add((d.date.year, d.date.month))
+    # 月ごとの合計
+    yymm = [f"{year}-{m:02d}" for m in range(1, 13)]
+    monthly: dict[str, dict[str, float]] = {m: {} for m in yymm}
 
-        freq_by_symbol = {}
-        for sym, ms in months_by_symbol.items():
-            cnt = len([1 for y_m in ms if y_m[0] == year])
-            freq_by_symbol[sym] = 4 if cnt >= 4 else 2 if cnt >= 2 else 1
+    for sym, ps in last_per_share.items():
+        qty = qty_by_symbol.get(sym, 0)
+        f = freq_by_symbol.get(sym, 1)
+        if qty <= 0 or ps <= 0:
+            continue
 
-        # 均等配賦（第1月から f 回）でフォールバック
-        ykeys = [f"{year}-{m:02d}" for m in range(1, 13)]
-        for sym, qty in qty_by_symbol.items():
-            if sym in used_yf:
-                continue
-            ps = last_ps.get(sym)
-            if not ps:
-                continue
-            f = freq_by_symbol.get(sym, 1)
-            est_total = float(ps) * float(qty) * float(f)
-            each = est_total / f if f > 0 else 0.0
-            for i in range(f):
-                monthly[ykeys[i]] += each
+        est_total = ps * qty * f
+        each = est_total / f
 
-    out = [{"yyyymm": k, "net": round(v, 2)} for k, v in monthly.items()]
-    sum12 = round(sum(monthly.values()), 2)
-    return {"months": out, "sum12": sum12}
+        for i in range(f):
+            key = yymm[i]  # ←単純に1月から割当（今後改良可）
+            if stack == "broker":
+                b = broker_by_symbol.get(sym, "OTHER")
+                monthly[key][b] = monthly[key].get(b, 0) + each
+            elif stack == "account":
+                a = account_by_symbol.get(sym, "SPEC")
+                monthly[key][a] = monthly[key].get(a, 0) + each
+            else:
+                monthly[key]["合計"] = monthly[key].get("合計", 0) + each
+
+    # 整形
+    months = []
+    sum12 = 0.0
+    for k in yymm:
+        data = monthly[k]
+        total = sum(data.values())
+        sum12 += total
+        months.append({"yyyymm": k, "values": data, "net": round(total, 2)})
+
+    return {"months": months, "sum12": round(sum12, 2), "stack": stack}
 
 
 # ===================== ダッシュボード =====================
