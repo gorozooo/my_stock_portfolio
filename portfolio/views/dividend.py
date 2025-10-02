@@ -52,35 +52,18 @@ def _label_name(d) -> str:
 
 
 def _is_jp_symbol(sym: str) -> bool:
-    """
-    日本株かどうかの緩め判定。
-    - 4桁数字（例: 7272）
-    - サフィックス .T / .JP / -T 等
-    - 先頭が JP〜 のコード
-    """
+    """ざっくり日本株判定: 4桁数字 or .T / -TYO など"""
     s = (sym or "").upper()
-    if len(s) == 4 and s.isdigit():
+    if s.endswith(".T") or s.endswith("-TYO"):
         return True
-    if s.endswith(".T") or s.endswith(".JP") or s.endswith("-T"):
-        return True
-    if s.startswith("JP"):
-        return True
-    return False
-
+    return len(s) == 4 and s.isdigit()
 
 def _shift_months(months: list[int], delta: int) -> list[int]:
-    """
-    月配列を delta ヶ月ずらす（1..12 に wrap）。
-    例: 9月, delta=-3 → 6月
-    """
+    """月配列を delta ヶ月シフト（1..12 に丸め）"""
     out = []
     for m in months:
-        try:
-            mi = int(m)
-        except Exception:
-            continue
-        if 1 <= mi <= 12:
-            out.append(((mi - 1 + delta) % 12) + 1)
+        x = ((int(m) - 1 + delta) % 12) + 1
+        out.append(x)
     return sorted(out)
 
 
@@ -223,29 +206,50 @@ def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|
 
 # ===================== 予測（yfinance 優先 / 支払月・権利確定月 切替） =====================
 
-def _build_forecast_payload(user, year: int, mode: str = "pay"):
+def _build_forecast_payload(user, year: int, *, basis: str = "pay", stack: str = "none"):
     """
-    超シンプル予測（直近1株配当 × 現在株数 × 想定回数）。
-    支払月は DB 実績からユニーク月を抽出してそのまま対象年へ複製。
-    権利確定月は支払月を銘柄/市場ごとのオフセットでシフトして算出。
-      - JP: 支払月 -3 ヶ月（例：9月支払 → 6月権利確定）
-      - それ以外: 支払月 -1 ヶ月
-    返り値: {"months":[{"yyyymm":"YYYY-MM","net":…},…], "sum12": …}
-    """
-    mode = (mode or "pay").strip().lower()
-    if mode not in ("pay", "record", "ex"):
-        mode = "pay"
+    basis: "pay"(支払い月) | "ex"(権利確定月)
+    stack: "none"(合計) | "broker"(証券会社別) | "account"(口座別)
 
-    # 1) 元データ取得（年で制限せず全体からパターン抽出）
+    直近1株配当 × 現在株数 × 想定回数 を対象年の各月へ積み上げて返す。
+    - 支払月のパターンは DB 実績からユニーク月を抽出（無ければ JP=[6,12], それ以外=[3,6,9,12]）
+    - 権利確定月(basis="ex")は 支払月を JP:-3, それ以外:-1 でシフト
+    返り値:
+      stack=="none":
+        {"basis":"pay","stack":"none","months":[{"yyyymm":"YYYY-MM","net":...},...],"sum12":...}
+      stack in {"broker","account"}:
+        {"basis":"pay","stack":"broker","groups":[
+           {"key":"RAKUTEN","label":"楽天証券","months":[...],"sum12":...},
+           ...
+        ]}
+    """
+    basis = (basis or "pay").lower()
+    stack = (stack or "none").lower()
+    if basis not in ("pay", "ex"):
+        basis = "pay"
+    if stack not in ("none", "broker", "account"):
+        stack = "none"
+
+    # 元データ（全期間）— パターン抽出用
     base_qs = svc_div.build_user_dividend_qs(user)
     rows = svc_div.materialize(base_qs)
 
-    # 2) 直近1株配当・株数（Dividend優先→Holding）
+    # ラベル辞書
+    broker_map  = dict(getattr(Dividend, "BROKER_CHOICES", []))
+    account_map = dict(getattr(Dividend, "ACCOUNT_CHOICES", []))
+
+    # 直近1株配当・株数
     last_per_share: dict[str, float] = {}
-    qty_by_symbol: dict[str, int] = {}
+    qty_by_symbol: dict[str, int]    = {}
+
+    # 証券会社/口座（銘柄→最新のコード）も保持（グルーピング用に使う）
+    broker_by_symbol: dict[str, str]  = {}
+    account_by_symbol: dict[str, str] = {}
 
     for d in rows:
         sym = (getattr(d, "display_ticker", None) or getattr(d, "ticker", "") or "").upper()
+        if not sym:
+            continue
 
         # 直近1株配当（税後）
         try:
@@ -269,58 +273,106 @@ def _build_forecast_payload(user, year: int, mode: str = "pay"):
         if q > 0:
             qty_by_symbol[sym] = q
 
-    # 3) 支払月の抽出（全期間の実績からユニーク月を採用）
-    from collections import defaultdict
-    tmp: dict[str, set[int]] = defaultdict(set)
+        # ブローカー/口座コード（Dividend優先→Holding→デフォルト）
+        b_code = d.broker or (d.holding.broker if getattr(d, "holding", None) else None) or "OTHER"
+        a_code = d.account or (d.holding.account if getattr(d, "holding", None) else None) or "SPEC"
+        broker_by_symbol[sym]  = b_code
+        account_by_symbol[sym] = a_code
+
+    # 支払月パターン（実績からユニーク月）
+    pay_months_by_symbol: dict[str, list[int]] = {}
+    tmp = defaultdict(set)
     for d in rows:
         if not getattr(d, "date", None):
             continue
         sym = (getattr(d, "display_ticker", None) or getattr(d, "ticker", "") or "").upper()
-        try:
-            mm = int(d.date.month)
-            if 1 <= mm <= 12:
-                tmp[sym].add(mm)
-        except Exception:
-            pass
-
-    pay_months_by_symbol: dict[str, list[int]] = {}
+        if not sym:
+            continue
+        tmp[sym].add(int(d.date.month))
     for sym, ms in tmp.items():
         pay_months_by_symbol[sym] = sorted(ms)
 
-    # 実績がない銘柄のフォールバック（月パターン）
-    # - 日本株: 6月/12月
-    # - 海外（四半期想定）: 3/6/9/12
+    # 実績が無い銘柄のフォールバック
     for sym in set(list(last_per_share.keys()) + list(qty_by_symbol.keys())):
-        if sym not in pay_months_by_symbol or not pay_months_by_symbol[sym]:
+        if not pay_months_by_symbol.get(sym):
             pay_months_by_symbol[sym] = [6, 12] if _is_jp_symbol(sym) else [3, 6, 9, 12]
 
-    # 4) 集計月の決定（mode: "pay" or "record"/"ex"）
-    months = [f"{year}-{m:02d}" for m in range(1, 13)]
-    monthly = {m: 0.0 for m in months}
+    # 対象年のキー
+    months_keys = [f"{year}-{m:02d}" for m in range(1, 13)]
 
+    # 集計器の準備
+    if stack == "none":
+        monthly = {k: 0.0 for k in months_keys}
+    else:
+        # グループ別（broker/account）
+        groups_monthly: dict[str, dict[str, float]] = {}   # key -> { yyyymm: net }
+        groups_label  : dict[str, str] = {}                # key -> label
+
+    # 積み上げ
     for sym, pay_months in pay_months_by_symbol.items():
-        ps = last_per_share.get(sym)
+        ps  = last_per_share.get(sym)
         qty = qty_by_symbol.get(sym, 0)
         if ps is None or qty <= 0:
             continue
 
         per_event = float(ps) * float(qty)
 
-        if mode in ("record", "ex"):
-            # 市場ごとに支払月 → 権利確定月へシフト
+        tmonths = pay_months
+        if basis == "ex":  # 権利確定月へシフト
             delta = -3 if _is_jp_symbol(sym) else -1
-            target_months = _shift_months(pay_months, delta)
+            tmonths = _shift_months(pay_months, delta)
+
+        if stack == "none":
+            for m in tmonths:
+                k = f"{year}-{int(m):02d}"
+                if k in monthly:
+                    monthly[k] += per_event
         else:
-            target_months = pay_months
+            # グループキーとラベル
+            if stack == "broker":
+                gkey = broker_by_symbol.get(sym, "OTHER")
+                glabel = broker_map.get(gkey, gkey)
+            else:
+                gkey = account_by_symbol.get(sym, "SPEC")
+                glabel = account_map.get(gkey, gkey)
 
-        for m in target_months:
-            key = f"{year}-{int(m):02d}"
-            if key in monthly:
-                monthly[key] += per_event
+            if gkey not in groups_monthly:
+                groups_monthly[gkey] = {k: 0.0 for k in months_keys}
+                groups_label[gkey] = glabel
 
-    out = [{"yyyymm": k, "net": round(v, 2)} for k, v in monthly.items()]
-    sum12 = round(sum(monthly.values()), 2)
-    return {"months": out, "sum12": sum12}
+            bucket = groups_monthly[gkey]
+            for m in tmonths:
+                k = f"{year}-{int(m):02d}"
+                if k in bucket:
+                    bucket[k] += per_event
+
+    # 出力整形
+    if stack == "none":
+        months = [{"yyyymm": k, "net": round(v, 2)} for k, v in monthly.items()]
+        sum12  = round(sum(monthly.values()), 2)
+        return {
+            "basis": basis,
+            "stack": "none",
+            "months": months,
+            "sum12": sum12,
+        }
+    else:
+        groups_out = []
+        for gkey, monthly_map in groups_monthly.items():
+            months = [{"yyyymm": k, "net": round(v, 2)} for k, v in monthly_map.items()]
+            sum12  = round(sum(monthly_map.values()), 2)
+            groups_out.append({
+                "key":   gkey,
+                "label": groups_label.get(gkey, gkey),
+                "months": months,
+                "sum12": sum12,
+            })
+        # 値が全く無ければ空配列（フロントは空でも描画OK）
+        return {
+            "basis": basis,
+            "stack": stack,
+            "groups": groups_out,
+        }
 
 
 # ===================== ダッシュボード =====================
@@ -722,35 +774,10 @@ def dividends_forecast(request):
 
 @login_required
 def dividends_forecast_json(request):
-    """
-    GET /dividends/forecast.json?year=YYYY&basis=pay|ex&stack=none|broker|account
-
-    basis:
-      - "pay" … 支払い月で集計
-      - "ex"  … 権利確定月で集計（JP: -3ヶ月 / 海外: -1ヶ月へシフト）
-    stack:
-      - "none"   … 合計のみ
-      - "broker" … 証券会社別
-      - "account"… 口座区分別
-    """
-    year = _parse_year(request)
-
-    # 後方互換（古いクエリで mode=pay|record が来ても受ける）
-    basis = (request.GET.get("basis") or request.GET.get("mode") or "pay").strip().lower()
-    if basis not in ("pay", "ex", "record"):
-        basis = "pay"
-    # mode=record を ex に寄せる
-    if basis == "record":
-        basis = "ex"
-
-    stack = (request.GET.get("stack") or "none").strip().lower()
-    if stack not in ("none", "broker", "account"):
-        stack = "none"
-
-    payload = _build_forecast_payload(
-        user=request.user,
-        year=year,
-        basis=basis,   # "pay" or "ex"
-        stack=stack,   # "none" | "broker" | "account"
-    )
+    year  = _parse_year(request)
+    basis = (request.GET.get("basis") or "pay").strip().lower()    # "pay" or "ex"
+    stack = (request.GET.get("stack") or "none").strip().lower()   # "none" | "broker" | "account"
+    if basis not in ("pay", "ex"): basis = "pay"
+    if stack not in ("none", "broker", "account"): stack = "none"
+    payload = _build_forecast_payload(user=request.user, year=year, basis=basis, stack=stack)
     return JsonResponse(payload)
