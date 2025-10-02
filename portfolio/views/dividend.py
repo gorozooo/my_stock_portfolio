@@ -22,8 +22,82 @@ from ..services import tickers as svc_tickers
 from ..services import trend as svc_trend
 from ..services import dividends as svc_div  # 集計/目標
 
+import yfinance as yf
 
 # ===================== 共通ユーティリティ =====================
+
+# --- yfinance ヘルパ（ネットワーク失敗時は None を返す） ---
+def _yf_predict_months(symbol: str, year: int, qty: int, *, basis: str = "pay"):
+    """
+    symbol の今後12ヶ月（指定 year の 1–12 月）見込みを dict で返す。
+    例: {"2025-03": 1234.5, ...}
+    - basis="pay" 固定運用（支払い月基準）。ex 基準は必要になったら拡張。
+    - データが無い/失敗時は None を返す（呼び側でフォールバック）。
+    """
+    try:
+        import datetime as dt
+        import math
+        try:
+            import yfinance as yf
+        except Exception:
+            return None
+
+        t = yf.Ticker(symbol)
+        div = t.dividends  # pandas Series (payment-date index, per-share)
+        if div is None or len(div) == 0 or qty <= 0:
+            return None
+
+        # 直近3年程度に絞る
+        cutoff = dt.date(year, 1, 1) - dt.timedelta(days=365*3)
+        # pandas → list に落として扱う
+        pay_dates = []
+        per_shares = []
+        for idx, val in div.items():
+            d = getattr(idx, "date", lambda: None)()
+            if d and d >= cutoff:
+                pay_dates.append(d)
+                try:
+                    per_shares.append(float(val))
+                except Exception:
+                    per_shares.append(0.0)
+
+        if not pay_dates:
+            return None
+
+        # 年間頻度推定（年別件数の平均を丸め）
+        from collections import defaultdict, Counter
+        by_year = defaultdict(int)
+        for d in pay_dates:
+            by_year[d.year] += 1
+        freq = max(1, min(12, round(sum(by_year.values()) / max(1, len(by_year)))))
+
+        # 支払月の“定番”を推定（出現回数の多い月を上位 freq 個）
+        month_counter = Counter(d.month for d in pay_dates)
+        typical_months = [m for m, _ in month_counter.most_common(freq)]
+        # それでも足りない時は四半期などを足して埋める
+        if len(typical_months) < freq:
+            fallback = [3, 6, 9, 12, 2, 5, 8, 11, 1, 4, 7, 10]
+            for m in fallback:
+                if m not in typical_months:
+                    typical_months.append(m)
+                if len(typical_months) >= freq:
+                    break
+        typical_months = sorted(typical_months[:freq])
+
+        # 金額は直近N回の平均（N=4, 無ければあるだけ）
+        N = 4
+        tail = per_shares[-N:] if len(per_shares) >= N else per_shares
+        ps = sum(tail) / max(1, len(tail))
+
+        # 支払い月ベースで割り付け
+        alloc = {f"{year}-{m:02d}": 0.0 for m in range(1, 13)}
+        for m in typical_months:
+            key = f"{year}-{m:02d}"
+            alloc[key] = alloc.get(key, 0.0) + ps * float(qty)
+
+        return alloc
+    except Exception:
+        return None
 
 def _parse_year(req):
     try:
@@ -153,58 +227,26 @@ def _choose_months_for_symbol(year: int, ym_counts: Counter, freq: int) -> list[
     return chosen
 
 
-def _build_forecast_payload(user, year: int, *, stack: str = "none"):
+def _build_forecast_payload(user, year: int):
     """
-    超シンプル予測（直近1株配当 × 現在株数 × 想定回数）。
-    stack:
-      - "none"    : 合計のみ
-      - "broker"  : 証券会社ごと
-      - "account" : 口座ごと
-
-    返り値(共通):
-      {
-        "year": 2025,
-        "stack": "none" | "broker" | "account",
-        "months": [{"yyyymm":"2025-01","net":...}, ...],     # 合計
-        "sum12": 12345.67,
-        # stack != none の時のみ:
-        "series": [
-          {"key":"楽天証券","label":"楽天証券","data":[m1..m12]},
-          ...
-        ]
-      }
+    予測は yfinance を最優先。
+    - yfinance で取れた銘柄はその値を使用
+    - 取れない銘柄のみ、従来の簡易ロジックでフォールバック
+    出力: {"months":[{"yyyymm":"YYYY-MM","net":…},…], "sum12": …}
     """
-    # 今年の実績＋過去実績を材料に予測
-    base_qs = svc_div.build_user_dividend_qs(user)
-    # 予測は year 指定で上書きするが「パターン抽出」は過去も使うため year で絞り込まない
-    rows_all = svc_div.materialize(base_qs)
+    from collections import defaultdict
 
-    # ラベル辞書
-    broker_map  = dict(getattr(Dividend, "BROKER_CHOICES", []))
-    account_map = dict(getattr(Dividend, "ACCOUNT_CHOICES", []))
+    # まずはユーザー配当のベース情報（銘柄と数量）を取得
+    qs = svc_div.build_user_dividend_qs(user)
+    rows = svc_div.materialize(svc_div.apply_filters(qs, year=year))
 
-    # シンボルごとの情報
-    last_per_share: dict[str, float] = {}
+    # symbol -> qty（最後に見つかった/大きい方を採用）
     qty_by_symbol: dict[str, int] = {}
-    ym_counts_by_symbol: dict[str, Counter] = defaultdict(Counter)
-    last_broker_by_symbol: dict[str, str] = {}
-    last_account_by_symbol: dict[str, str] = {}
-
-    for d in rows_all:
-        sym = _label_ticker(d)
+    # year 指定に限らず、持株数量は Holding を優先し、無ければ Dividend.quantity を使う
+    for d in rows:
+        sym = (getattr(d, "display_ticker", None) or getattr(d, "ticker", "") or "").upper()
         if not sym:
             continue
-
-        # 直近の1株当たり(税後)
-        ps = None
-        try:
-            ps = d.per_share_dividend_net()
-        except Exception:
-            ps = None
-        if ps is not None:
-            last_per_share[sym] = float(ps)
-
-        # 株数（Dividend.quantity → Holding.quantity）
         q = 0
         try:
             q = int(d.quantity or 0)
@@ -216,95 +258,61 @@ def _build_forecast_payload(user, year: int, *, stack: str = "none"):
             except Exception:
                 q = 0
         if q > 0:
-            qty_by_symbol[sym] = q  # 「現在株数」として最後に見えた値で上書き
+            # 既存より大きい方を採用（より最新とみなす）
+            qty_by_symbol[sym] = max(qty_by_symbol.get(sym, 0), q)
 
-        # 月出現（パターン抽出）
-        if d.date:
-            ym_counts_by_symbol[sym][(d.date.year, d.date.month)] += 1
+    # yfinance 予測で集計
+    monthly = {f"{year}-{m:02d}": 0.0 for m in range(1, 13)}
+    used_yf: set[str] = set()
 
-        # 証券会社/口座（最新を採用：Dividend優先 → Holding）
-        b_code = d.broker or (d.holding.broker if getattr(d, "holding", None) else None) or "OTHER"
-        a_code = d.account or (d.holding.account if getattr(d, "holding", None) else None) or "SPEC"
-        last_broker_by_symbol[sym] = b_code
-        last_account_by_symbol[sym] = a_code
+    for sym, qty in qty_by_symbol.items():
+        alloc = _yf_predict_months(sym, year, qty, basis="pay")
+        if alloc:
+            used_yf.add(sym)
+            for k, v in alloc.items():
+                monthly[k] = monthly.get(k, 0.0) + float(v or 0.0)
 
-    # 頻度（年内の出現回数を基準）: 4/2/1
-    freq_by_symbol: dict[str, int] = {}
-    for sym, cnts in ym_counts_by_symbol.items():
-        cnt_year = sum(1 for (y, _m) in cnts if y == year)
-        freq = 4 if cnt_year >= 4 else 2 if cnt_year >= 2 else 1
-        # 年内に全く実績が無い場合でも、全期間のユニーク月数でおおよそ推測
-        if cnt_year == 0:
-            uniq_months = len({m for (_y, m) in cnts})
-            if uniq_months >= 4:
-                freq = 4
-            elif uniq_months >= 2:
-                freq = 2
-            else:
-                freq = 1
-        freq_by_symbol[sym] = freq
+    # yfinance が取れなかった銘柄は、従来ロジック（超簡易）でフォールバック
+    if len(used_yf) < len(qty_by_symbol):
+        # year 全体の rows から、銘柄別の頻度/直近 per-share を推定
+        last_ps = {}
+        months_by_symbol = defaultdict(set)
 
-    # 12ヶ月の器
-    yymm = [f"{year}-{m:02d}" for m in range(1, 13)]
-    monthly_total = {m: 0.0 for m in yymm}
+        for d in rows:
+            sym = (getattr(d, "display_ticker", None) or getattr(d, "ticker", "") or "").upper()
+            if not sym or sym in used_yf:
+                continue
+            try:
+                ps = d.per_share_dividend_net()
+            except Exception:
+                ps = None
+            if ps:
+                last_ps[sym] = float(ps)
+            if d.date:
+                months_by_symbol[sym].add((d.date.year, d.date.month))
 
-    # スタック用（broker/account）
-    stack_key = (stack or "none").lower()
-    series_map: dict[str, list[float]] = {}  # key -> 12配列
+        freq_by_symbol = {}
+        for sym, ms in months_by_symbol.items():
+            cnt = len([1 for y_m in ms if y_m[0] == year])
+            freq_by_symbol[sym] = 4 if cnt >= 4 else 2 if cnt >= 2 else 1
 
-    def _acc_series(key: str, month_idx: int, v: float):
-        if key not in series_map:
-            series_map[key] = [0.0] * 12
-        series_map[key][month_idx] += v
+        # 均等配賦（第1月から f 回）でフォールバック
+        ykeys = [f"{year}-{m:02d}" for m in range(1, 13)]
+        for sym, qty in qty_by_symbol.items():
+            if sym in used_yf:
+                continue
+            ps = last_ps.get(sym)
+            if not ps:
+                continue
+            f = freq_by_symbol.get(sym, 1)
+            est_total = float(ps) * float(qty) * float(f)
+            each = est_total / f if f > 0 else 0.0
+            for i in range(f):
+                monthly[ykeys[i]] += each
 
-    # シンボルごとに割付
-    for sym, ps in last_per_share.items():
-        qty = qty_by_symbol.get(sym, 0)
-        if qty <= 0 or ps is None:
-            continue
-
-        freq = freq_by_symbol.get(sym, 1)
-        # この銘柄が支払われやすい「月」を決める
-        months = _choose_months_for_symbol(year, ym_counts_by_symbol.get(sym, Counter()), freq)
-        if not months:
-            months = [3, 6, 9, 12][:freq]  # 最後の保険
-
-        # 1回あたりの見込み（税後）
-        each = float(ps) * float(qty)
-
-        # シリーズキー（証券会社/口座）
-        b_code = last_broker_by_symbol.get(sym, "OTHER")
-        a_code = last_account_by_symbol.get(sym, "SPEC")
-        b_label = broker_map.get(b_code, b_code)
-        a_label = account_map.get(a_code, a_code)
-
-        for m in months:
-            if 1 <= m <= 12:
-                idx = m - 1
-                monthly_total[yymm[idx]] += each
-                if stack_key == "broker":
-                    _acc_series(b_label, idx, each)
-                elif stack_key == "account":
-                    _acc_series(a_label, idx, each)
-
-    # 出力整形
-    months_out = [{"yyyymm": k, "net": round(v, 2)} for k, v in monthly_total.items()]
-    sum12 = round(sum(monthly_total.values()), 2)
-    payload = {
-        "year": year,
-        "stack": stack_key,
-        "months": months_out,
-        "sum12": sum12,
-    }
-    if stack_key in ("broker", "account"):
-        payload["series"] = [
-            {"key": key, "label": key, "data": [round(v, 2) for v in arr]}
-            for key, arr in series_map.items()
-        ]
-        # 合計がゼロのシリーズは落とす（視認性）
-        payload["series"] = [s for s in payload["series"] if sum(s["data"]) > 0.0]
-
-    return payload
+    out = [{"yyyymm": k, "net": round(v, 2)} for k, v in monthly.items()]
+    sum12 = round(sum(monthly.values()), 2)
+    return {"months": out, "sum12": sum12}
 
 
 # ===================== ダッシュボード =====================
