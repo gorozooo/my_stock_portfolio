@@ -54,76 +54,83 @@ def _label_name(d) -> str:
 # ===================== yfinance (ex/pay) 補助 =====================
 
 def _market_hint_from_symbol(sym: str) -> str:
-    """銘柄コードから市場ヒントを決める（雑に suffix で判定）。"""
     s = (sym or "").upper()
-    if s.endswith(".T"):   # JP 東証
-        return "JP"
-    if s.endswith(".AX"):  # AU
-        return "AU"
-    if s.endswith(".L"):   # UK
-        return "UK"
-    # 米国(無印/NASDAQ/NYSE想定) などは US
-    return "US"
-
+    if s.endswith(".T"):   return "JP"
+    if s.endswith(".AX"):  return "AU"
+    if s.endswith(".L"):   return "UK"
+    return "US"  # 既定
 
 @lru_cache(maxsize=512)
 def _fetch_div_months_from_yf(sym: str) -> dict:
     """
-    yfinance 優先で「権利確定(ex)」「支払(pay)」の各月を抽出。
-    返り値: {"ex": [1..12], "pay": [1..12]}
-    - yfinance に paymentDate 列があればそれを利用
-    - なければ市場別のフォールバックで推定
+    yfinance 優先で「権利確定(ex)」「支払い(pay)」月を取得して返す。
+    返り値: {"ex":[1..12], "pay":[1..12]}（無い要素は空配列）
     """
     out = {"ex": [], "pay": []}
     try:
-        import yfinance as yf  # 実行環境に無ければ except へ
+        import yfinance as yf  # 環境になければ except へ
+        try:
+            import pandas as pd  # to_datetime 用
+        except Exception:
+            pd = None
+
         tk = yf.Ticker(sym)
 
-        # 1) ex-date 候補: actions か dividends
-        ex_months = []
+        # --- ex months ---
+        ex_months: list[int] = []
+        # 1) actions (新API) に Dividends 列がある場合
         try:
-            # 新しめの yfinance だと get_actions() が DataFrame を返す
             acts = tk.get_actions(prepost=False)
+            if acts is not None and getattr(acts, "empty", True) is False:
+                col = "Dividends" if "Dividends" in acts.columns else ("dividends" if "dividends" in acts.columns else None)
+                if col:
+                    ex_idx = acts[acts[col] > 0].index
+                    ex_months = sorted({int(d.month) for d in ex_idx})
         except Exception:
-            acts = None
+            pass
 
-        if acts is not None and not acts.empty and ("Dividends" in acts.columns or "dividends" in acts.columns):
-            # index が日付、配当行だけ抽出
-            col = "Dividends" if "Dividends" in acts.columns else "dividends"
-            ex_idx = acts[acts[col] > 0].index
-            ex_months = sorted({int(d.month) for d in ex_idx})
-        else:
-            # 従来の .dividends （多くは ex-date 相当）
-            divs = tk.dividends
+        # 2) 従来API .dividends（index=ex-date 想定）
+        if not ex_months:
+            divs = getattr(tk, "dividends", None)
             if divs is not None and getattr(divs, "empty", True) is False:
                 ex_months = sorted({int(d.month) for d in divs.index})
 
-        # 2) payment-date 候補
-        pay_months = []
-        df_pay = None
+        # --- payment months ---
+        pay_months: list[int] = []
         try:
-            # 一部のバージョンにある get_dividends()（exDate/paymentDate を含むことがある）
-            df_pay = tk.get_dividends()
+            df = tk.get_dividends()
+            if df is not None and getattr(df, "empty", True) is False and pd is not None:
+                cols = {c.lower(): c for c in df.columns}
+                if "paymentdate" in cols:
+                    col = cols["paymentdate"]
+                    vals = [x for x in df[col].tolist() if x]
+                    # to_datetime できたもののみ採用
+                    parsed = []
+                    for x in vals:
+                        try:
+                            parsed.append(pd.to_datetime(x))
+                        except Exception:
+                            pass
+                    if parsed:
+                        pay_months = sorted({int(x.month) for x in parsed})
+                # exDate がここにあれば ex_months も更新
+                if not ex_months and "exdate" in cols:
+                    col = cols["exdate"]
+                    vals = [x for x in df[col].tolist() if x]
+                    parsed = []
+                    for x in vals:
+                        try:
+                            parsed.append(pd.to_datetime(x))
+                        except Exception:
+                            pass
+                    if parsed:
+                        ex_months = sorted({int(x.month) for x in parsed})
         except Exception:
-            df_pay = None
+            pass
 
-        if df_pay is not None and not df_pay.empty:
-            # カラム候補のゆらぎ吸収
-            # 例: ['exDate','recordDate','paymentDate','declarationDate','amount']
-            cols = {c.lower(): c for c in df_pay.columns}
-            if "paymentdate" in cols:
-                col_pay = cols["paymentdate"]
-                # NaT/None を除外
-                pay_months = sorted({int(pd.to_datetime(x).month) for x in df_pay[col_pay].dropna().tolist()})
-            # ex-date もここから拾えたら更新
-            if "exdate" in cols:
-                col_ex = cols["exdate"]
-                ex_months = sorted({int(pd.to_datetime(x).month) for x in df_pay[col_ex].dropna().tolist()})
-        # フォールバック：payment が取れなければ市場別の経験則で ex→pay を推定
-        if not pay_months:
+        # フォールバック: payment が空なら ex→市場ヒントで推定 (+1 US / +2 JP)
+        if not pay_months and ex_months:
             hint = _market_hint_from_symbol(sym)
-            # JP: 3/9 の ex が多く、支払は +2〜3 ヶ月が多い（期末決算→6月/12月）
-            # US: だいたい +1 ヶ月程度のことが多い（もちろん銘柄差あり、暫定）
             delta = 2 if hint == "JP" else 1
             pay_months = sorted({((m - 1 + delta) % 12) + 1 for m in ex_months})
 
@@ -131,9 +138,8 @@ def _fetch_div_months_from_yf(sym: str) -> dict:
         out["pay"] = pay_months
         return out
     except Exception:
-        # yfinance が使えない/失敗した場合は空で返す
+        # yfinance 不在/失敗は空配列のまま返す
         return out
-
 
 # ===================== カレンダー用ペイロード =====================
 
@@ -186,20 +192,26 @@ def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|
 
 def _build_forecast_payload(user, year: int, *, mode: str = "pay"):
     """
-    mode: 'pay' (支払い月) / 'record' (権利確定月)
-    - yfinance で ex/pay の月を取得して該当月に配賦
-    - 取れない銘柄は DB の直近税後/株数から frequency を推定して均等配賦
+    mode: 'pay'（支払い月） / 'record'（権利確定月）
+    ルール:
+      1) yfinance の ex/pay 月が取れたらそれを“そのまま”採用
+      2) 取れない銘柄は DB の履歴から月を採用（pay=実績の月 / record=市場ヒントで逆算）
+      3) それも無ければ frequency を推定し、市場別の典型月に配賦（JP: 3,6,9,12 / US: 1,4,7,10）
+    金額は「1回の配当 = 直近税後1株配当 × 現在株数」を各対象月ごとに加算する。
     """
     qs = svc_div.build_user_dividend_qs(user)
-    qs = svc_div.apply_filters(qs, year=year)
+    qs = svc_div.apply_filters(qs, year=year)  # 今年のデータで OK（履歴は materialize 済みの rows で見る）
     rows = svc_div.materialize(qs)
 
-    # 直近1株配当(税後) と 株数
+    # 直近 1 株配当（税後）と株数
     last_per_share: dict[str, float] = {}
     qty_by_symbol: dict[str, int] = {}
+    market_hint: dict[str, str] = {}
 
     for d in rows:
         sym = _label_ticker(d)
+        market_hint[sym] = _market_hint_from_symbol(sym)
+
         # 1株配当（税後）
         ps = None
         try:
@@ -209,7 +221,7 @@ def _build_forecast_payload(user, year: int, *, mode: str = "pay"):
         if ps is not None:
             last_per_share[sym] = float(ps)
 
-        # 株数
+        # 株数: Dividend.quantity → Holding.quantity
         q = 0
         try:
             q = int(d.quantity or 0)
@@ -223,52 +235,79 @@ def _build_forecast_payload(user, year: int, *, mode: str = "pay"):
         if q > 0:
             qty_by_symbol[sym] = q
 
-    # yfinance 優先で ex/pay の月を得る
-    months_by_symbol = {}  # {sym: {"ex":[...], "pay":[...]}}
-    for sym in set(list(last_per_share.keys()) + list(qty_by_symbol.keys())):
-        months_by_symbol[sym] = _fetch_div_months_from_yf(sym)
-
-    # DB から frequency の推定（yfinance が空の時のフォールバック）
-    freq_by_symbol: dict[str, int] = {}
-    seen_months_by_symbol: dict[str, set[int]] = defaultdict(set)
+    # 履歴の“支払い月”を収集（DB の date は支払日想定）
+    history_pay_months: dict[str, set[int]] = defaultdict(set)
     for d in rows:
         if d.date:
-            seen_months_by_symbol[_label_ticker(d)].add(d.date.month)
-    for sym, ms in seen_months_by_symbol.items():
-        cnt = len([m for m in ms])
+            history_pay_months[_label_ticker(d)].add(int(d.date.month))
+
+    # frequency 推定（履歴の支払月のユニーク数）
+    freq_by_symbol: dict[str, int] = {}
+    for sym, ms in history_pay_months.items():
+        cnt = len(ms)
         freq_by_symbol[sym] = 4 if cnt >= 4 else 2 if cnt >= 2 else 1
 
-    # 12 ヶ月バケツ
+    # yfinance（ex/pay 月）を取得
+    yf_months: dict[str, dict] = {}
+    for sym in set(list(last_per_share.keys()) + list(qty_by_symbol.keys())):
+        yf_months[sym] = _fetch_div_months_from_yf(sym)
+
+    # 12ヶ月バケツ
     yymm = [f"{year}-{m:02d}" for m in range(1, 13)]
     monthly = {k: 0.0 for k in yymm}
 
+    # 市場別デフォルト（frequency→典型月）
+    def default_months(hint: str, f: int) -> list[int]:
+        if hint == "JP":
+            base = [3, 6, 9, 12]
+        else:  # US/その他
+            base = [1, 4, 7, 10]
+        if f <= 1:
+            return [base[0]]
+        if f == 2:
+            return [base[0], base[2]]   # 間隔を空ける
+        return base[:4]
+
     for sym, ps in last_per_share.items():
         qty = qty_by_symbol.get(sym, 0)
-        if qty <= 0 or ps is None:
+        if qty <= 0:
             continue
-        months_info = months_by_symbol.get(sym) or {}
+        per_payment = float(ps) * float(qty)
+
+        hint = market_hint.get(sym, "US")
+        f = max(1, int(freq_by_symbol.get(sym, 1)))
+
+        # 1) yfinance 優先
+        months_info = yf_months.get(sym) or {}
         ex_ms  = months_info.get("ex")  or []
         pay_ms = months_info.get("pay") or []
+        target_ms: list[int] = []
 
-        # 採用する月セット
-        target_months = pay_ms if mode == "pay" else ex_ms
+        if mode == "pay" and pay_ms:
+            target_ms = pay_ms
+        elif mode == "record" and ex_ms:
+            target_ms = ex_ms
 
-        if target_months:
-            # yfinance から得た月に等分して入れる
-            each = float(ps) * float(qty)
-            # 1配当あたり each を対象月数で加算
-            for m in target_months:
-                key = f"{year}-{int(m):02d}"
-                if key in monthly:
-                    monthly[key] += each
-        else:
-            # yfinance が得られない場合はフォールバック（frequency に均等配賦）
-            f = max(1, int(freq_by_symbol.get(sym, 1)))
-            est_total = float(ps) * float(qty) * f
-            each = est_total / f
-            for i in range(f):
-                key = yymm[i]
-                monthly[key] += each
+        # 2) DB 履歴フォールバック
+        if not target_ms:
+            hist_pay = sorted(history_pay_months.get(sym, []))
+            if hist_pay:
+                if mode == "pay":
+                    target_ms = hist_pay
+                else:
+                    # record: 支払い月から市場ヒントで逆算
+                    delta = 2 if hint == "JP" else 1
+                    target_ms = sorted({((m - 1 - delta) % 12) + 1 for m in hist_pay})
+
+        # 3) デフォルト（frequency ベース）
+        if not target_ms:
+            target_ms = default_months(hint, f)
+
+        # 4) 加算
+        for m in target_ms:
+            key = f"{year}-{int(m):02d}"
+            if key in monthly:
+                monthly[key] += per_payment
 
     months = [{"yyyymm": k, "net": round(v, 2)} for k, v in monthly.items()]
     sum12 = round(sum(monthly.values()), 2)
