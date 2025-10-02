@@ -199,54 +199,101 @@ def _simple_forecast_rows(user, year:int):
     return last_per_share, qty_by_symbol, freq_by_symbol, broker_by_sym, account_by_sym
 
 
-def _build_forecast_payload(user, year: int, *, stack: str = "none"):
+def _build_forecast_payload(user, year: int):
     """
-    超シンプル予測（直近1株配当 × 現在株数 × 想定回数）。
-    stack: "none" | "broker" | "account"
-      - none     -> 合計のみ
-      - broker   -> 証券会社でスタック
-      - account  -> 口座でスタック
-    返り値:
-      stack="none"  -> { months:[{yyyymm, net}], sum12 }
-      stack!="none" -> { months:[...], sum12, labels:[12months], stacks:{label:[12vals], ...}, stack }
+    直近1株配当(税後) × 最新株数 × 月パターンで 12 か月を見積もる。
+    - 月パターンは「その銘柄で最も出現した月セット」。同率なら最新年。
+    - 対象年に実績がある月があれば、その月を優先して配置。
+    返り値: {"months":[{"yyyymm":"YYYY-MM","net":…},…], "sum12": …}
     """
-    last_ps, qty_by_sym, freq_by_sym, broker_by_sym, account_by_sym = _simple_forecast_rows(user, year)
+    # === 材料は全履歴から取得 ===
+    base_qs = svc_div.build_user_dividend_qs(user)
+    rows = svc_div.materialize(base_qs)
 
-    ylabels = [f"{year}-{m:02d}" for m in range(1, 13)]
-    monthly_total = {m: 0.0 for m in ylabels}
+    # 1) 最新の1株配当(税後) / 2) 最新の株数 を銘柄ごとに収集
+    last_per_share: dict[str, float] = {}
+    qty_by_symbol : dict[str, int]   = {}
 
-    # スタック用バケツ
-    stack_mode = (stack or "none").lower()
-    if stack_mode not in ("none", "broker", "account"):
-        stack_mode = "none"
-    buckets = defaultdict(lambda: {m:0.0 for m in ylabels}) if stack_mode != "none" else None
+    # 最新判定用（日付・id で降順）
+    rows_sorted = sorted(
+        [r for r in rows if getattr(r, "date", None)],
+        key=lambda d: (d.date, d.id),
+        reverse=True,
+    )
 
-    for sym, ps in last_ps.items():
-        qty = qty_by_sym.get(sym, 0)
-        f   = freq_by_sym.get(sym, 1)
-        if qty <= 0 or ps is None or f <= 0:
+    for d in rows_sorted:
+        sym = _label_ticker(d)
+
+        # 最新の1株配当(税後)
+        if sym not in last_per_share:
+            try:
+                ps = d.per_share_dividend_net()
+                if ps is not None:
+                    last_per_share[sym] = float(ps)
+            except Exception:
+                pass
+
+        # 最新の数量（Dividend.quantity → Holding.quantity）
+        if sym not in qty_by_symbol:
+            q = None
+            try:
+                if d.quantity:
+                    q = int(d.quantity)
+                elif getattr(d, "holding", None) and d.holding.quantity:
+                    q = int(d.holding.quantity)
+            except Exception:
+                q = None
+            if q and q > 0:
+                qty_by_symbol[sym] = q
+
+    # 3) 月パターン：銘柄ごとに「年→月集合」を作り、最頻月セット(同率なら最新年)を採用
+    from collections import defaultdict
+    year_months_by_sym: dict[str, dict[int, set[int]]] = defaultdict(lambda: defaultdict(set))
+    for d in rows:
+        if not getattr(d, "date", None):
+            continue
+        sym = _label_ticker(d)
+        year_months_by_sym[sym][d.date.year].add(d.date.month)
+
+    def pick_month_pattern(sym: str) -> set[int]:
+        ym = year_months_by_sym.get(sym, {})
+        if not ym:
+            return set()
+        # (サイズ, 年) で最大の年を選ぶ
+        best_year = max(ym.keys(), key=lambda y: (len(ym[y]), y))
+        return set(sorted(ym[best_year]))
+
+    # 対象年に既に実績がある場合はその「実在月」を優先
+    def months_in_target_year(sym: str, target_year: int) -> set[int]:
+        ym = year_months_by_sym.get(sym, {})
+        return set(sorted(ym.get(target_year, set())))
+
+    # === 月別集計器 ===
+    yymm_keys = [f"{year}-{m:02d}" for m in range(1, 13)]
+    monthly = {k: 0.0 for k in yymm_keys}
+
+    for sym, ps in last_per_share.items():
+        qty = qty_by_symbol.get(sym, 0)
+        if qty <= 0 or ps is None:
             continue
 
-        est_total = float(ps) * float(qty) * float(f)
-        each = est_total / f
+        # 月の割付先を決める
+        months_target = months_in_target_year(sym, year)
+        if not months_target:
+            months_target = pick_month_pattern(sym)
+        if not months_target:
+            # 何もわからない銘柄はスキップ
+            continue
 
-        # 第1月から f 回に均等配賦（簡易版）
-        for i in range(f):
-            mm = ylabels[i]
-            monthly_total[mm] += each
+        per_event = float(ps) * float(qty)  # その月1回ぶん
+        for m in sorted(months_target):
+            key = f"{year}-{m:02d}"
+            if key in monthly:
+                monthly[key] += per_event
 
-            if buckets is not None:
-                if stack_mode == "broker":
-                    key = broker_by_sym.get(sym, "OTHER") or "OTHER"
-                else:
-                    key = account_by_sym.get(sym, "SPEC") or "SPEC"
-                buckets[key][mm] += each
-
-    months = [{"yyyymm": m, "net": round(monthly_total[m], 2)} for m in ylabels]
-    sum12 = round(sum(monthly_total.values()), 2)
-
-    if buckets is None:
-        return {"months": months, "sum12": sum12}
+    months = [{"yyyymm": k, "net": round(v, 2)} for k, v in monthly.items()]
+    sum12 = round(sum(monthly.values()), 2)
+    return {"months": months, "sum12": sum12}
 
     # 上位7カテゴリ＋Others にまとめて返す
     totals_by_key = {k: sum(v.values()) for k, v in buckets.items()}
