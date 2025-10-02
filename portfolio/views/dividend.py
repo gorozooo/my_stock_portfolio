@@ -51,6 +51,19 @@ def _label_name(d) -> str:
     return (getattr(d, "display_name", None) or getattr(d, "name", "") or tkr)
 
 
+def _is_jp_symbol(sym: str) -> bool:
+    s = (sym or "").upper()
+    return (s.endswith(".T") or (s.isdigit() and len(s) == 4))
+
+def _shift_months(months: list[int], delta: int) -> list[int]:
+    # 1..12 を delta シフト（負もOK）
+    out = []
+    for m in months:
+        z = ((m - 1 + delta) % 12) + 1
+        out.append(z)
+    return out
+
+
 # ===================== yfinance (ex/pay) 補助 =====================
 
 def _market_hint_from_symbol(sym: str) -> str:
@@ -190,38 +203,35 @@ def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|
 
 # ===================== 予測（yfinance 優先 / 支払月・権利確定月 切替） =====================
 
-def _build_forecast_payload(user, year: int, *, mode: str = "pay"):
+def _build_forecast_payload(user, year: int, mode: str = "pay"):
     """
-    mode: 'pay'（支払い月） / 'record'（権利確定月）
-    ルール:
-      1) yfinance の ex/pay 月が取れたらそれを“そのまま”採用
-      2) 取れない銘柄は DB の履歴から月を採用（pay=実績の月 / record=市場ヒントで逆算）
-      3) それも無ければ frequency を推定し、市場別の典型月に配賦（JP: 3,6,9,12 / US: 1,4,7,10）
-    金額は「1回の配当 = 直近税後1株配当 × 現在株数」を各対象月ごとに加算する。
+    超シンプル予測（直近1株配当 × 現在株数 × 想定回数）。
+    支払月は DB 実績からユニーク月を抽出してそのまま対象年へ複製。
+    権利確定月は支払月を銘柄/市場ごとのオフセットでシフトして算出。
+      - JP: 支払月 -3 ヶ月（例：9月支払 → 6月権利確定）
+      - それ以外: 支払月 -1 ヶ月
+    返り値: {"months":[{"yyyymm":"YYYY-MM","net":…},…], "sum12": …}
     """
-    qs = svc_div.build_user_dividend_qs(user)
-    qs = svc_div.apply_filters(qs, year=year)  # 今年のデータで OK（履歴は materialize 済みの rows で見る）
-    rows = svc_div.materialize(qs)
+    # 1) 元データ取得（年で制限せず全体からパターン抽出）
+    base_qs = svc_div.build_user_dividend_qs(user)
+    rows = svc_div.materialize(base_qs)
 
-    # 直近 1 株配当（税後）と株数
+    # 2) 直近1株配当・株数（Dividend優先→Holding）
     last_per_share: dict[str, float] = {}
     qty_by_symbol: dict[str, int] = {}
-    market_hint: dict[str, str] = {}
 
     for d in rows:
-        sym = _label_ticker(d)
-        market_hint[sym] = _market_hint_from_symbol(sym)
+        sym = (getattr(d, "display_ticker", None) or getattr(d, "ticker", "") or "").upper()
 
-        # 1株配当（税後）
-        ps = None
+        # 直近1株配当（税後）
         try:
             ps = d.per_share_dividend_net()
         except Exception:
             ps = None
         if ps is not None:
-            last_per_share[sym] = float(ps)
+            last_per_share[sym] = float(ps)  # 後勝ちで直近化
 
-        # 株数: Dividend.quantity → Holding.quantity
+        # 株数
         q = 0
         try:
             q = int(d.quantity or 0)
@@ -235,83 +245,54 @@ def _build_forecast_payload(user, year: int, *, mode: str = "pay"):
         if q > 0:
             qty_by_symbol[sym] = q
 
-    # 履歴の“支払い月”を収集（DB の date は支払日想定）
-    history_pay_months: dict[str, set[int]] = defaultdict(set)
+    # 3) 支払月の抽出（全期間の実績からユニーク月を採用）
+    pay_months_by_symbol: dict[str, list[int]] = {}
+    from collections import defaultdict
+    tmp = defaultdict(set)
     for d in rows:
-        if d.date:
-            history_pay_months[_label_ticker(d)].add(int(d.date.month))
-
-    # frequency 推定（履歴の支払月のユニーク数）
-    freq_by_symbol: dict[str, int] = {}
-    for sym, ms in history_pay_months.items():
-        cnt = len(ms)
-        freq_by_symbol[sym] = 4 if cnt >= 4 else 2 if cnt >= 2 else 1
-
-    # yfinance（ex/pay 月）を取得
-    yf_months: dict[str, dict] = {}
-    for sym in set(list(last_per_share.keys()) + list(qty_by_symbol.keys())):
-        yf_months[sym] = _fetch_div_months_from_yf(sym)
-
-    # 12ヶ月バケツ
-    yymm = [f"{year}-{m:02d}" for m in range(1, 13)]
-    monthly = {k: 0.0 for k in yymm}
-
-    # 市場別デフォルト（frequency→典型月）
-    def default_months(hint: str, f: int) -> list[int]:
-        if hint == "JP":
-            base = [3, 6, 9, 12]
-        else:  # US/その他
-            base = [1, 4, 7, 10]
-        if f <= 1:
-            return [base[0]]
-        if f == 2:
-            return [base[0], base[2]]   # 間隔を空ける
-        return base[:4]
-
-    for sym, ps in last_per_share.items():
-        qty = qty_by_symbol.get(sym, 0)
-        if qty <= 0:
+        if not d.date:
             continue
-        per_payment = float(ps) * float(qty)
+        sym = (getattr(d, "display_ticker", None) or getattr(d, "ticker", "") or "").upper()
+        tmp[sym].add(d.date.month)
 
-        hint = market_hint.get(sym, "US")
-        f = max(1, int(freq_by_symbol.get(sym, 1)))
+    for sym, ms in tmp.items():
+        pay_months_by_symbol[sym] = sorted(ms)
 
-        # 1) yfinance 優先
-        months_info = yf_months.get(sym) or {}
-        ex_ms  = months_info.get("ex")  or []
-        pay_ms = months_info.get("pay") or []
-        target_ms: list[int] = []
+    # 実績がない銘柄のフォールバック
+    for sym in set(list(last_per_share.keys()) + list(qty_by_symbol.keys())):
+        if sym not in pay_months_by_symbol or not pay_months_by_symbol[sym]:
+            if _is_jp_symbol(sym):
+                pay_months_by_symbol[sym] = [6, 12]           # 日本株の一般的パターン
+            else:
+                pay_months_by_symbol[sym] = [3, 6, 9, 12]     # 四半期想定
 
-        if mode == "pay" and pay_ms:
-            target_ms = pay_ms
-        elif mode == "record" and ex_ms:
-            target_ms = ex_ms
+    # 4) 集計月の決定（mode: pay or record）
+    months = [f"{year}-{m:02d}" for m in range(1, 13)]
+    monthly = {m: 0.0 for m in months}
 
-        # 2) DB 履歴フォールバック
-        if not target_ms:
-            hist_pay = sorted(history_pay_months.get(sym, []))
-            if hist_pay:
-                if mode == "pay":
-                    target_ms = hist_pay
-                else:
-                    # record: 支払い月から市場ヒントで逆算
-                    delta = 2 if hint == "JP" else 1
-                    target_ms = sorted({((m - 1 - delta) % 12) + 1 for m in hist_pay})
+    for sym, pay_months in pay_months_by_symbol.items():
+        ps  = last_per_share.get(sym)
+        qty = qty_by_symbol.get(sym, 0)
+        if ps is None or qty <= 0:
+            continue
 
-        # 3) デフォルト（frequency ベース）
-        if not target_ms:
-            target_ms = default_months(hint, f)
+        per_event = float(ps) * float(qty)
 
-        # 4) 加算
-        for m in target_ms:
+        if mode == "record":
+            # 市場ごとに支払月 → 権利確定月へシフト
+            delta = -3 if _is_jp_symbol(sym) else -1
+            target_months = _shift_months(pay_months, delta)
+        else:
+            target_months = pay_months
+
+        for m in target_months:
             key = f"{year}-{int(m):02d}"
             if key in monthly:
-                monthly[key] += per_payment
+                monthly[key] += per_event
 
-    months = [{"yyyymm": k, "net": round(v, 2)} for k, v in monthly.items()]
+    out = [{"yyyymm": k, "net": round(v, 2)} for k, v in monthly.items()]
     sum12 = round(sum(monthly.values()), 2)
-    return {"months": months, "sum12": sum12}
+    return {"months": out, "sum12": sum12}
 
 
 # ===================== ダッシュボード =====================
@@ -714,7 +695,7 @@ def dividends_forecast(request):
 @login_required
 def dividends_forecast_json(request):
     y = _parse_year(request)
-    mode = (request.GET.get("mode") or "pay").lower()
+    mode = (request.GET.get("mode") or "pay").strip().lower()  # "pay" | "record"
     if mode not in ("pay", "record"):
         mode = "pay"
     payload = _build_forecast_payload(request.user, y, mode=mode)
