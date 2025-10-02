@@ -25,34 +25,41 @@
     background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
     overflow:hidden
   }
+  /* 日付は左上 */
   .cell .d{position:absolute;top:7px;left:10px;font-weight:700;color:#cfd7ff;font-size:13px}
 
-  /* —— 件数リング（白丸の中に数字） —— */
-  .ring{
-    position:absolute;top:6px;right:8px;
-    width:28px;height:28px;border-radius:50%;
-    border:2px solid rgba(255,255,255,.9);
-    display:flex;align-items:center;justify-content:center;
-    background:rgba(255,255,255,.04);
+  /* —— 件数バッジ（右下、日付に被らない） —— */
+  .badge{
+    position:absolute;right:8px;bottom:6px;
+    min-width:20px; height:20px; padding:0 6px;
+    border-radius:10px;
+    background:rgba(138,180,255,.18); border:1px solid rgba(164,197,255,.55);
+    color:#eaf0ff; font-weight:800; font-size:12px; line-height:20px;
+    text-align:center; box-shadow:0 2px 8px rgba(0,0,0,.25);
   }
-  .ring .cnt{font-size:12px;font-weight:800;color:#eaf0ff;line-height:1}
   .cell.has-items{cursor:pointer}
   .cell.has-items:active{transform:translateY(1px)}
 
-  /* ボトムシート + バックドロップ */
+  /* バックドロップ */
   .backdrop{
     position:fixed;inset:0;background:rgba(0,0,0,.35);backdrop-filter:blur(1px);
     opacity:0;pointer-events:none;transition:opacity .18s ease;
   }
   .backdrop.is-open{opacity:1;pointer-events:auto}
 
+  /* ボトムシート（下タブに被らないよう底上げ） */
+  :root{ --sheet-offset: calc(84px + env(safe-area-inset-bottom, 0px)); }
+  @media (min-width:880px){ :root{ --sheet-offset: 0px; } } /* PC 等は下固定 */
+
   .sheet{
     position:fixed;left:0;right:0;bottom:-100%;
     background:rgba(26,33,48,.98);border-top-left-radius:18px;border-top-right-radius:18px;
-    border:1px solid rgba(255,255,255,.08);padding:14px 16px 18px;max-height:65vh;overflow:auto;
-    transition:bottom .18s ease; box-shadow:0 -10px 30px rgba(0,0,0,.35)
+    border:1px solid rgba(255,255,255,.08);padding:14px 16px 18px;
+    max-height:65vh;overflow:auto;transition:bottom .18s ease;
+    box-shadow:0 -10px 30px rgba(0,0,0,.35);
   }
-  .sheet.is-open{bottom:0}
+  .sheet.is-open{ bottom: var(--sheet-offset); }
+
   .sheet .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
   .sheet h3{font-size:16px;font-weight:800;margin:0}
   .sheet .x{
@@ -63,20 +70,18 @@
 
   .sheet .list{display:grid;gap:8px}
   .sheet .row{
-    display:flex;justify-content:space-between;gap:8px;
+    display:flex;justify-content:space-between;gap:10px;
     border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);
-    border-radius:10px;padding:10px 12px
+    border-radius:10px;padding:10px
   }
-  .sheet .row .left{display:flex;flex-direction:column;gap:6px}
-  .sheet .row .name{font-weight:700}
-  .sheet .row .amt{white-space:nowrap}
-
-  /* バッジ（証券会社 / 口座） */
-  .sheet .row .meta{display:flex;gap:6px;flex-wrap:wrap}
-  .badge{
-    font-size:11px;color:#d9e1ff;background:rgba(255,255,255,.05);
-    border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:2px 8px
+  .sheet .row .info{min-width:0}
+  .sheet .row .name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sheet .row .meta{margin-top:4px;display:flex;gap:6px;flex-wrap:wrap}
+  .sheet .row .chip{
+    border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);
+    color:#cfd7ff;border-radius:999px;padding:2px 8px;font-size:11px
   }
+  .sheet .row .amt{white-space:nowrap;font-weight:800}
 </style>
 {% endblock %}
 
@@ -106,7 +111,7 @@
   <!-- 42 セルの骨組み（JS が上書き） -->
   <div id="cal" class="cal" data-year="{{ year }}" data-month="{{ month }}">
     {% for i in "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" %}
-      <div class="cell" data-idx="{{ forloop.counter0 }}"><div class="d"></div><div class="ring"><span class="cnt"></span></div></div>
+      <div class="cell" data-idx="{{ forloop.counter0 }}"><div class="d"></div></div>
     {% endfor %}
   </div>
 
@@ -124,6 +129,6 @@
   <div class="list" id="sheetList"></div>
 </div>
 
-<script src="{% static 'js/dividends_calendar.js' %}?v=13"></script>
+<script src="{% static 'js/dividends_calendar.js' %}?v=14"></script>
 <script>window.__DIVCAL_INIT__ = {{ payload_json|safe }};</script>
 {% endblock %}
