@@ -25,24 +25,17 @@
     background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
     overflow:hidden
   }
-  /* --- 白丸（中央のリング） --- */
-  .cell .d{
-    position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    width:100%;height:100%;
+  .cell .d{position:absolute;top:7px;left:10px;font-weight:700;color:#cfd7ff;font-size:13px}
+
+  /* —— 件数リング（白丸の中に数字） —— */
+  .ring{
+    position:absolute;top:6px;right:8px;
+    width:28px;height:28px;border-radius:50%;
+    border:2px solid rgba(255,255,255,.9);
+    display:flex;align-items:center;justify-content:center;
+    background:rgba(255,255,255,.04);
   }
-  .cell .d::before{
-    content:""; width:42px;height:42px;border-radius:999px;border:2px solid rgba(255,255,255,.85);
-    background:transparent; display:block;
-  }
-  .cell .day{
-    position:absolute; top:18px; font-weight:800; color:#e9eeff; font-size:14px; line-height:1;
-  }
-  .cell .cnt{
-    position:absolute; bottom:18px; font-weight:800; color:#0b1020; font-size:12px; line-height:1;
-    background:rgba(255,255,255,.85); border-radius:8px; padding:2px 6px; min-width:20px; text-align:center;
-    transform:translateY(6px);   /* 白丸の内側下寄せに見えるよう微調整 */
-  }
-  .cell .d:not(.has-items) .cnt{ display:none; }
+  .ring .cnt{font-size:12px;font-weight:800;color:#eaf0ff;line-height:1}
   .cell.has-items{cursor:pointer}
   .cell.has-items:active{transform:translateY(1px)}
 
@@ -67,14 +60,23 @@
     color:#eaf0ff;border-radius:10px;padding:6px 10px
   }
   .sheet .sum{font-weight:800;font-size:16px;margin:8px 0 12px}
+
   .sheet .list{display:grid;gap:8px}
   .sheet .row{
     display:flex;justify-content:space-between;gap:8px;
     border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);
     border-radius:10px;padding:10px 12px
   }
+  .sheet .row .left{display:flex;flex-direction:column;gap:6px}
   .sheet .row .name{font-weight:700}
   .sheet .row .amt{white-space:nowrap}
+
+  /* バッジ（証券会社 / 口座） */
+  .sheet .row .meta{display:flex;gap:6px;flex-wrap:wrap}
+  .badge{
+    font-size:11px;color:#d9e1ff;background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:2px 8px
+  }
 </style>
 {% endblock %}
 
@@ -104,12 +106,7 @@
   <!-- 42 セルの骨組み（JS が上書き） -->
   <div id="cal" class="cal" data-year="{{ year }}" data-month="{{ month }}">
     {% for i in "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" %}
-      <div class="cell" data-idx="{{ forloop.counter0 }}">
-        <div class="d">
-          <span class="day"></span>
-          <span class="cnt"></span>
-        </div>
-      </div>
+      <div class="cell" data-idx="{{ forloop.counter0 }}"><div class="d"></div><div class="ring"><span class="cnt"></span></div></div>
     {% endfor %}
   </div>
 
@@ -127,6 +124,6 @@
   <div class="list" id="sheetList"></div>
 </div>
 
-<script src="{% static 'js/dividends_calendar.js' %}?v=12"></script>
+<script src="{% static 'js/dividends_calendar.js' %}?v=13"></script>
 <script>window.__DIVCAL_INIT__ = {{ payload_json|safe }};</script>
 {% endblock %}
