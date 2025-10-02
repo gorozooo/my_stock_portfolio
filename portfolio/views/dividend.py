@@ -69,6 +69,8 @@ def _label_name(d) -> str:
     return (getattr(d, "display_name", None) or getattr(d, "name", "") or tkr)
 
 
+# ===================== カレンダーペイロード =====================
+
 def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|None):
     """
     カレンダー用の月次明細サマリを計算して返す（サーバ描画/JSON 共通）。
@@ -126,25 +128,35 @@ def _build_calendar_payload(user, y:int, m:int, *, broker:str|None, account:str|
     return {"year": y, "month": m, "days": days, "sum_month": round(month_sum, 2)}
 
 
-def _build_forecast_payload(user, year: int):
+# ===================== 予測（合計/スタック対応） =====================
+
+def _simple_forecast_rows(user, year:int):
     """
-    超シンプル予測（直近1株配当 × 現在株数 × 想定回数）。
-    返り値: {"months":[{"yyyymm":"YYYY-MM","net":…},…], "sum12": …}
+    予測のための素朴素材を作る:
+      - symbolごとの直近1株配当（税後）
+      - 現在株数
+      - 想定回数（年1/2/4）
+      - 表示用の broker/account
     """
     qs = svc_div.build_user_dividend_qs(user)
     qs = svc_div.apply_filters(qs, year=year)
     rows = svc_div.materialize(qs)
 
     last_per_share: dict[str, float] = {}
-    qty_by_symbol: dict[str, int] = {}
+    qty_by_symbol : dict[str, int]   = {}
+    broker_by_sym : dict[str, str]   = {}
+    account_by_sym: dict[str, str]   = {}
 
     for d in rows:
+        sym = _label_ticker(d)
+
+        # 直近1株配当（税後）
         try:
             ps = d.per_share_dividend_net()
         except Exception:
             ps = None
-        if ps is not None:
-            last_per_share[_label_ticker(d)] = float(ps)
+        if ps:
+            last_per_share[sym] = float(ps)
 
         # 株数: Dividend.quantity → Holding.quantity
         q = 0
@@ -158,35 +170,99 @@ def _build_forecast_payload(user, year: int):
             except Exception:
                 q = 0
         if q > 0:
-            qty_by_symbol[_label_ticker(d)] = q
+            qty_by_symbol[sym] = q
 
-    months_by_symbol: dict[str, set[tuple[int, int]]] = defaultdict(set)
+        # ブローカー/口座（表示名で）
+        if sym not in broker_by_sym:
+            broker_by_sym[sym] = (
+                d.get_broker_display()
+                if d.broker
+                else (d.holding.get_broker_display() if getattr(d, "holding", None) and d.holding.broker else "")
+            ) or "OTHER"
+        if sym not in account_by_sym:
+            account_by_sym[sym] = (
+                d.get_account_display()
+                if d.account
+                else (d.holding.get_account_display() if getattr(d, "holding", None) and d.holding.account else "")
+            ) or "SPEC"
+
+    # 想定回数（その年に観測できた頻度をベースに 1/2/4）
+    months_by_symbol = defaultdict(set)
     for d in rows:
         if d.date:
             months_by_symbol[_label_ticker(d)].add((d.date.year, d.date.month))
-
-    freq_by_symbol: dict[str, int] = {}
+    freq_by_symbol: dict[str,int] = {}
     for sym, ms in months_by_symbol.items():
         cnt = len([1 for y_m in ms if y_m[0] == year])
         freq_by_symbol[sym] = 4 if cnt >= 4 else 2 if cnt >= 2 else 1
 
-    yymm = [f"{year}-{m:02d}" for m in range(1, 13)]
-    monthly = {m: 0.0 for m in yymm}
+    return last_per_share, qty_by_symbol, freq_by_symbol, broker_by_sym, account_by_sym
 
-    for sym, ps in last_per_share.items():
-        qty = qty_by_symbol.get(sym, 0)
-        f = freq_by_symbol.get(sym, 1)
+
+def _build_forecast_payload(user, year: int, *, stack: str = "none"):
+    """
+    超シンプル予測（直近1株配当 × 現在株数 × 想定回数）。
+    stack: "none" | "broker" | "account"
+      - none     -> 合計のみ
+      - broker   -> 証券会社でスタック
+      - account  -> 口座でスタック
+    返り値:
+      stack="none"  -> { months:[{yyyymm, net}], sum12 }
+      stack!="none" -> { months:[...], sum12, labels:[12months], stacks:{label:[12vals], ...}, stack }
+    """
+    last_ps, qty_by_sym, freq_by_sym, broker_by_sym, account_by_sym = _simple_forecast_rows(user, year)
+
+    ylabels = [f"{year}-{m:02d}" for m in range(1, 13)]
+    monthly_total = {m: 0.0 for m in ylabels}
+
+    # スタック用バケツ
+    stack_mode = (stack or "none").lower()
+    if stack_mode not in ("none", "broker", "account"):
+        stack_mode = "none"
+    buckets = defaultdict(lambda: {m:0.0 for m in ylabels}) if stack_mode != "none" else None
+
+    for sym, ps in last_ps.items():
+        qty = qty_by_sym.get(sym, 0)
+        f   = freq_by_sym.get(sym, 1)
         if qty <= 0 or ps is None or f <= 0:
             continue
+
         est_total = float(ps) * float(qty) * float(f)
         each = est_total / f
-        # 第1月から f 回に均等配賦（Phase3 で賢く割付予定）
-        for i in range(f):
-            monthly[yymm[i]] += each
 
-    months = [{"yyyymm": k, "net": round(v, 2)} for k, v in monthly.items()]
-    sum12 = round(sum(monthly.values()), 2)
-    return {"months": months, "sum12": sum12}
+        # 第1月から f 回に均等配賦（簡易版）
+        for i in range(f):
+            mm = ylabels[i]
+            monthly_total[mm] += each
+
+            if buckets is not None:
+                if stack_mode == "broker":
+                    key = broker_by_sym.get(sym, "OTHER") or "OTHER"
+                else:
+                    key = account_by_sym.get(sym, "SPEC") or "SPEC"
+                buckets[key][mm] += each
+
+    months = [{"yyyymm": m, "net": round(monthly_total[m], 2)} for m in ylabels]
+    sum12 = round(sum(monthly_total.values()), 2)
+
+    if buckets is None:
+        return {"months": months, "sum12": sum12}
+
+    # 上位7カテゴリ＋Others にまとめて返す
+    totals_by_key = {k: sum(v.values()) for k, v in buckets.items()}
+    top_keys = sorted(totals_by_key.keys(), key=lambda k: totals_by_key[k], reverse=True)[:7]
+    others = {m:0.0 for m in ylabels}
+    stacks = {}
+    for k in buckets:
+        if k in top_keys:
+            stacks[k] = [round(buckets[k][m],2) for m in ylabels]
+        else:
+            for m in ylabels:
+                others[m] += buckets[k][m]
+    if any(others[m] > 0 for m in ylabels):
+        stacks["Others"] = [round(others[m],2) for m in ylabels]
+
+    return {"months": months, "sum12": sum12, "labels": ylabels, "stacks": stacks, "stack": stack_mode}
 
 
 # ===================== ダッシュボード =====================
@@ -568,13 +644,14 @@ def dividends_calendar_json(request):
 @login_required
 def dividends_forecast(request):
     y = _parse_year(request)
-    payload = _build_forecast_payload(request.user, y)
+    stack = (request.GET.get("stack") or "none").lower()  # none | broker | account
+    payload = _build_forecast_payload(request.user, y, stack=stack)
     ctx = {
         "flt": _flt(request),
         "year_options": list(range(timezone.now().year + 1, timezone.now().year - 7, -1)),
-        "months": payload["months"],
-        "sum12": payload["sum12"],
-        "payload_json": payload,
+        "payload_json": payload,  # 初期描画用
+        "year": y,
+        "stack": stack,
     }
     return render(request, "dividends/forecast.html", ctx)
 
@@ -582,5 +659,6 @@ def dividends_forecast(request):
 @login_required
 def dividends_forecast_json(request):
     y = _parse_year(request)
-    payload = _build_forecast_payload(request.user, y)
+    stack = (request.GET.get("stack") or "none").lower()  # none | broker | account
+    payload = _build_forecast_payload(request.user, y, stack=stack)
     return JsonResponse(payload)
