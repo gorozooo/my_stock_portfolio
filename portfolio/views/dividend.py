@@ -502,7 +502,7 @@ def dividend_list(request):
 
     kpi = svc_div.sum_kpis(qs)
 
-    paginator = Paginator(qs, 20)
+    paginator = Paginator(qs, 5)
     page_obj = paginator.get_page(request.GET.get("page") or 1)
     items = page_obj.object_list
 
