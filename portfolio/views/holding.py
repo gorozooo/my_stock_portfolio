@@ -28,11 +28,17 @@ from ..services import trend as svc_trend
 @dataclass
 class RowVM:
     obj: Holding
-    valuation: Optional[float] = None   # 現在評価額
+    valuation: Optional[float] = None   # 現在評価額（合計）
     pnl: Optional[float] = None         # 含み損益（額）
     pnl_pct: Optional[float] = None     # 含み損益（%）
     days: Optional[int] = None          # 保有日数
-    # スパーク：指数化（index）と実値（raw）の両方を 7/30/90 日分
+
+    # 追加：テンプレが参照する値
+    yield_now: Optional[float] = None   # 現在利回り（%）
+    yield_cost: Optional[float] = None  # 取得利回り（%）
+    div_annual: Optional[float] = None  # 年間配当（合計円）
+
+    # スパーク
     s7_idx: Optional[List[float]] = None
     s30_idx: Optional[List[float]] = None
     s90_idx: Optional[List[float]] = None
@@ -148,10 +154,12 @@ def _build_row(h: Holding) -> RowVM:
     """
     1件分の表示用データを作る。
     - 現在評価額 / 含み損益 / % / 保有日数
+    - 年間配当（合計）/ 現在利回り / 取得利回り
     - スパーク：7/30/90日（指数/実値）
     """
     q = int(h.quantity or 0)
-    acq = (q * _to_float(h.avg_cost or 0)) or 0.0
+    avg_cost = _to_float(h.avg_cost or 0) or 0.0
+    acq = q * avg_cost
 
     # 必要分をキャッシュ/バッチ取得
     n = _norm_ticker(h.ticker)
@@ -159,20 +167,64 @@ def _build_row(h: Holding) -> RowVM:
     raw30 = _preload_closes([h.ticker], 30).get(n, [])
     raw90 = _preload_closes([h.ticker], 90).get(n, [])
 
-    val_now = None
+    cur_price_ps: Optional[float] = None
     if raw7 or raw30 or raw90:
-        last = (raw30 or raw7 or raw90)[-1]
-        val_now = last * q
+        cur_price_ps = float((raw30 or raw7 or raw90)[-1])
+
+    valuation = float(cur_price_ps * q) if (cur_price_ps is not None and q) else None
 
     pnl = None
     pnl_pct = None
-    if val_now is not None:
-        pnl = val_now - acq
+    if valuation is not None:
+        pnl = valuation - acq
         if acq > 0:
             pnl_pct = (pnl / acq) * 100.0
 
+    # ---- 年間配当・利回り ----
+    # モデルの項目名が環境によって違っても拾えるようにゆるく解決
+    def _get_div_ps(_h: Holding) -> Optional[float]:
+        cand = [
+            "div_ps", "dividend_ps", "dividend_per_share",
+            "div_per_share", "dividend"  # per share で使っている場合向け
+        ]
+        for name in cand:
+            if hasattr(_h, name):
+                v = _to_float(getattr(_h, name))
+                if v is not None:
+                    return v
+        return None
+
+    def _get_div_total(_h: Holding) -> Optional[float]:
+        # 既に合計（円）が入っているフィールドがある場合のフォールバック
+        for name in ["div_annual", "dividend_annual", "annual_dividend"]:
+            if hasattr(_h, name):
+                v = _to_float(getattr(_h, name))
+                if v is not None:
+                    return v
+        return None
+
+    div_ps = _get_div_ps(h)                          # 1株あたり
+    div_total = _get_div_total(h)                    # 合計（そのまま）※任意
+
+    # per-share が取れたら合計を計算、無ければ既存の合計を使う
+    if div_ps is not None:
+        div_annual = div_ps * q
+    else:
+        div_annual = div_total
+
+    # 利回り
+    if div_ps is not None and cur_price_ps:          # 現在利回り
+        yield_now = (div_ps / cur_price_ps) * 100.0
+    else:
+        yield_now = None
+
+    if div_ps is not None and avg_cost > 0:          # 取得利回り
+        yield_cost = (div_ps / avg_cost) * 100.0
+    else:
+        yield_cost = None
+
     # 保有日数
-    start = h.opened_at or h.created_at.date()
+    start = h.opened_at or (h.created_at.date() if getattr(h, "created_at", None) else None)
     days = (_today_jst() - start).days if start else None
 
     # 指数化（価格の指数化）
@@ -182,10 +234,13 @@ def _build_row(h: Holding) -> RowVM:
 
     return RowVM(
         obj=h,
-        valuation=val_now,
+        valuation=valuation,
         pnl=pnl,
         pnl_pct=pnl_pct,
         days=days,
+        yield_now=yield_now,
+        yield_cost=yield_cost,
+        div_annual=div_annual,
         s7_idx=s7_idx or None,
         s30_idx=s30_idx or None,
         s90_idx=s90_idx or None,
