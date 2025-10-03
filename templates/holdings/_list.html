@@ -40,21 +40,25 @@
   .head__spark{width:140px; height:40px}
   .head__spark svg{width:100%;height:100%}
 
-  /* ====== ここを“白アプリ風”に作り直し ====== */
+  /* ====== 白アプリ風 2カラム明細 ====== */
   .stats-compact{
-    display:grid; grid-template-columns:1fr 1fr; gap:14px;
+    display:grid; grid-template-columns:1fr 1fr; gap:16px;
     margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,.08);
   }
   .stats-col{display:grid; row-gap:10px}
   .kv2{display:flex; align-items:baseline; justify-content:space-between; gap:8px}
-  .kv2 .k{font-size:12px; color:#9fb0c8}
-  .kv2 .v{font-size:18px}
-  .kv2 .v .unit{font-size:12px; opacity:.8; margin-left:6px}
-  .kv2 .v.pos{color:#22c55e}
-  .kv2 .v.neg{color:#ef4444}
+  .kv2 .k{font-size:12px; color:#9fb0c8; letter-spacing:.02em}
+  .kv2 .k::after{content:"："; opacity:.6}
+  .kv2 .v{font-size:18px; font-weight:600}
   .kv2.small .v{font-size:16px}
+  .unit{opacity:.8; font-size:12px; margin-left:6px}
 
-  /* 詳細（従来どおり） */
+  /* 評価額の損益率（白アプリは青/赤の括弧表記） */
+  .pct{font-size:12px; margin-left:8px; opacity:.95}
+  .pct.pos{color:#3b82f6}  /* blue-500 */
+  .pct.neg{color:#ef4444}
+
+  /* 詳細（従来どおり任意で開閉するタブがあればここに） */
   .more{display:none;margin-top:10px;border-top:1px dashed rgba(255,255,255,.08);padding-top:10px}
   .row.show-detail .more{display:block}
   .moregrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
@@ -77,25 +81,14 @@
 
 <div class="sumbox" id="holdings-sumbox">
   <div class="sumhead" data-toggle>
-    <div class="sumtitle">
-      <span class="sumchev">▸</span><span>KPIサマリー</span>
-    </div>
+    <div class="sumtitle"><span class="sumchev">▸</span><span>KPIサマリー</span></div>
     <div class="summini">
       <span class="pill"><span class="k">取得</span>¥{{ summary.acq|floatformat:0|intcomma }}</span>
-      <span class="pill"><span class="k">含み損益</span>
-        <span class="{% if summary.pnl and summary.pnl < 0 %}neg{% else %}pos{% endif %}">
-          {% if summary.pnl is not None %}¥{{ summary.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}
-        </span>
-      </span>
-      <span class="pill"><span class="k">損益率</span>
-        <span class="{% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
-          {% if summary.pnl_pct is not None %}{{ summary.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}
-        </span>
-      </span>
+      <span class="pill"><span class="k">含み損益</span><span class="{% if summary.pnl and summary.pnl < 0 %}neg{% else %}pos{% endif %}">{% if summary.pnl is not None %}¥{{ summary.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</span></span>
+      <span class="pill"><span class="k">損益率</span><span class="{% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">{% if summary.pnl_pct is not None %}{{ summary.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</span></span>
     </div>
     <div class="sumhint">タップで開閉</div>
   </div>
-
   <div class="sumbody">
     <div class="kpi-grid">
       <div class="kpi"><div class="kpi-k">件数</div><div class="kpi-v">{{ summary.count|default:"0" }}</div></div>
@@ -164,17 +157,22 @@
           </div>
         </header>
 
-        <!-- ===== “白アプリ風” 2カラム明細（見た目・項目を合わせる） ===== -->
+        <!-- ===== 白アプリ風 2カラム明細 ===== -->
         <section class="stats-compact">
           <!-- 左カラム -->
           <div class="stats-col">
             <div class="kv2 small">
               <div class="k">〜 現在値</div>
-              <div class="v"><span class="cur-price" data-val="{{ r.val|default:0 }}" data-qty="{{ h.quantity|default:0 }}">—</span><span class="unit">円</span></div>
+              <div class="v">
+                <span class="cur-price"
+                      data-val="{{ r.val|default:0 }}"
+                      data-qty="{{ h.quantity|default:0 }}">—</span>
+                <span class="unit">円</span>
+              </div>
             </div>
             <div class="kv2 small">
               <div class="k">取得単価</div>
-              <div class="v">¥{{ h.avg_cost|floatformat:2|intcomma }}</div>
+              <div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
             </div>
             <div class="kv2 small">
               <div class="k">現在利回り</div>
@@ -198,12 +196,13 @@
             </div>
             <div class="kv2">
               <div class="k">評価額</div>
-              <div class="v">{% if r.val is not None %}¥{{ r.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
-            </div>
-            <div class="kv2">
-              <div class="k"></div>
-              <div class="v {% if r.pnl_pct is not None and r.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
-                {% if r.pnl_pct is not None %}({{ r.pnl_pct|floatformat:2 }}%){% else %}—{% endif %}
+              <div class="v">
+                {% if r.val is not None %}¥{{ r.val|floatformat:0|intcomma }}{% else %}—{% endif %}
+                {% if r.pnl_pct is not None %}
+                  <span class="pct {% if r.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
+                    ({% if r.pnl_pct > 0 %}+{% endif %}{{ r.pnl_pct|floatformat:2 }} %)
+                  </span>
+                {% endif %}
               </div>
             </div>
             <div class="kv2">
@@ -213,7 +212,7 @@
           </div>
         </section>
 
-        <!-- 詳細（従来項目） -->
+        <!-- 任意の追加詳細（従来） -->
         <section class="more">
           <div class="moregrid">
             <div class="kv"><div class="k">保有開始</div><div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div></div>
@@ -245,9 +244,9 @@
 {% endif %}
 
 <script>
-  /* 現在値（評価額÷株数） 表示を小数1桁・桁区切りで補完 */
+  /* 「~ 現在値」= 評価額 / 株数 を小数1桁の千区切りで表示（無ければ “—”） */
   (function(){
-    const fmt = n => {
+    const fmt1 = n => {
       if (!isFinite(n)) return '—';
       const s = (Math.round(n*10)/10).toFixed(1);
       return s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -255,7 +254,7 @@
     document.querySelectorAll('.cur-price').forEach(el=>{
       const val = parseFloat(el.dataset.val||'0');
       const qty = parseFloat(el.dataset.qty||'0');
-      el.textContent = (qty>0 && val) ? '〜 ' + fmt(val/qty) : '—';
+      el.textContent = (qty>0 && isFinite(val) && val>0) ? '〜 ' + fmt1(val/qty) : '—';
     });
   })();
 </script>
