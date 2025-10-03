@@ -74,44 +74,29 @@
   }
 
   /* ===== 詳細：ボタンで開閉（デフォルト非表示） ===== */
-  .more{
-    display:none;                 /* ← 非表示に戻す */
-    margin-top:6px;
-    padding-top:6px;
-    border-top:1px dashed rgba(255,255,255,.08);
-  }
-  .row.show-detail .more{display:block;} /* ← 「詳細」ボタンで row に .show-detail を付与して表示 */
+.more{
+  display:none;                 /* ボタンで .show-detail を付けた時だけ表示 */
+  margin-top:2px;
+  padding-top:2px;
+  border-top:1px dashed rgba(255,255,255,.08);
+}
+.row.show-detail .more{display:block}
 
-  /* 詳細の中身も下段と完全一致のレイアウト/サイズ */
-  .moregrid{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    column-gap:6px;
-    row-gap:3px;
-  }
-  .moregrid .kv{
-    display:flex;
-    align-items:baseline;
-    justify-content:space-between;
-    gap:4px;
-    min-width:0;
-  }
-  .moregrid .kv .k{
-    font-size:10.5px;
-    color:#9fb0c8;
-    letter-spacing:.01em;
-    line-height:1;
-  }
-  .moregrid .kv .k::after{content:"：";opacity:.5}
-  .moregrid .kv .v{
-    font-size:13.5px;              /* 下段 .kv2 .v と同等 */
-    font-weight:600;
-    font-variant-numeric:tabular-nums;
-    line-height:1;
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  }
-  .moregrid .kv[style*="grid-column:1/-1"],
-  .moregrid .kv.memo{grid-column:1/-1}
+/* 詳細グリッド：下段と同じタイトさ */
+.moregrid{
+  display:grid;
+  grid-template-columns:1fr 1fr; /* 常に2列 */
+  gap:2px;
+}
+.moregrid .kv2{
+  /* .kv2 の共通スタイルをそのまま使用（↓は保険での最小上書き） */
+  min-width:0;
+}
+.moregrid .kv2 .v{
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+/* メモは横幅いっぱい */
+.moregrid .kv2.memo{ grid-column:1 / -1; }
 
   @media (max-width:520px){
     .moregrid{grid-template-columns:1fr 1fr;}
@@ -270,37 +255,33 @@
             </div>
           </section>
 
-          <!-- details -->
+          <!-- 詳細（任意） -->
           <section class="more">
+            {% with opened=h.opened_at days=r.days updated=h.updated_at %}
             <div class="moregrid">
-              <div class="kv">
+              <div class="kv2">
                 <div class="k">保有開始</div>
-                <div class="v">
-                  {% if h.opened_at %}{{ h.opened_at|date:"Y-m-d" }}{% else %}—{% endif %}
-                </div>
+                <div class="v">{% if opened %}{{ opened|date:"Y-m-d" }}{% else %}—{% endif %}</div>
               </div>
-
-              <div class="kv">
+          
+              <div class="kv2">
                 <div class="k">保有日数</div>
-                <div class="v">
-                  {% if r.days is not None %}{{ r.days|months_from_days }}{% else %}—{% endif %}
-                </div>
+                <div class="v">{% if days is not None %}{{ days|months_from_days }}{% else %}—{% endif %}</div>
               </div>
-
-              <div class="kv">
+          
+              <div class="kv2">
                 <div class="k">更新</div>
-                <div class="v">
-                  {% if h.updated_at %}{{ h.updated_at|date:"Y-m-d" }}{% else %}—{% endif %}
-                </div>
+                <div class="v">{% if updated %}{{ updated|date:"Y-m-d" }}{% else %}—{% endif %}</div>
               </div>
-
+          
               {% if h.memo %}
-                <div class="kv" style="grid-column:1/-1">
-                  <div class="k">メモ</div>
-                  <div class="v">{{ h.memo }}</div>
-                </div>
+              <div class="kv2 memo">
+                <div class="k">メモ</div>
+                <div class="v">{{ h.memo }}</div>
+              </div>
               {% endif %}
             </div>
+            {% endwith %}
           </section>
         </div>  {# /.track #}
       </article>
