@@ -218,11 +218,7 @@
 
         <!-- 詳細（任意） -->
         <section class="more">
-          {% with
-             opened=h.opened_at
-             days=r.days
-             updated=h.updated_at
-          %}
+          {% with opened=h.opened_at days=r.days updated=h.updated_at %}
           <div class="moregrid">
             <div class="kv">
               <div class="k">保有開始</div>
@@ -254,10 +250,10 @@
           </div>
           {% endwith %}
         </section>
-      </div>
-    </article>
-    {% endwith %}{% endfor %}
-  </div>
+        </div>  
+        </article>
+        {% endwith %}{% endfor %}
+        </div>
 
   {% if page.paginator.num_pages > 1 %}
   <div style="display:flex;gap:8px;justify-content:center;margin-top:14px">
