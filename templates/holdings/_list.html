@@ -32,7 +32,7 @@
   /* ------ 上段：見出し（“ゆとりあり”） ------ */
   .head{
     display:grid;grid-template-columns:1fr auto;align-items:flex-start;gap:8px;
-    padding:8px 2px 10px; /* ゆったり */
+    padding:8px 2px 10px;
     border-bottom:1px dashed rgba(255,255,255,.10);
   }
   .head__left{min-width:0}
@@ -65,7 +65,11 @@
   .kv2.small .v{font-size:12px}
   .unit{opacity:.7;font-size:10px;margin-left:2px;line-height:1}
   .pct{font-size:10px;margin-left:2px;opacity:.9;line-height:1}
-  .pct.pos{color:#3b82f6}.pct.neg{color:#ef4444}
+  .pct.pos{color:#22c55e}.pct.neg{color:#ef4444}
+
+  /* P/L 色分け（上段・詳細共通で使えるように） */
+  .v.pos{color:#22c55e}
+  .v.neg{color:#ef4444}
 
   /* どの幅でも1カラムにしない（保険） */
   @media (max-width:520px){
@@ -74,33 +78,15 @@
   }
 
   /* ===== 詳細：ボタンで開閉（デフォルト非表示） ===== */
-.more{
-  display:none;                 /* ボタンで .show-detail を付けた時だけ表示 */
-  margin-top:2px;
-  padding-top:2px;
-  border-top:1px dashed rgba(255,255,255,.08);
-}
-.row.show-detail .more{display:block}
+  .more{display:none;margin-top:2px;padding-top:2px;border-top:1px dashed rgba(255,255,255,.08)}
+  .row.show-detail .more{display:block}
 
-/* 詳細グリッド：下段と同じタイトさ */
-.moregrid{
-  display:grid;
-  grid-template-columns:1fr 1fr; /* 常に2列 */
-  gap:2px;
-}
-.moregrid .kv2{
-  /* .kv2 の共通スタイルをそのまま使用（↓は保険での最小上書き） */
-  min-width:0;
-}
-.moregrid .kv2 .v{
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-}
-/* メモは横幅いっぱい */
-.moregrid .kv2.memo{ grid-column:1 / -1; }
-
-  @media (max-width:520px){
-    .moregrid{grid-template-columns:1fr 1fr;}
-  }
+  /* 詳細グリッド：下段と同じタイトさ */
+  .moregrid{display:grid;grid-template-columns:1fr 1fr;gap:2px}
+  .moregrid .kv2{min-width:0}
+  .moregrid .kv2 .v{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .moregrid .kv2.memo{grid-column:1 / -1}
+  @media (max-width:520px){ .moregrid{grid-template-columns:1fr 1fr;} }
 
   /* スワイプアクション（既存） */
   .actions{position:absolute;inset:0 0 0 auto;width:max(56vw,220px);transform:translateX(100%)}
@@ -186,7 +172,7 @@
           </div>
         </header>
 
-        <!-- ===== 上段：2カラム明細（取得額/評価額 → 除外、P/L を追加） ===== -->
+        <!-- ===== 上段：2カラム明細（P/L 追加・色分け） ===== -->
         <section class="stats-compact">
           <!-- 左 -->
           <div class="stats-col">
@@ -220,24 +206,22 @@
               <div class="v">{{ h.quantity|intcomma }}<span class="unit">株</span></div>
             </div>
 
-            <!-- ★ 含み損益（追加） -->
+            <!-- 含み損益（色分け） -->
             <div class="kv2">
               <div class="k">含み損益</div>
-              <div class="v">
+              <div class="v {% if r.pnl is not None %}{% if r.pnl < 0 %}neg{% else %}pos{% endif %}{% endif %}">
                 {% if r.pnl is not None %}
                   {% if r.pnl > 0 %}+{% endif %}¥{{ r.pnl|floatformat:0|intcomma }}
                 {% else %}—{% endif %}
               </div>
             </div>
 
-            <!-- ★ 損益率（追加） -->
+            <!-- 損益率（色分け・％のみ表示） -->
             <div class="kv2">
               <div class="k">損益率</div>
-              <div class="v">
+              <div class="v {% if r.pnl_pct is not None %}{% if r.pnl_pct < 0 %}neg{% else %}pos{% endif %}{% endif %}">
                 {% if r.pnl_pct is not None %}
-                  <span class="pct {% if r.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
-                    {% if r.pnl_pct > 0 %}+{% endif %}{{ r.pnl_pct|floatformat:2 }} %
-                  </span>
+                  {% if r.pnl_pct > 0 %}+{% endif %}{{ r.pnl_pct|floatformat:2 }} %
                 {% else %}—{% endif %}
               </div>
             </div>
@@ -249,7 +233,7 @@
           </div>
         </section>
 
-        <!-- ===== 詳細：取得額／評価額 をこちらに移動 ===== -->
+        <!-- ===== 詳細：取得額／評価額（評価額は金額のみ） ===== -->
         <section class="more">
           {% with opened=h.opened_at days=r.days updated=h.updated_at %}
           <div class="moregrid">
@@ -260,14 +244,7 @@
 
             <div class="kv2">
               <div class="k">評価額</div>
-              <div class="v">
-                {% if r.valuation is not None %}¥{{ r.valuation|floatformat:0|intcomma }}{% else %}—{% endif %}
-                {% if r.pnl_pct is not None %}
-                  <span class="pct {% if r.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
-                    ({% if r.pnl_pct > 0 %}+{% endif %}{{ r.pnl_pct|floatformat:2 }} %)
-                  </span>
-                {% endif %}
-              </div>
+              <div class="v">{% if r.valuation is not None %}¥{{ r.valuation|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
             </div>
 
             <div class="kv2">
@@ -315,6 +292,7 @@
 {% else %}
   <div class="text-slate-400">保有はまだありません。</div>
 {% endif %}
+
 <script>
   /* 「〜 現在値」= 評価額 / 株数（小数1桁・千区切り） */
   (function(){
