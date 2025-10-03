@@ -26,10 +26,11 @@
 .head__spark{flex:0 0 auto;margin-left:auto}
 .spark{width:96px;height:24px;opacity:.95;filter:drop-shadow(0 0 2px rgba(0,0,0,.25))}
 
-/* ====== “白アプリ風” 2カラム明細（ここが本命） ====== */
+/* ====== “白アプリ風” 2カラム明細 ======
+   ※ 常に2列を維持（外部CSSの1列化を上書き） */
 .stats-compact{
   display:grid !important;
-  grid-template-columns:1fr 1fr !important;
+  grid-template-columns:1fr 1fr !important; /* ←ここが命 */
   gap:16px;
   margin-top:12px;padding-top:12px;border-top:1px dashed rgba(255,255,255,.08);
 }
@@ -46,7 +47,7 @@
 .pct.pos{color:#3b82f6}
 .pct.neg{color:#ef4444}
 
-/* 旧.stats系は明示的に潰す（テンプレ側で使っていないが保険） */
+/* 旧 .stats セクションは明示的に無効化（安全網） */
 .stats{display:none !important}
 
 /* 詳細 */
@@ -72,7 +73,9 @@
   text-decoration:none;color:#e6ebff;font-weight:700;font-size:11px;border-radius:10px;
   border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);box-shadow:0 4px 18px rgba(0,0,0,.25)
 }
-.item.detail{background:rgba(110,168,255,.18)} .item.edit{background:rgba(0,255,209,.16)} .item.delete{background:rgba(255,77,103,.20)}
+.item.detail{background:rgba(110,168,255,.18)}
+.item.edit{background:rgba(0,255,209,.16)}
+.item.delete{background:rgba(255,77,103,.20)}
 .item .ico{font-size:16px;line-height:1}
 
 /* 横スワイプ安定化 */
@@ -98,7 +101,7 @@
 .kpi-v.pos{color:#22c55e}
 .kpi-v.neg{color:#ef4444}
 
-/* サマリー（折りたたみ） */
+/* ===== サマリー（折りたたみ） ===== */
 .sumbox{border:1px solid rgba(255,255,255,.08); border-radius:14px; background:rgba(255,255,255,.04); margin:8px 0 12px;}
 .sumbox__head{display:flex;align-items:center;gap:8px; padding:8px 10px; border-bottom:1px dashed rgba(255,255,255,.08);}
 .sumbox__head .ttl{font-weight:800;}
@@ -111,7 +114,6 @@
 }
 .mini-pill.pos{color:#22c55e; border-color:rgba(34,197,94,.35); background:rgba(34,197,94,.12)}
 .mini-pill.neg{color:#ef4444; border-color:rgba(239,68,68,.35); background:rgba(239,68,68,.12)}
-
 .sumbox__body{padding:10px; display:block}
 .sumbox.is-collapsed .sumbox__body{display:none}
 
