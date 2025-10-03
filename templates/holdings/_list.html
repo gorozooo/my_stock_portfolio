@@ -26,10 +26,16 @@
   .kpi-v{font-size:15px}
   .kpi-v.pos{color:#22c55e}.kpi-v.neg{color:#ef4444}
 
-  /* ==== カード（コンパクト） ==== */
-  .row{position:relative;border:1px solid rgba(255,255,255,.11);border-radius:12px;background:rgba(255,255,255,.03);overflow:hidden}
-  .row + .row{margin-top:12px}
-  .track{position:relative;padding:8px}
+  /* ==== コンパクトカード ==== */
+  .row {
+    border:1px solid rgba(255,255,255,.11);
+    border-radius:12px;
+    background:rgba(255,255,255,.03);
+    overflow:hidden;
+  }
+  .row + .row { margin-top:10px; }
+  
+  .track { padding:6px 8px; }
 
   /* ヘッダ（小型スパーク） */
   .head{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
@@ -45,24 +51,26 @@
   .head__spark{width:56px !important;height:16px !important;flex:0 0 56px !important}
   .head__spark svg{width:100% !important;height:100% !important}
 
-  /* ==== 白アプリ風 2カラム明細（常に2列） ==== */
-  .stats-compact{
-    display:grid !important;
-    grid-template-columns:1fr 1fr !important;
-    gap:10px;
-    margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.08);
+  /* ==== 2カラム明細 ==== */
+  .stats-compact {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
+    margin-top:6px;
+    padding-top:6px;
+    border-top:1px dashed rgba(255,255,255,.08);
   }
-  .stats-col{display:grid;row-gap:6px}
-  .kv2{display:flex;align-items:baseline;justify-content:space-between;gap:6px}
-  .kv2 .k{font-size:11px;color:#9fb0c8;letter-spacing:.02em}
-  .kv2 .k::after{content:"：";opacity:.6}
-  .kv2 .v{font-size:15px;font-weight:600}
-  .kv2.small .v{font-size:14px}
-  .unit{opacity:.75;font-size:11px;margin-left:4px}
-
-  .pct{font-size:11px;margin-left:6px;opacity:.95}
-  .pct.pos{color:#3b82f6}
-  .pct.neg{color:#ef4444}
+  .stats-col { display:grid; row-gap:4px; }
+  
+  .kv2 { display:flex; justify-content:space-between; gap:6px; }
+  .kv2 .k { font-size:11px; color:#9fb0c8; }
+  .kv2 .v { font-size:14px; font-weight:600; }
+  .kv2.small .v { font-size:13px; }
+  .unit { font-size:11px; opacity:.7; margin-left:2px; }
+  
+  .pct { font-size:11px; margin-left:4px; }
+  .pct.pos { color:#3b82f6; }
+  .pct.neg { color:#ef4444; }
 
   /* どの幅でも1カラムにしない（保険） */
   @media (max-width:520px){
@@ -71,7 +79,7 @@
   }
 
   /* 詳細 */
-  .more{display:none;margin-top:8px;border-top:1px dashed rgba(255,255,255,.08);padding-top:8px}
+  .more { margin-top:6px; padding-top:6px; }
   .row.show-detail .more{display:block}
 
   /* スワイプアクション */
