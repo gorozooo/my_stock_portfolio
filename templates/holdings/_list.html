@@ -1,90 +1,80 @@
 {% load humanize num %}
 
 <style>
-  /* ==== サマリーボックス ==== */
-  .sumbox{border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(255,255,255,.03);margin:6px 0 12px}
-  .sumbox .sumhead{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px dashed rgba(255,255,255,.10);cursor:pointer}
-  .sumbox .sumtitle{display:flex;gap:8px;align-items:center;font-weight:800}
-  .sumbox .sumchev{font-size:14px;opacity:.8;transform:rotate(-90deg);transition:transform .15s ease}
-  .sumbox.is-open  .sumchev{transform:rotate(0deg)}
-  .sumbox .sumhint{opacity:.6;font-size:12px}
+  /* ==== サマリーボックス（そのまま軽く圧縮） ==== */
+  .sumbox{border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(255,255,255,.03);margin:6px 0 10px}
+  .sumbox .sumhead{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 10px;border-bottom:1px dashed rgba(255,255,255,.10);cursor:pointer}
+  .sumbox .sumtitle{display:flex;gap:6px;align-items:center;font-weight:800}
+  .sumbox .sumchev{font-size:12px;opacity:.8;transform:rotate(-90deg);transition:transform .15s ease}
+  .sumbox.is-open .sumchev{transform:rotate(0deg)}
+  .sumbox .sumhint{opacity:.6;font-size:11px}
   .sumbox:not(.is-open) .sumtitle{display:none}
-
   .summini{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding-bottom:2px}
   .summini .pill{white-space:nowrap;font-size:11px;border:1px solid rgba(255,255,255,.12);border-radius:9999px;padding:4px 8px;background:rgba(255,255,255,.05)}
   .summini .pill .k{opacity:.7;margin-right:4px}
   .summini .pos{color:#22c55e}.summini .neg{color:#ef4444}
   .sumbox.is-open .summini{display:none}
-
-  .sumbox .sumbody{display:none;padding:10px}
+  .sumbox .sumbody{display:none;padding:8px}
   .sumbox.is-open .sumbody{display:block}
 
-  /* ==== KPI ==== */
-  .kpi-grid{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+  /* ==== KPI（軽く圧縮） ==== */
+  .kpi-grid{display:grid;gap:6px;grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
   .kpi{min-width:110px;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:6px 8px;background:rgba(255,255,255,.04)}
   .kpi-k{font-size:11px;color:#9fb0c8}
   .kpi-v{font-size:15px}
   .kpi-v.pos{color:#22c55e}.kpi-v.neg{color:#ef4444}
 
-  /* ==== コンパクトカード ==== */
-  .row {
-    border:1px solid rgba(255,255,255,.11);
-    border-radius:12px;
-    background:rgba(255,255,255,.03);
-    overflow:hidden;
-  }
-  .row + .row { margin-top:10px; }
-  
-  .track { padding:6px 8px; }
+  /* ==== コンパクトカード（ここから本命） ==== */
+  .row{border:1px solid rgba(255,255,255,.11);border-radius:11px;background:rgba(255,255,255,.03);overflow:hidden}
+  .row + .row{margin-top:8px}
+  .track{padding:4px 8px}
 
-  /* ヘッダ（小型スパーク） */
-  .head{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+  /* ヘッダ（小型スパーク / 文字縮小 / 余白削減） */
+  .head{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center}
   .head__left{min-width:0}
-  .name{font-weight:700;font-size:15px;line-height:1.1;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .chips{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
-  .chip{font-size:10px;border:1px solid rgba(255,255,255,.14);border-radius:9999px;padding:3px 6px;color:#cfe1ff;background:rgba(255,255,255,.05)}
+  .name{font-weight:700;font-size:14px;line-height:1.1;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chips{display:flex;gap:4px;flex-wrap:wrap;margin-top:2px}
+  .chip{font-size:9.5px;border:1px solid rgba(255,255,255,.14);border-radius:9999px;padding:2px 6px;color:#cfe1ff;background:rgba(255,255,255,.05)}
   .chip.code{color:#a8c6ff}
   .chip.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.30)}
   .chip.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.30)}
 
-  /* ← ここが主犯：サイズを強制的に小さく固定 */
-  .head__spark{width:56px !important;height:16px !important;flex:0 0 56px !important}
+  /* スパークは強制的に極小化 */
+  .head__spark{width:48px !important;height:14px !important;flex:0 0 48px !important}
   .head__spark svg{width:100% !important;height:100% !important}
 
-  /* ==== 2カラム明細 ==== */
-  .stats-compact {
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:8px;
-    margin-top:6px;
-    padding-top:6px;
+  /* ==== 2カラム明細（白枠部をギュッと） ==== */
+  .stats-compact{
+    display:grid !important;
+    grid-template-columns:1fr 1fr !important;
+    gap:6px;
+    margin-top:4px;
+    padding-top:4px;
     border-top:1px dashed rgba(255,255,255,.08);
   }
-  .stats-col { display:grid; row-gap:4px; }
-  
-  .kv2 { display:flex; justify-content:space-between; gap:6px; }
-  .kv2 .k { font-size:11px; color:#9fb0c8; }
-  .kv2 .v { font-size:14px; font-weight:600; }
-  .kv2.small .v { font-size:13px; }
-  .unit { font-size:11px; opacity:.7; margin-left:2px; }
-  
-  .pct { font-size:11px; margin-left:4px; }
-  .pct.pos { color:#3b82f6; }
-  .pct.neg { color:#ef4444; }
+  .stats-col{display:grid;row-gap:3px}
+  .kv2{display:flex;align-items:baseline;justify-content:space-between;gap:4px}
+  .kv2 .k{font-size:10.5px;color:#9fb0c8;letter-spacing:.01em}
+  .kv2 .k::after{content:"：";opacity:.6}
+  .kv2 .v{font-size:13.5px;font-weight:600;font-variant-numeric:tabular-nums}
+  .kv2.small .v{font-size:12.5px}
+  .unit{opacity:.7;font-size:10.5px;margin-left:2px}
+  .pct{font-size:10.5px;margin-left:4px;opacity:.9}
+  .pct.pos{color:#3b82f6}.pct.neg{color:#ef4444}
 
   /* どの幅でも1カラムにしない（保険） */
   @media (max-width:520px){
-    .stats-compact{grid-template-columns:1fr 1fr !important;}
+    .stats-compact{grid-template-columns:1fr 1fr !important}
     .head{grid-template-columns:1fr auto}
   }
 
-  /* 詳細 */
-  .more { margin-top:6px; padding-top:6px; }
+  /* 詳細（控えめ） */
+  .more{display:none;margin-top:6px;border-top:1px dashed rgba(255,255,255,.08);padding-top:6px}
   .row.show-detail .more{display:block}
 
-  /* スワイプアクション */
+  /* スワイプアクション（既存） */
   .actions{position:absolute;inset:0 0 0 auto;width:max(56vw,220px);transform:translateX(100%)}
-  .action-panel{height:100%;display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:0 10px;background:linear-gradient(90deg,rgba(13,17,23,.0),rgba(13,17,23,.92))}
+  .action-panel{height:100%;display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:0 10px;background:linear-gradient(90deg,rgba(13,17,23,0),rgba(13,17,23,.92))}
   .item{display:flex;gap:6px;align-items:center;border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:8px 10px;background:rgba(255,255,255,.06);font-size:12px}
   .item.delete{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.45)}
   .row.is-open .actions{transform:translateX(0)}
