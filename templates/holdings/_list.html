@@ -218,12 +218,41 @@
 
         <!-- 詳細（任意） -->
         <section class="more">
+          {% with
+             opened=h.opened_at
+             days=r.days
+             updated=h.updated_at
+          %}
           <div class="moregrid">
-            <div class="kv"><div class="k">保有開始</div><div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div></div>
-            <div class="kv"><div class="k">保有日数</div><div class="v">{{ r.days|months_from_days }}</div></div>
-            <div class="kv"><div class="k">更新</div><div class="v">{{ h.updated_at|date:"Y-m-d" }}</div></div>
-            {% if h.memo %}<div class="kv" style="grid-column:1/-1"><div class="k">メモ</div><div class="v">{{ h.memo }}</div></div>{% endif %}
+            <div class="kv">
+              <div class="k">保有開始</div>
+              <div class="v">
+                {% if opened %}{{ opened|date:"Y-m-d" }}{% else %}—{% endif %}
+              </div>
+            </div>
+        
+            <div class="kv">
+              <div class="k">保有日数</div>
+              <div class="v">
+                {% if days is not None %}{{ days|months_from_days }}{% else %}—{% endif %}
+              </div>
+            </div>
+        
+            <div class="kv">
+              <div class="k">更新</div>
+              <div class="v">
+                {% if updated %}{{ updated|date:"Y-m-d" }}{% else %}—{% endif %}
+              </div>
+            </div>
+        
+            {% if h.memo %}
+              <div class="kv" style="grid-column:1/-1">
+                <div class="k">メモ</div>
+                <div class="v">{{ h.memo }}</div>
+              </div>
+            {% endif %}
           </div>
+          {% endwith %}
         </section>
       </div>
     </article>
