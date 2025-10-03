@@ -127,146 +127,160 @@
 
 {% if page.object_list %}
   <div class="stack">
-    {% for r in page.object_list %}{% with h=r.obj %}
-    <article class="card row" data-swipe>
-      <div class="actions">
-        <div class="action-panel" onclick="event.stopPropagation()">
-          <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
-          <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
-          <a class="item sell" href="{% url 'holding_close_sheet' h.id %}"><span class="ico">💱</span><span>売却</span></a>
-          <button class="item delete" hx-post="{% url 'holding_delete' h.id %}" hx-confirm="削除しますか？" hx-target="closest [data-swipe]" hx-swap="outerHTML swap:15ms"><span class="ico">🗑️</span><span>削除</span></button>
+    {% for r in page.object_list %}
+      {% with h=r.obj %}
+      <article class="card row" data-swipe>
+        <!-- actions -->
+        <div class="actions">
+          <div class="action-panel" onclick="event.stopPropagation()">
+            <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
+            <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
+            <a class="item sell" href="{% url 'holding_close_sheet' h.id %}"><span class="ico">💱</span><span>売却</span></a>
+            <button class="item delete"
+                    hx-post="{% url 'holding_delete' h.id %}"
+                    hx-confirm="削除しますか？"
+                    hx-target="closest [data-swipe]"
+                    hx-swap="outerHTML swap:15ms">
+              <span class="ico">🗑️</span><span>削除</span>
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div class="track">
-        <header class="head">
-          <div class="head__left">
-            <div class="name" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
-            <div class="chips">
-              <span class="chip code">{{ h.ticker }}</span>
-              <span class="chip">{{ h.get_broker_display }}</span>
-              <span class="chip">{{ h.get_account_display }}</span>
-              <span class="chip {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
+        <div class="track">
+          <!-- header -->
+          <header class="head">
+            <div class="head__left">
+              <div class="name" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
+              <div class="chips">
+                <span class="chip code">{{ h.ticker|default:"—" }}</span>
+                <span class="chip">{{ h.get_broker_display|default:"—" }}</span>
+                <span class="chip">{{ h.get_account_display|default:"—" }}</span>
+                <span class="chip {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side|default:"—" }}</span>
+              </div>
             </div>
-          </div>
-          <div class="head__spark">
-            <svg class="spark" viewBox="0 0 96 24" preserveAspectRatio="none"
-                 data-rate="{{ r.pnl_pct|default:0 }}"
-                 data-s7i='{{ r.s7_idx|default:"[]"|safe }}'
-                 data-s30i='{{ r.s30_idx|default:"[]"|safe }}'
-                 data-s90i='{{ r.s90_idx|default:"[]"|safe }}'
-                 data-s7r='{{ r.s7_raw|default:"[]"|safe }}'
-                 data-s30r='{{ r.s30_raw|default:"[]"|safe }}'
-                 data-s90r='{{ r.s90_raw|default:"[]"|safe }}'></svg>
-          </div>
-        </header>
+            <div class="head__spark">
+              <svg class="spark" viewBox="0 0 96 24" preserveAspectRatio="none"
+                   data-rate="{{ r.pnl_pct|default:0 }}"
+                   data-s7i='{{ r.s7_idx|default:"[]"|safe }}'
+                   data-s30i='{{ r.s30_idx|default:"[]"|safe }}'
+                   data-s90i='{{ r.s90_idx|default:"[]"|safe }}'
+                   data-s7r='{{ r.s7_raw|default:"[]"|safe }}'
+                   data-s30r='{{ r.s30_raw|default:"[]"|safe }}'
+                   data-s90r='{{ r.s90_raw|default:"[]"|safe }}'></svg>
+            </div>
+          </header>
 
-        <!-- 白アプリ風 2カラム -->
-        <section class="stats-compact">
-          <!-- 左 -->
-          <div class="stats-col">
-            <div class="kv2 small">
-              <div class="k">現在値</div>
-              <div class="v">
-                <span class="cur-price"
-                      data-val="{{ r.valuation|default:0 }}"
-                      data-qty="{{ h.quantity|default:0 }}">—</span>
-                <span class="unit">円</span>
+          <!-- 2-col stats -->
+          <section class="stats-compact">
+            <!-- left -->
+            <div class="stats-col">
+              <div class="kv2 small">
+                <div class="k">現在値</div>
+                <div class="v">
+                  <span class="cur-price"
+                        data-val="{{ r.valuation|default:0 }}"
+                        data-qty="{{ h.quantity|default:0 }}">—</span>
+                  <span class="unit">円</span>
+                </div>
+              </div>
+              <div class="kv2 small">
+                <div class="k">取得単価</div>
+                <div class="v">
+                  {% if h.avg_cost is not None %}¥{{ h.avg_cost|floatformat:2|intcomma }}{% else %}—{% endif %}
+                </div>
+              </div>
+              <div class="kv2 small">
+                <div class="k">現在利回り</div>
+                <div class="v">{% if r.yield_now is not None %}{{ r.yield_now|floatformat:2 }}%{% else %}—{% endif %}</div>
+              </div>
+              <div class="kv2 small">
+                <div class="k">取得利回り</div>
+                <div class="v">{% if r.yield_cost is not None %}{{ r.yield_cost|floatformat:2 }}%{% else %}—{% endif %}</div>
               </div>
             </div>
-            <div class="kv2 small">
-              <div class="k">取得単価</div>
-              <div class="v">¥{{ h.avg_cost|floatformat:2|intcomma }}</div>
-            </div>
-            <div class="kv2 small">
-              <div class="k">現在利回り</div>
-              <div class="v">{% if r.yield_now is not None %}{{ r.yield_now|floatformat:2 }}%{% else %}—{% endif %}</div>
-            </div>
-            <div class="kv2 small">
-              <div class="k">取得利回り</div>
-              <div class="v">{% if r.yield_cost is not None %}{{ r.yield_cost|floatformat:2 }}%{% else %}—{% endif %}</div>
-            </div>
-          </div>
 
-          <!-- 右 -->
-          <div class="stats-col">
-            <div class="kv2">
-              <div class="k">保有数</div>
-              <div class="v">{{ h.quantity|intcomma }}<span class="unit">株</span></div>
-            </div>
-            <div class="kv2">
-              <div class="k">取得額</div>
-              <div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div>
-            </div>
-            <div class="kv2">
-              <div class="k">評価額</div>
-              <div class="v">
-                {% if r.valuation is not None %}¥{{ r.valuation|floatformat:0|intcomma }}{% else %}—{% endif %}
-                {% if r.pnl_pct is not None %}
-                  <span class="pct {% if r.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
-                    ({% if r.pnl_pct > 0 %}+{% endif %}{{ r.pnl_pct|floatformat:2 }} %)
-                  </span>
-                {% endif %}
+            <!-- right -->
+            <div class="stats-col">
+              <div class="kv2">
+                <div class="k">保有数</div>
+                <div class="v">{{ h.quantity|default:0|intcomma }}<span class="unit">株</span></div>
+              </div>
+              <div class="kv2">
+                <div class="k">取得額</div>
+                <div class="v">
+                  {% if h.avg_cost is not None and h.quantity %}
+                    ¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}
+                  {% else %}—{% endif %}
+                </div>
+              </div>
+              <div class="kv2">
+                <div class="k">評価額</div>
+                <div class="v">
+                  {% if r.valuation is not None %}¥{{ r.valuation|floatformat:0|intcomma }}{% else %}—{% endif %}
+                  {% if r.pnl_pct is not None %}
+                    <span class="pct {% if r.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
+                      ({% if r.pnl_pct > 0 %}+{% endif %}{{ r.pnl_pct|floatformat:2 }} %)
+                    </span>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="kv2">
+                <div class="k">年間配当</div>
+                <div class="v">{% if r.div_annual is not None %}¥{{ r.div_annual|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
               </div>
             </div>
-            <div class="kv2">
-              <div class="k">年間配当</div>
-              <div class="v">{% if r.div_annual is not None %}¥{{ r.div_annual|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
-            </div>
-          </div>
-        </section>
+          </section>
 
-        <!-- 詳細（任意） -->
-        <section class="more">
-          {% with opened=h.opened_at days=r.days updated=h.updated_at %}
-          <div class="moregrid">
-            <div class="kv">
-              <div class="k">保有開始</div>
-              <div class="v">
-                {% if opened %}{{ opened|date:"Y-m-d" }}{% else %}—{% endif %}
+          <!-- details -->
+          <section class="more">
+            <div class="moregrid">
+              <div class="kv">
+                <div class="k">保有開始</div>
+                <div class="v">
+                  {% if h.opened_at %}{{ h.opened_at|date:"Y-m-d" }}{% else %}—{% endif %}
+                </div>
               </div>
+
+              <div class="kv">
+                <div class="k">保有日数</div>
+                <div class="v">
+                  {% if r.days is not None %}{{ r.days|months_from_days }}{% else %}—{% endif %}
+                </div>
+              </div>
+
+              <div class="kv">
+                <div class="k">更新</div>
+                <div class="v">
+                  {% if h.updated_at %}{{ h.updated_at|date:"Y-m-d" }}{% else %}—{% endif %}
+                </div>
+              </div>
+
+              {% if h.memo %}
+                <div class="kv" style="grid-column:1/-1">
+                  <div class="k">メモ</div>
+                  <div class="v">{{ h.memo }}</div>
+                </div>
+              {% endif %}
             </div>
-        
-            <div class="kv">
-              <div class="k">保有日数</div>
-              <div class="v">
-                {% if days is not None %}{{ days|months_from_days }}{% else %}—{% endif %}
-              </div>
-            </div>
-        
-            <div class="kv">
-              <div class="k">更新</div>
-              <div class="v">
-                {% if updated %}{{ updated|date:"Y-m-d" }}{% else %}—{% endif %}
-              </div>
-            </div>
-        
-            {% if h.memo %}
-              <div class="kv" style="grid-column:1/-1">
-                <div class="k">メモ</div>
-                <div class="v">{{ h.memo }}</div>
-              </div>
-            {% endif %}
-          </div>
-          {% endwith %}
-        </section>
-        </div>  
-        </article>
-        {% endwith %}{% endfor %}
-        </div>
+          </section>
+        </div>  {# /.track #}
+      </article>
+      {% endwith %}
+    {% endfor %}
+  </div>
 
   {% if page.paginator.num_pages > 1 %}
-  <div style="display:flex;gap:8px;justify-content:center;margin-top:14px">
-    {% if page.has_previous %}
-      <a hx-get="{% url 'holding_list_partial' %}?page={{page.previous_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
-         hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">前へ</a>
-    {% endif %}
-    <div style="opacity:.75;padding:8px 12px">Page {{page.number}} / {{page.paginator.num_pages}}</div>
-    {% if page.has_next %}
-      <a hx-get="{% url 'holding_list_partial' %}?page={{page.next_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
-         hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">次へ</a>
-    {% endif %}
-  </div>
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:14px">
+      {% if page.has_previous %}
+        <a hx-get="{% url 'holding_list_partial' %}?page={{page.previous_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
+           hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">前へ</a>
+      {% endif %}
+      <div style="opacity:.75;padding:8px 12px">Page {{page.number}} / {{page.paginator.num_pages}}</div>
+      {% if page.has_next %}
+        <a hx-get="{% url 'holding_list_partial' %}?page={{page.next_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
+           hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">次へ</a>
+      {% endif %}
+    </div>
   {% endif %}
 {% else %}
   <div class="text-slate-400">保有はまだありません。</div>
