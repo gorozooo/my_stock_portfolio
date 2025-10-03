@@ -206,22 +206,22 @@
               <div class="v">{{ h.quantity|intcomma }}<span class="unit">株</span></div>
             </div>
 
-            <!-- 含み損益（色分け） -->
+            <!-- 含み損益：色で方向、数値は絶対値（記号なし） -->
             <div class="kv2">
               <div class="k">含み損益</div>
               <div class="v {% if r.pnl is not None %}{% if r.pnl < 0 %}neg{% else %}pos{% endif %}{% endif %}">
                 {% if r.pnl is not None %}
-                  {% if r.pnl > 0 %}+{% endif %}¥{{ r.pnl|floatformat:0|intcomma }}
+                  ¥{% if r.pnl < 0 %}{{ r.pnl|mul:-1|floatformat:0|intcomma }}{% else %}{{ r.pnl|floatformat:0|intcomma }}{% endif %}
                 {% else %}—{% endif %}
               </div>
             </div>
-
-            <!-- 損益率（色分け・％のみ表示） -->
+            
+            <!-- 損益率：色で方向、数値は絶対値（記号なし） -->
             <div class="kv2">
               <div class="k">損益率</div>
               <div class="v {% if r.pnl_pct is not None %}{% if r.pnl_pct < 0 %}neg{% else %}pos{% endif %}{% endif %}">
                 {% if r.pnl_pct is not None %}
-                  {% if r.pnl_pct > 0 %}+{% endif %}{{ r.pnl_pct|floatformat:2 }} %
+                  {% if r.pnl_pct < 0 %}{{ r.pnl_pct|mul:-1|floatformat:2 }}{% else %}{{ r.pnl_pct|floatformat:2 }}{% endif %} %
                 {% else %}—{% endif %}
               </div>
             </div>
