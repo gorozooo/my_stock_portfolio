@@ -10,6 +10,7 @@
   .sumbox .sumhint{opacity:.6;font-size:12px}
   .sumbox:not(.is-open) .sumtitle{display:none}
 
+  /* ミニピル（閉じている時だけ表示） */
   .summini{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;max-width:100%;padding-bottom:2px}
   .summini .pill{white-space:nowrap;font-size:11px;border:1px solid rgba(255,255,255,.12);border-radius:9999px;padding:4px 8px;background:rgba(255,255,255,.05)}
   .summini .pill .k{opacity:.7;margin-right:4px}
@@ -19,6 +20,7 @@
   .sumbox .sumbody{display:none;padding:10px}
   .sumbox.is-open .sumbody{display:block}
 
+  /* KPI */
   .kpi-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
   .kpi{min-width:120px;flex:1;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;background:rgba(255,255,255,.04)}
   .kpi-k{font-size:12px;color:#9fb0c8}
@@ -37,28 +39,28 @@
   .chip.code{color:#a8c6ff}
   .chip.buy{background:rgba(16,185,129,.1);border-color:rgba(16,185,129,.35)}
   .chip.sell{background:rgba(244,63,94,.1);border-color:rgba(244,63,94,.35)}
-  .head__spark{width:140px; height:40px}
+  .head__spark{width:140px;height:40px}
   .head__spark svg{width:100%;height:100%}
 
   /* ====== 白アプリ風 2カラム明細 ====== */
   .stats-compact{
-    display:grid; grid-template-columns:1fr 1fr; gap:16px;
-    margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,.08);
+    display:grid;grid-template-columns:1fr 1fr;gap:16px;
+    margin-top:12px;padding-top:12px;border-top:1px dashed rgba(255,255,255,.08);
   }
-  .stats-col{display:grid; row-gap:10px}
-  .kv2{display:flex; align-items:baseline; justify-content:space-between; gap:8px}
-  .kv2 .k{font-size:12px; color:#9fb0c8; letter-spacing:.02em}
-  .kv2 .k::after{content:"："; opacity:.6}
-  .kv2 .v{font-size:18px; font-weight:600}
+  .stats-col{display:grid;row-gap:10px}
+  .kv2{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+  .kv2 .k{font-size:12px;color:#9fb0c8;letter-spacing:.02em}
+  .kv2 .k::after{content:"：";opacity:.6}
+  .kv2 .v{font-size:18px;font-weight:600}
   .kv2.small .v{font-size:16px}
-  .unit{opacity:.8; font-size:12px; margin-left:6px}
+  .unit{opacity:.8;font-size:12px;margin-left:6px}
 
-  /* 評価額の損益率（白アプリは青/赤の括弧表記） */
-  .pct{font-size:12px; margin-left:8px; opacity:.95}
-  .pct.pos{color:#3b82f6}  /* blue-500 */
+  /* 評価額の損益率（青/赤の括弧表記） */
+  .pct{font-size:12px;margin-left:8px;opacity:.95}
+  .pct.pos{color:#3b82f6}
   .pct.neg{color:#ef4444}
 
-  /* 詳細（従来どおり任意で開閉するタブがあればここに） */
+  /* 詳細（任意） */
   .more{display:none;margin-top:10px;border-top:1px dashed rgba(255,255,255,.08);padding-top:10px}
   .row.show-detail .more{display:block}
   .moregrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
@@ -66,9 +68,9 @@
   .kv .k{font-size:12px;color:#9fb0c8}
   .kv .v{font-size:16px}
 
-  /* スワイプアクション（既存） */
-  .actions{position:absolute;inset:0 0 0 auto;width:max(56vw,220px);transform:translateX(100%);}
-  .action-panel{height:100%;display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:0 10px;background:linear-gradient(90deg,rgba(13,17,23,.0),rgba(13,17,23,.92))}
+  /* スワイプアクション */
+  .actions{position:absolute;inset:0 0 0 auto;width:max(56vw,220px);transform:translateX(100%)}
+  .action-panel{height:100%;display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:0 10px;background:linear-gradient(90deg,rgba(13,17,23,0),rgba(13,17,23,.92))}
   .item{display:flex;gap:6px;align-items:center;border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:8px 10px;background:rgba(255,255,255,.06);font-size:12px}
   .item.delete{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.45)}
   .row.is-open .actions{transform:translateX(0)}
@@ -165,14 +167,14 @@
               <div class="k">〜 現在値</div>
               <div class="v">
                 <span class="cur-price"
-                      data-val="{{ r.val|default:0 }}"
+                      data-val="{{ r.valuation|default:0 }}"
                       data-qty="{{ h.quantity|default:0 }}">—</span>
                 <span class="unit">円</span>
               </div>
             </div>
             <div class="kv2 small">
               <div class="k">取得単価</div>
-              <div class="v">¥{{ h.avg_cost|floatformat:0|intcomma }}</div>
+              <div class="v">¥{{ h.avg_cost|floatformat:2|intcomma }}</div>
             </div>
             <div class="kv2 small">
               <div class="k">現在利回り</div>
@@ -197,7 +199,7 @@
             <div class="kv2">
               <div class="k">評価額</div>
               <div class="v">
-                {% if r.val is not None %}¥{{ r.val|floatformat:0|intcomma }}{% else %}—{% endif %}
+                {% if r.valuation is not None %}¥{{ r.valuation|floatformat:0|intcomma }}{% else %}—{% endif %}
                 {% if r.pnl_pct is not None %}
                   <span class="pct {% if r.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
                     ({% if r.pnl_pct > 0 %}+{% endif %}{{ r.pnl_pct|floatformat:2 }} %)
@@ -212,7 +214,7 @@
           </div>
         </section>
 
-        <!-- 任意の追加詳細（従来） -->
+        <!-- 任意の追加詳細 -->
         <section class="more">
           <div class="moregrid">
             <div class="kv"><div class="k">保有開始</div><div class="v">{{ h.opened_at|date:"Y-m-d"|default:"—" }}</div></div>
@@ -244,7 +246,7 @@
 {% endif %}
 
 <script>
-  /* 「~ 現在値」= 評価額 / 株数 を小数1桁の千区切りで表示（無ければ “—”） */
+  /* 「〜 現在値」= 評価額 / 株数 を小数1桁・千区切りで表示（無ければ “—”） */
   (function(){
     const fmt1 = n => {
       if (!isFinite(n)) return '—';
@@ -252,7 +254,7 @@
       return s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     };
     document.querySelectorAll('.cur-price').forEach(el=>{
-      const val = parseFloat(el.dataset.val||'0');
+      const val = parseFloat(el.dataset.val||'0');  // r.valuation
       const qty = parseFloat(el.dataset.qty||'0');
       el.textContent = (qty>0 && isFinite(val) && val>0) ? '〜 ' + fmt1(val/qty) : '—';
     });
