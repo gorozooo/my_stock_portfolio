@@ -28,15 +28,15 @@ from ..services import trend as svc_trend
 @dataclass
 class RowVM:
     obj: Holding
-    valuation: Optional[float] = None   # 現在評価額（合計）
-    pnl: Optional[float] = None         # 含み損益（額）
-    pnl_pct: Optional[float] = None     # 含み損益（%）
-    days: Optional[int] = None          # 保有日数
+    valuation: Optional[float] = None
+    pnl: Optional[float] = None
+    pnl_pct: Optional[float] = None
+    days: Optional[int] = None
 
-    # 追加：テンプレが参照する値
-    yield_now: Optional[float] = None   # 現在利回り（%）
-    yield_cost: Optional[float] = None  # 取得利回り（%）
-    div_annual: Optional[float] = None  # 年間配当（合計円）
+    # ← 追加（テンプレートが参照している）
+    yield_now: Optional[float] = None    # 現在利回り（%）
+    yield_cost: Optional[float] = None   # 取得利回り（%）
+    div_annual: Optional[float] = None   # 年間配当（合計・円）
 
     # スパーク
     s7_idx: Optional[List[float]] = None
@@ -150,18 +150,14 @@ def _indexize(arr: List[float]) -> List[float]:
         return arr[:]
     return [round(v / base, 4) for v in arr]
 
+from datetime import timedelta
+
 def _build_row(h: Holding) -> RowVM:
-    """
-    1件分の表示用データを作る。
-    - 現在評価額 / 含み損益 / % / 保有日数
-    - 年間配当（合計）/ 現在利回り / 取得利回り
-    - スパーク：7/30/90日（指数/実値）
-    """
     q = int(h.quantity or 0)
     avg_cost = _to_float(h.avg_cost or 0) or 0.0
     acq = q * avg_cost
 
-    # 必要分をキャッシュ/バッチ取得
+    # ---- 価格・評価額・損益（既存） ----
     n = _norm_ticker(h.ticker)
     raw7  = _preload_closes([h.ticker], 7).get(n, [])
     raw30 = _preload_closes([h.ticker], 30).get(n, [])
@@ -180,54 +176,33 @@ def _build_row(h: Holding) -> RowVM:
         if acq > 0:
             pnl_pct = (pnl / acq) * 100.0
 
-    # ---- 年間配当・利回り ----
-    # モデルの項目名が環境によって違っても拾えるようにゆるく解決
-    def _get_div_ps(_h: Holding) -> Optional[float]:
-        cand = [
-            "div_ps", "dividend_ps", "dividend_per_share",
-            "div_per_share", "dividend"  # per share で使っている場合向け
-        ]
-        for name in cand:
-            if hasattr(_h, name):
-                v = _to_float(getattr(_h, name))
-                if v is not None:
-                    return v
-        return None
+    # ---- 年間配当（直近365日・税引後合計）と利回り ----
+    div_annual = None
+    yield_now = None
+    yield_cost = None
+    try:
+        cutoff = _today_jst() - timedelta(days=365)
+        divs = getattr(h, "dividends", None)
+        if divs is not None:
+            # 税引後金額の合計
+            total_net = 0.0
+            for d in divs.all():
+                if d.date and d.date >= cutoff:
+                    total_net += float(d.net_amount())
+            if total_net > 0:
+                div_annual = total_net
+                # 1株あたり（税引後）
+                per_share = (total_net / q) if q > 0 else None
+                if per_share and cur_price_ps and cur_price_ps > 0:
+                    yield_now = (per_share / cur_price_ps) * 100.0
+                if per_share and avg_cost > 0:
+                    yield_cost = (per_share / avg_cost) * 100.0
+    except Exception:
+        pass
 
-    def _get_div_total(_h: Holding) -> Optional[float]:
-        # 既に合計（円）が入っているフィールドがある場合のフォールバック
-        for name in ["div_annual", "dividend_annual", "annual_dividend"]:
-            if hasattr(_h, name):
-                v = _to_float(getattr(_h, name))
-                if v is not None:
-                    return v
-        return None
-
-    div_ps = _get_div_ps(h)                          # 1株あたり
-    div_total = _get_div_total(h)                    # 合計（そのまま）※任意
-
-    # per-share が取れたら合計を計算、無ければ既存の合計を使う
-    if div_ps is not None:
-        div_annual = div_ps * q
-    else:
-        div_annual = div_total
-
-    # 利回り
-    if div_ps is not None and cur_price_ps:          # 現在利回り
-        yield_now = (div_ps / cur_price_ps) * 100.0
-    else:
-        yield_now = None
-
-    if div_ps is not None and avg_cost > 0:          # 取得利回り
-        yield_cost = (div_ps / avg_cost) * 100.0
-    else:
-        yield_cost = None
-
-    # 保有日数
+    # ---- 保有日数・スパーク ----
     start = h.opened_at or (h.created_at.date() if getattr(h, "created_at", None) else None)
     days = (_today_jst() - start).days if start else None
-
-    # 指数化（価格の指数化）
     s7_idx  = _indexize(raw7)
     s30_idx = _indexize(raw30)
     s90_idx = _indexize(raw90)
@@ -448,16 +423,19 @@ def _sort_rows(rows: List[RowVM], request) -> List[RowVM]:
 
 @login_required
 def holding_list(request):
-    qs = Holding.objects.filter(user=request.user)
+    # 配当を一括で読み込んで N+1 を回避（年間配当・利回り計算用）
+    qs = Holding.objects.filter(user=request.user).prefetch_related("dividends")
+
     qs = _apply_filters(qs, request)
     qs = _sort_qs(qs, request)
     page = _page(request, qs)
 
+    # RowVM に年間配当/利回り/評価額などを詰める
     rows = _build_rows_for_page(page)
     rows = _apply_post_filters(rows, request)
     rows = _sort_rows(rows, request)
 
-    # KPI集計（ブレイクダウンは廃止）
+    # KPI集計
     summary = _aggregate(rows)
 
     class _PageWrap:
@@ -469,6 +447,7 @@ def holding_list(request):
             self.previous_page_number = src.previous_page_number
             self.next_page_number = src.next_page_number
             self.object_list = objs
+
     page_wrap = _PageWrap(page, rows)
 
     ctx = {
