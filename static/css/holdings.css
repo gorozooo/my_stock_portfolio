@@ -1,4 +1,4 @@
-/* 全体マージン */
+/* ====== レイアウト共通 ====== */
 .page-head{display:flex;justify-content:space-between;align-items:center;margin:6px 0 10px}
 .stack{display:flex;flex-direction:column;gap:10px}
 
@@ -26,23 +26,28 @@
 .head__spark{flex:0 0 auto;margin-left:auto}
 .spark{width:96px;height:24px;opacity:.95;filter:drop-shadow(0 0 2px rgba(0,0,0,.25))}
 
-/* メトリクス（カード内） */
-.stats{
-  margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,.08);
-  display:grid;grid-template-columns:repeat(4,1fr);gap:6px;
+/* ====== “白アプリ風” 2カラム明細（ここが本命） ====== */
+.stats-compact{
+  display:grid !important;
+  grid-template-columns:1fr 1fr !important;
+  gap:16px;
+  margin-top:12px;padding-top:12px;border-top:1px dashed rgba(255,255,255,.08);
 }
-.stat{
-  display:flex;flex-direction:column;gap:4px;align-items:flex-start;
-  border:1px solid rgba(255,255,255,.08);
-  background:rgba(255,255,255,.04);border-radius:9999px;
-  padding:8px 10px;min-width:0;
-}
-.stat__k{font-size:11px;color:#9fb0c8;line-height:1}
-.stat__v{font-size:16px;line-height:1;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.stat.pos{background:linear-gradient(0deg, rgba(34,197,94,.14), rgba(34,197,94,.12))}
-.stat.neg{background:linear-gradient(0deg, rgba(239,68,68,.16), rgba(239,68,68,.12))}
-.stat.pos .stat__v{color:#22c55e}
-.stat.neg .stat__v{color:#ef4444}
+.stats-col{display:grid;row-gap:10px}
+.kv2{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.kv2 .k{font-size:12px;color:#9fb0c8;letter-spacing:.02em}
+.kv2 .k::after{content:"：";opacity:.6}
+.kv2 .v{font-size:18px;font-weight:600}
+.kv2.small .v{font-size:16px}
+.unit{opacity:.8;font-size:12px;margin-left:6px}
+
+/* 評価額の損益率（青/赤の括弧表記） */
+.pct{font-size:12px;margin-left:8px;opacity:.95}
+.pct.pos{color:#3b82f6}
+.pct.neg{color:#ef4444}
+
+/* 旧.stats系は明示的に潰す（テンプレ側で使っていないが保険） */
+.stats{display:none !important}
 
 /* 詳細 */
 .more{display:none;margin-top:6px;border-top:1px dashed rgba(255,255,255,.08);padding-top:6px}
@@ -76,7 +81,7 @@
 /* ========== KPI ピル（サマリーと共通） ========== */
 .kpi-grid{
   display:grid; gap:8px; margin:6px 0 12px;
-  grid-template-columns: repeat(2, minmax(0,1fr)); /* モバイル */
+  grid-template-columns: repeat(2, minmax(0,1fr));
 }
 @media (min-width:440px){ .kpi-grid{ grid-template-columns: repeat(3, minmax(0,1fr)); } }
 @media (min-width:720px){ .kpi-grid{ grid-template-columns: repeat(5, minmax(0,1fr)); } }
@@ -93,31 +98,7 @@
 .kpi-v.pos{color:#22c55e}
 .kpi-v.neg{color:#ef4444}
 
-/* ========== Breakdown を KPIピルで表示 ========== */
-.bd-wrap{display:flex;flex-direction:column;gap:10px;margin:6px 0 12px}
-.bd-sec{border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.04);box-shadow:0 4px 14px rgba(0,0,0,.16)}
-.bd-head{display:flex;align-items:center;gap:8px;padding:10px;border-bottom:1px dashed rgba(255,255,255,.08)}
-.bd-note{opacity:.65;font-size:12px}
-.bd-list{display:flex;flex-direction:column;gap:10px;padding:10px}
-
-/* ラベル + KPIピル群 */
-.bd-row{display:grid;grid-template-columns:minmax(7em, .9fr) 3fr;gap:10px;align-items:start}
-.bd-label{font-weight:800;white-space:nowrap;align-self:center}
-.bd-kpis{display:grid;gap:8px;grid-template-columns:repeat(2, minmax(0,1fr))}
-@media (min-width:520px){ .bd-kpis{grid-template-columns:repeat(3, minmax(0,1fr))} }
-@media (min-width:920px){ .bd-kpis{grid-template-columns:repeat(6, minmax(0,1fr))} }
-@media (max-width:420px){
-  .bd-row{grid-template-columns:1fr}
-}
-
-/* さらに狭い端末向け縮小 */
-@media (max-width:380px){
-  .name{font-size:16px}
-  .stat__v{font-size:15px}
-  .spark{width:88px}
-}
-
-/* === Summary collapsible === */
+/* サマリー（折りたたみ） */
 .sumbox{border:1px solid rgba(255,255,255,.08); border-radius:14px; background:rgba(255,255,255,.04); margin:8px 0 12px;}
 .sumbox__head{display:flex;align-items:center;gap:8px; padding:8px 10px; border-bottom:1px dashed rgba(255,255,255,.08);}
 .sumbox__head .ttl{font-weight:800;}
@@ -134,10 +115,9 @@
 .sumbox__body{padding:10px; display:block}
 .sumbox.is-collapsed .sumbox__body{display:none}
 
-/* breakdown 内の KPI カード（全体KPIと同じ見た目） */
-.break-kpi{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px;}
-@media (min-width:520px){ .break-kpi{ grid-template-columns:repeat(4,minmax(0,1fr)); } }
-.break-kpi .sb-item{min-width:0; border:1px solid rgba(255,255,255,.1); border-radius:10px; padding:8px; background:rgba(255,255,255,.04);}
-.break-kpi .sb-k{font-size:12px; color:#9fb0c8}
-.break-kpi .sb-v{font-size:16px; font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-.break-kpi .sb-v.pos{color:#22c55e} .break-kpi .sb-v.neg{color:#ef4444}
+/* さらに狭い端末向け縮小（※2カラムは維持） */
+@media (max-width:380px){
+  .name{font-size:16px}
+  .spark{width:88px}
+  .stats-compact{grid-template-columns:1fr 1fr !important;}
+}
