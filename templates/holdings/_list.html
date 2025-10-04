@@ -175,24 +175,23 @@
         <!-- ===== 上段：2カラム明細（P/L 追加・色分け） ===== -->
         <section class="stats-compact">
           <!-- 左 -->
-          <div class="stats-col">
             <div class="kv2 small">
               <div class="k">現在値</div>
               <div class="v">
-                <span class="cur-price"
-                      data-val="{{ r.valuation|default:0 }}"
-                      data-qty="{{ h.quantity|default:0 }}">—</span>
-                <span class="unit">円</span>
+                {% if r.price_now is not None %}¥{{ r.price_now|floatformat:1|intcomma }}{% else %}—{% endif %}
               </div>
             </div>
+            
             <div class="kv2 small">
               <div class="k">取得単価</div>
               <div class="v">¥{{ h.avg_cost|floatformat:2|intcomma }}</div>
             </div>
+            
             <div class="kv2 small">
               <div class="k">現在利回り</div>
               <div class="v">{% if r.yield_now is not None %}{{ r.yield_now|floatformat:2 }}%{% else %}—{% endif %}</div>
             </div>
+            
             <div class="kv2 small">
               <div class="k">取得利回り</div>
               <div class="v">{% if r.yield_cost is not None %}{{ r.yield_cost|floatformat:2 }}%{% else %}—{% endif %}</div>
