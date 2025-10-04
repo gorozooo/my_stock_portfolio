@@ -291,15 +291,3 @@
 {% else %}
   <div class="text-slate-400">保有はまだありません。</div>
 {% endif %}
-
-<script>
-  /* 「〜 現在値」= 評価額 / 株数（小数1桁・千区切り） */
-  (function(){
-    const fmt1 = n => { if(!isFinite(n)) return '—'; const s=(Math.round(n*10)/10).toFixed(1); return s.replace(/\B(?=(\d{3})+(?!\d))/g, ','); };
-    document.querySelectorAll('.cur-price').forEach(el=>{
-      const val = parseFloat(el.dataset.val||'0');
-      const qty = parseFloat(el.dataset.qty||'0');
-      el.textContent = (qty>0 && isFinite(val) && val>0) ? '〜 ' + fmt1(val/qty) : '—';
-    });
-  })();
-</script>
