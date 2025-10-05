@@ -87,6 +87,20 @@ def _cache_put(ticker_norm: str, days: int, closes: List[float]) -> None:
     _SPARK_CACHE[(ticker_norm, days)] = (time.time(), closes)
 
 
+def _infer_ex_date(div_date: date, ticker_norm: str) -> date:
+    """
+    yfinanceが支払日を返すケース(JP銘柄)のため、擬似的な権利落ち日を推定。
+    - JP(TSE)っぽいティッカー(末尾 .T)は 支払日 - 60日 を既定に。
+    - 最小30日、最大90日のガード（必要なら調整可）。
+    - それ以外は div_date をそのまま（米株は多くがEx-Date）。
+    """
+    if ticker_norm.endswith(".T"):
+        delta = 60
+        delta = max(30, min(90, delta))
+        return div_date - timedelta(days=delta)
+    return div_date
+
+
 def _preload_closes(tickers: List[str], days: int) -> Dict[str, List[float]]:
     """
     複数のティッカーをまとめて days 日分の終値に解決する。
@@ -197,12 +211,15 @@ def _get_dividends_1share(ticker_raw: str) -> List[Tuple[date, float]]:
 def _calc_div_annual_net(h: Holding) -> Optional[float]:
     """
     その保有に紐づく配当のうち、直近365日の税引後合計（円）。
-    Dividend.holding のリレーションがあればそちら優先で“税後ネット”を合計。
-    なければ yfinance の1株配当×現数量で簡易推定（税引きルール適用）。
+    1) 手動記録（Dividend）: 最優先で合計（正確）
+    2) 無ければ yfinance の「1株配当」列から簡易推定（税引きルール適用）
+       ※JP銘柄は支払日しか取れないことが多いので、_infer_ex_date() で
+         擬似的に権利落ち日を推定し、"直近365日"の判定に用いる。
     """
     try:
         since = _today_jst() - timedelta(days=365)
-        # まずは手元の記録（最優先・正）
+
+        # --- 1) 手元の記録（正） ---
         rel = getattr(h, "dividends", None)
         if rel:
             total = 0.0
@@ -211,46 +228,49 @@ def _calc_div_annual_net(h: Holding) -> Optional[float]:
             if total > 0:
                 return total
 
-        # 記録が無ければ市場データから簡易推定
+        # --- 2) 市場データから簡易推定 ---
         qty = int(h.quantity or 0)
         if qty <= 0:
             return None
-        divs = _get_dividends_1share(h.ticker)
+
+        divs = _get_dividends_1share(h.ticker)  # [(date, per_share), ...]（date=支払日 or Ex-Date）
         if not divs:
             return None
 
-        # 税区分
         acc = (h.account or "SPEC").upper()
         def _net(gross: float) -> float:
             if acc == "NISA":
-                return gross  # 非課税
+                return gross              # 非課税
             elif acc == "MARGIN":
-                # 信用は配当落調整金で別扱いのためここでは除外
-                return 0.0
+                return 0.0                # 信用は配当落調整金で別扱い → ここでは除外
             else:
                 return gross * (1.0 - 0.20315)
 
+        tnorm = _norm_ticker(h.ticker)
         total = 0.0
-        for d, per_share in divs:
-            if d >= since:
+        for paid_or_ex, per_share in divs:
+            # JP銘柄の「支払日」→ 擬似 Ex-Date（例: 60日前）にずらす
+            ex_date = _infer_ex_date(paid_or_ex, tnorm)
+            if ex_date >= since:
                 total += _net(per_share * qty)
+
         return total if total > 0 else None
     except Exception:
         return None
-
+        
 
 def _build_row(h: Holding) -> RowVM:
     """
     1件分の表示用データを作る。
     - 現在評価額 / 含み損益 / % / 保有日数
-    - 利回り/配当（年間配当=税後、累計配当(準)=税後簡易）
+    - 利回り/配当（年間配当=税後, 累計配当(準)=税後簡易）
     - スパーク：7/30/90日（指数/実値）
     """
     q = int(h.quantity or 0)
     cost_unit = _to_float(h.avg_cost or 0) or 0.0
     acq = q * cost_unit
 
-    # 価格
+    # 価格系列
     n = _norm_ticker(h.ticker)
     raw7  = _preload_closes([h.ticker], 7).get(n, [])
     raw30 = _preload_closes([h.ticker], 30).get(n, [])
@@ -269,7 +289,7 @@ def _build_row(h: Holding) -> RowVM:
         if acq > 0:
             pnl_pct = (pnl / acq) * 100.0
 
-    # 年間配当（税引後合計）
+    # 年間配当（税引後合計：直近365日）
     div_annual = _calc_div_annual_net(h)
 
     # 利回り（税後・1年換算）
@@ -281,15 +301,15 @@ def _build_row(h: Holding) -> RowVM:
         if cost_unit > 0:
             y_cost = (div_ps / cost_unit) * 100.0
 
-    # ★ 累計配当（準厳密）：opened_at 以降の配当を yfinance から拾って税後換算
+    # ★ 累計配当（準厳密）:
+    #   yfinance の配当列を “権利落ち日” 基準で opened_at 以降だけ数える
     div_received = None
     try:
         opened = h.opened_at or (h.created_at.date() if h.created_at else None)
         if opened and q > 0:
-            divs = _get_dividends_1share(h.ticker)
+            divs = _get_dividends_1share(h.ticker)  # [(date, per_share)]
             if divs:
                 acc = (h.account or "SPEC").upper()
-
                 def _net(gross: float) -> float:
                     if acc == "NISA":
                         return gross
@@ -298,10 +318,12 @@ def _build_row(h: Holding) -> RowVM:
                     else:
                         return gross * (1.0 - 0.20315)
 
+                tnorm = _norm_ticker(h.ticker)
                 tot = 0.0
-                for d, per_share in divs:
-                    if d >= opened:
-                        # 準厳密：数量は現数量で近似（途中増減は考慮しない）
+                for paid_or_ex, per_share in divs:
+                    ex_date = _infer_ex_date(paid_or_ex, tnorm)
+                    if ex_date >= opened:
+                        # 準厳密：途中の増減は無視し、現数量 q で近似
                         tot += _net(per_share * q)
                 if tot > 0:
                     div_received = tot
@@ -312,7 +334,7 @@ def _build_row(h: Holding) -> RowVM:
     start = h.opened_at or (h.created_at.date() if h.created_at else None)
     days = (_today_jst() - start).days if start else None
 
-    # スパーク用指数化
+    # スパーク（指数化）
     def _indexize(arr: List[float]) -> List[float]:
         if not arr:
             return []
@@ -333,7 +355,7 @@ def _build_row(h: Holding) -> RowVM:
         yield_now=y_now,
         yield_cost=y_cost,
         div_annual=div_annual,
-        div_received=div_received,
+        div_received=div_received,  # ← RowVM に追加済みであること（必須）
         s7_idx=s7_idx or None,
         s30_idx=s30_idx or None,
         s90_idx=s90_idx or None,
