@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
+from datetime import date, timedelta
 
 import pandas as pd
 import yfinance as yf
@@ -28,14 +29,17 @@ from ..services import trend as svc_trend
 @dataclass
 class RowVM:
     obj: Holding
-    valuation: Optional[float] = None     # 評価額（合計）
-    price_now: Optional[float] = None     # 現在値（1株）
-    pnl: Optional[float] = None           # 含み損益（額）
-    pnl_pct: Optional[float] = None       # 含み損益（%）
-    div_annual: Optional[float] = None    # 年間配当（合計・税引後）
-    yield_now: Optional[float] = None     # 現在利回り = 年間配当 / 評価額
-    yield_cost: Optional[float] = None    # 取得利回り = 年間配当 / 取得額
-    days: Optional[int] = None            # 保有日数
+    valuation: Optional[float] = None
+    pnl: Optional[float] = None
+    pnl_pct: Optional[float] = None
+    days: Optional[int] = None
+
+    # ▼ 追加（テンプレで使っている3つ＋見やすさ用の現在株価）
+    price_now: Optional[float] = None      # 現在株価（1株）
+    yield_now: Optional[float] = None      # 現在利回り（%）
+    yield_cost: Optional[float] = None     # 取得利回り（%）
+    div_annual: Optional[float] = None     # 年間配当（税引後合計）
+
     # スパーク
     s7_idx: Optional[List[float]] = None
     s30_idx: Optional[List[float]] = None
