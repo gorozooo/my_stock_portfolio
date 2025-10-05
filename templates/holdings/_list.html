@@ -1,7 +1,7 @@
 {% load humanize num %}
 
 <style>
-  /* ==== サマリー（軽く圧縮のまま） ==== */
+  /* ==== サマリー ==== */
   .sumbox{border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(255,255,255,.03);margin:6px 0 10px}
   .sumbox .sumhead{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 10px;border-bottom:1px dashed rgba(255,255,255,.10);cursor:pointer}
   .sumbox .sumtitle{display:flex;gap:6px;align-items:center;font-weight:800}
@@ -17,19 +17,19 @@
   .sumbox .sumbody{display:none;padding:8px}
   .sumbox.is-open .sumbody{display:block}
 
-  /* ==== KPI（圧縮） ==== */
+  /* ==== KPI ==== */
   .kpi-grid{display:grid;gap:4px;grid-template-columns:repeat(auto-fit,minmax(110px,1fr))}
   .kpi{min-width:100px;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:4px 6px;background:rgba(255,255,255,.04)}
   .kpi-k{font-size:10px;color:#9fb0c8}
   .kpi-v{font-size:13px;font-weight:600}
   .kpi-v.pos{color:#22c55e}.kpi-v.neg{color:#ef4444}
 
-  /* ================= カード ================= */
+  /* ==== カード ==== */
   .row{border:1px solid rgba(255,255,255,.11);border-radius:11px;background:rgba(255,255,255,.03);overflow:hidden}
   .row + .row{margin-top:8px}
   .track{padding:4px 8px}
 
-  /* 上段：見出し（ゆとりあり） */
+  /* 見出し（上段） */
   .head{display:grid;grid-template-columns:1fr auto;align-items:flex-start;gap:8px;padding:8px 2px 10px;border-bottom:1px dashed rgba(255,255,255,.10)}
   .head__left{min-width:0}
   .name{font-weight:780;font-size:16px;line-height:1.18;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -41,7 +41,7 @@
   .head__spark{width:64px !important;height:18px !important;flex:0 0 64px !important}
   .head__spark svg{width:100% !important;height:100% !important}
 
-  /* 下段：明細（完全に詰める） */
+  /* 明細（下段） */
   .stats-compact{display:grid !important;grid-template-columns:1fr 1fr !important;gap:2px;margin-top:2px;padding-top:2px;border-top:1px dashed rgba(255,255,255,.08)}
   .stats-col{display:grid;row-gap:1px}
   .kv2{display:flex;align-items:baseline;justify-content:space-between;gap:2px}
@@ -53,13 +53,12 @@
   .pct{font-size:10px;margin-left:2px;opacity:.9;line-height:1}
   .pct.pos{color:#22c55e}.pct.neg{color:#ef4444}
   .v.pos{color:#22c55e}.v.neg{color:#ef4444}
-
   @media (max-width:520px){
     .stats-compact{grid-template-columns:1fr 1fr !important}
     .head{grid-template-columns:1fr auto}
   }
 
-  /* 詳細（ボタンで開閉） */
+  /* 詳細（ボタン開閉） */
   .more{display:none;margin-top:2px;padding-top:2px;border-top:1px dashed rgba(255,255,255,.08)}
   .row.show-detail .more{display:block}
   .moregrid{display:grid;grid-template-columns:1fr 1fr;gap:2px}
@@ -68,7 +67,7 @@
   .moregrid .kv2.memo{grid-column:1 / -1}
   @media (max-width:520px){ .moregrid{grid-template-columns:1fr 1fr;} }
 
-  /* スワイプ（既存） */
+  /* スワイプ */
   .actions{position:absolute;inset:0 0 0 auto;width:max(56vw,220px);transform:translateX(100%)}
   .action-panel{height:100%;display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:0 10px;background:linear-gradient(90deg,rgba(13,17,23,0),rgba(13,17,23,.92))}
   .item{display:flex;gap:6px;align-items:center;border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:8px 10px;background:rgba(255,255,255,.06);font-size:12px}
@@ -119,13 +118,6 @@
   <div class="stack">
     {% for r in page.object_list %}
       {% with h=r.obj %}
-      {% with
-        price_now=r.price_now|default_if_none:h.price_now
-        yield_now=r.yield_now|default_if_none:h.yield_now
-        yield_cost=r.yield_cost|default_if_none:h.yield_cost
-        div_annual=r.div_annual|default_if_none:h.div_annual
-      %}
-
       <article class="card row" data-swipe>
         <div class="actions">
           <div class="action-panel" onclick="event.stopPropagation()">
@@ -160,13 +152,13 @@
             </div>
           </header>
 
-          <!-- 下段：2カラム明細 -->
+          <!-- 明細 -->
           <section class="stats-compact">
             <!-- 左 -->
             <div class="stats-col">
               <div class="kv2 small">
                 <div class="k">現在値</div>
-                <div class="v">{% if price_now is not None %}¥{{ price_now|floatformat:1|intcomma }}{% else %}—{% endif %}</div>
+                <div class="v">{% if r.price_now is not None %}¥{{ r.price_now|floatformat:1|intcomma }}{% else %}—{% endif %}</div>
               </div>
               <div class="kv2 small">
                 <div class="k">取得単価</div>
@@ -174,11 +166,11 @@
               </div>
               <div class="kv2 small">
                 <div class="k">現在利回り</div>
-                <div class="v">{% if yield_now is not None %}{{ yield_now|floatformat:2 }}%{% else %}—{% endif %}</div>
+                <div class="v">{% if r.yield_now is not None %}{{ r.yield_now|floatformat:2 }}%{% else %}—{% endif %}</div>
               </div>
               <div class="kv2 small">
                 <div class="k">取得利回り</div>
-                <div class="v">{% if yield_cost is not None %}{{ yield_cost|floatformat:2 }}%{% else %}—{% endif %}</div>
+                <div class="v">{% if r.yield_cost is not None %}{{ r.yield_cost|floatformat:2 }}%{% else %}—{% endif %}</div>
               </div>
             </div>
 
@@ -206,7 +198,7 @@
               </div>
               <div class="kv2">
                 <div class="k">年間配当</div>
-                <div class="v">{% if div_annual is not None %}¥{{ div_annual|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
+                <div class="v">{% if r.div_annual is not None %}¥{{ r.div_annual|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
               </div>
             </div>
           </section>
@@ -226,9 +218,7 @@
           </section>
         </div>
       </article>
-
-      {% endwith %} {# /with price/yield/div_annual fallback #}
-      {% endwith %} {# /with h=r.obj #}
+      {% endwith %}
     {% endfor %}
   </div>
 
