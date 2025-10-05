@@ -48,6 +48,25 @@ class RowVM:
     s30_raw: Optional[List[float]] = None
     s90_raw: Optional[List[float]] = None
 
+def _calc_div_annual_net(h: Holding) -> Optional[float]:
+    """
+    その保有に紐づく配当のうち、直近365日の税引後合計（円）。
+    Dividend.holding のリレーションを優先利用。
+    """
+    try:
+        rel = getattr(h, "dividends", None)
+        if not rel:
+            return None
+        since = _today_jst() - timedelta(days=365)
+        total = 0.0
+        for d in rel.filter(date__gte=since):
+            # モデルにある net_amount() を使って税引後に統一
+            total += float(d.net_amount())
+        return total if total > 0 else None
+    except Exception:
+        return None
+
+
 def _to_float(x) -> Optional[float]:
     try:
         if x is None:
@@ -156,63 +175,58 @@ from datetime import timedelta
 
 def _build_row(h: Holding) -> RowVM:
     q = int(h.quantity or 0)
-    unit_cost = _to_float(h.avg_cost or 0) or 0.0
-    acq = q * unit_cost
+    cost_unit = _to_float(h.avg_cost or 0) or 0.0
+    acq = q * cost_unit
 
-    # 価格（yfinanceキャッシュ）
     n = _norm_ticker(h.ticker)
-    raw7  = _preload_closes([h.ticker], 7 ).get(n, [])
+    raw7  = _preload_closes([h.ticker], 7).get(n, [])
     raw30 = _preload_closes([h.ticker], 30).get(n, [])
     raw90 = _preload_closes([h.ticker], 90).get(n, [])
-    last_price = None
-    if raw30 or raw7 or raw90:
-        last_price = float((raw30 or raw7 or raw90)[-1])
 
-    valuation = (last_price * q) if (last_price is not None and q > 0) else None
+    price_now = None
+    val_now = None
+    # 直近の終値（存在する最も長い系列から拾う）
+    if raw30 or raw7 or raw90:
+        last = (raw30 or raw7 or raw90)[-1]
+        price_now = float(last)
+        val_now = price_now * q
 
     pnl = pnl_pct = None
-    if valuation is not None:
-        pnl = valuation - acq
+    if val_now is not None:
+        pnl = val_now - acq
         if acq > 0:
             pnl_pct = (pnl / acq) * 100.0
 
-    # 年間配当（直近365日・税引後合計）
-    annual_net = None
-    try:
-        since = _today_jst() - timedelta(days=365)
-        # prefetch_related("dividends") 済み前提
-        ann = sum(float(d.net_amount()) for d in h.dividends.all() if d.date and d.date >= since)
-        annual_net = ann if ann > 0 else None
-    except Exception:
-        annual_net = None
+    # 年間配当（税引後合計）
+    div_annual = _calc_div_annual_net(h)
 
-    # 利回り
+    # 利回り（配当が取れた場合のみ計算）
     y_now = y_cost = None
-    if annual_net and annual_net > 0:
-        if valuation and valuation > 0:
-            y_now = annual_net / valuation * 100.0
-        if acq > 0:
-            y_cost = annual_net / acq * 100.0
+    if div_annual is not None and q > 0:
+        div_ps = div_annual / q  # 1株あたり配当（税引後）
+        if price_now and price_now > 0:
+            y_now = (div_ps / price_now) * 100.0
+        if cost_unit > 0:
+            y_cost = (div_ps / cost_unit) * 100.0
 
     # 保有日数
-    start = h.opened_at or (h.created_at.date() if h.created_at else None)
+    start = h.opened_at or h.created_at.date()
     days = (_today_jst() - start).days if start else None
 
-    # 指数化
     s7_idx  = _indexize(raw7)
     s30_idx = _indexize(raw30)
     s90_idx = _indexize(raw90)
 
     return RowVM(
         obj=h,
-        valuation=valuation,
-        price_now=last_price,
+        valuation=val_now,
         pnl=pnl,
         pnl_pct=pnl_pct,
-        div_annual=annual_net,
+        days=days,
+        price_now=price_now,
         yield_now=y_now,
         yield_cost=y_cost,
-        days=days,
+        div_annual=div_annual,
         s7_idx=s7_idx or None,
         s30_idx=s30_idx or None,
         s90_idx=s90_idx or None,
