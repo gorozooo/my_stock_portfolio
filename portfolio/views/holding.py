@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, timedelta
 from statistics import median
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 import yfinance as yf
@@ -36,7 +36,7 @@ class RowVM:
     price_now: Optional[float] = None      # 現在株価（1株）
     yield_now: Optional[float] = None      # 現在利回り（%）
     yield_cost: Optional[float] = None     # 取得利回り（%）
-    div_annual: Optional[float] = None     # 年間配当（税引後想定・円）
+    div_annual: Optional[float] = None     # 年間配当（円）
 
     # スパーク
     s7_idx: Optional[List[float]] = None
@@ -153,7 +153,7 @@ def _get_div_meta(nsym: str) -> Dict[str, Optional[float]]:
     res: Dict[str, Optional[float]] = {"div_ttm_ps": None, "div_forward_ps": None, "yield_ratio": None}
     try:
         tk = yf.Ticker(nsym)
-        # 1) 直近365日の1株配当（税引前だが近似として利用）
+        # 1) 直近365日の1株配当合計（TTM）
         try:
             divs = tk.dividends
             if divs is not None and len(divs) > 0:
@@ -163,7 +163,7 @@ def _get_div_meta(nsym: str) -> Dict[str, Optional[float]]:
                     res["div_ttm_ps"] = ttm
         except Exception:
             pass
-        # 2) Forward 年間1株配当
+        # 2) Forward 年間1株配当 / 配当利回り
         try:
             info = tk.info or {}
             fwd = info.get("dividendRate")
@@ -171,8 +171,7 @@ def _get_div_meta(nsym: str) -> Dict[str, Optional[float]]:
                 res["div_forward_ps"] = float(fwd)
             yld = info.get("dividendYield")
             if yld is not None:
-                # yfinance は 0.023 (=2.3%) のような比率
-                res["yield_ratio"] = float(yld)
+                res["yield_ratio"] = float(yld)  # 0.023 (=2.3%) のような値
         except Exception:
             pass
     except Exception:
@@ -208,7 +207,7 @@ def _build_row(h: Holding) -> RowVM:
 
     # --- 配当: yfinance から TTM/Forward を取得 ---
     meta = _get_div_meta(n)
-    div_ps = meta.get("div_ttm_ps") or meta.get("div_forward_ps")  # 1株あたり年換算配当
+    div_ps = meta.get("div_ttm_ps") or meta.get("div_forward_ps")  # 年間1株配当
     div_annual = (div_ps * q) if (div_ps and q > 0) else None
 
     # 利回り（%）
@@ -218,7 +217,6 @@ def _build_row(h: Holding) -> RowVM:
             yield_now = (div_ps / price_now) * 100.0
         if unit_cost > 0:
             yield_cost = (div_ps / unit_cost) * 100.0
-    # 価格が拾えなかった場合は info の比率をそのまま使用
     if yield_now is None and meta.get("yield_ratio") is not None:
         yield_now = float(meta["yield_ratio"]) * 100.0
 
@@ -312,6 +310,26 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
         summary["top_loss_pnl"] = top_loss[0]
     return summary
 
+# ============================ API: コード→銘柄名 ============================
+
+@login_required
+def api_ticker_name(request):
+    raw = (request.GET.get("code") or request.GET.get("q") or "").strip()
+    norm = svc_trend._normalize_ticker(raw)
+    code = (norm.split(".", 1)[0] if norm else raw).upper()
+
+    override = getattr(settings, "TSE_NAME_OVERRIDES", {}).get(code)
+    if override:
+        return JsonResponse({"code": code, "name": override})
+
+    name = svc_trend._lookup_name_jp_from_list(norm) or ""
+    if not name:
+        try:
+            name = svc_trend._fetch_name_prefer_jp(norm) or ""
+        except Exception:
+            name = ""
+    return JsonResponse({"code": code, "name": name})
+
 # ============================ フィルタ/並べ替え ============================
 
 def _apply_filters(qs, request):
@@ -384,7 +402,7 @@ def _sort_rows(rows: List[RowVM], request) -> List[RowVM]:
 
 @login_required
 def holding_list(request):
-    qs = Holding.objects.filter(user=request.user)  # DB配当は不要なので prefetchは任意
+    qs = Holding.objects.filter(user=request.user)
     qs = _apply_filters(qs, request)
     qs = _sort_qs(qs, request)
     page = _page(request, qs)
@@ -431,6 +449,7 @@ def holding_list_partial(request):
     rows = _build_rows_for_page(page)
     rows = _apply_post_filters(rows, request)
     rows = _sort_rows(rows, request)
+
     summary = _aggregate(rows)
 
     class _PageWrap:
