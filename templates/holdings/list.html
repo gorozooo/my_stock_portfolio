@@ -6,26 +6,38 @@
 {% block head %}
 <link rel="stylesheet" href="{% static 'css/holdings.css' %}?v=9">
 <style>
-  /* ===== フィルター（極小） ===== */
   :root{
-    --topbarH: 48px;       /* 画面上部ナビ等の高さに合わせて調整 */
+    --topbarH: 48px;              /* アプリの上部バーの高さに合わせて調整 */
   }
 
-  .quickbar{ /* 最小のグリッド配置 */
+  /* ===== 固定ヘッダー（フィルター＋KPI） ===== */
+  #topSticky{
+    position: sticky;
+    top: calc(env(safe-area-inset-top, 0px) + var(--topbarH));
+    z-index: 30;
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 12px;
+    background: rgba(15,20,30,.65);
+    backdrop-filter: blur(10px);
+    padding: 8px;
+    margin: 6px 0 8px;
+    max-height: 33vh;             /* ← 上部1/3に収める上限 */
+    overflow: auto;                /* 溢れたら中だけスクロール */
+  }
+
+  /* ===== フィルター（極小） ===== */
+  .quickbar{
     display:grid;
     gap:6px;
     grid-template-columns: repeat(4, minmax(0,1fr));
     align-items:center;
-    margin:6px 0 8px;
+    margin:0 0 6px;
   }
   @media (max-width:420px){
     .quickbar{ grid-template-columns: repeat(3, minmax(0,1fr)); }
   }
   .quickbar .fld{display:contents;} /* ラベルと要素をグリッドに直接置く */
-
-  .quickbar label{
-    font-size:11px; opacity:.8; display:none; /* コンパクトにするので非表示 */
-  }
+  .quickbar label{ display:none; }  /* コンパクトにするので非表示 */
 
   .quickbar select,
   .quickbar input[type="text"],
@@ -38,93 +50,93 @@
     color:#dbe3f4;
     border-radius:8px;
   }
-
-  /* 検索ボックスは幅広、適用ボタンは右端 */
+  /* 検索は少し幅を持たせ、適用は右端へ */
   #qb-q{ grid-column: 1 / -2; }
   #qb-apply{ grid-column: -2 / -1; }
 
-  /* Sticky KPI の下に十分な余白がないと重なるので、ページ先頭の
-     何か（例えばヘッダー）がある場合は body 側でパディングを付ける運用を推奨。
-     ここでは何もしない。 */
+  /* KPIをこの中に差し込む */
+  #kpiMount .kpi-grid{
+    display:grid; gap:6px;
+    grid-template-columns:repeat(auto-fit,minmax(95px,1fr));
+  }
+  #kpiMount .kpi{
+    min-width:90px;border:1px solid rgba(255,255,255,.1);
+    border-radius:8px;padding:6px;background:rgba(255,255,255,.04)
+  }
+  #kpiMount .kpi-k{font-size:10px;color:#9fb0c8}
+  #kpiMount .kpi-v{font-size:13px;font-weight:700}
+  #kpiMount .kpi-v.pos{color:#22c55e}
+  #kpiMount .kpi-v.neg{color:#ef4444}
 </style>
 {% endblock %}
 
 {% block content %}
 
-<!-- クイックフィルタ/並び替え（IDや各要素は既存JSのままでOK） -->
-<div class="quickbar" id="qb">
-  <div class="fld">
-    <label>証券</label>
-    <select id="qb-broker">
-      <option value="">ALL</option>
-      <option>松井証券</option>
-      <option>楽天証券</option>
-      <option>SBI</option>
-    </select>
+<!-- ★ 固定ヘッダー（フィルター＋KPIをここに収める） -->
+<div id="topSticky">
+  <!-- フィルター -->
+  <div class="quickbar" id="qb">
+    <div class="fld">
+      <label>証券</label>
+      <select id="qb-broker">
+        <option value="">ALL</option>
+        <option>松井証券</option>
+        <option>楽天証券</option>
+        <option>SBI</option>
+      </select>
+    </div>
+    <div class="fld">
+      <label>口座</label>
+      <select id="qb-account">
+        <option value="">ALL</option>
+        <option>特定</option>
+        <option>信用</option>
+        <option>NISA</option>
+      </select>
+    </div>
+    <div class="fld">
+      <label>売買</label>
+      <select id="qb-side">
+        <option value="">ALL</option>
+        <option value="BUY">BUY</option>
+        <option value="SELL">SELL</option>
+      </select>
+    </div>
+    <div class="fld">
+      <label>損益</label>
+      <select id="qb-pnl">
+        <option value="">ALL</option>
+        <option value="POS">＋</option>
+        <option value="NEG">−</option>
+      </select>
+    </div>
+    <div class="fld">
+      <label>並び</label>
+      <select id="qb-sort">
+        <option value="updated">更新日</option>
+        <option value="created">作成日</option>
+        <option value="opened">保有開始</option>
+        <option value="pnl">含み損益</option>
+        <option value="days">保有日数</option>
+      </select>
+      <select id="qb-order">
+        <option value="desc">↓</option>
+        <option value="asc">↑</option>
+      </select>
+    </div>
+    <div class="fld">
+      <input id="qb-q" type="text" placeholder="コード/名称 検索">
+    </div>
+    <button class="btn" id="qb-apply">適用</button>
   </div>
-  <div class="fld">
-    <label>口座</label>
-    <select id="qb-account">
-      <option value="">ALL</option>
-      <option>特定</option>
-      <option>信用</option>
-      <option>NISA</option>
-    </select>
-  </div>
-  <div class="fld">
-    <label>売買</label>
-    <select id="qb-side">
-      <option value="">ALL</option>
-      <option value="BUY">BUY</option>
-      <option value="SELL">SELL</option>
-    </select>
-  </div>
-  <div class="fld">
-    <label>損益</label>
-    <select id="qb-pnl">
-      <option value="">ALL</option>
-      <option value="POS">＋</option>
-      <option value="NEG">−</option>
-    </select>
-  </div>
-  <div class="fld">
-    <label>並び</label>
-    <select id="qb-sort">
-      <option value="updated">更新日</option>
-      <option value="created">作成日</option>
-      <option value="opened">保有開始</option>
-      <option value="pnl">含み損益</option>
-      <option value="days">保有日数</option>
-    </select>
-    <select id="qb-order">
-      <option value="desc">↓</option>
-      <option value="asc">↑</option>
-    </select>
-  </div>
-  <div class="fld">
-    <input id="qb-q" type="text" placeholder="コード/名称 検索">
-  </div>
-  <button class="btn" id="qb-apply">適用</button>
+
+  <!-- KPI（_list.html から移植してここに描画） -->
+  <div id="kpiMount"><!-- JSがここにKPIを差し込みます --></div>
 </div>
 
+<!-- 一覧本体（ここに _list.html を入れる） -->
 <div id="holdingsBody">
   {% include "holdings/_list.html" %}
-</div>
-
-<!-- Sparkモーダル（現状維持） -->
-<div class="spark-modal" id="sparkModal" aria-hidden="true" style="position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:50">
-  <div class="spark-dlg" style="width:min(92vw,520px);background:rgba(18,24,33,.98);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px">
-    <h3 id="sparkTitle">Spark</h3>
-    <div class="spark-ctrl" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-      <button class="btn is-on" data-span="7">7日</button>
-      <button class="btn" data-span="30">30日</button>
-      <button class="btn" data-span="90">90日</button>
-      <button class="btn is-on" data-mode="idx">指数</button>
-      <button class="btn" data-mode="raw">実値</button>
-      <button class="btn" id="sparkClose" style="margin-left:auto">閉じる</button>
-    </div>
-    <canvas class="spark-canvas" id="sparkCanvas" style="width:100%;height:140px"></canvas>
-  </div>
 </div>
 
 <script src="{% static 'js/holdings.js' %}?v=130"></script>
@@ -147,8 +159,7 @@
     function saveLS(v){ localStorage.setItem(LSKEY, JSON.stringify(v||{})) }
 
     function readURL(){
-      const u = new URL(location.href);
-      const p = u.searchParams;
+      const p = new URL(location.href).searchParams;
       return {
         broker: p.get('broker') || '',
         account:p.get('account')||'',
@@ -196,6 +207,18 @@
       return p.toString();
     }
 
+    // ★ _list.html から KPI を吸い上げて固定ヘッダーに移植
+    function mountKPI(fromRoot){
+      try{
+        const inner = (fromRoot||document).querySelector('#kpiStickyInner');
+        const mount = document.getElementById('kpiMount');
+        if(inner && mount){
+          mount.innerHTML = inner.innerHTML;
+          // 元は非表示のままでOK（重複防止）
+        }
+      }catch(_){}
+    }
+
     function fetchList(st){
       const qs = buildQuery(st);
       const url = "{% url 'holding_list_partial' %}" + (qs ? ("?"+qs) : "");
@@ -206,6 +229,8 @@
           target.innerHTML = html;
           if (window.htmx) htmx.process(target);
           document.body.dispatchEvent(new CustomEvent('htmx:load', {detail:{target}}));
+          // KPI を再マウント
+          mountKPI(target);
         });
     }
 
@@ -218,6 +243,7 @@
       fetchList(st);
     }
 
+    // 初回
     (function init(){
       const urlSt = readURL();
       const hasURL = Object.values(urlSt).some(v => !!v);
@@ -227,19 +253,17 @@
       applyAndRender(base, /*push=*/false);
     })();
 
-    document.getElementById('qb-apply').addEventListener('click', ()=>{
-      const st = gather();
-      applyAndRender(st, /*push=*/true);
-    });
-    document.getElementById('qb-q').addEventListener('keydown', (e)=>{
-      if(e.key==='Enter'){ e.preventDefault(); document.getElementById('qb-apply').click(); }
-    });
-
+    // 操作
+    document.getElementById('qb-apply').addEventListener('click', ()=>applyAndRender(gather(), true));
+    document.getElementById('qb-q').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); document.getElementById('qb-apply').click(); }});
     window.addEventListener('popstate', (e)=>{
       const st = e.state || readURL();
       applyState(st||{});
       fetchList(st||{});
     });
+
+    // SSR 初期描画分の KPI もマウント（念のため）
+    mountKPI(document);
   })();
 </script>
 {% endblock %}
