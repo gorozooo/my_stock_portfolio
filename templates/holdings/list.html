@@ -6,30 +6,52 @@
 {% block head %}
 <link rel="stylesheet" href="{% static 'css/holdings.css' %}?v=9">
 <style>
-  /* --- クイックバー & モーダル最小スタイル --- */
-  .quickbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 10px}
-  .quickbar .fld{display:flex;gap:6px;align-items:center}
-  .quickbar select,.quickbar input[type="text"]{
-    background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);
-    color:#dbe3f4;border-radius:10px;padding:6px 8px;font-size:12px
+  /* ===== フィルター（極小） ===== */
+  :root{
+    --topbarH: 48px;       /* 画面上部ナビ等の高さに合わせて調整 */
   }
-  .quickbar .btn{padding:6px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.14)}
 
-  /* Spark modal */
-  .spark-modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:50}
-  .spark-modal.is-open{display:flex}
-  .spark-dlg{width:min(92vw,520px);background:rgba(18,24,33,.98);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px}
-  .spark-dlg h3{margin:0 0 8px}
-  .spark-ctrl{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
-  .spark-ctrl .btn{padding:6px 10px;border:1px solid rgba(255,255,255,.14);border-radius:10px;font-size:12px;background:rgba(255,255,255,.05);color:#dbe3f4}
-  .spark-ctrl .btn.is-on{outline:2px solid rgba(110,168,255,.55)}
-  .spark-canvas{width:100%;height:140px}
+  .quickbar{ /* 最小のグリッド配置 */
+    display:grid;
+    gap:6px;
+    grid-template-columns: repeat(4, minmax(0,1fr));
+    align-items:center;
+    margin:6px 0 8px;
+  }
+  @media (max-width:420px){
+    .quickbar{ grid-template-columns: repeat(3, minmax(0,1fr)); }
+  }
+  .quickbar .fld{display:contents;} /* ラベルと要素をグリッドに直接置く */
+
+  .quickbar label{
+    font-size:11px; opacity:.8; display:none; /* コンパクトにするので非表示 */
+  }
+
+  .quickbar select,
+  .quickbar input[type="text"],
+  .quickbar .btn{
+    height:28px;
+    padding:0 8px;
+    font-size:12px;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.14);
+    color:#dbe3f4;
+    border-radius:8px;
+  }
+
+  /* 検索ボックスは幅広、適用ボタンは右端 */
+  #qb-q{ grid-column: 1 / -2; }
+  #qb-apply{ grid-column: -2 / -1; }
+
+  /* Sticky KPI の下に十分な余白がないと重なるので、ページ先頭の
+     何か（例えばヘッダー）がある場合は body 側でパディングを付ける運用を推奨。
+     ここでは何もしない。 */
 </style>
 {% endblock %}
 
 {% block content %}
 
-<!-- クイックフィルタ/並び替え -->
+<!-- クイックフィルタ/並び替え（IDや各要素は既存JSのままでOK） -->
 <div class="quickbar" id="qb">
   <div class="fld">
     <label>証券</label>
@@ -89,11 +111,11 @@
   {% include "holdings/_list.html" %}
 </div>
 
-<!-- Sparkモーダル（そのまま） -->
-<div class="spark-modal" id="sparkModal" aria-hidden="true">
-  <div class="spark-dlg">
+<!-- Sparkモーダル（現状維持） -->
+<div class="spark-modal" id="sparkModal" aria-hidden="true" style="position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:50">
+  <div class="spark-dlg" style="width:min(92vw,520px);background:rgba(18,24,33,.98);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px">
     <h3 id="sparkTitle">Spark</h3>
-    <div class="spark-ctrl">
+    <div class="spark-ctrl" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
       <button class="btn is-on" data-span="7">7日</button>
       <button class="btn" data-span="30">30日</button>
       <button class="btn" data-span="90">90日</button>
@@ -101,7 +123,7 @@
       <button class="btn" data-mode="raw">実値</button>
       <button class="btn" id="sparkClose" style="margin-left:auto">閉じる</button>
     </div>
-    <canvas class="spark-canvas" id="sparkCanvas"></canvas>
+    <canvas class="spark-canvas" id="sparkCanvas" style="width:100%;height:140px"></canvas>
   </div>
 </div>
 
@@ -112,7 +134,6 @@
     const LSKEY='holdings.qb.v1';
     const $ = (id)=>document.getElementById(id);
 
-    // 表示名 ↔ コード の相互変換（サブメニューはコード、セレクトは表示名）
     const BROKER = {
       toLabel(code){ return ({MATSUI:'松井証券', RAKUTEN:'楽天証券', SBI:'SBI'})[code] || code || ''; },
       toCode(label){ const m={'松井証券':'MATSUI','楽天証券':'RAKUTEN','SBI':'SBI'}; return m[label] || label || ''; }
@@ -128,7 +149,6 @@
     function readURL(){
       const u = new URL(location.href);
       const p = u.searchParams;
-      // URL はコード前提で受取
       return {
         broker: p.get('broker') || '',
         account:p.get('account')||'',
@@ -136,13 +156,11 @@
         pnl:    p.get('pnl')    ||'',
         sort:   p.get('sort')   ||'',
         order:  p.get('order')  ||'',
-        // q or ticker のどちらでも拾う
         ticker: p.get('ticker') || p.get('q') || ''
       };
     }
 
     function applyState(st){
-      // セレクトは「表示名」で選択されるので変換してから入れる
       $('qb-broker').value = st.broker ? BROKER.toLabel(st.broker) : '';
       $('qb-account').value= st.account? ACCOUNT.toLabel(st.account): '';
       $('qb-side').value   = st.side||'';
@@ -153,7 +171,6 @@
     }
 
     function gather(){
-      // 画面から拾う → URLへはコードで渡す
       const brokerLabel  = $('qb-broker').value || '';
       const accountLabel = $('qb-account').value || '';
       return {
@@ -187,26 +204,20 @@
         .then(html=>{
           const target = document.getElementById('holdingsBody');
           target.innerHTML = html;
-          // HTMX 再スキャン（hx-* を有効化）
           if (window.htmx) htmx.process(target);
-          // 既存の初期化フックがあれば通知
           document.body.dispatchEvent(new CustomEvent('htmx:load', {detail:{target}}));
         });
     }
 
     function applyAndRender(st, push=true){
       applyState(st);
-      // URL 更新（ブックマーク可能）。初回は replace、以降は push でもOK
       const qs = buildQuery(st);
       const newURL = location.pathname + (qs ? ("?"+qs) : "");
       if (push) history.pushState(st, '', newURL); else history.replaceState(st, '', newURL);
-      // 保存（次回のデフォルトに）
       saveLS(st);
-      // 描画
       fetchList(st);
     }
 
-    // 初期ロード：URL が優先（URLに何か入っていなければ LS）
     (function init(){
       const urlSt = readURL();
       const hasURL = Object.values(urlSt).some(v => !!v);
@@ -216,17 +227,16 @@
       applyAndRender(base, /*push=*/false);
     })();
 
-    // 適用ボタン：pushState して反映
-    $('qb-apply').addEventListener('click', ()=>{
+    document.getElementById('qb-apply').addEventListener('click', ()=>{
       const st = gather();
       applyAndRender(st, /*push=*/true);
     });
-    // Enter でも適用
-    $('qb-q').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); $('qb-apply').click(); }});
+    document.getElementById('qb-q').addEventListener('keydown', (e)=>{
+      if(e.key==='Enter'){ e.preventDefault(); document.getElementById('qb-apply').click(); }
+    });
 
-    // 戻る/進む対応
     window.addEventListener('popstate', (e)=>{
-      const st = e.state || readURL();  // state が無ければURLを読む
+      const st = e.state || readURL();
       applyState(st||{});
       fetchList(st||{});
     });
