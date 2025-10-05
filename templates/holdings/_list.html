@@ -1,26 +1,6 @@
 {% load humanize num %}
 
 <style>
-  /* ===== Sticky KPI（固定ヘッダー） ===== */
-  #kpiSticky{
-    position: sticky;
-    top: calc(env(safe-area-inset-top, 0px) + var(--topbarH, 48px));
-    z-index: 30;
-    border: 1px solid rgba(255,255,255,.12);
-    border-radius: 12px;
-    background: rgba(15,20,30,.65);
-    backdrop-filter: blur(10px);
-    margin: 6px 0 8px;
-    padding: 8px;
-    max-height: 33vh;   /* 画面上1/3に収まるよう制限 */
-    overflow: auto;
-  }
-  .kpi-grid{display:grid;gap:6px;grid-template-columns:repeat(auto-fit,minmax(95px,1fr))}
-  .kpi{min-width:90px;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:6px;background:rgba(255,255,255,.04)}
-  .kpi-k{font-size:10px;color:#9fb0c8}
-  .kpi-v{font-size:13px;font-weight:700}
-  .kpi-v.pos{color:#22c55e}.kpi-v.neg{color:#ef4444}
-
   /* ===== カード ===== */
   .row{border:1px solid rgba(255,255,255,.11);border-radius:11px;background:rgba(255,255,255,.03);overflow:hidden}
   .row + .row{margin-top:8px}
@@ -57,11 +37,13 @@
   .action-panel{height:100%;display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:0 10px;background:linear-gradient(90deg,rgba(13,17,23,0),rgba(13,17,23,.92))}
   .item{display:flex;gap:6px;align-items:center;border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:8px 10px;background:rgba(255,255,255,.06);font-size:12px}
   .item.delete{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.45)}
-  .row.is-open .actions{transform:translateX(0)}
+
+  /* ▼ KPI（ここでは“ソース”として出すだけ。画面には非表示） */
+  #kpiStickyInner{ display:none; }
 </style>
 
-<!-- ★ 固定ヘッダーKPI（常時表示・JS不要） -->
-<div id="kpiSticky">
+<!-- ★ KPIの“ソース”。list.html の JS が #kpiMount に移植して表示します -->
+<div id="kpiStickyInner" aria-hidden="true">
   <div class="kpi-grid">
     <div class="kpi"><div class="kpi-k">件数</div><div class="kpi-v">{{ summary.count|default:"0" }}</div></div>
     <div class="kpi"><div class="kpi-k">勝率</div><div class="kpi-v">{% if summary.win_rate is not None %}{{ summary.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
