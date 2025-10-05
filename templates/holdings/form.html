@@ -37,9 +37,20 @@
     {% csrf_token %}
 
     <div class="fi">
-      <label>コード <span class="hint">例: 7203</span></label>
-      <input type="number" name="ticker" inputmode="numeric" pattern="\d*" value="{{ form.ticker.value|default_if_none:'' }}">
+      <label>コード <span class="hint">例: 7203 / AAPL</span></label>
+      <!-- 英数字OK・入力時に自動大文字化 -->
+      <input
+        type="text"
+        name="ticker"
+        inputmode="latin"
+        autocomplete="off"
+        autocorrect="off"
+        spellcheck="false"
+        style="text-transform:uppercase"
+        placeholder="7203 / AAPL"
+        value="{{ form.ticker.value|default_if_none:'' }}">
     </div>
+
     <div class="fi">
       <label>銘柄 <span class="hint">コード入力で自動反映（上書き可能）</span></label>
       {{ form.name }}
@@ -54,13 +65,21 @@
     <div class="grid-fields">
       <div class="fi">
         <label>株数</label>
-        <input type="number" name="quantity"
-               value="{% if form.quantity.value and form.quantity.value != '0' %}{{ form.quantity.value }}{% endif %}">
+        <input
+          type="number"
+          step="0.01"
+          inputmode="decimal"
+          name="quantity"
+          value="{% if form.quantity.value and form.quantity.value != '0' %}{{ form.quantity.value }}{% endif %}">
       </div>
       <div class="fi">
         <label>平均取得単価</label>
-        <input type="number" step="0.01" name="avg_cost"
-               value="{% if form.avg_cost.value and form.avg_cost.value != '0' %}{{ form.avg_cost.value }}{% endif %}">
+        <input
+          type="number"
+          step="0.01"
+          inputmode="decimal"
+          name="avg_cost"
+          value="{% if form.avg_cost.value and form.avg_cost.value != '0' %}{{ form.avg_cost.value }}{% endif %}">
       </div>
       <div class="fi">
         <label>保有開始日</label>
@@ -95,6 +114,12 @@
   let nameAutofilled = false;
   let lastResolved   = { code: "", name: "" };
 
+  // 🔠 入力中に自動で大文字化
+  $ticker.addEventListener('input', ()=>{
+    const v = $ticker.value;
+    $ticker.value = v.toUpperCase(); // ←ここで大文字化
+  });
+
   $name.addEventListener('input', ()=>{
     userEditedName = true;
     nameAutofilled = false;
@@ -120,7 +145,7 @@
       !userEditedName || nameAutofilled || !curName || curName === lastResolved.name;
 
     if (codeChanged || safeToOverwrite) {
-      if (data.code) $ticker.value = data.code;
+      if (data.code) $ticker.value = data.code.toUpperCase();
       $name.value = data.name;
       nameAutofilled = true;
       userEditedName = false;
