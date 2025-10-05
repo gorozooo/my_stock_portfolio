@@ -534,17 +534,21 @@ def dividend_create(request):
     else:
         form = DividendForm(user=request.user)
 
-    # ★ 保有データをテンプレに渡す（自動補完用）
+    # 自動補完用に保有データを渡す
     holdings = list(
         Holding.objects
         .filter(user=request.user)
         .values("id", "ticker", "name", "quantity", "avg_cost", "broker", "account")
     )
 
-    return render(request, "dividends/form.html", {
-        "form": form,
-        "holdings": holdings,   # ← 追加
-    })
+    return render(
+        request,
+        "dividends/form.html",
+        {
+            "form": form,
+            "holdings": holdings,
+        },
+    )
 
 
 @login_required
@@ -558,7 +562,7 @@ def dividend_edit(request, pk: int):
         form = DividendForm(request.POST, instance=obj, user=request.user)
         if form.is_valid():
             edited = form.save(commit=False)
-            edited.is_net = False
+            edited.is_net = False  # 税引前仕様に合わせる
             edited.save()
             messages.success(request, "配当を更新しました。")
             return redirect("dividend_list")
@@ -571,10 +575,14 @@ def dividend_edit(request, pk: int):
         .values("id", "ticker", "name", "quantity", "avg_cost", "broker", "account")
     )
 
-    return render(request, "dividends/form.html", {
-        "form": form,
-        "holdings": holdings,   # ← 追加
-    }
+    return render(
+        request,
+        "dividends/form.html",
+        {
+            "form": form,
+            "holdings": holdings,
+        },
+    )
 
 
 @login_required
