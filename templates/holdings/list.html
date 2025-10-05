@@ -6,151 +6,127 @@
 {% block head %}
 <link rel="stylesheet" href="{% static 'css/holdings.css' %}?v=9">
 <style>
-  :root{
-    --topbarH: 48px;              /* アプリの上部バーの高さに合わせて調整 */
-  }
+  :root{ --topbarH:48px; }
 
-  /* ===== 固定ヘッダー（フィルター＋KPI） ===== */
   /* ===== 固定ヘッダー（フィルター＋KPI） ===== */
   #topSticky{
     position: sticky;
-    /* ← 余白の原因だったアプリバー分のオフセットを撤廃。
-       iPhoneノッチぶんだけにします */
     top: env(safe-area-inset-top, 0px);
-  
-    z-index: 12;                    /* 高すぎない値に下げる */
-    border: 1px solid rgba(255,255,255,.12);
-    border-radius: 12px;
-  
-    /* ← 透け感を抑えて“下が見える＝被ってる”を解消 */
-    background: rgba(15,20,30,.96);
+    z-index: 12;
+    border:1px solid rgba(255,255,255,.12);
+    border-radius:12px;
+    background:rgba(15,20,30,.96);
     backdrop-filter: blur(8px);
-  
-    padding: 8px;
-    margin: 0 0 8px;               /* ← 上マージンを 0 にして白枠を除去 */
-    max-height: 33vh;              /* 上部 1/3 制限は維持 */
-    overflow: auto;                /* 中だけスクロール */
-    box-shadow: 0 2px 0 rgba(255,255,255,.06) inset; /* 下端をはっきり */
+    padding:8px;
+    margin:0 0 8px;
+    max-height:33vh;
+    overflow:auto;
+    box-shadow:0 2px 0 rgba(255,255,255,.06) inset;
   }
-  
-  /* スクロール時にカードが下に潜り込んだように見えるのを抑える */
-  #holdingsBody { 
-    position: relative;
-    z-index: 1;                    /* topSticky より低いが十分見える */
-  }
+  #holdingsBody{ position:relative; z-index:1; }
 
   /* ===== フィルター（極小） ===== */
-  .quickbar{
-    display:grid;
-    gap:6px;
-    grid-template-columns: repeat(4, minmax(0,1fr));
-    align-items:center;
-    margin:0 0 6px;
+  .quickbar{ display:grid; gap:6px; grid-template-columns:repeat(4,minmax(0,1fr)); align-items:center; margin:0 0 6px; }
+  @media (max-width:420px){ .quickbar{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+  .quickbar .fld{ display:contents; }
+  .quickbar label{ display:none; }
+  .quickbar select,.quickbar input[type="text"],.quickbar .btn{
+    height:28px;padding:0 8px;font-size:12px;background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.14);color:#dbe3f4;border-radius:8px;
   }
-  @media (max-width:420px){
-    .quickbar{ grid-template-columns: repeat(3, minmax(0,1fr)); }
-  }
-  .quickbar .fld{display:contents;} /* ラベルと要素をグリッドに直接置く */
-  .quickbar label{ display:none; }  /* コンパクトにするので非表示 */
+  #qb-q{ grid-column:1 / -2; }
+  #qb-apply{ grid-column:-2 / -1; }
 
-  .quickbar select,
-  .quickbar input[type="text"],
-  .quickbar .btn{
-    height:28px;
-    padding:0 8px;
-    font-size:12px;
-    background:rgba(255,255,255,.05);
-    border:1px solid rgba(255,255,255,.14);
-    color:#dbe3f4;
-    border-radius:8px;
-  }
-  /* 検索は少し幅を持たせ、適用は右端へ */
-  #qb-q{ grid-column: 1 / -2; }
-  #qb-apply{ grid-column: -2 / -1; }
+  /* KPI（固定ヘッダー内に差し込み） */
+  #kpiMount .kpi-grid{ display:grid; gap:6px; grid-template-columns:repeat(auto-fit,minmax(95px,1fr)); }
+  #kpiMount .kpi{ min-width:90px;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:6px;background:rgba(255,255,255,.04) }
+  #kpiMount .kpi-k{ font-size:10px;color:#9fb0c8 }
+  #kpiMount .kpi-v{ font-size:13px;font-weight:700 }
+  #kpiMount .kpi-v.pos{ color:#22c55e } #kpiMount .kpi-v.neg{ color:#ef4444 }
 
-  /* KPIをこの中に差し込む */
-  #kpiMount .kpi-grid{
-    display:grid; gap:6px;
-    grid-template-columns:repeat(auto-fit,minmax(95px,1fr));
-  }
-  #kpiMount .kpi{
-    min-width:90px;border:1px solid rgba(255,255,255,.1);
-    border-radius:8px;padding:6px;background:rgba(255,255,255,.04)
-  }
-  #kpiMount .kpi-k{font-size:10px;color:#9fb0c8}
-  #kpiMount .kpi-v{font-size:13px;font-weight:700}
-  #kpiMount .kpi-v.pos{color:#22c55e}
-  #kpiMount .kpi-v.neg{color:#ef4444}
+  /* ===== スワイプ行のクリック安定化 ===== */
+  /* アクション面は閉じている間はクリック無効、開いたら有効にする */
+  .actions{ pointer-events:none; }
+  .row.is-open .actions{ pointer-events:auto; }
+
+  /* 念のためアクションボタンのタップ領域を明確に */
+  .action-panel .item{ touch-action:manipulation; -webkit-tap-highlight-color: transparent; }
+
+  /* ===== Spark モーダル ===== */
+  .spark-modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.5); z-index:1000; }
+  .spark-modal.is-open{ display:flex; }
+  .spark-dlg{ width:min(92vw,520px); background:rgba(18,24,33,.98); border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:12px; }
+  .spark-dlg h3{ margin:0 0 8px }
+  .spark-ctrl{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px }
+  .spark-ctrl .btn{ padding:6px 10px; border:1px solid rgba(255,255,255,.14); border-radius:10px; font-size:12px; background:rgba(255,255,255,.05); color:#dbe3f4 }
+  .spark-ctrl .btn.is-on{ outline:2px solid rgba(110,168,255,.55) }
+  .spark-canvas{ width:100%; height:140px }
 </style>
 {% endblock %}
 
 {% block content %}
 
-<!-- ★ 固定ヘッダー（フィルター＋KPIをここに収める） -->
+<!-- 固定ヘッダー（フィルター＋KPI） -->
 <div id="topSticky">
-  <!-- フィルター -->
   <div class="quickbar" id="qb">
     <div class="fld">
       <label>証券</label>
       <select id="qb-broker">
-        <option value="">ALL</option>
-        <option>松井証券</option>
-        <option>楽天証券</option>
-        <option>SBI</option>
+        <option value="">ALL</option><option>松井証券</option><option>楽天証券</option><option>SBI</option>
       </select>
     </div>
     <div class="fld">
       <label>口座</label>
       <select id="qb-account">
-        <option value="">ALL</option>
-        <option>特定</option>
-        <option>信用</option>
-        <option>NISA</option>
+        <option value="">ALL</option><option>特定</option><option>信用</option><option>NISA</option>
       </select>
     </div>
     <div class="fld">
       <label>売買</label>
       <select id="qb-side">
-        <option value="">ALL</option>
-        <option value="BUY">BUY</option>
-        <option value="SELL">SELL</option>
+        <option value="">ALL</option><option value="BUY">BUY</option><option value="SELL">SELL</option>
       </select>
     </div>
     <div class="fld">
       <label>損益</label>
       <select id="qb-pnl">
-        <option value="">ALL</option>
-        <option value="POS">＋</option>
-        <option value="NEG">−</option>
+        <option value="">ALL</option><option value="POS">＋</option><option value="NEG">−</option>
       </select>
     </div>
     <div class="fld">
       <label>並び</label>
       <select id="qb-sort">
-        <option value="updated">更新日</option>
-        <option value="created">作成日</option>
-        <option value="opened">保有開始</option>
-        <option value="pnl">含み損益</option>
-        <option value="days">保有日数</option>
+        <option value="updated">更新日</option><option value="created">作成日</option>
+        <option value="opened">保有開始</option><option value="pnl">含み損益</option><option value="days">保有日数</option>
       </select>
-      <select id="qb-order">
-        <option value="desc">↓</option>
-        <option value="asc">↑</option>
-      </select>
+      <select id="qb-order"><option value="desc">↓</option><option value="asc">↑</option></select>
     </div>
-    <div class="fld">
-      <input id="qb-q" type="text" placeholder="コード/名称 検索">
-    </div>
+    <div class="fld"><input id="qb-q" type="text" placeholder="コード/名称 検索"></div>
     <button class="btn" id="qb-apply">適用</button>
   </div>
 
-  <!-- KPI（_list.html から移植してここに描画） -->
-  <div id="kpiMount"><!-- JSがここにKPIを差し込みます --></div>
+  <div id="kpiMount"><!-- KPI がここに移植されます --></div>
 </div>
 
-<!-- 一覧本体（ここに _list.html を入れる） -->
+<!-- 一覧本体 -->
 <div id="holdingsBody">
   {% include "holdings/_list.html" %}
+</div>
+
+<!-- Spark モーダル（復活） -->
+<div class="spark-modal" id="sparkModal" aria-hidden="true">
+  <div class="spark-dlg">
+    <h3 id="sparkTitle">Spark</h3>
+    <div class="spark-ctrl">
+      <button class="btn is-on" data-span="7">7日</button>
+      <button class="btn" data-span="30">30日</button>
+      <button class="btn" data-span="90">90日</button>
+      <button class="btn is-on" data-mode="idx">指数</button>
+      <button class="btn" data-mode="raw">実値</button>
+      <button class="btn" id="sparkClose" style="margin-left:auto">閉じる</button>
+    </div>
+    <canvas class="spark-canvas" id="sparkCanvas"></canvas>
+  </div>
 </div>
 
 <script src="{% static 'js/holdings.js' %}?v=130"></script>
@@ -160,124 +136,140 @@
     const LSKEY='holdings.qb.v1';
     const $ = (id)=>document.getElementById(id);
 
-    const BROKER = {
-      toLabel(code){ return ({MATSUI:'松井証券', RAKUTEN:'楽天証券', SBI:'SBI'})[code] || code || ''; },
-      toCode(label){ const m={'松井証券':'MATSUI','楽天証券':'RAKUTEN','SBI':'SBI'}; return m[label] || label || ''; }
-    };
-    const ACCOUNT = {
-      toLabel(code){ return ({SPEC:'特定', MARGIN:'信用', NISA:'NISA'})[code] || code || ''; },
-      toCode(label){ const m={'特定':'SPEC','信用':'MARGIN','NISA':'NISA'}; return m[label] || label || ''; }
-    };
+    const BROKER={toLabel:c=>({MATSUI:'松井証券',RAKUTEN:'楽天証券',SBI:'SBI'})[c]||c||'',
+                  toCode:l=>({ '松井証券':'MATSUI','楽天証券':'RAKUTEN','SBI':'SBI' }[l]||l||'')};
+    const ACCOUNT={toLabel:c=>({SPEC:'特定',MARGIN:'信用',NISA:'NISA'})[c]||c||'',
+                   toCode:l=>({ '特定':'SPEC','信用':'MARGIN','NISA':'NISA' }[l]||l||'')};
 
-    function readLS(){ try{return JSON.parse(localStorage.getItem(LSKEY)||'{}')}catch(_){return{}} }
-    function saveLS(v){ localStorage.setItem(LSKEY, JSON.stringify(v||{})) }
-
+    const readLS=()=>{try{return JSON.parse(localStorage.getItem(LSKEY)||'{}')}catch(_){return{}}}
+    const saveLS=v=>localStorage.setItem(LSKEY, JSON.stringify(v||{}))
     function readURL(){
-      const p = new URL(location.href).searchParams;
-      return {
-        broker: p.get('broker') || '',
-        account:p.get('account')||'',
-        side:   p.get('side')   ||'',
-        pnl:    p.get('pnl')    ||'',
-        sort:   p.get('sort')   ||'',
-        order:  p.get('order')  ||'',
-        ticker: p.get('ticker') || p.get('q') || ''
-      };
+      const p=new URL(location.href).searchParams;
+      return {broker:p.get('broker')||'',account:p.get('account')||'',side:p.get('side')||'',pnl:p.get('pnl')||'',
+              sort:p.get('sort')||'',order:p.get('order')||'',ticker:p.get('ticker')||p.get('q')||''};
     }
-
     function applyState(st){
-      $('qb-broker').value = st.broker ? BROKER.toLabel(st.broker) : '';
-      $('qb-account').value= st.account? ACCOUNT.toLabel(st.account): '';
-      $('qb-side').value   = st.side||'';
-      $('qb-pnl').value    = st.pnl||'';
-      $('qb-sort').value   = st.sort||'updated';
-      $('qb-order').value  = st.order||'desc';
-      $('qb-q').value      = st.ticker||'';
+      $('qb-broker').value=st.broker?BROKER.toLabel(st.broker):'';
+      $('qb-account').value=st.account?ACCOUNT.toLabel(st.account):'';
+      $('qb-side').value=st.side||''; $('qb-pnl').value=st.pnl||'';
+      $('qb-sort').value=st.sort||'updated'; $('qb-order').value=st.order||'desc';
+      $('qb-q').value=st.ticker||'';
     }
-
     function gather(){
-      const brokerLabel  = $('qb-broker').value || '';
-      const accountLabel = $('qb-account').value || '';
-      return {
-        broker: BROKER.toCode(brokerLabel),
-        account:ACCOUNT.toCode(accountLabel),
-        side:   $('qb-side').value || '',
-        pnl:    $('qb-pnl').value || '',
-        sort:   $('qb-sort').value || 'updated',
-        order:  $('qb-order').value || 'desc',
-        ticker: $('qb-q').value || ''
-      };
+      const b=$('qb-broker').value||'', a=$('qb-account').value||'';
+      return {broker:BROKER.toCode(b),account:ACCOUNT.toCode(a),side:$('qb-side').value||'',pnl:$('qb-pnl').value||'',
+              sort:$('qb-sort').value||'updated',order:$('qb-order').value||'desc',ticker:$('qb-q').value||''};
     }
-
     function buildQuery(st){
-      const p = new URLSearchParams();
-      if (st.broker) p.set('broker', st.broker);
-      if (st.account) p.set('account', st.account);
-      if (st.side) p.set('side', st.side);
-      if (st.pnl) p.set('pnl', st.pnl);
-      if (st.sort) p.set('sort', st.sort);
-      if (st.order) p.set('order', st.order);
-      if (st.ticker) p.set('ticker', st.ticker);
-      return p.toString();
+      const p=new URLSearchParams();
+      if(st.broker)p.set('broker',st.broker); if(st.account)p.set('account',st.account);
+      if(st.side)p.set('side',st.side); if(st.pnl)p.set('pnl',st.pnl);
+      if(st.sort)p.set('sort',st.sort); if(st.order)p.set('order',st.order);
+      if(st.ticker)p.set('ticker',st.ticker); return p.toString();
     }
 
-    // ★ _list.html から KPI を吸い上げて固定ヘッダーに移植
-    function mountKPI(fromRoot){
-      try{
-        const inner = (fromRoot||document).querySelector('#kpiStickyInner');
-        const mount = document.getElementById('kpiMount');
-        if(inner && mount){
-          mount.innerHTML = inner.innerHTML;
-          // 元は非表示のままでOK（重複防止）
-        }
-      }catch(_){}
+    // _list.html から KPI を固定ヘッダーへコピー
+    function mountKPI(root){
+      const inner=(root||document).querySelector('#kpiStickyInner');
+      const mount=document.getElementById('kpiMount');
+      if(inner && mount){ mount.innerHTML=inner.innerHTML; }
     }
 
     function fetchList(st){
-      const qs = buildQuery(st);
-      const url = "{% url 'holding_list_partial' %}" + (qs ? ("?"+qs) : "");
-      fetch(url, {headers:{'HX-Request':'true'}})
-        .then(r=>r.text())
-        .then(html=>{
-          const target = document.getElementById('holdingsBody');
-          target.innerHTML = html;
-          if (window.htmx) htmx.process(target);
-          document.body.dispatchEvent(new CustomEvent('htmx:load', {detail:{target}}));
-          // KPI を再マウント
+      const qs=buildQuery(st);
+      const url="{% url 'holding_list_partial' %}"+(qs?("?"+qs):"");
+      fetch(url,{headers:{'HX-Request':'true'}})
+        .then(r=>r.text()).then(html=>{
+          const target=document.getElementById('holdingsBody');
+          target.innerHTML=html;
+          if(window.htmx) htmx.process(target);
+          document.body.dispatchEvent(new CustomEvent('htmx:load',{detail:{target}}));
           mountKPI(target);
+
+          // 既存JSが無い場合のフォールバック初期化
+          if(window.HoldingsUI && typeof HoldingsUI.init==='function'){ HoldingsUI.init(target); }
+          initSparkFallback(); // スパーク（保険）
         });
     }
 
-    function applyAndRender(st, push=true){
+    function applyAndRender(st,push=true){
       applyState(st);
-      const qs = buildQuery(st);
-      const newURL = location.pathname + (qs ? ("?"+qs) : "");
-      if (push) history.pushState(st, '', newURL); else history.replaceState(st, '', newURL);
-      saveLS(st);
-      fetchList(st);
+      const qs=buildQuery(st);
+      const newURL=location.pathname+(qs?("?"+qs):"");
+      if(push) history.pushState(st,'',newURL); else history.replaceState(st,'',newURL);
+      saveLS(st); fetchList(st);
     }
 
     // 初回
     (function init(){
-      const urlSt = readURL();
-      const hasURL = Object.values(urlSt).some(v => !!v);
-      const base = hasURL ? urlSt : Object.assign({
-        broker:'',account:'',side:'',pnl:'',sort:'updated',order:'desc',ticker:''
-      }, readLS());
-      applyAndRender(base, /*push=*/false);
+      const urlSt=readURL();
+      const hasURL=Object.values(urlSt).some(v=>!!v);
+      const base=hasURL ? urlSt : Object.assign({broker:'',account:'',side:'',pnl:'',sort:'updated',order:'desc',ticker:''}, readLS());
+      applyAndRender(base,false);
     })();
 
-    // 操作
-    document.getElementById('qb-apply').addEventListener('click', ()=>applyAndRender(gather(), true));
-    document.getElementById('qb-q').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); document.getElementById('qb-apply').click(); }});
-    window.addEventListener('popstate', (e)=>{
-      const st = e.state || readURL();
-      applyState(st||{});
-      fetchList(st||{});
-    });
+    $('qb-apply').addEventListener('click', ()=>applyAndRender(gather(),true));
+    $('qb-q').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); $('qb-apply').click(); }});
+    window.addEventListener('popstate', e=>{ const st=e.state||readURL(); applyState(st||{}); fetchList(st||{}); });
 
-    // SSR 初期描画分の KPI もマウント（念のため）
-    mountKPI(document);
+    // ---------- Spark モーダル（フォールバック実装） ----------
+    function initSparkFallback(){
+      // 既存の holdings.js に initSparkModal があればそれを優先
+      if(window.initSparkModal){ window.initSparkModal(); return; }
+
+      const modal=$('sparkModal'), canvas=$('sparkCanvas'), title=$('sparkTitle');
+      const ctx=canvas.getContext('2d');
+
+      function draw(arr){
+        const W=canvas.width=canvas.clientWidth, H=canvas.height=canvas.clientHeight;
+        ctx.clearRect(0,0,W,H);
+        if(!arr || arr.length<2) return;
+        const min=Math.min(...arr), max=Math.max(...arr);
+        const pad=8, rng=(max-min)||1;
+        ctx.beginPath();
+        arr.forEach((v,i)=>{
+          const x=pad + (W-2*pad)*i/(arr.length-1);
+          const y=H-pad - (H-2*pad)*(v-min)/rng;
+          i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+        });
+        ctx.strokeStyle='rgba(180,200,255,.95)';
+        ctx.lineWidth=2; ctx.stroke();
+      }
+
+      function openFromSVG(svg){
+        try{
+          const name = svg.closest('.head')?.querySelector('.name')?.textContent?.trim() || 'Spark';
+          title.textContent=name;
+          const s7i=JSON.parse(svg.dataset.s7i||'[]');
+          const s30i=JSON.parse(svg.dataset.s30i||'[]');
+          const s90i=JSON.parse(svg.dataset.s90i||'[]');
+          modal.classList.add('is-open');
+          modal.setAttribute('aria-hidden','false');
+          // 初期は 7日・指数
+          draw(s7i.length ? s7i : (s30i.length ? s30i : s90i));
+          // 切替ボタン
+          modal.querySelectorAll('.spark-ctrl .btn[data-span]').forEach(btn=>{
+            btn.onclick=()=>{
+              modal.querySelectorAll('.spark-ctrl .btn[data-span]').forEach(b=>b.classList.toggle('is-on', b===btn));
+              const span=btn.dataset.span;
+              const arr = (span==='7'?s7i : span==='30'?s30i : s90i);
+              draw(arr);
+            };
+          });
+        }catch(_){}
+      }
+
+      document.addEventListener('click', (e)=>{
+        const svg=e.target.closest?.('svg.spark');
+        if(svg){ openFromSVG(svg); }
+      });
+
+      $('sparkClose').onclick=()=>{ modal.classList.remove('is-open'); modal.setAttribute('aria-hidden','true'); };
+      modal.addEventListener('click', (e)=>{ if(e.target===modal) $('sparkClose').click(); });
+    }
+
+    // SSR直後に KPI を確実にヘッダーへ
+    (function mountFirst(){ mountKPI(document); })();
   })();
 </script>
 {% endblock %}
