@@ -51,6 +51,7 @@
     <div class="kpi"><div class="kpi-k">評価額合計</div><div class="kpi-v">{% if summary.val is not None %}¥{{ summary.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
     <div class="kpi"><div class="kpi-k">含み損益</div><div class="kpi-v {% if summary.pnl and summary.pnl < 0 %}neg{% else %}pos{% endif %}">{% if summary.pnl is not None %}¥{{ summary.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
     <div class="kpi"><div class="kpi-k">損益率</div><div class="kpi-v {% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">{% if summary.pnl_pct is not None %}{{ summary.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div></div>
+    <div class="kpi"><div class="kpi-k">勝ち件数 / 負け件数</div><div class="kpi-v">{{ summary.winners|default:"0" }} / {{ summary.losers|default:"0" }}</div></div>
     <div class="kpi"><div class="kpi-k">平均保有日数</div><div class="kpi-v">{% if summary.avg_days is not None %}{{ summary.avg_days|floatformat:0 }}日{% else %}—{% endif %}</div></div>
     <div class="kpi"><div class="kpi-k">中央値</div><div class="kpi-v">{% if summary.med_days is not None %}{{ summary.med_days|floatformat:0 }}日{% else %}—{% endif %}</div></div>
     <div class="kpi"><div class="kpi-k">平均ポジション</div><div class="kpi-v">{% if summary.avg_pos_size is not None %}¥{{ summary.avg_pos_size|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
