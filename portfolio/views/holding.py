@@ -1,10 +1,11 @@
 # portfolio/views/holding.py
 from __future__ import annotations
+
 import time
 from dataclasses import dataclass
-from datetime import date
-from typing import Any, Dict, List, Optional, Tuple
 from datetime import date, timedelta
+from statistics import median
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 import yfinance as yf
@@ -14,13 +15,13 @@ from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db import models
 from django.http import HttpResponse, JsonResponse
-from django.shortcuts import get_object_or_404, render, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
-from statistics import median  # ★ 追加：中央値
 
 from ..forms import HoldingForm
 from ..models import Holding
 from ..services import trend as svc_trend
+
 
 # =========================================================
 # ユーティリティ
@@ -29,16 +30,16 @@ from ..services import trend as svc_trend
 @dataclass
 class RowVM:
     obj: Holding
-    valuation: Optional[float] = None
-    pnl: Optional[float] = None
-    pnl_pct: Optional[float] = None
-    days: Optional[int] = None
+    valuation: Optional[float] = None      # 評価額（円）
+    pnl: Optional[float] = None            # 含み損益（円）
+    pnl_pct: Optional[float] = None        # 含み損益（%）
+    days: Optional[int] = None             # 保有日数（日）
 
-    # ▼ 追加（テンプレで使っている3つ＋見やすさ用の現在株価）
-    price_now: Optional[float] = None      # 現在株価（1株）
+    # テンプレで使う表示用フィールド
+    price_now: Optional[float] = None      # 現在株価（1株あたり）
     yield_now: Optional[float] = None      # 現在利回り（%）
     yield_cost: Optional[float] = None     # 取得利回り（%）
-    div_annual: Optional[float] = None     # 年間配当（税引後合計）
+    div_annual: Optional[float] = None     # 年間配当（税引後合計/円）
 
     # スパーク
     s7_idx: Optional[List[float]] = None
@@ -47,24 +48,6 @@ class RowVM:
     s7_raw: Optional[List[float]] = None
     s30_raw: Optional[List[float]] = None
     s90_raw: Optional[List[float]] = None
-
-def _calc_div_annual_net(h: Holding) -> Optional[float]:
-    """
-    その保有に紐づく配当のうち、直近365日の税引後合計（円）。
-    Dividend.holding のリレーションを優先利用。
-    """
-    try:
-        rel = getattr(h, "dividends", None)
-        if not rel:
-            return None
-        since = _today_jst() - timedelta(days=365)
-        total = 0.0
-        for d in rel.filter(date__gte=since):
-            # モデルにある net_amount() を使って税引後に統一
-            total += float(d.net_amount())
-        return total if total > 0 else None
-    except Exception:
-        return None
 
 
 def _to_float(x) -> Optional[float]:
@@ -75,16 +58,20 @@ def _to_float(x) -> Optional[float]:
     except Exception:
         return None
 
+
 def _norm_ticker(raw: str) -> str:
-    """'8591' / '167A' → yfinance用（例: '8591.T' / '167A.T'）"""
+    """'8591' / '167A' → yfinance 用（例: '8591.T' / '167A.T'）"""
     return svc_trend._normalize_ticker(str(raw or ""))
+
 
 def _today_jst() -> date:
     return date.today()
 
+
 # ------- yfinance 価格バッチ取得（15分キャッシュ） -------
 # key = (ticker_norm, days) -> (ts, [closes...])
 _SPARK_CACHE: Dict[Tuple[str, int], Tuple[float, List[float]]] = {}
+
 
 def _cache_get(ticker_norm: str, days: int) -> Optional[List[float]]:
     item = _SPARK_CACHE.get((ticker_norm, days))
@@ -96,8 +83,10 @@ def _cache_get(ticker_norm: str, days: int) -> Optional[List[float]]:
         return arr
     return None
 
+
 def _cache_put(ticker_norm: str, days: int, closes: List[float]) -> None:
     _SPARK_CACHE[(ticker_norm, days)] = (time.time(), closes)
+
 
 def _preload_closes(tickers: List[str], days: int) -> Dict[str, List[float]]:
     """
@@ -163,6 +152,7 @@ def _preload_closes(tickers: List[str], days: int) -> Dict[str, List[float]]:
 
     return out
 
+
 def _indexize(arr: List[float]) -> List[float]:
     if not arr:
         return []
@@ -171,21 +161,44 @@ def _indexize(arr: List[float]) -> List[float]:
         return arr[:]
     return [round(v / base, 4) for v in arr]
 
-from datetime import timedelta
+
+def _calc_div_annual_net(h: Holding) -> Optional[float]:
+    """
+    その保有に紐づく配当のうち、直近365日の税引後合計（円）。
+    Dividend.holding のリレーション（related_name='dividends'）を優先利用。
+    """
+    try:
+        rel = getattr(h, "dividends", None)
+        if not rel:
+            return None
+        since = _today_jst() - timedelta(days=365)
+        total = 0.0
+        for d in rel.filter(date__gte=since):
+            total += float(d.net_amount())  # 税引後で統一
+        return total if total > 0 else None
+    except Exception:
+        return None
+
 
 def _build_row(h: Holding) -> RowVM:
+    """
+    1件分の表示用データを作る。
+    - 現在評価額 / 含み損益 / % / 保有日数
+    - 年間配当（税引後）/ 現在・取得利回り
+    - スパーク 7/30/90
+    """
     q = int(h.quantity or 0)
     cost_unit = _to_float(h.avg_cost or 0) or 0.0
     acq = q * cost_unit
 
+    # 価格系列
     n = _norm_ticker(h.ticker)
-    raw7  = _preload_closes([h.ticker], 7).get(n, [])
+    raw7 = _preload_closes([h.ticker], 7).get(n, [])
     raw30 = _preload_closes([h.ticker], 30).get(n, [])
     raw90 = _preload_closes([h.ticker], 90).get(n, [])
 
     price_now = None
     val_now = None
-    # 直近の終値（存在する最も長い系列から拾う）
     if raw30 or raw7 or raw90:
         last = (raw30 or raw7 or raw90)[-1]
         price_now = float(last)
@@ -200,7 +213,7 @@ def _build_row(h: Holding) -> RowVM:
     # 年間配当（税引後合計）
     div_annual = _calc_div_annual_net(h)
 
-    # 利回り（配当が取れた場合のみ計算）
+    # 利回り
     y_now = y_cost = None
     if div_annual is not None and q > 0:
         div_ps = div_annual / q  # 1株あたり配当（税引後）
@@ -213,7 +226,7 @@ def _build_row(h: Holding) -> RowVM:
     start = h.opened_at or h.created_at.date()
     days = (_today_jst() - start).days if start else None
 
-    s7_idx  = _indexize(raw7)
+    s7_idx = _indexize(raw7)
     s30_idx = _indexize(raw30)
     s90_idx = _indexize(raw90)
 
@@ -235,12 +248,9 @@ def _build_row(h: Holding) -> RowVM:
         s90_raw=raw90 or None,
     )
 
-# ---------- 集計（ページ内KPIを“濃く”） ----------
+
+# ---------- 集計（ページ内KPI） ----------
 def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
-    """
-    ブローカー/口座などのフィルタ後の rows だけを対象に、
-    画面上部のKPIをまとめて返す。
-    """
     n = 0
     acq_sum = 0.0
     val_sum = 0.0
@@ -267,7 +277,6 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
                 winners += 1
             elif r.pnl < 0:
                 losers += 1
-            # トップ益/損
             if top_gain is None or r.pnl > top_gain[0]:
                 top_gain = (r.pnl, h)
             if top_loss is None or r.pnl < top_loss[0]:
@@ -297,7 +306,6 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
         med_days=med_days,
         avg_pos_size=avg_pos_size,
     )
-    # 表示用の補助情報（テンプレで存在チェックして使う）
     if top_gain:
         summary["top_gain_pnl"] = top_gain[0]
         summary["top_gain_id"] = top_gain[1].id
@@ -305,6 +313,7 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
         summary["top_loss_pnl"] = top_loss[0]
         summary["top_loss_id"] = top_loss[1].id
     return summary
+
 
 # =========================================================
 # API: コード→銘柄名（既存）
@@ -327,6 +336,7 @@ def api_ticker_name(request):
             name = ""
     return JsonResponse({"code": code, "name": name})
 
+
 # =========================================================
 # 一覧（フィルタ/並び替え/ページング）
 # =========================================================
@@ -336,19 +346,12 @@ def _apply_filters(qs, request):
     例）broker= 'MATSUI' でも '松井証券' でも可。
     """
     def _normalize_choice(field_name: str, raw: str) -> Optional[str]:
-        """
-        Holding.<field_name>.choices から raw をコードに変換する。
-        - raw がコード or 表示名のどちらでも受け付ける
-        - 大文字小文字/全角半角/前後空白をゆるく吸収
-        - 'ALL' / 'すべて' / '' は None を返してフィルタ無しに
-        """
         if raw is None:
             return None
         s = str(raw).strip()
         if s == "" or s.upper() == "ALL" or s == "すべて":
             return None
 
-        # 正規化（大文字/全角半角）
         import unicodedata
         key = unicodedata.normalize("NFKC", s).strip()
 
@@ -356,13 +359,10 @@ def _apply_filters(qs, request):
         for value, label in (field.choices or []):
             v = str(value)
             l = unicodedata.normalize("NFKC", str(label)).strip()
-            # コード一致 or 表示名一致のどちらでもOK
             if key == v or key == l:
                 return value
-        # choices に無い値はそのまま返す（既にコードを渡しているケース等）
         return s
 
-    # 証券（broker）、口座（account）、売買（side）
     broker  = _normalize_choice("broker",  request.GET.get("broker"))
     account = _normalize_choice("account", request.GET.get("account"))
     side    = _normalize_choice("side",    request.GET.get("side"))
@@ -374,42 +374,40 @@ def _apply_filters(qs, request):
     if side:
         qs = qs.filter(side=side)
 
-    # テキスト検索：コード/名称にゆるくヒット
     q = (request.GET.get("q") or request.GET.get("ticker") or "").strip()
     if q:
         qs = qs.filter(
             models.Q(ticker__icontains=q) | models.Q(name__icontains=q)
         )
-
     return qs
+
 
 def _sort_qs(qs, request):
     sort = request.GET.get("sort") or "updated"  # updated|created|opened
     order = request.GET.get("order") or "desc"   # asc|desc
     if sort in ("updated", "created", "opened"):
-        field = {"updated":"updated_at","created":"created_at","opened":"opened_at"}[sort]
+        field = {"updated": "updated_at", "created": "created_at", "opened": "opened_at"}[sort]
         if order == "asc":
             qs = qs.order_by(field, "-id")
         else:
             qs = qs.order_by(f"-{field}", "-id")
     else:
-        # pnl/days は DB で並べ替えできないため、ここでは更新日の降順にしておく
         qs = qs.order_by("-updated_at", "-id")
     return qs
+
 
 def _page(request, qs, per_page: int = 10):
     p = int(request.GET.get("page") or 1)
     paginator = Paginator(qs, per_page)
     return paginator.get_page(p)
 
+
 def _build_rows_for_page(page):
     return [_build_row(h) for h in page.object_list]
 
+
 def _apply_post_filters(rows: List[RowVM], request) -> List[RowVM]:
-    """
-    価格計算後でしかフィルタできない条件（損益プラス/マイナスなど）を
-    “ページ内” に適用。※ページング越えの厳密さは必要なら別途実装
-    """
+    """価格計算後でしかフィルタできない条件（損益プラス/マイナスなど）をページ内に適用。"""
     pnl_sign = (request.GET.get("pnl") or "").upper()  # POS|NEG|""(all)
     if pnl_sign == "POS":
         rows = [r for r in rows if (r.pnl or 0) > 0]
@@ -417,10 +415,9 @@ def _apply_post_filters(rows: List[RowVM], request) -> List[RowVM]:
         rows = [r for r in rows if (r.pnl or 0) < 0]
     return rows
 
+
 def _sort_rows(rows: List[RowVM], request) -> List[RowVM]:
-    """
-    pnl / days ソートを行う（“ページ内”での見た目ソート）。
-    """
+    """pnl / days ソート（ページ内での見た目ソート）。"""
     sort = (request.GET.get("sort") or "").lower()
     order = (request.GET.get("order") or "desc").lower()
     reverse = (order != "asc")
@@ -429,19 +426,19 @@ def _sort_rows(rows: List[RowVM], request) -> List[RowVM]:
         rows.sort(key=lambda r: (r.pnl is None, r.pnl or 0.0), reverse=reverse)
     elif sort == "days":
         rows.sort(key=lambda r: (r.days is None, r.days or 0), reverse=reverse)
-    # それ以外（updated/created/opened）は DB ソート済み
     return rows
+
 
 @login_required
 def holding_list(request):
-    # 年間配当計算で N+1 を避ける
+    # 年間配当計算のN+1を避ける
     qs = Holding.objects.filter(user=request.user).prefetch_related("dividends")
 
     qs = _apply_filters(qs, request)
     qs = _sort_qs(qs, request)
     page = _page(request, qs)
 
-    rows = _build_rows_for_page(page)          # ここで price_now / yield_* / div_annual を計算
+    rows = _build_rows_for_page(page)  # ← price_now / yield_* / div_annual を含む
     rows = _apply_post_filters(rows, request)
     rows = _sort_rows(rows, request)
 
@@ -456,6 +453,7 @@ def holding_list(request):
             self.previous_page_number = src.previous_page_number
             self.next_page_number = src.next_page_number
             self.object_list = objs
+
     page_wrap = _PageWrap(page, rows)
 
     ctx = {
@@ -473,9 +471,12 @@ def holding_list(request):
     }
     return render(request, "holdings/list.html", ctx)
 
+
 @login_required
 def holding_list_partial(request):
-    qs = Holding.objects.filter(user=request.user)
+    # 部分更新でも同じ計算が必要
+    qs = Holding.objects.filter(user=request.user).prefetch_related("dividends")
+
     qs = _apply_filters(qs, request)
     qs = _sort_qs(qs, request)
     page = _page(request, qs)
@@ -495,6 +496,7 @@ def holding_list_partial(request):
             self.previous_page_number = src.previous_page_number
             self.next_page_number = src.next_page_number
             self.object_list = objs
+
     page_wrap = _PageWrap(page, rows)
 
     ctx = {
@@ -511,6 +513,7 @@ def holding_list_partial(request):
         "summary": summary,
     }
     return render(request, "holdings/_list.html", ctx)
+
 
 # =========================================================
 # 作成/編集/削除（既存）
@@ -529,6 +532,7 @@ def holding_create(request):
         form = HoldingForm()
     return render(request, "holdings/form.html", {"form": form, "mode": "create"})
 
+
 @login_required
 def holding_edit(request, pk):
     obj = get_object_or_404(Holding, pk=pk, user=request.user)
@@ -541,6 +545,7 @@ def holding_edit(request, pk):
     else:
         form = HoldingForm(instance=obj)
     return render(request, "holdings/form.html", {"form": form, "mode": "edit", "obj": obj})
+
 
 @login_required
 @require_POST
