@@ -7,7 +7,7 @@
     display:grid; gap:16px; padding:18px;
     border-radius:16px; background:rgba(255,255,255,.04);
     border:1px solid rgba(255,255,255,.08);
-    max-width:680px; margin:0 auto;
+    max-width:720px; margin:0 auto;
   }
   .fi label{ display:block; font-size:13px; color:#9aa4b2; margin-bottom:4px; }
   .fi input, .fi select, .fi textarea{
@@ -16,7 +16,9 @@
     background:rgba(255,255,255,.06); color:#e6ebff; outline:none;
   }
   .fi textarea{ min-height:96px; resize:vertical; line-height:1.5; }
-  .grid-fields{ display:grid; gap:12px; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); }
+  .row-2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:520px){ .row-2{ grid-template-columns:1fr; } } /* ← 重なり解消 */
+
   .btn-bar{ display:flex; gap:12px; margin-top:4px; }
   .btn-bar button, .btn-bar a{
     flex:1; text-align:center; padding:12px; border-radius:12px;
@@ -26,7 +28,6 @@
   .btn-bar button:hover, .btn-bar a:hover{ background:rgba(255,255,255,.12); }
   .error-box{ padding:10px; border:1px solid #ff9aa9; background:#2b1f24; color:#ffd1d1; border-radius:8px; font-size:14px; }
   .hint {font-size:12px;color:#888}
-  .opt-sub { color:#9aa4b2; font-size:12px; }
 </style>
 {% endblock %}
 
@@ -34,88 +35,85 @@
 <div class="pnl">
   <h1 style="margin-bottom:12px">配当を記録</h1>
 
-  <form method="post" class="form-card">
+  <form method="post" class="form-card" id="divForm">
     {% csrf_token %}
 
-    <!-- 保有（選択したらコード/銘柄名などを自動補完） -->
+    <!-- 保有選択 -->
     <div class="fi">
       <label>保有（任意）</label>
-      <select name="holding" id="fHolding">
+      <select id="selHolding" name="holding">
         <option value="">未選択</option>
         {% for h in holdings %}
           <option value="{{ h.id }}"
-                  {% if form.holding.value|stringformat:"s" == h.id|stringformat:"s" %}selected{% endif %}>
-            {{ h.name|default:h.ticker }}
-            {% if h.ticker or h.quantity %}
-              <span class="opt-sub">（{{ h.ticker }}{% if h.quantity %} × {{ h.quantity }}{% endif %}）</span>
-            {% endif %}
+            {% if form.holding.value == h.id %}selected{% endif %}>
+            {{ h.name }}（{{ h.ticker }} × {{ h.quantity|default:"-" }}）
           </option>
         {% endfor %}
       </select>
-      <div class="hint">未登録の銘柄は下でティッカー/銘柄名・株数・取得単価を入力してください。</div>
     </div>
 
-    <!-- ティッカー/銘柄 -->
+    <p class="hint">未登録の銘柄は下でティッカー/銘柄名・株数・取得単価を入力してください。</p>
+
+    <!-- ティッカー / 銘柄名 -->
     <div class="fi">
       <label>ティッカー/コード（保有未選択時は必須）</label>
-      <input type="text"
-             name="ticker"
-             id="fTicker"
-             inputmode="latin"
-             autocomplete="off"
-             autocorrect="off"
-             spellcheck="false"
-             style="text-transform:uppercase"
-             placeholder="例: 7203 / AAPL"
+      <input id="inTicker" type="text" name="ticker" inputmode="latin"
+             autocomplete="off" autocapitalize="characters"
              value="{{ form.ticker.value|default_if_none:'' }}">
     </div>
-
     <div class="fi">
       <label>銘柄名（任意・自動補完／手入力可）</label>
-      <input type="text" name="name" id="fName" value="{{ form.name.value|default_if_none:'' }}"
-             placeholder="自動補完／手入力可">
+      <input id="inName" type="text" name="name" value="{{ form.name.value|default_if_none:'' }}">
       <div class="hint">コード入力後に自動補完されます（取得不可のときは手入力）。</div>
     </div>
 
-    <!-- 受取日・金額など（元テンプレに合わせて必要フィールドだけ） -->
-    <div class="grid-fields">
+    <!-- 受取日 / 受取額（税引前） -->
+    <div class="row-2">
       <div class="fi">
         <label>受取日</label>
         {{ form.date }}
       </div>
       <div class="fi">
         <label>受取額（税引前）</label>
-        {{ form.amount }}
-      </div>
-      <div class="fi">
-        <label>税額</label>
-        {{ form.tax }}
+        <input type="number" step="0.01" inputmode="decimal" name="amount"
+               value="{{ form.amount.value|default_if_none:'' }}">
       </div>
     </div>
 
-    <div class="grid-fields">
+    <!-- 税額 / 株数 -->
+    <div class="row-2">
       <div class="fi">
-        <label>株数</label>
-        <input type="number" inputmode="decimal" step="0.01" name="quantity"
-               id="fQty"
-               value="{% if form.quantity.value and form.quantity.value != '0' %}{{ form.quantity.value }}{% endif %}">
+        <label>税額</label>
+        <input type="number" step="0.01" inputmode="decimal" name="tax"
+               value="{{ form.tax.value|default_if_none:'' }}">
       </div>
       <div class="fi">
+        <label>株数</label>
+        <input id="inQty" type="number" inputmode="numeric" name="quantity"
+               value="{% if form.quantity.value and form.quantity.value != '0' %}{{ form.quantity.value }}{% endif %}">
+      </div>
+    </div>
+
+    <!-- 取得単価 / 予備 -->
+    <div class="row-2">
+      <div class="fi">
         <label>取得単価</label>
-        <input type="number" inputmode="decimal" step="0.01" name="purchase_price"
-               id="fPrice"
+        <input id="inAvg" type="number" step="0.01" inputmode="decimal" name="purchase_price"
                value="{% if form.purchase_price.value and form.purchase_price.value != '0' %}{{ form.purchase_price.value }}{% endif %}">
       </div>
       <div class="fi">
-        <label>証券会社</label>
-        {{ form.broker }}
-      </div>
-      <div class="fi">
-        <label>口座区分</label>
-        {{ form.account }}
+        <label>&nbsp;</label>
+        <div></div>
       </div>
     </div>
 
+    <!-- 証券会社 / 口座区分 -->
+    <div class="row-2">
+      <div class="fi"><label>証券会社</label>{{ form.broker }}</div>
+      <div class="fi"><label>口座区分</label>{{ form.account }}</div>
+    </div>
+
+    <!-- メモ -->
     <div class="fi">
       <label>メモ</label>
       {{ form.memo }}
@@ -132,77 +130,62 @@
   </form>
 </div>
 
-<!-- 保有 -> 自動補完用データ（サーバから埋め込み） -->
+<!-- 保有データ（自動反映用） -->
 {{ holdings|json_script:"holdings-data" }}
 
 <script>
-(() => {
+(function(){
+  const HOLDINGS = JSON.parse(document.getElementById('holdings-data').textContent || '[]');
+  const $ = s => document.querySelector(s);
+
+  const sel        = $('#selHolding');
+  const inTicker   = $('#inTicker');
+  const inName     = $('#inName');
+  const inQty      = $('#inQty');
+  const inAvg      = $('#inAvg');
+  const brokerSel  = document.querySelector('select[name="broker"]');
+  const accountSel = document.querySelector('select[name="account"]');
+
+  // ティッカーは常に大文字化（カーソル位置を維持）
+  inTicker?.addEventListener('input', e=>{
+    const p = e.target.selectionStart;
+    e.target.value = (e.target.value || '').toUpperCase();
+    e.target.setSelectionRange(p,p);
+  });
+
+  // ティッカー → 銘柄名の自動補完（API）
   const endpoint = "{% url 'api_ticker_name' %}";
-
-  const $holding = document.getElementById('fHolding');
-  const $ticker  = document.getElementById('fTicker');
-  const $name    = document.getElementById('fName');
-  const $qty     = document.getElementById('fQty');
-  const $price   = document.getElementById('fPrice');
-
-  // 入力中は常に大文字化
-  $ticker?.addEventListener('input', () => { $ticker.value = ($ticker.value||'').toUpperCase(); });
-
-  // コード→銘柄名の自動補完（既存の機能があるなら併用OK）
-  function lookupNameByTicker(){
-    const v = ($ticker.value || '').trim();
-    if (!v) return;
-    fetch(`${endpoint}?q=${encodeURIComponent(v)}`, {credentials:'same-origin'})
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(({name}) => { if (name && (!$name.value || $name.dataset.autofilled === '1')) {
-        $name.value = name; $name.dataset.autofilled = '1';
-      }})
+  function lookupName(code){
+    if (!code) return;
+    fetch(`${endpoint}?q=${encodeURIComponent(code)}`, {credentials:'same-origin'})
+      .then(r=>r.ok?r.json():Promise.reject())
+      .then(d=>{ if(d && d.name && !inName.value) inName.value = d.name; })
       .catch(()=>{});
   }
-  $ticker?.addEventListener('change', lookupNameByTicker);
-  $ticker?.addEventListener('blur',   lookupNameByTicker);
+  inTicker?.addEventListener('blur',   ()=> lookupName(inTicker.value.trim()));
+  inTicker?.addEventListener('change', ()=> lookupName(inTicker.value.trim()));
 
-  // 保有データ（id -> 各属性）
-  const HOLDINGS = (() => {
-    try { return JSON.parse(document.getElementById('holdings-data').textContent) || []; }
-    catch(_){ return []; }
-  })();
-  const mapById = new Map(HOLDINGS.map(h => [String(h.id), h]));
-
-  // 保有選択 → 自動補完
-  function applyHolding(){
-    const id = ($holding.value || '').trim();
-    const h  = mapById.get(id);
+  // 保有選択 → 関連項目を自動反映
+  function applyHolding(h){
     if (!h) return;
-
-    // ティッカー・銘柄名
-    if (h.ticker){
-      $ticker.value = String(h.ticker).toUpperCase();
-      $ticker.dispatchEvent(new Event('change'));
-    }
-    if (h.name && (!$name.value || $name.dataset.autofilled === '1')){
-      $name.value = h.name; $name.dataset.autofilled = '1';
-    }
-
-    // 株数・取得単価（空のときだけ保険で入れる）
-    if (h.quantity && (!$qty.value || Number($qty.value) === 0)){
-      $qty.value = h.quantity;
-    }
-    if (typeof h.avg_cost === 'number' && (!$price.value || Number($price.value) === 0)){
-      $price.value = h.avg_cost;
-    }
-
-    // 証券会社・口座（未選択なら反映）
-    const $broker  = document.querySelector('select[name="broker"]');
-    const $account = document.querySelector('select[name="account"]');
-    if ($broker && h.broker && !$broker.value)   $broker.value  = h.broker;
-    if ($account && h.account && !$account.value) $account.value = h.account;
+    if (inTicker) inTicker.value = String(h.ticker||'').toUpperCase();
+    if (inName)   inName.value   = h.name || '';
+    if (inQty)    inQty.value    = (h.quantity != null && h.quantity !== '') ? h.quantity : '';
+    if (inAvg)    inAvg.value    = (h.avg_cost != null && h.avg_cost !== '') ? h.avg_cost : '';
+    if (brokerSel && h.broker){ brokerSel.value  = h.broker; }
+    if (accountSel && h.account){ accountSel.value = h.account; }
   }
 
-  $holding?.addEventListener('change', applyHolding);
+  sel?.addEventListener('change', ()=>{
+    const h = HOLDINGS.find(x=> String(x.id) === String(sel.value));
+    applyHolding(h);
+  });
 
-  // ページ初期表示時、既に保有が選択されていれば反映
-  if ($holding && $holding.value) applyHolding();
+  // 初期表示で選択済みなら反映
+  if (sel && sel.value){
+    const h = HOLDINGS.find(x=> String(x.id) === String(sel.value));
+    applyHolding(h);
+  }
 })();
 </script>
 {% endblock %}
