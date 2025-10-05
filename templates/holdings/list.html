@@ -11,18 +11,32 @@
   }
 
   /* ===== 固定ヘッダー（フィルター＋KPI） ===== */
+  /* ===== 固定ヘッダー（フィルター＋KPI） ===== */
   #topSticky{
     position: sticky;
-    top: calc(env(safe-area-inset-top, 0px) + var(--topbarH));
-    z-index: 30;
+    /* ← 余白の原因だったアプリバー分のオフセットを撤廃。
+       iPhoneノッチぶんだけにします */
+    top: env(safe-area-inset-top, 0px);
+  
+    z-index: 12;                    /* 高すぎない値に下げる */
     border: 1px solid rgba(255,255,255,.12);
     border-radius: 12px;
-    background: rgba(15,20,30,.65);
-    backdrop-filter: blur(10px);
+  
+    /* ← 透け感を抑えて“下が見える＝被ってる”を解消 */
+    background: rgba(15,20,30,.96);
+    backdrop-filter: blur(8px);
+  
     padding: 8px;
-    margin: 6px 0 8px;
-    max-height: 33vh;             /* ← 上部1/3に収める上限 */
-    overflow: auto;                /* 溢れたら中だけスクロール */
+    margin: 0 0 8px;               /* ← 上マージンを 0 にして白枠を除去 */
+    max-height: 33vh;              /* 上部 1/3 制限は維持 */
+    overflow: auto;                /* 中だけスクロール */
+    box-shadow: 0 2px 0 rgba(255,255,255,.06) inset; /* 下端をはっきり */
+  }
+  
+  /* スクロール時にカードが下に潜り込んだように見えるのを抑える */
+  #holdingsBody { 
+    position: relative;
+    z-index: 1;                    /* topSticky より低いが十分見える */
   }
 
   /* ===== フィルター（極小） ===== */
