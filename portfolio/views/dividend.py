@@ -20,6 +20,7 @@ from collections import defaultdict
 
 from ..forms import DividendForm, _normalize_code_head
 from ..models import Dividend
+from ..models import Holding
 from ..services import tickers as svc_tickers
 from ..services import trend as svc_trend
 from ..services import dividends as svc_div  # 集計/目標
@@ -533,7 +534,17 @@ def dividend_create(request):
     else:
         form = DividendForm(user=request.user)
 
-    return render(request, "dividends/form.html", {"form": form})
+    # ★ 保有データをテンプレに渡す（自動補完用）
+    holdings = list(
+        Holding.objects
+        .filter(user=request.user)
+        .values("id", "ticker", "name", "quantity", "avg_cost", "broker", "account")
+    )
+
+    return render(request, "dividends/form.html", {
+        "form": form,
+        "holdings": holdings,   # ← 追加
+    })
 
 
 @login_required
@@ -547,14 +558,23 @@ def dividend_edit(request, pk: int):
         form = DividendForm(request.POST, instance=obj, user=request.user)
         if form.is_valid():
             edited = form.save(commit=False)
-            edited.is_net = False  # 税引前仕様に合わせる
+            edited.is_net = False
             edited.save()
             messages.success(request, "配当を更新しました。")
             return redirect("dividend_list")
     else:
         form = DividendForm(instance=obj, user=request.user)
 
-    return render(request, "dividends/form.html", {"form": form})
+    holdings = list(
+        Holding.objects
+        .filter(user=request.user)
+        .values("id", "ticker", "name", "quantity", "avg_cost", "broker", "account")
+    )
+
+    return render(request, "dividends/form.html", {
+        "form": form,
+        "holdings": holdings,   # ← 追加
+    }
 
 
 @login_required
