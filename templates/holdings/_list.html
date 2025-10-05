@@ -200,6 +200,14 @@
                 <div class="k">年間配当</div>
                 <div class="v">{% if r.div_annual is not None %}¥{{ r.div_annual|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
               </div>
+              <div class="kv2">
+                <div class="k">累計配当（準）</div>
+                <div class="v">
+                  {% if r.div_received is not None %}
+                    ¥{{ r.div_received|floatformat:0|intcomma }}
+                  {% else %}—{% endif %}
+                </div>
+              </div>
             </div>
           </section>
 
