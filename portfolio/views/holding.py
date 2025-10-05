@@ -95,7 +95,7 @@ def _infer_ex_date(div_date: date, ticker_norm: str) -> date:
     - それ以外は div_date をそのまま（米株は多くがEx-Date）。
     """
     if ticker_norm.endswith(".T"):
-        delta = 60
+        delta = 70
         delta = max(30, min(90, delta))
         return div_date - timedelta(days=delta)
     return div_date
