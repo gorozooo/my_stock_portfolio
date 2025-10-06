@@ -1,17 +1,18 @@
 # portfolio/services/cash_service.py
 from __future__ import annotations
 from datetime import date
-from django.db.models import Sum, Q
+from collections import defaultdict
+from django.db.models import Sum
 from django.db import transaction
 from ..models_cash import BrokerAccount, CashLedger, MarginState
 
+# ---- 基本集計（口座単位） ---------------------------------
 def cash_balance(account: BrokerAccount) -> int:
     agg = CashLedger.objects.filter(account=account).aggregate(s=Sum("amount"))["s"] or 0
     return int(account.opening_balance + agg)
 
 def month_netflow(account: BrokerAccount, year: int, month: int) -> int:
     qs = CashLedger.objects.filter(account=account, at__year=year, at__month=month)
-    # 入出金・振替・配当・手数料・税など全部込みのネット
     agg = qs.aggregate(s=Sum("amount"))["s"] or 0
     return int(agg)
 
@@ -24,16 +25,14 @@ def account_summary(account: BrokerAccount, today: date):
     restricted = 0
     available = bal
     if m:
-        # “自由現金”が管理画面で入力されるならそちら優先
-        # 未入力でも最低限 bal を土台に余力を近似できる
         collateral_usable = m.collateral_usable
         restricted = int(m.required_margin + m.restricted_amount)
         available = int(m.cash_free + collateral_usable - restricted)
-        # cash_free未入力なら、簡易的に bal を自由現金として扱う
         if m.cash_free == 0:
             available = int(bal + collateral_usable - restricted)
 
     return {
+        "broker": account.broker,
         "key": f"{account.broker}-{account.account_type}",
         "name": f"{account.broker} / {account.account_type}",
         "cash": bal,
@@ -43,6 +42,7 @@ def account_summary(account: BrokerAccount, today: date):
         "month_net": month_netflow(account, today.year, today.month),
     }
 
+# ---- 全体KPI（必要ならホーム用に継続） ----------------------
 def total_summary(today: date):
     rows = []
     for acc in BrokerAccount.objects.all().order_by("broker", "account_type"):
@@ -55,7 +55,38 @@ def total_summary(today: date):
     }
     return total, rows
 
-# ーーー 台帳操作（入金/出金/振替）ーーー
+# ---- ★ 証券会社ごとの集計（今回メイン） ---------------------
+PREF_ORDER = ["楽天", "松井", "SBI", "moomoo"]
+
+def broker_summaries(today: date):
+    """BrokerAccount を“証券会社名”でまとめたKPIリストを返す。"""
+    # まず口座単位のサマリ
+    acc_rows = [account_summary(acc, today) for acc in BrokerAccount.objects.all()]
+
+    grouped = defaultdict(lambda: {"cash":0,"restricted":0,"available":0,"month_net":0})
+    for r in acc_rows:
+        g = grouped[r["broker"]]
+        g["cash"]       += r["cash"]
+        g["restricted"] += r["restricted"]
+        g["available"]  += r["available"]
+        g["month_net"]  += r["month_net"]
+
+    items = []
+    for broker, v in grouped.items():
+        items.append({
+            "broker": broker,
+            "cash": int(v["cash"]),
+            "restricted": int(v["restricted"]),
+            "available": int(v["available"]),
+            "month_net": int(v["month_net"]),
+        })
+
+    # 並び順：既定 > その他（五十音）
+    pref_index = {b:i for i,b in enumerate(PREF_ORDER)}
+    items.sort(key=lambda x: (pref_index.get(x["broker"], 999), x["broker"]))
+    return items
+
+# ---- 台帳操作 ---------------------------------------------
 def deposit(account: BrokerAccount, amount: int, memo: str = "入金"):
     assert amount > 0
     return CashLedger.objects.create(account=account, amount=amount, kind=CashLedger.Kind.DEPOSIT, memo=memo)
