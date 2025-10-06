@@ -1,5 +1,10 @@
 # portfolio/admin.py
+from __future__ import annotations
 from django.contrib import admin
+from django.urls import reverse
+from django.utils.html import format_html
+from django.utils.safestring import mark_safe
+
 from .models import Holding, UserSetting, RealizedTrade, Dividend
 from .models_cash import BrokerAccount, CashLedger, MarginState
 
@@ -13,7 +18,6 @@ class HoldingAdmin(admin.ModelAdmin):
 
     def get_list_display(self, request):
         base = [
-            # user があれば先頭に出す
             *(["user"] if hasattr(Holding, "user") else []),
             "ticker",
             *(["name"] if hasattr(Holding, "name") else []),
@@ -49,7 +53,6 @@ class HoldingAdmin(admin.ModelAdmin):
 
 
 # --------- UserSetting ---------
-# すでに UserSetting が登録済みでも二重登録を避ける
 try:
     admin.site.register(UserSetting)
 except admin.sites.AlreadyRegistered:
@@ -64,7 +67,6 @@ class RealizedTradeAdmin(admin.ModelAdmin):
     追加していれば hold_days も表示。
     """
 
-    # 日本語ラベル表示
     @admin.display(description="証券会社")
     def broker_jp(self, obj):
         try:
@@ -96,9 +98,7 @@ class RealizedTradeAdmin(admin.ModelAdmin):
             cols.append("tax")
         if hasattr(RealizedTrade, "cashflow"):
             cols.append("cashflow")
-        # プロパティ pnl をそのまま表示（数値）
-        cols.append("pnl")
-        # ★ 修正: 正しいフィールド名は hold_days
+        cols.append("pnl")  # property
         if hasattr(RealizedTrade, "hold_days"):
             cols.append("hold_days")
         return tuple(cols)
@@ -106,7 +106,7 @@ class RealizedTradeAdmin(admin.ModelAdmin):
     def get_list_filter(self, request):
         flt = ["side", "trade_at"]
         if hasattr(RealizedTrade, "broker"):
-            flt.insert(0, "broker")  # 先頭寄りに
+            flt.insert(0, "broker")
         if hasattr(RealizedTrade, "account"):
             flt.insert(1, "account")
         return tuple(flt)
@@ -114,15 +114,16 @@ class RealizedTradeAdmin(admin.ModelAdmin):
     def get_search_fields(self, request):
         fields = ["ticker", "name", "memo"]
         return tuple([f for f in fields if hasattr(RealizedTrade, f.split("__")[0])])
-        
+
+
 # --------- Dividend ---------
 @admin.register(Dividend)
 class DividendAdmin(admin.ModelAdmin):
     list_display = (
         "id", "date", "ticker", "name",
         "amount",        # 受取額（税引後）
-        "tax",           # 税額（自動計算）
-        "gross_display", # 税引前の概算（表示用メソッド）
+        "tax",           # 税額
+        "gross_display", # 税引前の概算（表示用）
         "holding",
     )
     list_filter = ("date", "is_net")
@@ -136,18 +137,64 @@ class DividendAdmin(admin.ModelAdmin):
         return amt + tax if obj.is_net else amt
     gross_display.short_description = "税引前(概算)"
 
-# --------- Dividend --------- 
+
+# --------- Cash ---------
 @admin.register(BrokerAccount)
 class BrokerAccountAdmin(admin.ModelAdmin):
     list_display = ("broker", "account_type", "currency", "opening_balance", "name")
     list_filter = ("broker", "account_type", "currency")
     search_fields = ("name",)
 
+
 @admin.register(CashLedger)
 class CashLedgerAdmin(admin.ModelAdmin):
-    list_display = ("at", "account", "kind", "amount", "memo", "link_model", "link_id")
-    list_filter = ("kind", "account__broker", "account__account_type")
-    search_fields = ("memo", "link_model")
+    """
+    CashLedger は source_type/source_id に一本化。
+    旧 link_model/link_id は削除済み。
+    """
+    list_display = (
+        "at",
+        "account",
+        "kind",
+        "amount",
+        "memo",
+        "source_type",
+        "source_id",
+        "source_link",  # 関連元（Dividend/RealizedTrade）へのリンク
+    )
+    list_filter = (
+        "kind",
+        "source_type",
+        ("account", admin.RelatedOnlyFieldListFilter),
+        "account__broker",
+        "account__account_type",
+    )
+    search_fields = ("memo", "account__broker")
+    date_hierarchy = "created_at"
+    readonly_fields = ("created_at", "at")
+
+    @admin.display(description="Source")
+    def source_link(self, obj: CashLedger):
+        """
+        Dividend / RealizedTrade の変更ページへリンク。
+        該当しなければ文字列を返す。
+        """
+        if not obj.source_type or not obj.source_id:
+            return "—"
+
+        try:
+            if obj.source_type == CashLedger.SourceType.DIVIDEND:
+                url = reverse("admin:portfolio_dividend_change", args=[obj.source_id])
+                label = f"Dividend #{obj.source_id}"
+            elif obj.source_type == CashLedger.SourceType.REALIZED:
+                url = reverse("admin:portfolio_realizedtrade_change", args=[obj.source_id])
+                label = f"RealizedTrade #{obj.source_id}"
+            else:
+                return f"{obj.source_type} #{obj.source_id}"
+            return format_html('<a href="{}">{}</a>', url, mark_safe(label))
+        except Exception:
+            return f"{obj.source_type} #{obj.source_id}"
+
 
 @admin.register(MarginState)
 class MarginStateAdmin(admin.ModelAdmin):
