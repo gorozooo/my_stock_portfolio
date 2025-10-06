@@ -1,4 +1,6 @@
-// bottom_tab.js – Tab nav / Long-press sheet / Drag-to-close / Toast / Bounce (+ Dividends)
+// bottom_tab.js – Tab nav / Long-press sheet / Drag-to-close / Toast / Bounce
+// ※ トレンドはホーム内パネルへ統合、💵現金タブ追加版
+
 // 固定バーを <body> 直下へ移動して transform/backdrop-filter の影響を遮断
 document.addEventListener("DOMContentLoaded", () => {
   const root = document.getElementById("bottomTabRoot");
@@ -60,12 +62,26 @@ document.addEventListener("DOMContentLoaded", () => {
   /* --- Django 側から差し込めるURL辞書（フォールバック付き） --- */
   const URLS = Object.assign(
     {
-      home_base          : "/",
-      holdings_base      : "/holdings/",
-      holding_create     : "/holdings/new/",
-      realized_base      : "/realized/",
-      trend_base         : "/trend/",
-      // 配当
+      // Home
+      home_base        : "/",
+      home_panel_cash  : "/?panel=cash",
+      home_panel_trend : "/?panel=trend",
+
+      // Holdings / Realized
+      holdings_base  : "/holdings/",
+      holding_create : "/holdings/new/",
+      realized_base  : "/realized/",
+
+      // Trend（互換：ホーム内パネルへ）
+      trend_base: "/?panel=trend",
+
+      // Cash（新規）
+      cash_base     : "/cash/",
+      cash_deposit  : "/cash/?action=deposit",
+      cash_withdraw : "/cash/?action=withdraw",
+      cash_transfer : "/cash/?action=transfer",
+
+      // Dividends
       dividends_dashboard: "/dividends/dashboard/",
       dividends_base     : "/dividends/",
       dividend_create    : "/dividends/create/",
@@ -105,43 +121,47 @@ document.addEventListener("DOMContentLoaded", () => {
     return qs ? `${URLS.holdings_base}?${qs}` : `${URLS.holdings_base}`;
   }
 
-  /* --- メニュー定義（broker は action で処理） --- */
+  /* --- メニュー定義 --- */
   const MENUS = {
     home: [
       { section:"クイック" },
-      { label:"新規登録",     href: URLS.holding_create,     icon:"➕", tone:"add" },
-      { label:"設定を開く",   href:"/settings/trade",        icon:"⚙️", tone:"info" },
+      { label:"新規登録",         href: URLS.holding_create,  icon:"➕", tone:"add" },
+      { label:"現金（ホーム表示）",href: URLS.home_panel_cash, icon:"💵", tone:"info" },
+      { label:"トレンド（ホーム）",href: URLS.home_panel_trend,icon:"📈", tone:"info" },
+      { label:"設定を開く",       href:"/settings/trade",     icon:"⚙️", tone:"info" },
     ],
     holdings: [
       { section:"保有" },
-      { label:"新規登録",     href: URLS.holding_create,     icon:"➕", tone:"add" },
-      { label:"楽天証券",     action:"goto_broker", broker:"RAKUTEN", icon:"🏯", tone:"info" },
-      { label:"松井証券",     action:"goto_broker", broker:"MATSUI",  icon:"📊", tone:"info" },
-      { label:"SBI証券",      action:"goto_broker", broker:"SBI",     icon:"🏦", tone:"info" },
+      { label:"新規登録",         href: URLS.holding_create,     icon:"➕", tone:"add" },
+      { label:"楽天証券",         action:"goto_broker", broker:"RAKUTEN", icon:"🏯", tone:"info" },
+      { label:"松井証券",         action:"goto_broker", broker:"MATSUI",  icon:"📊", tone:"info" },
+      { label:"SBI証券",          action:"goto_broker", broker:"SBI",     icon:"🏦", tone:"info" },
+      { label:"全て表示",         action:"goto_all_brokers",              icon:"📋", tone:"info" },
     ],
     dividends: [
       { section:"配当" },
-      { label:"配当登録",       href: URLS.dividend_create,     icon:"➕", tone:"add" },
-      { label:"明細",           href: URLS.dividends_base,      icon:"📑", tone:"info" },
-      { label:"カレンダー", href:"/dividends/calendar/", icon:"📅", tone:"info" },
-      { label:"予測",       href:"/dividends/forecast/", icon:"📈", tone:"info" },
+      { label:"配当登録",         href: URLS.dividend_create,     icon:"➕", tone:"add" },
+      { label:"明細",             href: URLS.dividends_base,      icon:"📑", tone:"info" },
+      { label:"カレンダー",       href:"/dividends/calendar/",    icon:"📅", tone:"info" },
+      { label:"予測",             href:"/dividends/forecast/",    icon:"📈", tone:"info" },
+      { label:"ダッシュボード",   href: URLS.dividends_dashboard, icon:"🏛️", tone:"info" },
     ],
-    pnl: [
+    realized: [
       { section:"実現損益" },
-      { label:"期間サマリー",   action:"show_summary",       icon:"📊", tone:"info" },
-      { label:"月別サマリー",   href:"/realized/monthly/",   icon:"🗓️", tone:"info" },
-      { label:"ランキング",     action:"show_ranking",        icon:"🏅", tone:"info" },
-      { label:"明細",           action:"show_details",        icon:"📑", tone:"info" },
+      { label:"期間サマリー",     href:"/realized/summary/",   icon:"📊", tone:"info" },
+      { label:"月別サマリー",     href:"/realized/monthly/",   icon:"🗓️", tone:"info" },
+      { label:"ランキング",       href:"/realized/ranking/",    icon:"🏅", tone:"info" },
+      { label:"明細",             href: URLS.realized_base,     icon:"📑", tone:"info" },
     ],
-    trend: [
-      { section:"トレンド" },
-      { label:"監視に追加",     action:"watch_symbol",        icon:"👁️", tone:"add" },
-      { label:"エントリー/ストップ計算", action:"calc_entry_stop", icon:"🎯", tone:"info" },
-      { label:"共有リンクをコピー", action:"share_link",     icon:"🔗", tone:"info" },
-      { label:"チャート設定",   action:"chart_settings",      icon:"🛠️", tone:"action" },
+    cash: [
+      { section:"現金" },
+      { label:"入金",             href: URLS.cash_deposit,   icon:"➕", tone:"add" },
+      { label:"出金",             href: URLS.cash_withdraw,  icon:"➖", tone:"action" },
+      { label:"振替",             href: URLS.cash_transfer,  icon:"🔁", tone:"info" },
+      { label:"ダッシュボード",   href: URLS.cash_base,      icon:"💵", tone:"info" },
+      { label:"ホームで見る",     href: URLS.home_panel_cash,icon:"🏠", tone:"info" },
     ],
   };
-  MENUS.realized = MENUS.pnl;
 
   /* --- パス正規化 & 遷移 --- */
   const normPath = (p)=>{
@@ -175,16 +195,14 @@ document.addEventListener("DOMContentLoaded", () => {
   /* --- バウンス --- */
   const triggerBounce = (btn)=>{
     btn.classList.remove("pressing","clicked");
-    // 強制リフロー
-    // eslint-disable-next-line no-unused-expressions
-    btn.offsetWidth;
+    btn.offsetWidth; // 強制リフロー
     btn.classList.add("clicked");
     setTimeout(()=> btn.classList.remove("clicked"), 220);
   };
 
   /* --- ボトムシート（描画/表示/非表示） --- */
   function renderMenu(type){
-    const items = MENUS[type] || MENUS.realized || MENUS.pnl || [];
+    const items = MENUS[type] || [];
     submenu.innerHTML = '<div class="grabber" aria-hidden="true"></div>';
     if (!items.length){
       const none = document.createElement("div");
@@ -274,7 +292,7 @@ document.addEventListener("DOMContentLoaded", () => {
   /* --- タブ：タップ遷移 + 長押し --- */
   tabs.forEach(btn=>{
     const link = btn.dataset.link;
-    const type = btn.dataset.menu; // home / holdings / dividends / pnl / trend ...
+    const type = btn.dataset.menu; // home / holdings / dividends / realized / cash ...
     let timer=null, longPressed=false, moved=false;
 
     // iOSのプレスメニュー抑止
@@ -295,7 +313,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      // 配当：シングルタップでダッシュボード（既定）
+      // 配当：シングルタップでダッシュボード
       if (type === "dividends"){
         e.preventDefault();
         triggerBounce(btn);
@@ -347,14 +365,10 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   })();
 
-  /* --- サブメニューのアクション（必要に応じて拡張） --- */
+  /* --- サブメニューのアクション（必要なら拡張） --- */
   window.addEventListener("bottomtab:action", (e)=>{
     const { menu, action, payload } = (e.detail||{});
     switch (action) {
-      case "add_holding":
-        navigateTo(URLS.holding_create);
-        break;
-
       case "goto_broker": {
         const code = payload?.broker || "";
         const url  = buildHoldingsURL({ broker: code });
@@ -366,22 +380,23 @@ document.addEventListener("DOMContentLoaded", () => {
         navigateTo(url);
         break;
       }
-
-      case "add_dividend":
-        navigateTo(URLS.dividend_create);
-        break;
-      case "goto_dividends_list":
-        navigateTo(URLS.dividends_base);
-        break;
-      case "goto_dividends_dashboard":
-        navigateTo(URLS.dividends_dashboard);
-        break;
-
       default:
         break;
     }
   });
 
   /* --- デバッグ --- */
-  window.openBottomMenu = (type = "realized") => showMenu(type, null);
+  window.openBottomMenu = (type = "cash") => showMenu(type, null);
 });
+
+/* ============ ヘルパ ============ */
+function normPath(p){
+  try{
+    const u = new URL(p, location.origin);
+    let x = u.pathname;
+    if (x !== "/" && !x.endsWith("/")) x += "/";
+    return x;
+  }catch{
+    return "/";
+  }
+}
