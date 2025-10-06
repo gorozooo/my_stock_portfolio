@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% load humanize %}
+{% block title %}現金ダッシュボード{% endblock %}
+
+{% block content %}
+<style>
+  /* 仮のミニスタイル（後で css/cash.css へ分離） */
+  .cash-wrap{max-width:980px;margin:12px auto 96px;padding:12px}
+  .kpi-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .card{padding:16px;border-radius:14px;background:rgba(255,255,255,.06);
+        border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(10px)}
+  .kpi .v{font-size:20px;font-weight:700}
+  .kpi .l{font-size:12px;color:#9aa4b2;margin-top:6px}
+  .actions{display:flex;gap:8px;margin-top:14px}
+  .actions a{flex:1;text-align:center;padding:10px 12px;border-radius:12px;
+             border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);display:block}
+  .empty{opacity:.7;text-align:center;padding:28px 8px}
+</style>
+
+<div class="cash-wrap">
+  <h1 style="margin:6px 2px 12px">💵 現金ダッシュボード</h1>
+
+  <!-- KPI -->
+  <div class="kpi-grid">
+    <div class="card kpi">
+      <div class="v">{{ kpi.available|intcomma }} 円</div>
+      <div class="l">総余力</div>
+    </div>
+    <div class="card kpi">
+      <div class="v">{{ kpi.cash_total|intcomma }} 円</div>
+      <div class="l">総預り金</div>
+    </div>
+    <div class="card kpi">
+      <div class="v">{{ kpi.restricted|intcomma }} 円</div>
+      <div class="l">総拘束</div>
+    </div>
+    <div class="card kpi">
+      <div class="v">{{ kpi.month_net|intcomma }} 円</div>
+      <div class="l">今月の入出金差分</div>
+    </div>
+  </div>
+
+  <!-- アクション -->
+  <div class="actions">
+    <a href="{% url 'cash_dashboard' %}?action=deposit">入金</a>
+    <a href="{% url 'cash_dashboard' %}?action=withdraw">出金</a>
+    <a href="{% url 'cash_dashboard' %}?action=transfer">振替</a>
+  </div>
+
+  <!-- 口座カード（後で口座ごとにループ表示） -->
+  {% if brokers %}
+    <div style="margin-top:16px;display:grid;grid-template-columns:1fr;gap:12px">
+      {% for b in brokers %}
+      <div class="card">
+        <div style="font-weight:600">{{ b.name }}</div>
+        <div style="margin-top:6px;font-size:13px;color:#9aa4b2">
+          残高 {{ b.cash|intcomma }} / 拘束 {{ b.restricted|intcomma }} / 余力 {{ b.available|intcomma }}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="card empty">まずは管理画面から口座と台帳データを入れていこう。</div>
+  {% endif %}
+</div>
+{% endblock %}
