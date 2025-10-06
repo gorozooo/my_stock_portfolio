@@ -1,12 +1,11 @@
 {% load static %}
 <div class="btm-wrap" id="bottomTabRoot" aria-label="Bottom Navigation">
-  <!-- クリティカルCSS（最低限：外部CSSが無くても破綻しない） -->
+  <!-- クリティカルCSS（外部CSS前でも破綻しない最低限） -->
   <style>
     .btm-wrap{position:fixed;left:0;right:0;bottom:0;z-index:100000;pointer-events:none;transform:translateZ(0)}
     .btm-nav{pointer-events:auto;background:rgba(13,16,24,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
       border-top:1px solid rgba(255,255,255,.08);padding-bottom:max(0px,env(safe-area-inset-bottom))}
-    .btm-grid{max-width:680px;margin:0 auto;display:grid;gap:2px;
-      grid-template-columns:repeat(var(--tab-cols,5),1fr)}
+    .btm-grid{max-width:680px;margin:0 auto;display:grid;gap:2px;grid-template-columns:repeat(var(--tab-cols,5),1fr)}
     .tab-btn{position:relative;background:none;border:0;color:#cfd6ee;
       padding:10px 2px calc(12px + env(safe-area-inset-bottom));
       display:flex;flex-direction:column;align-items:center;gap:3px;
@@ -30,8 +29,9 @@
       <button class="tab-btn" data-link="/realized/"                data-menu="realized"  aria-label="実現損益">
         <div class="ico">💰</div><span>実現損益</span>
       </button>
-      <button class="tab-btn" data-link="/trend/"                   data-menu="trend"     aria-label="トレンド">
-        <div class="ico">📈</div><span>トレンド</span>
+      <!-- 📈トレンドはホームへ統合／新タブ：💵現金 -->
+      <button class="tab-btn" data-link="/cash/"                    data-menu="cash"      aria-label="現金">
+        <div class="ico">💵</div><span>現金</span>
       </button>
     </div>
   </nav>
@@ -43,21 +43,36 @@
   <div class="btm-mask"></div>
 </div>
 
-<!-- URL辞書（JS側が拾う） -->
+<!-- URL辞書（JSが拾う）。トレンドはホーム内パネルに誘導 -->
 <script>
   window.APP_URLS = {
-    home_base             : "{% url 'home' %}",
-    holdings_base         : "{% url 'holding_list' %}",
-    holding_create        : "{% url 'holding_create' %}",
-    realized_base         : "{% url 'realized_list' %}",
-    trend_base            : "{% url 'trend' %}",
-    dividends_dashboard   : "{% url 'dividend_dashboard' %}",
-    dividends_base        : "{% url 'dividend_list' %}",
-    dividend_create       : "{% url 'dividend_create' %}"
+    // Home
+    home_base           : "{% url 'home' %}",
+    home_panel_cash     : "{% url 'home' %}?panel=cash",
+    home_panel_trend    : "{% url 'home' %}?panel=trend",
+
+    // Holdings / Realized
+    holdings_base       : "{% url 'holding_list' %}",
+    holding_create      : "{% url 'holding_create' %}",
+    realized_base       : "{% url 'realized_list' %}",
+
+    // Trend（互換のため残す → ホーム内パネルへ）
+    trend_base          : "{% url 'home' %}?panel=trend",
+
+    // Cash（新規）
+    cash_base           : "{% url 'cash_dashboard' %}",
+    cash_deposit        : "{% url 'cash_dashboard' %}?action=deposit",
+    cash_withdraw       : "{% url 'cash_dashboard' %}?action=withdraw",
+    cash_transfer       : "{% url 'cash_dashboard' %}?action=transfer",
+
+    // Dividends
+    dividends_dashboard : "{% url 'dividend_dashboard' %}",
+    dividends_base      : "{% url 'dividend_list' %}",
+    dividend_create     : "{% url 'dividend_create' %}"
   };
 </script>
 
-<link rel="stylesheet" href="{% static 'css/bottom_tab.css' %}?v=200">
+<link rel="stylesheet" href="{% static 'css/bottom_tab.css' %}?v=300">
 <script>
   // タブ数に応じて列数を自動設定（外部CSS到着前でも効く）
   (function(){
@@ -66,4 +81,4 @@
     root.style.setProperty('--tab-cols', String(count));
   })();
 </script>
-<script src="{% static 'js/bottom_tab.js' %}?v=201" defer></script>
+<script src="{% static 'js/bottom_tab.js' %}?v=300" defer></script>
