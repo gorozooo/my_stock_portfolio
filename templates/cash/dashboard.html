@@ -3,37 +3,60 @@
 {% block title %}現金ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=2">
+<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=3">
 <style>
+/* レイアウト */
 .cash-wrap{max-width:980px;margin:12px auto 96px;padding:12px}
+.action-bar{position:sticky;top:12px;z-index:5;margin:0 0 14px}
+.action-bar .bar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;
+  padding:10px;border-radius:14px;background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(10px)}
+.bar button{padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.05);color:#e6ebff}
+.section-title{margin:18px 2px 8px;font-weight:700}
+
+/* 証券会社カード（KPIのみ） */
 .grid-broker{display:grid;grid-template-columns:1fr;gap:12px}
 .card{padding:16px;border-radius:14px;background:rgba(255,255,255,.06);
-      border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(10px)}
-.card h3{margin:2px 0 8px;font-size:16px}
+  border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(10px)}
+.card h3{margin:2px 0 10px;font-size:16px}
 .kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.kpi{padding:10px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
+.kpi{padding:12px;border-radius:12px;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.08)}
 .kpi .v{font-size:18px;font-weight:700}
 .kpi .l{font-size:12px;color:#9aa4b2;margin-top:4px}
-.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
-.actions button{padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);
-                background:rgba(255,255,255,.04);color:#e6ebff}
-.small{font-size:12px;color:#9aa4b2;margin-top:6px}
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:100020}
+.small{font-size:12px;color:#9aa4b2;margin-top:8px}
+
+/* モーダル */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;
+  align-items:center;justify-content:center;z-index:100020}
 .modal.show{display:flex}
-.modal .box{width:min(520px,92vw);background:rgba(20,24,36,.9);border:1px solid rgba(255,255,255,.12);
-            border-radius:16px;padding:16px;backdrop-filter:blur(12px)}
+.modal .box{width:min(520px,92vw);background:rgba(20,24,36,.9);
+  border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px;
+  backdrop-filter:blur(12px)}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
 .form-grid label{font-size:12px;color:#9aa4b2;display:block;margin-bottom:4px}
-.form-grid select,.form-grid input{width:100%;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.18);
-                                   background:rgba(255,255,255,.06);color:#e6ebff}
+.form-grid select,.form-grid input{width:100%;padding:10px;border-radius:12px;
+  border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e6ebff}
 .form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
-.btn{padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#e6ebff}
+.btn{padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.16);
+  background:rgba(255,255,255,.05);color:#e6ebff}
 .btn.primary{border-color:rgba(0,255,209,.45)}
 </style>
 
 <div class="cash-wrap">
   <h1 style="margin:6px 2px 12px">💵 現金ダッシュボード（証券会社別）</h1>
 
+  <!-- ✅ ページ上部にアクションを1か所だけ配置 -->
+  <div class="action-bar">
+    <div class="bar">
+      <button data-open="deposit">入金</button>
+      <button data-open="withdraw">出金</button>
+      <button data-open="transfer">振替</button>
+    </div>
+  </div>
+
+  <!-- KPI（証券会社ごと） -->
   {% if brokers %}
     <div class="grid-broker">
       {% for b in brokers %}
@@ -54,12 +77,6 @@
           </div>
         </div>
         <div class="small">今月の入出金差分：{{ b.month_net|intcomma }} 円</div>
-
-        <div class="actions">
-          <button data-open="deposit" data-broker="{{ b.broker }}">入金</button>
-          <button data-open="withdraw" data-broker="{{ b.broker }}">出金</button>
-          <button data-open="transfer" data-broker="{{ b.broker }}">他社へ振替</button>
-        </div>
       </div>
       {% endfor %}
     </div>
@@ -175,34 +192,20 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-  const map = {
+  // 上部の3ボタン → 対応モーダルを開く
+  const modals = {
     deposit : document.getElementById("modal-deposit"),
     withdraw: document.getElementById("modal-withdraw"),
     transfer: document.getElementById("modal-transfer"),
   };
-
-  // 各カードのボタン → 該当証券会社をモーダルにプリセット
-  document.querySelectorAll("[data-open]").forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const kind = btn.dataset.open;
-      const broker = btn.dataset.broker || "";
-      const modal = map[kind];
-      if (!modal) return;
-      if (broker) {
-        modal.querySelector("select[name='broker'], #tr-src, #tr-dst")?.value;
-        // 入金/出金
-        const bSel = modal.querySelector("select[name='broker']");
-        if (bSel) bSel.value = broker;
-        // 振替（元のみプリセット、先はユーザーに選ばせる）
-        const srcSel = modal.querySelector("#tr-src");
-        if (srcSel) srcSel.value = broker;
-      }
-      show(modal);
-    });
+  document.querySelectorAll("[data-open]").forEach(b=>{
+    b.addEventListener("click", ()=> show(modals[b.dataset.open]));
   });
-
-  // 閉じる
   document.querySelectorAll("[data-close]").forEach(b=> b.addEventListener("click", closeAll));
+
+  // クエリ ?action=deposit で直接開ける（下タブからの導線用）
+  const act = new URLSearchParams(location.search).get("action");
+  if (act && modals[act]) show(modals[act]);
 
   function show(el){ if(!el) return; el.classList.add("show"); el.setAttribute("aria-hidden","false"); }
   function closeAll(){ document.querySelectorAll(".modal.show").forEach(m=>{ m.classList.remove("show"); m.setAttribute("aria-hidden","true"); }); }
