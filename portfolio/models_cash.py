@@ -24,29 +24,42 @@ class BrokerAccount(models.Model):
 
 class CashLedger(models.Model):
     class Kind(models.TextChoices):
-        DEPOSIT = "DEPOSIT", "入金"
+        DEPOSIT  = "DEPOSIT",  "入金"
         WITHDRAW = "WITHDRAW", "出金"
-        FEE = "FEE", "手数料"
-        TAX = "TAX", "税金"
-        INTEREST = "INTEREST", "金利"
-        DIVIDEND_NET = "DIVIDEND_NET", "配当(税引後)"
-        XFER_IN = "XFER_IN", "振替(入)"
-        XFER_OUT = "XFER_OUT", "振替(出)"
-        TRADE_BUY = "TRADE_BUY", "現物買付(受渡)"
-        TRADE_SELL = "TRADE_SELL", "現物売却(受渡)"
-        REALIZED_PL = "REALIZED_PL", "実現損益調整"
-        ADJUST = "ADJUST", "調整"
+        XFER_IN  = "XFER_IN",  "振替入金"
+        XFER_OUT = "XFER_OUT", "振替出金"
 
-    account = models.ForeignKey(BrokerAccount, on_delete=models.CASCADE)
-    at = models.DateTimeField(default=timezone.now)
-    amount = models.IntegerField(help_text="入金は+、出金は-")
-    kind = models.CharField(max_length=20, choices=Kind.choices)
-    memo = models.CharField(max_length=200, blank=True, default="")
-    link_model = models.CharField(max_length=50, blank=True, default="")
-    link_id = models.IntegerField(null=True, blank=True)
+    class SourceType(models.TextChoices):
+        DIVIDEND = "DIV",  "Dividend"
+        REALIZED = "REAL", "RealizedTrade"
+
+    account = models.ForeignKey(BrokerAccount, on_delete=models.CASCADE, related_name="ledgers")
+    amount  = models.BigIntegerField(help_text="現金増減。入金は＋、出金は−")
+    kind    = models.CharField(max_length=16, choices=Kind.choices)
+    memo    = models.CharField(max_length=255, blank=True, default="")
+    at      = models.DateField(auto_now_add=True)
+
+    # ★ 重複ゼロ保証のためのソースメタ
+    source_type = models.CharField(
+        max_length=8, choices=SourceType.choices, null=True, blank=True, db_index=True
+    )
+    source_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["-at", "-id"]
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            # 同一口座・同一ソースは1行だけ（NULLは対象外）
+            models.UniqueConstraint(
+                fields=["account", "source_type", "source_id"],
+                condition=models.Q(source_type__isnull=False, source_id__isnull=False),
+                name="uniq_cash_source_per_account",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.account} {self.amount} {self.kind}"
 
 class MarginState(models.Model):
     """信用余力スナップショット（まずは手入力でOK）"""
