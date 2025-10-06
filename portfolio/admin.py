@@ -1,7 +1,7 @@
 # portfolio/admin.py
 from django.contrib import admin
 from .models import Holding, UserSetting, RealizedTrade, Dividend
-from .models.cash import BrokerAccount, CashLedger, MarginState
+from .models_cash import BrokerAccount, CashLedger, MarginState
 
 # --------- Holding ---------
 @admin.register(Holding)
