@@ -1,23 +1,22 @@
-{# templates/dividends/form.html #}
 {% extends "base.html" %}
 {% load static %}
 {% block title %}配当を記録{% endblock %}
 
 {% block head %}
 <style>
-  .card{
-    padding:18px;border:1px solid rgba(255,255,255,.08);border-radius:16px;
-    background:rgba(255,255,255,.04);max-width:720px;margin:0 auto
-  }
+  .card{padding:18px;border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.04);max-width:720px;margin:0 auto}
   .fi{margin:10px 0}
   .lbl{display:block;font-size:13px;color:#9aa4b2;margin:0 0 6px}
   .in,.sel{
     width:100%;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);
-    background:rgba(255,255,255,.06);color:#e6ebff;font-size:16px
+    background:rgba(255,255,255,.06);color:#e6ebff;font-size:16px;
+    box-sizing:border-box;   /* ← 重なり対策 */
+    display:block;           /* ← 重なり対策 */
   }
-  /* 2/3 カラム行。狭幅では自動縦並び → 重なり防止 */
   .row-2{display:grid;gap:12px;grid-template-columns:1fr 1fr}
   .row-3{display:grid;gap:12px;grid-template-columns:1fr 1fr 1fr}
+  /* 子要素の最小幅を0にして、狭幅時のはみ出し→重なりを防止 */
+  .row-2 > .fi, .row-3 > .fi{min-width:0}
   @media (max-width:640px){ .row-2,.row-3{grid-template-columns:1fr} }
 
   .hint{font-size:12px;color:#8b93a7;margin-top:6px}
@@ -27,7 +26,7 @@
   .preview{font-size:13px;color:#cdd6f6;margin-top:6px}
   .err{padding:10px;border-radius:10px;border:1px solid #ff9aa9;background:#2b1f24;color:#ffd1d1;margin-bottom:8px}
 
-  /* 税率：横並びチェックボックス（見た目はピル） */
+  /* 税率（元のUIのまま） */
   .taxbox{display:flex;gap:10px;flex-wrap:wrap}
   .taxbox input[type="checkbox"]{display:none}
   .taxbox label{
@@ -71,7 +70,7 @@
     </div>
   </div>
 
-  <!-- 受取日 / 受取額（税引前） → 横並び（狭幅では縦）で重なり回避 -->
+  <!-- 受取日 / 受取額（税引前） -->
   <div class="row-2">
     <div class="fi">
       <label class="lbl">受取日</label>
@@ -96,12 +95,9 @@
     </div>
     <div class="fi">
       <label class="lbl">税率</label>
-      <!-- 見た目チェックボックス。送信用は hidden に同期（サーバ側 tax はそのまま） -->
       <div class="taxbox" id="js-taxbox">
-        <input type="checkbox" id="rate0" value="0">
-        <label for="rate0">0%</label>
-        <input type="checkbox" id="rate20315" value="20.315">
-        <label for="rate20315">20.315%</label>
+        <input type="checkbox" id="rate0" value="0"><label for="rate0">0%</label>
+        <input type="checkbox" id="rate20315" value="20.315"><label for="rate20315">20.315%</label>
       </div>
       <input type="hidden" name="tax_rate_pct" id="id_tax_rate_pct" value="20.315">
     </div>
@@ -119,7 +115,7 @@
     </div>
   </div>
 
-  <!-- Hidden （税額と税引後フラグはテンプレから触らない） -->
+  <!-- Hidden（元のまま） -->
   {{ form.tax }}{{ form.is_net }}
 
   <div class="fi">
@@ -133,64 +129,51 @@
   </div>
 </form>
 
-{# 保有メタ（id, ticker, name, quantity, avg_cost, broker, account ...）を安全に埋め込み #}
 {{ holding_meta|json_script:"js-holdings" }}
 
 <script>
 (function(){
-  // ====== 1) コード→銘柄名 自動補完 ======
+  // === 1) コード→銘柄名 自動補完（元の挙動のまま） ===
   const endpoint = "{% url 'api_ticker_name' %}";
   const $ticker  = document.getElementById('id_ticker');
   const $name    = document.getElementById('id_name');
-
   if ($ticker && $name){
     let edited=false, last={name:""};
     $name.addEventListener('input', ()=> edited=true);
-
     const debounce=(fn,ms)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}};
-
-    function applyName(data){
+    function apply(data){
       if (!data || !data.name) return;
       const cur = ($name.value||'').trim();
-      if (!edited || !cur || cur===last.name){
-        $name.value = data.name;
-        last.name   = data.name;
-        edited = false;
-      }
+      if (!edited || !cur || cur===last.name){ $name.value=data.name; last.name=data.name; edited=false; }
     }
     function lookup(){
       const v = ($ticker.value||'').trim(); if(!v) return;
       fetch(`${endpoint}?code=${encodeURIComponent(v)}`,{credentials:'same-origin'})
-        .then(r=>r.ok?r.json():Promise.reject())
-        .then(applyName).catch(()=>{});
+        .then(r=>r.ok?r.json():Promise.reject()).then(apply).catch(()=>{});
     }
     $ticker.addEventListener('input', debounce(lookup, 250));
     $ticker.addEventListener('change', lookup);
     $ticker.addEventListener('blur',   lookup);
   }
 
-  // ====== 2) 税率ピル（擬似ラジオ） + プレビュー ======
+  // === 2) 税率ピル + プレビュー（元のまま） ===
   const $amount = document.getElementById('id_amount');
   const $prev   = document.getElementById('js-preview');
   const $rateHidden = document.getElementById('id_tax_rate_pct');
   const $taxBox = document.getElementById('js-taxbox');
   const pills   = Array.from($taxBox.querySelectorAll('input[type="checkbox"]'));
-
   function selectRate(val){
     pills.forEach(cb => cb.checked = (cb.value === String(val)));
     $rateHidden.value = String(val);
     updatePreview();
   }
-  // 初期値は hidden に従う
   selectRate($rateHidden.value || "20.315");
-
   pills.forEach(cb=>{
     cb.addEventListener('change', ()=>{
-      if (!cb.checked){ cb.checked = true; return; } // 常に1つ選択
+      if (!cb.checked){ cb.checked = true; return; }
       selectRate(cb.value);
     });
   });
-
   function num(x){ const v=parseFloat(x); return isNaN(v)?0:v; }
   function fmt(n){ return (Math.round(n*100)/100).toLocaleString(); }
   function updatePreview(){
@@ -204,36 +187,33 @@
   if ($amount) $amount.addEventListener('input', updatePreview);
   updatePreview();
 
-  // ====== 3) 保有選択 → フィールド自動反映 ======
+  // === 3) 保有選択 → すべて「上書き」で反映（ここを修正） ===
   const HOLDINGS = (()=>{
     const el = document.getElementById('js-holdings');
     if (!el) return [];
     try { return JSON.parse(el.textContent || '[]'); } catch(_) { return []; }
   })();
-
   const $holding = document.getElementById('id_holding');
-  function findHolding(id){ return HOLDINGS.find(h => String(h.id) === String(id)); }
-  function setIfEmpty(id, v){
-    const el=document.getElementById(id); if(!el) return;
-    if (!el.value) el.value = (v ?? '');
-  }
+
+  function findHoldingMeta(id){ return HOLDINGS.find(h => String(h.id) === String(id)); }
+  function setVal(id, v){ const el=document.getElementById(id); if(el) el.value = (v ?? ''); }
   function setSelect(id, v){
     const el=document.getElementById(id); if(!el) return;
     if (v !== undefined && v !== null && v !== '') el.value = v;
   }
-  function applyHolding(h){
+  function applyHoldingMeta(h){
     if (!h) return;
-    setIfEmpty('id_ticker',          h.ticker);
-    setIfEmpty('id_name',            h.name);
-    setIfEmpty('id_quantity',        h.quantity);
-    setIfEmpty('id_purchase_price',  h.avg_cost);
-    setSelect ('id_broker',          h.broker);
-    setSelect ('id_account',         h.account);
+    setVal('id_ticker',          h.ticker);
+    setVal('id_name',            h.name);
+    setVal('id_quantity',        h.quantity);
+    setVal('id_purchase_price',  h.avg_cost);
+    setSelect('id_broker',       h.broker);
+    setSelect('id_account',      h.account);
   }
 
   if ($holding){
-    $holding.addEventListener('change', ()=> applyHolding(findHolding($holding.value)));
-    if ($holding.value){ applyHolding(findHolding($holding.value)); }
+    $holding.addEventListener('change', ()=> applyHoldingMeta(findHoldingMeta($holding.value)));
+    if ($holding.value){ applyHoldingMeta(findHoldingMeta($holding.value)); }
   }
 })();
 </script>
