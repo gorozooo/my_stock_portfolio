@@ -3,48 +3,68 @@
 {% block title %}現金ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=4">
+<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=5">
 <style>
 /* ===== Layout ===== */
-.cash-wrap{max-width:980px;margin:12px auto 0;padding:12px 12px 120px} /* 下部ドック分の余白はJSでも追加 */
-.section-title{margin:18px 2px 8px;font-weight:700}
+.cash-wrap{
+  max-width:980px;
+  margin:12px auto 0;
+  padding:12px 12px 140px; /* 下ドックぶんの余白（JSで最終調整） */
+}
 
-/* ===== KPI Card (Broker) ===== */
-.grid-broker{display:grid;grid-template-columns:1fr;gap:14px}
-.card{padding:16px;border-radius:16px;background:rgba(255,255,255,.06);
-  border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(10px)}
-.card h3{margin:2px 0 10px;font-size:16px}
-.kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+/* ===== Broker Card ===== */
+.grid-broker{display:grid;grid-template-columns:1fr;gap:16px}
+.card{
+  padding:16px;border-radius:16px;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.10);
+  backdrop-filter:blur(10px);
+}
+.card h3{margin:2px 0 12px;font-size:16px}
 
-.kpi{padding:12px 12px 10px;border-radius:14px;background:rgba(255,255,255,.05);
-  border:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;gap:6px}
+/* KPIを縦並びに（数字が大きくても読みやすく） */
+.kpi-col{display:flex;flex-direction:column;gap:10px}
+.kpi{
+  display:flex;flex-direction:column;gap:6px;
+  padding:12px;border-radius:14px;
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.08);
+}
 .kpi .label{font-size:12px;color:#9aa4b2;letter-spacing:.04em}
-.kpi .value{line-height:1.05}
-.kpi .value .num{font-size:22px;font-weight:800;letter-spacing:.02em}
-.kpi .value .unit{font-size:12px;opacity:.85;margin-left:4px}
-.kpi .hint{font-size:10px;color:#8b94ad;opacity:.9}
-
-/* 色味（可読性だけほんの少し差別化） */
+.kpi .value{line-height:1.1}
+.kpi .num{font-size:24px;font-weight:800;letter-spacing:.02em}
+.kpi .unit{font-size:12px;opacity:.85;margin-left:4px}
 .kpi.available{border-color:rgba(0,255,209,.24);box-shadow:0 0 0 1px rgba(0,255,209,.08) inset}
-.kpi.restricted{border-color:rgba(255,89,89,.18)}
 .kpi.cash{border-color:rgba(140,160,255,.18)}
+.kpi.restricted{border-color:rgba(255,89,89,.18)}
 
-/* 今月差分 */
 .small{font-size:12px;color:#9aa4b2;margin-top:8px}
 
-/* ===== Bottom Action Dock ===== */
-.cash-dock{position:fixed;left:0;right:0;bottom:0;z-index:99990;pointer-events:none}
-.cash-dock .inner{pointer-events:auto;max-width:980px;margin:0 auto 0;
+/* ===== Bottom Action Dock =====
+   既存の下タブ( z-index: 100000+ )より前面にする */
+.cash-dock{
+  position:fixed;left:0;right:0;bottom:0;
+  z-index:100200; /* ← 最前面 */
+  pointer-events:none;
+}
+.cash-dock .inner{
+  pointer-events:auto;max-width:980px;margin:0 auto 0;
   padding:10px 12px calc(10px + env(safe-area-inset-bottom));
-  background:rgba(13,16,24,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  border-top:1px solid rgba(255,255,255,.08)}
+  background:rgba(13,16,24,.84);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border-top:1px solid rgba(255,255,255,.08);
+}
 .cash-dock .bar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.cash-dock .bar button{padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);
-  background:rgba(255,255,255,.06);color:#e6ebff;font-weight:600}
+.cash-dock .bar button{
+  padding:12px;border-radius:12px;
+  border:1px solid rgba(255,255,255,.16);
+  background:rgba(255,255,255,.06);
+  color:#e6ebff;font-weight:600
+}
 
 /* ===== Modal ===== */
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;
-  align-items:center;justify-content:center;z-index:100020}
+  align-items:center;justify-content:center;z-index:100300}
 .modal.show{display:flex}
 .modal .box{width:min(520px,92vw);background:rgba(20,24,36,.92);
   border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px;backdrop-filter:blur(12px)}
@@ -66,30 +86,18 @@
       {% for b in brokers %}
       <div class="card">
         <h3>{{ b.broker }} 証券</h3>
-        <div class="kpi-row">
+        <div class="kpi-col">
           <div class="kpi available">
             <div class="label">余力</div>
-            <div class="value">
-              <span class="num js-amt" data-yen="{{ b.available|intcomma|cut:',' }}">{{ b.available|intcomma }}</span>
-              <span class="unit js-unit">円</span>
-            </div>
-            <div class="hint">タップで万表示切替</div>
+            <div class="value"><span class="num">{{ b.available|intcomma }}</span><span class="unit">円</span></div>
           </div>
           <div class="kpi cash">
             <div class="label">預り金</div>
-            <div class="value">
-              <span class="num js-amt" data-yen="{{ b.cash|intcomma|cut:',' }}">{{ b.cash|intcomma }}</span>
-              <span class="unit js-unit">円</span>
-            </div>
-            <div class="hint">タップで万表示切替</div>
+            <div class="value"><span class="num">{{ b.cash|intcomma }}</span><span class="unit">円</span></div>
           </div>
           <div class="kpi restricted">
             <div class="label">拘束</div>
-            <div class="value">
-              <span class="num js-amt" data-yen="{{ b.restricted|intcomma|cut:',' }}">{{ b.restricted|intcomma }}</span>
-              <span class="unit js-unit">円</span>
-            </div>
-            <div class="hint">タップで万表示切替</div>
+            <div class="value"><span class="num">{{ b.restricted|intcomma }}</span><span class="unit">円</span></div>
           </div>
         </div>
         <div class="small">今月の入出金差分：{{ b.month_net|intcomma }} 円</div>
@@ -219,31 +227,6 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-  /* --- 金額表示：タップで 円 ⇄ 万円 切替 --- */
-  let mode = localStorage.getItem("cash_view_mode") || "yen"; // "yen" | "man"
-  const fmt = (n) => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  function applyMode(){
-    document.querySelectorAll(".js-amt").forEach(el=>{
-      const yen = Number((el.getAttribute("data-yen")||"0").replace(/,/g,""));
-      if (mode === "man"){
-        el.textContent = fmt(Math.round(yen/10000));
-        el.parentElement.querySelector(".js-unit").textContent = "万円";
-      }else{
-        el.textContent = fmt(yen);
-        el.parentElement.querySelector(".js-unit").textContent = "円";
-      }
-    });
-  }
-  applyMode();
-  document.querySelectorAll(".kpi .value").forEach(v=>{
-    v.addEventListener("click", ()=>{
-      mode = (mode === "yen") ? "man" : "yen";
-      localStorage.setItem("cash_view_mode", mode);
-      applyMode();
-      if (navigator.vibrate) navigator.vibrate(6);
-    });
-  });
-
   /* --- 下部ドックのモーダル起動 --- */
   const modals = {
     deposit : document.getElementById("modal-deposit"),
@@ -262,10 +245,13 @@ document.addEventListener("DOMContentLoaded", () => {
   function show(el){ if(!el) return; el.classList.add("show"); el.setAttribute("aria-hidden","false"); }
   function closeAll(){ document.querySelectorAll(".modal.show").forEach(m=>{ m.classList.remove("show"); m.setAttribute("aria-hidden","true"); }); }
 
-  /* --- コンテンツ最下部にスペーサ（ドック分） --- */
+  /* --- コンテンツ下余白：下タブ＋ドックの高さを考慮して自動調整 --- */
   const wrap = document.querySelector(".cash-wrap");
-  const dockH = document.querySelector(".cash-dock .inner").getBoundingClientRect().height;
-  wrap.style.paddingBottom = Math.max(parseInt(wrap.style.paddingBottom||"0"), dockH + 24) + "px";
+  const dock = document.querySelector(".cash-dock .inner");
+  const dockH = dock ? dock.getBoundingClientRect().height : 0;
+  const bottomTab = document.getElementById("bottomTabRoot");
+  const tabH = bottomTab ? bottomTab.getBoundingClientRect().height : 0;
+  wrap.style.paddingBottom = (dockH + tabH + 24) + "px";
 });
 </script>
 {% endblock %}
