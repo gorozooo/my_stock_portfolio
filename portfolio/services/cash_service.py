@@ -6,6 +6,24 @@ from django.db.models import Sum
 from django.db import transaction
 from ..models_cash import BrokerAccount, CashLedger, MarginState
 
+# ---- 初期口座を自動作成（楽天/松井/SBI） --------------------
+DEFAULT_BROKERS = ["楽天", "松井", "SBI"]
+
+def ensure_default_accounts(currency: str = "JPY") -> list[BrokerAccount]:
+    """
+    初回アクセス時に代表口座（現物）を自動作成する。
+    既にあれば何もしない。
+    """
+    created = []
+    for broker in DEFAULT_BROKERS:
+        acc, was_created = BrokerAccount.objects.get_or_create(
+            broker=broker, account_type="現物", currency=currency,
+            defaults={"opening_balance": 0, "name": ""}
+        )
+        if was_created:
+            created.append(acc)
+    return created
+
 # ---- 基本集計（口座単位） ---------------------------------
 def cash_balance(account: BrokerAccount) -> int:
     agg = CashLedger.objects.filter(account=account).aggregate(s=Sum("amount"))["s"] or 0
@@ -42,7 +60,7 @@ def account_summary(account: BrokerAccount, today: date):
         "month_net": month_netflow(account, today.year, today.month),
     }
 
-# ---- 全体KPI（必要ならホーム用に継続） ----------------------
+# ---- 全体KPI（ホーム統合用に残す） --------------------------
 def total_summary(today: date):
     rows = []
     for acc in BrokerAccount.objects.all().order_by("broker", "account_type"):
@@ -55,14 +73,15 @@ def total_summary(today: date):
     }
     return total, rows
 
-# ---- ★ 証券会社ごとの集計（今回メイン） ---------------------
+# ---- ★ 証券会社ごとの集計（画面の主役） ---------------------
 PREF_ORDER = ["楽天", "松井", "SBI", "moomoo"]
 
 def broker_summaries(today: date):
     """BrokerAccount を“証券会社名”でまとめたKPIリストを返す。"""
-    # まず口座単位のサマリ
-    acc_rows = [account_summary(acc, today) for acc in BrokerAccount.objects.all()]
+    # 代表口座が無ければ作る（初回アクセス対策）
+    ensure_default_accounts()
 
+    acc_rows = [account_summary(acc, today) for acc in BrokerAccount.objects.all()]
     grouped = defaultdict(lambda: {"cash":0,"restricted":0,"available":0,"month_net":0})
     for r in acc_rows:
         g = grouped[r["broker"]]
@@ -81,7 +100,6 @@ def broker_summaries(today: date):
             "month_net": int(v["month_net"]),
         })
 
-    # 並び順：既定 > その他（五十音）
     pref_index = {b:i for i,b in enumerate(PREF_ORDER)}
     items.sort(key=lambda x: (pref_index.get(x["broker"], 999), x["broker"]))
     return items
