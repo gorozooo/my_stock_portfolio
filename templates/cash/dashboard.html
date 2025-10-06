@@ -3,21 +3,21 @@
 {% block title %}現金ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=2">
 <style>
-/* 簡易スタイル（後で css/cash.css へ移行OK） */
 .cash-wrap{max-width:980px;margin:12px auto 96px;padding:12px}
-.kpi-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.grid-broker{display:grid;grid-template-columns:1fr;gap:12px}
 .card{padding:16px;border-radius:14px;background:rgba(255,255,255,.06);
       border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(10px)}
-.kpi .v{font-size:20px;font-weight:700}
-.kpi .l{font-size:12px;color:#9aa4b2;margin-top:6px}
-.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.card h3{margin:2px 0 8px;font-size:16px}
+.kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.kpi{padding:10px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
+.kpi .v{font-size:18px;font-weight:700}
+.kpi .l{font-size:12px;color:#9aa4b2;margin-top:4px}
+.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
 .actions button{padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);
                 background:rgba(255,255,255,.04);color:#e6ebff}
-.section-title{margin:18px 2px 8px;font-weight:700}
-.grid-acc{display:grid;grid-template-columns:1fr;gap:12px}
-.acc-line{font-size:13px;color:#9aa4b2;margin-top:6px}
+.small{font-size:12px;color:#9aa4b2;margin-top:6px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:100020}
 .modal.show{display:flex}
 .modal .box{width:min(520px,92vw);background:rgba(20,24,36,.9);border:1px solid rgba(255,255,255,.12);
@@ -29,59 +29,46 @@
 .form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
 .btn{padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#e6ebff}
 .btn.primary{border-color:rgba(0,255,209,.45)}
-.empty{opacity:.7;text-align:center;padding:28px 8px}
 </style>
 
 <div class="cash-wrap">
-  <h1 style="margin:6px 2px 12px">💵 現金ダッシュボード</h1>
+  <h1 style="margin:6px 2px 12px">💵 現金ダッシュボード（証券会社別）</h1>
 
-  <!-- KPI -->
-  <div class="kpi-grid">
-    <div class="card kpi">
-      <div class="v">{{ kpi.available|intcomma }} 円</div>
-      <div class="l">総余力</div>
-    </div>
-    <div class="card kpi">
-      <div class="v">{{ kpi.cash_total|intcomma }} 円</div>
-      <div class="l">総預り金</div>
-    </div>
-    <div class="card kpi">
-      <div class="v">{{ kpi.restricted|intcomma }} 円</div>
-      <div class="l">総拘束</div>
-    </div>
-    <div class="card kpi">
-      <div class="v">{{ kpi.month_net|intcomma }} 円</div>
-      <div class="l">今月の入出金差分</div>
-    </div>
-  </div>
-
-  <!-- アクション -->
-  <div class="actions">
-    <button data-open="deposit">入金</button>
-    <button data-open="withdraw">出金</button>
-    <button data-open="transfer">振替</button>
-  </div>
-
-  <!-- 口座カード -->
-  <div class="section-title">口座</div>
-  {% if rows %}
-    <div class="grid-acc">
-      {% for b in rows %}
+  {% if brokers %}
+    <div class="grid-broker">
+      {% for b in brokers %}
       <div class="card">
-        <div style="font-weight:600">{{ b.name }}</div>
-        <div class="acc-line">
-          残高 {{ b.cash|intcomma }} / 拘束 {{ b.restricted|intcomma }} / 余力 <strong>{{ b.available|intcomma }}</strong>
+        <h3>{{ b.broker }} 証券</h3>
+        <div class="kpi-row">
+          <div class="kpi">
+            <div class="v">{{ b.available|intcomma }} 円</div>
+            <div class="l">余力</div>
+          </div>
+          <div class="kpi">
+            <div class="v">{{ b.cash|intcomma }} 円</div>
+            <div class="l">預り金</div>
+          </div>
+          <div class="kpi">
+            <div class="v">{{ b.restricted|intcomma }} 円</div>
+            <div class="l">拘束</div>
+          </div>
         </div>
-        <div class="acc-line">今月差分 {{ b.month_net|intcomma }}</div>
+        <div class="small">今月の入出金差分：{{ b.month_net|intcomma }} 円</div>
+
+        <div class="actions">
+          <button data-open="deposit" data-broker="{{ b.broker }}">入金</button>
+          <button data-open="withdraw" data-broker="{{ b.broker }}">出金</button>
+          <button data-open="transfer" data-broker="{{ b.broker }}">他社へ振替</button>
+        </div>
       </div>
       {% endfor %}
     </div>
   {% else %}
-    <div class="card empty">まずは管理画面で「BrokerAccount」を作成し、opening_balance を入れてください。</div>
+    <div class="card">まずは管理画面で「BrokerAccount」を作成してね（楽天/松井/SBIのどれかでOK）。</div>
   {% endif %}
 </div>
 
-<!-- =========== モーダル群（入金/出金/振替） =========== -->
+<!-- ====== モーダル（入金/出金/振替）====== -->
 <div class="modal" id="modal-deposit" aria-hidden="true">
   <div class="box">
     <h3>➕ 入金</h3>
@@ -91,7 +78,7 @@
       <div class="form-grid">
         <div>
           <label>証券会社</label>
-          <select name="broker" required>
+          <select name="broker" id="dep-broker" required>
             <option value="楽天">楽天証券</option>
             <option value="松井">松井証券</option>
             <option value="SBI">SBI証券</option>
@@ -123,7 +110,7 @@
       <div class="form-grid">
         <div>
           <label>証券会社</label>
-          <select name="broker" required>
+          <select name="broker" id="wd-broker" required>
             <option value="楽天">楽天証券</option>
             <option value="松井">松井証券</option>
             <option value="SBI">SBI証券</option>
@@ -154,16 +141,16 @@
       <input type="hidden" name="op" value="transfer">
       <div class="form-grid">
         <div>
-          <label>振替元（証券会社）</label>
-          <select name="src_broker" required>
+          <label>振替元</label>
+          <select name="src_broker" id="tr-src" required>
             <option value="楽天">楽天証券</option>
             <option value="松井">松井証券</option>
             <option value="SBI">SBI証券</option>
           </select>
         </div>
         <div>
-          <label>振替先（証券会社）</label>
-          <select name="dst_broker" required>
+          <label>振替先</label>
+          <select name="dst_broker" id="tr-dst" required>
             <option value="楽天">楽天証券</option>
             <option value="松井">松井証券</option>
             <option value="SBI">SBI証券</option>
@@ -193,19 +180,29 @@ document.addEventListener("DOMContentLoaded", () => {
     withdraw: document.getElementById("modal-withdraw"),
     transfer: document.getElementById("modal-transfer"),
   };
-  // 下タブからの ?action=deposit 等で自動表示
-  const qs = new URLSearchParams(location.search);
-  const act = qs.get("action");
-  if (act && map[act]) show(map[act]);
 
-  // ボタンで開く
-  document.querySelectorAll("[data-open]").forEach(b=>{
-    b.addEventListener("click", ()=> show(map[b.dataset.open]));
+  // 各カードのボタン → 該当証券会社をモーダルにプリセット
+  document.querySelectorAll("[data-open]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const kind = btn.dataset.open;
+      const broker = btn.dataset.broker || "";
+      const modal = map[kind];
+      if (!modal) return;
+      if (broker) {
+        modal.querySelector("select[name='broker'], #tr-src, #tr-dst")?.value;
+        // 入金/出金
+        const bSel = modal.querySelector("select[name='broker']");
+        if (bSel) bSel.value = broker;
+        // 振替（元のみプリセット、先はユーザーに選ばせる）
+        const srcSel = modal.querySelector("#tr-src");
+        if (srcSel) srcSel.value = broker;
+      }
+      show(modal);
+    });
   });
+
   // 閉じる
-  document.querySelectorAll("[data-close]").forEach(b=>{
-    b.addEventListener("click", closeAll);
-  });
+  document.querySelectorAll("[data-close]").forEach(b=> b.addEventListener("click", closeAll));
 
   function show(el){ if(!el) return; el.classList.add("show"); el.setAttribute("aria-hidden","false"); }
   function closeAll(){ document.querySelectorAll(".modal.show").forEach(m=>{ m.classList.remove("show"); m.setAttribute("aria-hidden","true"); }); }
