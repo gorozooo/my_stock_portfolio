@@ -22,44 +22,88 @@
 }
 .card h3{margin:2px 0 12px;font-size:16px}
 
-/* KPIを縦並びに（数字が大きくても読みやすく） */
-.kpi-col{display:flex;flex-direction:column;gap:10px}
-.kpi{
-  display:flex;flex-direction:column;gap:6px;
-  padding:12px;border-radius:14px;
-  background:rgba(255,255,255,.05);
-  border:1px solid rgba(255,255,255,.08);
+/* ===== KPI Compact Ver ===== */
+.kpi-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px; /* 小さく */
 }
-.kpi .label{font-size:12px;color:#9aa4b2;letter-spacing:.04em}
-.kpi .value{line-height:1.1}
-.kpi .num{font-size:24px;font-weight:800;letter-spacing:.02em}
-.kpi .unit{font-size:12px;opacity:.85;margin-left:4px}
-.kpi.available{border-color:rgba(0,255,209,.24);box-shadow:0 0 0 1px rgba(0,255,209,.08) inset}
-.kpi.cash{border-color:rgba(140,160,255,.18)}
-.kpi.restricted{border-color:rgba(255,89,89,.18)}
+.kpi {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .08);
+}
+.kpi .label {
+  font-size: 11px;
+  color: #9aa4b2;
+  letter-spacing: .03em;
+}
+.kpi .num {
+  font-size: 17px;      /* ← 小さめ数字 */
+  font-weight: 700;
+}
+.kpi .unit {
+  font-size: 11px;
+  opacity: .75;
+  margin-left: 3px;
+}
+.card {
+  padding: 10px 12px;   /* ← 全体を小さく */
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .04);
+  border: 1px solid rgba(255, 255, 255, .08);
+  backdrop-filter: blur(8px);
+}
+.card h3 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+.small {
+  font-size: 11px;
+  margin-top: 4px;
+  color: #a1a8c4;
+}
 
-.small{font-size:12px;color:#9aa4b2;margin-top:8px}
+/* ===== Bottom Dock（下タブの被り防止） ===== */
+.cash-wrap {
+  padding-bottom: calc(140px + env(safe-area-inset-bottom));
+}
 
-/* ===== Bottom Action Dock =====
-   既存の下タブ( z-index: 100000+ )より前面にする */
-.cash-dock{
-  position:fixed;left:0;right:0;bottom:0;
-  z-index:100200; /* ← 最前面 */
-  pointer-events:none;
+.cash-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(64px + env(safe-area-inset-bottom)); /* ← 下タブの高さぶん上げる */
+  z-index: 100200;
+  pointer-events: none;
 }
-.cash-dock .inner{
-  pointer-events:auto;max-width:980px;margin:0 auto 0;
-  padding:10px 12px calc(10px + env(safe-area-inset-bottom));
-  background:rgba(13,16,24,.84);
-  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  border-top:1px solid rgba(255,255,255,.08);
+
+.cash-dock .inner {
+  pointer-events: auto;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 8px 12px;
+  background: rgba(13,16,24,.84);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(255,255,255,.08);
+  border-radius: 16px 16px 0 0;
 }
-.cash-dock .bar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.cash-dock .bar button{
-  padding:12px;border-radius:12px;
-  border:1px solid rgba(255,255,255,.16);
-  background:rgba(255,255,255,.06);
-  color:#e6ebff;font-weight:600
+
+.cash-dock .bar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.cash-dock .bar button {
+  padding: 10px;
+  font-size: 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.16);
+  background: rgba(255,255,255,.06);
+  color: #e6ebff;
+  font-weight: 600;
 }
 
 /* ===== Modal ===== */
