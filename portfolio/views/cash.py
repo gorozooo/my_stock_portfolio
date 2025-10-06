@@ -11,13 +11,12 @@ from ..services import cash_service as svc
 
 def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
     """
-    口座区分を使わない前提に合わせて、同一証券会社の“代表口座”を1つ取得。
-    複数ある場合は最初の1つを使う（必要になればUIで選ばせる想定）。
+    口座区分は使わない方針。証券会社ごとの“代表口座（現物）”を取得。
+    無ければ ensure_default_accounts() により自動作成される。
     """
-    try:
-        return BrokerAccount.objects.filter(broker=broker, currency=currency).order_by("account_type").first()
-    except BrokerAccount.DoesNotExist:
-        return None
+    # 念のため、ここでも確実に存在させる
+    svc.ensure_default_accounts(currency=currency)
+    return BrokerAccount.objects.filter(broker=broker, currency=currency).order_by("account_type").first()
 
 @require_http_methods(["GET", "POST"])
 def cash_dashboard(request: HttpRequest) -> HttpResponse:
@@ -31,7 +30,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
             broker = request.POST.get("broker", "")
             acc = _get_account(broker)
             if not acc:
-                messages.error(request, f"{broker} の口座が見つかりません。管理画面で作成してください。")
+                messages.error(request, f"{broker} の口座が見つかりません。")
                 return redirect("cash_dashboard")
             try:
                 if amount <= 0:
@@ -63,15 +62,14 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
 
-    # GET（表示）
+    # GET（表示）— 初期口座を自動作成してから集計
+    svc.ensure_default_accounts()
     today = date.today()
-    # 証券会社ごとのサマリ
     brokers = svc.broker_summaries(today)
-    # 参考：ホーム統合などで使うなら全体KPIも取り出せる
-    kpi_total, _ = svc.total_summary(today)
+    kpi_total, _ = svc.total_summary(today)  # 将来用に残す
 
     context = {
-        "brokers": brokers,   # ← これを主役に
-        "kpi_total": kpi_total,  # 画面では非表示だが将来用に残す
+        "brokers": brokers,    # 証券会社ごとのKPI
+        "kpi_total": kpi_total # 使わないが保持
     }
     return render(request, "cash/dashboard.html", context)
