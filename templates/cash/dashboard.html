@@ -3,37 +3,51 @@
 {% block title %}現金ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=4">
 <style>
-/* レイアウト */
-.cash-wrap{max-width:980px;margin:12px auto 96px;padding:12px}
-.action-bar{position:sticky;top:12px;z-index:5;margin:0 0 14px}
-.action-bar .bar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;
-  padding:10px;border-radius:14px;background:rgba(255,255,255,.06);
-  border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(10px)}
-.bar button{padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.14);
-  background:rgba(255,255,255,.05);color:#e6ebff}
+/* ===== Layout ===== */
+.cash-wrap{max-width:980px;margin:12px auto 0;padding:12px 12px 120px} /* 下部ドック分の余白はJSでも追加 */
 .section-title{margin:18px 2px 8px;font-weight:700}
 
-/* 証券会社カード（KPIのみ） */
-.grid-broker{display:grid;grid-template-columns:1fr;gap:12px}
-.card{padding:16px;border-radius:14px;background:rgba(255,255,255,.06);
+/* ===== KPI Card (Broker) ===== */
+.grid-broker{display:grid;grid-template-columns:1fr;gap:14px}
+.card{padding:16px;border-radius:16px;background:rgba(255,255,255,.06);
   border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(10px)}
 .card h3{margin:2px 0 10px;font-size:16px}
 .kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.kpi{padding:12px;border-radius:12px;background:rgba(255,255,255,.05);
-  border:1px solid rgba(255,255,255,.08)}
-.kpi .v{font-size:18px;font-weight:700}
-.kpi .l{font-size:12px;color:#9aa4b2;margin-top:4px}
+
+.kpi{padding:12px 12px 10px;border-radius:14px;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;gap:6px}
+.kpi .label{font-size:12px;color:#9aa4b2;letter-spacing:.04em}
+.kpi .value{line-height:1.05}
+.kpi .value .num{font-size:22px;font-weight:800;letter-spacing:.02em}
+.kpi .value .unit{font-size:12px;opacity:.85;margin-left:4px}
+.kpi .hint{font-size:10px;color:#8b94ad;opacity:.9}
+
+/* 色味（可読性だけほんの少し差別化） */
+.kpi.available{border-color:rgba(0,255,209,.24);box-shadow:0 0 0 1px rgba(0,255,209,.08) inset}
+.kpi.restricted{border-color:rgba(255,89,89,.18)}
+.kpi.cash{border-color:rgba(140,160,255,.18)}
+
+/* 今月差分 */
 .small{font-size:12px;color:#9aa4b2;margin-top:8px}
 
-/* モーダル */
+/* ===== Bottom Action Dock ===== */
+.cash-dock{position:fixed;left:0;right:0;bottom:0;z-index:99990;pointer-events:none}
+.cash-dock .inner{pointer-events:auto;max-width:980px;margin:0 auto 0;
+  padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+  background:rgba(13,16,24,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border-top:1px solid rgba(255,255,255,.08)}
+.cash-dock .bar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.cash-dock .bar button{padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);
+  background:rgba(255,255,255,.06);color:#e6ebff;font-weight:600}
+
+/* ===== Modal ===== */
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;
   align-items:center;justify-content:center;z-index:100020}
 .modal.show{display:flex}
-.modal .box{width:min(520px,92vw);background:rgba(20,24,36,.9);
-  border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px;
-  backdrop-filter:blur(12px)}
+.modal .box{width:min(520px,92vw);background:rgba(20,24,36,.92);
+  border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px;backdrop-filter:blur(12px)}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
 .form-grid label{font-size:12px;color:#9aa4b2;display:block;margin-bottom:4px}
 .form-grid select,.form-grid input{width:100%;padding:10px;border-radius:12px;
@@ -47,33 +61,35 @@
 <div class="cash-wrap">
   <h1 style="margin:6px 2px 12px">💵 現金ダッシュボード（証券会社別）</h1>
 
-  <!-- ✅ ページ上部にアクションを1か所だけ配置 -->
-  <div class="action-bar">
-    <div class="bar">
-      <button data-open="deposit">入金</button>
-      <button data-open="withdraw">出金</button>
-      <button data-open="transfer">振替</button>
-    </div>
-  </div>
-
-  <!-- KPI（証券会社ごと） -->
   {% if brokers %}
     <div class="grid-broker">
       {% for b in brokers %}
       <div class="card">
         <h3>{{ b.broker }} 証券</h3>
         <div class="kpi-row">
-          <div class="kpi">
-            <div class="v">{{ b.available|intcomma }} 円</div>
-            <div class="l">余力</div>
+          <div class="kpi available">
+            <div class="label">余力</div>
+            <div class="value">
+              <span class="num js-amt" data-yen="{{ b.available|intcomma|cut:',' }}">{{ b.available|intcomma }}</span>
+              <span class="unit js-unit">円</span>
+            </div>
+            <div class="hint">タップで万表示切替</div>
           </div>
-          <div class="kpi">
-            <div class="v">{{ b.cash|intcomma }} 円</div>
-            <div class="l">預り金</div>
+          <div class="kpi cash">
+            <div class="label">預り金</div>
+            <div class="value">
+              <span class="num js-amt" data-yen="{{ b.cash|intcomma|cut:',' }}">{{ b.cash|intcomma }}</span>
+              <span class="unit js-unit">円</span>
+            </div>
+            <div class="hint">タップで万表示切替</div>
           </div>
-          <div class="kpi">
-            <div class="v">{{ b.restricted|intcomma }} 円</div>
-            <div class="l">拘束</div>
+          <div class="kpi restricted">
+            <div class="label">拘束</div>
+            <div class="value">
+              <span class="num js-amt" data-yen="{{ b.restricted|intcomma|cut:',' }}">{{ b.restricted|intcomma }}</span>
+              <span class="unit js-unit">円</span>
+            </div>
+            <div class="hint">タップで万表示切替</div>
           </div>
         </div>
         <div class="small">今月の入出金差分：{{ b.month_net|intcomma }} 円</div>
@@ -85,7 +101,18 @@
   {% endif %}
 </div>
 
-<!-- ====== モーダル（入金/出金/振替）====== -->
+<!-- === Bottom Action Dock (固定) === -->
+<div class="cash-dock" aria-label="Cash Actions">
+  <div class="inner">
+    <div class="bar">
+      <button data-open="deposit">入金</button>
+      <button data-open="withdraw">出金</button>
+      <button data-open="transfer">振替</button>
+    </div>
+  </div>
+</div>
+
+<!-- ====== Modals ====== -->
 <div class="modal" id="modal-deposit" aria-hidden="true">
   <div class="box">
     <h3>➕ 入金</h3>
@@ -192,7 +219,32 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-  // 上部の3ボタン → 対応モーダルを開く
+  /* --- 金額表示：タップで 円 ⇄ 万円 切替 --- */
+  let mode = localStorage.getItem("cash_view_mode") || "yen"; // "yen" | "man"
+  const fmt = (n) => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  function applyMode(){
+    document.querySelectorAll(".js-amt").forEach(el=>{
+      const yen = Number((el.getAttribute("data-yen")||"0").replace(/,/g,""));
+      if (mode === "man"){
+        el.textContent = fmt(Math.round(yen/10000));
+        el.parentElement.querySelector(".js-unit").textContent = "万円";
+      }else{
+        el.textContent = fmt(yen);
+        el.parentElement.querySelector(".js-unit").textContent = "円";
+      }
+    });
+  }
+  applyMode();
+  document.querySelectorAll(".kpi .value").forEach(v=>{
+    v.addEventListener("click", ()=>{
+      mode = (mode === "yen") ? "man" : "yen";
+      localStorage.setItem("cash_view_mode", mode);
+      applyMode();
+      if (navigator.vibrate) navigator.vibrate(6);
+    });
+  });
+
+  /* --- 下部ドックのモーダル起動 --- */
   const modals = {
     deposit : document.getElementById("modal-deposit"),
     withdraw: document.getElementById("modal-withdraw"),
@@ -203,12 +255,17 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.querySelectorAll("[data-close]").forEach(b=> b.addEventListener("click", closeAll));
 
-  // クエリ ?action=deposit で直接開ける（下タブからの導線用）
+  // ?action=deposit などで直接開く
   const act = new URLSearchParams(location.search).get("action");
   if (act && modals[act]) show(modals[act]);
 
   function show(el){ if(!el) return; el.classList.add("show"); el.setAttribute("aria-hidden","false"); }
   function closeAll(){ document.querySelectorAll(".modal.show").forEach(m=>{ m.classList.remove("show"); m.setAttribute("aria-hidden","true"); }); }
+
+  /* --- コンテンツ最下部にスペーサ（ドック分） --- */
+  const wrap = document.querySelector(".cash-wrap");
+  const dockH = document.querySelector(".cash-dock .inner").getBoundingClientRect().height;
+  wrap.style.paddingBottom = Math.max(parseInt(wrap.style.paddingBottom||"0"), dockH + 24) + "px";
 });
 </script>
 {% endblock %}
