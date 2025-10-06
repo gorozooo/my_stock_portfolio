@@ -45,8 +45,10 @@ def account_summary(account: BrokerAccount, today: date):
     if m:
         collateral_usable = m.collateral_usable
         restricted = int(m.required_margin + m.restricted_amount)
+        # 余力の推定
         available = int(m.cash_free + collateral_usable - restricted)
         if m.cash_free == 0:
+            # 一部の証券会社で cash_free が 0 固定の場合のフォールバック
             available = int(bal + collateral_usable - restricted)
 
     return {
@@ -107,6 +109,7 @@ def broker_summaries(today: date):
 # ---- 台帳操作 ---------------------------------------------
 def deposit(account: BrokerAccount, amount: int, memo: str = "入金"):
     assert amount > 0
+    # 単発なので atomic は不要（DBエラーはビュー側で捕捉）
     return CashLedger.objects.create(account=account, amount=amount, kind=CashLedger.Kind.DEPOSIT, memo=memo)
 
 def withdraw(account: BrokerAccount, amount: int, memo: str = "出金"):
@@ -115,6 +118,10 @@ def withdraw(account: BrokerAccount, amount: int, memo: str = "出金"):
 
 @transaction.atomic
 def transfer(src: BrokerAccount, dst: BrokerAccount, amount: int, memo: str = "口座間振替"):
+    """
+    振替は2行を一括で入れるので atomic を付与。
+    ここで例外が出たら丸ごとロールバックされる。
+    """
     assert amount > 0 and src != dst
     CashLedger.objects.create(account=src, amount=-amount, kind=CashLedger.Kind.XFER_OUT, memo=memo)
-    CashLedger.objects.create(account=dst, amount=+amount, kind=CashLedger.Kind.XFER_IN, memo=memo)
+    CashLedger.objects.create(account=dst, amount=+amount, kind=CashLedger.Kind.XFER_IN,  memo=memo)
