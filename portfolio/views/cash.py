@@ -10,24 +10,23 @@ from ..models_cash import BrokerAccount
 from ..services import cash_service as svc
 from ..services import cash_updater as up
 
+
 def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
+    """
+    口座区分は使わない方針。証券会社ごとの“代表口座（現物）”を取得。
+    無ければ ensure_default_accounts() により自動作成される。
+    """
     svc.ensure_default_accounts(currency=currency)
-    return (
-        BrokerAccount.objects
-        .filter(broker=broker, currency=currency)
-        .order_by("account_type")
-        .first()
-    )
+    # BrokerAccount.broker は「楽天 / 松井 / SBI」などのラベル想定
+    return BrokerAccount.objects.filter(broker=broker, currency=currency).order_by("account_type").first()
+
 
 @require_http_methods(["GET", "POST"])
 def cash_dashboard(request: HttpRequest) -> HttpResponse:
-    # --- POST: 入出金/振替 ---
+    # ---------- POST（入出金/振替） ----------
     if request.method == "POST":
-        op = request.POST.get("op")
-        try:
-            amount = int(request.POST.get("amount") or 0)
-        except Exception:
-            amount = 0
+        op = request.POST.get("op")  # "deposit" | "withdraw" | "transfer"
+        amount = int(request.POST.get("amount") or 0)
         memo = request.POST.get("memo", "")
 
         if op in ("deposit", "withdraw"):
@@ -66,24 +65,28 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
 
-    # --- GET: 表示前に毎回同期（常時トースト表示） ---
+    # ---------- GET（表示） ----------
     svc.ensure_default_accounts()
+    today = date.today()
+
+    # ★ ここで「配当/実損」を同期する（重複は内部で安全スキップ）
+    sync_info = {"dividends_created": 0, "realized_created": 0}
     try:
         sync_info = up.sync_all()
-        d = sync_info.get("dividends_created", 0)
-        r = sync_info.get("realized_created", 0)
-        messages.info(request, f"同期：配当 {d} 件 / 実損 {r} 件 反映済み")
+        d = int(sync_info.get("dividends_created", 0))
+        r = int(sync_info.get("realized_created", 0))
+        # 何かしら反映があればトースト（?force_toast=1 があれば0でもトースト表示）
+        if d or r or request.GET.get("force_toast") == "1":
+            messages.info(request, f"同期完了：配当 {d} 件 / 実損 {r} 件 反映")
     except Exception as e:
-        sync_info = {"dividends_created": 0, "realized_created": 0}
         messages.error(request, f"同期に失敗：{e}")
 
-    today = date.today()
     brokers = svc.broker_summaries(today)
-    kpi_total, _ = svc.total_summary(today)
+    kpi_total, _ = svc.total_summary(today)  # 将来用
 
     context = {
-        "brokers": brokers,
-        "kpi_total": kpi_total,
-        "sync_info": sync_info,
+        "brokers": brokers,       # 証券会社ごとのKPI
+        "kpi_total": kpi_total,   # 未使用だが保持
+        "sync_info": sync_info,   # 画面下カードにも出す用
     }
     return render(request, "cash/dashboard.html", context)
