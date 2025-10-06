@@ -3,107 +3,65 @@
 {% block title %}現金ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=5">
+<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=6">
 <style>
 /* ===== Layout ===== */
 .cash-wrap{
   max-width:980px;
   margin:12px auto 0;
-  padding:12px 12px 140px; /* 下ドックぶんの余白（JSで最終調整） */
+  padding:12px 12px 140px; /* JSで最終調整するけど最低限の余白も確保 */
 }
 
 /* ===== Broker Card ===== */
 .grid-broker{display:grid;grid-template-columns:1fr;gap:16px}
 .card{
-  padding:16px;border-radius:16px;
-  background:rgba(255,255,255,.06);
-  border:1px solid rgba(255,255,255,.10);
-  backdrop-filter:blur(10px);
+  padding:8px 10px;              /* ← 小さめ */
+  border-radius:14px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);
+  backdrop-filter:blur(8px);
 }
-.card h3{margin:2px 0 12px;font-size:16px}
+.card h3{font-size:15px;margin:0 0 8px}
 
-/* ===== KPI Compact Ver ===== */
-.kpi-col {
-  display: flex;
-  flex-direction: column;
-  gap: 6px; /* 小さく */
+/* ===== KPI（横並び・コンパクト） ===== */
+.kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.kpi{
+  padding:8px 10px;              /* 小さめ */
+  border-radius:10px;
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.08);
 }
-.kpi {
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, .05);
-  border: 1px solid rgba(255, 255, 255, .08);
-}
-.kpi .label {
-  font-size: 11px;
-  color: #9aa4b2;
-  letter-spacing: .03em;
-}
-.kpi .num {
-  font-size: 14px;      /* ← 小さめ数字 */
-  font-weight: 700;
-}
-.kpi .unit {
-  font-size: 11px;
-  opacity: .75;
-  margin-left: 3px;
-}
-.card {
-  padding: 8px 10px;   /* ← 全体を小さく */
-  border-radius: 14px;
-  background: rgba(255, 255, 255, .04);
-  border: 1px solid rgba(255, 255, 255, .08);
-  backdrop-filter: blur(8px);
-}
-.card h3 {
-  font-size: 15px;
-  margin: 0 0 8px;
-}
-.small {
-  font-size: 11px;
-  margin-top: 4px;
-  color: #a1a8c4;
-}
+.kpi .label{font-size:11px;color:#9aa4b2;letter-spacing:.03em;margin-bottom:2px}
+.kpi .value{line-height:1.1;display:flex;align-items:baseline;gap:3px}
+.kpi .num{font-size:14px;font-weight:700;letter-spacing:.01em} /* ← 現在の“小ささ”を踏襲 */
+.kpi .unit{font-size:11px;opacity:.75}
 
-/* ===== Bottom Dock（下タブの被り防止） ===== */
-.cash-wrap {
-  padding-bottom: calc(140px + env(safe-area-inset-bottom));
-}
+/* 色分け（控えめ発光） */
+.kpi.available{border-color:rgba(0,255,209,.28);box-shadow:0 0 0 1px rgba(0,255,209,.12) inset}
+.kpi.cash{border-color:rgba(125,160,255,.24);box-shadow:0 0 0 1px rgba(125,160,255,.10) inset}
+.kpi.restricted{border-color:rgba(255,90,90,.26);box-shadow:0 0 0 1px rgba(255,90,90,.12) inset}
 
-.cash-dock {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: calc(70px + env(safe-area-inset-bottom)); /* ← 下タブの高さぶん上げる */
-  z-index: 100200;
-  pointer-events: none;
-}
+.small{font-size:11px;margin-top:6px;color:#a1a8c4}
 
-.cash-dock .inner {
-  pointer-events: auto;
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 8px 12px;
-  background: rgba(13,16,24,.84);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-top: 1px solid rgba(255,255,255,.08);
-  border-radius: 16px 16px 0 0;
+/* ===== Bottom Action Dock（下タブと被らない） ===== */
+.cash-dock{
+  position:fixed;left:0;right:0;bottom:0; /* bottomはJSで下タブ高を足して上げる */
+  z-index:100200; /* 既存の下タブより前面 */
+  pointer-events:none;
 }
-
-.cash-dock .bar {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+.cash-dock .inner{
+  pointer-events:auto;max-width:980px;margin:0 auto;
+  padding:8px 12px calc(8px + env(safe-area-inset-bottom));
+  background:rgba(13,16,24,.84);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border-top:1px solid rgba(255,255,255,.08);
+  border-radius:16px 16px 0 0;
 }
-.cash-dock .bar button {
-  padding: 10px;
-  font-size: 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(255,255,255,.16);
-  background: rgba(255,255,255,.06);
-  color: #e6ebff;
-  font-weight: 600;
+.cash-dock .bar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.cash-dock .bar button{
+  padding:10px;font-size:14px;border-radius:10px;
+  border:1px solid rgba(255,255,255,.16);
+  background:rgba(255,255,255,.06);color:#e6ebff;font-weight:600
 }
 
 /* ===== Modal ===== */
@@ -130,7 +88,7 @@
       {% for b in brokers %}
       <div class="card">
         <h3>{{ b.broker }} 証券</h3>
-        <div class="kpi-col">
+        <div class="kpi-row">
           <div class="kpi available">
             <div class="label">余力</div>
             <div class="value"><span class="num">{{ b.available|intcomma }}</span><span class="unit">円</span></div>
@@ -289,13 +247,22 @@ document.addEventListener("DOMContentLoaded", () => {
   function show(el){ if(!el) return; el.classList.add("show"); el.setAttribute("aria-hidden","false"); }
   function closeAll(){ document.querySelectorAll(".modal.show").forEach(m=>{ m.classList.remove("show"); m.setAttribute("aria-hidden","true"); }); }
 
-  /* --- コンテンツ下余白：下タブ＋ドックの高さを考慮して自動調整 --- */
+  /* --- 下タブと被らないように、ドック位置＆余白を動的調整 --- */
   const wrap = document.querySelector(".cash-wrap");
-  const dock = document.querySelector(".cash-dock .inner");
-  const dockH = dock ? dock.getBoundingClientRect().height : 0;
+  const dock = document.querySelector(".cash-dock");
+  const inner = document.querySelector(".cash-dock .inner");
   const bottomTab = document.getElementById("bottomTabRoot");
-  const tabH = bottomTab ? bottomTab.getBoundingClientRect().height : 0;
-  wrap.style.paddingBottom = (dockH + tabH + 24) + "px";
+
+  const adjust = ()=>{
+    const dockH = inner ? inner.getBoundingClientRect().height : 0;
+    const tabH  = bottomTab ? bottomTab.getBoundingClientRect().height : 0;
+    // ドックを下タブの上に持ち上げる
+    dock.style.bottom = (tabH) + "px";
+    // コンテンツ下余白も確保
+    wrap.style.paddingBottom = (dockH + tabH + 24) + "px";
+  };
+  adjust();
+  window.addEventListener("resize", adjust);
 });
 </script>
 {% endblock %}
