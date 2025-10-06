@@ -92,15 +92,9 @@
         <div>
           <label>証券会社</label>
           <select name="broker" required>
-            {% for a in accounts %}
-              <option value="{{ a.broker }}">{{ a.broker }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label>口座区分</label>
-          <select name="account_type" required>
-            <option>現物</option><option>NISA</option><option>信用</option>
+            <option value="楽天">楽天証券</option>
+            <option value="松井">松井証券</option>
+            <option value="SBI">SBI証券</option>
           </select>
         </div>
         <div>
@@ -130,15 +124,9 @@
         <div>
           <label>証券会社</label>
           <select name="broker" required>
-            {% for a in accounts %}
-              <option value="{{ a.broker }}">{{ a.broker }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label>口座区分</label>
-          <select name="account_type" required>
-            <option>現物</option><option>NISA</option><option>信用</option>
+            <option value="楽天">楽天証券</option>
+            <option value="松井">松井証券</option>
+            <option value="SBI">SBI証券</option>
           </select>
         </div>
         <div>
@@ -168,25 +156,17 @@
         <div>
           <label>振替元（証券会社）</label>
           <select name="src_broker" required>
-            {% for a in accounts %}<option value="{{ a.broker }}">{{ a.broker }}</option>{% endfor %}
-          </select>
-        </div>
-        <div>
-          <label>振替元（口座区分）</label>
-          <select name="src_account_type" required>
-            <option>現物</option><option>NISA</option><option>信用</option>
+            <option value="楽天">楽天証券</option>
+            <option value="松井">松井証券</option>
+            <option value="SBI">SBI証券</option>
           </select>
         </div>
         <div>
           <label>振替先（証券会社）</label>
           <select name="dst_broker" required>
-            {% for a in accounts %}<option value="{{ a.broker }}">{{ a.broker }}</option>{% endfor %}
-          </select>
-        </div>
-        <div>
-          <label>振替先（口座区分）</label>
-          <select name="dst_account_type" required>
-            <option>現物</option><option>NISA</option><option>信用</option>
+            <option value="楽天">楽天証券</option>
+            <option value="松井">松井証券</option>
+            <option value="SBI">SBI証券</option>
           </select>
         </div>
         <div>
