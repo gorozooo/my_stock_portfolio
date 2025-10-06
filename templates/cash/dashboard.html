@@ -1,20 +1,35 @@
 {% extends "base.html" %}
-{% load humanize %}
+{% load static humanize %}
 {% block title %}現金ダッシュボード{% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=1">
 <style>
-  /* 仮のミニスタイル（後で css/cash.css へ分離） */
-  .cash-wrap{max-width:980px;margin:12px auto 96px;padding:12px}
-  .kpi-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-  .card{padding:16px;border-radius:14px;background:rgba(255,255,255,.06);
-        border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(10px)}
-  .kpi .v{font-size:20px;font-weight:700}
-  .kpi .l{font-size:12px;color:#9aa4b2;margin-top:6px}
-  .actions{display:flex;gap:8px;margin-top:14px}
-  .actions a{flex:1;text-align:center;padding:10px 12px;border-radius:12px;
-             border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);display:block}
-  .empty{opacity:.7;text-align:center;padding:28px 8px}
+/* 簡易スタイル（後で css/cash.css へ移行OK） */
+.cash-wrap{max-width:980px;margin:12px auto 96px;padding:12px}
+.kpi-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.card{padding:16px;border-radius:14px;background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.10);backdrop-filter:blur(10px)}
+.kpi .v{font-size:20px;font-weight:700}
+.kpi .l{font-size:12px;color:#9aa4b2;margin-top:6px}
+.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.actions button{padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);
+                background:rgba(255,255,255,.04);color:#e6ebff}
+.section-title{margin:18px 2px 8px;font-weight:700}
+.grid-acc{display:grid;grid-template-columns:1fr;gap:12px}
+.acc-line{font-size:13px;color:#9aa4b2;margin-top:6px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:100020}
+.modal.show{display:flex}
+.modal .box{width:min(520px,92vw);background:rgba(20,24,36,.9);border:1px solid rgba(255,255,255,.12);
+            border-radius:16px;padding:16px;backdrop-filter:blur(12px)}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.form-grid label{font-size:12px;color:#9aa4b2;display:block;margin-bottom:4px}
+.form-grid select,.form-grid input{width:100%;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.18);
+                                   background:rgba(255,255,255,.06);color:#e6ebff}
+.form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+.btn{padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#e6ebff}
+.btn.primary{border-color:rgba(0,255,209,.45)}
+.empty{opacity:.7;text-align:center;padding:28px 8px}
 </style>
 
 <div class="cash-wrap">
@@ -42,25 +57,178 @@
 
   <!-- アクション -->
   <div class="actions">
-    <a href="{% url 'cash_dashboard' %}?action=deposit">入金</a>
-    <a href="{% url 'cash_dashboard' %}?action=withdraw">出金</a>
-    <a href="{% url 'cash_dashboard' %}?action=transfer">振替</a>
+    <button data-open="deposit">入金</button>
+    <button data-open="withdraw">出金</button>
+    <button data-open="transfer">振替</button>
   </div>
 
-  <!-- 口座カード（後で口座ごとにループ表示） -->
-  {% if brokers %}
-    <div style="margin-top:16px;display:grid;grid-template-columns:1fr;gap:12px">
-      {% for b in brokers %}
+  <!-- 口座カード -->
+  <div class="section-title">口座</div>
+  {% if rows %}
+    <div class="grid-acc">
+      {% for b in rows %}
       <div class="card">
         <div style="font-weight:600">{{ b.name }}</div>
-        <div style="margin-top:6px;font-size:13px;color:#9aa4b2">
-          残高 {{ b.cash|intcomma }} / 拘束 {{ b.restricted|intcomma }} / 余力 {{ b.available|intcomma }}
+        <div class="acc-line">
+          残高 {{ b.cash|intcomma }} / 拘束 {{ b.restricted|intcomma }} / 余力 <strong>{{ b.available|intcomma }}</strong>
         </div>
+        <div class="acc-line">今月差分 {{ b.month_net|intcomma }}</div>
       </div>
       {% endfor %}
     </div>
   {% else %}
-    <div class="card empty">まずは管理画面から口座と台帳データを入れていこう。</div>
+    <div class="card empty">まずは管理画面で「BrokerAccount」を作成し、opening_balance を入れてください。</div>
   {% endif %}
 </div>
+
+<!-- =========== モーダル群（入金/出金/振替） =========== -->
+<div class="modal" id="modal-deposit" aria-hidden="true">
+  <div class="box">
+    <h3>➕ 入金</h3>
+    <form method="post" action="{% url 'cash_dashboard' %}">
+      {% csrf_token %}
+      <input type="hidden" name="op" value="deposit">
+      <div class="form-grid">
+        <div>
+          <label>証券会社</label>
+          <select name="broker" required>
+            {% for a in accounts %}
+              <option value="{{ a.broker }}">{{ a.broker }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>口座区分</label>
+          <select name="account_type" required>
+            <option>現物</option><option>NISA</option><option>信用</option>
+          </select>
+        </div>
+        <div>
+          <label>金額（円）</label>
+          <input type="number" name="amount" inputmode="numeric" min="1" required>
+        </div>
+        <div>
+          <label>メモ</label>
+          <input type="text" name="memo" placeholder="任意">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" data-close>閉じる</button>
+        <button class="btn primary" type="submit">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal" id="modal-withdraw" aria-hidden="true">
+  <div class="box">
+    <h3>➖ 出金</h3>
+    <form method="post" action="{% url 'cash_dashboard' %}">
+      {% csrf_token %}
+      <input type="hidden" name="op" value="withdraw">
+      <div class="form-grid">
+        <div>
+          <label>証券会社</label>
+          <select name="broker" required>
+            {% for a in accounts %}
+              <option value="{{ a.broker }}">{{ a.broker }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>口座区分</label>
+          <select name="account_type" required>
+            <option>現物</option><option>NISA</option><option>信用</option>
+          </select>
+        </div>
+        <div>
+          <label>金額（円）</label>
+          <input type="number" name="amount" inputmode="numeric" min="1" required>
+        </div>
+        <div>
+          <label>メモ</label>
+          <input type="text" name="memo" placeholder="任意">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" data-close>閉じる</button>
+        <button class="btn primary" type="submit">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal" id="modal-transfer" aria-hidden="true">
+  <div class="box">
+    <h3>🔁 振替</h3>
+    <form method="post" action="{% url 'cash_dashboard' %}">
+      {% csrf_token %}
+      <input type="hidden" name="op" value="transfer">
+      <div class="form-grid">
+        <div>
+          <label>振替元（証券会社）</label>
+          <select name="src_broker" required>
+            {% for a in accounts %}<option value="{{ a.broker }}">{{ a.broker }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>振替元（口座区分）</label>
+          <select name="src_account_type" required>
+            <option>現物</option><option>NISA</option><option>信用</option>
+          </select>
+        </div>
+        <div>
+          <label>振替先（証券会社）</label>
+          <select name="dst_broker" required>
+            {% for a in accounts %}<option value="{{ a.broker }}">{{ a.broker }}</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>振替先（口座区分）</label>
+          <select name="dst_account_type" required>
+            <option>現物</option><option>NISA</option><option>信用</option>
+          </select>
+        </div>
+        <div>
+          <label>金額（円）</label>
+          <input type="number" name="amount" inputmode="numeric" min="1" required>
+        </div>
+        <div>
+          <label>メモ</label>
+          <input type="text" name="memo" placeholder="任意">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" data-close>閉じる</button>
+        <button class="btn primary" type="submit">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const map = {
+    deposit : document.getElementById("modal-deposit"),
+    withdraw: document.getElementById("modal-withdraw"),
+    transfer: document.getElementById("modal-transfer"),
+  };
+  // 下タブからの ?action=deposit 等で自動表示
+  const qs = new URLSearchParams(location.search);
+  const act = qs.get("action");
+  if (act && map[act]) show(map[act]);
+
+  // ボタンで開く
+  document.querySelectorAll("[data-open]").forEach(b=>{
+    b.addEventListener("click", ()=> show(map[b.dataset.open]));
+  });
+  // 閉じる
+  document.querySelectorAll("[data-close]").forEach(b=>{
+    b.addEventListener("click", closeAll);
+  });
+
+  function show(el){ if(!el) return; el.classList.add("show"); el.setAttribute("aria-hidden","false"); }
+  function closeAll(){ document.querySelectorAll(".modal.show").forEach(m=>{ m.classList.remove("show"); m.setAttribute("aria-hidden","true"); }); }
+});
+</script>
 {% endblock %}
