@@ -1,7 +1,7 @@
 # portfolio/admin.py
 from django.contrib import admin
 from .models import Holding, UserSetting, RealizedTrade, Dividend
-
+from .models.cash import BrokerAccount, CashLedger, MarginState
 
 # --------- Holding ---------
 @admin.register(Holding)
@@ -136,4 +136,20 @@ class DividendAdmin(admin.ModelAdmin):
         return amt + tax if obj.is_net else amt
     gross_display.short_description = "税引前(概算)"
 
-        
+# --------- Dividend --------- 
+@admin.register(BrokerAccount)
+class BrokerAccountAdmin(admin.ModelAdmin):
+    list_display = ("broker", "account_type", "currency", "opening_balance", "name")
+    list_filter = ("broker", "account_type", "currency")
+    search_fields = ("name",)
+
+@admin.register(CashLedger)
+class CashLedgerAdmin(admin.ModelAdmin):
+    list_display = ("at", "account", "kind", "amount", "memo", "link_model", "link_id")
+    list_filter = ("kind", "account__broker", "account__account_type")
+    search_fields = ("memo", "link_model")
+
+@admin.register(MarginState)
+class MarginStateAdmin(admin.ModelAdmin):
+    list_display = ("as_of", "account", "cash_free", "stock_collateral_value", "haircut_pct", "required_margin", "restricted_amount")
+    list_filter = ("account__broker", "account__account_type")
