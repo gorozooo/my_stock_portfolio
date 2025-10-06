@@ -138,5 +138,38 @@
       });
     })();
   </script>
+  {% if messages %}
+  <script>
+  (function(){
+    // トーストDOM（なければ作る）
+    let toast = document.getElementById("globalToast");
+    if(!toast){
+      toast = document.createElement("div");
+      toast.id = "globalToast";
+      Object.assign(toast.style,{
+        position:"fixed",left:"50%",bottom:"calc(100px + env(safe-area-inset-bottom))",
+        transform:"translateX(-50%)",background:"rgba(30,32,46,.96)",color:"#fff",
+        padding:"8px 12px",fontSize:"13px",borderRadius:"10px",
+        border:"1px solid rgba(255,255,255,.08)",boxShadow:"0 10px 28px rgba(0,0,0,.45)",
+        opacity:"0",pointerEvents:"none",transition:"opacity .18s ease",zIndex:"100260"
+      });
+      document.body.appendChild(toast);
+    }
+    // メッセージを順番に表示
+    const queue = [
+      {% for m in messages %}{{ m|escapejs|safe }},{% endfor %}
+    ].map(String).filter(Boolean);
+  
+    let i = 0;
+    const showNext = ()=>{
+      if(i >= queue.length) return;
+      toast.textContent = queue[i++];
+      toast.style.opacity = "1";
+      setTimeout(()=>{ toast.style.opacity = "0"; setTimeout(showNext, 300); }, 1400);
+    };
+    showNext();
+  })();
+  </script>
+  {% endif %}
 </body>
 </html>
