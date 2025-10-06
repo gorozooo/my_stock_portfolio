@@ -127,7 +127,7 @@ document.addEventListener("DOMContentLoaded", () => {
       { section:"クイック" },
       { label:"新規登録",         href: URLS.holding_create,  icon:"➕", tone:"add" },
       { label:"現金（ホーム表示）",href: URLS.home_panel_cash, icon:"💵", tone:"info" },
-      { label:"トレンド（ホーム）", href: URLS.trend_base,icon:"📈", tone:"info" },
+      { label:"トレンド", href: URLS.trend_base,icon:"📈", tone:"info" },
       { label:"設定を開く",       href:"/settings/trade",     icon:"⚙️", tone:"info" },
     ],
     holdings: [
