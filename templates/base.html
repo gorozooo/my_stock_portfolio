@@ -141,33 +141,84 @@
   {% if messages %}
   <script>
   (function(){
-    // トーストDOM（なければ作る）
-    let toast = document.getElementById("globalToast");
-    if(!toast){
-      toast = document.createElement("div");
-      toast.id = "globalToast";
-      Object.assign(toast.style,{
-        position:"fixed",left:"50%",bottom:"calc(100px + env(safe-area-inset-bottom))",
-        transform:"translateX(-50%)",background:"rgba(30,32,46,.96)",color:"#fff",
-        padding:"8px 12px",fontSize:"13px",borderRadius:"10px",
-        border:"1px solid rgba(255,255,255,.08)",boxShadow:"0 10px 28px rgba(0,0,0,.45)",
-        opacity:"0",pointerEvents:"none",transition:"opacity .18s ease",zIndex:"100260"
-      });
-      document.body.appendChild(toast);
-    }
-    // メッセージを順番に表示
-    const queue = [
-      {% for m in messages %}{{ m|escapejs|safe }},{% endfor %}
-    ].map(String).filter(Boolean);
+    try{
+      // 1) トーストDOM（なければ作る）
+      let toast = document.getElementById("globalToast");
+      if(!toast){
+        toast = document.createElement("div");
+        toast.id = "globalToast";
+        Object.assign(toast.style,{
+          position:"fixed",
+          left:"50%",
+          bottom:"calc(90px + env(safe-area-inset-bottom))", /* 初期値。あとでJSで最終調整 */
+          transform:"translateX(-50%)",
+          background:"rgba(30,32,46,.96)",
+          color:"#fff",
+          padding:"8px 12px",
+          fontSize:"13px",
+          borderRadius:"10px",
+          border:"1px solid rgba(255,255,255,.08)",
+          boxShadow:"0 10px 28px rgba(0,0,0,.45)",
+          opacity:"0",
+          pointerEvents:"none",
+          transition:"opacity .18s ease, transform .18s ease",
+          zIndex:"100260"
+        });
+        document.body.appendChild(toast);
+      }
   
-    let i = 0;
-    const showNext = ()=>{
-      if(i >= queue.length) return;
-      toast.textContent = queue[i++];
-      toast.style.opacity = "1";
-      setTimeout(()=>{ toast.style.opacity = "0"; setTimeout(showNext, 300); }, 1400);
-    };
-    showNext();
+      // 2) Django messages を JS 配列へ（★ 文字列をクォート！）
+      const queue = [
+        {% for m in messages %}
+          {text: "{{ m|escapejs }}", level: "{{ m.tags|default_if_none:'' }}"},
+        {% endfor %}
+      ];
+  
+      // 3) 下タブやドックに被らないよう自動オフセット
+      const adjustOffset = ()=>{
+        const bottomTab = document.getElementById("bottomTabRoot");
+        const dockInner = document.querySelector(".cash-dock .inner");
+        const tabH = bottomTab ? bottomTab.getBoundingClientRect().height : 0;
+        const dockH = dockInner ? dockInner.getBoundingClientRect().height : 0;
+        // 余白: 下タブ + ドック + 16px
+        const offset = Math.max(90, Math.round(tabH + dockH + 16));
+        toast.style.bottom = `calc(${offset}px + env(safe-area-inset-bottom))`;
+      };
+      adjustOffset();
+      window.addEventListener("resize", adjustOffset);
+  
+      // 4) レベル別に微妙に演出
+      const levelStyle = (lvl)=>{
+        switch(true){
+          case /error/.test(lvl): return {bg:"rgba(220,38,38,.96)", b:"#7f1d1d"};
+          case /success/.test(lvl): return {bg:"rgba(16,185,129,.96)", b:"#064e3b"};
+          case /warning/.test(lvl): return {bg:"rgba(234,179,8,.96)", b:"#713f12"};
+          default: return {bg:"rgba(30,32,46,.96)", b:"rgba(255,255,255,.08)"};
+        }
+      };
+  
+      // 5) 表示ループ
+      let i = 0;
+      const showNext = ()=>{
+        if(i >= queue.length) return;
+        const {text, level} = queue[i++] || {};
+        const st = levelStyle(level||"");
+        toast.style.background = st.bg;
+        toast.style.borderColor = st.b;
+        toast.textContent = String(text||"");
+        toast.style.opacity = "1";
+        toast.style.transform = "translateX(-50%) translateY(-4px)";
+        setTimeout(()=>{
+          toast.style.opacity = "0";
+          toast.style.transform = "translateX(-50%) translateY(0)";
+          setTimeout(showNext, 260);
+        }, 1600);
+      };
+      showNext();
+    }catch(e){
+      // 何かあっても画面は壊さない
+      console.warn("toast error:", e);
+    }
   })();
   </script>
   {% endif %}
