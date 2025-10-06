@@ -6,6 +6,7 @@ from portfolio.models import Dividend, RealizedTrade
 from ..models_cash import BrokerAccount, CashLedger
 from . import cash_service as svc
 
+# ---- Broker 正規化 ------------------------------------------------
 def _norm_broker(code: str) -> str:
     if not code:
         return ""
@@ -26,9 +27,26 @@ def _get_account(broker_code: str, currency: str = "JPY") -> BrokerAccount | Non
     return qs.filter(broker=code).first() or qs.filter(broker=label).first()
 
 def _as_int(x) -> int:
-    try: return int(round(float(x or 0)))
-    except Exception: return 0
+    try:
+        return int(round(float(x or 0)))
+    except Exception:
+        return 0
 
+# ---- 内部ヘルパ：セーブポイント付き create --------------------
+def _create_ledger_safe(**kwargs) -> bool:
+    """
+    1レコードの作成を savepoint で隔離。
+    IntegrityError はロールバックして False を返す（外側トランザクションを壊さない）。
+    """
+    try:
+        with transaction.atomic():  # savepoint=True（デフォルト）
+            CashLedger.objects.create(**kwargs)
+        return True
+    except IntegrityError:
+        # 既存のユニーク制約ヒット等 → スキップ
+        return False
+
+# ---- 同期本体 ----------------------------------------------------
 def sync_from_dividends() -> int:
     created = 0
     for d in Dividend.objects.all().iterator():
@@ -38,20 +56,17 @@ def sync_from_dividends() -> int:
         amount = _as_int(d.net_amount())  # UIは税引後前提
         if amount <= 0:
             continue
-        try:
-            # ユニーク制約で重複を防ぐ（source_type, source_id）
-            CashLedger.objects.create(
-                account=acc,
-                amount= amount,
-                kind=CashLedger.Kind.DEPOSIT,
-                memo=f"配当 DIV:{d.id}",
-                source_type=CashLedger.SourceType.DIVIDEND,
-                source_id=d.id,
-            )
+
+        ok = _create_ledger_safe(
+            account=acc,
+            amount=amount,                        # 入金（＋）
+            kind=CashLedger.Kind.DEPOSIT,
+            memo=f"配当 DIV:{d.id}",
+            source_type=CashLedger.SourceType.DIVIDEND,
+            source_id=d.id,
+        )
+        if ok:
             created += 1
-        except IntegrityError:
-            # 既に同じ source が入っている → スキップ
-            pass
     return created
 
 def sync_from_realized() -> int:
@@ -60,27 +75,29 @@ def sync_from_realized() -> int:
         acc = _get_account(r.broker)
         if not acc:
             continue
-        delta = _as_int(r.cashflow_effective)
+        delta = _as_int(r.cashflow_effective)  # SELL=＋ / BUY=− / 料税込み
         if delta == 0:
             continue
+
         kind = CashLedger.Kind.DEPOSIT if delta > 0 else CashLedger.Kind.WITHDRAW
-        signed_amount = delta  # 正:入金 / 負:出金（モデルが符号持ち運用）
-        try:
-            CashLedger.objects.create(
-                account=acc,
-                amount=signed_amount,
-                kind=kind,
-                memo=f"実現損益 REAL:{r.id}",
-                source_type=CashLedger.SourceType.REALIZED,
-                source_id=r.id,
-            )
+        ok = _create_ledger_safe(
+            account=acc,
+            amount=delta,                         # 符号付きで保存
+            kind=kind,
+            memo=f"実現損益 REAL:{r.id}",
+            source_type=CashLedger.SourceType.REALIZED,
+            source_id=r.id,
+        )
+        if ok:
             created += 1
-        except IntegrityError:
-            pass
     return created
 
-@transaction.atomic
 def sync_all() -> dict:
+    """
+    外側では atomic を張らない。
+    それぞれの行挿入を savepoint で囲っているので、
+    重複などがあってもトランザクションは壊れない。
+    """
     d = sync_from_dividends()
     r = sync_from_realized()
     return {"dividends_created": d, "realized_created": r}
