@@ -8,6 +8,7 @@ from datetime import date
 
 from ..models_cash import BrokerAccount
 from ..services import cash_service as svc
+from ..services import cash_updater as up
 
 def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
     """
