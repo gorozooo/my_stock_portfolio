@@ -14,6 +14,7 @@ from .views.realized import (
 from .views import dev_tools as dev_views
 from .views import holding as hv
 from .views import dividend as v_div  # ← 配当まわりはこのモジュールに集約
+from .views import cash as v_cash
 
 urlpatterns = [
     path("", core_views.main, name="home"),
@@ -91,4 +92,8 @@ urlpatterns = [
 
     # CSV
     path("realized/export/csv", realized_views.export_csv, name="realized_export_csv"),
+    
+    # 現金
+    path("cash/", v_cash.cash_dashboard, name="cash_dashboard"),
+    
 ]
