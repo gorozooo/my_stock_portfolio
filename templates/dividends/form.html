@@ -1,190 +1,239 @@
+{# templates/dividends/form.html #}
 {% extends "base.html" %}
+{% load static %}
 {% block title %}配当を記録{% endblock %}
 
 {% block head %}
 <style>
-  .form-card{
-    display:grid; gap:16px; padding:18px;
-    border-radius:16px; background:rgba(255,255,255,.04);
-    border:1px solid rgba(255,255,255,.08);
-    max-width:720px; margin:0 auto;
+  .card{
+    padding:18px;border:1px solid rgba(255,255,255,.08);border-radius:16px;
+    background:rgba(255,255,255,.04);max-width:720px;margin:0 auto
   }
-  .fi label{ display:block; font-size:13px; color:#9aa4b2; margin-bottom:4px; }
-  .fi input, .fi select, .fi textarea{
-    width:100%; padding:10px 12px; font-size:15px;
-    border-radius:12px; border:1px solid rgba(255,255,255,.16);
-    background:rgba(255,255,255,.06); color:#e6ebff; outline:none;
+  .fi{margin:10px 0}
+  .lbl{display:block;font-size:13px;color:#9aa4b2;margin:0 0 6px}
+  .in,.sel{
+    width:100%;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);
+    background:rgba(255,255,255,.06);color:#e6ebff;font-size:16px
   }
-  .fi textarea{ min-height:96px; resize:vertical; line-height:1.5; }
-  .row-2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-  @media (max-width:520px){ .row-2{ grid-template-columns:1fr; } } /* ← 重なり解消 */
+  /* 2/3 カラム行。狭幅では自動縦並び → 重なり防止 */
+  .row-2{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+  .row-3{display:grid;gap:12px;grid-template-columns:1fr 1fr 1fr}
+  @media (max-width:640px){ .row-2,.row-3{grid-template-columns:1fr} }
 
-  .btn-bar{ display:flex; gap:12px; margin-top:4px; }
-  .btn-bar button, .btn-bar a{
-    flex:1; text-align:center; padding:12px; border-radius:12px;
-    border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.06);
-    color:#e6ebff; text-decoration:none;
+  .hint{font-size:12px;color:#8b93a7;margin-top:6px}
+  .btns{display:flex;gap:12px;margin-top:14px}
+  .btns .btn{flex:1;text-align:center;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e6ebff;text-decoration:none}
+  .btns .btn:hover{background:rgba(255,255,255,.12)}
+  .preview{font-size:13px;color:#cdd6f6;margin-top:6px}
+  .err{padding:10px;border-radius:10px;border:1px solid #ff9aa9;background:#2b1f24;color:#ffd1d1;margin-bottom:8px}
+
+  /* 税率：横並びチェックボックス（見た目はピル） */
+  .taxbox{display:flex;gap:10px;flex-wrap:wrap}
+  .taxbox input[type="checkbox"]{display:none}
+  .taxbox label{
+    display:inline-block; padding:8px 12px; border-radius:999px;
+    border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.06);
+    color:#e6ebff; cursor:pointer; font-size:14px; user-select:none;
   }
-  .btn-bar button:hover, .btn-bar a:hover{ background:rgba(255,255,255,.12); }
-  .error-box{ padding:10px; border:1px solid #ff9aa9; background:#2b1f24; color:#ffd1d1; border-radius:8px; font-size:14px; }
-  .hint {font-size:12px;color:#888}
+  .taxbox input[type="checkbox"]:checked + label{
+    outline:2px solid rgba(110,168,255,.55); background:rgba(110,168,255,.15);
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="pnl">
-  <h1 style="margin-bottom:12px">配当を記録</h1>
+<h1 class="text-xl font-semibold mb-3">配当を記録</h1>
 
-  <form method="post" class="form-card" id="divForm">
-    {% csrf_token %}
+<form method="post" class="card" novalidate>
+  {% csrf_token %}
 
-    <!-- 保有選択 -->
+  {% if form.errors %}
+    <div class="err">入力に誤りがあります。確認してください。</div>
+  {% endif %}
+
+  <!-- 保有（任意） -->
+  <div class="fi">
+    <label class="lbl">保有（任意）</label>
+    {{ form.holding }}
+    <div class="hint">未登録の銘柄は、下のティッカー/銘柄名・株数・取得単価を入力してください。</div>
+  </div>
+
+  <!-- ティッカー / 銘柄名 -->
+  <div class="row-2">
     <div class="fi">
-      <label>保有（任意）</label>
-      <select id="selHolding" name="holding">
-        <option value="">未選択</option>
-        {% for h in holdings %}
-          <option value="{{ h.id }}"
-            {% if form.holding.value == h.id %}selected{% endif %}>
-            {{ h.name }}（{{ h.ticker }} × {{ h.quantity|default:"-" }}）
-          </option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <p class="hint">未登録の銘柄は下でティッカー/銘柄名・株数・取得単価を入力してください。</p>
-
-    <!-- ティッカー / 銘柄名 -->
-    <div class="fi">
-      <label>ティッカー/コード（保有未選択時は必須）</label>
-      <input id="inTicker" type="text" name="ticker" inputmode="latin"
-             autocomplete="off" autocapitalize="characters"
-             value="{{ form.ticker.value|default_if_none:'' }}">
+      <label class="lbl">ティッカー/コード（保有未選択時は必須）</label>
+      {{ form.ticker }}
     </div>
     <div class="fi">
-      <label>銘柄名（任意・自動補完／手入力可）</label>
-      <input id="inName" type="text" name="name" value="{{ form.name.value|default_if_none:'' }}">
+      <label class="lbl">銘柄名（任意・自動補完／手入力可）</label>
+      {{ form.name }}
       <div class="hint">コード入力後に自動補完されます（取得不可のときは手入力）。</div>
     </div>
+  </div>
 
-    <!-- 受取日 / 受取額（税引前） -->
-    <div class="row-2">
-      <div class="fi">
-        <label>受取日</label>
-        {{ form.date }}
-      </div>
-      <div class="fi">
-        <label>受取額（税引前）</label>
-        <input type="number" step="0.01" inputmode="decimal" name="amount"
-               value="{{ form.amount.value|default_if_none:'' }}">
-      </div>
-    </div>
-
-    <!-- 税額 / 株数 -->
-    <div class="row-2">
-      <div class="fi">
-        <label>税額</label>
-        <input type="number" step="0.01" inputmode="decimal" name="tax"
-               value="{{ form.tax.value|default_if_none:'' }}">
-      </div>
-      <div class="fi">
-        <label>株数</label>
-        <input id="inQty" type="number" inputmode="numeric" name="quantity"
-               value="{% if form.quantity.value and form.quantity.value != '0' %}{{ form.quantity.value }}{% endif %}">
-      </div>
-    </div>
-
-    <!-- 取得単価 / 予備 -->
-    <div class="row-2">
-      <div class="fi">
-        <label>取得単価</label>
-        <input id="inAvg" type="number" step="0.01" inputmode="decimal" name="purchase_price"
-               value="{% if form.purchase_price.value and form.purchase_price.value != '0' %}{{ form.purchase_price.value }}{% endif %}">
-      </div>
-      <div class="fi">
-        <label>&nbsp;</label>
-        <div></div>
-      </div>
-    </div>
-
-    <!-- 証券会社 / 口座区分 -->
-    <div class="row-2">
-      <div class="fi"><label>証券会社</label>{{ form.broker }}</div>
-      <div class="fi"><label>口座区分</label>{{ form.account }}</div>
-    </div>
-
-    <!-- メモ -->
+  <!-- 受取日 / 受取額（税引前） → 横並び（狭幅では縦）で重なり回避 -->
+  <div class="row-2">
     <div class="fi">
-      <label>メモ</label>
-      {{ form.memo }}
+      <label class="lbl">受取日</label>
+      {{ form.date }}
     </div>
-
-    {% if form.errors %}
-      <div class="error-box">入力に誤りがあります。確認してください。</div>
-    {% endif %}
-
-    <div class="btn-bar">
-      <button type="submit">保存</button>
-      <a href="{% url 'dividend_list' %}">戻る</a>
+    <div class="fi">
+      <label class="lbl">受取額（税引前）</label>
+      {{ form.amount }}
+      <div id="js-preview" class="preview">税額・税引後は税率選択後にプレビューされます。</div>
     </div>
-  </form>
-</div>
+  </div>
 
-<!-- 保有データ（自動反映用） -->
-{{ holdings|json_script:"holdings-data" }}
+  <!-- 数量・取得単価・税率 -->
+  <div class="row-3">
+    <div class="fi">
+      <label class="lbl">株数</label>
+      {{ form.quantity }}
+    </div>
+    <div class="fi">
+      <label class="lbl">取得単価（1株）</label>
+      {{ form.purchase_price }}
+    </div>
+    <div class="fi">
+      <label class="lbl">税率</label>
+      <!-- 見た目チェックボックス。送信用は hidden に同期（サーバ側 tax はそのまま） -->
+      <div class="taxbox" id="js-taxbox">
+        <input type="checkbox" id="rate0" value="0">
+        <label for="rate0">0%</label>
+        <input type="checkbox" id="rate20315" value="20.315">
+        <label for="rate20315">20.315%</label>
+      </div>
+      <input type="hidden" name="tax_rate_pct" id="id_tax_rate_pct" value="20.315">
+    </div>
+  </div>
+
+  <!-- 区分 -->
+  <div class="row-2">
+    <div class="fi">
+      <label class="lbl">証券会社</label>
+      {{ form.broker }}
+    </div>
+    <div class="fi">
+      <label class="lbl">口座区分</label>
+      {{ form.account }}
+    </div>
+  </div>
+
+  <!-- Hidden （税額と税引後フラグはテンプレから触らない） -->
+  {{ form.tax }}{{ form.is_net }}
+
+  <div class="fi">
+    <label class="lbl">メモ</label>
+    {{ form.memo }}
+  </div>
+
+  <div class="btns">
+    <button class="btn" type="submit">保存</button>
+    <a class="btn" href="{% url 'dividend_list' %}">一覧へ戻る</a>
+  </div>
+</form>
+
+{# 保有メタ（id, ticker, name, quantity, avg_cost, broker, account ...）を安全に埋め込み #}
+{{ holding_meta|json_script:"js-holdings" }}
 
 <script>
 (function(){
-  const HOLDINGS = JSON.parse(document.getElementById('holdings-data').textContent || '[]');
-  const $ = s => document.querySelector(s);
+  // ====== 1) コード→銘柄名 自動補完 ======
+  const endpoint = "{% url 'api_ticker_name' %}";
+  const $ticker  = document.getElementById('id_ticker');
+  const $name    = document.getElementById('id_name');
 
-  const sel        = $('#selHolding');
-  const inTicker   = $('#inTicker');
-  const inName     = $('#inName');
-  const inQty      = $('#inQty');
-  const inAvg      = $('#inAvg');
-  const brokerSel  = document.querySelector('select[name="broker"]');
-  const accountSel = document.querySelector('select[name="account"]');
+  if ($ticker && $name){
+    let edited=false, last={name:""};
+    $name.addEventListener('input', ()=> edited=true);
 
-  // ティッカーは常に大文字化（カーソル位置を維持）
-  inTicker?.addEventListener('input', e=>{
-    const p = e.target.selectionStart;
-    e.target.value = (e.target.value || '').toUpperCase();
-    e.target.setSelectionRange(p,p);
+    const debounce=(fn,ms)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}};
+
+    function applyName(data){
+      if (!data || !data.name) return;
+      const cur = ($name.value||'').trim();
+      if (!edited || !cur || cur===last.name){
+        $name.value = data.name;
+        last.name   = data.name;
+        edited = false;
+      }
+    }
+    function lookup(){
+      const v = ($ticker.value||'').trim(); if(!v) return;
+      fetch(`${endpoint}?code=${encodeURIComponent(v)}`,{credentials:'same-origin'})
+        .then(r=>r.ok?r.json():Promise.reject())
+        .then(applyName).catch(()=>{});
+    }
+    $ticker.addEventListener('input', debounce(lookup, 250));
+    $ticker.addEventListener('change', lookup);
+    $ticker.addEventListener('blur',   lookup);
+  }
+
+  // ====== 2) 税率ピル（擬似ラジオ） + プレビュー ======
+  const $amount = document.getElementById('id_amount');
+  const $prev   = document.getElementById('js-preview');
+  const $rateHidden = document.getElementById('id_tax_rate_pct');
+  const $taxBox = document.getElementById('js-taxbox');
+  const pills   = Array.from($taxBox.querySelectorAll('input[type="checkbox"]'));
+
+  function selectRate(val){
+    pills.forEach(cb => cb.checked = (cb.value === String(val)));
+    $rateHidden.value = String(val);
+    updatePreview();
+  }
+  // 初期値は hidden に従う
+  selectRate($rateHidden.value || "20.315");
+
+  pills.forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      if (!cb.checked){ cb.checked = true; return; } // 常に1つ選択
+      selectRate(cb.value);
+    });
   });
 
-  // ティッカー → 銘柄名の自動補完（API）
-  const endpoint = "{% url 'api_ticker_name' %}";
-  function lookupName(code){
-    if (!code) return;
-    fetch(`${endpoint}?q=${encodeURIComponent(code)}`, {credentials:'same-origin'})
-      .then(r=>r.ok?r.json():Promise.reject())
-      .then(d=>{ if(d && d.name && !inName.value) inName.value = d.name; })
-      .catch(()=>{});
+  function num(x){ const v=parseFloat(x); return isNaN(v)?0:v; }
+  function fmt(n){ return (Math.round(n*100)/100).toLocaleString(); }
+  function updatePreview(){
+    if (!$amount || !$prev) return;
+    const gross = num($amount.value);
+    const rate  = parseFloat($rateHidden.value || "0") || 0;
+    const tax   = gross * (rate/100);
+    const net   = gross - tax;
+    $prev.textContent = `税額: ${fmt(tax)} ／ 税引後: ${fmt(net)}`;
   }
-  inTicker?.addEventListener('blur',   ()=> lookupName(inTicker.value.trim()));
-  inTicker?.addEventListener('change', ()=> lookupName(inTicker.value.trim()));
+  if ($amount) $amount.addEventListener('input', updatePreview);
+  updatePreview();
 
-  // 保有選択 → 関連項目を自動反映
+  // ====== 3) 保有選択 → フィールド自動反映 ======
+  const HOLDINGS = (()=>{
+    const el = document.getElementById('js-holdings');
+    if (!el) return [];
+    try { return JSON.parse(el.textContent || '[]'); } catch(_) { return []; }
+  })();
+
+  const $holding = document.getElementById('id_holding');
+  function findHolding(id){ return HOLDINGS.find(h => String(h.id) === String(id)); }
+  function setIfEmpty(id, v){
+    const el=document.getElementById(id); if(!el) return;
+    if (!el.value) el.value = (v ?? '');
+  }
+  function setSelect(id, v){
+    const el=document.getElementById(id); if(!el) return;
+    if (v !== undefined && v !== null && v !== '') el.value = v;
+  }
   function applyHolding(h){
     if (!h) return;
-    if (inTicker) inTicker.value = String(h.ticker||'').toUpperCase();
-    if (inName)   inName.value   = h.name || '';
-    if (inQty)    inQty.value    = (h.quantity != null && h.quantity !== '') ? h.quantity : '';
-    if (inAvg)    inAvg.value    = (h.avg_cost != null && h.avg_cost !== '') ? h.avg_cost : '';
-    if (brokerSel && h.broker){ brokerSel.value  = h.broker; }
-    if (accountSel && h.account){ accountSel.value = h.account; }
+    setIfEmpty('id_ticker',          h.ticker);
+    setIfEmpty('id_name',            h.name);
+    setIfEmpty('id_quantity',        h.quantity);
+    setIfEmpty('id_purchase_price',  h.avg_cost);
+    setSelect ('id_broker',          h.broker);
+    setSelect ('id_account',         h.account);
   }
 
-  sel?.addEventListener('change', ()=>{
-    const h = HOLDINGS.find(x=> String(x.id) === String(sel.value));
-    applyHolding(h);
-  });
-
-  // 初期表示で選択済みなら反映
-  if (sel && sel.value){
-    const h = HOLDINGS.find(x=> String(x.id) === String(sel.value));
-    applyHolding(h);
+  if ($holding){
+    $holding.addEventListener('change', ()=> applyHolding(findHolding($holding.value)));
+    if ($holding.value){ applyHolding(findHolding($holding.value)); }
   }
 })();
 </script>
