@@ -4,7 +4,7 @@
 
 {% block head %}
 <style>
-  /* ===== スティッキー枠（そのまま） ===== */
+  /* ===== スティッキー枠 ===== */
   #topSticky{
     position: sticky;
     top: env(safe-area-inset-top, 0px);
@@ -20,27 +20,27 @@
 
   /* ===== フィルター ===== */
   .filter-grid{ display:grid; grid-template-columns:repeat(12,1fr); gap:8px; }
-  .field{ position:relative; grid-column:span 4; }    /* デフォルトは 4 カラム幅 */
-  .field.w6{ grid-column:span 6; }                    /* 日付用：6 カラム幅 */
+  .field{ position:relative; grid-column:span 4; min-width:0; } /* 3等分 */
+  .field.w6{ grid-column:span 6; }                               /* 開始/終了 */
   .prefix{
     position:absolute; left:10px; top:6px;
-    font-size:11px; color:#9fb0c8; pointer-events:none;
+    font-size:11px; color:#9fb0c8; pointer-events:none; white-space:nowrap;
   }
-  .ctl, .btn{
+  .ctl,.btn{
     height:32px; font-size:13px; color:#e6ebff;
     background:rgba(255,255,255,.06);
     border:1px solid rgba(255,255,255,.14);
     border-radius:8px; padding:0 10px; width:100%; box-sizing:border-box;
   }
-  /* ラベル分の左余白（select/date も同じにする） */
-  .field .ctl{ padding-left:56px; }
+  /* ラベル分の左余白 */
+  .field .ctl{ padding-left:52px; }
   input[type="date"].ctl{ color-scheme: dark; }
 
-  /* ボタン：適用 → クリア（中央寄せ／元サイズ） */
+  /* ボタン：適用→クリア（中央寄せ・元サイズ） */
   .btnrow{ grid-column:1 / -1; display:flex; justify-content:center; gap:10px; }
   .btn.ghost{ background:transparent; }
 
-  /* ===== サマリー（前回OKのまま） ===== */
+  /* ===== サマリー（既存OKを維持） ===== */
   .sum-wrap{ display:grid; gap:6px; grid-template-columns:repeat(2,1fr); margin-top:6px }
   .pill{ border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.05);
          border-radius:8px; padding:6px 8px; text-align:center; font-size:12px; color:#cbd5e1 }
@@ -81,7 +81,7 @@
       </select>
     </div>
 
-    <!-- 3) メモ検索（例文はこのまま） -->
+    <!-- 3) メモ検索（例文は維持） -->
     <div class="field">
       <span class="prefix">メモ検索</span>
       <input type="text" name="q" class="ctl"
@@ -120,7 +120,7 @@
   {% endif %}
 </div>
 
-<!-- ▼ 履歴カード（元に戻す） -->
+<!-- ▼ 履歴カード -->
 <div id="historyContainer">
   {% include "cash/_history_list.html" with page=page params=params %}
 </div>
