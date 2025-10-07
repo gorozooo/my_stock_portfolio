@@ -95,5 +95,9 @@ urlpatterns = [
     
     # 現金
     path("cash/", v_cash.cash_dashboard, name="cash_dashboard"),
+    path("cash/history/", v_cash.cash_history, name="cash_history"),                  # 一覧（初期）
+    path("cash/history/page", v_cash.cash_history_page, name="cash_history_page"),    # 追加読み込み(HTMX)
+    path("cash/ledger/<int:pk>/edit/", v_cash.ledger_edit, name="cash_ledger_edit"),  # 編集
+    path("cash/ledger/<int:pk>/delete/", v_cash.ledger_delete, name="cash_ledger_delete"),  # 削除
     
 ]
