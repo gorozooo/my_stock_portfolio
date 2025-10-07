@@ -6,7 +6,6 @@ from django.views.decorators.http import require_http_methods
 from datetime import date, datetime
 from django.core.paginator import Paginator
 from django.db.models import Sum, Q
-from django.urls import reverse
 
 from ..models_cash import BrokerAccount, CashLedger
 from ..services import cash_service as svc
@@ -17,7 +16,12 @@ from ..models import Dividend, RealizedTrade
 # ================== dashboard（既存） ==================
 def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
     svc.ensure_default_accounts(currency=currency)
-    return BrokerAccount.objects.filter(broker=broker, currency=currency).order_by("account_type").first()
+    return (
+        BrokerAccount.objects
+        .filter(broker=broker, currency=currency)
+        .order_by("account_type")
+        .first()
+    )
 
 
 @require_http_methods(["GET", "POST"])
@@ -190,22 +194,27 @@ def _attach_source_labels(page):
 
         if st == CashLedger.SourceType.DIVIDEND and r.source_id in div_map:
             d = div_map[r.source_id]
-            tkr = (getattr(d, "display_ticker", None) or d.ticker or "").upper()
-            name = (getattr(d, "display_name", None) or d.name or "")
+            # ティッカー最優先 → 無ければ名称 → それも無ければ DIV:ID
+            tkr  = (getattr(d, "display_ticker", None) or d.ticker or "").strip().upper()
+            name = (getattr(d, "display_name", None) or d.name or "").strip()
+            label = tkr or name or f"DIV:{d.id}"
             r.src_badge = {
                 "kind": "配当",
                 "class": "border-sky-400/40 text-sky-200",
-                "label": (f"{tkr} {name}".strip() or "—"),
+                "label": label,
                 "url": None,
             }
+
         elif st == CashLedger.SourceType.REALIZED and r.source_id in real_map:
             x = real_map[r.source_id]
-            tkr = (x.ticker or "").upper()
-            name = (x.name or "")
+            # ティッカー最優先 → 無ければ名称 → それも無ければ REAL:ID
+            tkr  = (x.ticker or "").strip().upper()
+            name = (x.name or "").strip()
+            label = tkr or name or f"REAL:{x.id}"
             r.src_badge = {
                 "kind": "実損",
                 "class": "border-emerald-400/40 text-emerald-200",
-                "label": (f"{tkr} {name}".strip() or "—"),
+                "label": label,
                 "url": None,
             }
 
@@ -218,7 +227,7 @@ def cash_history(request: HttpRequest) -> HttpResponse:
     qs, summary = _filtered_ledger(request)
     p = Paginator(qs, PAGE_SIZE).get_page(1)
 
-    # ★ 元データの銘柄バッジを付与
+    # 元データの銘柄バッジを付与
     _attach_source_labels(p)
 
     return render(request, "cash/history.html", {
@@ -234,7 +243,7 @@ def cash_history_page(request: HttpRequest) -> HttpResponse:
     page_no = int(request.GET.get("page") or 1)
     p = Paginator(qs, PAGE_SIZE).get_page(page_no)
 
-    # ★ 元データの銘柄バッジを付与
+    # 元データの銘柄バッジを付与
     _attach_source_labels(p)
 
     return render(request, "cash/_history_list.html", {
