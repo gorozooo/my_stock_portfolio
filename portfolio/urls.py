@@ -14,7 +14,7 @@ from .views.realized import (
 from .views import dev_tools as dev_views
 from .views import holding as hv
 from .views import dividend as v_div  # ← 配当まわりはこのモジュールに集約
-from .views import cash as v_cash
+#from .views import cash as v_cash
 
 urlpatterns = [
     path("", core_views.main, name="home"),
