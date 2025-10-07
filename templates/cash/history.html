@@ -4,63 +4,71 @@
 
 {% block content %}
 <style>
-  /* ===== スマホ向けコンパクトフィルター ===== */
-  .form-card{
-    border:1px solid rgba(255,255,255,.1);
+  /* ======== スマホ専用・極小フィルター ======== */
+  .mf-card{
+    border:1px solid rgba(255,255,255,.10);
     background:rgba(255,255,255,.04);
     border-radius:12px;
-    padding:10px;
-    display:grid;
-    gap:10px;
+    padding:6px;                 /* できるだけ小さく */
+    margin-bottom:8px;
   }
-  .ctl label{
-    font-size:12px;color:#aeb8c7;margin-bottom:3px;display:block;
+  .mf{                            /* 1行で横並び（必要なら自動折返し） */
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    align-items:center;
   }
-  .input,.select{
-    width:100%;padding:8px 10px;font-size:13px;
-    border-radius:8px;border:1px solid rgba(255,255,255,.12);
-    background:rgba(255,255,255,.06);color:#e6ebff;
+  .mf .ctl{display:flex; flex-direction:column; gap:0}
+  .mf label{                      /* ラベルは極小＆行高詰め */
+    font-size:10px; line-height:1;
+    color:#9fb0c6;
+    margin:0 0 2px 2px;
   }
-
-  /* 横並び（2カラム） */
-  .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
-
-  /* ボタン */
-  .btns{display:flex;gap:8px;justify-content:flex-end}
-  .btn{
-    flex:1;
-    padding:8px 0;
-    font-size:13px;
+  .mini-inp, .mini-sel{
+    height:26px;                  /* 実高を抑える */
+    padding:0 8px;
+    font-size:12px; line-height:26px;
+    color:#e8ecff;
+    background:rgba(255,255,255,.07);
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:8px;
+    width:100%;
+  }
+  .w-25{flex:1 1 25%}             /* 4分割 */
+  .w-50{flex:1 1 50%}             /* 2分割 */
+  .w-20{flex:1 1 20%}             /* ボタン用 */
+  .mf-btns{display:flex; gap:6px}
+  .btn-mini{
+    height:26px; padding:0 10px;
+    font-size:12px; line-height:26px;
     border-radius:8px;
     border:1px solid rgba(255,255,255,.18);
-    color:#e6ebff;
-    background:rgba(255,255,255,.08);
-    text-align:center;
+    color:#e6ebff; background:rgba(255,255,255,.08);
+    text-align:center; white-space:nowrap;
   }
-  .btn.ghost{background:transparent;color:#94a3b8}
+  .btn-ghost{background:transparent; color:#9fb0c6}
 
-  /* サマリー */
-  .sum-wrap{
-    display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;
-  }
+  /* ======== サマリー（1行チップ） ======== */
+  .sum-wrap{display:flex; flex-wrap:wrap; gap:6px; margin:8px 0}
   .pill{
-    flex:1 1 calc(50% - 8px);
+    flex:1 1 calc(50% - 6px);
     border:1px solid rgba(255,255,255,.12);
     background:rgba(255,255,255,.06);
-    padding:6px 8px;
+    padding:4px 8px;
     border-radius:9999px;
     font-size:12px;
-    text-align:center;
     color:#cbd5e1;
+    text-align:center;
+    white-space:nowrap;
   }
 
-  /* リストはそのまま */
+  /* ======== リスト（既存のコンパクトカード） ======== */
   .card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
-        border-radius:14px;padding:10px 12px;margin-top:10px}
+        border-radius:14px;padding:10px 12px;margin-bottom:10px}
   .amount{font-size:20px;font-weight:800}
   .meta{margin-top:2px;font-size:11px;color:#94a3b8}
   .memo{margin-top:2px;font-size:11px;color:#cbd5e1;word-break:break-word}
-  .chip{display:inline-flex;align-items:center;gap:.45em;padding:.35rem .6rem;border-radius:9999px;border:1px solid;
+  .chip{display:inline-flex;align-items:center;gap:.45em;padding:.30rem .55rem;border-radius:9999px;border:1px solid;
         font-size:12px;line-height:1;white-space:nowrap}
   .chip-sky{border-color:rgba(125,160,255,.35);color:#c7d2fe;background:rgba(125,160,255,.08)}
   .chip-emerald{border-color:rgba(16,185,129,.35);color:#bbf7d0;background:rgba(16,185,129,.08)}
@@ -70,45 +78,55 @@
 
 <h1 class="text-base font-semibold mb-2">💵 現金台帳</h1>
 
-<form method="get" class="form-card">
-  <div class="ctl">
-    <label>証券会社</label>
-    <select name="broker" class="select">
-      {% with b=params.broker|default:"ALL" %}
-        <option value="ALL"  {% if b == "ALL" %}selected{% endif %}>すべて</option>
-        <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天</option>
-        <option value="松井" {% if b == "松井" %}selected{% endif %}>松井</option>
-        <option value="SBI" {% if b == "SBI" %}selected{% endif %}>SBI</option>
-      {% endwith %}
-    </select>
-  </div>
+<form method="get" class="mf-card">
+  <div class="mf">
+    <div class="ctl w-25">
+      <label>証券会社</label>
+      <select name="broker" class="mini-sel">
+        {% with b=params.broker|default:"ALL" %}
+          <option value="ALL"  {% if b == "ALL" %}selected{% endif %}>すべて</option>
+          <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天</option>
+          <option value="松井" {% if b == "松井" %}selected{% endif %}>松井</option>
+          <option value="SBI" {% if b == "SBI" %}selected{% endif %}>SBI</option>
+        {% endwith %}
+      </select>
+    </div>
 
-  <div class="ctl">
-    <label>種別</label>
-    <select name="kind" class="select">
-      {% with k=params.kind|default:"ALL" %}
-        <option value="ALL"      {% if k == "ALL" %}selected{% endif %}>すべて</option>
-        <option value="DEPOSIT"  {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
-        <option value="WITHDRAW" {% if k == "WITHDRAW" %}selected{% endif %}>出金</option>
-        <option value="XFER"     {% if k == "XFER" %}selected{% endif %}>振替</option>
-        <option value="SYSTEM"   {% if k == "SYSTEM" %}selected{% endif %}>システム</option>
-      {% endwith %}
-    </select>
-  </div>
+    <div class="ctl w-25">
+      <label>種別</label>
+      <select name="kind" class="mini-sel">
+        {% with k=params.kind|default:"ALL" %}
+          <option value="ALL"      {% if k == "ALL" %}selected{% endif %}>すべて</option>
+          <option value="DEPOSIT"  {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
+          <option value="WITHDRAW" {% if k == "WITHDRAW" %}selected{% endif %}>出金</option>
+          <option value="XFER"     {% if k == "XFER" %}selected{% endif %}>振替</option>
+          <option value="SYSTEM"   {% if k == "SYSTEM" %}selected{% endif %}>システム</option>
+        {% endwith %}
+      </select>
+    </div>
 
-  <div class="row2">
-    <div class="ctl"><label>開始日</label><input type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="input"></div>
-    <div class="ctl"><label>終了日</label><input type="date" name="end" value="{{ params.end|default_if_none:'' }}" class="input"></div>
-  </div>
+    <div class="ctl w-25">
+      <label>開始日</label>
+      <input type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="mini-inp">
+    </div>
 
-  <div class="ctl">
-    <label>メモ検索</label>
-    <input type="text" name="q" value="{{ params.q|default_if_none:'' }}" placeholder="例: 配当 / REAL:21 など" class="input">
-  </div>
+    <div class="ctl w-25">
+      <label>終了日</label>
+      <input type="date" name="end" value="{{ params.end|default_if_none:'' }}" class="mini-inp">
+    </div>
 
-  <div class="btns">
-    <button type="submit" class="btn">適用</button>
-    <a href="{% url 'cash_history' %}" class="btn ghost">クリア</a>
+    <div class="ctl w-50">
+      <label>メモ検索</label>
+      <input type="text" name="q" value="{{ params.q|default_if_none:'' }}" placeholder="例: 配当 / REAL:21 など" class="mini-inp">
+    </div>
+
+    <div class="ctl w-50">
+      <label style="visibility:hidden">操作</label>
+      <div class="mf-btns">
+        <button type="submit" class="btn-mini" style="flex:1">適用</button>
+        <a href="{% url 'cash_history' %}" class="btn-mini btn-ghost" style="flex:1;text-decoration:none;">クリア</a>
+      </div>
+    </div>
   </div>
 </form>
 
