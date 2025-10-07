@@ -31,7 +31,8 @@
 
   .quickbar select,
   .quickbar input,
-  .quickbar button{
+  .quickbar button,
+  .quickbar a{
     height: 28px;
     padding: 0 8px;
     font-size: 12px;
@@ -40,18 +41,34 @@
     color: #dbe3f4;
     border-radius: 8px;
     width: 100%;
+    box-sizing: border-box;
   }
-  .quickbar label{ display:none; }
+  .quickbar input[type="date"]{
+    font-size: 11.5px;
+    color-scheme: dark;
+  }
+  .quickbar a{
+    text-align: center;
+    line-height: 26px;
+    text-decoration: none;
+  }
 
+  .quickbar label{ display:none; }
   .quickbar .q-text{ grid-column: 1 / -2; }
   .quickbar .q-apply{ grid-column: -2 / -1; }
+  .quickbar .q-clear{ grid-column: -1 / -0; }
 
-  /* サマリー行 */
+  /* ===== サマリー部分 ===== */
   .sum-wrap{
     display: grid;
     gap: 6px;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    margin-top: 6px;
+    grid-template-columns: repeat(2, 1fr);
+    margin-top: 8px;
+  }
+  .sum-wrap .sum-total{
+    grid-column: 1 / -1;
+    background: rgba(255,255,255,.07);
+    font-weight: 600;
   }
   .pill{
     border: 1px solid rgba(255,255,255,.1);
@@ -63,7 +80,7 @@
     color: #cbd5e1;
   }
 
-  /* カードリスト */
+  /* ===== カードリスト ===== */
   .card{
     border:1px solid rgba(255,255,255,.08);
     background:rgba(255,255,255,.04);
@@ -118,12 +135,12 @@
     <input type="text" name="q" value="{{ params.q|default_if_none:'' }}" placeholder="例: 配当 / REAL:21 など" class="q-text">
 
     <button type="submit" class="q-apply">適用</button>
-    <a href="{% url 'cash_history' %}" class="btn">クリア</a>
+    <a href="{% url 'cash_history' %}" class="q-clear">クリア</a>
   </form>
 
   {% if summary %}
   <div class="sum-wrap">
-    <div class="pill">合計 {{ summary.total|intcomma }} 円</div>
+    <div class="pill sum-total">💰 合計 {{ summary.total|intcomma }} 円</div>
     <div class="pill">入金 {{ summary.deposit|intcomma }} 円</div>
     <div class="pill">出金 {{ summary.withdraw|intcomma }} 円</div>
     <div class="pill">振替(入) {{ summary.xfer_in|intcomma }} 円</div>
