@@ -17,7 +17,7 @@
 
         {# ← メモが “実現損益” または “配当” で始まる場合は出さない #}
         {% with m=r.memo|default_if_none:"" %}
-          {% if m and not (m|slice:":4" == "実現損益" or m|slice:":2" == "配当") %}
+          {% if m and m|slice:":4" != "実現損益" and m|slice:":2" != "配当" %}
             <div class="memo">{{ m }}</div>
           {% endif %}
         {% endwith %}
