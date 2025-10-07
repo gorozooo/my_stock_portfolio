@@ -4,9 +4,6 @@
 
 {% block head %}
 <style>
-  :root{ --qbH: 30px; }
-
-  /* ====== 上部：保有画面の QuickBar と同じ思想 ====== */
   #topSticky{
     position: sticky;
     top: env(safe-area-inset-top, 0px);
@@ -19,54 +16,49 @@
     margin:0 0 8px;
     box-shadow:0 2px 0 rgba(255,255,255,.06) inset;
   }
+
   .quickbar{
     display:grid;
-    grid-template-columns: repeat(4, minmax(0,1fr));
+    grid-template-columns: repeat(5, minmax(0,1fr));
     gap:6px;
     align-items:center;
   }
-  /* ラベルは視覚的に隠す（スクリーンリーダー用には残す） */
-  .vh{ position:absolute !important; width:1px; height:1px; padding:0; margin:-1px;
-       overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0 }
 
   .qb-ctl, .qb-btn{
-    height: var(--qbH);
-    padding: 0 8px;
+    height:30px;
+    padding:0 8px;
     font-size:12px;
     color:#dbe3f4;
-    background: rgba(255,255,255,.05);
+    background:rgba(255,255,255,.05);
     border:1px solid rgba(255,255,255,.14);
     border-radius:8px;
     min-width:0;
   }
+
   input[type="date"].qb-ctl{ color-scheme: dark; }
   .qb-btn{ background:rgba(255,255,255,.06); }
   .qb-btn.ghost{ background:transparent; }
 
-  /* 配置：保有画面と同じ“コンパクト横並び” */
-  /* 1行目: 証券会社 / 種別 / 開始日 / 終了日 */
+  /* ===== 保有画面と同じ行配置 ===== */
   #qb-broker { grid-column: 1 / 2; }
   #qb-kind   { grid-column: 2 / 3; }
-  #qb-start  { grid-column: 3 / 4; }
-  #qb-end    { grid-column: 4 / 5; }
-  /* 2行目: メモ（3枠ぶん） + 適用（右端） */
-  #qb-q      { grid-column: 1 / 4; }
-  #qb-apply  { grid-column: 4 / 5; }
-  /* 3行目: クリア（左端に小さく） */
-  #qb-clear  { grid-column: 1 / 2; }
+  #qb-q      { grid-column: 3 / 4; }
+  #qb-start  { grid-column: 4 / 5; }
+  #qb-end    { grid-column: 5 / 6; }
 
-  /* 画面幅が狭い時の保険 */
-  @media (max-width:420px){
-    .quickbar{ grid-template-columns: repeat(4, minmax(0,1fr)); }
+  .btn-row{
+    grid-column: 1 / -1;
+    display:flex; justify-content:flex-end; gap:8px;
+    margin-top:6px;
   }
 
-  /* ====== サマリー（※触らないと言われた構成を維持） ====== */
+  /* ===== サマリーは前回と同じ ===== */
   .sum-wrap{ display:grid; gap:6px; grid-template-columns:repeat(2,1fr); margin-top:6px }
   .pill{ border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.05);
          border-radius:8px; padding:6px 8px; text-align:center; font-size:12px; color:#cbd5e1 }
   .sum-total{ grid-column:1 / -1; background:rgba(255,255,255,.07); font-weight:600 }
 
-  /* ====== リスト（既存） ====== */
+  /* ===== リストはそのまま ===== */
   .card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
         border-radius:14px;padding:10px 12px;margin-bottom:10px}
   .amount{font-size:20px;font-weight:800}
@@ -85,46 +77,49 @@
 <h1 class="text-base font-semibold mb-2">💵 現金台帳</h1>
 
 <div id="topSticky">
-  <!-- ==== QuickBar（保有画面と同コンセプト） ==== -->
-  <form method="get" class="quickbar" id="qb">
-    <label for="qb-broker" class="vh">証券会社</label>
+  <form method="get" class="quickbar">
+    <!-- 証券会社 -->
     <select id="qb-broker" name="broker" class="qb-ctl">
       {% with b=params.broker|default:"ALL" %}
-        <option value="ALL"  {% if b == "ALL" %}selected{% endif %}>すべて</option>
-        <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天</option>
-        <option value="松井" {% if b == "松井" %}selected{% endif %}>松井</option>
-        <option value="SBI" {% if b == "SBI" %}selected{% endif %}>SBI</option>
+        <option value="ALL"  {% if b == "ALL" %}selected{% endif %}>証券会社: すべて</option>
+        <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天証券</option>
+        <option value="松井" {% if b == "松井" %}selected{% endif %}>松井証券</option>
+        <option value="SBI"  {% if b == "SBI" %}selected{% endif %}>SBI証券</option>
       {% endwith %}
     </select>
 
-    <label for="qb-kind" class="vh">種別</label>
+    <!-- 種別 -->
     <select id="qb-kind" name="kind" class="qb-ctl">
       {% with k=params.kind|default:"ALL" %}
-        <option value="ALL"      {% if k == "ALL" %}selected{% endif %}>すべて</option>
+        <option value="ALL"      {% if k == "ALL" %}selected{% endif %}>種別: すべて</option>
         <option value="DEPOSIT"  {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
         <option value="WITHDRAW" {% if k == "WITHDRAW" %}selected{% endif %}>出金</option>
         <option value="XFER"     {% if k == "XFER" %}selected{% endif %}>振替</option>
-        <option value="SYSTEM"   {% if k == "SYSTEM" %}selected{% endif %}>システム</option>
       {% endwith %}
     </select>
 
-    <label for="qb-start" class="vh">開始日</label>
+    <!-- メモ検索 -->
+    <input id="qb-q" type="text" name="q"
+           value="{{ params.q|default_if_none:'' }}"
+           placeholder="例: 配当 / 実現益 / REAL:21 など"
+           class="qb-ctl">
+
+    <!-- 開始日 -->
     <input id="qb-start" type="date" name="start"
            value="{{ params.start|default_if_none:'' }}" class="qb-ctl">
 
-    <label for="qb-end" class="vh">終了日</label>
+    <!-- 終了日 -->
     <input id="qb-end" type="date" name="end"
            value="{{ params.end|default_if_none:'' }}" class="qb-ctl">
 
-    <label for="qb-q" class="vh">メモ検索</label>
-    <input id="qb-q" type="text" name="q" class="qb-ctl" placeholder="例: 配当 / REAL:21 など"
-           value="{{ params.q|default_if_none:'' }}">
-
-    <button id="qb-apply" class="qb-btn" type="submit">適用</button>
-    <a id="qb-clear" class="qb-btn ghost" href="{% url 'cash_history' %}">クリア</a>
+    <!-- ボタン行 -->
+    <div class="btn-row">
+      <a href="{% url 'cash_history' %}" class="qb-btn ghost">クリア</a>
+      <button class="qb-btn" type="submit">適用</button>
+    </div>
   </form>
 
-  <!-- ==== サマリー（合計1行 + 2列×2行） ==== -->
+  <!-- サマリー（前回OKのまま） -->
   {% if summary %}
     <div class="sum-wrap">
       <div class="pill sum-total">💰 合計 {{ summary.total|intcomma }} 円</div>
@@ -136,7 +131,6 @@
   {% endif %}
 </div>
 
-<!-- ==== リスト ==== -->
 <div id="historyContainer">
   {% include "cash/_history_list.html" with page=page params=params %}
 </div>
