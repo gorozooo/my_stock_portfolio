@@ -4,7 +4,7 @@
 
 {% block head %}
 <style>
-  /* ===== 固定ヘッダー（保有UIテイスト） ===== */
+  /* ===== スマホ最適フィルター（はみ出し防止） ===== */
   #cashTop{
     position: sticky;
     top: env(safe-area-inset-top, 0px);
@@ -17,74 +17,59 @@
     margin-bottom: 8px;
     box-shadow: 0 2px 0 rgba(255,255,255,.06) inset;
   }
-
-  /* ===== フィルター（12カラムで明快&はみ出し防止） ===== */
   .filter-grid{
     display: grid;
-    grid-template-columns: repeat(12, minmax(0,1fr));
+    grid-template-columns: repeat(12, minmax(0, 1fr));
     gap: 8px;
   }
-  .fld{ display:flex; flex-direction:column; gap:4px; }
+  .fld{ display:flex; flex-direction:column; gap:4px; min-width:0; }
   .fld label{ font-size:11px; color:#9fb0c8 }
   .ctl{
     height: 30px; padding: 0 10px; font-size: 13px;
-    color:#dbe3f4; background:rgba(255,255,255,.05);
-    border:1px solid rgba(255,255,255,.14); border-radius:8px;
-    width: 100%; box-sizing: border-box;
+    color:#dbe3f4; background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 8px; width: 100%; box-sizing: border-box;
   }
   input[type="date"].ctl{ color-scheme: dark; }
   .btn{
     height: 30px; padding: 0 12px; font-size: 13px;
-    color:#dbe3f4; background:rgba(255,255,255,.06);
-    border:1px solid rgba(255,255,255,.14); border-radius:8px;
-    box-sizing: border-box;
+    color:#dbe3f4; background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 8px; box-sizing: border-box;
   }
-  .btn.ghost{ background:transparent }
+  .btn.ghost{ background: transparent; }
 
-  /* カラム割り当て（スマホ1画面前提） */
+  /* グリッド割当（横並びを保証） */
   .col-6{ grid-column: span 6; }
   .col-12{ grid-column: span 12; }
 
-  /* ボタン行：右寄せ並列 */
-  .btn-row{
-    grid-column: 1 / -1;
-    display:flex; justify-content:flex-end; gap:8px;
-  }
+  /* ボタン行は同一行・右寄せ */
+  .btn-row{ grid-column: 1 / -1; display:flex; justify-content:flex-end; gap:8px; }
 
-  /* ===== サマリー（前回OKのまま） ===== */
+  /* ===== サマリー（いじらない） ===== */
   .sum-wrap{
-    display: grid;
-    gap: 6px;
-    grid-template-columns: repeat(2, 1fr);
+    display:grid; gap:6px; grid-template-columns: repeat(2, 1fr);
     margin-top: 8px;
   }
-  .sum-wrap .sum-total{
-    grid-column: 1 / -1;
-    background: rgba(255,255,255,.07);
-    font-weight: 600;
-  }
+  .sum-wrap .sum-total{ grid-column:1 / -1; background:rgba(255,255,255,.07); font-weight:600; }
   .pill{
-    border: 1px solid rgba(255,255,255,.1);
-    border-radius: 8px;
-    background: rgba(255,255,255,.05);
-    text-align: center;
-    padding: 6px 8px;
-    font-size: 12px;
-    color: #cbd5e1;
+    border:1px solid rgba(255,255,255,.1); border-radius:8px;
+    background:rgba(255,255,255,.05); text-align:center;
+    padding:6px 8px; font-size:12px; color:#cbd5e1;
   }
 
-  /* ===== リストカード ===== */
-  .card{ border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.04);
-         border-radius:14px; padding:10px 12px; margin-bottom:10px }
-  .amount{ font-size:20px; font-weight:800 }
-  .meta{ margin-top:2px; font-size:11px; color:#94a3b8 }
-  .memo{ margin-top:2px; font-size:11px; color:#cbd5e1; word-break:break-word }
-  .chip{ display:inline-flex; align-items:center; gap:.4em; padding:.25rem .5rem; border-radius:9999px; border:1px solid;
-         font-size:11px; line-height:1; white-space:nowrap }
+  /* ===== リスト（既存のまま） ===== */
+  .card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
+        border-radius:14px;padding:10px 12px;margin-bottom:10px}
+  .amount{font-size:20px;font-weight:800}
+  .meta{margin-top:2px;font-size:11px;color:#94a3b8}
+  .memo{margin-top:2px;font-size:11px;color:#cbd5e1;word-break:break-word}
+  .chip{display:inline-flex;align-items:center;gap:.4em;padding:.25rem .5rem;border-radius:9999px;border:1px solid;
+        font-size:11px;line-height:1;white-space:nowrap}
   .chip-sky{border-color:rgba(125,160,255,.35);color:#c7d2fe;background:rgba(125,160,255,.08)}
   .chip-emerald{border-color:rgba(16,185,129,.35);color:#bbf7d0;background:rgba(16,185,129,.08)}
-  .actions{ margin-top:6px; display:flex; justify-content:flex-end; gap:6px }
-  .actions a,.actions button{ padding:5px 8px; font-size:11px; border-radius:8px; border:1px solid rgba(255,255,255,.2) }
+  .actions{margin-top:6px;display:flex;justify-content:flex-end;gap:6px}
+  .actions a,.actions button{padding:5px 8px;font-size:11px;border-radius:8px;border:1px solid rgba(255,255,255,.2)}
 </style>
 {% endblock %}
 
@@ -92,6 +77,7 @@
 <h1 class="text-base font-semibold mb-2">💵 現金台帳</h1>
 
 <div id="cashTop">
+  <!-- ▼ フィルターだけ修正 -->
   <form method="get" class="filter-grid">
     <!-- 1行目：証券会社 / 種別 -->
     <div class="fld col-6">
@@ -118,7 +104,7 @@
       </select>
     </div>
 
-    <!-- 2行目：開始日 / 終了日（同一行で必ず収まる） -->
+    <!-- 2行目：開始日 / 終了日（同一行・はみ出し無し） -->
     <div class="fld col-6">
       <label>開始日</label>
       <input type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="ctl">
@@ -134,25 +120,26 @@
       <input type="text" name="q" value="{{ params.q|default_if_none:'' }}" placeholder="例: 配当 / REAL:21 など" class="ctl">
     </div>
 
-    <!-- 4行目：ボタン（右寄せ横並び） -->
+    <!-- 4行目：ボタン横並び（右寄せ） -->
     <div class="btn-row">
       <a href="{% url 'cash_history' %}" class="btn ghost">クリア</a>
       <button class="btn" type="submit">適用</button>
     </div>
   </form>
 
+  <!-- ▼ サマリー：触らない -->
   {% if summary %}
-  <!-- ★ サマリーは触らない（前回OKのまま） -->
-  <div class="sum-wrap">
-    <div class="pill sum-total">💰 合計 {{ summary.total|intcomma }} 円</div>
-    <div class="pill">入金 {{ summary.deposit|intcomma }} 円</div>
-    <div class="pill">出金 {{ summary.withdraw|intcomma }} 円</div>
-    <div class="pill">振替(入) {{ summary.xfer_in|intcomma }} 円</div>
-    <div class="pill">振替(出) {{ summary.xfer_out|intcomma }} 円</div>
-  </div>
+    <div class="sum-wrap">
+      <div class="pill sum-total">💰 合計 {{ summary.total|intcomma }} 円</div>
+      <div class="pill">入金 {{ summary.deposit|intcomma }} 円</div>
+      <div class="pill">出金 {{ summary.withdraw|intcomma }} 円</div>
+      <div class="pill">振替(入) {{ summary.xfer_in|intcomma }} 円</div>
+      <div class="pill">振替(出) {{ summary.xfer_out|intcomma }} 円</div>
+    </div>
   {% endif %}
 </div>
 
+<!-- リスト（既存） -->
 <div id="historyContainer">
   {% include "cash/_history_list.html" with page=page params=params %}
 </div>
