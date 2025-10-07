@@ -126,6 +126,14 @@
   <!-- Global Toast -->
   <script>
   (function(){
+    /* ノーブレーク用クラス（数字＋単位を箱ごと保持） */
+    if (!document.getElementById("toast-nb-style")){
+      const st = document.createElement("style");
+      st.id = "toast-nb-style";
+      st.textContent = ".nb{white-space:nowrap;word-break:keep-all;display:inline-block}";
+      document.head.appendChild(st);
+    }
+
     // DOM
     let toast = document.getElementById("globalToast");
     if(!toast){
@@ -150,8 +158,9 @@
         zIndex:"100260",
         maxWidth:"92vw",
         textAlign:"left",
-        lineHeight:"1.45",
-        wordBreak:"break-word",
+        lineHeight:"1.5",
+        wordBreak:"normal",       /* ← CJKの過剰折返しを抑止 */
+        overflowWrap:"anywhere",
         backdropFilter:"blur(10px)",
         whiteSpace:"normal"
       });
@@ -197,13 +206,14 @@
     }
     function preprocess(raw){
       let t = String(raw||"");
-      t = t.replace(/:\s*/g,"：");     // コロン整形
+      t = t.replace(/:\s*/g,"：");     // コロン統一
       return t;
     }
-    // ★ 数字＋単位を “絶対に” 折り返さないよう HTMLを包む
+    // 数字＋単位をノーブレーク化（必要なら単位を追加してOK）
     function protectUnits(html){
-      // 「12 件」「3 回」「45 円」など必要に応じて増やせる
-      html = html.replace(/(\d+)\s*件/g, '<span style="white-space:nowrap">$1&nbsp;件</span>');
+      html = html.replace(/(\d+)\s*件/g, '<span class="nb">$1&nbsp;件</span>');
+      html = html.replace(/(\d+)\s*円/g, '<span class="nb">$1&nbsp;円</span>');
+      html = html.replace(/(\d+)\s*回/g, '<span class="nb">$1&nbsp;回</span>');
       return html;
     }
 
@@ -227,15 +237,18 @@
       toast.innerHTML = "";
 
       const raw = String(text||"");
-      const [head, ...rest] = raw.split("\n");
-      const headHtml = `<strong style="font-weight:800;">${toHtml(head)}</strong>`;
-      const bodyHtml = toHtml(rest.join("\n"));
-      toast.innerHTML = `${sty.icon} ${headHtml}${bodyHtml ? "<br>"+bodyHtml : ""}`;
+      const firstBreak = raw.indexOf("\n");
+      const head = firstBreak >= 0 ? raw.slice(0, firstBreak) : raw;
+      const body = firstBreak >= 0 ? raw.slice(firstBreak + 1) : "";
+
+      toast.innerHTML =
+        `${sty.icon} <strong style="font-weight:800;">${toHtml(head)}</strong>` +
+        (body ? `<br>${toHtml(body)}` : "");
 
       toast.style.opacity = "1";
       toast.style.transform = "translate(-50%, 0)";
 
-      const SHOW_MS = /error/.test(level||"") ? 5200 : 4000;
+      const SHOW_MS = /error/.test(level||"") ? 5200 : 4200;
       setTimeout(()=>{
         toast.style.opacity = "0";
         toast.style.transform = "translate(-50%, 12px)";
