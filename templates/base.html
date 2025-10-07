@@ -174,9 +174,11 @@
         transition:"opacity .22s ease, transform .22s ease",
         zIndex:"100260",
         maxWidth:"92vw",
-        textAlign:"center",
+        textAlign:"left",          /* ← 左寄せ */
+        lineHeight:"1.45",         /* ← 行間 */
+        wordBreak:"break-word",    /* ← 長文折返し */
         backdropFilter:"blur(10px)",
-        whiteSpace:"pre-line"   /* ← 改行対応 */
+        whiteSpace:"pre-line"      /* ← 改行反映 */
       });
       document.body.appendChild(toast);
     }
@@ -214,27 +216,51 @@
       if (!showing) showNext();
     };
 
-    // 表示ループ
+    // 表示ループ（改行/禁則 & 1行目強調 & 種別で時間可変）
     let i = 0, showing = false;
+
+    function escapeHtml(s){
+      return String(s||"")
+        .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+    }
+    function toHtmlWithLineBreaks(s){
+      // 「 件」は単独で落ちやすいので NBSP で結合
+      const protectedText = s.replace(/ (\u4EF6)/g, "&nbsp;$1"); // " 件"
+      return protectedText.replace(/\n\n/g,"<br><br>").replace(/\n/g,"<br>");
+    }
+
     function showNext(){
       if (i >= queue.length){ showing = false; return; }
       showing = true;
       const {text, level} = queue[i++] || {};
       const sty = styleFor(level||"");
+
       toast.style.background = sty.bg;
       toast.style.borderColor = sty.b;
-      toast.textContent = ""; // reset
+      toast.innerHTML = ""; // reset
+
+      const raw = String(text||"");
+      const [head, ...rest] = raw.split("\n");
+      const headHtml = `<strong style="font-weight:800;">${escapeHtml(head)}</strong>`;
+      const bodyHtml = toHtmlWithLineBreaks(escapeHtml(rest.join("\n")));
+
       const icon = document.createElement("span"); icon.textContent = sty.icon + " ";
-      const span = document.createElement("span"); span.textContent = String(text||"");
-      toast.appendChild(icon); toast.appendChild(span);
+      const span = document.createElement("span");
+      span.innerHTML = headHtml + (bodyHtml ? "<br>" + bodyHtml : "");
+
+      toast.appendChild(icon);
+      toast.appendChild(span);
 
       toast.style.opacity = "1";
       toast.style.transform = "translate(-50%, 0)";
+
+      const SHOW_MS = /error/.test(level||"") ? 5200 : 4000; // エラーは長め
       setTimeout(()=>{
         toast.style.opacity = "0";
         toast.style.transform = "translate(-50%, 12px)";
         setTimeout(showNext, 280);
-      }, 4000);
+      }, SHOW_MS);
     }
     if (queue.length) showNext();
   })();
