@@ -6,16 +6,19 @@ from django.views.decorators.http import require_http_methods
 from datetime import date, datetime
 from django.core.paginator import Paginator
 from django.db.models import Sum, Q
+from django.urls import reverse
 
 from ..models_cash import BrokerAccount, CashLedger
 from ..services import cash_service as svc
 from ..services import cash_updater as up
+from ..models import Dividend, RealizedTrade
 
 
 # ================== dashboard（既存） ==================
 def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
     svc.ensure_default_accounts(currency=currency)
     return BrokerAccount.objects.filter(broker=broker, currency=currency).order_by("account_type").first()
+
 
 @require_http_methods(["GET", "POST"])
 def cash_dashboard(request: HttpRequest) -> HttpResponse:
@@ -83,8 +86,9 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     })
 
 
-# ================== 履歴：一覧 / 追加読込 ==================
+# ================== 履歴：共通ヘルパー ==================
 PAGE_SIZE = 30
+
 
 def _parse_date(s: str | None):
     if not s:
@@ -95,6 +99,7 @@ def _parse_date(s: str | None):
         except Exception:
             pass
     return None
+
 
 def _filtered_ledger(request: HttpRequest):
     """
@@ -151,21 +156,87 @@ def _filtered_ledger(request: HttpRequest):
 
     return qs, summary
 
+
+def _attach_source_labels(page):
+    """
+    page.object_list (CashLedger のリスト) に対して、source を辿って
+    銘柄ラベル/バッジ情報を付与（N+1回避で一括取得）。
+    付与先: r.src_badge = {"kind","class","label","url"}
+    """
+    items = list(page.object_list)
+    if not items:
+        return
+
+    div_ids, real_ids = set(), set()
+    for r in items:
+        try:
+            st = int(r.source_type or 0)
+        except Exception:
+            st = 0
+        if st == CashLedger.SourceType.DIVIDEND and r.source_id:
+            div_ids.add(int(r.source_id))
+        elif st == CashLedger.SourceType.REALIZED and r.source_id:
+            real_ids.add(int(r.source_id))
+
+    div_map = {d.id: d for d in Dividend.objects.filter(id__in=div_ids)}
+    real_map = {x.id: x for x in RealizedTrade.objects.filter(id__in=real_ids)}
+
+    for r in items:
+        r.src_badge = None
+        try:
+            st = int(r.source_type or 0)
+        except Exception:
+            st = 0
+
+        if st == CashLedger.SourceType.DIVIDEND and r.source_id in div_map:
+            d = div_map[r.source_id]
+            tkr = (getattr(d, "display_ticker", None) or d.ticker or "").upper()
+            name = (getattr(d, "display_name", None) or d.name or "")
+            r.src_badge = {
+                "kind": "配当",
+                "class": "border-sky-400/40 text-sky-200",
+                "label": (f"{tkr} {name}".strip() or "—"),
+                "url": None,
+            }
+        elif st == CashLedger.SourceType.REALIZED and r.source_id in real_map:
+            x = real_map[r.source_id]
+            tkr = (x.ticker or "").upper()
+            name = (x.name or "")
+            r.src_badge = {
+                "kind": "実損",
+                "class": "border-emerald-400/40 text-emerald-200",
+                "label": (f"{tkr} {name}".strip() or "—"),
+                "url": None,
+            }
+
+    page.object_list = items
+
+
+# ================== 履歴：一覧 / 追加読込 ==================
 def cash_history(request: HttpRequest) -> HttpResponse:
     svc.ensure_default_accounts()
     qs, summary = _filtered_ledger(request)
     p = Paginator(qs, PAGE_SIZE).get_page(1)
+
+    # ★ 元データの銘柄バッジを付与
+    _attach_source_labels(p)
+
     return render(request, "cash/history.html", {
         "page": p,
         "summary": summary,
         "params": request.GET,   # フィルタ保持
     })
 
+
 def cash_history_page(request: HttpRequest) -> HttpResponse:
     """HTMX で続きを読み込む"""
     qs, _ = _filtered_ledger(request)
     page_no = int(request.GET.get("page") or 1)
     p = Paginator(qs, PAGE_SIZE).get_page(page_no)
+
+    # ★ 元データの銘柄バッジを付与
+    _attach_source_labels(p)
+
     return render(request, "cash/_history_list.html", {
         "page": p,
         "params": request.GET,
@@ -188,6 +259,7 @@ def ledger_edit(request: HttpRequest, pk: int):
         except Exception as e:
             messages.error(request, f"更新に失敗：{e}")
     return render(request, "cash/edit_ledger.html", {"obj": obj})
+
 
 @require_http_methods(["POST"])
 def ledger_delete(request: HttpRequest, pk: int):
