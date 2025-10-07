@@ -4,7 +4,7 @@
 
 {% block content %}
 <style>
-/* ---- 極小フィルター ---- */
+/* ── 極小フィルター ───────────────────────────── */
 .form-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
            border-radius:12px;padding:8px}
 .form-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
@@ -14,23 +14,30 @@
                     background:rgba(255,255,255,.06);color:#e5e7eb;font-size:12px;line-height:1.1}
 .btn{background:rgba(255,255,255,.08)}
 .btn.ghost{background:transparent;border-color:rgba(255,255,255,.1)}
-/* ---- サマリーは別カード ---- */
+
+/* ── サマリーは別カード ───────────────────────── */
 .sum-card{margin-top:6px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
           border-radius:12px;padding:6px 8px;font-size:12px;color:#cbd5e1}
-.comp-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
-           border-radius:12px;padding:8px 10px;margin-bottom:8px}
+
+/* ── 一覧カード（コンパクト） ───────────────────── */
+.list-item{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
+           border-radius:12px;padding:10px 12px;margin-bottom:8px}
 .amount{font-size:18px;font-weight:800}
 .meta{margin-top:2px;font-size:11px;color:#94a3b8}
 .memo{margin-top:2px;font-size:11px;color:#cbd5e1}
-.badge{display:inline-flex;align-items:center;gap:6px;padding:3px 6px;border-radius:10px;font-size:11px;line-height:1;
-       border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06)}
-.badge.g{border-color:rgba(16,185,129,.35);background:rgba(16,185,129,.10)}
-.actions a,.actions button{padding:4px 8px;font-size:11px;border-radius:8px;border:1px solid rgba(255,255,255,.2)}
 .actions{margin-top:6px;display:flex;justify-content:flex-end;gap:6px}
+.actions a,.actions button{padding:4px 8px;font-size:11px;border-radius:8px;border:1px solid rgba(255,255,255,.2)}
+
+/* ── 右上バッジ（既存の見た目に合わせた簡易版） ───────── */
+.chip{display:inline-flex;align-items:center;gap:.35em;padding:.28rem .6rem;border-radius:.9rem;border:1px solid;
+      font-size:.85rem;line-height:1;white-space:nowrap}
+.chip-sky{border-color:rgba(125,160,255,.35);color:#c7d2fe;background:rgba(125,160,255,.08)}
+.chip-emerald{border-color:rgba(16,185,129,.35);color:#bbf7d0;background:rgba(16,185,129,.08)}
 </style>
 
 <h1 class="text-base font-semibold mb-2">💵 現金台帳</h1>
 
+<!-- フィルター：極小 -->
 <form method="get" class="form-card">
   <div class="form-grid">
     <div class="ctl" style="grid-column:span 2;">
@@ -56,8 +63,14 @@
         {% endwith %}
       </select>
     </div>
-    <div class="ctl"><label>開始日</label><input type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="input"></div>
-    <div class="ctl"><label>終了日</label><input type="date" name="end" value="{{ params.end|default_if_none:'' }}" class="input"></div>
+    <div class="ctl">
+      <label>開始日</label>
+      <input type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="input">
+    </div>
+    <div class="ctl">
+      <label>終了日</label>
+      <input type="date" name="end" value="{{ params.end|default_if_none:'' }}" class="input">
+    </div>
     <div class="ctl" style="grid-column:span 4;">
       <label>メモ検索</label>
       <input type="text" name="q" value="{{ params.q|default_if_none:'' }}" placeholder="例: 配当 / REAL:21 など" class="input">
@@ -69,6 +82,7 @@
   </div>
 </form>
 
+<!-- サマリー（別カード） -->
 {% if summary %}
   <div class="sum-card">
     合計: <b>{{ summary.total|intcomma }}</b> 円　
@@ -79,10 +93,12 @@
   </div>
 {% endif %}
 
+<!-- 一覧 -->
 <div id="historyContainer">
   {% include "cash/_history_list.html" with page=page params=params %}
 </div>
 
+<!-- 追加読み込み（HTMX） -->
 {% if page.has_next %}
   <div
     hx-get="{% url 'cash_history_page' %}?page={{ page.next_page_number }}&{{ params.urlencode }}"
