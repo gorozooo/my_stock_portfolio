@@ -12,64 +12,42 @@
     border-radius:12px;
     background:rgba(15,20,30,.96);
     backdrop-filter: blur(8px);
-    padding:8px;
-    margin:0 0 8px;
+    padding:10px;
+    margin-bottom:8px;
     box-shadow:0 2px 0 rgba(255,255,255,.06) inset;
   }
 
-  .quickbar{
+  .filter-grid{
     display:grid;
-    grid-template-columns: repeat(5, minmax(0,1fr));
-    gap:6px;
-    align-items:center;
+    grid-template-columns:repeat(12,1fr);
+    gap:8px;
   }
 
-  .qb-ctl, .qb-btn{
-    height:30px;
-    padding:0 8px;
-    font-size:12px;
-    color:#dbe3f4;
-    background:rgba(255,255,255,.05);
+  .ctl, .btn{
+    height:32px;
+    font-size:13px;
+    color:#e6ebff;
+    background:rgba(255,255,255,.06);
     border:1px solid rgba(255,255,255,.14);
     border-radius:8px;
-    min-width:0;
+    padding:0 10px;
+    width:100%;
+    box-sizing:border-box;
   }
+  input[type="date"].ctl{ color-scheme: dark; }
+  .btn.ghost{ background:transparent; }
 
-  input[type="date"].qb-ctl{ color-scheme: dark; }
-  .qb-btn{ background:rgba(255,255,255,.06); }
-  .qb-btn.ghost{ background:transparent; }
+  .col-4{ grid-column: span 4; }
+  .col-6{ grid-column: span 6; }
+  .col-12{ grid-column: span 12; }
 
-  /* ===== 保有画面と同じ行配置 ===== */
-  #qb-broker { grid-column: 1 / 2; }
-  #qb-kind   { grid-column: 2 / 3; }
-  #qb-q      { grid-column: 3 / 4; }
-  #qb-start  { grid-column: 4 / 5; }
-  #qb-end    { grid-column: 5 / 6; }
+  .btn-row{ grid-column:1 / -1; display:flex; justify-content:flex-end; gap:8px; }
 
-  .btn-row{
-    grid-column: 1 / -1;
-    display:flex; justify-content:flex-end; gap:8px;
-    margin-top:6px;
-  }
-
-  /* ===== サマリーは前回と同じ ===== */
+  /* サマリー：前回OKをそのまま */
   .sum-wrap{ display:grid; gap:6px; grid-template-columns:repeat(2,1fr); margin-top:6px }
   .pill{ border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.05);
          border-radius:8px; padding:6px 8px; text-align:center; font-size:12px; color:#cbd5e1 }
   .sum-total{ grid-column:1 / -1; background:rgba(255,255,255,.07); font-weight:600 }
-
-  /* ===== リストはそのまま ===== */
-  .card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
-        border-radius:14px;padding:10px 12px;margin-bottom:10px}
-  .amount{font-size:20px;font-weight:800}
-  .meta{margin-top:2px;font-size:11px;color:#94a3b8}
-  .memo{margin-top:2px;font-size:11px;color:#cbd5e1;word-break:break-word}
-  .chip{display:inline-flex;align-items:center;gap:.4em;padding:.25rem .5rem;border-radius:9999px;border:1px solid;
-        font-size:11px;line-height:1;white-space:nowrap}
-  .chip-sky{border-color:rgba(125,160,255,.35);color:#c7d2fe;background:rgba(125,160,255,.08)}
-  .chip-emerald{border-color:rgba(16,185,129,.35);color:#bbf7d0;background:rgba(16,185,129,.08)}
-  .actions{margin-top:6px;display:flex;justify-content:flex-end;gap:6px}
-  .actions a,.actions button{padding:5px 8px;font-size:11px;border-radius:8px;border:1px solid rgba(255,255,255,.2)}
 </style>
 {% endblock %}
 
@@ -77,49 +55,41 @@
 <h1 class="text-base font-semibold mb-2">💵 現金台帳</h1>
 
 <div id="topSticky">
-  <form method="get" class="quickbar">
-    <!-- 証券会社 -->
-    <select id="qb-broker" name="broker" class="qb-ctl">
+  <form method="get" class="filter-grid">
+
+    <!-- ▼ 1段目：証券会社 / 種別 / メモ検索 -->
+    <select name="broker" class="ctl col-4">
       {% with b=params.broker|default:"ALL" %}
-        <option value="ALL"  {% if b == "ALL" %}selected{% endif %}>証券会社: すべて</option>
-        <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天証券</option>
-        <option value="松井" {% if b == "松井" %}selected{% endif %}>松井証券</option>
-        <option value="SBI"  {% if b == "SBI" %}selected{% endif %}>SBI証券</option>
+        <option value="ALL"  {% if b == "ALL" %}selected{% endif %}>証券会: すべて</option>
+        <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天</option>
+        <option value="松井" {% if b == "松井" %}selected{% endif %}>松井</option>
+        <option value="SBI"  {% if b == "SBI" %}selected{% endif %}>SBI</option>
       {% endwith %}
     </select>
 
-    <!-- 種別 -->
-    <select id="qb-kind" name="kind" class="qb-ctl">
+    <select name="kind" class="ctl col-4">
       {% with k=params.kind|default:"ALL" %}
-        <option value="ALL"      {% if k == "ALL" %}selected{% endif %}>種別: すべて</option>
-        <option value="DEPOSIT"  {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
+        <option value="ALL" {% if k == "ALL" %}selected{% endif %}>種別: すべて</option>
+        <option value="DEPOSIT" {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
         <option value="WITHDRAW" {% if k == "WITHDRAW" %}selected{% endif %}>出金</option>
-        <option value="XFER"     {% if k == "XFER" %}selected{% endif %}>振替</option>
+        <option value="XFER" {% if k == "XFER" %}selected{% endif %}>振替</option>
       {% endwith %}
     </select>
 
-    <!-- メモ検索 -->
-    <input id="qb-q" type="text" name="q"
-           value="{{ params.q|default_if_none:'' }}"
-           placeholder="例: 配当 / 実現益 / REAL:21 など"
-           class="qb-ctl">
+    <input type="text" name="q" placeholder="例: 配当 / 実現益 / REAL:21" value="{{ params.q|default_if_none:'' }}" class="ctl col-4">
 
-    <!-- 開始日 -->
-    <input id="qb-start" type="date" name="start"
-           value="{{ params.start|default_if_none:'' }}" class="qb-ctl">
+    <!-- ▼ 2段目：開始日 / 終了日 -->
+    <input type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="ctl col-6">
+    <input type="date" name="end"   value="{{ params.end|default_if_none:'' }}" class="ctl col-6">
 
-    <!-- 終了日 -->
-    <input id="qb-end" type="date" name="end"
-           value="{{ params.end|default_if_none:'' }}" class="qb-ctl">
-
-    <!-- ボタン行 -->
+    <!-- ▼ 3段目：ボタン -->
     <div class="btn-row">
-      <a href="{% url 'cash_history' %}" class="qb-btn ghost">クリア</a>
-      <button class="qb-btn" type="submit">適用</button>
+      <a href="{% url 'cash_history' %}" class="btn ghost">クリア</a>
+      <button class="btn" type="submit">適用</button>
     </div>
+
   </form>
 
-  <!-- サマリー（前回OKのまま） -->
   {% if summary %}
     <div class="sum-wrap">
       <div class="pill sum-total">💰 合計 {{ summary.total|intcomma }} 円</div>
@@ -130,18 +100,4 @@
     </div>
   {% endif %}
 </div>
-
-<div id="historyContainer">
-  {% include "cash/_history_list.html" with page=page params=params %}
-</div>
-
-{% if page.has_next %}
-  <div
-    hx-get="{% url 'cash_history_page' %}?page={{ page.next_page_number }}&{{ params.urlencode }}"
-    hx-trigger="revealed"
-    hx-swap="afterend"
-    class="text-center text-slate-400 py-2 text-[12px]">
-    読み込み中…
-  </div>
-{% endif %}
 {% endblock %}
