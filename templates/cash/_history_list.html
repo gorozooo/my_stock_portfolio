@@ -1,33 +1,35 @@
 {% load humanize %}
 {% for r in page.object_list %}
-  <div class="item">
-    <div class="row">
-      <!-- 左：金額/メタ/メモ（★旧「実現損益 REAL:xx」行は描かない） -->
+  <div class="card">
+    <div class="flex items-start justify-between gap-3">
+      <!-- 左：金額 + メタ + メモ -->
       <div class="min-w-0">
         <div class="amount">{{ r.amount|intcomma }} 円</div>
         <div class="meta">
-          {{ r.at }} ｜ {{ r.account.broker }} ｜ 種別：
+          {{ r.at|date:"Y年n月j日" }} ｜ {{ r.account.broker|default:"-" }} ｜ 種別：
           {% if r.kind == r.Kind.DEPOSIT %}入金{% elif r.kind == r.Kind.WITHDRAW %}出金
           {% elif r.kind == r.Kind.XFER_IN %}振替(入){% elif r.kind == r.Kind.XFER_OUT %}振替(出)
           {% else %}その他{% endif %}
         </div>
-        {% if r.memo %}<div class="memo break-words">{{ r.memo }}</div>{% endif %}
+        {% if r.memo %}<div class="memo">{{ r.memo }}</div>{% endif %}
+
+        {# ★ 旧フォールバック行（実現損益 REAL:xx / 配当 DIV:xx）は完全に削除しました #}
       </div>
 
-      <!-- 右：バッジ（常に TICKER 名称 で）＋操作 -->
-      <div class="right">
+      <!-- 右：元データのバッジ（銘柄表記） -->
+      <div class="text-right shrink-0">
         {% if r.src_badge %}
           {% if r.src_badge.kind == "配当" %}
-            <span class="chip chip-sky">【配当】{{ r.src_badge.label }}</span>
+            <span class="badge sky">【配当】 {{ r.src_badge.label }}</span>
           {% elif r.src_badge.kind == "実損" %}
-            <span class="chip chip-emerald">【実損】{{ r.src_badge.label }}</span>
+            <span class="badge g">【実損】 {{ r.src_badge.label }}</span>
           {% endif %}
         {% else %}
-          {# 付与できなかった時の最小フォールバック #}
+          {# データにlabelが無い場合の最後の保険（ID表記のみ） #}
           {% if r.source_type == r.SourceType.DIVIDEND %}
-            <span class="chip chip-sky">【配当】DIV:{{ r.source_id }}</span>
+            <span class="badge sky">【配当】 DIV:{{ r.source_id }}</span>
           {% elif r.source_type == r.SourceType.REALIZED %}
-            <span class="chip chip-emerald">【実損】REAL:{{ r.source_id }}</span>
+            <span class="badge g">【実損】 REAL:{{ r.source_id }}</span>
           {% endif %}
         {% endif %}
 
@@ -42,5 +44,5 @@
     </div>
   </div>
 {% empty %}
-  <div class="item text-slate-400">該当データがありません。</div>
+  <div class="text-slate-400 mt-3">該当データがありません。</div>
 {% endfor %}
