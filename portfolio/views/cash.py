@@ -16,12 +16,7 @@ from ..models import Dividend, RealizedTrade
 # ================== dashboard（既存） ==================
 def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
     svc.ensure_default_accounts(currency=currency)
-    return (
-        BrokerAccount.objects
-        .filter(broker=broker, currency=currency)
-        .order_by("account_type")
-        .first()
-    )
+    return BrokerAccount.objects.filter(broker=broker, currency=currency).order_by("account_type").first()
 
 
 @require_http_methods(["GET", "POST"])
@@ -161,63 +156,90 @@ def _filtered_ledger(request: HttpRequest):
     return qs, summary
 
 
+# ---- ここを堅牢化：source_type が int/str/Choices 何でも判定できるようにする
+def _match_source(val, target_choice) -> bool:
+    """
+    val: 例) 1, "1", "REALIZED", CashLedger.SourceType.REALIZED などを想定
+    target_choice: CashLedger.SourceType.REALIZED のような choice メンバ
+    """
+    if val is None:
+        return False
+    # 同一オブジェクト or 値一致
+    if val == target_choice:
+        return True
+    target_value = getattr(target_choice, "value", target_choice)
+    target_name  = getattr(target_choice, "name", str(target_value))
+    # 数値 ↔ 数値文字列
+    try:
+        if int(val) == int(target_value):
+            return True
+    except Exception:
+        pass
+    # 文字列 ↔ NAME
+    if isinstance(val, str) and val.upper() == str(target_name).upper():
+        return True
+    return False
+
+
 def _attach_source_labels(page):
     """
     page.object_list (CashLedger のリスト) に対して、source を辿って
     銘柄ラベル/バッジ情報を付与（N+1回避で一括取得）。
-    付与先: r.src_badge = {"kind","class","label","url"}
+    付与先: r.src_badge = {"kind","class","label"}
     """
     items = list(page.object_list)
     if not items:
         return
 
+    ST = CashLedger.SourceType
     div_ids, real_ids = set(), set()
+
+    # まず必要な ID を収集
     for r in items:
-        try:
-            st = int(r.source_type or 0)
-        except Exception:
-            st = 0
-        if st == CashLedger.SourceType.DIVIDEND and r.source_id:
-            div_ids.add(int(r.source_id))
-        elif st == CashLedger.SourceType.REALIZED and r.source_id:
-            real_ids.add(int(r.source_id))
+        st = getattr(r, "source_type", None)
+        sid = getattr(r, "source_id", None)
+        if not sid:
+            continue
+        if _match_source(st, ST.DIVIDEND):
+            try:
+                div_ids.add(int(sid))
+            except Exception:
+                pass
+        elif _match_source(st, ST.REALIZED):
+            try:
+                real_ids.add(int(sid))
+            except Exception:
+                pass
 
-    div_map = {d.id: d for d in Dividend.objects.filter(id__in=div_ids)}
-    real_map = {x.id: x for x in RealizedTrade.objects.filter(id__in=real_ids)}
+    div_map = {d.id: d for d in Dividend.objects.filter(id__in=div_ids)} if div_ids else {}
+    real_map = {x.id: x for x in RealizedTrade.objects.filter(id__in=real_ids)} if real_ids else {}
 
+    # ラベルを埋め込む
     for r in items:
         r.src_badge = None
-        try:
-            st = int(r.source_type or 0)
-        except Exception:
-            st = 0
+        st = getattr(r, "source_type", None)
+        sid = getattr(r, "source_id", None)
 
-        if st == CashLedger.SourceType.DIVIDEND and r.source_id in div_map:
-            d = div_map[r.source_id]
-            # ティッカー最優先 → 無ければ名称 → それも無ければ DIV:ID
-            tkr  = (getattr(d, "display_ticker", None) or d.ticker or "").strip().upper()
-            name = (getattr(d, "display_name", None) or d.name or "").strip()
-            label = tkr or name or f"DIV:{d.id}"
+        if sid and _match_source(st, ST.DIVIDEND) and sid in div_map:
+            d = div_map[sid]
+            tkr = (getattr(d, "display_ticker", None) or getattr(d, "ticker", "") or "").upper()
+            name = (getattr(d, "display_name", None) or getattr(d, "name", "") or "")
             r.src_badge = {
                 "kind": "配当",
-                "class": "border-sky-400/40 text-sky-200",
-                "label": label,
-                "url": None,
+                "class": "chip chip-sky",
+                "label": (f"{tkr} {name}".strip() or "—").strip(),
             }
-
-        elif st == CashLedger.SourceType.REALIZED and r.source_id in real_map:
-            x = real_map[r.source_id]
-            # ティッカー最優先 → 無ければ名称 → それも無ければ REAL:ID
-            tkr  = (x.ticker or "").strip().upper()
-            name = (x.name or "").strip()
-            label = tkr or name or f"REAL:{x.id}"
+        elif sid and _match_source(st, ST.REALIZED) and sid in real_map:
+            x = real_map[sid]
+            tkr = (getattr(x, "ticker", "") or "").upper()
+            name = (getattr(x, "name", "") or "")
             r.src_badge = {
                 "kind": "実損",
-                "class": "border-emerald-400/40 text-emerald-200",
-                "label": label,
-                "url": None,
+                "class": "chip chip-emerald",
+                "label": (f"{tkr} {name}".strip() or "—").strip(),
             }
 
+    # 置き換え（テンプレは page.object_list を回す）
     page.object_list = items
 
 
@@ -227,13 +249,12 @@ def cash_history(request: HttpRequest) -> HttpResponse:
     qs, summary = _filtered_ledger(request)
     p = Paginator(qs, PAGE_SIZE).get_page(1)
 
-    # 元データの銘柄バッジを付与
     _attach_source_labels(p)
 
     return render(request, "cash/history.html", {
         "page": p,
         "summary": summary,
-        "params": request.GET,   # フィルタ保持
+        "params": request.GET,
     })
 
 
@@ -243,7 +264,6 @@ def cash_history_page(request: HttpRequest) -> HttpResponse:
     page_no = int(request.GET.get("page") or 1)
     p = Paginator(qs, PAGE_SIZE).get_page(page_no)
 
-    # 元データの銘柄バッジを付与
     _attach_source_labels(p)
 
     return render(request, "cash/_history_list.html", {
