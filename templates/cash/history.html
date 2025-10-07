@@ -4,40 +4,26 @@
 
 {% block content %}
 <style>
-/* ====== フィルター（被らない・超コンパクト） ====== */
+/* フィルター：コンパクト＋被らない */
 .fcard{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
        border-radius:12px;padding:8px}
-.fgrid{
-  display:grid;
-  grid-template-columns: repeat(4, minmax(0,1fr));
-  gap:8px;
-}
-@media (max-width:480px){
-  .fgrid{grid-template-columns: repeat(2, minmax(0,1fr));}
-}
+.fgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+@media (max-width:480px){.fgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .ctl{display:flex;flex-direction:column;gap:2px;min-width:0}
 .ctl label{font-size:10px;color:#94a3b8}
-.input,.select,.btn{
-  width:100%;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.12);
-  background:rgba(255,255,255,.06);color:#e5e7eb;font-size:12px;line-height:1.1
-}
+.input,.select,.btn{width:100%;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.12);
+                    background:rgba(255,255,255,.06);color:#e5e7eb;font-size:12px;line-height:1.1}
 .btn{background:rgba(255,255,255,.08)}
 .btn.ghost{background:transparent;border-color:rgba(255,255,255,.12)}
-/* ボタン行（右寄せで横並び） */
 .f-actions{display:flex;justify-content:flex-end;gap:8px;align-items:end}
 
-/* ====== サマリー（読みやすいピル群） ====== */
-.sum{
-  display:flex;flex-wrap:wrap;gap:6px;
-  margin-top:6px;padding:6px 8px;border-radius:12px;
-  border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04)
-}
-.sum .pill{
-  font-size:12px;color:#cbd5e1;border:1px solid rgba(255,255,255,.10);
-  padding:4px 8px;border-radius:9999px;white-space:nowrap
-}
+/* サマリー：ピル表示で折返し綺麗に */
+.sum{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;padding:6px 8px;border-radius:12px;
+     border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04)}
+.sum .pill{font-size:12px;color:#cbd5e1;border:1px solid rgba(255,255,255,.10);
+           padding:4px 8px;border-radius:9999px;white-space:nowrap}
 
-/* ====== 一覧カード（コンパクト） ====== */
+/* 一覧カード */
 .item{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
       border-radius:12px;padding:10px 12px;margin-top:8px}
 .amount{font-size:18px;font-weight:800}
@@ -46,7 +32,7 @@
 .actions{margin-top:6px;display:flex;justify-content:flex-end;gap:6px}
 .actions a,.actions button{padding:4px 8px;font-size:11px;border-radius:8px;border:1px solid rgba(255,255,255,.2)}
 
-/* 右上バッジ（維持） */
+/* 右上バッジ（残す） */
 .chip{display:inline-flex;align-items:center;gap:.35em;padding:.28rem .6rem;border-radius:.9rem;border:1px solid;
       font-size:.85rem;line-height:1;white-space:nowrap}
 .chip-sky{border-color:rgba(125,160,255,.35);color:#c7d2fe;background:rgba(125,160,255,.08)}
@@ -55,7 +41,6 @@
 
 <h1 class="text-base font-semibold mb-2">💵 現金台帳</h1>
 
-<!-- フィルター -->
 <form method="get" class="fcard">
   <div class="fgrid">
     <div class="ctl">
@@ -81,14 +66,8 @@
         {% endwith %}
       </select>
     </div>
-    <div class="ctl">
-      <label>開始日</label>
-      <input type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="input">
-    </div>
-    <div class="ctl">
-      <label>終了日</label>
-      <input type="date" name="end" value="{{ params.end|default_if_none:'' }}" class="input">
-    </div>
+    <div class="ctl"><label>開始日</label><input type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="input"></div>
+    <div class="ctl"><label>終了日</label><input type="date" name="end" value="{{ params.end|default_if_none:'' }}" class="input"></div>
     <div class="ctl" style="grid-column:1/-1">
       <label>メモ検索</label>
       <input type="text" name="q" value="{{ params.q|default_if_none:'' }}" placeholder="例: 配当 / REAL:21 など" class="input">
@@ -100,7 +79,6 @@
   </div>
 </form>
 
-<!-- サマリー -->
 {% if summary %}
   <div class="sum">
     <span class="pill">合計 {{ summary.total|intcomma }} 円</span>
@@ -111,7 +89,6 @@
   </div>
 {% endif %}
 
-<!-- 一覧 -->
 <div id="historyContainer">
   {% include "cash/_history_list.html" with page=page params=params %}
 </div>
