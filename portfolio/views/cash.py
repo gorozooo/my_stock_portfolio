@@ -6,7 +6,7 @@ from django.contrib import messages
 from django.views.decorators.http import require_http_methods
 from datetime import date
 
-from ..models_cash import BrokerAccount
+from ..models_cash import BrokerAccount, CashLedger
 from ..services import cash_service as svc
 from ..services import cash_updater as up
 
@@ -74,18 +74,28 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     svc.ensure_default_accounts()
     today = date.today()
 
-    # ★ 配当/実損の自動反映（重複は内部でスキップ）
+    # ★ 自動同期（重複は内部でユニーク制約によりスキップ）
     sync_info = {"dividends_created": 0, "realized_created": 0}
     try:
         sync_info = up.sync_all()
-        d = int(sync_info.get("dividends_created", 0))
-        r = int(sync_info.get("realized_created", 0))
-        msg = f"同期完了：配当 {d} 件 / 実損 {r} 件 反映済み"
-        # 0件でも必ずメッセージを積んでトースト表示
-        if d or r:
-            messages.success(request, msg)  # 件数あり → 成功色
+        d_new = int(sync_info.get("dividends_created", 0))
+        r_new = int(sync_info.get("realized_created", 0))
+
+        # 既存（累計反映済み）件数も合わせて表示
+        CL = CashLedger
+        d_existing = CL.objects.filter(source_type=CL.SourceType.DIVIDEND).count()
+        r_existing = CL.objects.filter(source_type=CL.SourceType.REALIZED).count()
+
+        # 改行つきメッセージ（トーストは pre-line で改行表示）
+        msg = (
+            "同期完了\n"
+            f"・配当：新規 {d_new} 件 / 既存 {d_existing} 件\n"
+            f"・実損：新規 {r_new} 件 / 既存 {r_existing} 件"
+        )
+        if d_new or r_new:
+            messages.success(request, msg)   # 新規が1件でもあれば成功色
         else:
-            messages.info(request, msg)     # 0件 → 情報色
+            messages.info(request, msg)      # 0件でも必ず出す
     except Exception as e:
         messages.error(request, f"同期に失敗：{e}")
 
@@ -95,6 +105,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     context = {
         "brokers": brokers,       # 証券会社ごとのKPI
         "kpi_total": kpi_total,   # 未使用だが保持
-        "sync_info": sync_info,   # 画面下カード等で使いたいとき用
+        "sync_info": sync_info,   # サマリで使うならどうぞ
     }
     return render(request, "cash/dashboard.html", context)
