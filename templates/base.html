@@ -121,126 +121,85 @@
 
   <!-- ===== Global Toast（改行/非分割強制・先頭の「・」重複回避） ===== -->
   <script>
-  (function(){
-    // DOM
-    let toast = document.getElementById("globalToast");
-    if(!toast){
-      toast = document.createElement("div");
-      toast.id = "globalToast";
-      Object.assign(toast.style,{
-        position:"fixed", left:"50%",
-        bottom:"calc(96px + env(safe-area-inset-bottom))",
-        transform:"translate(-50%, 12px)",
-        background:"rgba(18,21,33,.96)", color:"#fff",
-        padding:"12px 14px", fontSize:"14px", fontWeight:"600",
-        borderRadius:"12px", border:"1px solid rgba(255,255,255,.10)",
-        boxShadow:"0 18px 42px rgba(0,0,0,.45)",
-        opacity:"0", pointerEvents:"none",
-        transition:"opacity .22s ease, transform .22s ease",
-        zIndex:"100260", maxWidth:"92vw",
-        textAlign:"left", lineHeight:"1.5",
-        wordBreak:"keep-all", overflowWrap:"anywhere",
-        backdropFilter:"blur(10px)"
-      });
-      document.body.appendChild(toast);
+(function(){
+  let toast = document.getElementById("globalToast");
+  if(!toast){
+    toast = document.createElement("div");
+    toast.id = "globalToast";
+    Object.assign(toast.style,{
+      position:"fixed",left:"50%",
+      bottom:"calc(96px + env(safe-area-inset-bottom))",
+      transform:"translate(-50%,12px)",
+      background:"rgba(18,21,33,.96)",color:"#fff",
+      padding:"12px 14px",fontSize:"14px",fontWeight:"600",
+      borderRadius:"12px",border:"1px solid rgba(255,255,255,.10)",
+      boxShadow:"0 18px 42px rgba(0,0,0,.45)",
+      opacity:"0",pointerEvents:"none",
+      transition:"opacity .22s ease, transform .22s ease",
+      zIndex:"100260",maxWidth:"92vw",
+      textAlign:"left",lineHeight:"1.5",
+      wordBreak:"keep-all",whiteSpace:"pre-line",
+      backdropFilter:"blur(10px)"
+    });
+    document.body.appendChild(toast);
+  }
+
+  function adjustOffset(){
+    const bottomTab=document.getElementById("bottomTabRoot");
+    const dockInner=document.querySelector(".cash-dock .inner");
+    const tabH=bottomTab?bottomTab.getBoundingClientRect().height:0;
+    const dockH=dockInner?dockInner.getBoundingClientRect().height:0;
+    toast.style.bottom=`calc(${Math.max(96,tabH+dockH+16)}px + env(safe-area-inset-bottom))`;
+  }
+  adjustOffset();
+  window.addEventListener("resize",adjustOffset);
+
+  const styleFor=l=>{
+    if(/error/.test(l))return{bg:"rgba(220,38,38,.96)",b:"#7f1d1d",icon:"⚠️"};
+    if(/success/.test(l))return{bg:"rgba(16,185,129,.96)",b:"#064e3b",icon:"✅"};
+    if(/warning/.test(l))return{bg:"rgba(234,179,8,.96)",b:"#713f12",icon:"⚠️"};
+    return{bg:"rgba(18,21,33,.96)",b:"rgba(255,255,255,.10)",icon:"ℹ️"};
+  };
+
+  let queue=[];
+  try{queue=JSON.parse(document.getElementById("dj-messages")?.textContent||"[]");}catch{queue=[];}
+  window.toast=(text,level="info")=>{queue.push({text,level});if(!showing)showNext();};
+
+  const esc=s=>String(s||"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+  const nobreak=s=>s.replace(/(\d[\d,]*)\s*(件|円|回|人|銘柄|%)/g,"$1&nbsp;$2");
+
+  let i=0,showing=false;
+  function showNext(){
+    if(i>=queue.length){showing=false;return;}
+    showing=true;
+    const{text,level}=queue[i++]||{};
+    const sty=styleFor(level||"");
+    toast.style.background=sty.bg;
+    toast.style.borderColor=sty.b;
+
+    const lines=String(text||"").trim().split(/\n+/);
+    const title=lines.shift()||"通知";
+    let html=`${sty.icon} <strong style="font-weight:800">${esc(title)}</strong>`;
+
+    if(lines.length){
+      html+="<br>"+lines.map(line=>{
+        const cleaned=line.replace(/^[・•\-]\s*/,"");
+        return `・ ${nobreak(esc(cleaned))}`;
+      }).join("<br>");
     }
 
-    // 位置調整（下タブ/現金ドック回避）
-    function adjustOffset(){
-      const bottomTab = document.getElementById("bottomTabRoot");
-      const dockInner = document.querySelector(".cash-dock .inner");
-      const tabH = bottomTab ? bottomTab.getBoundingClientRect().height : 0;
-      const dockH = dockInner ? dockInner.getBoundingClientRect().height : 0;
-      const offset = Math.max(96, Math.round(tabH + dockH + 16));
-      toast.style.bottom = `calc(${offset}px + env(safe-area-inset-bottom))`;
-    }
-    adjustOffset();
-    addEventListener("resize", adjustOffset);
-
-    // スタイル
-    const styleFor = lvl => {
-      if (/error/.test(lvl))   return {bg:"rgba(220,38,38,.96)", b:"#7f1d1d", icon:"⚠️"};
-      if (/success/.test(lvl)) return {bg:"rgba(16,185,129,.96)", b:"#064e3b", icon:"✅"};
-      if (/warning/.test(lvl)) return {bg:"rgba(234,179,8,.96)", b:"#713f12", icon:"⚠️"};
-      return {bg:"rgba(18,21,33,.96)", b:"rgba(255,255,255,.10)", icon:"ℹ️"};
-    };
-
-    // 取り込み
-    let queue = [];
-    try{
-      const el = document.getElementById("dj-messages");
-      queue = el ? JSON.parse(el.textContent || "[]") : [];
-    }catch(e){ queue = []; }
-
-    // 公開API
-    window.toast = function(text, level="info"){
-      queue.push({text, level});
-      if (!showing) showNext();
-    };
-
-    // ユーティリティ
-    function esc(s){
-      return String(s||"")
-        .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-        .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-    }
-    // 数字+単位を NBSP で結合（, を含む数値もOK）
-    function nobreakUnits(s){
-      return s
-        .replace(/(\d[\d,]*)\s*(件|円|回|人|銘柄)/g, '$1&nbsp;$2')
-        .replace(/(\d[\d,]*)\s*(%)/g, '$1&nbsp;$2');
-    }
-
-    let i=0, showing=false;
-
-    function renderToast(text, level){
-      const sty = styleFor(level||"");
-      toast.style.background = sty.bg;
-      toast.style.borderColor = sty.b;
-
-      const lines = String(text||"").split("\n");
-      const title = lines.shift() || "通知";
-      const body  = lines;
-
-      // HTMLを直接組み立て：各行は<div>にするので確実に改行される
-      let html = `<div style="display:flex;gap:6px;align-items:center;">
-        <span>${sty.icon}</span>
-        <strong style="font-weight:800">${esc(title)}</strong>
-      </div>`;
-
-      if (body.length){
-        html += `<div style="margin-top:6px;display:grid;gap:4px">`;
-        body.forEach(line=>{
-          if (!line.trim()) return;
-          // 先頭に既に「・/•/-」があれば重複させない
-          const cleaned = line.replace(/^[・•\-]\s*/, "");
-          html += `<div><span style="margin-right:6px">・</span>
-                     <span>${nobreakUnits(esc(cleaned))}</span></div>`;
-        });
-        html += `</div>`;
-      }
-
-      toast.innerHTML = html;
-    }
-
-    function showNext(){
-      if (i>=queue.length){ showing=false; return; }
-      showing = true;
-      const {text, level} = queue[i++] || {};
-      renderToast(text, level);
-
-      toast.style.opacity = "1";
-      toast.style.transform = "translate(-50%, 0)";
-      const SHOW_MS = /error/.test(level||"") ? 5200 : 4200;
-      setTimeout(()=>{
-        toast.style.opacity = "0";
-        toast.style.transform = "translate(-50%, 12px)";
-        setTimeout(showNext, 280);
-      }, SHOW_MS);
-    }
-
-    if (queue.length) showNext();
-  })();
-  </script>
+    toast.innerHTML=html;
+    toast.style.opacity="1";
+    toast.style.transform="translate(-50%,0)";
+    const SHOW_MS=/error/.test(level||"")?5200:4200;
+    setTimeout(()=>{
+      toast.style.opacity="0";
+      toast.style.transform="translate(-50%,12px)";
+      setTimeout(showNext,280);
+    },SHOW_MS);
+  }
+  if(queue.length)showNext();
+})();
+</script>
 </body>
 </html>
