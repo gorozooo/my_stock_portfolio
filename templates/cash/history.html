@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}現金台帳の履歴{% endblock %}
+
+{% block content %}
+<h1 class="text-xl font-bold mb-3">📜 現金台帳の履歴</h1>
+
+<!-- フィルタ -->
+<form method="get" class="grid grid-cols-2 gap-2 mb-3">
+  <select name="broker" class="bg-slate-800 border border-slate-700 rounded px-2 py-2">
+    {% with cur=params.broker|default:"ALL" %}
+      <option value="ALL"  {% if cur == "ALL" %}selected{% endif %}>すべての証券</option>
+      <option value="楽天" {% if cur == "楽天" %}selected{% endif %}>楽天</option>
+      <option value="松井" {% if cur == "松井" %}selected{% endif %}>松井</option>
+      <option value="SBI" {% if cur == "SBI" %}selected{% endif %}>SBI</option>
+    {% endwith %}
+  </select>
+
+  <select name="kind" class="bg-slate-800 border border-slate-700 rounded px-2 py-2">
+    {% with cur=params.kind|default:"ALL" %}
+      <option value="ALL"      {% if cur == "ALL" %}selected{% endif %}>すべての種別</option>
+      <option value="DEPOSIT"  {% if cur == "DEPOSIT" %}selected{% endif %}>入金</option>
+      <option value="WITHDRAW" {% if cur == "WITHDRAW" %}selected{% endif %}>出金</option>
+      <option value="XFER"     {% if cur == "XFER" %}selected{% endif %}>振替</option>
+      <option value="SYSTEM"   {% if cur == "SYSTEM" %}selected{% endif %}>システム</option>
+    {% endwith %}
+  </select>
+
+  <input type="date" name="start" value="{{ params.start }}" class="bg-slate-800 border border-slate-700 rounded px-2 py-2">
+  <input type="date" name="end"   value="{{ params.end }}"   class="bg-slate-800 border border-slate-700 rounded px-2 py-2">
+
+  <input type="text" name="q" value="{{ params.q }}" placeholder="メモ検索"
+         class="col-span-2 bg-slate-800 border border-slate-700 rounded px-3 py-2">
+
+  <div class="col-span-2 flex gap-2">
+    <button class="flex-1 bg-slate-700 hover:bg-slate-600 rounded px-3 py-2">適用</button>
+    <a href="{% url 'cash_history' %}" class="px-3 py-2 rounded bg-slate-800 border border-slate-700">クリア</a>
+  </div>
+</form>
+
+<!-- 集計 -->
+<div class="rounded-lg border border-slate-700 bg-slate-800/60 p-3 mb-3 text-sm">
+  <div class="flex gap-3 flex-wrap">
+    <div>合計: <span class="font-bold">{{ summary.total|intcomma }}</span> 円</div>
+    <div>入金: <span class="font-bold">{{ summary.deposit|intcomma }}</span> 円</div>
+    <div>出金: <span class="font-bold">{{ summary.withdraw|intcomma }}</span> 円</div>
+    <div>振替(入): <span class="font-bold">{{ summary.xfer_in|intcomma }}</span> 円</div>
+    <div>振替(出): <span class="font-bold">{{ summary.xfer_out|intcomma }}</span> 円</div>
+  </div>
+</div>
+
+<!-- 一覧（初回ページを描画、続きを HTMX 読み込み） -->
+<div id="ledgerList">
+  {% include "cash/_history_list.html" with page=page params=params %}
+</div>
+
+{% endblock %}
