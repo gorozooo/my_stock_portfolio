@@ -4,47 +4,45 @@
 
 {% block content %}
 <style>
-/* --- 極小フィルター --- */
-.form-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
-           border-radius:12px;padding:8px}
-.form-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
-.form-grid .ctl{display:flex;flex-direction:column;gap:2px;min-width:0}
-.form-grid label{font-size:10px;color:#94a3b8}
-.input,.select,.btn{width:100%;padding:5px 6px;border-radius:8px;border:1px solid rgba(255,255,255,.12);
-                    background:rgba(255,255,255,.06);color:#e5e7eb;font-size:12px;line-height:1.1}
-.btn{background:rgba(255,255,255,.08)}
-.btn.ghost{background:transparent;border-color:rgba(255,255,255,.1)}
-/* --- サマリー（別チップ列） --- */
-.sum-wrap{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-.sum-chip{border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);
-          border-radius:999px;padding:6px 10px;font-size:12px;color:#cbd5e1}
-/* --- 一覧カード --- */
-.card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
-      border-radius:14px;padding:12px 14px;margin-bottom:10px}
-.amount{font-size:22px;font-weight:800}
-.meta{margin-top:2px;font-size:12px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.memo{margin-top:2px;font-size:12px;color:#cbd5e1;word-break:break-word}
-.badge{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:12px;font-size:12px;line-height:1;
-       border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06)}
-.badge.g{border-color:rgba(16,185,129,.35);background:rgba(16,185,129,.10)}
-.badge.sky{border-color:rgba(125,160,255,.35);background:rgba(125,160,255,.10)}
-.actions{margin-top:6px;display:flex;justify-content:flex-end;gap:8px}
-.actions a,.actions button{padding:6px 10px;font-size:12px;border-radius:10px;border:1px solid rgba(255,255,255,.2)}
-/* 小画面での詰め */
-@media (max-width:480px){
-  .amount{font-size:20px}
-  .actions a,.actions button{padding:5px 9px;font-size:12px}
-}
+  /* --- フィルター：極小 & 1行に近い配置 --- */
+  .form-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
+             border-radius:12px;padding:10px}
+  .form-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;align-items:end}
+  .ctl{display:flex;flex-direction:column;gap:2px}
+  .ctl label{font-size:10px;color:#94a3b8}
+  .inp,.sel,.btn{width:100%;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.12);
+                 background:rgba(255,255,255,.06);color:#e5e7eb;font-size:12px;line-height:1.1}
+  .btn{background:rgba(255,255,255,.08)}
+  .btn.ghost{background:transparent;border-color:rgba(255,255,255,.1)}
+
+  /* --- サマリーは別カードで1行バッジ化。折返しOK --- */
+  .sum-card{margin-top:8px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
+            border-radius:12px;padding:8px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.14);
+        background:rgba(255,255,255,.06);font-size:12px;color:#dbeafe}
+
+  /* --- リスト（カード） --- */
+  .item{border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);
+        border-radius:16px;padding:10px 12px;margin-top:10px}
+  .amt{font-size:24px;font-weight:800}
+  .meta{margin-top:2px;font-size:12px;color:#94a3b8}
+  .memo{margin-top:2px;font-size:12px;color:#cbd5e1;word-break:break-word}
+  .right{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+  .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:10px;font-size:12px;
+         border:1px solid rgba(125,160,255,.28);background:rgba(125,160,255,.10);color:#dbeafe}
+  .badge.g{border-color:rgba(16,185,129,.35);background:rgba(16,185,129,.10);color:#bbf7d0}
+  .actions{display:flex;gap:8px}
+  .actions a,.actions button{padding:6px 10px;font-size:12px;border-radius:10px;border:1px solid rgba(255,255,255,.2)}
 </style>
 
 <h1 class="text-base font-semibold mb-2">💵 現金台帳</h1>
 
-<!-- フィルター（超コンパクト） -->
 <form method="get" class="form-card">
   <div class="form-grid">
     <div class="ctl" style="grid-column:span 2;">
       <label>証券会社</label>
-      <select name="broker" class="select">
+      <select name="broker" class="sel">
         {% with b=params.broker|default:"ALL" %}
           <option value="ALL"  {% if b == "ALL" %}selected{% endif %}>すべて</option>
           <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天</option>
@@ -55,7 +53,7 @@
     </div>
     <div class="ctl" style="grid-column:span 2;">
       <label>種別</label>
-      <select name="kind" class="select">
+      <select name="kind" class="sel">
         {% with k=params.kind|default:"ALL" %}
           <option value="ALL"      {% if k == "ALL" %}selected{% endif %}>すべて</option>
           <option value="DEPOSIT"  {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
@@ -65,43 +63,37 @@
         {% endwith %}
       </select>
     </div>
-    <div class="ctl">
-      <label>開始日</label>
-      <input type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="input">
-    </div>
-    <div class="ctl">
-      <label>終了日</label>
-      <input type="date" name="end" value="{{ params.end|default_if_none:'' }}" class="input">
-    </div>
-
-    <div class="ctl" style="grid-column:span 4;">
+    <div class="ctl"><label>開始日</label><input type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="inp"></div>
+    <div class="ctl"><label>終了日</label><input type="date" name="end" value="{{ params.end|default_if_none:'' }}" class="inp"></div>
+    <div class="ctl" style="grid-column:span 2;">
       <label>メモ検索</label>
-      <input type="text" name="q" value="{{ params.q|default_if_none:'' }}" placeholder="例: 配当 / REAL:21 など" class="input">
+      <input type="text" name="q" value="{{ params.q|default_if_none:'' }}" class="inp" placeholder="例: 配当 / REAL:21 など">
     </div>
-    <div class="ctl" style="align-self:end;display:flex;gap:6px;">
-      <button class="btn" type="submit">適用</button>
-      <a href="{% url 'cash_history' %}" class="btn ghost">クリア</a>
+    <div class="ctl" style="grid-column:span 1;">
+      <button class="btn">適用</button>
+    </div>
+    <div class="ctl" style="grid-column:span 1;">
+      <a class="btn ghost" href="{% url 'cash_history' %}">クリア</a>
     </div>
   </div>
 </form>
 
-<!-- サマリー（別行・チップ） -->
 {% if summary %}
-  <div class="sum-wrap">
-    <span class="sum-chip">合計 {{ summary.total|intcomma }} 円</span>
-    <span class="sum-chip">入金 {{ summary.deposit|intcomma }} 円</span>
-    <span class="sum-chip">出金 {{ summary.withdraw|intcomma }} 円</span>
-    <span class="sum-chip">振替(入) {{ summary.xfer_in|intcomma }} 円</span>
-    <span class="sum-chip">振替(出) {{ summary.xfer_out|intcomma }} 円</span>
+  <div class="sum-card">
+    <div class="chips">
+      <span class="chip">合計 {{ summary.total|intcomma }} 円</span>
+      <span class="chip">入金 {{ summary.deposit|intcomma }} 円</span>
+      <span class="chip">出金 {{ summary.withdraw|intcomma }} 円</span>
+      <span class="chip">振替(入) {{ summary.xfer_in|intcomma }} 円</span>
+      <span class="chip">振替(出) {{ summary.xfer_out|intcomma }} 円</span>
+    </div>
   </div>
 {% endif %}
 
-<!-- 一覧 -->
 <div id="historyContainer">
   {% include "cash/_history_list.html" with page=page params=params %}
 </div>
 
-<!-- 追加読み込み（HTMX） -->
 {% if page.has_next %}
   <div
     hx-get="{% url 'cash_history_page' %}?page={{ page.next_page_number }}&{{ params.urlencode }}"
