@@ -1,53 +1,65 @@
 {% load humanize %}
 
 {% for r in page.object_list %}
-  <div class="mb-3 rounded-[14px] border border-white/10 bg-white/5 px-4 py-3">
-    <div class="flex items-start justify-between gap-3">
-      <!-- 左：金額＋メタ -->
+  <div class="mb-2 rounded-[12px] border border-white/10 bg-white/5 px-3 py-2.5">
+    <div class="flex items-start justify-between gap-2">
+      <!-- 左：金額＋メタ（より小さく） -->
       <div class="min-w-0">
-        <div class="text-[22px] font-extrabold tracking-tight">{{ r.amount|intcomma }} 円</div>
-        <div class="mt-1 text-sm text-slate-400">
+        <div class="text-[18px] font-extrabold tracking-tight">{{ r.amount|intcomma }} 円</div>
+        <div class="mt-0.5 text-[12px] text-slate-400">
           {{ r.at }} ｜ {{ r.account.broker }} ｜ 種別：
           {% if r.kind == r.Kind.DEPOSIT %}入金{% elif r.kind == r.Kind.WITHDRAW %}出金
           {% elif r.kind == r.Kind.XFER_IN %}振替(入){% elif r.kind == r.Kind.XFER_OUT %}振替(出)
           {% else %}その他{% endif %}
         </div>
         {% if r.memo %}
-          <div class="mt-1 text-slate-300 text-[13px]">{{ r.memo }}</div>
+          <div class="mt-0.5 text-[12px] text-slate-300">{{ r.memo }}</div>
         {% endif %}
       </div>
 
-      <!-- 右：元データ表示（旧スタイル風・小さめテキスト） -->
+      <!-- 右：白枠（ソース表示） -->
       <div class="shrink-0 text-right">
+        {% comment %} チップ：実損/配当を銘柄表記で。ビュー側の r.src_badge.label を優先 {% endcomment %}
         {% if r.src_badge %}
-          <div class="text-[13px] text-slate-200">
-            {% if r.src_badge.kind == "配当" %}
-              配当 {{ r.src_badge.label }}
-            {% elif r.src_badge.kind == "実損" %}
-              実現損益 {{ r.src_badge.label }}
-            {% endif %}
-          </div>
+          {% if r.src_badge.kind == "配当" %}
+            <span class="inline-flex items-center gap-1 rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[12px]">
+              <span class="opacity-80">配当</span>
+              <span class="font-semibold">{{ r.src_badge.label }}</span>
+            </span>
+          {% elif r.src_badge.kind == "実損" %}
+            <span class="inline-flex items-center gap-1 rounded-md border border-emerald-400/25 bg-emerald-300/10 px-2 py-1 text-[12px]">
+              <span class="opacity-80">実損</span>
+              <span class="font-semibold">{{ r.src_badge.label }}</span>
+            </span>
+          {% endif %}
         {% else %}
           {% if r.source_type == r.SourceType.DIVIDEND %}
-            <div class="text-[13px] text-slate-200">配当 DIV:{{ r.source_id }}</div>
+            <span class="inline-flex items-center gap-1 rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[12px]">
+              <span class="opacity-80">配当</span>
+              <span class="font-semibold">DIV:{{ r.source_id }}</span>
+            </span>
           {% elif r.source_type == r.SourceType.REALIZED %}
-            <div class="text-[13px] text-slate-200">実現損益 REAL:{{ r.source_id }}</div>
+            <span class="inline-flex items-center gap-1 rounded-md border border-emerald-400/25 bg-emerald-300/10 px-2 py-1 text-[12px]">
+              <span class="opacity-80">実損</span>
+              <span class="font-semibold">REAL:{{ r.source_id }}</span>
+            </span>
           {% endif %}
         {% endif %}
 
-        <div class="mt-2 flex justify-end gap-2">
+        <!-- 操作（小さめ） -->
+        <div class="mt-1 flex justify-end gap-1.5">
           <a href="{% url 'cash_ledger_edit' r.id %}"
-             class="px-3 py-1.5 rounded border border-slate-500/40 text-[13px]">編集</a>
+             class="px-2.5 py-1 rounded border border-slate-500/40 text-[12px]">編集</a>
           <form method="post" action="{% url 'cash_ledger_delete' r.id %}">
             {% csrf_token %}
-            <button class="px-3 py-1.5 rounded border border-rose-500/40 text-rose-200 text-[13px]">削除</button>
+            <button class="px-2.5 py-1 rounded border border-rose-500/40 text-rose-200 text-[12px]">削除</button>
           </form>
         </div>
       </div>
     </div>
   </div>
 {% empty %}
-  <div class="rounded-[14px] border border-white/10 bg-white/5 p-4 text-slate-400">
+  <div class="rounded-[12px] border border-white/10 bg-white/5 p-3 text-slate-400">
     該当データがありません。
   </div>
 {% endfor %}
