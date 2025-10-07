@@ -3,20 +3,27 @@
 {% for r in page.object_list %}
   <div class="card">
     <div class="flex items-start justify-between gap-3">
-      <!-- 左：金額 + メタ + メモ -->
+
+      <!-- 左：金額 + メタ + メモ(※システムメモは非表示) -->
       <div class="min-w-0">
         <div class="amount">{{ r.amount|intcomma }} 円</div>
+
         <div class="meta">
           {{ r.at|default:"" }} ｜ {{ r.account.broker|default:"" }} ｜ 種別：
           {% if r.kind == r.Kind.DEPOSIT %}入金{% elif r.kind == r.Kind.WITHDRAW %}出金
           {% elif r.kind == r.Kind.XFER_IN %}振替(入){% elif r.kind == r.Kind.XFER_OUT %}振替(出)
           {% else %}その他{% endif %}
         </div>
-        {% if r.memo %}<div class="memo">{{ r.memo }}</div>{% endif %}
-        {# ★ 左下の「実現損益 REAL:xx / 配当 DIV:xx」行は完全に削除（出さない） #}
+
+        {# ← メモは “実現損益…” “配当…” で始まるシステム文言なら出さない #}
+        {% with m=r.memo|default_if_none:""|trim %}
+          {% if m and not (m|slice:":4" == "実現損益" or m|slice:":2" == "配当") %}
+            <div class="memo">{{ m }}</div>
+          {% endif %}
+        {% endwith %}
       </div>
 
-      <!-- 右：元データバッジ -->
+      <!-- 右：元データバッジ（残す） -->
       <div class="text-right shrink-0">
         {% if r.src_badge %}
           {% if r.src_badge.kind == "配当" %}
@@ -34,6 +41,7 @@
           </form>
         </div>
       </div>
+
     </div>
   </div>
 {% empty %}
