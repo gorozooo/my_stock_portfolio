@@ -4,28 +4,30 @@
 
 {% block content %}
 <style>
-  /* ======== スマホ専用・極小フィルター ======== */
+  /* ======= 極小フィルター：2列グリッド（絶対に重ならない） ======= */
   .mf-card{
     border:1px solid rgba(255,255,255,.10);
     background:rgba(255,255,255,.04);
     border-radius:12px;
-    padding:6px;                 /* できるだけ小さく */
+    padding:6px;
     margin-bottom:8px;
+    overflow:hidden;                 /* はみ出し保護 */
   }
-  .mf{                            /* 1行で横並び（必要なら自動折返し） */
-    display:flex;
-    flex-wrap:wrap;
+  .mf{
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0,1fr)); /* ← minmax(0,1fr)でSafariの最小幅制約を無効化 */
     gap:6px;
     align-items:center;
   }
-  .mf .ctl{display:flex; flex-direction:column; gap:0}
-  .mf label{                      /* ラベルは極小＆行高詰め */
+  .mf .ctl{min-width:0}              /* 子要素も縮むのを許可 */
+  .mf label{
+    display:block;
     font-size:10px; line-height:1;
     color:#9fb0c6;
     margin:0 0 2px 2px;
   }
-  .mini-inp, .mini-sel{
-    height:26px;                  /* 実高を抑える */
+  .mini-inp,.mini-sel{
+    height:26px;
     padding:0 8px;
     font-size:12px; line-height:26px;
     color:#e8ecff;
@@ -33,10 +35,11 @@
     border:1px solid rgba(255,255,255,.14);
     border-radius:8px;
     width:100%;
+    box-sizing:border-box;            /* はみ出し防止 */
+    min-width:0;                      /* iOS Safari 対策 */
   }
-  .w-25{flex:1 1 25%}             /* 4分割 */
-  .w-50{flex:1 1 50%}             /* 2分割 */
-  .w-20{flex:1 1 20%}             /* ボタン用 */
+  .ctl-span2{grid-column:1 / -1}      /* 2列ぶち抜き */
+
   .mf-btns{display:flex; gap:6px}
   .btn-mini{
     height:26px; padding:0 10px;
@@ -44,11 +47,11 @@
     border-radius:8px;
     border:1px solid rgba(255,255,255,.18);
     color:#e6ebff; background:rgba(255,255,255,.08);
-    text-align:center; white-space:nowrap;
+    text-align:center; white-space:nowrap; flex:1;
   }
   .btn-ghost{background:transparent; color:#9fb0c6}
 
-  /* ======== サマリー（1行チップ） ======== */
+  /* ======= サマリー：1行ピル ======= */
   .sum-wrap{display:flex; flex-wrap:wrap; gap:6px; margin:8px 0}
   .pill{
     flex:1 1 calc(50% - 6px);
@@ -56,13 +59,10 @@
     background:rgba(255,255,255,.06);
     padding:4px 8px;
     border-radius:9999px;
-    font-size:12px;
-    color:#cbd5e1;
-    text-align:center;
-    white-space:nowrap;
+    font-size:12px; color:#cbd5e1; text-align:center; white-space:nowrap;
   }
 
-  /* ======== リスト（既存のコンパクトカード） ======== */
+  /* ======= リスト（既存のコンパクト） ======= */
   .card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
         border-radius:14px;padding:10px 12px;margin-bottom:10px}
   .amount{font-size:20px;font-weight:800}
@@ -80,7 +80,7 @@
 
 <form method="get" class="mf-card">
   <div class="mf">
-    <div class="ctl w-25">
+    <div class="ctl">
       <label>証券会社</label>
       <select name="broker" class="mini-sel">
         {% with b=params.broker|default:"ALL" %}
@@ -92,7 +92,7 @@
       </select>
     </div>
 
-    <div class="ctl w-25">
+    <div class="ctl">
       <label>種別</label>
       <select name="kind" class="mini-sel">
         {% with k=params.kind|default:"ALL" %}
@@ -105,26 +105,26 @@
       </select>
     </div>
 
-    <div class="ctl w-25">
+    <div class="ctl">
       <label>開始日</label>
       <input type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="mini-inp">
     </div>
 
-    <div class="ctl w-25">
+    <div class="ctl">
       <label>終了日</label>
       <input type="date" name="end" value="{{ params.end|default_if_none:'' }}" class="mini-inp">
     </div>
 
-    <div class="ctl w-50">
+    <div class="ctl ctl-span2">
       <label>メモ検索</label>
       <input type="text" name="q" value="{{ params.q|default_if_none:'' }}" placeholder="例: 配当 / REAL:21 など" class="mini-inp">
     </div>
 
-    <div class="ctl w-50">
+    <div class="ctl ctl-span2">
       <label style="visibility:hidden">操作</label>
       <div class="mf-btns">
-        <button type="submit" class="btn-mini" style="flex:1">適用</button>
-        <a href="{% url 'cash_history' %}" class="btn-mini btn-ghost" style="flex:1;text-decoration:none;">クリア</a>
+        <button type="submit" class="btn-mini">適用</button>
+        <a href="{% url 'cash_history' %}" class="btn-mini btn-ghost" style="text-decoration:none;">クリア</a>
       </div>
     </div>
   </div>
