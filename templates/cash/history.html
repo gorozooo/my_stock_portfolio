@@ -4,31 +4,49 @@
 
 {% block content %}
 <style>
-/* ── 極小フィルター ───────────────────────────── */
-.form-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
-           border-radius:12px;padding:8px}
-.form-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
-.form-grid .ctl{display:flex;flex-direction:column;gap:2px}
-.form-grid label{font-size:10px;color:#94a3b8}
-.input,.select,.btn{width:100%;padding:5px 6px;border-radius:8px;border:1px solid rgba(255,255,255,.12);
-                    background:rgba(255,255,255,.06);color:#e5e7eb;font-size:12px;line-height:1.1}
+/* ====== フィルター（被らない・超コンパクト） ====== */
+.fcard{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
+       border-radius:12px;padding:8px}
+.fgrid{
+  display:grid;
+  grid-template-columns: repeat(4, minmax(0,1fr));
+  gap:8px;
+}
+@media (max-width:480px){
+  .fgrid{grid-template-columns: repeat(2, minmax(0,1fr));}
+}
+.ctl{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ctl label{font-size:10px;color:#94a3b8}
+.input,.select,.btn{
+  width:100%;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.06);color:#e5e7eb;font-size:12px;line-height:1.1
+}
 .btn{background:rgba(255,255,255,.08)}
-.btn.ghost{background:transparent;border-color:rgba(255,255,255,.1)}
+.btn.ghost{background:transparent;border-color:rgba(255,255,255,.12)}
+/* ボタン行（右寄せで横並び） */
+.f-actions{display:flex;justify-content:flex-end;gap:8px;align-items:end}
 
-/* ── サマリーは別カード ───────────────────────── */
-.sum-card{margin-top:6px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
-          border-radius:12px;padding:6px 8px;font-size:12px;color:#cbd5e1}
+/* ====== サマリー（読みやすいピル群） ====== */
+.sum{
+  display:flex;flex-wrap:wrap;gap:6px;
+  margin-top:6px;padding:6px 8px;border-radius:12px;
+  border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04)
+}
+.sum .pill{
+  font-size:12px;color:#cbd5e1;border:1px solid rgba(255,255,255,.10);
+  padding:4px 8px;border-radius:9999px;white-space:nowrap
+}
 
-/* ── 一覧カード（コンパクト） ───────────────────── */
-.list-item{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
-           border-radius:12px;padding:10px 12px;margin-bottom:8px}
+/* ====== 一覧カード（コンパクト） ====== */
+.item{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
+      border-radius:12px;padding:10px 12px;margin-top:8px}
 .amount{font-size:18px;font-weight:800}
 .meta{margin-top:2px;font-size:11px;color:#94a3b8}
 .memo{margin-top:2px;font-size:11px;color:#cbd5e1}
 .actions{margin-top:6px;display:flex;justify-content:flex-end;gap:6px}
 .actions a,.actions button{padding:4px 8px;font-size:11px;border-radius:8px;border:1px solid rgba(255,255,255,.2)}
 
-/* ── 右上バッジ（既存の見た目に合わせた簡易版） ───────── */
+/* 右上バッジ（維持） */
 .chip{display:inline-flex;align-items:center;gap:.35em;padding:.28rem .6rem;border-radius:.9rem;border:1px solid;
       font-size:.85rem;line-height:1;white-space:nowrap}
 .chip-sky{border-color:rgba(125,160,255,.35);color:#c7d2fe;background:rgba(125,160,255,.08)}
@@ -37,10 +55,10 @@
 
 <h1 class="text-base font-semibold mb-2">💵 現金台帳</h1>
 
-<!-- フィルター：極小 -->
-<form method="get" class="form-card">
-  <div class="form-grid">
-    <div class="ctl" style="grid-column:span 2;">
+<!-- フィルター -->
+<form method="get" class="fcard">
+  <div class="fgrid">
+    <div class="ctl">
       <label>証券会社</label>
       <select name="broker" class="select">
         {% with b=params.broker|default:"ALL" %}
@@ -51,7 +69,7 @@
         {% endwith %}
       </select>
     </div>
-    <div class="ctl" style="grid-column:span 2;">
+    <div class="ctl">
       <label>種別</label>
       <select name="kind" class="select">
         {% with k=params.kind|default:"ALL" %}
@@ -71,25 +89,25 @@
       <label>終了日</label>
       <input type="date" name="end" value="{{ params.end|default_if_none:'' }}" class="input">
     </div>
-    <div class="ctl" style="grid-column:span 4;">
+    <div class="ctl" style="grid-column:1/-1">
       <label>メモ検索</label>
       <input type="text" name="q" value="{{ params.q|default_if_none:'' }}" placeholder="例: 配当 / REAL:21 など" class="input">
     </div>
-    <div class="ctl" style="align-self:end;display:flex;gap:6px;">
+    <div class="f-actions" style="grid-column:1/-1">
       <button class="btn">適用</button>
       <a href="{% url 'cash_history' %}" class="btn ghost">クリア</a>
     </div>
   </div>
 </form>
 
-<!-- サマリー（別カード） -->
+<!-- サマリー -->
 {% if summary %}
-  <div class="sum-card">
-    合計: <b>{{ summary.total|intcomma }}</b> 円　
-    入金: {{ summary.deposit|intcomma }} 円　
-    出金: {{ summary.withdraw|intcomma }} 円　
-    振替(入): {{ summary.xfer_in|intcomma }} 円　
-    振替(出): {{ summary.xfer_out|intcomma }} 円
+  <div class="sum">
+    <span class="pill">合計 {{ summary.total|intcomma }} 円</span>
+    <span class="pill">入金 {{ summary.deposit|intcomma }} 円</span>
+    <span class="pill">出金 {{ summary.withdraw|intcomma }} 円</span>
+    <span class="pill">振替(入) {{ summary.xfer_in|intcomma }} 円</span>
+    <span class="pill">振替(出) {{ summary.xfer_out|intcomma }} 円</span>
   </div>
 {% endif %}
 
@@ -98,7 +116,6 @@
   {% include "cash/_history_list.html" with page=page params=params %}
 </div>
 
-<!-- 追加読み込み（HTMX） -->
 {% if page.has_next %}
   <div
     hx-get="{% url 'cash_history_page' %}?page={{ page.next_page_number }}&{{ params.urlencode }}"
