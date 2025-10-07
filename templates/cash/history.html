@@ -4,37 +4,41 @@
 
 {% block content %}
 <style>
-/* フィルター：コンパクト＋被らない */
+/* ――― フィルター（小型・詰め） ――― */
 .fcard{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
        border-radius:12px;padding:8px}
 .fgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
-@media (max-width:480px){.fgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:520px){.fgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .ctl{display:flex;flex-direction:column;gap:2px;min-width:0}
 .ctl label{font-size:10px;color:#94a3b8}
 .input,.select,.btn{width:100%;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.12);
                     background:rgba(255,255,255,.06);color:#e5e7eb;font-size:12px;line-height:1.1}
 .btn{background:rgba(255,255,255,.08)}
 .btn.ghost{background:transparent;border-color:rgba(255,255,255,.12)}
-.f-actions{display:flex;justify-content:flex-end;gap:8px;align-items:end}
+.f-actions{display:flex;justify-content:flex-end;gap:8px;align-items:end;grid-column:1/-1}
 
-/* サマリー：ピル表示で折返し綺麗に */
+/* ――― サマリー（ピル） ――― */
 .sum{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;padding:6px 8px;border-radius:12px;
      border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04)}
 .sum .pill{font-size:12px;color:#cbd5e1;border:1px solid rgba(255,255,255,.10);
            padding:4px 8px;border-radius:9999px;white-space:nowrap}
 
-/* 一覧カード */
+/* ――― 一覧カード ――― */
 .item{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
       border-radius:12px;padding:10px 12px;margin-top:8px}
+.row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start}
 .amount{font-size:18px;font-weight:800}
 .meta{margin-top:2px;font-size:11px;color:#94a3b8}
 .memo{margin-top:2px;font-size:11px;color:#cbd5e1}
-.actions{margin-top:6px;display:flex;justify-content:flex-end;gap:6px}
+
+/* 右側：バッジ＋操作は自動折返し */
+.right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:0;max-width:56vw}
+.actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .actions a,.actions button{padding:4px 8px;font-size:11px;border-radius:8px;border:1px solid rgba(255,255,255,.2)}
 
-/* 右上バッジ（残す） */
+/* バッジ（省略対応） */
 .chip{display:inline-flex;align-items:center;gap:.35em;padding:.28rem .6rem;border-radius:.9rem;border:1px solid;
-      font-size:.85rem;line-height:1;white-space:nowrap}
+      font-size:.85rem;line-height:1;white-space:nowrap;max-width:56vw;overflow:hidden;text-overflow:ellipsis}
 .chip-sky{border-color:rgba(125,160,255,.35);color:#c7d2fe;background:rgba(125,160,255,.08)}
 .chip-emerald{border-color:rgba(16,185,129,.35);color:#bbf7d0;background:rgba(16,185,129,.08)}
 </style>
@@ -72,7 +76,7 @@
       <label>メモ検索</label>
       <input type="text" name="q" value="{{ params.q|default_if_none:'' }}" placeholder="例: 配当 / REAL:21 など" class="input">
     </div>
-    <div class="f-actions" style="grid-column:1/-1">
+    <div class="f-actions">
       <button class="btn">適用</button>
       <a href="{% url 'cash_history' %}" class="btn ghost">クリア</a>
     </div>
