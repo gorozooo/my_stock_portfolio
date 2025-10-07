@@ -1,8 +1,8 @@
 {% load humanize %}
 {% for r in page.object_list %}
   <div class="item">
-    <div class="flex items-start justify-between gap-3">
-      <!-- 左：金額・メタ・メモのみ。★IDの行は出さない -->
+    <div class="row">
+      <!-- 左：金額/メタ/メモ（★旧「実現損益 REAL:xx」行は描かない） -->
       <div class="min-w-0">
         <div class="amount">{{ r.amount|intcomma }} 円</div>
         <div class="meta">
@@ -11,13 +11,11 @@
           {% elif r.kind == r.Kind.XFER_IN %}振替(入){% elif r.kind == r.Kind.XFER_OUT %}振替(出)
           {% else %}その他{% endif %}
         </div>
-        {% if r.memo %}
-          <div class="memo break-words">{{ r.memo }}</div>
-        {% endif %}
+        {% if r.memo %}<div class="memo break-words">{{ r.memo }}</div>{% endif %}
       </div>
 
-      <!-- 右：元データバッジ（維持）＋操作 -->
-      <div class="text-right shrink-0">
+      <!-- 右：バッジ（常に TICKER 名称 で）＋操作 -->
+      <div class="right">
         {% if r.src_badge %}
           {% if r.src_badge.kind == "配当" %}
             <span class="chip chip-sky">【配当】{{ r.src_badge.label }}</span>
@@ -25,10 +23,11 @@
             <span class="chip chip-emerald">【実損】{{ r.src_badge.label }}</span>
           {% endif %}
         {% else %}
+          {# 付与できなかった時の最小フォールバック #}
           {% if r.source_type == r.SourceType.DIVIDEND %}
-            <span class="chip chip-sky">配当&nbsp;DIV:{{ r.source_id }}</span>
+            <span class="chip chip-sky">【配当】DIV:{{ r.source_id }}</span>
           {% elif r.source_type == r.SourceType.REALIZED %}
-            <span class="chip chip-emerald">実損&nbsp;REAL:{{ r.source_id }}</span>
+            <span class="chip chip-emerald">【実損】REAL:{{ r.source_id }}</span>
           {% endif %}
         {% endif %}
 
