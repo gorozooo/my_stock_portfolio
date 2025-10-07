@@ -1,22 +1,27 @@
 from __future__ import annotations
-from django.shortcuts import render, redirect, get_object_or_404
-from django.http import HttpRequest, HttpResponse
-from django.contrib import messages
-from django.views.decorators.http import require_http_methods
 from datetime import date, datetime
-from django.core.paginator import Paginator
-from django.db.models import Sum, Q
 
+from django.contrib import messages
+from django.core.paginator import Paginator
+from django.db.models import Q, Sum
+from django.http import HttpRequest, HttpResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_http_methods
+
+from ..models import Dividend, RealizedTrade
 from ..models_cash import BrokerAccount, CashLedger
 from ..services import cash_service as svc
 from ..services import cash_updater as up
-from ..models import Dividend, RealizedTrade
 
 
-# ================== dashboard ==================
+# ================== dashboard（既存） ==================
 def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
     svc.ensure_default_accounts(currency=currency)
-    return BrokerAccount.objects.filter(broker=broker, currency=currency).order_by("account_type").first()
+    return (
+        BrokerAccount.objects.filter(broker=broker, currency=currency)
+        .order_by("account_type")
+        .first()
+    )
 
 
 @require_http_methods(["GET", "POST"])
@@ -66,6 +71,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     svc.ensure_default_accounts()
     today = date.today()
 
+    # 自動同期（エラーでも画面は出す）
     try:
         info = up.sync_all()
         d = int(info.get("dividends_created", 0))
@@ -78,13 +84,17 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     brokers = svc.broker_summaries(today)
     kpi_total, _ = svc.total_summary(today)
 
-    return render(request, "cash/dashboard.html", {
-        "brokers": brokers,
-        "kpi_total": kpi_total,
-    })
+    return render(
+        request,
+        "cash/dashboard.html",
+        {
+            "brokers": brokers,
+            "kpi_total": kpi_total,
+        },
+    )
 
 
-# ================== 履歴 共通 ==================
+# ================== 履歴：共通ヘルパー ==================
 PAGE_SIZE = 30
 
 
@@ -101,17 +111,18 @@ def _parse_date(s: str | None):
 
 def _filtered_ledger(request: HttpRequest):
     """
-    クエリ:
+    クエリパラメータ:
       broker=楽天|松井|SBI|ALL
       kind=ALL|DEPOSIT|WITHDRAW|XFER|SYSTEM
-      start/end=YYYY-MM-DD
+      start=YYYY-MM-DD
+      end=YYYY-MM-DD
       q=メモ部分一致
     """
     broker = request.GET.get("broker", "ALL")
-    kind = (request.GET.get("kind", "ALL") or "ALL").upper()
+    kind = request.GET.get("kind", "ALL").upper()
     start = _parse_date(request.GET.get("start"))
-    end   = _parse_date(request.GET.get("end"))
-    q     = (request.GET.get("q") or "").trim() if hasattr(str, "trim") else (request.GET.get("q") or "").strip()
+    end = _parse_date(request.GET.get("end"))
+    q = (request.GET.get("q") or "").strip()
 
     qs = CashLedger.objects.select_related("account").order_by("-at", "-id")
 
@@ -135,10 +146,11 @@ def _filtered_ledger(request: HttpRequest):
     if q:
         qs = qs.filter(Q(memo__icontains=q))
 
+    # 集計（現在のフィルタに対して）
     agg = qs.aggregate(
         total=Sum("amount"),
         dep=Sum("amount", filter=Q(kind=CashLedger.Kind.DEPOSIT)),
-        wd =Sum("amount", filter=Q(kind=CashLedger.Kind.WITHDRAW)),
+        wd=Sum("amount", filter=Q(kind=CashLedger.Kind.WITHDRAW)),
         xin=Sum("amount", filter=Q(kind=CashLedger.Kind.XFER_IN)),
         xout=Sum("amount", filter=Q(kind=CashLedger.Kind.XFER_OUT)),
     )
@@ -149,77 +161,140 @@ def _filtered_ledger(request: HttpRequest):
         "xfer_in": int(agg["xin"] or 0),
         "xfer_out": int(agg["xout"] or 0),
     }
+
     return qs, summary
+
+
+def _source_is_dividend(v) -> bool:
+    """
+    CashLedger.SourceType が数値/文字の両方に対応
+    """
+    if v is None:
+        return False
+    try:
+        # 数値 Enum の場合
+        return int(v) == int(CashLedger.SourceType.DIVIDEND)
+    except Exception:
+        # 文字列 Enum の場合
+        return str(v).upper() in {"DIVIDEND", "DIV", "2"}  # 2 は保険
+
+
+def _source_is_realized(v) -> bool:
+    if v is None:
+        return False
+    try:
+        return int(v) == int(CashLedger.SourceType.REALIZED)
+    except Exception:
+        return str(v).upper() in {"REALIZED", "REAL", "1"}  # 1 は保険
 
 
 def _attach_source_labels(page):
     """
-    右上バッジ用の銘柄ラベルを付与。
-    source_type が壊れていても source_id があれば両方に当てて解決を試みる。
-    付与先: r.src_badge = {"kind","label"}
+    page.object_list に r.src_badge を付与。
+    フォーマット: {"kind","class","label"}
     """
-    items = list(page.object_list)
+    items = list(page.object_list or [])
     if not items:
         return
 
-    ids = {int(r.source_id) for r in items if getattr(r, "source_id", None)}
-    if not ids:
-        page.object_list = items
-        return
+    div_ids, real_ids = set(), set()
+    for r in items:
+        st = getattr(r, "source_type", None)
+        sid = getattr(r, "source_id", None)
+        if sid is None:
+            continue
+        try:
+            sid_int = int(sid)
+        except Exception:
+            # 数値化できない ID はスキップ
+            continue
 
-    # 両方照会して存在した方を採用（N+1回避）
-    div_map  = {d.id: d for d in Dividend.objects.filter(id__in=ids)}
-    real_map = {x.id: x for x in RealizedTrade.objects.filter(id__in=ids)}
+        if _source_is_dividend(st):
+            div_ids.add(sid_int)
+        elif _source_is_realized(st):
+            real_ids.add(sid_int)
+
+    div_map = {d.id: d for d in Dividend.objects.filter(id__in=div_ids)}
+    real_map = {x.id: x for x in RealizedTrade.objects.filter(id__in=real_ids)}
 
     for r in items:
         r.src_badge = None
+        st = getattr(r, "source_type", None)
         sid = getattr(r, "source_id", None)
-        if not sid:
+
+        try:
+            sid_int = int(sid) if sid is not None else None
+        except Exception:
+            sid_int = None
+
+        if sid_int is None:
             continue
-        sid = int(sid)
 
-        d = div_map.get(sid)
-        x = real_map.get(sid)
-
-        if d is not None:
+        if _source_is_dividend(st) and sid_int in div_map:
+            d = div_map[sid_int]
             tkr = (getattr(d, "display_ticker", None) or d.ticker or "").upper()
             name = (getattr(d, "display_name", None) or d.name or "")
-            r.src_badge = {"kind": "配当", "label": (f"{tkr} {name}".strip() or "—")}
-        elif x is not None:
+            label = (f"{tkr} {name}".strip() or "—")
+            r.src_badge = {
+                "kind": "配当",
+                "class": "chip chip-sky",
+                "label": label,
+            }
+        elif _source_is_realized(st) and sid_int in real_map:
+            x = real_map[sid_int]
             tkr = (x.ticker or "").upper()
             name = (x.name or "")
-            r.src_badge = {"kind": "実損", "label": (f"{tkr} {name}".strip() or "—")}
+            label = (f"{tkr} {name}".strip() or "—")
+            r.src_badge = {
+                "kind": "実損",
+                "class": "chip chip-emerald",
+                "label": label,
+            }
 
     page.object_list = items
 
 
-# ================== 履歴：一覧 / ページング ==================
+# ================== 履歴：一覧 / 追加読込 ==================
+@require_http_methods(["GET"])
 def cash_history(request: HttpRequest) -> HttpResponse:
     svc.ensure_default_accounts()
     qs, summary = _filtered_ledger(request)
     p = Paginator(qs, PAGE_SIZE).get_page(1)
-    _attach_source_labels(p)
-    return render(request, "cash/history.html", {
-        "page": p,
-        "summary": summary,
-        "params": request.GET,
-    })
+
+    _attach_source_labels(p)  # ★ 右上バッジを最後まで安定
+
+    return render(
+        request,
+        "cash/history.html",
+        {
+            "page": p,
+            "summary": summary,
+            "params": request.GET,
+        },
+    )
 
 
+@require_http_methods(["GET"])
 def cash_history_page(request: HttpRequest) -> HttpResponse:
     qs, _ = _filtered_ledger(request)
     page_no = int(request.GET.get("page") or 1)
     p = Paginator(qs, PAGE_SIZE).get_page(page_no)
-    _attach_source_labels(p)
-    return render(request, "cash/_history_list.html", {
-        "page": p,
-        "params": request.GET,
-    })
+
+    _attach_source_labels(p)  # ★ 追加読み込み側にも必ず付与
+
+    return render(
+        request,
+        "cash/_history_list.html",
+        {
+            "page": p,
+            "params": request.GET,
+        },
+    )
 
 
 # ================== 履歴：編集 / 削除 ==================
 @require_http_methods(["GET", "POST"])
-def cash_ledger_edit(request: HttpRequest, pk: int):
+def ledger_edit(request: HttpRequest, pk: int):
     obj = get_object_or_404(CashLedger, pk=pk)
     if request.method == "POST":
         try:
@@ -236,7 +311,7 @@ def cash_ledger_edit(request: HttpRequest, pk: int):
 
 
 @require_http_methods(["POST"])
-def cash_ledger_delete(request: HttpRequest, pk: int):
+def ledger_delete(request: HttpRequest, pk: int):
     obj = get_object_or_404(CashLedger, pk=pk)
     try:
         obj.delete()
