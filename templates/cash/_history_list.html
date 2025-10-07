@@ -2,8 +2,8 @@
 {% for r in page.object_list %}
   <div class="list-item mb-3">
     <div class="flex items-start justify-between gap-3">
-      <!-- 左側：金額＋メタ -->
-      <div>
+      <!-- 左：金額 + メタ -->
+      <div class="min-w-0">
         <div class="text-2xl font-extrabold">{{ r.amount|intcomma }} 円</div>
         <div class="meta mt-1">
           {{ r.at }} ｜ {{ r.account.broker }} ｜ 種別：
@@ -11,22 +11,28 @@
           {% elif r.kind == r.Kind.XFER_IN %}振替(入){% elif r.kind == r.Kind.XFER_OUT %}振替(出)
           {% else %}その他{% endif %}
         </div>
-        {% if r.memo %}<div class="text-slate-300 mt-1">{{ r.memo }}</div>{% endif %}
+        {% if r.memo %}<div class="text-slate-300 mt-1 break-words">{{ r.memo }}</div>{% endif %}
+
+        {# ★ ここにあった「実現損益 REAL:xx / 配当 DIV:xx」行は削除 #}
       </div>
 
-      <!-- 右側：白枠チップ（銘柄ラベル） -->
+      <!-- 右：元データバッジ（残す） -->
       <div class="text-right shrink-0">
         {% if r.src_badge %}
-          <span class="{{ r.src_badge.class }}">【{{ r.src_badge.kind }}】{{ r.src_badge.label }}</span>
+          {% if r.src_badge.kind == "配当" %}
+            <span class="chip chip-sky">【配当】{{ r.src_badge.label }}</span>
+          {% elif r.src_badge.kind == "実損" %}
+            <span class="chip chip-emerald">【実損】{{ r.src_badge.label }}</span>
+          {% endif %}
         {% else %}
-          {# フォールバック（src_badge が無い場合は従来のID表示） #}
           {% if r.source_type == r.SourceType.DIVIDEND %}
-            <span class="chip chip-sky">【配当】DIV:{{ r.source_id }}</span>
+            <span class="chip chip-sky">配当&nbsp;DIV:{{ r.source_id }}</span>
           {% elif r.source_type == r.SourceType.REALIZED %}
-            <span class="chip chip-emerald">【実損】REAL:{{ r.source_id }}</span>
+            <span class="chip chip-emerald">実損&nbsp;REAL:{{ r.source_id }}</span>
           {% endif %}
         {% endif %}
 
+        <!-- 操作 -->
         <div class="mt-2 flex justify-end gap-2">
           <a href="{% url 'cash_ledger_edit' r.id %}" class="px-3 py-1.5 rounded border border-slate-500/40">編集</a>
           <form method="post" action="{% url 'cash_ledger_delete' r.id %}">
