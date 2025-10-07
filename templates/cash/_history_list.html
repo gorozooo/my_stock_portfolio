@@ -1,65 +1,46 @@
 {% load humanize %}
 
 {% for r in page.object_list %}
-  <div class="mb-2 rounded-[12px] border border-white/10 bg-white/5 px-3 py-2.5">
+  <div class="comp-card">
     <div class="flex items-start justify-between gap-2">
-      <!-- 左：金額＋メタ（より小さく） -->
+      <!-- 左：極小レイアウト -->
       <div class="min-w-0">
-        <div class="text-[18px] font-extrabold tracking-tight">{{ r.amount|intcomma }} 円</div>
-        <div class="mt-0.5 text-[12px] text-slate-400">
+        <div class="amount">{{ r.amount|intcomma }} 円</div>
+        <div class="meta">
           {{ r.at }} ｜ {{ r.account.broker }} ｜ 種別：
           {% if r.kind == r.Kind.DEPOSIT %}入金{% elif r.kind == r.Kind.WITHDRAW %}出金
           {% elif r.kind == r.Kind.XFER_IN %}振替(入){% elif r.kind == r.Kind.XFER_OUT %}振替(出)
           {% else %}その他{% endif %}
         </div>
-        {% if r.memo %}
-          <div class="mt-0.5 text-[12px] text-slate-300">{{ r.memo }}</div>
-        {% endif %}
+        {% if r.memo %}<div class="memo">{{ r.memo }}</div>{% endif %}
       </div>
 
-      <!-- 右：白枠（ソース表示） -->
+      <!-- 右：白枠（銘柄ラベル優先） -->
       <div class="shrink-0 text-right">
-        {% comment %} チップ：実損/配当を銘柄表記で。ビュー側の r.src_badge.label を優先 {% endcomment %}
         {% if r.src_badge %}
           {% if r.src_badge.kind == "配当" %}
-            <span class="inline-flex items-center gap-1 rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[12px]">
-              <span class="opacity-80">配当</span>
-              <span class="font-semibold">{{ r.src_badge.label }}</span>
-            </span>
+            <span class="badge">配当 <strong class="font-semibold">{{ r.src_badge.label }}</strong></span>
           {% elif r.src_badge.kind == "実損" %}
-            <span class="inline-flex items-center gap-1 rounded-md border border-emerald-400/25 bg-emerald-300/10 px-2 py-1 text-[12px]">
-              <span class="opacity-80">実損</span>
-              <span class="font-semibold">{{ r.src_badge.label }}</span>
-            </span>
+            <span class="badge g">実損 <strong class="font-semibold">{{ r.src_badge.label }}</strong></span>
           {% endif %}
         {% else %}
           {% if r.source_type == r.SourceType.DIVIDEND %}
-            <span class="inline-flex items-center gap-1 rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[12px]">
-              <span class="opacity-80">配当</span>
-              <span class="font-semibold">DIV:{{ r.source_id }}</span>
-            </span>
+            <span class="badge">配当 <strong>DIV:{{ r.source_id }}</strong></span>
           {% elif r.source_type == r.SourceType.REALIZED %}
-            <span class="inline-flex items-center gap-1 rounded-md border border-emerald-400/25 bg-emerald-300/10 px-2 py-1 text-[12px]">
-              <span class="opacity-80">実損</span>
-              <span class="font-semibold">REAL:{{ r.source_id }}</span>
-            </span>
+            <span class="badge g">実損 <strong>REAL:{{ r.source_id }}</strong></span>
           {% endif %}
         {% endif %}
 
-        <!-- 操作（小さめ） -->
-        <div class="mt-1 flex justify-end gap-1.5">
-          <a href="{% url 'cash_ledger_edit' r.id %}"
-             class="px-2.5 py-1 rounded border border-slate-500/40 text-[12px]">編集</a>
+        <div class="actions">
+          <a href="{% url 'cash_ledger_edit' r.id %}">編集</a>
           <form method="post" action="{% url 'cash_ledger_delete' r.id %}">
             {% csrf_token %}
-            <button class="px-2.5 py-1 rounded border border-rose-500/40 text-rose-200 text-[12px]">削除</button>
+            <button class="text-rose-200 border-rose-400/40">削除</button>
           </form>
         </div>
       </div>
     </div>
   </div>
 {% empty %}
-  <div class="rounded-[12px] border border-white/10 bg-white/5 p-3 text-slate-400">
-    該当データがありません。
-  </div>
+  <div class="comp-card text-slate-400">該当データがありません。</div>
 {% endfor %}
