@@ -11,6 +11,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
 
+  <!-- HTMX CSRF -->
   <script>
     (function () {
       function getCookie(name) {
@@ -22,14 +23,17 @@
       });
     })();
   </script>
+
+  <!-- iOS ピンチ抑止 -->
   <script>
     (function () {
       const opts = { passive: false };
-      ['gesturestart', 'gesturechange'].forEach(type => {
-        document.addEventListener(type, function (e) { e.preventDefault(); }, opts);
-      });
+      ['gesturestart','gesturechange'].forEach(t =>
+        document.addEventListener(t, e => e.preventDefault(), opts)
+      );
     })();
   </script>
+
   <style>
     html, body { touch-action: manipulation; }
     a, button  { touch-action: manipulation; }
@@ -37,6 +41,7 @@
 
   <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 
+  <!-- PWA -->
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#0b0f1a">
   <script>
@@ -63,13 +68,14 @@
   <script src="{% static 'js/realized_close.js' %}?v=2" defer></script>
   <script src="{% static 'js/realized_monthly_chart.js' %}?v=1" defer></script>
 
+  <!-- HTMX エラーオーバーレイ -->
   <script>
     (function () {
       if (!window.htmx || htmx.defineExtension === undefined) return;
       htmx.defineExtension('swap-on-error', {
-        onEvent: function (name, evt) {
+        onEvent(name, evt) {
           if (name === 'htmx:beforeSwap') {
-            var status = evt.detail.xhr ? evt.detail.xhr.status : 0;
+            const status = evt.detail.xhr ? evt.detail.xhr.status : 0;
             if (status >= 400) { evt.detail.shouldSwap = true; evt.detail.isError = false; }
           }
         }
@@ -79,8 +85,8 @@
   <script>
     (function () {
       function showOverlay(title, bodyHTML) {
-        var id = 'htmx-error-overlay';
-        var el = document.getElementById(id);
+        const id = 'htmx-error-overlay';
+        let el = document.getElementById(id);
         if (!el) {
           el = document.createElement('div');
           el.id = id;
@@ -94,18 +100,16 @@
               '<div id="he-body" style="max-height:70vh;overflow:auto;padding:14px 16px;white-space:pre-wrap;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;"></div>'+
             '</div>';
           document.body.appendChild(el);
-          el.querySelector('#he-close').onclick = function(){ el.remove(); };
-          document.addEventListener('keydown', function(ev){
-            if (ev.key === 'Escape') { var x = document.getElementById('htmx-error-overlay'); if (x) x.remove(); }
-          });
+          el.querySelector('#he-close').onclick = () => el.remove();
+          document.addEventListener('keydown', ev => { if (ev.key === 'Escape') el.remove(); });
         }
         el.querySelector('#he-title').textContent = title || '';
         el.querySelector('#he-body').innerHTML   = bodyHTML || '';
       }
       document.body.addEventListener('htmx:responseError', function (e) {
-        var xhr = e.detail.xhr || {};
-        var ct  = (xhr.getResponseHeader && xhr.getResponseHeader('Content-Type')) || '';
-        var body = xhr.responseText || '';
+        const xhr = e.detail.xhr || {};
+        const ct  = (xhr.getResponseHeader && xhr.getResponseHeader('Content-Type')) || '';
+        let body  = xhr.responseText || '';
         if (ct.indexOf('application/json') >= 0) {
           try { body = '<pre>'+JSON.stringify(JSON.parse(body), null, 2)+'</pre>'; } catch(_){}
         }
@@ -123,18 +127,10 @@
   ]
   </script>
 
-  <!-- Global Toast -->
+  <!-- Global Toast（改行＆“数字＋単位”の非分割を強化） -->
   <script>
   (function(){
-    /* ノーブレーク用クラス */
-    if (!document.getElementById("toast-nb-style")){
-      const st = document.createElement("style");
-      st.id = "toast-nb-style";
-      st.textContent = ".nb{white-space:nowrap;word-break:keep-all;display:inline-block}";
-      document.head.appendChild(st);
-    }
-
-    // DOM
+    // ---- DOM -------------------------------------------------------------
     let toast = document.getElementById("globalToast");
     if(!toast){
       toast = document.createElement("div");
@@ -159,14 +155,14 @@
         maxWidth:"92vw",
         textAlign:"left",
         lineHeight:"1.5",
-        wordBreak:"normal",
-        overflowWrap:"normal",     /* ← anywhere をやめる */
+        wordBreak:"keep-all",
+        overflowWrap:"anywhere",
         backdropFilter:"blur(10px)",
-        whiteSpace:"normal"
       });
       document.body.appendChild(toast);
     }
 
+    // 下タブ/現金ドックに被らない
     function adjustOffset(){
       const bottomTab = document.getElementById("bottomTabRoot");
       const dockInner = document.querySelector(".cash-dock .inner");
@@ -178,53 +174,50 @@
     adjustOffset();
     window.addEventListener("resize", adjustOffset);
 
-    const styleFor = (lvl)=>{
+    // ---- 見た目 ----------------------------------------------------------
+    const styleFor = lvl => {
       if (/error/.test(lvl))   return {bg:"rgba(220,38,38,.96)", b:"#7f1d1d", icon:"⚠️"};
       if (/success/.test(lvl)) return {bg:"rgba(16,185,129,.96)", b:"#064e3b", icon:"✅"};
       if (/warning/.test(lvl)) return {bg:"rgba(234,179,8,.96)", b:"#713f12", icon:"⚠️"};
       return {bg:"rgba(18,21,33,.96)", b:"rgba(255,255,255,.10)", icon:"ℹ️"};
     };
 
-    // 取り出し
+    // ---- メッセージ取り込み ----------------------------------------------
     let queue = [];
     try{
       const el = document.getElementById("dj-messages");
       queue = el ? JSON.parse(el.textContent || "[]") : [];
     }catch(e){ queue = []; }
 
-    // 公開API
+    // 外部 API
     window.toast = function(text, level="info"){
       queue.push({text, level});
       if (!showing) showNext();
     };
 
-    // Util
+    // ---- 整形ユーティリティ ----------------------------------------------
     function escapeHtml(s){
       return String(s||"")
         .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
         .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
     }
-    function preprocess(raw){
-      let t = String(raw||"");
-      t = t.replace(/:\s*/g,"：");     // コロン統一
-      return t;
-    }
-    // 数字＋単位をノーブレーク化（カンマ区切り対応）
-    function protectUnits(html){
-      html = html.replace(/([\d,]+)\s*件/g, '<span class="nb">$1&nbsp;件</span>');
-      html = html.replace(/([\d,]+)\s*円/g, '<span class="nb">$1&nbsp;円</span>');
-      html = html.replace(/([\d,]+)\s*回/g, '<span class="nb">$1&nbsp;回</span>');
-      return html;
+    function nn(s){ return (s===0 || s) ? String(s) : ""; }
+
+    // 「数字+単位」を絶対に折り返さない（カンマ付きもOK）
+    function protectUnits(textNode){
+      // テキストをHTMLに差し替え（span で包む）
+      const raw = textNode.textContent;
+      const html = escapeHtml(raw)
+        // 件・円・回・人・銘柄 を対象（必要なら増やす）
+        .replace(/(^|[^0-9,])([0-9][0-9,]*)\s*(件|円|回|人|銘柄)/g,
+          (_, pre, num, unit) => pre + '<span style="white-space:nowrap">'+ num +'&nbsp;'+ unit +'</span>');
+      const wrap = document.createElement("span");
+      wrap.innerHTML = html;
+      textNode.replaceWith(wrap);
     }
 
-    // 表示
+    // ---- 表示ループ ------------------------------------------------------
     let i = 0, showing = false;
-
-    function toHtml(text){
-      const esc = escapeHtml(preprocess(text));
-      const withBr = esc.replace(/\n\n/g,"<br><br>").replace(/\n/g,"<br>");
-      return protectUnits(withBr);
-    }
 
     function showNext(){
       if (i >= queue.length){ showing = false; return; }
@@ -234,20 +227,45 @@
       const sty = styleFor(level||"");
       toast.style.background = sty.bg;
       toast.style.borderColor = sty.b;
+
+      // 中身を組み立て（1行目=タイトル、以降=箇条書き）
       toast.innerHTML = "";
+      const box = document.createElement("div");
+      box.style.display = "grid";
+      box.style.gap = "6px";
 
-      const raw = String(text||"");
-      const firstBreak = raw.indexOf("\n");
-      const head = firstBreak >= 0 ? raw.slice(0, firstBreak) : raw;
-      const body = firstBreak >= 0 ? raw.slice(firstBreak + 1) : "";
+      const first = document.createElement("div");
+      first.style.display = "flex";
+      first.style.alignItems = "center";
+      first.style.gap = "6px";
+      const icon = document.createElement("span"); icon.textContent = sty.icon;
+      const strong = document.createElement("strong");
+      strong.style.fontWeight = "800";
+      strong.textContent = nn(String(text||"").split("\n")[0] || "通知");
+      first.appendChild(icon); first.appendChild(strong);
+      box.appendChild(first);
 
-      toast.innerHTML =
-        `${sty.icon} <strong style="font-weight:800;">${toHtml(head)}</strong>` +
-        (body ? `<br>${toHtml(body)}` : "");
+      const lines = String(text||"").split("\n").slice(1);
+      lines.forEach(line=>{
+        if (!line.trim()) return;
+        const row = document.createElement("div");
+        row.style.display = "flex";
+        const dot = document.createElement("span"); dot.textContent = "・"; dot.style.marginRight = "6px";
+        const txt = document.createElement("span"); txt.textContent = line;
+        row.appendChild(dot); row.appendChild(txt);
+        box.appendChild(row);
+        // 数字＋単位の非分割を適用（txtの中身に）
+        protectUnits(txt.firstChild);
+      });
 
+      // もし1行しか無ければ、行にも非分割適用
+      if (lines.length === 0) protectUnits(strong.firstChild);
+
+      toast.appendChild(box);
+
+      // アニメーション
       toast.style.opacity = "1";
       toast.style.transform = "translate(-50%, 0)";
-
       const SHOW_MS = /error/.test(level||"") ? 5200 : 4200;
       setTimeout(()=>{
         toast.style.opacity = "0";
