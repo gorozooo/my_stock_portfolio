@@ -2,11 +2,32 @@
 <ul class="space-y-2">
   {% for r in page.object_list %}
   <li class="rounded-lg border border-slate-700 bg-slate-800/60 p-3">
-    <div class="text-xs text-slate-400">{{ r.at|date:"Y-m-d" }}｜{{ r.account.broker }}｜種別: {{ r.get_kind_display }}</div>
-    <div class="flex justify-between items-center">
-      <div class="text-base font-semibold">{{ r.amount|intcomma }} 円</div>
-      <div class="text-sm">{{ r.memo|default:"—" }}</div>
+    <div class="text-xs text-slate-400">
+      {{ r.at|date:"Y-m-d" }} ｜ {{ r.account.broker }} ｜ 種別: {{ r.get_kind_display }}
     </div>
+
+    <div class="mt-1 flex items-start justify-between gap-3">
+      <div class="text-base font-semibold whitespace-nowrap">{{ r.amount|intcomma }} 円</div>
+
+      {% if r.src_badge %}
+        {% if r.src_badge.url %}
+          <a href="{{ r.src_badge.url }}"
+             class="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg border {{ r.src_badge.class }} bg-slate-900/40 text-[12px]">
+            <span class="opacity-80">【{{ r.src_badge.kind }}】</span>
+            <span class="font-semibold">{{ r.src_badge.label }}</span>
+          </a>
+        {% else %}
+          <span class="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg border {{ r.src_badge.class }} bg-slate-900/40 text-[12px]">
+            <span class="opacity-80">【{{ r.src_badge.kind }}】</span>
+            <span class="font-semibold">{{ r.src_badge.label }}</span>
+          </span>
+        {% endif %}
+      {% else %}
+        {# 既存メモ（同期外など） #}
+        <div class="text-sm text-slate-200/90">{{ r.memo|default:"—" }}</div>
+      {% endif %}
+    </div>
+
     <div class="mt-2 text-right space-x-2 text-sm">
       <a href="{% url 'cash_ledger_edit' r.id %}" class="px-2 py-1 rounded border border-slate-600">編集</a>
       <form method="post" action="{% url 'cash_ledger_delete' r.id %}" class="inline">
