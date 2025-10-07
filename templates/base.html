@@ -126,7 +126,7 @@
   <!-- Global Toast -->
   <script>
   (function(){
-    /* ノーブレーク用クラス（数字＋単位を箱ごと保持） */
+    /* ノーブレーク用クラス */
     if (!document.getElementById("toast-nb-style")){
       const st = document.createElement("style");
       st.id = "toast-nb-style";
@@ -159,8 +159,8 @@
         maxWidth:"92vw",
         textAlign:"left",
         lineHeight:"1.5",
-        wordBreak:"normal",       /* ← CJKの過剰折返しを抑止 */
-        overflowWrap:"anywhere",
+        wordBreak:"normal",
+        overflowWrap:"normal",     /* ← anywhere をやめる */
         backdropFilter:"blur(10px)",
         whiteSpace:"normal"
       });
@@ -209,11 +209,11 @@
       t = t.replace(/:\s*/g,"：");     // コロン統一
       return t;
     }
-    // 数字＋単位をノーブレーク化（必要なら単位を追加してOK）
+    // 数字＋単位をノーブレーク化（カンマ区切り対応）
     function protectUnits(html){
-      html = html.replace(/(\d+)\s*件/g, '<span class="nb">$1&nbsp;件</span>');
-      html = html.replace(/(\d+)\s*円/g, '<span class="nb">$1&nbsp;円</span>');
-      html = html.replace(/(\d+)\s*回/g, '<span class="nb">$1&nbsp;回</span>');
+      html = html.replace(/([\d,]+)\s*件/g, '<span class="nb">$1&nbsp;件</span>');
+      html = html.replace(/([\d,]+)\s*円/g, '<span class="nb">$1&nbsp;円</span>');
+      html = html.replace(/([\d,]+)\s*回/g, '<span class="nb">$1&nbsp;回</span>');
       return html;
     }
 
