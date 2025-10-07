@@ -7,16 +7,10 @@
         content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>{% block title %}My Stock{% endblock %}</title>
 
-  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
-
-  <!-- HTMX -->
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
 
-  <!-- HTMX: CSRF -->
   <script>
     (function () {
       function getCookie(name) {
@@ -28,8 +22,6 @@
       });
     })();
   </script>
-
-  <!-- iOS pinch 防止 -->
   <script>
     (function () {
       const opts = { passive: false };
@@ -38,16 +30,13 @@
       });
     })();
   </script>
-
   <style>
     html, body { touch-action: manipulation; }
     a, button  { touch-action: manipulation; }
   </style>
 
-  <!-- Alpine（必要なら） -->
   <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 
-  <!-- PWA -->
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#0b0f1a">
   <script>
@@ -58,11 +47,9 @@
     }
   </script>
 
-  <!-- Django URLs → JS -->
   <script>
     window.APP_URLS = { holding_create: "{% url 'holding_create' %}" };
   </script>
-
   {% block head %}{% endblock %}
 </head>
 <body class="bg-slate-950 text-slate-100">
@@ -76,7 +63,6 @@
   <script src="{% static 'js/realized_close.js' %}?v=2" defer></script>
   <script src="{% static 'js/realized_monthly_chart.js' %}?v=1" defer></script>
 
-  <!-- HTMX error overlay -->
   <script>
     (function () {
       if (!window.htmx || htmx.defineExtension === undefined) return;
@@ -116,7 +102,6 @@
         el.querySelector('#he-title').textContent = title || '';
         el.querySelector('#he-body').innerHTML   = bodyHTML || '';
       }
-
       document.body.addEventListener('htmx:responseError', function (e) {
         var xhr = e.detail.xhr || {};
         var ct  = (xhr.getResponseHeader && xhr.getResponseHeader('Content-Type')) || '';
@@ -168,12 +153,11 @@
         lineHeight:"1.45",
         wordBreak:"break-word",
         backdropFilter:"blur(10px)",
-        whiteSpace:"pre-line"
+        whiteSpace:"normal"
       });
       document.body.appendChild(toast);
     }
 
-    // 下部UI回避
     function adjustOffset(){
       const bottomTab = document.getElementById("bottomTabRoot");
       const dockInner = document.querySelector(".cash-dock .inner");
@@ -205,26 +189,31 @@
       if (!showing) showNext();
     };
 
-    // 表示
-    let i = 0, showing = false;
-
+    // Util
     function escapeHtml(s){
       return String(s||"")
         .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
         .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
     }
     function preprocess(raw){
-      // 句読点/コロン整形 & 数字+件 のノーブレーク
       let t = String(raw||"");
-      t = t.replace(/:\s*/g,"：");            // 半角コロン → 全角
-      t = t.replace(/(\d+)\s件/g,"$1\u00A0件"); // 12<nbsp>件
+      t = t.replace(/:\s*/g,"：");     // コロン整形
       return t;
     }
+    // ★ 数字＋単位を “絶対に” 折り返さないよう HTMLを包む
+    function protectUnits(html){
+      // 「12 件」「3 回」「45 円」など必要に応じて増やせる
+      html = html.replace(/(\d+)\s*件/g, '<span style="white-space:nowrap">$1&nbsp;件</span>');
+      return html;
+    }
+
+    // 表示
+    let i = 0, showing = false;
+
     function toHtml(text){
-      // 改行→<br>（先に整形→エスケープ→br化）
-      const protectedText = preprocess(text);
-      const esc = escapeHtml(protectedText);
-      return esc.replace(/\n\n/g,"<br><br>").replace(/\n/g,"<br>");
+      const esc = escapeHtml(preprocess(text));
+      const withBr = esc.replace(/\n\n/g,"<br><br>").replace(/\n/g,"<br>");
+      return protectUnits(withBr);
     }
 
     function showNext(){
@@ -233,24 +222,15 @@
 
       const {text, level} = queue[i++] || {};
       const sty = styleFor(level||"");
-
       toast.style.background = sty.bg;
       toast.style.borderColor = sty.b;
       toast.innerHTML = "";
 
       const raw = String(text||"");
       const [head, ...rest] = raw.split("\n");
-
-      const icon = document.createElement("span");
-      icon.textContent = sty.icon + " ";
-
-      const span = document.createElement("span");
       const headHtml = `<strong style="font-weight:800;">${toHtml(head)}</strong>`;
       const bodyHtml = toHtml(rest.join("\n"));
-      span.innerHTML = headHtml + (bodyHtml ? "<br>" + bodyHtml : "");
-
-      toast.appendChild(icon);
-      toast.appendChild(span);
+      toast.innerHTML = `${sty.icon} ${headHtml}${bodyHtml ? "<br>"+bodyHtml : ""}`;
 
       toast.style.opacity = "1";
       toast.style.transform = "translate(-50%, 0)";
@@ -262,6 +242,7 @@
         setTimeout(showNext, 280);
       }, SHOW_MS);
     }
+
     if (queue.length) showNext();
   })();
   </script>
