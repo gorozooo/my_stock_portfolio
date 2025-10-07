@@ -14,7 +14,7 @@
         {% if r.memo %}<div class="text-slate-300 mt-1">{{ r.memo }}</div>{% endif %}
       </div>
 
-      <!-- 右：元データバッジ（ここが変更点） -->
+      <!-- 右：元データバッジ -->
       <div class="text-right shrink-0">
         {% if r.src_badge %}
           {% if r.src_badge.kind == "配当" %}
@@ -31,10 +31,11 @@
           {% endif %}
         {% endif %}
 
-        <!-- 編集/削除ボタン（お手元のUIに合わせて） -->
+        <!-- 編集/削除ボタン（URL名を修正） -->
         <div class="mt-2 flex justify-end gap-2">
-          <a href="{% url 'ledger_edit' r.id %}" class="px-3 py-1.5 rounded border border-slate-500/40">編集</a>
-          <form method="post" action="{% url 'ledger_delete' r.id %}">
+          <a href="{% url 'cash_ledger_edit' r.id %}"
+             class="px-3 py-1.5 rounded border border-slate-500/40">編集</a>
+          <form method="post" action="{% url 'cash_ledger_delete' r.id %}">
             {% csrf_token %}
             <button class="px-3 py-1.5 rounded border border-rose-500/40 text-rose-200">削除</button>
           </form>
