@@ -4,7 +4,7 @@
 
 {% block head %}
 <style>
-  /* ======== 現金台帳ヘッダーを保有UIと統一 ======== */
+  /* ===== 固定ヘッダー（保有UIテイスト） ===== */
   #cashTop{
     position: sticky;
     top: env(safe-area-inset-top, 0px);
@@ -13,52 +13,45 @@
     border-radius: 12px;
     background: rgba(15,20,30,.96);
     backdrop-filter: blur(8px);
-    padding: 8px;
+    padding: 10px;
     margin-bottom: 8px;
     box-shadow: 0 2px 0 rgba(255,255,255,.06) inset;
   }
 
-  /* フィルター本体 */
-  .quickbar{
+  /* ===== フィルター（12カラムで明快&はみ出し防止） ===== */
+  .filter-grid{
     display: grid;
-    gap: 6px;
-    grid-template-columns: repeat(4, minmax(0,1fr));
-    align-items: center;
+    grid-template-columns: repeat(12, minmax(0,1fr));
+    gap: 8px;
   }
-  @media (max-width:420px){
-    .quickbar{ grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .fld{ display:flex; flex-direction:column; gap:4px; }
+  .fld label{ font-size:11px; color:#9fb0c8 }
+  .ctl{
+    height: 30px; padding: 0 10px; font-size: 13px;
+    color:#dbe3f4; background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.14); border-radius:8px;
+    width: 100%; box-sizing: border-box;
   }
-
-  .quickbar select,
-  .quickbar input,
-  .quickbar button,
-  .quickbar a{
-    height: 28px;
-    padding: 0 8px;
-    font-size: 12px;
-    background: rgba(255,255,255,.05);
-    border: 1px solid rgba(255,255,255,.14);
-    color: #dbe3f4;
-    border-radius: 8px;
-    width: 100%;
+  input[type="date"].ctl{ color-scheme: dark; }
+  .btn{
+    height: 30px; padding: 0 12px; font-size: 13px;
+    color:#dbe3f4; background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.14); border-radius:8px;
     box-sizing: border-box;
   }
-  .quickbar input[type="date"]{
-    font-size: 11.5px;
-    color-scheme: dark;
-  }
-  .quickbar a{
-    text-align: center;
-    line-height: 26px;
-    text-decoration: none;
+  .btn.ghost{ background:transparent }
+
+  /* カラム割り当て（スマホ1画面前提） */
+  .col-6{ grid-column: span 6; }
+  .col-12{ grid-column: span 12; }
+
+  /* ボタン行：右寄せ並列 */
+  .btn-row{
+    grid-column: 1 / -1;
+    display:flex; justify-content:flex-end; gap:8px;
   }
 
-  .quickbar label{ display:none; }
-  .quickbar .q-text{ grid-column: 1 / -2; }
-  .quickbar .q-apply{ grid-column: -2 / -1; }
-  .quickbar .q-clear{ grid-column: -1 / -0; }
-
-  /* ===== サマリー部分 ===== */
+  /* ===== サマリー（前回OKのまま） ===== */
   .sum-wrap{
     display: grid;
     gap: 6px;
@@ -75,34 +68,23 @@
     border-radius: 8px;
     background: rgba(255,255,255,.05);
     text-align: center;
-    padding: 4px;
+    padding: 6px 8px;
     font-size: 12px;
     color: #cbd5e1;
   }
 
-  /* ===== カードリスト ===== */
-  .card{
-    border:1px solid rgba(255,255,255,.08);
-    background:rgba(255,255,255,.04);
-    border-radius:14px;
-    padding:10px 12px;
-    margin-bottom:10px;
-  }
-  .amount{ font-size:20px;font-weight:800 }
-  .meta{ margin-top:2px;font-size:11px;color:#94a3b8 }
-  .memo{ margin-top:2px;font-size:11px;color:#cbd5e1;word-break:break-word }
-  .chip{
-    display:inline-flex;align-items:center;gap:.4em;
-    padding:.25rem .5rem;border-radius:9999px;border:1px solid;
-    font-size:11px;line-height:1;white-space:nowrap
-  }
+  /* ===== リストカード ===== */
+  .card{ border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.04);
+         border-radius:14px; padding:10px 12px; margin-bottom:10px }
+  .amount{ font-size:20px; font-weight:800 }
+  .meta{ margin-top:2px; font-size:11px; color:#94a3b8 }
+  .memo{ margin-top:2px; font-size:11px; color:#cbd5e1; word-break:break-word }
+  .chip{ display:inline-flex; align-items:center; gap:.4em; padding:.25rem .5rem; border-radius:9999px; border:1px solid;
+         font-size:11px; line-height:1; white-space:nowrap }
   .chip-sky{border-color:rgba(125,160,255,.35);color:#c7d2fe;background:rgba(125,160,255,.08)}
   .chip-emerald{border-color:rgba(16,185,129,.35);color:#bbf7d0;background:rgba(16,185,129,.08)}
-  .actions{margin-top:6px;display:flex;justify-content:flex-end;gap:6px}
-  .actions a,.actions button{
-    padding:5px 8px;font-size:11px;
-    border-radius:8px;border:1px solid rgba(255,255,255,.2)
-  }
+  .actions{ margin-top:6px; display:flex; justify-content:flex-end; gap:6px }
+  .actions a,.actions button{ padding:5px 8px; font-size:11px; border-radius:8px; border:1px solid rgba(255,255,255,.2) }
 </style>
 {% endblock %}
 
@@ -110,35 +92,57 @@
 <h1 class="text-base font-semibold mb-2">💵 現金台帳</h1>
 
 <div id="cashTop">
-  <form method="get" class="quickbar">
-    <select name="broker">
-      {% with b=params.broker|default:"ALL" %}
-        <option value="ALL" {% if b == "ALL" %}selected{% endif %}>すべて</option>
-        <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天</option>
-        <option value="松井" {% if b == "松井" %}selected{% endif %}>松井</option>
-        <option value="SBI" {% if b == "SBI" %}selected{% endif %}>SBI</option>
-      {% endwith %}
-    </select>
+  <form method="get" class="filter-grid">
+    <!-- 1行目：証券会社 / 種別 -->
+    <div class="fld col-6">
+      <label>証券会社</label>
+      <select name="broker" class="ctl">
+        {% with b=params.broker|default:"ALL" %}
+          <option value="ALL"  {% if b == "ALL" %}selected{% endif %}>すべて</option>
+          <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天</option>
+          <option value="松井" {% if b == "松井" %}selected{% endif %}>松井</option>
+          <option value="SBI" {% if b == "SBI" %}selected{% endif %}>SBI</option>
+        {% endwith %}
+      </select>
+    </div>
+    <div class="fld col-6">
+      <label>種別</label>
+      <select name="kind" class="ctl">
+        {% with k=params.kind|default:"ALL" %}
+          <option value="ALL"      {% if k == "ALL" %}selected{% endif %}>すべて</option>
+          <option value="DEPOSIT"  {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
+          <option value="WITHDRAW" {% if k == "WITHDRAW" %}selected{% endif %}>出金</option>
+          <option value="XFER"     {% if k == "XFER" %}selected{% endif %}>振替</option>
+          <option value="SYSTEM"   {% if k == "SYSTEM" %}selected{% endif %}>システム</option>
+        {% endwith %}
+      </select>
+    </div>
 
-    <select name="kind">
-      {% with k=params.kind|default:"ALL" %}
-        <option value="ALL" {% if k == "ALL" %}selected{% endif %}>すべて</option>
-        <option value="DEPOSIT" {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
-        <option value="WITHDRAW" {% if k == "WITHDRAW" %}selected{% endif %}>出金</option>
-        <option value="XFER" {% if k == "XFER" %}selected{% endif %}>振替</option>
-        <option value="SYSTEM" {% if k == "SYSTEM" %}selected{% endif %}>システム</option>
-      {% endwith %}
-    </select>
+    <!-- 2行目：開始日 / 終了日（同一行で必ず収まる） -->
+    <div class="fld col-6">
+      <label>開始日</label>
+      <input type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="ctl">
+    </div>
+    <div class="fld col-6">
+      <label>終了日</label>
+      <input type="date" name="end" value="{{ params.end|default_if_none:'' }}" class="ctl">
+    </div>
 
-    <input type="date" name="start" value="{{ params.start|default_if_none:'' }}">
-    <input type="date" name="end" value="{{ params.end|default_if_none:'' }}">
-    <input type="text" name="q" value="{{ params.q|default_if_none:'' }}" placeholder="例: 配当 / REAL:21 など" class="q-text">
+    <!-- 3行目：メモ検索（フル幅） -->
+    <div class="fld col-12">
+      <label>メモ検索</label>
+      <input type="text" name="q" value="{{ params.q|default_if_none:'' }}" placeholder="例: 配当 / REAL:21 など" class="ctl">
+    </div>
 
-    <button type="submit" class="q-apply">適用</button>
-    <a href="{% url 'cash_history' %}" class="q-clear">クリア</a>
+    <!-- 4行目：ボタン（右寄せ横並び） -->
+    <div class="btn-row">
+      <a href="{% url 'cash_history' %}" class="btn ghost">クリア</a>
+      <button class="btn" type="submit">適用</button>
+    </div>
   </form>
 
   {% if summary %}
+  <!-- ★ サマリーは触らない（前回OKのまま） -->
   <div class="sum-wrap">
     <div class="pill sum-total">💰 合計 {{ summary.total|intcomma }} 円</div>
     <div class="pill">入金 {{ summary.deposit|intcomma }} 円</div>
