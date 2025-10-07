@@ -3,7 +3,67 @@
 {% block title %}現金台帳{% endblock %}
 
 {% block content %}
-<h1 class="text-lg font-semibold mb-3">💵 現金台帳</h1>
+<h1 class="text-lg font-semibold mb-2">💵 現金台帳</h1>
+
+<!-- フィルター（broker/kind/日付/メモ） -->
+<form method="get" class="mb-3 rounded-[12px] border border-white/10 bg-white/5 p-3">
+  <div class="grid grid-cols-2 gap-2">
+    <div>
+      <label class="block text-xs text-slate-400 mb-1">証券会社</label>
+      <select name="broker" class="w-full rounded-md bg-white/10 border border-white/15 p-2 text-sm">
+        {% with b=params.broker|default:"ALL" %}
+          <option value="ALL"  {% if b == "ALL" %}selected{% endif %}>すべて</option>
+          <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天</option>
+          <option value="松井" {% if b == "松井" %}selected{% endif %}>松井</option>
+          <option value="SBI" {% if b == "SBI" %}selected{% endif %}>SBI</option>
+        {% endwith %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs text-slate-400 mb-1">種別</label>
+      <select name="kind" class="w-full rounded-md bg-white/10 border border-white/15 p-2 text-sm">
+        {% with k=params.kind|default:"ALL" %}
+          <option value="ALL"      {% if k == "ALL" %}selected{% endif %}>すべて</option>
+          <option value="DEPOSIT"  {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
+          <option value="WITHDRAW" {% if k == "WITHDRAW" %}selected{% endif %}>出金</option>
+          <option value="XFER"     {% if k == "XFER" %}selected{% endif %}>振替</option>
+          <option value="SYSTEM"   {% if k == "SYSTEM" %}selected{% endif %}>システム</option>
+        {% endwith %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs text-slate-400 mb-1">開始日</label>
+      <input type="date" name="start" value="{{ params.start|default_if_none:'' }}"
+             class="w-full rounded-md bg-white/10 border border-white/15 p-2 text-sm">
+    </div>
+    <div>
+      <label class="block text-xs text-slate-400 mb-1">終了日</label>
+      <input type="date" name="end" value="{{ params.end|default_if_none:'' }}"
+             class="w-full rounded-md bg-white/10 border border-white/15 p-2 text-sm">
+    </div>
+    <div class="col-span-2">
+      <label class="block text-xs text-slate-400 mb-1">メモ検索</label>
+      <div class="flex gap-2">
+        <input type="text" name="q" value="{{ params.q|default_if_none:'' }}"
+               placeholder="例: 配当 / REAL:21 など"
+               class="flex-1 rounded-md bg-white/10 border border-white/15 p-2 text-sm">
+        <button class="rounded-md border border-white/20 px-3 text-sm">適用</button>
+        <a href="{% url 'cash_history' %}" class="rounded-md border border-white/10 px-3 text-sm">クリア</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- 小さなサマリー -->
+  {% if summary %}
+    <div class="mt-2 text-[12px] text-slate-300">
+      合計: <span class="font-semibold">{{ summary.total|intcomma }}</span> 円　
+      入金: {{ summary.deposit|intcomma }} 円　
+      出金: {{ summary.withdraw|intcomma }} 円　
+      振替(入): {{ summary.xfer_in|intcomma }} 円　
+      振替(出): {{ summary.xfer_out|intcomma }} 円
+    </div>
+  {% endif %}
+</form>
 
 <div id="historyContainer">
   {% include "cash/_history_list.html" with page=page params=params %}
@@ -14,7 +74,7 @@
     hx-get="{% url 'cash_history_page' %}?page={{ page.next_page_number }}&{{ params.urlencode }}"
     hx-trigger="revealed"
     hx-swap="afterend"
-    class="text-center text-slate-400 py-4">
+    class="text-center text-slate-400 py-3">
     読み込み中…
   </div>
 {% endif %}
