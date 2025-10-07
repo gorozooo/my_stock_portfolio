@@ -2,136 +2,126 @@
 {% load humanize %}
 {% block title %}現金台帳{% endblock %}
 
-{% block content %}
+{% block head %}
 <style>
-  /* ======= 極限までコンパクトなスマホ専用フィルター ======= */
-  .filter-box{
-    border:1px solid rgba(255,255,255,.1);
-    background:rgba(255,255,255,.04);
-    border-radius:12px;
-    padding:6px 8px;
-    margin-bottom:6px;
+  /* ======== 現金台帳ヘッダーを保有UIと統一 ======== */
+  #cashTop{
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: 12;
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 12px;
+    background: rgba(15,20,30,.96);
+    backdrop-filter: blur(8px);
+    padding: 8px;
+    margin-bottom: 8px;
+    box-shadow: 0 2px 0 rgba(255,255,255,.06) inset;
   }
-  .filter-box label{
-    display:block;
-    font-size:10px;
-    color:#a5b1c5;
-    margin-bottom:2px;
-  }
-  .filter-box .input, 
-  .filter-box .select{
-    width:100%;
-    height:24px;
-    padding:0 6px;
-    font-size:11.5px;
-    color:#e8ecff;
-    background:rgba(255,255,255,.07);
-    border:1px solid rgba(255,255,255,.14);
-    border-radius:6px;
-    line-height:22px;
-    box-sizing:border-box;
-  }
-  .filter-box .row{
-    display:flex;
-    gap:6px;
-    flex-wrap:nowrap;
-  }
-  .filter-box .row > *{flex:1 1 0; min-width:0;}
-  .filter-box .btn-row{
-    display:flex;
-    gap:6px;
-    margin-top:4px;
-  }
-  .filter-box button, .filter-box a{
-    flex:1;
-    height:24px;
-    font-size:11.5px;
-    border-radius:6px;
-    border:1px solid rgba(255,255,255,.15);
-    background:rgba(255,255,255,.08);
-    color:#e8ecff;
-    text-align:center;
-    line-height:22px;
-    text-decoration:none;
-  }
-  .filter-box a{background:transparent;color:#a5b1c5;}
 
-  /* ======= サマリーもミニサイズ ======= */
+  /* フィルター本体 */
+  .quickbar{
+    display: grid;
+    gap: 6px;
+    grid-template-columns: repeat(4, minmax(0,1fr));
+    align-items: center;
+  }
+  @media (max-width:420px){
+    .quickbar{ grid-template-columns: repeat(3, minmax(0,1fr)); }
+  }
+
+  .quickbar select,
+  .quickbar input,
+  .quickbar button{
+    height: 28px;
+    padding: 0 8px;
+    font-size: 12px;
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.14);
+    color: #dbe3f4;
+    border-radius: 8px;
+    width: 100%;
+  }
+  .quickbar label{ display:none; }
+
+  .quickbar .q-text{ grid-column: 1 / -2; }
+  .quickbar .q-apply{ grid-column: -2 / -1; }
+
+  /* サマリー行 */
   .sum-wrap{
-    display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;
+    display: grid;
+    gap: 6px;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    margin-top: 6px;
   }
   .pill{
-    flex:1 1 calc(50% - 4px);
-    font-size:11px;
-    padding:3px 4px;
-    border:1px solid rgba(255,255,255,.1);
-    border-radius:9999px;
-    background:rgba(255,255,255,.05);
-    text-align:center;
-    color:#d4dae7;
-    white-space:nowrap;
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 8px;
+    background: rgba(255,255,255,.05);
+    text-align: center;
+    padding: 4px;
+    font-size: 12px;
+    color: #cbd5e1;
   }
 
-  /* ======= カードは変更なし ======= */
-  .card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
-        border-radius:14px;padding:10px 12px;margin-bottom:10px}
-  .amount{font-size:20px;font-weight:800}
-  .meta{margin-top:2px;font-size:11px;color:#94a3b8}
-  .memo{margin-top:2px;font-size:11px;color:#cbd5e1;word-break:break-word}
-  .chip{display:inline-flex;align-items:center;gap:.4em;padding:.25rem .5rem;border-radius:9999px;border:1px solid;
-        font-size:11px;line-height:1;white-space:nowrap}
+  /* カードリスト */
+  .card{
+    border:1px solid rgba(255,255,255,.08);
+    background:rgba(255,255,255,.04);
+    border-radius:14px;
+    padding:10px 12px;
+    margin-bottom:10px;
+  }
+  .amount{ font-size:20px;font-weight:800 }
+  .meta{ margin-top:2px;font-size:11px;color:#94a3b8 }
+  .memo{ margin-top:2px;font-size:11px;color:#cbd5e1;word-break:break-word }
+  .chip{
+    display:inline-flex;align-items:center;gap:.4em;
+    padding:.25rem .5rem;border-radius:9999px;border:1px solid;
+    font-size:11px;line-height:1;white-space:nowrap
+  }
   .chip-sky{border-color:rgba(125,160,255,.35);color:#c7d2fe;background:rgba(125,160,255,.08)}
   .chip-emerald{border-color:rgba(16,185,129,.35);color:#bbf7d0;background:rgba(16,185,129,.08)}
   .actions{margin-top:6px;display:flex;justify-content:flex-end;gap:6px}
-  .actions a,.actions button{padding:5px 8px;font-size:11px;border-radius:8px;border:1px solid rgba(255,255,255,.2)}
+  .actions a,.actions button{
+    padding:5px 8px;font-size:11px;
+    border-radius:8px;border:1px solid rgba(255,255,255,.2)
+  }
 </style>
+{% endblock %}
 
+{% block content %}
 <h1 class="text-base font-semibold mb-2">💵 現金台帳</h1>
 
-<form method="get" class="filter-box">
+<div id="cashTop">
+  <form method="get" class="quickbar">
+    <select name="broker">
+      {% with b=params.broker|default:"ALL" %}
+        <option value="ALL" {% if b == "ALL" %}selected{% endif %}>すべて</option>
+        <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天</option>
+        <option value="松井" {% if b == "松井" %}selected{% endif %}>松井</option>
+        <option value="SBI" {% if b == "SBI" %}selected{% endif %}>SBI</option>
+      {% endwith %}
+    </select>
 
-  <label>証券会社</label>
-  <select name="broker" class="select">
-    {% with b=params.broker|default:"ALL" %}
-      <option value="ALL"  {% if b == "ALL" %}selected{% endif %}>すべて</option>
-      <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天</option>
-      <option value="松井" {% if b == "松井" %}selected{% endif %}>松井</option>
-      <option value="SBI" {% if b == "SBI" %}selected{% endif %}>SBI</option>
-    {% endwith %}
-  </select>
+    <select name="kind">
+      {% with k=params.kind|default:"ALL" %}
+        <option value="ALL" {% if k == "ALL" %}selected{% endif %}>すべて</option>
+        <option value="DEPOSIT" {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
+        <option value="WITHDRAW" {% if k == "WITHDRAW" %}selected{% endif %}>出金</option>
+        <option value="XFER" {% if k == "XFER" %}selected{% endif %}>振替</option>
+        <option value="SYSTEM" {% if k == "SYSTEM" %}selected{% endif %}>システム</option>
+      {% endwith %}
+    </select>
 
-  <label>種別</label>
-  <select name="kind" class="select">
-    {% with k=params.kind|default:"ALL" %}
-      <option value="ALL"      {% if k == "ALL" %}selected{% endif %}>すべて</option>
-      <option value="DEPOSIT"  {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
-      <option value="WITHDRAW" {% if k == "WITHDRAW" %}selected{% endif %}>出金</option>
-      <option value="XFER"     {% if k == "XFER" %}selected{% endif %}>振替</option>
-      <option value="SYSTEM"   {% if k == "SYSTEM" %}selected{% endif %}>システム</option>
-    {% endwith %}
-  </select>
+    <input type="date" name="start" value="{{ params.start|default_if_none:'' }}">
+    <input type="date" name="end" value="{{ params.end|default_if_none:'' }}">
+    <input type="text" name="q" value="{{ params.q|default_if_none:'' }}" placeholder="例: 配当 / REAL:21 など" class="q-text">
 
-  <div class="row">
-    <div>
-      <label>開始日</label>
-      <input type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="input">
-    </div>
-    <div>
-      <label>終了日</label>
-      <input type="date" name="end" value="{{ params.end|default_if_none:'' }}" class="input">
-    </div>
-  </div>
+    <button type="submit" class="q-apply">適用</button>
+    <a href="{% url 'cash_history' %}" class="btn">クリア</a>
+  </form>
 
-  <label>メモ検索</label>
-  <input type="text" name="q" value="{{ params.q|default_if_none:'' }}" placeholder="例: 配当 / REAL:21 など" class="input">
-
-  <div class="btn-row">
-    <button type="submit">適用</button>
-    <a href="{% url 'cash_history' %}">クリア</a>
-  </div>
-</form>
-
-{% if summary %}
+  {% if summary %}
   <div class="sum-wrap">
     <div class="pill">合計 {{ summary.total|intcomma }} 円</div>
     <div class="pill">入金 {{ summary.deposit|intcomma }} 円</div>
@@ -139,7 +129,8 @@
     <div class="pill">振替(入) {{ summary.xfer_in|intcomma }} 円</div>
     <div class="pill">振替(出) {{ summary.xfer_out|intcomma }} 円</div>
   </div>
-{% endif %}
+  {% endif %}
+</div>
 
 <div id="historyContainer">
   {% include "cash/_history_list.html" with page=page params=params %}
