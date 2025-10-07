@@ -1,8 +1,8 @@
 {% load humanize %}
 {% for r in page.object_list %}
-  <div class="list-item">
+  <div class="item">
     <div class="flex items-start justify-between gap-3">
-      <!-- 左：金額 + メタ + メモ -->
+      <!-- 左：金額・メタ・メモのみ（★IDの重複行は出さない） -->
       <div class="min-w-0">
         <div class="amount">{{ r.amount|intcomma }} 円</div>
         <div class="meta">
@@ -14,8 +14,7 @@
         {% if r.memo %}
           <div class="memo break-words">{{ r.memo }}</div>
         {% endif %}
-
-        {# ★ 左下の重複行（実現損益 REAL:xx / 配当 DIV:xx）は表示しない #}
+        {# ← ここにあった「実現損益 REAL:xx / 配当 DIV:xx」行は完全に削除しました #}
       </div>
 
       <!-- 右：元データバッジ（残す）＋操作 -->
@@ -27,7 +26,6 @@
             <span class="chip chip-emerald">【実損】{{ r.src_badge.label }}</span>
           {% endif %}
         {% else %}
-          {# フォールバック（IDのみ） #}
           {% if r.source_type == r.SourceType.DIVIDEND %}
             <span class="chip chip-sky">配当&nbsp;DIV:{{ r.source_id }}</span>
           {% elif r.source_type == r.SourceType.REALIZED %}
@@ -46,5 +44,5 @@
     </div>
   </div>
 {% empty %}
-  <div class="list-item text-slate-400">該当データがありません。</div>
+  <div class="item text-slate-400">該当データがありません。</div>
 {% endfor %}
