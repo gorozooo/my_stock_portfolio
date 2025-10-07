@@ -3,21 +3,20 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <!-- ズーム禁止（ダブルタップ/ピンチ）＋ セーフエリア -->
   <meta name="viewport"
         content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>{% block title %}My Stock{% endblock %}</title>
 
-  <!-- Tailwind CDN -->
+  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Chart.js（必要なら） -->
+  <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
 
   <!-- HTMX -->
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
 
-  <!-- ★ HTMXにCSRFヘッダを自動付与 -->
+  <!-- HTMX: CSRF -->
   <script>
     (function () {
       function getCookie(name) {
@@ -30,7 +29,7 @@
     })();
   </script>
 
-  <!-- iOS向けの保険：ピンチ系ジェスチャを抑止 -->
+  <!-- iOS pinch 防止 -->
   <script>
     (function () {
       const opts = { passive: false };
@@ -40,10 +39,9 @@
     })();
   </script>
 
-  <!-- ダブルタップ拡大の誤作動を抑える -->
   <style>
     html, body { touch-action: manipulation; }
-    a, button { touch-action: manipulation; }
+    a, button  { touch-action: manipulation; }
   </style>
 
   <!-- Alpine（必要なら） -->
@@ -60,11 +58,9 @@
     }
   </script>
 
-  <!-- ★ DjangoのURLをJSに渡す -->
+  <!-- Django URLs → JS -->
   <script>
-    window.APP_URLS = {
-      holding_create: "{% url 'holding_create' %}"
-    };
+    window.APP_URLS = { holding_create: "{% url 'holding_create' %}" };
   </script>
 
   {% block head %}{% endblock %}
@@ -74,16 +70,13 @@
     {% block content %}{% endblock %}
   </main>
 
-  <!-- ボトムシート差し込み先 -->
   <div id="sheetRoot" aria-live="polite"></div>
-
   {% include "partials/bottom_tab.html" %}
 
-  <!-- 旧：モーダル売却用JS（不要なら外してOK） -->
   <script src="{% static 'js/realized_close.js' %}?v=2" defer></script>
   <script src="{% static 'js/realized_monthly_chart.js' %}?v=1" defer></script>
 
-  <!-- HTMX エラー表示 -->
+  <!-- HTMX error overlay -->
   <script>
     (function () {
       if (!window.htmx || htmx.defineExtension === undefined) return;
@@ -91,10 +84,7 @@
         onEvent: function (name, evt) {
           if (name === 'htmx:beforeSwap') {
             var status = evt.detail.xhr ? evt.detail.xhr.status : 0;
-            if (status >= 400) {
-              evt.detail.shouldSwap = true;
-              evt.detail.isError = false;
-            }
+            if (status >= 400) { evt.detail.shouldSwap = true; evt.detail.isError = false; }
           }
         }
       });
@@ -124,7 +114,7 @@
           });
         }
         el.querySelector('#he-title').textContent = title || '';
-        el.querySelector('#he-body').innerHTML = bodyHTML || '';
+        el.querySelector('#he-body').innerHTML   = bodyHTML || '';
       }
 
       document.body.addEventListener('htmx:responseError', function (e) {
@@ -139,7 +129,7 @@
     })();
   </script>
 
-  <!-- Django messages を JSON で埋め込む（無いときは空配列） -->
+  <!-- Django messages → JSON -->
   <script id="dj-messages" type="application/json">
   [
   {% for m in messages %}
@@ -148,10 +138,10 @@
   ]
   </script>
 
-  <!-- グローバルトースト（常時ロード） -->
+  <!-- Global Toast -->
   <script>
   (function(){
-    // DOM 準備
+    // DOM
     let toast = document.getElementById("globalToast");
     if(!toast){
       toast = document.createElement("div");
@@ -163,7 +153,7 @@
         transform:"translate(-50%, 12px)",
         background:"rgba(18,21,33,.96)",
         color:"#fff",
-        padding:"10px 14px",
+        padding:"12px 14px",
         fontSize:"14px",
         fontWeight:"600",
         borderRadius:"12px",
@@ -174,16 +164,16 @@
         transition:"opacity .22s ease, transform .22s ease",
         zIndex:"100260",
         maxWidth:"92vw",
-        textAlign:"left",          /* ← 左寄せ */
-        lineHeight:"1.45",         /* ← 行間 */
-        wordBreak:"break-word",    /* ← 長文折返し */
+        textAlign:"left",
+        lineHeight:"1.45",
+        wordBreak:"break-word",
         backdropFilter:"blur(10px)",
-        whiteSpace:"pre-line"      /* ← 改行反映 */
+        whiteSpace:"pre-line"
       });
       document.body.appendChild(toast);
     }
 
-    // 下タブ/現金ドック回避
+    // 下部UI回避
     function adjustOffset(){
       const bottomTab = document.getElementById("bottomTabRoot");
       const dockInner = document.querySelector(".cash-dock .inner");
@@ -195,7 +185,6 @@
     adjustOffset();
     window.addEventListener("resize", adjustOffset);
 
-    // レベル別スタイル + アイコン
     const styleFor = (lvl)=>{
       if (/error/.test(lvl))   return {bg:"rgba(220,38,38,.96)", b:"#7f1d1d", icon:"⚠️"};
       if (/success/.test(lvl)) return {bg:"rgba(16,185,129,.96)", b:"#064e3b", icon:"✅"};
@@ -203,20 +192,20 @@
       return {bg:"rgba(18,21,33,.96)", b:"rgba(255,255,255,.10)", icon:"ℹ️"};
     };
 
-    // メッセージ取得（無ければ []）
+    // 取り出し
     let queue = [];
     try{
       const el = document.getElementById("dj-messages");
       queue = el ? JSON.parse(el.textContent || "[]") : [];
     }catch(e){ queue = []; }
 
-    // 外部からも使えるように window.toast を提供
+    // 公開API
     window.toast = function(text, level="info"){
       queue.push({text, level});
       if (!showing) showNext();
     };
 
-    // 表示ループ（改行/禁則 & 1行目強調 & 種別で時間可変）
+    // 表示
     let i = 0, showing = false;
 
     function escapeHtml(s){
@@ -224,29 +213,40 @@
         .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
         .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
     }
-    function toHtmlWithLineBreaks(s){
-      // 「 件」は単独で落ちやすいので NBSP で結合
-      const protectedText = s.replace(/ (\u4EF6)/g, "&nbsp;$1"); // " 件"
-      return protectedText.replace(/\n\n/g,"<br><br>").replace(/\n/g,"<br>");
+    function preprocess(raw){
+      // 句読点/コロン整形 & 数字+件 のノーブレーク
+      let t = String(raw||"");
+      t = t.replace(/:\s*/g,"：");            // 半角コロン → 全角
+      t = t.replace(/(\d+)\s件/g,"$1\u00A0件"); // 12<nbsp>件
+      return t;
+    }
+    function toHtml(text){
+      // 改行→<br>（先に整形→エスケープ→br化）
+      const protectedText = preprocess(text);
+      const esc = escapeHtml(protectedText);
+      return esc.replace(/\n\n/g,"<br><br>").replace(/\n/g,"<br>");
     }
 
     function showNext(){
       if (i >= queue.length){ showing = false; return; }
       showing = true;
+
       const {text, level} = queue[i++] || {};
       const sty = styleFor(level||"");
 
       toast.style.background = sty.bg;
       toast.style.borderColor = sty.b;
-      toast.innerHTML = ""; // reset
+      toast.innerHTML = "";
 
       const raw = String(text||"");
       const [head, ...rest] = raw.split("\n");
-      const headHtml = `<strong style="font-weight:800;">${escapeHtml(head)}</strong>`;
-      const bodyHtml = toHtmlWithLineBreaks(escapeHtml(rest.join("\n")));
 
-      const icon = document.createElement("span"); icon.textContent = sty.icon + " ";
+      const icon = document.createElement("span");
+      icon.textContent = sty.icon + " ";
+
       const span = document.createElement("span");
+      const headHtml = `<strong style="font-weight:800;">${toHtml(head)}</strong>`;
+      const bodyHtml = toHtml(rest.join("\n"));
       span.innerHTML = headHtml + (bodyHtml ? "<br>" + bodyHtml : "");
 
       toast.appendChild(icon);
@@ -255,7 +255,7 @@
       toast.style.opacity = "1";
       toast.style.transform = "translate(-50%, 0)";
 
-      const SHOW_MS = /error/.test(level||"") ? 5200 : 4000; // エラーは長め
+      const SHOW_MS = /error/.test(level||"") ? 5200 : 4000;
       setTimeout(()=>{
         toast.style.opacity = "0";
         toast.style.transform = "translate(-50%, 12px)";
