@@ -4,41 +4,48 @@
 
 {% block content %}
 <style>
-  /* filter */
-  .fwrap{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
-         border-radius:12px;padding:10px}
-  .grid6{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
-  .ctl{display:flex;flex-direction:column;gap:2px}
-  .ctl label{font-size:10px;color:#94a3b8}
-  .ipt,.sel,.btn{width:100%;padding:6px 7px;border-radius:8px;border:1px solid rgba(255,255,255,.12);
-                 background:rgba(255,255,255,.06);color:#e5e7eb;font-size:12px;line-height:1.1}
-  .btn{background:rgba(255,255,255,.10)}
-  .btn.ghost{background:transparent;border-color:rgba(255,255,255,.12)}
-  /* summary pills */
-  .sum{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 10px}
-  .pill{padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.16);
-        background:rgba(255,255,255,.05);font-size:12px;color:#cbd5e1}
+  /* ---- 小さめフィルター ---- */
+  .form-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
+             border-radius:12px;padding:8px}
+  .form-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+  .form-grid .ctl{display:flex;flex-direction:column;gap:2px}
+  .form-grid label{font-size:10px;color:#94a3b8}
+  .input,.select,.btn{width:100%;padding:6px 7px;border-radius:8px;border:1px solid rgba(255,255,255,.12);
+                      background:rgba(255,255,255,.06);color:#e5e7eb;font-size:12px;line-height:1.1}
+  .btn{background:rgba(255,255,255,.08)}
+  .btn.ghost{background:transparent;border-color:rgba(255,255,255,.1)}
 
-  /* card */
+  /* ---- サマリー（1行目に3つ、2行目に2つで折返し） ---- */
+  .sum-wrap{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .pill{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);
+        padding:6px 8px;border-radius:9999px;text-align:center;font-size:12px;color:#cbd5e1}
+  .pill-row2{grid-column:span 3;display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+
+  /* ---- リスト（コンパクトカード） ---- */
   .card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
-        border-radius:14px;padding:12px 14px;margin-bottom:10px}
-  .amt{font-size:20px;font-weight:800}
-  .meta{margin-top:4px;font-size:12px;color:#94a3b8}
-  .memo{margin-top:3px;font-size:12px;color:#cbd5e1}
-  .badge{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;
-         border:1px solid rgba(125,160,255,.35);background:rgba(125,160,255,.10);font-size:12px}
-  .badge.g{border-color:rgba(16,185,129,.35);background:rgba(16,185,129,.10)}
-  .acts{margin-top:8px;display:flex;justify-content:flex-end;gap:8px}
-  .acts a,.acts button{padding:6px 10px;font-size:12px;border-radius:10px;border:1px solid rgba(255,255,255,.2)}
+        border-radius:14px;padding:10px 12px;margin-bottom:10px}
+  .amount{font-size:20px;font-weight:800}
+  .meta{margin-top:2px;font-size:11px;color:#94a3b8}
+  .memo{margin-top:2px;font-size:11px;color:#cbd5e1;word-break:break-word}
+
+  /* バッジ（右上） */
+  .chip{display:inline-flex;align-items:center;gap:.45em;padding:.35rem .6rem;border-radius:9999px;border:1px solid;
+        font-size:12px;line-height:1;white-space:nowrap}
+  .chip-sky{border-color:rgba(125,160,255,.35);color:#c7d2fe;background:rgba(125,160,255,.08)}
+  .chip-emerald{border-color:rgba(16,185,129,.35);color:#bbf7d0;background:rgba(16,185,129,.08)}
+
+  /* 操作 */
+  .actions{margin-top:8px;display:flex;justify-content:flex-end;gap:6px}
+  .actions a,.actions button{padding:6px 10px;font-size:12px;border-radius:10px;border:1px solid rgba(255,255,255,.2)}
 </style>
 
 <h1 class="text-base font-semibold mb-2">💵 現金台帳</h1>
 
-<form method="get" class="fwrap">
-  <div class="grid6">
-    <div class="ctl" style="grid-column:span 3;">
+<form method="get" class="form-card">
+  <div class="form-grid">
+    <div class="ctl" style="grid-column:span 2;">
       <label>証券会社</label>
-      <select name="broker" class="sel">
+      <select name="broker" class="select">
         {% with b=params.broker|default:"ALL" %}
           <option value="ALL"  {% if b == "ALL" %}selected{% endif %}>すべて</option>
           <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天</option>
@@ -47,9 +54,54 @@
         {% endwith %}
       </select>
     </div>
-    <div class="ctl" style="grid-column:span 3;">
+    <div class="ctl" style="grid-column:span 2;">
       <label>種別</label>
-      <select name="kind" class="sel">
+      <select name="kind" class="select">
         {% with k=params.kind|default:"ALL" %}
           <option value="ALL"      {% if k == "ALL" %}selected{% endif %}>すべて</option>
-          <option value="DEPOSIT"  {%
+          <option value="DEPOSIT"  {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
+          <option value="WITHDRAW" {% if k == "WITHDRAW" %}selected{% endif %}>出金</option>
+          <option value="XFER"     {% if k == "XFER" %}selected{% endif %}>振替</option>
+          <option value="SYSTEM"   {% if k == "SYSTEM" %}selected{% endif %}>システム</option>
+        {% endwith %}
+      </select>
+    </div>
+    <div class="ctl"><label>開始日</label><input type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="input"></div>
+    <div class="ctl"><label>終了日</label><input type="date" name="end" value="{{ params.end|default_if_none:'' }}" class="input"></div>
+    <div class="ctl" style="grid-column:span 4;">
+      <label>メモ検索</label>
+      <input type="text" name="q" value="{{ params.q|default_if_none:'' }}" placeholder="例: 配当 / REAL:21 など" class="input">
+    </div>
+    <div class="ctl" style="align-self:end;display:flex;gap:6px;">
+      <button class="btn">適用</button>
+      <a href="{% url 'cash_history' %}" class="btn ghost">クリア</a>
+    </div>
+  </div>
+</form>
+
+{% if summary %}
+  <div class="sum-wrap mt-2">
+    <div class="pill">合計 {{ summary.total|intcomma }} 円</div>
+    <div class="pill">入金 {{ summary.deposit|intcomma }} 円</div>
+    <div class="pill">出金 {{ summary.withdraw|intcomma }} 円</div>
+    <div class="pill-row2">
+      <div class="pill">振替(入) {{ summary.xfer_in|intcomma }} 円</div>
+      <div class="pill">振替(出) {{ summary.xfer_out|intcomma }} 円</div>
+    </div>
+  </div>
+{% endif %}
+
+<div id="historyContainer">
+  {% include "cash/_history_list.html" with page=page params=params %}
+</div>
+
+{% if page.has_next %}
+  <div
+    hx-get="{% url 'cash_history_page' %}?page={{ page.next_page_number }}&{{ params.urlencode }}"
+    hx-trigger="revealed"
+    hx-swap="afterend"
+    class="text-center text-slate-400 py-2 text-[12px]">
+    読み込み中…
+  </div>
+{% endif %}
+{% endblock %}
