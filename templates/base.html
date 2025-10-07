@@ -11,7 +11,6 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
   <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
 
-  <!-- HTMX CSRF -->
   <script>
     (function () {
       function getCookie(name) {
@@ -23,8 +22,6 @@
       });
     })();
   </script>
-
-  <!-- iOS ピンチ抑止 -->
   <script>
     (function () {
       const opts = { passive: false };
@@ -33,7 +30,6 @@
       );
     })();
   </script>
-
   <style>
     html, body { touch-action: manipulation; }
     a, button  { touch-action: manipulation; }
@@ -41,7 +37,6 @@
 
   <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 
-  <!-- PWA -->
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#0b0f1a">
   <script>
@@ -52,9 +47,7 @@
     }
   </script>
 
-  <script>
-    window.APP_URLS = { holding_create: "{% url 'holding_create' %}" };
-  </script>
+  <script>window.APP_URLS = { holding_create: "{% url 'holding_create' %}" };</script>
   {% block head %}{% endblock %}
 </head>
 <body class="bg-slate-950 text-slate-100">
@@ -68,7 +61,6 @@
   <script src="{% static 'js/realized_close.js' %}?v=2" defer></script>
   <script src="{% static 'js/realized_monthly_chart.js' %}?v=1" defer></script>
 
-  <!-- HTMX エラーオーバーレイ -->
   <script>
     (function () {
       if (!window.htmx || htmx.defineExtension === undefined) return;
@@ -127,42 +119,33 @@
   ]
   </script>
 
-  <!-- Global Toast（改行＆“数字＋単位”の非分割を強化） -->
+  <!-- ===== Global Toast（改行/非分割強制・先頭の「・」重複回避） ===== -->
   <script>
   (function(){
-    // ---- DOM -------------------------------------------------------------
+    // DOM
     let toast = document.getElementById("globalToast");
     if(!toast){
       toast = document.createElement("div");
       toast.id = "globalToast";
       Object.assign(toast.style,{
-        position:"fixed",
-        left:"50%",
+        position:"fixed", left:"50%",
         bottom:"calc(96px + env(safe-area-inset-bottom))",
         transform:"translate(-50%, 12px)",
-        background:"rgba(18,21,33,.96)",
-        color:"#fff",
-        padding:"12px 14px",
-        fontSize:"14px",
-        fontWeight:"600",
-        borderRadius:"12px",
-        border:"1px solid rgba(255,255,255,.10)",
+        background:"rgba(18,21,33,.96)", color:"#fff",
+        padding:"12px 14px", fontSize:"14px", fontWeight:"600",
+        borderRadius:"12px", border:"1px solid rgba(255,255,255,.10)",
         boxShadow:"0 18px 42px rgba(0,0,0,.45)",
-        opacity:"0",
-        pointerEvents:"none",
+        opacity:"0", pointerEvents:"none",
         transition:"opacity .22s ease, transform .22s ease",
-        zIndex:"100260",
-        maxWidth:"92vw",
-        textAlign:"left",
-        lineHeight:"1.5",
-        wordBreak:"keep-all",
-        overflowWrap:"anywhere",
-        backdropFilter:"blur(10px)",
+        zIndex:"100260", maxWidth:"92vw",
+        textAlign:"left", lineHeight:"1.5",
+        wordBreak:"keep-all", overflowWrap:"anywhere",
+        backdropFilter:"blur(10px)"
       });
       document.body.appendChild(toast);
     }
 
-    // 下タブ/現金ドックに被らない
+    // 位置調整（下タブ/現金ドック回避）
     function adjustOffset(){
       const bottomTab = document.getElementById("bottomTabRoot");
       const dockInner = document.querySelector(".cash-dock .inner");
@@ -172,9 +155,9 @@
       toast.style.bottom = `calc(${offset}px + env(safe-area-inset-bottom))`;
     }
     adjustOffset();
-    window.addEventListener("resize", adjustOffset);
+    addEventListener("resize", adjustOffset);
 
-    // ---- 見た目 ----------------------------------------------------------
+    // スタイル
     const styleFor = lvl => {
       if (/error/.test(lvl))   return {bg:"rgba(220,38,38,.96)", b:"#7f1d1d", icon:"⚠️"};
       if (/success/.test(lvl)) return {bg:"rgba(16,185,129,.96)", b:"#064e3b", icon:"✅"};
@@ -182,88 +165,70 @@
       return {bg:"rgba(18,21,33,.96)", b:"rgba(255,255,255,.10)", icon:"ℹ️"};
     };
 
-    // ---- メッセージ取り込み ----------------------------------------------
+    // 取り込み
     let queue = [];
     try{
       const el = document.getElementById("dj-messages");
       queue = el ? JSON.parse(el.textContent || "[]") : [];
     }catch(e){ queue = []; }
 
-    // 外部 API
+    // 公開API
     window.toast = function(text, level="info"){
       queue.push({text, level});
       if (!showing) showNext();
     };
 
-    // ---- 整形ユーティリティ ----------------------------------------------
-    function escapeHtml(s){
+    // ユーティリティ
+    function esc(s){
       return String(s||"")
         .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
         .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
     }
-    function nn(s){ return (s===0 || s) ? String(s) : ""; }
-
-    // 「数字+単位」を絶対に折り返さない（カンマ付きもOK）
-    function protectUnits(textNode){
-      // テキストをHTMLに差し替え（span で包む）
-      const raw = textNode.textContent;
-      const html = escapeHtml(raw)
-        // 件・円・回・人・銘柄 を対象（必要なら増やす）
-        .replace(/(^|[^0-9,])([0-9][0-9,]*)\s*(件|円|回|人|銘柄)/g,
-          (_, pre, num, unit) => pre + '<span style="white-space:nowrap">'+ num +'&nbsp;'+ unit +'</span>');
-      const wrap = document.createElement("span");
-      wrap.innerHTML = html;
-      textNode.replaceWith(wrap);
+    // 数字+単位を NBSP で結合（, を含む数値もOK）
+    function nobreakUnits(s){
+      return s
+        .replace(/(\d[\d,]*)\s*(件|円|回|人|銘柄)/g, '$1&nbsp;$2')
+        .replace(/(\d[\d,]*)\s*(%)/g, '$1&nbsp;$2');
     }
 
-    // ---- 表示ループ ------------------------------------------------------
-    let i = 0, showing = false;
+    let i=0, showing=false;
 
-    function showNext(){
-      if (i >= queue.length){ showing = false; return; }
-      showing = true;
-
-      const {text, level} = queue[i++] || {};
+    function renderToast(text, level){
       const sty = styleFor(level||"");
       toast.style.background = sty.bg;
       toast.style.borderColor = sty.b;
 
-      // 中身を組み立て（1行目=タイトル、以降=箇条書き）
-      toast.innerHTML = "";
-      const box = document.createElement("div");
-      box.style.display = "grid";
-      box.style.gap = "6px";
+      const lines = String(text||"").split("\n");
+      const title = lines.shift() || "通知";
+      const body  = lines;
 
-      const first = document.createElement("div");
-      first.style.display = "flex";
-      first.style.alignItems = "center";
-      first.style.gap = "6px";
-      const icon = document.createElement("span"); icon.textContent = sty.icon;
-      const strong = document.createElement("strong");
-      strong.style.fontWeight = "800";
-      strong.textContent = nn(String(text||"").split("\n")[0] || "通知");
-      first.appendChild(icon); first.appendChild(strong);
-      box.appendChild(first);
+      // HTMLを直接組み立て：各行は<div>にするので確実に改行される
+      let html = `<div style="display:flex;gap:6px;align-items:center;">
+        <span>${sty.icon}</span>
+        <strong style="font-weight:800">${esc(title)}</strong>
+      </div>`;
 
-      const lines = String(text||"").split("\n").slice(1);
-      lines.forEach(line=>{
-        if (!line.trim()) return;
-        const row = document.createElement("div");
-        row.style.display = "flex";
-        const dot = document.createElement("span"); dot.textContent = "・"; dot.style.marginRight = "6px";
-        const txt = document.createElement("span"); txt.textContent = line;
-        row.appendChild(dot); row.appendChild(txt);
-        box.appendChild(row);
-        // 数字＋単位の非分割を適用（txtの中身に）
-        protectUnits(txt.firstChild);
-      });
+      if (body.length){
+        html += `<div style="margin-top:6px;display:grid;gap:4px">`;
+        body.forEach(line=>{
+          if (!line.trim()) return;
+          // 先頭に既に「・/•/-」があれば重複させない
+          const cleaned = line.replace(/^[・•\-]\s*/, "");
+          html += `<div><span style="margin-right:6px">・</span>
+                     <span>${nobreakUnits(esc(cleaned))}</span></div>`;
+        });
+        html += `</div>`;
+      }
 
-      // もし1行しか無ければ、行にも非分割適用
-      if (lines.length === 0) protectUnits(strong.firstChild);
+      toast.innerHTML = html;
+    }
 
-      toast.appendChild(box);
+    function showNext(){
+      if (i>=queue.length){ showing=false; return; }
+      showing = true;
+      const {text, level} = queue[i++] || {};
+      renderToast(text, level);
 
-      // アニメーション
       toast.style.opacity = "1";
       toast.style.transform = "translate(-50%, 0)";
       const SHOW_MS = /error/.test(level||"") ? 5200 : 4200;
