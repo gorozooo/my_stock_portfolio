@@ -15,8 +15,8 @@
           {% else %}その他{% endif %}
         </div>
 
-        {# ← メモは “実現損益…” “配当…” で始まるシステム文言なら出さない #}
-        {% with m=r.memo|default_if_none:""|trim %}
+        {# ← メモが “実現損益” または “配当” で始まる場合は出さない #}
+        {% with m=r.memo|default_if_none:"" %}
           {% if m and not (m|slice:":4" == "実現損益" or m|slice:":2" == "配当") %}
             <div class="memo">{{ m }}</div>
           {% endif %}
