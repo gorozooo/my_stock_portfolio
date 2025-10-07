@@ -13,7 +13,7 @@ from ..services import cash_updater as up
 from ..models import Dividend, RealizedTrade
 
 
-# ================== dashboard（既存） ==================
+# ================== dashboard ==================
 def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
     svc.ensure_default_accounts(currency=currency)
     return BrokerAccount.objects.filter(broker=broker, currency=currency).order_by("account_type").first()
@@ -66,7 +66,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     svc.ensure_default_accounts()
     today = date.today()
 
-    # 自動同期（エラーでも画面は出す）
     try:
         info = up.sync_all()
         d = int(info.get("dividends_created", 0))
@@ -85,7 +84,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     })
 
 
-# ================== 履歴：共通ヘルパー ==================
+# ================== 履歴 共通 ==================
 PAGE_SIZE = 30
 
 
@@ -102,18 +101,17 @@ def _parse_date(s: str | None):
 
 def _filtered_ledger(request: HttpRequest):
     """
-    クエリパラメータ:
+    クエリ:
       broker=楽天|松井|SBI|ALL
       kind=ALL|DEPOSIT|WITHDRAW|XFER|SYSTEM
-      start=YYYY-MM-DD
-      end=YYYY-MM-DD
+      start/end=YYYY-MM-DD
       q=メモ部分一致
     """
     broker = request.GET.get("broker", "ALL")
-    kind = request.GET.get("kind", "ALL").upper()
+    kind = (request.GET.get("kind", "ALL") or "ALL").upper()
     start = _parse_date(request.GET.get("start"))
     end   = _parse_date(request.GET.get("end"))
-    q     = (request.GET.get("q") or "").strip()
+    q     = (request.GET.get("q") or "").trim() if hasattr(str, "trim") else (request.GET.get("q") or "").strip()
 
     qs = CashLedger.objects.select_related("account").order_by("-at", "-id")
 
@@ -137,7 +135,6 @@ def _filtered_ledger(request: HttpRequest):
     if q:
         qs = qs.filter(Q(memo__icontains=q))
 
-    # 集計（現在のフィルタに対して）
     agg = qs.aggregate(
         total=Sum("amount"),
         dep=Sum("amount", filter=Q(kind=CashLedger.Kind.DEPOSIT)),
@@ -152,105 +149,56 @@ def _filtered_ledger(request: HttpRequest):
         "xfer_in": int(agg["xin"] or 0),
         "xfer_out": int(agg["xout"] or 0),
     }
-
     return qs, summary
-
-
-# ---- ここを堅牢化：source_type が int/str/Choices 何でも判定できるようにする
-def _match_source(val, target_choice) -> bool:
-    """
-    val: 例) 1, "1", "REALIZED", CashLedger.SourceType.REALIZED などを想定
-    target_choice: CashLedger.SourceType.REALIZED のような choice メンバ
-    """
-    if val is None:
-        return False
-    # 同一オブジェクト or 値一致
-    if val == target_choice:
-        return True
-    target_value = getattr(target_choice, "value", target_choice)
-    target_name  = getattr(target_choice, "name", str(target_value))
-    # 数値 ↔ 数値文字列
-    try:
-        if int(val) == int(target_value):
-            return True
-    except Exception:
-        pass
-    # 文字列 ↔ NAME
-    if isinstance(val, str) and val.upper() == str(target_name).upper():
-        return True
-    return False
 
 
 def _attach_source_labels(page):
     """
-    page.object_list (CashLedger のリスト) に対して、source を辿って
-    銘柄ラベル/バッジ情報を付与（N+1回避で一括取得）。
-    付与先: r.src_badge = {"kind","class","label"}
+    右上バッジ用の銘柄ラベルを付与。
+    source_type が壊れていても source_id があれば両方に当てて解決を試みる。
+    付与先: r.src_badge = {"kind","label"}
     """
     items = list(page.object_list)
     if not items:
         return
 
-    ST = CashLedger.SourceType
-    div_ids, real_ids = set(), set()
+    ids = {int(r.source_id) for r in items if getattr(r, "source_id", None)}
+    if not ids:
+        page.object_list = items
+        return
 
-    # まず必要な ID を収集
+    # 両方照会して存在した方を採用（N+1回避）
+    div_map  = {d.id: d for d in Dividend.objects.filter(id__in=ids)}
+    real_map = {x.id: x for x in RealizedTrade.objects.filter(id__in=ids)}
+
     for r in items:
-        st = getattr(r, "source_type", None)
+        r.src_badge = None
         sid = getattr(r, "source_id", None)
         if not sid:
             continue
-        if _match_source(st, ST.DIVIDEND):
-            try:
-                div_ids.add(int(sid))
-            except Exception:
-                pass
-        elif _match_source(st, ST.REALIZED):
-            try:
-                real_ids.add(int(sid))
-            except Exception:
-                pass
+        sid = int(sid)
 
-    div_map = {d.id: d for d in Dividend.objects.filter(id__in=div_ids)} if div_ids else {}
-    real_map = {x.id: x for x in RealizedTrade.objects.filter(id__in=real_ids)} if real_ids else {}
+        d = div_map.get(sid)
+        x = real_map.get(sid)
 
-    # ラベルを埋め込む
-    for r in items:
-        r.src_badge = None
-        st = getattr(r, "source_type", None)
-        sid = getattr(r, "source_id", None)
+        if d is not None:
+            tkr = (getattr(d, "display_ticker", None) or d.ticker or "").upper()
+            name = (getattr(d, "display_name", None) or d.name or "")
+            r.src_badge = {"kind": "配当", "label": (f"{tkr} {name}".strip() or "—")}
+        elif x is not None:
+            tkr = (x.ticker or "").upper()
+            name = (x.name or "")
+            r.src_badge = {"kind": "実損", "label": (f"{tkr} {name}".strip() or "—")}
 
-        if sid and _match_source(st, ST.DIVIDEND) and sid in div_map:
-            d = div_map[sid]
-            tkr = (getattr(d, "display_ticker", None) or getattr(d, "ticker", "") or "").upper()
-            name = (getattr(d, "display_name", None) or getattr(d, "name", "") or "")
-            r.src_badge = {
-                "kind": "配当",
-                "class": "chip chip-sky",
-                "label": (f"{tkr} {name}".strip() or "—").strip(),
-            }
-        elif sid and _match_source(st, ST.REALIZED) and sid in real_map:
-            x = real_map[sid]
-            tkr = (getattr(x, "ticker", "") or "").upper()
-            name = (getattr(x, "name", "") or "")
-            r.src_badge = {
-                "kind": "実損",
-                "class": "chip chip-emerald",
-                "label": (f"{tkr} {name}".strip() or "—").strip(),
-            }
-
-    # 置き換え（テンプレは page.object_list を回す）
     page.object_list = items
 
 
-# ================== 履歴：一覧 / 追加読込 ==================
+# ================== 履歴：一覧 / ページング ==================
 def cash_history(request: HttpRequest) -> HttpResponse:
     svc.ensure_default_accounts()
     qs, summary = _filtered_ledger(request)
     p = Paginator(qs, PAGE_SIZE).get_page(1)
-
     _attach_source_labels(p)
-
     return render(request, "cash/history.html", {
         "page": p,
         "summary": summary,
@@ -259,13 +207,10 @@ def cash_history(request: HttpRequest) -> HttpResponse:
 
 
 def cash_history_page(request: HttpRequest) -> HttpResponse:
-    """HTMX で続きを読み込む"""
     qs, _ = _filtered_ledger(request)
     page_no = int(request.GET.get("page") or 1)
     p = Paginator(qs, PAGE_SIZE).get_page(page_no)
-
     _attach_source_labels(p)
-
     return render(request, "cash/_history_list.html", {
         "page": p,
         "params": request.GET,
@@ -274,7 +219,7 @@ def cash_history_page(request: HttpRequest) -> HttpResponse:
 
 # ================== 履歴：編集 / 削除 ==================
 @require_http_methods(["GET", "POST"])
-def ledger_edit(request: HttpRequest, pk: int):
+def cash_ledger_edit(request: HttpRequest, pk: int):
     obj = get_object_or_404(CashLedger, pk=pk)
     if request.method == "POST":
         try:
@@ -291,7 +236,7 @@ def ledger_edit(request: HttpRequest, pk: int):
 
 
 @require_http_methods(["POST"])
-def ledger_delete(request: HttpRequest, pk: int):
+def cash_ledger_delete(request: HttpRequest, pk: int):
     obj = get_object_or_404(CashLedger, pk=pk)
     try:
         obj.delete()
