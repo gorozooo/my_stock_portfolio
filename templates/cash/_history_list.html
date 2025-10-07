@@ -1,36 +1,28 @@
 {% load humanize %}
+
 {% for r in page.object_list %}
-  <div class="item">
+  <div class="card">
     <div class="flex items-start justify-between gap-3">
       <!-- 左：金額 + メタ + メモ -->
       <div class="min-w-0">
-        <div class="amt">{{ r.amount|intcomma }} 円</div>
+        <div class="amount">{{ r.amount|intcomma }} 円</div>
         <div class="meta">
-          {{ r.at|date:"Y年n月j日" }} ｜ {{ r.account.broker|default:"—" }} ｜ 種別：
+          {{ r.at|default:"" }} ｜ {{ r.account.broker|default:"" }} ｜ 種別：
           {% if r.kind == r.Kind.DEPOSIT %}入金{% elif r.kind == r.Kind.WITHDRAW %}出金
           {% elif r.kind == r.Kind.XFER_IN %}振替(入){% elif r.kind == r.Kind.XFER_OUT %}振替(出)
           {% else %}その他{% endif %}
         </div>
-        {% if r.memo %}
-          <div class="memo">{{ r.memo }}</div>
-        {% endif %}
-        {# ★ 旧表示（実現損益 REAL:xx / 配当 DIV:xx）は完全に削除 #}
+        {% if r.memo %}<div class="memo">{{ r.memo }}</div>{% endif %}
+        {# ★ 左下の「実現損益 REAL:xx / 配当 DIV:xx」行は完全に削除（出さない） #}
       </div>
 
-      <!-- 右：元データバッジ（表示は残す）+ 操作 -->
-      <div class="right shrink-0">
+      <!-- 右：元データバッジ -->
+      <div class="text-right shrink-0">
         {% if r.src_badge %}
           {% if r.src_badge.kind == "配当" %}
-            <span class="badge">【配当】{{ r.src_badge.label }}</span>
+            <span class="{{ r.src_badge.class }}">【配当】 {{ r.src_badge.label }}</span>
           {% elif r.src_badge.kind == "実損" %}
-            <span class="badge g">【実損】{{ r.src_badge.label }}</span>
-          {% endif %}
-        {% else %}
-          {# フォールバック（万一ラベルが無い場合でも右上に簡易表示） #}
-          {% if r.source_type == r.SourceType.DIVIDEND %}
-            <span class="badge">【配当】DIV:{{ r.source_id }}</span>
-          {% elif r.source_type == r.SourceType.REALIZED %}
-            <span class="badge g">【実損】REAL:{{ r.source_id }}</span>
+            <span class="{{ r.src_badge.class }}">【実損】 {{ r.src_badge.label }}</span>
           {% endif %}
         {% endif %}
 
@@ -45,5 +37,5 @@
     </div>
   </div>
 {% empty %}
-  <div class="item text-slate-400">該当データがありません。</div>
+  <div class="text-slate-400">該当データがありません。</div>
 {% endfor %}
