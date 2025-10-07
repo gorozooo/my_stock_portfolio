@@ -1,0 +1,30 @@
+{% load humanize %}
+<ul class="space-y-2">
+  {% for r in page.object_list %}
+  <li class="rounded-lg border border-slate-700 bg-slate-800/60 p-3">
+    <div class="text-xs text-slate-400">{{ r.at|date:"Y-m-d" }}｜{{ r.account.broker }}｜種別: {{ r.get_kind_display }}</div>
+    <div class="flex justify-between items-center">
+      <div class="text-base font-semibold">{{ r.amount|intcomma }} 円</div>
+      <div class="text-sm">{{ r.memo|default:"—" }}</div>
+    </div>
+    <div class="mt-2 text-right space-x-2 text-sm">
+      <a href="{% url 'cash_ledger_edit' r.id %}" class="px-2 py-1 rounded border border-slate-600">編集</a>
+      <form method="post" action="{% url 'cash_ledger_delete' r.id %}" class="inline">
+        {% csrf_token %}
+        <button class="px-2 py-1 rounded border border-red-800 text-red-300">削除</button>
+      </form>
+    </div>
+  </li>
+  {% empty %}
+  <li class="text-center text-slate-400 py-6">該当する明細はありません</li>
+  {% endfor %}
+</ul>
+
+{% if page.has_next %}
+  <div
+    hx-get="{% url 'cash_history_page' %}?page={{ page.next_page_number }}&{{ params.urlencode }}"
+    hx-trigger="revealed"
+    hx-swap="afterend"
+    class="py-4 text-center text-slate-400"
+  >読み込み中…</div>
+{% endif %}
