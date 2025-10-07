@@ -18,7 +18,12 @@ def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
     """
     svc.ensure_default_accounts(currency=currency)
     # BrokerAccount.broker は「楽天 / 松井 / SBI」などのラベル想定
-    return BrokerAccount.objects.filter(broker=broker, currency=currency).order_by("account_type").first()
+    return (
+        BrokerAccount.objects
+        .filter(broker=broker, currency=currency)
+        .order_by("account_type")
+        .first()
+    )
 
 
 @require_http_methods(["GET", "POST"])
@@ -69,15 +74,18 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     svc.ensure_default_accounts()
     today = date.today()
 
-    # ★ ここで「配当/実損」を同期する（重複は内部で安全スキップ）
+    # ★ 配当/実損の自動反映（重複は内部でスキップ）
     sync_info = {"dividends_created": 0, "realized_created": 0}
     try:
         sync_info = up.sync_all()
         d = int(sync_info.get("dividends_created", 0))
         r = int(sync_info.get("realized_created", 0))
-        # 何かしら反映があればトースト（?force_toast=1 があれば0でもトースト表示）
-        if d or r or request.GET.get("force_toast") == "1":
-            messages.info(request, f"同期完了：配当 {d} 件 / 実損 {r} 件 反映")
+        msg = f"同期完了：配当 {d} 件 / 実損 {r} 件 反映済み"
+        # 0件でも必ずメッセージを積んでトースト表示
+        if d or r:
+            messages.success(request, msg)  # 件数あり → 成功色
+        else:
+            messages.info(request, msg)     # 0件 → 情報色
     except Exception as e:
         messages.error(request, f"同期に失敗：{e}")
 
@@ -87,6 +95,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     context = {
         "brokers": brokers,       # 証券会社ごとのKPI
         "kpi_total": kpi_total,   # 未使用だが保持
-        "sync_info": sync_info,   # 画面下カードにも出す用
+        "sync_info": sync_info,   # 画面下カード等で使いたいとき用
     }
     return render(request, "cash/dashboard.html", context)
