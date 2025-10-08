@@ -292,70 +292,81 @@ def _dup_cursor(request: HttpRequest, cursor_key: str) -> bool:
 # ================== 履歴：一覧 / 追加読込 ==================
 @require_http_methods(["GET"])
 def cash_history(request: HttpRequest) -> HttpResponse:
+    """現金台帳メインページ（1ページ目のみ）"""
     svc.ensure_default_accounts()
     qs, summary = _filtered_ledger(request)
 
-    # 先頭チャンク（カーソル）
-    first_chunk = list(qs[:PAGE_SIZE])
-    class PageLike:
-        object_list = first_chunk
-        number = 1
-        has_next = len(first_chunk) == PAGE_SIZE
-    p = PageLike()
+    paginator = Paginator(qs, PAGE_SIZE)
+    p = paginator.get_page(1)
+
+    # カーソルは1回だけ生成
+    cursor = None
+    if p.has_next():
+        first_chunk = list(p)
+        tail = first_chunk[-1] if first_chunk else None
+        if tail:
+            try:
+                at_iso = tail.at.isoformat() if tail.at else "1970-01-01"
+                cursor = (at_iso, tail.id)
+            except Exception:
+                cursor = ("1970-01-01", tail.id)
 
     _attach_source_labels(p)
-
-    # 初回表示時、過去のカーソル重複記録をクリア
-    request.session.pop("cash_history_last_cursor", None)
-
-    # 次カーソル
-    cursor = _tuple_cursor_of(first_chunk) if p.has_next else None
 
     return render(
         request,
         "cash/history.html",
         {
-            "page": p,               # テンプレ互換のため擬似ページを渡す
-            "cursor": cursor,        # ('YYYY-MM-DD', id) or None
+            "page": p,
             "summary": summary,
             "params": request.GET,
+            "cursor": cursor,
         },
     )
 
 
 @require_http_methods(["GET"])
 def cash_history_page(request: HttpRequest) -> HttpResponse:
-    # 同一カーソルの二重発火を 204 で弾く
-    if _dup_cursor(request, "cash_history_last_cursor"):
-        return HttpResponse(status=204)
-
+    """無限スクロール追加分"""
     qs, _ = _filtered_ledger(request)
 
-    cursor_at = request.GET.get("cursor_at") or ""
-    cursor_id = request.GET.get("cursor_id") or ""
-    cursor_id_int = int(cursor_id) if cursor_id.isdigit() else None
+    # カーソル方式優先
+    cursor_at = request.GET.get("cursor_at")
+    cursor_id = request.GET.get("cursor_id")
 
-    qs = _apply_cursor(qs, cursor_at, cursor_id_int)
+    if cursor_at and cursor_id:
+        try:
+            qs = qs.filter(
+                Q(at__lt=cursor_at)
+                | Q(at=cursor_at, id__lt=cursor_id)
+            )
+        except Exception:
+            pass
 
-    chunk = list(qs[:PAGE_SIZE])
-    class PageLike:
-        object_list = chunk
-        has_next = len(chunk) == PAGE_SIZE
-        # number は使っていないが、テンプレ互換で置いておく
-        number = 0
-    p = PageLike()
+    paginator = Paginator(qs, PAGE_SIZE)
+    p = paginator.get_page(1)  # ← ここは常に1ページ目（次のチャンク扱い）
 
     _attach_source_labels(p)
 
-    next_cursor = _tuple_cursor_of(chunk) if p.has_next else None
+    # 次カーソル
+    next_cursor = None
+    if p.has_next():
+        chunk = list(p)
+        tail = chunk[-1] if chunk else None
+        if tail:
+            try:
+                at_iso = tail.at.isoformat() if tail.at else "1970-01-01"
+                next_cursor = (at_iso, tail.id)
+            except Exception:
+                next_cursor = ("1970-01-01", tail.id)
 
     return render(
         request,
         "cash/_history_list.html",
         {
-            "page": p,            # 擬似ページ
-            "cursor": next_cursor,
+            "page": p,
             "params": request.GET,
+            "cursor": next_cursor,
         },
     )
 
