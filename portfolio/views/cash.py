@@ -1,10 +1,10 @@
 from __future__ import annotations
 from datetime import date, datetime
-import re
+from typing import Optional, Tuple
 
 from django.contrib import messages
 from django.core.paginator import Paginator
-from django.db.models import Q, Sum
+from django.db.models import Q, Sum, QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
@@ -110,7 +110,7 @@ def _parse_date(s: str | None):
     return None
 
 
-def _filtered_ledger(request: HttpRequest):
+def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
     """
     クエリパラメータ:
       broker=楽天|松井|SBI|ALL
@@ -167,9 +167,6 @@ def _filtered_ledger(request: HttpRequest):
 
 
 def _source_is_dividend(v) -> bool:
-    """
-    CashLedger.SourceType が数値/文字の両方に対応
-    """
     if v is None:
         return False
     try:
@@ -192,15 +189,11 @@ def _safe_str(val) -> str:
 
 
 def _attach_source_labels(page):
-    """
-    page.object_list に r.src_badge を付与。
-    可能な限り「コード 名称」を出し、取れない場合は REAL:ID / DIV:ID を最後の保険として表示。
-    """
+    """page.object_list に r.src_badge を付与（取得不可は DIV:ID / REAL:ID でフォールバック）"""
     items = list(page.object_list or [])
     if not items:
         return
 
-    # 対象IDを収集
     div_ids, real_ids = set(), set()
     for r in items:
         st = getattr(r, "source_type", None)
@@ -251,23 +244,39 @@ def _attach_source_labels(page):
     page.object_list = items
 
 
-# ============ 無限スクロール重複対策: リクエスト指紋を直前と比較 ============
-def _page_fingerprint(request: HttpRequest) -> str:
-    """同一パラメータの二重発火を弾くための簡易フィンガープリント"""
-    p = request.GET
-    # 必要十分なキーだけを使う（順序は固定）
-    keys = ("broker", "kind", "start", "end", "q", "page")
-    vals = [str(p.get(k, "")).strip() for k in keys]
-    return "|".join(vals)
+# ================== カーソル式ページング（重複防止の決定版） ==================
+def _tuple_cursor_of(qs_slice) -> Optional[Tuple[str, int]]:
+    """
+    与えられたスライスの末尾からカーソル (at_iso, id) を返す。
+    """
+    try:
+        tail = qs_slice[-1]
+    except Exception:
+        return None
+    return (tail.at.isoformat(), tail.id)
 
 
-def _is_dup_request_and_mark(request: HttpRequest, key_name: str) -> bool:
-    """直前のフィンガープリントと一致したら True を返す（＝重複）"""
-    fp = _page_fingerprint(request)
-    last = request.session.get(key_name)
-    request.session[key_name] = fp
-    # 直前と全く同じなら重複
-    return last == fp
+def _apply_cursor(qs: QuerySet, cursor_at: Optional[str], cursor_id: Optional[int]) -> QuerySet:
+    """
+    並び順は -at, -id。次ページは (at < cursor_at) OR (at = cursor_at AND id < cursor_id)
+    """
+    if not cursor_at or not cursor_id:
+        return qs
+    try:
+        at_dt = datetime.fromisoformat(cursor_at).date()
+    except Exception:
+        return qs
+    return qs.filter(Q(at__lt=at_dt) | Q(at=at_dt, id__lt=cursor_id))
+
+
+def _dup_cursor(request: HttpRequest, cursor_key: str) -> bool:
+    """
+    同一カーソルの連投は 204 にするためのセッション比較
+    """
+    cur = f"{request.GET.get('cursor_at','')}|{request.GET.get('cursor_id','')}"
+    last = request.session.get(cursor_key)
+    request.session[cursor_key] = cur
+    return cur == last
 
 
 # ================== 履歴：一覧 / 追加読込 ==================
@@ -275,18 +284,29 @@ def _is_dup_request_and_mark(request: HttpRequest, key_name: str) -> bool:
 def cash_history(request: HttpRequest) -> HttpResponse:
     svc.ensure_default_accounts()
     qs, summary = _filtered_ledger(request)
-    p = Paginator(qs, PAGE_SIZE).get_page(1)
+
+    # 先頭チャンク（カーソル）
+    first_chunk = list(qs[:PAGE_SIZE])
+    class PageLike:
+        object_list = first_chunk
+        number = 1
+        has_next = len(first_chunk) == PAGE_SIZE
+    p = PageLike()
 
     _attach_source_labels(p)
 
-    # 初回表示の重複履歴キーをリセット
-    request.session.pop("cash_history_last_partial", None)
+    # 初回表示時、過去のカーソル重複記録をクリア
+    request.session.pop("cash_history_last_cursor", None)
+
+    # 次カーソル
+    cursor = _tuple_cursor_of(first_chunk) if p.has_next else None
 
     return render(
         request,
         "cash/history.html",
         {
-            "page": p,
+            "page": p,               # テンプレ互換のため擬似ページを渡す
+            "cursor": cursor,        # ('YYYY-MM-DD', id) or None
             "summary": summary,
             "params": request.GET,
         },
@@ -295,21 +315,36 @@ def cash_history(request: HttpRequest) -> HttpResponse:
 
 @require_http_methods(["GET"])
 def cash_history_page(request: HttpRequest) -> HttpResponse:
-    # ★ 同一パラメータで直前にも返しているなら 204 を返して重複追加を防ぐ
-    if _is_dup_request_and_mark(request, "cash_history_last_partial"):
+    # 同一カーソルの二重発火を 204 で弾く
+    if _dup_cursor(request, "cash_history_last_cursor"):
         return HttpResponse(status=204)
 
     qs, _ = _filtered_ledger(request)
-    page_no = int(request.GET.get("page") or 1)
-    p = Paginator(qs, PAGE_SIZE).get_page(page_no)
+
+    cursor_at = request.GET.get("cursor_at") or ""
+    cursor_id = request.GET.get("cursor_id") or ""
+    cursor_id_int = int(cursor_id) if cursor_id.isdigit() else None
+
+    qs = _apply_cursor(qs, cursor_at, cursor_id_int)
+
+    chunk = list(qs[:PAGE_SIZE])
+    class PageLike:
+        object_list = chunk
+        has_next = len(chunk) == PAGE_SIZE
+        # number は使っていないが、テンプレ互換で置いておく
+        number = 0
+    p = PageLike()
 
     _attach_source_labels(p)
+
+    next_cursor = _tuple_cursor_of(chunk) if p.has_next else None
 
     return render(
         request,
         "cash/_history_list.html",
         {
-            "page": p,
+            "page": p,            # 擬似ページ
+            "cursor": next_cursor,
             "params": request.GET,
         },
     )
