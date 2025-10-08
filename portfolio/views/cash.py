@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import date, datetime
+import re
 
 from django.contrib import messages
 from django.core.paginator import Paginator
@@ -188,15 +189,21 @@ def _source_is_realized(v) -> bool:
         return str(v).upper() in {"REALIZED", "REAL", "1"}  # 1 は保険
 
 
+def _safe_str(val) -> str:
+    return (val or "").strip()
+
+
 def _attach_source_labels(page):
     """
     page.object_list に r.src_badge を付与。
     フォーマット: {"kind","class","label"}
+    可能な限り「コード 名称」を出し、取れない場合は REAL:ID / DIV:ID を最後の保険として表示。
     """
     items = list(page.object_list or [])
     if not items:
         return
 
+    # 対象IDを収集（数値化できるものだけ）
     div_ids, real_ids = set(), set()
     for r in items:
         st = getattr(r, "source_type", None)
@@ -206,50 +213,57 @@ def _attach_source_labels(page):
         try:
             sid_int = int(sid)
         except Exception:
-            # 数値化できない ID はスキップ
             continue
-
         if _source_is_dividend(st):
             div_ids.add(sid_int)
         elif _source_is_realized(st):
             real_ids.add(sid_int)
 
+    # まとめて引く
     div_map = {d.id: d for d in Dividend.objects.filter(id__in=div_ids)}
     real_map = {x.id: x for x in RealizedTrade.objects.filter(id__in=real_ids)}
+
+    # ラベル生成の小ヘルパ
+    def build_label_from_div(d: Dividend) -> str:
+        tkr = _safe_str(getattr(d, "display_ticker", None) or getattr(d, "ticker", None)).upper()
+        name = _safe_str(getattr(d, "display_name", None) or getattr(d, "name", None))
+        return (f"{tkr} {name}".strip() or "—")
+
+    def build_label_from_real(x: RealizedTrade) -> str:
+        tkr = _safe_str(getattr(x, "ticker", None)).upper()
+        name = _safe_str(getattr(x, "name", None))
+        return (f"{tkr} {name}".strip() or "—")
 
     for r in items:
         r.src_badge = None
         st = getattr(r, "source_type", None)
         sid = getattr(r, "source_id", None)
-
         try:
             sid_int = int(sid) if sid is not None else None
         except Exception:
             sid_int = None
 
-        if sid_int is None:
+        # DIVIDEND
+        if sid_int is not None and _source_is_dividend(st):
+            if sid_int in div_map:
+                label = build_label_from_div(div_map[sid_int])
+            else:
+                # 最後の保険：IDだけでも明示
+                label = f"DIV:{sid_int}"
+            r.src_badge = {"kind": "配当", "class": "chip chip-sky", "label": label}
             continue
 
-        if _source_is_dividend(st) and sid_int in div_map:
-            d = div_map[sid_int]
-            tkr = (getattr(d, "display_ticker", None) or d.ticker or "").upper()
-            name = (getattr(d, "display_name", None) or d.name or "")
-            label = (f"{tkr} {name}".strip() or "—")
-            r.src_badge = {
-                "kind": "配当",
-                "class": "chip chip-sky",
-                "label": label,
-            }
-        elif _source_is_realized(st) and sid_int in real_map:
-            x = real_map[sid_int]
-            tkr = (x.ticker or "").upper()
-            name = (x.name or "")
-            label = (f"{tkr} {name}".strip() or "—")
-            r.src_badge = {
-                "kind": "実損",
-                "class": "chip chip-emerald",
-                "label": label,
-            }
+        # REALIZED
+        if sid_int is not None and _source_is_realized(st):
+            if sid_int in real_map:
+                label = build_label_from_real(real_map[sid_int])
+            else:
+                label = f"REAL:{sid_int}"
+            r.src_badge = {"kind": "実損", "class": "chip chip-emerald", "label": label}
+            continue
+
+        # ここまで到達＝source情報が取れない。何も出さない（テンプレはそのままOK）。
+        # ※ メモの“実現損益/配当” 行はテンプレ側で非表示化ロジック済み。
 
     page.object_list = items
 
