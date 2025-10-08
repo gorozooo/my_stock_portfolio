@@ -243,22 +243,43 @@ def _attach_source_labels(page):
     page.object_list = items
 
 
-# ================== カーソル式ページング（重複防止の決定版） ==================
+# ================== カーソル ==================
 def _tuple_cursor_of(qs_slice):
     """
-    末尾からカーソル (at_iso, id) を返す。at が None の場合は 1970-01-01 で代用。
+    末尾からカーソル (at_iso, id) を返す。at が None/不正なら "1970-01-01" で代用。
     """
     try:
         tail = qs_slice[-1]
     except Exception:
         return None
     at_val = getattr(tail, "at", None)
-    if at_val is None:
-        return ("1970-01-01", tail.id)
     try:
-        return (at_val.isoformat(), tail.id)
+        at_iso = at_val.isoformat() if at_val else "1970-01-01"
     except Exception:
-        return ("1970-01-01", tail.id)
+        at_iso = "1970-01-01"
+    return (at_iso, tail.id)
+
+
+def _is_dup_cursor(request: HttpRequest) -> bool:
+    """
+    同一カーソルの連投をセッションで弾く（二重発火の最終保険）。
+    フィルタ条件も含めてキー化。
+    """
+    key = "|".join(
+        [
+            request.GET.get("broker", ""),
+            request.GET.get("kind", ""),
+            request.GET.get("start", ""),
+            request.GET.get("end", ""),
+            request.GET.get("q", ""),
+            request.GET.get("cursor_at", ""),
+            request.GET.get("cursor_id", ""),
+            request.GET.get("page", ""),
+        ]
+    )
+    last = request.session.get("_cash_hist_last")
+    request.session["_cash_hist_last"] = key
+    return key == last
 
 
 # ================== 履歴：一覧 / 追加読込 ==================
@@ -282,19 +303,31 @@ def cash_history(request: HttpRequest) -> HttpResponse:
 
 @require_http_methods(["GET"])
 def cash_history_page(request: HttpRequest) -> HttpResponse:
-    """無限スクロール追加分。カーソル優先、なければpage番号フォールバック。"""
+    """
+    無限スクロール追加分。カーソル優先、なければ page 番号フォールバック。
+    - cursor_at は必ず date にパースして比較
+    - 同一カーソルは 204 で即終了
+    """
+    # 二重発火をセッションで遮断
+    if _is_dup_cursor(request):
+        return HttpResponse(status=204)
+
     qs, _ = _filtered_ledger(request)
 
     cursor_at = request.GET.get("cursor_at")
     cursor_id = request.GET.get("cursor_id")
 
     if cursor_at and cursor_id:
-        # 並び順は -at, -id
+        # 並び順は -at, -id。cursor_at は ISO から date 化して比較。
         try:
-            qs = qs.filter(Q(at__lt=cursor_at) | Q(at=cursor_at, id__lt=int(cursor_id)))
+            at_dt = datetime.fromisoformat(cursor_at).date()
+            qs = qs.filter(Q(at__lt=at_dt) | Q(at=at_dt, id__lt=int(cursor_id)))
         except Exception:
+            # パース失敗時はそのまま（=フォールバック）
             pass
-        p = Paginator(qs, PAGE_SIZE).get_page(1)
+        # 念のため順序を明示して最適化の"順序落ち"を防ぐ
+        qs = qs.order_by("-at", "-id")
+        p = Paginator(qs, PAGE_SIZE).get_page(1)  # 追加チャンクは常に1ページ目扱い
     else:
         page_no = int(request.GET.get("page") or 1)
         p = Paginator(qs, PAGE_SIZE).get_page(page_no)
