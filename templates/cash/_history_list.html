@@ -39,28 +39,17 @@
   <div class="text-slate-400">該当データがありません。</div>
 {% endfor %}
 
-{# 無限スクロールの sentinel はここだけ #}
-{% if cursor %}
-  <div id="more-sentinel-{{ page.number }}"
-       class="text-center text-slate-400 py-2 text-[12px]"
-       hx-disinherit="*"
-       hx-swap="afterend"
-       hx-trigger="intersect once threshold:0.2"
-       hx-get="{% url 'cash_history_page' %}?cursor_at={{ cursor.0|urlencode }}&cursor_id={{ cursor.1|urlencode }}{% for k,v in params.items %}{% if k not in 'page cursor_at cursor_id' %}&{{ k }}={{ v|urlencode }}{% endif %}{% endfor %}"
-       hx-on:htmx:beforeRequest="if(this.dataset.busy==='1'){event.preventDefault();return}; this.dataset.busy='1';"
-       hx-on:htmx:afterSwap="this.remove()">
-    読み込み中…
-  </div>
-{% elif page.has_next %}
-  {# 念のためのフォールバック（カーソルが無い場合） #}
-  <div id="more-sentinel-{{ page.number }}"
-       class="text-center text-slate-400 py-2 text-[12px]"
-       hx-disinherit="*"
-       hx-swap="afterend"
-       hx-trigger="intersect once threshold:0.2"
-       hx-get="{% url 'cash_history_page' %}?{% for k,v in params.items %}{% if k != 'page' %}{{ k }}={{ v|urlencode }}&{% endif %}{% endfor %}page={{ page.next_page_number }}"
-       hx-on:htmx:beforeRequest="if(this.dataset.busy==='1'){event.preventDefault();return}; this.dataset.busy='1';"
-       hx-on:htmx:afterSwap="this.remove()">
-    読み込み中…
+{# “もっと読む” クリック式。二重発火が起きない。 #}
+{% if page.has_next %}
+  <div class="text-center py-2">
+    <button
+      class="qb-btn"
+      hx-get="{% url 'cash_history_page' %}?{% for k,v in params.items %}{% if k != 'page' %}{{ k }}={{ v|urlencode }}&{% endif %}{% endfor %}page={{ page.next_page_number }}"
+      hx-target="#historyContainer"
+      hx-swap="beforeend"
+      hx-on:click="this.disabled=true; this.textContent='読み込み中…';"
+      hx-on:htmx:afterSwap="this.remove()">
+      もっと読む
+    </button>
   </div>
 {% endif %}
