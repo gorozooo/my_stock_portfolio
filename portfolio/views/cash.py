@@ -165,14 +165,27 @@ def _attach_source_labels(page):
 # ================== 一覧 / 読込 ==================
 @require_http_methods(["GET"])
 def cash_history(request: HttpRequest) -> HttpResponse:
+    """現金台帳（ページング一発描画・重複防止版）"""
     svc.ensure_default_accounts()
     qs, summary = _filtered_ledger(request)
+
+    # page が複数渡っても最初の1個だけ使う
+    page_param = request.GET.getlist("page")
+    page_number = page_param[0] if page_param else "1"
+
     paginator = Paginator(qs, PAGE_SIZE)
-    p = paginator.get_page(1)
-    _attach_source_labels(p)
+    page_obj = paginator.get_page(page_number)
+
+    _attach_source_labels(page_obj)
+
     return render(
-        request, "cash/history.html",
-        {"page": p, "summary": summary, "params": request.GET}
+        request,
+        "cash/history.html",
+        {
+            "page": page_obj,
+            "summary": summary,
+            "params": request.GET,
+        },
     )
 
 
