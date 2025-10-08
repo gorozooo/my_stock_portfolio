@@ -1,63 +1,61 @@
 {% extends "base.html" %}
 {% load humanize %}
-{% block title %}現金台帳{% endblock %}
-
-{% block head %}
-<style>
-  .qb-btn{
-    background:rgba(255,255,255,.06);
-    border:1px solid rgba(255,255,255,.15);
-    border-radius:8px;
-    padding:6px 12px;
-    color:#e0e8ff;
-    font-size:14px;
-  }
-</style>
-{% endblock %}
+{% block title %}💵 現金台帳{% endblock %}
 
 {% block content %}
 <h1>💵 現金台帳</h1>
 
-<form method="get">
+<form method="get" style="margin-bottom: 1em;">
   <select name="broker">
     <option value="ALL">すべて</option>
     <option value="楽天" {% if params.broker == "楽天" %}selected{% endif %}>楽天</option>
     <option value="松井" {% if params.broker == "松井" %}selected{% endif %}>松井</option>
     <option value="SBI" {% if params.broker == "SBI" %}selected{% endif %}>SBI</option>
   </select>
-  <button type="submit" class="qb-btn">適用</button>
+  <button type="submit">適用</button>
+  <a href="{% url 'cash_history' %}">クリア</a>
 </form>
 
 {% if summary %}
-  <div style="margin:10px 0;">
+  <div>
     💰合計 {{ summary.total|intcomma }}円　
     入金 {{ summary.deposit|intcomma }}円　
     出金 {{ summary.withdraw|intcomma }}円
   </div>
 {% endif %}
 
-<div id="historyContainer">
-  {% include "cash/_history_list.html" with page=page params=params %}
-</div>
+<hr>
 
-<script>
-document.addEventListener("click", e=>{
-  if(e.target.matches("#loadMoreBtn")){
-    const btn=e.target;
-    btn.disabled=true;
-    btn.textContent="読み込み中…";
-    const next=btn.dataset.next;
-    fetch(`{% url 'cash_history_page' %}?page=${next}`)
-    .then(r=>r.text())
-    .then(html=>{
-      btn.insertAdjacentHTML("beforebegin",html);
-      btn.remove();
-    })
-    .catch(()=>{
-      btn.textContent="通信エラー";
-      btn.disabled=false;
-    });
-  }
-});
-</script>
+{% for r in page.object_list %}
+  <div style="padding:10px; margin:8px 0; border:1px solid rgba(255,255,255,0.2); border-radius:8px;">
+    <div style="font-weight:bold; font-size:18px;">{{ r.amount|intcomma }} 円</div>
+    <div style="font-size:12px; color:#aaa;">
+      {{ r.at }} ｜ {{ r.account.broker }} ｜ 
+      {% if r.kind == r.Kind.DEPOSIT %}入金{% elif r.kind == r.Kind.WITHDRAW %}出金
+      {% elif r.kind == r.Kind.XFER_IN %}振替(入){% elif r.kind == r.Kind.XFER_OUT %}振替(出)
+      {% else %}その他{% endif %}
+    </div>
+    {% if r.src_badge %}
+      <div style="font-size:12px; color:#7ef;">
+        【{{ r.src_badge.kind }}】 {{ r.src_badge.label }}
+      </div>
+    {% endif %}
+    {% if r.memo %}
+      <div style="font-size:12px; color:#ccc;">{{ r.memo }}</div>
+    {% endif %}
+  </div>
+{% empty %}
+  <p>該当データがありません。</p>
+{% endfor %}
+
+<!-- ページネーション -->
+<div style="text-align:center; margin-top:10px;">
+  {% if page.has_previous %}
+    <a href="?page={{ page.previous_page_number }}">← 前へ</a>
+  {% endif %}
+  <span>ページ {{ page.number }} / {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}
+    <a href="?page={{ page.next_page_number }}">次へ →</a>
+  {% endif %}
+</div>
 {% endblock %}
