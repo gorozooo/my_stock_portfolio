@@ -245,15 +245,25 @@ def _attach_source_labels(page):
 
 
 # ================== カーソル式ページング（重複防止の決定版） ==================
-def _tuple_cursor_of(qs_slice) -> Optional[Tuple[str, int]]:
+def _tuple_cursor_of(qs_slice):
     """
     与えられたスライスの末尾からカーソル (at_iso, id) を返す。
+    at が None の場合は id のみでフォールバック。
     """
     try:
         tail = qs_slice[-1]
     except Exception:
         return None
-    return (tail.at.isoformat(), tail.id)
+
+    at_val = getattr(tail, "at", None)
+    if at_val is None:
+        # None を防ぐためフォールバック値を生成（固定日付を代用）
+        return ("1970-01-01", tail.id)
+    try:
+        return (at_val.isoformat(), tail.id)
+    except Exception:
+        # 予期しない型も保険で1970-01-01扱い
+        return ("1970-01-01", tail.id)
 
 
 def _apply_cursor(qs: QuerySet, cursor_at: Optional[str], cursor_id: Optional[int]) -> QuerySet:
