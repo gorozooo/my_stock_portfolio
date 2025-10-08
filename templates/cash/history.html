@@ -112,19 +112,7 @@
 </div>
 
 <div id="historyContainer">
-  {# ★ 初回チャンクだけ描画（ローダーは部分テンプレが返す） #}
+  {# ★ 初回チャンクだけ描画。ローダーは _history_list.html にのみ存在させる（重複防止） #}
   {% include "cash/_history_list.html" with page=page cursor=cursor params=params %}
 </div>
-
-{# ★ 初回の cursor がある場合のみ、最初のローダーを置く（reveal once） #}
-{% if cursor %}
-  <div id="first-more"
-       class="text-center text-slate-400 py-2 text-[12px]"
-       hx-disinherit="*"
-       hx-swap="afterend"
-       hx-trigger="revealed once"
-       hx-get="{% url 'cash_history_page' %}?cursor_at={{ cursor.0 }}&cursor_id={{ cursor.1 }}">
-    読み込み中…
-  </div>
-{% endif %}
 {% endblock %}
