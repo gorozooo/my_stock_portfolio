@@ -39,15 +39,14 @@
   <div class="text-slate-400">該当データがありません。</div>
 {% endfor %}
 
-{# ★ 無限スクロール：この部分テンプレだけに置く。1回だけ発火→完了後に自分を remove #}
-{% if page.has_next %}
-  <div id="more-sentinel-{{ page.number }}"
-       class="text-center text-slate-400 py-2 text-[12px]"
+{# ★ 次カーソルがある時だけ、ここでローダーを1つ返す（once / remove 自己破壊） #}
+{% if cursor %}
+  <div class="text-center text-slate-400 py-2 text-[12px]"
        hx-disinherit="*"
        hx-swap="afterend"
        hx-trigger="intersect once threshold:0.2"
-       hx-get="{% url 'cash_history_page' %}?{% for k,v in params.items %}{% if k != 'page' %}{{ k }}={{ v|urlencode }}&{% endif %}{% endfor %}page={{ page.next_page_number }}"
-       hx-on:htmx:beforeRequest="if(this.dataset.busy==='1'){event.preventDefault();return}; this.dataset.busy='1';"
+       hx-get="{% url 'cash_history_page' %}?cursor_at={{ cursor.0 }}&cursor_id={{ cursor.1 }}"
+       hx-on:htmx:beforeRequest="if(this.dataset.busy==='1'){event.preventDefault();return};this.dataset.busy='1';"
        hx-on:htmx:afterSwap="this.remove()">
     読み込み中…
   </div>
