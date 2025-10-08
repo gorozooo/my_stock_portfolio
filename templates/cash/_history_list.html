@@ -25,37 +25,49 @@
 
       {# 右：元データバッジ（常に TICKER 名称 で出す） #}
       <div class="text-right shrink-0">
-        {# 1) src_badge があればその内容を使う #}
+
+        {# --- 優先1: src_badge がある #}
         {% if r.src_badge %}
           {% if r.src_badge.kind == "配当" %}
             <span class="{{ r.src_badge.class|default:'chip chip-sky' }}">
-              【配当】
-              {% firstof r.ticker r.code '' %} {% firstof r.company_name r.name r.src_badge.label '' %}
+              【配当】 {% firstof r.ticker r.code '' %} {% firstof r.company_name r.name r.src_badge.label '' %}
             </span>
           {% elif r.src_badge.kind == "実損" %}
             <span class="{{ r.src_badge.class|default:'chip chip-emerald' }}">
-              【実損】
-              {% firstof r.ticker r.code '' %} {% firstof r.company_name r.name r.src_badge.label '' %}
+              【実損】 {% firstof r.ticker r.code '' %} {% firstof r.company_name r.name r.src_badge.label '' %}
             </span>
           {% else %}
             <span class="chip">{% firstof r.src_badge.label '取引' %}</span>
           {% endif %}
 
-        {# 2) なければ source_type から強制表示 #}
+        {# --- 優先2: source_type で判定 #}
+        {% elif r.source_type == r.SourceType.DIVIDEND %}
+          <span class="chip chip-sky">
+            【配当】 {% firstof r.ticker r.code '' %} {% firstof r.company_name r.name '' %}
+          </span>
+        {% elif r.source_type == r.SourceType.REALIZED %}
+          <span class="chip chip-emerald">
+            【実損】 {% firstof r.ticker r.code '' %} {% firstof r.company_name r.name '' %}
+          </span>
+
+        {# --- 優先3: メモ先頭でフォールバック判定（これで「取引」を消す） #}
         {% else %}
-          {% if r.source_type == r.SourceType.DIVIDEND %}
-            <span class="chip chip-sky">
-              【配当】 {% firstof r.ticker r.code '' %} {% firstof r.company_name r.name '' %}
-            </span>
-          {% elif r.source_type == r.SourceType.REALIZED %}
-            <span class="chip chip-emerald">
-              【実損】 {% firstof r.ticker r.code '' %} {% firstof r.company_name r.name '' %}
-            </span>
-          {% else %}
-            <span class="chip">
-              {% firstof r.ticker r.code '取引' %} {% firstof r.company_name r.name '' %}
-            </span>
-          {% endif %}
+          {% with m=r.memo|default_if_none:"" %}
+            {% if m|slice:":2" == "配当" %}
+              <span class="chip chip-sky">
+                【配当】 {% firstof r.ticker r.code '' %} {% firstof r.company_name r.name '' %}
+              </span>
+            {% elif m|slice:":4" == "実現損益" or "REAL:" in m %}
+              <span class="chip chip-emerald">
+                【実損】 {% firstof r.ticker r.code '' %} {% firstof r.company_name r.name '' %}
+              </span>
+            {% else %}
+              {# 何も判定できない最終保険（極力出ない想定） #}
+              <span class="chip">
+                {% firstof r.ticker r.code '取引' %} {% firstof r.company_name r.name '' %}
+              </span>
+            {% endif %}
+          {% endwith %}
         {% endif %}
 
         <div class="actions">
