@@ -87,7 +87,7 @@
 </div>
 
 <div id="historyContainer">
-  {# 初回チャンクのみ。ローダは部分テンプレ側だけに置く（重複防止） #}
-  {% include "cash/_history_list.html" with page=page cursor=cursor params=params %}
+  {# 初回ページのみ描画。ローダーは部分テンプレ側だけに置く #}
+  {% include "cash/_history_list.html" with page=page params=params %}
 </div>
 {% endblock %}
