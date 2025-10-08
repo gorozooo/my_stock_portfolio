@@ -173,10 +173,8 @@ def _source_is_dividend(v) -> bool:
     if v is None:
         return False
     try:
-        # 数値 Enum の場合
         return int(v) == int(CashLedger.SourceType.DIVIDEND)
     except Exception:
-        # 文字列 Enum の場合
         return str(v).upper() in {"DIVIDEND", "DIV", "2"}  # 2 は保険
 
 
@@ -196,14 +194,13 @@ def _safe_str(val) -> str:
 def _attach_source_labels(page):
     """
     page.object_list に r.src_badge を付与。
-    フォーマット: {"kind","class","label"}
     可能な限り「コード 名称」を出し、取れない場合は REAL:ID / DIV:ID を最後の保険として表示。
     """
     items = list(page.object_list or [])
     if not items:
         return
 
-    # 対象IDを収集（数値化できるものだけ）
+    # 対象IDを収集
     div_ids, real_ids = set(), set()
     for r in items:
         st = getattr(r, "source_type", None)
@@ -219,11 +216,9 @@ def _attach_source_labels(page):
         elif _source_is_realized(st):
             real_ids.add(sid_int)
 
-    # まとめて引く
     div_map = {d.id: d for d in Dividend.objects.filter(id__in=div_ids)}
     real_map = {x.id: x for x in RealizedTrade.objects.filter(id__in=real_ids)}
 
-    # ラベル生成の小ヘルパ
     def build_label_from_div(d: Dividend) -> str:
         tkr = _safe_str(getattr(d, "display_ticker", None) or getattr(d, "ticker", None)).upper()
         name = _safe_str(getattr(d, "display_name", None) or getattr(d, "name", None))
@@ -243,29 +238,36 @@ def _attach_source_labels(page):
         except Exception:
             sid_int = None
 
-        # DIVIDEND
         if sid_int is not None and _source_is_dividend(st):
-            if sid_int in div_map:
-                label = build_label_from_div(div_map[sid_int])
-            else:
-                # 最後の保険：IDだけでも明示
-                label = f"DIV:{sid_int}"
+            label = build_label_from_div(div_map[sid_int]) if sid_int in div_map else f"DIV:{sid_int}"
             r.src_badge = {"kind": "配当", "class": "chip chip-sky", "label": label}
             continue
 
-        # REALIZED
         if sid_int is not None and _source_is_realized(st):
-            if sid_int in real_map:
-                label = build_label_from_real(real_map[sid_int])
-            else:
-                label = f"REAL:{sid_int}"
+            label = build_label_from_real(real_map[sid_int]) if sid_int in real_map else f"REAL:{sid_int}"
             r.src_badge = {"kind": "実損", "class": "chip chip-emerald", "label": label}
             continue
 
-        # ここまで到達＝source情報が取れない。何も出さない（テンプレはそのままOK）。
-        # ※ メモの“実現損益/配当” 行はテンプレ側で非表示化ロジック済み。
-
     page.object_list = items
+
+
+# ============ 無限スクロール重複対策: リクエスト指紋を直前と比較 ============
+def _page_fingerprint(request: HttpRequest) -> str:
+    """同一パラメータの二重発火を弾くための簡易フィンガープリント"""
+    p = request.GET
+    # 必要十分なキーだけを使う（順序は固定）
+    keys = ("broker", "kind", "start", "end", "q", "page")
+    vals = [str(p.get(k, "")).strip() for k in keys]
+    return "|".join(vals)
+
+
+def _is_dup_request_and_mark(request: HttpRequest, key_name: str) -> bool:
+    """直前のフィンガープリントと一致したら True を返す（＝重複）"""
+    fp = _page_fingerprint(request)
+    last = request.session.get(key_name)
+    request.session[key_name] = fp
+    # 直前と全く同じなら重複
+    return last == fp
 
 
 # ================== 履歴：一覧 / 追加読込 ==================
@@ -275,7 +277,10 @@ def cash_history(request: HttpRequest) -> HttpResponse:
     qs, summary = _filtered_ledger(request)
     p = Paginator(qs, PAGE_SIZE).get_page(1)
 
-    _attach_source_labels(p)  # ★ 右上バッジを最後まで安定
+    _attach_source_labels(p)
+
+    # 初回表示の重複履歴キーをリセット
+    request.session.pop("cash_history_last_partial", None)
 
     return render(
         request,
@@ -290,11 +295,15 @@ def cash_history(request: HttpRequest) -> HttpResponse:
 
 @require_http_methods(["GET"])
 def cash_history_page(request: HttpRequest) -> HttpResponse:
+    # ★ 同一パラメータで直前にも返しているなら 204 を返して重複追加を防ぐ
+    if _is_dup_request_and_mark(request, "cash_history_last_partial"):
+        return HttpResponse(status=204)
+
     qs, _ = _filtered_ledger(request)
     page_no = int(request.GET.get("page") or 1)
     p = Paginator(qs, PAGE_SIZE).get_page(page_no)
 
-    _attach_source_labels(p)  # ★ 追加読み込み側にも必ず付与
+    _attach_source_labels(p)
 
     return render(
         request,
