@@ -1,22 +1,20 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from datetime import date, datetime
-from typing import Optional, Tuple
-
+from typing import Tuple
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db.models import Q, Sum, QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods
-
 from ..models import Dividend, RealizedTrade
 from ..models_cash import BrokerAccount, CashLedger
 from ..services import cash_service as svc
 from ..services import cash_updater as up
 
 
-# ================== dashboard（既存） ==================
+# ================== dashboard ==================
 def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
     svc.ensure_default_accounts(currency=currency)
     return (
@@ -72,8 +70,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     # GET
     svc.ensure_default_accounts()
     today = date.today()
-
-    # 自動同期（エラーでも画面は出す）
     try:
         info = up.sync_all()
         d = int(info.get("dividends_created", 0))
@@ -89,14 +85,11 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     return render(
         request,
         "cash/dashboard.html",
-        {
-            "brokers": brokers,
-            "kpi_total": kpi_total,
-        },
+        {"brokers": brokers, "kpi_total": kpi_total},
     )
 
 
-# ================== 履歴：共通ヘルパー ==================
+# ================== 共通ヘルパー ==================
 PAGE_SIZE = 30
 
 
@@ -112,13 +105,6 @@ def _parse_date(s: str | None):
 
 
 def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
-    """
-    クエリ:
-      broker=楽天|松井|SBI|ALL
-      kind=ALL|DEPOSIT|WITHDRAW|XFER|SYSTEM
-      start=YYYY-MM-DD / end=YYYY-MM-DD
-      q=メモ部分一致
-    """
     broker = request.GET.get("broker", "ALL")
     kind = request.GET.get("kind", "ALL").upper()
     start = _parse_date(request.GET.get("start"))
@@ -126,10 +112,8 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
     q = (request.GET.get("q") or "").strip()
 
     qs = CashLedger.objects.select_related("account").order_by("-at", "-id")
-
     if broker and broker != "ALL":
         qs = qs.filter(account__broker=broker)
-
     if kind != "ALL":
         if kind == "DEPOSIT":
             qs = qs.filter(kind=CashLedger.Kind.DEPOSIT)
@@ -137,9 +121,6 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
             qs = qs.filter(kind=CashLedger.Kind.WITHDRAW)
         elif kind == "XFER":
             qs = qs.filter(kind__in=[CashLedger.Kind.XFER_IN, CashLedger.Kind.XFER_OUT])
-        elif kind == "SYSTEM":
-            qs = qs.filter(kind=CashLedger.Kind.SYSTEM)
-
     if start:
         qs = qs.filter(at__gte=start)
     if end:
@@ -147,225 +128,59 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
     if q:
         qs = qs.filter(Q(memo__icontains=q))
 
-    # 集計（現在のフィルタに対して）
     agg = qs.aggregate(
         total=Sum("amount"),
         dep=Sum("amount", filter=Q(kind=CashLedger.Kind.DEPOSIT)),
         wd=Sum("amount", filter=Q(kind=CashLedger.Kind.WITHDRAW)),
-        xin=Sum("amount", filter=Q(kind=CashLedger.Kind.XFER_IN)),
-        xout=Sum("amount", filter=Q(kind=CashLedger.Kind.XFER_OUT)),
     )
     summary = {
         "total": int(agg["total"] or 0),
         "deposit": int(agg["dep"] or 0),
         "withdraw": int(agg["wd"] or 0),
-        "xfer_in": int(agg["xin"] or 0),
-        "xfer_out": int(agg["xout"] or 0),
     }
     return qs, summary
 
 
-def _source_is_dividend(v) -> bool:
-    if v is None:
-        return False
-    try:
-        return int(v) == int(CashLedger.SourceType.DIVIDEND)
-    except Exception:
-        return str(v).upper() in {"DIVIDEND", "DIV", "2"}  # 2 は保険
-
-
-def _source_is_realized(v) -> bool:
-    if v is None:
-        return False
-    try:
-        return int(v) == int(CashLedger.SourceType.REALIZED)
-    except Exception:
-        return str(v).upper() in {"REALIZED", "REAL", "1"}  # 1 は保険
-
-
-def _safe_str(val) -> str:
-    return (val or "").strip()
-
-
 def _attach_source_labels(page):
-    """page.object_list に r.src_badge を付与（取得不可は DIV:ID / REAL:ID でフォールバック）"""
     items = list(page.object_list or [])
     if not items:
         return
-
-    div_ids, real_ids = set(), set()
-    for r in items:
-        st = getattr(r, "source_type", None)
-        sid = getattr(r, "source_id", None)
-        if sid is None:
-            continue
-        try:
-            sid_int = int(sid)
-        except Exception:
-            continue
-        if _source_is_dividend(st):
-            div_ids.add(sid_int)
-        elif _source_is_realized(st):
-            real_ids.add(sid_int)
-
+    div_ids = [r.source_id for r in items if r.source_type == CashLedger.SourceType.DIVIDEND]
+    real_ids = [r.source_id for r in items if r.source_type == CashLedger.SourceType.REALIZED]
     div_map = {d.id: d for d in Dividend.objects.filter(id__in=div_ids)}
     real_map = {x.id: x for x in RealizedTrade.objects.filter(id__in=real_ids)}
 
-    def build_label_from_div(d: Dividend) -> str:
-        tkr = _safe_str(getattr(d, "display_ticker", None) or getattr(d, "ticker", None)).upper()
-        name = _safe_str(getattr(d, "display_name", None) or getattr(d, "name", None))
-        return (f"{tkr} {name}".strip() or "—")
-
-    def build_label_from_real(x: RealizedTrade) -> str:
-        tkr = _safe_str(getattr(x, "ticker", None)).upper()
-        name = _safe_str(getattr(x, "name", None))
-        return (f"{tkr} {name}".strip() or "—")
-
     for r in items:
-        r.src_badge = None
-        st = getattr(r, "source_type", None)
-        sid = getattr(r, "source_id", None)
-        try:
-            sid_int = int(sid) if sid is not None else None
-        except Exception:
-            sid_int = None
-
-        if sid_int is not None and _source_is_dividend(st):
-            label = build_label_from_div(div_map[sid_int]) if sid_int in div_map else f"DIV:{sid_int}"
-            r.src_badge = {"kind": "配当", "class": "chip chip-sky", "label": label}
-            continue
-
-        if sid_int is not None and _source_is_realized(st):
-            label = build_label_from_real(real_map[sid_int]) if sid_int in real_map else f"REAL:{sid_int}"
-            r.src_badge = {"kind": "実損", "class": "chip chip-emerald", "label": label}
-            continue
-
+        if r.source_type == CashLedger.SourceType.DIVIDEND:
+            d = div_map.get(r.source_id)
+            if d:
+                r.src_badge = {"kind": "配当", "label": f"{d.ticker} {d.name}"}
+        elif r.source_type == CashLedger.SourceType.REALIZED:
+            x = real_map.get(r.source_id)
+            if x:
+                r.src_badge = {"kind": "実損", "label": f"{x.ticker} {x.name}"}
     page.object_list = items
 
 
-# ================== カーソル ==================
-def _tuple_cursor_of(qs_slice):
-    """
-    末尾からカーソル (at_iso, id) を返す。at が None/不正なら "1970-01-01" で代用。
-    """
-    try:
-        tail = qs_slice[-1]
-    except Exception:
-        return None
-    at_val = getattr(tail, "at", None)
-    try:
-        at_iso = at_val.isoformat() if at_val else "1970-01-01"
-    except Exception:
-        at_iso = "1970-01-01"
-    return (at_iso, tail.id)
-
-
-def _is_dup_cursor(request: HttpRequest) -> bool:
-    """
-    同一カーソルの連投をセッションで弾く（二重発火の最終保険）。
-    フィルタ条件も含めてキー化。
-    """
-    key = "|".join(
-        [
-            request.GET.get("broker", ""),
-            request.GET.get("kind", ""),
-            request.GET.get("start", ""),
-            request.GET.get("end", ""),
-            request.GET.get("q", ""),
-            request.GET.get("cursor_at", ""),
-            request.GET.get("cursor_id", ""),
-            request.GET.get("page", ""),
-        ]
-    )
-    last = request.session.get("_cash_hist_last")
-    request.session["_cash_hist_last"] = key
-    return key == last
-
-
-# ================== 履歴：一覧 / 追加読込 ==================
+# ================== 一覧 / 読込 ==================
 @require_http_methods(["GET"])
 def cash_history(request: HttpRequest) -> HttpResponse:
-    """現金台帳メイン（1ページ目のみ描画）"""
     svc.ensure_default_accounts()
     qs, summary = _filtered_ledger(request)
-
-    p = Paginator(qs, PAGE_SIZE).get_page(1)
+    paginator = Paginator(qs, PAGE_SIZE)
+    p = paginator.get_page(1)
     _attach_source_labels(p)
-
-    cursor = _tuple_cursor_of(list(p)) if p.has_next() else None
-
     return render(
-        request,
-        "cash/history.html",
-        {"page": p, "summary": summary, "params": request.GET, "cursor": cursor},
+        request, "cash/history.html",
+        {"page": p, "summary": summary, "params": request.GET}
     )
 
 
 @require_http_methods(["GET"])
 def cash_history_page(request: HttpRequest) -> HttpResponse:
-    """
-    無限スクロール追加分。カーソル優先、なければ page 番号フォールバック。
-    - cursor_at は必ず date にパースして比較
-    - 同一カーソルは 204 で即終了
-    """
-    # 二重発火をセッションで遮断
-    if _is_dup_cursor(request):
-        return HttpResponse(status=204)
-
     qs, _ = _filtered_ledger(request)
-
-    cursor_at = request.GET.get("cursor_at")
-    cursor_id = request.GET.get("cursor_id")
-
-    if cursor_at and cursor_id:
-        # 並び順は -at, -id。cursor_at は ISO から date 化して比較。
-        try:
-            at_dt = datetime.fromisoformat(cursor_at).date()
-            qs = qs.filter(Q(at__lt=at_dt) | Q(at=at_dt, id__lt=int(cursor_id)))
-        except Exception:
-            # パース失敗時はそのまま（=フォールバック）
-            pass
-        # 念のため順序を明示して最適化の"順序落ち"を防ぐ
-        qs = qs.order_by("-at", "-id")
-        p = Paginator(qs, PAGE_SIZE).get_page(1)  # 追加チャンクは常に1ページ目扱い
-    else:
-        page_no = int(request.GET.get("page") or 1)
-        p = Paginator(qs, PAGE_SIZE).get_page(page_no)
-
+    page_no = int(request.GET.get("page") or 1)
+    paginator = Paginator(qs, PAGE_SIZE)
+    p = paginator.get_page(page_no)
     _attach_source_labels(p)
-    next_cursor = _tuple_cursor_of(list(p)) if p.has_next() else None
-
-    return render(
-        request,
-        "cash/_history_list.html",
-        {"page": p, "params": request.GET, "cursor": next_cursor},
-    )
-
-
-# ================== 履歴：編集 / 削除 ==================
-@require_http_methods(["GET", "POST"])
-def ledger_edit(request: HttpRequest, pk: int):
-    obj = get_object_or_404(CashLedger, pk=pk)
-    if request.method == "POST":
-        try:
-            obj.at = _parse_date(request.POST.get("at")) or obj.at
-            obj.amount = int(request.POST.get("amount") or obj.amount)
-            obj.memo = request.POST.get("memo", obj.memo)
-            obj.kind = int(request.POST.get("kind") or obj.kind)
-            obj.save()
-            messages.success(request, "台帳を更新しました。")
-            return redirect("cash_history")
-        except Exception as e:
-            messages.error(request, f"更新に失敗：{e}")
-    return render(request, "cash/edit_ledger.html", {"obj": obj})
-
-
-@require_http_methods(["POST"])
-def ledger_delete(request: HttpRequest, pk: int):
-    obj = get_object_or_404(CashLedger, pk=pk)
-    try:
-        obj.delete()
-        messages.success(request, "台帳を削除しました。")
-    except Exception as e:
-        messages.error(request, f"削除に失敗：{e}")
-    return redirect("cash_history")
+    return render(request, "cash/_history_list.html", {"page": p, "params": request.GET})
