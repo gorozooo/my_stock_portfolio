@@ -23,24 +23,38 @@
         {% endwith %}
       </div>
 
-      {# 右：元データバッジ（フォールバック付きで必ず1つ表示） #}
+      {# 右：元データバッジ（常に TICKER 名称 で出す） #}
       <div class="text-right shrink-0">
+        {# 1) src_badge があればその内容を使う #}
         {% if r.src_badge %}
           {% if r.src_badge.kind == "配当" %}
-            <span class="{{ r.src_badge.class|default:'chip chip-sky' }}">【配当】 {{ r.src_badge.label }}</span>
+            <span class="{{ r.src_badge.class|default:'chip chip-sky' }}">
+              【配当】
+              {% firstof r.ticker r.code '' %} {% firstof r.company_name r.name r.src_badge.label '' %}
+            </span>
           {% elif r.src_badge.kind == "実損" %}
-            <span class="{{ r.src_badge.class|default:'chip chip-emerald' }}">【実損】 {{ r.src_badge.label }}</span>
+            <span class="{{ r.src_badge.class|default:'chip chip-emerald' }}">
+              【実損】
+              {% firstof r.ticker r.code '' %} {% firstof r.company_name r.name r.src_badge.label '' %}
+            </span>
           {% else %}
-            <span class="chip">取引</span>
+            <span class="chip">{% firstof r.src_badge.label '取引' %}</span>
           {% endif %}
+
+        {# 2) なければ source_type から強制表示 #}
         {% else %}
-          {# src_badge が無くても source_type から強制表示 #}
           {% if r.source_type == r.SourceType.DIVIDEND %}
-            <span class="chip chip-sky">【配当】 {{ r.ticker|default:'' }} {{ r.name|default:'' }}</span>
+            <span class="chip chip-sky">
+              【配当】 {% firstof r.ticker r.code '' %} {% firstof r.company_name r.name '' %}
+            </span>
           {% elif r.source_type == r.SourceType.REALIZED %}
-            <span class="chip chip-emerald">【実損】 {{ r.ticker|default:'' }} {{ r.name|default:'' }}</span>
+            <span class="chip chip-emerald">
+              【実損】 {% firstof r.ticker r.code '' %} {% firstof r.company_name r.name '' %}
+            </span>
           {% else %}
-            <span class="chip">取引</span>
+            <span class="chip">
+              {% firstof r.ticker r.code '取引' %} {% firstof r.company_name r.name '' %}
+            </span>
           {% endif %}
         {% endif %}
 
