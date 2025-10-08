@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 from datetime import date, datetime
 from typing import Optional, Tuple
@@ -112,11 +113,10 @@ def _parse_date(s: str | None):
 
 def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
     """
-    クエリパラメータ:
+    クエリ:
       broker=楽天|松井|SBI|ALL
       kind=ALL|DEPOSIT|WITHDRAW|XFER|SYSTEM
-      start=YYYY-MM-DD
-      end=YYYY-MM-DD
+      start=YYYY-MM-DD / end=YYYY-MM-DD
       q=メモ部分一致
     """
     broker = request.GET.get("broker", "ALL")
@@ -162,7 +162,6 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
         "xfer_in": int(agg["xin"] or 0),
         "xfer_out": int(agg["xout"] or 0),
     }
-
     return qs, summary
 
 
@@ -247,127 +246,66 @@ def _attach_source_labels(page):
 # ================== カーソル式ページング（重複防止の決定版） ==================
 def _tuple_cursor_of(qs_slice):
     """
-    与えられたスライスの末尾からカーソル (at_iso, id) を返す。
-    at が None の場合は id のみでフォールバック。
+    末尾からカーソル (at_iso, id) を返す。at が None の場合は 1970-01-01 で代用。
     """
     try:
         tail = qs_slice[-1]
     except Exception:
         return None
-
     at_val = getattr(tail, "at", None)
     if at_val is None:
-        # None を防ぐためフォールバック値を生成（固定日付を代用）
         return ("1970-01-01", tail.id)
     try:
         return (at_val.isoformat(), tail.id)
     except Exception:
-        # 予期しない型も保険で1970-01-01扱い
         return ("1970-01-01", tail.id)
-
-
-def _apply_cursor(qs: QuerySet, cursor_at: Optional[str], cursor_id: Optional[int]) -> QuerySet:
-    """
-    並び順は -at, -id。次ページは (at < cursor_at) OR (at = cursor_at AND id < cursor_id)
-    """
-    if not cursor_at or not cursor_id:
-        return qs
-    try:
-        at_dt = datetime.fromisoformat(cursor_at).date()
-    except Exception:
-        return qs
-    return qs.filter(Q(at__lt=at_dt) | Q(at=at_dt, id__lt=cursor_id))
-
-
-def _dup_cursor(request: HttpRequest, cursor_key: str) -> bool:
-    """
-    同一カーソルの連投は 204 にするためのセッション比較
-    """
-    cur = f"{request.GET.get('cursor_at','')}|{request.GET.get('cursor_id','')}"
-    last = request.session.get(cursor_key)
-    request.session[cursor_key] = cur
-    return cur == last
 
 
 # ================== 履歴：一覧 / 追加読込 ==================
 @require_http_methods(["GET"])
 def cash_history(request: HttpRequest) -> HttpResponse:
-    """現金台帳メインページ（1ページ目のみ）"""
+    """現金台帳メイン（1ページ目のみ描画）"""
     svc.ensure_default_accounts()
     qs, summary = _filtered_ledger(request)
 
-    paginator = Paginator(qs, PAGE_SIZE)
-    p = paginator.get_page(1)
-
-    # カーソルは1回だけ生成
-    cursor = None
-    if p.has_next():
-        first_chunk = list(p)
-        tail = first_chunk[-1] if first_chunk else None
-        if tail:
-            try:
-                at_iso = tail.at.isoformat() if tail.at else "1970-01-01"
-                cursor = (at_iso, tail.id)
-            except Exception:
-                cursor = ("1970-01-01", tail.id)
-
+    p = Paginator(qs, PAGE_SIZE).get_page(1)
     _attach_source_labels(p)
+
+    cursor = _tuple_cursor_of(list(p)) if p.has_next() else None
 
     return render(
         request,
         "cash/history.html",
-        {
-            "page": p,
-            "summary": summary,
-            "params": request.GET,
-            "cursor": cursor,
-        },
+        {"page": p, "summary": summary, "params": request.GET, "cursor": cursor},
     )
 
 
 @require_http_methods(["GET"])
 def cash_history_page(request: HttpRequest) -> HttpResponse:
-    """無限スクロール追加分"""
+    """無限スクロール追加分。カーソル優先、なければpage番号フォールバック。"""
     qs, _ = _filtered_ledger(request)
 
-    # カーソル方式優先
     cursor_at = request.GET.get("cursor_at")
     cursor_id = request.GET.get("cursor_id")
 
     if cursor_at and cursor_id:
+        # 並び順は -at, -id
         try:
-            qs = qs.filter(
-                Q(at__lt=cursor_at)
-                | Q(at=cursor_at, id__lt=cursor_id)
-            )
+            qs = qs.filter(Q(at__lt=cursor_at) | Q(at=cursor_at, id__lt=int(cursor_id)))
         except Exception:
             pass
-
-    paginator = Paginator(qs, PAGE_SIZE)
-    p = paginator.get_page(1)  # ← ここは常に1ページ目（次のチャンク扱い）
+        p = Paginator(qs, PAGE_SIZE).get_page(1)
+    else:
+        page_no = int(request.GET.get("page") or 1)
+        p = Paginator(qs, PAGE_SIZE).get_page(page_no)
 
     _attach_source_labels(p)
-
-    # 次カーソル
-    next_cursor = None
-    if p.has_next():
-        chunk = list(p)
-        tail = chunk[-1] if chunk else None
-        if tail:
-            try:
-                at_iso = tail.at.isoformat() if tail.at else "1970-01-01"
-                next_cursor = (at_iso, tail.id)
-            except Exception:
-                next_cursor = ("1970-01-01", tail.id)
+    next_cursor = _tuple_cursor_of(list(p)) if p.has_next() else None
 
     return render(
         request,
         "cash/_history_list.html",
-        {
-            "page": p,
-            "params": request.GET,
-            "cursor": next_cursor,
-        },
+        {"page": p, "params": request.GET, "cursor": next_cursor},
     )
 
 
