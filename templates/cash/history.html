@@ -32,7 +32,7 @@
     background:rgba(255,255,255,.05);
     border:1px solid rgba(255,255,255,.14);
     border-radius:8px;
-    min-width:0;                 /* ← iOS 日付ピッカーのはみ出し防止 */
+    min-width:0;
   }
   input[type="date"].qb-ctl{ color-scheme: dark; }
   .qb-btn{ background:rgba(255,255,255,.06); }
@@ -41,15 +41,15 @@
   /* 行配置 */
   #qb-broker { grid-column: 1 / 2; }
   #qb-kind   { grid-column: 2 / 3; }
-  #qb-q      { grid-column: 3 / 4; }
-  #qb-start  { grid-column: 4 / 5; }
-  #qb-end    { grid-column: 5 / 6; }
+  #qb-q      { grid-column: 3 / 6; }  /* 1段目いっぱいに広げる */
+  #qb-start  { grid-column: 1 / 3; }  /* 2段目左側 */
+  #qb-end    { grid-column: 3 / 6; }  /* 2段目右側 */
 
   /* ボタンは中央寄せで「適用→クリア」 */
   .btn-row{
     grid-column: 1 / -1;
     display:flex;
-    justify-content:center;      /* ← 中央寄せ */
+    justify-content:center;
     gap:8px;
     margin-top:6px;
   }
@@ -106,13 +106,15 @@
            placeholder="例: 配当 / 実現益 / REAL:21 など"
            class="qb-ctl">
 
-    <!-- 開始日 -->
+    <!-- 開始日（例文付き） -->
     <input id="qb-start" type="date" name="start"
-           value="{{ params.start|default_if_none:'' }}" class="qb-ctl">
+           value="{{ params.start|default_if_none:'' }}"
+           placeholder="例: 2025/10/01" class="qb-ctl">
 
-    <!-- 終了日 -->
+    <!-- 終了日（例文付き） -->
     <input id="qb-end" type="date" name="end"
-           value="{{ params.end|default_if_none:'' }}" class="qb-ctl">
+           value="{{ params.end|default_if_none:'' }}"
+           placeholder="例: 2025/10/08" class="qb-ctl">
 
     <!-- ボタン（中央寄せ／順序＝適用→クリア） -->
     <div class="btn-row">
