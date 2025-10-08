@@ -77,13 +77,16 @@
   {% endif %}
 </div>
 
+{# ===== リスト ===== #}
 {% for r in page.object_list %}
   <div class="card">
     <div class="amount">{{ r.amount|intcomma }} 円</div>
     <div class="meta">
       {{ r.at|default:"" }} ｜ {{ r.account.broker|default:"" }} ｜ 種別：
-      {% if r.kind == r.Kind.DEPOSIT %}入金{% elif r.kind == r.Kind.WITHDRAW %}出金
-      {% elif r.kind == r.Kind.XFER_IN %}振替(入){% elif r.kind == r.Kind.XFER_OUT %}振替(出)
+      {% if r.kind == r.Kind.DEPOSIT %}入金
+      {% elif r.kind == r.Kind.WITHDRAW %}出金
+      {% elif r.kind == r.Kind.XFER_IN %}振替(入)
+      {% elif r.kind == r.Kind.XFER_OUT %}振替(出)
       {% else %}その他{% endif %}
       {% if r.src_badge %}
         <span class="{{ r.src_badge.class }}">
@@ -107,14 +110,21 @@
   <div class="text-slate-400">該当データがありません。</div>
 {% endfor %}
 
+{# ===== ページャ（page を除外して付け直し。空値排除） ===== #}
 {% if page.paginator.num_pages > 1 %}
   <div class="flex items-center justify-center gap-8 my-3 text-[12px]">
     {% if page.has_previous %}
-      <a class="qb-btn" href="?page={{ page.previous_page_number }}&{{ params.urlencode }}">← 前へ</a>
+      <a class="qb-btn"
+         href="?{% for k,v in params.items %}{% if k != 'page' and v != None and v != '' %}{{ k }}={{ v|urlencode }}&{% endif %}{% endfor %}page={{ page.previous_page_number }}">
+        ← 前へ
+      </a>
     {% endif %}
     <span>ページ {{ page.number }} / {{ page.paginator.num_pages }}</span>
     {% if page.has_next %}
-      <a class="qb-btn" href="?page={{ page.next_page_number }}&{{ params.urlencode }}">次へ →</a>
+      <a class="qb-btn"
+         href="?{% for k,v in params.items %}{% if k != 'page' and v != None and v != '' %}{{ k }}={{ v|urlencode }}&{% endif %}{% endfor %}page={{ page.next_page_number }}">
+        次へ →
+      </a>
     {% endif %}
   </div>
 {% endif %}
