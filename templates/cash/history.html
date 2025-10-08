@@ -72,6 +72,12 @@
   .chip-emerald{border-color:rgba(16,185,129,.35);color:#bbf7d0;background:rgba(16,185,129,.08)}
   .actions{margin-top:6px;display:flex;justify-content:flex-end;gap:6px}
   .actions a,.actions button{padding:5px 8px;font-size:11px;border-radius:8px;border:1px solid rgba(255,255,255,.2)}
+
+  /* ===== ページャ（新規：無限スクロール廃止） ===== */
+  .pager{ display:flex; align-items:center; justify-content:center; gap:8px; margin:12px 0 4px }
+  .pager .btn{ padding:6px 10px; font-size:12px; border-radius:10px;
+               border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.06); color:#e6ebff }
+  .pager .info{ font-size:12px; color:#aab6d1 }
 </style>
 {% endblock %}
 
@@ -113,7 +119,7 @@
            value="{{ params.end|default_if_none:'' }}"
            placeholder="例: 2025/10/08" class="qb-ctl">
 
-    <!-- 3段目：ボタン（見た目同等） -->
+    <!-- 3段目：ボタン（見た目同等 / 適用→クリア） -->
     <div class="btn-row">
       <button class="qb-btn" type="submit">適用</button>
       <button class="qb-btn" type="button" onclick="location.href='{% url 'cash_history' %}'">クリア</button>
@@ -135,13 +141,16 @@
   {% include "cash/_history_list.html" with page=page params=params %}
 </div>
 
-{% if page.has_next %}
-  <div
-    hx-get="{% url 'cash_history_page' %}?page={{ page.next_page_number }}&{{ params.urlencode }}"
-    hx-trigger="revealed"
-    hx-swap="afterend"
-    class="text-center text-slate-400 py-2 text-[12px]">
-    読み込み中…
+{# ==== 無限スクロールを廃止 → 通常のページャ ==== #}
+{% if page.has_other_pages %}
+  <div class="pager">
+    {% if page.has_previous %}
+      <a class="btn" href="{% url 'cash_history' %}?{{ params.urlencode }}&page={{ page.previous_page_number }}">前へ</a>
+    {% endif %}
+    <span class="info">{{ page.number }} / {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}
+      <a class="btn" href="{% url 'cash_history' %}?{{ params.urlencode }}&page={{ page.next_page_number }}">次へ</a>
+    {% endif %}
   </div>
 {% endif %}
 {% endblock %}
