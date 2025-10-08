@@ -17,7 +17,7 @@
     box-shadow:0 2px 0 rgba(255,255,255,.06) inset;
   }
 
-  /* ===== フィルター（4カラム） ===== */
+  /* ===== フィルター（4カラム：保有画面と同じ縮尺） ===== */
   .quickbar{
     display:grid;
     grid-template-columns: repeat(4, minmax(0,1fr));
@@ -43,24 +43,24 @@
   #qb-kind   { grid-column: 2 / 3; }
   #qb-q      { grid-column: 3 / 5; }
 
-  /* 2段目：開始日 / 終了日（均等） */
+  /* 2段目：開始・終了（50%/50%） */
   #qb-start  { grid-column: 1 / 3; }
   #qb-end    { grid-column: 3 / 5; }
 
-  /* 3段目：ボタン（中央寄せ、適用→クリア） */
+  /* 3段目：ボタン中央寄せ（適用→クリア） */
   .btn-row{
     grid-column: 1 / -1;
     display:flex; justify-content:center; gap:8px;
     margin-top:6px;
   }
 
-  /* ===== サマリー（既存のまま） ===== */
+  /* ===== サマリー（触らない） ===== */
   .sum-wrap{ display:grid; gap:6px; grid-template-columns:repeat(2,1fr); margin-top:6px }
   .pill{ border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.05);
          border-radius:8px; padding:6px 8px; text-align:center; font-size:12px; color:#cbd5e1 }
   .sum-total{ grid-column:1 / -1; background:rgba(255,255,255,.07); font-weight:600 }
 
-  /* ===== リスト ===== */
+  /* ===== リスト（既存） ===== */
   .card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
         border-radius:14px;padding:10px 12px;margin-bottom:10px}
   .amount{font-size:20px;font-weight:800}
@@ -135,14 +135,61 @@
 </div>
 
 {% if page.has_next %}
-  {# --- 無限スクロール：二重発火/重複防止 --- #}
-  <div
-    hx-get="{% url 'cash_history_page' %}?page={{ page.next_page_number }}{% if params.broker %}&broker={{ params.broker|urlencode }}{% endif %}{% if params.kind %}&kind={{ params.kind|urlencode }}{% endif %}{% if params.start %}&start={{ params.start|urlencode }}{% endif %}{% if params.end %}&end={{ params.end|urlencode }}{% endif %}{% if params.q %}&q={{ params.q|urlencode }}{% endif %}"
-    hx-trigger="revealed once"
-    hx-swap="afterend"
-    hx-on::after-request="this.remove()"
-    class="text-center text-slate-400 py-2 text-[12px]">
+  {# --- 無限スクロール：重複防止版（1回だけ発火→完了後に次ページへ差し替え） --- #}
+  <div id="moreSentinel"
+       class="text-center text-slate-400 py-2 text-[12px]"
+       data-page="{{ page.next_page_number }}"
+       data-broker="{{ params.broker|default_if_none:''|urlencode }}"
+       data-kind="{{ params.kind|default_if_none:''|urlencode }}"
+       data-start="{{ params.start|default_if_none:''|urlencode }}"
+       data-end="{{ params.end|default_if_none:''|urlencode }}"
+       data-q="{{ params.q|default_if_none:''|urlencode }}"
+       hx-trigger="intersect once"
+       hx-swap="afterend">
     読み込み中…
   </div>
+
+  <script>
+    (function(){
+      const baseUrl = "{% url 'cash_history_page' %}";
+      const el = document.getElementById('moreSentinel');
+      if(!el) return;
+
+      function buildURL(){
+        const p = new URLSearchParams();
+        p.set('page', el.dataset.page || '2');
+        if(el.dataset.broker) p.set('broker', el.dataset.broker);
+        if(el.dataset.kind)   p.set('kind',   el.dataset.kind);
+        if(el.dataset.start)  p.set('start',  el.dataset.start);
+        if(el.dataset.end)    p.set('end',    el.dataset.end);
+        if(el.dataset.q)      p.set('q',      el.dataset.q);
+        return baseUrl + '?' + p.toString();
+      }
+
+      // 初回だけ発火 → 送信中は二度押し防止 → 完了後に次ページ番号を更新し、再武装
+      el.setAttribute('hx-get', buildURL());
+      let busy = false;
+
+      el.addEventListener('htmx:beforeRequest', function(){
+        if(busy) return false;
+        busy = true;
+      });
+
+      el.addEventListener('htmx:afterSwap', function(e){
+        // 追加分は afterend で挿入済み。次ページが必要なら番号を+1して再武装。
+        // サーバ側の部分テンプレートではローダーを返していない前提。
+        const next = (parseInt(el.dataset.page || '1', 10) + 1).toString();
+        el.dataset.page = next;
+        el.setAttribute('hx-get', buildURL());
+
+        // すぐ再発火させず、視界から外れて再度 intersect するまで待つ
+        el.setAttribute('hx-trigger', 'intersect once');
+        busy = false;
+      });
+
+      // 念のため：通信エラー時も busy を解除
+      el.addEventListener('htmx:afterRequest', function(){ busy = false; });
+    })();
+  </script>
 {% endif %}
 {% endblock %}
