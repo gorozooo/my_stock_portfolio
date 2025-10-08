@@ -5,54 +5,36 @@
 {% block head %}
 <style>
   #topSticky{
-    position: sticky;
-    top: env(safe-area-inset-top, 0px);
-    z-index: 12;
-    border:1px solid rgba(255,255,255,.12);
-    border-radius:12px;
-    background:rgba(15,20,30,.96);
-    backdrop-filter: blur(8px);
-    padding:8px;
-    margin:0 0 8px;
-    box-shadow:0 2px 0 rgba(255,255,255,.06) inset;
+    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 12;
+    border:1px solid rgba(255,255,255,.12); border-radius:12px;
+    background:rgba(15,20,30,.96); backdrop-filter: blur(8px);
+    padding:8px; margin:0 0 8px; box-shadow:0 2px 0 rgba(255,255,255,.06) inset;
   }
-
-  .quickbar{
-    display:grid; grid-template-columns: repeat(4, minmax(0,1fr));
-    gap:6px; align-items:center;
-  }
-  .qb-ctl, .qb-btn{
-    height:30px; padding:0 8px; font-size:12px; color:#dbe3f4;
-    background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.14);
-    border-radius:8px; min-width:0;
-  }
+  .quickbar{display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:6px; align-items:center;}
+  .qb-ctl,.qb-btn{height:30px; padding:0 8px; font-size:12px; color:#dbe3f4;
+                  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.14);
+                  border-radius:8px; min-width:0;}
   input[type="date"].qb-ctl{ color-scheme: dark; }
   .qb-btn{ background:rgba(255,255,255,.06); }
   .qb-btn.ghost{ background:transparent; }
-
-  /* 1段目 */
   #qb-broker{grid-column:1/2;} #qb-kind{grid-column:2/3;} #qb-q{grid-column:3/5;}
-  /* 2段目 */
-  #qb-start{grid-column:1/3;} #qb-end{grid-column:3/5;}
-  /* 3段目 */
+  #qb-start{grid-column:1/3;}  #qb-end{grid-column:3/5;}
   .btn-row{grid-column:1/-1; display:flex; justify-content:center; gap:8px; margin-top:6px;}
-
-  .sum-wrap{ display:grid; gap:6px; grid-template-columns:repeat(2,1fr); margin-top:6px }
-  .pill{ border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.05);
-         border-radius:8px; padding:6px 8px; text-align:center; font-size:12px; color:#cbd5e1 }
-  .sum-total{ grid-column:1 / -1; background:rgba(255,255,255,.07); font-weight:600 }
-
-  .card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
-        border-radius:14px;padding:10px 12px;margin-bottom:10px}
-  .amount{font-size:20px;font-weight:800}
-  .meta{margin-top:2px;font-size:11px;color:#94a3b8}
-  .memo{margin-top:2px;font-size:11px;color:#cbd5e1;word-break:break-word}
-  .chip{display:inline-flex;align-items:center;gap:.4em;padding:.25rem .5rem;border-radius:9999px;border:1px solid;
-        font-size:11px;line-height:1;white-space:nowrap}
-  .chip-sky{border-color:rgba(125,160,255,.35);color:#c7d2fe;background:rgba(125,160,255,.08)}
-  .chip-emerald{border-color:rgba(16,185,129,.35);color:#bbf7d0;background:rgba(16,185,129,.08)}
-  .actions{margin-top:6px;display:flex;justify-content:flex-end;gap:6px}
-  .actions a,.actions button{padding:5px 8px;font-size:11px;border-radius:8px;border:1px solid rgba(255,255,255,.2)}
+  .sum-wrap{display:grid; gap:6px; grid-template-columns:repeat(2,1fr); margin-top:6px}
+  .pill{border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.05);
+        border-radius:8px; padding:6px 8px; text-align:center; font-size:12px; color:#cbd5e1}
+  .sum-total{grid-column:1/-1; background:rgba(255,255,255,.07); font-weight:600}
+  .card{border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.04);
+        border-radius:14px; padding:10px 12px; margin-bottom:10px}
+  .amount{font-size:20px; font-weight:800}
+  .meta{margin-top:2px; font-size:11px; color:#94a3b8}
+  .memo{margin-top:2px; font-size:11px; color:#cbd5e1; word-break:break-word}
+  .chip{display:inline-flex; align-items:center; gap:.4em; padding:.25rem .5rem; border-radius:9999px; border:1px solid;
+        font-size:11px; line-height:1; white-space:nowrap}
+  .chip-sky{border-color:rgba(125,160,255,.35); color:#c7d2fe; background:rgba(125,160,255,.08)}
+  .chip-emerald{border-color:rgba(16,185,129,.35); color:#bbf7d0; background:rgba(16,185,129,.08)}
+  .actions{margin-top:6px; display:flex; justify-content:flex-end; gap:6px}
+  .actions a,.actions button{padding:5px 8px; font-size:11px; border-radius:8px; border:1px solid rgba(255,255,255,.2)}
 </style>
 {% endblock %}
 
@@ -61,7 +43,6 @@
 
 <div id="topSticky">
   <form method="get" class="quickbar">
-    <!-- 1段目 -->
     <select id="qb-broker" name="broker" class="qb-ctl">
       {% with b=params.broker|default:"ALL" %}
         <option value="ALL"  {% if b == "ALL" %}selected{% endif %}>証券会社: すべて</option>
@@ -80,20 +61,14 @@
       {% endwith %}
     </select>
 
-    <input id="qb-q" type="text" name="q"
-           value="{{ params.q|default_if_none:'' }}"
-           placeholder="例: 配当 / 実現益 / REAL:21 など"
-           class="qb-ctl">
+    <input id="qb-q" type="text" name="q" value="{{ params.q|default_if_none:'' }}"
+           placeholder="例: 配当 / 実現益 / REAL:21 など" class="qb-ctl">
 
-    <!-- 2段目 -->
-    <input id="qb-start" type="date" name="start"
-           value="{{ params.start|default_if_none:'' }}"
+    <input id="qb-start" type="date" name="start" value="{{ params.start|default_if_none:'' }}"
            placeholder="例: 2025/10/01" class="qb-ctl">
-    <input id="qb-end" type="date" name="end"
-           value="{{ params.end|default_if_none:'' }}"
+    <input id="qb-end" type="date" name="end" value="{{ params.end|default_if_none:'' }}"
            placeholder="例: 2025/10/08" class="qb-ctl">
 
-    <!-- 3段目 -->
     <div class="btn-row">
       <button class="qb-btn" type="submit">適用</button>
       <button class="qb-btn" type="button" onclick="location.href='{% url 'cash_history' %}'">クリア</button>
@@ -112,7 +87,7 @@
 </div>
 
 <div id="historyContainer">
-  {# ★ 初回チャンクだけ描画。ローダーは _history_list.html にのみ存在させる（重複防止） #}
+  {# 初回チャンクのみ。ローダは部分テンプレ側だけに置く（重複防止） #}
   {% include "cash/_history_list.html" with page=page cursor=cursor params=params %}
 </div>
 {% endblock %}
