@@ -184,3 +184,32 @@ def cash_history_page(request: HttpRequest) -> HttpResponse:
     p = paginator.get_page(page_no)
     _attach_source_labels(p)
     return render(request, "cash/_history_list.html", {"page": p, "params": request.GET})
+
+
+# ================== 編集 / 削除 ==================
+@require_http_methods(["GET", "POST"])
+def ledger_edit(request: HttpRequest, pk: int):
+    obj = get_object_or_404(CashLedger, pk=pk)
+    if request.method == "POST":
+        try:
+            obj.at = _parse_date(request.POST.get("at")) or obj.at
+            obj.amount = int(request.POST.get("amount") or obj.amount)
+            obj.memo = request.POST.get("memo", obj.memo)
+            obj.kind = int(request.POST.get("kind") or obj.kind)
+            obj.save()
+            messages.success(request, "台帳を更新しました。")
+            return redirect("cash_history")
+        except Exception as e:
+            messages.error(request, f"更新に失敗：{e}")
+    return render(request, "cash/edit_ledger.html", {"obj": obj})
+
+
+@require_http_methods(["POST"])
+def ledger_delete(request: HttpRequest, pk: int):
+    obj = get_object_or_404(CashLedger, pk=pk)
+    try:
+        obj.delete()
+        messages.success(request, "台帳を削除しました。")
+    except Exception as e:
+        messages.error(request, f"削除に失敗：{e}")
+    return redirect("cash_history")
