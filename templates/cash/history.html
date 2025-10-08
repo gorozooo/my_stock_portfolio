@@ -17,34 +17,50 @@
     box-shadow:0 2px 0 rgba(255,255,255,.06) inset;
   }
 
-  /* ===== フィルター（4カラム） ===== */
+  /* ===== フィルター（4カラム：50%が作りやすい） ===== */
   .quickbar{
     display:grid;
     grid-template-columns: repeat(4, minmax(0,1fr));
-    gap:6px; align-items:center;
+    gap:6px;
+    align-items:center;
   }
-  .qb-ctl,.qb-btn{
-    height:30px; padding:0 8px; font-size:12px; min-width:0;
-    color:#dbe3f4; background:rgba(255,255,255,.05);
-    border:1px solid rgba(255,255,255,.14); border-radius:8px;
+  .qb-ctl, .qb-btn{
+    height:30px;
+    padding:0 8px;
+    font-size:12px;
+    color:#dbe3f4;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:8px;
+    min-width:0;
   }
   input[type="date"].qb-ctl{ color-scheme: dark; }
   .qb-btn{ background:rgba(255,255,255,.06); }
+  .qb-btn.ghost{ background:transparent; }
 
   /* 1段目：証券会社 / 種別 / メモ(50%) */
-  #qb-broker{grid-column:1/2;} #qb-kind{grid-column:2/3;} #qb-q{grid-column:3/5;}
-  /* 2段目：開始 / 終了 */
-  #qb-start{grid-column:1/3;} #qb-end{grid-column:3/5;}
-  /* 3段目：ボタン（中央・適用→クリア） */
-  .btn-row{grid-column:1/-1;display:flex;justify-content:center;gap:8px;margin-top:6px;}
+  #qb-broker { grid-column: 1 / 2; }
+  #qb-kind   { grid-column: 2 / 3; }
+  #qb-q      { grid-column: 3 / 5; }
+
+  /* 2段目：開始日 / 終了日（均等） */
+  #qb-start  { grid-column: 1 / 3; }
+  #qb-end    { grid-column: 3 / 5; }
+
+  /* 3段目：ボタン（中央寄せ、適用→クリア） */
+  .btn-row{
+    grid-column: 1 / -1;
+    display:flex; justify-content:center; gap:8px;
+    margin-top:6px;
+  }
 
   /* ===== サマリー（触らない） ===== */
-  .sum-wrap{display:grid;gap:6px;grid-template-columns:repeat(2,1fr);margin-top:6px}
-  .pill{border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);
-        border-radius:8px;padding:6px 8px;text-align:center;font-size:12px;color:#cbd5e1}
-  .sum-total{grid-column:1/-1;background:rgba(255,255,255,.07);font-weight:600}
+  .sum-wrap{ display:grid; gap:6px; grid-template-columns:repeat(2,1fr); margin-top:6px }
+  .pill{ border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.05);
+         border-radius:8px; padding:6px 8px; text-align:center; font-size:12px; color:#cbd5e1 }
+  .sum-total{ grid-column:1 / -1; background:rgba(255,255,255,.07); font-weight:600 }
 
-  /* ===== リスト（既存のまま） ===== */
+  /* ===== リスト ===== */
   .card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);
         border-radius:14px;padding:10px 12px;margin-bottom:10px}
   .amount{font-size:20px;font-weight:800}
@@ -90,9 +106,11 @@
 
     <!-- 2段目 -->
     <input id="qb-start" type="date" name="start"
-           value="{{ params.start|default_if_none:'' }}" class="qb-ctl">
+           value="{{ params.start|default_if_none:'' }}"
+           placeholder="例: 2025/10/01" class="qb-ctl">
     <input id="qb-end" type="date" name="end"
-           value="{{ params.end|default_if_none:'' }}" class="qb-ctl">
+           value="{{ params.end|default_if_none:'' }}"
+           placeholder="例: 2025/10/08" class="qb-ctl">
 
     <!-- 3段目 -->
     <div class="btn-row">
@@ -112,8 +130,18 @@
   {% endif %}
 </div>
 
-<!-- リスト本体。無限スクロールのローダーは部分テンプレート側で出す -->
 <div id="historyContainer">
   {% include "cash/_history_list.html" with page=page params=params %}
 </div>
+
+{% if page.has_next %}
+  {# ★★★ 重複の原因を排除：page 以外のパラメータだけを個別付与 ★★★ #}
+  <div
+    hx-get="{% url 'cash_history_page' %}?page={{ page.next_page_number }}{% if params.broker %}&broker={{ params.broker|urlencode }}{% endif %}{% if params.kind %}&kind={{ params.kind|urlencode }}{% endif %}{% if params.start %}&start={{ params.start|urlencode }}{% endif %}{% if params.end %}&end={{ params.end|urlencode }}{% endif %}{% if params.q %}&q={{ params.q|urlencode }}{% endif %}"
+    hx-trigger="revealed"
+    hx-swap="afterend"
+    class="text-center text-slate-400 py-2 text-[12px]">
+    読み込み中…
+  </div>
+{% endif %}
 {% endblock %}
