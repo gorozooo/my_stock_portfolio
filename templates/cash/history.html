@@ -17,7 +17,7 @@
     box-shadow:0 2px 0 rgba(255,255,255,.06) inset;
   }
 
-  /* ===== フィルター（4カラム：50%が作りやすい） ===== */
+  /* ===== フィルター（4カラム） ===== */
   .quickbar{
     display:grid;
     grid-template-columns: repeat(4, minmax(0,1fr));
@@ -54,7 +54,7 @@
     margin-top:6px;
   }
 
-  /* ===== サマリー（触らない） ===== */
+  /* ===== サマリー（既存のまま） ===== */
   .sum-wrap{ display:grid; gap:6px; grid-template-columns:repeat(2,1fr); margin-top:6px }
   .pill{ border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.05);
          border-radius:8px; padding:6px 8px; text-align:center; font-size:12px; color:#cbd5e1 }
@@ -135,11 +135,12 @@
 </div>
 
 {% if page.has_next %}
-  {# ★★★ 重複の原因を排除：page 以外のパラメータだけを個別付与 ★★★ #}
+  {# --- 無限スクロール：二重発火/重複防止 --- #}
   <div
     hx-get="{% url 'cash_history_page' %}?page={{ page.next_page_number }}{% if params.broker %}&broker={{ params.broker|urlencode }}{% endif %}{% if params.kind %}&kind={{ params.kind|urlencode }}{% endif %}{% if params.start %}&start={{ params.start|urlencode }}{% endif %}{% if params.end %}&end={{ params.end|urlencode }}{% endif %}{% if params.q %}&q={{ params.q|urlencode }}{% endif %}"
-    hx-trigger="revealed"
+    hx-trigger="revealed once"
     hx-swap="afterend"
+    hx-on::after-request="this.remove()"
     class="text-center text-slate-400 py-2 text-[12px]">
     読み込み中…
   </div>
