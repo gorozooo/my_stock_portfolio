@@ -132,7 +132,7 @@
   <!-- Global Toast -->
 <script>
 (function(){
-  // DOM
+  // ===== DOM 準備 =====
   let toast = document.getElementById("globalToast");
   if(!toast){
     toast = document.createElement("div");
@@ -151,7 +151,7 @@
       border:"1px solid rgba(255,255,255,.10)",
       boxShadow:"0 18px 42px rgba(0,0,0,.45)",
       opacity:"0",
-      pointerEvents:"none",
+      pointerEvents:"none",            // ← 非表示時は無効
       transition:"opacity .22s ease, transform .22s ease",
       zIndex:"100260",
       maxWidth:"92vw",
@@ -167,6 +167,7 @@
     document.body.appendChild(toast);
   }
 
+  // 下タブ/ドックを避ける
   function adjustOffset(){
     const bottomTab = document.getElementById("bottomTabRoot");
     const dockInner = document.querySelector(".cash-dock .inner");
@@ -178,58 +179,54 @@
   adjustOffset();
   window.addEventListener("resize", adjustOffset);
 
+  // レベル別スタイル（絵文字は出さない）
   const styleFor = (lvl)=>{
-    // ⚠️ アイコンは出さない（白縁の原因を排除）
-    if (/error/.test(lvl))   return {bg:"rgba(220,38,38,.96)", b:"#7f1d1d", icon:""};
-    if (/success/.test(lvl)) return {bg:"rgba(16,185,129,.96)", b:"#064e3b", icon:""};
-    if (/warning/.test(lvl)) return {bg:"rgba(234,179,8,.96)", b:"#713f12", icon:""};
-    return {bg:"rgba(18,21,33,.96)", b:"rgba(255,255,255,.10)", icon:""};
+    if (/error/.test(lvl))   return {bg:"rgba(220,38,38,.96)", b:"#7f1d1d"};
+    if (/success/.test(lvl)) return {bg:"rgba(16,185,129,.96)", b:"#064e3b"};
+    if (/warning/.test(lvl)) return {bg:"rgba(234,179,8,.96)",  b:"#713f12"};
+    return {bg:"rgba(18,21,33,.96)", b:"rgba(255,255,255,.10)"};
   };
 
-  // 取り出し
+  // Django messages を取得
   let queue = [];
   try{
     const el = document.getElementById("dj-messages");
     queue = el ? JSON.parse(el.textContent || "[]") : [];
   }catch(e){ queue = []; }
 
-  // 公開API
+  // 外部からも呼べるAPI
   window.toast = function(text, level="info"){
     queue.push({text, level});
     if (!showing) showNext();
   };
 
-  // Util
   function escapeHtml(s){
     return String(s||"")
       .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
       .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
   }
-
-  // 改行制御（余力%・残り金額・マイナス警告の見出しをノーブレーク化）
-  function protectReservePhrases(html){
-    // 見出し
+  // 改行制御（余力表示のブレ回避）
+  function protect(html){
     html = html.replace(/(余力がマイナスの証券口座があります！)/g, '<span class="nw">$1</span>');
     html = html.replace(/(余力が少なくなっています！)/g, '<span class="nw">$1</span>');
-    // 「余力 22%」の間をノーブレーク
     html = html.replace(/余力\s*([0-9]+(?:\.[0-9]+)?)%/g, '余力&nbsp;$1%');
-    // 「残り 163,012 円」をノーブレーク
     html = html.replace(/残り\s*([\d,]+)\s*円/g, '残り&nbsp;$1&nbsp;円');
     return html;
   }
-
-  function preprocess(raw){
-    let t = String(raw||"");
-    t = t.replace(/:\s*/g,"：");
-    return t;
+  function toHtml(text){
+    const esc = escapeHtml(String(text||"").replace(/:\s*/g,"："));
+    return protect(esc.replace(/\n\n/g,"<br><br>").replace(/\n/g,"<br>"));
   }
 
-  let i = 0, showing = false;
+  // ===== 表示/非表示制御 =====
+  let i = 0, showing = false, timer = null;
 
-  function toHtml(text){
-    const esc = escapeHtml(preprocess(text));
-    const withBr = esc.replace(/\n\n/g,"<br><br>").replace(/\n/g,"<br>");
-    return protectReservePhrases(withBr);
+  function hide(next=true){
+    toast.style.opacity = "0";
+    toast.style.transform = "translate(-50%, 12px)";
+    toast.style.pointerEvents = "none";               // クリック不可に戻す
+    if (timer) { clearTimeout(timer); timer = null; }
+    setTimeout(()=>{ if(next) showNext(); }, 260);
   }
 
   function showNext(){
@@ -240,37 +237,41 @@
     const sty = styleFor(level||"");
     toast.style.background = sty.bg;
     toast.style.borderColor = sty.b;
-    toast.innerHTML = "";
 
+    // コンテンツ
     const raw = String(text||"");
     const [head, ...rest] = raw.split("\n");
     const headHtml = `<strong style="font-weight:800;">${toHtml(head)}</strong>`;
     const bodyHtml = toHtml(rest.join("\n"));
 
-    // 本文 + OK ボタン
-    const wrap = document.createElement("div");
-    wrap.innerHTML = `${headHtml}${bodyHtml ? "<br>"+bodyHtml : ""}`;
-
+    // OK ボタン
     const ok = document.createElement("button");
+    ok.type = "button";
     ok.textContent = "OK";
     Object.assign(ok.style,{
-      marginLeft:"12px",
-      marginTop:"8px",
+      marginLeft:"12px", marginTop:"8px",
       padding:"6px 10px",
       borderRadius:"8px",
       border:"1px solid rgba(255,255,255,.35)",
       background:"transparent",
       color:"#fff",
       fontWeight:"700",
-      float:"right"
+      float:"right", cursor:"pointer"
     });
-    ok.onclick = ()=>{ toast.style.opacity="0"; toast.style.transform="translate(-50%, 12px)"; };
+    ok.onclick = ()=> hide();                         // クリックで即閉じ
 
-    toast.appendChild(wrap);
+    // 内容差し込み
+    toast.innerHTML = `${headHtml}${bodyHtml ? "<br>"+bodyHtml : ""}`;
     toast.appendChild(ok);
 
+    // 表示
+    toast.style.pointerEvents = "auto";              // ← クリックできるように
     toast.style.opacity = "1";
     toast.style.transform = "translate(-50%, 0)";
+
+    // 自動クローズ（エラーは長め）
+    const SHOW_MS = /error/.test(level||"") ? 5200 : 4000;
+    timer = setTimeout(()=> hide(), SHOW_MS);
   }
 
   if (queue.length) showNext();
