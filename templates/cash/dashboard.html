@@ -100,7 +100,7 @@
       {% with det=details_by_broker|get_item:b.broker %}
       {% with cash=det.cash|default:0 coll=det.collateral_usable|default:0 inv=det.invested_cost|default:0 %}
       {% with denom=cash|add:coll %}
-      {% with pct=(b.available|floatformat:0)|add:"0" %}
+      {% with pct=b.available|floatformat:0|add:"0" %}
       {% endwith %}
       {% endwith %}
       {% endwith %}
