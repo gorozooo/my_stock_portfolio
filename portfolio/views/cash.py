@@ -58,7 +58,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
 
-        # 口座間振替
+        # 口座間振替（UIでは使っていないが互換のため残す）
         if op == "transfer":
             src_b = (request.POST.get("src_broker") or "").strip()
             dst_b = (request.POST.get("dst_broker") or "").strip()
@@ -110,42 +110,31 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     brokers = svc.broker_summaries(today)
     kpi_total, _ = svc.total_summary(today)
 
-    # === 余力アラート ===
-    # 1) マイナス → エラートースト（赤）
-    negatives = [(b["broker"], b.get("available", 0)) for b in brokers if b.get("available", 0) < 0]
+    # === ⚠️ 余力マイナス警告（赤トースト） ===
+    negatives = [(b["broker"], int(b.get("available", 0))) for b in brokers if b.get("available", 0) < 0]
     if negatives:
         detail = "\n".join([f"・{br}：{val:,} 円" for br, val in negatives])
         messages.error(
             request,
-            "余力がマイナスの証券口座があります！\n"
-            f"{detail}\n"
-            "入出金や拘束、保有残高を確認してください。"
+            "⚠️ 余力がマイナスの証券口座があります！\n" + detail + "\n入出金や拘束、保有残高を確認してください。"
         )
 
-    # 2) 余力が「預り金の30%未満」 → 注意トースト（黄）
-    THRESH = 30.0
+    # === ⚠️ 余力が30%未満（黄色トースト） ===
+    THRESH = 0.30
     lows = []
     for b in brokers:
-        cash = float(b.get("cash", 0) or 0)
-        avail = float(b.get("available", 0) or 0)
-        if cash <= 0 or avail < 0:
-            continue  # 0割り/マイナスは上のエラーで扱う
-        pct = (avail / cash) * 100.0
-        if pct < THRESH:
-            lows.append((b["broker"], pct, int(avail)))
-
-    if lows and not negatives:
-        lines = []
-        for br, pct, av in lows:
-            # 例: ・松井：余力 22%（残り 163,012 円）
-            pct_int = int(round(pct))
-            lines.append(f"・{br}：余力 {pct_int}%（残り {av:,} 円）")
-        body = "\n".join(lines)
+        avail = int(b.get("available", 0))
+        cash  = int(b.get("cash", 0))
+        if avail >= 0 and cash > 0:
+            ratio = avail / cash
+            if ratio < THRESH:
+                pct = round(ratio * 100, 1)  # 例: 22.4
+                lows.append(f"・{b['broker']}：余力 {pct}%（残り {avail:,} 円）")
+    if lows:
+        body = "\n".join(lows)
         messages.warning(
             request,
-            "余力が少なくなっています！\n"
-            f"{body}\n"
-            "入金やポジション整理を検討してください。"
+            "⚠️ 余力が少なくなっています！\n" + body + "\n入金やポジション整理を検討してください。"
         )
 
     return render(request, "cash/dashboard.html", {
