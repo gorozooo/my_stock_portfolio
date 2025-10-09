@@ -129,7 +129,7 @@
   ]
   </script>
 
-  <!-- Global Toast -->
+  <!-- Global Toast（先頭行を改行禁止 + OK ボタンで閉じる） -->
   <script>
   (function(){
     // DOM
@@ -151,7 +151,7 @@
         border:"1px solid rgba(255,255,255,.10)",
         boxShadow:"0 18px 42px rgba(0,0,0,.45)",
         opacity:"0",
-        pointerEvents:"none",
+        pointerEvents:"auto",                 // ← クリックできるように
         transition:"opacity .22s ease, transform .22s ease",
         zIndex:"100260",
         maxWidth:"92vw",
@@ -161,11 +161,15 @@
         backdropFilter:"blur(10px)",
         whiteSpace:"normal"
       });
-      // 改行禁止用ユーティリティクラス
       const style = document.createElement('style');
-      style.textContent = '#globalToast .nw{white-space:nowrap}';
+      style.textContent = `
+        #globalToast .nw{white-space:nowrap}
+        #globalToast .actions{margin-top:8px;display:flex;justify-content:flex-end}
+        #globalToast .btn-ok{
+          padding:.35rem .6rem;border-radius:8px;border:1px solid rgba(255,255,255,.18);
+          background:rgba(255,255,255,.08);font-weight:700
+        }`;
       document.head.appendChild(style);
-
       document.body.appendChild(toast);
     }
 
@@ -187,50 +191,41 @@
       return {bg:"rgba(18,21,33,.96)", b:"rgba(255,255,255,.10)", icon:"ℹ️"};
     };
 
-    // 取り出し
+    // 取得
     let queue = [];
     try{
       const el = document.getElementById("dj-messages");
       queue = el ? JSON.parse(el.textContent || "[]") : [];
     }catch(e){ queue = []; }
 
-    // 公開API
     window.toast = function(text, level="info"){
       queue.push({text, level});
       if (!showing) showNext();
     };
 
-    // Util
     function escapeHtml(s){
       return String(s||"")
         .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
         .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
     }
-    function preprocess(raw){
-      let t = String(raw||"");
-      t = t.replace(/:\s*/g,"：");   // コロン整形（例: 同期完了：）
-      return t;
-    }
 
-    // --- 折り返し保護ロジック（Safari対策の本命） ---
-    // 1) 「新規 n 件 / 既存 m 件」を “丸ごと” 改行禁止に包む
-    // 2) 念のため単体の「n 件」も &nbsp; に置換
-    function protectPhrases(html){
-      // 句全体
-      html = html.replace(/(新規\s*\d+\s*件\s*\/\s*既存\s*\d+\s*件)/g,
-                          '<span class="nw">$1</span>');
-      // 単体（保険）
-      html = html.replace(/(\d+)\s*件/g, '<span class="nw">$1&nbsp;件</span>');
-      return html;
-    }
-
-    // 表示
-    let i = 0, showing = false;
-
+    // 先頭行は改行禁止（nw）で完全1行に
     function toHtml(text){
-      const esc = escapeHtml(preprocess(text));
-      const withBr = esc.replace(/\n\n/g,"<br><br>").replace(/\n/g,"<br>");
-      return protectPhrases(withBr);
+      const esc = escapeHtml(String(text||""));
+      const lines = esc.split(/\n/);
+      const head = lines.shift() || "";
+      const body = lines.join("\n").replace(/\n\n/g,"<br><br>").replace(/\n/g,"<br>");
+      const headHtml = `<strong class="nw" style="font-weight:800;">${head}</strong>`;
+      return headHtml + (body ? "<br>"+body : "");
+    }
+
+    let i = 0, showing = false, hideTimer = null;
+
+    function hideToast(next){
+      toast.style.opacity = "0";
+      toast.style.transform = "translate(-50%, 12px)";
+      clearTimeout(hideTimer);
+      setTimeout(next, 240);
     }
 
     function showNext(){
@@ -241,23 +236,17 @@
       const sty = styleFor(level||"");
       toast.style.background = sty.bg;
       toast.style.borderColor = sty.b;
-      toast.innerHTML = "";
 
-      const raw = String(text||"");
-      const [head, ...rest] = raw.split("\n");
-      const headHtml = `<strong style="font-weight:800;">${toHtml(head)}</strong>`;
-      const bodyHtml = toHtml(rest.join("\n"));
-      toast.innerHTML = `${sty.icon} ${headHtml}${bodyHtml ? "<br>"+bodyHtml : ""}`;
+      toast.innerHTML = `${sty.icon} ${toHtml(text)}
+        <div class="actions"><button class="btn-ok" type="button">OK</button></div>`;
+
+      toast.querySelector(".btn-ok").onclick = ()=> hideToast(showNext);
 
       toast.style.opacity = "1";
       toast.style.transform = "translate(-50%, 0)";
 
-      const SHOW_MS = /error/.test(level||"") ? 5200 : 4000;
-      setTimeout(()=>{
-        toast.style.opacity = "0";
-        toast.style.transform = "translate(-50%, 12px)";
-        setTimeout(showNext, 280);
-      }, SHOW_MS);
+      const SHOW_MS = /error/.test(level||"") ? 5200 : 4200;
+      hideTimer = setTimeout(()=> hideToast(showNext), SHOW_MS);
     }
 
     if (queue.length) showNext();
