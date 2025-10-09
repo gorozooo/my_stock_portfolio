@@ -129,10 +129,9 @@
   ]
   </script>
 
-  <!-- Global Toast (final fixed) -->
+  <!-- Global Toast (final stable version) -->
 <script>
 (function(){
-  // ===== DOM 準備 =====
   let toast = document.getElementById("globalToast");
   if(!toast){
     toast = document.createElement("div");
@@ -167,7 +166,6 @@
     document.body.appendChild(toast);
   }
 
-  // 下タブ/ドックを避ける
   function adjustOffset(){
     const bottomTab = document.getElementById("bottomTabRoot");
     const dockInner = document.querySelector(".cash-dock .inner");
@@ -179,48 +177,40 @@
   adjustOffset();
   window.addEventListener("resize", adjustOffset);
 
-  // レベル別スタイル
   const styleFor = (lvl)=>{
-    if (/error/.test(lvl))   return {bg:"rgba(220,38,38,.96)", b:"#7f1d1d"};     // 赤
+    if (/error/.test(lvl))   return {bg:"rgba(220,38,38,.96)", b:"#7f1d1d"};
     if (/success/.test(lvl)) return {bg:"rgba(16,185,129,.96)", b:"#064e3b"};
-    if (/warning/.test(lvl)) return {bg:"rgba(234,179,8,.96)",  b:"#713f12"};     // 黄
+    if (/warning/.test(lvl)) return {bg:"rgba(234,179,8,.96)",  b:"#713f12"};
     return {bg:"rgba(18,21,33,.96)", b:"rgba(255,255,255,.10)"};
   };
 
-  // Django messages を取得
   let queue = [];
   try{
     const el = document.getElementById("dj-messages");
     queue = el ? JSON.parse(el.textContent || "[]") : [];
   }catch(e){ queue = []; }
 
-  // 外部からも呼べるAPI
   window.toast = function(text, level="info"){
     queue.push({text, level});
     if (!showing) showNext();
   };
 
-  // Utils
   function escapeHtml(s){
     return String(s||"")
       .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
       .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
   }
 
-  // ---- 改行制御（完全版）----
+  // --- 改行＆⚠️固定処理 ---
   function protect(html){
-    // 見出しは丸ごと nowrap
-    html = html.replace(/(余力がマイナスの証券口座があります！)/g, '<span class="nw">$1</span>');
-    html = html.replace(/(余力が少なくなっています！)/g,         '<span class="nw">$1</span>');
-    // 数式・単位の分断防止
+    // 「⚠️余力がマイナス〜」「⚠️余力が少なく〜」を丸ごと1行化
+    html = html.replace(/⚠️\s*(余力がマイナスの証券口座があります！)/g, '<span class="nw">⚠️ $1</span>');
+    html = html.replace(/⚠️\s*(余力が少なくなっています！)/g, '<span class="nw">⚠️ $1</span>');
+    // 単位・数値の分割防止
     html = html.replace(/余力\s*([0-9]+(?:\.[0-9]+)?)%/g, '余力&nbsp;$1%');
     html = html.replace(/残り\s*([\d,]+)\s*円/g, '残り&nbsp;$1&nbsp;円');
-    // 箇条書きを行内固定
-    html = html.replace(/(^|<br>)\s*・\s*([^<]+)/g, function(_, br, rest){
-      return br + '<span class="nw">・ ' + rest.trim() + '</span>';
-    });
-    // 先頭⚠️を必ず行内に
-    html = html.replace(/^⚠️\s*/g, '<span class="nw">⚠️</span>&nbsp;');
+    // 箇条書き（・）を1行化
+    html = html.replace(/(^|<br>)\s*・\s*([^<]+)/g, (_, br, rest) => br + '<span class="nw">・ ' + rest.trim() + '</span>');
     return html;
   }
 
@@ -229,7 +219,6 @@
     return protect(esc.replace(/\n\n/g,"<br><br>").replace(/\n/g,"<br>"));
   }
 
-  // ===== 表示/非表示 =====
   let i = 0, showing = false, timer = null;
 
   function hide(next=true){
@@ -252,12 +241,10 @@
     const raw = String(text||"");
     const [head, ...rest] = raw.split("\n");
 
-    // ⚠️ と本文を完全1行に（先頭の⚠️は重複しないよう除去→付与）
-    const iconInline = `<span style="white-space:nowrap;">⚠️</span>&nbsp;`;
-    const headHtml = `<strong style="font-weight:800;">${iconInline}${toHtml(head.replace(/^⚠️\s*/,''))}</strong>`;
+    // 先頭⚠️を本文と同じ行に（既にprotectでnowrap済）
+    const headHtml = `<strong style="font-weight:800;">${toHtml(head)}</strong>`;
     const bodyHtml = toHtml(rest.join("\n"));
 
-    // OK ボタン
     const ok = document.createElement("button");
     ok.type = "button";
     ok.textContent = "OK";
@@ -273,16 +260,13 @@
     });
     ok.onclick = ()=> hide();
 
-    // 内容
     toast.innerHTML = `${headHtml}${bodyHtml ? "<br>"+bodyHtml : ""}`;
     toast.appendChild(ok);
 
-    // 表示
     toast.style.pointerEvents = "auto";
     toast.style.opacity = "1";
     toast.style.transform = "translate(-50%, 0)";
 
-    // 自動クローズ
     const SHOW_MS = /error/.test(level||"") ? 5200 : 4000;
     timer = setTimeout(()=> hide(), SHOW_MS);
   }
