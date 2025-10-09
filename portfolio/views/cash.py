@@ -58,7 +58,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
 
-        # 口座間振替（UIでは使っていないが互換のため残す）
+        # 口座間振替（UIは現状無しだが互換のため残す）
         if op == "transfer":
             src_b = (request.POST.get("src_broker") or "").strip()
             dst_b = (request.POST.get("dst_broker") or "").strip()
@@ -107,37 +107,61 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         messages.error(request, f"同期に失敗：{e}")
 
     # === 集計 ===
-    brokers = svc.broker_summaries(today)
-    kpi_total, _ = svc.total_summary(today)
+    brokers = svc.broker_summaries(today)  # broker, cash, restricted, available, month_net
+    kpi_total, account_rows = svc.total_summary(today)  # account_rows は account_summary() の行
 
-    # === ⚠️ 余力マイナス警告（赤トースト） ===
-    negatives = [(b["broker"], int(b.get("available", 0))) for b in brokers if b.get("available", 0) < 0]
-    if negatives:
-        detail = "\n".join([f"・{br}：{val:,} 円" for br, val in negatives])
-        messages.error(
-            request,
-            "⚠️ 余力がマイナスの証券口座があります！\n" + detail + "\n入出金や拘束、保有残高を確認してください。"
+    # ブローカー単位の内訳（取得原価残・担保可能額を合算）
+    details_by_broker: dict[str, dict] = {}
+    for r in account_rows:
+        b = r["broker"]
+        d = details_by_broker.setdefault(
+            b,
+            {"invested_cost": 0, "collateral_usable": 0, "cash": 0, "restricted": 0, "available": 0},
         )
+        d["invested_cost"] += int(r.get("invested_cost", 0))
+        d["collateral_usable"] += int(r.get("collateral_usable", 0))
+        d["cash"] += int(r.get("cash", 0))
+        d["restricted"] += int(r.get("restricted", 0))
+        d["available"] += int(r.get("available", 0))
 
-    # === ⚠️ 余力が30%未満（黄色トースト） ===
-    THRESH = 0.30
+    # --- アラート（マイナス & 30%未満） ---
+    # 基準：available / max(cash + collateral, 1)
+    THRESHOLD_PCT = 30
+
+    negatives = []
     lows = []
     for b in brokers:
-        avail = int(b.get("available", 0))
-        cash  = int(b.get("cash", 0))
-        if avail >= 0 and cash > 0:
-            ratio = avail / cash
-            if ratio < THRESH:
-                pct = round(ratio * 100, 1)  # 例: 22.4
-                lows.append(f"・{b['broker']}：余力 {pct}%（残り {avail:,} 円）")
-    if lows:
-        body = "\n".join(lows)
-        messages.warning(
-            request,
-            "⚠️ 余力が少なくなっています！\n" + body + "\n入金やポジション整理を検討してください。"
-        )
+        broker = b["broker"]
+        available = int(b.get("available", 0))
+        cash = int(details_by_broker.get(broker, {}).get("cash", b.get("cash", 0)))
+        coll = int(details_by_broker.get(broker, {}).get("collateral_usable", 0))
+        denom = max(cash + coll, 1)
+        pct = int(round(available / denom * 100)) if denom > 0 else 0
 
-    return render(request, "cash/dashboard.html", {
-        "brokers": brokers,
-        "kpi_total": kpi_total,
-    })
+        if available < 0:
+            negatives.append((broker, available))
+        elif available >= 0 and pct < THRESHOLD_PCT:
+            lows.append((broker, pct, available))
+
+    # マイナス（赤トースト）
+    if negatives:
+        lines = [f"・{br}：{val:,} 円" for br, val in negatives]
+        msg = "⚠️ 余力がマイナスの証券口座があります！\n" + "\n".join(lines) + "\n入出金や拘束、保有残高を確認してください。"
+        messages.error(request, msg)
+
+    # 30%未満（黄トースト）
+    if lows:
+        lines = [f"・{br}：余力 {pct}%（残り {avail:,} 円）" for br, pct, avail in lows]
+        msg = "⚠️ 余力が少なくなっています！\n" + "\n".join(lines) + "\n入金やポジション整理を検討してください。"
+        messages.warning(request, msg)
+
+    return render(
+        request,
+        "cash/dashboard.html",
+        {
+            "brokers": brokers,
+            "kpi_total": kpi_total,
+            "details_by_broker": details_by_broker,
+            "threshold_pct": THRESHOLD_PCT,
+        },
+    )
