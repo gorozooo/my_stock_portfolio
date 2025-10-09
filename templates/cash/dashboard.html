@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load static humanize dict_extras %}
+{% load static humanize %}
 {% block title %}現金ダッシュボード{% endblock %}
 
 {% block content %}
@@ -9,7 +9,7 @@
 .cash-wrap{
   max-width:980px;
   margin:12px auto 0;
-  padding:12px 12px 140px; /* 最低限の余白を確保（JSで追従調整） */
+  padding:12px 12px 140px;
 }
 
 /* ===== Broker Card ===== */
@@ -36,20 +36,19 @@
 .kpi .num{font-size:14px;font-weight:700;letter-spacing:.01em}
 .kpi .unit{font-size:11px;opacity:.75}
 
-/* 色分け（控えめ発光） */
+/* 色分け（通常 / warn / danger） */
 .kpi.available{border-color:rgba(0,255,209,.28);box-shadow:0 0 0 1px rgba(0,255,209,.12) inset}
-.kpi.available.warn{border-color:rgba(234,179,8,.52);box-shadow:0 0 0 1px rgba(234,179,8,.22) inset}
-.kpi.available.danger{border-color:rgba(255,90,90,.6);box-shadow:0 0 0 1px rgba(255,90,90,.3) inset}
-.kpi.cash{border-color:rgba(125,160,255,.24);box-shadow:0 0 0 1px rgba(125,160,255,.10) inset}
+.kpi.available.warn{border-color:rgba(234,179,8,.45);box-shadow:0 0 0 1px rgba(234,179,8,.20) inset}
+.kpi.available.danger{border-color:rgba(239,68,68,.60);box-shadow:0 0 0 1px rgba(239,68,68,.28) inset}
 .kpi.restricted{border-color:rgba(255,90,90,.26);box-shadow:0 0 0 1px rgba(255,90,90,.12) inset}
+.kpi.cash{border-color:rgba(125,160,255,.24);box-shadow:0 0 0 1px rgba(125,160,255,.10) inset}
 
 .small{font-size:11px;margin-top:6px;color:#a1a8c4}
-.small .nw{white-space:nowrap}
 
-/* ===== Bottom Action Dock（下タブより下のレイヤーにする） ===== */
+/* ===== Bottom Action Dock（下タブより下のレイヤー） ===== */
 .cash-dock{
   position:fixed;left:0;right:0;bottom:0;
-  z-index:100;                 /* ← 最前列にしない */
+  z-index:100;  /* ← 最前列にしない */
   pointer-events:none;
 }
 .cash-dock .inner{
@@ -60,7 +59,7 @@
   border-top:1px solid rgba(255,255,255,.08);
   border-radius:16px 16px 0 0;
 }
-.cash-dock .bar{display:grid;grid-template-columns:repeat(2,1fr);gap:8px} /* ← 入金/出金の2つだけ */
+.cash-dock .bar{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 .cash-dock .bar button{
   padding:10px;font-size:14px;border-radius:10px;
   border:1px solid rgba(255,255,255,.16);
@@ -89,54 +88,11 @@
   {% if brokers %}
     <div class="grid-broker">
       {% for b in brokers %}
-      {% with det=details_by_broker|get_item:b.broker %}
-      {% with avail=b.available|default:0 cash=det.cash|default:0 coll=det.collateral_usable|default:0 %}
-      {% with denom=cash|add:coll %}
-      {% with pct=avail|divisibleby:1 %}{% endwith %} {# dummy to silence lints #}
-      {% endwith %}
-      {% endwith %}
-      {% endwith %}
-
-      {% with det=details_by_broker|get_item:b.broker %}
-      {% with cash=det.cash|default:0 coll=det.collateral_usable|default:0 inv=det.invested_cost|default:0 %}
-      {% with denom=cash|add:coll %}
-      {% with pct=b.available|floatformat:0|add:"0" %}
-      {% endwith %}
-      {% endwith %}
-      {% endwith %}
-      {% endwith %}
-
-      {# クラス決定はJSでやると重いので、テンプレ側で条件付与は最小限に #}
       <div class="card">
         <h3>{{ b.broker }} 証券</h3>
         <div class="kpi-row">
-          {# 余力の色分け：danger（<0） / warn（<しきい値%） #}
-          {% with det=details_by_broker|get_item:b.broker %}
-            {% with base=det.cash|add:det.collateral_usable %}
-              {% with base=max:1 %}
-              {% endwith %}
-            {% endwith %}
-          {% endwith %}
-          {% with det=details_by_broker|get_item:b.broker %}
-            {% with base=det.cash|add:det.collateral_usable %}
-              {% if base <= 0 %}
-                {% set pct=0 %}
-              {% else %}
-                {% with pct=b.available|mul:100|div:base %}
-                {% endwith %}
-              {% endif %}
-            {% endwith %}
-          {% endwith %}
-
-          {# Djangoテンプレートは複雑計算が弱いので、簡易条件でクラス付与 #}
-          <div class="kpi available {% if b.available < 0 %}danger{% else %}
-                                     {% with det=details_by_broker|get_item:b.broker %}
-                                       {% with base=det.cash|add:det.collateral_usable %}
-                                         {% if base > 0 and (b.available*100)//base < threshold_pct %}warn{% endif %}
-                                       {% endwith %}
-                                     {% endwith %}
-                                   {% endif %}">
-            <div class="label">余力</div>
+          <div class="kpi available {% if b.severity == 'danger' %}danger{% elif b.severity == 'warn' %}warn{% endif %}">
+            <div class="label">余力{% if b.pct_available %}（{{ b.pct_available|floatformat:1 }}%）{% endif %}</div>
             <div class="value"><span class="num">{{ b.available|intcomma }}</span><span class="unit">円</span></div>
           </div>
           <div class="kpi cash">
@@ -148,18 +104,6 @@
             <div class="value"><span class="num">{{ b.restricted|intcomma }}</span><span class="unit">円</span></div>
           </div>
         </div>
-
-        {# 内訳：現金 + 担保 − 拘束 − 取得原価残 = 余力 #}
-        {% with det=details_by_broker|get_item:b.broker %}
-        <div class="small">
-          <span class="nw">現金 {{ det.cash|intcomma }} 円</span>
-          ＋ <span class="nw">担保 {{ det.collateral_usable|intcomma }} 円</span>
-          − <span class="nw">拘束 {{ b.restricted|intcomma }} 円</span>
-          − <span class="nw">取得原価残 {{ det.invested_cost|intcomma }} 円</span>
-          ＝ <span class="nw">余力 {{ b.available|intcomma }} 円</span>
-        </div>
-        {% endwith %}
-
         <div class="small">今月の入出金差分：{{ b.month_net|intcomma }} 円</div>
       </div>
       {% endfor %}
@@ -246,7 +190,7 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-  /* --- 下部ドックのモーダル起動 --- */
+  // --- モーダル起動 ---
   const modals = {
     deposit : document.getElementById("modal-deposit"),
     withdraw: document.getElementById("modal-withdraw"),
@@ -256,24 +200,23 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.querySelectorAll("[data-close]").forEach(b=> b.addEventListener("click", closeAll));
 
-  // ?action=deposit / ?action=withdraw で直接開く
+  // ?action=deposit / withdraw で直接開く
   const act = new URLSearchParams(location.search).get("action");
   if (act && modals[act]) show(modals[act]);
 
   function show(el){ if(!el) return; el.classList.add("show"); el.setAttribute("aria-hidden","false"); }
   function closeAll(){ document.querySelectorAll(".modal.show").forEach(m=>{ m.classList.remove("show"); m.setAttribute("aria-hidden","true"); }); }
 
-  /* --- 下タブと被らないように、ドック位置＆余白を動的調整 --- */
+  // --- ドック位置調整 ---
   const wrap = document.querySelector(".cash-wrap");
   const dock = document.querySelector(".cash-dock");
   const inner = document.querySelector(".cash-dock .inner");
   const bottomTab = document.getElementById("bottomTabRoot");
-
   const adjust = ()=>{
     const dockH = inner ? inner.getBoundingClientRect().height : 0;
     const tabH  = bottomTab ? bottomTab.getBoundingClientRect().height : 0;
-    dock.style.bottom = (tabH) + "px";                 // ドックを下タブの上へ
-    wrap.style.paddingBottom = (dockH + tabH + 24) + "px"; // コンテンツ下余白
+    dock.style.bottom = (tabH) + "px";
+    wrap.style.paddingBottom = (dockH + tabH + 24) + "px";
   };
   adjust();
   window.addEventListener("resize", adjust);
