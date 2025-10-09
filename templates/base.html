@@ -129,128 +129,152 @@
   ]
   </script>
 
-  <!-- Global Toast（先頭行を改行禁止 + OK ボタンで閉じる） -->
-  <script>
-  (function(){
-    // DOM
-    let toast = document.getElementById("globalToast");
-    if(!toast){
-      toast = document.createElement("div");
-      toast.id = "globalToast";
-      Object.assign(toast.style,{
-        position:"fixed",
-        left:"50%",
-        bottom:"calc(96px + env(safe-area-inset-bottom))",
-        transform:"translate(-50%, 12px)",
-        background:"rgba(18,21,33,.96)",
-        color:"#fff",
-        padding:"12px 14px",
-        fontSize:"14px",
-        fontWeight:"600",
-        borderRadius:"12px",
-        border:"1px solid rgba(255,255,255,.10)",
-        boxShadow:"0 18px 42px rgba(0,0,0,.45)",
-        opacity:"0",
-        pointerEvents:"auto",                 // ← クリックできるように
-        transition:"opacity .22s ease, transform .22s ease",
-        zIndex:"100260",
-        maxWidth:"92vw",
-        textAlign:"left",
-        lineHeight:"1.45",
-        wordBreak:"break-word",
-        backdropFilter:"blur(10px)",
-        whiteSpace:"normal"
-      });
-      const style = document.createElement('style');
-      style.textContent = `
-        #globalToast .nw{white-space:nowrap}
-        #globalToast .actions{margin-top:8px;display:flex;justify-content:flex-end}
-        #globalToast .btn-ok{
-          padding:.35rem .6rem;border-radius:8px;border:1px solid rgba(255,255,255,.18);
-          background:rgba(255,255,255,.08);font-weight:700
-        }`;
-      document.head.appendChild(style);
-      document.body.appendChild(toast);
-    }
+  <!-- Global Toast -->
+<script>
+(function(){
+  // DOM
+  let toast = document.getElementById("globalToast");
+  if(!toast){
+    toast = document.createElement("div");
+    toast.id = "globalToast";
+    Object.assign(toast.style,{
+      position:"fixed",
+      left:"50%",
+      bottom:"calc(96px + env(safe-area-inset-bottom))",
+      transform:"translate(-50%, 12px)",
+      background:"rgba(18,21,33,.96)",
+      color:"#fff",
+      padding:"12px 14px",
+      fontSize:"14px",
+      fontWeight:"600",
+      borderRadius:"12px",
+      border:"1px solid rgba(255,255,255,.10)",
+      boxShadow:"0 18px 42px rgba(0,0,0,.45)",
+      opacity:"0",
+      pointerEvents:"none",
+      transition:"opacity .22s ease, transform .22s ease",
+      zIndex:"100260",
+      maxWidth:"92vw",
+      textAlign:"left",
+      lineHeight:"1.45",
+      wordBreak:"break-word",
+      backdropFilter:"blur(10px)",
+      whiteSpace:"normal"
+    });
+    const style = document.createElement('style');
+    style.textContent = '#globalToast .nw{white-space:nowrap}';
+    document.head.appendChild(style);
+    document.body.appendChild(toast);
+  }
 
-    function adjustOffset(){
-      const bottomTab = document.getElementById("bottomTabRoot");
-      const dockInner = document.querySelector(".cash-dock .inner");
-      const tabH = bottomTab ? bottomTab.getBoundingClientRect().height : 0;
-      const dockH = dockInner ? dockInner.getBoundingClientRect().height : 0;
-      const offset = Math.max(96, Math.round(tabH + dockH + 16));
-      toast.style.bottom = `calc(${offset}px + env(safe-area-inset-bottom))`;
-    }
-    adjustOffset();
-    window.addEventListener("resize", adjustOffset);
+  function adjustOffset(){
+    const bottomTab = document.getElementById("bottomTabRoot");
+    const dockInner = document.querySelector(".cash-dock .inner");
+    const tabH = bottomTab ? bottomTab.getBoundingClientRect().height : 0;
+    const dockH = dockInner ? dockInner.getBoundingClientRect().height : 0;
+    const offset = Math.max(96, Math.round(tabH + dockH + 16));
+    toast.style.bottom = `calc(${offset}px + env(safe-area-inset-bottom))`;
+  }
+  adjustOffset();
+  window.addEventListener("resize", adjustOffset);
 
-    const styleFor = (lvl)=>{
-      if (/error/.test(lvl))   return {bg:"rgba(220,38,38,.96)", b:"#7f1d1d", icon:"⚠️"};
-      if (/success/.test(lvl)) return {bg:"rgba(16,185,129,.96)", b:"#064e3b", icon:"✅"};
-      if (/warning/.test(lvl)) return {bg:"rgba(234,179,8,.96)", b:"#713f12", icon:"⚠️"};
-      return {bg:"rgba(18,21,33,.96)", b:"rgba(255,255,255,.10)", icon:"ℹ️"};
-    };
+  const styleFor = (lvl)=>{
+    // ⚠️ アイコンは出さない（白縁の原因を排除）
+    if (/error/.test(lvl))   return {bg:"rgba(220,38,38,.96)", b:"#7f1d1d", icon:""};
+    if (/success/.test(lvl)) return {bg:"rgba(16,185,129,.96)", b:"#064e3b", icon:""};
+    if (/warning/.test(lvl)) return {bg:"rgba(234,179,8,.96)", b:"#713f12", icon:""};
+    return {bg:"rgba(18,21,33,.96)", b:"rgba(255,255,255,.10)", icon:""};
+  };
 
-    // 取得
-    let queue = [];
-    try{
-      const el = document.getElementById("dj-messages");
-      queue = el ? JSON.parse(el.textContent || "[]") : [];
-    }catch(e){ queue = []; }
+  // 取り出し
+  let queue = [];
+  try{
+    const el = document.getElementById("dj-messages");
+    queue = el ? JSON.parse(el.textContent || "[]") : [];
+  }catch(e){ queue = []; }
 
-    window.toast = function(text, level="info"){
-      queue.push({text, level});
-      if (!showing) showNext();
-    };
+  // 公開API
+  window.toast = function(text, level="info"){
+    queue.push({text, level});
+    if (!showing) showNext();
+  };
 
-    function escapeHtml(s){
-      return String(s||"")
-        .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-        .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-    }
+  // Util
+  function escapeHtml(s){
+    return String(s||"")
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+  }
 
-    // 先頭行は改行禁止（nw）で完全1行に
-    function toHtml(text){
-      const esc = escapeHtml(String(text||""));
-      const lines = esc.split(/\n/);
-      const head = lines.shift() || "";
-      const body = lines.join("\n").replace(/\n\n/g,"<br><br>").replace(/\n/g,"<br>");
-      const headHtml = `<strong class="nw" style="font-weight:800;">${head}</strong>`;
-      return headHtml + (body ? "<br>"+body : "");
-    }
+  // 改行制御（余力%・残り金額・マイナス警告の見出しをノーブレーク化）
+  function protectReservePhrases(html){
+    // 見出し
+    html = html.replace(/(余力がマイナスの証券口座があります！)/g, '<span class="nw">$1</span>');
+    html = html.replace(/(余力が少なくなっています！)/g, '<span class="nw">$1</span>');
+    // 「余力 22%」の間をノーブレーク
+    html = html.replace(/余力\s*([0-9]+(?:\.[0-9]+)?)%/g, '余力&nbsp;$1%');
+    // 「残り 163,012 円」をノーブレーク
+    html = html.replace(/残り\s*([\d,]+)\s*円/g, '残り&nbsp;$1&nbsp;円');
+    return html;
+  }
 
-    let i = 0, showing = false, hideTimer = null;
+  function preprocess(raw){
+    let t = String(raw||"");
+    t = t.replace(/:\s*/g,"：");
+    return t;
+  }
 
-    function hideToast(next){
-      toast.style.opacity = "0";
-      toast.style.transform = "translate(-50%, 12px)";
-      clearTimeout(hideTimer);
-      setTimeout(next, 240);
-    }
+  let i = 0, showing = false;
 
-    function showNext(){
-      if (i >= queue.length){ showing = false; return; }
-      showing = true;
+  function toHtml(text){
+    const esc = escapeHtml(preprocess(text));
+    const withBr = esc.replace(/\n\n/g,"<br><br>").replace(/\n/g,"<br>");
+    return protectReservePhrases(withBr);
+  }
 
-      const {text, level} = queue[i++] || {};
-      const sty = styleFor(level||"");
-      toast.style.background = sty.bg;
-      toast.style.borderColor = sty.b;
+  function showNext(){
+    if (i >= queue.length){ showing = false; return; }
+    showing = true;
 
-      toast.innerHTML = `${sty.icon} ${toHtml(text)}
-        <div class="actions"><button class="btn-ok" type="button">OK</button></div>`;
+    const {text, level} = queue[i++] || {};
+    const sty = styleFor(level||"");
+    toast.style.background = sty.bg;
+    toast.style.borderColor = sty.b;
+    toast.innerHTML = "";
 
-      toast.querySelector(".btn-ok").onclick = ()=> hideToast(showNext);
+    const raw = String(text||"");
+    const [head, ...rest] = raw.split("\n");
+    const headHtml = `<strong style="font-weight:800;">${toHtml(head)}</strong>`;
+    const bodyHtml = toHtml(rest.join("\n"));
 
-      toast.style.opacity = "1";
-      toast.style.transform = "translate(-50%, 0)";
+    // 本文 + OK ボタン
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `${headHtml}${bodyHtml ? "<br>"+bodyHtml : ""}`;
 
-      const SHOW_MS = /error/.test(level||"") ? 5200 : 4200;
-      hideTimer = setTimeout(()=> hideToast(showNext), SHOW_MS);
-    }
+    const ok = document.createElement("button");
+    ok.textContent = "OK";
+    Object.assign(ok.style,{
+      marginLeft:"12px",
+      marginTop:"8px",
+      padding:"6px 10px",
+      borderRadius:"8px",
+      border:"1px solid rgba(255,255,255,.35)",
+      background:"transparent",
+      color:"#fff",
+      fontWeight:"700",
+      float:"right"
+    });
+    ok.onclick = ()=>{ toast.style.opacity="0"; toast.style.transform="translate(-50%, 12px)"; };
 
-    if (queue.length) showNext();
-  })();
-  </script>
+    toast.appendChild(wrap);
+    toast.appendChild(ok);
+
+    toast.style.opacity = "1";
+    toast.style.transform = "translate(-50%, 0)";
+  }
+
+  if (queue.length) showNext();
+})();
+</script>
 </body>
 </html>
