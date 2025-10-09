@@ -12,7 +12,7 @@ from ..services import cash_service as svc
 from ..services import cash_updater as up
 
 
-# ================== dashboard（存続） ==================
+# ================== helpers ==================
 def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
     svc.ensure_default_accounts(currency=currency)
     return (
@@ -22,6 +22,46 @@ def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
     )
 
 
+def _severity_for(b: dict, low_ratio: float = 0.30) -> str:
+    """
+    表示用の危険度:
+      - 'danger' : 余力 < 0
+      - 'warn'   : 余力/預り金 < low_ratio (預り金>0 の時のみ)
+      - 'ok'     : それ以外
+    """
+    avail = int(b.get("available", 0))
+    cash  = int(b.get("cash", 0))
+    if avail < 0:
+        return "danger"
+    if cash > 0 and (avail / cash) < low_ratio:
+        return "warn"
+    return "ok"
+
+
+def _format_int(n: int) -> str:
+    return f"{n:,}"
+
+
+def _make_negative_toast(negatives: list[tuple[str, int]]) -> str:
+    lines = ["⚠️ 余力がマイナスの証券口座があります！"]
+    for br, val in negatives:
+        lines.append(f"・{br}：{_format_int(val)} 円")
+    lines.append("入出金や拘束、保有残高を確認してください。")
+    return "\n".join(lines)
+
+
+def _make_low_toast(lows: list[tuple[str, int, int, float]]) -> str:
+    # (broker, avail, cash, pct)
+    lines = ["⚠️ 余力が少なくなっています！"]
+    for br, avail, cash, pct in lows:
+        lines.append(
+            f"・{br}：余力 {pct:.1f}%（残り {_format_int(avail)} 円）"
+        )
+    lines.append("入金やポジション整理を検討してください。")
+    return "\n".join(lines)
+
+
+# ================== dashboard ==================
 @require_http_methods(["GET", "POST"])
 def cash_dashboard(request: HttpRequest) -> HttpResponse:
     if request.method == "POST":
@@ -58,45 +98,19 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
 
-        # 口座間振替（UIは現状無しだが互換のため残す）
+        # transfer は UI から消しているが、不正 POST へのガード
         if op == "transfer":
-            src_b = (request.POST.get("src_broker") or "").strip()
-            dst_b = (request.POST.get("dst_broker") or "").strip()
-            if not src_b or not dst_b:
-                messages.error(request, "振替元/先の証券会社を選択してください。")
-                return redirect("cash_dashboard")
-            if src_b == dst_b:
-                messages.error(request, "振替元と振替先が同じです。別の口座を選んでください。")
-                return redirect("cash_dashboard")
-
-            src = _get_account(src_b)
-            dst = _get_account(dst_b)
-            if not src or not dst:
-                messages.error(request, "振替元/先の口座が見つかりません。")
-                return redirect("cash_dashboard")
-
-            try:
-                amount_str = (request.POST.get("amount") or "").replace(",", "").strip()
-                amount = int(amount_str)
-                if amount <= 0:
-                    raise ValueError("金額は正の整数で入力してください。")
-
-                svc.transfer(src, dst, amount, memo or "口座間振替")
-                messages.success(request, f"{src_b} → {dst_b} へ {amount:,} 円を振替えました。")
-            except ValueError as e:
-                messages.error(request, f"金額エラー：{e}")
-            except Exception as e:
-                messages.error(request, f"処理に失敗：{e}")
+            messages.error(request, "振替は現在サポートしていません。")
             return redirect("cash_dashboard")
 
         messages.error(request, "不正な操作が指定されました。")
         return redirect("cash_dashboard")
 
-    # ========== GET ==========
+    # ====== GET ======
     svc.ensure_default_accounts()
     today = date.today()
 
-    # 自動同期（エラーでも画面は出す）
+    # 同期（失敗しても画面は表示）
     try:
         info = up.sync_all()
         d = int(info.get("dividends_created", 0))
@@ -107,61 +121,57 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         messages.error(request, f"同期に失敗：{e}")
 
     # === 集計 ===
-    brokers = svc.broker_summaries(today)  # broker, cash, restricted, available, month_net
-    kpi_total, account_rows = svc.total_summary(today)  # account_rows は account_summary() の行
+    # svc.broker_summaries(today) => [{broker, cash, restricted, available, month_net}]
+    base_list = svc.broker_summaries(today)
 
-    # ブローカー単位の内訳（取得原価残・担保可能額を合算）
-    details_by_broker: dict[str, dict] = {}
-    for r in account_rows:
-        b = r["broker"]
-        d = details_by_broker.setdefault(
-            b,
-            {"invested_cost": 0, "collateral_usable": 0, "cash": 0, "restricted": 0, "available": 0},
-        )
-        d["invested_cost"] += int(r.get("invested_cost", 0))
-        d["collateral_usable"] += int(r.get("collateral_usable", 0))
-        d["cash"] += int(r.get("cash", 0))
-        d["restricted"] += int(r.get("restricted", 0))
-        d["available"] += int(r.get("available", 0))
+    # しきい値（%）
+    LOW_RATIO = 0.30
 
-    # --- アラート（マイナス & 30%未満） ---
-    # 基準：available / max(cash + collateral, 1)
-    THRESHOLD_PCT = 30
+    # ビュー側で“テンプレで使う値は全部”作る
+    enhanced = []
+    lows_for_toast: list[tuple[str, int, int, float]] = []
+    neg_for_toast:  list[tuple[str, int]] = []
 
-    negatives = []
-    lows = []
-    for b in brokers:
-        broker = b["broker"]
-        available = int(b.get("available", 0))
-        cash = int(details_by_broker.get(broker, {}).get("cash", b.get("cash", 0)))
-        coll = int(details_by_broker.get(broker, {}).get("collateral_usable", 0))
-        denom = max(cash + coll, 1)
-        pct = int(round(available / denom * 100)) if denom > 0 else 0
+    for row in base_list:
+        broker = row.get("broker", "")
+        cash   = int(row.get("cash", 0))
+        avail  = int(row.get("available", 0))
+        restr  = int(row.get("restricted", 0))
+        month_net = int(row.get("month_net", 0))
 
-        if available < 0:
-            negatives.append((broker, available))
-        elif available >= 0 and pct < THRESHOLD_PCT:
-            lows.append((broker, pct, available))
+        pct = (avail / cash * 100.0) if cash > 0 else None
+        severity = _severity_for(row, LOW_RATIO)
 
-    # マイナス（赤トースト）
-    if negatives:
-        lines = [f"・{br}：{val:,} 円" for br, val in negatives]
-        msg = "⚠️ 余力がマイナスの証券口座があります！\n" + "\n".join(lines) + "\n入出金や拘束、保有残高を確認してください。"
-        messages.error(request, msg)
+        # トースト用の収集
+        if avail < 0:
+            neg_for_toast.append((broker, avail))
+        elif cash > 0 and (avail / cash) < LOW_RATIO:
+            lows_for_toast.append((broker, avail, cash, (avail / cash) * 100.0))
 
-    # 30%未満（黄トースト）
-    if lows:
-        lines = [f"・{br}：余力 {pct}%（残り {avail:,} 円）" for br, pct, avail in lows]
-        msg = "⚠️ 余力が少なくなっています！\n" + "\n".join(lines) + "\n入金やポジション整理を検討してください。"
-        messages.warning(request, msg)
+        enhanced.append({
+            "broker": broker,
+            "cash": cash,
+            "available": avail,
+            "restricted": restr,
+            "month_net": month_net,
+            "pct_available": pct,   # float | None
+            "severity": severity,   # 'danger' | 'warn' | 'ok'
+        })
+
+    # 警告トースト（両方表示）
+    if neg_for_toast:
+        messages.error(request, _make_negative_toast(neg_for_toast))
+    if lows_for_toast:
+        messages.warning(request, _make_low_toast(lows_for_toast))
+
+    # KPI 合計は既存の total_summary をそのまま使用
+    kpi_total, _ = svc.total_summary(today)
 
     return render(
         request,
         "cash/dashboard.html",
         {
-            "brokers": brokers,
+            "brokers": enhanced,      # テンプレはこの“完成形”だけを使う
             "kpi_total": kpi_total,
-            "details_by_broker": details_by_broker,
-            "threshold_pct": THRESHOLD_PCT,
         },
     )
