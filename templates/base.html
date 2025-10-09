@@ -129,9 +129,10 @@
   ]
   </script>
 
-  <!-- Global Toast (final stable version) -->
+  <!-- Global Toast -->
 <script>
 (function(){
+  // ===== DOM 準備 =====
   let toast = document.getElementById("globalToast");
   if(!toast){
     toast = document.createElement("div");
@@ -161,11 +162,18 @@
       whiteSpace:"normal"
     });
     const style = document.createElement('style');
-    style.textContent = '#globalToast .nw{white-space:nowrap}';
+    style.textContent = `
+      #globalToast .nw{white-space:nowrap}
+      #globalToast .btn-ok{
+        margin-left:12px;margin-top:8px;padding:6px 10px;border-radius:8px;
+        border:1px solid rgba(255,255,255,.35);background:transparent;color:#fff;
+        font-weight:700;float:right;cursor:pointer
+      }`;
     document.head.appendChild(style);
     document.body.appendChild(toast);
   }
 
+  // 下タブ/ドックを避ける
   function adjustOffset(){
     const bottomTab = document.getElementById("bottomTabRoot");
     const dockInner = document.querySelector(".cash-dock .inner");
@@ -177,6 +185,7 @@
   adjustOffset();
   window.addEventListener("resize", adjustOffset);
 
+  // レベル別スタイル
   const styleFor = (lvl)=>{
     if (/error/.test(lvl))   return {bg:"rgba(220,38,38,.96)", b:"#7f1d1d"};
     if (/success/.test(lvl)) return {bg:"rgba(16,185,129,.96)", b:"#064e3b"};
@@ -184,12 +193,14 @@
     return {bg:"rgba(18,21,33,.96)", b:"rgba(255,255,255,.10)"};
   };
 
+  // Django messages
   let queue = [];
   try{
     const el = document.getElementById("dj-messages");
     queue = el ? JSON.parse(el.textContent || "[]") : [];
   }catch(e){ queue = []; }
 
+  // 公開API
   window.toast = function(text, level="info"){
     queue.push({text, level});
     if (!showing) showNext();
@@ -201,16 +212,21 @@
       .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
   }
 
-  // --- 改行＆⚠️固定処理 ---
+  // 折り返し保護（日本語の禁則を簡易適用）
   function protect(html){
-    // 「⚠️余力がマイナス〜」「⚠️余力が少なく〜」を丸ごと1行化
-    html = html.replace(/⚠️\s*(余力がマイナスの証券口座があります！)/g, '<span class="nw">⚠️ $1</span>');
-    html = html.replace(/⚠️\s*(余力が少なくなっています！)/g, '<span class="nw">⚠️ $1</span>');
-    // 単位・数値の分割防止
+    // 見出し語
+    html = html.replace(/(余力がマイナスの証券口座があります！)/g, '<span class="nw">$1</span>');
+    html = html.replace(/(余力が少なくなっています！)/g, '<span class="nw">$1</span>');
+    // 値と単位
     html = html.replace(/余力\s*([0-9]+(?:\.[0-9]+)?)%/g, '余力&nbsp;$1%');
     html = html.replace(/残り\s*([\d,]+)\s*円/g, '残り&nbsp;$1&nbsp;円');
-    // 箇条書き（・）を1行化
-    html = html.replace(/(^|<br>)\s*・\s*([^<]+)/g, (_, br, rest) => br + '<span class="nw">・ ' + rest.trim() + '</span>');
+    // 銀行名の前の中点
+    html = html.replace(/・\s*/g,'・');
+    // 文末「ください。」/「下さい。」を丸ごと1塊に（← “い。” 折返し対策）
+    html = html.replace(/ください。/g,'<span class="nw">ください。</span>');
+    html = html.replace(/下さい。/g,'<span class="nw">下さい。</span>');
+    html = html.replace(/検討してください。/g,'<span class="nw">検討してください。</span>');
+    html = html.replace(/確認してください。/g,'<span class="nw">確認してください。</span>');
     return html;
   }
 
@@ -219,6 +235,7 @@
     return protect(esc.replace(/\n\n/g,"<br><br>").replace(/\n/g,"<br>"));
   }
 
+  // 表示制御
   let i = 0, showing = false, timer = null;
 
   function hide(next=true){
@@ -235,32 +252,21 @@
 
     const {text, level} = queue[i++] || {};
     const sty = styleFor(level||"");
-    toast.style.background  = sty.bg;
+    toast.style.background = sty.bg;
     toast.style.borderColor = sty.b;
 
     const raw = String(text||"");
     const [head, ...rest] = raw.split("\n");
-
-    // 先頭⚠️を本文と同じ行に（既にprotectでnowrap済）
     const headHtml = `<strong style="font-weight:800;">${toHtml(head)}</strong>`;
     const bodyHtml = toHtml(rest.join("\n"));
 
+    toast.innerHTML = `${headHtml}${bodyHtml ? "<br>"+bodyHtml : ""}`;
+
     const ok = document.createElement("button");
     ok.type = "button";
+    ok.className = "btn-ok";
     ok.textContent = "OK";
-    Object.assign(ok.style,{
-      marginLeft:"12px", marginTop:"8px",
-      padding:"6px 10px",
-      borderRadius:"8px",
-      border:"1px solid rgba(255,255,255,.35)",
-      background:"transparent",
-      color:"#fff",
-      fontWeight:"700",
-      float:"right", cursor:"pointer"
-    });
     ok.onclick = ()=> hide();
-
-    toast.innerHTML = `${headHtml}${bodyHtml ? "<br>"+bodyHtml : ""}`;
     toast.appendChild(ok);
 
     toast.style.pointerEvents = "auto";
