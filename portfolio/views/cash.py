@@ -58,7 +58,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
 
-        # 口座間振替
+        # 口座間振替（UI上は出していないが、互換のため残す）
         if op == "transfer":
             src_b = (request.POST.get("src_broker") or "").strip()
             dst_b = (request.POST.get("dst_broker") or "").strip()
@@ -110,13 +110,34 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     brokers = svc.broker_summaries(today)
     kpi_total, _ = svc.total_summary(today)
 
-    # === ⚠️ 余力マイナス警告（証券別に詳細表示） ===
-    negatives = [(b["broker"], b["available"]) for b in brokers if b.get("available", 0) < 0]
+    # === 警告トースト ===
+    # 1) 余力マイナスの証券（詳細を列挙）
+    negatives = [(b["broker"], int(b.get("available", 0))) for b in brokers if b.get("available", 0) < 0]
     if negatives:
         details = "\n".join([f"・{br}：{val:,} 円" for br, val in negatives])
         messages.warning(
             request,
-            f" 余力がマイナスの証券口座があります⚠️\n{details}\n入出金や拘束、保有残高を確認してください。"
+            f"余力がマイナスの証券口座があります！\n{details}\n入出金や拘束、保有残高を確認してください。"
+        )
+
+    # 2) 余力がプラスでも「預り金の30%未満」なら注意喚起
+    #    ※割合は必要に応じて変更（例: 0.25=25%）
+    LOW_AVAIL_RATIO = 0.30
+    low_avails = []
+    for b in brokers:
+        avail = float(b.get("available", 0))
+        cash = float(b.get("cash", 0))
+        if cash > 0 and avail > 0:
+            ratio = avail / cash
+            if ratio < LOW_AVAIL_RATIO:
+                low_avails.append((b["broker"], int(avail), int(cash), round(ratio * 100, 1)))
+
+    if low_avails:
+        lines = [f"・{br}：余力 {av:,} 円（預り金 {c:,} 円の {pct:.1f}%）" for br, av, c, pct in low_avails]
+        body = "\n".join(lines)
+        messages.warning(
+            request,
+            f"余力が預り金に対して低下しています（{int(LOW_AVAIL_RATIO*100)}%未満）。\n{body}"
         )
 
     return render(request, "cash/dashboard.html", {
