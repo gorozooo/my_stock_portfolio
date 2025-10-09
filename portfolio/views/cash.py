@@ -58,7 +58,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
 
-        # 互換：口座間振替（UI非表示）
+        # 口座間振替
         if op == "transfer":
             src_b = (request.POST.get("src_broker") or "").strip()
             dst_b = (request.POST.get("dst_broker") or "").strip()
@@ -66,7 +66,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, "振替元/先の証券会社を選択してください。")
                 return redirect("cash_dashboard")
             if src_b == dst_b:
-                messages.error(request, "振替元と振替先が同じです。")
+                messages.error(request, "振替元と振替先が同じです。別の口座を選んでください。")
                 return redirect("cash_dashboard")
 
             src = _get_account(src_b)
@@ -80,19 +80,23 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 amount = int(amount_str)
                 if amount <= 0:
                     raise ValueError("金額は正の整数で入力してください。")
+
                 svc.transfer(src, dst, amount, memo or "口座間振替")
                 messages.success(request, f"{src_b} → {dst_b} へ {amount:,} 円を振替えました。")
+            except ValueError as e:
+                messages.error(request, f"金額エラー：{e}")
             except Exception as e:
-                messages.error(request, f"振替に失敗：{e}")
+                messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
 
-        messages.error(request, "不正な操作です。")
+        messages.error(request, "不正な操作が指定されました。")
         return redirect("cash_dashboard")
 
-    # === GET ===
+    # ========== GET ==========
     svc.ensure_default_accounts()
     today = date.today()
 
+    # 自動同期（エラーでも画面は出す）
     try:
         info = up.sync_all()
         d = int(info.get("dividends_created", 0))
@@ -102,42 +106,47 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     except Exception as e:
         messages.error(request, f"同期に失敗：{e}")
 
+    # === 集計 ===
     brokers = svc.broker_summaries(today)
     kpi_total, _ = svc.total_summary(today)
 
-    # ===== ⚠️ 余力チェック =====
-    LOW_AVAIL_RATIO = 0.30  # 30%
-    negatives, low_avails = [], []
-
-    for b in brokers:
-        avail = float(b.get("available", 0))
-        cash = float(b.get("cash", 0))
-        br = b.get("broker", "")
-        # マイナス
-        if avail < 0:
-            negatives.append((br, int(avail)))
-        # 残30%未満（マイナス以外）
-        elif cash > 0 and avail / cash < LOW_AVAIL_RATIO:
-            pct = round(avail / cash * 100, 1)
-            low_avails.append((br, int(avail), pct))
-
-    # --- マイナスの警告 ---
+    # === 余力アラート ===
+    # 1) マイナス → エラートースト（赤）
+    negatives = [(b["broker"], b.get("available", 0)) for b in brokers if b.get("available", 0) < 0]
     if negatives:
-        details = "\n".join([f"・{br}：{val:,} 円" for br, val in negatives])
+        detail = "\n".join([f"・{br}：{val:,} 円" for br, val in negatives])
+        messages.error(
+            request,
+            "余力がマイナスの証券口座があります！\n"
+            f"{detail}\n"
+            "入出金や拘束、保有残高を確認してください。"
+        )
+
+    # 2) 余力が「預り金の30%未満」 → 注意トースト（黄）
+    THRESH = 30.0
+    lows = []
+    for b in brokers:
+        cash = float(b.get("cash", 0) or 0)
+        avail = float(b.get("available", 0) or 0)
+        if cash <= 0 or avail < 0:
+            continue  # 0割り/マイナスは上のエラーで扱う
+        pct = (avail / cash) * 100.0
+        if pct < THRESH:
+            lows.append((b["broker"], pct, int(avail)))
+
+    if lows and not negatives:
+        lines = []
+        for br, pct, av in lows:
+            # 例: ・松井：余力 22%（残り 163,012 円）
+            pct_int = int(round(pct))
+            lines.append(f"・{br}：余力 {pct_int}%（残り {av:,} 円）")
+        body = "\n".join(lines)
         messages.warning(
             request,
-            f"⚠️ 余力がマイナスの証券口座があります！\n{details}\n入出金や拘束、保有残高を確認してください。"
+            "余力が少なくなっています！\n"
+            f"{body}\n"
+            "入金やポジション整理を検討してください。"
         )
-
-    # --- 残30%未満の警告 ---
-    if low_avails:
-        lines = [f"・{br}：余力 {pct:.1f}%（残り {av:,} 円）" for br, av, pct in low_avails]
-        msg = (
-            "⚠️ 余力が少なくなっています！\n"
-            + "\n".join(lines)
-            + "\n入金やポジション整理を検討してください。"
-        )
-        messages.warning(request, msg)
 
     return render(request, "cash/dashboard.html", {
         "brokers": brokers,
