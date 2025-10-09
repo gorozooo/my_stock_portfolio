@@ -1,10 +1,13 @@
-# portfolio/services/cash_service.py
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 from datetime import date
 from collections import defaultdict
-from django.db.models import Sum
+
 from django.db import transaction
+from django.db.models import Sum
+
 from ..models_cash import BrokerAccount, CashLedger, MarginState
+
 
 # ---- 初期口座を自動作成（楽天/松井/SBI） --------------------
 DEFAULT_BROKERS = ["楽天", "松井", "SBI"]
@@ -14,59 +17,86 @@ def ensure_default_accounts(currency: str = "JPY") -> list[BrokerAccount]:
     初回アクセス時に代表口座（現物）を自動作成する。
     既にあれば何もしない。
     """
-    created = []
+    created: list[BrokerAccount] = []
     for broker in DEFAULT_BROKERS:
         acc, was_created = BrokerAccount.objects.get_or_create(
-            broker=broker, account_type="現物", currency=currency,
-            defaults={"opening_balance": 0, "name": ""}
+            broker=broker,
+            account_type="現物",
+            currency=currency,
+            defaults={"opening_balance": 0, "name": ""},
         )
         if was_created:
             created.append(acc)
     return created
 
+
 # ---- 基本集計（口座単位） ---------------------------------
 def cash_balance(account: BrokerAccount) -> int:
+    """
+    口座の開設時残高 + 台帳の合計を “現金残高” として返す。
+    """
     agg = CashLedger.objects.filter(account=account).aggregate(s=Sum("amount"))["s"] or 0
     return int(account.opening_balance + agg)
 
+
 def month_netflow(account: BrokerAccount, year: int, month: int) -> int:
+    """
+    当月の入出金差分（台帳合計）。表示用のKPI。
+    """
     qs = CashLedger.objects.filter(account=account, at__year=year, at__month=month)
     agg = qs.aggregate(s=Sum("amount"))["s"] or 0
     return int(agg)
 
+
 def latest_margin(account: BrokerAccount) -> MarginState | None:
+    """
+    信用口座などの最新マージン状態（拘束/代用/自由現金 など）を取得。
+    """
     return MarginState.objects.filter(account=account).order_by("-as_of").first()
 
-def account_summary(account: BrokerAccount, today: date):
+
+def account_summary(account: BrokerAccount, today: date) -> dict:
+    """
+    口座単位のKPIを作る。
+      - cash: 現金残高（opening_balance + ledger）
+      - restricted: 必要証拠金 + その他拘束
+      - available: 余力（cash_free + 代用可能 - restricted）
+                   cash_freeが0固定のブローカー用にフォールバック（cashを使用）
+      - month_net: 当月入出金差分
+    """
     bal = cash_balance(account)
     m = latest_margin(account)
+
     restricted = 0
-    available = bal
+    available = bal  # 既定値（信用がなければ＝現金残高）
+
     if m:
-        collateral_usable = m.collateral_usable
+        collateral_usable = int(m.collateral_usable)
         restricted = int(m.required_margin + m.restricted_amount)
         # 余力の推定
         available = int(m.cash_free + collateral_usable - restricted)
         if m.cash_free == 0:
-            # 一部の証券会社で cash_free が 0 固定の場合のフォールバック
+            # 一部の証券会社で cash_free が 0 固定の場合の保険
             available = int(bal + collateral_usable - restricted)
 
     return {
         "broker": account.broker,
         "key": f"{account.broker}-{account.account_type}",
         "name": f"{account.broker} / {account.account_type}",
-        "cash": bal,
-        "restricted": restricted,
-        "available": max(available, 0),
+        "cash": int(bal),
+        "restricted": int(restricted),
+        "available": max(int(available), 0),
         "currency": account.currency,
         "month_net": month_netflow(account, today.year, today.month),
     }
 
+
 # ---- 全体KPI（ホーム統合用に残す） --------------------------
-def total_summary(today: date):
-    rows = []
+def total_summary(today: date) -> tuple[dict, list[dict]]:
+    rows: list[dict] = []
     for acc in BrokerAccount.objects.all().order_by("broker", "account_type"):
         rows.append(account_summary(acc, today))
+
     total = {
         "available": sum(r["available"] for r in rows) if rows else 0,
         "cash_total": sum(r["cash"] for r in rows) if rows else 0,
@@ -75,24 +105,29 @@ def total_summary(today: date):
     }
     return total, rows
 
+
 # ---- ★ 証券会社ごとの集計（画面の主役） ---------------------
 PREF_ORDER = ["楽天", "松井", "SBI", "moomoo"]
 
-def broker_summaries(today: date):
-    """BrokerAccount を“証券会社名”でまとめたKPIリストを返す。"""
+def broker_summaries(today: date) -> list[dict]:
+    """
+    BrokerAccount を“証券会社名”でまとめたKPIリストを返す。
+    （ダッシュボードの1カード＝1ブローカー）
+    """
     # 代表口座が無ければ作る（初回アクセス対策）
     ensure_default_accounts()
 
     acc_rows = [account_summary(acc, today) for acc in BrokerAccount.objects.all()]
-    grouped = defaultdict(lambda: {"cash":0,"restricted":0,"available":0,"month_net":0})
+    grouped: dict[str, dict] = defaultdict(lambda: {"cash": 0, "restricted": 0, "available": 0, "month_net": 0})
+
     for r in acc_rows:
         g = grouped[r["broker"]]
-        g["cash"]       += r["cash"]
+        g["cash"] += r["cash"]
         g["restricted"] += r["restricted"]
-        g["available"]  += r["available"]
-        g["month_net"]  += r["month_net"]
+        g["available"] += r["available"]
+        g["month_net"] += r["month_net"]
 
-    items = []
+    items: list[dict] = []
     for broker, v in grouped.items():
         items.append({
             "broker": broker,
@@ -102,22 +137,35 @@ def broker_summaries(today: date):
             "month_net": int(v["month_net"]),
         })
 
-    pref_index = {b:i for i,b in enumerate(PREF_ORDER)}
+    pref_index = {b: i for i, b in enumerate(PREF_ORDER)}
     items.sort(key=lambda x: (pref_index.get(x["broker"], 999), x["broker"]))
     return items
 
+
 # ---- 台帳操作 ---------------------------------------------
-def deposit(account: BrokerAccount, amount: int, memo: str = "入金"):
+def deposit(account: BrokerAccount, amount: int, memo: str = "入金") -> CashLedger:
     assert amount > 0
     # 単発なので atomic は不要（DBエラーはビュー側で捕捉）
-    return CashLedger.objects.create(account=account, amount=amount, kind=CashLedger.Kind.DEPOSIT, memo=memo)
+    return CashLedger.objects.create(
+        account=account,
+        amount=amount,
+        kind=CashLedger.Kind.DEPOSIT,
+        memo=memo,
+    )
 
-def withdraw(account: BrokerAccount, amount: int, memo: str = "出金"):
+
+def withdraw(account: BrokerAccount, amount: int, memo: str = "出金") -> CashLedger:
     assert amount > 0
-    return CashLedger.objects.create(account=account, amount=-amount, kind=CashLedger.Kind.WITHDRAW, memo=memo)
+    return CashLedger.objects.create(
+        account=account,
+        amount=-amount,
+        kind=CashLedger.Kind.WITHDRAW,
+        memo=memo,
+    )
+
 
 @transaction.atomic
-def transfer(src: BrokerAccount, dst: BrokerAccount, amount: int, memo: str = "口座間振替"):
+def transfer(src: BrokerAccount, dst: BrokerAccount, amount: int, memo: str = "口座間振替") -> None:
     """
     振替は2行を一括で入れるので atomic を付与。
     ここで例外が出たら丸ごとロールバックされる。
