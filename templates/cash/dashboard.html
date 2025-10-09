@@ -3,40 +3,26 @@
 {% block title %}現金ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=8">
+<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=9">
 <style>
 /* ===== Layout ===== */
-.cash-wrap{
-  max-width:980px;
-  margin:12px auto 0;
-  padding:12px 12px 140px;
-}
+.cash-wrap{max-width:980px;margin:12px auto 0;padding:12px 12px 140px}
 
 /* ===== Broker Card ===== */
 .grid-broker{display:grid;grid-template-columns:1fr;gap:16px}
-.card{
-  padding:8px 10px;
-  border-radius:14px;
-  background:rgba(255,255,255,.04);
-  border:1px solid rgba(255,255,255,.08);
-  backdrop-filter:blur(8px);
-}
+.card{padding:8px 10px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(8px)}
 .card h3{font-size:15px;margin:0 0 8px}
 
-/* ===== KPI（横並び・コンパクト） ===== */
+/* ===== KPI ===== */
 .kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.kpi{
-  padding:8px 10px;
-  border-radius:10px;
-  background:rgba(255,255,255,.05);
-  border:1px solid rgba(255,255,255,.08);
-}
+.kpi{padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
 .kpi .label{font-size:11px;color:#9aa4b2;letter-spacing:.03em;margin-bottom:2px}
-.kpi .value{line-height:1.1;display:flex;align-items:baseline;gap:3px}
+.kpi .value{line-height:1.1;display:flex;align-items:baseline;gap:3px;flex-wrap:wrap}
 .kpi .num{font-size:14px;font-weight:700;letter-spacing:.01em}
 .kpi .unit{font-size:11px;opacity:.75}
+.kpi .pct{font-size:12px;opacity:.85;margin-left:6px;white-space:nowrap}
 
-/* 色分け（通常 / warn / danger） */
+/* 色分け */
 .kpi.available{border-color:rgba(0,255,209,.28);box-shadow:0 0 0 1px rgba(0,255,209,.12) inset}
 .kpi.available.warn{border-color:rgba(234,179,8,.45);box-shadow:0 0 0 1px rgba(234,179,8,.20) inset}
 .kpi.available.danger{border-color:rgba(239,68,68,.60);box-shadow:0 0 0 1px rgba(239,68,68,.28) inset}
@@ -45,40 +31,21 @@
 
 .small{font-size:11px;margin-top:6px;color:#a1a8c4}
 
-/* ===== Bottom Action Dock（下タブより下のレイヤー） ===== */
-.cash-dock{
-  position:fixed;left:0;right:0;bottom:0;
-  z-index:100;  /* ← 最前列にしない */
-  pointer-events:none;
-}
-.cash-dock .inner{
-  pointer-events:auto;max-width:980px;margin:0 auto;
-  padding:8px 12px calc(8px + env(safe-area-inset-bottom));
-  background:rgba(13,16,24,.84);
-  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
-  border-top:1px solid rgba(255,255,255,.08);
-  border-radius:16px 16px 0 0;
-}
+/* ===== Bottom Action Dock（下レイヤー） ===== */
+.cash-dock{position:fixed;left:0;right:0;bottom:0;z-index:100;pointer-events:none}
+.cash-dock .inner{pointer-events:auto;max-width:980px;margin:0 auto;padding:8px 12px calc(8px + env(safe-area-inset-bottom));background:rgba(13,16,24,.84);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid rgba(255,255,255,.08);border-radius:16px 16px 0 0}
 .cash-dock .bar{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
-.cash-dock .bar button{
-  padding:10px;font-size:14px;border-radius:10px;
-  border:1px solid rgba(255,255,255,.16);
-  background:rgba(255,255,255,.06);color:#e6ebff;font-weight:600
-}
+.cash-dock .bar button{padding:10px;font-size:14px;border-radius:10px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e6ebff;font-weight:600}
 
 /* ===== Modal ===== */
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;
-  align-items:center;justify-content:center;z-index:100300}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:100300}
 .modal.show{display:flex}
-.modal .box{width:min(520px,92vw);background:rgba(20,24,36,.92);
-  border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px;backdrop-filter:blur(12px)}
+.modal .box{width:min(520px,92vw);background:rgba(20,24,36,.92);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px;backdrop-filter:blur(12px)}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
 .form-grid label{font-size:12px;color:#9aa4b2;display:block;margin-bottom:4px}
-.form-grid select,.form-grid input{width:100%;padding:10px;border-radius:12px;
-  border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e6ebff}
+.form-grid select,.form-grid input{width:100%;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e6ebff}
 .form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
-.btn{padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.16);
-  background:rgba(255,255,255,.05);color:#e6ebff}
+.btn{padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#e6ebff}
 .btn.primary{border-color:rgba(0,255,209,.45)}
 </style>
 
@@ -91,10 +58,17 @@
       <div class="card">
         <h3>{{ b.broker }} 証券</h3>
         <div class="kpi-row">
+          <!-- 余力：％は“数値の横”に表示 -->
           <div class="kpi available {% if b.severity == 'danger' %}danger{% elif b.severity == 'warn' %}warn{% endif %}">
-            <div class="label">余力{% if b.pct_available %}（{{ b.pct_available|floatformat:1 }}%）{% endif %}</div>
-            <div class="value"><span class="num">{{ b.available|intcomma }}</span><span class="unit">円</span></div>
+            <div class="label">余力</div>
+            <div class="value">
+              <span class="num">{{ b.available|intcomma }}</span><span class="unit">円</span>
+              {% if b.pct_available is not None %}
+                <span class="pct">（{{ b.pct_available|floatformat:1 }}%）</span>
+              {% endif %}
+            </div>
           </div>
+
           <div class="kpi cash">
             <div class="label">預り金</div>
             <div class="value"><span class="num">{{ b.cash|intcomma }}</span><span class="unit">円</span></div>
@@ -113,7 +87,7 @@
   {% endif %}
 </div>
 
-<!-- === Bottom Action Dock (固定) === -->
+<!-- === Bottom Action Dock === -->
 <div class="cash-dock" aria-label="Cash Actions">
   <div class="inner">
     <div class="bar">
@@ -123,7 +97,7 @@
   </div>
 </div>
 
-<!-- ====== Modals（振替は無し） ====== -->
+<!-- ====== Modals（振替なし） ====== -->
 <div class="modal" id="modal-deposit" aria-hidden="true">
   <div class="box">
     <h3>➕ 入金</h3>
@@ -190,7 +164,6 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-  // --- モーダル起動 ---
   const modals = {
     deposit : document.getElementById("modal-deposit"),
     withdraw: document.getElementById("modal-withdraw"),
@@ -200,14 +173,12 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.querySelectorAll("[data-close]").forEach(b=> b.addEventListener("click", closeAll));
 
-  // ?action=deposit / withdraw で直接開く
   const act = new URLSearchParams(location.search).get("action");
   if (act && modals[act]) show(modals[act]);
 
   function show(el){ if(!el) return; el.classList.add("show"); el.setAttribute("aria-hidden","false"); }
   function closeAll(){ document.querySelectorAll(".modal.show").forEach(m=>{ m.classList.remove("show"); m.setAttribute("aria-hidden","true"); }); }
 
-  // --- ドック位置調整 ---
   const wrap = document.querySelector(".cash-wrap");
   const dock = document.querySelector(".cash-dock");
   const inner = document.querySelector(".cash-dock .inner");
