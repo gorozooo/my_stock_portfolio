@@ -1,22 +1,18 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-from datetime import date, datetime
-from typing import Tuple
+from datetime import date
 
 from django.contrib import messages
-from django.core.paginator import Paginator
-from django.db.models import Q, Sum, QuerySet
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods
 
-from ..models import Dividend, RealizedTrade
-from ..models_cash import BrokerAccount, CashLedger
+from ..models_cash import BrokerAccount
 from ..services import cash_service as svc
 from ..services import cash_updater as up
 
 
-# ================== dashboard（既存） ==================
+# ================== dashboard（存続） ==================
 def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
     svc.ensure_default_accounts(currency=currency)
     return (
@@ -29,50 +25,78 @@ def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
 @require_http_methods(["GET", "POST"])
 def cash_dashboard(request: HttpRequest) -> HttpResponse:
     if request.method == "POST":
-        op = request.POST.get("op")
-        amount = int(request.POST.get("amount") or 0)
-        memo = request.POST.get("memo", "")
+        op = (request.POST.get("op") or "").strip()
+        memo = (request.POST.get("memo") or "").strip()
 
+        # 入金 / 出金
         if op in ("deposit", "withdraw"):
-            broker = request.POST.get("broker", "")
+            broker = (request.POST.get("broker") or "").strip()
+            if not broker:
+                messages.error(request, "証券会社を選択してください。")
+                return redirect("cash_dashboard")
+
             acc = _get_account(broker)
             if not acc:
                 messages.error(request, f"{broker} の口座が見つかりません。")
                 return redirect("cash_dashboard")
+
             try:
+                amount_str = (request.POST.get("amount") or "").replace(",", "").strip()
+                amount = int(amount_str)
                 if amount <= 0:
                     raise ValueError("金額は正の整数で入力してください。")
+
                 if op == "deposit":
                     svc.deposit(acc, amount, memo or "入金")
                     messages.success(request, f"{broker} に {amount:,} 円を入金しました。")
                 else:
                     svc.withdraw(acc, amount, memo or "出金")
                     messages.success(request, f"{broker} から {amount:,} 円を出金しました。")
+            except ValueError as e:
+                messages.error(request, f"金額エラー：{e}")
             except Exception as e:
                 messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
 
+        # 口座間振替
         if op == "transfer":
-            src_b = request.POST.get("src_broker", "")
-            dst_b = request.POST.get("dst_broker", "")
+            src_b = (request.POST.get("src_broker") or "").strip()
+            dst_b = (request.POST.get("dst_broker") or "").strip()
+            if not src_b or not dst_b:
+                messages.error(request, "振替元/先の証券会社を選択してください。")
+                return redirect("cash_dashboard")
+            if src_b == dst_b:
+                messages.error(request, "振替元と振替先が同じです。別の口座を選んでください。")
+                return redirect("cash_dashboard")
+
             src = _get_account(src_b)
             dst = _get_account(dst_b)
             if not src or not dst:
                 messages.error(request, "振替元/先の口座が見つかりません。")
                 return redirect("cash_dashboard")
+
             try:
+                amount_str = (request.POST.get("amount") or "").replace(",", "").strip()
+                amount = int(amount_str)
                 if amount <= 0:
                     raise ValueError("金額は正の整数で入力してください。")
+
                 svc.transfer(src, dst, amount, memo or "口座間振替")
                 messages.success(request, f"{src_b} → {dst_b} へ {amount:,} 円を振替えました。")
+            except ValueError as e:
+                messages.error(request, f"金額エラー：{e}")
             except Exception as e:
                 messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
+
+        messages.error(request, "不正な操作が指定されました。")
+        return redirect("cash_dashboard")
 
     # GET
     svc.ensure_default_accounts()
     today = date.today()
 
+    # 自動同期（エラーでも画面は出す）
     try:
         info = up.sync_all()
         d = int(info.get("dividends_created", 0))
@@ -85,185 +109,3 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     brokers = svc.broker_summaries(today)
     kpi_total, _ = svc.total_summary(today)
     return render(request, "cash/dashboard.html", {"brokers": brokers, "kpi_total": kpi_total})
-
-
-# ================== 履歴共通 ==================
-PAGE_SIZE = 30
-
-def _parse_date(s: str | None):
-    if not s:
-        return None
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
-        try:
-            return datetime.strptime(s, fmt).date()
-        except Exception:
-            pass
-    return None
-
-def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
-    broker = request.GET.get("broker", "ALL")
-    kind = (request.GET.get("kind") or "ALL").upper()
-    start = _parse_date(request.GET.get("start"))
-    end   = _parse_date(request.GET.get("end"))
-    q     = (request.GET.get("q") or "").strip()
-
-    qs = CashLedger.objects.select_related("account").order_by("-at", "-id")
-    if broker and broker != "ALL":
-        qs = qs.filter(account__broker=broker)
-
-    if kind != "ALL":
-        if kind == "DEPOSIT":
-            qs = qs.filter(kind=CashLedger.Kind.DEPOSIT)
-        elif kind == "WITHDRAW":
-            qs = qs.filter(kind=CashLedger.Kind.WITHDRAW)
-        elif kind == "XFER":
-            qs = qs.filter(kind__in=[CashLedger.Kind.XFER_IN, CashLedger.Kind.XFER_OUT])
-        elif kind == "SYSTEM":
-            qs = qs.filter(kind=CashLedger.Kind.SYSTEM)
-
-    if start:
-        qs = qs.filter(at__gte=start)
-    if end:
-        qs = qs.filter(at__lte=end)
-    if q:
-        qs = qs.filter(Q(memo__icontains=q))
-
-    agg = qs.aggregate(
-        total=Sum("amount"),
-        dep=Sum("amount", filter=Q(kind=CashLedger.Kind.DEPOSIT)),
-        wd=Sum("amount", filter=Q(kind=CashLedger.Kind.WITHDRAW)),
-        xin=Sum("amount", filter=Q(kind=CashLedger.Kind.XFER_IN)),
-        xout=Sum("amount", filter=Q(kind=CashLedger.Kind.XFER_OUT)),
-    )
-    summary = {
-        "total": int(agg["total"] or 0),
-        "deposit": int(agg["dep"] or 0),
-        "withdraw": int(agg["wd"] or 0),
-        "xfer_in": int(agg["xin"] or 0),
-        "xfer_out": int(agg["xout"] or 0),
-    }
-    return qs, summary
-
-def _source_is_dividend(v) -> bool:
-    if v is None: return False
-    try:
-        return int(v) == int(CashLedger.SourceType.DIVIDEND)
-    except Exception:
-        return str(v).upper() in {"DIVIDEND", "DIV", "2"}
-
-def _source_is_realized(v) -> bool:
-    if v is None: return False
-    try:
-        return int(v) == int(CashLedger.SourceType.REALIZED)
-    except Exception:
-        return str(v).upper() in {"REALIZED", "REAL", "1"}
-
-def _safe_str(x) -> str:
-    return (x or "").strip()
-
-def _attach_source_labels(page):
-    items = list(page.object_list or [])
-    if not items:
-        return
-    div_ids, real_ids = set(), set()
-    for r in items:
-        st = getattr(r, "source_type", None)
-        sid = getattr(r, "source_id", None)
-        try:
-            sid_int = int(sid)
-        except Exception:
-            continue
-        if _source_is_dividend(st):
-            div_ids.add(sid_int)
-        elif _source_is_realized(st):
-            real_ids.add(sid_int)
-    div_map  = {d.id: d for d in Dividend.objects.filter(id__in=div_ids)}
-    real_map = {x.id: x for x in RealizedTrade.objects.filter(id__in=real_ids)}
-
-    for r in items:
-        r.src_badge = None
-        st = getattr(r, "source_type", None)
-        sid = getattr(r, "source_id", None)
-        try:
-            sid_int = int(sid)
-        except Exception:
-            continue
-        if _source_is_dividend(st):
-            d = div_map.get(sid_int)
-            label = (f"{_safe_str(getattr(d,'display_ticker',None) or getattr(d,'ticker',None)).upper()} "
-                     f"{_safe_str(getattr(d,'display_name',None) or getattr(d,'name',None))}").strip() if d else f"DIV:{sid_int}"
-            r.src_badge = {"kind": "配当", "class": "chip chip-sky", "label": label}
-        elif _source_is_realized(st):
-            x = real_map.get(sid_int)
-            label = (f"{_safe_str(getattr(x,'ticker',None)).upper()} {_safe_str(getattr(x,'name',None))}").strip() if x else f"REAL:{sid_int}"
-            r.src_badge = {"kind": "実損", "class": "chip chip-emerald", "label": label}
-    page.object_list = items
-
-
-def _clean_params_for_pager(request: HttpRequest) -> dict:
-    """
-    ページャに渡すクエリ。page を除外し、空値は落とす。
-    テンプレ側は {{ params.urlencode }} をそのまま使えば page 重複が起きない。
-    """
-    params = {}
-    for k, v in request.GET.items():
-        if k == "page":
-            continue
-        if v is None or v == "":
-            continue
-        params[k] = v
-    return params
-
-
-# ===== 一覧（通常ページネーション／唯一の経路） =====
-@require_http_methods(["GET"])
-def cash_history(request: HttpRequest) -> HttpResponse:
-    svc.ensure_default_accounts()
-    qs, summary = _filtered_ledger(request)
-
-    try:
-        page_no = int(request.GET.get("page") or 1)
-    except Exception:
-        page_no = 1
-
-    p = Paginator(qs, PAGE_SIZE).get_page(page_no)
-    _attach_source_labels(p)
-
-    return render(
-        request,
-        "cash/history.html",
-        {
-            "page": p,
-            "summary": summary,
-            # ← ここだけ変更：page を除いた params を渡す
-            "params": _clean_params_for_pager(request),
-        },
-    )
-
-
-# ===== 編集 / 削除 =====
-@require_http_methods(["GET", "POST"])
-def ledger_edit(request: HttpRequest, pk: int):
-    obj = get_object_or_404(CashLedger, pk=pk)
-    if request.method == "POST":
-        try:
-            obj.at = _parse_date(request.POST.get("at")) or obj.at
-            obj.amount = int(request.POST.get("amount") or obj.amount)
-            obj.memo = request.POST.get("memo", obj.memo)
-            obj.kind = int(request.POST.get("kind") or obj.kind)
-            obj.save()
-            messages.success(request, "台帳を更新しました。")
-            return redirect("cash_history")
-        except Exception as e:
-            messages.error(request, f"更新に失敗：{e}")
-    return render(request, "cash/edit_ledger.html", {"obj": obj})
-
-@require_http_methods(["POST"])
-def ledger_delete(request: HttpRequest, pk: int):
-    obj = get_object_or_404(CashLedger, pk=pk)
-    try:
-        obj.delete()
-        messages.success(request, "台帳を削除しました。")
-    except Exception as e:
-        messages.error(request, f"削除に失敗：{e}")
-    return redirect("cash_history")
