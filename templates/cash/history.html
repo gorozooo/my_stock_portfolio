@@ -55,10 +55,8 @@
            placeholder="例: 配当 / 実現益 / REAL:21 など"
            class="qb-ctl">
 
-    <input id="qb-start" type="date" name="start"
-           value="{{ params.start|default_if_none:'' }}" class="qb-ctl">
-    <input id="qb-end" type="date" name="end"
-           value="{{ params.end|default_if_none:'' }}" class="qb-ctl">
+    <input id="qb-start" type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="qb-ctl">
+    <input id="qb-end" type="date" name="end" value="{{ params.end|default_if_none:'' }}" class="qb-ctl">
 
     <div class="btn-row">
       <button class="qb-btn" type="submit">適用</button>
@@ -77,7 +75,6 @@
   {% endif %}
 </div>
 
-{# ===== リスト ===== #}
 {% for r in page.object_list %}
   <div class="card">
     <div class="amount">{{ r.amount|intcomma }} 円</div>
@@ -110,21 +107,16 @@
   <div class="text-slate-400">該当データがありません。</div>
 {% endfor %}
 
-{# ===== ページャ（page を除外して付け直し。空値排除） ===== #}
 {% if page.paginator.num_pages > 1 %}
   <div class="flex items-center justify-center gap-8 my-3 text-[12px]">
     {% if page.has_previous %}
       <a class="qb-btn"
-         href="?{% for k,v in params.items %}{% if k != 'page' and v != None and v != '' %}{{ k }}={{ v|urlencode }}&{% endif %}{% endfor %}page={{ page.previous_page_number }}">
-        ← 前へ
-      </a>
+         href="?{% for k,v in params.items %}{{ k }}={{ v|urlencode }}&{% endfor %}page={{ page.previous_page_number }}">← 前へ</a>
     {% endif %}
     <span>ページ {{ page.number }} / {{ page.paginator.num_pages }}</span>
     {% if page.has_next %}
       <a class="qb-btn"
-         href="?{% for k,v in params.items %}{% if k != 'page' and v != None and v != '' %}{{ k }}={{ v|urlencode }}&{% endif %}{% endfor %}page={{ page.next_page_number }}">
-        次へ →
-      </a>
+         href="?{% for k,v in params.items %}{{ k }}={{ v|urlencode }}&{% endfor %}page={{ page.next_page_number }}">次へ →</a>
     {% endif %}
   </div>
 {% endif %}
