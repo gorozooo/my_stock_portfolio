@@ -130,152 +130,162 @@
   </script>
 
   <!-- Global Toast -->
-<script>
-(function(){
-  // ===== DOM 準備 =====
-  let toast = document.getElementById("globalToast");
-  if(!toast){
-    toast = document.createElement("div");
-    toast.id = "globalToast";
-    Object.assign(toast.style,{
-      position:"fixed",
-      left:"50%",
-      bottom:"calc(96px + env(safe-area-inset-bottom))",
-      transform:"translate(-50%, 12px)",
-      background:"rgba(18,21,33,.96)",
-      color:"#fff",
-      padding:"12px 14px",
-      fontSize:"14px",
-      fontWeight:"600",
-      borderRadius:"12px",
-      border:"1px solid rgba(255,255,255,.10)",
-      boxShadow:"0 18px 42px rgba(0,0,0,.45)",
-      opacity:"0",
-      pointerEvents:"none",            // ← 非表示時は無効
-      transition:"opacity .22s ease, transform .22s ease",
-      zIndex:"100260",
-      maxWidth:"92vw",
-      textAlign:"left",
-      lineHeight:"1.45",
-      wordBreak:"break-word",
-      backdropFilter:"blur(10px)",
-      whiteSpace:"normal"
-    });
-    const style = document.createElement('style');
-    style.textContent = '#globalToast .nw{white-space:nowrap}';
-    document.head.appendChild(style);
-    document.body.appendChild(toast);
-  }
+  <script>
+  (function(){
+    // ===== DOM 準備 =====
+    let toast = document.getElementById("globalToast");
+    if(!toast){
+      toast = document.createElement("div");
+      toast.id = "globalToast";
+      Object.assign(toast.style,{
+        position:"fixed",
+        left:"50%",
+        bottom:"calc(96px + env(safe-area-inset-bottom))",
+        transform:"translate(-50%, 12px)",
+        background:"rgba(18,21,33,.96)",
+        color:"#fff",
+        padding:"12px 14px",
+        fontSize:"14px",
+        fontWeight:"600",
+        borderRadius:"12px",
+        border:"1px solid rgba(255,255,255,.10)",
+        boxShadow:"0 18px 42px rgba(0,0,0,.45)",
+        opacity:"0",
+        pointerEvents:"none",
+        transition:"opacity .22s ease, transform .22s ease",
+        zIndex:"100260",
+        maxWidth:"92vw",
+        textAlign:"left",
+        lineHeight:"1.45",
+        wordBreak:"break-word",
+        backdropFilter:"blur(10px)",
+        whiteSpace:"normal"
+      });
+      const style = document.createElement('style');
+      style.textContent = '#globalToast .nw{white-space:nowrap}';
+      document.head.appendChild(style);
+      document.body.appendChild(toast);
+    }
 
-  // 下タブ/ドックを避ける
-  function adjustOffset(){
-    const bottomTab = document.getElementById("bottomTabRoot");
-    const dockInner = document.querySelector(".cash-dock .inner");
-    const tabH = bottomTab ? bottomTab.getBoundingClientRect().height : 0;
-    const dockH = dockInner ? dockInner.getBoundingClientRect().height : 0;
-    const offset = Math.max(96, Math.round(tabH + dockH + 16));
-    toast.style.bottom = `calc(${offset}px + env(safe-area-inset-bottom))`;
-  }
-  adjustOffset();
-  window.addEventListener("resize", adjustOffset);
+    // 下タブ/ドックを避ける
+    function adjustOffset(){
+      const bottomTab = document.getElementById("bottomTabRoot");
+      const dockInner = document.querySelector(".cash-dock .inner");
+      const tabH = bottomTab ? bottomTab.getBoundingClientRect().height : 0;
+      const dockH = dockInner ? dockInner.getBoundingClientRect().height : 0;
+      const offset = Math.max(96, Math.round(tabH + dockH + 16));
+      toast.style.bottom = `calc(${offset}px + env(safe-area-inset-bottom))`;
+    }
+    adjustOffset();
+    window.addEventListener("resize", adjustOffset);
 
-  // レベル別スタイル（絵文字は出さない）
-  const styleFor = (lvl)=>{
-    if (/error/.test(lvl))   return {bg:"rgba(220,38,38,.96)", b:"#7f1d1d"};
-    if (/success/.test(lvl)) return {bg:"rgba(16,185,129,.96)", b:"#064e3b"};
-    if (/warning/.test(lvl)) return {bg:"rgba(234,179,8,.96)",  b:"#713f12"};
-    return {bg:"rgba(18,21,33,.96)", b:"rgba(255,255,255,.10)"};
-  };
+    // レベル別スタイル
+    const styleFor = (lvl)=>{
+      if (/error/.test(lvl))   return {bg:"rgba(220,38,38,.96)", b:"#7f1d1d"};
+      if (/success/.test(lvl)) return {bg:"rgba(16,185,129,.96)", b:"#064e3b"};
+      if (/warning/.test(lvl)) return {bg:"rgba(234,179,8,.96)",  b:"#713f12"};
+      return {bg:"rgba(18,21,33,.96)", b:"rgba(255,255,255,.10)"};
+    };
 
-  // Django messages を取得
-  let queue = [];
-  try{
-    const el = document.getElementById("dj-messages");
-    queue = el ? JSON.parse(el.textContent || "[]") : [];
-  }catch(e){ queue = []; }
+    // Django messages を取得
+    let queue = [];
+    try{
+      const el = document.getElementById("dj-messages");
+      queue = el ? JSON.parse(el.textContent || "[]") : [];
+    }catch(e){ queue = []; }
 
-  // 外部からも呼べるAPI
-  window.toast = function(text, level="info"){
-    queue.push({text, level});
-    if (!showing) showNext();
-  };
+    // 外部からも呼べるAPI
+    window.toast = function(text, level="info"){
+      queue.push({text, level});
+      if (!showing) showNext();
+    };
 
-  function escapeHtml(s){
-    return String(s||"")
-      .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-      .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-  }
-  // 改行制御（余力表示のブレ回避）
-  function protect(html){
-    html = html.replace(/(余力がマイナスの証券口座があります！)/g, '<span class="nw">$1</span>');
-    html = html.replace(/(余力が少なくなっています！)/g, '<span class="nw">$1</span>');
-    html = html.replace(/余力\s*([0-9]+(?:\.[0-9]+)?)%/g, '余力&nbsp;$1%');
-    html = html.replace(/残り\s*([\d,]+)\s*円/g, '残り&nbsp;$1&nbsp;円');
-    return html;
-  }
-  function toHtml(text){
-    const esc = escapeHtml(String(text||"").replace(/:\s*/g,"："));
-    return protect(esc.replace(/\n\n/g,"<br><br>").replace(/\n/g,"<br>"));
-  }
+    function escapeHtml(s){
+      return String(s||"")
+        .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+    }
 
-  // ===== 表示/非表示制御 =====
-  let i = 0, showing = false, timer = null;
+    // ---- 改行制御（強化）----
+    // 1) ヘッダ固定文の改行禁止
+    // 2) 「余力 22.4%」「残り 123,456 円」を &nbsp; で結合
+    // 3) 先頭が「・」の箇条書き行は “行ごと” 改行禁止（30%以下の行を丸ごと保持）
+    function protect(html){
+      html = html.replace(/(余力がマイナスの証券口座があります！)/g, '<span class="nw">$1</span>');
+      html = html.replace(/(余力が少なくなっています！)/g, '<span class="nw">$1</span>');
+      html = html.replace(/余力\s*([0-9]+(?:\.[0-9]+)?)%/g, '余力&nbsp;$1%');
+      html = html.replace(/残り\s*([\d,]+)\s*円/g, '残り&nbsp;$1&nbsp;円');
 
-  function hide(next=true){
-    toast.style.opacity = "0";
-    toast.style.transform = "translate(-50%, 12px)";
-    toast.style.pointerEvents = "none";               // クリック不可に戻す
-    if (timer) { clearTimeout(timer); timer = null; }
-    setTimeout(()=>{ if(next) showNext(); }, 260);
-  }
+      // 箇条書き行（・ で始まる行）を一括で nowrap
+      // <br> 区切りを考慮し、行頭 or 改行直後の「・ ...」を丸ごと包む
+      html = html.replace(/(^|<br>)\s*・\s*([^<]+)/g, function(_, br, rest){
+        return br + '<span class="nw">・ ' + rest.trim() + '</span>';
+      });
+      return html;
+    }
 
-  function showNext(){
-    if (i >= queue.length){ showing = false; return; }
-    showing = true;
+    function toHtml(text){
+      const esc = escapeHtml(String(text||"").replace(/:\s*/g,"："));
+      return protect(esc.replace(/\n\n/g,"<br><br>").replace(/\n/g,"<br>"));
+    }
 
-    const {text, level} = queue[i++] || {};
-    const sty = styleFor(level||"");
-    toast.style.background = sty.bg;
-    toast.style.borderColor = sty.b;
+    // ===== 表示/非表示制御 =====
+    let i = 0, showing = false, timer = null;
 
-    // コンテンツ
-    const raw = String(text||"");
-    const [head, ...rest] = raw.split("\n");
-    const headHtml = `<strong style="font-weight:800;">${toHtml(head)}</strong>`;
-    const bodyHtml = toHtml(rest.join("\n"));
+    function hide(next=true){
+      toast.style.opacity = "0";
+      toast.style.transform = "translate(-50%, 12px)";
+      toast.style.pointerEvents = "none";
+      if (timer) { clearTimeout(timer); timer = null; }
+      setTimeout(()=>{ if(next) showNext(); }, 260);
+    }
 
-    // OK ボタン
-    const ok = document.createElement("button");
-    ok.type = "button";
-    ok.textContent = "OK";
-    Object.assign(ok.style,{
-      marginLeft:"12px", marginTop:"8px",
-      padding:"6px 10px",
-      borderRadius:"8px",
-      border:"1px solid rgba(255,255,255,.35)",
-      background:"transparent",
-      color:"#fff",
-      fontWeight:"700",
-      float:"right", cursor:"pointer"
-    });
-    ok.onclick = ()=> hide();                         // クリックで即閉じ
+    function showNext(){
+      if (i >= queue.length){ showing = false; return; }
+      showing = true;
 
-    // 内容差し込み
-    toast.innerHTML = `${headHtml}${bodyHtml ? "<br>"+bodyHtml : ""}`;
-    toast.appendChild(ok);
+      const {text, level} = queue[i++] || {};
+      const sty = styleFor(level||"");
+      toast.style.background = sty.bg;
+      toast.style.borderColor = sty.b;
 
-    // 表示
-    toast.style.pointerEvents = "auto";              // ← クリックできるように
-    toast.style.opacity = "1";
-    toast.style.transform = "translate(-50%, 0)";
+      const raw = String(text||"");
+      const [head, ...rest] = raw.split("\n");
+      const headHtml = `<strong style="font-weight:800;">${toHtml(head)}</strong>`;
+      const bodyHtml = toHtml(rest.join("\n"));
 
-    // 自動クローズ（エラーは長め）
-    const SHOW_MS = /error/.test(level||"") ? 5200 : 4000;
-    timer = setTimeout(()=> hide(), SHOW_MS);
-  }
+      // OK ボタン
+      const ok = document.createElement("button");
+      ok.type = "button";
+      ok.textContent = "OK";
+      Object.assign(ok.style,{
+        marginLeft:"12px", marginTop:"8px",
+        padding:"6px 10px",
+        borderRadius:"8px",
+        border:"1px solid rgba(255,255,255,.35)",
+        background:"transparent",
+        color:"#fff",
+        fontWeight:"700",
+        float:"right", cursor:"pointer"
+      });
+      ok.onclick = ()=> hide();
 
-  if (queue.length) showNext();
-})();
-</script>
+      // 内容差し込み
+      toast.innerHTML = `${headHtml}${bodyHtml ? "<br>"+bodyHtml : ""}`;
+      toast.appendChild(ok);
+
+      // 表示
+      toast.style.pointerEvents = "auto";
+      toast.style.opacity = "1";
+      toast.style.transform = "translate(-50%, 0)";
+
+      // 自動クローズ（error 長め）
+      const SHOW_MS = /error/.test(level||"") ? 5200 : 4000;
+      timer = setTimeout(()=> hide(), SHOW_MS);
+    }
+
+    if (queue.length) showNext();
+  })();
+  </script>
 </body>
 </html>
