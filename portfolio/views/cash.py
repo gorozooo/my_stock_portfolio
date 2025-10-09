@@ -58,7 +58,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
 
-        # 口座間振替（UI上は出していないが、互換のため残す）
+        # 互換：口座間振替（UI非表示）
         if op == "transfer":
             src_b = (request.POST.get("src_broker") or "").strip()
             dst_b = (request.POST.get("dst_broker") or "").strip()
@@ -66,7 +66,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, "振替元/先の証券会社を選択してください。")
                 return redirect("cash_dashboard")
             if src_b == dst_b:
-                messages.error(request, "振替元と振替先が同じです。別の口座を選んでください。")
+                messages.error(request, "振替元と振替先が同じです。")
                 return redirect("cash_dashboard")
 
             src = _get_account(src_b)
@@ -80,23 +80,19 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 amount = int(amount_str)
                 if amount <= 0:
                     raise ValueError("金額は正の整数で入力してください。")
-
                 svc.transfer(src, dst, amount, memo or "口座間振替")
                 messages.success(request, f"{src_b} → {dst_b} へ {amount:,} 円を振替えました。")
-            except ValueError as e:
-                messages.error(request, f"金額エラー：{e}")
             except Exception as e:
-                messages.error(request, f"処理に失敗：{e}")
+                messages.error(request, f"振替に失敗：{e}")
             return redirect("cash_dashboard")
 
-        messages.error(request, "不正な操作が指定されました。")
+        messages.error(request, "不正な操作です。")
         return redirect("cash_dashboard")
 
-    # ========== GET ==========
+    # === GET ===
     svc.ensure_default_accounts()
     today = date.today()
 
-    # 自動同期（エラーでも画面は出す）
     try:
         info = up.sync_all()
         d = int(info.get("dividends_created", 0))
@@ -106,39 +102,42 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     except Exception as e:
         messages.error(request, f"同期に失敗：{e}")
 
-    # === 集計 ===
     brokers = svc.broker_summaries(today)
     kpi_total, _ = svc.total_summary(today)
 
-    # === 警告トースト ===
-    # 1) 余力マイナスの証券（詳細を列挙）
-    negatives = [(b["broker"], int(b.get("available", 0))) for b in brokers if b.get("available", 0) < 0]
+    # ===== ⚠️ 余力チェック =====
+    LOW_AVAIL_RATIO = 0.30  # 30%
+    negatives, low_avails = [], []
+
+    for b in brokers:
+        avail = float(b.get("available", 0))
+        cash = float(b.get("cash", 0))
+        br = b.get("broker", "")
+        # マイナス
+        if avail < 0:
+            negatives.append((br, int(avail)))
+        # 残30%未満（マイナス以外）
+        elif cash > 0 and avail / cash < LOW_AVAIL_RATIO:
+            pct = round(avail / cash * 100, 1)
+            low_avails.append((br, int(avail), pct))
+
+    # --- マイナスの警告 ---
     if negatives:
         details = "\n".join([f"・{br}：{val:,} 円" for br, val in negatives])
         messages.warning(
             request,
-            f"余力がマイナスの証券口座があります！\n{details}\n入出金や拘束、保有残高を確認してください。"
+            f"⚠️ 余力がマイナスの証券口座があります！\n{details}\n入出金や拘束、保有残高を確認してください。"
         )
 
-    # 2) 余力がプラスでも「預り金の30%未満」なら注意喚起
-    #    ※割合は必要に応じて変更（例: 0.25=25%）
-    LOW_AVAIL_RATIO = 0.30
-    low_avails = []
-    for b in brokers:
-        avail = float(b.get("available", 0))
-        cash = float(b.get("cash", 0))
-        if cash > 0 and avail > 0:
-            ratio = avail / cash
-            if ratio < LOW_AVAIL_RATIO:
-                low_avails.append((b["broker"], int(avail), int(cash), round(ratio * 100, 1)))
-
+    # --- 残30%未満の警告 ---
     if low_avails:
-        lines = [f"・{br}：余力 {av:,} 円（預り金 {c:,} 円の {pct:.1f}%）" for br, av, c, pct in low_avails]
-        body = "\n".join(lines)
-        messages.warning(
-            request,
-            f"余力が預り金に対して低下しています（{int(LOW_AVAIL_RATIO*100)}%未満）。\n{body}"
+        lines = [f"・{br}：余力 {pct:.1f}%（残り {av:,} 円）" for br, av, pct in low_avails]
+        msg = (
+            "⚠️ 余力が少なくなっています！\n"
+            + "\n".join(lines)
+            + "\n入金やポジション整理を検討してください。"
         )
+        messages.warning(request, msg)
 
     return render(request, "cash/dashboard.html", {
         "brokers": brokers,
