@@ -92,7 +92,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         messages.error(request, "不正な操作が指定されました。")
         return redirect("cash_dashboard")
 
-    # GET
+    # ========== GET ==========
     svc.ensure_default_accounts()
     today = date.today()
 
@@ -106,6 +106,20 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     except Exception as e:
         messages.error(request, f"同期に失敗：{e}")
 
+    # === 集計 ===
     brokers = svc.broker_summaries(today)
     kpi_total, _ = svc.total_summary(today)
-    return render(request, "cash/dashboard.html", {"brokers": brokers, "kpi_total": kpi_total})
+
+    # === ⚠️ 余力マイナス警告（証券別に詳細表示） ===
+    negatives = [(b["broker"], b["available"]) for b in brokers if b.get("available", 0) < 0]
+    if negatives:
+        details = "\n".join([f"・{br}：{val:,} 円" for br, val in negatives])
+        messages.warning(
+            request,
+            f"⚠️ 余力がマイナスの証券口座があります。\n{details}\n入出金や拘束、保有残高を確認してください。"
+        )
+
+    return render(request, "cash/dashboard.html", {
+        "brokers": brokers,
+        "kpi_total": kpi_total,
+    })
