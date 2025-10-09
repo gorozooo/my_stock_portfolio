@@ -38,18 +38,13 @@
 
 /* 色分け（控えめ発光） */
 .kpi.available{border-color:rgba(0,255,209,.28);box-shadow:0 0 0 1px rgba(0,255,209,.12) inset}
+.kpi.available.warn{border-color:rgba(234,179,8,.52);box-shadow:0 0 0 1px rgba(234,179,8,.22) inset}
+.kpi.available.danger{border-color:rgba(255,90,90,.6);box-shadow:0 0 0 1px rgba(255,90,90,.3) inset}
 .kpi.cash{border-color:rgba(125,160,255,.24);box-shadow:0 0 0 1px rgba(125,160,255,.10) inset}
 .kpi.restricted{border-color:rgba(255,90,90,.26);box-shadow:0 0 0 1px rgba(255,90,90,.12) inset}
 
-/* ★ 余力マイナス時の強調（赤） */
-.kpi.available.negative{
-  border-color:rgba(255,99,132,.6);
-  box-shadow:0 0 0 1px rgba(255,99,132,.22) inset, 0 0 0 2px rgba(255,99,132,.14);
-  background:rgba(255,99,132,.06);
-}
-.kpi.available .num.negative{ color: #fda4af; } /* soft red */
-
 .small{font-size:11px;margin-top:6px;color:#a1a8c4}
+.small .nw{white-space:nowrap}
 
 /* ===== Bottom Action Dock（下タブより下のレイヤーにする） ===== */
 .cash-dock{
@@ -94,16 +89,55 @@
   {% if brokers %}
     <div class="grid-broker">
       {% for b in brokers %}
+      {% with det=details_by_broker|get_item:b.broker %}
+      {% with avail=b.available|default:0 cash=det.cash|default:0 coll=det.collateral_usable|default:0 %}
+      {% with denom=cash|add:coll %}
+      {% with pct=avail|divisibleby:1 %}{% endwith %} {# dummy to silence lints #}
+      {% endwith %}
+      {% endwith %}
+      {% endwith %}
+
+      {% with det=details_by_broker|get_item:b.broker %}
+      {% with cash=det.cash|default:0 coll=det.collateral_usable|default:0 inv=det.invested_cost|default:0 %}
+      {% with denom=cash|add:coll %}
+      {% with pct=(b.available|floatformat:0)|add:"0" %}
+      {% endwith %}
+      {% endwith %}
+      {% endwith %}
+      {% endwith %}
+
+      {# クラス決定はJSでやると重いので、テンプレ側で条件付与は最小限に #}
       <div class="card">
         <h3>{{ b.broker }} 証券</h3>
         <div class="kpi-row">
-          {# ★ 余力：マイナスなら .negative を付与 #}
-          <div class="kpi available{% if b.available < 0 %} negative{% endif %}">
+          {# 余力の色分け：danger（<0） / warn（<しきい値%） #}
+          {% with det=details_by_broker|get_item:b.broker %}
+            {% with base=det.cash|add:det.collateral_usable %}
+              {% with base=max:1 %}
+              {% endwith %}
+            {% endwith %}
+          {% endwith %}
+          {% with det=details_by_broker|get_item:b.broker %}
+            {% with base=det.cash|add:det.collateral_usable %}
+              {% if base <= 0 %}
+                {% set pct=0 %}
+              {% else %}
+                {% with pct=b.available|mul:100|div:base %}
+                {% endwith %}
+              {% endif %}
+            {% endwith %}
+          {% endwith %}
+
+          {# Djangoテンプレートは複雑計算が弱いので、簡易条件でクラス付与 #}
+          <div class="kpi available {% if b.available < 0 %}danger{% else %}
+                                     {% with det=details_by_broker|get_item:b.broker %}
+                                       {% with base=det.cash|add:det.collateral_usable %}
+                                         {% if base > 0 and (b.available*100)//base < threshold_pct %}warn{% endif %}
+                                       {% endwith %}
+                                     {% endwith %}
+                                   {% endif %}">
             <div class="label">余力</div>
-            <div class="value">
-              <span class="num{% if b.available < 0 %} negative{% endif %}">{{ b.available|intcomma }}</span>
-              <span class="unit">円</span>
-            </div>
+            <div class="value"><span class="num">{{ b.available|intcomma }}</span><span class="unit">円</span></div>
           </div>
           <div class="kpi cash">
             <div class="label">預り金</div>
@@ -114,6 +148,18 @@
             <div class="value"><span class="num">{{ b.restricted|intcomma }}</span><span class="unit">円</span></div>
           </div>
         </div>
+
+        {# 内訳：現金 + 担保 − 拘束 − 取得原価残 = 余力 #}
+        {% with det=details_by_broker|get_item:b.broker %}
+        <div class="small">
+          <span class="nw">現金 {{ det.cash|intcomma }} 円</span>
+          ＋ <span class="nw">担保 {{ det.collateral_usable|intcomma }} 円</span>
+          − <span class="nw">拘束 {{ b.restricted|intcomma }} 円</span>
+          − <span class="nw">取得原価残 {{ det.invested_cost|intcomma }} 円</span>
+          ＝ <span class="nw">余力 {{ b.available|intcomma }} 円</span>
+        </div>
+        {% endwith %}
+
         <div class="small">今月の入出金差分：{{ b.month_net|intcomma }} 円</div>
       </div>
       {% endfor %}
@@ -133,7 +179,7 @@
   </div>
 </div>
 
-<!-- ====== Modals（振替は削除） ====== -->
+<!-- ====== Modals（振替は無し） ====== -->
 <div class="modal" id="modal-deposit" aria-hidden="true">
   <div class="box">
     <h3>➕ 入金</h3>
@@ -200,7 +246,7 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-  /* --- 下部ドックのモーダル起動（振替は無し） --- */
+  /* --- 下部ドックのモーダル起動 --- */
   const modals = {
     deposit : document.getElementById("modal-deposit"),
     withdraw: document.getElementById("modal-withdraw"),
