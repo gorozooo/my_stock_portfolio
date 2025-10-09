@@ -265,4 +265,15 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("resize", adjust);
 });
 </script>
+
+{# === OOB: Django messages を base.html のトースト領域へ“外挿入” === #}
+{% if messages %}
+  <div id="toast-root" hx-swap-oob="true">
+    {# ここは base のトーストDOMに合わせてクラスを整える。最低限 tags を反映。 #}
+    {% for m in messages %}
+      <div class="toast {{ m.tags|default:'info' }}">{{ m }}</div>
+    {% endfor %}
+  </div>
+{% endif %}
+
 {% endblock %}
