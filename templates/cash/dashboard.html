@@ -3,19 +3,19 @@
 {% block title %}現金ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=6">
+<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=7">
 <style>
 /* ===== Layout ===== */
 .cash-wrap{
   max-width:980px;
   margin:12px auto 0;
-  padding:12px 12px 140px; /* JSで最終調整するけど最低限の余白も確保 */
+  padding:12px 12px 140px; /* 最低限の余白を確保（JSで追従調整） */
 }
 
 /* ===== Broker Card ===== */
 .grid-broker{display:grid;grid-template-columns:1fr;gap:16px}
 .card{
-  padding:8px 10px;              /* ← 小さめ */
+  padding:8px 10px;
   border-radius:14px;
   background:rgba(255,255,255,.04);
   border:1px solid rgba(255,255,255,.08);
@@ -26,7 +26,7 @@
 /* ===== KPI（横並び・コンパクト） ===== */
 .kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .kpi{
-  padding:8px 10px;              /* 小さめ */
+  padding:8px 10px;
   border-radius:10px;
   background:rgba(255,255,255,.05);
   border:1px solid rgba(255,255,255,.08);
@@ -43,10 +43,11 @@
 
 .small{font-size:11px;margin-top:6px;color:#a1a8c4}
 
-/* ===== Bottom Action Dock（下タブと被らない） ===== */
+/* ===== Bottom Action Dock（下タブより下のレイヤーにする） ===== */
+/* z-index を大幅に下げ、最前面にしない */
 .cash-dock{
-  position:fixed;left:0;right:0;bottom:0; /* bottomはJSで下タブ高を足して上げる */
-  z-index:100200; /* 既存の下タブより前面 */
+  position:fixed;left:0;right:0;bottom:0;
+  z-index:100;                 /* ← ここを下げる（以前は 100200） */
   pointer-events:none;
 }
 .cash-dock .inner{
@@ -57,7 +58,7 @@
   border-top:1px solid rgba(255,255,255,.08);
   border-radius:16px 16px 0 0;
 }
-.cash-dock .bar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.cash-dock .bar{display:grid;grid-template-columns:repeat(2,1fr);gap:8px} /* ← 2ボタン */
 .cash-dock .bar button{
   padding:10px;font-size:14px;border-radius:10px;
   border:1px solid rgba(255,255,255,.16);
@@ -117,12 +118,11 @@
     <div class="bar">
       <button data-open="deposit">入金</button>
       <button data-open="withdraw">出金</button>
-      <button data-open="transfer">振替</button>
     </div>
   </div>
 </div>
 
-<!-- ====== Modals ====== -->
+<!-- ====== Modals（振替は削除） ====== -->
 <div class="modal" id="modal-deposit" aria-hidden="true">
   <div class="box">
     <h3>➕ 入金</h3>
@@ -187,60 +187,19 @@
   </div>
 </div>
 
-<div class="modal" id="modal-transfer" aria-hidden="true">
-  <div class="box">
-    <h3>🔁 振替</h3>
-    <form method="post" action="{% url 'cash_dashboard' %}">
-      {% csrf_token %}
-      <input type="hidden" name="op" value="transfer">
-      <div class="form-grid">
-        <div>
-          <label>振替元</label>
-          <select name="src_broker" id="tr-src" required>
-            <option value="楽天">楽天証券</option>
-            <option value="松井">松井証券</option>
-            <option value="SBI">SBI証券</option>
-          </select>
-        </div>
-        <div>
-          <label>振替先</label>
-          <select name="dst_broker" id="tr-dst" required>
-            <option value="楽天">楽天証券</option>
-            <option value="松井">松井証券</option>
-            <option value="SBI">SBI証券</option>
-          </select>
-        </div>
-        <div>
-          <label>金額（円）</label>
-          <input type="number" name="amount" inputmode="numeric" min="1" required>
-        </div>
-        <div>
-          <label>メモ</label>
-          <input type="text" name="memo" placeholder="任意">
-        </div>
-      </div>
-      <div class="form-actions">
-        <button type="button" class="btn" data-close>閉じる</button>
-        <button class="btn primary" type="submit">保存</button>
-      </div>
-    </form>
-  </div>
-</div>
-
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-  /* --- 下部ドックのモーダル起動 --- */
+  /* --- 下部ドックのモーダル起動（振替は削除） --- */
   const modals = {
     deposit : document.getElementById("modal-deposit"),
     withdraw: document.getElementById("modal-withdraw"),
-    transfer: document.getElementById("modal-transfer"),
   };
   document.querySelectorAll("[data-open]").forEach(b=>{
     b.addEventListener("click", ()=> show(modals[b.dataset.open]));
   });
   document.querySelectorAll("[data-close]").forEach(b=> b.addEventListener("click", closeAll));
 
-  // ?action=deposit などで直接開く
+  // ?action=deposit / ?action=withdraw で直接開く（transfer は廃止）
   const act = new URLSearchParams(location.search).get("action");
   if (act && modals[act]) show(modals[act]);
 
@@ -256,9 +215,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const adjust = ()=>{
     const dockH = inner ? inner.getBoundingClientRect().height : 0;
     const tabH  = bottomTab ? bottomTab.getBoundingClientRect().height : 0;
-    // ドックを下タブの上に持ち上げる
+    /* 最前列にしないので、単純に余白だけ確保 */
     dock.style.bottom = (tabH) + "px";
-    // コンテンツ下余白も確保
     wrap.style.paddingBottom = (dockH + tabH + 24) + "px";
   };
   adjust();
@@ -266,10 +224,9 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 </script>
 
-{# === OOB: Django messages を base.html のトースト領域へ“外挿入” === #}
+{# === OOB: Django messages を base.html のトースト領域(#toast-root)に挿入 === #}
 {% if messages %}
   <div id="toast-root" hx-swap-oob="true">
-    {# ここは base のトーストDOMに合わせてクラスを整える。最低限 tags を反映。 #}
     {% for m in messages %}
       <div class="toast {{ m.tags|default:'info' }}">{{ m }}</div>
     {% endfor %}
