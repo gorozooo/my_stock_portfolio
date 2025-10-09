@@ -3,7 +3,7 @@
 {% block title %}現金ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=7">
+<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=8">
 <style>
 /* ===== Layout ===== */
 .cash-wrap{
@@ -40,6 +40,14 @@
 .kpi.available{border-color:rgba(0,255,209,.28);box-shadow:0 0 0 1px rgba(0,255,209,.12) inset}
 .kpi.cash{border-color:rgba(125,160,255,.24);box-shadow:0 0 0 1px rgba(125,160,255,.10) inset}
 .kpi.restricted{border-color:rgba(255,90,90,.26);box-shadow:0 0 0 1px rgba(255,90,90,.12) inset}
+
+/* ★ 余力マイナス時の強調（赤） */
+.kpi.available.negative{
+  border-color:rgba(255,99,132,.6);
+  box-shadow:0 0 0 1px rgba(255,99,132,.22) inset, 0 0 0 2px rgba(255,99,132,.14);
+  background:rgba(255,99,132,.06);
+}
+.kpi.available .num.negative{ color: #fda4af; } /* soft red */
 
 .small{font-size:11px;margin-top:6px;color:#a1a8c4}
 
@@ -89,9 +97,13 @@
       <div class="card">
         <h3>{{ b.broker }} 証券</h3>
         <div class="kpi-row">
-          <div class="kpi available">
+          {# ★ 余力：マイナスなら .negative を付与 #}
+          <div class="kpi available{% if b.available < 0 %} negative{% endif %}">
             <div class="label">余力</div>
-            <div class="value"><span class="num">{{ b.available|intcomma }}</span><span class="unit">円</span></div>
+            <div class="value">
+              <span class="num{% if b.available < 0 %} negative{% endif %}">{{ b.available|intcomma }}</span>
+              <span class="unit">円</span>
+            </div>
           </div>
           <div class="kpi cash">
             <div class="label">預り金</div>
