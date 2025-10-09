@@ -88,9 +88,8 @@ def account_summary(account: BrokerAccount, today: date):
 
     invested_cost = acquisition_cost_remaining_for_broker(account.broker)
 
-    # 余力 = 現金 + 担保 - 拘束 - 取得原価残
+    # 余力 = 現金 + 担保 - 拘束 - 取得原価残（マイナス許容）
     available = int(bal + collateral_usable - restricted - invested_cost)
-    available = max(available, 0)
 
     return {
         "broker": account.broker,
