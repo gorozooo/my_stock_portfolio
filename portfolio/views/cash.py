@@ -116,7 +116,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         details = "\n".join([f"・{br}：{val:,} 円" for br, val in negatives])
         messages.warning(
             request,
-            f"⚠️ 余力がマイナスの証券口座があります。\n{details}\n入出金や拘束、保有残高を確認してください。"
+            f" 余力がマイナスの証券口座があります⚠️\n{details}\n入出金や拘束、保有残高を確認してください。"
         )
 
     return render(request, "cash/dashboard.html", {
