@@ -44,10 +44,9 @@
 .small{font-size:11px;margin-top:6px;color:#a1a8c4}
 
 /* ===== Bottom Action Dock（下タブより下のレイヤーにする） ===== */
-/* z-index を大幅に下げ、最前面にしない */
 .cash-dock{
   position:fixed;left:0;right:0;bottom:0;
-  z-index:100;                 /* ← ここを下げる（以前は 100200） */
+  z-index:100;                 /* ← 最前列にしない */
   pointer-events:none;
 }
 .cash-dock .inner{
@@ -58,7 +57,7 @@
   border-top:1px solid rgba(255,255,255,.08);
   border-radius:16px 16px 0 0;
 }
-.cash-dock .bar{display:grid;grid-template-columns:repeat(2,1fr);gap:8px} /* ← 2ボタン */
+.cash-dock .bar{display:grid;grid-template-columns:repeat(2,1fr);gap:8px} /* ← 入金/出金の2つだけ */
 .cash-dock .bar button{
   padding:10px;font-size:14px;border-radius:10px;
   border:1px solid rgba(255,255,255,.16);
@@ -189,7 +188,7 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-  /* --- 下部ドックのモーダル起動（振替は削除） --- */
+  /* --- 下部ドックのモーダル起動（振替は無し） --- */
   const modals = {
     deposit : document.getElementById("modal-deposit"),
     withdraw: document.getElementById("modal-withdraw"),
@@ -199,7 +198,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.querySelectorAll("[data-close]").forEach(b=> b.addEventListener("click", closeAll));
 
-  // ?action=deposit / ?action=withdraw で直接開く（transfer は廃止）
+  // ?action=deposit / ?action=withdraw で直接開く
   const act = new URLSearchParams(location.search).get("action");
   if (act && modals[act]) show(modals[act]);
 
@@ -215,22 +214,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const adjust = ()=>{
     const dockH = inner ? inner.getBoundingClientRect().height : 0;
     const tabH  = bottomTab ? bottomTab.getBoundingClientRect().height : 0;
-    /* 最前列にしないので、単純に余白だけ確保 */
-    dock.style.bottom = (tabH) + "px";
-    wrap.style.paddingBottom = (dockH + tabH + 24) + "px";
+    dock.style.bottom = (tabH) + "px";                 // ドックを下タブの上へ
+    wrap.style.paddingBottom = (dockH + tabH + 24) + "px"; // コンテンツ下余白
   };
   adjust();
   window.addEventListener("resize", adjust);
 });
 </script>
-
-{# === OOB: Django messages を base.html のトースト領域(#toast-root)に挿入 === #}
-{% if messages %}
-  <div id="toast-root" hx-swap-oob="true">
-    {% for m in messages %}
-      <div class="toast {{ m.tags|default:'info' }}">{{ m }}</div>
-    {% endfor %}
-  </div>
-{% endif %}
-
 {% endblock %}
