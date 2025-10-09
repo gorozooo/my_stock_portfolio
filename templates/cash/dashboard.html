@@ -3,7 +3,7 @@
 {% block title %}現金ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=11">
+<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=12">
 <style>
 /* ===== Layout ===== */
 .cash-wrap{max-width:980px;margin:12px auto 0;padding:12px 12px 140px}
@@ -16,16 +16,16 @@
 /* ===== KPI ===== */
 .kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .kpi{padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
-.kpi .head{display:flex;align-items:center;gap:6px;margin-bottom:2px}
-.kpi .label{font-size:11px;color:#9aa4b2;letter-spacing:.03em}
-.kpi .pct{font-size:11px;opacity:.80;white-space:nowrap} /* ← 余力の右横に固定 */
+.kpi .head{display:flex;align-items:center;gap:6px;margin-bottom:2px;min-height:18px}
+.kpi .label{font-size:11px;color:#9aa4b2;letter-spacing:.03em;white-space:nowrap} /* ← 余力が縦割れしない */
+.kpi .pct{font-size:11px;opacity:.8;white-space:nowrap} /* ← 余力ラベルの右横に% */
 .kpi .value{line-height:1.1;display:flex;align-items:baseline;gap:3px}
 .kpi .num{font-size:14px;font-weight:700;letter-spacing:.01em}
 .kpi .unit{font-size:11px;opacity:.75}
 
 .kpi.available{border-color:rgba(0,255,209,.28);box-shadow:0 0 0 1px rgba(0,255,209,.12) inset}
-.kpi.available.warn{border-color:rgba(234,179,8,.45);box-shadow:0 0 0 1px rgba(234,179,8,.20) inset}
-.kpi.available.danger{border-color:rgba(239,68,68,.60);box-shadow:0 0 0 1px rgba(239,68,68,.28) inset}
+.kpi.available.warn{border-color:rgba(234,179,8,.55);box-shadow:0 0 0 1px rgba(234,179,8,.26) inset}    /* <=30% */
+.kpi.available.danger{border-color:rgba(239,68,68,.70);box-shadow:0 0 0 1px rgba(239,68,68,.34) inset}  /* マイナス */
 .kpi.cash{border-color:rgba(125,160,255,.24);box-shadow:0 0 0 1px rgba(125,160,255,.10) inset}
 .kpi.restricted{border-color:rgba(255,90,90,.26);box-shadow:0 0 0 1px rgba(255,255,255,.12) inset}
 
@@ -55,15 +55,24 @@
   {% if brokers %}
     <div class="grid-broker">
       {% for b in brokers %}
+      {% with pct=b.pct_available %}
+      {% comment %}テンプレ側でハイライト判定（バックエンド依存にしない）{% endcomment %}
+      {% if b.available < 0 %}
+        {% set_class = "danger" %}
+      {% elif pct is not None and pct|floatformat:1|float <= 30 and b.available >= 0 %}
+        {% set_class = "warn" %}
+      {% else %}
+        {% set_class = "" %}
+      {% endif %}
       <div class="card">
         <h3>{{ b.broker }} 証券</h3>
         <div class="kpi-row">
-          <!-- 余力：ラベル右横に%を表示 -->
-          <div class="kpi available {% if b.severity == 'danger' %}danger{% elif b.severity == 'warn' %}warn{% endif %}">
+          <!-- 余力：ラベル右横に% -->
+          <div class="kpi available {% if b.available < 0 %}danger{% elif pct is not None and pct <= 30 and b.available >= 0 %}warn{% endif %}">
             <div class="head">
               <div class="label">余力</div>
-              {% if b.pct_available is not None %}
-                <div class="pct">（{{ b.pct_available|floatformat:1 }}%）</div>
+              {% if pct is not None %}
+                <div class="pct">（{{ pct|floatformat:1 }}%）</div>
               {% endif %}
             </div>
             <div class="value">
@@ -83,6 +92,7 @@
         </div>
         <div class="small">今月の入出金差分：{{ b.month_net|intcomma }} 円</div>
       </div>
+      {% endwith %}
       {% endfor %}
     </div>
   {% else %}
