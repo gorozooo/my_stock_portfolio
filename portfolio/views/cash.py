@@ -163,7 +163,7 @@ def _safe_str(x) -> str:
 
 def _attach_source_labels(page):
     items = list(page.object_list or [])
-    if not items: 
+    if not items:
         return
     div_ids, real_ids = set(), set()
     for r in items:
@@ -200,18 +200,45 @@ def _attach_source_labels(page):
     page.object_list = items
 
 
+def _clean_params_for_pager(request: HttpRequest) -> dict:
+    """
+    ページャに渡すクエリ。page を除外し、空値は落とす。
+    テンプレ側は {{ params.urlencode }} をそのまま使えば page 重複が起きない。
+    """
+    params = {}
+    for k, v in request.GET.items():
+        if k == "page":
+            continue
+        if v is None or v == "":
+            continue
+        params[k] = v
+    return params
+
+
 # ===== 一覧（通常ページネーション／唯一の経路） =====
 @require_http_methods(["GET"])
 def cash_history(request: HttpRequest) -> HttpResponse:
     svc.ensure_default_accounts()
     qs, summary = _filtered_ledger(request)
 
-    page_no = int(request.GET.get("page") or 1)
+    try:
+        page_no = int(request.GET.get("page") or 1)
+    except Exception:
+        page_no = 1
+
     p = Paginator(qs, PAGE_SIZE).get_page(page_no)
     _attach_source_labels(p)
 
-    return render(request, "cash/history.html",
-                  {"page": p, "summary": summary, "params": request.GET})
+    return render(
+        request,
+        "cash/history.html",
+        {
+            "page": p,
+            "summary": summary,
+            # ← ここだけ変更：page を除いた params を渡す
+            "params": _clean_params_for_pager(request),
+        },
+    )
 
 
 # ===== 編集 / 削除 =====
