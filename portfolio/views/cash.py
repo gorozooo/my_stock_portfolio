@@ -266,7 +266,9 @@ def _safe_str(val) -> str:
 
 def _attach_source_labels(page):
     """
-    page.object_list に r.src_badge を付与（取得不可は DIV:ID / REAL:ID でフォールバック）
+    page.object_list に r.src_badge を付与。
+    ★ 二重表示対策：
+      - source が付いた行（配当/実損）は r.memo を空にしてテンプレ側での重複表示を抑止。
     """
     items = list(page.object_list or [])
     if not items:
@@ -312,11 +314,21 @@ def _attach_source_labels(page):
         if sid_int is not None and _source_is_dividend(st):
             label = build_label_from_div(div_map[sid_int]) if sid_int in div_map else f"DIV:{sid_int}"
             r.src_badge = {"kind": "配当", "class": "chip chip-sky", "label": label}
+            # ← 二重表示回避：chip を出す代わりに memo は空へ
+            try:
+                r.memo = ""
+            except Exception:
+                pass
             continue
 
         if sid_int is not None and _source_is_realized(st):
             label = build_label_from_real(real_map[sid_int]) if sid_int in real_map else f"REAL:{sid_int}"
             r.src_badge = {"kind": "実損", "class": "chip chip-emerald", "label": label}
+            # ← 二重表示回避：chip を出す代わりに memo は空へ
+            try:
+                r.memo = ""
+            except Exception:
+                pass
             continue
 
     page.object_list = items
@@ -341,9 +353,9 @@ def cash_history(request: HttpRequest) -> HttpResponse:
     表示前に、発生日（配当=受取日 / 実損=売買日）で Ledger.at を自動補正。
     """
     try:
+        # 実装が未提供でも画面は出す（except で握りつぶす）
         svc.normalize_ledger_dates(max_rows=2000)
     except Exception:
-        # 補正失敗しても表示は継続（ログはサーバ側）
         pass
 
     qs, summary = _filtered_ledger(request)
