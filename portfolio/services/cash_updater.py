@@ -1,7 +1,7 @@
 # portfolio/services/cash_updater.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Literal
 
 from django.db import transaction
 
@@ -36,158 +36,183 @@ def _int_amount(x) -> int:
         return 0
 
 
-def _upsert_ledger(
-    *,
-    account: BrokerAccount,
-    at,
-    amount: int,
-    memo: str,
-    source_type: CashLedger.SourceType,
-    source_id: int,
-) -> Tuple[bool, bool]:
+def _upsert_legacy_row_cleanup(kind_prefix: str) -> None:
     """
-    (created, updated) を返す upsert。
-    一意キーは (source_type, source_id) だが、account が変わる可能性も考慮し上書きする。
+    旧式（source_type なし かつ メモが「配当/実現損益」）の行が二重計上の原因になる。
+    ただし削除は慎重に。ここでは削除は行わない（ビュー側で除外しているため）。
+    将来、必要に応じて安全な条件で削除ロジックを追加。
     """
-    created = False
-    updated = False
-
-    # 既存照会（account は問わずに source で紐づけ）
-    row = CashLedger.objects.filter(source_type=source_type, source_id=source_id).first()
-
-    if row is None:
-        CashLedger.objects.create(
-            account=account,
-            at=at,
-            amount=amount,
-            kind=CashLedger.Kind.SYSTEM,
-            memo=memo,
-            source_type=source_type,
-            source_id=source_id,
-        )
-        created = True
-    else:
-        # 差分があれば更新（account が違っても移し替える）
-        need_update = (
-            row.account_id != account.id
-            or row.at != at
-            or _int_amount(row.amount) != _int_amount(amount)
-            or (row.memo or "") != (memo or "")
-            or row.kind != CashLedger.Kind.SYSTEM
-        )
-        if need_update:
-            row.account = account
-            row.at = at
-            row.amount = amount
-            row.kind = CashLedger.Kind.SYSTEM
-            row.memo = memo
-            row.save(update_fields=["account", "at", "amount", "kind", "memo"])
-            updated = True
-
-    return created, updated
+    return
 
 
 @transaction.atomic
-def _upsert_for_dividend(d: Dividend) -> Tuple[bool, bool]:
+def _upsert_ledger_for_dividend(d: Dividend) -> Literal["created", "updated", "skipped"]:
     """
     配当 → CashLedger を upsert
-    - 金額：net（税引後）
-    - 日付：支払日 d.date
-    - source: (DIVIDEND, d.id)
+      - 金額：net（税引後）
+      - 日付：支払日（d.date）
+      - 口座：該当ブローカーの現物口座
+      - kind：SYSTEM（自動計上）
+      - source: (DIVIDEND, d.id)
     """
-    broker_code = getattr(d, "broker", "") or ""
-    broker_ja = BROKER_CODE_TO_JA.get(broker_code)
+    broker_ja = BROKER_CODE_TO_JA.get(getattr(d, "broker", ""), None)
     if not broker_ja:
-        return False, False
+        return "skipped"
 
     acc = _find_account(broker_ja)
     if not acc:
-        return False, False
+        return "skipped"
 
     amount = _int_amount(d.net_amount())
     if amount == 0:
-        # 0 円はスキップ（必要なら削除）
-        return False, False
+        return "skipped"
 
-    memo = f"配当 {(d.display_ticker or d.ticker or '').strip()}".strip()
+    memo = f"配当 {d.display_ticker or d.ticker or ''}".strip()
 
-    return _upsert_ledger(
-        account=acc,
-        at=d.date,
-        amount=amount,
-        memo=memo,
-        source_type=CashLedger.SourceType.DIVIDEND,
-        source_id=d.id,
-    )
+    row = CashLedger.objects.filter(
+        source_type=CashLedger.SourceType.DIVIDEND, source_id=d.id
+    ).first()
+
+    if row is None:
+        CashLedger.objects.create(
+            account=acc,
+            at=d.date,
+            amount=amount,
+            kind=CashLedger.Kind.SYSTEM,
+            memo=memo,
+            source_type=CashLedger.SourceType.DIVIDEND,
+            source_id=d.id,
+        )
+        _upsert_legacy_row_cleanup("配当")
+        return "created"
+
+    # 既存行を“正”に寄せる（上書き更新）
+    changed = False
+    if row.account_id != acc.id:
+        row.account = acc
+        changed = True
+    if row.at != d.date:
+        row.at = d.date
+        changed = True
+    if _int_amount(row.amount) != amount:
+        row.amount = amount
+        changed = True
+    if (row.memo or "") != memo:
+        row.memo = memo
+        changed = True
+    if row.kind != CashLedger.Kind.SYSTEM:
+        row.kind = CashLedger.Kind.SYSTEM
+        changed = True
+
+    if changed:
+        row.save(update_fields=["account", "at", "amount", "memo", "kind"])
+        _upsert_legacy_row_cleanup("配当")
+        return "updated"
+
+    return "skipped"
 
 
 @transaction.atomic
-def _upsert_for_realized(x: RealizedTrade) -> Tuple[bool, bool]:
+def _upsert_ledger_for_realized(x: RealizedTrade) -> Literal["created", "updated", "skipped"]:
     """
-    実損（受渡金額） → CashLedger を upsert
-    対象：現物系のみ（特定 / NISA）。信用は除外。
-    - 金額：cashflow_effective（SELL=＋ / BUY=− / 手数料・税控除後）
-    - 日付：取引日 x.trade_at
-    - source: (REALIZED, x.id)
+    実損 → CashLedger を upsert（現物のみ：特定/NISA）
+      - 金額：cashflow_effective（SELL=＋、BUY=−、手数料/税込み）
+      - 日付：取引日（x.trade_at）
+      - 口座：該当ブローカーの現物口座
+      - kind：SYSTEM（自動計上）
+      - source: (REALIZED, x.id)
     """
     if getattr(x, "account", "") not in ("SPEC", "NISA"):
-        return False, False
+        return "skipped"
 
-    broker_code = getattr(x, "broker", "") or ""
-    broker_ja = BROKER_CODE_TO_JA.get(broker_code)
+    broker_ja = BROKER_CODE_TO_JA.get(getattr(x, "broker", ""), None)
     if not broker_ja:
-        return False, False
+        return "skipped"
 
     acc = _find_account(broker_ja)
     if not acc:
-        return False, False
+        return "skipped"
 
     amount = _int_amount(x.cashflow_effective)
     if amount == 0:
-        # 0 円はスキップ（必要なら削除）
-        return False, False
+        return "skipped"
 
-    memo = f"実現損益 {(x.ticker or '').strip()}".strip()
+    memo = f"実現損益 {x.ticker}".strip()
 
-    return _upsert_ledger(
-        account=acc,
-        at=x.trade_at,
-        amount=amount,
-        memo=memo,
-        source_type=CashLedger.SourceType.REALIZED,
-        source_id=x.id,
-    )
+    row = CashLedger.objects.filter(
+        source_type=CashLedger.SourceType.REALIZED, source_id=x.id
+    ).first()
+
+    if row is None:
+        CashLedger.objects.create(
+            account=acc,
+            at=x.trade_at,
+            amount=amount,
+            kind=CashLedger.Kind.SYSTEM,
+            memo=memo,
+            source_type=CashLedger.SourceType.REALIZED,
+            source_id=x.id,
+        )
+        _upsert_legacy_row_cleanup("実現損益")
+        return "created"
+
+    # 既存行の上書き更新
+    changed = False
+    if row.account_id != acc.id:
+        row.account = acc
+        changed = True
+    if row.at != x.trade_at:
+        row.at = x.trade_at
+        changed = True
+    if _int_amount(row.amount) != amount:
+        row.amount = amount
+        changed = True
+    if (row.memo or "") != memo:
+        row.memo = memo
+        changed = True
+    if row.kind != CashLedger.Kind.SYSTEM:
+        row.kind = CashLedger.Kind.SYSTEM
+        changed = True
+
+    if changed:
+        row.save(update_fields=["account", "at", "amount", "memo", "kind"])
+        _upsert_legacy_row_cleanup("実現損益")
+        return "updated"
+
+    return "skipped"
 
 
 def sync_all() -> Dict[str, Any]:
     """
     ダッシュボード／台帳で呼ばれる同期本体（冪等）。
-    - 配当：全件を upsert（支払日で保存）
-    - 実損：全件を upsert（取引日で保存, 特定/NISAのみ）
-    何度呼んでも重複せず、変更があれば上書きされる。
-    戻り値: 新規作成/更新件数サマリ
+    - 配当：支払日で upsert
+    - 実損：取引日で upsert（特定/NISAのみ）
+    戻り値：新規/更新件数のサマリ
     """
-    created_div = updated_div = 0
-    created_real = updated_real = 0
+    created_div = 0
+    updated_div = 0
+    created_real = 0
+    updated_real = 0
 
-    # --- 配当 ---
-    # ※ .only(...) は net_amount() の内部参照（tax 等）を欠落させるので使わない
-    for d in Dividend.objects.all():
+    # ---- 配当 ----
+    for d in Dividend.objects.all().only("id", "date", "ticker", "broker", "amount", "is_net"):
         try:
-            c, u = _upsert_for_dividend(d)
-            created_div += 1 if c else 0
-            updated_div += 1 if u else 0
+            res = _upsert_ledger_for_dividend(d)
+            if res == "created":
+                created_div += 1
+            elif res == "updated":
+                updated_div += 1
         except Exception:
-            # 1件失敗しても続行
             continue
 
-    # --- 実損（現物のみ）---
-    # cashflow_effective は @property のため .only(...) で削ると正しく計算できない
-    for x in RealizedTrade.objects.all():
+    # ---- 実損（現物のみ）----
+    for x in RealizedTrade.objects.all().only("id", "trade_at", "ticker", "broker", "account", "cashflow"):
         try:
-            c, u = _upsert_for_realized(x)
-            created_real += 1 if c else 0
-            updated_real += 1 if u else 0
+            res = _upsert_ledger_for_realized(x)
+            if res == "created":
+                created_real += 1
+            elif res == "updated":
+                updated_real += 1
         except Exception:
             continue
 
