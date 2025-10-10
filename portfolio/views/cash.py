@@ -190,13 +190,6 @@ def _parse_date(s: str | None):
 
 
 def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
-    """
-    クエリ:
-      broker=楽天|松井|SBI|ALL
-      kind=ALL|DEPOSIT|WITHDRAW|XFER|SYSTEM
-      start=YYYY-MM-DD / end=YYYY-MM-DD
-      q=メモ部分一致
-    """
     broker = (request.GET.get("broker") or "ALL").strip()
     kind   = (request.GET.get("kind") or "ALL").upper().strip()
     start  = _parse_date(request.GET.get("start"))
@@ -224,6 +217,12 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
         qs = qs.filter(at__lte=end)
     if q:
         qs = qs.filter(Q(memo__icontains=q))
+
+    # ★二重表示の正体（旧式=source_type無し かつ メモが「配当/実現損益」）を除外
+    qs = qs.exclude(
+        Q(source_type__isnull=True) &
+        (Q(memo__startswith="配当") | Q(memo__startswith="実現損益"))
+    )
 
     agg = qs.aggregate(
         total=Sum("amount"),
