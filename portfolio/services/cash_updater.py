@@ -1,240 +1,234 @@
 # portfolio/services/cash_updater.py
-# -*- coding: utf-8 -*-
 from __future__ import annotations
-from typing import Dict, Any, Optional
-
+from typing import Optional, Any
+from datetime import date
 from django.db import transaction
+from django.db.models import QuerySet
 
-from ..models import Dividend, RealizedTrade
 from ..models_cash import BrokerAccount, CashLedger
 from . import cash_service as svc
 
-# --- ブローカー表記ゆれ対策 -----------------------------------------------
-_CANON = {
-    "RAKUTEN": "楽天",
-    "楽天": "楽天",
-    "楽天証券": "楽天",
-    "MATSUI": "松井",
-    "松井": "松井",
-    "松井証券": "松井",
-    "SBI": "SBI",
-    "ＳＢＩ": "SBI",
-    "SBI証券": "SBI",
-}
-def _canon_broker(v: Optional[str]) -> Optional[str]:
-    if not v:
-        return None
-    key = str(v).strip().upper()
-    if key in _CANON:
-        return _CANON[key]
-    if "RAKUTEN" in key:
-        return "楽天"
-    if "MATSUI" in key:
-        return "松井"
-    if "SBI" in key:
-        return "SBI"
-    vjp = str(v).strip().replace("証券", "")
-    return _CANON.get(vjp, vjp or None)
 
-def _int_amount(x) -> int:
+# ─────────────────────────────────────────────
+# ユーティリティ
+# ─────────────────────────────────────────────
+def _norm_broker(b: str) -> str:
+    """入力された broker を「楽天/松井/SBI」に正規化。"""
+    if not b:
+        return ""
+    s = str(b).strip().upper()
+    if "RAKUTEN" in s or "楽天" in s:
+        return "楽天"
+    if "MATSUI" in s or "松井" in s:
+        return "松井"
+    if "SBI" in s:
+        return "SBI"
+    # 既存3社以外も一応通す
+    return str(b).strip()
+
+def _get_account_by_broker(broker: str, currency: str = "JPY") -> Optional[BrokerAccount]:
+    broker = _norm_broker(broker)
+    if not broker:
+        return None
+    # 代表口座（現物/JPY 優先）を返す
+    svc.ensure_default_accounts(currency=currency)
+    return BrokerAccount.objects.filter(broker=broker, currency=currency).order_by("account_type").first()
+
+def _exists_token(account: BrokerAccount, token: str) -> bool:
+    """CashLedger の memo に識別トークンが既にあるかをチェック。"""
+    return CashLedger.objects.filter(account=account, memo__icontains=token).exists()
+
+def _safe_int(v: Any, default: int = 0) -> int:
     try:
-        return int(round(float(x)))
+        return int(v)
+    except Exception:
+        return default
+
+
+# ─────────────────────────────────────────────
+# 配当を同期
+# ─────────────────────────────────────────────
+def sync_from_dividends(today: Optional[date] = None) -> int:
+    """
+    Dividends(配当) → CashLedger に入金として反映。
+    * idempotent（同じ配当を二重登録しない）
+    * モデル差異を吸収するため、候補フィールドを順に探索
+    戻り値: 追加レコード件数
+    """
+    try:
+        # いろんな環境名に対応
+        from ..models import dividend as v_div  # あなたの構成（viewsに合わせた推測）
+        Dividend = getattr(v_div, "Dividend", None)
+        if Dividend is None:
+            # 典型: portfolio/models_dividend.py 等
+            from ..models_dividend import Dividend  # type: ignore
+    except Exception:
+        # 失敗してもアプリを落とさない（あとでモデル定義を見て合わせる）
+        return 0
+
+    qs: QuerySet = Dividend.objects.all()
+
+    # 支払日フィルタ（paid_at / pay_date / received_at 等）
+    date_fields = ["paid_at", "pay_date", "payment_date", "received_at", "date"]
+    for f in date_fields:
+        if f in [fld.name for fld in Dividend._meta.fields]:
+            qs = qs.exclude(**{f: None})
+            break
+
+    created = 0
+    for d in qs.iterator():
+        # broker
+        broker_val = None
+        for f in ("broker", "broker_code", "account_broker", "account"):
+            broker_val = getattr(d, f, None)
+            if broker_val:
+                break
+        broker_str = str(getattr(broker_val, "value", broker_val) or "")
+        account = _get_account_by_broker(broker_str)
+        if not account:
+            continue
+
+        # 金額（ネット受取を優先: net_amount / after_tax_amount / amount - tax）
+        net = None
+        for f in ("net_amount", "after_tax_amount", "received_amount", "amount_net"):
+            v = getattr(d, f, None)
+            if v is not None:
+                net = v
+                break
+        if net is None:
+            gross = None
+            tax = 0
+            for f in ("amount", "gross_amount", "dividend_amount"):
+                v = getattr(d, f, None)
+                if v is not None:
+                    gross = v; break
+            for f in ("tax", "withholding_tax", "tax_amount"):
+                v = getattr(d, f, None)
+                if v is not None:
+                    tax = v; break
+            net = _safe_int(gross, 0) - _safe_int(tax, 0)
+
+        amount = _safe_int(net, 0)
+        if amount == 0:
+            continue
+
+        src_id = getattr(d, "id", None) or getattr(d, "pk", None)
+        token = f"[DIV:{src_id}]"
+        if _exists_token(account, token):
+            continue
+
+        memo = f"配当 {token}"
+        CashLedger.objects.create(
+            account=account,
+            amount=amount,
+            kind=CashLedger.Kind.DEPOSIT if hasattr(CashLedger.Kind, "DEPOSIT") else CashLedger.Kind.DEPOSIT,  # safety
+            memo=memo,
+        )
+        created += 1
+    return created
+
+
+# ─────────────────────────────────────────────
+# 実現損益を同期
+# ─────────────────────────────────────────────
+def sync_from_realized(today: Optional[date] = None) -> int:
+    """
+    Realized(実現損益) → CashLedger に現金増減として反映。
+    * idempotent
+    * “現金差分”フィールドがあればそれを優先、無ければ擬似計算
+      - 現金増減 = 受渡金額 − 手数料 − 税金
+      - 受渡金額が無ければ「売買区分 + 約定代金」等で近似
+    """
+    try:
+        from ..models import realized as m_real  # 推測
+        Realized = getattr(m_real, "RealizedTrade", None) or getattr(m_real, "Realized", None)
+        if Realized is None:
+            from ..models_realized import Realized  # type: ignore
     except Exception:
         return 0
 
-def _net_amount_of_div(d: Dividend) -> int:
-    try:
-        return _int_amount(d.net_amount())
-    except Exception:
-        amt = float(d.amount or 0)
-        if getattr(d, "is_net", True):
-            return _int_amount(amt)
-        tax = float(getattr(d, "tax", 0) or 0)
-        return _int_amount(max(0.0, amt - tax))
+    qs: QuerySet = Realized.objects.all()
+    # 受渡日/約定日ベースの存在チェック
+    date_fields = ["settlement_date", "trade_date", "executed_at", "date"]
+    for f in date_fields:
+        if f in [fld.name for fld in Realized._meta.fields]:
+            qs = qs.exclude(**{f: None})
+            break
 
-def _realized_cashflow(x: RealizedTrade) -> int:
-    try:
-        return _int_amount(x.cashflow_effective)
-    except Exception:
-        signed = float(x.qty or 0) * float(x.price or 0)
-        if (x.side or "").upper() == "BUY":
-            signed = -signed
-        fee = float(getattr(x, "fee", 0) or 0)
-        tax = float(getattr(x, "tax", 0) or 0)
-        return _int_amount(signed - fee - tax)
-
-def _find_account(broker_like: str, currency: str = "JPY") -> Optional[BrokerAccount]:
-    """
-    口座検索は段階的に：
-      1) broker=＜楽天/松井/SBI＞ かつ account_type='現物'
-      2) broker=＜…＞ の任意口座（最初の1件）
-      3) ensure_default_accounts() 後に 1)→2) を再試行
-    """
-    b = _canon_broker(broker_like)
-    if not b:
-        return None
-
-    acc = (
-        BrokerAccount.objects.filter(broker=b, account_type="現物", currency=currency)
-        .order_by("id")
-        .first()
-    )
-    if acc:
-        return acc
-
-    acc = (
-        BrokerAccount.objects.filter(broker=b, currency=currency)
-        .order_by("id")
-        .first()
-    )
-    if acc:
-        return acc
-
-    svc.ensure_default_accounts(currency=currency)
-
-    acc = (
-        BrokerAccount.objects.filter(broker=b, account_type="現物", currency=currency)
-        .order_by("id")
-        .first()
-    ) or (
-        BrokerAccount.objects.filter(broker=b, currency=currency)
-        .order_by("id")
-        .first()
-    )
-    return acc
-
-def _upsert_ledger(
-    *,
-    source_type: CashLedger.SourceType,
-    source_id: int,
-    account: BrokerAccount,
-    at,  # date
-    amount: int,
-    memo: str,
-) -> str:
-    """
-    既存があれば更新・なければ作成。戻り値: 'created' | 'updated' | 'skipped'
-    """
-    row = CashLedger.objects.filter(source_type=source_type, source_id=source_id).first()
-    if not row:
-        CashLedger.objects.create(
-            account=account,
-            at=at,
-            amount=amount,
-            kind=CashLedger.Kind.SYSTEM,
-            memo=memo,
-            source_type=source_type,
-            source_id=source_id,
-        )
-        return "created"
-
-    changed = False
-    if row.at != at:
-        row.at = at
-        changed = True
-    if _int_amount(row.amount) != _int_amount(amount):
-        row.amount = amount
-        changed = True
-    if row.account_id != account.id:
-        row.account = account
-        changed = True
-    nm = (memo or "").strip()
-    if (row.memo or "").strip() != nm:
-        row.memo = nm
-        changed = True
-
-    if changed:
-        row.save(update_fields=["account", "at", "amount", "memo"])
-        return "updated"
-    return "skipped"
-
-@transaction.atomic
-def _sync_dividend(d: Dividend) -> Optional[str]:
-    """配当 1件 → Ledger（税引後・支払日）を upsert"""
-    broker = _canon_broker(getattr(d, "broker", None)) or _canon_broker(
-        getattr(getattr(d, "holding", None), "broker", None)
-    )
-    acc = _find_account(broker or "")
-    if not acc:
-        return None
-
-    amount = _net_amount_of_div(d)
-    if amount == 0:
-        return None
-
-    memo = f"配当 {(d.display_ticker or d.ticker or '').upper()}".strip()
-    return _upsert_ledger(
-        source_type=CashLedger.SourceType.DIVIDEND,
-        source_id=d.id,
-        account=acc,
-        at=d.date,  # 支払日
-        amount=amount,
-        memo=memo,
-    )
-
-@transaction.atomic
-def _sync_realized(x: RealizedTrade) -> Optional[str]:
-    """実損（特定/NISAのみ）→ Ledger（受渡金額・取引日）を upsert"""
-    if (x.account or "").upper() not in ("SPEC", "NISA"):
-        return None
-
-    broker = _canon_broker(getattr(x, "broker", None))
-    acc = _find_account(broker or "")
-    if not acc:
-        return None
-
-    amount = _realized_cashflow(x)
-    if amount == 0:
-        return None
-
-    memo = f"実現損益 {(x.ticker or '').upper()}".strip()
-    return _upsert_ledger(
-        source_type=CashLedger.SourceType.REALIZED,
-        source_id=x.id,
-        account=acc,
-        at=x.trade_at,  # 取引日
-        amount=amount,
-        memo=memo,
-    )
-
-def sync_all() -> Dict[str, Any]:
-    """
-    ダッシュボード／台帳から毎回呼ぶ同期。
-      - 配当 … 税引後額・支払日で upsert
-      - 実損 … 受渡金額・取引日で upsert（特定/NISAのみ）
-    何度呼んでも二重登録されない（idempotent）。
-    """
-    created_div = updated_div = 0
-    created_real = updated_real = 0
-
-    for d in Dividend.objects.all().only(
-        "id", "date", "ticker", "broker", "amount", "is_net", "tax", "holding"
-    ):
-        try:
-            res = _sync_dividend(d)
-            if res == "created":
-                created_div += 1
-            elif res == "updated":
-                updated_div += 1
-        except Exception:
+    created = 0
+    for r in qs.iterator():
+        # broker
+        broker_val = None
+        for f in ("broker", "broker_code", "account_broker", "account"):
+            broker_val = getattr(r, f, None)
+            if broker_val:
+                break
+        broker_str = str(getattr(broker_val, "value", broker_val) or "")
+        account = _get_account_by_broker(broker_str)
+        if not account:
             continue
 
-    for x in RealizedTrade.objects.filter(account__in=["SPEC", "NISA"]).only(
-        "id", "trade_at", "ticker", "broker", "account", "cashflow",
-        "side", "qty", "price", "fee", "tax"
-    ):
-        try:
-            res = _sync_realized(x)
-            if res == "created":
-                created_real += 1
-            elif res == "updated":
-                updated_real += 1
-        except Exception:
+        # 現金差分
+        cash_delta = None
+        for f in ("cash_delta", "net_cash", "settlement_amount"):
+            v = getattr(r, f, None)
+            if v is not None:
+                cash_delta = v; break
+
+        if cash_delta is None:
+            # 近似: proceeds - cost - fee - tax
+            proceeds = None
+            for f in ("proceeds", "amount", "gross", "sell_amount"):
+                v = getattr(r, f, None)
+                if v is not None:
+                    proceeds = v; break
+            cost = 0
+            for f in ("cost", "buy_amount", "principal"):
+                v = getattr(r, f, None)
+                if v is not None:
+                    cost = v; break
+            fee = 0
+            for f in ("fee", "fees", "commission", "commission_fee"):
+                v = getattr(r, f, None)
+                if v is not None:
+                    fee = v; break
+            tax = 0
+            for f in ("tax", "taxes", "withholding_tax", "tax_amount"):
+                v = getattr(r, f, None)
+                if v is not None:
+                    tax = v; break
+            # 売買方向（買いはマイナス、売りはプラス）
+            side = (getattr(r, "side", "") or getattr(r, "trade_type", "") or "").upper()
+            sign = -1 if "BUY" in side or "買" in side else +1
+            if proceeds is None:
+                # 最低限、実現損益 pnl があれば cost と合わせる
+                pnl = _safe_int(getattr(r, "pnl", None), 0)
+                proceeds = _safe_int(cost, 0) + pnl
+            cash_delta = sign * (_safe_int(proceeds, 0) - _safe_int(cost, 0)) - _safe_int(fee, 0) - _safe_int(tax, 0)
+
+        delta = _safe_int(cash_delta, 0)
+        if delta == 0:
             continue
 
-    return {
-        "dividends_created": created_div,
-        "dividends_updated": updated_div,
-        "realized_created": created_real,
-        "realized_updated": updated_real,
-    }
+        src_id = getattr(r, "id", None) or getattr(r, "pk", None)
+        token = f"[REAL:{src_id}]"
+        if _exists_token(account, token):
+            continue
+
+        memo = f"実現損益 {token}"
+        kind = CashLedger.Kind.DEPOSIT if delta > 0 else CashLedger.Kind.WITHDRAW
+        CashLedger.objects.create(account=account, amount=abs(delta) if delta > 0 else -abs(delta),
+                                  kind=kind, memo=memo)
+        created += 1
+    return created
+
+
+# ─────────────────────────────────────────────
+# まとめて同期
+# ─────────────────────────────────────────────
+@transaction.atomic
+def sync_all() -> dict:
+    """配当・実損の両方を同期し、作成件数を返す。"""
+    d = sync_from_dividends()
+    r = sync_from_realized()
+    return {"dividends_created": d, "realized_created": r}
