@@ -28,7 +28,7 @@
 <div class="ledger-wrap">
   <h1 style="margin:6px 2px 10px">📒 現金台帳</h1>
 
-  <!-- フィルタ（簡易） -->
+  <!-- フィルタ -->
   <form method="get" class="toolbar">
     <div class="row">
       <select name="broker" class="pill">
@@ -68,7 +68,7 @@
     <div class="sum">振替：{{ summary.xfer_in|default:0|intcomma }} / {{ summary.xfer_out|default:0|intcomma }} 円</div>
   </div>
 
-  <!-- 一覧（※ここだけで1回だけループ） -->
+  <!-- 一覧（ここだけで1回だけループ） -->
   <div class="list">
     {% for r in page.object_list %}
       <div class="card">
@@ -80,9 +80,11 @@
             種別：{{ r.get_kind_display }}
           </div>
         </div>
+
         {% if r.memo %}
           <div class="meta">メモ：{{ r.memo }}</div>
         {% endif %}
+
         {% if r.src_badge %}
           <div class="chips">
             <span class="chip {{ r.src_badge.class }}">
