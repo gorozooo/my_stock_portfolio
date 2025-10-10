@@ -1,246 +1,240 @@
-    # portfolio/services/cash_updater.py
-    # -*- coding: utf-8 -*-
-    from __future__ import annotations
-    from typing import Dict, Any, Optional
-    
-    from django.db import transaction
-    
-    from ..models import Dividend, RealizedTrade, Holding
-    from ..models_cash import BrokerAccount, CashLedger
-    from . import cash_service as svc
-    
-    # cash_service のマッピング（無ければフォールバック）
-    try:
-        from .cash_service import BROKER_CODE_TO_JA
-    except Exception:
-        BROKER_CODE_TO_JA = {"RAKUTEN": "楽天", "MATSUI": "松井", "SBI": "SBI"}
-    
-    CODE2JA = BROKER_CODE_TO_JA
-    JA2CODE = {v: k for k, v in CODE2JA.items()}
-    
-    # ---------- helpers ---------------------------------------------------------
-    
-    def _ja_broker_from_code_or_ja(value: str | None) -> Optional[str]:
-        """ 'RAKUTEN' → '楽天'、既に日本語ならそのまま、空/OTHERなら None """
-        s = (value or "").strip()
-        if not s:
-            return None
-        if s in CODE2JA:
-            return CODE2JA[s]
-        if s in JA2CODE:  # 既に日本語（楽天/松井/SBI）
-            return s
-        if s == "OTHER":
-            return None
+# portfolio/services/cash_updater.py
+# -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import Dict, Any, Optional
+
+from django.db import transaction
+
+from ..models import Dividend, RealizedTrade
+from ..models_cash import BrokerAccount, CashLedger
+from . import cash_service as svc
+
+# --- ブローカー表記ゆれ対策 -----------------------------------------------
+_CANON = {
+    "RAKUTEN": "楽天",
+    "楽天": "楽天",
+    "楽天証券": "楽天",
+    "MATSUI": "松井",
+    "松井": "松井",
+    "松井証券": "松井",
+    "SBI": "SBI",
+    "ＳＢＩ": "SBI",
+    "SBI証券": "SBI",
+}
+def _canon_broker(v: Optional[str]) -> Optional[str]:
+    if not v:
         return None
-    
-    def _find_account(broker_ja: str, currency: str = "JPY") -> Optional[BrokerAccount]:
-        """ 指定ブローカーの '現物' 口座 """
-        svc.ensure_default_accounts(currency=currency)
-        return (
-            BrokerAccount.objects
-            .filter(broker=broker_ja, account_type="現物", currency=currency)
-            .order_by("id").first()
+    key = str(v).strip().upper()
+    if key in _CANON:
+        return _CANON[key]
+    if "RAKUTEN" in key:
+        return "楽天"
+    if "MATSUI" in key:
+        return "松井"
+    if "SBI" in key:
+        return "SBI"
+    vjp = str(v).strip().replace("証券", "")
+    return _CANON.get(vjp, vjp or None)
+
+def _int_amount(x) -> int:
+    try:
+        return int(round(float(x)))
+    except Exception:
+        return 0
+
+def _net_amount_of_div(d: Dividend) -> int:
+    try:
+        return _int_amount(d.net_amount())
+    except Exception:
+        amt = float(d.amount or 0)
+        if getattr(d, "is_net", True):
+            return _int_amount(amt)
+        tax = float(getattr(d, "tax", 0) or 0)
+        return _int_amount(max(0.0, amt - tax))
+
+def _realized_cashflow(x: RealizedTrade) -> int:
+    try:
+        return _int_amount(x.cashflow_effective)
+    except Exception:
+        signed = float(x.qty or 0) * float(x.price or 0)
+        if (x.side or "").upper() == "BUY":
+            signed = -signed
+        fee = float(getattr(x, "fee", 0) or 0)
+        tax = float(getattr(x, "tax", 0) or 0)
+        return _int_amount(signed - fee - tax)
+
+def _find_account(broker_like: str, currency: str = "JPY") -> Optional[BrokerAccount]:
+    """
+    口座検索は段階的に：
+      1) broker=＜楽天/松井/SBI＞ かつ account_type='現物'
+      2) broker=＜…＞ の任意口座（最初の1件）
+      3) ensure_default_accounts() 後に 1)→2) を再試行
+    """
+    b = _canon_broker(broker_like)
+    if not b:
+        return None
+
+    acc = (
+        BrokerAccount.objects.filter(broker=b, account_type="現物", currency=currency)
+        .order_by("id")
+        .first()
+    )
+    if acc:
+        return acc
+
+    acc = (
+        BrokerAccount.objects.filter(broker=b, currency=currency)
+        .order_by("id")
+        .first()
+    )
+    if acc:
+        return acc
+
+    svc.ensure_default_accounts(currency=currency)
+
+    acc = (
+        BrokerAccount.objects.filter(broker=b, account_type="現物", currency=currency)
+        .order_by("id")
+        .first()
+    ) or (
+        BrokerAccount.objects.filter(broker=b, currency=currency)
+        .order_by("id")
+        .first()
+    )
+    return acc
+
+def _upsert_ledger(
+    *,
+    source_type: CashLedger.SourceType,
+    source_id: int,
+    account: BrokerAccount,
+    at,  # date
+    amount: int,
+    memo: str,
+) -> str:
+    """
+    既存があれば更新・なければ作成。戻り値: 'created' | 'updated' | 'skipped'
+    """
+    row = CashLedger.objects.filter(source_type=source_type, source_id=source_id).first()
+    if not row:
+        CashLedger.objects.create(
+            account=account,
+            at=at,
+            amount=amount,
+            kind=CashLedger.Kind.SYSTEM,
+            memo=memo,
+            source_type=source_type,
+            source_id=source_id,
         )
-    
-    def _fallback_any_account() -> Optional[BrokerAccount]:
-        """最終保険：どれかの現物口座（楽天→松井→SBI の優先）"""
-        svc.ensure_default_accounts()
-        for b in ("楽天", "松井", "SBI"):
-            acc = _find_account(b)
-            if acc:
-                return acc
-        return BrokerAccount.objects.filter(account_type="現物").order_by("id").first()
-    
-    def _int_amount(x) -> int:
+        return "created"
+
+    changed = False
+    if row.at != at:
+        row.at = at
+        changed = True
+    if _int_amount(row.amount) != _int_amount(amount):
+        row.amount = amount
+        changed = True
+    if row.account_id != account.id:
+        row.account = account
+        changed = True
+    nm = (memo or "").strip()
+    if (row.memo or "").strip() != nm:
+        row.memo = nm
+        changed = True
+
+    if changed:
+        row.save(update_fields=["account", "at", "amount", "memo"])
+        return "updated"
+    return "skipped"
+
+@transaction.atomic
+def _sync_dividend(d: Dividend) -> Optional[str]:
+    """配当 1件 → Ledger（税引後・支払日）を upsert"""
+    broker = _canon_broker(getattr(d, "broker", None)) or _canon_broker(
+        getattr(getattr(d, "holding", None), "broker", None)
+    )
+    acc = _find_account(broker or "")
+    if not acc:
+        return None
+
+    amount = _net_amount_of_div(d)
+    if amount == 0:
+        return None
+
+    memo = f"配当 {(d.display_ticker or d.ticker or '').upper()}".strip()
+    return _upsert_ledger(
+        source_type=CashLedger.SourceType.DIVIDEND,
+        source_id=d.id,
+        account=acc,
+        at=d.date,  # 支払日
+        amount=amount,
+        memo=memo,
+    )
+
+@transaction.atomic
+def _sync_realized(x: RealizedTrade) -> Optional[str]:
+    """実損（特定/NISAのみ）→ Ledger（受渡金額・取引日）を upsert"""
+    if (x.account or "").upper() not in ("SPEC", "NISA"):
+        return None
+
+    broker = _canon_broker(getattr(x, "broker", None))
+    acc = _find_account(broker or "")
+    if not acc:
+        return None
+
+    amount = _realized_cashflow(x)
+    if amount == 0:
+        return None
+
+    memo = f"実現損益 {(x.ticker or '').upper()}".strip()
+    return _upsert_ledger(
+        source_type=CashLedger.SourceType.REALIZED,
+        source_id=x.id,
+        account=acc,
+        at=x.trade_at,  # 取引日
+        amount=amount,
+        memo=memo,
+    )
+
+def sync_all() -> Dict[str, Any]:
+    """
+    ダッシュボード／台帳から毎回呼ぶ同期。
+      - 配当 … 税引後額・支払日で upsert
+      - 実損 … 受渡金額・取引日で upsert（特定/NISAのみ）
+    何度呼んでも二重登録されない（idempotent）。
+    """
+    created_div = updated_div = 0
+    created_real = updated_real = 0
+
+    for d in Dividend.objects.all().only(
+        "id", "date", "ticker", "broker", "amount", "is_net", "tax", "holding"
+    ):
         try:
-            return int(round(float(x)))
+            res = _sync_dividend(d)
+            if res == "created":
+                created_div += 1
+            elif res == "updated":
+                updated_div += 1
         except Exception:
-            return 0
-    
-    def _get_existing_ledger(source_type: CashLedger.SourceType, source_id: int) -> Optional[CashLedger]:
-        return CashLedger.objects.filter(source_type=source_type, source_id=source_id).first()
-    
-    def _guess_broker_from_holding(ticker: str) -> Optional[str]:
-        """同じティッカーの Holding から broker を推定（SPEC/NISA を優先）"""
-        t = (ticker or "").strip().upper()
-        if not t:
-            return None
-        qs = (Holding.objects.filter(ticker=t)
-              .order_by()  # 明示 reset
-              .only("broker", "account"))
-        # SPEC/NISA を優先して探す
-        pref = qs.filter(account__in=("SPEC", "NISA")).first() or qs.first()
-        if not pref:
-            return None
-        return _ja_broker_from_code_or_ja(pref.broker)
-    
-    def _guess_broker_from_existing_ledgers() -> Optional[str]:
-        """既存 Ledger から多いブローカーを採用（初期導入の保険）"""
-        row = (CashLedger.objects
-               .values_list("account__broker", flat=True)
-               .order_by()
-               .first())
-        return (row or None)
-    
-    # ---------- upsert: Dividend ------------------------------------------------
-    
-    @transaction.atomic
-    def _upsert_ledger_for_dividend(d: Dividend) -> str:
-        """
-        配当 → CashLedger 作成/更新
-        - 金額: 税引後(net)
-        - 日付: 支払日(d.date)
-        - 口座: broker が無ければ Holding/既存 Ledger から推定
-        """
-        # 1) broker 値から日本語ブローカー名へ
-        broker_ja = _ja_broker_from_code_or_ja(getattr(d, "broker", ""))
-    
-        # 2) 無ければ Holding から推定
-        if not broker_ja:
-            broker_ja = _guess_broker_from_holding(getattr(d, "ticker", "")) or broker_ja
-    
-        # 3) まだ無ければ 既存 Ledger から推定
-        if not broker_ja:
-            broker_ja = _guess_broker_from_existing_ledgers() or broker_ja
-    
-        # 4) 最後の保険：どれかの現物口座
-        acc = _find_account(broker_ja) if broker_ja else None
-        if not acc:
-            acc = _fallback_any_account()
-        if not acc:
-            return "skipped"
-    
-        amount = _int_amount(d.net_amount())
-        if amount == 0:
-            return "skipped"
-    
-        at_val = d.date
-        memo   = f"配当 { (d.display_ticker or d.ticker or '').strip() }".strip()
-    
-        existing = _get_existing_ledger(CashLedger.SourceType.DIVIDEND, d.id)
-        if existing is None:
-            CashLedger.objects.create(
-                account=acc,
-                at=at_val,
-                amount=amount,
-                kind=CashLedger.Kind.SYSTEM,
-                memo=memo,
-                source_type=CashLedger.SourceType.DIVIDEND,
-                source_id=d.id,
-            )
-            return "created"
-    
-        changed = False
-        if existing.account_id != acc.id:
-            existing.account = acc; changed = True
-        if existing.at != at_val:
-            existing.at = at_val; changed = True
-        if int(existing.amount) != int(amount):
-            existing.amount = amount; changed = True
-        if (existing.memo or "") != memo:
-            existing.memo = memo; changed = True
-        if changed:
-            existing.kind = CashLedger.Kind.SYSTEM
-            existing.save(update_fields=["account", "at", "amount", "memo", "kind"])
-            return "updated"
-        return "skipped"
-    
-    
-    # ---------- upsert: RealizedTrade ------------------------------------------
-    
-    @transaction.atomic
-    def _upsert_ledger_for_realized(x: RealizedTrade) -> str:
-        """
-        実損（現物のみ）→ CashLedger 作成/更新
-        - 対象: SPEC/NISA
-        - 金額: cashflow_effective
-        - 日付: trade_at
-        - broker 不明時は Holding/既存 Ledger から推定
-        """
-        if getattr(x, "account", "") not in ("SPEC", "NISA"):
-            return "skipped"
-    
-        broker_ja = _ja_broker_from_code_or_ja(getattr(x, "broker", "")) \
-                    or _guess_broker_from_holding(getattr(x, "ticker", "")) \
-                    or _guess_broker_from_existing_ledgers()
-    
-        acc = _find_account(broker_ja) if broker_ja else None
-        if not acc:
-            acc = _fallback_any_account()
-        if not acc:
-            return "skipped"
-    
-        amount = _int_amount(x.cashflow_effective)
-        if amount == 0:
-            return "skipped"
-    
-        at_val = x.trade_at
-        memo   = f"実現損益 { (x.ticker or '').strip().upper() }"
-    
-        existing = _get_existing_ledger(CashLedger.SourceType.REALIZED, x.id)
-        if existing is None:
-            CashLedger.objects.create(
-                account=acc,
-                at=at_val,
-                amount=amount,
-                kind=CashLedger.Kind.SYSTEM,
-                memo=memo,
-                source_type=CashLedger.SourceType.REALIZED,
-                source_id=x.id,
-            )
-            return "created"
-    
-        changed = False
-        if existing.account_id != acc.id:
-            existing.account = acc; changed = True
-        if existing.at != at_val:
-            existing.at = at_val; changed = True
-        if int(existing.amount) != int(amount):
-            existing.amount = amount; changed = True
-        if (existing.memo or "") != memo:
-            existing.memo = memo; changed = True
-        if changed:
-            existing.kind = CashLedger.Kind.SYSTEM
-            existing.save(update_fields=["account", "at", "amount", "memo", "kind"])
-            return "updated"
-        return "skipped"
-    
-    
-    # ---------- public: sync_all -----------------------------------------------
-    
-    def sync_all() -> Dict[str, Any]:
-        """
-        ダッシュボード/台帳で呼ばれる idempotent 同期。
-          - 配当: 支払日で upsert
-          - 実損: 取引日で upsert（SPEC/NISA）
-          - broker 未設定でも推定して極力反映
-        """
-        created_div = updated_div = 0
-        created_real = updated_real = 0
-    
-        for d in Dividend.objects.all().only(
-            "id", "date", "ticker", "name", "broker", "amount", "tax", "is_net"
-        ):
-            try:
-                res = _upsert_ledger_for_dividend(d)
-                if res == "created": created_div += 1
-                elif res == "updated": updated_div += 1
-            except Exception:
-                continue
-    
-        for x in RealizedTrade.objects.all().only(
-            "id", "trade_at", "ticker", "broker", "account", "cashflow", "fee", "tax", "side", "qty", "price"
-        ):
-            try:
-                res = _upsert_ledger_for_realized(x)
-                if res == "created": created_real += 1
-                elif res == "updated": updated_real += 1
-            except Exception:
-                continue
-    
-        return {
-            "dividends_created": created_div,
-            "dividends_updated": updated_div,
-            "realized_created": created_real,
-            "realized_updated": updated_real,
-        }
+            continue
+
+    for x in RealizedTrade.objects.filter(account__in=["SPEC", "NISA"]).only(
+        "id", "trade_at", "ticker", "broker", "account", "cashflow",
+        "side", "qty", "price", "fee", "tax"
+    ):
+        try:
+            res = _sync_realized(x)
+            if res == "created":
+                created_real += 1
+            elif res == "updated":
+                updated_real += 1
+        except Exception:
+            continue
+
+    return {
+        "dividends_created": created_div,
+        "dividends_updated": updated_div,
+        "realized_created": created_real,
+        "realized_updated": updated_real,
+    }
