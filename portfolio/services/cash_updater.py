@@ -1,7 +1,7 @@
 # portfolio/services/cash_updater.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 
 from django.db import transaction
 
@@ -29,10 +29,6 @@ def _find_account(broker_ja: str, currency: str = "JPY") -> BrokerAccount | None
     )
 
 
-def _exists_ledger(source_type: CashLedger.SourceType, source_id: int) -> bool:
-    return CashLedger.objects.filter(source_type=source_type, source_id=source_id).exists()
-
-
 def _int_amount(x) -> int:
     try:
         return int(round(float(x)))
@@ -40,112 +36,164 @@ def _int_amount(x) -> int:
         return 0
 
 
-@transaction.atomic
-def _ensure_ledger_for_dividend(d: Dividend) -> bool:
+def _upsert_ledger(
+    *,
+    account: BrokerAccount,
+    at,
+    amount: int,
+    memo: str,
+    source_type: CashLedger.SourceType,
+    source_id: int,
+) -> Tuple[bool, bool]:
     """
-    配当1件 → CashLedger（受け取り）を 1 行作る（既にあれば作らない）
-    - 金額：net（税引後）を推奨（UI が税引後前提のため）
-    - 日付：発生日（d.date）
+    (created, updated) を返す upsert。
+    一意キーは (source_type, source_id) だが、account が変わる可能性も考慮し上書きする。
+    """
+    created = False
+    updated = False
+
+    # 既存照会（account は問わずに source で紐づけ）
+    row = CashLedger.objects.filter(source_type=source_type, source_id=source_id).first()
+
+    if row is None:
+        CashLedger.objects.create(
+            account=account,
+            at=at,
+            amount=amount,
+            kind=CashLedger.Kind.SYSTEM,
+            memo=memo,
+            source_type=source_type,
+            source_id=source_id,
+        )
+        created = True
+    else:
+        # 差分があれば更新（account が違っても移し替える）
+        need_update = (
+            row.account_id != account.id
+            or row.at != at
+            or _int_amount(row.amount) != _int_amount(amount)
+            or (row.memo or "") != (memo or "")
+            or row.kind != CashLedger.Kind.SYSTEM
+        )
+        if need_update:
+            row.account = account
+            row.at = at
+            row.amount = amount
+            row.kind = CashLedger.Kind.SYSTEM
+            row.memo = memo
+            row.save(update_fields=["account", "at", "amount", "kind", "memo"])
+            updated = True
+
+    return created, updated
+
+
+@transaction.atomic
+def _upsert_for_dividend(d: Dividend) -> Tuple[bool, bool]:
+    """
+    配当 → CashLedger を upsert
+    - 金額：net（税引後）
+    - 日付：支払日 d.date
     - source: (DIVIDEND, d.id)
     """
-    if _exists_ledger(CashLedger.SourceType.DIVIDEND, d.id):
-        return False
-
-    broker_ja = BROKER_CODE_TO_JA.get(getattr(d, "broker", ""), None)
-    # broker コードが OTHER 等で map できない場合は自動作成をスキップ（安全側）
+    broker_code = getattr(d, "broker", "") or ""
+    broker_ja = BROKER_CODE_TO_JA.get(broker_code)
     if not broker_ja:
-        return False
+        return False, False
 
     acc = _find_account(broker_ja)
     if not acc:
-        return False
+        return False, False
 
     amount = _int_amount(d.net_amount())
     if amount == 0:
-        # 0 は作っても意味が薄いのでスキップ（必要なら外してOK）
-        return False
+        # 0 円はスキップ（必要なら削除）
+        return False, False
 
-    CashLedger.objects.create(
+    memo = f"配当 {(d.display_ticker or d.ticker or '').strip()}".strip()
+
+    return _upsert_ledger(
         account=acc,
-        at=d.date,                                     # ← 発生日で登録
+        at=d.date,
         amount=amount,
-        kind=CashLedger.Kind.SYSTEM,                   # 自動計上
-        memo=f"配当 {d.display_ticker or d.ticker or ''}".strip(),
+        memo=memo,
         source_type=CashLedger.SourceType.DIVIDEND,
         source_id=d.id,
     )
-    return True
 
 
 @transaction.atomic
-def _ensure_ledger_for_realized(x: RealizedTrade) -> bool:
+def _upsert_for_realized(x: RealizedTrade) -> Tuple[bool, bool]:
     """
-    実損（受渡金額）→ CashLedger を 1 行作る（既にあれば作らない）
-    対象：現物系のみ（特定 / NISA）, 信用は除外
-    - 金額：x.cashflow_effective（SELL=＋ / BUY=− / 手数料・税考慮）
-    - 日付：発生日（x.trade_at）
+    実損（受渡金額） → CashLedger を upsert
+    対象：現物系のみ（特定 / NISA）。信用は除外。
+    - 金額：cashflow_effective（SELL=＋ / BUY=− / 手数料・税控除後）
+    - 日付：取引日 x.trade_at
     - source: (REALIZED, x.id)
     """
-    if _exists_ledger(CashLedger.SourceType.REALIZED, x.id):
-        return False
-
     if getattr(x, "account", "") not in ("SPEC", "NISA"):
-        return False
+        return False, False
 
-    broker_ja = BROKER_CODE_TO_JA.get(getattr(x, "broker", ""), None)
+    broker_code = getattr(x, "broker", "") or ""
+    broker_ja = BROKER_CODE_TO_JA.get(broker_code)
     if not broker_ja:
-        return False
+        return False, False
 
     acc = _find_account(broker_ja)
     if not acc:
-        return False
+        return False, False
 
     amount = _int_amount(x.cashflow_effective)
     if amount == 0:
-        # 0 の受渡はスキップ（必要なら外す）
-        return False
+        # 0 円はスキップ（必要なら削除）
+        return False, False
 
-    CashLedger.objects.create(
+    memo = f"実現損益 {(x.ticker or '').strip()}".strip()
+
+    return _upsert_ledger(
         account=acc,
-        at=x.trade_at,                                  # ← 取引発生日で登録
+        at=x.trade_at,
         amount=amount,
-        kind=CashLedger.Kind.SYSTEM,                    # 自動計上
-        memo=f"実現損益 {x.ticker}".strip(),
+        memo=memo,
         source_type=CashLedger.SourceType.REALIZED,
         source_id=x.id,
     )
-    return True
 
 
 def sync_all() -> Dict[str, Any]:
     """
-    ダッシュボード／台帳で呼ばれる同期本体。
-    - 配当（全件）について、未作成の Ledger を『支払日』で作成
-    - 実損（全件）について、未作成の Ledger を『取引日』で作成（特定/NISAのみ）
-    何度呼んでも重複しない（idempotent）。
-    戻り値は新規作成件数のサマリ。
+    ダッシュボード／台帳で呼ばれる同期本体（冪等）。
+    - 配当：全件を upsert（支払日で保存）
+    - 実損：全件を upsert（取引日で保存, 特定/NISAのみ）
+    何度呼んでも重複せず、変更があれば上書きされる。
+    戻り値: 新規作成/更新件数サマリ
     """
-    created_div = 0
-    created_real = 0
+    created_div = updated_div = 0
+    created_real = updated_real = 0
 
-    # ---- 配当 ----
-    for d in Dividend.objects.all().only("id", "date", "ticker", "broker", "amount", "is_net"):
+    # --- 配当 ---
+    # ※ .only(...) は net_amount() の内部参照（tax 等）を欠落させるので使わない
+    for d in Dividend.objects.all():
         try:
-            if _ensure_ledger_for_dividend(d):
-                created_div += 1
+            c, u = _upsert_for_dividend(d)
+            created_div += 1 if c else 0
+            updated_div += 1 if u else 0
         except Exception:
-            # 1 レコード失敗しても他を継続
+            # 1件失敗しても続行
             continue
 
-    # ---- 実損（現物のみ）----
-    for x in RealizedTrade.objects.all().only("id", "trade_at", "ticker", "broker", "account", "cashflow"):
+    # --- 実損（現物のみ）---
+    # cashflow_effective は @property のため .only(...) で削ると正しく計算できない
+    for x in RealizedTrade.objects.all():
         try:
-            if _ensure_ledger_for_realized(x):
-                created_real += 1
+            c, u = _upsert_for_realized(x)
+            created_real += 1 if c else 0
+            updated_real += 1 if u else 0
         except Exception:
             continue
 
     return {
         "dividends_created": created_div,
+        "dividends_updated": updated_div,
         "realized_created": created_real,
+        "realized_updated": updated_real,
     }
