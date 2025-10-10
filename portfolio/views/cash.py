@@ -15,7 +15,6 @@ from ..models_cash import BrokerAccount, CashLedger
 from ..services import cash_service as svc
 from ..services import cash_updater as up
 
-
 # ================== helpers ==================
 def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
     svc.ensure_default_accounts(currency=currency)
@@ -25,14 +24,7 @@ def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
         .first()
     )
 
-
 def _severity_for(b: dict, low_ratio: float = 0.30) -> str:
-    """
-    表示用の危険度:
-      - 'danger' : 余力 < 0
-      - 'warn'   : 余力/預り金 < low_ratio (預り金>0 の時のみ)
-      - 'ok'     : それ以外
-    """
     avail = int(b.get("available", 0))
     cash  = int(b.get("cash", 0))
     if avail < 0:
@@ -41,10 +33,8 @@ def _severity_for(b: dict, low_ratio: float = 0.30) -> str:
         return "warn"
     return "ok"
 
-
 def _format_int(n: int) -> str:
     return f"{n:,}"
-
 
 def _make_negative_toast(negatives: list[tuple[str, int]]) -> str:
     lines = ["⚠️ 余力がマイナスの証券口座があります！"]
@@ -53,15 +43,12 @@ def _make_negative_toast(negatives: list[tuple[str, int]]) -> str:
     lines.append("入出金や拘束、保有残高を確認してください。")
     return "\n".join(lines)
 
-
 def _make_low_toast(lows: list[tuple[str, int, int, float]]) -> str:
-    # (broker, avail, cash, pct)
     lines = ["⚠️ 余力が少なくなっています！"]
     for br, avail, cash, pct in lows:
         lines.append(f"・{br}：余力 {pct:.1f}%（残り {_format_int(avail)} 円）")
     lines.append("入金やポジション整理を検討してください。")
     return "\n".join(lines)
-
 
 # ================== dashboard ==================
 @require_http_methods(["GET", "POST"])
@@ -70,7 +57,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         op = (request.POST.get("op") or "").strip()
         memo = (request.POST.get("memo") or "").strip()
 
-        # 入金 / 出金
         if op in ("deposit", "withdraw"):
             broker = (request.POST.get("broker") or "").strip()
             if not broker:
@@ -100,7 +86,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
 
-        # transfer は UI から消しているが、不正 POST へのガード
         if op == "transfer":
             messages.error(request, "振替は現在サポートしていません。")
             return redirect("cash_dashboard")
@@ -111,22 +96,18 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     # ====== GET ======
     svc.ensure_default_accounts()
 
-    # ---- 毎回同期（冪等：重複作成なし／差分は上書き）----
+    # ソース（配当/実損）→ Ledger を毎回同期（新規＋更新）
     try:
         info = up.sync_all()
-        d_new = int(info.get("dividends_created", 0))
-        d_upd = int(info.get("dividends_updated", 0))
-        r_new = int(info.get("realized_created", 0))
-        r_upd = int(info.get("realized_updated", 0))
-        if any([d_new, d_upd, r_new, r_upd]) or request.GET.get("force_toast") == "1":
-            messages.info(
-                request,
-                f"同期完了\n・配当：新規 {d_new} / 更新 {d_upd} 件\n・実損：新規 {r_new} / 更新 {r_upd} 件"
-            )
+        d_c = int(info.get("dividends_created", 0))
+        d_u = int(info.get("dividends_updated", 0))
+        r_c = int(info.get("realized_created", 0))
+        r_u = int(info.get("realized_updated", 0))
+        if any([d_c, d_u, r_c, r_u]) or request.GET.get("force_toast") == "1":
+            messages.info(request, f"同期完了\n・配当：新規 {d_c} / 更新 {d_u}\n・実損：新規 {r_c} / 更新 {r_u}")
     except Exception as e:
         messages.error(request, f"同期に失敗：{e}")
 
-    # === 集計 ===
     today = date.today()
     base_list = svc.broker_summaries(today)
 
@@ -145,7 +126,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         pct = (avail / cash * 100.0) if cash > 0 else None
         severity = _severity_for(row, LOW_RATIO)
 
-        # トースト用の収集
         if avail < 0:
             neg_for_toast.append((broker, avail))
         elif cash > 0 and (avail / cash) < LOW_RATIO:
@@ -157,30 +137,27 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
             "available": avail,
             "restricted": restr,
             "month_net": month_net,
-            "pct_available": pct,   # float | None
-            "severity": severity,   # 'danger' | 'warn' | 'ok'
+            "pct_available": pct,
+            "severity": severity,
         })
 
-    # 警告トースト（両方表示）
     if neg_for_toast:
         messages.error(request, _make_negative_toast(neg_for_toast))
     if lows_for_toast:
         messages.warning(request, _make_low_toast(lows_for_toast))
 
-    # KPI 合計は既存の total_summary をそのまま使用
     kpi_total, _ = svc.total_summary(today)
 
     return render(
         request,
         "cash/dashboard.html",
         {
-            "brokers": enhanced,      # テンプレはこの“完成形”だけを使う
+            "brokers": enhanced,
             "kpi_total": kpi_total,
         },
     )
 
-
-# ================== 現金履歴台帳（一覧＋フィルタ） ==================
+# ================== 現金履歴台帳 ==================
 PAGE_SIZE = 30
 
 def _parse_date(s: str | None):
@@ -193,15 +170,7 @@ def _parse_date(s: str | None):
             pass
     return None
 
-
 def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
-    """
-    クエリ:
-      broker=楽天|松井|SBI|ALL
-      kind=ALL|DEPOSIT|WITHDRAW|XFER|SYSTEM
-      start=YYYY-MM-DD / end=YYYY-MM-DD
-      q=メモ部分一致
-    """
     broker = (request.GET.get("broker") or "ALL").strip()
     kind   = (request.GET.get("kind") or "ALL").upper().strip()
     start  = _parse_date(request.GET.get("start"))
@@ -230,7 +199,7 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
     if q:
         qs = qs.filter(Q(memo__icontains=q))
 
-    # ★二重表示の旧式データ（source_type なし かつ メモが「配当/実現損益」）は除外
+    # 旧式（source_type 無し＋メモが配当/実現損益）を一覧から除外して二重表示を防止
     qs = qs.exclude(
         Q(source_type__isnull=True) &
         (Q(memo__startswith="配当") | Q(memo__startswith="実現損益"))
@@ -252,15 +221,13 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
     }
     return qs, summary
 
-
 def _source_is_dividend(v) -> bool:
     if v is None:
         return False
     try:
         return int(v) == int(CashLedger.SourceType.DIVIDEND)
     except Exception:
-        return str(v).upper() in {"DIVIDEND", "DIV", "2"}  # 2 は保険
-
+        return str(v).upper() in {"DIVIDEND", "DIV", "2"}
 
 def _source_is_realized(v) -> bool:
     if v is None:
@@ -268,18 +235,12 @@ def _source_is_realized(v) -> bool:
     try:
         return int(v) == int(CashLedger.SourceType.REALIZED)
     except Exception:
-        return str(v).upper() in {"REALIZED", "REAL", "1"}  # 1 は保険
-
+        return str(v).upper() in {"REALIZED", "REAL", "1"}
 
 def _safe_str(val) -> str:
     return (val or "").strip()
 
-
 def _attach_source_labels(page):
-    """
-    page.object_list に r.src_badge を付与（取得不可は DIV:ID / REAL:ID でフォールバック）
-    二重描画を避けるため、テンプレ側はこの値だけを見て表示。
-    """
     items = list(page.object_list or [])
     if not items:
         return
@@ -333,9 +294,7 @@ def _attach_source_labels(page):
 
     page.object_list = items
 
-
 def _clean_params_for_pager(request: HttpRequest) -> dict:
-    """page を除外し、空値も落として urlencode 用に渡す"""
     params = {}
     for k, v in request.GET.items():
         if k == "page":
@@ -345,26 +304,20 @@ def _clean_params_for_pager(request: HttpRequest) -> dict:
         params[k] = v
     return params
 
-
 @require_http_methods(["GET"])
 def cash_history(request: HttpRequest) -> HttpResponse:
     """
-    現金台帳：通常のページネーションのみ（HTMX/カーソルなし、二重表示なし）
-    ダッシュボードに行かなくても毎回ここで同期（冪等）。
+    現金台帳：毎回同期 → 絞り込み → ページネーション
     """
-    # ---- 毎回同期（冪等：重複作成なし／差分は上書き）----
+    # ここで毎回 upsert（新規＋更新）
     try:
         info = up.sync_all()
-        # 台帳ではトーストは控えめに（必要ならコメントアウト外して表示）
-        # d_new = int(info.get("dividends_created", 0))
-        # d_upd = int(info.get("dividends_updated", 0))
-        # r_new = int(info.get("realized_created", 0))
-        # r_upd = int(info.get("realized_updated", 0))
-        # if any([d_new, d_upd, r_new, r_upd]) or request.GET.get("force_toast") == "1":
-        #     messages.info(
-        #         request,
-        #         f"同期完了\n・配当：新規 {d_new} / 更新 {d_upd} 件\n・実損：新規 {r_new} / 更新 {r_upd} 件"
-        #     )
+        d_c = int(info.get("dividends_created", 0))
+        d_u = int(info.get("dividends_updated", 0))
+        r_c = int(info.get("realized_created", 0))
+        r_u = int(info.get("realized_updated", 0))
+        if any([d_c, d_u, r_c, r_u]) or request.GET.get("force_toast") == "1":
+            messages.info(request, f"同期完了\n・配当：新規 {d_c} / 更新 {d_u}\n・実損：新規 {r_c} / 更新 {r_u}")
     except Exception as e:
         messages.error(request, f"同期に失敗：{e}")
 
