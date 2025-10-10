@@ -1,128 +1,109 @@
 # portfolio/services/cash_updater.py
 from __future__ import annotations
-from typing import Optional
-from django.db import transaction
+from django.db import transaction, IntegrityError
 
-# ← あなたの定義どおりのモデルを直 import
 from portfolio.models import Dividend, RealizedTrade
 from ..models_cash import BrokerAccount, CashLedger
 from . import cash_service as svc
 
 
-# ───────── ユーティリティ ─────────
+# ---- Broker 正規化 ------------------------------------------------
 def _norm_broker(code: str) -> str:
-    """BrokerAccount 検索用にコードを正規化。"""
     if not code:
         return ""
     s = str(code).strip().upper()
-    # 許容：日本語/コード表記の両方
-    if "RAKUTEN" in s or "楽天" in s:
-        return "RAKUTEN"
-    if "MATSUI" in s or "松井" in s:
-        return "MATSUI"
-    if "SBI" in s:
-        return "SBI"
+    if "RAKUTEN" in s or "楽天" in s: return "RAKUTEN"
+    if "MATSUI"  in s or "松井" in s: return "MATSUI"
+    if "SBI"     in s:               return "SBI"
     return "OTHER"
 
 def _label_from_code(code: str) -> str:
-    """BrokerAccount 側が日本語保存でも拾えるようラベルも返す。"""
-    m = {
-        "RAKUTEN": "楽天",
-        "MATSUI" : "松井",
-        "SBI"    : "SBI",
-        "OTHER"  : "その他",
-    }
-    return m.get(code, code)
+    return {"RAKUTEN":"楽天","MATSUI":"松井","SBI":"SBI","OTHER":"その他"}.get(code, code)
 
-def _get_account(broker_code: str, currency: str = "JPY") -> Optional[BrokerAccount]:
-    """
-    BrokerAccount を broker=（コード or 日本語ラベル）で探す。
-    デフォ口座が未作成なら作成（cash_service 側で実施）。
-    """
+def _get_account(broker_code: str, currency: str = "JPY") -> BrokerAccount | None:
     svc.ensure_default_accounts(currency=currency)
-    code = _norm_broker(broker_code)
+    code  = _norm_broker(broker_code)
     label = _label_from_code(code)
-
-    # broker にコードを入れている場合／日本語ラベルを入れている場合の両方に対応
     qs = BrokerAccount.objects.filter(currency=currency)
-    acc = qs.filter(broker=code).order_by("id").first()
-    if acc:
-        return acc
-    return qs.filter(broker=label).order_by("id").first()
+    return qs.filter(broker=code).first() or qs.filter(broker=label).first()
 
-def _exists_token(account: BrokerAccount, token: str) -> bool:
-    """CashLedger.memo に識別トークンがあれば既存扱い。"""
-    return CashLedger.objects.filter(account=account, memo__icontains=token).exists()
+def _as_int(x) -> int:
+    try:
+        return int(round(float(x or 0)))
+    except Exception:
+        return 0
 
 
-# ───────── 配当 → CashLedger（入金）─────────
+# ---- 内部ヘルパ：セーブポイント付き create --------------------
+def _create_ledger_safe(**kwargs) -> bool:
+    """
+    1レコードの作成を savepoint で隔離。
+    IntegrityError はロールバックして False を返す（外側トランザクションを壊さない）。
+    """
+    try:
+        with transaction.atomic():  # savepoint=True デフォルト
+            CashLedger.objects.create(**kwargs)
+        return True
+    except IntegrityError:
+        return False
+
+
+# ---- 同期本体 ----------------------------------------------------
 def sync_from_dividends() -> int:
-    """
-    Dividend → CashLedger に入金として反映（idempotent）。
-    - 金額は Dividend.net_amount() を使用（UIが税引後入力のため）
-    - memo に [DIV:<id>] を入れて重複防止
-    """
     created = 0
-    for d in Dividend.objects.all().iterator():
+    # ★ iterator() は使わず、あらかじめ全件 list() 化してカーソルを閉じておく
+    dividends = list(Dividend.objects.all())
+    for d in dividends:
         acc = _get_account(d.broker)
         if not acc:
             continue
-
-        amount = int(round(d.net_amount() or 0))
+        amount = _as_int(d.net_amount())  # UIは税引後前提
         if amount <= 0:
             continue
 
-        token = f"[DIV:{d.id}]"
-        if _exists_token(acc, token):
-            continue
-
-        CashLedger.objects.create(
+        ok = _create_ledger_safe(
             account=acc,
             amount=amount,
-            kind=CashLedger.Kind.DEPOSIT,  # 入金
-            memo=f"配当 {token}",
+            kind=CashLedger.Kind.DEPOSIT,
+            memo=f"配当 DIV:{d.id}",
+            source_type=CashLedger.SourceType.DIVIDEND,
+            source_id=d.id,
         )
-        created += 1
+        if ok:
+            created += 1
     return created
 
 
-# ───────── 実現損益 → CashLedger（増減）─────────
 def sync_from_realized() -> int:
-    """
-    RealizedTrade → CashLedger に現金増減として反映（idempotent）。
-    - まず cashflow_effective を使用（SELL=＋ / BUY=− / 手数料・税抜き済）
-    - memo に [REAL:<id>] を入れて重複防止
-    """
     created = 0
-    for r in RealizedTrade.objects.all().iterator():
+    realized = list(RealizedTrade.objects.all())  # ← ここも iterator() 禁止！
+    for r in realized:
         acc = _get_account(r.broker)
         if not acc:
             continue
-
-        delta = float(r.cashflow_effective or 0.0)
-        delta_i = int(round(delta))
-        if delta_i == 0:
+        delta = _as_int(r.cashflow_effective)  # SELL=＋ / BUY=− / 料税込み
+        if delta == 0:
             continue
 
-        token = f"[REAL:{r.id}]"
-        if _exists_token(acc, token):
-            continue
-
-        # プラスは入金、マイナスは出金
-        kind = CashLedger.Kind.DEPOSIT if delta_i > 0 else CashLedger.Kind.WITHDRAW
-        CashLedger.objects.create(
+        kind = CashLedger.Kind.DEPOSIT if delta > 0 else CashLedger.Kind.WITHDRAW
+        ok = _create_ledger_safe(
             account=acc,
-            amount=abs(delta_i) if delta_i > 0 else -abs(delta_i),  # モデルの仕様に合わせて符号運用している場合はここで調整
+            amount=delta,
             kind=kind,
-            memo=f"実現損益 {token}",
+            memo=f"実現損益 REAL:{r.id}",
+            source_type=CashLedger.SourceType.REALIZED,
+            source_id=r.id,
         )
-        created += 1
+        if ok:
+            created += 1
     return created
 
 
-# ───────── 一括同期（トランザクション）─────────
-@transaction.atomic
 def sync_all() -> dict:
+    """
+    外側では atomic を張らない。
+    iterator() を使わず、savepoint 内で安全に1件ずつ insert。
+    """
     d = sync_from_dividends()
     r = sync_from_realized()
     return {"dividends_created": d, "realized_created": r}
