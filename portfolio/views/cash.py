@@ -190,6 +190,13 @@ def _parse_date(s: str | None):
 
 
 def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
+    """
+    クエリ:
+      broker=楽天|松井|SBI|ALL
+      kind=ALL|DEPOSIT|WITHDRAW|XFER|SYSTEM
+      start=YYYY-MM-DD / end=YYYY-MM-DD
+      q=メモ部分一致
+    """
     broker = (request.GET.get("broker") or "ALL").strip()
     kind   = (request.GET.get("kind") or "ALL").upper().strip()
     start  = _parse_date(request.GET.get("start"))
@@ -217,12 +224,6 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
         qs = qs.filter(at__lte=end)
     if q:
         qs = qs.filter(Q(memo__icontains=q))
-
-    # ★二重表示の正体（旧式=source_type無し かつ メモが「配当/実現損益」）を除外
-    qs = qs.exclude(
-        Q(source_type__isnull=True) &
-        (Q(memo__startswith="配当") | Q(memo__startswith="実現損益"))
-    )
 
     agg = qs.aggregate(
         total=Sum("amount"),
@@ -266,7 +267,6 @@ def _safe_str(val) -> str:
 def _attach_source_labels(page):
     """
     page.object_list に r.src_badge を付与（取得不可は DIV:ID / REAL:ID でフォールバック）
-    二重描画を避けるため、テンプレ側はこの値だけを見て表示。
     """
     items = list(page.object_list or [])
     if not items:
@@ -338,7 +338,14 @@ def _clean_params_for_pager(request: HttpRequest) -> dict:
 def cash_history(request: HttpRequest) -> HttpResponse:
     """
     現金台帳：通常のページネーションのみ（HTMX/カーソルなし、二重表示なし）
+    表示前に、発生日（配当=受取日 / 実損=売買日）で Ledger.at を自動補正。
     """
+    try:
+        svc.normalize_ledger_dates(max_rows=2000)
+    except Exception:
+        # 補正失敗しても表示は継続（ログはサーバ側）
+        pass
+
     qs, summary = _filtered_ledger(request)
 
     try:
