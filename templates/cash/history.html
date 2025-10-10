@@ -3,58 +3,66 @@
 {% block title %}現金台帳{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=16">
+<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=14">
 
 <style>
+  /* ===== Layout ===== */
   .ledger-wrap{max-width:980px;margin:12px auto 0;padding:8px 12px 120px}
+
+  /* ===== Filter Toolbar（元のデザインに復元） ===== */
   .toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
   .toolbar .row{display:flex;gap:8px}
   .pill{padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.05);
-        border:1px solid rgba(255,255,255,.1);font-size:13px;color:#e6ebff}
+        border:1px solid rgba(255,255,255,.10);font-size:13px;color:#e6ebff}
+  .pill:focus{outline:none;box-shadow:0 0 0 2px rgba(125,160,255,.25) inset}
+
+  /* ===== KPI（サマリのグリッド） ===== */
   .sum-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin:8px 0 12px}
   .sum{padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.04);
-       border:1px solid rgba(255,255,255,.08);font-size:12px;color:#e6ebff}
+       border:1px solid rgba(255,255,255,.08);font-size:12px;color:#dbe3ff}
+
+  /* ===== List ===== */
   .list{display:flex;flex-direction:column;gap:8px}
-  .card{padding:10px 12px;border-radius:14px;background:#0f1422;
-        border:1px solid rgba(255,255,255,.08)}
+  .card{padding:10px 12px;border-radius:14px;background:#0f1422;border:1px solid rgba(255,255,255,.08)}
   .card .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
   .amt{font-weight:800;font-size:16px}
   .meta{font-size:12px;opacity:.85}
   .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
-  .chip{font-size:11px;padding:4px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.18);
-        background:rgba(255,255,255,.06)}
+  .chip{font-size:11px;padding:4px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06)}
   .chip-sky{border-color:#38bdf8aa;background:#38bdf822}
   .chip-emerald{border-color:#10b981aa;background:#10b98122}
+
+  /* ===== Pager ===== */
   .pager{display:flex;justify-content:space-between;gap:10px;margin:14px 0}
-  .pager a,.pager span{padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);
-        background:rgba(255,255,255,.04);font-size:13px;color:#e6ebff}
+  .pager a,.pager span{padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);font-size:13px}
 </style>
 
 <div class="ledger-wrap">
   <h1 style="margin:6px 2px 10px">📒 現金台帳</h1>
 
-  <!-- フィルタ -->
+  <!-- ===== Filter Toolbar（元の2列・行レイアウト） ===== -->
   <form method="get" class="toolbar">
     <div class="row">
-      {% with b=params.broker|default:"ALL" %}
       <select name="broker" class="pill">
-        <option value="ALL" {% if b == "ALL" %}selected{% endif %}>証券会社: すべて</option>
-        <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天</option>
-        <option value="松井" {% if b == "松井" %}selected{% endif %}>松井</option>
-        <option value="SBI"  {% if b == "SBI"  %}selected{% endif %}>SBI</option>
+        {% with b=params.broker|default:"ALL" %}
+          <option value="ALL" {% if b == "ALL" %}selected{% endif %}>証券会社: すべて</option>
+          <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天</option>
+          <option value="松井" {% if b == "松井" %}selected{% endif %}>松井</option>
+          <option value="SBI" {% if b == "SBI" %}selected{% endif %}>SBI</option>
+        {% endwith %}
       </select>
-      {% endwith %}
 
-      {% with k=params.kind|default:"ALL" %}
       <select name="kind" class="pill">
-        <option value="ALL"      {% if k == "ALL" %}selected{% endif %}>種別: すべて</option>
-        <option value="DEPOSIT"  {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
-        <option value="WITHDRAW" {% if k == "WITHDRAW" %}selected{% endif %}>出金</option>
-        <option value="XFER"     {% if k == "XFER" %}selected{% endif %}>振替</option>
-        <option value="SYSTEM"   {% if k == "SYSTEM" %}selected{% endif %}>自動計上</option>
+        {% with k=params.kind|default:"ALL" %}
+          <option value="ALL" {% if k == "ALL" %}selected{% endif %}>種別: すべて</option>
+          <option value="DEPOSIT" {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
+          <option value="WITHDRAW" {% if k == "WITHDRAW" %}selected{% endif %}>出金</option>
+          <option value="XFER" {% if k == "XFER" %}selected{% endif %}>振替</option>
+          <option value="SYSTEM" {% if k == "SYSTEM" %}selected{% endif %}>自動計上</option>
+        {% endwith %}
       </select>
-      {% endwith %}
     </div>
+
     <div class="row">
       <input class="pill" type="date" name="start" value="{{ params.start|default_if_none:'' }}">
       <input class="pill" type="date" name="end"   value="{{ params.end|default_if_none:'' }}">
@@ -64,27 +72,33 @@
     </div>
   </form>
 
-  <!-- サマリ -->
+  <!-- ===== KPI（元の4ボックス） ===== -->
   <div class="sum-grid">
     <div class="sum">合計：{{ summary.total|intcomma }} 円</div>
+    <div class="sum">差分：{{ summary.total|intcomma }} 円</div>
     <div class="sum">入金：{{ summary.deposit|intcomma }} 円</div>
     <div class="sum">出金：{{ summary.withdraw|intcomma }} 円</div>
-    <div class="sum">振替：{{ summary.xfer_in|default:0|intcomma }} / {{ summary.xfer_out|default:0|intcomma }} 円</div>
+    <div class="sum">振替（入）：{{ summary.xfer_in|default:0|intcomma }} 円</div>
+    <div class="sum">振替（出）：{{ summary.xfer_out|default:0|intcomma }} 円</div>
   </div>
 
-  <!-- 一覧 -->
+  <!-- ===== List（※ループは1回だけ） ===== -->
   <div class="list">
     {% for r in page.object_list %}
       <div class="card">
         <div class="head">
           <div class="amt">{{ r.amount|intcomma }} 円</div>
           <div class="meta">
-            {{ r.at|date:"Y年n月j日" }} ｜ {{ r.account.broker }}（{{ r.account.account_type }}）｜{{ r.get_kind_display }}
+            {{ r.at|date:"Y年n月j日" }} |
+            口座：{{ r.account.broker }} / {{ r.account.account_type }} |
+            種別：{{ r.get_kind_display }}
           </div>
         </div>
+
         {% if r.memo %}
           <div class="meta">メモ：{{ r.memo }}</div>
         {% endif %}
+
         {% if r.src_badge %}
           <div class="chips">
             <span class="chip {{ r.src_badge.class }}">
@@ -94,18 +108,20 @@
         {% endif %}
       </div>
     {% empty %}
-      <div class="card">該当するデータはありません。</div>
+      <div class="card">該当する台帳はありません。</div>
     {% endfor %}
   </div>
 
-  <!-- ページャ -->
+  <!-- ===== Pager ===== -->
   <div class="pager">
     {% if page.has_previous %}
       <a href="?page={{ page.previous_page_number }}{% if params %}&{{ params|urlencode }}{% endif %}">前へ</a>
     {% else %}
       <span>前へ</span>
     {% endif %}
+
     <span>ページ {{ page.number }} / {{ page.paginator.num_pages }}</span>
+
     {% if page.has_next %}
       <a href="?page={{ page.next_page_number }}{% if params %}&{{ params|urlencode }}{% endif %}">次へ</a>
     {% else %}
