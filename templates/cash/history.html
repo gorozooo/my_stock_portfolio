@@ -39,7 +39,6 @@
           <option value="SBI" {% if b == "SBI" %}selected{% endif %}>SBI</option>
         {% endwith %}
       </select>
-
       <select name="kind" class="pill">
         {% with k=params.kind|default:"ALL" %}
           <option value="ALL" {% if k == "ALL" %}selected{% endif %}>種別: すべて</option>
@@ -50,7 +49,6 @@
         {% endwith %}
       </select>
     </div>
-
     <div class="row">
       <input class="pill" type="date" name="start" value="{{ params.start|default_if_none:'' }}">
       <input class="pill" type="date" name="end"   value="{{ params.end|default_if_none:'' }}">
@@ -68,7 +66,7 @@
     <div class="sum">振替：{{ summary.xfer_in|default:0|intcomma }} / {{ summary.xfer_out|default:0|intcomma }} 円</div>
   </div>
 
-  <!-- 一覧（ここだけで1回だけループ） -->
+  <!-- 一覧（1回だけループ） -->
   <div class="list">
     {% for r in page.object_list %}
       <div class="card">
@@ -80,11 +78,9 @@
             種別：{{ r.get_kind_display }}
           </div>
         </div>
-
         {% if r.memo %}
           <div class="meta">メモ：{{ r.memo }}</div>
         {% endif %}
-
         {% if r.src_badge %}
           <div class="chips">
             <span class="chip {{ r.src_badge.class }}">
@@ -98,16 +94,14 @@
     {% endfor %}
   </div>
 
-  <!-- ページャ -->
+  <!-- ページャ（下に1つだけ） -->
   <div class="pager">
     {% if page.has_previous %}
       <a href="?page={{ page.previous_page_number }}{% if params %}&{{ params|urlencode }}{% endif %}">前へ</a>
     {% else %}
       <span>前へ</span>
     {% endif %}
-
     <span>ページ {{ page.number }} / {{ page.paginator.num_pages }}</span>
-
     {% if page.has_next %}
       <a href="?page={{ page.next_page_number }}{% if params %}&{{ params|urlencode }}{% endif %}">次へ</a>
     {% else %}
