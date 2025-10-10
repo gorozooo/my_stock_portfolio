@@ -5,7 +5,10 @@ from typing import Tuple
 
 from django.contrib import messages
 from django.core.paginator import Paginator
-from django.db.models import Q, Sum, QuerySet
+from django.db.models import (
+    Q, Sum, QuerySet, Case, When, Value, F,
+    OuterRef, Subquery, DateField
+)
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods
@@ -27,12 +30,6 @@ def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
 
 
 def _severity_for(b: dict, low_ratio: float = 0.30) -> str:
-    """
-    表示用の危険度:
-      - 'danger' : 余力 < 0
-      - 'warn'   : 余力/預り金 < low_ratio (預り金>0 の時のみ)
-      - 'ok'     : それ以外
-    """
     avail = int(b.get("available", 0))
     cash  = int(b.get("cash", 0))
     if avail < 0:
@@ -55,7 +52,6 @@ def _make_negative_toast(negatives: list[tuple[str, int]]) -> str:
 
 
 def _make_low_toast(lows: list[tuple[str, int, int, float]]) -> str:
-    # (broker, avail, cash, pct)
     lines = ["⚠️ 余力が少なくなっています！"]
     for br, avail, cash, pct in lows:
         lines.append(f"・{br}：余力 {pct:.1f}%（残り {_format_int(avail)} 円）")
@@ -70,7 +66,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         op = (request.POST.get("op") or "").strip()
         memo = (request.POST.get("memo") or "").strip()
 
-        # 入金 / 出金
         if op in ("deposit", "withdraw"):
             broker = (request.POST.get("broker") or "").strip()
             if not broker:
@@ -100,7 +95,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
 
-        # transfer は UI から消しているが、不正 POST へのガード
         if op == "transfer":
             messages.error(request, "振替は現在サポートしていません。")
             return redirect("cash_dashboard")
@@ -108,11 +102,9 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         messages.error(request, "不正な操作が指定されました。")
         return redirect("cash_dashboard")
 
-    # ====== GET ======
     svc.ensure_default_accounts()
     today = date.today()
 
-    # 同期（失敗しても画面は表示）
     try:
         info = up.sync_all()
         d = int(info.get("dividends_created", 0))
@@ -122,7 +114,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     except Exception as e:
         messages.error(request, f"同期に失敗：{e}")
 
-    # === 集計 ===
     base_list = svc.broker_summaries(today)
 
     LOW_RATIO = 0.30
@@ -140,7 +131,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         pct = (avail / cash * 100.0) if cash > 0 else None
         severity = _severity_for(row, LOW_RATIO)
 
-        # トースト用の収集
         if avail < 0:
             neg_for_toast.append((broker, avail))
         elif cash > 0 and (avail / cash) < LOW_RATIO:
@@ -152,24 +142,22 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
             "available": avail,
             "restricted": restr,
             "month_net": month_net,
-            "pct_available": pct,   # float | None
-            "severity": severity,   # 'danger' | 'warn' | 'ok'
+            "pct_available": pct,
+            "severity": severity,
         })
 
-    # 警告トースト（両方表示）
     if neg_for_toast:
         messages.error(request, _make_negative_toast(neg_for_toast))
     if lows_for_toast:
         messages.warning(request, _make_low_toast(lows_for_toast))
 
-    # KPI 合計は既存の total_summary をそのまま使用
     kpi_total, _ = svc.total_summary(today)
 
     return render(
         request,
         "cash/dashboard.html",
         {
-            "brokers": enhanced,      # テンプレはこの“完成形”だけを使う
+            "brokers": enhanced,
             "kpi_total": kpi_total,
         },
     )
@@ -194,11 +182,12 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
     フィルタ:
       broker=楽天|松井|SBI|ALL
       kind=ALL|DEPOSIT|WITHDRAW|XFER|SYSTEM
-      start/end=YYYY-MM-DD
+      start/end=YYYY-MM-DD （← 発生日 display_at 基準）
       q=メモ部分一致
     仕様:
-      - 現物口座（= 特定/NISA）の台帳のみ表示（信用は除外）
+      - 現物口座（= 特定/NISA）の台帳のみ
       - 旧式の自動計上メモによる重複は除外
+      - 日付は display_at（配当=Dividend.date / 実損=Realized.trade_at / その他=Ledger.at）
     """
     broker = (request.GET.get("broker") or "ALL").strip()
     kind   = (request.GET.get("kind") or "ALL").upper().strip()
@@ -206,7 +195,23 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
     end    = _parse_date(request.GET.get("end"))
     q      = (request.GET.get("q") or "").strip()
 
-    qs = CashLedger.objects.select_related("account").order_by("-at", "-id")
+    # === display_at を注釈 ===
+    div_date_sq  = Dividend.objects.filter(id=OuterRef("source_id")).values("date")[:1]
+    real_date_sq = RealizedTrade.objects.filter(id=OuterRef("source_id")).values("trade_at")[:1]
+
+    qs = (
+        CashLedger.objects
+        .select_related("account")
+        .annotate(
+            display_at=Case(
+                When(source_type=CashLedger.SourceType.DIVIDEND, then=Subquery(div_date_sq)),
+                When(source_type=CashLedger.SourceType.REALIZED, then=Subquery(real_date_sq)),
+                default=F("at"),
+                output_field=DateField(),
+            )
+        )
+        .order_by("-display_at", "-id")
+    )
 
     # ★ 現物（= 特定/NISA）だけに限定
     qs = qs.filter(account__account_type="現物")
@@ -225,9 +230,9 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
             qs = qs.filter(kind=CashLedger.Kind.SYSTEM)
 
     if start:
-        qs = qs.filter(at__gte=start)
+        qs = qs.filter(display_at__gte=start)
     if end:
-        qs = qs.filter(at__lte=end)
+        qs = qs.filter(display_at__lte=end)
     if q:
         qs = qs.filter(Q(memo__icontains=q))
 
@@ -237,6 +242,7 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
         (Q(memo__startswith="配当") | Q(memo__startswith="実現損益"))
     )
 
+    # サマリも display_at の絞り込み後で計算
     agg = qs.aggregate(
         total=Sum("amount"),
         dep=Sum("amount", filter=Q(kind=CashLedger.Kind.DEPOSIT)),
@@ -260,7 +266,7 @@ def _source_is_dividend(v) -> bool:
     try:
         return int(v) == int(CashLedger.SourceType.DIVIDEND)
     except Exception:
-        return str(v).upper() in {"DIVIDEND", "DIV", "2"}  # 2 は保険
+        return str(v).upper() in {"DIVIDEND", "DIV", "2"}
 
 
 def _source_is_realized(v) -> bool:
@@ -269,7 +275,7 @@ def _source_is_realized(v) -> bool:
     try:
         return int(v) == int(CashLedger.SourceType.REALIZED)
     except Exception:
-        return str(v).upper() in {"REALIZED", "REAL", "1"}  # 1 は保険
+        return str(v).upper() in {"REALIZED", "REAL", "1"}
 
 
 def _safe_str(val) -> str:
@@ -279,7 +285,7 @@ def _safe_str(val) -> str:
 def _attach_source_labels(page):
     """
     page.object_list に r.src_badge を付与（取得不可は DIV:ID / REAL:ID でフォールバック）
-    二重描画を避けるため、テンプレ側はこの値だけを見る想定。
+    テンプレ側は r.src_badge のみで表示（“二重表示”は発生しない）
     """
     items = list(page.object_list or [])
     if not items:
@@ -323,12 +329,16 @@ def _attach_source_labels(page):
             sid_int = None
 
         if sid_int is not None and _source_is_dividend(st):
-            label = build_label_from_div(div_map[sid_int]) if sid_int in div_map else f"DIV:{sid_int}"
+            label = build_label_from_div(div_map.get(sid_int)) if sid_int in div_map else f"DIV:{sid_int}"
+            if label is None:
+                label = f"DIV:{sid_int}"
             r.src_badge = {"kind": "配当", "class": "chip chip-sky", "label": label}
             continue
 
         if sid_int is not None and _source_is_realized(st):
-            label = build_label_from_real(real_map[sid_int]) if sid_int in real_map else f"REAL:{sid_int}"
+            label = build_label_from_real(real_map.get(sid_int)) if sid_int in real_map else f"REAL:{sid_int}"
+            if label is None:
+                label = f"REAL:{sid_int}"
             r.src_badge = {"kind": "実損", "class": "chip chip-emerald", "label": label}
             continue
 
@@ -336,7 +346,6 @@ def _attach_source_labels(page):
 
 
 def _clean_params_for_pager(request: HttpRequest) -> dict:
-    """page を除外し、空値も落として urlencode 用に渡す"""
     params = {}
     for k, v in request.GET.items():
         if k == "page":
@@ -350,16 +359,11 @@ def _clean_params_for_pager(request: HttpRequest) -> dict:
 @require_http_methods(["GET"])
 def cash_history(request: HttpRequest) -> HttpResponse:
     """
-    現金台帳：通常のページネーションのみ（HTMX/カーソルなし、二重表示なし）
-    - 現物（特定/NISA）の台帳のみ
-    - 発生日で Ledger.at を統一（配当=受取日 / 実損=売買日）→ 正規化関数は失敗しても無視
+    現金台帳（現物のみ）:
+      - 日付は常に display_at（配当=受取日 / 実損=売買日 / その他=登録日）
+      - 二重表示は除外
     """
-    # 発生日に正規化（関数が未実装/失敗でも表示は続行）
-    try:
-        svc.normalize_ledger_dates(max_rows=2000)
-    except Exception:
-        pass
-
+    # 正規化呼び出しは不要（クエリで常に display_at を使用）
     qs, summary = _filtered_ledger(request)
 
     try:
