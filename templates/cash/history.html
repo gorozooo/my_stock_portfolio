@@ -1,133 +1,116 @@
 {% extends "base.html" %}
-{% load humanize %}
+{% load static humanize %}
 {% block title %}現金台帳{% endblock %}
 
-{% block head %}
-<style>
-  #topSticky{
-    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 12;
-    border:1px solid rgba(255,255,255,.12); border-radius:12px;
-    background:rgba(15,20,30,.96); backdrop-filter: blur(8px);
-    padding:8px; margin:0 0 8px; box-shadow:0 2px 0 rgba(255,255,255,.06) inset;
-  }
-  .quickbar{display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:6px; align-items:center;}
-  .qb-ctl,.qb-btn{height:30px; padding:0 8px; font-size:12px; color:#dbe3f4;
-                  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.14);
-                  border-radius:8px; min-width:0;}
-  input[type="date"].qb-ctl{ color-scheme: dark; }
-  .qb-btn{ background:rgba(255,255,255,.06); }
-  .qb-btn.ghost{ background:transparent; }
-  #qb-broker{grid-column:1/2;} #qb-kind{grid-column:2/3;} #qb-q{grid-column:3/5;}
-  #qb-start{grid-column:1/3;}  #qb-end{grid-column:3/5;}
-  .btn-row{grid-column:1/-1; display:flex; justify-content:center; gap:8px; margin-top:6px;}
-  .sum-wrap{display:grid; gap:6px; grid-template-columns:repeat(2,1fr); margin-top:6px}
-  .pill{border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.05);
-        border-radius:8px; padding:6px 8px; text-align:center; font-size:12px; color:#cbd5e1}
-  .sum-total{grid-column:1/-1; background:rgba(255,255,255,.07); font-weight:600}
-  .card{border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.04);
-        border-radius:14px; padding:10px 12px; margin-bottom:10px}
-  .amount{font-size:20px; font-weight:800}
-  .meta{margin-top:2px; font-size:11px; color:#94a3b8}
-  .memo{margin-top:2px; font-size:11px; color:#cbd5e1; word-break:break-word}
-  .chip{display:inline-flex; align-items:center; gap:.4em; padding:.25rem .5rem; border-radius:9999px; border:1px solid;
-        font-size:11px; line-height:1; white-space:nowrap}
-  .chip-sky{border-color:rgba(125,160,255,.35); color:#c7d2fe; background:rgba(125,160,255,.08)}
-  .chip-emerald{border-color:rgba(16,185,129,.35); color:#bbf7d0; background:rgba(16,185,129,.08)}
-  .actions{margin-top:6px; display:flex; justify-content:flex-end; gap:6px}
-  .actions a,.actions button{padding:5px 8px; font-size:11px; border-radius:8px; border:1px solid rgba(255,255,255,.2)}
-</style>
-{% endblock %}
-
 {% block content %}
-<h1 class="text-base font-semibold mb-2">💵 現金台帳</h1>
+<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=14">
 
-<div id="topSticky">
-  <form method="get" class="quickbar">
-    <select id="qb-broker" name="broker" class="qb-ctl">
-      {% with b=params.broker|default:"ALL" %}
-        <option value="ALL"  {% if b == "ALL" %}selected{% endif %}>証券会社: すべて</option>
-        <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天証券</option>
-        <option value="松井" {% if b == "松井" %}selected{% endif %}>松井証券</option>
-        <option value="SBI"  {% if b == "SBI" %}selected{% endif %}>SBI証券</option>
-      {% endwith %}
-    </select>
+<style>
+  .ledger-wrap{max-width:980px;margin:12px auto 0;padding:8px 12px 120px}
+  .toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+  .toolbar .row{display:flex;gap:8px}
+  .pill{padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);font-size:13px}
+  .sum-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin:8px 0 12px}
+  .sum{padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);font-size:12px}
+  .list{display:flex;flex-direction:column;gap:8px}
+  .card{padding:10px 12px;border-radius:14px;background:#0f1422;border:1px solid rgba(255,255,255,.08)}
+  .card .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .amt{font-weight:800;font-size:16px}
+  .meta{font-size:12px;opacity:.85}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+  .chip{font-size:11px;padding:4px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06)}
+  .chip-sky{border-color:#38bdf8aa;background:#38bdf822}
+  .chip-emerald{border-color:#10b981aa;background:#10b98122}
+  .pager{display:flex;justify-content:space-between;gap:10px;margin:14px 0}
+  .pager a,.pager span{padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);font-size:13px}
+</style>
 
-    <select id="qb-kind" name="kind" class="qb-ctl">
-      {% with k=params.kind|default:"ALL" %}
-        <option value="ALL"      {% if k == "ALL" %}selected{% endif %}>種別: すべて</option>
-        <option value="DEPOSIT"  {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
-        <option value="WITHDRAW" {% if k == "WITHDRAW" %}selected{% endif %}>出金</option>
-        <option value="XFER"     {% if k == "XFER" %}selected{% endif %}>振替</option>
-        <option value="SYSTEM"   {% if k == "SYSTEM" %}selected{% endif %}>システム</option>
-      {% endwith %}
-    </select>
+<div class="ledger-wrap">
+  <h1 style="margin:6px 2px 10px">📒 現金台帳</h1>
 
-    <input id="qb-q" type="text" name="q" value="{{ params.q|default_if_none:'' }}"
-           placeholder="例: 配当 / 実現益 / REAL:21 など" class="qb-ctl">
+  <!-- フィルタ（簡易） -->
+  <form method="get" class="toolbar">
+    <div class="row">
+      <select name="broker" class="pill">
+        {% with b=params.broker|default:"ALL" %}
+          <option value="ALL" {% if b == "ALL" %}selected{% endif %}>証券会社: すべて</option>
+          <option value="楽天" {% if b == "楽天" %}selected{% endif %}>楽天</option>
+          <option value="松井" {% if b == "松井" %}selected{% endif %}>松井</option>
+          <option value="SBI" {% if b == "SBI" %}selected{% endif %}>SBI</option>
+        {% endwith %}
+      </select>
 
-    <input id="qb-start" type="date" name="start" value="{{ params.start|default_if_none:'' }}" class="qb-ctl">
-    <input id="qb-end" type="date" name="end" value="{{ params.end|default_if_none:'' }}" class="qb-ctl">
+      <select name="kind" class="pill">
+        {% with k=params.kind|default:"ALL" %}
+          <option value="ALL" {% if k == "ALL" %}selected{% endif %}>種別: すべて</option>
+          <option value="DEPOSIT" {% if k == "DEPOSIT" %}selected{% endif %}>入金</option>
+          <option value="WITHDRAW" {% if k == "WITHDRAW" %}selected{% endif %}>出金</option>
+          <option value="XFER" {% if k == "XFER" %}selected{% endif %}>振替</option>
+          <option value="SYSTEM" {% if k == "SYSTEM" %}selected{% endif %}>自動計上</option>
+        {% endwith %}
+      </select>
+    </div>
 
-    <div class="btn-row">
-      <button class="qb-btn" type="submit">適用</button>
-      <button class="qb-btn" type="button" onclick="location.href='{% url 'cash_history' %}'">クリア</button>
+    <div class="row">
+      <input class="pill" type="date" name="start" value="{{ params.start|default_if_none:'' }}">
+      <input class="pill" type="date" name="end"   value="{{ params.end|default_if_none:'' }}">
+      <input class="pill" type="text" name="q" placeholder="メモ検索" value="{{ params.q|default_if_none:'' }}">
+      <button class="pill" type="submit">表示</button>
+      <a class="pill" href="{% url 'cash_history' %}">クリア</a>
     </div>
   </form>
 
-  {% if summary %}
-    <div class="sum-wrap">
-      <div class="pill sum-total">💰 合計 {{ summary.total|intcomma }} 円</div>
-      <div class="pill">入金 {{ summary.deposit|intcomma }} 円</div>
-      <div class="pill">出金 {{ summary.withdraw|intcomma }} 円</div>
-      <div class="pill">振替(入) {{ summary.xfer_in|intcomma }} 円</div>
-      <div class="pill">振替(出) {{ summary.xfer_out|intcomma }} 円</div>
-    </div>
-  {% endif %}
-</div>
+  <!-- サマリ -->
+  <div class="sum-grid">
+    <div class="sum">合計：{{ summary.total|intcomma }} 円</div>
+    <div class="sum">入金：{{ summary.deposit|intcomma }} 円</div>
+    <div class="sum">出金：{{ summary.withdraw|intcomma }} 円</div>
+    <div class="sum">振替：{{ summary.xfer_in|default:0|intcomma }} / {{ summary.xfer_out|default:0|intcomma }} 円</div>
+  </div>
 
-{% for r in page.object_list %}
-  <div class="card" data-ledger-id="{{ r.id }}">
-    <div class="flex items-start justify-between gap-3">
-      <div class="min-w-0">
-        <div class="amount">{{ r.amount|intcomma }} 円</div>
-        <div class="meta">
-          {{ r.at|default:"" }} ｜ {{ r.account.broker|default:"" }} ｜ 種別：
-          {% if r.kind == r.Kind.DEPOSIT %}入金{% elif r.kind == r.Kind.WITHDRAW %}出金
-          {% elif r.kind == r.Kind.XFER_IN %}振替(入){% elif r.kind == r.Kind.XFER_OUT %}振替(出)
-          {% else %}その他{% endif %}
+  <!-- 一覧（※ここだけで1回だけループ） -->
+  <div class="list">
+    {% for r in page.object_list %}
+      <div class="card">
+        <div class="head">
+          <div class="amt">{{ r.amount|intcomma }} 円</div>
+          <div class="meta">
+            {{ r.at|date:"Y年n月j日" }} |
+            口座：{{ r.account.broker }} / {{ r.account.account_type }} |
+            種別：{{ r.get_kind_display }}
+          </div>
         </div>
-        {% with m=r.memo|default_if_none:"" %}
-          {% if m and m|slice:":4" != "実現損益" and m|slice:":2" != "配当" %}
-            <div class="memo">{{ m }}</div>
-          {% endif %}
-        {% endwith %}
-      </div>
-
-      <div class="text-right shrink-0">
-        {% if r.src_badge %}
-          {% if r.src_badge.kind == "配当" %}
-            <span class="{{ r.src_badge.class }}">【配当】 {{ r.src_badge.label }}</span>
-          {% elif r.src_badge.kind == "実損" %}
-            <span class="{{ r.src_badge.class }}">【実損】 {{ r.src_badge.label }}</span>
-          {% endif %}
+        {% if r.memo %}
+          <div class="meta">メモ：{{ r.memo }}</div>
         {% endif %}
-        {# 編集/削除が必要ならここにリンクを置く（現状は省略） #}
+        {% if r.src_badge %}
+          <div class="chips">
+            <span class="chip {{ r.src_badge.class }}">
+              {{ r.src_badge.kind }}：{{ r.src_badge.label }}
+            </span>
+          </div>
+        {% endif %}
       </div>
-    </div>
+    {% empty %}
+      <div class="card">該当する台帳はありません。</div>
+    {% endfor %}
   </div>
-{% empty %}
-  <div class="text-slate-400">該当データがありません。</div>
-{% endfor %}
 
-{% if page.paginator.num_pages > 1 %}
-  <div class="flex items-center justify-center gap-8 my-3 text-[12px]">
+  <!-- ページャ -->
+  <div class="pager">
     {% if page.has_previous %}
-      <a class="qb-btn" href="?{{ params.urlencode }}&page={{ page.previous_page_number }}">← 前へ</a>
+      <a href="?page={{ page.previous_page_number }}{% if params %}&{{ params|urlencode }}{% endif %}">前へ</a>
+    {% else %}
+      <span>前へ</span>
     {% endif %}
+
     <span>ページ {{ page.number }} / {{ page.paginator.num_pages }}</span>
+
     {% if page.has_next %}
-      <a class="qb-btn" href="?{{ params.urlencode }}&page={{ page.next_page_number }}">次へ →</a>
+      <a href="?page={{ page.next_page_number }}{% if params %}&{{ params|urlencode }}{% endif %}">次へ</a>
+    {% else %}
+      <span>次へ</span>
     {% endif %}
   </div>
-{% endif %}
+</div>
 {% endblock %}
