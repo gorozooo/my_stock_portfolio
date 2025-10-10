@@ -151,7 +151,7 @@ document.addEventListener("DOMContentLoaded", () => {
       { label:"期間サマリー",     href:"/realized/summary/",   icon:"📊", tone:"info" },
       { label:"月別サマリー",     href:"/realized/monthly/",   icon:"🗓️", tone:"info" },
       { label:"ランキング",       href:"/realized/ranking/",    icon:"🏅", tone:"info" },
-      { label:"明細",             href: URLS.realized_base,     icon:"📑", tone:"info" },
+      { label:"明細",             href:"/realized/details/",     icon:"📑", tone:"info" },
     ],
     cash: [
       { section:"現金" },
