@@ -1,45 +1,64 @@
 :root{
-  --bg:#0b0f1a; --fg:#e6ebff; --muted:#97a0c1;
+  --bg:#0b0f1a; --fg:#e8eeff; --muted:#94a3b8;
   --glass:rgba(255,255,255,.06); --line:rgba(255,255,255,.14);
+  --pri:#6ea8ff; --acc:#00ffd1; --good:#26d07c; --bad:#ff5b6e;
+  --radius:14px;
 }
-*{box-sizing:border-box}
-html,body{height:100%}
-body{
-  margin:0; color:var(--fg); background:#0b0f1a;
-  background-image:
-    radial-gradient(1200px 600px at 80% -10%, rgba(110,168,255,.20), transparent 60%),
-    radial-gradient(900px 500px at 0% 100%, rgba(0,255,209,.12), transparent 60%);
-  font-family: -apple-system, system-ui,
-    "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Meiryo", sans-serif;
+body{ background: radial-gradient(1200px 600px at 20% -10%, #132035 0%, #0b0f1a 55%) fixed; color:var(--fg); }
+.glass{
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+  border:1px solid var(--line);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 8px 40px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);
 }
-.nav{position:sticky;top:0;z-index:50}
-.nav-glass{
-  display:flex;justify-content:space-between;align-items:center;gap:8px;
-  padding:10px 14px; backdrop-filter: blur(12px);
-  background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.02));
-  border-bottom:1px solid var(--line); box-shadow:0 10px 40px rgba(0,255,209,.15);
-}
-.page{padding:12px 12px 84px}
-.bottom{
-  position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-around;
-  padding:10px 8px; backdrop-filter:blur(16px);
-  background:rgba(255,255,255,.08); border-top:1px solid var(--line);
-  box-shadow:0 -10px 40px rgba(110,168,255,.18);
-}
-.bottom button{
-  appearance:none;border:none;background:transparent;color:var(--fg);
-  font-size:20px;padding:8px 10px;border-radius:12px;transition:transform .12s ease;
-}
-.bottom button.active,.bottom button:active{transform:translateY(-2px)}
+section{ margin:14px 12px; }
 
-.grid{display:grid;gap:10px}
-.card{
-  background:var(--glass); border:1px solid var(--line);
-  border-radius:16px; padding:12px;
-  box-shadow:0 6px 24px rgba(0,0,0,.25), inset 0 0 48px rgba(110,168,255,.05);
+.ai-header{ padding:14px; }
+.ai-title{ font-weight:700; letter-spacing:.2px; margin-bottom:6px; }
+.ai-note{ margin:6px 0 8px; color:var(--fg); }
+.ai-actions{ margin:0; padding-left:18px; color:var(--muted); }
+.btn.ghost{
+  border:1px solid var(--pri); color:var(--pri); background:transparent;
+  padding:8px 12px; border-radius:10px; margin-right:8px;
 }
-.row{display:flex;justify-content:space-between;align-items:center}
-.name{font-weight:600}
-.muted{color:var(--muted);font-size:13px;margin-top:4px}
-.trend.up{color:#26d07c}.trend.down{color:#ff4d67}
-.ai{margin-top:6px}
+
+.kpi-grid{
+  display:grid; grid-template-columns:1fr 1fr; gap:10px; padding: 0 12px;
+}
+.kpi-card{
+  border-radius:12px; padding:12px; background:var(--glass); border:1px solid var(--line);
+}
+.kpi-label{ color:var(--muted); font-size:.85rem; }
+.kpi-value{ font-size:1.3rem; font-weight:700; margin-top:4px; }
+.kpi-value.pos{ color:var(--good); }
+.kpi-value.neg{ color:var(--bad); }
+
+.sector-strip{ padding:12px; }
+.strip-title{ margin-bottom:8px; color:var(--muted); font-size:.95rem; }
+.strip-scroll{ display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; }
+.sector-chip{
+  min-width: 160px; padding:10px; border-radius:12px; background:var(--glass); border:1px solid var(--line);
+}
+.sec-name{ font-weight:600; margin-bottom:4px; }
+.sec-meta{ display:flex; gap:8px; align-items:center; }
+.sec-meta .mv{ color:var(--muted); font-size:.85rem; }
+.sec-meta .rate{ font-weight:700; }
+.sec-meta .rate.pos{ color:var(--good); }
+.sec-meta .rate.neg{ color:var(--bad); }
+
+.stress{ padding:12px; }
+.stress-head{ display:flex; justify-content:space-between; margin-bottom:8px; }
+#stressSlider{ width:100%; }
+
+.cash{ padding:12px; }
+.cash-head{ margin-bottom:8px; color:var(--muted); }
+
+.todo{ padding:12px; margin-bottom:80px; }
+.todo-head{ margin-bottom:8px; color:var(--muted); }
+.todo-list{ margin:0; padding-left:18px; }
+
+@media (min-width: 960px){
+  .kpi-grid{ grid-template-columns: repeat(4, 1fr); }
+  section{ margin:16px auto; max-width: 1100px; }
+}
