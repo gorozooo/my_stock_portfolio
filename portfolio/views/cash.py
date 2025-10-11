@@ -58,7 +58,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         op = (request.POST.get("op") or "").strip()
         memo = (request.POST.get("memo") or "").strip()
 
-        if op in ("deposit", "withdraw"):
+        if op in ("deposit", "withdraw", "restrict"):
             broker = (request.POST.get("broker") or "").strip()
             if not broker:
                 messages.error(request, "証券会社を選択してください。")
@@ -69,22 +69,36 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"{broker} の口座が見つかりません。")
                 return redirect("cash_dashboard")
 
+            # 金額取得（restrict は 0 も許容）
             try:
                 amount_str = (request.POST.get("amount") or "").replace(",", "").strip()
                 amount = int(amount_str)
-                if amount <= 0:
+                if op in ("deposit", "withdraw") and amount <= 0:
                     raise ValueError("金額は正の整数で入力してください。")
+                if op == "restrict" and amount < 0:
+                    raise ValueError("拘束金は0以上で入力してください。")
+            except ValueError as e:
+                messages.error(request, f"金額エラー：{e}")
+                return redirect("cash_dashboard")
 
+            try:
                 if op == "deposit":
                     svc.deposit(acc, amount, memo or "入金")
                     messages.success(request, f"{broker} に {amount:,} 円を入金しました。")
-                else:
+                elif op == "withdraw":
                     svc.withdraw(acc, amount, memo or "出金")
                     messages.success(request, f"{broker} から {amount:,} 円を出金しました。")
-            except ValueError as e:
-                messages.error(request, f"金額エラー：{e}")
+                else:
+                    # === 拘束金：当日の値を常に“上書き” ===
+                    today = date.today()
+                    ms, _ = MarginState.objects.get_or_create(account=acc, as_of=today)
+                    # required_margin は触らず、restricted_amount のみ上書き
+                    ms.restricted_amount = amount
+                    ms.save(update_fields=["restricted_amount"])
+                    messages.success(request, f"{broker} の拘束金を {amount:,} 円に設定しました。")
             except Exception as e:
                 messages.error(request, f"処理に失敗：{e}")
+
             return redirect("cash_dashboard")
 
         if op == "transfer":
@@ -112,26 +126,27 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 "同期完了\n"
                 f"・配当：新規 {d_c} / 更新 {d_u}\n"
                 f"・実損：新規 {r_c} / 更新 {r_u}\n"
-                f"・保有：新規 {h_c} / 更新 {h_u}",
+                f"・保有：新規 {h_c} / 更新 {h_u}"
             )
     except Exception as e:
         messages.error(request, f"同期に失敗：{e}")
 
     today = date.today()
+    # ここで“拘束金・取得原価残を含んだ”集計を取得
     base_list = svc.broker_summaries(today)
 
     LOW_RATIO = 0.30
     enhanced = []
     lows_for_toast: list[tuple[str, int, int, float]] = []
-    neg_for_toast: list[tuple[str, int]] = []
+    neg_for_toast:  list[tuple[str, int]] = []
 
     for row in base_list:
         broker = row.get("broker", "")
-        cash = int(row.get("cash", 0))
-        avail = int(row.get("available", 0))
-        restr = int(row.get("restricted", 0))
+        cash   = int(row.get("cash", 0))
+        avail  = int(row.get("available", 0))
+        restr  = int(row.get("restricted", 0))
         month_net = int(row.get("month_net", 0))
-        invested = int(row.get("invested_cost", 0))  # ★ 追加！
+        invested = int(row.get("invested_cost", 0))
 
         pct = (avail / cash * 100.0) if cash > 0 else None
         severity = _severity_for(row, LOW_RATIO)
@@ -141,18 +156,16 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         elif cash > 0 and (avail / cash) < LOW_RATIO:
             lows_for_toast.append((broker, avail, cash, (avail / cash) * 100.0))
 
-        enhanced.append(
-            {
-                "broker": broker,
-                "cash": cash,
-                "available": avail,
-                "restricted": restr,
-                "month_net": month_net,
-                "invested_cost": invested,  # ★ 追加！
-                "pct_available": pct,
-                "severity": severity,
-            }
-        )
+        enhanced.append({
+            "broker": broker,
+            "cash": cash,
+            "available": avail,
+            "restricted": restr,
+            "invested_cost": invested,
+            "month_net": month_net,
+            "pct_available": pct,
+            "severity": severity,
+        })
 
     if neg_for_toast:
         messages.error(request, _make_negative_toast(neg_for_toast))
@@ -166,6 +179,8 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         "cash/dashboard.html",
         {"brokers": enhanced, "kpi_total": kpi_total},
     )
+
+
     
 # ================== 現金履歴台帳 ==================
 PAGE_SIZE = 30
