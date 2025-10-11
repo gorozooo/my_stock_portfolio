@@ -1,10 +1,101 @@
-<!-- templates/main.html -->
 {% extends "base.html" %}
-{% block title %}ホーム{% endblock %}
+{% load static humanize %}
+
+{% block title %}ホーム | My株ポートフォリオ{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=1">
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script defer src="{% static 'js/home.js' %}?v=1"></script>
+{% endblock %}
+
 {% block content %}
-  <div class="rounded-2xl p-4 bg-white/5 ring-1 ring-white/10 shadow">
-    <div class="text-sm text-slate-400">ようこそ</div>
-    <h2 class="text-xl font-semibold mt-1">スピード重視の株アプリ</h2>
-    <p class="text-slate-300 mt-2">下のタブから保有一覧やトレンド判定へ。ホーム追加でPWA化してサクサク。</p>
+
+<!-- 🧠 AIヘッダー -->
+<section class="ai-header glass">
+  <div class="ai-title">AIアドバイザー</div>
+  <p class="ai-note">{{ ai_note }}</p>
+  <ul class="ai-actions">
+    {% for a in ai_actions %}
+      <li>• {{ a }}</li>
+    {% endfor %}
+  </ul>
+  <div class="ai-tools">
+    <button class="btn ghost" id="btn-ai-weekly">週次レポート</button>
+    <button class="btn ghost" id="btn-ai-rebalance">次の一手</button>
   </div>
+</section>
+
+<!-- 📊 KPI -->
+<section class="kpi-grid">
+  <div class="kpi-card">
+    <div class="kpi-label">総資産</div>
+    <div class="kpi-value">¥{{ kpis.total_assets|intcomma }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">含み損益</div>
+    <div class="kpi-value {{ kpis.unrealized_pnl|floatformat:0|add:'0'|floatformat:0|yesno:'pos,neg' }}">¥{{ kpis.unrealized_pnl|intcomma }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">当月実現</div>
+    <div class="kpi-value {{ kpis.realized_month|yesno:'pos,neg' }}">¥{{ kpis.realized_month|intcomma }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">勝率</div>
+    <div class="kpi-value">{{ kpis.win_ratio }}%</div>
+  </div>
+</section>
+
+<!-- 📈 セクター横スク -->
+<section class="sector-strip glass">
+  <div class="strip-title">セクター別パフォーマンス</div>
+  <div class="strip-scroll">
+    {% for s in sectors %}
+      <div class="sector-chip">
+        <div class="sec-name">{{ s.sector }}</div>
+        <div class="sec-meta">
+          <span class="mv">¥{{ s.mv|intcomma }}</span>
+          <span class="rate {{ s.rate|floatformat:2|yesno:'pos,neg' }}">{{ s.rate }}%</span>
+        </div>
+      </div>
+    {% empty %}
+      <div class="empty">データがありません</div>
+    {% endfor %}
+  </div>
+</section>
+
+<!-- 🧪 ストレステスト -->
+<section class="stress glass">
+  <div class="stress-head">
+    <div>ストレステスト（日経変動を仮定）</div>
+    <div class="stress-result"><span id="stressPct">-5</span>% → 推定資産 <strong id="stressMV">¥{{ stressed_default|intcomma }}</strong></div>
+  </div>
+  <input type="range" min="-10" max="10" value="-5" step="1" id="stressSlider" />
+</section>
+
+<!-- 💰 キャッシュフロー -->
+<section class="cash glass">
+  <div class="cash-head">今月のキャッシュフロー</div>
+  <canvas id="cashflowChart" height="140"></canvas>
+</section>
+
+<!-- ✅ 次のアクション -->
+<section class="todo glass">
+  <div class="todo-head">次のアクション</div>
+  <ul class="todo-list" id="todoList">
+    {% for a in ai_actions %}
+      <li>✅ {{ a }}</li>
+    {% endfor %}
+  </ul>
+</section>
+
+<!-- データ供給（JS用） -->
+<script id="home-data" type="application/json">
+{
+  "total_mv": {{ kpis.total_assets|default:0 }},
+  "sectors": {{ sectors|safe }},
+  "cash_bars": {{ cash_bars|safe }}
+}
+</script>
+
 {% endblock %}
