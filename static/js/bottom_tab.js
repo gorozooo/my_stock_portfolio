@@ -156,10 +156,10 @@ document.addEventListener("DOMContentLoaded", () => {
     ],
     realized: [
       { section:"実現損益" },
-      { label:"期間サマリー",     href:"/realized/summary/",   icon:"📊", tone:"info" },
-      { label:"月別サマリー",     href:"/realized/monthly/",   icon:"🗓️", tone:"info" },
-      { label:"ランキング",       href:"/realized/ranking/",    icon:"🏅", tone:"info" },
-      { label:"明細",             href:"/realized/partial/table/",     icon:"📑", tone:"info" },
+      { label:"期間サマリー", action:"show_summary", icon:"📊", tone:"info" },
+    { label:"月別サマリー", action:"show_summary", icon:"🗓️", tone:"info" },
+    { label:"ランキング",   action:"show_ranking", icon:"🏅", tone:"info" }, // ← ここをhref→actionに
+    { label:"明細",         action:"show_details", icon:"📑", tone:"info" },
     ],
     // ★ 現金：サブメニューを「台帳」系に置き換え（入金/出金/振替などは撤去）
     cash: [
