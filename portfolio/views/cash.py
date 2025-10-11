@@ -2,6 +2,7 @@
 from __future__ import annotations
 from datetime import date, datetime
 from typing import Tuple
+import re
 
 from django.contrib import messages
 from django.core.paginator import Paginator
@@ -25,7 +26,6 @@ def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
         .first()
     )
 
-
 def _severity_for(b: dict, low_ratio: float = 0.30) -> str:
     avail = int(b.get("available", 0))
     cash  = int(b.get("cash", 0))
@@ -35,10 +35,8 @@ def _severity_for(b: dict, low_ratio: float = 0.30) -> str:
         return "warn"
     return "ok"
 
-
 def _format_int(n: int) -> str:
     return f"{n:,}"
-
 
 def _make_negative_toast(negatives: list[tuple[str, int]]) -> str:
     lines = ["⚠️ 余力がマイナスの証券口座があります！"]
@@ -46,7 +44,6 @@ def _make_negative_toast(negatives: list[tuple[str, int]]) -> str:
         lines.append(f"・{br}：{_format_int(val)} 円")
     lines.append("入出金や拘束、保有残高を確認してください。")
     return "\n".join(lines)
-
 
 def _make_low_toast(lows: list[tuple[str, int, int, float]]) -> str:
     lines = ["⚠️ 余力が少なくなっています！"]
@@ -63,7 +60,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         op = (request.POST.get("op") or "").strip()
         memo = (request.POST.get("memo") or "").strip()
 
-        # 入金 / 出金
         if op in ("deposit", "withdraw"):
             broker = (request.POST.get("broker") or "").strip()
             if not broker:
@@ -93,7 +89,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
 
-        # transfer は UI から消しているが、不正 POST へのガード
         if op == "transfer":
             messages.error(request, "振替は現在サポートしていません。")
             return redirect("cash_dashboard")
@@ -124,7 +119,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     except Exception as e:
         messages.error(request, f"同期に失敗：{e}")
 
-    # === 集計 ===
     today = date.today()
     base_list = svc.broker_summaries(today)
 
@@ -143,7 +137,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         pct = (avail / cash * 100.0) if cash > 0 else None
         severity = _severity_for(row, LOW_RATIO)
 
-        # トースト用の収集
         if avail < 0:
             neg_for_toast.append((broker, avail))
         elif cash > 0 and (avail / cash) < LOW_RATIO:
@@ -155,30 +148,25 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
             "available": avail,
             "restricted": restr,
             "month_net": month_net,
-            "pct_available": pct,   # float | None
-            "severity": severity,   # 'danger' | 'warn' | 'ok'
+            "pct_available": pct,
+            "severity": severity,
         })
 
-    # 警告トースト（両方表示）
     if neg_for_toast:
         messages.error(request, _make_negative_toast(neg_for_toast))
     if lows_for_toast:
         messages.warning(request, _make_low_toast(lows_for_toast))
 
-    # KPI 合計は既存の total_summary をそのまま使用
     kpi_total, _ = svc.total_summary(today)
 
     return render(
         request,
         "cash/dashboard.html",
-        {
-            "brokers": enhanced,      # テンプレはこの“完成形”だけを使う
-            "kpi_total": kpi_total,
-        },
+        {"brokers": enhanced, "kpi_total": kpi_total},
     )
 
 
-# ================== 現金履歴台帳（一覧＋フィルタ） ==================
+# ================== 現金履歴台帳 ==================
 PAGE_SIZE = 30
 
 def _parse_date(s: str | None):
@@ -190,7 +178,6 @@ def _parse_date(s: str | None):
         except Exception:
             pass
     return None
-
 
 def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
     broker = (request.GET.get("broker") or "ALL").strip()
@@ -221,7 +208,7 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
     if q:
         qs = qs.filter(Q(memo__icontains=q))
 
-    # 旧式（source_type 無し＋メモが配当/実現損益）を一覧から除外して二重表示を防止
+    # 旧式の二重表示を抑止
     qs = qs.exclude(
         Q(source_type__isnull=True) &
         (Q(memo__startswith="配当") | Q(memo__startswith="実現損益"))
@@ -244,15 +231,14 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
     return qs, summary
 
 
-# ---- source 判定（DIV/REAL/HOLD の3系統＋保険） -------------------
+# ---- 判定 & ラベル生成（配当/実損/保有） --------------------------
 def _source_is_dividend(v) -> bool:
     if v is None:
         return False
     try:
         return int(v) == int(CashLedger.SourceType.DIVIDEND)
     except Exception:
-        return str(v).upper() in {"DIVIDEND", "DIV", "2"}  # 2 は保険
-
+        return str(v).upper() in {"DIVIDEND", "DIV", "2"}
 
 def _source_is_realized(v) -> bool:
     if v is None:
@@ -260,24 +246,32 @@ def _source_is_realized(v) -> bool:
     try:
         return int(v) == int(CashLedger.SourceType.REALIZED)
     except Exception:
-        return str(v).upper() in {"REALIZED", "REAL", "1"}  # 1 は保険
-
+        return str(v).upper() in {"REALIZED", "REAL", "1"}
 
 def _source_is_holding(v, memo: str | None) -> bool:
+    # source_type=HOLDING が無くてもメモで判定（例：'保有取得', '現物取得', '保有' など）
+    key = (memo or "").strip()
     if v is None:
-        return bool(memo and memo.startswith("保有"))
+        return key.startswith("保有") or key.startswith("現物")
     s = str(v).upper()
     if s in {"HOLD", "HOLDING", "HLD"}:
         return True
     try:
         return int(v) == 3
     except Exception:
-        return bool(memo and memo.startswith("保有"))
-
+        return key.startswith("保有") or key.startswith("現物")
 
 def _safe_str(val) -> str:
     return (val or "").strip()
 
+def _extract_ticker_from_text(text: str) -> str | None:
+    """
+    メモからティッカーっぽい最初の英数列（例: '7091', 'AAPL'）を拾う。
+    """
+    if not text:
+        return None
+    m = re.search(r"([0-9A-Za-z]{3,})", text)
+    return m.group(1) if m else None
 
 def _attach_source_labels(page):
     items = list(page.object_list or [])
@@ -336,21 +330,26 @@ def _attach_source_labels(page):
         except Exception:
             sid_int = None
 
+        # 配当
         if sid_int is not None and _source_is_dividend(st):
             label = build_label_from_div(div_map[sid_int]) if sid_int in div_map else f"DIV:{sid_int}"
             r.src_badge = {"kind": "配当", "class": "chip chip-sky", "label": label}
             continue
 
+        # 実損
         if sid_int is not None and _source_is_realized(st):
             label = build_label_from_real(real_map[sid_int]) if sid_int in real_map else f"REAL:{sid_int}"
             r.src_badge = {"kind": "実損", "class": "chip chip-emerald", "label": label}
             continue
 
+        # 保有（初回買付）
         if _source_is_holding(st, mm):
             if sid_int is not None and sid_int in hold_map:
                 label = build_label_from_hold(hold_map[sid_int])
             else:
-                label = "保有"
+                # sid が無い場合もメモから TICKER を推定して揃えた表示にする
+                tkr = _extract_ticker_from_text(mm)
+                label = (tkr or "保有")
             r.src_badge = {"kind": "保有", "class": "chip chip-sky", "label": label}
             continue
 
@@ -367,14 +366,12 @@ def _clean_params_for_pager(request: HttpRequest) -> dict:
         params[k] = v
     return params
 
-
 @require_http_methods(["GET"])
 def cash_history(request: HttpRequest) -> HttpResponse:
     """
     現金台帳：毎回同期 → 絞り込み → ページネーション
-    （配当・実損・保有 初回買付 の upsert & トースト表示）
     """
-    # ここで毎回 upsert（新規＋更新）
+    # upsert（新規＋更新）
     try:
         info = up.sync_all()
         d_c = int(info.get("dividends_created", 0))
@@ -407,9 +404,5 @@ def cash_history(request: HttpRequest) -> HttpResponse:
     return render(
         request,
         "cash/history.html",
-        {
-            "page": p,
-            "summary": summary,
-            "params": _clean_params_for_pager(request),
-        },
+        {"page": p, "summary": summary, "params": _clean_params_for_pager(request)},
     )
