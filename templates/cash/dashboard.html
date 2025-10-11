@@ -3,27 +3,19 @@
 {% block title %}現金ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=15">
+<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=14">
 <style>
 /* ===== Layout ===== */
 .cash-wrap{max-width:980px;margin:12px auto 0;padding:12px 12px 140px}
 
 /* ===== Broker Card ===== */
 .grid-broker{display:grid;grid-template-columns:1fr;gap:16px}
-.card{padding:8px 10px;border-radius:14px;background:rgba(255,255,255,.04);
-      border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(8px)}
+.card{padding:8px 10px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(8px)}
 .card h3{font-size:15px;margin:0 0 8px}
 
 /* ===== KPI ===== */
-/* デフォ：2列→ スマホで2×2になる。横幅があれば4列に */
-.kpi-row{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
-@media (min-width:640px){ .kpi-row{grid-template-columns:repeat(4,1fr)} }
-
-.kpi{
-  padding:8px 10px;border-radius:10px;
-  background:rgba(255,255,255,.05);
-  border:1px solid rgba(255,255,255,.08)
-}
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.kpi{padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
 .kpi .head{display:flex;align-items:center;gap:6px;margin-bottom:2px;min-height:18px}
 .kpi .label{font-size:11px;color:#9aa4b2;letter-spacing:.03em;white-space:nowrap}
 .kpi .pct{font-size:11px;opacity:.8;white-space:nowrap}
@@ -36,10 +28,10 @@
 .kpi.available.warn{border-color:rgba(234,179,8,.55);box-shadow:0 0 0 1px rgba(234,179,8,.26) inset}
 .kpi.available.danger{border-color:rgba(239,68,68,.70);box-shadow:0 0 0 1px rgba(239,68,68,.34) inset}
 .kpi.cash{border-color:rgba(125,160,255,.24);box-shadow:0 0 0 1px rgba(125,160,255,.10) inset}
-.kpi.cost{border-color:rgba(217,70,239,.30);box-shadow:0 0 0 1px rgba(217,70,239,.15) inset}
+.kpi.invested{border-color:rgba(168,85,247,.32);box-shadow:0 0 0 1px rgba(168,85,247,.14) inset}
 .kpi.restricted{border-color:rgba(255,90,90,.26);box-shadow:0 0 0 1px rgba(255,255,255,.12) inset}
 
-/* 金額の色（余力） */
+/* 金額の色（数値自体に色を付与：デフォ緑 / 30%以下は黄 / マイナスは赤） */
 .kpi.available .num{color:#26d07c}
 .kpi.available.warn .num{color:#eab308}
 .kpi.available.danger .num{color:#ff4d67}
@@ -48,33 +40,21 @@
 
 /* ===== Bottom Action Dock ===== */
 .cash-dock{position:fixed;left:0;right:0;bottom:0;z-index:100;pointer-events:none}
-.cash-dock .inner{pointer-events:auto;max-width:980px;margin:0 auto;
-  padding:8px 12px calc(8px + env(safe-area-inset-bottom));
-  background:rgba(13,16,24,.84);backdrop-filter:blur(12px);
-  border-top:1px solid rgba(255,255,255,.08);border-radius:16px 16px 0 0}
-.cash-dock .bar{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
-.cash-dock .bar button{padding:10px;font-size:14px;border-radius:10px;
-  border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);
-  color:#e6ebff;font-weight:600}
+.cash-dock .inner{pointer-events:auto;max-width:980px;margin:0 auto;padding:8px 12px calc(8px + env(safe-area-inset-bottom));background:rgba(13,16,24,.84);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid rgba(255,255,255,.08);border-radius:16px 16px 0 0}
+.cash-dock .bar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.cash-dock .bar button{padding:10px;font-size:14px;border-radius:10px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e6ebff;font-weight:600}
 
 /* ===== Modal ===== */
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);
-       display:none;align-items:center;justify-content:center;z-index:100300}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:100300}
 .modal.show{display:flex}
-.modal .box{width:min(520px,92vw);background:rgba(20,24,36,.92);
-            border:1px solid rgba(255,255,255,.12);
-            border-radius:16px;padding:16px;backdrop-filter:blur(12px)}
+.modal .box{width:min(520px,92vw);background:rgba(20,24,36,.92);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px;backdrop-filter:blur(12px)}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
 .form-grid label{font-size:12px;color:#9aa4b2;display:block;margin-bottom:4px}
-.form-grid select,.form-grid input{
-  width:100%;padding:10px;border-radius:12px;
-  border:1px solid rgba(255,255,255,.18);
-  background:rgba(255,255,255,.06);color:#e6ebff
-}
+.form-grid select,.form-grid input{width:100%;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e6ebff}
 .form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
-.btn{padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.16);
-     background:rgba(255,255,255,.05);color:#e6ebff}
+.btn{padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#e6ebff}
 .btn.primary{border-color:rgba(0,255,209,.45)}
+.form-note{font-size:11px;color:#9aa4b2;margin-top:6px}
 </style>
 
 <div class="cash-wrap">
@@ -108,12 +88,12 @@
           </div>
 
           <!-- 取得原価残 -->
-          <div class="kpi cost">
+          <div class="kpi invested">
             <div class="head"><div class="label">取得原価残</div></div>
-            <div class="value"><span class="num">{{ b.invested_cost|default:0|intcomma }}</span><span class="unit">円</span></div>
+            <div class="value"><span class="num">{{ b.invested_cost|intcomma }}</span><span class="unit">円</span></div>
           </div>
 
-          <!-- 拘束（復活） -->
+          <!-- 拘束 -->
           <div class="kpi restricted">
             <div class="head"><div class="label">拘束</div></div>
             <div class="value"><span class="num">{{ b.restricted|intcomma }}</span><span class="unit">円</span></div>
@@ -136,6 +116,7 @@
     <div class="bar">
       <button data-open="deposit">入金</button>
       <button data-open="withdraw">出金</button>
+      <button data-open="restrict">拘束金</button>
     </div>
   </div>
 </div>
@@ -205,11 +186,42 @@
   </div>
 </div>
 
+<!-- NEW: 拘束金 -->
+<div class="modal" id="modal-restrict" aria-hidden="true">
+  <div class="box">
+    <h3>⛔ 拘束金を設定</h3>
+    <form method="post" action="{% url 'cash_dashboard' %}">
+      {% csrf_token %}
+      <input type="hidden" name="op" value="restrict">
+      <div class="form-grid">
+        <div>
+          <label>証券会社</label>
+          <select name="broker" id="rs-broker" required>
+            <option value="楽天">楽天証券</option>
+            <option value="松井">松井証券</option>
+            <option value="SBI">SBI証券</option>
+          </select>
+        </div>
+        <div>
+          <label>拘束金（円）</label>
+          <input type="number" name="amount" inputmode="numeric" min="0" required>
+        </div>
+      </div>
+      <div class="form-note">※保存すると当日の拘束金を<strong>上書き</strong>します（過去分は変更しません）。</div>
+      <div class="form-actions">
+        <button type="button" class="btn" data-close>閉じる</button>
+        <button class="btn primary" type="submit">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   const modals = {
     deposit : document.getElementById("modal-deposit"),
     withdraw: document.getElementById("modal-withdraw"),
+    restrict: document.getElementById("modal-restrict"),
   };
   document.querySelectorAll("[data-open]").forEach(b=>{
     b.addEventListener("click", ()=> show(modals[b.dataset.open]));
