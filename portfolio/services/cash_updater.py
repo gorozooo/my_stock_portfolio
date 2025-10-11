@@ -1,7 +1,5 @@
-# portfolio/services/cash_updater.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-
 from django.db import transaction
 from django.db.models import Q
 
@@ -31,10 +29,6 @@ def _label_from_code(code: str) -> str:
 
 
 def _get_account(broker_code: str, currency: str = "JPY") -> BrokerAccount | None:
-    """
-    BrokerAccount.broker が「楽天/松井/SBI」（日本語名）でも
-    「RAKUTEN/MATSUI/SBI」（英字コード）でもヒットするよう両方で検索。
-    """
     svc.ensure_default_accounts(currency=currency)
     code = _norm_broker(broker_code)
     label = _label_from_code(code)
@@ -54,13 +48,47 @@ def _as_int(x) -> int:
 
 
 # =============================
+# Holding 検索
+# =============================
+def _find_holding(broker: str, ticker: str) -> Holding | None:
+    """
+    優先順位：
+    ① broker一致 + ticker一致 + 口座区分（特定/NISA）
+    ② broker一致 + ticker一致
+    ③ ticker一致
+    """
+    if not ticker:
+        return None
+
+    norm = _norm_broker(broker)
+    name_ja = _label_from_code(norm)
+
+    q = Q(ticker=ticker)
+    qs = Holding.objects.filter(q)
+
+    # ① 現物口座（特定/NISA）限定で優先
+    qs1 = qs.filter(
+        Q(broker__in=[norm, name_ja]),
+        Q(account_type__in=["特定", "NISA"]),
+    ).order_by("-updated_at", "-id")
+
+    if qs1.exists():
+        return qs1.first()
+
+    # ② broker一致
+    qs2 = qs.filter(broker__in=[norm, name_ja]).order_by("-updated_at", "-id")
+    if qs2.exists():
+        return qs2.first()
+
+    # ③ tickerのみ一致
+    qs3 = qs.order_by("-updated_at", "-id")
+    return qs3.first() if qs3.exists() else None
+
+
+# =============================
 # 内部ヘルパ
 # =============================
 def _upsert_ledger(**defaults) -> bool:
-    """
-    CashLedger を (source_type, source_id) で upsert。
-    既存があれば更新、なければ作成。作成時 True / 更新時 False を返す。
-    """
     obj, created = CashLedger.objects.update_or_create(
         source_type=defaults["source_type"],
         source_id=defaults["source_id"],
@@ -69,39 +97,27 @@ def _upsert_ledger(**defaults) -> bool:
     return created
 
 
-def _find_holding_by_ticker(ticker: str) -> Holding | None:
-    t = (ticker or "").strip().upper()
-    if not t:
-        return None
-    return Holding.objects.filter(ticker=t).order_by("-updated_at", "-id").first()
-
-
 # =============================
-# 同期ロジック（配当・実損）
+# 同期ロジック
 # =============================
 def sync_from_dividends() -> dict:
-    """
-    配当 → 受取（DEPOSIT）1行。
-    日付は **支払日（Dividend.date）** を使用。
-    holding は Dividend.holding があればそれ、なければ ticker で推定。
-    """
     created = 0
     updated = 0
 
     for d in Dividend.objects.all():
-        acc = _get_account(getattr(d, "broker", ""))
+        acc = _get_account(d.broker)
         if not acc:
             continue
 
-        amount = _as_int(d.net_amount())  # UI は税引後前提
+        amount = _as_int(d.net_amount())
         if amount <= 0:
             continue
 
-        holding = getattr(d, "holding", None) or _find_holding_by_ticker(d.ticker)
+        holding = getattr(d, "holding", None) or _find_holding(d.broker, d.ticker)
 
         created_now = _upsert_ledger(
             account=acc,
-            at=d.date,  # ← 支払日
+            at=d.date,  # 支払日
             amount=amount,
             kind=CashLedger.Kind.DEPOSIT,
             memo=f"配当 {d.display_ticker or d.ticker or ''}".strip(),
@@ -118,33 +134,28 @@ def sync_from_dividends() -> dict:
 
 
 def sync_from_realized() -> dict:
-    """
-    実損 → 受渡（SELL=入金 / BUY=出金）1行。
-    日付は **取引日（RealizedTrade.trade_at）** を使用。
-    対象は **現物のみ（特定 / NISA）**。信用は除外。
-    holding は ticker から推定（必要なら将来: 紐付けカラムで厳密化）。
-    """
     created = 0
     updated = 0
 
     for r in RealizedTrade.objects.all():
+        # 現物系のみ（特定 / NISA）
         if getattr(r, "account", "") not in ("SPEC", "NISA"):
             continue
 
-        acc = _get_account(getattr(r, "broker", ""))
+        acc = _get_account(r.broker)
         if not acc:
             continue
 
-        delta = _as_int(r.cashflow_effective)  # SELL=＋ / BUY=−（手数料・税込み）
+        delta = _as_int(r.cashflow_effective)
         if delta == 0:
             continue
 
         kind = CashLedger.Kind.DEPOSIT if delta > 0 else CashLedger.Kind.WITHDRAW
-        holding = _find_holding_by_ticker(r.ticker)
+        holding = _find_holding(r.broker, r.ticker)
 
         created_now = _upsert_ledger(
             account=acc,
-            at=r.trade_at,  # ← 取引日
+            at=r.trade_at,  # 取引日
             amount=delta,
             kind=kind,
             memo=f"実現損益 {r.ticker}".strip(),
@@ -165,11 +176,6 @@ def sync_from_realized() -> dict:
 # =============================
 @transaction.atomic
 def sync_all() -> dict:
-    """
-    - 支払日/取引日ベースで CashLedger を upsert（毎回上書き）
-    - Dividend/RealizedTrade から Holding を可能な限り紐付け
-    - 更新件数を返す（ビュー側のトーストにそのまま使える）
-    """
     svc.ensure_default_accounts()
 
     res_div = sync_from_dividends()
