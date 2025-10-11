@@ -112,7 +112,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 "同期完了\n"
                 f"・配当：新規 {d_c} / 更新 {d_u}\n"
                 f"・実損：新規 {r_c} / 更新 {r_u}\n"
-                f"・保有：新規 {h_c} / 更新 {h_u}"
+                f"・保有：新規 {h_c} / 更新 {h_u}",
             )
     except Exception as e:
         messages.error(request, f"同期に失敗：{e}")
@@ -123,14 +123,15 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     LOW_RATIO = 0.30
     enhanced = []
     lows_for_toast: list[tuple[str, int, int, float]] = []
-    neg_for_toast:  list[tuple[str, int]] = []
+    neg_for_toast: list[tuple[str, int]] = []
 
     for row in base_list:
         broker = row.get("broker", "")
-        cash   = int(row.get("cash", 0))
-        avail  = int(row.get("available", 0))
-        restr  = int(row.get("restricted", 0))
+        cash = int(row.get("cash", 0))
+        avail = int(row.get("available", 0))
+        restr = int(row.get("restricted", 0))
         month_net = int(row.get("month_net", 0))
+        invested = int(row.get("invested_cost", 0))  # ★ 追加！
 
         pct = (avail / cash * 100.0) if cash > 0 else None
         severity = _severity_for(row, LOW_RATIO)
@@ -140,15 +141,18 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         elif cash > 0 and (avail / cash) < LOW_RATIO:
             lows_for_toast.append((broker, avail, cash, (avail / cash) * 100.0))
 
-        enhanced.append({
-            "broker": broker,
-            "cash": cash,
-            "available": avail,
-            "restricted": restr,
-            "month_net": month_net,
-            "pct_available": pct,
-            "severity": severity,
-        })
+        enhanced.append(
+            {
+                "broker": broker,
+                "cash": cash,
+                "available": avail,
+                "restricted": restr,
+                "month_net": month_net,
+                "invested_cost": invested,  # ★ 追加！
+                "pct_available": pct,
+                "severity": severity,
+            }
+        )
 
     if neg_for_toast:
         messages.error(request, _make_negative_toast(neg_for_toast))
@@ -162,7 +166,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         "cash/dashboard.html",
         {"brokers": enhanced, "kpi_total": kpi_total},
     )
-
+    
 # ================== 現金履歴台帳 ==================
 PAGE_SIZE = 30
 
