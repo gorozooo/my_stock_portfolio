@@ -10,10 +10,11 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods
 
-from ..models import Dividend, RealizedTrade
+from ..models import Dividend, RealizedTrade, Holding
 from ..models_cash import BrokerAccount, CashLedger
 from ..services import cash_service as svc
 from ..services import cash_updater as up
+
 
 # ================== helpers ==================
 def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
@@ -24,6 +25,7 @@ def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
         .first()
     )
 
+
 def _severity_for(b: dict, low_ratio: float = 0.30) -> str:
     avail = int(b.get("available", 0))
     cash  = int(b.get("cash", 0))
@@ -33,8 +35,10 @@ def _severity_for(b: dict, low_ratio: float = 0.30) -> str:
         return "warn"
     return "ok"
 
+
 def _format_int(n: int) -> str:
     return f"{n:,}"
+
 
 def _make_negative_toast(negatives: list[tuple[str, int]]) -> str:
     lines = ["⚠️ 余力がマイナスの証券口座があります！"]
@@ -43,12 +47,14 @@ def _make_negative_toast(negatives: list[tuple[str, int]]) -> str:
     lines.append("入出金や拘束、保有残高を確認してください。")
     return "\n".join(lines)
 
+
 def _make_low_toast(lows: list[tuple[str, int, int, float]]) -> str:
     lines = ["⚠️ 余力が少なくなっています！"]
     for br, avail, cash, pct in lows:
         lines.append(f"・{br}：余力 {pct:.1f}%（残り {_format_int(avail)} 円）")
     lines.append("入金やポジション整理を検討してください。")
     return "\n".join(lines)
+
 
 # ================== dashboard ==================
 @require_http_methods(["GET", "POST"])
@@ -57,6 +63,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         op = (request.POST.get("op") or "").strip()
         memo = (request.POST.get("memo") or "").strip()
 
+        # 入金 / 出金
         if op in ("deposit", "withdraw"):
             broker = (request.POST.get("broker") or "").strip()
             if not broker:
@@ -86,6 +93,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
 
+        # transfer は UI から消しているが、不正 POST へのガード
         if op == "transfer":
             messages.error(request, "振替は現在サポートしていません。")
             return redirect("cash_dashboard")
@@ -96,18 +104,26 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     # ====== GET ======
     svc.ensure_default_accounts()
 
-    # ソース（配当/実損）→ Ledger を毎回同期（新規＋更新）
+    # 同期（失敗しても画面は表示）
     try:
         info = up.sync_all()
         d_c = int(info.get("dividends_created", 0))
         d_u = int(info.get("dividends_updated", 0))
         r_c = int(info.get("realized_created", 0))
         r_u = int(info.get("realized_updated", 0))
-        if any([d_c, d_u, r_c, r_u]) or request.GET.get("force_toast") == "1":
-            messages.info(request, f"同期完了\n・配当：新規 {d_c} / 更新 {d_u}\n・実損：新規 {r_c} / 更新 {r_u}")
+        h_c = int(info.get("holdings_created", 0))
+        h_u = int(info.get("holdings_updated", 0))
+        if any([d_c, d_u, r_c, r_u, h_c, h_u]) or request.GET.get("force_toast") == "1":
+            messages.info(
+                "同期完了\n"
+                f"・配当：新規 {d_c} / 更新 {d_u}\n"
+                f"・実損：新規 {r_c} / 更新 {r_u}\n"
+                f"・保有：新規 {h_c} / 更新 {h_u}"
+            )
     except Exception as e:
         messages.error(request, f"同期に失敗：{e}")
 
+    # === 集計 ===
     today = date.today()
     base_list = svc.broker_summaries(today)
 
@@ -126,6 +142,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         pct = (avail / cash * 100.0) if cash > 0 else None
         severity = _severity_for(row, LOW_RATIO)
 
+        # トースト用の収集
         if avail < 0:
             neg_for_toast.append((broker, avail))
         elif cash > 0 and (avail / cash) < LOW_RATIO:
@@ -137,27 +154,30 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
             "available": avail,
             "restricted": restr,
             "month_net": month_net,
-            "pct_available": pct,
-            "severity": severity,
+            "pct_available": pct,   # float | None
+            "severity": severity,   # 'danger' | 'warn' | 'ok'
         })
 
+    # 警告トースト（両方表示）
     if neg_for_toast:
         messages.error(request, _make_negative_toast(neg_for_toast))
     if lows_for_toast:
         messages.warning(request, _make_low_toast(lows_for_toast))
 
+    # KPI 合計は既存の total_summary をそのまま使用
     kpi_total, _ = svc.total_summary(today)
 
     return render(
         request,
         "cash/dashboard.html",
         {
-            "brokers": enhanced,
+            "brokers": enhanced,      # テンプレはこの“完成形”だけを使う
             "kpi_total": kpi_total,
         },
     )
 
-# ================== 現金履歴台帳 ==================
+
+# ================== 現金履歴台帳（一覧＋フィルタ） ==================
 PAGE_SIZE = 30
 
 def _parse_date(s: str | None):
@@ -169,6 +189,7 @@ def _parse_date(s: str | None):
         except Exception:
             pass
     return None
+
 
 def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
     broker = (request.GET.get("broker") or "ALL").strip()
@@ -221,13 +242,16 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
     }
     return qs, summary
 
+
+# ---- source 判定（DIV/REAL/HOLD の3系統＋保険） -------------------
 def _source_is_dividend(v) -> bool:
     if v is None:
         return False
     try:
         return int(v) == int(CashLedger.SourceType.DIVIDEND)
     except Exception:
-        return str(v).upper() in {"DIVIDEND", "DIV", "2"}
+        return str(v).upper() in {"DIVIDEND", "DIV", "2"}  # 2 は保険
+
 
 def _source_is_realized(v) -> bool:
     if v is None:
@@ -235,33 +259,65 @@ def _source_is_realized(v) -> bool:
     try:
         return int(v) == int(CashLedger.SourceType.REALIZED)
     except Exception:
-        return str(v).upper() in {"REALIZED", "REAL", "1"}
+        return str(v).upper() in {"REALIZED", "REAL", "1"}  # 1 は保険
+
+
+def _source_is_holding(v, memo: str | None) -> bool:
+    """
+    HOLDING を判定。モデルに定義が無い環境でも動くよう保険を入れる。
+    - source_type in {"HOLD","HOLDING","HLD", 3} を真
+    - さらに保険として memo が「保有」始まりなら真
+    """
+    if v is None:
+        return bool(memo and memo.startswith("保有"))
+    s = str(v).upper()
+    if s in {"HOLD", "HOLDING", "HLD"}:
+        return True
+    try:
+        return int(v) == 3  # 将来 enum 追加の保険
+    except Exception:
+        return bool(memo and memo.startswith("保有"))
+
 
 def _safe_str(val) -> str:
     return (val or "").strip()
 
+
 def _attach_source_labels(page):
+    """
+    page.object_list に r.src_badge を付与（取得不可は DIV:ID / REAL:ID / HLD:ID でフォールバック）
+    テンプレ側は r.src_badge があるときだけチップを描画（=二重描画しない）。
+    """
     items = list(page.object_list or [])
     if not items:
         return
 
-    div_ids, real_ids = set(), set()
+    div_ids, real_ids, hold_ids = set(), set(), set()
     for r in items:
         st = getattr(r, "source_type", None)
         sid = getattr(r, "source_id", None)
-        if sid is None:
-            continue
-        try:
-            sid_int = int(sid)
-        except Exception:
-            continue
-        if _source_is_dividend(st):
-            div_ids.add(sid_int)
-        elif _source_is_realized(st):
-            real_ids.add(sid_int)
+        mm  = getattr(r, "memo", "") or ""
+        if sid is not None:
+            try:
+                sid_int = int(sid)
+            except Exception:
+                sid_int = None
+        else:
+            sid_int = None
 
-    div_map = {d.id: d for d in Dividend.objects.filter(id__in=div_ids)}
+        if _source_is_dividend(st):
+            if sid_int is not None:
+                div_ids.add(sid_int)
+        elif _source_is_realized(st):
+            if sid_int is not None:
+                real_ids.add(sid_int)
+        elif _source_is_holding(st, mm):
+            if sid_int is not None:
+                hold_ids.add(sid_int)
+
+    div_map  = {d.id: d for d in Dividend.objects.filter(id__in=div_ids)}
     real_map = {x.id: x for x in RealizedTrade.objects.filter(id__in=real_ids)}
+    hold_map = {h.id: h for h in Holding.objects.filter(id__in=hold_ids)}
 
     def build_label_from_div(d: Dividend) -> str:
         tkr = _safe_str(getattr(d, "display_ticker", None) or getattr(d, "ticker", None)).upper()
@@ -273,10 +329,16 @@ def _attach_source_labels(page):
         name = _safe_str(getattr(x, "name", None))
         return (f"{tkr} {name}".strip() or "—")
 
+    def build_label_from_hold(h: Holding) -> str:
+        tkr = _safe_str(getattr(h, "ticker", None)).upper()
+        name = _safe_str(getattr(h, "name", None))
+        return (f"{tkr} {name}".strip() or "—")
+
     for r in items:
         r.src_badge = None
-        st = getattr(r, "source_type", None)
+        st  = getattr(r, "source_type", None)
         sid = getattr(r, "source_id", None)
+        mm  = getattr(r, "memo", "") or ""
         try:
             sid_int = int(sid) if sid is not None else None
         except Exception:
@@ -292,9 +354,21 @@ def _attach_source_labels(page):
             r.src_badge = {"kind": "実損", "class": "chip chip-emerald", "label": label}
             continue
 
+        # “保有(初回買付)” バッジ（色は既存クラスに合わせて sky を再利用）
+        if _source_is_holding(st, mm):
+            if sid_int is not None and sid_int in hold_map:
+                label = build_label_from_hold(hold_map[sid_int])
+            else:
+                # source_id 無し or 取れない場合は memo / フォールバック
+                label = "保有"
+            r.src_badge = {"kind": "保有", "class": "chip chip-sky", "label": label}
+            continue
+
     page.object_list = items
 
+
 def _clean_params_for_pager(request: HttpRequest) -> dict:
+    """page を除外し、空値も落として urlencode 用に渡す"""
     params = {}
     for k, v in request.GET.items():
         if k == "page":
@@ -304,10 +378,12 @@ def _clean_params_for_pager(request: HttpRequest) -> dict:
         params[k] = v
     return params
 
+
 @require_http_methods(["GET"])
 def cash_history(request: HttpRequest) -> HttpResponse:
     """
     現金台帳：毎回同期 → 絞り込み → ページネーション
+    （配当・実損・保有 初回買付 の upsert & トースト表示）
     """
     # ここで毎回 upsert（新規＋更新）
     try:
@@ -316,8 +392,15 @@ def cash_history(request: HttpRequest) -> HttpResponse:
         d_u = int(info.get("dividends_updated", 0))
         r_c = int(info.get("realized_created", 0))
         r_u = int(info.get("realized_updated", 0))
-        if any([d_c, d_u, r_c, r_u]) or request.GET.get("force_toast") == "1":
-            messages.info(request, f"同期完了\n・配当：新規 {d_c} / 更新 {d_u}\n・実損：新規 {r_c} / 更新 {r_u}")
+        h_c = int(info.get("holdings_created", 0))
+        h_u = int(info.get("holdings_updated", 0))
+        if any([d_c, d_u, r_c, r_u, h_c, h_u]) or request.GET.get("force_toast") == "1":
+            messages.info(
+                "同期完了\n"
+                f"・配当：新規 {d_c} / 更新 {d_u}\n"
+                f"・実損：新規 {r_c} / 更新 {r_u}\n"
+                f"・保有：新規 {h_c} / 更新 {h_u}"
+            )
     except Exception as e:
         messages.error(request, f"同期に失敗：{e}")
 
