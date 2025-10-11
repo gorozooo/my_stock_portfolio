@@ -1,5 +1,5 @@
 // bottom_tab.js – Tab nav / Long-press sheet / Drag-to-close / Toast / Bounce
-// ※ トレンドはホーム内パネルへ統合、💵現金タブ追加版
+// 現金タブのサブメニューを「台帳」系に統一（すべて / 楽天 / 松井 / SBI）
 
 // 固定バーを <body> 直下へ移動して transform/backdrop-filter の影響を遮断
 document.addEventListener("DOMContentLoaded", () => {
@@ -75,11 +75,12 @@ document.addEventListener("DOMContentLoaded", () => {
       // Trend（互換：ホーム内パネルへ）
       trend_base: "/?panel=trend",
 
-      // Cash（新規）
-      cash_base     : "/cash/",
-      cash_deposit  : "/cash/?action=deposit",
-      cash_withdraw : "/cash/?action=withdraw",
-      cash_transfer : "/cash/?action=transfer",
+      // Cash
+      cash_base        : "/cash/",
+      cash_history     : "/cash/history/",   // 追加：台帳ベースURL
+      cash_deposit     : "/cash/?action=deposit",
+      cash_withdraw    : "/cash/?action=withdraw",
+      cash_transfer    : "/cash/?action=transfer",
 
       // Dividends
       dividends_dashboard: "/dividends/dashboard/",
@@ -121,6 +122,13 @@ document.addEventListener("DOMContentLoaded", () => {
     return qs ? `${URLS.holdings_base}?${qs}` : `${URLS.holdings_base}`;
   }
 
+  // NEW: /cash/history/ のURL生成（broker指定のみ使用）
+  function buildCashHistoryURL(brokerJa = ""){
+    const p = new URLSearchParams();
+    if (brokerJa) p.set("broker", brokerJa);
+    return p.toString() ? `${URLS.cash_history}?${p.toString()}` : URLS.cash_history;
+  }
+
   /* --- メニュー定義 --- */
   const MENUS = {
     home: [
@@ -153,13 +161,13 @@ document.addEventListener("DOMContentLoaded", () => {
       { label:"ランキング",       href:"/realized/ranking/",    icon:"🏅", tone:"info" },
       { label:"明細",             href:"/realized/partial/table/",     icon:"📑", tone:"info" },
     ],
+    // ★ 現金：サブメニューを「台帳」系に置き換え（入金/出金/振替などは撤去）
     cash: [
-      { section:"現金" },
-      { label:"入金",             href: URLS.cash_deposit,   icon:"➕", tone:"add" },
-      { label:"出金",             href: URLS.cash_withdraw,  icon:"➖", tone:"action" },
-      { label:"振替",             href: URLS.cash_transfer,  icon:"🔁", tone:"info" },
-      { label:"ダッシュボード",   href: URLS.cash_base,      icon:"💵", tone:"info" },
-      { label:"ホームで見る",     href: URLS.home_panel_cash,icon:"🏠", tone:"info" },
+      { section:"台帳" },
+      { label:"台帳（すべて）",     href: buildCashHistoryURL(""),   icon:"📒", tone:"info" },
+      { label:"台帳（楽天証券）",   href: buildCashHistoryURL("楽天"), icon:"🏯", tone:"info" },
+      { label:"台帳（松井証券）",   href: buildCashHistoryURL("松井"), icon:"📊", tone:"info" },
+      { label:"台帳（SBI証券）",    href: buildCashHistoryURL("SBI"),  icon:"🏦", tone:"info" },
     ],
   };
 
