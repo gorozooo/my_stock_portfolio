@@ -66,6 +66,23 @@ def _norm_ticker(raw: str) -> str:
 def _today_jst() -> date:
     return date.today()
 
+def _build_rows_for_queryset(qs) -> List[RowVM]:
+    """
+    KPI 用：フィルタ後の全件を対象に RowVM を作成。
+    ダウンロード回数を抑えるため先に終値をまとめてプリロードしておく。
+    """
+    holdings = list(qs)  # 評価額や配当計算のために実体化
+    # 先に全ティッカーの 7/30/90 日をキャッシュに載せる（失敗してもOK）
+    tickers = [h.ticker for h in holdings]
+    try:
+        _preload_closes(tickers, 7)
+        _preload_closes(tickers, 30)
+        _preload_closes(tickers, 90)
+    except Exception:
+        pass
+
+    return [_build_row(h) for h in holdings]
+
 
 # ------- yfinance 価格バッチ取得（15分キャッシュ） -------
 # key = (ticker_norm, days) -> (ts, [closes...])
@@ -561,21 +578,22 @@ def _sort_rows(rows: List[RowVM], request) -> List[RowVM]:
 
 @login_required
 def holding_list(request):
-    # 年間配当・累計配当で N+1 を避けるため dividends を先読み
     qs = Holding.objects.filter(user=request.user).prefetch_related("dividends")
-
     qs = _apply_filters(qs, request)
     qs = _sort_qs(qs, request)
+
+    # ページング（表示用）
     page = _page(request, qs)
+    rows_page = _build_rows_for_page(page)
+    rows_page = _apply_post_filters(rows_page, request)
+    rows_page = _sort_rows(rows_page, request)
 
-    rows = _build_rows_for_page(page)          # ここで price_now / yield_* / div_annual / div_received を計算
-    rows = _apply_post_filters(rows, request)
-    rows = _sort_rows(rows, request)
-
-    summary = _aggregate(rows)
-    # ★ ここがポイント：KPI「件数」は総件数を使う
-    summary["count"] = page.paginator.count          # フィルタ後の総件数
-    summary["page_count"] = len(rows)                # （おまけ）このページに表示している件数
+    # ★ KPI 用は“全件”で集計（ページ件数に制限しない）
+    rows_all = _build_rows_for_queryset(qs)
+    rows_all = _apply_post_filters(rows_all, request)  # PNL などの後段フィルタは KPI にも反映
+    summary = _aggregate(rows_all)
+    summary["count"] = qs.count()       # 総件数
+    summary["page_count"] = len(rows_page)  # 表示件数（参考）
 
     class _PageWrap:
         def __init__(self, src, objs):
@@ -586,7 +604,7 @@ def holding_list(request):
             self.previous_page_number = src.previous_page_number
             self.next_page_number = src.next_page_number
             self.object_list = objs
-    page_wrap = _PageWrap(page, rows)
+    page_wrap = _PageWrap(page, rows_page)
 
     ctx = {
         "page": page_wrap,
@@ -609,16 +627,19 @@ def holding_list_partial(request):
     qs = Holding.objects.filter(user=request.user).prefetch_related("dividends")
     qs = _apply_filters(qs, request)
     qs = _sort_qs(qs, request)
+
+    # ページング（表示用）
     page = _page(request, qs)
+    rows_page = _build_rows_for_page(page)
+    rows_page = _apply_post_filters(rows_page, request)
+    rows_page = _sort_rows(rows_page, request)
 
-    rows = _build_rows_for_page(page)
-    rows = _apply_post_filters(rows, request)
-    rows = _sort_rows(rows, request)
-
-    summary = _aggregate(rows)
-    # ★ 同様に、部分描画でも総件数を入れる
-    summary["count"] = page.paginator.count
-    summary["page_count"] = len(rows)
+    # ★ KPI 用は“全件”で集計
+    rows_all = _build_rows_for_queryset(qs)
+    rows_all = _apply_post_filters(rows_all, request)
+    summary = _aggregate(rows_all)
+    summary["count"] = qs.count()
+    summary["page_count"] = len(rows_page)
 
     class _PageWrap:
         def __init__(self, src, objs):
@@ -629,7 +650,7 @@ def holding_list_partial(request):
             self.previous_page_number = src.previous_page_number
             self.next_page_number = src.next_page_number
             self.object_list = objs
-    page_wrap = _PageWrap(page, rows)
+    page_wrap = _PageWrap(page, rows_page)
 
     ctx = {
         "page": page_wrap,
