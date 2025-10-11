@@ -17,6 +17,7 @@ except Exception:
     Dividend = None         # type: ignore
     RealizedTrade = None    # type: ignore
 
+
 # ---- ブローカー対応表（日本語⇄コード） --------------------
 BROKER_JA_TO_CODE = {"楽天": "RAKUTEN", "松井": "MATSUI", "SBI": "SBI"}
 BROKER_CODE_TO_JA = {v: k for k, v in BROKER_JA_TO_CODE.items()}
@@ -51,11 +52,16 @@ def latest_margin(account: BrokerAccount) -> MarginState | None:
     return MarginState.objects.filter(account=account).order_by("-as_of").first()
 
 
-# ---- 取得原価残（特定/NISAの未売却分） ----------------------
-def acquisition_cost_remaining_for_broker(broker_ja: str) -> int:
+# ---- 取得原価残（口座単位に修正） ----------------------
+ACCOUNT_TYPE_TO_HOLDING_ACCOUNT = {
+    "現物": "SPEC",
+    "NISA": "NISA",
+    # 信用は控除対象外（必要に応じて "信用": "MARGIN" を追加）
+}
+
+def acquisition_cost_remaining_for_account(broker_ja: str, account_type: str) -> int:
     """
-    指定“日本語ブローカー名”の、未売却の現物（特定/NISA）について
-    平均取得単価×残数量 の合計（=取得原価残）を返す。
+    日本語ブローカー名 × 口座区分（現物/NISA）の取得原価残（平均取得単価×残数量）を返す。
     """
     if Holding is None:
         return 0
@@ -64,14 +70,20 @@ def acquisition_cost_remaining_for_broker(broker_ja: str) -> int:
     if not code:
         return 0
 
+    holding_acc = ACCOUNT_TYPE_TO_HOLDING_ACCOUNT.get(account_type)
+    if not holding_acc:
+        return 0  # 信用などは控除しない
+
     try:
         qs = Holding.objects.filter(
             broker=code,
-            account__in=["SPEC", "NISA"],
+            account=holding_acc,
             quantity__gt=0,
         )
-        expr = ExpressionWrapper(F("quantity") * F("avg_cost"),
-                                 output_field=DecimalField(max_digits=20, decimal_places=2))
+        expr = ExpressionWrapper(
+            F("quantity") * F("avg_cost"),
+            output_field=DecimalField(max_digits=20, decimal_places=2),
+        )
         total = qs.aggregate(total=Sum(expr))["total"] or 0
         return int(total)
     except Exception:
@@ -91,9 +103,10 @@ def account_summary(account: BrokerAccount, today: date):
         restricted_amount = int(getattr(m, "restricted_amount", 0) or 0)
         restricted = required_margin + restricted_amount
 
-    invested_cost = acquisition_cost_remaining_for_broker(account.broker)
+    # 修正：ブローカー単位ではなく口座単位で取得原価残を計算
+    invested_cost = acquisition_cost_remaining_for_account(account.broker, account.account_type)
 
-    # 余力 = 現金 + 担保 - 拘束 - 取得原価残（マイナス許容）
+    # 余力 = 現金 + 担保 - 拘束 - 取得原価残
     available = int(bal + collateral_usable - restricted - invested_cost)
 
     return {
@@ -131,7 +144,7 @@ def broker_summaries(today: date):
     ensure_default_accounts()
 
     acc_rows = [account_summary(acc, today) for acc in BrokerAccount.objects.all()]
-    grouped = defaultdict(lambda: {"cash":0,"restricted":0,"available":0,"month_net":0})
+    grouped = defaultdict(lambda: {"cash": 0, "restricted": 0, "available": 0, "month_net": 0})
     for r in acc_rows:
         g = grouped[r["broker"]]
         g["cash"]       += r["cash"]
@@ -149,7 +162,7 @@ def broker_summaries(today: date):
             "month_net": int(v["month_net"]),
         })
 
-    pref_index = {b:i for i,b in enumerate(PREF_ORDER)}
+    pref_index = {b: i for i, b in enumerate(PREF_ORDER)}
     items.sort(key=lambda x: (pref_index.get(x["broker"], 999), x["broker"]))
     return items
 
@@ -164,9 +177,7 @@ def create_ledger(
     source_type: Optional[int] = None,
     source_id: Optional[int] = None,
 ):
-    """
-    すべての台帳登録の共通入口。発生日 at を任意指定できる。
-    """
+    """すべての台帳登録の共通入口。発生日 at を任意指定できる。"""
     if at is None:
         at = date.today()
     return CashLedger.objects.create(
@@ -202,7 +213,6 @@ def _source_date_for(entry: CashLedger) -> Optional[date]:
     Ledger の source_type/source_id から“本来の発生日”を返す。
     - 配当: Dividend.date
     - 実損: RealizedTrade.trade_at
-    取得不可の場合は None
     """
     try:
         st = int(getattr(entry, "source_type", 0) or 0)
@@ -219,11 +229,7 @@ def _source_date_for(entry: CashLedger) -> Optional[date]:
     return None
 
 def normalize_ledger_dates(max_rows: int = 2000) -> int:
-    """
-    受取日/売買日へ at を補正する。
-    - ダッシュボード/台帳のGET直前に軽く回す想定
-    - 差分のみ update。戻り値は更新件数
-    """
+    """受取日/売買日へ at を補正"""
     qs = CashLedger.objects.filter(
         Q(source_type=CashLedger.SourceType.DIVIDEND) |
         Q(source_type=CashLedger.SourceType.REALIZED)
