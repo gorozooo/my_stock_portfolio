@@ -115,6 +115,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         h_u = int(info.get("holdings_updated", 0))
         if any([d_c, d_u, r_c, r_u, h_c, h_u]) or request.GET.get("force_toast") == "1":
             messages.info(
+                request,
                 "同期完了\n"
                 f"・配当：新規 {d_c} / 更新 {d_u}\n"
                 f"・実損：新規 {r_c} / 更新 {r_u}\n"
@@ -263,18 +264,13 @@ def _source_is_realized(v) -> bool:
 
 
 def _source_is_holding(v, memo: str | None) -> bool:
-    """
-    HOLDING を判定。モデルに定義が無い環境でも動くよう保険を入れる。
-    - source_type in {"HOLD","HOLDING","HLD", 3} を真
-    - さらに保険として memo が「保有」始まりなら真
-    """
     if v is None:
         return bool(memo and memo.startswith("保有"))
     s = str(v).upper()
     if s in {"HOLD", "HOLDING", "HLD"}:
         return True
     try:
-        return int(v) == 3  # 将来 enum 追加の保険
+        return int(v) == 3
     except Exception:
         return bool(memo and memo.startswith("保有"))
 
@@ -284,10 +280,6 @@ def _safe_str(val) -> str:
 
 
 def _attach_source_labels(page):
-    """
-    page.object_list に r.src_badge を付与（取得不可は DIV:ID / REAL:ID / HLD:ID でフォールバック）
-    テンプレ側は r.src_badge があるときだけチップを描画（=二重描画しない）。
-    """
     items = list(page.object_list or [])
     if not items:
         return
@@ -354,12 +346,10 @@ def _attach_source_labels(page):
             r.src_badge = {"kind": "実損", "class": "chip chip-emerald", "label": label}
             continue
 
-        # “保有(初回買付)” バッジ（色は既存クラスに合わせて sky を再利用）
         if _source_is_holding(st, mm):
             if sid_int is not None and sid_int in hold_map:
                 label = build_label_from_hold(hold_map[sid_int])
             else:
-                # source_id 無し or 取れない場合は memo / フォールバック
                 label = "保有"
             r.src_badge = {"kind": "保有", "class": "chip chip-sky", "label": label}
             continue
@@ -368,7 +358,6 @@ def _attach_source_labels(page):
 
 
 def _clean_params_for_pager(request: HttpRequest) -> dict:
-    """page を除外し、空値も落として urlencode 用に渡す"""
     params = {}
     for k, v in request.GET.items():
         if k == "page":
@@ -396,6 +385,7 @@ def cash_history(request: HttpRequest) -> HttpResponse:
         h_u = int(info.get("holdings_updated", 0))
         if any([d_c, d_u, r_c, r_u, h_c, h_u]) or request.GET.get("force_toast") == "1":
             messages.info(
+                request,
                 "同期完了\n"
                 f"・配当：新規 {d_c} / 更新 {d_u}\n"
                 f"・実損：新規 {r_c} / 更新 {r_u}\n"
