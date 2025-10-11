@@ -89,38 +89,14 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
 
-        if op == "transfer":
-            messages.error(request, "振替は現在サポートしていません。")
-            return redirect("cash_dashboard")
-
         messages.error(request, "不正な操作が指定されました。")
         return redirect("cash_dashboard")
 
-    # ====== GET ======
+    # ====== GET（表示専用：同期はしない） ======
     svc.ensure_default_accounts()
-
-    # 同期（失敗しても画面は表示）
-    try:
-        info = up.sync_all()
-        d_c = int(info.get("dividends_created", 0))
-        d_u = int(info.get("dividends_updated", 0))
-        r_c = int(info.get("realized_created", 0))
-        r_u = int(info.get("realized_updated", 0))
-        h_c = int(info.get("holdings_created", 0))
-        h_u = int(info.get("holdings_updated", 0))
-        if any([d_c, d_u, r_c, r_u, h_c, h_u]) or request.GET.get("force_toast") == "1":
-            messages.info(
-                request,
-                "同期完了\n"
-                f"・配当：新規 {d_c} / 更新 {d_u}\n"
-                f"・実損：新規 {r_c} / 更新 {r_u}\n"
-                f"・保有：新規 {h_c} / 更新 {h_u}"
-            )
-    except Exception as e:
-        messages.error(request, f"同期に失敗：{e}")
-
     today = date.today()
-    base_list = svc.broker_summaries(today)
+
+    base_list = svc.broker_summaries(today)  # ← ここだけでOK
 
     LOW_RATIO = 0.30
     enhanced = []
