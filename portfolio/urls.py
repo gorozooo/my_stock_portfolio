@@ -15,10 +15,12 @@ from .views import dev_tools as dev_views
 from .views import holding as hv
 from .views import dividend as v_div  # ← 配当まわりはこのモジュールに集約
 from .views import cash as v_cash
+from .views import home
 
 urlpatterns = [
-    path("", core_views.main, name="home"),
-
+    #path("", core_views.main, name="home"),
+    path("", home.home, name="home"),
+    
     # トレンド
     path("trend/", core_views.trend_page, name="trend"),
     path("api/trend", core_views.trend_api, name="trend_api"),
