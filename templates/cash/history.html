@@ -40,23 +40,20 @@
   .chip{display:inline-flex; align-items:center; gap:.4em; padding:.25rem .5rem;
         border-radius:9999px; border:1px solid; font-size:11px; line-height:1;
         white-space:nowrap; margin-bottom:2px;}
+  /* ソース付き（配当/実損/保有） */
   .chip-sky{border-color:rgba(125,160,255,.35); color:#c7d2fe; background:rgba(125,160,255,.08)}       /* 配当 */
   .chip-emerald{border-color:rgba(16,185,129,.35); color:#bbf7d0; background:rgba(16,185,129,.08)}     /* 実損 */
   .chip-amber{border-color:rgba(245,158,11,.35); color:#fde68a; background:rgba(245,158,11,.10)}       /* 保有 */
+  /* 手入力/メモ用（入金/出金/振替/その他） */
+  .chip-blue{border-color:rgba(59,130,246,.35); color:#bfdbfe; background:rgba(59,130,246,.10)}        /* 入金 */
+  .chip-rose{border-color:rgba(244,63,94,.35); color:#fecdd3; background:rgba(244,63,94,.10)}          /* 出金 */
+  .chip-cyan{border-color:rgba(34,211,238,.35); color:#a5f3fc; background:rgba(34,211,238,.10)}        /* 振替(入) */
+  .chip-fuchsia{border-color:rgba(217,70,239,.35); color:#f5d0fe; background:rgba(217,70,239,.10)}     /* 振替(出) */
+  .chip-slate{border-color:rgba(148,163,184,.35); color:#e2e8f0; background:rgba(148,163,184,.10)}     /* その他/システム */
 
   .meta{font-size:11px; color:#94a3b8}
-  .amount{
-    text-align:right;
-    font-size:20px;
-    font-weight:800;
-    color:#e6ebff;
-    letter-spacing:0.02em;
-  }
+  .amount{ text-align:right; font-size:20px; font-weight:800; color:#e6ebff; letter-spacing:0.02em; }
   .memo{margin-top:2px; font-size:11px; color:#cbd5e1; word-break:break-word}
-
-  .actions{margin-top:6px; display:flex; justify-content:flex-end; gap:6px}
-  .actions a,.actions button{padding:5px 8px; font-size:11px; border-radius:8px;
-                             border:1px solid rgba(255,255,255,.2)}
 </style>
 {% endblock %}
 
@@ -109,6 +106,8 @@
 
 {% for r in page.object_list %}
   <div class="card" data-ledger-id="{{ r.id }}">
+
+    {# === 1行目：チップ（ソースがあればソース、なければメモをチップ化） === #}
     {% if r.src_badge %}
       {% if r.src_badge.kind == "配当" %}
         <span class="chip chip-sky">【配当】 {{ r.src_badge.label }}</span>
@@ -117,8 +116,23 @@
       {% elif r.src_badge.kind == "保有" %}
         <span class="chip chip-amber">【保有】 {{ r.src_badge.label }}</span>
       {% endif %}
+    {% else %}
+      {% with memo_txt=r.memo|default_if_none:"" %}
+        {% if r.kind == r.Kind.DEPOSIT %}
+          <span class="chip chip-blue">【入金】 {{ memo_txt|default:"手入力" }}</span>
+        {% elif r.kind == r.Kind.WITHDRAW %}
+          <span class="chip chip-rose">【出金】 {{ memo_txt|default:"手入力" }}</span>
+        {% elif r.kind == r.Kind.XFER_IN %}
+          <span class="chip chip-cyan">【振替(入)】 {{ memo_txt|default:"手入力" }}</span>
+        {% elif r.kind == r.Kind.XFER_OUT %}
+          <span class="chip chip-fuchsia">【振替(出)】 {{ memo_txt|default:"手入力" }}</span>
+        {% else %}
+          <span class="chip chip-slate">【その他】 {{ memo_txt|default:"手入力" }}</span>
+        {% endif %}
+      {% endwith %}
     {% endif %}
 
+    {# === 2行目：日付 | 証券会社 | 種別 === #}
     <div class="meta">
       {{ r.at|default:"" }} ｜ {{ r.account.broker|default:"" }} ｜ 種別：
       {% if r.kind == r.Kind.DEPOSIT %}入金{% elif r.kind == r.Kind.WITHDRAW %}出金
@@ -126,13 +140,10 @@
       {% else %}その他{% endif %}
     </div>
 
+    {# === 3行目：金額（右寄せ） === #}
     <div class="amount">{{ r.amount|intcomma }} 円</div>
 
-    {% with m=r.memo|default_if_none:"" %}
-      {% if m and m|slice:":4" != "実現損益" and m|slice:":2" != "配当" and m|slice:":2" != "現物" and m|slice:":2" != "保有" %}
-        <div class="memo">{{ m }}</div>
-      {% endif %}
-    {% endwith %}
+    {# メモはチップ化したので、ここでは余計な重複表示を避ける #}
   </div>
 {% empty %}
   <div class="text-slate-400">該当データがありません。</div>
