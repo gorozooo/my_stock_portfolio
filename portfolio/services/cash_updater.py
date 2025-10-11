@@ -1,13 +1,16 @@
-# portfolio/services/cash_updater.py
+# -*- coding: utf-8 -*-
 from __future__ import annotations
-from django.db import transaction, IntegrityError
+from django.db import transaction
+from django.db.models import Q
 
-from portfolio.models import Dividend, RealizedTrade
+from portfolio.models import Dividend, RealizedTrade, Holding
 from ..models_cash import BrokerAccount, CashLedger
 from . import cash_service as svc
 
 
-# ---- Broker 正規化 ------------------------------------------------
+# =============================
+# Broker 正規化
+# =============================
 def _norm_broker(code: str) -> str:
     if not code:
         return ""
@@ -25,7 +28,8 @@ def _get_account(broker_code: str, currency: str = "JPY") -> BrokerAccount | Non
     code  = _norm_broker(broker_code)
     label = _label_from_code(code)
     qs = BrokerAccount.objects.filter(currency=currency)
-    return qs.filter(broker=code).first() or qs.filter(broker=label).first()
+    return qs.filter(Q(broker=code) | Q(broker=label)).first()
+
 
 def _as_int(x) -> int:
     try:
@@ -34,76 +38,113 @@ def _as_int(x) -> int:
         return 0
 
 
-# ---- 内部ヘルパ：セーブポイント付き create --------------------
-def _create_ledger_safe(**kwargs) -> bool:
+# =============================
+# 内部ヘルパ
+# =============================
+def _upsert_ledger(**kwargs):
     """
-    1レコードの作成を savepoint で隔離。
-    IntegrityError はロールバックして False を返す（外側トランザクションを壊さない）。
+    CashLedger を source_type + source_id で上書き（存在すれば更新）。
     """
-    try:
-        with transaction.atomic():  # savepoint=True デフォルト
-            CashLedger.objects.create(**kwargs)
-        return True
-    except IntegrityError:
-        return False
-
-
-# ---- 同期本体 ----------------------------------------------------
-def sync_from_dividends() -> int:
-    created = 0
-    # ★ iterator() は使わず、あらかじめ全件 list() 化してカーソルを閉じておく
-    dividends = list(Dividend.objects.all())
-    for d in dividends:
-        acc = _get_account(d.broker)
-        if not acc:
-            continue
-        amount = _as_int(d.net_amount())  # UIは税引後前提
-        if amount <= 0:
-            continue
-
-        ok = _create_ledger_safe(
-            account=acc,
-            amount=amount,
-            kind=CashLedger.Kind.DEPOSIT,
-            memo=f"配当 DIV:{d.id}",
-            source_type=CashLedger.SourceType.DIVIDEND,
-            source_id=d.id,
-        )
-        if ok:
-            created += 1
+    obj, created = CashLedger.objects.update_or_create(
+        source_type=kwargs["source_type"],
+        source_id=kwargs["source_id"],
+        defaults=kwargs,
+    )
     return created
 
 
-def sync_from_realized() -> int:
+# =============================
+# 同期ロジック
+# =============================
+def sync_from_dividends() -> dict:
     created = 0
-    realized = list(RealizedTrade.objects.all())  # ← ここも iterator() 禁止！
-    for r in realized:
+    updated = 0
+    for d in Dividend.objects.all():
+        acc = _get_account(d.broker)
+        if not acc:
+            continue
+        amount = _as_int(d.net_amount())
+        if amount <= 0:
+            continue
+
+        # 対応する保有を探す（銘柄コード一致で1件目）
+        holding = None
+        if hasattr(d, "holding") and d.holding:
+            holding = d.holding
+        else:
+            holding = Holding.objects.filter(ticker=d.ticker).first()
+
+        created_flag = _upsert_ledger(
+            account=acc,
+            amount=amount,
+            kind=CashLedger.Kind.DEPOSIT,
+            memo=f"配当 {d.display_ticker or d.ticker or ''}",
+            source_type=CashLedger.SourceType.DIVIDEND,
+            source_id=d.id,
+            holding=holding,
+            at=d.created_at.date(),  # ← 登録日ベース
+        )
+        if created_flag:
+            created += 1
+        else:
+            updated += 1
+    return {"created": created, "updated": updated}
+
+
+def sync_from_realized() -> dict:
+    created = 0
+    updated = 0
+    for r in RealizedTrade.objects.all():
         acc = _get_account(r.broker)
         if not acc:
             continue
-        delta = _as_int(r.cashflow_effective)  # SELL=＋ / BUY=− / 料税込み
+        delta = _as_int(r.cashflow_effective)
         if delta == 0:
             continue
 
         kind = CashLedger.Kind.DEPOSIT if delta > 0 else CashLedger.Kind.WITHDRAW
-        ok = _create_ledger_safe(
+
+        holding = None
+        try:
+            holding = Holding.objects.filter(ticker=r.ticker).first()
+        except Exception:
+            pass
+
+        created_flag = _upsert_ledger(
             account=acc,
             amount=delta,
             kind=kind,
-            memo=f"実現損益 REAL:{r.id}",
+            memo=f"実現損益 {r.ticker}",
             source_type=CashLedger.SourceType.REALIZED,
             source_id=r.id,
+            holding=holding,
+            at=r.created_at.date(),  # ← 登録日ベース
         )
-        if ok:
+        if created_flag:
             created += 1
-    return created
+        else:
+            updated += 1
+    return {"created": created, "updated": updated}
 
 
+# =============================
+# 統合呼び出し
+# =============================
 def sync_all() -> dict:
     """
-    外側では atomic を張らない。
-    iterator() を使わず、savepoint 内で安全に1件ずつ insert。
+    全ソース（配当・実現損益）を同期。
+    - 登録日基準
+    - 同じ source_type+source_id は上書き
+    - holding を紐付け
     """
-    d = sync_from_dividends()
-    r = sync_from_realized()
-    return {"dividends_created": d, "realized_created": r}
+    svc.ensure_default_accounts()
+
+    res_div = sync_from_dividends()
+    res_real = sync_from_realized()
+
+    return {
+        "dividends_created": res_div["created"],
+        "dividends_updated": res_div["updated"],
+        "realized_created": res_real["created"],
+        "realized_updated": res_real["updated"],
+    }
