@@ -29,6 +29,7 @@ def _label_from_code(code: str) -> str:
 
 
 def _get_account(broker_code: str, currency: str = "JPY") -> BrokerAccount | None:
+    """BrokerAccount は“コード or 日本語名”のどちらでもヒットさせる"""
     svc.ensure_default_accounts(currency=currency)
     code = _norm_broker(broker_code)
     label = _label_from_code(code)
@@ -48,45 +49,44 @@ def _as_int(x) -> int:
 
 
 # =============================
-# Holding 検索
+# Holding 検索（現物優先）
 # =============================
 def _find_holding(broker: str, ticker: str) -> Holding | None:
     """
     優先順位：
-    ① broker一致 + ticker一致 + 口座区分（特定/NISA）
-    ② broker一致 + ticker一致
-    ③ ticker一致
+      ① broker一致 + ticker一致 + account in (SPEC, NISA) ← 現物限定
+      ② broker一致 + ticker一致
+      ③ ticker一致
+    ※ Holding のフィールド名は account（account_type ではない）
     """
     if not ticker:
         return None
 
-    norm = _norm_broker(broker)
-    name_ja = _label_from_code(norm)
+    code = _norm_broker(broker)
+    ja   = _label_from_code(code)
 
-    q = Q(ticker=ticker)
-    qs = Holding.objects.filter(q)
+    base = Holding.objects.filter(ticker=ticker)
 
-    # ① 現物口座（特定/NISA）限定で優先
-    qs1 = qs.filter(
-        Q(broker__in=[norm, name_ja]),
-        Q(account_type__in=["特定", "NISA"]),
+    # ① 現物（特定/NISA）を最優先
+    qs1 = base.filter(
+        Q(broker__in=[code, ja]),
+        Q(account__in=["SPEC", "NISA"]),
     ).order_by("-updated_at", "-id")
-
     if qs1.exists():
         return qs1.first()
 
     # ② broker一致
-    qs2 = qs.filter(broker__in=[norm, name_ja]).order_by("-updated_at", "-id")
+    qs2 = base.filter(broker__in=[code, ja]).order_by("-updated_at", "-id")
     if qs2.exists():
         return qs2.first()
 
-    # ③ tickerのみ一致
-    qs3 = qs.order_by("-updated_at", "-id")
+    # ③ ticker一致のみ
+    qs3 = base.order_by("-updated_at", "-id")
     return qs3.first() if qs3.exists() else None
 
 
 # =============================
-# 内部ヘルパ
+# Upsert（source_type + source_id で一意）
 # =============================
 def _upsert_ledger(**defaults) -> bool:
     obj, created = CashLedger.objects.update_or_create(
@@ -109,7 +109,7 @@ def sync_from_dividends() -> dict:
         if not acc:
             continue
 
-        amount = _as_int(d.net_amount())
+        amount = _as_int(d.net_amount())  # UI は税引後前提
         if amount <= 0:
             continue
 
@@ -138,7 +138,7 @@ def sync_from_realized() -> dict:
     updated = 0
 
     for r in RealizedTrade.objects.all():
-        # 現物系のみ（特定 / NISA）
+        # 現物系のみ（特定/NISA）。信用は除外
         if getattr(r, "account", "") not in ("SPEC", "NISA"):
             continue
 
@@ -146,7 +146,7 @@ def sync_from_realized() -> dict:
         if not acc:
             continue
 
-        delta = _as_int(r.cashflow_effective)
+        delta = _as_int(r.cashflow_effective)  # SELL=＋ / BUY=−（手数料・税含む）
         if delta == 0:
             continue
 
@@ -172,10 +172,15 @@ def sync_from_realized() -> dict:
 
 
 # =============================
-# 統合呼び出し
+# 統合エントリ
 # =============================
 @transaction.atomic
 def sync_all() -> dict:
+    """
+    - 配当：支払日で Ledger 作成/更新、holding を現物優先で紐付け
+    - 実損：取引日で Ledger 作成/更新、現物（SPEC/NISA）のみ対象
+    - source_type + source_id で完全 upsert（重複しない）
+    """
     svc.ensure_default_accounts()
 
     res_div = sync_from_dividends()
