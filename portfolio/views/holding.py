@@ -573,6 +573,9 @@ def holding_list(request):
     rows = _sort_rows(rows, request)
 
     summary = _aggregate(rows)
+    # ★ ここがポイント：KPI「件数」は総件数を使う
+    summary["count"] = page.paginator.count          # フィルタ後の総件数
+    summary["page_count"] = len(rows)                # （おまけ）このページに表示している件数
 
     class _PageWrap:
         def __init__(self, src, objs):
@@ -613,6 +616,9 @@ def holding_list_partial(request):
     rows = _sort_rows(rows, request)
 
     summary = _aggregate(rows)
+    # ★ 同様に、部分描画でも総件数を入れる
+    summary["count"] = page.paginator.count
+    summary["page_count"] = len(rows)
 
     class _PageWrap:
         def __init__(self, src, objs):
