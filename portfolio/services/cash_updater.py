@@ -1,3 +1,4 @@
+# portfolio/services/cash_updater.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from django.db import transaction
@@ -49,15 +50,15 @@ def _as_int(x) -> int:
 
 
 # =============================
-# Holding 検索（現物優先）
+# Holding 検索（希望口座優先）
 # =============================
-def _find_holding(broker: str, ticker: str) -> Holding | None:
+def _find_holding(broker: str, ticker: str, desired_account: str | None = None) -> Holding | None:
     """
     優先順位：
-      ① broker一致 + ticker一致 + account in (SPEC, NISA) ← 現物限定
-      ② broker一致 + ticker一致
-      ③ ticker一致
-    ※ Holding のフィールド名は account（account_type ではない）
+      ① broker一致 + ticker一致 + account == desired_account（指定があれば）
+      ② broker一致 + ticker一致 + account in (SPEC, NISA) ← 現物優先
+      ③ broker一致 + ticker一致
+      ④ ticker一致
     """
     if not ticker:
         return None
@@ -67,7 +68,16 @@ def _find_holding(broker: str, ticker: str) -> Holding | None:
 
     base = Holding.objects.filter(ticker=ticker)
 
-    # ① 現物（特定/NISA）を最優先
+    # ① 希望アカウント完全一致
+    if desired_account:
+        qs0 = base.filter(
+            Q(broker__in=[code, ja]),
+            Q(account=desired_account)
+        ).order_by("-updated_at", "-id")
+        if qs0.exists():
+            return qs0.first()
+
+    # ② 現物（特定/NISA）優先
     qs1 = base.filter(
         Q(broker__in=[code, ja]),
         Q(account__in=["SPEC", "NISA"]),
@@ -75,12 +85,12 @@ def _find_holding(broker: str, ticker: str) -> Holding | None:
     if qs1.exists():
         return qs1.first()
 
-    # ② broker一致
+    # ③ broker一致
     qs2 = base.filter(broker__in=[code, ja]).order_by("-updated_at", "-id")
     if qs2.exists():
         return qs2.first()
 
-    # ③ ticker一致のみ
+    # ④ ticker一致のみ
     qs3 = base.order_by("-updated_at", "-id")
     return qs3.first() if qs3.exists() else None
 
@@ -101,6 +111,13 @@ def _upsert_ledger(**defaults) -> bool:
 # 同期ロジック
 # =============================
 def sync_from_dividends() -> dict:
+    """
+    配当：
+      - 日付: d.date（支払日）
+      - 金額: 税引後（net）
+      - 種別: DEPOSIT（入金）
+      - Holding: d.holding が無ければ broker/ticker/account から探索
+    """
     created = 0
     updated = 0
 
@@ -109,11 +126,12 @@ def sync_from_dividends() -> dict:
         if not acc:
             continue
 
-        amount = _as_int(d.net_amount())  # UI は税引後前提
+        amount = _as_int(d.net_amount())
         if amount <= 0:
             continue
 
-        holding = getattr(d, "holding", None) or _find_holding(d.broker, d.ticker)
+        # holding 優先：明示が無ければ探索（配当の口座区分を優先ヒントに）
+        holding = getattr(d, "holding", None) or _find_holding(d.broker, d.ticker, desired_account=getattr(d, "account", None))
 
         created_now = _upsert_ledger(
             account=acc,
@@ -134,28 +152,35 @@ def sync_from_dividends() -> dict:
 
 
 def sync_from_realized() -> dict:
+    """
+    実損（売買・受渡）：
+      - 対象: **すべて**（SPEC/NISA/MARGIN を除外しない）
+      - 日付: r.trade_at（取引日）
+      - 金額: r.cashflow_effective（SELL=＋ / BUY=− / 手数料・税込み）
+      - 種別: 正なら DEPOSIT, 負なら WITHDRAW
+      - Holding: broker/ticker/口座でできるだけ一致を探す
+    """
     created = 0
     updated = 0
 
     for r in RealizedTrade.objects.all():
-        # 現物系のみ（特定/NISA）。信用は除外
-        if getattr(r, "account", "") not in ("SPEC", "NISA"):
-            continue
-
         acc = _get_account(r.broker)
         if not acc:
             continue
 
-        delta = _as_int(r.cashflow_effective)  # SELL=＋ / BUY=−（手数料・税含む）
+        delta = _as_int(r.cashflow_effective)
         if delta == 0:
             continue
 
         kind = CashLedger.Kind.DEPOSIT if delta > 0 else CashLedger.Kind.WITHDRAW
-        holding = _find_holding(r.broker, r.ticker)
+
+        # できるだけ同じ口座区分を優先して紐付け
+        desired = getattr(r, "account", None)
+        holding = _find_holding(r.broker, r.ticker, desired_account=desired)
 
         created_now = _upsert_ledger(
             account=acc,
-            at=r.trade_at,  # 取引日
+            at=r.trade_at,  # 取引日（登録日ではない）
             amount=delta,
             kind=kind,
             memo=f"実現損益 {r.ticker}".strip(),
@@ -177,9 +202,9 @@ def sync_from_realized() -> dict:
 @transaction.atomic
 def sync_all() -> dict:
     """
-    - 配当：支払日で Ledger 作成/更新、holding を現物優先で紐付け
-    - 実損：取引日で Ledger 作成/更新、現物（SPEC/NISA）のみ対象
-    - source_type + source_id で完全 upsert（重複しない）
+    - 配当：支払日で Ledger 作成/更新、holding を可能な限り紐付け
+    - 実損：取引日で Ledger 作成/更新、**SPEC/NISA/MARGIN すべて対象**
+    - source_type + source_id で完全 upsert（重複しない、毎回上書き）
     """
     svc.ensure_default_accounts()
 
