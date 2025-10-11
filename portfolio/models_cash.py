@@ -43,12 +43,13 @@ class CashLedger(models.Model):
     kind    = models.CharField(max_length=16, choices=Kind.choices)
     memo    = models.CharField(max_length=255, blank=True, default="")
 
-    # ★ auto_now_add をやめて、“発生日” をそのまま入れられるように
+    # ★ 発生日をそのまま保存（登録日固定にしない）
     at      = models.DateField(default=timezone.localdate)
 
-    # 任意：どの保有由来か辿れるように（配当/実損は None のままでOK）
+    # 任意: どの保有に紐づくか（配当/実損は None 可）
     holding = models.ForeignKey(
-        "portfolio.Holding", null=True, blank=True, on_delete=models.SET_NULL, related_name="cash_ledgers"
+        "portfolio.Holding", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="cash_ledgers"
     )
 
     # ソース一意キー
@@ -60,9 +61,8 @@ class CashLedger(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["-at", "-id"]  # 発生日で並ぶほうが台帳に自然
+        ordering = ["-at", "-id"]
         constraints = [
-            # 同一口座・同一ソースは1行だけ（NULLは対象外）
             models.UniqueConstraint(
                 fields=["account", "source_type", "source_id"],
                 condition=models.Q(source_type__isnull=False, source_id__isnull=False),
@@ -77,3 +77,25 @@ class CashLedger(models.Model):
     def __str__(self):
         src = f"{self.source_type}:{self.source_id}" if self.source_type and self.source_id else "-"
         return f"[{self.at}] {self.account} {self.amount} {self.kind} ({src})"
+
+
+class MarginState(models.Model):
+    """信用余力スナップショット（管理画面用）"""
+    account = models.ForeignKey(BrokerAccount, on_delete=models.CASCADE)
+    as_of = models.DateField()
+    cash_free = models.IntegerField(default=0)
+    stock_collateral_value = models.IntegerField(default=0)
+    haircut_pct = models.FloatField(default=0.3)
+    required_margin = models.IntegerField(default=0)
+    restricted_amount = models.IntegerField(default=0)
+
+    class Meta:
+        unique_together = ("account", "as_of")
+
+    @property
+    def collateral_usable(self) -> int:
+        return int(self.stock_collateral_value * (1.0 - self.haircut_pct))
+
+    @property
+    def available_funds(self) -> int:
+        return int(self.cash_free + self.collateral_usable - self.required_margin - self.restricted_amount)
