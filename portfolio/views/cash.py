@@ -16,7 +16,6 @@ from ..models_cash import BrokerAccount, CashLedger
 from ..services import cash_service as svc
 from ..services import cash_updater as up
 
-
 # ================== helpers ==================
 def _get_account(broker: str, currency: str = "JPY") -> BrokerAccount | None:
     svc.ensure_default_accounts(currency=currency)
@@ -51,7 +50,6 @@ def _make_low_toast(lows: list[tuple[str, int, int, float]]) -> str:
         lines.append(f"・{br}：余力 {pct:.1f}%（残り {_format_int(avail)} 円）")
     lines.append("入金やポジション整理を検討してください。")
     return "\n".join(lines)
-
 
 # ================== dashboard ==================
 @require_http_methods(["GET", "POST"])
@@ -89,14 +87,38 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 messages.error(request, f"処理に失敗：{e}")
             return redirect("cash_dashboard")
 
+        if op == "transfer":
+            messages.error(request, "振替は現在サポートしていません。")
+            return redirect("cash_dashboard")
+
         messages.error(request, "不正な操作が指定されました。")
         return redirect("cash_dashboard")
 
-    # ====== GET（表示専用：同期はしない） ======
+    # ====== GET ======
     svc.ensure_default_accounts()
-    today = date.today()
 
-    base_list = svc.broker_summaries(today)  # ← ここだけでOK
+    # 同期（失敗しても画面は表示）
+    try:
+        info = up.sync_all()
+        d_c = int(info.get("dividends_created", 0))
+        d_u = int(info.get("dividends_updated", 0))
+        r_c = int(info.get("realized_created", 0))
+        r_u = int(info.get("realized_updated", 0))
+        h_c = int(info.get("holdings_created", 0))
+        h_u = int(info.get("holdings_updated", 0))
+        if any([d_c, d_u, r_c, r_u, h_c, h_u]) or request.GET.get("force_toast") == "1":
+            messages.info(
+                request,
+                "同期完了\n"
+                f"・配当：新規 {d_c} / 更新 {d_u}\n"
+                f"・実損：新規 {r_c} / 更新 {r_u}\n"
+                f"・保有：新規 {h_c} / 更新 {h_u}"
+            )
+    except Exception as e:
+        messages.error(request, f"同期に失敗：{e}")
+
+    today = date.today()
+    base_list = svc.broker_summaries(today)
 
     LOW_RATIO = 0.30
     enhanced = []
@@ -140,7 +162,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         "cash/dashboard.html",
         {"brokers": enhanced, "kpi_total": kpi_total},
     )
-
 
 # ================== 現金履歴台帳 ==================
 PAGE_SIZE = 30
@@ -205,7 +226,6 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
         "xfer_out": int(agg["xout"] or 0),
     }
     return qs, summary
-
 
 # ---- 判定 & ラベル生成（配当/実損/保有） --------------------------
 def _source_is_dividend(v) -> bool:
@@ -330,7 +350,6 @@ def _attach_source_labels(page):
             continue
 
     page.object_list = items
-
 
 def _clean_params_for_pager(request: HttpRequest) -> dict:
     params = {}
