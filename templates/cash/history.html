@@ -33,6 +33,8 @@
         font-size:11px; line-height:1; white-space:nowrap}
   .chip-sky{border-color:rgba(125,160,255,.35); color:#c7d2fe; background:rgba(125,160,255,.08)}
   .chip-emerald{border-color:rgba(16,185,129,.35); color:#bbf7d0; background:rgba(16,185,129,.08)}
+  /* ★ 保有(初回買付/現物取得) 用 */
+  .chip-amber{border-color:rgba(245,158,11,.35); color:#fde68a; background:rgba(245,158,11,.10)}
   .actions{margin-top:6px; display:flex; justify-content:flex-end; gap:6px}
   .actions a,.actions button{padding:5px 8px; font-size:11px; border-radius:8px; border:1px solid rgba(255,255,255,.2)}
 </style>
@@ -97,21 +99,18 @@
           {% else %}その他{% endif %}
         </div>
         {% with m=r.memo|default_if_none:"" %}
-          {% if m and m|slice:":4" != "実現損益" and m|slice:":2" != "配当" %}
+          {# メモは「配当/実現損益/現物/保有」由来は二重表示回避のため省略 #}
+          {% if m and m|slice:":4" != "実現損益" and m|slice:":2" != "配当" and m|slice:":2" != "現物" and m|slice:":2" != "保有" %}
             <div class="memo">{{ m }}</div>
           {% endif %}
         {% endwith %}
       </div>
 
       <div class="text-right shrink-0">
+        {# ★ ここだけ見れば OK：バックエンドで作った src_badge を描画 #}
         {% if r.src_badge %}
-          {% if r.src_badge.kind == "配当" %}
-            <span class="{{ r.src_badge.class }}">【配当】 {{ r.src_badge.label }}</span>
-          {% elif r.src_badge.kind == "実損" %}
-            <span class="{{ r.src_badge.class }}">【実損】 {{ r.src_badge.label }}</span>
-          {% endif %}
+          <span class="{{ r.src_badge.class }}">【{{ r.src_badge.kind }}】 {{ r.src_badge.label }}</span>
         {% endif %}
-        {# 編集/削除が必要ならここにリンクを置く（現状は省略） #}
       </div>
     </div>
   </div>
