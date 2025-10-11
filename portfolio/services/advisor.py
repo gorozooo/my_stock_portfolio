@@ -3,30 +3,40 @@ from __future__ import annotations
 from typing import List, Dict, Tuple
 
 def summarize(kpis: Dict, sectors: List[Dict]) -> Tuple[str, List[str]]:
-    total = kpis.get("total_assets", 0)
-    pnl = kpis.get("unrealized_pnl", 0)
-    wr = kpis.get("win_ratio", 0)
-    cash = kpis.get("cash_balance", 0)
-    realized = kpis.get("realized_month", 0)
+    total = float(kpis.get("total_assets", 0) or 0)
+    pnl = float(kpis.get("unrealized_pnl", 0) or 0)
+    wr = float(kpis.get("win_ratio", 0) or 0)
+    cash = float(kpis.get("cash_balance", 0) or 0)
+    realized = float(kpis.get("realized_month", 0) or 0)
 
-    top = sorted(sectors, key=lambda x: x["rate"], reverse=True)[:3]
-    worst = sorted(sectors, key=lambda x: x["rate"])[:1]
+    # 上位/ワーストの簡易抽出（欠損安全）
+    safe_secs = [s for s in (sectors or []) if isinstance(s, dict)]
+    top = sorted(safe_secs, key=lambda x: x.get("rate", 0), reverse=True)[:3]
+    worst = sorted(safe_secs, key=lambda x: x.get("rate", 0))[:1]
 
-    msg = f"総資産{total:,.0f}円、含み損益{pnl:,+.0f}円（勝率{wr:.1f}%）。現金{cash:,.0f}円。"
+    # ★ここがエラー箇所：フォーマット指定子のスペースを排除
+    #   OK: {total:,.0f} / {pnl:+,.0f} / {wr:.1f}
+    msg = (
+        f"総資産{total:,.0f}円、含み損益{pnl:+,.0f}円（勝率{wr:.1f}%）。"
+        f"現金{cash:,.0f}円。"
+    )
+
     if top:
-        msg += f" 今週強いセクターは「{', '.join(s['sector'] for s in top)}」。"
+        msg += f" 今週強いセクターは「{', '.join(str(s.get('sector','')) for s in top)}」。"
     if worst:
-        msg += f" 伸び悩みは「{worst[0]['sector']}」。"
+        msg += f" 伸び悩みは「{worst[0].get('sector','')}」。"
     if realized != 0:
-        msg += f" 当月実現損益は{realized:,+.0f}円。"
+        msg += f" 当月実現損益は{realized:+,.0f}円。"
 
     actions: List[str] = []
     if wr >= 60 and pnl > 0:
         actions.append("含み益上位から一部利確を検討（勝率60%超）")
-    if cash/ max(1,total) < 0.1:
+    # 0除算ガード
+    total_nonzero = total if total > 0 else 1.0
+    if (cash / total_nonzero) < 0.10:
         actions.append("現金比率が10%未満。調整余地あり")
-    if top and top[0]["rate"] > 3:
-        actions.append(f"好調セクター「{top[0]['sector']}」で押し目待ち")
+    if top and float(top[0].get("rate", 0)) > 3:
+        actions.append(f"好調セクター「{top[0].get('sector','')}」で押し目待ち")
 
     if not actions:
         actions.append("分散維持・ルール順守で様子見")
