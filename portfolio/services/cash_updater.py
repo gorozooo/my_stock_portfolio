@@ -68,29 +68,19 @@ def _find_holding(broker: str, ticker: str, desired_account: str | None = None) 
 
     base = Holding.objects.filter(ticker=ticker)
 
-    # ① 希望アカウント完全一致
     if desired_account:
-        qs0 = base.filter(
-            Q(broker__in=[code, ja]),
-            Q(account=desired_account)
-        ).order_by("-updated_at", "-id")
+        qs0 = base.filter(Q(broker__in=[code, ja]), Q(account=desired_account)).order_by("-updated_at", "-id")
         if qs0.exists():
             return qs0.first()
 
-    # ② 現物（特定/NISA）優先
-    qs1 = base.filter(
-        Q(broker__in=[code, ja]),
-        Q(account__in=["SPEC", "NISA"]),
-    ).order_by("-updated_at", "-id")
+    qs1 = base.filter(Q(broker__in=[code, ja]), Q(account__in=["SPEC", "NISA"])).order_by("-updated_at", "-id")
     if qs1.exists():
         return qs1.first()
 
-    # ③ broker一致
     qs2 = base.filter(broker__in=[code, ja]).order_by("-updated_at", "-id")
     if qs2.exists():
         return qs2.first()
 
-    # ④ ticker一致のみ
     qs3 = base.order_by("-updated_at", "-id")
     return qs3.first() if qs3.exists() else None
 
@@ -108,7 +98,21 @@ def _upsert_ledger(**defaults) -> bool:
 
 
 # =============================
-# 同期ロジック
+# HOLDING 初期出金：source_type の安全取得
+# =============================
+def _holding_source_type_and_id(holding_id: int):
+    """
+    CashLedger.SourceType.HOLDING が存在すればそれを使う。
+    無ければ SYSTEM を使いつつ、source_id は 10_000_000 + holding.id にオフセットして衝突回避。
+    """
+    st = getattr(CashLedger.SourceType, "HOLDING", None)
+    if st is not None:
+        return st, holding_id
+    return CashLedger.SourceType.SYSTEM, int(10_000_000 + int(holding_id))
+
+
+# =============================
+# 同期ロジック：配当
 # =============================
 def sync_from_dividends() -> dict:
     """
@@ -130,7 +134,6 @@ def sync_from_dividends() -> dict:
         if amount <= 0:
             continue
 
-        # holding 優先：明示が無ければ探索（配当の口座区分を優先ヒントに）
         holding = getattr(d, "holding", None) or _find_holding(d.broker, d.ticker, desired_account=getattr(d, "account", None))
 
         created_now = _upsert_ledger(
@@ -151,10 +154,13 @@ def sync_from_dividends() -> dict:
     return {"created": created, "updated": updated}
 
 
+# =============================
+# 同期ロジック：実損（現物・信用 含む）
+# =============================
 def sync_from_realized() -> dict:
     """
     実損（売買・受渡）：
-      - 対象: **すべて**（SPEC/NISA/MARGIN を除外しない）
+      - 対象: SPEC/NISA/MARGIN すべて
       - 日付: r.trade_at（取引日）
       - 金額: r.cashflow_effective（SELL=＋ / BUY=− / 手数料・税込み）
       - 種別: 正なら DEPOSIT, 負なら WITHDRAW
@@ -173,14 +179,11 @@ def sync_from_realized() -> dict:
             continue
 
         kind = CashLedger.Kind.DEPOSIT if delta > 0 else CashLedger.Kind.WITHDRAW
-
-        # できるだけ同じ口座区分を優先して紐付け
-        desired = getattr(r, "account", None)
-        holding = _find_holding(r.broker, r.ticker, desired_account=desired)
+        holding = _find_holding(r.broker, r.ticker, desired_account=getattr(r, "account", None))
 
         created_now = _upsert_ledger(
             account=acc,
-            at=r.trade_at,  # 取引日（登録日ではない）
+            at=r.trade_at,  # 取引日
             amount=delta,
             kind=kind,
             memo=f"実現損益 {r.ticker}".strip(),
@@ -197,23 +200,87 @@ def sync_from_realized() -> dict:
 
 
 # =============================
+# 同期ロジック：現物保有の初回出金（SPEC/NISA）
+# =============================
+def sync_from_holdings() -> dict:
+    """
+    現物保有（SPEC/NISA）について、
+    初回買付相当の金額（avg_cost × quantity）を opened_at（なければ created_at）で
+    『WITHDRAW（出金）』として Ledger に upsert する。
+    - 金額が 0、または数量が 0 のものはスキップ
+    - BrokerAccount は Holding.broker から解決
+    - source_type は HOLDING があればそれ、無ければ SYSTEM + ID オフセット
+    """
+    created = 0
+    updated = 0
+
+    qs = Holding.objects.filter(account__in=["SPEC", "NISA"]).order_by("-updated_at", "-id")
+    for h in qs:
+        qty = int(h.quantity or 0)
+        unit = float(h.avg_cost or 0)
+        amount_abs = _as_int(qty * unit)
+        if amount_abs <= 0:
+            continue
+
+        acc = _get_account(h.broker)
+        if not acc:
+            continue
+
+        # 出金（マイナス）
+        amount = -abs(amount_abs)
+
+        # 日付：opened_at 優先、無ければ created_at.date()
+        at_date = getattr(h, "opened_at", None)
+        if not at_date:
+            # created_at は DateTimeField なので date() に落とす
+            created_dt = getattr(h, "created_at", None)
+            at_date = created_dt.date() if created_dt else None
+        if not at_date:
+            # どうしても無ければスキップ（不正な保有）
+            continue
+
+        st, sid = _holding_source_type_and_id(h.id)
+
+        created_now = _upsert_ledger(
+            account=acc,
+            at=at_date,
+            amount=amount,
+            kind=CashLedger.Kind.WITHDRAW,
+            memo=f"現物取得 {h.ticker}".strip(),
+            source_type=st,
+            source_id=sid,
+            holding=h,
+        )
+        if created_now:
+            created += 1
+        else:
+            updated += 1
+
+    return {"created": created, "updated": updated}
+
+
+# =============================
 # 統合エントリ
 # =============================
 @transaction.atomic
 def sync_all() -> dict:
     """
-    - 配当：支払日で Ledger 作成/更新、holding を可能な限り紐付け
-    - 実損：取引日で Ledger 作成/更新、**SPEC/NISA/MARGIN すべて対象**
-    - source_type + source_id で完全 upsert（重複しない、毎回上書き）
+    - 現物保有（SPEC/NISA）：opened_at/created_at で『初回出金』を upsert
+    - 配当：支払日で upsert（税引後net）＋ Holding 紐付け
+    - 実損：取引日で upsert（現物/信用すべて）＋ Holding 紐付け
+    - すべて source_type + source_id で完全 upsert（重複なし、毎回上書き）
     """
     svc.ensure_default_accounts()
 
-    res_div = sync_from_dividends()
+    res_hold = sync_from_holdings()
+    res_div  = sync_from_dividends()
     res_real = sync_from_realized()
 
     return {
+        "holdings_created":  res_hold["created"],
+        "holdings_updated":  res_hold["updated"],
         "dividends_created": res_div["created"],
         "dividends_updated": res_div["updated"],
-        "realized_created": res_real["created"],
-        "realized_updated": res_real["updated"],
+        "realized_created":  res_real["created"],
+        "realized_updated":  res_real["updated"],
     }
