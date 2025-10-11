@@ -10,13 +10,13 @@
     background:rgba(15,20,30,.96); backdrop-filter: blur(8px);
     padding:8px; margin:0 0 8px; box-shadow:0 2px 0 rgba(255,255,255,.06) inset;
   }
+
   .quickbar{display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:6px; align-items:center;}
   .qb-ctl,.qb-btn{height:30px; padding:0 8px; font-size:12px; color:#dbe3f4;
                   background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.14);
                   border-radius:8px; min-width:0;}
   input[type="date"].qb-ctl{ color-scheme: dark; }
   .qb-btn{ background:rgba(255,255,255,.06); }
-  .qb-btn.ghost{ background:transparent; }
   #qb-broker{grid-column:1/2;} #qb-kind{grid-column:2/3;} #qb-q{grid-column:3/5;}
   #qb-start{grid-column:1/3;}  #qb-end{grid-column:3/5;}
   .btn-row{grid-column:1/-1; display:flex; justify-content:center; gap:8px; margin-top:6px;}
@@ -24,18 +24,35 @@
   .pill{border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.05);
         border-radius:8px; padding:6px 8px; text-align:center; font-size:12px; color:#cbd5e1}
   .sum-total{grid-column:1/-1; background:rgba(255,255,255,.07); font-weight:600}
-  .card{border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.04);
-        border-radius:14px; padding:10px 12px; margin-bottom:10px}
-  .amount{font-size:20px; font-weight:800}
-  .meta{margin-top:2px; font-size:11px; color:#94a3b8}
-  .memo{margin-top:2px; font-size:11px; color:#cbd5e1; word-break:break-word}
-  .chip{display:inline-flex; align-items:center; gap:.4em; padding:.25rem .5rem;
-        border-radius:9999px; border:1px solid; font-size:11px; line-height:1; white-space:nowrap}
 
-  /* === チップ色 === */
+  /* ===== 各カード ===== */
+  .card{
+    border:1px solid rgba(255,255,255,.08);
+    background:rgba(255,255,255,.04);
+    border-radius:14px;
+    padding:10px 12px;
+    margin-bottom:10px;
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+  }
+
+  .chip{display:inline-flex; align-items:center; gap:.4em; padding:.25rem .5rem;
+        border-radius:9999px; border:1px solid; font-size:11px; line-height:1;
+        white-space:nowrap; margin-bottom:2px;}
   .chip-sky{border-color:rgba(125,160,255,.35); color:#c7d2fe; background:rgba(125,160,255,.08)}       /* 配当 */
   .chip-emerald{border-color:rgba(16,185,129,.35); color:#bbf7d0; background:rgba(16,185,129,.08)}     /* 実損 */
   .chip-amber{border-color:rgba(245,158,11,.35); color:#fde68a; background:rgba(245,158,11,.10)}       /* 保有 */
+
+  .meta{font-size:11px; color:#94a3b8}
+  .amount{
+    text-align:right;
+    font-size:20px;
+    font-weight:800;
+    color:#e6ebff;
+    letter-spacing:0.02em;
+  }
+  .memo{margin-top:2px; font-size:11px; color:#cbd5e1; word-break:break-word}
 
   .actions{margin-top:6px; display:flex; justify-content:flex-end; gap:6px}
   .actions a,.actions button{padding:5px 8px; font-size:11px; border-radius:8px;
@@ -92,34 +109,30 @@
 
 {% for r in page.object_list %}
   <div class="card" data-ledger-id="{{ r.id }}">
-    <div class="flex items-start justify-between gap-3">
-      <div class="min-w-0">
-        <div class="amount">{{ r.amount|intcomma }} 円</div>
-        <div class="meta">
-          {{ r.at|default:"" }} ｜ {{ r.account.broker|default:"" }} ｜ 種別：
-          {% if r.kind == r.Kind.DEPOSIT %}入金{% elif r.kind == r.Kind.WITHDRAW %}出金
-          {% elif r.kind == r.Kind.XFER_IN %}振替(入){% elif r.kind == r.Kind.XFER_OUT %}振替(出)
-          {% else %}その他{% endif %}
-        </div>
-        {% with m=r.memo|default_if_none:"" %}
-          {% if m and m|slice:":4" != "実現損益" and m|slice:":2" != "配当" and m|slice:":2" != "現物" and m|slice:":2" != "保有" %}
-            <div class="memo">{{ m }}</div>
-          {% endif %}
-        {% endwith %}
-      </div>
+    {% if r.src_badge %}
+      {% if r.src_badge.kind == "配当" %}
+        <span class="chip chip-sky">【配当】 {{ r.src_badge.label }}</span>
+      {% elif r.src_badge.kind == "実損" %}
+        <span class="chip chip-emerald">【実損】 {{ r.src_badge.label }}</span>
+      {% elif r.src_badge.kind == "保有" %}
+        <span class="chip chip-amber">【保有】 {{ r.src_badge.label }}</span>
+      {% endif %}
+    {% endif %}
 
-      <div class="text-right shrink-0">
-        {% if r.src_badge %}
-          {% if r.src_badge.kind == "配当" %}
-            <span class="chip chip-sky">【配当】 {{ r.src_badge.label }}</span>
-          {% elif r.src_badge.kind == "実損" %}
-            <span class="chip chip-emerald">【実損】 {{ r.src_badge.label }}</span>
-          {% elif r.src_badge.kind == "保有" %}
-            <span class="chip chip-amber">【保有】 {{ r.src_badge.label }}</span>
-          {% endif %}
-        {% endif %}
-      </div>
+    <div class="meta">
+      {{ r.at|default:"" }} ｜ {{ r.account.broker|default:"" }} ｜ 種別：
+      {% if r.kind == r.Kind.DEPOSIT %}入金{% elif r.kind == r.Kind.WITHDRAW %}出金
+      {% elif r.kind == r.Kind.XFER_IN %}振替(入){% elif r.kind == r.Kind.XFER_OUT %}振替(出)
+      {% else %}その他{% endif %}
     </div>
+
+    <div class="amount">{{ r.amount|intcomma }} 円</div>
+
+    {% with m=r.memo|default_if_none:"" %}
+      {% if m and m|slice:":4" != "実現損益" and m|slice:":2" != "配当" and m|slice:":2" != "現物" and m|slice:":2" != "保有" %}
+        <div class="memo">{{ m }}</div>
+      {% endif %}
+    {% endwith %}
   </div>
 {% empty %}
   <div class="text-slate-400">該当データがありません。</div>
