@@ -1,3 +1,4 @@
+# portfolio/models_cash.py
 from __future__ import annotations
 from django.db import models
 from django.utils import timezone
@@ -22,6 +23,7 @@ class BrokerAccount(models.Model):
             label += f" - {self.name}"
         return f"{label} ({self.currency})"
 
+
 class CashLedger(models.Model):
     class Kind(models.TextChoices):
         DEPOSIT  = "DEPOSIT",  "入金"
@@ -30,16 +32,26 @@ class CashLedger(models.Model):
         XFER_OUT = "XFER_OUT", "振替出金"
 
     class SourceType(models.TextChoices):
-        DIVIDEND = "DIV",  "Dividend"
-        REALIZED = "REAL", "RealizedTrade"
+        DIVIDEND = "DIV",   "Dividend"
+        REALIZED = "REAL",  "RealizedTrade"
+        HOLDING  = "HOLD",  "Holding 初回買付"   # ★ 追加
 
-    account = models.ForeignKey(BrokerAccount, on_delete=models.CASCADE, related_name="ledgers")
+    account = models.ForeignKey(
+        BrokerAccount, on_delete=models.CASCADE, related_name="ledgers"
+    )
     amount  = models.BigIntegerField(help_text="現金増減。入金は＋、出金は−")
     kind    = models.CharField(max_length=16, choices=Kind.choices)
     memo    = models.CharField(max_length=255, blank=True, default="")
-    at      = models.DateField(auto_now_add=True)
 
-    # ★ 重複ゼロ保証のためのソースメタ
+    # ★ auto_now_add をやめて、“発生日” をそのまま入れられるように
+    at      = models.DateField(default=timezone.localdate)
+
+    # 任意：どの保有由来か辿れるように（配当/実損は None のままでOK）
+    holding = models.ForeignKey(
+        "portfolio.Holding", null=True, blank=True, on_delete=models.SET_NULL, related_name="cash_ledgers"
+    )
+
+    # ソース一意キー
     source_type = models.CharField(
         max_length=8, choices=SourceType.choices, null=True, blank=True, db_index=True
     )
@@ -48,7 +60,7 @@ class CashLedger(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["-created_at", "-id"]
+        ordering = ["-at", "-id"]  # 発生日で並ぶほうが台帳に自然
         constraints = [
             # 同一口座・同一ソースは1行だけ（NULLは対象外）
             models.UniqueConstraint(
@@ -57,27 +69,11 @@ class CashLedger(models.Model):
                 name="uniq_cash_source_per_account",
             ),
         ]
+        indexes = [
+            models.Index(fields=["at"]),
+            models.Index(fields=["source_type", "source_id"]),
+        ]
 
     def __str__(self):
-        return f"{self.account} {self.amount} {self.kind}"
-
-class MarginState(models.Model):
-    """信用余力スナップショット（まずは手入力でOK）"""
-    account = models.ForeignKey(BrokerAccount, on_delete=models.CASCADE)
-    as_of = models.DateField()
-    cash_free = models.IntegerField(default=0)
-    stock_collateral_value = models.IntegerField(default=0)
-    haircut_pct = models.FloatField(default=0.3)
-    required_margin = models.IntegerField(default=0)
-    restricted_amount = models.IntegerField(default=0)
-
-    class Meta:
-        unique_together = ("account", "as_of")
-
-    @property
-    def collateral_usable(self) -> int:
-        return int(self.stock_collateral_value * (1.0 - self.haircut_pct))
-
-    @property
-    def available_funds(self) -> int:
-        return int(self.cash_free + self.collateral_usable - self.required_margin - self.restricted_amount)
+        src = f"{self.source_type}:{self.source_id}" if self.source_type and self.source_id else "-"
+        return f"[{self.at}] {self.account} {self.amount} {self.kind} ({src})"
