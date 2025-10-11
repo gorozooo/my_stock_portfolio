@@ -134,7 +134,6 @@ document.addEventListener("DOMContentLoaded", () => {
     home: [
       { section:"クイック" },
       { label:"新規登録",         href: URLS.holding_create,  icon:"➕", tone:"add" },
-      { label:"現金（ホーム表示）",href: URLS.home_panel_cash, icon:"💵", tone:"info" },
       { label:"トレンド", href: URLS.trend_base,icon:"📈", tone:"info" },
       { label:"設定を開く",       href:"/settings/trade",     icon:"⚙️", tone:"info" },
     ],
@@ -144,7 +143,6 @@ document.addEventListener("DOMContentLoaded", () => {
       { label:"楽天証券",         action:"goto_broker", broker:"RAKUTEN", icon:"🏯", tone:"info" },
       { label:"松井証券",         action:"goto_broker", broker:"MATSUI",  icon:"📊", tone:"info" },
       { label:"SBI証券",          action:"goto_broker", broker:"SBI",     icon:"🏦", tone:"info" },
-      { label:"全て表示",         action:"goto_all_brokers",              icon:"📋", tone:"info" },
     ],
     dividends: [
       { section:"配当" },
