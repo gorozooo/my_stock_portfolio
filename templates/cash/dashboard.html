@@ -3,7 +3,7 @@
 {% block title %}現金ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=14">
+<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=15">
 <style>
 /* ===== Layout ===== */
 .cash-wrap{max-width:980px;margin:12px auto 0;padding:12px 12px 140px}
@@ -14,7 +14,7 @@
 .card h3{font-size:15px;margin:0 0 8px}
 
 /* ===== KPI ===== */
-.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.kpi-row{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}  /* 2列×2行に戻す */
 .kpi{padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
 .kpi .head{display:flex;align-items:center;gap:6px;margin-bottom:2px;min-height:18px}
 .kpi .label{font-size:11px;color:#9aa4b2;letter-spacing:.03em;white-space:nowrap}
