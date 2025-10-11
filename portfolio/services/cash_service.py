@@ -166,13 +166,19 @@ def broker_summaries(today: date):
     ensure_default_accounts()
 
     acc_rows = [account_summary(acc, today) for acc in BrokerAccount.objects.all()]
-    grouped = defaultdict(lambda: {"cash": 0, "restricted": 0, "available": 0, "month_net": 0})
+
+    # ← ここで invested_cost も集計対象に入れる
+    grouped = defaultdict(lambda: {
+        "cash": 0, "restricted": 0, "available": 0,
+        "month_net": 0, "invested_cost": 0
+    })
     for r in acc_rows:
         g = grouped[r["broker"]]
-        g["cash"]       += r["cash"]
-        g["restricted"] += r["restricted"]
-        g["available"]  += r["available"]
-        g["month_net"]  += r["month_net"]
+        g["cash"]          += r["cash"]
+        g["restricted"]    += r["restricted"]
+        g["available"]     += r["available"]
+        g["month_net"]     += r["month_net"]
+        g["invested_cost"] += r["invested_cost"]   # ★ 追加
 
     items = []
     for broker, v in grouped.items():
@@ -182,6 +188,7 @@ def broker_summaries(today: date):
             "restricted": int(v["restricted"]),
             "available": int(v["available"]),
             "month_net": int(v["month_net"]),
+            "invested_cost": int(v["invested_cost"]),   # ★ 追加
         })
 
     pref_index = {b: i for i, b in enumerate(PREF_ORDER)}
