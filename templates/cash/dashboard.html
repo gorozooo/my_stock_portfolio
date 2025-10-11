@@ -3,7 +3,7 @@
 {% block title %}現金ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=14">
+<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=15">
 <style>
 /* ===== Layout ===== */
 .cash-wrap{max-width:980px;margin:12px auto 0;padding:12px 12px 140px}
@@ -15,10 +15,10 @@
 .card h3{font-size:15px;margin:0 0 8px}
 
 /* ===== KPI ===== */
-.kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-@media (max-width:420px){
-  .kpi-row{grid-template-columns:repeat(2,1fr)}
-}
+/* デフォ：2列→ スマホで2×2になる。横幅があれば4列に */
+.kpi-row{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+@media (min-width:640px){ .kpi-row{grid-template-columns:repeat(4,1fr)} }
+
 .kpi{
   padding:8px 10px;border-radius:10px;
   background:rgba(255,255,255,.05);
@@ -31,14 +31,15 @@
 .kpi .num{font-size:14px;font-weight:700;letter-spacing:.01em}
 .kpi .unit{font-size:11px;opacity:.75}
 
-/* ===== 枠色 ===== */
+/* 枠色 */
 .kpi.available{border-color:rgba(0,255,209,.28);box-shadow:0 0 0 1px rgba(0,255,209,.12) inset}
 .kpi.available.warn{border-color:rgba(234,179,8,.55);box-shadow:0 0 0 1px rgba(234,179,8,.26) inset}
 .kpi.available.danger{border-color:rgba(239,68,68,.70);box-shadow:0 0 0 1px rgba(239,68,68,.34) inset}
 .kpi.cash{border-color:rgba(125,160,255,.24);box-shadow:0 0 0 1px rgba(125,160,255,.10) inset}
 .kpi.cost{border-color:rgba(217,70,239,.30);box-shadow:0 0 0 1px rgba(217,70,239,.15) inset}
+.kpi.restricted{border-color:rgba(255,90,90,.26);box-shadow:0 0 0 1px rgba(255,255,255,.12) inset}
 
-/* ===== 金額の色（余力） ===== */
+/* 金額の色（余力） */
 .kpi.available .num{color:#26d07c}
 .kpi.available.warn .num{color:#eab308}
 .kpi.available.danger .num{color:#ff4d67}
@@ -109,7 +110,13 @@
           <!-- 取得原価残 -->
           <div class="kpi cost">
             <div class="head"><div class="label">取得原価残</div></div>
-            <div class="value"><span class="num">{{ b.invested_cost|intcomma }}</span><span class="unit">円</span></div>
+            <div class="value"><span class="num">{{ b.invested_cost|default:0|intcomma }}</span><span class="unit">円</span></div>
+          </div>
+
+          <!-- 拘束（復活） -->
+          <div class="kpi restricted">
+            <div class="head"><div class="label">拘束</div></div>
+            <div class="value"><span class="num">{{ b.restricted|intcomma }}</span><span class="unit">円</span></div>
           </div>
         </div>
 
