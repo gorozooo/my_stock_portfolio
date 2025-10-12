@@ -46,19 +46,34 @@
   </div>
 </section>
 
-<!-- 🧾 現物/信用 内訳 -->
 <section class="glass breakdown">
   <div class="strip-title">内訳（現物 / 信用）</div>
   <div class="bd-grid">
     <div class="bd-card">
-      <div class="bd-label">現物評価額</div>
-      <div class="bd-value">¥{{ breakdown.spot_mv|intcomma }}</div>
-      <div class="bd-sub">取得額 ¥{{ breakdown.spot_cost|intcomma }}</div>
+      <div class="bd-head">
+        <span class="dot spot"></span><span>現物</span>
+        <span class="ratio">
+          {{ breakdown.spot_mv|floatformat:0|add:""|length }}{% comment %}dummy{% endcomment %}
+        </span>
+      </div>
+      <div class="bd-row">
+        <span>評価額</span><strong>¥{{ breakdown.spot_mv|intcomma }}</strong>
+      </div>
+      <div class="bd-row sub">
+        <span>取得額</span><span>¥{{ breakdown.spot_cost|intcomma }}</span>
+      </div>
     </div>
+
     <div class="bd-card">
-      <div class="bd-label">信用評価額</div>
-      <div class="bd-value">¥{{ breakdown.margin_mv|intcomma }}</div>
-      <div class="bd-sub">取得額 ¥{{ breakdown.margin_cost|intcomma }}</div>
+      <div class="bd-head">
+        <span class="dot margin"></span><span>信用</span>
+      </div>
+      <div class="bd-row">
+        <span>評価額</span><strong>¥{{ breakdown.margin_mv|intcomma }}</strong>
+      </div>
+      <div class="bd-row sub">
+        <span>取得額</span><span>¥{{ breakdown.margin_cost|intcomma }}</span>
+      </div>
     </div>
   </div>
 </section>
