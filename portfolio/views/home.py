@@ -41,16 +41,29 @@ def _holdings_snapshot() -> dict:
     sector_map: Dict[str, Dict[str, float]] = defaultdict(lambda: {"mv": 0.0, "cost": 0.0})
 
     for h in Holding.objects.all():
+        # 信用取引を総資産から除外
+        if h.account == "MARGIN":
+            continue
+
         qty = _to_float(h.quantity)
-        cost = _to_float(h.avg_cost)
-        mv = qty * cost  # 評価額（リアルタイム価格取得は別途）
+        avg_cost = _to_float(h.avg_cost)
+
+        # ★ 現在株価（今は仮に avg_cost と同値。後で自動更新に置き換え）
+        current_price = avg_cost  
+
+        mv = current_price * qty
+        cost = avg_cost * qty
+
         total_mv += mv
-        total_cost += cost * qty
+        total_cost += cost
         total_rows += 1
-        if mv > cost * qty:
+
+        # 含み益なら勝ち扱い
+        if current_price > avg_cost:
             winners += 1
+
         sector_map[h.broker]["mv"] += mv
-        sector_map[h.broker]["cost"] += cost * qty
+        sector_map[h.broker]["cost"] += cost
 
     pnl = total_mv - total_cost
     win_ratio = round((winners / total_rows * 100) if total_rows else 0.0, 2)
@@ -69,7 +82,6 @@ def _holdings_snapshot() -> dict:
         win_ratio=win_ratio,
         by_sector=by_sector,
     )
-
 
 # =========================
 # 月次範囲
