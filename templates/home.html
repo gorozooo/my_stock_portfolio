@@ -46,34 +46,31 @@
   </div>
 </section>
 
+<!-- 🧾 内訳（現物/信用） with ゲージ -->
 <section class="glass breakdown">
   <div class="strip-title">内訳（現物 / 信用）</div>
+
+  <!-- 比率ゲージ -->
+  <div class="bd-gauge" aria-label="現物と信用の比率">
+    <div class="bd-gauge-spot"   style="width: {{ breakdown_pct.spot_pct }}%"></div>
+    <div class="bd-gauge-margin" style="width: {{ breakdown_pct.margin_pct }}%"></div>
+  </div>
+  <div class="bd-legend">
+    <span><i class="dot spot"></i>現物 {{ breakdown_pct.spot_pct }}%</span>
+    <span><i class="dot margin"></i>信用 {{ breakdown_pct.margin_pct }}%</span>
+  </div>
+
+  <!-- 数値カード -->
   <div class="bd-grid">
     <div class="bd-card">
-      <div class="bd-head">
-        <span class="dot spot"></span><span>現物</span>
-        <span class="ratio">
-          {{ breakdown.spot_mv|floatformat:0|add:""|length }}{% comment %}dummy{% endcomment %}
-        </span>
-      </div>
-      <div class="bd-row">
-        <span>評価額</span><strong>¥{{ breakdown.spot_mv|intcomma }}</strong>
-      </div>
-      <div class="bd-row sub">
-        <span>取得額</span><span>¥{{ breakdown.spot_cost|intcomma }}</span>
-      </div>
+      <div class="bd-head"><span class="dot spot"></span><span>現物</span></div>
+      <div class="bd-row"><span>評価額</span><strong>¥{{ breakdown.spot_mv|intcomma }}</strong></div>
+      <div class="bd-row sub"><span>取得額</span><span>¥{{ breakdown.spot_cost|intcomma }}</span></div>
     </div>
-
     <div class="bd-card">
-      <div class="bd-head">
-        <span class="dot margin"></span><span>信用</span>
-      </div>
-      <div class="bd-row">
-        <span>評価額</span><strong>¥{{ breakdown.margin_mv|intcomma }}</strong>
-      </div>
-      <div class="bd-row sub">
-        <span>取得額</span><span>¥{{ breakdown.margin_cost|intcomma }}</span>
-      </div>
+      <div class="bd-head"><span class="dot margin"></span><span>信用</span></div>
+      <div class="bd-row"><span>評価額</span><strong>¥{{ breakdown.margin_mv|intcomma }}</strong></div>
+      <div class="bd-row sub"><span>取得額</span><span>¥{{ breakdown.margin_cost|intcomma }}</span></div>
     </div>
   </div>
 </section>
