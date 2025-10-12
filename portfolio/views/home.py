@@ -6,12 +6,11 @@ from typing import Dict, List, Any, Union, Optional, Tuple
 from decimal import Decimal
 from django.shortcuts import render
 
-from ..services.model_resolver import resolve_models
 from ..services import advisor as svc_advisor
-from ..models import Holding, RealizedTrade, Dividend  # ← モデル明示
+from ..services.price_provider import get_prices
+from ..models import Holding, RealizedTrade, Dividend  # あなたのモデルに合わせて固定
 
 Number = Union[int, float, Decimal]
-
 
 # =========================
 # ユーティリティ
@@ -29,60 +28,6 @@ def _to_float(v: Optional[Number]) -> float:
     except Exception:
         return 0.0
 
-
-# =========================
-# 保有スナップショット
-# =========================
-def _holdings_snapshot() -> dict:
-    total_mv = 0.0
-    total_cost = 0.0
-    winners = 0
-    total_rows = 0
-    sector_map: Dict[str, Dict[str, float]] = defaultdict(lambda: {"mv": 0.0, "cost": 0.0})
-
-    for h in Holding.objects.all():
-        # 信用取引を総資産から除外
-        if h.account == "MARGIN":
-            continue
-
-        qty = _to_float(h.quantity)
-        avg_cost = _to_float(h.avg_cost)
-
-        # ★ 現在株価（今は仮に avg_cost と同値。後で自動更新に置き換え）
-        current_price = avg_cost  
-
-        mv = current_price * qty
-        cost = avg_cost * qty
-
-        total_mv += mv
-        total_cost += cost
-        total_rows += 1
-
-        # 含み益なら勝ち扱い
-        if current_price > avg_cost:
-            winners += 1
-
-        sector_map[h.broker]["mv"] += mv
-        sector_map[h.broker]["cost"] += cost
-
-    pnl = total_mv - total_cost
-    win_ratio = round((winners / total_rows * 100) if total_rows else 0.0, 2)
-
-    by_sector = []
-    for sec, d in sector_map.items():
-        mv, cost = d["mv"], d["cost"]
-        rate = round(((mv - cost) / cost * 100) if cost else 0.0, 2)
-        by_sector.append({"sector": sec, "mv": round(mv), "rate": rate})
-    by_sector.sort(key=lambda x: x["mv"], reverse=True)
-
-    return dict(
-        total_mv=round(total_mv),
-        total_cost=round(total_cost),
-        pnl=round(pnl),
-        win_ratio=win_ratio,
-        by_sector=by_sector,
-    )
-
 # =========================
 # 月次範囲
 # =========================
@@ -92,39 +37,107 @@ def _month_bounds(today: Optional[date] = None) -> Tuple[date, date]:
     next_first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
     return first, next_first
 
+# =========================
+# 保有スナップショット（現物のみを総資産に採用）
+# =========================
+def _holdings_snapshot() -> dict:
+    # 現物/信用の内訳も同時集計
+    total_mv_spot = 0.0
+    total_cost_spot = 0.0
+    total_mv_margin = 0.0
+    total_cost_margin = 0.0
+
+    winners = 0
+    total_rows = 0
+
+    # 疑似セクターは「broker」でグルーピング（必要に応じて account などに変更可）
+    sector_map: Dict[str, Dict[str, float]] = defaultdict(lambda: {"mv": 0.0, "cost": 0.0})
+
+    # 価格取得（同一ティッカーはまとめて一度だけ取りに行く）
+    tickers = [h.ticker.upper().strip() for h in Holding.objects.all() if h.ticker]
+    price_map = get_prices(sorted(set(tickers))) if tickers else {}
+
+    for h in Holding.objects.all():
+        qty = _to_float(h.quantity)
+        avg_cost = _to_float(h.avg_cost)
+
+        # 価格：yfinance等で取れればそれ、取れない場合は avg_cost を代用
+        t = (h.ticker or "").upper().strip()
+        current_price = _to_float(price_map.get(t, avg_cost))
+
+        mv = current_price * qty
+        cost = avg_cost * qty
+
+        is_margin = (h.account == "MARGIN")
+        if is_margin:
+            total_mv_margin += mv
+            total_cost_margin += cost
+        else:
+            total_mv_spot += mv
+            total_cost_spot += cost
+            total_rows += 1
+            if current_price > avg_cost:
+                winners += 1
+
+            # ブローカー別グルーピング（現物のみ）
+            sec_key = h.broker or "OTHER"
+            sector_map[sec_key]["mv"] += mv
+            sector_map[sec_key]["cost"] += cost
+
+    pnl_spot = total_mv_spot - total_cost_spot
+    win_ratio = round((winners / total_rows * 100) if total_rows else 0.0, 2)
+
+    by_sector: List[Dict[str, Any]] = []
+    for sec, d in sector_map.items():
+        mv = d["mv"]
+        cost = d["cost"]
+        rate = round(((mv - cost) / cost * 100) if cost > 0 else 0.0, 2)
+        by_sector.append({"sector": sec, "mv": round(mv), "rate": rate})
+    by_sector.sort(key=lambda x: x["mv"], reverse=True)
+
+    return dict(
+        # 総資産は現物のみ
+        total_mv=round(total_mv_spot),
+        total_cost=round(total_cost_spot),
+        pnl=round(pnl_spot),
+        win_ratio=win_ratio,
+        by_sector=by_sector[:10],
+        breakdown={
+            "spot_mv": round(total_mv_spot),
+            "spot_cost": round(total_cost_spot),
+            "margin_mv": round(total_mv_margin),
+            "margin_cost": round(total_cost_margin),
+        },
+    )
 
 # =========================
-# 実現損益
+# 実現損益（月次）
 # =========================
-def _sum_realized_month() -> float:
+def _sum_realized_month() -> int:
     first, next_first = _month_bounds()
     total = 0.0
     for r in RealizedTrade.objects.filter(trade_at__gte=first, trade_at__lt=next_first):
         total += _to_float(r.pnl)
     return round(total)
 
-
 # =========================
-# 配当（月次合計）
+# 配当（月次）
 # =========================
-def _sum_dividend_month() -> float:
+def _sum_dividend_month() -> int:
     first, next_first = _month_bounds()
     total = 0.0
     for d in Dividend.objects.filter(date__gte=first, date__lt=next_first):
         total += _to_float(d.amount)
     return round(total)
 
+# =========================
+# 現金（現状0。将来Cashモデル追加で差し替え）
+# =========================
+def _cash_balance() -> int:
+    return 0
 
 # =========================
-# 現金残高（将来Cashモデル対応）
-# =========================
-def _cash_balance() -> float:
-    # まだCashモデル未定義なら0固定
-    return 0.0
-
-
-# =========================
-# キャッシュフロー棒グラフ
+# キャッシュフロー（今月）
 # =========================
 def _cashflow_month_bars() -> list:
     return [
@@ -132,14 +145,12 @@ def _cashflow_month_bars() -> list:
         {"label": "実現益", "value": _sum_realized_month()},
     ]
 
-
 # =========================
-# ストレステスト
+# ストレステスト（現物総資産に対して）
 # =========================
 def _stress_test(delta_index_pct: float, snapshot: dict) -> int:
     beta = 0.9
     return round(snapshot["total_mv"] * (1.0 + beta * delta_index_pct / 100.0))
-
 
 # =========================
 # View
@@ -148,7 +159,7 @@ def home(request):
     snap = _holdings_snapshot()
 
     kpis = {
-        "total_assets": snap["total_mv"],
+        "total_assets": snap["total_mv"],         # 現物のみ
         "unrealized_pnl": snap["pnl"],
         "realized_month": _sum_realized_month(),
         "win_ratio": snap["win_ratio"],
@@ -167,6 +178,6 @@ def home(request):
         ai_note=ai_note,
         ai_actions=ai_actions,
         stressed_default=stressed,
+        breakdown=snap["breakdown"],  # 現物/信用の内訳
     )
-
     return render(request, "home.html", ctx)
