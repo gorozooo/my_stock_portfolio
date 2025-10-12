@@ -46,3 +46,14 @@ document.addEventListener("DOMContentLoaded", () => {
     alert("次の一手レコメンド（AI接続予定）。現金比率・含み益・セクター偏りから提案します。");
   });
 });
+
+// KPIの色（プラス=緑 / マイナス=赤）
+(function(){
+  const toNum = (s)=> Number(String(s).replace(/[^0-9\-\.]/g,'') || 0);
+  const pnls = document.querySelectorAll('.kpi-card .kpi-value');
+  pnls.forEach(el=>{
+    const val = toNum(el.textContent);
+    if (val > 0) el.classList.add('pos');
+    if (val < 0) el.classList.add('neg');
+  });
+})();
