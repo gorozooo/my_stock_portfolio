@@ -34,8 +34,8 @@ def _month_bounds(today: Optional[date] = None) -> Tuple[date, date]:
 def _holdings_snapshot() -> dict:
     """
     - 総資産は現物のみ（account != 'MARGIN'）
-    - 現在値: yfinance → 直近約定の中央値 → avg_cost
-    - 勝率: 実現トレードベース（直近90日。対象が無ければ全期間）
+    - 現在値: yfinance(.T 正規化) → 直近約定の中央値 → avg_cost
+    - 勝率: 全期間の実現トレードベース（pnl>0 を勝ち、pnl<0 を負け）
     - セクター: broker 別
     """
     # 価格取得（重複排除）
@@ -75,14 +75,8 @@ def _holdings_snapshot() -> dict:
 
     pnl_spot = total_mv_spot - total_cost_spot
 
-    # 勝率：実現トレードベース
-    first90, _ = _month_bounds()  # まず当月
-    from datetime import timedelta as _td
-    since = date.today() - _td(days=90)
-    qs = RealizedTrade.objects.filter(trade_at__gte=since)
-    if not qs.exists():
-        qs = RealizedTrade.objects.all()
-
+    # 勝率：全期間の実現トレード
+    qs = RealizedTrade.objects.all()
     win = sum(1 for r in qs if _to_float(r.pnl) > 0)
     lose = sum(1 for r in qs if _to_float(r.pnl) < 0)
     total_trades = win + lose
@@ -150,7 +144,7 @@ def home(request):
         "total_assets": snap["total_mv"],        # 現物のみ
         "unrealized_pnl": snap["pnl"],          # 推定含み損益
         "realized_month": _sum_realized_month(),
-        "win_ratio": snap["win_ratio"],         # 実現トレード勝率
+        "win_ratio": snap["win_ratio"],         # 全期間勝率
         "cash_balance": _cash_balance(),
     }
 
