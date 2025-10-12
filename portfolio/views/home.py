@@ -13,26 +13,16 @@ from ..models import Holding, RealizedTrade, Dividend
 Number = Union[int, float, Decimal]
 
 
-# =========================
-# ユーティリティ
-# =========================
+# ---------- utils ----------
 def _to_float(v: Optional[Number]) -> float:
-    if v is None:
-        return 0.0
+    if v is None: return 0.0
     if isinstance(v, Decimal):
-        try:
-            return float(v)
-        except Exception:
-            return 0.0
-    try:
-        return float(v)
-    except Exception:
-        return 0.0
+        try: return float(v)
+        except Exception: return 0.0
+    try: return float(v)
+    except Exception: return 0.0
 
 
-# =========================
-# 月次範囲
-# =========================
 def _month_bounds(today: Optional[date] = None) -> Tuple[date, date]:
     d = today or date.today()
     first = d.replace(day=1)
@@ -40,15 +30,13 @@ def _month_bounds(today: Optional[date] = None) -> Tuple[date, date]:
     return first, next_first
 
 
-# =========================
-# 保有スナップショット（現物のみを総資産に採用）
-# =========================
+# ---------- snapshots ----------
 def _holdings_snapshot() -> dict:
     """
     - 総資産は現物のみ（account != 'MARGIN'）
-    - 現在値: yfinance -> 直近の約定 -> avg_cost の順でフォールバック
-    - 勝率: 含み益の銘柄割合（現物のみ）
-    - セクター: broker 別で集計
+    - 現在値: yfinance → 直近約定の中央値 → avg_cost
+    - 勝率: 実現トレードベース（直近90日。対象が無ければ全期間）
+    - セクター: broker 別
     """
     # 価格取得（重複排除）
     tickers = sorted({(h.ticker or "").upper().strip() for h in Holding.objects.all() if h.ticker})
@@ -59,9 +47,6 @@ def _holdings_snapshot() -> dict:
     total_mv_margin = 0.0
     total_cost_margin = 0.0
 
-    winners = 0
-    total_rows = 0
-
     sector_map: Dict[str, Dict[str, float]] = defaultdict(lambda: {"mv": 0.0, "cost": 0.0})
 
     for h in Holding.objects.all():
@@ -69,10 +54,9 @@ def _holdings_snapshot() -> dict:
         avg_cost = _to_float(h.avg_cost)
         t = (h.ticker or "").upper().strip()
 
-        # 現在値のフォールバック順
-        current_price = _to_float(price_map.get(t, None))
+        # 現在値フォールバック
+        current_price = _to_float(price_map.get(t))
         if current_price <= 0:
-            # 直近約定は price_provider 側で試行済み。最後の砦として avg_cost
             current_price = avg_cost
 
         mv = current_price * qty
@@ -84,32 +68,40 @@ def _holdings_snapshot() -> dict:
         else:
             total_mv_spot += mv
             total_cost_spot += cost
-            total_rows += 1
-            if current_price > avg_cost:
-                winners += 1
 
             sec_key = h.broker or "OTHER"
             sector_map[sec_key]["mv"] += mv
             sector_map[sec_key]["cost"] += cost
 
     pnl_spot = total_mv_spot - total_cost_spot
-    win_ratio = round((winners / total_rows * 100) if total_rows else 0.0, 2)
+
+    # 勝率：実現トレードベース
+    first90, _ = _month_bounds()  # まず当月
+    from datetime import timedelta as _td
+    since = date.today() - _td(days=90)
+    qs = RealizedTrade.objects.filter(trade_at__gte=since)
+    if not qs.exists():
+        qs = RealizedTrade.objects.all()
+
+    win = sum(1 for r in qs if _to_float(r.pnl) > 0)
+    lose = sum(1 for r in qs if _to_float(r.pnl) < 0)
+    total_trades = win + lose
+    win_ratio = round((win / total_trades * 100.0) if total_trades else 0.0, 1)
 
     by_sector: List[Dict[str, Any]] = []
     for sec, d in sector_map.items():
-        mv = d["mv"]
-        cost = d["cost"]
+        mv = d["mv"]; cost = d["cost"]
         rate = round(((mv - cost) / cost * 100) if cost > 0 else 0.0, 2)
         by_sector.append({"sector": sec, "mv": round(mv), "rate": rate})
     by_sector.sort(key=lambda x: x["mv"], reverse=True)
 
     return dict(
-        total_mv=round(total_mv_spot),         # 総資産は現物のみ
+        total_mv=round(total_mv_spot),
         total_cost=round(total_cost_spot),
-        pnl=round(pnl_spot),                   # 含み損益（現物）
-        win_ratio=win_ratio,                   # 勝率（現物）
+        pnl=round(pnl_spot),
+        win_ratio=win_ratio,
         by_sector=by_sector[:10],
-        breakdown={                            # 内訳カード用
+        breakdown={
             "spot_mv": round(total_mv_spot),
             "spot_cost": round(total_cost_spot),
             "margin_mv": round(total_mv_margin),
@@ -118,9 +110,6 @@ def _holdings_snapshot() -> dict:
     )
 
 
-# =========================
-# 実現損益（月次）
-# =========================
 def _sum_realized_month() -> int:
     first, next_first = _month_bounds()
     total = 0.0
@@ -129,9 +118,6 @@ def _sum_realized_month() -> int:
     return round(total)
 
 
-# =========================
-# 配当（月次）
-# =========================
 def _sum_dividend_month() -> int:
     first, next_first = _month_bounds()
     total = 0.0
@@ -140,16 +126,10 @@ def _sum_dividend_month() -> int:
     return round(total)
 
 
-# =========================
-# 現金（Cashモデル未導入のため0）
-# =========================
 def _cash_balance() -> int:
-    return 0
+    return 0  # Cash未導入
 
 
-# =========================
-# キャッシュフロー（今月）
-# =========================
 def _cashflow_month_bars() -> list:
     return [
         {"label": "配当", "value": _sum_dividend_month()},
@@ -157,25 +137,20 @@ def _cashflow_month_bars() -> list:
     ]
 
 
-# =========================
-# ストレステスト（現物総資産に対して）
-# =========================
 def _stress_test(delta_index_pct: float, snapshot: dict) -> int:
     beta = 0.9
     return round(snapshot["total_mv"] * (1.0 + beta * delta_index_pct / 100.0))
 
 
-# =========================
-# View
-# =========================
+# ---------- view ----------
 def home(request):
     snap = _holdings_snapshot()
 
     kpis = {
-        "total_assets": snap["total_mv"],         # 現物のみ
-        "unrealized_pnl": snap["pnl"],
+        "total_assets": snap["total_mv"],        # 現物のみ
+        "unrealized_pnl": snap["pnl"],          # 推定含み損益
         "realized_month": _sum_realized_month(),
-        "win_ratio": snap["win_ratio"],
+        "win_ratio": snap["win_ratio"],         # 実現トレード勝率
         "cash_balance": _cash_balance(),
     }
 
@@ -191,6 +166,6 @@ def home(request):
         ai_note=ai_note,
         ai_actions=ai_actions,
         stressed_default=stressed,
-        breakdown=snap["breakdown"],  # 現物/信用の内訳（テンプレで表示）
+        breakdown=snap["breakdown"],
     )
     return render(request, "home.html", ctx)
