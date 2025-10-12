@@ -26,7 +26,14 @@ class Holding(models.Model):
     # 数量 / 平均取得単価
     quantity = models.IntegerField(default=0)
     avg_cost = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-
+    
+    # ▼ 追加（夜間バッチで更新）
+    last_price = models.DecimalField(
+        max_digits=14, decimal_places=2, null=True, blank=True,
+        help_text="最終終値（1株・自動更新）"
+    )
+    last_price_updated = models.DateTimeField(null=True, blank=True)
+    
     # ★ 追加: 証券会社 / 売買方向 / 口座区分
     BROKER_CHOICES = (
         ("RAKUTEN", "楽天証券"),
