@@ -30,15 +30,17 @@ section{ margin:14px 12px; }
 }
 .kpi-card{
   border-radius:12px; padding:12px; background:var(--glass); border:1px solid var(--line);
+  display:flex; flex-direction:column; justify-content:center; min-height:88px; /* 高さを揃える */
 }
 .kpi-label{ color:var(--muted); font-size:.85rem; }
 .kpi-value{ font-size:1.3rem; font-weight:700; margin-top:4px; }
 .kpi-value.pos{ color:var(--good); }
 .kpi-value.neg{ color:var(--bad); }
-.kpi-sub{ font-size:.9rem; margin-top:4px; opacity:.8; }
+.kpi-sub{ font-size:.85rem; margin-top:4px; }
 .kpi-sub.muted{ color:var(--muted); }
 
 /* === 2段式 ROI カード === */
+.roi-card{ gap:6px; }
 .roi-card .roi-row{
   display:flex; align-items:center; justify-content:space-between;
   padding:6px 8px; border-bottom:1px dashed rgba(255,255,255,.08);
@@ -51,10 +53,10 @@ section{ margin:14px 12px; }
 .roi-card .roi-value{ font-weight:800; font-size:1.2rem }
 .roi-card .eval .roi-value.pos{ color:var(--good) }
 .roi-card .eval .roi-value.neg{ color:var(--bad) }
-/* 現金ROIはブルー系で統一表示 */
+/* 現金ROIはブルーで統一表示 */
 .roi-card .liquid .roi-value{ color:#5db1ff }
 .roi-card .roi-foot{
-  margin-top:6px; font-size:.85rem; color:var(--muted);
+  margin-top:2px; font-size:.85rem; color:var(--muted);
   display:flex; gap:8px; align-items:center;
 }
 .roi-card .roi-gap{
@@ -62,37 +64,33 @@ section{ margin:14px 12px; }
   background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12)
 }
 
-/* ===== 今すぐ現金化（ヒーロー＋サマリー） ===== */
-.liquidation{ padding:12px; }
-.liq-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
-.liq-head .title{ font-weight:700; }
+/* ▼ モバイルでは ROI カードを横幅いっぱいにしてバランス最適化 */
+.kpi-grid .roi-card{ grid-column:1 / -1; }
+
+/* ===== 今すぐ現金化（カード） ===== */
+.liquidation, .liquid{ padding:12px; }
+.liq-head, .liquid-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+.liq-head .title, .liquid-head .title{ font-weight:700; }
 .chip{
   background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12);
   padding:4px 8px; border-radius:999px; font-size:.85rem;
 }
-.liq-hero{ text-align:left; margin:6px 0 8px; }
-.liq-total{ font-size:1.9rem; font-weight:800; letter-spacing:.2px; }
-.warn-list{ margin-top:8px; }
-.warn-item{ font-size:.95rem; opacity:.95; }
+.liq-total, .liquid-hero .liquid-amount{ font-size:1.8rem; font-weight:800; letter-spacing:.2px; }
+.liq-total{ margin:6px 0 2px }
+.liquid-caption, .kpi-sub{ opacity:.8 }
 
-/* 3枚のサマリー */
-.li-sum-grid{
-  display:grid; grid-template-columns:1fr; gap:8px; margin-top:6px;
+.liq-rows{ list-style:none; margin:8px 0 10px; padding:0 }
+.liq-rows li{ display:flex; justify-content:space-between; padding:4px 0 }
+.liq-rows li.neg strong{ color:#ff6d6d }
+
+.liq-gauge-wrap{ margin-top:6px }
+.liq-gauge{
+  position:relative; height:10px; border-radius:999px; overflow:hidden;
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08);
 }
-.li-item{
-  display:flex; gap:10px; align-items:center;
-  padding:10px; border-radius:12px;
-  background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08);
-}
-.li-ic{ width:24px; height:24px; border-radius:50%; }
-.li-ic.spot{   background:linear-gradient(180deg,#2dd79b,#3fe09a); }
-.li-ic.margin{ background:linear-gradient(180deg,#ff8a8a,#ff6d6d); }
-.li-ic.cash{   background:linear-gradient(180deg,#6ea8ff,#56cfff); }
-.li-meta{ display:flex; flex-direction:column; gap:2px; }
-.li-label{ color:var(--muted); font-size:.9rem; }
-.li-value{ font-weight:700; }
-.li-value.neg{ color:var(--bad); }
-.li-value.pos{ color:var(--good); }
+.liq-gauge .spot{ height:100%; background:linear-gradient(90deg,#2dd79b,#49e28a); width:40% }
+.liq-gauge .margin{ height:100%; background:linear-gradient(90deg,#ff8a8a,#ff6d6d); float:right; width:60% }
+.liq-meta{ display:flex; justify-content:space-between; margin-top:4px; font-size:.85rem; opacity:.9 }
 
 /* ===== セクター横スク ===== */
 .sector-strip{ padding:12px; }
@@ -146,10 +144,14 @@ section{ margin:14px 12px; }
 .bd-legend-rows{list-style:none;margin:0;padding:0;display:grid;row-gap:4px}
 .bd-legend-rows li{display:grid;grid-template-columns:16px 1fr auto;column-gap:8px;align-items:center}
 .bd-legend-rows li.sub{opacity:.75;font-size:.95em}
+@media (max-width: 460px){
+  .bd-donut-wrap{grid-template-columns:1fr;justify-items:center}
+  .bd-legend-rows{width:100%}
+}
 
 /* ===== レスポンシブ ===== */
 @media (min-width: 960px){
   .kpi-grid{ grid-template-columns: repeat(4, 1fr); }
+  .kpi-grid .roi-card{ grid-column:auto; } /* デスクトップでは1枠に戻す */
   section{ margin:16px auto; max-width:1100px; }
-  .li-sum-grid{ grid-template-columns:repeat(3,1fr); }
 }
