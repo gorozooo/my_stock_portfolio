@@ -4,7 +4,7 @@
 {% block title %}ホーム | My株ポートフォリオ{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=11">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=12">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script defer src="{% static 'js/home.js' %}?v=11"></script>
 {% endblock %}
@@ -42,7 +42,6 @@
     {% endwith %}
   </div>
 
-  <!-- 新設：総実現損益（左） -->
   <div class="kpi-card">
     <div class="kpi-label">総実現損益</div>
     {% with v=kpis.realized_cum %}
@@ -50,7 +49,6 @@
     {% endwith %}
   </div>
 
-  <!-- 右に移動：今月の実現損益 -->
   <div class="kpi-card">
     <div class="kpi-label">今月の実現損益</div>
     {% with v=kpis.realized_month %}
@@ -58,7 +56,7 @@
     {% endwith %}
   </div>
 
-  <!-- 🟢/🔵 2段式 ROI カード（モバイルは1行占有） -->
+  <!-- 🟢/🔵 2段式 ROI カード -->
   <div class="kpi-card roi-card">
     <div class="roi-row eval">
       <div class="roi-label">ROI（評価ベース）</div>
@@ -79,32 +77,39 @@
   </div>
 </section>
 
-<!-- 💵 今すぐ全て現金化したら -->
+<!-- 💵 今すぐ全て現金化したら（ヒーロー＋サマリー3枚） -->
 <section class="liquidation glass">
   <div class="liq-head">
     <div class="title">今すぐ全て現金化したら</div>
     <div class="chip">流動性 {{ kpis.liquidity_rate_pct }}%</div>
   </div>
 
-  <div class="liq-total">¥{{ kpis.liquidation|intcomma }}</div>
-  <div class="kpi-sub">税・手数料は考慮なし</div>
+  <div class="liq-hero">
+    <div class="liq-total">¥{{ kpis.liquidation|intcomma }}</div>
+    <div class="kpi-sub">税・手数料は考慮なし</div>
+  </div>
 
-  <ul class="liq-rows">
-    <li><span>現物の評価額</span><strong>¥{{ breakdown.spot_mv|intcomma }}</strong></li>
-    <li class="{% if kpis.margin_unrealized < 0 %}neg{% endif %}">
-      <span>信用の含み損益</span><strong>¥{{ kpis.margin_unrealized|intcomma }}</strong>
-    </li>
-    <li><span>現金残高</span><strong>¥{{ kpis.cash_total|intcomma }}</strong></li>
-  </ul>
-
-  <div class="liq-gauge-wrap">
-    <div class="liq-gauge">
-      <div class="spot"   style="width: {{ breakdown_pct.spot_pct }}%"></div>
-      <div class="margin" style="width: {{ breakdown_pct.margin_pct }}%"></div>
+  <div class="li-sum-grid">
+    <div class="li-item">
+      <div class="li-ic spot"></div>
+      <div class="li-meta">
+        <div class="li-label">現物の評価額</div>
+        <div class="li-value">¥{{ breakdown.spot_mv|intcomma }}</div>
+      </div>
     </div>
-    <div class="liq-meta">
-      <span>現物比率 {{ breakdown_pct.spot_pct }}%</span>
-      <span>信用比率 {{ breakdown_pct.margin_pct }}%</span>
+    <div class="li-item">
+      <div class="li-ic margin"></div>
+      <div class="li-meta">
+        <div class="li-label">信用の含み損益</div>
+        <div class="li-value {% if kpis.margin_unrealized < 0 %}neg{% else %}pos{% endif %}">¥{{ kpis.margin_unrealized|intcomma }}</div>
+      </div>
+    </div>
+    <div class="li-item">
+      <div class="li-ic cash"></div>
+      <div class="li-meta">
+        <div class="li-label">現金残高</div>
+        <div class="li-value">¥{{ kpis.cash_total|intcomma }}</div>
+      </div>
     </div>
   </div>
 
