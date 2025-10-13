@@ -16,14 +16,14 @@ document.addEventListener("DOMContentLoaded", () => {
     pctEl.textContent = pct.toString();
     mvEl.textContent = "¥" + mv.toLocaleString();
   };
-  slider.addEventListener("input", updateStress);
+  slider?.addEventListener("input", updateStress);
   updateStress();
 
   // キャッシュフロー棒グラフ
   const cashCanvas = document.getElementById("cashflowChart");
   if (cashCanvas && window.Chart) {
-    const labels = data.cash_bars.map(x=>x.label);
-    const values = data.cash_bars.map(x=>x.value);
+    const labels = (data.cash_bars || []).map(x=>x.label);
+    const values = (data.cash_bars || []).map(x=>x.value);
     new Chart(cashCanvas.getContext("2d"), {
       type: "bar",
       data: {
@@ -45,15 +45,15 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-ai-rebalance")?.addEventListener("click", () => {
     alert("次の一手レコメンド（AI接続予定）。現金比率・含み益・セクター偏りから提案します。");
   });
-});
 
-// KPIの色（プラス=緑 / マイナス=赤）
-(function(){
-  const toNum = (s)=> Number(String(s).replace(/[^0-9\-\.]/g,'') || 0);
-  const pnls = document.querySelectorAll('.kpi-card .kpi-value');
-  pnls.forEach(el=>{
-    const val = toNum(el.textContent);
-    if (val > 0) el.classList.add('pos');
-    if (val < 0) el.classList.add('neg');
-  });
-})();
+  // KPIの色（プラス=緑 / マイナス=赤）※サーバ側で付与済みだが保険で実装
+  (function(){
+    const toNum = (s)=> Number(String(s).replace(/[^0-9\-\.]/g,'') || 0);
+    const pnls = document.querySelectorAll('.kpi-card .kpi-value');
+    pnls.forEach(el=>{
+      const val = toNum(el.textContent);
+      if (val > 0) el.classList.add('pos');
+      if (val < 0) el.classList.add('neg');
+    });
+  })();
+});
