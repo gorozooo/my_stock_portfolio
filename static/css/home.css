@@ -14,7 +14,7 @@ body{ background: radial-gradient(1200px 600px at 20% -10%, #132035 0%, #0b0f1a 
 }
 section{ margin:14px 12px; }
 
-/* header */
+/* ===== AIヘッダー ===== */
 .ai-header{ padding:14px; }
 .ai-title{ font-weight:700; letter-spacing:.2px; margin-bottom:6px; }
 .ai-note{ margin:6px 0 8px; color:var(--fg); }
@@ -24,66 +24,115 @@ section{ margin:14px 12px; }
   padding:8px 12px; border-radius:10px; margin-right:8px;
 }
 
-/* KPI */
-.kpi-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; padding: 0 12px; }
-.kpi-card{ border-radius:12px; padding:12px; background:var(--glass); border:1px solid var(--line); }
+/* ===== KPI ===== */
+.kpi-grid{
+  display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:0 12px;
+}
+.kpi-card{
+  border-radius:12px; padding:12px; background:var(--glass); border:1px solid var(--line);
+}
 .kpi-label{ color:var(--muted); font-size:.85rem; }
 .kpi-value{ font-size:1.3rem; font-weight:700; margin-top:4px; }
-.kpi-value.pos{ color:var(--good); } .kpi-value.neg{ color:var(--bad); }
-.kpi-value-inline{ font-weight:700; margin-left:6px; }
-.kpi-sub{ font-size:.9rem; margin-top:4px; }
+.kpi-value.pos{ color:var(--good); }
+.kpi-value.neg{ color:var(--bad); }
+.kpi-sub{ font-size:.85rem; margin-top:4px; }
 .kpi-sub.muted{ color:var(--muted); }
-.pill{ border:1px solid rgba(255,255,255,.18); border-radius:999px; padding:2px 8px; font-size:.8rem; }
-.pill.acc{ border-color:#1dd1a1; color:#1dd1a1; }
-.pill.pri{ border-color:#6ea8ff; color:#6ea8ff; }
 
-@media (min-width: 960px){
-  .kpi-grid{ grid-template-columns: repeat(4, 1fr); }
-  section{ margin:16px auto; max-width: 1100px; }
+/* === 2段式 ROI カード === */
+.roi-card .roi-row{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:6px 8px; border-bottom:1px dashed rgba(255,255,255,.08);
+  border-radius:10px;
+}
+.roi-card .roi-row:last-child{ border-bottom:0 }
+.roi-card .eval{ background:linear-gradient(90deg, rgba(38,208,124,.12), transparent) }
+.roi-card .liquid{ background:linear-gradient(90deg, rgba(80,160,255,.12), transparent) }
+.roi-card .roi-label{ color:var(--muted); font-size:.9rem }
+.roi-card .roi-value{ font-weight:800; font-size:1.2rem }
+.roi-card .eval .roi-value.pos{ color:var(--good) }
+.roi-card .eval .roi-value.neg{ color:var(--bad) }
+/* 現金ROIはブルー系で統一表示（＋でも−でも青で“現金側”と分かる） */
+.roi-card .liquid .roi-value.pos,
+.roi-card .liquid .roi-value.neg{ color:#5db1ff }
+.roi-card .roi-foot{
+  margin-top:6px; font-size:.85rem; color:var(--muted);
+  display:flex; gap:8px; align-items:center;
+}
+.roi-card .roi-gap{
+  margin-left:auto; font-size:.8rem; padding:2px 6px; border-radius:999px;
+  background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12)
 }
 
-/* Liquidation */
-.liquid{ padding:12px; }
-.li-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-.li-head .title{ font-weight:600; }
-.chip{ background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12);
-  padding:4px 8px; border-radius:999px; font-size:.85rem; }
-.li-hero{ text-align:center; margin:6px 0 8px; }
-.li-amount{ font-size:1.8rem; font-weight:800; letter-spacing:.2px; }
-.li-caption{ opacity:.8; font-size:.85rem; }
-.li-grid{ display:grid; grid-template-columns:1fr auto; row-gap:6px; column-gap:8px; margin-top:8px; }
-.li-grid > div{ color:var(--muted); }
-.pos{ color:var(--good); } .neg{ color:var(--bad); }
+/* ===== 今すぐ現金化（カード） ===== */
+/* テンプレ側は .liquidation を使う。後方互換で .liquid も同デザインに合わせる */
+.liquidation, .liquid{ padding:12px; }
+.liq-head, .liquid-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+.liq-head .title, .liquid-head .title{ font-weight:700; }
+.chip{
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12);
+  padding:4px 8px; border-radius:999px; font-size:.85rem;
+}
+.liq-total, .liquid-hero .liquid-amount{ font-size:1.8rem; font-weight:800; letter-spacing:.2px; }
+.liq-total{ margin:6px 0 2px }
+.liquid-caption, .kpi-sub{ opacity:.8 }
+
+.liq-rows{ list-style:none; margin:8px 0 10px; padding:0 }
+.liq-rows li{ display:flex; justify-content:space-between; padding:4px 0 }
+.liq-rows li.neg strong{ color:#ff6d6d }
+
+.liq-gauge-wrap{ margin-top:6px }
+.liq-gauge{
+  position:relative; height:10px; border-radius:999px; overflow:hidden;
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08);
+}
+.liq-gauge .spot{ height:100%; background:linear-gradient(90deg,#2dd79b,#49e28a); width:40% }
+.liq-gauge .margin{ height:100%; background:linear-gradient(90deg,#ff8a8a,#ff6d6d); float:right; width:60% }
+.liq-meta{ display:flex; justify-content:space-between; margin-top:4px; font-size:.85rem; opacity:.9 }
+
+.liquid-hero{ text-align:center; margin:6px 0 8px; }
+.liquid-amount{ font-size:1.6rem; font-weight:800; }
+.liquid-grid{ display:grid; grid-template-columns:1fr auto; row-gap:6px; column-gap:8px; margin-top:6px; }
+.li-row{ display:contents; }
+.li-row span{ color:var(--muted); }
+.li-row strong{ text-align:right; }
+.pos{ color:var(--good); }
+.neg{ color:var(--bad); }
 .li-bar{ height:12px; border-radius:999px; overflow:hidden; margin:10px 0 6px;
   background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); }
 .li-bar-fill{ height:100%; background:linear-gradient(90deg, #6ea8ff, #00ffd1); }
-.li-badges{ display:flex; gap:8px; list-style:none; margin:6px 0 0; padding:0; }
-.warn-list{ margin-top:8px; } .warn-item{ font-size:.9rem; opacity:.95; }
+.li-badges{ display:flex; gap:8px; list-style:none; margin:6px 0 0; padding:0;}
+.pill{ border:1px solid rgba(255,255,255,.14); border-radius:999px; padding:4px 10px; }
+.pill.warn{ border-color:#ff7a7a; color:#ffb0b7; }
+.warn-list{ margin-top:8px; }
+.warn-item{ font-size:.9rem; opacity:.9; }
 
-/* Sector */
+/* ===== セクター横スク ===== */
 .sector-strip{ padding:12px; }
 .strip-title{ margin-bottom:8px; color:var(--muted); font-size:.95rem; }
 .strip-scroll{ display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; }
-.sector-chip{ min-width: 160px; padding:10px; border-radius:12px; background:var(--glass); border:1px solid var(--line); }
+.sector-chip{
+  min-width:160px; padding:10px; border-radius:12px; background:var(--glass); border:1px solid var(--line);
+}
 .sec-name{ font-weight:600; margin-bottom:4px; }
 .sec-meta{ display:flex; gap:8px; align-items:center; }
 .sec-meta .mv{ color:var(--muted); font-size:.85rem; }
 .sec-meta .rate{ font-weight:700; }
-.sec-meta .rate.pos{ color:var(--good); } .sec-meta .rate.neg{ color:var(--bad); }
+.sec-meta .rate.pos{ color:var(--good); }
+.sec-meta .rate.neg{ color:var(--bad); }
 
-/* Stress */
+/* ===== キャッシュフロー / ストレス ===== */
+.cash{ padding:12px; }
+.cash-head{ margin-bottom:8px; color:var(--muted); }
 .stress{ padding:12px; }
 .stress-head{ display:flex; justify-content:space-between; margin-bottom:8px; }
 #stressSlider{ width:100%; }
 
-/* Cashflow & Todo */
-.cash{ padding:12px; }
-.cash-head{ margin-bottom:8px; color:var(--muted); }
+/* ===== 次のアクション ===== */
 .todo{ padding:12px; margin-bottom:80px; }
 .todo-head{ margin-bottom:8px; color:var(--muted); }
 .todo-list{ margin:0; padding-left:18px; }
 
-/* Breakdown */
+/* ===== breakdown 共通（現物/信用） ===== */
 .breakdown{padding:12px}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%}
 .dot.spot{background:#2dd79b}
@@ -112,4 +161,10 @@ section{ margin:14px 12px; }
 @media (max-width: 460px){
   .bd-donut-wrap{grid-template-columns:1fr;justify-items:center}
   .bd-legend-rows{width:100%}
+}
+
+/* ===== レスポンシブ ===== */
+@media (min-width: 960px){
+  .kpi-grid{ grid-template-columns: repeat(4, 1fr); }
+  section{ margin:16px auto; max-width:1100px; }
 }
