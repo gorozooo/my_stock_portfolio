@@ -7,11 +7,7 @@ from decimal import Decimal
 
 from django.shortcuts import render
 
-import pandas as pd
-import yfinance as yf
-
 from ..services import advisor as svc_advisor
-from ..services import trend as svc_trend  # ← 保有ページと同じ正規化ロジックを使う
 from ..models import Holding, RealizedTrade, Dividend
 
 Number = Union[int, float, Decimal]
@@ -21,6 +17,7 @@ Number = Union[int, float, Decimal]
 # Utilities
 # =========================
 def _to_float(v: Optional[Number]) -> float:
+    """数値→float（None/Decimal/例外に強い）"""
     try:
         if v is None:
             return 0.0
@@ -32,100 +29,25 @@ def _to_float(v: Optional[Number]) -> float:
 
 
 def _month_bounds(today: Optional[date] = None) -> Tuple[date, date]:
+    """当月 [first, next_first) を返す（28日トリックで安全）"""
     d = today or date.today()
     first = d.replace(day=1)
     next_first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
     return first, next_first
 
 
-def _norm_ticker(raw: str) -> str:
-    """'7013' -> '7013.T' など、保有ページと同じ正規化を使用"""
-    return svc_trend._normalize_ticker(str(raw or ""))
-
-
 # =========================
-# Prices (last close)
-# =========================
-def _last_close_map(tickers_raw: List[str]) -> Dict[str, float]:
-    """
-    ティッカー配列を受け取り、最終終値（1株）を返す。
-    戻り値キーは“元のティッカー”（正規化前）に揃える。
-    """
-    # 元ティッカー -> 正規化
-    base = [(t or "").strip().upper() for t in tickers_raw if t]
-    if not base:
-        return {}
-
-    norm_map: Dict[str, str] = {t: _norm_ticker(t) for t in base}
-    need = sorted(set(norm_map.values()))
-    out_norm: Dict[str, float] = {}
-
-    # 市況休場も考慮して日数は少し多め
-    try:
-        df = yf.download(
-            tickers=need if len(need) > 1 else need[0],
-            period="40d",
-            interval="1d",
-            auto_adjust=True,
-            progress=False,
-            group_by="ticker",
-        )
-    except Exception:
-        df = None
-
-    def _pick_last(nsym: str) -> Optional[float]:
-        if df is None:
-            return None
-        try:
-            if isinstance(df.columns, pd.MultiIndex):
-                # (TICKER, FIELD) の MultiIndex
-                if (nsym, "Close") in df.columns:
-                    s = df[(nsym, "Close")]
-                else:
-                    try:
-                        s = df.xs(nsym, axis=1)["Close"]  # type: ignore[index]
-                    except Exception:
-                        return None
-            else:
-                # 単一ティッカー
-                s = df["Close"]  # type: ignore[index]
-        except Exception:
-            return None
-        try:
-            last = pd.Series(s).dropna().iloc[-1]  # type: ignore[arg-type]
-            v = float(last)
-            return v if v > 0 else None
-        except Exception:
-            return None
-
-    for nsym in need:
-        v = _pick_last(nsym)
-        if v is not None:
-            out_norm[nsym] = v
-
-    # 正規化→元ティッカーへ戻す
-    out: Dict[str, float] = {}
-    for orig, nsym in norm_map.items():
-        if nsym in out_norm:
-            out[orig] = out_norm[nsym]
-    return out
-
-
-# =========================
-# Snapshots
+# Snapshots（DBの last_price を最優先に使用）
 # =========================
 def _holdings_snapshot() -> dict:
     """
     - 総資産は現物のみ（account != 'MARGIN'）
-    - 現在値は yfinance の最終終値（取れなければ avg_cost）
-    - 含み損益は現物合算、勝率は全期間の実現トレード
-    - セクター（仮）：broker 別
+    - 価格は DBの last_price を最優先 → 無ければ avg_cost（最後の砦）
+    - 含み損益は現物合算
+    - 勝率は全期間の実現トレード（pnl>0 勝ち / <0 負け）
+    - セクター（暫定）：broker 別
     """
     holdings = list(Holding.objects.all())
-
-    # 価格を一括取得（保有ページと同じ“終値ベース”）
-    tickers = [h.ticker for h in holdings if h.ticker]
-    price_map = _last_close_map(tickers) if tickers else {}
 
     total_mv_spot = 0.0
     total_cost_spot = 0.0
@@ -137,8 +59,8 @@ def _holdings_snapshot() -> dict:
     for h in holdings:
         qty = _to_float(h.quantity)
         unit = _to_float(h.avg_cost)
-        t = (h.ticker or "").upper().strip()
-        price = _to_float(price_map.get(t)) or unit  # フォールバックは avg_cost
+        # ★ 夜間バッチで更新された終値を使用（なければ取得単価で代用）
+        price = _to_float(getattr(h, "last_price", None)) or unit
 
         mv = price * qty
         cost = unit * qty
@@ -229,16 +151,28 @@ def _stress_test(delta_index_pct: float, snapshot: dict) -> int:
 def home(request):
     snap = _holdings_snapshot()
 
+    # KPI
     kpis = {
         "total_assets": snap["total_mv"],        # 現物のみ
-        "unrealized_pnl": snap["pnl"],          # 含み損益（終値ベース）
+        "unrealized_pnl": snap["pnl"],          # 含み損益（DBの last_price ベース）
         "realized_month": _sum_realized_month(),
         "win_ratio": snap["win_ratio"],         # 実現トレード全期間
         "cash_balance": _cash_balance(),
     }
 
+    # 内訳の比率（ゲージ用）
+    spot = snap["breakdown"]["spot_mv"]
+    margin = snap["breakdown"]["margin_mv"]
+    denom = max(spot + margin, 1)  # 0割回避
+    breakdown_pct = {
+        "spot_pct": round(spot / denom * 100, 1),
+        "margin_pct": round(margin / denom * 100, 1),
+    }
+
     sectors = snap["by_sector"]
     cash_bars = _cashflow_month_bars()
+
+    # AIコメント（既存ロジック）
     ai_note, ai_actions = svc_advisor.summarize(kpis, sectors)
     stressed = _stress_test(-5, snap)
 
@@ -249,6 +183,7 @@ def home(request):
         ai_note=ai_note,
         ai_actions=ai_actions,
         stressed_default=stressed,
-        breakdown=snap["breakdown"],
+        breakdown=snap["breakdown"],      # 数値カード
+        breakdown_pct=breakdown_pct,      # 比率ゲージ
     )
     return render(request, "home.html", ctx)
