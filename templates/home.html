@@ -4,9 +4,9 @@
 {% block title %}ホーム | My株ポートフォリオ{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=2">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script defer src="{% static 'js/home.js' %}?v=1"></script>
+<script defer src="{% static 'js/home.js' %}?v=2"></script>
 {% endblock %}
 
 {% block content %}
@@ -34,11 +34,15 @@
   </div>
   <div class="kpi-card">
     <div class="kpi-label">含み損益</div>
-    <div class="kpi-value {{ kpis.unrealized_pnl|floatformat:0|add:'0'|floatformat:0|yesno:'pos,neg' }}">¥{{ kpis.unrealized_pnl|intcomma }}</div>
+    <div class="kpi-value {% if kpis.unrealized_pnl > 0 %}pos{% elif kpis.unrealized_pnl < 0 %}neg{% endif %}">
+      ¥{{ kpis.unrealized_pnl|intcomma }}
+    </div>
   </div>
   <div class="kpi-card">
     <div class="kpi-label">当月実現</div>
-    <div class="kpi-value {{ kpis.realized_month|yesno:'pos,neg' }}">¥{{ kpis.realized_month|intcomma }}</div>
+    <div class="kpi-value {% if kpis.realized_month > 0 %}pos{% elif kpis.realized_month < 0 %}neg{% endif %}">
+      ¥{{ kpis.realized_month|intcomma }}
+    </div>
   </div>
   <div class="kpi-card">
     <div class="kpi-label">勝率</div>
@@ -103,7 +107,7 @@
         <div class="sec-name">{{ s.sector }}</div>
         <div class="sec-meta">
           <span class="mv">¥{{ s.mv|intcomma }}</span>
-          <span class="rate {{ s.rate|floatformat:2|yesno:'pos,neg' }}">{{ s.rate }}%</span>
+          <span class="rate {% if s.rate > 0 %}pos{% elif s.rate < 0 %}neg{% endif %}">{{ s.rate }}%</span>
         </div>
       </div>
     {% empty %}
@@ -124,7 +128,7 @@
 <!-- 💰 キャッシュフロー -->
 <section class="cash glass">
   <div class="cash-head">今月のキャッシュフロー</div>
-  <canvas id="cashflowChart" height="140"></canvas>
+  <canvas id="cashflowChart" height="140" aria-label="今月のキャッシュフロー" role="img"></canvas>
 </section>
 
 <!-- ✅ 次のアクション -->
