@@ -6,6 +6,7 @@ from typing import Dict, List, Any, Union, Optional, Tuple
 from decimal import Decimal
 
 from django.shortcuts import render
+from django.db.models import Sum  # ★ 集計で使用
 
 from ..services import advisor as svc_advisor
 from ..models import Holding, RealizedTrade, Dividend
@@ -18,8 +19,10 @@ Number = Union[int, float, Decimal]
 # =========================
 def _to_float(v: Optional[Number]) -> float:
     try:
-        if v is None: return 0.0
-        if isinstance(v, Decimal): return float(v)
+        if v is None:
+            return 0.0
+        if isinstance(v, Decimal):
+            return float(v)
         return float(v)
     except Exception:
         return 0.0
@@ -40,35 +43,33 @@ def _cash_balances() -> Dict[str, Any]:
     戻り値:
       {
         "total": int,
-        "by_broker": [
-            {"broker":"SBI","cash":..., "currency":"JPY"}
-        ],
+        "by_broker": [{"broker":"SBI","cash":..., "currency":"JPY"}, ...],
         "total_by_currency": {"JPY": ...}
       }
     """
-    accounts = list(BrokerAccount.objects.all())
-    # 通貨別合計
+    accounts = list(BrokerAccount.objects.all().prefetch_related("ledgers"))
+
     cur_totals: Dict[str, int] = defaultdict(int)
     by_broker: Dict[str, int] = defaultdict(int)
 
-    # 先に口座ごとに残高計算
     for a in accounts:
-        # opening + ledger sum
-        led_sum = CashLedger.objects.filter(account=a).aggregate_sum := sum(
-            int(x.amount) for x in a.ledgers.all()
-        ) if hasattr(a, "ledgers") else 0
-        bal = int(a.opening_balance or 0) + int(led_sum or 0)
-        if a.currency == "JPY":
-            cur_totals["JPY"] += bal
-            by_broker[a.broker] += bal
-        else:
-            # 必要なら将来: 為替換算を追加
-            cur_totals[a.currency] += bal
-            by_broker[a.broker] += bal  # ここでは未換算で相加、必要に応じ換算へ
-    # 整形
-    by_broker_list = [{"broker": b, "cash": v, "currency": "JPY"} for b, v in by_broker.items()]
+        # Djangoの集計で安全に合計
+        led_sum = a.ledgers.aggregate(total=Sum("amount")).get("total") or 0
+        bal = int(a.opening_balance or 0) + int(led_sum)
+
+        currency = a.currency or "JPY"
+        cur_totals[currency] += bal
+        by_broker[a.broker or "OTHER"] += bal
+
+    by_broker_list = [
+        {"broker": b, "cash": int(v), "currency": "JPY"} for b, v in by_broker.items()
+    ]
     total_jpy = int(cur_totals.get("JPY", 0))
-    return {"total": total_jpy, "by_broker": by_broker_list, "total_by_currency": dict(cur_totals)}
+    return {
+        "total": total_jpy,
+        "by_broker": by_broker_list,
+        "total_by_currency": {k: int(v) for k, v in cur_totals.items()},
+    }
 
 # =========================
 # Holdings（現物＋信用の評価 / 取得 / セクター）
@@ -87,36 +88,37 @@ def _holdings_snapshot() -> dict:
 
     # broker 別（現物のみ）内訳
     broker_map: Dict[str, Dict[str, float]] = defaultdict(lambda: {"mv": 0.0, "cost": 0.0})
-
-    # broker 別（現物＋信用）の評価（口座ビュー用）
+    # broker 別（現物＋信用）評価（口座ビュー用）
     broker_pos_mv: Dict[str, float] = defaultdict(float)
 
     for h in holdings:
-        qty  = _to_float(h.quantity)
-        unit = _to_float(h.avg_cost)
-        price = _to_float(getattr(h, "last_price", None)) or unit
+        qty = _to_float(getattr(h, "quantity", 0))
+        unit = _to_float(getattr(h, "avg_cost", 0))
+        price = _to_float(getattr(h, "last_price", None)) or unit  # last_price 優先
         mv = price * qty
         cost = unit * qty
-        acc = (h.account or "").upper()
-        broker = h.broker or "OTHER"
+
+        acc = (getattr(h, "account", "") or "").upper()
+        broker = getattr(h, "broker", None) or "OTHER"
 
         if acc == "MARGIN":
-            margin_mv += mv; margin_cost += cost
+            margin_mv += mv
+            margin_cost += cost
         else:
-            spot_mv += mv; spot_cost += cost
+            spot_mv += mv
+            spot_cost += cost
             broker_map[broker]["mv"] += mv
             broker_map[broker]["cost"] += cost
 
-        # 口座別トータル（現物＋信用）
-        broker_pos_mv[broker] += mv
+        broker_pos_mv[broker] += mv  # 現物＋信用の合計評価
 
-    # 未実現
+    # 未実現（現物＋信用）
     total_unrealized_pnl = (spot_mv + margin_mv) - (spot_cost + margin_cost)
 
     # 勝率＝実現トレード全期間
     qs = RealizedTrade.objects.all()
-    win = sum(1 for r in qs if _to_float(r.pnl) > 0)
-    lose = sum(1 for r in qs if _to_float(r.pnl) < 0)
+    win = sum(1 for r in qs if _to_float(getattr(r, "pnl", 0)) > 0)
+    lose = sum(1 for r in qs if _to_float(getattr(r, "pnl", 0)) < 0)
     total_trades = win + lose
     win_ratio = round((win / total_trades * 100.0) if total_trades else 0.0, 1)
 
@@ -129,8 +131,10 @@ def _holdings_snapshot() -> dict:
     by_sector.sort(key=lambda x: x["mv"], reverse=True)
 
     return dict(
-        spot_mv=round(spot_mv), spot_cost=round(spot_cost),
-        margin_mv=round(margin_mv), margin_cost=round(margin_cost),
+        spot_mv=round(spot_mv),
+        spot_cost=round(spot_cost),
+        margin_mv=round(margin_mv),
+        margin_cost=round(margin_cost),
         unrealized=round(total_unrealized_pnl),
         win_ratio=win_ratio,
         by_sector=by_sector[:10],
@@ -142,35 +146,39 @@ def _holdings_snapshot() -> dict:
 # =========================
 def _sum_realized_month() -> int:
     first, next_first = _month_bounds()
-    # 実現は CashLedger の source_type="REAL" を純額で数えるのが堅い
-    qs = CashLedger.objects.filter(source_type=CashLedger.SourceType.REALIZED, at__gte=first, at__lt=next_first)
-    return round(sum(int(x.amount) for x in qs))
+    qs = CashLedger.objects.filter(
+        source_type=CashLedger.SourceType.REALIZED,
+        at__gte=first, at__lt=next_first,
+    )
+    return int(sum(int(x.amount) for x in qs))
 
 def _sum_dividend_month() -> int:
     first, next_first = _month_bounds()
-    qs = CashLedger.objects.filter(source_type=CashLedger.SourceType.DIVIDEND, at__gte=first, at__lt=next_first)
-    return round(sum(int(x.amount) for x in qs))
+    qs = CashLedger.objects.filter(
+        source_type=CashLedger.SourceType.DIVIDEND,
+        at__gte=first, at__lt=next_first,
+    )
+    return int(sum(int(x.amount) for x in qs))
 
 def _sum_realized_cum() -> int:
     qs = CashLedger.objects.filter(source_type=CashLedger.SourceType.REALIZED)
-    return round(sum(int(x.amount) for x in qs))
+    return int(sum(int(x.amount) for x in qs))
 
 def _sum_dividend_cum() -> int:
     qs = CashLedger.objects.filter(source_type=CashLedger.SourceType.DIVIDEND)
-    return round(sum(int(x.amount) for x in qs))
+    return int(sum(int(x.amount) for x in qs))
 
 def _invested_capital() -> int:
     """
     投下元本（正味の入出金）= opening_balance 合計 + (DEPOSIT+XFER_IN) - (WITHDRAW+XFER_OUT)
-    ※ 税や手数料は「現金の中」に自然反映されるため、ここでは触れない。
     """
-    accs = BrokerAccount.objects.all()
-    opening = sum(int(a.opening_balance or 0) for a in accs)
-
-    dep = sum(int(x.amount) for x in CashLedger.objects.filter(kind=CashLedger.Kind.DEPOSIT))
-    xin = sum(int(x.amount) for x in CashLedger.objects.filter(kind=CashLedger.Kind.XFER_IN))
-    wdr = sum(int(x.amount) for x in CashLedger.objects.filter(kind=CashLedger.Kind.WITHDRAW))
-    xout= sum(int(x.amount) for x in CashLedger.objects.filter(kind=CashLedger.Kind.XFER_OUT))
+    opening = int(
+        BrokerAccount.objects.aggregate(total=Sum("opening_balance")).get("total") or 0
+    )
+    dep = int(CashLedger.objects.filter(kind=CashLedger.Kind.DEPOSIT).aggregate(s=Sum("amount")).get("s") or 0)
+    xin = int(CashLedger.objects.filter(kind=CashLedger.Kind.XFER_IN).aggregate(s=Sum("amount")).get("s") or 0)
+    wdr = int(CashLedger.objects.filter(kind=CashLedger.Kind.WITHDRAW).aggregate(s=Sum("amount")).get("s") or 0)
+    xout= int(CashLedger.objects.filter(kind=CashLedger.Kind.XFER_OUT).aggregate(s=Sum("amount")).get("s") or 0)
     return int(opening + dep + xin - wdr - xout)
 
 # =========================
@@ -192,10 +200,10 @@ def home(request):
     realized_cum   = _sum_realized_cum()
     dividend_cum   = _sum_dividend_cum()
 
-    # Liquidation（今すぐ全売りして現金化）
+    # Liquidation（今すぐ全て現金化）
     liquidation_value = int(snap["spot_mv"] + snap["margin_mv"] + cash["total"])
 
-    # ROI（投下元本比）
+    # ROI（投下資金比）
     invested = _invested_capital()
     roi_pct = round(((liquidation_value - invested) / invested * 100.0), 2) if invested > 0 else None
 
@@ -206,7 +214,7 @@ def home(request):
         "margin_pct": round(snap["margin_mv"] / denom_pos * 100, 1),
     }
 
-    # broker 別：現金＋ポジション評価
+    # 証券会社別：現金＋ポジション評価
     broker_rows: List[Dict[str, Any]] = []
     cash_by_broker = {b["broker"]: b["cash"] for b in cash["by_broker"]}
     pos_by_broker = snap["by_broker_pos_mv"]
@@ -219,7 +227,7 @@ def home(request):
         })
     broker_rows.sort(key=lambda r: r["total"], reverse=True)
 
-    # 画面トップKPI（“総資産”は実質評価ベースを採用）
+    # 画面トップKPI（“総資産”は実質評価ベース）
     kpis = {
         "total_assets": total_eval_assets,     # = (現物+信用)評価額 + 現金
         "unrealized_pnl": unrealized_pnl,      # 未実現（現物+信用）
@@ -230,6 +238,9 @@ def home(request):
         "invested": invested,                  # 投下元本（正味入出金）
         "roi_pct": roi_pct,                    # ROI%
         "win_ratio": snap["win_ratio"],        # 実現トレード勝率（参考）
+        # 参考：累計
+        "realized_cum": realized_cum,
+        "dividend_cum": dividend_cum,
     }
 
     # セクター（=broker）カードは現物のみの成績
@@ -247,8 +258,10 @@ def home(request):
         kpis=kpis,
         sectors=sectors,
         cash_bars=cash_bars,
-        breakdown=dict(spot_mv=snap["spot_mv"], spot_cost=snap["spot_cost"],
-                       margin_mv=snap["margin_mv"], margin_cost=snap["margin_cost"]),
+        breakdown=dict(
+            spot_mv=snap["spot_mv"], spot_cost=snap["spot_cost"],
+            margin_mv=snap["margin_mv"], margin_cost=snap["margin_cost"]
+        ),
         breakdown_pct=breakdown_pct,
         broker_rows=broker_rows,
         # 補助（テンプレ/デバッグ）
