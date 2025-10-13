@@ -4,9 +4,9 @@
 {% block title %}ホーム | My株ポートフォリオ{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=4">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script defer src="{% static 'js/home.js' %}?v=3"></script>
+<script defer src="{% static 'js/home.js' %}?v=4"></script>
 {% endblock %}
 
 {% block content %}
@@ -52,7 +52,7 @@
     <div class="kpi-sub muted">配当 ¥{{ kpis.dividend_month|intcomma }}</div>
   </div>
 
-  <!-- 🟢/🔵 2段式ROIカード -->
+  <!-- 🟢/🔵 2段式 ROI カード -->
   <div class="kpi-card roi-card">
     <div class="roi-row eval">
       <div class="roi-label">ROI（評価ベース）</div>
@@ -62,7 +62,8 @@
     </div>
     <div class="roi-row liquid">
       <div class="roi-label">ROI（現金化ベース）</div>
-      <div class="roi-value {% if kpis.roi_liquid_pct > 0 %}pos{% elif kpis.roi_liquid_pct < 0 %}neg{% endif %}">
+      <!-- 現金ROIはプラス/マイナス関係なくブルーで統一表示 -->
+      <div class="roi-value">
         {% if kpis.roi_liquid_pct != None %}{{ kpis.roi_liquid_pct|floatformat:2 }}%{% else %}--{% endif %}
       </div>
     </div>
@@ -73,32 +74,34 @@
   </div>
 </section>
 
-<!-- 💵 今すぐ全て現金化したら -->
-<section class="liquid glass">
-  <div class="liquid-head">
+<!-- 💵 今すぐ全て現金化したら（ヒーロー額＋行＋ゲージ） -->
+<section class="liquidation glass">
+  <div class="liq-head">
     <div class="title">今すぐ全て現金化したら</div>
     <div class="chip">流動性 {{ kpis.liquidity_rate_pct }}%</div>
   </div>
 
-  <div class="liquid-hero">
-    <div class="liquid-amount">¥{{ kpis.liquidation|intcomma }}</div>
-    <div class="liquid-caption">税・手数料は考慮なし</div>
-  </div>
+  <div class="liq-total">¥{{ kpis.liquidation|intcomma }}</div>
+  <div class="kpi-sub">税・手数料は考慮なし</div>
 
-  <div class="liquid-grid">
-    <div>現物の評価額</div><strong>¥{{ breakdown.spot_mv|intcomma }}</strong>
-    <div>信用の含み損益</div>
-    <strong class="{% if kpis.margin_unrealized > 0 %}pos{% elif kpis.margin_unrealized < 0 %}neg{% endif %}">
-      ¥{{ kpis.margin_unrealized|intcomma }}
-    </strong>
-    <div>現金残高</div><strong>¥{{ kpis.cash_total|intcomma }}</strong>
-  </div>
-
-  <div class="li-bar"><div class="li-bar-fill" style="width: {{ kpis.liquidity_rate_pct }}%"></div></div>
-  <ul class="li-badges">
-    <li class="pill">現物比率 {{ breakdown_pct.spot_pct }}%</li>
-    <li class="pill warn">信用比率 {{ breakdown_pct.margin_pct }}%</li>
+  <ul class="liq-rows">
+    <li><span>現物の評価額</span><strong>¥{{ breakdown.spot_mv|intcomma }}</strong></li>
+    <li class="{% if kpis.margin_unrealized < 0 %}neg{% endif %}">
+      <span>信用の含み損益</span><strong>¥{{ kpis.margin_unrealized|intcomma }}</strong>
+    </li>
+    <li><span>現金残高</span><strong>¥{{ kpis.cash_total|intcomma }}</strong></li>
   </ul>
+
+  <div class="liq-gauge-wrap">
+    <div class="liq-gauge">
+      <div class="spot"   style="width: {{ breakdown_pct.spot_pct }}%"></div>
+      <div class="margin" style="width: {{ breakdown_pct.margin_pct }}%"></div>
+    </div>
+    <div class="liq-meta">
+      <span>現物比率 {{ breakdown_pct.spot_pct }}%</span>
+      <span>信用比率 {{ breakdown_pct.margin_pct }}%</span>
+    </div>
+  </div>
 
   {% if risk_flags and risk_flags|length > 0 %}
     <div class="warn-list">
@@ -107,7 +110,7 @@
   {% endif %}
 </section>
 
-<!-- 🧾 内訳（現物 / 信用）: 比率ゲージ＋ドーナツ＋数値 -->
+<!-- 🧾 内訳（現物 / 信用） -->
 <section class="glass breakdown">
   <div class="strip-title">内訳（現物 / 信用）</div>
 
@@ -123,8 +126,7 @@
   <div class="bd-donut-wrap">
     <div class="bd-donut"
          style="--spot: {{ breakdown_pct.spot_pct }}; --margin: {{ breakdown_pct.margin_pct }};"
-         aria-label="現物と信用のドーナツ構成"
-         role="img">
+         role="img" aria-label="現物と信用のドーナツ構成">
       <div class="bd-donut-hole">
         <div class="bd-donut-total">¥{{ kpis.total_assets|intcomma }}</div>
         <div class="bd-donut-caption">総資産（評価＋現金）</div>
@@ -189,7 +191,10 @@
 {
   "total_mv": {{ kpis.total_assets|default:0 }},
   "sectors": {{ sectors|safe }},
-  "cash_bars": {{ cash_bars|safe }}
+  "cash_bars": [
+    {"label":"配当","value": {{ kpis.dividend_month|default:0 }}},
+    {"label":"実現益","value": {{ kpis.realized_month|default:0 }}}
+  ]
 }
 </script>
 
