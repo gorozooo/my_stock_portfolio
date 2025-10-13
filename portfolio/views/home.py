@@ -33,6 +33,10 @@ def _month_bounds(today: Optional[date] = None) -> Tuple[date, date]:
 
 # ========= Cash =========
 def _cash_balances() -> Dict[str, Any]:
+    """
+    BrokerAccount の opening_balance と CashLedger の増減を集計。
+    口座横断の合計（JPY）とブローカー別内訳を返す。
+    """
     accounts = list(BrokerAccount.objects.all().prefetch_related("ledgers"))
     cur_totals: Dict[str, int] = defaultdict(int)
     by_broker: Dict[str, int] = defaultdict(int)
@@ -57,21 +61,22 @@ def _cash_balances() -> Dict[str, Any]:
 # ========= Holdings =========
 def _holdings_snapshot() -> dict:
     """
-    価格は last_price 優先 → なければ avg_cost
-    未実現損益は「現物＋信用」の未実現のみ（評価−取得）
+    価格は last_price 優先 → なければ avg_cost。
+    未実現損益は「現物＋信用」の未実現のみ（評価−取得）。
     """
     holdings = list(Holding.objects.all())
 
     spot_mv = spot_cost = 0.0
     margin_mv = margin_cost = 0.0
 
+    # カード表示用：ブローカー別の現物パフォーマンス（例として）
     broker_map: Dict[str, Dict[str, float]] = defaultdict(lambda: {"mv": 0.0, "cost": 0.0})
     broker_pos_mv: Dict[str, float] = defaultdict(float)
 
     for h in holdings:
         qty = _to_float(getattr(h, "quantity", 0))
         unit = _to_float(getattr(h, "avg_cost", 0))
-        price = _to_float(getattr(h, "last_price", None)) or unit
+        price = _to_float(getattr(h, "last_price", None)) or unit  # フォールバック：平均取得
         mv = price * qty
         cost = unit * qty
 
@@ -91,12 +96,14 @@ def _holdings_snapshot() -> dict:
 
     total_unrealized_pnl = (spot_mv + margin_mv) - (spot_cost + margin_cost)
 
+    # 勝率（全期間の実現トレード）
     qs = RealizedTrade.objects.all()
     win = sum(1 for r in qs if _to_float(getattr(r, "pnl", 0)) > 0)
     lose = sum(1 for r in qs if _to_float(getattr(r, "pnl", 0)) < 0)
     total_trades = win + lose
     win_ratio = round((win / total_trades * 100.0) if total_trades else 0.0, 1)
 
+    # セクター(ここでは broker 別)
     by_sector: List[Dict[str, Any]] = []
     for sec, d in broker_map.items():
         mv, cost = d["mv"], d["cost"]
@@ -115,7 +122,7 @@ def _holdings_snapshot() -> dict:
         by_broker_pos_mv={k: round(v) for k, v in broker_pos_mv.items()},
     )
 
-# ========= Realized / Div =========
+# ========= Realized / Div（現金レジャーから算出） =========
 def _sum_realized_month() -> int:
     first, next_first = _month_bounds()
     qs = CashLedger.objects.filter(
@@ -141,6 +148,9 @@ def _sum_dividend_cum() -> int:
                .aggregate(s=Sum("amount")).get("s") or 0)
 
 def _invested_capital() -> int:
+    """
+    投下資金 = opening_balance +（入金＋振替入金）−（出金＋振替出金）
+    """
     opening = int(BrokerAccount.objects.aggregate(total=Sum("opening_balance")).get("total") or 0)
     dep = int(CashLedger.objects.filter(kind=CashLedger.Kind.DEPOSIT).aggregate(s=Sum("amount")).get("s") or 0)
     xin = int(CashLedger.objects.filter(kind=CashLedger.Kind.XFER_IN).aggregate(s=Sum("amount")).get("s") or 0)
@@ -190,14 +200,18 @@ def home(request):
     if liquidity_rate_pct < 50.0:
         risk_flags.append(f"流動性が {liquidity_rate_pct}% と低め。現金化余地の確保を検討。")
 
+    # テンプレ直参照用：内訳の未実現
+    spot_unrealized = int(snap["spot_mv"] - snap["spot_cost"])
+    margin_unrealized = int(snap["margin_mv"] - snap["margin_cost"])
+
     # KPI
     kpis = {
         "total_assets": total_eval_assets,
-        "unrealized_pnl": unrealized_pnl,
+        "unrealized_pnl": unrealized_pnl,       # （現物＋信用）の未実現のみ
         "realized_month": realized_month,
         "dividend_month": dividend_month,
         "cash_total": cash["total"],
-        "liquidation": liquidation_value,
+        "liquidation": liquidation_value,       # 即時現金化額（現物100%＋信用は含み損益のみ＋現金）
         "invested": invested,
         "roi_pct": roi_pct,
         "win_ratio": snap["win_ratio"],
@@ -221,7 +235,9 @@ def home(request):
         cash_bars=cash_bars,
         breakdown=dict(
             spot_mv=snap["spot_mv"], spot_cost=snap["spot_cost"],
-            margin_mv=snap["margin_mv"], margin_cost=snap["margin_cost"]
+            margin_mv=snap["margin_mv"], margin_cost=snap["margin_cost"],
+            spot_unrealized=spot_unrealized,
+            margin_unrealized=margin_unrealized,  # ← テンプレが使う信用の含み益
         ),
         breakdown_pct=breakdown_pct,
         risk_flags=risk_flags,
