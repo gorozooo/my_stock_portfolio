@@ -89,9 +89,13 @@ def _holdings_snapshot() -> dict:
 
         broker_pos_mv[broker] += mv
 
-    total_unrealized_pnl = (spot_mv + margin_mv) - (spot_cost + margin_cost)
+    # 未実現（現物＋信用）
+    unrealized_total = (spot_mv + margin_mv) - (spot_cost + margin_cost)
+    # 内訳
+    spot_unrealized = spot_mv - spot_cost
+    margin_unrealized = margin_mv - margin_cost
 
-    # 勝率＝全期間の実現トレード
+    # 勝率（全期間）
     qs = RealizedTrade.objects.all()
     win = sum(1 for r in qs if _to_float(getattr(r, "pnl", 0)) > 0)
     lose = sum(1 for r in qs if _to_float(getattr(r, "pnl", 0)) < 0)
@@ -110,13 +114,15 @@ def _holdings_snapshot() -> dict:
         spot_cost=round(spot_cost),
         margin_mv=round(margin_mv),
         margin_cost=round(margin_cost),
-        unrealized=round(total_unrealized_pnl),
+        unrealized=round(unrealized_total),
+        spot_unrealized=round(spot_unrealized),
+        margin_unrealized=round(margin_unrealized),
         win_ratio=win_ratio,
         by_sector=by_sector[:10],
         by_broker_pos_mv={k: round(v) for k, v in broker_pos_mv.items()},
     )
 
-# ========= Realized / Div =========
+# ========= Realized / Div（現金レジャー基準） =========
 def _sum_realized_month() -> int:
     first, next_first = _month_bounds()
     qs = CashLedger.objects.filter(
@@ -154,30 +160,25 @@ def home(request):
     snap = _holdings_snapshot()
     cash = _cash_balances()
 
-    # 評価ベースの総資産 = (現物+信用)評価額 + 現金
+    # 評価ベース総資産 = (現物+信用)評価額 + 現金
     total_eval_assets = int(snap["spot_mv"] + snap["margin_mv"] + cash["total"])
 
     # 未実現（現物＋信用のみ）
     unrealized_pnl = int(snap["unrealized"])
 
-    # 信用の含み損益（テンプレ直書き回避のため事前計算）
-    margin_unrealized = int(snap["margin_mv"] - snap["margin_cost"])
-
-    # 今月の実現/配当（現金ベース）
+    # 月間/累計（現金ベース）
     realized_month = _sum_realized_month()
     dividend_month = _sum_dividend_month()
-
     realized_cum   = _sum_realized_cum()
     dividend_cum   = _sum_dividend_cum()
 
-    # 即時現金化額：信用は「含み損益のみ」現金化可
-    liquidation_value = int(
-        snap["spot_mv"] + (snap["margin_mv"] - snap["margin_cost"]) + cash["total"]
-    )
+    # 即時現金化額：信用は「含み損益のみ」を現金化可
+    margin_unrealized = int(snap["margin_unrealized"])
+    liquidation_value = int(snap["spot_mv"] + margin_unrealized + cash["total"])
 
     invested = _invested_capital()
-    roi_eval_pct = round(((total_eval_assets - invested) / invested * 100.0), 2) if invested > 0 else None
-    roi_cash_pct = round(((liquidation_value - invested) / invested * 100.0), 2) if invested > 0 else None
+    eval_roi_pct = round(((total_eval_assets - invested) / invested * 100.0), 2) if invested > 0 else None
+    cash_roi_pct = round(((liquidation_value - invested) / invested * 100.0), 2) if invested > 0 else None
 
     # 比率
     gross_pos = max(int(snap["spot_mv"] + snap["margin_mv"]), 1)
@@ -191,7 +192,7 @@ def home(request):
     # リスク警告
     risk_flags: List[str] = []
     if margin_ratio_pct >= 60.0:
-        risk_flags.append(f"信用比率が {margin_ratio_pct}%（60%超）です。余力とボラに注意。")
+        risk_flags.append(f"信用比率が {margin_ratio_pct}%（60%超）。余力とボラに注意。")
     if liquidity_rate_pct < 50.0:
         risk_flags.append(f"流動性が {liquidity_rate_pct}% と低め。現金化余地の確保を検討。")
 
@@ -199,14 +200,15 @@ def home(request):
     kpis = {
         "total_assets": total_eval_assets,
         "unrealized_pnl": unrealized_pnl,
-        "margin_unrealized": margin_unrealized,   # ← 追加：信用の含み損益
+        "spot_unrealized": int(snap["spot_unrealized"]),
+        "margin_unrealized": margin_unrealized,
         "realized_month": realized_month,
         "dividend_month": dividend_month,
         "cash_total": cash["total"],
         "liquidation": liquidation_value,
         "invested": invested,
-        "roi_eval_pct": roi_eval_pct,             # ← 追加：評価ROI
-        "roi_cash_pct": roi_cash_pct,             # ← 追加：現金ROI
+        "eval_roi_pct": eval_roi_pct,     # 2段式ROI（上段）
+        "cash_roi_pct": cash_roi_pct,     # 2段式ROI（下段）
         "win_ratio": snap["win_ratio"],
         "realized_cum": realized_cum,
         "dividend_cum": dividend_cum,
@@ -223,15 +225,15 @@ def home(request):
     # AIコメント
     ai_note, ai_actions = svc_advisor.summarize(kpis, sectors)
 
-    # ② 乖離コメントの自動追加
-    try:
-        if (roi_eval_pct is not None) and (roi_cash_pct is not None):
-            gap = abs(roi_eval_pct - roi_cash_pct)
-            if gap >= 15.0:
-                ai_actions = list(ai_actions) if isinstance(ai_actions, (list, tuple)) else []
-                ai_actions.append("評価ROIと現金ROIの乖離が大きい。含み益/含み損の偏りを点検し、ポジション整理を検討。")
-    except Exception:
-        pass
+    # 乖離コメント（評価ROI vs 現金ROI）
+    if kpis["eval_roi_pct"] is not None and kpis["cash_roi_pct"] is not None:
+        gap = abs(kpis["eval_roi_pct"] - kpis["cash_roi_pct"])
+        if gap >= 15.0:
+            ai_actions = list(ai_actions or [])
+            ai_actions.insert(
+                0,
+                "評価ROIと現金ROIの乖離が大きい。評価と実際の差を確認し、ポジション整理や現金比率の見直しを検討。"
+            )
 
     ctx = dict(
         kpis=kpis,
@@ -244,7 +246,5 @@ def home(request):
         breakdown_pct=breakdown_pct,
         risk_flags=risk_flags,
         cash_total_by_currency=cash["total_by_currency"],
-        ai_note=ai_note,
-        ai_actions=ai_actions,
     )
     return render(request, "home.html", ctx)
