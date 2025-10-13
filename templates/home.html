@@ -4,9 +4,9 @@
 {% block title %}ホーム | My株ポートフォリオ{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=10">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=11">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script defer src="{% static 'js/home.js' %}?v=10"></script>
+<script defer src="{% static 'js/home.js' %}?v=11"></script>
 {% endblock %}
 
 {% block content %}
@@ -42,6 +42,15 @@
     {% endwith %}
   </div>
 
+  <!-- 新設：総実現損益（左） -->
+  <div class="kpi-card">
+    <div class="kpi-label">総実現損益</div>
+    {% with v=kpis.realized_cum %}
+      <div class="kpi-value {% if v > 0 %}pos{% elif v < 0 %}neg{% endif %}">¥{{ v|intcomma }}</div>
+    {% endwith %}
+  </div>
+
+  <!-- 右に移動：今月の実現損益 -->
   <div class="kpi-card">
     <div class="kpi-label">今月の実現損益</div>
     {% with v=kpis.realized_month %}
@@ -49,7 +58,7 @@
     {% endwith %}
   </div>
 
-  <!-- 🟢/🔵 2段式 ROI カード -->
+  <!-- 🟢/🔵 2段式 ROI カード（モバイルは1行占有） -->
   <div class="kpi-card roi-card">
     <div class="roi-row eval">
       <div class="roi-label">ROI（評価ベース）</div>
@@ -59,7 +68,6 @@
     </div>
     <div class="roi-row liquid">
       <div class="roi-label">ROI（現金化ベース）</div>
-      <!-- 現金ROIはプラス/マイナス関係なくブルーで統一表示 -->
       <div class="roi-value">
         {% if kpis.roi_liquid_pct != None %}{{ kpis.roi_liquid_pct|floatformat:2 }}%{% else %}--{% endif %}
       </div>
@@ -71,7 +79,7 @@
   </div>
 </section>
 
-<!-- 💵 今すぐ全て現金化したら（ヒーロー額＋行＋ゲージ） -->
+<!-- 💵 今すぐ全て現金化したら -->
 <section class="liquidation glass">
   <div class="liq-head">
     <div class="title">今すぐ全て現金化したら</div>
