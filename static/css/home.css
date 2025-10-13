@@ -14,11 +14,14 @@ body{ background: radial-gradient(1200px 600px at 20% -10%, #132035 0%, #0b0f1a 
 }
 section{ margin:14px 12px; }
 
-/* ===== AIヘッダー ===== */
+/* ===== AIヘッダー（統合） ===== */
 .ai-header{ padding:14px; }
 .ai-title{ font-weight:700; letter-spacing:.2px; margin-bottom:6px; }
-.ai-note{ margin:6px 0 8px; color:var(--fg); }
+.ai-note{ margin:6px 0 8px; color:var(--fg); line-height:1.5; }
+.ai-tools{ margin:8px 0 10px; }
 .ai-actions{ margin:0; padding-left:18px; color:var(--muted); }
+.ai-actions.merged{ list-style:none; padding-left:0; }
+.ai-actions.merged li{ margin:4px 0; padding-left:0; }
 .btn.ghost{
   border:1px solid var(--pri); color:var(--pri); background:transparent;
   padding:8px 12px; border-radius:10px; margin-right:8px;
@@ -39,7 +42,7 @@ section{ margin:14px 12px; }
 .kpi-sub{ font-size:.85rem; margin-top:4px; }
 .kpi-sub.muted{ color:var(--muted); }
 
-/* === 2段式 ROI カード === */
+/* === 2段式 ROI === */
 .roi-card{ gap:6px; }
 .roi-card .roi-row{
   display:flex; align-items:center; justify-content:space-between;
@@ -63,10 +66,10 @@ section{ margin:14px 12px; }
   background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12)
 }
 
-/* モバイル最適化 */
+/* モバイル最適化：ROIは横幅いっぱい */
 .kpi-grid .roi-card{ grid-column:1 / -1; }
 
-/* ===== 今すぐ現金化（改良版） ===== */
+/* ===== 今すぐ現金化（ヒーロー＋3サマリー） ===== */
 .liquidation{ padding:14px; }
 .liq-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
 .liq-head .title{ font-weight:700; font-size:1rem; }
@@ -76,13 +79,12 @@ section{ margin:14px 12px; }
   padding:4px 8px; border-radius:999px;
   font-size:.8rem; color:var(--muted);
 }
-
+.liq-hero{ text-align:left; }
 .liq-total{
   font-size:2rem; font-weight:800; margin-top:4px;
   letter-spacing:.3px;
 }
 .kpi-sub{ opacity:.8; }
-
 .li-sum-grid{
   display:grid; grid-template-columns:1fr; gap:8px;
   margin-top:10px;
@@ -106,7 +108,7 @@ section{ margin:14px 12px; }
 .warn-list{margin-top:10px;}
 .warn-item{font-size:.9rem;opacity:.9;}
 
-/* ===== breakdown 共通 ===== */
+/* ===== breakdown ===== */
 .breakdown{padding:12px}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%}
 .dot.spot{background:#2dd79b}
@@ -137,8 +139,8 @@ section{ margin:14px 12px; }
   .bd-legend-rows{width:100%}
 }
 
-/* ===== セクター / ストレス / アクション ===== */
-.sector-strip, .cash, .stress, .todo{padding:12px;}
+/* ===== セクター / ストレス / キャッシュ ===== */
+.sector-strip, .cash, .stress{padding:12px;}
 .strip-title{margin-bottom:8px;color:var(--muted);font-size:.95rem;}
 .strip-scroll{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;}
 .sector-chip{min-width:160px;padding:10px;border-radius:12px;background:var(--glass);border:1px solid var(--line);}
@@ -151,10 +153,8 @@ section{ margin:14px 12px; }
 .cash-head{margin-bottom:8px;color:var(--muted);}
 .stress-head{display:flex;justify-content:space-between;margin-bottom:8px;}
 #stressSlider{width:100%;}
-.todo{margin-bottom:80px;}
-.todo-head{margin-bottom:8px;color:var(--muted);}
-.todo-list{margin:0;padding-left:18px;}
 
+/* ===== レスポンシブ ===== */
 @media (min-width: 960px){
   .kpi-grid{ grid-template-columns: repeat(4, 1fr); }
   .kpi-grid .roi-card{ grid-column:auto; }
