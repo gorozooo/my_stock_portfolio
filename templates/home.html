@@ -4,9 +4,9 @@
 {% block title %}ホーム | My株ポートフォリオ{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=2">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=3">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script defer src="{% static 'js/home.js' %}?v=2"></script>
+<script defer src="{% static 'js/home.js' %}?v=3"></script>
 {% endblock %}
 
 {% block content %}
@@ -18,6 +18,8 @@
   <ul class="ai-actions">
     {% for a in ai_actions %}
       <li>• {{ a }}</li>
+    {% empty %}
+      <li>• 分析中です。</li>
     {% endfor %}
   </ul>
   <div class="ai-tools">
@@ -31,72 +33,76 @@
   <div class="kpi-card">
     <div class="kpi-label">総資産（評価＋現金）</div>
     <div class="kpi-value">¥{{ kpis.total_assets|intcomma }}</div>
-    <div class="kpi-sub">＝現物＋信用の評価額 ＋ 現金</div>
+    <div class="kpi-sub muted">＝現物＋信用の評価額 ＋ 現金</div>
   </div>
 
   <div class="kpi-card">
     <div class="kpi-label">未実現損益（現物＋信用）</div>
-    <div class="kpi-value {{ kpis.unrealized_pnl|floatformat:0|yesno:'pos,neg' }}">¥{{ kpis.unrealized_pnl|intcomma }}</div>
+    {% with v=kpis.unrealized_pnl %}
+      <div class="kpi-value {% if v > 0 %}pos{% elif v < 0 %}neg{% endif %}">¥{{ v|intcomma }}</div>
+      <div class="kpi-sub muted">現物¥{{ kpis.spot_unrealized|intcomma }} / 信用¥{{ kpis.margin_unrealized|intcomma }}</div>
+    {% endwith %}
   </div>
 
   <div class="kpi-card">
     <div class="kpi-label">今月の実現</div>
-    <div class="kpi-value {{ kpis.realized_month|yesno:'pos,neg' }}">¥{{ kpis.realized_month|intcomma }}</div>
-    <div class="kpi-sub">配当 ¥{{ kpis.dividend_month|intcomma }}</div>
+    {% with v=kpis.realized_month %}
+      <div class="kpi-value {% if v > 0 %}pos{% elif v < 0 %}neg{% endif %}">¥{{ v|intcomma }}</div>
+    {% endwith %}
+    <div class="kpi-sub muted">配当 ¥{{ kpis.dividend_month|intcomma }}</div>
   </div>
 
   <!-- 🟢/🔵 2段式ROIカード -->
   <div class="kpi-card roi-card">
     <div class="roi-row eval">
       <div class="roi-label">ROI（評価ベース）</div>
-      <div class="roi-value {{ kpis.roi_eval_pct|default_if_none:'--'|yesno:'pos,neg' }}">
+      <div class="roi-value {% if kpis.roi_eval_pct > 0 %}pos{% elif kpis.roi_eval_pct < 0 %}neg{% endif %}">
         {% if kpis.roi_eval_pct != None %}{{ kpis.roi_eval_pct|floatformat:2 }}%{% else %}--{% endif %}
       </div>
     </div>
     <div class="roi-row liquid">
       <div class="roi-label">ROI（現金化ベース）</div>
-      <div class="roi-value {{ kpis.roi_liquid_pct|default_if_none:'--'|yesno:'pos,neg' }}">
+      <div class="roi-value {% if kpis.roi_liquid_pct > 0 %}pos{% elif kpis.roi_liquid_pct < 0 %}neg{% endif %}">
         {% if kpis.roi_liquid_pct != None %}{{ kpis.roi_liquid_pct|floatformat:2 }}%{% else %}--{% endif %}
       </div>
     </div>
-    <div class="roi-foot">投下資金 ¥{{ kpis.invested|intcomma }}
-      {% if kpis.roi_gap_abs %}
-        <span class="roi-gap">乖離 {{ kpis.roi_gap_abs|floatformat:1 }}pt</span>
-      {% endif %}
+    <div class="roi-foot">
+      投下資金 ¥{{ kpis.invested|intcomma }}
+      {% if kpis.roi_gap_abs %}<span class="roi-gap">乖離 {{ kpis.roi_gap_abs|floatformat:1 }}pt</span>{% endif %}
     </div>
   </div>
 </section>
 
 <!-- 💵 今すぐ全て現金化したら -->
-<section class="liquidation glass">
-  <div class="liq-head">
+<section class="liquid glass">
+  <div class="liquid-head">
     <div class="title">今すぐ全て現金化したら</div>
     <div class="chip">流動性 {{ kpis.liquidity_rate_pct }}%</div>
   </div>
 
-  <div class="liq-total">¥{{ kpis.liquidation|intcomma }}</div>
-  <div class="kpi-sub">税・手数料は考慮なし</div>
-
-  <ul class="liq-rows">
-    <li><span>現物の評価額</span><strong>¥{{ breakdown.spot_mv|intcomma }}</strong></li>
-    <li class="neg"><span>信用の含み損益</span><strong>¥{{ kpis.unrealized_pnl|add:-((breakdown.spot_mv - breakdown.spot_cost))|intcomma }}</strong></li>
-    <li><span>現金残高</span><strong>¥{{ kpis.cash_total|intcomma }}</strong></li>
-  </ul>
-
-  <div class="liq-gauge-wrap">
-    <div class="liq-gauge">
-      <div class="spot" style="width: {{ breakdown_pct.spot_pct }}%"></div>
-      <div class="margin" style="width: {{ breakdown_pct.margin_pct }}%"></div>
-    </div>
-    <div class="liq-meta">
-      <span class="spot">現物比率 {{ breakdown_pct.spot_pct }}%</span>
-      <span class="margin">信用比率 {{ breakdown_pct.margin_pct }}%</span>
-    </div>
+  <div class="liquid-hero">
+    <div class="liquid-amount">¥{{ kpis.liquidation|intcomma }}</div>
+    <div class="liquid-caption">税・手数料は考慮なし</div>
   </div>
 
+  <div class="liquid-grid">
+    <div>現物の評価額</div><strong>¥{{ breakdown.spot_mv|intcomma }}</strong>
+    <div>信用の含み損益</div>
+    <strong class="{% if kpis.margin_unrealized > 0 %}pos{% elif kpis.margin_unrealized < 0 %}neg{% endif %}">
+      ¥{{ kpis.margin_unrealized|intcomma }}
+    </strong>
+    <div>現金残高</div><strong>¥{{ kpis.cash_total|intcomma }}</strong>
+  </div>
+
+  <div class="li-bar"><div class="li-bar-fill" style="width: {{ kpis.liquidity_rate_pct }}%"></div></div>
+  <ul class="li-badges">
+    <li class="pill">現物比率 {{ breakdown_pct.spot_pct }}%</li>
+    <li class="pill warn">信用比率 {{ breakdown_pct.margin_pct }}%</li>
+  </ul>
+
   {% if risk_flags and risk_flags|length > 0 %}
-    <div class="liquid-note">
-      {% for m in risk_flags %}⚠️ {{ m }}{% if not forloop.last %}<br>{% endif %}{% endfor %}
+    <div class="warn-list">
+      {% for m in risk_flags %}<div class="warn-item">⚠️ {{ m }}</div>{% endfor %}
     </div>
   {% endif %}
 </section>
@@ -125,24 +131,10 @@
       </div>
     </div>
     <ul class="bd-legend-rows">
-      <li>
-        <span class="dot spot"></span>
-        <span>現物 評価額</span>
-        <strong>¥{{ breakdown.spot_mv|intcomma }}</strong>
-      </li>
-      <li class="sub">
-        <span></span><span>取得額</span>
-        <span>¥{{ breakdown.spot_cost|intcomma }}</span>
-      </li>
-      <li>
-        <span class="dot margin"></span>
-        <span>信用 評価額</span>
-        <strong>¥{{ breakdown.margin_mv|intcomma }}</strong>
-      </li>
-      <li class="sub">
-        <span></span><span>取得額</span>
-        <span>¥{{ breakdown.margin_cost|intcomma }}</span>
-      </li>
+      <li><span class="dot spot"></span><span>現物 評価額</span><strong>¥{{ breakdown.spot_mv|intcomma }}</strong></li>
+      <li class="sub"><span></span><span>取得額</span><span>¥{{ breakdown.spot_cost|intcomma }}</span></li>
+      <li><span class="dot margin"></span><span>信用 評価額</span><strong>¥{{ breakdown.margin_mv|intcomma }}</strong></li>
+      <li class="sub"><span></span><span>取得額</span><span>¥{{ breakdown.margin_cost|intcomma }}</span></li>
     </ul>
   </div>
 </section>
@@ -156,13 +148,22 @@
         <div class="sec-name">{{ s.sector }}</div>
         <div class="sec-meta">
           <span class="mv">¥{{ s.mv|intcomma }}</span>
-          <span class="rate {{ s.rate|floatformat:2|yesno:'pos,neg' }}">{{ s.rate }}%</span>
+          <span class="rate {% if s.rate > 0 %}pos{% elif s.rate < 0 %}neg{% endif %}">{{ s.rate }}%</span>
         </div>
       </div>
     {% empty %}
       <div class="empty">データがありません</div>
     {% endfor %}
   </div>
+</section>
+
+<!-- 🧪 ストレステスト -->
+<section class="stress glass">
+  <div class="stress-head">
+    <div>ストレステスト（株式β=0.9、スライダーの指数変動を仮定）</div>
+    <div class="stress-result"><span id="stressPct">-5</span>% → 推定総資産 <strong id="stressMV">¥{{ stressed_default|intcomma }}</strong></div>
+  </div>
+  <input type="range" min="-10" max="10" value="-5" step="1" id="stressSlider" />
 </section>
 
 <!-- 💰 キャッシュフロー -->
@@ -177,6 +178,8 @@
   <ul class="todo-list" id="todoList">
     {% for a in ai_actions %}
       <li>✅ {{ a }}</li>
+    {% empty %}
+      <li>✅ 特にありません</li>
     {% endfor %}
   </ul>
 </section>
