@@ -36,10 +36,9 @@
   </div>
 
   <div class="kpi-card">
-    <div class="kpi-label">未実現損益（現物＋信用）</div>
+    <div class="kpi-label">含み損益</div>
     {% with v=kpis.unrealized_pnl %}
       <div class="kpi-value {% if v > 0 %}pos{% elif v < 0 %}neg{% endif %}">¥{{ v|intcomma }}</div>
-      <div class="kpi-sub muted">現物¥{{ kpis.spot_unrealized|intcomma }} / 信用¥{{ kpis.margin_unrealized|intcomma }}</div>
     {% endwith %}
   </div>
 
