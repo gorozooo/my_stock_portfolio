@@ -30,6 +30,7 @@ section{ margin:14px 12px; }
 }
 .kpi-card{
   border-radius:12px; padding:12px; background:var(--glass); border:1px solid var(--line);
+  display:flex; flex-direction:column; justify-content:center; min-height:88px; /* 高さを揃える */
 }
 .kpi-label{ color:var(--muted); font-size:.85rem; }
 .kpi-value{ font-size:1.3rem; font-weight:700; margin-top:4px; }
@@ -39,6 +40,7 @@ section{ margin:14px 12px; }
 .kpi-sub.muted{ color:var(--muted); }
 
 /* === 2段式 ROI カード === */
+.roi-card{ gap:6px; }
 .roi-card .roi-row{
   display:flex; align-items:center; justify-content:space-between;
   padding:6px 8px; border-bottom:1px dashed rgba(255,255,255,.08);
@@ -51,16 +53,19 @@ section{ margin:14px 12px; }
 .roi-card .roi-value{ font-weight:800; font-size:1.2rem }
 .roi-card .eval .roi-value.pos{ color:var(--good) }
 .roi-card .eval .roi-value.neg{ color:var(--bad) }
-/* 現金ROIはブルーで統一表示（＋でも−でも青） */
+/* 現金ROIはブルーで統一表示 */
 .roi-card .liquid .roi-value{ color:#5db1ff }
 .roi-card .roi-foot{
-  margin-top:6px; font-size:.85rem; color:var(--muted);
+  margin-top:2px; font-size:.85rem; color:var(--muted);
   display:flex; gap:8px; align-items:center;
 }
 .roi-card .roi-gap{
   margin-left:auto; font-size:.8rem; padding:2px 6px; border-radius:999px;
   background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12)
 }
+
+/* ▼ モバイルでは ROI カードを横幅いっぱいにしてバランス最適化 */
+.kpi-grid .roi-card{ grid-column:1 / -1; }
 
 /* ===== 今すぐ現金化（カード） ===== */
 .liquidation, .liquid{ padding:12px; }
@@ -147,5 +152,6 @@ section{ margin:14px 12px; }
 /* ===== レスポンシブ ===== */
 @media (min-width: 960px){
   .kpi-grid{ grid-template-columns: repeat(4, 1fr); }
+  .kpi-grid .roi-card{ grid-column:auto; } /* デスクトップでは1枠に戻す */
   section{ margin:16px auto; max-width:1100px; }
 }
