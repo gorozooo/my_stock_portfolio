@@ -25,14 +25,19 @@ def _to_float(v: Optional[Number]) -> float:
     except Exception:
         return 0.0
 
+
 def _month_bounds(today: Optional[date] = None) -> Tuple[date, date]:
     d = today or date.today()
     first = d.replace(day=1)
     next_first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
     return first, next_first
 
+
 # ========= Cash =========
 def _cash_balances() -> Dict[str, Any]:
+    """
+    BrokerAccount と CashLedger から現金残高を通貨別／証券会社別に集計
+    """
     accounts = list(BrokerAccount.objects.all().prefetch_related("ledgers"))
     cur_totals: Dict[str, int] = defaultdict(int)
     by_broker: Dict[str, int] = defaultdict(int)
@@ -54,11 +59,13 @@ def _cash_balances() -> Dict[str, Any]:
         "total_by_currency": {k: int(v) for k, v in cur_totals.items()},
     }
 
+
 # ========= Holdings =========
 def _holdings_snapshot() -> dict:
     """
     価格は last_price 優先 → なければ avg_cost
     未実現損益は「現物＋信用」の未実現のみ（評価−取得）
+    セクター相当は broker 別で表示
     """
     holdings = list(Holding.objects.all())
 
@@ -66,7 +73,6 @@ def _holdings_snapshot() -> dict:
     margin_mv = margin_cost = 0.0
 
     broker_map: Dict[str, Dict[str, float]] = defaultdict(lambda: {"mv": 0.0, "cost": 0.0})
-    broker_pos_mv: Dict[str, float] = defaultdict(float)
 
     for h in holdings:
         qty = _to_float(getattr(h, "quantity", 0))
@@ -87,9 +93,9 @@ def _holdings_snapshot() -> dict:
             broker_map[broker]["mv"] += mv
             broker_map[broker]["cost"] += cost
 
-        broker_pos_mv[broker] += mv
-
-    total_unrealized_pnl = (spot_mv + margin_mv) - (spot_cost + margin_cost)
+    spot_unrealized = round(spot_mv - spot_cost)
+    margin_unrealized = round(margin_mv - margin_cost)
+    total_unrealized_pnl = round((spot_mv + margin_mv) - (spot_cost + margin_cost))
 
     # 勝率（全期間の実現）
     qs = RealizedTrade.objects.all()
@@ -110,11 +116,13 @@ def _holdings_snapshot() -> dict:
         spot_cost=round(spot_cost),
         margin_mv=round(margin_mv),
         margin_cost=round(margin_cost),
-        unrealized=round(total_unrealized_pnl),
+        spot_unrealized=spot_unrealized,
+        margin_unrealized=margin_unrealized,
+        unrealized=total_unrealized_pnl,
         win_ratio=win_ratio,
         by_sector=by_sector[:10],
-        by_broker_pos_mv={k: round(v) for k, v in broker_pos_mv.items()},
     )
+
 
 # ========= Realized / Div =========
 def _sum_realized_month() -> int:
@@ -125,6 +133,7 @@ def _sum_realized_month() -> int:
     )
     return int(sum(int(x.amount) for x in qs))
 
+
 def _sum_dividend_month() -> int:
     first, next_first = _month_bounds()
     qs = CashLedger.objects.filter(
@@ -133,21 +142,34 @@ def _sum_dividend_month() -> int:
     )
     return int(sum(int(x.amount) for x in qs))
 
+
 def _sum_realized_cum() -> int:
     return int(CashLedger.objects.filter(source_type=CashLedger.SourceType.REALIZED)
                .aggregate(s=Sum("amount")).get("s") or 0)
+
 
 def _sum_dividend_cum() -> int:
     return int(CashLedger.objects.filter(source_type=CashLedger.SourceType.DIVIDEND)
                .aggregate(s=Sum("amount")).get("s") or 0)
 
+
 def _invested_capital() -> int:
     opening = int(BrokerAccount.objects.aggregate(total=Sum("opening_balance")).get("total") or 0)
-    dep = int(CashLedger.objects.filter(kind=CashLedger.Kind.DEPOSIT).aggregate(s=Sum("amount")).get("s") or 0)
-    xin = int(CashLedger.objects.filter(kind=CashLedger.Kind.XFER_IN).aggregate(s=Sum("amount")).get("s") or 0)
-    wdr = int(CashLedger.objects.filter(kind=CashLedger.Kind.WITHDRAW).aggregate(s=Sum("amount")).get("s") or 0)
-    xout= int(CashLedger.objects.filter(kind=CashLedger.Kind.XFER_OUT).aggregate(s=Sum("amount")).get("s") or 0)
+    dep  = int(CashLedger.objects.filter(kind=CashLedger.Kind.DEPOSIT ).aggregate(s=Sum("amount")).get("s") or 0)
+    xin  = int(CashLedger.objects.filter(kind=CashLedger.Kind.XFER_IN ).aggregate(s=Sum("amount")).get("s") or 0)
+    wdr  = int(CashLedger.objects.filter(kind=CashLedger.Kind.WITHDRAW).aggregate(s=Sum("amount")).get("s") or 0)
+    xout = int(CashLedger.objects.filter(kind=CashLedger.Kind.XFER_OUT).aggregate(s=Sum("amount")).get("s") or 0)
     return int(opening + dep + xin - wdr - xout)
+
+
+def _stress_default(spot_mv: int, margin_mv: int, cash_total: int, pct: float = -5.0, beta: float = 0.9) -> int:
+    """
+    簡易ストレステスト：株式部分（現物+信用）にβを掛け、現金は影響なし
+    """
+    pos = float(spot_mv + margin_mv)
+    stressed_pos = pos * (1.0 + beta * (pct / 100.0))
+    return int(round(stressed_pos + float(cash_total)))
+
 
 # ========= View =========
 def home(request):
@@ -164,13 +186,11 @@ def home(request):
     realized_month = _sum_realized_month()
     dividend_month = _sum_dividend_month()
 
-    realized_cum   = _sum_realized_cum()
-    dividend_cum   = _sum_dividend_cum()
+    realized_cum = _sum_realized_cum()
+    dividend_cum = _sum_dividend_cum()
 
     # 即時現金化額：信用は「含み損益のみ」現金化可
-    liquidation_value = int(
-        snap["spot_mv"] + (snap["margin_mv"] - snap["margin_cost"]) + cash["total"]
-    )
+    liquidation_value = int(snap["spot_mv"] + snap["margin_unrealized"] + cash["total"])
 
     invested = _invested_capital()
 
@@ -187,7 +207,9 @@ def home(request):
         "spot_pct": round(snap["spot_mv"] / gross_pos * 100, 1),
         "margin_pct": round(snap["margin_mv"] / gross_pos * 100, 1),
     }
-    liquidity_rate_pct = max(0.0, round(liquidation_value / total_eval_assets * 100, 1)) if total_eval_assets > 0 else 0.0
+    liquidity_rate_pct = max(
+        0.0, round(liquidation_value / total_eval_assets * 100, 1)
+    ) if total_eval_assets > 0 else 0.0
     margin_ratio_pct = round(snap["margin_mv"] / gross_pos * 100, 1) if gross_pos > 0 else 0.0
 
     # リスク警告
@@ -197,18 +219,20 @@ def home(request):
     if liquidity_rate_pct < 50.0:
         risk_flags.append(f"流動性が {liquidity_rate_pct}% と低め。現金化余地の確保を検討。")
 
-    # KPI
+    # KPI（テンプレは表示のみ。計算はここで完結）
     kpis = {
         "total_assets": total_eval_assets,
         "unrealized_pnl": unrealized_pnl,
+        "spot_unrealized": snap["spot_unrealized"],
+        "margin_unrealized": snap["margin_unrealized"],
         "realized_month": realized_month,
         "dividend_month": dividend_month,
         "cash_total": cash["total"],
         "liquidation": liquidation_value,
         "invested": invested,
-        "roi_eval_pct": roi_eval_pct,       # ← 上段（評価ベース）
-        "roi_liquid_pct": roi_liquid_pct,   # ← 下段（現金化ベース）
-        "roi_gap_abs": roi_gap_abs,         # ← 乖離
+        "roi_eval_pct": roi_eval_pct,
+        "roi_liquid_pct": roi_liquid_pct,
+        "roi_gap_abs": roi_gap_abs,
         "win_ratio": snap["win_ratio"],
         "realized_cum": realized_cum,
         "dividend_cum": dividend_cum,
@@ -224,12 +248,13 @@ def home(request):
 
     # AIコメント
     ai_note, ai_actions = svc_advisor.summarize(kpis, sectors)
-
-    # 乖離が大きいときに提案を自動追加（しきい値 20pt）
     GAP_THRESHOLD = 20.0
     if roi_gap_abs is not None and roi_gap_abs >= GAP_THRESHOLD:
         ai_actions = list(ai_actions or [])
-        ai_actions.insert(0, f"評価ROIと現金ROIの乖離が {roi_gap_abs:.1f}pt。評価と実際の差が大きい。ポジション整理を検討。")
+        ai_actions.insert(
+            0,
+            f"評価ROIと現金ROIの乖離が {roi_gap_abs:.1f}pt。評価と実際の差が大きい。ポジション整理を検討。"
+        )
 
     ctx = dict(
         kpis=kpis,
@@ -242,5 +267,8 @@ def home(request):
         breakdown_pct=breakdown_pct,
         risk_flags=risk_flags,
         cash_total_by_currency=cash["total_by_currency"],
+        stressed_default=_stress_default(snap["spot_mv"], snap["margin_mv"], cash["total"]),
+        ai_note=ai_note,
+        ai_actions=ai_actions,
     )
     return render(request, "home.html", ctx)
