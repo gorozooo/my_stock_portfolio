@@ -51,9 +51,8 @@ section{ margin:14px 12px; }
 .roi-card .roi-value{ font-weight:800; font-size:1.2rem }
 .roi-card .eval .roi-value.pos{ color:var(--good) }
 .roi-card .eval .roi-value.neg{ color:var(--bad) }
-/* 現金ROIはブルー系で統一表示（＋でも−でも青で“現金側”と分かる） */
-.roi-card .liquid .roi-value.pos,
-.roi-card .liquid .roi-value.neg{ color:#5db1ff }
+/* 現金ROIはブルーで統一表示（＋でも−でも青） */
+.roi-card .liquid .roi-value{ color:#5db1ff }
 .roi-card .roi-foot{
   margin-top:6px; font-size:.85rem; color:var(--muted);
   display:flex; gap:8px; align-items:center;
@@ -64,7 +63,6 @@ section{ margin:14px 12px; }
 }
 
 /* ===== 今すぐ現金化（カード） ===== */
-/* テンプレ側は .liquidation を使う。後方互換で .liquid も同デザインに合わせる */
 .liquidation, .liquid{ padding:12px; }
 .liq-head, .liquid-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
 .liq-head .title, .liquid-head .title{ font-weight:700; }
@@ -88,23 +86,6 @@ section{ margin:14px 12px; }
 .liq-gauge .spot{ height:100%; background:linear-gradient(90deg,#2dd79b,#49e28a); width:40% }
 .liq-gauge .margin{ height:100%; background:linear-gradient(90deg,#ff8a8a,#ff6d6d); float:right; width:60% }
 .liq-meta{ display:flex; justify-content:space-between; margin-top:4px; font-size:.85rem; opacity:.9 }
-
-.liquid-hero{ text-align:center; margin:6px 0 8px; }
-.liquid-amount{ font-size:1.6rem; font-weight:800; }
-.liquid-grid{ display:grid; grid-template-columns:1fr auto; row-gap:6px; column-gap:8px; margin-top:6px; }
-.li-row{ display:contents; }
-.li-row span{ color:var(--muted); }
-.li-row strong{ text-align:right; }
-.pos{ color:var(--good); }
-.neg{ color:var(--bad); }
-.li-bar{ height:12px; border-radius:999px; overflow:hidden; margin:10px 0 6px;
-  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); }
-.li-bar-fill{ height:100%; background:linear-gradient(90deg, #6ea8ff, #00ffd1); }
-.li-badges{ display:flex; gap:8px; list-style:none; margin:6px 0 0; padding:0;}
-.pill{ border:1px solid rgba(255,255,255,.14); border-radius:999px; padding:4px 10px; }
-.pill.warn{ border-color:#ff7a7a; color:#ffb0b7; }
-.warn-list{ margin-top:8px; }
-.warn-item{ font-size:.9rem; opacity:.9; }
 
 /* ===== セクター横スク ===== */
 .sector-strip{ padding:12px; }
