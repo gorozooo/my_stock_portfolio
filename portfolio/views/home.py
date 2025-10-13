@@ -9,15 +9,14 @@ from django.shortcuts import render
 
 from ..services import advisor as svc_advisor
 from ..models import Holding, RealizedTrade, Dividend
+from ..models_cash import BrokerAccount, CashLedger
 
 Number = Union[int, float, Decimal]
-
 
 # =========================
 # Utilities
 # =========================
 def _to_float(v: Optional[Number]) -> float:
-    """数値→float（None/Decimal/例外に強い）"""
     try:
         if v is None: return 0.0
         if isinstance(v, Decimal): return float(v)
@@ -25,159 +24,234 @@ def _to_float(v: Optional[Number]) -> float:
     except Exception:
         return 0.0
 
-
 def _month_bounds(today: Optional[date] = None) -> Tuple[date, date]:
-    """当月 [first, next_first) を返す（28日トリックで安全）"""
     d = today or date.today()
     first = d.replace(day=1)
     next_first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
     return first, next_first
 
+# =========================
+# Cash（BrokerAccount + CashLedger）
+# =========================
+def _cash_balances() -> Dict[str, Any]:
+    """
+    口座現金の合計と、証券会社別の内訳を返す。
+    opening_balance + ledgers(増減) の純額。通貨はとりあえず JPY のみ合算。
+    戻り値:
+      {
+        "total": int,
+        "by_broker": [
+            {"broker":"SBI","cash":..., "currency":"JPY"}
+        ],
+        "total_by_currency": {"JPY": ...}
+      }
+    """
+    accounts = list(BrokerAccount.objects.all())
+    # 通貨別合計
+    cur_totals: Dict[str, int] = defaultdict(int)
+    by_broker: Dict[str, int] = defaultdict(int)
+
+    # 先に口座ごとに残高計算
+    for a in accounts:
+        # opening + ledger sum
+        led_sum = CashLedger.objects.filter(account=a).aggregate_sum := sum(
+            int(x.amount) for x in a.ledgers.all()
+        ) if hasattr(a, "ledgers") else 0
+        bal = int(a.opening_balance or 0) + int(led_sum or 0)
+        if a.currency == "JPY":
+            cur_totals["JPY"] += bal
+            by_broker[a.broker] += bal
+        else:
+            # 必要なら将来: 為替換算を追加
+            cur_totals[a.currency] += bal
+            by_broker[a.broker] += bal  # ここでは未換算で相加、必要に応じ換算へ
+    # 整形
+    by_broker_list = [{"broker": b, "cash": v, "currency": "JPY"} for b, v in by_broker.items()]
+    total_jpy = int(cur_totals.get("JPY", 0))
+    return {"total": total_jpy, "by_broker": by_broker_list, "total_by_currency": dict(cur_totals)}
 
 # =========================
-# Snapshots（DBの last_price を最優先に使用）
+# Holdings（現物＋信用の評価 / 取得 / セクター）
 # =========================
 def _holdings_snapshot() -> dict:
     """
-    - 総資産は現物のみ（account != 'MARGIN'）
-    - 価格は DBの last_price を最優先 → 無ければ avg_cost（最後の砦）
-    - 含み損益は「現物＋信用」の **未実現損益のみ**（= 評価額−取得額）
-      ※ 実現損益・配当・手数料・税金は含めない
-    - 勝率は全期間の実現トレード（pnl>0 勝ち / <0 負け）
-    - セクター（暫定）：broker 別（現物のみ集計）
+    - 価格は DB の last_price 最優先 → 無ければ avg_cost（最後の砦）
+    - 含み損益は「現物＋信用」の未実現のみ（評価−取得）
+    - 総資産（評価ベース）は現物＋信用の評価額 + 現金（別計）
+    - セクター相当は broker 別で現物のみ集計（UIの簡潔さ優先）
     """
     holdings = list(Holding.objects.all())
 
-    # 合計器
     spot_mv = spot_cost = 0.0
     margin_mv = margin_cost = 0.0
 
-    sector_map: Dict[str, Dict[str, float]] = defaultdict(lambda: {"mv": 0.0, "cost": 0.0})
+    # broker 別（現物のみ）内訳
+    broker_map: Dict[str, Dict[str, float]] = defaultdict(lambda: {"mv": 0.0, "cost": 0.0})
+
+    # broker 別（現物＋信用）の評価（口座ビュー用）
+    broker_pos_mv: Dict[str, float] = defaultdict(float)
 
     for h in holdings:
         qty  = _to_float(h.quantity)
         unit = _to_float(h.avg_cost)
-        price = _to_float(getattr(h, "last_price", None)) or unit  # バッチ値→無ければ取得単価
+        price = _to_float(getattr(h, "last_price", None)) or unit
         mv = price * qty
         cost = unit * qty
+        acc = (h.account or "").upper()
+        broker = h.broker or "OTHER"
 
-        if (h.account or "").upper() == "MARGIN":
-            margin_mv  += mv
-            margin_cost+= cost
+        if acc == "MARGIN":
+            margin_mv += mv; margin_cost += cost
         else:
-            spot_mv  += mv
-            spot_cost+= cost
-            # セクター（=証券会社での内訳表示）
-            sec_key = h.broker or "OTHER"
-            sector_map[sec_key]["mv"]   += mv
-            sector_map[sec_key]["cost"] += cost
+            spot_mv += mv; spot_cost += cost
+            broker_map[broker]["mv"] += mv
+            broker_map[broker]["cost"] += cost
 
-    # ★ 未実現損益 = (現物+信用の評価額) − (現物+信用の取得額)
+        # 口座別トータル（現物＋信用）
+        broker_pos_mv[broker] += mv
+
+    # 未実現
     total_unrealized_pnl = (spot_mv + margin_mv) - (spot_cost + margin_cost)
 
-    # 勝率＝全期間の実現トレード（未実現とは別系統）
+    # 勝率＝実現トレード全期間
     qs = RealizedTrade.objects.all()
     win = sum(1 for r in qs if _to_float(r.pnl) > 0)
     lose = sum(1 for r in qs if _to_float(r.pnl) < 0)
     total_trades = win + lose
     win_ratio = round((win / total_trades * 100.0) if total_trades else 0.0, 1)
 
-    # セクターカード（現物のみ）
+    # セクター（= broker）カード（現物）
     by_sector: List[Dict[str, Any]] = []
-    for sec, d in sector_map.items():
+    for sec, d in broker_map.items():
         mv, cost = d["mv"], d["cost"]
         rate = round(((mv - cost) / cost * 100) if cost > 0 else 0.0, 2)
         by_sector.append({"sector": sec, "mv": round(mv), "rate": rate})
     by_sector.sort(key=lambda x: x["mv"], reverse=True)
 
     return dict(
-        # 総資産は“現物のみ”の方針を維持（要件があれば切り替え可）
-        total_mv=round(spot_mv),
-        total_cost=round(spot_cost),
-        # ← 表示カード用（参考値）。実計算は下の total_unrealized_pnl を使用
-        pnl=round(total_unrealized_pnl),
+        spot_mv=round(spot_mv), spot_cost=round(spot_cost),
+        margin_mv=round(margin_mv), margin_cost=round(margin_cost),
+        unrealized=round(total_unrealized_pnl),
         win_ratio=win_ratio,
         by_sector=by_sector[:10],
-        breakdown={
-            "spot_mv": round(spot_mv),
-            "spot_cost": round(spot_cost),
-            "margin_mv": round(margin_mv),
-            "margin_cost": round(margin_cost),
-        },
+        by_broker_pos_mv={k: round(v) for k, v in broker_pos_mv.items()},
     )
 
-
 # =========================
-# KPI helpers（実現・配当は別KPI、未実現へは混ぜない）
+# Realized / Dividend / ROI
 # =========================
 def _sum_realized_month() -> int:
     first, next_first = _month_bounds()
-    total = 0.0
-    for r in RealizedTrade.objects.filter(trade_at__gte=first, trade_at__lt=next_first):
-        total += _to_float(r.pnl)
-    return round(total)
-
+    # 実現は CashLedger の source_type="REAL" を純額で数えるのが堅い
+    qs = CashLedger.objects.filter(source_type=CashLedger.SourceType.REALIZED, at__gte=first, at__lt=next_first)
+    return round(sum(int(x.amount) for x in qs))
 
 def _sum_dividend_month() -> int:
     first, next_first = _month_bounds()
-    total = 0.0
-    for d in Dividend.objects.filter(date__gte=first, date__lt=next_first):
-        total += _to_float(d.amount)
-    return round(total)
+    qs = CashLedger.objects.filter(source_type=CashLedger.SourceType.DIVIDEND, at__gte=first, at__lt=next_first)
+    return round(sum(int(x.amount) for x in qs))
 
+def _sum_realized_cum() -> int:
+    qs = CashLedger.objects.filter(source_type=CashLedger.SourceType.REALIZED)
+    return round(sum(int(x.amount) for x in qs))
 
-def _cash_balance() -> int:
-    return 0
+def _sum_dividend_cum() -> int:
+    qs = CashLedger.objects.filter(source_type=CashLedger.SourceType.DIVIDEND)
+    return round(sum(int(x.amount) for x in qs))
 
+def _invested_capital() -> int:
+    """
+    投下元本（正味の入出金）= opening_balance 合計 + (DEPOSIT+XFER_IN) - (WITHDRAW+XFER_OUT)
+    ※ 税や手数料は「現金の中」に自然反映されるため、ここでは触れない。
+    """
+    accs = BrokerAccount.objects.all()
+    opening = sum(int(a.opening_balance or 0) for a in accs)
 
-def _cashflow_month_bars() -> list:
-    return [
-        {"label": "配当", "value": _sum_dividend_month()},
-        {"label": "実現益", "value": _sum_realized_month()},
-    ]
-
-
-def _stress_test(delta_index_pct: float, snapshot: dict) -> int:
-    beta = 0.9
-    return round(snapshot["total_mv"] * (1.0 + beta * delta_index_pct / 100.0))
-
+    dep = sum(int(x.amount) for x in CashLedger.objects.filter(kind=CashLedger.Kind.DEPOSIT))
+    xin = sum(int(x.amount) for x in CashLedger.objects.filter(kind=CashLedger.Kind.XFER_IN))
+    wdr = sum(int(x.amount) for x in CashLedger.objects.filter(kind=CashLedger.Kind.WITHDRAW))
+    xout= sum(int(x.amount) for x in CashLedger.objects.filter(kind=CashLedger.Kind.XFER_OUT))
+    return int(opening + dep + xin - wdr - xout)
 
 # =========================
 # View
 # =========================
 def home(request):
     snap = _holdings_snapshot()
+    cash = _cash_balances()
 
-    # KPI（未実現＝現物＋信用）
-    kpis = {
-        "total_assets":   snap["total_mv"],     # 現物のみ（方針）
-        "unrealized_pnl": snap["pnl"],         # ★ 現物＋信用の未実現損益
-        "realized_month": _sum_realized_month(),
-        "win_ratio":      snap["win_ratio"],   # 実現トレードの勝率（全期間）
-        "cash_balance":   _cash_balance(),
-    }
+    # 評価ベースの総資産（実質）= (現物+信用)評価額 + 現金
+    total_eval_assets = int(snap["spot_mv"] + snap["margin_mv"] + cash["total"])
 
-    # 内訳の比率（ゲージ用）
-    spot = snap["breakdown"]["spot_mv"]
-    margin = snap["breakdown"]["margin_mv"]
-    denom = max(spot + margin, 1)  # 0割回避
+    # KPI: 未実現（現物＋信用）
+    unrealized_pnl = int(snap["unrealized"])
+
+    # 実現 & 配当
+    realized_month = _sum_realized_month()
+    dividend_month = _sum_dividend_month()
+    realized_cum   = _sum_realized_cum()
+    dividend_cum   = _sum_dividend_cum()
+
+    # Liquidation（今すぐ全売りして現金化）
+    liquidation_value = int(snap["spot_mv"] + snap["margin_mv"] + cash["total"])
+
+    # ROI（投下元本比）
+    invested = _invested_capital()
+    roi_pct = round(((liquidation_value - invested) / invested * 100.0), 2) if invested > 0 else None
+
+    # 現物/信用の比率（ゲージ用）
+    denom_pos = max(int(snap["spot_mv"] + snap["margin_mv"]), 1)
     breakdown_pct = {
-        "spot_pct": round(spot / denom * 100, 1),
-        "margin_pct": round(margin / denom * 100, 1),
+        "spot_pct": round(snap["spot_mv"] / denom_pos * 100, 1),
+        "margin_pct": round(snap["margin_mv"] / denom_pos * 100, 1),
     }
 
-    sectors   = snap["by_sector"]         # 現物のみのセクター成績
-    cash_bars = _cashflow_month_bars()
+    # broker 別：現金＋ポジション評価
+    broker_rows: List[Dict[str, Any]] = []
+    cash_by_broker = {b["broker"]: b["cash"] for b in cash["by_broker"]}
+    pos_by_broker = snap["by_broker_pos_mv"]
+    all_brokers = set(cash_by_broker.keys()) | set(pos_by_broker.keys())
+    for b in sorted(all_brokers):
+        cash_jpy = int(cash_by_broker.get(b, 0))
+        pos_mv   = int(pos_by_broker.get(b, 0))
+        broker_rows.append({
+            "broker": b, "cash": cash_jpy, "pos_mv": pos_mv, "total": cash_jpy + pos_mv
+        })
+    broker_rows.sort(key=lambda r: r["total"], reverse=True)
+
+    # 画面トップKPI（“総資産”は実質評価ベースを採用）
+    kpis = {
+        "total_assets": total_eval_assets,     # = (現物+信用)評価額 + 現金
+        "unrealized_pnl": unrealized_pnl,      # 未実現（現物+信用）
+        "realized_month": realized_month,      # 今月の実現損益（現金ベース）
+        "dividend_month": dividend_month,      # 今月の配当（現金ベース）
+        "cash_total": cash["total"],           # 現金残高合計
+        "liquidation": liquidation_value,      # 今すぐ現金化
+        "invested": invested,                  # 投下元本（正味入出金）
+        "roi_pct": roi_pct,                    # ROI%
+        "win_ratio": snap["win_ratio"],        # 実現トレード勝率（参考）
+    }
+
+    # セクター（=broker）カードは現物のみの成績
+    sectors = snap["by_sector"]
+
+    # キャッシュフロー棒（今月）
+    cash_bars = [
+        {"label":"配当", "value": dividend_month},
+        {"label":"実現益", "value": realized_month},
+    ]
+
     ai_note, ai_actions = svc_advisor.summarize(kpis, sectors)
-    stressed = _stress_test(-5, snap)
 
     ctx = dict(
         kpis=kpis,
         sectors=sectors,
         cash_bars=cash_bars,
-        ai_note=ai_note, ai_actions=ai_actions,
-        stressed_default=stressed,
-        breakdown=snap["breakdown"],      # 数値カード
-        breakdown_pct=breakdown_pct,      # 比率ゲージ
+        breakdown=dict(spot_mv=snap["spot_mv"], spot_cost=snap["spot_cost"],
+                       margin_mv=snap["margin_mv"], margin_cost=snap["margin_cost"]),
+        breakdown_pct=breakdown_pct,
+        broker_rows=broker_rows,
+        # 補助（テンプレ/デバッグ）
+        cash_total_by_currency=cash["total_by_currency"],
     )
     return render(request, "home.html", ctx)
