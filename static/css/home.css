@@ -74,11 +74,41 @@ section{ margin:14px 12px; }
 .bd-row{display:flex;justify-content:space-between;align-items:center;margin:6px 0}
 .bd-row.sub{opacity:.75;font-size:.95em}
 
-/* 比率ゲージ */
-.bd-gauge{position:relative;height:12px;border-radius:999px;overflow:hidden;
-          background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);margin:4px 0 8px}
-.bd-gauge-spot{height:100%;background:linear-gradient(90deg,#2dd79b,#49e28a)}
-.bd-gauge-margin{height:100%;background:linear-gradient(90deg,#ff8a8a,#ff6d6d)}
-.bd-legend{display:flex;justify-content:space-between;font-size:.9rem;margin-bottom:8px;opacity:.9}
+/* 内訳共通 */
+.breakdown{padding:12px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%}
+.dot.spot{background:#2dd79b}
+.dot.margin{background:#ff6d6d}
 
-@media (max-width: 480px){ .bd-grid{grid-template-columns:1fr} }
+/* ① 横バー比率ゲージ */
+.bd-gauge{position:relative;height:12px;border-radius:999px;overflow:hidden;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);margin:6px 0 8px}
+.bd-gauge-spot{height:100%;background:linear-gradient(90deg,#2dd79b,#49e28a)}
+.bd-gauge-margin{height:100%;background:linear-gradient(90deg,#ff8a8a,#ff6d6d);float:right}
+.bd-legend{display:flex;justify-content:space-between;opacity:.9;margin-bottom:8px}
+
+/* ② ドーナツ */
+.bd-donut-wrap{display:grid;grid-template-columns:180px 1fr;gap:16px;align-items:center}
+.bd-donut{
+  --spot:60; --margin:40; /* default fallback */
+  width:160px;height:160px;border-radius:50%;
+  background:
+    conic-gradient(#2dd79b calc(var(--spot)*1%), #ff6d6d 0);
+  position:relative; box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);
+}
+.bd-donut::after{ /* 内側の穴 */
+  content:""; position:absolute; inset:16px; border-radius:50%;
+  background:rgba(0,0,0,.45); box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);
+}
+.bd-donut-hole{position:absolute; inset:16px; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; text-align:center; z-index:2}
+.bd-donut-total{font-weight:700; font-size:1rem}
+.bd-donut-caption{opacity:.8; font-size:.8rem; margin-top:2px}
+
+.bd-legend-rows{list-style:none;margin:0;padding:0;display:grid;row-gap:4px}
+.bd-legend-rows li{display:grid;grid-template-columns:16px 1fr auto;column-gap:8px;align-items:center}
+.bd-legend-rows li.sub{opacity:.75;font-size:.95em}
+@media (max-width: 460px){
+  .bd-donut-wrap{grid-template-columns:1fr;justify-items:center}
+  .bd-legend-rows{width:100%}
+}
