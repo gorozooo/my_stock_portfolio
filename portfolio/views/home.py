@@ -80,10 +80,8 @@ def _holdings_snapshot() -> dict:
         cost = unit * qty
 
         acc = (getattr(h, "account", "") or "").upper()
-        # セクター名（空は未分類）
         sector = (getattr(h, "sector", None) or "").strip() or "未分類"
 
-        # ポジション別集計
         if acc == "MARGIN":
             margin_mv += mv
             margin_cost += cost
@@ -281,17 +279,23 @@ def home(request):
         "win_ratio": snap["win_ratio"],
         "liquidity_rate_pct": liquidity_rate_pct,
         "margin_ratio_pct": margin_ratio_pct,
-        "margin_unrealized": margin_unrealized,  # ← テンプレで使用
+        "margin_unrealized": margin_unrealized,
     }
 
-    sectors = snap["by_sector"]  # ← ここが“業種セクター”に切替わります
+    sectors = snap["by_sector"]  # ← 業種セクター（未分類含む）
     cash_bars = [
         {"label": "配当", "value": dividend_month},
         {"label": "実現益", "value": realized_month},
     ]
 
-    # AIコメント
+    # AIコメント（フォールバック付き）
     ai_note, ai_actions = svc_advisor.summarize(kpis, sectors)
+    if not ai_note:
+        ai_note = "最新データを解析しました。主要KPIと含み状況を要約しています。"
+    if not ai_actions:
+        ai_actions = ["直近のデータが少ないため、提案事項はありません。"]
+
+    # 乖離トリガー
     GAP_THRESHOLD = 20.0
     if roi_gap_abs is not None and roi_gap_abs >= GAP_THRESHOLD:
         ai_actions = list(ai_actions or [])
@@ -317,5 +321,8 @@ def home(request):
         risk_flags=risk_flags,
         cash_total_by_currency=cash["total_by_currency"],
         stressed_default=stressed_default,
+        # ← テンプレに渡す（これが抜けていた）
+        ai_note=ai_note,
+        ai_actions=ai_actions,
     )
     return render(request, "home.html", ctx)
