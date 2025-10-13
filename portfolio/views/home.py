@@ -57,8 +57,8 @@ def _cash_balances() -> Dict[str, Any]:
 # ========= Holdings =========
 def _holdings_snapshot() -> dict:
     """
-    価格は last_price 優先 → なければ avg_cost
-    未実現損益は「現物＋信用」の未実現のみ（評価−取得）
+    価格は last_price 優先 → 無ければ avg_cost
+    未実現損益 =（現物+信用の評価−取得）= 未実現のみ（実損や配当は含めない）
     """
     holdings = list(Holding.objects.all())
 
@@ -66,7 +66,6 @@ def _holdings_snapshot() -> dict:
     margin_mv = margin_cost = 0.0
 
     broker_map: Dict[str, Dict[str, float]] = defaultdict(lambda: {"mv": 0.0, "cost": 0.0})
-    broker_pos_mv: Dict[str, float] = defaultdict(float)
 
     for h in holdings:
         qty = _to_float(getattr(h, "quantity", 0))
@@ -87,21 +86,16 @@ def _holdings_snapshot() -> dict:
             broker_map[broker]["mv"] += mv
             broker_map[broker]["cost"] += cost
 
-        broker_pos_mv[broker] += mv
+    total_unrealized_pnl = (spot_mv + margin_mv) - (spot_cost + margin_cost)
 
-    # 未実現（現物＋信用）
-    unrealized_total = (spot_mv + margin_mv) - (spot_cost + margin_cost)
-    # 内訳
-    spot_unrealized = spot_mv - spot_cost
-    margin_unrealized = margin_mv - margin_cost
-
-    # 勝率（全期間）
+    # 勝率（全期間の実現トレード）
     qs = RealizedTrade.objects.all()
     win = sum(1 for r in qs if _to_float(getattr(r, "pnl", 0)) > 0)
     lose = sum(1 for r in qs if _to_float(getattr(r, "pnl", 0)) < 0)
     total_trades = win + lose
     win_ratio = round((win / total_trades * 100.0) if total_trades else 0.0, 1)
 
+    # セクター（ここでは broker をセクター代替）
     by_sector: List[Dict[str, Any]] = []
     for sec, d in broker_map.items():
         mv, cost = d["mv"], d["cost"]
@@ -114,45 +108,44 @@ def _holdings_snapshot() -> dict:
         spot_cost=round(spot_cost),
         margin_mv=round(margin_mv),
         margin_cost=round(margin_cost),
-        unrealized=round(unrealized_total),
-        spot_unrealized=round(spot_unrealized),
-        margin_unrealized=round(margin_unrealized),
+        unrealized=round(total_unrealized_pnl),
         win_ratio=win_ratio,
         by_sector=by_sector[:10],
-        by_broker_pos_mv={k: round(v) for k, v in broker_pos_mv.items()},
     )
 
-# ========= Realized / Div（現金レジャー基準） =========
+# ========= Realized / Div（現金台帳） =========
 def _sum_realized_month() -> int:
     first, next_first = _month_bounds()
     qs = CashLedger.objects.filter(
-        source_type=CashLedger.SourceType.REALIZED,
-        at__gte=first, at__lt=next_first,
+        source_type=CashLedger.SourceType.REALIZED, at__gte=first, at__lt=next_first
     )
     return int(sum(int(x.amount) for x in qs))
 
 def _sum_dividend_month() -> int:
     first, next_first = _month_bounds()
     qs = CashLedger.objects.filter(
-        source_type=CashLedger.SourceType.DIVIDEND,
-        at__gte=first, at__lt=next_first,
+        source_type=CashLedger.SourceType.DIVIDEND, at__gte=first, at__lt=next_first
     )
     return int(sum(int(x.amount) for x in qs))
 
 def _sum_realized_cum() -> int:
-    return int(CashLedger.objects.filter(source_type=CashLedger.SourceType.REALIZED)
-               .aggregate(s=Sum("amount")).get("s") or 0)
+    return int(
+        CashLedger.objects.filter(source_type=CashLedger.SourceType.REALIZED)
+        .aggregate(s=Sum("amount")).get("s") or 0
+    )
 
 def _sum_dividend_cum() -> int:
-    return int(CashLedger.objects.filter(source_type=CashLedger.SourceType.DIVIDEND)
-               .aggregate(s=Sum("amount")).get("s") or 0)
+    return int(
+        CashLedger.objects.filter(source_type=CashLedger.SourceType.DIVIDEND)
+        .aggregate(s=Sum("amount")).get("s") or 0
+    )
 
 def _invested_capital() -> int:
     opening = int(BrokerAccount.objects.aggregate(total=Sum("opening_balance")).get("total") or 0)
-    dep = int(CashLedger.objects.filter(kind=CashLedger.Kind.DEPOSIT).aggregate(s=Sum("amount")).get("s") or 0)
-    xin = int(CashLedger.objects.filter(kind=CashLedger.Kind.XFER_IN).aggregate(s=Sum("amount")).get("s") or 0)
-    wdr = int(CashLedger.objects.filter(kind=CashLedger.Kind.WITHDRAW).aggregate(s=Sum("amount")).get("s") or 0)
-    xout= int(CashLedger.objects.filter(kind=CashLedger.Kind.XFER_OUT).aggregate(s=Sum("amount")).get("s") or 0)
+    dep  = int(CashLedger.objects.filter(kind=CashLedger.Kind.DEPOSIT ).aggregate(s=Sum("amount")).get("s") or 0)
+    xin  = int(CashLedger.objects.filter(kind=CashLedger.Kind.XFER_IN ).aggregate(s=Sum("amount")).get("s") or 0)
+    wdr  = int(CashLedger.objects.filter(kind=CashLedger.Kind.WITHDRAW).aggregate(s=Sum("amount")).get("s") or 0)
+    xout = int(CashLedger.objects.filter(kind=CashLedger.Kind.XFER_OUT).aggregate(s=Sum("amount")).get("s") or 0)
     return int(opening + dep + xin - wdr - xout)
 
 # ========= View =========
@@ -160,25 +153,25 @@ def home(request):
     snap = _holdings_snapshot()
     cash = _cash_balances()
 
-    # 評価ベース総資産 = (現物+信用)評価額 + 現金
+    # 評価ベースの総資産（現物+信用の評価 + 現金）
     total_eval_assets = int(snap["spot_mv"] + snap["margin_mv"] + cash["total"])
 
     # 未実現（現物＋信用のみ）
     unrealized_pnl = int(snap["unrealized"])
 
-    # 月間/累計（現金ベース）
-    realized_month = _sum_realized_month()
-    dividend_month = _sum_dividend_month()
-    realized_cum   = _sum_realized_cum()
-    dividend_cum   = _sum_dividend_cum()
+    # 月間＆累積（現金ベース）
+    realized_month  = _sum_realized_month()
+    dividend_month  = _sum_dividend_month()
+    realized_cum    = _sum_realized_cum()
+    dividend_cum    = _sum_dividend_cum()
 
-    # 即時現金化額：信用は「含み損益のみ」を現金化可
-    margin_unrealized = int(snap["margin_unrealized"])
-    liquidation_value = int(snap["spot_mv"] + margin_unrealized + cash["total"])
-
+    # 投下資金・ROI
     invested = _invested_capital()
-    eval_roi_pct = round(((total_eval_assets - invested) / invested * 100.0), 2) if invested > 0 else None
-    cash_roi_pct = round(((liquidation_value - invested) / invested * 100.0), 2) if invested > 0 else None
+    # 評価ROI = (評価総資産 - 投下資金)/投下資金
+    roi_eval_pct = round(((total_eval_assets - invested) / invested * 100.0), 2) if invested > 0 else None
+    # 現金化額：信用は含み損益のみ現金化
+    liquidation_value = int(snap["spot_mv"] + (snap["margin_mv"] - snap["margin_cost"]) + cash["total"])
+    roi_cash_pct = round(((liquidation_value - invested) / invested * 100.0), 2) if invested > 0 else None
 
     # 比率
     gross_pos = max(int(snap["spot_mv"] + snap["margin_mv"]), 1)
@@ -196,19 +189,23 @@ def home(request):
     if liquidity_rate_pct < 50.0:
         risk_flags.append(f"流動性が {liquidity_rate_pct}% と低め。現金化余地の確保を検討。")
 
+    # 2段式ROI 乖離によるAI提案フック
+    ai_extra: List[str] = []
+    if roi_eval_pct is not None and roi_cash_pct is not None:
+        if abs(roi_eval_pct - roi_cash_pct) >= 15.0:
+            ai_extra.append("評価ROIと現金ROIの乖離が大きい。評価と実際の差を埋めるポジション整理を検討。")
+
     # KPI
     kpis = {
         "total_assets": total_eval_assets,
         "unrealized_pnl": unrealized_pnl,
-        "spot_unrealized": int(snap["spot_unrealized"]),
-        "margin_unrealized": margin_unrealized,
         "realized_month": realized_month,
         "dividend_month": dividend_month,
         "cash_total": cash["total"],
         "liquidation": liquidation_value,
         "invested": invested,
-        "eval_roi_pct": eval_roi_pct,     # 2段式ROI（上段）
-        "cash_roi_pct": cash_roi_pct,     # 2段式ROI（下段）
+        "roi_eval_pct": roi_eval_pct,
+        "roi_cash_pct": roi_cash_pct,
         "win_ratio": snap["win_ratio"],
         "realized_cum": realized_cum,
         "dividend_cum": dividend_cum,
@@ -222,18 +219,10 @@ def home(request):
         {"label": "実現益", "value": realized_month},
     ]
 
-    # AIコメント
-    ai_note, ai_actions = svc_advisor.summarize(kpis, sectors)
+    ai_note, ai_actions_base = svc_advisor.summarize(kpis, sectors)
+    ai_actions = [*ai_actions_base, *ai_extra]
 
-    # 乖離コメント（評価ROI vs 現金ROI）
-    if kpis["eval_roi_pct"] is not None and kpis["cash_roi_pct"] is not None:
-        gap = abs(kpis["eval_roi_pct"] - kpis["cash_roi_pct"])
-        if gap >= 15.0:
-            ai_actions = list(ai_actions or [])
-            ai_actions.insert(
-                0,
-                "評価ROIと現金ROIの乖離が大きい。評価と実際の差を確認し、ポジション整理や現金比率の見直しを検討。"
-            )
+    stressed_default = int(total_eval_assets * (1 + 0.9 * (-5)/100.0))  # 初期-5%
 
     ctx = dict(
         kpis=kpis,
@@ -246,5 +235,8 @@ def home(request):
         breakdown_pct=breakdown_pct,
         risk_flags=risk_flags,
         cash_total_by_currency=cash["total_by_currency"],
+        stressed_default=stressed_default,
+        ai_note=ai_note,
+        ai_actions=ai_actions,
     )
     return render(request, "home.html", ctx)
