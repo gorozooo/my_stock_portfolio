@@ -43,11 +43,10 @@
   </div>
 
   <div class="kpi-card">
-    <div class="kpi-label">今月の実現</div>
+    <div class="kpi-label">今月の実現損益</div>
     {% with v=kpis.realized_month %}
       <div class="kpi-value {% if v > 0 %}pos{% elif v < 0 %}neg{% endif %}">¥{{ v|intcomma }}</div>
     {% endwith %}
-    <div class="kpi-sub muted">配当 ¥{{ kpis.dividend_month|intcomma }}</div>
   </div>
 
   <!-- 🟢/🔵 2段式 ROI カード -->
