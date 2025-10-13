@@ -4,28 +4,30 @@
 {% block title %}ホーム | My株ポートフォリオ{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=15">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=16">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script defer src="{% static 'js/home.js' %}?v=11"></script>
 {% endblock %}
 
 {% block content %}
 
-<!-- 🧠 AIヘッダー -->
+<!-- 🧠 AIアドバイザー（行動リスト統合） -->
 <section class="ai-header glass">
   <div class="ai-title">AIアドバイザー</div>
   <p class="ai-note">{{ ai_note }}</p>
-  <ul class="ai-actions">
-    {% for a in ai_actions %}
-      <li>• {{ a }}</li>
-    {% empty %}
-      <li>• 分析中です。</li>
-    {% endfor %}
-  </ul>
+
   <div class="ai-tools">
     <button class="btn ghost" id="btn-ai-weekly">週次レポート</button>
     <button class="btn ghost" id="btn-ai-rebalance">次の一手</button>
   </div>
+
+  <ul class="ai-actions merged">
+    {% for a in ai_actions %}
+      <li>✅ {{ a }}</li>
+    {% empty %}
+      <li>✅ 現在は提案事項なし</li>
+    {% endfor %}
+  </ul>
 </section>
 
 <!-- 📊 KPI -->
@@ -56,7 +58,7 @@
     {% endwith %}
   </div>
 
-  <!-- 🟢/🔵 2段式 ROI カード -->
+  <!-- 🟢/🔵 2段式 ROI -->
   <div class="kpi-card roi-card">
     <div class="roi-row eval">
       <div class="roi-label">ROI（評価ベース）</div>
@@ -66,6 +68,7 @@
     </div>
     <div class="roi-row liquid">
       <div class="roi-label">ROI（現金化ベース）</div>
+      <!-- 現金ROIはブルーで統一 -->
       <div class="roi-value">
         {% if kpis.roi_liquid_pct != None %}{{ kpis.roi_liquid_pct|floatformat:2 }}%{% else %}--{% endif %}
       </div>
@@ -77,7 +80,7 @@
   </div>
 </section>
 
-<!-- 💵 今すぐ全て現金化したら（ヒーロー＋サマリー3枚） -->
+<!-- 💵 今すぐ全て現金化したら（ヒーロー＋3サマリー） -->
 <section class="liquidation glass">
   <div class="liq-head">
     <div class="title">今すぐ全て現金化したら</div>
@@ -101,7 +104,9 @@
       <div class="li-ic margin"></div>
       <div class="li-meta">
         <div class="li-label">信用の含み損益</div>
-        <div class="li-value {% if kpis.margin_unrealized < 0 %}neg{% else %}pos{% endif %}">¥{{ kpis.margin_unrealized|intcomma }}</div>
+        <div class="li-value {% if kpis.margin_unrealized < 0 %}neg{% else %}pos{% endif %}">
+          ¥{{ kpis.margin_unrealized|intcomma }}
+        </div>
       </div>
     </div>
     <div class="li-item">
@@ -184,17 +189,7 @@
   <canvas id="cashflowChart" height="140"></canvas>
 </section>
 
-<!-- ✅ 次のアクション -->
-<section class="todo glass">
-  <div class="todo-head">次のアクション</div>
-  <ul class="todo-list" id="todoList">
-    {% for a in ai_actions %}
-      <li>✅ {{ a }}</li>
-    {% empty %}
-      <li>✅ 特にありません</li>
-    {% endfor %}
-  </ul>
-</section>
+<!-- ※ 統合したので「次のアクション」単独セクションは削除 -->
 
 <!-- データ供給（JS用） -->
 <script id="home-data" type="application/json">
