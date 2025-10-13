@@ -48,7 +48,7 @@
   <div class="strip-title">今すぐ全て現金化したら</div>
   <ul class="liquid-rows">
     <li><span>現物の評価額</span><strong>¥{{ breakdown.spot_mv|intcomma }}</strong></li>
-    <li><span>信用の含み益</span><strong>¥{{ kpis.unrealized_pnl|add:-((breakdown.spot_mv - breakdown.spot_cost))|intcomma }}</strong></li>
+    <li><span>信用の含み益</span><strong>¥{{ breakdown.margin_unrealized|intcomma }}</strong></li>
     <li><span>現金残高</span><strong>¥{{ kpis.cash_total|intcomma }}</strong></li>
     <li class="sum"><span>合計（税・手数料考慮なし）</span><strong>¥{{ kpis.liquidation|intcomma }}</strong></li>
   </ul>
