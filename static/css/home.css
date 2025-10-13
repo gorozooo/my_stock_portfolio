@@ -40,6 +40,15 @@ section{ margin:14px 12px; }
 .kpi-value{ font-size:1.3rem; font-weight:700; margin-top:4px; }
 .kpi-value.pos{ color:var(--good); }
 .kpi-value.neg{ color:var(--bad); }
+.kpi-sub{ color:var(--muted); font-size:.8rem; margin-top:2px; }
+
+/* Liquidation */
+.liq{ padding:12px; }
+.liq-title{ color:var(--muted); margin-bottom:6px; }
+.liq-rows{
+  display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;
+}
+.liq-rows .sum{ font-weight:700; }
 
 /* Breakdown */
 .breakdown{padding:12px}
@@ -47,23 +56,22 @@ section{ margin:14px 12px; }
 .dot.spot{background:#2dd79b}
 .dot.margin{background:#ff6d6d}
 
-/* ① 横バー比率ゲージ */
+/* 横バー比率ゲージ */
 .bd-gauge{position:relative;height:12px;border-radius:999px;overflow:hidden;
   background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);margin:6px 0 8px}
 .bd-gauge-spot{height:100%;background:linear-gradient(90deg,#2dd79b,#49e28a)}
 .bd-gauge-margin{height:100%;background:linear-gradient(90deg,#ff8a8a,#ff6d6d);float:right}
 .bd-legend{display:flex;justify-content:space-between;opacity:.9;margin-bottom:8px}
 
-/* ② ドーナツ */
+/* ドーナツ */
 .bd-donut-wrap{display:grid;grid-template-columns:180px 1fr;gap:16px;align-items:center}
 .bd-donut{
-  --spot:60; --margin:40; /* default fallback */
+  --spot:60; --margin:40;
   width:160px;height:160px;border-radius:50%;
-  background:
-    conic-gradient(#2dd79b calc(var(--spot)*1%), #ff6d6d 0);
+  background:conic-gradient(#2dd79b calc(var(--spot)*1%), #ff6d6d 0);
   position:relative; box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);
 }
-.bd-donut::after{ /* 内側の穴 */
+.bd-donut::after{
   content:""; position:absolute; inset:16px; border-radius:50%;
   background:rgba(0,0,0,.45); box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);
 }
@@ -75,10 +83,13 @@ section{ margin:14px 12px; }
 .bd-legend-rows li{display:grid;grid-template-columns:16px 1fr auto;column-gap:8px;align-items:center}
 .bd-legend-rows li.sub{opacity:.75;font-size:.95em}
 
-@media (max-width: 460px){
-  .bd-donut-wrap{grid-template-columns:1fr;justify-items:center}
-  .bd-legend-rows{width:100%}
-}
+/* Broker summary */
+.broker-sum{ padding:12px; }
+.broker-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
+.broker-card{ background:var(--glass); border:1px solid var(--line); border-radius:12px; padding:10px; }
+.b-row{ display:flex; justify-content:space-between; margin:6px 0; }
+.b-row.name{ font-weight:700; margin-bottom:4px; }
+.b-row.total{ border-top:1px dashed rgba(255,255,255,.15); padding-top:6px; }
 
 /* Sector strip */
 .sector-strip{ padding:12px; }
@@ -94,11 +105,6 @@ section{ margin:14px 12px; }
 .sec-meta .rate.pos{ color:var(--good); }
 .sec-meta .rate.neg{ color:var(--bad); }
 
-/* Stress */
-.stress{ padding:12px; }
-.stress-head{ display:flex; justify-content:space-between; margin-bottom:8px; }
-#stressSlider{ width:100%; }
-
 /* Cashflow */
 .cash{ padding:12px; }
 .cash-head{ margin-bottom:8px; color:var(--muted); }
@@ -112,4 +118,9 @@ section{ margin:14px 12px; }
 @media (min-width: 960px){
   .kpi-grid{ grid-template-columns: repeat(4, 1fr); }
   section{ margin:16px auto; max-width: 1100px; }
+}
+
+@media (max-width: 460px){
+  .bd-donut-wrap{grid-template-columns:1fr;justify-items:center}
+  .bd-legend-rows{width:100%}
 }
