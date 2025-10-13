@@ -128,6 +128,18 @@ TSE_NAME_OVERRIDES = {
     # 追加したいコードがあればここに並べる
 }
 
+CELERY_BEAT_SCHEDULE = {
+    "retrain_ai_advisor_weekly": {
+        "task": "portfolio.tasks.retrain_advisor",
+        "schedule": 604800.0,  # 週1
+    },
+    "evaluate_ai_advisor_outcomes": {
+        "task": "portfolio.tasks.evaluate_outcomes",
+        "schedule": 86400.0,   # 毎日
+    },
+}
+
+
 # --- 参考（本番切替時の推奨。今は DEBUG=True なのでコメントのままでOK） ---
 # SESSION_COOKIE_SECURE = True
 # CSRF_COOKIE_SECURE = True
