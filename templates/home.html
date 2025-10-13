@@ -46,12 +46,12 @@
   </div>
 </section>
 
-<!-- 🧾 内訳（現物/信用） with ゲージ -->
+<!-- 🧾 内訳（現物 / 信用）: 比率ゲージ + ドーナツ + 数値 -->
 <section class="glass breakdown">
   <div class="strip-title">内訳（現物 / 信用）</div>
 
-  <!-- 比率ゲージ -->
-  <div class="bd-gauge" aria-label="現物と信用の比率">
+  <!-- ① 横バー比率ゲージ -->
+  <div class="bd-gauge" role="img" aria-label="現物と信用の比率">
     <div class="bd-gauge-spot"   style="width: {{ breakdown_pct.spot_pct }}%"></div>
     <div class="bd-gauge-margin" style="width: {{ breakdown_pct.margin_pct }}%"></div>
   </div>
@@ -60,18 +60,37 @@
     <span><i class="dot margin"></i>信用 {{ breakdown_pct.margin_pct }}%</span>
   </div>
 
-  <!-- 数値カード -->
-  <div class="bd-grid">
-    <div class="bd-card">
-      <div class="bd-head"><span class="dot spot"></span><span>現物</span></div>
-      <div class="bd-row"><span>評価額</span><strong>¥{{ breakdown.spot_mv|intcomma }}</strong></div>
-      <div class="bd-row sub"><span>取得額</span><span>¥{{ breakdown.spot_cost|intcomma }}</span></div>
+  <!-- ② ドーナツ（conic-gradient で軽量） -->
+  <div class="bd-donut-wrap">
+    <div class="bd-donut"
+         style="--spot: {{ breakdown_pct.spot_pct }}; --margin: {{ breakdown_pct.margin_pct }};"
+         aria-label="現物と信用のドーナツ構成"
+         role="img">
+      <div class="bd-donut-hole">
+        <div class="bd-donut-total">¥{{ kpis.total_assets|intcomma }}</div>
+        <div class="bd-donut-caption">総資産（現物）</div>
+      </div>
     </div>
-    <div class="bd-card">
-      <div class="bd-head"><span class="dot margin"></span><span>信用</span></div>
-      <div class="bd-row"><span>評価額</span><strong>¥{{ breakdown.margin_mv|intcomma }}</strong></div>
-      <div class="bd-row sub"><span>取得額</span><span>¥{{ breakdown.margin_cost|intcomma }}</span></div>
-    </div>
+    <ul class="bd-legend-rows">
+      <li>
+        <span class="dot spot"></span>
+        <span>現物</span>
+        <strong>¥{{ breakdown.spot_mv|intcomma }}</strong>
+      </li>
+      <li class="sub">
+        <span></span><span>取得額</span>
+        <span>¥{{ breakdown.spot_cost|intcomma }}</span>
+      </li>
+      <li>
+        <span class="dot margin"></span>
+        <span>信用</span>
+        <strong>¥{{ breakdown.margin_mv|intcomma }}</strong>
+      </li>
+      <li class="sub">
+        <span></span><span>取得額</span>
+        <span>¥{{ breakdown.margin_cost|intcomma }}</span>
+      </li>
+    </ul>
   </div>
 </section>
 
