@@ -46,3 +46,31 @@ document.addEventListener("DOMContentLoaded", () => {
     alert("次の一手レコメンド（AI接続予定）。現金比率・含み益・セクター偏りから提案します。");
   });
 });
+
+// === AIアドバイザー: 採用トグル ===
+(function () {
+  const list = document.getElementById("aiAdviceList");
+  if (!list) return;
+
+  list.addEventListener("click", async (ev) => {
+    const btn = ev.target.closest(".ai-check");
+    if (!btn) return;
+    const li = btn.closest("li");
+    const id = li?.dataset?.id;
+    if (!id || id === "0") return; // 0は仮メッセージ
+
+    btn.disabled = true;
+    try {
+      const res = await fetch(`/api/advisor/toggle/${id}/`, { method: "POST", headers: { "X-Requested-With": "fetch" }});
+      const json = await res.json();
+      if (json.ok) {
+        // 表示更新
+        btn.textContent = json.taken ? "✅" : "☑️";
+      }
+    } catch (e) {
+      console.warn("toggle failed", e);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
