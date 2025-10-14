@@ -5,53 +5,66 @@
 
 {% block head %}
 <meta name="csrf-token" content="{{ csrf_token }}">
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=21">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=22">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script defer src="{% static 'js/home.js' %}?v=21"></script>
+<script defer src="{% static 'js/home.js' %}?v=22"></script>
 {% endblock %}
 
 {% block content %}
 
-<!-- 🧠 AIアドバイザー -->
+<!-- 🧠 AIアドバイザー（視覚的UIに刷新） -->
 <section class="ai-header glass">
   <div class="ai-title">AIアドバイザー</div>
 
-  <!-- ひと目で分かるサマリー（チップ） -->
-  <div class="ai-summary">
-    <span class="pill">総資産 <strong>¥{{ kpis.total_assets|intcomma }}</strong></span>
-    <span class="pill">含み損益 <strong class="{% if kpis.unrealized_pnl>=0 %}pos{% else %}neg{% endif %}">¥{{ kpis.unrealized_pnl|intcomma }}</strong></span>
-    <span class="pill">現金 <strong>¥{{ kpis.cash_total|intcomma }}</strong></span>
-    <span class="pill">評価ROI <strong class="{% if kpis.roi_eval_pct>=0 %}pos{% else %}neg{% endif %}">{{ kpis.roi_eval_pct|default:"--"|floatformat:2 }}%</strong></span>
-    <span class="pill">現金ROI <strong class="roi-blue">{{ kpis.roi_liquid_pct|default:"--"|floatformat:2 }}%</strong></span>
-    <span class="pill">流動性 <strong>{{ kpis.liquidity_rate_pct }}%</strong></span>
-  </div>
+  <!-- 概要サマリーを“チップ”で -->
+  <ul class="ai-stats">
+    <li><span class="k">総資産</span><span class="v">¥{{ kpis.total_assets|intcomma }}</span></li>
+    <li><span class="k">含み損益</span>
+      {% with v=kpis.unrealized_pnl %}
+        <span class="v {% if v>0 %}pos{% elif v<0 %}neg{% endif %}">¥{{ v|intcomma }}</span>
+      {% endwith %}
+    </li>
+    <li><span class="k">現金</span><span class="v">¥{{ kpis.cash_total|intcomma }}</span></li>
+    <li><span class="k">評価ROI</span>
+      {% if kpis.roi_eval_pct != None %}
+        <span class="v pos">{{ kpis.roi_eval_pct|floatformat:2 }}%</span>
+      {% else %}<span class="v">--</span>{% endif %}
+    </li>
+    <li><span class="k">現金ROI</span>
+      {% if kpis.roi_liquid_pct != None %}
+        <span class="v roi-blue">{{ kpis.roi_liquid_pct|floatformat:2 }}%</span>
+      {% else %}<span class="v">--</span>{% endif %}
+    </li>
+  </ul>
 
   <!-- 要約テキスト -->
   <p class="ai-note">{{ ai_note }}</p>
 
-  <!-- 提案リスト（チェックで採用/非採用をトグル） -->
+  <!-- 提案リスト（優先度バー＆トグル） -->
   <ul class="ai-actions" id="aiAdviceList" data-session="{{ ai_session_id }}">
     {% for it in ai_items %}
-      <li class="ai-item" data-id="{{ it.id|default:0 }}" data-taken="{{ it.taken|yesno:'1,0' }}" style="--p:{{ it.score|default:0 }}">
+      {% with p=it.score|default:0 %}
+      <li class="ai-item" data-id="{{ it.id|default:0 }}" data-taken="{{ it.taken|yesno:'1,0' }}" style="--prio:{{ p|floatformat:2 }}">
         <button type="button" class="ai-check" aria-pressed="{{ it.taken|yesno:'true,false' }}">
           {% if it.taken %}✅{% else %}☑️{% endif %}
         </button>
         <div class="ai-text">
-          <div class="ai-msg">{{ it.message }}</div>
-          {% if it.score %}
-            <div class="ai-prio">
-              <div class="ai-prio-bar"><i></i></div>
-              <span class="ai-score">優先度 {{ it.score|floatformat:2 }}</span>
-            </div>
-          {% endif %}
+          <div class="msg">{{ it.message }}</div>
+          <div class="bar" aria-hidden="true"><span></span></div>
         </div>
+        {% if it.score %}
+          <span class="ai-score">優先度 {{ it.score|floatformat:2 }}</span>
+        {% else %}
+          <span class="ai-score">優先度 0.00</span>
+        {% endif %}
       </li>
+      {% endwith %}
     {% empty %}
-      <li>• 分析中です。</li>
+      <li class="ai-empty">• 分析中です。</li>
     {% endfor %}
   </ul>
 
-  <!-- ちゃんとボタン表示（CTA） -->
+  <!-- 操作用ツールバー（必ずボタン表示） -->
   <div class="ai-tools">
     <button class="btn ghost" id="btn-ai-weekly" type="button">週次レポート</button>
     <button class="btn ghost" id="btn-ai-rebalance" type="button">次の一手</button>
@@ -96,9 +109,7 @@
     </div>
     <div class="roi-row liquid">
       <div class="roi-label">ROI（現金化ベース）</div>
-      <div class="roi-value roi-blue">
-        {% if kpis.roi_liquid_pct != None %}{{ kpis.roi_liquid_pct|floatformat:2 }}%{% else %}--{% endif %}
-      </div>
+      <div class="roi-value">{% if kpis.roi_liquid_pct != None %}{{ kpis.roi_liquid_pct|floatformat:2 }}%{% else %}--{% endif %}</div>
     </div>
     <div class="roi-foot">
       投下資金 ¥{{ kpis.invested|intcomma }}
@@ -107,7 +118,7 @@
   </div>
 </section>
 
-<!-- 💵 今すぐ全て現金化したら（ヒーロー＋3サマリー） -->
+<!-- 💵 今すぐ全て現金化したら -->
 <section class="liquidation glass">
   <div class="liq-head">
     <div class="title">今すぐ全て現金化したら</div>
