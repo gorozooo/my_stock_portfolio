@@ -13,13 +13,13 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!slider) return;
     const pct = Number(slider.value);
     const mv = Math.round(totalMV * (1 + beta * pct / 100));
-    pctEl.textContent = String(pct);
-    mvEl.textContent = "¥" + mv.toLocaleString();
+    if (pctEl) pctEl.textContent = String(pct);
+    if (mvEl) mvEl.textContent = "¥" + mv.toLocaleString();
   };
   if (slider) slider.addEventListener("input", updateStress);
   updateStress();
 
-  // キャッシュフロー棒
+  // キャッシュフロー棒グラフ
   const cashCanvas = document.getElementById("cashflowChart");
   if (cashCanvas && window.Chart) {
     const labels = data.cash_bars.map(x => x.label);
@@ -38,7 +38,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // AIボタン
+  // AIボタン（ダミー）
   document.getElementById("btn-ai-weekly")?.addEventListener("click", () => {
     alert("週次レポート（AI接続予定）。直近の推移・勝率・強弱セクターを要約します。");
   });
@@ -61,10 +61,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     btn.disabled = true;
     try {
-      const res = await fetch(`/api/advisor/toggle/${id}/`, { method: "POST", headers: { "X-Requested-With": "fetch" }});
+      const res = await fetch(`/api/advisor/toggle/${id}/`, {
+        method: "POST",
+        headers: { "X-Requested-With": "fetch" }
+      });
       const json = await res.json();
       if (json.ok) {
-        // 表示更新
         btn.textContent = json.taken ? "✅" : "☑️";
       }
     } catch (e) {
