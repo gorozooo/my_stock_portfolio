@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "updated_at": "2025-10-15T00:00:00Z",
+  "bias": 1.0,
+  "kind_weight": {
+    "REBALANCE": 1.00,
+    "ADD_CASH": 1.10,
+    "TRIM_WINNERS": 1.05,
+    "CUT_LOSERS": 0.95,
+    "REDUCE_MARGIN": 1.20
+  }
+}
