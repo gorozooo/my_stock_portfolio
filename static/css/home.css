@@ -162,7 +162,7 @@ section{ margin:14px 12px; }
   .li-sum-grid{ grid-template-columns:repeat(3,1fr); }
 }
 
-/* AIアドバイザー内のチェックUI */
+/* === AIアドバイザーのチェックUI === */
 .ai-actions li { display:flex; gap:8px; align-items:flex-start; margin:6px 0; }
 .ai-actions .ai-check{
   background:transparent; border:1px solid rgba(255,255,255,.18);
