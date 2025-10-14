@@ -7,7 +7,7 @@
 <meta name="csrf-token" content="{{ csrf_token }}">
 <link rel="stylesheet" href="{% static 'css/home.css' %}?v=20">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script defer src="{% static 'js/home.js' %}?v=20"></script>
+<script defer src="{% static 'js/home.js' %}?v=21"></script>
 {% endblock %}
 
 {% block content %}
@@ -210,6 +210,10 @@
     {"label":"実現益","value": {{ kpis.realized_month|default:0 }}}
   ]
 }
+</script>
+<script>
+  window.weekly_draft = {{ weekly_draft|safe|escapejs }};
+  window.nextmove_draft = {{ nextmove_draft|safe|escapejs }};
 </script>
 
 {% endblock %}
