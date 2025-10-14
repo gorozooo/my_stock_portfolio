@@ -5,42 +5,45 @@
 
 {% block head %}
 <meta name="csrf-token" content="{{ csrf_token }}">
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=22">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=23">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script defer src="{% static 'js/home.js' %}?v=22"></script>
+<script defer src="{% static 'js/home.js' %}?v=23"></script>
 {% endblock %}
 
 {% block content %}
 
-<!-- 🧠 AIアドバイザー（視覚的UIに刷新） -->
+<!-- 🧠 AIアドバイザー（視覚UI） -->
 <section class="ai-header glass">
   <div class="ai-title">AIアドバイザー</div>
 
-  <!-- 概要サマリーを“チップ”で -->
+  <!-- 概要チップ -->
   <ul class="ai-stats">
     <li><span class="k">総資産</span><span class="v">¥{{ kpis.total_assets|intcomma }}</span></li>
-    <li><span class="k">含み損益</span>
+    <li>
+      <span class="k">含み損益</span>
       {% with v=kpis.unrealized_pnl %}
-        <span class="v {% if v>0 %}pos{% elif v<0 %}neg{% endif %}">¥{{ v|intcomma }}</span>
+        <span class="v {% if v > 0 %}pos{% elif v < 0 %}neg{% endif %}">¥{{ v|intcomma }}</span>
       {% endwith %}
     </li>
     <li><span class="k">現金</span><span class="v">¥{{ kpis.cash_total|intcomma }}</span></li>
-    <li><span class="k">評価ROI</span>
+    <li>
+      <span class="k">評価ROI</span>
       {% if kpis.roi_eval_pct != None %}
         <span class="v pos">{{ kpis.roi_eval_pct|floatformat:2 }}%</span>
       {% else %}<span class="v">--</span>{% endif %}
     </li>
-    <li><span class="k">現金ROI</span>
+    <li>
+      <span class="k">現金ROI</span>
       {% if kpis.roi_liquid_pct != None %}
         <span class="v roi-blue">{{ kpis.roi_liquid_pct|floatformat:2 }}%</span>
       {% else %}<span class="v">--</span>{% endif %}
     </li>
   </ul>
 
-  <!-- 要約テキスト -->
+  <!-- 要約 -->
   <p class="ai-note">{{ ai_note }}</p>
 
-  <!-- 提案リスト（優先度バー＆トグル） -->
+  <!-- 提案リスト -->
   <ul class="ai-actions" id="aiAdviceList" data-session="{{ ai_session_id }}">
     {% for it in ai_items %}
       {% with p=it.score|default:0 %}
@@ -52,11 +55,7 @@
           <div class="msg">{{ it.message }}</div>
           <div class="bar" aria-hidden="true"><span></span></div>
         </div>
-        {% if it.score %}
-          <span class="ai-score">優先度 {{ it.score|floatformat:2 }}</span>
-        {% else %}
-          <span class="ai-score">優先度 0.00</span>
-        {% endif %}
+        <span class="ai-score">優先度 {{ p|floatformat:2 }}</span>
       </li>
       {% endwith %}
     {% empty %}
@@ -64,7 +63,7 @@
     {% endfor %}
   </ul>
 
-  <!-- 操作用ツールバー（必ずボタン表示） -->
+  <!-- 操作用ツールバー -->
   <div class="ai-tools">
     <button class="btn ghost" id="btn-ai-weekly" type="button">週次レポート</button>
     <button class="btn ghost" id="btn-ai-rebalance" type="button">次の一手</button>
@@ -227,7 +226,7 @@
   <canvas id="cashflowChart" height="140"></canvas>
 </section>
 
-<!-- データ供給（JS用） -->
+<!-- データ供給 -->
 <script id="home-data" type="application/json">
 {
   "total_mv": {{ kpis.total_assets|default:0 }},
