@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     # 追加
     'django_htmx',
     'django.contrib.humanize',
+    "django_crontab",
 
     # 自作アプリ
     'portfolio',
@@ -139,6 +140,16 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
+
+
+# ここだけ書けばOK（毎朝07:30にスナップショット、毎晩23:55に学習）
+CRONJOBS = [
+    ("30 7 * * *",  "portfolio.cron.snapshot"),  # advisor_snapshot を実行
+    ("55 23 * * *", "portfolio.cron.learn"),     # advisor_learn を実行
+]
+
+# 同時二重起動を避ける（おすすめ）
+CRONTAB_LOCK_JOBS = True
 
 # --- 参考（本番切替時の推奨。今は DEBUG=True なのでコメントのままでOK） ---
 # SESSION_COOKIE_SECURE = True
