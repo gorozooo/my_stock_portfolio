@@ -4,9 +4,9 @@
 {% block title %}ホーム | My株ポートフォリオ{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=16">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=17">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script defer src="{% static 'js/home.js' %}?v=11"></script>
+<script defer src="{% static 'js/home.js' %}?v=12"></script>
 {% endblock %}
 
 {% block content %}
@@ -197,8 +197,6 @@
   <div class="cash-head">今月のキャッシュフロー</div>
   <canvas id="cashflowChart" height="140"></canvas>
 </section>
-
-<!-- ※ 統合したので「次のアクション」単独セクションは削除 -->
 
 <!-- データ供給（JS用） -->
 <script id="home-data" type="application/json">
