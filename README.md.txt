@@ -19,6 +19,9 @@ python manage.py createsuperuser
 
 python manage.py shell
 
+cron（自動スケジューラ）を開く
+crontab -l
+
 #### ③ `requirements.txt` の作成
 
 以下のコマンドで必要なPythonパッケージをまとめて保存できます：
