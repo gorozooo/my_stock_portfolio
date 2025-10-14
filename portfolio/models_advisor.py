@@ -1,14 +1,11 @@
+# portfolio/models_advisor.py
 from __future__ import annotations
 from django.db import models
 from django.utils import timezone
-from django.contrib.auth import get_user_model
-
-User = get_user_model()
 
 
 class AdviceSession(models.Model):
-    """1回のAIアドバイザー分析セッション（スナップショット単位）"""
-    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    """1回のAIアドバイザー分析セッション（ホーム描画時のスナップショット等）"""
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
     context_json = models.JSONField(default=dict)  # KPIやセクターなどのスナップショット
     note = models.CharField(max_length=200, blank=True, default="")
@@ -18,83 +15,78 @@ class AdviceSession(models.Model):
 
 
 class AdviceItem(models.Model):
-    """個別アドバイス（画面に出す1行）"""
+    """個別アドバイス（セッション内の1行）"""
     class Kind(models.TextChoices):
         REDUCE_MARGIN = "REDUCE_MARGIN", "信用圧縮"
         TRIM_WINNERS  = "TRIM_WINNERS",  "含み益上位の部分利確"
         ADD_CASH      = "ADD_CASH",      "現金比率引上げ"
         REBALANCE     = "REBALANCE",     "リバランス"
         CUT_LOSERS    = "CUT_LOSERS",    "含み損下位の整理"
-        GENERAL       = "GENERAL",       "その他"
 
     session = models.ForeignKey(AdviceSession, on_delete=models.CASCADE, related_name="items")
-    kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.GENERAL)
+    kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.REBALANCE)
     message = models.CharField(max_length=500)
     score = models.FloatField(default=0.0)
     reasons = models.JSONField(default=list)
-    taken = models.BooleanField(default=False)  # ✅ 実行済み（UIトグル）
-    outcome = models.JSONField(null=True, blank=True)  # 後日結果
+    taken = models.BooleanField(default=False)  # UIで✅
+    outcome = models.JSONField(null=True, blank=True)  # 後日結果（学習スクリプトが埋める）
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
 
     def __str__(self):
         return f"[{self.kind}] {self.message[:40]}"
 
 
-# ========= 学習用 追加モデル =========
-class AdvisorProposal(models.Model):
-    """
-    学習ログ：提案（AdviceItem）に紐づく“特徴量と採否”
-    - features: その時点の特徴量（KPIから派生）
-    - label_taken: その提案をユーザが採用したか（✅）
-    """
-    item = models.OneToOneField(AdviceItem, on_delete=models.CASCADE, related_name="proposal")
-    features = models.JSONField(default=dict)
-    label_taken = models.BooleanField(default=False)  # この時点の採否ラベル
-    created_at = models.DateTimeField(default=timezone.now, db_index=True)
-
-    def __str__(self):
-        return f"Proposal #{self.id} (item={self.item_id})"
-
-
-class ProposalOutcome(models.Model):
-    """
-    学習ログ：採用後 n 日の成果（将来の教師データ）
-    - horizon_days: 何日後の評価か
-    - metrics: {"realized_delta":..., "total_assets_delta":..., ...}
-    """
-    proposal = models.ForeignKey(AdvisorProposal, on_delete=models.CASCADE, related_name="outcomes")
-    horizon_days = models.PositiveSmallIntegerField(default=7)
-    metrics = models.JSONField(default=dict)
-    created_at = models.DateTimeField(default=timezone.now, db_index=True)
-
-    class Meta:
-        unique_together = ("proposal", "horizon_days")
-
-
 class AdvicePolicy(models.Model):
     """
-    推論ポリシー（係数 or モデル）
-    - params: {"bias": float, "coef": {"feat1": w1, ...}, "norm": {"feat": {"mu":..,"sigma":..}} など}
-    - model_blob: joblib/pickle で保存（scikit-learn等）。使わないなら空でOK。
+    推論用ポリシー（学習の結果）
+    - params … 係数や閾値、正規化パラメータなど（JSON）
+    - model_blob … 学習済みモデル（pickle/joblib）をバイナリで保持したいとき用（任意）
     """
     class Kind(models.TextChoices):
-        LINEAR = "LINEAR", "線形（係数のみ）"
-        LOGREG = "LOGREG", "ロジスティック回帰"
-        SKLEARN = "SKLEARN", "scikit-learn pickled"
+        LINEAR = "LINEAR", "Linear"
+        LOGREG = "LOGREG", "Logistic Regression"
+        SKLEARN = "SKLEARN", "sklearn Model"
 
-    name = models.CharField(max_length=100, default="default")
-    version = models.CharField(max_length=20, default="v1")
-    enabled = models.BooleanField(default=False, db_index=True)
-
-    kind = models.CharField(max_length=16, choices=Kind.choices, default=Kind.LINEAR)
-    params = models.JSONField(default=dict)
+    kind = models.CharField(max_length=16, choices=Kind.choices, default=Kind.LOGREG)
+    params = models.JSONField(default=dict, blank=True)
     model_blob = models.BinaryField(null=True, blank=True)
-
+    enabled = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("name", "version")
+        ordering = ["-updated_at", "-id"]
 
     def __str__(self):
-        return f"Policy {self.name}/{self.version} ({'ON' if self.enabled else 'off'})"
+        flag = "ON" if self.enabled else "OFF"
+        return f"AdvicePolicy#{self.id} {self.kind} ({flag})"
+
+
+class AdvisorMetrics(models.Model):
+    """
+    学習精度のモニタリングログ（A：精度モニタリング）
+    - advisor_train などの学習コマンドが1回走るごとに1行追加
+    """
+    ENGINE_CHOICES = (
+        ("logreg", "LogisticRegression"),
+        ("gbdt", "GradientBoosting"),
+        ("lgbm", "LightGBM"),
+        ("rule", "RuleOnly"),
+        ("mix", "Rule+Model"),
+    )
+
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    engine = models.CharField(max_length=20, choices=ENGINE_CHOICES, default="logreg")
+    policy = models.ForeignKey(AdvicePolicy, null=True, blank=True, on_delete=models.SET_NULL, related_name="metrics")
+    train_acc = models.FloatField(help_text="学習時の推定精度（0..1）")
+    n = models.IntegerField(help_text="学習に使ったサンプル件数")
+    notes = models.JSONField(default=dict, blank=True)  # {"horizon":7, "features":[...]} 等
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"[{self.created_at:%Y-%m-%d %H:%M}] {self.engine} acc={self.train_acc:.3f} n={self.n}"
