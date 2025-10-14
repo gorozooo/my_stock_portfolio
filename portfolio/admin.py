@@ -206,13 +206,27 @@ class MarginStateAdmin(admin.ModelAdmin):
 @admin.register(AdviceSession)
 class AdviceSessionAdmin(admin.ModelAdmin):
     list_display = ("id", "created_at", "note")
-    list_filter  = ("created_at",)
-    search_fields = ("note",)
-    ordering = ("-created_at",)
+    date_hierarchy = "created_at"
+
 
 @admin.register(AdviceItem)
 class AdviceItemAdmin(admin.ModelAdmin):
     list_display = ("id", "session", "kind", "score", "taken", "created_at")
-    list_filter  = ("kind", "taken", "created_at")
+    list_filter = ("kind", "taken")
     search_fields = ("message",)
-    ordering = ("-created_at",)
+    date_hierarchy = "created_at"
+
+
+@admin.register(AdvicePolicy)
+class AdvicePolicyAdmin(admin.ModelAdmin):
+    list_display = ("id", "kind", "enabled", "updated_at", "created_at")
+    list_filter = ("kind", "enabled")
+    readonly_fields = ("created_at", "updated_at")
+
+
+@admin.register(AdvisorMetrics)
+class AdvisorMetricsAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "engine", "policy", "train_acc", "n")
+    list_filter = ("engine",)
+    date_hierarchy = "created_at"
+    readonly_fields = ("created_at",)
