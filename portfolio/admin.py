@@ -7,6 +7,7 @@ from django.utils.safestring import mark_safe
 
 from .models import Holding, UserSetting, RealizedTrade, Dividend
 from .models_cash import BrokerAccount, CashLedger, MarginState
+from .models_advisor import AdviceSession, AdviceItem
 
 # --------- Holding ---------
 @admin.register(Holding)
