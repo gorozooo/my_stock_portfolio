@@ -14,63 +14,53 @@ body{ background: radial-gradient(1200px 600px at 20% -10%, #132035 0%, #0b0f1a 
 }
 section{ margin:14px 12px; }
 
-/* ===== 共通ボタン ===== */
-.btn{
-  display:inline-flex; align-items:center; justify-content:center;
-  padding:10px 14px; border-radius:10px; font-weight:600; line-height:1;
-  border:1px solid transparent; cursor:pointer; user-select:none;
-}
-.btn.ghost{ border-color:var(--pri); color:var(--pri); background:transparent; }
-.btn.ghost:hover{ background:rgba(110,168,255,.12); }
-
 /* ===== AIヘッダー ===== */
 .ai-header{ padding:14px; }
-.ai-title{ font-weight:700; letter-spacing:.2px; margin-bottom:8px; }
-
-/* 概要チップ */
-.ai-stats{
-  list-style:none; margin:0 0 8px; padding:0; display:flex; gap:8px; flex-wrap:wrap;
+.ai-title{ font-weight:700; letter-spacing:.2px; margin-bottom:6px; }
+.ai-note{ margin:6px 0 10px; color:var(--fg); line-height:1.55; }
+.ai-tools{ margin-top:8px; }
+.btn.ghost{
+  border:1px solid var(--pri); color:var(--pri); background:transparent;
+  padding:8px 12px; border-radius:10px; margin-right:8px;
 }
-.ai-stats li{
-  font-size:.9rem; padding:6px 10px; border-radius:999px;
-  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12);
-}
-.ai-stats .k{ color:var(--muted); margin-right:6px; }
-.ai-stats .v{ font-weight:700; }
-.ai-stats .v.pos{ color:var(--good); }
-.ai-stats .v.neg{ color:var(--bad); }
-.ai-stats .v.roi-blue{ color:#5db1ff; }
 
-.ai-note{ margin:6px 0 10px; color:var(--fg); line-height:1.6; }
-
-/* 提案リスト（視覚化） */
+/* 提案リスト：2カラム（チェック / 本文＋バー＋優先度） */
 .ai-actions{ margin:0; padding:0; list-style:none; color:var(--muted); }
-.ai-item{
-  position:relative; display:grid; grid-template-columns:32px 1fr auto;
-  gap:10px; align-items:start; padding:10px 8px; border-radius:12px;
-  border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.04);
+.ai-actions .ai-item{
+  display:grid;
+  grid-template-columns:28px 1fr;
+  column-gap:10px; row-gap:4px;
+  padding:10px 8px; border-radius:12px;
+  border:1px solid rgba(255,255,255,.08);
+  background: rgba(255,255,255,.03);
   margin:8px 0;
 }
-.ai-item .ai-check{
+.ai-actions .ai-check{
   background:transparent; border:1px solid rgba(255,255,255,.18);
-  width:28px; height:28px; border-radius:7px; line-height:26px;
-  display:grid; place-items:center; cursor:pointer; color:#9fb5ff; font-size:16px;
+  width:28px; height:28px; border-radius:6px;
+  line-height:26px; display:grid; place-items:center;
+  cursor:pointer; color:#9fb5ff; font-size:16px;
 }
-.ai-item .ai-text .msg{ color:var(--fg); line-height:1.6; }
-.ai-item .ai-score{ color:var(--muted); white-space:nowrap; margin-left:6px; }
-
-/* 優先度バー（--prio: 0〜1 を仮定） */
-.ai-item .bar{ position:relative; height:8px; border-radius:999px;
-  background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12);
-  margin-top:6px; overflow:hidden;
+.ai-actions .ai-text{ display:flex; flex-direction:column; gap:6px; }
+.ai-actions .msg{ color:var(--fg); line-height:1.6; }
+.ai-actions .meta-row{
+  display:flex; align-items:center; gap:10px;
 }
-.ai-item .bar span{
-  position:absolute; inset:0; width:calc(var(--prio,0) * 100%);
-  background:linear-gradient(90deg, #6ea8ff, #00ffd1);
+.ai-actions .bar{
+  position:relative; height:6px; flex:1;
+  border-radius:999px; overflow:hidden;
+  background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.12);
 }
-
-/* ツールバー */
-.ai-tools{ display:flex; gap:10px; margin-top:10px; }
+.ai-actions .bar span{
+  display:block; height:100%;
+  width: calc(var(--prio) * 100%); /* 0.00 - 1.00 */
+  background:linear-gradient(90deg,#6ea8ff,#00ffd1);
+}
+.ai-actions .prio-badge{
+  border:1px solid rgba(255,255,255,.18);
+  padding:4px 8px; border-radius:999px;
+  font-size:.85rem; white-space:nowrap; color:var(--muted);
+}
 
 /* ===== KPI ===== */
 .kpi-grid{
@@ -111,7 +101,7 @@ section{ margin:14px 12px; }
   background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12)
 }
 
-/* モバイル：ROIを横幅いっぱい */
+/* ROIは横幅いっぱい */
 .kpi-grid .roi-card{ grid-column:1 / -1; }
 
 /* ===== 今すぐ現金化（ヒーロー＋3サマリー） ===== */
@@ -121,24 +111,21 @@ section{ margin:14px 12px; }
 .chip{
   background:rgba(255,255,255,.08);
   border:1px solid rgba(255,255,255,.15);
-  padding:4px 8px; border-radius:999px; font-size:.8rem; color:var(--muted);
+  padding:4px 8px; border-radius:999px;
+  font-size:.8rem; color:var(--muted);
 }
 .liq-hero{ text-align:left; }
 .liq-total{ font-size:2rem; font-weight:800; margin-top:4px; letter-spacing:.3px; }
-.kpi-sub{ opacity:.8; }
 .li-sum-grid{ display:grid; grid-template-columns:1fr; gap:8px; margin-top:10px; }
 .li-item{
   display:flex; gap:10px; align-items:center;
   padding:10px; border-radius:12px;
   background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1);
-  transition:transform .15s ease, background .15s ease;
 }
-.li-item:hover{ background:rgba(255,255,255,.08); transform:translateY(-2px); }
 .li-ic{ width:26px; height:26px; border-radius:50%; flex-shrink:0; }
 .li-ic.spot{background:linear-gradient(180deg,#2dd79b,#3fe09a);}
 .li-ic.margin{background:linear-gradient(180deg,#ff8a8a,#ff6d6d);}
 .li-ic.cash{background:linear-gradient(180deg,#6ea8ff,#56cfff);}
-.li-meta{display:flex;flex-direction:column;gap:2px;}
 .li-label{color:var(--muted);font-size:.9rem;}
 .li-value{font-weight:700;font-size:1.1rem;}
 .li-value.neg{color:var(--bad);}
@@ -172,10 +159,6 @@ section{ margin:14px 12px; }
 .bd-legend-rows{list-style:none;margin:0;padding:0;display:grid;row-gap:4px}
 .bd-legend-rows li{display:grid;grid-template-columns:16px 1fr auto;column-gap:8px;align-items:center}
 .bd-legend-rows li.sub{opacity:.75;font-size:.95em}
-@media (max-width: 460px){
-  .bd-donut-wrap{grid-template-columns:1fr;justify-items:center}
-  .bd-legend-rows{width:100%}
-}
 
 /* ===== セクター / ストレス / キャッシュ ===== */
 .sector-strip, .cash, .stress{padding:12px;}
@@ -193,6 +176,10 @@ section{ margin:14px 12px; }
 #stressSlider{width:100%;}
 
 /* ===== レスポンシブ ===== */
+@media (max-width: 460px){
+  .bd-donut-wrap{grid-template-columns:1fr;justify-items:center}
+  .bd-legend-rows{width:100%}
+}
 @media (min-width: 960px){
   .kpi-grid{ grid-template-columns: repeat(4, 1fr); }
   .kpi-grid .roi-card{ grid-column:auto; }
