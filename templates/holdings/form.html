@@ -36,9 +36,9 @@
   <form method="post" class="form-card">
     {% csrf_token %}
 
+    <!-- コード -->
     <div class="fi">
       <label>コード <span class="hint">例: 7203 / AAPL</span></label>
-      <!-- 英数字OK・入力時に自動大文字化 -->
       <input
         type="text"
         name="ticker"
@@ -51,17 +51,31 @@
         value="{{ form.ticker.value|default_if_none:'' }}">
     </div>
 
+    <!-- 銘柄名 -->
     <div class="fi">
       <label>銘柄 <span class="hint">コード入力で自動反映（上書き可能）</span></label>
       {{ form.name }}
     </div>
 
+    <!-- セクター -->
+    <div class="fi">
+      <label>セクター <span class="hint">コード入力で自動反映（33業種分類）</span></label>
+      <input
+        type="text"
+        name="sector"
+        autocomplete="off"
+        placeholder="例: 輸送用機器"
+        value="{{ form.sector.value|default_if_none:'' }}">
+    </div>
+
+    <!-- 証券会社・口座区分・方向 -->
     <div class="grid-fields">
       <div class="fi"><label>証券会社</label>{{ form.broker }}</div>
       <div class="fi"><label>口座区分</label>{{ form.account }}</div>
       <div class="fi"><label>BUY/SELL</label>{{ form.side }}</div>
     </div>
 
+    <!-- 株数・単価・開始日 -->
     <div class="grid-fields">
       <div class="fi">
         <label>株数</label>
@@ -87,6 +101,7 @@
       </div>
     </div>
 
+    <!-- メモ -->
     <div class="fi">
       <label>メモ <span class="hint">自由記入（売買理由・補足など）</span></label>
       {{ form.memo }}
@@ -96,6 +111,7 @@
       <div class="error-box">入力に誤りがあります。確認してください。</div>
     {% endif %}
 
+    <!-- ボタン -->
     <div class="btn-bar">
       <button type="submit">保存</button>
       <a href="{% url 'holding_list' %}">戻る</a>
@@ -108,16 +124,18 @@
   const endpoint = "{% url 'api_ticker_name' %}";
   const $ticker = document.querySelector('input[name="ticker"]');
   const $name   = document.querySelector('input[name="name"]');
+  const $sector = document.querySelector('input[name="sector"]'); // ← 追加
+
   if (!$ticker || !$name) return;
 
   let userEditedName = false;
   let nameAutofilled = false;
-  let lastResolved   = { code: "", name: "" };
+  let lastResolved   = { code: "", name: "", sector: "" };
 
-  // 🔠 入力中に自動で大文字化
+  // 🔠 入力中に大文字化
   $ticker.addEventListener('input', ()=>{
     const v = $ticker.value;
-    $ticker.value = v.toUpperCase(); // ←ここで大文字化
+    $ticker.value = v.toUpperCase();
   });
 
   $name.addEventListener('input', ()=>{
@@ -125,31 +143,24 @@
     nameAutofilled = false;
   });
 
-  $ticker.addEventListener('input', ()=>{
-    const v = ($ticker.value || '').trim();
-    if (v !== lastResolved.code) {
-      userEditedName = false;
-    }
-  });
-
   function debounce(fn, ms){
     let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn.apply(null,args), ms); };
   }
 
-  function applyName(data){
-    if (!data || !data.name) return;
+  function applyData(data){
+    if (!data) return;
     const curCode = ($ticker.value || '').trim();
-    const curName = ($name.value  || '').trim();
     const codeChanged = data.code && data.code !== lastResolved.code;
     const safeToOverwrite =
-      !userEditedName || nameAutofilled || !curName || curName === lastResolved.name;
+      !userEditedName || nameAutofilled || !$name.value || $name.value === lastResolved.name;
 
     if (codeChanged || safeToOverwrite) {
       if (data.code) $ticker.value = data.code.toUpperCase();
-      $name.value = data.name;
+      if (data.name) $name.value = data.name;
+      if ($sector && data.sector) $sector.value = data.sector; // ★ セクター自動反映
       nameAutofilled = true;
       userEditedName = false;
-      lastResolved = { code: data.code || curCode, name: data.name };
+      lastResolved = { code: data.code || curCode, name: data.name, sector: data.sector || "" };
     }
   }
 
@@ -158,7 +169,7 @@
     if (!v) return;
     fetch(`${endpoint}?code=${encodeURIComponent(v)}`, {credentials:'same-origin'})
       .then(r => r.ok ? r.json() : Promise.reject())
-      .then(applyName)
+      .then(applyData)
       .catch(()=>{});
   }
 
