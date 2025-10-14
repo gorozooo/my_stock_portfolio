@@ -157,7 +157,11 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
     return items
 
 
-def _post_process(items: List[AdviceItemView]) -> List[AdviceItemView]:
+# 変更：ユーザー選択を優先。未出の文だけ上位3件を既定ON
+def _post_process(items: List[AdviceItemView], taken_map: Optional[Dict[str, bool]] = None) -> List[AdviceItemView]:
+    taken_map = taken_map or {}
+
+    # 重複・クールダウン
     seen = set()
     uniq: List[AdviceItemView] = []
     for it in items:
@@ -167,9 +171,19 @@ def _post_process(items: List[AdviceItemView]) -> List[AdviceItemView]:
         seen.add(key)
         if _cooldown_pass(key):
             uniq.append(it)
+
+    # ポリシー/ルールのスコア降順
     uniq.sort(key=lambda x: x.score, reverse=True)
-    for i, it in enumerate(uniq[:3]):
-        it.taken = True
+
+    # ここがポイント：ユーザーの最終選択を反映
+    # - 既に履歴があればそれを使う
+    # - 履歴がなければ“初回だけ”上位3件をON
+    for i, it in enumerate(uniq):
+        msg = it.message.strip()
+        if msg in taken_map:
+            it.taken = bool(taken_map[msg])
+        else:
+            it.taken = (i < 3)  # 未出メッセージのみ既定ON
     return uniq
 
 
@@ -258,33 +272,26 @@ def _infer_kind(message: str) -> str:
 
 # ====== エントリポイント ======
 def summarize(kpis: Dict, sectors: List[Dict]) -> Tuple[str, List[Dict], str, str, str]:
-    """
-    戻り値:
-      ai_note: ヘッダー要約（自然文）
-      ai_items: 提案リスト（id/message/score/taken）
-      session_id: 表示世代ID（キャッシュキーなどに利用可）
-      weekly: 週次レポート素案
-      nextmove: 次の一手素案
-    """
     ai_note = _header_note(kpis, sectors)
 
-    # まずルールで候補を作る
     base_items = _rules(kpis, sectors)
     feats = _build_features(kpis, sectors)
 
-    # ポリシーがあれば“上乗せスコア”で並べ替え
+    # ポリシースコアのブレンド
     scored: List[AdviceItemView] = []
     policy_ok = False
     pol_score = _score_with_policy(feats)
     for it in base_items:
         score = it.score
         if pol_score is not None:
-            # ルール：0..1 を基本点、ポリシー：0..1 をボーナス（重み0.6/0.4）
             score = max(0.0, min(1.0, 0.6 * float(it.score) + 0.4 * float(pol_score)))
             policy_ok = True
         scored.append(AdviceItemView(id=it.id, message=it.message, score=score, taken=it.taken))
 
-    items = _post_process(scored if policy_ok else base_items)
+    # ★ 履歴を読み込んで taken を反映
+    taken_map = _load_taken_map()
+    items = _post_process(scored if policy_ok else base_items, taken_map=taken_map)
+
     ai_items = [asdict(it) for it in items]
     session_id = _hash_msg(ai_note)[:8]
     weekly = weekly_report(kpis, sectors)
@@ -320,3 +327,23 @@ def ensure_session_persisted(ai_note: str, ai_items: list, kpis: dict) -> list:
         )
 
     return ai_items
+    
+# 追加：直近の提案履歴から「その文面の taken 最終値」を辞書で取り出す
+def _load_taken_map(days: int = 120) -> Dict[str, bool]:
+    """
+    同一 message（テキスト完全一致）単位で直近の taken を採用する。
+    - 直近120日をデフォルト（必要なら調整）
+    """
+    from django.utils import timezone
+    since = timezone.now() - timezone.timedelta(days=days)
+    qs = AdviceItem.objects.filter(created_at__gte=since).order_by("message", "-created_at")
+
+    taken_map: Dict[str, bool] = {}
+    seen = set()
+    for it in qs:
+        msg = (it.message or "").strip()
+        if msg in seen:
+            continue
+        seen.add(msg)
+        taken_map[msg] = bool(it.taken)
+    return taken_map
