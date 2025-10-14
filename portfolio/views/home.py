@@ -1,4 +1,4 @@
-# portfolio/views/home.py
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 from datetime import date, timedelta
 from collections import defaultdict
@@ -56,11 +56,6 @@ def _cash_balances() -> Dict[str, Any]:
 
 # ========= Holdings / Sector snapshot =========
 def _holdings_snapshot() -> dict:
-    """
-    - 価格は last_price 優先（無ければ avg_cost）
-    - 未実現損益 = (現物+信用)評価 − (現物+信用)取得
-    - セクターは Holding.sector（空は「未分類」）
-    """
     holdings = list(Holding.objects.all())
 
     spot_mv = spot_cost = 0.0
@@ -89,7 +84,6 @@ def _holdings_snapshot() -> dict:
 
     total_unrealized_pnl = (spot_mv + margin_mv) - (spot_cost + margin_cost)
 
-    # 勝率（全期間の実現）
     qs = RealizedTrade.objects.all()
     win = sum(1 for r in qs if _to_float(getattr(r, "pnl", 0)) > 0)
     lose = sum(1 for r in qs if _to_float(getattr(r, "pnl", 0)) < 0)
@@ -170,7 +164,6 @@ def home(request):
     realized_cum = _sum_realized_cum()
     dividend_cum = _sum_dividend_cum()
 
-    # 信用は含み損益のみ現金化
     margin_unrealized = int(snap["margin_mv"] - snap["margin_cost"])
     liquidation_value = int(snap["spot_mv"] + margin_unrealized + cash["total"])
 
@@ -188,7 +181,6 @@ def home(request):
     liquidity_rate_pct = max(0.0, round(liquidation_value / total_eval_assets * 100, 1)) if total_eval_assets > 0 else 0.0
     margin_ratio_pct = round(snap["margin_mv"] / gross_pos * 100, 1) if gross_pos > 0 else 0.0
 
-    # リスクフラグ
     risk_flags: List[str] = []
     if margin_ratio_pct >= 60.0:
         risk_flags.append(f"信用比率が {margin_ratio_pct}%（60%超）です。余力とボラに注意。")
@@ -228,18 +220,19 @@ def home(request):
     if not ai_items:
         ai_items = [dict(id=0, message="直近のデータが少ないため、提案事項はありません。", score=0.0, taken=False, kind="REBALANCE")]
 
-    # 乖離を先頭へ
+    # ROI乖離を先頭へ優先表示
     if kpis.get("roi_gap_abs") is not None and kpis["roi_gap_abs"] >= 20:
         key = "評価ROIと現金ROIの乖離が"
         idx = next((i for i, x in enumerate(ai_items) if key in x["message"]), None)
         if idx not in (None, 0):
             ai_items.insert(0, ai_items.pop(idx))
 
-    # === ★ 保存済みセッションの活用（ここで永続化 & id 振り直し） ===
-    #   - 頻繁な重複保存を避けるため内部で3時間キャッシュガード
-    ai_items = svc_advisor.ensure_session_persisted(ai_note, ai_items, kpis)
+    # === ★ AIセッション永続化 ===
+    try:
+        ai_items = svc_advisor.ensure_session_persisted(ai_note, ai_items, kpis)
+    except Exception as e:
+        print(f"[WARN] advisor session save failed: {e}")
 
-    # ストレステスト（デフォルト -5%）
     stressed_default = _stress_total_assets(-5.0, snap, cash["total"])
 
     ctx = dict(
@@ -256,8 +249,6 @@ def home(request):
         risk_flags=risk_flags,
         cash_total_by_currency=cash["total_by_currency"],
         stressed_default=stressed_default,
-
-        # テンプレへ
         ai_note=ai_note,
         ai_items=ai_items,
         ai_session_id=ai_session_id,
