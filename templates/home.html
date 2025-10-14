@@ -22,22 +22,23 @@
   <!-- 提案リスト（チェックで採用/非採用をトグル） -->
   <ul class="ai-actions" id="aiAdviceList" data-session="{{ ai_session_id }}">
     {% for it in ai_items %}
-      <li data-id="{{ it.id }}">
-        <button class="ai-check" type="button" aria-label="toggle"
-                data-state="{% if it.taken %}1{% else %}0{% endif %}">
+      <li class="ai-item" data-id="{{ it.id|default:0 }}" data-taken="{{ it.taken|yesno:'1,0' }}">
+        <button type="button" class="ai-check" aria-pressed="{{ it.taken|yesno:'true,false' }}">
           {% if it.taken %}✅{% else %}☑️{% endif %}
         </button>
-        <span class="ai-text">{{ it.message }}</span>
-        {% if it.score %}<span class="ai-score">優先度 {{ it.score|floatformat:2 }}</span>{% endif %}
+        <span class="ai-msg">{{ it.message }}</span>
+        {% if it.score %}
+          <span class="ai-score">優先度 {{ it.score|floatformat:2 }}</span>
+        {% endif %}
       </li>
     {% empty %}
-      <li><span class="ai-text">• 分析中です。</span></li>
+      <li>• 分析中です。</li>
     {% endfor %}
   </ul>
 
   <div class="ai-tools">
-    <button class="btn ghost" id="btn-ai-weekly">週次レポート</button>
-    <button class="btn ghost" id="btn-ai-rebalance">次の一手</button>
+    <button class="btn ghost" id="btn-ai-weekly" type="button">週次レポート</button>
+    <button class="btn ghost" id="btn-ai-rebalance" type="button">次の一手</button>
   </div>
 </section>
 
