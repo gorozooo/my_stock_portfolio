@@ -23,11 +23,9 @@ _TSE_DEBUG = os.environ.get("TSE_DEBUG", "0") == "1"
 # ベンチマーク（RS計算用）
 _INDEX_TICKER = os.environ.get("INDEX_TICKER", "^N225")  # 例: ^N225, ^GSPC など
 
-# キャッシュ（★ name と sector を分離保持）
-_TSE_NAME_MAP: Dict[str, str]   = {}
-_TSE_SECTOR_MAP: Dict[str, str] = {}
+# キャッシュ
+_TSE_MAP: Dict[str, str] = {}
 _TSE_MTIME: Tuple[float, float] = (0.0, 0.0)  # (json_mtime, csv_mtime)
-
 
 def _d(msg: str) -> None:
     if _TSE_DEBUG:
@@ -49,20 +47,17 @@ def _clean_text(s: str) -> str:
     return s.strip()
 
 # =========================================================
-# 日本語銘柄名/セクターローダ（JSON優先、なければCSV）
+# 日本語銘柄名ローダ（JSON優先、なければCSV）
 # =========================================================
 def _load_tse_map_if_needed() -> None:
-    """tse_list.json / tse_list.csv を読み込み、_TSE_NAME_MAP / _TSE_SECTOR_MAP を構築。
-       - JSON は list[{"code","name","sector"}] も dict{"7011":"三菱重工業"} も許容
-       - CSV は header に最低 code,name（任意で sector）を期待
-    """
-    global _TSE_NAME_MAP, _TSE_SECTOR_MAP, _TSE_MTIME
+    """tse_list.json / tse_list.csv を読み込み、_TSE_MAP = {CODE: 日本語名} を作る。"""
+    global _TSE_MAP, _TSE_MTIME
 
     json_m = os.path.getmtime(_TSE_JSON_PATH) if os.path.isfile(_TSE_JSON_PATH) else 0.0
     csv_m  = os.path.getmtime(_TSE_CSV_PATH)  if os.path.isfile(_TSE_CSV_PATH)  else 0.0
 
     # 変更がなければキャッシュを使う
-    if not _TSE_ALWAYS_RELOAD and _TSE_NAME_MAP and _TSE_MTIME == (json_m, csv_m):
+    if not _TSE_ALWAYS_RELOAD and _TSE_MAP and _TSE_MTIME == (json_m, csv_m):
         return
 
     df = None
@@ -76,22 +71,17 @@ def _load_tse_map_if_needed() -> None:
             if isinstance(raw, list):
                 d = pd.DataFrame(raw)
             elif isinstance(raw, dict):
-                # dict 形式なら name のみ確実。sector は無い場合が多い
                 d = pd.DataFrame([{"code": k, "name": v} for k, v in raw.items()])
             else:
                 raise ValueError("tse_list.json: unexpected root type")
 
-            # 列名ゆるく同定
-            cols = {str(c).lower(): c for c in d.columns}
-            code_col   = cols.get("code")   or cols.get("ticker")  or cols.get("symbol")
-            name_col   = cols.get("name")   or cols.get("jp_name") or cols.get("company")
-            sector_col = (cols.get("sector") or cols.get("industry") or
-                          cols.get("industry33") or cols.get("sector_jp") or cols.get("33sector"))
-            if not (code_col and name_col):
+            cols = {c.lower(): c for c in d.columns}
+            code = cols.get("code") or cols.get("ticker") or cols.get("symbol")
+            name = cols.get("name") or cols.get("jp_name") or cols.get("company")
+            if not (code and name):
                 raise ValueError("tse_list.json must have 'code' and 'name' columns")
 
-            use_cols = [code_col, name_col] + ([sector_col] if sector_col else [])
-            d = d[use_cols].rename(columns={code_col: "code", name_col: "name", **({sector_col: "sector"} if sector_col else {})})
+            d = d[[code, name]].rename(columns={code: "code", name: "name"})
             df = d
             _d(f"loaded json ({len(df)} rows)")
         except Exception as e:
@@ -104,50 +94,34 @@ def _load_tse_map_if_needed() -> None:
             d = d.rename(columns={c: c.lower() for c in d.columns})
             if not {"code", "name"}.issubset(d.columns):
                 raise ValueError("tse_list.csv needs 'code' and 'name'")
-            # sector 列は任意
-            use_cols = ["code", "name"] + (["sector"] if "sector" in d.columns else [])
-            df = d[use_cols]
+            df = d[["code", "name"]]
             _d(f"loaded csv ({len(df)} rows)")
         except Exception as e:
             _d(f"failed to load csv: {e}")
 
     # ---------- どちらも無い/不正 ----------
     if df is None:
-        _TSE_NAME_MAP, _TSE_SECTOR_MAP = {}, {}
+        _TSE_MAP = {}
         _TSE_MTIME = (json_m, csv_m)
         return
 
     # 正規化
     df["code"] = df["code"].astype(str).map(_clean_text).str.upper()
     df["name"] = df["name"].astype(str).map(_clean_text)
-    if "sector" in df.columns:
-        df["sector"] = df["sector"].astype(str).map(_clean_text)
-    df = df.dropna(subset=["code", "name"]).drop_duplicates(subset=["code"])
+    df = df.dropna().drop_duplicates(subset=["code"])
 
-    _TSE_NAME_MAP   = {row["code"]: row["name"]   for _, row in df.iterrows()}
-    _TSE_SECTOR_MAP = {row["code"]: row.get("sector") for _, row in df.iterrows() if "sector" in df.columns and row.get("sector")}
+    _TSE_MAP = {row["code"]: row["name"] for _, row in df.iterrows()}
     _TSE_MTIME = (json_m, csv_m)
 
 def _lookup_name_jp_from_list(ticker: str) -> Optional[str]:
     _load_tse_map_if_needed()
-    if not _TSE_NAME_MAP or not ticker:
+    if not _TSE_MAP or not ticker:
         return None
     head = ticker.upper().split(".", 1)[0]
-    name = _TSE_NAME_MAP.get(head)
+    name = _TSE_MAP.get(head)
     if _TSE_DEBUG:
-        _d(f"lookup name {head} -> {repr(name)}")
+        _d(f"lookup {head} -> {repr(name)}")
     return name
-
-# ★ 追加：33業種セクターの取得
-def _lookup_sector_jp_from_list(ticker: str) -> Optional[str]:
-    _load_tse_map_if_needed()
-    if not ticker:
-        return None
-    head = ticker.upper().split(".", 1)[0]
-    sec = _TSE_SECTOR_MAP.get(head)
-    if _TSE_DEBUG:
-        _d(f"lookup sector {head} -> {repr(sec)}")
-    return sec
 
 # =========================================================
 # ティッカー正規化 / 名前取得
@@ -178,21 +152,96 @@ def _fetch_name_prefer_jp(ticker: str) -> str:
     head = ticker.upper().split(".", 1)[0]
     return head or ticker
 
-# 参考：外部情報からのセクター取得（なければ None）
+# =========================================================
+# セクター（33業種）推定
+# =========================================================
+# よく出る英語系セクター/インダストリ名を TSE33 に丸める簡易マップ + 部分一致
+_EN_TO_TSE33 = [
+    # 金融
+    (r"Bank",               "銀行業"),
+    (r"Insurance",          "保険業"),
+    (r"Securities|Broker",  "証券・商品先物取引業"),
+    (r"Real Estate|REIT",   "不動産業"),
+    (r"Financial|Fintech",  "その他金融業"),
+    # 資本財/運輸
+    (r"Machinery|Industrial|Capital Goods", "機械"),
+    (r"Construction|Engineering",           "建設業"),
+    (r"Transportation|Logistics|Rail|Truck","陸運業"),
+    (r"Marine|Shipping",                    "海運業"),
+    (r"Airline|Air Transportation",         "空運業"),
+    (r"Warehouse|Harbor",                   "倉庫・運輸関連業"),
+    # 素材
+    (r"Iron|Steel",          "鉄鋼"),
+    (r"Non.?ferrous|Aluminum|Copper|Metal", "非鉄金属"),
+    (r"Chemical|Materials|Petrochemical",   "化学"),
+    (r"Paper|Pulp",                          "パルプ・紙"),
+    (r"Textile|Apparel|Fiber",              "繊維製品"),
+    (r"Glass|Ceramic",                      "ガラス・土石製品"),
+    (r"Rubber",                              "ゴム製品"),
+    (r"Oil|Gas|Energy|Coal",                 "石油・石炭製品"),
+    (r"Mining",                              "鉱業"),
+    # 耐久財・自動車
+    (r"Automobile|Auto|Vehicle|Tire",       "輸送用機器"),
+    (r"Precision|Optical",                  "精密機器"),
+    # テック・通信
+    (r"Semiconductor|Chip",                  "電気機器"),
+    (r"Electronic|Electrical Equipment",     "電気機器"),
+    (r"Software|IT|Information",             "情報・通信業"),
+    (r"Telecom|Wireless|Communication",      "情報・通信業"),
+    # 生活必需/一般消費
+    (r"Food|Beverage",                       "食料品"),
+    (r"Pharma|Biotech|Life Science|Drug",    "医薬品"),
+    (r"Retail",                               "小売業"),
+    (r"Wholesale|Trading Company",            "卸売業"),
+    (r"Leisure|Entertainment|Media|Game",     "サービス業"),
+    (r"Services|HR|Consulting|Education",     "サービス業"),
+    # 公共
+    (r"Electric Power|Gas|Utility|Utilities", "電気・ガス業"),
+    # そのほか
+    (r"Fishery|Agriculture|Forestry",        "水産・農林業"),
+]
+
+# 直接日本語が返ってきたときの丸め（代表的な揺れを吸収）
+_JA_NORMALIZE = {
+    "情報通信": "情報・通信業",
+    "情報・通信": "情報・通信業",
+    "ガス・電気": "電気・ガス業",
+    "鉄鋼業": "鉄鋼",
+    "機械（産業機械）": "機械",
+    "サービス": "サービス業",
+}
+
+def _map_to_tse33(label: str) -> Optional[str]:
+    if not label:
+        return None
+    s = _clean_text(label)
+    # 日本語っぽい場合はそのまま or 正規化
+    if re.search(r"[\u3040-\u30FF\u4E00-\u9FFF]", s):
+        return _JA_NORMALIZE.get(s, s)
+    # 英語→部分一致
+    for pat, out in _EN_TO_TSE33:
+        if re.search(pat, s, flags=re.IGNORECASE):
+            return out
+    return None
+
 def _fetch_sector_prefer_jp(ticker: str) -> Optional[str]:
-    # まずリストから
-    sec = _lookup_sector_jp_from_list(ticker)
-    if sec:
-        return sec
-    # yfinance の英語 sector/industry をそのまま返すフォールバック
+    """
+    yfinance.info の 'industry' / 'sector' を元に、
+    日本語の TSE33 業種名に近似マッピングして返す。
+    取得できない/判別不能なら None。
+    """
     try:
         info = getattr(yf.Ticker(str(ticker)), "info", {}) or {}
-        sec = info.get("sector") or info.get("industry")
-        if isinstance(sec, str) and sec.strip():
-            return _clean_text(sec)
+        cand = (
+            info.get("industry") or
+            info.get("sector") or
+            info.get("industryKey") or
+            info.get("sectorKey")
+        )
+        s = _map_to_tse33(str(cand or ""))
+        return s
     except Exception:
-        pass
-    return None
+        return None
 
 # =========================================================
 # テクニカル（ADX/ATRなど）
@@ -259,9 +308,6 @@ def _atr(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> Opti
 def _pick_field(df: pd.DataFrame, field: str, *, required: bool = True) -> pd.Series:
     """
     field: 'Close' | 'High' | 'Low' | 'Volume'
-    - 単一列: その列を返す（Close は 'Adj Close' も許容）
-    - MultiIndex: level=0 に field があれば xs で取り出し、最初の列を使う
-    - 見つからない & required=False のときは空Seriesを返す
     """
     # MultiIndex
     if isinstance(df.columns, pd.MultiIndex):
@@ -394,7 +440,7 @@ def detect_trend(
         elif ma_s < ma_l:
             signal, reason = "DOWN", "短期線が長期線を下回る(デッドクロス気味)"
 
-    # ------- 追加指標（長期列で計算） -------
+    # ------- 追加指標（過去長期データ使用） -------
     ma20  = float(close_s.tail(20).mean())   if len(close_s) >= 20   else None
     ma50  = float(close_s.tail(50).mean())   if len(close_s) >= 50   else None
     ma200 = float(close_s.tail(200).mean())  if len(close_s) >= 200  else None
@@ -407,7 +453,7 @@ def detect_trend(
 
     ma_order = _ma_order_str(ma20, ma50, ma200)
 
-    # ADX/ATR（長期列で計算）— 高値/安値/終値のインデックスを合わせる
+    # ADX/ATR
     common_idx = close_s.index.intersection(high_s.index).intersection(low_s.index)
     adx14 = _adx(high_s.reindex(common_idx), low_s.reindex(common_idx), close_s.reindex(common_idx), n=14)
     atr14 = _atr(high_s.reindex(common_idx),  low_s.reindex(common_idx),  close_s.reindex(common_idx), n=14)
@@ -433,7 +479,7 @@ def detect_trend(
             _INDEX_TICKER,
             period="300d",
             interval="1d",
-            auto_adjust=True,     # ← これを明示
+            auto_adjust=True,
             progress=False,
         )
         if bench is not None and not bench.empty:
