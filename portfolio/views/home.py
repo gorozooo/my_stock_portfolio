@@ -276,25 +276,23 @@ def home(request):
         {"label": "実現益", "value": realized_month},
     ]
 
-    # AIアドバイザー統合（3要素返却）
-    ai_note, ai_items, session_id = svc_advisor.summarize(kpis, sectors)
+        # === AIコメント（強化版） ===
+    ai_note, ai_items, ai_session_id, weekly_draft, nextmove_draft = svc_advisor.summarize(kpis, sectors)
+
+    # フォールバック（万一ゼロなら）
     if not ai_note:
-        ai_note = "AIが最新のポートフォリオを解析しました。"
+        ai_note = "最新データを解析しました。主要KPIと含み状況を要約しています。"
     if not ai_items:
-        ai_items = [{"id": 0, "kind": "NONE", "message": "提案事項なし", "score": 0.0, "taken": False}]
+        ai_items = [dict(id=0, message="直近のデータが少ないため、提案事項はありません。", score=0.0, taken=False)]
 
-    # 乖離トリガー補足
-    GAP_THRESHOLD = 20.0
-    if roi_gap_abs and roi_gap_abs >= GAP_THRESHOLD and ai_items:
-        if not any("乖離" in it["message"] for it in ai_items):
-            ai_items.insert(0, {
-                "id": 0,
-                "kind": "REBALANCE",
-                "message": f"評価ROIと現金ROIの乖離が {roi_gap_abs:.1f}pt。評価と実際の差が大きい。ポジション整理を検討。",
-                "score": 1.0,
-                "taken": False,
-            })
+    # ROI乖離は最優先で先頭に（存在すれば先頭へ移動）
+    if kpis.get("roi_gap_abs") is not None and kpis["roi_gap_abs"] >= 20:
+        key = "評価ROIと現金ROIの乖離が"
+        idx = next((i for i, x in enumerate(ai_items) if key in x["message"]), None)
+        if idx not in (None, 0):
+            ai_items.insert(0, ai_items.pop(idx))
 
+    # ストレステスト（デフォルト -5%）
     stressed_default = _stress_total_assets(-5.0, snap, cash["total"])
 
     ctx = dict(
@@ -312,9 +310,11 @@ def home(request):
         cash_total_by_currency=cash["total_by_currency"],
         stressed_default=stressed_default,
 
-        # === AI連携 ===
+        # ✅ テンプレに渡す
         ai_note=ai_note,
         ai_items=ai_items,
-        ai_session_id=session_id,
+        ai_session_id=ai_session_id,
+        weekly_draft=weekly_draft,
+        nextmove_draft=nextmove_draft,
     )
     return render(request, "home.html", ctx)
