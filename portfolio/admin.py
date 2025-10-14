@@ -200,3 +200,18 @@ class CashLedgerAdmin(admin.ModelAdmin):
 class MarginStateAdmin(admin.ModelAdmin):
     list_display = ("as_of", "account", "cash_free", "stock_collateral_value", "haircut_pct", "required_margin", "restricted_amount")
     list_filter = ("account__broker", "account__account_type")
+    
+# --------- AI ---------
+@admin.register(AdviceSession)
+class AdviceSessionAdmin(admin.ModelAdmin):
+    list_display = ("id", "created_at", "note")
+    list_filter  = ("created_at",)
+    search_fields = ("note",)
+    ordering = ("-created_at",)
+
+@admin.register(AdviceItem)
+class AdviceItemAdmin(admin.ModelAdmin):
+    list_display = ("id", "session", "kind", "score", "taken", "created_at")
+    list_filter  = ("kind", "taken", "created_at")
+    search_fields = ("message",)
+    ordering = ("-created_at",)
