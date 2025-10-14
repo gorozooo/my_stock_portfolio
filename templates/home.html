@@ -11,23 +11,32 @@
 
 {% block content %}
 
-<!-- 🧠 AIアドバイザー（行動リスト統合） -->
+<!-- 🧠 AIアドバイザー -->
 <section class="ai-header glass">
   <div class="ai-title">AIアドバイザー</div>
+
+  <!-- ヘッダー要約（自然文） -->
   <p class="ai-note">{{ ai_note }}</p>
+
+  <!-- 提案リスト（チェックで採用/非採用をトグル） -->
+  <ul class="ai-actions" id="aiAdviceList" data-session="{{ ai_session_id }}">
+    {% for it in ai_items %}
+      <li data-id="{{ it.id }}">
+        <button class="ai-check" aria-label="toggle">
+          {% if it.taken %}✅{% else %}☑️{% endif %}
+        </button>
+        {{ it.message }}
+        {% if it.score %}<span class="ai-score">（優先度 {{ it.score|floatformat:2 }}）</span>{% endif %}
+      </li>
+    {% empty %}
+      <li>• 分析中です。</li>
+    {% endfor %}
+  </ul>
 
   <div class="ai-tools">
     <button class="btn ghost" id="btn-ai-weekly">週次レポート</button>
     <button class="btn ghost" id="btn-ai-rebalance">次の一手</button>
   </div>
-
-  <ul class="ai-actions merged">
-    {% for a in ai_actions %}
-      <li>✅ {{ a }}</li>
-    {% empty %}
-      <li>✅ 現在は提案事項なし</li>
-    {% endfor %}
-  </ul>
 </section>
 
 <!-- 📊 KPI -->
