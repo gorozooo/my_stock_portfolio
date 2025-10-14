@@ -452,7 +452,7 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
 
 
 # =========================================================
-# API: コード→銘柄名（既存）
+# API: コード→銘柄名 + セクター（33業種）
 # =========================================================
 @login_required
 def api_ticker_name(request):
@@ -460,19 +460,26 @@ def api_ticker_name(request):
     norm = svc_trend._normalize_ticker(raw)
     code = (norm.split(".", 1)[0] if norm else raw).upper()
 
+    # 銘柄名（ローカル表・Webの順で取得）
     override = getattr(settings, "TSE_NAME_OVERRIDES", {}).get(code)
     if override:
-        return JsonResponse({"code": code, "name": override,
-                             "sector": svc_trend._lookup_sector_jp_from_list(norm)})
+        name = override
+    else:
+        name = svc_trend._lookup_name_jp_from_list(norm) or ""
+        if not name:
+            try:
+                name = svc_trend._fetch_name_prefer_jp(norm) or ""
+            except Exception:
+                name = ""
 
-    name = svc_trend._lookup_name_jp_from_list(norm) or ""
-    if not name:
-        try:
-            name = svc_trend._fetch_name_prefer_jp(norm) or ""
-        except Exception:
-            name = ""
-    sector = svc_trend._lookup_sector_jp_from_list(norm) or svc_trend._fetch_sector_prefer_jp(norm)
-    return JsonResponse({"code": code, "name": name, "sector": sector})
+    # ★ セクター（33業種）を推定
+    sector = None
+    try:
+        sector = svc_trend._fetch_sector_prefer_jp(norm)
+    except Exception:
+        sector = None
+
+    return JsonResponse({"code": code, "name": name, "sector": sector or ""})
 
 
 # =========================================================
