@@ -14,7 +14,6 @@ from ..models_cash import BrokerAccount, CashLedger
 
 Number = Union[int, float, Decimal]
 
-
 # ========= Utilities =========
 def _to_float(v: Optional[Number]) -> float:
     try:
@@ -26,13 +25,11 @@ def _to_float(v: Optional[Number]) -> float:
     except Exception:
         return 0.0
 
-
 def _month_bounds(today: Optional[date] = None) -> Tuple[date, date]:
     d = today or date.today()
     first = d.replace(day=1)
     next_first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
     return first, next_first
-
 
 # ========= Cash =========
 def _cash_balances() -> Dict[str, Any]:
@@ -57,13 +54,12 @@ def _cash_balances() -> Dict[str, Any]:
         "total_by_currency": {k: int(v) for k, v in cur_totals.items()},
     }
 
-
 # ========= Holdings / Sector snapshot =========
 def _holdings_snapshot() -> dict:
     """
-    - 価格は Holding.last_price を優先。無ければ avg_cost をフォールバック
-    - 未実現損益は「現物＋信用」の未実現のみ（評価−取得）
-    - セクター集計は Holding.sector を使用（空は「未分類」）
+    - 価格は last_price 優先（無ければ avg_cost）
+    - 未実現損益 = (現物+信用)評価 − (現物+信用)取得
+    - セクターは Holding.sector（空は「未分類」）
     """
     holdings = list(Holding.objects.all())
 
@@ -100,7 +96,6 @@ def _holdings_snapshot() -> dict:
     total_trades = win + lose
     win_ratio = round((win / total_trades * 100.0) if total_trades else 0.0, 1)
 
-    # セクター別
     by_sector: List[Dict[str, Any]] = []
     for sec, d in sector_map.items():
         mv, cost = d["mv"], d["cost"]
@@ -118,7 +113,6 @@ def _holdings_snapshot() -> dict:
         by_sector=by_sector[:10],
     )
 
-
 # ========= Realized / Dividend =========
 def _sum_realized_month() -> int:
     first, next_first = _month_bounds()
@@ -128,7 +122,6 @@ def _sum_realized_month() -> int:
     )
     return int(sum(int(x.amount) for x in qs))
 
-
 def _sum_dividend_month() -> int:
     first, next_first = _month_bounds()
     qs = CashLedger.objects.filter(
@@ -137,55 +130,25 @@ def _sum_dividend_month() -> int:
     )
     return int(sum(int(x.amount) for x in qs))
 
-
 def _sum_realized_cum() -> int:
     return int(
         CashLedger.objects.filter(source_type=CashLedger.SourceType.REALIZED)
-        .aggregate(s=Sum("amount"))
-        .get("s")
-        or 0
+        .aggregate(s=Sum("amount")).get("s") or 0
     )
-
 
 def _sum_dividend_cum() -> int:
     return int(
         CashLedger.objects.filter(source_type=CashLedger.SourceType.DIVIDEND)
-        .aggregate(s=Sum("amount"))
-        .get("s")
-        or 0
+        .aggregate(s=Sum("amount")).get("s") or 0
     )
-
 
 def _invested_capital() -> int:
-    opening = int(
-        BrokerAccount.objects.aggregate(total=Sum("opening_balance")).get("total") or 0
-    )
-    dep = int(
-        CashLedger.objects.filter(kind=CashLedger.Kind.DEPOSIT)
-        .aggregate(s=Sum("amount"))
-        .get("s")
-        or 0
-    )
-    xin = int(
-        CashLedger.objects.filter(kind=CashLedger.Kind.XFER_IN)
-        .aggregate(s=Sum("amount"))
-        .get("s")
-        or 0
-    )
-    wdr = int(
-        CashLedger.objects.filter(kind=CashLedger.Kind.WITHDRAW)
-        .aggregate(s=Sum("amount"))
-        .get("s")
-        or 0
-    )
-    xout = int(
-        CashLedger.objects.filter(kind=CashLedger.Kind.XFER_OUT)
-        .aggregate(s=Sum("amount"))
-        .get("s")
-        or 0
-    )
+    opening = int(BrokerAccount.objects.aggregate(total=Sum("opening_balance")).get("total") or 0)
+    dep = int(CashLedger.objects.filter(kind=CashLedger.Kind.DEPOSIT).aggregate(s=Sum("amount")).get("s") or 0)
+    xin = int(CashLedger.objects.filter(kind=CashLedger.Kind.XFER_IN).aggregate(s=Sum("amount")).get("s") or 0)
+    wdr = int(CashLedger.objects.filter(kind=CashLedger.Kind.WITHDRAW).aggregate(s=Sum("amount")).get("s") or 0)
+    xout= int(CashLedger.objects.filter(kind=CashLedger.Kind.XFER_OUT).aggregate(s=Sum("amount")).get("s") or 0)
     return int(opening + dep + xin - wdr - xout)
-
 
 # ========= Stress (β=0.9) =========
 def _stress_total_assets(pct: float, snap: dict, cash_total: int) -> int:
@@ -193,7 +156,6 @@ def _stress_total_assets(pct: float, snap: dict, cash_total: int) -> int:
     equity_mv = snap["spot_mv"] + snap["margin_mv"]
     stressed_equity = equity_mv * (1.0 + beta * pct / 100.0)
     return int(round(stressed_equity + cash_total))
-
 
 # ========= View =========
 def home(request):
@@ -214,35 +176,17 @@ def home(request):
 
     invested = _invested_capital()
 
-    roi_eval_pct = (
-        round(((total_eval_assets - invested) / invested * 100.0), 2)
-        if invested > 0
-        else None
-    )
-    roi_liquid_pct = (
-        round(((liquidation_value - invested) / invested * 100.0), 2)
-        if invested > 0
-        else None
-    )
-    roi_gap_abs = (
-        round(abs(roi_eval_pct - roi_liquid_pct), 2)
-        if roi_eval_pct is not None and roi_liquid_pct is not None
-        else None
-    )
+    roi_eval_pct = round(((total_eval_assets - invested) / invested * 100.0), 2) if invested > 0 else None
+    roi_liquid_pct = round(((liquidation_value - invested) / invested * 100.0), 2) if invested > 0 else None
+    roi_gap_abs = round(abs(roi_eval_pct - roi_liquid_pct), 2) if (roi_eval_pct is not None and roi_liquid_pct is not None) else None
 
     gross_pos = max(int(snap["spot_mv"] + snap["margin_mv"]), 1)
     breakdown_pct = {
         "spot_pct": round(snap["spot_mv"] / gross_pos * 100, 1),
         "margin_pct": round(snap["margin_mv"] / gross_pos * 100, 1),
     }
-    liquidity_rate_pct = (
-        max(0.0, round(liquidation_value / total_eval_assets * 100, 1))
-        if total_eval_assets > 0
-        else 0.0
-    )
-    margin_ratio_pct = (
-        round(snap["margin_mv"] / gross_pos * 100, 1) if gross_pos > 0 else 0.0
-    )
+    liquidity_rate_pct = max(0.0, round(liquidation_value / total_eval_assets * 100, 1)) if total_eval_assets > 0 else 0.0
+    margin_ratio_pct = round(snap["margin_mv"] / gross_pos * 100, 1) if gross_pos > 0 else 0.0
 
     # リスクフラグ
     risk_flags: List[str] = []
@@ -276,21 +220,24 @@ def home(request):
         {"label": "実現益", "value": realized_month},
     ]
 
-        # === AIコメント（強化版） ===
+    # === AI生成 ===
     ai_note, ai_items, ai_session_id, weekly_draft, nextmove_draft = svc_advisor.summarize(kpis, sectors)
 
-    # フォールバック（万一ゼロなら）
     if not ai_note:
         ai_note = "最新データを解析しました。主要KPIと含み状況を要約しています。"
     if not ai_items:
-        ai_items = [dict(id=0, message="直近のデータが少ないため、提案事項はありません。", score=0.0, taken=False)]
+        ai_items = [dict(id=0, message="直近のデータが少ないため、提案事項はありません。", score=0.0, taken=False, kind="REBALANCE")]
 
-    # ROI乖離は最優先で先頭に（存在すれば先頭へ移動）
+    # 乖離を先頭へ
     if kpis.get("roi_gap_abs") is not None and kpis["roi_gap_abs"] >= 20:
         key = "評価ROIと現金ROIの乖離が"
         idx = next((i for i, x in enumerate(ai_items) if key in x["message"]), None)
         if idx not in (None, 0):
             ai_items.insert(0, ai_items.pop(idx))
+
+    # === ★ 保存済みセッションの活用（ここで永続化 & id 振り直し） ===
+    #   - 頻繁な重複保存を避けるため内部で3時間キャッシュガード
+    ai_items = svc_advisor.ensure_session_persisted(ai_note, ai_items, kpis)
 
     # ストレステスト（デフォルト -5%）
     stressed_default = _stress_total_assets(-5.0, snap, cash["total"])
@@ -310,7 +257,7 @@ def home(request):
         cash_total_by_currency=cash["total_by_currency"],
         stressed_default=stressed_default,
 
-        # ✅ テンプレに渡す
+        # テンプレへ
         ai_note=ai_note,
         ai_items=ai_items,
         ai_session_id=ai_session_id,
