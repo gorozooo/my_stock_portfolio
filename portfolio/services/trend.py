@@ -153,52 +153,60 @@ def _fetch_name_prefer_jp(ticker: str) -> str:
     return head or ticker
 
 # =========================================================
-# セクター（33業種）推定
+# セクター（33業種）推定：英語→日本語へ強制丸め
 # =========================================================
-# よく出る英語系セクター/インダストリ名を TSE33 に丸める簡易マップ + 部分一致
+# GICSの英語表現や yfinance の industry/sector によく出る語を
+# 東証33業種へ近似マッピング（部分一致）
 _EN_TO_TSE33 = [
     # 金融
-    (r"Bank",               "銀行業"),
-    (r"Insurance",          "保険業"),
-    (r"Securities|Broker",  "証券・商品先物取引業"),
-    (r"Real Estate|REIT",   "不動産業"),
-    (r"Financial|Fintech",  "その他金融業"),
-    # 資本財/運輸
-    (r"Machinery|Industrial|Capital Goods", "機械"),
-    (r"Construction|Engineering",           "建設業"),
-    (r"Transportation|Logistics|Rail|Truck","陸運業"),
-    (r"Marine|Shipping",                    "海運業"),
-    (r"Airline|Air Transportation",         "空運業"),
-    (r"Warehouse|Harbor",                   "倉庫・運輸関連業"),
+    (r"\bBank(s|ing)?\b",                    "銀行業"),
+    (r"Insurance|Life Insurance|Non.?life",  "保険業"),
+    (r"Securit(ies|y)|Broker|Brokerage",     "証券・商品先物取引業"),
+    (r"Real Estate|REIT|Property",           "不動産業"),
+    (r"Financial|Diversified Financials|Fintech", "その他金融業"),
+
+    # 資本財・運輸
+    (r"Machinery|Industrial(s)?|Capital Goods|Aerospace|Defense|Factory|Plant", "機械"),
+    (r"Construction|Engineering|Civil",      "建設業"),
+    (r"Rail|Truck|Land Transportation|Courier|Logistics", "陸運業"),
+    (r"Marine|Shipping|Sea Transportation",  "海運業"),
+    (r"Airline|Air Transportation|Airport",  "空運業"),
+    (r"Warehouse|Harbor|Port",               "倉庫・運輸関連業"),
+
     # 素材
-    (r"Iron|Steel",          "鉄鋼"),
-    (r"Non.?ferrous|Aluminum|Copper|Metal", "非鉄金属"),
-    (r"Chemical|Materials|Petrochemical",   "化学"),
+    (r"\bSteel(s)?\b|Iron & Steel",          "鉄鋼"),
+    (r"Non.?ferrous|Aluminum|Copper|Metal",  "非鉄金属"),
+    (r"Chemical|Petrochemical|Basic Materials|Materials", "化学"),
     (r"Paper|Pulp",                          "パルプ・紙"),
-    (r"Textile|Apparel|Fiber",              "繊維製品"),
-    (r"Glass|Ceramic",                      "ガラス・土石製品"),
+    (r"Textile|Apparel|Fiber",               "繊維製品"),
+    (r"Glass|Ceramic",                       "ガラス・土石製品"),
     (r"Rubber",                              "ゴム製品"),
-    (r"Oil|Gas|Energy|Coal",                 "石油・石炭製品"),
+    (r"\bOil\b|Gas|Refining|Petroleum|Coal|Energy", "石油・石炭製品"),
     (r"Mining",                              "鉱業"),
-    # 耐久財・自動車
-    (r"Automobile|Auto|Vehicle|Tire",       "輸送用機器"),
-    (r"Precision|Optical",                  "精密機器"),
-    # テック・通信
-    (r"Semiconductor|Chip",                  "電気機器"),
-    (r"Electronic|Electrical Equipment",     "電気機器"),
-    (r"Software|IT|Information",             "情報・通信業"),
-    (r"Telecom|Wireless|Communication",      "情報・通信業"),
-    # 生活必需/一般消費
-    (r"Food|Beverage",                       "食料品"),
-    (r"Pharma|Biotech|Life Science|Drug",    "医薬品"),
-    (r"Retail",                               "小売業"),
-    (r"Wholesale|Trading Company",            "卸売業"),
-    (r"Leisure|Entertainment|Media|Game",     "サービス業"),
-    (r"Services|HR|Consulting|Education",     "サービス業"),
+
+    # 自動車・電機・精密
+    (r"Automobile|Auto( |-)?(Parts|Components)?|Vehicle|Motor", "輸送用機器"),
+    (r"Precision|Optical|Medical Devices|Measuring", "精密機器"),
+    (r"Semiconductor|Chip|Fab|Foundry",      "電気機器"),
+    (r"Electronic|Electrical Equipment|Consumer Electronics", "電気機器"),
+
+    # 情報通信
+    (r"Software|IT Services|Information Technology|Internet|Platform", "情報・通信業"),
+    (r"Telecom|Wireless|Communication|Mobile Carrier|Telecommunications", "情報・通信業"),
+
+    # 生活必需・一般消費
+    (r"Food|Beverage|Dairy|Confectionery",   "食料品"),
+    (r"Pharma(cy|ceuticals)?|Biotech|Life Science|Drug", "医薬品"),
+    (r"Retail|E-?Commerce|Convenience Store", "小売業"),
+    (r"Wholesale|Trading Company|General Trading", "卸売業"),
+    (r"Household|Leisure|Entertainment|Media|Game|Amusement|Hotel|Tourism|Restaurant|Rental|Outsourcing|Education|Consulting|Services", "サービス業"),
+    (r"Other Products|Miscellaneous",        "その他製品"),
+
     # 公共
-    (r"Electric Power|Gas|Utility|Utilities", "電気・ガス業"),
-    # そのほか
-    (r"Fishery|Agriculture|Forestry",        "水産・農林業"),
+    (r"Electric Power|Gas|Utility|Utilities|Power Producer", "電気・ガス業"),
+
+    # 第一次産業
+    (r"Fishery|Fish|Aquaculture|Agriculture|Farm|Forestry|Wood", "水産・農林業"),
 ]
 
 # 直接日本語が返ってきたときの丸め（代表的な揺れを吸収）
@@ -209,20 +217,41 @@ _JA_NORMALIZE = {
     "鉄鋼業": "鉄鋼",
     "機械（産業機械）": "機械",
     "サービス": "サービス業",
+    "不動産": "不動産業",
+    "銀行": "銀行業",
+    "小売": "小売業",
+    "卸売": "卸売業",
 }
 
 def _map_to_tse33(label: str) -> Optional[str]:
     if not label:
         return None
     s = _clean_text(label)
-    # 日本語っぽい場合はそのまま or 正規化
+
+    # 日本語が含まれていれば、そのまま or 正規化
     if re.search(r"[\u3040-\u30FF\u4E00-\u9FFF]", s):
         return _JA_NORMALIZE.get(s, s)
-    # 英語→部分一致
+
+    # 英語 → 33業種へ部分一致で丸め
     for pat, out in _EN_TO_TSE33:
         if re.search(pat, s, flags=re.IGNORECASE):
             return out
-    return None
+
+    # 代表的GICSセクターの直訳系（最後のセーフティネット）
+    FALLBACK = {
+        "Industrials": "機械",
+        "Information Technology": "情報・通信業",
+        "Consumer Discretionary": "その他製品",
+        "Consumer Staples": "食料品",
+        "Health Care": "医薬品",
+        "Utilities": "電気・ガス業",
+        "Materials": "化学",
+        "Energy": "石油・石炭製品",
+        "Real Estate": "不動産業",
+        "Financials": "その他金融業",
+        "Communication Services": "情報・通信業",
+    }
+    return FALLBACK.get(s, None)
 
 def _fetch_sector_prefer_jp(ticker: str) -> Optional[str]:
     """
