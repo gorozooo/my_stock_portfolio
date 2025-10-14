@@ -14,29 +14,66 @@ body{ background: radial-gradient(1200px 600px at 20% -10%, #132035 0%, #0b0f1a 
 }
 section{ margin:14px 12px; }
 
+/* ===== 共通ボタン ===== */
+.btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  padding:8px 14px; border-radius:10px; font-weight:600;
+  border:1px solid transparent; background:#1a2842; color:#cfe0ff;
+}
+.btn.ghost{ border-color:var(--pri); color:var(--pri); background:transparent; }
+.btn:active{ transform:translateY(1px) }
+
 /* ===== AIヘッダー（統合） ===== */
 .ai-header{ padding:14px; }
-.ai-title{ font-weight:700; letter-spacing:.2px; margin-bottom:6px; }
-.ai-note{ margin:6px 0 8px; color:var(--fg); line-height:1.5; }
-.ai-tools{ margin:8px 0 10px; }
+.ai-title{ font-weight:700; letter-spacing:.2px; margin-bottom:8px; }
 
-/* 提案リスト：レイアウト崩れ対策（グリッド3列） */
+/* サマリーチップ */
+.ai-summary{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+.pill{
+  display:inline-flex; gap:6px; align-items:center;
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12);
+  padding:6px 10px; border-radius:999px; color:var(--muted); font-size:.9rem;
+}
+.pill strong{ color:var(--fg); font-weight:700; }
+.pill strong.pos{ color:var(--good) }
+.pill strong.neg{ color:var(--bad) }
+.roi-blue{ color:#5db1ff }
+
+/* 要約文 */
+.ai-note{ margin:6px 0 8px; color:var(--fg); line-height:1.5; }
+
+/* 提案リスト：3カラム（チェック・本文・優先度） */
 .ai-actions{ margin:0; padding:0; list-style:none; color:var(--muted); }
 .ai-actions li{
   display:grid;
-  grid-template-columns:26px 1fr auto; /* [チェック] [本文] [優先度] */
-  gap:8px;
-  align-items:start;
-  padding:6px 0;
+  grid-template-columns:26px 1fr; /* [チェック] [本文+優先度] */
+  gap:10px; align-items:flex-start;
+  padding:8px 0; border-top:1px dashed rgba(255,255,255,.08);
 }
-.ai-actions .ai-text{ line-height:1.6; }
-.ai-actions .ai-score{ color:var(--muted); white-space:nowrap; }
+.ai-actions li:first-child{ border-top:0; }
 .ai-actions .ai-check{
   background:transparent; border:1px solid rgba(255,255,255,.18);
-  width:26px; height:26px; border-radius:6px;
-  line-height:24px; display:grid; place-items:center;
-  cursor:pointer; color:#9fb5ff; font-size:16px;
+  width:26px; height:26px; border-radius:6px; line-height:24px;
+  display:grid; place-items:center; cursor:pointer; color:#9fb5ff; font-size:16px;
 }
+.ai-actions .ai-text{ display:flex; flex-direction:column; gap:6px; }
+.ai-actions .ai-msg{ color:var(--fg); line-height:1.6; }
+
+/* 優先度バー */
+.ai-prio{ display:flex; align-items:center; gap:8px; }
+.ai-prio-bar{
+  --p: 0; /* 0.0 - 1.0 を想定（li の inline style で上書き） */
+  position:relative; flex:1; height:8px; border-radius:999px;
+  background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12);
+  overflow:hidden;
+}
+.ai-prio-bar i{
+  position:absolute; inset:0; width:calc(var(--p) * 100%);
+  background:linear-gradient(90deg,#6ea8ff,#00ffd1);
+}
+.ai-score{ color:var(--muted); white-space:nowrap; font-size:.85rem; }
+
+.ai-tools{ margin:10px 0 2px; display:flex; gap:10px; flex-wrap:wrap; }
 
 /* ===== KPI ===== */
 .kpi-grid{
@@ -77,7 +114,7 @@ section{ margin:14px 12px; }
   background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12)
 }
 
-/* モバイル最適化：ROIは横幅いっぱい */
+/* ROIカードはモバイルで横幅いっぱい */
 .kpi-grid .roi-card{ grid-column:1 / -1; }
 
 /* ===== 今すぐ現金化（ヒーロー＋3サマリー） ===== */
@@ -92,7 +129,6 @@ section{ margin:14px 12px; }
 }
 .liq-hero{ text-align:left; }
 .liq-total{ font-size:2rem; font-weight:800; margin-top:4px; letter-spacing:.3px; }
-.kpi-sub{ opacity:.8; }
 .li-sum-grid{ display:grid; grid-template-columns:1fr; gap:8px; margin-top:10px; }
 .li-item{
   display:flex; gap:10px; align-items:center;
