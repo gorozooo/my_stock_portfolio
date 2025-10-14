@@ -161,3 +161,12 @@ section{ margin:14px 12px; }
   section{ margin:16px auto; max-width:1100px; }
   .li-sum-grid{ grid-template-columns:repeat(3,1fr); }
 }
+
+/* AIアドバイザー内のチェックUI */
+.ai-actions li { display:flex; gap:8px; align-items:flex-start; margin:6px 0; }
+.ai-actions .ai-check{
+  background:transparent; border:1px solid rgba(255,255,255,.18);
+  width:26px; height:26px; border-radius:6px; line-height:24px;
+  display:grid; place-items:center; cursor:pointer; color:#9fb5ff;
+}
+.ai-actions .ai-score{ color:var(--muted); margin-left:6px; font-size:.85rem; }
