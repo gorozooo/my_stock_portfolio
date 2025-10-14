@@ -14,6 +14,7 @@ from ..models_cash import BrokerAccount, CashLedger
 
 Number = Union[int, float, Decimal]
 
+
 # ========= Utilities =========
 def _to_float(v: Optional[Number]) -> float:
     try:
@@ -63,13 +64,11 @@ def _holdings_snapshot() -> dict:
     - 価格は Holding.last_price を優先。無ければ avg_cost をフォールバック
     - 未実現損益は「現物＋信用」の未実現のみ（評価−取得）
     - セクター集計は Holding.sector を使用（空は「未分類」）
-      ※現物・信用ともに含める
     """
     holdings = list(Holding.objects.all())
 
     spot_mv = spot_cost = 0.0
     margin_mv = margin_cost = 0.0
-
     sector_map: Dict[str, Dict[str, float]] = defaultdict(lambda: {"mv": 0.0, "cost": 0.0})
 
     for h in holdings:
@@ -89,7 +88,6 @@ def _holdings_snapshot() -> dict:
             spot_mv += mv
             spot_cost += cost
 
-        # セクター集計（現物・信用どちらも含む）
         sector_map[sector]["mv"] += mv
         sector_map[sector]["cost"] += cost
 
@@ -102,7 +100,7 @@ def _holdings_snapshot() -> dict:
     total_trades = win + lose
     win_ratio = round((win / total_trades * 100.0) if total_trades else 0.0, 1)
 
-    # セクター出力
+    # セクター別
     by_sector: List[Dict[str, Any]] = []
     for sec, d in sector_map.items():
         mv, cost = d["mv"], d["cost"]
@@ -117,7 +115,7 @@ def _holdings_snapshot() -> dict:
         margin_cost=round(margin_cost),
         unrealized=round(total_unrealized_pnl),
         win_ratio=win_ratio,
-        by_sector=by_sector[:10],  # 上位のみ
+        by_sector=by_sector[:10],
     )
 
 
@@ -191,9 +189,6 @@ def _invested_capital() -> int:
 
 # ========= Stress (β=0.9) =========
 def _stress_total_assets(pct: float, snap: dict, cash_total: int) -> int:
-    """
-    指数変化 pct(%) を仮定したときの推定総資産（評価＋現金）
-    """
     beta = 0.9
     equity_mv = snap["spot_mv"] + snap["margin_mv"]
     stressed_equity = equity_mv * (1.0 + beta * pct / 100.0)
@@ -205,25 +200,20 @@ def home(request):
     snap = _holdings_snapshot()
     cash = _cash_balances()
 
-    # 評価ベース総資産 = (現物+信用)評価額 + 現金
     total_eval_assets = int(snap["spot_mv"] + snap["margin_mv"] + cash["total"])
-
-    # 未実現（現物＋信用）
     unrealized_pnl = int(snap["unrealized"])
 
-    # 実現（現金台帳ベース）
     realized_month = _sum_realized_month()
     dividend_month = _sum_dividend_month()
     realized_cum = _sum_realized_cum()
     dividend_cum = _sum_dividend_cum()
 
-    # 即時現金化：信用は「含み損益のみ」現金化可
+    # 信用は含み損益のみ現金化
     margin_unrealized = int(snap["margin_mv"] - snap["margin_cost"])
     liquidation_value = int(snap["spot_mv"] + margin_unrealized + cash["total"])
 
     invested = _invested_capital()
 
-    # 2段式 ROI
     roi_eval_pct = (
         round(((total_eval_assets - invested) / invested * 100.0), 2)
         if invested > 0
@@ -240,7 +230,6 @@ def home(request):
         else None
     )
 
-    # 比率
     gross_pos = max(int(snap["spot_mv"] + snap["margin_mv"]), 1)
     breakdown_pct = {
         "spot_pct": round(snap["spot_mv"] / gross_pos * 100, 1),
@@ -255,14 +244,13 @@ def home(request):
         round(snap["margin_mv"] / gross_pos * 100, 1) if gross_pos > 0 else 0.0
     )
 
-    # リスク警告
+    # リスクフラグ
     risk_flags: List[str] = []
     if margin_ratio_pct >= 60.0:
         risk_flags.append(f"信用比率が {margin_ratio_pct}%（60%超）です。余力とボラに注意。")
     if liquidity_rate_pct < 50.0:
         risk_flags.append(f"流動性が {liquidity_rate_pct}% と低め。現金化余地の確保を検討。")
 
-    # KPI
     kpis = {
         "total_assets": total_eval_assets,
         "unrealized_pnl": unrealized_pnl,
@@ -282,29 +270,31 @@ def home(request):
         "margin_unrealized": margin_unrealized,
     }
 
-    sectors = snap["by_sector"]  # ← 業種セクター（未分類含む）
+    sectors = snap["by_sector"]
     cash_bars = [
         {"label": "配当", "value": dividend_month},
         {"label": "実現益", "value": realized_month},
     ]
 
-    # AIコメント（フォールバック付き）
-    ai_note, ai_actions = svc_advisor.summarize(kpis, sectors)
+    # AIアドバイザー統合（3要素返却）
+    ai_note, ai_items, session_id = svc_advisor.summarize(kpis, sectors)
     if not ai_note:
-        ai_note = "最新データを解析しました。主要KPIと含み状況を要約しています。"
-    if not ai_actions:
-        ai_actions = ["直近のデータが少ないため、提案事項はありません。"]
+        ai_note = "AIが最新のポートフォリオを解析しました。"
+    if not ai_items:
+        ai_items = [{"id": 0, "kind": "NONE", "message": "提案事項なし", "score": 0.0, "taken": False}]
 
-    # 乖離トリガー
+    # 乖離トリガー補足
     GAP_THRESHOLD = 20.0
-    if roi_gap_abs is not None and roi_gap_abs >= GAP_THRESHOLD:
-        ai_actions = list(ai_actions or [])
-        ai_actions.insert(
-            0,
-            f"評価ROIと現金ROIの乖離が {roi_gap_abs:.1f}pt。評価と実際の差が大きい。ポジション整理を検討。",
-        )
+    if roi_gap_abs and roi_gap_abs >= GAP_THRESHOLD and ai_items:
+        if not any("乖離" in it["message"] for it in ai_items):
+            ai_items.insert(0, {
+                "id": 0,
+                "kind": "REBALANCE",
+                "message": f"評価ROIと現金ROIの乖離が {roi_gap_abs:.1f}pt。評価と実際の差が大きい。ポジション整理を検討。",
+                "score": 1.0,
+                "taken": False,
+            })
 
-    # ストレステスト（デフォルト -5%）
     stressed_default = _stress_total_assets(-5.0, snap, cash["total"])
 
     ctx = dict(
@@ -321,8 +311,10 @@ def home(request):
         risk_flags=risk_flags,
         cash_total_by_currency=cash["total_by_currency"],
         stressed_default=stressed_default,
-        # ← テンプレに渡す（これが抜けていた）
+
+        # === AI連携 ===
         ai_note=ai_note,
-        ai_actions=ai_actions,
+        ai_items=ai_items,
+        ai_session_id=session_id,
     )
     return render(request, "home.html", ctx)
