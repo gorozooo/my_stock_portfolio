@@ -5,45 +5,21 @@
 
 {% block head %}
 <meta name="csrf-token" content="{{ csrf_token }}">
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=23">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=24">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script defer src="{% static 'js/home.js' %}?v=23"></script>
 {% endblock %}
 
 {% block content %}
 
-<!-- 🧠 AIアドバイザー（視覚UI） -->
+<!-- 🧠 AIアドバイザー -->
 <section class="ai-header glass">
   <div class="ai-title">AIアドバイザー</div>
 
-  <!-- 概要チップ -->
-  <ul class="ai-stats">
-    <li><span class="k">総資産</span><span class="v">¥{{ kpis.total_assets|intcomma }}</span></li>
-    <li>
-      <span class="k">含み損益</span>
-      {% with v=kpis.unrealized_pnl %}
-        <span class="v {% if v > 0 %}pos{% elif v < 0 %}neg{% endif %}">¥{{ v|intcomma }}</span>
-      {% endwith %}
-    </li>
-    <li><span class="k">現金</span><span class="v">¥{{ kpis.cash_total|intcomma }}</span></li>
-    <li>
-      <span class="k">評価ROI</span>
-      {% if kpis.roi_eval_pct != None %}
-        <span class="v pos">{{ kpis.roi_eval_pct|floatformat:2 }}%</span>
-      {% else %}<span class="v">--</span>{% endif %}
-    </li>
-    <li>
-      <span class="k">現金ROI</span>
-      {% if kpis.roi_liquid_pct != None %}
-        <span class="v roi-blue">{{ kpis.roi_liquid_pct|floatformat:2 }}%</span>
-      {% else %}<span class="v">--</span>{% endif %}
-    </li>
-  </ul>
-
-  <!-- 要約 -->
+  <!-- 要約のみ（チップは撤去） -->
   <p class="ai-note">{{ ai_note }}</p>
 
-  <!-- 提案リスト -->
+  <!-- 提案リスト（バーの横に優先度） -->
   <ul class="ai-actions" id="aiAdviceList" data-session="{{ ai_session_id }}">
     {% for it in ai_items %}
       {% with p=it.score|default:0 %}
@@ -53,9 +29,11 @@
         </button>
         <div class="ai-text">
           <div class="msg">{{ it.message }}</div>
-          <div class="bar" aria-hidden="true"><span></span></div>
+          <div class="meta-row">
+            <div class="bar" aria-hidden="true"><span></span></div>
+            <span class="prio-badge">優先度 {{ p|floatformat:2 }}</span>
+          </div>
         </div>
-        <span class="ai-score">優先度 {{ p|floatformat:2 }}</span>
       </li>
       {% endwith %}
     {% empty %}
@@ -63,7 +41,6 @@
     {% endfor %}
   </ul>
 
-  <!-- 操作用ツールバー -->
   <div class="ai-tools">
     <button class="btn ghost" id="btn-ai-weekly" type="button">週次レポート</button>
     <button class="btn ghost" id="btn-ai-rebalance" type="button">次の一手</button>
@@ -117,7 +94,7 @@
   </div>
 </section>
 
-<!-- 💵 今すぐ全て現金化したら -->
+<!-- 💵 今すぐ全て現金化したら（ヒーロー＋3サマリー） -->
 <section class="liquidation glass">
   <div class="liq-head">
     <div class="title">今すぐ全て現金化したら</div>
@@ -141,9 +118,7 @@
       <div class="li-ic margin"></div>
       <div class="li-meta">
         <div class="li-label">信用の含み損益</div>
-        <div class="li-value {% if kpis.margin_unrealized < 0 %}neg{% else %}pos{% endif %}">
-          ¥{{ kpis.margin_unrealized|intcomma }}
-        </div>
+        <div class="li-value {% if kpis.margin_unrealized < 0 %}neg{% else %}pos{% endif %}">¥{{ kpis.margin_unrealized|intcomma }}</div>
       </div>
     </div>
     <div class="li-item">
