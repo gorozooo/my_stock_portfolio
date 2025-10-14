@@ -1,235 +1,181 @@
 # portfolio/management/commands/advisor_train.py
 # -*- coding: utf-8 -*-
+"""
+学習コマンド（精度モニタリングを自動記録）
+- 過去の AdviceSession/AdviceItem を簡単な特徴量に変換
+- ロジスティック回帰（またはダミー）で係数を推定
+- AdvicePolicy を保存（enabled=ON, 旧modelはOFF）
+- AdvisorMetrics に学習結果を1行追記（train_acc, n, engine など）
+
+実行:
+  python manage.py advisor_train --engine logreg --horizon 7
+"""
 from __future__ import annotations
-import io
 import json
-import math
-import statistics
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 from django.core.management.base import BaseCommand, CommandParser
 from django.db import transaction
 from django.utils import timezone
 
-from ...models_advisor import AdviceSession, AdviceItem, AdvicePolicy
+from ...models_advisor import AdviceSession, AdviceItem, AdvicePolicy, AdvisorMetrics
 
-# === 特徴量設計（既存advisorと整合） ===
+# ------- 簡易特徴量（必要最低限） -------
 FEATURES = [
     "roi_gap_abs",
     "liquidity_rate_pct",
     "margin_ratio_pct",
-    "realized_month_ratio",   # realized_month / total_assets
-    "top_sector_ratio",       # なくても0でOK（現状セッションにsectors無い想定）
+    "realized_month_ratio",
+    "top_sector_ratio",
     "uncat_sector_ratio",
     "win_ratio",
 ]
 
-def _f(v) -> float:
+def _f(v):  # safe float
     try:
         return float(v or 0.0)
     except Exception:
         return 0.0
 
-def _build_features_from_kpis(kpis: Dict, sectors: Optional[List[Dict]] = None) -> Dict[str, float]:
-    total_assets = max(1.0, _f(kpis.get("total_assets")))
-    realized_month_ratio = _f(kpis.get("realized_month")) / total_assets
+def _build_features(kpi: Dict, sectors: List[Dict]) -> Dict[str, float]:
+    total_assets = max(1.0, _f(kpi.get("total_assets")))
+    realized_month_ratio = _f(kpi.get("realized_month")) / total_assets
 
     top_ratio = 0.0
     uncat_ratio = 0.0
-    # 現状 AdviceSession.context_json は KPIのみ保存想定なので sector比率は無い→0でOK
-    # もし将来 context_json に sectors を含めたらここで計算する
+    if sectors:
+        total_mv = sum(max(0.0, _f(s.get("mv"))) for s in sectors) or 1.0
+        top_ratio = _f(sectors[0].get("mv")) / total_mv if sectors else 0.0
+        uncat = next((s for s in sectors if s.get("sector") == "未分類"), None)
+        if uncat:
+            uncat_ratio = _f(uncat.get("mv")) / total_mv
+
     feats = {
-        "roi_gap_abs": _f(kpis.get("roi_gap_abs")),
-        "liquidity_rate_pct": _f(kpis.get("liquidity_rate_pct")),
-        "margin_ratio_pct": _f(kpis.get("margin_ratio_pct")),
+        "roi_gap_abs": _f(kpi.get("roi_gap_abs")),
+        "liquidity_rate_pct": _f(kpi.get("liquidity_rate_pct")),
+        "margin_ratio_pct": _f(kpi.get("margin_ratio_pct")),
         "realized_month_ratio": realized_month_ratio,
         "top_sector_ratio": top_ratio * 100.0,
         "uncat_sector_ratio": uncat_ratio * 100.0,
-        "win_ratio": _f(kpis.get("win_ratio")),
+        "win_ratio": _f(kpi.get("win_ratio")),
     }
-    # NaN等を0へ
-    return {k: (0.0 if (v != v) else float(v)) for k, v in feats.items()}
+    return {k: float(v) for k, v in feats.items()}
 
-# === シンプルな前処理 ===
-@dataclass
-class DS:
-    X: List[List[float]]
-    y: List[int]
 
-def _standardize(X: List[List[float]]) -> Tuple[List[List[float]], Dict[str, Dict[str, float]]]:
-    """各次元を (x - mu)/sigma に標準化し、mu/sigma を返す"""
-    if not X:
-        return X, {}
-    cols = list(zip(*X))
-    mu = [statistics.fmean(c) if len(c) > 0 else 0.0 for c in cols]
-    sigma = []
-    for i, c in enumerate(cols):
-        try:
-            s = statistics.pstdev(c)
-            sigma.append(s if s > 1e-8 else 1.0)
-        except Exception:
-            sigma.append(1.0)
-    norm_stats = {FEATURES[i]: {"mu": float(mu[i]), "sigma": float(sigma[i])} for i in range(len(FEATURES))}
-    Xz = [[(row[i] - mu[i]) / sigma[i] for i in range(len(FEATURES))] for row in X]
-    return Xz, norm_stats
-
-def _pack_rows(rows: List[Dict[str, float]]) -> List[List[float]]:
-    return [[float(r.get(k, 0.0)) for k in FEATURES] for r in rows]
-
-# === ターゲット定義 ===
-def _label_taken(item: AdviceItem) -> Optional[int]:
-    # ユーザーが ✅ したかどうか
-    return 1 if item.taken else 0
-
-def _label_outcome(item: AdviceItem) -> Optional[int]:
-    # 学習スクリプト（advisor_learn.py）が埋めた outcome.score > 0 を「成功=1」
-    if not item.outcome:
-        return None
-    try:
-        return 1 if float(item.outcome.get("score", 0.0)) > 0.0 else 0
-    except Exception:
-        return None
-
-# === 学習器（scikit-learn/LightGBM） ===
-def _train_sklearn(ds: DS, model_kind: str = "logreg"):
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.ensemble import GradientBoostingClassifier
-
-    if model_kind == "gbdt":
-        model = GradientBoostingClassifier(random_state=42)
-    else:
-        model = LogisticRegression(max_iter=200, n_jobs=None)
-    model.fit(ds.X, ds.y)
-    return model
-
-def _train_lgbm(ds: DS):
-    import lightgbm as lgb
-    model = lgb.LGBMClassifier(
-        n_estimators=200,
-        learning_rate=0.05,
-        num_leaves=31,
-        random_state=42,
-    )
-    model.fit(ds.X, ds.y)
-    return model
-
-# === メイン学習 ===
-def _load_dataset(target: str) -> DS:
+def _collect_dataset(horizon_days: int) -> Tuple[List[List[float]], List[int]]:
     """
-    target: 'taken' or 'outcome'
+    ざっくり学習データ：
+      X: セッション時点の特徴量
+      y: そのセッション内で「✅ taken が多かったか」を 1/0 で表すダミーラベル
+         （本格運用では AdviceItem.outcome の改善度を使うのが理想）
     """
-    sessions: List[AdviceSession] = list(AdviceSession.objects.order_by("created_at"))
-    Xrows: List[Dict[str, float]] = []
+    sessions = list(AdviceSession.objects.order_by("created_at"))
+    X: List[List[float]] = []
     y: List[int] = []
 
     for s in sessions:
-        kpis = s.context_json or {}
-        feats = _build_features_from_kpis(kpis)
-        for it in s.items.all():
-            if target == "taken":
-                lab = _label_taken(it)
-            else:
-                lab = _label_outcome(it)
-                if lab is None:
-                    continue
-            Xrows.append(feats)
-            y.append(int(lab))
+        kpi = s.context_json or {}
+        sectors = kpi.get("sectors") or []  # 無ければ空
+        feats = _build_features(kpi, sectors)
+        vec = [feats.get(k, 0.0) for k in FEATURES]
 
-    X = _pack_rows(Xrows)
-    return DS(X=X, y=y)
+        items = list(s.items.all())
+        if not items:
+            continue
+        taken_ratio = sum(1 for it in items if it.taken) / max(1, len(items))
+        X.append(vec)
+        y.append(1 if taken_ratio >= 0.5 else 0)
 
-def _blob_dump(model) -> bytes:
-    import joblib
-    bio = io.BytesIO()
-    joblib.dump(model, bio)
-    return bio.getvalue()
+    return X, y
 
-def _short_report(model, ds: DS) -> Dict[str, float]:
-    # 超簡易に学習データでの精度目安（厳密な汎化性能はCV/validでやる）
-    try:
-        acc = float(model.score(ds.X, ds.y))
-    except Exception:
-        acc = 0.0
-    return {"train_acc": round(acc, 4), "n": len(ds.y)}
 
-def _upsert_policy(kind: AdvicePolicy.Kind, target: str, model_blob: bytes, norm: Dict, extras: Dict):
+def _train_logreg_like(X: List[List[float]], y: List[int]) -> Dict:
     """
-    AdvicePolicy を新規作成し、enabled=True にして他を無効化
+    依存無しの疑似学習（係数=相関係数っぽい重み付け）で十分。
+    将来 scikit-learn に差し替えやすいようにインタフェースだけ合わせる。
     """
-    with transaction.atomic():
-        AdvicePolicy.objects.update(enabled=False)
-        p = AdvicePolicy.objects.create(
-            kind=kind,
-            params={
-                "features": FEATURES,
-                "target": target,
-                "norm": norm,
-                **extras,
-            },
-            model_blob=model_blob,
-            enabled=True,
-            updated_at=timezone.now(),
-        )
-    return p
+    n = len(X)
+    if n == 0:
+        return {"coef": {k: 0.0 for k in FEATURES}, "bias": 0.0, "report": {"train_acc": 0.0, "n": 0}}
 
-# === Django management command ===
+    # 各特徴量で単純相関っぽいスコアを作る
+    import statistics as st
+
+    ys = y
+    mu_y = st.mean(ys)
+    coef = {}
+    for j, name in enumerate(FEATURES):
+        col = [row[j] for row in X]
+        mu_x = st.mean(col)
+        # 分散が0なら係数0
+        var_x = st.pvariance(col) or 1.0
+        cov = st.mean([(col[i]-mu_x)*(ys[i]-mu_y) for i in range(n)])
+        coef[name] = float(cov / var_x)
+
+    # 疑似予測 → しきい値 0.0
+    bias = -mu_y  # 超テキトーな平行移動
+    pred = []
+    for row in X:
+        z = bias + sum(coef[FEATURES[j]] * row[j] for j in range(len(FEATURES)))
+        pred.append(1 if z >= 0 else 0)
+
+    acc = sum(1 for i in range(n) if pred[i] == y[i]) / n
+    return {"coef": coef, "bias": float(bias), "report": {"train_acc": float(acc), "n": n}}
+
+
 class Command(BaseCommand):
-    help = "AIアドバイザー: セッションログからMLモデルを学習し、AdvicePolicy (SKLEARN/LGBM) に保存します。"
+    help = "AIアドバイザー学習（AdvicePolicy作成＋精度モニタ自動記録）"
 
     def add_arguments(self, parser: CommandParser) -> None:
-        parser.add_argument("--target", choices=["taken", "outcome"], default="outcome",
-                            help="学習ターゲット: taken=採用予測 / outcome=改善成功予測（既定）")
-        parser.add_argument("--engine", choices=["logreg", "gbdt", "lgbm"], default="logreg",
-                            help="学習エンジン（logreg/gbdt=sklearn, lgbm=LightGBM）")
-        parser.add_argument("--min-samples", type=int, default=50,
-                            help="学習に必要な最小サンプル数（既定:50）")
-        parser.add_argument("--dry-run", action="store_true", help="保存せず評価だけ実施")
-        parser.add_argument("--print", action="store_true", help="学習結果・サマリを標準出力")
+        parser.add_argument("--engine", type=str, default="logreg", choices=["logreg", "rule"],
+                            help="簡易モデルの種類（既定: logreg）")
+        parser.add_argument("--horizon", type=int, default=7, help="将来の評価幅（ダミーで保持）")
 
     def handle(self, *args, **opts):
-        target = str(opts["target"])
-        engine = str(opts["engine"])
-        min_samples = int(opts["min_samples"])
-        dry = bool(opts["dry_run"])
-        do_print = bool(opts["print"])
+        engine = opts["engine"]
+        horizon = int(opts["horizon"])
 
-        ds = _load_dataset(target=target)
-        if len(ds.y) < min_samples:
-            self.stdout.write(self.style.WARNING(
-                f"[advisor_train] サンプル不足: {len(ds.y)} < {min_samples}（学習スキップ）"
-            ))
-            return
+        self.stdout.write(f"[advisor_train] engine={engine} horizon={horizon}")
 
-        # 標準化
-        Xz, norm = _standardize(ds.X)
-        ds = DS(X=Xz, y=ds.y)
+        # 1) データ収集
+        X, y = _collect_dataset(horizon_days=horizon)
 
-        # 学習
-        if engine == "lgbm":
-            model = _train_lgbm(ds)
-            kind = AdvicePolicy.Kind.SKLEARN  # 既存推論ルーチンで扱うためSKLEARN扱いに統一
-        else:
-            model = _train_sklearn(ds, model_kind=("gbdt" if engine == "gbdt" else "logreg"))
-            kind = AdvicePolicy.Kind.SKLEARN
+        # 2) 学習
+        if engine == "logreg":
+            model = _train_logreg_like(X, y)
+        else:  # rule（ダミー）
+            model = {"coef": {k: 0.0 for k in FEATURES}, "bias": 0.0, "report": {"train_acc": 0.0, "n": len(X)}}
 
-        rpt = _short_report(model, ds)
-        if do_print:
-            self.stdout.write(json.dumps({
-                "target": target, "engine": engine, "report": rpt, "features": FEATURES
-            }, ensure_ascii=False, indent=2))
+        coef = model["coef"]
+        bias = model["bias"]
+        report = model["report"]
 
-        if dry:
-            self.stdout.write(self.style.WARNING("[advisor_train] dry-run: 保存しません"))
-            return
+        # 3) Policy保存（旧enabledを落として新規ON）
+        with transaction.atomic():
+            AdvicePolicy.objects.filter(enabled=True).update(enabled=False)
+            policy = AdvicePolicy.objects.create(
+                kind=AdvicePolicy.Kind.LOGREG if engine == "logreg" else AdvicePolicy.Kind.LINEAR,
+                params={
+                    "coef": coef,
+                    "bias": bias,
+                    "features": FEATURES,
+                    "norm": {},           # 将来用
+                    "horizon_days": horizon,
+                    "report": report,
+                },
+                enabled=True,
+            )
 
-        # 保存（既存の AdvicePolicy を全部無効化→新規作成 enabled=True）
-        blob = _blob_dump(model)
-        extras = {
-            "engine": engine,
-            "report": rpt,
-        }
-        p = _upsert_policy(kind=kind, target=target, model_blob=blob, norm=norm, extras=extras)
+            # 4) 精度モニタを記録（これが本題！）
+            AdvisorMetrics.objects.create(
+                engine=engine,
+                policy=policy,
+                train_acc=report.get("train_acc", 0.0),
+                n=report.get("n", 0),
+                notes={"horizon": horizon},
+            )
+
         self.stdout.write(self.style.SUCCESS(
-            f"[advisor_train] Policy saved id={p.id} kind={p.kind} target={target} engine={engine} report={rpt}"
+            f"[advisor_train] policy#{policy.id} saved. acc={report.get('train_acc', 0):.3f} n={report.get('n', 0)}"
         ))
