@@ -23,9 +23,11 @@ _TSE_DEBUG = os.environ.get("TSE_DEBUG", "0") == "1"
 # ベンチマーク（RS計算用）
 _INDEX_TICKER = os.environ.get("INDEX_TICKER", "^N225")  # 例: ^N225, ^GSPC など
 
-# キャッシュ
-_TSE_MAP: Dict[str, str] = {}
+# キャッシュ（★ name と sector を分離保持）
+_TSE_NAME_MAP: Dict[str, str]   = {}
+_TSE_SECTOR_MAP: Dict[str, str] = {}
 _TSE_MTIME: Tuple[float, float] = (0.0, 0.0)  # (json_mtime, csv_mtime)
+
 
 def _d(msg: str) -> None:
     if _TSE_DEBUG:
@@ -47,20 +49,20 @@ def _clean_text(s: str) -> str:
     return s.strip()
 
 # =========================================================
-# 日本語銘柄名ローダ（JSON優先、なければCSV）
+# 日本語銘柄名/セクターローダ（JSON優先、なければCSV）
 # =========================================================
 def _load_tse_map_if_needed() -> None:
-    """tse_list.json / tse_list.csv を読み込み、_TSE_MAP = {CODE: 日本語名} を作る。
-       - JSON は list[{"code","name"}] も dict{"7011":"三菱重工業"} も許容
-       - CSV は header に code,name があればOK
+    """tse_list.json / tse_list.csv を読み込み、_TSE_NAME_MAP / _TSE_SECTOR_MAP を構築。
+       - JSON は list[{"code","name","sector"}] も dict{"7011":"三菱重工業"} も許容
+       - CSV は header に最低 code,name（任意で sector）を期待
     """
-    global _TSE_MAP, _TSE_MTIME
+    global _TSE_NAME_MAP, _TSE_SECTOR_MAP, _TSE_MTIME
 
     json_m = os.path.getmtime(_TSE_JSON_PATH) if os.path.isfile(_TSE_JSON_PATH) else 0.0
     csv_m  = os.path.getmtime(_TSE_CSV_PATH)  if os.path.isfile(_TSE_CSV_PATH)  else 0.0
 
     # 変更がなければキャッシュを使う
-    if not _TSE_ALWAYS_RELOAD and _TSE_MAP and _TSE_MTIME == (json_m, csv_m):
+    if not _TSE_ALWAYS_RELOAD and _TSE_NAME_MAP and _TSE_MTIME == (json_m, csv_m):
         return
 
     df = None
@@ -74,17 +76,22 @@ def _load_tse_map_if_needed() -> None:
             if isinstance(raw, list):
                 d = pd.DataFrame(raw)
             elif isinstance(raw, dict):
+                # dict 形式なら name のみ確実。sector は無い場合が多い
                 d = pd.DataFrame([{"code": k, "name": v} for k, v in raw.items()])
             else:
                 raise ValueError("tse_list.json: unexpected root type")
 
-            cols = {c.lower(): c for c in d.columns}
-            code = cols.get("code") or cols.get("ticker") or cols.get("symbol")
-            name = cols.get("name") or cols.get("jp_name") or cols.get("company")
-            if not (code and name):
+            # 列名ゆるく同定
+            cols = {str(c).lower(): c for c in d.columns}
+            code_col   = cols.get("code")   or cols.get("ticker")  or cols.get("symbol")
+            name_col   = cols.get("name")   or cols.get("jp_name") or cols.get("company")
+            sector_col = (cols.get("sector") or cols.get("industry") or
+                          cols.get("industry33") or cols.get("sector_jp") or cols.get("33sector"))
+            if not (code_col and name_col):
                 raise ValueError("tse_list.json must have 'code' and 'name' columns")
 
-            d = d[[code, name]].rename(columns={code: "code", name: "name"})
+            use_cols = [code_col, name_col] + ([sector_col] if sector_col else [])
+            d = d[use_cols].rename(columns={code_col: "code", name_col: "name", **({sector_col: "sector"} if sector_col else {})})
             df = d
             _d(f"loaded json ({len(df)} rows)")
         except Exception as e:
@@ -97,34 +104,50 @@ def _load_tse_map_if_needed() -> None:
             d = d.rename(columns={c: c.lower() for c in d.columns})
             if not {"code", "name"}.issubset(d.columns):
                 raise ValueError("tse_list.csv needs 'code' and 'name'")
-            df = d[["code", "name"]]
+            # sector 列は任意
+            use_cols = ["code", "name"] + (["sector"] if "sector" in d.columns else [])
+            df = d[use_cols]
             _d(f"loaded csv ({len(df)} rows)")
         except Exception as e:
             _d(f"failed to load csv: {e}")
 
     # ---------- どちらも無い/不正 ----------
     if df is None:
-        _TSE_MAP = {}
+        _TSE_NAME_MAP, _TSE_SECTOR_MAP = {}, {}
         _TSE_MTIME = (json_m, csv_m)
         return
 
     # 正規化
     df["code"] = df["code"].astype(str).map(_clean_text).str.upper()
     df["name"] = df["name"].astype(str).map(_clean_text)
-    df = df.dropna().drop_duplicates(subset=["code"])
+    if "sector" in df.columns:
+        df["sector"] = df["sector"].astype(str).map(_clean_text)
+    df = df.dropna(subset=["code", "name"]).drop_duplicates(subset=["code"])
 
-    _TSE_MAP = {row["code"]: row["name"] for _, row in df.iterrows()}
+    _TSE_NAME_MAP   = {row["code"]: row["name"]   for _, row in df.iterrows()}
+    _TSE_SECTOR_MAP = {row["code"]: row.get("sector") for _, row in df.iterrows() if "sector" in df.columns and row.get("sector")}
     _TSE_MTIME = (json_m, csv_m)
 
 def _lookup_name_jp_from_list(ticker: str) -> Optional[str]:
     _load_tse_map_if_needed()
-    if not _TSE_MAP or not ticker:
+    if not _TSE_NAME_MAP or not ticker:
         return None
     head = ticker.upper().split(".", 1)[0]
-    name = _TSE_MAP.get(head)
+    name = _TSE_NAME_MAP.get(head)
     if _TSE_DEBUG:
-        _d(f"lookup {head} -> {repr(name)}")
+        _d(f"lookup name {head} -> {repr(name)}")
     return name
+
+# ★ 追加：33業種セクターの取得
+def _lookup_sector_jp_from_list(ticker: str) -> Optional[str]:
+    _load_tse_map_if_needed()
+    if not ticker:
+        return None
+    head = ticker.upper().split(".", 1)[0]
+    sec = _TSE_SECTOR_MAP.get(head)
+    if _TSE_DEBUG:
+        _d(f"lookup sector {head} -> {repr(sec)}")
+    return sec
 
 # =========================================================
 # ティッカー正規化 / 名前取得
@@ -154,6 +177,22 @@ def _fetch_name_prefer_jp(ticker: str) -> str:
         pass
     head = ticker.upper().split(".", 1)[0]
     return head or ticker
+
+# 参考：外部情報からのセクター取得（なければ None）
+def _fetch_sector_prefer_jp(ticker: str) -> Optional[str]:
+    # まずリストから
+    sec = _lookup_sector_jp_from_list(ticker)
+    if sec:
+        return sec
+    # yfinance の英語 sector/industry をそのまま返すフォールバック
+    try:
+        info = getattr(yf.Ticker(str(ticker)), "info", {}) or {}
+        sec = info.get("sector") or info.get("industry")
+        if isinstance(sec, str) and sec.strip():
+            return _clean_text(sec)
+    except Exception:
+        pass
+    return None
 
 # =========================================================
 # テクニカル（ADX/ATRなど）
@@ -306,12 +345,12 @@ def detect_trend(
     # いろいろ計算するので長めに取る（52週=~252営業日）
     period_days = max(days + 300, 420)
     df = yf.download(
-    ticker,
-    period=f"{period_days}d",
-    interval="1d",
-    auto_adjust=True,     # ← これを明示
-    progress=False,
-)
+        ticker,
+        period=f"{period_days}d",
+        interval="1d",
+        auto_adjust=True,     # ← これを明示
+        progress=False,
+    )
     if df is None or df.empty:
         raise ValueError("価格データを取得できませんでした")
 
@@ -355,7 +394,7 @@ def detect_trend(
         elif ma_s < ma_l:
             signal, reason = "DOWN", "短期線が長期線を下回る(デッドクロス気味)"
 
-    # ------- 追加指標（過去長期データ使用） -------
+    # ------- 追加指標（長期列で計算） -------
     ma20  = float(close_s.tail(20).mean())   if len(close_s) >= 20   else None
     ma50  = float(close_s.tail(50).mean())   if len(close_s) >= 50   else None
     ma200 = float(close_s.tail(200).mean())  if len(close_s) >= 200  else None
@@ -391,12 +430,12 @@ def detect_trend(
     rs_6m = None
     try:
         bench = yf.download(
-    _INDEX_TICKER,
-    period="300d",
-    interval="1d",
-    auto_adjust=True,     # ← これを明示
-    progress=False,
-)
+            _INDEX_TICKER,
+            period="300d",
+            interval="1d",
+            auto_adjust=True,     # ← これを明示
+            progress=False,
+        )
         if bench is not None and not bench.empty:
             bclose = _pick_field(bench, "Close", required=True).dropna()
             r_stock = close_s.pct_change().dropna().tail(130)  # ≒6か月
