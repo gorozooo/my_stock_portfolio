@@ -7,6 +7,7 @@ from math import exp
 
 from django.core.cache import cache
 from ..models_advisor import AdvicePolicy
+from ..models_advisor import AdviceSession, AdviceItem
 
 # ====== 表示用構造 ======
 @dataclass
