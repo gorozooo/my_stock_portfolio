@@ -260,3 +260,25 @@ def summarize(kpis: Dict, sectors: List[Dict]) -> Tuple[str, List[Dict], str, st
 # 公開：外から特徴量を取りたい場合
 def extract_features_for_learning(kpis: Dict, sectors: List[Dict]) -> Dict[str, float]:
     return _build_features(kpis, sectors)
+    
+def ensure_session_persisted(ai_note: str, ai_items: list, kpis: dict):
+    """
+    AI提案をDBに保存して永続化する。
+    - 最新セッションを AdviceSession として保存
+    - items を AdviceItem として紐付け
+    """
+    session = AdviceSession.objects.create(
+        context_json=kpis,
+        note=ai_note[:200]
+    )
+
+    for item in ai_items:
+        AdviceItem.objects.create(
+            session=session,
+            kind=item.get("kind", "REBALANCE"),
+            message=item.get("message", ""),
+            score=item.get("score", 0.0),
+            taken=item.get("taken", False),
+            reasons=item.get("reasons", []),
+        )
+    return ai_items
