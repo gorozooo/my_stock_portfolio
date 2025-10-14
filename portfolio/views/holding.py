@@ -462,15 +462,22 @@ def api_ticker_name(request):
 
     override = getattr(settings, "TSE_NAME_OVERRIDES", {}).get(code)
     if override:
-        return JsonResponse({"code": code, "name": override})
+        return JsonResponse({"code": code, "name": override, "sector": ""})
 
     name = svc_trend._lookup_name_jp_from_list(norm) or ""
+    sector = ""
+    try:
+        sector = svc_trend._lookup_sector_jp_from_list(norm) or ""
+    except Exception:
+        pass
+
     if not name:
         try:
             name = svc_trend._fetch_name_prefer_jp(norm) or ""
         except Exception:
             name = ""
-    return JsonResponse({"code": code, "name": name})
+
+    return JsonResponse({"code": code, "name": name, "sector": sector})
 
 
 # =========================================================
