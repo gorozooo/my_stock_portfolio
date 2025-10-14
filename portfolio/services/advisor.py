@@ -5,17 +5,17 @@ from typing import List, Dict, Tuple, Optional
 from hashlib import sha1
 from math import log, sqrt
 from django.core.cache import cache
+from django.db import transaction
 from django.utils import timezone
 
-# ← 学習ポリシーを参照
-from ..models_advisor import AdvicePolicy, AdviceItem as AdviceItemModel
+from ..models_advisor import AdvicePolicy, AdviceItem as AdviceItemModel, AdviceSession
 
 # ====== 型 ======
 @dataclass
 class AdviceItem:
     id: int                 # 永続化してないので0固定（保存時に差し替え）
     message: str
-    score: float            # ルールベースの素点（0-1想定）
+    score: float            # ルールベース素点（0-1想定、学習重みで補正）
     kind: Optional[str] = None
     taken: bool = False
 
@@ -38,15 +38,10 @@ def _cooldown_pass(msg: str, days: int = 7) -> bool:
 
 # ====== ポリシー（UCB1） ======
 def _ucb1(kind: str, c: float = 1.2) -> float:
-    """
-    kindごとの“探索-活用”スコア。
-    データが少ないほどやや盛る（探索）。
-    返り値は 0〜1.5 程度を想定。
-    """
     pol = AdvicePolicy.objects.filter(kind=kind).first()
     if not pol:
         return 0.8   # 未学習は少し高めで探索
-    total_trials = max(1, sum(p.n for p in AdvicePolicy.objects.all()) )
+    total_trials = max(1, sum(p.n for p in AdvicePolicy.objects.all()))
     if pol.n <= 0:
         return 0.8
     return max(0.0, min(1.5, pol.avg_reward + c * sqrt(log(total_trials) / pol.n)))
@@ -147,10 +142,8 @@ def _post_process(items: List[AdviceItem]) -> List[AdviceItem]:
         if _cooldown_pass(key):
             uniq.append(it)
 
-    # ← 学習ポリシーで重み付け
     _apply_policy_weight(uniq)
 
-    # スコア降順、上位3をチェックON
     uniq.sort(key=lambda x: x.score, reverse=True)
     for i, it in enumerate(uniq[:3]):
         it.taken = True
@@ -167,7 +160,7 @@ def next_move(kpis: Dict, sectors: List[Dict]) -> str:
     bullets = " / ".join([it.message for it in items[:3]]) or "様子見。"
     return f"次の一手: {bullets}"
 
-# ====== エントリポイント ======
+# ====== エントリポイント（生成） ======
 def summarize(kpis: Dict, sectors: List[Dict]) -> Tuple[str, List[Dict], str, str, str]:
     ai_note = _header_note(kpis, sectors)
     items = _post_process(_rules(kpis, sectors))
@@ -176,3 +169,51 @@ def summarize(kpis: Dict, sectors: List[Dict]) -> Tuple[str, List[Dict], str, st
     weekly = weekly_report(kpis, sectors)
     nextmove = next_move(kpis, sectors)
     return ai_note, ai_items, session_id, weekly, nextmove
+
+# ====== 永続化（ホーム描画時に1回/数時間） ======
+def ensure_session_persisted(ai_note: str, ai_items: List[Dict], kpis: Dict) -> List[Dict]:
+    """
+    同じ ai_note のセッション連打を防ぎつつ、
+    AdviceSession / AdviceItem を保存。保存済みなら既存IDを返す。
+    戻り値: ai_items（id 置換後）
+    """
+    note_hash = _hash_msg(ai_note)[:12]
+    cache_key = f"advisor:persist:{note_hash}"
+    if cache.get(cache_key):
+        # 直近保存済み → 既存最新セッションから id を引き当て（なければそのまま）
+        sess = AdviceSession.objects.order_by("-created_at").first()
+        if not sess:
+            return ai_items
+        db_items = list(AdviceItemModel.objects.filter(session=sess).order_by("-score", "-id"))
+        # message で対応付け（簡易）
+        out = []
+        for it in ai_items:
+            db = next((x for x in db_items if x.message == it["message"]), None)
+            out.append({**it, "id": db.id if db else 0})
+        return out
+
+    with transaction.atomic():
+        sess = AdviceSession.objects.create(
+            context_json=kpis,
+            note=ai_note[:200],
+        )
+        db_items = []
+        for it in ai_items:
+            db = AdviceItemModel.objects.create(
+                session=sess,
+                kind=it.get("kind") or "REBALANCE",
+                message=it["message"],
+                score=float(it.get("score") or 0.0),
+                reasons=[],
+                taken=bool(it.get("taken") or False),
+            )
+            db_items.append(db)
+
+    cache.set(cache_key, 1, timeout=3 * 60 * 60)  # 3時間ガード
+
+    # 生成した id を反映
+    out = []
+    for it in ai_items:
+        db = next((x for x in db_items if x.message == it["message"]), None)
+        out.append({**it, "id": db.id if db else 0})
+    return out
