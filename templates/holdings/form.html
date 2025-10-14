@@ -15,7 +15,7 @@
     border-radius:12px; border:1px solid rgba(255,255,255,.16);
     background:rgba(255,255,255,.06); color:#e6ebff; outline:none;
   }
-  .fi textarea{ min-height:96px; resize:vertical; line-height:1.5; }
+  .fi textarea{ min_height:96px; resize:vertical; line-height:1.5; }
   .grid-fields{ display:grid; gap:12px; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); }
   .btn-bar{ display:flex; gap:12px; margin-top:4px; }
   .btn-bar button, .btn-bar a{
@@ -79,21 +79,13 @@
     <div class="grid-fields">
       <div class="fi">
         <label>株数</label>
-        <input
-          type="number"
-          step="0.01"
-          inputmode="decimal"
-          name="quantity"
-          value="{% if form.quantity.value and form.quantity.value != '0' %}{{ form.quantity.value }}{% endif %}">
+        <input type="number" step="0.01" inputmode="decimal" name="quantity"
+               value="{% if form.quantity.value and form.quantity.value != '0' %}{{ form.quantity.value }}{% endif %}">
       </div>
       <div class="fi">
         <label>平均取得単価</label>
-        <input
-          type="number"
-          step="0.01"
-          inputmode="decimal"
-          name="avg_cost"
-          value="{% if form.avg_cost.value and form.avg_cost.value != '0' %}{{ form.avg_cost.value }}{% endif %}">
+        <input type="number" step="0.01" inputmode="decimal" name="avg_cost"
+               value="{% if form.avg_cost.value and form.avg_cost.value != '0' %}{{ form.avg_cost.value }}{% endif %}">
       </div>
       <div class="fi">
         <label>保有開始日</label>
@@ -111,7 +103,6 @@
       <div class="error-box">入力に誤りがあります。確認してください。</div>
     {% endif %}
 
-    <!-- ボタン -->
     <div class="btn-bar">
       <button type="submit">保存</button>
       <a href="{% url 'holding_list' %}">戻る</a>
@@ -128,14 +119,16 @@
 
   if (!$ticker || !$name) return;
 
-  let userEditedName = false;
+  let userEditedName = false;     // ← name は従来どおりの扱い
   let nameAutofilled = false;
   let lastResolved   = { code: "", name: "", sector: "" };
 
-  // 🔠 入力中に大文字化
+  // 🔠 入力中に大文字化 & セクターはコード変更のたびに一旦クリア
   $ticker.addEventListener('input', ()=>{
-    const v = $ticker.value;
-    $ticker.value = v.toUpperCase();
+    const v = ($ticker.value || '').toUpperCase();
+    const changed = v !== lastResolved.code;
+    $ticker.value = v;
+    if (changed && $sector) $sector.value = "";   // ★ クリアして毎回上書き前提に
   });
 
   $name.addEventListener('input', ()=>{
@@ -149,19 +142,32 @@
 
   function applyData(data){
     if (!data) return;
-    const curCode = ($ticker.value || '').trim();
-    const codeChanged = data.code && data.code !== lastResolved.code;
-    const safeToOverwrite =
-      !userEditedName || nameAutofilled || !$name.value || $name.value === lastResolved.name;
 
-    if (codeChanged || safeToOverwrite) {
-      if (data.code) $ticker.value = data.code.toUpperCase();
-      if (data.name) $name.value = data.name;
-      if ($sector && data.sector) $sector.value = data.sector; // ★ セクター自動反映
+    const curCode = ($ticker.value || '').trim();
+    const codeChanged = !!data.code && data.code !== lastResolved.code;
+
+    // --- コードは常に正規化して表示 ---
+    if (data.code) $ticker.value = String(data.code).toUpperCase();
+
+    // --- 銘柄名：従来ロジック（上書き優先のまま） ---
+    const safeToOverwriteName =
+      !userEditedName || nameAutofilled || !$name.value || $name.value === lastResolved.name;
+    if ((codeChanged || safeToOverwriteName) && data.name) {
+      $name.value = data.name;
       nameAutofilled = true;
       userEditedName = false;
-      lastResolved = { code: data.code || curCode, name: data.name, sector: data.sector || "" };
     }
+
+    // --- セクター：常に上書き（手入力していても毎回置き換える）---
+    if ($sector) {
+      $sector.value = data.sector || "";   // ★ ここがポイント
+    }
+
+    lastResolved = {
+      code: data.code || curCode,
+      name: $name.value || "",
+      sector: $sector ? ($sector.value || "") : ""
+    };
   }
 
   function lookup(){
