@@ -1,23 +1,29 @@
+# portfolio/services/advisor.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Tuple, Optional
 from hashlib import sha1
 from math import exp
+import json
+from pathlib import Path
+import time
 
+from django.conf import settings
 from django.core.cache import cache
 
-# 学習ポリシー・セッション永続化
-from ..models_advisor import AdvicePolicy, AdviceSession, AdviceItem
+# DB 永続化（任意）
+from ..models_advisor import AdviceSession, AdviceItem, AdvicePolicy  # AdvicePolicyは未使用でもOK
 
 
 # ====== 表示用構造 ======
 @dataclass
 class AdviceItemView:
-    id: int                 # 永続化前は0固定（管理コマンドで保存時に実IDへ）
+    id: int                 # 永続化前は0固定。管理コマンドで保存時に実IDへ
     message: str
-    score: float            # 優先度（大きいほど上位）
-    taken: bool = False     # UIのチェック既定
+    score: float            # 優先度（0..1 大きいほど上位）
+    taken: bool = False     # UI既定
+    kind: str = "REBALANCE" # 提案タイプ（スコア補正に使用）
 
 
 # ====== ユーティリティ ======
@@ -39,6 +45,90 @@ def _cooldown_pass(msg: str, days: int = 7) -> bool:
         return False
     cache.set(key, 1, timeout=days * 24 * 60 * 60)
     return True
+
+
+def _clamp01(x: float) -> float:
+    return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
+
+
+# ====== policy.json 自動読込（60秒キャッシュ） ======
+# 期待フォーマット:
+# {
+#   "version": 1,
+#   "updated_at": "2025-10-14T12:34:56Z",
+#   "bias": 1.0,                         # 全体係数（省略可）
+#   "kind_weight": {                     # タイプ別係数
+#     "REBALANCE": 1.00,
+#     "ADD_CASH": 1.10,
+#     "TRIM_WINNERS": 1.05,
+#     "CUT_LOSERS": 0.95,
+#     "REDUCE_MARGIN": 1.20
+#   }
+# }
+#
+# 置き場所（先勝ち）:
+#   1) settings.MEDIA_ROOT / "advisor/policy.json"
+#   2) settings.BASE_DIR / "policy.json"
+#
+_POLICY_CACHE = {"mtime": None, "data": None}
+
+
+def _policy_paths() -> List[Path]:
+    paths: List[Path] = []
+    try:
+        if getattr(settings, "MEDIA_ROOT", None):
+            paths.append(Path(settings.MEDIA_ROOT) / "advisor" / "policy.json")
+    except Exception:
+        pass
+    try:
+        if getattr(settings, "BASE_DIR", None):
+            paths.append(Path(settings.BASE_DIR) / "policy.json")
+    except Exception:
+        pass
+    # 重複除去
+    uniq = []
+    seen = set()
+    for p in paths:
+        if str(p) not in seen:
+            uniq.append(p)
+            seen.add(str(p))
+    return uniq
+
+
+def _load_policy_json() -> Dict:
+    """policy.json を 60 秒キャッシュで読み込む。見つからなければ {} を返す。"""
+    global _POLICY_CACHE
+    try:
+        # 最初に存在するパスを採用
+        path = next((p for p in _policy_paths() if p.exists()), None)
+        if not path:
+            _POLICY_CACHE.update({"mtime": None, "data": None})
+            return {}
+
+        mtime = path.stat().st_mtime
+        now = time.time()
+        cached = _POLICY_CACHE["data"]
+        cached_mtime = _POLICY_CACHE["mtime"]
+        # 60秒以内でmtime変更なしならキャッシュ使用
+        if cached is not None and cached_mtime == mtime and (now - getattr(_POLICY_CACHE, "ts", now)) <= 60:
+            return cached or {}
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        _POLICY_CACHE.update({"mtime": mtime, "data": data, "ts": now})
+        return data or {}
+    except Exception:
+        return {}
+
+
+def _apply_policy_boost(kind: str, base_score: float) -> float:
+    """policy.json に基づいてスコアを乗算補正"""
+    pol = _load_policy_json()
+    if not pol:
+        return base_score
+    bias = float(pol.get("bias", 1.0) or 1.0)
+    kw = pol.get("kind_weight") or {}
+    w = float(kw.get(kind, 1.0) or 1.0)
+    return _clamp01(base_score * bias * w)
 
 
 # ====== 特徴量抽出 ======
@@ -75,8 +165,23 @@ def _build_features(kpis: Dict, sectors: List[Dict]) -> Dict[str, float]:
         "uncat_sector_ratio": uncat_ratio * 100.0,
         "win_ratio": _pct(kpis.get("win_ratio")),
     }
-    # 欠損・異常をゼロ化（NaN対策）
+    # NaN対策
     return {k: (0.0 if v != v else float(v)) for k, v in feats.items()}
+
+
+# ====== 種別推定（文面→Kind） ======
+def _guess_kind(msg: str) -> str:
+    m = msg or ""
+    if "信用比率" in m or "レバレッジ" in m:
+        return "REDUCE_MARGIN"
+    if "流動性" in m or "現金化" in m or "現金比率" in m:
+        return "ADD_CASH"
+    if "実現益" in m or "利確" in m or "含み益上位" in m:
+        return "TRIM_WINNERS"
+    if "評価ROIが" in m and "-" in m:
+        return "CUT_LOSERS"
+    # 分散 / 乖離 / セクター偏在 / 未分類タグ整備などは広く REBALANCE 扱い
+    return "REBALANCE"
 
 
 # ====== ルールベース（フォールバック） ======
@@ -107,21 +212,21 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
     if gap >= 20:
         score = min(1.0, gap / 80.0)  # 乖離80ptで満点
         msg = f"評価ROIと現金ROIの乖離が {gap:.1f}pt。評価と実際の差が大きい。ポジション整理を検討。"
-        items.append(AdviceItemView(0, msg, score))
+        items.append(AdviceItemView(0, msg, score, kind="REBALANCE"))
 
     # 2) 流動性が低い
     liq = _pct(kpis.get("liquidity_rate_pct"))
     if liq and liq < 50:
         score = min(1.0, (50 - liq) / 30)
         msg = f"流動性 {liq:.1f}% と低め。現金化余地の確保を検討。"
-        items.append(AdviceItemView(0, msg, score))
+        items.append(AdviceItemView(0, msg, score, kind="ADD_CASH"))
 
     # 3) 信用比率が高すぎる
     mr = _pct(kpis.get("margin_ratio_pct"))
     if mr >= 60:
         score = min(1.0, (mr - 60) / 30)
         msg = f"信用比率が {mr:.1f}%。レバレッジと下落耐性を再確認。"
-        items.append(AdviceItemView(0, msg, score))
+        items.append(AdviceItemView(0, msg, score, kind="REDUCE_MARGIN"))
 
     # 4) セクター偏在
     if sectors:
@@ -131,37 +236,33 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
         if top_ratio >= 45:
             score = min(1.0, (top_ratio - 45) / 25)
             msg = f"セクター偏在（{top.get('sector','不明')} {top_ratio:.1f}%）。分散を検討。"
-            items.append(AdviceItemView(0, msg, score))
+            items.append(AdviceItemView(0, msg, score, kind="REBALANCE"))
         uncat = next((s for s in sectors if s.get("sector") == "未分類"), None)
         if uncat:
             un_ratio = _pct(uncat.get("mv")) / total_mv * 100.0
             if un_ratio >= 40:
                 score = min(0.8, (un_ratio - 40) / 30)
                 msg = f"未分類セクター比率 {un_ratio:.1f}%。銘柄の業種タグ整備を。"
-                items.append(AdviceItemView(0, msg, score))
+                items.append(AdviceItemView(0, msg, score, kind="REBALANCE"))
 
     # 5) 今月の実現がプラス
     rm = _pct(kpis.get("realized_month"))
     if rm > 0:
         score = 0.5
         msg = "今月は実現益が出ています。含み益上位からの段階的利確を検討。"
-        items.append(AdviceItemView(0, msg, score))
+        items.append(AdviceItemView(0, msg, score, kind="TRIM_WINNERS"))
 
     # 6) 評価ROIがマイナス（守り）
     re = kpis.get("roi_eval_pct")
     if re is not None and re < 0:
         score = min(0.9, abs(re) / 40)
         msg = f"評価ROIが {re:.2f}%。損失限定ルール（逆指値/縮小）を再設定。"
-        items.append(AdviceItemView(0, msg, score))
+        items.append(AdviceItemView(0, msg, score, kind="CUT_LOSERS"))
 
     return items
 
 
-# 変更：ユーザー選択を優先。未出の文だけ上位3件を既定ON
-def _post_process(items: List[AdviceItemView], taken_map: Optional[Dict[str, bool]] = None) -> List[AdviceItemView]:
-    taken_map = taken_map or {}
-
-    # 重複・クールダウン
+def _post_process(items: List[AdviceItemView]) -> List[AdviceItemView]:
     seen = set()
     uniq: List[AdviceItemView] = []
     for it in items:
@@ -171,70 +272,11 @@ def _post_process(items: List[AdviceItemView], taken_map: Optional[Dict[str, boo
         seen.add(key)
         if _cooldown_pass(key):
             uniq.append(it)
-
-    # ポリシー/ルールのスコア降順
     uniq.sort(key=lambda x: x.score, reverse=True)
-
-    # ここがポイント：ユーザーの最終選択を反映
-    # - 既に履歴があればそれを使う
-    # - 履歴がなければ“初回だけ”上位3件をON
-    for i, it in enumerate(uniq):
-        msg = it.message.strip()
-        if msg in taken_map:
-            it.taken = bool(taken_map[msg])
-        else:
-            it.taken = (i < 3)  # 未出メッセージのみ既定ON
+    # 上位3件は既定でチェックON
+    for i, it in enumerate(uniq[:3]):
+        it.taken = True
     return uniq
-
-
-# ====== モデル推論（任意） ======
-def _sigmoid(z: float) -> float:
-    try:
-        return 1.0 / (1.0 + exp(-z))
-    except OverflowError:
-        return 0.0 if z < 0 else 1.0
-
-
-def _score_with_policy(features: Dict[str, float]) -> Optional[float]:
-    """有効なポリシーがあればスコア（0..1）を返す。無ければ None。"""
-    policy: Optional[AdvicePolicy] = AdvicePolicy.objects.filter(enabled=True).order_by("-updated_at").first()
-    if not policy:
-        return None
-
-    kind = policy.kind
-    p = policy.params or {}
-    x = features.copy()
-
-    # 標準化（任意）
-    norm = p.get("norm") or {}
-    for k, s in norm.items():
-        mu = float(s.get("mu", 0.0))
-        sig = float(s.get("sigma", 1.0)) or 1.0
-        if k in x:
-            x[k] = (x[k] - mu) / sig
-
-    if kind in (AdvicePolicy.Kind.LINEAR, AdvicePolicy.Kind.LOGREG):
-        coef: Dict[str, float] = p.get("coef", {})
-        bias = float(p.get("bias", 0.0))
-        z = bias + sum(float(coef.get(k, 0.0)) * float(x.get(k, 0.0)) for k in FEATURES)
-        return _sigmoid(z) if kind == AdvicePolicy.Kind.LOGREG else max(0.0, min(1.0, z))
-
-    if kind == AdvicePolicy.Kind.SKLEARN and policy.model_blob:
-        try:
-            import joblib, io
-            model = joblib.load(io.BytesIO(policy.model_blob))
-            vec = [[float(x.get(k, 0.0)) for k in FEATURES]]
-            prob = getattr(model, "predict_proba", None)
-            if prob:
-                return float(prob(vec)[0][1])
-            pred = getattr(model, "predict", None)
-            if pred:
-                y = float(pred(vec)[0])
-                return 0.9 if y >= 0.5 else 0.1
-        except Exception:
-            return None
-
-    return None
 
 
 # ====== 週次/次の一手 素案 ======
@@ -250,100 +292,72 @@ def next_move(kpis: Dict, sectors: List[Dict]) -> str:
     return f"次の一手: {bullets}"
 
 
-# ====== kind 自動推定（保存用） ======
-def _infer_kind(message: str) -> str:
-    msg = message or ""
-    if ("乖離" in msg) or ("評価ROIと現金ROI" in msg):
-        return AdviceItem.Kind.REBALANCE  # ROI差→整理/リバランス扱い
-    if ("流動性" in msg) or ("現金化余地" in msg):
-        return AdviceItem.Kind.ADD_CASH
-    if ("信用比率" in msg) or ("レバレッジ" in msg):
-        return AdviceItem.Kind.REDUCE_MARGIN
-    if ("セクター偏在" in msg):
-        return AdviceItem.Kind.REBALANCE
-    if ("未分類セクター" in msg) or ("業種タグ" in msg):
-        return AdviceItem.Kind.REBALANCE
-    if ("実現益" in msg) or ("利確" in msg):
-        return AdviceItem.Kind.TRIM_WINNERS
-    if ("評価ROIが" in msg) or ("損失限定" in msg):
-        return AdviceItem.Kind.CUT_LOSERS
-    return AdviceItem.Kind.REBALANCE
-
-
 # ====== エントリポイント ======
 def summarize(kpis: Dict, sectors: List[Dict]) -> Tuple[str, List[Dict], str, str, str]:
+    """
+    戻り値:
+      ai_note: ヘッダー要約（自然文）
+      ai_items: 提案リスト（id/message/score/taken/kind）
+      session_id: 表示世代ID（キャッシュキーなどに利用可）
+      weekly: 週次レポート素案
+      nextmove: 次の一手素案
+    """
     ai_note = _header_note(kpis, sectors)
 
+    # ルール候補を作成
     base_items = _rules(kpis, sectors)
-    feats = _build_features(kpis, sectors)
 
-    # ポリシースコアのブレンド
-    scored: List[AdviceItemView] = []
-    policy_ok = False
-    pol_score = _score_with_policy(feats)
+    # === 自己学習結果（policy.json）で補正 ===
+    boosted: List[AdviceItemView] = []
     for it in base_items:
-        score = it.score
-        if pol_score is not None:
-            score = max(0.0, min(1.0, 0.6 * float(it.score) + 0.4 * float(pol_score)))
-            policy_ok = True
-        scored.append(AdviceItemView(id=it.id, message=it.message, score=score, taken=it.taken))
+        # 種別は優先：明示 → 推定
+        kind = it.kind or _guess_kind(it.message)
+        new_score = _apply_policy_boost(kind, it.score)
+        boosted.append(AdviceItemView(
+            id=it.id, message=it.message, score=new_score, taken=it.taken, kind=kind
+        ))
 
-    # ★ 履歴を読み込んで taken を反映
-    taken_map = _load_taken_map()
-    items = _post_process(scored if policy_ok else base_items, taken_map=taken_map)
-
+    # ソート + 上位チェックON
+    items = _post_process(boosted)
     ai_items = [asdict(it) for it in items]
+
+    # セッション表示ID（軽量）
     session_id = _hash_msg(ai_note)[:8]
+
+    # レポート素案
     weekly = weekly_report(kpis, sectors)
     nextmove = next_move(kpis, sectors)
+
     return ai_note, ai_items, session_id, weekly, nextmove
 
 
-# 公開：外から特徴量を取りたい場合
+# ====== 外部公開ユーティリティ ======
 def extract_features_for_learning(kpis: Dict, sectors: List[Dict]) -> Dict[str, float]:
+    """学習用の特徴量を外部（管理コマンド等）に提供"""
     return _build_features(kpis, sectors)
 
 
-def ensure_session_persisted(ai_note: str, ai_items: list, kpis: dict) -> list:
+def ensure_session_persisted(ai_note: str, ai_items: list, kpis: dict):
     """
     AI提案をDBに保存して永続化する。
     - 最新セッションを AdviceSession として保存
     - items を AdviceItem として紐付け
     """
-    session = AdviceSession.objects.create(
-        context_json=kpis,
-        note=ai_note[:200]
-    )
-
-    for item in ai_items:
-        msg = item.get("message", "") or ""
-        AdviceItem.objects.create(
-            session=session,
-            kind=_infer_kind(msg),
-            message=msg,
-            score=float(item.get("score", 0.0)),
-            taken=bool(item.get("taken", False)),
-            reasons=item.get("reasons", []),
+    try:
+        session = AdviceSession.objects.create(
+            context_json=kpis,
+            note=ai_note[:200]
         )
-
+        for item in ai_items:
+            AdviceItem.objects.create(
+                session=session,
+                kind=item.get("kind", "REBALANCE"),
+                message=item.get("message", ""),
+                score=float(item.get("score", 0.0) or 0.0),
+                taken=bool(item.get("taken", False)),
+                reasons=item.get("reasons", []),
+            )
+    except Exception:
+        # 保存失敗しても表示は継続
+        pass
     return ai_items
-    
-# 追加：直近の提案履歴から「その文面の taken 最終値」を辞書で取り出す
-def _load_taken_map(days: int = 120) -> Dict[str, bool]:
-    """
-    同一 message（テキスト完全一致）単位で直近の taken を採用する。
-    - 直近120日をデフォルト（必要なら調整）
-    """
-    from django.utils import timezone
-    since = timezone.now() - timezone.timedelta(days=days)
-    qs = AdviceItem.objects.filter(created_at__gte=since).order_by("message", "-created_at")
-
-    taken_map: Dict[str, bool] = {}
-    seen = set()
-    for it in qs:
-        msg = (it.message or "").strip()
-        if msg in seen:
-            continue
-        seen.add(msg)
-        taken_map[msg] = bool(it.taken)
-    return taken_map
