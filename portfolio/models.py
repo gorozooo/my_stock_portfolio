@@ -17,24 +17,21 @@ class UserSetting(models.Model):
 
 # ==== Holding ============================================================
 class Holding(models.Model):
-    # user は残す（既存ビューの互換のため）
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
 
     ticker = models.CharField(max_length=16)
     name   = models.CharField(max_length=128, blank=True)
+    sector = models.CharField(max_length=64, blank=True, default="")  # ★追加：セクター33業種
 
-    # 数量 / 平均取得単価
     quantity = models.IntegerField(default=0)
     avg_cost = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     
-    # ▼ 追加（夜間バッチで更新）
     last_price = models.DecimalField(
         max_digits=14, decimal_places=2, null=True, blank=True,
         help_text="最終終値（1株・自動更新）"
     )
     last_price_updated = models.DateTimeField(null=True, blank=True)
     
-    # ★ 追加: 証券会社 / 売買方向 / 口座区分
     BROKER_CHOICES = (
         ("RAKUTEN", "楽天証券"),
         ("SBI",     "SBI証券"),
@@ -48,7 +45,6 @@ class Holding(models.Model):
     side    = models.CharField(max_length=4,  choices=SIDE_CHOICES,   default="BUY")
     account = models.CharField(max_length=10, choices=ACCOUNT_CHOICES, default="SPEC")
 
-    # ★ 追加: オープン日（保有日数を計算する基準。未設定なら created_at を使用）
     opened_at  = models.DateField(null=True, blank=True)
     memo = models.TextField(blank=True, default="")
     
@@ -60,13 +56,6 @@ class Holding(models.Model):
 
     def __str__(self):
         return f"{self.ticker} x{self.quantity}"
-
-    def acquisition_value(self):
-        """取得額 = quantity * avg_cost"""
-        try:
-            return (self.quantity or 0) * (self.avg_cost or 0)
-        except Exception:
-            return 0
             
 
 # ==== RealizedTrade ======================================================
