@@ -1,3 +1,11 @@
+// CSRF 取得（meta > cookie の順）
+function getCSRFToken() {
+  const meta = document.querySelector('meta[name="csrf-token"]');
+  if (meta && meta.content) return meta.content;
+  const m = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : "";
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const dataEl = document.getElementById("home-data");
   let data = { total_mv: 0, sectors: [], cash_bars: [] };
@@ -26,10 +34,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const values = data.cash_bars.map(x => x.value);
     new Chart(cashCanvas.getContext("2d"), {
       type: "bar",
-      data: {
-        labels,
-        datasets: [{ label: "今月", data: values, borderWidth: 1 }]
-      },
+      data: { labels, datasets: [{ label: "今月", data: values, borderWidth: 1 }] },
       options: {
         responsive: true,
         plugins: { legend: { display: false } },
@@ -63,14 +68,21 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const res = await fetch(`/api/advisor/toggle/${id}/`, {
         method: "POST",
-        headers: { "X-Requested-With": "fetch" }
+        headers: {
+          "X-Requested-With": "fetch",
+          "X-CSRFToken": getCSRFToken()
+        }
       });
+      if (!res.ok) throw new Error(String(res.status));
       const json = await res.json();
       if (json.ok) {
+        // アイコン更新
         btn.textContent = json.taken ? "✅" : "☑️";
+        btn.dataset.state = json.taken ? "1" : "0";
       }
     } catch (e) {
       console.warn("toggle failed", e);
+      alert("更新に失敗しました。（通信/CSRF）");
     } finally {
       btn.disabled = false;
     }
