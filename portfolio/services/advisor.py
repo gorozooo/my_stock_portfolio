@@ -6,8 +6,10 @@ from hashlib import sha1
 from math import exp
 
 from django.core.cache import cache
-from ..models_advisor import AdvicePolicy
-from ..models_advisor import AdviceSession, AdviceItem
+
+# 学習ポリシー・セッション永続化
+from ..models_advisor import AdvicePolicy, AdviceSession, AdviceItem
+
 
 # ====== 表示用構造 ======
 @dataclass
@@ -17,6 +19,7 @@ class AdviceItemView:
     score: float            # 優先度（大きいほど上位）
     taken: bool = False     # UIのチェック既定
 
+
 # ====== ユーティリティ ======
 def _pct(v) -> float:
     try:
@@ -24,8 +27,10 @@ def _pct(v) -> float:
     except Exception:
         return 0.0
 
+
 def _hash_msg(msg: str) -> str:
     return sha1(msg.encode("utf-8")).hexdigest()
+
 
 def _cooldown_pass(msg: str, days: int = 7) -> bool:
     """同一メッセージの連投抑制。days 以内に同じテキストを出したら抑制。"""
@@ -34,6 +39,7 @@ def _cooldown_pass(msg: str, days: int = 7) -> bool:
         return False
     cache.set(key, 1, timeout=days * 24 * 60 * 60)
     return True
+
 
 # ====== 特徴量抽出 ======
 FEATURES = [
@@ -45,6 +51,7 @@ FEATURES = [
     "uncat_sector_ratio",
     "win_ratio",
 ]
+
 
 def _build_features(kpis: Dict, sectors: List[Dict]) -> Dict[str, float]:
     total_assets = max(1.0, _pct(kpis.get("total_assets")))
@@ -68,8 +75,9 @@ def _build_features(kpis: Dict, sectors: List[Dict]) -> Dict[str, float]:
         "uncat_sector_ratio": uncat_ratio * 100.0,
         "win_ratio": _pct(kpis.get("win_ratio")),
     }
-    # 欠損・異常をゼロ化
-    return {k: (0.0 if v != v else float(v)) for k, v in feats.items()}  # NaN対策
+    # 欠損・異常をゼロ化（NaN対策）
+    return {k: (0.0 if v != v else float(v)) for k, v in feats.items()}
+
 
 # ====== ルールベース（フォールバック） ======
 def _header_note(kpis: Dict, sectors: List[Dict]) -> str:
@@ -89,6 +97,7 @@ def _header_note(kpis: Dict, sectors: List[Dict]) -> str:
     if rl is not None:
         parts.append(f"現金ROI{rl:.2f}%")
     return "、".join(parts) + "。"
+
 
 def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
     items: List[AdviceItemView] = []
@@ -147,6 +156,7 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
 
     return items
 
+
 def _post_process(items: List[AdviceItemView]) -> List[AdviceItemView]:
     seen = set()
     uniq: List[AdviceItemView] = []
@@ -162,12 +172,14 @@ def _post_process(items: List[AdviceItemView]) -> List[AdviceItemView]:
         it.taken = True
     return uniq
 
+
 # ====== モデル推論（任意） ======
 def _sigmoid(z: float) -> float:
     try:
         return 1.0 / (1.0 + exp(-z))
     except OverflowError:
         return 0.0 if z < 0 else 1.0
+
 
 def _score_with_policy(features: Dict[str, float]) -> Optional[float]:
     """有効なポリシーがあればスコア（0..1）を返す。無ければ None。"""
@@ -197,7 +209,6 @@ def _score_with_policy(features: Dict[str, float]) -> Optional[float]:
         try:
             import joblib, io
             model = joblib.load(io.BytesIO(policy.model_blob))
-            # FEATURES 順のベクトルへ
             vec = [[float(x.get(k, 0.0)) for k in FEATURES]]
             prob = getattr(model, "predict_proba", None)
             if prob:
@@ -205,12 +216,12 @@ def _score_with_policy(features: Dict[str, float]) -> Optional[float]:
             pred = getattr(model, "predict", None)
             if pred:
                 y = float(pred(vec)[0])
-                # 0/1を確率風に
                 return 0.9 if y >= 0.5 else 0.1
         except Exception:
             return None
 
     return None
+
 
 # ====== 週次/次の一手 素案 ======
 def weekly_report(kpis: Dict, sectors: List[Dict]) -> str:
@@ -218,10 +229,32 @@ def weekly_report(kpis: Dict, sectors: List[Dict]) -> str:
     sect = ", ".join([f"{s['sector']} {s['rate']}%" for s in sectors[:5]]) or "—"
     return f"{head} セクター概況: {sect}。勝率データは今後追加予定。"
 
+
 def next_move(kpis: Dict, sectors: List[Dict]) -> str:
     items = _post_process(_rules(kpis, sectors))
     bullets = " / ".join([it.message for it in items[:3]]) or "様子見。"
     return f"次の一手: {bullets}"
+
+
+# ====== kind 自動推定（保存用） ======
+def _infer_kind(message: str) -> str:
+    msg = message or ""
+    if ("乖離" in msg) or ("評価ROIと現金ROI" in msg):
+        return AdviceItem.Kind.REBALANCE  # ROI差→整理/リバランス扱い
+    if ("流動性" in msg) or ("現金化余地" in msg):
+        return AdviceItem.Kind.ADD_CASH
+    if ("信用比率" in msg) or ("レバレッジ" in msg):
+        return AdviceItem.Kind.REDUCE_MARGIN
+    if ("セクター偏在" in msg):
+        return AdviceItem.Kind.REBALANCE
+    if ("未分類セクター" in msg) or ("業種タグ" in msg):
+        return AdviceItem.Kind.REBALANCE
+    if ("実現益" in msg) or ("利確" in msg):
+        return AdviceItem.Kind.TRIM_WINNERS
+    if ("評価ROIが" in msg) or ("損失限定" in msg):
+        return AdviceItem.Kind.CUT_LOSERS
+    return AdviceItem.Kind.REBALANCE
+
 
 # ====== エントリポイント ======
 def summarize(kpis: Dict, sectors: List[Dict]) -> Tuple[str, List[Dict], str, str, str]:
@@ -246,7 +279,7 @@ def summarize(kpis: Dict, sectors: List[Dict]) -> Tuple[str, List[Dict], str, st
     for it in base_items:
         score = it.score
         if pol_score is not None:
-            # ルール：0..1 を基本点、ポリシー：0..1 をボーナス（重み0.6/0.4など）
+            # ルール：0..1 を基本点、ポリシー：0..1 をボーナス（重み0.6/0.4）
             score = max(0.0, min(1.0, 0.6 * float(it.score) + 0.4 * float(pol_score)))
             policy_ok = True
         scored.append(AdviceItemView(id=it.id, message=it.message, score=score, taken=it.taken))
@@ -258,11 +291,13 @@ def summarize(kpis: Dict, sectors: List[Dict]) -> Tuple[str, List[Dict], str, st
     nextmove = next_move(kpis, sectors)
     return ai_note, ai_items, session_id, weekly, nextmove
 
+
 # 公開：外から特徴量を取りたい場合
 def extract_features_for_learning(kpis: Dict, sectors: List[Dict]) -> Dict[str, float]:
     return _build_features(kpis, sectors)
-    
-def ensure_session_persisted(ai_note: str, ai_items: list, kpis: dict):
+
+
+def ensure_session_persisted(ai_note: str, ai_items: list, kpis: dict) -> list:
     """
     AI提案をDBに保存して永続化する。
     - 最新セッションを AdviceSession として保存
@@ -274,12 +309,14 @@ def ensure_session_persisted(ai_note: str, ai_items: list, kpis: dict):
     )
 
     for item in ai_items:
+        msg = item.get("message", "") or ""
         AdviceItem.objects.create(
             session=session,
-            kind=item.get("kind", "REBALANCE"),
-            message=item.get("message", ""),
-            score=item.get("score", 0.0),
-            taken=item.get("taken", False),
+            kind=_infer_kind(msg),
+            message=msg,
+            score=float(item.get("score", 0.0)),
+            taken=bool(item.get("taken", False)),
             reasons=item.get("reasons", []),
         )
+
     return ai_items
