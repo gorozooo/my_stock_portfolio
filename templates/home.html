@@ -4,7 +4,8 @@
 {% block title %}ホーム | My株ポートフォリオ{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=17">
+<meta name="csrf-token" content="{{ csrf_token }}">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=16">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script defer src="{% static 'js/home.js' %}?v=12"></script>
 {% endblock %}
@@ -22,14 +23,15 @@
   <ul class="ai-actions" id="aiAdviceList" data-session="{{ ai_session_id }}">
     {% for it in ai_items %}
       <li data-id="{{ it.id }}">
-        <button class="ai-check" aria-label="toggle">
+        <button class="ai-check" type="button" aria-label="toggle"
+                data-state="{% if it.taken %}1{% else %}0{% endif %}">
           {% if it.taken %}✅{% else %}☑️{% endif %}
         </button>
-        {{ it.message }}
-        {% if it.score %}<span class="ai-score">（優先度 {{ it.score|floatformat:2 }}）</span>{% endif %}
+        <span class="ai-text">{{ it.message }}</span>
+        {% if it.score %}<span class="ai-score">優先度 {{ it.score|floatformat:2 }}</span>{% endif %}
       </li>
     {% empty %}
-      <li>• 分析中です。</li>
+      <li><span class="ai-text">• 分析中です。</span></li>
     {% endfor %}
   </ul>
 
@@ -77,7 +79,6 @@
     </div>
     <div class="roi-row liquid">
       <div class="roi-label">ROI（現金化ベース）</div>
-      <!-- 現金ROIはブルーで統一 -->
       <div class="roi-value">
         {% if kpis.roi_liquid_pct != None %}{{ kpis.roi_liquid_pct|floatformat:2 }}%{% else %}--{% endif %}
       </div>
