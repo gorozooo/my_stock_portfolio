@@ -151,6 +151,12 @@ CRONJOBS = [
 # 同時二重起動を避ける（おすすめ）
 CRONTAB_LOCK_JOBS = True
 
+
+# 開発/簡易運用なら
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+DEFAULT_FROM_EMAIL = "no-reply@gorozooo.com"
+ADMIN_EMAIL = "coco.louis67@gmail.com"  # 送信先デフォルト
+
 # --- 参考（本番切替時の推奨。今は DEBUG=True なのでコメントのままでOK） ---
 # SESSION_COOKIE_SECURE = True
 # CSRF_COOKIE_SECURE = True
