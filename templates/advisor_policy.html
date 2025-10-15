@@ -4,6 +4,7 @@
 {% block title %}policy履歴 | My株ポートフォリオ{% endblock %}
 
 {% block head %}
+<meta name="csrf-token" content="{{ csrf_token }}">
 <link rel="stylesheet" href="{% static 'css/home.css' %}?v=29">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
@@ -17,6 +18,10 @@
   .best-box .title{ font-weight:700; margin-bottom:6px; }
   .best-box .kv{ display:grid; grid-template-columns:120px 1fr; gap:6px; }
   .muted{ opacity:.7; }
+  /* 学習ボタンボックス */
+  .learn-wrap{ margin-top:12px; padding:10px; border-radius:12px; border:1px dashed rgba(255,255,255,.18); background:rgba(255,255,255,.04); }
+  .learn-row{ display:flex; gap:8px; flex-wrap:wrap; }
+  .learn-status{ margin-top:8px; font-size:.9rem; opacity:.9; }
   @media (max-width: 460px){
     .best-box .kv{ grid-template-columns:100px 1fr; }
   }
@@ -44,39 +49,83 @@
     </div>
     {% endif %}
   {% endif %}
+
+  {% if request.user.is_staff %}
+  <div class="learn-wrap">
+    <div class="strip-title">🧠 policy 再学習（ワンクリ）</div>
+    <div class="learn-row">
+      <button class="btn ghost" data-learn-days="90">通常運用（90日）</button>
+      <button class="btn ghost" data-learn-days="365">月次レポート（365日）</button>
+      <button class="btn ghost" data-learn-days="730">初回再学習（730日）</button>
+    </div>
+    <div id="learnStatus" class="learn-status"></div>
+  </div>
+  {% endif %}
 </section>
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
+  // ====== グラフ ======
   const points = {{ points|safe }};
-  if (!points || points.length === 0) return;
+  if (points && points.length) {
+    const labels = points.map(p => p.label);
+    const score  = points.map(p => (p.score ?? null));
+    const winrt  = points.map(p => (p.winrt ?? null));
+    const selfS  = points.map(p => (p.self_score ?? null));
 
-  const labels = points.map(p => p.label);
-  const score  = points.map(p => (p.score ?? null));
-  const winrt  = points.map(p => (p.winrt ?? null));
-  const selfS  = points.map(p => (p.self_score ?? null));
-
-  const ctx = document.getElementById("policyChart").getContext("2d");
-  new Chart(ctx, {
-    type: "line",
-    data: {
-      labels,
-      datasets: [
-        { label: "改善スコア（重み平均）", data: score, tension: 0.25 },
-        { label: "加重勝率（%）", data: winrt, yAxisID: "y2", tension: 0.25 },
-        { label: "AI自己評価 self_score", data: selfS, yAxisID: "y3", tension: 0.25 }
-      ]
-    },
-    options: {
-      responsive: true,
-      interaction: { mode: "index", intersect: false },
-      scales: {
-        y:  { beginAtZero: true, title: { display:true, text: "スコア" } },
-        y2: { beginAtZero: true, position: "right", title: { display:true, text: "勝率(%)" } },
-        y3: { beginAtZero: true, position: "right", grid: { drawOnChartArea:false }, title: { display:true, text: "self_score" } }
+    const ctx = document.getElementById("policyChart").getContext("2d");
+    new Chart(ctx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          { label: "改善スコア（重み平均）", data: score, tension: 0.25 },
+          { label: "加重勝率（%）", data: winrt, yAxisID: "y2", tension: 0.25 },
+          { label: "AI自己評価 self_score", data: selfS, yAxisID: "y3", tension: 0.25 }
+        ]
       },
-      plugins: { legend: { display: true } }
+      options: {
+        responsive: true,
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          y:  { beginAtZero: true, title: { display:true, text: "スコア" } },
+          y2: { beginAtZero: true, position: "right", title: { display:true, text: "勝率(%)" } },
+          y3: { beginAtZero: true, position: "right", grid: { drawOnChartArea:false }, title: { display:true, text: "self_score" } }
+        },
+        plugins: { legend: { display: true } }
+      }
+    });
+  }
+
+  // ====== ワンクリ学習（staff専用） ======
+  const statusEl = document.getElementById("learnStatus");
+  const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
+  const apiUrl = "{% url 'advisor_learn_now' %}";  // /api/advisor/learn/
+
+  const runLearn = async (days) => {
+    if (!statusEl) return;
+    statusEl.textContent = `学習中… (${days}日)`;
+    const fd = new FormData();
+    fd.append("days", String(days));
+    try {
+      const res = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "X-CSRFToken": csrf || "" },
+        body: fd
+      });
+      const j = await res.json();
+      if (!j.ok) throw new Error(j.error || "unknown error");
+      statusEl.textContent = `✅ policy.json を更新しました（days=${j.days}, kinds=${j.kinds}）: ${j.saved}`;
+    } catch (e) {
+      statusEl.textContent = `❌ 失敗: ${e}`;
     }
+  };
+
+  document.querySelectorAll('button[data-learn-days]').forEach(btn => {
+    btn.addEventListener("click", () => {
+      const days = Number(btn.getAttribute("data-learn-days") || "90");
+      runLearn(days);
+    });
   });
 });
 </script>
