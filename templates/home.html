@@ -5,9 +5,9 @@
 
 {% block head %}
 <meta name="csrf-token" content="{{ csrf_token }}">
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=27">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=28">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script defer src="{% static 'js/home.js' %}?v=27"></script>
+<script defer src="{% static 'js/home.js' %}?v=28"></script>
 {% endblock %}
 
 {% block content %}
@@ -41,6 +41,18 @@
     <button class="btn ghost" id="btn-ai-weekly" type="button">週次レポート</button>
     <button class="btn ghost" id="btn-ai-rebalance" type="button">次の一手</button>
   </div>
+
+  {# ← 改善要因（AI推定）を表示：バックエンドで ctx に渡している想定 #}
+  {% if ai_insights_bullets and ai_insights_bullets|length > 0 %}
+    <div class="ai-insights">
+      <div class="ins-title">{{ ai_insights_title }}</div>
+      <ul class="ins-list">
+        {% for t in ai_insights_bullets %}
+          <li>{{ t }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
 </section>
 
 <!-- KPI -->
