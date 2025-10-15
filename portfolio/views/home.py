@@ -8,6 +8,7 @@ from datetime import timedelta
 
 from django.shortcuts import render
 from django.db.models import Sum
+from django.utils import timezone
 
 from ..services import advisor as svc_advisor
 from ..models import Holding, RealizedTrade
