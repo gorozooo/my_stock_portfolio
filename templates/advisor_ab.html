@@ -1,37 +1,62 @@
-{% load humanize %}
-<!doctype html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8">
-  <title>A/B 実験ダッシュボード</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    :root{--fg:#e8eeff;--muted:#94a3b8;--bg:#0b0f1a;--glass:rgba(255,255,255,.06);--line:rgba(255,255,255,.14)}
-    body{background:#0b0f1a;color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
-    .wrap{max-width:960px;margin:20px auto;padding:12px}
-    .card{background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
-    h1{font-size:1.1rem;margin:0 0 8px}
-    table{width:100%;border-collapse:collapse}
-    th,td{padding:8px;border-bottom:1px solid rgba(255,255,255,.08);text-align:right}
-    th:first-child,td:first-child{text-align:left}
-    .muted{color:var(--muted)}
-    .btns a{display:inline-block;margin-right:8px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;color:var(--fg);text-decoration:none}
-  </style>
-</head>
-<body>
-<div class="wrap">
-  <div class="card">
+{% extends "base.html" %}
+{% load static humanize %}
+
+{% block title %}A/B 実験ダッシュボード{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{% static 'css/ab.css' %}?v=1">
+{% endblock %}
+
+{% block content %}
+<section class="ab-wrap glass">
+  <header class="ab-head">
     <h1>A/B 実験ダッシュボード</h1>
-    <div class="muted">基準日: {{ since_days }}日 / Horizon: {{ horizon }}日 / {{ now }}</div>
-    <div class="btns" style="margin-top:8px">
-      <a href="{% url 'advisor_set_variant' 'A' %}">A固定（ルール）</a>
-      <a href="{% url 'advisor_set_variant' 'B' %}">B固定（policy補正）</a>
-      <a href="{% url 'advisor_ab' %}?since=90&horizon=7">再読み込み</a>
+    <p class="meta">
+      基準日: {{ base_days|default:90 }}日 / Horizon: {{ horizon_days|default:7 }}日 /
+      {{ now_str|default:"--" }}
+    </p>
+
+    <div class="ab-actions">
+      <a class="btn" href="?set=A">A固定（ルール）</a>
+      <a class="btn" href="?set=B">B固定（policy補正）</a>
+      <a class="btn ghost" href="?reload=1">再読み込み</a>
+    </div>
+  </header>
+
+  <!-- モバイル向け：カード表示 -->
+  <div class="ab-cards">
+    <div class="ab-card">
+      <div class="ab-card-head">
+        <span class="tag tag-a">A</span>
+        <strong>ルール</strong>
+      </div>
+      <ul class="kv">
+        <li><span>Sessions</span><b>{{ a.sessions|default:0 }}</b></li>
+        <li><span>Advice</span><b>{{ a.advices|default:0 }}</b></li>
+        <li><span>Taken</span><b>{{ a.taken|default:0 }}</b></li>
+        <li><span>Take Rate</span><b>{{ a.take_rate|default:"0.000" }}</b></li>
+        <li><span>Avg Improve</span><b>{{ a.avg_improve|default:"0.000" }}</b></li>
+      </ul>
+    </div>
+
+    <div class="ab-card">
+      <div class="ab-card-head">
+        <span class="tag tag-b">B</span>
+        <strong>policy補正</strong>
+      </div>
+      <ul class="kv">
+        <li><span>Sessions</span><b>{{ b.sessions|default:0 }}</b></li>
+        <li><span>Advice</span><b>{{ b.advices|default:0 }}</b></li>
+        <li><span>Taken</span><b>{{ b.taken|default:0 }}</b></li>
+        <li><span>Take Rate</span><b>{{ b.take_rate|default:"0.000" }}</b></li>
+        <li><span>Avg Improve</span><b>{{ b.avg_improve|default:"0.000" }}</b></li>
+      </ul>
     </div>
   </div>
 
-  <div class="card">
-    <table>
+  <!-- PC向け：テーブル（モバイルでは横スク可能 & 小さく表示） -->
+  <div class="ab-table-wrap">
+    <table class="ab-table">
       <thead>
         <tr>
           <th>Variant</th>
@@ -43,22 +68,25 @@
         </tr>
       </thead>
       <tbody>
-        {% for v, d in stats.items %}
-          <tr>
-            <td>{{ v }}</td>
-            <td>{{ d.sessions|intcomma }}</td>
-            <td>{{ d.advice|intcomma }}</td>
-            <td>{{ d.taken|intcomma }}</td>
-            <td>{{ d.take_rate|floatformat:3 }}</td>
-            <td>{{ d.avg_improve|floatformat:3 }}</td>
-          </tr>
-        {% endfor %}
+        <tr>
+          <td>A</td>
+          <td>{{ a.sessions|default:0 }}</td>
+          <td>{{ a.advices|default:0 }}</td>
+          <td>{{ a.taken|default:0 }}</td>
+          <td>{{ a.take_rate|default:"0.000" }}</td>
+          <td>{{ a.avg_improve|default:"0.000" }}</td>
+        </tr>
+        <tr>
+          <td>B</td>
+          <td>{{ b.sessions|default:0 }}</td>
+          <td>{{ b.advices|default:0 }}</td>
+          <td>{{ b.taken|default:0 }}</td>
+          <td>{{ b.take_rate|default:"0.000" }}</td>
+          <td>{{ b.avg_improve|default:"0.000" }}</td>
+        </tr>
       </tbody>
     </table>
-    <p class="muted" style="margin-top:8px">
-      ※ Avg Improve は ROI改善・流動性改善・信用比率低下を合成した -1.0〜+1.0 の簡易スコア。
-    </p>
+    <p class="note">※ Avg Improve は ROI改善・流動性改善・信用比率低下を合成した −1.0〜+1.0 の簡易スコア。</p>
   </div>
-</div>
-</body>
-</html>
+</section>
+{% endblock %}
