@@ -5,22 +5,20 @@
 
 {% block head %}
 <meta name="csrf-token" content="{{ csrf_token }}">
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=24">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=25">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script defer src="{% static 'js/home.js' %}?v=23"></script>
+<script defer src="{% static 'js/home.js' %}?v=25"></script>
 {% endblock %}
 
 {% block content %}
 
 <!-- 🧠 AIアドバイザー -->
-<section class="ai-header glass">
-  <div class="ai-title">AIアドバイザー</div>
-
-  <!-- 要約のみ（チップは撤去） -->
+<section class="ai-header glass" data-ab-variant="{{ ab_variant }}">
+  <div class="ai-title">AIアドバイザー（{{ ab_variant }}版）</div>
   <p class="ai-note">{{ ai_note }}</p>
 
-  <!-- 提案リスト（バーの横に優先度） -->
-  <ul class="ai-actions" id="aiAdviceList" data-session="{{ ai_session_id }}">
+  <!-- 提案リスト -->
+  <ul class="ai-actions" id="aiAdviceList" data-session="{{ ai_session_id }}" data-ab-variant="{{ ab_variant }}">
     {% for it in ai_items %}
       {% with p=it.score|default:0 %}
       <li class="ai-item" data-id="{{ it.id|default:0 }}" data-taken="{{ it.taken|yesno:'1,0' }}" style="--prio:{{ p|floatformat:2 }}">
@@ -75,7 +73,6 @@
     {% endwith %}
   </div>
 
-  <!-- 🟢/🔵 2段式 ROI -->
   <div class="kpi-card roi-card">
     <div class="roi-row eval">
       <div class="roi-label">ROI（評価ベース）</div>
@@ -94,7 +91,7 @@
   </div>
 </section>
 
-<!-- 💵 今すぐ全て現金化したら（ヒーロー＋3サマリー） -->
+<!-- 💵 現金化シミュレーション -->
 <section class="liquidation glass">
   <div class="liq-head">
     <div class="title">今すぐ全て現金化したら</div>
@@ -137,38 +134,7 @@
   {% endif %}
 </section>
 
-<!-- 🧾 内訳（現物 / 信用） -->
-<section class="glass breakdown">
-  <div class="strip-title">内訳（現物 / 信用）</div>
-
-  <div class="bd-gauge" role="img" aria-label="現物と信用の比率">
-    <div class="bd-gauge-spot"   style="width: {{ breakdown_pct.spot_pct }}%"></div>
-    <div class="bd-gauge-margin" style="width: {{ breakdown_pct.margin_pct }}%"></div>
-  </div>
-  <div class="bd-legend">
-    <span><i class="dot spot"></i>現物 {{ breakdown_pct.spot_pct }}%</span>
-    <span><i class="dot margin"></i>信用 {{ breakdown_pct.margin_pct }}%</span>
-  </div>
-
-  <div class="bd-donut-wrap">
-    <div class="bd-donut"
-         style="--spot: {{ breakdown_pct.spot_pct }}; --margin: {{ breakdown_pct.margin_pct }};"
-         role="img" aria-label="現物と信用のドーナツ構成">
-      <div class="bd-donut-hole">
-        <div class="bd-donut-total">¥{{ kpis.total_assets|intcomma }}</div>
-        <div class="bd-donut-caption">総資産（評価＋現金）</div>
-      </div>
-    </div>
-    <ul class="bd-legend-rows">
-      <li><span class="dot spot"></span><span>現物 評価額</span><strong>¥{{ breakdown.spot_mv|intcomma }}</strong></li>
-      <li class="sub"><span></span><span>取得額</span><span>¥{{ breakdown.spot_cost|intcomma }}</span></li>
-      <li><span class="dot margin"></span><span>信用 評価額</span><strong>¥{{ breakdown.margin_mv|intcomma }}</strong></li>
-      <li class="sub"><span></span><span>取得額</span><span>¥{{ breakdown.margin_cost|intcomma }}</span></li>
-    </ul>
-  </div>
-</section>
-
-<!-- 📈 セクター横スク -->
+<!-- 📈 セクター -->
 <section class="sector-strip glass">
   <div class="strip-title">セクター別パフォーマンス</div>
   <div class="strip-scroll">
@@ -189,7 +155,7 @@
 <!-- 🧪 ストレステスト -->
 <section class="stress glass">
   <div class="stress-head">
-    <div>ストレステスト（株式β=0.9、スライダーの指数変動を仮定）</div>
+    <div>ストレステスト（株式β=0.9）</div>
     <div class="stress-result"><span id="stressPct">-5</span>% → 推定総資産 <strong id="stressMV">¥{{ stressed_default|intcomma }}</strong></div>
   </div>
   <input type="range" min="-10" max="10" value="-5" step="1" id="stressSlider" />
