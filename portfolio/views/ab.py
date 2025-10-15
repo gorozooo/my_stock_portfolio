@@ -63,7 +63,7 @@ def ab_dashboard(request: HttpRequest) -> HttpResponse:
     # クエリで A/B 固定を切り替えられるように（スマホからの簡易操作）
     q_set = (request.GET.get("set") or "").upper()
     if q_set in ("A", "B"):
-        resp = redirect("ab_dashboard")
+        resp = redirect("advisor_ab")
         resp.set_cookie("ab_variant", q_set, max_age=7 * 24 * 60 * 60, samesite="Lax")
         return resp
 
