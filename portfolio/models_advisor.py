@@ -5,10 +5,12 @@ from django.utils import timezone
 
 
 class AdviceSession(models.Model):
-    """1回のAIアドバイザー分析セッション（ホーム描画時のスナップショット等）"""
-    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    """1回のAIアドバイザー分析セッション"""
+    created_at = models.DateTimeField(default=timezone.now)
     context_json = models.JSONField(default=dict)  # KPIやセクターなどのスナップショット
     note = models.CharField(max_length=200, blank=True, default="")
+    # ▼▼ 追加：A/B実験バリアント（'A' or 'B'） ▼▼
+    variant = models.CharField(max_length=1, default="A", db_index=True)
 
     def __str__(self):
         return f"Session {self.id} ({self.created_at:%Y-%m-%d})"
