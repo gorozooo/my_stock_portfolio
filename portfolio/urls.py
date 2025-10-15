@@ -17,6 +17,7 @@ from .views import dividend as v_div  # ← 配当まわりはこのモジュー
 from .views import cash as v_cash
 from .views import home
 from .views import advisor as v_advisor
+from portfolio.views.ab import set_variant, ab_dashboard
 
 urlpatterns = [
     #path("", core_views.main, name="home"),
@@ -104,5 +105,7 @@ urlpatterns = [
     path("api/advisor/latest/", v_advisor.latest_session_items, name="advisor-latest"),
     path("api/advisor/toggle/<int:item_id>/", v_advisor.toggle_taken, name="advisor-toggle"),
     path("api/advisor/has/", v_advisor.has_sessions, name="advisor-has"),
+    path("advisor/set-variant/<str:v>/", set_variant, name="advisor_set_variant"),
+    path("advisor/ab/", ab_dashboard, name="advisor_ab"),
     
 ]
