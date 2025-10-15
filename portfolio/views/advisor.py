@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404
 from django.db.models import Max
 
 from ..models_advisor import AdviceItem, AdviceSession
-
+from ..ab import log_event
 
 def latest_session_items(request: HttpRequest):
     """（任意）最新セッションの提案をJSONで返す"""
@@ -22,12 +22,20 @@ def latest_session_items(request: HttpRequest):
 
 @require_POST
 def toggle_taken(request: HttpRequest, item_id: int):
-    """✅/⛔️ のトグル。成功時 {ok:true, taken:bool} を返す"""
-    if not str(item_id).isdigit():
-        return HttpResponseBadRequest("invalid id")
-    item = get_object_or_404(AdviceItem, id=item_id)
+    ...
     item.taken = not item.taken
     item.save(update_fields=["taken"])
+
+    # A/B ログ（Cookie or user.id を identity に使う）
+    try:
+        identity = f"user:{request.user.id}" if (getattr(request, "user", None) and request.user.is_authenticated) else request.COOKIES.get("abid") or "anon"
+        # variant は assignment から見るのが理想だが、軽量化のためテンプレ側 hidden から送る案でもOK。
+        # ここでは簡易に 'A' としておき、テンプレで hidden input[name=ab_variant] をPOSTすればそれを使う実装にしても良い
+        variant = request.POST.get("ab_variant", "A")
+        log_event("ai_advisor_layout", identity, variant, "click_check", {"item_id": item.id, "taken": item.taken})
+    except Exception:
+        pass
+
     return JsonResponse({"ok": True, "taken": item.taken, "id": item.id})
 
 
