@@ -166,12 +166,21 @@
   <div class="strip-scroll">
     {% for s in sectors %}
       <div class="sector-chip">
-        <div class="sec-name">{{ s.sector }}</div>
+        <div class="sec-name">{{ s.sector|default:"不明" }}</div>
         <div class="sec-meta">
-          <span class="mv">¥{{ s.mv|intcomma }}</span>
-          <span class="rate">{{ s.share_pct }}%</span>
+          <span class="mv">¥{{ s.mv|default:0|intcomma }}</span>
+          <span class="share">{{ s.share_pct|default:0 }}%</span>
         </div>
-        <div class="sec-sub">参考: 騰落 {{ s.perf_pct }}%</div>
+        <div class="sec-sub">
+          参考: 騰落
+          {% if s.perf_pct != None %}
+            <strong class="{% if s.perf_pct > 0 %}pos{% elif s.perf_pct < 0 %}neg{% endif %}">
+              {{ s.perf_pct|floatformat:2 }}%
+            </strong>
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </div>
       </div>
     {% empty %}
       <div class="empty">データがありません</div>
