@@ -5,9 +5,9 @@
 
 {% block head %}
 <meta name="csrf-token" content="{{ csrf_token }}">
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=28">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=29">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script defer src="{% static 'js/home.js' %}?v=28"></script>
+<script defer src="{% static 'js/home.js' %}?v=29"></script>
 {% endblock %}
 
 {% block content %}
@@ -16,10 +16,16 @@
   <div class="ai-title">AIアドバイザー（{{ ab_variant|default:'A' }}版）</div>
   <p class="ai-note">{{ ai_note }}</p>
 
-  <ul class="ai-actions" id="aiAdviceList" data-session="{{ ai_session_id }}" data-ab-variant="{{ ab_variant|default:'A' }}">
+  <!-- 提案リスト -->
+  <ul class="ai-actions" id="aiAdviceList"
+      data-session="{{ ai_session_id }}"
+      data-ab-variant="{{ ab_variant|default:'A' }}">
     {% for it in ai_items %}
       {% with p=it.score|default:0 %}
-      <li class="ai-item" data-id="{{ it.id|default:0 }}" data-taken="{{ it.taken|yesno:'1,0' }}" style="--prio:{{ p|floatformat:2 }}">
+      <li class="ai-item"
+          data-id="{{ it.id|default:0 }}"
+          data-taken="{{ it.taken|yesno:'1,0' }}"
+          style="--prio:{{ p|floatformat:2 }}">
         <button type="button" class="ai-check" aria-pressed="{{ it.taken|yesno:'true,false' }}">
           {% if it.taken %}✅{% else %}☑️{% endif %}
         </button>
@@ -42,17 +48,21 @@
     <button class="btn ghost" id="btn-ai-rebalance" type="button">次の一手</button>
   </div>
 
-  {# ← 改善要因（AI推定）を表示：バックエンドで ctx に渡している想定 #}
-  {% if ai_insights_bullets and ai_insights_bullets|length > 0 %}
-    <div class="ai-insights">
-      <div class="ins-title">{{ ai_insights_title }}</div>
-      <ul class="ins-list">
+  <!-- 改善要因（AI推定） -->
+  <div class="ai-insights">
+    <div class="ins-title">
+      {{ ai_insights_title|default:"直近の改善要因（推定）" }}
+    </div>
+    <ul class="ins-list">
+      {% if ai_insights_bullets and ai_insights_bullets|length > 0 %}
         {% for t in ai_insights_bullets %}
           <li>{{ t }}</li>
         {% endfor %}
-      </ul>
-    </div>
-  {% endif %}
+      {% else %}
+        <li class="muted">十分な履歴がありません。</li>
+      {% endif %}
+    </ul>
+  </div>
 </section>
 
 <!-- KPI -->
@@ -89,7 +99,9 @@
     </div>
     <div class="roi-row liquid">
       <div class="roi-label">ROI（現金化ベース）</div>
-      <div class="roi-value">{% if kpis.roi_liquid_pct != None %}{{ kpis.roi_liquid_pct|floatformat:2 }}%{% else %}--{% endif %}</div>
+      <div class="roi-value">
+        {% if kpis.roi_liquid_pct != None %}{{ kpis.roi_liquid_pct|floatformat:2 }}%{% else %}--{% endif %}
+      </div>
     </div>
     <div class="roi-foot">
       投下資金 ¥{{ kpis.invested|intcomma }}
@@ -102,7 +114,7 @@
 <section class="liquidation glass">
   <div class="liq-head">
     <div class="title">今すぐ全て現金化したら</div>
-    <div class="chip">流動性 {{ kpis.liquidity_rate_pct }}%</div>
+    <div class="chip">流動性 {{ kpis.liquidity_rate_pct|default:0 }}%</div>
   </div>
 
   <div class="liq-hero">
@@ -181,7 +193,7 @@
         <div class="sec-name">{{ s.sector|default:"不明" }}</div>
         <div class="sec-meta">
           <span class="mv">¥{{ s.mv|default:0|intcomma }}</span>
-          <span class="share">{{ s.share_pct|default:0 }}%</span>
+          <span class="share">{{ s.share_pct|default:0|floatformat:1 }}%</span>
         </div>
         <div class="sec-sub">
           参考: 騰落
