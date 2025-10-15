@@ -15,7 +15,7 @@ from .models_advisor import AdviceSession, AdviceItem, AdvicePolicy, AdvisorMetr
 class HoldingAdmin(admin.ModelAdmin):
     """
     モデルの有無に合わせて list_display / search_fields / list_filter を動的に構成。
-    （user を削除していても残していても動く）
+    （user / sector を保持していてもいなくても動く）
     """
 
     def get_list_display(self, request):
@@ -23,6 +23,7 @@ class HoldingAdmin(admin.ModelAdmin):
             *(["user"] if hasattr(Holding, "user") else []),
             "ticker",
             *(["name"] if hasattr(Holding, "name") else []),
+            *(["sector"] if hasattr(Holding, "sector") else []),   # ← 追加
             *(["quantity"] if hasattr(Holding, "quantity") else []),
             *(["avg_cost"] if hasattr(Holding, "avg_cost") else []),
             *(["broker"] if hasattr(Holding, "broker") else []),
@@ -37,6 +38,8 @@ class HoldingAdmin(admin.ModelAdmin):
         fields = ["ticker"]
         if hasattr(Holding, "name"):
             fields.append("name")
+        if hasattr(Holding, "sector"):                       # ← 追加
+            fields.append("sector")
         if hasattr(Holding, "user"):
             fields.append("user__username")
         return tuple(fields)
@@ -49,6 +52,8 @@ class HoldingAdmin(admin.ModelAdmin):
             flt.append("side")
         if hasattr(Holding, "account"):
             flt.append("account")
+        if hasattr(Holding, "sector"):                       # ← 追加
+            flt.append("sector")
         if hasattr(Holding, "updated_at"):
             flt.append("updated_at")
         return tuple(flt)
