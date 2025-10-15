@@ -52,9 +52,9 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!points || points.length === 0) return;
 
   const labels = points.map(p => p.label);
-  const score = points.map(p => (p.score ?? null));
-  // winrt は 0..1 なので % に変換
-  const winrt = points.map(p => (p.winrt != null ? Math.round(p.winrt * 1000) / 10 : null));
+  const score  = points.map(p => (p.score ?? null));
+  const winrt  = points.map(p => (p.winrt ?? null));
+  const selfS  = points.map(p => (p.self_score ?? null));
 
   const ctx = document.getElementById("policyChart").getContext("2d");
   new Chart(ctx, {
@@ -63,7 +63,8 @@ document.addEventListener("DOMContentLoaded", () => {
       labels,
       datasets: [
         { label: "改善スコア（重み平均）", data: score, tension: 0.25 },
-        { label: "加重勝率（%）", data: winrt, yAxisID: "y2", tension: 0.25 }
+        { label: "加重勝率（%）", data: winrt, yAxisID: "y2", tension: 0.25 },
+        { label: "AI自己評価 self_score", data: selfS, yAxisID: "y3", tension: 0.25 }
       ]
     },
     options: {
@@ -71,11 +72,10 @@ document.addEventListener("DOMContentLoaded", () => {
       interaction: { mode: "index", intersect: false },
       scales: {
         y:  { beginAtZero: true, title: { display:true, text: "スコア" } },
-        y2: { beginAtZero: true, position: "right", title: { display:true, text: "勝率(%)" } }
+        y2: { beginAtZero: true, position: "right", title: { display:true, text: "勝率(%)" } },
+        y3: { beginAtZero: true, position: "right", grid: { drawOnChartArea:false }, title: { display:true, text: "self_score" } }
       },
-      plugins: {
-        legend: { display: true }
-      }
+      plugins: { legend: { display: true } }
     }
   });
 });
