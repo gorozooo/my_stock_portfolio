@@ -1,7 +1,7 @@
 document.addEventListener("DOMContentLoaded", () => {
-  // ====== ストレステスト等（既存） ======
+  // ===== ストレステスト =====
   const dataEl = document.getElementById("home-data");
-  let data = { total_mv: 0, sectors: [], cash_bars: [] };
+  let data = {};
   try { data = JSON.parse(dataEl?.textContent || "{}"); } catch (e) {}
 
   const pctEl = document.getElementById("stressPct");
@@ -9,17 +9,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const slider = document.getElementById("stressSlider");
   const totalMV = Number(data.total_mv || 0);
   const beta = 0.9;
+
   const updateStress = () => {
-    if (!slider) return;
     const pct = Number(slider.value);
     const mv = Math.round(totalMV * (1 + beta * pct / 100));
-    pctEl && (pctEl.textContent = String(pct));
-    mvEl  && (mvEl.textContent  = "¥" + mv.toLocaleString());
+    pctEl.textContent = String(pct);
+    mvEl.textContent  = "¥" + mv.toLocaleString();
   };
-  slider && slider.addEventListener("input", updateStress);
+  slider?.addEventListener("input", updateStress);
   updateStress();
 
-  // キャッシュフロー
+  // ===== キャッシュフロー =====
   const cashCanvas = document.getElementById("cashflowChart");
   if (cashCanvas && window.Chart) {
     const labels = data.cash_bars.map(x => x.label);
@@ -31,51 +31,44 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // ====== AIアドバイザー: 採用トグル（楽観的更新） ======
+  // ===== AIアドバイザー: チェック切替 =====
   const list = document.getElementById("aiAdviceList");
   if (list) {
     list.addEventListener("click", async (ev) => {
-      // ボタン以外（テキストや行）を押しても反応
       const li = ev.target.closest(".ai-item");
       if (!li) return;
 
       const btn = li.querySelector(".ai-check");
-      if (!btn) return;
+      const id = Number(li.dataset.id || 0);
+      const variant = list.dataset.abVariant || "A";
 
-      // 楽観的にUI先行切替
       const currentlyTaken = li.dataset.taken === "1";
       const nextTaken = !currentlyTaken;
       li.dataset.taken = nextTaken ? "1" : "0";
-      btn.setAttribute("aria-pressed", nextTaken ? "true" : "false");
       btn.textContent = nextTaken ? "✅" : "☑️";
 
-      // id>0 のときだけサーバに送る（id=0 はフロント専用でOK）
-      const id = Number(li.dataset.id || 0);
       if (id > 0) {
         try {
           const res = await fetch(`/api/advisor/toggle/${id}/`, {
             method: "POST",
-            headers: { "X-Requested-With": "fetch" }
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              "X-CSRFToken": document.querySelector('meta[name="csrf-token"]')?.content || ""
+            },
+            body: `ab_variant=${encodeURIComponent(variant)}`
           });
           const json = await res.json();
-          // サーバが否定したらロールバック
-          if (!json.ok || json.taken !== nextTaken) {
-            li.dataset.taken = currentlyTaken ? "1" : "0";
-            btn.setAttribute("aria-pressed", currentlyTaken ? "true" : "false");
-            btn.textContent = currentlyTaken ? "✅" : "☑️";
-          }
+          if (!json.ok) console.warn("toggle failed");
         } catch (e) {
-          // 通信失敗でもUIはそのまま（次回再同期で吸収）
-          console.warn("toggle failed", e);
+          console.warn("toggle error", e);
         }
       }
     });
   }
 
-  // ====== ドラフト閲覧（モーダル代わりに簡易ダイアログ） ======
+  // ===== ドラフト閲覧（週次・次の一手） =====
   const showDraft = (title, body) => {
-    const txt = `${title}\n\n${body || "（本文なし）"}`;
-    alert(txt);
+    alert(`${title}\n\n${body || "（本文なし）"}`);
   };
   document.getElementById("btn-ai-weekly")?.addEventListener("click", () => {
     showDraft("週次レポート（ドラフト）", window.weekly_draft || "");
