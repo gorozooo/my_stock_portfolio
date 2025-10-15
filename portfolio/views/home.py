@@ -4,17 +4,26 @@ from datetime import date, timedelta
 from collections import defaultdict
 from typing import Dict, List, Any, Union, Optional, Tuple
 from decimal import Decimal
-from datetime import timedelta
+import random
 
 from django.shortcuts import render
 from django.db.models import Sum
-from django.utils import timezone
+from django.http import HttpResponse
 
 from ..services import advisor as svc_advisor
 from ..models import Holding, RealizedTrade
 from ..models_cash import BrokerAccount, CashLedger
 
 Number = Union[int, float, Decimal]
+
+# ========= A/B: variant 決定（A=ルール / B=policy補正） =========
+def _pick_variant(request) -> str:
+    # 既にクッキーがあればそれを使用
+    v = (request.COOKIES.get("ab_variant") or "").upper()
+    if v in ("A", "B"):
+        return v
+    # なければ 50/50 でランダムに決定
+    return "A" if random.random() < 0.5 else "B"
 
 # ========= Utilities =========
 def _to_float(v: Optional[Number]) -> float:
@@ -57,61 +66,55 @@ def _cash_balances() -> Dict[str, Any]:
     }
 
 # ========= Holdings / Sector snapshot =========
-FRESH_DAYS = 7  # この日数以内の last_price を“有効”として扱う
-
 def _holdings_snapshot() -> dict:
     holdings = list(Holding.objects.all())
 
     spot_mv = spot_cost = 0.0
     margin_mv = margin_cost = 0.0
-    sector_map = defaultdict(lambda: {"mv": 0.0, "cost": 0.0, "priced": 0})
-
-    now = timezone.now()
+    sector_map: Dict[str, Dict[str, float]] = defaultdict(lambda: {"mv": 0.0, "cost": 0.0})
 
     for h in holdings:
-        qty  = _to_float(h.quantity)
-        unit = _to_float(h.avg_cost)
+        qty = _to_float(getattr(h, "quantity", 0))
+        unit = _to_float(getattr(h, "avg_cost", 0))
+        price = _to_float(getattr(h, "last_price", None)) or unit
+        mv = price * qty
+        cost = unit * qty
 
-        lp = h.last_price
-        lp_dt = getattr(h, "last_price_updated", None)
-        fresh = bool(lp is not None and lp_dt and (now - lp_dt <= timedelta(days=FRESH_DAYS)))
-
-        price = _to_float(lp) if fresh else unit  # 鮮度が無ければ取得単価で代用（=評価は据え置き）
-
-        mv, cost = price * qty, unit * qty
-
-        acc = (h.account or "").upper()
-        sector = (h.sector or "").strip() or "未分類"
+        acc = (getattr(h, "account", "") or "").upper()
+        sector = (getattr(h, "sector", None) or "").strip() or "未分類"
 
         if acc == "MARGIN":
-            margin_mv += mv; margin_cost += cost
+            margin_mv += mv
+            margin_cost += cost
         else:
-            spot_mv += mv;   spot_cost += cost
+            spot_mv += mv
+            spot_cost += cost
 
-        d = sector_map[sector]
-        d["mv"] += mv; d["cost"] += cost
-        if fresh: d["priced"] += 1
+        sector_map[sector]["mv"] += mv
+        sector_map[sector]["cost"] += cost
 
-    total_mv = spot_mv + margin_mv
+    total_unrealized_pnl = (spot_mv + margin_mv) - (spot_cost + margin_cost)
 
-    by_sector = []
+    qs = RealizedTrade.objects.all()
+    win = sum(1 for r in qs if _to_float(getattr(r, "pnl", 0)) > 0)
+    lose = sum(1 for r in qs if _to_float(getattr(r, "pnl", 0)) < 0)
+    total_trades = win + lose
+    win_ratio = round((win / total_trades * 100.0) if total_trades else 0.0, 1)
+
+    by_sector: List[Dict[str, Any]] = []
     for sec, d in sector_map.items():
-        mv, cost, priced = d["mv"], d["cost"], d["priced"]
-        perf = ((mv - cost) / cost * 100.0) if (cost > 0 and priced > 0) else None
-        share = round((mv / max(1.0, total_mv) * 100.0), 1)
-        by_sector.append({
-            "sector": sec,
-            "mv": round(mv),
-            "share_pct": share,
-            "perf_pct": None if perf is None else round(perf, 2),
-        })
+        mv, cost = d["mv"], d["cost"]
+        rate = round(((mv - cost) / cost * 100) if cost > 0 else 0.0, 2)
+        by_sector.append({"sector": sec, "mv": round(mv), "rate": rate})
     by_sector.sort(key=lambda x: x["mv"], reverse=True)
 
     return dict(
-        spot_mv=round(spot_mv), spot_cost=round(spot_cost),
-        margin_mv=round(margin_mv), margin_cost=round(margin_cost),
-        unrealized=round((spot_mv + margin_mv) - (spot_cost + margin_cost)),
-        win_ratio=0.0,  # 省略：あなたの既存ロジックを残してOK
+        spot_mv=round(spot_mv),
+        spot_cost=round(spot_cost),
+        margin_mv=round(margin_mv),
+        margin_cost=round(margin_cost),
+        unrealized=round(total_unrealized_pnl),
+        win_ratio=win_ratio,
         by_sector=by_sector[:10],
     )
 
@@ -161,6 +164,9 @@ def _stress_total_assets(pct: float, snap: dict, cash_total: int) -> int:
 
 # ========= View =========
 def home(request):
+    # ---- A/B variant 決定 ----
+    variant = _pick_variant(request)
+
     snap = _holdings_snapshot()
     cash = _cash_balances()
 
@@ -189,7 +195,6 @@ def home(request):
     liquidity_rate_pct = max(0.0, round(liquidation_value / total_eval_assets * 100, 1)) if total_eval_assets > 0 else 0.0
     margin_ratio_pct = round(snap["margin_mv"] / gross_pos * 100, 1) if gross_pos > 0 else 0.0
 
-    # リスクフラグ
     risk_flags: List[str] = []
     if margin_ratio_pct >= 60.0:
         risk_flags.append(f"信用比率が {margin_ratio_pct}%（60%超）です。余力とボラに注意。")
@@ -213,34 +218,44 @@ def home(request):
         "liquidity_rate_pct": liquidity_rate_pct,
         "margin_ratio_pct": margin_ratio_pct,
         "margin_unrealized": margin_unrealized,
+        # ▼▼ セッションにも残すため variant を入れておく ▼▼
+        "ab_variant": variant,
     }
 
-    sectors = snap["by_sector"]  # ← share_pct / perf_pct を含む
+    sectors = snap["by_sector"]
+    cash_bars = [
+        {"label": "配当", "value": dividend_month},
+        {"label": "実現益", "value": realized_month},
+    ]
 
-    # === AI生成 ===
-    ai_note, ai_items, ai_session_id, weekly_draft, nextmove_draft = svc_advisor.summarize(kpis, sectors)
+    # === AI生成（variant を渡すと B 側は policy 補正が効く実装にしてある前提）===
+    ai_note, ai_items, ai_session_id, weekly_draft, nextmove_draft = svc_advisor.summarize(kpis, sectors, variant=variant)
 
     if not ai_note:
         ai_note = "最新データを解析しました。主要KPIと含み状況を要約しています。"
     if not ai_items:
         ai_items = [dict(id=0, message="直近のデータが少ないため、提案事項はありません。", score=0.0, taken=False, kind="REBALANCE")]
 
+    # ROI乖離を先頭へ優先表示
     if kpis.get("roi_gap_abs") is not None and kpis["roi_gap_abs"] >= 20:
         key = "評価ROIと現金ROIの乖離が"
         idx = next((i for i, x in enumerate(ai_items) if key in x["message"]), None)
         if idx not in (None, 0):
             ai_items.insert(0, ai_items.pop(idx))
 
+    # === ★ セッション永続化（variant も保存） ===
     try:
-        ai_items = svc_advisor.ensure_session_persisted(ai_note, ai_items, kpis)
+        ai_items = svc_advisor.ensure_session_persisted(ai_note, ai_items, kpis, variant=variant)
     except Exception as e:
         print(f"[WARN] advisor session save failed: {e}")
 
     stressed_default = _stress_total_assets(-5.0, snap, cash["total"])
 
+    # --- レスポンス + クッキー設定 ---
     ctx = dict(
         kpis=kpis,
         sectors=sectors,
+        cash_bars=cash_bars,
         breakdown=dict(
             spot_mv=snap["spot_mv"],
             spot_cost=snap["spot_cost"],
@@ -249,6 +264,7 @@ def home(request):
         ),
         breakdown_pct=breakdown_pct,
         risk_flags=risk_flags,
+        cash_total_by_currency=cash["total_by_currency"],
         stressed_default=stressed_default,
         ai_note=ai_note,
         ai_items=ai_items,
@@ -256,4 +272,7 @@ def home(request):
         weekly_draft=weekly_draft,
         nextmove_draft=nextmove_draft,
     )
-    return render(request, "home.html", ctx)
+    resp: HttpResponse = render(request, "home.html", ctx)
+    # 7日間クッキー
+    resp.set_cookie("ab_variant", variant, max_age=7*24*60*60, samesite="Lax")
+    return resp
