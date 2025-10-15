@@ -93,18 +93,20 @@ def _load_history() -> List[Dict]:
 
 # ---------- View ----------
 def policy_history(request):
-    """
-    policy 履歴を時系列で可視化し、“一番良かった週”を表示する。
-    """
     hist = _load_history()
     points = []
     for obj in hist:
-        dt = _parse_iso(obj.get("generated_at")) or _parse_iso(obj.get("updated_at"))
-        label = dt.strftime("%Y-%m-%d") if dt else (obj.get("generated_at") or obj.get("updated_at") or "unknown")
+        gen = obj.get("generated_at")
+        try:
+            dt = datetime.fromisoformat(gen.replace("Z", "+00:00")) if gen else None
+        except Exception:
+            dt = None
+        label = dt.strftime("%Y-%m-%d") if dt else (gen or "unknown")
         score = _overall_score(obj)
-        winrt = _weighted_winrate(obj)  # 0..1
-        horizon = obj.get("horizon_days") or obj.get("horizon") or 7
-        points.append(dict(label=label, score=score, winrt=winrt, horizon=horizon, raw=obj))
+        winrt = _weighted_winrate(obj)
+        horizon = obj.get("horizon_days", obj.get("horizon", 7))
+        self_score = obj.get("self_score", None)
+        points.append(dict(label=label, score=score, winrt=winrt, horizon=horizon, self_score=self_score, raw=obj))
 
     # ベスト週（score 最大）
     best_idx = None
