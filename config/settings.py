@@ -152,10 +152,15 @@ CRONJOBS = [
 CRONTAB_LOCK_JOBS = True
 
 
-# 開発/簡易運用なら
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-DEFAULT_FROM_EMAIL = "no-reply@gorozooo.com"
-ADMIN_EMAIL = "coco.louis67@gmail.com"  # 送信先デフォルト
+# settings.py
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_PORT = 587
+EMAIL_HOST_USER = "coco.louis67@gmail.com"
+EMAIL_HOST_PASSWORD = "pmcv dzpj pdnd vdhj"  # 通常のPW不可
+EMAIL_USE_TLS = True
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+ADMIN_EMAIL = "coco.louis67@gmail.com"
 
 # --- 参考（本番切替時の推奨。今は DEBUG=True なのでコメントのままでOK） ---
 # SESSION_COOKIE_SECURE = True
