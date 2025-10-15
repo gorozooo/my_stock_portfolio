@@ -12,14 +12,29 @@ from ...services.insights import generate_insights  # 追加：改善要因
 def _fmt_pct(v):
     return "--" if v is None else f"{v:.2f}%"
 
+def _read_self_score() -> str:
+    """policy.json の self_score を読む（なければ '—'）"""
+    base = getattr(settings, "MEDIA_ROOT", "") or os.getcwd()
+    for rel in ("media/advisor/policy.json", "advisor/policy.json"):
+        p = os.path.join(base, rel)
+        if os.path.exists(p):
+            try:
+                import json
+                with open(p, "r", encoding="utf-8") as f:
+                    obj = json.load(f)
+                sc = obj.get("self_score", None)
+                return f"{sc:+.3f}" if sc is not None else "—"
+            except Exception:
+                pass
+    return "—"
+
 def _summarize_latest() -> Dict:
     s = AdviceSession.objects.order_by("-created_at").first()
     if not s:
         return {"exists": False}
 
     k = s.context_json or {}
-    items = list(AdviceItem.objects.filter(session=s).order_by("-score", "-id"))
-    top = items[:5]
+    items = list(AdviceItem.objects.filter(session=s).order_by("-score", "-id"))[:5]
 
     lines: List[str] = []
     lines.append(f"🧠 AI週次レポート（{s.created_at:%Y-%m-%d}）")
@@ -30,22 +45,16 @@ def _summarize_latest() -> Dict:
     if gap is not None:
         lines.append(f"ROI乖離: {gap:.1f}pt")
     lines.append(f"現金: ¥{k.get('cash_total', 0):,} / 流動性: {k.get('liquidity_rate_pct', 0):.1f}% / 信用比率: {k.get('margin_ratio_pct', 0):.1f}%")
+    # ▼ 追加：AI 自己評価
+    lines.append(f"AI自己評価(self_score): {_read_self_score()}")
     lines.append("")
     lines.append("▶ 提案（上位）")
-    if not top:
+    if not items:
         lines.append("・提案なし")
     else:
-        for it in top:
+        for it in items:
             chk = "✅" if it.taken else "☐"
             lines.append(f"{chk} {it.message}  (優先度 {it.score:.2f})")
-
-    # 追加：改善要因（AI推定）
-    title, bullets = generate_insights(horizon_days=7, since_days=90, top_k=3)
-    lines.append("")
-    lines.append("——— 改善要因（AI推定） ———")
-    lines.append(title)
-    for b in bullets:
-        lines.append(b)
 
     body = "\n".join(lines)
     return {"exists": True, "body": body}
