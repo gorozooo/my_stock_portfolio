@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}policy履歴 | My株ポートフォリオ{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=28">
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  .ph-wrap{ margin:14px 12px; }
+  .ph-card{ padding:14px; }
+  .best-box{
+    margin-top:10px; padding:10px; border-radius:12px;
+    border:1px solid rgba(255,255,255,.15);
+    background: rgba(255,255,255,.05);
+  }
+  .best-box .title{ font-weight:700; margin-bottom:6px; }
+  .best-box .kv{ display:grid; grid-template-columns:120px 1fr; gap:6px; }
+  .muted{ opacity:.7; }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="glass ph-wrap ph-card">
+  <div class="ai-title">policy履歴（改善スコア & 勝率）</div>
+  {% if not has_data %}
+    <p class="muted">履歴がありません。`media/advisor/history/` に policy_YYYY-MM-DD.json を蓄積してください。</p>
+  {% else %}
+    <canvas id="policyChart" height="180"></canvas>
+
+    {% if best %}
+    <div class="best-box">
+      <div class="title">一番良かった週</div>
+      <div class="kv">
+        <div class="muted">週：</div><div>{{ best.label }}</div>
+        <div class="muted">改善スコア：</div><div>{{ best.score|floatformat:4 }}</div>
+        <div class="muted">加重勝率：</div><div>{% if best.winrt != None %}{{ best.winrt|floatformat:3 }}{% else %}--{% endif %}</div>
+        <div class="muted">horizon：</div><div>{{ best.horizon }} 日</div>
+      </div>
+    </div>
+    {% endif %}
+  {% endif %}
+</section>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const points = {{ points|safe }};
+  if (!points || points.length === 0) return;
+
+  const labels = points.map(p => p.label);
+  const score = points.map(p => (p.score ?? null));
+  const winrt = points.map(p => (p.winrt ?? null));
+
+  const ctx = document.getElementById("policyChart").getContext("2d");
+  new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        { label: "改善スコア（重み平均）", data: score, tension: 0.25 },
+        { label: "加重勝率（%）", data: winrt, yAxisID: "y2", tension: 0.25 }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        y:  { beginAtZero: true, title: { display:true, text: "スコア" } },
+        y2: { beginAtZero: true, position: "right", title: { display:true, text: "勝率(%)" } }
+      },
+      plugins: {
+        legend: { display: true }
+      }
+    }
+  });
+});
+</script>
+{% endblock %}
