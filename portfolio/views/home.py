@@ -11,10 +11,8 @@ from django.db.models import Sum
 from ..services import advisor as svc_advisor
 from ..models import Holding, RealizedTrade
 from ..models_cash import BrokerAccount, CashLedger
-from ..ab import assign_variant, log_event  # ← 追加
 
 Number = Union[int, float, Decimal]
-
 
 # ========= Utilities =========
 def _to_float(v: Optional[Number]) -> float:
@@ -27,13 +25,11 @@ def _to_float(v: Optional[Number]) -> float:
     except Exception:
         return 0.0
 
-
 def _month_bounds(today: Optional[date] = None) -> Tuple[date, date]:
     d = today or date.today()
     first = d.replace(day=1)
     next_first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
     return first, next_first
-
 
 # ========= Cash =========
 def _cash_balances() -> Dict[str, Any]:
@@ -58,10 +54,16 @@ def _cash_balances() -> Dict[str, Any]:
         "total_by_currency": {k: int(v) for k, v in cur_totals.items()},
     }
 
-
-# ========= Holdings Snapshot =========
+# ========= Holdings / Sector snapshot =========
 def _holdings_snapshot() -> dict:
+    """
+    - 価格は last_price 優先（無ければ avg_cost）
+    - 未実現損益 = (現物+信用)評価 − (現物+信用)取得
+    - セクターは Holding.sector（空は「未分類」に集約）
+    - セクター“配分（構成比）” share_pct を出す（= mv / 全株式評価額）
+    """
     holdings = list(Holding.objects.all())
+
     spot_mv = spot_cost = 0.0
     margin_mv = margin_cost = 0.0
     sector_map: Dict[str, Dict[str, float]] = defaultdict(lambda: {"mv": 0.0, "cost": 0.0})
@@ -87,17 +89,22 @@ def _holdings_snapshot() -> dict:
         sector_map[sector]["cost"] += cost
 
     total_unrealized_pnl = (spot_mv + margin_mv) - (spot_cost + margin_cost)
+    equity_total_mv = max(1.0, spot_mv + margin_mv)  # 構成比の分母（現金を含めない）
+
+    # 勝率（全期間の実現）
     qs = RealizedTrade.objects.all()
     win = sum(1 for r in qs if _to_float(getattr(r, "pnl", 0)) > 0)
     lose = sum(1 for r in qs if _to_float(getattr(r, "pnl", 0)) < 0)
     total_trades = win + lose
     win_ratio = round((win / total_trades * 100.0) if total_trades else 0.0, 1)
 
+    # セクター別（配分と参考のパフォーマンス率も残す）
     by_sector: List[Dict[str, Any]] = []
     for sec, d in sector_map.items():
         mv, cost = d["mv"], d["cost"]
-        rate = round(((mv - cost) / cost * 100) if cost > 0 else 0.0, 2)
-        by_sector.append({"sector": sec, "mv": round(mv), "rate": rate})
+        share = round(mv / equity_total_mv * 100.0, 1)
+        perf = round(((mv - cost) / cost * 100.0) if cost > 0 else 0.0, 2)
+        by_sector.append({"sector": sec, "mv": round(mv), "share_pct": share, "perf_pct": perf})
     by_sector.sort(key=lambda x: x["mv"], reverse=True)
 
     return dict(
@@ -110,23 +117,22 @@ def _holdings_snapshot() -> dict:
         by_sector=by_sector[:10],
     )
 
-
-# ========= Aggregates =========
+# ========= Realized / Dividend =========
 def _sum_realized_month() -> int:
     first, next_first = _month_bounds()
     qs = CashLedger.objects.filter(
-        source_type=CashLedger.SourceType.REALIZED, at__gte=first, at__lt=next_first,
+        source_type=CashLedger.SourceType.REALIZED,
+        at__gte=first, at__lt=next_first,
     )
     return int(sum(int(x.amount) for x in qs))
-
 
 def _sum_dividend_month() -> int:
     first, next_first = _month_bounds()
     qs = CashLedger.objects.filter(
-        source_type=CashLedger.SourceType.DIVIDEND, at__gte=first, at__lt=next_first,
+        source_type=CashLedger.SourceType.DIVIDEND,
+        at__gte=first, at__lt=next_first,
     )
     return int(sum(int(x.amount) for x in qs))
-
 
 def _sum_realized_cum() -> int:
     return int(
@@ -134,30 +140,26 @@ def _sum_realized_cum() -> int:
         .aggregate(s=Sum("amount")).get("s") or 0
     )
 
-
 def _sum_dividend_cum() -> int:
     return int(
         CashLedger.objects.filter(source_type=CashLedger.SourceType.DIVIDEND)
         .aggregate(s=Sum("amount")).get("s") or 0
     )
 
-
 def _invested_capital() -> int:
     opening = int(BrokerAccount.objects.aggregate(total=Sum("opening_balance")).get("total") or 0)
     dep = int(CashLedger.objects.filter(kind=CashLedger.Kind.DEPOSIT).aggregate(s=Sum("amount")).get("s") or 0)
     xin = int(CashLedger.objects.filter(kind=CashLedger.Kind.XFER_IN).aggregate(s=Sum("amount")).get("s") or 0)
     wdr = int(CashLedger.objects.filter(kind=CashLedger.Kind.WITHDRAW).aggregate(s=Sum("amount")).get("s") or 0)
-    xout = int(CashLedger.objects.filter(kind=CashLedger.Kind.XFER_OUT).aggregate(s=Sum("amount")).get("s") or 0)
+    xout= int(CashLedger.objects.filter(kind=CashLedger.Kind.XFER_OUT).aggregate(s=Sum("amount")).get("s") or 0)
     return int(opening + dep + xin - wdr - xout)
 
-
-# ========= Stress Test =========
+# ========= Stress (β=0.9) =========
 def _stress_total_assets(pct: float, snap: dict, cash_total: int) -> int:
     beta = 0.9
     equity_mv = snap["spot_mv"] + snap["margin_mv"]
     stressed_equity = equity_mv * (1.0 + beta * pct / 100.0)
     return int(round(stressed_equity + cash_total))
-
 
 # ========= View =========
 def home(request):
@@ -166,6 +168,7 @@ def home(request):
 
     total_eval_assets = int(snap["spot_mv"] + snap["margin_mv"] + cash["total"])
     unrealized_pnl = int(snap["unrealized"])
+
     realized_month = _sum_realized_month()
     dividend_month = _sum_dividend_month()
     realized_cum = _sum_realized_cum()
@@ -173,54 +176,62 @@ def home(request):
 
     margin_unrealized = int(snap["margin_mv"] - snap["margin_cost"])
     liquidation_value = int(snap["spot_mv"] + margin_unrealized + cash["total"])
+
     invested = _invested_capital()
 
     roi_eval_pct = round(((total_eval_assets - invested) / invested * 100.0), 2) if invested > 0 else None
     roi_liquid_pct = round(((liquidation_value - invested) / invested * 100.0), 2) if invested > 0 else None
-    roi_gap_abs = round(abs(roi_eval_pct - roi_liquid_pct), 2) if (roi_eval_pct and roi_liquid_pct) else None
+    roi_gap_abs = round(abs(roi_eval_pct - roi_liquid_pct), 2) if (roi_eval_pct is not None and roi_liquid_pct is not None) else None
 
     gross_pos = max(int(snap["spot_mv"] + snap["margin_mv"]), 1)
     breakdown_pct = {
         "spot_pct": round(snap["spot_mv"] / gross_pos * 100, 1),
         "margin_pct": round(snap["margin_mv"] / gross_pos * 100, 1),
     }
-    liquidity_rate_pct = round(liquidation_value / total_eval_assets * 100, 1) if total_eval_assets > 0 else 0.0
-    margin_ratio_pct = round(snap["margin_mv"] / gross_pos * 100, 1)
+    liquidity_rate_pct = max(0.0, round(liquidation_value / total_eval_assets * 100, 1)) if total_eval_assets > 0 else 0.0
+    margin_ratio_pct = round(snap["margin_mv"] / gross_pos * 100, 1) if gross_pos > 0 else 0.0
 
-    risk_flags = []
+    # リスクフラグ
+    risk_flags: List[str] = []
     if margin_ratio_pct >= 60.0:
         risk_flags.append(f"信用比率が {margin_ratio_pct}%（60%超）です。余力とボラに注意。")
     if liquidity_rate_pct < 50.0:
         risk_flags.append(f"流動性が {liquidity_rate_pct}% と低め。現金化余地の確保を検討。")
 
-    kpis = dict(
-        total_assets=total_eval_assets,
-        unrealized_pnl=unrealized_pnl,
-        realized_month=realized_month,
-        dividend_month=dividend_month,
-        realized_cum=realized_cum,
-        dividend_cum=dividend_cum,
-        cash_total=cash["total"],
-        liquidation=liquidation_value,
-        invested=invested,
-        roi_eval_pct=roi_eval_pct,
-        roi_liquid_pct=roi_liquid_pct,
-        roi_gap_abs=roi_gap_abs,
-        win_ratio=snap["win_ratio"],
-        liquidity_rate_pct=liquidity_rate_pct,
-        margin_ratio_pct=margin_ratio_pct,
-        margin_unrealized=margin_unrealized,
-    )
+    kpis = {
+        "total_assets": total_eval_assets,
+        "unrealized_pnl": unrealized_pnl,
+        "realized_month": realized_month,
+        "dividend_month": dividend_month,
+        "realized_cum": realized_cum,
+        "dividend_cum": dividend_cum,
+        "cash_total": cash["total"],
+        "liquidation": liquidation_value,
+        "invested": invested,
+        "roi_eval_pct": roi_eval_pct,
+        "roi_liquid_pct": roi_liquid_pct,
+        "roi_gap_abs": roi_gap_abs,
+        "win_ratio": snap["win_ratio"],
+        "liquidity_rate_pct": liquidity_rate_pct,
+        "margin_ratio_pct": margin_ratio_pct,
+        "margin_unrealized": margin_unrealized,
+    }
 
-    # === A/B 割当 ===
-    identity, variant = assign_variant(request, None, "ai_advisor_layout", weights={"A": 0.5, "B": 0.5})
+    sectors = snap["by_sector"]  # ← share_pct / perf_pct を含む
 
     # === AI生成 ===
-    ai_note, ai_items, ai_session_id, weekly_draft, nextmove_draft = svc_advisor.summarize(kpis, snap["by_sector"])
+    ai_note, ai_items, ai_session_id, weekly_draft, nextmove_draft = svc_advisor.summarize(kpis, sectors)
+
     if not ai_note:
-        ai_note = "最新データを解析しました。主要KPIを要約しています。"
+        ai_note = "最新データを解析しました。主要KPIと含み状況を要約しています。"
     if not ai_items:
-        ai_items = [dict(id=0, message="データ不足により提案なし。", score=0.0, taken=False, kind="REBALANCE")]
+        ai_items = [dict(id=0, message="直近のデータが少ないため、提案事項はありません。", score=0.0, taken=False, kind="REBALANCE")]
+
+    if kpis.get("roi_gap_abs") is not None and kpis["roi_gap_abs"] >= 20:
+        key = "評価ROIと現金ROIの乖離が"
+        idx = next((i for i, x in enumerate(ai_items) if key in x["message"]), None)
+        if idx not in (None, 0):
+            ai_items.insert(0, ai_items.pop(idx))
 
     try:
         ai_items = svc_advisor.ensure_session_persisted(ai_note, ai_items, kpis)
@@ -231,26 +242,20 @@ def home(request):
 
     ctx = dict(
         kpis=kpis,
-        sectors=snap["by_sector"],
-        breakdown=dict(spot_mv=snap["spot_mv"], spot_cost=snap["spot_cost"],
-                       margin_mv=snap["margin_mv"], margin_cost=snap["margin_cost"]),
+        sectors=sectors,
+        breakdown=dict(
+            spot_mv=snap["spot_mv"],
+            spot_cost=snap["spot_cost"],
+            margin_mv=snap["margin_mv"],
+            margin_cost=snap["margin_cost"],
+        ),
         breakdown_pct=breakdown_pct,
         risk_flags=risk_flags,
-        cash_total_by_currency=cash["total_by_currency"],
         stressed_default=stressed_default,
         ai_note=ai_note,
         ai_items=ai_items,
         ai_session_id=ai_session_id,
         weekly_draft=weekly_draft,
         nextmove_draft=nextmove_draft,
-        ab_variant=variant,
     )
-
-    # Cookie設定＋イベントログ
-    response = render(request, "home.html", ctx)
-    identity, variant = assign_variant(request, response, "ai_advisor_layout", weights={"A": 0.5, "B": 0.5})
-    try:
-        log_event("ai_advisor_layout", identity, variant, "view", {"path": request.path})
-    except Exception:
-        pass
-    return response
+    return render(request, "home.html", ctx)
