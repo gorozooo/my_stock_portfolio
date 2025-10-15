@@ -132,9 +132,9 @@ document.addEventListener("DOMContentLoaded", () => {
   /* --- メニュー定義 --- */
   const MENUS = {
     home: [
-      { section:"クイック" },
-      { label:"新規登録",         href: URLS.holding_create,  icon:"➕", tone:"add" },
-      { label:"トレンド", href: URLS.trend_base,icon:"📈", tone:"info" },
+      { section:"ホーム" },
+      { label:"AI切替",       href:"/advisor/ab",     icon:"🧠", tone:"info" },
+      { label:"トレンド",       href: URLS.trend_base,icon:"📈", tone:"info" },
       { label:"設定を開く",       href:"/settings/trade",     icon:"⚙️", tone:"info" },
     ],
     holdings: [
