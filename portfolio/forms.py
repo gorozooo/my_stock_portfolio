@@ -30,10 +30,23 @@ class HoldingForm(forms.ModelForm):
 
     class Meta:
         model = Holding
-        fields = ["ticker", "name", "broker", "account", "side", "quantity", "avg_cost", "opened_at", "memo"]
+        # ★ sector を追加（DB保存されるように）
+        fields = [
+            "ticker",
+            "name",
+            "sector",       # ← 追加
+            "broker",
+            "account",
+            "side",
+            "quantity",
+            "avg_cost",
+            "opened_at",
+            "memo",
+        ]
         widgets = {
             "ticker":   forms.TextInput(attrs={"placeholder": "例: 7203 / 167A"}),
             "name":     forms.TextInput(attrs={"placeholder": "例: トヨタ自動車"}),
+            "sector":   forms.TextInput(attrs={"placeholder": "例: 輸送用機器"}),  # ★追加
             "quantity": forms.NumberInput(attrs={"min": "1", "step": "1"}),
             "avg_cost": forms.NumberInput(attrs={"min": "0", "step": "0.01"}),
             "memo":     forms.Textarea(attrs={"rows": 4, "style": "resize:vertical;", "placeholder": "売買理由など"}),
@@ -41,9 +54,9 @@ class HoldingForm(forms.ModelForm):
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
-        # opened_at / memo 以外は必須
+        # opened_at / memo / sector 以外は必須
         for k, f in self.fields.items():
-            if k not in ("opened_at", "memo"):
+            if k not in ("opened_at", "memo", "sector"):
                 f.required = True
                 f.widget.attrs["required"] = "required"
 
@@ -78,10 +91,14 @@ class HoldingForm(forms.ModelForm):
                 pass
         return (name or "").strip()
 
+    def clean_sector(self):
+        """空の場合でも空文字で保存（Noneを避ける）"""
+        return (self.cleaned_data.get("sector") or "").strip()
+
     def clean(self):
         cd = super().clean()
 
-        # 必須（opened_at・memo 以外）
+        # 必須（opened_at・memo・sector 以外）
         req = ["ticker", "name", "broker", "account", "side", "quantity", "avg_cost"]
         missing = [k for k in req if not str(cd.get(k) or "").strip()]
         if "name" in missing:
