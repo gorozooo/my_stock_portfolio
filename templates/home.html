@@ -5,20 +5,19 @@
 
 {% block head %}
 <meta name="csrf-token" content="{{ csrf_token }}">
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=25">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=26">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script defer src="{% static 'js/home.js' %}?v=25"></script>
+<script defer src="{% static 'js/home.js' %}?v=26"></script>
 {% endblock %}
 
 {% block content %}
 
 <!-- 🧠 AIアドバイザー -->
-<section class="ai-header glass" data-ab-variant="{{ ab_variant }}">
-  <div class="ai-title">AIアドバイザー（{{ ab_variant }}版）</div>
+<section class="ai-header glass" data-ab-variant="{{ ab_variant|default:'A' }}">
+  <div class="ai-title">AIアドバイザー（{{ ab_variant|default:'A' }}版）</div>
   <p class="ai-note">{{ ai_note }}</p>
 
-  <!-- 提案リスト -->
-  <ul class="ai-actions" id="aiAdviceList" data-session="{{ ai_session_id }}" data-ab-variant="{{ ab_variant }}">
+  <ul class="ai-actions" id="aiAdviceList" data-session="{{ ai_session_id }}" data-ab-variant="{{ ab_variant|default:'A' }}">
     {% for it in ai_items %}
       {% with p=it.score|default:0 %}
       <li class="ai-item" data-id="{{ it.id|default:0 }}" data-taken="{{ it.taken|yesno:'1,0' }}" style="--prio:{{ p|floatformat:2 }}">
@@ -73,6 +72,7 @@
     {% endwith %}
   </div>
 
+  <!-- ROI -->
   <div class="kpi-card roi-card">
     <div class="roi-row eval">
       <div class="roi-label">ROI（評価ベース）</div>
@@ -103,6 +103,7 @@
     <div class="kpi-sub">税・手数料は考慮なし</div>
   </div>
 
+  <!-- 内訳 -->
   <div class="li-sum-grid">
     <div class="li-item">
       <div class="li-ic spot"></div>
@@ -134,7 +135,38 @@
   {% endif %}
 </section>
 
-<!-- 📈 セクター -->
+<!-- 🧾 内訳（現物/信用） -->
+<section class="glass breakdown">
+  <div class="strip-title">内訳（現物 / 信用）</div>
+
+  <div class="bd-gauge" role="img" aria-label="現物と信用の比率">
+    <div class="bd-gauge-spot"   style="width: {{ breakdown_pct.spot_pct }}%"></div>
+    <div class="bd-gauge-margin" style="width: {{ breakdown_pct.margin_pct }}%"></div>
+  </div>
+  <div class="bd-legend">
+    <span><i class="dot spot"></i>現物 {{ breakdown_pct.spot_pct }}%</span>
+    <span><i class="dot margin"></i>信用 {{ breakdown_pct.margin_pct }}%</span>
+  </div>
+
+  <div class="bd-donut-wrap">
+    <div class="bd-donut"
+         style="--spot: {{ breakdown_pct.spot_pct }}; --margin: {{ breakdown_pct.margin_pct }};"
+         role="img" aria-label="現物と信用のドーナツ構成">
+      <div class="bd-donut-hole">
+        <div class="bd-donut-total">¥{{ kpis.total_assets|intcomma }}</div>
+        <div class="bd-donut-caption">総資産（評価＋現金）</div>
+      </div>
+    </div>
+    <ul class="bd-legend-rows">
+      <li><span class="dot spot"></span><span>現物 評価額</span><strong>¥{{ breakdown.spot_mv|intcomma }}</strong></li>
+      <li class="sub"><span></span><span>取得額</span><span>¥{{ breakdown.spot_cost|intcomma }}</span></li>
+      <li><span class="dot margin"></span><span>信用 評価額</span><strong>¥{{ breakdown.margin_mv|intcomma }}</strong></li>
+      <li class="sub"><span></span><span>取得額</span><span>¥{{ breakdown.margin_cost|intcomma }}</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- 📈 セクター横スク -->
 <section class="sector-strip glass">
   <div class="strip-title">セクター別パフォーマンス</div>
   <div class="strip-scroll">
@@ -152,32 +184,25 @@
   </div>
 </section>
 
-<!-- 🧪 ストレステスト -->
-<section class="stress glass">
+<!-- 🧪 ストレステスト（data属性で総資産を渡す） -->
+<section class="stress glass" id="stressRoot" data-total-mv="{{ kpis.total_assets|default:0 }}">
   <div class="stress-head">
     <div>ストレステスト（株式β=0.9）</div>
-    <div class="stress-result"><span id="stressPct">-5</span>% → 推定総資産 <strong id="stressMV">¥{{ stressed_default|intcomma }}</strong></div>
+    <div class="stress-result"><span id="stressPct">-5</span>% → 推定総資産 <strong id="stressMV">¥0</strong></div>
   </div>
   <input type="range" min="-10" max="10" value="-5" step="1" id="stressSlider" />
 </section>
 
-<!-- 💰 キャッシュフロー -->
-<section class="cash glass">
+<!-- 💰 キャッシュフロー（data属性で値を渡す） -->
+<section class="cash glass" id="cashRoot"
+         data-dividend="{{ kpis.dividend_month|default:0 }}"
+         data-realized="{{ kpis.realized_month|default:0 }}">
   <div class="cash-head">今月のキャッシュフロー</div>
   <canvas id="cashflowChart" height="140"></canvas>
+  <div class="empty-msg" style="display:none;opacity:.7">今月のデータがありません</div>
 </section>
 
-<!-- データ供給 -->
-<script id="home-data" type="application/json">
-{
-  "total_mv": {{ kpis.total_assets|default:0 }},
-  "sectors": {{ sectors|safe }},
-  "cash_bars": [
-    {"label":"配当","value": {{ kpis.dividend_month|default:0 }}},
-    {"label":"実現益","value": {{ kpis.realized_month|default:0 }}}
-  ]
-}
-</script>
+<!-- ドラフト文字列（alert表示用） -->
 <script>
   window.weekly_draft = {{ weekly_draft|safe|escapejs }};
   window.nextmove_draft = {{ nextmove_draft|safe|escapejs }};
