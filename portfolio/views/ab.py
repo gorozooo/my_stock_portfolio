@@ -135,4 +135,4 @@ def ab_dashboard(request: HttpRequest) -> HttpResponse:
         horizon_days=horizon_days,
         now_str=timezone.now().strftime("%Y年%m月%d日 %H:%M"),
     )
-    return render(request, "ab_dashboard.html", ctx)
+    return render(request, "advisor_ab.html", ctx)
