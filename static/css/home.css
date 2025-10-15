@@ -4,7 +4,13 @@
   --pri:#6ea8ff; --acc:#00ffd1; --good:#26d07c; --bad:#ff5b6e;
   --radius:14px;
 }
-body{ background: radial-gradient(1200px 600px at 20% -10%, #132035 0%, #0b0f1a 55%) fixed; color:var(--fg); }
+*{-webkit-tap-highlight-color:transparent}
+body{
+  background: radial-gradient(1200px 600px at 20% -10%, #132035 0%, #0b0f1a 55%) fixed;
+  color:var(--fg);
+  margin:0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+}
 .glass{
   border-radius: var(--radius);
   background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
@@ -18,17 +24,18 @@ section{ margin:14px 12px; }
 .ai-header{ padding:14px; }
 .ai-title{ font-weight:700; letter-spacing:.2px; margin-bottom:6px; }
 .ai-note{ margin:6px 0 10px; color:var(--fg); line-height:1.55; }
-.ai-tools{ margin-top:8px; }
+.ai-tools{ margin-top:8px; display:flex; gap:10px; flex-wrap:wrap; }
 .btn.ghost{
   border:1px solid var(--pri); color:var(--pri); background:transparent;
-  padding:8px 12px; border-radius:10px; margin-right:8px;
+  padding:10px 14px; border-radius:12px; min-height:42px;
+  font-size:0.95rem; touch-action:manipulation;
 }
 
 /* 提案リスト：2カラム（チェック / 本文＋バー＋優先度） */
 .ai-actions{ margin:0; padding:0; list-style:none; color:var(--muted); }
 .ai-actions .ai-item{
   display:grid;
-  grid-template-columns:28px 1fr;
+  grid-template-columns:40px 1fr;
   column-gap:10px; row-gap:4px;
   padding:10px 8px; border-radius:12px;
   border:1px solid rgba(255,255,255,.08);
@@ -37,9 +44,10 @@ section{ margin:14px 12px; }
 }
 .ai-actions .ai-check{
   background:transparent; border:1px solid rgba(255,255,255,.18);
-  width:28px; height:28px; border-radius:6px;
-  line-height:26px; display:grid; place-items:center;
-  cursor:pointer; color:#9fb5ff; font-size:16px;
+  width:36px; height:36px; border-radius:8px;
+  line-height:34px; display:grid; place-items:center;
+  cursor:pointer; color:#9fb5ff; font-size:18px;
+  touch-action:manipulation;
 }
 .ai-actions .ai-text{ display:flex; flex-direction:column; gap:6px; }
 .ai-actions .msg{ color:var(--fg); line-height:1.6; }
@@ -106,13 +114,13 @@ section{ margin:14px 12px; }
 
 /* ===== 今すぐ現金化（ヒーロー＋3サマリー） ===== */
 .liquidation{ padding:14px; }
-.liq-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+.liq-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; gap:10px; }
 .liq-head .title{ font-weight:700; font-size:1rem; }
 .chip{
   background:rgba(255,255,255,.08);
   border:1px solid rgba(255,255,255,.15);
-  padding:4px 8px; border-radius:999px;
-  font-size:.8rem; color:var(--muted);
+  padding:6px 10px; border-radius:999px;
+  font-size:.85rem; color:var(--muted);
 }
 .liq-hero{ text-align:left; }
 .liq-total{ font-size:2rem; font-weight:800; margin-top:4px; letter-spacing:.3px; }
@@ -163,18 +171,29 @@ section{ margin:14px 12px; }
 /* ===== セクター / ストレス / キャッシュ ===== */
 .sector-strip, .cash, .stress{padding:12px;}
 .strip-title{margin-bottom:8px;color:var(--muted);font-size:.95rem;}
-.strip-scroll{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;}
-.sector-chip{min-width:160px;padding:10px;border-radius:12px;background:var(--glass);border:1px solid var(--line);}
+.strip-scroll{
+  display:flex; gap:10px; overflow-x:auto; padding-bottom:4px;
+  -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity;
+}
+.sector-chip{
+  min-width:160px; padding:10px; border-radius:12px;
+  background:var(--glass); border:1px solid var(--line);
+  scroll-snap-align: start;
+}
 .sec-name{font-weight:600;margin-bottom:4px;}
 .sec-meta{display:flex;gap:8px;align-items:center;}
 .sec-meta .mv{color:var(--muted);font-size:.85rem;}
-.sec-meta .rate{font-weight:700;}
-.sec-meta .rate.pos{color:var(--good);}
-.sec-meta .rate.neg{color:var(--bad);}
+/* ← テンプレに合わせて .share を採用（率の色付けは下の strong.pos/neg） */
+.sec-meta .share{font-weight:700;}
+.sec-sub{margin-top:2px;font-size:.85rem;opacity:.9}
+.sec-sub strong.pos{color:var(--good);}
+.sec-sub strong.neg{color:var(--bad);}
+
 .cash-head{margin-bottom:8px;color:var(--muted);}
-.stress-head{display:flex;justify-content:space-between;margin-bottom:8px;}
+.stress-head{display:flex;justify-content:space-between;margin-bottom:8px;gap:8px;align-items:center;}
 #stressSlider{width:100%;}
 
+/* 改善要因ボックス */
 .ai-insights{margin-top:10px;padding:10px;border:1px dashed rgba(255,255,255,.18);border-radius:10px;background:rgba(255,255,255,.04)}
 .ai-insights .ins-title{font-weight:700;margin-bottom:6px;opacity:.95}
 .ai-insights .ins-list{margin:0;padding-left:18px;opacity:.9}
@@ -183,6 +202,7 @@ section{ margin:14px 12px; }
 @media (max-width: 460px){
   .bd-donut-wrap{grid-template-columns:1fr;justify-items:center}
   .bd-legend-rows{width:100%}
+  .kpi-grid{ grid-template-columns:1fr 1fr; }
 }
 @media (min-width: 960px){
   .kpi-grid{ grid-template-columns: repeat(4, 1fr); }
