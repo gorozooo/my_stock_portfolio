@@ -1,15 +1,13 @@
-# portfolio/management/commands/advisor_weekly_digest.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-from datetime import timedelta
 from typing import Dict, List
 
 from django.core.management.base import BaseCommand, CommandParser
 from django.core.mail import send_mail
 from django.conf import settings
-from django.utils import timezone
 
 from ...models_advisor import AdviceSession, AdviceItem
+from ...services.insights import generate_insights  # 追加：改善要因
 
 def _fmt_pct(v):
     return "--" if v is None else f"{v:.2f}%"
@@ -41,6 +39,14 @@ def _summarize_latest() -> Dict:
             chk = "✅" if it.taken else "☐"
             lines.append(f"{chk} {it.message}  (優先度 {it.score:.2f})")
 
+    # 追加：改善要因（AI推定）
+    title, bullets = generate_insights(horizon_days=7, since_days=90, top_k=3)
+    lines.append("")
+    lines.append("——— 改善要因（AI推定） ———")
+    lines.append(title)
+    for b in bullets:
+        lines.append(b)
+
     body = "\n".join(lines)
     return {"exists": True, "body": body}
 
@@ -48,10 +54,13 @@ class Command(BaseCommand):
     help = "最新セッションから週次レポートを作成し、メール送信します。"
 
     def add_arguments(self, parser: CommandParser) -> None:
-        parser.add_argument("--to", type=str, default=getattr(settings, "ADMIN_EMAIL", ""),
-                           help="送信先メール（カンマ区切り可）。未指定なら settings.ADMIN_EMAIL を使用")
-        parser.add_argument("--subject", type=str, default="AI週次レポート",
-                           help="件名")
+        parser.add_argument(
+            "--to",
+            type=str,
+            default=getattr(settings, "ADMIN_EMAIL", ""),
+            help="送信先メール（カンマ区切り可）。未指定なら settings.ADMIN_EMAIL を使用",
+        )
+        parser.add_argument("--subject", type=str, default="🧠 AI週次レポート", help="件名")
 
     def handle(self, *args, **opts):
         summary = _summarize_latest()
@@ -59,7 +68,8 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("No sessions yet."))
             return
 
-        to = [x.strip() for x in (opts["to"] or "").split(",") if x.strip()]
+        to_raw = (opts["to"] or getattr(settings, "ADMIN_EMAIL", "") or "").strip()
+        to = [x.strip() for x in to_raw.split(",") if x.strip()]
         if not to:
             self.stdout.write(self.style.WARNING("No recipient (--to or settings.ADMIN_EMAIL). Only printing."))
             self.stdout.write(summary["body"])
