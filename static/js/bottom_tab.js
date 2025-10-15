@@ -134,6 +134,7 @@ document.addEventListener("DOMContentLoaded", () => {
     home: [
       { section:"ホーム" },
       { label:"AI切替",       href:"/advisor/ab",     icon:"🧠", tone:"info" },
+      { label:"運用履歴",       href:"/advisor/policy",     icon:"📊", tone:"info" },
       { label:"トレンド",       href: URLS.trend_base,icon:"📈", tone:"info" },
       { label:"設定を開く",       href:"/settings/trade",     icon:"⚙️", tone:"info" },
     ],
