@@ -271,6 +271,9 @@ def home(request):
         ai_session_id=ai_session_id,
         weekly_draft=weekly_draft,
         nextmove_draft=nextmove_draft,
+        ai_insights_title=ins_title,
+        ai_insights_bullets=ins_bullets,
+
     )
     resp: HttpResponse = render(request, "home.html", ctx)
     # 7日間クッキー
