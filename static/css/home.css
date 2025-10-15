@@ -175,6 +175,10 @@ section{ margin:14px 12px; }
 .stress-head{display:flex;justify-content:space-between;margin-bottom:8px;}
 #stressSlider{width:100%;}
 
+.ai-insights{margin-top:10px;padding:10px;border:1px dashed rgba(255,255,255,.18);border-radius:10px;background:rgba(255,255,255,.04)}
+.ai-insights .ins-title{font-weight:700;margin-bottom:6px;opacity:.95}
+.ai-insights .ins-list{margin:0;padding-left:18px;opacity:.9}
+
 /* ===== レスポンシブ ===== */
 @media (max-width: 460px){
   .bd-donut-wrap{grid-template-columns:1fr;justify-items:center}
