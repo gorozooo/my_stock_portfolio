@@ -5,14 +5,13 @@
 
 {% block head %}
 <meta name="csrf-token" content="{{ csrf_token }}">
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=26">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=27">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script defer src="{% static 'js/home.js' %}?v=27"></script>
 {% endblock %}
 
 {% block content %}
 
-<!-- 🧠 AIアドバイザー -->
 <section class="ai-header glass" data-ab-variant="{{ ab_variant|default:'A' }}">
   <div class="ai-title">AIアドバイザー（{{ ab_variant|default:'A' }}版）</div>
   <p class="ai-note">{{ ai_note }}</p>
@@ -44,27 +43,24 @@
   </div>
 </section>
 
-<!-- 📊 KPI -->
+<!-- KPI -->
 <section class="kpi-grid">
   <div class="kpi-card">
     <div class="kpi-label">総資産</div>
     <div class="kpi-value">¥{{ kpis.total_assets|intcomma }}</div>
   </div>
-
   <div class="kpi-card">
     <div class="kpi-label">含み損益</div>
     {% with v=kpis.unrealized_pnl %}
       <div class="kpi-value {% if v > 0 %}pos{% elif v < 0 %}neg{% endif %}">¥{{ v|intcomma }}</div>
     {% endwith %}
   </div>
-
   <div class="kpi-card">
     <div class="kpi-label">総実現損益</div>
     {% with v=kpis.realized_cum %}
       <div class="kpi-value {% if v > 0 %}pos{% elif v < 0 %}neg{% endif %}">¥{{ v|intcomma }}</div>
     {% endwith %}
   </div>
-
   <div class="kpi-card">
     <div class="kpi-label">今月の実現損益</div>
     {% with v=kpis.realized_month %}
@@ -72,7 +68,6 @@
     {% endwith %}
   </div>
 
-  <!-- ROI -->
   <div class="kpi-card roi-card">
     <div class="roi-row eval">
       <div class="roi-label">ROI（評価ベース）</div>
@@ -91,7 +86,7 @@
   </div>
 </section>
 
-<!-- 💵 現金化シミュレーション -->
+<!-- 現金化シミュレーション -->
 <section class="liquidation glass">
   <div class="liq-head">
     <div class="title">今すぐ全て現金化したら</div>
@@ -103,19 +98,18 @@
     <div class="kpi-sub">税・手数料は考慮なし</div>
   </div>
 
-  <!-- 内訳 -->
   <div class="li-sum-grid">
     <div class="li-item">
       <div class="li-ic spot"></div>
       <div class="li-meta">
-        <div class="li-label">現物の評価額</div>
+        <div class="li-label">現物 評価額</div>
         <div class="li-value">¥{{ breakdown.spot_mv|intcomma }}</div>
       </div>
     </div>
     <div class="li-item">
       <div class="li-ic margin"></div>
       <div class="li-meta">
-        <div class="li-label">信用の含み損益</div>
+        <div class="li-label">信用 含み損益</div>
         <div class="li-value {% if kpis.margin_unrealized < 0 %}neg{% else %}pos{% endif %}">¥{{ kpis.margin_unrealized|intcomma }}</div>
       </div>
     </div>
@@ -135,7 +129,7 @@
   {% endif %}
 </section>
 
-<!-- 🧾 内訳（現物/信用） -->
+<!-- 現物/信用 内訳 -->
 <section class="glass breakdown">
   <div class="strip-title">内訳（現物 / 信用）</div>
 
@@ -166,17 +160,18 @@
   </div>
 </section>
 
-<!-- 📈 セクター横スク -->
+<!-- セクター配分 -->
 <section class="sector-strip glass">
-  <div class="strip-title">セクター別パフォーマンス</div>
+  <div class="strip-title">セクター別構成</div>
   <div class="strip-scroll">
     {% for s in sectors %}
       <div class="sector-chip">
         <div class="sec-name">{{ s.sector }}</div>
         <div class="sec-meta">
           <span class="mv">¥{{ s.mv|intcomma }}</span>
-          <span class="rate {% if s.rate > 0 %}pos{% elif s.rate < 0 %}neg{% endif %}">{{ s.rate }}%</span>
+          <span class="rate">{{ s.share_pct }}%</span>
         </div>
+        <div class="sec-sub">参考: 騰落 {{ s.perf_pct }}%</div>
       </div>
     {% empty %}
       <div class="empty">データがありません</div>
@@ -184,7 +179,7 @@
   </div>
 </section>
 
-<!-- 🧪 ストレステスト（data属性で総資産を渡す） -->
+<!-- ストレステスト -->
 <section class="stress glass" id="stressRoot" data-total-mv="{{ kpis.total_assets|default:0 }}">
   <div class="stress-head">
     <div>ストレステスト（株式β=0.9）</div>
@@ -193,7 +188,7 @@
   <input type="range" min="-10" max="10" value="-5" step="1" id="stressSlider" />
 </section>
 
-<!-- 💰 キャッシュフロー（data属性で値を渡す） -->
+<!-- キャッシュフロー（JSで空時はメッセージ） -->
 <section class="cash glass" id="cashRoot"
          data-dividend="{{ kpis.dividend_month|default:0 }}"
          data-realized="{{ kpis.realized_month|default:0 }}">
@@ -202,7 +197,6 @@
   <div class="empty-msg" style="display:none;opacity:.7">今月のデータがありません</div>
 </section>
 
-<!-- ドラフト文字列（alert表示用） -->
 <script>
   window.weekly_draft = {{ weekly_draft|safe|escapejs }};
   window.nextmove_draft = {{ nextmove_draft|safe|escapejs }};
