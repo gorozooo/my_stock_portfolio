@@ -6,6 +6,7 @@ import json, tempfile, os
 
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
+from django.conf import settings
 
 from portfolio.models_advisor import AdviceItem
 
@@ -33,7 +34,7 @@ class Command(BaseCommand):
             "--out",
             type=str,
             default="media/advisor/policy.json",
-            help="出力先パス（プロジェクトルートからの相対 or 絶対パス）",
+            help="出力先パス（プロジェクトルートからの相対 or 絶対パス）。相対の場合は MEDIA_ROOT を起点に解決",
         )
         parser.add_argument(
             "--bias",
@@ -53,13 +54,26 @@ class Command(BaseCommand):
             default=1.30,
             help="重みの上限（クリップ） default=1.30",
         )
+        parser.add_argument(
+            "--print",
+            action="store_true",
+            help="生成した policy を標準出力に表示",
+        )
 
     def handle(self, *args, **opts):
         days = int(opts["days"])
-        out_path = Path(opts["out"])
+        out_arg = str(opts["out"])
         bias = float(opts["bias"])
         clip_low = float(opts["clip_low"])
         clip_high = float(opts["clip_high"])
+        do_print = bool(opts["print"])
+
+        # 出力先パス解決（相対なら MEDIA_ROOT 起点）
+        if os.path.isabs(out_arg):
+            out_path = Path(out_arg)
+        else:
+            base = getattr(settings, "MEDIA_ROOT", "") or os.getcwd()
+            out_path = Path(base) / out_arg
 
         since = timezone.now() - timedelta(days=days)
 
@@ -70,13 +84,8 @@ class Command(BaseCommand):
             .values("kind", "taken")
         )
 
-        if not qs.exists():
-            self.stdout.write(self.style.WARNING(
-                f"No AdviceItem found in last {days} days. 出力はデフォルト重みになります。"
-            ))
-
         # kind ごとに「提示件数」と「採用件数」を集計
-        kinds = {}
+        kinds: dict[str, dict[str, int]] = {}
         for row in qs:
             k = row["kind"] or "REBALANCE"
             taken = 1 if row["taken"] else 0
@@ -84,27 +93,31 @@ class Command(BaseCommand):
             acc["n"] += 1
             acc["taken"] += taken
 
-        # ラプラス平滑化で (taken+1)/(n+2) → 採用率のラフな推定
-        # さらに全 kind の平均が 1.0 になるように正規化
-        raw_weight = {}
-        for k, v in kinds.items():
-            n = v["n"]
-            t = v["taken"]
-            p = (t + 1) / (n + 2) if n >= 0 else 0.5  # 0件でも0.5
-            raw_weight[k] = p
-
-        if not raw_weight:
-            # 実績が全く無い場合はデフォルト種別だけ用意
-            raw_weight = {
-                "REBALANCE": 1.0,
-                "ADD_CASH": 1.0,
-                "TRIM_WINNERS": 1.0,
-                "CUT_LOSERS": 1.0,
-                "REDUCE_MARGIN": 1.0,
+        # 実績ゼロの場合の既定セット（可読性のため代表的な種類を含める）
+        if not kinds:
+            self.stdout.write(self.style.WARNING(
+                f"No AdviceItem found in last {days} days. 出力はデフォルト重みになります。"
+            ))
+            kinds = {
+                "REBALANCE": {"n": 0, "taken": 0},
+                "ADD_CASH": {"n": 0, "taken": 0},
+                "TRIM_WINNERS": {"n": 0, "taken": 0},
+                "CUT_LOSERS": {"n": 0, "taken": 0},
+                "REDUCE_MARGIN": {"n": 0, "taken": 0},
             }
 
+        # ラプラス平滑化で (taken+1)/(n+2) → 採用率のラフな推定
+        raw_weight: dict[str, float] = {}
+        for k, v in kinds.items():
+            n = int(v.get("n", 0))
+            t = int(v.get("taken", 0))
+            p = (t + 1) / (n + 2) if n >= 0 else 0.5  # 0件でも0.5
+            raw_weight[k] = float(p)
+
+        # 平均が 1.0 になるように正規化
         avg = sum(raw_weight.values()) / max(len(raw_weight), 1)
-        normed = {k: (v / (avg or 1.0)) for k, v in raw_weight.items()}  # 平均1.0に正規化
+        avg = avg or 1.0
+        normed = {k: (v / avg) for k, v in raw_weight.items()}
 
         # クリップ & 全体バイアス乗算
         kind_weight = {
@@ -112,15 +125,37 @@ class Command(BaseCommand):
             for k, w in normed.items()
         }
 
-        # policy.json を作成
+        # サマリ（可視化用に counts も保存）
+        total_items = sum(int(v["n"]) for v in kinds.values())
+        counts = {k: int(v["n"]) for k, v in kinds.items()}
+
         payload = {
             "version": 1,
-            "updated_at": timezone.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "updated_at": timezone.now().isoformat(),
+            "window_days": days,
             "bias": bias,
+            "clip": {"low": clip_low, "high": clip_high},
+            "summary": {"total_items": total_items, "counts": counts},
             "kind_weight": kind_weight,
         }
 
+        # 書き込み（本体）
         _atomic_write(out_path, json.dumps(payload, ensure_ascii=False, indent=2))
+
+        # 履歴コピー（policy_YYYY-MM-DD.json）
+        try:
+            ts = payload["updated_at"][:10]  # YYYY-MM-DD
+            hist_dir = out_path.parent / "history"
+            hist_dir.mkdir(parents=True, exist_ok=True)
+            hist_path = hist_dir / f"policy_{ts}.json"
+            _atomic_write(hist_path, json.dumps(payload, ensure_ascii=False, indent=2))
+        except Exception as e:
+            # 履歴失敗は致命的ではないので警告のみ
+            self.stdout.write(self.style.WARNING(f"history write failed: {e}"))
+
+        if do_print:
+            self.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2))
+
         self.stdout.write(self.style.SUCCESS(
             f"Wrote policy.json → {out_path}  (kinds={len(kind_weight)})"
         ))
