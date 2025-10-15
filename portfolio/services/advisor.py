@@ -304,28 +304,33 @@ def next_move(kpis: Dict, sectors: List[Dict]) -> str:
 # =========================
 # エントリポイント
 # =========================
-def summarize(kpis: Dict, sectors: List[Dict]) -> Tuple[str, List[Dict], str, str, str]:
+def summarize(kpis: Dict, sectors: List[Dict], variant: str = "A") -> Tuple[str, List[Dict], str, str, str]:
     """
-    戻り値:
-      ai_note: ヘッダー要約（自然文）
-      ai_items: 提案（id/message/score/taken）
-      session_id: 表示世代ID（キャッシュキー等に）
-      weekly: 週次レポート素案
-      nextmove: 次の一手素案
+    variant:
+      'A' -> ルールのみ
+      'B' -> policy.json 補正を使ってスコアをブースト
     """
     ai_note = _header_note(kpis, sectors)
 
-    # 1) ルールで候補を作る
+    # まずルールで候補
     base_items = _rules(kpis, sectors)
+    feats = _build_features(kpis, sectors)
 
-    # 2) policy.json でスコア自動補正
-    items = _apply_policy(base_items, kpis, sectors)
+    use_policy = (variant == "B")
+    scored: List[AdviceItemView] = []
+    pol_score = _score_with_policy(feats) if use_policy else None
+    policy_ok = (pol_score is not None)
 
-    # 3) 連投制御 + 上位3件チェック（念のため再適用）
-    items = _post_process(items)
+    for it in base_items:
+        score = it.score
+        if use_policy and policy_ok:
+            # ルール 0.6 + policy 0.4
+            score = max(0.0, min(1.0, 0.6 * float(it.score) + 0.4 * float(pol_score)))
+        scored.append(AdviceItemView(id=it.id, message=it.message, score=score, taken=it.taken))
 
+    items = _post_process(scored if (use_policy and policy_ok) else base_items)
     ai_items = [asdict(it) for it in items]
-    session_id = _hash_msg(ai_note)[:8]
+    session_id = sha1(ai_note.encode("utf-8")).hexdigest()[:8]
     weekly = weekly_report(kpis, sectors)
     nextmove = next_move(kpis, sectors)
     return ai_note, ai_items, session_id, weekly, nextmove
@@ -333,36 +338,28 @@ def summarize(kpis: Dict, sectors: List[Dict]) -> Tuple[str, List[Dict], str, st
 # =========================
 # セッション永続化（ビューから呼ぶ）
 # =========================
-def ensure_session_persisted(ai_note: str, ai_items: list, kpis: dict):
+def ensure_session_persisted(ai_note: str, ai_items: list, kpis: dict, variant: str = "A"):
     """
-    - 毎回保存しすぎ防止のため、ai_note のハッシュをキーに 3時間クールダウン。
-    - 保存時に AdviceSession / AdviceItem を作成し、DB発番IDで ai_items を上書き返却。
+    セッション永続化: AdviceSession/AdviceItem を保存
+    - context_json にも ab_variant を残す
+    - AdviceSession.variant にも保存
     """
-    from ..models_advisor import AdviceSession, AdviceItem  # 循環回避のため内部import
+    ctx = dict(kpis or {})
+    ctx.setdefault("ab_variant", variant)
 
-    # クールダウン（3h）
-    cd_key = f"advisor:session:{_hash_msg(ai_note)}"
-    if cache.get(cd_key):
-        return ai_items
-    cache.set(cd_key, 1, timeout=3 * 60 * 60)
-
-    sess = AdviceSession.objects.create(context_json=kpis, note=(ai_note or "")[:200])
-
-    new_items = []
-    for it in ai_items:
-        obj = AdviceItem.objects.create(
-            session=sess,
-            kind=it.get("kind", "REBALANCE"),
-            message=it.get("message", ""),
-            score=float(it.get("score", 0.0)),
-            taken=bool(it.get("taken", False)),
-            reasons=it.get("reasons", []),
+    session = AdviceSession.objects.create(
+        context_json=ctx,
+        note=ai_note[:200],
+        variant=variant,
+    )
+    for item in ai_items:
+        AdviceItem.objects.create(
+            session=session,
+            kind=item.get("kind", "REBALANCE"),
+            message=item.get("message", ""),
+            score=item.get("score", 0.0),
+            taken=item.get("taken", False),
+            reasons=item.get("reasons", []),
         )
-        new_items.append({
-            "id": obj.id,
-            "message": obj.message,
-            "score": obj.score,
-            "taken": obj.taken,
-            "kind": obj.kind,
-        })
-    return new_items
+    # DBの実IDが付いた訳ではあるが、呼び元の描画はそのままでOK
+    return ai_items
