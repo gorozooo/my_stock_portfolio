@@ -11,6 +11,7 @@ from django.db.models import Sum
 from django.http import HttpResponse
 
 from ..services import advisor as svc_advisor
+from ..services.insights import generate_insights   # ← 追加：AIインサイト生成
 from ..models import Holding, RealizedTrade
 from ..models_cash import BrokerAccount, CashLedger
 
@@ -229,7 +230,9 @@ def home(request):
     ]
 
     # === AI生成（variant を渡すと B 側は policy 補正が効く実装にしてある前提）===
-    ai_note, ai_items, ai_session_id, weekly_draft, nextmove_draft = svc_advisor.summarize(kpis, sectors, variant=variant)
+    ai_note, ai_items, ai_session_id, weekly_draft, nextmove_draft = svc_advisor.summarize(
+        kpis, sectors, variant=variant
+    )
 
     if not ai_note:
         ai_note = "最新データを解析しました。主要KPIと含み状況を要約しています。"
@@ -248,6 +251,9 @@ def home(request):
         ai_items = svc_advisor.ensure_session_persisted(ai_note, ai_items, kpis, variant=variant)
     except Exception as e:
         print(f"[WARN] advisor session save failed: {e}")
+
+    # 🧠 追加：AIインサイト生成（未定義エラー対策）
+    ins_title, ins_bullets = generate_insights(horizon_days=7, since_days=90, top_k=3)
 
     stressed_default = _stress_total_assets(-5.0, snap, cash["total"])
 
@@ -271,9 +277,8 @@ def home(request):
         ai_session_id=ai_session_id,
         weekly_draft=weekly_draft,
         nextmove_draft=nextmove_draft,
-        ai_insights_title=ins_title,
-        ai_insights_bullets=ins_bullets,
-
+        ai_insights_title=ins_title,      # ← 追加
+        ai_insights_bullets=ins_bullets,  # ← 追加
     )
     resp: HttpResponse = render(request, "home.html", ctx)
     # 7日間クッキー
