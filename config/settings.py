@@ -156,11 +156,13 @@ CRONTAB_LOCK_JOBS = True
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 587
-EMAIL_HOST_USER = "coco.louis67@gmail.com"
-EMAIL_HOST_PASSWORD = "pmcv dzpj pdnd vdhj"  # 通常のPW不可
 EMAIL_USE_TLS = True
+
+EMAIL_HOST_USER = "coco.louis67@gmail.com"  # ← あなたのGmail
+EMAIL_HOST_PASSWORD = "pmcvdzpjpdndvdhj"   # ← この16桁パス（スペースなし）
+
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
-ADMIN_EMAIL = "coco.louis67@gmail.com"
+ADMIN_EMAIL = "coco.louis67@gmail.com"     # ← 送信先も自分でOK
 
 # --- 参考（本番切替時の推奨。今は DEBUG=True なのでコメントのままでOK） ---
 # SESSION_COOKIE_SECURE = True
