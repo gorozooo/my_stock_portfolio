@@ -363,3 +363,42 @@ def ensure_session_persisted(ai_note: str, ai_items: list, kpis: dict, variant: 
         )
     # DBの実IDが付いた訳ではあるが、呼び元の描画はそのままでOK
     return ai_items
+    
+# ==============================
+# policy.json を使ったスコア補正
+# ==============================
+import os, json
+
+def _score_with_policy(feats: dict) -> float:
+    """
+    policy.json の重みを読み込み、特徴量 dict からスコア（0〜1）を返す。
+    存在しない・読み込めない場合は None を返す。
+    """
+    try:
+        # --- ファイルパス解決 ---
+        base_dir = os.path.dirname(__file__)
+        policy_path = os.path.join(base_dir, "policy.json")
+
+        if not os.path.exists(policy_path):
+            return None
+
+        # --- JSON読込 ---
+        with open(policy_path, "r", encoding="utf-8") as f:
+            policy = json.load(f)
+
+        weights = policy.get("weights", {})
+        bias = float(policy.get("bias", 0.0))
+
+        # --- スコア計算 ---
+        score = bias
+        for k, v in feats.items():
+            if k in weights:
+                score += float(weights[k]) * float(v)
+
+        # sigmoid風正規化（-1〜+1 → 0〜1）
+        score = 1 / (1 + pow(2.71828, -score))
+        return round(float(score), 4)
+
+    except Exception as e:
+        print(f"[advisor] policy load failed: {e}")
+        return None
