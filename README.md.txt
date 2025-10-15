@@ -20,7 +20,7 @@ python manage.py createsuperuser
 python manage.py shell
 
 cron（自動スケジューラ）を開く
-crontab -l
+crontab -e
 
 #### ③ `requirements.txt` の作成
 
