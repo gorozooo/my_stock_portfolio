@@ -289,7 +289,11 @@ def _apply_policy(items: List[AdviceItemView], kpis: Dict, sectors: List[Dict]) 
 # =========================
 def weekly_report(kpis: Dict, sectors: List[Dict]) -> str:
     head = _header_note(kpis, sectors)
-    sect = ", ".join([f"{s['sector']} {s['rate']}%" for s in sectors[:5]]) or "—"
+    sect = ", ".join([
+        f"{s.get('sector', '-')}"
+        f" {s.get('rate', s.get('share_pct', 0))}%"
+        for s in sectors[:5]
+    ]) or "--"
     return f"{head} セクター概況: {sect}。勝率データは今後追加予定。"
 
 def next_move(kpis: Dict, sectors: List[Dict]) -> str:
