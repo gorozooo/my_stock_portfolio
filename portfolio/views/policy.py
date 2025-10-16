@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 import os, glob, json
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from django.conf import settings
@@ -47,11 +47,7 @@ def _weighted_winrate(policy: Dict) -> Optional[float]:
     return (s / w) if w > 0 else None
 
 def _media_candidates() -> List[str]:
-    """
-    MEDIA_ROOT の配下における候補ディレクトリを返す。
-    - <MEDIA_ROOT>/advisor/history
-    - <MEDIA_ROOT>/media/advisor/history   （環境によってこちらに置いているケースがあった）
-    """
+    """MEDIA_ROOT 配下で履歴を探す候補ディレクトリ"""
     mr = getattr(settings, "MEDIA_ROOT", "") or os.getcwd()
     return [
         os.path.join(mr, "advisor", "history"),
@@ -59,7 +55,7 @@ def _media_candidates() -> List[str]:
     ]
 
 def _single_main_candidates() -> List[str]:
-    """単発ファイル policy.json の候補"""
+    """単発 policy.json の候補"""
     mr = getattr(settings, "MEDIA_ROOT", "") or os.getcwd()
     return [
         os.path.join(mr, "advisor", "policy.json"),
@@ -67,7 +63,7 @@ def _single_main_candidates() -> List[str]:
     ]
 
 def _load_history() -> List[Dict]:
-    """policy_YYYY-MM-DD.json を新しい順で読み込み。無ければ単発 policy.json を読む。"""
+    """policy_YYYY-MM-DD.json を読み込む。無ければ単発 policy.json を読む。"""
     paths: List[str] = []
     for base in _media_candidates():
         if os.path.isdir(base):
@@ -106,61 +102,60 @@ def _points_from_history(hist: List[Dict]) -> Tuple[List[Dict], Optional[int]]:
         self_score = obj.get("self_score")
         horizon = obj.get("horizon_days", 7)
         points.append(dict(label=label, score=score, winrt=winrt, self_score=self_score, horizon=horizon, raw=obj))
-    # ベストインデックス
+
     best_idx = None
     best_val = None
     for i, p in enumerate(points):
         if p["score"] is None:
             continue
         if (best_val is None) or (p["score"] > best_val):
-            best_val = p["score"]; best_idx = i
+            best_val = p["score"]
+            best_idx = i
     return points, best_idx
 
-# ========= View =========
-@require_http_methods(["GET", "POST"])
-def policy_history(request):
+# ========= 学習実行（POST 専用） =========
+@require_http_methods(["POST"])
+def policy_retrain_apply(request):
     """
-    GET:   履歴のグラフ表示
-    POST:  学習を実行（advisor_learn）→ policy.json を上書き、任意で advisor_snapshot 作成
+    「AI再訓練＆適用」ボタンのPOSTを受ける専用エンドポイント。
+    - advisor_policy_snapshot（任意）
+    - advisor_learn（必須）→ media/advisor/policy.json を更新
+    - advisor_run --dry-run（任意通知）
+    完了後は policy_history にリダイレクト（PRG）。
     """
-    flash: Optional[str] = None
+    days = int(request.POST.get("days") or "90")
+    make_snap = bool(request.POST.get("make_snap"))
+    notify = (request.POST.get("notify") or "").strip()
 
-    if request.method == "POST":
-        # form 値
-        days = int(request.POST.get("days") or "90")
-        make_snap = bool(request.POST.get("make_snap"))
-        notify = (request.POST.get("notify") or "").strip()
-
-        # 1) （任意）スナップショット（policy_YYYY-MM-DD.json）作成
-        if make_snap:
-            try:
-                # advisor_policy_snapshot (days はダッシュボードに記録のため渡す)
-                call_command("advisor_policy_snapshot", days=days)
-                messages.success(request, "policy のスナップショットを作成しました。")
-            except Exception as e:
-                messages.warning(request, f"スナップショット作成に失敗: {e}")
-
-        # 2) 学習（advisor_learn）→ policy.json 反映
+    # スナップショット
+    if make_snap:
         try:
-            call_command("advisor_learn", days=days, out="media/advisor/policy.json")
-            flash = f"policy.json を更新しました（days={days}）。"
+            call_command("advisor_policy_snapshot", days=days)
+            messages.success(request, "policy のスナップショットを作成しました。")
         except Exception as e:
-            messages.error(request, f"学習に失敗しました: {e}")
+            messages.warning(request, f"スナップショット作成に失敗: {e}")
 
-        # 3) （任意）通知メール
-        if notify:
-            try:
-                call_command("advisor_run", email=notify, dry_run=True)
-                messages.success(request, f"テスト通知（dry-run）を {notify} に送信しました。")
-            except Exception as e:
-                messages.warning(request, f"通知送信に失敗: {e}")
+    # 学習 & 反映
+    try:
+        call_command("advisor_learn", days=days, out="media/advisor/policy.json")
+        messages.success(request, f"policy.json を更新しました（days={days}）。")
+    except Exception as e:
+        messages.error(request, f"学習に失敗しました: {e}")
 
-        # Post/Redirect/Get で二重送信防止
-        if flash:
-            request.session["flash_msg"] = flash
-        return redirect("policy_history")
+    # 通知（任意 / dry-run）
+    if notify:
+        try:
+            call_command("advisor_run", email=notify, dry_run=True)
+            messages.success(request, f"テスト通知（dry-run）を {notify} に送信しました。")
+        except Exception as e:
+            messages.warning(request, f"通知送信に失敗: {e}")
 
-    # GET: 履歴読み込み
+    return redirect("policy_history")
+
+# ========= 履歴ページ（GET） =========
+@require_http_methods(["GET"])
+def policy_history(request):
+    """policy 履歴を可視化"""
     hist = _load_history()
     points, best_idx = _points_from_history(hist)
     ctx = dict(
@@ -169,6 +164,5 @@ def policy_history(request):
         best_idx=best_idx,
         best=(points[best_idx] if best_idx is not None else None),
         now=timezone.now(),
-        flash_msg=request.session.pop("flash_msg", None),
     )
     return render(request, "advisor_policy.html", ctx)
