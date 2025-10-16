@@ -117,32 +117,40 @@ def _points_from_history(hist: List[Dict]) -> Tuple[List[Dict], Optional[int]]:
 @require_http_methods(["POST"])
 def policy_retrain_apply(request):
     """
-    「AI再訓練＆適用」ボタンのPOSTを受ける専用エンドポイント。
-    - advisor_policy_snapshot（任意）
-    - advisor_learn（必須）→ media/advisor/policy.json を更新
-    - advisor_run --dry-run（任意通知）
-    完了後は policy_history にリダイレクト（PRG）。
+    「AI再訓練＆適用」ボタン用エンドポイント（PRG）。
+      1) 任意で advisor_snapshot を実行（学習前スナップショット作成）
+      2) advisor_learn で学習し、media/advisor/policy.json を更新（必須）
+      3) 任意で advisor_run を dry-run 送信（通知テスト）
+    完了後は policy 可視化ページへリダイレクト。
     """
-    days = int(request.POST.get("days") or "90")
-    make_snap = bool(request.POST.get("make_snap"))
+    # --- 入力 ---
+    try:
+        days = int(request.POST.get("days") or "90")
+    except Exception:
+        days = 90
+
+    # チェックボックスは "on"/"1"/"true" などを許容
+    raw_make_snap = (request.POST.get("make_snap") or "").strip().lower()
+    make_snap = raw_make_snap in ("1", "true", "on", "yes")
     notify = (request.POST.get("notify") or "").strip()
 
-    # スナップショット
+    # --- 1) スナップショット（任意） ---
     if make_snap:
         try:
-            call_command("advisor_policy_snapshot", days=days)
-            messages.success(request, "policy のスナップショットを作成しました。")
+            # ← 正しいコマンド名に修正：advisor_snapshot
+            call_command("advisor_snapshot", days=days)
+            messages.success(request, f"スナップショットを作成しました（days={days}）。")
         except Exception as e:
             messages.warning(request, f"スナップショット作成に失敗: {e}")
 
-    # 学習 & 反映
+    # --- 2) 学習 & 反映（必須） ---
     try:
         call_command("advisor_learn", days=days, out="media/advisor/policy.json")
         messages.success(request, f"policy.json を更新しました（days={days}）。")
     except Exception as e:
         messages.error(request, f"学習に失敗しました: {e}")
 
-    # 通知（任意 / dry-run）
+    # --- 3) 通知（任意 / dry-run） ---
     if notify:
         try:
             call_command("advisor_run", email=notify, dry_run=True)
@@ -150,6 +158,7 @@ def policy_retrain_apply(request):
         except Exception as e:
             messages.warning(request, f"通知送信に失敗: {e}")
 
+    # 可視化ページ（URL name は advisor_policy に統一）
     return redirect("advisor_policy")
 
 # ========= 履歴ページ（GET） =========
