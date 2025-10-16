@@ -97,8 +97,9 @@ def _holdings_snapshot() -> dict:
     total_unrealized_pnl = (spot_mv + margin_mv) - (spot_cost + margin_cost)
 
     qs = RealizedTrade.objects.all()
-    win = sum(1 for r in qs if _to_float(getattr(r, "pnl", 0)) > 0)
-    lose = sum(1 for r in qs if _to_float(getattr(r, "pnl", 0)) < 0)
+    # RealizedTrade に pnl フィールドは無い前提（勝率は近似でカウント）
+    win = sum(1 for r in qs if _to_float(getattr(r, "cashflow", 0)) > 0)
+    lose = sum(1 for r in qs if _to_float(getattr(r, "cashflow", 0)) < 0)
     total_trades = win + lose
     win_ratio = round((win / total_trades * 100.0) if total_trades else 0.0, 1)
 
@@ -126,7 +127,7 @@ def _rt_date_field() -> Optional[str]:
     先に見つかったものを採用。なければ None。
     """
     candidates = (
-        "trade_at",     # ← これが抜けていた！
+        "trade_at",     # ← 重要：あなたのモデルではこれがある
         "closed_at",
         "executed_at",
         "settled_at",
@@ -155,7 +156,7 @@ def _sum_realized_month() -> int:
     if cash_sum:
         return int(cash_sum)
 
-    # 2) Ledgerが無ければ RealizedTrade の「月次」だけ集計する
+    # 2) Ledger が無ければ RealizedTrade の「月次」だけ集計
     date_field = _rt_date_field()
     if not date_field:
         # 日付フィールド不明のときは誤って累計に落ちないように 0 を返す
@@ -166,7 +167,7 @@ def _sum_realized_month() -> int:
         f"{date_field}__lt": next_first,
     })
 
-    # 実損額が cashflow に入っている前提。別ならここを差し替え。
+    # 実損額が cashflow に入っている前提
     trade_sum = qs.aggregate(s=Sum("cashflow")).get("s") or 0
     return int(trade_sum)
 
@@ -179,14 +180,14 @@ def _sum_dividend_month() -> int:
     return int(sum(int(x.amount) for x in qs))
 
 def _sum_realized_cum() -> int:
-    # CashLedger優先
+    # CashLedger 優先
     cash_sum = CashLedger.objects.filter(
         source_type=CashLedger.SourceType.REALIZED
     ).aggregate(s=Sum("amount")).get("s") or 0
     if cash_sum:
         return int(cash_sum)
 
-    # RealizedTradeのcashflow合計を使う
+    # RealizedTrade の cashflow 合計を使用
     trade_sum = RealizedTrade.objects.aggregate(s=Sum("cashflow")).get("s") or 0
     return int(trade_sum)
 
@@ -222,10 +223,15 @@ def home(request):
     total_eval_assets = int(snap["spot_mv"] + snap["margin_mv"] + cash["total"])
     unrealized_pnl = int(snap["unrealized"])
 
+    # --- 実現損益・配当（純売買と配当をまず分離して取得）
     realized_month = _sum_realized_month()
     dividend_month = _sum_dividend_month()
-    realized_cum = _sum_realized_cum()
-    dividend_cum = _sum_dividend_cum()
+    realized_cum   = _sum_realized_cum()
+    dividend_cum   = _sum_dividend_cum()
+
+    # --- 表示用：配当込み（ダブルカウント防止のため表示だけ別キーに）
+    realized_month_incl = int(realized_month + dividend_month)
+    realized_cum_incl   = int(realized_cum + dividend_cum)
 
     margin_unrealized = int(snap["margin_mv"] - snap["margin_cost"])
     liquidation_value = int(snap["spot_mv"] + margin_unrealized + cash["total"])
@@ -253,10 +259,19 @@ def home(request):
     kpis = {
         "total_assets": total_eval_assets,
         "unrealized_pnl": unrealized_pnl,
+
+        # ===== 純売買（従来どおり保持：他画面・グラフ用） =====
         "realized_month": realized_month,
-        "dividend_month": dividend_month,
         "realized_cum": realized_cum,
+
+        # ===== 配当（個別KPIとしても保持） =====
+        "dividend_month": dividend_month,
         "dividend_cum": dividend_cum,
+
+        # ===== 表示用：配当込み（ホームのカード向け） =====
+        "realized_month_incl": realized_month_incl,
+        "realized_cum_incl": realized_cum_incl,
+
         "cash_total": cash["total"],
         "liquidation": liquidation_value,
         "invested": invested,
@@ -272,6 +287,8 @@ def home(request):
     }
 
     sectors = snap["by_sector"]
+
+    # キャッシュフローは配当と実現益を分離表示したいので従来通り分けて渡す
     cash_bars = [
         {"label": "配当", "value": dividend_month},
         {"label": "実現益", "value": realized_month},
