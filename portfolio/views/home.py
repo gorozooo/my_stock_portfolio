@@ -120,13 +120,37 @@ def _holdings_snapshot() -> dict:
     )
 
 # ========= Realized / Dividend =========
+def _rt_date_field() -> Optional[str]:
+    """RealizedTrade の日付フィールドを自動検出（存在する最初のものを使う）"""
+    candidates = ("closed_at", "executed_at", "trade_date", "settled_at", "at", "date", "sold_at")
+    for name in candidates:
+        try:
+            RealizedTrade._meta.get_field(name)
+            return name
+        except Exception:
+            continue
+    return None
+
 def _sum_realized_month() -> int:
     first, next_first = _month_bounds()
-    qs = CashLedger.objects.filter(
+
+    # 1) CashLedger を優先
+    cash_sum = CashLedger.objects.filter(
         source_type=CashLedger.SourceType.REALIZED,
         at__gte=first, at__lt=next_first,
-    )
-    return int(sum(int(x.amount) for x in qs))
+    ).aggregate(s=Sum("amount")).get("s") or 0
+
+    if cash_sum:
+        return int(cash_sum)
+
+    # 2) Ledger が空なら RealizedTrade の pnl を使用
+    date_field = _rt_date_field()
+    qs = RealizedTrade.objects.all()
+    if date_field:
+        qs = qs.filter(**{f"{date_field}__gte": first, f"{date_field}__lt": next_first})
+
+    trade_sum = qs.aggregate(s=Sum("pnl")).get("s") or 0
+    return int(trade_sum)
 
 def _sum_dividend_month() -> int:
     first, next_first = _month_bounds()
@@ -137,10 +161,17 @@ def _sum_dividend_month() -> int:
     return int(sum(int(x.amount) for x in qs))
 
 def _sum_realized_cum() -> int:
-    return int(
-        CashLedger.objects.filter(source_type=CashLedger.SourceType.REALIZED)
-        .aggregate(s=Sum("amount")).get("s") or 0
-    )
+    # 1) CashLedger を優先
+    cash_sum = CashLedger.objects.filter(
+        source_type=CashLedger.SourceType.REALIZED
+    ).aggregate(s=Sum("amount")).get("s") or 0
+
+    if cash_sum:
+        return int(cash_sum)
+
+    # 2) Ledger が空なら RealizedTrade の pnl を使用
+    trade_sum = RealizedTrade.objects.aggregate(s=Sum("pnl")).get("s") or 0
+    return int(trade_sum)
 
 def _sum_dividend_cum() -> int:
     return int(
