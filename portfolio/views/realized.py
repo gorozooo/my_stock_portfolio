@@ -1297,9 +1297,8 @@ def summary_partial(request):
 @require_GET
 def close_sheet(request, pk: int):
     """
-    保有 → 売却のボトムシート。
-    HTMX(hx-get) で #sheetRoot に innerHTML として差し込むため、
-    ここは JSON ではなく “素のHTML” を返す。
+    保有 → 売却/買付のボトムシート（名前は close のまま）
+    - クエリ ?side=SELL|BUY で初期タブを指定（既定: SELL）
     """
     try:
         # --- Holding 取得（user フィールド有無の両対応）---
@@ -1307,12 +1306,6 @@ def close_sheet(request, pk: int):
         if any(f.name == "user" for f in Holding._meta.fields):
             holding_filters["user"] = request.user
         h = get_object_or_404(Holding, **holding_filters)
-
-        # --- 直近 RealizedTrade（user フィールド有無の両対応）---
-        rt_qs = RealizedTrade.objects.all()
-        if any(f.name == "user" for f in RealizedTrade._meta.fields):
-            rt_qs = rt_qs.filter(user=request.user)
-        last = rt_qs.order_by("-trade_at", "-id").first()
 
         def g(obj, name, default=""):
             return getattr(obj, name, default) if obj is not None else default
@@ -1322,33 +1315,32 @@ def close_sheet(request, pk: int):
         if h_qty in (None, ""):
             h_qty = g(h, "qty", 0)
 
-        # ★ プリセット：可能なら Holding の broker / account を優先
-        pre_broker  = (g(h, "broker", "") or g(last, "broker", "") or "OTHER")
-        pre_account = (g(h, "account", "") or g(last, "account", "") or "SPEC")
+        # プリセット：Holding の broker / account を優先
+        pre_broker  = (g(h, "broker", "") or "OTHER")
+        pre_account = (g(h, "account", "") or "SPEC")
+
+        # 既定のsideはSELL。?side=BUY で初期表示を買付に。
+        side_qs = (request.GET.get("side") or "SELL").upper()
+        if side_qs not in ("SELL", "BUY"):
+            side_qs = "SELL"
 
         ctx = {
             "h": h,
             "h_qty": h_qty,  # ← テンプレから常にこれを参照
             "prefill": {
                 "date": timezone.localdate().isoformat(),
-                "side": "SELL",
                 "ticker": g(h, "ticker", ""),
                 "name":   g(h, "name", ""),
-                "qty":    h_qty,
-                "price":  "",
-                "fee":    "",
-                "cashflow": "",
-                "memo":   "",
-                "broker": pre_broker,        # ← Holding 優先
-                "account": pre_account,      # ← Holding 優先（SPEC/MARGIN/NISA）
+                "broker": pre_broker,
+                "account": pre_account,
             },
+            "initial_side": side_qs,  # ← テンプレのタブ初期表示用
         }
 
         html = render_to_string("realized/_close_sheet.html", ctx, request=request)
         return HttpResponse(html)  # ★ HTML をそのまま返す
 
     except Exception as e:
-        # 失敗時も 200 で “エラー用の簡易シートHTML” を返す（スマホで原因を見せる）
         logger.exception("close_sheet error (pk=%s): %s", pk, e)
         import traceback
         tb = traceback.format_exc()
@@ -1376,11 +1368,14 @@ def close_sheet(request, pk: int):
 @transaction.atomic
 def close_submit(request, pk: int):
     """
-    保有行の「売却」を登録（平均取得から手数料を逆算）。
-    - 実損（手数料控除前）＝ cashflow（±で手入力）
-    - 手数料 = (売値 − basis) × 数量 − 実損
-    - Holding.user の有無、通常POST/HTMX の両方に耐える
-    - ★ basis と hold_days を RealizedTrade に保存
+    保有行から SELL/BUY を登録。
+    SELL:
+      - 実損（手数料控除前）＝ cashflow（±手入力、未入力は0）
+      - fee = (price − basis) × 数量 − 実損 を逆算
+      - Holding 数量を減算（0以下で削除）
+    BUY:
+      - 実損（投資家PnL）は未実現なので cashflow は既定 0（入力があれば尊重）
+      - Holding 数量を加算し、平均取得単価(avg_cost)を加重平均で更新
     """
     try:
         # --- Holding 取得（user 有無の両対応） ---
@@ -1389,7 +1384,7 @@ def close_submit(request, pk: int):
             filters["user"] = request.user
         h = get_object_or_404(Holding, **filters)
 
-        # --- 入力 ---
+        # --- 共通入力 ---
         date_raw = (request.POST.get("date") or "").strip()
         try:
             trade_at = (
@@ -1399,14 +1394,19 @@ def close_submit(request, pk: int):
         except Exception:
             trade_at = timezone.localdate()
 
-        side = "SELL"
+        side = (request.POST.get("side") or "SELL").upper()
+        if side not in ("SELL", "BUY"):
+            side = "SELL"
+
         try:
             qty_in = int(request.POST.get("qty") or 0)
         except Exception:
             qty_in = 0
 
         price       = _to_dec(request.POST.get("price"))
-        cashflow_in = request.POST.get("cashflow")  # 実損（手数料控除前 / ±）
+        fee_in      = _to_dec(request.POST.get("fee"))
+        tax_in      = _to_dec(request.POST.get("tax"))
+        cashflow_in = request.POST.get("cashflow")  # ± 任意
         pnl_input   = None if cashflow_in in (None, "") else _to_dec(cashflow_in)
 
         broker  = (request.POST.get("broker")  or "OTHER").upper()
@@ -1415,94 +1415,154 @@ def close_submit(request, pk: int):
         name    = (request.POST.get("name")    or "").strip() or getattr(h, "name", "") or ""
 
         # --- バリデーション（数量/価格） ---
+        if qty_in <= 0 or price <= 0:
+            return JsonResponse({"ok": False, "error": "数量/価格を確認してください"}, status=400)
+
+        # quantity/avg_cost 取得（旧フィールド名も考慮）
         held_qty = getattr(h, "quantity", None)
         if held_qty is None:
             held_qty = getattr(h, "qty", 0)
-        if qty_in <= 0 or price <= 0 or qty_in > held_qty:
-            return JsonResponse({"ok": False, "error": "数量/価格を確認してください"}, status=400)
+        avg_cost = getattr(h, "avg_cost", None)
+        avg_cost = Decimal(str(avg_cost or "0"))
 
-        # --- basis(平均取得単価) 検出 ---
-        basis_candidates = [
-            "avg_cost", "average_cost", "avg_price", "average_price",
-            "basis", "cost_price", "cost_per_share", "avg", "average",
-            "avg_unit_cost", "avg_purchase_price",
-        ]
-        basis = None
-        for fname in basis_candidates:
-            v = getattr(h, fname, None)
-            if v not in (None, ""):
-                try:
-                    basis = Decimal(str(v))
-                    break
-                except Exception:
-                    continue
-        if basis is None:
-            return JsonResponse(
-                {"ok": False, "error": "保有の平均取得単価(basis)が見つかりません。"},
-                status=400,
-            )
+        # ---------- SELL ----------
+        if side == "SELL":
+            if qty_in > held_qty:
+                return JsonResponse({"ok": False, "error": "売却数量が保有数量を超えています"}, status=400)
 
-        # --- 実損が未入力なら 0 扱い ---
-        if pnl_input is None:
-            pnl_input = Decimal("0")
+            # basis(平均取得単価) 検出
+            basis_candidates = [
+                "avg_cost", "average_cost", "avg_price", "average_price",
+                "basis", "cost_price", "cost_per_share", "avg", "average",
+                "avg_unit_cost", "avg_purchase_price",
+            ]
+            basis = None
+            for fname in basis_candidates:
+                v = getattr(h, fname, None)
+                if v not in (None, ""):
+                    try:
+                        basis = Decimal(str(v))
+                        break
+                    except Exception:
+                        continue
+            if basis is None:
+                return JsonResponse(
+                    {"ok": False, "error": "保有の平均取得単価(basis)が見つかりません。"},
+                    status=400,
+                )
 
-        # --- 手数料を逆算 ---
-        fee = (price - basis) * Decimal(qty_in) - pnl_input
+            # 実損（未入力なら0）
+            if pnl_input is None:
+                pnl_input = Decimal("0")
 
-        # --- 保有日数（opened_at を優先。無ければ created_at を使用） ---
-        days_held = None
-        try:
-            opened_date = None
-            oa = getattr(h, "opened_at", None)
-            if oa:
-                opened_date = oa  # DateField
+            # 手数料を逆算（税もfeeに内包する前提）
+            fee = (price - basis) * Decimal(qty_in) - pnl_input
+            tax = Decimal("0")
 
-            ca = getattr(h, "created_at", None)
-            if not opened_date and ca:
-                opened_date = ca.date()  # DateTime -> date
-
-            if opened_date:
-                d = (trade_at - opened_date).days
-                days_held = max(d, 0)
-        except Exception:
+            # 保有日数（opened_at を優先。無ければ created_at を使用）
             days_held = None
+            try:
+                opened_date = None
+                oa = getattr(h, "opened_at", None)
+                if oa:
+                    opened_date = oa
+                ca = getattr(h, "created_at", None)
+                if not opened_date and ca:
+                    opened_date = ca.date()
+                if opened_date:
+                    d = (trade_at - opened_date).days
+                    days_held = max(d, 0)
+            except Exception:
+                days_held = None
 
-        # --- 登録 ---
-        rt_kwargs = dict(
-            trade_at=trade_at,
-            side=side,
-            ticker=getattr(h, "ticker", ""),
-            name=name,
-            broker=broker,
-            account=account,
-            qty=qty_in,
-            price=price,
-            fee=fee,
-            cashflow=pnl_input,   # 実損（±）
-            basis=basis,          # 平均取得単価
-            hold_days=days_held,  # 保有日数
-            memo=memo,
-        )
-        if any(f.name == "user" for f in RealizedTrade._meta.fields):
-            rt_kwargs["user"] = request.user
-        RealizedTrade.objects.create(**rt_kwargs)
+            # RealizedTrade 登録
+            rt_kwargs = dict(
+                trade_at=trade_at,
+                side="SELL",
+                ticker=getattr(h, "ticker", ""),
+                name=name,
+                broker=broker,
+                account=account,
+                qty=qty_in,
+                price=price,
+                fee=fee,
+                tax=tax,
+                cashflow=pnl_input,   # 実損（±）
+                basis=basis,          # 平均取得単価
+                hold_days=days_held,
+                memo=memo,
+            )
+            if any(f.name == "user" for f in RealizedTrade._meta.fields):
+                rt_kwargs["user"] = request.user
+            RealizedTrade.objects.create(**rt_kwargs)
 
-        # --- 保有数量の更新（0 以下で削除）---
-        if hasattr(h, "quantity"):
-            h.quantity = F("quantity") - qty_in
-            h.save(update_fields=["quantity"])
-            h.refresh_from_db()
-            if h.quantity <= 0:
-                h.delete()
+            # 保有数量の更新（0 以下で削除）
+            if hasattr(h, "quantity"):
+                h.quantity = F("quantity") - qty_in
+                h.save(update_fields=["quantity"])
+                h.refresh_from_db()
+                if h.quantity <= 0:
+                    h.delete()
+            else:
+                h.qty = F("qty") - qty_in
+                h.save(update_fields=["qty"])
+                h.refresh_from_db()
+                if h.qty <= 0:
+                    h.delete()
+
+        # ---------- BUY ----------
         else:
-            # 旧フィールド名互換
-            h.qty = F("qty") - qty_in
-            h.save(update_fields=["qty"])
-            h.refresh_from_db()
-            if h.qty <= 0:
-                h.delete()
+            # BUY は実損を計上しないのが基本 → 入力が無ければ 0
+            if pnl_input is None:
+                pnl_input = Decimal("0")
 
-        # --- 再描画片を用意 ---
+            # RealizedTrade 登録（basisは平均%計算に使わないのでNoneのまま）
+            rt_kwargs = dict(
+                trade_at=trade_at,
+                side="BUY",
+                ticker=getattr(h, "ticker", ""),
+                name=name,
+                broker=broker,
+                account=account,
+                qty=qty_in,
+                price=price,
+                fee=fee_in,
+                tax=tax_in,
+                cashflow=pnl_input,  # 既定0。入力があればそのまま保存
+                basis=None,
+                hold_days=None,      # 未クローズなので不要
+                memo=memo,
+            )
+            if any(f.name == "user" for f in RealizedTrade._meta.fields):
+                rt_kwargs["user"] = request.user
+            RealizedTrade.objects.create(**rt_kwargs)
+
+            # 保有を増量 & 平均取得単価を加重平均で更新（fee/taxは含めず単価ベース）
+            # 必要なら fee/tax を含めた実コストで平均化に変えてOK。
+            new_qty = int(held_qty) + int(qty_in)
+            if new_qty <= 0:
+                new_avg = avg_cost
+            else:
+                new_avg = ((avg_cost * Decimal(int(held_qty))) + (price * Decimal(int(qty_in)))) / Decimal(new_qty)
+
+            if hasattr(h, "quantity"):
+                h.quantity = new_qty
+                h.avg_cost = new_avg.quantize(Decimal("0.01"))
+                if not getattr(h, "opened_at", None):
+                    h.opened_at = trade_at
+                h.save(update_fields=["quantity", "avg_cost", "opened_at"])
+            else:
+                # 旧フィールド互換
+                h.qty = new_qty
+                try:
+                    h.avg_cost = new_avg.quantize(Decimal("0.01"))
+                    if not getattr(h, "opened_at", None):
+                        h.opened_at = trade_at
+                    h.save(update_fields=["qty", "avg_cost", "opened_at"])
+                except Exception:
+                    h.save(update_fields=["qty"])
+
+        # --- 再描画片を用意（実現明細 & サマリー）---
         q = (request.POST.get("q") or "").strip()
         qs = RealizedTrade.objects.all()
         if any(f.name == "user" for f in RealizedTrade._meta.fields):
@@ -1517,7 +1577,7 @@ def close_submit(request, pk: int):
         table_html   = render_to_string("realized/_table.html",   {"trades": rows}, request=request)
         summary_html = render_to_string("realized/_summary.html", {"agg": agg, "q": q}, request=request)
 
-        # 保有一覧（user フィールド有無に対応）
+        # 保有一覧も更新（user フィールド有無に対応）
         try:
             holdings_qs = Holding.objects.all()
             if any(f.name == "user" for f in Holding._meta.fields):
@@ -1528,7 +1588,6 @@ def close_submit(request, pk: int):
         except Exception:
             holdings_html = ""
 
-        # --- HTMX / 通常POST 両対応 ---
         if request.headers.get("HX-Request") == "true":
             return JsonResponse({"ok": True, "table": table_html, "summary": summary_html, "holdings": holdings_html})
         else:
