@@ -208,10 +208,26 @@ def _format_mail(kpis: Dict[str, Any], items: List[Dict[str, Any]]) -> str:
     lines.append(f"🧠 AIモーニング助言（{timezone.now():%Y-%m-%d %H:%M}）")
     lines.append("")
     lines.append(f"総資産: ¥{kpis.get('total_assets',0):,}")
-    lines.append(f"評価ROI: {('--' if kpis.get('roi_eval_pct') is None else f'{kpis['roi_eval_pct']:.2f}%')}  /  現金ROI: {('--' if kpis.get('roi_liquid_pct') is None else f'{kpis['roi_liquid_pct']:.2f}%')}")
+
+    eval_roi = (
+        "--" if kpis.get("roi_eval_pct") is None
+        else f"{kpis['roi_eval_pct']:.2f}%"
+    )
+    liquid_roi = (
+        "--" if kpis.get("roi_liquid_pct") is None
+        else f"{kpis['roi_liquid_pct']:.2f}%"
+    )
+
+    lines.append(f"評価ROI: {eval_roi} / 現金ROI: {liquid_roi}")
+
     if kpis.get("roi_gap_abs") is not None:
         lines.append(f"ROI乖離: {kpis['roi_gap_abs']:.1f}pt")
-    lines.append(f"現金: ¥{kpis.get('cash_total',0):,} / 流動性: {kpis.get('liquidity_rate_pct',0):.1f}% / 信用比率: {kpis.get('margin_ratio_pct',0):.1f}%")
+
+    lines.append(
+        f"現金: ¥{kpis.get('cash_total',0):,} / "
+        f"流動性: {kpis.get('liquidity_rate_pct',0):.1f}% / "
+        f"信用比率: {kpis.get('margin_ratio_pct',0):.1f}%"
+    )
     lines.append("")
     lines.append("▶ 本日の提案（上位）")
     if not items:
@@ -221,6 +237,7 @@ def _format_mail(kpis: Dict[str, Any], items: List[Dict[str, Any]]) -> str:
             chk = "✅" if it.get("taken") else "☐"
             score = float(it.get("score") or 0.0)
             lines.append(f"{chk} {it.get('message','')}  (優先度 {score:.2f})")
+
     return "\n".join(lines)
 
 # ====== コマンド ======
