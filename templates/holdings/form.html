@@ -26,6 +26,8 @@
   .btn-bar button:hover, .btn-bar a:hover{ background:rgba(255,255,255,.12); }
   .error-box{ padding:10px; border:1px solid #ff9aa9; background:#2b1f24; color:#ffd1d1; border-radius:8px; font-size:14px; }
   .hint {font-size:12px;color:#888}
+  .loading-dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:#9aa4b2; margin-left:6px; animation:bl 1s infinite; vertical-align:middle;}
+  @keyframes bl{0%{opacity:.2}50%{opacity:1}100%{opacity:.2}}
 </style>
 {% endblock %}
 
@@ -38,7 +40,7 @@
 
     <!-- コード -->
     <div class="fi">
-      <label>コード <span class="hint">例: 7203 / AAPL</span></label>
+      <label>コード <span class="hint">例: 7203 / AAPL</span><span class="loading-dot" id="codeSpin" style="display:none"></span></label>
       <input
         type="text"
         name="ticker"
@@ -116,19 +118,24 @@
   const $ticker = document.querySelector('input[name="ticker"]');
   const $name   = document.querySelector('input[name="name"]');
   const $sector = document.querySelector('input[name="sector"]');
+  const $spin   = document.getElementById('codeSpin');
 
   if (!$ticker || !$name) return;
 
-  let userEditedName = false;     // ← name は従来どおりの扱い
+  let userEditedName = false;
   let nameAutofilled = false;
   let lastResolved   = { code: "", name: "", sector: "" };
+
+  // 競合対策：最新のリクエストだけ有効にする
+  let ac = null; // AbortController
 
   // 🔠 入力中に大文字化 & セクターはコード変更のたびに一旦クリア
   $ticker.addEventListener('input', ()=>{
     const v = ($ticker.value || '').toUpperCase();
     const changed = v !== lastResolved.code;
     $ticker.value = v;
-    if (changed && $sector) $sector.value = "";   // ★ クリアして毎回上書き前提に
+    if (changed && $sector) $sector.value = "";
+    debLookup();
   });
 
   $name.addEventListener('input', ()=>{
@@ -146,10 +153,8 @@
     const curCode = ($ticker.value || '').trim();
     const codeChanged = !!data.code && data.code !== lastResolved.code;
 
-    // --- コードは常に正規化して表示 ---
     if (data.code) $ticker.value = String(data.code).toUpperCase();
 
-    // --- 銘柄名：従来ロジック（上書き優先のまま） ---
     const safeToOverwriteName =
       !userEditedName || nameAutofilled || !$name.value || $name.value === lastResolved.name;
     if ((codeChanged || safeToOverwriteName) && data.name) {
@@ -158,9 +163,9 @@
       userEditedName = false;
     }
 
-    // --- セクター：常に上書き（手入力していても毎回置き換える）---
-    if ($sector) {
-      $sector.value = data.sector || "";   // ★ ここがポイント
+    if ($sector && data.sector !== undefined) {
+      // 常に上書き（空文字も明示的に反映）
+      $sector.value = data.sector || "";
     }
 
     lastResolved = {
@@ -170,18 +175,52 @@
     };
   }
 
-  function lookup(){
-    const v = ($ticker.value || '').trim();
-    if (!v) return;
-    fetch(`${endpoint}?code=${encodeURIComponent(v)}`, {credentials:'same-origin'})
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(applyData)
-      .catch(()=>{});
+  function setLoading(on){
+    if ($spin) $spin.style.display = on ? '' : 'none';
   }
 
-  $ticker.addEventListener('input',  debounce(lookup, 250));
-  $ticker.addEventListener('change', lookup);
-  $ticker.addEventListener('blur',   lookup);
+  function lookup(tryCount=0){
+    const v = ($ticker.value || '').trim();
+    if (!v) return;
+
+    // 既存リクエストをキャンセル
+    if (ac) ac.abort();
+    ac = new AbortController();
+
+    setLoading(true);
+    fetch(`${endpoint}?code=${encodeURIComponent(v)}`, {
+      credentials:'same-origin',
+      signal: ac.signal
+    })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => {
+        setLoading(false);
+        applyData(data);
+
+        // セクターが空なら軽くリトライ（API側がフォールバックで埋まるまでの猶予）
+        if ((!data || !data.sector) && tryCount < 2) {
+          setTimeout(()=>lookup(tryCount+1), 600);
+        }
+      })
+      .catch(err => {
+        setLoading(false);
+        // キャンセル以外は控えめに1回だけ再試行
+        if (tryCount < 1 && (!err || err.name !== 'AbortError')) {
+          setTimeout(()=>lookup(tryCount+1), 600);
+        }
+      });
+  }
+
+  const debLookup = debounce(lookup, 300);
+
+  // 入力確定系でも呼ぶ
+  $ticker.addEventListener('change', ()=>lookup(0));
+  $ticker.addEventListener('blur',   ()=>lookup(0));
+
+  // 初期値が入ってるときはページロード時に自動解決
+  if (($ticker.value || '').trim()) {
+    lookup(0);
+  }
 })();
 </script>
 {% endblock %}
