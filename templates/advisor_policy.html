@@ -4,6 +4,7 @@
 {% block title %}policy履歴 | My株ポートフォリオ{% endblock %}
 
 {% block head %}
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <link rel="stylesheet" href="{% static 'css/home.css' %}?v=30">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
@@ -11,20 +12,22 @@
   .ph-card{ padding:14px; }
   .muted{ opacity:.7; }
 
-  /* コントロール（1行レイアウト→スマホ縦並び） */
-  .ctl{ display:grid; gap:8px; margin-bottom:10px; }
-  .ctl-row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  .ctl select, .ctl input[type="email"]{
-    background: rgba(255,255,255,.06); color:#fff; border:1px solid rgba(255,255,255,.2);
-    padding:8px 10px; border-radius:10px; min-width:110px;
+  /* 学習フォーム (スマホ向け) */
+  .train-box{ margin-top:10px; padding:12px; border-radius:12px;
+    border:1px dashed rgba(255,255,255,.22); background:rgba(255,255,255,.05);}
+  .field{ display:grid; grid-template-columns:1fr; row-gap:6px; margin:10px 0;}
+  .field label{ font-size:.95rem; color:var(--muted); }
+  .select, .input{ width:100%; padding:10px 12px; border-radius:10px;
+    border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.06); color:var(--fg);}
+  .row{ display:flex; align-items:center; gap:10px; }
+  .checkbox{ display:flex; align-items:center; gap:8px; font-size:.95rem; color:var(--fg); }
+  .btn-primary{
+    appearance:none; width:100%; padding:12px; border-radius:12px;
+    border:1px solid #6ea8ff; color:#e8eeff; background:rgba(110,168,255,.15);
+    font-weight:700;
   }
-  .ctl .btn{
-    border:1px solid var(--pri); color:#fff; background: linear-gradient(180deg, rgba(110,168,255,.25), rgba(110,168,255,.05));
-    padding:10px 14px; border-radius:12px; font-weight:700;
-  }
-  .ctl .sub{ font-size:.85rem; opacity:.8; }
   .best-box{
-    margin-top:10px; padding:10px; border-radius:12px;
+    margin-top:12px; padding:10px; border-radius:12px;
     border:1px solid rgba(255,255,255,.15);
     background: rgba(255,255,255,.05);
   }
@@ -33,6 +36,7 @@
   @media (max-width: 460px){
     .best-box .kv{ grid-template-columns:100px 1fr; }
   }
+  .flash{ margin-top:8px; font-size:.95rem; }
 </style>
 {% endblock %}
 
@@ -40,26 +44,11 @@
 <section class="glass ph-wrap ph-card">
   <div class="ai-title">policy履歴（改善スコア & 勝率）</div>
 
-  <!-- 統合トリガー：学習→適用→通知 -->
-  <div class="ctl">
-    <div class="ctl-row">
-      <select id="daysSel" aria-label="学習対象期間">
-        <option value="90" selected>通常運用（過去90日）</option>
-        <option value="365">月次レポート（過去365日）</option>
-        <option value="730">初回再学習（過去730日）</option>
-      </select>
-      <label class="sub"><input type="checkbox" id="snapshotChk"> 学習前にスナップショット作成</label>
-    </div>
-    <div class="ctl-row">
-      <input id="emailBox" type="email" placeholder="通知メール（任意）">
-      <button id="btnRetrainApply" class="btn">AI再訓練＆適用</button>
-      <span id="msg" class="sub"></span>
-    </div>
-  </div>
+  {% if flash_msg %}
+    <div class="flash">✅ {{ flash_msg }}</div>
+  {% endif %}
 
-  {% if not has_data %}
-    <p class="muted">履歴がありません。<code>MEDIA_ROOT/advisor/history/</code> に <code>policy_YYYY-MM-DD.json</code> を蓄積してください。単発のみなら <code>MEDIA_ROOT/advisor/policy.json</code> を読み込みます。</p>
-  {% else %}
+  {% if has_data %}
     <canvas id="policyChart" height="180"></canvas>
 
     {% if best %}
@@ -73,17 +62,54 @@
       </div>
     </div>
     {% endif %}
+  {% else %}
+    <p class="muted">
+      履歴がありません。<code>MEDIA_ROOT/advisor/history/</code> に <code>policy_YYYY-MM-DD.json</code> を蓄積してください。<br>
+      単発のみなら <code>MEDIA_ROOT/advisor/policy.json</code> を読み込みます。
+    </p>
   {% endif %}
+
+  <!-- 学習フォーム：ボタンが押せない問題は、type="submit" & CSRF & POSTハンドラで解決 -->
+  <form class="train-box" method="post" action="{% url 'policy_history' %}">
+    {% csrf_token %}
+    <div class="row" style="justify-content:space-between;">
+      <div style="font-weight:700;">🧠 policy 再訓練（ワンクリ）</div>
+    </div>
+
+    <div class="field">
+      <label for="days">モード</label>
+      <select class="select" id="days" name="days">
+        <option value="90">通常運用（過去90日）</option>
+        <option value="365">月次レポート（過去365日）</option>
+        <option value="730" {% if not has_data %}selected{% endif %}>初回再学習（過去730日）</option>
+      </select>
+    </div>
+
+    <div class="field checkbox">
+      <input type="checkbox" id="make_snap" name="make_snap" value="1" checked>
+      <label for="make_snap">学習前にスナップショット作成</label>
+    </div>
+
+    <div class="field">
+      <label for="notify">通知メール（任意 / dry-run）</label>
+      <input class="input" type="email" id="notify" name="notify" placeholder="you@example.com">
+    </div>
+
+    <button class="btn-primary" type="submit" id="btn-train">AI再訓練＆適用</button>
+    <div id="msg" class="muted" style="margin-top:8px;"></div>
+  </form>
 </section>
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-  // ===== チャート =====
+  // グラフ
   const points = {{ points|safe }};
   if (points && points.length) {
     const labels = points.map(p => p.label);
     const score  = points.map(p => (p.score ?? null));
     const winrt  = points.map(p => (p.winrt ?? null));
+    const selfS  = points.map(p => (p.self_score ?? null));
+
     const ctx = document.getElementById("policyChart").getContext("2d");
     new Chart(ctx, {
       type: "line",
@@ -91,7 +117,8 @@ document.addEventListener("DOMContentLoaded", () => {
         labels,
         datasets: [
           { label: "改善スコア（重み平均）", data: score, tension: 0.25 },
-          { label: "加重勝率（%）", data: winrt, yAxisID: "y2", tension: 0.25 }
+          { label: "加重勝率（%）", data: winrt, yAxisID: "y2", tension: 0.25 },
+          { label: "AI自己評価 self_score", data: selfS, yAxisID: "y3", tension: 0.25 }
         ]
       },
       options: {
@@ -99,54 +126,25 @@ document.addEventListener("DOMContentLoaded", () => {
         interaction: { mode: "index", intersect: false },
         scales: {
           y:  { beginAtZero: true, title: { display:true, text: "スコア" } },
-          y2: { beginAtZero: true, position: "right", title: { display:true, text: "勝率(%)" } }
+          y2: { beginAtZero: true, position: "right", title: { display:true, text: "勝率(%)" } },
+          y3: { beginAtZero: true, position: "right", grid: { drawOnChartArea:false }, title: { display:true, text: "self_score" } }
         },
         plugins: { legend: { display: true } }
       }
     });
   }
 
-  // ===== 統合トリガー =====
-  const btn  = document.getElementById("btnRetrainApply");
-  const daysSel = document.getElementById("daysSel");
-  const emailBox = document.getElementById("emailBox");
-  const snapshotChk = document.getElementById("snapshotChk");
+  // 二重送信防止＆簡易UX
+  const form = document.querySelector("form.train-box");
+  const btn  = document.getElementById("btn-train");
   const msg  = document.getElementById("msg");
-
-  const getCsrf = () => {
-    const m = document.cookie.match(/csrftoken=([^;]+)/);
-    if (m) return decodeURIComponent(m[1]);
-    const meta = document.querySelector('meta[name="csrf-token"]');
-    return meta?.getAttribute("content") || "";
-  };
-
-  btn?.addEventListener("click", async () => {
-    const days = daysSel?.value || "90";
-    const email = (emailBox?.value || "").trim();
-    const snapshot = snapshotChk?.checked ? "1" : "0";
-
-    btn.disabled = true;
-    msg.textContent = "再訓練を実行中…";
-    try {
-      const res = await fetch("{% url 'policy_retrain' %}", {
-        method: "POST",
-        headers: {
-          "X-Requested-With": "fetch",
-          "X-CSRFToken": getCsrf(),
-          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
-        },
-        body: new URLSearchParams({ days, email, snapshot })
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "failed");
-      msg.textContent = "完了。グラフを更新します…";
-      setTimeout(() => location.reload(), 800);
-    } catch (e) {
-      console.error(e);
-      msg.textContent = "失敗しました。ログを確認してください。";
-      btn.disabled = false;
-    }
-  });
+  if (form && btn) {
+    form.addEventListener("submit", () => {
+      btn.disabled = true;
+      btn.textContent = "学習中…";
+      if (msg) msg.textContent = "数秒だけお待ちください。完了するとこのページが再読み込みされます。";
+    });
+  }
 });
 </script>
 {% endblock %}
