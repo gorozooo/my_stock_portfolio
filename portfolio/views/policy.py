@@ -150,7 +150,7 @@ def policy_retrain_apply(request):
         except Exception as e:
             messages.warning(request, f"通知送信に失敗: {e}")
 
-    return redirect("policy_history")
+    return redirect("advisor_policy")
 
 # ========= 履歴ページ（GET） =========
 @require_http_methods(["GET"])
