@@ -25,6 +25,8 @@ from ..services import tickers as svc_tickers
 from ..services import trend as svc_trend
 from ..services import dividends as svc_div  # 集計/目標
 
+import json
+
 # ===================== 共通ユーティリティ =====================
 
 def _parse_year(req):
