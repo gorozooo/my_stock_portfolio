@@ -4,7 +4,6 @@ import json
 import os
 from dataclasses import dataclass, asdict
 from hashlib import sha1
-from math import exp
 from typing import List, Dict, Tuple, Optional
 
 from django.conf import settings
@@ -91,6 +90,7 @@ def _get_policy() -> Optional[dict]:
 # =========================
 # 特徴量抽出（将来ML用）
 # =========================
+# 既存互換（簡易特徴量）
 FEATURES = [
     "roi_gap_abs",
     "liquidity_rate_pct",
@@ -102,9 +102,14 @@ FEATURES = [
 ]
 
 def _build_features(kpis: Dict, sectors: List[Dict]) -> Dict[str, float]:
+    """既存の軽量版：後方互換のため残す（内部で拡張版を呼ぶ）"""
+    # 拡張版で一通り作ってから、従来キーを補完
+    f = extract_features_for_learning(kpis, sectors)
+
     total_assets = max(1.0, _pct(kpis.get("total_assets")))
     realized_month_ratio = _pct(kpis.get("realized_month")) / total_assets
 
+    # セクタ構成
     top_ratio = 0.0
     uncat_ratio = 0.0
     if sectors:
@@ -114,17 +119,15 @@ def _build_features(kpis: Dict, sectors: List[Dict]) -> Dict[str, float]:
         if uncat:
             uncat_ratio = _pct(uncat.get("mv")) / total_mv
 
-    feats = {
-        "roi_gap_abs": _pct(kpis.get("roi_gap_abs")),
-        "liquidity_rate_pct": _pct(kpis.get("liquidity_rate_pct")),
-        "margin_ratio_pct": _pct(kpis.get("margin_ratio_pct")),
-        "realized_month_ratio": realized_month_ratio,
-        "top_sector_ratio": top_ratio * 100.0,
-        "uncat_sector_ratio": uncat_ratio * 100.0,
-        "win_ratio": _pct(kpis.get("win_ratio")),
-    }
+    f.setdefault("roi_gap_abs", _pct(kpis.get("roi_gap_abs")))
+    f.setdefault("liquidity_rate_pct", _pct(kpis.get("liquidity_rate_pct")))
+    f.setdefault("margin_ratio_pct", _pct(kpis.get("margin_ratio_pct")))
+    f.setdefault("realized_month_ratio", realized_month_ratio)
+    f.setdefault("top_sector_ratio", top_ratio * 100.0)
+    f.setdefault("uncat_sector_ratio", uncat_ratio * 100.0)
+    f.setdefault("win_ratio", _pct(kpis.get("win_ratio")))
     # NaN 無効化
-    return {k: (0.0 if v != v else float(v)) for k, v in feats.items()}
+    return {k: (0.0 if v != v else float(v)) for k, v in f.items()}
 
 # =========================
 # ルール（フォールバック提案）
@@ -262,16 +265,28 @@ def _bonus_from_policy(msg: str, policy: dict) -> float:
         conf = float(c.get("confidence", 0.0))
         return max(0.0, min(1.0, base * conf))
 
+    # 3) それも無い場合、kind_weight（advisor_learn出力）をざっくり使う
+    kw = policy.get("kind_weight")
+    if isinstance(kw, dict):
+        # 全体の平均を 0.5 基準に寄せる
+        try:
+            avg = sum(float(v) for v in kw.values()) / max(len(kw), 1)
+        except Exception:
+            avg = 1.0
+        w = float(kw.get(cat, avg)) / (avg or 1.0)
+        # w≈1 → 0.5、>1 で 0.5〜1、<1 で 0〜0.5 に写像
+        return max(0.0, min(1.0, 0.5 * w))
+
     return 0.0
 
 def _apply_policy(items: List[AdviceItemView], kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
     """
     base_score(0..1) をポリシーボーナス(0..1)と合成。
-    合成式（シンプル）： score' = clip( 0.6*base + 0.4*bonus )
+    合成式： score' = clip( 0.6*base + 0.4*bonus )
     """
     policy = _get_policy()
     if not policy:
-        return items
+        return _post_process(items)
 
     boosted: List[AdviceItemView] = []
     for it in items:
@@ -285,6 +300,36 @@ def _apply_policy(items: List[AdviceItemView], kpis: Dict, sectors: List[Dict]) 
     for i, it in enumerate(boosted):
         it.taken = (i < 3)
     return boosted
+
+# （将来）線形重み policy のスコア化
+def _score_with_policy(feats: dict) -> Optional[float]:
+    """
+    policy.json に weights/bias があれば 線形→ロジスティックで 0..1 へ。
+    無ければ None（呼び出し側で無視）。
+    """
+    policy = _get_policy()
+    if not policy:
+        return None
+
+    weights = policy.get("weights")
+    if not isinstance(weights, dict):
+        return None  # いまの生成物には入っていない想定
+
+    bias = float(policy.get("bias", 0.0))
+    score = bias
+    for k, v in feats.items():
+        if k in weights:
+            try:
+                score += float(weights[k]) * float(v)
+            except Exception:
+                pass
+    # ロジスティック
+    try:
+        import math
+        score = 1.0 / (1.0 + math.exp(-score))
+    except Exception:
+        score = 0.5
+    return max(0.0, min(1.0, float(score)))
 
 # =========================
 # 週次/次の一手
@@ -310,27 +355,30 @@ def summarize(kpis: Dict, sectors: List[Dict], variant: str = "A") -> Tuple[str,
     """
     variant:
       'A' -> ルールのみ
-      'B' -> policy.json 補正を使ってスコアをブースト
+      'B' -> policy.json 補正でブースト（weightsがあれば線形、無い場合はメッセージ/カテゴリ重み）
     """
     ai_note = _header_note(kpis, sectors)
 
     # まずルールで候補
     base_items = _rules(kpis, sectors)
-    feats = _build_features(kpis, sectors)
 
-    use_policy = (variant == "B")
-    scored: List[AdviceItemView] = []
-    pol_score = _score_with_policy(feats) if use_policy else None
-    policy_ok = (pol_score is not None)
+    items: List[AdviceItemView]
+    if variant == "B":
+        # weights による線形スコアがあれば 0.6*rule + 0.4*linear を採用、
+        # それが無ければ メッセージ/カテゴリ重みでブースト
+        feats = _build_features(kpis, sectors)
+        pol_score = _score_with_policy(feats)
+        if pol_score is not None:
+            mixed = []
+            for it in base_items:
+                score = max(0.0, min(1.0, 0.6 * float(it.score) + 0.4 * float(pol_score)))
+                mixed.append(AdviceItemView(id=it.id, message=it.message, score=score, taken=it.taken))
+            items = _post_process(mixed)
+        else:
+            items = _apply_policy(base_items, kpis, sectors)
+    else:
+        items = _post_process(base_items)
 
-    for it in base_items:
-        score = it.score
-        if use_policy and policy_ok:
-            # ルール 0.6 + policy 0.4
-            score = max(0.0, min(1.0, 0.6 * float(it.score) + 0.4 * float(pol_score)))
-        scored.append(AdviceItemView(id=it.id, message=it.message, score=score, taken=it.taken))
-
-    items = _post_process(scored if (use_policy and policy_ok) else base_items)
     ai_items = [asdict(it) for it in items]
     session_id = sha1(ai_note.encode("utf-8")).hexdigest()[:8]
     weekly = weekly_report(kpis, sectors)
@@ -338,7 +386,7 @@ def summarize(kpis: Dict, sectors: List[Dict], variant: str = "A") -> Tuple[str,
     return ai_note, ai_items, session_id, weekly, nextmove
 
 # =========================
-# セッション永続化（ビューから呼ぶ）
+# セッション永続化（ビュー/コマンドから呼ぶ）
 # =========================
 def ensure_session_persisted(ai_note: str, ai_items: list, kpis: dict, variant: str = "A"):
     """
@@ -363,83 +411,109 @@ def ensure_session_persisted(ai_note: str, ai_items: list, kpis: dict, variant: 
             taken=item.get("taken", False),
             reasons=item.get("reasons", []),
         )
-    # DBの実IDが付いた訳ではあるが、呼び元の描画はそのままでOK
     return ai_items
-    
-# ==============================
-# policy.json を使ったスコア補正
-# ==============================
-import os, json
 
-def _score_with_policy(feats: dict) -> float:
-    """
-    policy.json の重みを読み込み、特徴量 dict からスコア（0〜1）を返す。
-    存在しない・読み込めない場合は None を返す。
-    """
+# =========================
+# 学習用フル特徴量（配当・実損・保有・現金まで含む）
+# =========================
+def _sf(x, d=0.0):
     try:
-        # --- ファイルパス解決 ---
-        base_dir = os.path.dirname(__file__)
-        policy_path = os.path.join(base_dir, "policy.json")
+        return float(x)
+    except Exception:
+        return d
 
-        if not os.path.exists(policy_path):
-            return None
-
-        # --- JSON読込 ---
-        with open(policy_path, "r", encoding="utf-8") as f:
-            policy = json.load(f)
-
-        weights = policy.get("weights", {})
-        bias = float(policy.get("bias", 0.0))
-
-        # --- スコア計算 ---
-        score = bias
-        for k, v in feats.items():
-            if k in weights:
-                score += float(weights[k]) * float(v)
-
-        # sigmoid風正規化（-1〜+1 → 0〜1）
-        score = 1 / (1 + pow(2.71828, -score))
-        return round(float(score), 4)
-
-    except Exception as e:
-        print(f"[advisor] policy load failed: {e}")
-        return None
-        
-        
-def extract_features_for_learning(kpis: dict, sectors: list) -> dict:
+def extract_features_for_learning(kpis: Dict[str, any], sectors: List[Dict[str, any]]) -> Dict[str, float]:
     """
-    KPI・セクター情報から機械学習に使える特徴量を抽出する。
-    - policy_snapshot / advisor_train の共通で利用可能。
-    - 特徴量は最初はシンプルにKPIベース。
+    学習用の数値特徴量（フルセット）
+    - ストック：総資産/評価・清算価値/投下資金/現金/未実現/信用含み/信用比率/流動性/ROI各種/乖離
+    - フロー：今月/累計の実現損益・配当
+    - 行動：勝率
+    - 構造：セクタ上位の騰落・構成比・未分類比率
+    - 比率：現金比率、評価に対する現金・清算の比、ROI×流動性の合成指標 等
     """
-    try:
-        feat = {}
+    f: Dict[str, float] = {}
 
-        # KPI数値をそのままコピー（Noneは0に）
-        for k, v in kpis.items():
-            if isinstance(v, (int, float)):
-                feat[k] = float(v)
-            elif isinstance(v, (str, bool)):
-                feat[k] = float(v) if isinstance(v, bool) else 0.0
-            else:
-                feat[k] = 0.0
+    # ---- ストック ----
+    total_assets   = _sf(kpis.get("total_assets"))
+    cash_total     = _sf(kpis.get("cash_total"))
+    invested       = _sf(kpis.get("invested"))
+    liquidation    = _sf(kpis.get("liquidation"))
+    unrealized     = _sf(kpis.get("unrealized_pnl"))
+    margin_unreal  = _sf(kpis.get("margin_unrealized"))
+    liq_rate_pct   = _sf(kpis.get("liquidity_rate_pct"))
+    margin_ratio   = _sf(kpis.get("margin_ratio_pct"))
+    roi_eval       = kpis.get("roi_eval_pct")
+    roi_liquid     = kpis.get("roi_liquid_pct")
+    roi_gap_abs    = kpis.get("roi_gap_abs")
 
-        # セクターごとのトップ3シェアを特徴量として追加
-        top3 = sorted(sectors, key=lambda s: s.get("mv", 0), reverse=True)[:3]
-        for i, sec in enumerate(top3):
-            feat[f"sector{i+1}_rate"] = sec.get("rate", 0.0)
-            feat[f"sector{i+1}_share"] = sec.get("share_pct", 0.0)
+    f["total_assets"]   = total_assets
+    f["cash_total"]     = cash_total
+    f["invested"]       = invested
+    f["liquidation"]    = liquidation
+    f["unrealized_pnl"] = unrealized
+    f["margin_unrealized"] = margin_unreal
+    f["liquidity_rate_pct"] = liq_rate_pct
+    f["margin_ratio_pct"]   = margin_ratio
+    f["roi_eval_pct"]   = _sf(roi_eval, 0.0)
+    f["roi_liquid_pct"] = _sf(roi_liquid, 0.0)
+    f["roi_gap_abs"]   = _sf(roi_gap_abs, 0.0)
 
-        # 特殊派生特徴量（例：リスク関連）
-        roi_eval = kpis.get("roi_eval_pct") or 0
-        roi_liquid = kpis.get("roi_liquid_pct") or 0
-        feat["roi_gap_abs"] = abs(roi_eval - roi_liquid)
-        feat["liquidity_margin_ratio"] = (
-            (kpis.get("liquidity_rate_pct") or 0) - (kpis.get("margin_ratio_pct") or 0)
-        )
+    # 派生
+    f["cash_ratio_total"] = (cash_total / total_assets) if total_assets > 0 else 0.0
+    f["liq_ratio_total"]  = (liquidation / total_assets) if total_assets > 0 else 0.0
 
-        return feat
+    # ---- フロー（今月/累計）----
+    realized_month = _sf(kpis.get("realized_month"))
+    dividend_month = _sf(kpis.get("dividend_month"))
+    realized_cum   = _sf(kpis.get("realized_cum"))
+    dividend_cum   = _sf(kpis.get("dividend_cum"))
 
-    except Exception as e:
-        print(f"[extract_features_for_learning] failed: {e}")
-        return {}
+    f["realized_month"] = realized_month
+    f["dividend_month"] = dividend_month
+    f["realized_cum"]   = realized_cum
+    f["dividend_cum"]   = dividend_cum
+
+    # 正規化（総資産基準）
+    denom = total_assets if total_assets > 0 else 1.0
+    f["realized_month_ratio"] = realized_month / denom
+    f["dividend_month_ratio"] = dividend_month / denom
+    f["realized_cum_ratio"]   = realized_cum / denom
+    f["dividend_cum_ratio"]   = dividend_cum / denom
+
+    # ---- 行動 ----
+    f["win_ratio"] = _sf(kpis.get("win_ratio"))
+
+    # ---- 構造（セクタ上位）----
+    top = sorted(sectors or [], key=lambda s: _sf(s.get("mv")), reverse=True)[:3]
+    total_mv = sum(_sf(s.get("mv")) for s in (sectors or [])) or 1.0
+    uncat_mv = 0.0
+    for i, s in enumerate(top):
+        f[f"sector{i+1}_mv"]    = _sf(s.get("mv"))
+        f[f"sector{i+1}_rate"]  = _sf(s.get("rate"))
+        share = _sf(s.get("mv")) / total_mv * 100.0
+        f[f"sector{i+1}_share"] = share
+        if (s.get("sector") == "未分類"):
+            uncat_mv += _sf(s.get("mv"))
+    if uncat_mv == 0.0:
+        # 未分類が上位に居ない場合、全体から拾う
+        for s in (sectors or []):
+            if s.get("sector") == "未分類":
+                uncat_mv = _sf(s.get("mv"))
+                break
+    f["uncat_sector_ratio"] = (uncat_mv / total_mv * 100.0) if total_mv > 0 else 0.0
+
+    # ---- 合成/安全度 ----
+    f["roi_times_liquidity"] = _sf(roi_eval, 0.0) * (liq_rate_pct / 100.0)
+    f["safety_score_like"] = max(0.0, 1.0 - (margin_ratio / 100.0)) * (liq_rate_pct / 100.0)
+
+    # NaN/inf 防御
+    clean = {}
+    for k, v in f.items():
+        try:
+            vv = float(v)
+            if vv != vv:  # NaN
+                vv = 0.0
+        except Exception:
+            vv = 0.0
+        clean[k] = vv
+    return clean
