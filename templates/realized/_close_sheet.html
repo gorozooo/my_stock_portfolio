@@ -1,4 +1,3 @@
-{# templates/realized/_close_sheet.html #}
 {% extends "base.html" %}
 {% load humanize %}
 
@@ -6,7 +5,6 @@
 
 {% block head %}
 <style>
-  /* 単体ページとして見やすい余白と入力UI */
   .sheet { max-width: 720px; margin: 12px auto; padding: 12px; }
   .sheet .in{appearance:none;-webkit-appearance:none;width:100%;border-radius:12px;padding:12px 14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#e9ecff;outline:none;transition:.15s}
   .sheet .in::placeholder{color:rgba(233,236,255,.45)}
@@ -17,6 +15,9 @@
   .sheet .sheet-title{font-weight:700;font-size:18px;margin-bottom:10px}
   .sheet .sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
   .sheet .label{font-size:12px;color:#a7b1d8}
+  .tabs{display:flex;gap:8px;margin:8px 0 12px}
+  .tab{padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.15);cursor:pointer}
+  .tab.active{background:rgba(255,255,255,.12)}
   .sign-wrap{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center}
   .sign-btn{min-width:38px;padding:10px 0;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e9ecff}
   @media (max-width: 420px){ .sheet { padding: 8px } }
@@ -24,7 +25,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="sheet" id="closeSheet">
+<div class="sheet" id="closeSheet" data-initial-side="{{ initial_side|default:'SELL' }}">
   <div class="sheet-head">
     <div class="sheet-title">
       {{ h.ticker }}{% if h.name %}<span class="text-slate-400 text-xs font-normal">（{{ h.name }}）</span>{% endif %} をクローズ
@@ -32,9 +33,15 @@
     <button type="button" class="text-indigo-300 underline" onclick="history.back()">閉じる</button>
   </div>
 
-  {# ページ遷移で通常POST。成功時は close_submit 側のリダイレクトで一覧へ戻る #}
+  <!-- SELL/BUY 切替（見た目タブ → hidden に反映） -->
+  <div class="tabs">
+    <button type="button" class="tab" data-side="SELL">SELL（売却）</button>
+    <button type="button" class="tab" data-side="BUY">BUY（買付）</button>
+  </div>
+
   <form id="closeForm" action="{% url 'holding_close_submit' h.id %}" method="post">
     {% csrf_token %}
+    <input type="hidden" name="side" value="SELL">
 
     <div class="sheet-row">
       <label class="flex flex-col gap-1">
@@ -43,13 +50,14 @@
       </label>
       <label class="flex flex-col gap-1">
         <span class="label">数量</span>
-        <input name="qty" type="number" min="1" max="{{ h_qty }}" value="{{ prefill.qty }}" class="in">
+        <!-- SELL のときだけ max を設定。BUY では外す -->
+        <input name="qty" type="number" min="1" data-max="{{ h_qty }}" class="in">
         <small class="text-xs text-slate-500">保有: {{ h_qty }}</small>
       </label>
     </div>
 
     <label class="flex flex-col gap-1 mt-3">
-      <span class="label">売却単価</span>
+      <span class="label" data-price-label>売却単価</span>
       <input name="price" inputmode="decimal" placeholder="例: 1234.5" class="in">
     </label>
 
@@ -73,23 +81,29 @@
       </label>
     </div>
 
-    <!-- iOSでも負数を入れられる ±トグル付き -->
-    <label class="flex flex-col gap-1 mt-3">
+    <!-- 実損（SELLのみ表示）。BUYは未実現なので既定は0で非表示 -->
+    <label class="flex flex-col gap-1 mt-3 sell-only" style="display:none">
       <span class="label">実損（手数料控除前・任意）</span>
       <div class="sign-wrap">
         <button type="button" class="sign-btn" data-sgn="-">−</button>
         <input name="cashflow" type="text" inputmode="decimal"
                pattern="-?[0-9]+([.,][0-9]+)?" placeholder="+ 利益 / − 損失"
-               class="in" value="{{ prefill.cashflow|default:'' }}">
+               class="in">
         <button type="button" class="sign-btn" data-sgn="+">＋</button>
       </div>
       <p class="text-xs text-slate-400 mt-1">※ キーボードに「−」が無い場合は左のボタンで負に切替。</p>
     </label>
 
-    <label class="flex flex-col gap-1 mt-3">
-      <span class="label">手数料（税込み）</span>
-      <input name="fee" inputmode="decimal" value="{{ prefill.fee }}" class="in">
-    </label>
+    <div class="sheet-row mt-3">
+      <label class="flex flex-col gap-1">
+        <span class="label">手数料（税込み）</span>
+        <input name="fee" inputmode="decimal" class="in" value="">
+      </label>
+      <label class="flex flex-col gap-1 buy-only" style="display:none">
+        <span class="label">税金（BUYのみ任意）</span>
+        <input name="tax" inputmode="decimal" class="in" value="">
+      </label>
+    </div>
 
     <label class="flex flex-col gap-1 mt-3">
       <span class="label">メモ</span>
@@ -98,31 +112,72 @@
 
     <div class="grid grid-cols-2 gap-2 mt-4">
       <button type="button" class="btn-ghost" onclick="history.back()">キャンセル</button>
-      <button class="btn-primary">売却を記録</button>
+      <button class="btn-primary" data-submit-label>売却を記録</button>
     </div>
 
     <!-- 固定 -->
-    <input type="hidden" name="side" value="SELL">
     <input type="hidden" name="name" value="{{ h.name|default:'' }}">
     <input type="hidden" name="ticker" value="{{ h.ticker }}">
   </form>
 </div>
 
 <script>
-  // ±トグル（先頭の符号を切替）
-  (function(){
-    const root = document.getElementById('closeSheet');
-    if (!root) return;
-    const input = root.querySelector('input[name="cashflow"]');
-    root.querySelectorAll('.sign-btn').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        if (!input) return;
-        const s = btn.dataset.sgn === '-' ? '-' : '';
-        const v = (input.value || '').replace(/^[+-]?/, '');
-        input.value = s + v;
-        input.focus();
-      });
+(function(){
+  const root = document.getElementById('closeSheet');
+  if (!root) return;
+
+  const initial = (root.dataset.initialSide || 'SELL').toUpperCase();
+  const form = root.querySelector('#closeForm');
+  const sideInput = form.querySelector('input[name="side"]');
+  const qtyInput = form.querySelector('input[name="qty"]');
+  const priceLabel = root.querySelector('[data-price-label]');
+  const sellOnly = root.querySelectorAll('.sell-only');
+  const buyOnly  = root.querySelectorAll('.buy-only');
+  const submitBtn= root.querySelector('[data-submit-label]');
+
+  function setSide(side){
+    sideInput.value = side;
+    // タブの見た目
+    root.querySelectorAll('.tab').forEach(t=>{
+      t.classList.toggle('active', t.dataset.side === side);
     });
-  })();
+    // ラベルと項目表示
+    if(side === 'SELL'){
+      priceLabel.textContent = '売却単価';
+      sellOnly.forEach(e=>e.style.display='');
+      buyOnly.forEach(e=>e.style.display='none');
+      submitBtn.textContent = '売却を記録';
+      // SELL の時だけ max 制約を付与
+      const mx = qtyInput.getAttribute('data-max');
+      if(mx){ qtyInput.setAttribute('max', mx); }
+    }else{
+      priceLabel.textContent = '買付単価';
+      sellOnly.forEach(e=>e.style.display='none');
+      buyOnly.forEach(e=>e.style.display='');
+      submitBtn.textContent = '買付を記録';
+      qtyInput.removeAttribute('max');
+    }
+  }
+
+  // 初期化
+  setSide(initial);
+
+  // タブクリック
+  root.querySelectorAll('.tab').forEach(btn=>{
+    btn.addEventListener('click', ()=> setSide(btn.dataset.side));
+  });
+
+  // ±トグル（SELL時のみ有効）
+  root.querySelectorAll('.sign-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const input = root.querySelector('input[name="cashflow"]');
+      if (!input) return;
+      const s = btn.dataset.sgn === '-' ? '-' : '';
+      const v = (input.value || '').replace(/^[+-]?/, '');
+      input.value = s + v;
+      input.focus();
+    });
+  });
+})();
 </script>
 {% endblock %}
