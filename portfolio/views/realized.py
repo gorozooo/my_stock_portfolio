@@ -1298,7 +1298,8 @@ def summary_partial(request):
 def close_sheet(request, pk: int):
     """
     保有 → 売却/買付のボトムシート（名前は close のまま）
-    - クエリ ?side=SELL|BUY で初期タブを指定（既定: SELL）
+    - 既定は「保有サイドの反対側」を初期タブにする（BUY→SELL / SELL→BUY）
+    - クエリ ?side=SELL|BUY があればそちらを優先
     """
     try:
         # --- Holding 取得（user フィールド有無の両対応）---
@@ -1319,10 +1320,22 @@ def close_sheet(request, pk: int):
         pre_broker  = (g(h, "broker", "") or "OTHER")
         pre_account = (g(h, "account", "") or "SPEC")
 
-        # 既定のsideはSELL。?side=BUY で初期表示を買付に。
-        side_qs = (request.GET.get("side") or "SELL").upper()
+        # 1) ?side= があればそれを最優先
+        side_qs = (request.GET.get("side") or "").upper()
         if side_qs not in ("SELL", "BUY"):
-            side_qs = "SELL"
+            side_qs = ""
+
+        # 2) 無指定なら「保有サイドの反対側」を初期サイドにする
+        if not side_qs:
+            holding_side = (g(h, "side", "BUY") or "BUY").upper()
+            if holding_side == "BUY":
+                initial_side = "SELL"
+            elif holding_side == "SELL":
+                initial_side = "BUY"
+            else:
+                initial_side = "SELL"  # 不明時はSELL既定
+        else:
+            initial_side = side_qs
 
         ctx = {
             "h": h,
@@ -1334,7 +1347,7 @@ def close_sheet(request, pk: int):
                 "broker": pre_broker,
                 "account": pre_account,
             },
-            "initial_side": side_qs,  # ← テンプレのタブ初期表示用
+            "initial_side": initial_side,  # ← テンプレのタブ初期表示用（SELL/BUY）
         }
 
         html = render_to_string("realized/_close_sheet.html", ctx, request=request)
