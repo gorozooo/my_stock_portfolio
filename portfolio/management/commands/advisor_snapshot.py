@@ -1,5 +1,10 @@
+# portfolio/management/commands/advisor_snapshot.py
+# -*- coding: utf-8 -*-
 from __future__ import annotations
-from django.core.management.base import BaseCommand
+from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+
+from django.core.management.base import BaseCommand, CommandParser
 from django.db import transaction
 
 from ...models_advisor import AdviceSession, AdviceItem, AdvisorProposal
@@ -15,10 +20,25 @@ from ...views.home import (
 )
 
 class Command(BaseCommand):
-    help = "現在のKPI/セクターから AdviceSession/AdviceItem/AdvisorProposal を作成して保存（学習データ蓄積）"
+    help = "現在のKPI/セクターから AdviceSession/AdviceItem/AdvisorProposal を保存（学習データのスナップショット）"
 
-    def handle(self, *args, **options):
-        # --- KPI再計算（home と同じロジック） ---
+    def add_arguments(self, parser: CommandParser) -> None:
+        parser.add_argument("--days", type=int, default=None,
+                            help="参考用メモとして保存（学習期間の目安）。動作には影響しません。")
+        parser.add_argument("--variant", type=str, choices=("A","B"), default="B",
+                            help="助言生成のバリアント（B=policy補正, 既定=B）")
+        parser.add_argument("--label", type=str, default="snapshot",
+                            help="セッションnoteの先頭ラベル")
+        parser.add_argument("--note", type=str, default="",
+                            help="自由記述のメモを note に追記")
+
+    def handle(self, *args, **opts):
+        days: Optional[int] = opts.get("days")
+        variant: str = (opts.get("variant") or "B").upper()
+        label: str = opts.get("label") or "snapshot"
+        extra_note: str = opts.get("note") or ""
+
+        # --- KPI再計算（home と同ロジック） ---
         snap = _holdings_snapshot()
         cash = _cash_balances()
 
@@ -46,7 +66,7 @@ class Command(BaseCommand):
         liquidity_rate_pct = (max(0.0, round(liquidation_value / total_eval_assets * 100, 1)) if total_eval_assets > 0 else 0.0)
         margin_ratio_pct = (round(snap["margin_mv"] / gross_pos * 100, 1) if gross_pos > 0 else 0.0)
 
-        kpis = {
+        kpis: Dict[str, Any] = {
             "total_assets": total_eval_assets,
             "unrealized_pnl": unrealized_pnl,
             "realized_month": realized_month,
@@ -63,29 +83,48 @@ class Command(BaseCommand):
             "liquidity_rate_pct": liquidity_rate_pct,
             "margin_ratio_pct": margin_ratio_pct,
             "margin_unrealized": margin_unrealized,
+            "ab_variant": variant,  # ← どのバリアントで生成したかも残す
         }
-        sectors = snap["by_sector"]
+        sectors: List[Dict[str, Any]] = snap["by_sector"]
 
-        ai_note, ai_items, session_id, weekly, nextmove = svc.summarize(kpis, sectors)
+        # 助言生成（Bだとpolicy補正）/ 特徴抽出
+        ai_note, ai_items, session_id, weekly, nextmove = svc.summarize(kpis, sectors, variant=variant)
         features = svc.extract_features_for_learning(kpis, sectors)
 
-        with transaction.atomic():
-            sess = AdviceSession.objects.create(context_json=kpis, note=ai_note)
-            created = 0
-            for it in ai_items:
-                item = AdviceItem.objects.create(
-                    session=sess,
-                    kind=AdviceItem.Kind.GENERAL,
-                    message=it["message"],
-                    score=float(it.get("score") or 0.0),
-                    reasons=[],
-                    taken=bool(it.get("taken") or False),
-                )
-                AdvisorProposal.objects.create(
-                    item=item,
-                    features=features,
-                    label_taken=item.taken,
-                )
-                created += 1
+        # セッション note
+        note_pieces = [label]
+        if days:
+            note_pieces.append(f"days={days}")
+        if extra_note:
+            note_pieces.append(extra_note)
+        if variant:
+            note_pieces.append(f"variant={variant}")
+        note_text = " / ".join(note_pieces)
 
-        self.stdout.write(self.style.SUCCESS(f"AdviceSession #{sess.id} created with {created} items"))
+        try:
+            with transaction.atomic():
+                sess = AdviceSession.objects.create(context_json=kpis, note=note_text)
+                created = 0
+                for it in ai_items:
+                    kind = it.get("kind") or AdviceItem.Kind.GENERAL
+                    item = AdviceItem.objects.create(
+                        session=sess,
+                        kind=kind,
+                        message=it.get("message", ""),
+                        score=float(it.get("score") or 0.0),
+                        reasons=it.get("reasons") or [],
+                        taken=bool(it.get("taken") or False),
+                    )
+                    AdvisorProposal.objects.create(
+                        item=item,
+                        features=features,
+                        label_taken=item.taken,
+                    )
+                    created += 1
+        except Exception as e:
+            self.stderr.write(self.style.ERROR(f"[advisor_snapshot] failed: {e}"))
+            raise
+
+        self.stdout.write(self.style.SUCCESS(
+            f"AdviceSession #{sess.id} created with {created} items (variant={variant}, note='{note_text}')"
+        ))
