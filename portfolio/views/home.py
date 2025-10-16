@@ -121,8 +121,21 @@ def _holdings_snapshot() -> dict:
 
 # ========= Realized / Dividend =========
 def _rt_date_field() -> Optional[str]:
-    """RealizedTrade の日付フィールドを自動検出（存在する最初のものを使う）"""
-    candidates = ("closed_at", "executed_at", "trade_date", "settled_at", "at", "date", "sold_at")
+    """
+    RealizedTrade の「約定/クローズ日」を推定して返す。
+    先に見つかったものを採用。なければ None。
+    """
+    candidates = (
+        "trade_at",     # ← これが抜けていた！
+        "closed_at",
+        "executed_at",
+        "settled_at",
+        "sold_at",
+        "trade_date",
+        "date",
+        "at",
+        "created_at",   # 予備（作成時刻しか無いモデル向け）
+    )
     for name in candidates:
         try:
             RealizedTrade._meta.get_field(name)
@@ -133,6 +146,8 @@ def _rt_date_field() -> Optional[str]:
 
 def _sum_realized_month() -> int:
     first, next_first = _month_bounds()
+
+    # 1) CashLedger 優先
     cash_sum = CashLedger.objects.filter(
         source_type=CashLedger.SourceType.REALIZED,
         at__gte=first, at__lt=next_first,
@@ -140,11 +155,18 @@ def _sum_realized_month() -> int:
     if cash_sum:
         return int(cash_sum)
 
-    # RealizedTradeのcashflow合計
+    # 2) Ledgerが無ければ RealizedTrade の「月次」だけ集計する
     date_field = _rt_date_field()
-    qs = RealizedTrade.objects.all()
-    if date_field:
-        qs = qs.filter(**{f"{date_field}__gte": first, f"{date_field}__lt": next_first})
+    if not date_field:
+        # 日付フィールド不明のときは誤って累計に落ちないように 0 を返す
+        return 0
+
+    qs = RealizedTrade.objects.filter(**{
+        f"{date_field}__gte": first,
+        f"{date_field}__lt": next_first,
+    })
+
+    # 実損額が cashflow に入っている前提。別ならここを差し替え。
     trade_sum = qs.aggregate(s=Sum("cashflow")).get("s") or 0
     return int(trade_sum)
 
