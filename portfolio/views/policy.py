@@ -1,127 +1,158 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-import os, glob, json
+import os, json, shutil
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Dict
 
 from django.conf import settings
+from django.http import JsonResponse, HttpRequest, HttpResponseBadRequest
 from django.shortcuts import render
+from django.views.decorators.http import require_POST
+from django.core.management import call_command
+from django.core.mail import send_mail
 
-# ---------- ユーティリティ ----------
-def _safe_float(x, default=0.0) -> float:
+# 既存: policy履歴可視化ビューがあればそのまま残してOK
+# from .policy_history import policy_history  ←別ファイルならそちらを使ってもOK
+
+# ------- 共通 -------
+def _media_root() -> Path:
+    return Path(getattr(settings, "MEDIA_ROOT", os.getcwd()))
+
+def _policy_main_path() -> Path:
+    # media/advisor/policy.json（既定）
+    base = _media_root()
+    p1 = base / "advisor" / "policy.json"
+    p2 = base / "media" / "advisor" / "policy.json"
+    return p1 if p1.exists() or not p2.exists() else p2
+
+def _policy_history_dir() -> Path:
+    # media/advisor/history/
+    base = _media_root()
+    d1 = base / "advisor" / "history"
+    d2 = base / "media" / "advisor" / "history"
+    return d1 if d1.exists() or not d2.exists() else d2
+
+def _rotate_policy_history(main_fp: Path) -> Path:
+    hist_dir = _policy_history_dir()
+    hist_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d")
+    dst = hist_dir / f"policy_{ts}.json"
     try:
-        return float(x)
+        shutil.copyfile(main_fp, dst)
     except Exception:
-        return default
+        pass
+    return dst
 
-def _parse_iso(dt_str: Optional[str]) -> Optional[datetime]:
-    if not dt_str:
-        return None
+def _load_json(path: Path) -> Dict:
     try:
-        # "2025-01-02T03:04:05+09:00" / "2025-01-02T03:04:05Z" 両対応
-        s = dt_str.replace("Z", "+00:00")
-        return datetime.fromisoformat(s)
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
     except Exception:
-        return None
+        return {}
 
-def _overall_score(policy: Dict) -> Optional[float]:
-    """
-    category.avg_improve を count×confidence で加重平均。
-    値が大きいほど“その週の改善度が良かった”とみなす。
-    """
-    cats = policy.get("category") or {}
-    if not cats:
-        return None
-    s = 0.0
-    w = 0.0
-    for v in cats.values():
-        cnt = _safe_float(v.get("count"), 0.0)
-        conf = _safe_float(v.get("confidence"), 0.0)
-        avg  = _safe_float(v.get("avg_improve"), 0.0)
-        ww = max(0.0, cnt * conf)
-        s += ww * avg
-        w += ww
-    return (s / w) if w > 0 else None
+def _save_json_atomic(path: Path, payload: Dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
-def _weighted_winrate(policy: Dict) -> Optional[float]:
-    """
-    win_rate(0..1) を count で加重平均。%表示はテンプレ側で。
-    """
-    cats = policy.get("category") or {}
-    if not cats:
-        return None
-    s = 0.0
-    w = 0.0
-    for v in cats.values():
-        cnt = _safe_float(v.get("count"), 0.0)
-        win = _safe_float(v.get("win_rate"), 0.0)
-        s += cnt * win
-        w += cnt
-    return (s / w) if w > 0 else None
+def _reload_advisor_cache_safely() -> None:
+    # services.advisor にキャッシュクリアAPIがあれば呼ぶ。なくても無害。
+    try:
+        from ..services import advisor as svc_advisor
+        if hasattr(svc_advisor, "reload_policy_cache"):
+            svc_advisor.reload_policy_cache()
+    except Exception:
+        pass
 
-def _load_history() -> List[Dict]:
+# ------- 統合トリガー（学習→適用→通知） -------
+@require_POST
+def policy_retrain_apply(request: HttpRequest):
     """
-    MEDIA_ROOT 配下を探す：
-      - advisor/history/policy_*.json（推奨）
-      - advisor/policy.json（単発）
-    を時系列ラベルつきで返す。
+    受け取り:
+      - days: 90 / 365 / 730 など（必須）
+      - email: 通知先（任意・カンマ区切り）
+      - snapshot: "1" なら学習前に advisor_snapshot を実行（任意）
+    処理:
+      1) 任意で snapshot（表示用）
+      2) advisor_learn --days N → policy.json 出力
+      3) policy.json を history にローテーション
+      4) サービス側キャッシュ再読込
+      5) 任意でメール通知
     """
-    media_root = getattr(settings, "MEDIA_ROOT", "") or os.getcwd()
-    hist_dir = os.path.join(media_root, "advisor", "history")
-    main_file = os.path.join(media_root, "advisor", "policy.json")
+    try:
+        days = int(request.POST.get("days", "0"))
+    except Exception:
+        return HttpResponseBadRequest("days must be int")
+    if days <= 0:
+        return HttpResponseBadRequest("invalid days")
 
-    paths: List[str] = []
-    if os.path.isdir(hist_dir):
-        paths.extend(glob.glob(os.path.join(hist_dir, "policy_*.json")))
+    email_raw = (request.POST.get("email") or "").strip()
+    do_snapshot = (request.POST.get("snapshot") == "1")
 
-    items: List[Dict] = []
-    for p in sorted(paths):
+    # 1) 任意: スナップショット
+    snap_ok = False
+    if do_snapshot:
         try:
-            with open(p, "r", encoding="utf-8") as f:
-                items.append(json.load(f))
+            # 以前作成したスナップショットコマンド名に合わせる
+            # 例: advisor_snapshot（存在しない場合はスキップ）
+            call_command("advisor_snapshot")
+            snap_ok = True
         except Exception:
-            continue
+            snap_ok = False  # あってもなくても良い
 
-    if not items and os.path.exists(main_file):
+    # 2) 学習（policy.json 出力先は既定の media/advisor/policy.json を想定）
+    out_main = _policy_main_path()
+    out_arg = str(out_main.relative_to(_media_root())) if str(out_main).startswith(str(_media_root())) else str(out_main)
+
+    try:
+        # あなたの環境の advisor_learn 引数に合わせています（--days / --out / --bias など）
+        call_command("advisor_learn", days=days, out=out_arg)
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": f"advisor_learn failed: {e}"}, status=500)
+
+    # 3) 履歴ローテーション（保存後に複写）
+    rotated_path = None
+    try:
+        if out_main.exists():
+            rotated_path = _rotate_policy_history(out_main)
+    except Exception:
+        pass
+
+    # 4) キャッシュ再読込
+    _reload_advisor_cache_safely()
+
+    # 5) 任意: メール通知
+    mailed = False
+    if email_raw:
         try:
-            with open(main_file, "r", encoding="utf-8") as f:
-                items = [json.load(f)]
+            body = [
+                f"[AI再訓練 完了] days={days}",
+                f"snapshot: {'yes' if snap_ok else 'no'}",
+                f"policy: {out_main}",
+            ]
+            if rotated_path:
+                body.append(f"history: {rotated_path.name}")
+            send_mail(
+                subject=f"AI再訓練 完了 (days={days})",
+                message="\n".join(body),
+                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@example.com"),
+                recipient_list=[x.strip() for x in email_raw.split(",") if x.strip()],
+                fail_silently=True,
+            )
+            mailed = True
         except Exception:
-            pass
+            mailed = False
 
-    return items
-
-# ---------- View ----------
-def policy_history(request):
-    hist = _load_history()
-    points = []
-    for obj in hist:
-        gen = obj.get("generated_at")
-        try:
-            dt = datetime.fromisoformat(gen.replace("Z", "+00:00")) if gen else None
-        except Exception:
-            dt = None
-        label = dt.strftime("%Y-%m-%d") if dt else (gen or "unknown")
-        score = _overall_score(obj)
-        winrt = _weighted_winrate(obj)
-        horizon = obj.get("horizon_days", obj.get("horizon", 7))
-        self_score = obj.get("self_score", None)
-        points.append(dict(label=label, score=score, winrt=winrt, horizon=horizon, self_score=self_score, raw=obj))
-
-    # ベスト週（score 最大）
-    best_idx = None
-    best_val = None
-    for i, p in enumerate(points):
-        if p["score"] is None:
-            continue
-        if (best_val is None) or (p["score"] > best_val):
-            best_val = p["score"]
-            best_idx = i
-
-    ctx = dict(
-        points=points,
-        best_idx=best_idx,
-        best=points[best_idx] if best_idx is not None else None,
-        has_data=len(points) > 0,
-    )
-    return render(request, "advisor_policy.html", ctx)
+    # 返却（フロントはトースト表示後にリロード）
+    payload = {
+        "ok": True,
+        "days": days,
+        "snapshot": snap_ok,
+        "policy_path": str(out_main),
+        "history_saved": bool(rotated_path),
+        "mailed": mailed,
+    }
+    return JsonResponse(payload)
