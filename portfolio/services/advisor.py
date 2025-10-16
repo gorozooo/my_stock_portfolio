@@ -10,6 +10,8 @@ from typing import List, Dict, Tuple, Optional
 from django.conf import settings
 from django.core.cache import cache
 
+from ..models_advisor import AdvicePolicy, AdviceSession, AdviceItem
+
 # =========================
 # 表示用構造
 # =========================
