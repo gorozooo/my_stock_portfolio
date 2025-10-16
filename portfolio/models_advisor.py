@@ -1,18 +1,22 @@
 # portfolio/models_advisor.py
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 from django.db import models
 from django.utils import timezone
 
 
 class AdviceSession(models.Model):
-    """1回のAIアドバイザー分析セッション"""
+    """1回のAIアドバイザー分析セッション（KPI/セクターのスナップショット単位）"""
     created_at = models.DateTimeField(default=timezone.now)
     context_json = models.JSONField(default=dict)  # KPIやセクターなどのスナップショット
     note = models.CharField(max_length=200, blank=True, default="")
-    # ▼▼ 追加：A/B実験バリアント（'A' or 'B'） ▼▼
+    # A/B実験バリアント（'A' or 'B'）
     variant = models.CharField(max_length=1, default="A", db_index=True)
 
-    def __str__(self):
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self) -> str:
         return f"Session {self.id} ({self.created_at:%Y-%m-%d})"
 
 
@@ -24,6 +28,7 @@ class AdviceItem(models.Model):
         ADD_CASH      = "ADD_CASH",      "現金比率引上げ"
         REBALANCE     = "REBALANCE",     "リバランス"
         CUT_LOSERS    = "CUT_LOSERS",    "含み損下位の整理"
+        GENERAL       = "GENERAL",       "一般助言"
 
     session = models.ForeignKey(AdviceSession, on_delete=models.CASCADE, related_name="items")
     kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.REBALANCE)
@@ -36,9 +41,41 @@ class AdviceItem(models.Model):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["kind"]),
+            models.Index(fields=["taken"]),
+        ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"[{self.kind}] {self.message[:40]}"
+
+
+# ========= 追加：学習用の素データ（特徴量＋ラベル） =========
+class AdvisorProposal(models.Model):
+    """
+    学習データ1件＝「この助言項目をこの時点の特徴量で提示し、採用されたか？」
+    - features: その時のKPI/セクターなどの特徴量（辞書）
+    - label_taken: その助言が採用（True）/未採用（False）
+    """
+    item = models.ForeignKey(
+        AdviceItem,
+        on_delete=models.CASCADE,
+        related_name="proposals",
+        help_text="元となった助言アイテム"
+    )
+    features = models.JSONField(default=dict, blank=True)
+    label_taken = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["label_taken"]),
+        ]
+
+    def __str__(self) -> str:
+        lbl = "TAKEN" if self.label_taken else "SKIPPED"
+        return f"Proposal#{self.id} {lbl} item={self.item_id}"
 
 
 class AdvicePolicy(models.Model):
@@ -62,14 +99,14 @@ class AdvicePolicy(models.Model):
     class Meta:
         ordering = ["-updated_at", "-id"]
 
-    def __str__(self):
+    def __str__(self) -> str:
         flag = "ON" if self.enabled else "OFF"
         return f"AdvicePolicy#{self.id} {self.kind} ({flag})"
 
 
 class AdvisorMetrics(models.Model):
     """
-    学習精度のモニタリングログ（A：精度モニタリング）
+    学習精度のモニタリングログ（学習エンジン別）
     - advisor_train などの学習コマンドが1回走るごとに1行追加
     """
     ENGINE_CHOICES = (
@@ -82,7 +119,10 @@ class AdvisorMetrics(models.Model):
 
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
     engine = models.CharField(max_length=20, choices=ENGINE_CHOICES, default="logreg")
-    policy = models.ForeignKey(AdvicePolicy, null=True, blank=True, on_delete=models.SET_NULL, related_name="metrics")
+    policy = models.ForeignKey(
+        AdvicePolicy, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="metrics"
+    )
     train_acc = models.FloatField(help_text="学習時の推定精度（0..1）")
     n = models.IntegerField(help_text="学習に使ったサンプル件数")
     notes = models.JSONField(default=dict, blank=True)  # {"horizon":7, "features":[...]} 等
@@ -90,5 +130,5 @@ class AdvisorMetrics(models.Model):
     class Meta:
         ordering = ["-created_at", "-id"]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"[{self.created_at:%Y-%m-%d %H:%M}] {self.engine} acc={self.train_acc:.3f} n={self.n}"
