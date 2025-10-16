@@ -20,6 +20,7 @@ from .views import advisor as v_advisor
 from portfolio.views.ab import set_variant, ab_dashboard
 from .views.policy import policy_history
 from .views import ops_advisor as v_ops
+from .views import policy as policy_views
 
 urlpatterns = [
     #path("", core_views.main, name="home"),
@@ -111,5 +112,6 @@ urlpatterns = [
     path("advisor/ab/", ab_dashboard, name="advisor_ab"),
     path("advisor/policy/", policy_history, name="advisor_policy"),
     path("api/advisor/learn/", v_ops.advisor_learn_now, name="advisor_learn_now"),
+    path("advisor/policy/retrain/", policy_views.policy_retrain_apply, name="policy_retrain"),
     
 ]
