@@ -4,67 +4,63 @@
 {% block title %}policy履歴 | My株ポートフォリオ{% endblock %}
 
 {% block head %}
-<meta name="csrf-token" content="{{ csrf_token }}">
 <link rel="stylesheet" href="{% static 'css/home.css' %}?v=30">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
-  :root{
-    --pad:14px;
-    --radius:14px;
+  .ph-wrap{ margin:14px 12px; }
+  .ph-card{ padding:14px; }
+  .muted{ opacity:.7; }
+
+  /* コントロール（1行レイアウト→スマホ縦並び） */
+  .ctl{ display:grid; gap:8px; margin-bottom:10px; }
+  .ctl-row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .ctl select, .ctl input[type="email"]{
+    background: rgba(255,255,255,.06); color:#fff; border:1px solid rgba(255,255,255,.2);
+    padding:8px 10px; border-radius:10px; min-width:110px;
   }
-  .ph-wrap{ margin:12px; padding-bottom:calc(env(safe-area-inset-bottom, 0) + 8px); }
-  .ph-card{ padding:var(--pad); }
-
-  /* タイトル行 */
-  .ph-title{ font-weight:800; font-size:1.05rem; letter-spacing:.2px; margin-bottom:8px; }
-
-  /* ベスト週表示 */
+  .ctl .btn{
+    border:1px solid var(--pri); color:#fff; background: linear-gradient(180deg, rgba(110,168,255,.25), rgba(110,168,255,.05));
+    padding:10px 14px; border-radius:12px; font-weight:700;
+  }
+  .ctl .sub{ font-size:.85rem; opacity:.8; }
   .best-box{
-    margin-top:10px; padding:12px; border-radius:var(--radius);
+    margin-top:10px; padding:10px; border-radius:12px;
     border:1px solid rgba(255,255,255,.15);
     background: rgba(255,255,255,.05);
   }
-  .best-box .title{ font-weight:700; margin-bottom:8px; }
-  .best-box .kv{ display:grid; grid-template-columns:100px 1fr; gap:6px; font-size:.95rem; }
-  .muted{ opacity:.75; }
-
-  /* ワンクリ学習（モバイル向けフル幅ボタン） */
-  .learn-wrap{
-    margin-top:12px; padding:12px; border-radius:var(--radius);
-    border:1px dashed rgba(255,255,255,.18); background:rgba(255,255,255,.04);
-  }
-  .learn-wrap .strip-title{ margin-bottom:10px; font-weight:700; }
-  .learn-row{ display:flex; flex-direction:column; gap:10px; }
-  .learn-btn{
-    width:100%; padding:14px 12px; border-radius:12px;
-    border:1px solid var(--pri); color:var(--pri); background:transparent;
-    font-size:1rem; text-align:center;
-  }
-  .learn-btn:active{ transform:translateY(1px); opacity:.9; }
-  .learn-status{ margin-top:10px; font-size:.95rem; line-height:1.5; word-break:break-all; }
-
-  /* グラフをモバイル寄せ */
-  .chart-wrap{ margin-top:6px; }
-  @media (min-width: 700px){
-    .best-box .kv{ grid-template-columns:120px 1fr; }
-    .learn-row{ flex-direction:row; flex-wrap:wrap; }
-    .learn-btn{ width:auto; min-width:220px; }
+  .best-box .title{ font-weight:700; margin-bottom:6px; }
+  .best-box .kv{ display:grid; grid-template-columns:120px 1fr; gap:6px; }
+  @media (max-width: 460px){
+    .best-box .kv{ grid-template-columns:100px 1fr; }
   }
 </style>
 {% endblock %}
 
 {% block content %}
 <section class="glass ph-wrap ph-card">
-  <div class="ph-title">policy履歴（改善スコア & 勝率）</div>
+  <div class="ai-title">policy履歴（改善スコア & 勝率）</div>
+
+  <!-- 統合トリガー：学習→適用→通知 -->
+  <div class="ctl">
+    <div class="ctl-row">
+      <select id="daysSel" aria-label="学習対象期間">
+        <option value="90" selected>通常運用（過去90日）</option>
+        <option value="365">月次レポート（過去365日）</option>
+        <option value="730">初回再学習（過去730日）</option>
+      </select>
+      <label class="sub"><input type="checkbox" id="snapshotChk"> 学習前にスナップショット作成</label>
+    </div>
+    <div class="ctl-row">
+      <input id="emailBox" type="email" placeholder="通知メール（任意）">
+      <button id="btnRetrainApply" class="btn">AI再訓練＆適用</button>
+      <span id="msg" class="sub"></span>
+    </div>
+  </div>
 
   {% if not has_data %}
-    <p class="muted" style="line-height:1.6">
-      履歴がありません。<code>MEDIA_ROOT/advisor/history/</code> に <code>policy_YYYY-MM-DD.json</code> を蓄積してください。単発のみなら <code>MEDIA_ROOT/advisor/policy.json</code> を読み込みます。
-    </p>
+    <p class="muted">履歴がありません。<code>MEDIA_ROOT/advisor/history/</code> に <code>policy_YYYY-MM-DD.json</code> を蓄積してください。単発のみなら <code>MEDIA_ROOT/advisor/policy.json</code> を読み込みます。</p>
   {% else %}
-    <div class="chart-wrap">
-      <canvas id="policyChart" height="140"></canvas>
-    </div>
+    <canvas id="policyChart" height="180"></canvas>
 
     {% if best %}
     <div class="best-box">
@@ -78,98 +74,78 @@
     </div>
     {% endif %}
   {% endif %}
-
-  {% if request.user.is_staff %}
-  <div class="learn-wrap" id="learnBox">
-    <div class="strip-title">🧠 policy 再学習（ワンクリ）</div>
-    <div class="learn-row">
-      <button class="learn-btn" data-learn-days="90">通常運用（90日）</button>
-      <button class="learn-btn" data-learn-days="365">月次レポート（365日）</button>
-      <button class="learn-btn" data-learn-days="730">初回再学習（730日）</button>
-    </div>
-    <div id="learnStatus" class="learn-status muted"></div>
-  </div>
-  {% endif %}
 </section>
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-  // ====== グラフ ======
+  // ===== チャート =====
   const points = {{ points|safe }};
   if (points && points.length) {
     const labels = points.map(p => p.label);
     const score  = points.map(p => (p.score ?? null));
     const winrt  = points.map(p => (p.winrt ?? null));
-    const selfS  = points.map(p => (p.self_score ?? null));
-
     const ctx = document.getElementById("policyChart").getContext("2d");
     new Chart(ctx, {
       type: "line",
       data: {
         labels,
         datasets: [
-          { label: "改善スコア", data: score, tension: 0.25 },
-          { label: "加重勝率(%)", data: winrt, yAxisID: "y2", tension: 0.25 },
-          { label: "self_score", data: selfS, yAxisID: "y3", tension: 0.25 }
+          { label: "改善スコア（重み平均）", data: score, tension: 0.25 },
+          { label: "加重勝率（%）", data: winrt, yAxisID: "y2", tension: 0.25 }
         ]
       },
       options: {
         responsive: true,
-        maintainAspectRatio: false,
         interaction: { mode: "index", intersect: false },
-        plugins: {
-          legend: { display: true, labels: { boxWidth: 10, font: { size: 11 } } },
-          tooltip: { mode: "index", intersect: false }
-        },
         scales: {
-          y:  { beginAtZero: true, ticks: { font:{ size: 11 } }, title: { display:true, text: "スコア" } },
-          y2: { beginAtZero: true, position: "right", grid: { drawOnChartArea:false }, ticks:{ font:{ size:11 } }, title: { display:true, text: "勝率(%)" } },
-          y3: { beginAtZero: true, position: "right", grid: { drawOnChartArea:false }, ticks:{ font:{ size:11 } }, title: { display:true, text: "self_score" } }
-        }
+          y:  { beginAtZero: true, title: { display:true, text: "スコア" } },
+          y2: { beginAtZero: true, position: "right", title: { display:true, text: "勝率(%)" } }
+        },
+        plugins: { legend: { display: true } }
       }
     });
   }
 
-  // ====== ワンクリ学習（staff専用） ======
-  const statusEl = document.getElementById("learnStatus");
-  const boxEl    = document.getElementById("learnBox");
-  const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
-  const apiUrl = "{% url 'advisor_learn_now' %}"; // /api/advisor/learn/
+  // ===== 統合トリガー =====
+  const btn  = document.getElementById("btnRetrainApply");
+  const daysSel = document.getElementById("daysSel");
+  const emailBox = document.getElementById("emailBox");
+  const snapshotChk = document.getElementById("snapshotChk");
+  const msg  = document.getElementById("msg");
 
-  const scrollInto = () => {
-    if (!boxEl) return;
-    boxEl.scrollIntoView({ behavior: "smooth", block: "center" });
+  const getCsrf = () => {
+    const m = document.cookie.match(/csrftoken=([^;]+)/);
+    if (m) return decodeURIComponent(m[1]);
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    return meta?.getAttribute("content") || "";
   };
 
-  const spinner = "⏳";
-  const okMark  = "✅";
-  const ngMark  = "❌";
+  btn?.addEventListener("click", async () => {
+    const days = daysSel?.value || "90";
+    const email = (emailBox?.value || "").trim();
+    const snapshot = snapshotChk?.checked ? "1" : "0";
 
-  const runLearn = async (days) => {
-    if (!statusEl) return;
-    statusEl.classList.remove("muted");
-    statusEl.textContent = `${spinner} 学習中… (${days}日)`;
-    scrollInto();
-
-    const fd = new FormData();
-    fd.append("days", String(days));
-
+    btn.disabled = true;
+    msg.textContent = "再訓練を実行中…";
     try {
-      const res = await fetch(apiUrl, { method: "POST", headers: { "X-CSRFToken": csrf }, body: fd });
-      const j = await res.json();
-      if (!j.ok) throw new Error(j.error || "unknown error");
-      statusEl.textContent = `${okMark} policy.json を更新しました（days=${j.days}, kinds=${j.kinds}）\n${j.saved}`;
+      const res = await fetch("{% url 'policy_retrain' %}", {
+        method: "POST",
+        headers: {
+          "X-Requested-With": "fetch",
+          "X-CSRFToken": getCsrf(),
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
+        },
+        body: new URLSearchParams({ days, email, snapshot })
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "failed");
+      msg.textContent = "完了。グラフを更新します…";
+      setTimeout(() => location.reload(), 800);
     } catch (e) {
-      statusEl.textContent = `${ngMark} 失敗: ${e}`;
+      console.error(e);
+      msg.textContent = "失敗しました。ログを確認してください。";
+      btn.disabled = false;
     }
-    scrollInto();
-  };
-
-  document.querySelectorAll('button[data-learn-days]').forEach(btn => {
-    btn.addEventListener("click", () => {
-      const days = Number(btn.getAttribute("data-learn-days") || "90");
-      runLearn(days);
-    });
   });
 });
 </script>
