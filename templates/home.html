@@ -79,13 +79,13 @@
   </div>
   <div class="kpi-card">
     <div class="kpi-label">総実現損益</div>
-    {% with v=kpis.realized_cum %}
+    {% with v=kpis.realized_cum_incl %}
       <div class="kpi-value {% if v > 0 %}pos{% elif v < 0 %}neg{% endif %}">¥{{ v|intcomma }}</div>
     {% endwith %}
   </div>
   <div class="kpi-card">
     <div class="kpi-label">今月の実現損益</div>
-    {% with v=kpis.realized_month %}
+    {% with v=kpis.realized_month_incl %}
       <div class="kpi-value {% if v > 0 %}pos{% elif v < 0 %}neg{% endif %}">¥{{ v|intcomma }}</div>
     {% endwith %}
   </div>
