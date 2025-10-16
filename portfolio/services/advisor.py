@@ -404,3 +404,42 @@ def _score_with_policy(feats: dict) -> float:
     except Exception as e:
         print(f"[advisor] policy load failed: {e}")
         return None
+        
+        
+def extract_features_for_learning(kpis: dict, sectors: list) -> dict:
+    """
+    KPI・セクター情報から機械学習に使える特徴量を抽出する。
+    - policy_snapshot / advisor_train の共通で利用可能。
+    - 特徴量は最初はシンプルにKPIベース。
+    """
+    try:
+        feat = {}
+
+        # KPI数値をそのままコピー（Noneは0に）
+        for k, v in kpis.items():
+            if isinstance(v, (int, float)):
+                feat[k] = float(v)
+            elif isinstance(v, (str, bool)):
+                feat[k] = float(v) if isinstance(v, bool) else 0.0
+            else:
+                feat[k] = 0.0
+
+        # セクターごとのトップ3シェアを特徴量として追加
+        top3 = sorted(sectors, key=lambda s: s.get("mv", 0), reverse=True)[:3]
+        for i, sec in enumerate(top3):
+            feat[f"sector{i+1}_rate"] = sec.get("rate", 0.0)
+            feat[f"sector{i+1}_share"] = sec.get("share_pct", 0.0)
+
+        # 特殊派生特徴量（例：リスク関連）
+        roi_eval = kpis.get("roi_eval_pct") or 0
+        roi_liquid = kpis.get("roi_liquid_pct") or 0
+        feat["roi_gap_abs"] = abs(roi_eval - roi_liquid)
+        feat["liquidity_margin_ratio"] = (
+            (kpis.get("liquidity_rate_pct") or 0) - (kpis.get("margin_ratio_pct") or 0)
+        )
+
+        return feat
+
+    except Exception as e:
+        print(f"[extract_features_for_learning] failed: {e}")
+        return {}
