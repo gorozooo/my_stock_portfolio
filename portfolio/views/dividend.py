@@ -472,13 +472,36 @@ def dashboard_json(request):
 @login_required
 @require_POST
 def dividend_save_goal(request):
+    """
+    年間目標を保存。
+    - フォームPOST(application/x-www-form-urlencoded, multipart) と
+      JSON POST(application/json) の両方に対応
+    - fetch などのAJAXなら JSON を返す
+    """
     try:
-        year = int(request.POST.get("year") or "")
-        amount = Decimal(str(request.POST.get("amount") or "0")).quantize(Decimal("0.01"))
+        # ---- 入力の取り出し（JSON優先、なければPOSTフォーム） ----
+        is_json = (request.content_type or "").startswith("application/json")
+        if is_json:
+            payload = json.loads(request.body.decode("utf-8") or "{}")
+            year_raw   = payload.get("year") or payload.get("y")
+            amount_raw = payload.get("amount") or payload.get("value")
+        else:
+            year_raw   = request.POST.get("year") or request.GET.get("year")
+            amount_raw = request.POST.get("amount") or request.GET.get("amount")
+
+        year = int(str(year_raw))
+        amount = Decimal(str(amount_raw)).quantize(Decimal("0.01"))
     except Exception:
         return HttpResponseBadRequest("invalid parameters")
 
+    # 保存
     svc_div.set_goal_amount(request.user, year, amount)
+
+    # ---- レスポンス（AJAXはJSON / 通常はリダイレクト）----
+    is_ajax = is_json or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    if is_ajax:
+        return JsonResponse({"ok": True, "year": year, "amount": float(amount)})
+
     messages.success(request, "年間目標を保存しました。")
     return redirect(f"{reverse('dividend_dashboard')}?year={year}")
 
