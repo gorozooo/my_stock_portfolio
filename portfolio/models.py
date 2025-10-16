@@ -67,15 +67,16 @@ class RealizedTrade(models.Model):
         ("OTHER",   "その他"),
     )
     ACCOUNT_CHOICES = (
-        ("SPEC", "特定"),
+        ("SPEC",   "特定"),
         ("MARGIN", "信用"),
-        ("NISA", "NISA"),
+        ("NISA",   "NISA"),
     )
+    SIDE_CHOICES = (("SELL", "SELL"), ("BUY", "BUY"))
 
     user      = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    trade_at  = models.DateField()
-    side      = models.CharField(max_length=4, choices=(("SELL","SELL"),("BUY","BUY")))
-    ticker    = models.CharField(max_length=20)
+    trade_at  = models.DateField(db_index=True)
+    side      = models.CharField(max_length=4, choices=SIDE_CHOICES, db_index=True)
+    ticker    = models.CharField(max_length=20, db_index=True)
     name      = models.CharField(max_length=120, blank=True, default="")
     qty       = models.IntegerField()
     price     = models.DecimalField(max_digits=14, decimal_places=2)
@@ -84,29 +85,52 @@ class RealizedTrade(models.Model):
     tax       = models.DecimalField(max_digits=14, decimal_places=2, default=0)
 
     broker    = models.CharField(max_length=16, choices=BROKER_CHOICES, default="OTHER")
-    account   = models.CharField(max_length=10, choices=ACCOUNT_CHOICES, default="SPEC",
-                                 help_text="口座区分（特定/信用/NISA）")
+    account   = models.CharField(
+        max_length=10,
+        choices=ACCOUNT_CHOICES,
+        default="SPEC",
+        help_text="口座区分（特定/信用/NISA）"
+    )
+
     cashflow  = models.DecimalField(
         max_digits=16, decimal_places=2, null=True, blank=True,
         help_text="受渡金額（現金フロー）。SELL=＋/BUY=−。未入力なら自動推定。"
     )
 
-    # ★ 追加: 保有日数（クローズ時に自動保存）
+    # クローズ時に保存する保有日数（平均集計用）
     hold_days = models.IntegerField(null=True, blank=True, help_text="保有日数（未入力は平均集計から除外）")
 
     memo      = models.TextField(blank=True, default="")
     created_at= models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["-trade_at","-id"]
+        ordering = ["-trade_at", "-id"]
+        indexes = [
+            models.Index(fields=["trade_at", "side"]),
+            models.Index(fields=["ticker", "trade_at"]),
+        ]
+
+    # --------- Helpers ---------
+    @property
+    def is_buy(self) -> bool:
+        return (self.side or "").upper() == "BUY"
+
+    @property
+    def is_sell(self) -> bool:
+        return (self.side or "").upper() == "SELL"
 
     @property
     def amount(self):
+        """取引金額（qty * price）"""
         return float(self.qty) * float(self.price)
 
     @property
     def pnl(self):
-        if self.side == "BUY":
+        """
+        手数料・税控除後の取引PnL（トレード起点）。
+        BUYはオープン側なので0扱い、SELLのみ (price - basis) * qty - fee - tax。
+        """
+        if self.is_buy:
             gross = 0.0
         else:
             b = float(self.basis) if self.basis is not None else float(self.price)
@@ -115,10 +139,33 @@ class RealizedTrade(models.Model):
 
     @property
     def cashflow_effective(self):
+        """
+        実際の現金増減（受渡ベース）。
+        cashflow があればそれを優先。無ければ
+          SELL: +(qty*price) - fee - tax
+          BUY : -(qty*price) - fee - tax
+        を自動算出。
+        """
         if self.cashflow is not None:
             return float(self.cashflow)
-        signed = self.amount if self.side == "SELL" else -self.amount
+        signed = self.amount if self.is_sell else -self.amount
         return signed - float(self.fee) - float(self.tax)
+
+    # --------- Normalize / Defaults ---------
+    def save(self, *args, **kwargs):
+        """
+        - BUY で basis 未入力なら、分析の整合性のため basis=price を自動補完
+        - ティッカーは大文字に正規化
+        """
+        # 正規化
+        if self.ticker:
+            self.ticker = self.ticker.upper().strip()
+
+        # BUY のとき basis を price で補完（None のままでも壊れないが指標計算が楽）
+        if self.is_buy and self.basis is None:
+            self.basis = self.price
+
+        super().save(*args, **kwargs)
         
 
 # ==== Dividend ======================================================
