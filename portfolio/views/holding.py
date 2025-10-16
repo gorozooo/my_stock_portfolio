@@ -9,8 +9,6 @@ import time
 
 import pandas as pd
 import yfinance as yf
-from statistics import median
-
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -20,6 +18,7 @@ from django.db.models import Sum
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
+from statistics import median  # ★ 追加：中央値
 
 from ..forms import HoldingForm
 from ..models import Holding
@@ -31,42 +30,23 @@ Number = Union[int, float, Decimal]
 # ユーティリティ
 # =========================================================
 
-class RowVM:
-    def __init__(
-        self,
-        obj: Holding,
-        valuation: Optional[float] = None,
-        pnl: Optional[float] = None,
-        pnl_pct: Optional[float] = None,
-        days: Optional[int] = None,
-        price_now: Optional[float] = None,
-        yield_now: Optional[float] = None,
-        yield_cost: Optional[float] = None,
-        div_annual: Optional[float] = None,
-        div_received: Optional[float] = None,
-        s7_idx: Optional[List[float]] = None,
-        s30_idx: Optional[List[float]] = None,
-        s90_idx: Optional[List[float]] = None,
-        s7_raw: Optional[List[float]] = None,
-        s30_raw: Optional[List[float]] = None,
-        s90_raw: Optional[List[float]] = None,
-    ):
-        self.obj = obj
-        self.valuation = valuation
-        self.pnl = pnl
-        self.pnl_pct = pnl_pct
-        self.days = days
-        self.price_now = price_now
-        self.yield_now = yield_now
-        self.yield_cost = yield_cost
-        self.div_annual = div_annual
-        self.div_received = div_received
-        self.s7_idx = s7_idx
-        self.s30_idx = s30_idx
-        self.s90_idx = s90_idx
-        self.s7_raw = s7_raw
-        self.s30_raw = s30_raw
-        self.s90_raw = s90_raw
+SECTOR_CACHE_TTL = 30 * 60  # 30分
+_SECTOR_CACHE: Dict[str, Tuple[float, str]] = {}  # code(.T含む正規化) -> (ts, sector_text)
+
+
+def _sector_cache_get(norm: str) -> Optional[str]:
+    item = _SECTOR_CACHE.get(norm)
+    if not item:
+        return None
+    ts, sec = item
+    if time.time() - ts < SECTOR_CACHE_TTL:
+        return sec
+    return None
+
+
+def _sector_cache_put(norm: str, sector: str) -> None:
+    if sector:
+        _SECTOR_CACHE[norm] = (time.time(), sector)
 
 
 def _to_float(x) -> Optional[float]:
@@ -85,6 +65,42 @@ def _norm_ticker(raw: str) -> str:
 
 def _today_jst() -> date:
     return date.today()
+
+
+@dataclass
+class RowVM:
+    obj: Holding
+    valuation: Optional[float] = None
+    pnl: Optional[float] = None
+    pnl_pct: Optional[float] = None
+    days: Optional[int] = None
+
+    # ▼ 追加（配当・利回り表示用）
+    price_now: Optional[float] = None
+    yield_now: Optional[float] = None
+    yield_cost: Optional[float] = None
+    div_annual: Optional[float] = None
+    div_received: Optional[float] = None
+
+    # スパークデータ
+    s7_idx: Optional[List[float]] = None
+    s30_idx: Optional[List[float]] = None
+    s90_idx: Optional[List[float]] = None
+    s7_raw: Optional[List[float]] = None
+    s30_raw: Optional[List[float]] = None
+    s90_raw: Optional[List[float]] = None
+
+
+def _build_rows_for_queryset(qs) -> List[RowVM]:
+    holdings = list(qs)
+    tickers = [h.ticker for h in holdings]
+    try:
+        _preload_closes(tickers, 7)
+        _preload_closes(tickers, 30)
+        _preload_closes(tickers, 90)
+    except Exception:
+        pass
+    return [_build_row(h) for h in holdings]
 
 
 # ------- yfinance 価格バッチ取得（15分キャッシュ） -------
@@ -106,7 +122,6 @@ def _cache_put(ticker_norm: str, days: int, closes: List[float]) -> None:
 
 
 def _infer_ex_date(div_date: date, ticker_norm: str) -> date:
-    """JP銘柄は支払日→擬似権利落ち日に補正"""
     if ticker_norm.endswith(".T"):
         delta = 60
         delta = max(30, min(90, delta))
@@ -212,7 +227,7 @@ def _calc_div_annual_net(h: Holding) -> Optional[float]:
     try:
         since = _today_jst() - timedelta(days=365)
 
-        # 1) 手動記録（正）
+        # 1) 手動記録
         rel = getattr(h, "dividends", None)
         if rel:
             total = 0.0
@@ -231,6 +246,7 @@ def _calc_div_annual_net(h: Holding) -> Optional[float]:
             return None
 
         acc = (h.account or "SPEC").upper()
+
         def _net(gross: float) -> float:
             if acc == "NISA":
                 return gross
@@ -256,9 +272,8 @@ def _build_row(h: Holding) -> RowVM:
     cost_unit = _to_float(h.avg_cost or 0) or 0.0
     acq = q * cost_unit
 
-    # 価格
     n = _norm_ticker(h.ticker)
-    raw7  = _preload_closes([h.ticker], 7).get(n, [])
+    raw7 = _preload_closes([h.ticker], 7).get(n, [])
     raw30 = _preload_closes([h.ticker], 30).get(n, [])
     raw90 = _preload_closes([h.ticker], 90).get(n, [])
 
@@ -275,10 +290,8 @@ def _build_row(h: Holding) -> RowVM:
         if acq > 0:
             pnl_pct = (pnl / acq) * 100.0
 
-    # 年間配当（税後）
     div_annual = _calc_div_annual_net(h)
 
-    # 利回り
     y_now = y_cost = None
     if div_annual is not None and q > 0:
         div_ps = div_annual / q
@@ -287,7 +300,6 @@ def _build_row(h: Holding) -> RowVM:
         if cost_unit > 0:
             y_cost = (div_ps / cost_unit) * 100.0
 
-    # 累計配当（準厳密）
     div_received = None
     try:
         opened = h.opened_at or (h.created_at.date() if h.created_at else None)
@@ -295,6 +307,7 @@ def _build_row(h: Holding) -> RowVM:
             divs = _get_dividends_1share(h.ticker)
             if divs:
                 acc = (h.account or "SPEC").upper()
+
                 def _net(gross: float) -> float:
                     if acc == "NISA":
                         return gross
@@ -314,7 +327,6 @@ def _build_row(h: Holding) -> RowVM:
     except Exception:
         pass
 
-    # 保有日数
     start = h.opened_at or (h.created_at.date() if h.created_at else None)
     days = (_today_jst() - start).days if start else None
 
@@ -324,7 +336,7 @@ def _build_row(h: Holding) -> RowVM:
         base = arr[0] or 0.0
         return [round(v / base, 4) if base else 1.0 for v in arr]
 
-    s7_idx  = _idx(raw7)
+    s7_idx = _idx(raw7)
     s30_idx = _idx(raw30)
     s90_idx = _idx(raw90)
 
@@ -414,79 +426,8 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
 
 
 # =========================================================
-# API: コード→銘柄名 + セクター（33業種）  ★ 信頼性アップ
+# API: コード→銘柄名 + セクター（33業種）
 # =========================================================
-def _map_en_sector_to_ja_33(s: str) -> str:
-    """英語セクター名を33業種にざっくり寄せる（無ければ原文返す）"""
-    if not s:
-        return s
-    key = s.strip().lower()
-    table = {
-        "information technology": "情報・通信業",
-        "technology": "情報・通信業",
-        "communication services": "情報・通信業",
-        "telecommunication services": "情報・通信業",
-        "financials": "銀行業",
-        "financial services": "その他金融業",
-        "health care": "医薬品",
-        "industrials": "機械",
-        "materials": "化学",
-        "consumer staples": "食料品",
-        "consumer discretionary": "小売業",
-        "utilities": "電気・ガス業",
-        "energy": "石油・石炭製品",
-        "real estate": "不動産業",
-    }
-    return table.get(key, s)
-
-
-def _resolve_sector(norm_code: str) -> Tuple[str, str]:
-    """
-    可能な限りセクター名を返す（value, source）。
-    優先順位:
-      1) 設定の手動オーバーライド
-      2) 既存のsvc_trend高速ルート（JP優先）
-      3) yfinance.info の sector / industry を緊急フォールバック
-    """
-    code = (norm_code or "").upper()
-    # 1) settings override（例: {"7203":"輸送用機器"}）
-    try:
-        ov = getattr(settings, "TSE_SECTOR_OVERRIDES", {})
-        sec = ov.get(code.split(".", 1)[0])
-        if sec:
-            return sec, "override"
-    except Exception:
-        pass
-
-    # 2) 既存のJP優先ルート
-    try:
-        sec = svc_trend._fetch_sector_prefer_jp(code)
-        if sec:
-            return sec, "svc_trend"
-    except Exception:
-        pass
-
-    # 3) yfinance フォールバック（英語→33業種近似）
-    try:
-        info = {}
-        try:
-            # .get_info() は環境で名称違いがあるため両方試す
-            info = yf.Ticker(code).get_info()
-        except Exception:
-            try:
-                info = yf.Ticker(code).info
-            except Exception:
-                info = {}
-
-        sec_en = info.get("sector") or info.get("industry") or ""
-        if sec_en:
-            return _map_en_sector_to_ja_33(str(sec_en)), "yfinance"
-    except Exception:
-        pass
-
-    return "", "none"
-
-
 @login_required
 def api_ticker_name(request):
     raw = (request.GET.get("code") or request.GET.get("q") or "").strip()
@@ -505,20 +446,53 @@ def api_ticker_name(request):
             except Exception:
                 name = ""
 
-    # セクター：多段フォールバック
-    try:
-        sector, source = _resolve_sector(norm)
-    except Exception:
-        sector, source = "", "error"
+    # ===== セクター（33業種） =====
+    # 0) キャッシュ
+    cached = _sector_cache_get(norm)
+    if cached:
+        sector = cached
+    else:
+        sector = None
+        # 1) まず既存の prefer_jp（高品質）
+        try:
+            sector = svc_trend._fetch_sector_prefer_jp(norm) or None
+        except Exception:
+            sector = None
 
-    return JsonResponse({"code": code, "name": name, "sector": sector or "", "sector_source": source})
+        # 2) 失敗時フォールバック：yfinance の info から英語Sector/Industryを取得
+        if not sector:
+            try:
+                info = yf.Ticker(norm).get_info()
+                sec_en = (info or {}).get("sector") or (info or {}).get("industry") or ""
+                # 簡易マッピング（代表的なものだけ）
+                map_en2jp = {
+                    "Technology": "情報・通信業",
+                    "Communication Services": "情報・通信業",
+                    "Industrials": "機械",
+                    "Consumer Cyclical": "小売業",
+                    "Consumer Defensive": "食料品",
+                    "Financial Services": "銀行業",
+                    "Real Estate": "不動産業",
+                    "Healthcare": "医薬品",
+                    "Basic Materials": "化学",
+                    "Energy": "石油・石炭製品",
+                    "Utilities": "電気・ガス業",
+                }
+                sector = map_en2jp.get(str(sec_en), str(sec_en)) or None
+            except Exception:
+                sector = None
+
+        # 3) 最後にキャッシュ
+        if sector:
+            _sector_cache_put(norm, sector)
+
+    return JsonResponse({"code": code, "name": name, "sector": sector or ""})
 
 
 # =========================================================
 # 一覧（フィルタ/並び替え/ページング）
 # =========================================================
 def _apply_filters(qs, request):
-    """choicesの表示名/コードの両対応でフィルタ"""
     def _normalize_choice(field_name: str, raw: str) -> Optional[str]:
         if raw is None:
             return None
@@ -537,9 +511,9 @@ def _apply_filters(qs, request):
                 return value
         return s
 
-    broker  = _normalize_choice("broker",  request.GET.get("broker"))
+    broker = _normalize_choice("broker", request.GET.get("broker"))
     account = _normalize_choice("account", request.GET.get("account"))
-    side    = _normalize_choice("side",    request.GET.get("side"))
+    side = _normalize_choice("side", request.GET.get("side"))
 
     if broker:
         qs = qs.filter(broker=broker)
@@ -551,14 +525,15 @@ def _apply_filters(qs, request):
     q = (request.GET.get("q") or request.GET.get("ticker") or "").strip()
     if q:
         qs = qs.filter(models.Q(ticker__icontains=q) | models.Q(name__icontains=q))
+
     return qs
 
 
 def _sort_qs(qs, request):
     sort = request.GET.get("sort") or "updated"  # updated|created|opened
-    order = request.GET.get("order") or "desc"   # asc|desc
+    order = request.GET.get("order") or "desc"  # asc|desc
     if sort in ("updated", "created", "opened"):
-        field = {"updated":"updated_at","created":"created_at","opened":"opened_at"}[sort]
+        field = {"updated": "updated_at", "created": "created_at", "opened": "opened_at"}[sort]
         if order == "asc":
             qs = qs.order_by(field, "-id")
         else:
@@ -590,7 +565,7 @@ def _apply_post_filters(rows: List[RowVM], request) -> List[RowVM]:
 def _sort_rows(rows: List[RowVM], request) -> List[RowVM]:
     sort = (request.GET.get("sort") or "").lower()
     order = (request.GET.get("order") or "desc").lower()
-    reverse = (order != "asc")
+    reverse = order != "asc"
 
     if sort == "pnl":
         rows.sort(key=lambda r: (r.pnl is None, r.pnl or 0.0), reverse=reverse)
@@ -625,6 +600,7 @@ def holding_list(request):
             self.previous_page_number = src.previous_page_number
             self.next_page_number = src.next_page_number
             self.object_list = objs
+
     page_wrap = _PageWrap(page, rows_page)
 
     ctx = {
@@ -635,21 +611,99 @@ def holding_list(request):
             "broker": request.GET.get("broker") or "",
             "account": request.GET.get("account") or "",
             "ticker": request.GET.get("ticker") or "",
-            "side":   request.GET.get("side") or "",
-            "pnl":    request.GET.get("pnl") or "",
+            "side": request.GET.get("side") or "",
+            "pnl": request.GET.get("pnl") or "",
         },
         "summary": summary,
     }
     return render(request, "holdings/list.html", ctx)
 
 
-def _build_rows_for_queryset(qs) -> List[RowVM]:
-    holdings = list(qs)
-    tickers = [h.ticker for h in holdings]
-    try:
-        _preload_closes(tickers, 7)
-        _preload_closes(tickers, 30)
-        _preload_closes(tickers, 90)
-    except Exception:
-        pass
-    return [_build_row(h) for h
+@login_required
+def holding_list_partial(request):
+    qs = Holding.objects.filter(user=request.user).prefetch_related("dividends")
+    qs = _apply_filters(qs, request)
+    qs = _sort_qs(qs, request)
+
+    page = _page(request, qs)
+    rows_page = _build_rows_for_page(page)
+    rows_page = _apply_post_filters(rows_page, request)
+    rows_page = _sort_rows(rows_page, request)
+
+    rows_all = _build_rows_for_queryset(qs)
+    rows_all = _apply_post_filters(rows_all, request)
+    summary = _aggregate(rows_all)
+    summary["count"] = qs.count()
+    summary["page_count"] = len(rows_page)
+
+    class _PageWrap:
+        def __init__(self, src, objs):
+            self.number = src.number
+            self.paginator = src.paginator
+            self.has_previous = src.has_previous
+            self.has_next = src.has_next
+            self.previous_page_number = src.previous_page_number
+            self.next_page_number = src.next_page_number
+            self.object_list = objs
+
+    page_wrap = _PageWrap(page, rows_page)
+
+    ctx = {
+        "page": page_wrap,
+        "sort": request.GET.get("sort") or "updated",
+        "order": request.GET.get("order") or "desc",
+        "filters": {
+            "broker": request.GET.get("broker") or "",
+            "account": request.GET.get("account") or "",
+            "ticker": request.GET.get("ticker") or "",
+            "side": request.GET.get("side") or "",
+            "pnl": request.GET.get("pnl") or "",
+        },
+        "summary": summary,
+    }
+    return render(request, "holdings/_list.html", ctx)
+
+
+# =========================================================
+# 作成/編集/削除
+# =========================================================
+@login_required
+def holding_create(request):
+    if request.method == "POST":
+        form = HoldingForm(request.POST)
+        if form.is_valid():
+            obj = form.save(commit=False)
+            obj.user = request.user
+            obj.save()
+            messages.success(request, "保有を登録しました。")
+            return redirect("holding_list")
+    else:
+        form = HoldingForm()
+    return render(request, "holdings/form.html", {"form": form, "mode": "create"})
+
+
+@login_required
+def holding_edit(request, pk):
+    obj = get_object_or_404(Holding, pk=pk, user=request.user)
+    if request.method == "POST":
+        form = HoldingForm(request.POST, instance=obj)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "保有を更新しました。")
+            return redirect("holding_list")
+    else:
+        form = HoldingForm(instance=obj)
+    return render(request, "holdings/form.html", {"form": form, "mode": "edit", "obj": obj})
+
+
+@login_required
+@require_POST
+def holding_delete(request, pk: int):
+    filters = {"pk": pk}
+    if any(f.name == "user" for f in Holding._meta.fields):
+        filters["user"] = request.user
+    h = get_object_or_404(Holding, **filters)
+    h.delete()
+    if request.headers.get("HX-Request") == "true":
+        return HttpResponse("")
+    return redirect("holding_list")
