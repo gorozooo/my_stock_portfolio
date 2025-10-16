@@ -80,8 +80,6 @@
 
 {% block content %}
 <div class="wrap">
-  
-
   <!-- フィルタバー -->
   <form class="bar" method="get" id="flt_form">
     <div>
@@ -116,7 +114,7 @@
     </div>
   </form>
 
-  <!-- KPI（整数＋円） -->
+  <!-- KPI -->
   <div class="kpis">
     <div class="kpi"><div class="t">件数（{{ flt.year }}）</div><div class="v" id="kpi_count">{{ kpi.count|default:"0" }}</div></div>
     <div class="kpi"><div class="t">税引前合計</div><div class="v" id="kpi_gross">{{ kpi.gross|floatformat:0 }}円</div></div>
@@ -129,7 +127,7 @@
     <div class="muted" style="margin-top:6px">※ 元本＝株数×取得単価（保有/配当のいずれか入力がある明細のみ合算）</div>
   </div>
 
-  <!-- 年間目標（税引後） -->
+  <!-- 年間目標 -->
   <div class="card goal-card" id="goal_card">
     <div class="sec-title">年間目標（税引後）</div>
     <div class="goal-grid">
@@ -153,7 +151,6 @@
 
   <!-- 月次 & 構成 -->
   <div class="grid">
-    <!-- 月次棒グラフ -->
     <div class="card">
       <div class="sec-title">月次（税引後＋税額）</div>
       <div class="barwrap" id="chartWrap">
@@ -167,7 +164,6 @@
       <div class="muted" style="margin-top:6px">バーをタップで明細へ移動します。</div>
     </div>
 
-    <!-- 構成（ドーナツ：右凡例） -->
     <div class="card">
       <div class="sec-title">構成（税引後合計）</div>
       <div class="pie-grid">
@@ -185,7 +181,7 @@
     </div>
   </div>
 
-  <!-- トップ銘柄（銘柄名表示） -->
+  <!-- トップ銘柄 -->
   <div class="card" style="margin-top:12px">
     <div class="sec-title">税引後 上位銘柄（Top 10 / {{ flt.year }}）</div>
     <div class="rows" id="tbl_top">
@@ -224,5 +220,64 @@
     account: { {% for v,l in ACCOUNTS %}"{{ v }}":"{{ l|escapejs }}"{% if not forloop.last %},{% endif %}{% endfor %} }
   };
 </script>
+
+<!-- 目標保存のための最小JS（JSON POST + CSRF） -->
+<script>
+(function(){
+  const $ = s => document.querySelector(s);
+  const btn   = $('#goal_save_btn');
+  const input = $('#goal_amount_input');
+  const toast = $('#dashToast');
+
+  function showToast(msg){
+    if(!toast) return;
+    toast.textContent = msg;
+    toast.style.opacity = '1';
+    toast.style.transform = 'translate(-50%,0)';
+    setTimeout(()=>{ toast.style.opacity='0'; toast.style.transform='translate(-50%,24px)'; }, 1600);
+  }
+
+  function getCookie(name){
+    const m = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
+    return m ? decodeURIComponent(m.pop()) : '';
+  }
+
+  async function saveGoal(){
+    const year = parseInt(String(window.DIVD_URLS.year || new Date().getFullYear()), 10);
+    const amount = Number(input.value || 0);
+
+    if (isNaN(year) || isNaN(amount)) {
+      showToast('入力値が不正です');
+      return;
+    }
+
+    try{
+      const res = await fetch(window.DIVD_URLS.save_goal, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCookie('csrftoken'),
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({ year: year, amount: amount })
+      });
+      if(!res.ok){
+        const t = await res.text();
+        throw new Error(t || '保存に失敗しました');
+      }
+      // 成功：表示を更新（簡易的にリロードするのが確実）
+      showToast('年間目標を保存しました');
+      setTimeout(()=>{ location.reload(); }, 300);
+    }catch(err){
+      console.error(err);
+      showToast('エラー: 保存できませんでした');
+    }
+  }
+
+  btn?.addEventListener('click', saveGoal);
+})();
+</script>
+
 <script src="{% static 'js/dividends_dashboard.js' %}?v=12" defer></script>
 {% endblock %}
