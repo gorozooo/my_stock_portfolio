@@ -1040,7 +1040,6 @@ def list_page(request):
 @login_required
 @require_POST
 def create(request):
-    # --- 日付 ---
     date_raw = (request.POST.get("date") or "").strip()
     try:
         trade_at = (
@@ -1050,7 +1049,6 @@ def create(request):
     except Exception:
         trade_at = timezone.localdate()
 
-    # --- 主要入力 ---
     ticker  = (request.POST.get("ticker")  or "").strip()
     name    = (request.POST.get("name")    or "").strip()
     side    = (request.POST.get("side")    or "SELL").upper()
@@ -1064,30 +1062,27 @@ def create(request):
 
     price      = _to_dec(request.POST.get("price"))
     fee        = _to_dec(request.POST.get("fee"))
-    tax        = _to_dec(request.POST.get("tax"))        # 無ければ 0
-    pnl_input  = _to_dec(request.POST.get("pnl_input"))  # “投資家PnL”（手入力の実損）
+    tax        = _to_dec(request.POST.get("tax"))
+    pnl_input  = _to_dec(request.POST.get("pnl_input"))
     memo       = (request.POST.get("memo") or "").strip()
 
-    # --- バリデーション ---
     if not ticker or qty <= 0 or price <= 0:
         return JsonResponse({"ok": False, "error": "入力が不足しています"}, status=400)
     if side not in ("SELL", "BUY"):
         return JsonResponse({"ok": False, "error": "Sideが不正です"}, status=400)
 
-    # --- basis の決定 ---
-    # BUY は平均PnL%計算に使わないので None のままでも可。
-    # SELL は平均PnL%のため逆算して保存する。
+    # ★ ここを変更：BUYは basis=price を保存（SELLは逆算）
     basis = None
     if side == "SELL" and qty > 0:
         try:
             basis_calc = price - (pnl_input + fee + tax) / Decimal(qty)
-            basis = basis_calc if basis_calc > 0 else None  # 不自然な値は除外
+            basis = basis_calc if basis_calc > 0 else None
         except Exception:
             basis = None
+    elif side == "BUY":
+        basis = price  # ← 購入時の単価をそのまま保存
 
-    # --- 保有日数（任意）---
-    # 1) 明示 `hold_days`（数値）を優先
-    # 2) もしくは `opened_at`（YYYY-MM-DD）から trade_at との差で算出
+    # 保有日数（オプション）
     hold_days = None
     try:
         hd_raw = (request.POST.get("hold_days") or "").strip()
@@ -1101,7 +1096,6 @@ def create(request):
     except Exception:
         hold_days = None
 
-    # --- 登録 ---
     RealizedTrade.objects.create(
         user=request.user,
         trade_at=trade_at,
@@ -1114,13 +1108,12 @@ def create(request):
         price=price,
         fee=fee,
         tax=tax,
-        cashflow=pnl_input,   # 画面に出す“投資家PnL”
-        basis=basis,          # SELL のときは逆算結果
-        hold_days=hold_days,  # 任意保存（平均保有日数の計算に使う）
+        cashflow=pnl_input,
+        basis=basis,          # ★ BUYはprice、SELLは逆算
+        hold_days=hold_days,
         memo=memo,
     )
 
-    # --- 再描画 ---
     q  = (request.POST.get("q") or "").strip()
     qs = RealizedTrade.objects.filter(user=request.user).order_by("-trade_at", "-id")
     if q:
