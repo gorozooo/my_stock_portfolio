@@ -33,7 +33,7 @@
     <button type="button" class="text-indigo-300 underline" onclick="history.back()">閉じる</button>
   </div>
 
-  <!-- SELL/BUY 切替（見た目タブ → hidden に反映） -->
+  <!-- SELL/BUY 切替 -->
   <div class="tabs">
     <button type="button" class="tab" data-side="SELL">SELL（売却）</button>
     <button type="button" class="tab" data-side="BUY">BUY（買付）</button>
@@ -50,7 +50,6 @@
       </label>
       <label class="flex flex-col gap-1">
         <span class="label">数量</span>
-        <!-- SELL のときだけ max を設定。BUY では外す -->
         <input name="qty" type="number" min="1" data-max="{{ h_qty }}" class="in">
         <small class="text-xs text-slate-500">保有: {{ h_qty }}</small>
       </label>
@@ -59,6 +58,28 @@
     <label class="flex flex-col gap-1 mt-3">
       <span class="label" data-price-label>売却単価</span>
       <input name="price" inputmode="decimal" placeholder="例: 1234.5" class="in">
+    </label>
+
+    <div class="sheet-row mt-3">
+      <label class="flex flex-col gap-1">
+        <span class="label">手数料（税込）</span>
+        <input name="fee" inputmode="decimal" placeholder="未入力なら0" class="in">
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="label">税金</span>
+        <input name="tax" inputmode="decimal" placeholder="未入力なら0" class="in">
+      </label>
+    </div>
+
+    <!-- ±入力（どちらのサイドでも任意。SELL=投資家PnL、BUY=通常0） -->
+    <label class="flex flex-col gap-1 mt-3">
+      <span class="label">実損 / キャッシュフロー（±・任意）</span>
+      <div class="sign-wrap">
+        <button type="button" class="sign-btn" data-sgn="-">−</button>
+        <input name="cashflow" type="text" inputmode="decimal"
+               pattern="-?[0-9]+([.,][0-9]+)?" placeholder="SELL:+利益 / −損失、BUY:通常0" class="in">
+        <button type="button" class="sign-btn" data-sgn="+">＋</button>
+      </div>
     </label>
 
     <div class="sheet-row mt-3">
@@ -78,30 +99,6 @@
           <option value="MARGIN" {% if prefill.account == 'MARGIN' %}selected{% endif %}>信用</option>
           <option value="NISA" {% if prefill.account == 'NISA' %}selected{% endif %}>NISA</option>
         </select>
-      </label>
-    </div>
-
-    <!-- 実損（SELLのみ表示）。BUYは未実現なので既定は0で非表示 -->
-    <label class="flex flex-col gap-1 mt-3 sell-only" style="display:none">
-      <span class="label">実損（手数料控除前・任意）</span>
-      <div class="sign-wrap">
-        <button type="button" class="sign-btn" data-sgn="-">−</button>
-        <input name="cashflow" type="text" inputmode="decimal"
-               pattern="-?[0-9]+([.,][0-9]+)?" placeholder="+ 利益 / − 損失"
-               class="in">
-        <button type="button" class="sign-btn" data-sgn="+">＋</button>
-      </div>
-      <p class="text-xs text-slate-400 mt-1">※ キーボードに「−」が無い場合は左のボタンで負に切替。</p>
-    </label>
-
-    <div class="sheet-row mt-3">
-      <label class="flex flex-col gap-1">
-        <span class="label">手数料（税込み）</span>
-        <input name="fee" inputmode="decimal" class="in" value="">
-      </label>
-      <label class="flex flex-col gap-1 buy-only" style="display:none">
-        <span class="label">税金（BUYのみ任意）</span>
-        <input name="tax" inputmode="decimal" class="in" value="">
       </label>
     </div>
 
@@ -131,29 +128,20 @@
   const sideInput = form.querySelector('input[name="side"]');
   const qtyInput = form.querySelector('input[name="qty"]');
   const priceLabel = root.querySelector('[data-price-label]');
-  const sellOnly = root.querySelectorAll('.sell-only');
-  const buyOnly  = root.querySelectorAll('.buy-only');
   const submitBtn= root.querySelector('[data-submit-label]');
 
   function setSide(side){
     sideInput.value = side;
-    // タブの見た目
     root.querySelectorAll('.tab').forEach(t=>{
       t.classList.toggle('active', t.dataset.side === side);
     });
-    // ラベルと項目表示
     if(side === 'SELL'){
       priceLabel.textContent = '売却単価';
-      sellOnly.forEach(e=>e.style.display='');
-      buyOnly.forEach(e=>e.style.display='none');
       submitBtn.textContent = '売却を記録';
-      // SELL の時だけ max 制約を付与
       const mx = qtyInput.getAttribute('data-max');
       if(mx){ qtyInput.setAttribute('max', mx); }
     }else{
       priceLabel.textContent = '買付単価';
-      sellOnly.forEach(e=>e.style.display='none');
-      buyOnly.forEach(e=>e.style.display='');
       submitBtn.textContent = '買付を記録';
       qtyInput.removeAttribute('max');
     }
@@ -167,7 +155,7 @@
     btn.addEventListener('click', ()=> setSide(btn.dataset.side));
   });
 
-  // ±トグル（SELL時のみ有効）
+  // ±トグル
   root.querySelectorAll('.sign-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const input = root.querySelector('input[name="cashflow"]');
