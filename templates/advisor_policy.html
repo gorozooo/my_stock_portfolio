@@ -5,37 +5,23 @@
 
 {% block head %}
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<link rel="stylesheet" href="{% static 'css/home.css' %}?v=30">
+<link rel="stylesheet" href="{% static 'css/home.css' %}?v=31">
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
-  .ph-wrap{ margin:14px 12px; }
-  .ph-card{ padding:14px; }
-  .muted{ opacity:.7; }
-
-  /* 学習フォーム (スマホ向け) */
+  .ph-wrap{ margin:14px 12px; } .ph-card{ padding:14px; } .muted{ opacity:.7; }
   .train-box{ margin-top:10px; padding:12px; border-radius:12px;
     border:1px dashed rgba(255,255,255,.22); background:rgba(255,255,255,.05);}
   .field{ display:grid; grid-template-columns:1fr; row-gap:6px; margin:10px 0;}
   .field label{ font-size:.95rem; color:var(--muted); }
   .select, .input{ width:100%; padding:10px 12px; border-radius:10px;
     border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.06); color:var(--fg);}
-  .row{ display:flex; align-items:center; gap:10px; }
   .checkbox{ display:flex; align-items:center; gap:8px; font-size:.95rem; color:var(--fg); }
-  .btn-primary{
-    appearance:none; width:100%; padding:12px; border-radius:12px;
-    border:1px solid #6ea8ff; color:#e8eeff; background:rgba(110,168,255,.15);
-    font-weight:700;
-  }
-  .best-box{
-    margin-top:12px; padding:10px; border-radius:12px;
-    border:1px solid rgba(255,255,255,.15);
-    background: rgba(255,255,255,.05);
-  }
+  .btn-primary{ appearance:none; width:100%; padding:12px; border-radius:12px;
+    border:1px solid #6ea8ff; color:#e8eeff; background:rgba(110,168,255,.15); font-weight:700; }
+  .best-box{ margin-top:12px; padding:10px; border-radius:12px; border:1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.05); }
   .best-box .title{ font-weight:700; margin-bottom:6px; }
   .best-box .kv{ display:grid; grid-template-columns:120px 1fr; gap:6px; }
-  @media (max-width: 460px){
-    .best-box .kv{ grid-template-columns:100px 1fr; }
-  }
+  @media (max-width: 460px){ .best-box .kv{ grid-template-columns:100px 1fr; } }
   .flash{ margin-top:8px; font-size:.95rem; }
 </style>
 {% endblock %}
@@ -44,23 +30,18 @@
 <section class="glass ph-wrap ph-card">
   <div class="ai-title">policy履歴（改善スコア & 勝率）</div>
 
-  {% if flash_msg %}
-    <div class="flash">✅ {{ flash_msg }}</div>
-  {% endif %}
-
   {% if has_data %}
     <canvas id="policyChart" height="180"></canvas>
-
     {% if best %}
-    <div class="best-box">
-      <div class="title">一番良かった週</div>
-      <div class="kv">
-        <div class="muted">週：</div><div>{{ best.label }}</div>
-        <div class="muted">改善スコア：</div><div>{% if best.score != None %}{{ best.score|floatformat:4 }}{% else %}--{% endif %}</div>
-        <div class="muted">加重勝率：</div><div>{% if best.winrt != None %}{{ best.winrt|floatformat:3 }}{% else %}--{% endif %}</div>
-        <div class="muted">horizon：</div><div>{{ best.horizon }} 日</div>
+      <div class="best-box">
+        <div class="title">一番良かった週</div>
+        <div class="kv">
+          <div class="muted">週：</div><div>{{ best.label }}</div>
+          <div class="muted">改善スコア：</div><div>{% if best.score != None %}{{ best.score|floatformat:4 }}{% else %}--{% endif %}</div>
+          <div class="muted">加重勝率：</div><div>{% if best.winrt != None %}{{ best.winrt|floatformat:3 }}{% else %}--{% endif %}</div>
+          <div class="muted">horizon：</div><div>{{ best.horizon }} 日</div>
+        </div>
       </div>
-    </div>
     {% endif %}
   {% else %}
     <p class="muted">
@@ -69,12 +50,10 @@
     </p>
   {% endif %}
 
-  <!-- 学習フォーム：ボタンが押せない問題は、type="submit" & CSRF & POSTハンドラで解決 -->
-  <form class="train-box" method="post" action="{% url 'policy_history' %}">
+  <!-- 学習フォーム（専用POSTエンドポイントへ） -->
+  <form class="train-box" method="post" action="{% url 'policy_retrain' %}">
     {% csrf_token %}
-    <div class="row" style="justify-content:space-between;">
-      <div style="font-weight:700;">🧠 policy 再訓練（ワンクリ）</div>
-    </div>
+    <div style="font-weight:700; margin-bottom:4px;">🧠 policy 再訓練（ワンクリ）</div>
 
     <div class="field">
       <label for="days">モード</label>
@@ -102,7 +81,6 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
-  // グラフ
   const points = {{ points|safe }};
   if (points && points.length) {
     const labels = points.map(p => p.label);
@@ -113,36 +91,30 @@ document.addEventListener("DOMContentLoaded", () => {
     const ctx = document.getElementById("policyChart").getContext("2d");
     new Chart(ctx, {
       type: "line",
-      data: {
-        labels,
-        datasets: [
-          { label: "改善スコア（重み平均）", data: score, tension: 0.25 },
-          { label: "加重勝率（%）", data: winrt, yAxisID: "y2", tension: 0.25 },
-          { label: "AI自己評価 self_score", data: selfS, yAxisID: "y3", tension: 0.25 }
-        ]
-      },
+      data: { labels, datasets: [
+        { label: "改善スコア（重み平均）", data: score, tension: 0.25 },
+        { label: "加重勝率（%）", data: winrt, yAxisID: "y2", tension: 0.25 },
+        { label: "AI自己評価 self_score", data: selfS, yAxisID: "y3", tension: 0.25 }
+      ]},
       options: {
-        responsive: true,
-        interaction: { mode: "index", intersect: false },
+        responsive: true, interaction: { mode: "index", intersect: false },
         scales: {
           y:  { beginAtZero: true, title: { display:true, text: "スコア" } },
           y2: { beginAtZero: true, position: "right", title: { display:true, text: "勝率(%)" } },
-          y3: { beginAtZero: true, position: "right", grid: { drawOnChartArea:false }, title: { display:true, text: "self_score" } }
-        },
-        plugins: { legend: { display: true } }
+          y3: { beginAtZero: true, position: "right", grid:{ drawOnChartArea:false }, title:{ display:true, text:"self_score"} }
+        }
       }
     });
   }
 
-  // 二重送信防止＆簡易UX
+  // 送信中のUI
   const form = document.querySelector("form.train-box");
   const btn  = document.getElementById("btn-train");
   const msg  = document.getElementById("msg");
   if (form && btn) {
     form.addEventListener("submit", () => {
-      btn.disabled = true;
-      btn.textContent = "学習中…";
-      if (msg) msg.textContent = "数秒だけお待ちください。完了するとこのページが再読み込みされます。";
+      btn.disabled = true; btn.textContent = "学習中…";
+      if (msg) msg.textContent = "完了後にこのページが自動で更新されます。";
     });
   }
 });
