@@ -133,23 +133,19 @@ def _rt_date_field() -> Optional[str]:
 
 def _sum_realized_month() -> int:
     first, next_first = _month_bounds()
-
-    # 1) CashLedger を優先
     cash_sum = CashLedger.objects.filter(
         source_type=CashLedger.SourceType.REALIZED,
         at__gte=first, at__lt=next_first,
     ).aggregate(s=Sum("amount")).get("s") or 0
-
     if cash_sum:
         return int(cash_sum)
 
-    # 2) Ledger が空なら RealizedTrade の pnl を使用
+    # RealizedTradeのcashflow合計
     date_field = _rt_date_field()
     qs = RealizedTrade.objects.all()
     if date_field:
         qs = qs.filter(**{f"{date_field}__gte": first, f"{date_field}__lt": next_first})
-
-    trade_sum = qs.aggregate(s=Sum("pnl")).get("s") or 0
+    trade_sum = qs.aggregate(s=Sum("cashflow")).get("s") or 0
     return int(trade_sum)
 
 def _sum_dividend_month() -> int:
@@ -161,16 +157,15 @@ def _sum_dividend_month() -> int:
     return int(sum(int(x.amount) for x in qs))
 
 def _sum_realized_cum() -> int:
-    # 1) CashLedger を優先
+    # CashLedger優先
     cash_sum = CashLedger.objects.filter(
         source_type=CashLedger.SourceType.REALIZED
     ).aggregate(s=Sum("amount")).get("s") or 0
-
     if cash_sum:
         return int(cash_sum)
 
-    # 2) Ledger が空なら RealizedTrade の pnl を使用
-    trade_sum = RealizedTrade.objects.aggregate(s=Sum("pnl")).get("s") or 0
+    # RealizedTradeのcashflow合計を使う
+    trade_sum = RealizedTrade.objects.aggregate(s=Sum("cashflow")).get("s") or 0
     return int(trade_sum)
 
 def _sum_dividend_cum() -> int:
