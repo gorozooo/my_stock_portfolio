@@ -179,23 +179,55 @@
     e.target.setSelectionRange(p,p);
   });
 
-  // ティッカー → 銘柄名の自動補完
+  // ===== ティッカー → 銘柄の自動補完 =====
   const endpoint = "{% url 'api_ticker_name' %}";
+
+  // ユーザーが手で銘柄名を編集したら“尊重”
+  let userEditedName = false;
+  let nameAutofilled = false;      // 直前が自動反映なら上書きOK
+  let lastResolvedCode = "";
+  inName?.addEventListener('input', ()=>{
+    userEditedName = true;
+    nameAutofilled = false;
+  });
+
+  function applyName(data){
+    if (!data) return;
+    // API から code が返るならそれで入力欄も正規化
+    if (data.code && inTicker) inTicker.value = String(data.code).toUpperCase();
+
+    const codeChanged = data.code && data.code !== lastResolvedCode;
+    const safeToOverwrite = !userEditedName || nameAutofilled || !inName.value;
+
+    if (data.name && (codeChanged || safeToOverwrite)) {
+      inName.value = data.name;           // ← 毎回上書き（上の条件でユーザー編集は保護）
+      nameAutofilled = true;
+      userEditedName = false;
+      lastResolvedCode = data.code || (inTicker?.value || "");
+    }
+  }
+
+  // 小さめデバウンスで都度問い合わせ
+  function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
   function lookupName(code){
     if (!code) return;
     fetch(`${endpoint}?q=${encodeURIComponent(code)}`, {credentials:'same-origin'})
       .then(r=>r.ok?r.json():Promise.reject())
-      .then(d=>{ if(d && d.name && !inName.value) inName.value = d.name; })
+      .then(applyName)
       .catch(()=>{});
   }
-  inTicker?.addEventListener('blur',   ()=> lookupName(inTicker.value.trim()));
-  inTicker?.addEventListener('change', ()=> lookupName(inTicker.value.trim()));
+  const debouncedLookup = debounce(()=> lookupName(inTicker.value.trim()), 250);
 
-  // 保有選択 → 関連項目を自動反映（上書き）
+  // 入力中も解決／blur/change でも保険
+  inTicker?.addEventListener('input',  debouncedLookup);
+  inTicker?.addEventListener('change', ()=> lookupName(inTicker.value.trim()));
+  inTicker?.addEventListener('blur',   ()=> lookupName(inTicker.value.trim()));
+
+  // ===== 保有選択 → 各項目を上書き反映 =====
   function applyHolding(h){
     if (!h) return;
     if (inTicker) inTicker.value = String(h.ticker||'').toUpperCase();
-    if (inName)   inName.value   = h.name || '';
+    if (inName)   { inName.value = h.name || ''; nameAutofilled = true; userEditedName = false; }
     if (inQty)    inQty.value    = (h.quantity != null && h.quantity !== '') ? h.quantity : '';
     if (inAvg)    inAvg.value    = (h.avg_cost != null && h.avg_cost !== '') ? h.avg_cost : '';
     if (brokerSel && h.broker){ brokerSel.value  = h.broker; }
@@ -210,7 +242,7 @@
     applyHolding(h);
   }
 
-  // ===== 税率ピル + 税額自動計算 =====
+  // ===== 税率ピル + 税額自動計算（そのまま） =====
   const $amount = document.getElementById('inAmount');
   const $prev   = document.getElementById('js-preview');
   const $rateHidden = document.getElementById('id_tax_rate_pct');
@@ -223,16 +255,13 @@
     $rateHidden.value = String(val);
     updateTax();
   }
-  // 初期選択
   selectRate($rateHidden.value || "20.315");
-
   pills.forEach(cb=>{
     cb.addEventListener('change', ()=>{
       if (!cb.checked){ cb.checked = true; return; }
       selectRate(cb.value);
     });
   });
-
   function num(x){ const v=parseFloat(x); return isNaN(v)?0:v; }
   function fmt(n){ return (Math.round(n*100)/100).toLocaleString('ja-JP'); }
   function updateTax(){
