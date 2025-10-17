@@ -123,7 +123,7 @@ def _log(msg: str) -> None:
 def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
     """
     主要指数の1d/5d/20dリターンと出来高比を作成して media/market/indexes_YYYY-MM-DD.json へ保存。
-    オンライン不可時は手動/履歴にフォールバック。
+    取得手段を段階的に切替し、Close欠落時はAdj Close代用。全滅時は直近の非空履歴を転写。
     """
     today = date.today().isoformat()
     mdir = _market_dir()
@@ -131,76 +131,133 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
     out_path = os.path.join(mdir, f"indexes_{today}.json")
     out: Dict[str, Any] = {"date": today, "data": []}
 
+    def _ensure_close(df: pd.DataFrame) -> Optional[pd.Series]:
+        if df is None or len(df) == 0:
+            return None
+        if "Close" in df.columns:
+            s = df["Close"].dropna()
+            if len(s) > 0:
+                return s
+        if "Adj Close" in df.columns:
+            s = df["Adj Close"].dropna()
+            if len(s) > 0:
+                return s
+        return None
+
+    def _try_download(symbol: str, period_days: int) -> Optional[pd.DataFrame]:
+        """複数戦略で DataFrame を取りに行く（どれか成功すれば返す）"""
+        period_strs = [f"{period_days}d", f"{max(period_days, 180)}d", "200d"]
+        # 1) download(auto_adjust=True/False)
+        for p in period_strs:
+            try:
+                df = yf.download(symbol, period=p, interval="1d",
+                                 auto_adjust=True, progress=False, threads=False)
+                if _ensure_close(df) is not None:
+                    return df
+            except Exception:
+                pass
+            try:
+                df = yf.download(symbol, period=p, interval="1d",
+                                 auto_adjust=False, progress=False, threads=False)
+                if _ensure_close(df) is not None:
+                    return df
+            except Exception:
+                pass
+        # 2) Ticker.history
+        try:
+            tk = yf.Ticker(symbol)
+            df = tk.history(period="200d", interval="1d", auto_adjust=True)
+            if _ensure_close(df) is not None:
+                return df
+        except Exception:
+            pass
+        # 3) start/end（“今日含むとうまく返らない”ケースの回避）
+        try:
+            from datetime import timedelta
+            end = date.today() - timedelta(days=1)
+            start = end - timedelta(days=max(period_days, 200))
+            df = yf.download(symbol, start=start.isoformat(), end=end.isoformat(),
+                             interval="1d", auto_adjust=True, progress=False, threads=False)
+            if _ensure_close(df) is not None:
+                return df
+        except Exception:
+            pass
+        return None
+
     # online check
     online_ok = True
     try:
         test = yf.download("SPY", period="3d", interval="1d", auto_adjust=True,
                            progress=False, threads=False)
-        online_ok = bool(test is not None and len(test) >= 2 and "Close" in test.columns)
+        online_ok = bool(test is not None and len(test) >= 2 and _ensure_close(test) is not None)
     except Exception:
         online_ok = False
 
-    # ========== オンライン ==========
     if online_ok:
-        # 休場や欠損に強いように余裕を持った期間を取得
-        period_days = max(120, days * 6)
-        period_str = f"{period_days}d"
-
+        period_days = max(120, days * 6)  # 休場・欠損に強め
         for name, syms in ALIASES.items():
             got = False
             for symbol in syms:
-                try:
-                    df = yf.download(symbol, period=period_str, interval="1d",
-                                     auto_adjust=True, progress=False, threads=False)
-                    if df is None or "Close" not in df.columns or len(df) < 2:
-                        _log(f"[SKIP] {name}:{symbol} → no/short data")
-                        continue
+                df = _try_download(symbol, period_days)
+                if df is None:
+                    print(f"[SKIP] {name}:{symbol} → empty/invalid df")
+                    continue
 
-                    # 有効な終値列（NaN除去）
-                    close = df["Close"].dropna()
-                    if len(close) < 2:
-                        _log(f"[SKIP] {name}:{symbol} → close too short after dropna()")
-                        continue
+                close = _ensure_close(df)
+                if close is None or len(close) < 2:
+                    print(f"[SKIP] {name}:{symbol} → close too short")
+                    continue
 
-                    # 出来高（無い市場/銘柄は None のままでOK）
-                    volume = df["Volume"].dropna() if "Volume" in df.columns else None
+                volume = None
+                if "Volume" in df.columns:
+                    v = df["Volume"].dropna()
+                    volume = v if len(v) > 0 else None
 
-                    # 有効データ本数に応じて段階的に算出
-                    r1 = _pct_return(close, 1) if len(close) >= 2 else None
-                    r5 = _pct_return(close, 5) if len(close) >= 6 else None
-                    r20 = _pct_return(close, 20) if len(close) >= 21 else None
-                    vr = _vol_ratio(volume, 20) if volume is not None else None
+                # 有効本数に応じて段階的に算出
+                n = len(close)
+                r1 = _pct_return(close, 1) if n >= 2 else None
+                r5 = _pct_return(close, 5) if n >= 6 else None
+                r20 = _pct_return(close, 20) if n >= 21 else None
+                vr = _vol_ratio(volume, 20) if volume is not None else None
 
-                    # 4つ全部 None ならこのシンボルは不採用 → 次の候補へ
-                    if r1 is None and r5 is None and r20 is None and vr is None:
-                        _log(f"[SKIP] {name}:{symbol} → all metrics None")
-                        continue
+                if r1 is None and r5 is None and r20 is None and vr is None:
+                    print(f"[SKIP] {name}:{symbol} → all metrics None")
+                    continue
 
-                    out["data"].append({
-                        "symbol": name,
-                        "ret_1d": None if r1 is None else round(r1, 2),
-                        "ret_5d": None if r5 is None else round(r5, 2),
-                        "ret_20d": None if r20 is None else round(r20, 2),
-                        "vol_ratio": None if vr is None else round(vr, 2),
-                    })
-                    _log(f"[OK] {name}:{symbol}")
-                    got = True
-                    break
-                except Exception as e:
-                    _log(f"[WARN] {name}:{symbol} failed: {e}")
+                out["data"].append({
+                    "symbol": name,
+                    "ret_1d": None if r1 is None else round(r1, 2),
+                    "ret_5d": None if r5 is None else round(r5, 2),
+                    "ret_20d": None if r20 is None else round(r20, 2),
+                    "vol_ratio": None if vr is None else round(vr, 2),
+                })
+                print(f"[OK] {name}:{symbol}")
+                got = True
+                break
 
             if not got:
-                _log(f"[MISS] {name} → 全候補NG（今回は見送り）")
+                print(f"[MISS] {name} → 全候補NG（今回は見送り）")
+
+        # 1件も取れなかった場合は、直近の非空ファイルを転写
+        if len(out["data"]) == 0:
+            last_hist = _latest_file(os.path.join(mdir, "indexes_*.json"))
+            if last_hist:
+                try:
+                    with open(last_hist, "r", encoding="utf-8") as f:
+                        prev = json.load(f)
+                    if isinstance(prev, dict) and isinstance(prev.get("data"), list) and len(prev["data"]) > 0:
+                        out["data"] = prev["data"]
+                        print(f"[FALLBACK] copied from {os.path.basename(last_hist)}")
+                except Exception:
+                    pass
 
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(out, f, ensure_ascii=False, indent=2)
         print(f"Wrote: {out_path} ({len(out['data'])} symbols)")
         return out
 
-    # ========== オフライン・フォールバック ==========
-    _log("[OFFLINE] yfinance 取得不可 → 手動/履歴にフォールバック")
-
-    # 1) 手動ファイル
+    # ====== オフライン（手動/履歴） ======
+    print("[OFFLINE] yfinance 取得不可 → 手動/履歴にフォールバック")
     manual_path = os.path.join(mdir, "indexes_manual.json")
     if os.path.exists(manual_path):
         try:
@@ -213,9 +270,8 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
                 print(f"[OFFLINE] used manual → {out_path} ({len(out['data'])} symbols)")
                 return out
         except Exception as e:
-            _log(f"[WARN] manual read failed: {e}")
+            print(f"[WARN] manual read failed: {e}")
 
-    # 2) 直近履歴の転写
     last_hist = _latest_file(os.path.join(mdir, "indexes_*.json"))
     if last_hist and os.path.exists(last_hist):
         try:
@@ -228,9 +284,8 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
                 print(f"[OFFLINE] copied from {os.path.basename(last_hist)} → {out_path} ({len(out['data'])} symbols)")
                 return out
         except Exception as e:
-            _log(f"[WARN] history read failed: {e}")
+            print(f"[WARN] history read failed: {e}")
 
-    # 3) 何も無ければ空で保存
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
     print(f"[OFFLINE] no data available → wrote empty: {out_path} (0 symbols)")
