@@ -428,44 +428,42 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
         msg = f"評価ROIが {re:.2f}%。損失限定ルール（逆指値/縮小）を再設定。"
         items.append(AdviceItemView(0, msg, score))
 
-       # === セクター強弱（RS）★環境適応しきい値対応 ===
-        rs_table = _get_rs_table()
-        try:
-            if norm_sectors and rs_table:
-                # 相場環境に応じたしきい値を取得
-                rs_weak_th, rs_strong_th = _rs_thresholds_by_env()
-    
-                top_sec = normalize_sector(norm_sectors[0].get("sector") or "")
-                if top_sec and top_sec in rs_table:
-                    rs = float(rs_table[top_sec].get("rs_score", 0.0))
-    
-                    if rs <= rs_weak_th:
-                        score = min(0.9, abs(rs))
-                        items.append(AdviceItemView(
-                            0,
-                            f"主力セクター「{top_sec}」が弱気ゾーン（{rs:+.2f}）。地合い{rs_weak_th:+.2f}以下→守りを優先。",
-                            score
-                        ))
-                    elif rs >= rs_strong_th:
-                        score = min(0.85, rs)
-                        items.append(AdviceItemView(
-                            0,
-                            f"主力セクター「{top_sec}」が強気ゾーン（{rs:+.2f}）。地合い{rs_strong_th:+.2f}以上→利を伸ばす好機。",
-                            score
-                        ))
-    
-                # PF全体の加重RS（★正規化後の一覧で算出）
-                w_rs = _pf_weighted_rs(norm_sectors, rs_table)
-                if w_rs < rs_weak_th and mr >= 30:
+    # === セクター強弱（RS）★環境適応しきい値（policy優先） ===
+    rs_table = _get_rs_table()
+    try:
+        if sectors and rs_table:
+            rs_weak_th, rs_strong_th = _rs_thresholds_from_policy_or_env()
+
+            top_sec = sectors[0].get("sector")
+            if top_sec and top_sec in rs_table:
+                rs = float(rs_table[top_sec].get("rs_score", 0.0))
+                if rs <= rs_weak_th:
+                    score = min(0.9, abs(rs))
                     items.append(AdviceItemView(
-                        0, f"PF全体RS {w_rs:+.2f}（閾値{rs_weak_th:+.2f}以下）。信用縮小やヘッジで防御強化を。", 0.8
+                        0,
+                        f"主力セクター「{top_sec}」が弱気ゾーン（{rs:+.2f} ≤ {rs_weak_th:+.2f}）。比率圧縮や損切りを検討。",
+                        score
                     ))
-                if w_rs > rs_strong_th and liq < 30:
+                elif rs >= rs_strong_th:
+                    score = min(0.85, rs)
                     items.append(AdviceItemView(
-                        0, f"PF全体RS {w_rs:+.2f}（閾値{rs_strong_th:+.2f}以上）。地合い好転時は一部利確も。", 0.7
+                        0,
+                        f"主力セクター「{top_sec}」が強気ゾーン（{rs:+.2f} ≥ {rs_strong_th:+.2f}）。利を伸ばしつつ段階利確を計画。",
+                        score
                     ))
-        except Exception:
-            pass
+
+            # PF全体の加重RSで補助判断
+            w_rs = _pf_weighted_rs(sectors, rs_table)
+            if w_rs < rs_weak_th and mr >= 30:
+                items.append(AdviceItemView(
+                    0, f"PF全体RS {w_rs:+.2f}（閾値{rs_weak_th:+.2f}以下）。信用縮小やヘッジで防御強化を。", 0.8
+                ))
+            if w_rs > rs_strong_th and liq < 30:
+                items.append(AdviceItemView(
+                    0, f"PF全体RS {w_rs:+.2f}（閾値{rs_strong_th:+.2f}以上）。現金薄なら一部利確で弾を補充。", 0.7
+                ))
+    except Exception:
+        pass
 
     # === ブレッドス（地合い） ===
     try:
@@ -596,6 +594,42 @@ def _apply_policy(items: List[AdviceItemView], kpis: Dict, sectors: List[Dict]) 
     for i, it in enumerate(boosted[:3]):
         it.taken = True
     return boosted
+
+def _rs_thresholds_from_policy_or_env() -> Tuple[float, float]:
+    """
+    policy.json に rs_thresholds が入っていればそれを優先し、
+    無ければ現在の地合いから動的に算出して返す。
+    戻り値: (rs_weak_th, rs_strong_th)
+    """
+    # 1) policy.json 優先
+    try:
+        pol = _get_policy() or {}
+        th = pol.get("rs_thresholds")
+        if isinstance(th, dict):
+            w = float(th.get("weak"))
+            s = float(th.get("strong"))
+            # weak < strong の関係を最低限保証
+            if w < s:
+                return (w, s)
+    except Exception:
+        pass
+
+    # 2) 環境から動的決定（ブレッドス score）
+    try:
+        br = _breadth_snapshot()
+        score = float(br.get("score", 0.0))
+    except Exception:
+        score = 0.0
+
+    # デフォルト
+    weak, strong = -0.25, 0.35
+    if score <= -0.3:
+        # 弱地合い → 警戒モード（弱気を早く検出）
+        weak, strong = -0.15, 0.25
+    elif score >= 0.3:
+        # 強地合い → 攻めモード（強気をやや引き上げ）
+        weak, strong = -0.35, 0.45
+    return weak, strong
 
 # =========================
 # 週次/次の一手
