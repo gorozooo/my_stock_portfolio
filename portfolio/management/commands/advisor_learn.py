@@ -339,6 +339,7 @@ class Command(BaseCommand):
             "bias": bias,
             "clip": {"low": clip_low, "high": clip_high},
             "kind_weight": kind_weight,
+            "notify": {"base_score": 0.55},
             # 環境適応しきい値（推論側は policy.rs_thresholds を最優先利用）
             "rs_thresholds": _compute_env_adaptive_rs_thresholds(),
             # デバッグ用に信号も保存（軽量）
