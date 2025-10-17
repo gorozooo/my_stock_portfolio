@@ -1,4 +1,4 @@
-# portfolio/services/market.py
+や portfolio/services/market.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 import os, json, glob, csv
@@ -221,3 +221,104 @@ def calc_relative_strength(index_table: Dict[str, Dict[str, Any]]) -> Dict[str, 
         if rs > +1.0: rs = +1.0
         out[sym] = rs
     return out
+    
+def _latest_market_file(kind: str) -> Optional[str]:
+    """kind in {"breadth"} を想定。MEDIA_ROOT/market/{kind}_*.json / {kind}.json を探す"""
+    mdir = _market_dir()
+    os.makedirs(mdir, exist_ok=True)
+    j_hist = _latest_file(os.path.join(mdir, f"{kind}_*.json"))
+    j_single = os.path.join(mdir, f"{kind}.json"))
+    for p in [j_hist, j_single]:
+        if p and os.path.exists(p):
+            return p
+    return None
+
+def latest_breadth() -> Dict[str, Any]:
+    """
+    直近のブレッドスを返す。
+    期待JSON:
+      {
+        "date": "YYYY-MM-DD",
+        "adv": 1200, "dec": 800,
+        "up_vol": 1.2e9, "down_vol": 0.9e9,
+        "new_high": 120, "new_low": 35
+      }
+    ファイル:
+      MEDIA_ROOT/market/breadth_YYYY-MM-DD.json（推奨） or breadth.json
+    無ければ {}。
+    """
+    path = _latest_market_file("breadth")
+    if not path:
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            obj = json.load(f)
+        return obj if isinstance(obj, dict) else {}
+    except Exception:
+        return {}
+
+def _safe_div(a: float, b: float, default: float = 0.0) -> float:
+    try:
+        b = float(b)
+        if abs(b) < 1e-12:
+            return default
+        return float(a) / b
+    except Exception:
+        return default
+
+def breadth_regime(b: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    ブレッドス（騰落/出来高/新高値-新安値）から地合いレジームを推定。
+    戻り値:
+      {
+        "ad_ratio": adv/dec,
+        "vol_ratio": up_vol/down_vol,
+        "hl_diff": new_high - new_low,
+        "score": -1..+1,
+        "regime": "RISK_ON|NEUTRAL|RISK_OFF"
+      }
+    スコア（簡易ルール）:
+      - ad_ratio:    >=1.3 → +0.4, <=0.77 → -0.4
+      - vol_ratio:   >=1.2 → +0.35, <=0.83 → -0.35
+      - hl_diff:     >=+50 → +0.35, <=-50 → -0.35
+      合計を -1..+1 にクリップ。
+    """
+    b = b or latest_breadth()
+    if not b:
+        return {"ad_ratio": 1.0, "vol_ratio": 1.0, "hl_diff": 0.0, "score": 0.0, "regime": "NEUTRAL"}
+
+    adv = _safe_float(b.get("adv")); dec = _safe_float(b.get("dec"))
+    upv = _safe_float(b.get("up_vol")); dnv = _safe_float(b.get("down_vol"))
+    nh = _safe_float(b.get("new_high")); nl = _safe_float(b.get("new_low"))
+
+    ad_ratio = _safe_div(adv, dec, 1.0)
+    vol_ratio = _safe_div(upv, dnv, 1.0)
+    hl_diff = nh - nl
+
+    score = 0.0
+    # 騰落
+    if ad_ratio >= 1.30: score += 0.40
+    elif ad_ratio <= 0.77: score -= 0.40
+    # 出来高
+    if vol_ratio >= 1.20: score += 0.35
+    elif vol_ratio <= 0.83: score -= 0.35
+    # 新高値-新安値
+    if hl_diff >= 50: score += 0.35
+    elif hl_diff <= -50: score -= 0.35
+
+    # クリップ
+    score = max(-1.0, min(1.0, score))
+    if score >= 0.35:
+        regime = "RISK_ON"
+    elif score <= -0.35:
+        regime = "RISK_OFF"
+    else:
+        regime = "NEUTRAL"
+
+    return {
+        "ad_ratio": round(ad_ratio, 3),
+        "vol_ratio": round(vol_ratio, 3),
+        "hl_diff": float(hl_diff),
+        "score": round(score, 3),
+        "regime": regime,
+    }
