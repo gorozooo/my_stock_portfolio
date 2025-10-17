@@ -768,7 +768,8 @@ def _env_for_notify(sectors: List[Dict], rs_table: Dict[str, Dict[str, Any]]) ->
 
     return {"breadth_score": bscore, "pf_rs": pf_rs}
     
-    def _decide_notify_threshold(base: float, env: Dict[str, float]) -> float:
+    
+def _decide_notify_threshold(base: float, env: Dict[str, float]) -> float:
     """
     base: policy['notify']['base_score']（デフォルト 0.55）
     env:  {"breadth_score":-1..+1, "pf_rs":-1..+1}
