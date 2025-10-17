@@ -164,6 +164,15 @@ EMAIL_HOST_PASSWORD = "pmcvdzpjpdndvdhj"   # ← この16桁パス（スペー�
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 ADMIN_EMAIL = "coco.louis67@gmail.com"     # ← 送信先も自分でOK
 
+
+# セクター指標マッピング（最初は主要いくつかでOK。あとで拡充）
+ADVISOR_SECTOR_SYMBOLS = {
+    "情報・通信": "1306.T",   # 例: TOPIX ETFの代用
+    "電気機器":   "6981.T",   # 代表銘柄サンプル
+    "銀行":       "8316.T",
+    # ...必要に応じて追加（33業種を目標）
+}
+ADVISOR_SECTOR_LOOKBACK_DAYS = 90
 # --- 参考（本番切替時の推奨。今は DEBUG=True なのでコメントのままでOK） ---
 # SESSION_COOKIE_SECURE = True
 # CSRF_COOKIE_SECURE = True
