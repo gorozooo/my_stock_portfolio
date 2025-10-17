@@ -10,33 +10,24 @@ import pandas as pd
 from django.conf import settings
 
 # ===================== 設定 =====================
-# できるだけ出来高が入るETF/代替シンボルを使用（指数 ^～ の代替）
 INDEX_SYMBOLS: Dict[str, str] = {
-    # --- 国内（ETF代替） ---
-    "TOPIX": "1306.T",      # TOPIX連動型上場投信
-    "N225": "1321.T",       # 日経225連動型上場投信
-    "JPX400": "1591.T",     # JPX日経400
-    "MOTHERS": "2516.T",    # マザーズ（代替ETF。無ければ自動スキップ）
-    "REIT": "1343.T",       # 東証REIT指数
-
-    # --- 海外（ETF代替） ---
-    "SPX": "SPY",           # S&P500
-    "NDX": "QQQ",           # NASDAQ100
-    "DAX": "EWG",           # ドイツ大型株 ETF
-    "FTSE": "EWU",          # 英国株 ETF
-    "HSI": "EWH",           # 香港株 ETF
-
-    # --- 為替 ---
+    "TOPIX": "1306.T",
+    "N225": "1321.T",
+    "JPX400": "1591.T",
+    "MOTHERS": "2516.T",
+    "REIT": "1343.T",
+    "SPX": "SPY",
+    "NDX": "QQQ",
+    "DAX": "EWG",
+    "FTSE": "EWU",
+    "HSI": "EWH",
     "USDJPY": "USDJPY=X",
     "EURJPY": "EURJPY=X",
-
-    # --- コモディティ（先物連動） ---
     "WTI": "CL=F",
     "GOLD": "GC=F",
     "COPPER": "HG=F",
 }
 
-# 代替シンボル候補（優先順）
 ALIASES: Dict[str, List[str]] = {
     "TOPIX":  ["1306.T", "1305.T"],
     "N225":   ["1321.T", "1330.T"],
@@ -55,25 +46,15 @@ ALIASES: Dict[str, List[str]] = {
     "COPPER": ["HG=F"],
 }
 
-
 # ===================== ヘルパ =====================
 def _media_root() -> str:
-    """MEDIA_ROOT が未設定なら プロジェクトCWD配下の 'media' を使う。"""
     mr = getattr(settings, "MEDIA_ROOT", "") or ""
-    if mr:
-        return mr
-    return os.path.join(os.getcwd(), "media")
-
+    return mr or os.path.join(os.getcwd(), "media")
 
 def _market_dir() -> str:
     return os.path.join(_media_root(), "market")
 
-
 def _latest_file(pattern: str) -> Optional[str]:
-    """
-    指定パターンから“最新"っぽいファイルを返す（ファイル名内の日付優先、同値はmtime）
-    例: os.path.join(_market_dir(), "indexes_*.json")
-    """
     import glob
     paths = glob.glob(pattern)
     if not paths:
@@ -82,33 +63,23 @@ def _latest_file(pattern: str) -> Optional[str]:
     def _pick_date(p: str) -> Tuple[int, str]:
         base = os.path.basename(p)
         try:
-            # 例: indexes_2025-01-10.json → 20250110
             dt_text = base.split("_", 1)[1].split(".", 1)[0]
             key = int(datetime.fromisoformat(dt_text).strftime("%Y%m%d"))
         except Exception:
             key = 0
         return (key, p)
 
-    # まず日付キーで、次にmtimeでソート
     paths.sort(key=lambda x: _pick_date(x)[0])
     paths.sort(key=lambda x: os.path.getmtime(x))
     return paths[-1] if paths else None
 
-
 def _to_float(x: Any, default: float = 0.0) -> float:
-    """
-    pandas / numpy を安全に float 化。
-    - Series/Index/ndarray は末尾要素を取り出して float
-    - numpy scalar は item()
-    - NaN や例外は default
-    """
     try:
         if x is None:
             return default
         if isinstance(x, (list, tuple)) and x:
             return float(x[-1])
         if hasattr(x, "iloc"):
-            # pandas Series / Index
             if len(x) == 0:
                 return default
             return float(x.iloc[-1])
@@ -118,12 +89,7 @@ def _to_float(x: Any, default: float = 0.0) -> float:
     except Exception:
         return default
 
-
 def _pct_return(series: pd.Series, periods: int) -> Optional[float]:
-    """
-    series の後ろから periods 戻った値と直近値で %リターン（100倍）を計算。
-    データ不足なら None。
-    """
     try:
         if not isinstance(series, pd.Series):
             return None
@@ -137,11 +103,7 @@ def _pct_return(series: pd.Series, periods: int) -> Optional[float]:
     except Exception:
         return None
 
-
 def _vol_ratio(volume: Optional[pd.Series], window: int = 20) -> Optional[float]:
-    """
-    直近出来高 / 直近window日移動平均出来高。出来高列が無い場合やデータ不足は None。
-    """
     try:
         if volume is None or not isinstance(volume, pd.Series) or len(volume) < window:
             return None
@@ -154,19 +116,14 @@ def _vol_ratio(volume: Optional[pd.Series], window: int = 20) -> Optional[float]
     except Exception:
         return None
 
-
 def _log(msg: str) -> None:
     print(msg)
-
 
 # ===================== 主要指数の自動取得 =====================
 def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
     """
     主要指数の1d/5d/20dリターンと出来高比を作成して media/market/indexes_YYYY-MM-DD.json へ保存。
-    - オンライン(yfinance)で取れない場合は手動ファイル/過去履歴でフォールバック
-    - 手動ファイル: media/market/indexes_manual.json
-      形式: {"date":"YYYY-MM-DD","data":[{"symbol":"SPX","ret_5d":1.2,"ret_20d":4.5,"vol_ratio":1.05}, ...]}
-      ※ ret_1d は省略可
+    オンライン不可時は手動/履歴にフォールバック。
     """
     today = date.today().isoformat()
     mdir = _market_dir()
@@ -174,7 +131,7 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
     out_path = os.path.join(mdir, f"indexes_{today}.json")
     out: Dict[str, Any] = {"date": today, "data": []}
 
-    # まずオンラインで取れるか簡易判定（SPYを3日）
+    # online check
     online_ok = True
     try:
         test = yf.download("SPY", period="3d", interval="1d", auto_adjust=True,
@@ -183,28 +140,38 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
     except Exception:
         online_ok = False
 
-    # ========== オンラインで取れる場合 ==========
+    # ========== オンライン ==========
     if online_ok:
-        period_days = max(90, days * 5)
+        # 休場や欠損に強いように余裕を持った期間を取得
+        period_days = max(120, days * 6)
         period_str = f"{period_days}d"
+
         for name, syms in ALIASES.items():
             got = False
             for symbol in syms:
                 try:
                     df = yf.download(symbol, period=period_str, interval="1d",
                                      auto_adjust=True, progress=False, threads=False)
-                    if df is None or len(df) < 2 or "Close" not in df.columns:
+                    if df is None or "Close" not in df.columns or len(df) < 2:
                         _log(f"[SKIP] {name}:{symbol} → no/short data")
                         continue
 
+                    # 有効な終値列（NaN除去）
                     close = df["Close"].dropna()
+                    if len(close) < 2:
+                        _log(f"[SKIP] {name}:{symbol} → close too short after dropna()")
+                        continue
+
+                    # 出来高（無い市場/銘柄は None のままでOK）
                     volume = df["Volume"].dropna() if "Volume" in df.columns else None
 
-                    r1 = _pct_return(close, 1)
-                    r5 = _pct_return(close, 5)
-                    r20 = _pct_return(close, 20)
-                    vr = _vol_ratio(volume, 20)
+                    # 有効データ本数に応じて段階的に算出
+                    r1 = _pct_return(close, 1) if len(close) >= 2 else None
+                    r5 = _pct_return(close, 5) if len(close) >= 6 else None
+                    r20 = _pct_return(close, 20) if len(close) >= 21 else None
+                    vr = _vol_ratio(volume, 20) if volume is not None else None
 
+                    # 4つ全部 None ならこのシンボルは不採用 → 次の候補へ
                     if r1 is None and r5 is None and r20 is None and vr is None:
                         _log(f"[SKIP] {name}:{symbol} → all metrics None")
                         continue
@@ -221,10 +188,10 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
                     break
                 except Exception as e:
                     _log(f"[WARN] {name}:{symbol} failed: {e}")
+
             if not got:
                 _log(f"[MISS] {name} → 全候補NG（今回は見送り）")
 
-        # 保存
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(out, f, ensure_ascii=False, indent=2)
         print(f"Wrote: {out_path} ({len(out['data'])} symbols)")
@@ -240,7 +207,6 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
             with open(manual_path, "r", encoding="utf-8") as f:
                 manual = json.load(f)
             if isinstance(manual, dict) and isinstance(manual.get("data"), list):
-                # そのまま今日の日付で保存
                 out["data"] = manual["data"]
                 with open(out_path, "w", encoding="utf-8") as f:
                     json.dump(out, f, ensure_ascii=False, indent=2)
@@ -249,7 +215,7 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
         except Exception as e:
             _log(f"[WARN] manual read failed: {e}")
 
-    # 2) 直近の履歴から転写（空でないファイルがあれば今日の日付で再保存）
+    # 2) 直近履歴の転写
     last_hist = _latest_file(os.path.join(mdir, "indexes_*.json"))
     if last_hist and os.path.exists(last_hist):
         try:
@@ -264,7 +230,7 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
         except Exception as e:
             _log(f"[WARN] history read failed: {e}")
 
-    # 3) 何も無ければ“ダミー0”で保存（以降の処理は問題なく流れる）
+    # 3) 何も無ければ空で保存
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
     print(f"[OFFLINE] no data available → wrote empty: {out_path} (0 symbols)")
