@@ -9,9 +9,9 @@ from typing import List, Dict, Tuple, Optional, Any
 from django.conf import settings
 from django.core.cache import cache
 
-from ..models_advisor import AdvicePolicy, AdviceSession, AdviceItem
-# ★ セクター強弱の最新値を読む（services/market.py）
-from .market import latest_sector_strength
+from ..models_advisor import AdviceSession, AdviceItem
+# ★ セクター強弱（RS）テーブルを取得
+from .market import latest_sector_strength  # 例: { "情報・通信": {"rs_score": 0.42, "date": "2025-01-01", ...}, ... }
 
 # =========================
 # 表示用構造
@@ -31,6 +31,12 @@ def _pct(v) -> float:
         return float(v or 0.0)
     except Exception:
         return 0.0
+
+def _sf(x, d=0.0) -> float:
+    try:
+        return float(x)
+    except Exception:
+        return d
 
 def _hash_msg(msg: str) -> str:
     return sha1(msg.encode("utf-8")).hexdigest()
@@ -90,6 +96,43 @@ def _get_policy() -> Optional[dict]:
     return cached_policy
 
 # =========================
+# RS（相対強弱）関連
+# =========================
+def _get_rs_table() -> Dict[str, Dict[str, Any]]:
+    """
+    latest_sector_strength() のラッパ。
+    エラー時は空dict。
+    """
+    try:
+        tbl = latest_sector_strength() or {}
+        # 値の整形：最低限 rs_score は float に
+        out: Dict[str, Dict[str, Any]] = {}
+        for sec, row in tbl.items():
+            try:
+                rs = float((row or {}).get("rs_score", 0.0))
+            except Exception:
+                rs = 0.0
+            out[sec] = dict(row or {})
+            out[sec]["rs_score"] = rs
+        return out
+    except Exception:
+        return {}
+
+def _pf_weighted_rs(sectors: List[Dict[str, Any]], rs_table: Dict[str, Dict[str, Any]]) -> float:
+    """
+    画面/サービスの sectors（[{sector, mv, ...}...]）と最新RSから
+    ポート全体の加重RS（-1..+1）を算出。RSが無いセクターは0扱い。
+    """
+    total_mv = sum(max(0.0, _sf(s.get("mv"))) for s in (sectors or [])) or 1.0
+    acc = 0.0
+    for s in (sectors or []):
+        sec = (s.get("sector") or "").strip()
+        mv = max(0.0, _sf(s.get("mv")))
+        rs = float((rs_table.get(sec) or {}).get("rs_score", 0.0))
+        acc += rs * (mv / total_mv)
+    return float(acc)
+
+# =========================
 # 特徴量抽出（将来ML用）
 # =========================
 # 既存互換（簡易特徴量）
@@ -103,9 +146,112 @@ FEATURES = [
     "win_ratio",
 ]
 
+def extract_features_for_learning(kpis: Dict[str, Any], sectors: List[Dict[str, Any]]) -> Dict[str, float]:
+    """
+    学習用の数値特徴量（フルセット）
+    - ストック：総資産/評価・清算価値/投下資金/現金/未実現/信用含み/信用比率/流動性/ROI各種/乖離
+    - フロー：今月/累計の実現損益・配当
+    - 行動：勝率
+    - 構造：セクタ上位の騰落・構成比・未分類比率
+    - 比率：現金比率、評価に対する現金・清算の比、ROI×流動性の合成指標 等
+    - 需給：主力セクターのRS、PF加重RS
+    """
+    f: Dict[str, float] = {}
+
+    # ---- ストック ----
+    total_assets   = _sf(kpis.get("total_assets"))
+    cash_total     = _sf(kpis.get("cash_total"))
+    invested       = _sf(kpis.get("invested"))
+    liquidation    = _sf(kpis.get("liquidation"))
+    unrealized     = _sf(kpis.get("unrealized_pnl"))
+    margin_unreal  = _sf(kpis.get("margin_unrealized"))
+    liq_rate_pct   = _sf(kpis.get("liquidity_rate_pct"))
+    margin_ratio   = _sf(kpis.get("margin_ratio_pct"))
+    roi_eval       = kpis.get("roi_eval_pct")
+    roi_liquid     = kpis.get("roi_liquid_pct")
+    roi_gap_abs    = kpis.get("roi_gap_abs")
+
+    f["total_assets"]   = total_assets
+    f["cash_total"]     = cash_total
+    f["invested"]       = invested
+    f["liquidation"]    = liquidation
+    f["unrealized_pnl"] = unrealized
+    f["margin_unrealized"] = margin_unreal
+    f["liquidity_rate_pct"] = liq_rate_pct
+    f["margin_ratio_pct"]   = margin_ratio
+    f["roi_eval_pct"]   = _sf(roi_eval, 0.0)
+    f["roi_liquid_pct"] = _sf(roi_liquid, 0.0)
+    f["roi_gap_abs"]    = _sf(roi_gap_abs, 0.0)
+
+    # 派生
+    f["cash_ratio_total"] = (cash_total / total_assets) if total_assets > 0 else 0.0
+    f["liq_ratio_total"]  = (liquidation / total_assets) if total_assets > 0 else 0.0
+
+    # ---- フロー（今月/累計）----
+    realized_month = _sf(kpis.get("realized_month"))
+    dividend_month = _sf(kpis.get("dividend_month"))
+    realized_cum   = _sf(kpis.get("realized_cum"))
+    dividend_cum   = _sf(kpis.get("dividend_cum"))
+
+    f["realized_month"] = realized_month
+    f["dividend_month"] = dividend_month
+    f["realized_cum"]   = realized_cum
+    f["dividend_cum"]   = dividend_cum
+
+    # 正規化（総資産基準）
+    denom = total_assets if total_assets > 0 else 1.0
+    f["realized_month_ratio"] = realized_month / denom
+    f["dividend_month_ratio"] = dividend_month / denom
+    f["realized_cum_ratio"]   = realized_cum / denom
+    f["dividend_cum_ratio"]   = dividend_cum / denom
+
+    # ---- 行動 ----
+    f["win_ratio"] = _sf(kpis.get("win_ratio"))
+
+    # ---- 構造（セクタ上位）----
+    top = sorted(sectors or [], key=lambda s: _sf(s.get("mv")), reverse=True)[:3]
+    total_mv = sum(_sf(s.get("mv")) for s in (sectors or [])) or 1.0
+    uncat_mv = 0.0
+    for i, s in enumerate(top):
+        f[f"sector{i+1}_mv"]    = _sf(s.get("mv"))
+        f[f"sector{i+1}_rate"]  = _sf(s.get("rate"))
+        share = _sf(s.get("mv")) / total_mv * 100.0
+        f[f"sector{i+1}_share"] = share
+    for s in (sectors or []):
+        if s.get("sector") == "未分類":
+            uncat_mv += _sf(s.get("mv"))
+    f["uncat_sector_ratio"] = (uncat_mv / total_mv * 100.0) if total_mv > 0 else 0.0
+
+    # ---- 需給（RS）：主力セクターRS & PF加重RS ----
+    rs_table = _get_rs_table()
+    if sectors and rs_table:
+        top_sec = (sectors[0].get("sector") or "").strip()
+        f["top_sector_rs"] = float((rs_table.get(top_sec) or {}).get("rs_score", 0.0))
+        f["pf_weighted_rs"] = _pf_weighted_rs(sectors, rs_table)
+    else:
+        f["top_sector_rs"] = 0.0
+        f["pf_weighted_rs"] = 0.0
+
+    # ---- 合成/安全度 ----
+    f["roi_times_liquidity"] = _sf(roi_eval, 0.0) * (liq_rate_pct / 100.0)
+    f["safety_score_like"] = max(0.0, 1.0 - (margin_ratio / 100.0)) * (liq_rate_pct / 100.0)
+
+    # NaN/inf 防御
+    clean = {}
+    for k, v in f.items():
+        try:
+            vv = float(v)
+            if vv != vv:  # NaN
+                vv = 0.0
+        except Exception:
+            vv = 0.0
+        clean[k] = vv
+    return clean
+
 def _build_features(kpis: Dict, sectors: List[Dict]) -> Dict[str, float]:
-    """既存の軽量版：後方互換のため残す（内部で拡張版を呼ぶ）"""
-    # 拡張版で一通り作ってから、従来キーを補完
+    """
+    互換の軽量版（旧FEATURES）を満たしつつ、上のフル特徴量を基に補完。
+    """
     f = extract_features_for_learning(kpis, sectors)
 
     total_assets = max(1.0, _pct(kpis.get("total_assets")))
@@ -113,20 +259,17 @@ def _build_features(kpis: Dict, sectors: List[Dict]) -> Dict[str, float]:
 
     # セクタ構成
     top_ratio = 0.0
-    uncat_ratio = 0.0
+    uncat_ratio = f.get("uncat_sector_ratio", 0.0) / 100.0  # 既に%で計算済み
     if sectors:
         total_mv = sum(max(0.0, _pct(s.get("mv"))) for s in sectors) or 1.0
         top_ratio = _pct(sectors[0].get("mv")) / total_mv if sectors else 0.0
-        uncat = next((s for s in sectors if s.get("sector") == "未分類"), None)
-        if uncat:
-            uncat_ratio = _pct(uncat.get("mv")) / total_mv
 
     f.setdefault("roi_gap_abs", _pct(kpis.get("roi_gap_abs")))
     f.setdefault("liquidity_rate_pct", _pct(kpis.get("liquidity_rate_pct")))
     f.setdefault("margin_ratio_pct", _pct(kpis.get("margin_ratio_pct")))
     f.setdefault("realized_month_ratio", realized_month_ratio)
     f.setdefault("top_sector_ratio", top_ratio * 100.0)
-    f.setdefault("uncat_sector_ratio", uncat_ratio * 100.0)
+    f.setdefault("uncat_sector_ratio", uncat_ratio * 100.0 if uncat_ratio <= 1 else float(f.get("uncat_sector_ratio", 0.0)))
     f.setdefault("win_ratio", _pct(kpis.get("win_ratio")))
     # NaN 無効化
     return {k: (0.0 if v != v else float(v)) for k, v in f.items()}
@@ -138,7 +281,7 @@ _CATEGORY_PATTERNS = [
     ("GAP",     ["乖離", "評価ROIと現金ROI"]),
     ("LIQ",     ["流動性", "現金化余地"]),
     ("MARGIN",  ["信用比率", "レバレッジ"]),
-    ("SECTOR",  ["セクター偏在"]),
+    ("SECTOR",  ["セクター偏在", "強弱"]),
     ("UNCAT",   ["未分類セクター", "業種タグ"]),
     ("REALIZE", ["実現益", "利確", "段階的利確"]),
     ("NEGROI",  ["評価ROIが", "損失限定"]),
@@ -167,6 +310,16 @@ def _header_note(kpis: Dict, sectors: List[Dict]) -> str:
         parts.append(f"評価ROI{re:.2f}%")
     if rl is not None:
         parts.append(f"現金ROI{rl:.2f}%")
+
+    # PF加重RSも表示（あれば）
+    rs_table = _get_rs_table()
+    if rs_table and sectors:
+        try:
+            w_rs = _pf_weighted_rs(sectors, rs_table)
+            parts.append(f"PF相対強弱{w_rs:+.2f}")
+        except Exception:
+            pass
+
     return "、".join(parts) + "。"
 
 def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
@@ -219,8 +372,8 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
         items.append(AdviceItemView(0, msg, score))
 
     # === セクター強弱（RS） ===
+    rs_table = _get_rs_table()
     try:
-        rs_table = latest_sector_strength()  # {sector: {rs_score, advdec, vol_ratio, date}}
         if sectors and rs_table:
             top_sec = sectors[0].get("sector")
             if top_sec and top_sec in rs_table:
@@ -230,7 +383,7 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
                     score = min(0.9, abs(rs))  # 0.25~ → 0.25~0.9
                     items.append(AdviceItemView(
                         0,
-                        f"主力セクター「{top_sec}」の強弱RSが弱気（{rs:+.2f}）。ポジション圧縮や損切りを検討。",
+                        f"主力セクター「{top_sec}」の相対強弱が弱気（{rs:+.2f}）。比率圧縮や損切りを検討。",
                         score
                     ))
                 elif rs >= 0.35:
@@ -238,9 +391,22 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
                     score = min(0.85, rs)       # 0.35~ → 0.35~0.85
                     items.append(AdviceItemView(
                         0,
-                        f"主力セクター「{top_sec}」の強弱RSが強気（{rs:+.2f}）。トレンドに追随しつつ、利確ルールを事前設定。",
+                        f"主力セクター「{top_sec}」の相対強弱が強気（{rs:+.2f}）。利を伸ばしつつ、段階利確を計画。",
                         score
                     ))
+
+            # PF全体の加重RSを見て、信用や流動性への示唆
+            w_rs = _pf_weighted_rs(sectors, rs_table)
+            liq = _pct(kpis.get("liquidity_rate_pct"))
+            mr = _pct(kpis.get("margin_ratio_pct"))
+            if w_rs < -0.25 and mr >= 30:
+                items.append(AdviceItemView(
+                    0, f"ポート全体の相対強弱が弱め（{w_rs:+.2f}）。信用縮小やヘッジで下振れ耐性を。", 0.8
+                ))
+            if w_rs > +0.25 and liq < 30:
+                items.append(AdviceItemView(
+                    0, f"PF強気（{w_rs:+.2f}）だが現金が薄い（{liq:.1f}%）。一部利確で弾を補充。", 0.7
+                ))
     except Exception:
         # RS未投入などは静かにスキップ
         pass
@@ -264,7 +430,7 @@ def _post_process(items: List[AdviceItemView]) -> List[AdviceItemView]:
     return uniq
 
 # =========================
-# policy.json によるスコア補正
+# policy.json によるスコア補正（将来用）
 # =========================
 def _bonus_from_policy(msg: str, policy: dict) -> float:
     """
@@ -276,37 +442,67 @@ def _bonus_from_policy(msg: str, policy: dict) -> float:
     if not policy:
         return 0.0
 
-    cat = _category_of(msg)
+    # メッセージ/カテゴリ重み（今は未使用だが互換維持）
     m_tbl = (policy.get("message") or {})
     c_tbl = (policy.get("category") or {})
+    cat = "OTHER"
+    for k, v in _CATEGORY_PATTERNS:
+        if k in msg:
+            cat = k
+            break
 
-    # 1) メッセージ優先
     m = m_tbl.get((msg or "").strip())
     if m:
-        base = (float(m.get("avg_improve", 0.0)) + 1.0) / 2.0  # -1..1 -> 0..1
+        base = (float(m.get("avg_improve", 0.0)) + 1.0) / 2.0
         conf = float(m.get("confidence", 0.0))
         return max(0.0, min(1.0, base * conf))
 
-    # 2) カテゴリで代替
     c = c_tbl.get(cat)
     if c:
         base = (float(c.get("avg_improve", 0.0)) + 1.0) / 2.0
         conf = float(c.get("confidence", 0.0))
         return max(0.0, min(1.0, base * conf))
 
-    # 3) それも無い場合、kind_weight（advisor_learn出力）をざっくり使う
+    # kind_weight がある場合にざっくり補正
     kw = policy.get("kind_weight")
     if isinstance(kw, dict):
-        # 全体の平均を 0.5 基準に寄せる
         try:
             avg = sum(float(v) for v in kw.values()) / max(len(kw), 1)
         except Exception:
             avg = 1.0
         w = float(kw.get(cat, avg)) / (avg or 1.0)
-        # w≈1 → 0.5、>1 で 0.5〜1、<1 で 0〜0.5 に写像
         return max(0.0, min(1.0, 0.5 * w))
 
     return 0.0
+
+def _score_with_policy(feats: dict) -> Optional[float]:
+    """
+    policy.json に weights/bias があれば 線形→ロジスティックで 0..1 へ。
+    無ければ None（呼び出し側で無視）。
+    """
+    policy = _get_policy()
+    if not policy:
+        return None
+
+    weights = policy.get("weights")
+    if not isinstance(weights, dict):
+        return None
+
+    bias = float(policy.get("bias", 0.0))
+    score = bias
+    for k, v in feats.items():
+        if k in weights:
+            try:
+                score += float(weights[k]) * float(v)
+            except Exception:
+                pass
+    # ロジスティック
+    try:
+        import math
+        score = 1.0 / (1.0 + math.exp(-score))
+    except Exception:
+        score = 0.5
+    return max(0.0, min(1.0, float(score)))
 
 def _apply_policy(items: List[AdviceItemView], kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
     """
@@ -325,40 +521,9 @@ def _apply_policy(items: List[AdviceItemView], kpis: Dict, sectors: List[Dict]) 
         boosted.append(AdviceItemView(id=it.id, message=it.message, score=score, taken=it.taken))
 
     boosted.sort(key=lambda x: x.score, reverse=True)
-    # 既定チェックは並び替え後に再設定
-    for i, it in enumerate(boosted):
-        it.taken = (i < 3)
+    for i, it in enumerate(boosted[:3]):
+        it.taken = True
     return boosted
-
-# （将来）線形重み policy のスコア化
-def _score_with_policy(feats: dict) -> Optional[float]:
-    """
-    policy.json に weights/bias があれば 線形→ロジスティックで 0..1 へ。
-    無ければ None（呼び出し側で無視）。
-    """
-    policy = _get_policy()
-    if not policy:
-        return None
-
-    weights = policy.get("weights")
-    if not isinstance(weights, dict):
-        return None  # いまの生成物には入っていない想定
-
-    bias = float(policy.get("bias", 0.0))
-    score = bias
-    for k, v in feats.items():
-        if k in weights:
-            try:
-                score += float(weights[k]) * float(v)
-            except Exception:
-                pass
-    # ロジスティック
-    try:
-        import math
-        score = 1.0 / (1.0 + math.exp(-score))
-    except Exception:
-        score = 0.5
-    return max(0.0, min(1.0, float(score)))
 
 # =========================
 # 週次/次の一手
@@ -370,7 +535,7 @@ def weekly_report(kpis: Dict, sectors: List[Dict]) -> str:
         f" {s.get('rate', s.get('share_pct', 0))}%"
         for s in sectors[:5]
     ]) or "--"
-    return f"{head} セクター概況: {sect}。勝率データは今後追加予定。"
+    return f"{head} セクター概況: {sect}。"
 
 def next_move(kpis: Dict, sectors: List[Dict]) -> str:
     items = _post_process(_rules(kpis, sectors))
@@ -383,18 +548,16 @@ def next_move(kpis: Dict, sectors: List[Dict]) -> str:
 def summarize(kpis: Dict, sectors: List[Dict], variant: str = "A") -> Tuple[str, List[Dict], str, str, str]:
     """
     variant:
-      'A' -> ルールのみ
-      'B' -> policy.json 補正でブースト（weightsがあれば線形、無い場合はメッセージ/カテゴリ重み）
+      'A' -> ルールのみ（RS対応込み）
+      'B' -> ルール + policy.json（weightsがあれば線形、無ければメッセージ/カテゴリ重み）
     """
     ai_note = _header_note(kpis, sectors)
 
-    # まずルールで候補
+    # まずルールで候補（RS含む）
     base_items = _rules(kpis, sectors)
 
     items: List[AdviceItemView]
     if variant == "B":
-        # weights による線形スコアがあれば 0.6*rule + 0.4*linear を採用、
-        # それが無ければ メッセージ/カテゴリ重みでブースト
         feats = _build_features(kpis, sectors)
         pol_score = _score_with_policy(feats)
         if pol_score is not None:
@@ -441,120 +604,3 @@ def ensure_session_persisted(ai_note: str, ai_items: list, kpis: dict, variant: 
             reasons=item.get("reasons", []),
         )
     return ai_items
-
-# =========================
-# 学習用フル特徴量（配当・実損・保有・現金まで含む）
-# =========================
-def _sf(x, d=0.0):
-    try:
-        return float(x)
-    except Exception:
-        return d
-
-def extract_features_for_learning(kpis: Dict[str, Any], sectors: List[Dict[str, Any]]) -> Dict[str, float]:
-    """
-    学習用の数値特徴量（フルセット）
-    - ストック：総資産/評価・清算価値/投下資金/現金/未実現/信用含み/信用比率/流動性/ROI各種/乖離
-    - フロー：今月/累計の実現損益・配当
-    - 行動：勝率
-    - 構造：セクタ上位の騰落・構成比・未分類比率
-    - 比率：現金比率、評価に対する現金・清算の比、ROI×流動性の合成指標 等
-    - 需給：主力セクターのRS（強弱）
-    """
-    f: Dict[str, float] = {}
-
-    # ---- ストック ----
-    total_assets   = _sf(kpis.get("total_assets"))
-    cash_total     = _sf(kpis.get("cash_total"))
-    invested       = _sf(kpis.get("invested"))
-    liquidation    = _sf(kpis.get("liquidation"))
-    unrealized     = _sf(kpis.get("unrealized_pnl"))
-    margin_unreal  = _sf(kpis.get("margin_unrealized"))
-    liq_rate_pct   = _sf(kpis.get("liquidity_rate_pct"))
-    margin_ratio   = _sf(kpis.get("margin_ratio_pct"))
-    roi_eval       = kpis.get("roi_eval_pct")
-    roi_liquid     = kpis.get("roi_liquid_pct")
-    roi_gap_abs    = kpis.get("roi_gap_abs")
-
-    f["total_assets"]   = total_assets
-    f["cash_total"]     = cash_total
-    f["invested"]       = invested
-    f["liquidation"]    = liquidation
-    f["unrealized_pnl"] = unrealized
-    f["margin_unrealized"] = margin_unreal
-    f["liquidity_rate_pct"] = liq_rate_pct
-    f["margin_ratio_pct"]   = margin_ratio
-    f["roi_eval_pct"]   = _sf(roi_eval, 0.0)
-    f["roi_liquid_pct"] = _sf(roi_liquid, 0.0)
-    f["roi_gap_abs"]   = _sf(roi_gap_abs, 0.0)
-
-    # 派生
-    f["cash_ratio_total"] = (cash_total / total_assets) if total_assets > 0 else 0.0
-    f["liq_ratio_total"]  = (liquidation / total_assets) if total_assets > 0 else 0.0
-
-    # ---- フロー（今月/累計）----
-    realized_month = _sf(kpis.get("realized_month"))
-    dividend_month = _sf(kpis.get("dividend_month"))
-    realized_cum   = _sf(kpis.get("realized_cum"))
-    dividend_cum   = _sf(kpis.get("dividend_cum"))
-
-    f["realized_month"] = realized_month
-    f["dividend_month"] = dividend_month
-    f["realized_cum"]   = realized_cum
-    f["dividend_cum"]   = dividend_cum
-
-    # 正規化（総資産基準）
-    denom = total_assets if total_assets > 0 else 1.0
-    f["realized_month_ratio"] = realized_month / denom
-    f["dividend_month_ratio"] = dividend_month / denom
-    f["realized_cum_ratio"]   = realized_cum / denom
-    f["dividend_cum_ratio"]   = dividend_cum / denom
-
-    # ---- 行動 ----
-    f["win_ratio"] = _sf(kpis.get("win_ratio"))
-
-    # ---- 構造（セクタ上位）----
-    top = sorted(sectors or [], key=lambda s: _sf(s.get("mv")), reverse=True)[:3]
-    total_mv = sum(_sf(s.get("mv")) for s in (sectors or [])) or 1.0
-    uncat_mv = 0.0
-    for i, s in enumerate(top):
-        f[f"sector{i+1}_mv"]    = _sf(s.get("mv"))
-        f[f"sector{i+1}_rate"]  = _sf(s.get("rate"))
-        share = _sf(s.get("mv")) / total_mv * 100.0
-        f[f"sector{i+1}_share"] = share
-        if (s.get("sector") == "未分類"):
-            uncat_mv += _sf(s.get("mv"))
-    if uncat_mv == 0.0:
-        # 未分類が上位に居ない場合、全体から拾う
-        for s in (sectors or []):
-            if s.get("sector") == "未分類":
-                uncat_mv = _sf(s.get("mv"))
-                break
-    f["uncat_sector_ratio"] = (uncat_mv / total_mv * 100.0) if total_mv > 0 else 0.0
-
-    # ---- 需給：主力セクターのRS（強弱）----
-    try:
-        rs_table = latest_sector_strength()
-        if sectors and rs_table:
-            top_sec = sectors[0].get("sector")
-            f["top_sector_rs"] = float(rs_table.get(top_sec, {}).get("rs_score", 0.0))
-        else:
-            f["top_sector_rs"] = 0.0
-    except Exception:
-        f["top_sector_rs"] = 0.0
-
-    # ---- 合成/安全度 ----
-    f["roi_times_liquidity"] = _sf(roi_eval, 0.0) * (liq_rate_pct / 100.0)
-    f["safety_score_like"] = max(0.0, 1.0 - (margin_ratio / 100.0)) * (liq_rate_pct / 100.0)
-
-    # NaN/inf 防御
-    clean = {}
-    for k, v in f.items():
-        try:
-            vv = float(v)
-            if vv != vv:  # NaN
-                vv = 0.0
-        except Exception:
-            vv = 0.0
-        clean[k] = vv
-    return clean
