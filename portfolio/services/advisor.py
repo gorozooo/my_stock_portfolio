@@ -96,6 +96,23 @@ def _get_policy() -> Optional[dict]:
         return policy
     return cached_policy
 
+def _rs_thresholds_from_policy() -> tuple[float, float]:
+    """
+    policy.json の rs_thresholds を読み取り、(weak, strong) を返す。
+    無ければデフォルト (-0.25, 0.35)。
+    """
+    try:
+        policy = _get_policy() or {}
+        rs = policy.get("rs_thresholds") or {}
+        weak = float(rs.get("weak", -0.25))
+        strong = float(rs.get("strong", 0.35))
+        # ありえない順序になっていたら補正
+        if weak > strong:
+            weak, strong = -0.25, 0.35
+        return weak, strong
+    except Exception:
+        return (-0.25, 0.35)
+
 # =========================
 # 地合い（ブレッドス）補助
 # =========================
@@ -428,41 +445,43 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
         msg = f"評価ROIが {re:.2f}%。損失限定ルール（逆指値/縮小）を再設定。"
         items.append(AdviceItemView(0, msg, score))
 
-    # === セクター強弱（RS）★環境適応しきい値（policy優先） ===
+        # === セクター強弱（RS） ===
     rs_table = _get_rs_table()
     try:
+        thr_weak, thr_strong = _rs_thresholds_from_policy()  # ← 学習済みしきい値を採用
         if sectors and rs_table:
-            rs_weak_th, rs_strong_th = _rs_thresholds_from_policy_or_env()
-
             top_sec = sectors[0].get("sector")
             if top_sec and top_sec in rs_table:
                 rs = float(rs_table[top_sec].get("rs_score", 0.0))
-                if rs <= rs_weak_th:
-                    score = min(0.9, abs(rs))
+                if rs <= thr_weak:
+                    # 弱いセクターが偏在しているなら、圧縮・整理
+                    score = min(0.95, max(0.25, abs(rs)))  # 強弱に応じて0.25〜0.95
                     items.append(AdviceItemView(
                         0,
-                        f"主力セクター「{top_sec}」が弱気ゾーン（{rs:+.2f} ≤ {rs_weak_th:+.2f}）。比率圧縮や損切りを検討。",
+                        f"主力セクター「{top_sec}」の相対強弱が弱気（{rs:+.2f}≤{thr_weak:+.2f}）。比率圧縮や損切りを検討。",
                         score
                     ))
-                elif rs >= rs_strong_th:
-                    score = min(0.85, rs)
+                elif rs >= thr_strong:
+                    # 強いセクターは“利確計画 or 追随のルール”を提案
+                    score = min(0.9, max(0.35, rs))
                     items.append(AdviceItemView(
                         0,
-                        f"主力セクター「{top_sec}」が強気ゾーン（{rs:+.2f} ≥ {rs_strong_th:+.2f}）。利を伸ばしつつ段階利確を計画。",
+                        f"主力セクター「{top_sec}」の相対強弱が強気（{rs:+.2f}≥{thr_strong:+.2f}）。利を伸ばしつつ、段階利確を計画。",
                         score
                     ))
 
-            # PF全体の加重RSで補助判断
+            # PF全体の加重RSを見て、信用や流動性への示唆
             w_rs = _pf_weighted_rs(sectors, rs_table)
-            if w_rs < rs_weak_th and mr >= 30:
+            if w_rs < thr_weak and mr >= 30:
                 items.append(AdviceItemView(
-                    0, f"PF全体RS {w_rs:+.2f}（閾値{rs_weak_th:+.2f}以下）。信用縮小やヘッジで防御強化を。", 0.8
+                    0, f"ポート全体の相対強弱が弱め（{w_rs:+.2f}≤{thr_weak:+.2f}）。信用縮小やヘッジで下振れ耐性を。", 0.8
                 ))
-            if w_rs > rs_strong_th and liq < 30:
+            if w_rs > thr_strong and liq < 30:
                 items.append(AdviceItemView(
-                    0, f"PF全体RS {w_rs:+.2f}（閾値{rs_strong_th:+.2f}以上）。現金薄なら一部利確で弾を補充。", 0.7
+                    0, f"PF強気（{w_rs:+.2f}≥{thr_strong:+.2f}）だが現金が薄い（{liq:.1f}%）。一部利確で弾を補充。", 0.7
                 ))
     except Exception:
+        # RS未投入などは静かにスキップ
         pass
 
     # === ブレッドス（地合い） ===
