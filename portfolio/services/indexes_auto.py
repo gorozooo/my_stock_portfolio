@@ -109,55 +109,102 @@ def _vol_ratio(volume: Optional[pd.Series], window: int = 20) -> Optional[float]
 def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
     """
     各指数の1日・5日・20日リターンと出来高比を算出し、market/indexes_YYYY-MM-DD.json に保存。
-    - yfinance の period= を使用して取得を安定化
-    - 欠損やデータ不足は自動スキップ
+    - 代替シンボルを順にフォールバック
+    - データが6本未満でも“取れた期間だけ”で計算（r1/r5だけ等）
+    - 出来高が無い/短い場合は vol_ratio=None で続行
+    - スキップ理由を標準出力に出す
     """
-    today = datetime.date.today()
-    # 20日リターンまで見るので、余裕をもって 90d 取得
-    period_days = max(60, days * 3)
+    import datetime
+    import yfinance as yf
+    import pandas as pd
+
+    # 代替候補を複数用意（先に定義してある INDEX_SYMBOLS を使いつつ、別候補も足す）
+    ALIASES: Dict[str, list] = {
+        "TOPIX":  ["1306.T", "1305.T"],
+        "N225":   ["1321.T", "1330.T"],
+        "JPX400": ["1591.T"],
+        "MOTHERS":["2516.T"],
+        "REIT":   ["1343.T"],
+        "SPX":    ["SPY", "IVV", "^GSPC"],
+        "NDX":    ["QQQ", "^NDX"],
+        "DAX":    ["EWG", "^GDAXI"],
+        "FTSE":   ["EWU", "^FTSE"],
+        "HSI":    ["EWH", "^HSI"],
+        "USDJPY": ["USDJPY=X"],
+        "EURJPY": ["EURJPY=X"],
+        "WTI":    ["CL=F"],
+        "GOLD":   ["GC=F", "GLD"],
+        "COPPER": ["HG=F"],
+    }
+
+    # 最低限 20日を見るが、取得は余裕を持って（ネットが弱い時の穴埋め）
+    period_days = max(90, days * 5)
     period_str = f"{period_days}d"
 
+    today = __import__("datetime").date.today()
     out = {"date": today.isoformat(), "data": []}
 
-    for name, symbol in INDEX_SYMBOLS.items():
-        try:
-            df = yf.download(
-                symbol,
-                period=period_str,
-                interval="1d",
-                auto_adjust=True,
-                progress=False,
-                threads=False,
-            )
+    # log helper
+    def _log(msg: str):
+        print(msg)
 
-            # 空や列欠損はスキップ
-            if df is None or len(df) < 21 or "Close" not in df.columns:
-                # print(f"[SKIP] {name}: no data or short length")
+    for name in ALIASES.keys():
+        syms = ALIASES[name]
+        got = False
+
+        for symbol in syms:
+            try:
+                df = yf.download(
+                    symbol,
+                    period=period_str,
+                    interval="1d",
+                    auto_adjust=True,
+                    progress=False,
+                    threads=False,
+                )
+                if df is None or len(df) == 0:
+                    _log(f"[SKIP] {name}:{symbol} → no data")
+                    continue
+
+                # Close は必須
+                if "Close" not in df.columns:
+                    _log(f"[SKIP] {name}:{symbol} → Close column missing")
+                    continue
+
+                close: pd.Series = df["Close"].dropna()
+                volume = df["Volume"].dropna() if "Volume" in df.columns else None
+
+                if len(close) < 2:
+                    _log(f"[SKIP] {name}:{symbol} → too short ({len(close)})")
+                    continue
+
+                # 取れた範囲で計算（足りないものは None）
+                r1 = _pct_return(close, 1)
+                r5 = _pct_return(close, 5) if len(close) > 5 else None
+                r20 = _pct_return(close, 20) if len(close) > 21 else None
+                vr = _vol_ratio(volume, 20) if volume is not None else None
+
+                if r1 is None and r5 is None and r20 is None and vr is None:
+                    _log(f"[SKIP] {name}:{symbol} → all metrics None")
+                    continue
+
+                out["data"].append({
+                    "symbol": name,
+                    "ret_1d": None if r1 is None else round(r1, 2),
+                    "ret_5d": None if r5 is None else round(r5, 2),
+                    "ret_20d": None if r20 is None else round(r20, 2),
+                    "vol_ratio": None if vr is None else round(vr, 2),
+                })
+                _log(f"[OK] {name}:{symbol} rows={len(close)} r1={r1 if r1 is not None else 'NA'} r5={r5 if r5 is not None else 'NA'} r20={r20 if r20 is not None else 'NA'}")
+                got = True
+                break  # この指数は成功したので他の候補は不要
+
+            except Exception as e:
+                _log(f"[WARN] {name}:{symbol} failed: {e}")
                 continue
 
-            close: pd.Series = df["Close"].dropna()
-            volume: Optional[pd.Series] = df["Volume"].dropna() if "Volume" in df.columns else None
-
-            r1 = _pct_return(close, 1)
-            r5 = _pct_return(close, 5)
-            r20 = _pct_return(close, 20)
-            vr = _vol_ratio(volume, 20)
-
-            # どれも計算できないならスキップ
-            if r1 is None and r5 is None and r20 is None and vr is None:
-                continue
-
-            out["data"].append({
-                "symbol": name,
-                "ret_1d": None if r1 is None else round(r1, 2),
-                "ret_5d": None if r5 is None else round(r5, 2),
-                "ret_20d": None if r20 is None else round(r20, 2),
-                "vol_ratio": None if vr is None else round(vr, 2),
-            })
-
-        except Exception as e:
-            # 個別失敗はスキップ（他は続行）
-            print(f"[WARN] {name}({symbol}) failed: {e}")
+        if not got:
+            _log(f"[MISS] {name} → 全候補NG（今回は見送り）")
 
     # 保存
     mdir = _market_dir()
