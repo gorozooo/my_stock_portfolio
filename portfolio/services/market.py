@@ -227,7 +227,7 @@ def _latest_market_file(kind: str) -> Optional[str]:
     mdir = _market_dir()
     os.makedirs(mdir, exist_ok=True)
     j_hist = _latest_file(os.path.join(mdir, f"{kind}_*.json"))
-    j_single = os.path.join(mdir, f"{kind}.json"))
+    j_single = os.path.join(mdir, f"{kind}.json")
     for p in [j_hist, j_single]:
         if p and os.path.exists(p):
             return p
