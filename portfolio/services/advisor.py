@@ -705,7 +705,6 @@ def summarize(kpis: Dict, sectors: List[Dict], variant: str = "A") -> Tuple[str,
     except Exception:
         thr = 0.55  # フォールバック
 
-    # 返却アイテムは従来互換だが、notify（bool）を追加
     ai_items = []
     for it in items:
         d = asdict(it)
