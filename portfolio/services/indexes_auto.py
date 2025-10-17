@@ -123,78 +123,128 @@ def _log(msg: str) -> None:
 def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
     """
     主要指数の1d/5d/20dリターンと出来高比を作成して media/market/indexes_YYYY-MM-DD.json へ保存。
-    取得手段を段階的に切替し、Close欠落時はAdj Close代用。全滅時は直近の非空履歴を転写。
+    ・yfinance取得を多段トライ（download auto_adjust T/F → Ticker.history → start/end）
+    ・Close欠落時は Adj Close を代用、NaNは前進補間で埋めて最低限の算出を通す
+    ・Volume列が無ければ出来高比はNone
+    ・全滅時は直近の“非空”履歴 or 手動ファイル indexes_manual.json を転写して必ず非空保存
     """
+    from datetime import date, timedelta
+    import pandas as pd
+    import yfinance as yf
+    import os, json
+
     today = date.today().isoformat()
     mdir = _market_dir()
     os.makedirs(mdir, exist_ok=True)
     out_path = os.path.join(mdir, f"indexes_{today}.json")
     out: Dict[str, Any] = {"date": today, "data": []}
 
-    def _ensure_close(df: pd.DataFrame) -> Optional[pd.Series]:
+    # 代替シンボル候補（優先順）
+    ALIASES: Dict[str, list] = {
+        "TOPIX":  ["1306.T", "1305.T"],
+        "N225":   ["1321.T", "1330.T"],
+        "JPX400": ["1591.T"],
+        "MOTHERS":["2516.T"],
+        "REIT":   ["1343.T"],
+        "SPX":    ["SPY", "IVV", "^GSPC"],
+        "NDX":    ["QQQ", "^NDX"],
+        "DAX":    ["EWG", "^GDAXI"],
+        "FTSE":   ["EWU", "^FTSE"],
+        "HSI":    ["EWH", "^HSI"],
+        "USDJPY": ["USDJPY=X"],
+        "EURJPY": ["EURJPY=X"],
+        "WTI":    ["CL=F"],
+        "GOLD":   ["GC=F", "GLD"],
+        "COPPER": ["HG=F"],
+    }
+
+    def _ensure_close(df: Optional[pd.DataFrame]) -> Optional[pd.Series]:
         if df is None or len(df) == 0:
             return None
-        if "Close" in df.columns:
-            s = df["Close"].dropna()
-            if len(s) > 0:
-                return s
-        if "Adj Close" in df.columns:
-            s = df["Adj Close"].dropna()
-            if len(s) > 0:
-                return s
+        # 列名ぶれに対応、Close優先・Adj Close代用
+        for col in ("Close", "Adj Close"):
+            if col in df.columns:
+                s = df[col].astype("float64", errors="ignore")
+                s = s.ffill().dropna()
+                if len(s) > 0:
+                    return s
         return None
 
     def _try_download(symbol: str, period_days: int) -> Optional[pd.DataFrame]:
         """複数戦略で DataFrame を取りに行く（どれか成功すれば返す）"""
-        period_strs = [f"{period_days}d", f"{max(period_days, 180)}d", "200d"]
-        # 1) download(auto_adjust=True/False)
-        for p in period_strs:
-            try:
-                df = yf.download(symbol, period=p, interval="1d",
-                                 auto_adjust=True, progress=False, threads=False)
-                if _ensure_close(df) is not None:
-                    return df
-            except Exception:
-                pass
-            try:
-                df = yf.download(symbol, period=p, interval="1d",
-                                 auto_adjust=False, progress=False, threads=False)
-                if _ensure_close(df) is not None:
-                    return df
-            except Exception:
-                pass
+        # 1) download (auto_adjust True/False)
+        for auto_adj in (True, False):
+            for p in (f"{period_days}d", f"{max(period_days,180)}d", "200d"):
+                try:
+                    df = yf.download(symbol, period=p, interval="1d",
+                                     auto_adjust=auto_adj, progress=False, threads=False)
+                    if _ensure_close(df) is not None:
+                        return df
+                except Exception:
+                    pass
         # 2) Ticker.history
         try:
             tk = yf.Ticker(symbol)
-            df = tk.history(period="200d", interval="1d", auto_adjust=True)
-            if _ensure_close(df) is not None:
-                return df
+            for auto_adj in (True, False):
+                df = tk.history(period="200d", interval="1d", auto_adjust=auto_adj)
+                if _ensure_close(df) is not None:
+                    return df
         except Exception:
             pass
-        # 3) start/end（“今日含むとうまく返らない”ケースの回避）
+        # 3) start/end（“今日を含む”問題の回避）
         try:
-            from datetime import timedelta
             end = date.today() - timedelta(days=1)
             start = end - timedelta(days=max(period_days, 200))
-            df = yf.download(symbol, start=start.isoformat(), end=end.isoformat(),
-                             interval="1d", auto_adjust=True, progress=False, threads=False)
-            if _ensure_close(df) is not None:
-                return df
+            for auto_adj in (True, False):
+                df = yf.download(symbol, start=start.isoformat(), end=end.isoformat(),
+                                 interval="1d", auto_adjust=auto_adj, progress=False, threads=False)
+                if _ensure_close(df) is not None:
+                    return df
         except Exception:
             pass
         return None
 
-    # online check
+    def _pct_ret(series: pd.Series, lookback: int) -> Optional[float]:
+        try:
+            if series is None or not isinstance(series, pd.Series):
+                return None
+            if len(series) < lookback + 1:
+                return None
+            c0 = float(series.iloc[-(lookback + 1)])
+            c1 = float(series.iloc[-1])
+            if c0 == 0:
+                return None
+            return (c1 / c0 - 1.0) * 100.0
+        except Exception:
+            return None
+
+    def _vol_ratio(volume: Optional[pd.Series], window: int = 20) -> Optional[float]:
+        try:
+            if volume is None or not isinstance(volume, pd.Series):
+                return None
+            v = volume.ffill().dropna()
+            if len(v) < window + 1:
+                return None
+            ma = v.rolling(window).mean()
+            v_last = float(v.iloc[-1])
+            v_ma = float(ma.iloc[-1])
+            if v_ma <= 0:
+                return None
+            return v_last / v_ma
+        except Exception:
+            return None
+
+    # online check（簡易）
     online_ok = True
     try:
         test = yf.download("SPY", period="3d", interval="1d", auto_adjust=True,
                            progress=False, threads=False)
-        online_ok = bool(test is not None and len(test) >= 2 and _ensure_close(test) is not None)
+        online_ok = bool(_ensure_close(test) is not None)
     except Exception:
         online_ok = False
 
     if online_ok:
-        period_days = max(120, days * 6)  # 休場・欠損に強め
+        period_days = max(150, days * 7)  # 休場/NaNに強め
         for name, syms in ALIASES.items():
             got = False
             for symbol in syms:
@@ -210,14 +260,13 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
 
                 volume = None
                 if "Volume" in df.columns:
-                    v = df["Volume"].dropna()
-                    volume = v if len(v) > 0 else None
+                    vv = df["Volume"]
+                    volume = vv if isinstance(vv, pd.Series) and len(vv.dropna()) > 0 else None
 
-                # 有効本数に応じて段階的に算出
                 n = len(close)
-                r1 = _pct_return(close, 1) if n >= 2 else None
-                r5 = _pct_return(close, 5) if n >= 6 else None
-                r20 = _pct_return(close, 20) if n >= 21 else None
+                r1 = _pct_ret(close, 1) if n >= 2 else None
+                r5 = _pct_ret(close, 5) if n >= 6 else None
+                r20 = _pct_ret(close, 20) if n >= 21 else None
                 vr = _vol_ratio(volume, 20) if volume is not None else None
 
                 if r1 is None and r5 is None and r20 is None and vr is None:
@@ -238,25 +287,40 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
             if not got:
                 print(f"[MISS] {name} → 全候補NG（今回は見送り）")
 
-        # 1件も取れなかった場合は、直近の非空ファイルを転写
+        # 全滅なら履歴/手動から埋める
         if len(out["data"]) == 0:
-            last_hist = _latest_file(os.path.join(mdir, "indexes_*.json"))
-            if last_hist:
+            # 1) 手動ファイル優先
+            manual_path = os.path.join(mdir, "indexes_manual.json")
+            used = False
+            if os.path.exists(manual_path):
                 try:
-                    with open(last_hist, "r", encoding="utf-8") as f:
-                        prev = json.load(f)
-                    if isinstance(prev, dict) and isinstance(prev.get("data"), list) and len(prev["data"]) > 0:
-                        out["data"] = prev["data"]
-                        print(f"[FALLBACK] copied from {os.path.basename(last_hist)}")
+                    with open(manual_path, "r", encoding="utf-8") as f:
+                        manual = json.load(f)
+                    if isinstance(manual, dict) and isinstance(manual.get("data"), list) and manual["data"]:
+                        out["data"] = manual["data"]
+                        print(f"[FALLBACK] used manual: {os.path.basename(manual_path)}")
+                        used = True
                 except Exception:
                     pass
+            # 2) 非空履歴
+            if not used:
+                last_hist = _latest_file(os.path.join(mdir, "indexes_*.json"))
+                if last_hist:
+                    try:
+                        with open(last_hist, "r", encoding="utf-8") as f:
+                            prev = json.load(f)
+                        if isinstance(prev, dict) and isinstance(prev.get("data"), list) and prev["data"]:
+                            out["data"] = prev["data"]
+                            print(f"[FALLBACK] copied from {os.path.basename(last_hist)}")
+                    except Exception:
+                        pass
 
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(out, f, ensure_ascii=False, indent=2)
         print(f"Wrote: {out_path} ({len(out['data'])} symbols)")
         return out
 
-    # ====== オフライン（手動/履歴） ======
+    # ======= オフライン：手動 or 履歴 =======
     print("[OFFLINE] yfinance 取得不可 → 手動/履歴にフォールバック")
     manual_path = os.path.join(mdir, "indexes_manual.json")
     if os.path.exists(manual_path):
