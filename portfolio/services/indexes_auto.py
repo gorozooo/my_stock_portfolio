@@ -97,10 +97,15 @@ def _latest_file(pattern: str) -> Optional[str]:
 def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
     """
     主要指数の1d/5d/20dリターンと出来高比を作成して media/market/indexes_YYYY-MM-DD.json へ保存。
-    - yfinanceが使える場合 → 実データ取得
-    - 取れない場合 → 手動ファイル / 過去履歴 / ダミーデータでフォールバック
+    - yfinance が使える場合は実データ取得
+    - 取れない場合は manual / 履歴 / 合成にフォールバック
+    - 列の欠損やデータ不足に強く、Close/Adj Close の自動選択 + history() 再取得を実施
     """
     from datetime import date
+    import os, json
+    import yfinance as yf
+    import pandas as pd
+
     today = date.today().isoformat()
     mdir = _market_dir()
     os.makedirs(mdir, exist_ok=True)
@@ -110,6 +115,7 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
     def _log(msg: str):
         print(msg)
 
+    # 代替シンボル候補
     ALIASES: Dict[str, list] = {
         "TOPIX":  ["1306.T", "1305.T"],
         "N225":   ["1321.T", "1330.T"],
@@ -128,38 +134,98 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
         "COPPER": ["HG=F"],
     }
 
-    # --- 通信確認（SPYでテスト） ---
+    # ---- ヘルパ（安全に列を取り出す）----
+    def best_close_series(df: "pd.DataFrame") -> Optional["pd.Series"]:
+        if df is None or not isinstance(df, pd.DataFrame) or len(df) == 0:
+            return None
+        cand = None
+        if "Close" in df.columns:
+            cand = df["Close"]
+        elif "Adj Close" in df.columns:
+            cand = df["Adj Close"]
+        if cand is None:
+            # yfinance の戻りが MultiIndex になることへの対策（単一ティッカーでもまれに起きる）
+            try:
+                if isinstance(df.columns, pd.MultiIndex):
+                    for col in df.columns:
+                        if isinstance(col, tuple) and col[-1] in ("Close", "Adj Close"):
+                            cand = df[col]
+                            break
+            except Exception:
+                pass
+        if cand is None:
+            return None
+        cand = cand.dropna()
+        return cand if len(cand) > 0 else None
+
+    def pct_return(series: "pd.Series", periods: int) -> Optional[float]:
+        try:
+            if series is None or len(series) <= periods:
+                return None
+            latest = _to_float(series.iloc[-1])
+            past = _to_float(series.iloc[-(periods + 1)])
+            if past == 0:
+                return None
+            return (latest / past - 1.0) * 100.0
+        except Exception:
+            return None
+
+    def vol_ratio(volume: Optional["pd.Series"], window_ma: int = 20) -> Optional[float]:
+        try:
+            if volume is None or len(volume.dropna()) < window_ma:
+                return None
+            ma = volume.rolling(window_ma).mean()
+            v_last = _to_float(volume.iloc[-1])
+            v_ma = _to_float(ma.iloc[-1])
+            return (v_last / v_ma) if v_ma > 0 else None
+        except Exception:
+            return None
+
+    # ---- 通信確認（SPY で簡易チェック）----
     online_ok = True
     try:
-        test = yf.download("SPY", period="3d", interval="1d", progress=False, threads=False)
-        online_ok = bool(test is not None and len(test) >= 2 and "Close" in test.columns)
+        test = yf.download("SPY", period="3mo", interval="1d", progress=False, threads=False)
+        close_test = best_close_series(test)
+        online_ok = bool(close_test is not None and len(close_test) >= 2)
     except Exception:
         online_ok = False
 
-    # ========== オンライン ==========
+    # ========== オンライン（実データ） ==========
     if online_ok:
-        period_days = max(90, days * 5)
+        period_days = max(365, days * 20)  # データ不足対策として広めに
         period_str = f"{period_days}d"
 
         for name, syms in ALIASES.items():
             got = False
             for symbol in syms:
                 try:
+                    # 1) download
                     df = yf.download(symbol, period=period_str, interval="1d",
                                      auto_adjust=True, progress=False, threads=False)
-                    if df is None or len(df) < 2 or "Close" not in df.columns:
-                        _log(f"[SKIP] {name}:{symbol} → no/short data")
+                    close = best_close_series(df)
+
+                    # 2) download で弱いケースは history() で再取得
+                    if close is None or len(close) < 2:
+                        t = yf.Ticker(symbol)
+                        df2 = t.history(period=period_str, interval="1d", auto_adjust=True)
+                        close = best_close_series(df2)
+                        # Volume もこの df2 から
+                        volume = df2["Volume"].dropna() if (isinstance(df2, pd.DataFrame) and "Volume" in df2.columns) else None
+                    else:
+                        volume = df["Volume"].dropna() if "Volume" in df.columns else None
+
+                    if close is None or len(close) < 2:
+                        _log(f"[SKIP] {name}:{symbol} → no price data")
                         continue
-                    close = df["Close"].dropna()
-                    volume = df["Volume"].dropna() if "Volume" in df.columns else None
 
-                    r1 = _pct_return(close, 1)
-                    r5 = _pct_return(close, 5)
-                    r20 = _pct_return(close, 20)
-                    vr = _vol_ratio(volume, 20)
+                    # データ長に応じて “取れる分だけ” 計算
+                    n = len(close)
+                    r1 = pct_return(close, 1) if n >= 2 else None
+                    r5 = pct_return(close, 5) if n >= 6 else None
+                    r20 = pct_return(close, 20) if n >= 21 else None
+                    vr = vol_ratio(volume, 20) if volume is not None else None
 
-                    # 出来高がなくても価格リターンが取れれば採用
-                    if all(v is None for v in [r1, r5, r20]):
+                    if (r1 is None) and (r5 is None) and (r20 is None):
                         _log(f"[SKIP] {name}:{symbol} → price metrics None")
                         continue
 
@@ -175,6 +241,7 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
                     break
                 except Exception as e:
                     _log(f"[WARN] {name}:{symbol} failed: {e}")
+
             if not got:
                 _log(f"[MISS] {name} → 全候補NG（今回は見送り）")
 
@@ -215,7 +282,7 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
         except Exception as e:
             _log(f"[WARN] history read failed: {e}")
 
-    # ダミーデータ
+    # ダミー
     synth = [
         {"symbol": "TOPIX", "ret_1d": 0.0, "ret_5d": 0.0, "ret_20d": 0.0, "vol_ratio": 1.0},
         {"symbol": "N225", "ret_1d": 0.0, "ret_5d": 0.0, "ret_20d": 0.0, "vol_ratio": 1.0},
