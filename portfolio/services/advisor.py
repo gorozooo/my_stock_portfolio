@@ -12,6 +12,7 @@ from django.core.cache import cache
 from ..models_advisor import AdviceSession, AdviceItem
 # ★ セクター強弱（RS）テーブルを取得
 from .market import latest_sector_strength  # 例: { "情報・通信": {"rs_score": 0.42, "date": "2025-01-01", ...}, ... }
+from .sector_map import map_pf_sectors, normalize_sector
 
 # =========================
 # 表示用構造
@@ -135,13 +136,13 @@ def _get_rs_table() -> Dict[str, Dict[str, Any]]:
 
 def _pf_weighted_rs(sectors: List[Dict[str, Any]], rs_table: Dict[str, Dict[str, Any]]) -> float:
     """
-    画面/サービスの sectors（[{sector, mv, ...}...]）と最新RSから
-    ポート全体の加重RS（-1..+1）を算出。RSが無いセクターは0扱い。
+    ポート全体の加重RS（セクター正規化版）
     """
     total_mv = sum(max(0.0, _sf(s.get("mv"))) for s in (sectors or [])) or 1.0
     acc = 0.0
     for s in (sectors or []):
-        sec = (s.get("sector") or "").strip()
+        sec_raw = (s.get("sector") or "").strip()
+        sec = normalize_sector(sec_raw)  # ← ★正規化
         mv = max(0.0, _sf(s.get("mv")))
         rs = float((rs_table.get(sec) or {}).get("rs_score", 0.0))
         acc += rs * (mv / total_mv)
@@ -368,18 +369,23 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
         msg = f"信用比率が {mr:.1f}%。レバレッジと下落耐性を再確認。"
         items.append(AdviceItemView(0, msg, score))
 
-    # === セクター偏在／未分類 ===
-    if sectors:
-        total_mv = sum(max(0.0, _pct(s.get("mv"))) for s in sectors) or 1.0
-        top = sectors[0]
+    # === セクター偏在／未分類（★正規化して判定） ===
+    norm_sectors = map_pf_sectors(sectors) if sectors else []
+    if norm_sectors:
+        total_mv = sum(max(0.0, _pct(s.get("mv"))) for s in norm_sectors) or 1.0
+        top = norm_sectors[0]
         top_ratio = _pct(top.get("mv")) / total_mv * 100.0
         if top_ratio >= 45:
             score = min(1.0, (top_ratio - 45) / 25)
             msg = f"セクター偏在（{top.get('sector','不明')} {top_ratio:.1f}%）。分散を検討。"
             items.append(AdviceItemView(0, msg, score))
-        uncat = next((s for s in sectors if s.get("sector") == "未分類"), None)
-        if uncat:
-            un_ratio = _pct(uncat.get("mv")) / total_mv * 100.0
+
+        uncat_mv = 0.0
+        for s in norm_sectors:
+            if normalize_sector(s.get("sector") or "") == "未分類":
+                uncat_mv += _pct(s.get("mv"))
+        if uncat_mv > 0:
+            un_ratio = uncat_mv / total_mv * 100.0
             if un_ratio >= 40:
                 score = min(0.8, (un_ratio - 40) / 30)
                 msg = f"未分類セクター比率 {un_ratio:.1f}%。銘柄の業種タグ整備を。"
@@ -399,11 +405,11 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
         msg = f"評価ROIが {re:.2f}%。損失限定ルール（逆指値/縮小）を再設定。"
         items.append(AdviceItemView(0, msg, score))
 
-    # === セクター強弱（RS） ===
+    # === セクター強弱（RS）★正規化して参照 ===
     rs_table = _get_rs_table()
     try:
-        if sectors and rs_table:
-            top_sec = sectors[0].get("sector")
+        if norm_sectors and rs_table:
+            top_sec = normalize_sector(norm_sectors[0].get("sector") or "")
             if top_sec and top_sec in rs_table:
                 rs = float(rs_table[top_sec].get("rs_score", 0.0))
                 if rs <= -0.25:
@@ -423,8 +429,8 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
                         score
                     ))
 
-            # PF全体の加重RSを見て、信用や流動性への示唆
-            w_rs = _pf_weighted_rs(sectors, rs_table)
+            # PF全体の加重RS（★正規化後の一覧で算出）
+            w_rs = _pf_weighted_rs(norm_sectors, rs_table)
             if w_rs < -0.25 and mr >= 30:
                 items.append(AdviceItemView(
                     0, f"ポート全体の相対強弱が弱め（{w_rs:+.2f}）。信用縮小やヘッジで下振れ耐性を。", 0.8
