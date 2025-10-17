@@ -283,14 +283,23 @@ def _build_row(h: Holding) -> RowVM:
     if raw30 or raw7 or raw90:
         last = (raw30 or raw7 or raw90)[-1]
         price_now = float(last)
+        # 評価額は方向に関係なく「現在価格×株数」を正で持つ
         val_now = price_now * q if q > 0 else None
 
+    # ===== 含み損益（BUY/SELL 両対応）=====
     pnl = pnl_pct = None
-    if val_now is not None:
-        pnl = val_now - acq
-        if acq > 0:
-            pnl_pct = (pnl / acq) * 100.0
+    if val_now is not None and cost_unit > 0 and q > 0:
+        if (getattr(h, "side", "BUY") or "BUY").upper() == "SELL":
+            # 空売り：価格が下がるとプラス
+            pnl = (cost_unit - price_now) * q
+        else:
+            # 買い：価格が上がるとプラス
+            pnl = (price_now - cost_unit) * q
+        base = acq  # 分母はコスト×数量
+        if base > 0:
+            pnl_pct = (pnl / base) * 100.0
 
+    # ===== 配当系は従来どおり =====
     div_annual = _calc_div_annual_net(h)
 
     y_now = y_cost = None
@@ -371,6 +380,9 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
     top_gain: Optional[Tuple[float, Holding]] = None
     top_loss: Optional[Tuple[float, Holding]] = None
 
+    pnl_sum_acc = 0.0
+    have_pnl = False
+
     for r in rows:
         h = r.obj
         n += 1
@@ -384,6 +396,8 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
             have_val += 1
 
         if r.pnl is not None:
+            pnl_sum_acc += float(r.pnl)
+            have_pnl = True
             if r.pnl > 0:
                 winners += 1
             elif r.pnl < 0:
@@ -396,7 +410,8 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
         if r.days is not None:
             days_list.append(int(r.days))
 
-    pnl_sum: Optional[float] = (val_sum - acq_sum) if have_val else None
+    # ★ ポートフォリオ含み損益は各行の r.pnl の合計を使う（SELL対応）
+    pnl_sum: Optional[float] = pnl_sum_acc if have_pnl else None
     pnl_pct: Optional[float] = (pnl_sum / acq_sum * 100.0) if (pnl_sum is not None and acq_sum > 0) else None
     win_rate: Optional[float] = (winners / (winners + losers) * 100.0) if (winners + losers) > 0 else None
 
