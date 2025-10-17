@@ -60,3 +60,15 @@ def weighted_portfolio_rs(sectors: List[Dict]) -> float:
         rs = float((rs_map.get(sec) or {}).get("rs", 0.0))
         acc += rs * (mv / total_mv)
     return float(acc)
+    
+def latest_sector_strength():
+    """
+    返り値の例:
+    {
+      "情報・通信": {"rs_score": 0.35, "date": "2025-01-01"},
+      "素材":       {"rs_score": -0.10, "date": "2025-01-01"},
+      ...
+    }
+    今はダミー（空）で返す。後で実データに差し替え。
+    """
+    return {}
