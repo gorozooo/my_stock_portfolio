@@ -247,6 +247,51 @@ def _finalize_weights(
     return out
 
 
+# ===================== 環境適応 RS しきい値（学習フェーズ統合） =====================
+def _compute_env_adaptive_rs_thresholds() -> dict:
+    """
+    “今の地合い（breadth_regime）”から RS の弱/強しきい値を自動決定。
+    将来は過去データ最適化に差し替え可。
+    戻り値: {"weak": float, "strong": float, "source": "breadth", "breadth_score": float, "regime": str}
+    """
+    # デフォルト
+    weak, strong = -0.25, 0.35
+    score, regime = 0.0, "NEUTRAL"
+
+    try:
+        # services.market.breadth_regime を動的 import（依存トラブル回避）
+        from ...services.market import breadth_regime  # type: ignore
+        br = breadth_regime() or {}
+        score = float(br.get("score", 0.0))
+        regime = str(br.get("regime", "NEUTRAL"))
+    except Exception:
+        pass
+
+    if score <= -0.3:
+        # 弱地合い → 警戒（弱気を早めに検出）
+        weak, strong = -0.15, 0.25
+    elif score >= 0.3:
+        # 強地合い → 攻め（強気のハードルをやや上げる）
+        weak, strong = -0.35, 0.45
+
+    return {
+        "weak": float(weak),
+        "strong": float(strong),
+        "source": "breadth",
+        "breadth_score": round(float(score), 3),
+        "regime": regime,
+    }
+
+
+def _inject_rs_thresholds_into_policy(policy: dict) -> dict:
+    """
+    既存の policy dict に rs_thresholds を追加/上書きして返す。
+    """
+    policy = dict(policy or {})
+    policy["rs_thresholds"] = _compute_env_adaptive_rs_thresholds()
+    return policy
+
+
 # ===================== メインコマンド =====================
 class Command(BaseCommand):
     help = "過去のアドバイス採用実績 + ポートフォリオ状態から policy.json（重みファイル）を自動生成（拡張版）"
@@ -286,7 +331,7 @@ class Command(BaseCommand):
         # 3) クリップ & バイアス
         kind_weight = _finalize_weights(tuned, bias=bias, clip_low=clip_low, clip_high=clip_high)
 
-        # 4) policy.json 生成
+        # 4) policy.json 生成（★ rs_thresholds を統合）
         payload: Dict = {
             "version": 2,  # ← 拡張版
             "updated_at": timezone.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -294,6 +339,8 @@ class Command(BaseCommand):
             "bias": bias,
             "clip": {"low": clip_low, "high": clip_high},
             "kind_weight": kind_weight,
+            # 環境適応しきい値（推論側は policy.rs_thresholds を最優先利用）
+            "rs_thresholds": _compute_env_adaptive_rs_thresholds(),
             # デバッグ用に信号も保存（軽量）
             "signals": {
                 "snapshot": snap,
@@ -320,6 +367,6 @@ class Command(BaseCommand):
         # 6) 注意喚起（使っているデータの説明）
         self.stdout.write(
             self.style.NOTICE(
-                "Signals used: AdviceItem採用率 + 現在の信用/流動性/集中度 + 直近勝率/実損/配当（軽めの係数で補正）"
+                "Signals used: AdviceItem採用率 + 現在の信用/流動性/集中度 + 直近勝率/実損/配当 + BreadthによるRSしきい値（環境適応）"
             )
         )
