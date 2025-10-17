@@ -108,17 +108,52 @@ def _vol_ratio(volume: Optional[pd.Series], window: int = 20) -> Optional[float]
 # ===================== 主要指数の自動取得 =====================
 def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
     """
-    各指数の1日・5日・20日リターンと出来高比を算出し、market/indexes_YYYY-MM-DD.json に保存。
-    - 代替シンボルを順にフォールバック
-    - データが6本未満でも“取れた期間だけ”で計算（r1/r5だけ等）
-    - 出来高が無い/短い場合は vol_ratio=None で続行
-    - スキップ理由を標準出力に出す
+    主要指数の1d/5d/20dリターンと出来高比を作成して media/market/indexes_YYYY-MM-DD.json へ保存。
+    - オンライン(yfinance)で取れない場合は手動ファイル/過去履歴でフォールバック
+    - 手動ファイル: media/market/indexes_manual.json
+      形式: {"date":"YYYY-MM-DD","data":[{"symbol":"SPX","ret_5d":1.2,"ret_20d":4.5,"vol_ratio":1.05}, ...]}
+      ※ ret_1d は省略可
     """
-    import datetime
     import yfinance as yf
     import pandas as pd
+    from datetime import date
+    import os, json
 
-    # 代替候補を複数用意（先に定義してある INDEX_SYMBOLS を使いつつ、別候補も足す）
+    today = date.today().isoformat()
+    mdir = _market_dir()
+    os.makedirs(mdir, exist_ok=True)
+    out_path = os.path.join(mdir, f"indexes_{today}.json")
+    out: Dict[str, Any] = {"date": today, "data": []}
+
+    # --- 小ヘルパ ---
+    def _pct_return(close: "pd.Series", lookback: int) -> Optional[float]:
+        try:
+            if close is None or len(close) < lookback + 1:
+                return None
+            c0 = float(close.iloc[-(lookback + 1)])
+            c1 = float(close.iloc[-1])
+            if c0 == 0:
+                return None
+            return (c1 / c0 - 1.0) * 100.0
+        except Exception:
+            return None
+
+    def _vol_ratio(volume: Optional["pd.Series"], lookback: int) -> Optional[float]:
+        try:
+            if volume is None or len(volume.dropna()) < lookback + 1:
+                return None
+            v0 = float(volume.iloc[-(lookback + 1)])
+            v1 = float(volume.iloc[-1])
+            if v0 <= 0:
+                return None
+            return v1 / v0
+        except Exception:
+            return None
+
+    def _log(msg: str):
+        print(msg)
+
+    # 代替シンボル候補
     ALIASES: Dict[str, list] = {
         "TOPIX":  ["1306.T", "1305.T"],
         "N225":   ["1321.T", "1330.T"],
@@ -137,81 +172,95 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
         "COPPER": ["HG=F"],
     }
 
-    # 最低限 20日を見るが、取得は余裕を持って（ネットが弱い時の穴埋め）
-    period_days = max(90, days * 5)
-    period_str = f"{period_days}d"
+    # まずオンラインで取れるか簡易判定（SPYを3日）
+    online_ok = True
+    try:
+        test = yf.download("SPY", period="3d", interval="1d", progress=False, threads=False)
+        online_ok = bool(test is not None and len(test) >= 2 and "Close" in test.columns)
+    except Exception:
+        online_ok = False
 
-    today = __import__("datetime").date.today()
-    out = {"date": today.isoformat(), "data": []}
+    # ========== オンラインで取れる場合 ==========
+    if online_ok:
+        period_days = max(90, days * 5)
+        period_str = f"{period_days}d"
+        for name, syms in ALIASES.items():
+            got = False
+            for symbol in syms:
+                try:
+                    df = yf.download(symbol, period=period_str, interval="1d",
+                                     auto_adjust=True, progress=False, threads=False)
+                    if df is None or len(df) < 2 or "Close" not in df.columns:
+                        _log(f"[SKIP] {name}:{symbol} → no/short data")
+                        continue
+                    close = df["Close"].dropna()
+                    volume = df["Volume"].dropna() if "Volume" in df.columns else None
 
-    # log helper
-    def _log(msg: str):
-        print(msg)
+                    r1 = _pct_return(close, 1)
+                    r5 = _pct_return(close, 5)
+                    r20 = _pct_return(close, 20)
+                    vr = _vol_ratio(volume, 20)
 
-    for name in ALIASES.keys():
-        syms = ALIASES[name]
-        got = False
+                    if r1 is None and r5 is None and r20 is None and vr is None:
+                        _log(f"[SKIP] {name}:{symbol} → all metrics None")
+                        continue
 
-        for symbol in syms:
-            try:
-                df = yf.download(
-                    symbol,
-                    period=period_str,
-                    interval="1d",
-                    auto_adjust=True,
-                    progress=False,
-                    threads=False,
-                )
-                if df is None or len(df) == 0:
-                    _log(f"[SKIP] {name}:{symbol} → no data")
-                    continue
+                    out["data"].append({
+                        "symbol": name,
+                        "ret_1d": None if r1 is None else round(r1, 2),
+                        "ret_5d": None if r5 is None else round(r5, 2),
+                        "ret_20d": None if r20 is None else round(r20, 2),
+                        "vol_ratio": None if vr is None else round(vr, 2),
+                    })
+                    _log(f"[OK] {name}:{symbol}")
+                    got = True
+                    break
+                except Exception as e:
+                    _log(f"[WARN] {name}:{symbol} failed: {e}")
+            if not got:
+                _log(f"[MISS] {name} → 全候補NG（今回は見送り）")
+        # 保存
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(out, f, ensure_ascii=False, indent=2)
+        print(f"Wrote: {out_path} ({len(out['data'])} symbols)")
+        return out
 
-                # Close は必須
-                if "Close" not in df.columns:
-                    _log(f"[SKIP] {name}:{symbol} → Close column missing")
-                    continue
+    # ========== オフライン・フォールバック ==========
+    _log("[OFFLINE] yfinance 取得不可 → 手動/履歴にフォールバック")
 
-                close: pd.Series = df["Close"].dropna()
-                volume = df["Volume"].dropna() if "Volume" in df.columns else None
+    # 1) 手動ファイル
+    manual_path = os.path.join(mdir, "indexes_manual.json")
+    if os.path.exists(manual_path):
+        try:
+            with open(manual_path, "r", encoding="utf-8") as f:
+                manual = json.load(f)
+            if isinstance(manual, dict) and isinstance(manual.get("data"), list):
+                # そのまま今日の日付で保存
+                out["data"] = manual["data"]
+                with open(out_path, "w", encoding="utf-8") as f:
+                    json.dump(out, f, ensure_ascii=False, indent=2)
+                print(f"[OFFLINE] used manual → {out_path} ({len(out['data'])} symbols)")
+                return out
+        except Exception as e:
+            _log(f"[WARN] manual read failed: {e}")
 
-                if len(close) < 2:
-                    _log(f"[SKIP] {name}:{symbol} → too short ({len(close)})")
-                    continue
+    # 2) 直近の履歴から転写（せめて空でないファイルを今日の日付で再保存）
+    last_hist = _latest_file(os.path.join(mdir, "indexes_*.json"))
+    if last_hist and os.path.exists(last_hist):
+        try:
+            with open(last_hist, "r", encoding="utf-8") as f:
+                prev = json.load(f)
+            if isinstance(prev, dict) and isinstance(prev.get("data"), list) and len(prev["data"]) > 0:
+                out["data"] = prev["data"]
+                with open(out_path, "w", encoding="utf-8") as f:
+                    json.dump(out, f, ensure_ascii=False, indent=2)
+                print(f"[OFFLINE] copied from {os.path.basename(last_hist)} → {out_path} ({len(out['data'])} symbols)")
+                return out
+        except Exception as e:
+            _log(f"[WARN] history read failed: {e}")
 
-                # 取れた範囲で計算（足りないものは None）
-                r1 = _pct_return(close, 1)
-                r5 = _pct_return(close, 5) if len(close) > 5 else None
-                r20 = _pct_return(close, 20) if len(close) > 21 else None
-                vr = _vol_ratio(volume, 20) if volume is not None else None
-
-                if r1 is None and r5 is None and r20 is None and vr is None:
-                    _log(f"[SKIP] {name}:{symbol} → all metrics None")
-                    continue
-
-                out["data"].append({
-                    "symbol": name,
-                    "ret_1d": None if r1 is None else round(r1, 2),
-                    "ret_5d": None if r5 is None else round(r5, 2),
-                    "ret_20d": None if r20 is None else round(r20, 2),
-                    "vol_ratio": None if vr is None else round(vr, 2),
-                })
-                _log(f"[OK] {name}:{symbol} rows={len(close)} r1={r1 if r1 is not None else 'NA'} r5={r5 if r5 is not None else 'NA'} r20={r20 if r20 is not None else 'NA'}")
-                got = True
-                break  # この指数は成功したので他の候補は不要
-
-            except Exception as e:
-                _log(f"[WARN] {name}:{symbol} failed: {e}")
-                continue
-
-        if not got:
-            _log(f"[MISS] {name} → 全候補NG（今回は見送り）")
-
-    # 保存
-    mdir = _market_dir()
-    os.makedirs(mdir, exist_ok=True)
-    jpath = os.path.join(mdir, f"indexes_{today.isoformat()}.json")
-    with open(jpath, "w", encoding="utf-8") as f:
+    # 3) 何も無ければ“ダミー0”で保存（以降の処理は問題なく流れる）
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
-
-    print(f"Wrote: {jpath} ({len(out['data'])} symbols)")
+    print(f"[OFFLINE] no data available → wrote empty: {out_path} (0 symbols)")
     return out
