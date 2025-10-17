@@ -4,12 +4,14 @@ import json
 import os
 from dataclasses import dataclass, asdict
 from hashlib import sha1
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Any
 
 from django.conf import settings
 from django.core.cache import cache
 
 from ..models_advisor import AdvicePolicy, AdviceSession, AdviceItem
+# ★ セクター強弱の最新値を読む（services/market.py）
+from .market import latest_sector_strength
 
 # =========================
 # 表示用構造
@@ -215,6 +217,33 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
         score = min(0.9, abs(re) / 40)
         msg = f"評価ROIが {re:.2f}%。損失限定ルール（逆指値/縮小）を再設定。"
         items.append(AdviceItemView(0, msg, score))
+
+    # === セクター強弱（RS） ===
+    try:
+        rs_table = latest_sector_strength()  # {sector: {rs_score, advdec, vol_ratio, date}}
+        if sectors and rs_table:
+            top_sec = sectors[0].get("sector")
+            if top_sec and top_sec in rs_table:
+                rs = float(rs_table[top_sec].get("rs_score", 0.0))
+                if rs <= -0.25:
+                    # 弱いセクターが偏在しているなら、圧縮・整理
+                    score = min(0.9, abs(rs))  # 0.25~ → 0.25~0.9
+                    items.append(AdviceItemView(
+                        0,
+                        f"主力セクター「{top_sec}」の強弱RSが弱気（{rs:+.2f}）。ポジション圧縮や損切りを検討。",
+                        score
+                    ))
+                elif rs >= 0.35:
+                    # 強いセクターは“利確計画 or 追随のルール”を提案
+                    score = min(0.85, rs)       # 0.35~ → 0.35~0.85
+                    items.append(AdviceItemView(
+                        0,
+                        f"主力セクター「{top_sec}」の強弱RSが強気（{rs:+.2f}）。トレンドに追随しつつ、利確ルールを事前設定。",
+                        score
+                    ))
+    except Exception:
+        # RS未投入などは静かにスキップ
+        pass
 
     return items
 
@@ -422,7 +451,7 @@ def _sf(x, d=0.0):
     except Exception:
         return d
 
-def extract_features_for_learning(kpis: Dict[str, any], sectors: List[Dict[str, any]]) -> Dict[str, float]:
+def extract_features_for_learning(kpis: Dict[str, Any], sectors: List[Dict[str, Any]]) -> Dict[str, float]:
     """
     学習用の数値特徴量（フルセット）
     - ストック：総資産/評価・清算価値/投下資金/現金/未実現/信用含み/信用比率/流動性/ROI各種/乖離
@@ -430,6 +459,7 @@ def extract_features_for_learning(kpis: Dict[str, any], sectors: List[Dict[str, 
     - 行動：勝率
     - 構造：セクタ上位の騰落・構成比・未分類比率
     - 比率：現金比率、評価に対する現金・清算の比、ROI×流動性の合成指標 等
+    - 需給：主力セクターのRS（強弱）
     """
     f: Dict[str, float] = {}
 
@@ -501,6 +531,17 @@ def extract_features_for_learning(kpis: Dict[str, any], sectors: List[Dict[str, 
                 uncat_mv = _sf(s.get("mv"))
                 break
     f["uncat_sector_ratio"] = (uncat_mv / total_mv * 100.0) if total_mv > 0 else 0.0
+
+    # ---- 需給：主力セクターのRS（強弱）----
+    try:
+        rs_table = latest_sector_strength()
+        if sectors and rs_table:
+            top_sec = sectors[0].get("sector")
+            f["top_sector_rs"] = float(rs_table.get(top_sec, {}).get("rs_score", 0.0))
+        else:
+            f["top_sector_rs"] = 0.0
+    except Exception:
+        f["top_sector_rs"] = 0.0
 
     # ---- 合成/安全度 ----
     f["roi_times_liquidity"] = _sf(roi_eval, 0.0) * (liq_rate_pct / 100.0)
