@@ -345,6 +345,29 @@ def _header_note(kpis: Dict, sectors: List[Dict]) -> str:
 
     return "、".join(parts) + "。"
 
+def _rs_thresholds_by_env() -> Tuple[float, float]:
+    """
+    地合いスコア(breadth)から、RSの弱気・強気しきい値を動的決定。
+    戻り値: (rs_weak_th, rs_strong_th)
+    """
+    try:
+        br = _breadth_snapshot()
+        score = float(br.get("score", 0.0))
+    except Exception:
+        score = 0.0
+
+    # 通常は (-0.25, +0.35)
+    weak, strong = -0.25, 0.35
+
+    if score <= -0.3:
+        # 弱地合い → 警戒モード
+        weak, strong = -0.15, 0.25
+    elif score >= 0.3:
+        # 強地合い → 攻めモード
+        weak, strong = -0.35, 0.45
+
+    return weak, strong
+
 def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
     items: List[AdviceItemView] = []
 
@@ -405,43 +428,44 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
         msg = f"評価ROIが {re:.2f}%。損失限定ルール（逆指値/縮小）を再設定。"
         items.append(AdviceItemView(0, msg, score))
 
-    # === セクター強弱（RS）★正規化して参照 ===
-    rs_table = _get_rs_table()
-    try:
-        if norm_sectors and rs_table:
-            top_sec = normalize_sector(norm_sectors[0].get("sector") or "")
-            if top_sec and top_sec in rs_table:
-                rs = float(rs_table[top_sec].get("rs_score", 0.0))
-                if rs <= -0.25:
-                    # 弱いセクターが偏在しているなら、圧縮・整理
-                    score = min(0.9, abs(rs))  # 0.25~ → 0.25~0.9
+       # === セクター強弱（RS）★環境適応しきい値対応 ===
+        rs_table = _get_rs_table()
+        try:
+            if norm_sectors and rs_table:
+                # 相場環境に応じたしきい値を取得
+                rs_weak_th, rs_strong_th = _rs_thresholds_by_env()
+    
+                top_sec = normalize_sector(norm_sectors[0].get("sector") or "")
+                if top_sec and top_sec in rs_table:
+                    rs = float(rs_table[top_sec].get("rs_score", 0.0))
+    
+                    if rs <= rs_weak_th:
+                        score = min(0.9, abs(rs))
+                        items.append(AdviceItemView(
+                            0,
+                            f"主力セクター「{top_sec}」が弱気ゾーン（{rs:+.2f}）。地合い{rs_weak_th:+.2f}以下→守りを優先。",
+                            score
+                        ))
+                    elif rs >= rs_strong_th:
+                        score = min(0.85, rs)
+                        items.append(AdviceItemView(
+                            0,
+                            f"主力セクター「{top_sec}」が強気ゾーン（{rs:+.2f}）。地合い{rs_strong_th:+.2f}以上→利を伸ばす好機。",
+                            score
+                        ))
+    
+                # PF全体の加重RS（★正規化後の一覧で算出）
+                w_rs = _pf_weighted_rs(norm_sectors, rs_table)
+                if w_rs < rs_weak_th and mr >= 30:
                     items.append(AdviceItemView(
-                        0,
-                        f"主力セクター「{top_sec}」の相対強弱が弱気（{rs:+.2f}）。比率圧縮や損切りを検討。",
-                        score
+                        0, f"PF全体RS {w_rs:+.2f}（閾値{rs_weak_th:+.2f}以下）。信用縮小やヘッジで防御強化を。", 0.8
                     ))
-                elif rs >= 0.35:
-                    # 強いセクターは“利確計画 or 追随のルール”を提案
-                    score = min(0.85, rs)       # 0.35~ → 0.35~0.85
+                if w_rs > rs_strong_th and liq < 30:
                     items.append(AdviceItemView(
-                        0,
-                        f"主力セクター「{top_sec}」の相対強弱が強気（{rs:+.2f}）。利を伸ばしつつ、段階利確を計画。",
-                        score
+                        0, f"PF全体RS {w_rs:+.2f}（閾値{rs_strong_th:+.2f}以上）。地合い好転時は一部利確も。", 0.7
                     ))
-
-            # PF全体の加重RS（★正規化後の一覧で算出）
-            w_rs = _pf_weighted_rs(norm_sectors, rs_table)
-            if w_rs < -0.25 and mr >= 30:
-                items.append(AdviceItemView(
-                    0, f"ポート全体の相対強弱が弱め（{w_rs:+.2f}）。信用縮小やヘッジで下振れ耐性を。", 0.8
-                ))
-            if w_rs > +0.25 and liq < 30:
-                items.append(AdviceItemView(
-                    0, f"PF強気（{w_rs:+.2f}）だが現金が薄い（{liq:.1f}%）。一部利確で弾を補充。", 0.7
-                ))
-    except Exception:
-        # RS未投入などは静かにスキップ
-        pass
+        except Exception:
+            pass
 
     # === ブレッドス（地合い） ===
     try:
