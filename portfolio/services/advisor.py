@@ -696,7 +696,22 @@ def summarize(kpis: Dict, sectors: List[Dict], variant: str = "A") -> Tuple[str,
     else:
         items = _post_process(base_items)
 
-    ai_items = [asdict(it) for it in items]
+    # --- 通知のしきい値（環境適応）を適用して notify フラグを付与 ---
+    try:
+        rs_table = _get_rs_table()
+        env = _env_for_notify(sectors, rs_table)
+        base_thr = _notify_base_from_policy(default=0.55)
+        thr = _decide_notify_threshold(base_thr, env)
+    except Exception:
+        thr = 0.55  # フォールバック
+
+    # 返却アイテムは従来互換だが、notify（bool）を追加
+    ai_items = []
+    for it in items:
+        d = asdict(it)
+        d["notify"] = bool(it.score >= thr)
+        ai_items.append(d)
+
     session_id = sha1(ai_note.encode("utf-8")).hexdigest()[:8]
     weekly = weekly_report(kpis, sectors)
     nextmove = next_move(kpis, sectors)
@@ -729,3 +744,64 @@ def ensure_session_persisted(ai_note: str, ai_items: list, kpis: dict, variant: 
             reasons=item.get("reasons", []),
         )
     return ai_items
+    
+    
+def _env_for_notify(sectors: List[Dict], rs_table: Dict[str, Dict[str, Any]]) -> Dict[str, float]:
+    """
+    通知しきい値チューニング用の環境特徴量を返す。
+    - breadth_score: ブレッドス指標（-1..+1）
+    - pf_rs: PF加重RS（-1..+1）
+    """
+    # PF加重RS
+    pf_rs = 0.0
+    try:
+        if sectors and rs_table:
+            pf_rs = _pf_weighted_rs(sectors, rs_table)
+    except Exception:
+        pf_rs = 0.0
+
+    # ブレッドス
+    try:
+        br = _breadth_snapshot() or {}
+        bscore = float(br.get("score", 0.0))
+    except Exception:
+        bscore = 0.0
+
+    return {"breadth_score": bscore, "pf_rs": pf_rs}
+    
+    def _decide_notify_threshold(base: float, env: Dict[str, float]) -> float:
+    """
+    base: policy['notify']['base_score']（デフォルト 0.55）
+    env:  {"breadth_score":-1..+1, "pf_rs":-1..+1}
+    調整ルール（軽めの係数で安全側に）:
+      - 地合い弱い（<=-0.35）→ -0.05（通知を出しやすく）
+      - 地合い強い（>=+0.35）→ +0.03（厳しめ）
+      - PFが弱い（<=-0.25）→ -0.03、強い（>=+0.25）→ +0.02
+    クリップ: 0.45..0.75
+    """
+    t = float(base)
+    b = float(env.get("breadth_score", 0.0))
+    r = float(env.get("pf_rs", 0.0))
+
+    if b <= -0.35:
+        t -= 0.05
+    elif b >= 0.35:
+        t += 0.03
+
+    if r <= -0.25:
+        t -= 0.03
+    elif r >= 0.25:
+        t += 0.02
+
+    return max(0.45, min(0.75, t))
+    
+def _notify_base_from_policy(default: float = 0.55) -> float:
+    """
+    policy.json の notify.base_score を取得。無ければ default。
+    """
+    try:
+        pol = _get_policy() or {}
+        notify = pol.get("notify") or {}
+        return float(notify.get("base_score", default))
+    except Exception:
+        return float(default)
