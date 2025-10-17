@@ -123,12 +123,14 @@ def _log(msg: str) -> None:
 def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
     """
     主要指数の1d/5d/20dリターンと出来高比を作成して media/market/indexes_YYYY-MM-DD.json へ保存。
-    ・yfinanceが貧弱 or 欠落でも多段リトライ＆補完で“必ず何かしら”を保存（手動ファイルは使わない）
+    ・yfinanceの多段リトライ＆補完で収集
+    ・収集ゼロ時は “自動” で履歴フォールバック → それも無ければニュートラル合成を保存（手動ファイル不要）
     """
     from datetime import date, timedelta
     import os, json
     import pandas as pd
     import yfinance as yf
+    from glob import glob
 
     today = date.today().isoformat()
     mdir = _market_dir()
@@ -136,7 +138,7 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
     out_path = os.path.join(mdir, f"indexes_{today}.json")
     out: Dict[str, Any] = {"date": today, "data": []}
 
-    # 候補シンボル（優先順を強化）
+    # 候補シンボル（優先順）
     ALIASES: Dict[str, list] = {
         # --- 国内（ETF & 代替/指数） ---
         "TOPIX":  ["1306.T", "1305.T", "1473.T", "1475.T", "^TOPX"],
@@ -161,6 +163,9 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
         "GOLD":   ["GC=F", "GLD"],
         "COPPER": ["HG=F"],
     }
+
+    # 最低限の“ニュートラル合成”対象（完全初回用）
+    SYNTHETIC_MIN = ["TOPIX", "N225", "SPX", "NDX", "REIT", "USDJPY", "GOLD"]
 
     def _ensure_close(df: Optional[pd.DataFrame]) -> Optional[pd.Series]:
         if df is None or len(df) == 0:
@@ -198,7 +203,7 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
                     return df
         except Exception:
             pass
-        # 3) start/end（直近営業日-1までを狙う）
+        # 3) start/end（直近営業日-1まで）
         try:
             end = date.today() - timedelta(days=1)
             start = end - timedelta(days=600)
@@ -242,6 +247,19 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
         except Exception:
             return None
 
+    def _latest_nonempty_history() -> Optional[str]:
+        files = sorted(glob(os.path.join(mdir, "indexes_*.json")))
+        files = [p for p in files if os.path.basename(p) != os.path.basename(out_path)]
+        for p in reversed(files):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    obj = json.load(f)
+                if isinstance(obj, dict) and isinstance(obj.get("data"), list) and len(obj["data"]) > 0:
+                    return p
+            except Exception:
+                pass
+        return None
+
     # オンラインアクセス試験（軽いテスト）
     online_ok = True
     try:
@@ -253,7 +271,6 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
 
     collected = 0
     if online_ok:
-        # 20日リターンまで確実に計算できる長さを要求
         req_len = 21
         for name, syms in ALIASES.items():
             got = False
@@ -268,14 +285,11 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
                     print(f"[SKIP] {name}:{symbol} → close too short")
                     continue
 
-                # 出来高（無いシンボルもある → NoneでOK）
                 volume = df["Volume"] if "Volume" in df.columns else None
-
                 r1 = _pct_ret(close, 1)
                 r5 = _pct_ret(close, 5)
                 r20 = _pct_ret(close, 20)
 
-                # もし 5日/20日が None（営業日ズレ等）なら、さらに “max” 再取得で埋め直し
                 if (r5 is None or r20 is None) and len(close) < 60:
                     df2 = _try_download(symbol, min_len=60)
                     if df2 is not None:
@@ -308,7 +322,7 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
             if not got:
                 print(f"[MISS] {name} → 全候補NG（今回は見送り）")
 
-        # ===== 最終フェーズ：全滅回避の強制取得（手動は使わない） =====
+        # 収集ゼロなら“強制最終トライ”
         if collected == 0:
             print("[RESCUE] 強制最終トライ（SPY/QQQ/GC=F/USDJPY=X）")
             rescue = {
@@ -343,7 +357,35 @@ def fetch_index_rs(days: int = 20) -> Dict[str, Dict[str, Any]]:
                     print(f"[OK-RESCUE] {name}:{symbol}")
                     break
 
-    # オンラインNG or 収集ゼロでも保存はする（空は避けたいので rescue 後もダメなら空保存）
+    # ========= ここからオフライン/収集ゼロ時の“自動”フォールバック =========
+    if len(out["data"]) == 0:
+        # 1) 直近の非空ファイルをコピー
+        prev = _latest_nonempty_history()
+        if prev:
+            try:
+                with open(prev, "r", encoding="utf-8") as f:
+                    obj = json.load(f)
+                if isinstance(obj, dict) and isinstance(obj.get("data"), list) and len(obj["data"]) > 0:
+                    out["data"] = obj["data"]
+                    print(f"[OFFLINE] copied from {os.path.basename(prev)} → {os.path.basename(out_path)} ({len(out['data'])} symbols)")
+            except Exception as e:
+                print(f"[WARN] history read failed: {e}")
+
+    if len(out["data"]) == 0:
+        # 2) 完全初回：ニュートラル合成を自動生成（0%・vol_ratio=1.0）
+        synth = []
+        for name in SYNTHETIC_MIN:
+            synth.append({
+                "symbol": name,
+                "ret_1d": 0.0,
+                "ret_5d": 0.0,
+                "ret_20d": 0.0,
+                "vol_ratio": 1.0,
+            })
+        out["data"] = synth
+        print(f"[SYNTH] generated neutral snapshot ({len(out['data'])} symbols)")
+
+    # 保存
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
     print(f"Wrote: {out_path} ({len(out['data'])} symbols)")
