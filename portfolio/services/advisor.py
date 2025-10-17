@@ -96,6 +96,21 @@ def _get_policy() -> Optional[dict]:
     return cached_policy
 
 # =========================
+# 地合い（ブレッドス）補助
+# =========================
+def _breadth_snapshot() -> Dict[str, Any]:
+    """
+    market.breadth_regime() を呼び出して
+    {"score": -1..+1, "regime": "..."} を返す。失敗時は neutral。
+    """
+    try:
+        from .market import breadth_regime
+        br = breadth_regime()
+        return br if isinstance(br, dict) else {"score": 0.0, "regime": "NEUTRAL"}
+    except Exception:
+        return {"score": 0.0, "regime": "NEUTRAL"}
+
+# =========================
 # RS（相対強弱）関連
 # =========================
 def _get_rs_table() -> Dict[str, Dict[str, Any]]:
@@ -311,7 +326,7 @@ def _header_note(kpis: Dict, sectors: List[Dict]) -> str:
     if rl is not None:
         parts.append(f"現金ROI{rl:.2f}%")
 
-    # PF加重RSも表示（あれば）
+    # PF加重RS（あれば）
     rs_table = _get_rs_table()
     if rs_table and sectors:
         try:
@@ -320,29 +335,40 @@ def _header_note(kpis: Dict, sectors: List[Dict]) -> str:
         except Exception:
             pass
 
+    # 地合い（ブレッドス）も表示（あれば）
+    try:
+        br = _breadth_snapshot()  # {"score": -1..+1, "regime": "..."}
+        parts.append(f"地合い{br.get('regime','NEUTRAL')}({float(br.get('score',0.0)):+.2f})")
+    except Exception:
+        pass
+
     return "、".join(parts) + "。"
 
 def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
     items: List[AdviceItemView] = []
 
+    # === ROI 乖離 ===
     gap = _pct(kpis.get("roi_gap_abs"))
     if gap >= 20:
         score = min(1.0, gap / 80.0)
         msg = f"評価ROIと現金ROIの乖離が {gap:.1f}pt。評価と実際の差が大きい。ポジション整理を検討。"
         items.append(AdviceItemView(0, msg, score))
 
+    # === 流動性 ===
     liq = _pct(kpis.get("liquidity_rate_pct"))
     if liq and liq < 50:
         score = min(1.0, (50 - liq) / 30)
         msg = f"流動性 {liq:.1f}% と低め。現金化余地の確保を検討。"
         items.append(AdviceItemView(0, msg, score))
 
+    # === 信用比率 ===
     mr = _pct(kpis.get("margin_ratio_pct"))
     if mr >= 60:
         score = min(1.0, (mr - 60) / 30)
         msg = f"信用比率が {mr:.1f}%。レバレッジと下落耐性を再確認。"
         items.append(AdviceItemView(0, msg, score))
 
+    # === セクター偏在／未分類 ===
     if sectors:
         total_mv = sum(max(0.0, _pct(s.get("mv"))) for s in sectors) or 1.0
         top = sectors[0]
@@ -359,12 +385,14 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
                 msg = f"未分類セクター比率 {un_ratio:.1f}%。銘柄の業種タグ整備を。"
                 items.append(AdviceItemView(0, msg, score))
 
+    # === 今月実現益 ===
     rm = _pct(kpis.get("realized_month"))
     if rm > 0:
         score = 0.5
         msg = "今月は実現益が出ています。含み益上位からの段階的利確を検討。"
         items.append(AdviceItemView(0, msg, score))
 
+    # === ネガティブROI ===
     re = kpis.get("roi_eval_pct")
     if re is not None and re < 0:
         score = min(0.9, abs(re) / 40)
@@ -397,8 +425,6 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
 
             # PF全体の加重RSを見て、信用や流動性への示唆
             w_rs = _pf_weighted_rs(sectors, rs_table)
-            liq = _pct(kpis.get("liquidity_rate_pct"))
-            mr = _pct(kpis.get("margin_ratio_pct"))
             if w_rs < -0.25 and mr >= 30:
                 items.append(AdviceItemView(
                     0, f"ポート全体の相対強弱が弱め（{w_rs:+.2f}）。信用縮小やヘッジで下振れ耐性を。", 0.8
@@ -409,6 +435,22 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
                 ))
     except Exception:
         # RS未投入などは静かにスキップ
+        pass
+
+    # === ブレッドス（地合い） ===
+    try:
+        br = _breadth_snapshot()  # {"score": -1..+1, "regime": "..."}
+        br_score = float(br.get("score", 0.0))
+        regime = br.get("regime", "NEUTRAL")
+        if br_score <= -0.35:
+            # 地合い悪化時：守り寄り
+            msg = f"地合いが弱い（ブレッドス判定: {regime}）。信用圧縮・現金比率引上げを優先。"
+            items.append(AdviceItemView(0, msg, min(1.0, 0.6 + abs(br_score) * 0.6)))
+        elif br_score >= 0.35:
+            # 地合い良好：攻め寄り
+            msg = f"地合いが良好（ブレッドス判定: {regime}）。トレンドに沿って利確・乗り換えを計画。"
+            items.append(AdviceItemView(0, msg, min(0.9, 0.5 + br_score * 0.5)))
+    except Exception:
         pass
 
     return items
