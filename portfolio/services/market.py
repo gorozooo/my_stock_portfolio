@@ -1,28 +1,62 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-from typing import Dict
 from datetime import date
+from typing import Dict, Optional, Tuple, List
 
 from django.db.models import Max
 
 from ..models_market import SectorSignal
 
-def latest_sector_strength() -> Dict[str, dict]:
+def latest_sector_rs_map(target: Optional[date] = None) -> Dict[str, Dict[str, float]]:
     """
-    セクター名 -> {rs_score, advdec, vol_ratio, date} の辞書を返す
-    最新日を自動特定（全セクターで同一最新日が無くても最大日で集約）
+    直近(または指定日)のセクター→{rs, chg5, chg20, vol_ratio} を返す。
+    見つからないセクターは含まれない。
     """
-    # 最新日
-    max_date = SectorSignal.objects.aggregate(mx=Max("date")).get("mx")
-    if not max_date:
-        return {}
+    if target:
+        qs = SectorSignal.objects.filter(date=target)
+    else:
+        # セクター毎の最新日付を拾って結合
+        latest = (SectorSignal.objects
+                  .values("sector")
+                  .annotate(d=Max("date")))
+        pairs = [(x["sector"], x["d"]) for x in latest]
+        rs = {}
+        for sec, d in pairs:
+            row = SectorSignal.objects.filter(sector=sec, date=d).first()
+            if row:
+                rs[sec] = dict(
+                    rs=float(row.rs_score),
+                    chg5=float(row.meta.get("chg5", 0.0) if row.meta else 0.0),
+                    chg20=float(row.meta.get("chg20", 0.0) if row.meta else 0.0),
+                    vol_ratio=(None if row.vol_ratio is None else float(row.vol_ratio)),
+                    date=str(row.date),
+                )
+        return rs
 
-    out: Dict[str, dict] = {}
-    for s in SectorSignal.objects.filter(date=max_date):
-        out[s.sector] = dict(
-            rs_score=float(s.rs_score or 0.0),
-            advdec=float(s.advdec or 0.0),
-            vol_ratio=float(s.vol_ratio or 1.0),
-            date=max_date.isoformat(),
+    # target日指定時
+    out = {}
+    for row in qs:
+        out[row.sector] = dict(
+            rs=float(row.rs_score),
+            chg5=float(row.meta.get("chg5", 0.0) if row.meta else 0.0),
+            chg20=float(row.meta.get("chg20", 0.0) if row.meta else 0.0),
+            vol_ratio=(None if row.vol_ratio is None else float(row.vol_ratio)),
+            date=str(row.date),
         )
     return out
+
+
+def weighted_portfolio_rs(sectors: List[Dict]) -> float:
+    """
+    画面用 sectors（[{sector, mv, share_pct, ...}...]）と最新RSから
+    ポート全体の加重RS（-1..+1）を算出。RSが無いセクターは0扱い。
+    """
+    rs_map = latest_sector_rs_map()
+    total_mv = sum(max(0.0, float(s.get("mv") or 0.0)) for s in sectors) or 1.0
+    acc = 0.0
+    for s in sectors:
+        sec = (s.get("sector") or "").strip()
+        mv = max(0.0, float(s.get("mv") or 0.0))
+        rs = float((rs_map.get(sec) or {}).get("rs", 0.0))
+        acc += rs * (mv / total_mv)
+    return float(acc)
