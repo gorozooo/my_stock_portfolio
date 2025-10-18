@@ -113,6 +113,38 @@ def _rs_thresholds_from_policy() -> tuple[float, float]:
     except Exception:
         return (-0.25, 0.35)
 
+def _notify_thresholds_from_policy() -> Dict[str, float]:
+    """
+    policy.json から通知しきい値群を取得。無ければデフォルトを返す。
+    返り値キー:
+      - liquidity_low:  流動性がこの%を下回れば警告（default 50）
+      - margin_high:    信用比率がこの%を超えれば警告（default 60）
+      - top_share_high: 上位セクター集中（%）（default 45）
+      - uncat_share_high: 未分類セクター比率（%）（default 40）
+      - pf_cash_low_for_bull: PF強気時に現金がこの%未満なら注意（default 30）
+      - realized_month_min: 今月実現益がこの金額超で利確提案（default 0）
+    """
+    defaults = {
+        "liquidity_low": 50.0,
+        "margin_high": 60.0,
+        "top_share_high": 45.0,
+        "uncat_share_high": 40.0,
+        "pf_cash_low_for_bull": 30.0,
+        "realized_month_min": 0.0,
+    }
+    try:
+        pol = _get_policy() or {}
+        tbl = pol.get("notify_thresholds") or {}
+        out = {}
+        for k, v in defaults.items():
+            try:
+                out[k] = float(tbl.get(k, v))
+            except Exception:
+                out[k] = v
+        return out
+    except Exception:
+        return defaults
+
 # =========================
 # 地合い（ブレッドス）補助
 # =========================
@@ -387,6 +419,7 @@ def _rs_thresholds_by_env() -> Tuple[float, float]:
 
 def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
     items: List[AdviceItemView] = []
+    thr = _notify_thresholds_from_policy()
 
     # === ROI 乖離 ===
     gap = _pct(kpis.get("roi_gap_abs"))
@@ -397,26 +430,31 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
 
     # === 流動性 ===
     liq = _pct(kpis.get("liquidity_rate_pct"))
-    if liq and liq < 50:
-        score = min(1.0, (50 - liq) / 30)
+    if liq and liq < thr["liquidity_low"]:
+        # 例: default 50%
+        span = max(1.0, thr["liquidity_low"] - 20.0)  # 強度スケール
+        score = max(0.3, min(1.0, (thr["liquidity_low"] - liq) / span))
         msg = f"流動性 {liq:.1f}% と低め。現金化余地の確保を検討。"
         items.append(AdviceItemView(0, msg, score))
 
     # === 信用比率 ===
     mr = _pct(kpis.get("margin_ratio_pct"))
-    if mr >= 60:
-        score = min(1.0, (mr - 60) / 30)
+    if mr >= thr["margin_high"]:
+        # 例: default 60%
+        span = max(1.0, 90.0 - thr["margin_high"])
+        score = max(0.4, min(1.0, (mr - thr["margin_high"]) / span))
         msg = f"信用比率が {mr:.1f}%。レバレッジと下落耐性を再確認。"
         items.append(AdviceItemView(0, msg, score))
 
-    # === セクター偏在／未分類（★正規化して判定） ===
+    # === セクター偏在／未分類（正規化して判定） ===
     norm_sectors = map_pf_sectors(sectors) if sectors else []
     if norm_sectors:
         total_mv = sum(max(0.0, _pct(s.get("mv"))) for s in norm_sectors) or 1.0
         top = norm_sectors[0]
         top_ratio = _pct(top.get("mv")) / total_mv * 100.0
-        if top_ratio >= 45:
-            score = min(1.0, (top_ratio - 45) / 25)
+        if top_ratio >= thr["top_share_high"]:
+            span = max(1.0, 20.0)
+            score = max(0.3, min(1.0, (top_ratio - thr["top_share_high"]) / span))
             msg = f"セクター偏在（{top.get('sector','不明')} {top_ratio:.1f}%）。分散を検討。"
             items.append(AdviceItemView(0, msg, score))
 
@@ -426,14 +464,15 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
                 uncat_mv += _pct(s.get("mv"))
         if uncat_mv > 0:
             un_ratio = uncat_mv / total_mv * 100.0
-            if un_ratio >= 40:
-                score = min(0.8, (un_ratio - 40) / 30)
+            if un_ratio >= thr["uncat_share_high"]:
+                span = max(1.0, 20.0)
+                score = max(0.2, min(0.9, (un_ratio - thr["uncat_share_high"]) / span))
                 msg = f"未分類セクター比率 {un_ratio:.1f}%。銘柄の業種タグ整備を。"
                 items.append(AdviceItemView(0, msg, score))
 
     # === 今月実現益 ===
     rm = _pct(kpis.get("realized_month"))
-    if rm > 0:
+    if rm > thr["realized_month_min"]:
         score = 0.5
         msg = "今月は実現益が出ています。含み益上位からの段階的利確を検討。"
         items.append(AdviceItemView(0, msg, score))
@@ -445,24 +484,23 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
         msg = f"評価ROIが {re:.2f}%。損失限定ルール（逆指値/縮小）を再設定。"
         items.append(AdviceItemView(0, msg, score))
 
-        # === セクター強弱（RS） ===
+    # === セクター強弱（RS） ===
     rs_table = _get_rs_table()
     try:
-        thr_weak, thr_strong = _rs_thresholds_from_policy()  # ← 学習済みしきい値を採用
+        # 学習 or 環境で最終決定されたしきい値
+        thr_weak, thr_strong = _rs_thresholds_from_policy_or_env()
         if sectors and rs_table:
             top_sec = sectors[0].get("sector")
             if top_sec and top_sec in rs_table:
                 rs = float(rs_table[top_sec].get("rs_score", 0.0))
                 if rs <= thr_weak:
-                    # 弱いセクターが偏在しているなら、圧縮・整理
-                    score = min(0.95, max(0.25, abs(rs)))  # 強弱に応じて0.25〜0.95
+                    score = min(0.95, max(0.25, abs(rs)))
                     items.append(AdviceItemView(
                         0,
                         f"主力セクター「{top_sec}」の相対強弱が弱気（{rs:+.2f}≤{thr_weak:+.2f}）。比率圧縮や損切りを検討。",
                         score
                     ))
                 elif rs >= thr_strong:
-                    # 強いセクターは“利確計画 or 追随のルール”を提案
                     score = min(0.9, max(0.35, rs))
                     items.append(AdviceItemView(
                         0,
@@ -472,16 +510,15 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
 
             # PF全体の加重RSを見て、信用や流動性への示唆
             w_rs = _pf_weighted_rs(sectors, rs_table)
-            if w_rs < thr_weak and mr >= 30:
+            if w_rs < thr_weak and mr >= (thr["margin_high"] - 30):  # 例: マージン中〜高なら注意
                 items.append(AdviceItemView(
                     0, f"ポート全体の相対強弱が弱め（{w_rs:+.2f}≤{thr_weak:+.2f}）。信用縮小やヘッジで下振れ耐性を。", 0.8
                 ))
-            if w_rs > thr_strong and liq < 30:
+            if w_rs > thr_strong and liq < thr["pf_cash_low_for_bull"]:
                 items.append(AdviceItemView(
                     0, f"PF強気（{w_rs:+.2f}≥{thr_strong:+.2f}）だが現金が薄い（{liq:.1f}%）。一部利確で弾を補充。", 0.7
                 ))
     except Exception:
-        # RS未投入などは静かにスキップ
         pass
 
     # === ブレッドス（地合い） ===
@@ -490,11 +527,9 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
         br_score = float(br.get("score", 0.0))
         regime = br.get("regime", "NEUTRAL")
         if br_score <= -0.35:
-            # 地合い悪化時：守り寄り
             msg = f"地合いが弱い（ブレッドス判定: {regime}）。信用圧縮・現金比率引上げを優先。"
             items.append(AdviceItemView(0, msg, min(1.0, 0.6 + abs(br_score) * 0.6)))
         elif br_score >= 0.35:
-            # 地合い良好：攻め寄り
             msg = f"地合いが良好（ブレッドス判定: {regime}）。トレンドに沿って利確・乗り換えを計画。"
             items.append(AdviceItemView(0, msg, min(0.9, 0.5 + br_score * 0.5)))
     except Exception:
