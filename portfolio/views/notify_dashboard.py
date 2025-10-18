@@ -35,25 +35,26 @@ def _read_policy_obj() -> dict:
     except Exception:
         return {}
 
-def _read_policy_preview() -> dict:
-    """
-    policy.jsonをサマリ化して辞書で返す
-    """
+def _read_policy_preview() -> str:
     obj = _read_policy_obj() or {}
-    notify = obj.get("notify_thresholds") or {}
-    out = dict(
-        rs_weak=notify.get("rs_weak"),
-        rs_strong=notify.get("rs_strong"),
-        gap_min=notify.get("gap_min"),
-        liq_max=notify.get("liq_max"),
-        margin_min=notify.get("margin_min"),
-        top_share_max=notify.get("top_share_max"),
-        uncat_share_max=notify.get("uncat_share_max"),
-        breadth_bad=notify.get("breadth_bad"),
-        breadth_good=notify.get("breadth_good"),
-        updated_at=obj.get("updated_at"),
-    )
-    return out
+    keys = ("rs_thresholds", "notify_thresholds", "window_days", "updated_at")
+    snap = {k: obj.get(k) for k in keys}
+    return json.dumps(snap, ensure_ascii=False, indent=2)
+
+def _get_rs_thresholds() -> tuple[float, float]:
+    """
+    policy.json の rs_thresholds（弱/強）を取り出す。無ければデフォルト。
+    """
+    pol = _read_policy_obj() or {}
+    th = pol.get("rs_thresholds") or {}
+    try:
+        weak = float(th.get("weak"))
+        strong = float(th.get("strong"))
+        if weak < strong:
+            return weak, strong
+    except Exception:
+        pass
+    return (-0.25, 0.35)
 
 
 # ---------- セクター集計 ----------
@@ -73,8 +74,8 @@ def _sf(x, d: float = 0.0) -> float:
 
 def _holdings_by_sector() -> tuple[list[dict], float]:
     """
-    保有をセクター別に評価額集計。
-    last_price 優先（なければ avg_cost）
+    保有をセクター別に評価額集計。last_price 優先（無ければ avg_cost）。
+    返り値: ( [{"sector":..., "mv":..., "rate":...}], total_mv )
     """
     rows = []
     for h in Holding.objects.all():
@@ -113,23 +114,37 @@ def _join_with_rs(pf_rows: list[dict]) -> list[SectorRow]:
     out.sort(key=lambda x: (-(x.weight_pct), -x.rs))
     return out
 
+def _rs_level(rs: float, weak: float, strong: float) -> tuple[str, str]:
+    """
+    RSの水準をバッジ表示用に分類。返り値: (表示テキスト, CSSクラス)
+    """
+    try:
+        r = float(rs)
+    except Exception:
+        r = 0.0
+    if r <= weak:
+        return ("弱", "weak")
+    if r >= strong:
+        return ("強", "strong")
+    return ("中立", "neutral")
+
 
 # ---------- メイン ----------
 def notify_dashboard(request: HttpRequest) -> HttpResponse:
     """
-    AIアドバイザー：通知＋セクター＋しきい値の統合ダッシュボード
-    - ?format=json でJSON返却
-    - days パラメータで期間指定（default=90）
+    AIアドバイザー：通知＋セクター＋しきい値の統合ページ
+    - ?format=json でサマリJSON（後方互換）
+    - days パラメータ（default 90）
     """
     days = int(request.GET.get("days", 90))
     since = timezone.now() - timedelta(days=days)
 
-    # 今週（月曜始まり）
+    # 今週（月曜0:00起点）
     now = timezone.localtime()
     monday = now - timedelta(days=now.weekday())
     monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # 通知（AdviceItem）集計
+    # 通知集計（AdviceItem を通知ログとみなす / taken=True は「採用」）
     qs_all = AdviceItem.objects.filter(created_at__gte=since)
     week_qs = qs_all.filter(created_at__gte=monday)
     week_total = week_qs.count()
@@ -142,26 +157,46 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
         start = (monday - timedelta(weeks=i))
         end = start + timedelta(days=7)
         w_qs = qs_all.filter(created_at__gte=start, created_at__lt=end)
-        total = w_qs.count()
-        taken = w_qs.filter(taken=True).count()
-        rate = (taken / total) if total > 0 else 0.0
+        tot = w_qs.count()
+        tak = w_qs.filter(taken=True).count()
+        rate = (tak / tot) if tot > 0 else 0.0
         weekly.append({
             "week": start.date().isoformat(),
-            "total": total,
-            "taken": taken,
+            "total": tot,
+            "taken": tak,
             "rate": round(rate, 4),
         })
     weekly.sort(key=lambda r: r["week"], reverse=True)
 
-    # セクター × RS
+    # セクター：PFウェイト × RS
     pf_rows, total_mv = _holdings_by_sector()
     sector_rows = _join_with_rs(pf_rows)
     max_w = max((r.weight_pct for r in sector_rows), default=0.0)
 
-    # policy サマリ
-    policy_summary = _read_policy_preview()
+    rs_weak, rs_strong = _get_rs_thresholds()
+    # テンプレに渡す見やすい行（バッジ用のlevel/class、バー幅など）
+    sector_rows_viz = []
+    for r in sector_rows:
+        level_txt, level_cls = _rs_level(r.rs, rs_weak, rs_strong)
+        # ウェイトのバー幅（最大ウェイト基準で100%スケール）
+        weight_bar = 0.0 if max_w <= 0 else (r.weight_pct / max_w) * 100.0
+        # RSを -1..+1 → 0..100 に正規化（オーバーはclip）
+        rs_norm = max(0.0, min(100.0, (r.rs + 1.0) * 50.0))
+        sector_rows_viz.append({
+            "sector": r.sector,
+            "weight_pct": round(r.weight_pct, 2),
+            "weight_bar": round(weight_bar, 1),
+            "mv": round(r.mv, 0),
+            "rs": round(r.rs, 2),
+            "rs_norm": round(rs_norm, 1),
+            "level_txt": level_txt,
+            "level_cls": level_cls,
+        })
 
-    # JSONモード
+    # policy プレビュー
+    policy_preview = _read_policy_preview()
+
+    # JSON（後方互換）
     if request.GET.get("format") == "json":
         return JsonResponse({
             "days": days,
@@ -169,11 +204,9 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
             "week_taken": week_taken,
             "week_rate": round(week_rate, 4),
             "weekly": weekly,
-            "sectors": [
-                {"sector": r.sector, "weight_pct": r.weight_pct, "mv": r.mv, "rs": r.rs, "rs_date": r.rs_date}
-                for r in sector_rows
-            ],
-            "policy": policy_summary,
+            "policy": json.loads(policy_preview or "{}"),
+            "sectors": sector_rows_viz,
+            "rs_thresholds": {"weak": rs_weak, "strong": rs_strong},
         }, json_dumps_params={"ensure_ascii": False, "indent": 2})
 
     # HTML
@@ -183,10 +216,12 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
         week_taken=week_taken,
         week_rate=week_rate,
         weekly=weekly,
-        sector_rows=sector_rows,
+        policy_preview=policy_preview,
+        # セクター（可視化用）
+        sectors=sector_rows_viz,
         total_mv=total_mv,
-        max_w=max_w,
-        policy_text=policy_summary,
+        rs_weak=rs_weak,
+        rs_strong=rs_strong,
         now=now,
     )
     return render(request, "portfolio/notify_dashboard.html", ctx)
