@@ -114,6 +114,6 @@ urlpatterns = [
     path("advisor/policy/", policy_history, name="advisor_policy"),
     path("api/advisor/learn/", v_ops.advisor_learn_now, name="advisor_learn_now"),
     path("advisor/policy/retrain/", policy_views.policy_retrain_apply, name="policy_retrain"),
-    path("advisor/notify-dashboard/", notify_dashboard, name="advisor_notify_dashboard"),
+    path("advisor/notify-dashboard/", notify_dashboard, name="notify_dashboard"),
     
 ]
