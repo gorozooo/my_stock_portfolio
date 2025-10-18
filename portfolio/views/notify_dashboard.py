@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json
 from datetime import timedelta
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
 from dataclasses import dataclass
 from collections import defaultdict
 from pathlib import Path
@@ -35,11 +35,25 @@ def _read_policy_obj() -> dict:
     except Exception:
         return {}
 
-def _read_policy_preview() -> str:
+def _read_policy_preview() -> dict:
+    """
+    policy.jsonをサマリ化して辞書で返す
+    """
     obj = _read_policy_obj() or {}
-    keys = ("rs_thresholds", "notify_thresholds", "window_days", "updated_at")
-    snap = {k: obj.get(k) for k in keys}
-    return json.dumps(snap, ensure_ascii=False, indent=2)
+    notify = obj.get("notify_thresholds") or {}
+    out = dict(
+        rs_weak=notify.get("rs_weak"),
+        rs_strong=notify.get("rs_strong"),
+        gap_min=notify.get("gap_min"),
+        liq_max=notify.get("liq_max"),
+        margin_min=notify.get("margin_min"),
+        top_share_max=notify.get("top_share_max"),
+        uncat_share_max=notify.get("uncat_share_max"),
+        breadth_bad=notify.get("breadth_bad"),
+        breadth_good=notify.get("breadth_good"),
+        updated_at=obj.get("updated_at"),
+    )
+    return out
 
 
 # ---------- セクター集計 ----------
@@ -59,8 +73,8 @@ def _sf(x, d: float = 0.0) -> float:
 
 def _holdings_by_sector() -> tuple[list[dict], float]:
     """
-    保有をセクター別に評価額集計。last_price 優先（無ければ avg_cost）。
-    返り値: ( [{"sector":..., "mv":..., "rate":...}], total_mv )
+    保有をセクター別に評価額集計。
+    last_price 優先（なければ avg_cost）
     """
     rows = []
     for h in Holding.objects.all():
@@ -103,19 +117,19 @@ def _join_with_rs(pf_rows: list[dict]) -> list[SectorRow]:
 # ---------- メイン ----------
 def notify_dashboard(request: HttpRequest) -> HttpResponse:
     """
-    AIアドバイザー：通知＋セクター＋しきい値の統合ページ
-    - ?format=json でサマリJSON（後方互換）
-    - days パラメータ（default 90）
+    AIアドバイザー：通知＋セクター＋しきい値の統合ダッシュボード
+    - ?format=json でJSON返却
+    - days パラメータで期間指定（default=90）
     """
     days = int(request.GET.get("days", 90))
     since = timezone.now() - timedelta(days=days)
 
-    # 今週（月曜0:00起点）
+    # 今週（月曜始まり）
     now = timezone.localtime()
     monday = now - timedelta(days=now.weekday())
     monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # 通知集計（AdviceItem を通知ログとみなす / taken=True は「採用」）
+    # 通知（AdviceItem）集計
     qs_all = AdviceItem.objects.filter(created_at__gte=since)
     week_qs = qs_all.filter(created_at__gte=monday)
     week_total = week_qs.count()
@@ -128,26 +142,26 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
         start = (monday - timedelta(weeks=i))
         end = start + timedelta(days=7)
         w_qs = qs_all.filter(created_at__gte=start, created_at__lt=end)
-        tot = w_qs.count()
-        tak = w_qs.filter(taken=True).count()
-        rate = (tak / tot) if tot > 0 else 0.0
+        total = w_qs.count()
+        taken = w_qs.filter(taken=True).count()
+        rate = (taken / total) if total > 0 else 0.0
         weekly.append({
             "week": start.date().isoformat(),
-            "total": tot,
-            "taken": tak,
+            "total": total,
+            "taken": taken,
             "rate": round(rate, 4),
         })
     weekly.sort(key=lambda r: r["week"], reverse=True)
 
-    # セクション：PF×RS
+    # セクター × RS
     pf_rows, total_mv = _holdings_by_sector()
     sector_rows = _join_with_rs(pf_rows)
     max_w = max((r.weight_pct for r in sector_rows), default=0.0)
 
-    # policy プレビュー
-    policy_preview = _read_policy_preview()
+    # policy サマリ
+    policy_summary = _read_policy_preview()
 
-    # JSON（後方互換）
+    # JSONモード
     if request.GET.get("format") == "json":
         return JsonResponse({
             "days": days,
@@ -155,11 +169,11 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
             "week_taken": week_taken,
             "week_rate": round(week_rate, 4),
             "weekly": weekly,
-            "policy": json.loads(policy_preview or "{}"),
             "sectors": [
                 {"sector": r.sector, "weight_pct": r.weight_pct, "mv": r.mv, "rs": r.rs, "rs_date": r.rs_date}
                 for r in sector_rows
             ],
+            "policy": policy_summary,
         }, json_dumps_params={"ensure_ascii": False, "indent": 2})
 
     # HTML
@@ -169,11 +183,10 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
         week_taken=week_taken,
         week_rate=week_rate,
         weekly=weekly,
-        policy_preview=policy_preview,
-        # セクター
         sector_rows=sector_rows,
         total_mv=total_mv,
         max_w=max_w,
+        policy_text=policy_summary,
         now=now,
     )
     return render(request, "portfolio/notify_dashboard.html", ctx)
