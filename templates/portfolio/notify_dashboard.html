@@ -1,188 +1,250 @@
-{% extends "base.html" %}
+{% extends "portfolio/base.html" %}
 {% load static %}
 
 {% block title %}AIアドバイザー 通知ダッシュボード{% endblock %}
 
 {% block content %}
 <style>
-  /* ---- レイアウト共通 ---- */
-  .wrap { max-width: 1000px; margin: 0 auto; padding: 16px 12px 120px; }
-  .h1   { font-size: 1.6rem; font-weight: 700; letter-spacing: .02em; margin: 4px 0 14px; }
+/* ===== レイアウト基調（ダーク/モバイル前提） ===== */
+.page-wrap{max-width:960px;margin:0 auto;padding:12px 14px 80px;}
+.hint{opacity:.75;font-size:.92rem}
 
-  /* ---- セグメント（上部サブナビ） ---- */
-  .seg-wrap {
-    position: sticky; top: 8px; z-index: 30;
-    display: flex; justify-content: center;
-    margin: 6px 0 14px;
-  }
-  .seg {
-    display: inline-flex; gap: 8px; padding: 6px;
-    border-radius: 999px; background: rgba(255,255,255,.06);
-    backdrop-filter: blur(6px);
-    box-shadow: 0 6px 20px rgba(0,0,0,.25) inset, 0 6px 30px rgba(0,0,0,.06);
-  }
-  .seg-btn {
-    appearance: none; border: 0; cursor: pointer;
-    padding: 10px 16px; border-radius: 999px;
-    font-weight: 600; letter-spacing: .02em;
-    color: #cfd3dc; background: transparent;
-    transition: transform .1s ease, background .2s ease, color .2s ease;
-    white-space: nowrap;
-  }
-  .seg-btn:hover { transform: translateY(-1px); }
-  .seg-btn.active {
-    background: linear-gradient(180deg,#3b82f6,#2563eb);
-    color: #fff; box-shadow: 0 6px 16px rgba(37,99,235,.35);
-  }
+/* ===== セグメント（上部タブ） ===== */
+.sticky-tabs{
+  position: sticky; top: 0; z-index: 5;
+  background: var(--bg, #0b0f1a); padding: 10px 0 12px; margin: -8px -14px 12px;
+  backdrop-filter: blur(6px);
+}
+.tabs{
+  display:flex; justify-content:center; gap:10px; flex-wrap:nowrap; overflow:auto; padding:0 10px;
+}
+.tab-btn{
+  appearance:none; border:1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.04); color:#fff; padding:8px 14px;
+  border-radius:999px; font-size:.95rem; white-space:nowrap;
+}
+.tab-btn.active{ border-color:transparent; background:linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.07)); }
 
-  /* ---- サマリカード ---- */
-  .grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
-  @media (min-width: 540px){ .grid { grid-template-columns: repeat(4,minmax(0,1fr)); } }
-  .card {
-    border-radius: 14px; padding: 14px 16px;
-    background: rgba(255,255,255,.04);
-    box-shadow: 0 10px 30px rgba(0,0,0,.16), inset 0 1px 0 rgba(255,255,255,.04);
-  }
-  .card .cap { font-size: .82rem; opacity:.8; margin-bottom: 4px; }
-  .card .val { font-size: 1.6rem; font-weight: 800; letter-spacing: .02em; }
+/* ===== ミニチップ ===== */
+.chips{display:flex; gap:6px; flex-wrap:wrap; align-items:center}
+.chip{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:4px 10px; border-radius:999px; font-size:.85rem;
+  background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1);
+}
 
-  /* ---- セクション見出し & 小要素 ---- */
-  .sec-ttl { display:flex; align-items:center; gap:.6rem; margin:18px 2px 10px; font-weight:700; }
-  .chip    { display:inline-flex; align-items:center; gap:.4rem; font-size:.78rem;
-             padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.06); }
+/* ===== 指標カード ===== */
+.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:10px 0 6px}
+@media (min-width:640px){ .cards{grid-template-columns:repeat(4,1fr);} }
+.card{
+  background: rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.10);
+  border-radius:12px; padding:12px 14px;
+}
+.card h4{margin:0 0 6px; font-size:.85rem; opacity:.75}
+.card .v{font-size:1.5rem; font-weight:700}
 
-  /* ---- テーブル ---- */
-  table.basic { width:100%; border-collapse: collapse; }
-  table.basic th, table.basic td { padding: 10px 10px; text-align: left; }
-  table.basic thead th {
-    font-size:.86rem; font-weight:700; opacity:.85; border-bottom:1px solid rgba(255,255,255,.08);
-  }
-  table.basic tbody tr { border-bottom: 1px dashed rgba(255,255,255,.06); }
-  table.basic tbody tr:last-child { border-bottom: 0; }
-  .num { text-align:right; font-variant-numeric: tabular-nums; }
+/* ===== テーブル（週次） ===== */
+.tbl{width:100%; border-collapse:collapse; margin-top:8px}
+.tbl th,.tbl td{padding:10px 8px; border-bottom:1px solid rgba(255,255,255,.08); text-align:right}
+.tbl th:first-child, .tbl td:first-child{text-align:left}
+.tbl thead th{font-weight:700; opacity:.8}
 
-  /* ---- ポリシー枠 ---- */
-  .panel {
-    border-radius: 14px; padding: 14px 16px; margin-top: 10px;
-    background: rgba(255,255,255,.03);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
-  }
-  .kv { display:grid; grid-template-columns: 120px 1fr; gap: 8px 12px; }
-  .kv b { opacity:.85; }
-  .tiny { font-size:.86rem; opacity:.8; }
+/* ===== セクターカード ===== */
+.sectors{display:flex; flex-direction:column; gap:10px;}
+.sector{
+  display:grid; grid-template-columns:1fr auto; gap:8px 12px;
+  padding:12px; border-radius:12px;
+  background: rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.10);
+}
+.sector .name{font-weight:700}
+.badge{
+  padding:4px 10px; border-radius:999px; font-size:.82rem; font-weight:700;
+  border:1px solid transparent; align-self:start; justify-self:end;
+}
+.badge.neutral{background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.12)}
+.badge.strong{background:rgba(46, 204, 113,.18); border-color:rgba(46,204,113,.35)}
+.badge.weak{background:rgba(231, 76, 60,.20); border-color:rgba(231,76,60,.38)}
+.meta{opacity:.75; font-size:.9rem}
 
-  /* ---- セクションの表示切替 ---- */
-  .sec { display:none; } .sec.show { display:block; }
+/* PFウェイトのプログレス */
+.bar-wrap{grid-column:1 / -1}
+.bar{
+  height:10px; border-radius:999px; overflow:hidden;
+  background: rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12);
+}
+.bar > i{display:block; height:100%; width:0%}
+.bar .fill{background:linear-gradient(90deg, #7aa8ff, #b7d2ff);}
+
+/* ===== セクション非表示制御 ===== */
+.section{display:none}
+.section.active{display:block}
+
+/* ===== フッタ操作 ===== */
+.section-hint{margin:10px 0 0}
+.tiny{opacity:.7; font-size:.85rem}
 </style>
 
-<div class="wrap">
+<div class="page-wrap">
+  <h2>AIアドバイザー 通知ダッシュボード</h2>
 
-  <h1 class="h1">AIアドバイザー 通知ダッシュボード</h1>
-
-  <!-- 上部サブナビ（中央・固定） -->
-  <div class="seg-wrap">
-    <div class="seg" role="tablist" aria-label="セクション切替">
-      <button class="seg-btn active" data-target="#sec-dashboard" role="tab" aria-selected="true">ダッシュボード</button>
-      <button class="seg-btn" data-target="#sec-sectors" role="tab">セクター</button>
-      <button class="seg-btn" data-target="#sec-policy" role="tab">しきい値</button>
+  <!-- 上部タブ（中央固定） -->
+  <div class="sticky-tabs">
+    <div class="tabs" role="tablist" aria-label="sections">
+      <button class="tab-btn active" data-target="#sec-dashboard">ダッシュボード</button>
+      <button class="tab-btn" data-target="#sec-sectors">セクター</button>
+      <button class="tab-btn" data-target="#sec-policy">しきい値</button>
     </div>
   </div>
 
-  <!-- ===== ダッシュボード ===== -->
-  <section id="sec-dashboard" class="sec show" aria-labelledby="tab-dashboard">
-    <div class="chip">サマリ　過去 {{ days }} 日</div>
-
-    <div class="grid" style="margin:10px 0 16px;">
-      <div class="card"><div class="cap">今週の通知</div><div class="val">{{ week_total|default:"0" }}</div></div>
-      <div class="card"><div class="cap">今週の採用</div><div class="val">{{ week_taken|default:"0" }}</div></div>
-      <div class="card"><div class="cap">採用率</div><div class="val">{{ week_rate|floatformat:2|default:"0.00" }}</div></div>
-      <div class="card"><div class="cap">API</div><div class="val">JSON</div></div>
+  <!-- === 1) ダッシュボード === -->
+  <section id="sec-dashboard" class="section active" aria-labelledby="tab-dashboard">
+    <div class="chips hint">
+      <span class="chip">サマリ</span>
+      <span class="chip">過去 {{ days }} 日</span>
     </div>
 
-    <div class="sec-ttl">週次トレンド</div>
-    <div class="panel">
-      <table class="basic">
-        <thead>
+    <div class="cards">
+      <div class="card">
+        <h4>今週の通知</h4>
+        <div class="v">{{ week_total|default:0 }}</div>
+      </div>
+      <div class="card">
+        <h4>今週の採用</h4>
+        <div class="v">{{ week_taken|default:0 }}</div>
+      </div>
+      <div class="card">
+        <h4>採用率</h4>
+        <div class="v">{{ week_rate|floatformat:2 }}</div>
+      </div>
+      <div class="card">
+        <h4>API</h4>
+        <div class="v"><a href="{% url 'notify_dashboard' %}?format=json" target="_blank">JSON</a></div>
+      </div>
+    </div>
+
+    <h3 style="margin-top:14px;">週次トレンド</h3>
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>週 (Mon)</th>
+          <th>通知合計</th>
+          <th>採用数</th>
+          <th>採用率</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in weekly %}
           <tr>
-            <th style="width:34%;">週 (Mon)</th>
-            <th class="num">通知合計</th>
-            <th class="num">採用数</th>
-            <th class="num">採用率</th>
+            <td>{{ r.week }}</td>
+            <td>{{ r.total }}</td>
+            <td>{{ r.taken }}</td>
+            <td>{{ r.rate|floatformat:2 }}</td>
           </tr>
-        </thead>
-        <tbody>
-          {% for w in weekly %}
-          <tr>
-            <td>{{ w.week }}</td>
-            <td class="num">{{ w.total }}</td>
-            <td class="num">{{ w.taken }}</td>
-            <td class="num">{{ w.rate|floatformat:2 }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <!-- === 2) セクター === -->
+  <section id="sec-sectors" class="section" aria-labelledby="tab-sectors">
+    <div class="chips hint" style="margin-bottom:8px;">
+      <span class="chip">セクター概況</span>
+      <span class="chip">ウェイト × RS</span>
+      <span class="chip">総評価額: ¥{{ total_mv|floatformat:0 }}</span>
+      <span class="chip">更新: {{ now|date:"Y-m-d H:i" }}</span>
+    </div>
+
+    <div class="sectors">
+      {% for row in sector_rows %}
+        {% with rs=row.rs %}
+        <div class="sector" data-rs="{{ rs }}">
+          <div class="name">{{ row.sector }}</div>
+          <div class="badge neutral" aria-label="RSバッジ">
+            RS {{ rs|floatformat:2 }}
+          </div>
+          <div class="meta">
+            ウェイト {{ row.weight_pct|floatformat:2 }}%
+            {% if row.rs_date %} ／ RS基準日: {{ row.rs_date }}{% endif %}
+          </div>
+          <div class="bar-wrap">
+            <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ row.weight_pct|floatformat:2 }}">
+              <i class="fill" style="width: {{ row.weight_pct|floatformat:2 }}%"></i>
+            </div>
+          </div>
+        </div>
+        {% endwith %}
+      {% empty %}
+        <p class="hint">保有ポートフォリオが見つかりませんでした。</p>
+      {% endfor %}
     </div>
   </section>
 
-  <!-- ===== セクター（任意：将来PF×RSをここへ） ===== -->
-  <section id="sec-sectors" class="sec" aria-labelledby="tab-sectors">
-    <div class="sec-ttl">セクター概況 <span class="chip">ウェイト × RS</span></div>
-    <div class="panel tiny">
-      セクターの詳細は後段で統合予定です（PFウェイトとRSのヒート）。現状はダッシュボードタブをご利用ください。
+  <!-- === 3) しきい値（policy.json） === -->
+  <section id="sec-policy" class="section" aria-labelledby="tab-policy">
+    <div class="chips hint" style="margin-bottom:10px;">
+      <span class="chip">しきい値（policy.json サマリ）</span>
     </div>
-  </section>
-
-  <!-- ===== しきい値（policy.json プレビュー） ===== -->
-  <section id="sec-policy" class="sec" aria-labelledby="tab-policy">
-    <div class="sec-ttl">しきい値（policy.json）</div>
 
     {% if policy_text %}
-      <div class="panel">
-        <div class="kv">
-          <b>rs 弱め:</b> <span>{{ policy_text.rs_weak|default:"-" }}</span>
-          <b>rs 強め:</b> <span>{{ policy_text.rs_strong|default:"-" }}</span>
-          <b>ROI乖離 min:</b> <span>{{ policy_text.gap_min|default:"-" }}</span>
-          <b>流動性 max:</b> <span>{{ policy_text.liq_max|default:"-" }}</span>
-          <b>信用比率 min:</b> <span>{{ policy_text.margin_min|default:"-" }}</span>
-          <b>上位セクター max:</b> <span>{{ policy_text.top_share_max|default:"-" }}</span>
-          <b>未分類 max:</b> <span>{{ policy_text.uncat_share_max|default:"-" }}</span>
-          <b>地合い 弱:</b> <span>{{ policy_text.breadth_bad|default:"-" }}</span>
-          <b>地合い 強:</b> <span>{{ policy_text.breadth_good|default:"-" }}</span>
+      <div class="card" style="margin-bottom:10px">
+        <div class="chips" style="margin-bottom:6px">
+          <span class="chip">更新日: {{ policy_text.updated_at|default:"—" }}</span>
+          <span class="chip">目標: 通知週10件（多い週は tighten / 静かな週は loosen）</span>
         </div>
+        <div class="tiny">※ RAWを開くとJSON確認できます。</div>
+      </div>
+
+      <div class="cards" style="grid-template-columns:repeat(2,1fr);">
+        <div class="card"><h4>rs 弱<=</h4><div class="v">{{ policy_text.rs_weak|default:"—" }}</div></div>
+        <div class="card"><h4>rs 強>=</h4><div class="v">{{ policy_text.rs_strong|default:"—" }}</div></div>
+        <div class="card"><h4>ROI乖離 min</h4><div class="v">{{ policy_text.gap_min|default:"—" }}</div></div>
+        <div class="card"><h4>流動性 max</h4><div class="v">{{ policy_text.liq_max|default:"—" }}</div></div>
+        <div class="card"><h4>信用比率 min</h4><div class="v">{{ policy_text.margin_min|default:"—" }}</div></div>
+        <div class="card"><h4>上位セクター max</h4><div class="v">{{ policy_text.top_share_max|default:"—" }}</div></div>
+        <div class="card"><h4>未分類 max</h4><div class="v">{{ policy_text.uncat_share_max|default:"—" }}</div></div>
+        <div class="card"><h4>地合い 弱<=</h4><div class="v">{{ policy_text.breadth_bad|default:"—" }}</div></div>
+        <div class="card"><h4>地合い 強>=</h4><div class="v">{{ policy_text.breadth_good|default:"—" }}</div></div>
+      </div>
+
+      <div class="section-hint">
+        <a class="chip" href="{% url 'notify_dashboard' %}?format=json" target="_blank">RAW表示（policy.json サマリ）</a>
       </div>
     {% else %}
-      <div class="panel tiny">表示できるサマリがありません（policy.json 未生成/空）。</div>
+      <div class="hint">表示できるサマリがありません（policy.json 未生成）</div>
     {% endif %}
-
-    <div class="tiny" style="margin-top:10px;">
-      <a href="/advisor/notify-dashboard/?format=json" target="_blank" rel="noopener">▶ RAW表示（policy.json サマリ）</a>
-    </div>
-
-    <div class="panel tiny" style="margin-top:10px;">
-      運用の目安：通知が多い週は <code>advisor_notify_tune</code> が自動で tighten（目標週10件）。<br>
-      静かな週は loosen。A/B しきい値は policy.json に保存されます。
-    </div>
   </section>
 </div>
 
 <script>
-  // セグメント切替（ローカル保存して復元）
-  (function(){
-    const KEY = 'notify_dash_seg';
-    const buttons = document.querySelectorAll('.seg-btn');
-    const secs = ['#sec-dashboard','#sec-sectors','#sec-policy'].map(id => document.querySelector(id));
+/* ===== タブ切替 ===== */
+(function(){
+  const btns = document.querySelectorAll('.tab-btn');
+  const secs = ['#sec-dashboard','#sec-sectors','#sec-policy'].map(s=>document.querySelector(s));
+  btns.forEach(b=>{
+    b.addEventListener('click', e=>{
+      btns.forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');
+      const t = b.getAttribute('data-target');
+      secs.forEach(s=>s.classList.toggle('active', '#'+s.id === t));
+      // スクロールを上部へ戻す
+      window.scrollTo({top:0, behavior:'smooth'});
+    });
+  });
 
-    function activate(targetId){
-      buttons.forEach(b => b.classList.toggle('active', b.dataset.target === targetId));
-      secs.forEach(s => s.classList.toggle('show', '#'+s.id === targetId));
-      try { localStorage.setItem(KEY, targetId); } catch(e){}
+  // ===== RSバッジの色分け（しきい値不明時は -0.25 / 0.35 を暫定） =====
+  const RS_WEAK = {{ policy_text.rs_weak|default:"-0.25" }};
+  const RS_STRONG = {{ policy_text.rs_strong|default:"0.35" }};
+  document.querySelectorAll('.sector').forEach(sec=>{
+    const rs = parseFloat(sec.dataset.rs || '0');
+    const badge = sec.querySelector('.badge');
+    badge.classList.remove('neutral','weak','strong');
+    if (isFinite(rs)){
+      if (rs <= RS_WEAK){ badge.classList.add('weak'); }
+      else if (rs >= RS_STRONG){ badge.classList.add('strong'); }
+      else { badge.classList.add('neutral'); }
+      badge.textContent = `RS ${rs.toFixed(2)}`;
     }
-    buttons.forEach(b => b.addEventListener('click', () => activate(b.dataset.target)));
-    // 初期表示（前回を復元）
-    let saved = null;
-    try { saved = localStorage.getItem(KEY) } catch(e){}
-    const initial = saved && document.querySelector(saved) ? saved : '#sec-dashboard';
-    activate(initial);
-  })();
+  });
+})();
 </script>
 {% endblock %}
