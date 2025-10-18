@@ -39,7 +39,7 @@
     <button type="button" class="tab" data-side="BUY">BUY（買付）</button>
   </div>
 
-  <form id="closeForm" action="{% url 'holding_close_submit' h.id %}" method="post">
+  <form id="closeForm" action="{% url 'holding_close_submit' h.id %}" method="post" autocomplete="off">
     {% csrf_token %}
     <input type="hidden" name="side" value="SELL">
 
@@ -50,7 +50,16 @@
       </label>
       <label class="flex flex-col gap-1">
         <span class="label">数量</span>
-        <input name="qty" type="number" min="1" data-max="{{ h_qty }}" class="in">
+        <!-- ▼ 数字専用キーパッド（iOS/Android対応） -->
+        <input
+          name="qty"
+          type="text"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          data-min="1"
+          data-max="{{ h_qty }}"
+          class="in"
+          placeholder="数量（数字のみ）">
         <small class="text-xs text-slate-500">保有: {{ h_qty }}</small>
       </label>
     </div>
@@ -129,6 +138,25 @@
   const qtyInput = form.querySelector('input[name="qty"]');
   const priceLabel = root.querySelector('[data-price-label]');
   const submitBtn= root.querySelector('[data-submit-label]');
+
+  // --- 数量の入力を数字だけに制限（即時クレンジング & 先頭0除去）
+  function sanitizeQty() {
+    let v = (qtyInput.value || '').replace(/\D/g, ''); // 非数字を除去
+    // 先頭の 0 を1つにまとめる（例: 0005 -> 5）
+    v = v.replace(/^0+(\d)/, '$1');
+    qtyInput.value = v;
+  }
+  qtyInput.addEventListener('input', sanitizeQty);
+  qtyInput.addEventListener('blur', () => {
+    sanitizeQty();
+    const min = parseInt(qtyInput.dataset.min || '1', 10);
+    const maxAttr = qtyInput.getAttribute('max');
+    const max = maxAttr ? parseInt(maxAttr, 10) : null;
+    let val = parseInt(qtyInput.value || '0', 10);
+    if (isNaN(val) || val < min) val = min;
+    if (max !== null && val > max) val = max;
+    qtyInput.value = String(val);
+  });
 
   function setSide(side){
     sideInput.value = side;
