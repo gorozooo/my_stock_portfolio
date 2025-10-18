@@ -36,21 +36,22 @@ def _read_policy_obj() -> dict:
         return {}
 
 def _read_policy_preview() -> str:
-    """テンプレで RAW をそのまま表示したいとき用（整形済みJSON文字列）。"""
     obj = _read_policy_obj() or {}
-    keys = ("rs_thresholds", "notify_thresholds", "window_days", "updated_at")
-    snap = {k: obj.get(k) for k in keys}
+    snap = {
+        "rs_thresholds": obj.get("rs_thresholds") or {"weak": -0.3, "strong": 0.4},
+        "notify_thresholds": obj.get("notify_thresholds") or {
+            "gap_min": 22.0,
+            "liq_max": 48.0,
+            "margin_min": 62.0,
+            "top_share_max": 47.0,
+            "uncat_share_max": 42.0,
+            "breadth_bad": -0.4,
+            "breadth_good": 0.4
+        },
+        "window_days": obj.get("window_days") or 90,
+        "updated_at": obj.get("updated_at")
+    }
     return json.dumps(snap, ensure_ascii=False, indent=2)
-
-def _fmt(x, digits: int = 2) -> str | None:
-    """数値っぽいものを丸めて文字列に。None/不正は None を返す（テンプレ側で default 表示）。"""
-    try:
-        f = float(x)
-    except Exception:
-        return None
-    if digits is None:
-        return str(f)
-    return f"{round(f, digits):.{digits}f}"
 
 def _policy_text_summary() -> Dict[str, Any]:
     """
