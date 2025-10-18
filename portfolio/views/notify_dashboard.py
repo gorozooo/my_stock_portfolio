@@ -33,8 +33,8 @@ DEFAULT_WINDOW_DAYS = 90
 
 
 # ---------- 共通ヘルパ ----------
-def _fmt(x, nd: int = 2):
-    """数値を小数nd桁の文字列へ。非数は None を返す。"""
+def _fmt(x, nd: int = 2) -> str | None:
+    """数値を小数 nd 桁の文字列へ。非数は None を返す。"""
     try:
         return f"{float(x):.{nd}f}"
     except Exception:
@@ -62,7 +62,7 @@ def _read_policy_obj() -> dict:
 
 def _read_policy_preview() -> str:
     """
-    UIのRAW表示用。ファイルが欠けていても既定値で穴埋めして返す。
+    RAW表示用。ファイルが欠けていても既定値で穴埋めして返す。
     """
     obj = _read_policy_obj() or {}
     snap = {
@@ -103,7 +103,7 @@ def _policy_text_summary() -> Dict[str, Any]:
 
 
 def _get_rs_thresholds() -> tuple[float, float]:
-    """セクター表示などで使う実数のRSしきい値（既定値で補完）。"""
+    """セクター表示などで使う実数の RS しきい値（既定値で補完）。"""
     pol = _read_policy_obj() or {}
     th = {**DEFAULT_RS, **(pol.get("rs_thresholds") or {})}
     try:
@@ -178,7 +178,7 @@ def _join_with_rs(pf_rows: list[dict]) -> list[SectorRow]:
 
 
 def _rs_level(rs: float, weak: float, strong: float) -> tuple[str, str]:
-    """RSの水準をバッジ表示用に分類。返り値: (表示テキスト, CSSクラス)"""
+    """RS の水準をバッジ表示用に分類。返り値: (表示テキスト, CSSクラス)"""
     try:
         r = float(rs)
     except Exception:
@@ -194,7 +194,7 @@ def _rs_level(rs: float, weak: float, strong: float) -> tuple[str, str]:
 def notify_dashboard(request: HttpRequest) -> HttpResponse:
     """
     AIアドバイザー：通知＋セクター＋しきい値の統合ページ
-    - ?format=json でサマリJSON（後方互換）
+    - ?format=json でサマリ JSON（後方互換）
     - days パラメータ（default 90）
     """
     days = int(request.GET.get("days", DEFAULT_WINDOW_DAYS))
@@ -239,7 +239,8 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
     for r in sector_rows:
         level_txt, level_cls = _rs_level(r.rs, rs_weak, rs_strong)
         weight_bar = 0.0 if max_w <= 0 else (r.weight_pct / max_w) * 100.0
-        rs_norm = max(0.0, min(100.0, (r.rs + 1.0) * 50.0))  # -1..+1 → 0..100
+        # RS を -1..+1 → 0..100 に正規化
+        rs_norm = max(0.0, min(100.0, (r.rs + 1.0) * 50.0))
         sector_rows_viz.append({
             "sector": r.sector,
             "weight_pct": round(r.weight_pct, 2),
@@ -276,8 +277,8 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
         week_taken=week_taken,
         week_rate=week_rate,
         weekly=weekly,
-        policy_preview=policy_preview,  # RAW表示用の整形JSON文字列（既定値で穴埋め済）
-        policy_text=policy_text,        # カード表示用のフラット辞書（既定値で穴埋め済）
+        policy_preview=policy_preview,  # RAW表示用（既定値で穴埋め済）
+        policy_text=policy_text,        # カード表示用（既定値で穴埋め済）
         sectors=sector_rows_viz,        # セクター（可視化用）
         total_mv=total_mv,
         rs_weak=rs_weak,
