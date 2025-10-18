@@ -71,6 +71,17 @@
   .kv b { opacity:.85; }
   .tiny { font-size:.86rem; opacity:.8; }
 
+  /* ---- セクター表 ---- */
+  .bar { height:8px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; }
+  .bar .fill { height:100%; width:0%; border-radius:999px; background:linear-gradient(90deg,#60a5fa,#2563eb); }
+  .rsbar .fill { background:linear-gradient(90deg,#f59e0b,#10b981); } /* 赤→緑系にしてもOK */
+
+  .badge { display:inline-flex; align-items:center; gap:.35rem; padding:4px 8px; border-radius:999px;
+           font-size:.78rem; font-weight:700; letter-spacing:.02em; }
+  .badge.weak    { color:#fca5a5; background:rgba(239,68,68,.12); }
+  .badge.neutral { color:#e5e7eb; background:rgba(148,163,184,.14); }
+  .badge.strong  { color:#86efac; background:rgba(16,185,129,.14); }
+
   /* ---- セクションの表示切替 ---- */
   .sec { display:none; } .sec.show { display:block; }
 </style>
@@ -124,30 +135,78 @@
     </div>
   </section>
 
-  <!-- ===== セクター（任意：将来PF×RSをここへ） ===== -->
+  <!-- ===== セクター（PF×RS） ===== -->
   <section id="sec-sectors" class="sec" aria-labelledby="tab-sectors">
-    <div class="sec-ttl">セクター概況 <span class="chip">ウェイト × RS</span></div>
-    <div class="panel tiny">
-      セクターの詳細は後段で統合予定です（PFウェイトとRSのヒート）。現状はダッシュボードタブをご利用ください。
+    <div class="sec-ttl">セクター概況 <span class="chip">ウェイト × RS（弱≦{{ rs_weak|floatformat:2 }} / 強≧{{ rs_strong|floatformat:2 }}）</span></div>
+
+    <div class="panel">
+      <table class="basic">
+        <thead>
+          <tr>
+            <th>セクター</th>
+            <th style="width:36%;">ウェイト</th>
+            <th style="width:24%;">RS</th>
+            <th style="width:10%;" class="num">比率</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in sectors %}
+          <tr>
+            <td>
+              <div style="display:flex;align-items:center;gap:.5rem;">
+                <span>{{ r.sector }}</span>
+                <span class="badge {{ r.level_cls }}">{{ r.level_txt }}</span>
+              </div>
+            </td>
+            <td>
+              <div class="bar"><div class="fill" style="width: {{ r.weight_bar }}%;"></div></div>
+            </td>
+            <td>
+              <div style="display:flex;align-items:center;gap:.6rem;">
+                <div class="rsbar bar" style="flex:1;"><div class="fill" style="width: {{ r.rs_norm }}%;"></div></div>
+                <div class="num" style="width:3.8rem;">{{ r.rs|floatformat:2 }}</div>
+              </div>
+            </td>
+            <td class="num">{{ r.weight_pct|floatformat:2 }}%</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4" class="tiny">保有がありません。</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
     </div>
+
+    <div class="tiny" style="margin-top:8px;">総評価額: ¥{{ total_mv|floatformat:0 }}（ウェイト最大を100%スケールとして棒長表示）</div>
   </section>
 
   <!-- ===== しきい値（policy.json プレビュー） ===== -->
   <section id="sec-policy" class="sec" aria-labelledby="tab-policy">
     <div class="sec-ttl">しきい値（policy.json）</div>
 
-    {% if policy_text %}
+    {% if policy_preview %}
+      {% with policy_obj=policy_preview|safe %}
+      {% endwith %}
+    {% endif %}
+
+    {% if policy_preview %}
+      {% with pol=policy_preview|json_script:"_poljson" %}{% endwith %}
       <div class="panel">
+        {% with pol=policy_preview|loads %}
+        {% endwith %}
         <div class="kv">
-          <b>rs 弱め:</b> <span>{{ policy_text.rs_weak|default:"-" }}</span>
-          <b>rs 強め:</b> <span>{{ policy_text.rs_strong|default:"-" }}</span>
-          <b>ROI乖離 min:</b> <span>{{ policy_text.gap_min|default:"-" }}</span>
-          <b>流動性 max:</b> <span>{{ policy_text.liq_max|default:"-" }}</span>
-          <b>信用比率 min:</b> <span>{{ policy_text.margin_min|default:"-" }}</span>
-          <b>上位セクター max:</b> <span>{{ policy_text.top_share_max|default:"-" }}</span>
-          <b>未分類 max:</b> <span>{{ policy_text.uncat_share_max|default:"-" }}</span>
-          <b>地合い 弱:</b> <span>{{ policy_text.breadth_bad|default:"-" }}</span>
-          <b>地合い 強:</b> <span>{{ policy_text.breadth_good|default:"-" }}</span>
+          {% with pol=policy_preview|loads %}
+            {% with p=pol %}
+              <b>rs 弱め:</b> <span>{{ p.rs_thresholds.weak|default:"-" }}</span>
+              <b>rs 強め:</b> <span>{{ p.rs_thresholds.strong|default:"-" }}</span>
+              <b>ROI乖離 min:</b> <span>{{ p.notify_thresholds.gap_min|default:"-" }}</span>
+              <b>流動性 max:</b> <span>{{ p.notify_thresholds.liq_max|default:"-" }}</span>
+              <b>信用比率 min:</b> <span>{{ p.notify_thresholds.margin_min|default:"-" }}</span>
+              <b>上位セクター max:</b> <span>{{ p.notify_thresholds.top_share_max|default:"-" }}</span>
+              <b>未分類 max:</b> <span>{{ p.notify_thresholds.uncat_share_max|default:"-" }}</span>
+              <b>地合い 弱:</b> <span>{{ p.notify_thresholds.breadth_bad|default:"-" }}</span>
+              <b>地合い 強:</b> <span>{{ p.notify_thresholds.breadth_good|default:"-" }}</span>
+            {% endwith %}
+          {% endwith %}
         </div>
       </div>
     {% else %}
@@ -178,7 +237,6 @@
       try { localStorage.setItem(KEY, targetId); } catch(e){}
     }
     buttons.forEach(b => b.addEventListener('click', () => activate(b.dataset.target)));
-    // 初期表示（前回を復元）
     let saved = null;
     try { saved = localStorage.getItem(KEY) } catch(e){}
     const initial = saved && document.querySelector(saved) ? saved : '#sec-dashboard';
