@@ -18,6 +18,29 @@ from ..services.sector_map import normalize_sector
 from ..services.market import latest_sector_strength
 
 
+# ---------- 既定値（自動補完に使用） ----------
+DEFAULT_RS = {"weak": -0.3, "strong": 0.4}
+DEFAULT_NOTIFY = {
+    "gap_min": 22.0,
+    "liq_max": 48.0,
+    "margin_min": 62.0,
+    "top_share_max": 47.0,
+    "uncat_share_max": 42.0,
+    "breadth_bad": -0.4,
+    "breadth_good": 0.4,
+}
+DEFAULT_WINDOW_DAYS = 90
+
+
+# ---------- 共通ヘルパ ----------
+def _fmt(x, nd: int = 2):
+    """数値を小数nd桁の文字列へ。非数は None を返す。"""
+    try:
+        return f"{float(x):.{nd}f}"
+    except Exception:
+        return None
+
+
 # ---------- policy.json 読み取り ----------
 def _policy_path() -> Path:
     rel = getattr(settings, "ADVISOR_POLICY_PATH", "media/advisor/policy.json")
@@ -25,6 +48,7 @@ def _policy_path() -> Path:
         return Path(rel)
     base = Path(getattr(settings, "MEDIA_ROOT", "") or Path.cwd())
     return (base / rel).resolve()
+
 
 def _read_policy_obj() -> dict:
     p = _policy_path()
@@ -35,32 +59,28 @@ def _read_policy_obj() -> dict:
     except Exception:
         return {}
 
+
 def _read_policy_preview() -> str:
+    """
+    UIのRAW表示用。ファイルが欠けていても既定値で穴埋めして返す。
+    """
     obj = _read_policy_obj() or {}
     snap = {
-        "rs_thresholds": obj.get("rs_thresholds") or {"weak": -0.3, "strong": 0.4},
-        "notify_thresholds": obj.get("notify_thresholds") or {
-            "gap_min": 22.0,
-            "liq_max": 48.0,
-            "margin_min": 62.0,
-            "top_share_max": 47.0,
-            "uncat_share_max": 42.0,
-            "breadth_bad": -0.4,
-            "breadth_good": 0.4
-        },
-        "window_days": obj.get("window_days") or 90,
-        "updated_at": obj.get("updated_at")
+        "rs_thresholds": {**DEFAULT_RS, **(obj.get("rs_thresholds") or {})},
+        "notify_thresholds": {**DEFAULT_NOTIFY, **(obj.get("notify_thresholds") or {})},
+        "window_days": obj.get("window_days") or DEFAULT_WINDOW_DAYS,
+        "updated_at": obj.get("updated_at"),
     }
     return json.dumps(snap, ensure_ascii=False, indent=2)
 
+
 def _policy_text_summary() -> Dict[str, Any]:
     """
-    policy.json から UI 表示用のサマリ辞書を作る。
-    - 数値は小数2桁に整形（文字列）。欠損は None。
+    UIカード用の平坦な辞書。欠損は既定値で補完してから整形。
     """
     pol = _read_policy_obj() or {}
-    rs = pol.get("rs_thresholds") or {}
-    nt = pol.get("notify_thresholds") or {}
+    rs = {**DEFAULT_RS, **(pol.get("rs_thresholds") or {})}
+    nt = {**DEFAULT_NOTIFY, **(pol.get("notify_thresholds") or {})}
 
     return {
         # RS（相対強弱）
@@ -77,14 +97,15 @@ def _policy_text_summary() -> Dict[str, Any]:
         "breadth_bad": _fmt(nt.get("breadth_bad")),
         "breadth_good": _fmt(nt.get("breadth_good")),
         # 参考情報
-        "window_days": pol.get("window_days"),
+        "window_days": pol.get("window_days") or DEFAULT_WINDOW_DAYS,
         "updated_at": pol.get("updated_at"),
     }
 
+
 def _get_rs_thresholds() -> tuple[float, float]:
-    """policy.json の rs_thresholds（弱/強）を取り出す。無ければデフォルト。"""
+    """セクター表示などで使う実数のRSしきい値（既定値で補完）。"""
     pol = _read_policy_obj() or {}
-    th = pol.get("rs_thresholds") or {}
+    th = {**DEFAULT_RS, **(pol.get("rs_thresholds") or {})}
     try:
         weak = float(th.get("weak"))
         strong = float(th.get("strong"))
@@ -92,7 +113,7 @@ def _get_rs_thresholds() -> tuple[float, float]:
             return weak, strong
     except Exception:
         pass
-    return (-0.25, 0.35)
+    return (DEFAULT_RS["weak"], DEFAULT_RS["strong"])
 
 
 # ---------- セクター集計 ----------
@@ -104,11 +125,13 @@ class SectorRow:
     rs: float
     rs_date: str | None
 
+
 def _sf(x, d: float = 0.0) -> float:
     try:
         return float(x)
     except Exception:
         return d
+
 
 def _holdings_by_sector() -> tuple[list[dict], float]:
     """
@@ -135,6 +158,7 @@ def _holdings_by_sector() -> tuple[list[dict], float]:
         r["rate"] = r["mv"] / total_mv * 100.0
     return listed, total_mv
 
+
 def _join_with_rs(pf_rows: list[dict]) -> list[SectorRow]:
     rs_tbl = latest_sector_strength() or {}
     out: list[SectorRow] = []
@@ -151,6 +175,7 @@ def _join_with_rs(pf_rows: list[dict]) -> list[SectorRow]:
         ))
     out.sort(key=lambda x: (-(x.weight_pct), -x.rs))
     return out
+
 
 def _rs_level(rs: float, weak: float, strong: float) -> tuple[str, str]:
     """RSの水準をバッジ表示用に分類。返り値: (表示テキスト, CSSクラス)"""
@@ -172,7 +197,7 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
     - ?format=json でサマリJSON（後方互換）
     - days パラメータ（default 90）
     """
-    days = int(request.GET.get("days", 90))
+    days = int(request.GET.get("days", DEFAULT_WINDOW_DAYS))
     since = timezone.now() - timedelta(days=days)
 
     # 今週（月曜0:00起点）
@@ -210,14 +235,11 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
     max_w = max((r.weight_pct for r in sector_rows), default=0.0)
 
     rs_weak, rs_strong = _get_rs_thresholds()
-    # テンプレに渡す見やすい行（バッジ用のlevel/class、バー幅など）
     sector_rows_viz = []
     for r in sector_rows:
         level_txt, level_cls = _rs_level(r.rs, rs_weak, rs_strong)
-        # ウェイトのバー幅（最大ウェイト基準で100%スケール）
         weight_bar = 0.0 if max_w <= 0 else (r.weight_pct / max_w) * 100.0
-        # RSを -1..+1 → 0..100 に正規化（オーバーはclip）
-        rs_norm = max(0.0, min(100.0, (r.rs + 1.0) * 50.0))
+        rs_norm = max(0.0, min(100.0, (r.rs + 1.0) * 50.0))  # -1..+1 → 0..100
         sector_rows_viz.append({
             "sector": r.sector,
             "weight_pct": round(r.weight_pct, 2),
@@ -229,7 +251,7 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
             "level_cls": level_cls,
         })
 
-    # policy
+    # policy（自動補完後のプレビュー／カード）
     policy_preview = _read_policy_preview()
     policy_text = _policy_text_summary()
 
@@ -254,8 +276,8 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
         week_taken=week_taken,
         week_rate=week_rate,
         weekly=weekly,
-        policy_preview=policy_preview,  # RAW表示用の整形JSON文字列
-        policy_text=policy_text,        # カード表示用のフラットな辞書
+        policy_preview=policy_preview,  # RAW表示用の整形JSON文字列（既定値で穴埋め済）
+        policy_text=policy_text,        # カード表示用のフラット辞書（既定値で穴埋め済）
         sectors=sector_rows_viz,        # セクター（可視化用）
         total_mv=total_mv,
         rs_weak=rs_weak,
