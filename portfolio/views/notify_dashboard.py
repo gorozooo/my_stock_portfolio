@@ -36,15 +36,52 @@ def _read_policy_obj() -> dict:
         return {}
 
 def _read_policy_preview() -> str:
+    """テンプレで RAW をそのまま表示したいとき用（整形済みJSON文字列）。"""
     obj = _read_policy_obj() or {}
     keys = ("rs_thresholds", "notify_thresholds", "window_days", "updated_at")
     snap = {k: obj.get(k) for k in keys}
     return json.dumps(snap, ensure_ascii=False, indent=2)
 
+def _fmt(x, digits: int = 2) -> str | None:
+    """数値っぽいものを丸めて文字列に。None/不正は None を返す（テンプレ側で default 表示）。"""
+    try:
+        f = float(x)
+    except Exception:
+        return None
+    if digits is None:
+        return str(f)
+    return f"{round(f, digits):.{digits}f}"
+
+def _policy_text_summary() -> Dict[str, Any]:
+    """
+    policy.json から UI 表示用のサマリ辞書を作る。
+    - 数値は小数2桁に整形（文字列）。欠損は None。
+    """
+    pol = _read_policy_obj() or {}
+    rs = pol.get("rs_thresholds") or {}
+    nt = pol.get("notify_thresholds") or {}
+
+    return {
+        # RS（相対強弱）
+        "rs_weak": _fmt(rs.get("weak")),
+        "rs_strong": _fmt(rs.get("strong")),
+        # 通知トリガー（評価指標）
+        "gap_min": _fmt(nt.get("gap_min")),
+        "liq_max": _fmt(nt.get("liq_max")),
+        "margin_min": _fmt(nt.get("margin_min")),
+        # 構成（セクター制約）
+        "top_share_max": _fmt(nt.get("top_share_max")),
+        "uncat_share_max": _fmt(nt.get("uncat_share_max")),
+        # 地合い（ブレッドス）
+        "breadth_bad": _fmt(nt.get("breadth_bad")),
+        "breadth_good": _fmt(nt.get("breadth_good")),
+        # 参考情報
+        "window_days": pol.get("window_days"),
+        "updated_at": pol.get("updated_at"),
+    }
+
 def _get_rs_thresholds() -> tuple[float, float]:
-    """
-    policy.json の rs_thresholds（弱/強）を取り出す。無ければデフォルト。
-    """
+    """policy.json の rs_thresholds（弱/強）を取り出す。無ければデフォルト。"""
     pol = _read_policy_obj() or {}
     th = pol.get("rs_thresholds") or {}
     try:
@@ -115,9 +152,7 @@ def _join_with_rs(pf_rows: list[dict]) -> list[SectorRow]:
     return out
 
 def _rs_level(rs: float, weak: float, strong: float) -> tuple[str, str]:
-    """
-    RSの水準をバッジ表示用に分類。返り値: (表示テキスト, CSSクラス)
-    """
+    """RSの水準をバッジ表示用に分類。返り値: (表示テキスト, CSSクラス)"""
     try:
         r = float(rs)
     except Exception:
@@ -193,8 +228,9 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
             "level_cls": level_cls,
         })
 
-    # policy プレビュー
+    # policy
     policy_preview = _read_policy_preview()
+    policy_text = _policy_text_summary()
 
     # JSON（後方互換）
     if request.GET.get("format") == "json":
@@ -205,6 +241,7 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
             "week_rate": round(week_rate, 4),
             "weekly": weekly,
             "policy": json.loads(policy_preview or "{}"),
+            "policy_text": policy_text,
             "sectors": sector_rows_viz,
             "rs_thresholds": {"weak": rs_weak, "strong": rs_strong},
         }, json_dumps_params={"ensure_ascii": False, "indent": 2})
@@ -216,14 +253,12 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
         week_taken=week_taken,
         week_rate=week_rate,
         weekly=weekly,
-        policy_preview=policy_preview,
-        # セクター（可視化用）
-        sectors=sector_rows_viz,
+        policy_preview=policy_preview,  # RAW表示用の整形JSON文字列
+        policy_text=policy_text,        # カード表示用のフラットな辞書
+        sectors=sector_rows_viz,        # セクター（可視化用）
         total_mv=total_mv,
         rs_weak=rs_weak,
         rs_strong=rs_strong,
         now=now,
-        "policy_obj": policy_obj,
-        "policy_preview": policy_preview,
     )
     return render(request, "portfolio/notify_dashboard.html", ctx)
