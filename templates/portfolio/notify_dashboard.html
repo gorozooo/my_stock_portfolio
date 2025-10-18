@@ -4,8 +4,9 @@
 
 {% block extra_css %}
 <style>
-  .kpi-badge{display:inline-block;padding:.35rem .6rem;border-radius:.5rem}
-  .pre-json{white-space:pre-wrap; word-break:break-word; font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace; font-size:.85rem; margin:0;}
+  .kpi-card{border-radius:.75rem}
+  .kpi-value{font-weight:700;font-size:1.25rem}
+  .pre-json{white-space:pre-wrap; word-break:break-word; font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace; font-size:.9rem; margin:0;}
   .table thead th{position:sticky; top:0; background:var(--bs-body-bg);}
 </style>
 {% endblock %}
@@ -13,7 +14,7 @@
 {% block content %}
 <div class="container py-3">
 
-  <div class="d-flex align-items-center mb-2">
+  <div class="d-flex align-items-center mb-3">
     <h1 class="h5 mb-0">AIアドバイザー 通知ダッシュボード</h1>
     <div class="ms-auto">
       <a class="btn btn-sm btn-outline-secondary" href="?format=json&days={{ days|default:'90' }}">JSON</a>
@@ -21,18 +22,38 @@
   </div>
 
   <!-- KPI -->
-  <div class="row g-2 mb-3 small">
-    <div class="col-6 col-md-auto">
-      <span class="kpi-badge bg-secondary-subtle text-secondary-emphasis">期間: 過去 <strong>{{ days|default:'90' }}</strong> 日</span>
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-md-3">
+      <div class="card kpi-card bg-secondary-subtle text-secondary-emphasis">
+        <div class="card-body py-2">
+          <div class="small">期間</div>
+          <div class="kpi-value">{{ days|default:'90' }} 日</div>
+        </div>
+      </div>
     </div>
-    <div class="col-6 col-md-auto">
-      <span class="kpi-badge bg-primary-subtle text-primary-emphasis">今週の通知: <strong>{{ week_total|default:'0' }}</strong> 件</span>
+    <div class="col-6 col-md-3">
+      <div class="card kpi-card bg-primary-subtle text-primary-emphasis">
+        <div class="card-body py-2">
+          <div class="small">今週の通知</div>
+          <div class="kpi-value">{{ week_total|default:'0' }} 件</div>
+        </div>
+      </div>
     </div>
-    <div class="col-6 col-md-auto">
-      <span class="kpi-badge bg-success-subtle text-success-emphasis">今週の採用: <strong>{{ week_taken|default:'0' }}</strong> 件</span>
+    <div class="col-6 col-md-3">
+      <div class="card kpi-card bg-success-subtle text-success-emphasis">
+        <div class="card-body py-2">
+          <div class="small">今週の採用</div>
+          <div class="kpi-value">{{ week_taken|default:'0' }} 件</div>
+        </div>
+      </div>
     </div>
-    <div class="col-6 col-md-auto">
-      <span class="kpi-badge bg-info-subtle text-info-emphasis">採用率: <strong>{{ week_rate|default:0|floatformat:2 }}</strong></span>
+    <div class="col-6 col-md-3">
+      <div class="card kpi-card bg-info-subtle text-info-emphasis">
+        <div class="card-body py-2">
+          <div class="small">採用率</div>
+          <div class="kpi-value">{{ week_rate|default:0|floatformat:2 }}</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -54,7 +75,7 @@
     <div class="card-body small">
       <ul class="mb-0">
         <li>通知数が多い週は <code>advisor_notify_tune</code> が自動で tighten</li>
-        <li>静かな週は loosen。目標は週10件</li>
+        <li>静かな週は loosen（目標は週10件）</li>
         <li>API: <code>/advisor/notify-dashboard/?format=json</code></li>
       </ul>
     </div>
@@ -88,7 +109,9 @@
           </table>
         </div>
       {% else %}
-        <div class="p-3 text-muted small">データがありません。まずは通知が生成される操作（例：スナップショット/アドバイス生成）を実行してください。</div>
+        <div class="p-3 text-muted small">
+          データがありません。まずは通知が生成される操作（例：スナップショット/アドバイス生成）を実行してください。
+        </div>
       {% endif %}
     </div>
   </div>
