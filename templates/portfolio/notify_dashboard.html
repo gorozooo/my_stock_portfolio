@@ -1,153 +1,231 @@
 {% extends "base.html" %}
-{% block title %}AIアドバイザー ダッシュボード{% endblock %}
+{% load static %}
+
+{% block title %}AIアドバイザー 通知ダッシュボード{% endblock %}
+
+{% block extra_head %}
+<style>
+  :root{
+    --card-bg: rgba(255,255,255,0.04);
+    --chip-bg: rgba(255,255,255,0.06);
+    --chip-active: rgba(140, 180, 255, 0.20);
+    --text-dim: rgba(255,255,255,0.7);
+  }
+
+  /* ==== サブナビ（上部・中央・sticky） ==== */
+  .subnav-wrap{
+    position: sticky;
+    top: calc(env(safe-area-inset-top, 0px) + 0px); /* iOS安全域 */
+    z-index: 9;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    background: linear-gradient(180deg, rgba(10,12,24,0.85) 0%, rgba(10,12,24,0.45) 100%);
+    padding: 10px 12px 12px;
+    margin: 0 -12px; /* baseの左右paddingを相殺して全幅に */
+  }
+  .subnav{
+    display: flex;
+    justify-content: center;   /* 中央寄せ */
+    align-items: center;
+    gap: 10px;
+  }
+  .seg-btn{
+    appearance: none;
+    border: none;
+    border-radius: 999px;
+    padding: 10px 16px;
+    font-weight: 700;
+    letter-spacing: .02em;
+    background: var(--chip-bg);
+    color: #fff;
+    transition: transform .04s ease, background .2s ease, opacity .2s ease;
+    opacity: .9;
+  }
+  .seg-btn:active{ transform: translateY(1px); }
+  .seg-btn[aria-current="true"]{
+    background: var(--chip-active);
+    outline: 1px solid rgba(160,190,255,.25);
+    opacity: 1;
+  }
+
+  /* セクション余白調整（サブナビ直下の見出しを少し詰める） */
+  .section-head{
+    margin-top: 10px;
+    margin-bottom: 8px;
+    font-size: 0.92rem;
+    color: var(--text-dim);
+  }
+
+  /* カード/テーブルは既存スタイルを利用。スマホでの左右余白だけ微調整 */
+  .metric-cards{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  @media (min-width: 520px){
+    .metric-cards{ grid-template-columns: repeat(4, 1fr); }
+  }
+  .card{
+    background: var(--card-bg);
+    border-radius: 14px;
+    padding: 16px 14px;
+  }
+  .card .title{ font-size:.88rem; color:var(--text-dim); margin-bottom:6px;}
+  .card .value{ font-size:1.8rem; font-weight:800; letter-spacing:.02em; }
+
+  /* テーブルのスクロール影 */
+  .table-wrap{ overflow:auto; border-radius: 12px; background: var(--card-bg); }
+  table{ width:100%; border-collapse: collapse; min-width: 560px; }
+  th, td{ padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  th{ text-align:left; color:var(--text-dim); font-weight:700; font-size:.9rem; }
+
+  /* セクター表のプログレス（簡易バー） */
+  .bar{
+    height: 8px; border-radius: 6px; background: rgba(255,255,255,.08); overflow: hidden;
+  }
+  .bar > i{
+    display:block; height:100%; width:var(--w,0%); background: rgba(160,190,255,.55);
+  }
+
+  /* 小さめリンク */
+  .tiny a{ color:#aecdff; text-decoration: underline dotted; }
+</style>
+{% endblock %}
 
 {% block content %}
-<style>
-  .wrap{max-width:1000px;margin:0 auto;padding:16px 12px}
-  .subnav{position:sticky;top:56px;z-index:5;display:flex;gap:8px;padding:8px;background:rgba(0,0,0,.25);backdrop-filter:blur(6px)}
-  .chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(255,255,255,.2);border-radius:999px;font-size:.92rem}
-  .chip.active{background:rgba(255,255,255,.08)}
-  .cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-  @media (min-width:740px){ .cards{grid-template-columns:repeat(4,minmax(0,1fr));} }
-  .card{border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(255,255,255,.03);padding:14px}
-  .k{font-size:.82rem;opacity:.75;margin-bottom:4px}
-  .v{font-size:1.4rem;font-weight:700}
-  .section{margin-top:18px}
-  .h{font-weight:700;margin:6px 0 10px}
-  table.tbl{width:100%;border-collapse:collapse}
-  .tbl th,.tbl td{padding:10px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left}
-  .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.18);font-size:.85rem;opacity:.9}
-  .muted{opacity:.72}
-  /* sector */
-  .bar{height:10px;border-radius:6px;background:rgba(255,255,255,.08);position:relative;overflow:hidden}
-  .bar > i{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(120,165,255,.75);border-radius:6px}
-  .rsdot{display:inline-flex;align-items:center;gap:6px}
-  .dot{width:10px;height:10px;border-radius:50%}
-  .good{color:#7cd67c}.bad{color:#ee7f85}.warn{color:#e6c16a}
-  details.raw summary{cursor:pointer}
-</style>
+<div class="container py-3">
 
-<div class="wrap">
+  <h1 class="mb-2">AIアドバイザー 通知ダッシュボード</h1>
 
-  <!-- 上部タブ -->
-  <div class="subnav">
-    <a class="chip" href="#dash">ダッシュボード</a>
-    <a class="chip" href="#sectors">セクター</a>
-    <a class="chip" href="#policy">しきい値</a>
+  <!-- ==== サブナビ（上部・中央・sticky） ==== -->
+  <div class="subnav-wrap">
+    <nav class="subnav" role="tablist" aria-label="通知ダッシュボード内ナビ">
+      <button class="seg-btn" aria-current="true" data-target="#sec-dashboard">ダッシュボード</button>
+      <button class="seg-btn" data-target="#sec-sectors">セクター</button>
+      <button class="seg-btn" data-target="#sec-policy">しきい値</button>
+    </nav>
   </div>
 
-  <!-- Top metrics -->
-  <div id="dash" class="section">
-    <div class="h">サマリ <span class="pill">過去 {{ days }} 日</span></div>
-    <div class="cards">
-      <div class="card"><div class="k">今週の通知</div><div class="v">{{ week_total }}</div></div>
-      <div class="card"><div class="k">今週の採用</div><div class="v">{{ week_taken }}</div></div>
-      <div class="card"><div class="k">採用率</div><div class="v">{{ week_rate|floatformat:2 }}</div></div>
-      <div class="card"><div class="k">API</div><div class="v"><a href="?format=json" target="_blank">JSON</a></div></div>
-    </div>
+  <!-- ==== サマリ（任意の説明文） ==== -->
+  <div class="section-head">サマリ　過去 {{ days }} 日</div>
 
-    <div class="section">
-      <div class="h">週次トレンド</div>
-      <table class="tbl">
-        <thead><tr><th style="width:28%">週 (Mon)</th><th>通知合計</th><th>採用数</th><th>採用率</th></tr></thead>
-        <tbody>
-          {% for r in weekly %}
-            <tr>
-              <td>{{ r.week }}</td>
-              <td>{{ r.total }}</td>
-              <td>{{ r.taken }}</td>
-              <td>{{ r.rate|floatformat:2 }}</td>
-            </tr>
-          {% empty %}
-            <tr><td colspan="4" class="muted">データがありません。</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Sector overview -->
-  <div id="sectors" class="section">
-    <div class="h">セクター概況 <span class="pill">ウェイト × RS</span></div>
-    <div class="muted" style="margin-bottom:8px">総評価額: <b>¥{{ total_mv|floatformat:0 }}</b> / 更新: {{ now|date:"Y-m-d H:i" }}</div>
-
+  <!-- ==== 概要カード ==== -->
+  <div class="metric-cards mb-3">
     <div class="card">
-      <table class="tbl" id="sectTbl" data-max="{{ max_w|default:0 }}">
+      <div class="title">今週の通知</div>
+      <div class="value">{{ week_total }}</div>
+    </div>
+    <div class="card">
+      <div class="title">今週の採用</div>
+      <div class="value">{{ week_taken }}</div>
+    </div>
+    <div class="card">
+      <div class="title">採用率</div>
+      <div class="value">{{ week_rate|floatformat:2 }}</div>
+    </div>
+    <div class="card">
+      <div class="title">API</div>
+      <div class="value" style="font-size:1.6rem;">JSON</div>
+    </div>
+  </div>
+
+  <!-- ===================== セクション：ダッシュボード ===================== -->
+  <section id="sec-dashboard" class="mb-4">
+    <h3 class="mb-2">週次トレンド</h3>
+    <div class="table-wrap">
+      <table>
         <thead>
-          <tr>
-            <th style="width:36%">セクター</th>
-            <th style="width:15%">ウェイト</th>
-            <th style="width:25%">バー</th>
-            <th style="width:12%">RS</th>
-            <th>所感</th>
-          </tr>
+          <tr><th>週 (Mon)</th><th>通知合計</th><th>採用数</th><th>採用率</th></tr>
         </thead>
         <tbody>
-          {% for r in sector_rows %}
-            {% with rs=r.rs %}
-            <tr data-w="{{ r.weight_pct|floatformat:4 }}">
-              <td>{{ r.sector }}</td>
-              <td>{{ r.weight_pct|floatformat:2 }}%</td>
-              <td><div class="bar" title="{{ r.weight_pct|floatformat:2 }}%"><i></i></div></td>
-              <td>
-                {% if rs >= 0.35 %}
-                  <span class="rsdot good"><span class="dot" style="background:#7cd67c"></span><b>{{ rs|floatformat:2 }}</b></span>
-                {% elif rs <= -0.25 %}
-                  <span class="rsdot bad"><span class="dot" style="background:#ee7f85"></span><b>{{ rs|floatformat:2 }}</b></span>
-                {% else %}
-                  <span class="rsdot warn"><span class="dot" style="background:#e6c16a"></span><b>{{ rs|floatformat:2 }}</b></span>
-                {% endif %}
-              </td>
-              <td class="muted">{% if rs >= 0.35 %}強気：利伸ばし/段階利確{% elif rs <= -0.25 %}弱気：圧縮/乗換{% else %}中立{% endif %}</td>
-            </tr>
-            {% endwith %}
-          {% empty %}
-            <tr><td colspan="5" class="muted">保有がありません。</td></tr>
+          {% for r in weekly %}
+          <tr>
+            <td>{{ r.week }}</td>
+            <td>{{ r.total }}</td>
+            <td>{{ r.taken }}</td>
+            <td>{{ r.rate|floatformat:2 }}</td>
+          </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-  </div>
+  </section>
 
-  <!-- Policy thresholds -->
-  <div id="policy" class="section">
-    <div class="h">しきい値（policy.json サマリ）</div>
-    <div class="card">
-      <div class="muted">運用の目安：通知が多い週は <code>advisor_notify_tune</code> が自動で tighten（目標週10件）。静かな週は自然に loosen。</div>
-      <details class="raw" style="margin-top:10px">
-        <summary>RAW表示（クリックで展開）</summary>
-        <pre style="white-space:pre-wrap">{{ policy_preview }}</pre>
-      </details>
+  <!-- ===================== セクション：セクター（任意・あれば） ===================== -->
+  {% if sectors %}
+  <section id="sec-sectors" class="mb-5" hidden>
+    <h3 class="mb-2">セクター概況 <span class="text-muted">（ウェイト × RS）</span></h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>セクター</th><th>ウェイト</th><th style="width:160px;">バー</th><th>RS</th><th>所感</th></tr>
+        </thead>
+        <tbody>
+          {% for s in sectors %}
+          <tr>
+            <td>{{ s.sector }}</td>
+            <td>{{ s.weight_pct|floatformat:2 }}%</td>
+            <td>
+              <div class="bar"><i style="--w: {{ s.weight_pct|stringformat:'d' }}%;"></i></div>
+            </td>
+            <td>{{ s.rs|floatformat:2 }}</td>
+            <td class="text-muted">{{ s.note }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-  </div>
+  </section>
+  {% endif %}
+
+  <!-- ===================== セクション：しきい値（policy.json） ===================== -->
+  <section id="sec-policy" class="mb-3" hidden>
+    <h3 class="mb-2">しきい値（policy.json）</h3>
+    <div class="card mb-2">
+      {% if policy_text %}
+        <div class="mb-1" style="font-weight:700;">サマリ</div>
+        <div class="text-muted" style="line-height:1.7;">
+          rs 弱気: <b>{{ policy_text.rs_weak|default:"—" }}</b> ｜
+          rs 強気: <b>{{ policy_text.rs_strong|default:"—" }}</b> ｜
+          ROI乖離 min: <b>{{ policy_text.gap_min|default:"—" }}</b> ｜
+          流動性 max: <b>{{ policy_text.liq_max|default:"—" }}</b> ｜
+          信用比率 min: <b>{{ policy_text.margin_min|default:"—" }}</b> ｜
+          上位セクター max: <b>{{ policy_text.top_share_max|default:"—" }}</b> ｜
+          未分類 max: <b>{{ policy_text.uncat_share_max|default:"—" }}</b> ｜
+          地合い 弱: <b>{{ policy_text.breadth_bad|default:"—" }}</b> ｜
+          地合い 強: <b>{{ policy_text.breadth_good|default:"—" }}</b>
+        </div>
+      {% else %}
+        <div class="text-muted">表示できるサマリがありません（policy.json 未生成/空）。</div>
+      {% endif %}
+    </div>
+
+    <div class="tiny">
+      • <a href="{% url 'notify_dashboard' %}?format=json" target="_blank" rel="noopener">RAW表示（policy.json サマリ）</a>
+    </div>
+  </section>
 
 </div>
 
 <script>
-  // タブのactive切替（アンカー）
+  // セグメント切替：押したタブを active にして対象セクションだけ表示
   (function(){
-    function sync(){
-      const h = location.hash || '#dash';
-      document.querySelectorAll('.subnav .chip').forEach(a=>{
-        a.classList.toggle('active', a.getAttribute('href')===h);
-      });
-    }
-    window.addEventListener('hashchange', sync);
-    sync();
-  })();
+    const buttons = document.querySelectorAll('.seg-btn');
+    const secs = ['#sec-dashboard','#sec-sectors','#sec-policy'].map(s=>document.querySelector(s)).filter(Boolean);
 
-  // セクターバー幅
-  (function(){
-    const tbl = document.getElementById('sectTbl');
-    if(!tbl) return;
-    const max = parseFloat(tbl.dataset.max || '0') || 0;
-    tbl.querySelectorAll('tbody tr').forEach(tr=>{
-      const w = parseFloat(tr.getAttribute('data-w') || '0') || 0;
-      const el = tr.querySelector('.bar > i');
-      if(!el) return;
-      const pct = (max>0)? Math.max(3, Math.round(w/max*100)) : 0; // 最低3%
-      el.style.width = pct + '%';
-    });
+    function activate(btn){
+      buttons.forEach(b=>b.setAttribute('aria-current', b===btn ? 'true':'false'));
+      const target = document.querySelector(btn.dataset.target);
+      secs.forEach(s => s.hidden = (s !== target));
+      // スクロール位置をサブナビのすぐ下へ
+      const wrap = document.querySelector('.subnav-wrap');
+      if (wrap) window.scrollTo({top: wrap.offsetTop, behavior: 'smooth'});
+    }
+    buttons.forEach(b=>b.addEventListener('click', ()=>activate(b)));
+
+    // 初期状態（1番目をactive）
+    const current = document.querySelector('.seg-btn[aria-current="true"]') || buttons[0];
+    if (current) activate(current);
   })();
 </script>
 {% endblock %}
