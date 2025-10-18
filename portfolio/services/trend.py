@@ -561,37 +561,83 @@ def detect_trend(
         adv20=adv20,
     )
     
-def update_all_sector_strength(days: int = 60):
+def update_all_sector_strength(days: int = 90) -> dict:
     """
-    各セクターの平均RSスコアを算出し media/advisor/sector_strength.json に保存
+    保有銘柄(Holding)をセクターで束ね、各セクターのRSを算出して
+    media/advisor/sector_strength.json へ保存する。
+
+    - RS は等加重バスケットの日次リターンの (平均/標準偏差) を tanh で [-1,+1] に圧縮
+    - 取得できない銘柄はスキップ
+    - 空セクターは出力しない
     """
-    from .sector_map import SECTOR_MAP
+    # 遅延 import（Django 依存のため）
+    from ..models import Holding
+    from .sector_map import normalize_sector
+
     today = date.today()
-    end = today
     start = today - timedelta(days=days)
 
-    result = {}
-    for sector_name, tickers in SECTOR_MAP.items():
-        rs_scores = []
-        for t in tickers:
-            try:
-                df = yf.download(t, start=start, end=end, progress=False)
-                if len(df) < 2: 
-                    continue
-                df['return'] = df['Close'].pct_change()
-                rs_scores.append(df['return'].mean() / df['return'].std())
-            except Exception:
-                continue
-        if rs_scores:
-            avg = sum(rs_scores) / len(rs_scores)
+    # セクター -> ティッカー配列
+    buckets: dict[str, list[str]] = {}
+    for h in Holding.objects.all():
+        sym = (getattr(h, "symbol", "") or "").strip()
+        if not sym:
+            continue
+        sec_raw = (getattr(h, "sector", "") or "").strip()
+        sec = normalize_sector(sec_raw or "未分類")
+        buckets.setdefault(sec, []).append(sym)
+
+    def _dl(ticker: str) -> pd.Series | None:
+        """yfinance の安全ダウンロード（Close の Series を返す）"""
+        try:
+            df = yf.download(
+                ticker,
+                start=start,
+                end=today + timedelta(days=1),
+                progress=False,
+                auto_adjust=True,
+                threads=False,
+            )
+            if isinstance(df, pd.DataFrame) and "Close" in df.columns and len(df) >= 2:
+                s = df["Close"].dropna()
+                return s if len(s) >= 2 else None
+        except Exception:
+            pass
+        return None
+
+    out: dict[str, dict] = {}
+    for sec, syms in buckets.items():
+        closes: list[pd.Series] = []
+        for s in syms:
+            ser = _dl(s)
+            if ser is not None:
+                closes.append(ser.rename(s))
+        if not closes:
+            continue
+
+        panel = pd.concat(closes, axis=1).dropna(how="any")
+        if panel.empty:
+            continue
+
+        basket = panel.mean(axis=1)  # 等加重
+        ret = basket.pct_change().dropna()
+        if ret.empty or ret.std() == 0:
+            rs = 0.0
         else:
-            avg = 0.0
-        result[sector_name] = {
-            "rs_score": round(avg, 3),
+            raw = float(ret.mean() / ret.std())
+            rs = math.tanh(raw)  # [-1, +1] に圧縮
+
+        out[sec] = {
+            "rs_score": round(rs, 3),
+            "advdec": None,
+            "vol_ratio": None,
             "date": str(today),
         }
 
-    out = Path("media/advisor/sector_strength.json")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[OK] sector_strength.json updated with {len(result)} sectors")
+    # 保存
+    path = Path("media/advisor/sector_strength.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[OK] sector_strength.json updated ({len(out)} sectors)")
+    return out
+    
