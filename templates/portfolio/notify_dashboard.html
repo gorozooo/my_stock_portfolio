@@ -10,90 +10,52 @@
   .h1   { font-size: 1.6rem; font-weight: 700; letter-spacing: .02em; margin: 4px 0 14px; }
 
   /* ---- セグメント（上部サブナビ） ---- */
-  .seg-wrap {
-    position: sticky; top: 8px; z-index: 30;
-    display: flex; justify-content: center;
-    margin: 6px 0 14px;
-  }
-  .seg {
-    display: inline-flex; gap: 8px; padding: 6px;
-    border-radius: 999px; background: rgba(255,255,255,.06);
-    backdrop-filter: blur(6px);
-    box-shadow: 0 6px 20px rgba(0,0,0,.25) inset, 0 6px 30px rgba(0,0,0,.06);
-  }
-  .seg-btn {
-    appearance: none; border: 0; cursor: pointer;
-    padding: 10px 16px; border-radius: 999px;
-    font-weight: 600; letter-spacing: .02em;
-    color: #cfd3dc; background: transparent;
-    transition: transform .1s ease, background .2s ease, color .2s ease;
-    white-space: nowrap;
-  }
+  .seg-wrap { position: sticky; top: 8px; z-index: 30; display: flex; justify-content: center; margin: 6px 0 14px; }
+  .seg { display: inline-flex; gap: 8px; padding: 6px; border-radius: 999px; background: rgba(255,255,255,.06);
+         backdrop-filter: blur(6px); box-shadow: 0 6px 20px rgba(0,0,0,.25) inset, 0 6px 30px rgba(0,0,0,.06); }
+  .seg-btn { appearance: none; border: 0; cursor: pointer; padding: 10px 16px; border-radius: 999px; font-weight: 600;
+             letter-spacing: .02em; color: #cfd3dc; background: transparent; transition: transform .1s ease, background .2s ease, color .2s ease; white-space: nowrap; }
   .seg-btn:hover { transform: translateY(-1px); }
-  .seg-btn.active {
-    background: linear-gradient(180deg,#3b82f6,#2563eb);
-    color: #fff; box-shadow: 0 6px 16px rgba(37,99,235,.35);
-  }
+  .seg-btn.active { background: linear-gradient(180deg,#3b82f6,#2563eb); color: #fff; box-shadow: 0 6px 16px rgba(37,99,235,.35); }
 
   /* ---- サマリカード ---- */
   .grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
   @media (min-width: 540px){ .grid { grid-template-columns: repeat(4,minmax(0,1fr)); } }
-  .card {
-    border-radius: 14px; padding: 14px 16px;
-    background: rgba(255,255,255,.04);
-    box-shadow: 0 10px 30px rgba(0,0,0,.16), inset 0 1px 0 rgba(255,255,255,.04);
-  }
+  .card { border-radius: 14px; padding: 14px 16px; background: rgba(255,255,255,.04);
+          box-shadow: 0 10px 30px rgba(0,0,0,.16), inset 0 1px 0 rgba(255,255,255,.04); }
   .card .cap { font-size: .82rem; opacity:.8; margin-bottom: 4px; }
   .card .val { font-size: 1.6rem; font-weight: 800; letter-spacing: .02em; }
 
   /* ---- セクション見出し & 小要素 ---- */
   .sec-ttl { display:flex; align-items:center; gap:.6rem; margin:18px 2px 10px; font-weight:700; }
-  .chip    { display:inline-flex; align-items:center; gap:.4rem; font-size:.78rem;
-             padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.06); }
+  .chip    { display:inline-flex; align-items:center; gap:.4rem; font-size:.78rem; padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.06); }
 
   /* ---- テーブル ---- */
   table.basic { width:100%; border-collapse: collapse; }
   table.basic th, table.basic td { padding: 10px 10px; text-align: left; }
-  table.basic thead th {
-    font-size:.86rem; font-weight:700; opacity:.85; border-bottom:1px solid rgba(255,255,255,.08);
-  }
+  table.basic thead th { font-size:.86rem; font-weight:700; opacity:.85; border-bottom:1px solid rgba(255,255,255,.08); }
   table.basic tbody tr { border-bottom: 1px dashed rgba(255,255,255,.06); }
   table.basic tbody tr:last-child { border-bottom: 0; }
   .num { text-align:right; font-variant-numeric: tabular-nums; }
 
   /* ---- ポリシー/セクター用の枠 ---- */
-  .panel {
-    border-radius: 14px; padding: 14px 16px; margin-top: 10px;
-    background: rgba(255,255,255,.03);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
-  }
+  .panel { border-radius: 14px; padding: 14px 16px; margin-top: 10px; background: rgba(255,255,255,.03); box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
   .tiny { font-size:.86rem; opacity:.8; }
 
   /* ---- セクター表 ---- */
   .bar { height:8px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; }
   .bar .fill { height:100%; width:0%; border-radius:999px; background:linear-gradient(90deg,#60a5fa,#2563eb); }
   .rsbar .fill { background:linear-gradient(90deg,#f59e0b,#10b981); }
-
-  .badge { display:inline-flex; align-items:center; gap:.35rem; padding:4px 8px; border-radius:999px;
-           font-size:.78rem; font-weight:700; letter-spacing:.02em; }
+  .badge { display:inline-flex; align-items:center; gap:.35rem; padding:4px 8px; border-radius:999px; font-size:.78rem; font-weight:700; letter-spacing:.02em; }
   .badge.weak    { color:#fca5a5; background:rgba(239,68,68,.12); }
   .badge.neutral { color:#e5e7eb; background:rgba(148,163,184,.14); }
   .badge.strong  { color:#86efac; background:rgba(16,185,129,.14); }
 
-  /* ---- policy カード（この section 内で使用） ---- */
-  #sec-policy .cards {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0,1fr));
-    gap: 10px; margin-top: 8px;
-  }
-  @media (min-width: 560px){
-    #sec-policy .cards { grid-template-columns: repeat(3, minmax(0,1fr)); }
-  }
-  #sec-policy .p-card {
-    border-radius: 14px; padding: 12px 14px;
-    background: rgba(255,255,255,.04);
-    box-shadow: 0 10px 30px rgba(0,0,0,.16), inset 0 1px 0 rgba(255,255,255,.04);
-  }
+  /* ---- policy カード（サーバ描画） ---- */
+  #sec-policy .cards { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; margin-top: 8px; }
+  @media (min-width: 560px){ #sec-policy .cards { grid-template-columns: repeat(3, minmax(0,1fr)); } }
+  #sec-policy .p-card { border-radius: 14px; padding: 12px 14px; background: rgba(255,255,255,.04);
+                         box-shadow: 0 10px 30px rgba(0,0,0,.16), inset 0 1px 0 rgba(255,255,255,.04); }
   #sec-policy .p-card .cap { font-size:.82rem; opacity:.82; margin-bottom: 4px; }
   #sec-policy .p-card .val { font-size:1.4rem; font-weight:800; letter-spacing:.02em; }
   #sec-policy details.panel { margin-top:10px; }
@@ -105,7 +67,6 @@
 </style>
 
 <div class="wrap">
-
   <h1 class="h1">AIアドバイザー 通知ダッシュボード</h1>
 
   <!-- 上部サブナビ（中央・固定） -->
@@ -156,7 +117,6 @@
   <!-- ===== セクター（PF×RS） ===== -->
   <section id="sec-sectors" class="sec" aria-labelledby="tab-sectors">
     <div class="sec-ttl">セクター概況 <span class="chip">ウェイト × RS（弱≦{{ rs_weak|floatformat:2 }} / 強≧{{ rs_strong|floatformat:2 }}）</span></div>
-
     <div class="panel">
       <table class="basic">
         <thead>
@@ -193,39 +153,60 @@
         </tbody>
       </table>
     </div>
-
     <div class="tiny" style="margin-top:8px;">総評価額: ¥{{ total_mv|floatformat:0 }}（ウェイト最大を100%スケールとして棒長表示）</div>
   </section>
 
-  <!-- ===== しきい値（policy.json プレビュー：カード表示） ===== -->
+  <!-- ===== しきい値（policy.json：サーバ描画のカード） ===== -->
   <section id="sec-policy" class="sec" aria-labelledby="tab-policy">
     <div class="sec-ttl">しきい値（policy.json）</div>
 
-    {% if policy_preview %}
-      {{ policy_preview|json_script:"_poljson" }}
-
+    {% with p=policy_text %}
       <div class="panel tiny" style="margin-bottom:6px;">
-        <span class="chip" id="pol-updated">更新: --</span>
-        <span class="chip" id="pol-window">窓: 既定</span>
+        <span class="chip">更新: {{ p.updated_at|default:"--" }}</span>
+        <span class="chip">窓: 過去 {{ p.window_days|default:"—" }} 日</span>
         <span class="chip">通知が多い週は <code>advisor_notify_tune</code> が tighten（目標10/週）</span>
         <span class="chip">静かな週は loosen</span>
       </div>
 
-      <div id="pol-cards" class="cards" aria-live="polite"></div>
+      <div class="cards">
+        <!-- セクション見出し -->
+        <div class="p-card" style="grid-column:1/-1;background:rgba(255,255,255,.03);">
+          <div class="cap">セクション</div><div class="val" style="font-size:1.1rem;">RS（相対強弱）しきい値</div>
+        </div>
+        <div class="p-card"><div class="cap">rs 弱め</div><div class="val">{{ p.rs_weak|default:"—" }}</div></div>
+        <div class="p-card"><div class="cap">rs 強め</div><div class="val">{{ p.rs_strong|default:"—" }}</div></div>
 
-      <details class="panel tiny">
-        <summary>RAW表示（policy.json サマリ）</summary>
-        <pre>{{ policy_preview }}</pre>
-      </details>
+        <div class="p-card" style="grid-column:1/-1;background:rgba(255,255,255,.03);">
+          <div class="cap">セクション</div><div class="val" style="font-size:1.1rem;">通知トリガー（評価指標）</div>
+        </div>
+        <div class="p-card"><div class="cap">ROI乖離 min</div><div class="val">{{ p.gap_min|default:"—" }}</div></div>
+        <div class="p-card"><div class="cap">流動性 max</div><div class="val">{{ p.liq_max|default:"—" }}</div></div>
+        <div class="p-card"><div class="cap">信用比率 min</div><div class="val">{{ p.margin_min|default:"—" }}</div></div>
 
-      <div class="tiny" style="margin-top:10px;">
-        <a href="{% url 'notify_dashboard' %}?format=json" target="_blank" rel="noopener">
-          ▶ API: /advisor/notify-dashboard/?format=json
-        </a>
+        <div class="p-card" style="grid-column:1/-1;background:rgba(255,255,255,.03);">
+          <div class="cap">セクション</div><div class="val" style="font-size:1.1rem;">構成（セクター制約）</div>
+        </div>
+        <div class="p-card"><div class="cap">上位セクター max</div><div class="val">{{ p.top_share_max|default:"—" }}</div></div>
+        <div class="p-card"><div class="cap">未分類 max</div><div class="val">{{ p.uncat_share_max|default:"—" }}</div></div>
+
+        <div class="p-card" style="grid-column:1/-1;background:rgba(255,255,255,.03);">
+          <div class="cap">セクション</div><div class="val" style="font-size:1.1rem;">地合い（ブレッドス）</div>
+        </div>
+        <div class="p-card"><div class="cap">地合い 弱</div><div class="val">{{ p.breadth_bad|default:"—" }}</div></div>
+        <div class="p-card"><div class="cap">地合い 強</div><div class="val">{{ p.breadth_good|default:"—" }}</div></div>
       </div>
-    {% else %}
-      <div class="panel tiny">表示できるサマリがありません（policy.json 未生成/空）。</div>
-    {% endif %}
+    {% endwith %}
+
+    <details class="panel tiny">
+      <summary>RAW表示（policy.json サマリ）</summary>
+      <pre>{{ policy_preview }}</pre>
+    </details>
+
+    <div class="tiny" style="margin-top:10px;">
+      <a href="{% url 'notify_dashboard' %}?format=json" target="_blank" rel="noopener">
+        ▶ API: /advisor/notify-dashboard/?format=json
+      </a>
+    </div>
   </section>
 </div>
 
@@ -244,67 +225,6 @@
     let saved = null; try { saved = localStorage.getItem(KEY) } catch(e){}
     const initial = saved && document.querySelector(saved) ? saved : '#sec-dashboard';
     activate(initial);
-  })();
-
-  // policy.json -> カード生成
-  (function(){
-    const el = document.getElementById('_poljson');
-    if (!el) return;
-    let pol = {};
-    try { pol = JSON.parse(el.textContent || "{}"); } catch(e){ pol = {}; }
-
-    // ヘッダーチップ
-    const upd = (pol && pol.updated_at) ? `更新: ${pol.updated_at}` : "更新: --";
-    const win = (pol && pol.window_days != null) ? `窓: 過去 ${pol.window_days} 日` : "窓: 既定";
-    const $upd = document.getElementById('pol-updated');
-    const $win = document.getElementById('pol-window');
-    if ($upd) $upd.textContent = upd;
-    if ($win) $win.textContent = win;
-
-    const rs  = pol.rs_thresholds || {};
-    const ntf = pol.notify_thresholds || {};
-    const fmt = (v)=> (v===undefined || v===null || v==="") ? "—"
-                 : (typeof v==="number" ? (Number.isInteger(v)? String(v) : String((+v).toFixed(2))) : String(v));
-
-    const groups = [
-      { title:"RS（相対強弱）しきい値", items:[
-          {cap:"rs 弱め",  val: fmt(rs.weak)},
-          {cap:"rs 強め",  val: fmt(rs.strong)},
-        ]},
-      { title:"通知トリガー（評価指標）", items:[
-          {cap:"ROI乖離 min", val: fmt(ntf.gap_min)},
-          {cap:"流動性 max",  val: fmt(ntf.liq_max)},
-          {cap:"信用比率 min", val: fmt(ntf.margin_min)},
-        ]},
-      { title:"構成（セクター制約）", items:[
-          {cap:"上位セクター max",  val: fmt(ntf.top_share_max)},
-          {cap:"未分類 max",        val: fmt(ntf.uncat_share_max)},
-        ]},
-      { title:"地合い（ブレッドス）", items:[
-          {cap:"地合い 弱",  val: fmt(ntf.breadth_bad)},
-          {cap:"地合い 強",  val: fmt(ntf.breadth_good)},
-        ]},
-    ];
-
-    const $cards = document.getElementById('pol-cards');
-    if (!$cards) return;
-
-    let html = "";
-    groups.forEach(g=>{
-      html += `
-        <div class="p-card" style="grid-column:1/-1;background:rgba(255,255,255,.03);">
-          <div class="cap">セクション</div>
-          <div class="val" style="font-size:1.1rem;">${g.title}</div>
-        </div>`;
-      g.items.forEach(it=>{
-        html += `
-          <div class="p-card">
-            <div class="cap">${it.cap}</div>
-            <div class="val">${it.val}</div>
-          </div>`;
-      });
-    });
-    $cards.innerHTML = html;
   })();
 </script>
 {% endblock %}
