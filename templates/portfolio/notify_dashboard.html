@@ -2,25 +2,53 @@
 {% load static %}
 {% block title %}AIアドバイザー 通知ダッシュボード{% endblock %}
 
+{% block extra_css %}
+<style>
+  .kpi-badge{display:inline-block;padding:.35rem .6rem;border-radius:.5rem}
+  .pre-json{white-space:pre-wrap; word-break:break-word; font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace; font-size:.85rem; margin:0;}
+  .table thead th{position:sticky; top:0; background:var(--bs-body-bg);}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container py-3">
-  <h2 class="h4 mb-3">AIアドバイザー 通知ダッシュボード</h2>
 
-  <div class="mb-3 small text-muted">
-    期間: 過去 <strong>{{ days }}</strong> 日 /
-    今週の通知: <strong>{{ week_total }}</strong> 件 /
-    今週の採用: <strong>{{ week_taken }}</strong> 件 /
-    採用率: <strong>{{ week_rate|floatformat:2 }}</strong>
-    <a class="ms-2" href="?format=json&days={{ days }}">JSON</a>
-  </div>
-
-  <div class="card mb-3">
-    <div class="card-header fw-bold">しきい値（policy.json）</div>
-    <div class="card-body">
-      <pre class="mb-0 small">{{ policy_preview }}</pre>
+  <div class="d-flex align-items-center mb-2">
+    <h1 class="h5 mb-0">AIアドバイザー 通知ダッシュボード</h1>
+    <div class="ms-auto">
+      <a class="btn btn-sm btn-outline-secondary" href="?format=json&days={{ days|default:'90' }}">JSON</a>
     </div>
   </div>
 
+  <!-- KPI -->
+  <div class="row g-2 mb-3 small">
+    <div class="col-6 col-md-auto">
+      <span class="kpi-badge bg-secondary-subtle text-secondary-emphasis">期間: 過去 <strong>{{ days|default:'90' }}</strong> 日</span>
+    </div>
+    <div class="col-6 col-md-auto">
+      <span class="kpi-badge bg-primary-subtle text-primary-emphasis">今週の通知: <strong>{{ week_total|default:'0' }}</strong> 件</span>
+    </div>
+    <div class="col-6 col-md-auto">
+      <span class="kpi-badge bg-success-subtle text-success-emphasis">今週の採用: <strong>{{ week_taken|default:'0' }}</strong> 件</span>
+    </div>
+    <div class="col-6 col-md-auto">
+      <span class="kpi-badge bg-info-subtle text-info-emphasis">採用率: <strong>{{ week_rate|default:0|floatformat:2 }}</strong></span>
+    </div>
+  </div>
+
+  <!-- policy.json サマリ -->
+  <div class="card mb-3">
+    <div class="card-header fw-bold">しきい値（policy.json）</div>
+    <div class="card-body">
+      {% if policy_preview and policy_preview != '{}' %}
+        <pre class="pre-json">{{ policy_preview }}</pre>
+      {% else %}
+        <div class="text-muted small">現在表示できるサマリがありません（policy.json 未生成/空）。</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- 使い方 -->
   <div class="card mb-3">
     <div class="card-header fw-bold">使い方</div>
     <div class="card-body small">
@@ -32,34 +60,38 @@
     </div>
   </div>
 
+  <!-- 週次トレンド -->
   <div class="card">
     <div class="card-header fw-bold">週次トレンド</div>
     <div class="card-body p-0">
-      <div class="table-responsive">
-        <table class="table table-sm table-striped mb-0">
-          <thead class="table-light">
-            <tr>
-              <th style="min-width:120px">週 (Mon)</th>
-              <th>通知合計</th>
-              <th>採用数</th>
-              <th>採用率</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in weekly %}
+      {% if weekly %}
+        <div class="table-responsive">
+          <table class="table table-sm table-striped mb-0 align-middle">
+            <thead class="table-light">
               <tr>
-                <td>{{ row.week }}</td>
-                <td>{{ row.total }}</td>
-                <td>{{ row.taken }}</td>
-                <td>{{ row.rate|floatformat:2 }}</td>
+                <th style="min-width:120px">週 (Mon)</th>
+                <th>通知合計</th>
+                <th>採用数</th>
+                <th>採用率</th>
               </tr>
-            {% empty %}
-              <tr><td colspan="4" class="text-muted small px-3 py-2">データがありません。</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {% for row in weekly %}
+                <tr>
+                  <td>{{ row.week }}</td>
+                  <td>{{ row.total }}</td>
+                  <td>{{ row.taken }}</td>
+                  <td>{{ row.rate|default:0|floatformat:2 }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="p-3 text-muted small">データがありません。まずは通知が生成される操作（例：スナップショット/アドバイス生成）を実行してください。</div>
+      {% endif %}
     </div>
   </div>
+
 </div>
 {% endblock %}
