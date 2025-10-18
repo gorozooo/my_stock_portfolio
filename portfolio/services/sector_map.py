@@ -103,7 +103,7 @@ BUILTIN_ALIASES: Dict[str, str] = {
     "水産": "水産・農林業", "農林": "水産・農林業", "agri": "水産・農林業",
     # その他製品
     "玩具": "その他製品", "文具": "その他製品",
-)
+}
 
 # ====== 追加エイリアスを MEDIA_ROOT から読み込む ======
 # 例: media/advisor/sector_aliases.json
