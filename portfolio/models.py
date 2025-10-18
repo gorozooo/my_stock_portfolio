@@ -3,6 +3,8 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from decimal import Decimal
 
+from .models_market import
+
 User = get_user_model()
 
 
