@@ -145,6 +145,103 @@ def _notify_thresholds_from_policy() -> Dict[str, float]:
     except Exception:
         return defaults
 
+def _notify_templates_from_policy() -> Dict[str, Dict[str, str]]:
+    """
+    policy.json の notify_templates を取得。無ければデフォルトを返す。
+    キーはカテゴリ（LIQ/MARGIN/TOP_HEAVY/UNCAT/RS_WEAK/RS_STRONG/PF_RS_WEAK/PF_RS_STRONG/
+                    BREADTH_WEAK/BREADTH_STRONG/REALIZED_GAIN/ROI_NEG）
+    値は {"soft": "...", "medium": "...", "strong": "..."} の辞書。
+    """
+    default = {
+        "LIQ": {
+            "soft":   "流動性 {liq:.1f}% とやや低め。現金化余地の点検を。",
+            "medium": "流動性 {liq:.1f}%。余力が薄いので、現金化余地の確保を検討。",
+            "strong": "流動性 {liq:.1f}% と低水準。早めの圧縮や利確でキャッシュ確保を優先。"
+        },
+        "MARGIN": {
+            "soft":   "信用比率 {mr:.1f}%。レバレッジの点検を。",
+            "medium": "信用比率 {mr:.1f}%。下落耐性の再確認を推奨。",
+            "strong": "信用比率 {mr:.1f}%。圧縮やヘッジを含めた迅速な対応を。"
+        },
+        "TOP_HEAVY": {
+            "soft":   "セクター偏在（{sector} {share:.1f}%）。分散を検討。",
+            "medium": "セクター偏在が目立つ（{sector} {share:.1f}%）。段階的なリバランスを。",
+            "strong": "セクター偏在が過大（{sector} {share:.1f}%）。速やかな縮小と分散を。"
+        },
+        "UNCAT": {
+            "soft":   "未分類セクター比率 {uncat:.1f}%。業種タグ整備を。",
+            "medium": "未分類セクターが多め {uncat:.1f}%。早めにタグ整備し方針明確化を。",
+            "strong": "未分類セクター比率が高い {uncat:.1f}%。管理性向上のため即整備を。"
+        },
+        "RS_WEAK": {
+            "soft":   "主力セクター「{sec}」の相対強弱が弱め（{rs:+.2f}）。比率見直しを。",
+            "medium": "主力セクター「{sec}」が弱気（{rs:+.2f}）。圧縮や損切りを検討。",
+            "strong": "主力セクター「{sec}」が明確に弱気（{rs:+.2f}）。速やかな縮小/撤退を。"
+        },
+        "RS_STRONG": {
+            "soft":   "主力セクター「{sec}」がやや強気（{rs:+.2f}）。利確計画を。",
+            "medium": "主力セクター「{sec}」が強気（{rs:+.2f}）。利を伸ばしつつ段階利確を。",
+            "strong": "主力セクター「{sec}」が力強い（{rs:+.2f}）。伸ばしつつ計画的に利益確定を。"
+        },
+        "PF_RS_WEAK": {
+            "soft":   "PF相対強弱が弱め（{wrs:+.2f}）。守りを意識。",
+            "medium": "PFが弱気（{wrs:+.2f}）。信用圧縮やヘッジを検討。",
+            "strong": "PFが明確に弱気（{wrs:+.2f}）。信用縮小/ヘッジで下振れ耐性を強化。"
+        },
+        "PF_RS_STRONG": {
+            "soft":   "PFがやや強気（{wrs:+.2f}）。現金{liq:.1f}%と薄めなら一部利確で補充を。",
+            "medium": "PFが強気（{wrs:+.2f}）。現金{liq:.1f}%→利確で弾を補充し好機に備える。",
+            "strong": "PFが強勢（{wrs:+.2f}）。現金{liq:.1f}%→過度の枯渇を避けるため利確で確保。"
+        },
+        "BREADTH_WEAK": {
+            "soft":   "地合いやや弱（{regime}）。守り寄りの配分を意識。",
+            "medium": "地合い弱（{regime}）。信用圧縮・現金比率引上げを優先。",
+            "strong": "地合い悪化（{regime}）。迅速な縮小と防御を最優先。"
+        },
+        "BREADTH_STRONG": {
+            "soft":   "地合いやや良好（{regime}）。トレンドに沿って慎重に回す。",
+            "medium": "地合い良好（{regime}）。利確・乗り換えを計画的に。",
+            "strong": "地合い強（{regime}）。計画的な増減で優位維持と利益確定を両立。"
+        },
+        "REALIZED_GAIN": {
+            "soft":   "今月は実現益あり。含み益上位から一部利確の検討を。",
+            "medium": "今月実現益。利益の再配分と段階利確を進める。",
+            "strong": "今月実現益が積み上がり。利益確定ルールで確実に回収を。"
+        },
+        "ROI_NEG": {
+            "soft":   "評価ROI {roi:.2f}%。損失限定ルールの点検を。",
+            "medium": "評価ROI {roi:.2f}%。逆指値/縮小など損失限定を再設定。",
+            "strong": "評価ROI {roi:.2f}%。速やかな縮小/撤退を含め対応を。"
+        },
+    }
+    try:
+        pol = _get_policy() or {}
+        custom = pol.get("notify_templates") or {}
+        # マージ（category→tone）
+        merged = {}
+        for cat, tones in default.items():
+            ct = custom.get(cat) or {}
+            merged[cat] = {
+                "soft":   str(ct.get("soft", tones["soft"])),
+                "medium": str(ct.get("medium", tones["medium"])),
+                "strong": str(ct.get("strong", tones["strong"])),
+            }
+        return merged
+    except Exception:
+        return default
+
+
+def _pick_tone(delta: float, soft_band: float = 0.10, strong_band: float = 0.30) -> str:
+    """
+    しきい値からの“離れ具合” delta を 0..∞ で受け取り、soft/medium/strong を返す。
+    例: delta=0.05→soft, 0.2→medium, 0.4→strong
+    """
+    if delta >= strong_band:
+        return "strong"
+    if delta >= soft_band:
+        return "medium"
+    return "soft"
+
 # =========================
 # 地合い（ブレッドス）補助
 # =========================
@@ -420,104 +517,114 @@ def _rs_thresholds_by_env() -> Tuple[float, float]:
 def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
     items: List[AdviceItemView] = []
     thr = _notify_thresholds_from_policy()
+    tmpl = _notify_templates_from_policy()
 
-    # === ROI 乖離 ===
+    # === ROI 乖離（固定しきい値） ===
     gap = _pct(kpis.get("roi_gap_abs"))
     if gap >= 20:
         score = min(1.0, gap / 80.0)
+        # ROI 乖離はテンプレ固定化しない（説明が個別）
         msg = f"評価ROIと現金ROIの乖離が {gap:.1f}pt。評価と実際の差が大きい。ポジション整理を検討。"
         items.append(AdviceItemView(0, msg, score))
 
     # === 流動性 ===
     liq = _pct(kpis.get("liquidity_rate_pct"))
     if liq and liq < thr["liquidity_low"]:
-        # 例: default 50%
-        span = max(1.0, thr["liquidity_low"] - 20.0)  # 強度スケール
-        score = max(0.3, min(1.0, (thr["liquidity_low"] - liq) / span))
-        msg = f"流動性 {liq:.1f}% と低め。現金化余地の確保を検討。"
+        delta = (thr["liquidity_low"] - liq) / max(1.0, thr["liquidity_low"])
+        tone = _pick_tone(delta)
+        msg = tmpl["LIQ"][tone].format(liq=liq)
+        score = max(0.3, min(1.0, 0.4 + delta))  # 0.4〜1.0
         items.append(AdviceItemView(0, msg, score))
 
     # === 信用比率 ===
     mr = _pct(kpis.get("margin_ratio_pct"))
     if mr >= thr["margin_high"]:
-        # 例: default 60%
-        span = max(1.0, 90.0 - thr["margin_high"])
-        score = max(0.4, min(1.0, (mr - thr["margin_high"]) / span))
-        msg = f"信用比率が {mr:.1f}%。レバレッジと下落耐性を再確認。"
+        delta = (mr - thr["margin_high"]) / max(1.0, 100.0 - thr["margin_high"])
+        tone = _pick_tone(delta)
+        msg = tmpl["MARGIN"][tone].format(mr=mr)
+        score = max(0.4, min(1.0, 0.45 + delta))
         items.append(AdviceItemView(0, msg, score))
 
-    # === セクター偏在／未分類（正規化して判定） ===
+    # === セクター偏在／未分類（正規化で評価） ===
     norm_sectors = map_pf_sectors(sectors) if sectors else []
     if norm_sectors:
         total_mv = sum(max(0.0, _pct(s.get("mv"))) for s in norm_sectors) or 1.0
         top = norm_sectors[0]
-        top_ratio = _pct(top.get("mv")) / total_mv * 100.0
-        if top_ratio >= thr["top_share_high"]:
-            span = max(1.0, 20.0)
-            score = max(0.3, min(1.0, (top_ratio - thr["top_share_high"]) / span))
-            msg = f"セクター偏在（{top.get('sector','不明')} {top_ratio:.1f}%）。分散を検討。"
+        top_share = _pct(top.get("mv")) / total_mv * 100.0
+        if top_share >= thr["top_share_high"]:
+            delta = (top_share - thr["top_share_high"]) / 100.0
+            tone = _pick_tone(delta)
+            msg = tmpl["TOP_HEAVY"][tone].format(sector=top.get("sector", "不明"), share=top_share)
+            score = max(0.3, min(1.0, 0.4 + 0.8 * delta))
             items.append(AdviceItemView(0, msg, score))
 
-        uncat_mv = 0.0
-        for s in norm_sectors:
-            if normalize_sector(s.get("sector") or "") == "未分類":
-                uncat_mv += _pct(s.get("mv"))
+        uncat_mv = sum(_pct(s.get("mv")) for s in norm_sectors if normalize_sector(s.get("sector") or "") == "未分類")
         if uncat_mv > 0:
-            un_ratio = uncat_mv / total_mv * 100.0
-            if un_ratio >= thr["uncat_share_high"]:
-                span = max(1.0, 20.0)
-                score = max(0.2, min(0.9, (un_ratio - thr["uncat_share_high"]) / span))
-                msg = f"未分類セクター比率 {un_ratio:.1f}%。銘柄の業種タグ整備を。"
+            un_share = uncat_mv / total_mv * 100.0
+            if un_share >= thr["uncat_share_high"]:
+                delta = (un_share - thr["uncat_share_high"]) / 100.0
+                tone = _pick_tone(delta)
+                msg = tmpl["UNCAT"][tone].format(uncat=un_share)
+                score = max(0.2, min(0.9, 0.35 + 0.7 * delta))
                 items.append(AdviceItemView(0, msg, score))
 
     # === 今月実現益 ===
     rm = _pct(kpis.get("realized_month"))
     if rm > thr["realized_month_min"]:
-        score = 0.5
-        msg = "今月は実現益が出ています。含み益上位からの段階的利確を検討。"
+        # 実現益の“多さ”でトーン可変
+        delta = min(1.0, rm / max(1.0, (kpis.get("total_assets") or 1.0)))  # 資産対比の粗い比率
+        tone = _pick_tone(delta, soft_band=0.005, strong_band=0.02)  # 0.5% / 2% 目安
+        msg = tmpl["REALIZED_GAIN"][tone]
+        score = max(0.4, min(0.8, 0.5 + delta))
         items.append(AdviceItemView(0, msg, score))
 
     # === ネガティブROI ===
     re = kpis.get("roi_eval_pct")
     if re is not None and re < 0:
-        score = min(0.9, abs(re) / 40)
-        msg = f"評価ROIが {re:.2f}%。損失限定ルール（逆指値/縮小）を再設定。"
+        delta = min(1.0, abs(float(re)) / 30.0)
+        tone = _pick_tone(delta, soft_band=0.10, strong_band=0.40)
+        msg = tmpl["ROI_NEG"][tone].format(roi=float(re))
+        score = max(0.4, min(0.95, 0.45 + delta))
         items.append(AdviceItemView(0, msg, score))
 
-    # === セクター強弱（RS） ===
+    # === セクター強弱（RS） & PF加重RS ===
     rs_table = _get_rs_table()
     try:
-        # 学習 or 環境で最終決定されたしきい値
         thr_weak, thr_strong = _rs_thresholds_from_policy_or_env()
         if sectors and rs_table:
             top_sec = sectors[0].get("sector")
             if top_sec and top_sec in rs_table:
                 rs = float(rs_table[top_sec].get("rs_score", 0.0))
                 if rs <= thr_weak:
-                    score = min(0.95, max(0.25, abs(rs)))
-                    items.append(AdviceItemView(
-                        0,
-                        f"主力セクター「{top_sec}」の相対強弱が弱気（{rs:+.2f}≤{thr_weak:+.2f}）。比率圧縮や損切りを検討。",
-                        score
-                    ))
+                    # “どれくらい下抜けたか”でトーン
+                    span = max(1e-6, abs(thr_weak) + 1.0)  # 正規化用
+                    delta = min(1.0, abs(rs - thr_weak) / span)
+                    tone = _pick_tone(delta)
+                    msg = tmpl["RS_WEAK"][tone].format(sec=top_sec, rs=rs)
+                    score = max(0.35, min(0.95, 0.45 + delta))
+                    items.append(AdviceItemView(0, msg, score))
                 elif rs >= thr_strong:
-                    score = min(0.9, max(0.35, rs))
-                    items.append(AdviceItemView(
-                        0,
-                        f"主力セクター「{top_sec}」の相対強弱が強気（{rs:+.2f}≥{thr_strong:+.2f}）。利を伸ばしつつ、段階利確を計画。",
-                        score
-                    ))
+                    span = max(1e-6, abs(thr_strong) + 1.0)
+                    delta = min(1.0, abs(rs - thr_strong) / span)
+                    tone = _pick_tone(delta)
+                    msg = tmpl["RS_STRONG"][tone].format(sec=top_sec, rs=rs)
+                    score = max(0.35, min(0.9, 0.45 + 0.9 * delta))
+                    items.append(AdviceItemView(0, msg, score))
 
-            # PF全体の加重RSを見て、信用や流動性への示唆
+            # PF全体
             w_rs = _pf_weighted_rs(sectors, rs_table)
-            if w_rs < thr_weak and mr >= (thr["margin_high"] - 30):  # 例: マージン中〜高なら注意
-                items.append(AdviceItemView(
-                    0, f"ポート全体の相対強弱が弱め（{w_rs:+.2f}≤{thr_weak:+.2f}）。信用縮小やヘッジで下振れ耐性を。", 0.8
-                ))
+            if w_rs < thr_weak and mr >= max(0.0, thr["margin_high"] - 30):
+                span = max(1e-6, abs(thr_weak) + 1.0)
+                delta = min(1.0, abs(w_rs - thr_weak) / span)
+                tone = _pick_tone(delta)
+                msg = tmpl["PF_RS_WEAK"][tone].format(wrs=w_rs)
+                items.append(AdviceItemView(0, msg, max(0.5, min(0.9, 0.5 + delta))))
             if w_rs > thr_strong and liq < thr["pf_cash_low_for_bull"]:
-                items.append(AdviceItemView(
-                    0, f"PF強気（{w_rs:+.2f}≥{thr_strong:+.2f}）だが現金が薄い（{liq:.1f}%）。一部利確で弾を補充。", 0.7
-                ))
+                span = max(1e-6, abs(thr_strong) + 1.0)
+                delta = min(1.0, abs(w_rs - thr_strong) / span)
+                tone = _pick_tone(delta)
+                msg = tmpl["PF_RS_STRONG"][tone].format(wrs=w_rs, liq=liq)
+                items.append(AdviceItemView(0, msg, max(0.45, min(0.85, 0.45 + delta))))
     except Exception:
         pass
 
@@ -527,11 +634,15 @@ def _rules(kpis: Dict, sectors: List[Dict]) -> List[AdviceItemView]:
         br_score = float(br.get("score", 0.0))
         regime = br.get("regime", "NEUTRAL")
         if br_score <= -0.35:
-            msg = f"地合いが弱い（ブレッドス判定: {regime}）。信用圧縮・現金比率引上げを優先。"
-            items.append(AdviceItemView(0, msg, min(1.0, 0.6 + abs(br_score) * 0.6)))
+            delta = min(1.0, abs(br_score) / 1.0)
+            tone = _pick_tone(delta)
+            msg = tmpl["BREADTH_WEAK"][tone].format(regime=regime)
+            items.append(AdviceItemView(0, msg, min(1.0, 0.6 + 0.6 * delta)))
         elif br_score >= 0.35:
-            msg = f"地合いが良好（ブレッドス判定: {regime}）。トレンドに沿って利確・乗り換えを計画。"
-            items.append(AdviceItemView(0, msg, min(0.9, 0.5 + br_score * 0.5)))
+            delta = min(1.0, abs(br_score) / 1.0)
+            tone = _pick_tone(delta)
+            msg = tmpl["BREADTH_STRONG"][tone].format(regime=regime)
+            items.append(AdviceItemView(0, msg, min(0.9, 0.5 + 0.5 * delta)))
     except Exception:
         pass
 
