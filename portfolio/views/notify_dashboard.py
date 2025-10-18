@@ -17,6 +17,8 @@ from ..models import Holding
 from ..services.sector_map import normalize_sector
 from ..services.market import latest_sector_strength
 
+import unicodedata, re
+
 
 # ---------- 既定値（自動補完に使用） ----------
 DEFAULT_RS = {"weak": -0.3, "strong": 0.4}
@@ -159,11 +161,21 @@ def _holdings_by_sector() -> tuple[list[dict], float]:
     return listed, total_mv
 
 
+def _clean_sec_key(s: str) -> str:
+    t = unicodedata.normalize("NFKC", s or "")
+    t = re.sub(r"[\u2000-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]+", "", t).strip()
+    return normalize_sector(t)
+
 def _join_with_rs(pf_rows: list[dict]) -> list[SectorRow]:
-    rs_tbl = latest_sector_strength() or {}
+    raw_tbl = latest_sector_strength() or {}
+    # 取得結果のキーを正規化してから使う
+    rs_tbl = {}
+    for k, v in raw_tbl.items():
+        rs_tbl[_clean_sec_key(k)] = v or {}
+
     out: list[SectorRow] = []
     for r in pf_rows:
-        sec = r["sector"]
+        sec = r["sector"]  # ここは既に normalize_sector 済み
         rs_row = rs_tbl.get(sec) or {}
         rs = _sf(rs_row.get("rs_score"), 0.0)
         out.append(SectorRow(
