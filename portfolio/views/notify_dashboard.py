@@ -223,5 +223,7 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
         rs_weak=rs_weak,
         rs_strong=rs_strong,
         now=now,
+        "policy_obj": policy_obj,
+        "policy_preview": policy_preview,
     )
     return render(request, "portfolio/notify_dashboard.html", ctx)
