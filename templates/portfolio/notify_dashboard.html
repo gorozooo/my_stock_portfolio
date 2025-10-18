@@ -1,155 +1,152 @@
 {% extends "base.html" %}
-{% load static %}
-
-{% block title %}AIアドバイザー 通知ダッシュボード{% endblock %}
+{% block title %}AIアドバイザー ダッシュボード{% endblock %}
 
 {% block content %}
 <style>
-  /* ---- 基本 ---- */
-  .page-wrap{max-width:960px;margin:0 auto;padding:16px 12px;}
-  .h1{font-size:1.35rem;font-weight:700;margin:4px 0 14px;}
-  .muted{opacity:.7}
-  .chips{display:flex;flex-wrap:wrap;gap:6px}
-  .chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border-color,rgba(255,255,255,.15));
-        border-radius:999px;font-size:.92rem;line-height:1;background:rgba(255,255,255,.05)}
-  .chip .k{opacity:.7}
-  .card{border:1px solid var(--border-color,rgba(255,255,255,.12));border-radius:12px;padding:14px 14px;margin:12px 0;background:rgba(255,255,255,.03)}
-  .card h3{margin:0 0 10px;font-size:1.02rem}
-  .kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-  .kpi{padding:10px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)}
-  .kpi .v{font-weight:700;font-size:1.25rem}
-  .kpi small{opacity:.7}
-  @media (max-width:640px){.kpi-grid{grid-template-columns:1fr 1fr}}
-  /* ---- テーブル ---- */
+  .wrap{max-width:1000px;margin:0 auto;padding:16px 12px}
+  .subnav{position:sticky;top:56px;z-index:5;display:flex;gap:8px;padding:8px;background:rgba(0,0,0,.25);backdrop-filter:blur(6px)}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid rgba(255,255,255,.2);border-radius:999px;font-size:.92rem}
+  .chip.active{background:rgba(255,255,255,.08)}
+  .cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  @media (min-width:740px){ .cards{grid-template-columns:repeat(4,minmax(0,1fr));} }
+  .card{border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(255,255,255,.03);padding:14px}
+  .k{font-size:.82rem;opacity:.75;margin-bottom:4px}
+  .v{font-size:1.4rem;font-weight:700}
+  .section{margin-top:18px}
+  .h{font-weight:700;margin:6px 0 10px}
   table.tbl{width:100%;border-collapse:collapse}
   .tbl th,.tbl td{padding:10px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left}
-  .tbl th{font-weight:600;opacity:.85}
-  .bar{height:8px;border-radius:6px;background:rgba(255,255,255,.08);position:relative;overflow:hidden}
-  .bar > i{position:absolute;left:0;top:0;bottom:0;width:0;background:currentColor;border-radius:6px}
-  .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.18);font-size:.85rem}
-  .good{color:#7cd67c}.warn{color:#e6c16a}.bad{color:#ee7f85}
-  /* ---- 折りたたみ ---- */
-  details.jsonbox{margin-top:6px}
-  details.jsonbox pre{max-height:360px;overflow:auto;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.1);
-                      border-radius:10px;padding:10px 12px;font-size:.9rem}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.18);font-size:.85rem;opacity:.9}
+  .muted{opacity:.72}
+  /* sector */
+  .bar{height:10px;border-radius:6px;background:rgba(255,255,255,.08);position:relative;overflow:hidden}
+  .bar > i{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(120,165,255,.75);border-radius:6px}
+  .rsdot{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .good{color:#7cd67c}.bad{color:#ee7f85}.warn{color:#e6c16a}
+  details.raw summary{cursor:pointer}
 </style>
 
-<div class="page-wrap">
-  <div class="h1">AIアドバイザー 通知ダッシュボード</div>
+<div class="wrap">
 
-  <!-- 上段 KPI -->
-  <div class="card">
-    <div class="kpi-grid">
-      <div class="kpi">
-        <div class="v">{{ days }}</div>
-        <small class="muted">期間（日）</small>
-      </div>
-      <div class="kpi">
-        <div class="v">{{ week_total }}</div>
-        <small class="muted">今週の通知</small>
-      </div>
-      <div class="kpi">
-        <div class="v">{{ week_taken }}</div>
-        <small class="muted">今週の採用</small>
-      </div>
-    </div>
-
-    <div style="margin-top:10px;display:flex;align-items:center;gap:10px">
-      {% if week_rate >= 0.6 %}
-        {% with cls="good" %}
-          <span class="pill {{cls}}">採用率 {{ week_rate|floatformat:2 }}</span>
-        {% endwith %}
-      {% elif week_rate >= 0.4 %}
-        <span class="pill warn">採用率 {{ week_rate|floatformat:2 }}</span>
-      {% else %}
-        <span class="pill bad">採用率 {{ week_rate|floatformat:2 }}</span>
-      {% endif %}
-      <span class="muted">目標 <strong>0.50</strong> / 現在 <strong>{{ week_rate|floatformat:2 }}</strong></span>
-    </div>
+  <!-- 上部タブ -->
+  <div class="subnav">
+    <a class="chip" href="#dash">ダッシュボード</a>
+    <a class="chip" href="#sectors">セクター</a>
+    <a class="chip" href="#policy">しきい値</a>
   </div>
 
-  <!-- policy スナップ -->
-  <div class="card">
-    <h3>しきい値（policy.json）</h3>
-    <div class="chips">
-      {% with rsw=policy.rs_thresholds.weak rsS=policy.rs_thresholds.strong %}
-        <span class="chip"><span class="k">rs 弱気</span><b>{{ rsw|default:"—" }}</b></span>
-        <span class="chip"><span class="k">rs 強気</span><b>{{ rsS|default:"—" }}</b></span>
-      {% endwith %}
-      {% with nt=policy.notify_thresholds %}
-        <span class="chip"><span class="k">ROI乖離 min</span><b>{{ nt.gap_min|default:"—" }}</b></span>
-        <span class="chip"><span class="k">流動性 max</span><b>{{ nt.liq_max|default:"—" }}</b></span>
-        <span class="chip"><span class="k">信用比率 min</span><b>{{ nt.margin_min|default:"—" }}</b></span>
-        <span class="chip"><span class="k">上位セクター max</span><b>{{ nt.top_share_max|default:"—" }}</b></span>
-        <span class="chip"><span class="k">未分類 max</span><b>{{ nt.uncat_share_max|default:"—" }}</b></span>
-        <span class="chip"><span class="k">地合い 弱</span><b>{{ nt.breadth_bad|default:"—" }}</b></span>
-        <span class="chip"><span class="k">地合い 強</span><b>{{ nt.breadth_good|default:"—" }}</b></span>
-      {% endwith %}
-      <span class="chip"><span class="k">更新</span><b>{{ policy.updated_at|default:"—" }}</b></span>
+  <!-- Top metrics -->
+  <div id="dash" class="section">
+    <div class="h">サマリ <span class="pill">過去 {{ days }} 日</span></div>
+    <div class="cards">
+      <div class="card"><div class="k">今週の通知</div><div class="v">{{ week_total }}</div></div>
+      <div class="card"><div class="k">今週の採用</div><div class="v">{{ week_taken }}</div></div>
+      <div class="card"><div class="k">採用率</div><div class="v">{{ week_rate|floatformat:2 }}</div></div>
+      <div class="card"><div class="k">API</div><div class="v"><a href="?format=json" target="_blank">JSON</a></div></div>
     </div>
 
-    <details class="jsonbox">
-      <summary>RAW表示（policy.json サマリ）</summary>
-      <pre><code>{{ policy_preview }}</code></pre>
-    </details>
-  </div>
-
-  <!-- 使い方 -->
-  <div class="card">
-    <h3>使い方</h3>
-    <div class="muted" style="line-height:1.7">
-      通知数が多い週は <code>advisor_notify_tune</code> が自動で tighten（目標 週10件）。<br>
-      静かな週は loosen。API は <code>/advisor/notify-dashboard/?format=json</code>。
+    <div class="section">
+      <div class="h">週次トレンド</div>
+      <table class="tbl">
+        <thead><tr><th style="width:28%">週 (Mon)</th><th>通知合計</th><th>採用数</th><th>採用率</th></tr></thead>
+        <tbody>
+          {% for r in weekly %}
+            <tr>
+              <td>{{ r.week }}</td>
+              <td>{{ r.total }}</td>
+              <td>{{ r.taken }}</td>
+              <td>{{ r.rate|floatformat:2 }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4" class="muted">データがありません。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </div>
 
-  <!-- 週次トレンド -->
-  <div class="card">
-    <h3>週次トレンド</h3>
-    <table class="tbl" id="weeklyTbl" data-max="{{ weekly_max|default:0 }}">
-      <thead>
-        <tr>
-          <th style="width:32%">週（Mon）</th>
-          <th style="width:20%">通知合計</th>
-          <th style="width:20%">採用数</th>
-          <th style="width:15%">採用率</th>
-          <th>推移</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in weekly %}
-        <tr data-total="{{ r.total }}">
-          <td class="muted">{{ r.week }}</td>
-          <td>{{ r.total }}</td>
-          <td>{{ r.taken }}</td>
-          <td>{{ r.rate|floatformat:2 }}</td>
-          <td>
-            <div class="bar" title="{{ r.total }}">
-              <i style="color:rgba(120,165,255,.75)"></i>
-            </div>
-          </td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="5" class="muted">データがありません。まずは通知が発生する操作（スナップショット/アドバイス生成など）を実行してください。</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <!-- Sector overview -->
+  <div id="sectors" class="section">
+    <div class="h">セクター概況 <span class="pill">ウェイト × RS</span></div>
+    <div class="muted" style="margin-bottom:8px">総評価額: <b>¥{{ total_mv|floatformat:0 }}</b> / 更新: {{ now|date:"Y-m-d H:i" }}</div>
+
+    <div class="card">
+      <table class="tbl" id="sectTbl" data-max="{{ max_w|default:0 }}">
+        <thead>
+          <tr>
+            <th style="width:36%">セクター</th>
+            <th style="width:15%">ウェイト</th>
+            <th style="width:25%">バー</th>
+            <th style="width:12%">RS</th>
+            <th>所感</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in sector_rows %}
+            {% with rs=r.rs %}
+            <tr data-w="{{ r.weight_pct|floatformat:4 }}">
+              <td>{{ r.sector }}</td>
+              <td>{{ r.weight_pct|floatformat:2 }}%</td>
+              <td><div class="bar" title="{{ r.weight_pct|floatformat:2 }}%"><i></i></div></td>
+              <td>
+                {% if rs >= 0.35 %}
+                  <span class="rsdot good"><span class="dot" style="background:#7cd67c"></span><b>{{ rs|floatformat:2 }}</b></span>
+                {% elif rs <= -0.25 %}
+                  <span class="rsdot bad"><span class="dot" style="background:#ee7f85"></span><b>{{ rs|floatformat:2 }}</b></span>
+                {% else %}
+                  <span class="rsdot warn"><span class="dot" style="background:#e6c16a"></span><b>{{ rs|floatformat:2 }}</b></span>
+                {% endif %}
+              </td>
+              <td class="muted">{% if rs >= 0.35 %}強気：利伸ばし/段階利確{% elif rs <= -0.25 %}弱気：圧縮/乗換{% else %}中立{% endif %}</td>
+            </tr>
+            {% endwith %}
+          {% empty %}
+            <tr><td colspan="5" class="muted">保有がありません。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
+
+  <!-- Policy thresholds -->
+  <div id="policy" class="section">
+    <div class="h">しきい値（policy.json サマリ）</div>
+    <div class="card">
+      <div class="muted">運用の目安：通知が多い週は <code>advisor_notify_tune</code> が自動で tighten（目標週10件）。静かな週は自然に loosen。</div>
+      <details class="raw" style="margin-top:10px">
+        <summary>RAW表示（クリックで展開）</summary>
+        <pre style="white-space:pre-wrap">{{ policy_preview }}</pre>
+      </details>
+    </div>
+  </div>
+
 </div>
 
 <script>
-  // 週次の簡易バー幅を JS で計算（Django テンプレでは割り算がしづらいため）
+  // タブのactive切替（アンカー）
   (function(){
-    const tbl = document.getElementById('weeklyTbl');
+    function sync(){
+      const h = location.hash || '#dash';
+      document.querySelectorAll('.subnav .chip').forEach(a=>{
+        a.classList.toggle('active', a.getAttribute('href')===h);
+      });
+    }
+    window.addEventListener('hashchange', sync);
+    sync();
+  })();
+
+  // セクターバー幅
+  (function(){
+    const tbl = document.getElementById('sectTbl');
     if(!tbl) return;
     const max = parseFloat(tbl.dataset.max || '0') || 0;
-    const rows = tbl.querySelectorAll('tbody tr');
-    rows.forEach(tr=>{
-      const total = parseFloat(tr.getAttribute('data-total') || '0') || 0;
+    tbl.querySelectorAll('tbody tr').forEach(tr=>{
+      const w = parseFloat(tr.getAttribute('data-w') || '0') || 0;
       const el = tr.querySelector('.bar > i');
       if(!el) return;
-      const w = (max>0)? Math.max(3, Math.round(total/max*100)) : 0; // 最低3%
-      el.style.width = w + '%';
+      const pct = (max>0)? Math.max(3, Math.round(w/max*100)) : 0; // 最低3%
+      el.style.width = pct + '%';
     });
   })();
 </script>
