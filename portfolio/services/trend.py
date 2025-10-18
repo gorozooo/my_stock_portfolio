@@ -560,3 +560,38 @@ def detect_trend(
         atr14=atr14,
         adv20=adv20,
     )
+    
+def update_all_sector_strength(days: int = 60):
+    """
+    各セクターの平均RSスコアを算出し media/advisor/sector_strength.json に保存
+    """
+    from .sector_map import SECTOR_MAP
+    today = date.today()
+    end = today
+    start = today - timedelta(days=days)
+
+    result = {}
+    for sector_name, tickers in SECTOR_MAP.items():
+        rs_scores = []
+        for t in tickers:
+            try:
+                df = yf.download(t, start=start, end=end, progress=False)
+                if len(df) < 2: 
+                    continue
+                df['return'] = df['Close'].pct_change()
+                rs_scores.append(df['return'].mean() / df['return'].std())
+            except Exception:
+                continue
+        if rs_scores:
+            avg = sum(rs_scores) / len(rs_scores)
+        else:
+            avg = 0.0
+        result[sector_name] = {
+            "rs_score": round(avg, 3),
+            "date": str(today),
+        }
+
+    out = Path("media/advisor/sector_strength.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[OK] sector_strength.json updated with {len(result)} sectors")
