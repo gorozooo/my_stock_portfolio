@@ -102,4 +102,4 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
         "weekly": weekly,
         "policy_preview": policy_preview,  # 整形済みテキスト
     }
-    return render(request, "advisor/notify_dashboard.html", ctx)
+    return render(request, "portfolio/notify_dashboard.html", ctx)
