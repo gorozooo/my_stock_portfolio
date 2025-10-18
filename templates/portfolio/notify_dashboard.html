@@ -1,70 +1,65 @@
-<!doctype html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8">
-  <title>AIアドバイザー 通知ダッシュボード</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.6;margin:24px;}
-    h1{margin:0 0 8px}
-    .meta{color:#555;margin-bottom:16px}
-    table{border-collapse:collapse;width:100%;margin-top:12px}
-    th,td{border:1px solid #ddd;padding:8px;text-align:right}
-    th{background:#f6f7f8}
-    td:first-child,th:first-child{text-align:left}
-    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#eef}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-    @media (max-width: 700px){.grid{grid-template-columns:1fr}}
-    .card{border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}
-    code{background:#f3f4f6;padding:2px 6px;border-radius:4px}
-  </style>
-</head>
-<body>
-  <h1>AIアドバイザー 通知ダッシュボード</h1>
-  <div class="meta">
+{% extends "base.html" %}
+{% load static %}
+{% block title %}AIアドバイザー 通知ダッシュボード{% endblock %}
+
+{% block content %}
+<div class="container py-3">
+  <h2 class="h4 mb-3">AIアドバイザー 通知ダッシュボード</h2>
+
+  <div class="mb-3 small text-muted">
     期間: 過去 <strong>{{ days }}</strong> 日 /
-    今週の通知: <span class="pill">{{ headline.per_week }}</span> 件 /
-    今週の採用率: <span class="pill">{{ headline.take_rate|floatformat:2 }}</span>
-    <div>JSON: <code>?format=json&amp;days={{ days }}</code></div>
+    今週の通知: <strong>{{ week_total }}</strong> 件 /
+    今週の採用: <strong>{{ week_taken }}</strong> 件 /
+    採用率: <strong>{{ week_rate|floatformat:2 }}</strong>
+    <a class="ms-2" href="?format=json&days={{ days }}">JSON</a>
   </div>
 
-  <div class="grid">
-    <div class="card">
-      <h3>しきい値 (policy.json)</h3>
-      <pre>{{ thresholds|safe }}</pre>
+  <div class="card mb-3">
+    <div class="card-header fw-bold">しきい値（policy.json）</div>
+    <div class="card-body">
+      <pre class="mb-0 small">{{ policy_preview }}</pre>
     </div>
-    <div class="card">
-      <h3>使い方</h3>
-      <ul>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header fw-bold">使い方</div>
+    <div class="card-body small">
+      <ul class="mb-0">
         <li>通知数が多い週は <code>advisor_notify_tune</code> が自動で tighten</li>
-        <li>静かな週は loosen。目標は週10件（既定）</li>
-        <li>APIは <code>/advisor/notify-dashboard/?format=json</code></li>
+        <li>静かな週は loosen。目標は週10件</li>
+        <li>API: <code>/advisor/notify-dashboard/?format=json</code></li>
       </ul>
     </div>
   </div>
 
-  <h3>週次トレンド</h3>
-  <table>
-    <thead>
-      <tr>
-        <th>週 (Mon)</th>
-        <th>通知合計</th>
-        <th>採用数</th>
-        <th>採用率</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in stats %}
-      <tr>
-        <td>{{ r.week }}</td>
-        <td>{{ r.total }}</td>
-        <td>{{ r.taken }}</td>
-        <td>{{ r.take_rate|floatformat:2 }}</td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="4">データがありません。</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</body>
-</html>
+  <div class="card">
+    <div class="card-header fw-bold">週次トレンド</div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm table-striped mb-0">
+          <thead class="table-light">
+            <tr>
+              <th style="min-width:120px">週 (Mon)</th>
+              <th>通知合計</th>
+              <th>採用数</th>
+              <th>採用率</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in weekly %}
+              <tr>
+                <td>{{ row.week }}</td>
+                <td>{{ row.total }}</td>
+                <td>{{ row.taken }}</td>
+                <td>{{ row.rate|floatformat:2 }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="4" class="text-muted small px-3 py-2">データがありません。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
