@@ -227,23 +227,21 @@ f"""# AI デイリーブリーフ {ctx.asof}
     def _build_flex(self, ctx: BriefContext) -> dict:
         base_url = getattr(settings, "SITE_BASE_URL", "").rstrip("/")
         public_url = f"{base_url}/media/reports/daily_brief_{ctx.asof}.html" if base_url else ""
-
+    
         # ---- Theme by Regime -------------------------------------------------
         regime = str(ctx.breadth_view.get("regime", "NEUTRAL")).upper()
         def theme_for_regime(rg: str):
-            # ベース・アクセント・正負色など
             if "OFF" in rg:
                 return dict(primary="#dc2626", accent="#ef4444", pos="#16a34a", neg="#ef4444",
                             heading="#111827", muted="#9ca3af", card="#f9fafb", icon="📉")
             if "ON" in rg:
                 return dict(primary="#16a34a", accent="#22c55e", pos="#16a34a", neg="#ef4444",
                             heading="#111827", muted="#9ca3af", card="#f9fafb", icon="📈")
-            # NEUTRAL
             return dict(primary="#2563eb", accent="#3b82f6", pos="#16a34a", neg="#ef4444",
                         heading="#111827", muted="#9ca3af", card="#f9fafb", icon="⚖️")
-
+    
         T = theme_for_regime(regime)
-
+    
         # ---- helpers ---------------------------------------------------------
         def row(label, value, color=None):
             return {
@@ -255,23 +253,10 @@ f"""# AI デイリーブリーフ {ctx.asof}
                      "color": color or T["heading"], "flex": 6, "wrap": False}
                 ]
             }
-
-        def pill(text, color_hex):
-            # 数値用の丸チップ（視認性重視）
-            return {
-                "type": "box",
-                "layout": "baseline",
-                "backgroundColor": color_hex + "22",  # 透明度を少し
-                "cornerRadius": "999px",
-                "paddingAll": "6px",
-                "contents": [
-                    {"type": "text", "text": str(text), "size": "sm", "color": color_hex}
-                ]
-            }
-
+    
         def signed_color(v: float):
             return T["pos"] if float(v) > 0 else T["neg"] if float(v) < 0 else T["muted"]
-
+    
         # ---- sector list -----------------------------------------------------
         sector_lines = []
         for s in ctx.sectors[:8]:
@@ -285,13 +270,13 @@ f"""# AI デイリーブリーフ {ctx.asof}
             })
         if not sector_lines:
             sector_lines = [{"type": "text", "text": "データなし", "size": "sm", "color": T["muted"]}]
-
+    
         b = ctx.breadth_view
         score = float(b.get("score", 0.0))
         ad    = float(b.get("ad_ratio", 1.0))
         vol   = float(b.get("vol_ratio", 1.0))
         hl    = float(b.get("hl_diff", 0.0))
-
+    
         # ---- body ------------------------------------------------------------
         body = {
           "type": "box",
@@ -306,29 +291,25 @@ f"""# AI デイリーブリーフ {ctx.asof}
                  "weight": "bold", "size": "lg", "color": T["primary"], "flex": 9},
                 {"type": "text", "text": ctx.asof, "size": "xs", "color": T["muted"], "align": "end", "flex": 3}
             ]},
-
+    
             {"type": "separator", "margin": "md"},
-
+    
             # 地合い
             {"type": "text", "text": "地合い（Breadth）", "weight": "bold", "size": "md", "color": T["heading"]},
             row("Regime", b.get("regime","NEUTRAL"), color=T["primary"]),
-            {
-              "type": "box", "layout": "horizontal", "spacing": "sm", "contents": [
-                pill(f"Score {score:.2f}", signed_color(score)),
-                pill(f"A/D {ad:.3f}", signed_color(ad-1.0)),
-                pill(f"VOL {vol:.2f}", signed_color(vol-1.0)),
-                pill(f"H-L {hl:.1f}", signed_color(hl)),
-              ]
-            },
-
+            row("Score", f"{score:.2f}", signed_color(score)),
+            row("A/D", f"{ad:.3f}", signed_color(ad-1.0)),
+            row("VOL", f"{vol:.2f}", signed_color(vol-1.0)),
+            row("H-L", f"{hl:.1f}", signed_color(hl)),
+    
             {"type": "separator", "margin": "md"},
-
+    
             # セクター
             {"type": "text", "text": "セクターRS（上位8）", "weight": "bold", "size": "md", "color": T["heading"]},
             {"type": "box", "layout": "vertical", "spacing": "sm", "contents": sector_lines},
-
+    
             {"type": "separator", "margin": "md"},
-
+    
             # サマリー
             {"type": "text", "text": "今週の通知サマリ", "weight": "bold", "size": "md", "color": T["heading"]},
             row("通知", f"{ctx.week_stats.get('total',0):,}"),
@@ -336,7 +317,7 @@ f"""# AI デイリーブリーフ {ctx.asof}
             row("採用率", f"{float(ctx.week_stats.get('rate',0.0))*100:.1f}%"),
           ]
         }
-
+    
         footer = None
         if public_url:
             footer = {
@@ -348,7 +329,7 @@ f"""# AI デイリーブリーフ {ctx.asof}
                     "action": {"type": "uri", "label": "詳細を開く", "uri": public_url}
                 }]
             }
-
+    
         bubble = {"type": "bubble", "size": "mega", "body": body}
         if footer: bubble["footer"] = footer
         return bubble
