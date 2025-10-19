@@ -225,126 +225,121 @@ f"""# AI デイリーブリーフ {ctx.asof}
         )
         return text.strip()
 
-    # ---------- Flex生成（見やすい配色 & コンパクト） ----------
-    def _build_flex(self, ctx: BriefContext, sector_top: int = 10, idx_top: int = 6) -> dict:
-        # テーマカラー
-        COL_BG  = "#0b1020"
-        COL_TX  = "#e8ecf1"
-        COL_DIM = "#9aa4b2"
-        COL_POS = "#10b981"   # 緑
-        COL_NEG = "#ef4444"   # 赤
-        COL_NEU = "#cbd5e1"   # グレー
-
-        regime = str(ctx.breadth_view.get("regime","NEUTRAL")).upper()
-        badge_color = COL_NEU
-        if regime == "RISK_ON":  badge_color = COL_POS
-        if regime == "RISK_OFF": badge_color = COL_NEG
-
-        # 公開URLがあるならボタンを出す
-        public_url = ""
+        # ---------- LINE: Flex ----------
+    def _build_flex(self, ctx: BriefContext) -> dict:
+        # 公開URLが設定されていればボタンを出す
         base_url = getattr(settings, "SITE_BASE_URL", "").rstrip("/")
-        if base_url:
-            public_url = f"{base_url}/media/reports/daily_brief_{ctx.asof}.html"
+        public_url = f"{base_url}/media/reports/daily_brief_{ctx.asof}.html" if base_url else ""
 
-        def kv(label, value, color=None):
+        def row(label: str, value: str):
+            # baseline は折返しに弱いので vertical で安定化
             return {
-                "type":"box","layout":"baseline","contents":[
-                    {"type":"text","text":label,"size":"sm","color":COL_DIM,"flex":5},
-                    {"type":"text","text":str(value),"size":"sm","color":(color or COL_TX),"flex":7,"align":"end"}
-                ]
+                "type": "box",
+                "layout": "horizontal",
+                "contents": [
+                    {"type": "text", "text": label, "size": "sm", "color": "#9aa4b2", "flex": 5, "wrap": False},
+                    {"type": "text", "text": str(value), "size": "sm", "flex": 7, "wrap": True, "align": "end"}
+                ],
+                "spacing": "sm"
             }
 
-        # 指数（上位 idx_top）
-        idx_boxes = []
-        for sym in list(ctx.indexes.keys())[:idx_top]:
-            row = ctx.indexes.get(sym, {})
-            v5  = _safe_float(row.get("ret_5d"))
-            v20 = _safe_float(row.get("ret_20d"))
-            idx_boxes.append({
-                "type":"box","layout":"baseline","contents":[
-                    {"type":"text","text":sym,"size":"sm","color":COL_TX,"flex":6},
-                    {"type":"text","text":_fmt_signed(v5,2),"size":"sm","align":"end","flex":3,"color":(COL_POS if v5>=0 else COL_NEG)},
-                    {"type":"text","text":_fmt_signed(v20,2),"size":"sm","align":"end","flex":3,"color":(COL_POS if v20>=0 else COL_NEG)},
-                ]
-            })
+        # セクター上位（安全のため 8 件まで）
+        sector_lines = []
+        for r in ctx.sectors[:8]:
+            sec = str(r.get("sector", "—"))
+            rs  = f'{float(r.get("rs", 0.0)):+.2f}'
+            sector_lines.append(row(sec, rs))
+        if not sector_lines:
+            sector_lines = [{"type": "text", "text": "データなし", "size": "sm", "color": "#9aa4b2"}]
 
-        # セクター（上位 sector_top）
-        sec_boxes = []
-        for r in ctx.sectors[:sector_top]:
-            color = COL_POS if r["rs"] >= 0 else COL_NEG
-            sec_boxes.append({
-                "type":"box","layout":"baseline","contents":[
-                    {"type":"text","text":r["sector"],"size":"sm","color":COL_TX,"flex":8,"wrap":True},
-                    {"type":"text","text":_fmt_signed(r["rs"],2),"size":"sm","align":"end","flex":4,"color":color},
-                ]
-            })
-
-        # 本文
         body = {
-          "type":"box","layout":"vertical","spacing":"md","contents":[
-            {"type":"text","text":"AI デイリーブリーフ","weight":"bold","size":"lg","color":COL_TX},
-            {"type":"text","text":ctx.asof,"size":"xs","color":COL_DIM},
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "md",
+            "contents": [
+                {"type": "text", "text": "AI デイリーブリーフ", "weight": "bold", "size": "lg"},
+                {"type": "text", "text": ctx.asof, "size": "xs", "color": "#9aa4b2"},
 
-            {"type":"box","layout":"vertical","margin":"md","contents":[
-                {"type":"box","layout":"baseline","contents":[
-                    {"type":"text","text":"地合い（Breadth）","weight":"bold","size":"md","color":COL_TX},
-                    {"type":"text","text":regime,"size":"xs","weight":"bold",
-                     "color":COL_BG,"align":"end","gravity":"center",
-                     "backgroundColor":badge_color,"paddingAll":"4px","cornerRadius":"6px","margin":"md"}
-                ]},
-                kv("Score",  ctx.breadth_view.get("score", 0.0)),
-                kv("A/D",    ctx.breadth_view.get("ad_ratio", 1.0)),
-                kv("VOL",    ctx.breadth_view.get("vol_ratio", 1.0)),
-                kv("H-L",    ctx.breadth_view.get("hl_diff", 0)),
-            ]},
+                {"type": "separator", "margin": "md"},
+                {"type": "text", "text": "地合い（Breadth）", "weight": "bold", "size": "md"},
+                row("Regime", str(ctx.breadth_view.get("regime", "NEUTRAL"))),
+                row("Score",  f'{float(ctx.breadth_view.get("score", 0.0)):.2f}'),
+                row("A/D",    f'{float(ctx.breadth_view.get("ad_ratio", 1.0)):.3f}'),
+                row("VOL",    f'{float(ctx.breadth_view.get("vol_ratio", 1.0)):.2f}'),
+                row("H-L",    str(ctx.breadth_view.get("hl_diff", 0))),
 
-            {"type":"separator","margin":"md"},
+                {"type": "separator", "margin": "md"},
+                {"type": "text", "text": "セクターRS（上位8）", "weight": "bold", "size": "md"},
+                {"type": "box", "layout": "vertical", "spacing": "sm", "contents": sector_lines},
 
-            {"type":"box","layout":"vertical","margin":"md","spacing":"sm","contents":[
-                {"type":"box","layout":"baseline","contents":[
-                    {"type":"text","text":"指数スナップショット","weight":"bold","size":"md","color":COL_TX},
-                    {"type":"text","text":"5日 / 20日","size":"xs","color":COL_DIM,"align":"end"}
-                ]},
-            ] + (idx_boxes or [{"type":"text","text":"データなし","size":"sm","color":COL_DIM}])},
-
-            {"type":"separator","margin":"md"},
-
-            {"type":"box","layout":"vertical","margin":"md","spacing":"sm","contents":[
-                {"type":"text","text":f"セクターRS（上位{min(sector_top,len(ctx.sectors))}）","weight":"bold","size":"md","color":COL_TX},
-            ] + (sec_boxes or [{"type":"text","text":"データなし","size":"sm","color":COL_DIM}])},
-
-            {"type":"separator","margin":"md"},
-
-            {"type":"box","layout":"vertical","margin":"md","contents":[
-                {"type":"text","text":"今週の通知サマリ","weight":"bold","size":"md","color":COL_TX},
-                kv("通知",   f'{ctx.week_stats["total"]:,}'),
-                kv("採用",   f'{ctx.week_stats["taken"]:,}'),
-                kv("採用率", _fmt_pct_from_ratio(ctx.week_stats["rate"], 1)),
-            ]},
-          ]
+                {"type": "separator", "margin": "md"},
+                {"type": "text", "text": "今週の通知サマリ", "weight": "bold", "size": "md"},
+                row("通知",   f'{ctx.week_stats.get("total", 0):,}'),
+                row("採用",   f'{ctx.week_stats.get("taken", 0):,}'),
+                row("採用率", f'{float(ctx.week_stats.get("rate", 0.0))*100:.1f}%'),
+            ]
         }
 
-        footer = {"type":"box","layout":"vertical","spacing":"sm","contents":[]}
+        footer = None
         if public_url:
-            footer["contents"].append({
-                "type":"button","style":"primary","height":"sm",
-                "action":{"type":"uri","label":"詳細を開く","uri": public_url}
-            })
+            footer = {
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "sm",
+                "contents": [{
+                    "type": "button",
+                    "style": "primary",
+                    "height": "sm",
+                    "action": {"type": "uri", "label": "詳細を開く", "uri": public_url}
+                }]
+            }
 
-        bubble = {"type":"bubble","size":"mega","body":body}
-        if footer["contents"]:
+        bubble = {"type": "bubble", "size": "mega", "body": body}
+        if footer:
             bubble["footer"] = footer
         return bubble
 
-    # ---------- LINE送信（Flex） ----------
-    def _send_line_flex(self, user_ids: List[str], ctx: BriefContext, flex: dict, opts) -> None:
-        alt = (opts.get("line_title") or f"AIデイリーブリーフ {ctx.asof}").strip()
+    def _send_line_flex(self, user_ids: List[str], ctx: BriefContext, opts) -> bool:
+        """Flex を送信。非200のときはエラー本文を出力し、極小バブルでスモークテストも試す。"""
+        flex = self._build_flex(ctx)
+        alt  = (opts.get("line_title") or f"AIデイリーブリーフ {ctx.asof}").strip()
+        any_ok = False
+
+        # 失敗時の最小バブル（形だけ正当性確認）
+        smoke = {
+            "type": "bubble",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {"type": "text", "text": "Flex smoke test", "weight": "bold", "size": "lg"},
+                    {"type": "text", "text": "このカードが届けば Flex 自体はOK", "size": "sm", "wrap": True}
+                ]
+            }
+        }
+
         for uid in user_ids:
             try:
                 r = line_push_flex(uid, alt, flex)
-                self.stdout.write(self.style.SUCCESS(f"LINE Flex to {uid}: {getattr(r,'status_code',None)}"))
+                code = getattr(r, "status_code", None)
+                any_ok = any_ok or (code == 200)
+                # ここを強化：エラー本文を出す
+                if code != 200:
+                    try:
+                        detail = getattr(r, "text", "")
+                    except Exception:
+                        detail = ""
+                    self.stdout.write(self.style.WARNING(f"LINE Flex to {uid}: {code}  {detail}"))
+
+                    # スモークテストも送る（構造不正か・トークン/対象不整合かの切り分け）
+                    rs = line_push_flex(uid, "Flex smoke test", smoke)
+                    sc = getattr(rs, "status_code", None)
+                    self.stdout.write(self.style.WARNING(f"  smoke test status={sc} body={getattr(rs,'text','')}"))
+                else:
+                    self.stdout.write(self.style.SUCCESS(f"LINE Flex to {uid}: {code}"))
             except Exception as e:
                 self.stdout.write(self.style.WARNING(f"LINE Flex exception (uid={uid}): {e}"))
+        return any_ok
 
     # ---------- LINE送信（テキスト） ----------
     def _send_line_text(self, user_ids: List[str], ctx: BriefContext, md_text: str, opts) -> None:
