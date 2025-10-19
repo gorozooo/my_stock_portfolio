@@ -15,10 +15,11 @@ from django.conf import settings
 from ..models_advisor import AdviceItem
 from ..models import Holding
 from ..services.sector_map import normalize_sector
-from ..services.market import latest_sector_strength
-
-import unicodedata, re
-
+from ..services.market import (
+    latest_sector_strength,
+    latest_breadth,
+    breadth_regime,
+)
 
 # ---------- 既定値（自動補完に使用） ----------
 DEFAULT_RS = {"weak": -0.3, "strong": 0.4}
@@ -35,8 +36,8 @@ DEFAULT_WINDOW_DAYS = 90
 
 
 # ---------- 共通ヘルパ ----------
-def _fmt(x, nd: int = 2) -> str | None:
-    """数値を小数 nd 桁の文字列へ。非数は None を返す。"""
+def _fmt(x, nd: int = 2):
+    """数値を小数nd桁の文字列へ。非数は None を返す。"""
     try:
         return f"{float(x):.{nd}f}"
     except Exception:
@@ -64,7 +65,7 @@ def _read_policy_obj() -> dict:
 
 def _read_policy_preview() -> str:
     """
-    RAW表示用。ファイルが欠けていても既定値で穴埋めして返す。
+    UIのRAW表示用。ファイルが欠けていても既定値で穴埋めして返す。
     """
     obj = _read_policy_obj() or {}
     snap = {
@@ -105,7 +106,7 @@ def _policy_text_summary() -> Dict[str, Any]:
 
 
 def _get_rs_thresholds() -> tuple[float, float]:
-    """セクター表示などで使う実数の RS しきい値（既定値で補完）。"""
+    """セクター表示などで使う実数のRSしきい値（既定値で補完）。"""
     pol = _read_policy_obj() or {}
     th = {**DEFAULT_RS, **(pol.get("rs_thresholds") or {})}
     try:
@@ -161,21 +162,11 @@ def _holdings_by_sector() -> tuple[list[dict], float]:
     return listed, total_mv
 
 
-def _clean_sec_key(s: str) -> str:
-    t = unicodedata.normalize("NFKC", s or "")
-    t = re.sub(r"[\u2000-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]+", "", t).strip()
-    return normalize_sector(t)
-
 def _join_with_rs(pf_rows: list[dict]) -> list[SectorRow]:
-    raw_tbl = latest_sector_strength() or {}
-    # 取得結果のキーを正規化してから使う
-    rs_tbl = {}
-    for k, v in raw_tbl.items():
-        rs_tbl[_clean_sec_key(k)] = v or {}
-
+    rs_tbl = latest_sector_strength() or {}
     out: list[SectorRow] = []
     for r in pf_rows:
-        sec = r["sector"]  # ここは既に normalize_sector 済み
+        sec = r["sector"]
         rs_row = rs_tbl.get(sec) or {}
         rs = _sf(rs_row.get("rs_score"), 0.0)
         out.append(SectorRow(
@@ -190,7 +181,7 @@ def _join_with_rs(pf_rows: list[dict]) -> list[SectorRow]:
 
 
 def _rs_level(rs: float, weak: float, strong: float) -> tuple[str, str]:
-    """RS の水準をバッジ表示用に分類。返り値: (表示テキスト, CSSクラス)"""
+    """RSの水準をバッジ表示用に分類。返り値: (表示テキスト, CSSクラス)"""
     try:
         r = float(rs)
     except Exception:
@@ -205,8 +196,8 @@ def _rs_level(rs: float, weak: float, strong: float) -> tuple[str, str]:
 # ---------- メイン ----------
 def notify_dashboard(request: HttpRequest) -> HttpResponse:
     """
-    AIアドバイザー：通知＋セクター＋しきい値の統合ページ
-    - ?format=json でサマリ JSON（後方互換）
+    AIアドバイザー：通知＋セクター＋しきい値＋ブレッドスの統合ページ
+    - ?format=json でサマリJSON（後方互換）
     - days パラメータ（default 90）
     """
     days = int(request.GET.get("days", DEFAULT_WINDOW_DAYS))
@@ -251,8 +242,7 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
     for r in sector_rows:
         level_txt, level_cls = _rs_level(r.rs, rs_weak, rs_strong)
         weight_bar = 0.0 if max_w <= 0 else (r.weight_pct / max_w) * 100.0
-        # RS を -1..+1 → 0..100 に正規化
-        rs_norm = max(0.0, min(100.0, (r.rs + 1.0) * 50.0))
+        rs_norm = max(0.0, min(100.0, (r.rs + 1.0) * 50.0))  # -1..+1 → 0..100
         sector_rows_viz.append({
             "sector": r.sector,
             "weight_pct": round(r.weight_pct, 2),
@@ -268,6 +258,10 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
     policy_preview = _read_policy_preview()
     policy_text = _policy_text_summary()
 
+    # breadth（地合い）：RAW + 推定レジーム
+    breadth_raw = latest_breadth() or {}
+    breadth = breadth_regime(breadth_raw)  # {"ad_ratio","vol_ratio","hl_diff","score","regime"}
+
     # JSON（後方互換）
     if request.GET.get("format") == "json":
         return JsonResponse({
@@ -280,6 +274,8 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
             "policy_text": policy_text,
             "sectors": sector_rows_viz,
             "rs_thresholds": {"weak": rs_weak, "strong": rs_strong},
+            "breadth": breadth,
+            "breadth_raw": breadth_raw,
         }, json_dumps_params={"ensure_ascii": False, "indent": 2})
 
     # HTML
@@ -289,12 +285,14 @@ def notify_dashboard(request: HttpRequest) -> HttpResponse:
         week_taken=week_taken,
         week_rate=week_rate,
         weekly=weekly,
-        policy_preview=policy_preview,  # RAW表示用（既定値で穴埋め済）
-        policy_text=policy_text,        # カード表示用（既定値で穴埋め済）
+        policy_preview=policy_preview,  # RAW表示用
+        policy_text=policy_text,        # カード表示用
         sectors=sector_rows_viz,        # セクター（可視化用）
         total_mv=total_mv,
         rs_weak=rs_weak,
         rs_strong=rs_strong,
+        breadth=breadth,
+        breadth_raw=breadth_raw,
         now=now,
     )
     return render(request, "portfolio/notify_dashboard.html", ctx)
