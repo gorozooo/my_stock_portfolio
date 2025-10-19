@@ -13,6 +13,7 @@ from ...services.market import (
     latest_breadth, breadth_regime,
     fetch_indexes_snapshot, latest_sector_strength
 )
+    # sectors
 from ...services.sector_map import normalize_sector
 from ...models_advisor import AdviceItem
 
@@ -78,6 +79,48 @@ class BriefContext:
     sectors: List[Dict[str, Any]]
     week_stats: Dict[str, Any]
     notes: List[str]
+    ai_comment: str = ""   # ← 追加：今日のひとこと
+
+
+# ひとこと自動生成（簡易ルール）
+def _make_ai_comment(regime: str, score: float, sectors: List[Dict[str, Any]], adopt_rate: float) -> str:
+    """
+    簡易ルールで1行コメントを作る:
+      - Regime: RISK_ON / RISK_OFF / NEUTRAL
+      - score: >0.6 強気, <0.2 弱い, 中間は様子見
+      - 採用率 adopt_rate: >0.55 良好, <0.45 まちまち
+      - セクター上位3を言及
+    """
+    rg = (regime or "").upper()
+    top_secs = [s.get("sector", "") for s in (sectors or [])[:3] if s.get("sector")]
+    top_txt = "・".join(top_secs) if top_secs else "特筆セクターなし"
+
+    stance = ""
+    tip = ""
+    if "OFF" in rg:
+        stance = "やや弱気"
+        if score <= 0.2:
+            tip = "キャッシュ厚め／守り寄り（生活必需品・ヘルスケア）"
+        else:
+            tip = "戻り待ちの短期・逆張りは小さく"
+    elif "ON" in rg:
+        stance = "やや強気"
+        if score >= 0.6:
+            tip = "押し目買い継続／勝ち筋に集中"
+        else:
+            tip = "押し目限定・分散で"
+    else:
+        stance = "中立"
+        tip = "過度な追随は避けて、指標確認"
+
+    if adopt_rate >= 0.55:
+        tip2 = "シグナルの質は良好"
+    elif adopt_rate <= 0.45:
+        tip2 = "シグナルの質はまちまち"
+    else:
+        tip2 = "シグナルは標準的"
+
+    return f"{stance}。Score={score:.2f}。注目: {top_txt}。{tip}（{tip2}）"
 
 
 # =========================
@@ -108,7 +151,7 @@ class Command(BaseCommand):
 
         # ---- 市況
         b = latest_breadth() or {}
-        regime = breadth_regime(b)
+        regime = breadth_regime(b)  # dict 想定（regime/score 等）
 
         # ---- 指数
         idx = fetch_indexes_snapshot() or {}
@@ -143,6 +186,14 @@ class Command(BaseCommand):
         if not rs_tbl: notes.append("セクターRSが見つからない。")
         if not idx: notes.append("indexes snapshot が空。")
 
+        # ---- ひとこと生成
+        ai_comment = _make_ai_comment(
+            regime=regime.get("regime", "NEUTRAL"),
+            score=float(regime.get("score", 0.0)),
+            sectors=sectors_view,
+            adopt_rate=float(week_stats.get("rate", 0.0)),
+        )
+
         ctx = BriefContext(
             asof=asof_str,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -152,6 +203,7 @@ class Command(BaseCommand):
             sectors=sectors_view,
             week_stats=week_stats,
             notes=notes,
+            ai_comment=ai_comment,   # ← 追加
         )
 
         # ---- LINE 送信
@@ -198,6 +250,8 @@ class Command(BaseCommand):
         text = (
 f"""# AI デイリーブリーフ {ctx.asof}
 
+💡 {ctx.ai_comment or '—'}
+
 生成: {ctx.generated_at}
 
 ■ 地合い（Breadth）
@@ -227,7 +281,7 @@ f"""# AI デイリーブリーフ {ctx.asof}
     def _build_flex(self, ctx: BriefContext) -> dict:
         base_url = getattr(settings, "SITE_BASE_URL", "").rstrip("/")
         public_url = f"{base_url}/media/reports/daily_brief_{ctx.asof}.html" if base_url else ""
-    
+
         # ---- Theme by Regime -------------------------------------------------
         regime = str(ctx.breadth_view.get("regime", "NEUTRAL")).upper()
         def theme_for_regime(rg: str):
@@ -239,9 +293,9 @@ f"""# AI デイリーブリーフ {ctx.asof}
                             heading="#111827", muted="#9ca3af", card="#f9fafb", icon="📈")
             return dict(primary="#2563eb", accent="#3b82f6", pos="#16a34a", neg="#ef4444",
                         heading="#111827", muted="#9ca3af", card="#f9fafb", icon="⚖️")
-    
+
         T = theme_for_regime(regime)
-    
+
         # ---- helpers ---------------------------------------------------------
         def row(label, value, color=None):
             return {
@@ -253,10 +307,10 @@ f"""# AI デイリーブリーフ {ctx.asof}
                      "color": color or T["heading"], "flex": 6, "wrap": False}
                 ]
             }
-    
+
         def signed_color(v: float):
             return T["pos"] if float(v) > 0 else T["neg"] if float(v) < 0 else T["muted"]
-    
+
         # ---- sector list -----------------------------------------------------
         sector_lines = []
         for s in ctx.sectors[:8]:
@@ -270,13 +324,13 @@ f"""# AI デイリーブリーフ {ctx.asof}
             })
         if not sector_lines:
             sector_lines = [{"type": "text", "text": "データなし", "size": "sm", "color": T["muted"]}]
-    
+
         b = ctx.breadth_view
         score = float(b.get("score", 0.0))
         ad    = float(b.get("ad_ratio", 1.0))
         vol   = float(b.get("vol_ratio", 1.0))
         hl    = float(b.get("hl_diff", 0.0))
-    
+
         # ---- body ------------------------------------------------------------
         body = {
           "type": "box",
@@ -291,9 +345,22 @@ f"""# AI デイリーブリーフ {ctx.asof}
                  "weight": "bold", "size": "lg", "color": T["primary"], "flex": 9},
                 {"type": "text", "text": ctx.asof, "size": "xs", "color": T["muted"], "align": "end", "flex": 3}
             ]},
-    
+
+            # 今日のひとこと（Regimeに応じた薄色帯）
+            {
+              "type": "box",
+              "layout": "vertical",
+              "backgroundColor": (T["accent"] + "22"),
+              "cornerRadius": "8px",
+              "paddingAll": "10px",
+              "contents": [
+                {"type": "text", "text": "今日のひとこと", "size": "xs", "color": T["primary"]},
+                {"type": "text", "text": ctx.ai_comment or "—", "size": "sm", "wrap": True, "color": T["heading"]}
+              ]
+            },
+
             {"type": "separator", "margin": "md"},
-    
+
             # 地合い
             {"type": "text", "text": "地合い（Breadth）", "weight": "bold", "size": "md", "color": T["heading"]},
             row("Regime", b.get("regime","NEUTRAL"), color=T["primary"]),
@@ -301,15 +368,15 @@ f"""# AI デイリーブリーフ {ctx.asof}
             row("A/D", f"{ad:.3f}", signed_color(ad-1.0)),
             row("VOL", f"{vol:.2f}", signed_color(vol-1.0)),
             row("H-L", f"{hl:.1f}", signed_color(hl)),
-    
+
             {"type": "separator", "margin": "md"},
-    
+
             # セクター
             {"type": "text", "text": "セクターRS（上位8）", "weight": "bold", "size": "md", "color": T["heading"]},
             {"type": "box", "layout": "vertical", "spacing": "sm", "contents": sector_lines},
-    
+
             {"type": "separator", "margin": "md"},
-    
+
             # サマリー
             {"type": "text", "text": "今週の通知サマリ", "weight": "bold", "size": "md", "color": T["heading"]},
             row("通知", f"{ctx.week_stats.get('total',0):,}"),
@@ -317,7 +384,7 @@ f"""# AI デイリーブリーフ {ctx.asof}
             row("採用率", f"{float(ctx.week_stats.get('rate',0.0))*100:.1f}%"),
           ]
         }
-    
+
         footer = None
         if public_url:
             footer = {
@@ -329,7 +396,7 @@ f"""# AI デイリーブリーフ {ctx.asof}
                     "action": {"type": "uri", "label": "詳細を開く", "uri": public_url}
                 }]
             }
-    
+
         bubble = {"type": "bubble", "size": "mega", "body": body}
         if footer: bubble["footer"] = footer
         return bubble
