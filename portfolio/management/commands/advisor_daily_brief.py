@@ -6,11 +6,10 @@ from datetime import date, datetime, timedelta
 from typing import Dict, Any, List, Optional
 
 from django.core.management.base import BaseCommand, CommandParser
-from django.template.loader import render_to_string
 from django.conf import settings
 from django.utils import timezone
 
-# 市況データ
+# 既存サービス
 from ...services.market import (
     latest_breadth, breadth_regime,
     fetch_indexes_snapshot, latest_sector_strength
@@ -23,13 +22,7 @@ from ...models_line import LineContact
 from ...services.line_api import push as line_push, push_flex as line_push_flex
 
 
-# ---------- ユーティリティ ----------
-def _media_root() -> str:
-    return getattr(settings, "MEDIA_ROOT", "") or os.getcwd()
-
-def _ensure_dir(p: str) -> None:
-    os.makedirs(p, exist_ok=True)
-
+# ---------- 小ユーティリティ ----------
 def _today_str(d: Optional[date] = None) -> str:
     d = d or date.today()
     return d.strftime("%Y-%m-%d")
@@ -50,34 +43,27 @@ def _fmt_num(x, nd=0):
     return f"{v:,.{nd}f}"
 
 def _fmt_pct_from_ratio(x: float, nd: int = 1) -> str:
-    """0.51 → 51.0%"""
     try:
         return f"{float(x)*100:.{nd}f}%"
     except Exception:
         return "-"
 
 def _fmt_signed(x: float, nd: int = 2) -> str:
-    """+/- 付き小数表記"""
     try:
         return f"{float(x):+.{nd}f}"
     except Exception:
         return "—"
 
 def _split_chunks(s: str, limit: int = 4500) -> List[str]:
-    """
-    LINEのテキスト上限（5000字）を安全側でチャンク。改行で良きところで切る。
-    """
     if len(s) <= limit:
         return [s]
-    out, buf = [], []
-    size = 0
-    for line in s.splitlines(True):  # keepends
+    out, buf, size = [], [], 0
+    for line in s.splitlines(True):
         if size + len(line) > limit and buf:
             out.append("".join(buf).rstrip())
             buf, size = [line], len(line)
         else:
-            buf.append(line)
-            size += len(line)
+            buf.append(line); size += len(line)
     if buf:
         out.append("".join(buf).rstrip())
     return out
@@ -95,216 +81,69 @@ class BriefContext:
     notes: List[str]
 
 
-# ---------- Flex Builder（レジーム自動配色） ----------
-def _flex_theme(regime: str) -> dict:
-    r = (regime or "").upper()
-    if r == "RISK_ON":
-        return dict(
-            accent="#16a34a",       # green-600
-            accent_soft="#22c55e",  # green-500
-            badge_bg="#065f46",     # green-800
-            badge_fg="#a7f3d0",     # green-200
-        )
-    if r == "RISK_OFF":
-        return dict(
-            accent="#ef4444",       # red-500
-            accent_soft="#f87171",  # red-400
-            badge_bg="#7f1d1d",     # red-900
-            badge_fg="#fecaca",     # red-200
-        )
-    return dict(
-        accent="#3b82f6",           # blue-500
-        accent_soft="#60a5fa",      # blue-400
-        badge_bg="#1e3a8a",         # blue-900
-        badge_fg="#bfdbfe",         # blue-200
-    )
-
-def _build_flex_daily_brief(ctx: BriefContext) -> dict:
-    """RISKレジームに応じて配色が切り替わるFlex Bubbleを返す"""
-    regime = (ctx.breadth_view or {}).get("regime", "NEUTRAL")
-    th = _flex_theme(regime)
-
-    # 公開URL（任意）
-    base_url = getattr(settings, "SITE_BASE_URL", "").rstrip("/")
-    public_url = f"{base_url}/media/reports/daily_brief_{ctx.asof}.html" if base_url else ""
-
-    def _kv(key, val, bold=False):
-        return {
-            "type": "box", "layout": "baseline", "spacing": "sm",
-            "contents": [
-                {"type": "text", "text": key, "size": "xs", "color": "#9aa4b2", "flex": 3},
-                {"type": "text", "text": str(val), "size": "xs", "color": "#e5e7eb", "flex": 7, "wrap": True,
-                 **({"weight": "bold"} if bold else {})},
-            ],
-        }
-
-    # 指数（上位8）
-    idx_syms = list(ctx.indexes.keys())[:8]
-    idx_items = []
-    for sym in idx_syms:
-        row = ctx.indexes.get(sym, {})
-        v5 = f"{float(row.get('ret_5d', 0.0))*100:+.1f}%"
-        v20 = f"{float(row.get('ret_20d', 0.0))*100:+.1f}%"
-        idx_items.append(_kv(sym, f"5日 {v5} / 20日 {v20}"))
-
-    # セクター上位10
-    sec_items = []
-    for r in ctx.sectors[:10]:
-        sec_items.append(_kv(r["sector"], f"RS {float(r['rs']):+.2f}"))
-
-    header = {
-        "type": "box", "layout": "vertical", "paddingAll": "12px",
-        "backgroundColor": th["accent"],
-        "contents": [
-            {
-                "type": "box", "layout": "baseline", "contents": [
-                    {"type": "text", "text": f"AI デイリーブリーフ  {ctx.asof}",
-                     "color": "#ffffff", "weight": "bold", "wrap": True, "size": "md", "flex": 6},
-                    {"type": "box", "layout": "vertical", "cornerRadius": "14px",
-                     "backgroundColor": th["badge_bg"], "paddingAll": "6px",
-                     "contents": [{"type": "text", "text": regime, "color": th["badge_fg"], "weight": "bold", "size": "xs"}]}
-                ]
-            },
-            {"type": "text", "text": f"Generated at {ctx.generated_at}",
-             "size": "xs", "color": "#e5e7eb", "margin": "sm"},
-        ]
-    }
-
-    breadth_box = {
-        "type": "box", "layout": "vertical", "paddingAll": "12px", "backgroundColor": "#0f172a", "cornerRadius": "12px",
-        "contents": [
-            {"type": "text", "text": "地合い（Breadth）", "weight": "bold",
-             "color": th["accent_soft"], "size": "sm"},
-            {"type": "separator", "margin": "sm", "color": "rgba(148,163,184,0.25)"},
-            _kv("Regime", regime, bold=True),
-            _kv("Score", f"{ctx.breadth_view.get('score', 0.0):.2f}"),
-            _kv("A/D",   f"{ctx.breadth_view.get('ad_ratio', 1.0):.3f}"),
-            _kv("VOL",   f"{ctx.breadth_view.get('vol_ratio', 1.0):.3f}"),
-            _kv("H-L",   f"{ctx.breadth_view.get('hl_diff', 0)}"),
-        ]
-    }
-
-    indexes_box = {
-        "type": "box", "layout": "vertical", "paddingAll": "12px", "backgroundColor": "#0b1220", "cornerRadius": "12px",
-        "contents": [{"type": "text", "text": "指数スナップショット（抜粋）", "weight": "bold",
-                      "color": th["accent_soft"], "size": "sm"},
-                     {"type": "separator", "margin": "sm", "color": "rgba(148,163,184,0.25)"},
-                     *idx_items]
-    }
-
-    sectors_box = {
-        "type": "box", "layout": "vertical", "paddingAll": "12px", "backgroundColor": "#0b1220", "cornerRadius": "12px",
-        "contents": [{"type": "text", "text": "セクターRS（上位10）", "weight": "bold",
-                      "color": th["accent_soft"], "size": "sm"},
-                     {"type": "separator", "margin": "sm", "color": "rgba(148,163,184,0.25)"},
-                     *sec_items] if sec_items else
-                    [{"type":"text","text":"データなし","size":"xs","color":"#9aa4b2"}]
-    }
-
-    wk = ctx.week_stats or {}
-    weekly_box = {
-        "type": "box", "layout": "horizontal", "spacing": "8px",
-        "contents": [
-            {"type": "box", "layout": "vertical", "paddingAll": "10px", "cornerRadius": "12px",
-             "backgroundColor": "#0b1220",
-             "contents": [{"type": "text", "text": "通知", "size": "xs", "color": "#9aa4b2"},
-                          {"type": "text", "text": f"{int(wk.get('total',0)):,}", "size": "md",
-                           "weight": "bold", "color": "#e5e7eb"}]},
-            {"type": "box", "layout": "vertical", "paddingAll": "10px", "cornerRadius": "12px",
-             "backgroundColor": "#0b1220",
-             "contents": [{"type": "text", "text": "採用", "size": "xs", "color": "#9aa4b2"},
-                          {"type": "text", "text": f"{int(wk.get('taken',0)):,}", "size": "md",
-                           "weight": "bold", "color": "#e5e7eb"}]},
-            {"type": "box", "layout": "vertical", "paddingAll": "10px", "cornerRadius": "12px",
-             "backgroundColor": "#0b1220",
-             "contents": [{"type": "text", "text": "採用率", "size": "xs", "color": "#9aa4b2"},
-                          {"type": "text", "text": f"{float(wk.get('rate',0.0))*100:.1f}%", "size": "md",
-                           "weight": "bold", "color": "#e5e7eb"}]},
-        ]
-    }
-
-    footer_contents = []
-    if public_url:
-        footer_contents.append({
-            "type":"button","style":"primary","height":"sm",
-            "action":{"type":"uri","label":"詳細を開く","uri": public_url }
-        })
-
-    return {
-        "type": "bubble",
-        "size": "mega",
-        "styles": {"body": {"backgroundColor": "#0a0f1f"}},
-        "header": header,
-        "body": {
-            "type": "box", "layout": "vertical", "spacing": "12px",
-            "contents": [breadth_box, indexes_box, sectors_box, weekly_box]
-        },
-        **({"footer": {"type":"box","layout":"vertical","spacing":"sm","contents": footer_contents}}
-           if footer_contents else {})
-    }
-
-
-# ---------- コマンド本体 ----------
+# =========================
+# コマンド本体（LINE専用）
+# =========================
 class Command(BaseCommand):
-    help = "朝のAIデイリーブリーフを生成（HTML/MD保存＆LINE配信専用）"
+    help = "AIデイリーブリーフを生成し、LINEに配信（メールは廃止）"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--date", type=str, default="", help="対象日(YYYY-MM-DD)。未指定は今日")
-        parser.add_argument("--outdir", type=str, default="media/reports", help="保存ディレクトリ")
+        parser.add_argument("--outdir", type=str, default="media/reports", help="保存先（公開URLボタン用）")
         parser.add_argument("--days", type=int, default=90, help="週次サマリのlookback（日数）")
 
-        # ==== LINE 送信用オプション ====
-        parser.add_argument("--line", action="store_true", help="LINEへ送信する（既定はFlex送信）")
-        parser.add_argument("--line-text", action="store_true", help="Flexではなくテキストで送る")
-        parser.add_argument("--line-to", type=str, default="", help="LINE送信先user_id（カンマ区切り）。未指定で --line-all か最新1件")
-        parser.add_argument("--line-all", action="store_true", help="登録済みLineContactの全員に送る")
-        parser.add_argument("--line-title", type=str, default="", help="LINE先頭タイトル（未指定は既定）")
-        parser.add_argument("--line-max-sectors", type=int, default=10, help="LINE本文のセクター上位件数")
+        # LINE 送信
+        parser.add_argument("--line", action="store_true", help="LINEへ送信する")
+        parser.add_argument("--line-text", action="store_true", help="テキストで送る（既定はFlex）")
+        parser.add_argument("--line-to", type=str, default="", help="送信先user_id（カンマ区切り）")
+        parser.add_argument("--line-all", action="store_true", help="登録済み全員に送る")
+        parser.add_argument("--line-title", type=str, default="", help="タイトル（未指定は自動）")
+        parser.add_argument("--line-max-sectors", type=int, default=10, help="セクター上位表示件数")
+        parser.add_argument("--line-max-indexes", type=int, default=6, help="指数の表示件数（Flex）")
 
     def handle(self, *args, **opts):
         asof_str = opts["date"] or _today_str()
         try:
-            asof_date = datetime.fromisoformat(asof_str).date()
+            _ = datetime.fromisoformat(asof_str).date()
         except Exception:
             return self.stdout.write(self.style.ERROR(f"invalid --date: {asof_str}"))
 
-        # ---- 1) 市況（breadth）
+        # ---- 市況
         b = latest_breadth() or {}
         regime = breadth_regime(b)
 
-        # ---- 2) 指数スナップショット
+        # ---- 指数
         idx = fetch_indexes_snapshot() or {}
 
-        # ---- 3) セクターRS（最新テーブル可視化）
+        # ---- セクターRS
         rs_tbl = latest_sector_strength() or {}
         sectors_view: List[Dict[str, Any]] = []
         for raw_sec, row in rs_tbl.items():
-            sec = normalize_sector(raw_sec)
             sectors_view.append({
-                "sector": sec,
+                "sector": normalize_sector(raw_sec),
                 "rs": _safe_float(row.get("rs_score")),
                 "date": row.get("date") or "",
             })
         sectors_view.sort(key=lambda r: r["rs"], reverse=True)
 
-        # ---- 4) 通知採用の週次サマリ（今週）
+        # ---- 週次サマリ
         now = timezone.localtime()
-        monday = now - timedelta(days=now.weekday())
-        monday = monday.replace(hour=0, minute=0, second=0, microsecond=0)
-
+        monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
         since = timezone.now() - timedelta(days=int(opts["days"] or 90))
         qs_all = AdviceItem.objects.filter(created_at__gte=since)
         week_qs = qs_all.filter(created_at__gte=monday)
-        week_total = week_qs.count()
-        week_taken = week_qs.filter(taken=True).count()
-        week_rate = (week_taken / week_total) if week_total > 0 else 0.0
-        week_stats = dict(total=week_total, taken=week_taken, rate=round(week_rate, 4))
+        week_stats = dict(
+            total=week_qs.count(),
+            taken=week_qs.filter(taken=True).count(),
+            rate=0.0,
+        )
+        week_stats["rate"] = round(week_stats["taken"] / week_stats["total"], 4) if week_stats["total"] else 0.0
 
-        # ---- 5) 付記
+        # ---- 注意書き
         notes: List[str] = []
-        if not b:       notes.append("breadth.json が見つからないため既定ハンドリング。")
-        if not rs_tbl:  notes.append("セクターRSが見つからない（latest_sector_strength() 空）。")
-        if not idx:     notes.append("indexes snapshot が空。")
+        if not b: notes.append("breadth.json が見つからないため既定ハンドリング。")
+        if not rs_tbl: notes.append("セクターRSが見つからない。")
+        if not idx: notes.append("indexes snapshot が空。")
 
         ctx = BriefContext(
             asof=asof_str,
@@ -317,66 +156,45 @@ class Command(BaseCommand):
             notes=notes,
         )
 
-        # ---- 6) 保存（HTML / Markdown）
-        outdir = opts["outdir"] or "media/reports"
-        _ensure_dir(outdir)
+        # ---- LINE 送信
+        if not opts["line"]:
+            self.stdout.write(self.style.SUCCESS("generated (no LINE send)."))
+            return
 
-        html = self._render_html(ctx)
-        md = self._render_md(ctx, sector_top=int(opts["line_max_sectors"] or 10))
+        targets = self._resolve_line_targets(opts)
+        if not targets:
+            self.stdout.write(self.style.WARNING("LINE送信先が見つかりません。"))
+            return
 
-        html_path = os.path.join(outdir, f"daily_brief_{asof_str}.html")
-        md_path = os.path.join(outdir, f"daily_brief_{asof_str}.md")
-        with open(html_path, "w", encoding="utf-8") as f:
-            f.write(html)
-        with open(md_path, "w", encoding="utf-8") as f:
-            f.write(md)
+        if opts.get("line_text"):
+            text = self._render_text(ctx, sector_top=int(opts["line_max_sectors"] or 10),
+                                     idx_top=int(opts["line_max_indexes"] or 6))
+            self._send_line_text(targets, ctx, text, opts)
+        else:
+            flex = self._build_flex(ctx,
+                                    sector_top=int(opts["line_max_sectors"] or 10),
+                                    idx_top=int(opts["line_max_indexes"] or 6))
+            self._send_line_flex(targets, ctx, flex, opts)
 
-        self.stdout.write(self.style.SUCCESS(f"Wrote: {html_path}"))
-        self.stdout.write(self.style.SUCCESS(f"Wrote: {md_path}"))
-
-        # ---- 7) LINE送信（任意）
-        if opts["line"]:
-            user_ids = self._resolve_line_targets(opts)
-            if not user_ids:
-                self.stdout.write(self.style.WARNING("LINE送信先が見つかりません（--line-to / --line-all を指定 or LineContactを作成）。"))
-                return
-            if opts.get("line_text"):
-                self._send_line_text(user_ids, ctx, md, opts)
-            else:
-                ok = self._send_line_flex(user_ids, ctx, opts)
-                if not ok:
-                    # Flex失敗時はテキストでフォールバック
-                    self._send_line_text(user_ids, ctx, md, opts)
-
-    # ---------- テンプレ描画 ----------
-    def _render_html(self, ctx: BriefContext) -> str:
+    # ---------- 送信先解決 ----------
+    def _resolve_line_targets(self, opts) -> List[str]:
+        ids = [x.strip() for x in (opts.get("line_to") or "").split(",") if x.strip()]
+        if ids: return ids
+        if opts.get("line_all"):
+            return list(LineContact.objects.values_list("user_id", flat=True))
         try:
-            return render_to_string("emails/advisor_daily_brief.html", {"ctx": ctx})
+            return [LineContact.objects.latest("created_at").user_id]
         except Exception:
-            # テンプレが無い場合の簡易HTML
-            return f"""<!doctype html><meta charset="utf-8">
-            <h2>AI デイリーブリーフ {ctx.asof}</h2>
-            <p>Generated at {ctx.generated_at}</p>
-            <h3>地合い</h3>
-            <pre>{json.dumps(ctx.breadth_view, ensure_ascii=False, indent=2)}</pre>
-            <h3>指数</h3>
-            <pre>{json.dumps(ctx.indexes, ensure_ascii=False, indent=2)}</pre>
-            <h3>セクターRS（上位）</h3>
-            <pre>{json.dumps(ctx.sectors[:10], ensure_ascii=False, indent=2)}</pre>
-            <h3>今週の通知</h3>
-            <pre>{json.dumps(ctx.week_stats, ensure_ascii=False, indent=2)}</pre>
-            <h3>Notes</h3>
-            <pre>{json.dumps(ctx.notes, ensure_ascii=False, indent=2)}</pre>
-            """
+            return []
 
-    def _render_md(self, ctx: BriefContext, sector_top: int = 10) -> str:
-        # テキスト（LINEフォールバック用）
-        idx_syms = list(ctx.indexes.keys())[:8]
+    # ---------- テキスト描画（手動指定時のみ） ----------
+    def _render_text(self, ctx: BriefContext, sector_top: int = 10, idx_top: int = 6) -> str:
+        idx_syms = list(ctx.indexes.keys())[:idx_top]
         idx_lines = [
-            f"- {sym}: 5日={_fmt_signed(ctx.indexes.get(sym,{}).get('ret_5d',0.0), 2)} / 20日={_fmt_signed(ctx.indexes.get(sym,{}).get('ret_20d',0.0), 2)}"
+            f"- {sym}: 5日={_fmt_signed(ctx.indexes.get(sym,{}).get('ret_5d',0.0),2)} / 20日={_fmt_signed(ctx.indexes.get(sym,{}).get('ret_20d',0.0),2)}"
             for sym in idx_syms
         ]
-        top_secs = "\n".join([f"- {r['sector']}: RS {_fmt_signed(r['rs'], 2)}" for r in ctx.sectors[:sector_top]]) or "- なし"
+        top_secs = "\n".join([f"- {r['sector']}: RS {_fmt_signed(r['rs'],2)}" for r in ctx.sectors[:sector_top]]) or "- なし"
         notes_lines = "\n".join([f"- {n}" for n in (ctx.notes or ["なし"])])
 
         text = (
@@ -385,9 +203,9 @@ f"""# AI デイリーブリーフ {ctx.asof}
 生成: {ctx.generated_at}
 
 ■ 地合い（Breadth）
-- Regime: **{ctx.breadth_view.get('regime', 'NEUTRAL')}**
-- Score: {ctx.breadth_view.get('score', 0.0)}
-- A/D: {ctx.breadth_view.get('ad_ratio', 1.0)} / VOL: {ctx.breadth_view.get('vol_ratio', 1.0)} / H-L: {ctx.breadth_view.get('hl_diff', 0)}
+- Regime: **{ctx.breadth_view.get('regime','NEUTRAL')}**
+- Score: {ctx.breadth_view.get('score',0.0)}
+- A/D: {ctx.breadth_view.get('ad_ratio',1.0)} / VOL: {ctx.breadth_view.get('vol_ratio',1.0)} / H-L: {ctx.breadth_view.get('hl_diff',0)}
 
 ■ 指数スナップショット（抜粋）
 """
@@ -400,59 +218,142 @@ f"""# AI デイリーブリーフ {ctx.asof}
 ■ 今週の通知サマリ
 - 通知: {_fmt_num(ctx.week_stats['total'])}
 - 採用: {_fmt_num(ctx.week_stats['taken'])}
-- 採用率: {_fmt_pct_from_ratio(ctx.week_stats['rate'], 1)}
+- 採用率: {_fmt_pct_from_ratio(ctx.week_stats['rate'],1)}
 
 ■ Notes
-{notes_lines}
-"""
+{notes_lines}"""
         )
         return text.strip()
 
-    # ---------- LINE: 送信対象解決 ----------
-    def _resolve_line_targets(self, opts) -> List[str]:
-        ids = [x.strip() for x in (opts.get("line_to") or "").split(",") if x.strip()]
-        if ids:
-            return ids
-        if opts.get("line_all"):
-            return list(LineContact.objects.values_list("user_id", flat=True))
-        try:
-            latest = LineContact.objects.latest("created_at")
-            return [latest.user_id]
-        except Exception:
-            return []
+    # ---------- Flex生成（見やすい配色 & コンパクト） ----------
+    def _build_flex(self, ctx: BriefContext, sector_top: int = 10, idx_top: int = 6) -> dict:
+        # テーマカラー
+        COL_BG  = "#0b1020"
+        COL_TX  = "#e8ecf1"
+        COL_DIM = "#9aa4b2"
+        COL_POS = "#10b981"   # 緑
+        COL_NEG = "#ef4444"   # 赤
+        COL_NEU = "#cbd5e1"   # グレー
 
-    # ---------- LINE: Flex ----------
-    def _send_line_flex(self, user_ids: List[str], ctx: BriefContext, opts) -> bool:
-        """Flexを送信。1件でも成功すれば True"""
-        bubble = _build_flex_daily_brief(ctx)
+        regime = str(ctx.breadth_view.get("regime","NEUTRAL")).upper()
+        badge_color = COL_NEU
+        if regime == "RISK_ON":  badge_color = COL_POS
+        if regime == "RISK_OFF": badge_color = COL_NEG
+
+        # 公開URLがあるならボタンを出す
+        public_url = ""
+        base_url = getattr(settings, "SITE_BASE_URL", "").rstrip("/")
+        if base_url:
+            public_url = f"{base_url}/media/reports/daily_brief_{ctx.asof}.html"
+
+        def kv(label, value, color=None):
+            return {
+                "type":"box","layout":"baseline","contents":[
+                    {"type":"text","text":label,"size":"sm","color":COL_DIM,"flex":5},
+                    {"type":"text","text":str(value),"size":"sm","color":(color or COL_TX),"flex":7,"align":"end"}
+                ]
+            }
+
+        # 指数（上位 idx_top）
+        idx_boxes = []
+        for sym in list(ctx.indexes.keys())[:idx_top]:
+            row = ctx.indexes.get(sym, {})
+            v5  = _safe_float(row.get("ret_5d"))
+            v20 = _safe_float(row.get("ret_20d"))
+            idx_boxes.append({
+                "type":"box","layout":"baseline","contents":[
+                    {"type":"text","text":sym,"size":"sm","color":COL_TX,"flex":6},
+                    {"type":"text","text":_fmt_signed(v5,2),"size":"sm","align":"end","flex":3,"color":(COL_POS if v5>=0 else COL_NEG)},
+                    {"type":"text","text":_fmt_signed(v20,2),"size":"sm","align":"end","flex":3,"color":(COL_POS if v20>=0 else COL_NEG)},
+                ]
+            })
+
+        # セクター（上位 sector_top）
+        sec_boxes = []
+        for r in ctx.sectors[:sector_top]:
+            color = COL_POS if r["rs"] >= 0 else COL_NEG
+            sec_boxes.append({
+                "type":"box","layout":"baseline","contents":[
+                    {"type":"text","text":r["sector"],"size":"sm","color":COL_TX,"flex":8,"wrap":True},
+                    {"type":"text","text":_fmt_signed(r["rs"],2),"size":"sm","align":"end","flex":4,"color":color},
+                ]
+            })
+
+        # 本文
+        body = {
+          "type":"box","layout":"vertical","spacing":"md","contents":[
+            {"type":"text","text":"AI デイリーブリーフ","weight":"bold","size":"lg","color":COL_TX},
+            {"type":"text","text":ctx.asof,"size":"xs","color":COL_DIM},
+
+            {"type":"box","layout":"vertical","margin":"md","contents":[
+                {"type":"box","layout":"baseline","contents":[
+                    {"type":"text","text":"地合い（Breadth）","weight":"bold","size":"md","color":COL_TX},
+                    {"type":"text","text":regime,"size":"xs","weight":"bold",
+                     "color":COL_BG,"align":"end","gravity":"center",
+                     "backgroundColor":badge_color,"paddingAll":"4px","cornerRadius":"6px","margin":"md"}
+                ]},
+                kv("Score",  ctx.breadth_view.get("score", 0.0)),
+                kv("A/D",    ctx.breadth_view.get("ad_ratio", 1.0)),
+                kv("VOL",    ctx.breadth_view.get("vol_ratio", 1.0)),
+                kv("H-L",    ctx.breadth_view.get("hl_diff", 0)),
+            ]},
+
+            {"type":"separator","margin":"md"},
+
+            {"type":"box","layout":"vertical","margin":"md","spacing":"sm","contents":[
+                {"type":"box","layout":"baseline","contents":[
+                    {"type":"text","text":"指数スナップショット","weight":"bold","size":"md","color":COL_TX},
+                    {"type":"text","text":"5日 / 20日","size":"xs","color":COL_DIM,"align":"end"}
+                ]},
+            ] + (idx_boxes or [{"type":"text","text":"データなし","size":"sm","color":COL_DIM}])},
+
+            {"type":"separator","margin":"md"},
+
+            {"type":"box","layout":"vertical","margin":"md","spacing":"sm","contents":[
+                {"type":"text","text":f"セクターRS（上位{min(sector_top,len(ctx.sectors))}）","weight":"bold","size":"md","color":COL_TX},
+            ] + (sec_boxes or [{"type":"text","text":"データなし","size":"sm","color":COL_DIM}])},
+
+            {"type":"separator","margin":"md"},
+
+            {"type":"box","layout":"vertical","margin":"md","contents":[
+                {"type":"text","text":"今週の通知サマリ","weight":"bold","size":"md","color":COL_TX},
+                kv("通知",   f'{ctx.week_stats["total"]:,}'),
+                kv("採用",   f'{ctx.week_stats["taken"]:,}'),
+                kv("採用率", _fmt_pct_from_ratio(ctx.week_stats["rate"], 1)),
+            ]},
+          ]
+        }
+
+        footer = {"type":"box","layout":"vertical","spacing":"sm","contents":[]}
+        if public_url:
+            footer["contents"].append({
+                "type":"button","style":"primary","height":"sm",
+                "action":{"type":"uri","label":"詳細を開く","uri": public_url}
+            })
+
+        bubble = {"type":"bubble","size":"mega","body":body}
+        if footer["contents"]:
+            bubble["footer"] = footer
+        return bubble
+
+    # ---------- LINE送信（Flex） ----------
+    def _send_line_flex(self, user_ids: List[str], ctx: BriefContext, flex: dict, opts) -> None:
         alt = (opts.get("line_title") or f"AIデイリーブリーフ {ctx.asof}").strip()
-        any_ok = False
         for uid in user_ids:
             try:
-                r = line_push_flex(uid, alt, bubble)
-                ok = getattr(r, "status_code", None) == 200
-                any_ok = any_ok or ok
+                r = line_push_flex(uid, alt, flex)
                 self.stdout.write(self.style.SUCCESS(f"LINE Flex to {uid}: {getattr(r,'status_code',None)}"))
             except Exception as e:
                 self.stdout.write(self.style.WARNING(f"LINE Flex exception (uid={uid}): {e}"))
-        return any_ok
 
-    # ---------- LINE: Text（フォールバック/指定時） ----------
+    # ---------- LINE送信（テキスト） ----------
     def _send_line_text(self, user_ids: List[str], ctx: BriefContext, md_text: str, opts) -> None:
         title = (opts.get("line_title") or f"AIデイリーブリーフ {ctx.asof}").strip()
         header = f"{title}\n\n"
         for uid in user_ids:
-            chunks = _split_chunks(header + md_text, limit=4500)
-            ok_all = True
-            for i, ch in enumerate(chunks, 1):
+            for i, ch in enumerate(_split_chunks(header + md_text, limit=4500), 1):
                 try:
-                    resp = line_push(uid, ch)
-                    code = getattr(resp, "status_code", None)
-                    if code != 200:
-                        ok_all = False
-                        self.stdout.write(self.style.WARNING(f"LINE push failed (uid={uid}, part={i}/{len(chunks)}): {code}"))
+                    r = line_push(uid, ch)
+                    self.stdout.write(self.style.SUCCESS(f"LINE text to {uid} part {i}: {getattr(r,'status_code',None)}"))
                 except Exception as e:
-                    ok_all = False
-                    self.stdout.write(self.style.WARNING(f"LINE push exception (uid={uid}, part={i}/{len(chunks)}): {e}"))
-            if ok_all:
-                self.stdout.write(self.style.SUCCESS(f"LINE text sent to {uid} ({len(chunks)} msg)"))
+                    self.stdout.write(self.style.WARNING(f"LINE text exception (uid={uid}, part={i}): {e}"))
