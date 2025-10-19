@@ -28,3 +28,20 @@ class SectorSignal(models.Model):
 
     def __str__(self):
         return f"{self.date} {self.sector} rs={self.rs_score:+.3f}"
+
+# === ブレッドス（地合い）日次スナップショット ===
+class BreadthSnapshot(models.Model):
+    date = models.DateField(unique=True, db_index=True)
+    ad_ratio = models.FloatField(default=1.0)   # 上昇/下落 騰落比
+    vol_ratio = models.FloatField(default=1.0)  # 上げ出来高/下げ出来高
+    hl_diff = models.FloatField(default=0.0)    # 新高値 − 新安値
+    score = models.FloatField(default=0.0)      # -1..+1
+    regime = models.CharField(max_length=16, default="NEUTRAL")  # RISK_ON / NEUTRAL / RISK_OFF
+    raw = models.JSONField(default=dict, blank=True)             # 入力の生データ保存用
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-date"]
+
+    def __str__(self) -> str:
+        return f"{self.date} {self.regime} score={self.score:.2f}"
