@@ -270,6 +270,7 @@ class Command(BaseCommand):
             score=float(regime.get("score", 0.0)),
             sectors=sectors_view,
             adopt_rate=float(week_stats.get("rate", 0.0)),
+            prev_score=prev_day_score,
             seed=asof_str,
         )
 
