@@ -2,11 +2,9 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple
-import os
+from typing import Dict, Any, List, Optional
 import json
-import glob
-import random
+import os
 
 from django.core.management.base import BaseCommand, CommandParser
 from django.conf import settings
@@ -19,6 +17,9 @@ from ...services.market import (
 )
 from ...services.sector_map import normalize_sector
 from ...models_advisor import AdviceItem
+
+# コメント生成（新規サービス化）
+from ...services.ai_comment import make_ai_comment
 
 # LINE
 from ...models_line import LineContact
@@ -63,82 +64,29 @@ def _split_chunks(s: str, limit: int = 4500) -> List[str]:
     out, buf, size = [], [], 0
     for line in s.splitlines(True):
         if size + len(line) > limit and buf:
-            out.append("".join(buf).rstrip())
-            buf, size = [line], len(line)
+            out.append("".join(buf).rstrip()); buf, size = [line], len(line)
         else:
             buf.append(line); size += len(line)
     if buf:
         out.append("".join(buf).rstrip())
     return out
 
+def _media_root() -> str:
+    return getattr(settings, "MEDIA_ROOT", "") or os.getcwd()
 
-# ---------- breadth 前日スコア推定（ローカル読込） ----------
-def _market_dirs() -> List[str]:
-    """
-    breadth_YYYY-MM-DD.json を探す候補ディレクトリ:
-    - <PROJECT_ROOT>/market
-    - <MEDIA_ROOT>/market
-    """
-    dirs = []
-    base_dir = getattr(settings, "BASE_DIR", None)
-    if base_dir:
-        dirs.append(os.path.join(str(base_dir), "market"))
-    media_root = getattr(settings, "MEDIA_ROOT", "") or os.getcwd()
-    dirs.append(os.path.join(media_root, "market"))
-    # 正規化 & 重複排除
-    seen, out = set(), []
-    for d in dirs:
-        dd = os.path.abspath(d)
-        if dd not in seen:
-            seen.add(dd); out.append(dd)
-    return out
-
-def _scan_breadth_files() -> List[Tuple[date, str]]:
-    """
-    breadth_YYYY-MM-DD.json を見つけて (date, path) のリスト（昇順）を返す
-    """
-    items: List[Tuple[date, str]] = []
-    for d in _market_dirs():
-        try:
-            for p in glob.glob(os.path.join(d, "breadth_*.json")):
-                base = os.path.basename(p)
-                try:
-                    key = base.split("_", 1)[1].split(".json", 1)[0]
-                    dt = datetime.fromisoformat(key).date()
-                    items.append((dt, p))
-                except Exception:
-                    continue
-        except Exception:
-            continue
-    items.sort(key=lambda x: x[0])  # 昇順
-    return items
-
-def _guess_prev_breadth_score(asof_str: str) -> Optional[float]:
-    """
-    asof より前の breadth_* の中から最も最近のものの score を返す。無ければ None。
-    """
-    try:
-        asof = datetime.fromisoformat(asof_str).date()
-    except Exception:
-        asof = date.today()
-    items = _scan_breadth_files()
-    prevs = [p for (d, p) in items if d < asof]
-    if not prevs:
-        # どうしても見つからない場合、最後から2番目を保険で使う
-        if len(items) >= 2:
-            prevs = [items[-2][1]]
-        else:
-            return None
-    path = prevs[-1]
+def _load_breadth_for(day: date) -> Optional[Dict[str, Any]]:
+    """MEDIA_ROOT/market/breadth_YYYY-MM-DD.json を読む（無ければNone）"""
+    mdir = os.path.join(_media_root(), "market")
+    path = os.path.join(mdir, f"breadth_{day.strftime('%Y-%m-%d')}.json")
+    if not os.path.exists(path):
+        return None
     try:
         with open(path, "r", encoding="utf-8") as f:
-            obj = json.load(f)
-        return float(obj.get("score", 0.0))
+            return json.load(f)
     except Exception:
         return None
 
 
-# ---------- 「今日のひとこと」 ----------
 @dataclass
 class BriefContext:
     asof: str
@@ -152,92 +100,6 @@ class BriefContext:
     ai_comment: str = ""
 
 
-def _make_ai_comment(
-    regime: str,
-    score: float,
-    sectors: List[Dict[str, Any]],
-    adopt_rate: float,
-    prev_score: Optional[float] = None,
-    seed: str = "",
-) -> str:
-    """
-    もっと人間味のある “今日のひとこと”
-    - 砕けたトーン / 口語
-    - 前日比を↗︎/↘︎/→で直感表示
-    - 上位セクターを自然文で
-    - シグナルの当たり具合を体感っぽく
-    """
-    rg = (regime or "").upper()
-    top_secs = [s.get("sector", "") for s in (sectors or []) if s.get("sector")]
-    tops = "・".join(top_secs[:3]) if top_secs else "とくに目立たず"
-
-    rnd = random.Random((seed or "") + rg + f"{score:.3f}{adopt_rate:.3f}")
-
-    # --- 前日比の言い回し
-    delta_icon, delta_phrase = "→", "昨日と大きくは変わらず"
-    if prev_score is not None:
-        diff = round(score - float(prev_score), 2)
-        if diff > 0.05:
-            delta_icon, delta_phrase = "↗︎", rnd.choice(["昨日よりトーン上がってきた", "じわっと改善中", "雰囲気ひとつ明るめ"])
-        elif diff < -0.05:
-            delta_icon, delta_phrase = "↘︎", rnd.choice(["やや失速ぎみ", "少しトーンダウン", "警戒感がのってきた"])
-
-    # --- 地合いオープナー
-    open_on = [
-        "今日は気持ちよく上を見られそう🙌",
-        "全体の空気は悪くないね😎",
-        "雰囲気は前向き、波に乗れそう🚀",
-    ]
-    open_off = [
-        "無理せずいきたい空気感😪",
-        "リスクは少し抑えめでいこう🛡️",
-        "今日は肩の力を抜いて様子見でも👌",
-    ]
-    open_neu = [
-        "方向感が出にくい日かも🤔",
-        "上下に振れやすいので落ち着いて⚖️",
-        "どちらにも行けるので慎重に🧭",
-    ]
-
-    if "ON" in rg:
-        opener = rnd.choice(open_on)
-        stance = rnd.choice(["強気寄り", "やや強気"])
-        action = rnd.choice(["押し目拾いはアリ", "素直にトレンド追随でOK", "伸びるところに便乗で"])
-        mood_emoji = "🟢"
-    elif "OFF" in rg:
-        opener = rnd.choice(open_off)
-        stance = rnd.choice(["守り寄り", "弱気寄り"])
-        action = rnd.choice(["サイズ小さめで", "現金多めで", "ディフェンシブ寄せで"])
-        mood_emoji = "🔴"
-    else:
-        opener = rnd.choice(open_neu)
-        stance = "中立"
-        action = rnd.choice(["軽めに刻んで", "シナリオは複数用意で", "無理にポジらないで"])
-        mood_emoji = "⚪️"
-
-    # --- シグナルの当たり具合（採用率）
-    if adopt_rate >= 0.60:
-        hit = rnd.choice(["当たり感はけっこう良さげ👌", "シグナルの精度は高め👍", "今日は頼りになりそう✨"])
-    elif adopt_rate >= 0.50:
-        hit = rnd.choice(["まずまずの手応え🙂", "平常運転って感じ😌", "可もなく不可もなく🕊"])
-    else:
-        hit = rnd.choice(["ノイズ多めなので慎重に⚠️", "だましに注意👀", "深追いは禁物🙅‍♂️"])
-
-    # --- 上位セクターを自然文で
-    if top_secs:
-        sec_line = f"今日は『{tops}』あたりが元気そう💡"
-    else:
-        sec_line = "セクターは横並びで決め手薄そう💤"
-
-    # --- 文章を組み立て（3〜4行）
-    lines = [
-        f"{mood_emoji} {opener} {delta_icon} {delta_phrase}（Score {score:.2f}）",
-        sec_line,
-        f"{action}。スタンスは{stance}で。{hit}",
-    ]
-    return "\n".join(lines)
-
-
 # =========================
 # コマンド本体（LINE専用）
 # =========================
@@ -247,6 +109,10 @@ class Command(BaseCommand):
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--date", type=str, default="", help="対象日(YYYY-MM-DD)。未指定は今日")
         parser.add_argument("--days", type=int, default=90, help="週次サマリのlookback（日数）")
+
+        # コメント生成（GPT切替）
+        parser.add_argument("--ai-model", type=str, default="", help="コメント生成モデル（gpt-4-turbo / gpt-5）")
+
         # LINE 送信
         parser.add_argument("--line", action="store_true", help="LINEへ送信する")
         parser.add_argument("--line-text", action="store_true", help="テキストで送る（既定はFlex）")
@@ -259,18 +125,25 @@ class Command(BaseCommand):
     def handle(self, *args, **opts):
         asof_str = opts["date"] or _today_str()
         try:
-            _ = datetime.fromisoformat(asof_str).date()
+            the_day = datetime.fromisoformat(asof_str).date()
         except Exception:
             return self.stdout.write(self.style.ERROR(f"invalid --date: {asof_str}"))
 
-        # ---- 市況
+        # ---- 市況（当日）
         b = latest_breadth() or {}
-        regime_view = breadth_regime(b)  # dict（regime/score等）
+        regime = breadth_regime(b)  # dict（regime/score等）
 
-        # ---- 前日スコア（ローカル breadth_* から推定）
-        prev_day_score = _guess_prev_breadth_score(asof_str)
+        # ---- 前日スコア（任意）
+        prev_score = None
+        yday = the_day - timedelta(days=1)
+        prev_b = _load_breadth_for(yday)
+        if prev_b:
+            try:
+                prev_score = float(breadth_regime(prev_b).get("score", 0.0))
+            except Exception:
+                prev_score = None
 
-        # ---- 指数
+        # ---- 指数（スナップショット）
         idx = fetch_indexes_snapshot() or {}
 
         # ---- セクターRS
@@ -303,21 +176,23 @@ class Command(BaseCommand):
         if not rs_tbl: notes.append("セクターRSが見つからない。")
         if not idx: notes.append("indexes snapshot が空。")
 
-        # ---- ひとこと
-        ai_comment = _make_ai_comment(
-            regime=regime_view.get("regime", "NEUTRAL"),
-            score=float(regime_view.get("score", 0.0)),
+        # ---- 今日のひとこと（GPT / ローカル）
+        ai_model = (opts.get("ai_model") or "").strip() or None  # Noneなら既定(gpt-4-turbo)
+        ai_comment = make_ai_comment(
+            regime=regime.get("regime", "NEUTRAL"),
+            score=float(regime.get("score", 0.0)),
             sectors=sectors_view,
             adopt_rate=float(week_stats.get("rate", 0.0)),
-            prev_score=prev_day_score,
+            prev_score=prev_score,
             seed=asof_str,
+            engine=ai_model,
         )
 
         ctx = BriefContext(
             asof=asof_str,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             breadth=b,
-            breadth_view=regime_view,
+            breadth_view=regime,
             indexes=idx,
             sectors=sectors_view,
             week_stats=week_stats,
@@ -356,7 +231,7 @@ class Command(BaseCommand):
         except Exception:
             return []
 
-    # ---------- テキスト描画（手動指定時のみ） ----------
+    # ---------- テキスト描画（フォールバック/任意送信） ----------
     def _render_text(self, ctx: BriefContext, sector_top: int = 10, idx_top: int = 6) -> str:
         idx_syms = list(ctx.indexes.keys())[:idx_top]
         idx_lines = [
@@ -401,7 +276,7 @@ f"""# AI デイリーブリーフ {ctx.asof}
         base_url = getattr(settings, "SITE_BASE_URL", "").rstrip("/")
         public_url = f"{base_url}/media/reports/daily_brief_{ctx.asof}.html" if base_url else ""
 
-        # ---- Theme by Regime -------------------------------------------------
+        # Theme by regime
         regime = str(ctx.breadth_view.get("regime", "NEUTRAL")).upper()
         def theme_for_regime(rg: str):
             if "OFF" in rg:
@@ -412,10 +287,8 @@ f"""# AI デイリーブリーフ {ctx.asof}
                             heading="#111827", muted="#9ca3af", card="#f9fafb", icon="📈")
             return dict(primary="#2563eb", accent="#3b82f6", pos="#16a34a", neg="#ef4444",
                         heading="#111827", muted="#9ca3af", card="#f9fafb", icon="⚖️")
-
         T = theme_for_regime(regime)
 
-        # ---- helpers ---------------------------------------------------------
         def row(label, value, color=None):
             return {
                 "type": "box",
@@ -430,7 +303,7 @@ f"""# AI デイリーブリーフ {ctx.asof}
         def signed_color(v: float):
             return T["pos"] if float(v) > 0 else T["neg"] if float(v) < 0 else T["muted"]
 
-        # ---- sector list -----------------------------------------------------
+        # sectors top
         sector_lines = []
         for s in ctx.sectors[:8]:
             val = float(s.get("rs", 0.0))
@@ -450,7 +323,6 @@ f"""# AI デイリーブリーフ {ctx.asof}
         vol   = float(b.get("vol_ratio", 1.0))
         hl    = float(b.get("hl_diff", 0.0))
 
-        # ---- body ------------------------------------------------------------
         body = {
           "type": "box",
           "layout": "vertical",
@@ -458,14 +330,13 @@ f"""# AI デイリーブリーフ {ctx.asof}
           "backgroundColor": T["card"],
           "paddingAll": "16px",
           "contents": [
-            # ヘッダー
             {"type": "box", "layout": "horizontal", "contents": [
                 {"type": "text", "text": f"{T['icon']}  AI デイリーブリーフ",
                  "weight": "bold", "size": "lg", "color": T["primary"], "flex": 9},
                 {"type": "text", "text": ctx.asof, "size": "xs", "color": T["muted"], "align": "end", "flex": 3}
             ]},
 
-            # 今日のひとこと（Regimeに応じた薄色帯）
+            # 今日のひとこと（淡色帯）
             {
               "type": "box",
               "layout": "vertical",
@@ -480,7 +351,6 @@ f"""# AI デイリーブリーフ {ctx.asof}
 
             {"type": "separator", "margin": "md"},
 
-            # 地合い
             {"type": "text", "text": "地合い（Breadth）", "weight": "bold", "size": "md", "color": T["heading"]},
             row("Regime", b.get("regime","NEUTRAL"), color=T["primary"]),
             row("Score", f"{score:.2f}", signed_color(score)),
@@ -490,13 +360,11 @@ f"""# AI デイリーブリーフ {ctx.asof}
 
             {"type": "separator", "margin": "md"},
 
-            # セクター
             {"type": "text", "text": "セクターRS（上位8）", "weight": "bold", "size": "md", "color": T["heading"]},
             {"type": "box", "layout": "vertical", "spacing": "sm", "contents": sector_lines},
 
             {"type": "separator", "margin": "md"},
 
-            # サマリー
             {"type": "text", "text": "今週の通知サマリ", "weight": "bold", "size": "md", "color": T["heading"]},
             row("通知", f"{ctx.week_stats.get('total',0):,}"),
             row("採用", f"{ctx.week_stats.get('taken',0):,}"),
@@ -526,7 +394,6 @@ f"""# AI デイリーブリーフ {ctx.asof}
         alt  = (opts.get("line_title") or f"AIデイリーブリーフ {ctx.asof}").strip()
         any_ok = False
 
-        # スモーク最小バブル（構造 or 権限の切り分け用）
         smoke = {
             "type": "bubble",
             "body": {
@@ -549,7 +416,7 @@ f"""# AI デイリーブリーフ {ctx.asof}
                         f"LINE Flex to {uid}: {code} {getattr(r,'text','')}"
                     ))
                     rs = line_push_flex(uid, "Flex smoke test", smoke)
-                    self.stdout.write(self.style.WARNING(
+                    self.stdout.write(self.styleWARNING(
                         f"  smoke test status={getattr(rs,'status_code',None)} body={getattr(rs,'text','')}"
                     ))
                 else:
