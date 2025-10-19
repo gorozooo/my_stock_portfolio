@@ -98,8 +98,8 @@ class Command(BaseCommand):
         parser.add_argument("--line-to", type=str, default="", help="送信先user_id（カンマ区切り）")
         parser.add_argument("--line-all", action="store_true", help="登録済み全員に送る")
         parser.add_argument("--line-title", type=str, default="", help="タイトル（未指定は自動）")
-        parser.add_argument("--line-max-sectors", type=int, default=10, help="セクター上位表示件数")
-        parser.add_argument("--line-max-indexes", type=int, default=6, help="指数の表示件数（Flex）")
+        parser.add_argument("--line-max-sectors", type=int, default=10, help="テキスト時のセクター上位件数")
+        parser.add_argument("--line-max-indexes", type=int, default=6, help="テキスト時の指数件数")
 
     def handle(self, *args, **opts):
         asof_str = opts["date"] or _today_str()
@@ -167,13 +167,15 @@ class Command(BaseCommand):
             return
 
         if opts.get("line_text"):
-            text = self._render_text(ctx, sector_top=int(opts["line_max_sectors"] or 10),
-                                     idx_top=int(opts["line_max_indexes"] or 6))
+            text = self._render_text(
+                ctx,
+                sector_top=int(opts["line_max_sectors"] or 10),
+                idx_top=int(opts["line_max_indexes"] or 6),
+            )
             self._send_line_text(targets, ctx, text, opts)
         else:
-            flex = self._build_flex(ctx,
-                                    sector_top=int(opts["line_max_sectors"] or 10),
-                                    idx_top=int(opts["line_max_indexes"] or 6))
+            # Flex は上位8件固定（見栄え・高さ制限のため）
+            flex = self._build_flex(ctx)
             self._send_line_flex(targets, ctx, flex, opts)
 
     # ---------- 送信先解決 ----------
@@ -225,14 +227,14 @@ f"""# AI デイリーブリーフ {ctx.asof}
         )
         return text.strip()
 
-        # ---------- LINE: Flex ----------
+    # ---------- LINE: Flex ----------
     def _build_flex(self, ctx: BriefContext) -> dict:
         # 公開URLが設定されていればボタンを出す
         base_url = getattr(settings, "SITE_BASE_URL", "").rstrip("/")
         public_url = f"{base_url}/media/reports/daily_brief_{ctx.asof}.html" if base_url else ""
 
         def row(label: str, value: str):
-            # baseline は折返しに弱いので vertical で安定化
+            # baseline は折返しに弱いので horizontal+end 揃えで崩れにくく
             return {
                 "type": "box",
                 "layout": "horizontal",
@@ -299,9 +301,8 @@ f"""# AI デイリーブリーフ {ctx.asof}
             bubble["footer"] = footer
         return bubble
 
-    def _send_line_flex(self, user_ids: List[str], ctx: BriefContext, opts) -> bool:
+    def _send_line_flex(self, user_ids: List[str], ctx: BriefContext, flex: dict, opts) -> bool:
         """Flex を送信。非200のときはエラー本文を出力し、極小バブルでスモークテストも試す。"""
-        flex = self._build_flex(ctx)
         alt  = (opts.get("line_title") or f"AIデイリーブリーフ {ctx.asof}").strip()
         any_ok = False
 
@@ -323,15 +324,9 @@ f"""# AI デイリーブリーフ {ctx.asof}
                 r = line_push_flex(uid, alt, flex)
                 code = getattr(r, "status_code", None)
                 any_ok = any_ok or (code == 200)
-                # ここを強化：エラー本文を出す
                 if code != 200:
-                    try:
-                        detail = getattr(r, "text", "")
-                    except Exception:
-                        detail = ""
+                    detail = getattr(r, "text", "")
                     self.stdout.write(self.style.WARNING(f"LINE Flex to {uid}: {code}  {detail}"))
-
-                    # スモークテストも送る（構造不正か・トークン/対象不整合かの切り分け）
                     rs = line_push_flex(uid, "Flex smoke test", smoke)
                     sc = getattr(rs, "status_code", None)
                     self.stdout.write(self.style.WARNING(f"  smoke test status={sc} body={getattr(rs,'text','')}"))
