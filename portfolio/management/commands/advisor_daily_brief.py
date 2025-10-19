@@ -13,7 +13,7 @@ import random
 # 既存サービス
 from ...services.market import (
     latest_breadth, breadth_regime,
-    fetch_indexes_snapshot, latest_sector_strength
+    fetch_indexes_snapshot, latest_sector_strength, load_breadth_history
 )
     # sectors
 from ...services.sector_map import normalize_sector
