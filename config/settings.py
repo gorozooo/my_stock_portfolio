@@ -129,30 +129,10 @@ TSE_NAME_OVERRIDES = {
     # 追加したいコードがあればここに並べる
 }
 
-CELERY_BEAT_SCHEDULE = {
-    "retrain_ai_advisor_weekly": {
-        "task": "portfolio.tasks.retrain_advisor",
-        "schedule": 604800.0,  # 週1
-    },
-    "evaluate_ai_advisor_outcomes": {
-        "task": "portfolio.tasks.evaluate_outcomes",
-        "schedule": 86400.0,   # 毎日
-    },
-}
+LINE_CHANNEL_ACCESS_TOKEN = "30VUdBGHtlUQJ9qdPXuPOHII3qCCWJZSGFovkg4wyR/..."
+LINE_CHANNEL_SECRET = "dc5bc53afed89fae739f8e0388003fd7"
 
 
-
-# ここだけ書けばOK（毎朝07:30にスナップショット、毎晩23:55に学習）
-CRONJOBS = [
-    ("30 7 * * *",  "portfolio.cron.snapshot"),  # advisor_snapshot を実行
-    ("55 23 * * *", "portfolio.cron.learn"),     # advisor_learn を実行
-]
-
-# 同時二重起動を避ける（おすすめ）
-CRONTAB_LOCK_JOBS = True
-
-
-# settings.py
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 587
@@ -173,7 +153,3 @@ ADVISOR_SECTOR_SYMBOLS = {
     # ...必要に応じて追加（33業種を目標）
 }
 ADVISOR_SECTOR_LOOKBACK_DAYS = 90
-# --- 参考（本番切替時の推奨。今は DEBUG=True なのでコメントのままでOK） ---
-# SESSION_COOKIE_SECURE = True
-# CSRF_COOKIE_SECURE = True
-# SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
