@@ -1,12 +1,13 @@
 name: Daily AI Comment
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # 手動実行用（Actions画面で Run workflow）
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -18,14 +19,30 @@ jobs:
       - name: Generate Comment
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # ↓ デフォルトは GPT-4-Turbo。GPT-5 を試すときは "gpt-5-preview" に変更
+          OPENAI_MODEL: gpt-4o-mini
         run: |
           python - <<'PY'
           import os
           from openai import OpenAI
-          client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-          r = client.chat.completions.create(
-              model="gpt-4o-mini",
-              messages=[{"role":"user","content":"今日のAIアドバイザーコメントを作って"}]
+
+          api_key = os.getenv("OPENAI_API_KEY")
+          model   = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+          if not api_key:
+            raise SystemExit("ERROR: OPENAI_API_KEY secret が設定されていません。Repo Settings → Secrets → Actions で追加してください。")
+
+          client = OpenAI(api_key=api_key)
+          prompt = (
+              "あなたは投資アドバイザーです。"
+              "今朝のマーケット向けに、短く・人間味のある・砕けた口調で1文のコメントを日本語で作ってください。"
+              "不確実性には正直に、根拠の言い切りは避け、軽く絵文字を1〜2個だけ。40〜90文字程度。"
           )
-          print("今日のコメント：", r.choices[0].message.content)
+          r = client.chat.completions.create(
+              model=model,
+              messages=[{"role":"user","content":prompt}],
+              temperature=0.9,
+              max_tokens=120,
+            )
+          text = r.choices[0].message.content.strip()
+          print("今日のコメント：", text)
           PY
