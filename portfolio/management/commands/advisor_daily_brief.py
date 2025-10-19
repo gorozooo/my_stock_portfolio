@@ -86,50 +86,99 @@ class BriefContext:
 
 def _make_ai_comment(regime: str, score: float, sectors: List[Dict[str, Any]], adopt_rate: float, seed:str="") -> str:
     """
-    その日の空気感を1〜2文で。口語っぽい言い回し＆軽い提案を含む。
-    seed: 日付などを渡すと揺らぎが固定される（cronでも安定）
+    砕けたトーン＋絵文字つきの“今日のひとこと”を生成
     """
     rg = (regime or "").upper()
     top_secs = [s.get("sector", "") for s in (sectors or []) if s.get("sector")]
-    top_txt = "・".join(top_secs[:3]) if top_secs else ""
+    top_txt = "・".join(top_secs[:3]) if top_secs else "（特に目立つセクターなし）"
 
-    # 軽いバリエーション（seedで決定）
+    # 日付をもとにランダムを固定
     rnd = random.Random((seed or "") + rg + f"{score:.3f}{adopt_rate:.3f}")
-    openers_on  = ["いい流れです。", "地合いは追い風気味。", "今日も悪くないムード。"]
-    openers_off = ["ちょっと向かい風。", "やや弱含み。", "無理は禁物。"]
-    openers_neu = ["様子見が無難。", "方向感はまだ薄め。", "判断は引けまで。"]
 
-    tips_strong = ["押し目は拾いたいところ。", "強いところに素直に乗るのが良さそう。", "勝ち筋集中で。"]
-    tips_mid    = ["サイズは控えめに分散で。", "勢いはあるが無理はしない。", "短期は逃げ足も意識。"]
-    tips_weak   = ["守り寄りでいきましょう。", "現金厚め＋ディフェンシブ。", "逆張りは小さく慎重に。"]
+    # -----------------------
+    # トーンの素材
+    # -----------------------
+    openers_on = [
+        "📈 地合いは良さげ！",
+        "🌞 今日もマーケットはご機嫌！",
+        "💪 強気ムード漂ってます！",
+        "🚀 エンジンかかってきた感じ！",
+    ]
+    openers_off = [
+        "💤 ちょっとお疲れ気味の相場…",
+        "🌧 雨模様のマーケットですね☁️",
+        "😴 今日は静かな地合いです。",
+        "🧊 少し冷えてますね。",
+    ]
+    openers_neu = [
+        "😐 方向感が定まりにくい1日になりそう。",
+        "🤔 様子見ムード強め。",
+        "⚖️ どっちつかずの相場。",
+        "😶 微妙な空気感…焦らずいきましょう。",
+    ]
 
-    # ベースの態度
+    tips_strong = [
+        "📊 押し目は拾ってOKかも！",
+        "💰 勝ち筋セクターに素直に乗るのが吉✨",
+        "🟢 トレンドに乗っちゃいましょう！",
+        "🔥 流れに逆らわずいきましょう！",
+    ]
+    tips_mid = [
+        "🧩 分散しつつ軽めに様子見で。",
+        "😌 小ロットで波を拾う感じ。",
+        "🌤 まだ勢いは微妙、焦らず。",
+        "💭 今日は無理せず静観もありです。",
+    ]
+    tips_weak = [
+        "🛡 守り重視でいきましょう！",
+        "💤 現金厚めで休むも相場。",
+        "🥶 無理な逆張りは控えめに。",
+        "🪫 ディフェンシブ銘柄で耐える時間。",
+    ]
+
+    sig_good = [
+        "✨ シグナルの精度もなかなかいい感じ！",
+        "👍 今日のアラートは信頼度高め！",
+        "💡 判断材料としては悪くないですよ！",
+    ]
+    sig_bad = [
+        "⚠️ シグナルが少しブレ気味です。",
+        "🌀 ノイズ多めなので慎重に。",
+        "😅 判断は慎重にいきましょう。",
+    ]
+    sig_neutral = [
+        "📘 いつも通りの安定感。",
+        "🙂 平常運転です。",
+        "🕊 特に偏りなし。",
+    ]
+
+    # -----------------------
+    # 組み合わせロジック
+    # -----------------------
     if "OFF" in rg:
         opener = rnd.choice(openers_off)
-        tip    = rnd.choice(tips_weak)
+        tip = rnd.choice(tips_weak)
         stance = "弱気寄り"
     elif "ON" in rg:
         opener = rnd.choice(openers_on)
-        tip    = rnd.choice(tips_strong if score >= 0.6 else tips_mid)
+        tip = rnd.choice(tips_strong if score >= 0.6 else tips_mid)
         stance = "強気寄り" if score >= 0.6 else "やや強気"
     else:
         opener = rnd.choice(openers_neu)
-        tip    = rnd.choice(tips_mid)
+        tip = rnd.choice(tips_mid)
         stance = "中立"
 
-    # シグナル採用率ニュアンス
     if adopt_rate >= 0.55:
-        sig = "シグナルの通りも悪くありません。"
+        sig = rnd.choice(sig_good)
     elif adopt_rate <= 0.45:
-        sig = "シグナルの質はまちまち。"
+        sig = rnd.choice(sig_bad)
     else:
-        sig = "シグナルは平均的。"
+        sig = rnd.choice(sig_neutral)
 
-    # セクター一言
-    sec_note = f"注目は「{top_txt}」。" if top_txt else ""
-
-    # 1〜2文でまとめる
-    return f"{opener}{sec_note} {stance}（Score {score:.2f}）。{tip} {sig}"
+    # -----------------------
+    # 最終メッセージ構築
+    # -----------------------
+    return f"{opener}注目セクター👉 {top_txt}\n{tip}（{stance}・Score {score:.2f}）{sig}"
 
 
 # =========================
