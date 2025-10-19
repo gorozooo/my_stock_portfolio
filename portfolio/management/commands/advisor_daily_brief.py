@@ -158,51 +158,84 @@ def _make_ai_comment(
     sectors: List[Dict[str, Any]],
     adopt_rate: float,
     prev_score: Optional[float] = None,
-    seed: str = ""
+    seed: str = "",
 ) -> str:
-    """砕けたトーン＋絵文字＋前日比コメント入り"""
+    """
+    もっと人間味のある “今日のひとこと”
+    - 砕けたトーン / 口語
+    - 前日比を↗︎/↘︎/→で直感表示
+    - 上位セクターを自然文で
+    - シグナルの当たり具合を体感っぽく
+    """
     rg = (regime or "").upper()
     top_secs = [s.get("sector", "") for s in (sectors or []) if s.get("sector")]
-    top_txt = "・".join(top_secs[:3]) if top_secs else "（特に目立つセクターなし）"
+    tops = "・".join(top_secs[:3]) if top_secs else "とくに目立たず"
+
     rnd = random.Random((seed or "") + rg + f"{score:.3f}{adopt_rate:.3f}")
 
-    openers_on = ["📈 地合いは良さげ！","🌞 今日もマーケットはご機嫌！","💪 強気ムード！","🚀 エンジンかかってきた！"]
-    openers_off = ["💤 ちょいお疲れ相場…","🌧 雨模様のマーケット☁️","😴 静かな地合い。","🧊 少し冷えてます。"]
-    openers_neu = ["😐 方向感が出にくい日。","🤔 様子見ムード強め。","⚖️ どっちつかず。","😶 焦らずいきましょう。"]
-
-    tips_strong = ["📊 押し目は拾ってOKかも！","💰 勝ち筋セクターに素直に！","🟢 トレンドに乗ろう！","🔥 流れに逆らわず！"]
-    tips_mid = ["🧩 分散しつつ軽めに。","😌 小ロットで波拾い。","🌤 勢いは微妙、焦らず。","💭 静観もあり。"]
-    tips_weak = ["🛡 守り重視で！","💤 現金厚めで休むも相場。","🥶 無理な逆張りNG。","🪫 ディフェンシブで耐える。"]
-
-    sig_good = ["✨ シグナルも良さげ！","👍 今日のアラートは信頼度高め！","💡 判断材料は悪くない！"]
-    sig_bad = ["⚠️ シグナルは少しブレ気味。","🌀 ノイズ多め、慎重に。","😅 判断は慎重に。"]
-    sig_neutral = ["📘 いつも通りの安定感。","🙂 平常運転。","🕊 偏りなし。"]
-
-    if "OFF" in rg:
-        opener = rnd.choice(openers_off); tip = rnd.choice(tips_weak); stance = "弱気寄り"
-    elif "ON" in rg:
-        opener = rnd.choice(openers_on)
-        tip = rnd.choice(tips_strong if score >= 0.6 else tips_mid)
-        stance = "強気寄り" if score >= 0.6 else "やや強気"
-    else:
-        opener = rnd.choice(openers_neu); tip = rnd.choice(tips_mid); stance = "中立"
-
-    if adopt_rate >= 0.55: sig = rnd.choice(sig_good)
-    elif adopt_rate <= 0.45: sig = rnd.choice(sig_bad)
-    else: sig = rnd.choice(sig_neutral)
-
-    diff_comment = ""
+    # --- 前日比の言い回し
+    delta_icon, delta_phrase = "→", "昨日と大きくは変わらず"
     if prev_score is not None:
         diff = round(score - float(prev_score), 2)
-        if diff > 0.05: diff_comment = f"📈 昨日より改善！(+{diff:.2f}) "
-        elif diff < -0.05: diff_comment = f"📉 昨日よりやや悪化({diff:.2f}) "
-        else: diff_comment = "😐 昨日とほぼ横ばい。 "
+        if diff > 0.05:
+            delta_icon, delta_phrase = "↗︎", rnd.choice(["昨日よりトーン上がってきた", "じわっと改善中", "雰囲気ひとつ明るめ"])
+        elif diff < -0.05:
+            delta_icon, delta_phrase = "↘︎", rnd.choice(["やや失速ぎみ", "少しトーンダウン", "警戒感がのってきた"])
 
-    return (
-        f"{opener} {diff_comment}\n"
-        f"注目セクター👉 {top_txt}\n"
-        f"{tip}（{stance}・Score {score:.2f}）{sig}"
-    )
+    # --- 地合いオープナー
+    open_on = [
+        "今日は気持ちよく上を見られそう🙌",
+        "全体の空気は悪くないね😎",
+        "雰囲気は前向き、波に乗れそう🚀",
+    ]
+    open_off = [
+        "無理せずいきたい空気感😪",
+        "リスクは少し抑えめでいこう🛡️",
+        "今日は肩の力を抜いて様子見でも👌",
+    ]
+    open_neu = [
+        "方向感が出にくい日かも🤔",
+        "上下に振れやすいので落ち着いて⚖️",
+        "どちらにも行けるので慎重に🧭",
+    ]
+
+    if "ON" in rg:
+        opener = rnd.choice(open_on)
+        stance = rnd.choice(["強気寄り", "やや強気"])
+        action = rnd.choice(["押し目拾いはアリ", "素直にトレンド追随でOK", "伸びるところに便乗で"])
+        mood_emoji = "🟢"
+    elif "OFF" in rg:
+        opener = rnd.choice(open_off)
+        stance = rnd.choice(["守り寄り", "弱気寄り"])
+        action = rnd.choice(["サイズ小さめで", "現金多めで", "ディフェンシブ寄せで"])
+        mood_emoji = "🔴"
+    else:
+        opener = rnd.choice(open_neu)
+        stance = "中立"
+        action = rnd.choice(["軽めに刻んで", "シナリオは複数用意で", "無理にポジらないで"])
+        mood_emoji = "⚪️"
+
+    # --- シグナルの当たり具合（採用率）
+    if adopt_rate >= 0.60:
+        hit = rnd.choice(["当たり感はけっこう良さげ👌", "シグナルの精度は高め👍", "今日は頼りになりそう✨"])
+    elif adopt_rate >= 0.50:
+        hit = rnd.choice(["まずまずの手応え🙂", "平常運転って感じ😌", "可もなく不可もなく🕊"])
+    else:
+        hit = rnd.choice(["ノイズ多めなので慎重に⚠️", "だましに注意👀", "深追いは禁物🙅‍♂️"])
+
+    # --- 上位セクターを自然文で
+    if top_secs:
+        sec_line = f"今日は『{tops}』あたりが元気そう💡"
+    else:
+        sec_line = "セクターは横並びで決め手薄そう💤"
+
+    # --- 文章を組み立て（3〜4行）
+    lines = [
+        f"{mood_emoji} {opener} {delta_icon} {delta_phrase}（Score {score:.2f}）",
+        sec_line,
+        f"{action}。スタンスは{stance}で。{hit}",
+    ]
+    return "\n".join(lines)
 
 
 # =========================
