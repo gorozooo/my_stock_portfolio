@@ -38,9 +38,9 @@
   table.basic tbody tr:last-child { border-bottom: 0; }
   .num { text-align:right; font-variant-numeric: tabular-nums; }
 
-  /* ---- ポリシー/セクター用の枠 ---- */
+  /* ---- パネル ---- */
   .panel { border-radius: 14px; padding: 14px 16px; margin-top: 10px; background: rgba(255,255,255,.03); box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
-  .tiny { font-size:.86rem; opacity:.8; }
+  .tiny  { font-size:.86rem; opacity:.8; }
 
   /* ---- セクター表 ---- */
   .bar { height:8px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; }
@@ -51,14 +51,15 @@
   .badge.neutral { color:#e5e7eb; background:rgba(148,163,184,.14); }
   .badge.strong  { color:#86efac; background:rgba(16,185,129,.14); }
 
+  /* ---- policy（定義リスト型の行カード） ---- */
+  #sec-policy .kv { display:grid; grid-template-columns: 1fr; gap: 6px; }
+  @media (min-width:560px){ #sec-policy .kv { grid-template-columns: repeat(2, 1fr); } }
+  #sec-policy .row { padding:10px 12px; border-radius:12px; background:rgba(255,255,255,.04); box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
+  #sec-policy .row .cap { font-size:.86rem; opacity:.78; margin-bottom:2px; }
+  #sec-policy .row .val { font-size:1.2rem; font-weight:800; }
+
   /* ---- セクションの表示切替 ---- */
   .sec { display:none; } .sec.show { display:block; }
-
-  /* ---- 地合いカードのレジーム色 ---- */
-  .regime { font-weight:800; }
-  .regime.RISK_ON  { color:#86efac; }
-  .regime.NEUTRAL  { color:#e5e7eb; }
-  .regime.RISK_OFF { color:#fca5a5; }
 </style>
 
 <div class="wrap">
@@ -84,29 +85,31 @@
       <div class="card"><div class="cap">API</div><div class="val">JSON</div></div>
     </div>
 
-    <!-- 地合い（ブレッドス）サマリ -->
     <div class="sec-ttl">地合い（ブレッドス）</div>
-    <div class="panel">
-      <div class="grid">
-        <div class="card">
-          <div class="cap">レジーム</div>
-          <div class="val regime {{ breadth.regime|default:'NEUTRAL' }}">{{ breadth.regime|default:"NEUTRAL" }}</div>
-        </div>
-        <div class="card">
-          <div class="cap">スコア</div>
-          <div class="val">{{ breadth.score|floatformat:2|default:"—" }}</div>
-        </div>
-        <div class="card">
-          <div class="cap">騰落比（Adv/Dec）</div>
-          <div class="val">{{ breadth.ad_ratio|floatformat:2|default:"—" }}</div>
-        </div>
-        <div class="card">
-          <div class="cap">出来高比（Up/Down）</div>
-          <div class="val">{{ breadth.vol_ratio|floatformat:2|default:"—" }}</div>
-        </div>
+    <div class="grid" style="margin:10px 0 6px;">
+      <div class="card">
+        <div class="cap">レジーム</div>
+        <div class="val">{{ breadth.regime|default:"—" }}</div>
       </div>
-      <div class="tiny" style="margin-top:6px;">
-        新高値-新安値: {{ breadth.hl_diff|floatformat:0|default:"—" }}
+      <div class="card">
+        <div class="cap">スコア</div>
+        <div class="val">{{ breadth.score|floatformat:2|default:"—" }}</div>
+      </div>
+      <div class="card">
+        <div class="cap">騰落比（Adv/Dec）</div>
+        <div class="val">{{ breadth.ad_ratio|floatformat:2|default:"—" }}</div>
+      </div>
+      <div class="card">
+        <div class="cap">出来高比（Up/Down）</div>
+        <div class="val">{{ breadth.vol_ratio|floatformat:2|default:"—" }}</div>
+      </div>
+      <div class="card">
+        <div class="cap">新高値 − 新安値</div>
+        <div class="val">{{ breadth.hl_diff|floatformat:0|default:"—" }}</div>
+      </div>
+      <div class="card">
+        <div class="cap">As of</div>
+        <div class="val">{{ breadth_raw.date|default:"—" }}</div>
       </div>
     </div>
 
@@ -177,7 +180,7 @@
     <div class="tiny" style="margin-top:8px;">総評価額: ¥{{ total_mv|floatformat:0 }}（ウェイト最大を100%スケールとして棒長表示）</div>
   </section>
 
-  <!-- ===== しきい値（policy.json：サーバ描画のカード） ===== -->
+  <!-- ===== しきい値（policy.json：“行カード”でコンパクト表示） ===== -->
   <section id="sec-policy" class="sec" aria-labelledby="tab-policy">
     <div class="sec-ttl">しきい値（policy.json）</div>
 
@@ -189,32 +192,35 @@
         <span class="chip">静かな週は loosen</span>
       </div>
 
-      <div class="cards">
-        <!-- セクション見出し -->
-        <div class="p-card" style="grid-column:1/-1;background:rgba(255,255,255,.03);">
-          <div class="cap">セクション</div><div class="val" style="font-size:1.1rem;">RS（相対強弱）しきい値</div>
+      <div class="kv">
+        <!-- RS -->
+        <div class="row" style="grid-column:1/-1;background:rgba(255,255,255,.05);">
+          <div class="cap">セクション</div><div class="val" style="font-size:1.05rem;">RS（相対強弱）しきい値</div>
         </div>
-        <div class="p-card"><div class="cap">rs 弱め</div><div class="val">{{ p.rs_weak|default:"—" }}</div></div>
-        <div class="p-card"><div class="cap">rs 強め</div><div class="val">{{ p.rs_strong|default:"—" }}</div></div>
+        <div class="row"><div class="cap">rs 弱め</div><div class="val">{{ p.rs_weak|default:"—" }}</div></div>
+        <div class="row"><div class="cap">rs 強め</div><div class="val">{{ p.rs_strong|default:"—" }}</div></div>
 
-        <div class="p-card" style="grid-column:1/-1;background:rgba(255,255,255,.03);">
-          <div class="cap">セクション</div><div class="val" style="font-size:1.1rem;">通知トリガー（評価指標）</div>
+        <!-- 通知トリガー -->
+        <div class="row" style="grid-column:1/-1;background:rgba(255,255,255,.05);">
+          <div class="cap">セクション</div><div class="val" style="font-size:1.05rem;">通知トリガー（評価指標）</div>
         </div>
-        <div class="p-card"><div class="cap">ROI乖離 min</div><div class="val">{{ p.gap_min|default:"—" }}</div></div>
-        <div class="p-card"><div class="cap">流動性 max</div><div class="val">{{ p.liq_max|default:"—" }}</div></div>
-        <div class="p-card"><div class="cap">信用比率 min</div><div class="val">{{ p.margin_min|default:"—" }}</div></div>
+        <div class="row"><div class="cap">ROI乖離 min</div><div class="val">{{ p.gap_min|default:"—" }}</div></div>
+        <div class="row"><div class="cap">流動性 max</div><div class="val">{{ p.liq_max|default:"—" }}</div></div>
+        <div class="row"><div class="cap">信用比率 min</div><div class="val">{{ p.margin_min|default:"—" }}</div></div>
 
-        <div class="p-card" style="grid-column:1/-1;background:rgba(255,255,255,.03);">
-          <div class="cap">セクション</div><div class="val" style="font-size:1.1rem;">構成（セクター制約）</div>
+        <!-- 構成 -->
+        <div class="row" style="grid-column:1/-1;background:rgba(255,255,255,.05);">
+          <div class="cap">セクション</div><div class="val" style="font-size:1.05rem;">構成（セクター制約）</div>
         </div>
-        <div class="p-card"><div class="cap">上位セクター max</div><div class="val">{{ p.top_share_max|default:"—" }}</div></div>
-        <div class="p-card"><div class="cap">未分類 max</div><div class="val">{{ p.uncat_share_max|default:"—" }}</div></div>
+        <div class="row"><div class="cap">上位セクター max</div><div class="val">{{ p.top_share_max|default:"—" }}</div></div>
+        <div class="row"><div class="cap">未分類 max</div><div class="val">{{ p.uncat_share_max|default:"—" }}</div></div>
 
-        <div class="p-card" style="grid-column:1/-1;background:rgba(255,255,255,.03);">
-          <div class="cap">セクション</div><div class="val" style="font-size:1.1rem;">地合い（ブレッドス）</div>
+        <!-- 地合い -->
+        <div class="row" style="grid-column:1/-1;background:rgba(255,255,255,.05);">
+          <div class="cap">セクション</div><div class="val" style="font-size:1.05rem;">地合い（ブレッドス）</div>
         </div>
-        <div class="p-card"><div class="cap">地合い 弱</div><div class="val">{{ p.breadth_bad|default:"—" }}</div></div>
-        <div class="p-card"><div class="cap">地合い 強</div><div class="val">{{ p.breadth_good|default:"—" }}</div></div>
+        <div class="row"><div class="cap">地合い 弱</div><div class="val">{{ p.breadth_bad|default:"—" }}</div></div>
+        <div class="row"><div class="cap">地合い 強</div><div class="val">{{ p.breadth_good|default:"—" }}</div></div>
       </div>
     {% endwith %}
 
