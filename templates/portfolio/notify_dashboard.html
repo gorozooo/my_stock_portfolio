@@ -51,19 +51,14 @@
   .badge.neutral { color:#e5e7eb; background:rgba(148,163,184,.14); }
   .badge.strong  { color:#86efac; background:rgba(16,185,129,.14); }
 
-  /* ---- policy カード（サーバ描画） ---- */
-  #sec-policy .cards { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; margin-top: 8px; }
-  @media (min-width: 560px){ #sec-policy .cards { grid-template-columns: repeat(3, minmax(0,1fr)); } }
-  #sec-policy .p-card { border-radius: 14px; padding: 12px 14px; background: rgba(255,255,255,.04);
-                         box-shadow: 0 10px 30px rgba(0,0,0,.16), inset 0 1px 0 rgba(255,255,255,.04); }
-  #sec-policy .p-card .cap { font-size:.82rem; opacity:.82; margin-bottom: 4px; }
-  #sec-policy .p-card .val { font-size:1.4rem; font-weight:800; letter-spacing:.02em; }
-  #sec-policy details.panel { margin-top:10px; }
-  #sec-policy details.panel > summary { cursor:pointer; user-select:none; }
-  #sec-policy pre { margin: 8px 0 0; white-space: pre-wrap; word-break: break-all; }
-
   /* ---- セクションの表示切替 ---- */
   .sec { display:none; } .sec.show { display:block; }
+
+  /* ---- 地合いカードのレジーム色 ---- */
+  .regime { font-weight:800; }
+  .regime.RISK_ON  { color:#86efac; }
+  .regime.NEUTRAL  { color:#e5e7eb; }
+  .regime.RISK_OFF { color:#fca5a5; }
 </style>
 
 <div class="wrap">
@@ -87,6 +82,32 @@
       <div class="card"><div class="cap">今週の採用</div><div class="val">{{ week_taken|default:"0" }}</div></div>
       <div class="card"><div class="cap">採用率</div><div class="val">{{ week_rate|floatformat:2|default:"0.00" }}</div></div>
       <div class="card"><div class="cap">API</div><div class="val">JSON</div></div>
+    </div>
+
+    <!-- 地合い（ブレッドス）サマリ -->
+    <div class="sec-ttl">地合い（ブレッドス）</div>
+    <div class="panel">
+      <div class="grid">
+        <div class="card">
+          <div class="cap">レジーム</div>
+          <div class="val regime {{ breadth.regime|default:'NEUTRAL' }}">{{ breadth.regime|default:"NEUTRAL" }}</div>
+        </div>
+        <div class="card">
+          <div class="cap">スコア</div>
+          <div class="val">{{ breadth.score|floatformat:2|default:"—" }}</div>
+        </div>
+        <div class="card">
+          <div class="cap">騰落比（Adv/Dec）</div>
+          <div class="val">{{ breadth.ad_ratio|floatformat:2|default:"—" }}</div>
+        </div>
+        <div class="card">
+          <div class="cap">出来高比（Up/Down）</div>
+          <div class="val">{{ breadth.vol_ratio|floatformat:2|default:"—" }}</div>
+        </div>
+      </div>
+      <div class="tiny" style="margin-top:6px;">
+        新高値-新安値: {{ breadth.hl_diff|floatformat:0|default:"—" }}
+      </div>
     </div>
 
     <div class="sec-ttl">週次トレンド</div>
