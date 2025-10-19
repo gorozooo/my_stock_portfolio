@@ -22,6 +22,7 @@ from .views.policy import policy_history
 from .views import ops_advisor as v_ops
 from .views import policy as policy_views
 from .views.notify_dashboard import notify_dashboard
+from portfolio.views.line import line_webhook
 
 urlpatterns = [
     #path("", core_views.main, name="home"),
@@ -115,5 +116,8 @@ urlpatterns = [
     path("api/advisor/learn/", v_ops.advisor_learn_now, name="advisor_learn_now"),
     path("advisor/policy/retrain/", policy_views.policy_retrain_apply, name="policy_retrain"),
     path("advisor/notify-dashboard/", notify_dashboard, name="notify_dashboard"),
+    
+    # LINE
+    path("line/webhook/", line_webhook, name="line_webhook"),
     
 ]
