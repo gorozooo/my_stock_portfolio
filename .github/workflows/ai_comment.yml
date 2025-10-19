@@ -1,0 +1,31 @@
+name: Daily AI Comment
+on:
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install deps
+        run: pip install openai
+
+      - name: Generate Comment
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          from openai import OpenAI
+          client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+          r = client.chat.completions.create(
+              model="gpt-4o-mini",
+              messages=[{"role":"user","content":"今日のAIアドバイザーコメントを作って"}]
+          )
+          print("今日のコメント：", r.choices[0].message.content)
+          PY
