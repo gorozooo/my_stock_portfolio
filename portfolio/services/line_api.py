@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import hmac, hashlib, base64, json, logging
+import hmac, hashlib, base64, json, logging, os
 import requests
 from django.conf import settings
 
