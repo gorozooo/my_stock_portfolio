@@ -230,6 +230,18 @@ class Command(BaseCommand):
         # ---- 市況
         b = latest_breadth() or {}
         regime = breadth_regime(b)  # dict 想定（regime/score 等）
+        
+        # ---- 前日スコア取得（オプション） ----
+        from ...services.market import load_breadth_history  # ← これが使えるなら利用
+        
+        prev_day_score = None
+        try:
+            # 最新breadthから過去履歴を取得
+            hist = load_breadth_history(limit=5)
+            if hist and len(hist) >= 2:
+                prev_day_score = float(hist[-2].get("score", 0.0))  # 昨日
+        except Exception:
+            prev_day_score = None
 
         # ---- 指数
         idx = fetch_indexes_snapshot() or {}
