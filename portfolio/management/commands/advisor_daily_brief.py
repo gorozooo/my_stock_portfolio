@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-import os, json
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Dict, Any, List, Optional
@@ -89,7 +88,6 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--date", type=str, default="", help="対象日(YYYY-MM-DD)。未指定は今日")
-        parser.add_argument("--outdir", type=str, default="media/reports", help="保存先（公開URLボタン用）")
         parser.add_argument("--days", type=int, default=90, help="週次サマリのlookback（日数）")
 
         # LINE 送信
@@ -98,8 +96,8 @@ class Command(BaseCommand):
         parser.add_argument("--line-to", type=str, default="", help="送信先user_id（カンマ区切り）")
         parser.add_argument("--line-all", action="store_true", help="登録済み全員に送る")
         parser.add_argument("--line-title", type=str, default="", help="タイトル（未指定は自動）")
-        parser.add_argument("--line-max-sectors", type=int, default=10, help="テキスト時のセクター上位件数")
-        parser.add_argument("--line-max-indexes", type=int, default=6, help="テキスト時の指数件数")
+        parser.add_argument("--line-max-sectors", type=int, default=10, help="セクター上位表示件数")
+        parser.add_argument("--line-max-indexes", type=int, default=6, help="指数の表示件数（テキスト）")
 
     def handle(self, *args, **opts):
         asof_str = opts["date"] or _today_str()
@@ -174,9 +172,7 @@ class Command(BaseCommand):
             )
             self._send_line_text(targets, ctx, text, opts)
         else:
-            # Flex は上位8件固定（見栄え・高さ制限のため）
-            flex = self._build_flex(ctx)
-            self._send_line_flex(targets, ctx, flex, opts)
+            self._send_line_flex(targets, ctx, opts)
 
     # ---------- 送信先解決 ----------
     def _resolve_line_targets(self, opts) -> List[str]:
@@ -227,11 +223,11 @@ f"""# AI デイリーブリーフ {ctx.asof}
         )
         return text.strip()
 
-    # ---------- LINE: Flex ----------
+    # ---------- Flex 本体 ----------
     def _build_flex(self, ctx: BriefContext) -> dict:
         base_url = getattr(settings, "SITE_BASE_URL", "").rstrip("/")
         public_url = f"{base_url}/media/reports/daily_brief_{ctx.asof}.html" if base_url else ""
-    
+
         # ---- Theme by Regime -------------------------------------------------
         regime = str(ctx.breadth_view.get("regime", "NEUTRAL")).upper()
         def theme_for_regime(rg: str):
@@ -245,9 +241,9 @@ f"""# AI デイリーブリーフ {ctx.asof}
             # NEUTRAL
             return dict(primary="#2563eb", accent="#3b82f6", pos="#16a34a", neg="#ef4444",
                         heading="#111827", muted="#9ca3af", card="#f9fafb", icon="⚖️")
-    
+
         T = theme_for_regime(regime)
-    
+
         # ---- helpers ---------------------------------------------------------
         def row(label, value, color=None):
             return {
@@ -259,9 +255,9 @@ f"""# AI デイリーブリーフ {ctx.asof}
                      "color": color or T["heading"], "flex": 6, "wrap": False}
                 ]
             }
-    
+
         def pill(text, color_hex):
-            # 数値用の丸チップ
+            # 数値用の丸チップ（視認性重視）
             return {
                 "type": "box",
                 "layout": "baseline",
@@ -272,10 +268,10 @@ f"""# AI デイリーブリーフ {ctx.asof}
                     {"type": "text", "text": str(text), "size": "sm", "color": color_hex}
                 ]
             }
-    
+
         def signed_color(v: float):
             return T["pos"] if float(v) > 0 else T["neg"] if float(v) < 0 else T["muted"]
-    
+
         # ---- sector list -----------------------------------------------------
         sector_lines = []
         for s in ctx.sectors[:8]:
@@ -289,13 +285,13 @@ f"""# AI デイリーブリーフ {ctx.asof}
             })
         if not sector_lines:
             sector_lines = [{"type": "text", "text": "データなし", "size": "sm", "color": T["muted"]}]
-    
+
         b = ctx.breadth_view
         score = float(b.get("score", 0.0))
         ad    = float(b.get("ad_ratio", 1.0))
         vol   = float(b.get("vol_ratio", 1.0))
         hl    = float(b.get("hl_diff", 0.0))
-    
+
         # ---- body ------------------------------------------------------------
         body = {
           "type": "box",
@@ -310,9 +306,9 @@ f"""# AI デイリーブリーフ {ctx.asof}
                  "weight": "bold", "size": "lg", "color": T["primary"], "flex": 9},
                 {"type": "text", "text": ctx.asof, "size": "xs", "color": T["muted"], "align": "end", "flex": 3}
             ]},
-    
+
             {"type": "separator", "margin": "md"},
-    
+
             # 地合い
             {"type": "text", "text": "地合い（Breadth）", "weight": "bold", "size": "md", "color": T["heading"]},
             row("Regime", b.get("regime","NEUTRAL"), color=T["primary"]),
@@ -324,15 +320,15 @@ f"""# AI デイリーブリーフ {ctx.asof}
                 pill(f"H-L {hl:.1f}", signed_color(hl)),
               ]
             },
-    
+
             {"type": "separator", "margin": "md"},
-    
+
             # セクター
             {"type": "text", "text": "セクターRS（上位8）", "weight": "bold", "size": "md", "color": T["heading"]},
             {"type": "box", "layout": "vertical", "spacing": "sm", "contents": sector_lines},
-    
+
             {"type": "separator", "margin": "md"},
-    
+
             # サマリー
             {"type": "text", "text": "今週の通知サマリ", "weight": "bold", "size": "md", "color": T["heading"]},
             row("通知", f"{ctx.week_stats.get('total',0):,}"),
@@ -340,7 +336,7 @@ f"""# AI デイリーブリーフ {ctx.asof}
             row("採用率", f"{float(ctx.week_stats.get('rate',0.0))*100:.1f}%"),
           ]
         }
-    
+
         footer = None
         if public_url:
             footer = {
@@ -352,17 +348,18 @@ f"""# AI デイリーブリーフ {ctx.asof}
                     "action": {"type": "uri", "label": "詳細を開く", "uri": public_url}
                 }]
             }
-    
+
         bubble = {"type": "bubble", "size": "mega", "body": body}
         if footer: bubble["footer"] = footer
         return bubble
 
-    def _send_line_flex(self, user_ids: List[str], ctx: BriefContext, flex: dict, opts) -> bool:
-        """Flex を送信。非200のときはエラー本文を出力し、極小バブルでスモークテストも試す。"""
+    # ---------- LINE: Flex 送信 ----------
+    def _send_line_flex(self, user_ids: List[str], ctx: BriefContext, opts) -> bool:
+        flex = self._build_flex(ctx)
         alt  = (opts.get("line_title") or f"AIデイリーブリーフ {ctx.asof}").strip()
         any_ok = False
 
-        # 失敗時の最小バブル（形だけ正当性確認）
+        # スモーク最小バブル（構造 or 権限の切り分け用）
         smoke = {
             "type": "bubble",
             "body": {
@@ -381,11 +378,13 @@ f"""# AI デイリーブリーフ {ctx.asof}
                 code = getattr(r, "status_code", None)
                 any_ok = any_ok or (code == 200)
                 if code != 200:
-                    detail = getattr(r, "text", "")
-                    self.stdout.write(self.style.WARNING(f"LINE Flex to {uid}: {code}  {detail}"))
+                    self.stdout.write(self.style.WARNING(
+                        f"LINE Flex to {uid}: {code} {getattr(r,'text','')}"
+                    ))
                     rs = line_push_flex(uid, "Flex smoke test", smoke)
-                    sc = getattr(rs, "status_code", None)
-                    self.stdout.write(self.style.WARNING(f"  smoke test status={sc} body={getattr(rs,'text','')}"))
+                    self.stdout.write(self.style.WARNING(
+                        f"  smoke test status={getattr(rs,'status_code',None)} body={getattr(rs,'text','')}"
+                    ))
                 else:
                     self.stdout.write(self.style.SUCCESS(f"LINE Flex to {uid}: {code}"))
             except Exception as e:
