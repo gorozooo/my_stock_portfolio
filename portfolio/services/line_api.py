@@ -4,7 +4,6 @@ import requests
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
-
 API_BASE = "https://api.line.me/v2/bot"
 
 def _auth_headers():
@@ -14,7 +13,6 @@ def _auth_headers():
     }
 
 def verify_signature(body_bytes: bytes, x_line_signature: str) -> bool:
-    """LINE 署名検証（必須）"""
     key = settings.LINE_CHANNEL_SECRET.encode("utf-8")
     mac = hmac.new(key, body_bytes, hashlib.sha256).digest()
     expected = base64.b64encode(mac).decode("utf-8")
