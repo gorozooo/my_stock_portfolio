@@ -84,15 +84,21 @@ class BriefContext:
     ai_comment: str = ""   # ← 追加：今日のひとこと
 
 
-def _make_ai_comment(regime: str, score: float, sectors: List[Dict[str, Any]], adopt_rate: float, seed:str="") -> str:
+def _make_ai_comment(
+    regime: str,
+    score: float,
+    sectors: List[Dict[str, Any]],
+    adopt_rate: float,
+    prev_score: Optional[float] = None,
+    seed: str = ""
+) -> str:
     """
-    砕けたトーン＋絵文字つきの“今日のひとこと”を生成
+    砕けたトーン＋絵文字＋前日比コメント入り “今日のひとこと”
     """
     rg = (regime or "").upper()
     top_secs = [s.get("sector", "") for s in (sectors or []) if s.get("sector")]
     top_txt = "・".join(top_secs[:3]) if top_secs else "（特に目立つセクターなし）"
 
-    # 日付をもとにランダムを固定
     rnd = random.Random((seed or "") + rg + f"{score:.3f}{adopt_rate:.3f}")
 
     # -----------------------
@@ -168,6 +174,7 @@ def _make_ai_comment(regime: str, score: float, sectors: List[Dict[str, Any]], a
         tip = rnd.choice(tips_mid)
         stance = "中立"
 
+    # ==== シグナル精度 ====
     if adopt_rate >= 0.55:
         sig = rnd.choice(sig_good)
     elif adopt_rate <= 0.45:
@@ -175,10 +182,23 @@ def _make_ai_comment(regime: str, score: float, sectors: List[Dict[str, Any]], a
     else:
         sig = rnd.choice(sig_neutral)
 
-    # -----------------------
-    # 最終メッセージ構築
-    # -----------------------
-    return f"{opener}注目セクター👉 {top_txt}\n{tip}（{stance}・Score {score:.2f}）{sig}"
+    # ==== 前日比コメント ====
+    diff_comment = ""
+    if prev_score is not None:
+        diff = round(score - prev_score, 2)
+        if diff > 0.05:
+            diff_comment = f"📈 昨日より改善！(+{diff:.2f}) "
+        elif diff < -0.05:
+            diff_comment = f"📉 昨日よりやや悪化({diff:.2f}) "
+        else:
+            diff_comment = f"😐 昨日とほぼ横ばい。 "
+
+    # ==== 出力 ====
+    return (
+        f"{opener} {diff_comment}\n"
+        f"注目セクター👉 {top_txt}\n"
+        f"{tip}（{stance}・Score {score:.2f}）{sig}"
+    )
 
 
 # =========================
