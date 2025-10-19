@@ -405,3 +405,166 @@ f"""# AI デイリーブリーフ {ctx.asof}
                     self.stdout.write(self.style.WARNING(f"LINE push exception (uid={uid}, part={i}/{len(chunks)}): {e}"))
             if ok_all:
                 self.stdout.write(self.style.SUCCESS(f"LINE text sent to {uid} ({len(chunks)} msg)"))
+                
+# ===== Flex: デイリーブリーフ（RISK配色 自動切替） =========================
+def _flex_theme(regime: str) -> dict:
+    r = (regime or "").upper()
+    # アクセント色・バッジ色など
+    if r == "RISK_ON":
+        return dict(
+            accent="#16a34a",       # green-600
+            accent_soft="#22c55e",  # green-500
+            badge_bg="#065f46",     # green-800
+            badge_fg="#a7f3d0",     # green-200
+        )
+    if r == "RISK_OFF":
+        return dict(
+            accent="#ef4444",       # red-500
+            accent_soft="#f87171",  # red-400
+            badge_bg="#7f1d1d",     # red-900
+            badge_fg="#fecaca",     # red-200
+        )
+    # NEUTRAL / その他
+    return dict(
+        accent="#3b82f6",           # blue-500
+        accent_soft="#60a5fa",      # blue-400
+        badge_bg="#1e3a8a",         # blue-900
+        badge_fg="#bfdbfe",         # blue-200
+    )
+
+
+def _build_flex_daily_brief(ctx: "BriefContext") -> dict:
+    """RISKレジームに応じて配色が切り替わるFlex Bubbleを返す"""
+    regime = (ctx.breadth_view or {}).get("regime", "NEUTRAL")
+    th = _flex_theme(regime)
+
+    # 小さめの行ユーティリティ
+    def _kv(key, val, bold=False):
+        return {
+            "type": "box", "layout": "baseline", "spacing": "sm",
+            "contents": [
+                {"type": "text", "text": key, "size": "xs", "color": "#9aa4b2", "flex": 2},
+                {"type": "text", "text": val, "size": "xs", "color": "#e5e7eb", "flex": 5, "wrap": True, **({"weight": "bold"} if bold else {})},
+            ],
+        }
+
+    # 指数（上位8）
+    idx_syms = list(ctx.indexes.keys())[:8]
+    idx_items = []
+    for sym in idx_syms:
+        row = ctx.indexes.get(sym, {})
+        v5 = f"{float(row.get('ret_5d', 0.0))*100:+.1f}%"
+        v20 = f"{float(row.get('ret_20d', 0.0))*100:+.1f}%"
+        idx_items.append(_kv(sym, f"5日 {v5} / 20日 {v20}"))
+
+    # セクター上位10
+    sec_items = []
+    for r in ctx.sectors[:10]:
+        sec_items.append(_kv(r["sector"], f"RS {float(r['rs']):+.2f}"))
+
+    # ヘッダーバー（レジーム色）
+    header = {
+        "type": "box", "layout": "vertical", "paddingAll": "12px",
+        "backgroundColor": th["accent"],
+        "contents": [
+            {
+                "type": "box", "layout": "baseline", "contents": [
+                    {"type": "text", "text": f"AI デイリーブリーフ  {ctx.asof}", "color": "#ffffff", "weight": "bold", "wrap": True, "size": "md", "flex": 6},
+                    {"type": "box", "layout": "vertical", "cornerRadius": "14px",
+                     "backgroundColor": th["badge_bg"], "paddingAll": "6px",
+                     "contents": [{"type": "text", "text": regime, "color": th["badge_fg"], "weight": "bold", "size": "xs"}]}
+                ]
+            },
+            {"type": "text", "text": f"Generated at {ctx.generated_at}", "size": "xs", "color": "#e5e7eb", "margin": "sm"},
+        ]
+    }
+
+    # 地合いカード
+    breadth_box = {
+        "type": "box", "layout": "vertical", "paddingAll": "12px", "backgroundColor": "#0f172a", "cornerRadius": "12px",
+        "contents": [
+            {"type": "text", "text": "地合い（Breadth）", "weight": "bold", "color": th["accent_soft"], "size": "sm"},
+            {"type": "separator", "margin": "sm", "color": "rgba(148,163,184,0.25)"},
+            _kv("Regime", regime, bold=True),
+            _kv("Score", f"{ctx.breadth_view.get('score', 0.0):.2f}"),
+            _kv("A/D",   f"{ctx.breadth_view.get('ad_ratio', 1.0):.3f}"),
+            _kv("VOL",  f"{ctx.breadth_view.get('vol_ratio', 1.0):.3f}"),
+            _kv("H-L",  f"{ctx.breadth_view.get('hl_diff', 0)}"),
+        ]
+    }
+
+    # 指数カード
+    indexes_box = {
+        "type": "box", "layout": "vertical", "paddingAll": "12px", "backgroundColor": "#0b1220", "cornerRadius": "12px",
+        "contents": [{"type": "text", "text": "指数スナップショット（抜粋）", "weight": "bold", "color": th["accent_soft"], "size": "sm"},
+                     {"type": "separator", "margin": "sm", "color": "rgba(148,163,184,0.25)"},
+                     *idx_items]
+    }
+
+    # セクターカード
+    sectors_box = {
+        "type": "box", "layout": "vertical", "paddingAll": "12px", "backgroundColor": "#0b1220", "cornerRadius": "12px",
+        "contents": [{"type": "text", "text": "セクターRS（上位10）", "weight": "bold", "color": th["accent_soft"], "size": "sm"},
+                     {"type": "separator", "margin": "sm", "color": "rgba(148,163,184,0.25)"},
+                     *sec_items]
+    }
+
+    # 週次サマリー
+    wk = ctx.week_stats or {}
+    weekly_box = {
+        "type": "box", "layout": "horizontal", "spacing": "8px",
+        "contents": [
+            {"type": "box", "layout": "vertical", "paddingAll": "10px", "cornerRadius": "12px",
+             "backgroundColor": "#0b1220",
+             "contents": [{"type": "text", "text": "通知", "size": "xs", "color": "#9aa4b2"},
+                          {"type": "text", "text": f"{int(wk.get('total',0)):,}", "size": "md", "weight": "bold", "color": "#e5e7eb"}]},
+            {"type": "box", "layout": "vertical", "paddingAll": "10px", "cornerRadius": "12px",
+             "backgroundColor": "#0b1220",
+             "contents": [{"type": "text", "text": "採用", "size": "xs", "color": "#9aa4b2"},
+                          {"type": "text", "text": f"{int(wk.get('taken',0)):,}", "size": "md", "weight": "bold", "color": "#e5e7eb"}]},
+            {"type": "box", "layout": "vertical", "paddingAll": "10px", "cornerRadius": "12px",
+             "backgroundColor": "#0b1220",
+             "contents": [{"type": "text", "text": "採用率", "size": "xs", "color": "#9aa4b2"},
+                          {"type": "text", "text": f"{float(wk.get('rate',0.0))*100:.1f}%", "size": "md", "weight": "bold", "color": "#e5e7eb"}]},
+        ]
+    }
+
+    # Notes
+    notes_list = ctx.notes or []
+    notes_box = {
+        "type": "box", "layout": "vertical", "paddingAll": "12px", "cornerRadius": "12px",
+        "backgroundColor": "#0b1220",
+        "contents": [{"type": "text", "text": "Notes", "weight": "bold", "color": th["accent_soft"], "size": "sm"},
+                     {"type": "separator", "margin": "sm", "color": "rgba(148,163,184,0.25)"}] +
+                    ([{"type":"text","text":"なし","size":"xs","color":"#9aa4b2"}] if not notes_list else
+                     [{"type":"text","text":f"・{n}","wrap":True,"size":"xs","color":"#e5e7eb"} for n in notes_list])
+    }
+
+    return {
+        "type": "flex",
+        "altText": f"AI デイリーブリーフ {ctx.asof}",
+        "contents": {
+            "type": "bubble",
+            "size": "mega",
+            "styles": {"body": {"backgroundColor": "#0a0f1f"}},
+            "header": header,
+            "body": {
+                "type": "box", "layout": "vertical", "spacing": "12px",
+                "contents": [
+                    breadth_box,
+                    indexes_box,
+                    sectors_box,
+                    weekly_box,
+                    notes_box,
+                ],
+            },
+            "footer": {
+                "type": "box", "layout": "baseline", "paddingAll": "10px",
+                "contents": [
+                    {"type": "text", "text": "AIアドバイザー通知Bot", "size": "xs", "color": "#94a3b8"},
+                    {"type": "filler"},
+                    {"type": "text", "text": regime, "size": "xs", "color": th["accent_soft"], "weight": "bold"},
+                ],
+            },
+        },
+    }
