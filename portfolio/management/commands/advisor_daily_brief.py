@@ -19,13 +19,9 @@ from ...services.market import (
 from ...services.sector_map import normalize_sector
 from ...models_advisor import AdviceItem
 
-# LINE 送信用（既存）
-try:
-    from ...models_line import LineContact
-    from ...services.line_api import push as line_push
-except Exception:
-    LineContact = None
-    line_push = None
+# LINE
+from ...models_line import LineContact
+from ...services.line_api import push as line_push, push_flex as line_push_flex
 
 
 # ---------- ユーティリティ ----------
@@ -45,16 +41,6 @@ def _safe_float(x, d=0.0) -> float:
     except Exception:
         return d
 
-def _fmt_pct(x, nd=2, signed=False):
-    try:
-        v = float(x)
-    except Exception:
-        return "—"
-    s = f"{v:.{nd}f}"
-    if signed and v >= 0:
-        s = f"+{s}"
-    return s
-
 def _fmt_num(x, nd=0):
     try:
         v = float(x)
@@ -63,6 +49,20 @@ def _fmt_num(x, nd=0):
     if nd == 0:
         return f"{v:,.0f}"
     return f"{v:,.{nd}f}"
+
+def _fmt_pct_from_ratio(x: float, nd: int = 1) -> str:
+    """0.51 → 51.0%"""
+    try:
+        return f"{float(x)*100:.{nd}f}%"
+    except Exception:
+        return "-"
+
+def _fmt_signed(x: float, nd: int = 2) -> str:
+    """+/- 付き小数表記"""
+    try:
+        return f"{float(x):+.{nd}f}"
+    except Exception:
+        return "—"
 
 def _split_chunks(s: str, limit: int = 4500) -> List[str]:
     """
@@ -108,7 +108,8 @@ class Command(BaseCommand):
         parser.add_argument("--days", type=int, default=90, help="週次サマリのlookback（日数）")
 
         # ==== LINE 送信用オプション ====
-        parser.add_argument("--line", action="store_true", help="LINEへも送信する")
+        parser.add_argument("--line", action="store_true", help="LINEへも送信する（既定はFlex送信）")
+        parser.add_argument("--line-text", action="store_true", help="Flexではなくテキストで送る")
         parser.add_argument("--line-to", type=str, default="", help="LINE送信先user_id（カンマ区切り）。未指定で --line-all or 最新1件を推測")
         parser.add_argument("--line-all", action="store_true", help="登録済みLineContactの全員に送る")
         parser.add_argument("--line-title", type=str, default="", help="LINE先頭タイトル（未指定は既定）")
@@ -201,10 +202,18 @@ class Command(BaseCommand):
 
         # ---- 8) LINE送信（任意）
         if opts["line"]:
-            if line_push is None:
-                self.stdout.write(self.style.WARNING("LINE送信が有効化されていません（services.line_api / models_line 不在）。"))
+            user_ids = self._resolve_line_targets(opts)
+            if not user_ids:
+                self.stdout.write(self.style.WARNING("LINE送信先が見つかりません（--line-to か --line-all を指定するか、LineContactを作成してください）。"))
+                return
+            # Flex or Text
+            if opts.get("line_text"):
+                self._send_line_text(user_ids, ctx, md, opts)
             else:
-                self._send_line(ctx, md, opts)
+                # Flex（失敗時はテキストにフォールバック）
+                ok = self._send_line_flex(user_ids, ctx, opts)
+                if not ok:
+                    self._send_line_text(user_ids, ctx, md, opts)
 
     # ---------- テンプレ描画 ----------
     def _render_html(self, ctx: BriefContext) -> str:
@@ -228,15 +237,13 @@ class Command(BaseCommand):
             """
 
     def _render_md(self, ctx: BriefContext, sector_top: int = 10) -> str:
-        # LINEとメールtextで共用する軽量テキスト
-        # 指数は上位数件のみ
+        # テキスト（メールtext/LINEフォールバック共用）
         idx_syms = list(ctx.indexes.keys())[:8]
         idx_lines = [
-            f"- {sym}: 5日={_fmt_pct(ctx.indexes.get(sym,{}).get('ret_5d',0.0), 2, True)} / 20日={_fmt_pct(ctx.indexes.get(sym,{}).get('ret_20d',0.0), 2, True)}"
+            f"- {sym}: 5日={_fmt_signed(ctx.indexes.get(sym,{}).get('ret_5d',0.0), 2)} / 20日={_fmt_signed(ctx.indexes.get(sym,{}).get('ret_20d',0.0), 2)}"
             for sym in idx_syms
         ]
-        top_secs = "\n".join([f"- {r['sector']}: RS {float(r['rs']):+0.2f}" for r in ctx.sectors[:sector_top]]) or "- なし"
-
+        top_secs = "\n".join([f"- {r['sector']}: RS {_fmt_signed(r['rs'], 2)}" for r in ctx.sectors[:sector_top]]) or "- なし"
         notes_lines = "\n".join([f"- {n}" for n in (ctx.notes or ["なし"])])
 
         text = (
@@ -260,7 +267,7 @@ f"""# AI デイリーブリーフ {ctx.asof}
 ■ 今週の通知サマリ
 - 通知: {_fmt_num(ctx.week_stats['total'])}
 - 採用: {_fmt_num(ctx.week_stats['taken'])}
-- 採用率: {ctx.week_stats['rate']*100:.1f}%
+- 採用率: {_fmt_pct_from_ratio(ctx.week_stats['rate'], 1)}
 
 ■ Notes
 {notes_lines}
@@ -279,37 +286,112 @@ f"""# AI デイリーブリーフ {ctx.asof}
         msg.attach_alternative(html, "text/html")
         msg.send(fail_silently=False)
 
-    # ---------- LINE送信 ----------
+    # ---------- LINE: 送信対象解決 ----------
     def _resolve_line_targets(self, opts) -> List[str]:
-        # 1) --line-to 指定があればそれを優先
         ids = [x.strip() for x in (opts.get("line_to") or "").split(",") if x.strip()]
         if ids:
             return ids
-        # 2) --line-all なら DB 全員
-        if opts.get("line_all") and LineContact is not None:
+        if opts.get("line_all"):
             return list(LineContact.objects.values_list("user_id", flat=True))
-        # 3) それ以外は最新の1件（開発/試験用）
-        if LineContact is not None:
-            try:
-                latest = LineContact.objects.latest("created_at")
-                return [latest.user_id]
-            except Exception:
-                return []
-        return []
+        try:
+            latest = LineContact.objects.latest("created_at")
+            return [latest.user_id]
+        except Exception:
+            return []
 
-    def _send_line(self, ctx: BriefContext, md_text: str, opts) -> None:
-        user_ids = self._resolve_line_targets(opts)
-        if not user_ids:
-            self.stdout.write(self.style.WARNING("LINE送信先が見つかりません（--line-to か --line-all を指定するか、LineContactを作成してください）。"))
-            return
+    # ---------- LINE: Flex ----------
+    def _build_flex(self, ctx: BriefContext) -> dict:
+        base_url = getattr(settings, "SITE_BASE_URL", "").rstrip("/")
+        public_url = ""
+        if base_url:
+            public_url = f"{base_url}/media/reports/daily_brief_{ctx.asof}.html"
 
-        title = (opts.get("line_title") or f"AIデイリーブリーフ {ctx.asof}").strip()
-        header = f"\n"
-        body = md_text
+        def kv(k, v):
+            return {
+                "type":"box","layout":"baseline","spacing":"sm",
+                "contents":[
+                    {"type":"text","text":k,"size":"sm","color":"#9aa4b2","flex":4},
+                    {"type":"text","text":str(v),"size":"sm","wrap":True,"flex":8}
+                ]
+            }
 
-        # 上限対策で分割
+        # セクター上位
+        sec_lines = []
+        for r in ctx.sectors[:10]:
+            sec_lines.append(
+                {"type":"box","layout":"baseline","spacing":"sm","contents":[
+                    {"type":"text","text":r["sector"],"size":"sm","flex":9,"wrap":True},
+                    {"type":"text","text":_fmt_signed(r["rs"], 2),"size":"sm","flex":3,"align":"end"}
+                ]}
+            )
+
+        body = {
+          "type": "box",
+          "layout": "vertical",
+          "spacing": "md",
+          "contents": [
+            {"type": "text", "text": "AI デイリーブリーフ", "weight":"bold", "size":"lg"},
+            {"type": "text", "text": ctx.asof, "size":"xs", "color":"#9aa4b2"},
+            {"type": "separator"},
+            {"type":"text","text":"地合い（Breadth）","weight":"bold","size":"md","margin":"md"},
+            {"type":"box","layout":"vertical","spacing":"sm","contents":[
+                kv("Regime", ctx.breadth_view.get("regime","NEUTRAL")),
+                kv("Score",  ctx.breadth_view.get("score", 0.0)),
+                kv("A/D",    ctx.breadth_view.get("ad_ratio", 1.0)),
+                kv("VOL",    ctx.breadth_view.get("vol_ratio", 1.0)),
+                kv("H-L",    ctx.breadth_view.get("hl_diff", 0)),
+            ]},
+            {"type":"separator","margin":"md"},
+            {"type":"text","text":"セクターRS（上位10）","weight":"bold","size":"md","margin":"md"},
+            {"type":"box","layout":"vertical","spacing":"sm","contents": sec_lines or [{"type":"text","text":"データなし","size":"sm"}]},
+            {"type":"separator","margin":"md"},
+            {"type":"text","text":"今週の通知サマリ","weight":"bold","size":"md","margin":"md"},
+            {"type":"box","layout":"vertical","spacing":"sm","contents":[
+                kv("通知", f'{ctx.week_stats["total"]:,}'),
+                kv("採用", f'{ctx.week_stats["taken"]:,}'),
+                kv("採用率", _fmt_pct_from_ratio(ctx.week_stats["rate"], 1)),
+            ]},
+          ]
+        }
+
+        footer_contents = []
+        if public_url:
+            footer_contents.append({
+                "type":"button","style":"primary","height":"sm",
+                "action":{"type":"uri","label":"詳細を開く","uri": public_url }
+            })
+
+        bubble = {
+          "type": "bubble",
+          "size": "mega",
+          "body": body,
+          "footer": {"type":"box","layout":"vertical","spacing":"sm","contents": footer_contents} if footer_contents else None
+        }
+        if bubble["footer"] is None:
+            del bubble["footer"]
+        return bubble
+
+    def _send_line_flex(self, user_ids: List[str], ctx: BriefContext, opts) -> bool:
+        """Flexを送信。1件でも成功すれば True"""
+        flex = self._build_flex(ctx)
+        alt = (opts.get("line_title") or f"AIデイリーブリーフ {ctx.asof}").strip()
+        any_ok = False
         for uid in user_ids:
-            chunks = _split_chunks(header + body, limit=4500)
+            try:
+                r = line_push_flex(uid, alt, flex)
+                ok = getattr(r, "status_code", None) == 200
+                any_ok = any_ok or ok
+                self.stdout.write(self.style.SUCCESS(f"LINE Flex to {uid}: {getattr(r,'status_code',None)}"))
+            except Exception as e:
+                self.stdout.write(self.style.WARNING(f"LINE Flex exception (uid={uid}): {e}"))
+        return any_ok
+
+    # ---------- LINE: Text ----------
+    def _send_line_text(self, user_ids: List[str], ctx: BriefContext, md_text: str, opts) -> None:
+        title = (opts.get("line_title") or f"AIデイリーブリーフ {ctx.asof}").strip()
+        header = f"{title}\n\n"
+        for uid in user_ids:
+            chunks = _split_chunks(header + md_text, limit=4500)
             ok_all = True
             for i, ch in enumerate(chunks, 1):
                 try:
@@ -322,4 +404,4 @@ f"""# AI デイリーブリーフ {ctx.asof}
                     ok_all = False
                     self.stdout.write(self.style.WARNING(f"LINE push exception (uid={uid}, part={i}/{len(chunks)}): {e}"))
             if ok_all:
-                self.stdout.write(self.style.SUCCESS(f"LINE sent to {uid} ({len(chunks)} msg)"))
+                self.stdout.write(self.style.SUCCESS(f"LINE text sent to {uid} ({len(chunks)} msg)"))
