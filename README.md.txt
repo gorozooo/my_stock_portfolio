@@ -17,3 +17,8 @@ su - gorozooo
 cd /home/gorozooo/my_stock_portfolio
 source venv/bin/activate
 a
+
+
+python manage.py advisor_daily_brief --line --line-all
+
+
