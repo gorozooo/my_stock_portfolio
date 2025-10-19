@@ -31,3 +31,18 @@ def push(to_user_id: str, message_text: str):
     r = requests.post(url, headers=_auth_headers(), json=payload, timeout=10)
     logger.info("LINE push %s %s", r.status_code, r.text[:200])
     return r
+    
+LINE_API = "https://api.line.me/v2/bot/message/push"
+TOKEN = getattr(settings, "LINE_CHANNEL_ACCESS_TOKEN", os.getenv("LINE_CHANNEL_ACCESS_TOKEN", ""))
+
+def push(to: str, text: str):
+    # 既存のテキスト送信用（そのままでOK）
+    headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+    payload = {"to": to, "messages": [{"type": "text", "text": text}]}
+    return requests.post(LINE_API, headers=headers, data=json.dumps(payload), timeout=10)
+
+def push_flex(to: str, alt_text: str, contents: dict):
+    """Flex Message を送る。contents は Flex JSON（bubble or carousel）。"""
+    headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+    payload = {"to": to, "messages": [{"type": "flex", "altText": alt_text, "contents": contents}]}
+    return requests.post(LINE_API, headers=headers, data=json.dumps(payload, ensure_ascii=False), timeout=10)
