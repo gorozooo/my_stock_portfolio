@@ -2,7 +2,7 @@
 from __future__ import annotations
 import os, json
 from datetime import datetime, date
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from django.core.management.base import BaseCommand, CommandParser
 from django.conf import settings
@@ -14,7 +14,7 @@ def _media_root() -> str:
 
 
 def _coerce_payload(opts: Dict[str, Any], d: str) -> Dict[str, Any]:
-    """引数を安全に数値化してペイロード作成（負値はそのまま許容: 指数により起こりうる）"""
+    """引数を安全に数値化してペイロード作成"""
     def _i(key: str, default=0) -> int:
         try:
             return int(opts.get(key, default))
@@ -40,7 +40,12 @@ def _coerce_payload(opts: Dict[str, Any], d: str) -> Dict[str, Any]:
 
 
 class Command(BaseCommand):
-    help = "騰落・出来高ブレッドスを media/market/breadth_YYYY-MM-DD.json と breadth.json に保存する"
+    """
+    騰落・出来高ブレッドスを自動更新するコマンド。
+    指定日の JSON を media/market/breadth_YYYY-MM-DD.json に保存し、
+    さらに最新ポインタ media/market/breadth.json も更新する。
+    """
+    help = "ブレッドスを media/market/breadth_YYYY-MM-DD.json と breadth.json に保存（自動更新）"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--date", type=str, default="", help="対象日(YYYY-MM-DD)。未指定で今日")
@@ -56,7 +61,6 @@ class Command(BaseCommand):
         # --- 日付の決定＆検証 ---
         d = (opts.get("date") or date.today().strftime("%Y-%m-%d")).strip()
         try:
-            # YYYY-MM-DD バリデーション
             datetime.fromisoformat(d)
         except Exception:
             self.stdout.write(self.style.ERROR(f"invalid --date: {d}"))
@@ -72,7 +76,7 @@ class Command(BaseCommand):
         dated_path = os.path.join(mdir, f"breadth_{d}.json")
         latest_path = os.path.join(mdir, "breadth.json")
 
-        # --- 既存チェック（dated のみ尊重。latest は常に更新可） ---
+        # --- 既存チェック（dated のみ） ---
         if os.path.exists(dated_path) and not opts.get("force"):
             self.stdout.write(self.style.WARNING(f"exists: {dated_path} (use --force to overwrite)"))
         else:
