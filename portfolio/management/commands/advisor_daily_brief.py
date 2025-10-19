@@ -8,6 +8,8 @@ from django.core.management.base import BaseCommand, CommandParser
 from django.conf import settings
 from django.utils import timezone
 
+import random
+
 # 既存サービス
 from ...services.market import (
     latest_breadth, breadth_regime,
@@ -82,45 +84,52 @@ class BriefContext:
     ai_comment: str = ""   # ← 追加：今日のひとこと
 
 
-# ひとこと自動生成（簡易ルール）
-def _make_ai_comment(regime: str, score: float, sectors: List[Dict[str, Any]], adopt_rate: float) -> str:
+def _make_ai_comment(regime: str, score: float, sectors: List[Dict[str, Any]], adopt_rate: float, seed:str="") -> str:
     """
-    簡易ルールで1行コメントを作る:
-      - Regime: RISK_ON / RISK_OFF / NEUTRAL
-      - score: >0.6 強気, <0.2 弱い, 中間は様子見
-      - 採用率 adopt_rate: >0.55 良好, <0.45 まちまち
-      - セクター上位3を言及
+    その日の空気感を1〜2文で。口語っぽい言い回し＆軽い提案を含む。
+    seed: 日付などを渡すと揺らぎが固定される（cronでも安定）
     """
     rg = (regime or "").upper()
-    top_secs = [s.get("sector", "") for s in (sectors or [])[:3] if s.get("sector")]
-    top_txt = "・".join(top_secs) if top_secs else "特筆セクターなし"
+    top_secs = [s.get("sector", "") for s in (sectors or []) if s.get("sector")]
+    top_txt = "・".join(top_secs[:3]) if top_secs else ""
 
-    stance = ""
-    tip = ""
+    # 軽いバリエーション（seedで決定）
+    rnd = random.Random((seed or "") + rg + f"{score:.3f}{adopt_rate:.3f}")
+    openers_on  = ["いい流れです。", "地合いは追い風気味。", "今日も悪くないムード。"]
+    openers_off = ["ちょっと向かい風。", "やや弱含み。", "無理は禁物。"]
+    openers_neu = ["様子見が無難。", "方向感はまだ薄め。", "判断は引けまで。"]
+
+    tips_strong = ["押し目は拾いたいところ。", "強いところに素直に乗るのが良さそう。", "勝ち筋集中で。"]
+    tips_mid    = ["サイズは控えめに分散で。", "勢いはあるが無理はしない。", "短期は逃げ足も意識。"]
+    tips_weak   = ["守り寄りでいきましょう。", "現金厚め＋ディフェンシブ。", "逆張りは小さく慎重に。"]
+
+    # ベースの態度
     if "OFF" in rg:
-        stance = "やや弱気"
-        if score <= 0.2:
-            tip = "キャッシュ厚め／守り寄り（生活必需品・ヘルスケア）"
-        else:
-            tip = "戻り待ちの短期・逆張りは小さく"
+        opener = rnd.choice(openers_off)
+        tip    = rnd.choice(tips_weak)
+        stance = "弱気寄り"
     elif "ON" in rg:
-        stance = "やや強気"
-        if score >= 0.6:
-            tip = "押し目買い継続／勝ち筋に集中"
-        else:
-            tip = "押し目限定・分散で"
+        opener = rnd.choice(openers_on)
+        tip    = rnd.choice(tips_strong if score >= 0.6 else tips_mid)
+        stance = "強気寄り" if score >= 0.6 else "やや強気"
     else:
+        opener = rnd.choice(openers_neu)
+        tip    = rnd.choice(tips_mid)
         stance = "中立"
-        tip = "過度な追随は避けて、指標確認"
 
+    # シグナル採用率ニュアンス
     if adopt_rate >= 0.55:
-        tip2 = "シグナルの質は良好"
+        sig = "シグナルの通りも悪くありません。"
     elif adopt_rate <= 0.45:
-        tip2 = "シグナルの質はまちまち"
+        sig = "シグナルの質はまちまち。"
     else:
-        tip2 = "シグナルは標準的"
+        sig = "シグナルは平均的。"
 
-    return f"{stance}。Score={score:.2f}。注目: {top_txt}。{tip}（{tip2}）"
+    # セクター一言
+    sec_note = f"注目は「{top_txt}」。" if top_txt else ""
+
+    # 1〜2文でまとめる
+    return f"{opener}{sec_note} {stance}（Score {score:.2f}）。{tip} {sig}"
 
 
 # =========================
@@ -192,6 +201,7 @@ class Command(BaseCommand):
             score=float(regime.get("score", 0.0)),
             sectors=sectors_view,
             adopt_rate=float(week_stats.get("rate", 0.0)),
+            seed=asof_str,
         )
 
         ctx = BriefContext(
