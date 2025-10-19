@@ -33,6 +33,7 @@ def _latest_file(pattern: str) -> Optional[str]:
         except Exception:
             key = 0
         return (key, p)
+    # 日付名が採れるならその順→同率はmtimeでソート
     paths.sort(key=lambda x: _pick_date(x)[0])
     paths.sort(key=lambda x: os.path.getmtime(x))
     return paths[-1]
@@ -56,23 +57,18 @@ def _safe_div(a: float, b: float, default: float = 0.0) -> float:
 # セクター強弱RS
 # =========================
 
-def latest_sector_strength() -> Dict[str, Dict[str, Any]]:
+def _load_strength_from_json() -> Dict[str, Dict[str, Any]]:
     """
-    最新の“セクター強弱RS”テーブルを返す
-    優先度:
+    JSONから強弱テーブルをロード:
       1) MEDIA_ROOT/market/sectors_YYYY-MM-DD.json
       2) MEDIA_ROOT/market/sectors.json
-      3) CSV（同様の形式）
-    戻り値:
-      { "情報・通信": {"rs_score": 0.42, "advdec": 0.15, "vol_ratio": 1.08, "date": "2025-01-10"}, ... }
+    どちらか最初に見つかった方を採用
     """
     mdir = _market_dir()
     os.makedirs(mdir, exist_ok=True)
 
     j_hist = _latest_file(os.path.join(mdir, "sectors_*.json"))
     j_single = os.path.join(mdir, "sectors.json")
-    c_hist = _latest_file(os.path.join(mdir, "sectors_*.csv"))
-    c_single = os.path.join(mdir, "sectors.csv")
 
     for path in [j_hist, j_single]:
         if path and os.path.exists(path):
@@ -96,6 +92,19 @@ def latest_sector_strength() -> Dict[str, Dict[str, Any]]:
                     return out
             except Exception:
                 pass
+    return {}
+
+def _load_strength_from_csv() -> Dict[str, Dict[str, Any]]:
+    """
+    CSVから強弱テーブルをロード:
+      1) MEDIA_ROOT/market/sectors_YYYY-MM-DD.csv
+      2) MEDIA_ROOT/market/sectors.csv
+    """
+    mdir = _market_dir()
+    os.makedirs(mdir, exist_ok=True)
+
+    c_hist = _latest_file(os.path.join(mdir, "sectors_*.csv"))
+    c_single = os.path.join(mdir, "sectors.csv")
 
     for path in [c_hist, c_single]:
         if path and os.path.exists(path):
@@ -116,8 +125,73 @@ def latest_sector_strength() -> Dict[str, Dict[str, Any]]:
                 return out
             except Exception:
                 pass
-
     return {}
+
+def _load_strength_from_db() -> Dict[str, Dict[str, Any]]:
+    """
+    DB（portfolio.models_market.SectorSignal）から最新日付の強弱をロード。
+    戻り値: { sector: {rs_score, advdec=None, vol_ratio=None, date:"YYYY-MM-DD"} }
+    """
+    try:
+        from django.db.models import Max
+        from ..models_market import SectorSignal  # 遅延importで循環回避
+        last = SectorSignal.objects.aggregate(last=Max("date"))["last"]
+        if not last:
+            return {}
+        rows = (
+            SectorSignal.objects
+            .filter(date=last)
+            .values("sector", "rs_score")
+        )
+        out: Dict[str, Dict[str, Any]] = {}
+        dstr = last.isoformat()
+        for r in rows:
+            sec = str(r["sector"]).strip()
+            if not sec:
+                continue
+            out[sec] = {
+                "rs_score": _safe_float(r.get("rs_score")),
+                "advdec": None,
+                "vol_ratio": None,
+                "date": dstr,
+            }
+        return out
+    except Exception:
+        # マイグレーション前/DB未準備でも落とさない
+        return {}
+
+def latest_sector_strength() -> Dict[str, Dict[str, Any]]:
+    """
+    最新の“セクター強弱RS”テーブルを返す（**DB優先**）。
+    優先度:
+      1) DB: portfolio.models_market.SectorSignal（最新date）
+      2) JSON: MEDIA_ROOT/market/sectors_YYYY-MM-DD.json → sectors.json
+      3) CSV : MEDIA_ROOT/market/sectors_YYYY-MM-DD.csv → sectors.csv
+
+    DBで得られたセクターはそれを採用し、DBにないセクターはファイル/CSV側で**補完**する。
+    """
+    # DB
+    db_map = _load_strength_from_db()
+
+    # ファイル/CSV（フォールバック or 補完用）
+    file_map = _load_strength_from_json()
+    if not file_map:
+        file_map = _load_strength_from_csv()
+
+    if not db_map and not file_map:
+        return {}
+
+    if db_map and not file_map:
+        return db_map
+
+    if file_map and not db_map:
+        return file_map
+
+    # 両方ある場合は DB を優先してマージ
+    merged: Dict[str, Dict[str, Any]] = {}
+    merged.update(file_map)  # まず全部ファイルで埋める
+    merged.update(db_map)    # DBの値で上書き（優先）
+    return merged
 
 # =========================
 # 指数スナップショット＆RS
