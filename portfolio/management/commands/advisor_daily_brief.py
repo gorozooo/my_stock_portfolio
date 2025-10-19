@@ -2,20 +2,21 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
+import os
+import json
+import glob
+import random
 
 from django.core.management.base import BaseCommand, CommandParser
 from django.conf import settings
 from django.utils import timezone
 
-import random
-
 # 既存サービス
 from ...services.market import (
     latest_breadth, breadth_regime,
-    fetch_indexes_snapshot, latest_sector_strength, load_breadth_history
+    fetch_indexes_snapshot, latest_sector_strength
 )
-    # sectors
 from ...services.sector_map import normalize_sector
 from ...models_advisor import AdviceItem
 
@@ -71,6 +72,73 @@ def _split_chunks(s: str, limit: int = 4500) -> List[str]:
     return out
 
 
+# ---------- breadth 前日スコア推定（ローカル読込） ----------
+def _market_dirs() -> List[str]:
+    """
+    breadth_YYYY-MM-DD.json を探す候補ディレクトリ:
+    - <PROJECT_ROOT>/market
+    - <MEDIA_ROOT>/market
+    """
+    dirs = []
+    base_dir = getattr(settings, "BASE_DIR", None)
+    if base_dir:
+        dirs.append(os.path.join(str(base_dir), "market"))
+    media_root = getattr(settings, "MEDIA_ROOT", "") or os.getcwd()
+    dirs.append(os.path.join(media_root, "market"))
+    # 正規化 & 重複排除
+    seen, out = set(), []
+    for d in dirs:
+        dd = os.path.abspath(d)
+        if dd not in seen:
+            seen.add(dd); out.append(dd)
+    return out
+
+def _scan_breadth_files() -> List[Tuple[date, str]]:
+    """
+    breadth_YYYY-MM-DD.json を見つけて (date, path) のリスト（昇順）を返す
+    """
+    items: List[Tuple[date, str]] = []
+    for d in _market_dirs():
+        try:
+            for p in glob.glob(os.path.join(d, "breadth_*.json")):
+                base = os.path.basename(p)
+                try:
+                    key = base.split("_", 1)[1].split(".json", 1)[0]
+                    dt = datetime.fromisoformat(key).date()
+                    items.append((dt, p))
+                except Exception:
+                    continue
+        except Exception:
+            continue
+    items.sort(key=lambda x: x[0])  # 昇順
+    return items
+
+def _guess_prev_breadth_score(asof_str: str) -> Optional[float]:
+    """
+    asof より前の breadth_* の中から最も最近のものの score を返す。無ければ None。
+    """
+    try:
+        asof = datetime.fromisoformat(asof_str).date()
+    except Exception:
+        asof = date.today()
+    items = _scan_breadth_files()
+    prevs = [p for (d, p) in items if d < asof]
+    if not prevs:
+        # どうしても見つからない場合、最後から2番目を保険で使う
+        if len(items) >= 2:
+            prevs = [items[-2][1]]
+        else:
+            return None
+    path = prevs[-1]
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            obj = json.load(f)
+        return float(obj.get("score", 0.0))
+    except Exception:
+        return None
+
+
+# ---------- 「今日のひとこと」 ----------
 @dataclass
 class BriefContext:
     asof: str
@@ -81,7 +149,7 @@ class BriefContext:
     sectors: List[Dict[str, Any]]
     week_stats: Dict[str, Any]
     notes: List[str]
-    ai_comment: str = ""   # ← 追加：今日のひとこと
+    ai_comment: str = ""
 
 
 def _make_ai_comment(
@@ -92,108 +160,44 @@ def _make_ai_comment(
     prev_score: Optional[float] = None,
     seed: str = ""
 ) -> str:
-    """
-    砕けたトーン＋絵文字＋前日比コメント入り “今日のひとこと”
-    """
+    """砕けたトーン＋絵文字＋前日比コメント入り"""
     rg = (regime or "").upper()
     top_secs = [s.get("sector", "") for s in (sectors or []) if s.get("sector")]
     top_txt = "・".join(top_secs[:3]) if top_secs else "（特に目立つセクターなし）"
-
     rnd = random.Random((seed or "") + rg + f"{score:.3f}{adopt_rate:.3f}")
 
-    # -----------------------
-    # トーンの素材
-    # -----------------------
-    openers_on = [
-        "📈 地合いは良さげ！",
-        "🌞 今日もマーケットはご機嫌！",
-        "💪 強気ムード漂ってます！",
-        "🚀 エンジンかかってきた感じ！",
-    ]
-    openers_off = [
-        "💤 ちょっとお疲れ気味の相場…",
-        "🌧 雨模様のマーケットですね☁️",
-        "😴 今日は静かな地合いです。",
-        "🧊 少し冷えてますね。",
-    ]
-    openers_neu = [
-        "😐 方向感が定まりにくい1日になりそう。",
-        "🤔 様子見ムード強め。",
-        "⚖️ どっちつかずの相場。",
-        "😶 微妙な空気感…焦らずいきましょう。",
-    ]
+    openers_on = ["📈 地合いは良さげ！","🌞 今日もマーケットはご機嫌！","💪 強気ムード！","🚀 エンジンかかってきた！"]
+    openers_off = ["💤 ちょいお疲れ相場…","🌧 雨模様のマーケット☁️","😴 静かな地合い。","🧊 少し冷えてます。"]
+    openers_neu = ["😐 方向感が出にくい日。","🤔 様子見ムード強め。","⚖️ どっちつかず。","😶 焦らずいきましょう。"]
 
-    tips_strong = [
-        "📊 押し目は拾ってOKかも！",
-        "💰 勝ち筋セクターに素直に乗るのが吉✨",
-        "🟢 トレンドに乗っちゃいましょう！",
-        "🔥 流れに逆らわずいきましょう！",
-    ]
-    tips_mid = [
-        "🧩 分散しつつ軽めに様子見で。",
-        "😌 小ロットで波を拾う感じ。",
-        "🌤 まだ勢いは微妙、焦らず。",
-        "💭 今日は無理せず静観もありです。",
-    ]
-    tips_weak = [
-        "🛡 守り重視でいきましょう！",
-        "💤 現金厚めで休むも相場。",
-        "🥶 無理な逆張りは控えめに。",
-        "🪫 ディフェンシブ銘柄で耐える時間。",
-    ]
+    tips_strong = ["📊 押し目は拾ってOKかも！","💰 勝ち筋セクターに素直に！","🟢 トレンドに乗ろう！","🔥 流れに逆らわず！"]
+    tips_mid = ["🧩 分散しつつ軽めに。","😌 小ロットで波拾い。","🌤 勢いは微妙、焦らず。","💭 静観もあり。"]
+    tips_weak = ["🛡 守り重視で！","💤 現金厚めで休むも相場。","🥶 無理な逆張りNG。","🪫 ディフェンシブで耐える。"]
 
-    sig_good = [
-        "✨ シグナルの精度もなかなかいい感じ！",
-        "👍 今日のアラートは信頼度高め！",
-        "💡 判断材料としては悪くないですよ！",
-    ]
-    sig_bad = [
-        "⚠️ シグナルが少しブレ気味です。",
-        "🌀 ノイズ多めなので慎重に。",
-        "😅 判断は慎重にいきましょう。",
-    ]
-    sig_neutral = [
-        "📘 いつも通りの安定感。",
-        "🙂 平常運転です。",
-        "🕊 特に偏りなし。",
-    ]
+    sig_good = ["✨ シグナルも良さげ！","👍 今日のアラートは信頼度高め！","💡 判断材料は悪くない！"]
+    sig_bad = ["⚠️ シグナルは少しブレ気味。","🌀 ノイズ多め、慎重に。","😅 判断は慎重に。"]
+    sig_neutral = ["📘 いつも通りの安定感。","🙂 平常運転。","🕊 偏りなし。"]
 
-    # -----------------------
-    # 組み合わせロジック
-    # -----------------------
     if "OFF" in rg:
-        opener = rnd.choice(openers_off)
-        tip = rnd.choice(tips_weak)
-        stance = "弱気寄り"
+        opener = rnd.choice(openers_off); tip = rnd.choice(tips_weak); stance = "弱気寄り"
     elif "ON" in rg:
         opener = rnd.choice(openers_on)
         tip = rnd.choice(tips_strong if score >= 0.6 else tips_mid)
         stance = "強気寄り" if score >= 0.6 else "やや強気"
     else:
-        opener = rnd.choice(openers_neu)
-        tip = rnd.choice(tips_mid)
-        stance = "中立"
+        opener = rnd.choice(openers_neu); tip = rnd.choice(tips_mid); stance = "中立"
 
-    # ==== シグナル精度 ====
-    if adopt_rate >= 0.55:
-        sig = rnd.choice(sig_good)
-    elif adopt_rate <= 0.45:
-        sig = rnd.choice(sig_bad)
-    else:
-        sig = rnd.choice(sig_neutral)
+    if adopt_rate >= 0.55: sig = rnd.choice(sig_good)
+    elif adopt_rate <= 0.45: sig = rnd.choice(sig_bad)
+    else: sig = rnd.choice(sig_neutral)
 
-    # ==== 前日比コメント ====
     diff_comment = ""
     if prev_score is not None:
-        diff = round(score - prev_score, 2)
-        if diff > 0.05:
-            diff_comment = f"📈 昨日より改善！(+{diff:.2f}) "
-        elif diff < -0.05:
-            diff_comment = f"📉 昨日よりやや悪化({diff:.2f}) "
-        else:
-            diff_comment = f"😐 昨日とほぼ横ばい。 "
+        diff = round(score - float(prev_score), 2)
+        if diff > 0.05: diff_comment = f"📈 昨日より改善！(+{diff:.2f}) "
+        elif diff < -0.05: diff_comment = f"📉 昨日よりやや悪化({diff:.2f}) "
+        else: diff_comment = "😐 昨日とほぼ横ばい。 "
 
-    # ==== 出力 ====
     return (
         f"{opener} {diff_comment}\n"
         f"注目セクター👉 {top_txt}\n"
@@ -210,7 +214,6 @@ class Command(BaseCommand):
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--date", type=str, default="", help="対象日(YYYY-MM-DD)。未指定は今日")
         parser.add_argument("--days", type=int, default=90, help="週次サマリのlookback（日数）")
-
         # LINE 送信
         parser.add_argument("--line", action="store_true", help="LINEへ送信する")
         parser.add_argument("--line-text", action="store_true", help="テキストで送る（既定はFlex）")
@@ -229,19 +232,10 @@ class Command(BaseCommand):
 
         # ---- 市況
         b = latest_breadth() or {}
-        regime = breadth_regime(b)  # dict 想定（regime/score 等）
-        
-        # ---- 前日スコア取得（オプション） ----
-        from ...services.market import load_breadth_history  # ← これが使えるなら利用
-        
-        prev_day_score = None
-        try:
-            # 最新breadthから過去履歴を取得
-            hist = load_breadth_history(limit=5)
-            if hist and len(hist) >= 2:
-                prev_day_score = float(hist[-2].get("score", 0.0))  # 昨日
-        except Exception:
-            prev_day_score = None
+        regime_view = breadth_regime(b)  # dict（regime/score等）
+
+        # ---- 前日スコア（ローカル breadth_* から推定）
+        prev_day_score = _guess_prev_breadth_score(asof_str)
 
         # ---- 指数
         idx = fetch_indexes_snapshot() or {}
@@ -276,10 +270,10 @@ class Command(BaseCommand):
         if not rs_tbl: notes.append("セクターRSが見つからない。")
         if not idx: notes.append("indexes snapshot が空。")
 
-        # ---- ひとこと生成
+        # ---- ひとこと
         ai_comment = _make_ai_comment(
-            regime=regime.get("regime", "NEUTRAL"),
-            score=float(regime.get("score", 0.0)),
+            regime=regime_view.get("regime", "NEUTRAL"),
+            score=float(regime_view.get("score", 0.0)),
             sectors=sectors_view,
             adopt_rate=float(week_stats.get("rate", 0.0)),
             prev_score=prev_day_score,
@@ -290,12 +284,12 @@ class Command(BaseCommand):
             asof=asof_str,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             breadth=b,
-            breadth_view=regime,
+            breadth_view=regime_view,
             indexes=idx,
             sectors=sectors_view,
             week_stats=week_stats,
             notes=notes,
-            ai_comment=ai_comment,   # ← 追加
+            ai_comment=ai_comment,
         )
 
         # ---- LINE 送信
