@@ -156,6 +156,8 @@ class Command(BaseCommand):
             prev_score=prev_score,
             seed=asof_str + (opts.get("mode") or ""),
             engine=ai_model,
+            mode=(opts.get("mode") or "preopen"),
+            persona="dealer",  
         )
 
         ctx = BriefContext(
