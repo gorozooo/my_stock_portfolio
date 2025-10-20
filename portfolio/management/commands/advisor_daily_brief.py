@@ -416,7 +416,7 @@ f"""# AI デイリーブリーフ {ctx.asof}
                         f"LINE Flex to {uid}: {code} {getattr(r,'text','')}"
                     ))
                     rs = line_push_flex(uid, "Flex smoke test", smoke)
-                    self.stdout.write(self.styleWARNING(
+                    self.stdout.write(self.style.WARNING(
                         f"  smoke test status={getattr(rs,'status_code',None)} body={getattr(rs,'text','')}"
                     ))
                 else:
