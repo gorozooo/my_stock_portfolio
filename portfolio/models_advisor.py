@@ -132,3 +132,27 @@ class AdvisorMetrics(models.Model):
 
     def __str__(self) -> str:
         return f"[{self.created_at:%Y-%m-%d %H:%M}] {self.engine} acc={self.train_acc:.3f} n={self.n}"
+        
+class AdvisorPersona(models.Model):
+    user_id = models.CharField(max_length=64, db_index=True, unique=True)
+    # 好み・性格
+    tone = models.CharField(max_length=16, default="casual")    # casual | calm | energetic
+    risk_bias = models.CharField(max_length=16, default="neutral")  # cautious | neutral | aggressive
+    emoji_level = models.IntegerField(default=2)  # 0-3
+    # 自動要約（LLMで毎日/毎週更新）
+    preference_summary = models.TextField(default="", blank=True)
+    # スコア（自動で上がったり下がったり）
+    quality_score = models.FloatField(default=0.0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+class CommentFeedback(models.Model):
+    user_id = models.CharField(max_length=64, db_index=True)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    # その日の市況特徴を軽く保存（学習の材料）
+    regime = models.CharField(max_length=16)
+    score = models.FloatField(default=0.0)
+    sectors_top = models.TextField(default="")  # "非鉄・小売・建設"
+    # 生成物と反応
+    comment_text = models.TextField()
+    rating = models.IntegerField(default=0)     # -1(👎) / 0 / +1(👍)
+    note = models.TextField(default="", blank=True)
