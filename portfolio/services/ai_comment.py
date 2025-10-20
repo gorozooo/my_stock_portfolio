@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-import os
-import json
-import random
-import re
+import os, json, random, re
 from typing import Dict, Any, List, Optional
+from datetime import datetime
 
 # Django settings は任意（未インストール環境でも動くように try）
 try:
@@ -31,10 +29,51 @@ except Exception:
         _OPENAI_AVAILABLE = False
 
 
-# ---------------------------
-# 共通ユーティリティ
-# ---------------------------
-def _shorten(text: str, limit: int = 230) -> str:
+# ========= 履歴ストア（JSONL / 擬似学習） =========
+def _media_root() -> str:
+    return getattr(settings, "MEDIA_ROOT", "") or os.getcwd()
+
+def _history_path(persona_id: str = "default") -> str:
+    base = os.path.join(_media_root(), "advisor")
+    os.makedirs(base, exist_ok=True)
+    # personごとに分ける（将来マルチユーザー対応が簡単）
+    return os.path.join(base, f"comment_history_{persona_id}.jsonl")
+
+def _append_history(persona_id: str, record: Dict[str, Any]) -> None:
+    path = _history_path(persona_id)
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+def _load_recent_history(persona_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    path = _history_path(persona_id)
+    if not os.path.exists(path):
+        return []
+    out: List[Dict[str, Any]] = []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except Exception:
+                    continue
+    except Exception:
+        return []
+    return out[-limit:]
+
+_EMOJI_SET = set("😀😃😄😁😆😅😂🙂😊🥲😍😘😗😙😚🤗🤩🤔🤨🫠😐😑😶🙄😏😣😥😮‍💨😮😯😪😫🥱😴😌😛😜🤪😝🤤😒😓😔😕🙃🫤🫥😲☹️🙁😖😞😟😤😢😭😦😧😨😩🤯😬😰😱🥵🥶😳🤒🤕🤢🤮🤧😇🥳🤝👍👎🙏💪🔥✨💡🚀📈📉📊🎯🧠🛡🪫🌞🌧⚖️💤🧊🌀😐😶🤔🙂")
+def _emoji_density(s: str) -> float:
+    if not s:
+        return 0.0
+    emo = sum(1 for ch in s if ch in _EMOJI_SET)
+    return emo / max(len(s), 1)
+
+def _shorten(text: str, limit: int = 220) -> str:
     """行を1〜2行・短文に整える。過剰な空白を畳み、末尾を整える。"""
     if not text:
         return ""
@@ -46,45 +85,6 @@ def _shorten(text: str, limit: int = 230) -> str:
         t += "…"
     return t
 
-
-def _media_root() -> str:
-    return getattr(settings, "MEDIA_ROOT", "") or os.getcwd()
-
-
-# ---------------------------
-# パーソナ（ユーザー別スタイル）
-# ---------------------------
-_DEFAULT_PERSONA: Dict[str, Any] = {
-    # 口調・絵文字・長さの嗜好（なければデフォルトで砕けたトーン）
-    "tone": "casual",               # "casual" / "neutral"
-    "emoji_level": "medium",        # "low" / "medium" / "high"
-    "risk_aversion": "balanced",    # "cautious" / "balanced"
-    "signature": "",                # 文末に軽い口癖を付けたいときなど
-    # 禁則（過度な断定を避ける等）は常に有効
-}
-
-def load_persona(user_id: Optional[str]) -> Dict[str, Any]:
-    """MEDIA_ROOT/advisor/persona/<user_id>.json を読み、無ければデフォルト。"""
-    if not user_id:
-        return dict(_DEFAULT_PERSONA)
-    base = os.path.join(_media_root(), "advisor", "persona")
-    path = os.path.join(base, f"{user_id}.json")
-    try:
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict):
-                p = dict(_DEFAULT_PERSONA)
-                p.update({k: v for k, v in data.items() if v is not None})
-                return p
-    except Exception:
-        pass
-    return dict(_DEFAULT_PERSONA)
-
-
-# ---------------------------
-# ローカル生成（フォールバック）
-# ---------------------------
 def _local_fallback_comment(
     *,
     regime: str,
@@ -93,21 +93,23 @@ def _local_fallback_comment(
     adopt_rate: float,
     prev_score: Optional[float],
     seed: str = "",
-    persona: Optional[Dict[str, Any]] = None,
+    preferred_emoji: str = "medium",
 ) -> str:
-    """APIが無い/失敗時の砕けた“今日のひとこと”（パーソナ反映軽量）。"""
-    persona = persona or _DEFAULT_PERSONA
+    """APIが無い時のローカル生成（砕けたトーン＋絵文字＋前日比）。"""
     rg = (regime or "").upper()
     top_secs = [str(s.get("sector", "")) for s in sectors if s.get("sector")]
     top_txt = "・".join(top_secs[:3]) if top_secs else "（特に目立つセクターなし）"
 
-    rnd = random.Random(f"{seed}|{rg}|{score:.3f}|{adopt_rate:.3f}|{persona.get('tone')}")
+    rnd = random.Random(f"{seed}|{rg}|{score:.3f}|{adopt_rate:.3f}")
 
-    opens_on  = ["📈 地合いまずまず！", "🌞 いい風きてる！", "💪 強めトーン！", "🚀 ノッてきた！"]
-    opens_off = ["🌧 ちょい向かい風…", "🧊 冷え気味、慎重に。", "😴 元気薄め。", "🪫 静かな始まり。"]
-    opens_neu = ["😐 方向感フラット。", "⚖️ 焦らず様子見。", "🤔 見極めどき。", "😶 静観ムード。"]
+    # 絵文字密度の微調整
+    emo = {"low":"", "medium":"✨", "high":"🔥"}[preferred_emoji]
 
-    tips_str  = ["📊 押し目拾いもアリ！", "🟢 勝ち筋に素直に！", "🔥 順行でOK！"]
+    opens_on  = [f"📈 地合いまずまず{emo}", f"🌞 いい風きてる{emo}", f"💪 強めのトーン{emo}", f"🚀 ノッてきた{emo}"]
+    opens_off = [f"🌧 ちょい向かい風…{emo}", f"🧊 冷え気味。慎重に{emo}", f"😴 元気薄め{emo}", f"🪫 静かな始まり{emo}"]
+    opens_neu = [f"😐 方向感はフラット{emo}", f"⚖️ 判断は落ち着いて{emo}", f"🤔 様子見優勢{emo}", f"😶 まだ静観ムード{emo}"]
+
+    tips_str  = ["📊 押し目拾いもアリ！", "🟢 勝ち筋に素直に！", "🔥 トレンド順行で！"]
     tips_mid  = ["🧩 小ロットで様子見。", "🌤 早焦りは禁物。", "😌 分散寄りで。"]
     tips_weak = ["🛡 守り重視で。", "💤 現金厚めもOK。", "🥶 逆張りは控えめに。"]
 
@@ -123,7 +125,7 @@ def _local_fallback_comment(
     # 前日差コメント
     diff_part = ""
     if prev_score is not None:
-        diff = round(score - (prev_score or 0.0), 2)
+        diff = round(score - prev_score, 2)
         if diff > 0.05:
             diff_part = f"📈 昨日より改善(+{diff:.2f}) "
         elif diff < -0.05:
@@ -131,37 +133,49 @@ def _local_fallback_comment(
         else:
             diff_part = "😐 前日とほぼ横ばい "
 
-    # 採用率でシグナルの一言
     sig_part = "✨ シグナルはまずまず" if adopt_rate >= 0.55 else \
-               "🌀 ノイズ気味、慎重に" if adopt_rate <= 0.45 else "🙂 平常運転"
+               "🌀 ノイズ気味。慎重に" if adopt_rate <= 0.45 else "🙂 平常運転"
 
-    # 絵文字密度を軽く調整
-    if persona.get("emoji_level") == "low":
-        op = re.sub(r"[^\w\sぁ-んァ-ヶ一-龠。、！!？?]+", "", op).strip()
-
-    signature = (" " + persona["signature"]) if persona.get("signature") else ""
-    out = f"{op} {diff_part}注目👉 {top_txt}。{tip}（{stance}・Score {score:.2f}）{sig_part}{signature}"
+    out = f"{op} {diff_part}注目👉 {top_txt}。{tip}（{stance}・Score {score:.2f}）{sig_part}"
     return _shorten(out, 230)
 
-
-# ---------------------------
-# モデル名の決定
-# ---------------------------
 def _resolve_model_name(cli_or_kw: Optional[str] = None) -> str:
     """
-    優先順: 1) 引数 engine, 2) settings.AI_COMMENT_MODEL, 3) env AI_COMMENT_MODEL, 既定 gpt-4-turbo
+    1) 引数、2) settings.AI_COMMENT_MODEL、3) env AI_COMMENT_MODEL の優先順位。
+    既定は gpt-4-turbo。gpt-5 に切替可。
     """
     if cli_or_kw:
         return cli_or_kw
     model = getattr(settings, "AI_COMMENT_MODEL", None) or os.getenv("AI_COMMENT_MODEL")
     if model:
         return model
-    return "gpt-4-turbo"
+    return "gpt-4-turbo"  # 既定
 
+def _derive_style_from_history(hist: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """履歴から好みを推定（超軽量）。"""
+    if not hist:
+        return {"emoji_pref": "medium", "target_len": 120}
 
-# ---------------------------
-# 公開API
-# ---------------------------
+    # 文章長の中央値近似 & 絵文字密度
+    texts = [h.get("text","") for h in hist if isinstance(h.get("text",""), str)]
+    if not texts:
+        return {"emoji_pref": "medium", "target_len": 120}
+    lens = [len(t) for t in texts]
+    avg_len = sum(lens)/len(lens)
+    avg_emo = sum(_emoji_density(t) for t in texts)/len(texts)
+
+    # ざっくりルール
+    if avg_emo >= 0.02:
+        emoji_pref = "high"
+    elif avg_emo <= 0.005:
+        emoji_pref = "low"
+    else:
+        emoji_pref = "medium"
+
+    # 長さは100〜180にクリップ
+    target_len = int(max(100, min(180, avg_len)))
+    return {"emoji_pref": emoji_pref, "target_len": target_len}
+
 def make_ai_comment(
     *,
     regime: str,
@@ -173,27 +187,40 @@ def make_ai_comment(
     engine: Optional[str] = None,
     temperature: float = 0.7,
     max_tokens: int = 180,
-    user_id: Optional[str] = None,   # ★ユーザー別パーソナ
+    persona_id: str = "default",
 ) -> str:
     """
     “今日のひとこと” を返す。OpenAIが使えなければローカルで生成。
-    engine: "gpt-4-turbo"（既定）/ "gpt-4o-mini" / "gpt-5" など
+    engine: "gpt-4-turbo" (既定) / "gpt-5"
+    persona_id: 履歴ファイルの分離キー（LINE user_id 等）
     """
-    persona = load_persona(user_id)
+    # --- 履歴から好みを抽出 ---
+    history = _load_recent_history(persona_id, limit=50)
+    style = _derive_style_from_history(history)
+    preferred_emoji = style["emoji_pref"]
+    target_len = style["target_len"]
+
     # OpenAIを使える条件
     use_api = _OPENAI_AVAILABLE and bool(os.getenv("OPENAI_API_KEY"))
     model = _resolve_model_name(engine)
 
     # APIなし → ローカル生成
     if not use_api:
-        return _local_fallback_comment(
+        text = _local_fallback_comment(
             regime=regime, score=score, sectors=sectors,
-            adopt_rate=adopt_rate, prev_score=prev_score,
-            seed=seed, persona=persona,
+            adopt_rate=adopt_rate, prev_score=prev_score, seed=seed,
+            preferred_emoji=preferred_emoji,
         )
+        _append_history(persona_id, {
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "engine": "local",
+            "regime": regime, "score": score, "prev_score": prev_score,
+            "adopt_rate": adopt_rate, "sectors_top": [s.get("sector") for s in sectors[:5]],
+            "text": text
+        })
+        return text
 
     # --------- OpenAIで生成 ----------
-    # 構造化された事実を渡す
     top_secs = [str(s.get("sector", "")) for s in sectors if s.get("sector")][:5]
     facts = (
         f"Regime={regime}, Score={score:.3f}, "
@@ -201,24 +228,25 @@ def make_ai_comment(
         f"TopSectors={', '.join(top_secs) if top_secs else 'なし'}"
     )
 
-    # パーソナをプロンプトへ反映
-    tone = persona.get("tone", "casual")
-    emoji = persona.get("emoji_level", "medium")
-    signature = persona.get("signature", "")
+    # 履歴由来のスタイル指示を追加
+    style_hint = {
+        "emoji_preference": preferred_emoji,            # low / medium / high
+        "target_length_chars": target_len,              # 目安
+        "voice": "casual, friendly, human-like",
+    }
 
     sys = (
-        "あなたは日本語の投資アシスタント。\n"
-        "- 砕けた口調（ただし煽らない）で、短く（2文以内・最大230文字）。\n"
-        "- 絵文字は persona に合わせて使う（low/medium/high）。\n"
-        "- 前日比コメント（あれば）と注目セクターを織り交ぜる。\n"
-        "- 過度な断定は避け、読みやすい一段落にまとめる。\n"
-        "- 文末に signature があれば自然に添える（任意）。"
+        "あなたは日本語の投資アシスタント。"
+        "砕けた口調で、短く（2文以内）、絵文字を適度に使って、"
+        "前日比コメント（あれば）と注目セクターを織り交ぜ、過度な断定や助言は避け、"
+        "読みやすい一段落にまとめてください。"
+        "禁止: 箇条書き、改行過多、専門用語の羅列。"
     )
     user = (
-        f"[facts]\n{facts}\n\n"
-        f"[persona]\n"
-        f"- tone={tone}\n- emoji={emoji}\n- signature={signature}\n\n"
-        f"[rules]\n- 箇条書き禁止・改行禁止・一段落のみ\n- 語尾は自然体\n"
+        f"状況を要約して『今日のひとこと』を書いてください。\n"
+        f"- 事実: {facts}\n"
+        f"- スタイル: {json.dumps(style_hint, ensure_ascii=False)}\n"
+        f"- 出力は一段落のみ（改行なし）"
     )
 
     try:
@@ -231,9 +259,8 @@ def make_ai_comment(
                 temperature=float(temperature),
                 max_tokens=int(max_tokens),
             )
-            text = (resp.choices[0].message.content or "").strip()
+            text = resp.choices[0].message.content.strip()
         else:
-            # 旧 openai ライブラリ互換
             import openai  # type: ignore
             openai.api_key = os.getenv("OPENAI_API_KEY")
             resp = openai.ChatCompletion.create(  # type: ignore
@@ -243,12 +270,30 @@ def make_ai_comment(
                 temperature=float(temperature),
                 max_tokens=int(max_tokens),
             )
-            text = (resp["choices"][0]["message"]["content"] or "").strip()  # type: ignore
-        return _shorten(text, 230)
+            text = resp["choices"][0]["message"]["content"].strip()  # type: ignore
+
+        text = _shorten(text, max(100, min(230, target_len + 20)))
+        _append_history(persona_id, {
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "engine": model,
+            "regime": regime, "score": score, "prev_score": prev_score,
+            "adopt_rate": adopt_rate, "sectors_top": [s.get("sector") for s in sectors[:5]],
+            "style_hint": style_hint,
+            "text": text
+        })
+        return text
     except Exception:
-        # 失敗時はローカルにフォールバック
-        return _local_fallback_comment(
+        # 失敗時はローカル
+        text = _local_fallback_comment(
             regime=regime, score=score, sectors=sectors,
-            adopt_rate=adopt_rate, prev_score=prev_score,
-            seed=seed, persona=persona,
+            adopt_rate=adopt_rate, prev_score=prev_score, seed=seed,
+            preferred_emoji=preferred_emoji,
         )
+        _append_history(persona_id, {
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "engine": "local-fallback",
+            "regime": regime, "score": score, "prev_score": prev_score,
+            "adopt_rate": adopt_rate, "sectors_top": [s.get("sector") for s in sectors[:5]],
+            "text": text
+        })
+        return text
