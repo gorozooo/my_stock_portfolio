@@ -3,8 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Dict, Any, List, Optional
-import json
-import os
+import json, os
 
 from django.core.management.base import BaseCommand, CommandParser
 from django.conf import settings
@@ -18,7 +17,7 @@ from ...services.market import (
 from ...services.sector_map import normalize_sector
 from ...models_advisor import AdviceItem
 
-# コメント生成（新規サービス化）
+# コメント生成（新規サービス化 + 履歴学習）
 from ...services.ai_comment import make_ai_comment
 
 # LINE
@@ -74,18 +73,6 @@ def _split_chunks(s: str, limit: int = 4500) -> List[str]:
 def _media_root() -> str:
     return getattr(settings, "MEDIA_ROOT", "") or os.getcwd()
 
-def _load_breadth_for(day: date) -> Optional[Dict[str, Any]]:
-    """MEDIA_ROOT/market/breadth_YYYY-MM-DD.json を読む（無ければNone）"""
-    mdir = os.path.join(_media_root(), "market")
-    path = os.path.join(mdir, f"breadth_{day.strftime('%Y-%m-%d')}.json")
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return None
-
 
 @dataclass
 class BriefContext:
@@ -97,7 +84,6 @@ class BriefContext:
     sectors: List[Dict[str, Any]]
     week_stats: Dict[str, Any]
     notes: List[str]
-    # ai_comment はユーザー別に生成するため、ここでは空にして送信直前で埋める
     ai_comment: str = ""
 
 
@@ -112,7 +98,7 @@ class Command(BaseCommand):
         parser.add_argument("--days", type=int, default=90, help="週次サマリのlookback（日数）")
 
         # コメント生成（GPT切替）
-        parser.add_argument("--ai-model", type=str, default="", help="コメント生成モデル（gpt-4-turbo / gpt-4o-mini / gpt-5 等）")
+        parser.add_argument("--ai-model", type=str, default="", help="コメント生成モデル（gpt-4-turbo / gpt-5 / gpt-4o-mini など）")
 
         # LINE 送信
         parser.add_argument("--line", action="store_true", help="LINEへ送信する")
@@ -136,13 +122,17 @@ class Command(BaseCommand):
 
         # ---- 前日スコア（任意）
         prev_score = None
-        yday = the_day - timedelta(days=1)
-        prev_b = _load_breadth_for(yday)
-        if prev_b:
-            try:
+        try:
+            yday = the_day - timedelta(days=1)
+            # breadth_YYYY-MM-DD.json があれば regime を計算して前日比に使う
+            mdir = os.path.join(_media_root(), "market")
+            p = os.path.join(mdir, f"breadth_{yday.strftime('%Y-%m-%d')}.json")
+            if os.path.exists(p):
+                with open(p, "r", encoding="utf-8") as f:
+                    prev_b = json.load(f)
                 prev_score = float(breadth_regime(prev_b).get("score", 0.0))
-            except Exception:
-                prev_score = None
+        except Exception:
+            prev_score = None
 
         # ---- 指数（スナップショット）
         idx = fetch_indexes_snapshot() or {}
@@ -177,8 +167,28 @@ class Command(BaseCommand):
         if not rs_tbl: notes.append("セクターRSが見つからない。")
         if not idx: notes.append("indexes snapshot が空。")
 
-        # ---- コンテキスト（ai_comment は後で user ごとに生成）
-        base_ctx = BriefContext(
+        # ---- 送信先を先に解決 → persona_id に使う
+        targets = self._resolve_line_targets(opts)
+        persona_id = "default"
+        if len(targets) == 1:
+            persona_id = targets[0]  # 1:1学習
+        elif len(targets) > 1:
+            persona_id = "broadcast"
+
+        # ---- 今日のひとこと（GPT / ローカル）＋ 履歴学習
+        ai_model = (opts.get("ai_model") or "").strip() or None  # Noneなら既定(gpt-4-turbo等)
+        ai_comment = make_ai_comment(
+            regime=regime.get("regime", "NEUTRAL"),
+            score=float(regime.get("score", 0.0)),
+            sectors=sectors_view,
+            adopt_rate=float(week_stats.get("rate", 0.0)),
+            prev_score=prev_score,
+            seed=asof_str,
+            engine=ai_model,
+            persona_id=persona_id,
+        )
+
+        ctx = BriefContext(
             asof=asof_str,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             breadth=b,
@@ -187,7 +197,7 @@ class Command(BaseCommand):
             sectors=sectors_view,
             week_stats=week_stats,
             notes=notes,
-            ai_comment="",  # ここは空でOK
+            ai_comment=ai_comment,
         )
 
         # ---- LINE 送信
@@ -195,25 +205,19 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS("generated (no LINE send)."))
             return
 
-        targets = self._resolve_line_targets(opts)
         if not targets:
             self.stdout.write(self.style.WARNING("LINE送信先が見つかりません。"))
             return
 
         if opts.get("line_text"):
-            # テキストは受信者ごとに ai_comment を生成して差し込み
-            for uid in targets:
-                text = self._render_text(
-                    self._ctx_with_comment(base_ctx, uid, opts.get("ai_model") or None, asof_str, prev_score),
-                    sector_top=int(opts["line_max_sectors"] or 10),
-                    idx_top=int(opts["line_max_indexes"] or 6),
-                )
-                self._send_line_text([uid], base_ctx, text, opts)
+            text = self._render_text(
+                ctx,
+                sector_top=int(opts["line_max_sectors"] or 10),
+                idx_top=int(opts["line_max_indexes"] or 6),
+            )
+            self._send_line_text(targets, ctx, text, opts)
         else:
-            # Flex も受信者ごとに ai_comment を差し込み（バブル生成時に渡す）
-            for uid in targets:
-                ctx_for_user = self._ctx_with_comment(base_ctx, uid, opts.get("ai_model") or None, asof_str, prev_score)
-                self._send_line_flex([uid], ctx_for_user, opts)
+            self._send_line_flex(targets, ctx, opts)
 
     # ---------- 送信先解決 ----------
     def _resolve_line_targets(self, opts) -> List[str]:
@@ -225,38 +229,6 @@ class Command(BaseCommand):
             return [LineContact.objects.latest("created_at").user_id]
         except Exception:
             return []
-
-    # ---------- user ごとの ai_comment を注入 ----------
-    def _ctx_with_comment(
-        self,
-        base_ctx: BriefContext,
-        user_id: Optional[str],
-        ai_model_cli: Optional[str],
-        seed: str,
-        prev_score: Optional[float],
-    ) -> BriefContext:
-        comment = make_ai_comment(
-            regime=base_ctx.breadth_view.get("regime", "NEUTRAL"),
-            score=float(base_ctx.breadth_view.get("score", 0.0)),
-            sectors=base_ctx.sectors,
-            adopt_rate=float(base_ctx.week_stats.get("rate", 0.0)),
-            prev_score=prev_score,
-            seed=seed,
-            engine=(ai_model_cli or None),
-            user_id=user_id,  # ★ ユーザー別パーソナ
-        )
-        # 新しい ctx（ai_comment だけ差し替え）
-        return BriefContext(
-            asof=base_ctx.asof,
-            generated_at=base_ctx.generated_at,
-            breadth=base_ctx.breadth,
-            breadth_view=base_ctx.breadth_view,
-            indexes=base_ctx.indexes,
-            sectors=base_ctx.sectors,
-            week_stats=base_ctx.week_stats,
-            notes=base_ctx.notes,
-            ai_comment=comment,
-        )
 
     # ---------- テキスト描画（フォールバック/任意送信） ----------
     def _render_text(self, ctx: BriefContext, sector_top: int = 10, idx_top: int = 6) -> str:
@@ -417,10 +389,10 @@ f"""# AI デイリーブリーフ {ctx.asof}
 
     # ---------- LINE: Flex 送信 ----------
     def _send_line_flex(self, user_ids: List[str], ctx: BriefContext, opts) -> bool:
-        any_ok = False
+        flex = self._build_flex(ctx)
         alt  = (opts.get("line_title") or f"AIデイリーブリーフ {ctx.asof}").strip()
+        any_ok = False
 
-        # スモーク最小バブル（構造 or 権限の切り分け用）
         smoke = {
             "type": "bubble",
             "body": {
@@ -435,8 +407,6 @@ f"""# AI デイリーブリーフ {ctx.asof}
 
         for uid in user_ids:
             try:
-                # ctx はユーザー別 ai_comment 済み前提で渡ってくる
-                flex = self._build_flex(ctx)
                 r = line_push_flex(uid, alt, flex)
                 code = getattr(r, "status_code", None)
                 any_ok = any_ok or (code == 200)
