@@ -9,12 +9,26 @@ from django.conf import settings
 
 import yfinance as yf
 
+# 追加：セクターRSも同じジョブで保存
+# latest_sector_strength() はあなたの既存servicesから取得
+try:
+    from portfolio.services.market import latest_sector_strength
+except Exception:
+    latest_sector_strength = None  # 環境によっては未導入でも動くように
 
+
+# ------------ 基本ユーティリティ ------------
 def _media_root() -> str:
     return getattr(settings, "MEDIA_ROOT", "") or os.getcwd()
 
 def _ensure_dir(p: str) -> None:
     os.makedirs(p, exist_ok=True)
+
+def _save_json(path: str, data: Any) -> None:
+    _ensure_dir(os.path.dirname(path))
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
 
 # ------------ Yahoo Finance ユーティリティ ------------
 def _pick_symbol(symbols: List[str]) -> Optional[str]:
@@ -31,6 +45,7 @@ def _pick_symbol(symbols: List[str]) -> Optional[str]:
 def _quote_last_and_pctd(sym: str) -> Optional[Dict[str, float]]:
     """
     現値と前日終値比の%を返す。可能なら intraday の最後、無ければ日足終値。
+    pct_d は「前日終値比の変化率[%]」を返す。
     """
     try:
         tk = yf.Ticker(sym)
@@ -72,6 +87,7 @@ def _quote_yield_pct(sym: str) -> Optional[Dict[str, float]]:
         pct_d = (last - prev) / prev * 100.0 if prev else 0.0
         return {"last": last, "pct_d": pct_d}
     return {"last": last, "pct_d": q["pct_d"]}
+
 
 # ------------ 各アセット取得 ------------
 def fetch_fx() -> Dict[str, Any]:
@@ -132,15 +148,18 @@ def fetch_crypto() -> Dict[str, Any]:
     q = _quote_last_and_pctd("BTC-USD")
     return {"BTCUSD": {"last": round(q["last"], 2), "pct_d": round(q["pct_d"], 2)}} if q else {}
 
+
 # ------------ コマンド本体 ------------
 class Command(BaseCommand):
-    help = "実データ（Yahoo Finance）で先物/VIX/為替/金利/コモディティ/仮想通貨のスナップショットを保存"
+    help = "実データ（Yahoo Finance）で先物/VIX/為替/金利/コモディティ/仮想通貨のスナップショット＋セクターRSを保存"
 
     def add_arguments(self, parser):
         parser.add_argument("--tag", type=str, default="", help="任意タグ（将来拡張）")
 
     def handle(self, *args, **opts):
         now = datetime.now(dt_tz.utc).astimezone()  # local tz
+
+        # --- マーケット・スナップショット（実データ） ---
         payload = {
             "ts": now.isoformat(timespec="seconds"),
             "fx": fetch_fx(),
@@ -154,14 +173,30 @@ class Command(BaseCommand):
 
         base = os.path.join(_media_root(), "market", "snapshots", now.strftime("%Y-%m-%d"))
         _ensure_dir(base)
-        path = os.path.join(base, f"{now.strftime('%H%M')}.json")
+        path_ts = os.path.join(base, f"{now.strftime('%H%M')}.json")
         latest = os.path.join(_media_root(), "market", "snapshots", "latest.json")
 
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+        _save_json(path_ts, payload)
+        _save_json(latest, payload)
+        self.stdout.write(self.style.SUCCESS(f"Wrote snapshot: {path_ts}"))
 
-        _ensure_dir(os.path.dirname(latest))
-        with open(latest, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+        # --- セクターRSも同じタイミングで保存（5〜10分おき） ---
+        if latest_sector_strength is not None:
+            try:
+                rs_tbl = latest_sector_strength() or {}
+                mdir = os.path.join(_media_root(), "market")
 
-        self.stdout.write(self.style.SUCCESS(f"Wrote snapshot: {path}"))
+                ts2 = now.strftime("%Y-%m-%d_%H%M")
+                path_rs_ts = os.path.join(mdir, f"sector_rs_{ts2}.json")
+                path_rs_day = os.path.join(mdir, f"sector_rs_{now.strftime('%Y-%m-%d')}.json")
+                path_rs_latest = os.path.join(mdir, "sector_rs_latest.json")
+
+                _save_json(path_rs_ts, rs_tbl)     # 5/10分ごと
+                _save_json(path_rs_day, rs_tbl)    # 同日スナップショット
+                _save_json(path_rs_latest, rs_tbl) # 最新
+
+                self.stdout.write(self.style.SUCCESS(f"Wrote sector RS: {path_rs_ts}"))
+            except Exception as e:
+                self.stdout.write(self.style.WARNING(f"sector RS save skipped: {e}"))
+        else:
+            self.stdout.write(self.style.WARNING("sector RS not saved (latest_sector_strength() unavailable)."))
