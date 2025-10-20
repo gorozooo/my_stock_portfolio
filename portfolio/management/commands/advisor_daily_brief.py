@@ -97,6 +97,7 @@ class BriefContext:
     sectors: List[Dict[str, Any]]
     week_stats: Dict[str, Any]
     notes: List[str]
+    # ai_comment はユーザー別に生成するため、ここでは空にして送信直前で埋める
     ai_comment: str = ""
 
 
@@ -111,7 +112,7 @@ class Command(BaseCommand):
         parser.add_argument("--days", type=int, default=90, help="週次サマリのlookback（日数）")
 
         # コメント生成（GPT切替）
-        parser.add_argument("--ai-model", type=str, default="", help="コメント生成モデル（gpt-4-turbo / gpt-5）")
+        parser.add_argument("--ai-model", type=str, default="", help="コメント生成モデル（gpt-4-turbo / gpt-4o-mini / gpt-5 等）")
 
         # LINE 送信
         parser.add_argument("--line", action="store_true", help="LINEへ送信する")
@@ -176,19 +177,8 @@ class Command(BaseCommand):
         if not rs_tbl: notes.append("セクターRSが見つからない。")
         if not idx: notes.append("indexes snapshot が空。")
 
-        # ---- 今日のひとこと（GPT / ローカル）
-        ai_model = (opts.get("ai_model") or "").strip() or None  # Noneなら既定(gpt-4-turbo)
-        ai_comment = make_ai_comment(
-            regime=regime.get("regime", "NEUTRAL"),
-            score=float(regime.get("score", 0.0)),
-            sectors=sectors_view,
-            adopt_rate=float(week_stats.get("rate", 0.0)),
-            prev_score=prev_score,
-            seed=asof_str,
-            engine=ai_model,
-        )
-
-        ctx = BriefContext(
+        # ---- コンテキスト（ai_comment は後で user ごとに生成）
+        base_ctx = BriefContext(
             asof=asof_str,
             generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             breadth=b,
@@ -197,7 +187,7 @@ class Command(BaseCommand):
             sectors=sectors_view,
             week_stats=week_stats,
             notes=notes,
-            ai_comment=ai_comment,
+            ai_comment="",  # ここは空でOK
         )
 
         # ---- LINE 送信
@@ -211,14 +201,19 @@ class Command(BaseCommand):
             return
 
         if opts.get("line_text"):
-            text = self._render_text(
-                ctx,
-                sector_top=int(opts["line_max_sectors"] or 10),
-                idx_top=int(opts["line_max_indexes"] or 6),
-            )
-            self._send_line_text(targets, ctx, text, opts)
+            # テキストは受信者ごとに ai_comment を生成して差し込み
+            for uid in targets:
+                text = self._render_text(
+                    self._ctx_with_comment(base_ctx, uid, opts.get("ai_model") or None, asof_str, prev_score),
+                    sector_top=int(opts["line_max_sectors"] or 10),
+                    idx_top=int(opts["line_max_indexes"] or 6),
+                )
+                self._send_line_text([uid], base_ctx, text, opts)
         else:
-            self._send_line_flex(targets, ctx, opts)
+            # Flex も受信者ごとに ai_comment を差し込み（バブル生成時に渡す）
+            for uid in targets:
+                ctx_for_user = self._ctx_with_comment(base_ctx, uid, opts.get("ai_model") or None, asof_str, prev_score)
+                self._send_line_flex([uid], ctx_for_user, opts)
 
     # ---------- 送信先解決 ----------
     def _resolve_line_targets(self, opts) -> List[str]:
@@ -230,6 +225,38 @@ class Command(BaseCommand):
             return [LineContact.objects.latest("created_at").user_id]
         except Exception:
             return []
+
+    # ---------- user ごとの ai_comment を注入 ----------
+    def _ctx_with_comment(
+        self,
+        base_ctx: BriefContext,
+        user_id: Optional[str],
+        ai_model_cli: Optional[str],
+        seed: str,
+        prev_score: Optional[float],
+    ) -> BriefContext:
+        comment = make_ai_comment(
+            regime=base_ctx.breadth_view.get("regime", "NEUTRAL"),
+            score=float(base_ctx.breadth_view.get("score", 0.0)),
+            sectors=base_ctx.sectors,
+            adopt_rate=float(base_ctx.week_stats.get("rate", 0.0)),
+            prev_score=prev_score,
+            seed=seed,
+            engine=(ai_model_cli or None),
+            user_id=user_id,  # ★ ユーザー別パーソナ
+        )
+        # 新しい ctx（ai_comment だけ差し替え）
+        return BriefContext(
+            asof=base_ctx.asof,
+            generated_at=base_ctx.generated_at,
+            breadth=base_ctx.breadth,
+            breadth_view=base_ctx.breadth_view,
+            indexes=base_ctx.indexes,
+            sectors=base_ctx.sectors,
+            week_stats=base_ctx.week_stats,
+            notes=base_ctx.notes,
+            ai_comment=comment,
+        )
 
     # ---------- テキスト描画（フォールバック/任意送信） ----------
     def _render_text(self, ctx: BriefContext, sector_top: int = 10, idx_top: int = 6) -> str:
@@ -390,10 +417,10 @@ f"""# AI デイリーブリーフ {ctx.asof}
 
     # ---------- LINE: Flex 送信 ----------
     def _send_line_flex(self, user_ids: List[str], ctx: BriefContext, opts) -> bool:
-        flex = self._build_flex(ctx)
-        alt  = (opts.get("line_title") or f"AIデイリーブリーフ {ctx.asof}").strip()
         any_ok = False
+        alt  = (opts.get("line_title") or f"AIデイリーブリーフ {ctx.asof}").strip()
 
+        # スモーク最小バブル（構造 or 権限の切り分け用）
         smoke = {
             "type": "bubble",
             "body": {
@@ -408,6 +435,8 @@ f"""# AI デイリーブリーフ {ctx.asof}
 
         for uid in user_ids:
             try:
+                # ctx はユーザー別 ai_comment 済み前提で渡ってくる
+                flex = self._build_flex(ctx)
                 r = line_push_flex(uid, alt, flex)
                 code = getattr(r, "status_code", None)
                 any_ok = any_ok or (code == 200)
