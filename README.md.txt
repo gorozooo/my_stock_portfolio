@@ -23,3 +23,4 @@ python manage.py advisor_daily_brief --line --line-all
 
 # 環境変数
 nano .env
+nano ~/.bashrc
