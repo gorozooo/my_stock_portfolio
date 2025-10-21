@@ -4,15 +4,14 @@ import os
 import re
 from typing import Dict, Any, List, Optional
 
-# Django settings は任意（未インストールでも動作）
+# Django設定
 try:
     from django.conf import settings
 except Exception:
-    class _S:
-        AI_COMMENT_MODEL = None
+    class _S: AI_COMMENT_MODEL = None
     settings = _S()  # type: ignore
 
-# OpenAI SDK（新旧両対応）
+# OpenAI SDK
 _OPENAI_AVAILABLE = False
 try:
     from openai import OpenAI  # type: ignore
@@ -26,128 +25,101 @@ except Exception:
         _OPENAI_AVAILABLE = False
 
 
-# ----------------- 文字列ユーティリティ -----------------
+# ----------------- 共通ユーティリティ -----------------
 def _shorten(text: str, limit: int = 230) -> str:
     """1段落・最大limit文字。空白整形＆末尾調整。"""
-    if not text:
-        return ""
+    if not text: return ""
     t = re.sub(r"\s+", " ", text).strip()
-    if len(t) <= limit:
-        return t
+    if len(t) <= limit: return t
     t = t[: limit - 1].rstrip()
     if not t.endswith(("。", "！", "!", "？", "?")):
         t += "…"
     return t
 
 
+def _stance_from_score(score: float) -> str:
+    if score >= 0.6: return "買い寄り"
+    if score <= 0.4: return "売り寄り"
+    return "拮抗"
+
+
+def _stars_from_score(score: float) -> str:
+    if score >= 0.7: return "★★★"
+    if score >= 0.55: return "★★☆"
+    if score >= 0.45: return "★☆☆"
+    return "☆☆☆"
+
+
 def _resolve_model_name(cli_or_kw: Optional[str] = None) -> str:
-    """1) 引数 > 2) settings.AI_COMMENT_MODEL > 3) env AI_COMMENT_MODEL（既定 gpt-4-turbo）"""
-    if cli_or_kw:
-        return cli_or_kw
+    if cli_or_kw: return cli_or_kw
     model = getattr(settings, "AI_COMMENT_MODEL", None) or os.getenv("AI_COMMENT_MODEL")
     return model or "gpt-4-turbo"
 
 
-# ----------------- トーン＆絵文字 -----------------
-def _tone_emoji_from_regime(regime: str) -> str:
-    """regime文字列からトーン絵文字を推定"""
-    rg = (regime or "").upper()
+def _humanize_regime(rg: str) -> str:
+    rg = (rg or "").upper()
     if "ON" in rg:
-        return "🔥"  # 強気
-    if "OFF" in rg:
-        return "🌧"  # 慎重
-    return "🌤"      # 様子見
+        return "🔥買いが優勢（強気ムード）"
+    elif "OFF" in rg:
+        return "🌧売りが優勢（慎重ムード）"
+    return "🌤方向感は拮抗（静かな地合い）"
 
 
-def _ensure_emoji(text: str, regime: str) -> str:
-    """
-    GPTが絵文字を出さなかった時の最低限の補完。
-    先頭にトーン絵文字を1個だけ付与（重複は避ける）。
-    """
-    if not text:
-        return text
-    if any(e in text for e in ("🔥", "🌧", "🌤", "📈", "📉", "✨", "🙂", "🤔", "👀")):
-        return text
-    return f"{_tone_emoji_from_regime(regime)} {text}"
+# ----------------- 人格プロンプト -----------------
+def _persona_text(persona: str) -> str:
+    p = (persona or "gorozooo").lower()
+    if p == "gorozooo":
+        return (
+            "あなたは『gorozooo』という、アナリスト×ディーラー×評論家のハイブリッド人格。"
+            "数字は冷静に読むが、相場の“温度感”を大事にする。"
+            "専門用語よりも、肌感・リズム・直感で伝える。"
+            "文体は短く・鋭く・人間味があり、自然な絵文字を交えて温度を表現する。"
+            "分析は理性的、語り口はフレンドリーで余韻がある。"
+        )
+    if p == "analyst":
+        return "客観と数値に強いアナリスト。要因を整理して、冷静に短くまとめる。"
+    if p == "dealer":
+        return "板と流れを読むディーラー。感覚的・スピーディーに結論を出す。"
+    if p == "critic":
+        return "背景と文脈を読む評論家。少し距離を置きながら核心を突く。"
+    return "アナリスト×ディーラー×評論家のハイブリッドとして振る舞う。"
 
 
-def _post_fix_terms(text: str) -> str:
-    """
-    リスクオン/オフ→人間語に置換。ニュートラル→拮抗。
-    """
-    return (
-        text.replace("リスクオン", "買いが優勢（強気）")
-            .replace("リスクオフ", "売りが優勢（慎重）")
-            .replace("ニュートラル", "拮抗（様子見）")
-    )
-
-
-# ----------------- 最小フォールバック -----------------
-def _fallback_sentence(*, regime: str, score: float, sectors: List[Dict[str, Any]], mode: str) -> str:
-    """
-    API不通時だけ使う超簡易文（短い・1段落）。GPT版が基本運用。
-    """
-    emoji = _tone_emoji_from_regime(regime)
-    if "ON" in (regime or "").upper():
-        tone = "買いが優勢"
-    elif "OFF" in (regime or "").upper():
-        tone = "売りが優勢"
-    else:
-        tone = "拮抗"
-    secs = [s.get("sector") for s in sectors if s.get("sector")]
-    sec_txt = "・".join(secs[:3]) if secs else "特筆なし"
-    base = f"{emoji} いまの地合いは「{tone}」。注目は{sec_txt}。"
-    m = (mode or "").lower()
-    tail = {
-        "preopen": "寄り前は先物と板気配を確認して丁寧に入るイメージ。",
-        "postopen": "寄り直後はプライスアクション優先で無理はしない。",
-        "noon": "後場は出来高の伸びに乗る/待つの見極めが鍵。",
-        "afternoon": "引けにかけては手仕舞いと押し目待ちが交錯、焦らず。",
-        "outlook": "明日は寄りのトーンを再確認しつつ、流れに素直に。"
-    }.get(m, "")
-    return _shorten(f"{base} {tail}", 230)
-
-
-# ----------------- System Prompt（全モードGPT生成） -----------------
+# ----------------- GPTプロンプト -----------------
 def _system_prompt_for(mode: str, persona: str) -> str:
-    """
-    明日への展望を含む全モードをGPTに書かせる設定。
-    人格: 億トレーダー兼経済評論家（短く核心/フレンドリー/少量の絵文字）。
-    """
-    base = (
-        "あなたは日本の『億トレーダー兼経済評論家』。"
-        "プロ視点で核心を短く、フレンドリーに伝える。"
-        "用語は噛み砕き、“買いが優勢/売りが優勢/拮抗”で需給を表現。"
-        "出力は日本語・1段落・最大2文・過度な断定や免責の羅列は禁止。"
-        "絵文字は1〜3個、テンポよく自然に入れる。"
+    persona_block = _persona_text(persona)
+
+    base_rules = (
+        "出力は日本語、2文以内・一段落。"
+        "適度に絵文字(1〜3個)を入れて温度を伝える。"
+        "『リスクオン/オフ』は禁止、代わりに『買いが優勢』『売りが優勢』『拮抗』を使用。"
+        "必ず含める: 需給スタンス（買い/売り/拮抗）・期待度（★）・注目セクター1〜3個。"
+        "禁止: 箇条書き・改行・免責文。"
     )
 
-    m = (mode or "").lower()
-    focus = {
-        "preopen":
-            "寄り付き前の温度感。『今日は買い寄り/売り寄り/様子見』が一目で分かる表現に。"
-            "先物・為替・ボラの影響を含意し、短い作戦を一言。",
-        "postopen":
-            "寄り直後の地合い。初動の強弱と、続伸/反転どちら寄りかを一言で。",
-        "noon":
-            "前場の総括＋後場に向けた温度感。『続伸狙い/押し目待ち/様子見』のどれかを示す。",
-        "afternoon":
-            "後場の温度感。引けに向けた手仕舞い/追随/見送りの判断軸を一言。",
-        "outlook":
-            "引け後の総括＋翌営業日の展望を2文で。"
-            "1文目=『きょうの総括（上向き/弱含み/横ばい）＋主役セクター』、"
-            "2文目=『明日の仮説（買い/売り/拮抗＋★期待度）＋寄り前の注意点』を含める。"
-    }.get(m, "全体の温度感を要約し、短い作戦を一言。")
+    focus_map = {
+        "preopen":  "寄り付き前の温度感。今日の初手が一目で分かるように。",
+        "postopen": "寄り直後の地合い。勢いと反動の可能性を端的に。",
+        "noon":     "前場の総括と後場への見立て。次の流れを暗示するように。",
+        "afternoon":"後場の雰囲気と引けのトーン。余韻や静けさも表現してよい。",
+        "outlook":  "引け後の総括＋翌営業日の展望。市場の呼吸や期待感を自然に表現。",
+    }
+    focus = focus_map.get((mode or "").lower(), "全体の地合いを短くまとめる。")
 
-    must = (
-        "必ず含める: 需給スタンス（買いが優勢/売りが優勢/拮抗）、"
-        "期待度（★〜★★★を1回だけ）、注目セクター1〜3個。"
-        "禁止: 箇条書き・改行・専門用語の羅列。"
-    )
-    return f"{base} {focus} {must}"
+    return f"{persona_block} {base_rules} {focus}"
 
 
-# ----------------- GPTコメント生成 -----------------
+# ----------------- フォールバック -----------------
+def _fallback_sentence(*, regime, score, sectors, adopt_rate, prev_score, mode) -> str:
+    tone = _humanize_regime(regime)
+    stance = _stance_from_score(score)
+    heat = _stars_from_score(score)
+    top_secs = [s.get("sector") for s in sectors if s.get("sector")][:3]
+    top_txt = "・".join(top_secs) if top_secs else "特筆なし"
+    return _shorten(f"{tone}。温度感は{stance}（期待度{heat}）。注目は{top_txt}。")
+
+
+# ----------------- メイン：AIコメント生成 -----------------
 def make_ai_comment(
     *,
     regime: str,
@@ -160,33 +132,29 @@ def make_ai_comment(
     temperature: float = 0.7,
     max_tokens: int = 180,
     mode: str = "preopen",
-    persona: str = "dealer",
+    persona: str = "gorozooo",
 ) -> str:
-    """
-    全モードをGPTで生成（preopen/postopen/noon/afternoon/outlook すべて）。
-    - regime/score/sectors/adopt_rate/prev_score だけを“事実”として渡し、2文の短文を要求
-    - 返答にリスクオン/オフ等が混じったら人間語に置換
-    - 絵文字が薄いときはトーン絵文字を補完
-    """
-    model = _resolve_model_name(engine)
-    use_api = _OPENAI_AVAILABLE and bool(os.getenv("OPENAI_API_KEY"))
 
-    # 事実テーブル（コンパクト）
-    top_secs = [str(s.get("sector", "")) for s in sectors if s.get("sector")][:3]
+    use_api = _OPENAI_AVAILABLE and bool(os.getenv("OPENAI_API_KEY"))
+    model = _resolve_model_name(engine)
+
+    if not use_api:
+        return _fallback_sentence(
+            regime=regime, score=score, sectors=sectors,
+            adopt_rate=adopt_rate, prev_score=prev_score, mode=mode,
+        )
+
+    top_secs = [s.get("sector") for s in sectors if s.get("sector")][:3]
     facts = (
         f"Regime={regime}, Score={score:.3f}, AdoptRate={adopt_rate:.3f}, "
         f"PrevScore={'' if prev_score is None else f'{prev_score:.3f}'}, "
         f"TopSectors={', '.join(top_secs) if top_secs else 'なし'}"
     )
 
-    if not use_api:
-        # フォールバック（最小限）
-        return _fallback_sentence(regime=regime, score=score, sectors=sectors, mode=mode)
-
     system_msg = _system_prompt_for(mode, persona)
     user_msg = (
-        "次の事実をもとに、1段落・最大2文で相場の温度感と短い作戦を出してください。"
-        "『買いが優勢/売りが優勢/拮抗』の語を必ず使い、期待度は★で一度だけ示す。\n"
+        "次の事実をもとに、今日の地合いを短く人間らしく要約してください。"
+        "テンションや雰囲気も含め、相場を肌感覚で伝えるように。\n"
         f"- 事実: {facts}"
     )
 
@@ -214,10 +182,15 @@ def make_ai_comment(
             )
             text = resp["choices"][0]["message"]["content"].strip()  # type: ignore
 
-        text = _post_fix_terms(text)             # リスクオン/オフ→人間語
-        text = _ensure_emoji(text, regime)       # 絵文字が薄い場合に補完
+        text = (
+            text.replace("リスクオン", "🔥買いが優勢（強気ムード）")
+                .replace("リスクオフ", "🌧売りが優勢（慎重ムード）")
+                .replace("ニュートラル", "🌤方向感は拮抗（静かな地合い）")
+        )
         return _shorten(text, 230)
 
     except Exception:
-        # 失敗時フォールバック
-        return _fallback_sentence(regime=regime, score=score, sectors=sectors, mode=mode)
+        return _fallback_sentence(
+            regime=regime, score=score, sectors=sectors,
+            adopt_rate=adopt_rate, prev_score=prev_score, mode=mode,
+        )
