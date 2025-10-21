@@ -149,15 +149,15 @@ class Command(BaseCommand):
         # ====== 今日のひとこと（GPT / ローカル） ======
         ai_model = (opts.get("ai_model") or "").strip() or None  # None→既定（ai_comment側）
         ai_comment = make_ai_comment(
-            regime=regime.get("regime","NEUTRAL"),
-            score=float(regime.get("score",0.0)),
+            regime=regime.get("regime", "NEUTRAL"),
+            score=float(regime.get("score", 0.0)),
             sectors=sectors_view,
             adopt_rate=float(week_rate),
             prev_score=prev_score,
-            seed=asof_str + mode,     # 任意
-            engine=ai_model,          # 任意
-            mode=mode,                # ← 必須：preopen/postopen/noon/afternoon/outlook
-            persona="dealer",         # 予約。内部で“億トレ×評論家”トーンに固定
+            seed=asof_str + (opts.get("mode") or ""),  # ✅ 修正版
+            engine=ai_model,
+            mode=(opts.get("mode") or "preopen"),
+            persona="dealer",
         )
 
         ctx = BriefContext(
