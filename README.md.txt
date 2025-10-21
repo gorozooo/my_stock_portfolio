@@ -8,6 +8,7 @@ python manage.py shell
 
 cron（自動スケジューラ）を開く
 crontab -e
+crontab -l
 
 #東証データ取得
 python manage.py update_tse_list
