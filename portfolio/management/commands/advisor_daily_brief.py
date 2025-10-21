@@ -158,7 +158,7 @@ class Command(BaseCommand):
             seed=asof_str + mode_str,
             engine=ai_model,
             mode=mode_str,
-            persona="dealer",
+            persona="gorozooo",
         )
 
         ctx = BriefContext(
