@@ -148,15 +148,16 @@ class Command(BaseCommand):
 
         # ====== 今日のひとこと（GPT / ローカル） ======
         ai_model = (opts.get("ai_model") or "").strip() or None  # None→既定（ai_comment側）
+        mode_str = (opts.get("mode") or "preopen").lower()
         ai_comment = make_ai_comment(
             regime=regime.get("regime", "NEUTRAL"),
             score=float(regime.get("score", 0.0)),
             sectors=sectors_view,
             adopt_rate=float(week_rate),
             prev_score=prev_score,
-            seed=asof_str + (opts.get("mode") or ""),  # ✅ 修正版
+            seed=asof_str + mode_str,
             engine=ai_model,
-            mode=(opts.get("mode") or "preopen"),
+            mode=mode_str,
             persona="dealer",
         )
 
@@ -167,7 +168,7 @@ class Command(BaseCommand):
             sectors=sectors_view,
             week_rate=week_rate,
             ai_comment=ai_comment,
-            mode=(opts.get("mode") or "").lower(),
+            mode=mode_str,
         )
 
         # ====== LINE送信 ======
@@ -195,22 +196,44 @@ class Command(BaseCommand):
         except Exception:
             return []
 
+    # ---------- トーンと配色（🔥/🌧/🌤 + 背景色） ----------
+    def _tone_theme(self, regime: str) -> Dict[str, str]:
+        """
+        regime に応じてトーン絵文字と配色を返す。
+        強気=淡オレンジ、慎重=淡ブルー、様子見=グレー。
+        """
+        rg = str(regime or "").upper()
+        if "OFF" in rg:
+            return dict(
+                emoji="🌧",
+                card="#E0F2FE",   # sky-100
+                chip="#DBEAFE",   # sky-200
+                primary="#2563EB",# blue-600
+                heading="#111827",
+                muted="#6B7280",
+            )
+        if "ON" in rg:
+            return dict(
+                emoji="🔥",
+                card="#FFF7ED",   # orange-50
+                chip="#FFEDE5",   # orange-100
+                primary="#EA580C",# orange-600
+                heading="#111827",
+                muted="#6B7280",
+            )
+        return dict(
+            emoji="🌤",
+            card="#F3F4F6",     # gray-100
+            chip="#E5E7EB",     # gray-200
+            primary="#374151",  # gray-700
+            heading="#111827",
+            muted="#6B7280",
+        )
+
     # ---------- コメント専用 Flex ----------
     def _build_flex(self, ctx: BriefContext) -> dict:
-        # テーマは Regime に応じて色を切替
-        regime = str(ctx.breadth_view.get("regime", "NEUTRAL")).upper()
-
-        def theme_for_regime(rg: str):
-            if "OFF" in rg:
-                return dict(primary="#dc2626", accent="#ef4444", heading="#111827", muted="#9ca3af", chip="#fee2e2", icon="📉")
-            if "ON" in rg:
-                return dict(primary="#16a34a", accent="#22c55e", heading="#111827", muted="#9ca3af", chip="#dcfce7", icon="📈")
-            return dict(primary="#2563eb", accent="#3b82f6", heading="#111827", muted="#9ca3af", chip="#e0f2fe", icon="⚖️")
-
-        T = theme_for_regime(regime)
-
+        theme = self._tone_theme(ctx.breadth_view.get("regime", "NEUTRAL"))
         mode_label = _mode_label(ctx.mode)
-        # 本文
         comment_text = ctx.ai_comment or "—"
 
         body = {
@@ -218,14 +241,29 @@ class Command(BaseCommand):
             "layout": "vertical",
             "spacing": "md",
             "paddingAll": "16px",
+            "backgroundColor": theme["card"],     # ★ トーンに合わせたカード背景色
             "contents": [
-                # ヘッダー（タイトル＋日付）
+                # ヘッダー（タイトル＋日付）— 左にトーン絵文字を表示
                 {
                     "type": "box",
                     "layout": "horizontal",
                     "contents": [
-                        {"type": "text", "text": f"{T['icon']}  AI デイリーコメント", "weight": "bold", "size": "lg", "color": T["primary"], "flex": 8},
-                        {"type": "text", "text": ctx.asof, "size": "xs", "color": T["muted"], "align": "end", "flex": 4},
+                        {
+                            "type": "text",
+                            "text": f"{theme['emoji']}  AI デイリーコメント",
+                            "weight": "bold",
+                            "size": "lg",
+                            "color": theme["primary"],
+                            "flex": 8
+                        },
+                        {
+                            "type": "text",
+                            "text": ctx.asof,
+                            "size": "xs",
+                            "color": theme["muted"],
+                            "align": "end",
+                            "flex": 4
+                        },
                     ]
                 },
 
@@ -233,12 +271,12 @@ class Command(BaseCommand):
                 {
                     "type": "box",
                     "layout": "vertical",
-                    "backgroundColor": T["chip"],
+                    "backgroundColor": theme["chip"],
                     "cornerRadius": "10px",
                     "paddingAll": "10px",
                     "contents": [
-                        {"type": "text", "text": f"{mode_label}（{ctx.generated_at} 時点）", "size": "xs", "color": T["primary"]},
-                        {"type": "text", "text": comment_text, "size": "md", "wrap": True, "color": T["heading"]},
+                        {"type": "text", "text": f"{mode_label}（{ctx.generated_at} 時点）", "size": "xs", "color": theme["primary"]},
+                        {"type": "text", "text": comment_text, "size": "md", "wrap": True, "color": theme["heading"]},
                     ]
                 },
             ]
