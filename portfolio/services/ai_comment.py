@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 import os
-import random
 import re
 from typing import Dict, Any, List, Optional
 
@@ -89,8 +88,7 @@ def _fallback_sentence(
     prev_score: Optional[float],
     mode: str,
 ) -> str:
-    rg = (regime or "").upper()
-    tone = _humanize_regime(rg)
+    tone = _humanize_regime(regime)
 
     top_secs = [str(s.get("sector", "")) for s in sectors if s.get("sector")]
     top_txt = "・".join(top_secs[:3]) if top_secs else "特筆なし"
@@ -131,6 +129,38 @@ def _fallback_sentence(
     return _shorten(txt, 230)
 
 
+# ----------------- 明日への展望：テンプレ整形 -----------------
+def _outlook_template(
+    *, regime: str, score: float, prev_score: Optional[float],
+    sectors: List[Dict[str, Any]], adopt_rate: float
+) -> str:
+    tone = _humanize_regime(regime)
+    stance = _stance_from_score(score)
+    heat = _stars_from_score(score)
+    top_secs = [str(s.get("sector", "")) for s in sectors if s.get("sector")][:3]
+    top_txt = "・".join(top_secs) if top_secs else "特筆なし"
+
+    if prev_score is not None:
+        d = round(float(score) - float(prev_score), 2)
+        if d > 0.05:
+            drift = "きょうは上向きの流れで引け。"
+        elif d < -0.05:
+            drift = "きょうは弱含みで引け。"
+        else:
+            drift = "きょうは横ばい圏で引け。"
+    else:
+        drift = "きょうは落ち着いた引け。"
+
+    note = "✨ 精度は良好" if adopt_rate >= 0.55 else "🌀 シグナルはムラあり" if adopt_rate <= 0.45 else "🙂 平常運転"
+
+    text = (
+        f"引け後の総括：{drift}{tone} 主役は{top_txt}。"
+        f"明日の仮説：寄りの温度感は「{stance}」、期待度は{heat}。"
+        f"寄り前は先物・為替・ニュースのギャップを確認し、基本は流れに素直で。{note}"
+    )
+    return _shorten(text, 230)
+
+
 # ----------------- モード別 System Prompt -----------------
 def _system_prompt_for(mode: str, persona: str) -> str:
     base_persona = (
@@ -141,11 +171,11 @@ def _system_prompt_for(mode: str, persona: str) -> str:
     )
 
     focus_dict = {
-        "preopen": "寄り付き前の温度感。今日は買い寄り/売り寄り/拮抗が一目で分かるように。",
+        "preopen":  "寄り付き前の温度感。今日は買い寄り/売り寄り/拮抗が一目で分かるように。",
         "postopen": "寄り直後の地合い。初動の強弱と継続/反転の可能性を簡潔に。",
-        "noon": "前場の総括と後場への期待を一言で。押し目待ち・続伸・様子見のいずれかを含めて。",
-        "afternoon": "後場のムードと引けの雰囲気を端的に。手仕舞い/追随/見送りの温度感を示す。",
-        "outlook": "引け後の総括と翌営業日の展望。明日は買い寄り/売り寄り/拮抗の見立てを短く。",
+        "noon":     "前場の総括と後場への期待を一言で。押し目待ち・続伸・様子見のいずれかを含めて。",
+        "afternoon":"後場のムードと引けの雰囲気を端的に。手仕舞い/追随/見送りの温度感を示す。",
+        "outlook":  "引け後の総括と翌営業日の展望を2文で。1文目は『引け後の総括（上向き/弱含み/横ばい）＋主役セクター』、2文目は『明日の仮説（買い/売り/拮抗＋期待度★）＋寄り前の注意点』を必ず含める。",
     }
 
     focus = focus_dict.get((mode or "").lower(), "全体の地合いと需給バランスを短く。")
@@ -173,6 +203,13 @@ def make_ai_comment(
 ) -> str:
     use_api = _OPENAI_AVAILABLE and bool(os.getenv("OPENAI_API_KEY"))
     model = _resolve_model_name(engine)
+
+    # --- 「明日への展望」はテンプレで固定（LLMに任せず確実に明日視点へ） ---
+    if (mode or "").lower() == "outlook":
+        return _outlook_template(
+            regime=regime, score=score, prev_score=prev_score,
+            sectors=sectors, adopt_rate=adopt_rate
+        )
 
     # --- OpenAI API 不使用時 ---
     if not use_api:
@@ -220,7 +257,7 @@ def make_ai_comment(
             )
             text = resp["choices"][0]["message"]["content"].strip()  # type: ignore
 
-        # リスクオン/オフ表記が出た場合に補正
+        # 専門語が出た場合の補正
         text = (
             text.replace("リスクオン", "🔥買いが優勢（強気ムード）")
                 .replace("リスクオフ", "🌧売りが優勢（慎重ムード）")
