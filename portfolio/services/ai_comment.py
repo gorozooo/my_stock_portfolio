@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import re
 from typing import Dict, Any, List, Optional
+from dotenv import load_dotenv
+load_dotenv("/home/gorozooo/my_stock_portfolio/.env")
 
 # Django settings は任意（未インストール環境でも動くように try）
 try:
