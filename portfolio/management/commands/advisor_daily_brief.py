@@ -192,7 +192,7 @@ class Command(BaseCommand):
             sectors=sectors_view,
             week_rate=week_rate,
             ai_comment=ai_comment,
-            mode=gorozooo,
+            mode=mode_str,
         )
 
         # ====== LINE送信 ======
