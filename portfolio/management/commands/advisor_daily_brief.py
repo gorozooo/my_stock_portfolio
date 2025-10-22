@@ -5,7 +5,6 @@ from datetime import date, datetime, timedelta
 from typing import Dict, Any, List, Optional
 import json
 import os
-import traceback
 
 from django.core.management.base import BaseCommand, CommandParser
 from django.conf import settings
@@ -14,12 +13,13 @@ from django.utils import timezone
 # 既存サービス（コメント生成は ai_comment を使用）
 from ...services.market import (
     latest_breadth, breadth_regime,
-    latest_sector_strength
+    latest_sector_strength,
 )
 from ...services.sector_map import normalize_sector
 from ...models_advisor import AdviceItem
 
-from ...services.ai_comment import make_ai_comment  # ← GPT/ローカル両対応の“今日のひとこと”
+# GPT/ローカル両対応の“今日のひとこと”
+from ...services.ai_comment import make_ai_comment
 
 # LINE
 from ...models_line import LineContact
@@ -85,12 +85,13 @@ class Command(BaseCommand):
         parser.add_argument("--date", type=str, default="", help="対象日(YYYY-MM-DD)。未指定は今日")
         parser.add_argument("--days", type=int, default=90, help="週次サマリのlookback（日数）")
 
-        # コメント生成（GPT切替）
-        parser.add_argument("--ai-model", type=str, default="", help="コメント生成モデル（例: gpt-4-turbo / gpt-5 / gpt-4o-miniなど）")
+        # コメント生成（GPT明示）
+        parser.add_argument("--ai-model", type=str, default="gpt-4-turbo",
+                            help="コメント生成モデル（例: gpt-4-turbo / gpt-4o-mini など）")
 
         # コメントの時間帯モード（表示ラベル用）
         parser.add_argument(
-            "--mode", type=str, default="",
+            "--mode", type=str, default="preopen",
             help="コメントモード：preopen / postopen / noon / afternoon / outlook"
         )
 
@@ -101,89 +102,70 @@ class Command(BaseCommand):
         parser.add_argument("--line-title", type=str, default="", help="通知の代替テキスト（未指定は自動）")
 
     def handle(self, *args, **opts):
-        # ====== BEGIN（cron可視化） ======
-        mode_str = (opts.get("mode") or "preopen").strip().lower()
-        self.stdout.write(self.style.NOTICE(f"[advisor_daily_brief] BEGIN mode={mode_str}"))
-
         # ====== 入力日付 ======
         asof_str = opts["date"] or _today_str()
         try:
             the_day = datetime.fromisoformat(asof_str).date()
         except Exception:
-            self.stdout.write(self.style.ERROR(f"invalid --date: {asof_str}"))
-            return
+            return self.stdout.write(self.style.ERROR(f"invalid --date: {asof_str}"))
+
+        # ====== モード ======
+        mode_str = (opts.get("mode") or "preopen").lower()
+        self.stdout.write(self.style.NOTICE(f"[advisor_daily_brief] BEGIN mode={mode_str}"))
 
         # ====== 市況（当日 breadth -> regime/score だけ使う） ======
-        try:
-            b = latest_breadth() or {}
-            regime = breadth_regime(b) or {}
-        except Exception as e:
-            self.stdout.write(self.style.WARNING(f"latest_breadth/breadth_regime error: {e}"))
-            self.stdout.write(self.style.WARNING(traceback.format_exc()))
-            regime = {"regime": "NEUTRAL", "score": 0.5}
+        b = latest_breadth() or {}
+        regime = breadth_regime(b)  # dict（regime/score等）
 
         # ====== 前日スコア（差分コメント用・任意） ======
         prev_score = None
-        try:
-            yday = the_day - timedelta(days=1)
-            prev_b = _load_breadth_for(yday)
-            if prev_b:
+        yday = the_day - timedelta(days=1)
+        prev_b = _load_breadth_for(yday)
+        if prev_b:
+            try:
                 prev_score = float(breadth_regime(prev_b).get("score", 0.0))
-        except Exception as e:
-            self.stdout.write(self.style.WARNING(f"prev_score compute error: {e}"))
+            except Exception:
+                prev_score = None
 
         # ====== セクターRS（上位だけコメント要素に） ======
+        rs_tbl = latest_sector_strength() or {}
         sectors_view: List[Dict[str, Any]] = []
-        try:
-            rs_tbl = latest_sector_strength() or {}
-            for raw_sec, row in rs_tbl.items():
-                sectors_view.append({
-                    "sector": normalize_sector(raw_sec),
-                    "rs": _safe_float(row.get("rs_score")),
-                    "date": row.get("date") or "",
-                })
-            sectors_view.sort(key=lambda r: r["rs"], reverse=True)
-        except Exception as e:
-            self.stdout.write(self.style.WARNING(f"latest_sector_strength error: {e}"))
-            sectors_view = []
+        for raw_sec, row in rs_tbl.items():
+            sectors_view.append({
+                "sector": normalize_sector(raw_sec),
+                "rs": _safe_float(row.get("rs_score")),
+                "date": row.get("date") or "",
+            })
+        sectors_view.sort(key=lambda r: r["rs"], reverse=True)
 
         # ====== 今週の採用率（シグナル精度の目安） ======
+        now = timezone.localtime()
+        monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        since = timezone.now() - timedelta(days=int(opts["days"] or 90))
+        qs_all = AdviceItem.objects.filter(created_at__gte=since)
+        week_qs = qs_all.filter(created_at__gte=monday)
         week_rate = 0.0
         try:
-            now = timezone.localtime()
-            monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-            since = timezone.now() - timedelta(days=int(opts["days"] or 90))
-            qs_all = AdviceItem.objects.filter(created_at__gte=since)
-            week_qs = qs_all.filter(created_at__gte=monday)
             total = week_qs.count()
             taken = week_qs.filter(taken=True).count()
             week_rate = round((taken / total), 4) if total else 0.0
-        except Exception as e:
-            self.stdout.write(self.style.WARNING(f"week_rate compute error: {e}"))
+        except Exception:
             week_rate = 0.0
 
         # ====== 今日のひとこと（GPT / ローカル） ======
-        ai_model = (opts.get("ai_model") or "").strip() or None  # None→既定（ai_comment側）
-        try:
-            ai_comment = make_ai_comment(
-                regime=str(regime.get("regime", "NEUTRAL")),
-                score=float(regime.get("score", 0.0)),
-                sectors=sectors_view,
-                adopt_rate=float(week_rate),
-                prev_score=prev_score,
-                seed=f"{asof_str}-{mode_str}",
-                engine=ai_model,
-                mode=mode_str,
-                persona="gorozooo",
-            ) or ""
-        except Exception as e:
-            self.stdout.write(self.style.WARNING(f"make_ai_comment error: {e}"))
-            self.stdout.write(self.style.WARNING(traceback.format_exc()))
-            ai_comment = "（コメント生成に失敗。後ほど再送します）"
-
-        # 万一長すぎる場合は短縮（Flexテキスト安全策）
-        if len(ai_comment) > 480:
-            ai_comment = ai_comment[:477] + "…"
+        # ※ GPTは ai_comment 側で APIキー自動検知し、キー無し時はローカルへフォールバック。
+        ai_model = (opts.get("ai_model") or "gpt-4-turbo").strip() or "gpt-4-turbo"
+        ai_comment = make_ai_comment(
+            regime=regime.get("regime", "NEUTRAL"),
+            score=float(regime.get("score", 0.0)),
+            sectors=sectors_view,
+            adopt_rate=float(week_rate),
+            prev_score=prev_score,
+            seed=asof_str + mode_str,
+            engine=ai_model,     # ← gpt-4-turbo を明示
+            mode=mode_str,
+            persona="gorozooo",  # ← ハイブリッド人格
+        )
 
         ctx = BriefContext(
             asof=asof_str,
@@ -199,20 +181,15 @@ class Command(BaseCommand):
         if not opts["line"]:
             self.stdout.write(self.style.SUCCESS("generated (no LINE send)."))
             self.stdout.write(self.style.SUCCESS(f"[{_mode_label(ctx.mode)} @ {ctx.generated_at}] {ctx.ai_comment}"))
-            self.stdout.write(self.style.NOTICE(f"[advisor_daily_brief] DONE (no-line)"))
             return
 
         targets = self._resolve_line_targets(opts)
         if not targets:
-            self.stdout.write(self.style.WARNING("LINE送信先が見つかりません。LineContactが空です。"))
-            self.stdout.write(self.style.NOTICE(f"[advisor_daily_brief] DONE (no-targets)"))
+            self.stdout.write(self.style.WARNING("LINE送信先が見つかりません。"))
             return
 
-        ok = self._send_line_flex(targets, ctx, opts)
-        if ok:
-            self.stdout.write(self.style.SUCCESS("[advisor_daily_brief] DONE (line=ok)"))
-        else:
-            self.stdout.write(self.style.WARNING("[advisor_daily_brief] DONE (line=ng)"))
+        self._send_line_flex(targets, ctx, opts)
+        self.stdout.write(self.style.SUCCESS("[advisor_daily_brief] DONE (line=ok)"))
 
     # ---------- 送信先解決 ----------
     def _resolve_line_targets(self, opts) -> List[str]:
@@ -222,7 +199,6 @@ class Command(BaseCommand):
         if opts.get("line_all"):
             return list(LineContact.objects.values_list("user_id", flat=True))
         try:
-            # latest('created_at') は get_latest_by が未設定でもOK
             return [LineContact.objects.latest("created_at").user_id]
         except Exception:
             return []
@@ -318,22 +294,8 @@ class Command(BaseCommand):
     # ---------- LINE: Flex 送信 ----------
     def _send_line_flex(self, user_ids: List[str], ctx: BriefContext, opts) -> bool:
         flex = self._build_flex(ctx)
-        # altText は短め（端末の通知で切れにくく）
-        alt = (opts.get("line_title") or f"{_mode_label(ctx.mode)} {ctx.asof}").strip()[:120]
+        alt = (opts.get("line_title") or f"AIデイリーコメント {ctx.asof}").strip()
         any_ok = False
-
-        # 失敗時の最小バブル（構造 or 権限の切り分け用）
-        smoke = {
-            "type": "bubble",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    {"type": "text", "text": "Flex smoke test", "weight": "bold", "size": "lg"},
-                    {"type": "text", "text": "このカードが届けば Flex 自体はOK", "size": "sm", "wrap": True}
-                ]
-            }
-        }
 
         for uid in user_ids:
             try:
@@ -341,13 +303,7 @@ class Command(BaseCommand):
                 r = line_push_flex(uid, alt, flex)
                 code = getattr(r, "status_code", None)
                 any_ok = any_ok or (code == 200)
-                if code != 200:
-                    self.stdout.write(self.style.WARNING(f"LINE Flex to {uid}: {code} {getattr(r,'text','')}"))
-                    rs = line_push_flex(uid, "Flex smoke test", smoke)
-                    self.stdout.write(self.style.WARNING(f"  smoke test status={getattr(rs,'status_code',None)} body={getattr(rs,'text','')}"))
-                else:
-                    self.stdout.write(self.style.SUCCESS(f"LINE Flex to {uid}: {code}"))
+                self.stdout.write(self.style.SUCCESS(f"LINE Flex to {uid}: {code}"))
             except Exception as e:
                 self.stdout.write(self.style.WARNING(f"LINE Flex exception (uid={uid}): {e}"))
-                self.stdout.write(self.style.WARNING(traceback.format_exc()))
         return any_ok
