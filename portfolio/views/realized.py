@@ -1383,8 +1383,10 @@ def close_submit(request, pk: int):
     """
     保有行のクローズ（SELL/BUY 両対応）
     - 反対売買のみ受け付け、数量を減算。0で保有を自動削除。
-    - 同方向(例: 保有SELLに対してSELL)はクローズではないためエラー。
-    - basis/手数料の扱いは従来ロジックを踏襲（fee 逆算、tax 任意）。
+    - 同方向(例: 保有SELLに対してSELL)はクローズ不可。
+    - 手数料は basis と “投資家PnL(cashflow)” から逆算（税は別入力）。
+      * 保有BUY→クローズSELL: fee = (price - basis) * qty - pnl_input
+      * 保有SELL→クローズBUY: fee = (basis - price) * qty - pnl_input
     """
     try:
         # --- Holding 取得（行ロック & user 有無両対応） ---
@@ -1403,21 +1405,18 @@ def close_submit(request, pk: int):
         except Exception:
             trade_at = timezone.localdate()
 
-        # フォームから SELL/BUY を受け取る
         side_in = (request.POST.get("side") or "").upper()
         if side_in not in ("SELL", "BUY"):
             return JsonResponse({"ok": False, "error": "side が不正です（SELL/BUY）"}, status=400)
 
-        # 数量
         try:
             qty_in = int(request.POST.get("qty") or 0)
         except Exception:
             qty_in = 0
 
-        # 金額系
         price       = _to_dec(request.POST.get("price"))
-        tax_in      = _to_dec(request.POST.get("tax"))  # 任意入力（無ければ0）
-        cashflow_in = request.POST.get("cashflow")      # 実損（±、任意）
+        tax_in      = _to_dec(request.POST.get("tax"))  # 任意
+        cashflow_in = request.POST.get("cashflow")      # 投資家PnL（±・任意）
         pnl_input   = None if cashflow_in in (None, "") else _to_dec(cashflow_in)
 
         broker  = (request.POST.get("broker")  or "OTHER").upper()
@@ -1425,7 +1424,7 @@ def close_submit(request, pk: int):
         memo    = (request.POST.get("memo")    or "").strip()
         name    = (request.POST.get("name")    or "").strip() or getattr(h, "name", "") or ""
 
-        # --- 保有の現在数量（quantity / qty 両対応） ---
+        # --- 保有数量 ---
         held_qty = getattr(h, "quantity", None)
         if held_qty is None:
             held_qty = getattr(h, "qty", 0)
@@ -1445,7 +1444,7 @@ def close_submit(request, pk: int):
         if qty_in > held_qty:
             return JsonResponse({"ok": False, "error": "保有数量を超えています"}, status=400)
 
-        # --- basis(平均取得単価) 検出 ---
+        # --- basis 取得（保有から推定） ---
         basis_candidates = [
             "avg_cost", "average_cost", "avg_price", "average_price",
             "basis", "cost_price", "cost_per_share", "avg", "average",
@@ -1461,18 +1460,27 @@ def close_submit(request, pk: int):
                 except Exception:
                     continue
 
-        # 実損が未入力なら 0 扱い（投資家PnL）
+        # 投資家PnL未入力なら 0
         if pnl_input is None:
             pnl_input = Decimal("0")
 
-        # --- 手数料を逆算（basis 未知なら 0 にフォールバック）---
-        # fee = (price - basis) * qty - pnl_input
+        # --- 手数料の逆算 ---
+        #  Long を売ってクローズ(保有BUY→SELL): (price - basis)
+        #  Short を買い戻し(保有SELL→BUY)      : (basis - price)
         if basis is None:
             fee = Decimal("0")
         else:
-            fee = (price - basis) * Decimal(qty_in) - pnl_input
+            if holding_side == "BUY" and side_in == "SELL":
+                # ロングの利確/損切り
+                fee = (price - basis) * Decimal(qty_in) - pnl_input
+            elif holding_side == "SELL" and side_in == "BUY":
+                # ショートの買い戻し
+                fee = (basis - price) * Decimal(qty_in) - pnl_input
+            else:
+                # ここには来ない想定（上で反対売買をチェック済み）
+                fee = Decimal("0")
 
-        # --- 保有日数（opened_at/created_at から算出） ---
+        # --- 保有日数算出 ---
         days_held = None
         try:
             opened_date = getattr(h, "opened_at", None) or (
@@ -1484,7 +1492,7 @@ def close_submit(request, pk: int):
         except Exception:
             days_held = None
 
-        # --- RealizedTrade を登録（side=side_in） ---
+        # --- RealizedTrade 作成 ---
         rt_kwargs = dict(
             trade_at=trade_at,
             side=side_in,
@@ -1496,8 +1504,8 @@ def close_submit(request, pk: int):
             price=price,
             fee=fee,
             tax=tax_in,
-            cashflow=pnl_input,   # 実損（±）
-            basis=basis,          # あれば保存
+            cashflow=pnl_input,
+            basis=basis,
             hold_days=days_held,
             memo=memo,
         )
@@ -1505,7 +1513,7 @@ def close_submit(request, pk: int):
             rt_kwargs["user"] = request.user
         RealizedTrade.objects.create(**rt_kwargs)
 
-        # --- 保有数量の更新（反対売買 → 減算。0 で削除） ---
+        # --- 保有数量の更新（反対売買 → 減算。0で削除） ---
         if hasattr(h, "quantity"):
             h.quantity = F("quantity") - qty_in
             h.save(update_fields=["quantity"])
@@ -1519,7 +1527,7 @@ def close_submit(request, pk: int):
             if h.qty <= 0:
                 h.delete()
 
-        # --- 再描画片 ---
+        # --- 再描画 ---
         q = (request.POST.get("q") or "").strip()
         qs = RealizedTrade.objects.all()
         if any(f.name == "user" for f in RealizedTrade._meta.fields):
