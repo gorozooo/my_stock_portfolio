@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
-import os
-import json
-import logging
-from datetime import datetime
+import os, json, logging, re
+from datetime import datetime, timezone
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -11,50 +9,46 @@ from portfolio.services.line_api import verify_signature, reply
 
 logger = logging.getLogger(__name__)
 
-# 環境変数で初回だけ挨拶を出したい場合は 1 を設定（未設定/その他はサイレント）
 WELCOME_ONCE = os.getenv("LINE_WELCOME_ONCE", "").strip() == "1"
 
-# 追記先ファイル（統一パス）
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FEEDBACK_PATH = os.path.join(BASE_DIR, "media", "advisor", "feedback.jsonl")
-LOCK_PATH = os.path.join(BASE_DIR, "media", "advisor", "feedback.lock")
+# ===== 保存ユーティリティ =====
+def _advisor_dir() -> str:
+    base = os.path.join(os.getcwd(), "media", "advisor")
+    os.makedirs(base, exist_ok=True)
+    return base
 
+def _feedback_path() -> str:
+    return os.path.join(_advisor_dir(), "feedback.jsonl")
 
-def append_feedback_line(mode: str, choice: str, text: str, edited_text: str = "", tags=None):
-    """feedback.jsonl に安全に追記"""
-    os.makedirs(os.path.dirname(FEEDBACK_PATH), exist_ok=True)
-    rec = {
-        "ts": datetime.now().isoformat(timespec="seconds"),
-        "mode": mode or "generic",
-        "choice": choice,
-        "text": text,
-    }
-    if edited_text:
-        rec["edited_text"] = edited_text
-    if tags:
-        rec["tags"] = tags
-
-    # flockで排他制御して追記（atomic append）
-    import fcntl
+def _append_jsonl(path: str, row: dict) -> None:
     try:
-        with open(FEEDBACK_PATH, "a", encoding="utf-8") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-            fcntl.flock(f, fcntl.LOCK_UN)
-        logger.info("[feedback] appended to %s: %s", FEEDBACK_PATH, rec)
-    except Exception as e:
-        logger.exception("[feedback] append failed: %s", e)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception:
+        logger.exception("feedback append failed")
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+# 軽いパーサ（feedback; +1 / -1 / edit / good / bad / 👍 / 👎）
+_FB_RE = re.compile(r"^\s*feedback\s*[:;]\s*(.+)$", re.I)
+
+def _parse_feedback_text(text_raw: str) -> dict | None:
+    m = _FB_RE.match(text_raw or "")
+    if not m:
+        return None
+    val = m.group(1).strip().lower()
+    # 記号や別名を吸収
+    mapping = {
+        "+1": "up", "good": "up", "👍": "up", "like": "up", "ok": "up",
+        "-1": "down", "bad": "down", "👎": "down", "ng": "down", "no": "down",
+        "edit": "edit", "fix": "edit", "✏️": "edit", "修正": "edit",
+    }
+    choice = mapping.get(val, val)
+    return {"choice": choice}
 
 @csrf_exempt
 def line_webhook(request):
-    """
-    LINE Webhook 受信（サイレント版）
-      - userId を保存（upsert）
-      - feedback;edit;down;up のようなコマンドを受けたら advisor/feedback.jsonl に記録
-      - 既定は「返信しない」。例外として「id」だけ自分の userId を返す
-      - follow（友だち追加）時は環境変数 LINE_WELCOME_ONCE=1 のときだけ初回挨拶
-    """
     if request.method != "POST":
         return HttpResponse("OK")
 
@@ -74,55 +68,79 @@ def line_webhook(request):
         etype = ev.get("type")
         src = ev.get("source") or {}
         user_id = src.get("userId")
-
         if not user_id:
             continue
 
-        # ---- userID登録/upsert ----
-        obj, created = LineContact.objects.get_or_create(user_id=user_id, defaults={})
+        # upsert
+        LineContact.objects.update_or_create(user_id=user_id, defaults={})
 
-        # ---- 友だち追加 ----
+        # ---- follow: 既定サイレント、必要なら初回だけ挨拶 ----
         if etype == "follow":
-            if WELCOME_ONCE and created:
+            if WELCOME_ONCE:
                 rtoken = ev.get("replyToken")
                 if rtoken:
                     reply(rtoken, "登録ありがとう！あなたのIDを保存しました ✅\n「id」と送るとIDを返信します。")
             continue
 
-        # ---- テキストメッセージ ----
+        # ---- postback（将来のボタン用。data に JSON or key=value を想定）----
+        if etype == "postback":
+            data = ev.get("postback", {}).get("data") or ""
+            rec = None
+            # JSON優先
+            try:
+                d = json.loads(data)
+                if isinstance(d, dict) and d.get("k") == "fb":
+                    rec = {
+                        "choice": d.get("choice"),
+                        "mode": d.get("mode") or "generic",
+                        "text": (d.get("text") or "").strip() or None,
+                    }
+            except Exception:
+                # key=value 形式: k=fb&choice=up&mode=noon
+                kv = dict(x.split("=", 1) for x in data.split("&") if "=" in x)
+                if kv.get("k") == "fb":
+                    rec = {
+                        "choice": kv.get("choice"),
+                        "mode": kv.get("mode") or "generic",
+                        "text": kv.get("text"),
+                    }
+            if rec and rec.get("choice"):
+                _append_jsonl(_feedback_path(), {
+                    "ts": _now_iso(),
+                    "user": user_id,
+                    **rec
+                })
+            continue
+
+        # ---- message（テキスト）----
         if etype == "message":
             msg = ev.get("message") or {}
             if msg.get("type") != "text":
                 continue
             text_raw = (msg.get("text") or "").strip()
-            text = text_raw.lower()
-            rtoken = ev.get("replyToken")
 
-            # a) ID要求
-            if text == "id" and rtoken:
-                reply(rtoken, f"あなたのLINE ID:\n{user_id}")
+            # a) id だけは返信
+            if text_raw.lower() == "id":
+                rtoken = ev.get("replyToken")
+                if rtoken:
+                    reply(rtoken, f"あなたのLINE ID:\n{user_id}")
                 continue
 
-            # b) feedback コマンド形式
-            # 例: feedback;noon;up;🔥買いが優勢…
-            #     edit;noon;✏️;🌤拮抗…;🌤拮抗、短期は回転重視。
-            if text.startswith(("feedback;", "edit;", "up;", "down;")):
-                parts = text_raw.split(";", 4)
-                choice = parts[0]
-                mode = parts[1] if len(parts) > 1 else "generic"
-                sub_choice = parts[2] if len(parts) > 2 else ""
-                txt = parts[3] if len(parts) > 3 else ""
-                edited = parts[4] if len(parts) > 4 else ""
-                append_feedback_line(mode, choice or sub_choice, txt, edited)
-                logger.info("LINE feedback recorded from %s: %s", user_id, text_raw)
-                # 「登録ありがとう」などは返信しない
+            # b) feedback; … / edit; … をファイル保存（サイレント）
+            fb = _parse_feedback_text(text_raw)
+            if fb:
+                _append_jsonl(_feedback_path(), {
+                    "ts": _now_iso(),
+                    "user": user_id,
+                    "mode": "generic",     # ← 現状は不明。postback対応にすると埋まります
+                    "text": None,          # ← 同上
+                    **fb
+                })
                 continue
 
-            # c) それ以外はサイレント
-            logger.debug("LINE message (silent): from=%s text=%s", user_id, text_raw)
+            # c) 完全サイレント
+            logger.debug("LINE message (silent): %s", text_raw)
             continue
 
-        # ---- その他イベント ----
-        logger.debug("LINE event (silent): type=%s user=%s", etype, user_id)
-
+        # その他は無視
     return HttpResponse("OK")
