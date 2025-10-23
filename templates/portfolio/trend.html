@@ -7,134 +7,119 @@
 
   <style>
     body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-  margin: 12px;
-  background: #0b0f1a; /* ダーク背景 */
-  color: #f1f5f9;      /* 明るめ文字 */
-}
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      margin: 12px;
+      background: #0b0f1a; /* ダーク背景 */
+      color: #f1f5f9;      /* 明るめ文字 */
+    }
 
-/* 見出し */
-h2 {
-  font-size: 22px;
-  margin: 0 0 16px;
-  font-weight: 600;
-  color: #fff;
-}
+    /* 見出し */
+    h2 {
+      font-size: 22px;
+      margin: 0 0 16px;
+      font-weight: 600;
+      color: #fff;
+    }
 
-/* 入力とボタン */
-input[type=text] {
-  flex: 1;
-  font-size: 16px;
-  padding: 14px 12px;
-  border: 1px solid #334155;
-  border-radius: 12px;
-  background: #1e293b;
-  color: #fff;
-}
-button {
-  padding: 14px 18px;
-  font-size: 15px;
-  border: none;
-  border-radius: 12px;
-  background: #2563eb;
-  color: #fff;
-  font-weight: 600;
-}
-button:hover {
-  background: #1d4ed8;
-}
+    /* 入力とボタン */
+    input[type=text] {
+      flex: 1;
+      font-size: 16px;
+      padding: 14px 12px;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      background: #1e293b;
+      color: #fff;
+    }
+    button {
+      padding: 14px 18px;
+      font-size: 15px;
+      border: none;
+      border-radius: 12px;
+      background: #2563eb;
+      color: #fff;
+      font-weight: 600;
+    }
+    button:hover { background: #1d4ed8; }
 
-/* カード */
-.card {
-  margin-top: 14px;
-  border-radius: 14px;
-  padding: 16px;
-  background: rgba(255,255,255,0.05);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 2px 8px rgba(0,0,0,.4);
-}
+    /* カード */
+    .card {
+      margin-top: 14px;
+      border-radius: 14px;
+      padding: 16px;
+      background: rgba(255,255,255,0.05);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 2px 8px rgba(0,0,0,.4);
+    }
 
-/* サブテキスト */
-.sub {
-  color: #94a3b8;
-  font-size: 13px;
-}
+    /* サブテキスト */
+    .sub { color: #94a3b8; font-size: 13px; }
 
-/* チャート */
-.chart-wrap {
-  margin-top: 16px;
-  border-radius: 16px;
-  padding: 12px;
-  height: 300px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-}
+    /* チャート */
+    .chart-wrap {
+      margin-top: 16px;
+      border-radius: 16px;
+      padding: 12px;
+      height: 300px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
 
-/* KPIグリッド → 横スクロール */
-.grid {
-  display: flex;
-  overflow-x: auto;
-  gap: 10px;
-  padding-bottom: 6px;
-}
-.kpi {
-  min-width: 140px;
-  flex-shrink: 0;
-  padding: 12px;
-  border-radius: 12px;
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.1);
-}
-.kpi h4 {
-  margin: 0 0 4px;
-  font-size: 12px;
-  color: #cbd5e1;
-}
-.kpi .v {
-  font-size: 16px;
-  font-weight: 600;
-  color: #fff;
-}
+    /* KPIグリッド → 横スクロール */
+    .grid { display: flex; overflow-x: auto; gap: 10px; padding-bottom: 6px; }
+    .kpi {
+      min-width: 140px; flex-shrink: 0; padding: 12px; border-radius: 12px;
+      background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1);
+    }
+    .kpi h4 { margin: 0 0 4px; font-size: 12px; color: #cbd5e1; }
+    .kpi .v { font-size: 16px; font-weight: 600; color: #fff; }
 
-/* バッジ */
-.badge {
-  display: inline-block;
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-}
-.b-green { background:#16a34a; color:#fff; }
-.b-red   { background:#dc2626; color:#fff; }
-.b-gray  { background:#334155; color:#e2e8f0; }
+    /* バッジ */
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .b-green { background:#16a34a; color:#fff; }
+    .b-red   { background:#dc2626; color:#fff; }
+    .b-gray  { background:#334155; color:#e2e8f0; }
 
-/* 判定バッジ */
-.badge-decision {
-  display:inline-block;
-  padding: 6px 14px;
-  border-radius: 999px;
-  font-size: 14px;
-  font-weight: 700;
-  color:#fff;
-}
-.badge-buy   { background:#16a34a; }
-.badge-watch { background:#facc15; color:#222; }
-.badge-skip  { background:#ef4444; }
+    /* 判定バッジ */
+    .badge-decision {
+      display:inline-block; padding: 6px 14px; border-radius: 999px;
+      font-size: 14px; font-weight: 700; color:#fff;
+    }
+    .badge-buy   { background:#16a34a; }
+    .badge-watch { background:#facc15; color:#222; }
+    .badge-skip  { background:#ef4444; }
 
-/* ポジションサイズ */
-#ev-sizing {
-  margin-top: 14px;
-  padding: 12px;
-  border-radius: 12px;
-  background: rgba(255,255,255,0.06);
-  font-size: 14px;
-}
-#ev-sizing h4 {
-  margin: 0 0 6px;
-  font-size: 13px;
-  color: #cbd5e1;
-}
+    /* ポジションサイズ */
+    #ev-sizing {
+      margin-top: 14px; padding: 12px; border-radius: 12px;
+      background: rgba(255,255,255,0.06); font-size: 14px;
+    }
+    #ev-sizing h4 { margin: 0 0 6px; font-size: 13px; color: #cbd5e1; }
+
+    /* フォーム系 */
+    .row { display:flex; gap:8px; align-items:center; }
+    .btn-primary { background:#2563eb; color:#fff; font-weight:700; border:none; border-radius:12px; padding:14px 18px; }
+    .btn-primary:disabled { opacity:.5; }
+
+    .field-inline { display:flex; gap:8px; align-items:center; margin-top:8px; }
+    .num-input {
+      width:120px; padding:10px; border-radius:10px; background:#1e293b; color:#fff; border:1px solid #334155;
+    }
   </style>
+
+  <!-- HTMX への CSRF 自動付与（このページだけで完結させる版） -->
+  <script>
+    function _getCookie(name){
+      const v = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+      return v ? v.pop() : '';
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+      document.body.addEventListener('htmx:configRequest', (e) => {
+        const token = _getCookie('csrftoken');
+        if (token) e.detail.headers['X-CSRFToken'] = token;
+      });
+    });
+  </script>
 {% endblock %}
 
 {% block content %}
@@ -179,14 +164,24 @@ button:hover {
     <button id="sideLong"  class="badge b-green" onclick="setSide('LONG')">買い</button>
     <button id="sideShort" class="badge b-red"   onclick="setSide('SHORT')">売り</button>
   </div>
-  
+
+  <!-- 数量（提案が0の時はここに手入力） -->
+  <div class="field-inline">
+    <label class="sub" for="planQty">数量</label>
+    <input id="planQty" type="number" min="1" step="1" class="num-input" placeholder="例: 100">
+    <span class="sub" id="planQtyHint"></span>
+  </div>
+
+  <!-- 保存結果メッセージ -->
+  <div id="planMsg" class="sub" style="margin-top:8px;"></div>
+
   <!-- 注文プランに追加 -->
   <button
     class="btn-primary" style="width:100%;margin-top:10px;"
     hx-post="/api/positions/add"
-    hx-trigger="click"
     hx-vals='js:buildPositionPayload()'
-    hx-swap="none">
+    hx-target="#planMsg"
+    hx-swap="innerHTML">
     📥 注文プランに追加
   </button>
 
@@ -238,7 +233,7 @@ button:hover {
           }
         });
 
-        // Entry/Stopのライン
+        // 推奨建値/損切ライン/スイングのライン
         try {
           const mres = await fetch(`/api/metrics?ticker=${encodeURIComponent(ticker)}`);
           const m = await mres.json();
@@ -256,8 +251,8 @@ button:hover {
                 borderDash: dash
               });
             };
-            pushLine('Entry(推奨)', m.levels.entry, '#16a34a', [4,4]);
-            pushLine('Stop(推奨)',  m.levels.stop,  '#ef4444', [6,4]);
+            pushLine('推奨建値',   m.levels.entry, '#16a34a', [4,4]);
+            pushLine('損切ライン', m.levels.stop,  '#ef4444', [6,4]);
             pushLine('Swing High', m.levels.swing_high, '#60a5fa', [2,4]);
             pushLine('Swing Low',  m.levels.swing_low,  '#a78bfa', [2,4]);
             chart.update();
@@ -343,8 +338,8 @@ button:hover {
           <div class="kpi"><h4>年化ボラ60</h4><div class="v">${fmt(vol60)}%</div></div>
           <div class="kpi"><h4>ATR(14)</h4><div class="v">${fmt(atr,0)}</div></div>
           <div class="kpi"><h4>ADV20(売買代金)</h4><div class="v">${adv20 ? adv20.toLocaleString() : '-'}</div></div>
-          <div class="kpi"><h4>推奨エントリー</h4><div class="v">${lv.entry ? lv.entry.toLocaleString() : '-'}</div></div>
-          <div class="kpi"><h4>推奨ストップ</h4><div class="v">${lv.stop ? lv.stop.toLocaleString() : '-'}</div></div>
+          <div class="kpi"><h4>推奨建値</h4><div class="v">${lv.entry ? lv.entry.toLocaleString() : '-'}</div></div>
+          <div class="kpi"><h4>損切ライン</h4><div class="v">${lv.stop ? lv.stop.toLocaleString() : '-'}</div></div>
         `);
 
         // ポジションサイズ情報
@@ -352,16 +347,28 @@ button:hover {
           const sz = j.sizing;
           const eq = typeof sz.equity === 'number' ? sz.equity : null;
           const rp = typeof sz.risk_pct === 'number' ? sz.risk_pct : null;
-          sizingBox.innerHTML = `
+          document.getElementById('planQtyHint').textContent =
+            (sz.qty && sz.qty > 0) ? `提案: ${sz.qty} 株（単元:${sz.lot ?? '-'}）` : '数量の提案なし';
+          const hintEl = document.getElementById('planQty');
+          if (hintEl && (!hintEl.value || Number(hintEl.value) === 0) && sz.qty > 0){
+            hintEl.value = sz.qty; // 自動提案を初期値として入れておく
+          }
+          document.getElementById('ev-sizing').innerHTML = `
             <h4>ポジションサイズ試算</h4>
             <div class="sub">口座残高: ¥${eq !== null ? eq.toLocaleString() : '-'} / リスク: <b>${rp ?? '-' }%</b></div>
             <div>数量: <b>${(sz.qty ?? 0).toLocaleString()}</b> 株 (単元:${sz.lot ?? '-'})</div>
             <div>必要資金: ¥${(sz.notional ?? 0).toLocaleString()}</div>
             <div>想定損失(Stop): ¥${(sz.expected_loss_at_stop ?? 0).toLocaleString()}</div>
           `;
-        }else{
-          sizingBox.innerHTML = `<div class="sub">⚠️ ポジションサイズを算出できません（資金設定が未保存・またはEntry/Stop不足）。</div>`;
+        } else {
+          document.getElementById('planQtyHint').textContent = '数量の提案なし';
+          document.getElementById('ev-sizing').innerHTML =
+            `<div class="sub">⚠️ ポジションサイズを算出できません（資金設定が未保存・または推奨建値/損切ライン不足）。</div>`;
         }
+
+        // ここで “現在の銘柄＆メトリクス” を保持（ボタン押下時に使う）
+        CURRENT.ticker = ticker;
+        CURRENT.lastMetrics = j;
 
         box.style.display = 'block';
       }catch(e){
@@ -381,36 +388,60 @@ button:hover {
       }
     });
   </script>
-  
+
   <script>
-  let CURRENT = { ticker: "", side: "LONG", lastMetrics: null };
+    // ===== 注文プラン（Position登録）用の共有状態 =====
+    let CURRENT = { ticker: "", side: "LONG", lastMetrics: null };
 
-  function setSide(s){
-    CURRENT.side = s;
-    // 見た目の反転（任意）
-    document.getElementById('sideLong').style.opacity  = (s==='LONG'? '1':'0.6');
-    document.getElementById('sideShort').style.opacity = (s==='SHORT'?'1':'0.6');
-  }
+    function setSide(s){
+      CURRENT.side = s;
+      document.getElementById('sideLong').style.opacity  = (s==='LONG'? '1':'0.6');
+      document.getElementById('sideShort').style.opacity = (s==='SHORT'?'1':'0.6');
+    }
 
-  function buildPositionPayload(){
-    const m = CURRENT.lastMetrics || {};
-    const lv = m.levels || {};
-    const sz = m.sizing || {};
-    return {
-      ticker: CURRENT.ticker || document.getElementById('ticker').value.trim(),
-      side: CURRENT.side,
-      entry: lv.entry ? Number(lv.entry) : null,   // 推奨建値
-      stop:  lv.stop  ? Number(lv.stop)  : null,   // 損切ライン
-      qty:   sz.qty   ? Number(sz.qty)   : 0,
-      "targets[]": (m.targets || []).map(Number),  // 利確めやす（ある場合のみ）
-      sync_holding: false,
-      account_type: "margin",
-    };
-  }
+    function buildPositionPayload(){
+      const m  = CURRENT.lastMetrics || {};
+      const lv = m.levels || {};
+      const sz = m.sizing || {};
 
-  // 既存 loadEvidence() の最後で、取得メトリクスを保持
-  // （あなたの元コードの try{...} 成功後の末尾に1行入れるだけ）
-  // CURRENT.ticker = normalizeTicker(input); CURRENT.lastMetrics = j;
-</script>
-  
+      const qtyInput = Number(document.getElementById('planQty').value || 0);
+      const qtyAuto  = Number(sz.qty || 0);
+      const qty = qtyInput > 0 ? qtyInput : qtyAuto;
+
+      // エラーメッセージ（見える化）
+      const msgBox = document.getElementById('planMsg');
+      msgBox.textContent = '';
+      if (!lv.entry || !lv.stop){
+        msgBox.textContent = '推奨建値または損切ラインが取得できません。';
+      }
+      if (qty <= 0){
+        msgBox.textContent = '数量が未設定です。提案が0のため、数量を入力してください。';
+      }
+
+      return {
+        ticker: CURRENT.ticker || document.getElementById('ticker').value.trim(),
+        side: CURRENT.side,
+        entry: lv.entry ? Number(lv.entry) : null,   // 推奨建値
+        stop:  lv.stop  ? Number(lv.stop)  : null,   // 損切ライン
+        qty:   qty,
+        "targets[]": (m.targets || []).map(Number),  // 利確めやす（存在すれば）
+        sync_holding: false,
+        account_type: "margin",
+      };
+    }
+
+    // HTMXのレスポンスをメッセージに反映
+    document.body.addEventListener('htmx:afterRequest', (e) => {
+      if (e?.detail?.xhr?.responseURL?.includes('/api/positions/add')) {
+        const box = document.getElementById('planMsg');
+        try {
+          const j = JSON.parse(e.detail.xhr.responseText || '{}');
+          if (j.ok) box.textContent = '✅ 注文プランを保存しました。/positions/ に反映されています。';
+          else box.textContent = '❌ 保存に失敗: ' + (j.error || 'unknown error');
+        } catch(_) {
+          box.textContent = e.detail.xhr.responseText || '❌ 保存に失敗しました';
+        }
+      }
+    });
+  </script>
 {% endblock %}
