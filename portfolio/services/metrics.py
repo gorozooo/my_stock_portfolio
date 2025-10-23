@@ -317,14 +317,21 @@ def get_metrics(
         "sizing": sizing,
     }
     
-def get_latest_price(ticker: str) -> float:
+# =============================
+# 単銘柄の最新終値を取得
+# =============================
+import yfinance as yf
+
+def get_latest_price(ticker: str) -> float | None:
     """
-    update_last_prices.py の処理を流用して、
-    単一銘柄の最新終値を取得する簡易関数。
+    最新の終値（前日まで）を返す。取得不可なら None。
+    例: '7011.T'
     """
     try:
+        if not ticker:
+            return None
         df = yf.download(ticker, period="3d", interval="1d", progress=False)
-        if df.empty:
+        if df is None or df.empty:
             return None
         return float(df["Close"].iloc[-1])
     except Exception as e:
