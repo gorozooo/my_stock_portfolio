@@ -23,7 +23,8 @@ from .views import ops_advisor as v_ops
 from .views import policy as policy_views
 from .views.notify_dashboard import notify_dashboard
 from portfolio.views.line import line_webhook
-from .views import positions
+from portfolio.views import positions as positions_views
+from portfolio.api import positions as api_positions
 
 urlpatterns = [
     #path("", core_views.main, name="home"),
@@ -122,6 +123,7 @@ urlpatterns = [
     path("line/webhook/", line_webhook, name="line_webhook"),
     
     # positions
-    path("positions/", positions.position_list, name="position_list"),
-    
+    path("positions/", positions_views.position_list, name="position_list"),
+    path("api/positions/add", api_positions.add_position, name="api_positions_add"),    
+
 ]
