@@ -386,3 +386,40 @@ class DividendGoal(models.Model):
 
     def __str__(self):
         return f"{self.user} {self.year} → {self.amount}"
+        
+# =============================
+# ポジション管理（信用トレード専用）
+# =============================
+class Position(models.Model):
+    SIDE_CHOICES = [
+        ("LONG", "買い"),
+        ("SHORT", "売り"),
+    ]
+    STATE_CHOICES = [
+        ("OPEN", "保有中"),
+        ("CLOSED", "完了"),
+    ]
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    ticker = models.CharField("証券コード", max_length=10)
+    name = models.CharField("銘柄名", max_length=100, blank=True, default="")
+    side = models.CharField("売買方向", max_length=5, choices=SIDE_CHOICES)
+    entry_price = models.FloatField("エントリー価格")
+    stop_price = models.FloatField("ストップ価格")
+    qty = models.PositiveIntegerField("数量")
+    targets = models.JSONField("利確ターゲット", default=list, blank=True)
+    opened_at = models.DateTimeField("建玉日時", auto_now_add=True)
+    closed_at = models.DateTimeField("クローズ日時", null=True, blank=True)
+    state = models.CharField("状態", max_length=10, choices=STATE_CHOICES, default="OPEN")
+    pnl_yen = models.FloatField("損益額", null=True, blank=True)
+    pnl_R = models.FloatField("損益R", null=True, blank=True)
+    max_MFE_R = models.FloatField("最大有利変動R", null=True, blank=True)
+    max_MAE_R = models.FloatField("最大不利変動R", null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["ticker", "state"])]
+        ordering = ["-opened_at"]
+
+    def __str__(self):
+        return f"{self.ticker} ({self.side}) {self.state}"
+        
