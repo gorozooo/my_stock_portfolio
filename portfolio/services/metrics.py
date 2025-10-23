@@ -316,3 +316,17 @@ def get_metrics(
         # ← 追加（None の可能性あり）：フロントは存在チェックして描画
         "sizing": sizing,
     }
+    
+def get_latest_price(ticker: str) -> float:
+    """
+    update_last_prices.py の処理を流用して、
+    単一銘柄の最新終値を取得する簡易関数。
+    """
+    try:
+        df = yf.download(ticker, period="3d", interval="1d", progress=False)
+        if df.empty:
+            return None
+        return float(df["Close"].iloc[-1])
+    except Exception as e:
+        print(f"[get_latest_price ERROR] {ticker}: {e}")
+        return None
