@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>📈 保有ポジション一覧</h2>
+<table>
+  <tr>
+    <th>銘柄</th><th>方向</th><th>Entry</th><th>Stop</th><th>含みR</th><th>状態</th>
+  </tr>
+  {% for p in positions %}
+  <tr>
+    <td>{{ p.ticker }}</td>
+    <td>{{ p.get_side_display }}</td>
+    <td>{{ p.entry_price|floatformat:0 }}</td>
+    <td>{{ p.stop_price|floatformat:0 }}</td>
+    <td>{{ p.pnl_R|default:"-" }}</td>
+    <td>{{ p.get_state_display }}</td>
+  </tr>
+  {% empty %}
+  <tr><td colspan="6">保有ポジションはありません。</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}
