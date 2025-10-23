@@ -2,7 +2,7 @@ from datetime import datetime
 from django.utils import timezone
 from django.conf import settings
 from ..models import Position
-from .notifier import send_line_message
+from .line_notify import send_line_message
 from .metrics import get_latest_price  # ← 終値取得関数を既存のものに合わせて利用
 
 # ===========================
