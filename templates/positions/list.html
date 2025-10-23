@@ -1,21 +1,40 @@
 {% extends "base.html" %}
 {% block content %}
 <h2>📈 保有ポジション一覧</h2>
-<table>
-  <tr>
-    <th>銘柄</th><th>方向</th><th>Entry</th><th>Stop</th><th>含みR</th><th>状態</th>
-  </tr>
+
+<div class="positions">
   {% for p in positions %}
-  <tr>
-    <td>{{ p.ticker }}</td>
-    <td>{{ p.get_side_display }}</td>
-    <td>{{ p.entry_price|floatformat:0 }}</td>
-    <td>{{ p.stop_price|floatformat:0 }}</td>
-    <td>{{ p.pnl_R|default:"-" }}</td>
-    <td>{{ p.get_state_display }}</td>
-  </tr>
+  <div class="pos-card">
+    <div class="pos-header">
+      <span class="ticker">{{ p.ticker }}</span>
+      <span class="side {{ p.side|lower }}">{{ p.get_side_display }}</span>
+    </div>
+    <div class="pos-body">
+      <div><b>推奨建値:</b> {{ p.entry_price|floatformat:0 }} 円</div>
+      <div><b>損切ライン:</b> {{ p.stop_price|floatformat:0 }} 円</div>
+      <div><b>損益比(R):</b> {{ p.pnl_R|default:"-" }}</div>
+      <div><b>ステータス:</b> {{ p.get_state_display }}</div>
+    </div>
+  </div>
   {% empty %}
-  <tr><td colspan="6">保有ポジションはありません。</td></tr>
+  <p>現在のポジションはありません。</p>
   {% endfor %}
-</table>
+</div>
+
+<style>
+.positions { display: grid; gap: 12px; }
+.pos-card {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: #fff;
+}
+.pos-header { display:flex; justify-content:space-between; font-weight:600; margin-bottom:8px; }
+.pos-header .ticker { font-size:16px; }
+.pos-header .side { font-size:13px; padding:2px 8px; border-radius:6px; }
+.side.long { background:#16a34a; }  /* 買い */
+.side.short { background:#dc2626; } /* 売り */
+.pos-body { font-size:14px; color:#e5e7eb; display:grid; gap:2px; }
+</style>
 {% endblock %}
