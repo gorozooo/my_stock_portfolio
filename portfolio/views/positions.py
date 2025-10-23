@@ -5,6 +5,8 @@ from ..models import Position
 
 @login_required
 def position_list(request):
-    """保有ポジション一覧"""
-    positions = Position.objects.filter(user=request.user)
-    return render(request, "positions/list.html", {"positions": positions})
+    """
+    保有ポジション一覧（スマホ向けカードUI）
+    """
+    qs = Position.objects.filter(user=request.user).order_by("-opened_at")
+    return render(request, "positions/list.html", {"positions": qs})
