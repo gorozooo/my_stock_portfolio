@@ -2,7 +2,7 @@ import json
 from django.http import JsonResponse, HttpResponseBadRequest
 from datetime import datetime, timezone, timedelta
 from django.views.decorators.csrf import csrf_exempt
-from . import _mock_data  # 既存の board_api 本文を別モジュール化してもOK
+#from . import _mock_data  # 既存の board_api 本文を別モジュール化してもOK
 from advisor.models import ActionLog, Reminder
 
 JST = timezone(timedelta(hours=9))
