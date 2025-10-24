@@ -127,5 +127,8 @@ urlpatterns = [
     path("positions/", positions_views.position_list, name="position_list"),
     path("api/positions/add", api_positions.add_position, name="api_positions_add"),    
     path("autopilot/", autopilot_views.autopilot_page, name="autopilot_page"),
-
+    
+    # advisorアプリ
+    path("advisor/", include("advisor.urls")),
+    
 ]
