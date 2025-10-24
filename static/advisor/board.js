@@ -77,8 +77,26 @@ const $ = (sel)=>document.querySelector(sel);
 
   function showToast(msg){
     const t = document.createElement('div');
-    Object.assign(t.style,{position:'fixed',left:'50%',bottom:'24px',transform:'translateX(-50%)',
-      background:'rgba(0,0,0,.75)',color:'#fff',padding:'10px 14px',borderRadius:'12px',zIndex:9999});
-    t.textContent = msg; document.body.appendChild(t); setTimeout(()=>t.remove(),1700);
+    Object.assign(t.style,{
+      position:'fixed',
+      left:'50%',
+      bottom:'calc(env(safe-area-inset-bottom, 0px) + 80px)',  // ← 下タブぶん上にずらす
+      transform:'translateX(-50%)',
+      background:'rgba(0,0,0,0.8)',
+      color:'#fff',
+      padding:'10px 16px',
+      borderRadius:'14px',
+      boxShadow:'0 6px 20px rgba(0,0,0,.4)',
+      zIndex:9999,
+      opacity:'0',
+      transition:'opacity 0.3s ease'
+    });
+    t.textContent = msg;
+    document.body.appendChild(t);
+    requestAnimationFrame(()=> t.style.opacity = '1');  // フェードイン
+    setTimeout(()=>{
+      t.style.opacity = '0';
+      setTimeout(()=>t.remove(),300);  // フェードアウト後に削除
+    }, 2000);
   }
 })();
