@@ -1,5 +1,6 @@
 #マイグレーション
 python manage.py makemigrations
+python manage.py makemigrations advisor
 python manage.py migrate
 python manage.py createsuperuser
 
