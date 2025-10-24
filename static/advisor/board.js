@@ -10,7 +10,7 @@ function computeToastBottomPx() {
     insetBottom = Math.max(0, Math.round(diff));
   }
   // 下タブに被らないよう固定で +96px（必要ならここを調整）
-  return insetBottom + 120;
+  return insetBottom + 300;
 }
 
 (async function init(){
