@@ -1,5 +1,11 @@
-from django.http import JsonResponse
+import json
+from django.http import JsonResponse, HttpResponseBadRequest
 from datetime import datetime, timezone, timedelta
+from django.views.decorators.csrf import csrf_exempt
+from . import _mock_data  # 既存の board_api 本文を別モジュール化してもOK
+from advisor.models import ActionLog, Reminder
+
+JST = timezone(timedelta(hours=9))
 
 def board_api(request):
     # JSTの 07:25 生成相当（モック）
@@ -63,3 +69,41 @@ def board_api(request):
         ]
     }
     return JsonResponse(data, json_dumps_params={"ensure_ascii": False})
+    
+@csrf_exempt
+def record_action(request):
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST only")
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+        action = payload.get("action")
+        ticker = payload.get("ticker","")
+        policy_id = payload.get("policy_id","")
+        note = payload.get("note","")
+        log = ActionLog.objects.create(
+            user=request.user if request.user.is_authenticated else None,
+            ticker=ticker, policy_id=policy_id, action=action, note=note
+        )
+        return JsonResponse({"ok": True, "id": log.id})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+
+@csrf_exempt
+def create_reminder(request):
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST only")
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+        ticker = payload.get("ticker","")
+        minutes = int(payload.get("after_minutes", 120))
+        fire_at = datetime.now(JST) + timedelta(minutes=minutes)
+        r = Reminder.objects.create(
+            user=request.user if request.user.is_authenticated else None,
+            ticker=ticker,
+            message=f"{ticker} をもう一度チェック",
+            fire_at=fire_at
+        )
+        return JsonResponse({"ok": True, "id": r.id, "fire_at": fire_at.isoformat()})
+    except Exception as e:
+        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+    
