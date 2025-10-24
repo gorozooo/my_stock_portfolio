@@ -25,6 +25,7 @@ from .views.notify_dashboard import notify_dashboard
 from portfolio.views.line import line_webhook
 from portfolio.views import positions as positions_views
 from portfolio.api import positions as api_positions
+from portfolio.views import autopilot as autopilot_views
 
 urlpatterns = [
     #path("", core_views.main, name="home"),
@@ -125,5 +126,6 @@ urlpatterns = [
     # positions
     path("positions/", positions_views.position_list, name="position_list"),
     path("api/positions/add", api_positions.add_position, name="api_positions_add"),    
+    path("autopilot/", autopilot_views.autopilot_page, name="autopilot_page"),
 
 ]
