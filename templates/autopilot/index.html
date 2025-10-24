@@ -2,390 +2,192 @@
 {% block title %}オートパイロット（β）{% endblock %}
 
 {% block head %}
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-  <style>
-    :root {
-      --bg: #0b0f1a; --card: rgba(255,255,255,0.06); --sub:#94a3b8; --fg:#f1f5f9;
-      --accent:#2563eb; --ok:#16a34a; --warn:#f59e0b; --bad:#ef4444; --muted:#334155;
-    }
-    body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial}
-    h1{font-size:22px;margin:10px 0 14px}
-    .row{display:flex;gap:8px;align-items:center}
-    .inp{flex:1;padding:12px;border:1px solid var(--muted);border-radius:12px;background:#1e293b;color:#fff}
-    .btn{padding:12px 16px;border:0;border-radius:12px;background:var(--accent);color:#fff;font-weight:700}
-    .btn:disabled{opacity:.5}
-    .btn-ghost{background:transparent;border:1px solid var(--muted);color:#fff;border-radius:12px;padding:12px}
-    .card{background:var(--card);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:14px;margin-top:12px}
-    .sub{color:var(--sub);font-size:13px}
-    .kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-    .kpi{background:rgba(255,255,255,.05);padding:10px;border-radius:10px}
-    .kpi h4{margin:0 0 4px;font-size:12px;color:#cbd5e1}
-    .kpi .v{font-weight:700}
-    .badge{display:inline-block;padding:6px 10px;border-radius:999px;font-weight:700;font-size:13px}
-    .b-ok{background:var(--ok);color:#fff}.b-warn{background:var(--warn);color:#222}.b-bad{background:var(--bad);color:#fff}.b-mute{background:var(--muted);color:#e2e8f0}
-    .chart{height:300px;border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:8px;margin-top:12px}
-    .field{display:flex;gap:8px;align-items:center;margin-top:6px}
-    .sticky-actions{position:sticky;bottom:8px;z-index:5;display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
-    .tiny{font-size:12px}
-    .note{font-size:12px;color:var(--sub);margin-top:4px}
-  </style>
-
-  <!-- CSRF for fetch -->
-  <script>
-    function _getCookie(name){ const m=document.cookie.match('(^|;)\\s*'+name+'=([^;]+)'); return m?m.pop():''; }
-    document.addEventListener('DOMContentLoaded',()=> {
-      document.body.addEventListener('htmx:configRequest', e=>{
-        const t=_getCookie('csrftoken'); if(t) e.detail.headers['X-CSRFToken']=t;
-      });
-    });
-  </script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0b0f1a;--card:rgba(255,255,255,.06);--sub:#94a3b8;--fg:#f1f5f9;
+    --accent:#2563eb;--ok:#16a34a;--warn:#f59e0b;--bad:#ef4444;--muted:#334155;
+  }
+  body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial}
+  h1{font-size:22px;margin:10px 0 14px}
+  .row{display:flex;gap:8px;align-items:center}
+  .inp{flex:1;padding:12px;border:1px solid var(--muted);border-radius:12px;background:#1e293b;color:#fff}
+  .btn{padding:12px 16px;border:0;border-radius:12px;background:var(--accent);color:#fff;font-weight:700}
+  .btn:disabled{opacity:.5}
+  .btn-ghost{background:transparent;border:1px solid var(--muted);color:#fff;border-radius:12px;padding:12px}
+  .card{background:var(--card);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:14px;margin-top:12px}
+  .sub{color:var(--sub);font-size:13px}
+  .kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .kpi{background:rgba(255,255,255,.05);padding:10px;border-radius:10px}
+  .kpi h4{margin:0 0 4px;font-size:12px;color:#cbd5e1}
+  .kpi .v{font-weight:700}
+  .badge{display:inline-block;padding:6px 10px;border-radius:999px;font-weight:700;font-size:13px}
+  .b-ok{background:var(--ok);color:#fff}.b-warn{background:var(--warn);color:#222}.b-bad{background:var(--bad);color:#fff}.b-mute{background:var(--muted);color:#e2e8f0}
+  .chart{height:300px;border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:8px;margin-top:12px}
+  .field{display:flex;gap:8px;align-items:center;margin-top:6px}
+  .sticky-actions{position:sticky;bottom:8px;z-index:5;display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+  .tiny{font-size:12px}
+  .note{font-size:12px;color:var(--sub);margin-top:4px}
+</style>
 {% endblock %}
 
 {% block content %}
-  <h1>🧭 オートパイロット（β）</h1>
+<h1>🧭 オートパイロット（β）</h1>
 
-  <!-- Search -->
-  <div class="row">
-    <input id="tkr" class="inp" placeholder="銘柄コード / ティッカー（例: 6203 / AAPL）" inputmode="latin" />
-    <button class="btn" id="goBtn">判定</button>
-  </div>
-  <div class="sub">AIが「トレンド×需給×リスク」を学習してスコア化します。</div>
+<div class="row">
+  <input id="tkr" class="inp" placeholder="銘柄コード / ティッカー（例: 6203 / AAPL）" inputmode="latin" />
+  <button class="btn" id="goBtn">判定</button>
+</div>
+<div class="sub">AIが「トレンド×需給×リスク」を学習してスコア化します。</div>
 
-  <!-- Verdict + Action -->
-  <div class="card" id="verdict" style="display:none;">
-    <div class="row" style="justify-content:space-between;align-items:flex-start">
-      <div>
-        <div id="titleBox" style="font-weight:800;font-size:18px;line-height:1.1">—</div>
-        <div class="sub" id="asof">—</div>
-        <div id="verdictBadge" style="margin-top:6px"></div>
-      </div>
-      <div class="field">
-        <button class="badge b-ok" id="sideLong">買い</button>
-        <button class="badge b-bad" id="sideShort">売り</button>
-      </div>
+<div class="card" id="verdict" style="display:none;">
+  <div class="row" style="justify-content:space-between;align-items:flex-start">
+    <div>
+      <div id="titleBox" style="font-weight:800;font-size:18px;">—</div>
+      <div class="sub" id="asof">—</div>
+      <div id="verdictBadge" style="margin-top:6px"></div>
     </div>
-
-    <div class="kpis" style="margin-top:10px">
-      <div class="kpi"><h4>トレンド傾き(60日年率)</h4><div class="v" id="vSlope">-</div></div>
-      <div class="kpi"><h4>ADX(14)</h4><div class="v" id="vAdx">-</div></div>
-      <div class="kpi"><h4>RS(6M,指数比)</h4><div class="v" id="vRs">-</div></div>
-      <div class="kpi"><h4>MA整列</h4><div class="v" id="vMa">-</div></div>
-      <div class="kpi"><h4>52週高値まで</h4><div class="v" id="vHi">-</div></div>
-      <div class="kpi"><h4>ATR(14)</h4><div class="v" id="vAtr">-</div></div>
-    </div>
-
-    <!-- Chart -->
-    <div class="chart"><canvas id="c"></canvas></div>
-
-    <!-- 推奨プラン & AIポリシー（1列） -->
-    <div class="card" style="margin-top:12px">
-      <!-- 推奨プラン -->
-      <div class="sub">📌 推奨プラン（AI原案 → ガード調整後）</div>
-      <div class="field"><b>原案・建値</b><span id="pEntryRaw">-</span></div>
-      <div class="field"><b>調整後建値</b><span id="pEntryAdj">-</span></div>
-      <div class="note">※ 建値はトレンド傾き・52週高値近接・ATRを考慮して調整済み</div>
-      <div class="field"><b>損切ライン</b><span id="pStop">-</span></div>
-      <div class="note">※ 損切ラインはリスク／ATR基準で算出されています</div>
-      <div class="field"><b>利確めやす</b><span id="pTargets">-</span></div>
-      <div class="field"><b>推奨数量</b>
-        <input id="qty" class="num" type="number" min="1" step="1" />
-        <span class="tiny sub" id="qtyHint"></span>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:12px">
-      <!-- AIポリシー -->
-      <div class="sub">🧠 現在のAIポリシー（advisor/policy）</div>
-      <div id="policyBox" class="tiny" style="line-height:1.4;white-space:pre-wrap;">取得中…</div>
-      <div class="row" style="margin-top:8px">
-        <button class="btn-ghost" id="btnRefreshPolicy">ポリシー再取得</button>
-        <button class="btn" id="btnLearn">学習を実行</button>
-      </div>
-      <div class="sub" id="learnMsg" style="margin-top:6px"></div>
-    </div>
-
-    <!-- Sticky actions -->
-    <div class="sticky-actions">
-      <button class="btn-ghost" id="btnWatch">⭐ ウォッチ</button>
-      <button class="btn" id="btnAdd">📥 注文プランに追加</button>
+    <div class="field">
+      <button class="badge b-ok" id="sideLong">買い</button>
+      <button class="badge b-bad" id="sideShort">売り</button>
     </div>
   </div>
 
-  <script>
-    const el = (id)=>document.getElementById(id);
-    let chart, CURRENT={ ticker:"", side:"LONG", metrics:null, policy:null, lastClose:null, name:"" };
+  <div class="kpis" style="margin-top:10px">
+    <div class="kpi"><h4>トレンド傾き(60日年率)</h4><div class="v" id="vSlope">-</div></div>
+    <div class="kpi"><h4>ADX(14)</h4><div class="v" id="vAdx">-</div></div>
+    <div class="kpi"><h4>RS(6M)</h4><div class="v" id="vRs">-</div></div>
+    <div class="kpi"><h4>MA整列</h4><div class="v" id="vMa">-</div></div>
+    <div class="kpi"><h4>52週高値まで</h4><div class="v" id="vHi">-</div></div>
+    <div class="kpi"><h4>ATR(14)</h4><div class="v" id="vAtr">-</div></div>
+  </div>
 
-    // --- utils
-    function norm(t){ if(!t) return ""; t=t.trim().toUpperCase(); if(t.includes('.')) return t; return /^[0-9A-Z]{4,5}$/.test(t)? t+".T":t; }
-    function num(x, d=2){ if(x===null||x===undefined||isNaN(x)) return "-"; return Number(x).toLocaleString(undefined,{maximumFractionDigits:d});}
-    function badge(label){
-      if(label==="BUY") return `<span class="badge b-ok">✅ 買い候補</span>`;
-      if(label==="SELL") return `<span class="badge b-bad">📉 売り候補</span>`;
-      if(label==="WATCH") return `<span class="badge b-warn">👀 観察</span>`;
-      return `<span class="badge b-mute">…評価中</span>`;
-    }
-    async function fetchJSON(url){
-      const r=await fetch(url,{credentials:'same-origin'});
-      if(!r.ok) throw new Error(`HTTP ${r.status}`);
-      return await r.json();
-    }
+  <div class="chart"><canvas id="c"></canvas></div>
 
-    // --- name
-    async function fetchName(tickerOrCode){
-      try{
-        const url = `/api/ticker-name?code=${encodeURIComponent(tickerOrCode)}`;
-        const r = await fetch(url,{credentials:'same-origin',cache:'no-store'});
-        if(!r.ok) return "";
-        const j = await r.json();
-        return j?.name || "";
-      }catch{ return ""; }
-    }
-    function setTitle(ticker, name){
-      const label = name ? `${name}（${ticker}）` : ticker;
-      el("titleBox").textContent = label;
-    }
+  <div class="card">
+    <div class="sub">📌 推奨プラン（AI原案 → 保守ガード調整）</div>
+    <div class="field"><b>原案・建値</b><span id="pEntryRaw">-</span></div>
+    <div class="field"><b>調整後建値</b><span id="pEntryAdj">-</span></div>
+    <div class="note">※ 終値以上の追撃禁止・最低0.35ATR押し待ち・高値圏はブレイク再テスト待ち</div>
+    <div class="field"><b>損切ライン</b><span id="pStop">-</span></div>
+    <div class="note">※ 1.1ATR以内。RR<2なら「観察」扱い</div>
+    <div class="field"><b>利確めやす</b><span id="pTargets">-</span></div>
+    <div class="field"><b>推奨数量</b>
+      <input id="qty" class="inp" type="number" min="1" step="1"/>
+      <span class="tiny sub" id="qtyHint"></span>
+    </div>
+    <div class="note" id="guardMsg"></div>
+  </div>
 
-    // --- policy
-    async function loadPolicy(){
-      el("policyBox").textContent = "取得中…";
-      try{
-        const p = await fetchJSON("/advisor/policy");
-        CURRENT.policy = p;
-        el("policyBox").textContent = JSON.stringify(p, null, 2);
-        el("learnMsg").textContent = "";
-      }catch(e){
-        el("policyBox").textContent = "❌ ポリシー取得失敗: "+e;
-      }
-    }
-    async function runLearn(){
-      el("learnMsg").textContent = "学習中…";
-      try{
-        const r = await fetch("/advisor/learn", {method:"POST", headers:{'X-CSRFToken': _getCookie('csrftoken')}});
-        if(!r.ok) throw new Error(`HTTP ${r.status}`);
-        await r.json().catch(()=>{});
-        el("learnMsg").textContent = "✅ 学習完了。ポリシー更新しました。";
-        loadPolicy();
-      }catch(e){
-        el("learnMsg").textContent = "❌ 学習失敗: "+e;
-      }
-    }
+  <div class="card">
+    <div class="sub">🧠 現在のAIポリシー（advisor/policy）</div>
+    <div id="policyBox" class="tiny" style="white-space:pre-wrap;">取得中…</div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn-ghost" id="btnRefreshPolicy">ポリシー再取得</button>
+      <button class="btn" id="btnLearn">学習を実行</button>
+    </div>
+    <div class="sub" id="learnMsg" style="margin-top:6px"></div>
+  </div>
 
-    // --- guardrail logic
-    function roundToTick(price){ if(price==null) return null; return Math.round(Number(price)); }
-    function guardrailAdjust(m, rawEntry, lastClose){
-      const rel = m.relative||{}; const risk = m.risk||{};
-      const atr = Number(risk?.atr14||0);
-      const hiPct = Number(rel?.from_52w_high_pct);
+  <div class="sticky-actions">
+    <button class="btn-ghost" id="btnWatch">⭐ ウォッチ</button>
+    <button class="btn" id="btnAdd">📥 注文プランに追加</button>
+  </div>
+</div>
 
-      let entry = Number(rawEntry); let note=[];
-      if(hiPct !== null && !isNaN(hiPct) && hiPct > -2 && hiPct < 2){
-        const capped = entry * 0.98;
-        if(capped < entry){ entry = capped; note.push("高値圏のため2%抑制"); }
-      }
-      if(lastClose && atr){
-        const cap = Number(lastClose) + 0.5*atr;
-        if(entry > cap){ entry = cap; note.push("直近終値+0.5ATRを上限"); }
-      }
-      entry = roundToTick(entry);
-      return { entryAdj: entry, guardNote: note.join(" / ") };
-    }
+<script>
+const el = id=>document.getElementById(id);
+let chart,CURRENT={ticker:"",side:"LONG",metrics:null,lastClose:null};
 
-    // --- fallback targets & qty
-    function fallbackTargets(m, entry, stop, side){
-      if(!entry || !stop) return [];
-      const risk = Math.abs(entry - stop);
-      if(risk<=0) return [];
-      const atr = Number(m?.risk?.atr14||0);
-      const fromHiPct = Number(m?.relative?.from_52w_high_pct);
-      const fromLoPct = Number(m?.relative?.from_52w_low_pct);
+// === Utility ===
+function norm(t){if(!t)return"";t=t.trim().toUpperCase();if(t.includes('.'))return t;return/^[0-9A-Z]{4,5}$/.test(t)?t+".T":t;}
+function num(x,d=2){if(x===null||x===undefined||isNaN(x))return"-";return Number(x).toLocaleString(undefined,{maximumFractionDigits:d});}
+function badge(lbl){if(lbl==="BUY")return`<span class="badge b-ok">✅ 買い候補</span>`;if(lbl==="SELL")return`<span class="badge b-bad">📉 売り候補</span>`;return`<span class="badge b-warn">👀 観察</span>`;}
+async function fetchJSON(u){const r=await fetch(u,{credentials:"same-origin"});if(!r.ok)throw new Error("HTTP "+r.status);return await r.json();}
 
-      const baseR = [1,2,3].map(r=> (side==="SHORT"? entry - r*risk : entry + r*risk));
-      let atrCand=[];
-      if(atr>0){
-        const a = 1.5*atr, b = 2.5*atr;
-        atrCand = (side==="SHORT") ? [entry - a, entry - b] : [entry + a, entry + b];
-      }
+// === Guard Logic（保守モード）===
+function guardrailAdjust(m,raw,lastClose){
+  const atr=Number(m?.risk?.atr14||0);
+  const hiPct=Number(m?.relative?.from_52w_high_pct);
+  const loPct=Number(m?.relative?.from_52w_low_pct);
+  const side=(CURRENT.side||"LONG");
+  if(!raw||!lastClose||!atr)return{entryAdj:raw,guardNote:""};
+  let entry=Number(raw);let note=[];
+  if(side==="LONG"){
+    if(entry>lastClose){entry=lastClose;note.push("終値以上の追撃禁止");}
+    const minPull=lastClose-0.35*atr;if(entry>minPull){entry=minPull;note.push("最低0.35ATR押し待ち");}
+    if(hiPct>-5&&hiPct<5){entry=Math.min(entry,lastClose-0.45*atr);note.push("高値圏→再テスト待ち");}
+  }else{
+    if(entry<lastClose){entry=lastClose;note.push("終値以下の追撃禁止");}
+    const minRet=lastClose+0.35*atr;if(entry<minRet){entry=minRet;note.push("最低+0.35ATR戻り待ち");}
+    if(loPct>-5&&loPct<5){entry=Math.max(entry,lastClose+0.45*atr);note.push("安値圏→再テスト待ち");}
+  }
+  return{entryAdj:Math.round(entry),guardNote:note.join(" / ")};
+}
 
-      const clampHigh = p=> {
-        if(Number.isFinite(fromHiPct) && fromHiPct > -2 && fromHiPct < 2){
-          return Math.min(p, entry + 2*risk);
-        }
-        return p;
-      };
-      const clampLow = p=> {
-        if(Number.isFinite(fromLoPct) && fromLoPct > -2 && fromLoPct < 2){
-          return Math.max(p, entry - 2*risk);
-        }
-        return p;
-      };
+// === Target Logic (R/ATRベース) ===
+function buildTargetsAndRR(m,entry,stop,side){
+  if(!entry||!stop)return{targets:[],rr2ok:false};
+  const risk=Math.abs(entry-stop);if(!risk)return{targets:[],rr2ok:false};
+  let tp1=side==="SHORT"?entry-risk:entry+risk;
+  let tp2=side==="SHORT"?entry-2*risk:entry+2*risk;
+  let tp3=side==="SHORT"?entry-2.7*risk:entry+2.7*risk;
+  const hiPct=Number(m?.relative?.from_52w_high_pct);
+  const loPct=Number(m?.relative?.from_52w_low_pct);
+  if(side==="LONG"&&hiPct>-5&&hiPct<5)tp3=Math.min(tp3,entry+2.2*risk);
+  if(side==="SHORT"&&loPct>-5&&loPct<5)tp3=Math.max(tp3,entry-2.2*risk);
+  const rr2ok=((Math.abs(tp2-entry)/risk)>=2);
+  return{targets:[tp1,tp2,tp3].map(x=>Math.round(x)),rr2ok};
+}
 
-      let candidates = [...baseR, ...atrCand];
-      candidates = candidates.map(p=> side==="SHORT"? clampLow(p): clampHigh(p));
-      const round = x=>Math.round(Number(x));
-      const uniq = arr=> Array.from(new Set(arr.map(v=>round(v))));
-      const arr = uniq(candidates).sort((a,b)=> side==="SHORT"? b-a : a-b);
-      return arr.slice(0,3);
-    }
+// === Qty Logic ===
+function fallbackQty(m,entry,stop){
+  const rps=Math.abs(entry-stop);if(!rps)return 0;
+  const eq=Number(m?.sizing?.equity??1_000_000);
+  const lot=Number(m?.sizing?.lot??100);
+  const riskAmt=eq*0.004; // 0.4%
+  const q=Math.floor((riskAmt/rps)/lot)*lot;
+  const maxEq=eq*0.05;
+  return Math.min(q,Math.floor((maxEq/entry)/lot)*lot);
+}
 
-    function fallbackQty(m, entry, stop){
-      const riskPerShare = Math.abs(entry - stop);
-      if(!riskPerShare) return 0;
-      const sizing = m?.sizing||{};
-      const equity = Number(sizing.equity ?? 1_000_000);
-      const riskPct = Number(sizing.risk_pct ?? 1);
-      const lot     = Number(sizing.lot ?? 100);
-      const riskAmount = equity * (riskPct/100);
-      let q = Math.floor((riskAmount / riskPerShare) / lot) * lot;
-      return Math.max(0, q);
-    }
+// === Label Decision ===
+function decideLabel(m){
+  const s=m.trend?.slope_ann_pct_60??0,adx=m.trend?.adx14??0,rs=m.relative?.rs_6m_pct??0;
+  if(s>=25&&adx>=18&&rs>=0)return"BUY";
+  if(s<0&&adx>=18)return"SELL";
+  return"WATCH";
+}
 
-    // --- decision
-    function decideLabel(m){
-      const slope = m.trend?.slope_ann_pct_60 ?? 0;
-      const adx   = m.trend?.adx14 ?? 0;
-      const rs6   = m.relative?.rs_6m_pct ?? 0;
-      const adv   = m.liquidity?.adv20 ?? 0;
-      const p     = CURRENT.policy || {};
-      const minSlope = p.min_slope ?? 20;
-      const minAdx   = p.min_adx   ?? 18;
-      const minRS6   = p.min_rs6   ?? 0;
-      const minADV   = p.min_adv ?? 1_0000_0000;
-      if(slope >= minSlope && adx >= minAdx && rs6 >= minRS6 && adv >= minADV) return "BUY";
-      if(slope < 0 && adx >= minAdx) return "SELL";
-      return "WATCH";
-    }
+// === Render ===
+async function renderFor(t){
+  const ticker=norm(t);if(!ticker)return;
+  el("verdict").style.display="block";
+  el("verdictBadge").innerHTML=badge("WATCH");
+  const m=await fetchJSON(`/api/metrics?ticker=${ticker}`);
+  CURRENT.metrics=m;el("asof").textContent=`評価時点：${m.asof}`;
+  CURRENT.lastClose=m.close??null;
+  el("titleBox").textContent=`${m.name||ticker}`;
 
-    // --- render
-    async function renderFor(t){
-      if(!t) return;
-      const ticker = norm(t); CURRENT.ticker = ticker;
-      el("verdict").style.display="block";
-      el("verdictBadge").innerHTML = `<span class="badge b-mute">…計算中</span>`;
+  const label=decideLabel(m);
+  el("verdictBadge").innerHTML=badge(label);
+  CURRENT.side=(label==="SELL")?"SHORT":"LONG";
 
-      const namePromise = fetchName(ticker.replace(".T",""));
+  const lv=m.levels||{};
+  const raw=lv.entry??null,stop=lv.stop??null;
+  const g=guardrailAdjust(m,raw,m.close);const adj=g.entryAdj;
+  const tg=buildTargetsAndRR(m,adj,stop,CURRENT.side);
+  const qty=fallbackQty(m,adj,stop);
 
-      try{
-        const m = await fetchJSON(`/api/metrics?ticker=${encodeURIComponent(ticker)}`);
-        if(!m.ok) throw new Error(m.error||"metrics error");
-        CURRENT.metrics = m;
-        el("asof").textContent = `評価時点：${m.asof}`;
-
-        CURRENT.name = await namePromise; setTitle(ticker, CURRENT.name);
-
-        const slope = m.trend?.slope_ann_pct_60 ?? 0;
-        const adx   = m.trend?.adx14 ?? 0;
-        const rs6   = m.relative?.rs_6m_pct ?? null;
-        const atr   = m.risk?.atr14 ?? null;
-        const relHi = m.relative?.from_52w_high_pct ?? null;
-        el("vSlope").textContent = num(slope,2)+"%";
-        el("vAdx").textContent   = num(adx,2);
-        el("vRs").textContent    = rs6===null? "-" : num(rs6,2)+"%";
-        el("vAtr").textContent   = num(atr,0);
-        el("vHi").textContent    = relHi===null? "-" : num(relHi,2)+"%";
-        el("vMa").textContent    = (m.trend?.ma?.stack==="bull"?"強":(m.trend?.ma?.stack==="bear"?"弱":"中立"));
-
-        const label = decideLabel(m);
-        el("verdictBadge").innerHTML = badge(label);
-        CURRENT.side = (label==="SELL")? "SHORT" : "LONG";
-        el("sideLong").style.opacity = CURRENT.side==="LONG"? "1":"0.5";
-        el("sideShort").style.opacity= CURRENT.side==="SHORT"? "1":"0.5";
-
-        const r = await fetchJSON(`/api/ohlc?ticker=${encodeURIComponent(ticker)}&days=180`);
-        CURRENT.lastClose = (Array.isArray(r?.close)&&r.close.length)? Number(r.close[r.close.length-1]) : null;
-
-        const lv = m.levels || {};
-        const rawEntry = lv.entry ?? null;
-        const stop = lv.stop ?? null;
-        let entryAdj = rawEntry; let guardNote="";
-        if(rawEntry){
-          const g = guardrailAdjust(m, rawEntry, CURRENT.lastClose);
-          entryAdj = g.entryAdj; guardNote = g.guardNote;
-        }
-        el("pEntryRaw").textContent = rawEntry? `${num(rawEntry,0)} 円` : "-";
-        el("pEntryAdj").textContent = entryAdj? `${num(entryAdj,0)} 円` : "-";
-        el("pStop").textContent     = stop? `${num(stop,0)} 円` : "-";
-
-        let targets = Array.isArray(m.targets)? m.targets.slice(): [];
-        if(!targets.length){
-          targets = fallbackTargets(m, entryAdj||rawEntry, stop, CURRENT.side);
-        }
-        el("pTargets").textContent = (targets&&targets.length)? targets.map(x=>num(x,0)).join(" / ") : "-";
-
-        let qty = (m.sizing?.qty || 0) | 0;
-        if(!qty && entryAdj && stop){
-          qty = fallbackQty(m, entryAdj, stop);
-        }
-        el("qty").value = qty>0? qty : "";
-        el("qtyHint").textContent = qty>0? `提案: ${qty}株` : "数量を入力してください";
-        el("guardMsg").textContent = guardNote? `⚠️ ガード適用: ${guardNote}` : "";
-
-        if(chart) chart.destroy();
-        const ctx = el("c").getContext("2d");
-        chart = new Chart(ctx,{ type:'line',
-          data:{ labels:r.labels, datasets:[
-            {label:'Close', data:r?.close||[], borderWidth:2, pointRadius:0},
-            {label:'MA(10)', data:r?.ma10||[], borderWidth:1, pointRadius:0},
-            {label:'MA(30)', data:r?.ma30||[], borderWidth:1, pointRadius:0}
-          ]},
-          options:{responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false}, scales:{x:{display:false},y:{beginAtZero:false}}}
-        });
-        const n = (r.labels||[]).length;
-        const addLine=(label,val,color,dash)=>{ if(val==null) return; chart.data.datasets.push({type:'line',label:label,data:Array(n).fill(Number(val)),borderWidth:1.2,pointRadius:0,borderDash:dash||[6,4],borderColor:color});};
-        addLine("推奨建値(調整後)", entryAdj, "#16a34a",[4,4]);
-        addLine("損切ライン", stop, "#ef4444",[6,4]);
-        addLine("高値目安", lv.swing_high, "#60a5fa",[2,4]);
-        addLine("安値目安", lv.swing_low, "#a78bfa",[2,4]);
-        chart.update();
-
-      }catch(e){
-        el("verdictBadge").innerHTML = `<span class="badge b-bad">❌ 取得失敗</span>`;
-        console.error(e);
-      }
-    }
-
-    // --- interactions
-    el("goBtn").addEventListener("click", ()=> renderFor(el("tkr").value));
-    el("sideLong").addEventListener("click", ()=>{ CURRENT.side="LONG"; el("sideLong").style.opacity="1"; el("sideShort").style.opacity=".5"; });
-    el("sideShort").addEventListener("click",()=>{ CURRENT.side="SHORT"; el("sideShort").style.opacity="1"; el("sideLong").style.opacity=".5"; });
-    el("btnRefreshPolicy").addEventListener("click", loadPolicy);
-    el("btnLearn").addEventListener("click", runLearn);
-    el("btnWatch").addEventListener("click", ()=> alert("ウォッチに追加しました（仮）。後で通知連携に繋ぎます。"));
-
-    el("btnAdd").addEventListener("click", async ()=>{
-      const m = CURRENT.metrics||{}; const lv=m.levels||{}; const qty = Number(el("qty").value||0);
-      const msg = el("planMsg"); msg.textContent="";
-      if(!lv.stop){ msg.textContent="損切ラインが不足しています"; return; }
-      if(!qty || qty<=0){ msg.textContent="数量を入力してください"; return; }
-
-      const g = guardrailAdjust(m, lv.entry, CURRENT.lastClose);
-      const entryUse = g.entryAdj;
-
-      let targets = Array.isArray(m.targets)? m.targets.slice(): [];
-      if(!targets.length){
-        targets = fallbackTargets(m, entryUse, lv.stop, CURRENT.side);
-      }
-
-      const form = new URLSearchParams();
-      form.set("ticker", CURRENT.ticker);
-      form.set("side",   CURRENT.side);
-      form.set("entry",  String(entryUse));
-      form.set("stop",   String(lv.stop));
-      form.set("qty",    String(qty));
-      (targets||[]).forEach(t=> form.append("targets[]", String(t)));
-
-      try{
-        const r = await fetch("/api/positions/add", {
-          method:"POST",
-          headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRFToken': _getCookie('csrftoken')},
-          body:form
-        });
-        const j = await r.json().catch(()=> ({}));
-        if(r.ok && j.ok){ msg.textContent = "✅ 登録しました。/positions/で確認できます。"; }
-        else{ msg.textContent = "❌ 登録に失敗: "+(j.error||("HTTP "+r.status)); }
-      }catch(e){ msg.textContent = "❌ 通信エラー: "+e; }
-    });
-
-    // onload
-    loadPolicy();
-  </script>
+  el("pEntryRaw").textContent=raw?num(raw,0)+" 円":"-";
+  el("pEntryAdj").textContent=adj?num(adj,0)+" 円":"-";
+  el("pStop").textContent=stop?num(stop,0)+" 円":"-";
+  el("pTargets").textContent=tg.targets.map(x=>num(x,0)).join(" / ");
+  el("qty").value=qty||"";
+  el("qtyHint").textContent=qty?`提案: ${qty}株`:"数量を入力してください";
+  el("guardMsg").textContent=g.guardNote;
+}
+el("goBtn").onclick=()=>renderFor(el("tkr").value);
+el("btnRefreshPolicy").onclick=()=>fetchJSON("/advisor/policy").then(p=>el("policyBox").textContent=JSON.stringify(p,null,2)).catch(e=>el("policyBox").textContent="❌ "+e);
+</script>
 {% endblock %}
