@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}今日の作戦ボード{% endblock %}
+
+{% block content %}
+  <header role="banner" aria-label="今日の相場ヘッダー" class="adv-header">
+    <div class="wrap">
+      <div class="date" id="dateLabel"></div>
+      <div class="summary">
+        <div class="pill"><strong class="trend-badge" id="trendBadge"></strong></div>
+        <div class="pill">今週のテーマ：<span class="theme-strip" id="themeStrip"></span></div>
+        <div class="pill">再現率 <strong id="adherence">--%</strong></div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container" role="main">
+    <h2 class="section-title">おすすめ（5件）</h2>
+    <section class="cards" id="cards" aria-live="polite"></section>
+    <div class="foot">
+      <button class="btn ghost" id="reorderBtn" aria-pressed="false">🔀 並び替え</button>
+      <a class="btn" href="#" id="moreBtn">📉 他の候補を見る</a>
+    </div>
+  </main>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'advisor/board.css' %}">
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'advisor/board.js' %}"></script>
+{% endblock %}
