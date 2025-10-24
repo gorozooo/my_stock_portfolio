@@ -25,10 +25,6 @@
     </div>
   </main>
 
-  {# ★ ここに直接JSを読む（base.htmlのブロックに依存しない） #}
+  <link rel="stylesheet" href="{% static 'advisor/board.css' %}">
   <script src="{% static 'advisor/board.js' %}"></script>
-{% endblock %}
-
-{% block extra_css %}
-<link rel="stylesheet" href="{% static 'advisor/board.css' %}">
 {% endblock %}
