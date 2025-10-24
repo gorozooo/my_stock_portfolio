@@ -47,6 +47,7 @@ INSTALLED_APPS = [
 
     # 自作アプリ
     'portfolio',
+    'advisor',
 ]
 
 MIDDLEWARE = [
