@@ -157,7 +157,7 @@
       }catch(e){ el("learnMsg").textContent = "❌ 学習失敗: "+e; }
     }
 
-    // --- guardrail logic
+    // --- guardrail logic（建値ガード）
     function roundToTick(price){ if(price==null) return null; return Math.round(Number(price)); } // 1円刻み簡易
     function guardrailAdjust(m, rawEntry, lastClose){
       const rel = m.relative||{}; const risk = m.risk||{};
@@ -173,6 +173,60 @@
       if (lastClose && atr){ const cap = Number(lastClose) + 0.5*atr; if(entry > cap){ entry = cap; note.push("直近終値+0.5ATRを上限"); } }
       entry = roundToTick(entry);
       return { entryAdj: entry, guardNote: note.join(" / ") };
+    }
+
+    // --- 代替 Targets（R/ATRベース）
+    function fallbackTargets(m, entry, stop, side){
+      if (!entry || !stop) return [];
+      const risk = Math.abs(entry - stop); if (risk <= 0) return [];
+
+      const atr = Number(m?.risk?.atr14 || 0);
+      const fromHiPct = Number(m?.relative?.from_52w_high_pct);
+      const fromLoPct = Number(m?.relative?.from_52w_low_pct);
+
+      const baseR = [1, 2, 3].map(r => (side === "SHORT" ? entry - r*risk : entry + r*risk));
+      let atrCand = [];
+      if (atr > 0){
+        const a = 1.5*atr, b = 2.5*atr;
+        atrCand = (side === "SHORT")
+          ? [entry - a, entry - b]
+          : [entry + a, entry + b];
+      }
+      // 近すぎる極端値を抑える
+      const clampHigh = p => {
+        if (Number.isFinite(fromHiPct) && fromHiPct > -2 && fromHiPct < 2) { // 高値圏±2%
+          return Math.min(p, entry + 2 * risk);
+        }
+        return p;
+      };
+      const clampLow = p => {
+        if (Number.isFinite(fromLoPct) && fromLoPct > -2 && fromLoPct < 2) { // 安値圏±2%
+          return Math.max(p, entry - 2 * risk);
+        }
+        return p;
+      };
+
+      let candidates = [...baseR, ...atrCand];
+      candidates = candidates.map(p => side === "SHORT" ? clampLow(p) : clampHigh(p));
+
+      const round = x => Math.round(Number(x));
+      const uniq = arr => Array.from(new Set(arr.map(v => round(v))));
+      const arr = uniq(candidates).sort((a,b)=> side==="SHORT" ? b-a : a-b);
+
+      return arr.slice(0, 3);
+    }
+
+    // --- 代替 Qty（残高×リスク% / 1株損失）
+    function fallbackQty(m, entry, stop){
+      const riskPerShare = Math.abs(entry - stop);
+      if (!riskPerShare) return 0;
+      const sizing = m?.sizing || {};
+      const equity = Number(sizing.equity ?? 1_000_000); // 100万円
+      const riskPct = Number(sizing.risk_pct ?? 1);      // 1%
+      const lot     = Number(sizing.lot ?? 100);         // 日本株単元100
+      const riskAmount = equity * (riskPct / 100);
+      let q = Math.floor((riskAmount / riskPerShare) / lot) * lot;
+      return Math.max(0, q);
     }
 
     // --- decision
@@ -245,13 +299,24 @@
         el("pEntryRaw").textContent = rawEntry? `${num(rawEntry,0)} 円` : "-";
         el("pEntryAdj").textContent = entryAdj? `${num(entryAdj,0)} 円` : "-";
         el("pStop").textContent     = stop? `${num(stop,0)} 円` : "-";
-        const tgs = (m.targets||[]).map(x=>num(x,0)).join(" / ");
-        el("pTargets").textContent  = tgs || "-";
-        el("guardMsg").textContent  = guardNote ? `⚠️ ガード適用: ${guardNote}` : "";
 
-        const qty = (m.sizing?.qty||0)|0;
+        // ★ 利確めやす（サーバ優先→無ければ代替）
+        let targets = Array.isArray(m.targets) ? m.targets.slice() : [];
+        if (!targets.length) {
+          targets = fallbackTargets(m, entryAdj || rawEntry, stop, CURRENT.side);
+        }
+        el("pTargets").textContent  = (targets && targets.length)
+          ? targets.map(x=>num(x,0)).join(" / ")
+          : "-";
+
+        // ★ 推奨数量（サーバ優先→無ければ代替）
+        let qty = (m.sizing?.qty || 0) | 0;
+        if (!qty && entryAdj && stop) {
+          qty = fallbackQty(m, entryAdj, stop);
+        }
         el("qty").value = qty>0? qty : "";
         el("qtyHint").textContent = qty>0? `提案: ${qty}株` : "数量を入力してください";
+        el("guardMsg").textContent  = guardNote ? `⚠️ ガード適用: ${guardNote}` : "";
 
         // Chart
         const ctx = el("c").getContext("2d");
@@ -289,14 +354,22 @@
     el("btnLearn").addEventListener("click", runLearn);
     el("btnWatch").addEventListener("click", ()=> alert("ウォッチに追加しました（仮）。後で通知連携に繋ぎます。"));
 
-    // 保存（調整後建値を使用）
+    // 保存（調整後建値＆代替ターゲットも送信）
     el("btnAdd").addEventListener("click", async ()=>{
       const m = CURRENT.metrics||{}; const lv=m.levels||{}; const qty = Number(el("qty").value||0);
       const msg = el("planMsg"); msg.textContent="";
       if(!lv.stop){ msg.textContent="損切ラインが不足しています"; return; }
       if(!qty || qty<=0){ msg.textContent="数量を入力してください"; return; }
+
+      // 調整後の建値
       const g = guardrailAdjust(m, lv.entry, CURRENT.lastClose);
       const entryUse = g.entryAdj;
+
+      // サーバtargetsが無ければ代替targets
+      let targets = Array.isArray(m.targets) ? m.targets.slice() : [];
+      if (!targets.length) {
+        targets = fallbackTargets(m, entryUse, lv.stop, CURRENT.side);
+      }
 
       const form = new URLSearchParams();
       form.set("ticker", CURRENT.ticker);
@@ -304,7 +377,7 @@
       form.set("entry",  String(entryUse));
       form.set("stop",   String(lv.stop));
       form.set("qty",    String(qty));
-      (m.targets||[]).forEach(t=> form.append("targets[]", String(t)));
+      (targets||[]).forEach(t=> form.append("targets[]", String(t)));
 
       try{
         const r = await fetch("/api/positions/add", {
