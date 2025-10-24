@@ -1,5 +1,18 @@
 const $ = (sel)=>document.querySelector(sel);
 
+// ---- 追加：トーストの安全な下マージンを計算（端末の下インセット＋固定オフセット）----
+function computeToastBottomPx() {
+  // iOS/Safari では visualViewport で安全領域差分が取れることが多い
+  let insetBottom = 0;
+  if (window.visualViewport) {
+    // 画面全体の高さとの差分 ≒ 下側の安全領域（ノッチ/ホームバー）やUIの食い込み
+    const diff = window.innerHeight - window.visualViewport.height;
+    insetBottom = Math.max(0, Math.round(diff));
+  }
+  // 下タブに被らないよう固定で +96px（必要ならここを調整）
+  return insetBottom + 96;
+}
+
 (async function init(){
   const res = await fetch("/advisor/api/board/");
   const data = await res.json();
@@ -75,28 +88,43 @@ const $ = (sel)=>document.querySelector(sel);
     showToast(`${name}：${btn.textContent} ${note}`);
   });
 
+  // ---- 修正版トースト：確実に下タブの上へ表示、フェード付き ----
   function showToast(msg){
     const t = document.createElement('div');
-    Object.assign(t.style,{
-      position:'fixed',
-      left:'50%',
-      bottom:'calc(env(safe-area-inset-bottom, 0px) + 1000px)',  // ← 下タブぶん上にずらす
-      transform:'translateX(-50%)',
-      background:'rgba(0,0,0,0.8)',
-      color:'#fff',
-      padding:'10px 16px',
-      borderRadius:'14px',
-      boxShadow:'0 6px 20px rgba(0,0,0,.4)',
-      zIndex:9999,
-      opacity:'0',
-      transition:'opacity 0.3s ease'
-    });
+    // まず確実に top/bottom をリセット（他CSSの inset 競合を避ける）
+    t.style.position = 'fixed';
+    t.style.top = 'auto';
+    t.style.left = '50%';
+    t.style.transform = 'translateX(-50%)';
+    t.style.bottom = computeToastBottomPx() + 'px';   // ← ここで毎回計算
+    t.style.background = 'rgba(0,0,0,0.8)';
+    t.style.color = '#fff';
+    t.style.padding = '10px 16px';
+    t.style.borderRadius = '14px';
+    t.style.boxShadow = '0 6px 20px rgba(0,0,0,.4)';
+    t.style.zIndex = '9999';
+    t.style.opacity = '0';
+    t.style.pointerEvents = 'none'; // タブの操作を邪魔しない
+    t.style.transition = 'opacity 0.3s ease';
+
     t.textContent = msg;
     document.body.appendChild(t);
-    requestAnimationFrame(()=> t.style.opacity = '1');  // フェードイン
+
+    // レイアウト確定後にフェードイン
+    requestAnimationFrame(()=> t.style.opacity = '1');
+
+    // 端末の回転やキーボード表示で可変した場合にも追従
+    const onViewport = ()=>{
+      t.style.bottom = computeToastBottomPx() + 'px';
+    };
+    window.visualViewport && window.visualViewport.addEventListener('resize', onViewport);
+
     setTimeout(()=>{
       t.style.opacity = '0';
-      setTimeout(()=>t.remove(),300);  // フェードアウト後に削除
+      setTimeout(()=>{
+        window.visualViewport && window.visualViewport.removeEventListener('resize', onViewport);
+        t.remove();
+      }, 300);
     }, 2000);
   }
 })();
