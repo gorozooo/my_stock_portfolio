@@ -80,7 +80,7 @@ const $ = (sel)=>document.querySelector(sel);
     Object.assign(t.style,{
       position:'fixed',
       left:'50%',
-      bottom:'calc(env(safe-area-inset-bottom, 0px) + 80px)',  // ← 下タブぶん上にずらす
+      bottom:'calc(env(safe-area-inset-bottom, 0px) + 160px)',  // ← 下タブぶん上にずらす
       transform:'translateX(-50%)',
       background:'rgba(0,0,0,0.8)',
       color:'#fff',
