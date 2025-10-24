@@ -1,23 +1,45 @@
+// static/advisor/board.js
 const $ = (sel)=>document.querySelector(sel);
 
-// ---- 追加：トーストの安全な下マージンを計算（端末の下インセット＋固定オフセット）----
+console.log("[board.js] v2025-10-25-3 loaded"); // 読み替わり確認ログ
+
+// ---- トーストの安全な下マージンを計算（端末の下インセット＋固定オフセット）----
 function computeToastBottomPx() {
-  // iOS/Safari では visualViewport で安全領域差分が取れることが多い
   let insetBottom = 0;
   if (window.visualViewport) {
-    // 画面全体の高さとの差分 ≒ 下側の安全領域（ノッチ/ホームバー）やUIの食い込み
-    const diff = window.innerHeight - window.visualViewport.height;
+    const diff = window.innerHeight - window.visualViewport.height; // 下側の食い込み
     insetBottom = Math.max(0, Math.round(diff));
   }
-  // 下タブに被らないよう固定で +96px（必要ならここを調整）
-  return insetBottom + 140;
+  const px = insetBottom + 140; // ← 下タブを確実に避ける固定オフセット（必要なら調整）
+  // console.log("[toast] insetBottom:", insetBottom, "=> bottom(px):", px);
+  return px;
+}
+
+// ---- ユーティリティ：絶対URLを作る（相対パス問題を潰す）----
+function abs(path){
+  return new URL(path, window.location.origin).toString();
+}
+
+// ---- ユーティリティ：POST(JSON)（CSRF未使用の最小構成）----
+async function postJSON(url, body){
+  const res = await fetch(abs(url), {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify(body)
+  });
+  if(!res.ok){
+    const txt = await res.text().catch(()=> "");
+    throw new Error(`HTTP ${res.status} ${txt}`);
+  }
+  return await res.json();
 }
 
 (async function init(){
-  const res = await fetch("/advisor/api/board/");
+  // --- ボードデータ取得 ---
+  const res = await fetch(abs("/advisor/api/board/"));
   const data = await res.json();
 
-  // ヘッダー
+  // --- ヘッダー ---
   const d = new Date(data.meta.generated_at);
   const w = ["日","月","火","水","木","金","土"][d.getDay()];
   $("#dateLabel").textContent = `${d.getFullYear()}年${String(d.getMonth()+1).padStart(2,"0")}月${String(d.getDate()).padStart(2,"0")}日（${w}）`;
@@ -26,7 +48,7 @@ function computeToastBottomPx() {
   $("#trendBadge").textContent = `${trendText}（日経${data.meta.regime.nikkei} / TOPIX${data.meta.regime.topix}）`;
   $("#adherence").textContent = Math.round(data.meta.adherence_week*100) + "%";
 
-  // テーマTOP3
+  // --- テーマTOP3 ---
   const strip = $("#themeStrip");
   data.theme.top3.forEach(t=>{
     const dotClass = t.score>=0.7? 'dot-strong' : t.score>=0.5? 'dot-mid' : 'dot-weak';
@@ -36,7 +58,7 @@ function computeToastBottomPx() {
     strip.appendChild(span);
   });
 
-  // カード
+  // --- おすすめカード描画 ---
   const cards = $("#cards");
   const makeCard = (item, idx)=>{
     const themeScore = Math.round((item.theme?.score??0)*100);
@@ -54,8 +76,10 @@ function computeToastBottomPx() {
         <div class="target">🎯 ${item.targets.tp}</div>
         <div class="target">🛑 ${item.targets.sl}</div>
       </div>
-      <div class="ai-meter"><div class="meter-bar"><i style="width:${Math.max(8, Math.round((item.ai?.win_prob??0)*100))}%"></i></div>
-      <div>AI信頼度：${"★★★★★☆☆☆☆☆".slice(5-Math.round((item.ai?.win_prob??0)*5),10-Math.round((item.ai?.win_prob??0)*5))}</div></div>
+      <div class="ai-meter">
+        <div class="meter-bar"><i style="width:${Math.max(8, Math.round((item.ai?.win_prob??0)*100))}%"></i></div>
+        <div>AI信頼度：${"★★★★★☆☆☆☆☆".slice(5-Math.round((item.ai?.win_prob??0)*5),10-Math.round((item.ai?.win_prob??0)*5))}</div>
+      </div>
       <div class="theme-tag">🏷️ ${themeLabel} ${themeScore}点</div>
       <div class="buttons" role="group" aria-label="アクション">
         <button class="btn primary" data-act="save_order">📝 メモする</button>
@@ -66,7 +90,7 @@ function computeToastBottomPx() {
   };
   data.highlights.slice(0,5).forEach((it,i)=>cards.appendChild(makeCard(it,i)));
 
-  // 並び替え（簡易：AI×テーマで再ソート）
+  // --- 並び替え（AI×テーマで再ソート） ---
   let sorted = false;
   $("#reorderBtn").addEventListener("click", (e)=>{
     sorted = !sorted;
@@ -78,25 +102,39 @@ function computeToastBottomPx() {
     cards.innerHTML=''; list.forEach((it,i)=>cards.appendChild(makeCard(it,i)));
   });
 
-  // ボタン（モック：トースト表示／本番はAPIにPOST）
-  document.addEventListener("click", (ev)=>{
+  // --- ボタン（→ サーバ記録 & 2時間後リマインド） ---
+  document.addEventListener("click", async (ev)=>{
     const btn = ev.target.closest("button.btn"); if(!btn) return;
     const card = btn.closest(".card"); const idx = Number(card?.dataset?.idx??0);
-    const name = data.highlights[idx]?.name ?? "銘柄";
-    const act = btn.dataset.act;
-    const note = act==='save_order'?'（メモに保存）':act==='remind'?'（2時間後に1回お知らせ）':'（今回は見送り）';
-    showToast(`${name}：${btn.textContent} ${note}`);
+    const item = data.highlights[idx]; const act = btn.dataset.act;
+
+    try{
+      if(act === "save_order" || act === "reject"){
+        await postJSON("/advisor/api/action/", {
+          action: act, ticker: item.ticker, policy_id: item.policy_id || "", note: ""
+        });
+        showToast(`${item.name}：記録しました`);
+      }else if(act === "remind"){
+        await postJSON("/advisor/api/remind/", {
+          ticker: item.ticker, after_minutes: 120
+        });
+        showToast(`${item.name}：2時間後にお知らせします`);
+      }
+    }catch(e){
+      console.error(e);
+      showToast("通信に失敗しました");
+    }
   });
 
   // ---- 修正版トースト：確実に下タブの上へ表示、フェード付き ----
   function showToast(msg){
     const t = document.createElement('div');
-    // まず確実に top/bottom をリセット（他CSSの inset 競合を避ける）
+    // 競合を避けるため、位置系プロパティを明示
     t.style.position = 'fixed';
     t.style.top = 'auto';
     t.style.left = '50%';
     t.style.transform = 'translateX(-50%)';
-    t.style.bottom = computeToastBottomPx() + 'px';   // ← ここで毎回計算
+    t.style.bottom = computeToastBottomPx() + 'px'; // ← 毎回計算して反映
     t.style.background = 'rgba(0,0,0,0.8)';
     t.style.color = '#fff';
     t.style.padding = '10px 16px';
@@ -104,25 +142,28 @@ function computeToastBottomPx() {
     t.style.boxShadow = '0 6px 20px rgba(0,0,0,.4)';
     t.style.zIndex = '9999';
     t.style.opacity = '0';
-    t.style.pointerEvents = 'none'; // タブの操作を邪魔しない
+    t.style.pointerEvents = 'none';
     t.style.transition = 'opacity 0.3s ease';
 
     t.textContent = msg;
     document.body.appendChild(t);
 
-    // レイアウト確定後にフェードイン
+    // フェードイン
     requestAnimationFrame(()=> t.style.opacity = '1');
 
-    // 端末の回転やキーボード表示で可変した場合にも追従
-    const onViewport = ()=>{
-      t.style.bottom = computeToastBottomPx() + 'px';
-    };
-    window.visualViewport && window.visualViewport.addEventListener('resize', onViewport);
+    // 回転/キーボード出現などで可変時も追従
+    const onViewport = ()=> { t.style.bottom = computeToastBottomPx() + 'px'; };
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', onViewport);
+    }
 
+    // 自動消去
     setTimeout(()=>{
       t.style.opacity = '0';
       setTimeout(()=>{
-        window.visualViewport && window.visualViewport.removeEventListener('resize', onViewport);
+        if (window.visualViewport) {
+          window.visualViewport.removeEventListener('resize', onViewport);
+        }
         t.remove();
       }, 300);
     }, 2000);
