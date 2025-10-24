@@ -3,20 +3,21 @@ import json
 from datetime import datetime, timezone, timedelta
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
+from django.utils.timezone import now as dj_now
 from advisor.models import ActionLog, Reminder
 
-# JST（日本時間）設定
+# JST
 JST = timezone(timedelta(hours=9))
 
+def _log(*args):
+    print("[advisor.api]", *args)
 
-# ======================
-# 📊 今日の作戦ボード（モックデータ）
-# ======================
+# =============== ボード（モック） ===============
 def board_api(request):
-    now = datetime.now(JST)
+    jst_now = datetime.now(JST)
     data = {
         "meta": {
-            "generated_at": now.replace(hour=7, minute=25, second=0, microsecond=0).isoformat(),
+            "generated_at": jst_now.replace(hour=7, minute=25, second=0, microsecond=0).isoformat(),
             "model_version": "v0.1-mock",
             "adherence_week": 0.84,
             "regime": {"trend_prob": 0.63, "range_prob": 0.37, "nikkei": "↑", "topix": "→"},
@@ -35,11 +36,7 @@ def board_api(request):
                 "name": "東京エレクトロン",
                 "segment": "中期（20〜45日）",
                 "action": "買い候補（勢い強）",
-                "reasons": [
-                    "半導体テーマが強い（78点）",
-                    "出来高が増えている（+35%）",
-                    "あなたの得意型（AI勝率82%）",
-                ],
+                "reasons": ["半導体テーマが強い（78点）", "出来高が増えている（+35%）", "あなたの得意型（AI勝率82%）"],
                 "targets": {"tp": "目標 +8〜12%", "sl": "損切り -3%"},
                 "ai": {"win_prob": 0.82, "size_mult": 1.08},
                 "theme": {"id": "semiconductor", "label": "半導体", "score": 0.78},
@@ -88,65 +85,77 @@ def board_api(request):
     }
     return JsonResponse(data, json_dumps_params={"ensure_ascii": False})
 
-
-# ======================
-# 📝 ユーザー操作ログ（メモ／見送りなど）
-# ======================
+# =============== ActionLog ===============
 @csrf_exempt
 def record_action(request):
     if request.method != "POST":
         return HttpResponseBadRequest("POST only")
 
     try:
-        payload = json.loads(request.body.decode("utf-8"))
-        action = payload.get("action", "")
-        ticker = payload.get("ticker", "")
-        policy_id = payload.get("policy_id", "")
-        note = payload.get("note", "")
+        raw = request.body.decode("utf-8") if request.body else "{}"
+        payload = json.loads(raw or "{}")
+        user = request.user if getattr(request, "user", None) and request.user.is_authenticated else None
+        _log("record_action payload=", payload, "user=", getattr(user, "username", None))
 
         log = ActionLog.objects.create(
-            user=request.user if request.user.is_authenticated else None,
-            ticker=ticker,
-            policy_id=policy_id,
-            action=action,
-            note=note,
+            user=user,
+            ticker=payload.get("ticker", ""),
+            policy_id=payload.get("policy_id", ""),
+            action=payload.get("action", ""),
+            note=payload.get("note", ""),
         )
-
+        _log("record_action saved id=", log.id)
         return JsonResponse({"ok": True, "id": log.id})
     except Exception as e:
+        _log("record_action ERROR:", repr(e))
         return JsonResponse({"ok": False, "error": str(e)}, status=400)
 
-
-# ======================
-# ⏰ リマインダー登録
-# ======================
+# =============== Reminder ===============
 @csrf_exempt
 def create_reminder(request):
     if request.method != "POST":
         return HttpResponseBadRequest("POST only")
 
     try:
-        payload = json.loads(request.body.decode("utf-8"))
-        ticker = payload.get("ticker", "")
+        raw = request.body.decode("utf-8") if request.body else "{}"
+        payload = json.loads(raw or "{}")
+        user = request.user if getattr(request, "user", None) and request.user.is_authenticated else None
         minutes = int(payload.get("after_minutes", 120))
-
         fire_at = datetime.now(JST) + timedelta(minutes=minutes)
+
+        _log("create_reminder payload=", payload, "user=", getattr(user, "username", None), "fire_at=", fire_at)
+
         r = Reminder.objects.create(
-            user=request.user if request.user.is_authenticated else None,
-            ticker=ticker,
-            message=f"{ticker} をもう一度チェック",
+            user=user,
+            ticker=payload.get("ticker", ""),
+            message=f"{payload.get('ticker','')} をもう一度チェック",
             fire_at=fire_at,
         )
-
+        _log("create_reminder saved id=", r.id)
         return JsonResponse({"ok": True, "id": r.id, "fire_at": fire_at.isoformat()})
     except Exception as e:
+        _log("create_reminder ERROR:", repr(e))
         return JsonResponse({"ok": False, "error": str(e)}, status=400)
 
-
-# ======================
-# 🔍 接続テスト用
-# ======================
+# =============== デバッグ用 ===============
 def ping(request):
-    """開発中デバッグ用API（200が返ればOK）"""
-    now = datetime.now(JST)
-    return JsonResponse({"ok": True, "now": now.isoformat()})
+    """200が返ればURLは生きている。"""
+    return JsonResponse({"ok": True, "now": dj_now().astimezone(JST).isoformat()})
+
+@csrf_exempt
+def debug_add(request):
+    """GETだけでActionLogを強制追加（切り分け用）"""
+    log = ActionLog.objects.create(ticker="DEBUG.T", action="save_order", note="debug via GET")
+    _log("debug_add saved id=", log.id)
+    return JsonResponse({"ok": True, "id": log.id})
+
+@csrf_exempt
+def debug_add_reminder(request):
+    """GETだけでReminderを強制追加（切り分け用）"""
+    r = Reminder.objects.create(
+        ticker="DEBUG.T",
+        message="debug",
+        fire_at=dj_now().astimezone(JST) + timedelta(minutes=1),
+    )
+    _log("debug_add_reminder saved id=", r.id)
+    return JsonResponse({"ok": True, "id": r.id})
