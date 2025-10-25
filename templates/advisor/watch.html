@@ -31,8 +31,10 @@
       <span id="sh-ai" class="chip"></span>
     </div>
 
-    <ul id="sh-reasons" class="reasons"></ul>
+    <!-- ★ Boardカードの中身HTMLをそのまま差し込む置き場 -->
+    <div id="sh-boardcard" class="boardcard-host"></div>
 
+    <!-- 目標/損切りはシートでも表示を維持（BoardHTMLと重複しないよう補助表示） -->
     <div class="targets">
       <div id="sh-tp" class="target">🎯 —</div>
       <div id="sh-sl" class="target">🛑 —</div>
@@ -49,6 +51,10 @@
   </div>
 </section>
 
+<!-- Boardカードの見た目を再現するためのCSS（先に読み込み） -->
+<link rel="stylesheet" href="{% static 'advisor/board.css' %}?v=1" />
+<!-- ウォッチ画面のCSS（必要に応じて上書き） -->
 <link rel="stylesheet" href="{% static 'advisor/watch.css' %}?v=4" />
-<script src="{% static 'advisor/watch.js' %}?v=12"></script>
+
+<script src="{% static 'advisor/watch.js' %}?v=13"></script>
 {% endblock %}
