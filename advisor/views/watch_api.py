@@ -68,12 +68,15 @@ def watch_archive(request):
         tkr = (p.get("ticker") or "").strip()
         if not tkr:
             return HttpResponseBadRequest("ticker required")
+
         qs = WatchEntry.objects.filter(user=request.user, ticker=tkr, status=WatchEntry.STATUS_ACTIVE)
         if qs.exists():
             we = qs.first()
             we.status = WatchEntry.STATUS_ARCHIVED
             we.save(update_fields=["status","updated_at"])
-            return JsonResponse({"ok": True, "id": we.id})
-        return JsonResponse({"ok": True, "id": None})
+            return JsonResponse({"ok": True, "id": we.id, "status": "archived"})   # ← 明示
+        else:
+            # すでに非表示（= ACTIVE が存在しない）
+            return JsonResponse({"ok": True, "id": None, "status": "already_archived"})  # ← 明示
     except Exception as e:
         return JsonResponse({"ok": False, "error": str(e)}, status=400)
