@@ -1,7 +1,7 @@
 // static/advisor/board.js
 const $ = (sel)=>document.querySelector(sel);
 
-console.log("[board.js] v2025-10-25-3 loaded"); // 読み替わり確認ログ
+console.log("[board.js] v2025-10-25-4 loaded"); // 読み替わり確認ログ
 
 // ---- トーストの安全な下マージンを計算（端末の下インセット＋固定オフセット）----
 function computeToastBottomPx() {
@@ -11,7 +11,6 @@ function computeToastBottomPx() {
     insetBottom = Math.max(0, Math.round(diff));
   }
   const px = insetBottom + 140; // ← 下タブを確実に避ける固定オフセット（必要なら調整）
-  // console.log("[toast] insetBottom:", insetBottom, "=> bottom(px):", px);
   return px;
 }
 
@@ -109,9 +108,26 @@ async function postJSON(url, body){
     const item = data.highlights[idx]; const act = btn.dataset.act;
 
     try{
-      if(act === "save_order" || act === "reject"){
+      if(act === "save_order"){
+        // ← 理由・テーマ・AI・TP/SL も同梱して保存
         await postJSON("/advisor/api/action/", {
-          action: act, ticker: item.ticker, policy_id: item.policy_id || "", note: ""
+          action: "save_order",
+          ticker: item.ticker,
+          policy_id: item.policy_id || "",
+          note: "",
+          name: item.name,
+          reasons: item.reasons || [],
+          theme: item.theme || {},          // {label, score}
+          ai: item.ai || {},                // {win_prob}
+          targets: item.targets || {},      // {tp, sl}
+        });
+        showToast(`${item.name}：記録しました`);
+      }else if(act === "reject"){
+        await postJSON("/advisor/api/action/", {
+          action: "reject",
+          ticker: item.ticker,
+          policy_id: item.policy_id || "",
+          note: ""
         });
         showToast(`${item.name}：記録しました`);
       }else if(act === "remind"){
