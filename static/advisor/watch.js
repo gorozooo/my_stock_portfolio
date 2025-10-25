@@ -1,20 +1,22 @@
-console.log("[watch.js] v2025-10-26-id-based loaded");
+console.log("[watch.js] v2025-10-26a (ID-based, enriched UI) loaded");
 const $ = s => document.querySelector(s);
 
 let state = { q:"", items:[], next:null, busy:false, current:null };
 let __sheetViewportHandler = null;
 let __hiding = false;
 
+/* ----------- helpers ----------- */
 function csrf(){
   const m = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/);
   return m ? decodeURIComponent(m[1]) : "";
 }
 function toast(msg){
-  const t=document.createElement("div");
-  t.className="toast"; t.textContent=msg;
+  const t = document.createElement("div");
+  t.className = "toast";
+  t.textContent = msg;
   document.body.appendChild(t);
   requestAnimationFrame(()=> t.style.opacity="1");
-  setTimeout(()=>{ t.style.opacity="0"; setTimeout(()=>t.remove(),200); },1800);
+  setTimeout(()=>{ t.style.opacity="0"; setTimeout(()=>t.remove(), 220); }, 1800);
 }
 function computeBottomOffsetPx(){
   let inset = 0;
@@ -22,7 +24,7 @@ function computeBottomOffsetPx(){
     const diff = window.innerHeight - window.visualViewport.height;
     inset = Math.max(0, Math.round(diff));
   }
-  return inset + 120;
+  return inset + 120; // タブ分+α
 }
 async function getJSON(urls){
   let lastErr;
@@ -53,17 +55,19 @@ async function postJSON(urls, body){
   }
   throw new Error("all failed");
 }
-function postJSONWithTimeout(urls, body, ms=2000){
+function postJSONWithTimeout(urls, body, ms=2500){
   return Promise.race([
     postJSON(urls, body),
     new Promise((_,rej)=> setTimeout(()=> rej(new Error("timeout")), ms))
   ]);
 }
 
+/* ----------- API endpoints（両ルートをフォールバック） ----------- */
 const API_LIST    = ["/advisor/api/watch/list/",    "/advisor/watch/list/"];
 const API_UPSERT  = ["/advisor/api/watch/upsert/",  "/advisor/watch/upsert/"];
 const API_ARCHIVE = ["/advisor/api/watch/archive/", "/advisor/watch/archive/"];
 
+/* ----------- fetch & paint ----------- */
 async function fetchList(reset=false){
   if(state.busy) return; state.busy=true;
   try{
@@ -72,67 +76,41 @@ async function fetchList(reset=false){
     if(!reset && state.next!=null) params.set("cursor", state.next);
     params.set("limit","20");
     const data = await getJSON(API_LIST.map(u=>`${u}?${params.toString()}`));
+
     if(reset){ state.items=[]; $("#list").innerHTML=""; }
     state.items = state.items.concat(data.items);
     state.next  = data.next_cursor;
-    $("#hit") && ($("#hit").textContent = `${state.items.length}${state.next!=null?"+":""}件`);
+
+    const hit=$("#hit");
+    if(hit) hit.textContent = `${state.items.length}${state.next!=null?"+":""}件`;
+
     paint(data.items);
     $("#more").hidden = (state.next==null);
-  }catch(e){ console.error(e); toast("読み込みに失敗しました"); }
-  finally{ state.busy=false; }
-}
-
-/* ====== IDでアーカイブ（楽観削除＋最後に同期） ====== */
-function removeCellById(id){
-  const cell = document.querySelector(`.cell[data-id="${id}"]`);
-  if(cell){
-    cell.style.transition="transform .18s ease, opacity .18s ease";
-    cell.style.transform="translateX(-16px)";
-    cell.style.opacity="0";
-    setTimeout(()=> cell.remove(), 180);
-  }
-  state.items = state.items.filter(x=> x.id !== id);
-  const hit=$("#hit"); if(hit) hit.textContent = `${state.items.length}${state.next!=null?"+":""}件`;
-}
-async function archiveById(id){
-  removeCellById(id);
-  toast("整理しています…");
-  try{
-    const res = await postJSONWithTimeout(API_ARCHIVE, {id}, 2000);
-    if(res && res.ok){
-      toast(res.status === "archived" ? "非表示にしました" : "すでに非表示でした");
-    }else{
-      toast("処理に失敗しました");
-    }
   }catch(e){
-    console.warn("[archiveById]", e);
-    toast("すでに非表示の可能性があります");
+    console.error(e);
+    toast("読み込みに失敗しました");
+  }finally{
+    state.busy=false;
   }
-  await fetchList(true);
 }
 
-/* IN/OUTトグル（IDで更新） */
-async function toggleInPosition(id, on){
-  try{
-    const res = await postJSON(API_UPSERT, {id, in_position:on});
-    if(res.ok) toast(on?"INにしました":"OUTにしました");
-    else toast("失敗しました");
-  }catch(e){ console.error(e); toast("通信に失敗しました"); }
-}
-
-/* ====== 描画 ====== */
 function paint(items){
   const list=$("#list");
   for(const it of items){
     const cell=document.createElement("article");
     cell.className="cell";
-    cell.dataset.id = it.id;                // ★ IDを保持
-    cell.dataset.ticker = it.ticker;        // 表示用
+    cell.dataset.id = it.id;         // ★ IDを保持
+    cell.dataset.ticker = it.ticker; // 表示用
+
+    // 1行目：銘柄（コード）／2行目：理由サマリ
+    const themeTag = it.theme_label ? ` / #${it.theme_label} ${Math.round(it.theme_score*100)}点` : "";
+    const line2 = (it.reason_summary || "").trim();
+
     cell.innerHTML = `
-      <div class="row" data-act="open">
+      <div class="row" data-act="open" role="button" tabindex="0" aria-label="${it.name||it.ticker}の詳細を開く">
         <div class="name">
-          <div class="line1">${it.name||it.ticker}（${it.ticker}）</div>
-          <div class="line2">${it.reason_summary||""}</div>
+          <div class="line1">${(it.name||it.ticker)}（${it.ticker}）</div>
+          <div class="line2">${line2 || "理由メモなし"}${themeTag}</div>
         </div>
         <div class="actions">
           <div class="switch ${it.in_position?"on":""}" data-act="toggle">
@@ -145,7 +123,7 @@ function paint(items){
   }
 }
 
-/* スワイプで非表示（IDで実行） */
+/* ----------- swipe-to-archive（IDベース） ----------- */
 function attachSwipe(cell, id){
   let sx=0, dx=0, dragging=false;
   cell.addEventListener("touchstart",(e)=>{dragging=true;sx=e.touches[0].clientX;dx=0;},{passive:true});
@@ -161,7 +139,43 @@ function attachSwipe(cell, id){
   });
 }
 
-/* ボトムシート */
+/* ----------- archive / toggle ----------- */
+function removeCellById(id){
+  const cell = document.querySelector(`.cell[data-id="${id}"]`);
+  if(cell){
+    cell.style.transition="transform .18s ease, opacity .18s ease";
+    cell.style.transform="translateX(-16px)";
+    cell.style.opacity="0";
+    setTimeout(()=> cell.remove(), 180);
+  }
+  state.items = state.items.filter(x=> x.id !== id);
+  const hit=$("#hit"); if(hit) hit.textContent = `${state.items.length}${state.next!=null?"+":""}件`;
+}
+async function archiveById(id){
+  removeCellById(id);
+  toast("整理しています…");
+  try{
+    const res = await postJSONWithTimeout(API_ARCHIVE, {id}, 2500);
+    if(res && res.ok){
+      toast(res.status === "archived" ? "非表示にしました" : "すでに非表示でした");
+    }else{
+      toast("処理に失敗しました");
+    }
+  }catch(e){
+    console.warn("[archiveById]", e);
+    toast("すでに非表示の可能性があります");
+  }
+  await fetchList(true);
+}
+async function toggleInPosition(id, on){
+  try{
+    const res = await postJSON(API_UPSERT, {id, in_position:on});
+    if(res.ok) toast(on?"INにしました":"OUTにしました");
+    else toast("失敗しました");
+  }catch(e){ console.error(e); toast("通信に失敗しました"); }
+}
+
+/* ----------- sheet（詳細） ----------- */
 function openSheet(item){
   state.current = item;
   const sh=$("#sheet"), body=sh.querySelector(".sheet-body");
@@ -171,9 +185,10 @@ function openSheet(item){
   if(window.visualViewport){ window.visualViewport.addEventListener("resize", __sheetViewportHandler); }
 
   $("#sh-title").textContent = `${item.name||item.ticker}（${item.ticker}）`;
-  $("#sh-theme").textContent = item.theme_label ? `#${item.theme_label} ${Math.round(item.theme_score*100)}点` : "";
-  $("#sh-ai").textContent = item.ai_win_prob ? `AI ${Math.round(item.ai_win_prob*100)}%` : "";
-  $("#sh-reasons").innerHTML = (item.reason_details||[]).map(r=>`<li>・${r}</li>`).join("") || "<li>理由なし</li>";
+  $("#sh-theme").textContent = item.theme_label ? `#${item.theme_label} ${Math.round((item.theme_score||0)*100)}点` : "";
+  $("#sh-ai").textContent = item.ai_win_prob ? `AI ${Math.round((item.ai_win_prob||0)*100)}%` : "";
+  const details = (item.reason_details||[]);
+  $("#sh-reasons").innerHTML = details.length ? details.map(r=>`<li>・${r}</li>`).join("") : `<li>・${item.reason_summary||"理由メモなし"}</li>`;
   $("#sh-tp").textContent = item.target_tp ? `🎯 ${item.target_tp}` : "🎯 —";
   $("#sh-sl").textContent = item.target_sl ? `🛑 ${item.target_sl}` : "🛑 —";
   $("#sh-note").value = item.note || "";
@@ -188,7 +203,7 @@ function closeSheet(){
   state.current=null;
 }
 
-/* クリック */
+/* ----------- events ----------- */
 document.addEventListener("click", async (e)=>{
   const sw=e.target.closest(".switch");
   const row=e.target.closest(".row");
@@ -221,15 +236,26 @@ document.addEventListener("click", async (e)=>{
       const note=$("#sh-note").value;
       const res = await postJSON(API_UPSERT, {id: state.current.id, note});
       toast(res.ok ? "メモを保存しました" : "保存に失敗しました");
+      // 即一覧へ反映
+      const idx = state.items.findIndex(x=>x.id===state.current.id);
+      if(idx>=0){ state.items[idx].note = note; }
     }catch(err){ console.error(err); toast("保存に失敗しました"); }
   }
 });
+// メモのオートセーブ（離脱時）
+$("#sh-note").addEventListener("blur", async ()=>{
+  if(!state.current) return;
+  try{
+    const note=$("#sh-note").value;
+    await postJSON(API_UPSERT, {id: state.current.id, note});
+  }catch(e){ /* silent */ }
+});
 
-/* 検索/もっと見る */
 $("#q").addEventListener("input", ()=>{
   state.q = $("#q").value.trim();
   clearTimeout(window.__qtimer);
   window.__qtimer = setTimeout(()=> fetchList(true), 250);
 });
 $("#more").addEventListener("click", ()=> fetchList(false));
+
 document.addEventListener("DOMContentLoaded", ()=> fetchList(true));
