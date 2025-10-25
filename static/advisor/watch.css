@@ -1,10 +1,13 @@
 :root{--bg:#0b0f1a;--panel:rgba(255,255,255,.06);--border:rgba(255,255,255,.12);
 --text:#f1f5f9;--sub:#cbd5e1;--green:#16a34a;--red:#ef4444;--blue:#2563eb;--radius:14px}
+
 body{background:var(--bg);color:var(--text)}
+
 .adv-header{position:sticky;top:0;backdrop-filter:blur(12px);
 background:linear-gradient(to bottom, rgba(11,15,26,.85), rgba(11,15,26,.45));z-index:10;border-bottom:1px solid var(--border)}
 .adv-header .wrap{max-width:720px;margin:0 auto;padding:10px 16px}
 .ttl{margin:4px 0 10px;font-size:18px;font-weight:800}
+
 .search{position:relative}
 .search input{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--border);
 background:rgba(255,255,255,.05);color:var(--text);font-size:16px}
@@ -12,11 +15,13 @@ background:rgba(255,255,255,.05);color:var(--text);font-size:16px}
 
 .container{max-width:720px;margin:0 auto;padding:12px 10px 24px}
 .list{display:flex;flex-direction:column;gap:10px}
+
 .cell{position:relative;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
 .row{display:flex;align-items:center;gap:10px;padding:10px 12px 10px 16px;min-height:56px}
 .name{flex:1 1 auto}
 .line1{font-weight:800;font-size:16px}
 .line2{font-size:12px;color:var(--sub);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
 .actions{display:flex;gap:8px;align-items:center}
 .switch{min-width:74px;height:36px;border-radius:18px;border:1px solid var(--border);
 background:rgba(255,255,255,.08);position:relative;font-size:12px;color:#fff;text-align:center}
@@ -24,6 +29,7 @@ background:rgba(255,255,255,.08);position:relative;font-size:12px;color:#fff;tex
 .switch i{position:absolute;top:2px;left:2px;width:32px;height:32px;border-radius:50%;background:#fff;transition:transform .18s ease}
 .switch.on i{transform:translateX(38px)}
 .switch.on{background:rgba(37,99,235,.28);border-color:rgba(37,99,235,.5)}
+
 .btn{padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.06);color:var(--text);font-weight:700}
 .btn.primary{background:linear-gradient(180deg, rgba(37,99,235,.28), rgba(37,99,235,.12));border-color:rgba(37,99,235,.5)}
 .btn.warn{background:linear-gradient(180deg, rgba(239,68,68,.22), rgba(239,68,68,.10));border-color:rgba(239,68,68,.45)}
@@ -35,11 +41,28 @@ background:rgba(0,0,0,.85);color:#fff;padding:10px 16px;border-radius:14px;z-ind
 .tag{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:4px 8px;font-size:12px;color:var(--sub)}
 .reasons{margin:12px 0 4px 18px;color:var(--text);font-size:14px}
 .target{margin-right:8px;color:var(--text)}
-/* bottom-sheet */
+
+/* ===== bottom-sheet（中央寄せ・下タブ非被り対応） ===== */
 .sheet{position:fixed;left:0;right:0;bottom:0;top:0;background:rgba(0,0,0,.4);backdrop-filter:blur(2px);z-index:10000}
 .sheet[hidden]{display:none}
-.sheet-body{position:absolute;left:0;right:0;bottom:0;border-top-left-radius:18px;border-top-right-radius:18px;background:var(--bg);
-border:1px solid var(--border);padding:10px 14px 20px;max-height:85vh;overflow:auto}
+
+/* ◇デフォは「中央寄せの高さ」で開く。bottomはJSで上書き（端末の下インセット＋タブ高） */
+.sheet-body{
+  position:absolute;left:0;right:0;
+  bottom:120px;                 /* ← 初期値。JSが実機の値で上書き */
+  height:62vh;                  /* ← 真ん中あたりに来る高さ */
+  border-top-left-radius:18px;border-top-right-radius:18px;
+  background:var(--bg);border:1px solid var(--border);
+  padding:10px 14px 20px;overflow:auto;
+  box-shadow:0 -10px 30px rgba(0,0,0,.25);
+}
+@media (max-height:700px){
+  .sheet-body{height:66vh}
+}
+@media (min-height:900px){
+  .sheet-body{height:58vh}
+}
+
 .sheet-handle{width:40px;height:4px;border-radius:999px;background:var(--border);margin:6px auto 10px}
 .sheet-title{font-size:16px;font-weight:800;margin-bottom:8px}
 .sheet-tags{display:flex;gap:8px;margin-bottom:8px}
