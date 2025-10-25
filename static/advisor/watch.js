@@ -1,4 +1,4 @@
-console.log("[watch.js] v2025-10-25-csrffix loaded");
+console.log("[watch.js] v6 loaded");
 const $ = s => document.querySelector(s);
 let state = { q:"", items:[], next:null, busy:false, current:null };
 let __sheetViewportHandler = null;
