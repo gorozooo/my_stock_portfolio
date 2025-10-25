@@ -199,3 +199,30 @@ def watch_archive(request):
     except Exception as e:
         print("[watch_archive][ERROR]", repr(e))
         return _err(str(e))
+
+
+@login_required
+@require_GET
+def watch_archive_by_id_get(request, rec_id: int):
+    """
+    デバッグ用：GETで確実に id をアーカイブ（CSRF不要）
+    /advisor/api/watch/archive/id/<int:rec_id>/
+    """
+    obj = WatchEntry.objects.filter(id=rec_id, user=request.user).first()
+    if not obj:
+        return JsonResponse({"ok": False, "error": "not found"}, status=404)
+    if obj.status != WatchEntry.STATUS_ARCHIVED:
+        obj.status = WatchEntry.STATUS_ARCHIVED
+        obj.updated_at = now()
+        obj.save(update_fields=["status", "updated_at"])
+        print("[watch_archive_by_id_get] archived id=", obj.id)
+    else:
+        print("[watch_archive_by_id_get] already archived id=", obj.id)
+    return JsonResponse({"ok": True, "id": obj.id, "status": "archived"})
+
+@login_required
+@require_GET
+def watch_ping(request):
+    """生存確認"""
+    return JsonResponse({"ok": True})
+    
