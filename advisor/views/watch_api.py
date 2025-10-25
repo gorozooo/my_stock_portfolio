@@ -211,13 +211,22 @@ def watch_archive_by_id_get(request, rec_id: int):
     obj = WatchEntry.objects.filter(id=rec_id, user=request.user).first()
     if not obj:
         return JsonResponse({"ok": False, "error": "not found"}, status=404)
+
+    # ✅ 同一ticker・同一ユーザーのARCHIVEDを事前削除しておく
+    WatchEntry.objects.filter(
+        user=request.user,
+        ticker=obj.ticker,
+        status=WatchEntry.STATUS_ARCHIVED
+    ).exclude(id=obj.id).delete()
+
     if obj.status != WatchEntry.STATUS_ARCHIVED:
         obj.status = WatchEntry.STATUS_ARCHIVED
         obj.updated_at = now()
         obj.save(update_fields=["status", "updated_at"])
-        print("[watch_archive_by_id_get] archived id=", obj.id)
+        print(f"[watch_archive_by_id_get] archived id={obj.id}")
     else:
-        print("[watch_archive_by_id_get] already archived id=", obj.id)
+        print(f"[watch_archive_by_id_get] already archived id={obj.id}")
+
     return JsonResponse({"ok": True, "id": obj.id, "status": "archived"})
 
 @login_required
