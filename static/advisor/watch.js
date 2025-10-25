@@ -1,6 +1,7 @@
-console.log("[watch.js] v2 loaded");
+console.log("[watch.js] v3 loaded");
 const $ = s => document.querySelector(s);
 let state = { q:"", items:[], next:null, busy:false, current:null };
+let __sheetViewportHandler = null;
 
 function csrf(){
   const m = document.cookie.match(/csrftoken=([^;]+)/); return m? m[1] : "";
@@ -8,6 +9,17 @@ function csrf(){
 function toast(msg){
   const t=document.createElement("div"); t.className="toast"; t.textContent=msg; document.body.appendChild(t);
   requestAnimationFrame(()=> t.style.opacity="1"); setTimeout(()=>{ t.style.opacity="0"; setTimeout(()=>t.remove(),250); },1800);
+}
+
+/* ===== 端末の下UIを避けるための安全オフセットを計算 ===== */
+function computeBottomOffsetPx(){
+  let inset = 0;
+  if (window.visualViewport){
+    const diff = window.innerHeight - window.visualViewport.height; // キーボード/ホームバー等の食い込み
+    inset = Math.max(0, Math.round(diff));
+  }
+  // 固定タブぶん + 余白（iOSのSafariのUIも考慮）
+  return inset + 120; // ←必要に応じて 120〜140 の間で調整可
 }
 
 async function fetchList(reset=false){
@@ -21,11 +33,11 @@ async function fetchList(reset=false){
     const res = await fetch(`/advisor/api/watch/list/?${params.toString()}`, {credentials:"same-origin"});
     const data = await res.json();
     if(!data.ok) throw new Error(data.error || "fetch error");
-    if(reset){ state.items = []; $("#list").innerHTML=""; }
+    if(reset){ state.items = []; $("#list").innerHTML = ""; }
     state.items = state.items.concat(data.items);
     state.next = data.next_cursor;
-    $("#hit").textContent = `${state.items.length}${state.next!=null? "+":""}件`;
 
+    $("#hit") && ($("#hit").textContent = `${state.items.length}${state.next!=null? "+":""}件`);
     paint(data.items);
     $("#more").hidden = (state.next == null);
   }catch(e){ console.error(e); toast("読み込みに失敗しました"); }
@@ -36,9 +48,8 @@ function paint(items){
   const list = $("#list");
   for(const it of items){
     const cell = document.createElement("article");
-    cell.className="cell"; cell.dataset.ticker = it.ticker;
-    const themeTag = it.theme_label ? `#${it.theme_label} ${Math.round(it.theme_score*100)}点` : "";
-    const aiTag = it.ai_win_prob ? `AI ${Math.round(it.ai_win_prob*100)}%` : "";
+    cell.className = "cell";
+    cell.dataset.ticker = it.ticker;
 
     cell.innerHTML = `
       <div class="row" data-act="open">
@@ -97,9 +108,26 @@ async function toggleInPosition(ticker, on){
   if(!data.ok) throw new Error(data.error || "toggle error");
 }
 
+/* ===== bottom-sheet 開閉 ===== */
 function openSheet(item){
   state.current = item;
-  $("#sheet").hidden = false; $("#sheet").setAttribute("aria-hidden","false");
+  const sheet = $("#sheet");
+  const body  = sheet.querySelector(".sheet-body");
+
+  // 下UIに被らないように bottom を実機値で上書き
+  const applyBottom = ()=>{ body.style.bottom = computeBottomOffsetPx() + "px"; };
+  applyBottom();
+
+  // 真ん中寄せの高さ（CSSの 62vh のままでOK。必要ならJSで上書き可）
+  body.style.height = "62vh";
+
+  // 回転/キーボード出現にも追従
+  __sheetViewportHandler = ()=> applyBottom();
+  if (window.visualViewport){
+    window.visualViewport.addEventListener("resize", __sheetViewportHandler);
+  }
+
+  // データ挿入
   $("#sh-title").textContent = `${item.name||item.ticker}（${item.ticker}）`;
   $("#sh-theme").textContent = item.theme_label ? `#${item.theme_label} ${Math.round(item.theme_score*100)}点` : "";
   $("#sh-ai").textContent = item.ai_win_prob ? `AI ${Math.round(item.ai_win_prob*100)}%` : "";
@@ -107,30 +135,56 @@ function openSheet(item){
   $("#sh-tp").textContent = item.target_tp ? `🎯 ${item.target_tp}` : "🎯 —";
   $("#sh-sl").textContent = item.target_sl ? `🛑 ${item.target_sl}` : "🛑 —";
   $("#sh-note").value = item.note || "";
-}
-function closeSheet(){ $("#sheet").hidden = true; $("#sheet").setAttribute("aria-hidden","true"); state.current = null; }
 
+  sheet.hidden = false; sheet.setAttribute("aria-hidden","false");
+}
+
+function closeSheet(){
+  const sheet = $("#sheet");
+  const body  = sheet.querySelector(".sheet-body");
+  if (window.visualViewport && __sheetViewportHandler){
+    window.visualViewport.removeEventListener("resize", __sheetViewportHandler);
+  }
+  __sheetViewportHandler = null;
+  body.style.bottom = ""; // クリア
+  sheet.hidden = true; sheet.setAttribute("aria-hidden","true");
+  state.current = null;
+}
+
+/* ===== クリック ===== */
 document.addEventListener("click", async (e)=>{
-  const row = e.target.closest(".row"); const sw = e.target.closest(".switch");
+  const row = e.target.closest(".row"); 
+  const sw  = e.target.closest(".switch");
+
   if(sw){
     const cell = sw.closest(".cell"); const t = cell.dataset.ticker;
     const next = !sw.classList.contains("on");
     sw.classList.toggle("on", next); sw.querySelector("span").textContent = next? "IN":"OUT";
     try{ await toggleInPosition(t, next); toast(next?"INにしました":"OUTにしました"); }
     catch(err){ sw.classList.toggle("on", !next); sw.querySelector("span").textContent = (!next?"IN":"OUT"); toast("失敗しました"); }
-  }else if(row){
-    // 詳細シート
+    return;
+  }
+
+  if(row){
     const t = row.closest(".cell").dataset.ticker;
     const item = state.items.find(x=>x.ticker===t);
     if(item) openSheet(item);
+    return;
   }
-  if(e.target.id==="sh-close"){ closeSheet(); }
+
+  if(e.target.id==="sh-close"){ closeSheet(); return; }
+
   if(e.target.id==="sh-hide" && state.current){
-    try{ await archiveTicker(state.current.ticker); toast("非表示にしました"); closeSheet();
-      // 画面からも削除
-      const cell = document.querySelector(`.cell[data-ticker="${state.current.ticker}"]`); cell && cell.remove();
+    try{
+      await archiveTicker(state.current.ticker);
+      toast("非表示にしました");
+      closeSheet();
+      const cell = document.querySelector(`.cell[data-ticker="${state.current.ticker}"]`);
+      cell && cell.remove();
     }catch(err){ toast("失敗しました"); }
+    return;
   }
+
   if(e.target.id==="sh-save" && state.current){
     try{
       const note = $("#sh-note").value;
@@ -141,12 +195,15 @@ document.addEventListener("click", async (e)=>{
       const data = await res.json(); if(!data.ok) throw new Error(data.error || "save error");
       state.current.note = note; toast("メモを保存しました");
     }catch(err){ toast("保存に失敗しました"); }
+    return;
   }
 });
 
+/* ===== 検索・ページング ===== */
 $("#q").addEventListener("input", ()=>{
   state.q = $("#q").value.trim();
   clearTimeout(window.__qtimer); window.__qtimer = setTimeout(()=> fetchList(true), 250);
 });
 $("#more").addEventListener("click", ()=> fetchList(false));
+
 document.addEventListener("DOMContentLoaded", ()=> fetchList(true));
