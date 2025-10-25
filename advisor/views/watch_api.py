@@ -63,20 +63,17 @@ def watch_upsert(request):
 @login_required
 @require_POST
 def watch_archive(request):
-    try:
-        p = json.loads(request.body.decode("utf-8"))
-        tkr = (p.get("ticker") or "").strip()
-        if not tkr:
-            return HttpResponseBadRequest("ticker required")
+    p = json.loads(request.body.decode("utf-8"))
+    tkr = (p.get("ticker") or "").strip()
+    qs = WatchEntry.objects.filter(user=request.user, ticker=tkr)
+    if not qs.exists():
+        # まだ無い → 何もしないが成功扱い（前向き冪等）
+        return JsonResponse({"ok": True, "status": "already_archived", "id": None})
 
-        qs = WatchEntry.objects.filter(user=request.user, ticker=tkr, status=WatchEntry.STATUS_ACTIVE)
-        if qs.exists():
-            we = qs.first()
-            we.status = WatchEntry.STATUS_ARCHIVED
-            we.save(update_fields=["status","updated_at"])
-            return JsonResponse({"ok": True, "id": we.id, "status": "archived"})   # ← 明示
-        else:
-            # すでに非表示（= ACTIVE が存在しない）
-            return JsonResponse({"ok": True, "id": None, "status": "already_archived"})  # ← 明示
-    except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+    we = qs.first()
+    if we.status != WatchEntry.STATUS_ARCHIVED:
+        we.status = WatchEntry.STATUS_ARCHIVED
+        we.save(update_fields=["status","updated_at"])
+        return JsonResponse({"ok": True, "status": "archived", "id": we.id})
+    # すでにアーカイブ済み
+    return JsonResponse({"ok": True, "status": "already_archived", "id": None})
