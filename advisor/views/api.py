@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.timezone import now as dj_now
-from advisor.models import ActionLog, Reminder, WatchEntry
+from advisor.models import ActionLog, Reminder, WatchEntry  # ← WatchEntry を追加
 
 # JST
 JST = timezone(timedelta(hours=9))
@@ -106,19 +106,42 @@ def record_action(request):
         )
         _log("record_action saved id=", log.id)
 
-        # ---- 📝 ウォッチリスト対応（save_order のとき） ----
+        # ---- 📝 ウォッチリスト対応（save_order のとき：理由まで保存） ----
         if user and payload.get("action") == "save_order":
-            WatchEntry.objects.update_or_create(
+            # 受け取り：board.js から送ってくる追加項目
+            name = payload.get("name", "")
+            reasons = payload.get("reasons") or []           # list[str]
+            theme = (payload.get("theme") or {})             # {label, score}
+            ai = (payload.get("ai") or {})                   # {win_prob}
+            targets = (payload.get("targets") or {})         # {tp, sl}
+
+            reason_summary = " / ".join(reasons[:3])[:240] if reasons else ""
+            theme_label = str(theme.get("label") or "")
+            theme_score = float(theme.get("score") or 0.0)
+            ai_win_prob = float(ai.get("win_prob") or 0.0)
+            target_tp = str(targets.get("tp") or "")
+            target_sl = str(targets.get("sl") or "")
+
+            we, created = WatchEntry.objects.update_or_create(
                 user=user,
                 ticker=payload.get("ticker", ""),
                 status=WatchEntry.STATUS_ACTIVE,
                 defaults={
-                    "name": payload.get("name", ""),
+                    "name": name,
                     "note": payload.get("note", ""),
                     "in_position": False,
+                    "reason_summary": reason_summary,
+                    "reason_details": reasons,
+                    "theme_label": theme_label,
+                    "theme_score": theme_score,
+                    "ai_win_prob": ai_win_prob,
+                    "target_tp": target_tp,
+                    "target_sl": target_sl,
+                    "source": "board",
+                    "source_actionlog_id": log.id,
                 },
             )
-            _log("record_action → WatchEntry upsert")
+            _log("record_action → WatchEntry upsert", we.id, "created?", created)
 
         return JsonResponse({"ok": True, "id": log.id})
 
