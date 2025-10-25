@@ -4,8 +4,10 @@ import json
 from typing import Any, Dict, List, Optional
 
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.db.models import Q
 from django.http import JsonResponse, HttpResponseBadRequest
+from django.utils.timezone import now
 from django.views.decorators.http import require_GET, require_POST
 
 from advisor.models import WatchEntry
@@ -71,60 +73,70 @@ def watch_list(request):
 
 
 # ===========================================================
-# UPSERT: IN/OUT トグルやメモ保存（冪等）
+# UPSERT: IN/OUT トグルやメモ保存（冪等・重複吸収）
 # ===========================================================
 @login_required
 @require_POST
+@transaction.atomic
 def watch_upsert(request):
     """
     POST /advisor/api/watch/upsert/
-    body: {ticker, in_position?, note?}
-    - 存在しなければ新規作成（statusは既存維持。新規はACTIVE）
-    - 与えられたフィールドだけ更新（冪等）
-    レスポンス: {ok, id, status: "active"|"archived"}
+    body: {ticker, in_position?, note?, name?}
+
+    方針:
+    - 同一 (user, ticker) の既存レコードが複数あっても「最新1件」を採用し、他は放置（※後でクリーンアップ可）
+    - 更新時、何らかの属性（note/in_position/name）が与えられたら「必要に応じて ACTIVE に復帰」
+      → これで“再ウォッチ”操作が素直に反映される
     """
     try:
-        payload = json.loads(request.body.decode("utf-8") or "{}")
-        tkr = (payload.get("ticker") or "").strip()
+        p = json.loads(request.body.decode("utf-8") or "{}")
+        tkr = (p.get("ticker") or "").strip()
         if not tkr:
             return HttpResponseBadRequest("ticker required")
 
-        defaults = {
-            "name": payload.get("name", ""),
-            "note": payload.get("note", "") if payload.get("note") is not None else "",
-        }
-
-        # 既存取得（アーカイブ含め1件拾う）
+        # 最新の1件を採用（存在しなければ新規）
         obj = (
             WatchEntry.objects.filter(user=request.user, ticker=tkr)
-            .order_by("-updated_at")
+            .order_by("-updated_at", "-id")
             .first()
         )
-
+        created = False
         if obj is None:
-            # 新規は ACTIVE で作成
             obj = WatchEntry.objects.create(
                 user=request.user,
                 ticker=tkr,
                 status=WatchEntry.STATUS_ACTIVE,
-                name=defaults["name"],
-                note=defaults["note"],
+                name=p.get("name", "") or "",
+                note=p.get("note", "") or "",
             )
-        else:
-            # 更新（与えられた項目のみ）
-            changed = False
-            if "note" in payload and payload.get("note") is not None:
-                obj.note = payload.get("note") or ""
+            created = True
+
+        # 値の反映
+        changed = False
+        if "name" in p and p.get("name") is not None:
+            new_name = p.get("name") or ""
+            if new_name != obj.name:
+                obj.name = new_name
                 changed = True
-            if "in_position" in payload and payload.get("in_position") is not None:
-                obj.in_position = bool(payload.get("in_position"))
+        if "note" in p and p.get("note") is not None:
+            new_note = p.get("note") or ""
+            if new_note != obj.note:
+                obj.note = new_note
                 changed = True
-            if "name" in payload and payload.get("name") is not None:
-                obj.name = payload.get("name") or obj.name
+        if "in_position" in p and p.get("in_position") is not None:
+            new_in = bool(p.get("in_position"))
+            if new_in != obj.in_position:
+                obj.in_position = new_in
                 changed = True
 
-            if changed:
-                obj.save()
+        # 何らかの更新があり、かつ ARCHIVED なら ACTIVE に復帰
+        if changed and obj.status == WatchEntry.STATUS_ARCHIVED:
+            obj.status = WatchEntry.STATUS_ACTIVE
+            changed = True
+
+        if changed or created:
+            obj.updated_at = now()
+            obj.save()
 
         status = "archived" if obj.status == WatchEntry.STATUS_ARCHIVED else "active"
         return JsonResponse({"ok": True, "id": obj.id, "status": status})
@@ -134,36 +146,42 @@ def watch_upsert(request):
 
 
 # ===========================================================
-# ARCHIVE: 非表示（冪等：既に非表示でも常に ok=True）
+# ARCHIVE: 非表示（冪等・重複 ACTIVE をすべてアーカイブ）
 # ===========================================================
 @login_required
 @require_POST
+@transaction.atomic
 def watch_archive(request):
     """
     POST /advisor/api/watch/archive/
     body: {ticker}
-    - ACTIVE → ARCHIVED に変更
-    - 既に ARCHIVED / 存在しない → 常に ok=True + status="already_archived"
-    レスポンス: {ok, status: "archived"|"already_archived", id?: number}
+
+    仕様:
+    - 同一 (user, ticker) の ACTIVE レコードを **全て** ARCHIVED に更新（重複があっても確実に消える）
+    - ACTIVE が 0 件なら "already_archived"
     """
     try:
-        payload = json.loads(request.body.decode("utf-8") or "{}")
-        tkr = (payload.get("ticker") or "").strip()
+        p = json.loads(request.body.decode("utf-8") or "{}")
+        tkr = (p.get("ticker") or "").strip()
         if not tkr:
             return HttpResponseBadRequest("ticker required")
 
-        qs = WatchEntry.objects.filter(user=request.user, ticker=tkr)
-        if not qs.exists():
-            # 存在しなくても冪等成功
-            return JsonResponse({"ok": True, "status": "already_archived", "id": None})
+        actives = WatchEntry.objects.filter(
+            user=request.user, ticker=tkr, status=WatchEntry.STATUS_ACTIVE
+        )
 
-        obj = qs.first()
-        if obj.status != WatchEntry.STATUS_ARCHIVED:
-            obj.status = WatchEntry.STATUS_ARCHIVED
-            obj.save(update_fields=["status", "updated_at"])
-            return JsonResponse({"ok": True, "status": "archived", "id": obj.id})
+        updated_count = actives.update(status=WatchEntry.STATUS_ARCHIVED, updated_at=now())
 
-        # すでにアーカイブ済み
+        if updated_count > 0:
+            # 代表ID（見つかったものの1つ）を返すだけ
+            any_obj = (
+                WatchEntry.objects.filter(user=request.user, ticker=tkr)
+                .order_by("-updated_at", "-id")
+                .first()
+            )
+            return JsonResponse({"ok": True, "status": "archived", "id": getattr(any_obj, "id", None)})
+
+        # ACTIVEが無ければ既にアーカイブ済み
         return JsonResponse({"ok": True, "status": "already_archived", "id": None})
 
     except Exception as e:
