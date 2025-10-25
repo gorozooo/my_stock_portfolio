@@ -1,16 +1,14 @@
-console.log("[watch.js] v2025-10-25-already-archived handled");
+console.log("[watch.js] v2025-10-26-ok-only-check loaded");
 const $ = s => document.querySelector(s);
 let state = { q:"", items:[], next:null, busy:false, current:null };
 let __sheetViewportHandler = null;
-let __hiding = false; // 二重押しガード
+let __hiding = false;
 
 /* ================= 共通ユーティリティ ================= */
-
 function csrf(){
   const m = document.cookie.match(/csrftoken=([^;]+)/);
   return m ? m[1] : "";
 }
-
 function toast(msg){
   const t=document.createElement("div");
   t.className="toast";
@@ -19,79 +17,74 @@ function toast(msg){
   requestAnimationFrame(()=> t.style.opacity="1");
   setTimeout(()=>{ t.style.opacity="0"; setTimeout(()=>t.remove(),250); },1800);
 }
-
-/* 端末の下UIを避ける安全オフセット */
 function computeBottomOffsetPx(){
   let inset = 0;
   if (window.visualViewport){
     const diff = window.innerHeight - window.visualViewport.height;
     inset = Math.max(0, Math.round(diff));
   }
-  return inset + 120; // 下タブ + 余白
+  return inset + 120;
 }
-
-/* ====== フェッチ（404ならフォールバックURLを順に試す） ====== */
-async function getJSON(urls){  // urls: string[]
+async function getJSON(urls){
   let lastErr;
   for(const url of urls){
     try{
       const res = await fetch(url, {credentials:"same-origin"});
-      if(res.status === 404) { lastErr = new Error("404 Not Found"); continue; }
+      if(res.status === 404) continue;
       const data = await res.json();
-      if(!res.ok || data.ok === false){ throw new Error(data.error || `HTTP ${res.status}`); }
+      if(!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
       return data;
     }catch(e){ lastErr = e; }
   }
   throw lastErr || new Error("request failed");
 }
-
-async function postJSON(urls, body){ // urls: string[]
-  let lastText="", lastStatus=0;
+async function postJSON(urls, body){
   for(const url of urls){
     try{
       const res = await fetch(url, {
         method:"POST",
-        credentials: "same-origin",
-        headers: {
+        credentials:"same-origin",
+        headers:{
           "Content-Type":"application/json",
           "X-CSRFToken": csrf()
         },
         body: JSON.stringify(body)
       });
-      lastStatus = res.status;
-      const text = await res.text(); lastText = text;
-      if(res.status === 404) { continue; } // フォールバックへ
-      let data={}; try{ data = JSON.parse(text); }catch(_){}
-      if(!res.ok || data.ok === false){
-        throw new Error(data.error || `HTTP ${res.status} ${text}`);
-      }
+      if(res.status === 404) continue;
+      const data = await res.json();
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
       return data;
-    }catch(e){
-      // 次のURLを試す
-    }
+    }catch(e){ console.warn("[postJSON err]", e); }
   }
-  throw new Error(`HTTP ${lastStatus} ${lastText}`);
+  throw new Error("all failed");
 }
 
-/* ================== APIラッパ（フォールバック順） ================== */
-
+/* ================= APIエンドポイント ================= */
 const API_LIST    = ["/advisor/api/watch/list/",    "/advisor/watch/list/"];
 const API_UPSERT  = ["/advisor/api/watch/upsert/",  "/advisor/watch/upsert/"];
 const API_ARCHIVE = ["/advisor/api/watch/archive/", "/advisor/watch/archive/"];
 
-/* 非表示（既に非表示でも成功扱いにしてUI更新） */
+/* ================= メイン処理 ================= */
 async function archiveTicker(ticker){
-  const data = await postJSON(API_ARCHIVE, {ticker});
-  // data: {ok:true, id: number|null}
-  return data; // UI側で id===null を「既に非表示」として扱う
+  const res = await postJSON(API_ARCHIVE, {ticker});
+  // okだけ見てUI更新
+  if(res.ok){
+    toast(res.status === "archived" ? "非表示にしました" : "すでに非表示でした");
+    await fetchList(true);
+  }else{
+    toast("失敗しました");
+  }
 }
 
-/* IN/OUT トグル */
-async function toggleInPosition(ticker, on){
-  return await postJSON(API_UPSERT, {ticker, in_position:on});
+async function toggleInPosition(ticker,on){
+  const res = await postJSON(API_UPSERT, {ticker, in_position:on});
+  if(res.ok){
+    toast(on?"INにしました":"OUTにしました");
+  }else{
+    toast("失敗しました");
+  }
 }
 
-/* 一覧 */
 async function fetchList(reset=false){
   if(state.busy) return; state.busy = true;
   try{
@@ -100,185 +93,113 @@ async function fetchList(reset=false){
     if(!reset && state.next!=null) params.set("cursor", state.next);
     params.set("limit","20");
 
-    const data = await getJSON(API_LIST.map(u=> `${u}?${params.toString()}`));
-    if(reset){ state.items = []; $("#list").innerHTML = ""; }
+    const data = await getJSON(API_LIST.map(u=>`${u}?${params.toString()}`));
+    if(reset){ state.items=[]; $("#list").innerHTML=""; }
     state.items = state.items.concat(data.items);
     state.next = data.next_cursor;
-
-    $("#hit") && ($("#hit").textContent = `${state.items.length}${state.next!=null? "+":""}件`);
+    $("#hit") && ($("#hit").textContent=`${state.items.length}${state.next!=null?"+":""}件`);
     paint(data.items);
-    $("#more").hidden = (state.next == null);
+    $("#more").hidden = (state.next==null);
   }catch(e){
-    console.error("[fetchList]", e);
+    console.error(e);
     toast("読み込みに失敗しました");
-  }finally{
-    state.busy=false;
-  }
+  }finally{ state.busy=false; }
 }
 
-/* ================== 描画・UI ================== */
-
 function paint(items){
-  const list = $("#list");
+  const list=$("#list");
   for(const it of items){
-    const cell = document.createElement("article");
-    cell.className = "cell";
-    cell.dataset.ticker = it.ticker;
-    cell.innerHTML = `
+    const cell=document.createElement("article");
+    cell.className="cell"; cell.dataset.ticker=it.ticker;
+    cell.innerHTML=`
       <div class="row" data-act="open">
         <div class="name">
-          <div class="line1">${(it.name||it.ticker)}（${it.ticker}）</div>
-          <div class="line2">${it.reason_summary || ""}</div>
+          <div class="line1">${it.name||it.ticker}（${it.ticker}）</div>
+          <div class="line2">${it.reason_summary||""}</div>
         </div>
         <div class="actions">
-          <div class="switch ${it.in_position? "on": ""}" data-act="toggle">
-            <span>${it.in_position? "IN":"OUT"}</span><i></i>
+          <div class="switch ${it.in_position?"on":""}" data-act="toggle">
+            <span>${it.in_position?"IN":"OUT"}</span><i></i>
           </div>
         </div>
-      </div>
-    `;
-    attachSwipe(cell, it.ticker);
+      </div>`;
+    attachSwipe(cell,it.ticker);
     list.appendChild(cell);
   }
 }
 
 /* スワイプで非表示 */
-function attachSwipe(cell, ticker){
-  let sx=0, dx=0, dragging=false;
-  cell.addEventListener("touchstart",(e)=>{ dragging=true; sx=e.touches[0].clientX; dx=0; },{passive:true});
-  cell.addEventListener("touchmove",(e)=>{
-    if(!dragging) return;
-    dx = e.touches[0].clientX - sx;
-    cell.style.transform = `translateX(${Math.max(-80, Math.min(80, dx))}px)`;
+function attachSwipe(cell,ticker){
+  let sx=0,dx=0,drag=false;
+  cell.addEventListener("touchstart",e=>{drag=true;sx=e.touches[0].clientX;dx=0;},{passive:true});
+  cell.addEventListener("touchmove",e=>{
+    if(!drag)return;
+    dx=e.touches[0].clientX-sx;
+    cell.style.transform=`translateX(${Math.max(-80,Math.min(80,dx))}px)`;
   },{passive:true});
-  cell.addEventListener("touchend", async ()=>{
-    if(!dragging) return; dragging=false;
-    if(dx < -60){
-      try{
-        const res = await archiveTicker(ticker);
-        toast(res.id ? "非表示にしました" : "すでに非表示でした"); // ← 既アーカイブ表示
-        await fetchList(true); // DB確定状態で再取得
-      }catch(err){
-        console.error("[archive swipe] error:", err);
-        toast("失敗しました");
-        cell.style.transform = "translateX(0)";
-      }
-    }else{
-      cell.style.transform = "translateX(0)";
-    }
+  cell.addEventListener("touchend",async()=>{
+    if(!drag)return;drag=false;
+    if(dx<-60){ await archiveTicker(ticker); }
+    cell.style.transform="translateX(0)";
   });
 }
 
-/* ボトムシート */
-function openSheet(item){
-  state.current = item;
-  const sheet = $("#sheet");
-  const body  = sheet.querySelector(".sheet-body");
-
-  const applyBottom = ()=>{ body.style.bottom = computeBottomOffsetPx() + "px"; };
-  applyBottom();
-  body.style.height = "62vh";
-
-  __sheetViewportHandler = ()=> applyBottom();
-  if (window.visualViewport){
-    window.visualViewport.addEventListener("resize", __sheetViewportHandler);
-  }
-
-  $("#sh-title").textContent = `${item.name||item.ticker}（${item.ticker}）`;
-  $("#sh-theme").textContent = item.theme_label ? `#${item.theme_label} ${Math.round(item.theme_score*100)}点` : "";
-  $("#sh-ai").textContent = item.ai_win_prob ? `AI ${Math.round(item.ai_win_prob*100)}%` : "";
-  $("#sh-reasons").innerHTML = (item.reason_details||[]).map(r=>`<li>・${r}</li>`).join("") || "<li>理由なし</li>";
-  $("#sh-tp").textContent = item.target_tp ? `🎯 ${item.target_tp}` : "🎯 —";
-  $("#sh-sl").textContent = item.target_sl ? `🛑 ${item.target_sl}` : "🛑 —";
-  $("#sh-note").value = item.note || "";
-
-  sheet.hidden = false; sheet.setAttribute("aria-hidden","false");
+/* 詳細シート */
+function openSheet(it){
+  state.current=it;
+  const sh=$("#sheet"),body=sh.querySelector(".sheet-body");
+  body.style.bottom=computeBottomOffsetPx()+"px";
+  body.style.height="62vh";
+  $("#sh-title").textContent=`${it.name||it.ticker}（${it.ticker}）`;
+  $("#sh-theme").textContent=it.theme_label?`#${it.theme_label} ${Math.round(it.theme_score*100)}点`:"";
+  $("#sh-ai").textContent=it.ai_win_prob?`AI ${Math.round(it.ai_win_prob*100)}%`:"";
+  $("#sh-reasons").innerHTML=(it.reason_details||[]).map(r=>`<li>・${r}</li>`).join("")||"<li>理由なし</li>";
+  $("#sh-tp").textContent=it.target_tp?`🎯 ${it.target_tp}`:"🎯 —";
+  $("#sh-sl").textContent=it.target_sl?`🛑 ${it.target_sl}`:"🛑 —";
+  $("#sh-note").value=it.note||"";
+  sh.hidden=false;
 }
 
+/* 閉じる */
 function closeSheet(){
-  const sheet = $("#sheet");
-  const body  = sheet.querySelector(".sheet-body");
-  if (window.visualViewport && __sheetViewportHandler){
-    window.visualViewport.removeEventListener("resize", __sheetViewportHandler);
-  }
-  __sheetViewportHandler = null;
-  body.style.bottom = "";
-  sheet.hidden = true; sheet.setAttribute("aria-hidden","true");
-  state.current = null;
+  $("#sheet").hidden=true;
+  state.current=null;
 }
 
-/* クリック */
-document.addEventListener("click", async (e)=>{
-  const row = e.target.closest(".row"); 
-  const sw  = e.target.closest(".switch");
-
-  // IN/OUT トグル
+/* イベント */
+document.addEventListener("click",async e=>{
+  const sw=e.target.closest(".switch");
+  const row=e.target.closest(".row");
   if(sw){
-    const cell = sw.closest(".cell"); const t = cell.dataset.ticker;
-    const next = !sw.classList.contains("on");
-    sw.classList.toggle("on", next);
-    sw.querySelector("span").textContent = next? "IN":"OUT";
-    try{
-      await toggleInPosition(t, next);
-      toast(next?"INにしました":"OUTにしました");
-    }catch(err){
-      console.error("[toggle]", err);
-      sw.classList.toggle("on", !next);
-      sw.querySelector("span").textContent = !next? "IN":"OUT";
-      toast("失敗しました");
-    }
+    const cell=sw.closest(".cell");const t=cell.dataset.ticker;
+    const next=!sw.classList.contains("on");
+    sw.classList.toggle("on",next);
+    sw.querySelector("span").textContent=next?"IN":"OUT";
+    await toggleInPosition(t,next);
     return;
   }
-
-  // rowクリック → 詳細
   if(row){
-    const t = row.closest(".cell").dataset.ticker;
-    const item = state.items.find(x=>x.ticker===t);
-    if(item) openSheet(item);
+    const t=row.closest(".cell").dataset.ticker;
+    const it=state.items.find(x=>x.ticker===t);
+    if(it) openSheet(it);
     return;
   }
-
-  // シート閉じる
-  if(e.target.id==="sh-close"){ closeSheet(); return; }
-
-  // シート：非表示
-  if(e.target.id==="sh-hide" && state.current){
-    if(__hiding) return;
-    __hiding = true;
+  if(e.target.id==="sh-close"){closeSheet();return;}
+  if(e.target.id==="sh-hide"&&state.current){await archiveTicker(state.current.ticker);closeSheet();return;}
+  if(e.target.id==="sh-save"&&state.current){
     try{
-      const res = await archiveTicker(state.current.ticker);
-      toast(res.id ? "非表示にしました" : "すでに非表示でした");
-      closeSheet();
-      await fetchList(true);
-    }catch(err){
-      console.error("[archive sheet] error:", err);
-      toast("失敗しました");
-    }finally{
-      __hiding = false;
-    }
-    return;
-  }
-
-  // シート：保存
-  if(e.target.id==="sh-save" && state.current){
-    try{
-      const note = $("#sh-note").value;
-      await postJSON(API_UPSERT, {ticker: state.current.ticker, note});
-      state.current.note = note;
-      toast("メモを保存しました");
-    }catch(err){
-      console.error("[save note]", err);
-      toast("保存に失敗しました");
-    }
-    return;
+      const note=$("#sh-note").value;
+      await postJSON(API_UPSERT,{ticker:state.current.ticker,note});
+      toast("保存しました");
+    }catch(e){toast("保存失敗");}
   }
 });
 
 /* 検索 */
-$("#q").addEventListener("input", ()=>{
-  state.q = $("#q").value.trim();
+$("#q").addEventListener("input",()=>{
+  state.q=$("#q").value.trim();
   clearTimeout(window.__qtimer);
-  window.__qtimer = setTimeout(()=> fetchList(true), 250);
+  window.__qtimer=setTimeout(()=>fetchList(true),250);
 });
-$("#more").addEventListener("click", ()=> fetchList(false));
-document.addEventListener("DOMContentLoaded", ()=> fetchList(true));
+$("#more").addEventListener("click",()=>fetchList(false));
+document.addEventListener("DOMContentLoaded",()=>fetchList(true));
