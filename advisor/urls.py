@@ -13,5 +13,5 @@ urlpatterns = [
     path("api/watch/list/",    watch_api.watch_list,    name="advisor_watch_list"),
     path("api/watch/upsert/",  watch_api.watch_upsert,  name="advisor_watch_upsert"),
     path("api/watch/archive/", watch_api.watch_archive, name="advisor_watch_archive"),
-    
+        
 ]
