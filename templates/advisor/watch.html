@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}ウォッチリスト{% endblock %}
+
+{% block content %}
+<header class="adv-header">
+  <div class="wrap">
+    <h1 class="ttl">📝 ウォッチリスト</h1>
+    <div class="search">
+      <input id="q" type="search" placeholder="銘柄名・コードで検索" autocomplete="off" />
+    </div>
+  </div>
+</header>
+
+<main class="container">
+  <section id="list" class="list" aria-live="polite"></section>
+  <button id="more" class="btn more" hidden>もっと見る</button>
+</main>
+
+<link rel="stylesheet" href="{% static 'advisor/watch.css' %}?v=1" />
+<script src="{% static 'advisor/watch.js' %}?v=1"></script>
+{% endblock %}
