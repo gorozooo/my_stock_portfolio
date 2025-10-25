@@ -1,67 +1,91 @@
-console.log("[watch.js] v4 loaded");
+console.log("[watch.js] v5 loaded");
 const $ = s => document.querySelector(s);
 let state = { q:"", items:[], next:null, busy:false, current:null };
 let __sheetViewportHandler = null;
 let __hiding = false; // 二重押しガード
 
+/* ================= 共通ユーティリティ ================= */
+
 function csrf(){
   const m = document.cookie.match(/csrftoken=([^;]+)/);
   return m ? m[1] : "";
 }
+
 function toast(msg){
   const t=document.createElement("div");
   t.className="toast";
   t.textContent=msg;
   document.body.appendChild(t);
   requestAnimationFrame(()=> t.style.opacity="1");
-  setTimeout(()=>{
-    t.style.opacity="0";
-    setTimeout(()=>t.remove(),250);
-  },1800);
+  setTimeout(()=>{ t.style.opacity="0"; setTimeout(()=>t.remove(),250); },1800);
 }
 
-/* ===== 端末の下UIを避けるための安全オフセットを計算 ===== */
+/* 端末の下UIを避ける安全オフセット */
 function computeBottomOffsetPx(){
   let inset = 0;
   if (window.visualViewport){
-    const diff = window.innerHeight - window.visualViewport.height; // キーボード/ホームバー等の食い込み
+    const diff = window.innerHeight - window.visualViewport.height;
     inset = Math.max(0, Math.round(diff));
   }
-  // 固定タブぶん + 余白（iOSのSafariのUIも考慮）
-  return inset + 120; // ←必要に応じて120〜140で調整可
+  return inset + 120; // 下タブ + 余白
 }
 
-/* ===== 非表示API ===== */
-async function archiveTicker(ticker){
-  const res = await fetch("/advisor/api/watch/archive/", {
-    method:"POST",
-    headers: {"Content-Type":"application/json","X-CSRFToken": csrf()},
-    body: JSON.stringify({ticker})
-  });
-  const text = await res.text();
-  let data = {};
-  try { data = JSON.parse(text); } catch(_) {}
-  if(!res.ok || !data.ok){
-    const msg = data.error || `HTTP ${res.status} ${text}`;
-    throw new Error(msg);
+/* ====== フェッチ（404ならフォールバックURLを順に試す） ====== */
+async function getJSON(urls){  // urls: string[]
+  let lastErr;
+  for(const url of urls){
+    try{
+      const res = await fetch(url, {credentials:"same-origin"});
+      if(res.status === 404) { lastErr = new Error("404 Not Found"); continue; }
+      const data = await res.json();
+      if(!res.ok || data.ok === false){ throw new Error(data.error || `HTTP ${res.status}`); }
+      return data;
+    }catch(e){ lastErr = e; }
   }
-  return data;
+  throw lastErr || new Error("request failed");
 }
 
-/* ===== IN/OUT トグル ===== */
+async function postJSON(urls, body){ // urls: string[]
+  let lastText="", lastStatus=0;
+  for(const url of urls){
+    try{
+      const res = await fetch(url, {
+        method:"POST",
+        headers: {"Content-Type":"application/json","X-CSRFToken": csrf()},
+        body: JSON.stringify(body)
+      });
+      lastStatus = res.status;
+      const text = await res.text(); lastText = text;
+      if(res.status === 404) { continue; } // フォールバックへ
+      let data={}; try{ data = JSON.parse(text); }catch(_){}
+      if(!res.ok || data.ok === false){
+        throw new Error(data.error || `HTTP ${res.status} ${text}`);
+      }
+      return data;
+    }catch(e){
+      // 次のURLを試す
+    }
+  }
+  throw new Error(`HTTP ${lastStatus} ${lastText}`);
+}
+
+/* ================== APIラッパ（フォールバック順） ================== */
+
+const API_LIST    = ["/advisor/api/watch/list/",    "/advisor/watch/list/"];
+const API_UPSERT  = ["/advisor/api/watch/upsert/",  "/advisor/watch/upsert/"];
+const API_ARCHIVE = ["/advisor/api/watch/archive/", "/advisor/watch/archive/"];
+
+/* 非表示 */
+async function archiveTicker(ticker){
+  return await postJSON(API_ARCHIVE, {ticker});
+}
+
+/* IN/OUT トグル */
 async function toggleInPosition(ticker, on){
-  const res = await fetch("/advisor/api/watch/upsert/", {
-    method:"POST",
-    headers: {"Content-Type":"application/json","X-CSRFToken": csrf()},
-    body: JSON.stringify({ticker, in_position:on})
-  });
-  const text = await res.text();
-  let data={};
-  try{data=JSON.parse(text);}catch(_){}
-  if(!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return await postJSON(API_UPSERT, {ticker, in_position:on});
 }
 
-/* ===== 一覧取得 ===== */
+/* 一覧 */
 async function fetchList(reset=false){
   if(state.busy) return; state.busy = true;
   try{
@@ -70,9 +94,7 @@ async function fetchList(reset=false){
     if(!reset && state.next!=null) params.set("cursor", state.next);
     params.set("limit","20");
 
-    const res = await fetch(`/advisor/api/watch/list/?${params.toString()}`, {credentials:"same-origin"});
-    const data = await res.json();
-    if(!data.ok) throw new Error(data.error || "fetch error");
+    const data = await getJSON(API_LIST.map(u=> `${u}?${params.toString()}`));
     if(reset){ state.items = []; $("#list").innerHTML = ""; }
     state.items = state.items.concat(data.items);
     state.next = data.next_cursor;
@@ -88,7 +110,8 @@ async function fetchList(reset=false){
   }
 }
 
-/* ===== 一覧描画 ===== */
+/* ================== 描画・UI ================== */
+
 function paint(items){
   const list = $("#list");
   for(const it of items){
@@ -113,7 +136,7 @@ function paint(items){
   }
 }
 
-/* ===== スワイプ非表示 ===== */
+/* スワイプで非表示 */
 function attachSwipe(cell, ticker){
   let sx=0, dx=0, dragging=false;
   cell.addEventListener("touchstart",(e)=>{ dragging=true; sx=e.touches[0].clientX; dx=0; },{passive:true});
@@ -128,7 +151,7 @@ function attachSwipe(cell, ticker){
       try{
         await archiveTicker(ticker);
         toast("非表示にしました");
-        await fetchList(true); // 最新化
+        await fetchList(true); // DB確定状態で再取得
       }catch(err){
         console.error("[archive swipe] error:", err);
         toast("失敗しました");
@@ -140,17 +163,16 @@ function attachSwipe(cell, ticker){
   });
 }
 
-/* ===== bottom-sheet 開閉 ===== */
+/* ボトムシート */
 function openSheet(item){
   state.current = item;
   const sheet = $("#sheet");
   const body  = sheet.querySelector(".sheet-body");
 
-  // bottom位置を調整
   const applyBottom = ()=>{ body.style.bottom = computeBottomOffsetPx() + "px"; };
   applyBottom();
-
   body.style.height = "62vh";
+
   __sheetViewportHandler = ()=> applyBottom();
   if (window.visualViewport){
     window.visualViewport.addEventListener("resize", __sheetViewportHandler);
@@ -164,8 +186,7 @@ function openSheet(item){
   $("#sh-sl").textContent = item.target_sl ? `🛑 ${item.target_sl}` : "🛑 —";
   $("#sh-note").value = item.note || "";
 
-  sheet.hidden = false;
-  sheet.setAttribute("aria-hidden","false");
+  sheet.hidden = false; sheet.setAttribute("aria-hidden","false");
 }
 
 function closeSheet(){
@@ -176,12 +197,11 @@ function closeSheet(){
   }
   __sheetViewportHandler = null;
   body.style.bottom = "";
-  sheet.hidden = true;
-  sheet.setAttribute("aria-hidden","true");
+  sheet.hidden = true; sheet.setAttribute("aria-hidden","true");
   state.current = null;
 }
 
-/* ===== クリックイベント ===== */
+/* クリック */
 document.addEventListener("click", async (e)=>{
   const row = e.target.closest(".row"); 
   const sw  = e.target.closest(".switch");
@@ -237,13 +257,7 @@ document.addEventListener("click", async (e)=>{
   if(e.target.id==="sh-save" && state.current){
     try{
       const note = $("#sh-note").value;
-      const res = await fetch("/advisor/api/watch/upsert/", {
-        method:"POST",
-        headers: {"Content-Type":"application/json","X-CSRFToken": csrf()},
-        body: JSON.stringify({ticker: state.current.ticker, note})
-      });
-      const data = await res.json();
-      if(!data.ok) throw new Error(data.error || "save error");
+      await postJSON(API_UPSERT, {ticker: state.current.ticker, note});
       state.current.note = note;
       toast("メモを保存しました");
     }catch(err){
@@ -254,11 +268,12 @@ document.addEventListener("click", async (e)=>{
   }
 });
 
-/* ===== 検索 ===== */
+/* 検索 */
 $("#q").addEventListener("input", ()=>{
   state.q = $("#q").value.trim();
   clearTimeout(window.__qtimer);
   window.__qtimer = setTimeout(()=> fetchList(true), 250);
 });
 $("#more").addEventListener("click", ()=> fetchList(false));
+
 document.addEventListener("DOMContentLoaded", ()=> fetchList(true));
