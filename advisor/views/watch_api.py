@@ -9,6 +9,7 @@ from django.db.models import Q
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.utils.timezone import now
 from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.csrf import csrf_exempt  # ★ 追加
 
 from advisor.models import WatchEntry
 
@@ -19,6 +20,15 @@ def _no_store(resp: JsonResponse) -> JsonResponse:
     resp["Pragma"] = "no-cache"
     resp["Expires"] = "0"
     return resp
+
+
+def _ok(payload: dict) -> JsonResponse:
+    """no-store を常に付けて返すショートカット"""
+    return _no_store(JsonResponse(payload))
+
+
+def _err(msg: str, status: int = 400) -> JsonResponse:
+    return _no_store(JsonResponse({"ok": False, "error": msg}, status=status))
 
 
 # ===========================================================
@@ -65,17 +75,22 @@ def watch_list(request):
 
         next_cursor: Optional[int] = cursor + limit if len(qs) > limit else None
 
-        resp = JsonResponse({"ok": True, "items": items, "next_cursor": next_cursor})
-        return _no_store(resp)
+        print("[watch_list] user=", getattr(request.user, "id", None),
+              "q=", q, "cursor=", cursor, "len(items)=", len(items),
+              "next=", next_cursor)
+
+        return _ok({"ok": True, "items": items, "next_cursor": next_cursor})
 
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        print("[watch_list][ERROR]", repr(e))
+        return _err(str(e))
 
 
 # ===========================================================
 # UPSERT: IN/OUT トグルやメモ保存（冪等・重複吸収）
 # ===========================================================
 @login_required
+@csrf_exempt            # ★ CSRF免除（スマホでのPOST失敗を防ぐ）
 @require_POST
 @transaction.atomic
 def watch_upsert(request):
@@ -92,9 +107,8 @@ def watch_upsert(request):
         p = json.loads(request.body.decode("utf-8") or "{}")
         tkr = (p.get("ticker") or "").strip()
         if not tkr:
-            return HttpResponseBadRequest("ticker required")
+            return _err("ticker required", 400)
 
-        # 最新の1件を採用（存在しなければ新規）
         obj = (
             WatchEntry.objects.filter(user=request.user, ticker=tkr)
             .order_by("-updated_at", "-id")
@@ -111,7 +125,6 @@ def watch_upsert(request):
             )
             created = True
 
-        # 値の反映
         changed = False
         if "name" in p and p.get("name") is not None:
             new_name = p.get("name") or ""
@@ -129,7 +142,6 @@ def watch_upsert(request):
                 obj.in_position = new_in
                 changed = True
 
-        # 何らかの更新があり、かつ ARCHIVED なら ACTIVE に復帰
         if changed and obj.status == WatchEntry.STATUS_ARCHIVED:
             obj.status = WatchEntry.STATUS_ACTIVE
             changed = True
@@ -139,16 +151,23 @@ def watch_upsert(request):
             obj.save()
 
         status = "archived" if obj.status == WatchEntry.STATUS_ARCHIVED else "active"
-        return JsonResponse({"ok": True, "id": obj.id, "status": status})
+
+        print("[watch_upsert] user=", getattr(request.user, "id", None),
+              "ticker=", tkr, "created=", created, "changed=", changed,
+              "status=", status)
+
+        return _ok({"ok": True, "id": obj.id, "status": status})
 
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        print("[watch_upsert][ERROR]", repr(e))
+        return _err(str(e))
 
 
 # ===========================================================
 # ARCHIVE: 非表示（冪等・重複 ACTIVE をすべてアーカイブ）
 # ===========================================================
 @login_required
+@csrf_exempt            # ★ CSRF免除（スマホでのPOST失敗を防ぐ）
 @require_POST
 @transaction.atomic
 def watch_archive(request):
@@ -164,7 +183,7 @@ def watch_archive(request):
         p = json.loads(request.body.decode("utf-8") or "{}")
         tkr = (p.get("ticker") or "").strip()
         if not tkr:
-            return HttpResponseBadRequest("ticker required")
+            return _err("ticker required", 400)
 
         actives = WatchEntry.objects.filter(
             user=request.user, ticker=tkr, status=WatchEntry.STATUS_ACTIVE
@@ -173,16 +192,19 @@ def watch_archive(request):
         updated_count = actives.update(status=WatchEntry.STATUS_ARCHIVED, updated_at=now())
 
         if updated_count > 0:
-            # 代表ID（見つかったものの1つ）を返すだけ
             any_obj = (
                 WatchEntry.objects.filter(user=request.user, ticker=tkr)
                 .order_by("-updated_at", "-id")
                 .first()
             )
-            return JsonResponse({"ok": True, "status": "archived", "id": getattr(any_obj, "id", None)})
+            print("[watch_archive] user=", getattr(request.user, "id", None),
+                  "ticker=", tkr, "updated_count=", updated_count, "→ archived")
+            return _ok({"ok": True, "status": "archived", "id": getattr(any_obj, "id", None)})
 
-        # ACTIVEが無ければ既にアーカイブ済み
-        return JsonResponse({"ok": True, "status": "already_archived", "id": None})
+        print("[watch_archive] user=", getattr(request.user, "id", None),
+              "ticker=", tkr, "updated_count=0 → already_archived")
+        return _ok({"ok": True, "status": "already_archived", "id": None})
 
     except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        print("[watch_archive][ERROR]", repr(e))
+        return _err(str(e))
