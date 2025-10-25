@@ -1,11 +1,11 @@
-console.log("[watch.js] v2025-10-26a (ID-based, enriched UI) loaded");
+// static/advisor/watch.js
+console.log("[watch.js] v2025-10-26b exact Board reasons render");
 const $ = s => document.querySelector(s);
 
 let state = { q:"", items:[], next:null, busy:false, current:null };
 let __sheetViewportHandler = null;
 let __hiding = false;
 
-/* ----------- helpers ----------- */
 function csrf(){
   const m = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/);
   return m ? decodeURIComponent(m[1]) : "";
@@ -24,7 +24,7 @@ function computeBottomOffsetPx(){
     const diff = window.innerHeight - window.visualViewport.height;
     inset = Math.max(0, Math.round(diff));
   }
-  return inset + 120; // タブ分+α
+  return inset + 120;
 }
 async function getJSON(urls){
   let lastErr;
@@ -62,12 +62,11 @@ function postJSONWithTimeout(urls, body, ms=2500){
   ]);
 }
 
-/* ----------- API endpoints（両ルートをフォールバック） ----------- */
 const API_LIST    = ["/advisor/api/watch/list/",    "/advisor/watch/list/"];
 const API_UPSERT  = ["/advisor/api/watch/upsert/",  "/advisor/watch/upsert/"];
 const API_ARCHIVE = ["/advisor/api/watch/archive/", "/advisor/watch/archive/"];
 
-/* ----------- fetch & paint ----------- */
+/* ----------- list ----------- */
 async function fetchList(reset=false){
   if(state.busy) return; state.busy=true;
   try{
@@ -89,9 +88,15 @@ async function fetchList(reset=false){
   }catch(e){
     console.error(e);
     toast("読み込みに失敗しました");
-  }finally{
-    state.busy=false;
-  }
+  }finally{ state.busy=false; }
+}
+
+function firstReasonLineFromHTML(html){
+  if(!html) return "";
+  const tmp = document.createElement("div");
+  tmp.innerHTML = html;
+  const li = tmp.querySelector("li");
+  return li ? li.textContent.trim() : tmp.textContent.trim();
 }
 
 function paint(items){
@@ -99,18 +104,18 @@ function paint(items){
   for(const it of items){
     const cell=document.createElement("article");
     cell.className="cell";
-    cell.dataset.id = it.id;         // ★ IDを保持
-    cell.dataset.ticker = it.ticker; // 表示用
+    cell.dataset.id = it.id;
+    cell.dataset.ticker = it.ticker;
 
-    // 1行目：銘柄（コード）／2行目：理由サマリ
-    const themeTag = it.theme_label ? ` / #${it.theme_label} ${Math.round(it.theme_score*100)}点` : "";
-    const line2 = (it.reason_summary || "").trim();
+    // Boardと完全一致：line2に最初の箇条書きだけ抜粋表示（シートで全文）
+    const line2 = firstReasonLineFromHTML(it.reason_summary) || "理由メモなし";
+    const themeTag = it.theme_label ? ` / #${it.theme_label} ${Math.round((it.theme_score||0)*100)}点` : "";
 
     cell.innerHTML = `
       <div class="row" data-act="open" role="button" tabindex="0" aria-label="${it.name||it.ticker}の詳細を開く">
         <div class="name">
           <div class="line1">${(it.name||it.ticker)}（${it.ticker}）</div>
-          <div class="line2">${line2 || "理由メモなし"}${themeTag}</div>
+          <div class="line2">${line2}${themeTag}</div>
         </div>
         <div class="actions">
           <div class="switch ${it.in_position?"on":""}" data-act="toggle">
@@ -123,7 +128,7 @@ function paint(items){
   }
 }
 
-/* ----------- swipe-to-archive（IDベース） ----------- */
+/* ----------- swipe-to-archive ----------- */
 function attachSwipe(cell, id){
   let sx=0, dx=0, dragging=false;
   cell.addEventListener("touchstart",(e)=>{dragging=true;sx=e.touches[0].clientX;dx=0;},{passive:true});
@@ -156,11 +161,7 @@ async function archiveById(id){
   toast("整理しています…");
   try{
     const res = await postJSONWithTimeout(API_ARCHIVE, {id}, 2500);
-    if(res && res.ok){
-      toast(res.status === "archived" ? "非表示にしました" : "すでに非表示でした");
-    }else{
-      toast("処理に失敗しました");
-    }
+    toast(res && res.ok ? (res.status==="archived"?"非表示にしました":"すでに非表示でした") : "処理に失敗しました");
   }catch(e){
     console.warn("[archiveById]", e);
     toast("すでに非表示の可能性があります");
@@ -170,12 +171,11 @@ async function archiveById(id){
 async function toggleInPosition(id, on){
   try{
     const res = await postJSON(API_UPSERT, {id, in_position:on});
-    if(res.ok) toast(on?"INにしました":"OUTにしました");
-    else toast("失敗しました");
+    toast(res.ok ? (on?"INにしました":"OUTにしました") : "失敗しました");
   }catch(e){ console.error(e); toast("通信に失敗しました"); }
 }
 
-/* ----------- sheet（詳細） ----------- */
+/* ----------- sheet（Boardの理由HTMLをそのまま描画） ----------- */
 function openSheet(item){
   state.current = item;
   const sh=$("#sheet"), body=sh.querySelector(".sheet-body");
@@ -187,8 +187,14 @@ function openSheet(item){
   $("#sh-title").textContent = `${item.name||item.ticker}（${item.ticker}）`;
   $("#sh-theme").textContent = item.theme_label ? `#${item.theme_label} ${Math.round((item.theme_score||0)*100)}点` : "";
   $("#sh-ai").textContent = item.ai_win_prob ? `AI ${Math.round((item.ai_win_prob||0)*100)}%` : "";
-  const details = (item.reason_details||[]);
-  $("#sh-reasons").innerHTML = details.length ? details.map(r=>`<li>・${r}</li>`).join("") : `<li>・${item.reason_summary||"理由メモなし"}</li>`;
+
+  // ★ Boardと同じ理由HTMLをそのまま出す
+  const ul = document.createElement("ul");
+  ul.className = "reasons";
+  ul.innerHTML = item.reason_summary || "";   // ← HTMLそのまま
+  $("#sh-reasons").replaceWith(ul);
+  ul.id = "sh-reasons";
+
   $("#sh-tp").textContent = item.target_tp ? `🎯 ${item.target_tp}` : "🎯 —";
   $("#sh-sl").textContent = item.target_sl ? `🛑 ${item.target_sl}` : "🛑 —";
   $("#sh-note").value = item.note || "";
@@ -236,19 +242,14 @@ document.addEventListener("click", async (e)=>{
       const note=$("#sh-note").value;
       const res = await postJSON(API_UPSERT, {id: state.current.id, note});
       toast(res.ok ? "メモを保存しました" : "保存に失敗しました");
-      // 即一覧へ反映
       const idx = state.items.findIndex(x=>x.id===state.current.id);
       if(idx>=0){ state.items[idx].note = note; }
     }catch(err){ console.error(err); toast("保存に失敗しました"); }
   }
 });
-// メモのオートセーブ（離脱時）
 $("#sh-note").addEventListener("blur", async ()=>{
   if(!state.current) return;
-  try{
-    const note=$("#sh-note").value;
-    await postJSON(API_UPSERT, {id: state.current.id, note});
-  }catch(e){ /* silent */ }
+  try{ await postJSON(API_UPSERT, {id: state.current.id, note: $("#sh-note").value}); }catch(e){}
 });
 
 $("#q").addEventListener("input", ()=>{
@@ -257,5 +258,4 @@ $("#q").addEventListener("input", ()=>{
   window.__qtimer = setTimeout(()=> fetchList(true), 250);
 });
 $("#more").addEventListener("click", ()=> fetchList(false));
-
 document.addEventListener("DOMContentLoaded", ()=> fetchList(true));
