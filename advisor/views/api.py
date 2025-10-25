@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.timezone import now as dj_now
-from advisor.models import ActionLog, Reminder
+from advisor.models import ActionLog, Reminder, WatchEntry
 
 # JST
 JST = timezone(timedelta(hours=9))
@@ -105,7 +105,23 @@ def record_action(request):
             note=payload.get("note", ""),
         )
         _log("record_action saved id=", log.id)
+
+        # ---- 📝 ウォッチリスト対応（save_order のとき） ----
+        if user and payload.get("action") == "save_order":
+            WatchEntry.objects.update_or_create(
+                user=user,
+                ticker=payload.get("ticker", ""),
+                status=WatchEntry.STATUS_ACTIVE,
+                defaults={
+                    "name": payload.get("name", ""),
+                    "note": payload.get("note", ""),
+                    "in_position": False,
+                },
+            )
+            _log("record_action → WatchEntry upsert")
+
         return JsonResponse({"ok": True, "id": log.id})
+
     except Exception as e:
         _log("record_action ERROR:", repr(e))
         return JsonResponse({"ok": False, "error": str(e)}, status=400)
@@ -133,6 +149,7 @@ def create_reminder(request):
         )
         _log("create_reminder saved id=", r.id)
         return JsonResponse({"ok": True, "id": r.id, "fire_at": fire_at.isoformat()})
+
     except Exception as e:
         _log("create_reminder ERROR:", repr(e))
         return JsonResponse({"ok": False, "error": str(e)}, status=400)
