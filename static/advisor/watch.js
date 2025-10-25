@@ -1,11 +1,12 @@
 // static/advisor/watch.js
-console.log("[watch.js] v2025-10-26-EmbedBoardCard");
+console.log("[watch.js] v2025-10-26-InsetsFix");
 const $ = s => document.querySelector(s);
 
 let state = { q:"", items:[], next:null, busy:false, current:null };
 let __sheetViewportHandler = null;
 let __hiding = false;
 
+/* ---------- helpers ---------- */
 function csrf(){
   const m = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/);
   return m ? decodeURIComponent(m[1]) : "";
@@ -18,14 +19,17 @@ function toast(msg){
   requestAnimationFrame(()=> t.style.opacity="1");
   setTimeout(()=>{ t.style.opacity="0"; setTimeout(()=>t.remove(), 220); }, 1800);
 }
-function computeBottomOffsetPx(){
+/** 画面下側の安全オフセット(px)：ホームバー/下タブ/キーボードを考慮 */
+function computeBottomOffsetPx(extra=0){
   let inset = 0;
   if (window.visualViewport){
-    const diff = window.innerHeight - window.visualViewport.height;
+    const diff = window.innerHeight - window.visualViewport.height; // 下に食い込んだぶん
     inset = Math.max(0, Math.round(diff));
   }
-  return inset + 120;
+  // 端末のホームバー + アプリ下タブ分を十分に避ける固定オフセット
+  return inset + 140 + (extra||0);
 }
+/** fetch (GET) with 404 fallback */
 async function getJSON(urls){
   let lastErr;
   for(const url of urls){
@@ -39,6 +43,7 @@ async function getJSON(urls){
   }
   throw lastErr || new Error("request failed");
 }
+/** fetch (POST) with 404 fallback */
 async function postJSON(urls, body){
   for(const url of urls){
     try{
@@ -62,11 +67,12 @@ function postJSONWithTimeout(urls, body, ms=2500){
   ]);
 }
 
+/* ---------- API endpoints (1st: /advisor/api/*, fallback: /advisor/*) ---------- */
 const API_LIST    = ["/advisor/api/watch/list/",    "/advisor/watch/list/"];
 const API_UPSERT  = ["/advisor/api/watch/upsert/",  "/advisor/watch/upsert/"];
 const API_ARCHIVE = ["/advisor/api/watch/archive/", "/advisor/watch/archive/"];
 
-/* ----------- list ----------- */
+/* ---------- list ---------- */
 async function fetchList(reset=false){
   if(state.busy) return; state.busy=true;
   try{
@@ -127,7 +133,7 @@ function paint(items){
   }
 }
 
-/* ----------- swipe-to-archive ----------- */
+/* ---------- swipe-to-archive ---------- */
 function attachSwipe(cell, id){
   let sx=0, dx=0, dragging=false;
   cell.addEventListener("touchstart",(e)=>{dragging=true;sx=e.touches[0].clientX;dx=0;},{passive:true});
@@ -143,7 +149,7 @@ function attachSwipe(cell, id){
   });
 }
 
-/* ----------- archive / toggle ----------- */
+/* ---------- archive / toggle ---------- */
 function removeCellById(id){
   const cell = document.querySelector(`.cell[data-id="${id}"]`);
   if(cell){
@@ -174,18 +180,17 @@ async function toggleInPosition(id, on){
   }catch(e){ console.error(e); toast("通信に失敗しました"); }
 }
 
-/* ----------- Sheet：Boardカードをそのまま埋め込む ----------- */
+/* ---------- Sheet：Boardカードをそのまま埋め込む ---------- */
 function buildCardFromSavedHTML(item){
   // reason_summary には Boardカードの「中身HTML」を入れてある前提
-  // wrapperだけこちらで付与して完全再現
   const article = document.createElement("article");
   article.className = "card card--embed";
   article.innerHTML = item.reason_summary || "";
+  // シート内で下に余裕を持たせる
+  article.style.marginBottom = "12px";
   return article;
 }
-
 function fallbackBuildCard(item){
-  // 万一、旧データ（理由だけ）だった場合の保険
   const themeScore = Math.round((item.theme_score||0)*100);
   const actionText = item.action_text || "";
   const seg = item.segment || "";
@@ -210,50 +215,69 @@ function fallbackBuildCard(item){
       <div>AI信頼度：${aiStar}</div>
     </div>
     <div class="theme-tag">🏷️ ${(item.theme_label||"") || "テーマ"} ${themeScore}点</div>`;
+  wrap.style.marginBottom = "12px";
   return wrap;
+}
+
+/** シートの“下被り”を防ぐためのインセット適用（下余白&下位置） */
+function applySheetInsets(){
+  const shBody = document.querySelector("#sheet .sheet-body");
+  if(!shBody) return;
+  // シート自体を上に持ち上げる
+  const bottom = computeBottomOffsetPx();
+  shBody.style.bottom = bottom + "px";
+  // 内側のスクロール領域に十分な余白を確保（ボタン行＋安全領域ぶん）
+  const pad = computeBottomOffsetPx(80); // 80はボタン行の高さ分の目安
+  shBody.style.paddingBottom = pad + "px";
 }
 
 function openSheet(item){
   state.current = item;
   const sh=$("#sheet"), body=sh.querySelector(".sheet-body");
-  const apply=()=> body.style.bottom = computeBottomOffsetPx()+"px";
-  apply(); body.style.height="62vh";
-  __sheetViewportHandler = ()=> apply();
-  if(window.visualViewport){ window.visualViewport.addEventListener("resize", __sheetViewportHandler); }
 
-  $("#sh-title").textContent = `${item.name||item.ticker}（${item.ticker}）`;
-  $("#sh-theme").textContent = item.theme_label ? `#${item.theme_label} ${Math.round((item.theme_score||0)*100)}点` : "";
-  $("#sh-ai").textContent = item.ai_win_prob ? `AI ${Math.round((item.ai_win_prob||0)*100)}%` : "";
+  // 初期レイアウト
+  body.style.height="62vh";
+  body.style.overflow="auto";
 
-  // ★ Boardカード完全再現
-  const host = $("#sh-boardcard");
-  host.innerHTML = ""; // clear
+  // Boardカード完全再現
+  const host = $("#sh-boardcard"); host.innerHTML = "";
   let card;
   try{
     card = buildCardFromSavedHTML(item);
-    // 確認用に .buttons があれば削る（シート側でボタンは別）
-    const btns = card.querySelector(".buttons"); if(btns) btns.remove();
+    const btns = card.querySelector(".buttons"); if(btns) btns.remove(); // ボード用ボタンは削除
   }catch(_){
     card = fallbackBuildCard(item);
   }
   host.appendChild(card);
 
-  // メモ欄（従来通り）
+  // ヘッダー/補助情報
+  $("#sh-title").textContent = `${item.name||item.ticker}（${item.ticker}）`;
+  $("#sh-theme").textContent = item.theme_label ? `#${item.theme_label} ${Math.round((item.theme_score||0)*100)}点` : "";
+  $("#sh-ai").textContent = item.ai_win_prob ? `AI ${Math.round((item.ai_win_prob||0)*100)}%` : "";
   $("#sh-tp").textContent = item.target_tp ? `🎯 ${item.target_tp}` : "🎯 —";
   $("#sh-sl").textContent = item.target_sl ? `🛑 ${item.target_sl}` : "🛑 —";
   $("#sh-note").value = item.note || "";
 
+  // インセット反映（端末下タブ/ホームバー/KBに追従）
+  applySheetInsets();
+  __sheetViewportHandler = ()=> applySheetInsets();
+  if(window.visualViewport){ window.visualViewport.addEventListener("resize", __sheetViewportHandler); }
+
   sh.hidden=false; sh.setAttribute("aria-hidden","false");
 }
+
 function closeSheet(){
   const sh=$("#sheet"), body=sh.querySelector(".sheet-body");
-  if(window.visualViewport && __sheetViewportHandler){ window.visualViewport.removeEventListener("resize", __sheetViewportHandler); }
+  if(window.visualViewport && __sheetViewportHandler){
+    window.visualViewport.removeEventListener("resize", __sheetViewportHandler);
+  }
   __sheetViewportHandler=null;
-  body.style.bottom=""; sh.hidden=true; sh.setAttribute("aria-hidden","true");
+  body.style.bottom=""; body.style.paddingBottom="";
+  sh.hidden=true; sh.setAttribute("aria-hidden","true");
   state.current=null;
 }
 
-/* ----------- events ----------- */
+/* ---------- events ---------- */
 document.addEventListener("click", async (e)=>{
   const sw=e.target.closest(".switch");
   const row=e.target.closest(".row");
