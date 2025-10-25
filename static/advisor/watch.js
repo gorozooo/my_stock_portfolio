@@ -1,5 +1,5 @@
 // static/advisor/watch.js
-console.log("[watch.js] v2025-10-26b exact Board reasons render");
+console.log("[watch.js] v2025-10-26-EmbedBoardCard");
 const $ = s => document.querySelector(s);
 
 let state = { q:"", items:[], next:null, busy:false, current:null };
@@ -93,10 +93,10 @@ async function fetchList(reset=false){
 
 function firstReasonLineFromHTML(html){
   if(!html) return "";
-  const tmp = document.createElement("div");
-  tmp.innerHTML = html;
+  const tmp = document.createElement("div"); tmp.innerHTML = html;
   const li = tmp.querySelector("li");
-  return li ? li.textContent.trim() : tmp.textContent.trim();
+  if(li) return li.textContent.trim();
+  return tmp.textContent.trim();
 }
 
 function paint(items){
@@ -107,7 +107,6 @@ function paint(items){
     cell.dataset.id = it.id;
     cell.dataset.ticker = it.ticker;
 
-    // Boardと完全一致：line2に最初の箇条書きだけ抜粋表示（シートで全文）
     const line2 = firstReasonLineFromHTML(it.reason_summary) || "理由メモなし";
     const themeTag = it.theme_label ? ` / #${it.theme_label} ${Math.round((it.theme_score||0)*100)}点` : "";
 
@@ -175,7 +174,45 @@ async function toggleInPosition(id, on){
   }catch(e){ console.error(e); toast("通信に失敗しました"); }
 }
 
-/* ----------- sheet（Boardの理由HTMLをそのまま描画） ----------- */
+/* ----------- Sheet：Boardカードをそのまま埋め込む ----------- */
+function buildCardFromSavedHTML(item){
+  // reason_summary には Boardカードの「中身HTML」を入れてある前提
+  // wrapperだけこちらで付与して完全再現
+  const article = document.createElement("article");
+  article.className = "card card--embed";
+  article.innerHTML = item.reason_summary || "";
+  return article;
+}
+
+function fallbackBuildCard(item){
+  // 万一、旧データ（理由だけ）だった場合の保険
+  const themeScore = Math.round((item.theme_score||0)*100);
+  const actionText = item.action_text || "";
+  const seg = item.segment || "";
+  const reasonsHTML = item.reason_summary || (item.reason_details||[]).map(r=>`<li>・${r}</li>`).join("");
+  const aiStar = (()=> {
+    const w = Math.round((item.ai_win_prob||0)*5);
+    return "★★★★★☆☆☆☆☆".slice(5-w,10-w);
+  })();
+  const wrap = document.createElement("article");
+  wrap.className = "card card--embed";
+  wrap.innerHTML = `
+    <div class="title">${item.name||item.ticker} <span class="code">(${item.ticker})</span></div>
+    <div class="segment">${seg}</div>
+    <div class="action">${actionText}</div>
+    <ul class="reasons">${reasonsHTML}</ul>
+    <div class="targets">
+      <div class="target">🎯 ${item.target_tp||"—"}</div>
+      <div class="target">🛑 ${item.target_sl||"—"}</div>
+    </div>
+    <div class="ai-meter">
+      <div class="meter-bar"><i style="width:${Math.max(8, Math.round((item.ai_win_prob||0)*100))}%"></i></div>
+      <div>AI信頼度：${aiStar}</div>
+    </div>
+    <div class="theme-tag">🏷️ ${(item.theme_label||"") || "テーマ"} ${themeScore}点</div>`;
+  return wrap;
+}
+
 function openSheet(item){
   state.current = item;
   const sh=$("#sheet"), body=sh.querySelector(".sheet-body");
@@ -188,13 +225,20 @@ function openSheet(item){
   $("#sh-theme").textContent = item.theme_label ? `#${item.theme_label} ${Math.round((item.theme_score||0)*100)}点` : "";
   $("#sh-ai").textContent = item.ai_win_prob ? `AI ${Math.round((item.ai_win_prob||0)*100)}%` : "";
 
-  // ★ Boardと同じ理由HTMLをそのまま出す
-  const ul = document.createElement("ul");
-  ul.className = "reasons";
-  ul.innerHTML = item.reason_summary || "";   // ← HTMLそのまま
-  $("#sh-reasons").replaceWith(ul);
-  ul.id = "sh-reasons";
+  // ★ Boardカード完全再現
+  const host = $("#sh-boardcard");
+  host.innerHTML = ""; // clear
+  let card;
+  try{
+    card = buildCardFromSavedHTML(item);
+    // 確認用に .buttons があれば削る（シート側でボタンは別）
+    const btns = card.querySelector(".buttons"); if(btns) btns.remove();
+  }catch(_){
+    card = fallbackBuildCard(item);
+  }
+  host.appendChild(card);
 
+  // メモ欄（従来通り）
   $("#sh-tp").textContent = item.target_tp ? `🎯 ${item.target_tp}` : "🎯 —";
   $("#sh-sl").textContent = item.target_sl ? `🛑 ${item.target_sl}` : "🛑 —";
   $("#sh-note").value = item.note || "";
