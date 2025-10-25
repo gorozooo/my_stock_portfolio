@@ -1,4 +1,4 @@
-console.log("[watch.js] v5 loaded");
+console.log("[watch.js] v2025-10-25-csrffix loaded");
 const $ = s => document.querySelector(s);
 let state = { q:"", items:[], next:null, busy:false, current:null };
 let __sheetViewportHandler = null;
@@ -51,7 +51,11 @@ async function postJSON(urls, body){ // urls: string[]
     try{
       const res = await fetch(url, {
         method:"POST",
-        headers: {"Content-Type":"application/json","X-CSRFToken": csrf()},
+        credentials: "same-origin",                    // ★ Cookieを送る（CSRF用）
+        headers: {
+          "Content-Type":"application/json",
+          "X-CSRFToken": csrf()                        // ★ ヘッダ側も送る
+        },
         body: JSON.stringify(body)
       });
       lastStatus = res.status;
