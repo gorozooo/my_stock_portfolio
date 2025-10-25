@@ -4,13 +4,19 @@ from datetime import datetime, timezone, timedelta
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.timezone import now as dj_now
-from advisor.models import ActionLog, Reminder, WatchEntry  # ← WatchEntry を追加
+from advisor.models import ActionLog, Reminder, WatchEntry
 
 # JST
 JST = timezone(timedelta(hours=9))
 
 def _log(*args):
     print("[advisor.api]", *args)
+
+def _no_store(resp: JsonResponse) -> JsonResponse:
+    resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp["Pragma"] = "no-cache"
+    resp["Expires"] = "0"
+    return resp
 
 # =============== ボード（モック） ===============
 def board_api(request):
@@ -83,7 +89,7 @@ def board_api(request):
             },
         ],
     }
-    return JsonResponse(data, json_dumps_params={"ensure_ascii": False})
+    return _no_store(JsonResponse(data, json_dumps_params={"ensure_ascii": False}))
 
 # =============== ActionLog ===============
 @csrf_exempt
@@ -99,55 +105,41 @@ def record_action(request):
 
         log = ActionLog.objects.create(
             user=user,
-            ticker=payload.get("ticker", ""),
+            ticker=(payload.get("ticker") or "").strip(),
             policy_id=payload.get("policy_id", ""),
             action=payload.get("action", ""),
             note=payload.get("note", ""),
         )
         _log("record_action saved id=", log.id)
 
-        # ---- 📝 ウォッチリスト対応（save_order のとき：理由まで保存） ----
+        # ---- 📝 ウォッチリスト upsert（save_order のとき）----
         if user and payload.get("action") == "save_order":
-            # 受け取り：board.js から送ってくる追加項目
-            name = payload.get("name", "")
-            reasons = payload.get("reasons") or []           # list[str]
-            theme = (payload.get("theme") or {})             # {label, score}
-            ai = (payload.get("ai") or {})                   # {win_prob}
-            targets = (payload.get("targets") or {})         # {tp, sl}
-
-            reason_summary = " / ".join(reasons[:3])[:240] if reasons else ""
-            theme_label = str(theme.get("label") or "")
-            theme_score = float(theme.get("score") or 0.0)
-            ai_win_prob = float(ai.get("win_prob") or 0.0)
-            target_tp = str(targets.get("tp") or "")
-            target_sl = str(targets.get("sl") or "")
-
-            we, created = WatchEntry.objects.update_or_create(
+            tkr = (payload.get("ticker") or "").strip().upper()
+            # board.js から来た情報を“そのまま”保存
+            WatchEntry.objects.update_or_create(
                 user=user,
-                ticker=payload.get("ticker", ""),
+                ticker=tkr,
                 status=WatchEntry.STATUS_ACTIVE,
                 defaults={
-                    "name": name,
-                    "note": payload.get("note", ""),
+                    "name": payload.get("name", "") or "",
+                    "note": payload.get("note", "") or "",
+                    "reason_summary": payload.get("reason_summary", "") or "",
+                    "reason_details": payload.get("reason_details", []) or [],
+                    "theme_label": payload.get("theme_label", "") or "",
+                    "theme_score": payload.get("theme_score", None),
+                    "ai_win_prob": payload.get("ai_win_prob", None),
+                    "target_tp": payload.get("target_tp", "") or "",
+                    "target_sl": payload.get("target_sl", "") or "",
                     "in_position": False,
-                    "reason_summary": reason_summary,
-                    "reason_details": reasons,
-                    "theme_label": theme_label,
-                    "theme_score": theme_score,
-                    "ai_win_prob": ai_win_prob,
-                    "target_tp": target_tp,
-                    "target_sl": target_sl,
-                    "source": "board",
-                    "source_actionlog_id": log.id,
                 },
             )
-            _log("record_action → WatchEntry upsert", we.id, "created?", created)
+            _log("record_action → WatchEntry upsert (board reasons copied)")
 
-        return JsonResponse({"ok": True, "id": log.id})
+        return _no_store(JsonResponse({"ok": True, "id": log.id}))
 
     except Exception as e:
         _log("record_action ERROR:", repr(e))
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        return _no_store(JsonResponse({"ok": False, "error": str(e)}, status=400))
 
 # =============== Reminder ===============
 @csrf_exempt
@@ -166,28 +158,28 @@ def create_reminder(request):
 
         r = Reminder.objects.create(
             user=user,
-            ticker=payload.get("ticker", ""),
+            ticker=(payload.get("ticker") or "").strip().upper(),
             message=f"{payload.get('ticker','')} をもう一度チェック",
             fire_at=fire_at,
         )
         _log("create_reminder saved id=", r.id)
-        return JsonResponse({"ok": True, "id": r.id, "fire_at": fire_at.isoformat()})
+        return _no_store(JsonResponse({"ok": True, "id": r.id, "fire_at": fire_at.isoformat()}))
 
     except Exception as e:
         _log("create_reminder ERROR:", repr(e))
-        return JsonResponse({"ok": False, "error": str(e)}, status=400)
+        return _no_store(JsonResponse({"ok": False, "error": str(e)}, status=400))
 
 # =============== デバッグ用 ===============
 def ping(request):
     """200が返ればURLは生きている。"""
-    return JsonResponse({"ok": True, "now": dj_now().astimezone(JST).isoformat()})
+    return _no_store(JsonResponse({"ok": True, "now": dj_now().astimezone(JST).isoformat()}))
 
 @csrf_exempt
 def debug_add(request):
     """GETだけでActionLogを強制追加（切り分け用）"""
     log = ActionLog.objects.create(ticker="DEBUG.T", action="save_order", note="debug via GET")
     _log("debug_add saved id=", log.id)
-    return JsonResponse({"ok": True, "id": log.id})
+    return _no_store(JsonResponse({"ok": True, "id": log.id}))
 
 @csrf_exempt
 def debug_add_reminder(request):
@@ -198,4 +190,4 @@ def debug_add_reminder(request):
         fire_at=dj_now().astimezone(JST) + timedelta(minutes=1),
     )
     _log("debug_add_reminder saved id=", r.id)
-    return JsonResponse({"ok": True, "id": r.id})
+    return _no_store(JsonResponse({"ok": True, "id": r.id}))
