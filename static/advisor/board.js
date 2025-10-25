@@ -1,7 +1,7 @@
 // static/advisor/board.js
 const $ = (sel)=>document.querySelector(sel);
 
-console.log("[board.js] v2025-10-25-4 loaded"); // 読み替わり確認ログ
+console.log("[board.js] v2025-10-26-4 loaded"); // バージョン確認
 
 // ---- トーストの安全な下マージンを計算（端末の下インセット＋固定オフセット）----
 function computeToastBottomPx() {
@@ -10,7 +10,7 @@ function computeToastBottomPx() {
     const diff = window.innerHeight - window.visualViewport.height; // 下側の食い込み
     insetBottom = Math.max(0, Math.round(diff));
   }
-  const px = insetBottom + 140; // ← 下タブを確実に避ける固定オフセット（必要なら調整）
+  const px = insetBottom + 140; // ← 下タブを確実に避ける固定オフセット
   return px;
 }
 
@@ -108,26 +108,23 @@ async function postJSON(url, body){
     const item = data.highlights[idx]; const act = btn.dataset.act;
 
     try{
-      if(act === "save_order"){
-        // ← 理由・テーマ・AI・TP/SL も同梱して保存
+      if(act === "save_order" || act === "reject"){
+        // ★ 理由を board と“全く同じ内容”で保存
+        const reasonSummary = (item.reasons || []).join(" / ");
         await postJSON("/advisor/api/action/", {
-          action: "save_order",
+          action: act,
           ticker: item.ticker,
           policy_id: item.policy_id || "",
-          note: "",
-          name: item.name,
-          reasons: item.reasons || [],
-          theme: item.theme || {},          // {label, score}
-          ai: item.ai || {},                // {win_prob}
-          targets: item.targets || {},      // {tp, sl}
-        });
-        showToast(`${item.name}：記録しました`);
-      }else if(act === "reject"){
-        await postJSON("/advisor/api/action/", {
-          action: "reject",
-          ticker: item.ticker,
-          policy_id: item.policy_id || "",
-          note: ""
+          name: item.name || "",
+          // ↓↓↓ ウォッチ用の情報をそのまま渡す
+          reason_summary: reasonSummary,
+          reason_details: item.reasons || [],
+          theme_label: item.theme?.label || "",
+          theme_score: item.theme?.score ?? null,
+          ai_win_prob: item.ai?.win_prob ?? null,
+          target_tp: item.targets?.tp || "",
+          target_sl: item.targets?.sl || "",
+          note: ""   // 自分メモは後で編集
         });
         showToast(`${item.name}：記録しました`);
       }else if(act === "remind"){
@@ -145,12 +142,11 @@ async function postJSON(url, body){
   // ---- 修正版トースト：確実に下タブの上へ表示、フェード付き ----
   function showToast(msg){
     const t = document.createElement('div');
-    // 競合を避けるため、位置系プロパティを明示
     t.style.position = 'fixed';
     t.style.top = 'auto';
     t.style.left = '50%';
     t.style.transform = 'translateX(-50%)';
-    t.style.bottom = computeToastBottomPx() + 'px'; // ← 毎回計算して反映
+    t.style.bottom = computeToastBottomPx() + 'px';
     t.style.background = 'rgba(0,0,0,0.8)';
     t.style.color = '#fff';
     t.style.padding = '10px 16px';
@@ -163,17 +159,13 @@ async function postJSON(url, body){
 
     t.textContent = msg;
     document.body.appendChild(t);
-
-    // フェードイン
     requestAnimationFrame(()=> t.style.opacity = '1');
 
-    // 回転/キーボード出現などで可変時も追従
     const onViewport = ()=> { t.style.bottom = computeToastBottomPx() + 'px'; };
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', onViewport);
     }
 
-    // 自動消去
     setTimeout(()=>{
       t.style.opacity = '0';
       setTimeout(()=>{
