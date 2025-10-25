@@ -1,7 +1,6 @@
 // static/advisor/board.js
 const $ = (sel)=>document.querySelector(sel);
-
-console.log("[board.js] v2025-10-26-5 exact reason HTML save");
+console.log("[board.js] v2025-10-26-CardHTML");
 
 function computeToastBottomPx() {
   let insetBottom = 0;
@@ -19,10 +18,11 @@ async function postJSON(url, body){
 }
 
 (async function init(){
+  // ---- 取得 ----
   const res = await fetch(abs("/advisor/api/board/"));
   const data = await res.json();
 
-  // ヘッダー
+  // ---- ヘッダー ----
   const d = new Date(data.meta.generated_at);
   const w = ["日","月","火","水","木","金","土"][d.getDay()];
   $("#dateLabel").textContent = `${d.getFullYear()}年${String(d.getMonth()+1).padStart(2,"0")}月${String(d.getDate()).padStart(2,"0")}日（${w}）`;
@@ -31,7 +31,7 @@ async function postJSON(url, body){
   $("#trendBadge").textContent = `${trendText}（日経${data.meta.regime.nikkei} / TOPIX${data.meta.regime.topix}）`;
   $("#adherence").textContent = Math.round(data.meta.adherence_week*100) + "%";
 
-  // テーマTOP3
+  // ---- テーマTOP3 ----
   const strip = $("#themeStrip");
   data.theme.top3.forEach(t=>{
     const dotClass = t.score>=0.7? 'dot-strong' : t.score>=0.5? 'dot-mid' : 'dot-weak';
@@ -41,13 +41,13 @@ async function postJSON(url, body){
     strip.appendChild(span);
   });
 
-  // カード
+  // ---- カード ----
   const cards = $("#cards");
   const makeCard = (item, idx)=>{
     const themeScore = Math.round((item.theme?.score??0)*100);
     const themeLabel = item.theme?.label || "テーマ";
     const actionTone = /売|撤退/.test(item.action)? 'bad' : /様子見/.test(item.action)? 'warn' : 'good';
-    const reasonsHTML = (item.reasons||[]).map(r=>`<li>・${r}</li>`).join(""); // ← Board表示と同じHTML
+    const reasonsHTML = (item.reasons||[]).map(r=>`<li>・${r}</li>`).join("");
     const card = document.createElement('article');
     card.className='card'; card.dataset.idx = idx;
     card.innerHTML = `
@@ -74,7 +74,7 @@ async function postJSON(url, body){
   };
   data.highlights.slice(0,5).forEach((it,i)=>cards.appendChild(makeCard(it,i)));
 
-  // 並び替え
+  // ---- 並び替え ----
   let sorted = false;
   $("#reorderBtn").addEventListener("click", (e)=>{
     sorted = !sorted;
@@ -86,7 +86,7 @@ async function postJSON(url, body){
     cards.innerHTML=''; list.forEach((it,i)=>cards.appendChild(makeCard(it,i)));
   });
 
-  // アクション
+  // ---- アクション（保存時：カードHTMLをそのまま保存） ----
   document.addEventListener("click", async (ev)=>{
     const btn = ev.target.closest("button.btn"); if(!btn) return;
     const card = btn.closest(".card"); const idx = Number(card?.dataset?.idx??0);
@@ -94,15 +94,19 @@ async function postJSON(url, body){
 
     try{
       if(act === "save_order" || act === "reject"){
-        // ★ Boardの理由HTMLを“そのまま”保存
-        const reasonsHTML = card.querySelector(".reasons")?.innerHTML || (item.reasons||[]).map(r=>`<li>・${r}</li>`).join("");
+        // ★ Boardカードの“中身HTML”を丸ごと取得
+        const fullCardInnerHTML = card.innerHTML; // wrapperはwatch側で付ける
         await postJSON("/advisor/api/action/", {
           action: act,
           ticker: item.ticker,
           policy_id: item.policy_id || "",
           name: item.name || "",
-          reason_summary: reasonsHTML,            // ← HTMLそのまま
-          reason_details: item.reasons || [],     // 予備（テキスト配列）
+          // === ここがポイント：カード見た目をそのまま保存 ===
+          reason_summary: fullCardInnerHTML,     // ← もう「理由だけ」ではなくカード全体の中身
+          reason_details: item.reasons || [],
+          // 補助フィールド（再構成の保険）
+          segment: item.segment || "",
+          action_text: item.action || "",
           theme_label: item.theme?.label || "",
           theme_score: item.theme?.score ?? null,
           ai_win_prob: item.ai?.win_prob ?? null,
