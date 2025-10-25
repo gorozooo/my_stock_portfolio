@@ -64,6 +64,7 @@ def watch_list(request):
                 "ai_win_prob": float(getattr(w, "ai_win_prob", 0) or 0),
                 "target_tp": getattr(w, "target_tp", "") or "",
                 "target_sl": getattr(w, "target_sl", "") or "",
+                "added_at": (w.created_at.isoformat() if getattr(w, "created_at", None) else None),
             })
 
         next_cursor: Optional[int] = cursor + limit if len(qs) > limit else None
