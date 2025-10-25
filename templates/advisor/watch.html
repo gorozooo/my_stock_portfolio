@@ -34,7 +34,11 @@
     <!-- ★ Boardカードの中身HTMLをそのまま差し込む置き場 -->
     <div id="sh-boardcard" class="boardcard-host"></div>
 
-    
+    <!-- 目標/損切りはシートでも表示を維持（BoardHTMLと重複しないよう補助表示） -->
+    <div class="targets">
+      <div id="sh-tp" class="target">🎯 —</div>
+      <div id="sh-sl" class="target">🛑 —</div>
+    </div>
 
     <label class="memo-label" for="sh-note">自分メモ</label>
     <textarea id="sh-note" rows="4" placeholder="メモを書いて保存…"></textarea>
