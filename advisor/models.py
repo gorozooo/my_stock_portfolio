@@ -50,7 +50,19 @@ class WatchEntry(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     ticker = models.CharField(max_length=32)
     name = models.CharField(max_length=128, blank=True, default="")
-    note = models.CharField(max_length=255, blank=True, default="")
+    note = models.CharField(max_length=255, blank=True, default="")  # ← 自分メモ（手入力）
+
+    # ===== 追加：AI/提案由来の“理由”を保持 =====
+    reason_summary = models.CharField(max_length=255, blank=True, default="")  # 1行要約
+    reason_details = models.JSONField(blank=True, default=list)  # 箇条書きの配列
+    theme_label = models.CharField(max_length=64, blank=True, default="")
+    theme_score = models.FloatField(default=0.0)
+    ai_win_prob = models.FloatField(default=0.0)
+    target_tp = models.CharField(max_length=64, blank=True, default="")
+    target_sl = models.CharField(max_length=64, blank=True, default="")
+    source = models.CharField(max_length=16, blank=True, default="board")  # board / manual
+    source_actionlog_id = models.IntegerField(null=True, blank=True)
+
     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
     in_position = models.BooleanField(default=False)  # IN/OUT トグル
 
