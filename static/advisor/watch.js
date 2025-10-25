@@ -1,4 +1,4 @@
-console.log("[watch.js] v6 loaded");
+console.log("[watch.js] v2025-10-25-already-archived handled");
 const $ = s => document.querySelector(s);
 let state = { q:"", items:[], next:null, busy:false, current:null };
 let __sheetViewportHandler = null;
@@ -51,10 +51,10 @@ async function postJSON(urls, body){ // urls: string[]
     try{
       const res = await fetch(url, {
         method:"POST",
-        credentials: "same-origin",                    // ★ Cookieを送る（CSRF用）
+        credentials: "same-origin",
         headers: {
           "Content-Type":"application/json",
-          "X-CSRFToken": csrf()                        // ★ ヘッダ側も送る
+          "X-CSRFToken": csrf()
         },
         body: JSON.stringify(body)
       });
@@ -79,9 +79,11 @@ const API_LIST    = ["/advisor/api/watch/list/",    "/advisor/watch/list/"];
 const API_UPSERT  = ["/advisor/api/watch/upsert/",  "/advisor/watch/upsert/"];
 const API_ARCHIVE = ["/advisor/api/watch/archive/", "/advisor/watch/archive/"];
 
-/* 非表示 */
+/* 非表示（既に非表示でも成功扱いにしてUI更新） */
 async function archiveTicker(ticker){
-  return await postJSON(API_ARCHIVE, {ticker});
+  const data = await postJSON(API_ARCHIVE, {ticker});
+  // data: {ok:true, id: number|null}
+  return data; // UI側で id===null を「既に非表示」として扱う
 }
 
 /* IN/OUT トグル */
@@ -153,8 +155,8 @@ function attachSwipe(cell, ticker){
     if(!dragging) return; dragging=false;
     if(dx < -60){
       try{
-        await archiveTicker(ticker);
-        toast("非表示にしました");
+        const res = await archiveTicker(ticker);
+        toast(res.id ? "非表示にしました" : "すでに非表示でした"); // ← 既アーカイブ表示
         await fetchList(true); // DB確定状態で再取得
       }catch(err){
         console.error("[archive swipe] error:", err);
@@ -244,8 +246,8 @@ document.addEventListener("click", async (e)=>{
     if(__hiding) return;
     __hiding = true;
     try{
-      await archiveTicker(state.current.ticker);
-      toast("非表示にしました");
+      const res = await archiveTicker(state.current.ticker);
+      toast(res.id ? "非表示にしました" : "すでに非表示でした");
       closeSheet();
       await fetchList(true);
     }catch(err){
@@ -279,5 +281,4 @@ $("#q").addEventListener("input", ()=>{
   window.__qtimer = setTimeout(()=> fetchList(true), 250);
 });
 $("#more").addEventListener("click", ()=> fetchList(false));
-
 document.addEventListener("DOMContentLoaded", ()=> fetchList(true));
