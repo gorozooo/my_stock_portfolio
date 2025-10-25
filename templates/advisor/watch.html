@@ -8,6 +8,7 @@
     <h1 class="ttl">📝 ウォッチリスト</h1>
     <div class="search">
       <input id="q" type="search" placeholder="銘柄名・コードで検索" autocomplete="off" />
+      <span id="hit" class="hit"></span>
     </div>
   </div>
 </header>
@@ -17,6 +18,32 @@
   <button id="more" class="btn more" hidden>もっと見る</button>
 </main>
 
-<link rel="stylesheet" href="{% static 'advisor/watch.css' %}?v=1" />
-<script src="{% static 'advisor/watch.js' %}?v=1"></script>
+<!-- 詳細シート -->
+<div id="sheet" class="sheet" hidden aria-hidden="true">
+  <div class="sheet-body">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="sh-title"></div>
+    <div class="sheet-tags">
+      <span id="sh-theme" class="tag"></span>
+      <span id="sh-ai" class="tag"></span>
+    </div>
+    <ul id="sh-reasons" class="reasons"></ul>
+    <div class="targets">
+      <div id="sh-tp" class="target">🎯 —</div>
+      <div id="sh-sl" class="target">🛑 —</div>
+    </div>
+    <div class="memos">
+      <label>自分メモ</label>
+      <textarea id="sh-note" rows="3" placeholder="メモを書いて保存…"></textarea>
+      <button id="sh-save" class="btn primary">保存</button>
+    </div>
+    <div class="sheet-actions">
+      <button id="sh-hide" class="btn warn">非表示にする</button>
+      <button id="sh-close" class="btn">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<link rel="stylesheet" href="{% static 'advisor/watch.css' %}?v=2" />
+<script src="{% static 'advisor/watch.js' %}?v=2"></script>
 {% endblock %}
