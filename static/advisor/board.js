@@ -25,9 +25,9 @@ async function postJSON(url, body){
 function guessWeekTrend(item){
   // 1) 本番時は item.ta?.week_trend を優先（"up"|"flat"|"down"）
   const raw = item?.ta?.week_trend;
-  if (raw === "up")   return {label:"上向き", icon:"📈", cls:"wk-up"};
+  if (raw === "up")   return {label:"上向き", icon:"↗️", cls:"wk-up"};
   if (raw === "flat") return {label:"横ばい", icon:"➡️", cls:"wk-flat"};
-  if (raw === "down") return {label:"下向き", icon:"📉", cls:"wk-down"};
+  if (raw === "down") return {label:"下向き", icon:"↘️", cls:"wk-down"};
 
   // 2) デモ用：action 文言からざっくり推定
   const a = (item?.action || "");
