@@ -51,18 +51,15 @@
 #sh-note{width:100%;border-radius:12px;border:1px solid var(--panel-strong);background:var(--panel);padding:10px 12px;color:var(--text)}
 
 /* 下部操作を常に見えるように固定（かつ安全域を確保） */
-.sheet-actions{
-  position: sticky;
-  /* ← ここを小さくすると“下”に寄る。まずは +8px で様子見、もっと下げたいなら 0 に */
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 0px);
-
+.sheet-actions {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 45px); /* ← 下タブぶん上に */
+  left: 0;
+  right: 0;
   display: flex;
   gap: 10px;
-  margin-top: 12px;
-
-  /* 下側の余白を小さく（=さらに下へ） */
-  padding: 8px 0;
-
+  justify-content: space-around;
+  padding: 12px 16px;
   background: linear-gradient(180deg, transparent, rgba(11,15,26,.95) 35%);
   backdrop-filter: blur(6px);
   z-index: 50;
