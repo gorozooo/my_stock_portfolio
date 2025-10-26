@@ -231,16 +231,17 @@ def record_action(request):
             action=payload.get("action", "") or "",
             note=payload.get("note", "") or "",
         )
-        _log("record_action saved id=", log.id)
 
-        # 「メモする」→ WatchEntry upsert
+        # --- Boardの内容を WatchEntry に“そのまま”反映 ---
         if payload.get("action") == "save_order":
             tkr = (payload.get("ticker") or "").strip().upper()
+
             WatchEntry.objects.update_or_create(
                 user=user,
                 ticker=tkr,
                 status=WatchEntry.STATUS_ACTIVE,
                 defaults={
+                    # 表示テキスト
                     "name": payload.get("name", "") or "",
                     "note": payload.get("note", "") or "",
                     "reason_summary": payload.get("reason_summary", "") or "",
@@ -250,22 +251,25 @@ def record_action(request):
                     "ai_win_prob": payload.get("ai_win_prob", None),
                     "target_tp": payload.get("target_tp", "") or "",
                     "target_sl": payload.get("target_sl", "") or "",
-                    # 追加保管
+
+                    # ★ Boardカードを再現するための追加フィールド
+                    "segment": payload.get("segment", "") or "",
+                    "action_text": payload.get("action_text", "") or "",   # ← “行動：〇〇” の文言
                     "overall_score": payload.get("overall_score", None),
-                    "weekly_trend": payload.get("weekly_trend", "") or "",
+                    "weekly_trend": payload.get("weekly_trend", "") or "", # "up"|"flat"|"down"
                     "entry_price_hint": payload.get("entry_price_hint", None),
                     "tp_price": payload.get("tp_price", None),
                     "sl_price": payload.get("sl_price", None),
                     "tp_pct": payload.get("tp_pct", None),
                     "sl_pct": payload.get("sl_pct", None),
                     "position_size_hint": payload.get("position_size_hint", None),
+
+                    # 将来のトグル用
                     "in_position": False,
                 },
             )
-            _log("record_action → WatchEntry upsert (with reasons & numeric fields)")
 
         return _no_store(JsonResponse({"ok": True, "id": log.id}))
-
     except Exception as e:
         _log("record_action ERROR:", repr(e))
         return _no_store(JsonResponse({"ok": False, "error": str(e)}, status=400))
