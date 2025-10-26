@@ -149,9 +149,9 @@ def board_api(request):
 
         ext = {
             **it,
-            "weekly_trend": weekly,                 # ← board.js は code をそのまま表示（↗️等はJS側）
-            "overall_score": overall,               # ← 総合評価
-            "entry_price_hint": last,               # ← IN目安
+            "weekly_trend": weekly,                 # JS側で↗️等に整形
+            "overall_score": overall,               # 総合評価
+            "entry_price_hint": last,               # IN目安
             "targets": {
                 "tp": it.get("targets", {}).get("tp", f"目標 +{int(tp_pct*100)}%"),
                 "sl": it.get("targets", {}).get("sl", f"損切り -{int(sl_pct*100)}%"),
@@ -201,15 +201,12 @@ def record_action(request):
         raw = request.body.decode("utf-8") if request.body else "{}"
         payload = json.loads(raw or "{}")
 
-        # 未ログインは 401 を返す（board.js 側で表示を変える）
-        if not (hasattr(request, "user") and request.user and request.user.is_authenticated):
-            return _no_store(JsonResponse({"ok": False, "error": "auth_required"}, status=401))
-
-        user = request.user
+        user = request.user if getattr(request, "user", None) and request.user.is_authenticated else None
         _log("record_action payload=", payload, "user=", getattr(user, "username", None))
 
         def _do():
             with transaction.atomic():
+                # 認証の有無に関わらず ActionLog は保存（user は None 可）
                 log = ActionLog.objects.create(
                     user=user,
                     ticker=(payload.get("ticker") or "").strip().upper(),
@@ -217,8 +214,8 @@ def record_action(request):
                     action=payload.get("action", "") or "",
                     note=payload.get("note", "") or "",
                 )
-                # 「メモする」時は WatchEntry にもコピー
-                if payload.get("action") == "save_order":
+                # WatchEntry はログイン時のみ upsert
+                if user and payload.get("action") == "save_order":
                     tkr = (payload.get("ticker") or "").strip().upper()
                     WatchEntry.objects.update_or_create(
                         user=user,
@@ -234,7 +231,6 @@ def record_action(request):
                             "ai_win_prob": payload.get("ai_win_prob", None),
                             "target_tp": payload.get("target_tp", "") or "",
                             "target_sl": payload.get("target_sl", "") or "",
-                            # 追加保存（board.js から来る数値類）
                             "overall_score": payload.get("overall_score", None),
                             "weekly_trend": payload.get("weekly_trend", "") or "",
                             "entry_price_hint": payload.get("entry_price_hint", None),
@@ -249,7 +245,12 @@ def record_action(request):
                 return log
 
         log = _with_retry(_do)
-        return _no_store(JsonResponse({"ok": True, "id": log.id}))
+        # 未ログインでも 200 を返す（JS 側 postJSON が throw しない）
+        return _no_store(JsonResponse({
+            "ok": True,
+            "id": log.id,
+            "login_required_for_watch": (user is None)  # 参考情報（JS未使用でもOK）
+        }))
 
     except OperationalError as e:
         if "database is locked" in str(e).lower():
@@ -271,24 +272,27 @@ def create_reminder(request):
         raw = request.body.decode("utf-8") if request.body else "{}"
         payload = json.loads(raw or "{}")
 
-        if not (hasattr(request, "user") and request.user and request.user.is_authenticated):
-            return _no_store(JsonResponse({"ok": False, "error": "auth_required"}, status=401))
+        user = request.user if getattr(request, "user", None) and request.user.is_authenticated else None
 
-        user = request.user
         minutes = int(payload.get("after_minutes", 120))
         fire_at = datetime.now(JST) + timedelta(minutes=minutes)
 
         def _do():
             with transaction.atomic():
                 return Reminder.objects.create(
-                    user=user,
+                    user=user,  # None でも許容
                     ticker=(payload.get("ticker") or "").strip().upper(),
                     message=f"{payload.get('ticker','')} をもう一度チェック",
                     fire_at=fire_at,
                 )
 
         r = _with_retry(_do)
-        return _no_store(JsonResponse({"ok": True, "id": r.id, "fire_at": fire_at.isoformat()}))
+        return _no_store(JsonResponse({
+            "ok": True,
+            "id": r.id,
+            "fire_at": fire_at.isoformat(),
+            "login_required_for_associate": (user is None)
+        }))
 
     except OperationalError as e:
         if "database is locked" in str(e).lower():
