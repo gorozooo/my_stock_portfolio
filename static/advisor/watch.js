@@ -1,320 +1,220 @@
 // static/advisor/watch.js
-console.log("[watch.js] v2025-10-26-dupfix+addedAt");
-const $ = s => document.querySelector(s);
+const $ = (s)=>document.querySelector(s);
+const $$ = (s)=>document.querySelectorAll(s);
 
-let state = { q:"", items:[], next:null, busy:false, current:null };
-let __sheetViewportHandler = null;
-let __hiding = false;
+console.log("[watch.js] v2025-10-26 copy-board-card");
 
-/* ---------- helpers ---------- */
-function csrf(){
-  const m = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/);
-  return m ? decodeURIComponent(m[1]) : "";
-}
-function toast(msg){
-  const t = document.createElement("div");
-  t.className = "toast";
-  t.textContent = msg;
-  document.body.appendChild(t);
-  requestAnimationFrame(()=> t.style.opacity="1");
-  setTimeout(()=>{ t.style.opacity="0"; setTimeout(()=>t.remove(), 220); }, 1800);
-}
-function fmtDateTime(iso){
-  if(!iso) return "";
-  const d = new Date(iso);
+// ==== 共通ヘルパ ====
+function abs(path){ return new URL(path, location.origin).toString(); }
+function fmtDate(d){
   const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), da=String(d.getDate()).padStart(2,"0");
   const hh=String(d.getHours()).padStart(2,"0"), mm=String(d.getMinutes()).padStart(2,"0");
   return `${y}/${m}/${da} ${hh}:${mm}`;
 }
-/** 画面下側の安全オフセット(px)：ホームバー/下タブ/キーボードを考慮 */
-function computeBottomOffsetPx(extra=0){
-  let inset = 0;
-  if (window.visualViewport){
-    const diff = window.innerHeight - window.visualViewport.height;
-    inset = Math.max(0, Math.round(diff));
+function stars(prob01){
+  const s = Math.round((prob01 ?? 0) * 5);
+  return "★★★★★".slice(0,Math.min(5,Math.max(0,s))) + "☆☆☆☆☆".slice(0,5-Math.min(5,Math.max(0,s)));
+}
+function weeklyFrom(themeScore, winProb){
+  const score = 0.7*(winProb||0) + 0.3*(themeScore||0);
+  if(score>=0.62) return {icon:"↗️", label:"上向き", cls:"wk-up"};
+  if(score>=0.48) return {icon:"➡️", label:"横ばい", cls:"wk-flat"};
+  return {icon:"↘️", label:"下向き", cls:"wk-down"};
+}
+function overall(themeScore, winProb){
+  return Math.round((0.7*(winProb||0) + 0.3*(themeScore||0))*100);
+}
+function computeToastBottomPx(){
+  let inset=0;
+  if(window.visualViewport){
+    inset = Math.max(0, Math.round(window.innerHeight - window.visualViewport.height));
   }
-  return inset + 140 + (extra||0);
+  return inset + 140;
 }
-async function getJSON(urls){
-  let lastErr;
-  for(const url of urls){
-    try{
-      const res = await fetch(url, {credentials:"same-origin"});
-      if(res.status === 404) continue;
-      const data = await res.json();
-      if(!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
-      return data;
-    }catch(e){ lastErr = e; }
+function toast(msg){
+  const t=document.createElement("div");
+  t.style.position="fixed"; t.style.left="50%"; t.style.transform="translateX(-50%)";
+  t.style.bottom=computeToastBottomPx()+"px";
+  t.style.background="rgba(0,0,0,.85)"; t.style.color="#fff";
+  t.style.padding="10px 16px"; t.style.borderRadius="14px"; t.style.zIndex="9999";
+  t.style.opacity="0"; t.style.transition="opacity .25s";
+  t.textContent = msg; document.body.appendChild(t);
+  requestAnimationFrame(()=>t.style.opacity="1");
+  const onVV=()=> t.style.bottom=computeToastBottomPx()+"px";
+  if(window.visualViewport) window.visualViewport.addEventListener("resize", onVV);
+  setTimeout(()=>{ t.style.opacity="0"; setTimeout(()=>{ if(window.visualViewport) window.visualViewport.removeEventListener("resize", onVV); t.remove(); },250); },2000);
+}
+async function postJSON(url, body){
+  const r = await fetch(abs(url), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  if(!r.ok) throw new Error(`HTTP ${r.status} ${await r.text().catch(()=> "")}`);
+  return r.json();
+}
+
+// ==== リスト読み込み ====
+let cursor=0, limit=20, q="";
+let moreToken = null;
+let items = [];
+
+async function load(reset=false){
+  const url = new URL(abs("/advisor/api/watch/list/"));
+  url.searchParams.set("limit", String(limit));
+  url.searchParams.set("cursor", String(reset? 0 : (cursor||0)));
+  if(q) url.searchParams.set("q", q);
+
+  const res = await fetch(url.toString(), {headers:{"Cache-Control":"no-store"}});
+  const data = await res.json();
+
+  if(reset){ items=[]; $("#list").innerHTML=""; }
+  const got = data.items || [];
+  items.push(...got);
+  $("#hit").textContent = `${items.length}件`;
+
+  for(const w of got){
+    const li = document.createElement("div");
+    li.className = "watch-row";
+    li.innerHTML = `
+      <div class="row-title">
+        <span class="name">${w.name || w.ticker}</span>
+        <span class="code">${w.ticker}</span>
+      </div>
+      <div class="row-sub">${(w.reason_summary||"").replace(/\s*\/\s*/g," / ")}</div>
+      <button class="toggle ${w.in_position? "in":"out"}" aria-label="IN/OUT">${w.in_position? "IN":"OUT"}</button>
+    `;
+    li.addEventListener("click", ()=>{
+      openSheet(w);
+    });
+    $("#list").appendChild(li);
   }
-  throw lastErr || new Error("request failed");
-}
-async function postJSON(urls, body){
-  for(const url of urls){
-    try{
-      const res = await fetch(url, {
-        method:"POST", credentials:"same-origin",
-        headers: {"Content-Type":"application/json","X-CSRFToken": csrf()},
-        body: JSON.stringify(body)
-      });
-      if(res.status === 404) continue;
-      const data = await res.json();
-      if(!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      return data;
-    }catch(e){ /* try next url */ }
-  }
-  throw new Error("all failed");
-}
-function postJSONWithTimeout(urls, body, ms=2500){
-  return Promise.race([
-    postJSON(urls, body),
-    new Promise((_,rej)=> setTimeout(()=> rej(new Error("timeout")), ms))
-  ]);
-}
 
-/* ---------- API endpoints ---------- */
-const API_LIST    = ["/advisor/api/watch/list/",    "/advisor/watch/list/"];
-const API_UPSERT  = ["/advisor/api/watch/upsert/",  "/advisor/watch/upsert/"];
-const API_ARCHIVE = ["/advisor/api/watch/archive/", "/advisor/watch/archive/"];
-
-/* ---------- list ---------- */
-async function fetchList(reset=false){
-  if(state.busy) return; state.busy=true;
-  try{
-    const params = new URLSearchParams();
-    if(state.q) params.set("q", state.q);
-    if(!reset && state.next!=null) params.set("cursor", state.next);
-    params.set("limit","20");
-    const data = await getJSON(API_LIST.map(u=>`${u}?${params.toString()}`));
-
-    if(reset){ state.items=[]; $("#list").innerHTML=""; }
-    state.items = state.items.concat(data.items);
-    state.next  = data.next_cursor;
-
-    const hit=$("#hit");
-    if(hit) hit.textContent = `${state.items.length}${state.next!=null?"+":""}件`;
-
-    paint(data.items);
-    $("#more").hidden = (state.next==null);
-  }catch(e){
-    console.error(e);
-    toast("読み込みに失敗しました");
-  }finally{ state.busy=false; }
-}
-
-function firstReasonLineFromHTML(html){
-  if(!html) return "";
-  const tmp = document.createElement("div"); tmp.innerHTML = html;
-  const li = tmp.querySelector("li");
-  if(li) return li.textContent.trim();
-  return tmp.textContent.trim();
-}
-
-function paint(items){
-  const list=$("#list");
-  for(const it of items){
-    const cell=document.createElement("article");
-    cell.className="cell";
-    cell.dataset.id = it.id;
-    cell.dataset.ticker = it.ticker;
-
-    const line2 = firstReasonLineFromHTML(it.reason_summary) || "理由メモなし";
-    const themeTag = it.theme_label ? ` / #${it.theme_label} ${Math.round((it.theme_score||0)*100)}点` : "";
-    const added = it.added_at ? ` / 追加: ${fmtDateTime(it.added_at)}` : "";
-
-    cell.innerHTML = `
-      <div class="row" data-act="open" role="button" tabindex="0" aria-label="${it.name||it.ticker}の詳細を開く">
-        <div class="name">
-          <div class="line1">${(it.name||it.ticker)}（${it.ticker}）</div>
-          <div class="line2">${line2}${themeTag}${added}</div>
-        </div>
-        <div class="actions">
-          <div class="switch ${it.in_position?"on":""}" data-act="toggle">
-            <span>${it.in_position?"IN":"OUT"}</span><i></i>
-          </div>
-        </div>
-      </div>`;
-    attachSwipe(cell, it.id);
-    list.appendChild(cell);
+  moreToken = data.next_cursor;
+  const moreBtn = $("#more");
+  if(moreToken!=null){
+    moreBtn.hidden = false;
+    cursor = moreToken;
+  }else{
+    moreBtn.hidden = true;
   }
 }
 
-/* ---------- swipe-to-archive ---------- */
-function attachSwipe(cell, id){
-  let sx=0, dx=0, dragging=false;
-  cell.addEventListener("touchstart",(e)=>{dragging=true;sx=e.touches[0].clientX;dx=0;},{passive:true});
-  cell.addEventListener("touchmove",(e)=>{
-    if(!dragging) return;
-    dx=e.touches[0].clientX-sx;
-    cell.style.transform=`translateX(${Math.max(-80,Math.min(80,dx))}px)`;
-  },{passive:true});
-  cell.addEventListener("touchend",async()=>{
-    if(!dragging) return; dragging=false;
-    if(dx<-60){ await archiveById(id); }
-    cell.style.transform="translateX(0)";
-  });
+// ==== Board と同じカードHTMLを作る（できる限り同じクラス・構造）====
+function buildBoardLikeCard(w){
+  const themeScore = Math.round((w.theme_score||0)*100);
+  const wk = weeklyFrom(w.theme_score||0, w.ai_win_prob||0);
+  const o = overall(w.theme_score||0, w.ai_win_prob||0);
+  const aiStars = stars(w.ai_win_prob||0);
+  const themeLabel = w.theme_label || "テーマ";
+
+  // Board の .card 構造をほぼコピー
+  return `
+    <article class="card">
+      <div class="title">${w.name || ""} <span class="code">(${w.ticker})</span></div>
+      <div class="segment">週足：<span class="chip ${wk.cls}">${wk.icon} ${wk.label}</span></div>
+
+      <div class="overall-block">
+        <div class="overall">総合評価：<strong>${o}点</strong></div>
+        <div class="ai-confidence">AI信頼度：${aiStars}</div>
+      </div>
+
+      <div class="action good">行動：ウォッチ中</div>
+
+      <ul class="reasons">
+        ${(w.reason_details && w.reason_details.length
+            ? w.reason_details
+            : (w.reason_summary||"").split("/").map(s=>s.trim()).filter(Boolean)
+          ).map(r=>`<li>・${r}</li>`).join("")}
+      </ul>
+
+      <div class="targets">
+        <div class="target">🎯 ${w.target_tp || "目標 —"}</div>
+        <div class="target">🛑 ${w.target_sl || "損切り —"}</div>
+      </div>
+
+      <div class="theme-tag">🏷️ ${themeLabel} ${themeScore}点</div>
+    </article>
+  `;
 }
 
-/* ---------- archive / toggle ---------- */
-function removeCellById(id){
-  const cell = document.querySelector(`.cell[data-id="${id}"]`);
-  if(cell){
-    cell.style.transition="transform .18s ease, opacity .18s ease";
-    cell.style.transform="translateX(-16px)";
-    cell.style.opacity="0";
-    setTimeout(()=> cell.remove(), 180);
-  }
-  state.items = state.items.filter(x=> x.id !== id);
-  const hit=$("#hit"); if(hit) hit.textContent = `${state.items.length}${state.next!=null?"+":""}件`;
-}
-async function archiveById(id){
-  removeCellById(id);
-  toast("整理しています…");
-  try{
-    const res = await postJSONWithTimeout(API_ARCHIVE, {id}, 2500);
-    toast(res && res.ok ? (res.status==="archived"?"非表示にしました":"すでに非表示でした") : "処理に失敗しました");
-  }catch(e){
-    console.warn("[archiveById]", e);
-    toast("すでに非表示の可能性があります");
-  }
-  await fetchList(true);
-}
-async function toggleInPosition(id, on){
-  try{
-    const res = await postJSON(API_UPSERT, {id, in_position:on});
-    toast(res.ok ? (on?"INにしました":"OUTにしました") : "失敗しました");
-  }catch(e){ console.error(e); toast("通信に失敗しました"); }
-}
+// ==== シート（Boardカード + 追加情報 + メモ + アクション）====
+let currentItem = null;
 
-/* ---------- Sheet：Boardカードをそのまま埋め込む（重複UIは削除） ---------- */
-function buildCardFromSavedHTML(item){
-  const article = document.createElement("article");
-  article.className = "card card--embed";
-  article.innerHTML = item.reason_summary || "";
-  // ボード用のアクション群は不要
-  const btns = article.querySelector(".buttons"); if(btns) btns.remove();
-  // シートでも「目標/損切り」の二重表示になる補助行は削除
-  const dupTargets = article.querySelector(".targets"); // （Board内のターゲットは残す）
-  // 下に自前の補助ターゲットは出さない仕様にしたので、テンプレ側の補助はそもそも無し
-  article.style.marginBottom = "12px";
-  return article;
-}
-function fallbackBuildCard(item){
-  // 万一 reason_summary がHTMLでない場合の保険
-  const themeScore = Math.round((item.theme_score||0)*100);
-  const reasonsHTML = item.reason_summary || (item.reason_details||[]).map(r=>`<li>・${r}</li>`).join("");
-  const aiStar = (()=> {
-    const w = Math.round((item.ai_win_prob||0)*5);
-    return "★★★★★☆☆☆☆☆".slice(5-w,10-w);
-  })();
-  const wrap = document.createElement("article");
-  wrap.className = "card card--embed";
-  wrap.innerHTML = `
-    <div class="title">${item.name||item.ticker} <span class="code">(${item.ticker})</span></div>
-    <ul class="reasons">${reasonsHTML}</ul>
-    <div class="targets">
-      <div class="target">🎯 ${item.target_tp||"—"}</div>
-      <div class="target">🛑 ${item.target_sl||"—"}</div>
-    </div>
-    <div class="ai-meter">
-      <div class="meter-bar"><i style="width:${Math.max(8, Math.round((item.ai_win_prob||0)*100))}%"></i></div>
-      <div>AI信頼度：${aiStar}</div>
-    </div>
-    <div class="theme-tag">🏷️ ${(item.theme_label||"") || "テーマ"} ${themeScore}点</div>`;
-  wrap.style.marginBottom = "12px";
-  return wrap;
-}
+function openSheet(w){
+  currentItem = w;
+  $("#sh-card").innerHTML = buildBoardLikeCard(w);
+  $("#sh-added").textContent = w.updated_at ? `追加: ${fmtDate(new Date(w.updated_at))}` : "";
+  $("#sh-note").value = w.note || "";
 
-/** 下被り防止（下余白&下位置） */
-function applySheetInsets(){
-  const shBody = document.querySelector("#sheet .sheet-body");
-  if(!shBody) return;
-  const bottom = computeBottomOffsetPx();
-  shBody.style.bottom = bottom + "px";
-  const pad = computeBottomOffsetPx(80);
-  shBody.style.paddingBottom = pad + "px";
-}
-
-function openSheet(item){
-  state.current = item;
-  const sh=$("#sheet"), body=sh.querySelector(".sheet-body");
-
-  body.style.height="62vh";
-  body.style.overflow="auto";
-
-  const host = $("#sh-boardcard"); host.innerHTML = "";
-  let card;
-  try{ card = buildCardFromSavedHTML(item); }catch(_){ card = fallbackBuildCard(item); }
-  host.appendChild(card);
-
-  // 追加日時
-  $("#sh-added").textContent = item.added_at ? `追加: ${fmtDateTime(item.added_at)}` : "";
-
-  // インセット追従
-  applySheetInsets();
-  __sheetViewportHandler = ()=> applySheetInsets();
-  if(window.visualViewport){ window.visualViewport.addEventListener("resize", __sheetViewportHandler); }
-
-  sh.hidden=false; sh.setAttribute("aria-hidden","false");
+  const sheet = $("#sheet");
+  sheet.hidden = false;
+  sheet.setAttribute("aria-hidden", "false");
+  document.body.style.overflow = "hidden";
 }
 
 function closeSheet(){
-  const sh=$("#sheet"), body=sh.querySelector(".sheet-body");
-  if(window.visualViewport && __sheetViewportHandler){
-    window.visualViewport.removeEventListener("resize", __sheetViewportHandler);
-  }
-  __sheetViewportHandler=null;
-  body.style.bottom=""; body.style.paddingBottom="";
-  sh.hidden=true; sh.setAttribute("aria-hidden","true");
-  state.current=null;
+  const sheet = $("#sheet");
+  sheet.hidden = true;
+  sheet.setAttribute("aria-hidden", "true");
+  document.body.style.overflow = "";
+  currentItem = null;
 }
 
-/* ---------- events ---------- */
-document.addEventListener("click", async (e)=>{
-  const sw=e.target.closest(".switch");
-  const row=e.target.closest(".row");
+// ==== 事件 ====
+window.addEventListener("DOMContentLoaded", ()=>{
+  load(true).catch(e=>{ console.error(e); toast("読み込みに失敗しました"); });
 
-  if(sw){
-    const cell=sw.closest(".cell"); const id=Number(cell.dataset.id);
-    const next=!sw.classList.contains("on");
-    sw.classList.toggle("on", next);
-    sw.querySelector("span").textContent = next ? "IN" : "OUT";
-    await toggleInPosition(id, next);
-    return;
-  }
-  if(row){
-    const id=Number(row.closest(".cell").dataset.id);
-    const it=state.items.find(x=>x.id===id);
-    if(it) openSheet(it);
-    return;
-  }
-  if(e.target.id==="sh-close"){ closeSheet(); return; }
-  if(e.target.id==="sh-hide" && state.current){
-    if(__hiding) return; __hiding = true;
-    const id = state.current.id;
-    closeSheet();
-    await archiveById(id);
-    __hiding = false;
-    return;
-  }
-  if(e.target.id==="sh-save" && state.current){
+  $("#more").addEventListener("click", ()=> load(false).catch(e=>{ console.error(e); toast("読み込みに失敗しました"); }));
+  $("#q").addEventListener("input", (e)=>{
+    q = e.target.value.trim();
+    load(true).catch(e=>{ console.error(e); toast("検索に失敗しました"); });
+  });
+
+  // sheet_buttons
+  $$("#sh-close").forEach(el=> el.addEventListener("click", closeSheet));
+  $("#sh-save").addEventListener("click", async ()=>{
+    if(!currentItem) return;
     try{
-      const note=$("#sh-note").value;
-      const res = await postJSON(API_UPSERT, {id: state.current.id, note});
-      toast(res.ok ? "メモを保存しました" : "保存に失敗しました");
-      const idx = state.items.findIndex(x=>x.id===state.current.id);
-      if(idx>=0){ state.items[idx].note = note; }
-    }catch(err){ console.error(err); toast("保存に失敗しました"); }
-  }
-});
-$("#sh-note").addEventListener("blur", async ()=>{
-  if(!state.current) return;
-  try{ await postJSON(API_UPSERT, {id: state.current.id, note: $("#sh-note").value}); }catch(e){}
+      const payload = {
+        ticker: currentItem.ticker,
+        note: $("#sh-note").value || "",
+        name: currentItem.name || "",
+      };
+      await postJSON("/advisor/api/watch/upsert/", payload);
+      toast("保存しました");
+      closeSheet();
+    }catch(e){
+      console.error(e);
+      toast("保存に失敗しました");
+    }
+  });
+
+  $("#sh-hide").addEventListener("click", async ()=>{
+    if(!currentItem) return;
+    try{
+      const r = await postJSON("/advisor/api/watch/archive/", { ticker: currentItem.ticker });
+      if(r?.status === "archived"){
+        toast("非表示にしました");
+        // 画面から消す
+        $("#list").innerHTML = "";
+        items = [];
+        cursor = 0;
+        await load(true);
+        closeSheet();
+      }else{
+        toast("すでに非表示でした");
+      }
+    }catch(e){
+      console.error(e);
+      toast("非表示に失敗しました");
+    }
+  });
 });
 
-$("#q").addEventListener("input", ()=>{
-  state.q = $("#q").value.trim();
-  clearTimeout(window.__qtimer);
-  window.__qtimer = setTimeout(()=> fetchList(true), 250);
-});
-$("#more").addEventListener("click", ()=> fetchList(false));
-document.addEventListener("DOMContentLoaded", ()=> fetchList(true));
+// ==== スタイルの微調整（ボトムタブに被らないよう内側スクロール）====
+(function tuneSheet(){
+  const style = document.createElement("style");
+  style.textContent = `
+    .sheet-body{ max-height: calc(100vh - 24px); overflow:auto; padding-bottom: 120px; }
+    .snapshot-card .card{ margin-bottom: 12px; }
+    .added-at{ opacity:.8; font-size:12px; margin: 4px 0 12px; }
+  `;
+  document.head.appendChild(style);
+})();
