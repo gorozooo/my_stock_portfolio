@@ -24,9 +24,9 @@ def _no_store(resp: JsonResponse) -> JsonResponse:
 # ===========================================================
 # LIST: ACTIVE のみ返す / 検索 & カーソルページング / ボードと同じ項目を返す
 # ===========================================================
-    @login_required
-    @require_GET
-    def watch_list(request):
+@login_required
+@require_GET
+def watch_list(request):
         """
         GET /advisor/api/watch/list/?q=...&cursor=0&limit=20
         レスポンス: {ok, items:[...], next_cursor}
