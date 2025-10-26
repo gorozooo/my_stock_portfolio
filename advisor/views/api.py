@@ -27,7 +27,7 @@ def _no_store(resp: JsonResponse) -> JsonResponse:
     return resp
 
 
-# ====== 内部ヘルパ（デモ用の簡易ロジック：本番は価格取得/モデル出力に差し替え） ======
+# ====== デモ用フォールバック ======
 _FALLBACK_PRICE = {
     "8035.T": 12450,
     "7203.T": 3150,
@@ -44,10 +44,9 @@ def _last_price(ticker: str) -> int:
 def _tp_sl_pct(segment: str) -> Tuple[float, float]:
     s = segment or ""
     if "短期" in s:
-        return 0.06, 0.02   # +6% / -2%
+        return 0.06, 0.02
     if "中期" in s:
-        return 0.10, 0.03   # +10% / -3%
-    # 長期/NISAなど
+        return 0.10, 0.03
     return 0.12, 0.05
 
 
@@ -65,7 +64,6 @@ def _overall(theme_score: float, win_prob: float) -> int:
 
 
 def _tp_sl_prob(win_prob: float) -> Tuple[float, float]:
-    # デモ用の暫定配分
     tp = max(0.0, min(1.0, win_prob * 0.46))
     sl = max(0.0, min(1.0, (1.0 - win_prob) * 0.30))
     return tp, sl
@@ -74,7 +72,7 @@ def _tp_sl_prob(win_prob: float) -> Tuple[float, float]:
 def _position_size(entry: int, sl_price: int, credit_balance: Optional[int], risk_per_trade: float) -> Tuple[Optional[int], Optional[int]]:
     if not credit_balance or entry <= 0:
         return None, None
-    stop_value = max(1, entry - sl_price)  # 円
+    stop_value = max(1, entry - sl_price)
     risk_budget = max(1, int(round(credit_balance * risk_per_trade)))
     shares = risk_budget // stop_value
     if shares <= 0:
@@ -86,10 +84,8 @@ def _position_size(entry: int, sl_price: int, credit_balance: Optional[int], ris
 # =============== ボード（モック＋簡易計算で拡張フィールド付与） ===============
 def board_api(request):
     jst_now = datetime.now(JST)
-
-    # デモ用の信用余力（本番はユーザーの実データに差し替え）
     credit_balance = 1_000_000
-    risk_per_trade = 0.01  # 1%
+    risk_per_trade = 0.01
 
     base_items: List[Dict[str, Any]] = [
         {
@@ -159,10 +155,8 @@ def board_api(request):
             "overall_score": overall,
             "entry_price_hint": last,
             "targets": {
-                # 既存のテキスト（互換）
-                "tp": it["targets"]["tp"] if "targets" in it and "tp" in it["targets"] else f"目標 +{int(tp_pct*100)}%",
-                "sl": it["targets"]["sl"] if "targets" in it and "sl" in it["targets"] else f"損切り -{int(sl_pct*100)}%",
-                # 追加の数値情報
+                "tp": it.get("targets", {}).get("tp", f"目標 +{int(tp_pct*100)}%"),
+                "sl": it.get("targets", {}).get("sl", f"損切り -{int(sl_pct*100)}%"),
                 "tp_pct": tp_pct,
                 "sl_pct": sl_pct,
                 "tp_price": tp_price,
@@ -188,7 +182,6 @@ def board_api(request):
             "model_version": "v0.2-demo-policy-lite",
             "adherence_week": 0.84,
             "regime": {"trend_prob": 0.63, "range_prob": 0.37, "nikkei": "↑", "topix": "→"},
-            # 拡張アイデアのヘッダ表示（デモ文）
             "scenario": "半導体に資金回帰。短期は押し目継続、週足↑",
             "pairing": {"id": 2, "label": "順張り・短中期"},
             "self_mirror": {"recent_drift": "損切り未実施 3/4件"},
@@ -220,10 +213,11 @@ def record_action(request):
         # 未ログインは 401
         if not (hasattr(request, "user") and request.user and request.user.is_authenticated):
             return _no_store(JsonResponse({"ok": False, "error": "auth_required"}, status=401))
-
         user = request.user
+
         _log("record_action payload=", payload, "user=", getattr(user, "username", None))
 
+        # まずアクションログは素直に保存
         log = ActionLog.objects.create(
             user=user,
             ticker=(payload.get("ticker") or "").strip().upper(),
@@ -231,45 +225,45 @@ def record_action(request):
             action=payload.get("action", "") or "",
             note=payload.get("note", "") or "",
         )
+        _log("record_action saved id=", log.id)
 
-        # --- Boardの内容を WatchEntry に“そのまま”反映 ---
+        # ---- WatchEntry upsert（ホワイトリストで安全に）----
         if payload.get("action") == "save_order":
             tkr = (payload.get("ticker") or "").strip().upper()
+
+            # ここで「受け付けるキー」を限定（存在しないフィールドが混ざっても無視）
+            allowed: Dict[str, Any] = {
+                "name": payload.get("name", "") or "",
+                "note": payload.get("note", "") or "",
+                "reason_summary": payload.get("reason_summary", "") or "",
+                "reason_details": payload.get("reason_details", []) or [],
+                "theme_label": payload.get("theme_label", "") or "",
+                "theme_score": payload.get("theme_score", None),
+                "ai_win_prob": payload.get("ai_win_prob", None),
+                "target_tp": payload.get("target_tp", "") or "",
+                "target_sl": payload.get("target_sl", "") or "",
+                "overall_score": payload.get("overall_score", None),
+                "weekly_trend": payload.get("weekly_trend", "") or "",
+                "entry_price_hint": payload.get("entry_price_hint", None),
+                "tp_price": payload.get("tp_price", None),
+                "sl_price": payload.get("sl_price", None),
+                "tp_pct": payload.get("tp_pct", None),
+                "sl_pct": payload.get("sl_pct", None),
+                "position_size_hint": payload.get("position_size_hint", None),
+                "in_position": False,
+            }
+            # ※ フロントから飛んでくる余計なキー（例：action_text, segment）は allowed に入れない＝無視
 
             WatchEntry.objects.update_or_create(
                 user=user,
                 ticker=tkr,
                 status=WatchEntry.STATUS_ACTIVE,
-                defaults={
-                    # 表示テキスト
-                    "name": payload.get("name", "") or "",
-                    "note": payload.get("note", "") or "",
-                    "reason_summary": payload.get("reason_summary", "") or "",
-                    "reason_details": payload.get("reason_details", []) or [],
-                    "theme_label": payload.get("theme_label", "") or "",
-                    "theme_score": payload.get("theme_score", None),
-                    "ai_win_prob": payload.get("ai_win_prob", None),
-                    "target_tp": payload.get("target_tp", "") or "",
-                    "target_sl": payload.get("target_sl", "") or "",
-
-                    # ★ Boardカードを再現するための追加フィールド
-                    "segment": payload.get("segment", "") or "",
-                    "action_text": payload.get("action_text", "") or "",   # ← “行動：〇〇” の文言
-                    "overall_score": payload.get("overall_score", None),
-                    "weekly_trend": payload.get("weekly_trend", "") or "", # "up"|"flat"|"down"
-                    "entry_price_hint": payload.get("entry_price_hint", None),
-                    "tp_price": payload.get("tp_price", None),
-                    "sl_price": payload.get("sl_price", None),
-                    "tp_pct": payload.get("tp_pct", None),
-                    "sl_pct": payload.get("sl_pct", None),
-                    "position_size_hint": payload.get("position_size_hint", None),
-
-                    # 将来のトグル用
-                    "in_position": False,
-                },
+                defaults=allowed,
             )
+            _log("record_action → WatchEntry upsert OK")
 
         return _no_store(JsonResponse({"ok": True, "id": log.id}))
+
     except Exception as e:
         _log("record_action ERROR:", repr(e))
         return _no_store(JsonResponse({"ok": False, "error": str(e)}, status=400))
@@ -285,7 +279,6 @@ def create_reminder(request):
         raw = request.body.decode("utf-8") if request.body else "{}"
         payload = json.loads(raw or "{}")
 
-        # 未ログインは 401
         if not (hasattr(request, "user") and request.user and request.user.is_authenticated):
             return _no_store(JsonResponse({"ok": False, "error": "auth_required"}, status=401))
 
