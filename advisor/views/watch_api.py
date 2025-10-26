@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import json
-from typing import Dict, Any, List, Optional
-from datetime import timedelta, timezone, datetime
+from typing import Dict, Any, List
+from datetime import timedelta, timezone
 
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
@@ -23,26 +23,18 @@ def _no_store(resp: JsonResponse) -> JsonResponse:
     resp["Expires"] = "0"
     return resp
 
+def _ensure_auth(request) -> bool:
+    return hasattr(request, "user") and request.user and request.user.is_authenticated
+
 # ---------- ping ----------
 def watch_ping(request):
     return _no_store(JsonResponse({"ok": True, "now": dj_now().astimezone(JST).isoformat()}))
 
-# ---------- list ----------
-def _ensure_auth(request):
-    return hasattr(request, "user") and request.user and request.user.is_authenticated
-
+# ---------- serializer ----------
 def _serialize_item(w: WatchEntry) -> Dict[str, Any]:
-    """watch.js r6 が要求するキーだけを確実に返す"""
-    # AI到達確率は将来用。保存時に payload へあれば JSONField に入っている想定だが
-    # ない場合でも None を返してフロントで '–%' 表示にできるようにする。
-    ai_tp_prob = None
-    ai_sl_prob = None
-    # reason_details は JSONField（list想定）。なければ summary を分割でフォールバック
-    if isinstance(w.reason_details, list):
-        reasons = w.reason_details
-    else:
-        reasons = [s.strip() for s in (w.reason_summary or "").split("/") if s.strip()]
-
+    reasons = w.reason_details if isinstance(w.reason_details, list) else [
+        s.strip() for s in (w.reason_summary or "").split("/") if s.strip()
+    ]
     return {
         "id": w.id,
         "ticker": w.ticker,
@@ -51,21 +43,23 @@ def _serialize_item(w: WatchEntry) -> Dict[str, Any]:
         "reason_summary": w.reason_summary or "",
         "reason_details": reasons,
         "theme_label": w.theme_label or "",
-        "theme_score": w.theme_score,              # 0-1
-        "ai_win_prob": w.ai_win_prob,              # 0-1
-        "overall_score": w.overall_score or 0,     # 0-100
-        "weekly_trend": w.weekly_trend or "",      # "up"|"flat"|"down"
-        "entry_price_hint": w.entry_price_hint,    # 円
+        "theme_score": w.theme_score,
+        "ai_win_prob": w.ai_win_prob,
+        "overall_score": w.overall_score or 0,
+        "weekly_trend": w.weekly_trend or "",
+        "entry_price_hint": w.entry_price_hint,
         "tp_price": w.tp_price,
         "sl_price": w.sl_price,
-        "tp_pct": w.tp_pct,                        # 0-1
-        "sl_pct": w.sl_pct,                        # 0-1
-        "ai_tp_prob": ai_tp_prob,                  # 0-1 | None
-        "ai_sl_prob": ai_sl_prob,                  # 0-1 | None
+        "tp_pct": w.tp_pct,
+        "sl_pct": w.sl_pct,
         "updated_at": w.updated_at.astimezone(JST).isoformat(timespec="minutes"),
         "status": w.status,
+        # 将来用の確率（保存していなければ None のまま）
+        "ai_tp_prob": None,
+        "ai_sl_prob": None,
     }
 
+# ---------- list ----------
 def watch_list(request):
     if not _ensure_auth(request):
         return _no_store(JsonResponse({"ok": False, "error": "auth_required"}, status=401))
@@ -99,7 +93,6 @@ def watch_list(request):
 def watch_upsert(request):
     if request.method != "POST":
         return HttpResponseBadRequest("POST only")
-
     if not _ensure_auth(request):
         return _no_store(JsonResponse({"ok": False, "error": "auth_required"}, status=401))
 
@@ -109,14 +102,12 @@ def watch_upsert(request):
         ticker = (payload.get("ticker") or "").strip().upper()
         name = (payload.get("name") or "").strip()
         note = payload.get("note") or ""
-
         if not ticker:
             return _no_store(JsonResponse({"ok": False, "error": "ticker_required"}, status=400))
 
         w, _created = WatchEntry.objects.get_or_create(
             user=request.user, ticker=ticker, defaults={"name": name}
         )
-        # メモだけ更新（他のフィールドは board 側の /api/action/ save_order でコピー済みの前提）
         if name and not w.name:
             w.name = name
         w.note = note
@@ -127,6 +118,43 @@ def watch_upsert(request):
         return _no_store(JsonResponse({"ok": True, "id": w.id, "status": w.status}))
     except Exception as e:
         _log("watch_upsert ERROR:", repr(e))
+        return _no_store(JsonResponse({"ok": False, "error": str(e)}, status=400))
+
+# ---------- archive (互換用: POST /api/watch/archive/) ----------
+@csrf_exempt
+def watch_archive(request):
+    """後方互換。POST ボディで id または ticker を受け取りアーカイブする。"""
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST only")
+    if not _ensure_auth(request):
+        return _no_store(JsonResponse({"ok": False, "error": "auth_required"}, status=401))
+
+    try:
+        raw = request.body.decode("utf-8") if request.body else "{}"
+        payload = json.loads(raw or "{}")
+        rec_id = payload.get("id")
+        ticker = (payload.get("ticker") or "").strip().upper()
+
+        if rec_id:
+            w = WatchEntry.objects.get(id=int(rec_id), user=request.user)
+        elif ticker:
+            w = WatchEntry.objects.filter(user=request.user, ticker=ticker).order_by("-updated_at", "-id").first()
+            if not w:
+                return _no_store(JsonResponse({"ok": False, "error": "not_found"}, status=404))
+        else:
+            return _no_store(JsonResponse({"ok": False, "error": "id_or_ticker_required"}, status=400))
+
+        if w.status == WatchEntry.STATUS_ARCHIVED:
+            return _no_store(JsonResponse({"ok": True, "id": w.id, "status": "already_archived"}))
+
+        w.status = WatchEntry.STATUS_ARCHIVED
+        w.save()
+        _log("watch_archive archived id=", w.id)
+        return _no_store(JsonResponse({"ok": True, "id": w.id, "status": "archived"}))
+    except WatchEntry.DoesNotExist:
+        return _no_store(JsonResponse({"ok": False, "error": "not_found"}, status=404))
+    except Exception as e:
+        _log("watch_archive ERROR:", repr(e))
         return _no_store(JsonResponse({"ok": False, "error": str(e)}, status=400))
 
 # ---------- archive by id (GET; 冪等) ----------
