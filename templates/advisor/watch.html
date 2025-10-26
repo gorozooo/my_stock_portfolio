@@ -15,29 +15,33 @@
 </header>
 
 <main class="watch-container" role="main">
-  <section id="list" class="cards" aria-live="polite"></section>
+  <section id="list" class="watch-list" aria-live="polite"></section>
   <button id="more" class="btn more" hidden>もっと見る</button>
 </main>
 
-<!-- 下部シート：ボードと同じ見た目のカードをそのまま表示 -->
+<!-- 下シート（boardカードを丸ごと表示） -->
 <section id="sheet" class="sheet" hidden aria-hidden="true" aria-label="銘柄詳細">
-  <div class="sheet-backdrop" id="sh-close" aria-hidden="true"></div>
+  <div class="sheet-backdrop" data-close aria-hidden="true"></div>
   <div class="sheet-body" role="dialog" aria-modal="true">
-    <div id="sheetCard" class="card"></div>
+    <div class="sheet-drag"></div>
 
-    <div class="memo-area">
-      <div class="sub">追加: <span id="sh-added"></span></div>
+    <!-- board風カード -->
+    <article id="sh-card" class="card" aria-live="polite"></article>
+
+    <!-- 自分メモ -->
+    <div class="memo-box">
       <label class="memo-label" for="sh-note">自分メモ</label>
       <textarea id="sh-note" rows="4" placeholder="メモを書いて保存…"></textarea>
-      <div class="sheet-actions">
-        <button id="sh-save" class="btn primary">保存</button>
-        <button id="sh-hide" class="btn danger">非表示</button>
-        <button id="sh-close2" class="btn ghost">閉じる</button>
-      </div>
+    </div>
+
+    <div class="sheet-actions">
+      <button id="sh-save" class="btn primary">保存</button>
+      <button id="sh-hide" class="btn danger">非表示</button>
+      <button data-close class="btn ghost">閉じる</button>
     </div>
   </div>
 </section>
 
-<link rel="stylesheet" href="{% static 'advisor/watch.css' %}?v=5" />
-<script src="{% static 'advisor/watch.js' %}?v=17"></script>
+<link rel="stylesheet" href="{% static 'advisor/watch.css' %}?v=6" />
+<script src="{% static 'advisor/watch.js' %}?v=18"></script>
 {% endblock %}
