@@ -53,7 +53,7 @@
 /* 下部操作を常に見えるように固定（かつ安全域を確保） */
 .sheet-actions {
   position: fixed;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 40px); /* ← 下タブぶん上に */
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 50px); /* ← 下タブぶん上に */
   left: 0;
   right: 0;
   display: flex;
