@@ -1,6 +1,7 @@
+// static/advisor/board.js
 const $ = (sel)=>document.querySelector(sel);
 
-console.log("[board.js] v2025-10-26 r3 (watch-copy)");
+console.log("[board.js] v2025-10-26 r3 (credentials+401 handling)");
 
 function computeToastBottomPx() {
   let insetBottom = 0;
@@ -8,22 +9,37 @@ function computeToastBottomPx() {
     const diff = window.innerHeight - window.visualViewport.height;
     insetBottom = Math.max(0, Math.round(diff));
   }
-  return insetBottom + 140;
+  return insetBottom + 140; // 下タブ回避
 }
 
 function abs(path){ return new URL(path, window.location.origin).toString(); }
 
 async function postJSON(url, body){
-  const res = await fetch(abs(url), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body) });
-  if(!res.ok){ throw new Error(`HTTP ${res.status} ${await res.text().catch(()=> "")}`); }
+  const res = await fetch(abs(url), {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify(body),
+    credentials: "same-origin", // ← セッションCookieを必ず送る
+  });
+  if (res.status === 401) {
+    const next = encodeURIComponent(location.pathname + location.search + location.hash);
+    location.href = `/accounts/login/?next=${next}`;
+    throw new Error("auth_required");
+  }
+  if(!res.ok){
+    const txt = await res.text().catch(()=> "");
+    throw new Error(`HTTP ${res.status} ${txt}`);
+  }
   return await res.json();
 }
 
+// 週足の見た目（APIが文字列を返すので保険的にアイコン整形だけ）
 function weeklyIconLabel(code){
   if(code === "up") return {icon:"↗️", label:"上向き"};
   if(code === "down") return {icon:"↘️", label:"下向き"};
   return {icon:"➡️", label:"横ばい"};
 }
+
 function stars(prob01){
   const s = Math.round((prob01 ?? 0)*5);
   const f = "★★★★★".slice(0, Math.max(0, Math.min(5, s)));
@@ -34,7 +50,12 @@ function stars(prob01){
 (function init(){
   (async ()=>{
     // --- 取得 ---
-    const res = await fetch(abs("/advisor/api/board/"));
+    const res = await fetch(abs("/advisor/api/board/"), { credentials: "same-origin" });
+    if (res.status === 401) {
+      const next = encodeURIComponent(location.pathname + location.search + location.hash);
+      location.href = `/accounts/login/?next=${next}`;
+      return;
+    }
     const data = await res.json();
 
     // --- ヘッダー ---
@@ -50,6 +71,7 @@ function stars(prob01){
     const adherence = $("#adherence");
     if (adherence) adherence.textContent = Math.round(data.meta.adherence_week*100) + "%";
 
+    // シナリオを先頭に出す（あれば）
     const strip = $("#themeStrip");
     if (strip) {
       strip.innerHTML = "";
@@ -140,7 +162,7 @@ function stars(prob01){
 
     data.highlights.slice(0,5).forEach((it,i)=>cards.appendChild(makeCard(it,i)));
 
-    // 並び替え
+    // 並び替え（総合評価で再ソート）
     let sorted = false;
     const reorderBtn = $("#reorderBtn");
     if (reorderBtn){
@@ -163,33 +185,29 @@ function stars(prob01){
 
       try{
         if(act === "save_order" || act === "reject"){
+          // WatchEntryへコピーするため、理由や数値もサーバに渡す
           const payload = {
-            action: act,                // ← ActionLog 用
+            action: act,
             ticker: item.ticker,
             policy_id: "",
             note: "",
-            // ウォッチに“完全コピー”するための情報
+            // ウォッチ用コピー
             name: item.name,
-            segment: item.segment,
-            action_text: item.action,
             reason_summary: (item.reasons||[]).join(" / "),
             reason_details: item.reasons || [],
             theme_label: item.theme?.label || "",
             theme_score: item.theme?.score ?? null,
             ai_win_prob: item.ai?.win_prob ?? null,
-            weekly_trend: item.weekly_trend || "",
+            target_tp: `+${Math.round((item.targets?.tp_pct ?? 0)*100)}% → ${item.targets?.tp_price ?? ""}円`,
+            target_sl: `-${Math.round((item.targets?.sl_pct ?? 0)*100)}% → ${item.targets?.sl_price ?? ""}円`,
             overall_score: item.overall_score ?? null,
+            weekly_trend: item.weekly_trend || "",
             entry_price_hint: item.entry_price_hint ?? null,
             tp_price: item.targets?.tp_price ?? null,
             sl_price: item.targets?.sl_price ?? null,
             tp_pct: item.targets?.tp_pct ?? null,
             sl_pct: item.targets?.sl_pct ?? null,
-            target_tp: `+${Math.round((item.targets?.tp_pct ?? 0)*100)}% → ${item.targets?.tp_price ?? ""}円`,
-            target_sl: `-${Math.round((item.targets?.sl_pct ?? 0)*100)}% → ${item.targets?.sl_price ?? ""}円`,
             position_size_hint: item.sizing?.position_size_hint ?? null,
-            need_cash: item.sizing?.need_cash ?? null,
-            tp_prob: item.ai?.tp_prob ?? null,
-            sl_prob: item.ai?.sl_prob ?? null,
           };
           await postJSON("/advisor/api/action/", payload);
           showToast(`${item.name}：記録しました`);
@@ -199,13 +217,16 @@ function stars(prob01){
         }
       }catch(e){
         console.error(e);
-        showToast("通信に失敗しました");
+        const msg = (e && e.message) ? e.message : "通信に失敗しました";
+        showToast(`通信エラー: ${msg}`);
       }
     });
 
+    // トースト
     function showToast(msg){
       const t = document.createElement('div');
       t.style.position='fixed';
+      t.style.top='auto';
       t.style.left='50%';
       t.style.transform='translateX(-50%)';
       t.style.bottom = computeToastBottomPx() + 'px';
