@@ -1,239 +1,172 @@
-/* watch.js v2025-10-26 r6：コンパクト→タップで詳細カード、トースト復活 */
-const $ = (s)=>document.querySelector(s);
+/* watch.js v26 — board内容の表示を再利用しつつ
+   1) IN目安（entry_price_hint）を表示
+   2) ボトムシートをスクロール可能に（操作ボタン常時利用可）
+*/
+const $  = (s)=>document.querySelector(s);
+const $$ = (s)=>document.querySelectorAll(s);
 
-console.log("[watch.js] loaded r6");
+function abs(path){ return new URL(path, window.location.origin).toString(); }
 
-/* ===== Toast（下タブ回避あり） ===== */
+// ---- トースト（boardと同仕様） ----
 function computeToastBottomPx(){
   let insetBottom = 0;
   if (window.visualViewport){
     const diff = window.innerHeight - window.visualViewport.height;
     insetBottom = Math.max(0, Math.round(diff));
   }
-  return insetBottom + 140; // 下タブ/ホームバーを避ける
+  return insetBottom + 140;
 }
-function showToast(msg){
-  const t = document.createElement("div");
-  t.className = "toast";
-  t.textContent = msg;
-  t.style.bottom = computeToastBottomPx() + "px";
-  document.body.appendChild(t);
-  requestAnimationFrame(()=> t.style.opacity = "1");
-  const onViewport = ()=> { t.style.bottom = computeToastBottomPx() + "px"; };
-  if (window.visualViewport) window.visualViewport.addEventListener("resize", onViewport);
-  setTimeout(()=>{
-    t.style.opacity = "0";
-    setTimeout(()=>{
-      if (window.visualViewport) window.visualViewport.removeEventListener("resize", onViewport);
-      t.remove();
-    }, 250);
-  }, 1800);
+function toast(msg){
+  const t = document.createElement('div');
+  t.style.position='fixed';
+  t.style.left='50%'; t.style.transform='translateX(-50%)';
+  t.style.bottom = computeToastBottomPx()+'px';
+  t.style.background='rgba(0,0,0,.85)'; t.style.color='#fff';
+  t.style.padding='10px 16px'; t.style.borderRadius='14px';
+  t.style.boxShadow='0 6px 20px rgba(0,0,0,.4)'; t.style.zIndex='9999';
+  t.style.opacity='0'; t.style.pointerEvents='none'; t.style.transition='opacity .25s';
+  t.textContent = msg; document.body.appendChild(t);
+  requestAnimationFrame(()=> t.style.opacity='1');
+  const onV = ()=> t.style.bottom = computeToastBottomPx()+'px';
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', onV);
+  setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>{ if(window.visualViewport) window.visualViewport.removeEventListener('resize', onV); t.remove();}, 250);}, 1800);
 }
 
-/* ===== ユーティリティ ===== */
-function abs(path){ return new URL(path, window.location.origin).toString(); }
-async function getJSON(url){
-  const res = await fetch(abs(url), { headers:{ "Cache-Control":"no-store" } });
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${await res.text().catch(()=> "")}`);
-  return await res.json();
-}
+// ---- API ----
+async function getJSON(url){ const r = await fetch(abs(url)); if(!r.ok) throw new Error(await r.text()); return await r.json(); }
 async function postJSON(url, body){
-  const res = await fetch(abs(url), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body||{}) });
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${await res.text().catch(()=> "")}`);
-  return await res.json();
+  const r = await fetch(abs(url), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
+  if(!r.ok) throw new Error(`HTTP ${r.status} ${await r.text().catch(()=> '')}`);
+  return await r.json();
 }
 
-/* ===== board表記との互換レンダリングのための補助 ===== */
-function starsFromProb(p01){
-  const s = Math.round((p01 ?? 0) * 5);
-  const f = "★★★★★".slice(0, Math.max(0, Math.min(5, s)));
-  const e = "☆☆☆☆☆".slice(0, 5 - Math.max(0, Math.min(5, s)));
-  return f + e;
-}
+// ---- カードHTML（boardの見た目をコピー） ----
+function star5(prob01){ const s = Math.round((prob01??0)*5); return '★★★★★'.slice(0,s)+'☆☆☆☆☆'.slice(0,5-s); }
 function wkChip(code){
-  if(code === "up") return {text:"↗️ 上向き", cls:"wk-up"};
-  if(code === "down") return {text:"↘️ 下向き", cls:"wk-down"};
-  return {text:"➡️ 横ばい", cls:"wk-flat"};
+  if(code==='up') return {icon:'↗️', label:'上向き'};
+  if(code==='down') return {icon:'↘️', label:'下向き'};
+  return {icon:'➡️', label:'横ばい'};
 }
 
-/* ===== 画面状態 ===== */
-let state = {
-  q: "",
-  cursor: 0,
-  limit: 20,
-  loading: false,
-  items: [],
-  current: null, // シートで開いている item
-};
+function cardHTML(item){
+  const themeScore = Math.round((item.theme_score??0)*100);
+  const wk = wkChip(item.weekly_trend||'flat');
+  const aiStars = star5(item.ai_win_prob);
+  const tpPct = Math.round((item.tp_pct??0)*100);
+  const slPct = Math.round((item.sl_pct??0)*100);
 
-/* ===== コンパクト行を描画 ===== */
-function renderCompactItem(it){
-  const wk = wkChip(it.weekly_trend || "");
-  const themeScore = Math.round((it.theme_score ?? 0) * 100);
-  const div = document.createElement("div");
-  div.className = "item";
-  div.dataset.id = it.id;
+  return `
+    <article class="wcard">
+      <div class="w-title">${item.name} <span class="code">(${item.ticker})</span></div>
+      <div class="w-seg">週足：${wk.icon} ${wk.label}</div>
 
-  div.innerHTML = `
-    <div class="item-line1">
-      <div class="item-title">${it.name || ""} <span class="item-code">(${it.ticker})</span></div>
-      <div class="item-chips">
-        <span class="chip ${wk.cls}">${wk.text}</span>
-        ${themeScore ? `<span class="chip">#${it.theme_label || ""} ${themeScore}点</span>` : ""}
+      <div class="w-badges">
+        <span class="badge-chip blue">#${item.theme_label||'-'} ${themeScore}点</span>
       </div>
-    </div>
-    <div class="item-summary">${(it.reason_summary || "").replace(/\s*\n\s*/g," ")}</div>
+
+      <div class="w-overall">
+        <div>総合評価：<b>${item.overall_score ?? 0}</b> 点</div>
+        <div>AI信頼度：${aiStars}</div>
+      </div>
+
+      <div class="w-action">行動：ウォッチ中</div>
+
+      <ul class="w-list">
+        ${(item.reason_details||[]).map(s=>`<li>・${s}</li>`).join('')}
+      </ul>
+
+      <div class="w-targets">
+        <div class="w-target">🎯 目標 ${isNaN(tpPct)?'-':tpPct}% → <b>${item.tp_price?.toLocaleString?.()??'-'}</b>円</div>
+        <div class="w-target">🛑 損切 ${isNaN(slPct)?'-':slPct}% → <b>${item.sl_price?.toLocaleString?.()??'-'}</b>円</div>
+      </div>
+
+      <!-- ★ IN目安を表示 -->
+      <div style="margin:6px 0 4px">IN目安：<b>${item.entry_price_hint?.toLocaleString?.() ?? '-'}</b> 円</div>
+
+      <div class="w-meter-wrap">
+        <div class="w-meter"><i style="width:${Math.max(8, Math.round((item.ai_win_prob??0)*100))}%"></i></div>
+        <div class="w-meter-cap">TP到達:${Math.round((item.ai_tp_prob??0)*100)}% / SL到達:${Math.round((item.ai_sl_prob??0)*100)}%</div>
+      </div>
+    </article>
   `;
-
-  div.addEventListener("click", ()=> openSheet(it));
-  return div;
 }
 
-/* ===== 詳細カード（boardの見た目をコピー） ===== */
-function renderBoardCard(it){
-  const themeScore = Math.round((it.theme_score ?? 0) * 100);
-  const wk = wkChip(it.weekly_trend || "");
-  const aiStars = starsFromProb(it.ai_win_prob ?? 0);
-  const overall = (it.overall_score ?? 0);
+// ---- レンダリング ----
+async function loadList(){
+  const data = await getJSON('/advisor/api/watch/list/');
+  const list = $('#list'); list.innerHTML = '';
+  $('#hit').textContent = `${data.items.length}件`;
 
-  const tpPct = Math.round((it.tp_pct ?? 0) * 100);
-  const slPct = Math.round((it.sl_pct ?? 0) * 100);
-
-  const tpPrice = it.tp_price != null ? it.tp_price.toLocaleString() : "–";
-  const slPrice = it.sl_price != null ? it.sl_price.toLocaleString() : "–";
-  const entry = it.entry_price_hint != null ? it.entry_price_hint.toLocaleString() : "–";
-
-  const tpProb = it.tp_prob != null ? Math.round((it.tp_prob)*100) : (it.ai_tp_prob != null ? Math.round((it.ai_tp_prob)*100) : null);
-  const slProb = it.sl_prob != null ? Math.round((it.sl_prob)*100) : (it.ai_sl_prob != null ? Math.round((it.ai_sl_prob)*100) : null);
-
-  const actionTone = /売|撤退|縮小/.test(it.action || "") ? "bad" : /様子見/.test(it.action || "") ? "warn" : "good";
-  const reasons = (it.reason_details && it.reason_details.length ? it.reason_details : (it.reason_summary||"").split("/").map(s=>s.trim())).filter(Boolean);
-
-  const card = document.createElement("div");
-  card.innerHTML = `
-    <span class="badge">#</span>
-    <div class="title">${it.name || ""} <span class="code">(${it.ticker})</span></div>
-    <div class="segment">週足：<span class="chip ${wk.cls}">${wk.text}</span></div>
-
-    <div class="overall">
-      <span>総合評価：<strong>${overall}</strong> 点</span>
-      <span>AI信頼度：${aiStars}</span>
-    </div>
-
-    <div class="action ${actionTone}">行動：${it.action || "ウォッチ中"}</div>
-
-    <ul class="reasons">${reasons.map(r=>`<li>・${r}</li>`).join("")}</ul>
-
-    <div class="targets">
-      <div class="target">🎯 目標 ${tpPct||0}% → <b>${tpPrice}</b>円</div>
-      <div class="target">🛑 損切 ${slPct||0}% → <b>${slPrice}</b>円</div>
-    </div>
-
-    <div class="meter-wrap">
-      <div class="meter-bar"><i style="width:${Math.max(8, Math.round((it.ai_win_prob||0)*100))}%"></i></div>
-      <div class="meter-caption">TP到達：${tpProb ?? "–"}% / SL到達：${slProb ?? "–"}%</div>
-    </div>
-
-    <div class="theme-tag">🏷️ ${it.theme_label || ""} ${themeScore? themeScore+"点":""}</div>
-  `;
-  return card;
+  // コンパクト行（タップでシートを開く）
+  data.items.forEach((it)=>{
+    const row = document.createElement('article');
+    row.className = 'wcard';
+    row.innerHTML = `
+      <div class="w-title">${it.name} <span class="code">(${it.ticker})</span></div>
+      <div class="w-badges">
+        <span class="badge-chip">${wkChip(it.weekly_trend||'flat').icon} ${wkChip(it.weekly_trend||'flat').label}</span>
+        <span class="badge-chip blue">#${it.theme_label||'-'} ${Math.round((it.theme_score??0)*100)}点</span>
+      </div>
+      <div class="w-action" style="margin-top:8px">行動：ウォッチ中</div>
+      <ul class="w-list">${(it.reason_details||[]).slice(0,2).map(s=>`<li>・${s}</li>`).join('')}</ul>
+      <div class="w-targets">
+        <div class="w-target">🎯 ${it.target_tp||'-'}</div>
+        <div class="w-target">🛑 ${it.target_sl||'-'}</div>
+      </div>
+    `;
+    row.addEventListener('click', ()=> openSheet(it));
+    list.appendChild(row);
+  });
 }
 
-/* ===== 下シート開閉 ===== */
-function openSheet(it){
-  state.current = it;
-  $("#sh-card").innerHTML = ""; // 初期化
-  $("#sh-card").appendChild(renderBoardCard(it));
-  $("#sh-note").value = it.note || "";
+// ---- シート（スクロール可能） ----
+function openSheet(item){
+  const sheet = $('#sheet');
+  $('#sh-card').innerHTML = cardHTML(item);
+  $('#sh-note').value = item.note || '';
+  sheet.hidden = false; sheet.setAttribute('aria-hidden','false');
 
-  const sheet = $("#sheet");
-  sheet.hidden = false;
-  sheet.setAttribute("aria-hidden", "false");
-  document.body.style.overflow = "hidden";
-}
-function closeSheet(){
-  const sheet = $("#sheet");
-  sheet.hidden = true;
-  sheet.setAttribute("aria-hidden", "true");
-  document.body.style.overflow = "";
-}
-document.addEventListener("click",(e)=>{
-  if(e.target.matches("[data-close]")) closeSheet();
-});
+  // 操作
+  const close = ()=>{ sheet.hidden = true; sheet.setAttribute('aria-hidden','true'); };
+  $('#sh-backdrop').onclick = close;
+  $('#sh-close-btn').onclick = close;
 
-/* ===== API 連携（一覧・保存・非表示） ===== */
-async function loadList(reset=false){
-  if (state.loading) return;
-  state.loading = true;
+  $('#sh-save').onclick = async ()=>{
+    try{
+      const body = { id: item.id, ticker: item.ticker, note: $('#sh-note').value };
+      await postJSON('/advisor/api/watch/upsert/', body);
+      toast('保存しました'); await loadList(); close();
+    }catch(e){ console.error(e); toast('通信に失敗しました'); }
+  };
+  $('#sh-hide').onclick = async ()=>{
+    try{
+      await postJSON('/advisor/api/watch/archive/', { id: item.id });
+      toast('非表示にしました'); await loadList(); close();
+    }catch(e){ console.error(e); toast('通信に失敗しました'); }
+  };
+}
+
+// ---- 検索（ローカルフィルタ） ----
+function wireSearch(){
+  const q = $('#q');
+  q.addEventListener('input', ()=>{
+    const key = q.value.trim();
+    $$('#list .wcard').forEach(card=>{
+      const txt = card.textContent || '';
+      card.style.display = (key==='' || txt.includes(key)) ? '' : 'none';
+    });
+    const visible = [...$$('#list .wcard')].filter(n=>n.style.display!=='none').length;
+    $('#hit').textContent = `${visible}件`;
+  });
+}
+
+// ---- init ----
+(async function(){
   try{
-    if (reset){ state.cursor = 0; state.items = []; $("#list").innerHTML = ""; }
-    const url = `/advisor/api/watch/list/?q=${encodeURIComponent(state.q)}&cursor=${state.cursor}&limit=${state.limit}`;
-    const js = await getJSON(url);
-    const items = js.items || [];
-    state.items.push(...items);
-
-    // 検索件数
-    $("#hit").textContent = `${state.items.length}件`;
-
-    // レンダリング（コンパクト）
-    const list = $("#list");
-    items.forEach(it=> list.appendChild(renderCompactItem(it)));
-
-    // ページング
-    const moreBtn = $("#more");
-    if (js.next_cursor != null){ state.cursor = js.next_cursor; moreBtn.hidden = false; }
-    else { moreBtn.hidden = true; }
+    await loadList();
+    wireSearch();
   }catch(e){
     console.error(e);
-    showToast("読み込みに失敗しました");
-  }finally{
-    state.loading = false;
+    toast('読み込みに失敗しました');
   }
-}
-
-async function saveNote(){
-  const it = state.current; if (!it) return;
-  const note = $("#sh-note").value || "";
-  try{
-    await postJSON("/advisor/api/watch/upsert/", { ticker: it.ticker, name: it.name || "", note });
-    it.note = note; // ローカルも更新
-    showToast("保存しました");
-  }catch(e){
-    console.error(e);
-    showToast("保存に失敗しました");
-  }
-}
-
-async function archiveCurrent(){
-  const it = state.current; if (!it) return;
-  try{
-    // id でアーカイブ（冪等）
-    const res = await getJSON(`/advisor/api/watch/archive/id/${it.id}/`);
-    if (!res.ok && res.status !== "archived" && res.status !== "already_archived"){
-      throw new Error("archive failed");
-    }
-    // 画面から取り除く
-    const node = document.querySelector(`.item[data-id="${it.id}"]`); if (node) node.remove();
-    state.items = state.items.filter(x=> x.id !== it.id);
-    $("#hit").textContent = `${state.items.length}件`;
-    closeSheet();
-    showToast("非表示にしました");
-  }catch(e){
-    console.error(e);
-    showToast("非表示に失敗しました");
-  }
-}
-
-/* ===== イベント ===== */
-$("#q").addEventListener("input",(e)=>{
-  state.q = e.target.value.trim();
-  // ライブサーチは負荷を避けるため 300ms デバウンス
-  clearTimeout(window._watch_q_timer);
-  window._watch_q_timer = setTimeout(()=> loadList(true), 300);
-});
-$("#more").addEventListener("click", ()=> loadList(false));
-$("#sh-save").addEventListener("click", saveNote);
-$("#sh-hide").addEventListener("click", archiveCurrent);
-
-/* ===== 初期ロード ===== */
-loadList(true);
+})();
