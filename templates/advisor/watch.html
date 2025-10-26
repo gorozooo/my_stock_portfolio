@@ -1,3 +1,4 @@
+{# templates/advisor/watch.html #}
 {% extends "base.html" %}
 {% load static %}
 
@@ -19,18 +20,19 @@
   <button id="more" class="btn more" hidden>もっと見る</button>
 </main>
 
-<!-- ボトムシート（詳細＆メモ） -->
+<!-- ボトムシート（Boardカードの完全コピー＋メモ） -->
 <section id="sheet" class="sheet" hidden aria-hidden="true" aria-label="銘柄詳細">
   <div class="sheet-backdrop" id="sh-close" aria-hidden="true"></div>
   <div class="sheet-body" role="dialog" aria-modal="true">
     <div class="sheet-drag"></div>
 
-    <!-- Boardカードをそのまま入れる：タイトル/チップ/ターゲットは“重複するため”テンプレ側からは削除 -->
-    <div id="sh-boardcard" class="boardcard-host"></div>
+    <!-- ここに Board と同じカード丸ごと描画 -->
+    <div id="sh-card" class="snapshot-card"></div>
 
-    <!-- 追加日時（いつ入れたか） -->
-    <div id="sh-added" class="added-meta" aria-label="ウォッチに追加した日時"></div>
+    <!-- 追加メタ（追加日時） -->
+    <div class="added-at" id="sh-added" aria-live="polite"></div>
 
+    <!-- メモ欄 -->
     <label class="memo-label" for="sh-note">自分メモ</label>
     <textarea id="sh-note" rows="4" placeholder="メモを書いて保存…"></textarea>
 
@@ -42,10 +44,8 @@
   </div>
 </section>
 
-<!-- Boardカードの見た目 -->
+{# Board の見た目を流用 #}
 <link rel="stylesheet" href="{% static 'advisor/board.css' %}?v=3" />
-<!-- ウォッチ画面のCSS -->
 <link rel="stylesheet" href="{% static 'advisor/watch.css' %}?v=4" />
-
 <script src="{% static 'advisor/watch.js' %}?v=15"></script>
 {% endblock %}
