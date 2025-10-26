@@ -15,6 +15,7 @@ class TimeStampedModel(models.Model):
         abstract = True
 
     def save(self, *args, **kwargs):
+        # 明示的に updated_at を更新（auto_now 相当だが、手動更新にも対応）
         self.updated_at = timezone.now()
         return super().save(*args, **kwargs)
 
@@ -59,7 +60,8 @@ class WatchEntry(TimeStampedModel):
     # --- ボードからコピーした説明（サマリ／詳細） ---
     reason_summary = models.TextField(blank=True, default="")
     # JSON: ["半導体テーマが強い（78点）", "出来高が増えている（+35%）", ...]
-    reason_details = models.JSONField(blank=True, null=True)
+    # ※ フロントは配列前提なので null ではなく空配列を既定にする
+    reason_details = models.JSONField(blank=True, default=list)
 
     # テーマ／AIのメタ
     theme_label = models.CharField(max_length=60, blank=True, default="")
@@ -84,7 +86,7 @@ class WatchEntry(TimeStampedModel):
     in_position        = models.BooleanField(default=False)
 
     class Meta:
-        # ※ 過去の unique_together(user, ticker, status) は衝突源だったため撤去
+        # ※ 過去の unique_together(user, ticker, status) は衝突源だったため設定しない
         indexes = [
             models.Index(fields=["user", "status", "updated_at"]),
             models.Index(fields=["user", "ticker"]),
@@ -93,3 +95,8 @@ class WatchEntry(TimeStampedModel):
 
     def __str__(self):
         return f"[{self.status}] {self.ticker} {self.name}"
+
+    # UI向けに「いつ入れたか」を明示名で取りたい時用
+    @property
+    def added_at(self):
+        return self.created_at
