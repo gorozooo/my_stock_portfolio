@@ -41,3 +41,24 @@ color:var(--text);font-weight:700;text-align:center}
 .btn.ghost{background:transparent}
 .btn.danger{background:linear-gradient(180deg,rgba(239,68,68,.18),rgba(239,68,68,.08));border-color:rgba(239,68,68,.45)}
 .foot{margin:18px 0 0;display:flex;gap:8px}
+
+/* 週足チップ */
+.meta-row {
+  display:flex; gap:8px; align-items:center; margin:6px 0 8px;
+}
+.meta-row .chip {
+  display:inline-flex; align-items:center; gap:6px;
+  font-size:12px; line-height:1; padding:6px 10px; border-radius:999px;
+  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08);
+}
+.meta-row .wk-up   { border-color: rgba(0,200,120,.35); }
+.meta-row .wk-flat { border-color: rgba(180,180,180,.28); }
+.meta-row .wk-down { border-color: rgba(255,80,80,.35); }
+
+.theme-chip-compact { opacity:.9; }
+
+/* 総合評価 + AI信頼度 */
+.overall-block { margin-top:10px; }
+.overall { font-size:14px; margin-bottom:4px; }
+.overall strong { font-size:16px; }
+.ai-confidence { font-size:13px; opacity:.9; }
