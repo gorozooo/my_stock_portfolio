@@ -52,10 +52,20 @@
 
 /* 下部操作を常に見えるように固定（かつ安全域を確保） */
 .sheet-actions{
-  position:sticky;bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
-  display:flex;gap:10px;margin-top:12px;padding:12px 0 calc(12px + env(safe-area-inset-bottom, 0));
-  background:linear-gradient(180deg, transparent, rgba(11,15,26,.95) 35%);
-  backdrop-filter:blur(6px)
+  position: sticky;
+  /* ← ここを小さくすると“下”に寄る。まずは +8px で様子見、もっと下げたいなら 0 に */
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+
+  /* 下側の余白を小さく（=さらに下へ） */
+  padding: 8px 0;
+
+  background: linear-gradient(180deg, transparent, rgba(11,15,26,.95) 35%);
+  backdrop-filter: blur(6px);
+  z-index: 50;
 }
 .btn{flex:1;padding:12px;border-radius:12px;border:1px solid var(--panel-strong);background:rgba(255,255,255,.06);color:var(--text);font-weight:700;text-align:center}
 .btn.primary{background:linear-gradient(180deg,rgba(22,163,74,.35),rgba(22,163,74,.18));border-color:rgba(22,163,74,.5)}
