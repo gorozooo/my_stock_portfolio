@@ -5,7 +5,7 @@
     .btm-wrap{position:fixed;left:0;right:0;bottom:0;z-index:100000;pointer-events:none;transform:translateZ(0)}
     .btm-nav{pointer-events:auto;background:rgba(13,16,24,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
       border-top:1px solid rgba(255,255,255,.08);padding-bottom:max(0px,env(safe-area-inset-bottom))}
-    .btm-grid{max-width:680px;margin:0 auto;display:grid;gap:2px;grid-template-columns:repeat(var(--tab-cols,5),1fr)}
+    .btm-grid{max-width:680px;margin:0 auto;display:grid;gap:2px;grid-template-columns:repeat(var(--tab-cols,6),1fr)}
     .tab-btn{position:relative;background:none;border:0;color:#cfd6ee;
       padding:10px 2px calc(12px + env(safe-area-inset-bottom));
       display:flex;flex-direction:column;align-items:center;gap:3px;
@@ -17,22 +17,25 @@
 
   <nav class="btm-nav">
     <div class="btm-grid">
-      <button class="tab-btn" data-link="/"                         data-menu="home"      aria-label="ホーム">
+      <button class="tab-btn" data-link="/"                  data-menu="home"     aria-label="ホーム">
         <div class="ico">🏠</div><span>ホーム</span>
       </button>
-      <button class="tab-btn" data-link="/advisor/board//"                         data-menu="home"      aria-label="ホーム">
+
+      <!-- 🧠 AI（advisor）: link は /advisor/ 基点にして配下でアクティブ判定、タップ遷移は board へ -->
+      <button class="tab-btn" data-link="/advisor/"          data-menu="advisor"  aria-label="AI">
         <div class="ico">🧠</div><span>AI</span>
       </button>
-      <button class="tab-btn" data-link="/holdings/"                data-menu="holdings"  aria-label="保有">
+
+      <button class="tab-btn" data-link="/holdings/"         data-menu="holdings" aria-label="保有">
         <div class="ico">📄</div><span>保有</span>
       </button>
-      <button class="tab-btn" data-link="/dividends/dashboard/"     data-menu="dividends" aria-label="配当">
+      <button class="tab-btn" data-link="/dividends/dashboard/" data-menu="dividends" aria-label="配当">
         <div class="ico">🏛️</div><span>配当</span>
       </button>
-      <button class="tab-btn" data-link="/realized/"                data-menu="realized"  aria-label="実現損益">
+      <button class="tab-btn" data-link="/realized/"         data-menu="realized" aria-label="実現損益">
         <div class="ico">💰</div><span>実現損益</span>
       </button>
-      <button class="tab-btn" data-link="/cash/"                    data-menu="cash"      aria-label="現金">
+      <button class="tab-btn" data-link="/cash/"             data-menu="cash"     aria-label="現金">
         <div class="ico">💵</div><span>現金</span>
       </button>
     </div>
@@ -45,13 +48,17 @@
   <div class="btm-mask"></div>
 </div>
 
-<!-- URL辞書（JSが拾う）。トレンドはホーム内パネルに誘導 -->
+<!-- URL辞書（JSが拾う） -->
 <script>
   window.APP_URLS = {
     // Home
     home_base           : "{% url 'home' %}",
     home_panel_cash     : "{% url 'home' %}?panel=cash",
     home_panel_trend    : "{% url 'home' %}?panel=trend",
+
+    // Advisor (AI)
+    advisor_board       : "{% url 'advisor_board_page' %}",   // ← ここに遷移させる
+    advisor_root        : "/advisor/",                         // アクティブ判定用（必要なら調整）
 
     // Holdings / Realized
     holdings_base       : "{% url 'holding_list' %}",
@@ -61,7 +68,7 @@
     // Trend（互換のため残す → ホーム内パネルへ）
     trend_base          : "{% url 'trend' %}",
 
-    // Cash（新規）
+    // Cash
     cash_base           : "{% url 'cash_dashboard' %}",
     cash_deposit        : "{% url 'cash_dashboard' %}?action=deposit",
     cash_withdraw       : "{% url 'cash_dashboard' %}?action=withdraw",
@@ -79,8 +86,8 @@
   // タブ数に応じて列数を自動設定（外部CSS到着前でも効く）
   (function(){
     const root = document.documentElement;
-    const count = document.querySelectorAll('#bottomTabRoot .tab-btn').length || 5;
+    const count = document.querySelectorAll('#bottomTabRoot .tab-btn').length || 6;
     root.style.setProperty('--tab-cols', String(count));
   })();
 </script>
-<script src="{% static 'js/bottom_tab.js' %}?v=309" defer></script>
+<script src="{% static 'js/bottom_tab.js' %}?v=310" defer></script>
