@@ -31,9 +31,9 @@ function guessWeekTrend(item){
 
   // 2) デモ用：action 文言からざっくり推定
   const a = (item?.action || "");
-  if (/買い候補|上向き|上昇|押し目/.test(a)) return {label:"上向き", icon:"📈", cls:"wk-up"};
+  if (/買い候補|上向き|上昇|押し目/.test(a)) return {label:"上向き", icon:"↗️", cls:"wk-up"};
   if (/様子見|横ばい|レンジ/.test(a))       return {label:"横ばい", icon:"➡️", cls:"wk-flat"};
-  if (/売|撤退|下向き|下落/.test(a))         return {label:"下向き", icon:"📉", cls:"wk-down"};
+  if (/売|撤退|下向き|下落/.test(a))         return {label:"下向き", icon:"↘️", cls:"wk-down"};
   // 3) それでも無ければ AI勝率しきい値で推定
   const p = Number(item?.ai?.win_prob ?? 0);
   if (p >= 0.62) return {label:"上向き", icon:"↗️", cls:"wk-up"};
