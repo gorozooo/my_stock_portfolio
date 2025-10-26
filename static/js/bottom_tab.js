@@ -1,5 +1,5 @@
 // bottom_tab.js – Tab nav / Long-press sheet / Drag-to-close / Toast / Bounce
-// 現金タブのサブメニューを「台帳」系に統一（すべて / 楽天 / 松井 / SBI）
+// 🧠 advisor タブ対応版
 
 // 固定バーを <body> 直下へ移動して transform/backdrop-filter の影響を遮断
 document.addEventListener("DOMContentLoaded", () => {
@@ -10,7 +10,6 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 (function iosFixedFollowViewport(){
-  // iOS のアドレスバー・キーボードで viewport 高さが揺れる問題に追従
   const isIOS = /iP(hone|ad|od)/.test(navigator.platform) ||
                 (navigator.userAgent.includes("Mac") && "ontouchend" in document);
   if (!isIOS || !window.visualViewport) return;
@@ -67,17 +66,21 @@ document.addEventListener("DOMContentLoaded", () => {
       home_panel_cash  : "/?panel=cash",
       home_panel_trend : "/?panel=trend",
 
+      // Advisor (AI)
+      advisor_board    : "/advisor/board/",
+      advisor_root     : "/advisor/",
+
       // Holdings / Realized
       holdings_base  : "/holdings/",
       holding_create : "/holdings/new/",
       realized_base  : "/realized/",
 
-      // Trend（互換：ホーム内パネルへ）
+      // Trend
       trend_base: "/?panel=trend",
 
       // Cash
       cash_base        : "/cash/",
-      cash_history     : "/cash/history/",   // 追加：台帳ベースURL
+      cash_history     : "/cash/history/",
       cash_deposit     : "/cash/?action=deposit",
       cash_withdraw    : "/cash/?action=withdraw",
       cash_transfer    : "/cash/?action=transfer",
@@ -104,11 +107,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (!out.has("sort"))  out.set("sort",  DEFAULTS.sort);
     if (!out.has("order")) out.set("order", DEFAULTS.order);
-    out.delete("page"); // 切替時は1ページ目へ
+    out.delete("page");
     return out;
   }
 
-  // /holdings/ に対して、broker など override を上書きしてURL生成
   function buildHoldingsURL(overrides = {}){
     const p = getCurrentParams();
     if (overrides.broker !== undefined){
@@ -122,7 +124,6 @@ document.addEventListener("DOMContentLoaded", () => {
     return qs ? `${URLS.holdings_base}?${qs}` : `${URLS.holdings_base}`;
   }
 
-  // NEW: /cash/history/ のURL生成（broker指定のみ使用）
   function buildCashHistoryURL(brokerJa = ""){
     const p = new URLSearchParams();
     if (brokerJa) p.set("broker", brokerJa);
@@ -133,41 +134,45 @@ document.addEventListener("DOMContentLoaded", () => {
   const MENUS = {
     home: [
       { section:"ホーム" },
-      { label:"AI切替",       href:"/advisor/ab",     icon:"🧠", tone:"info" },
-      { label:"AI",           href:"/advisor/notify-dashboard",     icon:"🧠", tone:"info" },
-      { label:"運用履歴",       href:"/advisor/policy",     icon:"📊", tone:"info" },
-      { label:"トレンド",       href: URLS.trend_base,icon:"📈", tone:"info" },
-      { label:"設定を開く",       href:"/settings/trade",     icon:"⚙️", tone:"info" },
+      { label:"トレンド",        href: URLS.trend_base,           icon:"📈", tone:"info" },
+      { label:"設定を開く",      href:"/settings/trade",          icon:"⚙️", tone:"info" },
+    ],
+    // 🧠 advisor メニュー
+    advisor: [
+      { section:"AI" },
+      { label:"AIボード",        href: URLS.advisor_board,        icon:"🧠", tone:"info" },
+      { label:"通知ダッシュボード", href:"/advisor/notify-dashboard", icon:"🔔", tone:"info" },
+      { label:"ABテスト",        href:"/advisor/ab",              icon:"🧪", tone:"info" },
+      { label:"運用履歴",        href:"/advisor/policy",          icon:"📊", tone:"info" },
     ],
     holdings: [
       { section:"保有" },
-      { label:"新規登録",         href: URLS.holding_create,     icon:"➕", tone:"add" },
-      { label:"楽天証券",         action:"goto_broker", broker:"RAKUTEN", icon:"🏯", tone:"info" },
-      { label:"松井証券",         action:"goto_broker", broker:"MATSUI",  icon:"📊", tone:"info" },
-      { label:"SBI証券",          action:"goto_broker", broker:"SBI",     icon:"🏦", tone:"info" },
+      { label:"新規登録",        href: URLS.holding_create,       icon:"➕", tone:"add" },
+      { label:"楽天証券",        action:"goto_broker", broker:"RAKUTEN", icon:"🏯", tone:"info" },
+      { label:"松井証券",        action:"goto_broker", broker:"MATSUI",  icon:"📊", tone:"info" },
+      { label:"SBI証券",         action:"goto_broker", broker:"SBI",     icon:"🏦", tone:"info" },
     ],
     dividends: [
       { section:"配当" },
-      { label:"配当登録",         href: URLS.dividend_create,     icon:"➕", tone:"add" },
-      { label:"明細",             href: URLS.dividends_base,      icon:"📑", tone:"info" },
-      { label:"カレンダー",       href:"/dividends/calendar/",    icon:"📅", tone:"info" },
-      { label:"予測",             href:"/dividends/forecast/",    icon:"📈", tone:"info" },
-      { label:"ダッシュボード",   href: URLS.dividends_dashboard, icon:"🏛️", tone:"info" },
+      { label:"配当登録",        href: URLS.dividend_create,      icon:"➕", tone:"add" },
+      { label:"明細",            href: URLS.dividends_base,       icon:"📑", tone:"info" },
+      { label:"カレンダー",      href:"/dividends/calendar/",     icon:"📅", tone:"info" },
+      { label:"予測",            href:"/dividends/forecast/",     icon:"📈", tone:"info" },
+      { label:"ダッシュボード",  href: URLS.dividends_dashboard,  icon:"🏛️", tone:"info" },
     ],
     realized: [
       { section:"実現損益" },
       { label:"期間サマリー", action:"show_summary", icon:"📊", tone:"info" },
-    { label:"月別サマリー", action:"show_summary", icon:"🗓️", tone:"info" },
-    { label:"ランキング",   action:"show_ranking", icon:"🏅", tone:"info" }, // ← ここをhref→actionに
-    { label:"明細",         action:"show_details", icon:"📑", tone:"info" },
+      { label:"月別サマリー", action:"show_summary", icon:"🗓️", tone:"info" },
+      { label:"ランキング",   action:"show_ranking", icon:"🏅", tone:"info" },
+      { label:"明細",         action:"show_details", icon:"📑", tone:"info" },
     ],
-    // ★ 現金：サブメニューを「台帳」系に置き換え（入金/出金/振替などは撤去）
     cash: [
       { section:"台帳" },
-      { label:"台帳（すべて）",     href: buildCashHistoryURL(""),   icon:"📒", tone:"info" },
-      { label:"台帳（楽天証券）",   href: buildCashHistoryURL("楽天"), icon:"🏯", tone:"info" },
-      { label:"台帳（松井証券）",   href: buildCashHistoryURL("松井"), icon:"📊", tone:"info" },
-      { label:"台帳（SBI証券）",    href: buildCashHistoryURL("SBI"),  icon:"🏦", tone:"info" },
+      { label:"台帳（すべて）",   href: buildCashHistoryURL(""),    icon:"📒", tone:"info" },
+      { label:"台帳（楽天証券）", href: buildCashHistoryURL("楽天"), icon:"🏯", tone:"info" },
+      { label:"台帳（松井証券）", href: buildCashHistoryURL("松井"), icon:"📊", tone:"info" },
+      { label:"台帳（SBI証券）",  href: buildCashHistoryURL("SBI"),  icon:"🏦", tone:"info" },
     ],
   };
 
@@ -203,7 +208,7 @@ document.addEventListener("DOMContentLoaded", () => {
   /* --- バウンス --- */
   const triggerBounce = (btn)=>{
     btn.classList.remove("pressing","clicked");
-    btn.offsetWidth; // 強制リフロー
+    btn.offsetWidth;
     btn.classList.add("clicked");
     setTimeout(()=> btn.classList.remove("clicked"), 220);
   };
@@ -300,13 +305,12 @@ document.addEventListener("DOMContentLoaded", () => {
   /* --- タブ：タップ遷移 + 長押し --- */
   tabs.forEach(btn=>{
     const link = btn.dataset.link;
-    const type = btn.dataset.menu; // home / holdings / dividends / realized / cash ...
+    const type = btn.dataset.menu; // home / advisor / holdings / dividends / realized / cash ...
     let timer=null, longPressed=false, moved=false;
 
-    // iOSのプレスメニュー抑止
     btn.addEventListener("contextmenu", e => e.preventDefault());
 
-    // クリック（マウス/タップ共通）
+    // クリック
     btn.addEventListener("click",(e)=>{
       if (longPressed){ e.preventDefault(); longPressed=false; return; }
 
@@ -315,32 +319,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // 保有：シングルタップで broker フィルタ解除して全件へ
       if (type === "holdings"){
-        e.preventDefault();
-        triggerBounce(btn);
-        navigateTo(buildHoldingsURL({ broker: "" }));
-        return;
+        e.preventDefault(); triggerBounce(btn);
+        navigateTo(buildHoldingsURL({ broker: "" })); return;
       }
 
       // 配当：シングルタップでダッシュボード
       if (type === "dividends"){
-        e.preventDefault();
-        triggerBounce(btn);
-        navigateTo(URLS.dividends_dashboard);
-        return;
+        e.preventDefault(); triggerBounce(btn);
+        navigateTo(URLS.dividends_dashboard); return;
       }
 
-      // 既にそのタブ配下にいる → メニューを開く（保有/配当 以外）
+      // 🧠 advisor：シングルタップで board へ
+      if (type === "advisor"){
+        e.preventDefault(); triggerBounce(btn);
+        navigateTo(URLS.advisor_board); return;
+      }
+
+      // 既にそのタブ配下にいる → メニューを開く
       if (here.startsWith(me) && !submenu.classList.contains("show")){
-        e.preventDefault();
-        showMenu(type, btn);
-        return;
+        e.preventDefault(); showMenu(type, btn); return;
       }
 
       triggerBounce(btn);
       if (!submenu.classList.contains("show") && link) navigateTo(link);
     });
 
-    // タッチ（長押し判定）
+    // タッチ（長押し）
     btn.addEventListener("touchstart",(e)=>{
       e.preventDefault();
       longPressed=false; moved=false; clearTimeout(timer);
@@ -356,6 +360,8 @@ document.addEventListener("DOMContentLoaded", () => {
         navigateTo(buildHoldingsURL({ broker: "" }));
       }else if (type === "dividends"){
         navigateTo(URLS.dividends_dashboard);
+      }else if (type === "advisor"){
+        navigateTo(URLS.advisor_board);
       }else if (link){
         navigateTo(link);
       }
@@ -365,35 +371,41 @@ document.addEventListener("DOMContentLoaded", () => {
   /* --- 初期アクティブ --- */
   (function markActive(){
     const here = normPath(location.pathname);
+    const advisorRoot = (window.APP_URLS && window.APP_URLS.advisor_root) || "/advisor/";
     tabs.forEach(b=>{
       const link = normPath(b.dataset.link||"/");
       const isHome = link === "/";
-      const hit = isHome ? (here === "/") : here.startsWith(link);
+      const isAdvisor = link === normPath(advisorRoot);
+      let hit;
+      if (isHome){
+        hit = (here === "/");
+      }else if (isAdvisor){
+        // /advisor/ 以下はすべて AI タブをアクティブ扱い
+        hit = here.startsWith(normPath(advisorRoot));
+      }else{
+        hit = here.startsWith(link);
+      }
       b.classList.toggle("active", !!hit);
     });
   })();
 
-  /* --- サブメニューのアクション（必要なら拡張） --- */
+  /* --- サブメニューのアクション --- */
   window.addEventListener("bottomtab:action", (e)=>{
     const { menu, action, payload } = (e.detail||{});
     switch (action) {
       case "goto_broker": {
         const code = payload?.broker || "";
         const url  = buildHoldingsURL({ broker: code });
-        navigateTo(url);
-        break;
+        navigateTo(url); break;
       }
       case "goto_all_brokers": {
         const url = buildHoldingsURL({ broker: "" });
-        navigateTo(url);
-        break;
+        navigateTo(url); break;
       }
-      default:
-        break;
+      default: break;
     }
   });
 
-  /* --- デバッグ --- */
   window.openBottomMenu = (type = "cash") => showMenu(type, null);
 });
 
