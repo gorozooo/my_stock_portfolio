@@ -2,22 +2,23 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Tuple, Optional
 
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.timezone import now as dj_now
+from django.db import transaction
+from django.db.utils import OperationalError
 
 from advisor.models import ActionLog, Reminder, WatchEntry
 
-# JST
+# ===== 共通 =====
 JST = timezone(timedelta(hours=9))
-
 
 def _log(*args):
     print("[advisor.api]", *args)
-
 
 def _no_store(resp: JsonResponse) -> JsonResponse:
     """スマホブラウザのキャッシュを抑止"""
@@ -26,68 +27,61 @@ def _no_store(resp: JsonResponse) -> JsonResponse:
     resp["Expires"] = "0"
     return resp
 
+# 軽いリトライ（SQLite の database is locked 対策）
+def _with_retry(fn, *, retries=3, sleep=0.25):
+    last = None
+    for i in range(retries):
+        try:
+            return fn()
+        except OperationalError as e:
+            last = e
+            if "database is locked" in str(e).lower():
+                _log(f"DB locked, retry {i+1}/{retries}")
+                time.sleep(sleep * (i + 1))
+                continue
+            raise
+    raise last
 
-# ====== 内部ヘルパ（デモ用の簡易ロジック：本番は価格取得/モデル出力に差し替え） ======
-_FALLBACK_PRICE = {
-    "8035.T": 12450,
-    "7203.T": 3150,
-    "6758.T": 14680,
-    "8267.T": 3180,
-    "8306.T": 1470,
-}
-
+# ====== デモ用ヘルパ（本番は価格APIやモデル出力に差し替え） ======
+_FALLBACK_PRICE = {"8035.T": 12450, "7203.T": 3150, "6758.T": 14680, "8267.T": 3180, "8306.T": 1470}
 
 def _last_price(ticker: str) -> int:
     return int(_FALLBACK_PRICE.get(ticker.upper(), 3000))
 
-
 def _tp_sl_pct(segment: str) -> Tuple[float, float]:
     s = segment or ""
-    if "短期" in s:
-        return 0.06, 0.02   # +6% / -2%
-    if "中期" in s:
-        return 0.10, 0.03   # +10% / -3%
-    # 長期/NISAなど
+    if "短期" in s:  return 0.06, 0.02
+    if "中期" in s:  return 0.10, 0.03
     return 0.12, 0.05
-
 
 def _weekly_trend(theme_score: float, win_prob: float) -> str:
     score = 0.7 * win_prob + 0.3 * theme_score
-    if score >= 0.62:
-        return "up"
-    if score >= 0.48:
-        return "flat"
+    if score >= 0.62: return "up"
+    if score >= 0.48: return "flat"
     return "down"
-
 
 def _overall(theme_score: float, win_prob: float) -> int:
     return int(round((0.7 * win_prob + 0.3 * theme_score) * 100))
 
-
 def _tp_sl_prob(win_prob: float) -> Tuple[float, float]:
-    # デモ用の暫定配分
     tp = max(0.0, min(1.0, win_prob * 0.46))
     sl = max(0.0, min(1.0, (1.0 - win_prob) * 0.30))
     return tp, sl
 
-
 def _position_size(entry: int, sl_price: int, credit_balance: Optional[int], risk_per_trade: float) -> Tuple[Optional[int], Optional[int]]:
-    if not credit_balance or entry <= 0:
-        return None, None
-    stop_value = max(1, entry - sl_price)  # 円
+    if not credit_balance or entry <= 0: return None, None
+    stop_value = max(1, entry - sl_price)
     risk_budget = max(1, int(round(credit_balance * risk_per_trade)))
     shares = risk_budget // stop_value
-    if shares <= 0:
-        return None, None
+    if shares <= 0: return None, None
     need_cash = shares * entry
     return shares, need_cash
 
-
-# =============== ボード（モック＋簡易計算で拡張フィールド付与） ===============
+# =============== /advisor/api/board/ ===============
 def board_api(request):
     jst_now = datetime.now(JST)
 
-    # デモ用の信用余力（本番はユーザーの実データに差し替え）
+    # デモ用（本番はユーザー毎の実数）
     credit_balance = 1_000_000
     risk_per_trade = 0.01  # 1%
 
@@ -155,18 +149,14 @@ def board_api(request):
 
         ext = {
             **it,
-            "weekly_trend": weekly,
-            "overall_score": overall,
-            "entry_price_hint": last,
+            "weekly_trend": weekly,                 # ← board.js は code をそのまま表示（↗️等はJS側）
+            "overall_score": overall,               # ← 総合評価
+            "entry_price_hint": last,               # ← IN目安
             "targets": {
-                # 既存のテキスト（互換）
-                "tp": it["targets"]["tp"] if "targets" in it and "tp" in it["targets"] else f"目標 +{int(tp_pct*100)}%",
-                "sl": it["targets"]["sl"] if "targets" in it and "sl" in it["targets"] else f"損切り -{int(sl_pct*100)}%",
-                # 追加の数値情報
-                "tp_pct": tp_pct,
-                "sl_pct": sl_pct,
-                "tp_price": tp_price,
-                "sl_price": sl_price,
+                "tp": it.get("targets", {}).get("tp", f"目標 +{int(tp_pct*100)}%"),
+                "sl": it.get("targets", {}).get("sl", f"損切り -{int(sl_pct*100)}%"),
+                "tp_pct": tp_pct, "sl_pct": sl_pct,
+                "tp_price": tp_price, "sl_price": sl_price,
             },
             "sizing": {
                 "credit_balance": credit_balance,
@@ -174,11 +164,7 @@ def board_api(request):
                 "position_size_hint": size,
                 "need_cash": need_cash,
             },
-            "ai": {
-                **it["ai"],
-                "tp_prob": tp_prob,
-                "sl_prob": sl_prob,
-            },
+            "ai": { **it["ai"], "tp_prob": tp_prob, "sl_prob": sl_prob },
         }
         highlights.append(ext)
 
@@ -188,7 +174,6 @@ def board_api(request):
             "model_version": "v0.2-demo-policy-lite",
             "adherence_week": 0.84,
             "regime": {"trend_prob": 0.63, "range_prob": 0.37, "nikkei": "↑", "topix": "→"},
-            # 拡張アイデアのヘッダ表示（デモ文）
             "scenario": "半導体に資金回帰。短期は押し目継続、週足↑",
             "pairing": {"id": 2, "label": "順張り・短中期"},
             "self_mirror": {"recent_drift": "損切り未実施 3/4件"},
@@ -206,8 +191,7 @@ def board_api(request):
     }
     return _no_store(JsonResponse(data, json_dumps_params={"ensure_ascii": False}))
 
-
-# =============== ActionLog（＋save時にWatchEntryへコピー） ===============
+# =============== /advisor/api/action/ ===============
 @csrf_exempt
 def record_action(request):
     if request.method != "POST":
@@ -217,61 +201,67 @@ def record_action(request):
         raw = request.body.decode("utf-8") if request.body else "{}"
         payload = json.loads(raw or "{}")
 
-        # ★ 未ログインは明示 401 を返す
+        # 未ログインは 401 を返す（board.js 側で表示を変える）
         if not (hasattr(request, "user") and request.user and request.user.is_authenticated):
             return _no_store(JsonResponse({"ok": False, "error": "auth_required"}, status=401))
 
         user = request.user
         _log("record_action payload=", payload, "user=", getattr(user, "username", None))
 
-        log = ActionLog.objects.create(
-            user=user,
-            ticker=(payload.get("ticker") or "").strip().upper(),
-            policy_id=payload.get("policy_id", "") or "",
-            action=payload.get("action", "") or "",
-            note=payload.get("note", "") or "",
-        )
-        _log("record_action saved id=", log.id)
+        def _do():
+            with transaction.atomic():
+                log = ActionLog.objects.create(
+                    user=user,
+                    ticker=(payload.get("ticker") or "").strip().upper(),
+                    policy_id=payload.get("policy_id", "") or "",
+                    action=payload.get("action", "") or "",
+                    note=payload.get("note", "") or "",
+                )
+                # 「メモする」時は WatchEntry にもコピー
+                if payload.get("action") == "save_order":
+                    tkr = (payload.get("ticker") or "").strip().upper()
+                    WatchEntry.objects.update_or_create(
+                        user=user,
+                        ticker=tkr,
+                        status=WatchEntry.STATUS_ACTIVE,
+                        defaults={
+                            "name": payload.get("name", "") or "",
+                            "note": payload.get("note", "") or "",
+                            "reason_summary": payload.get("reason_summary", "") or "",
+                            "reason_details": payload.get("reason_details", []) or [],
+                            "theme_label": payload.get("theme_label", "") or "",
+                            "theme_score": payload.get("theme_score", None),
+                            "ai_win_prob": payload.get("ai_win_prob", None),
+                            "target_tp": payload.get("target_tp", "") or "",
+                            "target_sl": payload.get("target_sl", "") or "",
+                            # 追加保存（board.js から来る数値類）
+                            "overall_score": payload.get("overall_score", None),
+                            "weekly_trend": payload.get("weekly_trend", "") or "",
+                            "entry_price_hint": payload.get("entry_price_hint", None),
+                            "tp_price": payload.get("tp_price", None),
+                            "sl_price": payload.get("sl_price", None),
+                            "tp_pct": payload.get("tp_pct", None),
+                            "sl_pct": payload.get("sl_pct", None),
+                            "position_size_hint": payload.get("position_size_hint", None),
+                            "in_position": False,
+                        },
+                    )
+                return log
 
-        # 📝 「メモする」→ WatchEntry を最新値でupsert（理由や数値を保存）
-        if payload.get("action") == "save_order":
-            tkr = (payload.get("ticker") or "").strip().upper()
-            WatchEntry.objects.update_or_create(
-                user=user,
-                ticker=tkr,
-                status=WatchEntry.STATUS_ACTIVE,
-                defaults={
-                    "name": payload.get("name", "") or "",
-                    "note": payload.get("note", "") or "",
-                    "reason_summary": payload.get("reason_summary", "") or "",
-                    "reason_details": payload.get("reason_details", []) or [],
-                    "theme_label": payload.get("theme_label", "") or "",
-                    "theme_score": payload.get("theme_score", None),
-                    "ai_win_prob": payload.get("ai_win_prob", None),
-                    "target_tp": payload.get("target_tp", "") or "",
-                    "target_sl": payload.get("target_sl", "") or "",
-                    # 追加保管（将来の再計算/表示同期用）
-                    "overall_score": payload.get("overall_score", None),
-                    "weekly_trend": payload.get("weekly_trend", "") or "",
-                    "entry_price_hint": payload.get("entry_price_hint", None),
-                    "tp_price": payload.get("tp_price", None),
-                    "sl_price": payload.get("sl_price", None),
-                    "tp_pct": payload.get("tp_pct", None),
-                    "sl_pct": payload.get("sl_pct", None),
-                    "position_size_hint": payload.get("position_size_hint", None),
-                    "in_position": False,
-                },
-            )
-            _log("record_action → WatchEntry upsert (with reasons & numeric fields)")
-
+        log = _with_retry(_do)
         return _no_store(JsonResponse({"ok": True, "id": log.id}))
 
+    except OperationalError as e:
+        if "database is locked" in str(e).lower():
+            _log("record_action ERROR: db_locked")
+            return _no_store(JsonResponse({"ok": False, "error": "db_locked"}, status=503))
+        _log("record_action ERROR:", repr(e))
+        return _no_store(JsonResponse({"ok": False, "error": "db_error"}, status=500))
     except Exception as e:
         _log("record_action ERROR:", repr(e))
         return _no_store(JsonResponse({"ok": False, "error": str(e)}, status=400))
 
-
-# =============== Reminder ===============
+# =============== /advisor/api/remind/ ===============
 @csrf_exempt
 def create_reminder(request):
     if request.method != "POST":
@@ -281,7 +271,6 @@ def create_reminder(request):
         raw = request.body.decode("utf-8") if request.body else "{}"
         payload = json.loads(raw or "{}")
 
-        # ★ 未ログインは明示 401
         if not (hasattr(request, "user") and request.user and request.user.is_authenticated):
             return _no_store(JsonResponse({"ok": False, "error": "auth_required"}, status=401))
 
@@ -289,33 +278,37 @@ def create_reminder(request):
         minutes = int(payload.get("after_minutes", 120))
         fire_at = datetime.now(JST) + timedelta(minutes=minutes)
 
-        _log("create_reminder payload=", payload, "user=", getattr(user, "username", None), "fire_at=", fire_at)
+        def _do():
+            with transaction.atomic():
+                return Reminder.objects.create(
+                    user=user,
+                    ticker=(payload.get("ticker") or "").strip().upper(),
+                    message=f"{payload.get('ticker','')} をもう一度チェック",
+                    fire_at=fire_at,
+                )
 
-        r = Reminder.objects.create(
-            user=user,
-            ticker=(payload.get("ticker") or "").strip().upper(),
-            message=f"{payload.get('ticker','')} をもう一度チェック",
-            fire_at=fire_at,
-        )
-        _log("create_reminder saved id=", r.id)
+        r = _with_retry(_do)
         return _no_store(JsonResponse({"ok": True, "id": r.id, "fire_at": fire_at.isoformat()}))
 
+    except OperationalError as e:
+        if "database is locked" in str(e).lower():
+            _log("create_reminder ERROR: db_locked")
+            return _no_store(JsonResponse({"ok": False, "error": "db_locked"}, status=503))
+        _log("create_reminder ERROR:", repr(e))
+        return _no_store(JsonResponse({"ok": False, "error": "db_error"}, status=500))
     except Exception as e:
         _log("create_reminder ERROR:", repr(e))
         return _no_store(JsonResponse({"ok": False, "error": str(e)}, status=400))
 
-
 # =============== デバッグ用 ===============
 def ping(request):
     return _no_store(JsonResponse({"ok": True, "now": dj_now().astimezone(JST).isoformat()}))
-
 
 @csrf_exempt
 def debug_add(request):
     log = ActionLog.objects.create(ticker="DEBUG.T", action="save_order", note="debug via GET")
     _log("debug_add saved id=", log.id)
     return _no_store(JsonResponse({"ok": True, "id": log.id}))
-
 
 @csrf_exempt
 def debug_add_reminder(request):
