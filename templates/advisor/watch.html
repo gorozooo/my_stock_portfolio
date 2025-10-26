@@ -19,29 +19,29 @@
   <button id="more" class="btn more" hidden>もっと見る</button>
 </main>
 
-<!-- 下シート（boardカードを丸ごと表示） -->
+<!-- ボトムシート（詳細＆メモ） -->
 <section id="sheet" class="sheet" hidden aria-hidden="true" aria-label="銘柄詳細">
-  <div class="sheet-backdrop" data-close aria-hidden="true"></div>
+  <div class="sheet-backdrop" id="sh-backdrop" aria-hidden="true"></div>
   <div class="sheet-body" role="dialog" aria-modal="true">
-    <div class="sheet-drag"></div>
+    <div class="sheet-drag" aria-hidden="true"></div>
 
-    <!-- board風カード -->
-    <article id="sh-card" class="card" aria-live="polite"></article>
+    <!-- boardカードと同じ見た目の詳細カードが差し込まれる位置 -->
+    <div id="sh-card" class="detail-card"></div>
 
-    <!-- 自分メモ -->
-    <div class="memo-box">
-      <label class="memo-label" for="sh-note">自分メモ</label>
-      <textarea id="sh-note" rows="4" placeholder="メモを書いて保存…"></textarea>
+    <div class="memo-wrap">
+      <div class="memo-title">自分メモ</div>
+      <textarea id="sh-note" rows="5" placeholder="メモを書いて保存…"></textarea>
     </div>
 
+    <!-- スクロールしても常に下に見える操作ボタン -->
     <div class="sheet-actions">
       <button id="sh-save" class="btn primary">保存</button>
       <button id="sh-hide" class="btn danger">非表示</button>
-      <button data-close class="btn ghost">閉じる</button>
+      <button id="sh-close-btn" class="btn ghost">閉じる</button>
     </div>
   </div>
 </section>
 
-<link rel="stylesheet" href="{% static 'advisor/watch.css' %}?v=6" />
-<script src="{% static 'advisor/watch.js' %}?v=18"></script>
+<link rel="stylesheet" href="{% static 'advisor/watch.css' %}?v=7" />
+<script src="{% static 'advisor/watch.js' %}?v=19"></script>
 {% endblock %}
