@@ -52,7 +52,7 @@
 
 /* 下部操作を常に見えるように固定（かつ安全域を確保） */
 .sheet-actions{
-  position:sticky;bottom:env(safe-area-inset-bottom, 0);
+  position:sticky;bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
   display:flex;gap:10px;margin-top:12px;padding:12px 0 calc(12px + env(safe-area-inset-bottom, 0));
   background:linear-gradient(180deg, transparent, rgba(11,15,26,.95) 35%);
   backdrop-filter:blur(6px)
