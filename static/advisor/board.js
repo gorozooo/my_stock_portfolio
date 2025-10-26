@@ -36,8 +36,8 @@ function guessWeekTrend(item){
   if (/売|撤退|下向き|下落/.test(a))         return {label:"下向き", icon:"📉", cls:"wk-down"};
   // 3) それでも無ければ AI勝率しきい値で推定
   const p = Number(item?.ai?.win_prob ?? 0);
-  if (p >= 0.62) return {label:"上向き", icon:"📈", cls:"wk-up"};
-  if (p <= 0.45) return {label:"下向き", icon:"📉", cls:"wk-down"};
+  if (p >= 0.62) return {label:"上向き", icon:"↗️", cls:"wk-up"};
+  if (p <= 0.45) return {label:"下向き", icon:"↘️", cls:"wk-down"};
   return {label:"横ばい", icon:"➡️", cls:"wk-flat"};
 }
 
