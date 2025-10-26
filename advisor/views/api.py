@@ -21,13 +21,11 @@ def _log(*args):
     print("[advisor.api]", *args)
 
 def _no_store(resp: JsonResponse) -> JsonResponse:
-    """スマホブラウザのキャッシュを抑止"""
     resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp["Pragma"] = "no-cache"
     resp["Expires"] = "0"
     return resp
 
-# 軽いリトライ（SQLite の database is locked 対策）
 def _with_retry(fn, *, retries=3, sleep=0.25):
     last = None
     for i in range(retries):
@@ -42,7 +40,7 @@ def _with_retry(fn, *, retries=3, sleep=0.25):
             raise
     raise last
 
-# ====== デモ用ヘルパ（本番は価格APIやモデル出力に差し替え） ======
+# ====== デモ用ヘルパ ======
 _FALLBACK_PRICE = {"8035.T": 12450, "7203.T": 3150, "6758.T": 14680, "8267.T": 3180, "8306.T": 1470}
 
 def _last_price(ticker: str) -> int:
@@ -77,13 +75,21 @@ def _position_size(entry: int, sl_price: int, credit_balance: Optional[int], ris
     need_cash = shares * entry
     return shares, need_cash
 
+# ====== WatchEntry に存在するフィールドだけ defaults に残す ======
+def _filter_defaults_for_watchentry(defaults_in: Dict[str, Any]) -> Dict[str, Any]:
+    field_names = {f.name for f in WatchEntry._meta.get_fields()}
+    out: Dict[str, Any] = {}
+    for k, v in (defaults_in or {}).items():
+        if k in field_names:
+            out[k] = v
+    return out
+
 # =============== /advisor/api/board/ ===============
 def board_api(request):
     jst_now = datetime.now(JST)
 
-    # デモ用（本番はユーザー毎の実数）
     credit_balance = 1_000_000
-    risk_per_trade = 0.01  # 1%
+    risk_per_trade = 0.01
 
     base_items: List[Dict[str, Any]] = [
         {
@@ -149,9 +155,9 @@ def board_api(request):
 
         ext = {
             **it,
-            "weekly_trend": weekly,                 # JS側で↗️等に整形
-            "overall_score": overall,               # 総合評価
-            "entry_price_hint": last,               # IN目安
+            "weekly_trend": weekly,
+            "overall_score": overall,
+            "entry_price_hint": last,
             "targets": {
                 "tp": it.get("targets", {}).get("tp", f"目標 +{int(tp_pct*100)}%"),
                 "sl": it.get("targets", {}).get("sl", f"損切り -{int(sl_pct*100)}%"),
@@ -177,7 +183,7 @@ def board_api(request):
             "scenario": "半導体に資金回帰。短期は押し目継続、週足↑",
             "pairing": {"id": 2, "label": "順張り・短中期"},
             "self_mirror": {"recent_drift": "損切り未実施 3/4件"},
-            "credit_balance": credit_balance,
+            "credit_balance": 1_000_000,
         },
         "theme": {
             "week": "2025-W43",
@@ -196,17 +202,14 @@ def board_api(request):
 def record_action(request):
     if request.method != "POST":
         return HttpResponseBadRequest("POST only")
-
     try:
         raw = request.body.decode("utf-8") if request.body else "{}"
         payload = json.loads(raw or "{}")
-
         user = request.user if getattr(request, "user", None) and request.user.is_authenticated else None
         _log("record_action payload=", payload, "user=", getattr(user, "username", None))
 
         def _do():
             with transaction.atomic():
-                # 認証の有無に関わらず ActionLog は保存（user は None 可）
                 log = ActionLog.objects.create(
                     user=user,
                     ticker=(payload.get("ticker") or "").strip().upper(),
@@ -214,44 +217,43 @@ def record_action(request):
                     action=payload.get("action", "") or "",
                     note=payload.get("note", "") or "",
                 )
-                # WatchEntry はログイン時のみ upsert
-                if user and payload.get("action") == "save_order":
+                # save_order のときだけ WatchEntry を upsert
+                if payload.get("action") == "save_order":
                     tkr = (payload.get("ticker") or "").strip().upper()
+                    # フロントから来る全項目をいったん作る
+                    defaults_all = {
+                        "name": payload.get("name", "") or "",
+                        "note": payload.get("note", "") or "",
+                        "reason_summary": payload.get("reason_summary", "") or "",
+                        "reason_details": payload.get("reason_details", []) or [],
+                        "theme_label": payload.get("theme_label", "") or "",
+                        "theme_score": payload.get("theme_score", None),
+                        "ai_win_prob": payload.get("ai_win_prob", None),
+                        "target_tp": payload.get("target_tp", "") or "",
+                        "target_sl": payload.get("target_sl", "") or "",
+                        "overall_score": payload.get("overall_score", None),
+                        "weekly_trend": payload.get("weekly_trend", "") or "",
+                        "entry_price_hint": payload.get("entry_price_hint", None),
+                        "tp_price": payload.get("tp_price", None),
+                        "sl_price": payload.get("sl_price", None),
+                        "tp_pct": payload.get("tp_pct", None),
+                        "sl_pct": payload.get("sl_pct", None),
+                        "position_size_hint": payload.get("position_size_hint", None),
+                        "in_position": False,
+                    }
+                    # ここで WatchEntry に存在するフィールドだけ残す（存在しない列は無視）
+                    defaults = _filter_defaults_for_watchentry(defaults_all)
+
                     WatchEntry.objects.update_or_create(
                         user=user,
                         ticker=tkr,
                         status=WatchEntry.STATUS_ACTIVE,
-                        defaults={
-                            "name": payload.get("name", "") or "",
-                            "note": payload.get("note", "") or "",
-                            "reason_summary": payload.get("reason_summary", "") or "",
-                            "reason_details": payload.get("reason_details", []) or [],
-                            "theme_label": payload.get("theme_label", "") or "",
-                            "theme_score": payload.get("theme_score", None),
-                            "ai_win_prob": payload.get("ai_win_prob", None),
-                            "target_tp": payload.get("target_tp", "") or "",
-                            "target_sl": payload.get("target_sl", "") or "",
-                            "overall_score": payload.get("overall_score", None),
-                            "weekly_trend": payload.get("weekly_trend", "") or "",
-                            "entry_price_hint": payload.get("entry_price_hint", None),
-                            "tp_price": payload.get("tp_price", None),
-                            "sl_price": payload.get("sl_price", None),
-                            "tp_pct": payload.get("tp_pct", None),
-                            "sl_pct": payload.get("sl_pct", None),
-                            "position_size_hint": payload.get("position_size_hint", None),
-                            "in_position": False,
-                        },
+                        defaults=defaults,
                     )
                 return log
 
         log = _with_retry(_do)
-        # 未ログインでも 200 を返す（JS 側 postJSON が throw しない）
-        return _no_store(JsonResponse({
-            "ok": True,
-            "id": log.id,
-            "login_required_for_watch": (user is None)  # 参考情報（JS未使用でもOK）
-        }))
-
+        return _no_store(JsonResponse({"ok": True, "id": log.id}))
     except OperationalError as e:
         if "database is locked" in str(e).lower():
             _log("record_action ERROR: db_locked")
@@ -267,33 +269,23 @@ def record_action(request):
 def create_reminder(request):
     if request.method != "POST":
         return HttpResponseBadRequest("POST only")
-
     try:
         raw = request.body.decode("utf-8") if request.body else "{}"
         payload = json.loads(raw or "{}")
-
         user = request.user if getattr(request, "user", None) and request.user.is_authenticated else None
-
         minutes = int(payload.get("after_minutes", 120))
         fire_at = datetime.now(JST) + timedelta(minutes=minutes)
 
         def _do():
             with transaction.atomic():
                 return Reminder.objects.create(
-                    user=user,  # None でも許容
+                    user=user,
                     ticker=(payload.get("ticker") or "").strip().upper(),
                     message=f"{payload.get('ticker','')} をもう一度チェック",
                     fire_at=fire_at,
                 )
-
         r = _with_retry(_do)
-        return _no_store(JsonResponse({
-            "ok": True,
-            "id": r.id,
-            "fire_at": fire_at.isoformat(),
-            "login_required_for_associate": (user is None)
-        }))
-
+        return _no_store(JsonResponse({"ok": True, "id": r.id, "fire_at": fire_at.isoformat()}))
     except OperationalError as e:
         if "database is locked" in str(e).lower():
             _log("create_reminder ERROR: db_locked")
