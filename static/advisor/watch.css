@@ -1,83 +1,63 @@
 :root{
   --bg:#0b0f1a; --panel:rgba(255,255,255,.06); --panel-strong:rgba(255,255,255,.10);
-  --text:#f1f5f9; --green:#16a34a; --red:#ef4444; --blue:#2563eb; --yellow:#eab308;
-  --radius:16px; --shadow:0 10px 30px rgba(0,0,0,.35); --blur:12px;
+  --text:#f1f5f9; --green:#16a34a; --red:#ef4444; --yellow:#eab308; --blue:#2563eb;
+  --radius:16px; --shadow:0 10px 30px rgba(0,0,0,.35);
 }
 
-body{background:var(--bg);color:var(--text)}
-.watch-header{position:sticky;top:0;backdrop-filter:blur(var(--blur));
-  background:linear-gradient(to bottom, rgba(11,15,26,.75), rgba(11,15,26,.35));
-  border-bottom:1px solid rgba(255,255,255,.06); z-index:10;}
-.watch-header .wrap{max-width:720px;margin:0 auto;padding:12px 16px}
-.watch-header h1{margin:4px 0 10px}
-.search-box{display:flex;gap:8px;align-items:center}
-.search-box input{flex:1;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.12);
-  background:rgba(255,255,255,.05);color:var(--text)}
-.hit{opacity:.8}
+.watch-header{position:sticky;top:0;background:linear-gradient(to bottom, rgba(11,15,26,.85), rgba(11,15,26,.45));backdrop-filter:blur(10px);z-index:10;border-bottom:1px solid rgba(255,255,255,.06)}
+.watch-header .wrap{max-width:720px;margin:0 auto;padding:12px 16px;color:var(--text)}
+.search-box{display:flex;align-items:center;gap:10px}
+.search-box input{flex:1;border-radius:12px;border:1px solid var(--panel-strong);background:var(--panel);padding:10px 12px;color:var(--text)}
+.hit{opacity:.85}
 
-.watch-container{max-width:720px;margin:0 auto;padding:16px}
-.btn.more{width:100%;margin:16px 0;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.16);
-  background:rgba(255,255,255,.06);color:var(--text);font-weight:700}
-
-/* ===== コンパクト行 ===== */
+.watch-container{max-width:720px;margin:0 auto;padding:14px 16px 24px}
 .watch-list{display:grid;gap:12px}
-.item{border:1px solid var(--panel-strong); background:var(--panel); border-radius:14px; padding:12px 14px;
-  box-shadow:var(--shadow); cursor:pointer}
-.item-line1{display:flex;gap:8px;align-items:center;justify-content:space-between; margin-bottom:6px}
-.item-title{font-weight:800}
-.item-code{opacity:.85;font-weight:800}
-.item-chips{display:flex;gap:6px;flex-wrap:wrap}
-.chip{display:inline-flex;gap:6px;align-items:center; font-size:12px; padding:6px 10px;border-radius:999px;
-  background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1)}
-.chip.wk-up{border-color:rgba(0,200,120,.35)} 
-.chip.wk-flat{border-color:rgba(180,180,180,.28)} 
-.chip.wk-down{border-color:rgba(255,80,80,.35)}
-.item-summary{opacity:.9; font-size:13px}
 
-/* ===== board 風カード（下シート中） ===== */
-.card{position:relative;background:var(--panel);border:1px solid var(--panel-strong);
-  border-radius:var(--radius); box-shadow:var(--shadow); padding:16px}
-.badge{position:absolute;top:12px;right:12px;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:700;
-  background:rgba(37,99,235,.18);border:1px solid rgba(37,99,235,.4);color:#cfe0ff}
-.title{display:flex;gap:8px;font-weight:800}
-.code{opacity:.9}
-.segment{opacity:.9;margin:4px 0 10px}
-.overall{display:flex;gap:12px;align-items:center;margin:6px 0 8px}
-.action{margin:8px 0 6px;font-weight:700}
-.good{color:var(--green)} .warn{color:var(--yellow)} .bad{color:var(--red)}
-.reasons{margin:8px 0 10px;padding-left:16px}.reasons li{margin:4px 0}
-.targets{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px}
-.target{background:rgba(255,255,255,.05);border:1px dashed rgba(255,255,255,.18);
-  padding:8px 10px;border-radius:12px;font-size:13px}
-.meter-wrap{margin:6px 0 8px}
-.meter-bar{height:10px;background:rgba(255,255,255,.08);border-radius:999px;overflow:hidden}
-.meter-bar>i{display:block;height:10px;width:40%;background:linear-gradient(90deg,#60a5fa,#34d399)}
-.meter-caption{font-size:12px;opacity:.85;margin-top:4px}
-.theme-tag{display:inline-flex;gap:8px;align-items:center;background:rgba(37,99,235,.14);
-  border:1px solid rgba(37,99,235,.32);color:#cfe0ff;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700}
+/* --- カード（board準拠の見た目） --- */
+.wcard{background:var(--panel);border:1px solid var(--panel-strong);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;color:var(--text)}
+.w-title{font-weight:800;display:flex;align-items:center;gap:8px}
+.w-seg{font-size:12px;opacity:.9;margin-top:2px}
+.w-badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.badge-chip{display:inline-flex;gap:6px;align-items:center;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:6px 10px;font-size:12px}
+.badge-chip.blue{background:rgba(37,99,235,.14);border-color:rgba(37,99,235,.32);color:#cfe0ff}
+.w-overall{display:flex;gap:16px;align-items:center;margin:8px 0 6px}
+.w-action{margin:8px 0 6px;font-weight:700;color:var(--green)}
+.w-list{margin:8px 0 10px;padding-left:16px}
+.w-targets{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.w-target{background:rgba(255,255,255,.05);border:1px dashed rgba(255,255,255,.18);padding:8px 10px;border-radius:12px;font-size:13px}
+.w-meter-wrap{margin-top:4px}
+.w-meter{height:10px;background:rgba(255,255,255,.08);border-radius:999px;overflow:hidden}
+.w-meter>i{display:block;height:100%;background:linear-gradient(90deg,#60a5fa,#34d399);width:45%}
+.w-meter-cap{font-size:12px;opacity:.85;margin-top:4px}
 
-.memo-box{margin-top:12px}
-.memo-label{display:block;margin:6px 0}
-#sh-note{width:100%;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.14);
-  background:rgba(255,255,255,.05);color:var(--text)}
+/* --- ボトムシート --- */
+.sheet{position:fixed;inset:0;z-index:2000;display:block}
+.sheet[hidden]{display:none}
+.sheet-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(2px)}
+.sheet-body{
+  position:absolute;left:0;right:0;bottom:0;
+  max-height:92vh; /* ← 画面の上まで出し過ぎない */
+  border-top-left-radius:18px;border-top-right-radius:18px;
+  background:linear-gradient(to bottom, rgba(11,15,26,.98), rgba(11,15,26,.98));
+  box-shadow:0 -12px 30px rgba(0,0,0,.45);
+  overflow-y:auto; -webkit-overflow-scrolling:touch;
+  padding:8px 14px 140px; /* ← 下ボタン分の余白を常に確保 */
+}
+.sheet-drag{width:64px;height:6px;border-radius:999px;background:rgba(255,255,255,.3);margin:8px auto}
 
-.sheet-actions{display:flex;gap:8px;margin-top:12px}
-.btn{flex:1;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.18);
-  background:rgba(255,255,255,.06);color:var(--text);font-weight:700}
+.detail-card{margin-top:6px}
+.memo-wrap{margin:12px 0 0}
+.memo-title{margin:8px 0 6px;opacity:.9}
+#sh-note{width:100%;border-radius:12px;border:1px solid var(--panel-strong);background:var(--panel);padding:10px 12px;color:var(--text)}
+
+/* 下部操作を常に見えるように固定（かつ安全域を確保） */
+.sheet-actions{
+  position:sticky;bottom:env(safe-area-inset-bottom, 0);
+  display:flex;gap:10px;margin-top:12px;padding:12px 0 calc(12px + env(safe-area-inset-bottom, 0));
+  background:linear-gradient(180deg, transparent, rgba(11,15,26,.95) 35%);
+  backdrop-filter:blur(6px)
+}
+.btn{flex:1;padding:12px;border-radius:12px;border:1px solid var(--panel-strong);background:rgba(255,255,255,.06);color:var(--text);font-weight:700;text-align:center}
 .btn.primary{background:linear-gradient(180deg,rgba(22,163,74,.35),rgba(22,163,74,.18));border-color:rgba(22,163,74,.5)}
 .btn.danger{background:linear-gradient(180deg,rgba(239,68,68,.18),rgba(239,68,68,.08));border-color:rgba(239,68,68,.45)}
-.btn.ghost{background:transparent}
-
-/* ===== 下シート ===== */
-.sheet{position:fixed;inset:0;z-index:50}
-.sheet[hidden]{display:none}
-.sheet-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.5)}
-.sheet-body{position:absolute;left:0;right:0;bottom:0;max-width:720px;margin:0 auto;
-  background:var(--bg);border-top-left-radius:16px;border-top-right-radius:16px;
-  padding:12px 16px calc(16px + env(safe-area-inset-bottom)); box-shadow:var(--shadow)}
-.sheet-drag{width:64px;height:5px;border-radius:999px;background:rgba(255,255,255,.25);margin:6px auto 10px}
-
-/* ===== トースト（ページ内で作る） ===== */
-.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:140px; /* JSで上書き */
-  background:rgba(0,0,0,.82);color:#fff;padding:10px 16px;border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.4);
-  z-index:9999;opacity:0;pointer-events:none;transition:opacity .25s ease}
+.btn.more{width:100%;margin-top:12px}
