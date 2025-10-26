@@ -54,7 +54,7 @@
 .sheet-actions{
   position: sticky;
   /* ← ここを小さくすると“下”に寄る。まずは +8px で様子見、もっと下げたいなら 0 に */
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 0px);
 
   display: flex;
   gap: 10px;
