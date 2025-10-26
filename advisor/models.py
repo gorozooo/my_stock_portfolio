@@ -3,13 +3,6 @@ from __future__ import annotations
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
-from django.contrib.postgres.fields import ArrayField  # PostgreSQL 用（SQLiteでもJSONで代替可）
-
-# SQLite/その他でも動かすための軽ラッパ
-try:
-    from django.db.models import JSONField  # Django 3.1+ 標準
-except Exception:  # pragma: no cover
-    from django.contrib.postgres.fields import JSONField  # 古いDjango用
 
 User = settings.AUTH_USER_MODEL
 
@@ -66,7 +59,7 @@ class WatchEntry(TimeStampedModel):
     # --- ボードからコピーした説明（サマリ／詳細） ---
     reason_summary = models.TextField(blank=True, default="")
     # JSON: ["半導体テーマが強い（78点）", "出来高が増えている（+35%）", ...]
-    reason_details = JSONField(blank=True, null=True)
+    reason_details = models.JSONField(blank=True, null=True)
 
     # テーマ／AIのメタ
     theme_label = models.CharField(max_length=60, blank=True, default="")
@@ -77,17 +70,17 @@ class WatchEntry(TimeStampedModel):
     target_tp = models.CharField(max_length=120, blank=True, default="")
     target_sl = models.CharField(max_length=120, blank=True, default="")
 
-    # === ここから拡張フィールド（将来利用） ===
-    overall_score     = models.IntegerField(blank=True, null=True)   # 0-100
-    weekly_trend      = models.CharField(max_length=8, blank=True, default="")  # "up"|"flat"|"down"
+    # === 将来利用の拡張フィールド ===
+    overall_score      = models.IntegerField(blank=True, null=True)   # 0-100
+    weekly_trend       = models.CharField(max_length=8, blank=True, default="")  # "up"|"flat"|"down"
 
-    entry_price_hint  = models.IntegerField(blank=True, null=True)   # IN 目安（円）
-    tp_price          = models.IntegerField(blank=True, null=True)   # 目標価格（円）
-    sl_price          = models.IntegerField(blank=True, null=True)   # 損切価格（円）
-    tp_pct            = models.FloatField(blank=True, null=True)     # 0-1
-    sl_pct            = models.FloatField(blank=True, null=True)     # 0-1
+    entry_price_hint   = models.IntegerField(blank=True, null=True)   # IN 目安（円）
+    tp_price           = models.IntegerField(blank=True, null=True)   # 目標価格（円）
+    sl_price           = models.IntegerField(blank=True, null=True)   # 損切価格（円）
+    tp_pct             = models.FloatField(blank=True, null=True)     # 0-1
+    sl_pct             = models.FloatField(blank=True, null=True)     # 0-1
 
-    position_size_hint = models.IntegerField(blank=True, null=True)  # 数量目安（株数）
+    position_size_hint = models.IntegerField(blank=True, null=True)   # 数量目安（株数）
     in_position        = models.BooleanField(default=False)
 
     class Meta:
