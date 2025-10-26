@@ -1,4 +1,3 @@
-{# templates/advisor/watch.html #}
 {% extends "base.html" %}
 {% load static %}
 
@@ -16,36 +15,29 @@
 </header>
 
 <main class="watch-container" role="main">
-  <section id="list" class="watch-list" aria-live="polite"></section>
+  <section id="list" class="cards" aria-live="polite"></section>
   <button id="more" class="btn more" hidden>もっと見る</button>
 </main>
 
-<!-- ボトムシート（Boardカードの完全コピー＋メモ） -->
+<!-- 下部シート：ボードと同じ見た目のカードをそのまま表示 -->
 <section id="sheet" class="sheet" hidden aria-hidden="true" aria-label="銘柄詳細">
   <div class="sheet-backdrop" id="sh-close" aria-hidden="true"></div>
   <div class="sheet-body" role="dialog" aria-modal="true">
-    <div class="sheet-drag"></div>
+    <div id="sheetCard" class="card"></div>
 
-    <!-- ここに Board と同じカード丸ごと描画 -->
-    <div id="sh-card" class="snapshot-card"></div>
-
-    <!-- 追加メタ（追加日時） -->
-    <div class="added-at" id="sh-added" aria-live="polite"></div>
-
-    <!-- メモ欄 -->
-    <label class="memo-label" for="sh-note">自分メモ</label>
-    <textarea id="sh-note" rows="4" placeholder="メモを書いて保存…"></textarea>
-
-    <div class="sheet-actions">
-      <button id="sh-save" class="btn primary">保存</button>
-      <button id="sh-hide" class="btn danger">非表示</button>
-      <button id="sh-close" class="btn ghost">閉じる</button>
+    <div class="memo-area">
+      <div class="sub">追加: <span id="sh-added"></span></div>
+      <label class="memo-label" for="sh-note">自分メモ</label>
+      <textarea id="sh-note" rows="4" placeholder="メモを書いて保存…"></textarea>
+      <div class="sheet-actions">
+        <button id="sh-save" class="btn primary">保存</button>
+        <button id="sh-hide" class="btn danger">非表示</button>
+        <button id="sh-close2" class="btn ghost">閉じる</button>
+      </div>
     </div>
   </div>
 </section>
 
-{# Board の見た目を流用 #}
-<link rel="stylesheet" href="{% static 'advisor/board.css' %}?v=3" />
-<link rel="stylesheet" href="{% static 'advisor/watch.css' %}?v=4" />
-<script src="{% static 'advisor/watch.js' %}?v=16"></script>
+<link rel="stylesheet" href="{% static 'advisor/watch.css' %}?v=5" />
+<script src="{% static 'advisor/watch.js' %}?v=17"></script>
 {% endblock %}
