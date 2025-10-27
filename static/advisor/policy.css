@@ -52,3 +52,6 @@ body{background:var(--bg);color:var(--text)}
   border-radius:14px; padding:10px 16px; box-shadow:0 6px 20px rgba(0,0,0,.35);
   z-index:3000; opacity:0; transition:opacity .25s ease;
 }
+
+/* policy.css 末尾に追加（または既存CSSに追記） */
+.ai-banner[hidden] { display: none !important; }
