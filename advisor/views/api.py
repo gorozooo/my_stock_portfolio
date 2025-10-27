@@ -11,7 +11,7 @@ from django.utils.timezone import now as dj_now
 
 from advisor.models import ActionLog, Reminder, WatchEntry
 
-# JST
+# ===== JST =====
 JST = timezone(timedelta(hours=9))
 
 
@@ -27,7 +27,17 @@ def _no_store(resp: JsonResponse) -> JsonResponse:
     return resp
 
 
-# ====== デモ用フォールバック ======
+# ====== （将来の実データ）services.board_source があればそちらを使う ======
+# ない場合は、下のローカルロジック _build_board_local() を使う
+try:
+    from advisor.services.board_source import build_board as _build_board_service  # type: ignore
+    _HAS_SERVICE = True
+except Exception:
+    _build_board_service = None
+    _HAS_SERVICE = False
+
+
+# ====== ローカル（デモ用フォールバック） ======
 _FALLBACK_PRICE = {
     "8035.T": 12450,
     "7203.T": 3150,
@@ -64,15 +74,18 @@ def _overall(theme_score: float, win_prob: float) -> int:
 
 
 def _tp_sl_prob(win_prob: float) -> Tuple[float, float]:
+    # デモ用の暫定配分
     tp = max(0.0, min(1.0, win_prob * 0.46))
     sl = max(0.0, min(1.0, (1.0 - win_prob) * 0.30))
     return tp, sl
 
 
-def _position_size(entry: int, sl_price: int, credit_balance: Optional[int], risk_per_trade: float) -> Tuple[Optional[int], Optional[int]]:
+def _position_size(
+    entry: int, sl_price: int, credit_balance: Optional[int], risk_per_trade: float
+) -> Tuple[Optional[int], Optional[int]]:
     if not credit_balance or entry <= 0:
         return None, None
-    stop_value = max(1, entry - sl_price)
+    stop_value = max(1, entry - sl_price)  # 円
     risk_budget = max(1, int(round(credit_balance * risk_per_trade)))
     shares = risk_budget // stop_value
     if shares <= 0:
@@ -81,11 +94,13 @@ def _position_size(entry: int, sl_price: int, credit_balance: Optional[int], ris
     return shares, need_cash
 
 
-# =============== ボード（モック＋簡易計算で拡張フィールド付与） ===============
-def board_api(request):
+def _build_board_local(user) -> Dict[str, Any]:
+    """いままでのローカル（デモ）生成ロジックをそのまま温存"""
     jst_now = datetime.now(JST)
+
+    # デモ用の信用余力（本番はユーザーの実データに差し替え）
     credit_balance = 1_000_000
-    risk_per_trade = 0.01
+    risk_per_trade = 0.01  # 1%
 
     base_items: List[Dict[str, Any]] = [
         {
@@ -186,6 +201,7 @@ def board_api(request):
             "pairing": {"id": 2, "label": "順張り・短中期"},
             "self_mirror": {"recent_drift": "損切り未実施 3/4件"},
             "credit_balance": credit_balance,
+            "live": False,  # ローカルは常に False
         },
         "theme": {
             "week": "2025-W43",
@@ -197,7 +213,25 @@ def board_api(request):
         },
         "highlights": highlights,
     }
-    return _no_store(JsonResponse(data, json_dumps_params={"ensure_ascii": False}))
+    return data
+
+
+# =============== /advisor/api/board/ ===============
+def board_api(request):
+    """
+    既存フロント（/advisor/board/ の JS）はこのAPIを叩く想定。
+    - advisor.services.board_source.build_board が存在 → それを使用（実データ連携の受け口）
+    - 無ければ _build_board_local() のデモ固定
+    """
+    try:
+        if _HAS_SERVICE and callable(_build_board_service):
+            data = _build_board_service(getattr(request, "user", None))
+        else:
+            data = _build_board_local(getattr(request, "user", None))
+        return _no_store(JsonResponse(data, json_dumps_params={"ensure_ascii": False}))
+    except Exception as e:
+        _log("board_api ERROR:", repr(e))
+        return _no_store(JsonResponse({"ok": False, "error": "board_build_failed"}, status=500))
 
 
 # =============== ActionLog（＋save時にWatchEntryへコピー） ===============
@@ -231,7 +265,6 @@ def record_action(request):
         if payload.get("action") == "save_order":
             tkr = (payload.get("ticker") or "").strip().upper()
 
-            # ここで「受け付けるキー」を限定（存在しないフィールドが混ざっても無視）
             allowed: Dict[str, Any] = {
                 "name": payload.get("name", "") or "",
                 "note": payload.get("note", "") or "",
@@ -242,6 +275,7 @@ def record_action(request):
                 "ai_win_prob": payload.get("ai_win_prob", None),
                 "target_tp": payload.get("target_tp", "") or "",
                 "target_sl": payload.get("target_sl", "") or "",
+                # 追加保管（将来の再計算/表示同期用）
                 "overall_score": payload.get("overall_score", None),
                 "weekly_trend": payload.get("weekly_trend", "") or "",
                 "entry_price_hint": payload.get("entry_price_hint", None),
@@ -252,7 +286,6 @@ def record_action(request):
                 "position_size_hint": payload.get("position_size_hint", None),
                 "in_position": False,
             }
-            # ※ フロントから飛んでくる余計なキー（例：action_text, segment）は allowed に入れない＝無視
 
             WatchEntry.objects.update_or_create(
                 user=user,
