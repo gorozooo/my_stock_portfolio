@@ -1,18 +1,13 @@
 from __future__ import annotations
-
 import json
 from datetime import timedelta, timezone
-from typing import Dict, Any
-
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
-
 from advisor.models import Policy
 
 JST = timezone(timedelta(hours=9))
-
 
 def _no_store(resp: JsonResponse) -> JsonResponse:
     resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
@@ -20,15 +15,12 @@ def _no_store(resp: JsonResponse) -> JsonResponse:
     resp["Expires"] = "0"
     return resp
 
-
-# --------- ページ ---------
 @login_required
 def policy_page(request):
     return render(request, "advisor/policy.html", {})
 
-
-# --------- API（GET/POST）---------
-def _labels(risk_mode: str, hold_style: str) -> Dict[str, str]:
+# -------------------- 内部ヘルパ --------------------
+def _labels(risk_mode: str, hold_style: str) -> dict:
     mode_map = {
         Policy.MODE_ATTACK:  "攻め",
         Policy.MODE_NORMAL:  "普通",
@@ -43,13 +35,7 @@ def _labels(risk_mode: str, hold_style: str) -> Dict[str, str]:
     }
     return {"risk": mode_map.get(risk_mode, risk_mode), "style": style_map.get(hold_style, hold_style)}
 
-
-def _resolve_auto(risk_mode: str, hold_style: str) -> Dict[str, str]:
-    """
-    簡易の“おまかせ”解決ロジック（デモ）。
-    - どちらかが auto の場合は、暫定で「普通 × 中期」を採用
-      （将来：行動ログ/相場状態から自動選択に置き換え）
-    """
+def _resolve_auto(risk_mode: str, hold_style: str) -> dict:
     rm = risk_mode
     hs = hold_style
     if rm == Policy.MODE_AUTO:
@@ -58,44 +44,31 @@ def _resolve_auto(risk_mode: str, hold_style: str) -> Dict[str, str]:
         hs = Policy.STYLE_MID
     return {"risk_mode": rm, "hold_style": hs}
 
+def _banner_text(rm: str, hs: str) -> str:
+    # ✅ どちらか一方でも“おまかせ”のときにバナーを出す
+    return "AIが今日の最適設定を自動選択中" if (
+        rm == Policy.MODE_AUTO or hs == Policy.STYLE_AUTO
+    ) else ""
 
+# -------------------- API --------------------
 @csrf_exempt
 @login_required
 def policy_api(request):
     user = request.user
 
-    # GET: 現在値の取得 + 解決済み（おまかせ分）
     if request.method == "GET":
-        pol, _ = Policy.objects.get_or_create(user=user)  # 既定: 普通×中期
+        pol, _ = Policy.objects.get_or_create(user=user)
         resolved = _resolve_auto(pol.risk_mode, pol.hold_style)
-        banner = "AIが今日の最適設定を自動選択中" if (
-            pol.risk_mode == Policy.MODE_AUTO or pol.hold_style == Policy.STYLE_AUTO
-        ) else ""
-
-        data: Dict[str, Any] = {
+        banner = _banner_text(pol.risk_mode, pol.hold_style)
+        data = {
             "ok": True,
             "current": {"risk_mode": pol.risk_mode, "hold_style": pol.hold_style,
                         "labels": _labels(pol.risk_mode, pol.hold_style)},
             "resolved": {**resolved, "labels": _labels(resolved["risk_mode"], resolved["hold_style"])},
-            "presets": {
-                "risk_modes": [
-                    {"value": Policy.MODE_ATTACK,  "label": "攻め"},
-                    {"value": Policy.MODE_NORMAL,  "label": "普通"},
-                    {"value": Policy.MODE_DEFENSE, "label": "守り"},
-                    {"value": Policy.MODE_AUTO,    "label": "おまかせ"},
-                ],
-                "hold_styles": [
-                    {"value": Policy.STYLE_SHORT, "label": "短期"},
-                    {"value": Policy.STYLE_MID,   "label": "中期"},
-                    {"value": Policy.STYLE_LONG,  "label": "長期"},
-                    {"value": Policy.STYLE_AUTO,  "label": "おまかせ"},
-                ],
-            },
             "banner": banner,
         }
         return _no_store(JsonResponse(data))
 
-    # POST: 保存
     if request.method == "POST":
         try:
             raw = request.body.decode("utf-8") if request.body else "{}"
@@ -103,7 +76,6 @@ def policy_api(request):
             rm = (p.get("risk_mode") or "").strip() or Policy.MODE_NORMAL
             hs = (p.get("hold_style") or "").strip() or Policy.STYLE_MID
 
-            # 値バリデーション（選択肢外は400）
             valid_rm = {c[0] for c in Policy.MODE_CHOICES}
             valid_hs = {c[0] for c in Policy.STYLE_CHOICES}
             if rm not in valid_rm or hs not in valid_hs:
@@ -115,11 +87,15 @@ def policy_api(request):
             pol.save()
 
             resolved = _resolve_auto(rm, hs)
-            return _no_store(JsonResponse({
+            banner = _banner_text(rm, hs)
+            data = {
                 "ok": True,
-                "current": {"risk_mode": rm, "hold_style": hs, "labels": _labels(rm, hs)},
+                "current": {"risk_mode": rm, "hold_style": hs,
+                            "labels": _labels(rm, hs)},
                 "resolved": {**resolved, "labels": _labels(resolved["risk_mode"], resolved["hold_style"])},
-            }))
+                "banner": banner,
+            }
+            return _no_store(JsonResponse(data))
         except Exception as e:
             return _no_store(JsonResponse({"ok": False, "error": str(e)}, status=400))
 
