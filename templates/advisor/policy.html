@@ -12,7 +12,7 @@
 </header>
 
 <main class="pol-container">
-  <!-- 🧠 バナー -->
+  <!-- 🧠 バナー（AIおまかせ時のみ表示） -->
   <section class="ai-banner" id="aiBanner" hidden>
     <div class="brain">🧠</div>
     <div class="txt">
@@ -21,24 +21,28 @@
     </div>
   </section>
 
-  <!-- モード選択 -->
+  <!-- バナーが非表示でも運用中テキストを常時見せるフォールバック -->
+  <div class="running-alt"><span>運用中：</span><b id="runningModeAlt">—</b></div>
+
+  <!-- モード選択：リスク -->
   <section class="card">
     <h2>リスクモード</h2>
     <div class="chips" id="riskChips">
-      <button data-val="attack"  class="chip">攻め</button>
-      <button data-val="normal"  class="chip">普通</button>
-      <button data-val="defense" class="chip">守り</button>
-      <button data-val="auto"    class="chip">おまかせ</button>
+      <button data-val="aggressive" class="chip" aria-pressed="false">攻め</button>
+      <button data-val="normal"     class="chip" aria-pressed="false">普通</button>
+      <button data-val="defensive"  class="chip" aria-pressed="false">守り</button>
+      <button data-val="auto"       class="chip" aria-pressed="false">おまかせ</button>
     </div>
   </section>
 
+  <!-- モード選択：保有スタイル -->
   <section class="card">
     <h2>保有スタイル</h2>
     <div class="chips" id="styleChips">
-      <button data-val="short" class="chip">短期</button>
-      <button data-val="mid"   class="chip">中期</button>
-      <button data-val="long"  class="chip">長期</button>
-      <button data-val="auto"  class="chip">おまかせ</button>
+      <button data-val="short" class="chip" aria-pressed="false">短期</button>
+      <button data-val="mid"   class="chip" aria-pressed="false">中期</button>
+      <button data-val="long"  class="chip" aria-pressed="false">長期</button>
+      <button data-val="auto"  class="chip" aria-pressed="false">おまかせ</button>
     </div>
   </section>
 
@@ -48,6 +52,6 @@
   </div>
 </main>
 
-<link rel="stylesheet" href="{% static 'advisor/policy.css' %}?v=3" />
-<script src="{% static 'advisor/policy.js' %}?v=5"></script>
+<link rel="stylesheet" href="{% static 'advisor/policy.css' %}?v=4" />
+<script src="{% static 'advisor/policy.js' %}?v=6"></script>
 {% endblock %}
