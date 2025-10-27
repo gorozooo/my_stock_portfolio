@@ -1,5 +1,5 @@
 from django.urls import path
-from advisor.views import page, api, watch_api
+from advisor.views import page, api, watch_api, policy_page
 
 urlpatterns = [
     path("board/", page.board_page, name="advisor_board_page"),     # 画面
@@ -21,5 +21,8 @@ urlpatterns = [
 
     path("api/watch/ping/", watch_api.watch_ping, name="advisor_watch_ping"),
     path("api/watch/archive/id/<int:rec_id>/", watch_api.watch_archive_by_id_get, name="advisor_watch_archive_by_id_get"),
+    
+    path("policy/", policy_page.policy_page, name="advisor_policy_page"),
+    path("api/policy/", policy_page.policy_api, name="advisor_policy_api"),
     
 ]
