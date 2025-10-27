@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}ポリシー設定{% endblock %}
+
+{% block content %}
+
+<header class="pol-header">
+  <div class="wrap">
+    <h1>⚙️ ポリシー設定</h1>
+  </div>
+</header>
+
+<main class="pol-container">
+  <!-- 🧠 バナー -->
+  <section class="ai-banner" id="aiBanner" hidden>
+    <div class="brain">🧠</div>
+    <div class="txt">
+      <div class="line1">AIが今日の最適設定を自動選択中</div>
+      <div class="line2"><span id="runningLabel">運用中：</span><b id="runningMode">—</b></div>
+    </div>
+  </section>
+
+  <!-- モード選択 -->
+  <section class="card">
+    <h2>リスクモード</h2>
+    <div class="chips" id="riskChips">
+      <button data-val="attack"  class="chip">攻め</button>
+      <button data-val="normal"  class="chip">普通</button>
+      <button data-val="defense" class="chip">守り</button>
+      <button data-val="auto"    class="chip">おまかせ</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>保有スタイル</h2>
+    <div class="chips" id="styleChips">
+      <button data-val="short" class="chip">短期</button>
+      <button data-val="mid"   class="chip">中期</button>
+      <button data-val="long"  class="chip">長期</button>
+      <button data-val="auto"  class="chip">おまかせ</button>
+    </div>
+  </section>
+
+  <div class="actions">
+    <button id="saveBtn" class="btn primary">💾 保存</button>
+    <button id="resetBtn" class="btn ghost">🔄 リセット</button>
+  </div>
+</main>
+
+<link rel="stylesheet" href="{% static 'advisor/policy.css' %}?v=1" />
+<script src="{% static 'advisor/policy.js' %}?v=1"></script>
+{% endblock %}
