@@ -1,7 +1,7 @@
-/* policy.js v2025-10-27 r3
-   - 手動保存時に 🧠バナーが消えない問題を修正
-   - hidden 属性と style.display の両方で確実にトグル
-   - 値が欠けても落ちないようにガード
+/* policy.js v2025-10-27 r4
+   - 手動保存後も「運用中：◯×◯モード」を常時表示
+   - バナーが無い場合は #runningModeAlt にも反映（どちらか片方があればOK）
+   - ラベルはローカルで安全に生成
 */
 const $  = (s)=>document.querySelector(s);
 const $$ = (s)=>document.querySelectorAll(s);
@@ -41,6 +41,14 @@ async function postJSON(url, body){
   return await r.json();
 }
 
+/* ---- ラベル生成（ローカル） ---- */
+function labelForRisk(code){
+  return ({aggressive:'攻め', normal:'普通', defensive:'守り', auto:'おまかせ'})[code] || '普通';
+}
+function labelForStyle(code){
+  return ({short:'短期', mid:'中期', long:'長期', auto:'おまかせ'})[code] || '中期';
+}
+
 /* ---- UI処理 ---- */
 function setPressed(container, value){
   if(!container) return;
@@ -62,19 +70,36 @@ function wireChips(container){
   });
 }
 
-/* ---- バナー反映（確実に表示/非表示を切替） ---- */
-function updateBanner(bannerText, resolvedLabels){
+/* ---- バナー & 運用中表示 ---- */
+function setRunningText(riskCode, styleCode, labels){
+  // labels（サーバー提供）が無い時はローカル生成
+  const riskLabel  = labels?.risk  || labelForRisk(riskCode);
+  const styleLabel = labels?.style || labelForStyle(styleCode);
+  const txt = `${riskLabel} × ${styleLabel}モード`;
+
+  const inBanner = $('#runningMode');
+  const altPlace = $('#runningModeAlt'); // バナー外に用意しておくと確実
+  if (inBanner) inBanner.textContent = txt;
+  if (altPlace) altPlace.textContent = txt;
+}
+
+function updateBanner(bannerText, currentCodes, resolvedLabels){
   const aiBanner = $('#aiBanner');
-  const running  = $('#runningMode');
 
-  if (resolvedLabels && running){
-    running.textContent = `${resolvedLabels.risk} × ${resolvedLabels.style}モード`;
-  }
+  // 運用中テキストは常時更新（バナーの有無に依存しない）
+  setRunningText(currentCodes?.risk_mode, currentCodes?.hold_style, resolvedLabels);
 
-  const show = !!bannerText;               // 文字列が入っている時だけ表示
+  // バナー自体の表示/非表示
+  const show = !!bannerText;
   if (aiBanner){
-    aiBanner.toggleAttribute('hidden', !show);   // hidden を確実に付け外し
-    aiBanner.style.display = show ? '' : 'none'; // CSSに勝つため二重で効かせる
+    aiBanner.toggleAttribute('hidden', !show);
+    aiBanner.style.display = show ? '' : 'none';
+    // バナー内に説明テキストがある場合は差し替えたいならここで
+    if (show) {
+      // 任意：#aiBanner .banner-text があれば置換
+      const btxt = aiBanner.querySelector('.banner-text');
+      if (btxt) btxt.textContent = bannerText;
+    }
   }
 }
 
@@ -87,9 +112,9 @@ function updateBanner(bannerText, resolvedLabels){
     const js = await getJSON('/advisor/api/policy/');
     setPressed($('#riskChips'),  js.current?.risk_mode);
     setPressed($('#styleChips'), js.current?.hold_style);
-    updateBanner(js.banner, js.resolved?.labels);
+    updateBanner(js.banner, js.current, js.resolved?.labels);
 
-    // 保存
+    // 保存（手動モード：バナーOFFでも「運用中：◯×◯」は表示される）
     $('#saveBtn')?.addEventListener('click', async ()=>{
       try{
         const risk = getPressed($('#riskChips'))  || 'normal';
@@ -98,18 +123,22 @@ function updateBanner(bannerText, resolvedLabels){
 
         setPressed($('#riskChips'),  res.current?.risk_mode);
         setPressed($('#styleChips'), res.current?.hold_style);
-        updateBanner(res.banner, res.resolved?.labels);
+
+        // サーバーが手動時に banner を返さない想定 → 空を渡して確実に非表示
+        const bannerText = res.banner || '';
+        updateBanner(bannerText, res.current, res.resolved?.labels);
+
         toast('保存しました');
       }catch(e){ console.error(e); toast('通信に失敗しました'); }
     });
 
-    // リセット（既定: 普通 × 中期）
+    // 既定：普通 × 中期へ
     $('#resetBtn')?.addEventListener('click', async ()=>{
       try{
         const res = await postJSON('/advisor/api/policy/', { risk_mode: 'normal', hold_style: 'mid' });
         setPressed($('#riskChips'),  res.current?.risk_mode);
         setPressed($('#styleChips'), res.current?.hold_style);
-        updateBanner(res.banner, res.resolved?.labels);
+        updateBanner(res.banner || '', res.current, res.resolved?.labels);
         toast('リセットしました');
       }catch(e){ console.error(e); toast('通信に失敗しました'); }
     });
