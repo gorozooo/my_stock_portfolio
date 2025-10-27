@@ -1,10 +1,10 @@
-// policy.js r7  — backendの値に合わせて attack/defense を使用
+/* policy.js v7 — おまかせ時のみAIバナー表示＋手動時は通常モード表示 */
 const $  = (s)=>document.querySelector(s);
 const $$ = (s)=>document.querySelectorAll(s);
 
 function abs(path){ return new URL(path, window.location.origin).toString(); }
 
-// ---- Toast（スマホ下タブ回避）
+/* ========== トースト（下タブ回避） ========== */
 function computeToastBottomPx(){
   let insetBottom = 0;
   if (window.visualViewport){
@@ -22,26 +22,31 @@ function toast(msg){
   requestAnimationFrame(()=> t.style.opacity = '1');
   const onV = ()=> t.style.bottom = computeToastBottomPx()+'px';
   if (window.visualViewport) window.visualViewport.addEventListener('resize', onV);
-  setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>{ if(window.visualViewport) window.visualViewport.removeEventListener('resize', onV); t.remove(); }, 250); }, 1800);
+  setTimeout(()=>{ 
+    t.style.opacity='0'; 
+    setTimeout(()=>{ 
+      if(window.visualViewport) window.visualViewport.removeEventListener('resize', onV); 
+      t.remove(); 
+    }, 250); 
+  }, 1800);
 }
 
-// ---- API
+/* ========== API ========== */
 async function getJSON(url){
   const r = await fetch(abs(url), {headers:{'Cache-Control':'no-store'}});
   if(!r.ok) throw new Error(`HTTP ${r.status} ${await r.text().catch(()=> '')}`);
   return await r.json();
 }
 async function postJSON(url, body){
-  const r = await fetch(abs(url), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
+  const r = await fetch(abs(url), {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body||{})
+  });
   if(!r.ok) throw new Error(`HTTP ${r.status} ${await r.text().catch(()=> '')}`);
   return await r.json();
 }
 
-// ---- ラベル
-const riskLabel = (v)=> ({attack:'攻め', normal:'普通', defense:'守り', auto:'おまかせ'})[v] ?? v;
-const styleLabel = (v)=> ({short:'短期', mid:'中期', long:'長期', auto:'おまかせ'})[v] ?? v;
-
-// ---- チップ選択UI
+/* ========== UIチップ操作 ========== */
 function setPressed(container, value){
   container.querySelectorAll('.chip').forEach(btn=>{
     const on = btn.dataset.val === value;
@@ -56,64 +61,89 @@ function wireChips(container){
   container.addEventListener('click', (e)=>{
     const btn = e.target.closest('.chip'); if(!btn) return;
     setPressed(container, btn.dataset.val);
-    // 選択変更時に即座に「運用中：…」を更新（手動の見た目反映）
-    const risk = getPressed($('#riskChips'))  || 'normal';
-    const hold = getPressed($('#styleChips')) || 'mid';
-    updateBanner(null, {risk, hold}); // banner=null → 常時表示はAltへ
   });
 }
 
-// ---- バナー／運用中表示
-function updateBanner(bannerText, opts){
-  const aiBanner = $('#aiBanner');
-  const running   = `${riskLabel(opts.risk)} × ${styleLabel(opts.hold)}モード`;
-
-  // バナー（AIおまかせ時のみ）
-  const showBanner = (opts.risk === 'auto' || opts.hold === 'auto' || !!bannerText);
-  if (showBanner){
-    aiBanner.hidden = false;
-    $('#runningMode').textContent = running;
-  }else{
-    aiBanner.hidden = true;
+/* ========== ラベル変換 ========== */
+function riskLabel(code){
+  switch(code){
+    case 'attack': return '攻め';
+    case 'normal': return '普通';
+    case 'defense': return '守り';
+    case 'auto': return 'おまかせ';
+    default: return '-';
   }
-  // 常時見える方
-  $('#runningModeAlt').textContent = running;
+}
+function styleLabel(code){
+  switch(code){
+    case 'short': return '短期';
+    case 'mid': return '中期';
+    case 'long': return '長期';
+    case 'auto': return 'おまかせ';
+    default: return '-';
+  }
 }
 
-// ---- 初期化
+/* ========== バナー表示処理 ========== */
+function updateBanner(data){
+  const aiBanner = $('#aiBanner');
+  const running = $('#runningMode');
+  const runningLabel = $('#runningLabel');
+
+  const risk = data.current?.risk_mode ?? 'normal';
+  const hold = data.current?.hold_style ?? 'mid';
+
+  const resolvedRisk = data.resolved?.risk ?? risk;
+  const resolvedHold = data.resolved?.hold ?? hold;
+
+  const runningText = `${riskLabel(resolvedRisk)} × ${styleLabel(resolvedHold)}モード`;
+
+  // おまかせを含む場合のみAIバナー表示
+  const isAuto = (risk === 'auto' || hold === 'auto');
+
+  if (isAuto){
+    aiBanner.hidden = false;
+    running.textContent = runningText;
+    runningLabel.textContent = '運用中：';
+  } else {
+    aiBanner.hidden = true;
+  }
+
+  // 常時表示する運用中ラベル更新
+  $('#runningModeAlt')?.textContent = runningText;
+}
+
+/* ========== 初期化 ========== */
 (async function init(){
   try{
     wireChips($('#riskChips'));
     wireChips($('#styleChips'));
 
-    // 現在値取得
     const js = await getJSON('/advisor/api/policy/');
-    // 期待する値： risk_mode in [attack,normal,defense,auto], hold_style in [short,mid,long,auto]
     setPressed($('#riskChips'),  js.current.risk_mode);
     setPressed($('#styleChips'), js.current.hold_style);
-    updateBanner(js.banner || null, {risk: js.current.risk_mode, hold: js.current.hold_style});
+    updateBanner(js);
 
     // 保存
     $('#saveBtn').addEventListener('click', async ()=>{
       try{
         const risk = getPressed($('#riskChips'))  || 'normal';
         const hold = getPressed($('#styleChips')) || 'mid';
-        const res  = await postJSON('/advisor/api/policy/', { risk_mode: risk, hold_style: hold });
-        // サーバ応答をそのまま反映（値は attack/normal/defense/auto）
+        const res = await postJSON('/advisor/api/policy/', { risk_mode: risk, hold_style: hold });
         setPressed($('#riskChips'),  res.current.risk_mode);
         setPressed($('#styleChips'), res.current.hold_style);
-        updateBanner(res.banner || null, {risk: res.current.risk_mode, hold: res.current.hold_style});
+        updateBanner(res);
         toast('保存しました');
       }catch(e){ console.error(e); toast('通信に失敗しました'); }
     });
 
-    // リセット（通常：普通×中期）
+    // リセット
     $('#resetBtn').addEventListener('click', async ()=>{
       try{
         const res = await postJSON('/advisor/api/policy/', { risk_mode: 'normal', hold_style: 'mid' });
         setPressed($('#riskChips'),  res.current.risk_mode);
         setPressed($('#styleChips'), res.current.hold_style);
-        updateBanner(res.banner || null, {risk: res.current.risk_mode, hold: res.current.hold_style});
+        updateBanner(res);
         toast('リセットしました');
       }catch(e){ console.error(e); toast('通信に失敗しました'); }
     });
