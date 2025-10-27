@@ -15,7 +15,7 @@
 .watch-container{max-width:720px;margin:0 auto;padding:14px 16px 24px}
 .watch-list{display:grid;gap:12px}
 
-/* ====== 一覧（展開前のコンパクト行） ====== */
+/* ====== 一覧（展開前のコンパクト行：2行） ====== */
 .item{
   background:var(--panel);
   border:1px solid var(--panel-strong);
@@ -25,21 +25,24 @@
   color:var(--text);
   cursor:pointer;
 }
-.item-line1{
-  display:flex; align-items:center; justify-content:space-between; gap:12px;
+.item-title-row{display:block}
+.item-title{
+  font-weight:800; font-size:16px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-.item-title{font-weight:800; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .item-title .item-code{opacity:.85; font-weight:700; margin-left:4px}
 
-/* KPI帯（総合評価/AI/IN目安） */
+/* 2行目：KPI帯（総合評価/AI/IN目安） */
 .item-kpis{
+  margin-top:6px;
   display:flex; align-items:center; gap:14px;
-  font-size:13px; opacity:.95; flex-shrink:0;
+  font-size:13px; opacity:.95; flex-wrap:wrap;
 }
 .item-kpi{display:flex; align-items:center; gap:6px; white-space:nowrap;}
 .item-kpi b{font-weight:800; letter-spacing:.2px}
+.item-kpi.kpi-ai span.stars{color:#fcd34d}
 
-/* 一覧では週足チップやサマリを非表示 */
+/* 一覧では週足チップやサマリは非表示 */
 .item-chips, .item-summary{display:none !important;}
 
 /* ====== 詳細カード（board準拠） ====== */
@@ -82,7 +85,7 @@
 /* 下部操作（タブのすぐ上に固定） */
 .sheet-actions {
   position: fixed;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 50px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 50px); /* 端末の下タブに被らない位置 */
   left: 0;
   right: 0;
   display: flex;
@@ -98,7 +101,7 @@
 .btn.danger{background:linear-gradient(180deg,rgba(239,68,68,.18),rgba(239,68,68,.08));border-color:rgba(239,68,68,.45)}
 .btn.more{width:100%;margin-top:12px}
 
-/* トースト */
+/* ====== トースト ====== */
 .toast{
   position:fixed;left:50%;transform:translateX(-50%);bottom:140px;
   background:rgba(0,0,0,.82);color:#fff;border-radius:14px;padding:10px 16px;
