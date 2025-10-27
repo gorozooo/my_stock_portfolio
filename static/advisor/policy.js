@@ -1,4 +1,4 @@
-// policy.js r7-fix — attack/defenseを維持・チップ操作そのまま・おまかせ時のみAIバナー表示
+// policy.js r8 — 「おまかせ」時はAIが決めた具体モードを表示
 const $  = (s)=>document.querySelector(s);
 const $$ = (s)=>document.querySelectorAll(s);
 
@@ -37,11 +37,11 @@ async function postJSON(url, body){
   return await r.json();
 }
 
-// ---- ラベル（命名は attack/normal/defense/auto を維持）
+// ---- ラベル（既存命名を尊重）
 const riskLabel  = (v)=> ({attack:'攻め', normal:'普通', defense:'守り', auto:'おまかせ'})[v] ?? v;
-const styleLabel = (v)=> ({short:'短期', mid:'中期', long:'長期', auto:'おまかせ'})[v] ?? v;
+const styleLabel = (v)=> ({short:'短期', mid:'中期', long:'長期',     auto:'おまかせ'})[v] ?? v;
 
-// ---- チップ選択UI（r7のまま：委譲でクリック拾う）
+// ---- チップ選択UI
 function setPressed(container, value){
   container.querySelectorAll('.chip').forEach(btn=>{
     const on = btn.dataset.val === value;
@@ -56,40 +56,70 @@ function wireChips(container){
   container.addEventListener('click', (e)=>{
     const btn = e.target.closest('.chip'); if(!btn) return;
     setPressed(container, btn.dataset.val);
-    // 手動で選んだ瞬間に「運用中：◯×◯」を即反映（AIバナーはおまかせ時だけ）
-    const risk = getPressed($('#riskChips'))  || 'normal';
-    const hold = getPressed($('#styleChips')) || 'mid';
-    updateBanner(null, {risk, hold});
+
+    // 手動選択の瞬間から「運用中：…」は即時更新
+    const current = {
+      risk_mode:  getPressed($('#riskChips'))  || 'normal',
+      hold_style: getPressed($('#styleChips')) || 'mid',
+    };
+    // 手動の段階では resolved が無いので current の表示でOK（バナーは手動なら非表示）
+    updateBanner(null, current, null);
   });
 }
 
-// ---- バナー／運用中表示（ここが修正点）
-function updateBanner(bannerText, opts){
+// ---- バナー／運用中表示
+// bannerText: 文字列 or null
+// current: {risk_mode, hold_style}
+// resolved: {effective:{risk_mode, hold_style}, labels:{risk, hold}} or null
+function updateBanner(bannerText, current, resolved){
   const aiBanner = $('#aiBanner');
-  const running  = `${riskLabel(opts.risk)} × ${styleLabel(opts.hold)}モード`;
+  const hasAuto = (current?.risk_mode === 'auto' || current?.hold_style === 'auto');
 
-  // おまかせ（どちらかが auto）時だけAIバナーを表示
-  const showAIBanner = (opts.risk === 'auto' || opts.hold === 'auto' || !!bannerText);
-  if (aiBanner){
-    aiBanner.hidden = !showAIBanner;
+  // 実際に表示するモード（おまかせ時は resolved を優先）
+  const effRisk = hasAuto ? (resolved?.effective?.risk_mode  || current?.risk_mode  || 'normal')
+                          : (current?.risk_mode  || 'normal');
+  const effHold = hasAuto ? (resolved?.effective?.hold_style || current?.hold_style || 'mid')
+                          : (current?.hold_style || 'mid');
+
+  // ラベル（resolved.labels が来ていればそれを優先）
+  const riskText  = hasAuto ? (resolved?.labels?.risk  || riskLabel(effRisk)) : riskLabel(effRisk);
+  const styleText = hasAuto ? (resolved?.labels?.hold  || styleLabel(effHold)) : styleLabel(effHold);
+  const running   = `${riskText} × ${styleText}モード`;
+
+  // おまかせが含まれるときだけ AIバナー表示
+  if (hasAuto || bannerText){
+    aiBanner.hidden = false;
+    $('#runningMode').textContent = running;
+  }else{
+    aiBanner.hidden = true;
   }
-  // バナー内の表示は存在する時だけ更新
-  const rm = $('#runningMode'); if (rm) rm.textContent = running;
 
-  // もう一方（常時見える方）があれば更新（存在チェック付き）
-  const rmAlt = $('#runningModeAlt'); if (rmAlt) rmAlt.textContent = running;
+  // 常時見える方（テンプレ側に <b id="runningModeAlt"> がある場合）
+  const alt = $('#runningModeAlt');
+  if (alt) alt.textContent = running;
 }
 
-// ---- 初期化（r7のまま）
+// ---- 初期化
 (async function init(){
   try{
     wireChips($('#riskChips'));
     wireChips($('#styleChips'));
 
+    // 現在値取得
+    // 期待する応答例：
+    // {
+    //   current: { risk_mode: 'auto'|'attack'|'normal'|'defense', hold_style: 'auto'|'short'|'mid'|'long' },
+    //   resolved: {
+    //     effective: { risk_mode: 'attack'|'normal'|'defense', hold_style: 'short'|'mid'|'long' },
+    //     labels:    { risk:'攻め', hold:'短期' }
+    //   },
+    //   banner: "任意の説明文 or 空"
+    // }
     const js = await getJSON('/advisor/api/policy/');
+
     setPressed($('#riskChips'),  js.current.risk_mode);
     setPressed($('#styleChips'), js.current.hold_style);
-    updateBanner(js.banner || null, {risk: js.current.risk_mode, hold: js.current.hold_style});
+    updateBanner(js.banner || null, js.current, js.resolved || null);
 
     // 保存
     $('#saveBtn').addEventListener('click', async ()=>{
@@ -97,9 +127,11 @@ function updateBanner(bannerText, opts){
         const risk = getPressed($('#riskChips'))  || 'normal';
         const hold = getPressed($('#styleChips')) || 'mid';
         const res  = await postJSON('/advisor/api/policy/', { risk_mode: risk, hold_style: hold });
+
         setPressed($('#riskChips'),  res.current.risk_mode);
         setPressed($('#styleChips'), res.current.hold_style);
-        updateBanner(res.banner || null, {risk: res.current.risk_mode, hold: res.current.hold_style});
+        updateBanner(res.banner || null, res.current, res.resolved || null);
+
         toast('保存しました');
       }catch(e){ console.error(e); toast('通信に失敗しました'); }
     });
@@ -110,7 +142,7 @@ function updateBanner(bannerText, opts){
         const res = await postJSON('/advisor/api/policy/', { risk_mode: 'normal', hold_style: 'mid' });
         setPressed($('#riskChips'),  res.current.risk_mode);
         setPressed($('#styleChips'), res.current.hold_style);
-        updateBanner(res.banner || null, {risk: res.current.risk_mode, hold: res.current.hold_style});
+        updateBanner(res.banner || null, res.current, res.resolved || null);
         toast('リセットしました');
       }catch(e){ console.error(e); toast('通信に失敗しました'); }
     });
