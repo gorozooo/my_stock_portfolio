@@ -1,9 +1,10 @@
+// policy.js r10 — おまかせの実モード表示を堅牢化（labels / effective どちらにも対応）
 const $  = (s)=>document.querySelector(s);
 const $$ = (s)=>document.querySelectorAll(s);
 
 function abs(path){ return new URL(path, window.location.origin).toString(); }
 
-/* ===== Toast（スマホ下タブ回避） ===== */
+// ===== Toast（スマホ下タブ回避）
 function computeToastBottomPx(){
   let insetBottom = 0;
   if (window.visualViewport){
@@ -24,7 +25,7 @@ function toast(msg){
   setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>{ if(window.visualViewport) window.visualViewport.removeEventListener('resize', onV); t.remove(); }, 250); }, 1800);
 }
 
-/* ===== API ===== */
+// ===== API
 async function getJSON(url){
   const r = await fetch(abs(url), {headers:{'Cache-Control':'no-store'}});
   if(!r.ok) throw new Error(`HTTP ${r.status} ${await r.text().catch(()=> '')}`);
@@ -36,11 +37,11 @@ async function postJSON(url, body){
   return await r.json();
 }
 
-/* ===== ラベル ===== */
+// ===== ラベル
 const riskLabel  = (v)=>({attack:'攻め', normal:'普通', defense:'守り', auto:'おまかせ'})[v] ?? v;
 const styleLabel = (v)=>({short:'短期', mid:'中期', long:'長期', auto:'おまかせ'})[v] ?? v;
 
-/* ===== チップUI ===== */
+// ===== チップUI
 function setPressed(container, value){
   container.querySelectorAll('.chip').forEach(btn=>{
     const on = btn.dataset.val === value;
@@ -56,59 +57,64 @@ function wireChips(container){
     const btn = e.target.closest('.chip'); if(!btn) return;
     setPressed(container, btn.dataset.val);
 
-    // 手動選択の見た目を即時反映（サーバ保存前の暫定表示）
+    // 手動選択の見た目を即時反映（サーバ保存前）
     const risk = getPressed($('#riskChips'))  || 'normal';
     const hold = getPressed($('#styleChips')) || 'mid';
     updateBanner({
       banner: null,
       current: { risk_mode: risk, hold_style: hold },
-      resolved: { effective: null } // 手動時はAI解決なし
+      resolved: null
     });
   });
 }
 
-/* ===== 表示更新（AIおまかせの“実モード”を優先使用） =====
-   data 期待形:
-   {
-     banner: "…"(任意),
-     current: { risk_mode: 'attack|normal|defense|auto', hold_style: 'short|mid|long|auto' },
-     resolved: { effective: { risk_mode: 'attack|normal|defense', hold_style: 'short|mid|long' } | null }
-   }
-*/
+// ===== 表示更新（おまかせ時：実モードを優先）
 function updateBanner(data){
   const aiBanner = $('#aiBanner');
-  const curRisk  = data.current?.risk_mode;
-  const curHold  = data.current?.hold_style;
 
-  const hasAuto  = (curRisk === 'auto' || curHold === 'auto');
+  const curRisk = data?.current?.risk_mode;
+  const curHold = data?.current?.hold_style;
+  const hasAuto = (curRisk === 'auto' || curHold === 'auto');
 
-  // おまかせが含まれる場合は resolved.effective を優先
-  const eff = (hasAuto && data.resolved && data.resolved.effective)
-                ? data.resolved.effective
-                : { risk_mode: curRisk, hold_style: curHold };
+  // 1) サーバが日本語ラベルを返している形（resolved.labels）
+  let txtRisk = data?.resolved?.labels?.risk || null;
+  let txtHold = data?.resolved?.labels?.style || null;
 
-  const runningTxt = `${riskLabel(eff.risk_mode)} × ${styleLabel(eff.hold_style)}モード`;
+  // 2) 内部値で返ってくる形（resolved.effective）
+  if ((!txtRisk || !txtHold) && data?.resolved?.effective){
+    const eff = data.resolved.effective;
+    txtRisk = txtRisk || riskLabel(eff.risk_mode);
+    txtHold = txtHold || styleLabel(eff.hold_style);
+  }
 
-  // バナー表示条件：おまかせを含む or 明示的な banner あり
-  if (hasAuto || !!data.banner){
+  // 3) どれも無ければ current を使用
+  if (!txtRisk || !txtHold){
+    txtRisk = riskLabel(curRisk);
+    txtHold = styleLabel(curHold);
+  }
+
+  const runningTxt = `${txtRisk} × ${txtHold}モード`;
+
+  // バナー（🧠）はおまかせを含む or 明示的 banner がある時だけ
+  if (hasAuto || !!data?.banner){
     aiBanner.hidden = false;
     $('#runningMode').textContent = runningTxt;
   }else{
     aiBanner.hidden = true;
   }
 
-  // ページ内の常時表示（下の「運用中：…」行）
+  // 下の常時表示も同じ文言に統一
   const alt = $('#runningModeAlt');
   if (alt) alt.textContent = runningTxt;
 }
 
-/* ===== 初期化 ===== */
+// ===== 初期化
 (async function init(){
   try{
     wireChips($('#riskChips'));
     wireChips($('#styleChips'));
 
-    // 現在値を取得して反映
+    // 現在値で初期表示
     const js = await getJSON('/advisor/api/policy/');
     setPressed($('#riskChips'),  js.current.risk_mode);
     setPressed($('#styleChips'), js.current.hold_style);
