@@ -1,0 +1,54 @@
+:root{
+  --bg:#0b0f1a; --panel:rgba(255,255,255,.06); --panel-strong:rgba(255,255,255,.10);
+  --text:#f1f5f9; --green:#16a34a; --red:#ef4444; --blue:#2563eb;
+  --radius:16px; --shadow:0 10px 30px rgba(0,0,0,.35);
+}
+
+body{background:var(--bg);color:var(--text)}
+
+.pol-header{position:sticky;top:0;background:linear-gradient(to bottom, rgba(11,15,26,.85), rgba(11,15,26,.45));backdrop-filter:blur(10px);z-index:10;border-bottom:1px solid rgba(255,255,255,.06)}
+.pol-header .wrap{max-width:720px;margin:0 auto;padding:12px 16px}
+.pol-header h1{margin:0;font-size:18px}
+
+.pol-container{max-width:720px;margin:0 auto;padding:14px 16px 24px;display:grid;gap:12px}
+
+.ai-banner{
+  display:flex; gap:12px; align-items:center;
+  padding:12px; border-radius:14px;
+  background:linear-gradient(135deg, rgba(37,99,235,.22), rgba(37,99,235,.08));
+  border:1px solid rgba(37,99,235,.35);
+  box-shadow:var(--shadow);
+}
+.ai-banner .brain{font-size:22px}
+.ai-banner .txt .line1{font-weight:800}
+.ai-banner .txt .line2{opacity:.95; margin-top:2px}
+
+.card{
+  background:var(--panel); border:1px solid var(--panel-strong);
+  border-radius:var(--radius); box-shadow:var(--shadow);
+  padding:14px;
+}
+.card h2{margin:0 0 8px 0; font-size:16px}
+
+.chips{display:flex; gap:8px; flex-wrap:wrap}
+.chip{
+  padding:8px 12px; border-radius:999px; border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.06); color:var(--text); font-weight:800;
+}
+.chip[aria-pressed="true"]{
+  background:linear-gradient(180deg, rgba(37,99,235,.28), rgba(37,99,235,.12));
+  border-color:rgba(37,99,235,.55); color:#dfeaff;
+}
+
+.actions{display:flex; gap:10px; margin-top:4px}
+.btn{flex:1; padding:12px; border-radius:12px; border:1px solid var(--panel-strong); background:rgba(255,255,255,.06); color:var(--text); font-weight:800}
+.btn.primary{background:linear-gradient(180deg, rgba(22,163,74,.35), rgba(22,163,74,.18)); border-color:rgba(22,163,74,.5)}
+.btn.ghost{background:transparent}
+
+/* Toast（共通仕様） */
+.toast{
+  position:fixed; left:50%; transform:translateX(-50%);
+  bottom:140px; background:rgba(0,0,0,.82); color:#fff;
+  border-radius:14px; padding:10px 16px; box-shadow:0 6px 20px rgba(0,0,0,.35);
+  z-index:3000; opacity:0; transition:opacity .25s ease;
+}
