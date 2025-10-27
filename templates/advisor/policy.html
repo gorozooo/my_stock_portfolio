@@ -12,7 +12,7 @@
 </header>
 
 <main class="pol-container">
-  <!-- 🧠 バナー（AIおまかせ時のみ表示） -->
+  <!-- 🧠 バナー（どちらかが auto のときだけ表示） -->
   <section class="ai-banner" id="aiBanner" hidden>
     <div class="brain">🧠</div>
     <div class="txt">
@@ -21,21 +21,21 @@
     </div>
   </section>
 
-  <!-- バナーが非表示でも運用中テキストを常時見せるフォールバック -->
+  <!-- バナーが出ていない時でも運用中モードを見せる -->
   <div class="running-alt"><span>運用中：</span><b id="runningModeAlt">—</b></div>
 
-  <!-- モード選択：リスク -->
+  <!-- リスクモード -->
   <section class="card">
     <h2>リスクモード</h2>
     <div class="chips" id="riskChips">
-      <button data-val="aggressive" class="chip" aria-pressed="false">攻め</button>
-      <button data-val="normal"     class="chip" aria-pressed="false">普通</button>
-      <button data-val="defensive"  class="chip" aria-pressed="false">守り</button>
-      <button data-val="auto"       class="chip" aria-pressed="false">おまかせ</button>
+      <button data-val="attack"  class="chip" aria-pressed="false">攻め</button>
+      <button data-val="normal"  class="chip" aria-pressed="false">普通</button>
+      <button data-val="defense" class="chip" aria-pressed="false">守り</button>
+      <button data-val="auto"    class="chip" aria-pressed="false">おまかせ</button>
     </div>
   </section>
 
-  <!-- モード選択：保有スタイル -->
+  <!-- 保有スタイル -->
   <section class="card">
     <h2>保有スタイル</h2>
     <div class="chips" id="styleChips">
@@ -53,5 +53,5 @@
 </main>
 
 <link rel="stylesheet" href="{% static 'advisor/policy.css' %}?v=4" />
-<script src="{% static 'advisor/policy.js' %}?v=6"></script>
+<script src="{% static 'advisor/policy.js' %}?v=7"></script>
 {% endblock %}
