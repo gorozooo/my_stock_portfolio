@@ -1,4 +1,4 @@
-/* watch.js v27 — コンパクト一覧 = 銘柄+コード / 総合 / AI / IN目安
+/* watch.js v27 — コンパクト一覧：銘柄+コード / 総合 / AI / IN目安
    詳細はボトムシートで board 風カードを再利用
 */
 const $  = (s)=>document.querySelector(s);
@@ -96,7 +96,7 @@ function cardHTML(item){
         <div class="w-target">🛑 損切 ${slPct==null?'-':slPct}% → <b>${slPrice}</b>円</div>
       </div>
 
-      <!-- ★ IN目安 -->
+      <!-- IN目安 -->
       <div style="margin:6px 0 4px">IN目安：<b>${inHint}</b> 円</div>
 
       <div class="w-meter-wrap">
@@ -107,7 +107,7 @@ function cardHTML(item){
   `;
 }
 
-/* ---------------- 一覧（コンパクト行だけにする） ---------------- */
+/* ---------------- 一覧（コンパクト2行） ---------------- */
 async function loadList(){
   const data = await getJSON('/advisor/api/watch/list/');
   const list = $('#list'); list.innerHTML = '';
