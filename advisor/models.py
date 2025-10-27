@@ -100,3 +100,45 @@ class WatchEntry(TimeStampedModel):
     @property
     def added_at(self):
         return self.created_at
+        
+class Policy(TimeStampedModel):
+    """
+    売買ポリシー（ユーザー1人に1レコード想定）
+    - risk_mode : 攻め / 普通 / 守り / おまかせ
+    - hold_style: 短期 / 中期 / 長期 / おまかせ
+    """
+    MODE_ATTACK  = "attack"
+    MODE_NORMAL  = "normal"
+    MODE_DEFENSE = "defense"
+    MODE_AUTO    = "auto"
+
+    STYLE_SHORT = "short"
+    STYLE_MID   = "mid"
+    STYLE_LONG  = "long"
+    STYLE_AUTO  = "auto"
+
+    MODE_CHOICES = (
+        (MODE_ATTACK,  "攻め"),
+        (MODE_NORMAL,  "普通"),
+        (MODE_DEFENSE, "守り"),
+        (MODE_AUTO,    "おまかせ"),
+    )
+    STYLE_CHOICES = (
+        (STYLE_SHORT, "短期"),
+        (STYLE_MID,   "中期"),
+        (STYLE_LONG,  "長期"),
+        (STYLE_AUTO,  "おまかせ"),
+    )
+
+    user       = models.ForeignKey(User, on_delete=models.CASCADE, related_name="policies")
+    risk_mode  = models.CharField(max_length=16, choices=MODE_CHOICES, default=MODE_NORMAL)
+    hold_style = models.CharField(max_length=16, choices=STYLE_CHOICES, default=STYLE_MID)
+
+    class Meta:
+        indexes  = [models.Index(fields=["user"])]
+        unique_together = (("user",),)  # ユーザー1件想定（将来バージョン違いに拡張するなら外す）
+        verbose_name = "Policy"
+        verbose_name_plural = "Policies"
+
+    def __str__(self):
+        return f"{self.user_id}: {self.get_risk_mode_display()} × {self.get_hold_style_display()}"
