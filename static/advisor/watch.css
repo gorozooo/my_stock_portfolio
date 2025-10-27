@@ -16,7 +16,6 @@
 .watch-list{display:grid;gap:12px}
 
 /* ====== 一覧（展開前のコンパクト行） ====== */
-/* JSが .item を差し込む前提。既存の要素を抑制して、KPIだけに絞る */
 .item{
   background:var(--panel);
   border:1px solid var(--panel-strong);
@@ -32,7 +31,7 @@
 .item-title{font-weight:800; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .item-title .item-code{opacity:.85; font-weight:700; margin-left:4px}
 
-/* ここが新規：KPI帯（総合評価/AI/IN目安） */
+/* KPI帯（総合評価/AI/IN目安） */
 .item-kpis{
   display:flex; align-items:center; gap:14px;
   font-size:13px; opacity:.95; flex-shrink:0;
@@ -40,7 +39,7 @@
 .item-kpi{display:flex; align-items:center; gap:6px; white-space:nowrap;}
 .item-kpi b{font-weight:800; letter-spacing:.2px}
 
-/* 既存の週足チップやサマリは一覧では非表示にする */
+/* 一覧では週足チップやサマリを非表示 */
 .item-chips, .item-summary{display:none !important;}
 
 /* ====== 詳細カード（board準拠） ====== */
@@ -66,7 +65,7 @@
 .sheet-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(2px)}
 .sheet-body{
   position:absolute;left:0;right:0;bottom:0;
-  max-height:92vh; /* 画面の上まで出し過ぎない */
+  max-height:92vh;
   border-top-left-radius:18px;border-top-right-radius:18px;
   background:linear-gradient(to bottom, rgba(11,15,26,.98), rgba(11,15,26,.98));
   box-shadow:0 -12px 30px rgba(0,0,0,.45);
@@ -83,7 +82,7 @@
 /* 下部操作（タブのすぐ上に固定） */
 .sheet-actions {
   position: fixed;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 50px); /* 下タブぶん上に */
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 50px);
   left: 0;
   right: 0;
   display: flex;
@@ -99,7 +98,7 @@
 .btn.danger{background:linear-gradient(180deg,rgba(239,68,68,.18),rgba(239,68,68,.08));border-color:rgba(239,68,68,.45)}
 .btn.more{width:100%;margin-top:12px}
 
-/* ====== トースト（既存watch.jsに合わせて） ====== */
+/* トースト */
 .toast{
   position:fixed;left:50%;transform:translateX(-50%);bottom:140px;
   background:rgba(0,0,0,.82);color:#fff;border-radius:14px;padding:10px 16px;
