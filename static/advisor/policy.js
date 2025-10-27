@@ -1,4 +1,4 @@
-// policy.js r7  — backendの値に合わせて attack/defense を使用
+// policy.js r8 — attack/defenseを維持・おまかせ時のみAIバナー表示
 const $  = (s)=>document.querySelector(s);
 const $$ = (s)=>document.querySelectorAll(s);
 
@@ -22,7 +22,13 @@ function toast(msg){
   requestAnimationFrame(()=> t.style.opacity = '1');
   const onV = ()=> t.style.bottom = computeToastBottomPx()+'px';
   if (window.visualViewport) window.visualViewport.addEventListener('resize', onV);
-  setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>{ if(window.visualViewport) window.visualViewport.removeEventListener('resize', onV); t.remove(); }, 250); }, 1800);
+  setTimeout(()=>{
+    t.style.opacity='0';
+    setTimeout(()=>{
+      if(window.visualViewport) window.visualViewport.removeEventListener('resize', onV);
+      t.remove();
+    }, 250);
+  }, 1800);
 }
 
 // ---- API
@@ -32,7 +38,10 @@ async function getJSON(url){
   return await r.json();
 }
 async function postJSON(url, body){
-  const r = await fetch(abs(url), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
+  const r = await fetch(abs(url), {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body||{})
+  });
   if(!r.ok) throw new Error(`HTTP ${r.status} ${await r.text().catch(()=> '')}`);
   return await r.json();
 }
@@ -46,6 +55,7 @@ function setPressed(container, value){
   container.querySelectorAll('.chip').forEach(btn=>{
     const on = btn.dataset.val === value;
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.classList.toggle('active', on);
   });
 }
 function getPressed(container){
@@ -53,31 +63,32 @@ function getPressed(container){
   return el ? el.dataset.val : null;
 }
 function wireChips(container){
-  container.addEventListener('click', (e)=>{
-    const btn = e.target.closest('.chip'); if(!btn) return;
-    setPressed(container, btn.dataset.val);
-    // 選択変更時に即座に「運用中：…」を更新（手動の見た目反映）
-    const risk = getPressed($('#riskChips'))  || 'normal';
-    const hold = getPressed($('#styleChips')) || 'mid';
-    updateBanner(null, {risk, hold}); // banner=null → 常時表示はAltへ
+  container.querySelectorAll('.chip').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      setPressed(container, btn.dataset.val);
+      const risk = getPressed($('#riskChips'))  || 'normal';
+      const hold = getPressed($('#styleChips')) || 'mid';
+      updateBanner(null, {risk, hold}); // 手動反映
+    }, {passive:true});
   });
 }
 
 // ---- バナー／運用中表示
 function updateBanner(bannerText, opts){
   const aiBanner = $('#aiBanner');
-  const running   = `${riskLabel(opts.risk)} × ${styleLabel(opts.hold)}モード`;
+  const running = `${riskLabel(opts.risk)} × ${styleLabel(opts.hold)}モード`;
 
-  // バナー（AIおまかせ時のみ）
-  const showBanner = (opts.risk === 'auto' || opts.hold === 'auto' || !!bannerText);
-  if (showBanner){
+  // おまかせを含む時のみバナー表示
+  const isAuto = (opts.risk === 'auto' || opts.hold === 'auto' || !!bannerText);
+  if (isAuto){
     aiBanner.hidden = false;
     $('#runningMode').textContent = running;
-  }else{
+  } else {
     aiBanner.hidden = true;
   }
-  // 常時見える方
-  $('#runningModeAlt').textContent = running;
+
+  // 常時表示側（運用中ラベル）を更新
+  $('#runningModeAlt')?.textContent = running;
 }
 
 // ---- 初期化
@@ -88,7 +99,6 @@ function updateBanner(bannerText, opts){
 
     // 現在値取得
     const js = await getJSON('/advisor/api/policy/');
-    // 期待する値： risk_mode in [attack,normal,defense,auto], hold_style in [short,mid,long,auto]
     setPressed($('#riskChips'),  js.current.risk_mode);
     setPressed($('#styleChips'), js.current.hold_style);
     updateBanner(js.banner || null, {risk: js.current.risk_mode, hold: js.current.hold_style});
@@ -99,7 +109,6 @@ function updateBanner(bannerText, opts){
         const risk = getPressed($('#riskChips'))  || 'normal';
         const hold = getPressed($('#styleChips')) || 'mid';
         const res  = await postJSON('/advisor/api/policy/', { risk_mode: risk, hold_style: hold });
-        // サーバ応答をそのまま反映（値は attack/normal/defense/auto）
         setPressed($('#riskChips'),  res.current.risk_mode);
         setPressed($('#styleChips'), res.current.hold_style);
         updateBanner(res.banner || null, {risk: res.current.risk_mode, hold: res.current.hold_style});
@@ -107,7 +116,7 @@ function updateBanner(bannerText, opts){
       }catch(e){ console.error(e); toast('通信に失敗しました'); }
     });
 
-    // リセット（通常：普通×中期）
+    // リセット（普通×中期）
     $('#resetBtn').addEventListener('click', async ()=>{
       try{
         const res = await postJSON('/advisor/api/policy/', { risk_mode: 'normal', hold_style: 'mid' });
