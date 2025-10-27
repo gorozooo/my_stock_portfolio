@@ -4,16 +4,46 @@
   --radius:16px; --shadow:0 10px 30px rgba(0,0,0,.35);
 }
 
+/* ===== ヘッダ ===== */
 .watch-header{position:sticky;top:0;background:linear-gradient(to bottom, rgba(11,15,26,.85), rgba(11,15,26,.45));backdrop-filter:blur(10px);z-index:10;border-bottom:1px solid rgba(255,255,255,.06)}
 .watch-header .wrap{max-width:720px;margin:0 auto;padding:12px 16px;color:var(--text)}
 .search-box{display:flex;align-items:center;gap:10px}
 .search-box input{flex:1;border-radius:12px;border:1px solid var(--panel-strong);background:var(--panel);padding:10px 12px;color:var(--text)}
 .hit{opacity:.85}
 
+/* ===== コンテナ ===== */
 .watch-container{max-width:720px;margin:0 auto;padding:14px 16px 24px}
 .watch-list{display:grid;gap:12px}
 
-/* --- カード（board準拠の見た目） --- */
+/* ====== 一覧（展開前のコンパクト行） ====== */
+/* JSが .item を差し込む前提。既存の要素を抑制して、KPIだけに絞る */
+.item{
+  background:var(--panel);
+  border:1px solid var(--panel-strong);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  padding:12px 14px;
+  color:var(--text);
+  cursor:pointer;
+}
+.item-line1{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+}
+.item-title{font-weight:800; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.item-title .item-code{opacity:.85; font-weight:700; margin-left:4px}
+
+/* ここが新規：KPI帯（総合評価/AI/IN目安） */
+.item-kpis{
+  display:flex; align-items:center; gap:14px;
+  font-size:13px; opacity:.95; flex-shrink:0;
+}
+.item-kpi{display:flex; align-items:center; gap:6px; white-space:nowrap;}
+.item-kpi b{font-weight:800; letter-spacing:.2px}
+
+/* 既存の週足チップやサマリは一覧では非表示にする */
+.item-chips, .item-summary{display:none !important;}
+
+/* ====== 詳細カード（board準拠） ====== */
 .wcard{background:var(--panel);border:1px solid var(--panel-strong);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;color:var(--text)}
 .w-title{font-weight:800;display:flex;align-items:center;gap:8px}
 .w-seg{font-size:12px;opacity:.9;margin-top:2px}
@@ -30,18 +60,18 @@
 .w-meter>i{display:block;height:100%;background:linear-gradient(90deg,#60a5fa,#34d399);width:45%}
 .w-meter-cap{font-size:12px;opacity:.85;margin-top:4px}
 
-/* --- ボトムシート --- */
+/* ===== ボトムシート ===== */
 .sheet{position:fixed;inset:0;z-index:2000;display:block}
 .sheet[hidden]{display:none}
 .sheet-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(2px)}
 .sheet-body{
   position:absolute;left:0;right:0;bottom:0;
-  max-height:92vh; /* ← 画面の上まで出し過ぎない */
+  max-height:92vh; /* 画面の上まで出し過ぎない */
   border-top-left-radius:18px;border-top-right-radius:18px;
   background:linear-gradient(to bottom, rgba(11,15,26,.98), rgba(11,15,26,.98));
   box-shadow:0 -12px 30px rgba(0,0,0,.45);
   overflow-y:auto; -webkit-overflow-scrolling:touch;
-  padding:8px 14px 140px; /* ← 下ボタン分の余白を常に確保 */
+  padding:8px 14px 140px; /* 下ボタン分の余白を常に確保 */
 }
 .sheet-drag{width:64px;height:6px;border-radius:999px;background:rgba(255,255,255,.3);margin:8px auto}
 
@@ -50,10 +80,10 @@
 .memo-title{margin:8px 0 6px;opacity:.9}
 #sh-note{width:100%;border-radius:12px;border:1px solid var(--panel-strong);background:var(--panel);padding:10px 12px;color:var(--text)}
 
-/* 下部操作を常に見えるように固定（かつ安全域を確保） */
+/* 下部操作（タブのすぐ上に固定） */
 .sheet-actions {
   position: fixed;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 50px); /* ← 下タブぶん上に */
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 50px); /* 下タブぶん上に */
   left: 0;
   right: 0;
   display: flex;
@@ -68,3 +98,10 @@
 .btn.primary{background:linear-gradient(180deg,rgba(22,163,74,.35),rgba(22,163,74,.18));border-color:rgba(22,163,74,.5)}
 .btn.danger{background:linear-gradient(180deg,rgba(239,68,68,.18),rgba(239,68,68,.08));border-color:rgba(239,68,68,.45)}
 .btn.more{width:100%;margin-top:12px}
+
+/* ====== トースト（既存watch.jsに合わせて） ====== */
+.toast{
+  position:fixed;left:50%;transform:translateX(-50%);bottom:140px;
+  background:rgba(0,0,0,.82);color:#fff;border-radius:14px;padding:10px 16px;
+  box-shadow:0 6px 20px rgba(0,0,0,.35);z-index:3000;opacity:0;transition:opacity .25s ease;
+}
