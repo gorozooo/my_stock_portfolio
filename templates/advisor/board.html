@@ -27,9 +27,9 @@
 
   <!-- APIエンドポイントをサーバ側URLから注入 -->
   <script>
-    window.ADVISOR_API_BOARD = "{% url 'advisor_board' %}";  // /advisor/api/board/
-    window.ADVISOR_API_ACTION = "{% url 'advisor_action' %}";
-    window.ADVISOR_API_REMIND = "{% url 'advisor_remind' %}";
+    window.ADVISOR_API_BOARD  = "{% url 'advisor_board' %}";           // ✅ /advisor/api/board/
+    window.ADVISOR_API_ACTION = "{% url 'advisor_record_action' %}";   // ✅ /advisor/api/action/
+    window.ADVISOR_API_REMIND = "{% url 'advisor_create_reminder' %}"; // ✅ /advisor/api/remind/
   </script>
 
   <link rel="stylesheet" href="{% static 'advisor/board.css' %}?v=3" />
