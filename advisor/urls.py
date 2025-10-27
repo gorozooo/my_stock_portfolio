@@ -22,7 +22,7 @@ urlpatterns = [
     path("api/watch/ping/", watch_api.watch_ping, name="advisor_watch_ping"),
     path("api/watch/archive/id/<int:rec_id>/", watch_api.watch_archive_by_id_get, name="advisor_watch_archive_by_id_get"),
     
-    path("policy/", policy_page.policy_page, name="advisor_policy_page"),
+    path("policy1/", policy_page.policy_page, name="advisor_policy_page"),
     path("api/policy/", policy_page.policy_api, name="advisor_policy_api"),
     
 ]
