@@ -16,10 +16,15 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         max_age = options["max_age_min"]
-        user = WatchEntry.objects.first().user if WatchEntry.objects.exists() else None
-        if not user:
-            self.stdout.write(self.style.WARNING("⚠ No user found"))
-            return
+        user = None
+        for model in [WatchEntry, Holding, TrendResult]:
+            try:
+                obj = model.objects.first()
+                if obj and hasattr(obj, "user") and obj.user:
+                    user = obj.user
+                    break
+            except Exception:
+                pass
 
         tickers = self._get_targets(user)
         self.stdout.write(self.style.NOTICE(f"[advisor_update_prices] Target tickers: {len(tickers)}"))
