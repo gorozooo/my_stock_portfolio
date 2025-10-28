@@ -50,5 +50,3 @@ class TrendResult(models.Model):
 
     def __str__(self):
         return f"{self.asof} {self.ticker} {self.overall_score}"
-
-.weekly_trend} (conf={self.confidence:.2f})"
