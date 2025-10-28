@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from .models_trend import TrendResult
 
 User = settings.AUTH_USER_MODEL
 
