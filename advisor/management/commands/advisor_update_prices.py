@@ -15,42 +15,48 @@ class Command(BaseCommand):
         parser.add_argument("--max-age-min", type=int, default=30)
 
     def handle(self, *args, **options):
-        max_age = options["max-age-min"]
+        max_age = options["max_age_min"]
         user = WatchEntry.objects.first().user if WatchEntry.objects.exists() else None
         if not user:
-            self.stdout.write(self.style.WARNING("No user found"))
+            self.stdout.write(self.style.WARNING("⚠ No user found"))
             return
 
         tickers = self._get_targets(user)
-        self.stdout.write(self.style.NOTICE(f"[advisor_update_prices] Updating {len(tickers)} tickers..."))
+        self.stdout.write(self.style.NOTICE(f"[advisor_update_prices] Target tickers: {len(tickers)}"))
 
         for t in tickers:
             t_clean = t.strip().upper()
             last_price = None
-            tried = []
+            tried_symbols = []
 
-            for suffix in [".T", ".JP", ""]:
+            # --- 取得試行 ---
+            for suffix in [".T", ""]:
                 symbol = f"{t_clean}{suffix}"
-                tried.append(symbol)
+                tried_symbols.append(symbol)
                 try:
-                    df = yf.download(symbol, period="5d", interval="1d", progress=False)
-                    if not df.empty:
+                    df = yf.download(symbol, period="5d", interval="1d", progress=False, auto_adjust=False)
+                    if not df.empty and "Close" in df.columns:
                         last_price = float(df["Close"].iloc[-1])
                         PriceCache.objects.update_or_create(
                             ticker=t_clean,
                             defaults={"last_price": last_price, "updated_at": timezone.now()},
                         )
-                        self.stdout.write(self.style.SUCCESS(f"✓ {t_clean} ({symbol}) → {last_price:.2f}"))
+                        self.stdout.write(self.style.SUCCESS(f"✓ {t_clean} ({symbol}) {last_price:.2f}"))
                         break
                 except Exception as e:
                     continue
 
-            if not last_price:
-                self.stdout.write(self.style.WARNING(f"✗ {t_clean} failed ({', '.join(tried)})"))
+            # --- フォールバック保存 ---
+            if last_price is None:
+                PriceCache.objects.update_or_create(
+                    ticker=t_clean,
+                    defaults={"last_price": 0.0, "updated_at": timezone.now()},
+                )
+                self.stdout.write(self.style.WARNING(f"⚠ {t_clean} failed ({', '.join(tried_symbols)})"))
 
-            time.sleep(1)  # Yahoo APIレートリミット回避
+            time.sleep(1)  # Yahooレート制限回避
 
-        self.stdout.write(self.style.SUCCESS("PriceCache update done."))
+        self.stdout.write(self.style.SUCCESS("✅ PriceCache update completed."))
 
     def _get_targets(self, user):
         s = set()
