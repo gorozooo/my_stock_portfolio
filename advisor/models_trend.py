@@ -1,6 +1,9 @@
 # advisor/models_trend.py
 from __future__ import annotations
+
+from django.conf import settings  
 from django.db import models
+from django.utils import timezone
 
 class TrendResult(models.Model):
     """
