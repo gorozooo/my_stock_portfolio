@@ -17,6 +17,17 @@ from advisor.models import WatchEntry
 User = get_user_model()
 JST = timezone(timedelta(hours=9))
 
+# ---- キャッシュ層（存在しなくても動くように安全に読み込み） -----------------
+_HAS_CACHE = False
+try:
+    from advisor.models_cache import PriceCache, BoardCache  # 追加モデル（任意）
+    _HAS_CACHE = True
+except Exception:
+    PriceCache = None  # type: ignore
+    BoardCache = None  # type: ignore
+    _HAS_CACHE = False
+
+
 # ---------- helpers ----------
 def _jst_now() -> datetime:
     return dj_now().astimezone(JST)
@@ -41,24 +52,17 @@ def _latest_margin_available_funds(user) -> Optional[int]:
                     account_type="信用", currency="JPY"
                 ))
     )
-    # ユーザー単位で分けている前提：BrokerAccount をユーザー紐付けしていない場合は全体集計になる。
-    # もし将来 BrokerAccount に user が生えたらここで絞り込む。
-
     if not qs.exists():
         return None
 
     # 各アカウントの最新 as_of を拾って合計
-    latest_per_acct = (
-        qs.values("account_id")
-          .annotate(as_of_max=Max("as_of"))
-    )
+    latest_per_acct = qs.values("account_id").annotate(as_of_max=Max("as_of"))
     acct_to_latest_date = {row["account_id"]: row["as_of_max"] for row in latest_per_acct}
     total = 0
     for acct_id, as_of in acct_to_latest_date.items():
         st = qs.filter(account_id=acct_id, as_of=as_of).first()
         if not st:
             continue
-        # available_funds = cash_free + collateral_usable - required - restricted
         total += int(st.available_funds)
     return max(0, total)
 
@@ -66,7 +70,6 @@ def _cash_fallback_credit(user) -> int:
     """
     MarginState が無い場合のフォールバック：
     - 信用口座(JPY)の opening_balance + CashLedger 累積（入出金・振替）
-    - シンプルに現金残のみを信用余力の近似として返す（>0で返却）
     """
     accts = BrokerAccount.objects.filter(account_type="信用", currency="JPY")
     total = 0
@@ -89,9 +92,68 @@ def _holding_price_or_default(h: Holding) -> int:
             return int(round(float(h.last_price)))
         except Exception:
             pass
-    # 価格が無い場合の安全フォールバック（極端に小さくしない）
     return 3000
 
+# ---- 価格キャッシュの参照（任意） ---------------------------------------------
+def _price_from_cache_or(value_hint: Optional[int], ticker: str) -> Optional[int]:
+    """
+    PriceCache があればそれを優先。無ければ引数の value_hint（entry_price_hint 等）を返す。
+    どちらもなければ None。
+    """
+    if _HAS_CACHE and PriceCache is not None:
+        pc = PriceCache.objects.filter(ticker=ticker.upper()).first()
+        if pc:
+            try:
+                return int(pc.last_price)
+            except Exception:
+                pass
+    if value_hint is not None:
+        try:
+            return int(value_hint)
+        except Exception:
+            pass
+    return None
+
+# ---- BoardCache（任意） --------------------------------------------------------
+def _load_board_cache(user) -> Optional[Dict[str, Any]]:
+    if not (_HAS_CACHE and BoardCache is not None):
+        return None
+    bc = (
+        BoardCache.objects.filter(user=user).first()
+        or BoardCache.objects.filter(user__isnull=True).first()
+    )
+    if not bc:
+        return None
+    try:
+        if bc.is_fresh:
+            payload = dict(bc.payload)
+            # liveフラグ & バージョン追記
+            meta = payload.setdefault("meta", {})
+            meta["live"] = True
+            mv = meta.get("model_version", "")
+            meta["model_version"] = f"{mv}+cached" if mv else "cached"
+            return payload
+    except Exception:
+        pass
+    return None
+
+def _save_board_cache(user, payload: Dict[str, Any], ttl_minutes: int = 180) -> None:
+    if not (_HAS_CACHE and BoardCache is not None):
+        return
+    try:
+        BoardCache.objects.create(
+            user=user if (hasattr(user, "is_authenticated") and user.is_authenticated) else None,
+            payload=payload,
+            generated_at=dj_now(),
+            ttl_minutes=ttl_minutes,
+            note="auto",
+        )
+    except Exception:
+        # キャッシュ保存に失敗してもAPIは正常返却させる
+        pass
+
+
+# ---------- 候補ビルド ----------
 def _watch_candidates(user) -> List[Dict[str, Any]]:
     """
     WatchEntry から候補を作る（可能ならここから5件）。
@@ -104,11 +166,8 @@ def _watch_candidates(user) -> List[Dict[str, Any]]:
         .order_by("-updated_at")[:12]
     )
     for w in qs:
-        last = _safe_int(w.entry_price_hint, 0) or 0
-        if not last:
-            # entry_price_hint が無い場合は軽くフォールバック
-            # （watch に価格が無いのは珍しいので 3000 でよい）
-            last = 3000
+        # 価格ヒント（PriceCache優先 → entry_price_hint → 3000）
+        last = _price_from_cache_or(w.entry_price_hint, w.ticker) or 3000
 
         # ％の素直な補完
         tp_pct = float(w.tp_pct or 0.06)
@@ -147,17 +206,26 @@ def _watch_candidates(user) -> List[Dict[str, Any]]:
 
 def _holding_candidates(user) -> List[Dict[str, Any]]:
     """
-    Holding から候補を作る（板を埋める用の補完）。last_price がなければ 3000。
+    Holding から候補を作る（板を埋める用の補完）。
+    last_price → PriceCache → 3000。
     """
     items: List[Dict[str, Any]] = []
     qs = Holding.objects.all().order_by("-updated_at")[:12]
     for h in qs:
-        last = _holding_price_or_default(h)
+        # last_price or PriceCache or 3000
+        base_price = None
+        if h.last_price is not None:
+            try:
+                base_price = int(round(float(h.last_price)))
+            except Exception:
+                base_price = None
+        last = _price_from_cache_or(base_price, h.ticker) or 3000
+
         # 簡易％（中期デフォルト）
         tp_pct = 0.10; sl_pct = 0.03
         tp_price = int(round(last * (1 + tp_pct)))
         sl_price = int(round(last * (1 - sl_pct)))
-        ai_prob = 0.63  # 暫定（Trendが生えたら差し替え）
+        ai_prob = 0.63  # 暫定
         theme_score = 0.55
         overall = int(round((ai_prob * 0.7 + theme_score * 0.3) * 100))
         wk = "up" if overall >= 65 else ("flat" if overall >= 50 else "down")
@@ -206,32 +274,38 @@ def _attach_sizing(items: List[Dict[str, Any]], credit_balance: int, risk_per_tr
         }
         it["ai"] = {**it.get("ai", {}), "tp_prob": tp_prob, "sl_prob": sl_prob}
 
+
 # ---------- public entry ----------
-def build_board(user) -> Dict[str, Any]:
+def build_board(user, *, use_cache: bool = True) -> Dict[str, Any]:
     """
-    /advisor/api/board/ が呼ぶ実データビルダー。
+    /advisor/api/board/ が呼ぶ実データビルダー（キャッシュ対応版）。
+    - BoardCache があって新鮮なら即返（live=True, model_versionに+cached）
+    - そうでなければ実データでビルド → BoardCache に保存（任意）
     - 信用余力: MarginState → 無ければ CashLedger でフォールバック
     - 候補: WatchEntry を優先、無ければ Holding で補完
     - 返却スキーマは既存と互換（highlights/ meta/ theme）
     """
-    now = _jst_now()
+    # 1) キャッシュ即返
+    if use_cache:
+        cached = _load_board_cache(user)
+        if cached is not None:
+            return cached
 
+    # 2) 実データでビルド
+    now = _jst_now()
     credit = _resolve_credit_balance(user)
-    # とりあえず 1% リスク/トレード（将来は Policy と連携）
     risk_per_trade = 0.01
 
-    # 候補を集める
     items = _watch_candidates(user)
     if len(items) < 5:
         items += _holding_candidates(user)
     items = items[:5]
 
-    # サイズなどを後付け
     _attach_sizing(items, credit_balance=credit, risk_per_trade=risk_per_trade)
 
     data: Dict[str, Any] = {
         "meta": {
-            "generated_at": now.replace(hour=7, minute=25, second=0, microsecond=0).isoformat(),
+            "generated_at": now.replace(second=0, microsecond=0).isoformat(),
             "model_version": "v0.3-live-from-portfolio",
             "adherence_week": 0.84,                    # 後で learn ダッシュ連携
             "regime": {"trend_prob": 0.55, "range_prob": 0.45, "nikkei": "→", "topix": "→"},
@@ -239,16 +313,21 @@ def build_board(user) -> Dict[str, Any]:
             "pairing": {"id": 2, "label": "順張り・短中期"},
             "self_mirror": {"recent_drift": "—"},
             "credit_balance": int(credit),
-            "live": True,   # ← ここが重要：実データ経路が使われていることを明示
+            "live": True,   # 実データ経路
         },
         "theme": {
             "week": now.strftime("%Y-W%V"),
             "top3": [
-                {"id": "generic", "label": "監視テーマ", "score": 0.58},
-                {"id": "generic2", "label": "セクター", "score": 0.55},
-                {"id": "generic3", "label": "補完", "score": 0.52},
+                {"id": "generic",  "label": "監視テーマ", "score": 0.58},
+                {"id": "generic2", "label": "セクター",   "score": 0.55},
+                {"id": "generic3", "label": "補完",       "score": 0.52},
             ],
         },
         "highlights": items,
     }
+
+    # 3) キャッシュ保存（任意）
+    if use_cache:
+        _save_board_cache(user, data, ttl_minutes=180)
+
     return data
