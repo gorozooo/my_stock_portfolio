@@ -58,19 +58,13 @@ function stars(prob01){
 
     // --- ステータスピル（LIVE/DEMO） ---
     const pill = $("#statusPill");
-    if (pill){
-      const isLive = !!(data && data.meta && data.meta.live);
-      const ver = (data && data.meta && data.meta.model_version) ? String(data.meta.model_version) : "";
-      pill.textContent = isLive ? "LIVE" : "DEMO";
-      pill.classList.remove("live", "demo");
-      pill.classList.add(isLive ? "live" : "demo");
-      // ちょい情報追加（モデルバージョン）
-      if (ver) {
-        const v = document.createElement("i");
-        v.textContent = ` ${ver}`;
-        pill.appendChild(v);
-      }
+    if(pill){
+      const live = !!data.meta.live;
+      pill.textContent = live ? "LIVE" : "DEMO";
+      pill.classList.remove("live","demo");
+      pill.classList.add(live ? "live":"demo");
     }
+
 
     // --- ヘッダー（日付/相場/テーマ/再現率） ---
     const d = new Date(data.meta.generated_at);
