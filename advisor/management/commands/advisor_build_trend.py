@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from pathlib import Path
 from datetime import date
-from typing import Dict, List, Set, Iterable, Optional
+from typing import Dict, List, Set, Optional
 
 import numpy as np
 import pandas as pd
@@ -16,23 +17,19 @@ from django.db import transaction
 from advisor.models_trend import TrendResult
 from advisor.models import WatchEntry
 
-# 価格フォールバック（任意）
 try:
-    from advisor.models_cache import PriceCache  # ある場合だけ使う
+    from advisor.models_cache import PriceCache
 except Exception:
     PriceCache = None  # type: ignore
 
 from portfolio.models import Holding
 
 User = get_user_model()
+ALIAS_JSON = Path("media/advisor/symbol_alias.json")
 
-ALIAS_JSON = Path("media/advisor/symbol_alias.json")  # 別名表: {"167A":"1671.T"} など
 
-
-# ---------- symbol helpers ----------
-
+# ---------- helpers ----------
 def _load_alias_map() -> Dict[str, str]:
-    """任意のシンボル別名マップ。例: {"167A":"1671.T"}"""
     try:
         if ALIAS_JSON.exists():
             with open(ALIAS_JSON, "r", encoding="utf-8") as f:
@@ -42,59 +39,35 @@ def _load_alias_map() -> Dict[str, str]:
         pass
     return {}
 
-def _symbol_candidates(raw: str, alias_map: Dict[str, str]) -> List[str]:
-    """
-    取得候補を複数用意（順に試す）。絶対に“即スキップ”しない。
-    優先度: alias -> raw -> raw+'.T' -> 数字部+'.T'
-    """
-    t = (raw or "").strip().upper()
-    cands: List[str] = []
-    if not t:
-        return cands
 
+def _symbol_candidates(raw: str, alias_map: Dict[str, str]) -> List[str]:
+    """Yahoo! Finance向けの取得候補を複数生成（絶対スキップしない）"""
+    t = (raw or "").strip().upper()
+    if not t:
+        return []
+    cands = []
     if t in alias_map:
         cands.append(alias_map[t])
-
-    cands.append(t)  # そのままも試す（例: 海外ETF等）
-    if not t.endswith(".T"):
-        cands.append(f"{t}.T")
-
-    # “167A” → “167” のように末尾英字を外してから .T
+    cands.append(t)
+    for suf in [".T", ".JP", ".TYO"]:
+        if not t.endswith(suf):
+            cands.append(f"{t}{suf}")
     if len(t) >= 2 and t[:-1].isdigit() and t[-1].isalpha():
         cands.append(f"{t[:-1]}.T")
+    return list(dict.fromkeys(cands))
 
-    # 重複除去（順序保持）
-    seen: Set[str] = set()
-    uniq: List[str] = []
-    for s in cands:
-        if s not in seen:
-            uniq.append(s)
-            seen.add(s)
-    return uniq
-
-
-# ---------- calc helpers ----------
 
 def _close_series(df: pd.DataFrame) -> Optional[pd.Series]:
-    """
-    yfinanceの返りが環境によってはDataFrame/Seriesで揺れるので、必ずSeries化する。
-    """
-    if df is None or df.empty:
-        return None
-    if "Close" not in df.columns:
+    if df is None or df.empty or "Close" not in df.columns:
         return None
     close = df["Close"]
-    # CloseがDataFrame（列複数）のことが稀にあるので最初の列に潰す
-    if isinstance(close, pd.DataFrame):
-        if close.shape[1] == 0:
-            return None
+    if isinstance(close, pd.DataFrame) and close.shape[1] > 0:
         close = close.iloc[:, 0]
-    # float化
     try:
-        close = close.astype(float)
+        return close.astype(float)
     except Exception:
         return None
-    return close
+
 
 def _weekly_trend_from_prices(df: pd.DataFrame) -> str:
     close = _close_series(df)
@@ -105,27 +78,20 @@ def _weekly_trend_from_prices(df: pd.DataFrame) -> str:
         return "flat"
     y = tail.values
     x = np.arange(len(y), dtype=float)
-    x_mean = x.mean(); y_mean = y.mean()
-    num = float(((x - x_mean) * (y - y_mean)).sum())
-    den = float(((x - x_mean) ** 2).sum()) or 1.0
-    slope = num / den
+    slope = ((x - x.mean()) * (y - y.mean())).sum() / ((x - x.mean()) ** 2).sum()
     return "up" if slope > 0 else ("down" if slope < 0 else "flat")
 
+
 def _slope_annual_from_prices(df: pd.DataFrame) -> float:
-    """
-    連続複利ベースの年率化リターンを近似。
-    ロバスト化: log(close).diff() を使用し、0/負値はclipで回避。
-    """
     close = _close_series(df)
-    if close is None or close.empty:
-        return 0.0
-    if len(close) < 5:
+    if close is None or close.empty or len(close) < 5:
         return 0.0
     logret = np.log(close.clip(lower=1e-9)).diff().dropna()
     if logret.empty:
         return 0.0
     mu = float(logret.mean())
-    return float(np.exp(mu * 250) - 1.0)  # 営業日換算
+    return float(np.exp(mu * 250) - 1.0)
+
 
 def _confidence_from_df(df: pd.DataFrame) -> float:
     if df is None or df.empty:
@@ -133,6 +99,7 @@ def _confidence_from_df(df: pd.DataFrame) -> float:
     n = len(df)
     base = 0.3 + min(0.6, n / 200.0)
     return float(round(max(0.3, min(0.9, base)), 3))
+
 
 def _collect_targets(user) -> List[str]:
     s: Set[str] = set()
@@ -142,24 +109,19 @@ def _collect_targets(user) -> List[str]:
     for h in Holding.objects.filter(user=user).only("ticker"):
         if h.ticker:
             s.add(h.ticker.strip().upper())
-    return list(s)[:80]
+    return list(s)[:100]
 
-
-# ---------- price fallbacks ----------
 
 def _fallback_price(tkr: str, user) -> Optional[int]:
-    """Yahoo失敗時に最後の手段として使う価格"""
-    # 1) PriceCache
-    if PriceCache is not None:
+    if PriceCache:
         pc = PriceCache.objects.filter(ticker=tkr.upper()).first()
-        if pc and pc.last_price is not None:
+        if pc and pc.last_price:
             try:
                 return int(pc.last_price)
             except Exception:
                 pass
-    # 2) Holding.last_price（ユーザー保有のもの）
     h = Holding.objects.filter(user=user, ticker=tkr.upper()).only("last_price").first()
-    if h and h.last_price is not None:
+    if h and h.last_price:
         try:
             return int(round(float(h.last_price)))
         except Exception:
@@ -168,20 +130,16 @@ def _fallback_price(tkr: str, user) -> Optional[int]:
 
 
 # ---------- command ----------
-
 class Command(BaseCommand):
-    help = "Build TrendResult for active/watch/holdings. Never skip symbols (uses aliases/fallbacks)."
+    help = "Build TrendResult for holdings/watchlist with fallback and alias."
 
     def add_arguments(self, parser):
-        parser.add_argument("--days", type=int, default=60, help="lookback days")
-        parser.add_argument("--user-id", type=int, default=None, help="target user id")
-        parser.add_argument("--dry-run", action="store_true")
+        parser.add_argument("--days", type=int, default=60)
+        parser.add_argument("--user-id", type=int, default=None)
 
     def handle(self, *args, **opts):
-        days: int = int(opts.get("days") or 60)
+        days = int(opts.get("days") or 60)
         user_id = opts.get("user_id")
-        dry = bool(opts.get("dry_run"))
-
         user = User.objects.filter(id=user_id).first() if user_id else User.objects.first()
         if not user:
             self.stdout.write(self.style.ERROR("No user found"))
@@ -192,7 +150,6 @@ class Command(BaseCommand):
         self.stdout.write(f"[trend] days={days} targets={len(targets)}")
 
         for tkr in targets:
-            # 1) 価格取得トライ（候補を順に）
             df = None
             tried: List[str] = []
             for sym in _symbol_candidates(tkr, alias_map):
@@ -205,13 +162,13 @@ class Command(BaseCommand):
                         progress=False,
                         auto_adjust=False,
                     )
-                except Exception as e:
-                    self.stdout.write(self.style.WARNING(f"{tkr} ({sym}) download err: {e}"))
-                    df = None
-                if df is not None and not df.empty:
-                    break
+                    if df is not None and not df.empty:
+                        break
+                except Exception:
+                    continue
+                finally:
+                    time.sleep(1)
 
-            # 2) Yahooで取れなくても“絶対にスキップしない” → フォールバックで埋める
             if df is None or df.empty:
                 asof = date.today()
                 weekly_trend = "flat"
@@ -220,27 +177,15 @@ class Command(BaseCommand):
                 close_price = _fallback_price(tkr, user)
             else:
                 df = df.tail(days).copy()
-                # asof
                 idx = df.index[-1]
                 asof = date(idx.year, idx.month, idx.day)
                 weekly_trend = _weekly_trend_from_prices(df)
                 slope_annual = _slope_annual_from_prices(df)
                 confidence = _confidence_from_df(df)
                 cs = _close_series(df)
-                close_price = float(cs.iloc[-1]) if cs is not None and not cs.empty else None
+                close_price = float(cs.iloc[-1]) if cs is not None and not cs.empty else _fallback_price(tkr, user)
 
-            entry_price_hint = (
-                int(round(close_price)) if close_price is not None else _fallback_price(tkr, user)
-            )
-            if entry_price_hint is None:
-                entry_price_hint = 3000  # 最後の最後のダミー
-
-            if dry:
-                self.stdout.write(
-                    f"DRY save {tkr} asof={asof} trend={weekly_trend} "
-                    f"slope={round(float(slope_annual), 4)} conf={confidence} tried={tried}"
-                )
-                continue
+            entry_price_hint = int(round(close_price)) if close_price else _fallback_price(tkr, user) or 3000
 
             try:
                 with transaction.atomic():
@@ -250,18 +195,13 @@ class Command(BaseCommand):
                         asof=asof,
                         defaults={
                             "name": tkr.upper(),
-                            "close_price": int(round(close_price)) if close_price is not None else None,
+                            "close_price": int(round(close_price)) if close_price else None,
                             "entry_price_hint": int(entry_price_hint),
                             "weekly_trend": weekly_trend,
-                            "win_prob": None,
-                            "theme_label": "",
-                            "theme_score": None,
-                            "overall_score": None,
-                            "size_mult": None,
+                            "slope_annual": slope_annual,
+                            "confidence": confidence,
+                            "window_days": days,
                             "notes": {"tried": tried},
-                            "slope_annual": float(slope_annual or 0.0),
-                            "confidence": float(confidence or 0.5),
-                            "window_days": int(days),
                         },
                     )
                 self.stdout.write(self.style.SUCCESS(f"saved trend: {tkr} asof={asof}"))
