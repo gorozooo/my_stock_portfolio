@@ -1,3 +1,4 @@
+# advisor/services/board_source.py
 from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
@@ -13,7 +14,6 @@ from advisor.models import WatchEntry
 User = get_user_model()
 JST = timezone(timedelta(hours=9))
 
-# ---- キャッシュ層 --------------------------------------------------------------
 _HAS_CACHE = False
 try:
     from advisor.models_cache import PriceCache, BoardCache
@@ -23,7 +23,6 @@ except Exception:
     BoardCache = None  # type: ignore
     _HAS_CACHE = False
 
-# ---- トレンド層 ----------------------------------------------------------------
 _HAS_TREND = False
 try:
     from advisor.models_trend import TrendResult
@@ -43,15 +42,20 @@ def _safe_int(x, default=0) -> int:
     except Exception:
         return default
 
+def _holding_name_map(user) -> Dict[str, str]:
+    m: Dict[str, str] = {}
+    for h in Holding.objects.filter(user=user).only("ticker", "name"):
+        if h.ticker and h.name:
+            m[h.ticker.upper()] = h.name
+    return m
+
 def _latest_margin_available_funds(user) -> Optional[int]:
     qs = (
         MarginState.objects
         .filter(account__broker__isnull=False,
                 account__account_type="信用",
                 account__currency="JPY",
-                account__in=BrokerAccount.objects.filter(
-                    account_type="信用", currency="JPY"
-                ))
+                account__in=BrokerAccount.objects.filter(account_type="信用", currency="JPY"))
     )
     if not qs.exists():
         return None
@@ -60,9 +64,8 @@ def _latest_margin_available_funds(user) -> Optional[int]:
     total = 0
     for acct_id, as_of in acct_to_latest_date.items():
         st = qs.filter(account_id=acct_id, as_of=as_of).first()
-        if not st:
-            continue
-        total += int(st.available_funds)
+        if st:
+            total += int(st.available_funds)
     return max(0, total)
 
 def _cash_fallback_credit(user) -> int:
@@ -76,9 +79,7 @@ def _cash_fallback_credit(user) -> int:
 
 def _resolve_credit_balance(user) -> int:
     m = _latest_margin_available_funds(user)
-    if m is not None:
-        return max(0, int(m))
-    return _cash_fallback_credit(user)
+    return max(0, int(m)) if m is not None else _cash_fallback_credit(user)
 
 def _price_from_cache_or(value_hint: Optional[int], ticker: str) -> Optional[int]:
     if _HAS_CACHE and PriceCache is not None:
@@ -95,28 +96,11 @@ def _price_from_cache_or(value_hint: Optional[int], ticker: str) -> Optional[int
             pass
     return None
 
-def _display_name(user, ticker: str, trend_name: Optional[str] = None) -> str:
-    """表示名: TrendResult.name → Holding.name → WatchEntry.name → ticker"""
-    if trend_name and str(trend_name).strip():
-        return str(trend_name).strip()
-    t = (ticker or "").upper()
-    h = Holding.objects.filter(user=user, ticker=t).only("name").first()
-    if h and (h.name or "").strip():
-        return h.name.strip()
-    w = WatchEntry.objects.filter(user=user, ticker=t).only("name").first()
-    if w and (w.name or "").strip():
-        return w.name.strip()
-    return t
-
-
-# ---- BoardCache ---------------------------------------------------------------
 def _load_board_cache(user) -> Optional[Dict[str, Any]]:
     if not (_HAS_CACHE and BoardCache is not None):
         return None
-    bc = (
-        BoardCache.objects.filter(user=user).first()
-        or BoardCache.objects.filter(user__isnull=True).first()
-    )
+    bc = (BoardCache.objects.filter(user=user).first()
+          or BoardCache.objects.filter(user__isnull=True).first())
     if not bc:
         return None
     try:
@@ -145,76 +129,62 @@ def _save_board_cache(user, payload: Dict[str, Any], ttl_minutes: int = 180) -> 
     except Exception:
         pass
 
+def _trend_for(ticker: str) -> Optional[Dict[str, float]]:
+    if not _HAS_TREND or TrendResult is None:
+        return None
+    row = (TrendResult.objects
+           .filter(ticker=(ticker or "").upper())
+           .order_by("-asof")
+           .first())
+    if not row:
+        return None
+    return {
+        "weekly_trend": (row.weekly_trend or "flat"),
+        "confidence": float(getattr(row, "confidence", 0.5) or 0.5),
+        "slope_annual": float(getattr(row, "slope_annual", 0.0) or 0.0),
+        "name": (row.name or "").strip(),
+        "entry_hint": int(row.entry_price_hint or 0) or None,
+    }
 
-# ---- TrendResult 取り出し（DB依存を吸収） --------------------------------------
-def _trend_rows_latest_per_ticker(user) -> List[Any]:
+
+# ---------- candidates ----------
+def _trend_candidates(user, top_n: int = 5) -> List[Dict[str, Any]]:
     """
-    ユーザーの各 ticker について「最新 asof の1件」を返す。
-    Postgres の distinct('ticker') が無い環境でも動くようフォールバック。
+    TrendResultベースの候補（最優先）。overall_scoreが無くても slope_annual × confidence で暫定点を作る。
     """
-    if not (_HAS_TREND and TrendResult is not None):
+    if not _HAS_TREND or TrendResult is None:
         return []
-    try:
-        # Postgres: 速い
-        qs = (
-            TrendResult.objects
-            .filter(user=user)
-            .order_by("ticker", "-asof")
-            .distinct("ticker")
-        )
-        return list(qs)
-    except Exception:
-        # フォールバック: Python側で最新だけ抽出
-        rows = (
-            TrendResult.objects
-            .filter(user=user)
-            .order_by("-asof", "-updated_at")
-            .only("ticker", "name", "asof", "overall_score", "entry_price_hint",
-                  "weekly_trend", "confidence", "slope_annual", "theme_label", "theme_score", "size_mult")
-        )
-        seen = set()
-        latest = []
-        for r in rows:
-            t = r.ticker.upper()
-            if t in seen:
-                continue
-            seen.add(t)
-            latest.append(r)
-        return latest
+    hold_names = _holding_name_map(user)
 
+    rows = (TrendResult.objects
+            .filter(user=user)
+            .order_by("-asof", "-overall_score", "-updated_at")[:50])
 
-def _trend_candidates(user, limit=12) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
-    rows = _trend_rows_latest_per_ticker(user)
-    # スコア降順
-    rows = sorted(
-        rows,
-        key=lambda r: (int(r.overall_score or 0), float(r.confidence or 0.0)),
-        reverse=True,
-    )[:limit]
-
     for r in rows:
-        last = r.entry_price_hint or _price_from_cache_or(None, r.ticker) or r.close_price or 3000
-        tp_pct = 0.10; sl_pct = 0.03
-        tp_price = int(round(int(last) * (1 + tp_pct)))
-        sl_price = int(round(int(last) * (1 - sl_pct)))
-        win_prob = float(r.overall_score or 60) / 100.0
+        name = (r.name or "").strip() or hold_names.get(r.ticker.upper()) or r.ticker.upper()
+        entry = r.entry_price_hint or r.close_price or 3000
+        tp_pct, sl_pct = 0.10, 0.03
+        tp_price = int(round(entry * (1 + tp_pct)))
+        sl_price = int(round(entry * (1 - sl_pct)))
+
+        conf = float(getattr(r, "confidence", 0.5) or 0.5)
+        slope = float(getattr(r, "slope_annual", 0.0) or 0.0)
+        # 暫定スコア（-0.5〜+0.5を0〜100に）
+        s = max(-0.5, min(0.5, slope))
+        overall = int(round((s + 0.5) * 100 * (0.6 + 0.4 * conf)))
 
         items.append({
             "ticker": r.ticker.upper(),
-            "name": _display_name(user, r.ticker, r.name),  # ★ 表示名
-            "segment": "トレンド（最新）",
+            "name": name,
+            "segment": "トレンド（自動）",
             "action": "買い候補",
-            "reasons": [
-                "TrendResultベース",
-                f"信頼度{int(round(float(r.confidence or 0.5)*100))}%",
-                f"slope≈{round(float(r.slope_annual or 0.0)*100,1)}%/yr",
-            ],
-            "ai": {"win_prob": win_prob, "size_mult": float(r.size_mult or 1.0)},
-            "theme": {"id": "trend", "label": (r.theme_label or "trend"), "score": float(r.theme_score or 0.55)},
-            "weekly_trend": (r.weekly_trend or "flat"),
-            "overall_score": int(r.overall_score or max(35, int((float(r.confidence or 0.5))*100))),
-            "entry_price_hint": int(last),
+            "reasons": ["TrendResultベース", f"信頼{int(conf*100)}%", f"slope≈{round(slope*100,1)}%/yr"],
+            "ai": {"win_prob": 0.62, "size_mult": 1.0},
+            "theme": {"id": "trend", "label": "トレンド", "score": 0.6},
+            "weekly_trend": r.weekly_trend or "flat",
+            "overall_score": overall,
+            "entry_price_hint": int(entry),
             "targets": {
                 "tp": f"目標 +{int(tp_pct*100)}%",
                 "sl": f"損切り -{int(sl_pct*100)}%",
@@ -222,33 +192,33 @@ def _trend_candidates(user, limit=12) -> List[Dict[str, Any]]:
                 "tp_price": tp_price, "sl_price": sl_price,
             },
         })
+        if len(items) >= top_n:
+            break
     return items
 
-
-# ---- watch/holding は不足時のみ補完 --------------------------------------------
 def _watch_candidates(user) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
-    qs = (
-        WatchEntry.objects
-        .filter(status=WatchEntry.STATUS_ACTIVE)
-        .order_by("-updated_at")[:12]
-    )
+    qs = (WatchEntry.objects
+          .filter(status=WatchEntry.STATUS_ACTIVE)
+          .order_by("-updated_at")[:12])
     for w in qs:
         last = _price_from_cache_or(w.entry_price_hint, w.ticker) or 3000
-        tp_pct = float(w.tp_pct or 0.06)
-        sl_pct = float(w.sl_pct or 0.02)
-        tp_price = int(round(last * (1 + tp_pct)))
-        sl_price = int(round(last * (1 - sl_pct)))
-        ai_prob = float(w.ai_win_prob or 0.62)
-        theme_score = float(w.theme_score or 0.55)
+        tp_pct = float(w.tp_pct or 0.06); sl_pct = float(w.sl_pct or 0.02)
+        tp_price = int(round(last * (1 + tp_pct))); sl_price = int(round(last * (1 - sl_pct)))
+        ai_prob = float(w.ai_win_prob or 0.62); theme_score = float(w.theme_score or 0.55)
         wk = (w.weekly_trend or "").strip().lower()
+        tr = _trend_for(w.ticker)
+        if tr:
+            wk = (tr["weekly_trend"] or wk).lower()
+            adjust = max(-0.05, min(0.05, (tr["confidence"] - 0.5) * 0.10))
+            ai_prob = min(0.95, max(0.05, ai_prob + adjust))
         if wk not in ("up", "down", "flat"):
             overall_tmp = int(round((ai_prob * 0.7 + theme_score * 0.3) * 100))
             wk = "up" if overall_tmp >= 65 else ("flat" if overall_tmp >= 50 else "down")
         overall = int(round((ai_prob * 0.7 + theme_score * 0.3) * 100))
         items.append({
             "ticker": w.ticker,
-            "name": _display_name(user, w.ticker, w.name),
+            "name": w.name or w.ticker,
             "segment": "監視",
             "action": "買い候補" if ai_prob >= 0.6 else "様子見",
             "reasons": w.reason_details or ((w.reason_summary or "").split("/") if w.reason_summary else []),
@@ -257,12 +227,8 @@ def _watch_candidates(user) -> List[Dict[str, Any]]:
             "weekly_trend": wk,
             "overall_score": overall,
             "entry_price_hint": last,
-            "targets": {
-                "tp": f"目標 +{int(tp_pct*100)}%",
-                "sl": f"損切り -{int(sl_pct*100)}%",
-                "tp_pct": tp_pct, "sl_pct": sl_pct,
-                "tp_price": tp_price, "sl_price": sl_price,
-            },
+            "targets": {"tp": f"目標 +{int(tp_pct*100)}%", "sl": f"損切り -{int(sl_pct*100)}%",
+                        "tp_pct": tp_pct, "sl_pct": sl_pct, "tp_price": tp_price, "sl_price": sl_price},
         })
     return items
 
@@ -277,16 +243,18 @@ def _holding_candidates(user) -> List[Dict[str, Any]]:
             except Exception:
                 base_price = None
         last = _price_from_cache_or(base_price, h.ticker) or 3000
-        tp_pct = 0.10; sl_pct = 0.03
-        tp_price = int(round(last * (1 + tp_pct)))
-        sl_price = int(round(last * (1 - sl_pct)))
+        tp_pct, sl_pct = 0.10, 0.03
+        tp_price = int(round(last * (1 + tp_pct))); sl_price = int(round(last * (1 - sl_pct)))
         ai_prob = 0.63; theme_score = 0.55
+        tr = _trend_for(h.ticker); wk = (tr["weekly_trend"] if tr else None) or "flat"
+        if tr:
+            adjust = max(-0.05, min(0.05, (tr["confidence"] - 0.5) * 0.10))
+            ai_prob = min(0.95, max(0.05, ai_prob + adjust))
         overall = int(round((ai_prob * 0.7 + theme_score * 0.3) * 100))
-        wk = "up" if overall >= 65 else ("flat" if overall >= 50 else "down")
         items.append({
             "ticker": h.ticker.upper(),
-            "name": _display_name(user, h.ticker, h.name),
-            "segment": "保有",
+            "name": h.name or h.ticker,
+            "segment": "中期（20〜45日）",
             "action": "買い候補（簡易）",
             "reasons": ["既存保有/監視から抽出", "価格は最新値ベース", "暫定パラメータ"],
             "ai": {"win_prob": ai_prob, "size_mult": 1.0},
@@ -294,12 +262,8 @@ def _holding_candidates(user) -> List[Dict[str, Any]]:
             "weekly_trend": wk,
             "overall_score": overall,
             "entry_price_hint": last,
-            "targets": {
-                "tp": f"目標 +{int(tp_pct*100)}%",
-                "sl": f"損切り -{int(sl_pct*100)}%",
-                "tp_pct": tp_pct, "sl_pct": sl_pct,
-                "tp_price": tp_price, "sl_price": sl_price,
-            },
+            "targets": {"tp": f"目標 +{int(tp_pct*100)}%", "sl": f"損切り -{int(sl_pct*100)}%",
+                        "tp_pct": tp_pct, "sl_pct": sl_pct, "tp_price": tp_price, "sl_price": sl_price},
         })
     return items
 
@@ -314,20 +278,13 @@ def _attach_sizing(items: List[Dict[str, Any]], credit_balance: int, risk_per_tr
         win_prob = float(it.get("ai", {}).get("win_prob") or 0.6)
         tp_prob = max(0.0, min(1.0, win_prob * 0.46))
         sl_prob = max(0.0, min(1.0, (1 - win_prob) * 0.30))
-        it["sizing"] = {
-            "credit_balance": credit_balance,
-            "risk_per_trade": risk_per_trade,
-            "position_size_hint": shares if shares > 0 else None,
-            "need_cash": need_cash,
-        }
+        it["sizing"] = {"credit_balance": credit_balance, "risk_per_trade": risk_per_trade,
+                        "position_size_hint": shares if shares > 0 else None, "need_cash": need_cash}
         it["ai"] = {**it.get("ai", {}), "tp_prob": tp_prob, "sl_prob": sl_prob}
 
 
 # ---------- public entry ----------
 def build_board(user, *, use_cache: bool = True) -> Dict[str, Any]:
-    """
-    優先度: TrendResult（5件） → 不足分をWatchEntry/ Holdingで補完
-    """
     if use_cache:
         cached = _load_board_cache(user)
         if cached is not None:
@@ -338,12 +295,13 @@ def build_board(user, *, use_cache: bool = True) -> Dict[str, Any]:
     risk_per_trade = 0.01
 
     items: List[Dict[str, Any]] = []
-    items += _trend_candidates(user, limit=12)
+    # 1) Trend最優先
+    items += _trend_candidates(user, top_n=5)
+    # 2) 足りなければ watch/holding で補完
     if len(items) < 5:
         items += _watch_candidates(user)
     if len(items) < 5:
         items += _holding_candidates(user)
-    # 最終的に5件に整形
     items = items[:5]
 
     _attach_sizing(items, credit_balance=credit, risk_per_trade=risk_per_trade)
@@ -351,26 +309,21 @@ def build_board(user, *, use_cache: bool = True) -> Dict[str, Any]:
     data: Dict[str, Any] = {
         "meta": {
             "generated_at": now.replace(second=0, microsecond=0).isoformat(),
-            "model_version": "v0.5-trend-first",
+            "model_version": "v0.4-trend-first+cached",
             "adherence_week": 0.84,
             "regime": {"trend_prob": 0.55, "range_prob": 0.45, "nikkei": "→", "topix": "→"},
-            "scenario": "TrendResult最優先。足りない分のみ監視/保有で補完。",
+            "scenario": "TrendResult優先で今日の候補を生成",
             "pairing": {"id": 2, "label": "順張り・短中期"},
             "self_mirror": {"recent_drift": "—"},
             "credit_balance": int(credit),
             "live": True,
-            "source_breakdown": {
-                "trend": sum(1 for x in items if x.get("segment") == "トレンド（最新）"),
-                "watch": sum(1 for x in items if x.get("segment") == "監視"),
-                "holding": sum(1 for x in items if x.get("segment") == "保有"),
-            },
         },
         "theme": {
             "week": now.strftime("%Y-W%V"),
             "top3": [
-                {"id": "trend",   "label": "トレンド強度", "score": 0.60},
-                {"id": "generic", "label": "監視テーマ",   "score": 0.56},
-                {"id": "generic2","label": "セクター",     "score": 0.55},
+                {"id": "trend",   "label": "トレンド", "score": 0.60},
+                {"id": "generic", "label": "監視テーマ", "score": 0.56},
+                {"id": "generic2","label": "セクター", "score": 0.52},
             ],
         },
         "highlights": items,
