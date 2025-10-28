@@ -6,11 +6,12 @@
 {% block content %}
   <header class="adv-header">
     <div class="wrap">
-      <div class="date" id="dateLabel"></div>
+      <div class="date-row">
+        <div class="date" id="dateLabel"></div>
+        <div class="pill status" id="statusPill" aria-live="polite">—</div>
+      </div>
 
-      <!-- ステータス（LIVE/DEMO）を先頭に追加 -->
       <div class="summary">
-        <div class="pill status" id="statusPill" aria-live="polite" title="実データ(LIVE)かデモ(DEMO)かの表示">—</div>
         <div class="pill"><strong class="trend-badge" id="trendBadge"></strong></div>
         <div class="pill">今週のテーマ：<span class="theme-strip" id="themeStrip"></span></div>
         <div class="pill">再現率 <strong id="adherence">--%</strong></div>
@@ -21,21 +22,36 @@
   <main class="container" role="main">
     <h2 class="section-title">おすすめ（5件）</h2>
     <section class="cards" id="cards" aria-live="polite"></section>
-
     <div class="foot">
       <button class="btn ghost" id="reorderBtn" aria-pressed="false">🔀 並び替え</button>
       <a class="btn" href="#" id="moreBtn">📉 他の候補を見る</a>
     </div>
   </main>
 
-  <!-- 既存CSSはそのまま。ステータス用の最小スタイルだけ内包（他を壊さない） -->
   <style>
-    .pill.status{font-weight:700; letter-spacing:.02em;}
-    .pill.status.live  { background:rgba(16,185,129,.18); border:1px solid rgba(16,185,129,.35); color:#b7f7df; }
-    .pill.status.demo  { background:rgba(245,158,11,.18); border:1px solid rgba(245,158,11,.35); color:#ffe3b2; }
-    .pill.status i     { opacity:.8; margin-left:.35em; font-weight:500; }
-    @media (max-width:520px){
-      .summary .pill{margin-bottom:6px}
+    .date-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      margin-bottom:6px;
+      flex-wrap:wrap;
+      gap:4px;
+    }
+    .pill.status{
+      font-weight:700;
+      padding:4px 10px;
+      border-radius:999px;
+      font-size:0.82rem;
+    }
+    .pill.status.live{
+      background:rgba(16,185,129,.18);
+      border:1px solid rgba(16,185,129,.35);
+      color:#b7f7df;
+    }
+    .pill.status.demo{
+      background:rgba(245,158,11,.18);
+      border:1px solid rgba(245,158,11,.35);
+      color:#ffe3b2;
     }
   </style>
 
@@ -47,5 +63,5 @@
   </script>
 
   <link rel="stylesheet" href="{% static 'advisor/board.css' %}?v=3" />
-  <script src="{% static 'advisor/board.js' %}?v=18"></script>
+  <script src="{% static 'advisor/board.js' %}?v=19"></script>
 {% endblock %}
