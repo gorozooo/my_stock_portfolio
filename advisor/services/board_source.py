@@ -1,161 +1,254 @@
 # advisor/services/board_source.py
 from __future__ import annotations
-from typing import Dict, Any, List, Tuple
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-from django.conf import settings
+from typing import Dict, Any, List, Optional
 
-from .quotes import get_last_price, get_week_trend_hint
+from django.db.models import Sum, Max
+from django.utils.timezone import now as dj_now
+from django.contrib.auth import get_user_model
 
+# ポートフォリオ側の実データ
+from portfolio.models import Holding
+from portfolio.models_cash import BrokerAccount, CashLedger, MarginState
+# アドバイザー側（候補や理由テキストを流用）
+from advisor.models import WatchEntry
+
+User = get_user_model()
 JST = timezone(timedelta(hours=9))
 
-# ---- 仕様：ハイライト候補（銘柄群）----
-# 実運用化する時は、ここをモデル出力／スクリーナー結果に差し替え。
-_BASE_ITEMS: List[Dict[str, Any]] = [
-    {
-        "ticker": "8035.T",
-        "name": "東京エレクトロン",
-        "segment": "中期（20〜45日）",
-        "action": "買い候補（勢い強）",
-        "reasons": ["半導体テーマが強い（78点）", "出来高が増えている（+35%）", "あなたの得意型（AI勝率82%）"],
-        "ai": {"win_prob": 0.82, "size_mult": 1.08},
-        "theme": {"id": "semiconductor", "label": "半導体", "score": 0.78},
-    },
-    {
-        "ticker": "7203.T",
-        "name": "トヨタ",
-        "segment": "中期（20〜45日）",
-        "action": "30日目 → 一部売り",
-        "reasons": ["保有日数の区切り", "自動車テーマ 65点", "最近は横ばい"],
-        "ai": {"win_prob": 0.64, "size_mult": 0.96},
-        "theme": {"id": "auto", "label": "自動車", "score": 0.65},
-    },
-    {
-        "ticker": "6758.T",
-        "name": "ソニーG",
-        "segment": "短期（5〜10日）",
-        "action": "買い候補（短期の勢い）",
-        "reasons": ["出来高が増えている", "戻りが強い", "AI勝率74%"],
-        "ai": {"win_prob": 0.74, "size_mult": 1.05},
-        "theme": {"id": "electronics", "label": "電機", "score": 0.58},
-    },
-    {
-        "ticker": "8267.T",
-        "name": "イオン",
-        "segment": "NISA（長期）",
-        "action": "配当・優待目的で継続",
-        "reasons": ["決算前の確認", "生活必需で安定", "分散の役割"],
-        "ai": {"win_prob": 0.60, "size_mult": 1.00},
-        "theme": {"id": "retail", "label": "小売", "score": 0.55},
-    },
-    {
-        "ticker": "8306.T",
-        "name": "三菱UFJ",
-        "segment": "中期（20〜45日）",
-        "action": "買い候補（銀行）",
-        "reasons": ["銀行テーマ 41点（様子見寄り）", "値動きは安定", "分散の候補"],
-        "ai": {"win_prob": 0.61, "size_mult": 0.92},
-        "theme": {"id": "banks", "label": "銀行", "score": 0.41},
-    },
-]
+# ---------- helpers ----------
+def _jst_now() -> datetime:
+    return dj_now().astimezone(JST)
 
-def _tp_sl_pct(segment: str) -> Tuple[float, float]:
-    s = segment or ""
-    if "短期" in s: return 0.06, 0.02   # +6%/-2%
-    if "中期" in s: return 0.10, 0.03   # +10%/-3%
-    return 0.12, 0.05                   # 長期/NISA
+def _safe_int(x, default=0) -> int:
+    try:
+        return int(x)
+    except Exception:
+        return default
 
-def _weekly_trend(theme_score: float, win_prob: float, hint: str|None) -> str:
-    if hint in ("up","flat","down"): return hint
-    score = 0.7*win_prob + 0.3*theme_score
-    if score >= 0.62: return "up"
-    if score >= 0.48: return "flat"
-    return "down"
-
-def _overall(theme_score: float, win_prob: float) -> int:
-    return int(round((0.7*win_prob + 0.3*theme_score)*100))
-
-def _tp_sl_prob(win_prob: float) -> Tuple[float,float]:
-    tp = max(0.0, min(1.0, win_prob*0.46))
-    sl = max(0.0, min(1.0, (1.0-win_prob)*0.30))
-    return tp, sl
-
-def build_board(user) -> Dict[str, Any]:
+def _latest_margin_available_funds(user) -> Optional[int]:
     """
-    API /advisor/api/board/ が返すJSONを構築。
-    settings.ADVISOR_LIVE が真なら quotes.get_last_price() を“優先”。
-    取れなければ静的フォールバック。
+    信用口座の MarginState から available_funds を合計。
+    無ければ None を返す（キャッシュ台帳フォールバック側で扱う）。
     """
-    jst_now = datetime.now(JST)
+    qs = (
+        MarginState.objects
+        .filter(account__broker__isnull=False,
+                account__account_type="信用",
+                account__currency="JPY",
+                account__in=BrokerAccount.objects.filter(
+                    account_type="信用", currency="JPY"
+                ))
+    )
+    # ユーザー単位で分けている前提：BrokerAccount をユーザー紐付けしていない場合は全体集計になる。
+    # もし将来 BrokerAccount に user が生えたらここで絞り込む。
 
-    # （デモ）資金前提。将来はUser設定/口座APIへ。
-    credit_balance = 1_000_000
-    risk_per_trade = 0.01
+    if not qs.exists():
+        return None
 
-    highlights: List[Dict[str, Any]] = []
-    for it in _BASE_ITEMS:
-        tkr = it["ticker"]
+    # 各アカウントの最新 as_of を拾って合計
+    latest_per_acct = (
+        qs.values("account_id")
+          .annotate(as_of_max=Max("as_of"))
+    )
+    acct_to_latest_date = {row["account_id"]: row["as_of_max"] for row in latest_per_acct}
+    total = 0
+    for acct_id, as_of in acct_to_latest_date.items():
+        st = qs.filter(account_id=acct_id, as_of=as_of).first()
+        if not st:
+            continue
+        # available_funds = cash_free + collateral_usable - required - restricted
+        total += int(st.available_funds)
+    return max(0, total)
 
-        # 実データ or フォールバック
-        px = get_last_price(tkr)
-        if px is None:
-            # 実データが無ければ“デモ価格”で破綻させない
-            px = 3000
+def _cash_fallback_credit(user) -> int:
+    """
+    MarginState が無い場合のフォールバック：
+    - 信用口座(JPY)の opening_balance + CashLedger 累積（入出金・振替）
+    - シンプルに現金残のみを信用余力の近似として返す（>0で返却）
+    """
+    accts = BrokerAccount.objects.filter(account_type="信用", currency="JPY")
+    total = 0
+    for a in accts:
+        bal = _safe_int(a.opening_balance, 0)
+        led = CashLedger.objects.filter(account=a).aggregate(s=Sum("amount"))["s"] or 0
+        total += int(bal + led)
+    return max(0, total)
 
-        tp_pct, sl_pct = _tp_sl_pct(it["segment"])
-        tp_price = int(round(px*(1+tp_pct)))
-        sl_price = int(round(px*(1-sl_pct)))
+def _resolve_credit_balance(user) -> int:
+    """信用余力の決定ロジック。まず MarginState、無ければ台帳フォールバック。"""
+    m = _latest_margin_available_funds(user)
+    if m is not None:
+        return max(0, int(m))
+    return _cash_fallback_credit(user)
 
-        win_prob   = float(it["ai"]["win_prob"])
-        theme_score= float(it["theme"]["score"])
-        wk_hint    = get_week_trend_hint(tkr)
-        weekly     = _weekly_trend(theme_score, win_prob, wk_hint)
-        overall    = _overall(theme_score, win_prob)
-        tp_prob, sl_prob = _tp_sl_prob(win_prob)
-        # 簡易ポジションサイズ
-        stop_val = max(1, px - sl_price)
-        shares   = max(0, int((credit_balance*risk_per_trade)//stop_val))
-        need_cash= shares*px if shares>0 else None
+def _holding_price_or_default(h: Holding) -> int:
+    if h.last_price is not None:
+        try:
+            return int(round(float(h.last_price)))
+        except Exception:
+            pass
+    # 価格が無い場合の安全フォールバック（極端に小さくしない）
+    return 3000
 
-        highlights.append({
-            **it,
-            "weekly_trend": weekly,
+def _watch_candidates(user) -> List[Dict[str, Any]]:
+    """
+    WatchEntry から候補を作る（可能ならここから5件）。
+    Boardカードで必要な最小要素のみ使用。無い項目は素直にダミー補完。
+    """
+    items: List[Dict[str, Any]] = []
+    qs = (
+        WatchEntry.objects
+        .filter(status=WatchEntry.STATUS_ACTIVE)
+        .order_by("-updated_at")[:12]
+    )
+    for w in qs:
+        last = _safe_int(w.entry_price_hint, 0) or 0
+        if not last:
+            # entry_price_hint が無い場合は軽くフォールバック
+            # （watch に価格が無いのは珍しいので 3000 でよい）
+            last = 3000
+
+        # ％の素直な補完
+        tp_pct = float(w.tp_pct or 0.06)
+        sl_pct = float(w.sl_pct or 0.02)
+        tp_price = int(round(last * (1 + tp_pct)))
+        sl_price = int(round(last * (1 - sl_pct)))
+
+        ai_prob = float(w.ai_win_prob or 0.62)
+        theme_score = float(w.theme_score or 0.55)
+        overall = int(round((ai_prob * 0.7 + theme_score * 0.3) * 100))
+
+        # 週足向き（w.weekly_trend があれば尊重）
+        wk = (w.weekly_trend or "").strip().lower()
+        if wk not in ("up", "down", "flat"):
+            wk = "up" if overall >= 65 else ("flat" if overall >= 50 else "down")
+
+        items.append({
+            "ticker": w.ticker,
+            "name": w.name or w.ticker,
+            "segment": "監視",
+            "action": "買い候補" if ai_prob >= 0.6 else "様子見",
+            "reasons": w.reason_details or ((w.reason_summary or "").split("/") if w.reason_summary else []),
+            "ai": {"win_prob": ai_prob, "size_mult": 1.0},
+            "theme": {"id": "auto", "label": (w.theme_label or "テーマ"), "score": theme_score},
+            "weekly_trend": wk,
             "overall_score": overall,
-            "entry_price_hint": px,
+            "entry_price_hint": last,
             "targets": {
-                "tp": it.get("targets",{}).get("tp", f"目標 +{int(tp_pct*100)}%"),
-                "sl": it.get("targets",{}).get("sl", f"損切り -{int(sl_pct*100)}%"),
+                "tp": f"目標 +{int(tp_pct*100)}%",
+                "sl": f"損切り -{int(sl_pct*100)}%",
                 "tp_pct": tp_pct, "sl_pct": sl_pct,
                 "tp_price": tp_price, "sl_price": sl_price,
             },
-            "sizing": {
-                "credit_balance": credit_balance,
-                "risk_per_trade": risk_per_trade,
-                "position_size_hint": shares or None,
-                "need_cash": need_cash,
-            },
-            "ai": { **it["ai"], "tp_prob": tp_prob, "sl_prob": sl_prob },
         })
+    return items
+
+def _holding_candidates(user) -> List[Dict[str, Any]]:
+    """
+    Holding から候補を作る（板を埋める用の補完）。last_price がなければ 3000。
+    """
+    items: List[Dict[str, Any]] = []
+    qs = Holding.objects.all().order_by("-updated_at")[:12]
+    for h in qs:
+        last = _holding_price_or_default(h)
+        # 簡易％（中期デフォルト）
+        tp_pct = 0.10; sl_pct = 0.03
+        tp_price = int(round(last * (1 + tp_pct)))
+        sl_price = int(round(last * (1 - sl_pct)))
+        ai_prob = 0.63  # 暫定（Trendが生えたら差し替え）
+        theme_score = 0.55
+        overall = int(round((ai_prob * 0.7 + theme_score * 0.3) * 100))
+        wk = "up" if overall >= 65 else ("flat" if overall >= 50 else "down")
+
+        items.append({
+            "ticker": h.ticker.upper(),
+            "name": h.name or h.ticker,
+            "segment": "中期（20〜45日）",
+            "action": "買い候補（簡易）",
+            "reasons": ["既存保有/監視から抽出", "価格は最新値ベース", "暫定パラメータ"],
+            "ai": {"win_prob": ai_prob, "size_mult": 1.0},
+            "theme": {"id": "generic", "label": h.sector or "—", "score": theme_score},
+            "weekly_trend": wk,
+            "overall_score": overall,
+            "entry_price_hint": last,
+            "targets": {
+                "tp": f"目標 +{int(tp_pct*100)}%",
+                "sl": f"損切り -{int(sl_pct*100)}%",
+                "tp_pct": tp_pct, "sl_pct": sl_pct,
+                "tp_price": tp_price, "sl_price": sl_price,
+            },
+        })
+    return items
+
+def _attach_sizing(items: List[Dict[str, Any]], credit_balance: int, risk_per_trade: float = 0.01) -> None:
+    """
+    既存スキーマに合わせてサイズ目安と確率ラベルを埋める。
+    """
+    for it in items:
+        entry = int(it.get("entry_price_hint") or 3000)
+        sl_price = int(it["targets"].get("sl_price") or max(1, int(round(entry * (1 - float(it["targets"].get("sl_pct") or 0.02))))))
+        stop_value = max(1, entry - sl_price)
+        risk_budget = max(1, int(round(credit_balance * risk_per_trade)))
+        shares = risk_budget // stop_value if stop_value > 0 else 0
+        need_cash = shares * entry if shares > 0 else None
+
+        win_prob = float(it.get("ai", {}).get("win_prob") or 0.6)
+        tp_prob = max(0.0, min(1.0, win_prob * 0.46))
+        sl_prob = max(0.0, min(1.0, (1 - win_prob) * 0.30))
+
+        it["sizing"] = {
+            "credit_balance": credit_balance,
+            "risk_per_trade": risk_per_trade,
+            "position_size_hint": shares if shares > 0 else None,
+            "need_cash": need_cash,
+        }
+        it["ai"] = {**it.get("ai", {}), "tp_prob": tp_prob, "sl_prob": sl_prob}
+
+# ---------- public entry ----------
+def build_board(user) -> Dict[str, Any]:
+    """
+    /advisor/api/board/ が呼ぶ実データビルダー。
+    - 信用余力: MarginState → 無ければ CashLedger でフォールバック
+    - 候補: WatchEntry を優先、無ければ Holding で補完
+    - 返却スキーマは既存と互換（highlights/ meta/ theme）
+    """
+    now = _jst_now()
+
+    credit = _resolve_credit_balance(user)
+    # とりあえず 1% リスク/トレード（将来は Policy と連携）
+    risk_per_trade = 0.01
+
+    # 候補を集める
+    items = _watch_candidates(user)
+    if len(items) < 5:
+        items += _holding_candidates(user)
+    items = items[:5]
+
+    # サイズなどを後付け
+    _attach_sizing(items, credit_balance=credit, risk_per_trade=risk_per_trade)
 
     data: Dict[str, Any] = {
         "meta": {
-            "generated_at": jst_now.replace(hour=7, minute=25, second=0, microsecond=0).isoformat(),
-            "model_version": "v0.2-board-source",
-            "adherence_week": 0.84,
-            "regime": {"trend_prob": 0.63, "range_prob": 0.37, "nikkei": "↑", "topix": "→"},
-            "scenario": "半導体に資金回帰。短期は押し目継続、週足↑",
+            "generated_at": now.replace(hour=7, minute=25, second=0, microsecond=0).isoformat(),
+            "model_version": "v0.3-live-from-portfolio",
+            "adherence_week": 0.84,                    # 後で learn ダッシュ連携
+            "regime": {"trend_prob": 0.55, "range_prob": 0.45, "nikkei": "→", "topix": "→"},
+            "scenario": "監視と保有から今日の候補を生成（暫定）",
             "pairing": {"id": 2, "label": "順張り・短中期"},
-            "self_mirror": {"recent_drift": "損切り未実施 3/4件"},
-            "credit_balance": credit_balance,
-            "live": bool(getattr(settings, "ADVISOR_LIVE", False)),
+            "self_mirror": {"recent_drift": "—"},
+            "credit_balance": int(credit),
+            "live": True,   # ← ここが重要：実データ経路が使われていることを明示
         },
         "theme": {
-            "week": "2025-W43",
+            "week": now.strftime("%Y-W%V"),
             "top3": [
-                {"id":"semiconductor","label":"半導体","score":0.78},
-                {"id":"travel","label":"旅行","score":0.62},
-                {"id":"banks","label":"銀行","score":0.41},
+                {"id": "generic", "label": "監視テーマ", "score": 0.58},
+                {"id": "generic2", "label": "セクター", "score": 0.55},
+                {"id": "generic3", "label": "補完", "score": 0.52},
             ],
         },
-        "highlights": highlights[:5],
+        "highlights": items,
     }
     return data
