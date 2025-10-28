@@ -6,29 +6,27 @@ from django.db.models import Sum, Max
 from django.utils.timezone import now as dj_now
 from django.contrib.auth import get_user_model
 
-# ポートフォリオ側の実データ
 from portfolio.models import Holding
 from portfolio.models_cash import BrokerAccount, CashLedger, MarginState
-# アドバイザー側
 from advisor.models import WatchEntry
 
 User = get_user_model()
 JST = timezone(timedelta(hours=9))
 
-# ---- キャッシュ層（存在しなくても動くように安全に読み込み） -----------------
+# ---- キャッシュ層 --------------------------------------------------------------
 _HAS_CACHE = False
 try:
-    from advisor.models_cache import PriceCache, BoardCache  # 追加モデル（任意）
+    from advisor.models_cache import PriceCache, BoardCache
     _HAS_CACHE = True
 except Exception:
     PriceCache = None  # type: ignore
     BoardCache = None  # type: ignore
     _HAS_CACHE = False
 
-# ---- トレンド層（存在しなくてもOK） -------------------------------------------
+# ---- トレンド層 ----------------------------------------------------------------
 _HAS_TREND = False
 try:
-    from advisor.models_trend import TrendResult  # 任意：あれば使う
+    from advisor.models_trend import TrendResult
     _HAS_TREND = True
 except Exception:
     TrendResult = None  # type: ignore
@@ -46,10 +44,6 @@ def _safe_int(x, default=0) -> int:
         return default
 
 def _latest_margin_available_funds(user) -> Optional[int]:
-    """
-    信用口座の MarginState から available_funds を合計。
-    無ければ None を返す（キャッシュ台帳フォールバック側で扱う）。
-    """
     qs = (
         MarginState.objects
         .filter(account__broker__isnull=False,
@@ -61,8 +55,6 @@ def _latest_margin_available_funds(user) -> Optional[int]:
     )
     if not qs.exists():
         return None
-
-    # 各アカウントの最新 as_of を拾って合計
     latest_per_acct = qs.values("account_id").annotate(as_of_max=Max("as_of"))
     acct_to_latest_date = {row["account_id"]: row["as_of_max"] for row in latest_per_acct}
     total = 0
@@ -74,10 +66,6 @@ def _latest_margin_available_funds(user) -> Optional[int]:
     return max(0, total)
 
 def _cash_fallback_credit(user) -> int:
-    """
-    MarginState が無い場合のフォールバック：
-    - 信用口座(JPY)の opening_balance + CashLedger 累積（入出金・振替）
-    """
     accts = BrokerAccount.objects.filter(account_type="信用", currency="JPY")
     total = 0
     for a in accts:
@@ -87,26 +75,12 @@ def _cash_fallback_credit(user) -> int:
     return max(0, total)
 
 def _resolve_credit_balance(user) -> int:
-    """信用余力の決定ロジック。まず MarginState、無ければ台帳フォールバック。"""
     m = _latest_margin_available_funds(user)
     if m is not None:
         return max(0, int(m))
     return _cash_fallback_credit(user)
 
-def _holding_price_or_default(h: Holding) -> int:
-    if h.last_price is not None:
-        try:
-            return int(round(float(h.last_price)))
-        except Exception:
-            pass
-    return 3000
-
-# ---- 価格キャッシュの参照（任意） ---------------------------------------------
 def _price_from_cache_or(value_hint: Optional[int], ticker: str) -> Optional[int]:
-    """
-    PriceCache があればそれを優先。無ければ引数の value_hint（entry_price_hint 等）を返す。
-    どちらもなければ None。
-    """
     if _HAS_CACHE and PriceCache is not None:
         pc = PriceCache.objects.filter(ticker=ticker.upper()).first()
         if pc:
@@ -121,7 +95,21 @@ def _price_from_cache_or(value_hint: Optional[int], ticker: str) -> Optional[int
             pass
     return None
 
-# ---- BoardCache（任意） --------------------------------------------------------
+def _display_name(user, ticker: str, trend_name: Optional[str] = None) -> str:
+    """表示名: TrendResult.name → Holding.name → WatchEntry.name → ticker"""
+    if trend_name and str(trend_name).strip():
+        return str(trend_name).strip()
+    t = (ticker or "").upper()
+    h = Holding.objects.filter(user=user, ticker=t).only("name").first()
+    if h and (h.name or "").strip():
+        return h.name.strip()
+    w = WatchEntry.objects.filter(user=user, ticker=t).only("name").first()
+    if w and (w.name or "").strip():
+        return w.name.strip()
+    return t
+
+
+# ---- BoardCache ---------------------------------------------------------------
 def _load_board_cache(user) -> Optional[Dict[str, Any]]:
     if not (_HAS_CACHE and BoardCache is not None):
         return None
@@ -134,7 +122,6 @@ def _load_board_cache(user) -> Optional[Dict[str, Any]]:
     try:
         if bc.is_fresh:
             payload = dict(bc.payload)
-            # liveフラグ & バージョン追記
             meta = payload.setdefault("meta", {})
             meta["live"] = True
             mv = meta.get("model_version", "")
@@ -156,44 +143,66 @@ def _save_board_cache(user, payload: Dict[str, Any], ttl_minutes: int = 180) -> 
             note="auto",
         )
     except Exception:
-        # キャッシュ保存に失敗してもAPIは正常返却させる
         pass
 
-# ---- トレンド参照（任意） ------------------------------------------------------
+
+# ---- TrendResult 取り出し（DB依存を吸収） --------------------------------------
+def _trend_rows_latest_per_ticker(user) -> List[Any]:
+    """
+    ユーザーの各 ticker について「最新 asof の1件」を返す。
+    Postgres の distinct('ticker') が無い環境でも動くようフォールバック。
+    """
+    if not (_HAS_TREND and TrendResult is not None):
+        return []
+    try:
+        # Postgres: 速い
+        qs = (
+            TrendResult.objects
+            .filter(user=user)
+            .order_by("ticker", "-asof")
+            .distinct("ticker")
+        )
+        return list(qs)
+    except Exception:
+        # フォールバック: Python側で最新だけ抽出
+        rows = (
+            TrendResult.objects
+            .filter(user=user)
+            .order_by("-asof", "-updated_at")
+            .only("ticker", "name", "asof", "overall_score", "entry_price_hint",
+                  "weekly_trend", "confidence", "slope_annual", "theme_label", "theme_score", "size_mult")
+        )
+        seen = set()
+        latest = []
+        for r in rows:
+            t = r.ticker.upper()
+            if t in seen:
+                continue
+            seen.add(t)
+            latest.append(r)
+        return latest
+
+
 def _trend_candidates(user, limit=12) -> List[Dict[str, Any]]:
-    """
-    TrendResult の “最新 asof を銘柄ごとに1件” 取り出し、overall_score降順で上位を返す
-    """
     items: List[Dict[str, Any]] = []
-    if not _HAS_TREND or TrendResult is None:
-        return items
-
-    # ユーザーの最新asofでユニークに拾う
-    # overall_score が None の場合でも採用（最後に0扱い）
-    qs = (
-        TrendResult.objects
-        .filter(user=user)
-        .order_by("ticker", "-asof")
-        .distinct("ticker")  # Postgres前提（最新1件）
-    )
-
-    # スコア降順（Noneは0扱い）
+    rows = _trend_rows_latest_per_ticker(user)
+    # スコア降順
     rows = sorted(
-        list(qs[:64]),
+        rows,
         key=lambda r: (int(r.overall_score or 0), float(r.confidence or 0.0)),
         reverse=True,
-    )
+    )[:limit]
 
-    for r in rows[:limit]:
+    for r in rows:
         last = r.entry_price_hint or _price_from_cache_or(None, r.ticker) or r.close_price or 3000
         tp_pct = 0.10; sl_pct = 0.03
         tp_price = int(round(int(last) * (1 + tp_pct)))
         sl_price = int(round(int(last) * (1 - sl_pct)))
-        win_prob = float(r.overall_score or 60) / 100.0  # 表示用の擬似確率
+        win_prob = float(r.overall_score or 60) / 100.0
 
         items.append({
             "ticker": r.ticker.upper(),
-            "name": (r.name or r.ticker).upper(),
+            "name": _display_name(user, r.ticker, r.name),  # ★ 表示名
             "segment": "トレンド（最新）",
             "action": "買い候補",
             "reasons": [
@@ -215,7 +224,8 @@ def _trend_candidates(user, limit=12) -> List[Dict[str, Any]]:
         })
     return items
 
-# ---------- 候補ビルド（watch/holdingは補完用） ----------
+
+# ---- watch/holding は不足時のみ補完 --------------------------------------------
 def _watch_candidates(user) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
     qs = (
@@ -229,20 +239,16 @@ def _watch_candidates(user) -> List[Dict[str, Any]]:
         sl_pct = float(w.sl_pct or 0.02)
         tp_price = int(round(last * (1 + tp_pct)))
         sl_price = int(round(last * (1 - sl_pct)))
-
         ai_prob = float(w.ai_win_prob or 0.62)
         theme_score = float(w.theme_score or 0.55)
-
         wk = (w.weekly_trend or "").strip().lower()
         if wk not in ("up", "down", "flat"):
             overall_tmp = int(round((ai_prob * 0.7 + theme_score * 0.3) * 100))
             wk = "up" if overall_tmp >= 65 else ("flat" if overall_tmp >= 50 else "down")
-
         overall = int(round((ai_prob * 0.7 + theme_score * 0.3) * 100))
-
         items.append({
             "ticker": w.ticker,
-            "name": w.name or w.ticker,
+            "name": _display_name(user, w.ticker, w.name),
             "segment": "監視",
             "action": "買い候補" if ai_prob >= 0.6 else "様子見",
             "reasons": w.reason_details or ((w.reason_summary or "").split("/") if w.reason_summary else []),
@@ -271,19 +277,15 @@ def _holding_candidates(user) -> List[Dict[str, Any]]:
             except Exception:
                 base_price = None
         last = _price_from_cache_or(base_price, h.ticker) or 3000
-
         tp_pct = 0.10; sl_pct = 0.03
         tp_price = int(round(last * (1 + tp_pct)))
         sl_price = int(round(last * (1 - sl_pct)))
-
-        ai_prob = 0.63
-        theme_score = 0.55
+        ai_prob = 0.63; theme_score = 0.55
         overall = int(round((ai_prob * 0.7 + theme_score * 0.3) * 100))
         wk = "up" if overall >= 65 else ("flat" if overall >= 50 else "down")
-
         items.append({
             "ticker": h.ticker.upper(),
-            "name": h.name or h.ticker,
+            "name": _display_name(user, h.ticker, h.name),
             "segment": "保有",
             "action": "買い候補（簡易）",
             "reasons": ["既存保有/監視から抽出", "価格は最新値ベース", "暫定パラメータ"],
@@ -309,11 +311,9 @@ def _attach_sizing(items: List[Dict[str, Any]], credit_balance: int, risk_per_tr
         risk_budget = max(1, int(round(credit_balance * risk_per_trade)))
         shares = risk_budget // stop_value if stop_value > 0 else 0
         need_cash = shares * entry if shares > 0 else None
-
         win_prob = float(it.get("ai", {}).get("win_prob") or 0.6)
         tp_prob = max(0.0, min(1.0, win_prob * 0.46))
         sl_prob = max(0.0, min(1.0, (1 - win_prob) * 0.30))
-
         it["sizing"] = {
             "credit_balance": credit_balance,
             "risk_per_trade": risk_per_trade,
@@ -326,30 +326,24 @@ def _attach_sizing(items: List[Dict[str, Any]], credit_balance: int, risk_per_tr
 # ---------- public entry ----------
 def build_board(user, *, use_cache: bool = True) -> Dict[str, Any]:
     """
-    /advisor/api/board/ が呼ぶ実データビルダー（キャッシュ対応版）。
-    優先度: TrendResult → WatchEntry → Holding
+    優先度: TrendResult（5件） → 不足分をWatchEntry/ Holdingで補完
     """
-    # 1) キャッシュ即返
     if use_cache:
         cached = _load_board_cache(user)
         if cached is not None:
             return cached
 
-    # 2) 実データでビルド
     now = _jst_now()
     credit = _resolve_credit_balance(user)
     risk_per_trade = 0.01
 
     items: List[Dict[str, Any]] = []
-    # 2-1) TrendResult 最優先
-    items += _trend_candidates(user, limit=8)
-    # 2-2) Watch で補完
+    items += _trend_candidates(user, limit=12)
     if len(items) < 5:
         items += _watch_candidates(user)
-    # 2-3) Holding でさらに補完
     if len(items) < 5:
         items += _holding_candidates(user)
-    # 最終スライス
+    # 最終的に5件に整形
     items = items[:5]
 
     _attach_sizing(items, credit_balance=credit, risk_per_trade=risk_per_trade)
@@ -357,10 +351,10 @@ def build_board(user, *, use_cache: bool = True) -> Dict[str, Any]:
     data: Dict[str, Any] = {
         "meta": {
             "generated_at": now.replace(second=0, microsecond=0).isoformat(),
-            "model_version": "v0.4-trend-first+cached" if use_cache else "v0.4-trend-first",
+            "model_version": "v0.5-trend-first",
             "adherence_week": 0.84,
             "regime": {"trend_prob": 0.55, "range_prob": 0.45, "nikkei": "→", "topix": "→"},
-            "scenario": "TrendResultを最優先で候補生成（不足分は監視/保有で補完）",
+            "scenario": "TrendResult最優先。足りない分のみ監視/保有で補完。",
             "pairing": {"id": 2, "label": "順張り・短中期"},
             "self_mirror": {"recent_drift": "—"},
             "credit_balance": int(credit),
@@ -382,7 +376,6 @@ def build_board(user, *, use_cache: bool = True) -> Dict[str, Any]:
         "highlights": items,
     }
 
-    # 3) キャッシュ保存（任意）
     if use_cache:
         _save_board_cache(user, data, ttl_minutes=180)
 
