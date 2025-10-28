@@ -27,6 +27,15 @@ except Exception:
     BoardCache = None  # type: ignore
     _HAS_CACHE = False
 
+# ---- トレンド層（存在しなくてもOK） -------------------------------------------
+_HAS_TREND = False
+try:
+    from advisor.models_trend import TrendResult  # 任意：あれば使う
+    _HAS_TREND = True
+except Exception:
+    TrendResult = None  # type: ignore
+    _HAS_TREND = False
+
 
 # ---------- helpers ----------
 def _jst_now() -> datetime:
@@ -152,6 +161,27 @@ def _save_board_cache(user, payload: Dict[str, Any], ttl_minutes: int = 180) -> 
         # キャッシュ保存に失敗してもAPIは正常返却させる
         pass
 
+# ---- トレンド参照（任意） ------------------------------------------------------
+def _trend_for(ticker: str) -> Optional[Dict[str, float]]:
+    """
+    TrendResult の最新 as_of を1件返す。無ければ None。
+    """
+    if not _HAS_TREND or TrendResult is None:
+        return None
+    row = (
+        TrendResult.objects
+        .filter(ticker=(ticker or "").upper())
+        .order_by("-as_of")
+        .first()
+    )
+    if not row:
+        return None
+    return {
+        "weekly_trend": (row.weekly_trend or "flat"),
+        "confidence": float(row.confidence or 0.0),
+        "slope_annual": float(row.slope_annual or 0.0),
+    }
+
 
 # ---------- 候補ビルド ----------
 def _watch_candidates(user) -> List[Dict[str, Any]]:
@@ -175,14 +205,25 @@ def _watch_candidates(user) -> List[Dict[str, Any]]:
         tp_price = int(round(last * (1 + tp_pct)))
         sl_price = int(round(last * (1 - sl_pct)))
 
+        # AI/テーマ
         ai_prob = float(w.ai_win_prob or 0.62)
         theme_score = float(w.theme_score or 0.55)
-        overall = int(round((ai_prob * 0.7 + theme_score * 0.3) * 100))
 
-        # 週足向き（w.weekly_trend があれば尊重）
+        # ---- トレンド補強（あれば） ----
         wk = (w.weekly_trend or "").strip().lower()
+        tr = _trend_for(w.ticker)
+        if tr:
+            wk = (tr["weekly_trend"] or wk).lower()
+            # confidence を ±5%の範囲で win_prob に微調整（過信しない）
+            adjust = max(-0.05, min(0.05, (tr["confidence"] - 0.5) * 0.10))
+            ai_prob = min(0.95, max(0.05, ai_prob + adjust))
+
         if wk not in ("up", "down", "flat"):
-            wk = "up" if overall >= 65 else ("flat" if overall >= 50 else "down")
+            # fallback
+            overall_tmp = int(round((ai_prob * 0.7 + theme_score * 0.3) * 100))
+            wk = "up" if overall_tmp >= 65 else ("flat" if overall_tmp >= 50 else "down")
+
+        overall = int(round((ai_prob * 0.7 + theme_score * 0.3) * 100))
 
         items.append({
             "ticker": w.ticker,
@@ -225,10 +266,21 @@ def _holding_candidates(user) -> List[Dict[str, Any]]:
         tp_pct = 0.10; sl_pct = 0.03
         tp_price = int(round(last * (1 + tp_pct)))
         sl_price = int(round(last * (1 - sl_pct)))
+
         ai_prob = 0.63  # 暫定
         theme_score = 0.55
+
+        # ---- トレンド補強（あれば） ----
+        wk = None
+        tr = _trend_for(h.ticker)
+        if tr:
+            wk = (tr["weekly_trend"] or "flat").lower()
+            adjust = max(-0.05, min(0.05, (tr["confidence"] - 0.5) * 0.10))
+            ai_prob = min(0.95, max(0.05, ai_prob + adjust))
+
         overall = int(round((ai_prob * 0.7 + theme_score * 0.3) * 100))
-        wk = "up" if overall >= 65 else ("flat" if overall >= 50 else "down")
+        if wk not in ("up", "down", "flat"):
+            wk = "up" if overall >= 65 else ("flat" if overall >= 50 else "down")
 
         items.append({
             "ticker": h.ticker.upper(),
