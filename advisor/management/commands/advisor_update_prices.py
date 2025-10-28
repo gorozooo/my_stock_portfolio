@@ -16,6 +16,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         max_age = options["max_age_min"]
+
+        # --- ユーザー探索強化 ---
         user = None
         for model in [WatchEntry, Holding, TrendResult]:
             try:
@@ -25,6 +27,9 @@ class Command(BaseCommand):
                     break
             except Exception:
                 pass
+        if not user:
+            self.stdout.write(self.style.WARNING("⚠ No valid user found in any table"))
+            return
 
         tickers = self._get_targets(user)
         self.stdout.write(self.style.NOTICE(f"[advisor_update_prices] Target tickers: {len(tickers)}"))
@@ -34,8 +39,8 @@ class Command(BaseCommand):
             last_price = None
             tried_symbols = []
 
-            # --- 取得試行 ---
-            for suffix in [".T", ""]:
+            # --- 複数サフィックスを試行 ---
+            for suffix in [".T", ".JP", ".TYO", ""]:
                 symbol = f"{t_clean}{suffix}"
                 tried_symbols.append(symbol)
                 try:
@@ -51,7 +56,6 @@ class Command(BaseCommand):
                 except Exception as e:
                     continue
 
-            # --- フォールバック保存 ---
             if last_price is None:
                 PriceCache.objects.update_or_create(
                     ticker=t_clean,
