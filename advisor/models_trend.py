@@ -1,3 +1,7 @@
+# advisor/models_trend.py
+from __future__ import annotations
+from django.db import models
+
 class TrendResult(models.Model):
     """
     作戦ボードの根拠データ（銘柄ごとの日次/週次トレンドなど）
