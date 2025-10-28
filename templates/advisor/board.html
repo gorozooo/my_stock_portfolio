@@ -7,7 +7,10 @@
   <header class="adv-header">
     <div class="wrap">
       <div class="date" id="dateLabel"></div>
+
+      <!-- ステータス（LIVE/DEMO）を先頭に追加 -->
       <div class="summary">
+        <div class="pill status" id="statusPill" aria-live="polite" title="実データ(LIVE)かデモ(DEMO)かの表示">—</div>
         <div class="pill"><strong class="trend-badge" id="trendBadge"></strong></div>
         <div class="pill">今週のテーマ：<span class="theme-strip" id="themeStrip"></span></div>
         <div class="pill">再現率 <strong id="adherence">--%</strong></div>
@@ -25,6 +28,17 @@
     </div>
   </main>
 
+  <!-- 既存CSSはそのまま。ステータス用の最小スタイルだけ内包（他を壊さない） -->
+  <style>
+    .pill.status{font-weight:700; letter-spacing:.02em;}
+    .pill.status.live  { background:rgba(16,185,129,.18); border:1px solid rgba(16,185,129,.35); color:#b7f7df; }
+    .pill.status.demo  { background:rgba(245,158,11,.18); border:1px solid rgba(245,158,11,.35); color:#ffe3b2; }
+    .pill.status i     { opacity:.8; margin-left:.35em; font-weight:500; }
+    @media (max-width:520px){
+      .summary .pill{margin-bottom:6px}
+    }
+  </style>
+
   <!-- APIエンドポイントをサーバ側URLから注入 -->
   <script>
     window.ADVISOR_API_BOARD  = "{% url 'advisor_board' %}";           // ✅ /advisor/api/board/
@@ -33,5 +47,5 @@
   </script>
 
   <link rel="stylesheet" href="{% static 'advisor/board.css' %}?v=3" />
-  <script src="{% static 'advisor/board.js' %}?v=17"></script>
+  <script src="{% static 'advisor/board.js' %}?v=18"></script>
 {% endblock %}
