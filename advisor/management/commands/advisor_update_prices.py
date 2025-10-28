@@ -46,7 +46,7 @@ class Command(BaseCommand):
                 try:
                     df = yf.download(symbol, period="5d", interval="1d", progress=False, auto_adjust=False)
                     if not df.empty and "Close" in df.columns:
-                        last_price = float(df["Close"].iloc[-1])
+                        last_price = float(df["Close"].iloc[-1].item())
                         PriceCache.objects.update_or_create(
                             ticker=t_clean,
                             defaults={"last_price": last_price, "updated_at": timezone.now()},
