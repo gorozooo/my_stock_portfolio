@@ -11,41 +11,67 @@ from advisor.models_indicator import IndicatorSnapshot
 
 # ====== テクニカル指標の計算関数 ======
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """EMA, RSI, ADX, ATRなどを計算して返す"""
-    if df.empty or "Close" not in df:
+    """
+    yfinanceの返りがMultiIndex(DataFrame)でも必ず単一Seriesに正規化して
+    EMA/RSI/ATR/ADXを計算する、堅牢版。
+    """
+    if df is None or df.empty:
         return pd.DataFrame()
 
-    df["ema20"] = df["Close"].ewm(span=20, adjust=False).mean()
-    df["ema50"] = df["Close"].ewm(span=50, adjust=False).mean()
-    df["ema75"] = df["Close"].ewm(span=75, adjust=False).mean()
+    # ---- 列取り出しを Series に強制変換するヘルパ ----
+    def as_series(frame: pd.DataFrame, col: str) -> pd.Series:
+        if col not in frame:
+            return pd.Series(dtype=float)
+        s = frame[col]
+        # yfinanceがMultiIndex列を返すケース対策：最初の列を採用
+        if isinstance(s, pd.DataFrame):
+            s = s.iloc[:, 0]
+        return pd.to_numeric(s, errors="coerce")
 
-    # RSI14
-    delta = df["Close"].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+    close = as_series(df, "Close")
+    high  = as_series(df, "High")
+    low   = as_series(df, "Low")
+
+    out = pd.DataFrame(index=df.index.copy())
+    out["Close"] = close
+
+    if close.isna().all() or high.isna().all() or low.isna().all():
+        return pd.DataFrame()  # 必須データ無し
+
+    # ===== EMA =====
+    out["ema20"] = close.ewm(span=20, adjust=False).mean()
+    out["ema50"] = close.ewm(span=50, adjust=False).mean()
+    out["ema75"] = close.ewm(span=75, adjust=False).mean()
+
+    # ===== RSI(14) =====
+    delta = close.diff()
+    gain = delta.clip(lower=0).rolling(14).mean()
+    loss = (-delta.clip(upper=0)).rolling(14).mean()
     rs = gain / (loss + 1e-9)
-    df["rsi14"] = 100 - (100 / (1 + rs))
+    out["rsi14"] = 100 - (100 / (1 + rs))
 
-    # TR, ATR14
-    high_low = df["High"] - df["Low"]
-    high_close = (df["High"] - df["Close"].shift()).abs()
-    low_close = (df["Low"] - df["Close"].shift()).abs()
-    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    df["atr14"] = tr.rolling(14).mean()
+    # ===== ATR(14) =====
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        (high - low).abs(),
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    out["atr14"] = tr.rolling(14).mean()
 
-    # ADX14
-    plus_dm = df["High"].diff()
-    minus_dm = df["Low"].diff().abs()
-    plus_dm[plus_dm < 0] = 0
-    minus_dm[minus_dm < 0] = 0
+    # ===== ADX(14) =====
+    up_move   = high.diff()
+    down_move = (-low.diff())
+    plus_dm  = up_move.where(up_move > 0, 0.0)
+    minus_dm = down_move.where(down_move > 0, 0.0)
 
-    tr14 = tr.rolling(14).sum()
-    plus_di = 100 * (plus_dm.rolling(14).sum() / tr14)
-    minus_di = 100 * (minus_dm.rolling(14).sum() / tr14)
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di + 1e-9)) * 100
-    df["adx14"] = dx.rolling(14).mean()
+    tr14      = tr.rolling(14).sum()
+    plus_di   = 100.0 * (plus_dm.rolling(14).sum()  / (tr14 + 1e-9))
+    minus_di  = 100.0 * (minus_dm.rolling(14).sum() / (tr14 + 1e-9))
+    dx        = ( (plus_di - minus_di).abs() / (plus_di + minus_di + 1e-9) ) * 100.0
+    out["adx14"] = dx.rolling(14).mean()
 
-    return df
+    return out
 
 
 # ====== メインコマンド ======
@@ -72,7 +98,7 @@ class Command(BaseCommand):
 
         for ticker in tickers:
             try:
-                df = yf.download(ticker, start=start, end=end, progress=False)
+                df = yf.download(ticker, start=start, end=end, progress=False, auto_adjust=False)
                 df = compute_indicators(df)
                 if df.empty:
                     self.stdout.write(self.style.WARNING(f"{ticker} → データなし"))
