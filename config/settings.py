@@ -161,3 +161,8 @@ ADVISOR_SECTOR_LOOKBACK_DAYS = 90
 CSRF_COOKIE_SECURE = True
 SESSION_COOKIE_SECURE = True
 SECURE_SSL_REDIRECT = True
+
+# === メディアファイル設定 ===
+import os
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
