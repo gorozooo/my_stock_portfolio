@@ -120,18 +120,13 @@ def _get_user_risk_params(user) -> Tuple[int, float]:
 
 # ===== 追加：TrendResult → ハイライト1件へ整形 =====
 def _trend_to_highlight(
-    tr: TrendResult, credit_balance: int, risk_per_trade: float
+    tr, credit_balance: int, risk_per_trade: float
 ) -> Dict[str, Any]:
-    """
-    TrendResult 1件 → board の highlight フォーマットへ変換。
-    期間は当面「中期」既定（必要なら tr.notes 等で上書き可能）。
-    """
-    last = tr.entry_price_hint or tr.close_price or 3000
+    last = int(tr.entry_price_hint or tr.close_price or 3000)
     win_prob = float(tr.win_prob or 0.6)
     theme_score = float(tr.theme_score or 0.5)
-    overall = tr.overall_score if tr.overall_score is not None else _overall(theme_score, win_prob)
+    overall = int(tr.overall_score) if tr.overall_score is not None else _overall(theme_score, win_prob)
 
-    # 当面は中期に合わせる（将来 tr.notes.get("segment") で切り替え）
     tp_pct, sl_pct = _tp_sl_pct("中期（20〜45日）")
     tp_price = int(round(last * (1 + tp_pct)))
     sl_price = int(round(last * (1 - sl_pct)))
@@ -139,19 +134,21 @@ def _trend_to_highlight(
 
     size, need_cash = _position_size(last, sl_price, credit_balance, risk_per_trade)
 
+    name = (tr.name or tr.ticker or "").strip() or tr.ticker  # 最終フォールバック
+
     return {
         "ticker": tr.ticker,
-        "name": tr.name or tr.ticker,
+        "name": name,
         "segment": "中期（20〜45日）",
         "action": "ウォッチ候補",
         "reasons": [
             f"AI勝率 {int(round(win_prob * 100))}%",
-            f"{tr.theme_label or 'テーマ'} {int(round(theme_score * 100))}点",
-            {"up": "上向き", "flat": "横ばい", "down": "下向き"}.get(tr.weekly_trend or "flat", "横ばい"),
+            f"{(tr.theme_label or 'テーマ')} {int(round(theme_score * 100))}点",
+            {"up": "上向き", "flat": "横ばい", "down": "下向き"}.get((tr.weekly_trend or "flat").lower(), "横ばい"),
         ],
         "ai": {
             "win_prob": win_prob,
-            "size_mult": tr.size_mult or 1.00,
+            "size_mult": float(tr.size_mult or 1.0),
             "tp_prob": tp_prob,
             "sl_prob": sl_prob,
         },
@@ -160,16 +157,14 @@ def _trend_to_highlight(
             "label": tr.theme_label or "テーマ",
             "score": theme_score,
         },
-        "weekly_trend": tr.weekly_trend or "flat",
+        "weekly_trend": (tr.weekly_trend or "flat").lower(),
         "overall_score": overall,
         "entry_price_hint": last,
         "targets": {
             "tp": f"目標 +{int(tp_pct * 100)}%",
             "sl": f"損切り -{int(sl_pct * 100)}%",
-            "tp_pct": tp_pct,
-            "sl_pct": sl_pct,
-            "tp_price": tp_price,
-            "sl_price": sl_price,
+            "tp_pct": tp_pct, "sl_pct": sl_pct,
+            "tp_price": tp_price, "sl_price": sl_price,
         },
         "sizing": {
             "credit_balance": credit_balance,
@@ -197,16 +192,23 @@ def _theme_top3_from_trends(qs: List[TrendResult]) -> List[Dict[str, Any]]:
 def _build_board_from_trends(user) -> Optional[Dict[str, Any]]:
     """
     TrendResult があれば実データでボードを構成。
-    無ければ None を返し、呼び出し側でフォールバック。
+    - user があれば user 限定、無ければ全体から直近 asof を採用
+    - 常に 5 件まで返す（不足時はその分だけ）
     """
-    if not (user and user.is_authenticated):
-        return None
+    TrendResult = apps.get_model("advisor", "TrendResult")  # import差異に強い
 
-    latest = TrendResult.objects.filter(user=user).aggregate(m=Max("asof"))["m"]
+    qs_base = TrendResult.objects.all()
+    if user and getattr(user, "is_authenticated", False):
+        qs_base = qs_base.filter(user=user)
+
+    latest = qs_base.aggregate(m=Max("asof"))["m"]
     if not latest:
         return None
 
-    qs = list(TrendResult.objects.filter(user=user, asof=latest).order_by("-overall_score")[:5])
+    qs = list(
+        qs_base.filter(asof=latest)
+        .order_by("-overall_score", "-confidence")[:5]
+    )
     if not qs:
         return None
 
@@ -217,15 +219,15 @@ def _build_board_from_trends(user) -> Optional[Dict[str, Any]]:
     jst_now = datetime.now(JST)
     data: Dict[str, Any] = {
         "meta": {
-            "generated_at": jst_now.replace(hour=7, minute=25, second=0, microsecond=0).isoformat(),
-            "model_version": "v0.3-trend-priority",
+            "generated_at": jst_now.replace(second=0, microsecond=0).isoformat(),
+            "model_version": "v0.4-trend-first+cached",
             "adherence_week": 0.84,
             "regime": {"trend_prob": 0.60, "range_prob": 0.40, "nikkei": "↑", "topix": "→"},
-            "scenario": "直近のトレンドデータから自動生成（仮）",
+            "scenario": "TrendResult最優先で今日の候補を生成（実データ）",
             "pairing": {"id": 2, "label": "順張り・短中期"},
-            "self_mirror": {"recent_drift": "損切り未実施 3/4件"},
+            "self_mirror": {"recent_drift": "—"},
             "credit_balance": credit_balance,
-            "live": True,  # 実データ
+            "live": True,
         },
         "theme": {
             "week": jst_now.strftime("%Y-W%U"),
@@ -361,33 +363,40 @@ def _build_board_local(user) -> Dict[str, Any]:
 # =============== /advisor/api/board/ ===============
 def board_api(request):
     """
-    既存フロント（/advisor/board/ の JS）はこのAPIを叩く想定。
     優先順位:
-      1) advisor.services.board_source.build_board(user) があれば使用（実装優先）
-      2) TrendResult（直近 asof）から構成
-      3) ローカルのデモ固定（従来）
+      1) services.board_source.build_board(user)   （force=1 で use_cache=False を試行）
+      2) TrendResult（直近 asof）
+      3) デモ固定
+    いずれかで必ず返す。キャッシュは no-store。
     """
-    try:
-        # 1) サービス実装があれば最優先
-        if _HAS_SERVICE and callable(_build_board_service):
-            data = _build_board_service(getattr(request, "user", None))
-            # 念のため meta.live が無い場合は付与
+    user = getattr(request, "user", None)
+    force = (request.GET.get("force") == "1")
+
+    # 1) サービス実装があれば最優先（失敗してもフォールバック）
+    if _HAS_SERVICE and callable(_build_board_service):
+        try:
+            # build_board(user, use_cache=...) を受け付けない実装でもOKなように
+            if "use_cache" in _build_board_service.__code__.co_varnames:
+                data = _build_board_service(user, use_cache=not force)  # type: ignore
+            else:
+                data = _build_board_service(user)  # type: ignore
             if isinstance(data, dict):
                 data.setdefault("meta", {}).setdefault("live", True)
-            return _no_store(JsonResponse(data, json_dumps_params={"ensure_ascii": False}))
+                return _no_store(JsonResponse(data, json_dumps_params={"ensure_ascii": False}))
+        except Exception as e:
+            _log("board_api: service failed → fallback. err=", repr(e))
 
-        # 2) TrendResult（直近 asof）を試す
-        data = _build_board_from_trends(getattr(request, "user", None))
+    # 2) TrendResult から構成
+    try:
+        data = _build_board_from_trends(user)
         if data:
             return _no_store(JsonResponse(data, json_dumps_params={"ensure_ascii": False}))
-
-        # 3) デモ
-        data = _build_board_local(getattr(request, "user", None))
-        return _no_store(JsonResponse(data, json_dumps_params={"ensure_ascii": False}))
-
     except Exception as e:
-        _log("board_api ERROR:", repr(e))
-        return _no_store(JsonResponse({"ok": False, "error": "board_build_failed"}, status=500))
+        _log("board_api: trend fallback failed → demo. err=", repr(e))
+
+    # 3) デモ固定（最後の砦）
+    data = _build_board_local(user)
+    return _no_store(JsonResponse(data, json_dumps_params={"ensure_ascii": False}))
 
 
 # =============== ActionLog（＋save時にWatchEntryへコピー） ===============
