@@ -6,16 +6,13 @@ from django.db.models import Sum, Max
 from django.utils.timezone import now as dj_now
 from django.contrib.auth import get_user_model
 
-# ポートフォリオ側
 from portfolio.models import Holding
 from portfolio.models_cash import BrokerAccount, CashLedger, MarginState
-# アドバイザー側
 from advisor.models import WatchEntry
 
 User = get_user_model()
 JST = timezone(timedelta(hours=9))
 
-# ---- 追加: 価格・ボードキャッシュ (任意) -----------------------------------------
 _HAS_CACHE = False
 try:
     from advisor.models_cache import PriceCache, BoardCache
@@ -25,7 +22,6 @@ except Exception:
     BoardCache = None  # type: ignore
     _HAS_CACHE = False
 
-# ---- 追加: トレンド（必須ではない → あれば最優先） ------------------------------
 _HAS_TREND = False
 try:
     from advisor.models_trend import TrendResult
@@ -35,7 +31,7 @@ except Exception:
     _HAS_TREND = False
 
 
-# ======================== helpers ========================
+# =============== helpers ===============
 def _jst_now() -> datetime:
     return dj_now().astimezone(JST)
 
@@ -46,7 +42,6 @@ def _safe_int(x, default=0) -> int:
         return default
 
 def _price_from_cache_or(value_hint: Optional[int], ticker: str) -> Optional[int]:
-    """PriceCache があれば最優先。無ければ引数の value_hint を返す。"""
     if _HAS_CACHE and PriceCache is not None:
         pc = PriceCache.objects.filter(ticker=ticker.upper()).first()
         if pc and pc.last_price is not None:
@@ -73,7 +68,6 @@ def _latest_margin_available_funds(user) -> Optional[int]:
     )
     if not qs.exists():
         return None
-
     latest_per_acct = qs.values("account_id").annotate(as_of_max=Max("as_of"))
     acct_to_latest_date = {row["account_id"]: row["as_of_max"] for row in latest_per_acct}
     total = 0
@@ -101,27 +95,27 @@ def _resolve_credit_balance(user) -> int:
 
 def _attach_sizing(items: List[Dict[str, Any]], credit_balance: int, risk_per_trade: float = 0.01) -> None:
     for it in items:
-        entry = int(it.get("entry_price_hint") or 3000)
+        entry = _safe_int(it.get("entry_price_hint") or 3000, 3000)
         sl_pct = float(it.get("targets", {}).get("sl_pct") or 0.02)
-        sl_price = int(it.get("targets", {}).get("sl_price") or max(1, int(round(entry * (1 - sl_pct)))))
+        sl_price = _safe_int(it.get("targets", {}).get("sl_price") or round(entry * (1 - sl_pct)), 1)
         stop_value = max(1, entry - sl_price)
         risk_budget = max(1, int(round(credit_balance * risk_per_trade)))
         shares = risk_budget // stop_value if stop_value > 0 else 0
-        need_cash = shares * entry if shares > 0 else None
+        need_cash = shares * entry if shares > 0 else 0
 
         win_prob = float(it.get("ai", {}).get("win_prob") or 0.6)
         tp_prob = max(0.0, min(1.0, win_prob * 0.46))
         sl_prob = max(0.0, min(1.0, (1 - win_prob) * 0.30))
 
+        it.setdefault("ai", {})
+        it["ai"].update({"tp_prob": tp_prob, "sl_prob": sl_prob})
         it["sizing"] = {
-            "credit_balance": credit_balance,
-            "risk_per_trade": risk_per_trade,
-            "position_size_hint": shares if shares > 0 else None,
-            "need_cash": need_cash,
+            "credit_balance": int(credit_balance),
+            "risk_per_trade": float(risk_per_trade),
+            "position_size_hint": int(shares),
+            "need_cash": int(need_cash),
         }
-        it["ai"] = {**it.get("ai", {}), "tp_prob": tp_prob, "sl_prob": sl_prob}
 
-# ---- BoardCache（空配列は保存しない＋空なら即無効化） ----------------------------
 def _load_board_cache(user) -> Optional[Dict[str, Any]]:
     if not (_HAS_CACHE and BoardCache is not None):
         return None
@@ -148,7 +142,6 @@ def _save_board_cache(user, payload: Dict[str, Any], ttl_minutes: int = 180) -> 
         return
     try:
         if not payload.get("highlights"):
-            # 空のときはキャッシュしない（壊れキャッシュ防止）
             return
         BoardCache.objects.create(
             user=user if (hasattr(user, "is_authenticated") and user.is_authenticated) else None,
@@ -160,20 +153,73 @@ def _save_board_cache(user, payload: Dict[str, Any], ttl_minutes: int = 180) -> 
     except Exception:
         pass
 
+# ---- ここが“JS安全化”の要：必ず非null化して返す ----
+def _normalize_item(it: Dict[str, Any]) -> Dict[str, Any]:
+    name = (it.get("name") or it.get("ticker") or "").strip()
+    ticker = (it.get("ticker") or "").strip().upper()
+    seg = it.get("segment") or ""
+    act = it.get("action") or ""
+    wk = (it.get("weekly_trend") or "flat").lower()
+    overall = _safe_int(it.get("overall_score") or 0, 0)
+    entry = _safe_int(it.get("entry_price_hint") or 3000, 3000)
 
-# ======================== 候補ビルド ========================
+    ai = it.get("ai") or {}
+    win_prob = float(ai.get("win_prob") or 0.6)
+    tp_prob = float(ai.get("tp_prob") or 0.0)
+    sl_prob = float(ai.get("sl_prob") or 0.0)
+
+    theme = it.get("theme") or {}
+    theme_id = theme.get("id") or "generic"
+    theme_label = theme.get("label") or "—"
+    theme_score = float(theme.get("score") or 0.55)
+
+    t = it.get("targets") or {}
+    tp_pct = float(t.get("tp_pct") or 0.10)
+    sl_pct = float(t.get("sl_pct") or 0.03)
+    tp_price = _safe_int(t.get("tp_price") or round(entry * (1 + tp_pct)), 1)
+    sl_price = _safe_int(t.get("sl_price") or round(entry * (1 - sl_pct)), 1)
+
+    sizing = it.get("sizing") or {}
+    pos = _safe_int(sizing.get("position_size_hint") or 0, 0)
+    need_cash = _safe_int(sizing.get("need_cash") or 0, 0)
+    credit_balance = _safe_int(sizing.get("credit_balance") or 0, 0)
+    rpt = float(sizing.get("risk_per_trade") or 0.01)
+
+    reasons = it.get("reasons") or []
+    if not isinstance(reasons, list):
+        reasons = [str(reasons)]
+
+    return {
+        "ticker": ticker,
+        "name": name,
+        "segment": seg,
+        "action": act,
+        "reasons": [str(r) for r in reasons],
+        "ai": {"win_prob": float(win_prob), "tp_prob": float(tp_prob), "sl_prob": float(sl_prob), "size_mult": float((ai.get("size_mult") or 1.0))},
+        "theme": {"id": str(theme_id), "label": str(theme_label), "score": float(theme_score)},
+        "weekly_trend": wk if wk in ("up", "down", "flat") else "flat",
+        "overall_score": int(overall),
+        "entry_price_hint": int(entry),
+        "targets": {
+            "tp": f"目標 +{int(tp_pct*100)}%",
+            "sl": f"損切り -{int(sl_pct*100)}%",
+            "tp_pct": float(tp_pct), "sl_pct": float(sl_pct),
+            "tp_price": int(tp_price), "sl_price": int(sl_price),
+        },
+        "sizing": {
+            "credit_balance": int(credit_balance),
+            "risk_per_trade": float(rpt),
+            "position_size_hint": int(pos),
+            "need_cash": int(need_cash),
+        },
+    }
+
+# =============== candidates ===============
 def _trend_candidates(user) -> List[Dict[str, Any]]:
-    """
-    TrendResult 最優先の候補。asof が最新のレコードから上位を採用。
-    - entry_price_hint: TrendResult.entry_price_hint → PriceCache → 3000
-    - name: TrendResult.name（なければ ticker）
-    - overall_score: win_prob/theme_score/weekly_trend/slope から簡易合成
-    """
     items: List[Dict[str, Any]] = []
     if not (_HAS_TREND and TrendResult is not None):
         return items
 
-    # ユーザー別の最新 asof を採用（銘柄ごとに最新日1件）
     latest_rows: List[Tuple[str, int]] = list(
         TrendResult.objects.filter(user=user)
         .values_list("ticker")
@@ -192,7 +238,6 @@ def _trend_candidates(user) -> List[Dict[str, Any]]:
         except Exception:
             last = 3000
 
-        # win_prob は無い前提でも大丈夫な合成点
         win_prob = float(tr.win_prob or 0.62)
         theme = float(tr.theme_score or 0.55)
         slope = float(tr.slope_annual or 0.0)
@@ -201,7 +246,6 @@ def _trend_candidates(user) -> List[Dict[str, Any]]:
 
         overall = int(round((win_prob * 0.6 + theme * 0.25 + (0.5 + wk_adj) * 0.10 + max(-0.1, min(0.1, slope)) * 0.05) * 100))
 
-        # ％（中期基準）
         tp_pct = 0.10; sl_pct = 0.03
         tp_price = int(round(last * (1 + tp_pct)))
         sl_price = int(round(last * (1 - sl_pct)))
@@ -217,14 +261,8 @@ def _trend_candidates(user) -> List[Dict[str, Any]]:
             "weekly_trend": wk,
             "overall_score": overall,
             "entry_price_hint": last,
-            "targets": {
-                "tp": f"目標 +{int(tp_pct*100)}%",
-                "sl": f"損切り -{int(sl_pct*100)}%",
-                "tp_pct": tp_pct, "sl_pct": sl_pct,
-                "tp_price": tp_price, "sl_price": sl_price,
-            },
+            "targets": {"tp_pct": tp_pct, "sl_pct": sl_pct, "tp_price": tp_price, "sl_price": sl_price},
         })
-    # スコア順に整列
     items.sort(key=lambda x: (x.get("overall_score") or 0), reverse=True)
     return items
 
@@ -272,13 +310,8 @@ def _watch_candidates(user) -> List[Dict[str, Any]]:
             "theme": {"id": "auto", "label": (w.theme_label or "テーマ"), "score": theme_score},
             "weekly_trend": wk,
             "overall_score": overall,
-            "entry_price_hint": last,
-            "targets": {
-                "tp": f"目標 +{int(tp_pct*100)}%",
-                "sl": f"損切り -{int(sl_pct*100)}%",
-                "tp_pct": tp_pct, "sl_pct": sl_pct,
-                "tp_price": tp_price, "sl_price": sl_price,
-            },
+            "entry_price_hint": int(last),
+            "targets": {"tp_pct": tp_pct, "sl_pct": sl_pct, "tp_price": tp_price, "sl_price": sl_price},
         })
     return items
 
@@ -318,7 +351,7 @@ def _holding_candidates(user) -> List[Dict[str, Any]]:
 
         items.append({
             "ticker": h.ticker.upper(),
-            "name": h.name or h.ticker,  # ← ここで銘柄名を使う
+            "name": h.name or h.ticker,
             "segment": "保有（補完）",
             "action": "買い候補（簡易）",
             "reasons": ["既存保有/監視から抽出", "価格は最新値ベース", "暫定パラメータ"],
@@ -326,25 +359,14 @@ def _holding_candidates(user) -> List[Dict[str, Any]]:
             "theme": {"id": "generic", "label": h.sector or "—", "score": theme_score},
             "weekly_trend": wk,
             "overall_score": overall,
-            "entry_price_hint": last,
-            "targets": {
-                "tp": f"目標 +{int(tp_pct*100)}%",
-                "sl": f"損切り -{int(sl_pct*100)}%",
-                "tp_pct": tp_pct, "sl_pct": sl_pct,
-                "tp_price": tp_price, "sl_price": sl_price,
-            },
+            "entry_price_hint": int(last),
+            "targets": {"tp_pct": tp_pct, "sl_pct": sl_pct, "tp_price": tp_price, "sl_price": sl_price},
         })
     return items
 
 
-# ======================== public ========================
+# =============== public ===============
 def build_board(user, *, use_cache: bool = True, min_items: int = 5) -> Dict[str, Any]:
-    """
-    - TrendResult を **最優先** で候補生成
-    - 次に WatchEntry、最後に Holding で補完
-    - 空配列が出来た場合はキャッシュに保存しない & 直ちにフォールバックして再計算
-    """
-    # 0) キャッシュ
     if use_cache:
         cached = _load_board_cache(user)
         if cached is not None:
@@ -354,27 +376,22 @@ def build_board(user, *, use_cache: bool = True, min_items: int = 5) -> Dict[str
     credit = _resolve_credit_balance(user)
     risk_per_trade = 0.01
 
-    # 1) TrendResult 最優先
     items: List[Dict[str, Any]] = _trend_candidates(user)
-
-    # 2) Watch 補完
     if len(items) < min_items:
         items += _watch_candidates(user)
-
-    # 3) Holding 補完
     if len(items) < min_items:
         items += _holding_candidates(user)
 
-    # 4) 上位 min_items 件
     items = items[:min_items]
-
-    # 5) sizing
     _attach_sizing(items, credit_balance=credit, risk_per_trade=risk_per_trade)
+
+    # ★ ここで全件を“JS安全化”して返す
+    items = [_normalize_item(it) for it in items]
 
     data: Dict[str, Any] = {
         "meta": {
             "generated_at": now.replace(second=0, microsecond=0).isoformat(),
-            "model_version": "v0.4-trend-first",
+            "model_version": "v0.4-trend-first+cached",
             "adherence_week": 0.84,
             "regime": {"trend_prob": 0.55, "range_prob": 0.45, "nikkei": "→", "topix": "→"},
             "scenario": "TrendResult最優先で今日の候補を生成（監視/保有で補完）",
@@ -394,8 +411,6 @@ def build_board(user, *, use_cache: bool = True, min_items: int = 5) -> Dict[str
         "highlights": items,
     }
 
-    # 6) キャッシュ保存（空でなければ）
     if use_cache and data.get("highlights"):
         _save_board_cache(user, data, ttl_minutes=180)
-
     return data
