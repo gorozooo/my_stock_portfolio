@@ -186,7 +186,8 @@ def _trend_rows_latest_per_ticker(user) -> List[Any]:
 def _trend_candidates(user, limit=12) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
     rows = _trend_rows_latest_per_ticker(user)
-    # スコア降順
+
+    # スコア降順でソート
     rows = sorted(
         rows,
         key=lambda r: (int(r.overall_score or 0), float(r.confidence or 0.0)),
@@ -194,15 +195,19 @@ def _trend_candidates(user, limit=12) -> List[Dict[str, Any]]:
     )[:limit]
 
     for r in rows:
-        last = r.entry_price_hint or _price_from_cache_or(None, r.ticker) or r.close_price or 3000
+        # ✅ ここを修正：キャッシュ最優先 → ヒント → close
+        last = _price_from_cache_or(r.entry_price_hint, r.ticker) or r.close_price or 3000
+
         tp_pct = 0.10; sl_pct = 0.03
         tp_price = int(round(int(last) * (1 + tp_pct)))
         sl_price = int(round(int(last) * (1 - sl_pct)))
+
+        # overall_score が無い場合の暫定勝率（従来ロジック踏襲）
         win_prob = float(r.overall_score or 60) / 100.0
 
         items.append({
             "ticker": r.ticker.upper(),
-            "name": _display_name(user, r.ticker, r.name),  # ★ 表示名
+            "name": _display_name(user, r.ticker, r.name),
             "segment": "トレンド（最新）",
             "action": "買い候補",
             "reasons": [
@@ -230,7 +235,7 @@ def _watch_candidates(user) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
     qs = (
         WatchEntry.objects
-        .filter(status=WatchEntry.STATUS_ACTIVE)
+        .filter(user=user, status=WatchEntry.STATUS_ACTIVE)  # ✅ user を追加
         .order_by("-updated_at")[:12]
     )
     for w in qs:
