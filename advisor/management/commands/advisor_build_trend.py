@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import json
-import math
-import time
 from pathlib import Path
 from datetime import date
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Set, Iterable, Optional
 
 import numpy as np
 import pandas as pd
@@ -54,12 +52,11 @@ def _symbol_candidates(raw: str, alias_map: Dict[str, str]) -> List[str]:
         cands.append(f"{t}.T")
     if len(t) >= 2 and t[:-1].isdigit() and t[-1].isalpha():
         cands.append(f"{t[:-1]}.T")
-    # uniq
-    seen: Set[str] = set(); out: List[str] = []
+    seen: Set[str] = set(); uniq: List[str] = []
     for s in cands:
         if s not in seen:
-            out.append(s); seen.add(s)
-    return out
+            uniq.append(s); seen.add(s)
+    return uniq
 
 
 # ---------- calc helpers ----------
@@ -89,17 +86,12 @@ def _weekly_trend_from_prices(df: pd.DataFrame) -> str:
         return "flat"
     y = tail.values
     x = np.arange(len(y), dtype=float)
-    x_mean = x.mean(); y_mean = y.mean()
-    num = float(((x - x_mean) * (y - y_mean)).sum())
-    den = float(((x - x_mean) ** 2).sum()) or 1.0
-    slope = num / den
+    slope = float(((x - x.mean()) * (y - y.mean())).sum()) / float(((x - x.mean()) ** 2).sum() or 1.0)
     return "up" if slope > 0 else ("down" if slope < 0 else "flat")
 
 def _slope_annual_from_prices(df: pd.DataFrame) -> float:
     close = _close_series(df)
-    if close is None or close.empty:
-        return 0.0
-    if len(close) < 5:
+    if close is None or close.empty or len(close) < 5:
         return 0.0
     logret = np.log(close.clip(lower=1e-9)).diff().dropna()
     if logret.empty:
@@ -114,35 +106,18 @@ def _confidence_from_df(df: pd.DataFrame) -> float:
     base = 0.3 + min(0.6, n / 200.0)
     return float(round(max(0.3, min(0.9, base)), 3))
 
-def _overall_score_from(slope_annual: float, confidence: float) -> int:
-    s_norm = 1.0 / (1.0 + math.exp(-3.0 * float(slope_annual)))  # 0-1
-    s_norm = max(0.0, min(1.0, s_norm))
-    conf = max(0.0, min(1.0, float(confidence or 0.5)))
-    score = (s_norm * 0.7) + (conf * 0.3)
-    return int(round(score * 100))
-
-def _display_name(user, tkr: str) -> str:
-    """表示名の決定: Holding.name → WatchEntry.name → ticker"""
-    t = (tkr or "").upper()
-    h = Holding.objects.filter(user=user, ticker=t).only("name").first()
-    if h and (h.name or "").strip():
-        return h.name.strip()
-    w = WatchEntry.objects.filter(user=user, ticker=t).only("name").first()
-    if w and (w.name or "").strip():
-        return w.name.strip()
-    return t
-
-
 def _collect_targets(user) -> List[str]:
     s: Set[str] = set()
     for w in WatchEntry.objects.filter(user=user, status=WatchEntry.STATUS_ACTIVE).only("ticker"):
-        if w.ticker: s.add(w.ticker.strip().upper())
+        if w.ticker:
+            s.add(w.ticker.strip().upper())
     for h in Holding.objects.filter(user=user).only("ticker"):
-        if h.ticker: s.add(h.ticker.strip().upper())
+        if h.ticker:
+            s.add(h.ticker.strip().upper())
     return list(s)[:80]
 
 
-# ---------- price fallbacks ----------
+# ---------- display name / price fallbacks ----------
 
 def _fallback_price(tkr: str, user) -> Optional[int]:
     if PriceCache is not None:
@@ -159,6 +134,17 @@ def _fallback_price(tkr: str, user) -> Optional[int]:
         except Exception:
             pass
     return None
+
+def _resolve_display_name(user, tkr: str) -> str:
+    t = (tkr or "").upper()
+    # 優先: 保有の名称 → 監視の名称 → ticker
+    h = Holding.objects.filter(user=user, ticker=t).only("name").first()
+    if h and (h.name or "").strip():
+        return h.name.strip()
+    w = WatchEntry.objects.filter(user=user, ticker=t).only("name").first()
+    if w and (w.name or "").strip():
+        return w.name.strip()
+    return t
 
 
 # ---------- command ----------
@@ -186,8 +172,8 @@ class Command(BaseCommand):
         self.stdout.write(f"[trend] days={days} targets={len(targets)}")
 
         for tkr in targets:
-            df = None
             tried: List[str] = []
+            df = None
             for sym in _symbol_candidates(tkr, alias_map):
                 tried.append(sym)
                 try:
@@ -201,8 +187,6 @@ class Command(BaseCommand):
                 except Exception as e:
                     self.stdout.write(self.style.WARNING(f"{tkr} ({sym}) download err: {e}"))
                     df = None
-                time.sleep(1)  # アクセス間隔
-
                 if df is not None and not df.empty:
                     break
 
@@ -228,14 +212,12 @@ class Command(BaseCommand):
             if entry_price_hint is None:
                 entry_price_hint = 3000
 
-            overall_score = _overall_score_from(slope_annual, confidence)
-            disp_name = _display_name(user, tkr)
+            display_name = _resolve_display_name(user, tkr)
 
             if dry:
                 self.stdout.write(
-                    f"DRY save {tkr} asof={asof} trend={weekly_trend} "
-                    f"slope={round(float(slope_annual), 4)} conf={confidence} "
-                    f"score={overall_score} name={disp_name} tried={tried}"
+                    f"DRY save {tkr} name={display_name} asof={asof} trend={weekly_trend} "
+                    f"slope={round(float(slope_annual), 4)} conf={confidence} tried={tried}"
                 )
                 continue
 
@@ -246,14 +228,14 @@ class Command(BaseCommand):
                         ticker=tkr.upper(),
                         asof=asof,
                         defaults={
-                            "name": disp_name,  # ★ 表示名を保存
+                            "name": display_name,  # ← ここで“名称”を保存
                             "close_price": int(round(close_price)) if close_price is not None else None,
                             "entry_price_hint": int(entry_price_hint),
                             "weekly_trend": weekly_trend,
                             "win_prob": None,
                             "theme_label": "",
                             "theme_score": None,
-                            "overall_score": int(overall_score),
+                            "overall_score": None,
                             "size_mult": None,
                             "notes": {"tried": tried},
                             "slope_annual": float(slope_annual or 0.0),
