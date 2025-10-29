@@ -10,7 +10,14 @@
         <div class="date" id="dateLabel"></div>
         <div class="pill status" id="statusPill" aria-live="polite">—</div>
       </div>
-
+  
+      <div class="pill-and-actions">
+        <span id="statusPill" class="status-pill demo" aria-label="データ種別">DEMO</span>
+        <button id="refreshBtn" class="btn ghost" type="button" style="margin-left:8px;">
+          🔄 強制リフレッシュ
+        </button>
+      </div>
+  
       <div class="summary">
         <div class="pill"><strong class="trend-badge" id="trendBadge"></strong></div>
         <div class="pill">今週のテーマ：<span class="theme-strip" id="themeStrip"></span></div>
@@ -63,5 +70,5 @@
   </script>
 
   <link rel="stylesheet" href="{% static 'advisor/board.css' %}?v=3" />
-  <script src="{% static 'advisor/board.js' %}?v=19"></script>
+  <script src="{% static 'advisor/board.js' %}?v=20"></script>
 {% endblock %}
