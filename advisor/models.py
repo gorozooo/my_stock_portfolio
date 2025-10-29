@@ -147,3 +147,10 @@ class Policy(TimeStampedModel):
 
 # ===== ここがポイント：TrendResult は models_trend 側で定義し、このファイルでは再エクスポートだけ =====
 from .models_trend import TrendResult  # noqa: F401
+
+try:
+    # 別ファイルのモデルを読み込ませて、makemigrations の対象にする
+    from .models_indicator import IndicatorSnapshot  # noqa: F401
+except Exception:
+    # ローカル作業中にファイル未保存でも落ちないように
+    pass
