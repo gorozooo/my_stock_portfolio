@@ -1,8 +1,6 @@
-# advisor/management/commands/advisor_build_trend.py
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
 from datetime import date
 from typing import Dict, List, Set, Iterable, Optional
@@ -17,8 +15,9 @@ from django.db import transaction
 from advisor.models_trend import TrendResult
 from advisor.models import WatchEntry
 
+# 価格フォールバック（任意）
 try:
-    from advisor.models_cache import PriceCache
+    from advisor.models_cache import PriceCache  # ある場合だけ使う
 except Exception:
     PriceCache = None  # type: ignore
 
@@ -26,10 +25,11 @@ from portfolio.models import Holding
 
 User = get_user_model()
 
-ALIAS_JSON = Path("media/advisor/symbol_alias.json")  # {"167A":"1671.T"} など
+ALIAS_JSON = Path("media/advisor/symbol_alias.json")  # 別名表: {"167A":"1671.T"} など
 
 
 # ---------- symbol helpers ----------
+
 def _load_alias_map() -> Dict[str, str]:
     try:
         if ALIAS_JSON.exists():
@@ -52,7 +52,7 @@ def _symbol_candidates(raw: str, alias_map: Dict[str, str]) -> List[str]:
         cands.append(f"{t}.T")
     if len(t) >= 2 and t[:-1].isdigit() and t[-1].isalpha():
         cands.append(f"{t[:-1]}.T")
-    seen, uniq = set(), []
+    seen: Set[str] = set(); uniq: List[str] = []
     for s in cands:
         if s not in seen:
             uniq.append(s); seen.add(s)
@@ -60,8 +60,11 @@ def _symbol_candidates(raw: str, alias_map: Dict[str, str]) -> List[str]:
 
 
 # ---------- calc helpers ----------
+
 def _close_series(df: pd.DataFrame) -> Optional[pd.Series]:
-    if df is None or df.empty or "Close" not in df.columns:
+    if df is None or df.empty:
+        return None
+    if "Close" not in df.columns:
         return None
     close = df["Close"]
     if isinstance(close, pd.DataFrame):
@@ -83,8 +86,7 @@ def _weekly_trend_from_prices(df: pd.DataFrame) -> str:
         return "flat"
     y = tail.values
     x = np.arange(len(y), dtype=float)
-    x_mean = x.mean(); y_mean = y.mean()
-    slope = float(((x - x_mean) * (y - y_mean)).sum()) / (float(((x - x_mean) ** 2).sum()) or 1.0)
+    slope = float(((x - x.mean()) * (y - y.mean())).sum()) / float(((x - x.mean()) ** 2).sum() or 1.0)
     return "up" if slope > 0 else ("down" if slope < 0 else "flat")
 
 def _slope_annual_from_prices(df: pd.DataFrame) -> float:
@@ -107,25 +109,16 @@ def _confidence_from_df(df: pd.DataFrame) -> float:
 def _collect_targets(user) -> List[str]:
     s: Set[str] = set()
     for w in WatchEntry.objects.filter(user=user, status=WatchEntry.STATUS_ACTIVE).only("ticker"):
-        if w.ticker: s.add(w.ticker.strip().upper())
+        if w.ticker:
+            s.add(w.ticker.strip().upper())
     for h in Holding.objects.filter(user=user).only("ticker"):
-        if h.ticker: s.add(h.ticker.strip().upper())
+        if h.ticker:
+            s.add(h.ticker.strip().upper())
     return list(s)[:80]
 
-def _resolve_name(tkr: str, user) -> str:
-    # 1) Holding
-    h = Holding.objects.filter(user=user, ticker__iexact=tkr).only("name").first()
-    if h and h.name:
-        return str(h.name)
-    # 2) WatchEntry
-    w = WatchEntry.objects.filter(user=user, ticker__iexact=tkr).only("name").first()
-    if w and w.name:
-        return str(w.name)
-    # 3) fallback
-    return tkr.upper()
 
+# ---------- display name / price fallbacks ----------
 
-# ---------- price fallbacks ----------
 def _fallback_price(tkr: str, user) -> Optional[int]:
     if PriceCache is not None:
         pc = PriceCache.objects.filter(ticker=tkr.upper()).first()
@@ -142,14 +135,26 @@ def _fallback_price(tkr: str, user) -> Optional[int]:
             pass
     return None
 
+def _resolve_display_name(user, tkr: str) -> str:
+    t = (tkr or "").upper()
+    # 優先: 保有の名称 → 監視の名称 → ticker
+    h = Holding.objects.filter(user=user, ticker=t).only("name").first()
+    if h and (h.name or "").strip():
+        return h.name.strip()
+    w = WatchEntry.objects.filter(user=user, ticker=t).only("name").first()
+    if w and (w.name or "").strip():
+        return w.name.strip()
+    return t
+
 
 # ---------- command ----------
+
 class Command(BaseCommand):
     help = "Build TrendResult for active/watch/holdings. Never skip symbols (uses aliases/fallbacks)."
 
     def add_arguments(self, parser):
-        parser.add_argument("--days", type=int, default=60)
-        parser.add_argument("--user-id", type=int, default=None)
+        parser.add_argument("--days", type=int, default=60, help="lookback days")
+        parser.add_argument("--user-id", type=int, default=None, help="target user id")
         parser.add_argument("--dry-run", action="store_true")
 
     def handle(self, *args, **opts):
@@ -167,8 +172,8 @@ class Command(BaseCommand):
         self.stdout.write(f"[trend] days={days} targets={len(targets)}")
 
         for tkr in targets:
-            df = None
             tried: List[str] = []
+            df = None
             for sym in _symbol_candidates(tkr, alias_map):
                 tried.append(sym)
                 try:
@@ -207,11 +212,11 @@ class Command(BaseCommand):
             if entry_price_hint is None:
                 entry_price_hint = 3000
 
-            name = _resolve_name(tkr, user)
+            display_name = _resolve_display_name(user, tkr)
 
             if dry:
                 self.stdout.write(
-                    f"DRY save {tkr} asof={asof} name={name} trend={weekly_trend} "
+                    f"DRY save {tkr} name={display_name} asof={asof} trend={weekly_trend} "
                     f"slope={round(float(slope_annual), 4)} conf={confidence} tried={tried}"
                 )
                 continue
@@ -223,7 +228,7 @@ class Command(BaseCommand):
                         ticker=tkr.upper(),
                         asof=asof,
                         defaults={
-                            "name": name,
+                            "name": display_name,  # ← ここで“名称”を保存
                             "close_price": int(round(close_price)) if close_price is not None else None,
                             "entry_price_hint": int(entry_price_hint),
                             "weekly_trend": weekly_trend,
