@@ -134,13 +134,26 @@ def _save_board_cache(user, payload: Dict[str, Any], ttl_minutes: int = 180) -> 
 
 # --- 名称解決（表示名） ---
 def _resolve_display_name(user, ticker: str, fallback: str = "") -> str:
+    """保有・監視の name を優先。末尾 .T / 無し 両対応。"""
     t = (ticker or "").upper()
-    h = Holding.objects.filter(user=user, ticker=t).only("name").first()
+    # バリエーション（例: 4755, 4755.T）
+    variants = {t}
+    if t.endswith(".T"):
+        variants.add(t.replace(".T", ""))
+    else:
+        variants.add(f"{t}.T")
+
+    # Holding優先
+    h = Holding.objects.filter(user=user, ticker__in=variants).only("name").first()
     if h and (h.name or "").strip():
         return h.name.strip()
-    w = WatchEntry.objects.filter(user=user, ticker=t).only("name").first()
+
+    # WatchEntry次点
+    w = WatchEntry.objects.filter(user=user, ticker__in=variants).only("name").first()
     if w and (w.name or "").strip():
         return w.name.strip()
+
+    # fallback
     return fallback or t
 
 
