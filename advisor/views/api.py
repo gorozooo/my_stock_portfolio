@@ -375,18 +375,19 @@ def board_api(request):
     # 1) サービス実装があれば最優先（失敗してもフォールバック）
     if _HAS_SERVICE and callable(_build_board_service):
         try:
-            # build_board(user, use_cache=...) を受け付けない実装でもOKなように
-            if "use_cache" in _build_board_service.__code__.co_varnames:
+            # build_board(user, use_cache=...) を受け付けない実装でもOKなように分岐
+            if "use_cache" in getattr(_build_board_service, "__code__", type("", (), {"co_varnames": ()})) .co_varnames:
                 data = _build_board_service(user, use_cache=not force)  # type: ignore
             else:
                 data = _build_board_service(user)  # type: ignore
             if isinstance(data, dict):
+                # 安全のため live フラグを付与
                 data.setdefault("meta", {}).setdefault("live", True)
                 return _no_store(JsonResponse(data, json_dumps_params={"ensure_ascii": False}))
         except Exception as e:
             _log("board_api: service failed → fallback. err=", repr(e))
 
-    # 2) TrendResult から構成
+    # 2) TrendResult から構成（失敗してもデモにフォールバック）
     try:
         data = _build_board_from_trends(user)
         if data:
