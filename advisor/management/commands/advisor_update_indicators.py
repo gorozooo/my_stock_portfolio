@@ -232,15 +232,22 @@ def compute_indicators(ticker: str, days: int) -> IndicatorResult:
 # ---------------------------
 def upsert_trendresult(user_id: int, ticker: str, ind: IndicatorResult, asof: datetime.date):
     if TrendResult is None:
-        return  # モデルが無い場合はスキップ
+        return
     from django.contrib.auth import get_user_model
     User = get_user_model()
     user = User.objects.filter(id=user_id).first() or User.objects.first()
     if not user:
         return
 
+    # 🔽 ここを追加（銘柄名をyfinanceから安全取得）
+    name = None
+    try:
+        info = yf.Ticker(ticker).info
+        name = info.get("shortName") or info.get("longName")
+    except Exception:
+        name = None
+
     weekly_trend = "up" if (ind.ema20_gt_ema50 is True) else ("down" if (ind.ema20_gt_ema50 is False) else "flat")
-    # overallはざっくり（ADXとEMAの状態から目安スコア）
     base = 60
     if ind.adx14 is not None:
         base += 10 if ind.adx14 >= 25 else (-5 if ind.adx14 < 18 else 0)
@@ -255,6 +262,8 @@ def upsert_trendresult(user_id: int, ticker: str, ind: IndicatorResult, asof: da
         ticker=_clean_ticker_str(ticker),
         asof=asof,
         defaults=dict(
+            # 🔽 ここを追加（名前も一緒に保存）
+            name=name,
             close_price=ind.last_price,
             entry_price_hint=ind.last_price,
             weekly_trend=weekly_trend,
