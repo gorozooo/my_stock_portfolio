@@ -41,16 +41,29 @@ def snapshot_all_active_policies(save_files: bool = True) -> List[PolicySnapshot
     if save_files:
         _ensure_dir(media_dir)
 
-    qs = AdvisorPolicy.objects.filter(active=True).order_by("-priority", "id")
+    # ---- ここがポイント：active ではなく is_active を優先。なければ active を fallback ----
+    field_names = {f.name for f in AdvisorPolicy._meta.get_fields()}
+    qs_all = AdvisorPolicy.objects.all()
+    if "is_active" in field_names:
+        qs = qs_all.filter(is_active=True)
+    elif "active" in field_names:
+        qs = qs_all.filter(active=True)
+    else:
+        # フィールドが無ければ全件を対象（将来のスキーマ変更に耐える）
+        qs = qs_all
+
+    qs = qs.order_by("-priority", "id")
+
     with transaction.atomic():
         for pol in qs:
-            # スナップショット用のペイロード（必要に応じて拡張）
             payload: Dict[str, Any] = {
                 "meta": {
                     "name": pol.name,
                     "description": pol.description,
                     "priority": pol.priority,
-                    "active": pol.active,
+                    # どちらの型でも値が分かるようにメタにも残す
+                    "is_active": getattr(pol, "is_active", None),
+                    "active": getattr(pol, "active", None),
                     "created_at": pol.created_at.isoformat() if pol.created_at else None,
                     "updated_at": pol.updated_at.isoformat() if pol.updated_at else None,
                     "snapshot_at": now.isoformat(),
@@ -67,7 +80,6 @@ def snapshot_all_active_policies(save_files: bool = True) -> List[PolicySnapshot
             out.append(snap)
 
             if save_files:
-                # ファイル名はポリシー名の簡易スラグ化
                 slug = "".join(ch if ch.isalnum() else "-" for ch in pol.name).strip("-").lower() or f"policy-{pol.id}"
                 fpath = os.path.join(media_dir, f"{slug}.json")
                 with open(fpath, "w", encoding="utf-8") as f:
