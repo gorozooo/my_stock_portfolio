@@ -1,10 +1,8 @@
-// public/static/js/board.js 等に配置（テンプレから読み込み）
-// v2025-10-29 r21  — FORCE刷新 / no-store / 堅牢化
+// v2025-10-29 r21 — force-refresh, cache-bust, robust, data-attr endpoints
 
 const $  = (sel) => document.querySelector(sel);
-const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-console.log("[board.js] v2025-10-29 r21 (force-refresh, cache-bust, robust)");
+console.log("[board.js] v2025-10-29 r21 (force-refresh, cache-bust, robust, data-attr)");
 
 function abs(path){ return new URL(path, window.location.origin).toString(); }
 
@@ -102,6 +100,18 @@ function setHeader(data){
   }
 }
 
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]));
+}
+
+function renderBadges(meta){
+  if(!meta) return '';
+  const out = [];
+  if(meta.sector){ out.push(`<span class="badge-mini sector"><i class="dot"></i>${escapeHtml(meta.sector)}</span>`); }
+  if(meta.market){ out.push(`<span class="badge-mini market"><i class="dot"></i>${escapeHtml(meta.market)}</span>`); }
+  return out.length ? `<div class="badges">${out.join('')}</div>` : '';
+}
+
 function makeCard(item, idx){
   const themeScore = Math.round(((item?.theme?.score) ?? 0)*100);
   const themeLabel = item?.theme?.label || "テーマ";
@@ -132,17 +142,18 @@ function makeCard(item, idx){
   card.innerHTML = `
     <span class="badge">#${idx+1}</span>
 
-    <div class="title">${safeName} <span class="code">(${item?.ticker ?? "-"})</span></div>
-    <div class="segment">${item?.segment ?? ""}・週足：${wk.icon} ${wk.label}</div>
+    <div class="title">${escapeHtml(safeName)} <span class="code">(${escapeHtml(item?.ticker ?? "-")})</span></div>
+    ${renderBadges(item?.meta)}
+    <div class="segment">${item?.segment ? escapeHtml(item.segment) : ""}・週足：${wk.icon} ${wk.label}</div>
 
     <div class="overall">
       <span class="overall-score">総合評価 <b>${overall}</b> 点</span>
       <span class="ai-trust">AI信頼度：${aiStars}</span>
     </div>
 
-    <div class="action ${actionTone}">行動：${item?.action ?? ""}</div>
+    <div class="action ${actionTone}">行動：${escapeHtml(item?.action ?? "")}</div>
 
-    <ul class="reasons">${(item?.reasons||[]).map(r=>`<li>・${r}</li>`).join("")}</ul>
+    <ul class="reasons">${(item?.reasons||[]).map(r=>`<li>・${escapeHtml(r)}</li>`).join("")}</ul>
 
     <div class="targets">
       <div class="target">🎯 目標 ${tpPct}% → <b>${tpPrice?.toLocaleString?.() ?? "-"}</b>円</div>
@@ -159,7 +170,7 @@ function makeCard(item, idx){
       <div class="meter-caption">TP到達:${tpProb}% / SL到達:${slProb}%</div>
     </div>
 
-    <div class="theme-tag">🏷️ ${themeLabel} ${themeScore}点</div>
+    <div class="theme-tag">🏷️ ${escapeHtml(themeLabel)} ${themeScore}点</div>
 
     <div class="buttons" role="group" aria-label="アクション">
       <button class="btn primary" data-act="save_order">📝 メモする</button>
@@ -175,7 +186,7 @@ function renderCards(data){
   (data?.highlights || []).slice(0,5).forEach((it,i)=>cards.appendChild(makeCard(it,i)));
 }
 
-function attachActions(data){
+function attachActions(data, endpoints){
   // 並び替え
   let sorted = false;
   const reorderBtn = $("#reorderBtn");
@@ -224,10 +235,10 @@ function attachActions(data){
           sl_pct: item.targets?.sl_pct ?? null,
           position_size_hint: item.sizing?.position_size_hint ?? null,
         };
-        await postJSON("/advisor/api/action/", payload);
+        await postJSON(endpoints.action, payload);
         showToast(`${item.name}：記録しました`);
       }else if(act === "remind"){
-        await postJSON("/advisor/api/remind/", { ticker: item.ticker, after_minutes: 120 });
+        await postJSON(endpoints.remind, { ticker: item.ticker, after_minutes: 120 });
         showToast(`${item.name}：2時間後にお知らせします`);
       }
     }catch(e){
@@ -238,10 +249,10 @@ function attachActions(data){
   });
 }
 
-async function fetchBoard({force=false} = {}){
+async function fetchBoard({force=false} = {}, endpoints){
   // cache-bust クエリ & no-store
-  const url = `/advisor/api/board/?${force ? "force=1&" : ""}_t=${Date.now()}`;
-  const res = await fetch(abs(url), { credentials: "same-origin", cache: "no-store" });
+  const url = `${endpoints.board}?${force ? "force=1&" : ""}_t=${Date.now()}`;
+  const res = await fetch(url, { credentials: "same-origin", cache: "no-store" });
 
   if (res.status === 401) {
     const next = encodeURIComponent(location.pathname + location.search + location.hash);
@@ -249,7 +260,6 @@ async function fetchBoard({force=false} = {}){
     return null;
   }
 
-  // APIが落ちてもデモ返却されるが、万一 500 の場合も扱う
   if(!res.ok){
     const txt = await res.text().catch(()=> "");
     throw new Error(`HTTP ${res.status} ${txt}`);
@@ -290,12 +300,18 @@ function showToast(msg){
 }
 
 async function boot(force=false){
+  const root = $("#advisorRoot");
+  const endpoints = {
+    board : root?.dataset?.apiBoard  || "/advisor/api/board/",
+    action: root?.dataset?.apiAction || "/advisor/api/action/",
+    remind: root?.dataset?.apiRemind || "/advisor/api/remind/",
+  };
   try{
-    const data = await fetchBoard({force});
+    const data = await fetchBoard({force}, endpoints);
     setStatusPill(data);
     setHeader(data);
     renderCards(data);
-    attachActions(data);
+    attachActions(data, endpoints);
   }catch(e){
     console.error(e);
     showToast("ボードの取得に失敗しました");
@@ -305,13 +321,12 @@ async function boot(force=false){
 (function init(){
   // 初期ロード
   boot(false);
-
-  // 強制リフレッシュボタン
+  // 強制リフレッシュ
   const refreshBtn = $("#refreshBtn");
   if (refreshBtn){
     refreshBtn.addEventListener("click", async ()=>{
       refreshBtn.disabled = true;
-      refreshBtn.textContent = "🔄 更新中…";
+      refreshBtn.querySelector(".label")?.replaceChildren(document.createTextNode("更新中…"));
       try{
         await boot(true); // force=1 で再取得
         showToast("最新データに更新しました");
@@ -320,7 +335,7 @@ async function boot(force=false){
         showToast("更新に失敗しました");
       }finally{
         refreshBtn.disabled = false;
-        refreshBtn.textContent = "🔄 強制リフレッシュ";
+        refreshBtn.querySelector(".label")?.replaceChildren(document.createTextNode("更新"));
       }
     });
   }
