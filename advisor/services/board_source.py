@@ -213,17 +213,26 @@ def _card_from(tr: TrendResult, pol: Dict[str, Any], credit: int) -> Dict[str, A
 
 def _apply_name_normalization(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
-    既存キャッシュを読む時も name を必ず str 化。
+    キャッシュ読取時や返却直前に、必ず和名へ正規化し、nameをstrに統一。
+    ついでに sector / market を meta に格納（存在する場合）。
     """
     hs = payload.get("highlights") or []
     for h in hs:
-        n = h.get("name")
-        if isinstance(n, dict):         # {name:..., sector:...} などを誤って入れてしまった場合の保険
-            h["name"] = str(n.get("name") or "")
-        elif n is None:
-            h["name"] = ""
-        else:
-            h["name"] = str(n)
+        t = str(h.get("ticker") or "").upper()
+        jp_name, sector, market = _tse_lookup(t)
+        # name 決定（JPX最優先 → 既存値 → ティッカー）
+        fallback = h.get("name")
+        if isinstance(fallback, dict):
+            fallback = fallback.get("name") or ""
+        name = jp_name or (fallback if fallback is not None else t)
+        h["name"] = str(name)
+
+        # 付随メタ
+        meta = dict(h.get("meta") or {})
+        if jp_name:  meta.setdefault("jpx_name", jp_name)
+        if sector:   meta["sector"] = sector
+        if market:   meta["market"] = market
+        if meta:     h["meta"] = meta
     return payload
 
 # =====================
