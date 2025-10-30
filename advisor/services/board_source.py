@@ -12,6 +12,7 @@ from advisor.models_trend import TrendResult
 from portfolio.models_cash import MarginState, BrokerAccount, CashLedger
 from portfolio.models import Holding
 from advisor.models import WatchEntry
+from advisor.services.policy_rules import compute_exit_targets
 
 try:
     from advisor.models_cache import PriceCache, BoardCache
@@ -124,6 +125,30 @@ def _passes_policy(tr: TrendResult, pol: Dict[str, Any]) -> bool:
             return False
     return True
 
+def _exit_targets_from_policy(pol: Dict[str, Any], ticker: str, entry: Optional[int]) -> Dict[str, Any]:
+    """
+    ポリシー(rule_json)の exits 数値ルールからTP/SL等を決める。
+    既存の pol["targets"]["tp_pct"/"sl_pct"] はフォールバックとして尊重。
+    """
+    if not pol:
+        return {"tp_pct": None, "sl_pct": None, "tp_price": None, "sl_price": None, "trail_atr_mult": None, "time_exit_due": False}
+
+    # rule_json 直下に targets と exits がある前提（既にあなたのDBにある形式）
+    rules = {
+        "targets": pol.get("targets", {}),
+        "exits": pol.get("exits", {}),
+    }
+    xt = compute_exit_targets(policy=rules, ticker=ticker, entry_price=entry, days_held=None, atr14_hint=None)
+    return {
+        "tp_pct": pol.get("targets", {}).get("tp_pct"),
+        "sl_pct": pol.get("targets", {}).get("sl_pct"),
+        "tp_price": xt.tp_price,
+        "sl_price": xt.sl_price,
+        "trail_atr_mult": xt.trail_atr_mult,
+        "time_exit_due": xt.time_exit_due,
+        "_notes": xt.notes,
+    }
+
 # ================
 # 名称の決定ロジック
 # ================
@@ -160,28 +185,39 @@ def _resolve_display(user, tr: TrendResult) -> Tuple[str, Optional[str], Optiona
     return jp_name, sector, market
 
 def _card_from(tr: TrendResult, pol: Dict[str, Any], credit: int) -> Dict[str, Any]:
-    tp_pct = float(pol["targets"]["tp_pct"]); sl_pct = float(pol["targets"]["sl_pct"])
+    """
+    既存カード生成に、exits(ATR/R/時間)の数値ルールを優先統合。
+    """
+    # 入口価格（既存ロジック）
     entry = _price_from_cache_or(tr.ticker, tr.entry_price_hint or tr.close_price)
-    tp_price = int(round(entry * (1 + tp_pct)))
-    sl_price = int(round(entry * (1 - sl_pct)))
 
+    # ★ ここでTP/SL/時間切れの数値ルール適用
+    exit_cfg = _exit_targets_from_policy(pol, tr.ticker, entry)
+    tp_price = exit_cfg["tp_price"]
+    sl_price = exit_cfg["sl_price"]
+    # 旧%指定はキャプション表示用に活かす（実価格優先）
+    tp_pct = exit_cfg["tp_pct"]
+    sl_pct = exit_cfg["sl_pct"]
+
+    # サイズ計算は従来ロジック（SLがあればそちらを使う）
     risk_pct = float(pol["size"]["risk_pct"])
-    stop_value = max(1, entry - sl_price)
+    stop_value = max(1, entry - (sl_price if sl_price is not None else int(round(entry * (1 - float(sl_pct or 0))))))
     risk_budget = max(1, int(round(credit * risk_pct)))
     shares = risk_budget // stop_value if stop_value > 0 else 0
     need_cash = shares * entry if shares > 0 else None
 
+    # 名称は既存の日本語補完ロジック
     name, sector, market = _resolve_display(tr.user, tr)
     win_prob = float(tr.overall_score or 60) / 100.0
 
     card = {
         "policy_id": pol["id"],
         "ticker": tr.ticker.upper(),
-        "name": str(name),                     # ★ 文字列に強制
+        "name": str(name),
         "segment": pol["labels"]["segment"],
         "action":  pol["labels"]["action"],
         "reasons": [
-            "TrendResultベース",
+            "Policy数値ルール適用",
             f"信頼度{int(round(float(tr.confidence or 0.5)*100))}%",
             f"slope≈{round(float(tr.slope_annual or 0.0)*100,1)}%/yr",
         ],
@@ -191,10 +227,16 @@ def _card_from(tr: TrendResult, pol: Dict[str, Any], credit: int) -> Dict[str, A
         "overall_score": int(tr.overall_score or 60),
         "entry_price_hint": entry,
         "targets": {
-            "tp": f"目標 +{int(tp_pct*100)}%",
-            "sl": f"損切り -{int(sl_pct*100)}%",
+            # 表示では %/価格の両方を見せたい。実価格があるならそちら優先。
+            "tp": f"目標 {f'+{int(tp_pct*100)}%' if tp_pct is not None else '+?%'}" + 
+                  (f" → {tp_price:,}円" if tp_price is not None else ""),
+            "sl": f"損切り {f'-{int(sl_pct*100)}%' if sl_pct is not None else '-?%'}" + 
+                  (f" → {sl_price:,}円" if sl_price is not None else ""),
             "tp_pct": tp_pct, "sl_pct": sl_pct,
             "tp_price": tp_price, "sl_price": sl_price,
+            "trail_atr_mult": exit_cfg.get("trail_atr_mult"),
+            "time_exit_due": exit_cfg.get("time_exit_due", False),
+            "_exit_notes": exit_cfg.get("_notes", {}),
         },
         "sizing": {
             "credit_balance": credit,
@@ -203,14 +245,10 @@ def _card_from(tr: TrendResult, pol: Dict[str, Any], credit: int) -> Dict[str, A
             "need_cash": need_cash,
         },
     }
-    # sector/market はUI側で使いたい時に参照できるよう "meta" に格納
-    meta_extra = {}
-    if sector: meta_extra["sector"] = sector
-    if market: meta_extra["market"] = market
-    if meta_extra:
-        card["meta"] = meta_extra
+    if sector or market:
+        card["meta"] = {k:v for k,v in (("sector",sector),("market",market)) if v}
     return card
-
+    
 def _apply_name_normalization(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     キャッシュ読取時や返却直前に、必ず和名へ正規化し、nameをstrに統一。
