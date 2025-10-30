@@ -7,7 +7,7 @@ import math
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, List, Optional, Tuple
+from typing import Iterable, List, Optional
 
 from django.core.management.base import BaseCommand, CommandError
 from django.contrib.auth import get_user_model
@@ -20,7 +20,7 @@ import yfinance as yf
 # === あなたの既存モデル（必要に応じて import パスを調整）===
 try:
     from advisor.models_trend import TrendResult
-except Exception as e:
+except Exception:
     TrendResult = None  # type: ignore
 
 JST = timezone(timedelta(hours=9))
@@ -44,12 +44,17 @@ N225_SAMPLE50 = [
 ]
 
 
+def _clean_ticker_str(s: str) -> str:
+    # BOM/空白除去＋大文字化
+    return str(s).replace("\ufeff", "").strip().upper()
+
+
 def load_universe(kind: str, *, user_id: Optional[int], file: Optional[str]) -> List[str]:
     kind = (kind or "demo10").lower()
     if kind == "demo10":
         return DEMO10[:]
     if kind == "n225":
-        # 本番はCSVでフル225に差し替え推奨（--universe file --file data/n225_full.csv）
+        # 本番はCSVでフル225に差し替え推奨（--universe file --file data/universe/n225.csv）
         return N225_SAMPLE50[:]
     if kind == "watch":
         if user_id is None:
@@ -58,8 +63,10 @@ def load_universe(kind: str, *, user_id: Optional[int], file: Optional[str]) -> 
             from advisor.models import WatchEntry
         except Exception:
             raise CommandError("WatchEntry が見つかりません（advisor.models.WatchEntry）")
-        qs = WatchEntry.objects.filter(user_id=user_id, status="active").values_list("ticker", flat=True)
-        tickers = [t.strip().upper() for t in qs if t and str(t).strip()]
+        # ステータス定数があれば優先し、無ければ 'active'
+        status_active = getattr(WatchEntry, "STATUS_ACTIVE", "active")
+        qs = WatchEntry.objects.filter(user_id=user_id, status=status_active).values_list("ticker", flat=True)
+        tickers = [_clean_ticker_str(t) for t in qs if t and str(t).strip()]
         if not tickers:
             raise CommandError(f"ユーザー{user_id}のアクティブWatchが空です")
         return tickers
@@ -71,9 +78,11 @@ def load_universe(kind: str, *, user_id: Optional[int], file: Optional[str]) -> 
             for row in csv.reader(f):
                 if not row:
                     continue
-                t = str(row[0]).strip()
-                if t:
-                    tickers.append(t.upper())
+                t = _clean_ticker_str(row[0])
+                # 空行と # から始まるコメント行はスキップ
+                if not t or t.startswith("#"):
+                    continue
+                tickers.append(t)
         if not tickers:
             raise CommandError(f"CSVが空です: {file}")
         return tickers
@@ -145,15 +154,55 @@ class IndicatorResult:
     slope_yr: Optional[float]
 
 
+def _flatten_yf_columns(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
+    """
+    yfinanceの列を安全に単層化する。
+    - group_by='column' を使っても環境によってMultiIndexになることがあるため念のため吸収。
+    - 期待最終列: ['Open','High','Low','Close','Adj Close','Volume']
+    """
+    if isinstance(df.columns, pd.MultiIndex):
+        # レベルにティッカーが含まれていれば、そのレベルで絞る
+        # 例: ('Open','7203.T') のような形 → ティッカーレベルで xs
+        # 最後のレベルにティッカーがいる想定で try
+        try:
+            if ticker in df.columns.get_level_values(-1):
+                df = df.xs(ticker, axis=1, level=-1)
+            elif ticker in df.columns.get_level_values(0):
+                df = df.xs(ticker, axis=1, level=0)
+            else:
+                # 最後のレベルの値を列名に採用（('Open','7203.T')->'Open'）
+                df.columns = [c[0] if isinstance(c, tuple) else str(c) for c in df.columns]
+        except Exception:
+            # どれも合わなければ先頭要素を採用
+            df.columns = [c[0] if isinstance(c, tuple) else str(c) for c in df.columns]
+    # 列名の見た目をそろえる
+    df.columns = [str(c).strip().title() for c in df.columns]
+    return df
+
+
 def compute_indicators(ticker: str, days: int) -> IndicatorResult:
     end = datetime.now(JST).date() + timedelta(days=1)
     start = end - timedelta(days=max(65, days + 5))
-    df = yf.download(ticker, start=start.isoformat(), end=end.isoformat(), progress=False, auto_adjust=True)
+    # 単一銘柄でも group_by='column' を明示してMultiIndex化を抑止
+    df = yf.download(
+        _clean_ticker_str(ticker),
+        start=start.isoformat(),
+        end=end.isoformat(),
+        progress=False,
+        auto_adjust=True,
+        group_by="column",
+    )
     if df is None or len(df) < 40:
         return IndicatorResult(None, "mixed", None, None, None)
 
-    # yfinance列名統一（大文字始まり）
-    df = df.rename(columns={c: c.capitalize() for c in df.columns})
+    # ここで確実に単層カラムへ
+    df = _flatten_yf_columns(df, _clean_ticker_str(ticker))
+
+    # 必須カラム確認
+    for col in ["Open", "High", "Low", "Close"]:
+        if col not in df.columns:
+            return IndicatorResult(None, "mixed", None, None, None)
+
     close = df["Close"]; high = df["High"]; low = df["Low"]
 
     ema20 = ema(close, 20)
@@ -201,9 +250,9 @@ def upsert_trendresult(user_id: int, ticker: str, ind: IndicatorResult, asof: da
         base -= 10
     overall = max(0, min(100, int(round(base))))
 
-    tr, _ = TrendResult.objects.update_or_create(
+    TrendResult.objects.update_or_create(
         user=user,
-        ticker=ticker.upper(),
+        ticker=_clean_ticker_str(ticker),
         asof=asof,
         defaults=dict(
             close_price=ind.last_price,
@@ -216,10 +265,9 @@ def upsert_trendresult(user_id: int, ticker: str, ind: IndicatorResult, asof: da
             size_mult=1.0,
             slope_annual=ind.slope_yr,
             confidence=0.55 if ind.adx14 is None else max(0.3, min(0.8, ind.adx14 / 50)),
-            notes={ "regime": ind.regime, "adx14": ind.adx14 },
+            notes={"regime": ind.regime, "adx14": ind.adx14},
         ),
     )
-    return tr
 
 
 # ---------------------------
