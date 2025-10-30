@@ -1,12 +1,11 @@
 # portfolio/management/commands/update_tse_list.py
 from __future__ import annotations
-import os, io, json, unicodedata, time
+import os, io, json, unicodedata, re
 from typing import Optional, Tuple, Dict, List
 import pandas as pd
 import requests
 from django.core.management.base import BaseCommand, CommandError
 
-# ====== 設定 ======
 DEFAULT_XLS_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -14,39 +13,52 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 CSV_PATH = os.path.join(DATA_DIR, "tse_list.csv")
 JSON_PATH = os.path.join(DATA_DIR, "tse_list.json")
 
-# ====== ユーティリティ ======
+# ---------- 文字クレンジングを強化 ----------
+_ZW = r"\u200B\u200C\u200D\u2060\uFEFF"
+_PUA = r"\uE000-\uF8FF"
+_CTRL = r"\x00-\x1F\x7F"
+
+_ZW_RE  = re.compile(f"[{_ZW}]")
+_PUA_RE = re.compile(f"[{_PUA}]")
+_CTRL_RE= re.compile(f"[{_CTRL}]")
+
 def clean_text(s: Optional[str]) -> str:
     if s is None:
         return ""
     s = unicodedata.normalize("NFKC", str(s))
-    out = []
-    for ch in s:
-        cat = unicodedata.category(ch)
-        if cat[0] == "C":  # 制御/私用領域/不可視
-            continue
-        if ch in "\u200B\u200C\u200D\u2060\uFEFF":
-            continue
-        out.append(ch)
-    return "".join(out).strip()
+    # 制御・ゼロ幅・私用領域を除去（見えない“”対策）
+    s = _CTRL_RE.sub("", s)
+    s = _ZW_RE.sub("", s)
+    s = _PUA_RE.sub("", s)
+    return s.strip()
 
-# 列名の候補（小文字化後）
+# 列名候補（小文字）
 CODE_KEYS   = {"code","ｺｰﾄﾞ","コード","こーど","銘柄コード","証券コード"}
 NAME_KEYS   = {"name","銘柄名","めいがらめい"}
-SECTOR_KEYS = {"業種","業種名","33業種","業種分類","せくたー","sector","33業種名","業種（33）","業種(33)"}
-MARKET_KEYS = {"市場","市場区分","市場・商品区分","市場・商品","market","市場部","商品区分"}
+SECTOR_KEYS = {"業種","業種名","33業種","業種分類","せくたー","sector"}
+MARKET_KEYS = {"市場","市場区分","市場・商品区分","市場・商品","market","上場市場"}
 
-def pick_col(norm_map: Dict[str,str], candidates: set) -> Optional[str]:
+def pick_col_exact(norm_map: Dict[str,str], candidates: set) -> Optional[str]:
     for raw, low in norm_map.items():
         if low in candidates:
             return raw
     return None
 
+def pick_col_fuzzy(norm_map: Dict[str,str], substrings: set) -> Optional[str]:
+    # “業種(33業種)” “市場・商品区分（内国株式）” などを拾う
+    for raw, low in norm_map.items():
+        for sub in substrings:
+            if sub in low:
+                return raw
+    return None
+
 def detect_columns(df: pd.DataFrame) -> Tuple[Optional[str],Optional[str],Optional[str],Optional[str]]:
     norm_map = {c: clean_text(c).lower() for c in df.columns}
-    code   = pick_col(norm_map, CODE_KEYS)
-    name   = pick_col(norm_map, NAME_KEYS)
-    sector = pick_col(norm_map, SECTOR_KEYS)
-    market = pick_col(norm_map, MARKET_KEYS)
+
+    code   = pick_col_exact(norm_map, CODE_KEYS)   or pick_col_fuzzy(norm_map, CODE_KEYS)
+    name   = pick_col_exact(norm_map, NAME_KEYS)   or pick_col_fuzzy(norm_map, NAME_KEYS)
+    sector = pick_col_exact(norm_map, SECTOR_KEYS) or pick_col_fuzzy(norm_map, SECTOR_KEYS)
+    market = pick_col_exact(norm_map, MARKET_KEYS) or pick_col_fuzzy(norm_map, MARKET_KEYS)
     return code, name, sector, market
 
 # 33業種のゆらぎ補正（最低限）
@@ -89,47 +101,28 @@ def normalize_sector(s: str) -> str:
     s = clean_text(s)
     return SECTOR_NORMALIZE.get(s, s)
 
-# ====== メインコマンド ======
 class Command(BaseCommand):
     help = "JPXの上場銘柄一覧を取得し、code,name,sector,market を data/tse_list.(csv|json) に保存"
 
     def add_arguments(self, parser):
         parser.add_argument("--url", help="ExcelのURL（省略可・既定URL使用）")
 
-    def _download(self, url: str) -> bytes:
-        # 軽いリトライ＆JPX対策のUA
-        headers = {
-            "User-Agent": "Mozilla/5.0 (compatible; MyStockPortfolioBot/1.0; +https://example.local)",
-            "Accept": "*/*",
-        }
-        last_err = None
-        for i in range(3):
-            try:
-                resp = requests.get(url, timeout=60, headers=headers)
-                resp.raise_for_status()
-                return resp.content
-            except Exception as e:
-                last_err = e
-                time.sleep(1.5 * (i + 1))
-        raise CommandError(f"ダウンロードに失敗: {last_err}")
-
     def handle(self, *args, **opts):
         url = opts.get("url") or os.environ.get("TSE_XLS_URL") or DEFAULT_XLS_URL
         self.stdout.write(f"Downloading: {url}")
         os.makedirs(DATA_DIR, exist_ok=True)
 
-        content = self._download(url)
+        try:
+            resp = requests.get(url, timeout=60)
+            resp.raise_for_status()
+        except Exception as e:
+            raise CommandError(f"ダウンロードに失敗: {e}")
 
         self.stdout.write("Reading Excel sheets...")
         try:
-            # pandas が自動でエンジン選択（xls想定）
-            xls = pd.ExcelFile(io.BytesIO(content))
+            xls = pd.ExcelFile(io.BytesIO(resp.content))
         except Exception as e:
-            # 環境差異の保険
-            try:
-                xls = pd.ExcelFile(io.BytesIO(content), engine="xlrd")
-            except Exception:
-                raise CommandError(f"Excel解析に失敗: {e}")
+            raise CommandError(f"Excel解析に失敗: {e}")
 
         frames: List[pd.DataFrame] = []
         for sheet in xls.sheet_names:
@@ -141,8 +134,6 @@ class Command(BaseCommand):
                     if sector_col: use_cols.append(sector_col)
                     if market_col: use_cols.append(market_col)
                     sub = df[use_cols].copy()
-
-                    # 列名を統一
                     rename = {code_col:"code", name_col:"name"}
                     if sector_col: rename[sector_col] = "sector"
                     if market_col: rename[market_col] = "market"
@@ -161,11 +152,11 @@ class Command(BaseCommand):
             if col in df.columns:
                 df[col] = df[col].map(clean_text)
 
-        # コードは4〜5桁のみ、重複は最後を優先
+        # コードは4〜5桁のみ、重複は最後優先
         df = df[df["code"].str.fullmatch(r"\d{4,5}")]
         df = df.drop_duplicates(subset=["code"], keep="last").sort_values("code")
 
-        # 業種正規化
+        # 業種正規化（列がある場合のみ）
         if "sector" in df.columns:
             df["sector"] = df["sector"].map(lambda s: normalize_sector(s) if s else "")
 
@@ -176,7 +167,7 @@ class Command(BaseCommand):
         df_out = df_out[["code","name","sector","market"]]
         df_out.to_csv(CSV_PATH, index=False, encoding="utf-8-sig")
 
-        # 保存（JSON: {code: {name,sector,market}}）
+        # 保存（JSON）
         payload = {
             row["code"]: {
                 "name": row["name"],
