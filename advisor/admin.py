@@ -25,3 +25,5 @@ class WatchEntryAdmin(admin.ModelAdmin):
     list_display = ("updated_at", "user", "ticker", "name", "status", "in_position")
     list_filter = ("status", "in_position")
     search_fields = ("ticker", "name", "note")
+    
+from .admin_policy import *
