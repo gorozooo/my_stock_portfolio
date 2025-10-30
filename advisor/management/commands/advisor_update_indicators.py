@@ -152,7 +152,8 @@ class IndicatorResult:
     adx14: Optional[float]
     ema20_gt_ema50: Optional[bool]
     slope_yr: Optional[float]
-
+    atr14: Optional[float]  
+    
 
 def _flatten_yf_columns(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
     """
@@ -183,7 +184,6 @@ def _flatten_yf_columns(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
 def compute_indicators(ticker: str, days: int) -> IndicatorResult:
     end = datetime.now(JST).date() + timedelta(days=1)
     start = end - timedelta(days=max(65, days + 5))
-    # 単一銘柄でも group_by='column' を明示してMultiIndex化を抑止
     df = yf.download(
         _clean_ticker_str(ticker),
         start=start.isoformat(),
@@ -193,25 +193,24 @@ def compute_indicators(ticker: str, days: int) -> IndicatorResult:
         group_by="column",
     )
     if df is None or len(df) < 40:
-        return IndicatorResult(None, "mixed", None, None, None)
+        return IndicatorResult(None, "mixed", None, None, None, None)
 
-    # ここで確実に単層カラムへ
     df = _flatten_yf_columns(df, _clean_ticker_str(ticker))
-
-    # 必須カラム確認
     for col in ["Open", "High", "Low", "Close"]:
         if col not in df.columns:
-            return IndicatorResult(None, "mixed", None, None, None)
+            return IndicatorResult(None, "mixed", None, None, None, None)
 
     close = df["Close"]; high = df["High"]; low = df["Low"]
 
     ema20 = ema(close, 20)
     ema50 = ema(close, 50)
-    adx14, pdi, mdi = adx(high, low, close, 14)
-    adx_last = float(adx14.iloc[-1]) if not pd.isna(adx14.iloc[-1]) else None
+    adx14_line, pdi, mdi = adx(high, low, close, 14)
+    atr14_line = atr(high, low, close, 14)              # ★ 追加：ATR14系列
+    atr_last = float(atr14_line.iloc[-1]) if len(atr14_line) and not pd.isna(atr14_line.iloc[-1]) else None
+
+    adx_last = float(adx14_line.iloc[-1]) if not pd.isna(adx14_line.iloc[-1]) else None
     ema_gt = bool(ema20.iloc[-1] > ema50.iloc[-1]) if not (pd.isna(ema20.iloc[-1]) or pd.isna(ema50.iloc[-1])) else None
 
-    # レジーム判定（目安）
     regime = "mixed"
     if adx_last is not None and ema_gt is not None:
         if adx_last >= 25 and ema_gt:
@@ -222,9 +221,9 @@ def compute_indicators(ticker: str, days: int) -> IndicatorResult:
             regime = "mixed"
 
     slope_yr = slope_annualized(close, days_window=min(60, len(close)))
-
     last_price = int(round(float(close.iloc[-1]))) if not pd.isna(close.iloc[-1]) else None
-    return IndicatorResult(last_price, regime, adx_last, ema_gt, slope_yr)
+
+    return IndicatorResult(last_price, regime, adx_last, ema_gt, slope_yr, atr_last)  # ★ atr14 を返す
 
 
 # ---------------------------
@@ -239,7 +238,6 @@ def upsert_trendresult(user_id: int, ticker: str, ind: IndicatorResult, asof: da
     if not user:
         return
 
-    # 🔽 ここを追加（銘柄名をyfinanceから安全取得）
     name = None
     try:
         info = yf.Ticker(ticker).info
@@ -257,12 +255,16 @@ def upsert_trendresult(user_id: int, ticker: str, ind: IndicatorResult, asof: da
         base -= 10
     overall = max(0, min(100, int(round(base))))
 
+    # ★ ATR14をnotesに入れる（既存notesへマージ）
+    notes = {"regime": ind.regime, "adx14": ind.adx14}
+    if ind.atr14 is not None:
+        notes["atr14"] = float(ind.atr14)
+
     TrendResult.objects.update_or_create(
         user=user,
         ticker=_clean_ticker_str(ticker),
         asof=asof,
         defaults=dict(
-            # 🔽 ここを追加（名前も一緒に保存）
             name=name,
             close_price=ind.last_price,
             entry_price_hint=ind.last_price,
@@ -274,7 +276,7 @@ def upsert_trendresult(user_id: int, ticker: str, ind: IndicatorResult, asof: da
             size_mult=1.0,
             slope_annual=ind.slope_yr,
             confidence=0.55 if ind.adx14 is None else max(0.3, min(0.8, ind.adx14 / 50)),
-            notes={"regime": ind.regime, "adx14": ind.adx14},
+            notes=notes,  # ★ ここに atr14 を含む
         ),
     )
 
