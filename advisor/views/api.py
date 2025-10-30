@@ -195,7 +195,8 @@ def _build_board_from_trends(user) -> Optional[Dict[str, Any]]:
     - user があれば user 限定、無ければ全体から直近 asof を採用
     - 常に 5 件まで返す（不足時はその分だけ）
     """
-    TrendResult = apps.get_model("advisor", "TrendResult")  # import差異に強い
+    from django.apps import apps  # ★ ここでローカルimport（以前は未importで落ち得る）
+    TrendResult = apps.get_model("advisor", "TrendResult")
 
     qs_base = TrendResult.objects.all()
     if user and getattr(user, "is_authenticated", False):
@@ -375,28 +376,29 @@ def board_api(request):
     # 1) サービス実装があれば最優先（失敗してもフォールバック）
     if _HAS_SERVICE and callable(_build_board_service):
         try:
-            # build_board(user, use_cache=...) を受け付けない実装でもOKなように分岐
-            if "use_cache" in getattr(_build_board_service, "__code__", type("", (), {"co_varnames": ()})) .co_varnames:
+            if "use_cache" in getattr(_build_board_service, "__code__", type("", (), {"co_varnames": ()})).co_varnames:
                 data = _build_board_service(user, use_cache=not force)  # type: ignore
             else:
                 data = _build_board_service(user)  # type: ignore
             if isinstance(data, dict):
-                # 安全のため live フラグを付与
                 data.setdefault("meta", {}).setdefault("live", True)
+                data = _normalize_payload_names(data)  # ★ 和名へ最終正規化
                 return _no_store(JsonResponse(data, json_dumps_params={"ensure_ascii": False}))
         except Exception as e:
             _log("board_api: service failed → fallback. err=", repr(e))
 
-    # 2) TrendResult から構成（失敗してもデモにフォールバック）
+    # 2) TrendResult から構成
     try:
         data = _build_board_from_trends(user)
         if data:
+            data = _normalize_payload_names(data)  # ★ 和名へ最終正規化
             return _no_store(JsonResponse(data, json_dumps_params={"ensure_ascii": False}))
     except Exception as e:
         _log("board_api: trend fallback failed → demo. err=", repr(e))
 
-    # 3) デモ固定（最後の砦）
+    # 3) デモ固定
     data = _build_board_local(user)
+    data = _normalize_payload_names(data)  # ★ 和名へ最終正規化
     return _no_store(JsonResponse(data, json_dumps_params={"ensure_ascii": False}))
 
 
@@ -522,3 +524,52 @@ def debug_add_reminder(request):
     )
     _log("debug_add_reminder saved id=", r.id)
     return _no_store(JsonResponse({"ok": True, "id": r.id}))
+    
+
+def _jpx_lookup(ticker: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    data/tse_list.json を用いて JPX和名/sector/market を返す。
+    値は "名前" でも {"name":..., "sector":..., "market":...} でもOK。
+    """
+    try:
+        from django.conf import settings
+        import os, json
+        base = getattr(settings, "BASE_DIR", os.getcwd())
+        path = os.path.join(base, "data", "tse_list.json")
+        cache = getattr(_jpx_lookup, "_cache", None)
+        if cache is None:
+            with open(path, "r", encoding="utf-8") as f:
+                cache = json.load(f) if f else {}
+            _jpx_lookup._cache = cache  # type: ignore[attr-defined]
+        t = str(ticker).upper().strip()
+        if t.endswith(".T"): t = t[:-2]
+        v = cache.get(t)
+        if v is None: return None, None, None
+        if isinstance(v, str): return (v or None), None, None
+        return (str(v.get("name") or "") or None,
+                (str(v.get("sector") or "") or None) if "sector" in v else None,
+                (str(v.get("market") or "") or None) if "market" in v else None)
+    except Exception:
+        return None, None, None
+
+
+def _normalize_payload_names(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    highlights[].name を JPX和名で強制、nameはstr、sector/marketをmetaへ。
+    """
+    hs = payload.get("highlights") or []
+    for h in hs:
+        t = str(h.get("ticker") or "").upper()
+        jp, sector, market = _jpx_lookup(t)
+        base = h.get("name")
+        if isinstance(base, dict):
+            base = base.get("name") or ""
+        name = jp or (base if base is not None else t)
+        h["name"] = str(name)
+
+        meta = dict(h.get("meta") or {})
+        if jp:     meta.setdefault("jpx_name", jp)
+        if sector: meta["sector"] = sector
+        if market: meta["market"] = market
+        if meta:   h["meta"] = meta
+    return payload
