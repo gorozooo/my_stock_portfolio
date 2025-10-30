@@ -9,12 +9,9 @@
     <!-- 日付行：左に日付、右に LIVE/DEMO ピル＋強制リフレッシュ -->
     <div class="date-row">
       <div class="date" id="dateLabel"></div>
-
       <div class="action-group">
         <span id="statusPill" class="status-pill" aria-label="データ種別">—</span>
-
         <button id="refreshBtn" class="icon-btn" type="button" aria-label="強制リフレッシュ" title="強制リフレッシュ">
-          <!-- アイコンはCSSで描画、テキストはアクセシビリティ用に残す -->
           <span class="icon" aria-hidden="true"></span>
           <span class="label">更新</span>
         </button>
@@ -29,7 +26,14 @@
   </div>
 </header>
 
-<main class="container" role="main">
+<main
+  id="advisorRoot"
+  class="container"
+  role="main"
+  data-api-board="{% url 'advisor_board' %}"
+  data-api-action="{% url 'advisor_record_action' %}"
+  data-api-remind="{% url 'advisor_create_reminder' %}"
+>
   <h2 class="section-title">おすすめ（5件）</h2>
   <section class="cards" id="cards" aria-live="polite"></section>
   <div class="foot">
@@ -38,71 +42,6 @@
   </div>
 </main>
 
-<style>
-  /* レイアウト */
-  .adv-header .wrap{max-width:980px;margin:0 auto;padding:12px 14px}
-  .date-row{
-    display:flex;align-items:center;justify-content:space-between;
-    gap:8px;margin-bottom:8px
-  }
-  .date{font-size:1.05rem;font-weight:700;letter-spacing:.02em}
-
-  /* 右側アクションの横並び */
-  .action-group{display:flex;align-items:center;gap:8px}
-
-  /* LIVE/DEMO ピル */
-  .status-pill{
-    display:inline-flex;align-items:center;gap:6px;
-    padding:6px 10px;border-radius:999px;
-    font-size:.82rem;font-weight:700;letter-spacing:.02em;
-    background:rgba(255,255,255,.06);
-    border:1px solid rgba(255,255,255,.12);
-    color:#dfe7ff; backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
-    box-shadow:0 6px 20px rgba(0,0,0,.24) inset, 0 1px 0 rgba(255,255,255,.06)
-  }
-  /* board.js が .live / .demo を付与する想定 */
-  .status-pill.live{background:rgba(16,185,129,.16);border-color:rgba(16,185,129,.38);color:#bff7e6}
-  .status-pill.demo{background:rgba(245,158,11,.16);border-color:rgba(245,158,11,.36);color:#ffe3b2}
-
-  /* 強制リフレッシュ（小さな丸ボタン＋ラベル） */
-  .icon-btn{
-    position:relative;display:inline-flex;align-items:center;gap:8px;
-    padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.12);
-    background:rgba(255,255,255,.06); color:#eaf0ff; font-weight:600;
-    box-shadow:0 4px 18px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.06);
-    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
-    transition:transform .12s ease, border-color .2s ease, background .2s ease;
-  }
-  .icon-btn:hover{ transform:translateY(-1px); border-color:rgba(255,255,255,.22); }
-  .icon-btn:active{ transform:translateY(0); }
-
-  /* アイコン（回転矢印） */
-  .icon-btn .icon{
-    width:16px;height:16px;display:inline-block;position:relative;
-  }
-  .icon-btn .icon::before{
-    content:""; position:absolute; inset:0; border-radius:50%;
-    border:2px solid currentColor; border-right-color:transparent; border-bottom-color:transparent;
-    opacity:.9;
-  }
-  /* ローディング中は回転 */
-  .icon-btn[disabled] .icon::before{ animation:spin 1s linear infinite; opacity:1 }
-  @keyframes spin{ to{ transform:rotate(360deg) } }
-
-  /* ラベルは狭い画面で非表示（アイコンのみ） */
-  @media (max-width:420px){ .icon-btn .label{ display:none } }
-
-  /* 既存ステータスピル（旧）を上書きしておく（念のため） */
-  .pill.status{display:none}
-</style>
-
-<!-- APIエンドポイント（URL逆引きで注入） -->
-<script>
-  window.ADVISOR_API_BOARD  = "{% url 'advisor_board' %}";
-  window.ADVISOR_API_ACTION = "{% url 'advisor_record_action' %}";
-  window.ADVISOR_API_REMIND = "{% url 'advisor_create_reminder' %}";
-</script>
-
-<link rel="stylesheet" href="{% static 'advisor/board.css' %}?v=3">
-<script src="{% static 'advisor/board.js' %}?v=20"></script>
+<link rel="stylesheet" href="{% static 'advisor/board.css' %}?v=4">
+<script src="{% static 'advisor/board.js' %}?v=21"></script>
 {% endblock %}
