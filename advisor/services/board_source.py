@@ -63,6 +63,15 @@ def _tse_lookup(ticker: str) -> Tuple[Optional[str], Optional[str], Optional[str
     market = (str(v.get("market")).strip() or None) if "market" in v else None
     return name, sector, market
 
+def _display_ticker(t: str) -> str:
+    t = (t or "").strip().upper()
+    if t.isdigit() and 4 <= len(t) <= 5:
+        return f"{t}.T"
+    return t
+
+# _card_from 内の "ticker" だけ置き換え
+"ticker": _display_ticker(tr.ticker),
+
 # ----------------
 # 共通ヘルパー群
 # ----------------
