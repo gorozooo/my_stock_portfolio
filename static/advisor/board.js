@@ -112,6 +112,7 @@ function renderBadges(meta){
   return out.length ? `<div class="badges">${out.join('')}</div>` : '';
 }
 
+// 置き換え：makeCard（⏱バッジ＋トレーリング表示）
 function makeCard(item, idx){
   const themeScore = Math.round(((item?.theme?.score) ?? 0)*100);
   const themeLabel = item?.theme?.label || "テーマ";
@@ -133,31 +134,42 @@ function makeCard(item, idx){
   const tpProb  = Math.round(((item?.ai?.tp_prob) ?? 0) * 100);
   const slProb  = Math.round(((item?.ai?.sl_prob) ?? 0) * 100);
 
+  const timeDue = !!(item?.targets?.time_exit_due);                 // ★ 追加：時間切れ
+  const trailMult = item?.targets?.trail_atr_mult ?? null;          // ★ 追加：トレーリングATR倍率
+
   const card = document.createElement('article');
   card.className='card';
   card.dataset.idx = idx;
 
   const safeName = (item?.name || item?.ticker || "").toString();
 
-  card.innerHTML = `
+  // ★ 右上バッジを2段に（#順位 / ⏱time-out）
+  const badge2 = `
     <span class="badge">#${idx+1}</span>
+    ${timeDue ? `<span class="badge timeout" title="時間切れルールに達しました">⏱ TIME-OUT</span>` : ``}
+  `;
 
-    <div class="title">${escapeHtml(safeName)} <span class="code">(${escapeHtml(item?.ticker ?? "-")})</span></div>
-    ${renderBadges(item?.meta)}
-    <div class="segment">${item?.segment ? escapeHtml(item.segment) : ""}・週足：${wk.icon} ${wk.label}</div>
+  // ★ トレーリング注記（あれば表示）
+  const trailNote = trailMult ? `<div class="target subtle">📈 トレーリング ${trailMult}×ATR（目安）</div>` : ``;
+
+  card.innerHTML = `
+    ${badge2}
+    <div class="title">${safeName} <span class="code">(${item?.ticker ?? "-"})</span></div>
+    <div class="segment">${item?.segment ?? ""}・週足：${wk.icon} ${wk.label}</div>
 
     <div class="overall">
       <span class="overall-score">総合評価 <b>${overall}</b> 点</span>
       <span class="ai-trust">AI信頼度：${aiStars}</span>
     </div>
 
-    <div class="action ${actionTone}">行動：${escapeHtml(item?.action ?? "")}</div>
+    <div class="action ${actionTone}">行動：${item?.action ?? ""}</div>
 
-    <ul class="reasons">${(item?.reasons||[]).map(r=>`<li>・${escapeHtml(r)}</li>`).join("")}</ul>
+    <ul class="reasons">${(item?.reasons||[]).map(r=>`<li>・${r}</li>`).join("")}</ul>
 
     <div class="targets">
-      <div class="target">🎯 目標 ${tpPct}% → <b>${tpPrice?.toLocaleString?.() ?? "-"}</b>円</div>
-      <div class="target">🛑 損切 ${slPct}% → <b>${slPrice?.toLocaleString?.() ?? "-"}</b>円</div>
+      <div class="target">🎯 目標 ${isFinite(tpPct)? tpPct : "?"}% → <b>${tpPrice?.toLocaleString?.() ?? "-"}</b>円</div>
+      <div class="target">🛑 損切 ${isFinite(slPct)? slPct : "?"}% → <b>${slPrice?.toLocaleString?.() ?? "-"}</b>円</div>
+      ${trailNote}
     </div>
 
     <div class="entry-size">
@@ -170,7 +182,7 @@ function makeCard(item, idx){
       <div class="meter-caption">TP到達:${tpProb}% / SL到達:${slProb}%</div>
     </div>
 
-    <div class="theme-tag">🏷️ ${escapeHtml(themeLabel)} ${themeScore}点</div>
+    <div class="theme-tag">🏷️ ${themeLabel} ${themeScore}点</div>
 
     <div class="buttons" role="group" aria-label="アクション">
       <button class="btn primary" data-act="save_order">📝 メモする</button>
