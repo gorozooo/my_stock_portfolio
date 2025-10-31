@@ -44,9 +44,20 @@ N225_SAMPLE50 = [
 ]
 
 
+# 置き換え
 def _clean_ticker_str(s: str) -> str:
-    # BOM/空白除去＋大文字化
-    return str(s).replace("\ufeff", "").strip().upper()
+    """
+    - 大文字化・BOM/空白除去
+    - 4〜5桁の数字だけなら『.T』を付与（東証現物）
+    - 既に .T などがあればそのまま
+    """
+    t = str(s or "").replace("\ufeff","").strip().upper()
+    if not t:
+        return t
+    # 4-5 桁の純数字だけ
+    if t.isdigit() and 4 <= len(t) <= 5:
+        return f"{t}.T"
+    return t
 
 
 def load_universe(kind: str, *, user_id: Optional[int], file: Optional[str]) -> List[str]:
