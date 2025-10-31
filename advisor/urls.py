@@ -1,7 +1,7 @@
 from django.urls import path
 from advisor.views import page, api, watch_api, policy_page
 from advisor.views import report as report_views
-from advisor import views_line
+from advisor.views.line import webhook
 
 urlpatterns = [
     path("board/", page.board_page, name="advisor_board_page"),     # 画面
@@ -29,6 +29,6 @@ urlpatterns = [
     
     path("advisor/report/<str:yyyymmdd>/", report_views.daily_report, name="advisor_daily_report"),
     
-    path("line/webhook", views_line.webhook, name="line_webhook"),
+    path("line/webhook", webhook, name="line_webhook"),
     
 ]
