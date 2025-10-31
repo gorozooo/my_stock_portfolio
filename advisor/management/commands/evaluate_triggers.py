@@ -10,6 +10,7 @@ from django.db.models import Q
 from advisor.models import WatchEntry, ActionLog
 from advisor.models_policy import AdvisorPolicy
 from advisor.models_trend import TrendResult
+from advisor.services.notify import push_line_message  # ← 追加 ✅
 
 JST = timezone(timedelta(hours=9))
 
@@ -52,7 +53,7 @@ def _cooldown_blocked(user, ticker: str) -> Optional[str]:
 
 
 class Command(BaseCommand):
-    help = "Evaluate watch triggers and send notifications. Adds --dry-run, --why, --tickers, --force, --relax"
+    help = "Evaluate watch triggers and send notifications (LINE対応版)"
 
     def add_arguments(self, parser: argparse.ArgumentParser):
         parser.add_argument("--window", type=str, default="preopen",
@@ -133,15 +134,38 @@ class Command(BaseCommand):
                     self.stdout.write(f"⛔ {t}: {cd}")
                 continue
 
-            # 通知
+            # ===== 通知部分（LINE対応）=====
             if opts.get("dry_run"):
                 self.stdout.write(f"✅ {t}: would notify (policies={hit})")
             else:
+                # DB記録
                 ActionLog.objects.create(
                     user=user, ticker=t,
                     action="notify",
                     note=f"window={opts['window']}; policies={','.join(hit)}"
                 )
+
+                # LINE送信
+                try:
+                    policy = policies[0]
+                    reasons = [r[0] for r in reasons_ng] or ["条件一致"]
+                    tp = (tr.entry_price_hint or tr.close_price or 0) * (1 + policy.rule_json.get("targets", {}).get("tp_pct", 0.1))
+                    sl = (tr.entry_price_hint or tr.close_price or 0) * (1 - policy.rule_json.get("targets", {}).get("sl_pct", 0.05))
+
+                    push_line_message(
+                        ticker=tr.ticker,
+                        name=getattr(tr, "name", "") or tr.ticker,
+                        policy=policy.name,
+                        win_prob=float(tr.overall_score or 60)/100,
+                        tp_price=tp,
+                        sl_price=sl,
+                        reasons=["ADX>25", "EMA20>50", "トレンド一致"],
+                        confidence=float(tr.confidence or 0.5),
+                        theme_score=float(tr.theme_score or 0.55),
+                    )
+                except Exception as e:
+                    self.stdout.write(f"⚠️ LINE送信失敗: {e}")
+
                 self.stdout.write(f"📨 {t}: notified (policies={hit})")
                 sent += 1
 
