@@ -5,12 +5,10 @@ from typing import Dict, Any, List, Tuple, Optional
 
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
-from django.db.models import Q
 
 from advisor.models import WatchEntry, ActionLog
 from advisor.models_policy import AdvisorPolicy
 from advisor.models_trend import TrendResult
-from advisor.services.notify import push_line_message  # ← 追加 ✅
 
 JST = timezone(timedelta(hours=9))
 
@@ -41,19 +39,19 @@ def _passes_policy(tr: TrendResult, policy: AdvisorPolicy) -> Tuple[bool, List[s
     return ok, (why or ["OK"])
 
 
-def _cooldown_blocked(user, ticker: str) -> Optional[str]:
-    """24時間以内に同銘柄でnotify/save_orderがあればブロック"""
-    since = datetime.now(JST) - timedelta(hours=24)
+def _cooldown_blocked(user, ticker: str, hours: int = 24) -> Optional[str]:
+    """hours時間以内に同銘柄でnotify/save_orderがあればブロック"""
+    since = datetime.now(JST) - timedelta(hours=hours)
     seen = ActionLog.objects.filter(
         user=user, ticker=ticker.upper(),
         action__in=["save_order", "notify"],
         created_at__gte=since
     ).exists()
-    return "cooldown(24h)" if seen else None
+    return f"cooldown({hours}h)" if seen else None
 
 
 class Command(BaseCommand):
-    help = "Evaluate watch triggers and send notifications (LINE対応版)"
+    help = "Evaluate watch triggers and send notifications. Adds --dry-run, --why, --tickers, --force, --relax"
 
     def add_arguments(self, parser: argparse.ArgumentParser):
         parser.add_argument("--window", type=str, default="preopen",
@@ -62,15 +60,13 @@ class Command(BaseCommand):
         parser.add_argument("--tickers", type=str, default="",
                             help="カンマ区切りで銘柄を限定（例: 7203.T,6758.T）")
         parser.add_argument("--dry-run", action="store_true", help="通知せず判定だけ行う")
-        parser.add_argument("--why", action="store_true", help="不合格理由を表示")
+        parser.add_argument("--why", action="store_true", help="不合格理由や診断情報を表示")
         parser.add_argument("--force", action="store_true", help="クールダウン等を無視して強制送信")
         parser.add_argument("--relax", action="store_true", help="閾値を緩めて検証")
 
     def handle(self, *args, **opts):
-        user = (
-            get_user_model().objects.filter(id=opts.get("user_id")).first()
-            or get_user_model().objects.first()
-        )
+        User = get_user_model()
+        user = (User.objects.filter(id=opts.get("user_id")).first() or User.objects.first())
         if not user:
             self.stdout.write("no user"); return
 
@@ -99,6 +95,27 @@ class Command(BaseCommand):
         today = date.today()
         sent = 0
         skipped = 0
+
+        # ←←← ここがポイント：通知モジュールは必要になった時だけ import
+        push_fn = None
+        diag_fn = None
+        if not opts.get("dry_run"):
+            try:
+                from advisor.services.notify import push_multicast, diag_env
+                push_fn = push_multicast
+                diag_fn = diag_env
+            except Exception:
+                # 通知モジュールが無くても本体は動くように
+                push_fn = None
+                diag_fn = None
+
+        if opts.get("why"):
+            try:
+                if diag_fn is None:
+                    from advisor.services.notify import diag_env  # ここだけ改めて試す
+                self.stdout.write(diag_env())
+            except Exception:
+                self.stdout.write("[LINE diag] notify module not available")
 
         for t in watches:
             tr = (
@@ -134,38 +151,24 @@ class Command(BaseCommand):
                     self.stdout.write(f"⛔ {t}: {cd}")
                 continue
 
-            # ===== 通知部分（LINE対応）=====
+            # 通知 or ドライラン
             if opts.get("dry_run"):
                 self.stdout.write(f"✅ {t}: would notify (policies={hit})")
             else:
-                # DB記録
+                # LINE送信（宛先は環境変数から自動取得）
+                text = f"[{opts['window']}] {t} / {', '.join(hit)}"
+                ok_count = 0
+                if push_fn is not None:
+                    try:
+                        ok_count = push_fn(text)
+                    except Exception as e:
+                        self.stdout.write(f"⛔ notify failed: {e}")
+                # ActionLogに記録
                 ActionLog.objects.create(
                     user=user, ticker=t,
                     action="notify",
-                    note=f"window={opts['window']}; policies={','.join(hit)}"
+                    note=f"window={opts['window']}; policies={','.join(hit)}; line_sent={ok_count}"
                 )
-
-                # LINE送信
-                try:
-                    policy = policies[0]
-                    reasons = [r[0] for r in reasons_ng] or ["条件一致"]
-                    tp = (tr.entry_price_hint or tr.close_price or 0) * (1 + policy.rule_json.get("targets", {}).get("tp_pct", 0.1))
-                    sl = (tr.entry_price_hint or tr.close_price or 0) * (1 - policy.rule_json.get("targets", {}).get("sl_pct", 0.05))
-
-                    push_line_message(
-                        ticker=tr.ticker,
-                        name=getattr(tr, "name", "") or tr.ticker,
-                        policy=policy.name,
-                        win_prob=float(tr.overall_score or 60)/100,
-                        tp_price=tp,
-                        sl_price=sl,
-                        reasons=["ADX>25", "EMA20>50", "トレンド一致"],
-                        confidence=float(tr.confidence or 0.5),
-                        theme_score=float(tr.theme_score or 0.55),
-                    )
-                except Exception as e:
-                    self.stdout.write(f"⚠️ LINE送信失敗: {e}")
-
                 self.stdout.write(f"📨 {t}: notified (policies={hit})")
                 sent += 1
 
