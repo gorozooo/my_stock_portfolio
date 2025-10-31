@@ -134,7 +134,7 @@ class Command(BaseCommand):
                 continue
 
             # 通知
-            if opts["dry-run"]:
+            if opts.get("dry_run"):
                 self.stdout.write(f"✅ {t}: would notify (policies={hit})")
             else:
                 ActionLog.objects.create(
@@ -147,5 +147,5 @@ class Command(BaseCommand):
 
         self.stdout.write(
             f"evaluate_triggers done: sent={sent}, skipped={skipped}, window={opts['window']}"
-            + (" [dry-run]" if opts["dry-run"] else "")
+            + (" [dry-run]" if opts.get("dry_run") else "")
         )
