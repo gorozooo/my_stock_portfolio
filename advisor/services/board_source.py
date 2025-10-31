@@ -206,55 +206,49 @@ def _resolve_display(user, tr: TrendResult) -> Tuple[str, Optional[str], Optiona
     return jp_name, sector, market
 
 def _card_from(tr: TrendResult, pol: Dict[str, Any], credit: int) -> Dict[str, Any]:
+    tp_pct = float(pol["targets"]["tp_pct"]); sl_pct = float(pol["targets"]["sl_pct"])
     entry = _price_from_cache_or(tr.ticker, tr.entry_price_hint or tr.close_price)
-
-    exit_cfg = _exit_targets_from_policy(pol, tr, entry)
-    tp_price = exit_cfg["tp_price"]
-    sl_price = exit_cfg["sl_price"]
-    tp_pct = exit_cfg["tp_pct"]
-    sl_pct = exit_cfg["sl_pct"]
-    time_due = bool(exit_cfg.get("time_exit_due", False))
-    trail_mult = exit_cfg.get("trail_atr_mult")
+    tp_price = int(round(entry * (1 + tp_pct)))
+    sl_price = int(round(entry * (1 - sl_pct)))
 
     risk_pct = float(pol["size"]["risk_pct"])
-    stop_value = max(1, entry - (sl_price if sl_price is not None else int(round(entry * (1 - float(sl_pct or 0))))))
+    stop_value = max(1, entry - sl_price)
     risk_budget = max(1, int(round(credit * risk_pct)))
     shares = risk_budget // stop_value if stop_value > 0 else 0
     need_cash = shares * entry if shares > 0 else None
 
+    # 表示名の解決（JPXマップ→TrendResult/Holding/Watch→ティッカー）
     name, sector, market = _resolve_display(tr.user, tr)
-    win_prob = float(tr.overall_score or 60) / 100.0
+    win_prob = float(tr.overall_score or 60) / 100.0  # overall→ざっくり勝率換算
 
-    # ★ 時間切れを行動ラベルへ反映（“攻め”）
-    base_action = pol["labels"]["action"]
-    action = ("縮小/撤退候補（時間未達）" if time_due else base_action)
-
-    card = {
+    card: Dict[str, Any] = {
         "policy_id": pol["id"],
-        "ticker": tr.ticker.upper(),
+        "ticker": _display_ticker(tr.ticker),          # ← UI用に正規化表示
         "name": str(name),
         "segment": pol["labels"]["segment"],
-        "action":  action,
+        "action":  pol["labels"]["action"],
         "reasons": [
-            "Policy数値ルール適用",
+            "Policy検知ベース",
             f"信頼度{int(round(float(tr.confidence or 0.5)*100))}%",
             f"slope≈{round(float(tr.slope_annual or 0.0)*100,1)}%/yr",
         ],
-        "ai": {"win_prob": win_prob, "size_mult": float(tr.size_mult or 1.0)},
-        "theme": {"id": "trend", "label": (tr.theme_label or "trend"), "score": float(tr.theme_score or 0.55)},
+        "ai": {
+            "win_prob": win_prob,
+            "size_mult": float(tr.size_mult or 1.0),
+        },
+        "theme": {
+            "id": "trend",
+            "label": (tr.theme_label or "trend"),
+            "score": float(tr.theme_score or 0.55),
+        },
         "weekly_trend": (tr.weekly_trend or "flat"),
         "overall_score": int(tr.overall_score or 60),
         "entry_price_hint": entry,
         "targets": {
-            "tp": f"目標 {f'+{int(tp_pct*100)}%' if tp_pct is not None else '+?%'}" +
-                  (f" → {tp_price:,}円" if tp_price is not None else ""),
-            "sl": f"損切り {f'-{int(sl_pct*100)}%' if sl_pct is not None else '-?%'}" +
-                  (f" → {sl_price:,}円" if sl_price is not None else ""),
+            "tp": f"目標 +{int(tp_pct*100)}%",
+            "sl": f"損切り -{int(sl_pct*100)}%",
             "tp_pct": tp_pct, "sl_pct": sl_pct,
             "tp_price": tp_price, "sl_price": sl_price,
-            "trail_atr_mult": trail_mult,     # ★ UIで薄く表示
-            "time_exit_due": time_due,        # ★ バッジ表示に使用
-            "_exit_notes": exit_cfg.get("_notes", {}),
         },
         "sizing": {
             "credit_balance": credit,
@@ -263,8 +257,14 @@ def _card_from(tr: TrendResult, pol: Dict[str, Any], credit: int) -> Dict[str, A
             "need_cash": need_cash,
         },
     }
-    if sector or market:
-        card["meta"] = {k:v for k,v in (("sector",sector),("market",market)) if v}
+
+    # あるならメタ情報を付与
+    meta_extra: Dict[str, Any] = {}
+    if sector: meta_extra["sector"] = sector
+    if market: meta_extra["market"] = market
+    if meta_extra:
+        card["meta"] = meta_extra
+
     return card
     
 def _apply_name_normalization(payload: Dict[str, Any]) -> Dict[str, Any]:
