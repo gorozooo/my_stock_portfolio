@@ -30,6 +30,14 @@ def _no_store(resp: JsonResponse) -> JsonResponse:
     resp["Expires"] = "0"
     return resp
 
+# 追加
+def _normalize_ticker(t: str) -> str:
+    t = (t or "").strip().upper()
+    if not t:
+        return t
+    if t.isdigit() and 4 <= len(t) <= 5:
+        return f"{t}.T"
+    return t
 
 # ====== （将来の実データ）services.board_source があればそちらを使う ======
 # ない場合は、下のローカルロジック _build_board_local() を使う
@@ -430,9 +438,10 @@ def record_action(request):
         _log("record_action saved id=", log.id)
 
         # ---- WatchEntry upsert（ホワイトリストで安全に）----
+        # 置き換え（該当ブロックのみ）
         if payload.get("action") == "save_order":
-            tkr = (payload.get("ticker") or "").strip().upper()
-
+            tkr = _normalize_ticker(payload.get("ticker") or "")
+        
             allowed: Dict[str, Any] = {
                 "name": payload.get("name", "") or "",
                 "note": payload.get("note", "") or "",
@@ -443,7 +452,6 @@ def record_action(request):
                 "ai_win_prob": payload.get("ai_win_prob", None),
                 "target_tp": payload.get("target_tp", "") or "",
                 "target_sl": payload.get("target_sl", "") or "",
-                # 追加保管（将来の再計算/表示同期用）
                 "overall_score": payload.get("overall_score", None),
                 "weekly_trend": payload.get("weekly_trend", "") or "",
                 "entry_price_hint": payload.get("entry_price_hint", None),
@@ -454,10 +462,10 @@ def record_action(request):
                 "position_size_hint": payload.get("position_size_hint", None),
                 "in_position": False,
             }
-
+        
             WatchEntry.objects.update_or_create(
                 user=user,
-                ticker=tkr,
+                ticker=tkr,  # ★ 正規化後を保存
                 status=WatchEntry.STATUS_ACTIVE,
                 defaults=allowed,
             )
