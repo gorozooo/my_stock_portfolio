@@ -1,79 +1,134 @@
-# advisor/services/notify.py
 from __future__ import annotations
-import os, json, time
-from typing import Iterable, List, Optional
-import requests
+import os, json, requests
+from typing import Any, Dict, List, Optional
 
 LINE_PUSH_API = "https://api.line.me/v2/bot/message/push"
-LINE_MULTICAST_API = "https://api.line.me/v2/bot/message/multicast"
 
-def _get_token() -> Optional[str]:
+def _env_token() -> Optional[str]:
     return os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 
-def _get_user_ids() -> List[str]:
-    raw = os.getenv("LINE_TO_USER_IDS", "") or ""
-    # カンマ区切り想定：Ucxxx,Udxxx,...
+def _env_user_ids() -> List[str]:
+    raw = os.getenv("LINE_TO_USER_IDS", "") or os.getenv("LINE_USER_ID", "")
     return [u.strip() for u in raw.split(",") if u.strip()]
 
-def _headers(token: str) -> dict:
-    return {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-
-def _post(url: str, token: str, payload: dict) -> requests.Response:
-    return requests.post(url, headers=_headers(token), data=json.dumps(payload), timeout=15)
-
-def _require_env_or_raise():
-    token = _get_token()
-    uids = _get_user_ids()
-    if not token:
-        raise RuntimeError("LINE_CHANNEL_ACCESS_TOKEN が未設定です（.env / 環境変数を確認）")
-    if not uids:
-        raise RuntimeError("LINE_TO_USER_IDS が未設定です（カンマ区切りで1件以上）")
-    return token, uids
-
-def push_line_message(to_user_id: str, text: str) -> None:
+def push_line_message(alt_text: str, *, flex: Optional[Dict[str, Any]] = None, text: Optional[str] = None) -> None:
     """
-    単一ユーザーにPush。失敗時は例外を投げる。
+    alt_text …… 通知バナー等に出る短文（必須）
+    flex     …… Flex Messageのbubbleまたはcarousel（推薦）
+    text     …… プレーンテキスト（フォールバック用・任意）
     """
-    token = _get_token()
-    if not token:
-        raise RuntimeError("LINE_CHANNEL_ACCESS_TOKEN が未設定です")
-    payload = {"to": to_user_id, "messages": [{"type": "text", "text": text}]}
-    r = _post(LINE_PUSH_API, token, payload)
-    if r.status_code >= 300:
-        raise RuntimeError(f"LINE push failed: HTTP {r.status_code} {r.text}")
-
-def push_multicast(text: str, *, user_ids: Optional[Iterable[str]] = None) -> int:
-    """
-    複数ユーザーに一括送信。成功件数を返す。
-    user_ids を省略→ 環境変数 LINE_TO_USER_IDS を使用。
-    """
-    token = _get_token()
-    uids = list(user_ids) if user_ids is not None else _get_user_ids()
+    token = _env_token()
+    uids  = _env_user_ids()
     if not token or not uids:
-        # 片方でも無ければ0件扱い（運用しやすいよう例外にしない）
-        return 0
+        # 診断ログ（管理コマンド側の --why でも出す）
+        print(f"[LINE diag] TOKEN={'set' if token else 'missing'} UIDS={len(uids)}")
+        return
 
-    # LINEの仕様上はmulticastを推奨（最大500?）。少数ならpushをループでもOK。
-    # ここはシンプルに push で1件ずつ（エラーも個別に分かる）
-    sent = 0
-    for uid in uids:
-        try:
-            push_line_message(uid, text)
-            sent += 1
-            time.sleep(0.1)  # 送信間隔を少し空ける（スパム防止）
-        except Exception:
-            # ログが欲しければprintにする or 将来Hook
-            pass
-    return sent
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-def diag_env() -> str:
-    """自己診断メッセージ（管理コマンドで --why 時などに表示）"""
-    token = _get_token()
-    uids = _get_user_ids()
-    parts = []
-    parts.append(f"TOKEN={'set' if token else 'MISSING'}")
-    parts.append(f"UIDS={len(uids)}")
-    return f"[LINE diag] {' '.join(parts)}"
+    # 送信するmessage配列を作る
+    messages: List[Dict[str, Any]] = []
+    if flex:
+        messages.append({
+            "type": "flex",
+            "altText": alt_text[:240],
+            "contents": flex,  # bubble or carousel
+        })
+    if text:
+        messages.append({"type": "text", "text": text})
+
+    payloads = [{"to": uid, "messages": messages} for uid in uids]
+
+    for p in payloads:
+        r = requests.post(LINE_PUSH_API, headers=headers, data=json.dumps(p))
+        if r.status_code >= 300:
+            print("[LINE error]", r.status_code, r.text)
+
+# ===== Flex ビルダー =====
+
+def make_flex_from_tr(tr, policies: List[str], *, window: str = "preopen") -> Dict[str, Any]:
+    """
+    TrendResult 相当の tr（ticker, name, overall_score, weekly_trend, slope_annual, theme_score, entry_price_hint 等）
+    と、ヒットしたポリシー名から “1枚カード” を作る。
+    """
+    ticker = (tr.ticker or "").upper()
+    name   = (tr.name or ticker)
+    score  = int(tr.overall_score or 0)
+    trend  = (tr.weekly_trend or "-")
+    slope  = round(float(tr.slope_annual or 0.0) * 100, 1)  # %/yr
+    theme  = round(float(tr.theme_score or 0.0) * 100)
+
+    # ざっくり目標/損切（あれば notes の計算済を使ってもOK）
+    entry = int(tr.entry_price_hint or tr.close_price or 0) or None
+
+    def stat_box(label: str, value: str) -> Dict[str, Any]:
+        return {
+            "type": "box", "layout": "vertical", "flex": 1, "contents": [
+                {"type": "text", "text": label, "size": "xs", "color": "#99A3B3"},
+                {"type": "text", "text": value, "weight": "bold", "size": "md"}
+            ]
+        }
+
+    bubble = {
+        "type": "bubble",
+        "size": "mega",
+        "header": {
+            "type": "box", "layout": "vertical", "paddingAll": "12px",
+            "contents": [
+                {"type": "text", "text": f"[{window}] {ticker}", "weight": "bold", "size": "md"},
+                {"type": "text", "text": name, "wrap": True, "size": "sm", "color": "#dfe7f3"}
+            ],
+            "backgroundColor": "#0b1526"
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "12px", "backgroundColor": "#0f1a30",
+            "contents": [
+                {
+                    "type": "box", "layout": "horizontal", "spacing": "12px",
+                    "contents": [
+                        stat_box("Score", f"{score}"),
+                        stat_box("Weekly", trend),
+                        stat_box("Slope", f"{slope}%/yr"),
+                        stat_box("Theme", f"{theme}")
+                    ]
+                },
+                {"type": "separator", "color": "#22304a"},
+                {
+                    "type": "box", "layout": "vertical", "spacing": "6px",
+                    "contents": [
+                        {"type": "text", "text": "Policies", "size": "xs", "color": "#99A3B3"},
+                        {"type": "text", "text": " / ".join(policies)[:480], "wrap": True, "size": "sm"}
+                    ]
+                },
+            ] + (
+                [] if not entry else [
+                    {"type": "separator", "color": "#22304a"},
+                    {
+                        "type": "box", "layout": "horizontal", "contents": [
+                            stat_box("Entry", f"¥{entry:,}"),
+                            stat_box("TP/SL", "ポリシー準拠")
+                        ]
+                    }
+                ]
+            )
+        },
+        "footer": {
+            "type": "box", "layout": "vertical", "spacing": "8px",
+            "contents": [
+                {
+                    "type": "button", "style": "primary", "height": "sm",
+                    "action": {"type": "message", "label": "発注メモに保存", "text": f"/save {ticker}"}
+                },
+                {
+                    "type": "button", "style": "secondary", "height": "sm",
+                    "action": {"type": "message", "label": "2時間後に再通知", "text": f"/remind2h {ticker}"}
+                },
+                {
+                    "type": "button", "style": "link", "height": "sm",
+                    "action": {"type": "message", "label": "今回は見送り", "text": f"/reject {ticker}"}
+                }
+            ]
+        },
+        "styles": {"body": {"separator": True}}
+    }
+    return bubble
