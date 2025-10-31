@@ -10,6 +10,10 @@ import environ
 env = environ.Env()
 env.read_env(env.str('ENV_PATH', '.env'))
 
+import dotenv, os
+dotenv.load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+
+
 # === パス基点 ===
 BASE_DIR = Path(__file__).resolve().parent.parent
 
