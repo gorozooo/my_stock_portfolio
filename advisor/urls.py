@@ -1,7 +1,7 @@
 from django.urls import path
 from advisor.views import page, api, watch_api, policy_page
 from advisor.views import report as report_views
-from advisor.views.line import webhook
+from portfolio.views.line import line_webhook
 
 urlpatterns = [
     path("board/", page.board_page, name="advisor_board_page"),     # 画面
