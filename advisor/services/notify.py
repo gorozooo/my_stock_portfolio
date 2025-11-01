@@ -4,6 +4,8 @@ import os, json, requests
 from typing import Dict, Any, Optional, List
 from django.conf import settings
 
+from portfolio.utils.line_client import push_text, push_flex
+
 # ---- （任意）厳密TP/SL計算に利用。無ければフォールバック ----
 try:
     from advisor.services.policy_rules import compute_exit_targets
@@ -206,30 +208,23 @@ def make_flex_from_tr(tr_obj: Any, policies: List[str], *, window: str,
 # ------------------------------------------------------
 # LINE push（alt_text/text/flexで呼ぶ）
 # ------------------------------------------------------
-def push_line_message(*, alt_text: str, text: Optional[str]=None,
-                      flex: Optional[Dict[str, Any]]=None) -> None:
-    token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-    uids = [u.strip() for u in os.getenv("LINE_TO_USER_IDS","").split(",") if u.strip()]
-    if not token or not uids:
-        print(f"[LINE diag] TOKEN={'set' if token else 'unset'} UIDS={len(uids)}")
-        return
-
-    url = "https://api.line.me/v2/bot/message/push"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type":"application/json"}
+def push_line_message(*, alt_text: str, text: Optional[str] = None, flex: Optional[Dict[str, Any]] = None) -> None:
+    """
+    Advisor から LINE 送信。複数ユーザーにも対応（カンマ区切り）
+    """
+    uids = [u.strip() for u in os.getenv("LINE_TO_USER_IDS", "").split(",") if u.strip()]
+    if not uids:
+        print("[LINE diag] no recipients"); return
 
     if text is None and flex is None:
-        print("[LINE diag] skip send (no text/flex)")
-        return
-
-    if flex is not None:
-        msg = {"type":"flex", "altText": alt_text, "contents": flex}
-    else:
-        msg = {"type":"text", "text": text or alt_text}
+        print("[LINE diag] skip (no text/flex)"); return
 
     for uid in uids:
-        body = {"to": uid, "messages":[msg]}
         try:
-            r = requests.post(url, headers=headers, data=json.dumps(body))
+            if flex is not None:
+                r = push_flex(uid, alt_text=alt_text, contents=flex, quick_reply=True)
+            else:
+                r = push_text(uid, text or alt_text)
             print("[LINE push]", uid, r.status_code, r.text[:200])
         except Exception as e:
             print("[LINE push error]", uid, e)
