@@ -42,7 +42,7 @@ def _yen(n: Optional[int]) -> str:
     if n is None: return "—"
     return f"¥{n:,}"
 
-def _txt(text, *, size="sm", weight=None, color="#e5e7eb", align="start", wrap=False):
+def _txt(text, *, size="sm", weight=None, color="#e5e7eb", align="start", wrap=True):
     node = {"type":"text","text":str(text), "size":size, "color":color, "wrap":wrap}
     if weight: node["weight"]=weight
     if align: node["align"]=align
@@ -56,10 +56,11 @@ def _kpi_cell(label: str, value: str) -> Dict[str, Any]:
     return {
         "type":"box", "layout":"vertical", "flex":1, "spacing":"xs",
         "contents":[
-            _txt(value, size="lg", weight="bold", color="#f8fafc", align="center"),
-            _txt(label, size="xs", color="#94a3b8", align="center")
+            _txt(value, size="lg", weight="bold", color="#f8fafc", align="center", wrap=True),
+            _txt(label, size="xs", color="#94a3b8", align="center", wrap=True)
         ]
     }
+
 
 # ------------------------------------------------------
 # Flexバブル生成（日本語・省略抑制・視線誘導調整済）
@@ -76,47 +77,52 @@ def _build_trade_bubble(*, window: str, ticker: str, name: Optional[str],
     header = {
         "type":"box","layout":"vertical","paddingAll":"16px","spacing":"xs",
         "contents":[
-            _txt(title, size="xs", color="#93c5fd"),
-            _txt(jp_name, size="xl", weight="bold", color="#f8fafc"),
+            _txt(title, size="xs", color="#93c5fd", wrap=True),
+            _txt(jp_name, size="xl", weight="bold", color="#f8fafc", wrap=True),
         ]
     }
 
-    kpi = {
-        "type":"box","layout":"horizontal","paddingAll":"8px","spacing":"sm",
-        "contents":[
+    # 2行×2列のKPIグリッド（省略を抑制）
+    kpi_row1 = {
+        "type":"box","layout":"horizontal","spacing":"sm","contents":[
             _kpi_cell("スコア", str(score if score is not None else "—")),
             _kpi_cell("週次", {"up":"上昇","down":"下落"}.get(weekly, weekly or "—")),
+        ]
+    }
+    kpi_row2 = {
+        "type":"box","layout":"horizontal","spacing":"sm","contents":[
             _kpi_cell("傾き", f"{round((slope_yr or 0.0)*100,1)}%/yr"),
             _kpi_cell("テーマ", str(int(round((theme or 0.0)*100)))),
         ]
+    }
+    kpi = {
+        "type":"box","layout":"vertical","paddingAll":"8px","spacing":"sm",
+        "contents":[kpi_row1, kpi_row2]
     }
 
     policies = {
         "type":"box","layout":"vertical","paddingAll":"12px","spacing":"xs",
         "contents":[
-            _txt("採用ポリシー", size="xs", color="#94a3b8"),
-            _txt(policy_line or "—", size="sm", color="#e5e7eb"),
+            _txt("採用ポリシー", size="xs", color="#94a3b8", wrap=True),
+            _txt(policy_line or "—", size="sm", color="#e5e7eb", wrap=True),
         ]
     }
 
     prices = {
         "type":"box","layout":"vertical","paddingAll":"12px","spacing":"sm",
         "contents":[
-            {"type":"box","layout":"baseline","contents":[
-                _txt("参考エントリー", size="sm", color="#94a3b8"),
-                {"type":"filler"},
-                _txt(_yen(entry_price), size="md", weight="bold", color="#f8fafc")
+            {"type":"box","layout":"vertical","spacing":"xs","contents":[
+                _txt("参考エントリー", size="xs", color="#94a3b8", wrap=True),
+                _txt(_yen(entry_price), size="md", weight="bold", color="#f8fafc"),
             ]},
-            {"type":"box","layout":"horizontal","contents":[
-                {"type":"box","layout":"baseline","flex":1,"contents":[
-                    _txt("目標 (TP)", size="sm", color="#94a3b8"),
-                    {"type":"filler"},
-                    _txt(_yen(tp_price), size="md", weight="bold", color="#22c55e")
+            {"type":"box","layout":"horizontal","spacing":"sm","contents":[
+                {"type":"box","layout":"vertical","flex":1,"spacing":"xs","contents":[
+                    _txt("目標 (TP)", size="xs", color="#94a3b8", wrap=True),
+                    _txt(_yen(tp_price), size="md", weight="bold", color="#22c55e"),
                 ]},
-                {"type":"box","layout":"baseline","flex":1,"contents":[
-                    _txt("損切り (SL)", size="sm", color="#94a3b8"),
-                    {"type":"filler"},
-                    _txt(_yen(sl_price), size="md", weight="bold", color="#ef4444")
+                {"type":"box","layout":"vertical","flex":1,"spacing":"xs","contents":[
+                    _txt("損切り (SL)", size="xs", color="#94a3b8", wrap=True),
+                    _txt(_yen(sl_price), size="md", weight="bold", color="#ef4444"),
                 ]},
             ]},
         ]
@@ -145,7 +151,7 @@ def _build_trade_bubble(*, window: str, ticker: str, name: Optional[str],
     }
 
     return {
-        "type":"bubble","size":"mega",
+        "type":"bubble","size":"giga",
         "styles":{"body":{"backgroundColor":"#0b0f1a"}, "footer":{"backgroundColor":"#0b0f1a"}},
         "body": body,
         "footer": footer
