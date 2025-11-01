@@ -1,87 +1,73 @@
 # -*- coding: utf-8 -*-
-from __future__ import annotations
-import os, json, hmac, hashlib, base64, logging
-from typing import Dict, Any, Optional
+import hmac, hashlib, base64, json, logging, os
 import requests
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
+
 API_BASE = "https://api.line.me/v2/bot"
 
-# =========================
-# 内部ユーティリティ
-# =========================
+# ---- トークン/シークレットを robust に取得 ----
 def _get_token() -> str:
-    # settings 優先 → 環境変数フォールバック
-    return getattr(settings, "LINE_CHANNEL_ACCESS_TOKEN", os.getenv("LINE_CHANNEL_ACCESS_TOKEN", ""))
+    return getattr(settings, "LINE_CHANNEL_ACCESS_TOKEN", None) or os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
 
-def _get_secret() -> Optional[str]:
-    return getattr(settings, "LINE_CHANNEL_SECRET", os.getenv("LINE_CHANNEL_SECRET"))
+def _get_secret() -> str:
+    return getattr(settings, "LINE_CHANNEL_SECRET", None) or os.getenv("LINE_CHANNEL_SECRET", "")
 
-def _auth_headers() -> Dict[str, str]:
+def _auth_headers():
     return {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {_get_token()}",
     }
 
-# =========================
-# 署名検証（SECRET未設定なら dev用途でスキップ）
-# =========================
+# ------------------------------------------------------------------
+# 署名検証
+# ------------------------------------------------------------------
 def verify_signature(body_bytes: bytes, x_line_signature: str) -> bool:
     secret = _get_secret()
     if not secret:
-        logger.warning("LINE_CHANNEL_SECRET not set; skipping signature verification.")
+        # 開発環境などで未設定なら true（上位で制御）
         return True
     mac = hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256).digest()
     expected = base64.b64encode(mac).decode("utf-8")
     return hmac.compare_digest(expected, x_line_signature or "")
 
-# =========================
-# 返信（reply）
-# =========================
-def reply_text(reply_token: str, message_text: str) -> requests.Response:
+# ------------------------------------------------------------------
+# 返信（replyTokenを使う即時返信）
+# ------------------------------------------------------------------
+def reply(reply_token: str, message_text: str):
     url = f"{API_BASE}/message/reply"
     payload = {
         "replyToken": reply_token,
         "messages": [{"type": "text", "text": message_text}],
     }
-    r = requests.post(url, headers=_auth_headers(),
-                      data=json.dumps(payload, ensure_ascii=False), timeout=10)
+    r = requests.post(url, headers=_auth_headers(), json=payload, timeout=10)
     logger.info("LINE reply %s %s", r.status_code, r.text[:200])
     return r
 
-# 互換：旧コードが import する reply を生かす
-def reply(reply_token: str, message_text: str) -> requests.Response:
-    return reply_text(reply_token, message_text)
-
-# =========================
-# プッシュ（push）
-# =========================
-def push_text(to_user_id: str, message_text: str) -> requests.Response:
+# ------------------------------------------------------------------
+# プッシュ（テキスト）
+# ------------------------------------------------------------------
+def push_text(to_user_id: str, message_text: str):
     url = f"{API_BASE}/message/push"
     payload = {
         "to": to_user_id,
         "messages": [{"type": "text", "text": message_text}],
     }
-    r = requests.post(url, headers=_auth_headers(),
-                      data=json.dumps(payload, ensure_ascii=False), timeout=10)
+    r = requests.post(url, headers=_auth_headers(), json=payload, timeout=10)
     logger.info("LINE push_text %s %s", r.status_code, r.text[:200])
     return r
 
-# 互換：旧コードが import する push を生かす
-def push(to_user_id: str, message_text: str) -> requests.Response:
-    return push_text(to_user_id, message_text)
-
-def push_flex(to_user_id: str, *, alt_text: str, contents: Dict[str, Any],
-              quick_reply: bool = True) -> requests.Response:
-    """
-    contents: Flex の bubble / carousel を想定
-    """
+# ------------------------------------------------------------------
+# プッシュ（Flex + クイックリプライ任意）
+#   呼び出し想定: push_flex(uid, alt_text, contents)  ← advisor_daily_brief 等
+# ------------------------------------------------------------------
+def push_flex(to_user_id: str, alt_text: str, contents: dict, quick_reply: bool = True):
     url = f"{API_BASE}/message/push"
-    msg: Dict[str, Any] = {
+    msg = {
         "type": "flex",
         "altText": alt_text,
-        "contents": contents,
+        "contents": contents,   # bubble or carousel
     }
     if quick_reply:
         msg["quickReply"] = {
@@ -91,17 +77,8 @@ def push_flex(to_user_id: str, *, alt_text: str, contents: Dict[str, Any],
                 {"type": "action", "action": {"type": "message", "label": "✏️ 修正", "text": "feedback:edit"}},
             ]
         }
+
     payload = {"to": to_user_id, "messages": [msg]}
-    r = requests.post(url, headers=_auth_headers(),
-                      data=json.dumps(payload, ensure_ascii=False), timeout=10)
+    r = requests.post(url, headers=_auth_headers(), json=payload, timeout=10)
     logger.info("LINE push_flex %s %s", r.status_code, r.text[:200])
     return r
-
-# =========================
-# 簡易ヘルスチェック（任意）
-# =========================
-def health() -> Dict[str, Any]:
-    return {
-        "token_configured": bool(_get_token()),
-        "secret_configured": bool(_get_secret()),
-    }
