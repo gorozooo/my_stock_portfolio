@@ -8,10 +8,20 @@ from django.views.decorators.csrf import csrf_exempt
 from portfolio.models_line import LineContact
 from portfolio.services.line_api import verify_signature, reply
 
+# 追加：ActionLog に記録するため
+from datetime import timedelta, timezone
+from django.utils.timezone import now as dj_now
+from django.contrib.auth import get_user_model
+from advisor.models import ActionLog
+
 logger = logging.getLogger(__name__)
 
 # 環境変数で初回だけ挨拶（1 のときのみ）
 WELCOME_ONCE = os.getenv("LINE_WELCOME_ONCE", "").strip() == "1"
+# 追加：開発テスト用 署名検証バイパス（本番は未影響）
+DEBUG_BYPASS = os.getenv("LINE_WEBHOOK_BYPASS", "").strip() == "1"
+JST = timezone(timedelta(hours=9))
+
 
 # ---------- 共通ユーティリティ ----------
 def _media_root() -> str:
@@ -150,6 +160,16 @@ def _parse_feedback_from_postback(data: str) -> dict | None:
 
     return {"choice": choice, "mode": mode, "text": text}
 
+
+# ---------- ActionLog 記録（追加機能） ----------
+def _actor_user():
+    U = get_user_model()
+    return U.objects.first()
+
+def _save_action(user, ticker: str, action: str, note: str = ""):
+    ActionLog.objects.create(user=user, ticker=ticker.upper(), action=action, note=note)
+
+
 # ---------- Webhook 本体 ----------
 @csrf_exempt
 def line_webhook(request):
@@ -160,21 +180,30 @@ def line_webhook(request):
       - 友だち追加 follow はデフォルト無返信（LINE_WELCOME_ONCE=1 かつ初回のみ挨拶）
       - ボタン(Postback) / テキストどちらの feedback も advisor/feedback.jsonl に保存
         → text/mode が欠けている場合は直近カードから自動補完
+      - 追加: postback 'save:XXXX', 'reject:XXXX', 'snooze:XXXX:MIN' を ActionLog に記録
+             テキスト '/save XXXX' '/reject XXXX' '/snooze XXXX MIN' にも対応
     """
     if request.method != "POST":
         return HttpResponse("OK")
 
     body = request.body
     sig = request.headers.get("X-Line-Signature", "")
-    if not verify_signature(body, sig):
-        logger.warning("LINE signature mismatch")
-        return HttpResponse(status=403)
+
+    # 署名検証（?bypass=1 もしくは LINE_WEBHOOK_BYPASS=1 の時は開発用にスキップ）
+    if not (DEBUG_BYPASS or request.GET.get("bypass") == "1"):
+        if not verify_signature(body, sig):
+            logger.warning("LINE signature mismatch")
+            return HttpResponse(status=403)
+    else:
+        logger.info("LINE signature bypassed for development/test")
 
     try:
         payload = json.loads(body.decode("utf-8"))
     except Exception:
         logger.exception("LINE payload parse error")
         return HttpResponse(status=400)
+
+    user_for_actionlog = _actor_user()
 
     for ev in payload.get("events", []):
         etype = ev.get("type")
@@ -208,7 +237,30 @@ def line_webhook(request):
                         reply(rtoken, f"あなたのLINE ID:\n{user_id}")
                     continue
 
-                # b) feedback; ... を保存（不足は直近カードで補完）
+                # b) アクションテキスト（追加機能）
+                if user_for_actionlog:
+                    parts = text_raw.split()
+                    cmd = parts[0].lower() if parts else ""
+                    if cmd in ("/save", "/reject", "/snooze"):
+                        tick = parts[1] if len(parts) > 1 else ""
+                        if tick:
+                            if cmd == "/save":
+                                _save_action(user_for_actionlog, tick, "save_order", "from_line_text")
+                            elif cmd == "/reject":
+                                _save_action(user_for_actionlog, tick, "reject", "from_line_text")
+                            else:
+                                mins = 120
+                                try:
+                                    mins = int(parts[2]) if len(parts) > 2 else 120
+                                except Exception:
+                                    pass
+                                until = dj_now().astimezone(JST) + timedelta(minutes=mins)
+                                _save_action(user_for_actionlog, tick, "notify", f"snooze_until={until.isoformat()}")
+                            # 既存のfeedback保存フローは壊さない
+                            # （以降 continue でこのイベントの処理終了）
+                            continue
+
+                # c) feedback; ... を保存（不足は直近カードで補完）
                 fb = _parse_feedback_from_text(text_raw)
                 if fb:
                     txt = fb.get("text")
@@ -229,7 +281,7 @@ def line_webhook(request):
                     logger.info("saved feedback(message): %s", row)
                     continue
 
-                # c) それ以外はサイレント
+                # d) それ以外はサイレント
                 logger.debug("LINE message(silent): %s", text_raw)
             continue  # 他の message 種別は無視
 
@@ -237,6 +289,30 @@ def line_webhook(request):
         if etype == "postback":
             pb = ev.get("postback") or {}
             data = pb.get("data") or ""
+
+            # 追加：save/reject/snooze の簡易プロトコル
+            if user_for_actionlog and isinstance(data, str) and ":" in data:
+                kind, *rest = [p.strip() for p in data.split(":")]
+                if kind in ("save", "reject", "snooze"):
+                    ticker = (rest[0] if rest else "").upper()
+                    if ticker:
+                        if kind == "save":
+                            _save_action(user_for_actionlog, ticker, "save_order", "from_line_button")
+                        elif kind == "reject":
+                            _save_action(user_for_actionlog, ticker, "reject", "from_line_button")
+                        else:
+                            mins = 120
+                            try:
+                                if len(rest) > 1:
+                                    mins = int(rest[1])
+                            except Exception:
+                                pass
+                            until = dj_now().astimezone(JST) + timedelta(minutes=mins)
+                            _save_action(user_for_actionlog, ticker, "notify", f"snooze_until={until.isoformat()}")
+                        # 既存のfeedback保存を壊さず、以降はこのイベント終了
+                        continue
+
+            # 既存：feedback 形式を保存
             fb = _parse_feedback_from_postback(data)
             if fb:
                 txt = fb.get("text")
