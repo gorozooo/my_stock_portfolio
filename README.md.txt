@@ -59,3 +59,5 @@ bash -lc '/usr/bin/flock -w 10 /home/gorozooo/my_stock_portfolio/media/logs/brie
 >> /home/gorozooo/my_stock_portfolio/media/logs/brief.log 2>&1'
 
 tail -n 60 /home/gorozooo/my_stock_portfolio/media/logs/brief.log
+
+python manage.py evaluate_triggers --window preopen --tickers 7203.T,6758.T --force
