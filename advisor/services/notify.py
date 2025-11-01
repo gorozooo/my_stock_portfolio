@@ -1,7 +1,7 @@
 # advisor/services/notify.py
 from __future__ import annotations
 import os, json, requests
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List
 from django.conf import settings
 
 # ---- （任意）厳密TP/SL計算に利用。無ければフォールバック ----
@@ -42,32 +42,27 @@ def _yen(n: Optional[int]) -> str:
     if n is None: return "—"
     return f"¥{n:,}"
 
-def _txt(text, *, size="sm", weight=None, color="#e5e7eb", align="start", wrap=True):
+def _txt(text, *, size="sm", weight=None, color="#e5e7eb", align="start", wrap=False):
     node = {"type":"text","text":str(text), "size":size, "color":color, "wrap":wrap}
     if weight: node["weight"]=weight
     if align: node["align"]=align
     return node
 
-def _kv(label, value):
-    # 値は文字列でも_textノードでもOK
-    if isinstance(value, dict):
-        val_node = value
-    else:
-        val_node = _txt(value, size="sm", color="#e5e7eb", align="end")
-    return {
-        "type":"box","layout":"baseline","spacing":"sm","contents":[
-            _txt(label, size="sm", color="#94a3b8"),
-            {"type":"filler"},
-            val_node
-        ]
-    }
-
 def _pb(label, data, style="primary"):
     return {"type":"button","style":style,"height":"sm",
             "action":{"type":"postback","label":label,"data":data}}
 
+def _kpi_cell(label: str, value: str) -> Dict[str, Any]:
+    return {
+        "type":"box", "layout":"vertical", "flex":1, "spacing":"xs",
+        "contents":[
+            _txt(value, size="lg", weight="bold", color="#f8fafc", align="center"),
+            _txt(label, size="xs", color="#94a3b8", align="center")
+        ]
+    }
+
 # ------------------------------------------------------
-# Flexバブル生成（完全日本語・省略無し・TP/SL具体価格を表示）
+# Flexバブル生成（日本語・省略抑制・視線誘導調整済）
 # ------------------------------------------------------
 def _build_trade_bubble(*, window: str, ticker: str, name: Optional[str],
                         score: Optional[int], weekly: str, slope_yr: Optional[float],
@@ -79,42 +74,70 @@ def _build_trade_bubble(*, window: str, ticker: str, name: Optional[str],
     jp_name = _jpx_name(ticker, name)
 
     header = {
-        "type":"box","layout":"vertical","backgroundColor":"#0b1220",
-        "paddingAll":"16px","contents":[
-            _txt(title, size="sm", color="#93c5fd", weight="bold"),
-            _txt(jp_name, size="md", weight="bold", color="#f8fafc"),
-            {"type":"separator","margin":"12px","color":"#1f2937"},
-            {"type":"box","layout":"horizontal","spacing":"md","contents":[
-                _kv("スコア", str(score if score is not None else "—")),
-                _kv("週次トレンド", {"up":"上昇","down":"下落"}.get(weekly, weekly or "—")),
-                _kv("傾き", f"{round((slope_yr or 0.0)*100,1)}%/yr"),
-                _kv("テーマ", str(int(round((theme or 0.0)*100))))
-            ]}
+        "type":"box","layout":"vertical","paddingAll":"16px","spacing":"xs",
+        "contents":[
+            _txt(title, size="xs", color="#93c5fd"),
+            _txt(jp_name, size="xl", weight="bold", color="#f8fafc"),
+        ]
+    }
+
+    kpi = {
+        "type":"box","layout":"horizontal","paddingAll":"8px","spacing":"sm",
+        "contents":[
+            _kpi_cell("スコア", str(score if score is not None else "—")),
+            _kpi_cell("週次", {"up":"上昇","down":"下落"}.get(weekly, weekly or "—")),
+            _kpi_cell("傾き", f"{round((slope_yr or 0.0)*100,1)}%/yr"),
+            _kpi_cell("テーマ", str(int(round((theme or 0.0)*100)))),
         ]
     }
 
     policies = {
-        "type":"box","layout":"vertical","paddingAll":"12px",
-        "contents":[ _txt("採用ポリシー", size="sm", color="#94a3b8"),
-                     _txt(policy_line or "—", size="sm") ]
+        "type":"box","layout":"vertical","paddingAll":"12px","spacing":"xs",
+        "contents":[
+            _txt("採用ポリシー", size="xs", color="#94a3b8"),
+            _txt(policy_line or "—", size="sm", color="#e5e7eb"),
+        ]
     }
 
     prices = {
-        "type":"box","layout":"vertical","paddingAll":"12px",
+        "type":"box","layout":"vertical","paddingAll":"12px","spacing":"sm",
         "contents":[
-            {"type":"box","layout":"horizontal","spacing":"md","contents":[
-                _kv("参考エントリー", _yen(entry_price)),
-                _kv("TP/SL", "ポリシー準拠"),
+            {"type":"box","layout":"baseline","contents":[
+                _txt("参考エントリー", size="sm", color="#94a3b8"),
+                {"type":"filler"},
+                _txt(_yen(entry_price), size="md", weight="bold", color="#f8fafc")
             ]},
-            {"type":"box","layout":"horizontal","spacing":"md","contents":[
-                _kv("目標(TP)", _yen(tp_price)),
-                _kv("損切り(SL)", _yen(sl_price)),
+            {"type":"box","layout":"horizontal","contents":[
+                {"type":"box","layout":"baseline","flex":1,"contents":[
+                    _txt("目標 (TP)", size="sm", color="#94a3b8"),
+                    {"type":"filler"},
+                    _txt(_yen(tp_price), size="md", weight="bold", color="#22c55e")
+                ]},
+                {"type":"box","layout":"baseline","flex":1,"contents":[
+                    _txt("損切り (SL)", size="sm", color="#94a3b8"),
+                    {"type":"filler"},
+                    _txt(_yen(sl_price), size="md", weight="bold", color="#ef4444")
+                ]},
             ]},
         ]
     }
 
-    buttons = {
-        "type":"box","layout":"vertical","spacing":"sm","paddingAll":"16px","contents":[
+    body = {
+        "type":"box","layout":"vertical","backgroundColor":"#0b0f1a",
+        "contents":[
+            header,
+            {"type":"separator","color":"#1f2937"},
+            kpi,
+            {"type":"separator","color":"#1f2937"},
+            policies,
+            {"type":"separator","color":"#1f2937"},
+            prices,
+        ]
+    }
+
+    footer = {
+        "type":"box","layout":"vertical","spacing":"sm","paddingAll":"14px",
+        "contents":[
             _pb("発注メモに保存", f"save:{_display_ticker(ticker)}"),
             _pb("2時間後に再通知", f"snooze:{_display_ticker(ticker)}:120", style="secondary"),
             _pb("今回は見送り", f"reject:{_display_ticker(ticker)}", style="secondary"),
@@ -122,16 +145,14 @@ def _build_trade_bubble(*, window: str, ticker: str, name: Optional[str],
     }
 
     return {
-        "type":"bubble","size":"giga","styles":{"body":{"backgroundColor":"#0b0f1a"}},
-        "body":{"type":"box","layout":"vertical","spacing":"sm","backgroundColor":"#0b0f1a",
-                "contents":[header, {"type":"separator","color":"#1f2937"},
-                            policies, {"type":"separator","color":"#1f2937"},
-                            prices, buttons]}
+        "type":"bubble","size":"mega",
+        "styles":{"body":{"backgroundColor":"#0b0f1a"}, "footer":{"backgroundColor":"#0b0f1a"}},
+        "body": body,
+        "footer": footer
     }
 
 # ------------------------------------------------------
-# TrendResultからFlexを作る（evaluate_triggers互換）
-# exits: {"tp_price":int,"sl_price":int} を優先採用
+# TrendResult → Flex（exits: tp/sl を優先採用）
 # ------------------------------------------------------
 def make_flex_from_tr(tr_obj: Any, policies: List[str], *, window: str,
                       exits: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -144,7 +165,6 @@ def make_flex_from_tr(tr_obj: Any, policies: List[str], *, window: str,
     tp_price = (exits or {}).get("tp_price")
     sl_price = (exits or {}).get("sl_price")
 
-    # フォールバック（policy_rulesが未使用でも必ず値を出す）
     if (tp_price is None or sl_price is None) and entry:
         if compute_exit_targets is not None:
             try:
@@ -178,7 +198,7 @@ def make_flex_from_tr(tr_obj: Any, policies: List[str], *, window: str,
     )
 
 # ------------------------------------------------------
-# LINE push（evaluate_triggers から alt_text/text/flex で呼ばれる想定）
+# LINE push（alt_text/text/flexで呼ぶ）
 # ------------------------------------------------------
 def push_line_message(*, alt_text: str, text: Optional[str]=None,
                       flex: Optional[Dict[str, Any]]=None) -> None:
@@ -191,12 +211,10 @@ def push_line_message(*, alt_text: str, text: Optional[str]=None,
     url = "https://api.line.me/v2/bot/message/push"
     headers = {"Authorization": f"Bearer {token}", "Content-Type":"application/json"}
 
-    # 診断用に text も flex も無ければ送らない（evaluate_triggersのdiagで使用）
     if text is None and flex is None:
         print("[LINE diag] skip send (no text/flex)")
         return
 
-    # 送信メッセージを構築
     if flex is not None:
         msg = {"type":"flex", "altText": alt_text, "contents": flex}
     else:
