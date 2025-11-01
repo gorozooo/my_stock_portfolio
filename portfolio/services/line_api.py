@@ -25,12 +25,11 @@ def _auth_headers() -> Dict[str, str]:
     }
 
 # =========================
-# 署名検証（未設定なら dev としてスキップ）
+# 署名検証（SECRET未設定なら dev用途でスキップ）
 # =========================
 def verify_signature(body_bytes: bytes, x_line_signature: str) -> bool:
     secret = _get_secret()
     if not secret:
-        # 本番は必ず設定推奨。未設定時は開発用に検証スキップ。
         logger.warning("LINE_CHANNEL_SECRET not set; skipping signature verification.")
         return True
     mac = hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256).digest()
@@ -51,6 +50,10 @@ def reply_text(reply_token: str, message_text: str) -> requests.Response:
     logger.info("LINE reply %s %s", r.status_code, r.text[:200])
     return r
 
+# 互換：旧コードが import する reply を生かす
+def reply(reply_token: str, message_text: str) -> requests.Response:
+    return reply_text(reply_token, message_text)
+
 # =========================
 # プッシュ（push）
 # =========================
@@ -64,6 +67,10 @@ def push_text(to_user_id: str, message_text: str) -> requests.Response:
                       data=json.dumps(payload, ensure_ascii=False), timeout=10)
     logger.info("LINE push_text %s %s", r.status_code, r.text[:200])
     return r
+
+# 互換：旧コードが import する push を生かす
+def push(to_user_id: str, message_text: str) -> requests.Response:
+    return push_text(to_user_id, message_text)
 
 def push_flex(to_user_id: str, *, alt_text: str, contents: Dict[str, Any],
               quick_reply: bool = True) -> requests.Response:
@@ -89,10 +96,6 @@ def push_flex(to_user_id: str, *, alt_text: str, contents: Dict[str, Any],
                       data=json.dumps(payload, ensure_ascii=False), timeout=10)
     logger.info("LINE push_flex %s %s", r.status_code, r.text[:200])
     return r
-
-# 既存コード互換：以前の push() を使っていても動くように薄いラッパーを残す
-def push(to_user_id: str, message_text: str) -> requests.Response:
-    return push_text(to_user_id, message_text)
 
 # =========================
 # 簡易ヘルスチェック（任意）
