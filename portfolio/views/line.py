@@ -8,7 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from portfolio.models_line import LineContact
 from portfolio.services.line_api import verify_signature, reply
 
-# 追加：ActionLog に記録するため
+# 追加：ActionLog（advisor 側の集計に載せる）
 from datetime import timedelta, timezone
 from django.utils.timezone import now as dj_now
 from django.contrib.auth import get_user_model
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # 環境変数で初回だけ挨拶（1 のときのみ）
 WELCOME_ONCE = os.getenv("LINE_WELCOME_ONCE", "").strip() == "1"
-# 追加：開発テスト用 署名検証バイパス（本番は未影響）
+# 開発用：署名検証をバイパス（本番未使用）
 DEBUG_BYPASS = os.getenv("LINE_WEBHOOK_BYPASS", "").strip() == "1"
 JST = timezone(timedelta(hours=9))
 
@@ -182,6 +182,7 @@ def line_webhook(request):
         → text/mode が欠けている場合は直近カードから自動補完
       - 追加: postback 'save:XXXX', 'reject:XXXX', 'snooze:XXXX:MIN' を ActionLog に記録
              テキスト '/save XXXX' '/reject XXXX' '/snooze XXXX MIN' にも対応
+      - さらに今回: これらの操作時に **即時返信** を返して“押した感”を出す
     """
     if request.method != "POST":
         return HttpResponse("OK")
@@ -237,17 +238,20 @@ def line_webhook(request):
                         reply(rtoken, f"あなたのLINE ID:\n{user_id}")
                     continue
 
-                # b) アクションテキスト（追加機能）
+                # b) アクションテキスト（追加機能 + 即時返信）
                 if user_for_actionlog:
                     parts = text_raw.split()
                     cmd = parts[0].lower() if parts else ""
                     if cmd in ("/save", "/reject", "/snooze"):
                         tick = parts[1] if len(parts) > 1 else ""
+                        rtoken = ev.get("replyToken")
                         if tick:
                             if cmd == "/save":
                                 _save_action(user_for_actionlog, tick, "save_order", "from_line_text")
+                                if rtoken: reply(rtoken, f"📝 発注メモに保存しました：{tick}")
                             elif cmd == "/reject":
                                 _save_action(user_for_actionlog, tick, "reject", "from_line_text")
+                                if rtoken: reply(rtoken, f"🚫 今回は見送りとして記録しました：{tick}")
                             else:
                                 mins = 120
                                 try:
@@ -256,8 +260,7 @@ def line_webhook(request):
                                     pass
                                 until = dj_now().astimezone(JST) + timedelta(minutes=mins)
                                 _save_action(user_for_actionlog, tick, "notify", f"snooze_until={until.isoformat()}")
-                            # 既存のfeedback保存フローは壊さない
-                            # （以降 continue でこのイベントの処理終了）
+                                if rtoken: reply(rtoken, f"⏰ {mins}分後に再通知します：{tick}")
                             continue
 
                 # c) feedback; ... を保存（不足は直近カードで補完）
@@ -289,8 +292,9 @@ def line_webhook(request):
         if etype == "postback":
             pb = ev.get("postback") or {}
             data = pb.get("data") or ""
+            rtoken = ev.get("replyToken")  # ← 即時返信に使用
 
-            # 追加：save/reject/snooze の簡易プロトコル
+            # 追加：save/reject/snooze の簡易プロトコル（+ 即時返信）
             if user_for_actionlog and isinstance(data, str) and ":" in data:
                 kind, *rest = [p.strip() for p in data.split(":")]
                 if kind in ("save", "reject", "snooze"):
@@ -298,8 +302,10 @@ def line_webhook(request):
                     if ticker:
                         if kind == "save":
                             _save_action(user_for_actionlog, ticker, "save_order", "from_line_button")
+                            if rtoken: reply(rtoken, f"📝 発注メモに保存しました：{ticker}")
                         elif kind == "reject":
                             _save_action(user_for_actionlog, ticker, "reject", "from_line_button")
+                            if rtoken: reply(rtoken, f"🚫 見送りを記録しました：{ticker}")
                         else:
                             mins = 120
                             try:
@@ -309,7 +315,8 @@ def line_webhook(request):
                                 pass
                             until = dj_now().astimezone(JST) + timedelta(minutes=mins)
                             _save_action(user_for_actionlog, ticker, "notify", f"snooze_until={until.isoformat()}")
-                        # 既存のfeedback保存を壊さず、以降はこのイベント終了
+                            if rtoken: reply(rtoken, f"⏰ {mins}分後に再通知します：{ticker}")
+                        # 既存のfeedback保存は壊さない（ここでイベント終了）
                         continue
 
             # 既存：feedback 形式を保存
