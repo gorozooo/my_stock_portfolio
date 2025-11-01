@@ -29,6 +29,6 @@ urlpatterns = [
     
     path("advisor/report/<str:yyyymmdd>/", report_views.daily_report, name="advisor_daily_report"),
     
-    path('line/webhook/', webhook),
+    path("line/webhook/", line_webhook, name="line_webhook"),
     
 ]
