@@ -12,11 +12,19 @@ class AdvisorConfig(AppConfig):
             from . import models_policy  # noqa: F401
         except Exception:
             pass
+            
         try:
             from . import admin_policy  # noqa: F401
         except Exception:
             pass
+            
         try:
             from . import models_notify  # noqa: F401
         except Exception:
             pass
+        
+        try:
+            from . import models_order  # noqa: F401
+        except Exception:
+            pass
+        
