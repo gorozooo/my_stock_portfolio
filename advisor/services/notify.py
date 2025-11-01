@@ -1,23 +1,16 @@
+# advisor/services/notify.py
 from __future__ import annotations
 import os, json, requests
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, List, Tuple
 from django.conf import settings
 
-# ==== 外部: TP/SLを算出 ====
+# ---- （任意）厳密TP/SL計算に利用。無ければフォールバック ----
 try:
     from advisor.services.policy_rules import compute_exit_targets
 except Exception:
     compute_exit_targets = None  # type: ignore
 
-# ==== モデル（名前/エントリー等の取得に使う） ====
-try:
-    from advisor.models_trend import TrendResult
-except Exception:
-    TrendResult = None  # type: ignore
-
-# --------------------------------
-# JPX名マップ（data/tse_list.json）
-# --------------------------------
+# ---- JPX銘柄マップ（data/tse_list.json）----
 def _load_tse_map() -> Dict[str, Dict[str, str]]:
     base = getattr(settings, "BASE_DIR", os.getcwd())
     path = os.path.join(base, "data", "tse_list.json")
@@ -49,134 +42,129 @@ def _yen(n: Optional[int]) -> str:
     if n is None: return "—"
     return f"¥{n:,}"
 
-# ----------------------------------------------------
-# Flexカード（ラベル日本語化・すべて wrap=True で省略なし）
-# ----------------------------------------------------
-def build_trade_card(*, window: str, ticker: str, name: Optional[str],
-                     score: Optional[int], weekly: str, slope_yr: Optional[float],
-                     theme: Optional[float],
-                     entry_price: Optional[int],
-                     tp_price: Optional[int], sl_price: Optional[int],
-                     policy_line: str) -> Dict[str, Any]:
+def _txt(text, *, size="sm", weight=None, color="#e5e7eb", align="start", wrap=True):
+    node = {"type":"text","text":str(text), "size":size, "color":color, "wrap":wrap}
+    if weight: node["weight"]=weight
+    if align: node["align"]=align
+    return node
+
+def _kv(label, value):
+    # 値は文字列でも_textノードでもOK
+    if isinstance(value, dict):
+        val_node = value
+    else:
+        val_node = _txt(value, size="sm", color="#e5e7eb", align="end")
+    return {
+        "type":"box","layout":"baseline","spacing":"sm","contents":[
+            _txt(label, size="sm", color="#94a3b8"),
+            {"type":"filler"},
+            val_node
+        ]
+    }
+
+def _pb(label, data, style="primary"):
+    return {"type":"button","style":style,"height":"sm",
+            "action":{"type":"postback","label":label,"data":data}}
+
+# ------------------------------------------------------
+# Flexバブル生成（完全日本語・省略無し・TP/SL具体価格を表示）
+# ------------------------------------------------------
+def _build_trade_bubble(*, window: str, ticker: str, name: Optional[str],
+                        score: Optional[int], weekly: str, slope_yr: Optional[float],
+                        theme: Optional[float],
+                        entry_price: Optional[int],
+                        tp_price: Optional[int], sl_price: Optional[int],
+                        policy_line: str) -> Dict[str, Any]:
     title = f"[{window}] {_display_ticker(ticker)}"
     jp_name = _jpx_name(ticker, name)
-
-    def txt(text, size="sm", weight=None, color="#e5e7eb", align="start", wrap=True):
-        node = {"type":"text","text":str(text),"size":size,"color":color,"wrap":wrap}
-        if weight: node["weight"]=weight
-        if align: node["align"]=align
-        return node
-
-    def kv(label, value):
-        return {
-            "type":"box","layout":"baseline","spacing":"sm","contents":[
-                txt(label, size="sm", color="#94a3b8"),
-                {"type":"filler"},
-                txt(value, size="sm", color="#e5e7eb", align="end")
-            ]
-        }
 
     header = {
         "type":"box","layout":"vertical","backgroundColor":"#0b1220",
         "paddingAll":"16px","contents":[
-            txt(title, size="sm", color="#93c5fd", weight="bold"),
-            txt(jp_name, size="md", weight="bold", color="#f8fafc"),
+            _txt(title, size="sm", color="#93c5fd", weight="bold"),
+            _txt(jp_name, size="md", weight="bold", color="#f8fafc"),
             {"type":"separator","margin":"12px","color":"#1f2937"},
             {"type":"box","layout":"horizontal","spacing":"md","contents":[
-                kv("スコア", str(score if score is not None else "—")),
-                kv("週次トレンド", {"up":"上昇","down":"下落"}.get(weekly, weekly or "—")),
-                kv("傾き", f"{round((slope_yr or 0.0)*100,1)}%/yr"),
-                kv("テーマ", str(int(round((theme or 0.0)*100))))
+                _kv("スコア", str(score if score is not None else "—")),
+                _kv("週次トレンド", {"up":"上昇","down":"下落"}.get(weekly, weekly or "—")),
+                _kv("傾き", f"{round((slope_yr or 0.0)*100,1)}%/yr"),
+                _kv("テーマ", str(int(round((theme or 0.0)*100))))
             ]}
         ]
     }
 
     policies = {
         "type":"box","layout":"vertical","paddingAll":"12px",
-        "contents":[
-            txt("採用ポリシー", size="sm", color="#94a3b8"),
-            txt(policy_line, size="sm", color="#e5e7eb")
-        ]
+        "contents":[ _txt("採用ポリシー", size="sm", color="#94a3b8"),
+                     _txt(policy_line or "—", size="sm") ]
     }
 
     prices = {
         "type":"box","layout":"vertical","paddingAll":"12px",
         "contents":[
             {"type":"box","layout":"horizontal","spacing":"md","contents":[
-                kv("参考エントリー", _yen(entry_price)),
-                kv("TP/SL", "ポリシー準拠"),
+                _kv("参考エントリー", _yen(entry_price)),
+                _kv("TP/SL", "ポリシー準拠"),
             ]},
             {"type":"box","layout":"horizontal","spacing":"md","contents":[
-                kv("目標(TP)", _yen(tp_price)),
-                kv("損切り(SL)", _yen(sl_price)),
+                _kv("目標(TP)", _yen(tp_price)),
+                _kv("損切り(SL)", _yen(sl_price)),
             ]},
         ]
     }
 
-    def pb(text, data, style="primary"):
-        return {
-            "type":"button","style":style,"height":"sm",
-            "action":{"type":"postback","label":text,"data":data}
-        }
-
     buttons = {
         "type":"box","layout":"vertical","spacing":"sm","paddingAll":"16px","contents":[
-            pb("発注メモに保存", f"save:{_display_ticker(ticker)}"),
-            pb("2時間後に再通知", f"snooze:{_display_ticker(ticker)}:120", style="secondary"),
-            pb("今回は見送り", f"reject:{_display_ticker(ticker)}", style="secondary"),
+            _pb("発注メモに保存", f"save:{_display_ticker(ticker)}"),
+            _pb("2時間後に再通知", f"snooze:{_display_ticker(ticker)}:120", style="secondary"),
+            _pb("今回は見送り", f"reject:{_display_ticker(ticker)}", style="secondary"),
         ]
     }
 
     return {
         "type":"bubble","size":"giga","styles":{"body":{"backgroundColor":"#0b0f1a"}},
-        "body":{
-            "type":"box","layout":"vertical","spacing":"sm","backgroundColor":"#0b0f1a",
-            "contents":[header, {"type":"separator","color":"#1f2937"},
-                        policies, {"type":"separator","color":"#1f2937"},
-                        prices, buttons]
-        }
+        "body":{"type":"box","layout":"vertical","spacing":"sm","backgroundColor":"#0b0f1a",
+                "contents":[header, {"type":"separator","color":"#1f2937"},
+                            policies, {"type":"separator","color":"#1f2937"},
+                            prices, buttons]}
     }
 
-# ----------------------------------------------------
-# TrendResult から直接 Flex を作る（evaluate_triggers が呼ぶ）
-# ----------------------------------------------------
-def make_flex_from_tr(*, window: str, tr_obj: Any, policies: List[str]) -> Dict[str, Any]:
-    """
-    tr_obj: TrendResult（又は互換オブジェクト）
-    policies: 採用されたポリシー名リスト（表示用）
-    """
-    # 参考エントリー
+# ------------------------------------------------------
+# TrendResultからFlexを作る（evaluate_triggers互換）
+# exits: {"tp_price":int,"sl_price":int} を優先採用
+# ------------------------------------------------------
+def make_flex_from_tr(tr_obj: Any, policies: List[str], *, window: str,
+                      exits: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     entry = None
     try:
         entry = int(tr_obj.entry_price_hint or tr_obj.close_price or 0) or None
     except Exception:
         entry = None
 
-    # TP/SLの具体価格（policy_rulesが使えない環境でも必ず数値を出す）
-    tp_price = sl_price = None
-    if compute_exit_targets is not None:
-        try:
-            xt = compute_exit_targets(
-                policy={"targets":{}, "exits":{}},
-                ticker=str(tr_obj.ticker).upper(),
-                entry_price=entry,
-                days_held=None,
-                atr14_hint=(tr_obj.notes or {}).get("atr14") if getattr(tr_obj, "notes", None) else None,
-            )
-            tp_price = xt.tp_price or None
-            sl_price = xt.sl_price or None
-        except Exception:
-            tp_price = sl_price = None
+    tp_price = (exits or {}).get("tp_price")
+    sl_price = (exits or {}).get("sl_price")
 
-    # 最低限のフォールバック（policy_rulesが未設定でも穴を空けない）
-    if entry and tp_price is None:
-        tp_price = int(round(entry * 1.06))  # 目安
-    if entry and sl_price is None:
-        sl_price = int(round(entry * 0.98))  # 目安
+    # フォールバック（policy_rulesが未使用でも必ず値を出す）
+    if (tp_price is None or sl_price is None) and entry:
+        if compute_exit_targets is not None:
+            try:
+                xt = compute_exit_targets(
+                    policy={"targets":{}, "exits":{}},
+                    ticker=str(tr_obj.ticker).upper(),
+                    entry_price=entry,
+                    days_held=None,
+                    atr14_hint=(getattr(tr_obj, "notes", {}) or {}).get("atr14"),
+                )
+                tp_price = tp_price or xt.tp_price
+                sl_price = sl_price or xt.sl_price
+            except Exception:
+                pass
+        if tp_price is None: tp_price = int(round(entry * 1.06))
+        if sl_price is None: sl_price = int(round(entry * 0.98))
 
     policy_line = " / ".join(policies) if policies else "—"
 
-    return build_trade_card(
+    return _build_trade_bubble(
         window=window,
         ticker=str(tr_obj.ticker),
         name=(getattr(tr_obj, "name", None) or None),
@@ -185,23 +173,39 @@ def make_flex_from_tr(*, window: str, tr_obj: Any, policies: List[str]) -> Dict[
         slope_yr=float(tr_obj.slope_annual or 0.0) if tr_obj.slope_annual is not None else None,
         theme=float(tr_obj.theme_score or 0.0) if tr_obj.theme_score is not None else None,
         entry_price=entry,
-        tp_price=tp_price,
-        sl_price=sl_price,
+        tp_price=tp_price, sl_price=sl_price,
         policy_line=policy_line,
     )
 
-# ----------------------------------------------------
-# Push送信
-# ----------------------------------------------------
-def push_line_message(payload: Dict[str, Any]) -> None:
+# ------------------------------------------------------
+# LINE push（evaluate_triggers から alt_text/text/flex で呼ばれる想定）
+# ------------------------------------------------------
+def push_line_message(*, alt_text: str, text: Optional[str]=None,
+                      flex: Optional[Dict[str, Any]]=None) -> None:
     token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
     uids = [u.strip() for u in os.getenv("LINE_TO_USER_IDS","").split(",") if u.strip()]
     if not token or not uids:
-        print("[LINE] TOKEN/UIDS not set")
+        print(f"[LINE diag] TOKEN={'set' if token else 'unset'} UIDS={len(uids)}")
         return
+
     url = "https://api.line.me/v2/bot/message/push"
     headers = {"Authorization": f"Bearer {token}", "Content-Type":"application/json"}
+
+    # 診断用に text も flex も無ければ送らない（evaluate_triggersのdiagで使用）
+    if text is None and flex is None:
+        print("[LINE diag] skip send (no text/flex)")
+        return
+
+    # 送信メッセージを構築
+    if flex is not None:
+        msg = {"type":"flex", "altText": alt_text, "contents": flex}
+    else:
+        msg = {"type":"text", "text": text or alt_text}
+
     for uid in uids:
-        body = {"to": uid, "messages":[payload]}
-        r = requests.post(url, headers=headers, data=json.dumps(body))
-        print("[LINE push]", uid, r.status_code, r.text[:200])
+        body = {"to": uid, "messages":[msg]}
+        try:
+            r = requests.post(url, headers=headers, data=json.dumps(body))
+            print("[LINE push]", uid, r.status_code, r.text[:200])
+        except Exception as e:
+            print("[LINE push error]", uid, e)
