@@ -23,6 +23,52 @@ DEBUG_BYPASS = os.getenv("LINE_WEBHOOK_BYPASS", "").strip() == "1"
 JST = timezone(timedelta(hours=9))
 
 
+# ---------- JPX銘柄名ヘルパ（トヨタ自動車(7203.T) 形式へ） ----------
+def _load_tse_map() -> dict:
+    # config.BASE_DIR/data/tse_list.json を想定（notify.py と同等）
+    try:
+        from django.conf import settings
+        base = getattr(settings, "BASE_DIR", os.getcwd())
+    except Exception:
+        base = os.getcwd()
+    path = os.path.join(base, "data", "tse_list.json")
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            d = json.load(f)
+            return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+_TSE = _load_tse_map()
+
+def _display_ticker(t: str) -> str:
+    t = (t or "").upper().strip()
+    if t.endswith(".T"):
+        return t
+    # 数字4-5桁なら .T を補う
+    if t.isdigit() and 4 <= len(t) <= 5:
+        return f"{t}.T"
+    return t
+
+def _jpx_name(ticker: str) -> str:
+    t = (ticker or "").upper().strip()
+    if t.endswith(".T"):
+        t = t[:-2]
+    rec = _TSE.get(t) or {}
+    nm = (rec.get("name") or "").strip()
+    return nm or t  # 無ければコードだけ
+
+def _jp_label(ticker: str) -> str:
+    dt = _display_ticker(ticker)
+    nm = _jpx_name(dt)
+    # 既に名前が数字のままなら「7203.T」のみより「7203.T」を返す
+    if nm.isdigit():
+        return dt
+    return f"{nm}({dt})"
+
+
 # ---------- 共通ユーティリティ ----------
 def _media_root() -> str:
     # settings.MEDIA_ROOT が未設定でも media/ を使えるように
@@ -183,6 +229,7 @@ def line_webhook(request):
       - 追加: postback 'save:XXXX', 'reject:XXXX', 'snooze:XXXX:MIN' を ActionLog に記録
              テキスト '/save XXXX' '/reject XXXX' '/snooze XXXX MIN' にも対応
       - さらに今回: これらの操作時に **即時返信** を返して“押した感”を出す
+        → 返信文の銘柄は「日本語名(コード)」で表示
     """
     if request.method != "POST":
         return HttpResponse("OK")
@@ -246,12 +293,13 @@ def line_webhook(request):
                         tick = parts[1] if len(parts) > 1 else ""
                         rtoken = ev.get("replyToken")
                         if tick:
+                            label = _jp_label(tick)
                             if cmd == "/save":
                                 _save_action(user_for_actionlog, tick, "save_order", "from_line_text")
-                                if rtoken: reply(rtoken, f"📝 発注メモに保存しました：{tick}")
+                                if rtoken: reply(rtoken, f"📝 発注メモに保存しました：{label}")
                             elif cmd == "/reject":
                                 _save_action(user_for_actionlog, tick, "reject", "from_line_text")
-                                if rtoken: reply(rtoken, f"🚫 今回は見送りとして記録しました：{tick}")
+                                if rtoken: reply(rtoken, f"🚫 見送りを記録しました：{label}")
                             else:
                                 mins = 120
                                 try:
@@ -260,7 +308,7 @@ def line_webhook(request):
                                     pass
                                 until = dj_now().astimezone(JST) + timedelta(minutes=mins)
                                 _save_action(user_for_actionlog, tick, "notify", f"snooze_until={until.isoformat()}")
-                                if rtoken: reply(rtoken, f"⏰ {mins}分後に再通知します：{tick}")
+                                if rtoken: reply(rtoken, f"⏰ {mins}分後に再通知します：{label}")
                             continue
 
                 # c) feedback; ... を保存（不足は直近カードで補完）
@@ -300,12 +348,13 @@ def line_webhook(request):
                 if kind in ("save", "reject", "snooze"):
                     ticker = (rest[0] if rest else "").upper()
                     if ticker:
+                        label = _jp_label(ticker)
                         if kind == "save":
                             _save_action(user_for_actionlog, ticker, "save_order", "from_line_button")
-                            if rtoken: reply(rtoken, f"📝 発注メモに保存しました：{ticker}")
+                            if rtoken: reply(rtoken, f"📝 発注メモに保存しました：{label}")
                         elif kind == "reject":
                             _save_action(user_for_actionlog, ticker, "reject", "from_line_button")
-                            if rtoken: reply(rtoken, f"🚫 見送りを記録しました：{ticker}")
+                            if rtoken: reply(rtoken, f"🚫 見送りを記録しました：{label}")
                         else:
                             mins = 120
                             try:
@@ -315,7 +364,7 @@ def line_webhook(request):
                                 pass
                             until = dj_now().astimezone(JST) + timedelta(minutes=mins)
                             _save_action(user_for_actionlog, ticker, "notify", f"snooze_until={until.isoformat()}")
-                            if rtoken: reply(rtoken, f"⏰ {mins}分後に再通知します：{ticker}")
+                            if rtoken: reply(rtoken, f"⏰ {mins}分後に再通知します：{label}")
                         # 既存のfeedback保存は壊さない（ここでイベント終了）
                         continue
 
