@@ -61,3 +61,9 @@ bash -lc '/usr/bin/flock -w 10 /home/gorozooo/my_stock_portfolio/media/logs/brie
 tail -n 60 /home/gorozooo/my_stock_portfolio/media/logs/brief.log
 
 python manage.py evaluate_triggers --window preopen --tickers 7203.T,6758.T --force
+
+# テスト用ユニバース作成（もうあるなら不要）
+printf "7203.T\n6758.T\n" > data/universe/two.csv
+
+# 今日の分を計算してDB保存
+python manage.py advisor_update_indicators --universe file --file data/universe/two.csv --days 60
