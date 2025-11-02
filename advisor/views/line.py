@@ -1,8 +1,8 @@
 # advisor/views/line.py
 from __future__ import annotations
 import json, os, hmac, hashlib, base64
-from datetime import timedelta, timezone
-from typing import Optional, Tuple
+from datetime import timedelta, timezone, date
+from typing import Optional, Tuple, Dict, Any
 
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -10,27 +10,17 @@ from django.utils.timezone import now as dj_now
 from django.contrib.auth import get_user_model
 
 import requests
+
 from advisor.models import ActionLog
 from advisor.models_order import OrderMemo
 from advisor.models_trend import TrendResult
-
-# 可能なら notify 側の日本語マップを再利用（無ければフォールバック）
-try:
-    from advisor.services.notify import _jpx_name  # type: ignore
-except Exception:
-    _jpx_name = None  # type: ignore
-
-# 可能なら厳密ターゲット計算を利用（無ければTP/SLフォールバック）
-try:
-    from advisor.services.policy_rules import compute_exit_targets  # type: ignore
-except Exception:
-    compute_exit_targets = None  # type: ignore
+from django.conf import settings
 
 JST = timezone(timedelta(hours=9))
 
 # ====== 返信ヘルパ（SDKなしで /reply 直叩き） ======
 def _reply_line(reply_token: str, text: str) -> None:
-    token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+    token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN") or getattr(settings, "LINE_CHANNEL_ACCESS_TOKEN", "")
     if not token or not reply_token:
         return
     url = "https://api.line.me/v2/bot/message/reply"
@@ -43,10 +33,10 @@ def _reply_line(reply_token: str, text: str) -> None:
         print("[LINE reply error]", e)
 
 def _verify_signature(request: HttpRequest) -> bool:
-    # 開発用バイパス（本番では付けないこと）
+    # 開発用バイパス（curl 等の手動確認用）
     if request.GET.get("bypass") == "1":
         return True
-    secret = os.getenv("LINE_CHANNEL_SECRET")
+    secret = os.getenv("LINE_CHANNEL_SECRET") or getattr(settings, "LINE_CHANNEL_SECRET", "")
     if not secret:
         return True  # 環境に無ければ検証スキップ（開発用）
     sig = request.headers.get("X-Line-Signature", "")
@@ -65,94 +55,68 @@ def _ok():
 def _save_action(user, ticker: str, action: str, note: str = ""):
     ActionLog.objects.create(user=user, ticker=ticker.upper(), action=action, note=note)
 
-# ---------- 価格・銘柄取得ヘルパ ----------
-def _latest_tr(user, ticker: str) -> Optional[TrendResult]:
+# ===== JPX銘柄マップ（data/tse_list.json） =====
+def _load_tse_map() -> Dict[str, Any]:
+    base = getattr(settings, "BASE_DIR", os.getcwd())
+    path = os.path.join(base, "data", "tse_list.json")
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            d = json.load(f)
+            return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+_TSE = _load_tse_map()
+
+def _display_ticker(t: str) -> str:
+    t = (t or "").upper().strip()
+    if t.isdigit() and 4 <= len(t) <= 5:
+        return f"{t}.T"
+    return t
+
+def _jpx_name(ticker: str, fallback: Optional[str]=None) -> str:
+    t = (ticker or "").upper().strip()
+    if t.endswith(".T"):
+        t = t[:-2]
+    rec = _TSE.get(t) or {}
+    nm = (rec.get("name") or "").strip() if isinstance(rec, dict) else ""
+    return nm or (fallback or _display_ticker(ticker))
+
+def _latest_tr_today(user, ticker: str) -> Optional[TrendResult]:
     return (
-        TrendResult.objects.filter(user=user, ticker=ticker.upper())
-        .order_by("-asof", "-updated_at")
+        TrendResult.objects
+        .filter(user=user, ticker=ticker.upper(), asof=date.today())
+        .order_by("-updated_at")
         .first()
     )
 
-def _jp_name(ticker: str, fallback: Optional[str]) -> str:
-    if _jpx_name:
-        try:
-            return _jpx_name(ticker, fallback)
-        except Exception:
-            pass
-    # フォールバック：英名→そのまま / コードだけは .T を付与
-    t = (ticker or "").upper().strip()
-    if t.endswith(".T"):
-        code = t
-    else:
-        code = f"{t}.T" if t.isdigit() else t
-    return (fallback or "").strip() or code
-
-def _int_or_none(x) -> Optional[int]:
+def _guess_entry_price(tr: Optional[TrendResult]) -> Optional[int]:
+    if not tr:
+        return None
     try:
-        v = int(round(float(x)))
-        return v if v > 0 else None
+        return int(tr.entry_price_hint or tr.close_price or 0) or None
     except Exception:
         return None
 
-def _compute_exits(entry: Optional[int], ticker: str, tr: Optional[TrendResult]) -> Tuple[Optional[int], Optional[int]]:
-    if not entry:
-        return (None, None)
-    # 厳密ロジックが使えるならそちらを優先
-    if compute_exit_targets:
-        try:
-            xt = compute_exit_targets(
-                policy={"targets":{}, "exits":{}},
-                ticker=ticker.upper(),
-                entry_price=entry,
-                days_held=None,
-                atr14_hint=(getattr(tr, "notes", {}) or {}).get("atr14") if tr else None,
-            )
-            tp = _int_or_none(getattr(xt, "tp_price", None))
-            sl = _int_or_none(getattr(xt, "sl_price", None))
-            if tp or sl:
-                return (tp, sl)
-        except Exception:
-            pass
-    # フォールバック：TP +6% / SL -2%
-    return (_int_or_none(entry * 1.06), _int_or_none(entry * 0.98))
+def _save_order_memo(user, ticker: str) -> OrderMemo:
+    """TrendResult と JPXマップから和名/価格を補完して OrderMemo を作成"""
+    t_norm = _display_ticker(ticker)
+    tr = _latest_tr_today(user, t_norm)
+    # 名称は JPX最優先 → TrendResult.name → ティッカー
+    name = _jpx_name(t_norm, getattr(tr, "name", None))
+    entry_price = _guess_entry_price(tr)
 
-def _save_order_memo(user, ticker: str, *, window: str = "preopen") -> Tuple[bool, str]:
-    """
-    OrderMemo を保存。成功 True, 表示名 を返す。
-    """
-    t = ticker.upper().strip()
-    tr = _latest_tr(user, t)
-    # 名称
-    base_name = getattr(tr, "name", None)
-    disp_name = _jp_name(t, base_name)
-    show = f"{disp_name} ({t})"
-
-    # 価格
-    entry = _int_or_none(getattr(tr, "entry_price_hint", None) or getattr(tr, "close_price", None))
-    tp, sl = _compute_exits(entry, t, tr)
-    try:
-        OrderMemo.objects.create(
-            user=user,
-            ticker=t,
-            name=disp_name,      # admin の NAME に日本語名
-            window=window,
-            entry_price=entry,
-            tp_price=tp,
-            sl_price=sl,
-            source="line",
-        )
-        return True, show
-    except Exception as e:
-        print("[OrderMemo save error]", e)
-        # 最低限、価格なしでも名前だけで作っておくオプション
-        try:
-            OrderMemo.objects.create(
-                user=user, ticker=t, name=disp_name, window=window, source="line"
-            )
-            return True, show
-        except Exception as e2:
-            print("[OrderMemo save fallback error]", e2)
-            return False, show
+    memo = OrderMemo.objects.create(
+        user=user,
+        ticker=t_norm,
+        name=name,
+        window="line",
+        entry_price=entry_price,
+        note="from_line_button",
+    )
+    return memo
 
 @csrf_exempt
 def webhook(request: HttpRequest) -> HttpResponse:
@@ -183,18 +147,26 @@ def webhook(request: HttpRequest) -> HttpResponse:
             ticker = (parts[1] if len(parts) > 1 else "").upper()
             if not ticker:
                 continue
+            disp = _display_ticker(ticker)
+            jpname = _jpx_name(disp, None)
 
             if kind == "save":
-                ok, show = _save_order_memo(user, ticker, window="preopen")
-                _save_action(user, ticker, "save_order", "from_line_button")
-                if ok:
-                    _reply_line(reply_token, f"📝 発注メモに保存しました：{show}")
-                else:
-                    _reply_line(reply_token, f"⚠️ 保存に失敗しました：{show}")
+                # 1) ActionLog
+                _save_action(user, disp, "save_order", "from_line_button")
+                # 2) OrderMemo（★今回追加）
+                try:
+                    memo = _save_order_memo(user, disp)
+                except Exception as e:
+                    # 失敗しても返信は返す（原因はログに）
+                    print("[OrderMemo save error]", e)
+                    memo = None
+                # 3) 返信（和名(コード) で返す）
+                _reply_line(reply_token, f"📝 発注メモに保存しました：{jpname}({_display_ticker(ticker)})")
+
             elif kind == "reject":
-                _save_action(user, ticker, "reject", "from_line_button")
-                nm = _jp_name(ticker, None)
-                _reply_line(reply_token, f"🚫 見送りを記録しました：{nm} ({ticker})")
+                _save_action(user, disp, "reject", "from_line_button")
+                _reply_line(reply_token, f"🚫 見送りを記録しました：{jpname}({_display_ticker(ticker)})")
+
             elif kind == "snooze":
                 mins = 120
                 try:
@@ -203,11 +175,11 @@ def webhook(request: HttpRequest) -> HttpResponse:
                 except Exception:
                     pass
                 until = dj_now().astimezone(JST) + timedelta(minutes=mins)
-                _save_action(user, ticker, "notify", f"snooze_until={until.isoformat()}")
-                nm = _jp_name(ticker, None)
-                _reply_line(reply_token, f"⏱ {mins}分後に再通知します：{nm} ({ticker})")
+                _save_action(user, disp, "notify", f"snooze_until={until.isoformat()}")
+                _reply_line(reply_token, f"⏱ {mins}分後にリマインドします：{jpname}({_display_ticker(ticker)})")
+
             else:
-                _save_action(user, ticker, "unknown", data)
+                _save_action(user, disp, "unknown", data)
                 _reply_line(reply_token, f"ℹ️ 未対応アクション: {data}")
             continue
 
@@ -219,25 +191,35 @@ def webhook(request: HttpRequest) -> HttpResponse:
                 parts = text.split()
                 t = parts[-1] if len(parts) > 1 else ""
                 if t:
-                    ok, show = _save_order_memo(user, t, window="preopen")
-                    _save_action(user, t, "save_order", "from_line_text")
-                    _reply_line(reply_token, "📝 発注メモに保存しました：" + show if ok else "⚠️ 保存に失敗しました：" + show)
+                    disp = _display_ticker(t)
+                    jpname = _jpx_name(disp, None)
+                    _save_action(user, disp, "save_order", "from_line_text")
+                    try:
+                        _save_order_memo(user, disp)
+                    except Exception as e:
+                        print("[OrderMemo save error]", e)
+                    _reply_line(reply_token, f"📝 発注メモに保存：{jpname}({disp})")
+
             elif low.startswith("/reject"):
                 parts = text.split()
                 t = parts[-1] if len(parts) > 1 else ""
                 if t:
-                    _save_action(user, t, "reject", "from_line_text")
-                    nm = _jp_name(t, None)
-                    _reply_line(reply_token, f"🚫 見送りを記録しました：{nm} ({t})")
+                    disp = _display_ticker(t)
+                    jpname = _jpx_name(disp, None)
+                    _save_action(user, disp, "reject", "from_line_text")
+                    _reply_line(reply_token, f"🚫 見送り：{jpname}({disp})")
+
             elif low.startswith("/snooze"):
                 parts = text.split()
                 t = parts[1] if len(parts) > 1 else ""
                 mins = int(parts[2]) if len(parts) > 2 else 120
                 if t:
+                    disp = _display_ticker(t)
+                    jpname = _jpx_name(disp, None)
                     until = dj_now().astimezone(JST) + timedelta(minutes=mins)
-                    _save_action(user, t, "notify", f"snooze_until={until.isoformat()}")
-                    nm = _jp_name(t, None)
-                    _reply_line(reply_token, f"⏱ {mins}分後に再通知します：{nm} ({t})")
+                    _save_action(user, disp, "notify", f"snooze_until={until.isoformat()}")
+                    _reply_line(reply_token, f"⏱ {mins}分後にリマインド：{jpname}({disp})")
+
             else:
                 _reply_line(reply_token, "コマンド: /save 7203.T, /reject 7203.T, /snooze 7203.T 120")
             continue
