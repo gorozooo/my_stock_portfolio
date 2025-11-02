@@ -1,77 +1,42 @@
 # -*- coding: utf-8 -*-
-import os, json, logging, io, fcntl
+import hmac, hashlib, base64, json, logging, os, fcntl
 from typing import Optional, Tuple
 from urllib.parse import parse_qsl
+from datetime import timedelta, timezone
+
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.utils.timezone import now as dj_now
 
 from portfolio.models_line import LineContact
 from portfolio.services.line_api import verify_signature, reply
 
-# 追加：ActionLog（advisor 側の集計に載せる）
-from datetime import timedelta, timezone
-from django.utils.timezone import now as dj_now
+# 追加: 発注メモ保存に必要
 from django.contrib.auth import get_user_model
-from advisor.models import ActionLog
+from advisor.models_order import OrderMemo
+from advisor.models_trend import TrendResult
 
 logger = logging.getLogger(__name__)
+JST = timezone(timedelta(hours=9))
+
+# --- 任意：日本語銘柄マップ（advisor側の実装があれば使う） ---
+try:
+    from advisor.services.notify import _jpx_name as _jpx_name  # type: ignore
+except Exception:  # フォールバック
+    def _jpx_name(ticker: str, fallback: Optional[str] = None) -> str:  # type: ignore
+        return (fallback or ticker).strip()
+
+# --- 任意：厳密TP/SL計算（あれば使う） ---
+try:
+    from advisor.services.policy_rules import compute_exit_targets  # type: ignore
+except Exception:
+    compute_exit_targets = None  # type: ignore
 
 # 環境変数で初回だけ挨拶（1 のときのみ）
 WELCOME_ONCE = os.getenv("LINE_WELCOME_ONCE", "").strip() == "1"
-# 開発用：署名検証をバイパス（本番未使用）
-DEBUG_BYPASS = os.getenv("LINE_WEBHOOK_BYPASS", "").strip() == "1"
-JST = timezone(timedelta(hours=9))
-
-
-# ---------- JPX銘柄名ヘルパ（トヨタ自動車(7203.T) 形式へ） ----------
-def _load_tse_map() -> dict:
-    # config.BASE_DIR/data/tse_list.json を想定（notify.py と同等）
-    try:
-        from django.conf import settings
-        base = getattr(settings, "BASE_DIR", os.getcwd())
-    except Exception:
-        base = os.getcwd()
-    path = os.path.join(base, "data", "tse_list.json")
-    if not os.path.exists(path):
-        return {}
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            d = json.load(f)
-            return d if isinstance(d, dict) else {}
-    except Exception:
-        return {}
-
-_TSE = _load_tse_map()
-
-def _display_ticker(t: str) -> str:
-    t = (t or "").upper().strip()
-    if t.endswith(".T"):
-        return t
-    # 数字4-5桁なら .T を補う
-    if t.isdigit() and 4 <= len(t) <= 5:
-        return f"{t}.T"
-    return t
-
-def _jpx_name(ticker: str) -> str:
-    t = (ticker or "").upper().strip()
-    if t.endswith(".T"):
-        t = t[:-2]
-    rec = _TSE.get(t) or {}
-    nm = (rec.get("name") or "").strip()
-    return nm or t  # 無ければコードだけ
-
-def _jp_label(ticker: str) -> str:
-    dt = _display_ticker(ticker)
-    nm = _jpx_name(dt)
-    # 既に名前が数字のままなら「7203.T」のみより「7203.T」を返す
-    if nm.isdigit():
-        return dt
-    return f"{nm}({dt})"
-
 
 # ---------- 共通ユーティリティ ----------
 def _media_root() -> str:
-    # settings.MEDIA_ROOT が未設定でも media/ を使えるように
     try:
         from django.conf import settings
         mr = getattr(settings, "MEDIA_ROOT", "")
@@ -83,7 +48,6 @@ def _feedback_path() -> str:
     return os.path.join(_media_root(), "advisor", "feedback.jsonl")
 
 def _comment_history_path(user_id: str) -> str:
-    # 新パス（media/advisor/...）優先、無ければ旧互換（プロジェクト直下/advisor/...）
     p_new = os.path.join(_media_root(), "advisor", f"comment_history_{user_id}.jsonl")
     if os.path.exists(p_new):
         return p_new
@@ -110,15 +74,10 @@ def _append_jsonl(path: str, row: dict) -> None:
 
 # ---------- 直近コメント（本文/モード）補完 ----------
 def _last_comment_for(user_id: str) -> Tuple[Optional[str], Optional[str]]:
-    """
-    ユーザー別の直近コメント本文とモードを返す。
-    期待フォーマット: 1行=JSON { "mode": "...", "text": "..." }
-    """
     path = _comment_history_path(user_id)
     if not os.path.exists(path):
         return (None, None)
     try:
-        # 最後の1行だけ効率良く読む
         with open(path, "rb") as f:
             f.seek(0, os.SEEK_END)
             size = f.tell()
@@ -142,18 +101,12 @@ def _last_comment_for(user_id: str) -> Tuple[Optional[str], Optional[str]]:
 
 # ---------- “feedback” 抽出ヘルパ ----------
 def _parse_feedback_from_text(s: str) -> dict | None:
-    """
-    テキストから feedback コマンドを抽出。
-    例: 'feedback; +1', 'feedback; -1', 'feedback; edit', 'feedback:+1'
-    """
     if not isinstance(s, str):
         return None
     t = s.strip()
     low = t.lower().replace("：", ":").replace("；", ";")
     if not (low.startswith("feedback;") or low.startswith("feedback:") or low.startswith("feedback ")):
         return None
-
-    # 区切り後ろを取り出して整形
     arg = ""
     for sep in (";", ":", " "):
         if sep in low:
@@ -161,60 +114,97 @@ def _parse_feedback_from_text(s: str) -> dict | None:
             if len(parts) == 2:
                 arg = parts[1].strip()
                 break
-
-    # 記号の揺れ対応
     if arg in ("+1", "up", "👍", "good", "like", "ok"):
         return {"choice": "up"}
     if arg in ("-1", "down", "👎", "bad", "ng", "no"):
         return {"choice": "down"}
     if arg in ("edit", "fix", "✏️", "修正"):
         return {"choice": "edit"}
-
     return {"choice": arg or "unknown"}
 
 def _parse_feedback_from_postback(data: str) -> dict | None:
-    """
-    Postback の data を解析。
-    期待例:
-      type=feedback&choice=up&mode=noon
-      t=fb&c=-1&m=afternoon
-    """
     if not isinstance(data, str) or not data:
         return None
     qs = dict(parse_qsl(data, keep_blank_values=True))
-    # 明示 type が無い実装にも対応
     t = (qs.get("type") or qs.get("t") or "").lower()
     if t not in ("feedback", "fb") and not any(k in qs for k in ("choice", "c")):
         return None
-
     choice = (qs.get("choice") or qs.get("c") or "").strip()
     mode   = (qs.get("mode")   or qs.get("m") or "").strip().lower()
     text   = (qs.get("text")   or qs.get("x") or "").strip() or None
-
-    # 記号の正規化
     if choice in ("+1", "up", "good", "like", "ok", "👍"):
         choice = "up"
     elif choice in ("-1", "down", "bad", "ng", "no", "👎"):
         choice = "down"
     elif choice in ("edit", "fix", "✏️", "修正"):
         choice = "edit"
-    if not choice:
-        return None
-
     if mode not in ("preopen","postopen","noon","afternoon","outlook"):
         mode = "generic"
-
     return {"choice": choice, "mode": mode, "text": text}
 
+# ====== OrderMemo 保存ユーティリティ（新規追加） ======
+def _int_or_none(x) -> Optional[int]:
+    try:
+        v = int(round(float(x)))
+        return v if v > 0 else None
+    except Exception:
+        return None
 
-# ---------- ActionLog 記録（追加機能） ----------
-def _actor_user():
-    U = get_user_model()
-    return U.objects.first()
+def _latest_tr(user, ticker: str) -> Optional[TrendResult]:
+    return (TrendResult.objects
+            .filter(user=user, ticker=ticker.upper())
+            .order_by("-asof", "-updated_at")
+            .first())
 
-def _save_action(user, ticker: str, action: str, note: str = ""):
-    ActionLog.objects.create(user=user, ticker=ticker.upper(), action=action, note=note)
+def _compute_exits(entry: Optional[int], ticker: str, tr: Optional[TrendResult]) -> Tuple[Optional[int], Optional[int]]:
+    if not entry:
+        return (None, None)
+    if compute_exit_targets:
+        try:
+            xt = compute_exit_targets(
+                policy={"targets":{}, "exits":{}},
+                ticker=ticker.upper(),
+                entry_price=entry,
+                days_held=None,
+                atr14_hint=(getattr(tr, "notes", {}) or {}).get("atr14") if tr else None,
+            )
+            tp = _int_or_none(getattr(xt, "tp_price", None))
+            sl = _int_or_none(getattr(xt, "sl_price", None))
+            if tp or sl:
+                return (tp, sl)
+        except Exception:
+            pass
+    return (_int_or_none(entry * 1.06), _int_or_none(entry * 0.98))  # Fallback
 
+def _save_order_memo(user, ticker: str, *, window: str = "preopen") -> Tuple[bool, str]:
+    t = ticker.upper().strip()
+    tr = _latest_tr(user, t)
+    base_name = getattr(tr, "name", None)
+    jp = _jpx_name(t, base_name)
+    show = f"{jp} ({t})"
+
+    entry = _int_or_none(getattr(tr, "entry_price_hint", None) or getattr(tr, "close_price", None))
+    tp, sl = _compute_exits(entry, t, tr)
+    try:
+        OrderMemo.objects.create(
+            user=user,
+            ticker=t,
+            name=jp,
+            window=window,
+            entry_price=entry,
+            tp_price=tp,
+            sl_price=sl,
+            source="line",
+        )
+        return True, show
+    except Exception as e:
+        logger.warning("OrderMemo save error: %s", e)
+        try:
+            OrderMemo.objects.create(user=user, ticker=t, name=jp, window=window, source="line")
+            return True, show
+        except Exception as e2:
+            logger.error("OrderMemo save fallback error: %s", e2)
+            return False, show
 
 # ---------- Webhook 本体 ----------
 @csrf_exempt
@@ -223,152 +213,84 @@ def line_webhook(request):
     LINE Webhook（サイレント運用）
       - userId を upsert 保存
       - 『id』だけは返信で userId を返す
-      - 友だち追加 follow はデフォルト無返信（LINE_WELCOME_ONCE=1 かつ初回のみ挨拶）
-      - ボタン(Postback) / テキストどちらの feedback も advisor/feedback.jsonl に保存
-        → text/mode が欠けている場合は直近カードから自動補完
-      - 追加: postback 'save:XXXX', 'reject:XXXX', 'snooze:XXXX:MIN' を ActionLog に記録
-             テキスト '/save XXXX' '/reject XXXX' '/snooze XXXX MIN' にも対応
-      - さらに今回: これらの操作時に **即時返信** を返して“押した感”を出す
-        → 返信文の銘柄は「日本語名(コード)」で表示
+      - 友だち追加 follow は既定サイレント（LINE_WELCOME_ONCE=1 かつ初回のみ挨拶）
+      - feedback（message / postback）を JSONL へ保存
+      - 追加: postback で save:/reject:/snooze: を受けたら OrderMemo/ActionLog を保存＋即時返信
     """
     if request.method != "POST":
         return HttpResponse("OK")
 
-    body = request.body
-    sig = request.headers.get("X-Line-Signature", "")
-
-    # 署名検証（?bypass=1 もしくは LINE_WEBHOOK_BYPASS=1 の時は開発用にスキップ）
-    if not (DEBUG_BYPASS or request.GET.get("bypass") == "1"):
-        if not verify_signature(body, sig):
-            logger.warning("LINE signature mismatch")
-            return HttpResponse(status=403)
-    else:
-        logger.info("LINE signature bypassed for development/test")
+    # 開発用バイパス（?bypass=1）
+    if not (request.GET.get("bypass") == "1" or verify_signature(request.body, request.headers.get("X-Line-Signature", ""))):
+        logger.warning("LINE signature mismatch")
+        return HttpResponse(status=403)
 
     try:
-        payload = json.loads(body.decode("utf-8"))
+        payload = json.loads(request.body.decode("utf-8"))
     except Exception:
         logger.exception("LINE payload parse error")
         return HttpResponse(status=400)
 
-    user_for_actionlog = _actor_user()
+    U = get_user_model()
+    user = U.objects.first()
 
     for ev in payload.get("events", []):
         etype = ev.get("type")
         src = ev.get("source") or {}
         user_id = src.get("userId")
+        reply_token = ev.get("replyToken")
+
         if not user_id:
             continue
 
-        # upsert（初回判定に使う）
+        # upsert
         _, created = LineContact.objects.get_or_create(user_id=user_id, defaults={})
 
         # ---- follow（友だち追加）----
         if etype == "follow":
-            if WELCOME_ONCE and created:
-                rtoken = ev.get("replyToken")
-                if rtoken:
-                    reply(rtoken, "登録ありがとう！あなたのIDを保存しました ✅\n「id」と送るとIDを返信します。")
-            continue  # 既定はサイレント
-
-        # ---- message（テキスト）----
-        if etype == "message":
-            msg = ev.get("message") or {}
-            if msg.get("type") == "text":
-                text_raw = (msg.get("text") or "").strip()
-                low = text_raw.lower()
-
-                # a) ID 返信
-                if low == "id":
-                    rtoken = ev.get("replyToken")
-                    if rtoken:
-                        reply(rtoken, f"あなたのLINE ID:\n{user_id}")
-                    continue
-
-                # b) アクションテキスト（追加機能 + 即時返信）
-                if user_for_actionlog:
-                    parts = text_raw.split()
-                    cmd = parts[0].lower() if parts else ""
-                    if cmd in ("/save", "/reject", "/snooze"):
-                        tick = parts[1] if len(parts) > 1 else ""
-                        rtoken = ev.get("replyToken")
-                        if tick:
-                            label = _jp_label(tick)
-                            if cmd == "/save":
-                                _save_action(user_for_actionlog, tick, "save_order", "from_line_text")
-                                if rtoken: reply(rtoken, f"📝 発注メモに保存しました：{label}")
-                            elif cmd == "/reject":
-                                _save_action(user_for_actionlog, tick, "reject", "from_line_text")
-                                if rtoken: reply(rtoken, f"🚫 見送りを記録しました：{label}")
-                            else:
-                                mins = 120
-                                try:
-                                    mins = int(parts[2]) if len(parts) > 2 else 120
-                                except Exception:
-                                    pass
-                                until = dj_now().astimezone(JST) + timedelta(minutes=mins)
-                                _save_action(user_for_actionlog, tick, "notify", f"snooze_until={until.isoformat()}")
-                                if rtoken: reply(rtoken, f"⏰ {mins}分後に再通知します：{label}")
-                            continue
-
-                # c) feedback; ... を保存（不足は直近カードで補完）
-                fb = _parse_feedback_from_text(text_raw)
-                if fb:
-                    txt = fb.get("text")
-                    md  = fb.get("mode")
-                    if not txt or not md or md == "generic":
-                        last_text, last_mode = _last_comment_for(user_id)
-                        if not txt: txt = last_text
-                        if not md or md == "generic": md = last_mode or "generic"
-                    row = {
-                        "ts": _now_iso(),
-                        "user": user_id,
-                        "mode": md or "generic",
-                        "text": txt,
-                        "choice": fb.get("choice"),
-                        "via": "message",
-                    }
-                    _append_jsonl(_feedback_path(), row)
-                    logger.info("saved feedback(message): %s", row)
-                    continue
-
-                # d) それ以外はサイレント
-                logger.debug("LINE message(silent): %s", text_raw)
-            continue  # 他の message 種別は無視
+            if WELCOME_ONCE and created and reply_token:
+                reply(reply_token, "登録ありがとう！あなたのIDを保存しました ✅\n「id」と送るとIDを返信します。")
+            continue
 
         # ---- postback（ボタン押下）----
         if etype == "postback":
             pb = ev.get("postback") or {}
-            data = pb.get("data") or ""
-            rtoken = ev.get("replyToken")  # ← 即時返信に使用
+            data = (pb.get("data") or "").strip()
 
-            # 追加：save/reject/snooze の簡易プロトコル（+ 即時返信）
-            if user_for_actionlog and isinstance(data, str) and ":" in data:
-                kind, *rest = [p.strip() for p in data.split(":")]
-                if kind in ("save", "reject", "snooze"):
-                    ticker = (rest[0] if rest else "").upper()
-                    if ticker:
-                        label = _jp_label(ticker)
-                        if kind == "save":
-                            _save_action(user_for_actionlog, ticker, "save_order", "from_line_button")
-                            if rtoken: reply(rtoken, f"📝 発注メモに保存しました：{label}")
-                        elif kind == "reject":
-                            _save_action(user_for_actionlog, ticker, "reject", "from_line_button")
-                            if rtoken: reply(rtoken, f"🚫 見送りを記録しました：{label}")
-                        else:
-                            mins = 120
-                            try:
-                                if len(rest) > 1:
-                                    mins = int(rest[1])
-                            except Exception:
-                                pass
-                            until = dj_now().astimezone(JST) + timedelta(minutes=mins)
-                            _save_action(user_for_actionlog, ticker, "notify", f"snooze_until={until.isoformat()}")
-                            if rtoken: reply(rtoken, f"⏰ {mins}分後に再通知します：{label}")
-                        # 既存のfeedback保存は壊さない（ここでイベント終了）
-                        continue
+            # 1) 発注メモアクション（advisorのFlexボタン）
+            if data.startswith(("save:", "reject:", "snooze:")) and user:
+                kind, *rest = data.split(":")
+                ticker = (rest[0] if rest else "").upper()
+                if not ticker:
+                    continue
 
-            # 既存：feedback 形式を保存
+                if kind == "save":
+                    ok, show = _save_order_memo(user, ticker, window="preopen")
+                    # ActionLog 相当は advisor 側で付くが、必要ならここでも:
+                    # from advisor.models import ActionLog; ActionLog.objects.create(user=user, ticker=ticker, action="save_order", note="from_portfolio_line")
+                    if reply_token:
+                        reply(reply_token, f"📝 発注メモに保存しました：{show}" if ok else f"⚠️ 保存に失敗しました：{show}")
+                    continue
+
+                if kind == "reject":
+                    nm = _jpx_name(ticker, None)
+                    if reply_token:
+                        reply(reply_token, f"🚫 見送りを記録しました：{nm} ({ticker})")
+                    continue
+
+                if kind == "snooze":
+                    mins = 120
+                    if len(rest) >= 2:
+                        try:
+                            mins = int(rest[1])
+                        except Exception:
+                            pass
+                    nm = _jpx_name(ticker, None)
+                    if reply_token:
+                        reply(reply_token, f"⏱ {mins}分後に再通知します：{nm} ({ticker})")
+                    continue
+
+            # 2) 既存 feedback ルート
             fb = _parse_feedback_from_postback(data)
             if fb:
                 txt = fb.get("text")
@@ -389,6 +311,72 @@ def line_webhook(request):
                 logger.info("saved feedback(postback): %s", row)
             else:
                 logger.debug("postback(no-feedback): %s", data)
+            continue
+
+        # ---- message（テキスト）----
+        if etype == "message":
+            msg = ev.get("message") or {}
+            if msg.get("type") == "text":
+                text_raw = (msg.get("text") or "").strip()
+                low = text_raw.lower()
+
+                # a) ID 返信
+                if low == "id" and reply_token:
+                    reply(reply_token, f"あなたのLINE ID:\n{user_id}")
+                    continue
+
+                # b) 発注メモ（/save 7203.T）
+                if low.startswith("/save") and user and reply_token:
+                    parts = text_raw.split()
+                    t = parts[-1] if len(parts) > 1 else ""
+                    if t:
+                        ok, show = _save_order_memo(user, t, window="preopen")
+                        reply(reply_token, f"📝 発注メモに保存しました：{show}" if ok else f"⚠️ 保存に失敗しました：{show}")
+                        continue
+
+                # c) 見送り
+                if low.startswith("/reject") and reply_token:
+                    parts = text_raw.split()
+                    t = parts[-1] if len(parts) > 1 else ""
+                    if t:
+                        nm = _jpx_name(t, None)
+                        reply(reply_token, f"🚫 見送りを記録しました：{nm} ({t})")
+                        continue
+
+                # d) スヌーズ
+                if low.startswith("/snooze") and reply_token:
+                    parts = text_raw.split()
+                    t = parts[1] if len(parts) > 1 else ""
+                    mins = int(parts[2]) if len(parts) > 2 else 120
+                    if t:
+                        nm = _jpx_name(t, None)
+                        reply(reply_token, f"⏱ {mins}分後に再通知します：{nm} ({t})")
+                        continue
+
+                # e) feedback; ... を保存
+                fb = _parse_feedback_from_text(text_raw)
+                if fb:
+                    txt = fb.get("text")
+                    md  = fb.get("mode")
+                    if not txt or not md or md == "generic":
+                        last_text, last_mode = _last_comment_for(user_id)
+                        if not txt: txt = last_text
+                        if not md or md == "generic": md = last_mode or "generic"
+                    row = {
+                        "ts": _now_iso(),
+                        "user": user_id,
+                        "mode": md or "generic",
+                        "text": txt,
+                        "choice": fb.get("choice"),
+                        "via": "message",
+                    }
+                    _append_jsonl(_feedback_path(), row)
+                    logger.info("saved feedback(message): %s", row)
+                    continue
+
+                # f) ヘルプ
+                if reply_token:
+                    reply(reply_token, "コマンド例: /save 7203.T, /reject 7203.T, /snooze 7203.T 120")
             continue
 
         # ---- その他イベントはサイレント ----
