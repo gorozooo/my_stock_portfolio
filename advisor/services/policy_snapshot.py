@@ -1,15 +1,20 @@
 # advisor/services/policy_snapshot.py
 from __future__ import annotations
 import os, json, datetime as dt
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 
 from django.conf import settings
 from django.utils.timezone import now as dj_now
 from django.db import transaction
+from django.db.models import Max
 
 from advisor.models_policy import AdvisorPolicy, PolicySnapshot, DeviationLog
 
 JST = dt.timezone(dt.timedelta(hours=9))
+
+def _today(now: Optional[dt.datetime] = None) -> dt.date:
+    z = (now or dj_now()).astimezone(JST)
+    return z.date()
 
 def _today_ymd(now: Optional[dt.datetime] = None) -> str:
     z = (now or dj_now()).astimezone(JST)
@@ -88,6 +93,53 @@ def snapshot_all_active_policies(save_files: bool = True) -> List[PolicySnapshot
     return out
 
 
+def load_final_rules_for_today() -> List[Tuple[AdvisorPolicy, Dict[str, Any]]]:
+    """
+    “当日の確定ルール” を返すユーティリティ。
+    - 当日JSTの PolicySnapshot があれば payload["rules"] を優先
+    - 無い場合は AdvisorPolicy.rule_json をフォールバック
+    - 返り値: [(policy_obj, rule_dict), ...] ソートは (-priority, id)
+    """
+    as_of = _today()
+    field_names = {f.name for f in AdvisorPolicy._meta.get_fields()}
+    qs_all = AdvisorPolicy.objects.all()
+    if "is_active" in field_names:
+        qs = qs_all.filter(is_active=True)
+    elif "active" in field_names:
+        qs = qs_all.filter(active=True)
+    else:
+        qs = qs_all
+    policies = list(qs.order_by("-priority", "id"))
+
+    # 当日のスナップショットの最新を policy_id ごとに拾う
+    latest_rows = (
+        PolicySnapshot.objects
+        .filter(as_of=as_of, policy_id__in=[p.id for p in policies])
+        .values("policy_id")
+        .annotate(last_created=Max("created_at"))
+    )
+
+    latest_map: Dict[int, PolicySnapshot] = {}
+    for row in latest_rows:
+        obj = (
+            PolicySnapshot.objects
+            .filter(policy_id=row["policy_id"], as_of=as_of, created_at=row["last_created"])
+            .first()
+        )
+        if obj:
+            latest_map[row["policy_id"]] = obj
+
+    final: List[Tuple[AdvisorPolicy, Dict[str, Any]]] = []
+    for p in policies:
+        snap = latest_map.get(p.id)
+        if snap and isinstance(snap.payload, dict):
+            rules = (snap.payload.get("rules") or {}) if isinstance(snap.payload.get("rules"), dict) else {}
+        else:
+            rules = p.rule_json or {}
+        final.append((p, rules))
+    return final
+
+
 def log_deviation(
     *,
     policy: AdvisorPolicy,
@@ -107,5 +159,5 @@ def log_deviation(
         ticker=(ticker or "").strip().upper(),
         action=action,
         reason=reason,
-        meta=extra or {},
+        extra=extra or {},   # ← モデル定義に合わせて 'extra' へ保存
     )
