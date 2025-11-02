@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}発注メモ一覧{% endblock %}
+
+{% block head %}
+<style>
+  :root{
+    --bg:#0b0f1a; --card:rgba(255,255,255,.06); --fg:#eaf0ff; --sub:#9fb0c7;
+    --ok:#16a34a; --bad:#ef4444; --muted:#334155; --border:rgba(255,255,255,.10);
+  }
+  body{background:var(--bg); color:var(--fg);}
+  .wrap{max-width:820px;margin:0 auto;padding:12px 12px 80px}
+  .toolbar{position:sticky;top:env(safe-area-inset-top,0);z-index:5;background:rgba(11,15,26,.7);backdrop-filter:blur(10px);padding:10px;border-bottom:1px solid var(--border)}
+  .list{display:grid;gap:10px;margin-top:12px}
+  .card{border:1px solid var(--border);background:var(--card);border-radius:12px;padding:12px}
+  .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .grow{flex:1}
+  .name{font-weight:700}
+  .ticker{color:var(--sub);font-size:.9rem}
+  .kv{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}
+  .kv .box{border:1px solid var(--border);border-radius:10px;padding:8px;text-align:center}
+  .lab{display:block;color:var(--sub);font-size:.8rem;margin-bottom:4px}
+  .val{font-size:1.05rem}
+  .btns{display:flex;gap:8px;margin-top:10px}
+  .btn{flex:1;text-align:center;border:1px solid var(--border);border-radius:10px;padding:10px;background:rgba(255,255,255,.05);color:var(--fg);text-decoration:none}
+  .btn.del{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.35)}
+  .empty{padding:24px;text-align:center;color:var(--sub);border:1px dashed var(--border);border-radius:12px;margin-top:12px}
+  @media (max-width:560px){
+    .kv{grid-template-columns:1fr 1fr}
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="wrap">
+  <div class="toolbar">
+    <strong>発注メモ</strong>
+  </div>
+
+  <div id="list" class="list"></div>
+  <div id="empty" class="empty" style="display:none">まだメモがありません</div>
+</div>
+
+<script>
+async function fetchMemos(){
+  const r = await fetch("{% url 'advisor_memos_list_api' %}");
+  const data = await r.json();
+  const box = document.getElementById('list');
+  const empty = document.getElementById('empty');
+  box.innerHTML = '';
+  const items = (data.items||[]);
+  if(!items.length){ empty.style.display='block'; return; }
+  empty.style.display='none';
+  for(const it of items){
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="row">
+        <div class="grow">
+          <div class="name">${it.display}</div>
+          <div class="ticker">${it.window || ''}　${new Date(it.created_at).toLocaleString()}</div>
+        </div>
+      </div>
+      <div class="kv">
+        <div class="box"><span class="lab">エントリー</span><span class="val">${yen(it.entry)}</span></div>
+        <div class="box"><span class="lab">TP</span><span class="val">${yen(it.tp)}</span></div>
+        <div class="box"><span class="lab">SL</span><span class="val">${yen(it.sl)}</span></div>
+      </div>
+      <div class="btns">
+        <a class="btn del" href="#" data-id="${it.id}">削除</a>
+      </div>
+    `;
+    card.querySelector('.btn.del').addEventListener('click', async (e)=>{
+      e.preventDefault();
+      if(!confirm('削除してよろしいですか？')) return;
+      const fd = new FormData();
+      fd.append('csrfmiddlewaretoken', getCSRF());
+      const resp = await fetch("{% url 'advisor_memo_delete_api' pk=0 %}".replace('/0/','/'+it.id+'/'), {
+        method: 'POST',
+        body: fd
+      });
+      const dj = await resp.json();
+      if(dj.ok){ card.remove(); if(!document.querySelector('.card')) document.getElementById('empty').style.display='block';}
+      else{ alert('削除に失敗しました'); }
+    });
+    box.appendChild(card);
+  }
+}
+function yen(n){ return (n===null || n===undefined) ? '—' : '¥' + Number(n).toLocaleString(); }
+function getCSRF(){
+  const name='csrftoken';
+  const m=document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
+  return m?m.pop():'';
+}
+fetchMemos();
+</script>
+{% endblock %}
