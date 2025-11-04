@@ -23,8 +23,13 @@ class Command(BaseCommand):
         root = Path(opts['root'])
         asof = opts['asof'] or now().date().isoformat()
         idx_rel = float(opts['index_rel'])
-        if not root.exists():
-            self.stdout.write(self.style.WARNING(f'CSVディレクトリがありません: {root}'))
+        # → 無ければ作る（空なら警告して終了）
+        root.mkdir(parents=True, exist_ok=True)
+        files = list(root.glob('*.csv'))
+        if not files and root.joinpath('ohlcv.csv').exists():
+            files = [root/'ohlcv.csv']
+        if not files:
+            self.stdout.write(self.style.WARNING(f'CSVが見つかりません: {root}. ohlcv.csv か *.csv を配置してください。'))
             return
 
         # codeごとにclose/volume配列を構築
