@@ -67,3 +67,8 @@ printf "7203.T\n6758.T\n" > data/universe/two.csv
 
 # 今日の分を計算してDB保存
 python manage.py advisor_update_indicators --universe file --file data/universe/two.csv --days 60
+
+LINE_CHANNEL_ACCESS_TOKEN="30VUdBGhHtUQJ9qdPXuPOHII3qCCWjZSGFovkg4wyR/OuhjAjGh4qHFCrYj8vnVKZRt+COfvBQhGk/c07PdcH/6OOjEKX1VdsedZIyFqje7KwikBMJxxx7vn1z2XILd+WRl+M0ZlzBuBlizojyPHQwdB04t89/1O/w1cDnyilFU="
+LINE_TO_USER_IDS="Uc1388522806a0a8c5876bbf367f6e26e"
+LINE_CHANNEL_SECRET="dc5bc53afed89fae739f8e0388003fd7"
+
