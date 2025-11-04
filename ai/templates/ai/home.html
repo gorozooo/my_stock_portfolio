@@ -1,0 +1,97 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>AI</title>
+  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=1">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<header class="ai-top">
+  <div class="ai-row">
+    <span>⏱️ {{ updated_at }} 更新</span>
+    <span>📈 レジーム：{{ regime.label }}（{{ regime.confidence }}%）</span>
+  </div>
+  <div class="ai-row modes">
+    <button class="pill on">{{ mode.period }}</button>
+    <button class="pill on">{{ mode.stance }}</button>
+    <button class="pill">おまかせ</button>
+  </div>
+</header>
+
+<main class="ai-list">
+  {% for it in items %}
+  <article class="ai-card" data-index="{{ forloop.counter0 }}">
+    <div class="row">
+      <h3>{{ it.name }} <span class="code">({{ it.code }})</span></h3>
+      <div class="meta-right">
+        <span class="stars" aria-label="AI信頼度">{% for i in "12345"|make_list %}{% if forloop.counter <= it.stars %}⭐️{% else %}☆{% endif %}{% endfor %}</span>
+        <span class="score">{{ it.score }}点</span>
+      </div>
+    </div>
+    <div class="row sub">
+      <span class="sector">{{ it.sector }}</span>
+    </div>
+    <div class="row trends">
+      <span>日足 {{ it.trend.d|yesno:"⤴️,⤵️,➡️" }}</span>
+      <span>週足 {{ it.trend.w|yesno:"⤴️,⤵️,➡️" }}</span>
+      <span>月足 {{ it.trend.m|yesno:"⤴️,⤵️,➡️" }}</span>
+    </div>
+    <button class="more" data-open="{{ forloop.counter0 }}">▶ 詳細を見る</button>
+  </article>
+  {% endfor %}
+</main>
+
+<!-- 詳細モーダル -->
+<div id="aiModal" class="modal hidden" aria-hidden="true" role="dialog">
+  <div class="modal-sheet" role="document" aria-modal="true">
+    <button class="close" data-close>閉じる</button>
+
+    <section class="modal-head">
+      <h3 id="m_name"></h3>
+      <div class="right">
+        <span id="m_stars"></span>
+        <span id="m_score" class="score"></span>
+      </div>
+      <div class="sub">
+        <span id="m_sector"></span>
+      </div>
+      <div class="trends">
+        <span id="m_trend_d"></span>
+        <span id="m_trend_w"></span>
+        <span id="m_trend_m"></span>
+      </div>
+    </section>
+
+    <section class="reasons">
+      <h4>理由（懸念含む）</h4>
+      <ul id="m_reasons"></ul>
+    </section>
+
+    <section class="prices">
+      <h4>価格目安</h4>
+      <div id="m_prices"></div>
+      <div id="m_qty"></div>
+    </section>
+
+    <section class="chart">
+      <h4>チャート（エントリ/利確/損切）</h4>
+      <canvas id="m_chart" height="260"></canvas>
+    </section>
+
+    <section class="actions">
+      <button id="act_watch">🔖 ウォッチ登録</button>
+      <button id="act_paper" disabled>📊 紙トレ記録中</button> <!-- 常時ON表示 -->
+    </section>
+  </div>
+  <div class="backdrop" data-close></div>
+</div>
+
+<script>
+  window.__AI_ITEMS__ = {{ items|safe }};
+</script>
+<script src="{% static 'ai/ai.js' %}?v=1"></script>
+</body>
+</html>
