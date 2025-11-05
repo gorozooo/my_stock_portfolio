@@ -4,20 +4,24 @@
 {% block title %}AI{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=9">
+  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=10">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 
-  <!-- 最低限の上書き（キャッシュが効いても左右揃えだけは即反映） -->
+  <!-- 最低限の即時上書き（キャッシュが残っても左右揃えだけは効かせる） -->
   <style>
     :root{ --wrapW:680px; --padX:12px; }
-    .page-wrap{ max-width:var(--wrapW); margin:0 auto; padding:0 var(--padX); }
-    .ai-top{ padding:10px 0; } /* 横は .page-wrap が持つ */
+    .ai-top__inner, .ai-main__inner {
+      position: relative; left:50%; transform:translateX(-50%);
+      width: min(100%, var(--wrapW));
+      padding-left: var(--padX); padding-right: var(--padX);
+    }
+    .ai-top { padding:10px 0; }
   </style>
 {% endblock %}
 
 {% block content %}
 <header class="ai-top">
-  <div class="page-wrap">
+  <div class="ai-top__inner">
     <div class="ai-row">
       <span>⏱️ {{ updated_at }} 更新</span>
       <span>📈 レジーム：{{ regime.label }}（{{ regime.confidence }}%）</span>
@@ -30,45 +34,47 @@
   </div>
 </header>
 
-<main class="ai-list page-wrap">
-  {% for it in items %}
-  <article class="ai-card" data-index="{{ forloop.counter0 }}">
-    <div class="row head">
-      <div class="left">
-        <h3 class="title">
-          <span class="name" title="{{ it.name|default_if_none:'' }}">{{ it.name|default_if_none:"" }}</span>
-          <span class="code">({{ it.code }})</span>
-        </h3>
-        {% if it.sector %}
-          <div class="sector" title="{{ it.sector }}">{{ it.sector }}</div>
-        {% endif %}
+<main class="ai-main">
+  <div class="ai-main__inner ai-list">
+    {% for it in items %}
+    <article class="ai-card" data-index="{{ forloop.counter0 }}">
+      <div class="row head">
+        <div class="left">
+          <h3 class="title">
+            <span class="name" title="{{ it.name|default_if_none:'' }}">{{ it.name|default_if_none:"" }}</span>
+            <span class="code">({{ it.code }})</span>
+          </h3>
+          {% if it.sector %}
+            <div class="sector" title="{{ it.sector }}">{{ it.sector }}</div>
+          {% endif %}
+        </div>
+        <div class="right">
+          <span class="stars" aria-label="AI信頼度">
+            {% for i in "12345"|make_list %}{% if forloop.counter <= it.stars %}⭐️{% else %}☆{% endif %}{% endfor %}
+          </span>
+          <span class="score">{{ it.score }}点</span>
+        </div>
       </div>
-      <div class="right">
-        <span class="stars" aria-label="AI信頼度">
-          {% for i in "12345"|make_list %}{% if forloop.counter <= it.stars %}⭐️{% else %}☆{% endif %}{% endfor %}
+
+      <div class="row trends">
+        <span>日足
+          {% if it.trend.d == 'up' %}⤴️{% elif it.trend.d == 'down' %}⤵️{% else %}➡️{% endif %}
         </span>
-        <span class="score">{{ it.score }}点</span>
+        <span>週足
+          {% if it.trend.w == 'up' %}⤴️{% elif it.trend.w == 'down' %}⤵️{% else %}➡️{% endif %}
+        </span>
+        <span>月足
+          {% if it.trend.m == 'up' %}⤴️{% elif it.trend.m == 'down' %}⤵️{% else %}➡️{% endif %}
+        </span>
       </div>
-    </div>
 
-    <div class="row trends">
-      <span>日足
-        {% if it.trend.d == 'up' %}⤴️{% elif it.trend.d == 'down' %}⤵️{% else %}➡️{% endif %}
-      </span>
-      <span>週足
-        {% if it.trend.w == 'up' %}⤴️{% elif it.trend.w == 'down' %}⤵️{% else %}➡️{% endif %}
-      </span>
-      <span>月足
-        {% if it.trend.m == 'up' %}⤴️{% elif it.trend.m == 'down' %}⤵️{% else %}➡️{% endif %}
-      </span>
-    </div>
-
-    <button class="more" data-open="{{ forloop.counter0 }}">▶ 詳細を見る</button>
-  </article>
-  {% endfor %}
+      <button class="more" data-open="{{ forloop.counter0 }}">▶ 詳細を見る</button>
+    </article>
+    {% endfor %}
+  </div>
 </main>
 
-<!-- 詳細モーダル -->
+<!-- 詳細モーダル（保有前提ではないので半分利確は出さない） -->
 <div id="aiModal" class="modal hidden" aria-hidden="true" role="dialog">
   <div class="modal-sheet" role="document" aria-modal="true">
     <button class="close" data-close>閉じる</button>
