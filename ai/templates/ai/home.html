@@ -4,27 +4,31 @@
 {% block title %}AI{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=19">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=20">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 {% endblock %}
 
 {% block content %}
-<div class="ai-wrap"><!-- スマホ幅中央寄せの外枠 -->
+<!-- スマホ中央・はみ出し禁止の共通ラッパ -->
+<div class="ai-wrap">
 
-  <!-- TOPバー：中央揃え・はみ出し禁止 -->
+  <!-- TOPバー：中央寄せ＋safe-area完全対応 -->
   <header class="ai-top">
-    <div class="ai-row top-meta">
-      <span class="muted">⏱️ {{ updated_at }} 更新</span>
-      <span class="muted">📈 レジーム：{{ regime.label }}（{{ regime.confidence }}%）</span>
-    </div>
-    <div class="ai-row modes">
-      <button class="pill on">{{ mode.period }}</button>
-      <button class="pill on">{{ mode.stance }}</button>
-      <button class="pill">おまかせ</button>
+    <div class="top-inner">
+      <div class="ai-row top-meta">
+        <span class="muted">⏱️ {{ updated_at }} 更新</span>
+        <span class="muted">📈 レジーム：{{ regime.label }}（{{ regime.confidence }}%）</span>
+      </div>
+      <div class="ai-row modes">
+        <button class="pill on">{{ mode.period }}</button>
+        <button class="pill on">{{ mode.stance }}</button>
+        <button class="pill">おまかせ</button>
+      </div>
     </div>
   </header>
 
-  <!-- カード一覧：常に中央＆同じ左右マージン -->
+  <!-- 一覧 -->
   <main class="ai-list">
     {% for it in items %}
     <article class="ai-card" data-index="{{ forloop.counter0 }}">
@@ -56,7 +60,7 @@
     {% endfor %}
   </main>
 
-  <!-- 詳細モーダル（構造はそのまま） -->
+  <!-- 詳細モーダル（既存構造そのまま） -->
   <div id="aiModal" class="modal hidden" aria-hidden="true" role="dialog">
     <div class="modal-sheet" role="document" aria-modal="true">
       <button class="close" data-close>閉じる</button>
@@ -106,5 +110,5 @@
 <script>
   window.__AI_ITEMS__ = {{ items|safe }};
 </script>
-<script src="{% static 'ai/ai.js' %}?v=1"></script>
+<script src="{% static 'ai/ai.js' %}?v=14"></script>
 {% endblock %}
