@@ -4,7 +4,7 @@
 {% block title %}AI{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=3">
+  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=5">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 {% endblock %}
 
@@ -27,11 +27,11 @@
     <div class="row head">
       <div class="left">
         <h3 class="title">
-          <span class="name">{{ it.name|default_if_none:"" }}</span>
+          <span class="name" title="{{ it.name|default_if_none:'' }}">{{ it.name|default_if_none:"" }}</span>
           <span class="code">({{ it.code }})</span>
         </h3>
         {% if it.sector %}
-          <div class="sector">{{ it.sector }}</div>
+          <div class="sector" title="{{ it.sector }}">{{ it.sector }}</div>
         {% endif %}
       </div>
       <div class="right">
