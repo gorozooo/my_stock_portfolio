@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Dict
+from decimal import Decimal
 from django.apps import apps
 
 @dataclass
@@ -10,16 +11,27 @@ class Ratio:
     n: int
 
 def _coerce_dir(val: Optional[object]) -> Optional[str]:
+    """
+    数値(Decimal/float/int) → >0 up, ==0 flat, <0 down
+    文字列 'up/flat/down' も許可
+    """
     if val is None:
         return None
     if isinstance(val, str):
         s = val.strip().lower()
         if s in ('up','flat','down'):
             return s
-        return None
-    if isinstance(val, (int, float)):
-        if val > 0: return 'up'
-        if val < 0: return 'down'
+        try:
+            num = float(s)
+        except Exception:
+            return None
+        if num > 0: return 'up'
+        if num < 0: return 'down'
+        return 'flat'
+    if isinstance(val, (int, float, Decimal)):
+        f = float(val)
+        if f > 0: return 'up'
+        if f < 0: return 'down'
         return 'flat'
     return None
 
@@ -51,13 +63,13 @@ def calculate_market_regime() -> Dict[str, Dict[str, object]]:
       1) daily_slope が有効なレコードがあれば日足で
       2) なければ weekly_trend
       3) それもなければ monthly_trend
-    さらに日/週/月の個別比率もセットで返す。
+    さらに日/週/月の個別比率も返す。
     """
     d = _count_ratio('daily_slope')
     w = _count_ratio('weekly_trend')
     m = _count_ratio('monthly_trend')
 
-    # 見出しのフォールバック
+    # 見出しフォールバック
     headline = d
     if d.n == 0:
         headline = w if w.n > 0 else m
@@ -67,7 +79,7 @@ def calculate_market_regime() -> Dict[str, Dict[str, object]]:
         'daily':    {'label': d.label, 'pct': d.pct, 'n': d.n},
         'weekly':   {'label': w.label, 'pct': w.pct, 'n': w.n},
         'monthly':  {'label': m.label, 'pct': m.pct, 'n': m.n},
-        # 旧UI互換キー（テンプレが regime.confidence を参照しても壊れないように）
+        # 旧UI互換キー
         'label': headline.label,
         'confidence': headline.pct,
     }
