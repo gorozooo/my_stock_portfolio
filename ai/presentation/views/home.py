@@ -1,6 +1,7 @@
 from django.views.generic import TemplateView
 from django.utils import timezone
 from ai.services.screening import generate_top10_candidates
+from ai.services.regime import calculate_market_regime
 
 class AIHomeView(TemplateView):
     template_name = 'ai/home.html'
@@ -8,7 +9,7 @@ class AIHomeView(TemplateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['updated_at'] = timezone.localtime().strftime('%H:%M')
-        ctx['regime'] = {'label': '上昇', 'confidence': 84}  # TODO: services.regime に置換
+        ctx['regime'] = calculate_market_regime()
         ctx['mode'] = {'period': '中期', 'stance': '普通'}
 
         items = []
