@@ -16,6 +16,8 @@ dotenv.load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 from dotenv import load_dotenv
 load_dotenv()
 
+import os
+
 # === パス基点 ===
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -144,9 +146,9 @@ TSE_NAME_OVERRIDES = {
     # 追加したいコードがあればここに並べる
 }
 
-LINE_CHANNEL_ACCESS_TOKEN =30VUdBGhHtUQJ9qdPXuPOHII3qCCWjZSGFovkg4wyR/OuhjAjGh4qHFCrYj8vnVKZRt+COfvBQhGk/c07PdcH/6OOjEKX1VdsedZIyFqje7KwikBMJxxx7vn1z2XILd+WRl+M0ZlzBuBlizojyPHQwdB04t89/1O/w1cDnyilFU=
-LINE_CHANNEL_SECRET = dc5bc53afed89fae739f8e0388003fd7
-LINE_USER_ID=Uc1388522806a0a8c5876bbf367f6e26e
+LINE_CHANNEL_ACCESS_TOKEN = os.getenv('30VUdBGhHtUQJ9qdPXuPOHII3qCCWjZSGFovkg4wyR/OuhjAjGh4qHFCrYj8vnVKZRt+COfvBQhGk/c07PdcH/6OOjEKX1VdsedZIyFqje7KwikBMJxxx7vn1z2XILd+WRl+M0ZlzBuBlizojyPHQwdB04t89/1O/w1cDnyilFU=')
+LINE_CHANNEL_SECRET = os.getenv('dc5bc53afed89fae739f8e0388003fd7')
+LINE_USER_ID = os.getenv('Uc1388522806a0a8c5876bbf367f6e26e')
 
 
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
