@@ -1,10 +1,10 @@
-{% extends "base.html" %}
+{% extends "portfolio/base.html" %}
 {% load static %}
 
 {% block title %}AI{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=1">
+  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=2">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 {% endblock %}
 
@@ -28,7 +28,9 @@
       <h3>{{ it.name }} <span class="code">({{ it.code }})</span></h3>
       <div class="meta-right">
         <span class="stars" aria-label="AI信頼度">
-          {% for i in "12345"|make_list %}{% if forloop.counter <= it.stars %}⭐️{% else %}☆{% endif %}{% endfor %}
+          {% for i in "12345"|make_list %}
+            {% if forloop.counter <= it.stars %}⭐️{% else %}☆{% endif %}
+          {% endfor %}
         </span>
         <span class="score">{{ it.score }}点</span>
       </div>
@@ -55,7 +57,7 @@
   {% endfor %}
 </main>
 
-<!-- 詳細モーダル（保有していない前提：半分利確ボタンは表示しない） -->
+<!-- 詳細モーダル -->
 <div id="aiModal" class="modal hidden" aria-hidden="true" role="dialog">
   <div class="modal-sheet" role="document" aria-modal="true">
     <button class="close" data-close>閉じる</button>
@@ -94,7 +96,7 @@
 
     <section class="actions">
       <button id="act_watch">🔖 ウォッチ登録</button>
-      <button id="act_paper" disabled>📊 紙トレ記録中</button> <!-- 常時ON表示（OFF不可） -->
+      <button id="act_paper" disabled>📊 紙トレ記録中</button>
     </section>
   </div>
   <div class="backdrop" data-close></div>
