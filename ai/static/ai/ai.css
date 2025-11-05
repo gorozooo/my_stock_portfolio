@@ -1,35 +1,40 @@
 :root{
   --bg:#0b0f1a; --card:rgba(255,255,255,.06); --fg:#f1f5f9; --sub:#94a3b8;
   --accent:#2563eb; --ok:#16a34a; --bad:#ef4444; --muted:#334155;
-  --wrapW:680px;           /* 下タブの grid 幅(680px)と合わせる */
+  --wrapW:680px;           /* 下タブ幅と合わせる（スマホ専用） */
   --padX:12px;
 }
+
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial}
+body{
+  margin:0;background:var(--bg);color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial
+}
 
-/* 共通ラッパ（ヘッダー＆カードで同じ左右位置） */
-.page-wrap{max-width:var(--wrapW);margin:0 auto;padding:0 var(--padX)}
-
-/* ── TOPバー ─────────────────────────── */
+/* ── TOPバー（背景は全幅、内容は中央固定） ───────────────── */
 .ai-top{
   position:sticky;top:0;z-index:5;
-  background:rgba(11,15,26,.8);backdrop-filter:blur(10px);
+  background:rgba(11,15,26,.8);
+  backdrop-filter:blur(10px);
   border-bottom:1px solid rgba(255,255,255,.08);
-  padding:10px 0; /* 横は .page-wrap が受け持つ */
+  padding:10px 0;
 }
 .ai-top .ai-row{
   display:flex;gap:12px;justify-content:space-between;align-items:center;
   font-size:14px;color:#d6e1ff
 }
 .pill{
-  border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#eaf0ff;
-  padding:6px 10px;border-radius:999px
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.06);
+  color:#eaf0ff;padding:6px 10px;border-radius:999px
 }
 .pill.on{border-color:rgba(37,99,235,.6);box-shadow:0 0 0 1px rgba(37,99,235,.4) inset}
 
-/* ── リスト（中央揃え） ─────────────────── */
-.ai-list{margin:8px auto 80px;display:grid;gap:10px}
+/* ── 本文も同じ中央固定 ───────────────────────────── */
+.ai-main{margin:8px 0 80px}
+.ai-list{display:grid;gap:10px}
+
+/* ── カード ─────────────────────────────────────────── */
 .ai-card{
   border:1px solid rgba(255,255,255,.08);background:var(--card);
   border-radius:14px;padding:12px
@@ -56,7 +61,7 @@ body{margin:0;background:var(--bg);color:var(--fg);
   border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#eaf0ff
 }
 
-/* ── モーダル ───────────────────────── */
+/* ── モーダル ───────────────────────────────────────── */
 .modal{position:fixed;inset:0;display:grid;grid-template-rows:1fr;z-index:1000}
 .modal.hidden{display:none}
 .backdrop{background:rgba(0,0,0,.4)}
@@ -77,7 +82,7 @@ body{margin:0;background:var(--bg);color:var(--fg);
 }
 .chart{margin-bottom:12px}
 
-/* ── モバイル微調整 ───────────────────── */
+/* ── モバイル微調整 ─────────────────────────────────── */
 @media (max-width:390px){
   .ai-list{gap:8px}
   .ai-card .stars{font-size:17px}
