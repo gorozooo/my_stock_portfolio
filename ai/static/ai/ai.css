@@ -1,33 +1,117 @@
 :root{
   --bg:#0b0f1a; --card:rgba(255,255,255,.06); --fg:#f1f5f9; --sub:#94a3b8;
   --accent:#2563eb; --ok:#16a34a; --bad:#ef4444; --muted:#334155;
+  --wrapW: 700px;          /* スマホでも中央に収める最大幅（上部とカードで共通） */
+  --sidePad: 12px;
+  --starSize: 16px;        /* ⭐️サイズ：要望どおり小さめに固定 */
+  --starSizeSm: 14px;      /* 極小画面用 */
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial}
-.ai-top{position:sticky;top:0;z-index:5;background:rgba(11,15,26,.8);backdrop-filter:blur(10px);padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08)}
-.ai-top .ai-row{display:flex;gap:12px;justify-content:space-between;align-items:center;font-size:14px;color:#d6e1ff}
-.pill{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#eaf0ff;padding:6px 10px;border-radius:999px}
-.pill.on{border-color:rgba(37,99,235,.6);box-shadow:0 0 0 1px rgba(37,99,235,.4) inset}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg);
+  color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial;
+  overflow-x:hidden;     /* はみ出し禁止（横スクロール殺す） */
+}
 
-.ai-list{max-width:720px;margin:8px auto 80px;padding:0 10px;display:grid;gap:10px}
-.ai-card{border:1px solid rgba(255,255,255,.08);background:var(--card);border-radius:14px;padding:10px}
-.ai-card .row{display:flex;align-items:center;justify-content:space-between}
-.ai-card h3{margin:0;font-size:16px}
-.ai-card .code{color:var(--sub);font-weight:500}
-.meta-right{display:flex;gap:10px;align-items:center}
-.score{font-weight:700}
-.sub{font-size:13px;color:var(--sub);margin-top:4px}
-.trends{display:flex;gap:12px;margin-top:6px}
-.more{margin-top:8px;width:100%;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#eaf0ff}
+/* ==== スマホ中央寄せの外枠 ==== */
+.ai-wrap{
+  max-width:var(--wrapW);
+  margin:0 auto 84px auto;        /* 下部タブに余白 */
+  padding:0 var(--sidePad);
+}
 
-.modal{position:fixed;inset:0;display:grid;grid-template-rows:1fr;z-index:1000}
+/* ==== TOPバー（スクショ②に寄せる） ==== */
+.ai-top{
+  position:sticky; top:0; z-index:5;
+  background:rgba(11,15,26,.86);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid rgba(255,255,255,.08);
+  margin:0 auto;
+  padding:10px var(--sidePad);
+}
+.ai-top .ai-row{
+  display:flex; gap:12px;
+  justify-content:space-between; align-items:center;
+  font-size:14px; color:#d6e1ff;
+}
+.ai-top .top-meta{justify-content:space-between}
+.muted{opacity:.9}
+.pill{
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.06);
+  color:#eaf0ff; padding:6px 10px; border-radius:999px;
+}
+.pill.on{border-color:rgba(37,99,235,.6); box-shadow:0 0 0 1px rgba(37,99,235,.4) inset}
+
+/* ==== 一覧（上部と同じ左右パディング&中央） ==== */
+.ai-list{
+  margin:8px auto 0 auto;
+  display:grid; gap:12px;
+}
+
+/* ==== カード ==== */
+.ai-card{
+  border:1px solid rgba(255,255,255,.08);
+  background:var(--card);
+  border-radius:14px;
+  padding:12px;
+}
+
+/* 1行目：左=銘柄/コード、右=⭐️と点数 */
+.card-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+.title{margin:0; font-size:18px; font-weight:700; display:flex; gap:6px; align-items:baseline; flex-wrap:wrap}
+.title .name{word-break:keep-all}
+.title .code{color:var(--sub); font-weight:600}
+
+/* 右側：⭐️と点数（⭐️小さく・バランス調整） */
+.meta-right{display:flex; align-items:center; gap:10px}
+.stars{
+  font-size:var(--starSize);
+  line-height:1; letter-spacing:.5px;
+  transform:translateY(1px);       /* 行高さ調整で“でかく見える”のを抑える */
+}
+.score{font-weight:700; white-space:nowrap}
+
+/* サブ情報＆トレンド */
+.sub{font-size:13px; color:var(--sub); margin-top:4px}
+.trends{display:flex; gap:14px; margin-top:8px}
+
+/* ボタン：幅100%で左右ブレを防止 */
+.more{
+  margin-top:10px; width:100%;
+  padding:12px; border-radius:10px;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.05); color:#eaf0ff;
+}
+
+/* ==== モーダル（既存を踏襲） ==== */
+.modal{position:fixed; inset:0; display:grid; grid-template-rows:1fr; z-index:1000}
 .modal.hidden{display:none}
 .backdrop{background:rgba(0,0,0,.4)}
-.modal-sheet{position:fixed;left:0;right:0;bottom:0;max-height:88vh;overflow:auto;background:#0b0f1a;border-top-left-radius:16px;border-top-right-radius:16px;padding:12px 12px 18px;transform:translateY(0)}
-.close{position:sticky;top:6px;float:right;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff;border-radius:10px;padding:6px 10px}
-.modal-head .right{float:right;display:flex;gap:10px;align-items:center}
+.modal-sheet{
+  position:fixed; left:0; right:0; bottom:0;
+  max-height:88vh; overflow:auto;
+  background:#0b0f1a;
+  border-top-left-radius:16px; border-top-right-radius:16px;
+  padding:12px 12px 18px; transform:translateY(0)
+}
+.close{position:sticky; top:6px; float:right; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.06); color:#fff; border-radius:10px; padding:6px 10px}
+.modal-head .right{float:right; display:flex; gap:10px; align-items:center}
 .modal h4{margin:14px 0 8px}
-.reasons ul{margin:0;padding-left:18px}
-.actions{display:flex;gap:10px;margin-top:10px}
-.actions button{flex:1;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#eaf0ff;border-radius:10px;padding:10px}
+.reasons ul{margin:0; padding-left:18px}
+.actions{display:flex; gap:10px; margin-top:10px}
+.actions button{flex:1; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.06); color:#eaf0ff; border-radius:10px; padding:10px}
 .chart{margin-bottom:12px}
+
+/* ==== 極小画面（iPhone SE 等）でさらに⭐️を小さく ==== */
+@media (max-width: 380px){
+  .title{font-size:17px}
+  .stars{font-size:var(--starSizeSm)}
+}
