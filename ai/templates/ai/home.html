@@ -4,26 +4,26 @@
 {% block title %}AI{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=7">
+  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=8">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 {% endblock %}
 
 {% block content %}
-<header class="ai-top">
-  <div class="container">
-    <div class="ai-row">
-      <span>⏱️ {{ updated_at }} 更新</span>
-      <span>📈 レジーム：{{ regime.label }}（{{ regime.confidence }}%）</span>
-    </div>
-    <div class="ai-row modes">
-      <button class="pill on">{{ mode.period }}</button>
-      <button class="pill on">{{ mode.stance }}</button>
-      <button class="pill">おまかせ</button>
-    </div>
+<!-- TOPバー：背景は全幅、内容幅はCSS側の ai-align で中央揃え -->
+<header class="ai-top ai-align">
+  <div class="ai-row">
+    <span>⏱️ {{ updated_at }} 更新</span>
+    <span>📈 レジーム：{{ regime.label }}（{{ regime.confidence }}%）</span>
+  </div>
+  <div class="ai-row modes">
+    <button class="pill on">{{ mode.period }}</button>
+    <button class="pill on">{{ mode.stance }}</button>
+    <button class="pill">おまかせ</button>
   </div>
 </header>
 
-<main class="ai-list container">
+<!-- リスト：同じ ai-align を適用して TOP と左右ツライチ -->
+<main class="ai-list ai-align">
   {% for it in items %}
   <article class="ai-card" data-index="{{ forloop.counter0 }}">
     <div class="row head">
@@ -61,7 +61,7 @@
   {% endfor %}
 </main>
 
-<!-- 詳細モーダル -->
+<!-- 詳細モーダル（変更なし） -->
 <div id="aiModal" class="modal hidden" aria-hidden="true" role="dialog">
   <div class="modal-sheet" role="document" aria-modal="true">
     <button class="close" data-close>閉じる</button>
