@@ -1,14 +1,14 @@
+{% extends "base.html" %}
 {% load static %}
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>AI</title>
+
+{% block title %}AI{% endblock %}
+
+{% block head %}
   <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=18">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-</head>
-<body>
+{% endblock %}
+
+{% block content %}
 <header class="ai-top">
   <div class="ai-row">
     <span>⏱️ {{ updated_at }} 更新</span>
@@ -27,24 +27,35 @@
     <div class="row">
       <h3>{{ it.name }} <span class="code">({{ it.code }})</span></h3>
       <div class="meta-right">
-        <span class="stars" aria-label="AI信頼度">{% for i in "12345"|make_list %}{% if forloop.counter <= it.stars %}⭐️{% else %}☆{% endif %}{% endfor %}</span>
+        <span class="stars" aria-label="AI信頼度">
+          {% for i in "12345"|make_list %}{% if forloop.counter <= it.stars %}⭐️{% else %}☆{% endif %}{% endfor %}
+        </span>
         <span class="score">{{ it.score }}点</span>
       </div>
     </div>
+
     <div class="row sub">
       <span class="sector">{{ it.sector }}</span>
     </div>
+
     <div class="row trends">
-      <span>日足 {{ it.trend.d|yesno:"⤴️,⤵️,➡️" }}</span>
-      <span>週足 {{ it.trend.w|yesno:"⤴️,⤵️,➡️" }}</span>
-      <span>月足 {{ it.trend.m|yesno:"⤴️,⤵️,➡️" }}</span>
+      <span>日足
+        {% if it.trend.d == 'up' %}⤴️{% elif it.trend.d == 'down' %}⤵️{% else %}➡️{% endif %}
+      </span>
+      <span>週足
+        {% if it.trend.w == 'up' %}⤴️{% elif it.trend.w == 'down' %}⤵️{% else %}➡️{% endif %}
+      </span>
+      <span>月足
+        {% if it.trend.m == 'up' %}⤴️{% elif it.trend.m == 'down' %}⤵️{% else %}➡️{% endif %}
+      </span>
     </div>
+
     <button class="more" data-open="{{ forloop.counter0 }}">▶ 詳細を見る</button>
   </article>
   {% endfor %}
 </main>
 
-<!-- 詳細モーダル -->
+<!-- 詳細モーダル（保有していない前提：半分利確ボタンは表示しない） -->
 <div id="aiModal" class="modal hidden" aria-hidden="true" role="dialog">
   <div class="modal-sheet" role="document" aria-modal="true">
     <button class="close" data-close>閉じる</button>
@@ -77,13 +88,13 @@
     </section>
 
     <section class="chart">
-      <h4>チャート（エントリ/利確/損切）</h4>
+      <h4>チャート（エントリー／利確／損切）</h4>
       <canvas id="m_chart" height="260"></canvas>
     </section>
 
     <section class="actions">
       <button id="act_watch">🔖 ウォッチ登録</button>
-      <button id="act_paper" disabled>📊 紙トレ記録中</button> <!-- 常時ON表示 -->
+      <button id="act_paper" disabled>📊 紙トレ記録中</button> <!-- 常時ON表示（OFF不可） -->
     </section>
   </div>
   <div class="backdrop" data-close></div>
@@ -93,5 +104,4 @@
   window.__AI_ITEMS__ = {{ items|safe }};
 </script>
 <script src="{% static 'ai/ai.js' %}?v=1"></script>
-</body>
-</html>
+{% endblock %}
