@@ -4,7 +4,7 @@
 {% block title %}AI{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=2">
+  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=3">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 {% endblock %}
 
@@ -24,20 +24,22 @@
 <main class="ai-list">
   {% for it in items %}
   <article class="ai-card" data-index="{{ forloop.counter0 }}">
-    <div class="row">
-      <h3>{{ it.name }} <span class="code">({{ it.code }})</span></h3>
-      <div class="meta-right">
+    <div class="row head">
+      <div class="left">
+        <h3 class="title">
+          <span class="name">{{ it.name|default_if_none:"" }}</span>
+          <span class="code">({{ it.code }})</span>
+        </h3>
+        {% if it.sector %}
+          <div class="sector">{{ it.sector }}</div>
+        {% endif %}
+      </div>
+      <div class="right">
         <span class="stars" aria-label="AI信頼度">
-          {% for i in "12345"|make_list %}
-            {% if forloop.counter <= it.stars %}⭐️{% else %}☆{% endif %}
-          {% endfor %}
+          {% for i in "12345"|make_list %}{% if forloop.counter <= it.stars %}⭐️{% else %}☆{% endif %}{% endfor %}
         </span>
         <span class="score">{{ it.score }}点</span>
       </div>
-    </div>
-
-    <div class="row sub">
-      <span class="sector">{{ it.sector }}</span>
     </div>
 
     <div class="row trends">
