@@ -1,12 +1,15 @@
 import os
 import requests
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
-LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
-LINE_USER_ID = os.getenv('LINE_USER_ID')
+def _env() -> Tuple[str, str]:
+    # ★毎回呼び出し時に環境を読む（モジュール読み込み時に固定しない）
+    token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN') or ''
+    user  = os.getenv('LINE_USER_ID') or ''
+    return token, user
 
 def _post(path: str, payload: Dict):
-    token = LINE_CHANNEL_ACCESS_TOKEN
+    token, _ = _env()
     if not token:
         return False, 'LINE_CHANNEL_ACCESS_TOKEN is not set'
     url = f"https://api.line.me/v2/bot{path}"
@@ -19,15 +22,19 @@ def _post(path: str, payload: Dict):
 
 # ---- テキスト（運用向け） ----
 def send_ops_alert(title: str, lines: List[str]):
-    if not LINE_USER_ID:
+    token, user = _env()
+    if not user:
         return False, 'LINE_USER_ID is not set'
     text = f"[{title}]\n" + "\n".join(lines[:25])
-    payload = {"to": LINE_USER_ID, "messages": [{"type": "text", "text": text}]}
+    payload = {"to": user, "messages": [{"type": "text", "text": text}]}
     return _post("/message/push", payload)
 
 # ---- Flex（AIカード向け） ----
+def _tri(it: Dict, k: str) -> str:
+    d = (it.get('trend') or {}).get(k) or it.get(f"trend_{k}")
+    return '⤴️' if d == 'up' else ('⤵️' if d == 'down' else '➡️')
+
 def _bubble_for_item(it: Dict) -> Dict:
-    # it: {name,code,sector,score,stars,trend{d,w,m},prices{entry,tp,sl}}
     stars = '⭐️'*int(it.get('stars',1)) + '☆'*(5-int(it.get('stars',1)))
     trends = f"日:{_tri(it,'d')} 週:{_tri(it,'w')} 月:{_tri(it,'m')}"
     return {
@@ -46,19 +53,13 @@ def _bubble_for_item(it: Dict) -> Dict:
       }
     }
 
-def _tri(it: Dict, k: str) -> str:
-    d = (it.get('trend') or {}).get(k) or it.get(f"trend_{k}")  # data shapes both supported
-    return '⤴️' if d == 'up' else ('⤵️' if d == 'down' else '➡️')
-
 def send_ai_flex(title: str, top_items: List[Dict]):
-    """
-    候補の上位5件をFlexで送信
-    """
-    if not LINE_USER_ID:
+    token, user = _env()
+    if not user:
         return False, 'LINE_USER_ID is not set'
     bubbles = [_bubble_for_item(x) for x in top_items[:5]]
     payload = {
-      "to": LINE_USER_ID,
+      "to": user,
       "messages": [{
         "type": "flex",
         "altText": f"{title}",
