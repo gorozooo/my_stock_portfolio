@@ -1,26 +1,26 @@
 :root{
   --bg:#0b0f1a; --card:rgba(255,255,255,.06); --fg:#f1f5f9; --sub:#94a3b8;
   --accent:#2563eb; --ok:#16a34a; --bad:#ef4444; --muted:#334155;
-  --wrapW:680px;          /* スマホ中心の最大幅（必要なら 640〜720 で調整） */
-  --padX:10px;            /* 中身の左右インナー余白（カード/ヘッダー共通） */
+  --wrapW:680px;      /* スマホ中央レール幅（初期の見た目に近い幅） */
+  --padX:10px;        /* レール内の左右余白（ヘッダー/本文共通） */
 }
+
 *{box-sizing:border-box}
 body{
   margin:0; background:var(--bg); color:var(--fg);
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial;
 }
 
-/* ===== ヘッダー：背景は全幅、中身だけ中央固定幅 ===== */
+/* ===== ヘッダー（最初の雰囲気） ===== */
 .ai-top{
   position:sticky; top:0; z-index:5;
   background:rgba(11,15,26,.8); backdrop-filter:blur(10px);
   border-bottom:1px solid rgba(255,255,255,.08);
-  padding:10px 0;                         /* ← 全幅側のパディングを縦だけに */
+  padding:10px 0;                 /* 背景は全幅、縦だけパディング */
 }
 .ai-top .ai-row{
-  width:min(100%, var(--wrapW));          /* ← ここで固定幅 */
-  margin:0 auto;                          /* ← 常に中央 */
-  padding:0 var(--padX);                  /* ← インナー余白を統一 */
+  width:min(100%, var(--wrapW));
+  margin:0 auto; padding:0 var(--padX);
   display:flex; gap:12px; justify-content:space-between; align-items:center;
   font-size:14px; color:#d6e1ff;
 }
@@ -31,34 +31,51 @@ body{
 }
 .pill.on{border-color:rgba(37,99,235,.6); box-shadow:0 0 0 1px rgba(37,99,235,.4) inset}
 
-/* ===== 本文：カードのレールも同じ中央線に合わせる ===== */
+/* ===== カードレール（中央揃え） ===== */
 .ai-list{
-  width:min(100%, var(--wrapW));          /* ← ヘッダーと同じ幅 */
-  margin:8px auto 80px;                   /* ← 常に中央 */
-  padding:0 var(--padX);                  /* ← インナー余白も同じ */
+  width:min(100%, var(--wrapW));
+  margin:8px auto 80px;
+  padding:0 var(--padX);
   display:grid; gap:10px;
 }
 
-/* ===== カード ===== */
+/* ===== カード（初期の質感に再調整） ===== */
 .ai-card{
   border:1px solid rgba(255,255,255,.08);
   background:var(--card);
-  border-radius:14px; padding:10px;
+  border-radius:16px;             /* 角丸を少し大きく（初期寄り） */
+  padding:12px;                   /* 余白を少し広く */
+  box-shadow:0 6px 18px rgba(0,0,0,.18);  /* ほのかな影 */
 }
-.ai-card .row{display:flex; align-items:center; justify-content:space-between}
-.ai-card h3{margin:0; font-size:16px}
+
+/* 1行目：左＝銘柄名、右＝⭐️＋点数（右は折り返し禁止） */
+.ai-card .row{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:12px;
+}
+.ai-card h3{
+  margin:0; font-size:16px; line-height:1.25;
+  flex:1; min-width:0;                 /* ← これで左側が縮む余地を作る */
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
 .ai-card .code{color:var(--sub); font-weight:500}
-.meta-right{display:flex; gap:10px; align-items:center}
-.score{font-weight:700}
-.sub{font-size:13px; color:var(--sub); margin-top:4px}
-.trends{display:flex; gap:12px; margin-top:6px}
+.meta-right{
+  flex:0 0 auto; display:flex; align-items:center; gap:10px;
+  white-space:nowrap;                    /* ← 右側は1行固定 */
+}
+.stars{display:inline-block; font-size:18px; line-height:1}
+.score{font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap}
+
+/* 2行目以下（セクター／トレンド／ボタン） */
+.sub{font-size:13px; color:var(--sub); margin-top:6px}
+.trends{display:flex; gap:14px; margin-top:8px}
 .more{
-  margin-top:8px; width:100%; padding:10px; border-radius:10px;
+  margin-top:10px; width:100%; padding:12px; border-radius:12px;
   border:1px solid rgba(255,255,255,.14);
   background:rgba(255,255,255,.05); color:#eaf0ff
 }
 
-/* ===== モーダル ===== */
+/* ===== モーダル（据え置き） ===== */
 .modal{position:fixed; inset:0; display:grid; grid-template-rows:1fr; z-index:1000}
 .modal.hidden{display:none}
 .backdrop{background:rgba(0,0,0,.4)}
@@ -82,7 +99,9 @@ body{
 }
 .chart{margin-bottom:12px}
 
-/* ===== 端末幅が狭い時の細かい微調整 ===== */
+/* ===== 小型端末最適化 ===== */
 @media (max-width:390px){
-  .ai-list{gap:8px}
+  .stars{font-size:17px}
+  .ai-card{padding:11px}
+  .trends{gap:12px}
 }
