@@ -1,22 +1,22 @@
 :root{
   --bg:#0b0f1a; --card:rgba(255,255,255,.06); --fg:#f1f5f9; --sub:#94a3b8;
   --accent:#2563eb; --ok:#16a34a; --bad:#ef4444; --muted:#334155;
-  --wrapW:720px;         /* 中央コンテナの基準幅（ここを変えるだけで全体が揃う） */
-  --padX:10px;           /* 左右パディング */
+  --wrapW:680px;           /* 下タブの grid 幅(680px)と合わせる */
+  --padX:12px;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial}
 
-/* 共通中央コンテナ */
-.container{max-width:var(--wrapW);margin:0 auto;padding:0 var(--padX)}
+/* 共通ラッパ（ヘッダー＆カードで同じ左右位置） */
+.page-wrap{max-width:var(--wrapW);margin:0 auto;padding:0 var(--padX)}
 
 /* ── TOPバー ─────────────────────────── */
 .ai-top{
   position:sticky;top:0;z-index:5;
   background:rgba(11,15,26,.8);backdrop-filter:blur(10px);
   border-bottom:1px solid rgba(255,255,255,.08);
-  padding:10px 0; /* 横はコンテナに任せる */
+  padding:10px 0; /* 横は .page-wrap が受け持つ */
 }
 .ai-top .ai-row{
   display:flex;gap:12px;justify-content:space-between;align-items:center;
