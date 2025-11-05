@@ -4,95 +4,107 @@
 {% block title %}AI{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=16">
+  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=17">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 {% endblock %}
 
 {% block content %}
-<header class="ai-top">
-  <div class="ai-row">
-    <span>⏱️ {{ updated_at }} 更新</span>
-    <div style="display:flex;gap:10px;align-items:center">
-      <span>📈 レジーム：{{ regime.label }}（{{ regime.confidence }}%）</span>
+<div class="ai-wrap"><!-- スマホ幅中央寄せの外枠 -->
+
+  <!-- TOPバー：中央揃え・はみ出し禁止 -->
+  <header class="ai-top">
+    <div class="ai-row top-meta">
+      <span class="muted">⏱️ {{ updated_at }} 更新</span>
+      <span class="muted">📈 レジーム：{{ regime.label }}（{{ regime.confidence }}%）</span>
     </div>
-  </div>
-  <div class="ai-row">
-    <div style="display:flex;gap:10px;align-items:center">
+    <div class="ai-row modes">
       <button class="pill on">{{ mode.period }}</button>
       <button class="pill on">{{ mode.stance }}</button>
       <button class="pill">おまかせ</button>
     </div>
-  </div>
-</header>
+  </header>
 
-<main class="ai-list">
-  {% for it in items %}
-  <article class="ai-card" data-index="{{ forloop.counter0 }}">
-    <div class="row">
-      <h3>{{ it.name }} <span class="code">({{ it.code }})</span></h3>
-      <div class="meta-right">
-        <span class="stars" aria-label="AI信頼度">
-          {% for i in "12345"|make_list %}{% if forloop.counter <= it.stars %}⭐️{% else %}☆{% endif %}{% endfor %}
-        </span>
-        <span class="score"><span class="num">{{ it.score }}</span><span class="unit">点</span></span>
+  <!-- カード一覧：常に中央＆同じ左右マージン -->
+  <main class="ai-list">
+    {% for it in items %}
+    <article class="ai-card" data-index="{{ forloop.counter0 }}">
+      <div class="card-head">
+        <h3 class="title">
+          <span class="name">{{ it.name }}</span>
+          <span class="code">({{ it.code }})</span>
+        </h3>
+        <div class="meta-right">
+          <span class="stars" aria-label="AI信頼度">
+            {% for i in "12345"|make_list %}{% if forloop.counter <= it.stars %}⭐️{% else %}☆{% endif %}{% endfor %}
+          </span>
+          <span class="score"><b>{{ it.score }}</b> 点</span>
+        </div>
       </div>
+
+      <div class="row sub">
+        <span class="sector">{{ it.sector }}</span>
+      </div>
+
+      <div class="row trends">
+        <span>日足 {% if it.trend.d == 'up' %}⤴️{% elif it.trend.d == 'down' %}⤵️{% else %}➡️{% endif %}</span>
+        <span>週足 {% if it.trend.w == 'up' %}⤴️{% elif it.trend.w == 'down' %}⤵️{% else %}➡️{% endif %}</span>
+        <span>月足 {% if it.trend.m == 'up' %}⤴️{% elif it.trend.m == 'down' %}⤵️{% else %}➡️{% endif %}</span>
+      </div>
+
+      <button class="more" data-open="{{ forloop.counter0 }}">▶ 詳細を見る</button>
+    </article>
+    {% endfor %}
+  </main>
+
+  <!-- 詳細モーダル（構造はそのまま） -->
+  <div id="aiModal" class="modal hidden" aria-hidden="true" role="dialog">
+    <div class="modal-sheet" role="document" aria-modal="true">
+      <button class="close" data-close>閉じる</button>
+
+      <section class="modal-head">
+        <h3 id="m_name"></h3>
+        <div class="right">
+          <span id="m_stars"></span>
+          <span id="m_score" class="score"></span>
+        </div>
+        <div class="sub">
+          <span id="m_sector"></span>
+        </div>
+        <div class="trends">
+          <span id="m_trend_d"></span>
+          <span id="m_trend_w"></span>
+          <span id="m_trend_m"></span>
+        </div>
+      </section>
+
+      <section class="reasons">
+        <h4>理由（懸念含む）</h4>
+        <ul id="m_reasons"></ul>
+      </section>
+
+      <section class="prices">
+        <h4>価格目安</h4>
+        <div id="m_prices"></div>
+        <div id="m_qty"></div>
+      </section>
+
+      <section class="chart">
+        <h4>チャート（エントリー／利確／損切）</h4>
+        <canvas id="m_chart" height="260"></canvas>
+      </section>
+
+      <section class="actions">
+        <button id="act_watch">🔖 ウォッチ登録</button>
+        <button id="act_paper" disabled>📊 紙トレ記録中</button>
+      </section>
     </div>
-
-    <div class="row sub"><span class="sector">{{ it.sector }}</span></div>
-
-    <div class="trends">
-      <span>日足 {% if it.trend.d == 'up' %}⤴️{% elif it.trend.d == 'down' %}⤵️{% else %}⤳{% endif %}</span>
-      <span>週足 {% if it.trend.w == 'up' %}⤴️{% elif it.trend.w == 'down' %}⤵️{% else %}⤳{% endif %}</span>
-      <span>月足 {% if it.trend.m == 'up' %}⤴️{% elif it.trend.m == 'down' %}⤵️{% else %}⤳{% endif %}</span>
-    </div>
-
-    <button class="more" data-open="{{ forloop.counter0 }}">▶ 詳細を見る</button>
-  </article>
-  {% endfor %}
-</main>
-
-<div id="aiModal" class="modal hidden" aria-hidden="true" role="dialog">
-  <div class="modal-sheet" role="document" aria-modal="true">
-    <button class="close" data-close>閉じる</button>
-
-    <section class="modal-head">
-      <h3 id="m_name"></h3>
-      <div class="right">
-        <span id="m_stars"></span>
-        <span id="m_score" class="score"></span>
-      </div>
-      <div class="sub"><span id="m_sector"></span></div>
-      <div class="trends">
-        <span id="m_trend_d"></span>
-        <span id="m_trend_w"></span>
-        <span id="m_trend_m"></span>
-      </div>
-    </section>
-
-    <section class="reasons">
-      <h4>理由（懸念含む）</h4>
-      <ul id="m_reasons"></ul>
-    </section>
-
-    <section class="prices">
-      <h4>価格目安</h4>
-      <div id="m_prices"></div>
-      <div id="m_qty"></div>
-    </section>
-
-    <section class="chart">
-      <h4>チャート（エントリー／利確／損切）</h4>
-      <canvas id="m_chart" height="260"></canvas>
-    </section>
-
-    <section class="actions">
-      <button id="act_watch">🔖 ウォッチ登録</button>
-      <button id="act_paper" disabled>📊 紙トレ記録中</button>
-    </section>
+    <div class="backdrop" data-close></div>
   </div>
-  <div class="backdrop" data-close></div>
-</div>
 
-<script>window.__AI_ITEMS__ = {{ items|safe }};</script>
-<script src="{% static 'ai/ai.js' %}?v=1"></script>
+</div><!-- /ai-wrap -->
+
+<script>
+  window.__AI_ITEMS__ = {{ items|safe }};
+</script>
+<script src="{% static 'ai/ai.js' %}?v=13"></script>
 {% endblock %}
