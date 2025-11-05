@@ -11,7 +11,6 @@ from django.utils import timezone
 
 from ai.models import TrendResult
 
-
 # ===== ユーティリティ =====
 
 @dataclass
@@ -23,13 +22,7 @@ class Row:
     name: str
     sector: str
 
-
 def _read_snapshot_csv(root: Path) -> Dict[str, List[Row]]:
-    """
-    スナップショットCSV（例: media/ohlcv/snapshots/2025-11-05/ohlcv.csv）を読み込み、
-    code ごとに時系列を返す。
-      必須ヘッダ: code,date,close,volume,name,sector
-    """
     fp = root / "ohlcv.csv"
     if not fp.exists():
         raise FileNotFoundError(f"CSVが見つかりません: {fp}")
@@ -43,16 +36,12 @@ def _read_snapshot_csv(root: Path) -> Dict[str, List[Row]]:
 
         for rec in rdr:
             raw_code = str(rec["code"]).strip()
-            # 7203.0 → 7203 のような表記揺れ吸収
             code = raw_code.split(".", 1)[0] if "." in raw_code else raw_code
 
-            # close は必須。欠損行はスキップ。
             try:
                 close = float(rec["close"])
             except Exception:
                 continue
-
-            # volume は欠損したら 0
             try:
                 vol = float(rec["volume"])
             except Exception:
@@ -68,29 +57,21 @@ def _read_snapshot_csv(root: Path) -> Dict[str, List[Row]]:
             )
             per_code.setdefault(code, []).append(row)
 
-    # 昇順（日付が古い→新しい）に整列
     for k in per_code:
         per_code[k].sort(key=lambda r: r.date)
     return per_code
-
 
 def _sma(values: List[float], window: int) -> Optional[float]:
     if len(values) < window or window <= 0:
         return None
     return sum(values[-window:]) / window
 
-
 def _mean(values: List[float]) -> Optional[float]:
     if not values:
         return None
     return sum(values) / len(values)
 
-
 def _trend_from_pair(a: Optional[float], b: Optional[float], tol: float = 0.002) -> int:
-    """
-    2つの平均を比較して +1/0/-1 を返す。
-    tol はフラットとみなす許容差（0.2%既定）
-    """
     if a is None or b is None or b == 0:
         return 0
     if a > b * (1 + tol):
@@ -99,16 +80,10 @@ def _trend_from_pair(a: Optional[float], b: Optional[float], tol: float = 0.002)
         return -1
     return 0
 
-
 def _linear_slope(y: List[float]) -> Optional[float]:
-    """
-    単純な最小二乗直線の傾き（x=0,1,2,..）を返す。
-    標本数が少なければ None
-    """
     n = len(y)
     if n < 5:
         return None
-    # x: 0..n-1
     sx = (n - 1) * n / 2
     sx2 = (n - 1) * n * (2 * n - 1) / 6
     sy = sum(y)
@@ -118,32 +93,18 @@ def _linear_slope(y: List[float]) -> Optional[float]:
         return None
     return (n * sxy - sx * sy) / den
 
-
 def _weekly_monthly_trend(closes: List[float]) -> Tuple[int, int, Optional[float], Optional[float], Optional[float]]:
-    """
-    週足/月足相当の向き。
-      - 週足:  ma5 と ma20 の比較 → +1/0/-1
-      - 月足:  ma20 と ma60 の比較 → +1/0/-1
-    返り値: (weekly_trend_num, monthly_trend_num, ma5, ma20, ma60)
-    """
     ma5 = _sma(closes, 5)
     ma20 = _sma(closes, 20)
     ma60 = _sma(closes, 60)
-
     w = _trend_from_pair(ma5, ma20)
     m = _trend_from_pair(ma20, ma60)
-
     return w, m, ma5, ma20, ma60
 
-
 def _rs_index(last_price: float, ma20: Optional[float]) -> float:
-    """
-    簡易RS。指数データがまだ無い前提で、直近終値 / 20日MA を代用。
-    """
     if (ma20 or 0) <= 0 or last_price <= 0:
         return 1.0
     return float(last_price / ma20)
-
 
 def _vol_spike(last_vol: float, vols: List[float]) -> float:
     base = _mean(vols[-20:]) or 0.0
@@ -151,20 +112,12 @@ def _vol_spike(last_vol: float, vols: List[float]) -> float:
         return 1.0
     return float(last_vol / base)
 
-
 def _confidence(days: int, w_trend_num: int, m_trend_num: int) -> float:
-    """
-    データ量と方向一貫性から 0.0〜1.0 の簡易confidence。
-    """
-    base = min(1.0, max(0.0, days / 60.0))  # 60日満額
+    base = min(1.0, max(0.0, days / 60.0))
     bonus = 0.2 if (w_trend_num == m_trend_num and w_trend_num != 0) else 0.0
     return float(max(0.0, min(1.0, base + bonus)))
 
-
 def _D(x: Optional[float]) -> Decimal:
-    """
-    Decimal 変換（None→0）。floatの直入れは誤差が出るので文字列経由。
-    """
     if x is None:
         return Decimal("0")
     try:
@@ -172,15 +125,14 @@ def _D(x: Optional[float]) -> Decimal:
     except (InvalidOperation, TypeError, ValueError):
         return Decimal("0")
 
-
-# ===== メイン・コマンド =====
+# ===== メイン =====
 
 class Command(BaseCommand):
-    help = "スナップショットCSVから TrendResult を更新（daily_slope/weekly_trend/monthly_trend ほか）"
+    help = "スナップショットCSVから TrendResult を更新（name/sector は空なら既存DBを保持）"
 
     def add_arguments(self, parser):
-        parser.add_argument("--root", type=str, required=True, help="スナップショットCSVのディレクトリ（例: media/ohlcv/snapshots/2025-11-05）")
-        parser.add_argument("--asof", type=str, required=False, help="as_of（日付）。未指定は今日。YYYY-MM-DD")
+        parser.add_argument("--root", type=str, required=True, help="例: media/ohlcv/snapshots/2025-11-05")
+        parser.add_argument("--asof", type=str, required=False, help="YYYY-MM-DD（未指定は今日）")
 
     @transaction.atomic
     def handle(self, *args, **options):
@@ -205,39 +157,39 @@ class Command(BaseCommand):
             last_price_f = float(closes[-1])
             last_vol_f = float(vols[-1]) if vols else 0.0
 
-            # 指標計算
-            slope = _linear_slope(closes[-30:])  # → daily_slope (Decimal)
-            w_num, m_num, ma5, ma20, ma60 = _weekly_monthly_trend(closes)  # 数値（+1/0/-1）
+            slope = _linear_slope(closes[-30:])
+            w_num, m_num, ma5, ma20, ma60 = _weekly_monthly_trend(closes)
             rs = _rs_index(last_price_f, ma20)
             volb = _vol_spike(last_vol_f, vols)
             conf = _confidence(len(closes), w_num, m_num)
 
-            # update_or_create で必須カラム含め全項目を一括更新
-            TrendResult.objects.update_or_create(
-                code=code,
-                defaults={
-                    "name": last.name or "",
-                    "sector_jp": last.sector or "",
-                    "last_price": _D(last_price_f),
-                    "last_volume": _D(last_vol_f),
-                    "daily_slope": _D(slope if slope is not None else 0.0),
-                    "weekly_trend": _D(w_num),     # ← 数値 (+1/0/-1)
-                    "monthly_trend": _D(m_num),    # ← 数値 (+1/0/-1)
-                    "ma5": _D(ma5 if ma5 is not None else 0.0),
-                    "ma20": _D(ma20 if ma20 is not None else 0.0),
-                    "ma60": _D(ma60 if ma60 is not None else 0.0),
-                    "rs_index": _D(rs),
-                    "vol_spike": _D(volb),
-                    "confidence": _D(conf),
-                    "as_of": asof,
-                }
-            )
+            # 既存を取得→空欄は既存を保持
+            try:
+                obj = TrendResult.objects.get(code=code)
+                name = last.name or (obj.name or "")
+                sector = last.sector or (obj.sector_jp or "")
+            except TrendResult.DoesNotExist:
+                obj = TrendResult(code=code)
+                name = last.name or ""
+                sector = last.sector or ""
+
+            obj.name = name
+            obj.sector_jp = sector
+            obj.last_price = _D(last_price_f)
+            obj.last_volume = _D(last_vol_f)
+            obj.daily_slope = _D(slope if slope is not None else 0.0)
+            obj.weekly_trend = _D(w_num)     # +1/0/-1
+            obj.monthly_trend = _D(m_num)    # +1/0/-1
+            obj.ma5 = _D(ma5 if ma5 is not None else 0.0)
+            obj.ma20 = _D(ma20 if ma20 is not None else 0.0)
+            obj.ma60 = _D(ma60 if ma60 is not None else 0.0)
+            obj.rs_index = _D(rs)
+            obj.vol_spike = _D(volb)
+            obj.confidence = _D(conf)
+            obj.as_of = asof
+            obj.save()
             updated += 1
 
-        self.stdout.write(self.style.SUCCESS(
-            f"Updated TrendResult: {updated} items (as_of={asof})"
-        ))
+        self.stdout.write(self.style.SUCCESS(f"Updated TrendResult: {updated} items (as_of={asof})"))
         if invalid:
-            self.stdout.write(self.style.WARNING(
-                f"invalid_rows: {invalid}"
-            ))
+            self.stdout.write(self.style.WARNING(f"invalid_rows: {invalid}"))
