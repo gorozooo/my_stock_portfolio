@@ -4,29 +4,20 @@
 {% block title %}AI{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=14">
+  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=15">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-
-  <!-- 最低限の即時上書き（キャッシュが残っても左右揃えだけは効かせる） -->
-  <style>
-    :root{ --wrapW:680px; --padX:12px; }
-    .ai-top__inner, .ai-main__inner {
-      position: relative; left:50%; transform:translateX(-50%);
-      width: min(100%, var(--wrapW));
-      padding-left: var(--padX); padding-right: var(--padX);
-    }
-    .ai-top { padding:10px 0; }
-  </style>
 {% endblock %}
 
 {% block content %}
 <header class="ai-top">
-  <div class="ai-top__inner">
-    <div class="ai-row">
-      <span>⏱️ {{ updated_at }} 更新</span>
+  <div class="ai-row">
+    <span>⏱️ {{ updated_at }} 更新</span>
+    <div style="display:flex;gap:10px;align-items:center">
       <span>📈 レジーム：{{ regime.label }}（{{ regime.confidence }}%）</span>
     </div>
-    <div class="ai-row modes">
+  </div>
+  <div class="ai-row">
+    <div style="display:flex;gap:10px;align-items:center">
       <button class="pill on">{{ mode.period }}</button>
       <button class="pill on">{{ mode.stance }}</button>
       <button class="pill">おまかせ</button>
@@ -34,47 +25,32 @@
   </div>
 </header>
 
-<main class="ai-main">
-  <div class="ai-main__inner ai-list">
-    {% for it in items %}
-    <article class="ai-card" data-index="{{ forloop.counter0 }}">
-      <div class="row head">
-        <div class="left">
-          <h3 class="title">
-            <span class="name" title="{{ it.name|default_if_none:'' }}">{{ it.name|default_if_none:"" }}</span>
-            <span class="code">({{ it.code }})</span>
-          </h3>
-          {% if it.sector %}
-            <div class="sector" title="{{ it.sector }}">{{ it.sector }}</div>
-          {% endif %}
-        </div>
-        <div class="right">
-          <span class="stars" aria-label="AI信頼度">
-            {% for i in "12345"|make_list %}{% if forloop.counter <= it.stars %}⭐️{% else %}☆{% endif %}{% endfor %}
-          </span>
-          <span class="score">{{ it.score }}点</span>
-        </div>
+<main class="ai-list">
+  {% for it in items %}
+  <article class="ai-card" data-index="{{ forloop.counter0 }}">
+    <div class="row">
+      <h3>{{ it.name }} <span class="code">({{ it.code }})</span></h3>
+      <div class="meta-right">
+        <span class="stars" aria-label="AI信頼度">
+          {% for i in "12345"|make_list %}{% if forloop.counter <= it.stars %}⭐️{% else %}☆{% endif %}{% endfor %}
+        </span>
+        <span class="score"><span class="num">{{ it.score }}</span><span class="unit">点</span></span>
       </div>
+    </div>
 
-      <div class="row trends">
-        <span>日足
-          {% if it.trend.d == 'up' %}⤴️{% elif it.trend.d == 'down' %}⤵️{% else %}➡️{% endif %}
-        </span>
-        <span>週足
-          {% if it.trend.w == 'up' %}⤴️{% elif it.trend.w == 'down' %}⤵️{% else %}➡️{% endif %}
-        </span>
-        <span>月足
-          {% if it.trend.m == 'up' %}⤴️{% elif it.trend.m == 'down' %}⤵️{% else %}➡️{% endif %}
-        </span>
-      </div>
+    <div class="row sub"><span class="sector">{{ it.sector }}</span></div>
 
-      <button class="more" data-open="{{ forloop.counter0 }}">▶ 詳細を見る</button>
-    </article>
-    {% endfor %}
-  </div>
+    <div class="trends">
+      <span>日足 {% if it.trend.d == 'up' %}⤴️{% elif it.trend.d == 'down' %}⤵️{% else %}⤳{% endif %}</span>
+      <span>週足 {% if it.trend.w == 'up' %}⤴️{% elif it.trend.w == 'down' %}⤵️{% else %}⤳{% endif %}</span>
+      <span>月足 {% if it.trend.m == 'up' %}⤴️{% elif it.trend.m == 'down' %}⤵️{% else %}⤳{% endif %}</span>
+    </div>
+
+    <button class="more" data-open="{{ forloop.counter0 }}">▶ 詳細を見る</button>
+  </article>
+  {% endfor %}
 </main>
 
-<!-- 詳細モーダル（保有前提ではないので半分利確は出さない） -->
 <div id="aiModal" class="modal hidden" aria-hidden="true" role="dialog">
   <div class="modal-sheet" role="document" aria-modal="true">
     <button class="close" data-close>閉じる</button>
@@ -85,9 +61,7 @@
         <span id="m_stars"></span>
         <span id="m_score" class="score"></span>
       </div>
-      <div class="sub">
-        <span id="m_sector"></span>
-      </div>
+      <div class="sub"><span id="m_sector"></span></div>
       <div class="trends">
         <span id="m_trend_d"></span>
         <span id="m_trend_w"></span>
@@ -119,8 +93,6 @@
   <div class="backdrop" data-close></div>
 </div>
 
-<script>
-  window.__AI_ITEMS__ = {{ items|safe }};
-</script>
+<script>window.__AI_ITEMS__ = {{ items|safe }};</script>
 <script src="{% static 'ai/ai.js' %}?v=1"></script>
 {% endblock %}
