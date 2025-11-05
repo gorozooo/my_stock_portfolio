@@ -3,6 +3,15 @@ from django.core.management.base import BaseCommand
 from ai.services.screening import generate_top10_candidates
 from ai.infra.adapters.line import send_ai_flex
 
+
+if not items:
+    items = [{
+        'name': '東京エレクトロン', 'code': '8035', 'sector': '電気機器',
+        'score': 82, 'stars': 4,
+        'trend': {'d': 'up','w': 'up','m': 'flat'},
+        'prices': {'entry': 23000, 'tp': 23900, 'sl': 22500}
+    }]
+
 class Command(BaseCommand):
     help = "AI候補上位をLINE Flexで送信（朝/昼/夕の定時通知用）"
 
