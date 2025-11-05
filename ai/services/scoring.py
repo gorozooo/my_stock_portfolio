@@ -1,42 +1,59 @@
 from __future__ import annotations
-from typing import Dict, Optional
+from dataclasses import dataclass
+from typing import Optional
 
-def compute_score(feature: Dict) -> int:
+# スコア用の中間表現（必要最小限）
+@dataclass
+class Factors:
+    daily_slope: float            # 値幅の傾き（終値回帰の傾き）
+    weekly_trend: float           # +1/0/-1
+    monthly_trend: float          # +1/0/-1
+    rs_index: float               # >1 強い
+    vol_spike: float              # 1 が平常、>1 は出来高ブースト
+    confidence: float             # 0〜1、データ量や整合で決定
+
+def _clamp(v: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, v))
+
+def _norm_slope(slope: float) -> float:
+    # 価格レンジ依存を吸収する簡易正規化：過剰影響を避けて-1..+1に収める
+    # 体感で十分に効くようにスケール調整
+    return _clamp(slope / 50.0, -1.0, 1.0)
+
+def compute_score(f: Factors) -> int:
     """
-    合成スコア（0-100）
-      - 相対強度(rs_index) 〜 +20
-      - 出来高ブースト(vol_boost) 〜 +15
-      - 日/週/月の向き: up:+5, flat:0, down:-3（最大 +15）
+    直感重視の合成スコア 0..100
+    - トレンド（週・月）を主因に
+    - 日足の傾き、RS、出来高ブーストで微調整
+    - 信頼度が低い場合は減点
     """
-    base = 50
-    rs = float(feature.get('strength', 1.0))
-    vol = float(feature.get('vol_boost', 1.0))
+    trend = (1.8 * f.weekly_trend + 1.2 * f.monthly_trend)  # -3..+3
+    slope = 1.0 * _norm_slope(f.daily_slope)                # -1..+1
+    rs = 0.8 * (f.rs_index - 1.0)                           # ≈ -∞..+∞ だが小さく寄与
+    vol = 0.6 * (f.vol_spike - 1.0)
 
-    base += int(max(0, min(20, (rs - 1.0) * 40)))
-    base += int(max(0, min(15, (vol - 1.0) * 20)))
+    base = 50.0 + 12.0 * trend + 10.0 * slope + 8.0 * rs + 6.0 * vol
+    # 信頼度ペナルティ（0.6未満はきつめに）
+    if f.confidence < 0.6:
+        base -= (0.6 - f.confidence) * 25.0
 
-    for k in ('trend_d','trend_w','trend_m'):
-        v = feature.get(k)
-        if v == 'up':
-            base += 5
-        elif v == 'flat':
-            base += 0
-        else:
-            base -= 3
+    return int(round(_clamp(base, 0.0, 100.0)))
 
-    return max(0, min(100, base))
-
-def stars_from_confidence(confidence: Optional[float], fallback_ups: int = 0) -> int:
+def compute_stars(score: int, confidence: Optional[float] = None) -> int:
     """
-    0.0〜1.0 の confidence → ⭐️1〜5
-    未設定は「上向きの本数」(0〜3)に基づくフォールバック。
+    スコアしきい値ベースの⭐️1..5
+    信頼度が低いと1段階ダウン。高いと0.5段階相当を四捨五入で吸収。
     """
-    if confidence is not None and confidence > 0:
-        v = 1 + round(confidence * 4)
-        return max(1, min(5, v))
-    v = max(1, min(5, 1 + int(fallback_ups)))
-    return v
+    if score >= 85: stars = 5
+    elif score >= 75: stars = 4
+    elif score >= 65: stars = 3
+    elif score >= 55: stars = 2
+    else: stars = 1
 
-# 互換エイリアス（旧コードが compute_stars を import しても動く）
-def compute_stars(confidence, fallback_ups: int = 0) -> int:
-    return stars_from_confidence(confidence, fallback_ups)
+    if confidence is not None:
+        if confidence < 0.55:
+            stars -= 1
+        elif confidence > 0.85 and score >= 70:
+            stars += 0  # ここは見た目安定のため据え置き（増やし過ぎない）
+
+    return max(1, min(5, int(round(stars))))
