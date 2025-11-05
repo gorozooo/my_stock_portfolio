@@ -86,18 +86,18 @@ def _mean(values: List[float]) -> Optional[float]:
     return sum(values) / len(values)
 
 
-def _trend_from_pair(a: Optional[float], b: Optional[float], tol: float = 0.002) -> str:
+def _trend_from_pair(a: Optional[float], b: Optional[float], tol: float = 0.002) -> int:
     """
-    2つの平均を比較して up/flat/down を返す。
+    2つの平均を比較して +1/0/-1 を返す。
     tol はフラットとみなす許容差（0.2%既定）
     """
     if a is None or b is None or b == 0:
-        return "flat"
+        return 0
     if a > b * (1 + tol):
-        return "up"
+        return 1
     if a < b * (1 - tol):
-        return "down"
-    return "flat"
+        return -1
+    return 0
 
 
 def _linear_slope(y: List[float]) -> Optional[float]:
@@ -119,12 +119,12 @@ def _linear_slope(y: List[float]) -> Optional[float]:
     return (n * sxy - sx * sy) / den
 
 
-def _weekly_monthly_trend(closes: List[float]) -> Tuple[str, str, Optional[float], Optional[float], Optional[float]]:
+def _weekly_monthly_trend(closes: List[float]) -> Tuple[int, int, Optional[float], Optional[float], Optional[float]]:
     """
-    週足/月足相当の向きをシンプルに判定。
-      - 週足:  ma5 と ma20 の比較
-      - 月足:  ma20 と ma60 の比較
-    返り値: (weekly_trend, monthly_trend, ma5, ma20, ma60)
+    週足/月足相当の向き。
+      - 週足:  ma5 と ma20 の比較 → +1/0/-1
+      - 月足:  ma20 と ma60 の比較 → +1/0/-1
+    返り値: (weekly_trend_num, monthly_trend_num, ma5, ma20, ma60)
     """
     ma5 = _sma(closes, 5)
     ma20 = _sma(closes, 20)
@@ -152,14 +152,12 @@ def _vol_spike(last_vol: float, vols: List[float]) -> float:
     return float(last_vol / base)
 
 
-def _confidence(days: int, w_trend: str, m_trend: str) -> float:
+def _confidence(days: int, w_trend_num: int, m_trend_num: int) -> float:
     """
     データ量と方向一貫性から 0.0〜1.0 の簡易confidence。
     """
     base = min(1.0, max(0.0, days / 60.0))  # 60日満額
-    bonus = 0.0
-    if w_trend == m_trend and w_trend in ("up", "down"):
-        bonus = 0.2
+    bonus = 0.2 if (w_trend_num == m_trend_num and w_trend_num != 0) else 0.0
     return float(max(0.0, min(1.0, base + bonus)))
 
 
@@ -178,7 +176,7 @@ def _D(x: Optional[float]) -> Decimal:
 # ===== メイン・コマンド =====
 
 class Command(BaseCommand):
-    help = "スナップショットCSVから TrendResult を更新（daily_slope / weekly_trend / monthly_trend ほか）"
+    help = "スナップショットCSVから TrendResult を更新（daily_slope/weekly_trend/monthly_trend ほか）"
 
     def add_arguments(self, parser):
         parser.add_argument("--root", type=str, required=True, help="スナップショットCSVのディレクトリ（例: media/ohlcv/snapshots/2025-11-05）")
@@ -208,13 +206,13 @@ class Command(BaseCommand):
             last_vol_f = float(vols[-1]) if vols else 0.0
 
             # 指標計算
-            slope = _linear_slope(closes[-30:])  # 直近30本の回帰直線傾き（daily_slope）
-            w_trend, m_trend, ma5, ma20, ma60 = _weekly_monthly_trend(closes)
+            slope = _linear_slope(closes[-30:])  # → daily_slope (Decimal)
+            w_num, m_num, ma5, ma20, ma60 = _weekly_monthly_trend(closes)  # 数値（+1/0/-1）
             rs = _rs_index(last_price_f, ma20)
             volb = _vol_spike(last_vol_f, vols)
-            conf = _confidence(len(closes), w_trend, m_trend)
+            conf = _confidence(len(closes), w_num, m_num)
 
-            # ===== ここがポイント：update_or_createで必須カラムを含む全項目を一括指定 =====
+            # update_or_create で必須カラム含め全項目を一括更新
             TrendResult.objects.update_or_create(
                 code=code,
                 defaults={
@@ -223,14 +221,14 @@ class Command(BaseCommand):
                     "last_price": _D(last_price_f),
                     "last_volume": _D(last_vol_f),
                     "daily_slope": _D(slope if slope is not None else 0.0),
-                    "weekly_trend": w_trend,
-                    "monthly_trend": m_trend,
+                    "weekly_trend": _D(w_num),     # ← 数値 (+1/0/-1)
+                    "monthly_trend": _D(m_num),    # ← 数値 (+1/0/-1)
                     "ma5": _D(ma5 if ma5 is not None else 0.0),
                     "ma20": _D(ma20 if ma20 is not None else 0.0),
                     "ma60": _D(ma60 if ma60 is not None else 0.0),
                     "rs_index": _D(rs),
                     "vol_spike": _D(volb),
-                    "confidence": Decimal(str(conf)),
+                    "confidence": _D(conf),
                     "as_of": asof,
                 }
             )
