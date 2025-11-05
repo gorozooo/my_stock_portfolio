@@ -4,24 +4,26 @@
 {% block title %}AI{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=5">
+  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=6">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 {% endblock %}
 
 {% block content %}
 <header class="ai-top">
-  <div class="ai-row">
-    <span>⏱️ {{ updated_at }} 更新</span>
-    <span>📈 レジーム：{{ regime.label }}（{{ regime.confidence }}%）</span>
-  </div>
-  <div class="ai-row modes">
-    <button class="pill on">{{ mode.period }}</button>
-    <button class="pill on">{{ mode.stance }}</button>
-    <button class="pill">おまかせ</button>
+  <div class="container">
+    <div class="ai-row">
+      <span>⏱️ {{ updated_at }} 更新</span>
+      <span>📈 レジーム：{{ regime.label }}（{{ regime.confidence }}%）</span>
+    </div>
+    <div class="ai-row modes">
+      <button class="pill on">{{ mode.period }}</button>
+      <button class="pill on">{{ mode.stance }}</button>
+      <button class="pill">おまかせ</button>
+    </div>
   </div>
 </header>
 
-<main class="ai-list">
+<main class="ai-list container">
   {% for it in items %}
   <article class="ai-card" data-index="{{ forloop.counter0 }}">
     <div class="row head">
