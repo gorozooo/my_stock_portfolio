@@ -18,7 +18,7 @@ class AIHomeView(TemplateView):
                 'code': c.code,
                 'sector': c.sector,
                 'score': c.score,
-                'stars': c.stars,
+                'stars': c.stars,  # ★ confidence→⭐️済
                 'trend': {'d': c.trend.d, 'w': c.trend.w, 'm': c.trend.m},
                 'reasons': c.reasons,
                 'prices': {'entry': c.prices.entry, 'tp': c.prices.tp, 'sl': c.prices.sl},
