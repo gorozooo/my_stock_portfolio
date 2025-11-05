@@ -1,27 +1,42 @@
+from __future__ import annotations
 from typing import Dict, Optional
 
 def compute_score(feature: Dict) -> int:
     """
-    軽量な合成スコア（0-100）
-      - 相対強度(rs_index)
-      - 出来高ブースト(vol_boost)
-      - 日/週/月の向き
+    合成スコア（0-100）
+      - 相対強度(rs_index) 〜 +20
+      - 出来高ブースト(vol_boost) 〜 +15
+      - 日/週/月の向き: up:+5, flat:0, down:-3（最大 +15）
     """
     base = 50
-    base += int(max(0, min(20, (feature.get('strength', 1.0) - 1.0) * 40)))   # rs 1.0→0点, 1.5→20点
-    base += int(max(0, min(15, (feature.get('vol_boost', 1.0) - 1.0) * 20)))  # 〜15
+    rs = float(feature.get('strength', 1.0))
+    vol = float(feature.get('vol_boost', 1.0))
+
+    base += int(max(0, min(20, (rs - 1.0) * 40)))
+    base += int(max(0, min(15, (vol - 1.0) * 20)))
+
     for k in ('trend_d','trend_w','trend_m'):
-        base += 5 if feature.get(k) == 'up' else (0 if feature.get(k) == 'flat' else -3)
+        v = feature.get(k)
+        if v == 'up':
+            base += 5
+        elif v == 'flat':
+            base += 0
+        else:
+            base -= 3
+
     return max(0, min(100, base))
 
 def stars_from_confidence(confidence: Optional[float], fallback_ups: int = 0) -> int:
     """
-    0.0〜1.0 の confidence を ⭐️1〜5 にマップ。未設定は方向数(fallback_ups)で代替。
+    0.0〜1.0 の confidence → ⭐️1〜5
+    未設定は「上向きの本数」(0〜3)に基づくフォールバック。
     """
     if confidence is not None and confidence > 0:
-        # 0.00〜1.00 → 1〜5
-        v = 1 + round(confidence * 4)  # 0.00→1, 0.25→2, 0.5→3, 0.75→4, 1.0→5
+        v = 1 + round(confidence * 4)
         return max(1, min(5, v))
-    # フォールバック：上向きの本数でざっくり
-    v = max(1, min(5, 1 + fallback_ups))
+    v = max(1, min(5, 1 + int(fallback_ups)))
     return v
+
+# 互換エイリアス（旧コードが compute_stars を import しても動く）
+def compute_stars(confidence, fallback_ups: int = 0) -> int:
+    return stars_from_confidence(confidence, fallback_ups)
