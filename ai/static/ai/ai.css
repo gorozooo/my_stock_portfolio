@@ -1,156 +1,49 @@
 :root{
-  --bg:#0b0f1a;
-  --card:rgba(255,255,255,.06);
-  --fg:#f1f5f9;
-  --sub:#94a3b8;
-  --accent:#2563eb;
-  --ok:#16a34a;
-  --bad:#ef4444;
-  --muted:#334155;
+  --bg:#0b0f1a; --card:rgba(255,255,255,.06); --fg:#f1f5f9; --sub:#94a3b8;
+  --accent:#2563eb; --ok:#16a34a; --bad:#ef4444; --muted:#334155;
 }
 *{box-sizing:border-box}
-body{
-  margin:0;
-  background:var(--bg);
-  color:var(--fg);
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial;
-}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial}
 
-/* === ヘッダー === */
-.ai-top{
-  position:sticky;
-  top:0;
-  z-index:5;
-  background:rgba(11,15,26,.8);
-  backdrop-filter:blur(10px);
-  padding:10px 12px;
-  border-bottom:1px solid rgba(255,255,255,.08);
-}
-.ai-top .ai-row{
-  display:flex;
-  gap:12px;
-  justify-content:space-between;
-  align-items:center;
-  font-size:14px;
-  color:#d6e1ff;
-}
-.pill{
-  border:1px solid rgba(255,255,255,.12);
-  background:rgba(255,255,255,.06);
-  color:#eaf0ff;
-  padding:6px 10px;
-  border-radius:999px;
-}
-.pill.on{
-  border-color:rgba(37,99,235,.6);
-  box-shadow:0 0 0 1px rgba(37,99,235,.4) inset;
-}
+/* ── TOPバー ─────────────────────────── */
+.ai-top{position:sticky;top:0;z-index:5;background:rgba(11,15,26,.8);backdrop-filter:blur(10px);
+  padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08)}
+.ai-top .ai-row{display:flex;gap:12px;justify-content:space-between;align-items:center;font-size:14px;color:#d6e1ff}
+.pill{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#eaf0ff;padding:6px 10px;border-radius:999px}
+.pill.on{border-color:rgba(37,99,235,.6);box-shadow:0 0 0 1px rgba(37,99,235,.4) inset}
 
-/* === カードリスト === */
-.ai-list{
-  max-width:720px;
-  margin:8px auto 80px;
-  padding:0 10px;
-  display:grid;
-  gap:10px;
-}
-.ai-card{
-  border:1px solid rgba(255,255,255,.08);
-  background:var(--card);
-  border-radius:14px;
-  padding:10px;
-}
-.ai-card .row{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-}
-.ai-card h3{
-  margin:0;
-  font-size:16px;
-}
-.ai-card .code{
-  color:var(--sub);
-  font-weight:500;
-}
-.meta-right{
-  display:flex;
-  gap:10px;
-  align-items:center;
-}
-.score{
-  font-weight:700;
-}
-.sub{
-  font-size:13px;
-  color:var(--sub);
-  margin-top:4px;
-}
-.trends{
-  display:flex;
-  gap:12px;
-  margin-top:6px;
-}
-.more{
-  margin-top:8px;
-  width:100%;
-  padding:10px;
-  border-radius:10px;
-  border:1px solid rgba(255,255,255,.14);
-  background:rgba(255,255,255,.05);
-  color:#eaf0ff;
-}
+/* ── リスト ─────────────────────────── */
+.ai-list{max-width:720px;margin:8px auto 80px;padding:0 10px;display:grid;gap:10px}
+.ai-card{border:1px solid rgba(255,255,255,.08);background:var(--card);border-radius:14px;padding:12px}
+.ai-card .row{display:flex;align-items:center;justify-content:space-between}
 
-/* === モーダル === */
-.modal{
-  position:fixed;
-  inset:0;
-  display:grid;
-  grid-template-rows:1fr;
-  z-index:1000;
-}
+/* ヘッダ部（左＝名称/コード/セクター、右＝⭐️とスコア） */
+.ai-card .head .left{display:flex;flex-direction:column;gap:4px}
+.ai-card .title{margin:0;display:flex;gap:6px;align-items:baseline}
+.ai-card .name{font-size:16px;font-weight:600}
+.ai-card .code{color:var(--sub);font-weight:500}
+.ai-card .sector{font-size:13px;color:var(--sub)}
+.ai-card .right{display:flex;gap:10px;align-items:center}
+.ai-card .stars{white-space:nowrap;font-size:18px;line-height:1}
+.ai-card .score{font-weight:700}
+
+/* トレンド行（⤴️➡️⤵️） */
+.trends{display:flex;gap:12px;margin-top:8px;font-size:14px}
+
+/* ボタン */
+.more{margin-top:10px;width:100%;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.05);color:#eaf0ff}
+
+/* ── モーダル ───────────────────────── */
+.modal{position:fixed;inset:0;display:grid;grid-template-rows:1fr;z-index:1000}
 .modal.hidden{display:none}
 .backdrop{background:rgba(0,0,0,.4)}
-.modal-sheet{
-  position:fixed;
-  left:0;right:0;bottom:0;
-  max-height:88vh;
-  overflow:auto;
-  background:#0b0f1a;
-  border-top-left-radius:16px;
-  border-top-right-radius:16px;
-  padding:12px 12px 18px;
-  transform:translateY(0);
-}
-.close{
-  position:sticky;
-  top:6px;
-  float:right;
-  border:1px solid rgba(255,255,255,.14);
-  background:rgba(255,255,255,.06);
-  color:#fff;
-  border-radius:10px;
-  padding:6px 10px;
-}
-.modal-head .right{
-  float:right;
-  display:flex;
-  gap:10px;
-  align-items:center;
-}
+.modal-sheet{position:fixed;left:0;right:0;bottom:0;max-height:88vh;overflow:auto;background:#0b0f1a;
+  border-top-left-radius:16px;border-top-right-radius:16px;padding:12px 12px 18px;transform:translateY(0)}
+.close{position:sticky;top:6px;float:right;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff;border-radius:10px;padding:6px 10px}
+.modal-head .right{float:right;display:flex;gap:10px;align-items:center}
 .modal h4{margin:14px 0 8px}
 .reasons ul{margin:0;padding-left:18px}
-.actions{
-  display:flex;
-  gap:10px;
-  margin-top:10px;
-}
-.actions button{
-  flex:1;
-  border:1px solid rgba(255,255,255,.14);
-  background:rgba(255,255,255,.06);
-  color:#eaf0ff;
-  border-radius:10px;
-  padding:10px;
-}
+.actions{display:flex;gap:10px;margin-top:10px}
+.actions button{flex:1;border:1px solid rgba(255,255,白,.14);background:rgba(255,255,255,.06);color:#eaf0ff;border-radius:10px;padding:10px}
 .chart{margin-bottom:12px}
