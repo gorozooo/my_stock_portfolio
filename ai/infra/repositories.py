@@ -1,8 +1,10 @@
 from __future__ import annotations
 from typing import List, Dict, Any, Optional
+from decimal import Decimal
 from django.db.models import QuerySet
 from ai.models import TrendResult
 from ai.services.scoring import compute_score, stars_from_confidence
+
 
 def _normalize_code(val) -> str:
     s = str(val).strip()
@@ -10,12 +12,12 @@ def _normalize_code(val) -> str:
         s = s.split('.', 1)[0]
     return s
 
+
 def _coerce_dir(val: Optional[object]) -> Optional[str]:
     """
-    値を 'up'/'flat'/'down' に正規化。
-    - 文字列: 'up'/'flat'/'down' を許可（大文字小文字無視）
-    - 数値: >0 up, ==0 flat, <0 down（daily_slope 用）
-    - それ以外は None
+    'up'/'flat'/'down' のいずれかを返す。
+    - 数値(Decimal/float/int): >0 up, ==0 flat, <0 down
+    - 文字列: 'up'/'flat'/'down' を許可
     """
     if val is None:
         return None
@@ -23,34 +25,40 @@ def _coerce_dir(val: Optional[object]) -> Optional[str]:
         s = val.strip().lower()
         if s in ('up', 'flat', 'down'):
             return s
-        return None
-    if isinstance(val, (int, float)):
-        if val > 0: return 'up'
-        if val < 0: return 'down'
+        # 数字文字列なら数値扱い
+        try:
+            num = float(s)
+        except Exception:
+            return None
+        if num > 0: return 'up'
+        if num < 0: return 'down'
+        return 'flat'
+    if isinstance(val, (int, float, Decimal)):
+        if float(val) > 0: return 'up'
+        if float(val) < 0: return 'down'
         return 'flat'
     return None
+
 
 def _trend_tuple(r: TrendResult) -> Dict[str, str]:
     """
     TrendResult から (日/週/月) の向きを辞書で返す。
-    フィールド名はあなたのDBに合わせて：
       - 日足:  daily_slope (numeric)
-      - 週足:  weekly_trend (str)
-      - 月足:  monthly_trend (str)
+      - 週足:  weekly_trend (numeric: +1/0/-1)
+      - 月足:  monthly_trend (numeric: +1/0/-1)
     """
     d = _coerce_dir(getattr(r, 'daily_slope', None))
     w = _coerce_dir(getattr(r, 'weekly_trend', None))
     m = _coerce_dir(getattr(r, 'monthly_trend', None))
-    # None は 'flat' に落とす（スコア計算が安定）
+    # None は 'flat' に落とす（安定性）
     d = d or 'flat'
     w = w or 'flat'
     m = m or 'flat'
     return {'d': d, 'w': w, 'm': m}
 
+
 def _dedup(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    同一コードの重複（例: 7203 / 7203.0）を最初の1件に統合。
-    """
+    """7203 / 7203.0 の重複を最初の1件に統合。"""
     seen = {}
     for f in items:
         code = f['code']
@@ -58,10 +66,10 @@ def _dedup(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             seen[code] = f
     return list(seen.values())
 
+
 def _base_qs(limit_hint: int) -> QuerySet:
     """
-    並びは『週＞月＞出来高スパイク＞相対強度』で仮の上位を引き、
-    そこから重複排除＆スコア降順に並べ替える。
+    仮の上位を広めに取り、その後 score で絞る。
     """
     n = max(limit_hint * 3, 60)
     return (TrendResult.objects
@@ -70,10 +78,11 @@ def _base_qs(limit_hint: int) -> QuerySet:
                   'daily_slope','confidence')
             .order_by('-weekly_trend', '-monthly_trend', '-vol_spike', '-rs_index')[:n])
 
+
 def fetch_top_trend_candidates(limit: int = 30) -> List[Dict[str, Any]]:
     """
-    方向（d/w/m）を実DBフィールドから正規化し、score/⭐️を算出。
-    コード正規化＆重複排除後、scoreで降順ソートして返す。
+    方向（d/w/m）を正規化し、score/⭐️を算出。
+    コード正規化＆重複排除後、score降順で返却。
     """
     raw: List[Dict[str, Any]] = []
     for r in _base_qs(limit):
@@ -106,10 +115,9 @@ def fetch_top_trend_candidates(limit: int = 30) -> List[Dict[str, Any]]:
     dedup.sort(key=lambda x: x['score'], reverse=True)
     return dedup[:limit]
 
+
 def fetch_account_caps() -> Dict[str, Any]:
-    """
-    後で portfolio/holdings/cash と連携するまでのダミー枠。
-    """
+    """後で portfolio/holdings/cash と連携するまでのダミー枠。"""
     return dict(
         cash_buyable=2_000_000,
         nisa_room=1_200_000,
