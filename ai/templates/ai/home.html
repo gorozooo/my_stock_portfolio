@@ -5,15 +5,12 @@
 
 {% block head %}
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=20">
+  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=21">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 {% endblock %}
 
 {% block content %}
-<!-- スマホ中央・はみ出し禁止の共通ラッパ -->
 <div class="ai-wrap">
-
-  <!-- TOPバー：中央寄せ＋safe-area完全対応 -->
   <header class="ai-top">
     <div class="top-inner">
       <div class="ai-row top-meta">
@@ -28,20 +25,21 @@
     </div>
   </header>
 
-  <!-- 一覧 -->
   <main class="ai-list">
     {% for it in items %}
     <article class="ai-card" data-index="{{ forloop.counter0 }}">
+      <!-- 頭は2カラム：左=タイトル、右=点数(1行目)+⭐️(2行目) -->
       <div class="card-head">
         <h3 class="title">
           <span class="name">{{ it.name }}</span>
           <span class="code">({{ it.code }})</span>
         </h3>
+
         <div class="meta-right">
+          <span class="score"><b>{{ it.score }}</b> 点</span>
           <span class="stars" aria-label="AI信頼度">
             {% for i in "12345"|make_list %}{% if forloop.counter <= it.stars %}⭐️{% else %}☆{% endif %}{% endfor %}
           </span>
-          <span class="score"><b>{{ it.score }}</b> 点</span>
         </div>
       </div>
 
@@ -60,7 +58,7 @@
     {% endfor %}
   </main>
 
-  <!-- 詳細モーダル（既存構造そのまま） -->
+  <!-- モーダル（既存そのまま） -->
   <div id="aiModal" class="modal hidden" aria-hidden="true" role="dialog">
     <div class="modal-sheet" role="document" aria-modal="true">
       <button class="close" data-close>閉じる</button>
@@ -104,11 +102,10 @@
     </div>
     <div class="backdrop" data-close></div>
   </div>
-
-</div><!-- /ai-wrap -->
+</div>
 
 <script>
   window.__AI_ITEMS__ = {{ items|safe }};
 </script>
-<script src="{% static 'ai/ai.js' %}?v=14"></script>
+<script src="{% static 'ai/ai.js' %}?v=20"></script>
 {% endblock %}
