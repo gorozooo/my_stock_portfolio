@@ -19,7 +19,7 @@ class Qty:
 
 @dataclass
 class Candidate:
-    code: str; name: str; sector: str
+    code: str; name: str; sector_jp: str
     score: int; stars: int
     trend: TrendPack
     prices: Prices
@@ -30,19 +30,15 @@ def _dir_from_num(x: float) -> str:
     return "up" if x > 0 else ("down" if x < 0 else "flat")
 
 def _safe(v, default=0.0):
-    try:
-        return float(v)
-    except Exception:
-        return float(default)
+    try: return float(v)
+    except Exception: return float(default)
 
 def generate_top10_candidates() -> List[Candidate]:
-    # 必要カラムだけ読む（パフォーマンス & 取り違え防止）
+    # 欠損を構造的に排除
     qs = (TrendResult.objects
-          .only("code","name","sector_jp",
-                "last_price","last_volume",
-                "daily_slope","weekly_trend","monthly_trend",
-                "rs_index","vol_spike","confidence")
-          .order_by("-confidence", "-weekly_trend", "-monthly_trend")[:50])
+          .exclude(sector_jp__in=["","-","不明",None])
+          .filter(last_price__gt=0)
+          .order_by("-confidence","-weekly_trend","-monthly_trend")[:200])
 
     items: List[Candidate] = []
     for tr in qs:
@@ -52,7 +48,7 @@ def generate_top10_candidates() -> List[Candidate]:
             monthly_trend=_safe(tr.monthly_trend),
             rs_index=max(0.1, _safe(tr.rs_index, 1.0)),
             vol_spike=max(0.1, _safe(tr.vol_spike, 1.0)),
-            confidence=max(0.0, min(1.0, _safe(tr.confidence, 0.0))),
+            confidence=max(0.0, min(1.0, _safe(tr.confidence, 0.5))),
         )
         score = compute_score(f)
         stars = compute_stars(score, f.confidence)
@@ -63,23 +59,18 @@ def generate_top10_candidates() -> List[Candidate]:
             tp=round(price * 1.06, 2),
             sl=round(price * 0.97, 2),
         )
-
-        # セクターは **必ず TrendResult.sector_jp**。空の時だけ '-'
-        sector = (tr.sector_jp or "").strip() or "-"
-
         reasons = [
             f"週/月トレンド: {_dir_from_num(f.weekly_trend)}/{_dir_from_num(f.monthly_trend)}",
-            f"相対強度RS: {f.rs_index:.2f}",
-            f"出来高ブースト: {f.vol_spike:.2f}",
-            f"日足傾き: {f.daily_slope:.2f}",
+            f"RS: {f.rs_index:.2f}",
+            f"Volume boost: {f.vol_spike:.2f}",
+            f"傾き: {f.daily_slope:.2f}",
             f"信頼度: {int(f.confidence*100)}%",
         ]
         qty = Qty(shares=0, capital=0.0, pl_plus=0.0, pl_minus=0.0, r=1.0)
-
         items.append(Candidate(
             code=tr.code,
             name=tr.name or tr.code,
-            sector=sector,
+            sector_jp=tr.sector_jp,
             score=score,
             stars=stars,
             trend=TrendPack(
@@ -91,7 +82,5 @@ def generate_top10_candidates() -> List[Candidate]:
             reasons=reasons,
             qty=qty,
         ))
-
-    # スコア→⭐️の順で安定ソート
-    items.sort(key=lambda x: (-x.score, -x.stars, x.code))
+    items.sort(key=lambda x: (-x.score, -x.stars))
     return items[:10]
