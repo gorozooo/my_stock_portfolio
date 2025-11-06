@@ -36,7 +36,14 @@ def _safe(v, default=0.0):
         return float(default)
 
 def generate_top10_candidates() -> List[Candidate]:
-    qs = TrendResult.objects.order_by("-confidence", "-weekly_trend", "-monthly_trend")[:50]
+    # 必要カラムだけ読む（パフォーマンス & 取り違え防止）
+    qs = (TrendResult.objects
+          .only("code","name","sector_jp",
+                "last_price","last_volume",
+                "daily_slope","weekly_trend","monthly_trend",
+                "rs_index","vol_spike","confidence")
+          .order_by("-confidence", "-weekly_trend", "-monthly_trend")[:50])
+
     items: List[Candidate] = []
     for tr in qs:
         f = Factors(
@@ -56,18 +63,23 @@ def generate_top10_candidates() -> List[Candidate]:
             tp=round(price * 1.06, 2),
             sl=round(price * 0.97, 2),
         )
+
+        # セクターは **必ず TrendResult.sector_jp**。空の時だけ '-'
+        sector = (tr.sector_jp or "").strip() or "-"
+
         reasons = [
             f"週/月トレンド: {_dir_from_num(f.weekly_trend)}/{_dir_from_num(f.monthly_trend)}",
-            f"RS: {f.rs_index:.2f}",
-            f"Volume boost: {f.vol_spike:.2f}",
-            f"傾き: {f.daily_slope:.2f}",
+            f"相対強度RS: {f.rs_index:.2f}",
+            f"出来高ブースト: {f.vol_spike:.2f}",
+            f"日足傾き: {f.daily_slope:.2f}",
             f"信頼度: {int(f.confidence*100)}%",
         ]
         qty = Qty(shares=0, capital=0.0, pl_plus=0.0, pl_minus=0.0, r=1.0)
+
         items.append(Candidate(
             code=tr.code,
             name=tr.name or tr.code,
-            sector=tr.sector_jp or "",
+            sector=sector,
             score=score,
             stars=stars,
             trend=TrendPack(
@@ -79,6 +91,7 @@ def generate_top10_candidates() -> List[Candidate]:
             reasons=reasons,
             qty=qty,
         ))
-    # 強い順に上から並べる
-    items.sort(key=lambda x: (-x.score, -x.stars))
+
+    # スコア→⭐️の順で安定ソート
+    items.sort(key=lambda x: (-x.score, -x.stars, x.code))
     return items[:10]
