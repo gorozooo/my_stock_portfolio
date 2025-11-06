@@ -1,5 +1,5 @@
+from __future__ import annotations
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
 from django.utils import timezone
 from pathlib import Path
 import pandas as pd
@@ -7,206 +7,133 @@ import numpy as np
 import datetime as dt
 import re
 
-# 33業種コード(50-83) → 日本語
-SECT33 = {
-    50: "水産・農林業", 51: "鉱業", 52: "建設業", 53: "食料品", 54: "繊維製品", 55: "パルプ・紙",
-    56: "化学", 57: "医薬品", 58: "石油・石炭製品", 59: "ゴム製品", 60: "ガラス・土石製品",
-    61: "鉄鋼", 62: "非鉄金属", 63: "金属製品", 64: "機械", 65: "電気機器", 66: "輸送用機器",
-    67: "精密機器", 68: "その他製品", 69: "電気・ガス業", 70: "陸運業", 71: "海運業", 72: "空運業",
-    73: "倉庫・運輸関連業", 74: "情報・通信業", 75: "卸売業", 76: "小売業", 77: "銀行業",
-    78: "証券、商品先物取引業", 79: "保険業", 80: "その他金融業", 81: "不動産業", 82: "サービス業", 83: "その他",
-}
+from ai.models import TrendResult
 
-# ゼロ幅/制御文字を除去
-_ZW = r"[\u200B-\u200D\uFEFF\u2060\u00AD]"
-_PRIV = r"[\uE000-\uF8FF]"
-_CTRL = r"[\x00-\x1F\x7F-\x9F]"
-SAN = re.compile(f"{_ZW}|{_PRIV}|{_CTRL}")
+RE_ZW = r"[\u200B-\u200D\uFEFF\u2060\u00AD]"
+RE_PRIV = r"[\uE000-\uF8FF]"
+RE_CTRL = r"[\x00-\x1F\x7F-\x9F]"
+RE_KILL = re.compile(f"{RE_ZW}|{RE_PRIV}|{RE_CTRL}")
 
-def clean_txt(s: str) -> str:
-    if s is None:
-        return ""
-    return SAN.sub("", str(s)).strip()
+def clean(s:str|None)->str:
+    if s is None: return ""
+    return RE_KILL.sub("", str(s)).strip()
 
-def to_code4(s: str) -> str:
-    m = re.search(r"(\d{4})", str(s))
-    return m.group(1) if m else ""
-
-def sector_to_jp(val) -> str:
-    """CSVのsectorが日本語/数値/float/None どれでも日本語化して返す"""
-    if val is None:
-        return ""
-    s = clean_txt(val)
-    if s == "":
-        return ""
-    # 数値コード？
-    m = re.fullmatch(r"(\d+)(?:\.0)?", s)
-    if m:
-        n = int(m.group(1))
-        return SECT33.get(n, "")
-    # すでに日本語想定
-    return s
-
-def load_master_map(master_csv: Path) -> dict[str, str]:
-    """JPXマスターから code→sector_jp を作る。無ければ空dict"""
-    if not master_csv.exists():
-        return {}
-    df = pd.read_csv(master_csv, dtype=str, low_memory=False)
-    if not set(["code", "sector"]).issubset(df.columns):
-        return {}
-    df["code"] = df["code"].map(to_code4)
-    df["sector"] = df["sector"].map(lambda x: sector_to_jp(x))
-    df = df.dropna(subset=["code"]).drop_duplicates(subset=["code"])
-    return {r.code: r.sector for r in df.itertuples(index=False)}
-
-def slope_sign(series: pd.Series, win: int = 5) -> float:
-    """簡易スロープ符号：直近winの線形回帰傾き"""
-    s = pd.to_numeric(series, errors="coerce").dropna()
-    if len(s) < 2:
-        return 0.0
-    s = s.tail(win)
-    x = np.arange(len(s))
-    try:
-        k = float(np.polyfit(x, s.values, 1)[0])
-    except Exception:
-        k = 0.0
-    # そのまま傾き値を返す（UI側で up/flat/down 判定）
-    return k
+def roll_feats(g: pd.DataFrame) -> pd.Series:
+    g = g.sort_values("date")
+    price = g["close"].astype(float)
+    vol   = g["volume"].astype(float)
+    # ざっくり特徴量
+    ma5  = price.rolling(5).mean()
+    ma20 = price.rolling(20).mean()
+    ma60 = price.rolling(60).mean()
+    daily_slope = (price.diff(1)).fillna(0.0).tail(5).mean()  # 簡易
+    weekly_trend  = (price.pct_change(5)).fillna(0.0).tail(4).mean()
+    monthly_trend = (price.pct_change(20)).fillna(0.0).tail(2).mean()
+    vol_spike = (vol.tail(5).mean() / (vol.rolling(60).mean().tail(1).replace(0,np.nan))).fillna(1.0).iloc[-1]
+    last_price  = float(price.iloc[-1])
+    last_volume = int(vol.iloc[-1])
+    return pd.Series({
+        "last_price": last_price,
+        "last_volume": last_volume,
+        "daily_slope": float(daily_slope),
+        "weekly_trend": float(weekly_trend),
+        "monthly_trend": float(monthly_trend),
+        "vol_spike": float(vol_spike),
+        "ma5": float(ma5.iloc[-1]) if not ma5.empty else 0.0,
+        "ma20": float(ma20.iloc[-1]) if not ma20.empty else 0.0,
+        "ma60": float(ma60.iloc[-1]) if not ma60.empty else 0.0,
+    })
 
 class Command(BaseCommand):
-    help = "ohlcv.csv を読み、TrendResult を更新（sector_jp を恒久的に確定保存）。"
+    help = "snapshot(ohlcv.csv)→TrendResultを構築（masterとJOINしてsector_jpを強制）"
 
     def add_arguments(self, p):
-        p.add_argument("--root", required=True, help="media/ohlcv/snapshots/YYY-MM-DD")
-        p.add_argument("--asof", default=None, help="基準日（省略で今日）")
-        p.add_argument("--master", default="media/jpx_master.csv", help="JPXマスターCSV（code,name,sector）")
+        p.add_argument("--root", required=True)
+        p.add_argument("--asof", default=None)
 
     def handle(self, *args, **o):
-        from ai.models import TrendResult  # 遅延import（migrate中の安全策）
-
-        root = Path(o["root"])
-        csv_path = root / "ohlcv.csv"
-        if not csv_path.exists():
-            raise CommandError(f"ohlcv.csv が見つかりません: {csv_path}")
-
         asof = o["asof"] or timezone.now().date().isoformat()
-        try:
-            as_of_date = dt.datetime.strptime(asof, "%Y-%m-%d").date()
-        except ValueError:
-            raise CommandError("--asof は YYYY-MM-DD 形式で指定してください")
+        root = Path(o["root"])
+        csv  = root / "ohlcv.csv"
+        master = Path("media/jpx_master.csv")
+        if not csv.exists():
+            raise CommandError(f"snapshot 不在: {csv}")
+        if not master.exists():
+            raise CommandError(f"master 不在: {master}")
 
-        # --- 1) ohlcv.csv 読み込み（6列固定想定だが堅牢化） -----------------
-        df = pd.read_csv(csv_path, dtype=str, low_memory=False)
-        for need in ["code", "date", "close", "volume", "name", "sector"]:
-            if need not in df.columns:
-                raise CommandError(f"ohlcv.csv に列が不足しています: {need}")
+        # snapshot 読み込み（契約: 6列固定）
+        df = pd.read_csv(csv, dtype=str, low_memory=False)
+        need = ["code","date","close","volume","name","sector"]
+        miss = [c for c in need if c not in df.columns]
+        if miss: raise CommandError(f"snapshot 列不足: {miss}")
 
-        # 正規化
-        df["code"] = df["code"].map(to_code4)
-        df["name"] = df["name"].map(clean_txt)
-        df["sector"] = df["sector"].map(sector_to_jp)
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-        df["close"] = pd.to_numeric(df["close"], errors="coerce")
+        df["code"]   = df["code"].astype(str).str.extract(r"(\d{4})")[0]
+        df["name"]   = df["name"].map(clean)
+        df["date"]   = pd.to_datetime(df["date"], errors="coerce")
+        df["close"]  = pd.to_numeric(df["close"], errors="coerce")
         df["volume"] = pd.to_numeric(df["volume"], errors="coerce")
-        df = df.dropna(subset=["code", "date", "close"]).sort_values(["code", "date"])
+        df["sector"] = df["sector"].map(clean)  # snapshot側の日本語
 
-        # --- 2) JPXマスター（fallback） --------------------------------------
-        master_map = load_master_map(Path(o["master"]))
+        df = df.dropna(subset=["code","date","close","volume"])
+        if df.empty: raise CommandError("snapshot 有効データ0件")
 
-        # ohlcv上の “code→sector_jp” （空なら落とす）
-        csv_sector = (
-            df[["code", "sector"]]
-            .dropna()
-            .drop_duplicates(subset=["code"])
-            .set_index("code")["sector"]
-            .to_dict()
-        )
+        # master 読み込み（code, name, sector→sector_jpへリネーム）
+        md = pd.read_csv(master, dtype=str, low_memory=False)
+        for c in ("code","name","sector"):
+            if c not in md.columns: raise CommandError(f"master 列不足: {c}")
+        md["code"]   = md["code"].astype(str).str.extract(r"(\d{4})")[0]
+        md["name"]   = md["name"].map(clean)
+        md["sector"] = md["sector"].map(lambda s: clean(s).replace(".0",""))
+        md = md.dropna(subset=["code","sector"]).drop_duplicates(subset=["code"])
+        md = md.rename(columns={"sector":"sector_jp"})
 
-        # --- 3) サマリ計算（last/MA/簡易トレンド） ---------------------------
-        # 直近レコード
-        last = df.sort_values(["code", "date"]).groupby("code").tail(1)
+        # JOIN（code基準、snapshotのnameよりもmasterのnameを優先）
+        codes_in_snap = df["code"].dropna().unique().tolist()
+        j = pd.DataFrame({"code": codes_in_snap}).merge(md[["code","name","sector_jp"]], on="code", how="left")
 
-        # ローリング用に groupby
-        def roll_feats(grp: pd.DataFrame):
-            grp = grp.sort_values("date")
-            closes = grp["close"]
-            out = {
-                "ma5": float(closes.rolling(5).mean().iloc[-1]) if len(closes) >= 5 else float(closes.iloc[-1]),
-                "ma20": float(closes.rolling(20).mean().iloc[-1]) if len(closes) >= 20 else float(closes.mean()),
-                "ma60": float(closes.rolling(60).mean().iloc[-1]) if len(closes) >= 60 else float(closes.mean()),
-                "daily_slope": float(slope_sign(closes, 5)),
-                "weekly_trend": float(slope_sign(closes, 20)),
-                "monthly_trend": float(slope_sign(closes, 60)),
-            }
-            return pd.Series(out)
+        missing = j[j["sector_jp"].isna()]["code"].tolist()
+        if missing:
+            # ここで止める：sector_jp 無いコードは保存禁止
+            raise CommandError(f"JOIN未解決 code={len(missing)}件 例: {missing[:10]}")
 
-        feats = df.groupby("code").apply(roll_feats).reset_index()
+        # 特徴量集計
+        feats = df.groupby("code").apply(roll_feats, include_groups=False).reset_index()
+        out = j.merge(feats, on="code", how="left")
 
-        # last と結合
-        agg = last.merge(feats, on="code", how="left")
+        # 相対強度（仮に1.0固定、将来TOPIX対比に差し替え）
+        out["rs_index"]   = 1.0
+        out["confidence"] = 0.5  # 初期は0.5、将来学習値を入れる
 
-        # --- 4) DB更新（sector_jp を“常に確定”させ、空値で潰さない） ---------
-        created = updated = 0
-        with transaction.atomic():
-            for r in agg.itertuples(index=False):
-                code = r.code
-                name = r.name or ""
-                last_price = float(r.close)
-                last_volume = int(r.volume) if not np.isnan(r.volume) else 0
+        # 保存
+        created, updated = 0, 0
+        for r in out.itertuples(index=False):
+            tr, is_new = TrendResult.objects.update_or_create(
+                code=r.code,
+                defaults=dict(
+                    name=r.name or r.code,
+                    sector_jp=r.sector_jp or "不明",
+                    last_price=r.last_price,
+                    last_volume=int(r.last_volume or 0),
+                    daily_slope=float(r.daily_slope or 0.0),
+                    weekly_trend=float(r.weekly_trend or 0.0),
+                    monthly_trend=float(r.monthly_trend or 0.0),
+                    rs_index=float(r.rs_index or 1.0),
+                    vol_spike=float(r.vol_spike or 1.0),
+                    ma5=float(r.ma5 or 0.0),
+                    ma20=float(r.ma20 or 0.0),
+                    ma60=float(r.ma60 or 0.0),
+                    confidence=float(r.confidence or 0.0),
+                    as_of=dt.datetime.strptime(asof, "%Y-%m-%d").date(),
+                )
+            )
+            created += 1 if is_new else 0
+            updated += 0 if is_new else 1
 
-                # sector_jp の出所優先度: CSVの日本語 > JPXマスター > 既存DB
-                candidate = csv_sector.get(code, "")
-                if not candidate:
-                    candidate = master_map.get(code, "")
-                candidate = sector_to_jp(candidate)  # 最終正規化
-
-                try:
-                    obj = TrendResult.objects.get(code=code)
-                    # 既存名称が空なら埋める／違っていたらクリーン文字列で更新
-                    to_update = []
-                    if clean_txt(obj.name) != clean_txt(name) and name:
-                        obj.name = clean_txt(name)
-                        to_update.append("name")
-
-                    # sector_jp は「新しい値が非空」のときだけ上書き
-                    if candidate and clean_txt(obj.sector_jp) != candidate:
-                        obj.sector_jp = candidate
-                        to_update.append("sector_jp")
-
-                    obj.last_price = last_price
-                    obj.last_volume = last_volume
-                    obj.daily_slope = float(r.daily_slope) if r.daily_slope == r.daily_slope else 0.0
-                    obj.weekly_trend = float(r.weekly_trend) if r.weekly_trend == r.weekly_trend else 0.0
-                    obj.monthly_trend = float(r.monthly_trend) if r.monthly_trend == r.monthly_trend else 0.0
-                    obj.ma5 = float(r.ma5) if r.ma5 == r.ma5 else 0.0
-                    obj.ma20 = float(r.ma20) if r.ma20 == r.ma20 else 0.0
-                    obj.ma60 = float(r.ma60) if r.ma60 == r.ma60 else 0.0
-                    obj.rs_index = obj.rs_index if obj.rs_index is not None else 1.0
-                    obj.vol_spike = obj.vol_spike if obj.vol_spike is not None else 1.0
-                    obj.confidence = obj.confidence if obj.confidence is not None else 0.0
-                    obj.as_of = as_of_date
-                    obj.save()
-                    updated += 1
-                except TrendResult.DoesNotExist:
-                    TrendResult.objects.create(
-                        code=code,
-                        name=clean_txt(name),
-                        sector_jp=candidate if candidate else "不明",
-                        last_price=last_price,
-                        last_volume=last_volume,
-                        daily_slope=float(r.daily_slope) if r.daily_slope == r.daily_slope else 0.0,
-                        weekly_trend=float(r.weekly_trend) if r.weekly_trend == r.weekly_trend else 0.0,
-                        monthly_trend=float(r.monthly_trend) if r.monthly_trend == r.monthly_trend else 0.0,
-                        rs_index=1.0,
-                        vol_spike=1.0,
-                        ma5=float(r.ma5) if r.ma5 == r.ma5 else 0.0,
-                        ma20=float(r.ma20) if r.ma20 == r.ma20 else 0.0,
-                        ma60=float(r.ma60) if r.ma60 == r.ma60 else 0.0,
-                        confidence=0.0,
-                        as_of=as_of_date,
-                    )
-                    created += 1
+        # 最終ガード：未設定が1件でもあれば落とす
+        bad = TrendResult.objects.filter(sector_jp__in=["","-","不明",None], as_of=asof).count()
+        if bad:
+            raise CommandError(f"保存後ガード: sector_jp未設定 {bad}件（設計上は0のはず）")
 
         self.stdout.write(self.style.SUCCESS(
-            f"Updated TrendResult: total={len(agg)} created={created} updated={updated} (as_of={asof})"
+            f"Updated TrendResult: total={len(out)} created={created} updated={updated} (as_of={asof})"
         ))
