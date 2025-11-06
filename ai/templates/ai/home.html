@@ -43,14 +43,9 @@
         </div>
       </div>
 
-      <!-- セクター：まずはそのまま出す（後段JSでJPXから強制補正） -->
+      <!-- セクター（バックエンドで sector を確定して渡す想定） -->
       <div class="row sub">
-        <span class="sector"
-              data-code="{{ it.code|default:'' }}"
-              data-sector="{{ it.sector|default_if_none:'' }}"
-              data-sector-jp="{{ it.sector_jp|default_if_none:'' }}">
-          {{ it.sector_jp|default:it.sector|default:"-" }}
-        </span>
+        <span class="sector" data-code="{{ it.code|default:'' }}">{{ it.sector|default:"-" }}</span>
       </div>
 
       <div class="row trends">
@@ -110,115 +105,9 @@
   </div>
 </div>
 
+<!-- サーバの items をそのまま使う（ai.js 互換: window.__AI_ITEMS__ を定義） -->
 <script>
-  // サーバから渡された生データ
   window.__AI_ITEMS__ = {{ items|safe }};
-</script>
-
-<script>
-/**
- * JPXマスターCSV（/media/jpx_master.csv）から code -> sector(日本語) を引き当て、
- * カードとモーダルの表示を「必ず」埋める前段補正。
- * - items側の sector/sector_jp が空 or 数値でも最終的に埋まる
- */
-(function() {
-  const SECT33 = {
-    50:'水産・農林業',51:'鉱業',52:'建設業',53:'食料品',54:'繊維製品',55:'パルプ・紙',
-    56:'化学',57:'医薬品',58:'石油・石炭製品',59:'ゴム製品',60:'ガラス・土石製品',
-    61:'鉄鋼',62:'非鉄金属',63:'金属製品',64:'機械',65:'電気機器',66:'輸送用機器',
-    67:'精密機器',68:'その他製品',69:'電気・ガス業',70:'陸運業',71:'海運業',72:'空運業',
-    73:'倉庫・運輸関連業',74:'情報・通信業',75:'卸売業',76:'小売業',77:'銀行業',
-    78:'証券、商品先物取引業',79:'保険業',80:'その他金融業',81:'不動産業',82:'サービス業',83:'その他'
-  };
-
-  const isNumLike = (s) => typeof s === 'string' && /^\s*\d+(?:\.\d+)?\s*$/.test(s);
-  const code4 = (v) => {
-    const m = String(v||'').match(/(\d{4})/);
-    return m ? m[1] : '';
-  };
-
-  // 1) 既存テキストが空/数値なら、後で上書き対象としてマーク
-  const cards = Array.from(document.querySelectorAll('.ai-card'));
-  const needFix = [];
-  cards.forEach(card => {
-    const secEl = card.querySelector('.sector');
-    if (!secEl) return;
-    const raw = (secEl.textContent || '').trim();
-    if (raw === '' || isNumLike(raw) || raw === '-') {
-      needFix.push(secEl);
-    }
-  });
-
-  // 2) CSVを読み、マップ化
-  function parseCSV(text){
-    const lines = text.split(/\r?\n/).filter(Boolean);
-    // 想定ヘッダ: code,name,sector
-    const head = lines.shift().split(',');
-    const idxCode = head.indexOf('code');
-    const idxSector = head.indexOf('sector');
-    const map = {};
-    for (const ln of lines){
-      const cols = ln.split(',');
-      const c4 = code4(cols[idxCode]);
-      if (!c4) continue;
-      let s = (cols[idxSector] || '').trim();
-      // 数値コード(50..83)なら日本語へ
-      if (isNumLike(s)) {
-        const n = parseInt(s, 10);
-        s = SECT33[n] || s;
-      }
-      if (s) map[c4] = s;
-    }
-    return map;
-  }
-
-  function applyToCards(map){
-    needFix.forEach(secEl => {
-      const cEl = secEl.closest('.ai-card').querySelector('.code');
-      const c4 = code4(cEl ? cEl.textContent : secEl.dataset.code);
-      const fromMap = map[c4];
-      if (fromMap) secEl.textContent = fromMap;
-      else if (secEl.textContent.trim() === '' || isNumLike(secEl.textContent) || secEl.textContent.trim() === '-') {
-        secEl.textContent = '-';
-      }
-    });
-  }
-
-  // 3) モーダルを開くときも同じロジックで埋める
-  function sectorSafe(val, code, map){
-    const s = (val ?? '').toString().trim();
-    if (s && !isNumLike(s) && s !== '-') return s;
-    const m = map[code4(code)];
-    return m || '-';
-  }
-
-  function wireModal(map){
-    document.addEventListener('click', (e)=>{
-      const btn = e.target.closest('.more');
-      if (!btn) return;
-      const idx = parseInt(btn.dataset.open, 10);
-      const item = (window.__AI_ITEMS__ || [])[idx] || {};
-      const sec = sectorSafe(item.sector_jp || item.sector, item.code, map);
-      const el = document.getElementById('m_sector');
-      if (el) el.textContent = sec;
-    });
-  }
-
-  // 実行：CSV取得して適用
-  fetch('/media/jpx_master.csv', {cache:'no-store'})
-    .then(r => r.ok ? r.text() : Promise.reject(r.status))
-    .then(txt => {
-      const map = parseCSV(txt);
-      applyToCards(map);
-      wireModal(map);
-      // 予備：ai.jsからも使えるように
-      window.__aiSectorNameMap__ = map;
-    })
-    .catch(()=> {
-      // 失敗時でも表示が空にならないように最低限の保険
-      wireModal({});
-    });
-})();
 </script>
 
 <script src="{% static 'ai/ai.js' %}?v=20"></script>
