@@ -36,7 +36,6 @@ def fetch_history(code: str, start: dt.datetime, end: dt.datetime, retries=2, pa
                 df["date"] = df["Date"].dt.strftime("%Y-%m-%d")
                 return df[["date", "close", "volume"]]
         except Exception:
-            # 429等、漠然と失敗したらバックオフして再試行
             pass
         time.sleep(pause * (2 ** i))
     return None
@@ -107,20 +106,46 @@ class Command(BaseCommand):
         if not rows:
             raise CommandError("取得結果に有効なDataFrameがありません。（429等の可能性。--workers/--limit を調整）")
 
-        # ---- DataFrame 結合＆最終正規化 ----
+        # ---- DataFrame 結合 ----
         df = pd.concat(rows, ignore_index=True)
 
-        # 欲しい6列だけ固定。欠けてたら作る（安全側）
+        # ---- カラム名の正規化＆重複排除 ----
+        # 余計な列名ゆらぎを吸収
+        rename_map = {}
+        for c in df.columns:
+            lc = str(c).strip().lower()
+            if lc == "code": rename_map[c] = "code"
+            elif lc == "date": rename_map[c] = "date"
+            elif lc == "close": rename_map[c] = "close"
+            elif lc == "volume": rename_map[c] = "volume"
+            elif lc == "name": rename_map[c] = "name"
+            elif "sector" in lc or "業種" in lc: rename_map[c] = "sector"
+        df = df.rename(columns=rename_map)
+
+        # 欲しい6列だけを抽出（足りなければ空で補完）
         want = ["code", "date", "close", "volume", "name", "sector"]
         for k in want:
             if k not in df.columns:
-                df[k] = ""  # 足りない場合は空で補完
-        df = df[want]
+                df[k] = ""
 
-        # 型整形
+        # 同名カラムが複数ある場合は先勝ちにする（重複カラム除去）
+        df = df[want]
+        df = df.loc[:, ~df.columns.duplicated(keep="first")]
+
+        # もしなお "close" や "volume" が DataFrame なら先頭列を採用（保険）
+        for k in ["close", "volume", "date", "code", "name", "sector"]:
+            col = df[k]
+            if isinstance(col, pd.DataFrame):
+                df[k] = col.iloc[:, 0]
+
+        # ---- 型整形・最終正規化 ----
         df["code"] = df["code"].astype(str).str.extract(r"(\d{4})")[0]
         df["name"] = df["name"].map(clean_txt)
         df["sector"] = df["sector"].map(clean_txt)
+
+        # to_numeric は Series 前提。念のため Series 化してから変換。
+        df["close"] = pd.Series(df["close"])
+        df["volume"] = pd.Series(df["volume"])
         df["close"] = pd.to_numeric(df["close"], errors="coerce")
         df["volume"] = pd.to_numeric(df["volume"], errors="coerce")
 
