@@ -1,59 +1,60 @@
+# ai/services/scoring.py
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional
+import math
 
-# スコア用の中間表現（必要最小限）
 @dataclass
 class Factors:
-    daily_slope: float            # 値幅の傾き（終値回帰の傾き）
-    weekly_trend: float           # +1/0/-1
-    monthly_trend: float          # +1/0/-1
-    rs_index: float               # >1 強い
-    vol_spike: float              # 1 が平常、>1 は出来高ブースト
-    confidence: float             # 0〜1、データ量や整合で決定
+    daily_slope: float = 0.0
+    weekly_trend: float = 0.0
+    monthly_trend: float = 0.0
+    rs_index: float = 1.0         # 1.0 が中立
+    vol_spike: float = 1.0        # 1.0 が中立
+    confidence: float = 0.0       # 0.0–1.0
 
-def _clamp(v: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, v))
+def _nz(x: float, d: float = 0.0) -> float:
+    try:
+        return float(x)
+    except Exception:
+        return float(d)
 
-def _norm_slope(slope: float) -> float:
-    # 価格レンジ依存を吸収する簡易正規化：過剰影響を避けて-1..+1に収める
-    # 体感で十分に効くようにスケール調整
-    return _clamp(slope / 50.0, -1.0, 1.0)
+def _squash(x: float) -> float:
+    """無限大レンジを -1..+1 に潰す。過大値で100点連発を防ぐ。"""
+    return math.tanh(_nz(x))
 
 def compute_score(f: Factors) -> int:
     """
-    直感重視の合成スコア 0..100
-    - トレンド（週・月）を主因に
-    - 日足の傾き、RS、出来高ブーストで微調整
-    - 信頼度が低い場合は減点
+    0..100 に正規化。
+    - 週足・日足・月足の順で重み
+    - RS/出来高は 1.0 が中立。そこからの差を tanh で圧縮
+    - 最後に [0,1]→[0,100]
     """
-    trend = (1.8 * f.weekly_trend + 1.2 * f.monthly_trend)  # -3..+3
-    slope = 1.0 * _norm_slope(f.daily_slope)                # -1..+1
-    rs = 0.8 * (f.rs_index - 1.0)                           # ≈ -∞..+∞ だが小さく寄与
-    vol = 0.6 * (f.vol_spike - 1.0)
+    td = _squash(f.daily_slope)
+    tw = _squash(f.weekly_trend)
+    tm = _squash(f.monthly_trend)
 
-    base = 50.0 + 12.0 * trend + 10.0 * slope + 8.0 * rs + 6.0 * vol
-    # 信頼度ペナルティ（0.6未満はきつめに）
-    if f.confidence < 0.6:
-        base -= (0.6 - f.confidence) * 25.0
+    rs = _squash(_nz(f.rs_index) - 1.0)
+    vs = _squash(_nz(f.vol_spike) - 1.0)
 
-    return int(round(_clamp(base, 0.0, 100.0)))
+    raw = 0.36*tw + 0.26*td + 0.12*tm + 0.16*rs + 0.10*vs
+    # raw は概ね [-1, +1] 付近に収まるので (raw+1)/2 で 0..1
+    p = max(0.0, min(1.0, (raw + 1.0) / 2.0))
 
-def compute_stars(score: int, confidence: Optional[float] = None) -> int:
+    # 信頼度を 0.85〜1.0 のレンジで微調整（高信頼を少しだけ押し上げ）
+    conf = max(0.0, min(1.0, _nz(f.confidence)))
+    p = p * (0.85 + 0.15 * conf)
+
+    return int(round(p * 100))
+
+def compute_stars(score: int, confidence: float) -> int:
     """
-    スコアしきい値ベースの⭐️1..5
-    信頼度が低いと1段階ダウン。高いと0.5段階相当を四捨五入で吸収。
+    ⭐️は 1..5。スコアと信頼度の両方で段階化（全部5★を防ぐ）。
     """
-    if score >= 85: stars = 5
-    elif score >= 75: stars = 4
-    elif score >= 65: stars = 3
-    elif score >= 55: stars = 2
-    else: stars = 1
+    s = max(0, min(100, int(score)))
+    conf = max(0.0, min(1.0, _nz(confidence)))
 
-    if confidence is not None:
-        if confidence < 0.55:
-            stars -= 1
-        elif confidence > 0.85 and score >= 70:
-            stars += 0  # ここは見た目安定のため据え置き（増やし過ぎない）
-
-    return max(1, min(5, int(round(stars))))
+    base = 1 if s < 40 else 2 if s < 55 else 3 if s < 70 else 4 if s < 85 else 5
+    # 信頼度が低いなら 1 段階落とす、高いなら据え置き
+    if conf < 0.35:
+        base -= 1
+    return max(1, min(5, base))
