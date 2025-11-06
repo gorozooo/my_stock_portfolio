@@ -5,20 +5,21 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import datetime as dt
 import yfinance as yf
-import time, re
+import time
+import re
 
 def clean_txt(s):
+    """ゼロ幅・私用領域・制御文字を除去してトリム"""
     if s is None or (isinstance(s, float) and pd.isna(s)):
         return ""
     s = str(s)
-    # ゼロ幅/私用領域/制御文字を除去
-    s = re.sub(r"[\u200B-\u200D\uFEFF\u2060\u00AD]", "", s)
-    s = re.sub(r"[\uE000-\uF8FF]", "", s)
-    s = re.sub(r"[\x00-\x1F\x7F-\x9F]", "", s)
+    s = re.sub(r"[\u200B-\u200D\uFEFF\u2060\u00AD]", "", s)  # ゼロ幅類
+    s = re.sub(r"[\uE000-\uF8FF]", "", s)                     # 私用領域
+    s = re.sub(r"[\x00-\x1F\x7F-\x9F]", "", s)                # 制御文字
     return s.strip()
 
 def fetch_history(code: str, start: dt.datetime, end: dt.datetime, retries=2, pause=1.5):
-    """Yahoo(日足)取得。軽いリトライ付き。"""
+    """Yahoo(日足)取得。軽いリトライ＆指数バックオフ付き。"""
     sym = f"{code}.T"
     for i in range(retries + 1):
         try:
@@ -35,6 +36,7 @@ def fetch_history(code: str, start: dt.datetime, end: dt.datetime, retries=2, pa
                 df["date"] = df["Date"].dt.strftime("%Y-%m-%d")
                 return df[["date", "close", "volume"]]
         except Exception:
+            # 429等、漠然と失敗したらバックオフして再試行
             pass
         time.sleep(pause * (2 ** i))
     return None
@@ -59,6 +61,7 @@ class Command(BaseCommand):
         if not mpath.exists():
             raise CommandError(f"master CSV が見つかりません: {mpath}")
         mdf = pd.read_csv(mpath, dtype=str, low_memory=False)
+
         # 必須列チェック
         for col in ["code", "name", "sector"]:
             if col not in mdf.columns:
@@ -97,11 +100,12 @@ class Command(BaseCommand):
             futs = {ex.submit(task, c): c for c in codes}
             for fut in as_completed(futs):
                 res = fut.result()
-                if res is not None:
+                # DataFrame 以外（None/空/想定外型）は捨てる
+                if isinstance(res, pd.DataFrame) and not res.empty:
                     rows.append(res)
 
         if not rows:
-            raise CommandError("取得できた履歴が0件でした（429等の可能性）。")
+            raise CommandError("取得結果に有効なDataFrameがありません。（429等の可能性。--workers/--limit を調整）")
 
         # ---- DataFrame 結合＆最終正規化 ----
         df = pd.concat(rows, ignore_index=True)
@@ -120,7 +124,11 @@ class Command(BaseCommand):
         df["close"] = pd.to_numeric(df["close"], errors="coerce")
         df["volume"] = pd.to_numeric(df["volume"], errors="coerce")
 
-        df = df.dropna(subset=["code", "date", "close", "volume"]).sort_values(["code", "date"]).drop_duplicates()
+        df = (
+            df.dropna(subset=["code", "date", "close", "volume"])
+              .sort_values(["code", "date"])
+              .drop_duplicates()
+        )
 
         # 保存（UTF-8・改行統一）
         df.to_csv(out_csv, index=False, encoding="utf-8", line_terminator="\n")
