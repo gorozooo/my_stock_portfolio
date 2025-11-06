@@ -6,7 +6,6 @@ from typing import Dict, List, Tuple, Optional
 from decimal import Decimal, InvalidOperation
 
 from django.core.management.base import BaseCommand
-from django.db import transaction
 from django.utils import timezone
 
 from ai.models import TrendResult
@@ -24,13 +23,34 @@ class Row:
 
 
 # ====== ユーティリティ ======
+def _is_valid_code(code: str) -> bool:
+    """
+    市場コードの健全性チェック。
+    - 空/None, 'nan'（大小混在）, 'NaN' は除外
+    - 先頭が数字でないものは除外（TSEは数字）
+    """
+    if not code:
+        return False
+    s = code.strip()
+    if not s:
+        return False
+    if s.lower() == "nan":
+        return False
+    # 4桁〜5桁の数字を最優先で許可（例：8035, 7203）
+    if s.isdigit() and 3 <= len(s) <= 6:
+        return True
+    # 末尾のサフィックスが付いてる場合（"6758.T"）は前段で切り落としている想定
+    return False
+
+
 def _read_snapshot_csv(root: Path) -> Dict[str, List[Row]]:
-    """スナップショット ohlcv.csv を code ごとにまとめて返す"""
+    """スナップショット ohlcv.csv を code ごとにまとめて返す（無効コードは除外）"""
     fp = root / "ohlcv.csv"
     if not fp.exists():
         raise FileNotFoundError(f"CSVが見つかりません: {fp}")
 
     per_code: Dict[str, List[Row]] = {}
+    bad_code_rows = 0
     with fp.open("r", encoding="utf-8") as f:
         rdr = csv.DictReader(f)
         needed = {"code", "date", "close", "volume", "name", "sector"}
@@ -40,7 +60,8 @@ def _read_snapshot_csv(root: Path) -> Dict[str, List[Row]]:
         for rec in rdr:
             raw_code = str(rec["code"]).strip()
             code = raw_code.split(".", 1)[0] if "." in raw_code else raw_code
-            if not code:
+            if not _is_valid_code(code):
+                bad_code_rows += 1
                 continue
 
             try:
@@ -66,6 +87,9 @@ def _read_snapshot_csv(root: Path) -> Dict[str, List[Row]]:
     # 日付順
     for k in per_code:
         per_code[k].sort(key=lambda r: r.date)
+
+    # 参考ログ用
+    per_code["_bad_code_rows"] = [Row(code=str(bad_code_rows), date="", close=0, volume=0, name="", sector="")]
     return per_code
 
 
@@ -79,7 +103,7 @@ def _read_master_universe(base: Path) -> Dict[str, dict]:
         rdr = csv.DictReader(f)
         for rec in rdr:
             code = (rec.get("code") or "").strip()
-            if not code:
+            if not _is_valid_code(code):
                 continue
             master[code] = {
                 "name": (rec.get("name") or "").strip(),
@@ -182,6 +206,12 @@ class Command(BaseCommand):
         dry = bool(options.get("dry-run"))
 
         per_code = _read_snapshot_csv(root)
+        # _bad_code_rows を取り出してログに出す（辞書からは削除）
+        bad_code_rows = 0
+        if "_bad_code_rows" in per_code:
+            bad_code_rows = int(per_code["_bad_code_rows"][0].code)
+            del per_code["_bad_code_rows"]
+
         master = _read_master_universe(base)
 
         codes = list(per_code.keys())
@@ -195,36 +225,35 @@ class Command(BaseCommand):
         errors = 0
 
         self.stdout.write(f"[ai_build_trend] as_of={asof} root={root}")
-        self.stdout.write(f"[ai_build_trend] codes in snapshot={len(per_code)} / processing={total}")
+        self.stdout.write(f"[ai_build_trend] codes in snapshot={len(per_code)} / processing={total} / bad_code_rows={bad_code_rows}")
         if only_master:
             self.stdout.write("[ai_build_trend] only_master=True（master.csvに載っている銘柄のみ処理）")
 
-        # 1銘柄ごとに try/except（途中例外で全ロールバックを避ける）
         for i, code in enumerate(codes, 1):
-            rows = per_code.get(code) or []
-            if not rows:
-                skipped += 1
-                continue
-
-            closes = [r.close for r in rows if r.close is not None]
-            vols = [r.volume for r in rows if r.volume is not None]
-            if not closes:
-                skipped += 1
-                continue
-
-            last = rows[-1]
-            last_price_f = float(closes[-1])
-            last_vol_f = float(vols[-1]) if vols else 0.0
-
-            slope = _linear_slope(closes[-30:])
-            w_num, m_num, ma5, ma20, ma60 = _weekly_monthly_trend(closes)
-            rs = _rs_index(last_price_f, ma20)
-            volb = _vol_spike(last_vol_f, vols)
-            conf = _confidence(len(closes), w_num, m_num)
-
-            # master.csv→スナップショット→既存DB の順で補完
-            fallback = master.get(code, {})
             try:
+                rows = per_code.get(code) or []
+                if not rows:
+                    skipped += 1
+                    continue
+
+                closes = [r.close for r in rows if r.close is not None]
+                vols = [r.volume for r in rows if r.volume is not None]
+                if not closes:
+                    skipped += 1
+                    continue
+
+                last = rows[-1]
+                last_price_f = float(closes[-1])
+                last_vol_f = float(vols[-1]) if vols else 0.0
+
+                slope = _linear_slope(closes[-30:])
+                w_num, m_num, ma5, ma20, ma60 = _weekly_monthly_trend(closes)
+                rs = _rs_index(last_price_f, ma20)
+                volb = _vol_spike(last_vol_f, vols)
+                conf = _confidence(len(closes), w_num, m_num)
+
+                # master.csv → スナップショット → 既存DB の順で補完
+                fallback = master.get(code, {})
                 obj = TrendResult.objects.filter(code=code).first()
                 name = (last.name or fallback.get("name") or (obj.name if obj else "") or "").strip()
                 sector = (last.sector or fallback.get("sector") or (obj.sector_jp if obj else "") or "").strip()
@@ -237,7 +266,7 @@ class Command(BaseCommand):
 
                 obj.name = name
                 obj.sector_jp = sector
-                obj.last_price = _D(last_price_f)          # ← NOT NULL対策
+                obj.last_price = _D(last_price_f)          # NOT NULL 対策
                 obj.last_volume = _D(last_vol_f)
                 obj.daily_slope = _D(slope if slope is not None else 0.0)
                 obj.weekly_trend = _D(w_num)               # +1/0/-1 を Decimal で保存
@@ -260,6 +289,7 @@ class Command(BaseCommand):
 
             except Exception as e:
                 errors += 1
+                # ここで例外は握りつぶさずログに明示する（1件失敗でも他は続行）
                 self.stderr.write(f"[{i}/{total}] {code}: ERROR {e}")
 
             if i % 50 == 0 or i == total:
