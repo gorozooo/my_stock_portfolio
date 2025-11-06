@@ -4,120 +4,98 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import datetime as dt
-import time
+import itertools
+import math
 
 import yfinance as yf
-from yahooquery import Screener, Ticker
+from yahooquery import Ticker
 
-def fetch_all_jp_symbols():
+def enumerate_jp_symbols(min_code=1300, max_code=9999, batch=300, workers=8):
     """
-    Yahoo Finance screener から日本上場銘柄(末尾 .T)を全件取得
-    ※ページング対応。戻り値: ["8035.T", "6758.T", ...]
+    4桁コードを総当たりで 'XXXX.T' を作成し、yahooquery.Ticker.price で存在確認。
+    戻り値: ['8035.T', '6758.T', ...]  ※EQUITYのみ採用
     """
-    scr = Screener()
-    symbols = []
-    # 日本株のプリセットスクリーンを使う（region=jp, exchange=TSE相当）
-    # 近いプリセット: 'most_actives_japan' 等。ただし全件化のためカスタムでページング。
-    # yahooqueryのscreener.get_screenersでクエリ指定
-    query = {
-        "offset": 0,
-        "size": 250,
-        "sortField": "symbol",
-        "sortType": "asc",
-        "quoteType": "EQUITY",
-        "query": {
-            "operator": "and",
-            "operands": [
-                {"operator": "or", "operands": [
-                    {"operator": "equals", "operands": ["region", "jp"]}
-                ]},
-                {"operator": "or", "operands": [
-                    {"operator": "contains", "operands": ["exchange", "TSE"]},
-                    {"operator": "contains", "operands": ["shortName", ""]}  # 緩めに拾う
-                ]}
-            ]
-        }
-    }
+    all_syms = [f"{i}.T" for i in range(min_code, max_code + 1)]
+    valid = []
 
-    seen = set()
-    while True:
-        data = scr.screener(query)
-        quotes = (data or {}).get("quotes") or []
-        got = 0
-        for q in quotes:
-            sym = q.get("symbol") or ""
-            if sym.endswith(".T") and sym not in seen:
-                seen.add(sym)
-                symbols.append(sym)
-                got += 1
-        if got < query["size"]:
-            break
-        query["offset"] += query["size"]
-        time.sleep(0.2)
-    if not symbols:
-        raise CommandError("日本株シンボルが取得できませんでした（Yahoo Screener）。")
-    return symbols
+    def check_batch(chunk):
+        t = Ticker(chunk, asynchronous=True, max_workers=workers, validate=True)
+        prices = t.price or {}
+        out = []
+        for sym in chunk:
+            p = prices.get(sym) or {}
+            if (p.get("quoteType") == "EQUITY") and p.get("exchange") in {"TSE","JPX"}:
+                out.append(sym)
+        return out
 
-def enrich_meta(symbols):
+    parts = range(0, len(all_syms), batch)
+    with ThreadPoolExecutor(max_workers=max(2, workers//2)) as ex:
+        futs = {ex.submit(check_batch, all_syms[i:i+batch]): i for i in parts}
+        for fut in as_completed(futs):
+            valid.extend(fut.result())
+    if not valid:
+        raise CommandError("日本株シンボルの列挙に失敗しました（検証ゼロ）。")
+    return sorted(set(valid))
+
+def fetch_meta(symbols, workers=12):
     """
-    銘柄メタデータ取得: name, sector, industry
-    戻り値: { '8035': {'name':'東京エレクトロン','sector':'半導体','industry':'Semiconductors'} , ... }
+    longName/sector/industry を一括取得。
+    戻り値: { '8035': {'name':..., 'sector':..., 'industry':...}, ... }
     """
-    # yahooqueryのTickerでまとめて取得
-    t = Ticker(symbols, asynchronous=True, max_workers=8, validate=True)
+    t = Ticker(symbols, asynchronous=True, max_workers=workers, validate=True)
     profiles = t.asset_profile or {}
     prices   = t.price or {}
     meta = {}
     for sym in symbols:
-        code = sym.replace(".T", "")
+        code = sym.replace(".T","")
         p = prices.get(sym) or {}
         prof = profiles.get(sym) or {}
-        name = p.get("longName") or p.get("shortName") or prof.get("longBusinessSummary") or ""
+        name = p.get("longName") or p.get("shortName") or ""
         sector = prof.get("sector") or ""
         industry = prof.get("industry") or ""
         meta[code] = {"name": name, "sector": sector or industry, "industry": industry}
     return meta
 
 def fetch_history(symbol, start, end):
-    """
-    yfinanceで履歴取得 → DataFrame[date, close, volume]
-    symbol は '8035.T' 形式
-    """
-    df = yf.download(symbol, start=start, end=end, progress=False, auto_adjust=False, threads=False)
+    df = yf.download(symbol, start=start, end=end + dt.timedelta(days=1), progress=False, auto_adjust=False, threads=False)
     if df is None or df.empty:
         return None
-    df = df.rename(columns={"Close":"close","Volume":"volume"})
-    df = df.reset_index()
+    df = df.rename(columns={"Close":"close","Volume":"volume"}).reset_index()
     df["date"] = df["Date"].dt.strftime("%Y-%m-%d")
     return df[["date","close","volume"]]
 
 class Command(BaseCommand):
-    help = "日本株・全上場を外部から取得し、名称/業種付きでOHLCVスナップショットを生成（並列対応）"
+    help = "日本株・全上場を外部から取得（名称/業種付き）し、OHLCVスナップショット生成（並列対応、CSV不要）"
 
     def add_arguments(self, p):
-        p.add_argument("--asof", default=None, help="YYYY-MM-DD（省略時は今日）")
-        p.add_argument("--days", type=int, default=420, help="履歴日数の目安（営業日×2バッファ）")
-        p.add_argument("--limit", type=int, default=None, help="検証用に上限件数を絞る（本番は未指定）")
-        p.add_argument("--workers", type=int, default=8, help="並列ワーカー数（サーバ性能に合わせて）")
+        p.add_argument("--asof", default=None)
+        p.add_argument("--days", type=int, default=420)
+        p.add_argument("--workers", type=int, default=12)
+        p.add_argument("--batch", type=int, default=300)  # 検証時のpriceバッチ
+        p.add_argument("--min", dest="min_code", type=int, default=1300)
+        p.add_argument("--max", dest="max_code", type=int, default=9999)
+        p.add_argument("--limit", type=int, default=None)  # デバッグ用
 
     def handle(self, *args, **o):
         asof = o["asof"] or timezone.now().date().isoformat()
         end = dt.datetime.strptime(asof, "%Y-%m-%d")
-        start = end - dt.timedelta(days=o["days"]*2)  # 休日バッファ
+        start = end - dt.timedelta(days=o["days"]*2)
 
         out_dir = Path(f"media/ohlcv/snapshots/{asof}")
         out_dir.mkdir(parents=True, exist_ok=True)
         out_csv = out_dir / "ohlcv.csv"
 
-        self.stdout.write(f"[alljp] enumerate symbols…")
-        symbols = fetch_all_jp_symbols()  # ['8035.T', ...]
-        symbols = sorted(set(symbols))
+        self.stdout.write(f"[alljp] enumerate & validate symbols…")
+        symbols = enumerate_jp_symbols(
+            min_code=o["min_code"], max_code=o["max_code"],
+            batch=o["batch"], workers=o["workers"]
+        )
         if o["limit"]:
             symbols = symbols[:o["limit"]]
-        self.stdout.write(f"[alljp] total symbols: {len(symbols)}")
+        self.stdout.write(f"[alljp] valid symbols: {len(symbols)}")
 
         self.stdout.write(f"[alljp] fetch meta (name/sector)…")
-        meta = enrich_meta(symbols)
+        meta = fetch_meta(symbols, workers=o["workers"])
 
         self.stdout.write(f"[alljp] fetch histories in parallel (workers={o['workers']})…")
         rows = []
@@ -130,19 +108,22 @@ class Command(BaseCommand):
                     df = fut.result()
                     if df is None or df.empty:
                         continue
-                    name = (meta.get(code) or {}).get("name","")
-                    sector = (meta.get(code) or {}).get("sector","")
+                    m = meta.get(code, {})
                     df.insert(0, "code", code)
-                    df["name"] = name
+                    df["name"] = m.get("name","")
+                    # sectorが空ならindustryで補完
+                    sector = m.get("sector") or m.get("industry") or ""
                     df["sector"] = sector
                     rows.append(df)
                 except Exception as e:
                     self.stderr.write(f"[skip] {sym}: {e}")
 
         if not rows:
-            raise CommandError("有効なデータが1件も取得できませんでした。")
+            raise CommandError("取得できた履歴が0件でした。")
 
         out = pd.concat(rows, ignore_index=True)
         out = out[["code","date","close","volume","name","sector"]]
         out.to_csv(out_csv, index=False)
-        self.stdout.write(self.style.SUCCESS(f"[alljp] done: codes={out['code'].nunique()} rows={len(out)} out={out_csv}"))
+        self.stdout.write(self.style.SUCCESS(
+            f"[alljp] done: codes={out['code'].nunique()} rows={len(out)} out={out_csv}"
+        ))
