@@ -43,8 +43,13 @@
         </div>
       </div>
 
+      <!-- セクター（保険つき表示：sector_jp があれば最優先、数値や空はJSで「-」に矯正） -->
       <div class="row sub">
-        <span class="sector">{{ it.sector }}</span>
+        <span class="sector"
+              data-code="{{ it.code }}"
+              data-sector="{{ it.sector|default_if_none:'' }}">
+          {{ it.sector_jp|default:it.sector|default:"-" }}
+        </span>
       </div>
 
       <div class="row trends">
@@ -58,7 +63,7 @@
     {% endfor %}
   </main>
 
-  <!-- モーダル（既存そのまま） -->
+  <!-- モーダル -->
   <div id="aiModal" class="modal hidden" aria-hidden="true" role="dialog">
     <div class="modal-sheet" role="document" aria-modal="true">
       <button class="close" data-close>閉じる</button>
@@ -70,6 +75,7 @@
           <span id="m_score" class="score"></span>
         </div>
         <div class="sub">
+          <!-- ここも同じ方針：sector_jp があれば最優先、JSで最終保険 -->
           <span id="m_sector"></span>
         </div>
         <div class="trends">
@@ -105,7 +111,29 @@
 </div>
 
 <script>
+  // サーバから渡された生データ
   window.__AI_ITEMS__ = {{ items|safe }};
+
+  // ---- 表示保険：セクターが数値や空なら "-" に矯正（テンプレだけで直す） ----
+  (function () {
+    function isNumericLike(s) {
+      return typeof s === 'string' && /^\s*\d+(?:\.\d+)?\s*$/.test(s);
+    }
+    // カード側
+    document.querySelectorAll('.ai-card .sector').forEach(el => {
+      const txt = (el.textContent || '').trim();
+      if (txt === '' || isNumericLike(txt)) el.textContent = '-';
+    });
+
+    // モーダル側の初期テキストはJSでセットする（ai.jsの表示ロジックと連携）
+    // ここで保険関数を export して、ai.js からも使えるようにする
+    window.__aiSectorSafe__ = function (val, fallback) {
+      const s = (val ?? '').toString().trim();
+      if (s === '' || isNumericLike(s)) return (fallback && !isNumericLike(fallback)) ? fallback : '-';
+      return s;
+    };
+  })();
 </script>
+
 <script src="{% static 'ai/ai.js' %}?v=20"></script>
 {% endblock %}
