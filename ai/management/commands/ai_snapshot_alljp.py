@@ -153,7 +153,7 @@ class Command(BaseCommand):
         )
 
         # 6列固定で保存
-        df.to_csv(out_csv, index=False, encoding="utf-8", line_terminator="\n")
+        df.to_csv(out_csv, index=False, encoding="utf-8", lineterminator="\n")
         self.stdout.write(self.style.SUCCESS(
             f"[SNAPSHOT] codes={df['code'].nunique()} rows={len(df)} -> {out_csv}"
         ))
