@@ -1,300 +1,212 @@
-from __future__ import annotations
-import csv
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, List, Tuple, Optional
-from decimal import Decimal, InvalidOperation
-
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 from django.utils import timezone
+from pathlib import Path
+import pandas as pd
+import numpy as np
+import datetime as dt
+import re
 
-from ai.models import TrendResult
+# 33業種コード(50-83) → 日本語
+SECT33 = {
+    50: "水産・農林業", 51: "鉱業", 52: "建設業", 53: "食料品", 54: "繊維製品", 55: "パルプ・紙",
+    56: "化学", 57: "医薬品", 58: "石油・石炭製品", 59: "ゴム製品", 60: "ガラス・土石製品",
+    61: "鉄鋼", 62: "非鉄金属", 63: "金属製品", 64: "機械", 65: "電気機器", 66: "輸送用機器",
+    67: "精密機器", 68: "その他製品", 69: "電気・ガス業", 70: "陸運業", 71: "海運業", 72: "空運業",
+    73: "倉庫・運輸関連業", 74: "情報・通信業", 75: "卸売業", 76: "小売業", 77: "銀行業",
+    78: "証券、商品先物取引業", 79: "保険業", 80: "その他金融業", 81: "不動産業", 82: "サービス業", 83: "その他",
+}
 
+# ゼロ幅/制御文字を除去
+_ZW = r"[\u200B-\u200D\uFEFF\u2060\u00AD]"
+_PRIV = r"[\uE000-\uF8FF]"
+_CTRL = r"[\x00-\x1F\x7F-\x9F]"
+SAN = re.compile(f"{_ZW}|{_PRIV}|{_CTRL}")
 
-# ====== データ構造 ======
-@dataclass
-class Row:
-    code: str
-    date: str
-    close: float
-    volume: float
-    name: str
-    sector: str
+def clean_txt(s: str) -> str:
+    if s is None:
+        return ""
+    return SAN.sub("", str(s)).strip()
 
+def to_code4(s: str) -> str:
+    m = re.search(r"(\d{4})", str(s))
+    return m.group(1) if m else ""
 
-# ====== ユーティリティ ======
-def _is_valid_code(code: str) -> bool:
-    """
-    市場コードの健全性チェック。
-    - 空/None, 'nan'（大小混在）, 'NaN' は除外
-    - 先頭が数字でないものは除外（TSEは数字）
-    """
-    if not code:
-        return False
-    s = code.strip()
-    if not s:
-        return False
-    if s.lower() == "nan":
-        return False
-    # 4桁〜5桁の数字を最優先で許可（例：8035, 7203）
-    if s.isdigit() and 3 <= len(s) <= 6:
-        return True
-    # 末尾のサフィックスが付いてる場合（"6758.T"）は前段で切り落としている想定
-    return False
+def sector_to_jp(val) -> str:
+    """CSVのsectorが日本語/数値/float/None どれでも日本語化して返す"""
+    if val is None:
+        return ""
+    s = clean_txt(val)
+    if s == "":
+        return ""
+    # 数値コード？
+    m = re.fullmatch(r"(\d+)(?:\.0)?", s)
+    if m:
+        n = int(m.group(1))
+        return SECT33.get(n, "")
+    # すでに日本語想定
+    return s
 
+def load_master_map(master_csv: Path) -> dict[str, str]:
+    """JPXマスターから code→sector_jp を作る。無ければ空dict"""
+    if not master_csv.exists():
+        return {}
+    df = pd.read_csv(master_csv, dtype=str, low_memory=False)
+    if not set(["code", "sector"]).issubset(df.columns):
+        return {}
+    df["code"] = df["code"].map(to_code4)
+    df["sector"] = df["sector"].map(lambda x: sector_to_jp(x))
+    df = df.dropna(subset=["code"]).drop_duplicates(subset=["code"])
+    return {r.code: r.sector for r in df.itertuples(index=False)}
 
-def _read_snapshot_csv(root: Path) -> Dict[str, List[Row]]:
-    """スナップショット ohlcv.csv を code ごとにまとめて返す（無効コードは除外）"""
-    fp = root / "ohlcv.csv"
-    if not fp.exists():
-        raise FileNotFoundError(f"CSVが見つかりません: {fp}")
-
-    per_code: Dict[str, List[Row]] = {}
-    bad_code_rows = 0
-    with fp.open("r", encoding="utf-8") as f:
-        rdr = csv.DictReader(f)
-        needed = {"code", "date", "close", "volume", "name", "sector"}
-        if not needed.issubset(set(rdr.fieldnames or [])):
-            raise ValueError(f"CSVのヘッダが不足しています: 必要={needed}, 実際={rdr.fieldnames}")
-
-        for rec in rdr:
-            raw_code = str(rec["code"]).strip()
-            code = raw_code.split(".", 1)[0] if "." in raw_code else raw_code
-            if not _is_valid_code(code):
-                bad_code_rows += 1
-                continue
-
-            try:
-                close = float(rec["close"])
-            except Exception:
-                # 価格が壊れてる行はスキップ
-                continue
-            try:
-                vol = float(rec["volume"])
-            except Exception:
-                vol = 0.0
-
-            row = Row(
-                code=code,
-                date=str(rec["date"]).strip(),
-                close=close,
-                volume=vol,
-                name=str(rec.get("name") or "").strip(),
-                sector=str(rec.get("sector") or "").strip(),
-            )
-            per_code.setdefault(code, []).append(row)
-
-    # 日付順
-    for k in per_code:
-        per_code[k].sort(key=lambda r: r.date)
-
-    # 参考ログ用
-    per_code["_bad_code_rows"] = [Row(code=str(bad_code_rows), date="", close=0, volume=0, name="", sector="")]
-    return per_code
-
-
-def _read_master_universe(base: Path) -> Dict[str, dict]:
-    """data/universe/master.csv を辞書で返す（フォールバック用・制限ではない）"""
-    master = {}
-    fp = base / "data" / "universe" / "master.csv"
-    if not fp.exists():
-        return master
-    with fp.open("r", encoding="utf-8") as f:
-        rdr = csv.DictReader(f)
-        for rec in rdr:
-            code = (rec.get("code") or "").strip()
-            if not _is_valid_code(code):
-                continue
-            master[code] = {
-                "name": (rec.get("name") or "").strip(),
-                "sector": (rec.get("sector") or "").strip(),
-            }
-    return master
-
-
-def _sma(values: List[float], window: int) -> Optional[float]:
-    if len(values) < window or window <= 0:
-        return None
-    return sum(values[-window:]) / window
-
-
-def _mean(values: List[float]) -> Optional[float]:
-    if not values:
-        return None
-    return sum(values) / len(values)
-
-
-def _trend_from_pair(a: Optional[float], b: Optional[float], tol: float = 0.002) -> int:
-    if a is None or b is None or b == 0:
-        return 0
-    if a > b * (1 + tol):
-        return 1
-    if a < b * (1 - tol):
-        return -1
-    return 0
-
-
-def _linear_slope(y: List[float]) -> Optional[float]:
-    n = len(y)
-    if n < 5:
-        return None
-    sx = (n - 1) * n / 2
-    sx2 = (n - 1) * n * (2 * n - 1) / 6
-    sy = sum(y)
-    sxy = sum(i * v for i, v in enumerate(y))
-    den = n * sx2 - sx * sx
-    if den == 0:
-        return None
-    return (n * sxy - sx * sy) / den
-
-
-def _weekly_monthly_trend(closes: List[float]) -> Tuple[int, int, Optional[float], Optional[float], Optional[float]]:
-    ma5 = _sma(closes, 5)
-    ma20 = _sma(closes, 20)
-    ma60 = _sma(closes, 60)
-    w = _trend_from_pair(ma5, ma20)
-    m = _trend_from_pair(ma20, ma60)
-    return w, m, ma5, ma20, ma60
-
-
-def _rs_index(last_price: float, ma20: Optional[float]) -> float:
-    if (ma20 or 0) <= 0 or last_price <= 0:
-        return 1.0
-    return float(last_price / ma20)
-
-
-def _vol_spike(last_vol: float, vols: List[float]) -> float:
-    base = _mean(vols[-20:]) or 0.0
-    if base <= 0:
-        return 1.0
-    return float(last_vol / base)
-
-
-def _confidence(days: int, w_trend_num: int, m_trend_num: int) -> float:
-    base = min(1.0, max(0.0, days / 60.0))
-    bonus = 0.2 if (w_trend_num == m_trend_num and w_trend_num != 0) else 0.0
-    return float(max(0.0, min(1.0, base + bonus)))
-
-
-def _D(x: Optional[float]) -> Decimal:
-    if x is None:
-        return Decimal("0")
+def slope_sign(series: pd.Series, win: int = 5) -> float:
+    """簡易スロープ符号：直近winの線形回帰傾き"""
+    s = pd.to_numeric(series, errors="coerce").dropna()
+    if len(s) < 2:
+        return 0.0
+    s = s.tail(win)
+    x = np.arange(len(s))
     try:
-        return Decimal(str(x))
-    except (InvalidOperation, TypeError, ValueError):
-        return Decimal("0")
+        k = float(np.polyfit(x, s.values, 1)[0])
+    except Exception:
+        k = 0.0
+    # そのまま傾き値を返す（UI側で up/flat/down 判定）
+    return k
 
-
-# ====== メイン ======
 class Command(BaseCommand):
-    help = "スナップショットCSVから TrendResult を“全銘柄”更新（name/sector は空なら master.csv/既存DBで補完）"
+    help = "ohlcv.csv を読み、TrendResult を更新（sector_jp を恒久的に確定保存）。"
 
-    def add_arguments(self, parser):
-        parser.add_argument("--root", type=str, required=True, help="例: media/ohlcv/snapshots/2025-11-06")
-        parser.add_argument("--asof", type=str, required=False, help="YYYY-MM-DD（未指定は今日）")
-        parser.add_argument(
-            "--only-master", action="store_true",
-            help="True の場合、master.csv に載っている銘柄だけを更新（通常は使わない）"
+    def add_arguments(self, p):
+        p.add_argument("--root", required=True, help="media/ohlcv/snapshots/YYY-MM-DD")
+        p.add_argument("--asof", default=None, help="基準日（省略で今日）")
+        p.add_argument("--master", default="media/jpx_master.csv", help="JPXマスターCSV（code,name,sector）")
+
+    def handle(self, *args, **o):
+        from ai.models import TrendResult  # 遅延import（migrate中の安全策）
+
+        root = Path(o["root"])
+        csv_path = root / "ohlcv.csv"
+        if not csv_path.exists():
+            raise CommandError(f"ohlcv.csv が見つかりません: {csv_path}")
+
+        asof = o["asof"] or timezone.now().date().isoformat()
+        try:
+            as_of_date = dt.datetime.strptime(asof, "%Y-%m-%d").date()
+        except ValueError:
+            raise CommandError("--asof は YYYY-MM-DD 形式で指定してください")
+
+        # --- 1) ohlcv.csv 読み込み（6列固定想定だが堅牢化） -----------------
+        df = pd.read_csv(csv_path, dtype=str, low_memory=False)
+        for need in ["code", "date", "close", "volume", "name", "sector"]:
+            if need not in df.columns:
+                raise CommandError(f"ohlcv.csv に列が不足しています: {need}")
+
+        # 正規化
+        df["code"] = df["code"].map(to_code4)
+        df["name"] = df["name"].map(clean_txt)
+        df["sector"] = df["sector"].map(sector_to_jp)
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df["close"] = pd.to_numeric(df["close"], errors="coerce")
+        df["volume"] = pd.to_numeric(df["volume"], errors="coerce")
+        df = df.dropna(subset=["code", "date", "close"]).sort_values(["code", "date"])
+
+        # --- 2) JPXマスター（fallback） --------------------------------------
+        master_map = load_master_map(Path(o["master"]))
+
+        # ohlcv上の “code→sector_jp” （空なら落とす）
+        csv_sector = (
+            df[["code", "sector"]]
+            .dropna()
+            .drop_duplicates(subset=["code"])
+            .set_index("code")["sector"]
+            .to_dict()
         )
-        parser.add_argument("--dry-run", action="store_true", help="保存せず計算・ログだけ出す")
 
-    def handle(self, *args, **options):
-        base = Path(__file__).resolve().parents[4]  # .../my_stock_portfolio/
-        root = Path(options["root"]).resolve()
-        asof = options.get("asof") or timezone.localdate().strftime("%Y-%m-%d")
-        only_master = bool(options.get("only-master"))
-        dry = bool(options.get("dry-run"))
+        # --- 3) サマリ計算（last/MA/簡易トレンド） ---------------------------
+        # 直近レコード
+        last = df.sort_values(["code", "date"]).groupby("code").tail(1)
 
-        per_code = _read_snapshot_csv(root)
-        # _bad_code_rows を取り出してログに出す（辞書からは削除）
-        bad_code_rows = 0
-        if "_bad_code_rows" in per_code:
-            bad_code_rows = int(per_code["_bad_code_rows"][0].code)
-            del per_code["_bad_code_rows"]
+        # ローリング用に groupby
+        def roll_feats(grp: pd.DataFrame):
+            grp = grp.sort_values("date")
+            closes = grp["close"]
+            out = {
+                "ma5": float(closes.rolling(5).mean().iloc[-1]) if len(closes) >= 5 else float(closes.iloc[-1]),
+                "ma20": float(closes.rolling(20).mean().iloc[-1]) if len(closes) >= 20 else float(closes.mean()),
+                "ma60": float(closes.rolling(60).mean().iloc[-1]) if len(closes) >= 60 else float(closes.mean()),
+                "daily_slope": float(slope_sign(closes, 5)),
+                "weekly_trend": float(slope_sign(closes, 20)),
+                "monthly_trend": float(slope_sign(closes, 60)),
+            }
+            return pd.Series(out)
 
-        master = _read_master_universe(base)
+        feats = df.groupby("code").apply(roll_feats).reset_index()
 
-        codes = list(per_code.keys())
-        if only_master:
-            codes = [c for c in codes if c in master]
+        # last と結合
+        agg = last.merge(feats, on="code", how="left")
 
-        total = len(codes)
-        created = 0
-        updated = 0
-        skipped = 0
-        errors = 0
+        # --- 4) DB更新（sector_jp を“常に確定”させ、空値で潰さない） ---------
+        created = updated = 0
+        with transaction.atomic():
+            for r in agg.itertuples(index=False):
+                code = r.code
+                name = r.name or ""
+                last_price = float(r.close)
+                last_volume = int(r.volume) if not np.isnan(r.volume) else 0
 
-        self.stdout.write(f"[ai_build_trend] as_of={asof} root={root}")
-        self.stdout.write(f"[ai_build_trend] codes in snapshot={len(per_code)} / processing={total} / bad_code_rows={bad_code_rows}")
-        if only_master:
-            self.stdout.write("[ai_build_trend] only_master=True（master.csvに載っている銘柄のみ処理）")
+                # sector_jp の出所優先度: CSVの日本語 > JPXマスター > 既存DB
+                candidate = csv_sector.get(code, "")
+                if not candidate:
+                    candidate = master_map.get(code, "")
+                candidate = sector_to_jp(candidate)  # 最終正規化
 
-        for i, code in enumerate(codes, 1):
-            try:
-                rows = per_code.get(code) or []
-                if not rows:
-                    skipped += 1
-                    continue
+                try:
+                    obj = TrendResult.objects.get(code=code)
+                    # 既存名称が空なら埋める／違っていたらクリーン文字列で更新
+                    to_update = []
+                    if clean_txt(obj.name) != clean_txt(name) and name:
+                        obj.name = clean_txt(name)
+                        to_update.append("name")
 
-                closes = [r.close for r in rows if r.close is not None]
-                vols = [r.volume for r in rows if r.volume is not None]
-                if not closes:
-                    skipped += 1
-                    continue
+                    # sector_jp は「新しい値が非空」のときだけ上書き
+                    if candidate and clean_txt(obj.sector_jp) != candidate:
+                        obj.sector_jp = candidate
+                        to_update.append("sector_jp")
 
-                last = rows[-1]
-                last_price_f = float(closes[-1])
-                last_vol_f = float(vols[-1]) if vols else 0.0
-
-                slope = _linear_slope(closes[-30:])
-                w_num, m_num, ma5, ma20, ma60 = _weekly_monthly_trend(closes)
-                rs = _rs_index(last_price_f, ma20)
-                volb = _vol_spike(last_vol_f, vols)
-                conf = _confidence(len(closes), w_num, m_num)
-
-                # master.csv → スナップショット → 既存DB の順で補完
-                fallback = master.get(code, {})
-                obj = TrendResult.objects.filter(code=code).first()
-                name = (last.name or fallback.get("name") or (obj.name if obj else "") or "").strip()
-                sector = (last.sector or fallback.get("sector") or (obj.sector_jp if obj else "") or "").strip()
-
-                if obj is None:
-                    obj = TrendResult(code=code)
-                    is_new = True
-                else:
-                    is_new = False
-
-                obj.name = name
-                obj.sector_jp = sector
-                obj.last_price = _D(last_price_f)          # NOT NULL 対策
-                obj.last_volume = _D(last_vol_f)
-                obj.daily_slope = _D(slope if slope is not None else 0.0)
-                obj.weekly_trend = _D(w_num)               # +1/0/-1 を Decimal で保存
-                obj.monthly_trend = _D(m_num)
-                obj.ma5 = _D(ma5 if ma5 is not None else 0.0)
-                obj.ma20 = _D(ma20 if ma20 is not None else 0.0)
-                obj.ma60 = _D(ma60 if ma60 is not None else 0.0)
-                obj.rs_index = _D(rs)
-                obj.vol_spike = _D(volb)
-                obj.confidence = _D(conf)
-                obj.as_of = asof
-
-                if not dry:
+                    obj.last_price = last_price
+                    obj.last_volume = last_volume
+                    obj.daily_slope = float(r.daily_slope) if r.daily_slope == r.daily_slope else 0.0
+                    obj.weekly_trend = float(r.weekly_trend) if r.weekly_trend == r.weekly_trend else 0.0
+                    obj.monthly_trend = float(r.monthly_trend) if r.monthly_trend == r.monthly_trend else 0.0
+                    obj.ma5 = float(r.ma5) if r.ma5 == r.ma5 else 0.0
+                    obj.ma20 = float(r.ma20) if r.ma20 == r.ma20 else 0.0
+                    obj.ma60 = float(r.ma60) if r.ma60 == r.ma60 else 0.0
+                    obj.rs_index = obj.rs_index if obj.rs_index is not None else 1.0
+                    obj.vol_spike = obj.vol_spike if obj.vol_spike is not None else 1.0
+                    obj.confidence = obj.confidence if obj.confidence is not None else 0.0
+                    obj.as_of = as_of_date
                     obj.save()
-
-                if is_new:
-                    created += 1
-                else:
                     updated += 1
-
-            except Exception as e:
-                errors += 1
-                # ここで例外は握りつぶさずログに明示する（1件失敗でも他は続行）
-                self.stderr.write(f"[{i}/{total}] {code}: ERROR {e}")
-
-            if i % 50 == 0 or i == total:
-                self.stdout.write(f" ..progress {i}/{total} (new:{created} upd:{updated} skip:{skipped} err:{errors})")
+                except TrendResult.DoesNotExist:
+                    TrendResult.objects.create(
+                        code=code,
+                        name=clean_txt(name),
+                        sector_jp=candidate if candidate else "不明",
+                        last_price=last_price,
+                        last_volume=last_volume,
+                        daily_slope=float(r.daily_slope) if r.daily_slope == r.daily_slope else 0.0,
+                        weekly_trend=float(r.weekly_trend) if r.weekly_trend == r.weekly_trend else 0.0,
+                        monthly_trend=float(r.monthly_trend) if r.monthly_trend == r.monthly_trend else 0.0,
+                        rs_index=1.0,
+                        vol_spike=1.0,
+                        ma5=float(r.ma5) if r.ma5 == r.ma5 else 0.0,
+                        ma20=float(r.ma20) if r.ma20 == r.ma20 else 0.0,
+                        ma60=float(r.ma60) if r.ma60 == r.ma60 else 0.0,
+                        confidence=0.0,
+                        as_of=as_of_date,
+                    )
+                    created += 1
 
         self.stdout.write(self.style.SUCCESS(
-            f"Updated TrendResult: total={total} created={created} updated={updated} skipped={skipped} errors={errors} (as_of={asof})"
+            f"Updated TrendResult: total={len(agg)} created={created} updated={updated} (as_of={asof})"
         ))
