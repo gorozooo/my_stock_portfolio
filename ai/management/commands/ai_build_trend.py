@@ -1,6 +1,5 @@
 from __future__ import annotations
 import csv
-import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -12,8 +11,8 @@ from django.utils import timezone
 
 from ai.models import TrendResult
 
-# ===== ユーティリティ =====
 
+# ====== データ構造 ======
 @dataclass
 class Row:
     code: str
@@ -24,67 +23,14 @@ class Row:
     sector: str
 
 
-def _clean_text(s: str) -> str:
-    """不可視文字を除去し、前後の空白をトリム"""
-    if not s:
-        return ""
-    s = unicodedata.normalize("NFKC", s)
-    bad = {
-        "\u200b", "\u200c", "\u200d", "\uFEFF", "\u2060"
-    }
-    s = "".join(ch for ch in s if (ch not in bad and ch.isprintable()))
-    return s.strip()
-
-
-def _load_master(root_project: Path) -> Dict[str, Dict[str, str]]:
-    """
-    名称マスタの読み込み。
-    期待パス: <PROJECT_ROOT>/data/universe/master.csv
-      列: code,name,sector
-    返り値: { '7203': {'name':'トヨタ自動車','sector':'自動車・輸送機'} , ... }
-    """
-    master: Dict[str, Dict[str, str]] = {}
-    fp = root_project / "data" / "universe" / "master.csv"
-    if not fp.exists():
-        print(f"[master] not found: {fp} （フォールバック無しで続行）")
-        return master
-
-    with fp.open("r", encoding="utf-8") as f:
-        rdr = csv.DictReader(f)
-        need = {"code", "name", "sector"}
-        if not need.issubset(set(rdr.fieldnames or [])):
-            print(f"[master] ヘッダ不足: 必要={need}, 実際={rdr.fieldnames}")
-            return master
-
-        cnt = 0
-        for r in rdr:
-            raw = str(r.get("code") or "").strip()
-            code = raw.split(".", 1)[0] if "." in raw else raw
-            if not code or not code.isdigit():
-                continue
-            name = _clean_text(r.get("name") or "")
-            sector = _clean_text(r.get("sector") or "")
-            master[code] = {"name": name, "sector": sector}
-            cnt += 1
-        print(f"[master] loaded: {cnt} rows from {fp}")
-    return master
-
-
+# ====== ユーティリティ ======
 def _read_snapshot_csv(root: Path) -> Dict[str, List[Row]]:
-    """
-    スナップショットCSVを読み込み、codeごとに分配。
-    - 無効コード（空/非数字/NaN 等）は読み飛ばす
-    - close 欠損の行は読み飛ばす
-    必須ヘッダ: code,date,close,volume,name,sector
-    """
+    """スナップショット ohlcv.csv を code ごとにまとめて返す"""
     fp = root / "ohlcv.csv"
     if not fp.exists():
         raise FileNotFoundError(f"CSVが見つかりません: {fp}")
 
     per_code: Dict[str, List[Row]] = {}
-    skip_invalid_code = 0
-    skip_no_close = 0
-
     with fp.open("r", encoding="utf-8") as f:
         rdr = csv.DictReader(f)
         needed = {"code", "date", "close", "volume", "name", "sector"}
@@ -94,13 +40,13 @@ def _read_snapshot_csv(root: Path) -> Dict[str, List[Row]]:
         for rec in rdr:
             raw_code = str(rec["code"]).strip()
             code = raw_code.split(".", 1)[0] if "." in raw_code else raw_code
-            if not code or (not code.isdigit()):
-                skip_invalid_code += 1
+            if not code:
                 continue
+
             try:
                 close = float(rec["close"])
             except Exception:
-                skip_no_close += 1
+                # 価格が壊れてる行はスキップ
                 continue
             try:
                 vol = float(rec["volume"])
@@ -112,17 +58,34 @@ def _read_snapshot_csv(root: Path) -> Dict[str, List[Row]]:
                 date=str(rec["date"]).strip(),
                 close=close,
                 volume=vol,
-                name=_clean_text(rec.get("name") or ""),
-                sector=_clean_text(rec.get("sector") or ""),
+                name=str(rec.get("name") or "").strip(),
+                sector=str(rec.get("sector") or "").strip(),
             )
             per_code.setdefault(code, []).append(row)
 
+    # 日付順
     for k in per_code:
         per_code[k].sort(key=lambda r: r.date)
-
-    total = sum(len(v) for v in per_code.values())
-    print(f"[reader] codes={len(per_code)} rows={total} (skip_invalid_code={skip_invalid_code}, skip_no_close={skip_no_close})")
     return per_code
+
+
+def _read_master_universe(base: Path) -> Dict[str, dict]:
+    """data/universe/master.csv を辞書で返す（フォールバック用・制限ではない）"""
+    master = {}
+    fp = base / "data" / "universe" / "master.csv"
+    if not fp.exists():
+        return master
+    with fp.open("r", encoding="utf-8") as f:
+        rdr = csv.DictReader(f)
+        for rec in rdr:
+            code = (rec.get("code") or "").strip()
+            if not code:
+                continue
+            master[code] = {
+                "name": (rec.get("name") or "").strip(),
+                "sector": (rec.get("sector") or "").strip(),
+            }
+    return master
 
 
 def _sma(values: List[float], window: int) -> Optional[float]:
@@ -198,36 +161,55 @@ def _D(x: Optional[float]) -> Decimal:
         return Decimal("0")
 
 
-# ===== メイン =====
-
+# ====== メイン ======
 class Command(BaseCommand):
-    help = "スナップショットCSVから TrendResult を更新（name/sector は空なら既存DB→名称マスタの順で補完）"
+    help = "スナップショットCSVから TrendResult を“全銘柄”更新（name/sector は空なら master.csv/既存DBで補完）"
 
     def add_arguments(self, parser):
-        parser.add_argument("--root", type=str, required=True, help="例: media/ohlcv/snapshots/2025-11-05")
+        parser.add_argument("--root", type=str, required=True, help="例: media/ohlcv/snapshots/2025-11-06")
         parser.add_argument("--asof", type=str, required=False, help="YYYY-MM-DD（未指定は今日）")
+        parser.add_argument(
+            "--only-master", action="store_true",
+            help="True の場合、master.csv に載っている銘柄だけを更新（通常は使わない）"
+        )
+        parser.add_argument("--dry-run", action="store_true", help="保存せず計算・ログだけ出す")
 
-    @transaction.atomic
     def handle(self, *args, **options):
-        project_root = Path.cwd()  # プロジェクト直下で実行される想定
-        master = _load_master(project_root)
-
+        base = Path(__file__).resolve().parents[4]  # .../my_stock_portfolio/
         root = Path(options["root"]).resolve()
         asof = options.get("asof") or timezone.localdate().strftime("%Y-%m-%d")
+        only_master = bool(options.get("only-master"))
+        dry = bool(options.get("dry-run"))
 
         per_code = _read_snapshot_csv(root)
-        updated = 0
-        invalid = 0
-        filled_from_master = 0
+        master = _read_master_universe(base)
 
-        for code, rows in per_code.items():
+        codes = list(per_code.keys())
+        if only_master:
+            codes = [c for c in codes if c in master]
+
+        total = len(codes)
+        created = 0
+        updated = 0
+        skipped = 0
+        errors = 0
+
+        self.stdout.write(f"[ai_build_trend] as_of={asof} root={root}")
+        self.stdout.write(f"[ai_build_trend] codes in snapshot={len(per_code)} / processing={total}")
+        if only_master:
+            self.stdout.write("[ai_build_trend] only_master=True（master.csvに載っている銘柄のみ処理）")
+
+        # 1銘柄ごとに try/except（途中例外で全ロールバックを避ける）
+        for i, code in enumerate(codes, 1):
+            rows = per_code.get(code) or []
             if not rows:
+                skipped += 1
                 continue
 
             closes = [r.close for r in rows if r.close is not None]
             vols = [r.volume for r in rows if r.volume is not None]
             if not closes:
-                invalid += 1
+                skipped += 1
                 continue
 
             last = rows[-1]
@@ -240,43 +222,49 @@ class Command(BaseCommand):
             volb = _vol_spike(last_vol_f, vols)
             conf = _confidence(len(closes), w_num, m_num)
 
-            # 既存を取得
+            # master.csv→スナップショット→既存DB の順で補完
+            fallback = master.get(code, {})
             try:
-                obj = TrendResult.objects.get(code=code)
-                name = last.name or (obj.name or "")
-                sector = last.sector or (obj.sector_jp or "")
-            except TrendResult.DoesNotExist:
-                obj = TrendResult(code=code)
-                name = last.name or ""
-                sector = last.sector or ""
+                obj = TrendResult.objects.filter(code=code).first()
+                name = (last.name or fallback.get("name") or (obj.name if obj else "") or "").strip()
+                sector = (last.sector or fallback.get("sector") or (obj.sector_jp if obj else "") or "").strip()
 
-            # フォールバック: まだ空なら master.csv から補完
-            if (not name or not sector) and code in master:
-                m = master[code]
-                name = name or m.get("name") or ""
-                sector = sector or m.get("sector") or ""
-                if m.get("name") or m.get("sector"):
-                    filled_from_master += 1
+                if obj is None:
+                    obj = TrendResult(code=code)
+                    is_new = True
+                else:
+                    is_new = False
 
-            obj.name = _clean_text(name)
-            obj.sector_jp = _clean_text(sector)
-            obj.last_price = _D(last_price_f)
-            obj.last_volume = _D(last_vol_f)
-            obj.daily_slope = _D(slope if slope is not None else 0.0)
-            obj.weekly_trend = _D(w_num)
-            obj.monthly_trend = _D(m_num)
-            obj.ma5 = _D(ma5 if ma5 is not None else 0.0)
-            obj.ma20 = _D(ma20 if ma20 is not None else 0.0)
-            obj.ma60 = _D(ma60 if ma60 is not None else 0.0)
-            obj.rs_index = _D(rs)
-            obj.vol_spike = _D(volb)
-            obj.confidence = _D(conf)
-            obj.as_of = asof
-            obj.save()
-            updated += 1
+                obj.name = name
+                obj.sector_jp = sector
+                obj.last_price = _D(last_price_f)          # ← NOT NULL対策
+                obj.last_volume = _D(last_vol_f)
+                obj.daily_slope = _D(slope if slope is not None else 0.0)
+                obj.weekly_trend = _D(w_num)               # +1/0/-1 を Decimal で保存
+                obj.monthly_trend = _D(m_num)
+                obj.ma5 = _D(ma5 if ma5 is not None else 0.0)
+                obj.ma20 = _D(ma20 if ma20 is not None else 0.0)
+                obj.ma60 = _D(ma60 if ma60 is not None else 0.0)
+                obj.rs_index = _D(rs)
+                obj.vol_spike = _D(volb)
+                obj.confidence = _D(conf)
+                obj.as_of = asof
+
+                if not dry:
+                    obj.save()
+
+                if is_new:
+                    created += 1
+                else:
+                    updated += 1
+
+            except Exception as e:
+                errors += 1
+                self.stderr.write(f"[{i}/{total}] {code}: ERROR {e}")
+
+            if i % 50 == 0 or i == total:
+                self.stdout.write(f" ..progress {i}/{total} (new:{created} upd:{updated} skip:{skipped} err:{errors})")
 
         self.stdout.write(self.style.SUCCESS(
-            f"Updated TrendResult: {updated} items (as_of={asof}, filled_from_master={filled_from_master})"
+            f"Updated TrendResult: total={total} created={created} updated={updated} skipped={skipped} errors={errors} (as_of={asof})"
         ))
-        if invalid:
-            self.stdout.write(self.style.WARNING(f"invalid_rows: {invalid}"))
