@@ -8,6 +8,16 @@ import yfinance as yf
 import time
 import re
 
+# 33業種マップ（JPX: 50..83）
+SECT33 = {
+    50: '水産・農林業', 51: '鉱業', 52: '建設業', 53: '食料品', 54: '繊維製品', 55: 'パルプ・紙',
+    56: '化学', 57: '医薬品', 58: '石油・石炭製品', 59: 'ゴム製品', 60: 'ガラス・土石製品',
+    61: '鉄鋼', 62: '非鉄金属', 63: '金属製品', 64: '機械', 65: '電気機器', 66: '輸送用機器',
+    67: '精密機器', 68: 'その他製品', 69: '電気・ガス業', 70: '陸運業', 71: '海運業', 72: '空運業',
+    73: '倉庫・運輸関連業', 74: '情報・通信業', 75: '卸売業', 76: '小売業', 77: '銀行業',
+    78: '証券、商品先物取引業', 79: '保険業', 80: 'その他金融業', 81: '不動産業', 82: 'サービス業', 83: 'その他'
+}
+
 def clean_txt(s):
     """ゼロ幅・私用領域・制御文字を除去してトリム"""
     if s is None or (isinstance(s, float) and pd.isna(s)):
@@ -17,6 +27,25 @@ def clean_txt(s):
     s = re.sub(r"[\uE000-\uF8FF]", "", s)                     # 私用領域
     s = re.sub(r"[\x00-\x1F\x7F-\x9F]", "", s)                # 制御文字
     return s.strip()
+
+def normalize_sector(s: str) -> str:
+    """
+    JPXマスターの sector 列を日本語の33業種名へ正規化。
+    - "50" / "50.0" / 50 → "水産・農林業"
+    - 既に日本語ならそのまま
+    - 空/不明は "-" を返す
+    """
+    txt = clean_txt(s)
+    if not txt:
+        return "-"
+    m = re.fullmatch(r"(\d+)(?:\.0)?", txt)
+    if m:
+        code = int(m.group(1))
+        return SECT33.get(code, "-")
+    # 既に日本語・文字列ならそのまま（数字だけは却下）
+    if re.fullmatch(r"\d+(?:\.\d+)?", txt):
+        return "-"
+    return txt
 
 def fetch_history(code: str, start: dt.datetime, end: dt.datetime, retries=2, pause=1.5):
     """Yahoo(日足)取得。軽いリトライ＆指数バックオフ付き。必ず date/close/volume の3列を返す。"""
@@ -34,16 +63,10 @@ def fetch_history(code: str, start: dt.datetime, end: dt.datetime, retries=2, pa
             if df is not None and not df.empty:
                 df = df.rename(columns={"Close": "close", "Volume": "volume"}).reset_index()
                 # 3列に強制縮約（多重列/重複列の先頭を採用）
-                # date
-                if "Date" in df.columns:
-                    date_col = df["Date"]
-                else:
-                    date_col = df.iloc[:, 0]
-                # close
+                date_col = df["Date"] if "Date" in df.columns else df.iloc[:, 0]
                 close_col = df["close"] if "close" in df.columns else df.filter(regex=r"(?i)^close$").iloc[:, 0]
                 if isinstance(close_col, pd.DataFrame):
                     close_col = close_col.iloc[:, 0]
-                # volume
                 volume_col = df["volume"] if "volume" in df.columns else df.filter(regex=r"(?i)^volume$").iloc[:, 0]
                 if isinstance(volume_col, pd.DataFrame):
                     volume_col = volume_col.iloc[:, 0]
@@ -83,16 +106,19 @@ class Command(BaseCommand):
             if col not in mdf.columns:
                 raise CommandError(f"master CSV に列がありません: {col}")
 
-        mdf["code"]   = mdf["code"].astype(str).str.extract(r"(\d{4})")[0]
-        mdf["name"]   = mdf["name"].map(clean_txt)
-        mdf["sector"] = mdf["sector"].map(lambda s: clean_txt(s).replace(".0", ""))
+        # クリーニング
+        mdf["code"] = mdf["code"].astype(str).str.extract(r"(\d{4})")[0]
+        mdf["name"] = mdf["name"].map(clean_txt)
+        # sectorは必ず日本語へ正規化
+        mdf["sector"] = mdf["sector"].map(normalize_sector)
         mdf = mdf.dropna(subset=["code"]).drop_duplicates(subset=["code"])
 
         if o["limit"]:
             mdf = mdf.head(int(o["limit"]))
 
         codes = mdf["code"].tolist()
-        meta  = {r.code: (r.name, r.sector) for r in mdf.itertuples(index=False)}
+        # meta: code -> (name, sector_jp)
+        meta = {r.code: (r.name or "", r.sector or "-") for r in mdf.itertuples(index=False)}
 
         out_dir = Path(f"media/ohlcv/snapshots/{asof}")
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -118,19 +144,18 @@ class Command(BaseCommand):
             h["close"]  = pd.to_numeric(pd.Series(h["close"]),  errors="coerce")
             h["volume"] = pd.to_numeric(pd.Series(h["volume"]), errors="coerce")
             h = h.dropna(subset=["date", "close", "volume"])
-
             if h.empty:
                 return None
 
-            name, sector = meta.get(code, ("", ""))
+            name, sector_jp = meta.get(code, ("", "-"))
             # 6列を“明示的に構築”（列重複の余地をなくす）
             df_row = pd.DataFrame({
-                "code":   [code]   * len(h),
+                "code":   [code]       * len(h),
                 "date":   h["date"].astype(str),
                 "close":  h["close"].astype(float),
                 "volume": h["volume"].astype(float),
-                "name":   [name]   * len(h),
-                "sector": [sector] * len(h),
+                "name":   [name]       * len(h),
+                "sector": [sector_jp]  * len(h),   # ★ 日本語の33業種名のみを書き出す
             })
             return df_row
 
@@ -152,7 +177,7 @@ class Command(BaseCommand):
               .drop_duplicates()
         )
 
-        # 6列固定で保存
+        # 6列固定で保存（sector は必ず日本語名）
         df.to_csv(out_csv, index=False, encoding="utf-8", lineterminator="\n")
         self.stdout.write(self.style.SUCCESS(
             f"[SNAPSHOT] codes={df['code'].nunique()} rows={len(df)} -> {out_csv}"
