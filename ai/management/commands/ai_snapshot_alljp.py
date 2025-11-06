@@ -5,15 +5,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import datetime as dt
 import time
+import re
 import requests
 from lxml import html
 import yfinance as yf
+import xlrd  # ← 1.2.0 を直接使用（.xls 用）
 
-# JPX 公式の「東証上場銘柄一覧」ページ（毎月更新）
 JPX_LIST_PAGE = "https://www.jpx.co.jp/markets/statistics-equities/misc/01.html"
 
 def find_jpx_xls_url():
-    """JPXページから最新の .xls リンクを1つ取得"""
+    """JPXページから最新の .xls リンクを取得"""
     r = requests.get(JPX_LIST_PAGE, timeout=30)
     r.raise_for_status()
     doc = html.fromstring(r.content)
@@ -23,7 +24,7 @@ def find_jpx_xls_url():
     raise CommandError("JPXの.xlsリンクが見つかりませんでした。")
 
 def download_xls(url: str, dst: Path):
-    """xls を保存（再利用できるよう media 配下に置く）"""
+    """xls を保存"""
     dst.parent.mkdir(parents=True, exist_ok=True)
     with requests.get(url, timeout=60, stream=True) as r:
         r.raise_for_status()
@@ -33,36 +34,73 @@ def download_xls(url: str, dst: Path):
                     f.write(chunk)
     return dst
 
+def _norm(s):
+    return str(s).strip().lower().replace("　", "").replace(" ", "")
+
 def read_jpx_list(xls_path: Path):
-    """JPX xls から 個別株のみ抽出し code/name/sector を返す"""
-    # xls 読み取りには xlrd==1.2.0 が必要
-    df = pd.read_excel(xls_path, engine="xlrd")
+    """
+    xlrd 1.2.0 で .xls を直接読む。
+    個別株のみ抽出し DataFrame[code,name,sector] を返す。
+    """
+    book = xlrd.open_workbook(xls_path)
+    sh = book.sheet_by_index(0)
 
-    def norm(s):  # 列名のゆらぎ吸収
-        return str(s).strip().lower().replace("　", "").replace(" ", "")
+    # 1行目（ヘッダ）を正規化
+    headers = [sh.cell_value(0, c) for c in range(sh.ncols)]
+    norm = [_norm(h) for h in headers]
+    name_map = dict(zip(norm, headers))
 
-    cols = {norm(c): c for c in df.columns}
-    code_col   = next((cols[k] for k in cols if "コード" in cols[k] or "銘柄コード" in cols[k]), None)
-    name_col   = next((cols[k] for k in cols if "銘柄名" in cols[k]), None)
-    market_col = next((cols[k] for k in cols if "市場" in cols[k] or "市場・商品区分" in cols[k]), None)
-    sector_col = next((cols[k] for k in cols if "33業種" in cols[k] or "業種分類" in cols[k] or cols[k]=="業種"), None)
-    if not (code_col and name_col and market_col):
-        raise CommandError(f"JPX列解析に失敗: {df.columns.tolist()}")
+    # 欲しい列名をゆるく同定
+    def find_col(keys):
+        for i, h in enumerate(headers):
+            hh = str(h)
+            if any(k in hh for k in keys):
+                return i
+        # 予備：正規化版から逆引き
+        for i, nh in enumerate(norm):
+            if any(k in nh for k in keys):
+                return i
+        return None
 
-    # ETF/ETN/REIT/投信/インフラなど非・個別株を除外
-    mask_eq = ~df[market_col].astype(str).str.contains("ETF|ETN|REIT|投資信託|インフラ|出資", regex=True)
-    eq = df[mask_eq].copy()
+    col_code   = find_col(["コード", "銘柄コード", "code"])
+    col_name   = find_col(["銘柄名", "名称", "name"])
+    col_market = find_col(["市場", "市場・商品区分", "market"])
+    col_sector = find_col(["33業種", "業種分類", "業種", "sector"])
 
-    # 4桁コード抽出
-    eq["code"] = eq[code_col].astype(str).str.extract(r"(\d{4})")[0]
-    eq = eq.dropna(subset=["code"]).drop_duplicates(subset=["code"])
-    eq["name"] = eq[name_col].astype(str).str.strip()
-    eq["sector"] = eq[sector_col].astype(str).str.strip() if sector_col in eq.columns else ""
+    if col_code is None or col_name is None or col_market is None:
+        raise CommandError(f"JPX列解析に失敗: {headers}")
 
-    return eq[["code", "name", "sector"]]
+    rows = []
+    code_re = re.compile(r"(\d{4})")
+    # 2行目以降がデータ
+    for r in range(1, sh.nrows):
+        code_raw = str(sh.cell_value(r, col_code))
+        m = code_re.search(code_raw)
+        if not m:
+            continue
+        code = m.group(1)
+
+        name = str(sh.cell_value(r, col_name)).strip()
+        market = str(sh.cell_value(r, col_market))
+
+        # ETF/ETN/REIT/投信/インフラ 等は除外
+        if re.search(r"ETF|ETN|REIT|投資信託|インフラ|出資", market):
+            continue
+
+        sector = ""
+        if col_sector is not None:
+            sector = str(sh.cell_value(r, col_sector)).strip()
+
+        rows.append({"code": code, "name": name, "sector": sector})
+
+    if not rows:
+        raise CommandError("JPX .xls の解析結果が空です。")
+
+    df = pd.DataFrame(rows, columns=["code", "name", "sector"]).drop_duplicates(subset=["code"])
+    return df
 
 def fetch_history(code: str, start: dt.datetime, end: dt.datetime, retries=3, pause=2.0):
-    """yfinance で日足取得（レート制限想定のリトライ＆バックオフ）"""
+    """yfinance で日足取得（リトライ＋バックオフ）"""
     sym = f"{code}.T"
     for i in range(retries + 1):
         try:
@@ -74,18 +112,18 @@ def fetch_history(code: str, start: dt.datetime, end: dt.datetime, retries=3, pa
                 return df[["date", "close", "volume"]]
         except Exception:
             pass
-        time.sleep(pause * (2 ** i))  # 2,4,8...秒
+        time.sleep(pause * (2 ** i))  # 2,4,8...
     return None
 
 class Command(BaseCommand):
-    help = "JPX公式Excelから code/name/sector を取り、yfinanceでOHLCVを生成（CSV: code,date,close,volume,name,sector）"
+    help = "JPX公式Excel→code/name/sector→yfinanceでOHLCV生成（CSV: code,date,close,volume,name,sector）"
 
     def add_arguments(self, p):
         p.add_argument("--asof", default=None)
-        p.add_argument("--days", type=int, default=400)      # 履歴日数（営業日換算で約1年強）
-        p.add_argument("--limit", type=int, default=None)    # テスト用件数（100→300→全件）
-        p.add_argument("--workers", type=int, default=3)     # 429回避のため控えめデフォルト
-        p.add_argument("--min", dest="min_code", type=int, default=None)  # コード帯で絞り込む（任意）
+        p.add_argument("--days", type=int, default=400)
+        p.add_argument("--limit", type=int, default=None)    # テスト用（100→300→全件）
+        p.add_argument("--workers", type=int, default=3)     # 429回避のため控えめ
+        p.add_argument("--min", dest="min_code", type=int, default=None)  # 任意：コード帯
         p.add_argument("--max", dest="max_code", type=int, default=None)
 
     def handle(self, *args, **o):
@@ -96,17 +134,17 @@ class Command(BaseCommand):
         out_dir.mkdir(parents=True, exist_ok=True)
         out_csv = out_dir / "ohlcv.csv"
 
-        # 1) JPX Excel ダウンロード
+        # 1) JPX Excel 取得
         self.stdout.write("[JPX] 最新Excelリンクを探索…")
         xls_url = find_jpx_xls_url()
         self.stdout.write(f"[JPX] {xls_url}")
         tmp_xls = out_dir / "_jpx_list.xls"
         download_xls(xls_url, tmp_xls)
 
-        # 2) 個別株 master を作成（code/name/sector）
+        # 2) 個別株 master 作成
         eq = read_jpx_list(tmp_xls)
 
-        # 任意：コード帯で絞る（ETF帯を避けたい等）
+        # 任意：コード帯で絞る
         if o["min_code"] is not None or o["max_code"] is not None:
             lo = o["min_code"] if o["min_code"] is not None else 0
             hi = o["max_code"] if o["max_code"] is not None else 9999
@@ -119,7 +157,7 @@ class Command(BaseCommand):
         meta = {r.code: (r.name, r.sector) for r in eq.itertuples(index=False)}
         self.stdout.write(f"[JPX] 個別株（取得対象）: {len(codes)}")
 
-        # 3) 価格取得（低並列・バックオフ）
+        # 3) 価格取得（低並列）
         rows = []
         def task(code):
             df = fetch_history(code, start, end)
@@ -140,7 +178,7 @@ class Command(BaseCommand):
                     rows.append(res)
 
         if not rows:
-            raise CommandError("取得できた履歴が0件でした。（レート制限の可能性。--workers を下げる/--limit を使う）")
+            raise CommandError("取得できた履歴が0件でした。（429の可能性。--workers を下げる/--limit を使う）")
 
         out = pd.concat(rows, ignore_index=True)
         out = out[["code", "date", "close", "volume", "name", "sector"]]
