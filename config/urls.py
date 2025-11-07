@@ -6,7 +6,7 @@ from django.views.generic import TemplateView
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("", include("portfolio.urls")),
-    path('ai/', include('ai.urls')),
+    path("aiapp/", include("aiapp.urls")),
 
     # PWA: manifest / service worker をルート直下にぶら下げる
     path(

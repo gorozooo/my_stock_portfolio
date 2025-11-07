@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}AIパイロット｜10銘柄{% endblock %}
+
+{% block head %}
+<style>
+  .ai-wrap{max-width:720px;margin:0 auto;padding:12px 12px 88px}
+  .ai-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.06);
+           border-radius:14px;padding:12px}
+  .ai-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .ai-sm{font-size:12px;opacity:.8}
+  .ai-btn{padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.08);
+          border:1px solid rgba(255,255,255,.14);display:inline-block;text-decoration:none}
+  .ai-chip{padding:6px 10px;border-radius:12px;background:rgba(255,255,255,.08);
+           border:1px solid rgba(255,255,255,.14);display:inline-block}
+  .ai-gap{height:12px}
+  .ai-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .ai-ul{margin:6px 0 0 18px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="ai-wrap">
+
+  <div class="ai-card">
+    <div class="ai-row">
+      <div>
+        <div class="ai-sm">最終更新</div>
+        <div style="font-size:16px;font-weight:600">
+          {{ last_updated|date:"Y/m/d(D) H:i" }}（{{ mode }}）
+        </div>
+      </div>
+      <a class="ai-btn" href="{% url 'aiapp:toggle' %}">LIVE/DEMO</a>
+    </div>
+  </div>
+
+  <div class="ai-gap"></div>
+
+  {% for it in items %}
+    <div class="ai-card" style="margin-bottom:10px">
+      <div style="font-weight:700">
+        {{ it.name }}（{{ it.code }}）
+        <span class="ai-sm">[{{ it.sector }}]</span>
+      </div>
+      <div class="ai-sm">得点 {{ it.score }} / ⭐️{{ it.stars }} / RCP {{ it.rcp }}%</div>
+
+      <div style="height:6px"></div>
+
+      <div>
+        Entry <b>{{ it.entry|floatformat:0 }}</b>
+        / TP <b>{{ it.tp|floatformat:0 }}</b>
+        / SL <b>{{ it.sl|floatformat:0 }}</b>
+      </div>
+      <div class="ai-sm">
+        数量 {{ it.qty }} / 必要資金 {{ it.funds|floatformat:0 }}
+        / 想定 +{{ it.pl_gain|floatformat:0 }} / -{{ it.pl_loss|floatformat:0 }}
+      </div>
+
+      <div style="height:6px"></div>
+
+      <div class="ai-sm">理由</div>
+      <ul class="ai-ul">
+        {% for r in it.reasons %}
+          <li class="ai-sm">{{ r }}</li>
+        {% endfor %}
+      </ul>
+      <div class="ai-sm" style="margin-top:6px">懸念：{{ it.concern }}</div>
+
+      <div class="ai-actions">
+        <a class="ai-btn" href="#">ウォッチ</a>
+        <a class="ai-btn" href="#">▶ リプレイ</a>
+        <a class="ai-btn" href="#">攻めで行く</a>
+        <a class="ai-btn" href="#">守りで行く</a>
+      </div>
+    </div>
+  {% endfor %}
+
+</div>
+{% endblock %}

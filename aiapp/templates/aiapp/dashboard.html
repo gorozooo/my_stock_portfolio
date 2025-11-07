@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}AIパイロット｜ホーム{% endblock %}
+
+{% block head %}
+<style>
+  /* 最低限のローカルスタイル（base.htmlに影響しないスコープ） */
+  .ai-wrap{max-width:720px;margin:0 auto;padding:12px 12px 88px}
+  .ai-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.06);
+           border-radius:14px;padding:12px}
+  .ai-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .ai-sm{font-size:12px;opacity:.8}
+  .ai-btn{padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.08);
+          border:1px solid rgba(255,255,255,.14);display:inline-block;text-decoration:none}
+  .ai-chip{padding:6px 10px;border-radius:12px;background:rgba(255,255,255,.08);
+           border:1px solid rgba(255,255,255,.14);display:inline-block}
+  .ai-gap{height:12px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="ai-wrap">
+
+  <div class="ai-card">
+    <div class="ai-row">
+      <div>
+        <div class="ai-sm">最終更新</div>
+        <div style="font-size:16px;font-weight:600">
+          {{ last_updated|date:"Y/m/d(D) H:i" }}
+        </div>
+      </div>
+      <div>
+        <a class="ai-btn" href="{% url 'aiapp:toggle' %}">
+          {{ mode }} ▽
+        </a>
+      </div>
+    </div>
+
+    <div class="ai-gap"></div>
+
+    <div class="ai-sm">レジーム</div>
+    <div style="font-size:14px;margin-top:4px">
+      追随 {{ regime.trend }}｜逆張り {{ regime.meanrev }}｜防御 {{ regime.defense }}
+    </div>
+
+    <div class="ai-gap"></div>
+
+    <div class="ai-sm">テーマ露出</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+      {% for name, pct in themes %}
+        <span class="ai-chip">{{ name }} {{ pct }}%</span>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="ai-gap"></div>
+
+  <div class="ai-card">
+    <div class="ai-row">
+      <div style="font-weight:600">本日の10銘柄（最新）</div>
+      <a class="ai-btn" href="{% url 'aiapp:picks' %}">一覧を見る</a>
+    </div>
+    <div class="ai-sm" style="margin-top:6px">
+      まずはダミー表示。次ステップで実データ化します。
+    </div>
+  </div>
+
+</div>
+{% endblock %}
