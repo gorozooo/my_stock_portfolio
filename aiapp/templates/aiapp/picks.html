@@ -1,79 +1,139 @@
 {% extends "base.html" %}
 {% load static %}
-{% block title %}AIパイロット｜10銘柄{% endblock %}
+{% load humanize %}
+
+{% block title %}AI Picks{% endblock %}
 
 {% block head %}
 <style>
-  .ai-wrap{max-width:720px;margin:0 auto;padding:12px 12px 88px}
-  .ai-card{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.06);
-           border-radius:14px;padding:12px}
-  .ai-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
-  .ai-sm{font-size:12px;opacity:.8}
-  .ai-btn{padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.08);
-          border:1px solid rgba(255,255,255,.14);display:inline-block;text-decoration:none}
-  .ai-chip{padding:6px 10px;border-radius:12px;background:rgba(255,255,255,.08);
-           border:1px solid rgba(255,255,255,.14);display:inline-block}
-  .ai-gap{height:12px}
-  .ai-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-  .ai-ul{margin:6px 0 0 18px}
+  :root{
+    --bg:#0b0f1a; --card:rgba(255,255,255,0.06); --sub:#94a3b8; --fg:#eaf0ff;
+    --accent:#2563eb; --ok:#16a34a; --warn:#f59e0b; --bad:#ef4444; --muted:#334155;
+  }
+  body{background:var(--bg);color:var(--fg)}
+  .wrap{max-width:720px;margin:0 auto;padding:10px 12px 80px}
+  .head{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.05);
+    border-radius:16px;margin:6px 0 12px 0;backdrop-filter:blur(10px);
+  }
+  .head .ts{font-size:14px;color:#bac5d6}
+  .head .btn{
+    padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.07);color:#eaf0ff;text-decoration:none
+  }
+  .grid{display:grid;gap:10px}
+  .card{
+    border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.05);
+    border-radius:16px;padding:14px;backdrop-filter:blur(10px)
+  }
+  .ttl{display:flex;gap:8px;align-items:center;justify-content:space-between}
+  .ttl h3{font-size:16px;margin:0;line-height:1.3}
+  .ttl .sub{font-size:12px;color:#9fb1c7}
+  .stars{font-size:14px;letter-spacing:1px}
+  .kpi{display:grid;gap:8px;margin-top:10px;
+    grid-template-columns:repeat(2,minmax(0,1fr))}
+  .kpi .it{border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:8px}
+  .kpi .lb{font-size:12px;color:#9fb1c7}
+  .kpi .vl{font-size:16px}
+  .kpi .pos{color:var(--ok)} .kpi .neg{color:var(--bad)}
+  .reasons{margin:10px 0 0 0;padding-left:16px}
+  .reasons li{margin:2px 0}
+  .btns{display:flex;gap:8px;margin-top:12px}
+  .btns a{
+    flex:1;text-align:center;text-decoration:none;color:#eaf0ff;
+    border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 8px;background:rgba(255,255,255,.07)
+  }
+  .empty{
+    margin-top:16px;padding:16px;border:1px dashed rgba(255,255,255,.15);border-radius:12px;color:#c7d2e0
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="ai-wrap">
+<div class="wrap">
 
-  <div class="ai-card">
-    <div class="ai-row">
-      <div>
-        <div class="ai-sm">最終更新</div>
-        <div style="font-size:16px;font-weight:600">
-          {{ last_updated|date:"Y/m/d(D) H:i" }}（{{ mode }}）
-        </div>
-      </div>
-      <a class="ai-btn" href="{% url 'aiapp:toggle' %}">LIVE/DEMO</a>
+  <div class="head">
+    <div>
+      <div class="ts">最終更新</div>
+      <div style="font-weight:600">{{ updated_label }}（{{ mode_label }}）</div>
+    </div>
+    <div>
+      {% if is_demo %}
+        <a class="btn" href="?mode=live&reset=1">LIVE/DEMO</a>
+      {% else %}
+        <a class="btn" href="?mode=demo&reset=1">LIVE/DEMO</a>
+      {% endif %}
     </div>
   </div>
 
-  <div class="ai-gap"></div>
+  {% if items and items|length > 0 %}
+    <div class="grid">
+      {% for item in items %}
+        <div class="card">
+          <div class="ttl">
+            <div>
+              <h3>{{ item.name_norm|default:item.name }}</h3>
+              <div class="sub">{{ item.code }}</div>
+            </div>
+            <div class="stars">
+              {% for _ in ""|center:item.stars %}⭐️{% endfor %}
+              <span class="sub">（{{ item.score }}）</span>
+            </div>
+          </div>
 
-  {% for it in items %}
-    <div class="ai-card" style="margin-bottom:10px">
-      <div style="font-weight:700">
-        {{ it.name }}（{{ it.code }}）
-        <span class="ai-sm">[{{ it.sector }}]</span>
-      </div>
-      <div class="ai-sm">得点 {{ it.score }} / ⭐️{{ it.stars }} / RCP {{ it.rcp }}%</div>
+          <div class="kpi">
+            <div class="it">
+              <div class="lb">現在値</div>
+              <div class="vl">{{ item.last_close|floatformat:1|intcomma }} 円</div>
+            </div>
+            <div class="it">
+              <div class="lb">数量（リスク{{ RISK_PCT|default:0.02|floatformat:2 }}）</div>
+              <div class="vl">{{ item.qty }} 株</div>
+            </div>
+            <div class="it">
+              <div class="lb">Entry / TP / SL</div>
+              <div class="vl">
+                {{ item.entry|floatformat:1|intcomma }} / 
+                {{ item.tp|floatformat:1|intcomma }} / 
+                {{ item.sl|floatformat:1|intcomma }} 円
+              </div>
+            </div>
+            <div class="it">
+              <div class="lb">必要資金</div>
+              <div class="vl">{{ item.required_cash|floatformat:0|intcomma }} 円</div>
+            </div>
+            <div class="it">
+              <div class="lb">想定利益</div>
+              <div class="vl pos">+{{ item.est_pl|floatformat:0|intcomma }} 円</div>
+            </div>
+            <div class="it">
+              <div class="lb">想定損失</div>
+              <div class="vl neg">-{{ item.est_loss|floatformat:0|intcomma }} 円</div>
+            </div>
+          </div>
 
-      <div style="height:6px"></div>
+          {% if item.reasons_text %}
+            <ul class="reasons">
+              {% for line in item.reasons_text %}
+                <li>{{ line }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
 
-      <div>
-        Entry <b>{{ it.entry|floatformat:0 }}</b>
-        / TP <b>{{ it.tp|floatformat:0 }}</b>
-        / SL <b>{{ it.sl|floatformat:0 }}</b>
-      </div>
-      <div class="ai-sm">
-        数量 {{ it.qty }} / 必要資金 {{ it.funds|floatformat:0 }}
-        / 想定 +{{ it.pl_gain|floatformat:0 }} / -{{ it.pl_loss|floatformat:0 }}
-      </div>
-
-      <div style="height:6px"></div>
-
-      <div class="ai-sm">理由</div>
-      <ul class="ai-ul">
-        {% for r in it.reasons %}
-          <li class="ai-sm">{{ r }}</li>
-        {% endfor %}
-      </ul>
-      <div class="ai-sm" style="margin-top:6px">懸念：{{ it.concern }}</div>
-
-      <div class="ai-actions">
-        <a class="ai-btn" href="#">ウォッチ</a>
-        <a class="ai-btn" href="#">▶ リプレイ</a>
-        <a class="ai-btn" href="#">攻めで行く</a>
-        <a class="ai-btn" href="#">守りで行く</a>
-      </div>
+          <div class="btns">
+            <a href="#">ウォッチ</a>
+            <a href="#">シミュレ</a>
+            <a href="#">今すぐで</a>
+          </div>
+        </div>
+      {% endfor %}
     </div>
-  {% endfor %}
+  {% else %}
+    <div class="empty">
+      候補が0件です。条件が厳しすぎる可能性があります。右上のLIVE/DEMO切替や、style/horizonを変更してください。
+    </div>
+  {% endif %}
 
 </div>
 {% endblock %}
