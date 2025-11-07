@@ -25,7 +25,6 @@ aiapp.models.features
 pandas 2.3+ に準拠し、fillna(method="ffill") は使用せず .ffill() / .bfill() を用いる。
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional, Tuple
