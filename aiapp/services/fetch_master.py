@@ -71,21 +71,43 @@ def _find_excel_url_from_page(page_url: str) -> str | None:
 
 def _read_excel_bytes(binary: bytes) -> pd.DataFrame:
     """
-    バイナリから DataFrame を読む。.xlsx と .xls を自動判定。
-    HTMLが来た場合は例外。
+    バイナリから DataFrame を読む。.xlsx/.xls 自動判定。
+    xlrd は使わず、一時ファイル経由で openpyxl が開ける形に変換する。
     """
     if _looks_html(binary):
         raise RuntimeError("Got HTML instead of Excel (login/redirect?)")
-    bio = io.BytesIO(binary)
+
+    # まず .xlsx/.xls 判定
     if _is_xlsx(binary):
-        # xlsx → openpyxl
-        return pd.read_excel(bio, engine="openpyxl")
+        return pd.read_excel(io.BytesIO(binary), engine="openpyxl")
+
     if _is_xls(binary):
-        # xls → xlrd 1.2.0
-        return pd.read_excel(bio, engine="xlrd")
-    # Content-Type に頼らず、拡張子不明なExcelでも大体この2判定で拾える
-    # それでも不明なら openpyxl で試行（失敗したら上位で例外処理）
-    return pd.read_excel(bio, engine="openpyxl")
+        import tempfile
+        import subprocess, os
+        from pathlib import Path
+        tmp_in = Path(tempfile.mkstemp(suffix=".xls")[1])
+        tmp_out = tmp_in.with_suffix(".xlsx")
+        tmp_in.write_bytes(binary)
+        try:
+            # libreoffice / unoconv などを使って変換（Linux標準）
+            subprocess.run(
+                ["libreoffice", "--headless", "--convert-to", "xlsx", str(tmp_in), "--outdir", str(tmp_in.parent)],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            df = pd.read_excel(tmp_out, engine="openpyxl")
+        except Exception as e:
+            raise RuntimeError(f"xls→xlsx変換に失敗: {e}")
+        finally:
+            for p in (tmp_in, tmp_out):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+        return df
+
+    # どちらでもなければ、openpyxlで強制読込
+    return pd.read_excel(io.BytesIO(binary), engine="openpyxl")
+
 
 def _pick_col(cols, *keys):
     low = {str(c).lower(): c for c in cols}
