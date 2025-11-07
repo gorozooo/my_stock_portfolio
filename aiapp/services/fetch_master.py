@@ -1,12 +1,17 @@
 """
 aiapp.services.fetch_master
 JPX公式ページから最新の「東証上場銘柄一覧（Excel）」を自動取得し、
-銘柄コード・銘柄名・33業種を正規化してCSV保存＆DBへ反映します。
+全シート（内国株/グロース/ETF/ETN/REIT/外国株 等）をマージして
+code/name/sector33 に正規化→CSV保存→DBへ反映します。
 
-ロック対策:
-- SQLite を想定し、upsert前に PRAGMA journal_mode=WAL / busy_timeout を設定
-- update_or_create のループを避け、bulk_create(ignore_conflicts)＋bulk_update に分離
-- 1つの transaction.atomic() で実行し、ロック時間を最小化
+・.xlsx / .xls 両対応（.xls は libreoffice で一時変換→openpyxlで読む）
+・SQLite ロック対策：WAL + busy_timeout、bulk_create/bulk_update で高速upsert
+・settingsで URL 直指定や保存先変更可能
+
+依存:
+    pip install requests pandas openpyxl
+    # .xls対応（サーバにlibreofficeが必要）
+    sudo apt update && sudo apt install -y libreoffice
 """
 
 from __future__ import annotations
@@ -14,7 +19,7 @@ import os
 import re
 import io
 import datetime as dt
-from typing import Iterable, Dict
+from typing import Dict, List
 
 import pandas as pd
 import requests
@@ -43,21 +48,16 @@ def _absolute_url(page_url: str, href: str) -> str:
     return urljoin(page_url, href)
 
 def _is_xlsx(data: bytes) -> bool:
-    # ZIP シグネチャ "PK\x03\x04"
-    return data[:4] == b"PK\x03\x04"
+    return data[:4] == b"PK\x03\x04"  # ZIP
 
 def _is_xls(data: bytes) -> bool:
-    # OLE2 シグネチャ D0 CF 11 E0 A1 B1 1A E1
-    return data[:8] == b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"
+    return data[:8] == b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"  # OLE2
 
 def _looks_html(data: bytes) -> bool:
     head = data[:200].lower()
     return (b"<html" in head) or (b"<!doctype html" in head)
 
 def _find_excel_url_from_page(page_url: str) -> str | None:
-    """
-    JPXの一覧ページから .xlsx を優先、無ければ .xls のリンクを検出。
-    """
     resp = requests.get(page_url, timeout=30)
     resp.raise_for_status()
     html = resp.text
@@ -68,38 +68,53 @@ def _find_excel_url_from_page(page_url: str) -> str | None:
         return None
     return _absolute_url(page_url, m.group(1))
 
-def _read_excel_bytes(binary: bytes) -> pd.DataFrame:
+def _to_xlsx_bytes_from_xls(binary: bytes) -> bytes:
     """
-    バイナリから DataFrame を読む。.xlsx/.xls 自動判定。
-    xlrd は使わず、.xls は libreoffice で一時変換して openpyxl で読む。
+    .xlsバイナリ → 一時ファイルで libreoffice 変換 → .xlsx バイナリを返す
+    """
+    import tempfile, subprocess
+    from pathlib import Path
+    tmp_in = Path(tempfile.mkstemp(suffix=".xls")[1])
+    tmp_out = tmp_in.with_suffix(".xlsx")
+    tmp_in.write_bytes(binary)
+    try:
+        subprocess.run(
+            ["libreoffice", "--headless", "--convert-to", "xlsx", str(tmp_in), "--outdir", str(tmp_in.parent)],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        data = tmp_out.read_bytes()
+        return data
+    finally:
+        for p in (tmp_in, tmp_out):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+def _read_all_sheets(binary: bytes) -> List[pd.DataFrame]:
+    """
+    Excelバイナリから全シートを読み、DataFrameのリストで返す。
+    列名の判定は後段の正規化で行う。
     """
     if _looks_html(binary):
         raise RuntimeError("Got HTML instead of Excel (login/redirect?)")
 
-    if _is_xlsx(binary):
-        return pd.read_excel(io.BytesIO(binary), engine="openpyxl")
-
+    # .xls → .xlsx に変換してから openpyxl で読む
     if _is_xls(binary):
-        import tempfile, subprocess
-        from pathlib import Path
-        tmp_in = Path(tempfile.mkstemp(suffix=".xls")[1])
-        tmp_out = tmp_in.with_suffix(".xlsx")
-        tmp_in.write_bytes(binary)
-        try:
-            subprocess.run(
-                ["libreoffice", "--headless", "--convert-to", "xlsx", str(tmp_in), "--outdir", str(tmp_in.parent)],
-                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-            return pd.read_excel(tmp_out, engine="openpyxl")
-        finally:
-            for p in (tmp_in, tmp_out):
-                try:
-                    os.remove(p)
-                except OSError:
-                    pass
+        binary = _to_xlsx_bytes_from_xls(binary)
 
-    # 不明: openpyxlでトライ
-    return pd.read_excel(io.BytesIO(binary), engine="openpyxl")
+    # xlsx扱いで全シート取得
+    with pd.ExcelFile(io.BytesIO(binary), engine="openpyxl") as xf:
+        dfs = []
+        for sheet in xf.sheet_names:
+            try:
+                df = xf.parse(sheet)
+                if not df.empty:
+                    dfs.append(df)
+            except Exception:
+                # シートによっては非表形式の注意書き等が混ざるのでスキップ
+                continue
+    return dfs
 
 def _pick_col(cols, *keys):
     low = {str(c).lower(): c for c in cols}
@@ -110,20 +125,24 @@ def _pick_col(cols, *keys):
                 return orig
     return None
 
-def _normalize(df: pd.DataFrame) -> pd.DataFrame:
+def _normalize_one(df: pd.DataFrame) -> pd.DataFrame | None:
     """
-    列名の揺れを許容して code/name/sector33 を抽出・正規化。
+    1シートを code/name/sector33 に正規化（列が見つからない場合は None を返す）。
     """
+    if df is None or df.empty:
+        return None
+
     code_col = _pick_col(df.columns, "code", "コード", "証券コード")
     name_col = _pick_col(df.columns, "name", "銘柄")
     sect_col = _pick_col(df.columns, "33", "sector", "業種")
+
     if not all([code_col, name_col, sect_col]):
-        raise ValueError(f"master columns not found: {list(df.columns)}")
+        return None  # このシートはスキップ
 
     out = df[[code_col, name_col, sect_col]].copy()
     out.columns = ["code", "name", "sector33"]
 
-    # 証券コード（4〜5桁）抽出。空白・注記の混入に強く
+    # 証券コード（4〜5桁）抽出。ETF/REIT/外国株でも多くは4桁。
     out["code"] = out["code"].astype(str).str.strip().str.extract(r"(\d{4,5})")[0]
     out["name"] = out["name"].astype(str).str.strip()
     out["sector33"] = out["sector33"].astype(str).str.strip()
@@ -131,6 +150,18 @@ def _normalize(df: pd.DataFrame) -> pd.DataFrame:
     out = out.dropna(subset=["code", "name"])
     out = out.drop_duplicates(subset=["code"])
     return out
+
+def _normalize_all(dfs: List[pd.DataFrame]) -> pd.DataFrame:
+    keep: List[pd.DataFrame] = []
+    for df in dfs:
+        norm = _normalize_one(df)
+        if norm is not None and not norm.empty:
+            keep.append(norm)
+    if not keep:
+        raise ValueError("No valid sheets: could not find code/name/sector33 in any sheet")
+    merged = pd.concat(keep, axis=0, ignore_index=True)
+    merged = merged.drop_duplicates(subset=["code"]).reset_index(drop=True)
+    return merged
 
 def _save_csv(df: pd.DataFrame) -> str:
     out_dir = os.path.join(DEFAULT_MEDIA, MASTER_DIR)
@@ -146,24 +177,23 @@ def _upsert_db(df: pd.DataFrame) -> int:
     SQLiteロックを避けるための効率的なupsert:
       1) 既存コードを一括取得
       2) 新規は bulk_create(ignore_conflicts=True, batch_size=500)
-      3) 既存は一度に取得して値を更新 → bulk_update(batch_size=500)
-    さらに、WALモード＋busy_timeout を設定し、transaction.atomic で1回にまとめる。
+      3) 既存はまとめて読み直し→値更新→ bulk_update(batch_size=500)
+    さらに、WALモード＋busy_timeout を設定、transaction.atomic で1回にまとめる。
     """
-    # PRAGMA：WAL & busy_timeout
     with connection.cursor() as cur:
         try:
             cur.execute("PRAGMA journal_mode=WAL;")
         except Exception:
             pass
         try:
-            cur.execute("PRAGMA busy_timeout=5000;")  # 5秒待つ
+            cur.execute("PRAGMA busy_timeout=5000;")
         except Exception:
             pass
 
     codes = df["code"].tolist()
 
+    from typing import Dict
     with transaction.atomic():
-        # 既存コード一覧
         existing_codes = set(
             StockMaster.objects.filter(code__in=codes).values_list("code", flat=True)
         )
@@ -182,7 +212,6 @@ def _upsert_db(df: pd.DataFrame) -> int:
         # 既存更新
         upd_rows = df[df["code"].isin(existing_codes)]
         if not upd_rows.empty:
-            # 既存インスタンスを辞書化して高速更新
             inst_map: Dict[str, StockMaster] = {
                 obj.code: obj for obj in StockMaster.objects.filter(code__in=upd_rows["code"].tolist())
             }
@@ -199,41 +228,50 @@ def _upsert_db(df: pd.DataFrame) -> int:
 # ---- public ------------------------------------------------------------------
 def refresh_master(source_url: str | None = None) -> int:
     """
-    最新Excelを自動DL→正規化→CSV保存→DB反映。
+    最新Excelを自動DL→全シートをマージ→正規化→CSV保存→DB反映。
     優先順位: 引数source_url > settings.AIAPP_MASTER_URL > settings.AIAPP_MASTER_PAGEスクレイプ
     戻り値: 新規insert件数
     """
     url_or_path = source_url or MASTER_URL_OVERRIDE
 
+    # 1) 直指定（URL/ローカル） or 2) 一覧ページスクレイプ
     if url_or_path:
-        # 直指定（URL or ローカル）
         if url_or_path.startswith("http"):
             resp = requests.get(url_or_path, timeout=30)
             resp.raise_for_status()
-            df_raw = _read_excel_bytes(resp.content)
+            binary = resp.content
         else:
             ext = os.path.splitext(url_or_path)[1].lower()
             if ext in (".xls", ".xlsx"):
-                with open(url_or_path, "rb") as f:
-                    df_raw = _read_excel_bytes(f.read())
+                binary = open(url_or_path, "rb").read()
             else:
+                # CSVを指定された場合は、そのまま正規化に回す
                 for enc in ("utf-8", "cp932", "shift_jis", "utf-8-sig"):
                     try:
-                        df_raw = pd.read_csv(url_or_path, encoding=enc)
+                        df = pd.read_csv(url_or_path, encoding=enc)
                         break
                     except Exception:
                         continue
                 else:
                     raise RuntimeError(f"CSV read failed: {url_or_path}")
+                merged = df.rename(columns={df.columns[0]:"code", df.columns[1]:"name", df.columns[2]:"sector33"})
+                merged["code"] = merged["code"].astype(str).str.extract(r"(\d{4,5})")[0]
+                merged = merged.dropna(subset=["code","name"]).drop_duplicates(subset=["code"])
+                _save_csv(merged)
+                return _upsert_db(merged)
     else:
         excel_url = _find_excel_url_from_page(MASTER_PAGE)
         if not excel_url:
             raise RuntimeError("Could not find JPX master excel link on page")
         resp = requests.get(excel_url, timeout=30)
         resp.raise_for_status()
-        df_raw = _read_excel_bytes(resp.content)
+        binary = resp.content
 
-    df = _normalize(df_raw)
-    _save_csv(df)
-    n_new = _upsert_db(df)
+    # Excel全シートを読み→正規化・マージ
+    dfs = _read_all_sheets(binary)
+    merged = _normalize_all(dfs)
+
+    # 保存＆DB反映
+    _save_csv(merged)
+    n_new = _upsert_db(merged)
     return n_new
