@@ -248,9 +248,13 @@ def macd_series(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 
     return pd.DataFrame({"macd": m, "signal": s, "hist": h})
 
 
+# 後方互換（旧コードの import 名に対応）
+compute_features = make_features
+
 __all__ = [
     "FeatureConfig",
     "make_features",
+    "compute_features",  # 旧名も公開
     "vwap_series",
     "rsi_series",
     "macd_series",
