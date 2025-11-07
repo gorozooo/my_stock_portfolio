@@ -5,8 +5,9 @@
 
 {% block head %}
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=22">
+  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=23">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <!-- ai/home.html v23 (server-only sectors) -->
 {% endblock %}
 
 {% block content %}
@@ -42,13 +43,9 @@
         </div>
       </div>
 
-      <!-- セクター（最終的に日本語名を表示。空/数値なら後段JSで補正） -->
       <div class="row sub">
-        <span class="sector"
-              data-code="{{ it.code|default:'' }}"
-              data-sector="{{ it.sector|default_if_none:'' }}">
-          {{ it.sector|default:"-" }}
-        </span>
+        <!-- ★サーバーで日本語化済み。JS補正は廃止 -->
+        <span class="sector">{{ it.sector|default:"-" }}</span>
       </div>
 
       <div class="row trends">
@@ -62,7 +59,6 @@
     {% endfor %}
   </main>
 
-  <!-- モーダル -->
   <div id="aiModal" class="modal hidden" aria-hidden="true" role="dialog">
     <div class="modal-sheet" role="document" aria-modal="true">
       <button class="close" data-close>閉じる</button>
@@ -109,114 +105,16 @@
 </div>
 
 <script>
-  // サーバから渡された生データ（dictの配列）
   window.__AI_ITEMS__ = {{ items|safe }};
-</script>
-
-<script>
-/* ========= セクター名 前段補正（CSV厳密パース版） ========= */
-(function() {
-  const SECT33 = {
-    50:'水産・農林業',51:'鉱業',52:'建設業',53:'食料品',54:'繊維製品',55:'パルプ・紙',
-    56:'化学',57:'医薬品',58:'石油・石炭製品',59:'ゴム製品',60:'ガラス・土石製品',
-    61:'鉄鋼',62:'非鉄金属',63:'金属製品',64:'機械',65:'電気機器',66:'輸送用機器',
-    67:'精密機器',68:'その他製品',69:'電気・ガス業',70:'陸運業',71:'海運業',72:'空運業',
-    73:'倉庫・運輸関連業',74:'情報・通信業',75:'卸売業',76:'小売業',77:'銀行業',
-    78:'証券、商品先物取引業',79:'保険業',80:'その他金融業',81:'不動産業',82:'サービス業',83:'その他'
-  };
-
-  const isNumLike = (s) => typeof s === 'string' && /^\s*\d+(?:\.\d+)?\s*$/.test(s);
-  const code4 = (v) => {
-    const m = String(v||'').match(/(\d{4})/);
-    return m ? m[1] : '';
-  };
-
-  // ちゃんとクォート対応して1行を分解（最小限のCSVパーサ）
-  function splitCSVLine(line) {
-    const out = [];
-    let cur = '', q = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (q && line[i+1] === '"') { cur += '"'; i++; }
-        else { q = !q; }
-      } else if (ch === ',' && !q) {
-        out.push(cur); cur = '';
-      } else {
-        cur += ch;
-      }
-    }
-    out.push(cur);
-    return out;
-  }
-
-  function parseCSVStrict(text){
-    const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
-    if (!lines.length) return {};
-    const head = splitCSVLine(lines.shift());
-    const idxCode   = head.indexOf('code');
-    const idxSector = head.indexOf('sector');
-    if (idxCode < 0 || idxSector < 0) return {};
-    const map = {};
-    for (const ln of lines){
-      const cols = splitCSVLine(ln);
-      const c4 = code4(cols[idxCode] || '');
-      if (!c4) continue;
-      let s = String(cols[idxSector] ?? '').trim();
-      // 「30,50」みたいな “カンマを含む数値2つ” を誤連結していた問題を回避
-      // → 純粋なセクターコード(50..83)なら日本語名に変換
-      if (isNumLike(s)) {
-        const n = parseInt(s, 10);
-        if (n >= 50 && n <= 83) s = SECT33[n] || s;
-      }
-      if (s) map[c4] = s;
-    }
-    return map;
-  }
-
-  function applyToCards(map){
-    const cards = document.querySelectorAll('.ai-card');
-    cards.forEach(card => {
-      const secEl = card.querySelector('.sector');
-      if (!secEl) return;
-      const raw = (secEl.textContent || '').trim();
-      const cEl = card.querySelector('.code');
-      const c4 = code4(cEl ? cEl.textContent : secEl.dataset.code);
-      // items側が空/数値/「-」ならCSVマップで補正
-      if (raw === '' || raw === '-' || isNumLike(raw)) {
-        const jp = map[c4];
-        secEl.textContent = jp ? jp : '-';
-      }
-    });
-  }
-
-  function sectorForModal(item, map){
-    const raw = (item && (item.sector || '')).toString().trim();
-    if (raw && !isNumLike(raw) && raw !== '-') return raw;
-    return map[code4(item && item.code)] || '-';
-  }
-
-  function wireModal(map){
-    document.addEventListener('click', (e)=>{
-      const btn = e.target.closest('.more');
-      if (!btn) return;
-      const idx = parseInt(btn.dataset.open, 10);
-      const item = (window.__AI_ITEMS__ || [])[idx] || {};
-      const el = document.getElementById('m_sector');
-      if (el) el.textContent = sectorForModal(item, map);
-    });
-  }
-
-  fetch('/media/jpx_master.csv', {cache:'no-store'})
-    .then(r => r.ok ? r.text() : Promise.reject(r.status))
-    .then(txt => {
-      const map = parseCSVStrict(txt);
-      applyToCards(map);
-      wireModal(map);
-      window.__aiSectorNameMap__ = map;
-    })
-    .catch(()=> wireModal({}));
-})();
+  // モーダルにもサーバー決定のセクターをそのまま出す
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.more');
+    if(!btn) return;
+    const idx = parseInt(btn.dataset.open, 10);
+    const it = (window.__AI_ITEMS__ || [])[idx] || {};
+    const el = document.getElementById('m_sector');
+    if (el) el.textContent = (it.sector || '-');
+  });
 </script>
 
 <script src="{% static 'ai/ai.js' %}?v=20"></script>
