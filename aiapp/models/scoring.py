@@ -162,7 +162,7 @@ def score_sample(
     return float(score)
 
 
-# ====== 上位N件に使うヘルパ ======
+# ====== 上位N件に使うヘルパ（詳細付き） ======
 
 def score_and_detail(
     feat: pd.DataFrame,
@@ -180,8 +180,44 @@ def score_and_detail(
     return ScoreDetail(score=s, stars=_stars(s), reasons=reasons, rules_hit=_count_rules(feat))
 
 
+# ====== 互換ラッパ（旧関数名を全部用意） ======
+# picks.py などが import する古いAPI名をそのまま生かす
+
+def score_short_aggr(feat: pd.DataFrame) -> float:
+    return score_sample(feat, mode="aggressive", horizon="short")
+
+def score_short_norm(feat: pd.DataFrame) -> float:
+    return score_sample(feat, mode="normal", horizon="short")
+
+def score_short_def(feat: pd.DataFrame) -> float:
+    return score_sample(feat, mode="defensive", horizon="short")
+
+def score_mid_aggr(feat: pd.DataFrame) -> float:
+    return score_sample(feat, mode="aggressive", horizon="mid")
+
+def score_mid_norm(feat: pd.DataFrame) -> float:
+    return score_sample(feat, mode="normal", horizon="mid")
+
+def score_mid_def(feat: pd.DataFrame) -> float:
+    return score_sample(feat, mode="defensive", horizon="mid")
+
+def score_long_aggr(feat: pd.DataFrame) -> float:
+    return score_sample(feat, mode="aggressive", horizon="long")
+
+def score_long_norm(feat: pd.DataFrame) -> float:
+    return score_sample(feat, mode="normal", horizon="long")
+
+def score_long_def(feat: pd.DataFrame) -> float:
+    return score_sample(feat, mode="defensive", horizon="long")
+
+
 __all__ = [
+    # 新API
     "score_sample",
     "score_and_detail",
     "ScoreDetail",
+    # 旧API名（互換）
+    "score_short_aggr", "score_short_norm", "score_short_def",
+    "score_mid_aggr",   "score_mid_norm",   "score_mid_def",
+    "score_long_aggr",  "score_long_norm",  "score_long_def",
 ]
