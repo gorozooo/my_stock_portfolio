@@ -1,1 +1,0 @@
-from .trend_result import TrendResult
