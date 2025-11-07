@@ -180,3 +180,8 @@ SECURE_SSL_REDIRECT = True
 import os
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+
+AIAPP_UNIVERSE_LIMIT = 200         # 一度に走査する最大銘柄数
+AIAPP_EQUITY = 3_000_000.0         # 口座資産の既定（円）
+AIAPP_LOT = 100
