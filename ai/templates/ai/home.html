@@ -5,9 +5,8 @@
 
 {% block head %}
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=23">
+  <link rel="stylesheet" href="{% static 'ai/ai.css' %}?v=22">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-  <!-- ai/home.html v23 (server-only sectors) -->
 {% endblock %}
 
 {% block content %}
@@ -44,8 +43,7 @@
       </div>
 
       <div class="row sub">
-        <!-- ★サーバーで日本語化済み。JS補正は廃止 -->
-        <span class="sector">{{ it.sector|default:"-" }}</span>
+        <span class="sector">{{ it.sector_jp|default:"-" }}</span>
       </div>
 
       <div class="row trends">
@@ -105,17 +103,59 @@
 </div>
 
 <script>
+  // サーバから渡された生データ（JSON直渡し）
   window.__AI_ITEMS__ = {{ items|safe }};
-  // モーダルにもサーバー決定のセクターをそのまま出す
-  document.addEventListener('click', (e)=>{
-    const btn = e.target.closest('.more');
-    if(!btn) return;
-    const idx = parseInt(btn.dataset.open, 10);
-    const it = (window.__AI_ITEMS__ || [])[idx] || {};
-    const el = document.getElementById('m_sector');
-    if (el) el.textContent = (it.sector || '-');
-  });
+
+  // モーダル・バインド：sector はサーバからの sector_jp をそのまま使う
+  (function(){
+    const items = window.__AI_ITEMS__ || [];
+    const modal = document.getElementById('aiModal');
+    const elName = document.getElementById('m_name');
+    const elStars = document.getElementById('m_stars');
+    const elScore = document.getElementById('m_score');
+    const elSector = document.getElementById('m_sector');
+    const elD = document.getElementById('m_trend_d');
+    const elW = document.getElementById('m_trend_w');
+    const elM = document.getElementById('m_trend_m');
+    const elPrices = document.getElementById('m_prices');
+    const elQty = document.getElementById('m_qty');
+
+    function open(i){
+      const it = items[i] || {};
+      elName.textContent = `${it.name || ''} (${it.code || ''})`;
+      elScore.textContent = `${it.score || 0}点`;
+      elStars.textContent = '⭐️'.repeat(it.stars || 0) + '☆'.repeat(Math.max(0,5-(it.stars||0)));
+      elSector.textContent = it.sector_jp || '-';
+      elD.textContent = `日足 ${it.trend?.d === 'up' ? '⤴️' : (it.trend?.d === 'down' ? '⤵️' : '➡️')}`;
+      elW.textContent = `週足 ${it.trend?.w === 'up' ? '⤴️' : (it.trend?.w === 'down' ? '⤵️' : '➡️')}`;
+      elM.textContent = `月足 ${it.trend?.m === 'up' ? '⤴️' : (it.trend?.m === 'down' ? '⤵️' : '➡️')}`;
+      if (it.prices){
+        elPrices.textContent = `エントリー目安：${it.prices.entry} ／ 利確：${it.prices.tp} ／ 損切：${it.prices.sl}`;
+      } else {
+        elPrices.textContent = '';
+      }
+      if (it.qty){
+        elQty.textContent = `提案数量：${it.qty.shares}株（必要資金 ${it.qty.capital}円、想定利益 ${it.qty.pl_plus}円、想定損失 ${it.qty.pl_minus}円、R=${it.qty.r})`;
+      } else {
+        elQty.textContent = '';
+      }
+      modal.classList.remove('hidden');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    document.addEventListener('click', (e)=>{
+      const more = e.target.closest('.more');
+      if (more){
+        const i = parseInt(more.dataset.open || '0', 10) || 0;
+        open(i);
+      }
+      if (e.target.matches('[data-close]') || e.target.classList.contains('backdrop')){
+        modal.classList.add('hidden');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+    });
+  })();
 </script>
 
-<script src="{% static 'ai/ai.js' %}?v=20"></script>
+<script src="{% static 'ai/ai.js' %}?v=21"></script>
 {% endblock %}
