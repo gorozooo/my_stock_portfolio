@@ -251,10 +251,22 @@ def macd_series(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 
 # 後方互換（旧コードの import 名に対応）
 compute_features = make_features
 
+def compute_features(df: pd.DataFrame, benchmark_df=None, cfg: Optional[FeatureConfig] = None) -> pd.DataFrame:
+    """
+    旧仕様互換ラッパー。
+    benchmark_df は現在未使用（将来的に日経平均やTOPIXとの相対指標用）。
+    """
+    try:
+        return make_features(df, cfg=cfg)
+    except Exception as e:
+        print(f"[compute_features] fallback error: {e}")
+        return make_features(df)
+
+
 __all__ = [
     "FeatureConfig",
     "make_features",
-    "compute_features",  # 旧名も公開
+    "compute_features",
     "vwap_series",
     "rsi_series",
     "macd_series",
