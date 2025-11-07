@@ -25,7 +25,6 @@ aiapp.models.features
 pandas 2.3+ に準拠し、fillna(method="ffill") は使用せず .ffill() / .bfill() を用いる。
 """
 
-
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
@@ -143,8 +142,7 @@ def _vwap(df: pd.DataFrame) -> pd.Series:
     cum_pv = pv.cumsum()
     cum_vol = df["Volume"].cumsum().replace(0, np.nan)
     vwap = (cum_pv / cum_vol)
-    # 旧: vwap.fillna(method="ffill") → 新: vwap.ffill()
-    return vwap.ffill()
+    return vwap.ffill()  # 旧: fillna(method="ffill")
 
 
 @dataclass(frozen=True)
@@ -170,7 +168,7 @@ def make_features(raw: pd.DataFrame, cfg: Optional[FeatureConfig] = None) -> pd.
     cfg = cfg or FeatureConfig()
     df = _ensure_ohlcv(raw)
 
-    # 欠損を軽く埋める（始値=終値、H/Lも埋め、出来高は0許容）※やり過ぎない
+    # 欠損を軽く埋める（始値=終値、H/Lも埋め、出来高は0許容）
     df["Close"] = df["Close"].ffill()
     df["Open"] = df["Open"].fillna(df["Close"])
     df["High"] = df["High"].fillna(df[["Open", "Close"]].max(axis=1))
@@ -211,7 +209,6 @@ def make_features(raw: pd.DataFrame, cfg: Optional[FeatureConfig] = None) -> pd.
     df["DCROSS"] = (cross == -1).astype(int)
 
     # --- 最終の軽い欠損処理 ---
-    # 価格系は前方埋め、出来高は0、インジケータは必要に応じて前方埋め
     price_cols = ["Open", "High", "Low", "Close", "VWAP", "BBU", "BBM", "BBL"]
     for c in price_cols:
         if c in df.columns:
@@ -232,7 +229,7 @@ def make_features(raw: pd.DataFrame, cfg: Optional[FeatureConfig] = None) -> pd.
     return df
 
 
-# ========= 代表的な単品API（必要に応じてviews等から直呼びできるように） =========
+# ========= 代表的な単品API =========
 
 def vwap_series(df: pd.DataFrame) -> pd.Series:
     """VWAP のみが必要なときの軽量API。"""
