@@ -3,6 +3,7 @@ from django.urls import path
 from .views.dashboard import dashboard, toggle_mode
 from .views.picks import picks
 from .views.api import picks_rebuild  # ← 新規追加
+from .views.picks import picks, picks_json
 
 app_name = "aiapp"
 
