@@ -16,4 +16,7 @@ urlpatterns = [
 
     # LIVE/DEMOボタン → 非同期再生成API
     path("api/picks/rebuild", picks_rebuild, name="picks_rebuild"),
+
+    path("picks.json", picks_json, name="picks_json"),
+    
 ]
