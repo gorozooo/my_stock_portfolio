@@ -83,7 +83,7 @@
                 {% for _ in ""|center:item.stars %}⭐️{% endfor %}
                 <span class="sub">（{{ item.score }}）</span>
               </div>
-              <div class="sub">総合得点 {{ item.score_100 }} / 100</div>
+              <div class="sub">総合得点 {{ item.score_100 }} 点</div>  {# ← 99/100 → 99点 #}
             </div>
           </div>
 
@@ -93,8 +93,8 @@
               <div class="vl">{{ item.last_close|floatformat:1|intcomma }} 円</div>
             </div>
             <div class="it">
-              <div class="lb">数量（リスク{{ risk_pct|floatformat:2 }}）</div>
-              <div class="vl">{{ item.qty }} 株</div>
+              <div class="lb">数量（{{ lot_size }}株単元・リスク{{ risk_pct|floatformat:2 }}）</div>
+              <div class="vl">{{ item.qty|intcomma }} 株</div>  {# ← 100株単元で丸め済み #}
             </div>
             <div class="it">
               <div class="lb">Entry / TP / SL</div>
@@ -112,7 +112,7 @@
               <div class="lb">想定利益</div>
               <div class="vl pos">+{{ item.est_pl|floatformat:0|intcomma }} 円</div>
             </div>
-            <div class="it">
+              <div class="it">
               <div class="lb">想定損失</div>
               <div class="vl neg">-{{ item.est_loss|floatformat:0|intcomma }} 円</div>
             </div>
