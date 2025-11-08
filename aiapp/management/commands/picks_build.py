@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-import os, sys, json, time, math, random, pathlib, traceback
-from dataclasses import dataclass, asdict
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
-from typing import List, Dict, Tuple, Optional
 
+import os
+import json
+import time
+import math
+import pathlib
+import datetime as dt
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import pandas as pd
 from django.core.management.base import BaseCommand, CommandError
 from django.conf import settings
 
@@ -13,294 +18,183 @@ from aiapp.services.fetch_price import get_prices
 from aiapp.models.features import compute_features
 from aiapp.models.scoring import score_sample
 
-# ====== Tunables (sane defaults) =============================================
+PICKS_DIR = pathlib.Path(getattr(settings, "MEDIA_ROOT", "media")) / "aiapp" / "picks"
+UNIVERSE_DIR = pathlib.Path("aiapp/data/universe")
 
-# 1銘柄の価格取得で使う既定タイムアウト（秒）
-HTTP_TIMEOUT_DEFAULT = float(os.environ.get("AIAPP_HTTP_TIMEOUT", "2.0"))
-HTTP_RETRIES_DEFAULT = int(os.environ.get("AIAPP_HTTP_RETRIES", "1"))
+def _ensure_dir(p: pathlib.Path) -> None:
+    p.mkdir(parents=True, exist_ok=True)
 
-# 並列ワーカー数
-MAX_WORKERS = int(os.environ.get("AIAPP_BUILD_WORKERS", "16"))
+def _load_universe(name: str, sample: int | None, head: int | None) -> list[tuple[str, str]]:
+    if name.lower() in ("all", "jp-all", "jpall"):
+        qs = list(StockMaster.objects.values_list("code", "name"))
+    else:
+        path = UNIVERSE_DIR / f"{name}.txt"
+        if not path.exists():
+            raise CommandError(f"universe file not found: {path}")
+        codes = [c.strip() for c in path.read_text().splitlines() if c.strip()]
+        names = {c: (StockMaster.objects.filter(code=c).first().name if StockMaster.objects.filter(code=c).exists() else c) for c in codes}
+        qs = [(c, names.get(c, c)) for c in codes]
+    if head:
+        qs = qs[: int(head)]
+    if sample and len(qs) > sample:
+        qs = qs[: sample]
+    return qs
 
-# Lite取得で使う本数（--nbars-lite で上書き可）
-NBARS_LITE_DEFAULT = 45
+def _json_path(tag: str) -> pathlib.Path:
+    ts = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    return PICKS_DIR / f"{ts}_{tag}.json"
 
-# 目標件数（最終10件を想定。途中段階でこれ以上あれば即終了）
-TARGET_COUNT = 10
-
-# 出力先
-MEDIA_ROOT = getattr(settings, "MEDIA_ROOT", "media")
-PICKS_DIR = pathlib.Path(MEDIA_ROOT) / "aiapp" / "picks"
-PICKS_DIR.mkdir(parents=True, exist_ok=True)
-
-# ============================================================================
-@dataclass
-class PickItem:
-    code: str
-    name: str
-    sector_name: Optional[str]
-    score: float
-    stars: float
-    price: Optional[float] = None
-    entry: Optional[float] = None
-    tp: Optional[float] = None
-    sl: Optional[float] = None
-    reasons: Optional[List[str]] = None
-
-def _now_ts() -> str:
-    import datetime as dt
-    return dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-
-def _universe_from_file(name: str) -> List[str]:
-    """aiapp/data/universe/<name>.txt を厳密に読む。無ければ CommandError。"""
-    base = pathlib.Path("aiapp") / "data" / "universe"
-    path = base / f"{name}.txt"
-    if not path.exists():
-        raise CommandError(f"universe file not found: {path}")
-    codes = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        # 4〜5桁抽出
-        import re
-        m = re.search(r"(\d{4,5})", line)
-        if m:
-            codes.append(m.group(1))
-    if not codes:
-        raise CommandError(f"universe file is empty or invalid: {path}")
-    return codes
-
-def _universe_from_db() -> List[str]:
-    return list(StockMaster.objects.values_list("code", flat=True))
-
-def _safe_get_prices(code: str, nbars: int) -> Optional["pd.DataFrame"]:
-    """get_prices を堅牢呼び出し。HTTPタイムアウトを強制（環境変数が無くても）。"""
-    # fetch_price.get_prices 側はキャッシュ＆環境変数でタイムアウト制御する想定。
-    # 念のため長すぎるDataFrameも避ける（nbarsだけ使う）
+def _link_latest(src: pathlib.Path, alias: str):
+    dst = PICKS_DIR / alias
     try:
-        df = get_prices(code, max(60, nbars))
-        if df is None or len(df) < nbars:
-            return None
-        return df.tail(nbars)
-    except Exception:
-        return None
-
-def _lite_score(code: str, name: str, sector: Optional[str], nbars: int) -> Optional[PickItem]:
-    df = _safe_get_prices(code, nbars)
-    if df is None or len(df) < nbars:
-        return None
-    try:
-        feat = compute_features(df)
-        if feat is None or len(feat) == 0:
-            return None
-        s = float(score_sample(feat, mode="aggressive", horizon="short"))
-        # 星は安全に圧縮（例: 0〜100 → 1〜5）。偏り対策でルックアップを軽く掛ける
-        stars = min(5.0, max(1.0, round((s / 22.0) + 3.0, 1)))
-        px = float(df["close"].iloc[-1])
-        # 単純な目安（後で高級化）：TP=+7%、SL=-3.5%
-        entry = px
-        tp = round(px * 1.07, 1)
-        sl = round(px * 0.965, 1)
-        reasons = [
-            f"RSI/MACD/ROCのモメンタム合成でスコア {s:.1f}",
-            "出来高が平常比で安定（過剰ボラは減点済み）",
-            "短期トレンドと週足方向が概ね一致",
-        ]
-        return PickItem(code=code, name=name, sector_name=sector, score=s, stars=stars,
-                        price=px, entry=entry, tp=tp, sl=sl, reasons=reasons)
-    except Exception:
-        return None
-
-def _serialize(items: List[PickItem]) -> Dict:
-    return {
-        "meta": {
-            "generated_at": _now_ts(),
-            "mode": "short/aggressive",
-            "count": len(items),
-        },
-        "items": [asdict(x) for x in items],
-    }
-
-def _write_snapshot(payload: Dict, tag: str) -> str:
-    ts = payload["meta"]["generated_at"]
-    fname = f"{ts}_short_aggressive_{tag}.json"
-    path = PICKS_DIR / fname
-    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    # latest_* シンボリックリンク
-    latest = PICKS_DIR / f"latest_{tag}.json"
-    try:
-        if latest.exists() or latest.is_symlink():
-            latest.unlink()
+        if dst.exists() or dst.is_symlink():
+            dst.unlink()
     except Exception:
         pass
     try:
-        latest.symlink_to(path.name)
+        dst.symlink_to(src.name)
     except Exception:
-        # Windowsなどでsymlink不可の場合はコピー
-        latest.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
-    return str(path)
-
-def _emit_synthetic(universe: List[Tuple[str,str,Optional[str]]], k: int = 10) -> List[PickItem]:
-    """価格APIが死んでる時でも最低限のカードを出す"""
-    random.seed(0)
-    sample = random.sample(universe, min(k, len(universe)))
-    out: List[PickItem] = []
-    for code, name, sector in sample:
-        # 価格が取れなくてもダミー値で形だけ整える
-        px = None
+        # symlink禁止環境向けに実体コピー
         try:
-            df = _safe_get_prices(code, 30)
-            if df is not None and len(df) > 0:
-                px = float(df["close"].iloc[-1])
+            dst.write_bytes(src.read_bytes())
         except Exception:
             pass
-        s = round(random.uniform(75, 92), 1)  # 「良さそう」帯域で固定
-        stars = round(random.uniform(3.2, 4.4), 1)
-        entry = px
-        tp = round(px * 1.05, 1) if px else None
-        sl = round(px * 0.97, 1) if px else None
-        reasons = [
-            "簡易: 回線混雑のためダミー採点（検証用）",
-            "本番はフル特徴量から再計算します",
-        ]
-        out.append(PickItem(code, name, sector, s, stars, px, entry, tp, sl, reasons))
-    return out
 
-# ============================================================================
+def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int, mode: str, horizon: str):
+    """
+    タイムボックス内で並行処理しながらアイテムを作る。
+    成功した分だけ返す（失敗はスキップ）。重い処理は compute_features → score_sample。
+    """
+    start = time.time()
+    items = []
+
+    def work(code: str, name: str):
+        df = get_prices(code, nbars)
+        if df is None or df.empty or len(df) < 45:
+            return None
+        feat = compute_features(df)
+        s = float(score_sample(feat, mode=mode, horizon=horizon))
+        last = float(df["close"].iloc[-1])
+        atr = float((df["high"] - df["low"]).rolling(14).mean().iloc[-1])
+        # とりあえず親しみトーンの文章はビュー側で整形。ここでは数値のみ。
+        item = {
+            "code": code,
+            "name": name,
+            "name_norm": name,
+            "sector": "",  # view 側で StockMaster を引いて埋める
+            "last_close": last,
+            "entry": round(last * 1.001, 1),
+            "tp": round(last * 1.03, 1),
+            "sl": round(last * 0.97, 1),
+            "score": round(s, 3),
+            "score_100": max(0, min(100, int(round(50 + s * 10)))),
+            "stars": max(1, min(5, int(math.floor(0.5 + (50 + s * 10) / 20)))),
+            "qty": 100,
+            "required_cash": int(last * 100),
+            "est_pl": int(last * 0.03 * 100),
+            "est_loss": int(last * 0.03 * 100),
+            "reasons": {
+                "trend": float((df["close"].pct_change(20).iloc[-1]) * 100),
+                "rs": float((df["close"].pct_change(20).iloc[-1] - df["close"].pct_change(20).mean()) * 100),
+                "vol_signal": float((df["volume"].iloc[-1] / (df["volume"].rolling(20).mean().iloc[-1] + 1e-9))),
+                "atr": float(atr if not math.isnan(atr) else 0.0),
+            },
+        }
+        return item
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futs = {ex.submit(work, c, n): (c, n) for c, n in codes}
+        for fut in as_completed(futs, timeout=max(2, budget_sec)):
+            if time.time() - start > budget_sec:
+                break
+            try:
+                it = fut.result(timeout=5)
+                if it:
+                    items.append(it)
+            except Exception:
+                pass
+
+    # スコア降順で上位10
+    items = sorted(items, key=lambda x: x["score"], reverse=True)[:10]
+    return items
+
 
 class Command(BaseCommand):
-    help = "Build AI picks snapshot (short/aggressive)."
+    help = "AIピック生成（完全版/ライト・スナップショット対応）"
 
     def add_arguments(self, parser):
-        parser.add_argument("--universe", type=str, default=None,
-            help="aiapp/data/universe/<name>.txt を使用（必須推奨）")
-        parser.add_argument("--sample", type=int, default=None,
-            help="ユニバースからランダムN件に絞る（デバッグ向け）")
-        parser.add_argument("--head", type=int, default=None,
-            help="ユニバース先頭N件だけ処理（即時検証向け）")
-        parser.add_argument("--budget", type=int, default=180,
-            help="全体タイムボックス（秒）")
-        parser.add_argument("--nbars-lite", type=int, default=NBARS_LITE_DEFAULT,
-            help=f"Lite特徴量で使う日数（既定 {NBARS_LITE_DEFAULT}）")
-        parser.add_argument("--lite-only", action="store_true",
-            help="Liteステージのみ実行して即スナップショット")
-        parser.add_argument("--force", action="store_true",
-            help="強制再生成（既存latestに関係なく上書き）")
+        parser.add_argument("--universe", default="all", help="all / nk225 / quick_100 / <file name>")
+        parser.add_argument("--sample", type=int, default=None)
+        parser.add_argument("--head", type=int, default=None)
+        parser.add_argument("--budget", type=int, default=90, help="秒")
+        parser.add_argument("--nbars", type=int, default=180)
+        parser.add_argument("--use-snapshot", action="store_true", help="(夜間) スナップショット前提で重い処理OK")
+        parser.add_argument("--lite-only", action="store_true", help="(日中) 表示用だけサクッと")
+        parser.add_argument("--force", action="store_true")
 
     def handle(self, *args, **opts):
-        uni_name   = opts.get("universe")
-        sample_n   = opts.get("sample")
-        head_n     = opts.get("head")
-        budget_sec = int(opts.get("budget") or 180)
-        nbars_lite = int(opts.get("nbars_lite") or NBARS_LITE_DEFAULT)
-        lite_only  = bool(opts.get("lite_only"))
-        # --- universe 取り出し ---
-        if uni_name:
-            try:
-                codes = _universe_from_file(uni_name)
-            except CommandError as e:
-                raise e
-        else:
-            # 明示指定なしはDB全銘柄（検証段階では非推奨）
-            codes = _universe_from_db()
+        universe = opts["universe"]
+        sample   = opts["sample"]
+        head     = opts["head"]
+        budget   = int(opts["budget"])
+        nbars    = int(opts["nbars"])
+        use_snap = bool(opts["use-snapshot"])
+        lite     = bool(opts["lite-only"])
+        force    = bool(opts["force"])
 
-        if head_n:
-            codes = codes[:head_n]
-        if sample_n:
-            random.seed(42)
-            codes = random.sample(codes, min(sample_n, len(codes)))
+        _ensure_dir(PICKS_DIR)
 
-        # コード→銘柄名・セクターの辞書（画面の空欄対策）
-        meta_map: Dict[str, Tuple[str, Optional[str]]] = {}
-        for row in StockMaster.objects.filter(code__in=codes).values("code","name","sector_name"):
-            meta_map[row["code"]] = (row["name"], row.get("sector_name"))
+        codes = _load_universe(universe, sample, head)
+        if not codes:
+            self.stdout.write(self.style.WARNING("[picks_build] universe=0"))
+            return
 
-        universe_triplet: List[Tuple[str,str,Optional[str]]] = []
-        for c in codes:
-            nm, sec = meta_map.get(c, (None, None))
-            if nm is None:
-                # DBに無くても一応出す
-                nm = c
-            universe_triplet.append((c, nm, sec))
-
-        self.stdout.write(f"[picks_build] universe={len(universe_triplet)}")
-        start = time.time()
-
-        picks: List[PickItem] = []
-        errors = 0
-
-        # === Lite stage（並列）=================================================
-        def worker(tup: Tuple[str,str,Optional[str]]) -> Optional[PickItem]:
-            code, name, sector = tup
-            try:
-                return _lite_score(code, name, sector, nbars_lite)
-            except Exception:
-                return None
-
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-            futs = {ex.submit(worker, tup): tup for tup in universe_triplet}
-            # タイムボックス制御
-            while futs and (time.time() - start) < budget_sec:
-                try:
-                    done_iter = as_completed(futs, timeout=0.5)
-                    for fut in done_iter:
-                        tup = futs.pop(fut, None)
-                        if tup is None:
-                            continue
-                        try:
-                            item = fut.result(timeout=0)
-                            if item:
-                                picks.append(item)
-                                # 早く10件そろったら即終了
-                                if len(picks) >= TARGET_COUNT:
-                                    futs.clear()
-                                    break
-                        except Exception:
-                            errors += 1
-                            continue
-                    # ループ先頭に戻って残り時間を見ながら続行
-                except TimeoutError:
-                    # まだ誰も終わっていない → そのまま継続
-                    pass
-
-        elapsed = time.time() - start
-        self.stdout.write(f"[picks_build] collected={len(picks)} err={errors} elapsed={elapsed:.1f}s")
-
-        # 途中で予算切れ or lite-only
-        if lite_only or (elapsed >= budget_sec):
-            # 集まった分でソート＆上位10を保存
-            if picks:
-                picks.sort(key=lambda x: x.score, reverse=True)
-                picks = picks[:TARGET_COUNT]
-                payload = _serialize(picks)
-                out = _write_snapshot(payload, tag="lite")
-                self.stdout.write(f"[picks_build] wrote {out} items={len(picks)}")
-                self.stdout.write("[picks_build] done (lite)")
-                return
-            else:
-                # 0件でも必ず合成スナップショットを出す
-                synth = _emit_synthetic(universe_triplet, k=TARGET_COUNT)
-                payload = _serialize(synth)
-                out = _write_snapshot(payload, tag="synthetic")
-                self.stdout.write("[picks_build] no lite results; emit synthetic fallback")
-                self.stdout.write(f"[picks_build] wrote {out} items={len(synth)}")
-                self.stdout.write("[picks_build] done (lite)")
+        tag = "short_aggressive"
+        if lite:
+            # ライト版は“表示即応”が目的。時間内で取れた分だけ採用。
+            self.stdout.write(f"[picks_build] start LITE universe={len(codes)} budget={budget}s")
+            items = _build_items(codes, budget, nbars, mode="aggressive", horizon="short")
+            if not items:
+                # 何も取れなかったら synthetic は作らず、空をリンク（UIに注意帯を出させる）
+                p = _json_path("latest_lite")
+                p.write_text(json.dumps({"items": [], "mode": "LIVE-FAST", "updated_at": dt.datetime.now().isoformat()}, ensure_ascii=False))
+                _link_latest(p, "latest_lite.json")
+                self.stdout.write(self.style.WARNING("[picks_build] lite: items=0 (empty json emitted)"))
                 return
 
-        # === ここから先は将来のフル計算ステージ用（今は lite のみで十分） =========
-        # 現段階では lite 結果で確定保存
-        if picks:
-            picks.sort(key=lambda x: x.score, reverse=True)
-            picks = picks[:TARGET_COUNT]
-            payload = _serialize(picks)
-            out = _write_snapshot(payload, tag="lite")
-            self.stdout.write(f"[picks_build] wrote {out} items={len(picks)}")
-        else:
-            synth = _emit_synthetic(universe_triplet, k=TARGET_COUNT)
-            payload = _serialize(synth)
-            out = _write_snapshot(payload, tag="synthetic")
-            self.stdout.write("[picks_build] emit synthetic fallback")
-            self.stdout.write(f"[picks_build] wrote {out} items={len(synth)}")
+            # 33業種名を埋める
+            sec_map = {c: s for c, s in StockMaster.objects.filter(code__in=[x["code"] for x in items]).values_list("code", "sector_name")}
+            for it in items:
+                it["sector"] = sec_map.get(it["code"], "")
 
-        self.stdout.write("[picks_build] done")
+            p = _json_path(f"{tag}_lite")
+            p.write_text(json.dumps({
+                "items": items,
+                "mode": "LIVE-FAST",
+                "updated_at": dt.datetime.now().isoformat(),
+            }, ensure_ascii=False))
+            _link_latest(p, "latest_lite.json")
+            _link_latest(p, "latest.json")
+            self.stdout.write(f"[picks_build] done (lite) items={len(items)} -> {p}")
+            return
+
+        # 完全版（夜間）: 時間長め・重い処理OK
+        self.stdout.write(f"[picks_build] start FULL universe={len(codes)} budget={budget}s use_snapshot={use_snap}")
+        # 予算を広めに使ってしっかり集める想定
+        items = _build_items(codes, budget, nbars, mode="aggressive", horizon="short")
+        # 埋め
+        sec_map = {c: s for c, s in StockMaster.objects.filter(code__in=[x["code"] for x in items]).values_list("code", "sector_name")}
+        for it in items:
+            it["sector"] = sec_map.get(it["code"], "")
+
+        # 保存
+        p = _json_path(tag)
+        p.write_text(json.dumps({
+            "items": items,
+            "mode": "SNAPSHOT" if use_snap else "FULL",
+            "updated_at": dt.datetime.now().isoformat(),
+        }, ensure_ascii=False))
+        _link_latest(p, "latest_full.json")
+        # 画面優先は“ある方”へ
+        _link_latest(p, "latest.json")
+        self.stdout.write(f"[picks_build] done (full) items={len(items)} -> {p}")
