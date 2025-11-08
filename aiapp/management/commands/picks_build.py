@@ -1,21 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-picks_build v4.6 (time-budgeted, chunked, incremental snapshots)
+picks_build v4.7 (robust: chunked + wait + incremental snapshots)
 
-- 日本株 全銘柄 or 日経225のみ（--universe all|nk225）
-- 予選は小分けバッチで実行 → hung銘柄があっても前に進む
-- 30秒ごとに暫定スナップショットを保存（UIが空にならない）
-- CLI:
-    python manage.py picks_build --universe nk225 --budget 180 --force
-    python manage.py picks_build --universe all   --budget 360 --force
+- --universe all | nk225
+- タイムバジェット内で段階スナップショットを吐く
+- チャンク毎に wait(timeout) → done だけ集計、not_done は cancel して前進
 """
+
 from __future__ import annotations
 import json, os, sys, time, random
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -25,47 +23,45 @@ from aiapp.services.fetch_price import get_prices
 from aiapp.models.features import compute_features
 from aiapp.models.scoring import score_sample
 
-# --- optional NK225
+# -------------------- constants / tunables --------------------
+JST = timezone(timedelta(hours=9))
+def _now_jst(): return datetime.now(JST)
+def _log(msg): print(f"[picks_build] {msg}", flush=True)
+
+MAX_WORKERS      = int(os.environ.get("AIAPP_BUILD_WORKERS", "12"))
+FAST_BARS        = int(os.environ.get("AIAPP_FAST_BARS", "30"))
+FAST_BARS_RESCUE = int(os.environ.get("AIAPP_FAST_BARS2", "60"))
+DEEP_BARS        = int(os.environ.get("AIAPP_DEEP_BARS", "180"))
+MIN_BARS         = int(os.environ.get("AIAPP_MIN_BARS", "60"))
+
+FAST_TIMEOUT   = float(os.environ.get("AIAPP_FAST_TIMEOUT", "3.5"))   # sec / item
+DEEP_TIMEOUT   = float(os.environ.get("AIAPP_DEEP_TIMEOUT", "7.5"))   # sec / item
+CHUNK_SIZE     = int(os.environ.get("AIAPP_CHUNK_SIZE", "40"))        # items per batch
+DEFAULT_BUDGET = int(os.environ.get("AIAPP_BUDGET_SEC", "360"))       # hard wall
+SNAPSHOT_EVERY = int(os.environ.get("AIAPP_SNAPSHOT_SEC", "30"))      # write interim
+
+PREFINAL_TOPK = int(os.environ.get("AIAPP_PREFINAL", "120"))
+TARGET_TOPN   = 10
+
+LOT_SIZE         = 100
+TARGET_LOSS_JPY  = 20000.0
+DEFAULT_HORIZON  = "short"
+DEFAULT_MODE     = "aggressive"
+DEFAULT_TONE     = "friendly"
+
+MEDIA_ROOT = Path(getattr(settings, "MEDIA_ROOT", "media"))
+PICKS_DIR  = MEDIA_ROOT / "aiapp" / "picks"
+PICKS_DIR.mkdir(parents=True, exist_ok=True)
+LOCK_PATH  = PICKS_DIR / ".picks_build.lock"
+
+# -------------------- NK225 optional --------------------
 NK225_CODES: List[str] = []
 try:
     from aiapp.universe.nikkei225 import CODES as NK225_CODES  # noqa: F401
 except Exception:
     NK225_CODES = []
 
-# ===== tunables (defaults / can be overridden by CLI/env) =====
-MAX_WORKERS = int(os.environ.get("AIAPP_BUILD_WORKERS", "12"))
-FAST_BARS = int(os.environ.get("AIAPP_FAST_BARS", "30"))
-FAST_BARS_RESCUE = int(os.environ.get("AIAPP_FAST_BARS2", "60"))
-DEEP_BARS = int(os.environ.get("AIAPP_DEEP_BARS", "180"))
-MIN_BARS = int(os.environ.get("AIAPP_MIN_BARS", "60"))
-
-FAST_TIMEOUT = float(os.environ.get("AIAPP_FAST_TIMEOUT", "4.0"))   # sec / item
-DEEP_TIMEOUT = float(os.environ.get("AIAPP_DEEP_TIMEOUT", "8.0"))   # sec / item
-CHUNK_SIZE = int(os.environ.get("AIAPP_CHUNK_SIZE", "40"))          # items per batch
-
-DEFAULT_BUDGET = int(os.environ.get("AIAPP_BUDGET_SEC", "360"))     # hard wall
-SNAPSHOT_EVERY = int(os.environ.get("AIAPP_SNAPSHOT_SEC", "30"))    # write interim
-
-PREFINAL_TOPK = int(os.environ.get("AIAPP_PREFINAL", "120"))
-TARGET_TOPN = 10
-
-LOT_SIZE = 100
-TARGET_LOSS_JPY = 20000.0
-
-DEFAULT_HORIZON = "short"
-DEFAULT_MODE = "aggressive"
-DEFAULT_TONE = "friendly"
-
-MEDIA_ROOT = Path(getattr(settings, "MEDIA_ROOT", "media"))
-PICKS_DIR = MEDIA_ROOT / "aiapp" / "picks"
-PICKS_DIR.mkdir(parents=True, exist_ok=True)
-LOCK_PATH = PICKS_DIR / ".picks_build.lock"
-
-JST = timezone(timedelta(hours=9))
-def _now_jst(): return datetime.now(JST)
-def _log(msg): print(f"[picks_build] {msg}", flush=True)
-
-# ===== lock =====
+# -------------------- lock --------------------
 class BuildLock:
     def __init__(self, path: Path, force=False):
         self.path, self.force, self.acq = path, force, False
@@ -76,8 +72,9 @@ class BuildLock:
     def __exit__(self, *_):
         if self.acq: self.path.unlink(missing_ok=True)
 
-# ===== universe =====
+# -------------------- universe --------------------
 BLOCK_KEYWORDS = ["ＥＴＦ","ETF","ＲＥＩＴ","REIT","投資法人","連動型","指数","インデックス"]
+
 @dataclass
 class URow:
     code: str; name: str; sector_name: Optional[str] = None
@@ -86,7 +83,7 @@ def _looks_index_like(code, name) -> bool:
     if any(k in name for k in BLOCK_KEYWORDS): return True
     try: c = int(code)
     except: return True
-    return 1300 <= c <= 1399  # 1300番台はETF多め
+    return 1300 <= c <= 1399
 
 def _universe_all() -> List[URow]:
     rows = []
@@ -108,7 +105,7 @@ def _universe_nk225() -> List[URow]:
     random.seed(42); random.shuffle(rows)
     return rows
 
-# ===== scoring helpers =====
+# -------------------- scoring helpers --------------------
 def _calc_fast_score(code: str) -> Optional[Tuple[str, float, float]]:
     def _try(nbars: int):
         df = get_prices(code, nbars)
@@ -153,12 +150,12 @@ def _build_deep(row: URow) -> Optional[Dict[str, Any]]:
             score=round(score,1), confidence=conf, entry=entry, tp=tp, sl=sl, qty=qty,
             required_cash=int(entry*qty),
             exp_profit=int((tp-entry)*qty), exp_loss=int((entry-sl)*qty),
-            reasons=["RSI/ROC/VWAP/ATR/相対強度などの合成スコア（短期×攻め）"]
+            reasons=["RSI/ROC/VWAP/ATR/相対強度の合成（短期×攻め）"]
         )
     except Exception:
         return None
 
-# ===== snapshots =====
+# -------------------- snapshots --------------------
 def _save_json(items: List[Dict[str,Any]], tag: str):
     meta = {
         "ts": _now_jst().isoformat(timespec="seconds"),
@@ -167,7 +164,7 @@ def _save_json(items: List[Dict[str,Any]], tag: str):
     }
     text = json.dumps({"meta": meta, "items": items}, ensure_ascii=False, indent=2)
     latest = PICKS_DIR / f"latest_{DEFAULT_HORIZON}_{DEFAULT_MODE}.json"
-    hist = PICKS_DIR / f"{_now_jst():%Y%m%d_%H%M%S}_{DEFAULT_HORIZON}_{DEFAULT_MODE}.json"
+    hist   = PICKS_DIR / f"{_now_jst():%Y%m%d_%H%M%S}_{DEFAULT_HORIZON}_{DEFAULT_MODE}.json"
     latest.write_text(text, encoding="utf-8")
     hist.write_text(text, encoding="utf-8")
     return latest
@@ -190,66 +187,75 @@ def _emit_fallback_from_fast(fast_map: Dict[str, Tuple[float,float]], uni_index:
     _save_json(fb, f"{label}-fallback")
     return fb
 
-# ===== command =====
+# -------------------- command --------------------
 class Command(BaseCommand):
     help = "Build AI picks snapshot (time-budgeted & chunked & incremental)"
 
     def add_arguments(self, p):
-        p.add_argument("--sample", type=int, default=None, help="上限件数（テスト用）")
-        p.add_argument("--force", action="store_true", help="ロック無視で実行")
-        p.add_argument("--universe", type=str, default="all",
-                       choices=["all","nk225"], help="ユニバース切替")
-        p.add_argument("--budget", type=int, default=DEFAULT_BUDGET,
-                       help=f"ハード制限秒（default {DEFAULT_BUDGET}s）")
+        p.add_argument("--sample", type=int, default=None)
+        p.add_argument("--force", action="store_true")
+        p.add_argument("--universe", type=str, default="all", choices=["all","nk225"])
+        p.add_argument("--budget", type=int, default=DEFAULT_BUDGET)
 
     def handle(self, *_, **o):
         start = time.time()
-        force = bool(o.get("force", False))
-        sample = o.get("sample")
+        force    = bool(o.get("force", False))
+        sample   = o.get("sample")
         universe = o.get("universe", "all")
-        budget = int(o.get("budget") or DEFAULT_BUDGET)
+        budget   = int(o.get("budget") or DEFAULT_BUDGET)
 
         _log(f"start universe={universe} sample={sample} budget={budget}s")
         with BuildLock(LOCK_PATH, force=force):
             items = self._build(start, universe, sample, budget)
         _log(f"done items={len(items)} dur={round(time.time()-start,1)}s")
 
-    # ===== main =====
+    # --------------- main ---------------
     def _build(self, t0: float, universe: str, sample: Optional[int], budget: int):
-        # 1) universe
+        # universe
         uni = _universe_nk225() if universe == "nk225" else _universe_all()
         if sample: uni = uni[:int(sample)]
         _log(f"universe={len(uni)}")
         uni_index = {r.code: r for r in uni}
 
-        # 2) fast stage (chunked + incremental snapshot)
-        fast: Dict[str, Tuple[float,float]] = {}
-        last_snap = 0.0
-
         def timeup() -> bool:
             return (time.time() - t0) > budget
 
-        # chunked submission
+        # fast stage
+        fast: Dict[str, Tuple[float,float]] = {}
+        last_snap = 0.0
+
         for i in range(0, len(uni), CHUNK_SIZE):
             if timeup():
                 _log("timeout during fast stage")
-                if fast:
-                    _log("emit fallback top10 from accumulated fast scores")
-                    return _emit_fallback_from_fast(fast, uni_index, "fast-timeout")
-                return self._emit_empty()
+                return _emit_fallback_from_fast(fast, uni_index, "fast-timeout") if fast else self._emit_empty()
 
             chunk = uni[i:i+CHUNK_SIZE]
             with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-                futs = {ex.submit(_calc_fast_score, r.code): r for r in chunk}
-                for fut in as_completed(futs, timeout=max(1, int(FAST_TIMEOUT*len(chunk)))):
+                futures = [ex.submit(_calc_fast_score, r.code) for r in chunk]
+                # チャンクの総タイムアウト（ゆるめ）
+                chunk_timeout = max(1.0, FAST_TIMEOUT * len(chunk))
+                done, not_done = wait(futures, timeout=chunk_timeout, return_when=FIRST_COMPLETED)
+                # 完了分はさらに残りも一応待って回収。ただし個別は短いtimeoutで。
+                end_time = time.time() + chunk_timeout
+                # すでに完了分
+                for fu in list(done):
                     try:
-                        r = fut.result(timeout=FAST_TIMEOUT)
+                        r = fu.result(timeout=0.01)
                         if r: fast[r[0]] = (r[1], r[2])
                     except Exception:
                         pass
+                # 残りを短いタイムアウトで回収
+                for fu in not_done:
+                    remain = max(0.0, end_time - time.time())
+                    try:
+                        r = fu.result(timeout=min(FAST_TIMEOUT, remain))
+                        if r: fast[r[0]] = (r[1], r[2])
+                    except Exception:
+                        # 間に合わない・例外は捨てて次へ
+                        fu.cancel()
 
-            # incremental snapshot every 30s
-            if time.time() - last_snap >= SNAPSHOT_EVERY and fast:
+            # 途中スナップショット
+            if (time.time() - last_snap) >= SNAPSHOT_EVERY and fast:
                 pre = sorted(fast.items(), key=lambda kv: kv[1][1], reverse=True)[:TARGET_TOPN]
                 temp = []
                 for code, (close, fastv) in pre:
@@ -259,8 +265,7 @@ class Command(BaseCommand):
                     qty = max(LOT_SIZE, int(TARGET_LOSS_JPY / pl / LOT_SIZE) * LOT_SIZE)
                     temp.append(dict(
                         code=row.code, name=row.name, sector=row.sector_name or "", price=close,
-                        score=round(fastv,1), confidence=2.3,
-                        entry=entry, tp=tp, sl=sl, qty=qty,
+                        score=round(fastv,1), confidence=2.3, entry=entry, tp=tp, sl=sl, qty=qty,
                         required_cash=int(entry*qty),
                         exp_profit=int((tp-entry)*qty), exp_loss=int((entry-sl)*qty),
                         reasons=["暫定：予選中の途中経過"],
@@ -270,28 +275,28 @@ class Command(BaseCommand):
 
         _log(f"fast_pass={len(fast)}")
         if not fast:
-            _log("no fast pass; emit fallback(empty)")
+            _log("no fast pass; emit empty")
             return self._emit_empty()
 
-        if time(time) - t0 > budget:  # guard（極小タイミング差）
+        if (time.time() - t0) > budget:
             _log("timeout right after fast stage")
             return _emit_fallback_from_fast(fast, uni_index, "post-fast")
 
-        # finalists pick
+        # finalists
         pre = sorted(fast.items(), key=lambda kv: kv[1][1], reverse=True)
         finalists = {c for c,_ in pre[:max(60, min(PREFINAL_TOPK, len(pre)))]}
         _log(f"finalists={len(finalists)}")
 
-        # 3) deep stage
+        # deep stage
         results: List[Dict[str,Any]] = []
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
             futs = {ex.submit(_build_deep, uni_index[c]): c for c in finalists if c in uni_index}
-            for fut in as_completed(futs, timeout=max(1, int(DEEP_TIMEOUT*len(futs)))):
-                if timeup():
-                    _log("timeout during deep stage")
-                    break
+            end_time = time.time() + max(1.0, DEEP_TIMEOUT * max(1, len(futs)))
+            for fu in list(futs.keys()):
+                remain = max(0.0, end_time - time.time())
+                if timeup() or remain <= 0: break
                 try:
-                    r = fut.result(timeout=DEEP_TIMEOUT)
+                    r = fu.result(timeout=min(DEEP_TIMEOUT, remain))
                     if r: results.append(r)
                 except Exception:
                     pass
@@ -306,6 +311,5 @@ class Command(BaseCommand):
         return top
 
     def _emit_empty(self):
-        # 空でもUIを壊さない最小スナップショット
         _save_json([], "empty")
         return []
