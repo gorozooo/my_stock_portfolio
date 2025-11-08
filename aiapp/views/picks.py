@@ -134,6 +134,7 @@ def picks(request: HttpRequest) -> HttpResponse:
             "meta": {"style": "aggressive", "horizon": "short", "mode": "LIVE/DEMO", "ts": None},
             "last_updated": "",
             "info_msg": "候補が0件です。直近のスナップショットが存在しません。",
+            "latest_json_url": f"{settings.MEDIA_URL}aiapp/picks/latest.json?ts={int(time.time())}",
         }
         _debug("render empty list")
         return render(request, "aiapp/picks.html", ctx)
