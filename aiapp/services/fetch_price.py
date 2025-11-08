@@ -1,202 +1,194 @@
+# aiapp/services/fetch_price.py
 # -*- coding: utf-8 -*-
-"""
-価格取得（日本株フル対応 + オフライン可）
-優先順:
-  0) ローカル種CSV (MEDIA_ROOT/aiapp/seed_prices/{code}.csv)
-  1) Yahoo Finance (7203 → 7203.T / 7203.JP / 7203)
-  2) Stooq        (7203 → 7203.jp / 7203.t / 7203)
-
-共通仕様:
-- 返却: index=Datetime, columns=['open','high','low','close','volume']
-- 列名は小文字に正規化
-- CSVキャッシュ: MEDIA_ROOT/aiapp/cache/prices/{code}.csv
-- nbars 本だけ末尾から返す
-
-環境変数:
-- AIAPP_HTTP_TIMEOUT             … 1リクエストのタイムアウト秒 (float, default 2.5)
-- AIAPP_HTTP_RETRIES             … リトライ回数 (int, default 1)
-- AIAPP_PRICE_CACHE_TTL_DAYS     … キャッシュ有効日数 (int, default 1)
-- AIAPP_PRICE_DEBUG              … '1'で取得URL/結果をログ出力
-- AIAPP_PRICE_SEED_DIR           … 既定以外の種CSVディレクトリを指定可
-"""
 from __future__ import annotations
+
+"""
+安定版 価格取得サービス
+- 優先: ローカルキャッシュ (Parquet/CSV)
+- 失敗時: yfinance で再取得（cookie/crumb 処理済み・401回避）
+- キャッシュは銘柄ごとに日足を保存、TTL は 1 日
+- 取得失敗時は「最後に成功したキャッシュ」を返す（ダミーは返さない）
+- 返却: pandas.DataFrame(index=DatetimeIndex[tz-naive], cols=open/high/low/close/volume), nbars で末尾トリム
+"""
 
 import os
 import io
 import time
-import datetime as dt
+import math
+import json
+import gzip
+import shutil
+import typing as T
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Optional
 
+import numpy as np
 import pandas as pd
-import requests
+
+try:
+    import yfinance as yf
+except Exception:
+    yf = None  # 後で検出してエラーメッセージ
+
 from django.conf import settings
 
-# -------------------- パス/環境 --------------------
+# --- 定数/パス ---------------------------------------------------------------
+
 MEDIA_ROOT = Path(getattr(settings, "MEDIA_ROOT", "media"))
-CACHE_DIR = MEDIA_ROOT / "aiapp" / "cache" / "prices"
-SEED_DIR = Path(os.getenv("AIAPP_PRICE_SEED_DIR") or (MEDIA_ROOT / "aiapp" / "seed_prices"))
+CACHE_DIR  = MEDIA_ROOT / "aiapp" / "cache_prices"   # 実データキャッシュ
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
-SEED_DIR.mkdir(parents=True, exist_ok=True)
 
-HTTP_TIMEOUT = float(os.getenv("AIAPP_HTTP_TIMEOUT", "2.5"))
-HTTP_RETRIES = int(os.getenv("AIAPP_HTTP_RETRIES", "1"))
-CACHE_TTL_DAYS = int(os.getenv("AIAPP_PRICE_CACHE_TTL_DAYS", "1"))
-DEBUG = os.getenv("AIAPP_PRICE_DEBUG", "0") == "1"
+# キャッシュ有効期限（秒）— 取引所終値で十分なので 18 時間
+CACHE_TTL_SEC = int(os.getenv("AIAPP_PRICE_CACHE_TTL", "64800"))
 
-UA = {"User-Agent": "Mozilla/5.0 (compatible; aiapp-fetch/1.0)"}
+# 1回の DL 期間（初回は 3 年、以降は 30 日に短縮してマージ）
+FULL_YEARS = int(os.getenv("AIAPP_PRICE_YEARS_FULL", "3"))
+INCR_DAYS  = int(os.getenv("AIAPP_PRICE_DAYS_INCR", "30"))
 
-def _log(*args):
+# タイムアウト/リトライ（yfinance は内部で requests を使う）
+HTTP_TIMEOUT = float(os.getenv("AIAPP_HTTP_TIMEOUT", "8.0"))
+HTTP_RETRIES = int(os.getenv("AIAPP_HTTP_RETRIES", "2"))
+
+# デバッグ出力
+DEBUG = bool(int(os.getenv("AIAPP_PRICE_DEBUG", "0")))
+
+# --- ユーティリティ ----------------------------------------------------------
+
+def _log(*a):
     if DEBUG:
-        print("[fetch_price]", *args, flush=True)
+        print("[fetch_price]", *a, flush=True)
 
-# -------------------- ユーティリティ --------------------
-def _safe_read_csv(content: bytes) -> pd.DataFrame:
-    bio = io.BytesIO(content)
-    try:
-        df = pd.read_csv(bio)
-    except Exception:
-        bio.seek(0)
-        df = pd.read_csv(bio, encoding="cp932")
-    df.columns = [str(c).strip().lower() for c in df.columns]
+def _ticker_for(code: str) -> str:
+    """
+    JP: XXXX.T で統一（ETF/REIT も .T で OK）
+    """
+    code = str(code).strip()
+    return f"{code}.T" if not code.endswith(".T") else code
 
-    date_col = None
-    for cand in ("date",):
-        if cand in df.columns:
-            date_col = cand
-            break
-    if date_col:
-        df[date_col] = pd.to_datetime(df[date_col], errors="coerce", utc=False)
-        df = df.dropna(subset=[date_col]).set_index(date_col).sort_index()
-
-    rename_map = {
-        "open": "open", "high": "high", "low": "low",
-        "close": "close", "adj close": "close", "adjclose": "close",
-        "volume": "volume", "vol": "volume",
-    }
-    df = df.rename(columns={c: rename_map.get(c, c) for c in df.columns})
-    keep = [c for c in ["open", "high", "low", "close", "volume"] if c in df.columns]
-    if not keep:
-        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
-    if "volume" in df.columns:
-        df["volume"] = df["volume"].fillna(0)
-    return df[keep]
-
-def _http_get(url: str) -> Optional[bytes]:
-    last_err = None
-    for _ in range(max(1, HTTP_RETRIES + 1)):
-        try:
-            _log("GET", url)
-            r = requests.get(url, headers=UA, timeout=HTTP_TIMEOUT)
-            if r.status_code == 200 and r.content:
-                _log("OK", len(r.content), "bytes")
-                return r.content
-            _log("HTTP", r.status_code)
-        except Exception as e:
-            last_err = e
-            _log("ERR", repr(e))
-        time.sleep(0.15)
-    return None
-
-# -------------------- ソース別取得 --------------------
-def _yf_symbol_variants(code: str) -> List[str]:
-    return [f"{code}.T", f"{code}.JP", code]
-
-def _stooq_symbol_variants(code: str) -> List[str]:
-    return [f"{code}.jp", f"{code}.t", code]
-
-def _fetch_yahoo_daily(code: str) -> pd.DataFrame:
-    period2 = int(time.time())
-    period1 = period2 - 60 * 60 * 24 * 365 * 5
-    for sym in _yf_symbol_variants(code):
-        url = (
-            "https://query1.finance.yahoo.com/v7/finance/download/"
-            f"{sym}?period1={period1}&period2={period2}"
-            "&interval=1d&events=history&includeAdjustedClose=true"
-        )
-        content = _http_get(url)
-        if not content:
-            continue
-        df = _safe_read_csv(content)
-        if len(df) > 0:
-            return df
-    return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
-
-def _fetch_stooq_daily(code: str) -> pd.DataFrame:
-    for sym in _stooq_symbol_variants(code):
-        url = f"https://stooq.com/q/d/l/?s={sym}&i=d"
-        content = _http_get(url)
-        if not content:
-            continue
-        df = _safe_read_csv(content)
-        if len(df) > 0:
-            return df
-    return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
-
-# -------------------- キャッシュ/シード --------------------
 def _cache_path(code: str) -> Path:
-    return CACHE_DIR / f"{code}.csv"
+    return CACHE_DIR / f"{code}.parquet"
 
-def _read_cache(code: str) -> Optional[pd.DataFrame]:
-    p = _cache_path(code)
-    if not p.exists():
-        return None
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+def _is_fresh(p: Path) -> bool:
     try:
-        mtime = dt.datetime.fromtimestamp(p.stat().st_mtime)
-        if (dt.date.today() - mtime.date()).days > CACHE_TTL_DAYS:
-            return None
-        df = pd.read_csv(p, parse_dates=[0], index_col=0)
-        df.columns = [c.lower() for c in df.columns]
-        return df
-    except Exception as e:
-        _log("cache read err", code, e)
-        return None
+        age = _now() - datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
+        return age.total_seconds() < CACHE_TTL_SEC
+    except FileNotFoundError:
+        return False
+
+def _normalize(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["open","high","low","close","volume"])
+    # yfinance: columns が [Open, High, Low, Close, Adj Close, Volume]
+    cols = {c.lower(): c for c in df.columns}
+    o = df[[cols.get("open"), cols.get("high"), cols.get("low"),
+            cols.get("close"), cols.get("volume")]].copy()
+    o.columns = ["open","high","low","close","volume"]
+    # index を tz-naive DatetimeIndex に
+    if not isinstance(o.index, pd.DatetimeIndex):
+        o.index = pd.to_datetime(o.index)
+    o.index = o.index.tz_localize(None)
+    o = o.dropna()
+    return o
+
+def _read_cache(code: str) -> pd.DataFrame:
+    p = _cache_path(code)
+    if p.exists():
+        try:
+            df = pd.read_parquet(p)
+        except Exception:
+            # 古い形式(csv.gz)への後方互換
+            try:
+                df = pd.read_csv(p.with_suffix(".csv"), parse_dates=["Date"])
+                df = df.set_index("Date")
+            except Exception:
+                return pd.DataFrame()
+        return _normalize(df)
+    return pd.DataFrame()
 
 def _write_cache(code: str, df: pd.DataFrame) -> None:
-    try:
-        df.to_csv(_cache_path(code))
-    except Exception as e:
-        _log("cache write err", code, e)
+    if df is None or df.empty:
+        return
+    df = _normalize(df)
+    _cache_path(code).parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(_cache_path(code))
 
-def _read_seed(code: str) -> Optional[pd.DataFrame]:
-    p = SEED_DIR / f"{code}.csv"
-    if not p.exists():
-        return None
-    try:
-        _log("read seed", str(p))
-        df = pd.read_csv(p, parse_dates=[0], index_col=0)
-        df.columns = [c.lower() for c in df.columns]
-        keep = [c for c in ["open", "high", "low", "close", "volume"] if c in df.columns]
-        df = df[keep].sort_index()
-        return df
-    except Exception as e:
-        _log("seed read err", code, e)
-        return None
+def _download_yf(code: str, full: bool) -> pd.DataFrame:
+    if yf is None:
+        raise RuntimeError("yfinance が未インストールです。pip install yfinance を実行してください。")
 
-# -------------------- 公開関数 --------------------
-def get_prices(code: str, nbars: int = 180) -> pd.DataFrame:
+    ticker = _ticker_for(code)
+    period = f"{FULL_YEARS}y" if full else f"{INCR_DAYS}d"
+    _log("yfinance download", ticker, "period=", period)
+    # NOTE: yfinanceは内部でUser-Agent等も設定してくれる。timeoutは環境変数で調整。
+    df = yf.download(
+        tickers=ticker,
+        period=period,
+        interval="1d",
+        progress=False,
+        threads=False,
+        timeout=HTTP_TIMEOUT,
+        auto_adjust=False,
+    )
+    return _normalize(df)
+
+def _merge(old: pd.DataFrame, new: pd.DataFrame) -> pd.DataFrame:
+    if old is None or old.empty:
+        return new
+    if new is None or new.empty:
+        return old
+    m = pd.concat([old, new]).sort_index()
+    m = m[~m.index.duplicated(keep="last")]
+    return m
+
+# --- Public API --------------------------------------------------------------
+
+def get_prices(code: str, nbars: int) -> pd.DataFrame:
     """
-    返り値が空なら外部到達不可の可能性大。DEBUG=1で試行ログを確認してください。
+    実データのみ返す。
+    - キャッシュが新鮮 → そのまま nbars 返す
+    - 古い/なし → yfinance で取得 → キャッシュ更新 → nbars 返す
+    - yfinance が失敗した場合:
+        * 古いキャッシュがあればそれを返す
+        * それも無ければ空 DataFrame を返す（ダミーは返さない）
     """
-    # 0) シード（ローカル）最優先
-    df = _read_seed(code)
-    if df is not None and len(df) > 0:
-        return df.tail(nbars).copy()
+    code = str(code).strip()
+    cache = _read_cache(code)
+    p = _cache_path(code)
 
-    # 1) キャッシュ
-    cached = _read_cache(code)
-    if cached is not None and len(cached) >= min(20, nbars // 2):
-        return cached.tail(nbars).copy()
+    # 新鮮ならキャッシュ優先
+    if _is_fresh(p) and not cache.empty:
+        return cache.tail(nbars)
 
-    # 2) Yahoo → 3) Stooq
-    df = _fetch_yahoo_daily(code)
-    if len(df) == 0:
-        df = _fetch_stooq_daily(code)
+    # まず“差分”取得を試み、無ければフル
+    merged = cache.copy()
+    ok = False
+    tries = HTTP_RETRIES + 1
+    for i in range(tries):
+        try:
+            incr = _download_yf(code, full=False if not cache.empty else True)
+            if not incr.empty:
+                merged = _merge(cache, incr)
+                _write_cache(code, merged)
+                ok = True
+                break
+            # 差分が空ならフルで保険
+            incr = _download_yf(code, full=True)
+            if not incr.empty:
+                merged = _merge(cache, incr)
+                _write_cache(code, merged)
+                ok = True
+                break
+        except Exception as e:
+            _log("retry", i+1, "err=", repr(e))
+            time.sleep(0.8 * (i+1))
 
-    if len(df) > 0:
-        df = df.sort_index().tail(nbars)
-        _write_cache(code, df)
-        return df
+    if ok and not merged.empty:
+        return merged.tail(nbars)
 
-    # どれもダメ
-    return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+    # 取得に失敗：最後のキャッシュで妥協（無ければ空）
+    if not cache.empty:
+        return cache.tail(nbars)
+    return pd.DataFrame(columns=["open","high","low","close","volume"])
