@@ -6,11 +6,12 @@ from django.db import models
 
 class StockMaster(models.Model):
     """
-    JPX銘柄マスタ（最小限）
-    - code: 4桁など（ETF/REIT等も含む想定）
-    - name: 企業名/銘柄名（NFKC正規化は取り込み側で実施）
-    - sector_code: 33業種コード（文字列で保持、"50" など）
-    - sector_name: 33業種の日本語名（例: 食料品）
+    JPX銘柄マスタ
+    - code: 証券コード（4〜5桁想定、ETF/REIT/外国株等も含む）
+    - name: 銘柄名（NFKC正規化は取り込み側で実施）
+    - sector_code: 33業種コード（文字列・3桁、例 "025"）
+    - sector_name: 33業種名（例 "食料品"）
+    ※ 旧環境の後方互換: sector33 を持つDBでも fetch_master が吸収して書き込みます
     """
     code = models.CharField(max_length=12, unique=True, db_index=True)
     name = models.CharField(max_length=255)
