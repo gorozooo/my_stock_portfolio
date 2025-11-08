@@ -4,9 +4,10 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import unicodedata
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
@@ -18,30 +19,25 @@ from aiapp.models.features import compute_features
 from aiapp.models.scoring import score_and_detail
 
 
-# ===== 既定（ユーザー指定がなければ短期×攻め×淡々） =====
-DEFAULT_HORIZON = "short"        # short / mid / long
-DEFAULT_MODE    = "aggressive"   # aggressive / normal / defensive
-DEFAULT_TONE    = "calm"         # calm / neutral / positive
+# ===== 既定 =====
+DEFAULT_HORIZON = "short"
+DEFAULT_MODE    = "aggressive"
+DEFAULT_TONE    = "calm"
 
-# ユニバース最大件数（重すぎ防止）
-UNIVERSE_LIMIT = int(getattr(settings, "AIAPP_UNIVERSE_LIMIT", 400))
+UNIVERSE_LIMIT  = int(getattr(settings, "AIAPP_UNIVERSE_LIMIT", 400))
+SNAPSHOT_DIR    = getattr(settings, "AIAPP_SNAPSHOT_DIR", "media/aiapp/picks")
+SAVE_SNAPSHOT   = bool(getattr(settings, "AIAPP_SAVE_SNAPSHOT", False))
 
-# スナップショット（任意保存）。無ければオンデマンドで計算して表示
-SNAPSHOT_DIR   = getattr(settings, "AIAPP_SNAPSHOT_DIR", "media/aiapp/picks")
-SAVE_SNAPSHOT  = bool(getattr(settings, "AIAPP_SAVE_SNAPSHOT", False))
+RISK_PCT            = float(getattr(settings, "AIAPP_RISK_PCT", 0.02))
+TOTAL_EQUITY        = float(getattr(settings, "AIAPP_TOTAL_EQUITY", 1_000_000))
+CASH_BUYING_POWER   = getattr(settings, "AIAPP_CASH_BUYING_POWER", None)
+MARGIN_BUYING_POWER = getattr(settings, "AIAPP_MARGIN_BUYING_POWER", None)
+LOT_SIZE            = int(getattr(settings, "AIAPP_LOT_SIZE", 100))
 
-# リスク・資金まわり（本番では settings.py で上書きOK）
-RISK_PCT            = float(getattr(settings, "AIAPP_RISK_PCT", 0.02))               # 許容リスク=総資産×2%
-TOTAL_EQUITY        = float(getattr(settings, "AIAPP_TOTAL_EQUITY", 1_000_000))      # 総資産（円）
-CASH_BUYING_POWER   = getattr(settings, "AIAPP_CASH_BUYING_POWER", None)             # 現物買付可能額（任意）
-MARGIN_BUYING_POWER = getattr(settings, "AIAPP_MARGIN_BUYING_POWER", None)           # 信用余力（任意）
-LOT_SIZE            = int(getattr(settings, "AIAPP_LOT_SIZE", 100))                  # ← 単元を100株に固定
-
-TOPN = 10  # 表示件数
+TOPN = 10
 
 
-# ====== 小ユーティリティ ======
-
+# ===== ユーティリティ =====
 def _session_get(request: HttpRequest, key: str, default=None):
     return request.session.get(key, default)
 
@@ -85,7 +81,6 @@ def _save_snapshot(items: List[Dict], kind: str = "live"):
         pass
 
 def _pick_atr_last(feat) -> float:
-    """特徴量からATR系の最新値を安全に取得。なければ0."""
     try:
         atr_cols = [c for c in feat.columns if "ATR" in c.upper()]
         if atr_cols:
@@ -95,14 +90,11 @@ def _pick_atr_last(feat) -> float:
     return 0.0
 
 def _score_to_100(score: float) -> int:
-    """スコア(-5..+5想定)を0..100へ正規化。"""
-    v = (score + 5.0) / 10.0  # 0..1
+    v = (score + 5.0) / 10.0
     return int(max(0, min(100, round(v * 100))))
 
 def _fmt_reason_lines(reasons: Dict[str, float], last_close: float, atr: float) -> List[str]:
-    """数値理由を短文＋数字で整形。最後に必要なら懸念を付与。"""
     lines: List[str] = []
-
     rsi   = reasons.get("rsi")
     macd  = reasons.get("macd_hist")
     vgap  = reasons.get("vwap_gap_pct")
@@ -110,12 +102,9 @@ def _fmt_reason_lines(reasons: Dict[str, float], last_close: float, atr: float) 
     slope = reasons.get("slope")
 
     if rsi is not None:
-        if rsi >= 70:
-            lines.append(f"RSI {rsi:.0f}（強め・過熱気味）")
-        elif rsi >= 50:
-            lines.append(f"RSI {rsi:.0f}（50超え＝上向き）")
-        else:
-            lines.append(f"RSI {rsi:.0f}（弱め）")
+        if rsi >= 70: lines.append(f"RSI {rsi:.0f}（強め・過熱気味）")
+        elif rsi >= 50: lines.append(f"RSI {rsi:.0f}（50超え＝上向き）")
+        else: lines.append(f"RSI {rsi:.0f}（弱め）")
 
     if macd is not None:
         lines.append(("MACDヒスト +%.3f（買い優勢）" if macd > 0 else "MACDヒスト %.3f（売り優勢）") % macd)
@@ -134,81 +123,45 @@ def _fmt_reason_lines(reasons: Dict[str, float], last_close: float, atr: float) 
         lines.append(f"ボラ目安 ATR={atr:.1f}円（株価比 {vol_pct:.1f}%）")
 
     concerns: List[str] = []
-    if rsi is not None and rsi > 75:
-        concerns.append("RSI過熱")
-    if vgap is not None and vgap > 1.5:
-        concerns.append("短期乖離が大きい")
-    if last_close and atr and (atr / last_close) > 0.04:
-        concerns.append("値動きが荒い")
-    if concerns:
-        lines.append("懸念：" + "・".join(concerns))
-
+    if rsi is not None and rsi > 75: concerns.append("RSI過熱")
+    if vgap is not None and vgap > 1.5: concerns.append("短期乖離が大きい")
+    if last_close and atr and (atr / last_close) > 0.04: concerns.append("値動きが荒い")
+    if concerns: lines.append("懸念：" + "・".join(concerns))
     return lines
 
 def _position_sizing(entry: float, sl: float, last_close: float) -> Tuple[int, float, float]:
-    """
-    リスク基準で株数を決定し、単元（LOT_SIZE）に丸める。
-    - 許容リスク金額 = 総資産 × RISK_PCT
-    - 1株リスク = max(entry - sl, 最低ティック相当)
-    - 生の株数 = floor(許容リスク金額 / 1株リスク)
-    - 単元に切り下げ：qty = (生株数 // LOT_SIZE) * LOT_SIZE
-    - 現物/信用の買付上限があれば、さらにクリップ
-    """
     if entry <= 0 or sl <= 0 or entry <= sl:
         return (0, 0.0, 0.0)
-
-    per_share_risk = max(entry - sl, max(1.0, last_close * 0.001))  # 1円 or 0.1%
+    per_share_risk = max(entry - sl, max(1.0, last_close * 0.001))
     allow_risk = max(TOTAL_EQUITY * RISK_PCT, 1.0)
-
     raw_qty = int(math.floor(allow_risk / per_share_risk))
-    qty = (raw_qty // LOT_SIZE) * LOT_SIZE  # ← ここで100株単元に揃える
-
-    # 現物/信用の上限
+    qty = (raw_qty // LOT_SIZE) * LOT_SIZE
     if qty > 0:
         if CASH_BUYING_POWER:
             max_cash_qty = int(CASH_BUYING_POWER // entry)
-            max_cash_qty = (max_cash_qty // LOT_SIZE) * LOT_SIZE
-            qty = min(qty, max_cash_qty)
+            qty = min(qty, (max_cash_qty // LOT_SIZE) * LOT_SIZE)
         if MARGIN_BUYING_POWER:
             max_margin_qty = int(MARGIN_BUYING_POWER // entry)
-            max_margin_qty = (max_margin_qty // LOT_SIZE) * LOT_SIZE
-            qty = min(qty, max_margin_qty)
-
+            qty = min(qty, (max_margin_qty // LOT_SIZE) * LOT_SIZE)
     required_cash = qty * entry if qty > 0 else 0.0
     est_loss = qty * (entry - sl) if qty > 0 else 0.0
     return qty, required_cash, est_loss
 
 def _entry_tp_sl(last_close: float, atr: float, horizon: str, mode: str) -> Tuple[float, float, float]:
-    """
-    Entry/TP/SLの既定。
-    - Entry: 追いかけ防止で軽い押し目待ち（短期×攻め=0.25×ATR押し）
-    - TP/SL: ATR係数
-    """
     if last_close <= 0:
         return (0.0, 0.0, 0.0)
-
     if horizon == "short":
-        if mode == "aggressive":
-            tp_k, sl_k, ent_k = 1.5, 1.0, 0.25
-        elif mode == "defensive":
-            tp_k, sl_k, ent_k = 1.0, 0.8, 0.10
-        else:
-            tp_k, sl_k, ent_k = 1.2, 0.9, 0.15
+        if mode == "aggressive": tp_k, sl_k, ent_k = 1.5, 1.0, 0.25
+        elif mode == "defensive": tp_k, sl_k, ent_k = 1.0, 0.8, 0.10
+        else: tp_k, sl_k, ent_k = 1.2, 0.9, 0.15
     elif horizon == "mid":
-        if mode == "aggressive":
-            tp_k, sl_k, ent_k = 2.0, 1.2, 0.35
-        elif mode == "defensive":
-            tp_k, sl_k, ent_k = 1.4, 1.0, 0.15
-        else:
-            tp_k, sl_k, ent_k = 1.7, 1.1, 0.25
-    else:  # long
-        if mode == "aggressive":
-            tp_k, sl_k, ent_k = 3.0, 1.6, 0.50
-        elif mode == "defensive":
-            tp_k, sl_k, ent_k = 2.0, 1.2, 0.20
-        else:
-            tp_k, sl_k, ent_k = 2.5, 1.4, 0.30
-
+        if mode == "aggressive": tp_k, sl_k, ent_k = 2.0, 1.2, 0.35
+        elif mode == "defensive": tp_k, sl_k, ent_k = 1.4, 1.0, 0.15
+        else: tp_k, sl_k, ent_k = 1.7, 1.1, 0.25
+    else:
+        if mode == "aggressive": tp_k, sl_k, ent_k = 3.0, 1.6, 0.50
+        elif mode == "defensive": tp_k, sl_k, ent_k = 2.0, 1.2, 0.20
+        else: tp_k, sl_k, ent_k = 2.5, 1.4, 0.30
     vol = atr / last_close if (last_close > 0 and atr > 0) else 0.01
     entry = last_close * (1 - ent_k * vol)
     tp    = last_close * (1 + tp_k  * vol)
@@ -216,68 +169,107 @@ def _entry_tp_sl(last_close: float, atr: float, horizon: str, mode: str) -> Tupl
     return entry, tp, sl
 
 
-# ---- 33業種の名称解決（コードが来ても名称に直す） ----
+# ===== 33業種の確実な名称解決 =====
+# 候補になりそうなフィールド名を広くカバー（JPXマスタの列が何で入っても拾う）
 _SECTOR_NAME_FIELDS = [
     "sector_name", "sector33_name", "industry33_name", "industry_name",
-    "sector_jp", "industry_jp"
+    "sector_jp", "industry_jp", "sector_label", "industry_label",
+    "category", "category_name",
 ]
 _SECTOR_CODE_FIELDS = [
-    "sector_code", "sector33_code", "industry33_code", "industry_code", "sector"
+    "sector_code", "sector33_code", "industry33_code", "industry_code",
+    "sector", "industry", "category_code",
 ]
 
-# 代表的コードの簡易マップ（来る値が「50」「0050」等のとき）
-_SECTOR_CODE_TO_NAME = {
-    "50": "食料品", "0050": "食料品",
-    "5": "水産・農林業", "0005": "水産・農林業",
-    "10": "繊維製品", "0010": "繊維製品",
-    "15": "パルプ・紙", "0015": "パルプ・紙",
-    "17": "医薬品", "0017": "医薬品",
-    "20": "化学", "0020": "化学",
-    "25": "ゴム製品", "0025": "ゴム製品",
-    "30": "ガラス・土石製品", "0030": "ガラス・土石製品",
-    "35": "鉄鋼", "0035": "鉄鋼",
-    "40": "非鉄金属", "0040": "非鉄金属",
-    "45": "金属製品", "0045": "金属製品",
-    "55": "繊維・紙パ", "0055": "繊維・紙パ",  # 予備（誤コード吸収）
-    "60": "機械", "0060": "機械",
-    "65": "電気機器", "0065": "電気機器",
-    "70": "輸送用機器", "0070": "輸送用機器",
-    "75": "精密機器", "0075": "精密機器",
-    "80": "その他製品", "0080": "その他製品",
-    "105": "水産・農林業", "0105": "水産・農林業",  # ベンダ差吸収
+# JPX 33業種（代表的なコード文字列 → 日本語名）
+# ※ ベンダや資料で "50"/"0050" のような表記ゆれを吸収
+_JPX33_MAP = {
+    "005": "水産・農林業", "5": "水産・農林業", "0005": "水産・農林業",
+    "010": "鉱業", "10": "鉱業", "0010": "鉱業",
+    "020": "建設業", "20": "建設業", "0020": "建設業",
+    "025": "食料品", "25": "食料品", "0025": "食料品", "50": "食料品", "0050": "食料品",
+    "030": "繊維製品", "30": "繊維製品", "0030": "繊維製品",
+    "035": "パルプ・紙", "35": "パルプ・紙", "0035": "パルプ・紙",
+    "040": "化学", "40": "化学", "0040": "化学",
+    "045": "医薬品", "45": "医薬品", "0045": "医薬品", "17": "医薬品", "0017": "医薬品",
+    "050": "石油・石炭製品", "0050x": "石油・石炭製品",
+    "055": "ゴム製品", "55": "ゴム製品", "0055": "ゴム製品",
+    "060": "ガラス・土石製品", "60": "ガラス・土石製品", "0060": "ガラス・土石製品",
+    "065": "鉄鋼", "65": "鉄鋼", "0065": "鉄鋼",
+    "070": "非鉄金属", "70": "非鉄金属", "0070": "非鉄金属",
+    "075": "金属製品", "75": "金属製品", "0075": "金属製品",
+    "080": "機械", "80": "機械", "0080": "機械",
+    "085": "電気機器", "85": "電気機器", "0085": "電気機器", "65x": "電気機器",
+    "090": "輸送用機器", "90": "輸送用機器", "0090": "輸送用機器",
+    "095": "精密機器", "95": "精密機器", "0095": "精密機器",
+    "100": "その他製品",
+    "105": "電気・ガス業",
+    "110": "陸運業",
+    "115": "海運業",
+    "120": "空運業",
+    "125": "倉庫・運輸関連業",
+    "130": "情報・通信業",
+    "135": "卸売業",
+    "140": "小売業",
+    "145": "銀行業",
+    "150": "証券・商品先物取引業",
+    "155": "保険業",
+    "160": "その他金融業",
+    "165": "不動産業",
+    "170": "サービス業",
 }
 
+# 記号や空白のみの文字列を空扱いにする
+_EMPTY_RE = re.compile(r"^[\s・\-–—~＿\.]*$")
+
+def _clean_or_none(s: str) -> str | None:
+    if not s:
+        return None
+    s2 = _nfkc(str(s)).strip()
+    if not s2 or _EMPTY_RE.match(s2):
+        return None
+    return s2
+
 def _resolve_sector(obj: StockMaster) -> str:
-    # まず名称フィールドを試す
+    # 1) 名称フィールドを優先
     for f in _SECTOR_NAME_FIELDS:
-        v = getattr(obj, f, None)
-        if v:
-            return _nfkc(str(v))
-    # 次にコードっぽい値から推定
+        if hasattr(obj, f):
+            v = _clean_or_none(getattr(obj, f))
+            if v:
+                return v
+
+    # 2) コードを名称に変換
     for f in _SECTOR_CODE_FIELDS:
-        v = getattr(obj, f, None)
-        if v is None:
-            continue
-        s = str(v).strip()
-        if s.isdigit() or (len(s) in (2,4) and s.replace("0","").isdigit()):
-            name = _SECTOR_CODE_TO_NAME.get(s)
-            if not name and len(s) == 2:
-                name = _SECTOR_CODE_TO_NAME.get(s.zfill(4))
-            if name:
-                return name
-    # 最後に industry/sector の文字値そのもの（数字なら表示しない）
-    fallbacks = [getattr(obj, "sector", None), getattr(obj, "industry33", None), getattr(obj, "industry", None)]
-    for v in fallbacks:
-        if not v:
-            continue
-        sv = str(v).strip()
-        if not sv.isdigit():
-            return _nfkc(sv)
+        if hasattr(obj, f):
+            raw = getattr(obj, f)
+            if raw is None:
+                continue
+            s = _nfkc(str(raw)).strip()
+            if not s:
+                continue
+            # "50", "0050", " 050 " などを吸収
+            s_norm = s.zfill(3) if s.isdigit() and len(s) <= 3 else s
+            # 3桁・4桁・2桁も順に当ててみる
+            cand = (
+                _JPX33_MAP.get(s)
+                or _JPX33_MAP.get(s_norm)
+                or _JPX33_MAP.get(s.zfill(4))
+                or _JPX33_MAP.get(s.split(".")[0])  # "50.0" のような表記ゆれ
+            )
+            if cand:
+                return cand
+
+    # 3) 最後の保険：industry/sector文字列があるなら（数字のみは捨てる）
+    for f in ("sector", "industry33", "industry", "category"):
+        if hasattr(obj, f):
+            v = _clean_or_none(getattr(obj, f))
+            if v and not v.isdigit():
+                return v
+
     return "—"
 
 
-# ====== オンデマンド構築 ======
-
+# ===== LIVE 構築 =====
 def _build_live_items(horizon: str, mode: str, topn: int = TOPN) -> List[Dict]:
     qs = StockMaster.objects.all().order_by("code")[:UNIVERSE_LIMIT]
     got: List[Dict] = []
@@ -307,12 +299,10 @@ def _build_live_items(horizon: str, mode: str, topn: int = TOPN) -> List[Dict]:
             "name": name,
             "name_norm": _nfkc(name),
             "sector": sector,
-
             "score": round(detail.score, 3),
-            "score_100": _score_to_100(detail.score),  # 0..100
+            "score_100": _score_to_100(detail.score),
             "stars": int(detail.stars),
             "rules_hit": int(detail.rules_hit),
-
             "last_close": last_close,
             "entry": entry,
             "tp": tp,
@@ -321,7 +311,6 @@ def _build_live_items(horizon: str, mode: str, topn: int = TOPN) -> List[Dict]:
             "required_cash": required_cash,
             "est_pl": est_profit,
             "est_loss": est_loss,
-
             "reasons_text": reasons_text,
         })
 
@@ -329,43 +318,28 @@ def _build_live_items(horizon: str, mode: str, topn: int = TOPN) -> List[Dict]:
     return got[:topn]
 
 
-# ====== ビュー本体 ======
-
+# ===== ビュー =====
 def picks(request: HttpRequest) -> HttpResponse:
-    """
-    /aiapp/picks/
-      ?mode=live|demo （既定 live）
-      ?reset=1        （セッション初期化）
-      ?horizon=short|mid|long
-      ?style=aggressive|normal|defensive
-    """
-    # セッション初期化
     if request.GET.get("reset") == "1":
         for k in ["aiapp_mode", "aiapp_horizon", "aiapp_style", "aiapp_tone"]:
             if k in request.session:
                 del request.session[k]
 
-    # モード
     mode = request.GET.get("mode") or _session_get(request, "aiapp_mode", "live")
-    if mode not in ("live", "demo"):
-        mode = "live"
+    if mode not in ("live", "demo"): mode = "live"
     _session_set(request, "aiapp_mode", mode)
 
-    # 期間・スタイル・トーン
     horizon = request.GET.get("horizon") or _session_get(request, "aiapp_horizon", DEFAULT_HORIZON)
-    if horizon not in ("short", "mid", "long"):
-        horizon = DEFAULT_HORIZON
+    if horizon not in ("short", "mid", "long"): horizon = DEFAULT_HORIZON
     _session_set(request, "aiapp_horizon", horizon)
 
     style = request.GET.get("style") or _session_get(request, "aiapp_style", DEFAULT_MODE)
-    if style not in ("aggressive", "normal", "defensive"):
-        style = DEFAULT_MODE
+    if style not in ("aggressive", "normal", "defensive"): style = DEFAULT_MODE
     _session_set(request, "aiapp_style", style)
 
     tone = request.GET.get("tone") or _session_get(request, "aiapp_tone", DEFAULT_TONE)
     _session_set(request, "aiapp_tone", tone)
 
-    # データ取得（DEMO明示時だけデモ読む。LIVEはオンデマンド）
     is_demo = (mode == "demo")
     if is_demo:
         items = _load_snapshot_latest("demo")
