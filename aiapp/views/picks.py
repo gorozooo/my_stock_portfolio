@@ -1,63 +1,147 @@
-# aiapp/views/picks.py
+# -*- coding: utf-8 -*-
 from __future__ import annotations
-import os, json, datetime as dt
+
+import json
+import os
 from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
+
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse, JsonResponse, Http404
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
+from django.utils.timezone import now
 
+
+# ===== 設定 =====
 MEDIA_ROOT = Path(getattr(settings, "MEDIA_ROOT", "media"))
-PICKS_DIR  = MEDIA_ROOT / "aiapp" / "picks"
+PICKS_DIR = MEDIA_ROOT / "aiapp" / "picks"
 
-DEFAULT_HORIZON = "short"
-DEFAULT_MODE    = "aggressive"
+# 探索優先順位（上から順に試す）
+CANDIDATES = [
+    "latest_lite.json",
+    "latest_full.json",
+    "latest.json",            # ← ← ← あなたのsymlinkをここで拾う
+    "latest_synthetic.json",
+]
 
-def _latest_path(horizon: str, mode: str) -> Path:
-    return PICKS_DIR / f"latest_{horizon}_{mode}.json"
+# ファイル名パターン（バックアップ保険：最新のスナップショットを拾う）
+GLOB_PATTERNS = [
+    "*_short_aggressive.json",
+    "*_short_aggressive_lite.json",
+    "*_short_aggressive_full.json",
+    "*_short_aggressive_synthetic.json",
+    "picks_*.json",
+]
+
+
+def _debug(msg: str) -> None:
+    # 本番でもINFO相当を見たいのでprintにしています（gunicornの標準出力へ）
+    print(f"[picks-view] {msg}")
+
+
+def _load_json(path: Path) -> Optional[Dict[str, Any]]:
+    try:
+        if not path.exists():
+            return None
+        # シンボリックリンクも実体へ解決
+        real = path.resolve()
+        data = json.loads(real.read_text(encoding="utf-8"))
+        return data
+    except Exception as e:
+        _debug(f"read error: {path} -> {e}")
+        return None
+
+
+def _find_snapshot() -> Tuple[Optional[Path], Optional[Dict[str, Any]]]:
+    """
+    表示用スナップショットを探す：
+      1) 固定候補（lite/full/latest/synthetic）
+      2) パターン一致で一番新しいファイル
+    """
+    if not PICKS_DIR.exists():
+        _debug(f"PICKS_DIR not found: {PICKS_DIR}")
+        return None, None
+
+    # 1) 固定候補
+    for name in CANDIDATES:
+        p = PICKS_DIR / name
+        d = _load_json(p)
+        if d and isinstance(d.get("items"), list):
+            _debug(f"hit candidate: {name} items={len(d['items'])}")
+            return p, d
+
+    # 2) パターン一致の中から最終更新が最新のもの
+    latest_path: Optional[Path] = None
+    latest_mtime = -1.0
+    for pat in GLOB_PATTERNS:
+        for p in PICKS_DIR.glob(pat):
+            try:
+                m = p.stat().st_mtime
+                if m > latest_mtime:
+                    latest_mtime = m
+                    latest_path = p
+            except OSError:
+                continue
+
+    if latest_path:
+        d = _load_json(latest_path)
+        if d and isinstance(d.get("items"), list):
+            _debug(f"hit glob: {latest_path.name} items={len(d['items'])}")
+            return latest_path, d
+
+    _debug("no snapshot found")
+    return None, None
+
+
+def _build_view_model(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    テンプレに渡す簡易ViewModel。
+    data スキーマは picks_build が出す JSON を想定（items/ts/style/horizon など）
+    """
+    items = data.get("items", [])
+    meta = {
+        "style": data.get("style", "aggressive"),
+        "horizon": data.get("horizon", "short"),
+        "mode": data.get("mode", "LIVE/DEMO"),
+        "ts": data.get("ts") or data.get("timestamp"),
+    }
+
+    # 最終更新の表示テキスト（tsが無ければサーバ現在時刻）
+    if meta["ts"]:
+        last_updated = meta["ts"]
+    else:
+        last_updated = now().strftime("%Y/%m/%d %H:%M")
+
+    return {
+        "items": items,
+        "meta": meta,
+        "last_updated": last_updated,
+    }
+
 
 def picks(request: HttpRequest) -> HttpResponse:
     """
-    読み取り専用ビュー：事前生成済み latest_*.json を読むだけ。
-    例）/aiapp/picks/?h=short&m=aggressive
+    /aiapp/picks/ 画面
+     - スナップショット優先順でJSONを探し、見つかったものを表示
+     - 見つからなければ「0件」メッセージ
     """
-    h = request.GET.get("h", DEFAULT_HORIZON)
-    m = request.GET.get("m", DEFAULT_MODE)
+    path, data = _find_snapshot()
 
-    p = _latest_path(h, m)
-    if not p.exists():
-        # まだ一度も生成されていない場合は空表示（テンプレ側で“初回生成してください”を出す）
+    if not data:
+        # 何も無い場合でもテンプレは空で成立する
         ctx = {
-            "snapshot": {
-                "ts": None, "mode": m, "horizon": h, "items": [],
-                "universe": None, "version": "picks-v3.1", "metrics": {}
-            },
-            "updated_at": None,
-            "is_live": False,  # DEMO扱い
+            "items": [],
+            "meta": {"style": "aggressive", "horizon": "short", "mode": "LIVE/DEMO", "ts": None},
+            "last_updated": "",
+            "info_msg": "候補が0件です。直近のスナップショットが存在しません。",
         }
+        _debug("render empty list")
         return render(request, "aiapp/picks.html", ctx)
 
-    with open(p, "r", encoding="utf-8") as f:
-        snap = json.load(f)
-
-    # 最終更新の表示
-    try:
-        ts = dt.datetime.fromisoformat(snap.get("ts")).astimezone(dt.timezone(dt.timedelta(hours=9)))
-        updated_at = ts.strftime("%Y/%m/%d(%a) %H:%M")
-    except Exception:
-        updated_at = None
-
-    # 一旦 “LIVE” バッジは「ファイル更新から15分以内」をLIVE扱い
-    is_live = False
-    try:
-        mtime = dt.datetime.fromtimestamp(p.stat().st_mtime, tz=dt.timezone.utc).astimezone(dt.timezone(dt.timedelta(hours=9)))
-        is_live = (dt.datetime.now(dt.timezone(dt.timedelta(hours=9))) - mtime) <= dt.timedelta(minutes=15)
-    except Exception:
-        pass
-
-    ctx = {
-        "snapshot": snap,
-        "updated_at": updated_at,
-        "is_live": is_live,
-        "h": h, "m": m,
-    }
-    return render(request, "aiapp/picks.html", ctx)
+    vm = _build_view_model(data)
+    # 参考用ログ
+    _debug(
+        f"render {path.name} items={len(vm['items'])} "
+        f"style={vm['meta'].get('style')} horizon={vm['meta'].get('horizon')}"
+    )
+    return render(request, "aiapp/picks.html", vm)
