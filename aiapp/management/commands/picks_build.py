@@ -206,7 +206,7 @@ def _pid_exists(pid: int) -> bool:
         return True
 
 class Command(BaseCommand):
-    help = "Build top-10 picks snapshot as JSON (all JPX universe) for the given horizon/mode."
+    help = "Build top-10 picks snapshot as JSON (all JPX universe) for the given horizon/mode)."
 
     def add_arguments(self, parser):
         parser.add_argument("--horizon", default=DEFAULT_HORIZON, choices=["short","mid","long"])
@@ -245,20 +245,35 @@ class Command(BaseCommand):
         self.stdout.write(self.style.NOTICE(f"[picks_build] start {horizon}/{mode}"))
 
         try:
-            qs = StockMaster.objects.all().values_list("code","name","sector33")
-            universe = [(c,n,s or "") for c,n,s in qs]
+            # ---- StockMaster のフィールド差異に対応 ----
+            # 優先: sector_name（33業種の日本語名想定）→ 次点: sector33 → 無ければ空
+            fields = [f.name for f in StockMaster._meta.get_fields()]
+            sector_field = "sector_name" if "sector_name" in fields else ("sector33" if "sector33" in fields else None)
+
+            if sector_field:
+                qs = StockMaster.objects.all().values_list("code", "name", sector_field)
+            else:
+                qs = StockMaster.objects.all().values_list("code", "name")
+            universe = []
+            for row in qs:
+                if sector_field:
+                    c, n, s = row
+                    universe.append((c, n, s or ""))
+                else:
+                    c, n = row
+                    universe.append((c, n, ""))
 
             results = []
             with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-                futs = {ex.submit(_compute_one, code, horizon, mode): (code,name,sector) for code,name,sector in universe}
+                futs = {ex.submit(_compute_one, code, horizon, mode): (code, name, sector) for code, name, sector in universe}
                 for fu in as_completed(futs):
-                    code,name,sector = futs[fu]
+                    code, name, sector = futs[fu]
                     item = fu.result()
                     if item is None:
                         continue
                     item["code"] = code
                     item["name"] = name
-                    item["sector33"] = sector
+                    item["sector33"] = sector  # スナップショット上のキーは sector33 名で統一（表示側互換）
                     results.append(item)
 
             if not results:
