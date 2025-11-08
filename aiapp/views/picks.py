@@ -6,6 +6,7 @@ import pathlib
 from datetime import datetime
 
 from django.shortcuts import render
+from django.http import JsonResponse, HttpResponse
 from django.conf import settings
 
 PICKS_DIR = pathlib.Path(getattr(settings, "MEDIA_ROOT", "media")) / "aiapp" / "picks"
@@ -19,7 +20,7 @@ def _load_json(path: pathlib.Path) -> dict:
 def _pick_latest() -> tuple[list[dict], str, str]:
     """
     優先順位:
-      1) latest_lite.json（日中の差分あり）
+      1) latest_lite.json（日中の差分）
       2) latest_full.json（夜間の完全/スナップショット）
       3) latest.json（互換）
     """
@@ -46,22 +47,53 @@ def picks(request):
         "risk_pct": 0.02,
     }
 
-    # “親しみトーン”の理由テキスト整形（テンプレが reasons_text を期待）
+    # 親しみトーンの理由テキスト整形
     for it in ctx["items"]:
         r = it.get("reasons", {}) or {}
         lines = []
         if "trend" in r:
-            lines.append(f"直近の流れは+{r['trend']:.1f}%で上向き。勢いは続きやすいムード。")
+            try:
+                lines.append(f"直近の流れは+{float(r['trend']):.1f}%で上向き。勢いは続きやすいムード。")
+            except Exception:
+                pass
         if "rs" in r:
-            lines.append(f"指数比の相対強度も+{r['rs']:.1f}%と健闘。ベンチよりやや強め。")
+            try:
+                lines.append(f"指数比の相対強度も+{float(r['rs']):.1f}%と健闘。ベンチよりやや強め。")
+            except Exception:
+                pass
         if "vol_signal" in r:
-            lines.append(f"出来高は平均比×{r['vol_signal']:.2f}。注目度が高まっている可能性。")
+            try:
+                lines.append(f"出来高は平均比×{float(r['vol_signal']):.2f}。注目度が高まっている可能性。")
+            except Exception:
+                pass
         if "atr" in r:
-            lines.append(f"ボラはATR≈{r['atr']:.1f}。過度ではなく扱いやすいレンジ。")
+            try:
+                lines.append(f"ボラはATR≈{float(r['atr']):.1f}。過度ではなく扱いやすいレンジ。")
+            except Exception:
+                pass
         it["reasons_text"] = lines
 
-        # 点数と⭐️補正（表示要望どおり“99/100”→“99点”）
-        it["score_100"] = max(0, min(100, int(round(it.get("score_100", 0)))))
-        it["stars"]     = max(1, min(5, int(it.get("stars", 1))))
+        # 表示フォーマット補正
+        try:
+            it["score_100"] = max(0, min(100, int(round(it.get("score_100", 0)))))
+        except Exception:
+            it["score_100"] = 0
+        try:
+            it["stars"] = max(1, min(5, int(it.get("stars", 1))))
+        except Exception:
+            it["stars"] = 1
 
     return render(request, "aiapp/picks.html", ctx)
+
+def picks_json(request):
+    """最新ピックをJSONで返す（フロント/監視用）"""
+    items, mode, ts = _pick_latest()
+    resp = JsonResponse({
+        "items": items,
+        "mode": mode,
+        "updated_at": ts,
+    }, json_dumps_params={"ensure_ascii": False})
+    # 強制ノーキャッシュ（スマホSafari対策）
+    resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp["Pragma"] = "no-cache"
+    return resp
