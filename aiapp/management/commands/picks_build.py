@@ -6,6 +6,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 from django.conf import settings
@@ -14,7 +15,7 @@ from django.core.management.base import BaseCommand
 from aiapp.models import StockMaster
 from aiapp.services.fetch_price import get_prices
 
-# Optional: フル評価が使えるなら使う
+# フル評価（入っていれば使う／無くてもOK）
 try:
     from aiapp.models.features import compute_features
 except Exception:
@@ -31,10 +32,16 @@ OUT_DIR     = MEDIA_ROOT / "aiapp" / "picks"
 UNIV_DIR    = Path("aiapp") / "data" / "universe"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
+# ---- パラメータ（安全寄り） ---------------------------------------------------
 TARGET_TOPN          = 10
-FAST_MIN_BARS        = 80
-LIGHT_MIN_BARS       = 20   # ←緩和（20本以上でOK）
-FAST_BUDGET_DEFAULT  = 180  # 秒
+
+FAST_MIN_BARS        = 80    # フル評価に必要な最低本数
+LITE_MIN_BARS        = 20    # 軽量は20本でOK
+LITE_NBARS_DEFAULT   = 60    # 軽量が読むバー数
+
+MAX_WORKERS          = max(4, os.cpu_count() or 8)  # 並列数
+PER_TASK_TIMEOUT     = 6.0   # 1銘柄あたりの許容秒（Lite）
+SYNTHETIC_TRIES_MAX  = 80    # 合成フォールバックで試す銘柄数上限
 
 @dataclass
 class PickItem:
@@ -68,6 +75,7 @@ def _emit_snapshot(items: List[PickItem], tag: str) -> Path:
             latest.unlink()
         latest.symlink_to(path.name)
     except Exception:
+        # symlink不可環境向け
         latest.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
     print(f"[picks_build] wrote {path.name} items={len(items)}")
     return path
@@ -76,6 +84,7 @@ def _load_universe(label: Optional[str], sample: Optional[int]) -> List[Tuple[st
     qs = StockMaster.objects.all().values_list("code","name","sector_name").order_by("code")
 
     if label == "nk225":
+        # ファイルがあれば厳密抽出、なければ 250件程度の近似でも OK
         codes = None
         p = UNIV_DIR / "nk225.txt"
         if p.exists():
@@ -89,27 +98,20 @@ def _load_universe(label: Optional[str], sample: Optional[int]) -> List[Tuple[st
 
     if sample:
         rows = rows[: int(sample)]
-    # sector は空文字で揃える
     return [(c, n, s or "") for (c, n, s) in rows]
 
-# ---- 軽量スコア（“必ず拾う”用） --------------------------------------------
-def _rank_light(code: str, nbars: int = 90) -> Optional[Tuple[float,float,float,float,float,List[str]]]:
-    """
-    なるべく軽く・データが薄くても通す。
-    スコア = z(ROC5) + 0.5*z(ROC20) - 0.3*z(ATR%推定)
-    AI信頼度 = 1..5（簡易指標）
-    """
+# ---- 軽量スコア（並列・個別タイムアウト・早期打ち切り） -----------------------
+def _rank_light_single(code: str, nbars: int) -> Optional[Tuple[float,float,float,float,float,List[str]]]:
     df = get_prices(code, nbars)
     if df is None or df.empty:
         return None
     df = df.dropna(subset=["close"])
-    if len(df) < LIGHT_MIN_BARS:
+    if len(df) < LITE_MIN_BARS:
         return None
 
     close = df["close"].astype("float")
     last  = float(close.iloc[-1])
 
-    # 5日/20日リターン（%）
     def pct(n: int) -> float:
         if len(close) <= n or float(close.iloc[-n-1]) == 0:
             return 0.0
@@ -117,14 +119,13 @@ def _rank_light(code: str, nbars: int = 90) -> Optional[Tuple[float,float,float,
 
     roc5, roc20 = pct(5), pct(20)
 
-    # ATR%簡易：high/lowあればHL、無ければ終値の絶対リターン
     if {"high","low"} <= set(df.columns):
         atr = float((df["high"] - df["low"]).abs().tail(14).mean())
     else:
         atr = float(close.pct_change().abs().tail(14).mean() * last)
     atr_pct = 0.0 if last == 0 else (atr / last) * 100.0
 
-    # 標準化
+    # 標準化（サンプル内 z）
     def _z(x, s):
         m = float(s.mean()) if len(s) else 0.0
         v = float(s.std(ddof=0)) or 1.0
@@ -147,11 +148,49 @@ def _rank_light(code: str, nbars: int = 90) -> Optional[Tuple[float,float,float,
         f"5日モメンタム {roc5:+.2f}%",
         f"20日モメンタム {roc20:+.2f}%",
         f"ボラ目安 {atr_pct:.2f}%",
-        "（軽量スコア）",
+        "（軽量）",
     ]
     return (float(score), float(ai_conf), last, tp, sl, reasons)
 
-# ---- フル評価（使える時だけ） -----------------------------------------------
+def _collect_light_parallel(rows: List[Tuple[str,str,str]], nbars: int, budget: int) -> List[PickItem]:
+    """
+    並列で Lite 評価。個々のタスクは PER_TASK_TIMEOUT 秒で見切る。
+    TopN が集まったら即終了。
+    """
+    start = time.time()
+    picks: List[PickItem] = []
+
+    def task(row):
+        code, name, sector = row
+        t0 = time.time()
+        try:
+            r = _rank_light_single(code, nbars)
+        except Exception:
+            r = None
+        # 個別タイムアウト（実時間で判定）
+        if time.time() - t0 > PER_TASK_TIMEOUT:
+            return None
+        if r is None:
+            return None
+        sc, conf, last, tp, sl, reasons = r
+        return PickItem(code, name, sector, sc, conf, last, last, tp, sl, reasons)
+
+    # 先頭から順に投げる（キャッシュが効きやすい）
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futures = {ex.submit(task, row): row for row in rows}
+        for fut in as_completed(futures):
+            if time.time() - start > budget * 0.95:
+                # 予算使い切り近くで打ち切り
+                break
+            item = fut.result()
+            if item:
+                picks.append(item)
+                if len(picks) >= TARGET_TOPN:
+                    break
+
+    return picks
+
+# ---- フル評価（任意・重い） ---------------------------------------------------
 def _rank_full(code: str, nbars: int = 180) -> Optional[Tuple[float,float,float,float,float,List[str]]]:
     if compute_features is None or score_sample is None:
         return None
@@ -181,69 +220,56 @@ def _rank_full(code: str, nbars: int = 180) -> Optional[Tuple[float,float,float,
 
 # -----------------------------------------------------------------------------
 class Command(BaseCommand):
-    help = "Build AI picks snapshot (short x aggressive). 必ず10件を出力（フル→軽量→合成）"
+    help = "Build AI picks snapshot (short x aggressive). 並列Liteで必ずTopNを埋める。"
 
     def add_arguments(self, parser):
         parser.add_argument("--universe", type=str, default=None, help="nk225 / all / None")
         parser.add_argument("--sample", type=int, default=None)
-        parser.add_argument("--budget", type=int, default=FAST_BUDGET_DEFAULT)
+        parser.add_argument("--budget", type=int, default=180)
         parser.add_argument("--force", action="store_true")
-        parser.add_argument("--lite-only", action="store_true", help="最初から軽量モードで実行")
+        parser.add_argument("--lite-only", action="store_true")
+        parser.add_argument("--nbars-lite", type=int, default=LITE_NBARS_DEFAULT)
 
     def handle(self, *args, **opts):
-        label   = opts.get("universe")
-        sample  = opts.get("sample")
-        budget  = int(opts.get("budget") or FAST_BUDGET_DEFAULT)
+        label     = opts.get("universe")
+        sample    = opts.get("sample")
+        budget    = int(opts.get("budget") or 180)
         lite_only = bool(opts.get("lite-only"))
+        nbars_lite = int(opts.get("nbars-lite") or LITE_NBARS_DEFAULT)
 
         start = time.time()
         rows  = _load_universe(label, sample)
         print(f"[picks_build] start universe={label or 'all'} sample={sample} budget={budget}s")
         print(f"[picks_build] universe={len(rows)}")
 
-        items: List[PickItem] = []
-
-        # 1) フル（予算の60%まで）
+        # 1) フル（任意・時間に余裕があれば）
         if not lite_only and compute_features is not None and score_sample is not None:
+            fast: List[PickItem] = []
             for code, name, sector in rows:
-                if time.time() - start > budget * 0.6:
-                    print("[picks_build] switch to lightweight (budget guard)")
+                if time.time() - start > budget * 0.5:
+                    print("[picks_build] switch to lite (budget guard)")
                     break
                 try:
                     r = _rank_full(code)
                 except Exception:
                     r = None
-                if r is None:
+                if not r:
                     continue
                 sc, conf, last, tp, sl, reasons = r
-                items.append(PickItem(code, name, sector, sc, conf, last, last, tp, sl, reasons))
-                if len(items) >= TARGET_TOPN * 6:
+                fast.append(PickItem(code, name, sector, sc, conf, last, last, tp, sl, reasons))
+                if len(fast) >= TARGET_TOPN * 3:
                     break
-
-            if items:
-                items.sort(key=lambda x: x.score, reverse=True)
-                top = items[:TARGET_TOPN]
+            if fast:
+                fast.sort(key=lambda x: x.score, reverse=True)
+                top = fast[:TARGET_TOPN]
                 _emit_snapshot(top, "full")
                 print(f"[picks_build] done items={len(top)} dur={time.time()-start:.1f}s")
                 return
             else:
                 print("[picks_build] fast_pass=0")
 
-        # 2) 軽量（予算の95%まで・必ず拾う）
-        lite: List[PickItem] = []
-        for code, name, sector in rows:
-            if time.time() - start > budget * 0.95:
-                print("[picks_build] budget nearly exhausted; stop collecting")
-                break
-            try:
-                r = _rank_light(code)
-            except Exception:
-                r = None
-            if r is None:
-                continue
-            sc, conf, last, tp, sl, reasons = r
-            lite.append(PickItem(code, name, sector, sc, conf, last, last, tp, sl, reasons))
-
+        # 2) 並列Lite（個別タイムアウト・TopNで即終了）
+        lite = _collect_light_parallel(rows, nbars_lite, budget)
         if lite:
             lite.sort(key=lambda x: x.score, reverse=True)
             top = lite[:TARGET_TOPN]
@@ -251,10 +277,14 @@ class Command(BaseCommand):
             print(f"[picks_build] done items={len(top)} dur={time.time()-start:.1f}s")
             return
 
-        # 3) 合成（最悪でも10件）
-        print("[picks_build] lightweight=0; emit synthetic fallback")
+        # 3) 最後のフォールバック（価格だけで暫定10件）
+        print("[picks_build] lite=0; emit synthetic fallback")
         synth: List[PickItem] = []
-        for code, name, sector in rows[: TARGET_TOPN * 4]:
+        tried = 0
+        for code, name, sector in rows:
+            tried += 1
+            if tried > SYNTHETIC_TRIES_MAX:
+                break
             df = get_prices(code, 30)
             if df is None or df.empty:
                 continue
