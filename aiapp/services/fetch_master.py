@@ -17,11 +17,11 @@ from aiapp.models import StockMaster
 # =========================================================
 # JPX添付Excelを直接ダウンロードし、全シート走査で
 # code / name / sector_code / sector_name を恒久的に更新する。
-# ・市場区分は扱わない
-# ・列名の揺れに強い自動検出
+# ・市場区分は扱わない（要求どおり）
+# ・列名の揺れに強い自動検出（業種=数値/日本語を同時推定）
 # ・不可視/ゼロ幅/ダミー記号を除去
-# ・数値コード→33業種名へ確実にマッピング
-# ・ETF/ETNは業種が空/ダミー時に強制付与
+# ・数値コード↔日本語名を相互補完（不一致時は日本語名を優先）
+# ・ETF/ETNは空業種時に付与
 # =========================================================
 
 DEFAULT_JPX_XLS_URL = os.getenv(
@@ -32,7 +32,7 @@ DEFAULT_JPX_XLS_URL = os.getenv(
 HTTP_TIMEOUT = float(os.getenv("AIAPP_HTTP_TIMEOUT", "60"))
 HTTP_UA = os.getenv(
     "AIAPP_HTTP_UA",
-    "Mozilla/5.0 (compatible; MyStockPortfolioBot/1.0; +https://example.invalid)",
+    "Mozilla/5.0 (compatible; MyStockPortfolioBot/1.0)",
 )
 
 # ---------- 文字クレンジング ----------
@@ -55,17 +55,29 @@ CODE_KEYS   = {"code", "ｺｰﾄﾞ", "コード", "銘柄コード"}
 NAME_KEYS   = {"name", "銘柄名"}
 SECTOR_KEYS = {"業種", "業種名", "33業種", "業種分類", "sector"}
 
-def detect_columns(df: pd.DataFrame) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    low_map = {c: clean_text(c).lower() for c in df.columns}
+def pick_code_col(df: pd.DataFrame) -> Optional[str]:
+    low = {c: clean_text(c).lower() for c in df.columns}
+    for raw, lowc in low.items():
+        for k in CODE_KEYS:
+            if k in lowc:
+                return raw
+    return None
 
-    def pick(keys: Iterable[str]) -> Optional[str]:
-        for raw, low in low_map.items():
-            for k in keys:
-                if k in low:
-                    return raw
-        return None
+def pick_name_col(df: pd.DataFrame) -> Optional[str]:
+    low = {c: clean_text(c).lower() for c in df.columns}
+    for raw, lowc in low.items():
+        for k in NAME_KEYS:
+            if k in lowc:
+                return raw
+    return None
 
-    return pick(CODE_KEYS), pick(NAME_KEYS), pick(SECTOR_KEYS)
+def find_sector_candidates(df: pd.DataFrame) -> List[str]:
+    low = {c: clean_text(c).lower() for c in df.columns}
+    out = []
+    for raw, lowc in low.items():
+        if any(k in lowc for k in SECTOR_KEYS):
+            out.append(raw)
+    return out
 
 # ---------- 33業種コード → 名称（JPX準拠） ----------
 SECTOR_CODE_MAP: Dict[str, str] = {
@@ -102,17 +114,9 @@ SECTOR_CODE_MAP: Dict[str, str] = {
     "10050": "不動産業",
     "10500": "サービス業",
 }
-# 先頭ゼロや空白の揺れにも耐性
-def normalize_sector_code(c: str) -> str:
-    c = clean_text(c)
-    if not c:
-        return ""
-    if not c.isdigit():
-        return ""
-    # 例: "0650" → "650" に
-    return str(int(c))
+REV_SECTOR_MAP: Dict[str, str] = {v: k for k, v in SECTOR_CODE_MAP.items()}
+CANON_SECTORS: List[str] = list(SECTOR_CODE_MAP.values())
 
-# 名称側のゆれをざっくり吸収
 SECTOR_ALIAS: Dict[str, str] = {
     "証券・商品先物取引業": "証券、商品先物取引業",
     "情報通信": "情報・通信業",
@@ -128,7 +132,11 @@ SECTOR_ALIAS: Dict[str, str] = {
     "不動産": "不動産業",
 }
 
-CANON_SECTORS: List[str] = list(SECTOR_CODE_MAP.values())
+def normalize_sector_code(c: str) -> str:
+    c = clean_text(c)
+    if not c or not c.isdigit():
+        return ""
+    return str(int(c))  # 例: "0650"→"650"
 
 def normalize_sector_name(s: str) -> str:
     s = clean_text(s)
@@ -139,7 +147,7 @@ def normalize_sector_name(s: str) -> str:
     for k, v in SECTOR_ALIAS.items():
         if k in s or s in k:
             return v
-    # 部分一致で最長一致
+    # 部分一致（最長一致）
     best = ""
     for name in CANON_SECTORS:
         if s in name or name in s:
@@ -147,27 +155,47 @@ def normalize_sector_name(s: str) -> str:
                 best = name
     return best or s
 
-def parse_sector_fields(raw_sector: str, code: str, name: str) -> Tuple[Optional[str], Optional[str]]:
+def decide_sector_fields(raws: List[str], code: str, name: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    JPXの業種セル（数値コード/日本語名/ダミー）から (sector_code, sector_name) を返す。
-    ETF/ETN はここで sector_name='ETF/ETN' を付与。
+    業種候補の複数セルから sector_code / sector_name を決定。
+    - 数値優勢セル→コード候補
+    - 日本語優勢セル→名称候補
+    - 両方あれば名称優先で整合（逆引きでコード補完）
+    - どちらも無ければ ETF 判定（空 & ETF/ETN らしさがある）
     """
-    rs = clean_text(raw_sector)
-    # ETF 判定（業種が空 or ダミーのときに付与）
-    if not rs and (code.startswith(("13", "14", "15", "16")) or "ETF" in name or "ETN" in name):
+    numeric_candidate = ""
+    name_candidate = ""
+
+    for v in raws:
+        v = clean_text(v)
+        if not v:
+            continue
+        if v.isdigit():
+            c = normalize_sector_code(v)
+            if c:
+                numeric_candidate = c
+        else:
+            n = normalize_sector_name(v)
+            if n:
+                name_candidate = n
+
+    if name_candidate and numeric_candidate:
+        # 名前を正とし、コードは逆引き
+        code_fix = REV_SECTOR_MAP.get(name_candidate)
+        return (code_fix if code_fix else numeric_candidate), name_candidate
+
+    if name_candidate:
+        code_fix = REV_SECTOR_MAP.get(name_candidate)
+        return (code_fix if code_fix else None), name_candidate
+
+    if numeric_candidate:
+        return numeric_candidate, SECTOR_CODE_MAP.get(numeric_candidate, None)
+
+    # 何も取れない場合はETF推定
+    if (code.startswith(("13", "14", "15", "16")) or "ETF" in name or "ETN" in name):
         return None, "ETF/ETN"
 
-    # 数値コード → 名称
-    sc = normalize_sector_code(rs)
-    if sc:
-        return sc, SECTOR_CODE_MAP.get(sc, None)
-
-    # 日本語 → 正規名（必要ならここで逆引きも可：名称→コード）
-    sn = normalize_sector_name(rs)
-    # 逆引き（名称が一意ならコードも埋める）
-    rev = {v: k for k, v in SECTOR_CODE_MAP.items()}
-    sc2 = rev.get(sn)
-    return (sc2 if sc2 else None), (sn if sn else None)
+    return None, None
 
 # ---------- JPX Excel の取得と読込 ----------
 def _download_jpx_bytes(url: str) -> bytes:
@@ -184,48 +212,49 @@ def _read_any_table_from_bytes(data: bytes) -> pd.DataFrame:
             df = xls.parse(sheet_name=sheet, dtype=str)
             if df is None or df.empty:
                 continue
-            code_col, name_col, sector_col = detect_columns(df)
+
+            code_col = pick_code_col(df)
+            name_col = pick_name_col(df)
+            sector_cols = find_sector_candidates(df)
+
             if not code_col or not name_col:
                 continue
-            cols = [code_col, name_col]
-            if sector_col:
-                cols.append(sector_col)
+
+            # 業種候補は複数あって良い。まず全部集める
+            cols = [code_col, name_col] + sector_cols
+            cols = [c for c in cols if c]  # None除去
             sub = df[cols].copy()
-            sub.rename(
-                columns={
-                    code_col: "code",
-                    name_col: "name",
-                    sector_col: "sector" if sector_col else None,
-                },
-                inplace=True,
-            )
-            frames.append(sub)
+
+            # 正規化
+            for c in sub.columns:
+                sub[c] = sub[c].map(clean_text)
+
+            # 銘柄コードの形に絞る
+            sub = sub[sub[code_col].str.fullmatch(r"\d{4,5}")]
+            if sub.empty:
+                continue
+
+            # 行ごとに sector を決定
+            out_rows = []
+            for _, r in sub.iterrows():
+                code = clean_text(r[code_col])
+                name = clean_text(r[name_col])
+                raw_list = [clean_text(r[c]) for c in sector_cols] if sector_cols else []
+                sc, sn = decide_sector_fields(raw_list, code, name)
+                out_rows.append(dict(code=code, name=name, sector_code=sc, sector_name=sn))
+
+            if out_rows:
+                frames.append(pd.DataFrame(out_rows, columns=["code", "name", "sector_code", "sector_name"]))
         except Exception:
             continue
 
     if not frames:
         raise RuntimeError("JPXマスタを表形式として読み取れませんでした。")
 
-    df = pd.concat(frames, ignore_index=True)
-    for c in df.columns:
-        df[c] = df[c].map(clean_text)
+    out = pd.concat(frames, ignore_index=True)
 
-    df = df[df["code"].str.fullmatch(r"\d{4,5}")]
-    df = df.drop_duplicates(subset=["code"], keep="last")
-    if "sector" not in df.columns:
-        df["sector"] = ""
-
-    # sector_code / sector_name を決定
-    out_rows = []
-    for _, r in df.iterrows():
-        code = clean_text(r["code"])
-        name = clean_text(r["name"])
-        raw_sector = clean_text(r.get("sector", ""))
-
-        sc, sn = parse_sector_fields(raw_sector, code, name)
-        out_rows.append(dict(code=code, name=name, sector_code=sc, sector_name=sn))
-
-    out = pd.DataFrame(out_rows, columns=["code", "name", "sector_code", "sector_name"])
+    # 重複コードは最後勝ち
+    out = out.drop_duplicates(subset=["code"], keep="last")
     return out
 
 # ---------- DB 反映 ----------
