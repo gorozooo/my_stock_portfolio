@@ -1,270 +1,229 @@
-# aiapp/services/fetch_master.py
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import io
 import os
 import re
-import typing as t
+import unicodedata
 from dataclasses import dataclass
-from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
 import requests
 from django.db import transaction
-from django.utils.timezone import now
 
 from aiapp.models import StockMaster
 
-# ───────────────────────────────────────────────
-# JPX 公式マスタ取得設定
-# ───────────────────────────────────────────────
-JPX_PAGE_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2.html"
-JPX_ATT_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
-JPX_ATT_PATTERN = re.compile(r"data_j\.xls$", re.IGNORECASE)
+# =========================================================
+# 恒久対応版：JPX添付Excelを直接DLし、全シートを柔軟に解析して
+# code / name / sector_code / sector_name を更新する。
+# ・市場区分は扱わない（不要要件）
+# ・列名は日本語/揺れに対応して自動検出
+# ・不可視文字/ゼロ幅/私用領域などを除去
+# ・セクターは日本語名を優先で正規化し、数値が来た場合はそのままsector_codeに保存
+# =========================================================
 
-# ダンプ保存先（障害時の再利用にも使う）
-DUMP_DIR = Path("media/jpx")
-DUMP_DIR.mkdir(parents=True, exist_ok=True)
+# 直リンク（添付ファイル）: 既存の portfolio 側と同じURL
+DEFAULT_JPX_XLS_URL = os.getenv(
+    "AIAPP_JPX_URL",
+    "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
+)
 
-# ───────────────────────────────────────────────
-# 33業種コード → 業種名（JPX準拠）
-# ───────────────────────────────────────────────
-SECTOR33_MAP: dict[str, str] = {
-    "005": "水産・農林業", "010": "鉱業", "015": "建設業", "020": "食料品", "025": "繊維製品",
-    "030": "パルプ・紙", "035": "化学", "040": "医薬品", "045": "石油・石炭製品", "050": "ゴム製品",
-    "055": "ガラス・土石製品", "060": "鉄鋼", "065": "非鉄金属", "070": "金属製品", "075": "機械",
-    "080": "電気機器", "085": "輸送用機器", "090": "精密機器", "095": "その他製品", "100": "電気・ガス業",
-    "105": "陸運業", "110": "海運業", "115": "空運業", "120": "倉庫・運輸関連業", "125": "情報・通信業",
-    "130": "卸売業", "135": "小売業", "140": "銀行業", "145": "証券・商品先物取引業", "150": "保険業",
-    "155": "その他金融業", "160": "不動産業", "165": "サービス業",
-    "650": "電気機器", "700": "輸送用機器",
-}
+# HTTP
+HTTP_TIMEOUT = float(os.getenv("AIAPP_HTTP_TIMEOUT", "60"))
+HTTP_UA = os.getenv(
+    "AIAPP_HTTP_UA",
+    "Mozilla/5.0 (compatible; MyStockPortfolioBot/1.0; +https://example.invalid)"
+)
 
-ETF_SECTOR_NAME = "ETF/ETN"
-STD_COLS = ("code", "name", "sector_code", "sector_name")
+# ---- 文字クレンジング -------------------------------------------------------
+def clean_text(s: Optional[str]) -> str:
+    if s is None:
+        return ""
+    s = unicodedata.normalize("NFKC", str(s))
+    # 私用領域・ゼロ幅・制御文字を除去
+    s = re.sub(r"[\uE000-\uF8FF\u200B-\u200D\u2060\uFEFF]", "", s)
+    s = re.sub(r"[\x00-\x1F\x7F]", "", s)
+    return s.strip()
 
+# ---- 列名の自動検出（揺れに強く） -------------------------------------------
+CODE_KEYS   = {"code", "ｺｰﾄﾞ", "コード", "銘柄コード"}
+NAME_KEYS   = {"name", "銘柄名"}
+SECTOR_KEYS = {"業種", "業種名", "33業種", "業種分類", "sector"}
 
-@dataclass
-class RefreshResult:
-    inserted: int = 0
-    updated: int = 0
-    total_input: int = 0
-    after_rows: int = 0
-    missing_sector: int = 0
-    ts: str = ""
+def detect_columns(df: pd.DataFrame) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    # 小文字へ正規化したインデックスを作る
+    low_map = {c: clean_text(c).lower() for c in df.columns}
 
-
-def _is_local_path(src: str) -> bool:
-    return os.path.exists(src) or src.startswith(("/", "./"))
-
-
-def _http_get(url: str, timeout: float = 30.0) -> requests.Response:
-    headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; MyStockPortfolioBot/1.0; +https://gorozooo.com/)",
-        "Accept": "*/*",
-        "Accept-Language": "ja,en;q=0.8",
-    }
-    r = requests.get(url, headers=headers, timeout=timeout)
-    r.raise_for_status()
-    return r
-
-
-# ───────────────────────────────────────────────
-# ダウンロード（安定優先：添付 → ページ探索）
-# ───────────────────────────────────────────────
-def _download_jpx_bytes() -> bytes:
-    """
-    1) 添付ファイル直リンク（最も安定）を優先
-    2) 失敗したらページを取得 → href から data_j.xls を探して再トライ
-    取得内容は media/jpx/ にダンプ保存
-    """
-    override = os.getenv("AIAPP_JPX_URL")
-    if override:
-        r = _http_get(override)
-        DUMP_DIR.joinpath(Path(override).name).write_bytes(r.content)
-        return r.content
-
-    # 1️⃣ まず直リンク
-    try:
-        att = _http_get(JPX_ATT_URL, timeout=30.0)
-        DUMP_DIR.joinpath("data_j.xls").write_bytes(att.content)
-        return att.content
-    except Exception:
-        pass
-
-    # 2️⃣ ページ経由でリンク探索
-    page = _http_get(JPX_PAGE_URL, timeout=30.0)
-    DUMP_DIR.joinpath("jpx_page.html").write_bytes(page.content)
-
-    m = re.search(r'href="([^"]*data_j\.xls)"', page.text, re.IGNORECASE)
-    if m:
-        att_url = requests.compat.urljoin(JPX_PAGE_URL, m.group(1))
-        att = _http_get(att_url, timeout=30.0)
-        DUMP_DIR.joinpath("data_j.xls").write_bytes(att.content)
-        return att.content
-
-    # 3️⃣ 総当りフォールバック
-    cands = re.findall(r'href="([^"]+)"', page.text, re.IGNORECASE)
-    for href in cands:
-        if JPX_ATT_PATTERN.search(href):
-            att_url = requests.compat.urljoin(JPX_PAGE_URL, href)
-            att = _http_get(att_url, timeout=30.0)
-            DUMP_DIR.joinpath("data_j.xls").write_bytes(att.content)
-            return att.content
-
-    raise RuntimeError("JPXの添付 data_j.xls を取得できませんでした。")
-
-
-# ───────────────────────────────────────────────
-# 汎用的なExcel/HTML/CSV読み取り
-# ───────────────────────────────────────────────
-def _read_any_table_from_bytes(data: bytes) -> pd.DataFrame:
-    try:
-        df = pd.read_excel(io.BytesIO(data), dtype=str)
-        if not df.empty and df.shape[1] >= 2:
-            return df
-    except Exception:
-        pass
-
-    try:
-        text = data.decode("cp932", errors="ignore")
-        tables = pd.read_html(io.StringIO(text), flavor="lxml")
-        for df in tables:
-            if not df.empty and df.shape[1] >= 2:
-                return df.astype(str)
-    except Exception:
-        pass
-
-    try:
-        df = pd.read_csv(io.BytesIO(data), dtype=str)
-        if not df.empty and df.shape[1] >= 2:
-            return df
-    except Exception:
-        pass
-
-    raise RuntimeError("JPXマスタを表形式として読み取れませんでした。")
-
-
-# ───────────────────────────────────────────────
-# 列名正規化・業種補完
-# ───────────────────────────────────────────────
-def _normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
-    orig_cols = [str(c) for c in df.columns]
-    cmap = {c: re.sub(r"\s+", "", str(c)).lower() for c in orig_cols}
-    df = df.rename(columns=cmap)
-
-    code_keys = ["コード", "銘柄コード", "証券コード", "code"]
-    name_keys = ["銘柄名", "会社名", "name"]
-    scode_keys = ["33業種コード", "33業種分類コード", "sectorcode", "業種コード"]
-    sname_keys = ["33業種区分", "33業種", "業種", "sectorname", "業種名"]
-
-    def pick(keys: list[str]) -> str | None:
-        for k in keys:
-            lk = re.sub(r"\s+", "", k).lower()
-            if lk in df.columns:
-                return lk
+    def pick(keys: Iterable[str]) -> Optional[str]:
+        for raw, low in low_map.items():
+            for k in keys:
+                if k in low:
+                    return raw
         return None
 
-    k_code, k_name, k_scd, k_snm = map(pick, [code_keys, name_keys, scode_keys, sname_keys])
+    return pick(CODE_KEYS), pick(NAME_KEYS), pick(SECTOR_KEYS)
 
-    out = pd.DataFrame()
-    out["code"] = df[k_code].astype(str) if k_code else df.iloc[:, 0].astype(str)
-    out["name"] = df[k_name].astype(str) if k_name else df.iloc[:, 1].astype(str)
-    out["sector_code"] = df[k_scd].astype(str) if k_scd else None
-    out["sector_name"] = df[k_snm].astype(str) if k_snm else None
+# ---- セクター正規化（日本語名を“できるだけ”揃える） --------------------------
+# ここでは名前の正規化のみ確実に実施し、数値コードは来たものを優先して保持する方針。
+# ※ JPXの公開物は表記揺れがあるため、部分一致で丸める。
+# ※ 「sector_code」はJPX由来の数値が来たときだけ採用（なければ空のまま）
+CANON_SECTORS: List[str] = [
+    "水産・農林業", "食料品", "建設業", "繊維製品", "パルプ・紙", "化学", "医薬品",
+    "石油・石炭製品", "ゴム製品", "ガラス・土石製品", "鉄鋼", "非鉄金属", "金属製品",
+    "機械", "電気機器", "輸送用機器", "精密機器", "その他製品", "電気・ガス業",
+    "陸運業", "海運業", "空運業", "倉庫・運輸関連業", "情報・通信業",
+    "卸売業", "小売業", "銀行業", "証券、商品先物取引業", "保険業",
+    "その他金融業", "不動産業", "サービス業",
+    # ETF/ETN は便宜上ここに含める（JPX側では別区分）
+    "ETF/ETN",
+]
 
-    out["code"] = out["code"].str.replace(r"\D", "", regex=True).str.zfill(4)
+# 表記揺れ→正規名 への簡易辞書（必要に応じて拡張）
+SECTOR_ALIAS: Dict[str, str] = {
+    "証券・商品先物取引業": "証券、商品先物取引業",
+    "証券・商品先物": "証券、商品先物取引業",
+    "情報通信": "情報・通信業",
+    "電気機器": "電気機器",
+    "その他製品": "その他製品",
+    "その他金融": "その他金融業",
+    "小売": "小売業",
+    "卸売": "卸売業",
+    "サービス": "サービス業",
+    "医薬": "医薬品",
+    "海運": "海運業",
+    "空運": "空運業",
+    "陸運": "陸運業",
+    "不動産": "不動産業",
+    "化学工業": "化学",
+}
 
-    is_etf = out["code"].str.match(r"^(13|15)\d{2}$") | out["name"].str.contains("ETF|ETN|上場投信", na=False)
-    out.loc[is_etf, "sector_code"] = "ETF"
-    out.loc[is_etf, "sector_name"] = ETF_SECTOR_NAME
+def normalize_sector_name(s: str) -> str:
+    s = clean_text(s)
+    if not s:
+        return ""
+    # 完全一致
+    if s in CANON_SECTORS:
+        return s
+    # エイリアス
+    for k, v in SECTOR_ALIAS.items():
+        if k in s or s in k:
+            return v
+    # 部分一致で一番長い一致を採用
+    best = ""
+    for name in CANON_SECTORS:
+        if s in name or name in s:
+            if len(name) > len(best):
+                best = name
+    return best or s  # 見つからなければ原文のまま（後段で可視化）
 
-    def norm_code(x: t.Any) -> str | None:
-        if x is None:
-            return None
-        s = re.sub(r"\D", "", str(x))
-        return s.zfill(3) if s else None
+# ---- JPX Excel の取得と読込 --------------------------------------------------
+def _download_jpx_bytes(url: str) -> bytes:
+    headers = {"User-Agent": HTTP_UA}
+    r = requests.get(url, headers=headers, timeout=HTTP_TIMEOUT)
+    r.raise_for_status()
+    return r.content
 
-    out["sector_code"] = out["sector_code"].map(norm_code)
+def _read_any_table_from_bytes(data: bytes) -> pd.DataFrame:
+    # xls/xlsx どちらでも受け付ける。全シートを総なめして結合。
+    xls = pd.ExcelFile(io.BytesIO(data))
+    frames: List[pd.DataFrame] = []
 
-    mask = out["sector_name"].isna() | (out["sector_name"] == "") | (out["sector_name"].str.lower() == "nan")
-    out.loc[mask & out["sector_code"].notna(), "sector_name"] = out.loc[
-        mask & out["sector_code"].notna(), "sector_code"
-    ].map(SECTOR33_MAP)
+    for sheet in xls.sheet_names:
+        try:
+            df = xls.parse(sheet_name=sheet, dtype=str)
+            if df is None or df.empty:
+                continue
+            code_col, name_col, sector_col = detect_columns(df)
+            if not code_col or not name_col:
+                continue
+            cols = [code_col, name_col]
+            if sector_col:
+                cols.append(sector_col)
+            sub = df[cols].copy()
+            sub.rename(
+                columns={
+                    code_col: "code",
+                    name_col: "name",
+                    sector_col: "sector" if sector_col else None,
+                },
+                inplace=True,
+            )
+            frames.append(sub)
+        except Exception:
+            # 解析できないシートはスキップ
+            continue
 
-    for c in ("name", "sector_name"):
-        out[c] = out[c].astype(str).str.strip().replace({"None": None, "nan": None})
+    if not frames:
+        raise RuntimeError("JPXマスタを表形式として読み取れませんでした。")
 
-    out = out.drop_duplicates(subset=["code"], keep="first").reset_index(drop=True)
+    df = pd.concat(frames, ignore_index=True)
+    # クレンジング
+    for c in df.columns:
+        df[c] = df[c].map(clean_text)
+
+    # コードは 4〜5桁の数字だけ許容
+    df = df[df["code"].str.fullmatch(r"\d{4,5}")]
+    # 重複コードは後勝ち
+    df = df.drop_duplicates(subset=["code"], keep="last")
+
+    # 欠損列を補完
+    if "sector" not in df.columns:
+        df["sector"] = ""
+
+    # セクター名の正規化（日本語）
+    df["sector_name"] = df["sector"].map(normalize_sector_name)
+
+    # もし sector が数値（"650" など）だけなら、それを sector_code として保持
+    def pick_sector_code(x: str) -> str:
+        x = clean_text(x)
+        return x if x.isdigit() else ""
+
+    df["sector_code"] = df["sector"].map(pick_sector_code)
+
+    # 出力整形
+    out = df[["code", "name", "sector_code", "sector_name"]].copy()
     return out
 
+# ---- DB 反映 -----------------------------------------------------------------
+@dataclass
+class MasterStats:
+    upserted: int
+    touched_codes: int
 
-# ───────────────────────────────────────────────
-# 公開API（fetch + refresh）
-# ───────────────────────────────────────────────
-def fetch_jpx_rows(source_url: str | None = None) -> list[dict[str, t.Any]]:
-    if source_url:
-        if _is_local_path(source_url):
-            data = Path(source_url).read_bytes()
-        else:
-            data = _http_get(source_url).content
-    else:
-        dump = DUMP_DIR.joinpath("data_j.xls")
-        if dump.exists() and dump.stat().st_size > 0:
-            data = dump.read_bytes()
-        else:
-            data = _download_jpx_bytes()
+def refresh_master(source_url: Optional[str] = None) -> MasterStats:
+    """
+    JPX添付Excelを直接ダウンロードして解析し、StockMaster を upsert。
+    市場区分は扱わない。
+    """
+    url = source_url or DEFAULT_JPX_XLS_URL
+    data = _download_jpx_bytes(url)
+    table = _read_any_table_from_bytes(data)
 
-    df = _read_any_table_from_bytes(data)
-    df = _normalize_cols(df)
-    return df.to_dict(orient="records")
+    upserted = 0
+    touched = 0
 
+    with transaction.atomic():
+        for _, r in table.iterrows():
+            code = clean_text(r["code"])
+            name = clean_text(r["name"])
+            sector_code = clean_text(r.get("sector_code", ""))
+            sector_name = clean_text(r.get("sector_name", "")) or None
 
-def refresh_master(source_url: str | None = None) -> dict[str, t.Any]:
-    rows = fetch_jpx_rows(source_url)
-    res = RefreshResult(total_input=len(rows))
+            # ETF/ETN（銘柄名やコード帯で推定）→ sector_nameのみ明示
+            if not sector_name:
+                if "ETF" in name or "ETN" in name or code.startswith(("13", "14", "15", "16")):
+                    sector_name = "ETF/ETN"
 
-    @transaction.atomic
-    def _apply():
-        for r in rows:
-            code = str(r.get("code", "")).strip()
-            if not code:
-                continue
-            name = (r.get("name") or "").strip()
-            scode = r.get("sector_code")
-            sname = r.get("sector_name")
-
-            if (not sname) and scode:
-                sname = SECTOR33_MAP.get(scode)
-            if code.startswith(("13", "15")) or ("ETF" in name or "ETN" in name or "上場投信" in name):
-                sname, scode = ETF_SECTOR_NAME, "ETF"
-
-            obj, created = StockMaster.objects.get_or_create(
+            obj, created = StockMaster.objects.update_or_create(
                 code=code,
-                defaults={"name": name, "sector_code": scode, "sector_name": sname},
+                defaults=dict(
+                    name=name,
+                    sector_code=sector_code or None,
+                    sector_name=sector_name,
+                ),
             )
-            if created:
-                res.inserted += 1
-            else:
-                updates = {}
-                if name and obj.name != name:
-                    updates["name"] = name
-                if (scode or obj.sector_code) and obj.sector_code != scode:
-                    updates["sector_code"] = scode
-                if (sname or obj.sector_name) and obj.sector_name != sname:
-                    updates["sector_name"] = sname
-                if updates:
-                    for k, v in updates.items():
-                        setattr(obj, k, v)
-                    obj.save(update_fields=list(updates.keys()))
-                    res.updated += 1
+            upserted += 1 if created else 0
+            touched += 1
 
-        res.after_rows = StockMaster.objects.count()
-        res.missing_sector = (
-            StockMaster.objects.filter(sector_name__isnull=True).count()
-            + StockMaster.objects.filter(sector_name="").count()
-        )
-        res.ts = now().strftime("%Y-%m-%d %H:%M:%S")
-
-    _apply()
-    return res.__dict__
+    return MasterStats(upserted=upserted, touched_codes=touched)
