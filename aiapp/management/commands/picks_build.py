@@ -8,6 +8,7 @@ import math
 import pathlib
 import datetime as dt
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Dict, Tuple
 
 import pandas as pd
 from django.core.management.base import BaseCommand, CommandError
@@ -21,11 +22,11 @@ from aiapp.models.scoring import score_sample
 PICKS_DIR = pathlib.Path(getattr(settings, "MEDIA_ROOT", "media")) / "aiapp" / "picks"
 UNIVERSE_DIR = pathlib.Path("aiapp/data/universe")
 
-MIN_SCORE = float(os.getenv("AIAPP_MIN_SCORE", "0.0"))
+# 環境変数（既存の意味を維持）
+MIN_SCORE = float(os.getenv("AIAPP_MIN_SCORE", 0.0))
 REQUIRE_TREND = bool(int(os.getenv("AIAPP_REQUIRE_TREND", "0")))
 SKIP_LIQ = bool(int(os.getenv("AIAPP_SKIP_LIQ", "1")))
 ALLOW_ETF = bool(int(os.getenv("AIAPP_ALLOW_ETF", "1")))
-MAX_WORKERS = max(1, int(os.getenv("AIAPP_BUILD_WORKERS", "8")))
 
 def _ensure_dir(p: pathlib.Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
@@ -72,160 +73,165 @@ def _link_latest(src: pathlib.Path, alias: str):
         except Exception:
             pass
 
-def _is_etf(code: str) -> bool:
-    sector = (
-        StockMaster.objects.filter(code=code)
-        .values_list("sector_name", flat=True)
-        .first()
-    )
-    return (sector == "ETF/ETN")
+def _rank01(values: List[float]) -> List[float]:
+    """0..1 のパーセンタイルに正規化（同値は同率）"""
+    arr = pd.Series(values, dtype="float64")
+    if arr.count() == 0:
+        return [0.0 for _ in values]
+    ranks = arr.rank(pct=True, method="average")  # 0..1
+    return ranks.fillna(0.0).tolist()
 
-def _yen_round(x: float, etf: bool) -> int | float:
-    return round(x, 1) if etf else int(round(x))
+def _is_etf_like(code: str, sector_display: str | None) -> bool:
+    if sector_display == "ETF/ETN":
+        return True
+    # コード先頭13xx はETFが多いので簡易判定（最終的にはsectorで上書き）
+    return code.startswith("13")
 
-def _normalize_scores(items: list[dict]) -> None:
-    """
-    score_100 / stars を安定化。
-    同点（rng≈0）のときは 52点・⭐️3固定にする。
-    """
-    if not items:
-        return
-    raw = [float(it.get("score", 0.0)) for it in items]
-    lo, hi = min(raw), max(raw)
-    rng = hi - lo
-    if rng < 1e-6:
-        for it in items:
-            it["score_100"] = 52
-            it["stars"] = 3
-        return
-    for it in items:
-        pct = (float(it["score"]) - lo) / rng
-        it["score_100"] = int(round(100 * pct))
-        it["stars"] = max(1, min(5, int(round(1 + 4 * pct))))
-
-def _pick_sector_map(codes: list[str]) -> dict[str, str]:
-    q = StockMaster.objects.filter(code__in=codes).values_list("code", "sector_name")
-    return {c: (s or "") for c, s in q}
+def _round_price(x: float, is_etf: bool) -> float:
+    if pd.isna(x):
+        return x
+    return round(float(x), 1) if is_etf else round(float(x))
 
 def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int, mode: str, horizon: str):
+    """
+    1周目: 価格取得・特徴量抽出（並列）
+    2周目: パーセンタイル正規化 → 合成スコア/⭐️ 算出、ATRベースで Entry/TP/SL を決定
+    """
     start = time.time()
-    items: list[dict] = []
+    raws: List[Dict] = []
 
     def work(code: str, name: str):
-        df = get_prices(code, nbars)  # 価格ソースは env AIAPP_PRICE_SOURCES に依存
-        min_required = max(30, nbars // 2)  # LITEは緩め
-        if df is None or df.empty or len(df) < min_required:
+        df = get_prices(code, nbars)
+        if df is None or df.empty or len(df) < 45:
             return None
-
-        # 列名を小文字に正規化（念のため）
-        if not all(c in df.columns for c in ("close", "high", "low")):
-            df.columns = [str(c).lower() for c in df.columns]
-
-        price_dt = None
-        try:
-            # pandas の index が DatetimeIndex を仮定
-            price_dt = df.index[-1].to_pydatetime()
-        except Exception:
-            pass
-
-        # 特徴量→スコア
+        # 特徴量
         feat = compute_features(df)
-        raw_s = float(score_sample(feat, mode=mode, horizon=horizon))
-
-        # ATR相当（14日）：欠損時は近似
-        high, low = df["high"], df["low"]
-        atr14 = float((high - low).rolling(14).mean().iloc[-1])
-        if math.isnan(atr14) or atr14 <= 0:
-            last_tmp = float(df["close"].iloc[-1])
-            atr14 = last_tmp * 0.015
-
-        # 価格一式
-        is_etf = _is_etf(code)
+        s_raw = float(score_sample(feat, mode=mode, horizon=horizon))  # 参考値（UIでは非表示）
         last = float(df["close"].iloc[-1])
-        entry = last  # LITEは控えめに同値想定
-        tp = last + 1.5 * atr14
-        sl = last - 1.0 * atr14
-
-        last_r  = _yen_round(last,  is_etf)
-        entry_r = _yen_round(entry, is_etf)
-        tp_r    = _yen_round(tp,    is_etf)
-        sl_r    = _yen_round(sl,    is_etf)
-
-        # 閾値・トレンド必須（必要なら）
-        if raw_s < MIN_SCORE:
-            return None
-        if REQUIRE_TREND:
-            try:
-                if float(df["close"].pct_change(20).iloc[-1]) < 0:
-                    return None
-            except Exception:
-                pass
-
-        qty = 100
-        required_cash = int(round(last * qty))
-        est_pl   = int(round((tp - entry) * qty))
-        est_loss = int(round((entry - sl) * qty))
+        atr = float((df["high"] - df["low"]).rolling(14).mean().iloc[-1])
+        mom20 = float(df["close"].pct_change(20).iloc[-1])
+        rs20 = float(mom20 - df["close"].pct_change(20).rolling(60).mean().iloc[-1])
+        vol_signal = float(
+            df["volume"].iloc[-1] / (df["volume"].rolling(20).mean().iloc[-1] + 1e-9)
+        )
+        price_date = str(getattr(df.index, "date", lambda: df.index[-1])()[-1]) if hasattr(df.index, "__iter__") else ""
 
         return {
             "code": code,
             "name": name,
             "name_norm": name,
-            "sector": "",
-            "last_close": last_r,
-            "entry": entry_r,
-            "tp": tp_r,
-            "sl": sl_r,
-            "score": raw_s,  # ←内部用。UIでは出さない想定
-            "qty": qty,
-            "required_cash": required_cash,
-            "est_pl": est_pl,
-            "est_loss": est_loss,
-            # デバッグ/検証用メタ
-            "price_date": price_dt.isoformat() if price_dt else "",
-            "price_vendor": os.getenv("AIAPP_PRICE_SOURCES", "yfinance"),
-            "reasons": {
-                "atr": float(atr14),
-                "chg20": float(df["close"].pct_change(20).iloc[-1]) if len(df) >= 21 else 0.0,
-                "vol_ratio": float(
-                    (df["volume"].iloc[-1] / (df["volume"].rolling(20).mean().iloc[-1] + 1e-9))
-                ) if "volume" in df.columns else 1.0,
-            },
+            "sector": "",  # 後で付与
+            "last_close": last,
+            "atr": atr if not math.isnan(atr) else 0.0,
+            "mom20": mom20 if not math.isnan(mom20) else 0.0,
+            "rs20": rs20 if not math.isnan(rs20) else 0.0,
+            "vol_signal": vol_signal if not math.isnan(vol_signal) else 0.0,
+            "s_raw": s_raw,
+            "price_date": str(df.index[-1].date()) if len(df.index) else "",
+            "price_vendor": "yfinance",
         }
 
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+    with ThreadPoolExecutor(max_workers=8) as ex:
         futs = {ex.submit(work, c, n): (c, n) for c, n in codes}
         for fut in as_completed(futs, timeout=max(2, budget_sec)):
             if time.time() - start > budget_sec:
                 break
             try:
-                it = fut.result(timeout=5)
-                if it:
-                    items.append(it)
+                res = fut.result(timeout=5)
+                if res:
+                    raws.append(res)
             except Exception:
                 pass
 
-    # 業種付与
-    sec_map = _pick_sector_map([x["code"] for x in items])
-    for it in items:
-        it["sector"] = sec_map.get(it["code"], "")
+    if not raws:
+        return []
 
-    # スコアを安定化
-    _normalize_scores(items)
-    items = sorted(items, key=lambda x: (-x["score_100"], -x["stars"], x["code"]))[:10]
+    # 2周目: 相対スコア化（0..1）
+    r_mom = _rank01([r["mom20"] for r in raws])
+    r_rs = _rank01([r["rs20"] for r in raws])
+    r_vol = _rank01([r["vol_signal"] for r in raws])
+
+    # sector 名を引いて ETF 判定と丸めに使う
+    sec_map: Dict[str, str] = {
+        c: s for c, s in StockMaster.objects.filter(code__in=[x["code"] for x in raws])
+        .values_list("code", "sector_name")
+    }
+
+    items: List[Dict] = []
+    for i, r in enumerate(raws):
+        code = r["code"]
+        sec_name = sec_map.get(code, "") or ""
+        etf_flag = _is_etf_like(code, "ETF/ETN" if sec_name == "ETF/ETN" else None)
+
+        # 合成スコア（0..1）: モメ 60%、RS 25%、出来高 15%
+        score01 = 0.60 * r_mom[i] + 0.25 * r_rs[i] + 0.15 * r_vol[i]
+        score_100 = int(round(score01 * 100))
+
+        # ⭐️: 0..1 を 5段階に
+        if score01 < 0.20:
+            stars = 1
+        elif score01 < 0.40:
+            stars = 2
+        elif score01 < 0.60:
+            stars = 3
+        elif score01 < 0.80:
+            stars = 4
+        else:
+            stars = 5
+
+        last = r["last_close"]
+        atr = r["atr"]
+        step = 0.1 if etf_flag else 1.0
+
+        entry = last + 0.10 * atr
+        tp = entry + 0.80 * atr
+        sl = entry - 0.60 * atr
+
+        item = {
+            "code": code,
+            "name": r["name"],
+            "name_norm": r["name"],
+            "sector": sec_name,
+            "last_close": _round_price(last, etf_flag),
+            "entry": _round_price(entry, etf_flag),
+            "tp": _round_price(tp, etf_flag),
+            "sl": _round_price(sl, etf_flag),
+            "score": None,                # 内部の 0.227… は UI で非表示にするため None
+            "score_100": score_100,
+            "stars": stars,
+            "qty": 100,
+            "required_cash": int(round(last * 100)),
+            "est_pl": int(round((tp - entry) * 100)),
+            "est_loss": int(round((entry - sl) * 100)),
+            "reasons": {
+                "trend": float(r["mom20"] * 100.0),
+                "rs": float(r["rs20"] * 100.0),
+                "vol_signal": float(r["vol_signal"]),
+                "atr": float(atr),
+            },
+            "price_date": r["price_date"],
+            "price_vendor": r["price_vendor"],
+        }
+        items.append(item)
+
+    # 並べ替え（上位10件）
+    items = sorted(items, key=lambda x: x["score_100"], reverse=True)[:10]
     return items
 
 class Command(BaseCommand):
-    help = "AIピック生成（LITE/FULL）"
+    help = "AIピック生成（完全版/ライト・スナップショット対応）"
 
     def add_arguments(self, parser):
-        parser.add_argument("--universe", default="all", help="all / jp-all / <file>")
+        parser.add_argument("--universe", default="all", help="all / nk225 / quick_100 / <file name>")
         parser.add_argument("--sample", type=int, default=None)
         parser.add_argument("--head", type=int, default=None)
-        parser.add_argument("--budget", type=int, default=90)
+        parser.add_argument("--budget", type=int, default=90, help="秒")
         parser.add_argument("--nbars", type=int, default=180)
-        parser.add_argument("--nbars-lite", dest="nbars_lite", type=int, default=60)
-        parser.add_argument("--use-snapshot", dest="use_snapshot", action="store_true")
-        parser.add_argument("--lite-only", action="store_true")
+        parser.add_argument("--nbars-lite", dest="nbars_lite", type=int, default=60,
+                            help="ライトモード時の足本数")
+        parser.add_argument("--use-snapshot", dest="use_snapshot", action="store_true",
+                            help="夜間スナップショット利用")
+        parser.add_argument("--lite-only", action="store_true", help="日中ライト表示用")
         parser.add_argument("--force", action="store_true")
 
     def handle(self, *args, **opts):
@@ -237,26 +243,36 @@ class Command(BaseCommand):
         nbars_lite = int(opts.get("nbars_lite", 60))
         use_snap = bool(opts.get("use_snapshot", False))
         lite = bool(opts["lite_only"])
+        force = bool(opts["force"])
 
         _ensure_dir(PICKS_DIR)
-        pairs = _load_universe(universe, sample, head)
-        if not pairs:
+
+        codes = _load_universe(universe, sample, head)
+        if not codes:
             self.stdout.write(self.style.WARNING("[picks_build] universe=0"))
             return
 
         tag = "short_aggressive"
 
         if lite:
-            self.stdout.write(f"[picks_build] start LITE universe={len(pairs)} budget={budget}s")
-            items = _build_items(pairs, budget, nbars_lite, mode="aggressive", horizon="short")
+            self.stdout.write(f"[picks_build] start LITE universe={len(codes)} budget={budget}s")
+            items = _build_items(codes, budget, nbars_lite, mode="aggressive", horizon="short")
             if not items:
                 p = _json_path("latest_lite")
-                payload = {"items": [], "mode": "LIVE-FAST", "updated_at": dt.datetime.now().isoformat()}
-                p.write_text(json.dumps(payload, ensure_ascii=False))
+                p.write_text(json.dumps({"items": [], "mode": "LIVE-FAST",
+                                         "updated_at": dt.datetime.now().isoformat()},
+                                        ensure_ascii=False))
                 _link_latest(p, "latest_lite.json")
-                _link_latest(p, "latest.json")
                 self.stdout.write(self.style.WARNING("[picks_build] lite: items=0 (empty json emitted)"))
                 return
+
+            # sector 表示のための置換
+            sec_disp = {
+                c: s for c, s in StockMaster.objects.filter(code__in=[x["code"] for x in items])
+                .values_list("code", "sector_name")
+            }
+            for it in items:
+                it["sector"] = sec_disp.get(it["code"], it.get("sector", ""))
 
             p = _json_path(f"{tag}_lite")
             p.write_text(json.dumps({
@@ -269,8 +285,17 @@ class Command(BaseCommand):
             self.stdout.write(f"[picks_build] done (lite) items={len(items)} -> {p}")
             return
 
-        self.stdout.write(f"[picks_build] start FULL universe={len(pairs)} budget={budget}s use_snapshot={use_snap}")
-        items = _build_items(pairs, budget, nbars, mode="aggressive", horizon="short")
+        # FULL
+        self.stdout.write(f"[picks_build] start FULL universe={len(codes)} budget={budget}s use_snapshot={use_snap}")
+        items = _build_items(codes, budget, nbars, mode="aggressive", horizon="short")
+
+        sec_disp = {
+            c: s for c, s in StockMaster.objects.filter(code__in=[x["code"] for x in items])
+            .values_list("code", "sector_name")
+        }
+        for it in items:
+            it["sector"] = sec_disp.get(it["code"], it.get("sector", ""))
+
         p = _json_path(tag)
         p.write_text(json.dumps({
             "items": items,
