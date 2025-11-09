@@ -15,11 +15,23 @@ from aiapp.models import StockMaster
 
 PICKS_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "picks"
 
+# JPX 33業種（コード→日本語名）
+JPX_SECTOR_MAP: Dict[str, str] = {
+    "005": "水産・農林業", "010": "鉱業", "015": "建設業", "020": "食料品", "025": "繊維製品",
+    "030": "パルプ・紙", "035": "化学", "040": "医薬品", "045": "石油・石炭製品", "050": "ゴム製品",
+    "055": "ガラス・土石製品", "060": "鉄鋼", "065": "非鉄金属", "070": "金属製品", "075": "機械",
+    "080": "電気機器", "085": "輸送用機器", "090": "精密機器", "095": "その他製品",
+    "100": "電気・ガス業",
+    "105": "陸運業", "110": "海運業", "115": "空運業", "120": "倉庫・運輸関連業",
+    "125": "情報・通信業",
+    "130": "卸売業", "135": "小売業",
+    "140": "銀行業", "145": "証券・商品先物取引業", "150": "保険業", "155": "その他金融業",
+    "160": "不動産業",
+    "165": "サービス業",
+}
 
 def _load_latest_path() -> Optional[Path]:
-    """
-    最新のピックJSONをフォールバック順で解決
-    """
+    """最新ピックJSONの実体ファイルをフォールバック順で解決"""
     for name in ("latest.json", "latest_lite.json", "latest_full.json", "latest_synthetic.json"):
         p = PICKS_DIR / name
         if p.exists() and p.is_file():
@@ -28,63 +40,76 @@ def _load_latest_path() -> Optional[Path]:
 
 
 def _load_picks() -> Dict[str, Any]:
-    """
-    破損・欠損時も必ず同じスキーマで返す
-    """
+    """壊れていてもスキーマを崩さず返す"""
     path = _load_latest_path()
-    base = {"meta": {"generated_at": None, "mode": None, "count": 0}, "items": []}
+    base = {"meta": {"generated_at": None, "mode": None, "count": 0}, "items": [], "_path": None}
     if not path:
         return base
     try:
         data = json.loads(path.read_text())
     except Exception:
-        return base
-
+        data = {}
     meta = dict(data.get("meta") or {})
     items = list(data.get("items") or [])
+    # 互換：トップレベルに mode がある旧構造も拾う
     meta.setdefault("mode", data.get("mode"))
     meta.setdefault("count", len(items))
-    data = {"meta": meta, "items": items}
+    data = {"meta": meta, "items": items, "_path": str(path)}
     return data
 
 
-def _enrich_with_master(items: List[Dict[str, Any]]) -> None:
-    """
-    code → 銘柄名・業種名を補完し、テンプレ表示用の共通キーを作る
-      - name / name_norm
-      - sector_display（JSON側 sector / sector_name / Master.sector_name の最良値）
-      - last_close の None/NaN 防御（テンプレ崩れ防止）
-    """
+def _is_etf(code: str) -> bool:
+    """ざっくりETF判定（先頭1xxxが多い）。厳密化は後でOK"""
+    try:
+        return code and code[0] == "1"
+    except Exception:
+        return False
+
+
+def _sector_from_master(sm: Optional[StockMaster]) -> Optional[str]:
+    if not sm:
+        return None
+    # sector_name が入っていれば最優先
+    if sm.sector_name:
+        return sm.sector_name
+    # sector_code → 名称へ
+    if sm.sector_code and sm.sector_code in JPX_SECTOR_MAP:
+        return JPX_SECTOR_MAP[sm.sector_code]
+    return None
+
+
+def _enrich_with_master(data: Dict[str, Any]) -> None:
+    """itemsを銘柄名/業種/価格の表示用に正規化"""
+    items: List[Dict[str, Any]] = list(data.get("items") or [])
     if not items:
         return
 
-    # まとめて1クエリ
     codes = {str(x.get("code", "")).strip() for x in items if x.get("code")}
     masters = {
         sm.code: sm
-        for sm in StockMaster.objects.filter(code__in=codes).only("code", "name", "sector_name")
+        for sm in StockMaster.objects.filter(code__in=codes).only("code", "name", "sector_name", "sector_code")
     }
 
     for it in items:
         code = str(it.get("code", "")).strip()
         sm = masters.get(code)
 
-        # --- 名称 ---
+        # name
         name = it.get("name")
         if not name or name == code:
             it["name"] = (sm.name if sm else code) or code
         it.setdefault("name_norm", it["name"])
 
-        # --- 業種（表示用） ---
-        # JSON 由来（keysの揺れをケア）
-        j_sector = it.get("sector") or it.get("sector_name")
-        # Master 由来
-        m_sector = getattr(sm, "sector_name", None) if sm else None
-        # どれか入っている方を優先
-        sector_display = j_sector or m_sector or "—"
-        it["sector_display"] = sector_display
+        # sector display（フォールバック順）
+        sector_json = it.get("sector") or it.get("sector_name")
+        sector_mst = _sector_from_master(sm)
+        if _is_etf(code):
+            sector_disp = "ETF/ETN"
+        else:
+            sector_disp = sector_json or sector_mst or "業種不明"
+        it["sector_display"] = sector_disp
 
-        # --- 価格表示の防御 ---
+        # last_close 防御
         val = it.get("last_close")
         try:
             it["last_close"] = float(val) if val is not None else None
@@ -92,40 +117,51 @@ def _enrich_with_master(items: List[Dict[str, Any]]) -> None:
             it["last_close"] = None
 
 
-def _format_updated_label(meta: Dict[str, Any], count: int) -> str:
+def _format_updated_label(meta: Dict[str, Any], path_str: Optional[str], count: int) -> str:
     """
-    generated_at が無い/壊れている場合でも、必ず見栄えするラベルを返す
-    例: 2025/11/09 01:23　6件 / SNAPSHOT
+    表示用の最終更新ラベル：
+      1) meta.generated_at があればそれを表示
+      2) 無ければ JSONファイルの mtime を表示
+    例: 2025/11/09 01:23　6件 / FORCE_LITE
     """
-    raw_ts = meta.get("generated_at")
     mode = meta.get("mode") or "lite"
-    if isinstance(raw_ts, str) and raw_ts.strip():
+    raw_ts = (meta.get("generated_at") or "").strip() if isinstance(meta.get("generated_at"), str) else None
+
+    if raw_ts:
         ts_label = raw_ts
     else:
-        # サーバ現地時刻でフォールバック
-        ts_label = timezone.localtime().strftime("%Y/%m/%d %H:%M")
+        # ファイル mtime にフォールバック
+        if path_str:
+            p = Path(path_str)
+            if p.exists():
+                ts_label = timezone.localtime(timezone.make_aware(timezone.datetime.fromtimestamp(p.stat().st_mtime))).strftime(
+                    "%Y/%m/%d %H:%M"
+                )
+            else:
+                ts_label = timezone.localtime().strftime("%Y/%m/%d %H:%M")
+        else:
+            ts_label = timezone.localtime().strftime("%Y/%m/%d %H:%M")
     return f"{ts_label}　{count}件 / {str(mode).upper()}"
 
 
 def picks(request):
-    # LIVE/DEMO は現状表示トグルだけ（将来ここで切替ロジックを入れる）
-    mode_q = request.GET.get("mode")
-    is_demo = True if mode_q == "demo" else False if mode_q == "live" else True
+    # LIVE/DEMO 切替（将来ロジック拡張）
+    qmode = request.GET.get("mode")
+    is_demo = True if qmode == "demo" else False if qmode == "live" else True
 
     data = _load_picks()
-    items = data.get("items", [])
-    _enrich_with_master(items)
+    _enrich_with_master(data)
 
     meta = data.get("meta") or {}
-    count = meta.get("count") or len(items)
-    updated_label = _format_updated_label(meta, count)
+    count = meta.get("count") or len(data.get("items") or [])
+    updated_label = _format_updated_label(meta, data.get("_path"), count)
 
     ctx = {
-        "items": items,
-        "updated_label": updated_label,  # ← () にならない
+        "items": data.get("items") or [],
+        "updated_label": updated_label,
         "mode_label": "LIVE/DEMO",
         "is_demo": is_demo,
-        # 表示既定
+        # 既定表示値
         "lot_size": 100,
         "risk_pct": 0.02,
     }
@@ -134,7 +170,9 @@ def picks(request):
 
 def picks_json(request):
     data = _load_picks()
-    _enrich_with_master(data.get("items", []))
+    _enrich_with_master(data)
     if not data:
         raise Http404("no picks")
+    # 内部用メタは出さない
+    data.pop("_path", None)
     return JsonResponse(data, safe=True, json_dumps_params={"ensure_ascii": False, "indent": 2})
