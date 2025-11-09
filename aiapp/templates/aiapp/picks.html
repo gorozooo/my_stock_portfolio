@@ -41,6 +41,7 @@
   .btns{display:flex;gap:8px;margin-top:12px}
   .btns a{flex:1;text-align:center;text-decoration:none;color:#eaf0ff;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 8px;background:rgba(255,255,255,.07)}
   .empty{margin-top:16px;padding:16px;border:1px dashed rgba(255,255,255,.15);border-radius:12px;color:#c7d2e0}
+  .meta{font-size:11px;color:#7f8da3;margin-top:4px}
 </style>
 {% endblock %}
 
@@ -51,6 +52,9 @@
     <div>
       <div class="ts">最終更新</div>
       <div style="font-weight:600">{{ updated_label }}</div>
+      {% if items and items|length > 0 and items.0.price_date %}
+        <div class="meta">価格基準: {{ items.0.price_date }} / {{ items.0.price_vendor|default:"" }}</div>
+      {% endif %}
     </div>
     <div>
       {% if is_demo %}
@@ -64,12 +68,14 @@
   {% if items and items|length > 0 %}
     <div class="grid">
       {% for item in items %}
+        {# ETF判定: item.is_etf があれば優先、なければ sector_display で代用 #}
+        {% with etf=((item.is_etf)|default_if_none:False) or (item.sector_display == 'ETF/ETN') %}
         <div class="card">
           <div class="ttl">
             <div>
               <h3>{{ item.name_norm|default:item.name }}</h3>
               <div class="sub">
-                {{ item.code }} ・ {{ item.sector_display }}
+                {{ item.code }} ・ {{ item.sector_display|default:"業種不明" }}
               </div>
             </div>
             <div class="stars">
@@ -77,7 +83,6 @@
                 {% with s=item.stars|default:0 %}
                   {% for _ in ""|center:s %}⭐️{% endfor %}
                 {% endwith %}
-                {% if item.score %}<span class="sub">（{{ item.score }}）</span>{% endif %}
               </div>
               {% if item.score_100 is not None %}
                 <div class="sub">総合得点 {{ item.score_100 }} 点</div>
@@ -90,34 +95,52 @@
               <div class="lb">現在値</div>
               <div class="vl">
                 {% if item.last_close %}
-                  {{ item.last_close|floatformat:0|intcomma }} 円
+                  {% if etf %}
+                    {{ item.last_close|floatformat:1|intcomma }} 円
+                  {% else %}
+                    {{ item.last_close|floatformat:0|intcomma }} 円
+                  {% endif %}
                 {% else %}
                   —
                 {% endif %}
               </div>
+              {% if item.price_date %}
+                <div class="meta">{{ item.price_date }} / {{ item.price_vendor|default:"" }}</div>
+              {% endif %}
             </div>
+
             <div class="it">
               <div class="lb">数量（{{ lot_size }}株単元・リスク{{ risk_pct|floatformat:2 }}）</div>
               <div class="vl">{{ item.qty|default:0|intcomma }} 株</div>
             </div>
+
             <div class="it">
               <div class="lb">Entry / TP / SL</div>
               <div class="vl">
-                {% if item.entry %}{{ item.entry|floatformat:0|intcomma }}{% else %}-{% endif %} /
-                {% if item.tp %}{{ item.tp|floatformat:0|intcomma }}{% else %}-{% endif %} /
-                {% if item.sl %}{{ item.sl|floatformat:0|intcomma }}{% else %}-{% endif %} 円
+                {% if etf %}
+                  {% if item.entry %}{{ item.entry|floatformat:1|intcomma }}{% else %}-{% endif %} /
+                  {% if item.tp %}{{ item.tp|floatformat:1|intcomma }}{% else %}-{% endif %} /
+                  {% if item.sl %}{{ item.sl|floatformat:1|intcomma }}{% else %}-{% endif %} 円
+                {% else %}
+                  {% if item.entry %}{{ item.entry|floatformat:0|intcomma }}{% else %}-{% endif %} /
+                  {% if item.tp %}{{ item.tp|floatformat:0|intcomma }}{% else %}-{% endif %} /
+                  {% if item.sl %}{{ item.sl|floatformat:0|intcomma }}{% else %}-{% endif %} 円
+                {% endif %}
               </div>
             </div>
+
             <div class="it">
               <div class="lb">必要資金</div>
               <div class="vl">{{ item.required_cash|default:0|floatformat:0|intcomma }} 円</div>
             </div>
+
             <div class="it">
               <div class="lb">想定利益</div>
               <div class="vl pos">
                 {% if item.est_pl %}+{{ item.est_pl|floatformat:0|intcomma }} 円{% else %}—{% endif %}
               </div>
             </div>
+
             <div class="it">
               <div class="lb">想定損失</div>
               <div class="vl neg">
@@ -140,6 +163,7 @@
             <a href="#">今すぐで</a>
           </div>
         </div>
+        {% endwith %}
       {% endfor %}
     </div>
   {% else %}
