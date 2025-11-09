@@ -21,6 +21,11 @@ from aiapp.models.scoring import score_sample
 PICKS_DIR = pathlib.Path(getattr(settings, "MEDIA_ROOT", "media")) / "aiapp" / "picks"
 UNIVERSE_DIR = pathlib.Path("aiapp/data/universe")
 
+# LITE時はやや緩める（scoreが小さくても通す）
+MIN_SCORE = float(os.getenv("AIAPP_MIN_SCORE", 0.0))
+REQUIRE_TREND = bool(int(os.getenv("AIAPP_REQUIRE_TREND", "0")))
+SKIP_LIQ = bool(int(os.getenv("AIAPP_SKIP_LIQ", "1")))
+ALLOW_ETF = bool(int(os.getenv("AIAPP_ALLOW_ETF", "1")))
 
 def _ensure_dir(p: pathlib.Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
