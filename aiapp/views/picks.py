@@ -1,99 +1,124 @@
+# aiapp/views/picks.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import json
-import pathlib
-from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List
 
-from django.shortcuts import render
-from django.http import JsonResponse, HttpResponse
 from django.conf import settings
+from django.http import JsonResponse, Http404
+from django.shortcuts import render
+from django.utils import timezone
 
-PICKS_DIR = pathlib.Path(getattr(settings, "MEDIA_ROOT", "media")) / "aiapp" / "picks"
+from aiapp.models import StockMaster
 
-def _load_json(path: pathlib.Path) -> dict:
-    try:
-        return json.loads(path.read_text())
-    except Exception:
-        return {}
+PICKS_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "picks"
 
-def _pick_latest() -> tuple[list[dict], str, str]:
+
+def _load_latest_path() -> Path | None:
     """
-    優先順位:
-      1) latest_lite.json（日中の差分）
-      2) latest_full.json（夜間の完全/スナップショット）
-      3) latest.json（互換）
+    最新のピックファイルをフォールバック順で解決:
+    latest.json → latest_lite.json → latest_full.json → latest_synthetic.json
     """
-    order = ["latest_lite.json", "latest_full.json", "latest.json"]
-    for name in order:
+    candidates = ["latest.json", "latest_lite.json", "latest_full.json", "latest_synthetic.json"]
+    for name in candidates:
         p = PICKS_DIR / name
-        if p.exists():
-            d = _load_json(p)
-            items = d.get("items", [])
-            mode  = d.get("mode", "SNAPSHOT")
-            ts    = d.get("updated_at") or ""
-            return items, mode, ts
-    return [], "DEMO", ""
+        if p.exists() and p.is_file():
+            return p
+    return None
+
+
+def _load_picks() -> Dict[str, Any]:
+    p = _load_latest_path()
+    if not p:
+        return {"meta": {"generated_at": None, "mode": None, "count": 0}, "items": []}
+
+    try:
+        data = json.loads(p.read_text())
+    except Exception:
+        # 破損時は空で返す
+        return {"meta": {"generated_at": None, "mode": None, "count": 0}, "items": []}
+
+    # 古い生成物で meta がない事もあるのでケア
+    meta = data.get("meta") or {}
+    if "count" not in meta:
+        meta["count"] = len(data.get("items", []))
+    data["meta"] = meta
+    return data
+
+
+def _enrich_with_master(items: List[Dict[str, Any]]) -> None:
+    """
+    items の code に対して、銘柄名・業種名を付与/補正する。
+    - name: 既に name が入ってなければマスタから埋める
+    - name_norm: テンプレ側で優先表示したい時のための正規化済み名（当面は name と同じ）
+    - sector: 33業種名
+    """
+    if not items:
+        return
+
+    # まとめてマップ化してクエリを 1 回に抑える
+    codes = {str(x.get("code", "")).strip() for x in items if x.get("code")}
+    masters = {
+        sm.code: sm for sm in StockMaster.objects.filter(code__in=codes).only("code", "name", "sector_name")
+    }
+
+    for it in items:
+        code = str(it.get("code", "")).strip()
+        sm = masters.get(code)
+        # 名称
+        name = it.get("name")
+        if not name or name == code:
+            it["name"] = sm.name if sm else code
+        # 正規化名（いまはそのまま）
+        it.setdefault("name_norm", it["name"])
+        # セクター
+        if not it.get("sector"):
+            it["sector"] = (sm.sector_name if sm else None) or "—"
+
 
 def picks(request):
-    items, mode, ts = _pick_latest()
+    # LIVE/DEMO はいまは単純なトグル表示だけ（将来はセッションやクエリで切替）
+    mode_param = request.GET.get("mode")
+    if mode_param in {"live", "demo"}:
+        is_demo = (mode_param == "demo")
+    else:
+        # 既定は demo 表示（スナップショット優先）
+        is_demo = True
+
+    data = _load_picks()
+    items = data.get("items", [])
+    _enrich_with_master(items)
+
+    # 最終更新表示（()にならないよう防御）
+    ts = data.get("meta", {}).get("generated_at")
+    try:
+        updated_label = ts or timezone.localtime().strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        updated_label = ts or "-"
+
+    count = data.get("meta", {}).get("count") or len(items)
+    updated_label = f"{updated_label}　{count}件 / {(data.get('mode') or data.get('meta',{}).get('mode') or 'lite').lower()}"
 
     ctx = {
         "items": items,
-        "mode_label": mode,
-        "updated_label": ts if ts else "—",
-        "is_demo": (mode == "DEMO"),
+        "updated_label": updated_label,
+        "mode_label": "LIVE/DEMO",
+        "is_demo": is_demo,
+        # 表示既定（テンプレが参照）
         "lot_size": 100,
         "risk_pct": 0.02,
     }
-
-    # 親しみトーンの理由テキスト整形
-    for it in ctx["items"]:
-        r = it.get("reasons", {}) or {}
-        lines = []
-        if "trend" in r:
-            try:
-                lines.append(f"直近の流れは+{float(r['trend']):.1f}%で上向き。勢いは続きやすいムード。")
-            except Exception:
-                pass
-        if "rs" in r:
-            try:
-                lines.append(f"指数比の相対強度も+{float(r['rs']):.1f}%と健闘。ベンチよりやや強め。")
-            except Exception:
-                pass
-        if "vol_signal" in r:
-            try:
-                lines.append(f"出来高は平均比×{float(r['vol_signal']):.2f}。注目度が高まっている可能性。")
-            except Exception:
-                pass
-        if "atr" in r:
-            try:
-                lines.append(f"ボラはATR≈{float(r['atr']):.1f}。過度ではなく扱いやすいレンジ。")
-            except Exception:
-                pass
-        it["reasons_text"] = lines
-
-        # 表示フォーマット補正
-        try:
-            it["score_100"] = max(0, min(100, int(round(it.get("score_100", 0)))))
-        except Exception:
-            it["score_100"] = 0
-        try:
-            it["stars"] = max(1, min(5, int(it.get("stars", 1))))
-        except Exception:
-            it["stars"] = 1
-
     return render(request, "aiapp/picks.html", ctx)
 
+
 def picks_json(request):
-    """最新ピックをJSONで返す（フロント/監視用）"""
-    items, mode, ts = _pick_latest()
-    resp = JsonResponse({
-        "items": items,
-        "mode": mode,
-        "updated_at": ts,
-    }, json_dumps_params={"ensure_ascii": False})
-    # 強制ノーキャッシュ（スマホSafari対策）
-    resp["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp["Pragma"] = "no-cache"
-    return resp
+    """
+    デバッグ/外部確認用: ブラウザから JSON をそのまま確認できる。
+    """
+    data = _load_picks()
+    _enrich_with_master(data.get("items", []))
+    if not data:
+        raise Http404("no picks")
+    return JsonResponse(data, safe=True, json_dumps_params={"ensure_ascii": False, "indent": 2})
