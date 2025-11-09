@@ -39,32 +39,25 @@
   .reasons{margin:10px 0 0 0;padding-left:16px}
   .reasons li{margin:2px 0}
   .btns{display:flex;gap:8px;margin-top:12px}
-  .btns a{
-    flex:1;text-align:center;text-decoration:none;color:#eaf0ff;
-    border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 8px;background:rgba(255,255,255,.07)
-  }
-  .empty{
-    margin-top:16px;padding:16px;border:1px dashed rgba(255,255,255,.15);border-radius:12px;color:#c7d2e0
-  }
+  .btns a{flex:1;text-align:center;text-decoration:none;color:#eaf0ff;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 8px;background:rgba(255,255,255,.07)}
+  .empty{margin-top:16px;padding:16px;border:1px dashed rgba(255,255,255,.15);border-radius:12px;color:#c7d2e0}
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="wrap">
 
-  <!-- ヘッダ（更新時刻＋件数＋スナップショット種別） -->
   <div class="head">
     <div>
       <div class="ts">最終更新</div>
-      <div style="font-weight:600">
-        {{ last_updated_text|default:"-" }}
-        <small style="opacity:.7;margin-left:.4em;">
-          {{ items_count|default:0 }}件 / {{ snapshot_kind|default:"-" }}
-        </small>
-      </div>
+      <div style="font-weight:600">{{ updated_label }}</div>
     </div>
     <div>
-      <a class="btn" href="{% url 'aiapp:toggle' %}?back=picks">LIVE/DEMO</a>
+      {% if is_demo %}
+        <a class="btn" href="?mode=live&reset=1">{{ mode_label }}</a>
+      {% else %}
+        <a class="btn" href="?mode=demo&reset=1">{{ mode_label }}</a>
+      {% endif %}
     </div>
   </div>
 
@@ -74,14 +67,9 @@
         <div class="card">
           <div class="ttl">
             <div>
-              <h3>{{ item.name_norm|default:item.name|default:"—" }}</h3>
+              <h3>{{ item.name_norm|default:item.name }}</h3>
               <div class="sub">
-                {{ item.code|default:"-" }} ・ 
-                {% if item.sector_name %}
-                  {{ item.sector_name }}
-                {% else %}
-                  —
-                {% endif %}
+                {{ item.code }} ・ {{ item.sector_display }}
               </div>
             </div>
             <div class="stars">
@@ -101,28 +89,28 @@
             <div class="it">
               <div class="lb">現在値</div>
               <div class="vl">
-                {% if item.last_close %}{{ item.last_close|floatformat:1|intcomma }} 円{% else %}—{% endif %}
+                {% if item.last_close %}
+                  {{ item.last_close|floatformat:1|intcomma }} 円
+                {% else %}
+                  —
+                {% endif %}
               </div>
             </div>
             <div class="it">
-              <div class="lb">
-                数量（{% if lot_size %}{{ lot_size }}{% else %}100{% endif %}株単元・リスク{% if risk_pct %}{{ risk_pct|floatformat:2 }}{% else %}0.02{% endif %}）
-              </div>
+              <div class="lb">数量（{{ lot_size }}株単元・リスク{{ risk_pct|floatformat:2 }}）</div>
               <div class="vl">{{ item.qty|default:0|intcomma }} 株</div>
             </div>
             <div class="it">
               <div class="lb">Entry / TP / SL</div>
               <div class="vl">
-                {% if item.entry %}{{ item.entry|floatformat:1|intcomma }}{% else %}—{% endif %} /
-                {% if item.tp %}{{ item.tp|floatformat:1|intcomma }}{% else %}—{% endif %} /
-                {% if item.sl %}{{ item.sl|floatformat:1|intcomma }}{% else %}—{% endif %} 円
+                {{ item.entry|default:"-" }} /
+                {{ item.tp|default:"-" }} /
+                {{ item.sl|default:"-" }} 円
               </div>
             </div>
             <div class="it">
               <div class="lb">必要資金</div>
-              <div class="vl">
-                {% if item.required_cash %}{{ item.required_cash|floatformat:0|intcomma }} 円{% else %}—{% endif %}
-              </div>
+              <div class="vl">{{ item.required_cash|default:0|floatformat:0|intcomma }} 円</div>
             </div>
             <div class="it">
               <div class="lb">想定利益</div>
@@ -138,9 +126,9 @@
             </div>
           </div>
 
-          {% if item.reasons %}
+          {% if item.reasons_text %}
             <ul class="reasons">
-              {% for line in item.reasons %}
+              {% for line in item.reasons_text %}
                 <li>{{ line }}</li>
               {% endfor %}
             </ul>
