@@ -89,15 +89,29 @@ def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int, mode
         df = get_prices(code, nbars)
         if df is None or df.empty or len(df) < 45:
             return None
+    
         feat = compute_features(df)
         s = float(score_sample(feat, mode=mode, horizon=horizon))
+    
+        # ← このブロック追加
+        if s < MIN_SCORE:
+            return None
+    
         last = float(df["close"].iloc[-1])
         atr = float((df["high"] - df["low"]).rolling(14).mean().iloc[-1])
+        sector = (
+            StockMaster.objects.filter(code=code)
+            .values_list("sector_name", flat=True)
+            .first() or ""
+        )
+        if not ALLOW_ETF and "ETF" in sector:
+            return None
+    
         item = {
             "code": code,
             "name": name,
             "name_norm": name,
-            "sector": "",
+            "sector": sector,
             "last_close": last,
             "entry": round(last * 1.001, 1),
             "tp": round(last * 1.03, 1),
