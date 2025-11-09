@@ -1,3 +1,4 @@
+# aiapp/management/commands/picks_build.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
@@ -7,8 +8,8 @@ import time
 import math
 import pathlib
 import datetime as dt
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed, CancelledError
+from typing import List, Dict
 
 import pandas as pd
 from django.core.management.base import BaseCommand, CommandError
@@ -22,11 +23,12 @@ from aiapp.models.scoring import score_sample
 PICKS_DIR = pathlib.Path(getattr(settings, "MEDIA_ROOT", "media")) / "aiapp" / "picks"
 UNIVERSE_DIR = pathlib.Path("aiapp/data/universe")
 
-# 環境変数（既存の意味を維持）
+# 環境変数（既存互換）
 MIN_SCORE = float(os.getenv("AIAPP_MIN_SCORE", 0.0))
 REQUIRE_TREND = bool(int(os.getenv("AIAPP_REQUIRE_TREND", "0")))
 SKIP_LIQ = bool(int(os.getenv("AIAPP_SKIP_LIQ", "1")))
 ALLOW_ETF = bool(int(os.getenv("AIAPP_ALLOW_ETF", "1")))
+MAX_WORKERS = int(os.getenv("AIAPP_BUILD_WORKERS", "4"))  # ← env を尊重
 
 def _ensure_dir(p: pathlib.Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
@@ -74,17 +76,14 @@ def _link_latest(src: pathlib.Path, alias: str):
             pass
 
 def _rank01(values: List[float]) -> List[float]:
-    """0..1 のパーセンタイルに正規化（同値は同率）"""
-    arr = pd.Series(values, dtype="float64")
-    if arr.count() == 0:
+    s = pd.Series(values, dtype="float64")
+    if s.count() == 0:
         return [0.0 for _ in values]
-    ranks = arr.rank(pct=True, method="average")  # 0..1
-    return ranks.fillna(0.0).tolist()
+    return s.rank(pct=True, method="average").fillna(0.0).tolist()
 
 def _is_etf_like(code: str, sector_display: str | None) -> bool:
     if sector_display == "ETF/ETN":
         return True
-    # コード先頭13xx はETFが多いので簡易判定（最終的にはsectorで上書き）
     return code.startswith("13")
 
 def _round_price(x: float, is_etf: bool) -> float:
@@ -92,10 +91,30 @@ def _round_price(x: float, is_etf: bool) -> float:
         return x
     return round(float(x), 1) if is_etf else round(float(x))
 
+def _calc_atr(df: pd.DataFrame, n: int = 14) -> float:
+    # True Range ベース ATR（頑丈版）
+    high = df["high"].astype("float64")
+    low = df["low"].astype("float64")
+    close = df["close"].astype("float64")
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        (high - low).abs(),
+        (high - prev_close).abs(),
+        (low - prev_close).abs()
+    ], axis=1).max(axis=1)
+    atr = tr.rolling(n, min_periods=n).mean().iloc[-1]
+    if pd.isna(atr) or atr == 0:
+        # 代替: 単純なレンジ平均
+        atr = (high - low).rolling(n, min_periods=n).mean().iloc[-1]
+    if pd.isna(atr) or atr == 0:
+        atr = max(1.0, close.iloc[-1] * 0.005)  # 最後の砦: 0.5%
+    return float(atr)
+
 def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int, mode: str, horizon: str):
     """
-    1周目: 価格取得・特徴量抽出（並列）
-    2周目: パーセンタイル正規化 → 合成スコア/⭐️ 算出、ATRベースで Entry/TP/SL を決定
+    1) 並列で価格・特徴量取得（全体の時間予算のみを見る）
+    2) 失敗・時間切れが多い場合は逐次フェールセーフで補完
+    3) 相対スコア化→Entry/TP/SL計算→上位10件
     """
     start = time.time()
     raws: List[Dict] = []
@@ -104,40 +123,53 @@ def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int, mode
         df = get_prices(code, nbars)
         if df is None or df.empty or len(df) < 45:
             return None
-        # 特徴量
         feat = compute_features(df)
-        s_raw = float(score_sample(feat, mode=mode, horizon=horizon))  # 参考値（UIでは非表示）
+        s_raw = float(score_sample(feat, mode=mode, horizon=horizon))  # UIには出さない
         last = float(df["close"].iloc[-1])
-        atr = float((df["high"] - df["low"]).rolling(14).mean().iloc[-1])
+        atr = _calc_atr(df)
         mom20 = float(df["close"].pct_change(20).iloc[-1])
         rs20 = float(mom20 - df["close"].pct_change(20).rolling(60).mean().iloc[-1])
         vol_signal = float(
             df["volume"].iloc[-1] / (df["volume"].rolling(20).mean().iloc[-1] + 1e-9)
         )
-        price_date = str(getattr(df.index, "date", lambda: df.index[-1])()[-1]) if hasattr(df.index, "__iter__") else ""
-
         return {
             "code": code,
             "name": name,
-            "name_norm": name,
-            "sector": "",  # 後で付与
             "last_close": last,
-            "atr": atr if not math.isnan(atr) else 0.0,
-            "mom20": mom20 if not math.isnan(mom20) else 0.0,
-            "rs20": rs20 if not math.isnan(rs20) else 0.0,
-            "vol_signal": vol_signal if not math.isnan(vol_signal) else 0.0,
+            "atr": atr,
+            "mom20": 0.0 if math.isnan(mom20) else mom20,
+            "rs20": 0.0 if math.isnan(rs20) else rs20,
+            "vol_signal": 0.0 if math.isnan(vol_signal) else vol_signal,
             "s_raw": s_raw,
             "price_date": str(df.index[-1].date()) if len(df.index) else "",
             "price_vendor": "yfinance",
         }
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    # --- ① 並列 ---
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         futs = {ex.submit(work, c, n): (c, n) for c, n in codes}
-        for fut in as_completed(futs, timeout=max(2, budget_sec)):
+        for fut in as_completed(futs):
             if time.time() - start > budget_sec:
                 break
             try:
-                res = fut.result(timeout=5)
+                res = fut.result()  # 個別タイムアウトは設けない
+                if res:
+                    raws.append(res)
+            except CancelledError:
+                pass
+            except Exception:
+                pass
+        # 残タスクはキャンセル
+        for f in futs:
+            f.cancel()
+
+    # --- ② フェールセーフ（逐次） ---
+    if not raws and budget_sec > 0:
+        for c, n in codes:
+            if time.time() - start > budget_sec:
+                break
+            try:
+                res = work(c, n)
                 if res:
                     raws.append(res)
             except Exception:
@@ -146,16 +178,16 @@ def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int, mode
     if not raws:
         return []
 
-    # 2周目: 相対スコア化（0..1）
-    r_mom = _rank01([r["mom20"] for r in raws])
-    r_rs = _rank01([r["rs20"] for r in raws])
-    r_vol = _rank01([r["vol_signal"] for r in raws])
-
-    # sector 名を引いて ETF 判定と丸めに使う
+    # sector 名（ETF判定・表示用）
     sec_map: Dict[str, str] = {
         c: s for c, s in StockMaster.objects.filter(code__in=[x["code"] for x in raws])
         .values_list("code", "sector_name")
     }
+
+    # 相対スコア（0..1）
+    r_mom = _rank01([r["mom20"] for r in raws])
+    r_rs = _rank01([r["rs20"] for r in raws])
+    r_vol = _rank01([r["vol_signal"] for r in raws])
 
     items: List[Dict] = []
     for i, r in enumerate(raws):
@@ -163,11 +195,9 @@ def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int, mode
         sec_name = sec_map.get(code, "") or ""
         etf_flag = _is_etf_like(code, "ETF/ETN" if sec_name == "ETF/ETN" else None)
 
-        # 合成スコア（0..1）: モメ 60%、RS 25%、出来高 15%
         score01 = 0.60 * r_mom[i] + 0.25 * r_rs[i] + 0.15 * r_vol[i]
         score_100 = int(round(score01 * 100))
 
-        # ⭐️: 0..1 を 5段階に
         if score01 < 0.20:
             stars = 1
         elif score01 < 0.40:
@@ -181,7 +211,6 @@ def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int, mode
 
         last = r["last_close"]
         atr = r["atr"]
-        step = 0.1 if etf_flag else 1.0
 
         entry = last + 0.10 * atr
         tp = entry + 0.80 * atr
@@ -196,7 +225,7 @@ def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int, mode
             "entry": _round_price(entry, etf_flag),
             "tp": _round_price(tp, etf_flag),
             "sl": _round_price(sl, etf_flag),
-            "score": None,                # 内部の 0.227… は UI で非表示にするため None
+            "score": None,               # 内部の s_raw は UI では出さない
             "score_100": score_100,
             "stars": stars,
             "qty": 100,
@@ -214,7 +243,6 @@ def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int, mode
         }
         items.append(item)
 
-    # 並べ替え（上位10件）
     items = sorted(items, key=lambda x: x["score_100"], reverse=True)[:10]
     return items
 
