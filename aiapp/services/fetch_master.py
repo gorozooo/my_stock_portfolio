@@ -1,406 +1,333 @@
-# -*- coding: utf-8 -*-
-"""
-aiapp.services.fetch_master
-JPX公式の「東証上場銘柄一覧（Excel）」を自動取得し、
-全シート（内国株/グロース/ETF/ETN/REIT/外国株 等）をマージして
-code / name / sector_code / sector_name に正規化 → CSV保存 → DB反映します。
-
-ポイント
-- .xlsx / .xls / .csv すべて自動判定（xlsは libreoffice 変換に対応：任意）
-- 列名ゆらぎを広く吸収（和英・別名）
-- Excel失敗時は必ずCSVにフォールバック（BadZipFile等を吸収）
-- 33業種コード⇄名称の相互補完（"50", "050", "0050", "50.0" 等すべて対応）
-- ETF/ETN/REIT/外国株など sector が空のケースはカテゴリ名で補完
-- SQLite ロック対策（WAL + busy_timeout、bulk_create / bulk_update）
-
-依存:
-    pip install requests pandas openpyxl
-    # .xls対応（任意）
-    # sudo apt update && sudo apt install -y libreoffice
-"""
+# aiapp/services/fetch_master.py
 from __future__ import annotations
 
 import io
 import os
 import re
-import unicodedata
-import datetime as dt
-from typing import Dict, Iterable, List, Optional, Tuple
+import sys
+import typing as t
+from dataclasses import dataclass
 
 import pandas as pd
 import requests
-from django.conf import settings
-from django.db import connection, transaction
+from django.db import transaction
+from django.utils.timezone import now
 
-try:
-    # 推奨：aiapp/models/master.py
-    from aiapp.models.master import StockMaster
-except Exception:
-    # 後方互換：aiapp/models.py にある場合
-    from aiapp.models import StockMaster
+from aiapp.models import StockMaster
 
+# ─────────────────────────────────────────────────────────
+# JPX 公式（上場銘柄一覧）既定URL
+# 例: https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2.html
+# 実体: data_j.xls（拡張子がxlsでも中身はXML Spreadsheetだったりすることがある）
+# ─────────────────────────────────────────────────────────
+JPX_DEFAULT_URL = (
+    "https://www.jpx.co.jp/markets/statistics-equities/misc/"
+    "tvdivq0000001vg2-att/data_j.xls"
+)
 
-# ===== 設定 =====
-MEDIA_ROOT    = getattr(settings, "MEDIA_ROOT", "media")
-MASTER_DIR    = getattr(settings, "AIAPP_MASTER_DIR", os.path.join("aiapp", "master"))
-MASTER_PAGE   = getattr(settings, "AIAPP_MASTER_PAGE",
-                        "https://www.jpx.co.jp/markets/statistics-equities/misc/01.html")
-MASTER_URL    = getattr(settings, "AIAPP_MASTER_URL", None)  # 直リンク or ローカルパス
-CSV_ENCODING_TRY = ("utf-8", "cp932", "shift_jis", "utf-8-sig")
-
-# ===== 33業種マップ（主要） =====
-JPX33_MAP: Dict[str, str] = {
-    "005": "水産・農林業", "010": "鉱業", "020": "建設業", "025": "食料品", "030": "繊維製品",
-    "035": "パルプ・紙", "040": "化学", "045": "医薬品", "050": "石油・石炭製品", "055": "ゴム製品",
-    "060": "ガラス・土石製品", "065": "鉄鋼", "070": "非鉄金属", "075": "金属製品", "080": "機械",
-    "085": "電気機器", "090": "輸送用機器", "095": "精密機器", "100": "その他製品", "105": "電気・ガス業",
-    "110": "陸運業", "115": "海運業", "120": "空運業", "125": "倉庫・運輸関連業", "130": "情報・通信業",
-    "135": "卸売業", "140": "小売業", "145": "銀行業", "150": "証券・商品先物取引業",
-    "155": "保険業", "160": "その他金融業", "165": "不動産業", "170": "サービス業",
+# ─────────────────────────────────────────────────────────
+# 33業種コード → 日本語名称（JPX準拠）
+# 一部CSVでは「33業種コード」だけで名称列が欠損することがあるため、必ず埋められるように持つ
+# ─────────────────────────────────────────────────────────
+SECTOR33_MAP: dict[str, str] = {
+    "005": "水産・農林業",
+    "010": "鉱業",
+    "015": "建設業",
+    "020": "食料品",
+    "025": "繊維製品",
+    "030": "パルプ・紙",
+    "035": "化学",
+    "040": "医薬品",
+    "045": "石油・石炭製品",
+    "050": "ゴム製品",
+    "055": "ガラス・土石製品",
+    "060": "鉄鋼",
+    "065": "非鉄金属",
+    "070": "金属製品",
+    "075": "機械",
+    "080": "電気機器",
+    "085": "輸送用機器",
+    "090": "精密機器",
+    "095": "その他製品",
+    "100": "電気・ガス業",
+    "105": "陸運業",
+    "110": "海運業",
+    "115": "空運業",
+    "120": "倉庫・運輸関連業",
+    "125": "情報・通信業",
+    "130": "卸売業",
+    "135": "小売業",
+    "140": "銀行業",
+    "145": "証券・商品先物取引業",
+    "150": "保険業",
+    "155": "その他金融業",
+    "160": "不動産業",
+    "165": "サービス業",
+    # 旧CSV/旧XLSで 3桁・4桁・ゼロ詰めなし混在を吸収するために代表的別表記も受ける
+    "375": "その他製品",
+    "525": "情報・通信業",
+    "650": "電気機器",
+    "700": "輸送用機器",
+    "720": "輸送用機器",
 }
 
-# ===== 列名候補 =====
-NAME_KEYS = ["銘柄名", "会社名", "名称", "name", "Name", "COMPANY", "Company"]
-CODE_KEYS = ["コード", "証券コード", "code", "Code", "SC", "銘柄コード"]
-SECTOR_CODE_KEYS = [
-    "33業種コード", "業種コード", "セクターコード",
-    "sector_code", "industry33_code", "industry_code",
-    "SectorCode", "CategoryCode",
-]
-SECTOR_NAME_KEYS = [
-    "33業種名", "業種名", "セクター", "セクター名",
-    "sector_name", "industry33_name", "industry_name",
-    "Sector", "Category", "CategoryName",
-]
-KIND_KEYS = ["市場区分", "上場区分", "区分", "種類", "分類", "種別", "Type", "Category"]
+ETF_SECTOR_NAME = "ETF/ETN"
+
+# 受け取り側が期待する標準キー
+STD_COLS = ("code", "name", "sector_code", "sector_name")
 
 
-# ===== ユーティリティ =====
-def _ensure_dir(path: str) -> None:
-    os.makedirs(path, exist_ok=True)
+@dataclass
+class MasterRow:
+    code: str
+    name: str
+    sector_code: str | None
+    sector_name: str | None
 
-def _nfkc(s: str) -> str:
-    try:
-        return unicodedata.normalize("NFKC", s or "")
-    except Exception:
-        return s or ""
 
-def _abs_url(page_url: str, href: str) -> str:
-    if href.startswith("http"):
-        return href
-    from urllib.parse import urljoin
-    return urljoin(page_url, href)
+def _is_local_path(src: str) -> bool:
+    return os.path.exists(src) or src.startswith(("/", "./"))
 
-def _looks_html(data: bytes) -> bool:
-    head = (data[:256] or b"").lower()
-    return b"<html" in head or b"<!doctype html" in head
 
-def _is_xlsx(data: bytes) -> bool:
-    return data[:4] == b"PK\x03\x04"  # ZIPヘッダ
-
-def _is_xls(data: bytes) -> bool:
-    return data[:8] == b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"  # OLE2
-
-def _find_excel_url_from_page(page_url: str) -> str | None:
-    r = requests.get(page_url, timeout=30)
+def _download_bytes(url: str, timeout: float = 20.0) -> bytes:
+    r = requests.get(url, timeout=timeout)
     r.raise_for_status()
-    html = r.text
-    m = re.search(r'href="([^"]+\.xlsx)"', html, re.IGNORECASE)
-    if not m:
-        m = re.search(r'href="([^"]+\.xls)"', html, re.IGNORECASE)
-    return _abs_url(page_url, m.group(1)) if m else None
+    return r.content
 
-def _xls_to_xlsx_bytes(binary: bytes) -> bytes:
-    """libreoffice があれば .xls → .xlsx 変換。無ければ例外。"""
-    import tempfile, subprocess
-    from pathlib import Path
-    tmp_in = Path(tempfile.mkstemp(suffix=".xls")[1])
-    tmp_out = tmp_in.with_suffix(".xlsx")
-    tmp_in.write_bytes(binary)
+
+def _read_any_table_from_bytes(data: bytes) -> pd.DataFrame:
+    """
+    JPXの 'data_j.xls' は実体が古いExcel or XML-Spreadsheet or CSV風など、
+    いくつか形式が混ざる。強耐性で読み込み、銘柄一覧の表を返す。
+    """
+    # 1) Excelとして試行
     try:
-        subprocess.run(
-            ["libreoffice", "--headless", "--convert-to", "xlsx", str(tmp_in), "--outdir", str(tmp_in.parent)],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
-        return tmp_out.read_bytes()
-    finally:
-        for p in (tmp_in, tmp_out):
-            try:
-                os.remove(p)
-            except OSError:
-                pass
+        # engineは自動に任せる（xlrd/openpyxlのどちらでも可）
+        df = pd.read_excel(io.BytesIO(data), dtype=str)
+        if df is not None and len(df.columns) > 1 and len(df) > 0:
+            return df
+    except Exception:
+        pass
 
-def _pick_col(cols: Iterable[str], keys: List[str]) -> Optional[str]:
-    low = {str(c).lower(): c for c in cols}
-    for k in keys:
-        kk = k.lower()
-        for lc, orig in low.items():
-            if kk in lc:
-                return orig
-    return None
+    # 2) HTMLテーブルとして試行（XML SpreadsheetやHTMLラップにも対応）
+    try:
+        tables = pd.read_html(io.BytesIO(data), flavor="lxml")
+        for df in tables:
+            if df is not None and len(df.columns) > 1 and len(df) > 0:
+                return df.astype(str)
+    except Exception:
+        pass
 
-def _canon_code(s: str | None) -> Optional[str]:
-    if not s: return None
-    s = _nfkc(str(s)).strip()
-    m = re.search(r"(\d{4,5})", s)
-    return m.group(1) if m else None
+    # 3) CSVとして試行
+    try:
+        df = pd.read_csv(io.BytesIO(data), dtype=str)
+        if df is not None and len(df.columns) > 1 and len(df) > 0:
+            return df
+    except Exception:
+        pass
 
-def _canon_sector(code_val: Optional[str], name_val: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
-    """33業種コード/名称を相互補完（コードは3桁化）。"""
-    if name_val:
-        name_val = _nfkc(str(name_val)).strip() or None
-    if code_val:
-        raw = _nfkc(str(code_val)).strip()
-        if raw.isdigit():
-            code_val = (raw[-3:] if len(raw) >= 3 else raw.zfill(3))
-        else:
-            m = re.match(r"^\s*(\d+)", raw)
-            code_val = m.group(1).zfill(3) if m else None
-    if code_val and not name_val:
-        name_val = JPX33_MAP.get(code_val)
-    if name_val and not code_val:
-        for k, v in JPX33_MAP.items():
-            if v == name_val:
-                code_val = k
-                break
-    return code_val, name_val
+    raise RuntimeError("JPXマスタを表形式として読み取れませんでした。")
 
-def _normalize_one(df: pd.DataFrame, sheet_name: str = "") -> Optional[pd.DataFrame]:
-    """1シートを code/name/sector_code/sector_name に正規化。"""
-    if df is None or df.empty:
+
+def _normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    列名の表記ゆれを標準化し、最低限（code, name, sector_code, sector_name）を揃える。
+    """
+    original_cols = [str(c).strip() for c in df.columns]
+    lower_map = {c: re.sub(r"\s+", "", str(c)).lower() for c in original_cols}
+    df = df.rename(columns=lower_map)
+
+    # 候補セット
+    code_keys = ["コード", "コード番号", "銘柄コード", "証券コード", "code"]
+    name_keys = ["銘柄名", "銘柄", "会社名", "name"]
+    sec_code_keys = ["33業種コード", "33業種分類コード", "33業種ｺｰﾄﾞ", "sectorcode", "業種コード"]
+    sec_name_keys = ["33業種区分", "33業種", "業種", "sectorname", "業種名"]
+
+    def pick(col_candidates: list[str]) -> str | None:
+        # 事前に lower 化したキーで探索
+        for key in col_candidates:
+            k = re.sub(r"\s+", "", key).lower()
+            if k in df.columns:
+                return k
+        # 元の列名に対しても一応
+        for c in original_cols:
+            if c in col_candidates:
+                return c
         return None
 
-    cols = list(df.columns)
-    col_code = _pick_col(cols, CODE_KEYS)
-    col_name = _pick_col(cols, NAME_KEYS)
-    col_scd  = _pick_col(cols, SECTOR_CODE_KEYS)
-    col_snm  = _pick_col(cols, SECTOR_NAME_KEYS)
-    col_kind = _pick_col(cols, KIND_KEYS)
-
-    if not (col_code and col_name):
-        return None
+    k_code = pick(code_keys)
+    k_name = pick(name_keys)
+    k_scd = pick(sec_code_keys)
+    k_snm = pick(sec_name_keys)
 
     out = pd.DataFrame()
-    out["code"] = df[col_code].map(_canon_code)
-    out["name"] = df[col_name].astype(str).map(_nfkc).str.strip()
-
-    sc = df[col_scd].astype(str) if col_scd else pd.Series([None] * len(df))
-    sn = df[col_snm].astype(str) if col_snm else pd.Series([None] * len(df))
-
-    sc2: List[Optional[str]] = []
-    sn2: List[Optional[str]] = []
-    for a, b in zip(sc, sn):
-        c_fix, n_fix = _canon_sector(a, b)
-        sc2.append(c_fix); sn2.append(n_fix)
-    out["sector_code"] = sc2
-    out["sector_name"] = sn2
-
-    # ETF/REIT/外国株など sector が空のケースはカテゴリ/シート名で補完
-    if col_kind:
-        kinds = df[col_kind].astype(str).map(_nfkc).str.strip().fillna("")
+    if k_code is None or k_name is None:
+        # JPXの表構造変更時の保険：先頭から近い2列を仮採用（異常系）
+        out["code"] = df.iloc[:, 0].astype(str)
+        out["name"] = df.iloc[:, 1].astype(str)
     else:
-        kinds = pd.Series([""] * len(out))
-    hint = (sheet_name or "").upper()
-    for i in range(len(out)):
-        if not out.at[i, "sector_code"] and not out.at[i, "sector_name"]:
-            kv = kinds.iloc[i].upper()
-            if "REIT" in kv or "REIT" in hint:
-                out.at[i, "sector_name"] = "REIT"
-            elif "ETF" in kv or "ETN" in kv or "ETF" in hint:
-                out.at[i, "sector_name"] = "ETF/ETN"
+        out["code"] = df[k_code].astype(str)
+        out["name"] = df[k_name].astype(str)
 
-    out = out.dropna(subset=["code", "name"])
-    out = out.drop_duplicates(subset=["code"]).reset_index(drop=True)
+    if k_scd is not None:
+        out["sector_code"] = df[k_scd].astype(str)
+    else:
+        out["sector_code"] = None
+
+    if k_snm is not None:
+        out["sector_name"] = df[k_snm].astype(str)
+    else:
+        out["sector_name"] = None
+
+    # 4桁コード整形（先頭ゼロ詰め/記号除去）
+    out["code"] = out["code"].str.replace(r"\D", "", regex=True).str.zfill(4)
+
+    # ETF/ETN の簡易判定：コードが13xx/15xx帯 ＋ 名称にETF/ETNが含まれるなど
+    is_etf = out["code"].str.match(r"^(13|15)\d{2}$")
+    name_has_etf = out["name"].str.contains("ETF|ETN|上場投信", na=False)
+    out.loc[is_etf | name_has_etf, "sector_name"] = out.loc[
+        is_etf | name_has_etf, "sector_name"
+    ].fillna(ETF_SECTOR_NAME)
+    out.loc[is_etf | name_has_etf, "sector_code"] = out.loc[
+        is_etf | name_has_etf, "sector_code"
+    ].fillna("ETF")
+
+    # sector_name 欠損を sector_code から補完
+    def _norm_code(x: t.Any) -> str | None:
+        if x is None or (isinstance(x, float) and pd.isna(x)):
+            return None
+        s = re.sub(r"\D", "", str(x))
+        if not s:
+            return None
+        if len(s) in (2, 3):
+            s = s.zfill(3)
+        elif len(s) == 1:
+            s = s.zfill(3)
+        return s
+
+    out["sector_code"] = out["sector_code"].map(_norm_code)
+    # map で名称補完（既に入っている場合は触らない）
+    mask_missing_name = out["sector_name"].isna() | (out["sector_name"] == "") | (
+        out["sector_name"].str.lower() == "nan"
+    )
+    out.loc[mask_missing_name & out["sector_code"].notna(), "sector_name"] = out.loc[
+        mask_missing_name & out["sector_code"].notna(), "sector_code"
+    ].map(SECTOR33_MAP)
+
+    # 余計な空白等を除去
+    for c in ["name", "sector_name"]:
+        out[c] = out[c].astype(str).str.strip().replace({"None": None, "nan": None})
+
+    # 重複除去（同一コード行が複数混じることがある）
+    out = out.drop_duplicates(subset=["code"], keep="first").reset_index(drop=True)
+
     return out
 
-def _normalize_all(dfs: List[pd.DataFrame], sheet_names: List[str]) -> pd.DataFrame:
-    keep: List[pd.DataFrame] = []
-    for df, sh in zip(dfs, sheet_names):
-        norm = _normalize_one(df, sh)
-        if norm is not None and not norm.empty:
-            keep.append(norm)
-    if not keep:
-        raise ValueError("有効なシートが見つかりません（code/name/sector_* の検出に失敗）")
-    merged = pd.concat(keep, axis=0, ignore_index=True)
-    merged = merged.drop_duplicates(subset=["code"]).reset_index(drop=True)
-    return merged
 
-def _save_csv(df: pd.DataFrame) -> str:
-    out_dir = os.path.join(MEDIA_ROOT, MASTER_DIR)
-    _ensure_dir(out_dir)
-    out_name = f"master_{dt.date.today():%Y%m%d}.csv"
-    out_path = os.path.join(out_dir, out_name)
-    df.to_csv(out_path, index=False, encoding="utf-8")
-    return out_path
-
-
-# ===== Excel/CSV 読み取りの統一入口 =====
-def _read_excel_or_csv_bytes(data: bytes, hint_ext: Optional[str] = None) -> pd.DataFrame:
+def fetch_jpx_rows(source_url: str | None = None) -> list[dict[str, t.Any]]:
     """
-    dataがExcel(.xlsx/.xls)なら全シートをマージ、ダメならCSVで読む。
-    HTMLを受け取った場合は説明付きでエラーにする。
+    JPXの一覧を取得（URL or ローカルファイル）。辞書リスト（標準キー）で返す。
     """
-    # HTMLなら明示的にエラー
-    if _looks_html(data):
-        raise RuntimeError("ExcelではなくHTMLが返されました。直リンクか、一覧ページの自動検出に切り替えてください。")
-
-    # Excel判定
-    try:
-        excel_bytes = data
-        if hint_ext and hint_ext.lower().endswith(".xls"):
-            # ヒントが .xls の場合はまず変換を試みる
-            try:
-                excel_bytes = _xls_to_xlsx_bytes(excel_bytes)
-            except Exception:
-                # ヒント通りでなくとも続行（後段のxlsx判定に任せる）
-                excel_bytes = data
-
-        if _is_xls(excel_bytes):
-            excel_bytes = _xls_to_xlsx_bytes(excel_bytes)
-
-        if _is_xlsx(excel_bytes):
-            with pd.ExcelFile(io.BytesIO(excel_bytes), engine="openpyxl") as xf:
-                sheet_names = xf.sheet_names
-                dfs = [xf.parse(sh) for sh in sheet_names]
-                dfs = [d for d in dfs if d is not None and not d.empty]
-            if not dfs:
-                raise ValueError("Excel内に有効なシートが見つかりません。")
-            return _normalize_all(dfs, sheet_names=sheet_names)
-
-        # ここまで来たらExcelサイン無し → CSVにフォールバック
-        # （BadZipFileなどの例外が発生する前にCSVを試す）
-        bio = io.BytesIO(data)
-        for enc in CSV_ENCODING_TRY:
-            try:
-                bio.seek(0)
-                df = pd.read_csv(bio, encoding=enc)
-                # 先頭3列を code/name/sector_name と仮定しつつ、正規化関数で補正
-                merged = _normalize_one(df) or df.iloc[:, :3].rename(
-                    columns={df.columns[0]: "code", df.columns[1]: "name", df.columns[2]: "sector_name"}
-                )
-                merged["code"] = merged["code"].map(_canon_code)
-                merged = merged.dropna(subset=["code", "name"]).drop_duplicates(subset=["code"])
-                return merged
-            except Exception:
-                continue
-        raise RuntimeError("CSVとしても解読できませんでした。")
-    except Exception as e:
-        # 最後の防波堤：Excel解釈で落ちたらCSV再挑戦
-        bio = io.BytesIO(data)
-        for enc in CSV_ENCODING_TRY:
-            try:
-                bio.seek(0)
-                df = pd.read_csv(bio, encoding=enc)
-                merged = _normalize_one(df) or df.iloc[:, :3].rename(
-                    columns={df.columns[0]: "code", df.columns[1]: "name", df.columns[2]: "sector_name"}
-                )
-                merged["code"] = merged["code"].map(_canon_code)
-                merged = merged.dropna(subset=["code", "name"]).drop_duplicates(subset=["code"])
-                print(f"[fetch_master] Excel失敗→CSVフォールバック成功（encoding={enc}） rows={len(merged)}")
-                return merged
-            except Exception:
-                continue
-        raise RuntimeError(f"ファイル判別に失敗しました: {e}")
-
-
-# ===== DB upsert（後方互換を吸収） =====
-def _upsert_db(df: pd.DataFrame) -> int:
-    """
-    - 新規は bulk_create(ignore_conflicts=True)
-    - 既存は bulk_update
-    - モデルに sector_code/sector_name が無い古い環境でも sector33 に連結して保存可能
-    """
-    has_sc  = hasattr(StockMaster, "sector_code")
-    has_sn  = hasattr(StockMaster, "sector_name")
-    has_s33 = hasattr(StockMaster, "sector33")
-
-    with connection.cursor() as cur:
-        try: cur.execute("PRAGMA journal_mode=WAL;")
-        except Exception: pass
-        try: cur.execute("PRAGMA busy_timeout=5000;")
-        except Exception: pass
-
-    codes = df["code"].tolist()
-    created_count = 0
-
-    with transaction.atomic():
-        existing = set(StockMaster.objects.filter(code__in=codes).values_list("code", flat=True))
-
-        # 新規
-        new_rows = df[~df["code"].isin(existing)]
-        to_create: List[StockMaster] = []
-        for _, r in new_rows.iterrows():
-            o = StockMaster(code=r["code"], name=r["name"])
-            if has_sc: o.sector_code = r.get("sector_code")
-            if has_sn: o.sector_name = r.get("sector_name")
-            if not (has_sc or has_sn) and has_s33:
-                s33 = r.get("sector_name") or r.get("sector_code") or ""
-                o.sector33 = s33
-            to_create.append(o)
-        if to_create:
-            StockMaster.objects.bulk_create(to_create, ignore_conflicts=True, batch_size=500)
-            created_count = len(to_create)
-
-        # 既存
-        upd_rows = df[df["code"].isin(existing)]
-        if not upd_rows.empty:
-            mmap: Dict[str, StockMaster] = {
-                o.code: o for o in StockMaster.objects.filter(code__in=upd_rows["code"].tolist())
-            }
-            for _, r in upd_rows.iterrows():
-                o = mmap.get(r["code"])
-                if not o: continue
-                o.name = r["name"]
-                if has_sc: o.sector_code = r.get("sector_code")
-                if has_sn: o.sector_name = r.get("sector_name")
-                if not (has_sc or has_sn) and has_s33:
-                    s33 = r.get("sector_name") or r.get("sector_code") or ""
-                    o.sector33 = s33
-            fields = ["name"]
-            if has_sc: fields.append("sector_code")
-            if has_sn: fields.append("sector_name")
-            if not (has_sc or has_sn) and has_s33: fields.append("sector33")
-            StockMaster.objects.bulk_update(mmap.values(), fields, batch_size=500)
-
-    return created_count
-
-
-# ===== 公開API =====
-def refresh_master(source_url: str | None = None) -> int:
-    """
-    最新Excel/CSVを取得 → 正規化 → CSV保存 → DB反映。
-    優先順位: 引数source_url > settings.AIAPP_MASTER_URL > settings.AIAPP_MASTER_PAGE
-    戻り値: 新規insert件数
-    """
-    url_or_path = source_url or MASTER_URL
-
-    # 1) 明示指定（URL/ローカル）
-    if url_or_path:
-        if url_or_path.startswith("http"):
-            r = requests.get(url_or_path, timeout=30)
-            r.raise_for_status()
-            data = r.content
-            print(f"[fetch_master] GET {url_or_path} bytes={len(data)}")
-            merged = _read_excel_or_csv_bytes(data, hint_ext=os.path.splitext(url_or_path)[1])
-        else:
-            ext = os.path.splitext(url_or_path)[1].lower()
-            with open(url_or_path, "rb") as f:
-                data = f.read()
-            print(f"[fetch_master] READ {url_or_path} bytes={len(data)}")
-            merged = _read_excel_or_csv_bytes(data, hint_ext=ext)
+    src = source_url or JPX_DEFAULT_URL
+    if _is_local_path(src):
+        with open(src, "rb") as f:
+            data = f.read()
     else:
-        # 2) 一覧ページをスクレイプしてExcel直リンクを自動検出
-        excel_url = _find_excel_url_from_page(MASTER_PAGE)
-        if not excel_url:
-            raise RuntimeError("JPXページからExcelリンクを見つけられませんでした。")
-        r = requests.get(excel_url, timeout=30)
-        r.raise_for_status()
-        data = r.content
-        print(f"[fetch_master] SCRAPED {excel_url} bytes={len(data)}")
-        merged = _read_excel_or_csv_bytes(data, hint_ext=os.path.splitext(excel_url)[1])
+        data = _download_bytes(src)
 
-    # 保存＆DB反映
-    _save_csv(merged)
-    n_new = _upsert_db(merged)
-    print(f"[fetch_master] upsert rows: {n_new} (total input={len(merged)})")
-    return n_new
+    df = _read_any_table_from_bytes(data)
+    df = _normalize_cols(df)
+
+    # 必須列の最終チェック
+    for col in STD_COLS:
+        if col not in df.columns:
+            if col in ("sector_code", "sector_name"):
+                # 欠けても許容（後で補完）する
+                continue
+            raise RuntimeError(f"JPXマスタ列が見つかりません: {col}")
+
+    rows: list[dict[str, t.Any]] = df.to_dict(orient="records")
+    return rows
+
+
+@dataclass
+class RefreshResult:
+    inserted: int = 0
+    updated: int = 0
+    total_input: int = 0
+    after_rows: int = 0
+    missing_sector: int = 0
+    ts: str = ""
+
+
+def refresh_master(source_url: str | None = None) -> dict[str, t.Any]:
+    """
+    JPXマスタを取得→StockMasterへ upsert（insert / update の両方をカウント）。
+    sector_name 欠損は sector_code からの辞書で必ず補完。ETFは 'ETF/ETN' に統一。
+    戻り値: カウント辞書
+    """
+    rows = fetch_jpx_rows(source_url)
+    res = RefreshResult(total_input=len(rows))
+
+    @transaction.atomic
+    def _apply():
+        for r in rows:
+            code: str = str(r.get("code", "")).strip()
+            if not code:
+                continue
+            name: str = (r.get("name") or "").strip()
+            scode: str | None = r.get("sector_code")
+            sname: str | None = r.get("sector_name")
+
+            # sector_name が空なら、sector_code から補完（最後の砦）
+            if (not sname) and scode:
+                sname = SECTOR33_MAP.get(scode)
+
+            # ETFの最終統一
+            if code.startswith(("13", "15")) or (name and ("ETF" in name or "ETN" in name)):
+                sname = ETF_SECTOR_NAME
+                scode = "ETF"
+
+            obj, created = StockMaster.objects.get_or_create(code=code, defaults={
+                "name": name,
+                "sector_code": scode,
+                "sector_name": sname,
+            })
+            if created:
+                res.inserted += 1
+            else:
+                # 既存との差分を見て、変化があれば更新
+                changed = False
+                to_update: dict[str, t.Any] = {}
+                if name and obj.name != name:
+                    to_update["name"] = name
+                    changed = True
+                if (scode or obj.sector_code) and (obj.sector_code != scode):
+                    to_update["sector_code"] = scode
+                    changed = True
+                if (sname or obj.sector_name) and (obj.sector_name != sname):
+                    to_update["sector_name"] = sname
+                    changed = True
+
+                if changed:
+                    for k, v in to_update.items():
+                        setattr(obj, k, v)
+                    obj.save(update_fields=list(to_update.keys()))
+                    res.updated += 1
+
+        res.after_rows = StockMaster.objects.count()
+        res.missing_sector = (
+            StockMaster.objects.filter(sector_name__isnull=True).count()
+            + StockMaster.objects.filter(sector_name="").count()
+        )
+        res.ts = now().strftime("%Y-%m-%d %H:%M:%S")
+
+    _apply()
+    return {
+        "inserted": res.inserted,
+        "updated": res.updated,
+        "total_input": res.total_input,
+        "after_rows": res.after_rows,
+        "missing_sector": res.missing_sector,
+        "ts": res.ts,
+    }
