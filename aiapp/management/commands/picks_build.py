@@ -25,7 +25,6 @@ MIN_SCORE = float(os.getenv("AIAPP_MIN_SCORE", "0.0"))
 REQUIRE_TREND = bool(int(os.getenv("AIAPP_REQUIRE_TREND", "0")))
 SKIP_LIQ = bool(int(os.getenv("AIAPP_SKIP_LIQ", "1")))
 ALLOW_ETF = bool(int(os.getenv("AIAPP_ALLOW_ETF", "1")))
-
 MAX_WORKERS = max(1, int(os.getenv("AIAPP_BUILD_WORKERS", "8")))
 
 def _ensure_dir(p: pathlib.Path) -> None:
@@ -85,13 +84,22 @@ def _yen_round(x: float, etf: bool) -> int | float:
     return round(x, 1) if etf else int(round(x))
 
 def _normalize_scores(items: list[dict]) -> None:
+    """
+    score_100 / stars を安定化。
+    同点（rng≈0）のときは 52点・⭐️3固定にする。
+    """
     if not items:
         return
-    raw = [it["score"] for it in items]
+    raw = [float(it.get("score", 0.0)) for it in items]
     lo, hi = min(raw), max(raw)
-    rng = max(1e-9, hi - lo)
+    rng = hi - lo
+    if rng < 1e-6:
+        for it in items:
+            it["score_100"] = 52
+            it["stars"] = 3
+        return
     for it in items:
-        pct = (it["score"] - lo) / rng
+        pct = (float(it["score"]) - lo) / rng
         it["score_100"] = int(round(100 * pct))
         it["stars"] = max(1, min(5, int(round(1 + 4 * pct))))
 
@@ -99,49 +107,51 @@ def _pick_sector_map(codes: list[str]) -> dict[str, str]:
     q = StockMaster.objects.filter(code__in=codes).values_list("code", "sector_name")
     return {c: (s or "") for c, s in q}
 
-def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int, mode: str, horizon: str, lite_mode: bool):
+def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int, mode: str, horizon: str):
     start = time.time()
-    items = []
+    items: list[dict] = []
 
     def work(code: str, name: str):
-        df = get_prices(code, nbars)
-        min_required = max(30, nbars // 2)
+        df = get_prices(code, nbars)  # 価格ソースは env AIAPP_PRICE_SOURCES に依存
+        min_required = max(30, nbars // 2)  # LITEは緩め
         if df is None or df.empty or len(df) < min_required:
             return None
-        try:
-            close = df["close"].iloc[-1]
-            high = df["high"]
-            low = df["low"]
-        except Exception:
-            cols = [c.lower() if isinstance(c, str) else c for c in df.columns]
-            df.columns = cols
-            close = df["close"].iloc[-1]
-            high = df["high"]
-            low = df["low"]
 
+        # 列名を小文字に正規化（念のため）
+        if not all(c in df.columns for c in ("close", "high", "low")):
+            df.columns = [str(c).lower() for c in df.columns]
+
+        price_dt = None
+        try:
+            # pandas の index が DatetimeIndex を仮定
+            price_dt = df.index[-1].to_pydatetime()
+        except Exception:
+            pass
+
+        # 特徴量→スコア
         feat = compute_features(df)
         raw_s = float(score_sample(feat, mode=mode, horizon=horizon))
 
+        # ATR相当（14日）：欠損時は近似
+        high, low = df["high"], df["low"]
         atr14 = float((high - low).rolling(14).mean().iloc[-1])
         if math.isnan(atr14) or atr14 <= 0:
-            atr14 = float(close) * 0.015
+            last_tmp = float(df["close"].iloc[-1])
+            atr14 = last_tmp * 0.015
 
+        # 価格一式
         is_etf = _is_etf(code)
-        last = float(close)
-        entry = last
+        last = float(df["close"].iloc[-1])
+        entry = last  # LITEは控えめに同値想定
         tp = last + 1.5 * atr14
         sl = last - 1.0 * atr14
 
-        last_r = _yen_round(last, is_etf)
+        last_r  = _yen_round(last,  is_etf)
         entry_r = _yen_round(entry, is_etf)
-        tp_r = _yen_round(tp, is_etf)
-        sl_r = _yen_round(sl, is_etf)
+        tp_r    = _yen_round(tp,    is_etf)
+        sl_r    = _yen_round(sl,    is_etf)
 
-        qty = 100
-        required_cash = int(round(last * qty))
-        est_pl = int(round((tp - entry) * qty))
-        est_loss = int(round((entry - sl) * qty))
-
+        # 閾値・トレンド必須（必要なら）
         if raw_s < MIN_SCORE:
             return None
         if REQUIRE_TREND:
@@ -150,6 +160,11 @@ def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int, mode
                     return None
             except Exception:
                 pass
+
+        qty = 100
+        required_cash = int(round(last * qty))
+        est_pl   = int(round((tp - entry) * qty))
+        est_loss = int(round((entry - sl) * qty))
 
         return {
             "code": code,
@@ -160,11 +175,14 @@ def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int, mode
             "entry": entry_r,
             "tp": tp_r,
             "sl": sl_r,
-            "score": float(raw_s),
+            "score": raw_s,  # ←内部用。UIでは出さない想定
             "qty": qty,
             "required_cash": required_cash,
             "est_pl": est_pl,
             "est_loss": est_loss,
+            # デバッグ/検証用メタ
+            "price_date": price_dt.isoformat() if price_dt else "",
+            "price_vendor": os.getenv("AIAPP_PRICE_SOURCES", "yfinance"),
             "reasons": {
                 "atr": float(atr14),
                 "chg20": float(df["close"].pct_change(20).iloc[-1]) if len(df) >= 21 else 0.0,
@@ -186,12 +204,14 @@ def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int, mode
             except Exception:
                 pass
 
+    # 業種付与
     sec_map = _pick_sector_map([x["code"] for x in items])
     for it in items:
         it["sector"] = sec_map.get(it["code"], "")
 
+    # スコアを安定化
     _normalize_scores(items)
-    items = sorted(items, key=lambda x: (-x["score"], x["code"]))[:10]
+    items = sorted(items, key=lambda x: (-x["score_100"], -x["stars"], x["code"]))[:10]
     return items
 
 class Command(BaseCommand):
@@ -228,13 +248,13 @@ class Command(BaseCommand):
 
         if lite:
             self.stdout.write(f"[picks_build] start LITE universe={len(pairs)} budget={budget}s")
-            items = _build_items(pairs, budget, nbars_lite, mode="aggressive", horizon="short", lite_mode=True)
+            items = _build_items(pairs, budget, nbars_lite, mode="aggressive", horizon="short")
             if not items:
                 p = _json_path("latest_lite")
                 payload = {"items": [], "mode": "LIVE-FAST", "updated_at": dt.datetime.now().isoformat()}
                 p.write_text(json.dumps(payload, ensure_ascii=False))
                 _link_latest(p, "latest_lite.json")
-                _link_latest(p, "latest.json")  # 空でもUI反映
+                _link_latest(p, "latest.json")
                 self.stdout.write(self.style.WARNING("[picks_build] lite: items=0 (empty json emitted)"))
                 return
 
@@ -250,7 +270,7 @@ class Command(BaseCommand):
             return
 
         self.stdout.write(f"[picks_build] start FULL universe={len(pairs)} budget={budget}s use_snapshot={use_snap}")
-        items = _build_items(pairs, budget, nbars, mode="aggressive", horizon="short", lite_mode=False)
+        items = _build_items(pairs, budget, nbars, mode="aggressive", horizon="short")
         p = _json_path(tag)
         p.write_text(json.dumps({
             "items": items,
