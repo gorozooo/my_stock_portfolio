@@ -54,9 +54,9 @@
     </div>
     <div>
       {% if is_demo %}
-        <a class="btn" href="?mode=live&reset=1">{{ mode_label }}</a>
+        <a class="btn" href="?mode=live&reset=1">LIVE/DEMO</a>
       {% else %}
-        <a class="btn" href="?mode=demo&reset=1">{{ mode_label }}</a>
+        <a class="btn" href="?mode=demo&reset=1">LIVE/DEMO</a>
       {% endif %}
     </div>
   </div>
@@ -90,7 +90,7 @@
               <div class="lb">現在値</div>
               <div class="vl">
                 {% if item.last_close %}
-                  {{ item.last_close|floatformat:1|intcomma }} 円
+                  {{ item.last_close|floatformat:0|intcomma }} 円
                 {% else %}
                   —
                 {% endif %}
@@ -103,9 +103,9 @@
             <div class="it">
               <div class="lb">Entry / TP / SL</div>
               <div class="vl">
-                {{ item.entry|default:"-" }} /
-                {{ item.tp|default:"-" }} /
-                {{ item.sl|default:"-" }} 円
+                {% if item.entry %}{{ item.entry|floatformat:0|intcomma }}{% else %}-{% endif %} /
+                {% if item.tp %}{{ item.tp|floatformat:0|intcomma }}{% else %}-{% endif %} /
+                {% if item.sl %}{{ item.sl|floatformat:0|intcomma }}{% else %}-{% endif %} 円
               </div>
             </div>
             <div class="it">
