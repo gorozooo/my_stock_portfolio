@@ -21,19 +21,17 @@ from aiapp.models.scoring import score_sample
 PICKS_DIR = pathlib.Path(getattr(settings, "MEDIA_ROOT", "media")) / "aiapp" / "picks"
 UNIVERSE_DIR = pathlib.Path("aiapp/data/universe")
 
-# しきい値・振る舞い（環境変数で調整可能）
-MIN_SCORE = float(os.getenv("AIAPP_MIN_SCORE", "0.0"))
+# ── 環境変数（デフォルトは安全寄り）────────────────────────────
+MIN_SCORE = float(os.getenv("AIAPP_MIN_SCORE", 0.0))
 REQUIRE_TREND = bool(int(os.getenv("AIAPP_REQUIRE_TREND", "0")))
 SKIP_LIQ = bool(int(os.getenv("AIAPP_SKIP_LIQ", "1")))
 ALLOW_ETF = bool(int(os.getenv("AIAPP_ALLOW_ETF", "1")))
+MAX_WORKERS = int(os.getenv("AIAPP_BUILD_WORKERS", "3"))
 
 def _ensure_dir(p: pathlib.Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
 def _load_universe(name: str, sample: int | None, head: int | None) -> list[tuple[str, str]]:
-    """
-    戻り値: [(code, name), ...]
-    """
     if name.lower() in ("all", "jp-all", "jpall"):
         qs = list(StockMaster.objects.values_list("code", "name"))
     else:
@@ -41,10 +39,13 @@ def _load_universe(name: str, sample: int | None, head: int | None) -> list[tupl
         if not path.exists():
             raise CommandError(f"universe file not found: {path}")
         codes = [c.strip() for c in path.read_text().splitlines() if c.strip()]
-        # 名前はDBから引く（なければコードをそのまま表示）
+        # DBに無い場合はコードをそのまま名前に
         names = {
-            c: (StockMaster.objects.filter(code=c).values_list("name", flat=True).first() or c)
-            for c in codes
+            c: (
+                StockMaster.objects.filter(code=c).first().name
+                if StockMaster.objects.filter(code=c).exists()
+                else c
+            ) for c in codes
         }
         qs = [(c, names.get(c, c)) for c in codes]
     if head:
@@ -67,93 +68,16 @@ def _link_latest(src: pathlib.Path, alias: str):
     try:
         dst.symlink_to(src.name)
     except Exception:
-        # symlink不可環境では実体コピー
+        # symlink不可環境向けフォールバック
         try:
             dst.write_bytes(src.read_bytes())
         except Exception:
             pass
 
-def _required_bars(nbars: int, lite: bool) -> int:
-    """
-    必要な最低バー本数を動的決定。
-    - LITE: 最低30本。nbarsが大きければ半分（例: 60→30, 90→45）まで緩く。
-    - FULL: 最低60本。nbarsが大きければ半分（180→90）まで。
-    """
-    if lite:
-        return max(30, int(nbars * 0.5))
-    else:
-        return max(60, int(nbars * 0.5))
-
-def _work_one(code: str, name: str, nbars: int, lite: bool, mode: str, horizon: str):
-    """
-    1銘柄分の特徴量計算とスコアリング。条件を満たせばitem辞書を返す。
-    """
-    df = get_prices(code, nbars)
-    if df is None or df.empty:
-        return None
-
-    need = _required_bars(nbars, lite)
-    if len(df) < need:
-        return None
-
-    feat = compute_features(df)
-    s = float(score_sample(feat, mode=mode, horizon=horizon))
-
-    # しきい値
-    if s < MIN_SCORE:
-        return None
-
-    # オプション: トレンド必須なら直近トレンドをチェック
-    if REQUIRE_TREND:
-        # 例: 20日リターンが正であることを最低条件にする
-        try:
-            trend_ok = float(df["close"].pct_change(20).iloc[-1]) > 0
-            if not trend_ok:
-                return None
-        except Exception:
-            return None
-
-    # ETF除外オプション
-    sector = (
-        StockMaster.objects.filter(code=code)
-        .values_list("sector_name", flat=True)
-        .first() or ""
-    )
-    if not ALLOW_ETF and ("ETF" in sector or "ETN" in sector):
-        return None
-
-    last = float(df["close"].iloc[-1])
-    atr = float((df["high"] - df["low"]).rolling(14).mean().iloc[-1])
-
-    # ここでは最小限の売買案（小数点はUI側で丸め可）
-    item = {
-        "code": code,
-        "name": name,
-        "name_norm": name,
-        "sector": sector or "",
-        "last_close": last,
-        "entry": round(last * 1.001),
-        "tp": round(last * 1.03),
-        "sl": round(last * 0.97),
-        "score": round(s, 3),
-        "score_100": max(0, min(100, int(round(50 + s * 10)))),
-        "stars": max(1, min(5, int(math.floor(0.5 + (50 + s * 10) / 20)))),
-        "qty": 100,
-        "required_cash": int(last * 100),
-        "est_pl": int(last * 0.03 * 100),
-        "est_loss": int(last * 0.03 * 100),
-        "reasons": {
-            "trend": float((df["close"].pct_change(20).iloc[-1]) * 100),
-            "rs": float(
-                (df["close"].pct_change(20).iloc[-1] - df["close"].pct_change(20).mean()) * 100
-            ),
-            "vol_signal": float(
-                (df["volume"].iloc[-1] / (df["volume"].rolling(20).mean().iloc[-1] + 1e-9))
-            ),
-            "atr": float(atr if not math.isnan(atr) else 0.0),
-        },
-    }
-    return item
+def _enough_bars(len_df: int, nbars: int) -> bool:
+    """要求本数を nbars の 80%（最低20本）に緩和。"""
+    required = max(20, int(nbars * 0.8))
+    return len_df >= required
 
 def _build_items(
     codes: list[tuple[str, str]],
@@ -161,31 +85,89 @@ def _build_items(
     nbars: int,
     mode: str,
     horizon: str,
-    lite: bool,
 ):
     """
     タイムボックス内で並行処理しながらアイテムを作る。
-    条件に合格した分だけ返す（失敗・不合格はスキップ）。
+    - 足本数判定を nbars の 80%（最低20）に緩和
+    - スレッド結果待ちを「残り時間」で待つ（固定5秒タイムアウトを撤廃）
     """
     start = time.time()
     items: list[dict] = []
 
-    # 並列度はネット事情により get_prices 側で制御されるのでここは固定でもOK
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futs = {ex.submit(_work_one, c, n, nbars, lite, mode, horizon): (c, n) for c, n in codes}
+    def work(code: str, name: str):
+        df = get_prices(code, nbars)
+        if df is None or df.empty or not _enough_bars(len(df), nbars):
+            return None
+
+        feat = compute_features(df)
+        s = float(score_sample(feat, mode=mode, horizon=horizon))
+
+        # スカラ抽出は .item() でFutureWarning解消
+        last = pd.Series(df["close"].iloc[-1]).iloc[0].item() if hasattr(df["close"].iloc[-1], "item") else float(df["close"].iloc[-1])
+        atr_ser = (df["high"] - df["low"]).rolling(14).mean().iloc[-1]
+        atr = pd.Series(atr_ser).iloc[0].item() if hasattr(atr_ser, "item") else float(atr_ser)
+
+        # 事前フィルタ（必要なら）
+        if REQUIRE_TREND:
+            trend20_ser = df["close"].pct_change(20).iloc[-1]
+            trend20 = pd.Series(trend20_ser).iloc[0].item() if hasattr(trend20_ser, "item") else float(trend20_ser)
+            if trend20 <= 0:
+                return None
+        if s < MIN_SCORE:
+            return None
+
+        item = {
+            "code": code,
+            "name": name,
+            "name_norm": name,
+            "sector": "",
+            "last_close": float(last),
+            "entry": round(last * 1.001),
+            "tp": round(last * 1.03),
+            "sl": round(last * 0.97),
+            "score": round(float(s), 3),
+            "score_100": max(0, min(100, int(round(50 + s * 10)))),
+            "stars": max(1, min(5, int(math.floor(0.5 + (50 + s * 10) / 20)))),
+            "qty": 100,
+            "required_cash": int(last * 100),
+            "est_pl": int(last * 0.03 * 100),
+            "est_loss": int(last * 0.03 * 100),
+        }
+        # 参考指標
+        trend20_ser = df["close"].pct_change(20).iloc[-1]
+        rs_ser = df["close"].pct_change(20)
+        vol_sig_ser = df["volume"].iloc[-1] / (df["volume"].rolling(20).mean().iloc[-1] + 1e-9)
+
+        trend20 = pd.Series(trend20_ser).iloc[0].item() if hasattr(trend20_ser, "item") else float(trend20_ser)
+        rs_val = (rs_ser.iloc[-1] - rs_ser.mean())
+        rs_val = pd.Series(rs_val).iloc[0].item() if hasattr(rs_val, "item") else float(rs_val)
+        vol_sig = pd.Series(vol_sig_ser).iloc[0].item() if hasattr(vol_sig_ser, "item") else float(vol_sig_ser)
+
+        item["reasons"] = {
+            "trend": float(trend20 * 100),
+            "rs": float(rs_val * 100),
+            "vol_signal": float(vol_sig),
+            "atr": float(atr if not math.isnan(atr) else 0.0),
+        }
+        return item
+
+    # 並列度は環境変数に従う（既定3）
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futs = {ex.submit(work, c, n): (c, n) for c, n in codes}
         for fut in as_completed(futs, timeout=max(2, budget_sec)):
-            # タイムボックス超過で打ち切り
-            if time.time() - start > budget_sec:
+            # タイムボックス管理：残り時間で待つ
+            elapsed = time.time() - start
+            remaining = budget_sec - elapsed
+            if remaining <= 0:
                 break
             try:
-                it = fut.result(timeout=5)
+                it = fut.result(timeout=remaining)
                 if it:
                     items.append(it)
             except Exception:
-                # 個別失敗は握りつぶして続行
+                # タイムアウト含め黙殺（ログは不要）
                 pass
 
-    # スコアで降順→上位10件
     items = sorted(items, key=lambda x: x["score"], reverse=True)[:10]
     return items
 
@@ -198,13 +180,8 @@ class Command(BaseCommand):
         parser.add_argument("--head", type=int, default=None)
         parser.add_argument("--budget", type=int, default=90, help="秒")
         parser.add_argument("--nbars", type=int, default=180)
-        parser.add_argument(
-            "--nbars-lite",
-            dest="nbars_lite",
-            type=int,
-            default=60,
-            help="ライト時の足本数（最低30本あれば通す）",
-        )
+        parser.add_argument("--nbars-lite", dest="nbars_lite", type=int, default=60,
+                            help="ライトモード時の足本数")
         parser.add_argument("--use-snapshot", dest="use_snapshot", action="store_true",
                             help="夜間スナップショット利用")
         parser.add_argument("--lite-only", action="store_true", help="日中ライト表示用")
@@ -222,38 +199,32 @@ class Command(BaseCommand):
         force = bool(opts["force"])
 
         _ensure_dir(PICKS_DIR)
-
         codes = _load_universe(universe, sample, head)
         if not codes:
             self.stdout.write(self.style.WARNING("[picks_build] universe=0"))
             return
 
         tag = "short_aggressive"
-
         if lite:
             self.stdout.write(f"[picks_build] start LITE universe={len(codes)} budget={budget}s")
-            items = _build_items(
-                codes, budget, nbars_lite, mode="aggressive", horizon="short", lite=True
-            )
-
+            items = _build_items(codes, budget, nbars_lite, mode="aggressive", horizon="short")
             if not items:
                 p = _json_path("latest_lite")
                 p.write_text(json.dumps(
                     {"items": [], "mode": "LIVE-FAST", "updated_at": dt.datetime.now().isoformat()},
-                    ensure_ascii=False
-                ))
+                    ensure_ascii=False))
                 _link_latest(p, "latest_lite.json")
                 self.stdout.write(self.style.WARNING("[picks_build] lite: items=0 (empty json emitted)"))
                 return
 
-            # セクター名（日本語）を補完
+            # セクター名付与
             sec_map = {
                 c: s for c, s in StockMaster.objects.filter(
                     code__in=[x["code"] for x in items]
                 ).values_list("code", "sector_name")
             }
             for it in items:
-                it["sector"] = sec_map.get(it["code"], it.get("sector") or "")
+                it["sector"] = sec_map.get(it["code"], "")
 
             p = _json_path(f"{tag}_lite")
             p.write_text(json.dumps({
@@ -266,11 +237,8 @@ class Command(BaseCommand):
             self.stdout.write(f"[picks_build] done (lite) items={len(items)} -> {p}")
             return
 
-        # FULL
         self.stdout.write(f"[picks_build] start FULL universe={len(codes)} budget={budget}s use_snapshot={use_snap}")
-        items = _build_items(
-            codes, budget, nbars, mode="aggressive", horizon="short", lite=False
-        )
+        items = _build_items(codes, budget, nbars, mode="aggressive", horizon="short")
 
         sec_map = {
             c: s for c, s in StockMaster.objects.filter(
@@ -278,7 +246,7 @@ class Command(BaseCommand):
             ).values_list("code", "sector_name")
         }
         for it in items:
-            it["sector"] = sec_map.get(it["code"], it.get("sector") or "")
+            it["sector"] = sec_map.get(it["code"], "")
 
         p = _json_path(tag)
         p.write_text(json.dumps({
