@@ -68,16 +68,6 @@
   {% if items and items|length > 0 %}
     <div class="grid">
       {% for item in items %}
-        {# ETF判定: item.is_etf が True ならETF扱い。未設定なら sector_display で代用 #}
-        {% with tmp=item.is_etf|default_if_none:False %}
-        {% if tmp %}
-          {% with etf=True %}
-        {% elif item.sector_display == 'ETF/ETN' %}
-          {% with etf=True %}
-        {% else %}
-          {% with etf=False %}
-        {% endif %}
-
         <div class="card">
           <div class="ttl">
             <div>
@@ -92,6 +82,7 @@
                   {% for _ in ""|center:s %}⭐️{% endfor %}
                 {% endwith %}
               </div>
+              {# 内部スコア(0.227…)は非表示。総合得点だけ表示 #}
               {% if item.score_100 is not None %}
                 <div class="sub">総合得点 {{ item.score_100 }} 点</div>
               {% endif %}
@@ -103,7 +94,7 @@
               <div class="lb">現在値</div>
               <div class="vl">
                 {% if item.last_close %}
-                  {% if etf %}
+                  {% if item.is_etf or item.sector_display == 'ETF/ETN' %}
                     {{ item.last_close|floatformat:1|intcomma }} 円
                   {% else %}
                     {{ item.last_close|floatformat:0|intcomma }} 円
@@ -125,7 +116,7 @@
             <div class="it">
               <div class="lb">Entry / TP / SL</div>
               <div class="vl">
-                {% if etf %}
+                {% if item.is_etf or item.sector_display == 'ETF/ETN' %}
                   {% if item.entry %}{{ item.entry|floatformat:1|intcomma }}{% else %}-{% endif %} /
                   {% if item.tp %}{{ item.tp|floatformat:1|intcomma }}{% else %}-{% endif %} /
                   {% if item.sl %}{{ item.sl|floatformat:1|intcomma }}{% else %}-{% endif %} 円
@@ -171,9 +162,6 @@
             <a href="#">今すぐで</a>
           </div>
         </div>
-
-        {% endwith %}
-        {% endwith %}
       {% endfor %}
     </div>
   {% else %}
