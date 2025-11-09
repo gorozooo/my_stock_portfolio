@@ -15,44 +15,47 @@ from django.db import transaction
 from aiapp.models import StockMaster
 
 # =========================================================
-# 恒久対応版：JPX添付Excelを直接DLし、全シートを柔軟に解析して
-# code / name / sector_code / sector_name を更新する。
-# ・市場区分は扱わない（不要要件）
-# ・列名は日本語/揺れに対応して自動検出
-# ・不可視文字/ゼロ幅/私用領域などを除去
-# ・セクターは日本語名を優先で正規化し、数値が来た場合はそのままsector_codeに保存
+# JPX添付Excelを直接ダウンロードし、全シート走査で
+# code / name / sector_code / sector_name を恒久的に更新する。
+# ・市場区分は扱わない
+# ・列名の揺れに強い自動検出
+# ・不可視/ゼロ幅/ダミー記号を除去
+# ・数値コード→33業種名へ確実にマッピング
+# ・ETF/ETNは業種が空/ダミー時に強制付与
 # =========================================================
 
-# 直リンク（添付ファイル）: 既存の portfolio 側と同じURL
 DEFAULT_JPX_XLS_URL = os.getenv(
     "AIAPP_JPX_URL",
-    "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
+    "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls",
 )
 
-# HTTP
 HTTP_TIMEOUT = float(os.getenv("AIAPP_HTTP_TIMEOUT", "60"))
 HTTP_UA = os.getenv(
     "AIAPP_HTTP_UA",
-    "Mozilla/5.0 (compatible; MyStockPortfolioBot/1.0; +https://example.invalid)"
+    "Mozilla/5.0 (compatible; MyStockPortfolioBot/1.0; +https://example.invalid)",
 )
 
-# ---- 文字クレンジング -------------------------------------------------------
+# ---------- 文字クレンジング ----------
+DUMMY_TOKENS = {"-", "—", "－", "–", "―"}
+
 def clean_text(s: Optional[str]) -> str:
     if s is None:
         return ""
     s = unicodedata.normalize("NFKC", str(s))
-    # 私用領域・ゼロ幅・制御文字を除去
+    # 私用領域・ゼロ幅・制御文字
     s = re.sub(r"[\uE000-\uF8FF\u200B-\u200D\u2060\uFEFF]", "", s)
     s = re.sub(r"[\x00-\x1F\x7F]", "", s)
-    return s.strip()
+    s = s.strip()
+    if s in DUMMY_TOKENS:
+        return ""
+    return s
 
-# ---- 列名の自動検出（揺れに強く） -------------------------------------------
+# ---------- 列名の自動検出 ----------
 CODE_KEYS   = {"code", "ｺｰﾄﾞ", "コード", "銘柄コード"}
 NAME_KEYS   = {"name", "銘柄名"}
 SECTOR_KEYS = {"業種", "業種名", "33業種", "業種分類", "sector"}
 
 def detect_columns(df: pd.DataFrame) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    # 小文字へ正規化したインデックスを作る
     low_map = {c: clean_text(c).lower() for c in df.columns}
 
     def pick(keys: Iterable[str]) -> Optional[str]:
@@ -64,29 +67,57 @@ def detect_columns(df: pd.DataFrame) -> Tuple[Optional[str], Optional[str], Opti
 
     return pick(CODE_KEYS), pick(NAME_KEYS), pick(SECTOR_KEYS)
 
-# ---- セクター正規化（日本語名を“できるだけ”揃える） --------------------------
-# ここでは名前の正規化のみ確実に実施し、数値コードは来たものを優先して保持する方針。
-# ※ JPXの公開物は表記揺れがあるため、部分一致で丸める。
-# ※ 「sector_code」はJPX由来の数値が来たときだけ採用（なければ空のまま）
-CANON_SECTORS: List[str] = [
-    "水産・農林業", "食料品", "建設業", "繊維製品", "パルプ・紙", "化学", "医薬品",
-    "石油・石炭製品", "ゴム製品", "ガラス・土石製品", "鉄鋼", "非鉄金属", "金属製品",
-    "機械", "電気機器", "輸送用機器", "精密機器", "その他製品", "電気・ガス業",
-    "陸運業", "海運業", "空運業", "倉庫・運輸関連業", "情報・通信業",
-    "卸売業", "小売業", "銀行業", "証券、商品先物取引業", "保険業",
-    "その他金融業", "不動産業", "サービス業",
-    # ETF/ETN は便宜上ここに含める（JPX側では別区分）
-    "ETF/ETN",
-]
+# ---------- 33業種コード → 名称（JPX準拠） ----------
+SECTOR_CODE_MAP: Dict[str, str] = {
+    "50": "水産・農林業",
+    "1050": "食料品",
+    "2050": "建設業",
+    "3050": "繊維製品",
+    "3100": "パルプ・紙",
+    "3150": "化学",
+    "3200": "医薬品",
+    "3250": "石油・石炭製品",
+    "3300": "ゴム製品",
+    "3350": "ガラス・土石製品",
+    "3400": "鉄鋼",
+    "3450": "非鉄金属",
+    "3500": "金属製品",
+    "3550": "機械",
+    "3600": "電気機器",
+    "3650": "輸送用機器",
+    "3700": "精密機器",
+    "3750": "その他製品",
+    "5050": "電気・ガス業",
+    "6050": "陸運業",
+    "6100": "海運業",
+    "6150": "空運業",
+    "6200": "倉庫・運輸関連業",
+    "7050": "情報・通信業",
+    "8050": "卸売業",
+    "8100": "小売業",
+    "9050": "銀行業",
+    "9100": "証券、商品先物取引業",
+    "9150": "保険業",
+    "9200": "その他金融業",
+    "10050": "不動産業",
+    "10500": "サービス業",
+}
+# 先頭ゼロや空白の揺れにも耐性
+def normalize_sector_code(c: str) -> str:
+    c = clean_text(c)
+    if not c:
+        return ""
+    if not c.isdigit():
+        return ""
+    # 例: "0650" → "650" に
+    return str(int(c))
 
-# 表記揺れ→正規名 への簡易辞書（必要に応じて拡張）
+# 名称側のゆれをざっくり吸収
 SECTOR_ALIAS: Dict[str, str] = {
     "証券・商品先物取引業": "証券、商品先物取引業",
-    "証券・商品先物": "証券、商品先物取引業",
     "情報通信": "情報・通信業",
-    "電気機器": "電気機器",
-    "その他製品": "その他製品",
     "その他金融": "その他金融業",
+    "化学工業": "化学",
     "小売": "小売業",
     "卸売": "卸売業",
     "サービス": "サービス業",
@@ -95,29 +126,50 @@ SECTOR_ALIAS: Dict[str, str] = {
     "空運": "空運業",
     "陸運": "陸運業",
     "不動産": "不動産業",
-    "化学工業": "化学",
 }
+
+CANON_SECTORS: List[str] = list(SECTOR_CODE_MAP.values())
 
 def normalize_sector_name(s: str) -> str:
     s = clean_text(s)
     if not s:
         return ""
-    # 完全一致
     if s in CANON_SECTORS:
         return s
-    # エイリアス
     for k, v in SECTOR_ALIAS.items():
         if k in s or s in k:
             return v
-    # 部分一致で一番長い一致を採用
+    # 部分一致で最長一致
     best = ""
     for name in CANON_SECTORS:
         if s in name or name in s:
             if len(name) > len(best):
                 best = name
-    return best or s  # 見つからなければ原文のまま（後段で可視化）
+    return best or s
 
-# ---- JPX Excel の取得と読込 --------------------------------------------------
+def parse_sector_fields(raw_sector: str, code: str, name: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    JPXの業種セル（数値コード/日本語名/ダミー）から (sector_code, sector_name) を返す。
+    ETF/ETN はここで sector_name='ETF/ETN' を付与。
+    """
+    rs = clean_text(raw_sector)
+    # ETF 判定（業種が空 or ダミーのときに付与）
+    if not rs and (code.startswith(("13", "14", "15", "16")) or "ETF" in name or "ETN" in name):
+        return None, "ETF/ETN"
+
+    # 数値コード → 名称
+    sc = normalize_sector_code(rs)
+    if sc:
+        return sc, SECTOR_CODE_MAP.get(sc, None)
+
+    # 日本語 → 正規名（必要ならここで逆引きも可：名称→コード）
+    sn = normalize_sector_name(rs)
+    # 逆引き（名称が一意ならコードも埋める）
+    rev = {v: k for k, v in SECTOR_CODE_MAP.items()}
+    sc2 = rev.get(sn)
+    return (sc2 if sc2 else None), (sn if sn else None)
+
+# ---------- JPX Excel の取得と読込 ----------
 def _download_jpx_bytes(url: str) -> bytes:
     headers = {"User-Agent": HTTP_UA}
     r = requests.get(url, headers=headers, timeout=HTTP_TIMEOUT)
@@ -125,10 +177,8 @@ def _download_jpx_bytes(url: str) -> bytes:
     return r.content
 
 def _read_any_table_from_bytes(data: bytes) -> pd.DataFrame:
-    # xls/xlsx どちらでも受け付ける。全シートを総なめして結合。
     xls = pd.ExcelFile(io.BytesIO(data))
     frames: List[pd.DataFrame] = []
-
     for sheet in xls.sheet_names:
         try:
             df = xls.parse(sheet_name=sheet, dtype=str)
@@ -151,76 +201,59 @@ def _read_any_table_from_bytes(data: bytes) -> pd.DataFrame:
             )
             frames.append(sub)
         except Exception:
-            # 解析できないシートはスキップ
             continue
 
     if not frames:
         raise RuntimeError("JPXマスタを表形式として読み取れませんでした。")
 
     df = pd.concat(frames, ignore_index=True)
-    # クレンジング
     for c in df.columns:
         df[c] = df[c].map(clean_text)
 
-    # コードは 4〜5桁の数字だけ許容
     df = df[df["code"].str.fullmatch(r"\d{4,5}")]
-    # 重複コードは後勝ち
     df = df.drop_duplicates(subset=["code"], keep="last")
-
-    # 欠損列を補完
     if "sector" not in df.columns:
         df["sector"] = ""
 
-    # セクター名の正規化（日本語）
-    df["sector_name"] = df["sector"].map(normalize_sector_name)
+    # sector_code / sector_name を決定
+    out_rows = []
+    for _, r in df.iterrows():
+        code = clean_text(r["code"])
+        name = clean_text(r["name"])
+        raw_sector = clean_text(r.get("sector", ""))
 
-    # もし sector が数値（"650" など）だけなら、それを sector_code として保持
-    def pick_sector_code(x: str) -> str:
-        x = clean_text(x)
-        return x if x.isdigit() else ""
+        sc, sn = parse_sector_fields(raw_sector, code, name)
+        out_rows.append(dict(code=code, name=name, sector_code=sc, sector_name=sn))
 
-    df["sector_code"] = df["sector"].map(pick_sector_code)
-
-    # 出力整形
-    out = df[["code", "name", "sector_code", "sector_name"]].copy()
+    out = pd.DataFrame(out_rows, columns=["code", "name", "sector_code", "sector_name"])
     return out
 
-# ---- DB 反映 -----------------------------------------------------------------
+# ---------- DB 反映 ----------
 @dataclass
 class MasterStats:
     upserted: int
     touched_codes: int
 
 def refresh_master(source_url: Optional[str] = None) -> MasterStats:
-    """
-    JPX添付Excelを直接ダウンロードして解析し、StockMaster を upsert。
-    市場区分は扱わない。
-    """
     url = source_url or DEFAULT_JPX_XLS_URL
     data = _download_jpx_bytes(url)
     table = _read_any_table_from_bytes(data)
 
     upserted = 0
     touched = 0
-
     with transaction.atomic():
         for _, r in table.iterrows():
             code = clean_text(r["code"])
             name = clean_text(r["name"])
-            sector_code = clean_text(r.get("sector_code", ""))
-            sector_name = clean_text(r.get("sector_name", "")) or None
-
-            # ETF/ETN（銘柄名やコード帯で推定）→ sector_nameのみ明示
-            if not sector_name:
-                if "ETF" in name or "ETN" in name or code.startswith(("13", "14", "15", "16")):
-                    sector_name = "ETF/ETN"
+            sector_code = r.get("sector_code")
+            sector_name = r.get("sector_name")
 
             obj, created = StockMaster.objects.update_or_create(
                 code=code,
                 defaults=dict(
                     name=name,
-                    sector_code=sector_code or None,
-                    sector_name=sector_name,
+                    sector_code=sector_code if sector_code else None,
+                    sector_name=sector_name if sector_name else None,
                 ),
             )
             upserted += 1 if created else 0
