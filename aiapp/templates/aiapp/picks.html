@@ -68,9 +68,16 @@
   {% if items and items|length > 0 %}
     <div class="grid">
       {% for item in items %}
-        {# ETF判定: item.is_etf があれば優先、なければ sector_display で代用 #}
+        {# ETF判定: item.is_etf が True ならETF扱い。未設定なら sector_display で代用 #}
         {% with tmp=item.is_etf|default_if_none:False %}
-        {% with etf=tmp or (item.sector_display == 'ETF/ETN') %}
+        {% if tmp %}
+          {% with etf=True %}
+        {% elif item.sector_display == 'ETF/ETN' %}
+          {% with etf=True %}
+        {% else %}
+          {% with etf=False %}
+        {% endif %}
+
         <div class="card">
           <div class="ttl">
             <div>
@@ -164,6 +171,7 @@
             <a href="#">今すぐで</a>
           </div>
         </div>
+
         {% endwith %}
         {% endwith %}
       {% endfor %}
