@@ -1,0 +1,64 @@
+# プロファイル既定: dev（紙トレ未連携でも動く）
+default_profile: dev
+
+profiles:
+  dev:
+    # レジーム×モードで重み
+    weights:
+      risk_on_lowvol:
+        aggressive:
+          trend20: 0.45
+          rs20:    0.25
+          mom5:    0.15
+          volr:    0.10
+          atr_inv: 0.05
+        normal:
+          trend20: 0.40
+          rs20:    0.25
+          mom5:    0.15
+          volr:    0.10
+          atr_inv: 0.10
+        defensive:
+          trend20: 0.35
+          rs20:    0.25
+          mom5:    0.10
+          volr:    0.05
+          atr_inv: 0.25
+      risk_on_highvol:
+        aggressive: {trend20: 0.40, rs20: 0.25, mom5: 0.20, volr: 0.10, atr_inv: 0.05}
+        normal:     {trend20: 0.35, rs20: 0.25, mom5: 0.20, volr: 0.10, atr_inv: 0.10}
+        defensive:  {trend20: 0.30, rs20: 0.25, mom5: 0.15, volr: 0.10, atr_inv: 0.20}
+      risk_off_lowvol:
+        aggressive: {trend20: 0.30, rs20: 0.25, mom5: 0.25, volr: 0.10, atr_inv: 0.10}
+        normal:     {trend20: 0.30, rs20: 0.25, mom5: 0.20, volr: 0.10, atr_inv: 0.15}
+        defensive:  {trend20: 0.25, rs20: 0.25, mom5: 0.15, volr: 0.05, atr_inv: 0.30}
+      risk_off_highvol:
+        aggressive: {trend20: 0.25, rs20: 0.25, mom5: 0.25, volr: 0.10, atr_inv: 0.15}
+        normal:     {trend20: 0.25, rs20: 0.25, mom5: 0.20, volr: 0.10, atr_inv: 0.20}
+        defensive:  {trend20: 0.20, rs20: 0.25, mom5: 0.15, volr: 0.10, atr_inv: 0.30}
+
+    # Entry/TP/SL（暫定本番：短期×攻め）
+    entry_rules:
+      aggressive:
+        entry_k: 0.0   # entry = last + k*ATR（= last）
+        tp_k:    1.5
+        sl_k:    1.0
+      normal:
+        entry_k: 0.0
+        tp_k:    1.2
+        sl_k:    0.8
+      defensive:
+        entry_k: 0.0
+        tp_k:    0.9
+        sl_k:    0.7
+
+    # 信頼度（⭐）のビン（score_100 で区切る）
+    confidence:
+      bins: [20, 40, 60, 80]
+
+  prod:
+    # 将来、本番学習向けの重み・ルールを別定義
+    weights: {}
+    entry_rules: {}
+    confidence:
+      bins: [20, 40, 60, 80]
