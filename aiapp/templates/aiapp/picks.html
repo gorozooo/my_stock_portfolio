@@ -5,6 +5,8 @@
 {% block title %}AI Picks{% endblock %}
 
 {% block head %}
+<link rel="stylesheet" href="{% static 'css/stars.css' %}">
+<script defer src="{% static 'js/stars.js' %}"></script>
 <style>
   :root{
     --bg:#0b0f1a; --card:rgba(255,255,255,0.06); --sub:#94a3b8; --fg:#eaf0ff;
@@ -77,12 +79,8 @@
               </div>
             </div>
             <div class="stars">
-              <div>
-                {% with s=item.stars|default:0 %}
-                  {% for _ in ""|center:s %}⭐️{% endfor %}
-                {% endwith %}
-              </div>
-              {# 内部スコア(0.227…)は非表示。総合得点だけ表示 #}
+              <!-- 0.5刻みスター表示：score_100 を半分塗りで描画 -->
+              <span class="ai-stars" data-score100="{{ item.score_100|default:0 }}"></span>
               {% if item.score_100 is not None %}
                 <div class="sub">総合得点 {{ item.score_100 }} 点</div>
               {% endif %}
