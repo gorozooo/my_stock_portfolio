@@ -1,226 +1,135 @@
 # -*- coding: utf-8 -*-
 """
 aiapp.services.fetch_price
-- 価格取得のハイブリッド実装（seed → snapshot → stooq → yfinance）
-- 短時間(FAST/LITE)と夜間(HEAVY/NIGHT)で動作を環境変数で制御
-- 依存最小化のため、yfinance は任意（インポート失敗なら自動スキップ）
-- 外部が不安定でも seed / snapshot があれば UI は止まらない
-
-環境変数:
-  AIAPP_PRICE_SOURCES   = "seed,snapshot,stooq,yfinance" など（優先順）
-  AIAPP_HTTP_TIMEOUT    = float (例 1.8, 6.5)
-  AIAPP_HTTP_RETRIES    = int   (例 0, 1, 2)
-  AIAPP_SNAPSHOT_DIR    = "media/aiapp/snapshots"
-  AIAPP_PRICE_DEBUG     = "1" で詳細ログ
-
-スナップショット仕様:
-  - ディレクトリ: {SNAPSHOT_DIR}/{YYYYMMDD}/{code}.csv
-  - CSV列: Date,open,high,low,close,volume
+- yfinanceから堅牢に日足OHLCVを取得・正規化
+- 列名ゆらぎ（MultiIndex/Adj Closeのみ等）を吸収し、必ず
+  index=DatetimeIndex, columns=["Open","High","Low","Close","Volume"] で返す
+- nbars指定で末尾N本をスライス
 """
 
 from __future__ import annotations
-
-import io
-import os
-import time
-import math
-import json
-import gzip
-import random
-import logging
 import datetime as dt
-from dataclasses import dataclass
-from typing import List, Optional
+from typing import Optional
 
+import numpy as np
 import pandas as pd
-import requests
-from django.conf import settings
 
-log = logging.getLogger(__name__)
-
-# ---------- 環境 ----------
-MEDIA_ROOT = getattr(settings, "MEDIA_ROOT", "media")
-SEED_DIR   = os.path.join(MEDIA_ROOT, "aiapp", "seed_prices")
-SNAP_DIR   = os.getenv("AIAPP_SNAPSHOT_DIR", os.path.join(MEDIA_ROOT, "aiapp", "snapshots"))
-DEBUG      = os.getenv("AIAPP_PRICE_DEBUG", "0") == "1"
-
-HTTP_TIMEOUT = float(os.getenv("AIAPP_HTTP_TIMEOUT", "2.0"))
-HTTP_RETRIES = int(os.getenv("AIAPP_HTTP_RETRIES", "0"))
-
-SOURCES = [s.strip().lower() for s in os.getenv(
-    "AIAPP_PRICE_SOURCES",
-    "seed,snapshot,stooq,yfinance"
-).split(",") if s.strip()]
-
-# yfinance は任意依存
 try:
-    import yfinance as yf  # type: ignore
+    import yfinance as yf
 except Exception:
-    yf = None
+    yf = None  # オフライン環境対策
 
+# ---------- 内部ヘルパ ----------
 
-def _dlog(*a):
-    if DEBUG:
-        print("[fetch_price]", *a)
-
-
-# ---------- 共通ユーティリティ ----------
-COLS = ["open", "high", "low", "close", "volume"]
-
-def _norm_df(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty:
-        return pd.DataFrame(columns=COLS)
-    df = df.copy()
-    # 列名ゆらぎの吸収
-    mapping = {}
-    low = {str(c).lower(): c for c in df.columns}
-    for want, cands in {
-        "open":   ["open", "o"],
-        "high":   ["high", "h"],
-        "low":    ["low", "l"],
-        "close":  ["close", "adj close", "c", "adj_close", "close*"],
-        "volume": ["volume", "v", "vol"],
-    }.items():
-        for k in cands:
-            if k in low:
-                mapping[low[k]] = want
-                break
-    df = df.rename(columns=mapping)
-    for k in COLS:
-        if k not in df.columns:
-            df[k] = pd.NA
-    # index を DatetimeIndex 化
-    if "Date" in df.columns:
-        df = df.set_index(pd.to_datetime(df["Date"], errors="coerce"))
-        df = df.drop(columns=["Date"], errors="ignore")
-    elif not isinstance(df.index, pd.DatetimeIndex):
-        # 最後の手段
-        if "date" in df.columns:
-            df = df.set_index(pd.to_datetime(df["date"], errors="coerce"))
-            df = df.drop(columns=["date"], errors="ignore")
-        else:
-            df.index = pd.to_datetime(df.index, errors="coerce")
-
-    df = df.sort_index()
-    df = df[COLS]
-    df = df.dropna(how="all")
+def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if isinstance(df.columns, pd.MultiIndex):
+        flat = []
+        for col in df.columns:
+            parts = [str(x) for x in col if x is not None and str(x) != ""]
+            flat.append("_".join(parts))
+        df = df.copy()
+        df.columns = flat
     return df
 
+def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    df を ["Open","High","Low","Close","Volume"] に正規化
+    - 'adj close','adj_close','adjclose','price','last','last_close' は Close に寄せる
+    - 'vol','v' は Volume
+    - 数値化、NaT/重複日除去、昇順
+    """
+    if not isinstance(df, pd.DataFrame):
+        return pd.DataFrame(columns=["Open","High","Low","Close","Volume"])
 
-def _limit_nbars(df: pd.DataFrame, nbars: int) -> pd.DataFrame:
-    if nbars and len(df) > nbars:
-        return df.iloc[-nbars:]
-    return df
+    df = _flatten_columns(df)
 
+    low2orig = {str(c).strip().lower(): c for c in df.columns}
 
-# ---------- seed ----------
-def _try_seed(code: str, nbars: int) -> pd.DataFrame:
-    path = os.path.join(SEED_DIR, f"{code}.csv")
-    if os.path.exists(path):
-        _dlog("read seed", path)
-        try:
-            df = pd.read_csv(path)
-            return _limit_nbars(_norm_df(df), nbars)
-        except Exception as e:
-            _dlog("seed error:", e)
-    return pd.DataFrame(columns=COLS)
+    def pick(*aliases: str) -> Optional[str]:
+        for a in aliases:
+            if a in low2orig:
+                return low2orig[a]
+            # 'close_XXXX' のようなフラット列も拾う
+            cand = [k for k in low2orig.keys() if k.startswith(a + "_")]
+            if cand:
+                return low2orig[cand[0]]
+        return None
 
+    col_o = pick("open", "o")
+    col_h = pick("high", "h")
+    col_l = pick("low", "l")
+    col_c = pick("close", "c", "adj close", "adj_close", "adjclose", "price", "last", "last_close")
+    col_v = pick("volume", "vol", "v")
 
-# ---------- snapshot ----------
-def _today_dir() -> str:
-    return os.path.join(SNAP_DIR, dt.date.today().strftime("%Y%m%d"))
+    out = pd.DataFrame(index=df.index.copy())
+    out["Open"]   = pd.to_numeric(df[col_o], errors="coerce") if col_o else np.nan
+    out["High"]   = pd.to_numeric(df[col_h], errors="coerce") if col_h else np.nan
+    out["Low"]    = pd.to_numeric(df[col_l], errors="coerce") if col_l else np.nan
+    # Close 無ければ Adj Close/price等が補充済み。最悪でも NaN 列。
+    out["Close"]  = pd.to_numeric(df[col_c], errors="coerce") if col_c else np.nan
+    out["Volume"] = pd.to_numeric(df[col_v], errors="coerce") if col_v else 0.0
 
-def _yesterday_dir() -> str:
-    return os.path.join(SNAP_DIR, (dt.date.today() - dt.timedelta(days=1)).strftime("%Y%m%d"))
+    # index 正規化
+    idx = pd.to_datetime(out.index, errors="coerce")
+    mask = ~idx.isna()
+    out = out.loc[mask]
+    out.index = idx[mask]
+    out = out[~out.index.duplicated(keep="last")]
+    out = out.sort_index()
 
-def _try_snapshot(code: str, nbars: int) -> pd.DataFrame:
-    # 当日 → 前日 の順
-    for base in (_today_dir(), _yesterday_dir()):
-        path = os.path.join(base, f"{code}.csv")
-        if os.path.exists(path):
-            _dlog("read snapshot", path)
-            try:
-                df = pd.read_csv(path)
-                return _limit_nbars(_norm_df(df), nbars)
-            except Exception as e:
-                _dlog("snapshot error:", e)
-    return pd.DataFrame(columns=COLS)
+    # 最低限の補完（終値→始値、H/L）
+    out["Close"]  = out["Close"].ffill()
+    out["Open"]   = out["Open"].fillna(out["Close"])
+    out["High"]   = out["High"].fillna(out[["Open","Close"]].max(axis=1))
+    out["Low"]    = out["Low"].fillna(out[["Open","Close"]].min(axis=1))
+    out["Volume"] = out["Volume"].fillna(0)
 
+    # すべてNaNなら空DFに
+    if out[["Open","High","Low","Close"]].isna().all().all():
+        return pd.DataFrame(columns=["Open","High","Low","Close","Volume"])
 
-# ---------- stooq ----------
-def _http_get(url: str, timeout: float) -> Optional[requests.Response]:
-    last = None
-    for i in range(max(1, HTTP_RETRIES + 1)):
-        try:
-            r = requests.get(url, timeout=timeout)
-            if r.status_code == 200:
-                return r
-            last = f"HTTP {r.status_code}"
-        except Exception as e:
-            last = str(e)
-        time.sleep(0.05 * (i + 1))
-    _dlog("stooq error:", last)
-    return None
+    return out[["Open","High","Low","Close","Volume"]]
 
-def _try_stooq(code: str, nbars: int, timeout: float) -> pd.DataFrame:
-    # JP銘柄は *.jp or *.t など複数候補がある
-    cands = [f"{code}.jp", f"{code}.t", f"{code}"]
-    for sym in cands:
-        for scheme in ("https", "http"):
-            url = f"{scheme}://stooq.com/q/d/l/?s={sym}&i=d"
-            _dlog("stooq GET", url)
-            resp = _http_get(url, timeout)
-            if not resp:
-                continue
-            try:
-                df = pd.read_csv(io.StringIO(resp.text))
-                if not df.empty:
-                    return _limit_nbars(_norm_df(df), nbars)
-            except Exception as e:
-                _dlog("stooq parse error:", e)
-    return pd.DataFrame(columns=COLS)
+def _to_symbol(code: str) -> str:
+    c = str(code).strip()
+    if c.endswith(".T"):
+        return c
+    # 日本株コード（数字のみ）想定は .T を付与
+    if c.isdigit():
+        return c + ".T"
+    return c  # それ以外はそのまま
 
+# ---------- 公開API ----------
 
-# ---------- yfinance ----------
-def _try_yfinance(code: str, nbars: int) -> pd.DataFrame:
+def get_prices(code: str, nbars: Optional[int] = None, period: str = "3y") -> pd.DataFrame:
+    """
+    yfinanceから code の日足を取得し正規化して返す。
+    - nbars 指定があれば末尾からスライス
+    - 空/欠損に対しても DataFrame を返し、呼び出し側が安全に扱えるようにする
+    """
+    # yfinance が無い環境でも落とさない
     if yf is None:
-        return pd.DataFrame(columns=COLS)
-    # 候補（市場サフィックス）
-    cands = [f"{code}.T", f"{code}.JP", f"{code}"]
-    for sym in cands:
-        try:
-            _dlog("yfinance download", sym, "period=", "3y")
-            df = yf.download(sym, period="3y", interval="1d", progress=False, threads=False)
-            if df is None or df.empty:
-                continue
-            df = df.rename(columns={"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"})
-            df = df[["open", "high", "low", "close", "volume"]]
-            df.index = pd.to_datetime(df.index)
-            df = df.sort_index()
-            return _limit_nbars(df, nbars)
-        except Exception as e:
-            _dlog("yfinance error:", e)
-    return pd.DataFrame(columns=COLS)
+        return pd.DataFrame(columns=["Open","High","Low","Close","Volume"])
 
+    sym = _to_symbol(code)
+    try:
+        # auto_adjustを明示（将来デフォ変更に影響されない）
+        df = yf.download(
+            sym,
+            period=period,
+            interval="1d",
+            progress=False,
+            threads=False,
+            auto_adjust=False,
+        )
+    except Exception:
+        # ネットワーク・銘柄エラー等
+        return pd.DataFrame(columns=["Open","High","Low","Close","Volume"])
 
-# ---------- public ----------
-def get_prices(code: str, nbars: int) -> pd.DataFrame:
-    """
-    優先順位に従って取得し、nbars本に切り詰めた DataFrame を返す。
-    失敗時は空DF（列は open/high/low/close/volume）を返す。
-    """
-    code = str(code).strip()
-    for src in SOURCES:
-        if src == "seed":
-            df = _try_seed(code, nbars)
-        elif src == "snapshot":
-            df = _try_snapshot(code, nbars)
-        elif src == "stooq":
-            df = _try_stooq(code, nbars, HTTP_TIMEOUT)
-        elif src == "yfinance":
-            df = _try_yfinance(code, nbars)
-        else:
-            continue
-        if not df.empty:
-            return df
-    return pd.DataFrame(columns=COLS)
+    # yfinanceは単一銘柄でも MultiIndex になる場合があるので normalize
+    df = _normalize_ohlcv(df)
+
+    if nbars is not None and nbars > 0 and len(df) > nbars:
+        df = df.iloc[-nbars:].copy()
+
+    return df
