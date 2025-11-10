@@ -95,14 +95,64 @@ _UPPER_MAP = {
 }
 
 def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    どの形でも ["Open","High","Low","Close","Volume"] を揃える安全版。
+    - df.columns が MultiIndex(tuple) でも OK（末尾レベルを採用）
+    - 大文字/小文字/別名("Adj Close") 等をマップ
+    - 欠けている列は NaN で補完
+    """
     if df is None or df.empty:
         return df
-    cols = {c: _UPPER_MAP.get(c.lower(), c) for c in df.columns}
-    out = df.rename(columns=cols).copy()
-    for need in ["Open", "High", "Low", "Close", "Volume"]:
-        if need not in out.columns:
-            out[need] = np.nan
-    return out
+
+    # 1) 列名を一次元・文字列化
+    if isinstance(df.columns, pd.MultiIndex):
+        cols = []
+        for c in df.columns:
+            # ('7203.T','Close') → 'Close' を優先
+            if isinstance(c, tuple) and len(c) > 0:
+                c = c[-1]
+            cols.append(str(c))
+        df = df.copy()
+        df.columns = cols
+    else:
+        df = df.copy()
+        df.columns = [str(c) for c in df.columns]
+
+    # 2) 列名マップ（lower() → 正規化）
+    #    yfinance 単銘柄: ["Open","High","Low","Close","Adj Close","Volume"]
+    #    独自実装や CSV: ["open","high","low","close","volume"] 等も想定
+    name_map = {}
+    for c in df.columns:
+        cl = c.lower()
+        if cl in ("open",):
+            name_map[c] = "Open"
+        elif cl in ("high",):
+            name_map[c] = "High"
+        elif cl in ("low",):
+            name_map[c] = "Low"
+        elif cl in ("close", "adj close", "adj_close", "adjusted close"):
+            # Close が無いが Adj Close だけあるケースでも Close に寄せる
+            name_map[c] = "Close"
+        elif cl in ("volume", "vol"):
+            name_map[c] = "Volume"
+        else:
+            # その他はそのまま（壊さない）
+            name_map[c] = c
+
+    df = df.rename(columns=name_map)
+
+    # 3) 必須5列を保証
+    need = ["Open", "High", "Low", "Close", "Volume"]
+    for col in need:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    # 4) 最低限の整形
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index, errors="coerce")
+    df = df.sort_index()
+
+    return df[need].copy()
 
 def _safe_last(s: pd.Series) -> float | None:
     if s is None or len(s) == 0:
