@@ -28,10 +28,16 @@ REQUIRE_TREND = bool(int(os.getenv("AIAPP_REQUIRE_TREND", "0")))
 SKIP_LIQ = bool(int(os.getenv("AIAPP_SKIP_LIQ", "1")))
 ALLOW_ETF = bool(int(os.getenv("AIAPP_ALLOW_ETF", "1")))
 
-# 取得スレッド関連
+# スレッド
 MAX_WORKERS = int(os.getenv("AIAPP_BUILD_WORKERS", "8"))
-# 0 or 負数 なら “銘柄ごとのタイムアウト無し”
+# 銘柄ごとのタイムアウト（0以下で無制限）
 FUTURE_TIMEOUT = float(os.getenv("AIAPP_FUTURE_TIMEOUT_SEC", "0"))
+# 簡易ログ
+LOG = bool(int(os.getenv("AIAPP_BUILD_LOG", "0")))
+
+def _log(msg: str):
+    if LOG:
+        print(f"[picks_build] {msg}")
 
 def _ensure_dir(p: pathlib.Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
@@ -78,7 +84,7 @@ def _link_latest(src: pathlib.Path, alias: str):
         except Exception:
             pass
 
-# === ここから：列名正規化＆安全取り出し ===
+# === 正規化 & ユーティリティ ===
 
 _UPPER_MAP = {
     "open": "Open",
@@ -89,7 +95,6 @@ _UPPER_MAP = {
 }
 
 def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
-    """列名を大文字OHLCVに正規化。"""
     if df is None or df.empty:
         return df
     cols = {c: _UPPER_MAP.get(c.lower(), c) for c in df.columns}
@@ -142,18 +147,19 @@ def _score100_from_score(score: float | None) -> int | None:
 
 # === アイテム構築 ===
 
-def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int,
+def _build_items(codes: list[tuple[str, str]], nbars: int,
                  mode: str, horizon: str):
-    start = time.time()
     items: list[dict] = []
 
     def work(code: str, name: str):
         df_raw = get_prices(code, nbars)
         if df_raw is None or df_raw.empty:
+            _log(f"{code}: df empty")
             return None
 
         df = _normalize_ohlcv(df_raw)
         if df is None or df.empty or len(df) < 10:
+            _log(f"{code}: df<10")
             return None
 
         feat = compute_features(df)
@@ -170,9 +176,12 @@ def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int,
         stars    = _stars_from_score100(score100) if score100 is not None else 1
         entry, tp, sl = _entry_tp_sl_short_aggressive(last, atr)
 
+        # 最低限の足数（フルは余裕で満たす想定）
         if len(df) < 30:
+            _log(f"{code}: <30 bars")
             return None
         if score100 is not None and score100 < int(MIN_SCORE):
+            _log(f"{code}: score100 {score100} < MIN_SCORE {MIN_SCORE}")
             return None
 
         item = {
@@ -198,27 +207,21 @@ def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int,
                 "atr14": 0.0 if atr is None or not np.isfinite(atr) else float(atr),
             },
         }
+        _log(f"{code}: last={last} atr={atr} score={s} score100={score100}")
         return item
 
-    # --- ここが変更点：銘柄ごとの result(timeout) を撤廃（デフォルト無制限） ---
-    # FUTURE_TIMEOUT <= 0 の場合は timeout=None（無制限）で待機
     per_future_timeout = None if FUTURE_TIMEOUT <= 0 else FUTURE_TIMEOUT
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         futs = {ex.submit(work, c, n): (c, n) for c, n in codes}
-        for fut in as_completed(futs):  # 全て完了を待つ（全体は budget で制御）
-            # 予算時間を超えたら以降は回収せず終了
-            if time.time() - start > budget_sec:
-                break
+        for fut in as_completed(futs):
             try:
                 it = fut.result(timeout=per_future_timeout)
                 if it:
                     items.append(it)
-            except Exception:
-                # 個別の失敗は握りつぶして続行
-                pass
+            except Exception as e:
+                _log(f"future error: {e}")
 
-    # スコア降順、最大10件
     items = sorted(items, key=lambda x: (x.get("score_100") or -1), reverse=True)[:10]
     return items
 
@@ -229,20 +232,19 @@ class Command(BaseCommand):
         parser.add_argument("--universe", default="all", help="all / nk225 / quick_100 / <file name>")
         parser.add_argument("--sample", type=int, default=None)
         parser.add_argument("--head", type=int, default=None)
-        parser.add_argument("--budget", type=int, default=90, help="秒")
+        parser.add_argument("--budget", type=int, default=90, help="秒（※現在は実利用していません）")
         parser.add_argument("--nbars", type=int, default=180)
-        parser.add_argument("--nbars-lite", dest="nbars_lite", type=int, default=60, help="ライトモード時の足本数")
+        parser.add_argument("--nbars-lite", dest="nbars_lite", type=int, default=60, help="ライト時の足本数")
         parser.add_argument("--use-snapshot", dest="use_snapshot", action="store_true", help="夜間スナップショット利用")
         parser.add_argument("--lite-only", action="store_true", help="日中ライト表示用")
-        parser.add_argument("--style", default="aggressive", help="aggressive/normal/defensive（将来拡張）")
-        parser.add_argument("--horizon", default="short", help="short/mid/long（将来拡張）")
+        parser.add_argument("--style", default="aggressive", help="aggressive/normal/defensive")
+        parser.add_argument("--horizon", default="short", help="short/mid/long")
         parser.add_argument("--force", action="store_true")
 
     def handle(self, *args, **opts):
         universe = opts["universe"]
         sample = opts["sample"]
         head = opts["head"]
-        budget = int(opts["budget"])
         nbars = int(opts.get("nbars", 180))
         nbars_lite = int(opts.get("nbars_lite", 60))
         use_snap = bool(opts.get("use_snapshot", False))
@@ -261,54 +263,36 @@ class Command(BaseCommand):
         tag = f"{horizon}_{style}"
 
         if lite:
-            self.stdout.write(f"[picks_build] start LITE universe={len(codes)} budget={budget}s")
-            items = _build_items(codes, budget, nbars_lite, mode=style, horizon=horizon)
+            self.stdout.write(f"[picks_build] start LITE universe={len(codes)}")
+            items = _build_items(codes, nbars_lite, mode=style, horizon=horizon)
             if not items:
                 p = _json_path("latest_lite")
                 p.write_text(json.dumps({"items": [], "mode": "LIVE-FAST",
-                                         "updated_at": dt.datetime.now().isoformat()},
-                                        ensure_ascii=False))
+                                         "updated_at": dt.datetime.now().isoformat()}, ensure_ascii=False))
                 _link_latest(p, "latest_lite.json")
                 self.stdout.write(self.style.WARNING("[picks_build] lite: items=0 (empty json emitted)"))
                 return
-
-            sec_map = {
-                c: s for c, s in StockMaster.objects.filter(code__in=[x["code"] for x in items])
-                .values_list("code", "sector_name")
-            }
+            sec_map = {c: s for c, s in StockMaster.objects.filter(code__in=[x["code"] for x in items]).values_list("code", "sector_name")}
             for it in items:
                 it["sector"] = sec_map.get(it["code"], "") or ""
-
             p = _json_path(f"{tag}_lite")
-            p.write_text(json.dumps({
-                "items": items,
-                "mode": "LIVE-FAST",
-                "updated_at": dt.datetime.now().isoformat(),
-            }, ensure_ascii=False))
-            _link_latest(p, "latest_lite.json")
-            _link_latest(p, "latest.json")
+            p.write_text(json.dumps({"items": items, "mode": "LIVE-FAST",
+                                     "updated_at": dt.datetime.now().isoformat()}, ensure_ascii=False))
+            _link_latest(p, "latest_lite.json"); _link_latest(p, "latest.json")
             self.stdout.write(f"[picks_build] done (lite) items={len(items)} -> {p}")
             return
 
         # FULL
-        self.stdout.write(f"[picks_build] start FULL universe={len(codes)} budget={budget}s")
-        items = _build_items(codes, budget, nbars, mode=style, horizon=horizon)
-
-        sec_map = {
-            c: s for c, s in StockMaster.objects.filter(code__in=[x["code"] for x in items])
-            .values_list("code", "sector_name")
-        }
+        self.stdout.write(f"[picks_build] start FULL universe={len(codes)}")
+        items = _build_items(codes, nbars, mode=style, horizon=horizon)
+        sec_map = {c: s for c, s in StockMaster.objects.filter(code__in=[x["code"] for x in items]).values_list("code", "sector_name")}
         for it in items:
             it["sector"] = sec_map.get(it["code"], "") or ""
 
         p = _json_path(f"{tag}_full")
-        p.write_text(json.dumps({
-            "items": items,
-            "mode": "FULL" if not use_snap else "SNAPSHOT",
-            "updated_at": dt.datetime.now().isoformat(),
-        }, ensure_ascii=False))
-        _link_latest(p, "latest_full.json")
-        _link_latest(p, "latest.json")
+        p.write_text(json.dumps({"items": items, "mode": "FULL" if not use_snap else "SNAPSHOT",
+                                 "updated_at": dt.datetime.now().isoformat()}, ensure_ascii=False))
+        _link_latest(p, "latest_full.json"); _link_latest(p, "latest.json")
         if items:
             self.stdout.write(f"[picks_build] done (full) items={len(items)} -> {p}")
         else:
