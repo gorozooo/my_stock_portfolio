@@ -31,14 +31,20 @@ except Exception:
     StockMaster = None  # 環境により未定義でも動くように
 
 # 任意：外部サービス化されていれば使い、無ければ内蔵フォールバック
+# ※ ファイル名に合わせて import 名を修正（scoring_service / entry_service）
 try:
-    from aiapp.services.scoring import score_sample as ext_score_sample, stars_from_score as ext_stars_from_score
+    from aiapp.services.scoring_service import (
+        score_sample as ext_score_sample,
+        stars_from_score as ext_stars_from_score,
+    )
 except Exception:
     ext_score_sample = None
     ext_stars_from_score = None
 
 try:
-    from aiapp.services.entry_exit import compute_entry_tp_sl as ext_entry_tp_sl
+    from aiapp.services.entry_service import (
+        compute_entry_tp_sl as ext_entry_tp_sl,
+    )
 except Exception:
     ext_entry_tp_sl = None
 
@@ -288,7 +294,10 @@ def _enrich_meta(items: List[PickItem]) -> None:
         return
     try:
         qs = StockMaster.objects.filter(code__in=codes).values("code", "name", "sector_name")
-        meta: Dict[str, Tuple[str, str]] = {str(r["code"]): (r.get("name") or "", r.get("sector_name") or "") for r in qs}
+        meta: Dict[str, Tuple[str, str]] = {
+            str(r["code"]): (r.get("name") or "", r.get("sector_name") or "")
+            for r in qs
+        }
         for it in items:
             if it.code in meta:
                 nm, sec = meta[it.code]
@@ -297,7 +306,7 @@ def _enrich_meta(items: List[PickItem]) -> None:
                 if not it.sector_display:
                     it.sector_display = sec or None
     except Exception:
-        # 補完失敗は無視（後段で UI は code を出せる）
+        # 補完失敗は無視
         pass
 
 
@@ -348,9 +357,13 @@ class Command(BaseCommand):
         _enrich_meta(items)
 
         # 並び：score_100 desc → last_close desc（見栄え調整）
-        items.sort(key=lambda x: (x.score_100 if x.score_100 is not None else -1,
-                                  x.last_close if x.last_close is not None else -1),
-                   reverse=True)
+        items.sort(
+            key=lambda x: (
+                x.score_100 if x.score_100 is not None else -1,
+                x.last_close if x.last_close is not None else -1,
+            ),
+            reverse=True,
+        )
 
         # TopK 厳選（UI が読むのはこっち）
         top_items = items[:max(0, topk)]
@@ -358,10 +371,28 @@ class Command(BaseCommand):
         if BUILD_LOG:
             print(f"[picks_build] done total={len(items)} topk={len(top_items)}")
 
-        self._emit(items, top_items, mode="full", style=style, horizon=horizon, universe=universe, topk=topk)
+        self._emit(
+            items,
+            top_items,
+            mode="full",
+            style=style,
+            horizon=horizon,
+            universe=universe,
+            topk=topk,
+        )
 
     # ------ 出力 ------
-    def _emit(self, all_items: List[PickItem], top_items: List[PickItem], *, mode: str, style: str, horizon: str, universe: str, topk: int):
+    def _emit(
+        self,
+        all_items: List[PickItem],
+        top_items: List[PickItem],
+        *,
+        mode: str,
+        style: str,
+        horizon: str,
+        universe: str,
+        topk: int,
+    ):
         meta = {
             "mode": mode,
             "style": style,
