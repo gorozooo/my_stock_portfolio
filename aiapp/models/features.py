@@ -1,28 +1,21 @@
+# -*- coding: utf-8 -*-
 """
 aiapp.models.features
 特徴量を計算するモジュール（個別銘柄1本の終値/高安/出来高系列から算出）。
 
 提供関数:
-- compute_features(df, benchmark_df=None) -> dict
+- compute_features(df, benchmark_df=None) -> DataFrame
   df: 必須。index=DatetimeIndex, columns=["Open","High","Low","Close","Volume"]
   benchmark_df: 任意。ベンチマーク指数（日経/Topix等）。同形式を想定。
 
-返す辞書（主なキー）:
-- ema_fast, ema_slow, ema_slope
-- rsi14, roc10
-- vol_ma20_ratio
-- atr14
-- breakout_flag (直近高値更新)
-- vwap_proximity (VWAP近接率)
-- rel_strength_10 (ベンチ比リターン差)
-"""
-
-"""
-価格時系列（日足 OHLCV）から特徴量を作るユーティリティ。
-・入力: index=DatetimeIndex, columns=["Open","High","Low","Close","Volume"]
-・出力: 上記に加えて各種テクニカル指標の列を付与した DataFrame を返す
-
-pandas 2.3+ に準拠し、fillna(method="ffill") は使用せず .ffill() / .bfill() を用いる。
+返すDataFrame（主な列）:
+- MA5, MA20, MA50 / BBU, BBM, BBL, BB_Z
+- RSI14 / MACD, MACD_SIGNAL, MACD_HIST
+- ATR14
+- VWAP, VWAP_GAP_PCT
+- RET_1, RET_5, RET_20
+- SLOPE_5, SLOPE_20
+- GCROSS, DCROSS
 """
 
 from dataclasses import dataclass
@@ -47,9 +40,9 @@ def _ensure_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _safe_pct_change(s: pd.Series, periods: int = 1) -> pd.Series:
-    """0割り・NaN暴発を避けた対数リターン寄りの%変化（通常のpct_changeに近似）。"""
+    """NaN/inf暴発を避けた%変化（pandas将来変更に備えfill_method=Noneを明示）。"""
     s = s.astype("float64")
-    return s.pct_change(periods=periods).replace([np.inf, -np.inf], np.nan)
+    return s.pct_change(periods=periods, fill_method=None).replace([np.inf, -np.inf], np.nan)
 
 
 def _ema(s: pd.Series, span: int) -> pd.Series:
@@ -248,9 +241,7 @@ def macd_series(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 
     return pd.DataFrame({"macd": m, "signal": s, "hist": h})
 
 
-# 後方互換（旧コードの import 名に対応）
-compute_features = make_features
-
+# 旧インターフェース名との互換ラッパ
 def compute_features(df: pd.DataFrame, benchmark_df=None, cfg: Optional[FeatureConfig] = None) -> pd.DataFrame:
     """
     旧仕様互換ラッパー。
@@ -261,13 +252,3 @@ def compute_features(df: pd.DataFrame, benchmark_df=None, cfg: Optional[FeatureC
     except Exception as e:
         print(f"[compute_features] fallback error: {e}")
         return make_features(df)
-
-
-__all__ = [
-    "FeatureConfig",
-    "make_features",
-    "compute_features",
-    "vwap_series",
-    "rsi_series",
-    "macd_series",
-]
