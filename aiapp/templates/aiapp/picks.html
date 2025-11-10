@@ -5,8 +5,6 @@
 {% block title %}AI Picks{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{% static 'css/stars.css' %}">
-<script defer src="{% static 'js/stars.js' %}"></script>
 <style>
   :root{
     --bg:#0b0f1a; --card:rgba(255,255,255,0.06); --sub:#94a3b8; --fg:#eaf0ff;
@@ -32,7 +30,13 @@
   .ttl{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
   .ttl h3{font-size:16px;margin:0;line-height:1.3}
   .ttl .sub{font-size:12px;color:#9fb1c7}
-  .stars{font-size:14px;letter-spacing:1px;text-align:right}
+  /* 0.2刻みスター（score_100% で幅クリップ） */
+  .stars{display:inline-block;position:relative;line-height:1}
+  .stars .star-base{color:#3a475a;letter-spacing:1px}
+  .stars .star-fill{
+    position:absolute;inset:0 0 0 0; /* top/right/bottom/left:0 */
+    color:#ffd166;overflow:hidden;white-space:nowrap;letter-spacing:1px
+  }
   .kpi{display:grid;gap:8px;margin-top:10px;grid-template-columns:repeat(2,minmax(0,1fr))}
   .kpi .it{border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:8px}
   .kpi .lb{font-size:12px;color:#9fb1c7}
@@ -78,12 +82,14 @@
                 {{ item.code }} ・ {{ item.sector_display|default:"業種不明" }}
               </div>
             </div>
-            <div class="stars">
-              <!-- 0.5刻みスター表示：score_100 を半分塗りで描画 -->
-              <span class="ai-stars" data-score100="{{ item.score_100|default:0 }}"></span>
-              {% if item.score_100 is not None %}
-                <div class="sub">総合得点 {{ item.score_100 }} 点</div>
-              {% endif %}
+            <div class="stars" aria-label="レーティング"
+                 title="{% if item.score_100 is not None %}{{ item.score_100|floatformat:0 }} / 100{% else %}N/A{% endif %}">
+              {% with p=item.score_100|default:0 %}
+                <!-- 台座（グレー） -->
+                <span class="star-base">★★★★★</span>
+                <!-- 塗り（ゴールド）：score_100%だけ幅を見せる→0.2刻み(=20%)も自然対応 -->
+                <span class="star-fill" style="width: {{ p }}%;">★★★★★</span>
+              {% endwith %}
             </div>
           </div>
 
