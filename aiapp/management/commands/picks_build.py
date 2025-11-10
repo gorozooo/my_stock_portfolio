@@ -28,6 +28,11 @@ REQUIRE_TREND = bool(int(os.getenv("AIAPP_REQUIRE_TREND", "0")))
 SKIP_LIQ = bool(int(os.getenv("AIAPP_SKIP_LIQ", "1")))
 ALLOW_ETF = bool(int(os.getenv("AIAPP_ALLOW_ETF", "1")))
 
+# 取得スレッド関連
+MAX_WORKERS = int(os.getenv("AIAPP_BUILD_WORKERS", "8"))
+# 0 or 負数 なら “銘柄ごとのタイムアウト無し”
+FUTURE_TIMEOUT = float(os.getenv("AIAPP_FUTURE_TIMEOUT_SEC", "0"))
+
 def _ensure_dir(p: pathlib.Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
@@ -73,7 +78,7 @@ def _link_latest(src: pathlib.Path, alias: str):
         except Exception:
             pass
 
-# === ここから今回の重要変更 ===
+# === ここから：列名正規化＆安全取り出し ===
 
 _UPPER_MAP = {
     "open": "Open",
@@ -84,7 +89,7 @@ _UPPER_MAP = {
 }
 
 def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
-    """列名を大文字OHLCVに正規化。余計な列は残すが、必須は必ず用意。"""
+    """列名を大文字OHLCVに正規化。"""
     if df is None or df.empty:
         return df
     cols = {c: _UPPER_MAP.get(c.lower(), c) for c in df.columns}
@@ -95,7 +100,6 @@ def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 def _safe_last(s: pd.Series) -> float | None:
-    """末尾のスカラを安全にfloat化。NaN/非有限は None。"""
     if s is None or len(s) == 0:
         return None
     v = s.iloc[-1]
@@ -110,8 +114,8 @@ def _safe_last(s: pd.Series) -> float | None:
 def _entry_tp_sl_short_aggressive(last: float | None, atr: float | None) -> tuple[float | None, float | None, float | None]:
     """
     短期×攻め（暫定本番）:
-      - ATR が有効: entry = last + 0.05*ATR, TP = entry + 1.0*ATR, SL = last - 1.0*ATR
-      - ATR が欠損: entry=last, TP=last*1.02, SL=last*0.985
+      ATR 有効: entry = last + 0.05*ATR, TP = entry + 1.0*ATR, SL = last - 1.0*ATR
+      ATR 欠損: entry = last, TP = last*1.02, SL = last*0.985
     """
     if last is None:
         return None, None, None
@@ -126,19 +130,17 @@ def _entry_tp_sl_short_aggressive(last: float | None, atr: float | None) -> tupl
     return entry, tp, sl
 
 def _stars_from_score100(score100: int | None) -> int:
-    """⭐️は 0–100 を 1〜5に割り当て（固定）。"""
     if score100 is None:
         return 1
-    # 0–100 → 1–5（20点刻み）
     return int(max(1, min(5, math.floor(score100 / 20) + 1)))
 
 def _score100_from_score(score: float | None) -> int | None:
     if score is None or not np.isfinite(score):
         return None
-    x = int(round(50 + score * 10))  # -∞..∞ を概ね 0..100 へ
+    x = int(round(50 + score * 10))
     return max(0, min(100, x))
 
-# === ここまで重要変更 ===
+# === アイテム構築 ===
 
 def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int,
                  mode: str, horizon: str):
@@ -154,13 +156,11 @@ def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int,
         if df is None or df.empty or len(df) < 10:
             return None
 
-        # 特徴量
         feat = compute_features(df)
 
         last = _safe_last(df.get("Close"))
         atr  = _safe_last(feat.get("ATR14"))
 
-        # スコア（本番：scoring側が有効に動くには有効特徴が必要）
         try:
             s = float(score_sample(feat, mode=mode, horizon=horizon))
         except Exception:
@@ -168,17 +168,12 @@ def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int,
 
         score100 = _score100_from_score(s)
         stars    = _stars_from_score100(score100) if score100 is not None else 1
-
         entry, tp, sl = _entry_tp_sl_short_aggressive(last, atr)
 
-        # 最低限の足数/スコア条件
-        if len(df) < 30:  # FULLは最低30本欲しい
+        if len(df) < 30:
             return None
         if score100 is not None and score100 < int(MIN_SCORE):
             return None
-
-        # 需給/トレンド等の追加条件（REQUIRE_TRENDなど）はここでかける想定
-        # 今は通す（実運用で段階的に強化）
 
         item = {
             "code": code,
@@ -205,19 +200,25 @@ def _build_items(codes: list[tuple[str, str]], budget_sec: int, nbars: int,
         }
         return item
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    # --- ここが変更点：銘柄ごとの result(timeout) を撤廃（デフォルト無制限） ---
+    # FUTURE_TIMEOUT <= 0 の場合は timeout=None（無制限）で待機
+    per_future_timeout = None if FUTURE_TIMEOUT <= 0 else FUTURE_TIMEOUT
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         futs = {ex.submit(work, c, n): (c, n) for c, n in codes}
-        for fut in as_completed(futs, timeout=max(2, budget_sec)):
+        for fut in as_completed(futs):  # 全て完了を待つ（全体は budget で制御）
+            # 予算時間を超えたら以降は回収せず終了
             if time.time() - start > budget_sec:
                 break
             try:
-                it = fut.result(timeout=5)
+                it = fut.result(timeout=per_future_timeout)
                 if it:
                     items.append(it)
             except Exception:
+                # 個別の失敗は握りつぶして続行
                 pass
 
-    # スコアで降順、最大10件
+    # スコア降順、最大10件
     items = sorted(items, key=lambda x: (x.get("score_100") or -1), reverse=True)[:10]
     return items
 
