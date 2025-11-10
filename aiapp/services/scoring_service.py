@@ -1,108 +1,163 @@
 # -*- coding: utf-8 -*-
+"""
+scoring_service.py
+本番用: 総合得点(0..1) と ⭐️信頼度(1..5) を一貫ロジックで算出。
+
+設計ポイント
+- 入力は features.make_features() が返す DataFrame（欠損を含んでもOK）
+- 0点/⭐️固定を避けるため、正規化→シグモイド→加重和で“連続値”を合成
+- 列が無い/NaN でも安全に処理（内部で0寄せ or 中立値）
+- ⭐️は固定閾値（学習で変えない限り変動しない）
+
+特徴量バスケット（ある分だけ使う）
+  Trend:     SLOPE_5, SLOPE_20
+  Momentum:  RET_5, RET_20, RSI14（RSIは50を中立化）
+  Volume:    Volume / MA20（MA20が無ければ無効）
+  VolCtrl:   ATR14 を “低い方が扱いやすい” として正規化
+  Supply/Demand (簡易): VWAP_GAP_PCT（VWAP付近なら中立〜やや好意）
+  Event Penalty: 直近のDCROSSは微減点、直近のGCROSSは微加点
+
+score_sample(feat_df) -> 0..1
+stars_from_score(score01) -> 1..5
+"""
+
 from __future__ import annotations
-import math
+from typing import Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple
 
-from .policy_loader import PolicyLoader
-from .regime_service import RegimeService
+# ====== 安全ユーティリティ ======
 
-SignalVec = Dict[str, float]
-
-def _safe_pct(a: pd.Series, n: int) -> float:
+def _safe_series(x) -> pd.Series:
+    if x is None:
+        return pd.Series(dtype="float64")
+    if isinstance(x, pd.Series):
+        return x.astype("float64")
+    if isinstance(x, pd.DataFrame):
+        return x.iloc[:, -1].astype("float64") if x.shape[1] else pd.Series(dtype="float64")
     try:
-        v = a.pct_change(n).iloc[-1]
-        return float(v) if pd.notna(v) and np.isfinite(v) else 0.0
+        arr = np.asarray(x, dtype="float64")
+        if arr.ndim == 0:
+            return pd.Series([float(arr)], dtype="float64")
+        return pd.Series(arr, dtype="float64")
     except Exception:
-        return 0.0
+        return pd.Series(dtype="float64")
 
-def _vol_ratio(vol: pd.Series, n: int = 20) -> float:
+def _last(s: pd.Series) -> float:
+    s = _safe_series(s).dropna()
+    return float(s.iloc[-1]) if len(s) else float("nan")
+
+def _zscore_last(s: pd.Series) -> float:
+    s = _safe_series(s).dropna()
+    if len(s) < 3:
+        return float("nan")
+    m = float(s.mean())
+    sd = float(s.std(ddof=0))
+    if not np.isfinite(sd) or sd == 0.0:
+        return 0.0
+    return float((s.iloc[-1] - m) / sd)
+
+def _sig(x: float) -> float:
     try:
-        r = float(vol.iloc[-1] / (vol.rolling(n).mean().iloc[-1] + 1e-9))
-        return r if np.isfinite(r) else 0.0
+        return 1.0 / (1.0 + np.exp(-float(x)))
     except Exception:
-        return 0.0
+        return 0.5
 
-def _atr(df: pd.DataFrame, n: int = 14) -> float:
-    try:
-        tr1 = (df["high"] - df["low"]).abs()
-        tr2 = (df["high"] - df["close"].shift(1)).abs()
-        tr3 = (df["low"] - df["close"].shift(1)).abs()
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr = tr.rolling(n).mean().iloc[-1]
-        return float(atr) if pd.notna(atr) and np.isfinite(atr) else 0.0
-    except Exception:
-        return 0.0
+def _nz(x: float, default: float = 0.0) -> float:
+    return default if (x is None or not np.isfinite(x)) else float(x)
 
-def _z(x: float, mean: float, std: float) -> float:
-    if std <= 1e-9:
-        return 0.0
-    return (x - mean) / std
+# ====== コア指標の取り出し（ある分だけ使う） ======
 
-class ScoringService:
+def _block_trend(feat: pd.DataFrame) -> float:
+    s5  = _zscore_last(feat.get("SLOPE_5"))
+    s20 = _zscore_last(feat.get("SLOPE_20"))
+    # 短期をやや重め
+    comp = 0.6 * _sig(_nz(s5)) + 0.4 * _sig(_nz(s20))
+    return comp  # 0..1
+
+def _block_momentum(feat: pd.DataFrame) -> float:
+    r5   = _zscore_last(feat.get("RET_5"))
+    r20  = _zscore_last(feat.get("RET_20"))
+    rsi  = _last(feat.get("RSI14"))
+    # RSIは 50 を中立にしてスケール
+    rsi_c = np.nan if not np.isfinite(rsi) else (rsi - 50.0) / 10.0
+    comp = 0.45 * _sig(_nz(r5)) + 0.35 * _sig(_nz(r20)) + 0.20 * _sig(_nz(rsi_c))
+    return comp  # 0..1
+
+def _block_volume(feat: pd.DataFrame) -> float:
+    vol = _last(feat.get("Volume"))
+    ma20 = _last(feat.get("MA20"))
+    if not np.isfinite(vol) or not np.isfinite(ma20) or ma20 <= 0:
+        return 0.5  # 情報なし=中立
+    ratio = (vol / ma20) - 1.0       # 0 近辺が中立
+    return _sig(ratio)               # 0..1（~1で出来高相対強）
+
+def _block_vol_control(feat: pd.DataFrame) -> float:
+    atr = _last(feat.get("ATR14"))
+    if not np.isfinite(atr) or atr <= 0:
+        return 0.5
+    # “扱いやすさ”を 1/(1 + z) っぽく変換（ATRが小さいほど↑）
+    # ここでは ATR を対数正規化してから符号反転してシグモイド
+    s = _zscore_last(np.log(_safe_series(feat.get("ATR14")).replace(0, np.nan)))
+    return _sig(-_nz(s))  # 低ボラをやや優遇
+
+def _block_supply_demand(feat: pd.DataFrame) -> float:
+    vgap = _last(feat.get("VWAP_GAP_PCT"))
+    if not np.isfinite(vgap):
+        return 0.5
+    # VWAP近接は中立〜少し好意。±1%以内は0.55、上離れ/下離れ大きいと中立へ
+    if abs(vgap) <= 1.0:
+        return 0.55
+    if abs(vgap) <= 3.0:
+        return 0.52
+    return 0.5
+
+def _event_adj(feat: pd.DataFrame) -> float:
+    # 直近GCROSS/DCROSSで微調整（±0.02程度）
+    g = _last(feat.get("GCROSS"))
+    d = _last(feat.get("DCROSS"))
+    adj = 0.0
+    if np.isfinite(g) and g > 0:
+        adj += 0.02
+    if np.isfinite(d) and d > 0:
+        adj -= 0.02
+    return adj
+
+# ====== 公開API ======
+
+def score_sample(feat: pd.DataFrame) -> float:
     """
-    総合得点（内部scoreとscore_100）を算出。
-    - 個別銘柄の原始シグナル抽出
-    - レジーム×モードの重みによる合成
-    - Universe内パーセンタイルで0–100に正規化
+    総合得点の確定ロジック（0..1）。“常に連続値”になるよう調整。
     """
+    if feat is None or len(feat) == 0:
+        return 0.0
 
-    def __init__(self, loader: PolicyLoader | None = None, regime: RegimeService | None = None):
-        self.loader = loader or PolicyLoader()
-        self.regime = regime or RegimeService()
+    trend  = _block_trend(feat)         # 0..1
+    mom    = _block_momentum(feat)      # 0..1
+    volu   = _block_volume(feat)        # 0..1
+    vctrl  = _block_vol_control(feat)   # 0..1
+    sd     = _block_supply_demand(feat) # 0..1
+    adj    = _event_adj(feat)           # -0.02..+0.02
 
-    def compute_signals(self, df: pd.DataFrame) -> SignalVec:
-        """
-        df: 必須列 'close','high','low','volume'
-        """
-        c = df["close"]
-        v = df["volume"]
-        trend20 = _safe_pct(c, 20)   # 20日トレンド
-        mom5    = _safe_pct(c, 5)    # 5日モメンタム
-        rs20    = trend20 - (c.pct_change(20).mean() if pd.notna(c.pct_change(20).mean()) else 0.0)
-        volr    = _vol_ratio(v, 20)
-        atr     = _atr(df, 14)
-        atr_inv = 0.0 if atr <= 0 else 1.0 / atr  # ボラ低いほどプラス
+    # 重みは短期×攻めの仮本番（FULL）
+    score = (
+        0.34 * trend +
+        0.28 * mom +
+        0.14 * volu +
+        0.14 * vctrl +
+        0.08 * sd
+    )
+    score = max(0.0, min(1.0, score + adj))
+    return float(score)
 
-        # オーバーフロー抑制・スケール整形
-        return {
-            "trend20": float(max(min(trend20,  0.5), -0.5)),
-            "mom5":    float(max(min(mom5,     0.5), -0.5)),
-            "rs20":    float(max(min(rs20,     0.5), -0.5)),
-            "volr":    float(max(min(volr,     5.0),  0.0)),
-            "atr_inv": float(max(min(atr_inv,  1e3),  0.0)),
-        }
-
-    def aggregate_score(self, sig: SignalVec, mode: str, regime_name: str | None = None) -> float:
-        regime_name = regime_name or self.regime.detect()
-        w = self.loader.weights(regime_name, mode)
-        # 未定義キーは0重みで無視
-        score = (
-            sig.get("trend20", 0.0) * float(w.get("trend20", 0.0)) +
-            sig.get("rs20",    0.0) * float(w.get("rs20",    0.0)) +
-            sig.get("mom5",    0.0) * float(w.get("mom5",    0.0)) +
-            sig.get("volr",    0.0) * float(w.get("volr",    0.0)) +
-            sig.get("atr_inv", 0.0) * float(w.get("atr_inv", 0.0))
-        )
-        return float(score)
-
-    def to_percentile(self, scores: List[float]) -> List[int]:
-        """
-        Universe内の相対化。全同値でも“全て50点”にならないよう微小分散を付与。
-        """
-        if not scores:
-            return []
-        arr = np.array(scores, dtype=float)
-        if np.allclose(arr, arr[0]):
-            # 微小ノイズで順位付けし0–100に線形割当
-            n = len(arr)
-            return [int(round(100.0 * i / max(n - 1, 1))) for i in range(n)]
-        # Z→CDFで滑らかに0–100へ
-        m, s = float(arr.mean()), float(arr.std(ddof=0))
-        z = np.array([_z(x, m, s) for x in arr])
-        cdf = 0.5 * (1.0 + erf(z / math.sqrt(2.0)))  # 正規近似
-        return [int(round(100.0 * float(x))) for x in cdf]
-
-# math.erf が必要
-from math import erf
+def stars_from_score(score01: float) -> int:
+    """
+    ⭐️は固定し、毎回同じスコア→同じ⭐️になる（ぶれない）。
+    """
+    s = _nz(score01, 0.0)
+    if s < 0.20: return 1
+    if s < 0.40: return 2
+    if s < 0.60: return 3
+    if s < 0.80: return 4
+    return 5
