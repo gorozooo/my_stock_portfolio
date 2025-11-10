@@ -25,17 +25,97 @@ import numpy as np
 import pandas as pd
 
 
-# ========= 基本ヘルパ =========
+# ========= 列名ゆらぎ対策 & 基本ヘルパ =========
+
+def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    yfinance等で発生する MultiIndex 列をフラット化する。
+    例: ('Close','7974.T') -> 'Close_7974.T' -> 小文字比較用に .lower() で照合。
+    """
+    if isinstance(df.columns, pd.MultiIndex):
+        flat = []
+        for col in df.columns:
+            # col はタプル想定。None/空を除き '_' 連結
+            parts = [str(x) for x in col if x is not None and str(x) != ""]
+            flat.append("_".join(parts))
+        df = df.copy()
+        df.columns = flat
+    return df
+
+
+def _normalize_ohlcv_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    列名の大小文字・別名を正規化し、最終的に ["Open","High","Low","Close","Volume"] を揃える。
+    - 代表的別名: 'adj close','adj_close','adjclose','price','last','last_close' などを 'Close' に寄せる
+    - 'vol','v' は 'Volume'
+    - 数値化（to_numeric）、NaT除去、重複日付の後勝ち解消、昇順ソート
+    """
+    if not isinstance(df, pd.DataFrame):
+        df = pd.DataFrame(df)
+
+    df = _flatten_columns(df)
+
+    # 現在の列 -> 原名, 小文字名
+    original_cols = list(df.columns)
+    low2orig = {str(c).strip().lower(): c for c in original_cols}
+
+    # マッピング候補
+    cand = {
+        "open":  ["open", "o"],
+        "high":  ["high", "h"],
+        "low":   ["low", "l"],
+        "close": ["close", "c", "adj close", "adj_close", "adjclose", "price", "last", "last_close"],
+        "volume":["volume", "vol", "v"]
+    }
+
+    def pick(col_key: str):
+        for alias in cand[col_key]:
+            if alias in low2orig:
+                return low2orig[alias]
+            # MultiIndexフラット化後に 'close_XXXX' などを 'close' として拾いたい場合:
+            if any(k.startswith(alias + "_") for k in low2orig.keys()):
+                # 最初に見つかった close_* を採用
+                return next(k for k in low2orig.keys() if k.startswith(alias + "_"))
+        return None
+
+    # 見つかった実列名（見つからなければ None）
+    col_open  = pick("open")
+    col_high  = pick("high")
+    col_low   = pick("low")
+    col_close = pick("close")
+    col_vol   = pick("volume")
+
+    out = pd.DataFrame(index=df.index.copy())
+    # 各列をコピー（無ければ NaN 列）
+    out["Open"]   = pd.to_numeric(df[col_open], errors="coerce") if col_open  is not None else np.nan
+    out["High"]   = pd.to_numeric(df[col_high], errors="coerce") if col_high  is not None else np.nan
+    out["Low"]    = pd.to_numeric(df[col_low], errors="coerce")  if col_low   is not None else np.nan
+    out["Close"]  = pd.to_numeric(df[col_close], errors="coerce")if col_close is not None else np.nan
+    out["Volume"] = pd.to_numeric(df[col_vol], errors="coerce")  if col_vol   is not None else np.nan
+
+    # Index を Datetime に
+    idx = pd.to_datetime(out.index, errors="coerce")
+    mask = ~idx.isna()
+    out = out.loc[mask]
+    out.index = idx[mask]
+
+    # 同一日重複は後勝ち
+    out = out[~out.index.duplicated(keep="last")]
+    out = out.sort_index()
+    return out
+
 
 def _ensure_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
-    """最低限の列とDatetimeIndexを保証し、ソートして返す。"""
+    """
+    最低限の列と DatetimeIndex を保証し、["Open","High","Low","Close","Volume"] のみ返す。
+    - 列名ゆらぎ吸収（大文字/小文字、adj close等）
+    - 数値化 / 日付整形 / 重複解消 / ソート
+    """
+    df = _normalize_ohlcv_columns(df)
     need = ["Open", "High", "Low", "Close", "Volume"]
     for c in need:
         if c not in df.columns:
             df[c] = np.nan
-    if not isinstance(df.index, pd.DatetimeIndex):
-        df.index = pd.to_datetime(df.index, errors="coerce")
-    df = df.sort_index()
     return df[need].copy()
 
 
@@ -157,21 +237,23 @@ class FeatureConfig:
 def make_features(raw: pd.DataFrame, cfg: Optional[FeatureConfig] = None) -> pd.DataFrame:
     """
     主要テクニカル指標を付与して返すメイン関数。
+    - 列名ゆらぎを吸収してから加工（Open/High/Low/Close/Volume を保証）
+    - 将来の pandas 変更に備え pct_change(fill_method=None) を使用
     """
     cfg = cfg or FeatureConfig()
     df = _ensure_ohlcv(raw)
 
     # 欠損を軽く埋める（始値=終値、H/Lも埋め、出来高は0許容）
     df["Close"] = df["Close"].ffill()
-    df["Open"] = df["Open"].fillna(df["Close"])
-    df["High"] = df["High"].fillna(df[["Open", "Close"]].max(axis=1))
-    df["Low"] = df["Low"].fillna(df[["Open", "Close"]].min(axis=1))
-    df["Volume"] = df["Volume"].fillna(0)
+    df["Open"]  = df["Open"].fillna(df["Close"])
+    df["High"]  = df["High"].fillna(df[["Open", "Close"]].max(axis=1))
+    df["Low"]   = df["Low"].fillna(df[["Open", "Close"]].min(axis=1))
+    df["Volume"]= df["Volume"].fillna(0)
 
     # --- 移動平均・ボリンジャー ---
     df[f"MA{cfg.ma_short}"] = _sma(df["Close"], cfg.ma_short)
-    df[f"MA{cfg.ma_mid}"] = _sma(df["Close"], cfg.ma_mid)
-    df[f"MA{cfg.ma_long}"] = _sma(df["Close"], cfg.ma_long)
+    df[f"MA{cfg.ma_mid}"]   = _sma(df["Close"],  cfg.ma_mid)
+    df[f"MA{cfg.ma_long}"]  = _sma(df["Close"],  cfg.ma_long)
 
     bb_u, bb_m, bb_l = _bollinger(df["Close"], cfg.bb_window, cfg.bb_sigma)
     df["BBU"], df["BBM"], df["BBL"] = bb_u, bb_m, bb_l
@@ -188,12 +270,12 @@ def make_features(raw: pd.DataFrame, cfg: Optional[FeatureConfig] = None) -> pd.
     df["VWAP_GAP_PCT"] = (df["Close"] / df["VWAP"] - 1) * 100.0
 
     # --- 収益率・傾き ---
-    df["RET_1"] = _safe_pct_change(df["Close"], 1)
-    df["RET_5"] = _safe_pct_change(df["Close"], 5)
+    df["RET_1"]  = _safe_pct_change(df["Close"], 1)
+    df["RET_5"]  = _safe_pct_change(df["Close"], 5)
     df["RET_20"] = _safe_pct_change(df["Close"], 20)
 
     df[f"SLOPE_{cfg.slope_short}"] = _slope(df["Close"], cfg.slope_short)
-    df[f"SLOPE_{cfg.slope_mid}"] = _slope(df["Close"], cfg.slope_mid)
+    df[f"SLOPE_{cfg.slope_mid}"]   = _slope(df["Close"], cfg.slope_mid)
 
     # --- ゴールデンクロス/デッドクロスのフラグ（例：短中期）---
     ma_s, ma_m = df[f"MA{cfg.ma_short}"], df[f"MA{cfg.ma_mid}"]
