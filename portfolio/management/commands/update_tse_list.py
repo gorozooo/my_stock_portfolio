@@ -1,3 +1,4 @@
+# portfolio/management/commands/update_tse_list.py
 from __future__ import annotations
 import os, io, json, unicodedata, re
 from typing import Optional, Tuple
@@ -17,9 +18,7 @@ JSON_PATH = os.path.join(DATA_DIR, "tse_list.json")
 
 # ---------- 文字クレンジング ----------
 def clean_text(s: Optional[str]) -> str:
-    """
-    ゼロ幅や私用領域、制御文字を除去して正規化
-    """
+    """ゼロ幅・私用領域・制御文字を除去して正規化"""
     if s is None:
         return ""
     s = unicodedata.normalize("NFKC", str(s))
@@ -34,9 +33,7 @@ NAME_KEYS = {"name", "銘柄名"}
 
 
 def detect_code_name_columns(df: pd.DataFrame) -> Tuple[Optional[str], Optional[str]]:
-    """
-    シートごとに列名の表記ゆれがあるので、低レベル正規化して "code" / "name" を推定。
-    """
+    """シートごとに列名の表記ゆれがあるので、低レベル正規化して code / name を推定"""
     norm_map = {c: clean_text(c).lower() for c in df.columns}
 
     def pick(keys) -> Optional[str]:
@@ -50,7 +47,7 @@ def detect_code_name_columns(df: pd.DataFrame) -> Tuple[Optional[str], Optional[
 
 
 class Command(BaseCommand):
-    help = "JPXの上場銘柄一覧を取得し、code・nameのみを data/tse_list.(csv|json) に保存"
+    help = "JPXの上場銘柄一覧を取得し、code・nameのみを data/tse_list.(csv|json) に保存（JSONは {code: name} 形式）"
 
     def add_arguments(self, parser):
         parser.add_argument("--url", type=str, default=DEFAULT_XLS_URL,
@@ -92,7 +89,7 @@ class Command(BaseCommand):
                 sub = sub[sub["code"].str.fullmatch(r"\d{4,5}")]
                 frames.append(sub)
             except Exception:
-                # シートによって崩れていてもスキップ
+                # シートの崩れはスキップ
                 continue
 
         if not frames:
@@ -107,13 +104,11 @@ class Command(BaseCommand):
 
         # --- 保存（CSV / JSON）---
         df_out.to_csv(CSV_PATH, index=False, encoding="utf-8-sig")
+
+        # ★ ここを変更： JSON は { "7203": "トヨタ自動車", ... } の「プレーン文字列」形式
+        mapping = {r["code"]: r["name"] for _, r in df_out.iterrows()}
         with open(JSON_PATH, "w", encoding="utf-8") as f:
-            json.dump(
-                {r["code"]: {"name": r["name"]} for _, r in df_out.iterrows()},
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
+            json.dump(mapping, f, ensure_ascii=False, indent=2)
 
         self.stdout.write(self.style.SUCCESS(f"Saved CSV : {CSV_PATH}"))
         self.stdout.write(self.style.SUCCESS(f"Saved JSON: {JSON_PATH}"))
