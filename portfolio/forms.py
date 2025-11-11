@@ -44,9 +44,25 @@ class HoldingForm(forms.ModelForm):
             "memo",
         ]
         widgets = {
-            "ticker":   forms.TextInput(attrs={"placeholder": "例: 7203 / 167A"}),
+            # --- 証券コード（英数字のみ・大文字化・非IME）---
+            # inputmode="text": モバイルで英字KBを優先
+            # pattern: 英数字以外を禁止（HTML5制約）
+            # oninput: 入力中も即クレンジング & 大文字化
+            # ime-mode は一部環境向け（非標準だが邪魔はしない）
+            "ticker": forms.TextInput(attrs={
+                "placeholder": "例: 7203 / 167A",
+                "inputmode": "text",
+                "pattern": "[A-Za-z0-9]*",
+                "autocapitalize": "characters",
+                "autocorrect": "off",
+                "autocomplete": "off",
+                "spellcheck": "false",
+                "style": "ime-mode: disabled;",
+                "oninput": "this.value = this.value.replace(/[^0-9A-Za-z]/g,'').toUpperCase();",
+            }),
+
             "name":     forms.TextInput(attrs={"placeholder": "例: トヨタ自動車"}),
-            "sector":   forms.TextInput(attrs={"placeholder": "例: 輸送用機器"}),  # ★追加
+            "sector":   forms.TextInput(attrs={"placeholder": "例: 輸送用機器"}),  # ★追加（そのまま）
             "quantity": forms.NumberInput(attrs={"min": "1", "step": "1"}),
             "avg_cost": forms.NumberInput(attrs={"min": "0", "step": "0.01"}),
             "memo":     forms.Textarea(attrs={"rows": 4, "style": "resize:vertical;", "placeholder": "売買理由など"}),
