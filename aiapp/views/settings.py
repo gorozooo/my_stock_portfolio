@@ -10,8 +10,9 @@ from django.db.models import Sum
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render, redirect
 
-# ← 修正ポイント：UserSetting は portfolio.models 側にある
-from portfolio.models import BrokerAccount, CashLedger, Holding, UserSetting
+# 正しいインポート先（分割モデル）
+from portfolio.models import Holding, UserSetting
+from portfolio.models_cash import BrokerAccount, CashLedger
 
 
 # -------- ユーティリティ（自動計算） ---------------------------------
@@ -21,7 +22,7 @@ class BrokerSnapshot:
     key: str                  # "RAKUTEN" / "MATSUI"
     label: str                # 表示ラベル（楽天 / 松井）
     cash_yen: int             # 現金（Ledgerから算出）
-    stock_acq_value: int      # 現物(SPEC)の取得額合計（口座の原価ベース）
+    stock_acq_value: int      # 現物(SPEC)の取得額合計（原価ベース）
     note: str = ""            # 追加メモ（将来用）
 
 
