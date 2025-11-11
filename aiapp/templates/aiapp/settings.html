@@ -6,141 +6,163 @@
 <style>
   :root{
     --bg:#0b0f1a;--card:rgba(255,255,255,0.06);--fg:#eaf0ff;--sub:#9fb1c7;
-    --line:rgba(255,255,255,.10);--accent:#2563eb;--muted:#334155;
+    --line:rgba(255,255,255,.10);--accent:#2563eb;--muted:#2a3342;
   }
   body{background:var(--bg);color:var(--fg)}
   .wrap{max-width:720px;margin:0 auto;padding:18px 14px 90px}
   h1{font-size:20px;margin:4px 0 14px 2px;font-weight:700}
-
-  /* Tabs */
-  .tabs{margin-bottom:12px}
-  .tab-bar{
-    display:grid;grid-template-columns:repeat(2,1fr);gap:8px;
-    position:sticky;top:0;background:var(--bg);padding:6px 0 8px;z-index:5
-  }
-  .tab-btn{
-    display:block;text-align:center;padding:10px 12px;border-radius:12px;
-    border:1px solid var(--line);background:rgba(255,255,255,.05);
-    color:var(--fg);font-weight:700;text-decoration:none;user-select:none
-  }
-  .tab-btn[aria-current="true"]{
-    background:linear-gradient(0deg,rgba(255,255,255,.10),rgba(255,255,255,.06));
-    border-color:rgba(255,255,255,.18);
-  }
-  .panel{display:none;animation:fade .18s ease}
-  .panel.active{display:block}
-  @keyframes fade{from{opacity:.0;transform:translateY(4px)}to{opacity:1;transform:none}}
-
-  /* Section blocks */
   .sec{border:1px solid var(--line);background:var(--card);border-radius:16px;padding:14px 14px 8px;margin-bottom:12px;backdrop-filter:blur(10px)}
   .sec h2{font-size:14px;color:var(--sub);margin:0 0 10px 2px;font-weight:600}
 
-  /* リスク設定 */
-  .form-row{display:grid;grid-template-columns:1fr 140px;gap:10px;align-items:center}
+  /* タブ */
+  .tabs{position:sticky;top:0;z-index:10;margin:0 0 12px 0}
+  .tabbar{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:8px;
+    background:rgba(255,255,255,.04);border:1px solid var(--line);
+    padding:8px;border-radius:14px;backdrop-filter:blur(10px)
+  }
+  .tabbtn{
+    padding:10px 12px;border-radius:10px;border:1px solid var(--line);
+    background:rgba(255,255,255,.06);color:var(--fg);text-align:center;
+    font-weight:600;letter-spacing:.2px;text-decoration:none;display:block
+  }
+  .tabbtn[aria-selected="true"]{
+    background:var(--accent);border-color:transparent;color:#fff;
+  }
+
+  /* パネル切替 */
+  .panel{display:none}
+  .panel.active{display:block}
+
+  /* フォーム */
+  .form-row{display:grid;grid-template-columns:1fr 120px;gap:10px;align-items:center}
   .form-row input{
     width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);
     background:rgba(255,255,255,.08);color:var(--fg);font-size:16px;text-align:right;
   }
-  .btn{display:inline-block;text-align:center;padding:12px 14px;border-radius:10px;background:var(--accent);color:#fff;text-decoration:none;border:0;font-weight:700}
+  .btn{display:inline-block;text-align:center;padding:12px;border-radius:10px;background:var(--accent);color:#fff;text-decoration:none;border:0;font-weight:700}
 
-  /* ブローカーサマリ（楽天・松井） */
+  /* ブロックステータス（楽天・松井） */
   .cards{display:grid;gap:10px}
   .card{border:1px solid var(--line);border-radius:14px;padding:12px;background:rgba(255,255,255,.05)}
   .card .hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-  .badge{font-size:12px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.06)}
+  .badge{font-size:12px;padding:4px 8px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.06)}
   .kv{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .kv .it{border:1px solid var(--line);border-radius:10px;padding:10px}
   .kv .lb{font-size:12px;color:var(--sub)}
   .kv .vl{font-size:18px;margin-top:2px}
   .msg{margin-top:10px;color:var(--sub);font-size:13px}
 
-  /* helper */
-  .right{text-align:right}
+  /* メモ系 */
+  .note{font-size:12px;color:var(--sub);margin-top:8px}
 </style>
-<script>
-  document.addEventListener('DOMContentLoaded', ()=>{
-    const state = new URL(location).searchParams.get('tab') || sessionStorage.getItem('aiapp.settings.tab') || 'rule';
-    switchTab(state);
-    document.querySelectorAll('[data-tab]').forEach(el=>{
-      el.addEventListener('click', (e)=>{
-        e.preventDefault();
-        const to = el.getAttribute('data-tab');
-        switchTab(to);
-        // URLクエリは汚さず、セッションだけに保存
-        sessionStorage.setItem('aiapp.settings.tab', to);
-      });
-    });
-    function switchTab(name){
-      document.querySelectorAll('.tab-btn').forEach(b=>b.setAttribute('aria-current','false'));
-      document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-      const btn = document.querySelector(`.tab-btn[data-tab="${name}"]`);
-      const panel = document.querySelector(`.panel[data-panel="${name}"]`);
-      if(btn) btn.setAttribute('aria-current','true');
-      if(panel) panel.classList.add('active');
-    }
-  });
-</script>
 {% endblock %}
 
 {% block content %}
 <div class="wrap">
   <h1>AI設定</h1>
 
-  <!-- タブバー -->
-  <div class="tabs">
-    <div class="tab-bar" role="tablist" aria-label="AI設定タブ">
-      <a href="#" class="tab-btn" data-tab="rule" role="tab" aria-selected="true" aria-controls="panel-rule">数量ルール</a>
-      <a href="#" class="tab-btn" data-tab="summary" role="tab" aria-selected="false" aria-controls="panel-summary">証券サマリ</a>
+  <!-- Tabs -->
+  <nav class="tabs" role="tablist" aria-label="AI設定タブ">
+    <div class="tabbar">
+      <a href="#basic"   class="tabbtn" role="tab" aria-selected="true"  aria-controls="panel-basic"   id="tab-basic">基本設定</a>
+      <a href="#brokers" class="tabbtn" role="tab" aria-selected="false" aria-controls="panel-brokers" id="tab-brokers">証券サマリ</a>
+      <a href="#advanced" class="tabbtn" role="tab" aria-selected="false" aria-controls="panel-advanced" id="tab-advanced">拡張</a>
     </div>
+  </nav>
 
-    <!-- ▼ タブ：数量ルール -->
-    <section id="panel-rule" class="panel active" data-panel="rule" role="tabpanel" aria-labelledby="tab-rule">
-      <div class="sec">
-        <h2>数量計算ルール</h2>
-        <form method="post" action="">
-          {% csrf_token %}
-          <div class="form-row">
-            <label for="risk_pct" style="font-size:14px;color:var(--sub)">1トレードあたりのリスク（％）</label>
-            <input id="risk_pct" name="risk_pct" type="number" step="0.1" min="0" max="100" value="{{ risk_pct|floatformat:2 }}">
-          </div>
-          <div class="right" style="margin-top:10px">
-            <button class="btn" type="submit">保存</button>
-          </div>
-        </form>
-      </div>
-    </section>
-
-    <!-- ▼ タブ：証券サマリ -->
-    <section id="panel-summary" class="panel" data-panel="summary" role="tabpanel" aria-labelledby="tab-summary">
-      <div class="sec">
-        <h2>証券会社サマリ（自動計算）</h2>
-        <div class="cards">
-          {% for b in brokers %}
-            <div class="card">
-              <div class="hd">
-                <div class="badge">{{ b.label }}</div>
-              </div>
-              <div class="kv">
-                <div class="it">
-                  <div class="lb">現金残高</div>
-                  <div class="vl">{{ b.cash_yen|intcomma }} 円</div>
-                </div>
-                <div class="it">
-                  <div class="lb">現物（特定）取得額</div>
-                  <div class="vl">{{ b.stock_acq_value|intcomma }} 円</div>
-                </div>
-              </div>
-              {% if b.note %}
-                <div class="msg">{{ b.note }}</div>
-              {% endif %}
-            </div>
-          {% empty %}
-            <div class="msg">対象の証券口座が見つかりませんでした。</div>
-          {% endfor %}
+  <!-- Panel: 基本設定 -->
+  <section id="panel-basic" class="panel active" role="tabpanel" aria-labelledby="tab-basic">
+    <div class="sec">
+      <h2>数量計算ルール</h2>
+      <form method="post" action="">
+        {% csrf_token %}
+        <div class="form-row">
+          <label for="risk_pct" style="font-size:14px;color:var(--sub)">1トレードあたりのリスク（％）</label>
+          <input id="risk_pct" name="risk_pct" type="number" step="0.1" min="0" max="100" value="{{ risk_pct|floatformat:2 }}">
         </div>
-        <div class="msg">※ NISAは数量算出に含めません／SBIは今回UI表示を省略</div>
+        <div style="margin-top:10px;text-align:right">
+          <button class="btn" type="submit">保存</button>
+        </div>
+      </form>
+      {% if saved_msg %}
+        <div class="note">{{ saved_msg }}</div>
+      {% endif %}
+    </div>
+  </section>
+
+  <!-- Panel: 証券サマリ（自動計算） -->
+  <section id="panel-brokers" class="panel" role="tabpanel" aria-labelledby="tab-brokers">
+    <div class="sec">
+      <h2>証券会社サマリ（自動計算）</h2>
+      <div class="cards">
+        {% for b in brokers %}
+          <div class="card">
+            <div class="hd">
+              <div class="badge">{{ b.label }}</div>
+            </div>
+            <div class="kv">
+              <div class="it">
+                <div class="lb">現金残高</div>
+                <div class="vl">{{ b.cash_yen|intcomma }} 円</div>
+              </div>
+              <div class="it">
+                <div class="lb">現物（特定）取得額</div>
+                <div class="vl">{{ b.stock_acq_value|intcomma }} 円</div>
+              </div>
+            </div>
+            {% if b.note %}
+              <div class="msg">{{ b.note }}</div>
+            {% endif %}
+          </div>
+        {% empty %}
+          <div class="msg">対象の証券口座が見つかりませんでした。</div>
+        {% endfor %}
       </div>
-    </section>
-  </div>
+      <div class="msg">※ NISAは数量算出に含めません／SBIは今回UI表示を省略</div>
+    </div>
+  </section>
+
+  <!-- Panel: 拡張（将来用のダミーUI。※保存はまだ不要なら表示のみ） -->
+  <section id="panel-advanced" class="panel" role="tabpanel" aria-labelledby="tab-advanced">
+    <div class="sec">
+      <h2>拡張設定（将来）</h2>
+      <div class="msg">ここに「AIモード」「しきい値」「通知」「LIVE/DEMO 既定値」などの設定を順次追加します。</div>
+    </div>
+  </section>
 </div>
+
+<script>
+  (function(){
+    const tabs = document.querySelectorAll('.tabbtn');
+    const panels = document.querySelectorAll('.panel');
+
+    function activate(id){
+      // buttons
+      tabs.forEach(t=>{
+        const on = (t.getAttribute('href') === '#'+id);
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      // panels
+      panels.forEach(p=>{
+        p.classList.toggle('active', p.id === 'panel-'+id);
+      });
+      // URL hash（戻る進む対応）
+      history.replaceState(null, '', '#' + id);
+    }
+
+    // 初期：ハッシュがあれば反映
+    const hash = (location.hash || '#basic').replace('#','');
+    activate(hash);
+
+    // クリック
+    tabs.forEach(t=>{
+      t.addEventListener('click', function(ev){
+        ev.preventDefault();
+        const id = this.getAttribute('href').replace('#','');
+        activate(id);
+      });
+    });
+  })();
+</script>
 {% endblock %}
