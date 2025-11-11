@@ -2,19 +2,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Sum, Q, F
+from django.db.models import Sum
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render, redirect
 
-# 設定（ユーザー別）
-from aiapp.models import UserSetting  # users.models ではなく aiapp.models に統一
-
-# 現金・保有は portfolio 側のモデルを使用
-from portfolio.models import BrokerAccount, CashLedger, Holding
+# ← 修正ポイント：UserSetting は portfolio.models 側にある
+from portfolio.models import BrokerAccount, CashLedger, Holding, UserSetting
 
 
 # -------- ユーティリティ（自動計算） ---------------------------------
@@ -34,17 +31,6 @@ BROKER_LABELS = {
     "SBI": "SBI",
 }
 
-# BrokerAccount は repo により broker 値が「楽天/松井」等の日本語表記のため、
-# 統一キーに寄せる変換を行う（片方しか無ければある分だけ表示）
-CANON_KEYS = {
-    "楽天": "RAKUTEN",
-    "RAKUTEN": "RAKUTEN",
-    "松井": "MATSUI",
-    "MATSUI": "MATSUI",
-    "SBI": "SBI",
-}
-
-
 def _account_balance(account: BrokerAccount) -> int:
     """
     CashLedger 運用が最新一致という前提で、opening_balance + すべての増減を合算。
@@ -60,18 +46,16 @@ def _account_balance(account: BrokerAccount) -> int:
 
 def _spec_acquisition_value(broker_canon: str) -> int:
     """
-    現物(SPEC) の取得額合計。
-    broker は Holding.broker の値に合わせて判定。
+    現物(SPEC) の取得額合計（avg_cost * quantity の総和）。
+    Holding.broker は "RAKUTEN"/"MATSUI"/"SBI" の英語キー想定。
     """
-    # Holding 側の broker は "RAKUTEN", "MATSUI", "SBI", ... の英語キーで持っている想定
     qs = Holding.objects.filter(
         broker=broker_canon,
-        account="SPEC",               # NISA/信用は含めない
+        account="SPEC",
         quantity__gt=0,
-    )
-    # 取得額 = avg_cost * quantity の総和（Decimal→int化）
+    ).only("avg_cost", "quantity")
     total = 0
-    for h in qs.only("avg_cost", "quantity"):
+    for h in qs:
         try:
             total += int(float(h.avg_cost or 0) * int(h.quantity or 0))
         except Exception:
@@ -81,10 +65,8 @@ def _spec_acquisition_value(broker_canon: str) -> int:
 
 def _snapshot_for(broker_canon: str) -> Optional[BrokerSnapshot]:
     """
-    BrokerAccount は日本語表記（楽天/松井）、Holding は英語キー（RAKUTEN/MATSUI）という
-    混在を吸収してスナップショットを生成。
+    BrokerAccount は日本語表記（楽天/松井）のことが多いので双方拾う。
     """
-    # BrokerAccount 側は日本語 "楽天"/"松井" のことが多い
     ja = "楽天" if broker_canon == "RAKUTEN" else ("松井" if broker_canon == "MATSUI" else broker_canon)
     accs = BrokerAccount.objects.filter(broker__in=[ja, broker_canon], currency="JPY")
     if not accs.exists():
@@ -106,7 +88,7 @@ def _snapshot_for(broker_canon: str) -> Optional[BrokerSnapshot]:
 
 def _collect_brokers() -> List[BrokerSnapshot]:
     out: List[BrokerSnapshot] = []
-    # 並びは固定：楽天 → 松井（SBIは今回UIに出さない）
+    # 並び固定：楽天 → 松井（SBIは今回UI非表示）
     for key in ["RAKUTEN", "MATSUI"]:
         snap = _snapshot_for(key)
         if snap:
@@ -122,10 +104,11 @@ def settings_view(request: HttpRequest) -> HttpResponse:
     us, _ = UserSetting.objects.get_or_create(user=request.user)
 
     if request.method == "POST":
-        # リスク％のみ保存（残高は自動計算のため入力を受け付けない）
+        # リスク％のみ保存（残高は自動計算）
         try:
             risk_str = (request.POST.get("risk_pct") or "").strip()
-            us.risk_pct = float(risk_str) if risk_str != "" else us.risk_pct
+            if risk_str != "":
+                us.risk_pct = float(risk_str)
             us.save()
             messages.success(request, "保存しました")
             return redirect("aiapp:settings")
