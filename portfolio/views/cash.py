@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Tuple
 import re
+from calendar import monthrange  # ★ 月末日計算に使用
 
 from django.contrib import messages
 from django.core.paginator import Paginator
@@ -12,7 +13,7 @@ from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods
 
 from ..models import Dividend, RealizedTrade, Holding
-from ..models_cash import BrokerAccount, CashLedger
+from ..models_cash import BrokerAccount, CashLedger, MarginState  # ★ MarginState を明示的にimport
 from ..services import cash_service as svc
 from ..services import cash_updater as up
 
@@ -51,6 +52,16 @@ def _make_low_toast(lows: list[tuple[str, int, int, float]]) -> str:
     lines.append("入金やポジション整理を検討してください。")
     return "\n".join(lines)
 
+def _month_end_from_str(ym: str) -> date:
+    """'YYYY-MM' → その月の最終日(date)"""
+    ym = (ym or "").strip()
+    m = re.match(r"^(\d{4})-(\d{2})$", ym)
+    if not m:
+        raise ValueError("対象月の形式は YYYY-MM で入力してください。")
+    y, mo = int(m.group(1)), int(m.group(2))
+    last = monthrange(y, mo)[1]
+    return date(y, mo, last)
+
 # ================== dashboard ==================
 @require_http_methods(["GET", "POST"])
 def cash_dashboard(request: HttpRequest) -> HttpResponse:
@@ -58,7 +69,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         op = (request.POST.get("op") or "").strip()
         memo = (request.POST.get("memo") or "").strip()
 
-        if op in ("deposit", "withdraw", "restrict"):
+        if op in ("deposit", "withdraw", "restrict", "tax"):
             broker = (request.POST.get("broker") or "").strip()
             if not broker:
                 messages.error(request, "証券会社を選択してください。")
@@ -73,7 +84,7 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
             try:
                 amount_str = (request.POST.get("amount") or "").replace(",", "").strip()
                 amount = int(amount_str)
-                if op in ("deposit", "withdraw") and amount <= 0:
+                if op in ("deposit", "withdraw", "tax") and amount <= 0:
                     raise ValueError("金額は正の整数で入力してください。")
                 if op == "restrict" and amount < 0:
                     raise ValueError("拘束金は0以上で入力してください。")
@@ -88,14 +99,33 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
                 elif op == "withdraw":
                     svc.withdraw(acc, amount, memo or "出金")
                     messages.success(request, f"{broker} から {amount:,} 円を出金しました。")
-                else:
+                elif op == "restrict":
                     # === 拘束金：当日の値を常に“上書き” ===
                     today = date.today()
                     ms, _ = MarginState.objects.get_or_create(account=acc, as_of=today)
-                    # required_margin は触らず、restricted_amount のみ上書き
                     ms.restricted_amount = amount
                     ms.save(update_fields=["restricted_amount"])
                     messages.success(request, f"{broker} の拘束金を {amount:,} 円に設定しました。")
+                else:
+                    # === 税金（源泉徴収）：対象月の月末日に出金として記帳 ===
+                    ym = (request.POST.get("month") or "").strip()
+                    at_day = _month_end_from_str(ym)  # 例：2025-10 → 2025-10-31
+                    # 同月・同社の既存税金行を消してから1件で上書き（重複防止）
+                    CashLedger.objects.filter(
+                        account=acc,
+                        kind=CashLedger.Kind.WITHDRAW,
+                        memo__startswith="税金 ",
+                        at__year=at_day.year,
+                        at__month=at_day.month,
+                    ).delete()
+                    CashLedger.objects.create(
+                        account=acc,
+                        amount=-amount,  # 出金はマイナス
+                        kind=CashLedger.Kind.WITHDRAW,
+                        memo=memo or f"税金 {ym}",
+                        at=at_day,
+                    )
+                    messages.success(request, f"{broker} の税金 {amount:,} 円（{ym}）を記録しました。")
             except Exception as e:
                 messages.error(request, f"処理に失敗：{e}")
 
@@ -132,7 +162,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
         messages.error(request, f"同期に失敗：{e}")
 
     today = date.today()
-    # ここで“拘束金・取得原価残を含んだ”集計を取得
     base_list = svc.broker_summaries(today)
 
     LOW_RATIO = 0.30
@@ -181,7 +210,6 @@ def cash_dashboard(request: HttpRequest) -> HttpResponse:
     )
 
 
-    
 # ================== 現金履歴台帳 ==================
 PAGE_SIZE = 30
 
@@ -215,7 +243,7 @@ def _filtered_ledger(request: HttpRequest) -> Tuple[QuerySet, dict]:
         elif kind == "XFER":
             qs = qs.filter(kind__in=[CashLedger.Kind.XFER_IN, CashLedger.Kind.XFER_OUT])
         elif kind == "SYSTEM":
-            qs = qs.filter(kind=CashLedger.Kind.SYSTEM)
+            qs = qs.filter(kind=CashLedger.Kind.SYSTEM)  # ★ Kind.SYSTEM を使えるように
 
     if start:
         qs = qs.filter(at__gte=start)
@@ -264,7 +292,6 @@ def _source_is_realized(v) -> bool:
         return str(v).upper() in {"REALIZED", "REAL", "1"}
 
 def _source_is_holding(v, memo: str | None) -> bool:
-    # source_type=HOLDING が無くてもメモで判定（例：'保有取得', '現物取得', '保有' など）
     key = (memo or "").strip()
     if v is None:
         return key.startswith("保有") or key.startswith("現物")
@@ -280,9 +307,6 @@ def _safe_str(val) -> str:
     return (val or "").strip()
 
 def _extract_ticker_from_text(text: str) -> str | None:
-    """
-    メモからティッカーっぽい最初の英数列（例: '7091', 'AAPL'）を拾う。
-    """
     if not text:
         return None
     m = re.search(r"([0-9A-Za-z]{3,})", text)
@@ -345,24 +369,20 @@ def _attach_source_labels(page):
         except Exception:
             sid_int = None
 
-        # 配当
         if sid_int is not None and _source_is_dividend(st):
             label = build_label_from_div(div_map[sid_int]) if sid_int in div_map else f"DIV:{sid_int}"
             r.src_badge = {"kind": "配当", "class": "chip chip-sky", "label": label}
             continue
 
-        # 実損
         if sid_int is not None and _source_is_realized(st):
             label = build_label_from_real(real_map[sid_int]) if sid_int in real_map else f"REAL:{sid_int}"
             r.src_badge = {"kind": "実損", "class": "chip chip-emerald", "label": label}
             continue
 
-        # 保有（初回買付）
         if _source_is_holding(st, mm):
             if sid_int is not None and sid_int in hold_map:
                 label = build_label_from_hold(hold_map[sid_int])
             else:
-                # sid が無い場合もメモから TICKER を推定して揃えた表示にする
                 tkr = _extract_ticker_from_text(mm)
                 label = (tkr or "保有")
             r.src_badge = {"kind": "保有", "class": "chip chip-sky", "label": label}
@@ -385,7 +405,6 @@ def cash_history(request: HttpRequest) -> HttpResponse:
     """
     現金台帳：毎回同期 → 絞り込み → ページネーション
     """
-    # upsert（新規＋更新）
     try:
         info = up.sync_all()
         d_c = int(info.get("dividends_created", 0))
