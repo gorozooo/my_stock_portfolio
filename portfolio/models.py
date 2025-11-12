@@ -8,10 +8,22 @@ from .models_market import *
 User = get_user_model()
 
 
+# =============================
+# ユーザー設定（AIの数量計算・倍率/ヘアカット率など）
+# =============================
 class UserSetting(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+
+    # 旧：口座残高＆リスク％（既存）
     account_equity = models.BigIntegerField("口座残高(円)", default=1_000_000)
     risk_pct = models.FloatField("1トレードのリスク％", default=1.0)
+
+    # 追加：証券会社ごとの倍率/ヘアカット率（既定はあなたの運用に合わせて設定）
+    leverage_rakuten = models.FloatField("楽天 倍率", default=2.90)
+    haircut_rakuten  = models.FloatField("楽天 ヘアカット率", default=0.30)  # 30%
+
+    leverage_matsui  = models.FloatField("松井 倍率", default=2.80)
+    haircut_matsui   = models.FloatField("松井 ヘアカット率", default=0.00)
 
     def __str__(self):
         return f"{self.user.username} 設定"
