@@ -7,7 +7,7 @@ from django.db import transaction
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render, redirect
 
-from portfolio.models import UserSetting  # 既存の UserSetting を利用
+from portfolio.models import UserSetting
 from . import settings as _  # noqa: F401, keep
 from aiapp.services.broker_summary import compute_broker_summaries
 
@@ -31,32 +31,22 @@ def settings_view(request: HttpRequest) -> HttpResponse:
     us, _created = UserSetting.objects.get_or_create(
         user=user,
         defaults={
+            "account_equity": 1_000_000,
             "risk_pct": 1.0,
         },
     )
 
-    # 後方互換用: DB 列がまだ無い場合でも一旦デフォルトを使えるようにする
-    def get_attr(obj, name: str, default):
-        return getattr(obj, name, default)
-
-    rakuten_leverage = get_attr(us, "rakuten_leverage", 2.9)
-    rakuten_haircut = get_attr(us, "rakuten_haircut", 0.30)
-    matsui_leverage = get_attr(us, "matsui_leverage", 2.8)
-    matsui_haircut = get_attr(us, "matsui_haircut", 0.00)
+    # モデルに定義されているフィールド名に統一
+    leverage_rakuten = us.leverage_rakuten
+    haircut_rakuten = us.haircut_rakuten
+    leverage_matsui = us.leverage_matsui
+    haircut_matsui = us.haircut_matsui
 
     # ------------------------------------------------------------------ POST
     if request.method == "POST":
-        # どのタブからPOSTされたか（hidden で送っている）
-        tab = _get_tab(request)
+        tab = _get_tab(request)  # hidden で送っているタブ
 
         # リスク％
-        try:
-            us.risk_pct = float(request.POST.get("risk_pct") or us.risk_pct or 1.0)
-        except ValueError:
-            # 変な値が来たら前回値を維持
-            pass
-
-        # 倍率 / ヘアカット
         def parse_float(name: str, current: float) -> float:
             v = request.POST.get(name)
             if v in (None, ""):
@@ -66,16 +56,18 @@ def settings_view(request: HttpRequest) -> HttpResponse:
             except ValueError:
                 return current
 
-        rakuten_leverage = parse_float("rakuten_leverage", rakuten_leverage)
-        rakuten_haircut = parse_float("rakuten_haircut", rakuten_haircut)
-        matsui_leverage = parse_float("matsui_leverage", matsui_leverage)
-        matsui_haircut = parse_float("matsui_haircut", matsui_haircut)
+        us.risk_pct = parse_float("risk_pct", us.risk_pct or 1.0)
 
-        # UserSetting に保存（※ モデルに列追加 + migrate しておくこと）
-        setattr(us, "rakuten_leverage", rakuten_leverage)
-        setattr(us, "rakuten_haircut", rakuten_haircut)
-        setattr(us, "matsui_leverage", matsui_leverage)
-        setattr(us, "matsui_haircut", matsui_haircut)
+        # 倍率 / ヘアカット（フィールド名に合わせる）
+        leverage_rakuten = parse_float("leverage_rakuten", leverage_rakuten)
+        haircut_rakuten = parse_float("haircut_rakuten", haircut_rakuten)
+        leverage_matsui = parse_float("leverage_matsui", leverage_matsui)
+        haircut_matsui = parse_float("haircut_matsui", haircut_matsui)
+
+        us.leverage_rakuten = leverage_rakuten
+        us.haircut_rakuten = haircut_rakuten
+        us.leverage_matsui = leverage_matsui
+        us.haircut_matsui = haircut_matsui
 
         us.save()
         messages.success(request, "保存しました")
@@ -87,19 +79,23 @@ def settings_view(request: HttpRequest) -> HttpResponse:
     brokers = compute_broker_summaries(
         user=user,
         risk_pct=float(us.risk_pct or 1.0),
-        rakuten_leverage=rakuten_leverage,
-        rakuten_haircut=rakuten_haircut,
-        matsui_leverage=matsui_leverage,
-        matsui_haircut=matsui_haircut,
+        # services 側は引数名どうでもいいので、そのまま渡す
+        rakuten_leverage=leverage_rakuten,
+        rakuten_haircut=haircut_rakuten,
+        matsui_leverage=leverage_matsui,
+        matsui_haircut=haircut_matsui,
     )
 
     ctx = {
         "tab": tab,
         "risk_pct": float(us.risk_pct or 1.0),
-        "rakuten_leverage": rakuten_leverage,
-        "rakuten_haircut": rakuten_haircut,
-        "matsui_leverage": matsui_leverage,
-        "matsui_haircut": matsui_haircut,
+
+        # 表示用（モデルの名前に合わせる）
+        "leverage_rakuten": leverage_rakuten,
+        "haircut_rakuten": haircut_rakuten,
+        "leverage_matsui": leverage_matsui,
+        "haircut_matsui": haircut_matsui,
+
         "brokers": brokers,
     }
     return render(request, "aiapp/settings.html", ctx)
