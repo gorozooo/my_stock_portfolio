@@ -1,4 +1,3 @@
-# portfolio/models_cash.py
 from __future__ import annotations
 from django.db import models
 from django.utils import timezone
@@ -30,11 +29,12 @@ class CashLedger(models.Model):
         WITHDRAW = "WITHDRAW", "出金"
         XFER_IN  = "XFER_IN",  "振替入金"
         XFER_OUT = "XFER_OUT", "振替出金"
+        SYSTEM   = "SYSTEM",   "システム調整"  # ★ 罠対応：参照されていたSYSTEMを正式に定義
 
     class SourceType(models.TextChoices):
         DIVIDEND = "DIV",   "Dividend"
         REALIZED = "REAL",  "RealizedTrade"
-        HOLDING  = "HOLD",  "Holding 初回買付"   # ★ 追加
+        HOLDING  = "HOLD",  "Holding 初回買付"
 
     account = models.ForeignKey(
         BrokerAccount, on_delete=models.CASCADE, related_name="ledgers"
@@ -42,17 +42,13 @@ class CashLedger(models.Model):
     amount  = models.BigIntegerField(help_text="現金増減。入金は＋、出金は−")
     kind    = models.CharField(max_length=16, choices=Kind.choices)
     memo    = models.CharField(max_length=255, blank=True, default="")
-
-    # ★ 発生日をそのまま保存（登録日固定にしない）
     at      = models.DateField(default=timezone.localdate)
 
-    # 任意: どの保有に紐づくか（配当/実損は None 可）
     holding = models.ForeignKey(
         "portfolio.Holding", null=True, blank=True,
         on_delete=models.SET_NULL, related_name="cash_ledgers"
     )
 
-    # ソース一意キー
     source_type = models.CharField(
         max_length=8, choices=SourceType.choices, null=True, blank=True, db_index=True
     )
