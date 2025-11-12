@@ -1,47 +1,57 @@
 # -*- coding: utf-8 -*-
 """
-証券会社ごとの資産状況を元にAI提案ポジションの数量・必要資金・損益を自動算出するサービス
- - 楽天・松井のBrokerAccount/CashLedger/Holdingを参照
- - NISA等は除外して現物・信用を合算
- - リスク％をUserSettingから取得
- - 1トレードあたりの許容損失 = 総資産 × (risk_pct / 100)
- - 損切幅(ATR×R倍率)を元に数量を計算
+AI Picks 数量・必要資金・損益を証券会社別に算出するサービス
+ - 楽天、松井の2段出力（qty, required_cash, est_pl, est_loss）
+ - UserSetting.risk_pct を使用
+ - ATR から損切幅を算出 → 1トレード許容損失から数量を決定
+ - ETF (13xx / 15xx) は 1株、株は100株
 """
 
 from __future__ import annotations
-from decimal import Decimal
-from typing import Dict, Optional
-
+from typing import Dict, Any
 from django.db.models import Sum
-from portfolio.models import BrokerAccount, CashLedger, Holding
-from users.models import UserSetting  # あなたの環境に合わせて修正可
+
+from portfolio.models import BrokerAccount, CashLedger, Holding, UserSetting
 
 
-def get_total_assets(broker: str) -> float:
-    """BrokerAccount と Holding の合計額を返す（信用は含む）"""
-    accounts = BrokerAccount.objects.filter(broker__iexact=broker)
+def _get_assets(user, broker_name: str) -> float:
+    """
+    現金 + 株式評価額（現物/信用の区別なし）
+    """
+    accounts = BrokerAccount.objects.filter(user=user, broker__iexact=broker_name)
+
     total_cash = 0.0
     for acc in accounts:
-        # 現金残高
         ledger_sum = (
             CashLedger.objects.filter(account=acc).aggregate(Sum("amount"))["amount__sum"] or 0
         )
-        total_cash += float(acc.opening_balance or 0) + float(ledger_sum or 0)
+        total_cash += float(acc.opening_balance or 0) + float(ledger_sum)
 
-    # 現物評価額（株価×株数）
-    holds = Holding.objects.filter(broker__iexact=broker)
+    # 保有株（現物＋信用）評価額
+    holds = Holding.objects.filter(user=user, broker__iexact=broker_name)
     stock_val = 0.0
     for h in holds:
-        try:
-            stock_val += float(h.quantity or 0) * float(h.last_price or 0)
-        except Exception:
-            pass
+        price = float(h.last_price or 0)
+        qty = float(h.quantity or 0)
+        stock_val += price * qty
 
     return total_cash + stock_val
 
 
-def get_risk_setting(user) -> float:
-    """UserSetting からリスク％を取得（なければ1.0）"""
+def _lot_size_for(code: str) -> int:
+    """
+    ETF/ETN (13xx / 15xx) → 1株
+    日本株 → 100株
+    """
+    if code.startswith("13") or code.startswith("15"):
+        return 1
+    return 100
+
+
+def _risk_pct(user) -> float:
+    """
+    UserSetting.risk_pct を取得
+    """
     try:
         s = UserSetting.objects.get(user=user)
         return float(s.risk_pct or 1.0)
@@ -49,38 +59,65 @@ def get_risk_setting(user) -> float:
         return 1.0
 
 
-def compute_sizing(user, code: str, last: float, atr: float) -> Dict[str, Dict[str, float]]:
+def compute_position_sizing(
+    user,
+    code: str,
+    last_price: float,
+    atr: float,
+) -> Dict[str, Any]:
     """
-    銘柄ごと数量算出
-      - 楽天・松井それぞれで数量・必要資金・想定PL/損失を計算
-      - lot_size: 株式=100, ETF=1（暫定固定）
+    AI Picks 1銘柄分の数量を楽天・松井の2段で返す
+    返す内容：
+        qty_rakuten, qty_matsui
+        required_cash_rakuten, required_cash_matsui
+        est_pl_rakuten, est_pl_matsui
+        est_loss_rakuten, est_loss_matsui
+        risk_pct, lot_size
     """
-    risk_pct = get_risk_setting(user)
-    lot_size = 100 if not str(code).startswith(("13", "15")) else 1
+    lot = _lot_size_for(code)
+    risk_pct = _risk_pct(user)
 
-    rakuten_assets = get_total_assets("楽天")
-    matsui_assets = get_total_assets("松井")
+    # ATR が 0 の場合は全部0
+    if not atr or atr <= 0 or last_price <= 0:
+        return dict(
+            qty_rakuten=0, qty_matsui=0,
+            required_cash_rakuten=0, required_cash_matsui=0,
+            est_pl_rakuten=0, est_pl_matsui=0,
+            est_loss_rakuten=0, est_loss_matsui=0,
+            risk_pct=risk_pct, lot_size=lot,
+        )
+
+    # 証券会社別の総資産
+    rakuten_assets = _get_assets(user, "楽天")
+    matsui_assets = _get_assets(user, "松井")
 
     out = {}
-    for broker, assets in [("楽天", rakuten_assets), ("松井", matsui_assets)]:
-        if not assets or assets <= 0 or not atr or atr <= 0:
-            qty = 0
-            required_cash = est_pl = est_loss = 0.0
+
+    for broker_label, assets in [
+        ("rakuten", rakuten_assets),
+        ("matsui", matsui_assets),
+    ]:
+        if assets <= 0:
+            qty = required_cash = est_pl = est_loss = 0
         else:
+            # 1トレードあたりの許容損失
             risk_value = assets * (risk_pct / 100.0)
-            loss_per_share = atr * 0.6  # SL距離
-            qty = int((risk_value / loss_per_share) // lot_size * lot_size)
-            required_cash = qty * last
+
+            # 損切幅：ATR の 0.6倍（あなたの旧ロジックを継承）
+            loss_per_share = atr * 0.6
+
+            qty = int((risk_value / loss_per_share) // lot * lot)
+            required_cash = qty * last_price
+
+            # 利確/損切の概算（旧ロジック継承）
             est_pl = atr * 0.8 * qty
             est_loss = loss_per_share * qty
 
-        out[broker] = dict(
-            qty=qty,
-            required_cash=round(required_cash, 0),
-            est_pl=round(est_pl, 0),
-            est_loss=round(est_loss, 0),
-        )
+        out[f"qty_{broker_label}"] = qty
+        out[f"required_cash_{broker_label}"] = round(required_cash, 0)
+        out[f"est_pl_{broker_label}"] = round(est_pl, 0)
+        out[f"est_loss_{broker_label}"] = round(est_loss, 0)
 
     out["risk_pct"] = risk_pct
-    out["lot_size"] = lot_size
+    out["lot_size"] = lot
     return out
