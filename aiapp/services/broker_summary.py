@@ -1,11 +1,14 @@
 # aiapp/services/broker_summary.py
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Literal, Dict, List
+from typing import Literal, List, Dict
 from django.db.models import Sum, F
-from portfolio.models import BrokerAccount, CashLedger, Holding
 
-# 表示順固定
+# ← 修正ポイント：定義元に合わせて分けて import
+from portfolio.models_cash import BrokerAccount, CashLedger
+from portfolio.models import Holding
+
+# 表示順（固定）
 BROKERS_UI = [
     ("RAKUTEN", "楽天"),
     ("MATSUI",  "松井"),
@@ -17,7 +20,7 @@ class BrokerNumbers:
     label: str
     cash_yen: int                     # 現金残高
     stock_acq_value: int              # 現物（特定）取得額
-    stock_eval_value: int             # 現物（特定）評価額（参考：UIでは未使用可）
+    stock_eval_value: int             # 現物（特定）評価額（参考）
     margin_used_eval: int             # 信用建玉の評価額合計（BUY/SELLとも絶対値）
     leverage: float                   # 倍率（概算）
     haircut: float                    # ヘアカット率（0.0〜）
@@ -33,7 +36,6 @@ def _cash_balance_yen(broker_label_jp: str) -> int:
     accounts = BrokerAccount.objects.filter(broker=broker_label_jp, currency="JPY")
     if not accounts.exists():
         return 0
-    # opening_balance + ledger 合計
     base = accounts.aggregate(total=Sum("opening_balance"))["total"] or 0
     ledg = CashLedger.objects.filter(account__in=accounts).aggregate(total=Sum("amount"))["total"] or 0
     return int(base + ledg)
@@ -43,7 +45,6 @@ def _stock_numbers_for(broker_code: str) -> Dict[str, int]:
     # 現物（特定）
     qs_spot = Holding.objects.filter(broker=broker_code, account="SPEC")
     acq = qs_spot.aggregate(total=Sum(F("avg_cost") * F("quantity")))["total"] or 0
-    # 評価額（任意：UI参考）
     evalv = qs_spot.aggregate(total=Sum(F("last_price") * F("quantity")))["total"] or 0
 
     # 信用（BUY/SELLとも絶対額で評価）
@@ -54,20 +55,18 @@ def _stock_numbers_for(broker_code: str) -> Dict[str, int]:
         px  = float(h.last_price or 0)
         used += int(qty * px)
 
-    return {
-        "acq": int(acq),
-        "eval": int(evalv),
-        "margin_used": int(used),
-    }
+    return {"acq": int(acq), "eval": int(evalv), "margin_used": int(used)}
 
-def compute_broker_summaries(*, user, risk_pct: float, rakuten_leverage: float, rakuten_haircut: float,
-                             matsui_leverage: float, matsui_haircut: float) -> List[BrokerNumbers]:
+def compute_broker_summaries(
+    *, user, risk_pct: float,
+    rakuten_leverage: float, rakuten_haircut: float,
+    matsui_leverage: float, matsui_haircut: float
+) -> List[BrokerNumbers]:
     """
     概算ルール
-      base（楽天）  = 現金 + 現物取得額*(1-ヘアカット)
-      base（松井）  = 現金 + 現物取得額*(1-ヘアカット)  ※通常0.0
-      信用枠        = base * 倍率
-      信用余力      = max(0, 信用枠 - 信用建玉評価額合計)
+      base（楽天/松井） = 現金 + 現物取得額*(1-ヘアカット)
+      信用枠            = base * 倍率
+      信用余力          = max(0, 信用枠 - 信用建玉評価額合計)
     """
     out: List[BrokerNumbers] = []
 
