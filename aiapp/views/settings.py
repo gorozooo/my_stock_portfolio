@@ -1,163 +1,80 @@
-# -*- coding: utf-8 -*-
+# aiapp/views/settings.py
 from __future__ import annotations
-
-from dataclasses import dataclass
-from typing import Optional
-
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render, redirect
-from django.urls import reverse
-from django.db.models import Sum
+from django.contrib import messages
+from django.db import transaction
+from portfolio.models import UserSetting  # 既存の UserSetting を利用
+from . import settings as _  # noqa: keep
+from aiapp.services.broker_summary import compute_broker_summaries
 
-# ← 修正ポイント：Cash は models_cash から、他は models から
-from portfolio.models import UserSetting, Holding
-from portfolio.models_cash import BrokerAccount, CashLedger
-
-
-# ---- 内部ヘルパ ----
-def _get_usersetting(user) -> UserSetting:
-    obj, _ = UserSetting.objects.get_or_create(user=user)
-    return obj
-
-def _cash_balance_for_broker(user, broker_label_jp: str) -> int:
-    """
-    BrokerAccount(broker='楽天'/'松井') の円建て opening_balance + ledgers を集計
-    """
-    accts = BrokerAccount.objects.filter(broker=broker_label_jp, currency="JPY")
-    if not accts.exists():
-        return 0
-    total = 0
-    for a in accts:
-        led_sum = a.ledgers.aggregate(s=Sum("amount"))["s"] or 0
-        total += int(a.opening_balance or 0) + int(led_sum)
-    return int(total)
-
-def _holding_value(user, *, broker_code: str, account: str) -> float:
-    """
-    Holding から (last_price * quantity) を合計
-    broker_code: 'RAKUTEN' / 'MATSUI'
-    account: 'SPEC' / 'MARGIN' / 'NISA'
-    """
-    qs = Holding.objects.filter(user=user, broker=broker_code, account=account)
-    total = 0.0
-    for h in qs:
-        price = float(h.last_price or 0.0)
-        qty = int(h.quantity or 0)
-        total += price * qty
-    return float(round(total))
-
-@dataclass
-class BrokerSummary:
-    label: str            # 表示ラベル（楽天 / 松井）
-    cash_yen: int         # 現金残高
-    stock_acq_value: int  # 現物（特定）評価額（担保の対象・NISA除外）
-    credit_limit: int     # 信用枠（概算）
-    credit_available: int # 信用余力（概算）
-    note: Optional[str] = ""
-
-
-def _summary_for_rakuten(user) -> BrokerSummary:
-    us = _get_usersetting(user)
-    # cash
-    cash = _cash_balance_for_broker(user, "楽天")
-    # SPEC/MARGIN の評価額（NISAは除外）
-    spec_val   = _holding_value(user, broker_code="RAKUTEN", account="SPEC")
-    margin_val = _holding_value(user, broker_code="RAKUTEN", account="MARGIN")
-
-    L  = float(us.leverage_rakuten or 0.0)
-    HC = float(us.haircut_rakuten  or 0.0)
-    collateral   = spec_val * (1.0 - HC)
-    credit_limit = (cash + collateral) * L
-    used_margin  = margin_val / L if L > 0 else 0.0
-    credit_avail = max(0.0, credit_limit - used_margin)
-
-    return BrokerSummary(
-        label="楽天",
-        cash_yen=int(round(cash)),
-        stock_acq_value=int(round(spec_val)),
-        credit_limit=int(round(credit_limit)),
-        credit_available=int(round(credit_avail)),
-        note=f"倍率 {L:.2f} / ヘアカット {HC:.2f}",
-    )
-
-
-def _summary_for_matsui(user) -> BrokerSummary:
-    us = _get_usersetting(user)
-    cash = _cash_balance_for_broker(user, "松井")
-    spec_val   = _holding_value(user, broker_code="MATSUI", account="SPEC")
-    margin_val = _holding_value(user, broker_code="MATSUI", account="MARGIN")
-
-    L  = float(us.leverage_matsui or 0.0)
-    HC = float(us.haircut_matsui  or 0.0)  # 既定0.00（要件通り）
-    collateral   = spec_val * (1.0 - HC)
-    credit_limit = (cash + collateral) * L
-    used_margin  = margin_val / L if L > 0 else 0.0
-    credit_avail = max(0.0, credit_limit - used_margin)
-
-    return BrokerSummary(
-        label="松井",
-        cash_yen=int(round(cash)),
-        stock_acq_value=int(round(spec_val)),
-        credit_limit=int(round(credit_limit)),
-        credit_available=int(round(credit_avail)),
-        note=f"倍率 {L:.2f} / ヘアカット {HC:.2f}",
-    )
-
+def _get_tab(request: HttpRequest) -> str:
+    t = (request.GET.get("tab") or request.POST.get("tab") or "basic").lower()
+    return "basic" if t not in ("basic", "summary", "advanced") else t
 
 @login_required
+@transaction.atomic
 def settings_view(request: HttpRequest) -> HttpResponse:
-    us = _get_usersetting(request.user)
+    user = request.user
+    tab = _get_tab(request)
 
-    # 保存（基本設定タブ）
+    # UserSetting を取得/作成（倍率・ヘアカットを拡張）
+    us, _created = UserSetting.objects.get_or_create(user=user, defaults={
+        "risk_pct": 1.0,
+    })
+    # 後方互換：存在しない属性は一時的にデフォルトで埋める（DB列追加後は自然に保存）
+    # 既存UserSettingに以下の属性を追加してください（migration）。無い間は getで暫定値。
+    def get_attr(obj, name, default):
+        return getattr(obj, name, default)
+
+    rakuten_leverage = get_attr(us, "rakuten_leverage", 2.9)
+    rakuten_haircut  = get_attr(us, "rakuten_haircut", 0.30)
+    matsui_leverage  = get_attr(us, "matsui_leverage", 2.8)
+    matsui_haircut   = get_attr(us, "matsui_haircut", 0.00)
+
     if request.method == "POST":
-        # リスク％
-        if "risk_pct" in request.POST:
-            try:
-                us.risk_pct = float(request.POST.get("risk_pct", us.risk_pct))
-            except Exception:
-                pass
+        action = request.POST.get("action") or "save_basic"
+        # 基本設定の保存
+        us.risk_pct = float(request.POST.get("risk_pct") or us.risk_pct or 1.0)
 
-        # 楽天 倍率/ヘアカット
-        if "leverage_rakuten" in request.POST:
-            try:
-                us.leverage_rakuten = float(request.POST.get("leverage_rakuten", us.leverage_rakuten))
-            except Exception:
-                pass
-        if "haircut_rakuten" in request.POST:
-            try:
-                us.haircut_rakuten = float(request.POST.get("haircut_rakuten", us.haircut_rakuten))
-            except Exception:
-                pass
+        # 倍率/ヘアカット保存（丸タブ「基本設定」にまとめる）
+        rakuten_leverage = float(request.POST.get("rakuten_leverage") or rakuten_leverage)
+        rakuten_haircut  = float(request.POST.get("rakuten_haircut")  or rakuten_haircut)
+        matsui_leverage  = float(request.POST.get("matsui_leverage")  or matsui_leverage)
+        matsui_haircut   = float(request.POST.get("matsui_haircut")   or matsui_haircut)
 
-        # 松井 倍率/ヘアカット
-        if "leverage_matsui" in request.POST:
-            try:
-                us.leverage_matsui = float(request.POST.get("leverage_matsui", us.leverage_matsui))
-            except Exception:
-                pass
-        if "haircut_matsui" in request.POST:
-            try:
-                us.haircut_matsui = float(request.POST.get("haircut_matsui", us.haircut_matsui))
-            except Exception:
-                pass
+        # UserSetting に属性が無い古いDBでも .save() は動作します（列追加後に反映）
+        setattr(us, "rakuten_leverage", rakuten_leverage)
+        setattr(us, "rakuten_haircut",  rakuten_haircut)
+        setattr(us, "matsui_leverage",  matsui_leverage)
+        setattr(us, "matsui_haircut",   matsui_haircut)
 
         us.save()
-        return redirect(reverse("aiapp:settings") + "?saved=1")
+        messages.success(request, "保存しました")
+        # 現在のタブ維持
+        return redirect(f"{request.path}?tab={_get_tab(request)}")
 
-    # 証券会社サマリ（自動計算）— 表示順は 楽天 → 松井 固定
-    brokers = [
-        _summary_for_rakuten(request.user),
-        _summary_for_matsui(request.user),
-    ]
+    # 証券会社サマリ（概算）計算
+    brokers = compute_broker_summaries(
+        user=user,
+        risk_pct=float(us.risk_pct or 1.0),
+        rakuten_leverage=rakuten_leverage,
+        rakuten_haircut=rakuten_haircut,
+        matsui_leverage=matsui_leverage,
+        matsui_haircut=matsui_haircut,
+    )
 
     ctx = {
-        "risk_pct": us.risk_pct,
-        "leverage_rakuten": us.leverage_rakuten,
-        "haircut_rakuten": us.haircut_rakuten,
-        "leverage_matsui": us.leverage_matsui,
-        "haircut_matsui": us.haircut_matsui,
-        "saved": request.GET.get("saved") == "1",
+        "tab": tab,
+        "risk_pct": float(us.risk_pct or 1.0),
+
+        # 倍率/ヘアカット（表示・編集用）
+        "rakuten_leverage": rakuten_leverage,
+        "rakuten_haircut":  rakuten_haircut,
+        "matsui_leverage":  matsui_leverage,
+        "matsui_haircut":   matsui_haircut,
+
         "brokers": brokers,
     }
     return render(request, "aiapp/settings.html", ctx)
