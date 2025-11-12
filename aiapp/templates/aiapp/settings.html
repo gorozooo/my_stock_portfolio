@@ -16,24 +16,41 @@
   .tab{flex:1;text-align:center;padding:12px;border-radius:14px;
        border:1px solid var(--line);background:rgba(255,255,255,.05);color:#cfe0ff;
        text-decoration:none;font-weight:700;display:block}
-  .tab.active{background:#1f3a8a; border-color:#2f49a6; color:#fff; box-shadow:0 4px 20px rgba(37,99,235,.25)}
+  .tab.active{
+       background:#1f3a8a;border-color:#2f49a6;color:#fff;
+       box-shadow:0 4px 20px rgba(37,99,235,.25)
+  }
 
-  .sec{border:1px solid var(--line);background:var(--card);border-radius:16px;padding:14px 14px 10px;margin-bottom:12px;backdrop-filter:blur(10px)}
+  .sec{border:1px solid var(--line);background:var(--card);
+       border-radius:16px;padding:14px 14px 10px;margin-bottom:12px;
+       backdrop-filter:blur(10px)}
   .sec h2{font-size:14px;color:var(--sub);margin:0 0 10px 2px;font-weight:600}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 
-  /* 入力 */
+  /* 入力行 */
   .row{display:grid;grid-template-columns:1fr 140px;gap:10px;align-items:center}
-  .inp{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);
-       background:rgba(255,255,255,.08);color:var(--fg);font-size:16px;text-align:right}
-  .btn{display:inline-block;text-align:center;padding:12px;border-radius:10px;background:var(--accent);color:#fff;text-decoration:none;border:0;font-weight:700}
+  .inp{
+       width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);
+       background:rgba(255,255,255,.08);color:var(--fg);
+       font-size:16px;text-align:right;
+  }
+  .btn{
+       display:inline-block;text-align:center;padding:12px;border-radius:10px;
+       background:var(--accent);color:#fff;text-decoration:none;border:0;
+       font-weight:700
+  }
   .note{font-size:12px;color:#9fb1c7;margin-top:6px}
+
+  /* ブローカーごとの倍率ブロック */
+  .broker-block{margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)}
+  .broker-block:first-of-type{margin-top:4px;padding-top:4px;border-top:none}
+  .broker-title{font-size:13px;color:var(--sub);margin:0 0 4px 2px;font-weight:600}
 
   /* サマリカード */
   .cards{display:grid;gap:10px}
   .card{border:1px solid var(--line);border-radius:14px;padding:12px;background:rgba(255,255,255,.05)}
   .card .hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-  .badge{font-size:12px;padding:4px 8px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.06)}
+  .badge{font-size:12px;padding:4px 8px;border:1px solid var(--line);
+         border-radius:999px;background:rgba(255,255,255,.06)}
   .kv{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .kv .it{border:1px solid var(--line);border-radius:10px;padding:10px}
   .kv .lb{font-size:12px;color:var(--sub)}
@@ -60,35 +77,91 @@
       <form method="post">
         {% csrf_token %}
         <input type="hidden" name="tab" value="basic">
+
         <div class="row">
-          <label style="font-size:14px;color:var(--sub)">1トレードあたりのリスク（％）</label>
-          <input class="inp" name="risk_pct" type="number" step="0.1" min="0" max="100" value="{{ risk_pct|floatformat:2 }}">
+          <label style="font-size:14px;color:var(--sub)">
+            1トレードあたりのリスク（％）
+          </label>
+          <input
+            class="inp"
+            name="risk_pct"
+            type="number"
+            inputmode="decimal"
+            step="0.1"
+            min="0"
+            max="100"
+            value="{{ risk_pct|floatformat:2 }}"
+          >
         </div>
 
         <h2 style="margin-top:14px">倍率 / ヘアカット（概算用）</h2>
-        <div class="grid2">
+
+        <!-- 楽天 -->
+        <div class="broker-block">
+          <div class="broker-title">楽天</div>
           <div class="row">
-            <label style="font-size:14px;color:var(--sub)">楽天 倍率</label>
-            <input class="inp" name="rakuten_leverage" type="number" step="0.01" min="0" value="{{ rakuten_leverage|floatformat:2 }}">
+            <label style="font-size:14px;color:var(--sub)">倍率</label>
+            <input
+              class="inp"
+              name="rakuten_leverage"
+              type="number"
+              inputmode="decimal"
+              step="0.01"
+              min="0"
+              value="{{ rakuten_leverage|floatformat:2 }}"
+            >
           </div>
-          <div class="row">
-            <label style="font-size:14px;color:var(--sub)">楽天 ヘアカット</label>
-            <input class="inp" name="rakuten_haircut" type="number" step="0.01" min="0" max="1" value="{{ rakuten_haircut|floatformat:2 }}">
+          <div class="row" style="margin-top:6px;">
+            <label style="font-size:14px;color:var(--sub)">ヘアカット</label>
+            <input
+              class="inp"
+              name="rakuten_haircut"
+              type="number"
+              inputmode="decimal"
+              step="0.01"
+              min="0"
+              max="1"
+              value="{{ rakuten_haircut|floatformat:2 }}"
+            >
           </div>
+        </div>
+
+        <!-- 松井 -->
+        <div class="broker-block">
+          <div class="broker-title">松井</div>
           <div class="row">
-            <label style="font-size:14px;color:var(--sub)">松井 倍率</label>
-            <input class="inp" name="matsui_leverage" type="number" step="0.01" min="0" value="{{ matsui_leverage|floatformat:2 }}">
+            <label style="font-size:14px;color:var(--sub)">倍率</label>
+            <input
+              class="inp"
+              name="matsui_leverage"
+              type="number"
+              inputmode="decimal"
+              step="0.01"
+              min="0"
+              value="{{ matsui_leverage|floatformat:2 }}"
+            >
           </div>
-          <div class="row">
-            <label style="font-size:14px;color:var(--sub)">松井 ヘアカット</label>
-            <input class="inp" name="matsui_haircut" type="number" step="0.01" min="0" max="1" value="{{ matsui_haircut|floatformat:2 }}">
+          <div class="row" style="margin-top:6px;">
+            <label style="font-size:14px;color:var(--sub)">ヘアカット</label>
+            <input
+              class="inp"
+              name="matsui_haircut"
+              type="number"
+              inputmode="decimal"
+              step="0.01"
+              min="0"
+              max="1"
+              value="{{ matsui_haircut|floatformat:2 }}"
+            >
           </div>
         </div>
 
         <div style="margin-top:12px;text-align:right">
           <button class="btn" type="submit">保存</button>
         </div>
-        <div class="note">※ ここで設定した倍率/ヘアカットは証券サマリの概算にも反映されます。</div>
+        <div class="note">
+          ※ ここで設定した倍率/ヘアカットは証券サマリの概算にも反映されます。
+        </div>
       </form>
     </div>
 
@@ -108,7 +181,7 @@
                 <div class="vl">{{ b.cash_yen|intcomma }} 円</div>
               </div>
               <div class="it">
-                <div class="lb">現物（特定）取得額</div>
+                <div class="lb">現物（特定）評価額</div>
                 <div class="vl">{{ b.stock_acq_value|intcomma }} 円</div>
               </div>
               <div class="it">
