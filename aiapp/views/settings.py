@@ -2,125 +2,153 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, List, Optional
 
-from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Sum
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render, redirect
+from django.urls import reverse
+from django.db.models import Sum, F, FloatField
 
-# 正しいインポート先（分割モデル）
-from portfolio.models import Holding, UserSetting
-from portfolio.models_cash import BrokerAccount, CashLedger
+from portfolio.models import (
+    UserSetting, Holding,
+    BrokerAccount, CashLedger,
+)
 
+# ---- 内部ヘルパ ----
+def _get_usersetting(user) -> UserSetting:
+    obj, _ = UserSetting.objects.get_or_create(user=user)
+    return obj
 
-# -------- ユーティリティ（自動計算） ---------------------------------
+def _cash_balance_for_broker(user, broker_label_jp: str) -> int:
+    """
+    BrokerAccount(broker='楽天'/'松井') の円建て opening_balance + ledgers を集計
+    """
+    accts = BrokerAccount.objects.filter(broker=broker_label_jp, currency="JPY")
+    if not accts.exists():
+        return 0
+    total = 0
+    for a in accts:
+        led_sum = a.ledgers.aggregate(s=Sum("amount"))["s"] or 0
+        total += int(a.opening_balance or 0) + int(led_sum)
+    return int(total)
+
+def _holding_value(user, *, broker_code: str, account: str) -> float:
+    """
+    Holding から (last_price * quantity) を合計
+    broker_code: 'RAKUTEN' / 'MATSUI'
+    account: 'SPEC' / 'MARGIN' / 'NISA'
+    """
+    qs = Holding.objects.filter(user=user, broker=broker_code, account=account)
+    total = 0.0
+    for h in qs:
+        price = float(h.last_price or 0.0)
+        qty = int(h.quantity or 0)
+        total += price * qty
+    return float(round(total))
 
 @dataclass
-class BrokerSnapshot:
-    key: str                  # "RAKUTEN" / "MATSUI"
-    label: str                # 表示ラベル（楽天 / 松井）
-    cash_yen: int             # 現金（Ledgerから算出）
-    stock_acq_value: int      # 現物(SPEC)の取得額合計（原価ベース）
-    note: str = ""            # 追加メモ（将来用）
+class BrokerSummary:
+    label: str            # 表示ラベル（楽天 / 松井）
+    cash_yen: int         # 現金残高
+    stock_acq_value: int  # 現物（特定）評価額（担保の対象・NISA除外）
+    credit_limit: int     # 信用枠（概算）
+    credit_available: int # 信用余力（概算）
+    note: Optional[str] = ""
 
-
-BROKER_LABELS = {
-    "RAKUTEN": "楽天",
-    "MATSUI": "松井",
-    "SBI": "SBI",
-}
-
-def _account_balance(account: BrokerAccount) -> int:
-    """
-    CashLedger 運用が最新一致という前提で、opening_balance + すべての増減を合算。
-    """
-    base = int(account.opening_balance or 0)
-    delta = (
-        CashLedger.objects.filter(account=account)
-        .aggregate(s=Sum("amount"))
-        .get("s") or 0
-    )
-    return int(base + int(delta))
-
-
-def _spec_acquisition_value(broker_canon: str) -> int:
-    """
-    現物(SPEC) の取得額合計（avg_cost * quantity の総和）。
-    Holding.broker は "RAKUTEN"/"MATSUI"/"SBI" の英語キー想定。
-    """
-    qs = Holding.objects.filter(
-        broker=broker_canon,
-        account="SPEC",
-        quantity__gt=0,
-    ).only("avg_cost", "quantity")
-    total = 0
-    for h in qs:
-        try:
-            total += int(float(h.avg_cost or 0) * int(h.quantity or 0))
-        except Exception:
-            pass
-    return total
-
-
-def _snapshot_for(broker_canon: str) -> Optional[BrokerSnapshot]:
-    """
-    BrokerAccount は日本語表記（楽天/松井）のことが多いので双方拾う。
-    """
-    ja = "楽天" if broker_canon == "RAKUTEN" else ("松井" if broker_canon == "MATSUI" else broker_canon)
-    accs = BrokerAccount.objects.filter(broker__in=[ja, broker_canon], currency="JPY")
-    if not accs.exists():
-        return None
-
-    cash_total = 0
-    for acc in accs:
-        cash_total += _account_balance(acc)
-
-    stock_total = _spec_acquisition_value(broker_canon)
-
-    return BrokerSnapshot(
-        key=broker_canon,
-        label=BROKER_LABELS.get(broker_canon, broker_canon),
-        cash_yen=int(cash_total),
-        stock_acq_value=int(stock_total),
+def _summary_for_rakuten(user) -> BrokerSummary:
+    us = _get_usersetting(user)
+    # cash
+    cash = _cash_balance_for_broker(user, "楽天")
+    # SPEC/MARGIN の評価額（NISAは除外）
+    spec_val  = _holding_value(user, broker_code="RAKUTEN", account="SPEC")
+    margin_val= _holding_value(user, broker_code="RAKUTEN", account="MARGIN")
+    L  = float(us.leverage_rakuten or 0.0)
+    HC = float(us.haircut_rakuten  or 0.0)
+    collateral = spec_val * (1.0 - HC)
+    credit_limit = (cash + collateral) * L
+    used_margin  = margin_val / L if L > 0 else 0.0
+    credit_avail = max(0.0, credit_limit - used_margin)
+    return BrokerSummary(
+        label="楽天",
+        cash_yen=int(round(cash)),
+        stock_acq_value=int(round(spec_val)),
+        credit_limit=int(round(credit_limit)),
+        credit_available=int(round(credit_avail)),
+        note=f"倍率 {L:.2f} / ヘアカット {HC:.2f}",
     )
 
-
-def _collect_brokers() -> List[BrokerSnapshot]:
-    out: List[BrokerSnapshot] = []
-    # 並び固定：楽天 → 松井（SBIは今回UI非表示）
-    for key in ["RAKUTEN", "MATSUI"]:
-        snap = _snapshot_for(key)
-        if snap:
-            out.append(snap)
-    return out
-
-
-# -------- View -----------------------------------------------------------
+def _summary_for_matsui(user) -> BrokerSummary:
+    us = _get_usersetting(user)
+    cash = _cash_balance_for_broker(user, "松井")
+    spec_val  = _holding_value(user, broker_code="MATSUI", account="SPEC")
+    margin_val= _holding_value(user, broker_code="MATSUI", account="MARGIN")
+    L  = float(us.leverage_matsui or 0.0)
+    HC = float(us.haircut_matsui  or 0.0)  # 既定0.00だが、設定に合わせて反映
+    collateral = spec_val * (1.0 - HC)
+    credit_limit = (cash + collateral) * L
+    used_margin  = margin_val / L if L > 0 else 0.0
+    credit_avail = max(0.0, credit_limit - used_margin)
+    return BrokerSummary(
+        label="松井",
+        cash_yen=int(round(cash)),
+        stock_acq_value=int(round(spec_val)),
+        credit_limit=int(round(credit_limit)),
+        credit_available=int(round(credit_avail)),
+        note=f"倍率 {L:.2f} / ヘアカット {HC:.2f}",
+    )
 
 @login_required
 def settings_view(request: HttpRequest) -> HttpResponse:
-    # ユーザー設定（無ければ作成）
-    us, _ = UserSetting.objects.get_or_create(user=request.user)
+    us = _get_usersetting(request.user)
 
+    # 保存（基本設定タブ）
     if request.method == "POST":
-        # リスク％のみ保存（残高は自動計算）
-        try:
-            risk_str = (request.POST.get("risk_pct") or "").strip()
-            if risk_str != "":
-                us.risk_pct = float(risk_str)
-            us.save()
-            messages.success(request, "保存しました")
-            return redirect("aiapp:settings")
-        except Exception:
-            messages.error(request, "保存に失敗しました")
+        # リスク％
+        if "risk_pct" in request.POST:
+            try:
+                us.risk_pct = float(request.POST.get("risk_pct", us.risk_pct))
+            except Exception:
+                pass
+        # 楽天 倍率/ヘアカット
+        if "leverage_rakuten" in request.POST:
+            try:
+                us.leverage_rakuten = float(request.POST.get("leverage_rakuten", us.leverage_rakuten))
+            except Exception:
+                pass
+        if "haircut_rakuten" in request.POST:
+            try:
+                us.haircut_rakuten = float(request.POST.get("haircut_rakuten", us.haircut_rakuten))
+            except Exception:
+                pass
+        # 松井 倍率/ヘアカット
+        if "leverage_matsui" in request.POST:
+            try:
+                us.leverage_matsui = float(request.POST.get("leverage_matsui", us.leverage_matsui))
+            except Exception:
+                pass
+        if "haircut_matsui" in request.POST:
+            try:
+                us.haircut_matsui = float(request.POST.get("haircut_matsui", us.haircut_matsui))
+            except Exception:
+                pass
 
-    # 証券会社スナップショット（自動計算）
-    brokers = _collect_brokers()
+        us.save()
+        return redirect(reverse("aiapp:settings") + "?saved=1")
+
+    # 証券会社サマリ（自動計算）
+    brokers = []
+    # 表示順は「楽天 → 松井」固定
+    brokers.append(_summary_for_rakuten(request.user))
+    brokers.append(_summary_for_matsui(request.user))
 
     ctx = {
         "risk_pct": us.risk_pct,
-        "brokers": brokers,  # [{label, cash_yen, stock_acq_value}, ...]
+        "leverage_rakuten": us.leverage_rakuten,
+        "haircut_rakuten": us.haircut_rakuten,
+        "leverage_matsui": us.leverage_matsui,
+        "haircut_matsui": us.haircut_matsui,
+        "saved": request.GET.get("saved") == "1",
+        "brokers": brokers,
     }
     return render(request, "aiapp/settings.html", ctx)
