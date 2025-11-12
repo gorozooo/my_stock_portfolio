@@ -3,7 +3,7 @@
 {% block title %}現金ダッシュボード{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=15">
+<link rel="stylesheet" href="{% static 'css/cash.css' %}?v=16">
 <style>
 /* ===== Layout ===== */
 .cash-wrap{max-width:980px;margin:12px auto 0;padding:12px 12px 140px}
@@ -14,7 +14,7 @@
 .card h3{font-size:15px;margin:0 0 8px}
 
 /* ===== KPI ===== */
-.kpi-row{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}  /* 2列×2行に戻す */
+.kpi-row{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 .kpi{padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
 .kpi .head{display:flex;align-items:center;gap:6px;margin-bottom:2px;min-height:18px}
 .kpi .label{font-size:11px;color:#9aa4b2;letter-spacing:.03em;white-space:nowrap}
@@ -31,7 +31,7 @@
 .kpi.invested{border-color:rgba(168,85,247,.32);box-shadow:0 0 0 1px rgba(168,85,247,.14) inset}
 .kpi.restricted{border-color:rgba(255,90,90,.26);box-shadow:0 0 0 1px rgba(255,255,255,.12) inset}
 
-/* 金額の色（数値自体に色を付与：デフォ緑 / 30%以下は黄 / マイナスは赤） */
+/* 金額色 */
 .kpi.available .num{color:#26d07c}
 .kpi.available.warn .num{color:#eab308}
 .kpi.available.danger .num{color:#ff4d67}
@@ -41,7 +41,7 @@
 /* ===== Bottom Action Dock ===== */
 .cash-dock{position:fixed;left:0;right:0;bottom:0;z-index:100;pointer-events:none}
 .cash-dock .inner{pointer-events:auto;max-width:980px;margin:0 auto;padding:8px 12px calc(8px + env(safe-area-inset-bottom));background:rgba(13,16,24,.84);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid rgba(255,255,255,.08);border-radius:16px 16px 0 0}
-.cash-dock .bar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.cash-dock .bar{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .cash-dock .bar button{padding:10px;font-size:14px;border-radius:10px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#e6ebff;font-weight:600}
 
 /* ===== Modal ===== */
@@ -117,6 +117,7 @@
       <button data-open="deposit">入金</button>
       <button data-open="withdraw">出金</button>
       <button data-open="restrict">拘束金</button>
+      <button data-open="tax">税金</button>
     </div>
   </div>
 </div>
@@ -186,7 +187,7 @@
   </div>
 </div>
 
-<!-- NEW: 拘束金 -->
+<!-- 拘束金 -->
 <div class="modal" id="modal-restrict" aria-hidden="true">
   <div class="box">
     <h3>⛔ 拘束金を設定</h3>
@@ -216,12 +217,51 @@
   </div>
 </div>
 
+<!-- 税金 -->
+<div class="modal" id="modal-tax" aria-hidden="true">
+  <div class="box">
+    <h3>🧾 税金（源泉徴収）を月次で記録</h3>
+    <form method="post" action="{% url 'cash_dashboard' %}">
+      {% csrf_token %}
+      <input type="hidden" name="op" value="tax">
+      <div class="form-grid">
+        <div>
+          <label>証券会社</label>
+          <select name="broker" id="tx-broker" required>
+            <option value="楽天">楽天証券</option>
+            <option value="松井">松井証券</option>
+            <option value="SBI">SBI証券</option>
+          </select>
+        </div>
+        <div>
+          <label>対象月</label>
+          <input type="month" name="month" required>
+        </div>
+        <div>
+          <label>税額（合計／円）</label>
+          <input type="number" name="amount" inputmode="numeric" min="1" required>
+        </div>
+        <div>
+          <label>メモ</label>
+          <input type="text" name="memo" placeholder="任意（例：所得＋住民の合算）">
+        </div>
+      </div>
+      <div class="form-note">※対象月の<strong>月末日</strong>で「出金」として記帳します。同月・同社は再保存で上書き。</div>
+      <div class="form-actions">
+        <button type="button" class="btn" data-close>閉じる</button>
+        <button class="btn primary" type="submit">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   const modals = {
     deposit : document.getElementById("modal-deposit"),
     withdraw: document.getElementById("modal-withdraw"),
     restrict: document.getElementById("modal-restrict"),
+    tax     : document.getElementById("modal-tax"),
   };
   document.querySelectorAll("[data-open]").forEach(b=>{
     b.addEventListener("click", ()=> show(modals[b.dataset.open]));
