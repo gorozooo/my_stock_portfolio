@@ -30,11 +30,12 @@
   .ttl{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
   .ttl h3{font-size:16px;margin:0;line-height:1.3}
   .ttl .sub{font-size:12px;color:#9fb1c7}
+
   /* 星＋スコア */
   .stars{
     display:flex;
     flex-direction:column;
-    align-items:center;  /* 中央寄せ */
+    align-items:center;
     gap:4px;
     line-height:1;
   }
@@ -47,15 +48,30 @@
   .stars .score-text{
     font-size:15px;
     font-weight:600;
-    color:#fff;          /* 白文字 */
-    text-align:center;   /* 中央揃え */
+    color:#fff;
+    text-align:center;
     margin-top:2px;
   }
+
   .kpi{display:grid;gap:8px;margin-top:10px;grid-template-columns:repeat(2,minmax(0,1fr))}
   .kpi .it{border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:8px}
   .kpi .lb{font-size:12px;color:#9fb1c7}
   .kpi .vl{font-size:16px}
   .kpi .pos{color:var(--ok)} .kpi .neg{color:var(--bad)}
+
+  /* 楽天/松井 2段表示 */
+  .two{display:flex;flex-direction:column;gap:4px;margin-top:4px}
+  .row-b{display:flex;justify-content:space-between;align-items:center;font-size:15px}
+  .badge-b{
+    font-size:11px;
+    padding:3px 8px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.18);
+    background:rgba(15,23,42,.9);
+    color:#cbd5f5;
+  }
+  .val{font-variant-numeric:tabular-nums}
+
   .reasons{margin:10px 0 0 0;padding-left:16px}
   .reasons li{margin:2px 0}
   .btns{display:flex;gap:8px;margin-top:12px}
@@ -109,6 +125,7 @@
           </div>
 
           <div class="kpi">
+            <!-- 現在値 -->
             <div class="it">
               <div class="lb">現在値</div>
               <div class="vl">
@@ -127,11 +144,26 @@
               {% endif %}
             </div>
 
+            <!-- 数量（楽天/松井 2段） -->
             <div class="it">
-              <div class="lb">数量（{{ lot_size }}株単元・リスク{{ risk_pct|floatformat:2 }}）</div>
-              <div class="vl">{{ item.qty|default:0|intcomma }} 株</div>
+              <div class="lb">数量（{{ lot_size }}株単元・リスク{{ risk_pct|floatformat:2 }}％）</div>
+              <div class="two">
+                <div class="row-b">
+                  <span class="badge-b">楽天</span>
+                  <span class="val">
+                    {{ item.qty_rakuten|default:0|intcomma }} 株
+                  </span>
+                </div>
+                <div class="row-b">
+                  <span class="badge-b">松井</span>
+                  <span class="val">
+                    {{ item.qty_matsui|default:0|intcomma }} 株
+                  </span>
+                </div>
+              </div>
             </div>
 
+            <!-- Entry / TP / SL -->
             <div class="it">
               <div class="lb">Entry / TP / SL</div>
               <div class="vl">
@@ -147,22 +179,60 @@
               </div>
             </div>
 
+            <!-- 必要資金（楽天/松井 2段） -->
             <div class="it">
-              <div class="lb">必要資金</div>
-              <div class="vl">{{ item.required_cash|default:0|floatformat:0|intcomma }} 円</div>
-            </div>
-
-            <div class="it">
-              <div class="lb">想定利益</div>
-              <div class="vl pos">
-                {% if item.est_pl %}+{{ item.est_pl|floatformat:0|intcomma }} 円{% else %}—{% endif %}
+              <div class="lb">必要資金（概算）</div>
+              <div class="two">
+                <div class="row-b">
+                  <span class="badge-b">楽天</span>
+                  <span class="val">
+                    {{ item.required_cash_rakuten|default:0|floatformat:0|intcomma }} 円
+                  </span>
+                </div>
+                <div class="row-b">
+                  <span class="badge-b">松井</span>
+                  <span class="val">
+                    {{ item.required_cash_matsui|default:0|floatformat:0|intcomma }} 円
+                  </span>
+                </div>
               </div>
             </div>
 
+            <!-- 想定利益（楽天/松井 2段） -->
+            <div class="it">
+              <div class="lb">想定利益</div>
+              <div class="two">
+                <div class="row-b">
+                  <span class="badge-b">楽天</span>
+                  <span class="val pos">
+                    +{{ item.est_pl_rakuten|default:0|floatformat:0|intcomma }} 円
+                  </span>
+                </div>
+                <div class="row-b">
+                  <span class="badge-b">松井</span>
+                  <span class="val pos">
+                    +{{ item.est_pl_matsui|default:0|floatformat:0|intcomma }} 円
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 想定損失（楽天/松井 2段） -->
             <div class="it">
               <div class="lb">想定損失</div>
-              <div class="vl neg">
-                {% if item.est_loss %}-{{ item.est_loss|floatformat:0|intcomma }} 円{% else %}—{% endif %}
+              <div class="two">
+                <div class="row-b">
+                  <span class="badge-b">楽天</span>
+                  <span class="val neg">
+                    -{{ item.est_loss_rakuten|default:0|floatformat:0|intcomma }} 円
+                  </span>
+                </div>
+                <div class="row-b">
+                  <span class="badge-b">松井</span>
+                  <span class="val neg">
+                    -{{ item.est_loss_matsui|default:0|floatformat:0|intcomma }} 円
+                  </span>
+                </div>
               </div>
             </div>
           </div>
