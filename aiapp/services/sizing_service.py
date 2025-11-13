@@ -108,18 +108,24 @@ def _get_risk_base_and_budget(user, broker_label: str) -> Tuple[float, float]:
         matsui_haircut=matsui_haircut,
     )
 
+    # compute_broker_summaries は BrokerNumbers オブジェクトのリストを返す想定
     for b in brokers:
-        if b.get("label") != broker_label:
+        label = getattr(b, "label", None)
+        if label != broker_label:
             continue
 
         # リスクベース資産 = 現金残高 + 現物評価額
-        cash = float(b.get("cash_yen") or 0.0)
-        # broker_summary 側のキー名に両対応（stock_eval / stock_acq_value）
-        stock = float(b.get("stock_eval") or b.get("stock_acq_value") or 0.0)
+        cash = float(getattr(b, "cash_yen", 0.0) or 0.0)
+
+        # broker_summary 側のフィールド名に両対応
+        stock_eval = getattr(b, "stock_eval", None)
+        stock_acq = getattr(b, "stock_acq_value", None)
+        stock = float(stock_eval if stock_eval is not None else stock_acq or 0.0)
+
         risk_assets = max(0.0, cash + stock)
 
         # 新規トレードに使える上限（金額としての信用余力）
-        credit_yoryoku = float(b.get("credit_yoryoku") or 0.0)
+        credit_yoryoku = float(getattr(b, "credit_yoryoku", 0.0) or 0.0)
         available_budget = max(0.0, credit_yoryoku)
 
         return risk_assets, available_budget
@@ -206,8 +212,8 @@ def compute_position_sizing(
                 required_cash = qty * float(last_price)
 
                 # 利確/損切の概算（エントリー→TP/SL の値幅）
-                est_pl = atr * 0.8 * qty      # 想定利益
-                est_loss = loss_per_share * qty  # 想定損失
+                est_pl = atr * 0.8 * qty          # 想定利益
+                est_loss = loss_per_share * qty   # 想定損失
 
         out[f"qty_{key_prefix}"] = qty
         out[f"required_cash_{key_prefix}"] = round(required_cash, 0)
