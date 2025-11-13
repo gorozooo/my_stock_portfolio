@@ -54,7 +54,7 @@ def _load_leverage_params(user) -> Tuple[float, float, float, float]:
     UserSetting から 楽天/松井 の 倍率・ヘアカット を取得。
     存在しない場合はデフォルト値で補完。
     """
-    # デフォルト（あなたが今使っている値）
+    # デフォルト（今使っている想定値）
     rakuten_lev_default = 2.90
     rakuten_hc_default = 0.30
     matsui_lev_default = 2.80
@@ -87,7 +87,7 @@ def _load_leverage_params(user) -> Tuple[float, float, float, float]:
 
 def _get_risk_base_and_budget(user, broker_label: str) -> Tuple[float, float]:
     """
-    証券サマリと完全に同じロジックで
+    証券サマリと同じロジックで
         ・リスクベース資産（現金＋現物評価額）
         ・新規トレードに使える上限（信用余力）
     を取得する。
@@ -137,9 +137,16 @@ def compute_position_sizing(
     code: str,
     last_price: float,
     atr: float,
+    *,
+    entry: float | None = None,
+    tp: float | None = None,
+    sl: float | None = None,
 ) -> Dict[str, Any]:
     """
     AI Picks 1銘柄分の数量を 楽天・松井 の 2段で返す。
+
+    ※ entry / tp / sl は今は使っていないが、
+       picks_build からキーワード引数で渡されるので受け取って無視する。
 
     戻り値のキー:
         qty_rakuten, qty_matsui
@@ -182,7 +189,6 @@ def compute_position_sizing(
             risk_value = risk_assets * (risk_pct / 100.0)
 
             # 実際に使える金額（信用余力）を超えないように、ここでも上限をかける
-            # 「リスクベース ≦ 余力」の範囲に抑えるイメージ
             effective_risk_value = min(risk_value, available_budget)
 
             # 損切幅：ATR の 0.6倍（短期×攻め）
@@ -200,7 +206,7 @@ def compute_position_sizing(
                 required_cash = qty * float(last_price)
 
                 # 利確/損切の概算（エントリー→TP/SL の値幅）
-                est_pl = atr * 0.8 * qty   # 想定利益
+                est_pl = atr * 0.8 * qty      # 想定利益
                 est_loss = loss_per_share * qty  # 想定損失
 
         out[f"qty_{key_prefix}"] = qty
