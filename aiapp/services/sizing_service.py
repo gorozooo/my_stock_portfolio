@@ -5,7 +5,6 @@ AI Picks 数量・必要資金・損益を証券会社別に算出するサー�
  - UserSetting.risk_pct を使用
  - ATR から損切幅を算出 → 1トレード許容損失から数量を決定
  - ETF (13xx / 15xx) は 1株、株は100株
- - user=None の場合は「全レコード＋最初のUserSetting」を使う（AI Picks 共通用）
 """
 
 from __future__ import annotations
@@ -13,37 +12,41 @@ from typing import Dict, Any
 
 from django.db.models import Sum
 
-from portfolio.models import BrokerAccount, CashLedger, Holding, UserSetting
+# ★ モデルの場所が分かれているので、正しいファイルから import
+from portfolio.models_cash import BrokerAccount, CashLedger
+from portfolio.models import Holding, UserSetting
 
 
 def _get_assets(user, broker_name: str) -> float:
     """
     現金 + 株式評価額（現物/信用の区別なし）
-
-    user が None のときは、ユーザー条件を付けずに broker だけで集計する。
-    （AI Picks の共通ピック用）
+    user は None でもOK（その場合は全ユーザー分の保有を対象にする）
     """
-    qs_account = BrokerAccount.objects.filter(broker__iexact=broker_name)
-    if user is not None:
-        qs_account = qs_account.filter(user=user)
+    # BrokerAccount は user フィールドを持っていないので broker だけで絞る
+    accounts = BrokerAccount.objects.filter(broker__iexact=broker_name)
 
     total_cash = 0.0
-    for acc in qs_account:
+    for acc in accounts:
         ledger_sum = (
             CashLedger.objects.filter(account=acc).aggregate(Sum("amount"))["amount__sum"] or 0
         )
         total_cash += float(acc.opening_balance or 0) + float(ledger_sum)
 
     # 保有株（現物＋信用）評価額
-    qs_holding = Holding.objects.filter(broker__iexact=broker_name)
     if user is not None:
-        qs_holding = qs_holding.filter(user=user)
+        holds_qs = Holding.objects.filter(user=user, broker__iexact=broker_name)
+    else:
+        # ユーザー共通ピック用：broker だけで絞る
+        holds_qs = Holding.objects.filter(broker__iexact=broker_name)
 
     stock_val = 0.0
-    for h in qs_holding:
-        price = float(h.last_price or 0)
-        qty = float(h.quantity or 0)
-        stock_val += price * qty
+    for h in holds_qs:
+        try:
+            price = float(h.last_price or 0)
+            qty = float(h.quantity or 0)
+            stock_val += price * qty
+        except Exception:
+            continue
 
     return total_cash + stock_val
 
@@ -60,19 +63,20 @@ def _lot_size_for(code: str) -> int:
 
 def _risk_pct(user) -> float:
     """
-    UserSetting.risk_pct を取得。
-    user が None のときは一番最初の UserSetting を使う（単ユーザー運用前提）。
-    どれも無ければ 1.0%
+    UserSetting.risk_pct を取得
+    - user が指定されていればそのユーザーの設定
+    - None の場合は先頭レコード（単ユーザー運用前提）
     """
-    qs = UserSetting.objects.all()
-    if user is not None:
-        qs = qs.filter(user=user)
-
-    s = qs.first()
-    if not s:
-        return 1.0
     try:
+        if user is not None:
+            s = UserSetting.objects.get(user=user)
+        else:
+            s = UserSetting.objects.first()
+            if s is None:
+                return 1.0
         return float(s.risk_pct or 1.0)
+    except UserSetting.DoesNotExist:
+        return 1.0
     except Exception:
         return 1.0
 
@@ -92,12 +96,14 @@ def compute_position_sizing(
         est_pl_rakuten, est_pl_matsui
         est_loss_rakuten, est_loss_matsui
         risk_pct, lot_size
+
+    user は None でもOK（その場合は UserSetting の先頭 + 全ユーザー保有を使う）
     """
     lot = _lot_size_for(code)
     risk_pct = _risk_pct(user)
 
-    # ATR が 0 / 価格が 0 以下の場合は全部0
-    if not atr or atr <= 0 or not last_price or last_price <= 0:
+    # ATR or 現値が 0/不正 の場合は全部0
+    if not atr or atr <= 0 or last_price <= 0:
         return dict(
             qty_rakuten=0,
             qty_matsui=0,
@@ -122,10 +128,7 @@ def compute_position_sizing(
         ("matsui", matsui_assets),
     ]:
         if assets <= 0:
-            qty = 0
-            required_cash = 0.0
-            est_pl = 0.0
-            est_loss = 0.0
+            qty = required_cash = est_pl = est_loss = 0
         else:
             # 1トレードあたりの許容損失
             risk_value = assets * (risk_pct / 100.0)
@@ -133,15 +136,15 @@ def compute_position_sizing(
             # 損切幅：ATR の 0.6倍（あなたの旧ロジックを継承）
             loss_per_share = atr * 0.6
 
-            # lot 単位に丸め
+            # lot 単位に丸める
             qty = int((risk_value / loss_per_share) // lot * lot)
             required_cash = qty * last_price
 
-            # 利確/損切の概算（旧ロジック継承：TP=+0.8ATR, SL=-0.6ATR）
+            # 利確/損切の概算（旧ロジック継承）
             est_pl = atr * 0.8 * qty
             est_loss = loss_per_share * qty
 
-        out[f"qty_{broker_label}"] = int(qty)
+        out[f"qty_{broker_label}"] = qty
         out[f"required_cash_{broker_label}"] = round(required_cash, 0)
         out[f"est_pl_{broker_label}"] = round(est_pl, 0)
         out[f"est_loss_{broker_label}"] = round(est_loss, 0)
