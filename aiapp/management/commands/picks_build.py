@@ -1,3 +1,4 @@
+# aiapp/management/commands/picks_build.py
 # -*- coding: utf-8 -*-
 """
 AIピック生成（FULL/LITE/SNAPSHOT対応の堅牢版 + TopK 厳選出力）
@@ -8,7 +9,10 @@ AIピック生成（FULL/LITE/SNAPSHOT対応の堅牢版 + TopK 厳選出力）
 - 出力は「全件(JSON)」と「TopK(JSON=UI用)」の二系統
   - 全件: latest_full_all.json（監査/検証用）
   - TopK: latest_full.json（UIが読む/上位K件のみ）
-  - ★ sizing_service で楽天/松井別の数量・必要資金・損益も付与
+
+＋ 今回の変更:
+  - aiapp.services.sizing_service.compute_position_sizing を呼び出し、
+    楽天/松井ごとの数量・必要資金・想定利益/損失（手数料込み）を埋め込む
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from django.core.management.base import BaseCommand
+from django.contrib.auth import get_user_model
 
 from aiapp.services.fetch_price import get_prices
 from aiapp.models.features import make_features, FeatureConfig
@@ -48,11 +53,12 @@ try:
 except Exception:
     ext_entry_tp_sl = None
 
-# ★ 数量・必要資金・損益（楽天/松井2段）算出サービス
+# 数量・必要資金・損益（楽天/松井）ロジック
 try:
     from aiapp.services.sizing_service import compute_position_sizing
 except Exception:
-    compute_position_sizing = None
+    compute_position_sizing = None  # sizing 未実装でも落ちないように
+
 
 # ---------- 環境・入出力 ----------
 
@@ -69,8 +75,8 @@ def _env_bool(key: str, default: bool = False) -> bool:
 
 BUILD_LOG = _env_bool("AIAPP_BUILD_LOG", False)
 
-# ---------- 安全ヘルパ ----------
 
+# ---------- 安全ヘルパ ----------
 
 def _safe_series(x) -> pd.Series:
     """
@@ -118,7 +124,6 @@ def _nan_to_none(x):
 
 # ---------- 内蔵フォールバック（servicesが未実装でも動く） ----------
 
-
 def _fallback_score_sample(feat: pd.DataFrame) -> float:
     """
     0.0〜1.0のサンプルスコア。
@@ -154,11 +159,11 @@ def _fallback_score_sample(feat: pd.DataFrame) -> float:
     sl20 = _safe_float((nz(f["SLOPE_20"])).iloc[-1]) if "SLOPE_20" in f else float("nan")
 
     comp = (
-        0.30 * sig(rsi)
-        + 0.25 * sig(mom5)
-        + 0.20 * sig(mom20)
-        + 0.15 * sig(sl5)
-        + 0.10 * sig(sl20)
+        0.30 * sig(rsi) +
+        0.25 * sig(mom5) +
+        0.20 * sig(mom20) +
+        0.15 * sig(sl5) +
+        0.10 * sig(sl20)
     )
     return float(max(0.0, min(1.0, comp)))
 
@@ -178,9 +183,7 @@ def _fallback_stars(score01: float) -> int:
     return 5
 
 
-def _fallback_entry_tp_sl(
-    last: float, atr: float
-) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+def _fallback_entry_tp_sl(last: float, atr: float) -> Tuple[Optional[float], Optional[float], Optional[float]]:
     """
     短期×攻め（暫定本番）：高値掴み緩和
       entry = last + 0.05*ATR
@@ -197,7 +200,6 @@ def _fallback_entry_tp_sl(
 
 # ---------- モデル ----------
 
-
 @dataclass
 class PickItem:
     code: str
@@ -208,20 +210,11 @@ class PickItem:
     entry: Optional[float] = None
     tp: Optional[float] = None
     sl: Optional[float] = None
-    score: Optional[float] = None  # 0..1
-    score_100: Optional[int] = None  # 0..100
-    stars: Optional[int] = None  # 1..5
+    score: Optional[float] = None        # 0..1
+    score_100: Optional[int] = None      # 0..100
+    stars: Optional[int] = None          # 1..5
 
-    # 旧共通フィールド（必要なら他画面で使用）
-    required_cash: Optional[float] = None
-    qty: Optional[int] = None
-    est_pl: Optional[float] = None
-    est_loss: Optional[float] = None
-
-    # 理由テキストなど
-    reasons_text: Optional[List[str]] = None
-
-    # ★ 新規：証券会社別 sizing 結果
+    # 楽天/松井ごとの数量・資金・損益（今回追加）
     qty_rakuten: Optional[int] = None
     qty_matsui: Optional[int] = None
     required_cash_rakuten: Optional[float] = None
@@ -230,8 +223,12 @@ class PickItem:
     est_pl_matsui: Optional[float] = None
     est_loss_rakuten: Optional[float] = None
     est_loss_matsui: Optional[float] = None
-    lot_size: Optional[int] = None
+
+    # 共通情報
     risk_pct: Optional[float] = None
+    lot_size: Optional[int] = None
+
+    reasons_text: Optional[List[str]] = None
 
 
 def _score_to_0_100(s01: float) -> int:
@@ -242,10 +239,11 @@ def _score_to_0_100(s01: float) -> int:
 
 # ---------- 1銘柄処理 ----------
 
-
 def _work_one(code: str, nbars: int) -> Optional[PickItem]:
     """
     単銘柄の計算。必ず try/except で落ちないようにし、途中で None を渡さない。
+    ここでは「価格系・スコア・Entry/TP/SL」までを計算し、
+    数量・必要資金・損益（楽天/松井）は後段で sizing_service が埋める。
     """
     try:
         raw = get_prices(code, nbars=nbars, period="3y")
@@ -261,9 +259,7 @@ def _work_one(code: str, nbars: int) -> Optional[PickItem]:
             return None
 
         close_s = _safe_series(feat.get("Close"))
-        atr_s = _safe_series(
-            feat.get("ATR14") if "ATR14" in feat else feat.get("ATR", None)
-        )
+        atr_s = _safe_series(feat.get("ATR14") if "ATR14" in feat else feat.get("ATR", None))
 
         last = _safe_float(close_s.iloc[-1] if len(close_s) else np.nan)
         atr = _safe_float(atr_s.iloc[-1] if len(atr_s) else np.nan)
@@ -284,9 +280,7 @@ def _work_one(code: str, nbars: int) -> Optional[PickItem]:
             e, t, s = _fallback_entry_tp_sl(last, atr)
 
         if BUILD_LOG:
-            print(
-                f"[picks_build] {code}: last={last} atr={atr} score={s01} score100={score100}"
-            )
+            print(f"[picks_build] {code}: last={last} atr={atr} score={s01} score100={score100}")
 
         item = PickItem(
             code=str(code),
@@ -299,37 +293,6 @@ def _work_one(code: str, nbars: int) -> Optional[PickItem]:
             score_100=int(score100),
             stars=int(stars),
         )
-
-        # ★ 証券会社別 sizing（楽天/松井）
-        if compute_position_sizing and np.isfinite(last) and np.isfinite(atr) and atr > 0:
-            try:
-                sizing = compute_position_sizing(
-                    user=None,  # 単ユーザー運用前提なので先頭設定＋全保有を利用
-                    code=str(code),
-                    last_price=float(last),
-                    atr=float(atr),
-                )
-
-                item.qty_rakuten = sizing.get("qty_rakuten")
-                item.qty_matsui = sizing.get("qty_matsui")
-                item.required_cash_rakuten = sizing.get("required_cash_rakuten")
-                item.required_cash_matsui = sizing.get("required_cash_matsui")
-                item.est_pl_rakuten = sizing.get("est_pl_rakuten")
-                item.est_pl_matsui = sizing.get("est_pl_matsui")
-                item.est_loss_rakuten = sizing.get("est_loss_rakuten")
-                item.est_loss_matsui = sizing.get("est_loss_matsui")
-                item.lot_size = sizing.get("lot_size")
-                item.risk_pct = sizing.get("risk_pct")
-
-                # 互換用に「共通フィールド」は楽天側を入れておく
-                item.qty = item.qty_rakuten
-                item.required_cash = item.required_cash_rakuten
-                item.est_pl = item.est_pl_rakuten
-                item.est_loss = item.est_loss_rakuten
-            except Exception as ex:
-                if BUILD_LOG:
-                    print(f"[picks_build] sizing error for {code}: {ex}")
-
         return item
 
     except Exception as e:
@@ -338,7 +301,6 @@ def _work_one(code: str, nbars: int) -> Optional[PickItem]:
 
 
 # ---------- ユニバース読み ----------
-
 
 def _load_universe(name: str) -> List[str]:
     base = Path("aiapp/data/universe")
@@ -357,7 +319,6 @@ def _load_universe(name: str) -> List[str]:
 
 # ---------- メタ補完（銘柄名・33業種） ----------
 
-
 def _enrich_meta(items: List[PickItem]) -> None:
     """StockMaster があれば name / sector_display を付与。"""
     if not items or StockMaster is None:
@@ -366,9 +327,7 @@ def _enrich_meta(items: List[PickItem]) -> None:
     if not codes:
         return
     try:
-        qs = StockMaster.objects.filter(code__in=codes).values(
-            "code", "name", "sector_name"
-        )
+        qs = StockMaster.objects.filter(code__in=codes).values("code", "name", "sector_name")
         meta: Dict[str, Tuple[str, str]] = {
             str(r["code"]): (r.get("name") or "", r.get("sector_name") or "")
             for r in qs
@@ -387,24 +346,16 @@ def _enrich_meta(items: List[PickItem]) -> None:
 
 # ---------- Django command ----------
 
-
 class Command(BaseCommand):
     help = "AIピック生成（完全版/ライト・スナップショット対応 + TopK 厳選）"
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "--universe",
-            type=str,
-            default="quick_30",
-            help="all / nk225 / quick_100 / <file name>",
-        )
+        parser.add_argument("--universe", type=str, default="quick_30", help="all / nk225 / quick_100 / <file name>")
         parser.add_argument("--sample", type=int, default=None)
         parser.add_argument("--head", type=int, default=None)
         parser.add_argument("--budget", type=int, default=None, help="秒")
         parser.add_argument("--nbars", type=int, default=180)
-        parser.add_argument(
-            "--nbars-lite", type=int, default=45, help="ライトモード時の足本数"
-        )
+        parser.add_argument("--nbars-lite", type=int, default=45, help="ライトモード時の足本数")
         parser.add_argument("--use-snapshot", action="store_true")
         parser.add_argument("--lite-only", action="store_true")
         parser.add_argument("--force", action="store_true")
@@ -412,9 +363,7 @@ class Command(BaseCommand):
         parser.add_argument("--style", type=str, default="aggressive")
         parser.add_argument("--horizon", type=str, default="short")
         # TopK 追加（UIは厳選のみを読む）
-        parser.add_argument(
-            "--topk", type=int, default=int(os.getenv("AIAPP_TOPK", "10"))
-        )
+        parser.add_argument("--topk", type=int, default=int(os.getenv("AIAPP_TOPK", "10")))
 
     def handle(self, *args, **opts):
         universe = opts.get("universe") or "quick_30"
@@ -432,11 +381,60 @@ class Command(BaseCommand):
         if BUILD_LOG:
             print(f"[picks_build] start FULL universe={len(codes)}")
 
+        # 単ユーザー前提：最初のユーザーを数量計算の基準にする
+        User = get_user_model()
+        user = User.objects.order_by("id").first()
+
         items: List[PickItem] = []
         for code in codes:
             it = _work_one(code, nbars=nbars)
-            if it is not None:
-                items.append(it)
+            if it is None:
+                continue
+
+            # 数量・必要資金・損益（楽天/松井）を埋める
+            if (
+                compute_position_sizing is not None and
+                user is not None and
+                it.last_close is not None and
+                it.atr is not None and
+                it.entry is not None and
+                it.tp is not None and
+                it.sl is not None
+            ):
+                sizing = compute_position_sizing(
+                    user=user,
+                    code=it.code,
+                    last_price=float(it.last_close),
+                    atr=float(it.atr),
+                    entry=float(it.entry),
+                    tp=float(it.tp),
+                    sl=float(it.sl),
+                )
+
+                it.qty_rakuten = sizing.get("qty_rakuten", 0)
+                it.qty_matsui = sizing.get("qty_matsui", 0)
+                it.required_cash_rakuten = sizing.get("required_cash_rakuten", 0)
+                it.required_cash_matsui = sizing.get("required_cash_matsui", 0)
+                it.est_pl_rakuten = sizing.get("est_pl_rakuten", 0)
+                it.est_pl_matsui = sizing.get("est_pl_matsui", 0)
+                it.est_loss_rakuten = sizing.get("est_loss_rakuten", 0)
+                it.est_loss_matsui = sizing.get("est_loss_matsui", 0)
+                it.risk_pct = sizing.get("risk_pct")
+                it.lot_size = sizing.get("lot_size")
+            else:
+                # sizing が使えない場合は 0 で埋める
+                it.qty_rakuten = 0
+                it.qty_matsui = 0
+                it.required_cash_rakuten = 0
+                it.required_cash_matsui = 0
+                it.est_pl_rakuten = 0
+                it.est_pl_matsui = 0
+                it.est_loss_rakuten = 0
+                it.est_loss_matsui = 0
+                it.risk_pct = None
+                it.lot_size = None
+
+            items.append(it)
 
         # メタ（銘柄名・業種）補完
         _enrich_meta(items)
@@ -451,7 +449,7 @@ class Command(BaseCommand):
         )
 
         # TopK 厳選（UI が読むのはこっち）
-        top_items = items[: max(0, topk)]
+        top_items = items[:max(0, topk)]
 
         if BUILD_LOG:
             print(f"[picks_build] done total={len(items)} topk={len(top_items)}")
@@ -494,26 +492,17 @@ class Command(BaseCommand):
         # 監査/検証用：全件
         out_all_latest = PICKS_DIR / "latest_full_all.json"
         out_all_stamp = PICKS_DIR / f"{dt_now_stamp()}_{horizon}_{style}_full_all.json"
-        out_all_latest.write_text(
-            json.dumps(data_all, ensure_ascii=False, separators=(",", ":"))
-        )
-        out_all_stamp.write_text(
-            json.dumps(data_all, ensure_ascii=False, separators=(",", ":"))
-        )
+        out_all_latest.write_text(json.dumps(data_all, ensure_ascii=False, separators=(",", ":")))
+        out_all_stamp.write_text(json.dumps(data_all, ensure_ascii=False, separators=(",", ":")))
 
         # UI用：TopK
         out_top_latest = PICKS_DIR / "latest_full.json"
         out_top_stamp = PICKS_DIR / f"{dt_now_stamp()}_{horizon}_{style}_full.json"
-        out_top_latest.write_text(
-            json.dumps(data_top, ensure_ascii=False, separators=(",", ":"))
-        )
-        out_top_stamp.write_text(
-            json.dumps(data_top, ensure_ascii=False, separators=(",", ":"))
-        )
+        out_top_latest.write_text(json.dumps(data_top, ensure_ascii=False, separators=(",", ":")))
+        out_top_stamp.write_text(json.dumps(data_top, ensure_ascii=False, separators=(",", ":")))
 
 
 def dt_now_stamp() -> str:
     from datetime import datetime, timezone, timedelta
-
     JST = timezone(timedelta(hours=9))
     return datetime.now(JST).strftime("%Y%m%d_%H%M%S")
