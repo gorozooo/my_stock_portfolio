@@ -1,65 +1,159 @@
 # -*- coding: utf-8 -*-
 """
-entry_service.py
-短期×攻め（暫定本番）の Entry / TP / SL を一貫ロジックで算出。
+AIエントリー計算サービス（Entry / TP / SL）
+- モード(style) × 時間軸(horizon) で係数を管理するポリシー駆動設計
+- 係数は RULES テーブルをいじるだけで変更可能
+- picks_build からは compute_entry_tp_sl(last, atr, style=..., horizon=...) を呼び出す
 
-設計
-- 入力: last, atr（いずれも float; NaN/None でも安全に処理）
-- モード/時間軸を引数で受けるが、現状は "aggressive" × "short" を実装
-- 高値掴み緩和のため、Entry は last + 0.05*ATR（従来の+0.10を弱める）
-- TP/SL は ATR連動で固定比率（0.80 / 0.60）
+計算ルール（共通）:
+    entry = last + entry_k * ATR
+    TP    = entry + tp_k    * ATR
+    SL    = entry - sl_k    * ATR
 
-必要に応じて tick 丸めを使う（デフォルトOFF）。
+注意:
+    - last <= 0 または ATR <= 0 の場合は (None, None, None) を返す
+    - 未知の style/horizon が来た場合は (DEFAULT_STYLE, DEFAULT_HORIZON) にフォールバック
 """
 
 from __future__ import annotations
-from typing import Optional, Tuple
+from typing import Dict, Tuple
 
-import math
-import numpy as np
+DEFAULT_STYLE = "aggressive"
+DEFAULT_HORIZON = "short"
 
-# --- オプション: 気配値刻みの丸め（簡易版/JPX全域を厳密には網羅しない） ---
-def _round_tick(price: float, use_tick: bool = False) -> float:
-    if not use_tick or not np.isfinite(price):
-        return float(price)
+# ------------------------------------------------------------
+# ルールテーブル（あとからここだけいじれば挙動を変えられる）
+# ------------------------------------------------------------
+# entry_k:  エントリーをどれだけ現在値からずらすか（+側）
+# tp_k:     TP を entry からどれだけ上に置くか
+# sl_k:     SL を entry からどれだけ下に置くか
+#
+# すべて ATR 何本分か、という係数で管理する。
+RULES: Dict[Tuple[str, str], Dict[str, float]] = {
+    # 短期 × 攻め（今まで使っていた本命ルール）
+    ("aggressive", "short"): {
+        "entry_k": 0.05,   # ちょい上で待つ（高値掴み緩和）
+        "tp_k":    0.80,   # 利確は広め
+        "sl_k":    0.60,   # 損切りはややタイト
+    },
 
-    p = float(price)
-    # 超簡易な刻み表（必要なら拡張）
-    if p < 3000:    tick = 1
-    elif p < 10000: tick = 5
-    elif p < 50000: tick = 10
-    else:           tick = 50
-    return math.floor(p / tick + 1e-9) * tick
+    # 短期 × ふつう
+    ("normal", "short"): {
+        "entry_k": 0.02,
+        "tp_k":    0.60,
+        "sl_k":    0.50,
+    },
+
+    # 短期 × 守り
+    ("defensive", "short"): {
+        "entry_k": 0.00,
+        "tp_k":    0.40,
+        "sl_k":    0.40,
+    },
+
+    # 中期（仮パラメータ：あとでチューニング前提）
+    ("aggressive", "mid"): {
+        "entry_k": 0.05,
+        "tp_k":    1.20,
+        "sl_k":    0.80,
+    },
+    ("normal", "mid"): {
+        "entry_k": 0.02,
+        "tp_k":    0.90,
+        "sl_k":    0.70,
+    },
+    ("defensive", "mid"): {
+        "entry_k": 0.00,
+        "tp_k":    0.70,
+        "sl_k":    0.60,
+    },
+
+    # 長期（仮パラメータ）
+    ("aggressive", "long"): {
+        "entry_k": 0.05,
+        "tp_k":    1.60,
+        "sl_k":    1.00,
+    },
+    ("normal", "long"): {
+        "entry_k": 0.02,
+        "tp_k":    1.20,
+        "sl_k":    0.80,
+    },
+    ("defensive", "long"): {
+        "entry_k": 0.00,
+        "tp_k":    1.00,
+        "sl_k":    0.70,
+    },
+}
+
+
+def _normalize(style: str | None, horizon: str | None) -> Tuple[str, str]:
+    """style/horizon を小文字化＆未知値をデフォルトにフォールバック。"""
+    s = (style or DEFAULT_STYLE).strip().lower()
+    h = (horizon or DEFAULT_HORIZON).strip().lower()
+
+    if (s, h) in RULES:
+        return s, h
+
+    # style だけ既知 / horizon が未知の場合なども、できるだけマシなペアに寄せる
+    if (s, DEFAULT_HORIZON) in RULES:
+        return s, DEFAULT_HORIZON
+    if (DEFAULT_STYLE, h) in RULES:
+        return DEFAULT_STYLE, h
+
+    return DEFAULT_STYLE, DEFAULT_HORIZON
+
 
 def compute_entry_tp_sl(
-    last: Optional[float],
-    atr: Optional[float],
-    mode: str = "aggressive",
-    horizon: str = "short",
-    use_tick_round: bool = False,
-) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    last: float,
+    atr: float,
+    style: str = DEFAULT_STYLE,
+    horizon: str = DEFAULT_HORIZON,
+) -> Tuple[float | None, float | None, float | None]:
     """
-    返り値: (entry, tp, sl) いずれも float or None
+    Entry / TP / SL を返すメイン関数。
+
+    Parameters
+    ----------
+    last : float
+        現在値（直近終値など）
+    atr : float
+        ATR（ボラティリティ指標）
+    style : str
+        "aggressive" / "normal" / "defensive" など
+    horizon : str
+        "short" / "mid" / "long" など
+
+    Returns
+    -------
+    (entry, tp, sl) : Tuple[float | None, float | None, float | None]
     """
-    if last is None or atr is None:
-        return None, None, None
     try:
-        last = float(last)
-        atr = float(atr)
-    except Exception:
+        last_f = float(last)
+        atr_f = float(atr)
+    except (TypeError, ValueError):
         return None, None, None
 
-    if not np.isfinite(last) or not np.isfinite(atr) or atr <= 0:
+    if not (last_f > 0) or not (atr_f > 0):
         return None, None, None
 
-    # 現仕様は短期×攻め固定（将来: mode/horizonで分岐）
-    entry = last + 0.05 * atr
-    tp    = entry + 0.80 * atr
-    sl    = entry - 0.60 * atr
+    key = _normalize(style, horizon)
+    rule = RULES.get(key) or RULES[(DEFAULT_STYLE, DEFAULT_HORIZON)]
 
-    if use_tick_round:
-        entry = _round_tick(entry, True)
-        tp    = _round_tick(tp, True)
-        sl    = _round_tick(sl, True)
+    entry_k = float(rule.get("entry_k", 0.0))
+    tp_k = float(rule.get("tp_k", 0.0))
+    sl_k = float(rule.get("sl_k", 0.0))
+
+    entry = last_f + entry_k * atr_f
+    tp = entry + tp_k * atr_f
+    sl = entry - sl_k * atr_f
 
     return float(entry), float(tp), float(sl)
+
+
+__all__ = [
+    "compute_entry_tp_sl",
+    "RULES",
+    "DEFAULT_STYLE",
+    "DEFAULT_HORIZON",
+]
