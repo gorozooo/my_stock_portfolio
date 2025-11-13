@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-AIピック生成（FULL/LITE/SNAPSHOT対応の堅牢版 + TopK 厳選出力）
+AIピック生成（FULL/LITE/SNAPSHOT対応の堅牢版 + TopK 厳選出力 + 証券会社別サイズ）
 - fetch_price.get_prices を通して必ず整形済みOHLCVを受け取る
 - 特徴量作成は models.features.make_features
 - スコア/信頼度/Entry-TP-SL は services があれば使用、無ければフォールバック
@@ -8,6 +8,8 @@ AIピック生成（FULL/LITE/SNAPSHOT対応の堅牢版 + TopK 厳選出力）
 - 出力は「全件(JSON)」と「TopK(JSON=UI用)」の二系統
   - 全件: latest_full_all.json（監査/検証用）
   - TopK: latest_full.json（UIが読む/上位K件のみ）
+- sizing_service.compute_position_sizing を使って
+  楽天/松井ごとの数量・必要資金・想定利益/損失を入れる
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from django.core.management.base import BaseCommand
 
 from aiapp.services.fetch_price import get_prices
 from aiapp.models.features import make_features, FeatureConfig
+from aiapp.services.sizing_service import compute_position_sizing
 
 # 銘柄名・業種の補完（StockMaster から）
 try:
@@ -54,11 +57,13 @@ except Exception:
 PICKS_DIR = Path("media/aiapp/picks")
 PICKS_DIR.mkdir(parents=True, exist_ok=True)
 
+
 def _env_bool(key: str, default: bool = False) -> bool:
     v = os.getenv(key)
     if v is None:
         return default
     return str(v).strip().lower() in ("1", "true", "yes", "on")
+
 
 BUILD_LOG = _env_bool("AIAPP_BUILD_LOG", False)
 
@@ -87,6 +92,7 @@ def _safe_series(x) -> pd.Series:
     except Exception:
         return pd.Series(dtype="float64")
 
+
 def _safe_float(x) -> float:
     try:
         if x is None:
@@ -100,6 +106,7 @@ def _safe_float(x) -> float:
         return float(x)
     except Exception:
         return float("nan")
+
 
 def _nan_to_none(x):
     if isinstance(x, (float, int)) and (x != x):  # NaN判定
@@ -137,30 +144,36 @@ def _fallback_score_sample(feat: pd.DataFrame) -> float:
         except Exception:
             return 0.5
 
-    rsi   = _safe_float((nz(f["RSI14"])).iloc[-1]) if "RSI14" in f else float("nan")
-    mom5  = _safe_float((nz(f["RET_5"])).iloc[-1])  if "RET_5"  in f else float("nan")
+    rsi = _safe_float((nz(f["RSI14"])).iloc[-1]) if "RSI14" in f else float("nan")
+    mom5 = _safe_float((nz(f["RET_5"])).iloc[-1]) if "RET_5" in f else float("nan")
     mom20 = _safe_float((nz(f["RET_20"])).iloc[-1]) if "RET_20" in f else float("nan")
-    sl5   = _safe_float((nz(f["SLOPE_5"])).iloc[-1]) if "SLOPE_5" in f else float("nan")
-    sl20  = _safe_float((nz(f["SLOPE_20"])).iloc[-1]) if "SLOPE_20" in f else float("nan")
+    sl5 = _safe_float((nz(f["SLOPE_5"])).iloc[-1]) if "SLOPE_5" in f else float("nan")
+    sl20 = _safe_float((nz(f["SLOPE_20"])).iloc[-1]) if "SLOPE_20" in f else float("nan")
 
     comp = (
-        0.30 * sig(rsi) +
-        0.25 * sig(mom5) +
-        0.20 * sig(mom20) +
-        0.15 * sig(sl5) +
-        0.10 * sig(sl20)
+        0.30 * sig(rsi)
+        + 0.25 * sig(mom5)
+        + 0.20 * sig(mom20)
+        + 0.15 * sig(sl5)
+        + 0.10 * sig(sl20)
     )
     return float(max(0.0, min(1.0, comp)))
+
 
 def _fallback_stars(score01: float) -> int:
     if not np.isfinite(score01):
         return 1
     s = max(0.0, min(1.0, float(score01)))
-    if s < 0.2: return 1
-    if s < 0.4: return 2
-    if s < 0.6: return 3
-    if s < 0.8: return 4
+    if s < 0.2:
+        return 1
+    if s < 0.4:
+        return 2
+    if s < 0.6:
+        return 3
+    if s < 0.8:
+        return 4
     return 5
+
 
 def _fallback_entry_tp_sl(last: float, atr: float) -> Tuple[Optional[float], Optional[float], Optional[float]]:
     """
@@ -172,8 +185,8 @@ def _fallback_entry_tp_sl(last: float, atr: float) -> Tuple[Optional[float], Opt
     if not np.isfinite(last) or not np.isfinite(atr) or atr <= 0:
         return None, None, None
     entry = last + 0.05 * atr
-    tp    = entry + 0.80 * atr
-    sl    = entry - 0.60 * atr
+    tp = entry + 0.80 * atr
+    sl = entry - 0.60 * atr
     return float(entry), float(tp), float(sl)
 
 
@@ -192,10 +205,25 @@ class PickItem:
     score: Optional[float] = None        # 0..1
     score_100: Optional[int] = None      # 0..100
     stars: Optional[int] = None          # 1..5
+
+    # ▼ NEW: 証券会社別 サイズ情報（楽天・松井 2段）
+    qty_rakuten: Optional[int] = None
+    qty_matsui: Optional[int] = None
+    required_cash_rakuten: Optional[float] = None
+    required_cash_matsui: Optional[float] = None
+    est_pl_rakuten: Optional[float] = None
+    est_pl_matsui: Optional[float] = None
+    est_loss_rakuten: Optional[float] = None
+    est_loss_matsui: Optional[float] = None
+    risk_pct: Optional[float] = None
+    lot_size: Optional[int] = None
+
+    # 旧フィールド（互換用・使わなくても残しておく）
     required_cash: Optional[float] = None
     qty: Optional[int] = None
     est_pl: Optional[float] = None
     est_loss: Optional[float] = None
+
     reasons_text: Optional[List[str]] = None
 
 
@@ -225,10 +253,10 @@ def _work_one(code: str, nbars: int) -> Optional[PickItem]:
             return None
 
         close_s = _safe_series(feat.get("Close"))
-        atr_s   = _safe_series(feat.get("ATR14") if "ATR14" in feat else feat.get("ATR", None))
+        atr_s = _safe_series(feat.get("ATR14") if "ATR14" in feat else feat.get("ATR", None))
 
         last = _safe_float(close_s.iloc[-1] if len(close_s) else np.nan)
-        atr  = _safe_float(atr_s.iloc[-1]   if len(atr_s)   else np.nan)
+        atr = _safe_float(atr_s.iloc[-1] if len(atr_s) else np.nan)
 
         # スコア
         if ext_score_sample:
@@ -245,8 +273,20 @@ def _work_one(code: str, nbars: int) -> Optional[PickItem]:
         else:
             e, t, s = _fallback_entry_tp_sl(last, atr)
 
+        # ▼ 証券会社別の数量・必要資金・損益を計算
+        sizing = compute_position_sizing(
+            user=None,          # 共通ピックなので user なし（UserSetting の先頭を使う）
+            code=str(code),
+            last_price=last if np.isfinite(last) else 0.0,
+            atr=atr if np.isfinite(atr) else 0.0,
+        )
+
         if BUILD_LOG:
-            print(f"[picks_build] {code}: last={last} atr={atr} score={s01} score100={score100}")
+            print(
+                f"[picks_build] {code}: last={last} atr={atr} "
+                f"score={s01} score100={score100} "
+                f"qty_r={sizing.get('qty_rakuten')} qty_m={sizing.get('qty_matsui')}"
+            )
 
         item = PickItem(
             code=str(code),
@@ -258,6 +298,23 @@ def _work_one(code: str, nbars: int) -> Optional[PickItem]:
             score=_nan_to_none(s01),
             score_100=int(score100),
             stars=int(stars),
+
+            qty_rakuten=int(sizing.get("qty_rakuten", 0)),
+            qty_matsui=int(sizing.get("qty_matsui", 0)),
+            required_cash_rakuten=_nan_to_none(sizing.get("required_cash_rakuten")),
+            required_cash_matsui=_nan_to_none(sizing.get("required_cash_matsui")),
+            est_pl_rakuten=_nan_to_none(sizing.get("est_pl_rakuten")),
+            est_pl_matsui=_nan_to_none(sizing.get("est_pl_matsui")),
+            est_loss_rakuten=_nan_to_none(sizing.get("est_loss_rakuten")),
+            est_loss_matsui=_nan_to_none(sizing.get("est_loss_matsui")),
+            risk_pct=_nan_to_none(sizing.get("risk_pct")),
+            lot_size=int(sizing.get("lot_size", 100)),
+
+            # 旧フィールドも一応埋める（互換用：楽天を代表として入れておく）
+            qty=int(sizing.get("qty_rakuten", 0)),
+            required_cash=_nan_to_none(sizing.get("required_cash_rakuten")),
+            est_pl=_nan_to_none(sizing.get("est_pl_rakuten")),
+            est_loss=_nan_to_none(sizing.get("est_loss_rakuten")),
         )
         return item
 
@@ -313,10 +370,15 @@ def _enrich_meta(items: List[PickItem]) -> None:
 # ---------- Django command ----------
 
 class Command(BaseCommand):
-    help = "AIピック生成（完全版/ライト・スナップショット対応 + TopK 厳選）"
+    help = "AIピック生成（完全版/ライト・スナップショット対応 + TopK 厳選 + 証券会社別サイズ）"
 
     def add_arguments(self, parser):
-        parser.add_argument("--universe", type=str, default="quick_30", help="all / nk225 / quick_100 / <file name>")
+        parser.add_argument(
+            "--universe",
+            type=str,
+            default="quick_30",
+            help="all / nk225 / quick_100 / <file name>",
+        )
         parser.add_argument("--sample", type=int, default=None)
         parser.add_argument("--head", type=int, default=None)
         parser.add_argument("--budget", type=int, default=None, help="秒")
@@ -333,10 +395,10 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opts):
         universe = opts.get("universe") or "quick_30"
-        nbars    = int(opts.get("nbars") or 180)
-        style    = (opts.get("style") or "aggressive").lower()
-        horizon  = (opts.get("horizon") or "short").lower()
-        topk     = int(opts.get("topk") or 10)
+        nbars = int(opts.get("nbars") or 180)
+        style = (opts.get("style") or "aggressive").lower()
+        horizon = (opts.get("horizon") or "short").lower()
+        topk = int(opts.get("topk") or 10)
 
         codes = _load_universe(universe)
         if not codes:
@@ -366,7 +428,7 @@ class Command(BaseCommand):
         )
 
         # TopK 厳選（UI が読むのはこっち）
-        top_items = items[:max(0, topk)]
+        top_items = items[: max(0, topk)]
 
         if BUILD_LOG:
             print(f"[picks_build] done total={len(items)} topk={len(top_items)}")
@@ -408,18 +470,19 @@ class Command(BaseCommand):
 
         # 監査/検証用：全件
         out_all_latest = PICKS_DIR / "latest_full_all.json"
-        out_all_stamp  = PICKS_DIR / f"{dt_now_stamp()}_{horizon}_{style}_full_all.json"
+        out_all_stamp = PICKS_DIR / f"{dt_now_stamp()}_{horizon}_{style}_full_all.json"
         out_all_latest.write_text(json.dumps(data_all, ensure_ascii=False, separators=(",", ":")))
         out_all_stamp.write_text(json.dumps(data_all, ensure_ascii=False, separators=(",", ":")))
 
         # UI用：TopK
         out_top_latest = PICKS_DIR / "latest_full.json"
-        out_top_stamp  = PICKS_DIR / f"{dt_now_stamp()}_{horizon}_{style}_full.json"
+        out_top_stamp = PICKS_DIR / f"{dt_now_stamp()}_{horizon}_{style}_full.json"
         out_top_latest.write_text(json.dumps(data_top, ensure_ascii=False, separators=(",", ":")))
         out_top_stamp.write_text(json.dumps(data_top, ensure_ascii=False, separators=(",", ":")))
 
 
 def dt_now_stamp() -> str:
     from datetime import datetime, timezone, timedelta
+
     JST = timezone(timedelta(hours=9))
     return datetime.now(JST).strftime("%Y%m%d_%H%M%S")
