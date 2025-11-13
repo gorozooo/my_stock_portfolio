@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 AIエントリー計算サービス（Entry / TP / SL）
-- モード(style) × 時間軸(horizon) で係数を管理するポリシー駆動設計
+- モード(style/mode) × 時間軸(horizon) で係数を管理するポリシー駆動設計
 - 係数は RULES テーブルをいじるだけで変更可能
-- picks_build からは compute_entry_tp_sl(last, atr, style=..., horizon=...) を呼び出す
+- picks_build からは compute_entry_tp_sl(last, atr, mode=..., horizon=...) などで呼び出す
 
 計算ルール（共通）:
     entry = last + entry_k * ATR
@@ -107,8 +107,11 @@ def _normalize(style: str | None, horizon: str | None) -> Tuple[str, str]:
 def compute_entry_tp_sl(
     last: float,
     atr: float,
-    style: str = DEFAULT_STYLE,
+    *,
+    style: str | None = None,
+    mode: str | None = None,
     horizon: str = DEFAULT_HORIZON,
+    **_: dict,
 ) -> Tuple[float | None, float | None, float | None]:
     """
     Entry / TP / SL を返すメイン関数。
@@ -119,8 +122,11 @@ def compute_entry_tp_sl(
         現在値（直近終値など）
     atr : float
         ATR（ボラティリティ指標）
-    style : str
+    style : str | None
         "aggressive" / "normal" / "defensive" など
+    mode : str | None
+        旧インターフェース互換。style が None のときに使う。
+        picks_build からは mode="aggressive" のように渡されている。
     horizon : str
         "short" / "mid" / "long" など
 
@@ -128,6 +134,9 @@ def compute_entry_tp_sl(
     -------
     (entry, tp, sl) : Tuple[float | None, float | None, float | None]
     """
+    # 互換対応：style優先、無ければmodeを採用
+    effective_style = style or mode or DEFAULT_STYLE
+
     try:
         last_f = float(last)
         atr_f = float(atr)
@@ -137,7 +146,7 @@ def compute_entry_tp_sl(
     if not (last_f > 0) or not (atr_f > 0):
         return None, None, None
 
-    key = _normalize(style, horizon)
+    key = _normalize(effective_style, horizon)
     rule = RULES.get(key) or RULES[(DEFAULT_STYLE, DEFAULT_HORIZON)]
 
     entry_k = float(rule.get("entry_k", 0.0))
