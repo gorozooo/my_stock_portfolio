@@ -1,70 +1,35 @@
-# aiapp/services/sizing_service.py
 # -*- coding: utf-8 -*-
 """
-AI Picks 数量・必要資金・損益を証券会社別に算出するサービス（短期×攻め・本気ロジック）
+AI Picks 数量・必要資金・損益を証券会社別に算出するサービス（短期×攻め 用ベース）
 
-- 楽天、松井の2段出力（qty, required_cash, est_pl, est_loss）
-- UserSetting.risk_pct を使用
-- Entry / TP / SL / ATR を使って「リスクリワード」と「手数料・スプレッド」を評価
-- 条件を満たさないトレードは「0株（見送り）」として扱う
+- 楽天 / 松井 の 2 段出力（qty, required_cash, est_pl, est_loss）
+- リスク％は portfolio.models.UserSetting.risk_pct を使用
+- 「証券サマリ」と同じロジックで資産・信用余力を取得する
+    - aiapp.services.broker_summary.compute_broker_summaries を共通利用
+    - 現金残高 + 現物評価額 = ブローカー別の「リスクベース資産」
+    - 信用余力（概算） = そのブローカーで新規に使える上限
+- 1トレードあたりの許容損失 = リスクベース資産 × (risk_pct / 100)
+  ただし実際に使える金額（信用余力）も上限として効かせる
+- 損切幅 = ATR × 0.6 （短期×攻めロジックのベース）
+- ETF/ETN (13xx / 15xx) は 1株、それ以外は 100株単位
 """
 
 from __future__ import annotations
-from typing import Dict, Any
 
-from django.db.models import Sum
+from typing import Any, Dict, Tuple
 
-from portfolio.models import BrokerAccount, CashLedger, Holding, UserSetting
-
-
-# ===== パラメータ（将来はポリシー/YAML化予定の暫定値） =========================
-
-# 手数料率（片道） 0.03% ≒ 0.0003
-COMMISSION_RATE = 0.0003
-# 最低手数料（片道、円）
-MIN_COMMISSION_YEN = 50.0
-# スプレッド＋約定ズレ想定率（往復ぶんまとめて） 0.1% ≒ 0.001
-SPREAD_RATE = 0.001
-
-# リスクリワードしきい値（R >= MIN_R で採用）
-MIN_R = 1.5
-# 「コストの何倍以上の利益」が必要か
-MIN_PROFIT_TO_COST_MULT = 3.0
-# 純利益（コスト控除後）がこれ未満なら見送り
-MIN_NET_PROFIT_YEN = 2000.0
+from portfolio.models import UserSetting
+from aiapp.services.broker_summary import compute_broker_summaries
 
 
-# ===== ヘルパー ===========================================================
-
-def _get_assets(user, broker_name: str) -> float:
-    """
-    現金 + 株式評価額（現物/信用の区別なし）
-    ※ 単ユーザー前提で BrokerAccount / Holding を user で絞る
-    """
-    accounts = BrokerAccount.objects.filter(user=user, broker__iexact=broker_name)
-
-    total_cash = 0.0
-    for acc in accounts:
-        ledger_sum = (
-            CashLedger.objects.filter(account=acc).aggregate(Sum("amount"))["amount__sum"] or 0
-        )
-        total_cash += float(acc.opening_balance or 0) + float(ledger_sum)
-
-    # 保有株（現物＋信用）評価額
-    holds = Holding.objects.filter(user=user, broker__iexact=broker_name)
-    stock_val = 0.0
-    for h in holds:
-        price = float(h.last_price or 0)
-        qty = float(h.quantity or 0)
-        stock_val += price * qty
-
-    return total_cash + stock_val
-
+# =========================
+# ヘルパ
+# =========================
 
 def _lot_size_for(code: str) -> int:
     """
     ETF/ETN (13xx / 15xx) → 1株
-    日本株 → 100株
+    それ以外（日本株） → 100株
     """
     if code.startswith("13") or code.startswith("15"):
         return 1
@@ -73,136 +38,175 @@ def _lot_size_for(code: str) -> int:
 
 def _risk_pct(user) -> float:
     """
-    UserSetting.risk_pct を取得
+    UserSetting.risk_pct を取得（無い/不正なら 1.0）
     """
     try:
         s = UserSetting.objects.get(user=user)
         return float(s.risk_pct or 1.0)
     except UserSetting.DoesNotExist:
         return 1.0
+    except Exception:
+        return 1.0
 
 
-# ===== メインロジック =====================================================
+def _load_leverage_params(user) -> Tuple[float, float, float, float]:
+    """
+    UserSetting から 楽天/松井 の 倍率・ヘアカット を取得。
+    存在しない場合はデフォルト値で補完。
+    """
+    # デフォルト（あなたが今使っている値）
+    rakuten_lev_default = 2.90
+    rakuten_hc_default = 0.30
+    matsui_lev_default = 2.80
+    matsui_hc_default = 0.00
+
+    try:
+        us = UserSetting.objects.get(user=user)
+    except UserSetting.DoesNotExist:
+        return (
+            rakuten_lev_default,
+            rakuten_hc_default,
+            matsui_lev_default,
+            matsui_hc_default,
+        )
+
+    def _get(obj, name, default):
+        v = getattr(obj, name, None)
+        try:
+            return float(v)
+        except Exception:
+            return default
+
+    rakuten_leverage = _get(us, "leverage_rakuten", rakuten_lev_default)
+    rakuten_haircut = _get(us, "haircut_rakuten", rakuten_hc_default)
+    matsui_leverage = _get(us, "leverage_matsui", matsui_lev_default)
+    matsui_haircut = _get(us, "haircut_matsui", matsui_hc_default)
+
+    return rakuten_leverage, rakuten_haircut, matsui_leverage, matsui_haircut
+
+
+def _get_risk_base_and_budget(user, broker_label: str) -> Tuple[float, float]:
+    """
+    証券サマリと完全に同じロジックで
+        ・リスクベース資産（現金＋現物評価額）
+        ・新規トレードに使える上限（信用余力）
+    を取得する。
+
+    戻り値: (risk_assets, available_budget)
+        risk_assets:   リスク％を掛けるベースとなる資産額
+        available_budget: 入るとしてもこの金額以内に抑える上限（信用余力）
+    """
+    risk_pct = _risk_pct(user)
+    rakuten_leverage, rakuten_haircut, matsui_leverage, matsui_haircut = _load_leverage_params(user)
+
+    brokers = compute_broker_summaries(
+        user=user,
+        risk_pct=risk_pct,
+        rakuten_leverage=rakuten_leverage,
+        rakuten_haircut=rakuten_haircut,
+        matsui_leverage=matsui_leverage,
+        matsui_haircut=matsui_haircut,
+    )
+
+    for b in brokers:
+        if b.get("label") != broker_label:
+            continue
+
+        # リスクベース資産 = 現金残高 + 現物評価額
+        cash = float(b.get("cash_yen") or 0.0)
+        # broker_summary 側のキー名に両対応（stock_eval / stock_acq_value）
+        stock = float(b.get("stock_eval") or b.get("stock_acq_value") or 0.0)
+        risk_assets = max(0.0, cash + stock)
+
+        # 新規トレードに使える上限（金額としての信用余力）
+        credit_yoryoku = float(b.get("credit_yoryoku") or 0.0)
+        available_budget = max(0.0, credit_yoryoku)
+
+        return risk_assets, available_budget
+
+    # 見つからなければ 0 扱い
+    return 0.0, 0.0
+
+
+# =========================
+# メイン計算
+# =========================
 
 def compute_position_sizing(
     user,
     code: str,
     last_price: float,
     atr: float,
-    entry: float,
-    tp: float,
-    sl: float,
 ) -> Dict[str, Any]:
     """
-    AI Picks 1銘柄分の数量を楽天・松井の2段で返す（短期×攻め・本気ロジック）
+    AI Picks 1銘柄分の数量を 楽天・松井 の 2段で返す。
 
-    返す内容：
+    戻り値のキー:
         qty_rakuten, qty_matsui
         required_cash_rakuten, required_cash_matsui
-        est_pl_rakuten, est_pl_matsui      # 手数料・スリッページ控除後の想定利益
-        est_loss_rakuten, est_loss_matsui  # 損切幅にコストを含めた「最大損失イメージ」
+        est_pl_rakuten, est_pl_matsui
+        est_loss_rakuten, est_loss_matsui
         risk_pct, lot_size
     """
     lot = _lot_size_for(code)
     risk_pct = _risk_pct(user)
 
-    # 価格系が壊れている場合は即座に0扱い
-    if (
-        not last_price or last_price <= 0 or
-        not atr or atr <= 0 or
-        not entry or entry <= 0 or
-        not tp or tp <= 0
-    ):
+    # ATR が 0、株価が 0 以下ならトレード不可
+    if not atr or atr <= 0 or not last_price or last_price <= 0:
         return dict(
-            qty_rakuten=0, qty_matsui=0,
-            required_cash_rakuten=0, required_cash_matsui=0,
-            est_pl_rakuten=0, est_pl_matsui=0,
-            est_loss_rakuten=0, est_loss_matsui=0,
-            risk_pct=risk_pct, lot_size=lot,
+            qty_rakuten=0,
+            qty_matsui=0,
+            required_cash_rakuten=0,
+            required_cash_matsui=0,
+            est_pl_rakuten=0,
+            est_pl_matsui=0,
+            est_loss_rakuten=0,
+            est_loss_matsui=0,
+            risk_pct=risk_pct,
+            lot_size=lot,
         )
-
-    # ロング前提：SL は Entry より下にある想定
-    # （万一 sl >= entry なら ATR ベースでフォロー）
-    if sl is not None and sl < entry:
-        risk_per_share = entry - sl
-    else:
-        # フォールバック：ATR の 0.6倍を損切幅とみなす
-        risk_per_share = atr * 0.6
-
-    reward_per_share = max(0.0, tp - entry)
-
-    # 損切幅がゼロ/マイナスならトレード不可
-    if risk_per_share <= 0:
-        return dict(
-            qty_rakuten=0, qty_matsui=0,
-            required_cash_rakuten=0, required_cash_matsui=0,
-            est_pl_rakuten=0, est_pl_matsui=0,
-            est_loss_rakuten=0, est_loss_matsui=0,
-            risk_pct=risk_pct, lot_size=lot,
-        )
-
-    # 証券会社別の総資産
-    rakuten_assets = _get_assets(user, "楽天")
-    matsui_assets = _get_assets(user, "松井")
 
     out: Dict[str, Any] = {}
 
-    for broker_label, assets in [
-        ("rakuten", rakuten_assets),
-        ("matsui", matsui_assets),
-    ]:
-        if assets <= 0:
-            qty = required_cash = est_pl = est_loss = 0.0
+    for broker_label, key_prefix in [("楽天", "rakuten"), ("松井", "matsui")]:
+        risk_assets, available_budget = _get_risk_base_and_budget(user, broker_label)
+
+        # 資産 or 余力が 0 以下なら 0株
+        if risk_assets <= 0 or available_budget <= 0:
+            qty = 0
+            required_cash = 0.0
+            est_pl = 0.0
+            est_loss = 0.0
         else:
             # 1トレードあたりの許容損失
-            risk_value = assets * (risk_pct / 100.0)
+            risk_value = risk_assets * (risk_pct / 100.0)
 
-            # 理論株数（リスクベース）
-            raw_qty = risk_value / risk_per_share if risk_per_share > 0 else 0.0
-            qty = int((raw_qty // lot) * lot) if raw_qty > 0 else 0
+            # 実際に使える金額（信用余力）を超えないように、ここでも上限をかける
+            # 「リスクベース ≦ 余力」の範囲に抑えるイメージ
+            effective_risk_value = min(risk_value, available_budget)
+
+            # 損切幅：ATR の 0.6倍（短期×攻め）
+            loss_per_share = atr * 0.6
+
+            # ロット単位で丸める
+            qty = int((effective_risk_value / loss_per_share) // lot * lot)
 
             if qty <= 0:
-                required_cash = est_pl = est_loss = 0.0
+                qty = 0
+                required_cash = 0.0
+                est_pl = 0.0
+                est_loss = 0.0
             else:
-                # 必要資金（エントリー価格ベース）
-                trade_value = qty * entry
+                required_cash = qty * float(last_price)
 
-                # 手数料（往復）
-                one_way_commission = max(trade_value * COMMISSION_RATE, MIN_COMMISSION_YEN)
-                round_trip_commission = one_way_commission * 2.0
+                # 利確/損切の概算（エントリー→TP/SL の値幅）
+                est_pl = atr * 0.8 * qty   # 想定利益
+                est_loss = loss_per_share * qty  # 想定損失
 
-                # スプレッド＋約定ズレ（往復まとめて）
-                slippage = trade_value * SPREAD_RATE
-
-                total_cost = round_trip_commission + slippage
-
-                # 想定利益（TP到達時）
-                gross_profit = reward_per_share * qty
-                net_profit_est = gross_profit - total_cost
-
-                # 最大損失イメージ（損切 + コスト）
-                max_loss = risk_per_share * qty + total_cost
-
-                # リスクリワード
-                R = (reward_per_share / risk_per_share) if risk_per_share > 0 else 0.0
-
-                # フィルター条件
-                if (
-                    R < MIN_R or                       # Rが低すぎる
-                    net_profit_est < MIN_NET_PROFIT_YEN or  # 絶対額としてショボい
-                    net_profit_est < total_cost * MIN_PROFIT_TO_COST_MULT  # コスト負け
-                ):
-                    qty = 0
-                    required_cash = est_pl = est_loss = 0.0
-                else:
-                    required_cash = trade_value
-                    est_pl = net_profit_est
-                    est_loss = max_loss
-
-        out[f"qty_{broker_label}"] = int(qty)
-        out[f"required_cash_{broker_label}"] = round(required_cash, 0)
-        out[f"est_pl_{broker_label}"] = round(est_pl, 0)
-        out[f"est_loss_{broker_label}"] = round(est_loss, 0)
+        out[f"qty_{key_prefix}"] = qty
+        out[f"required_cash_{key_prefix}"] = round(required_cash, 0)
+        out[f"est_pl_{key_prefix}"] = round(est_pl, 0)
+        out[f"est_loss_{key_prefix}"] = round(est_loss, 0)
 
     out["risk_pct"] = risk_pct
     out["lot_size"] = lot
