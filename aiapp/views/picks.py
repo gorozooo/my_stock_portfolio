@@ -1,3 +1,4 @@
+# aiapp/views/picks.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ from django.shortcuts import render
 from django.utils import timezone
 
 from aiapp.models import StockMaster
+from portfolio.models import UserSetting
 
 PICKS_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "picks"
 
@@ -146,6 +148,36 @@ def _format_updated_label(meta: Dict[str, Any], path_str: Optional[str], count: 
     return f"{ts_label}　{count}件 / {str(mode).upper()}"
 
 
+def _get_risk_pct(user) -> float:
+    """UserSetting からリスク％を取得（未設定なら 1.0％）"""
+    if not user or not user.is_authenticated:
+        return 1.0
+    try:
+        s = UserSetting.objects.get(user=user)
+        return float(s.risk_pct or 1.0)
+    except UserSetting.DoesNotExist:
+        return 1.0
+
+
+def _mode_tag(meta: Dict[str, Any]) -> str:
+    """
+    style/horizon から表示タグを作成。
+    今は「短期 × 攻め（動的）」をメイン運用。
+    """
+    style = str(meta.get("style") or "").lower()
+    horizon = str(meta.get("horizon") or "").lower()
+
+    if horizon == "short" and style == "aggressive":
+        return "短期 × 攻め（動的）"
+    if horizon == "short" and style:
+        return f"短期 × {style}"
+    if horizon == "middle":
+        return "中期モード"
+    if horizon == "long":
+        return "長期モード"
+    return "AIモード"
+
+
 def picks(request):
     # LIVE/DEMO 切替（将来ロジック拡張）
     qmode = request.GET.get("mode")
@@ -155,33 +187,21 @@ def picks(request):
     _enrich_with_master(data)
 
     meta = data.get("meta") or {}
-    items = list(data.get("items") or [])
-    count = meta.get("count") or len(items)
+    count = meta.get("count") or len(data.get("items") or [])
     updated_label = _format_updated_label(meta, data.get("_path"), count)
+    mode_tag = _mode_tag(meta)
 
-    # ★ sizing_service から出した lot_size / risk_pct を1件目から拾う
-    lot_size = 100
-    risk_pct = 1.0
-    if items:
-        base = items[0]
-        try:
-            if base.get("lot_size"):
-                lot_size = int(base.get("lot_size"))
-        except Exception:
-            pass
-        try:
-            if base.get("risk_pct") is not None:
-                risk_pct = float(base.get("risk_pct"))
-        except Exception:
-            pass
+    risk_pct = _get_risk_pct(request.user)
+    lot_size = 100  # ETF はテンプレ側で1株扱いにするのでここは既定値だけ
 
     ctx = {
-        "items": items,
+        "items": data.get("items") or [],
         "updated_label": updated_label,
         "mode_label": "LIVE/DEMO",
         "is_demo": is_demo,
         "lot_size": lot_size,
         "risk_pct": risk_pct,
+        "mode_tag": mode_tag,
     }
     return render(request, "aiapp/picks.html", ctx)
 
