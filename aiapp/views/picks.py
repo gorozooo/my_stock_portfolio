@@ -1,4 +1,3 @@
-# aiapp/views/picks.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
@@ -29,6 +28,7 @@ JPX_SECTOR_MAP: Dict[str, str] = {
     "160": "不動産業",
     "165": "サービス業",
 }
+
 
 def _load_latest_path() -> Optional[Path]:
     """最新ピックJSONの実体ファイルをフォールバック順で解決"""
@@ -134,9 +134,11 @@ def _format_updated_label(meta: Dict[str, Any], path_str: Optional[str], count: 
         if path_str:
             p = Path(path_str)
             if p.exists():
-                ts_label = timezone.localtime(timezone.make_aware(timezone.datetime.fromtimestamp(p.stat().st_mtime))).strftime(
-                    "%Y/%m/%d %H:%M"
-                )
+                ts_label = timezone.localtime(
+                    timezone.make_aware(
+                        timezone.datetime.fromtimestamp(p.stat().st_mtime)
+                    )
+                ).strftime("%Y/%m/%d %H:%M")
             else:
                 ts_label = timezone.localtime().strftime("%Y/%m/%d %H:%M")
         else:
@@ -153,17 +155,33 @@ def picks(request):
     _enrich_with_master(data)
 
     meta = data.get("meta") or {}
-    count = meta.get("count") or len(data.get("items") or [])
+    items = list(data.get("items") or [])
+    count = meta.get("count") or len(items)
     updated_label = _format_updated_label(meta, data.get("_path"), count)
 
+    # ★ sizing_service から出した lot_size / risk_pct を1件目から拾う
+    lot_size = 100
+    risk_pct = 1.0
+    if items:
+        base = items[0]
+        try:
+            if base.get("lot_size"):
+                lot_size = int(base.get("lot_size"))
+        except Exception:
+            pass
+        try:
+            if base.get("risk_pct") is not None:
+                risk_pct = float(base.get("risk_pct"))
+        except Exception:
+            pass
+
     ctx = {
-        "items": data.get("items") or [],
+        "items": items,
         "updated_label": updated_label,
         "mode_label": "LIVE/DEMO",
         "is_demo": is_demo,
-        # 既定表示値
-        "lot_size": 100,
-        "risk_pct": 0.02,
+        "lot_size": lot_size,
+        "risk_pct": risk_pct,
     }
     return render(request, "aiapp/picks.html", ctx)
 
