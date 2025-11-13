@@ -1,168 +1,191 @@
+# aiapp/services/entry_service.py
 # -*- coding: utf-8 -*-
 """
-AIエントリー計算サービス（Entry / TP / SL）
-- モード(style/mode) × 時間軸(horizon) で係数を管理するポリシー駆動設計
-- 係数は RULES テーブルをいじるだけで変更可能
-- picks_build からは compute_entry_tp_sl(last, atr, mode=..., horizon=...) などで呼び出す
+AI Picks 用の Entry / TP / SL を動的に計算するサービス
 
-計算ルール（共通）:
-    entry = last + entry_k * ATR
-    TP    = entry + tp_k    * ATR
-    SL    = entry - sl_k    * ATR
+- 現状は「短期 × 攻め (short × aggressive)」モードをメインターゲット
+- 入力は「終値(last) と ATR(ボラティリティ指標)」
+- mode/horizon は将来拡張用（他モードでも動くように分岐は用意）
+- 買い（ロング）前提のロジック（空売り対応は後で追加）
 
-注意:
-    - last <= 0 または ATR <= 0 の場合は (None, None, None) を返す
-    - 未知の style/horizon が来た場合は (DEFAULT_STYLE, DEFAULT_HORIZON) にフォールバック
+picks_build からは以下のように呼び出される想定：
+
+    from aiapp.services.entry_service import compute_entry_tp_sl
+
+    e, t, s = compute_entry_tp_sl(
+        last,
+        atr,
+        mode="aggressive",
+        horizon="short",
+        # 将来: feat=特徴量DataFrame などを渡せるようにしてある（kwargs）
+    )
+
 """
 
 from __future__ import annotations
-from typing import Dict, Tuple
+from typing import Any, Optional, Tuple
 
-DEFAULT_STYLE = "aggressive"
-DEFAULT_HORIZON = "short"
-
-# ------------------------------------------------------------
-# ルールテーブル（あとからここだけいじれば挙動を変えられる）
-# ------------------------------------------------------------
-# entry_k:  エントリーをどれだけ現在値からずらすか（+側）
-# tp_k:     TP を entry からどれだけ上に置くか
-# sl_k:     SL を entry からどれだけ下に置くか
-#
-# すべて ATR 何本分か、という係数で管理する。
-RULES: Dict[Tuple[str, str], Dict[str, float]] = {
-    # 短期 × 攻め（今まで使っていた本命ルール）
-    ("aggressive", "short"): {
-        "entry_k": 0.05,   # ちょい上で待つ（高値掴み緩和）
-        "tp_k":    0.80,   # 利確は広め
-        "sl_k":    0.60,   # 損切りはややタイト
-    },
-
-    # 短期 × ふつう
-    ("normal", "short"): {
-        "entry_k": 0.02,
-        "tp_k":    0.60,
-        "sl_k":    0.50,
-    },
-
-    # 短期 × 守り
-    ("defensive", "short"): {
-        "entry_k": 0.00,
-        "tp_k":    0.40,
-        "sl_k":    0.40,
-    },
-
-    # 中期（仮パラメータ：あとでチューニング前提）
-    ("aggressive", "mid"): {
-        "entry_k": 0.05,
-        "tp_k":    1.20,
-        "sl_k":    0.80,
-    },
-    ("normal", "mid"): {
-        "entry_k": 0.02,
-        "tp_k":    0.90,
-        "sl_k":    0.70,
-    },
-    ("defensive", "mid"): {
-        "entry_k": 0.00,
-        "tp_k":    0.70,
-        "sl_k":    0.60,
-    },
-
-    # 長期（仮パラメータ）
-    ("aggressive", "long"): {
-        "entry_k": 0.05,
-        "tp_k":    1.60,
-        "sl_k":    1.00,
-    },
-    ("normal", "long"): {
-        "entry_k": 0.02,
-        "tp_k":    1.20,
-        "sl_k":    0.80,
-    },
-    ("defensive", "long"): {
-        "entry_k": 0.00,
-        "tp_k":    1.00,
-        "sl_k":    0.70,
-    },
-}
+import math
 
 
-def _normalize(style: str | None, horizon: str | None) -> Tuple[str, str]:
-    """style/horizon を小文字化＆未知値をデフォルトにフォールバック。"""
-    s = (style or DEFAULT_STYLE).strip().lower()
-    h = (horizon or DEFAULT_HORIZON).strip().lower()
+def _safe_float(x: Any) -> Optional[float]:
+    """どんな入力でも float or None に丸める"""
+    try:
+        v = float(x)
+        if math.isnan(v) or math.isinf(v):
+            return None
+        return v
+    except Exception:
+        return None
 
-    if (s, h) in RULES:
-        return s, h
 
-    # style だけ既知 / horizon が未知の場合なども、できるだけマシなペアに寄せる
-    if (s, DEFAULT_HORIZON) in RULES:
-        return s, DEFAULT_HORIZON
-    if (DEFAULT_STYLE, h) in RULES:
-        return DEFAULT_STYLE, h
-
-    return DEFAULT_STYLE, DEFAULT_HORIZON
+def _clamp(x: float, lo: float, hi: float) -> float:
+    """簡易 clamp"""
+    return max(lo, min(hi, x))
 
 
 def compute_entry_tp_sl(
     last: float,
     atr: float,
-    *,
-    style: str | None = None,
-    mode: str | None = None,
-    horizon: str = DEFAULT_HORIZON,
-    **_: dict,
-) -> Tuple[float | None, float | None, float | None]:
+    mode: str = "aggressive",
+    horizon: str = "short",
+    **kwargs,
+) -> Tuple[Optional[float], Optional[float], Optional[float]]:
     """
-    Entry / TP / SL を返すメイン関数。
+    Entry / TP / SL をまとめて計算して返す。
 
     Parameters
     ----------
     last : float
-        現在値（直近終値など）
+        現在値（終値）
     atr : float
-        ATR（ボラティリティ指標）
-    style : str | None
-        "aggressive" / "normal" / "defensive" など
-    mode : str | None
-        旧インターフェース互換。style が None のときに使う。
-        picks_build からは mode="aggressive" のように渡されている。
+        ATR（14 など）ボラティリティ指標
+    mode : str
+        "aggressive" / "defensive" / "normal" など（将来拡張）
     horizon : str
-        "short" / "mid" / "long" など
+        "short" / "mid" / "long" など（将来拡張）
+    kwargs :
+        将来用の拡張引数（feat=特徴量DataFrame など）
+        ※ 受け取れるようにしておくだけで、今は使わなくてもエラーにしない
 
     Returns
     -------
     (entry, tp, sl) : Tuple[float | None, float | None, float | None]
     """
-    # 互換対応：style優先、無ければmodeを採用
-    effective_style = style or mode or DEFAULT_STYLE
 
-    try:
-        last_f = float(last)
-        atr_f = float(atr)
-    except (TypeError, ValueError):
+    last_v = _safe_float(last)
+    atr_v = _safe_float(atr)
+
+    # 防御：値が変でも落ちないように
+    if last_v is None or atr_v is None or atr_v <= 0 or last_v <= 0:
         return None, None, None
 
-    if not (last_f > 0) or not (atr_f > 0):
-        return None, None, None
+    mode = (mode or "aggressive").lower()
+    horizon = (horizon or "short").lower()
 
-    key = _normalize(effective_style, horizon)
-    rule = RULES.get(key) or RULES[(DEFAULT_STYLE, DEFAULT_HORIZON)]
+    # --- ① ボラティリティ（%）をざっくり見る ---------------------------
+    #    「過去ボラティリティに応じて Entry/TP/SL の距離を変える」ための基準
+    vol_pct = atr_v / last_v * 100.0
+    # あまり極端な値になりすぎても意味が薄いのでざっくり clamp
+    vol_pct = _clamp(vol_pct, 0.1, 20.0)
 
-    entry_k = float(rule.get("entry_k", 0.0))
-    tp_k = float(rule.get("tp_k", 0.0))
-    sl_k = float(rule.get("sl_k", 0.0))
+    # ここで「静かな銘柄 / ほどほど / 激しい銘柄」をざっくり分類
+    if vol_pct < 2.0:
+        vol_zone = "calm"       # 静か
+    elif vol_pct < 7.0:
+        vol_zone = "normal"     # ふつう
+    else:
+        vol_zone = "wild"       # 激しい
 
-    entry = last_f + entry_k * atr_f
-    tp = entry + tp_k * atr_f
-    sl = entry - sl_k * atr_f
+    # --- ② ベースとなる係数を horizon / mode で決める -------------------
+    # ここが「固定式 → モード別の動的式」に変わった部分
+    if horizon == "short":
+        if mode == "aggressive":
+            base_entry_k = 0.05   # 元々の +0.05 ATR をベース
+            base_tp_k = 0.80
+            base_sl_k = 0.60
+        elif mode == "defensive":
+            base_entry_k = 0.02
+            base_tp_k = 0.60
+            base_sl_k = 0.40
+        else:  # normal
+            base_entry_k = 0.03
+            base_tp_k = 0.70
+            base_sl_k = 0.50
+    elif horizon == "mid":
+        # 中期は少し広めに
+        if mode == "aggressive":
+            base_entry_k = 0.03
+            base_tp_k = 1.20
+            base_sl_k = 0.80
+        elif mode == "defensive":
+            base_entry_k = 0.01
+            base_tp_k = 0.80
+            base_sl_k = 0.50
+        else:
+            base_entry_k = 0.02
+            base_tp_k = 1.00
+            base_sl_k = 0.66
+    else:  # long
+        if mode == "aggressive":
+            base_entry_k = 0.02
+            base_tp_k = 1.80
+            base_sl_k = 0.80
+        elif mode == "defensive":
+            base_entry_k = 0.00
+            base_tp_k = 1.20
+            base_sl_k = 0.50
+        else:
+            base_entry_k = 0.01
+            base_tp_k = 1.50
+            base_sl_k = 0.66
+
+    # --- ③ 「高値掴みしない」ための Entry 調整 -------------------------
+    # vol_zone を使って、短期×攻めモードでは以下のように振る舞う：
+    #
+    #  - calm   : あまり動かない → 多少追いかけてもOK → entry をやや上に
+    #  - normal : 以前のロジックに近い
+    #  - wild   : 激しい → 飛びつき禁止 → 一段押しを待つ（last より下に置く）
+    #
+    # ※ 本当は RSI や 直近リターンで「過熱感」を見るのがベストだが、
+    #    現段階では picks_build から last/ATR しか渡ってこないため、
+    #    まずは ATR ベースで「静か / 普通 / 激しい」を分けて制御している。
+    #    後で feat(DataFrame) を渡すようにすれば、RSI やモメンタムも組み込める。
+    if horizon == "short" and mode == "aggressive":
+        if vol_zone == "calm":
+            # あまり動かない銘柄 → 多少上に置いても高値掴みリスクは小さい
+            entry_k = base_entry_k * 1.2  # 0.06ATR くらい
+        elif vol_zone == "normal":
+            # 従来どおり
+            entry_k = base_entry_k       # 0.05ATR
+        else:  # wild
+            # 激しく動く銘柄 → 一段押しを待つため「last より下」に置く
+            # ex) last - 0.2 ATR
+            entry_k = -0.20
+    else:
+        # 他モードは今のところベース値のまま
+        entry_k = base_entry_k
+
+    # --- ④ TP / SL をボラティリティに応じて微調整 -----------------------
+    # ボラが高いほど TP/SL を少し広げる（ただしやりすぎない）
+    # 例：vol_pct = 2 → scale ≒ 0.9 / vol_pct = 10 → scale ≒ 1.2
+    vol_scale = _clamp(0.9 + (vol_pct - 2.0) * 0.03, 0.7, 1.3)
+
+    tp_k = base_tp_k * vol_scale
+    sl_k = base_sl_k * vol_scale
+
+    # safety: SL が TP を超える極端なケースは丸める
+    sl_k = _clamp(sl_k, 0.2, tp_k * 1.2)
+
+    # --- ⑤ 実際の価格を計算 ---------------------------------------------
+    entry = last_v + entry_k * atr_v
+    tp = entry + tp_k * atr_v
+    sl = entry - sl_k * atr_v
+
+    # 価格がマイナスにならないよう最低0.1でクリップ
+    if entry <= 0 or tp <= 0 or sl <= 0:
+        entry = max(entry, 0.1)
+        tp = max(tp, 0.1)
+        sl = max(sl, 0.1)
 
     return float(entry), float(tp), float(sl)
-
-
-__all__ = [
-    "compute_entry_tp_sl",
-    "RULES",
-    "DEFAULT_STYLE",
-    "DEFAULT_HORIZON",
-]
