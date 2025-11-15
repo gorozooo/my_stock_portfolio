@@ -1,4 +1,3 @@
-{# templates/aiapp/picks.html #}
 {% extends "base.html" %}
 {% load static %}
 {% load humanize %}
@@ -23,7 +22,6 @@
     padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.12);
     background:rgba(255,255,255,.07);color:#eaf0ff;text-decoration:none
   }
-
   .grid{display:grid;gap:10px}
   .card{
     border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.05);
@@ -32,74 +30,47 @@
   .ttl{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
   .ttl h3{font-size:16px;margin:0;line-height:1.3}
   .ttl .sub{font-size:12px;color:#9fb1c7}
-
-  /* 星＋スコア */
   .stars{
-    display:flex;
-    flex-direction:column;
-    align-items:center;
-    gap:4px;
-    line-height:1;
+    display:flex;flex-direction:column;align-items:center;gap:4px;line-height:1;
   }
   .stars .star-wrap{position:relative;display:inline-block}
   .stars .star-base{color:#3a475a;letter-spacing:1px;font-size:16px}
   .stars .star-fill{
-    position:absolute;inset:0;
-    color:#ffd166;overflow:hidden;white-space:nowrap;letter-spacing:1px;font-size:16px
+    position:absolute;inset:0;color:#ffd166;overflow:hidden;white-space:nowrap;letter-spacing:1px;font-size:16px
   }
-  .stars .score-text{
-    font-size:15px;
-    font-weight:600;
-    color:#fff;
-    text-align:center;
-    margin-top:2px;
-  }
+  .stars .score-text{font-size:15px;font-weight:600;color:#fff;text-align:center;margin-top:2px}
 
-  .kpi{
-    display:grid;
-    gap:8px;
-    margin-top:10px;
-    grid-template-columns:repeat(2,minmax(0,1fr));
-  }
-  .kpi .it{
-    border:1px solid rgba(255,255,255,.08);
-    border-radius:12px;
-    padding:8px;
-  }
+  .kpi{display:grid;gap:8px;margin-top:10px;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .kpi .it{border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:8px}
   .kpi .lb{font-size:12px;color:#9fb1c7}
-  .kpi .vl{font-size:16px}
-  .kpi .pos{color:var(--ok)}
-  .kpi .neg{color:var(--bad)}
+  .kpi .vl{font-size:15px}
+  .kpi .pos{color:var(--ok)} .kpi .neg{color:var(--bad)}
+  .mini-grid{margin-top:6px;display:grid;grid-template-columns:auto auto;gap:4px 10px;font-size:13px}
+  .mini-grid .tag{padding:2px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.12);font-size:11px}
 
-  /* 楽天/松井 2段表示 */
-  .brokers{margin-top:4px;display:flex;flex-direction:column;gap:2px}
-  .b-line{display:flex;justify-content:space-between;align-items:center;font-size:13px}
-  .b-tag{
-    padding:2px 7px;border-radius:999px;
-    border:1px solid rgba(255,255,255,.18);
-    background:rgba(15,23,42,.7);
-    font-size:11px;color:#dbe4ff;
+  .reasons-wrap{
+    margin-top:10px;
+    padding-top:8px;
+    border-top:1px dashed rgba(148,163,184,.6);
   }
-  .b-val{font-variant-numeric:tabular-nums}
+  .reasons-title{
+    font-size:11px;
+    color:#9ca3af;
+    margin-bottom:4px;
+  }
+  .reasons{
+    list-style:disc;
+    padding-left:18px;
+    font-size:11px;
+    color:#cbd5f5;
+    max-height:140px;
+    overflow:auto;
+  }
+  .reasons li{margin:1px 0}
 
-  /* Entry/TP/SL ボックス（C案） */
-  .entry-box .plan{margin-top:4px;font-size:13px;display:flex;flex-direction:column;gap:2px}
-  .plan-line{display:flex;align-items:center;gap:4px}
-  .plan-line .ico{width:18px;text-align:center;font-size:13px}
-
-  .reasons{margin:10px 0 0 0;padding-left:16px}
-  .reasons li{margin:2px 0}
   .btns{display:flex;gap:8px;margin-top:12px}
-  .btns a{
-    flex:1;text-align:center;text-decoration:none;color:#eaf0ff;
-    border:1px solid rgba(255,255,255,.12);border-radius:12px;
-    padding:10px 8px;background:rgba(255,255,255,.07)
-  }
-  .empty{
-    margin-top:16px;padding:16px;
-    border:1px dashed rgba(255,255,255,.15);
-    border-radius:12px;color:#c7d2e0
-  }
+  .btns a{flex:1;text-align:center;text-decoration:none;color:#eaf0ff;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 8px;background:rgba(255,255,255,.07)}
+  .empty{margin-top:16px;padding:16px;border:1px dashed rgba(255,255,255,.15);border-radius:12px;color:#c7d2e0}
   .meta{font-size:11px;color:#7f8da3;margin-top:4px}
 </style>
 {% endblock %}
@@ -135,7 +106,8 @@
                 {{ item.code }} ・ {{ item.sector_display|default:"業種不明" }}
               </div>
             </div>
-            <div class="stars" aria-label="レーティング"
+            <div class="stars"
+                 aria-label="レーティング"
                  title="{% if item.score_100 is not None %}{{ item.score_100|floatformat:0 }} / 100{% else %}N/A{% endif %}">
               {% with p=item.score_100|default:0 %}
                 <div class="star-wrap">
@@ -148,7 +120,6 @@
           </div>
 
           <div class="kpi">
-            {# 現在値 #}
             <div class="it">
               <div class="lb">現在値</div>
               <div class="vl">
@@ -167,141 +138,79 @@
               {% endif %}
             </div>
 
-            {# 数量（楽天/松井 2段） #}
             <div class="it">
-              <div class="lb">
-                数量（{{ item.lot_size|default:lot_size }}株単元・リスク{{ risk_pct|floatformat:2 }}％）
-              </div>
-              <div class="brokers">
-                <div class="b-line">
-                  <span class="b-tag">楽天</span>
-                  <span class="b-val">
-                    {{ item.qty_rakuten|default:0|intcomma }} 株
-                  </span>
-                </div>
-                <div class="b-line">
-                  <span class="b-tag">松井</span>
-                  <span class="b-val">
-                    {{ item.qty_matsui|default:0|intcomma }} 株
-                  </span>
-                </div>
+              <div class="lb">数量（{{ lot_size }}株単元・リスク{{ risk_pct|floatformat:2 }}％）</div>
+              <div class="mini-grid">
+                <span class="tag">楽天</span>
+                <span>{% if item.qty_rakuten %}{{ item.qty_rakuten|intcomma }} 株{% else %}0 株{% endif %}</span>
+                <span class="tag">松井</span>
+                <span>{% if item.qty_matsui %}{{ item.qty_matsui|intcomma }} 株{% else %}0 株{% endif %}</span>
               </div>
             </div>
 
-            {# Entry / TP / SL（アイコン＋モードタグ） #}
-            <div class="it entry-box">
+            <div class="it">
               <div class="lb">Entry / TP / SL</div>
-              <div class="plan">
+              <div class="vl">
                 {% if item.is_etf or item.sector_display == 'ETF/ETN' %}
-                  <div class="plan-line">
-                    <span class="ico">🟩</span>
-                    <span>Entry：{% if item.entry %}{{ item.entry|floatformat:1|intcomma }} 円{% else %}-{% endif %}</span>
-                  </div>
-                  <div class="plan-line">
-                    <span class="ico">🔵</span>
-                    <span>TP：{% if item.tp %}{{ item.tp|floatformat:1|intcomma }} 円{% else %}-{% endif %}</span>
-                  </div>
-                  <div class="plan-line">
-                    <span class="ico">🔴</span>
-                    <span>SL：{% if item.sl %}{{ item.sl|floatformat:1|intcomma }} 円{% else %}-{% endif %}</span>
-                  </div>
+                  {% if item.entry %}{{ item.entry|floatformat:1|intcomma }}{% else %}-{% endif %} /
+                  {% if item.tp %}{{ item.tp|floatformat:1|intcomma }}{% else %}-{% endif %} /
+                  {% if item.sl %}{{ item.sl|floatformat:1|intcomma }}{% else %}-{% endif %} 円
                 {% else %}
-                  <div class="plan-line">
-                    <span class="ico">🟩</span>
-                    <span>Entry：{% if item.entry %}{{ item.entry|floatformat:0|intcomma }} 円{% else %}-{% endif %}</span>
-                  </div>
-                  <div class="plan-line">
-                    <span class="ico">🔵</span>
-                    <span>TP：{% if item.tp %}{{ item.tp|floatformat:0|intcomma }} 円{% else %}-{% endif %}</span>
-                  </div>
-                  <div class="plan-line">
-                    <span class="ico">🔴</span>
-                    <span>SL：{% if item.sl %}{{ item.sl|floatformat:0|intcomma }} 円{% else %}-{% endif %}</span>
-                  </div>
+                  {% if item.entry %}{{ item.entry|floatformat:0|intcomma }}{% else %}-{% endif %} /
+                  {% if item.tp %}{{ item.tp|floatformat:0|intcomma }}{% else %}-{% endif %} /
+                  {% if item.sl %}{{ item.sl|floatformat:0|intcomma }}{% else %}-{% endif %} 円
                 {% endif %}
               </div>
             </div>
 
-            {# 必要資金（楽天/松井） #}
             <div class="it">
               <div class="lb">必要資金（概算）</div>
-              <div class="brokers">
-                <div class="b-line">
-                  <span class="b-tag">楽天</span>
-                  <span class="b-val">
-                    {{ item.required_cash_rakuten|default:0|floatformat:0|intcomma }} 円
-                  </span>
-                </div>
-                <div class="b-line">
-                  <span class="b-tag">松井</span>
-                  <span class="b-val">
-                    {{ item.required_cash_matsui|default:0|floatformat:0|intcomma }} 円
-                  </span>
-                </div>
+              <div class="mini-grid">
+                <span class="tag">楽天</span>
+                <span>{% if item.required_cash_rakuten %}{{ item.required_cash_rakuten|floatformat:0|intcomma }} 円{% else %}0 円{% endif %}</span>
+                <span class="tag">松井</span>
+                <span>{% if item.required_cash_matsui %}{{ item.required_cash_matsui|floatformat:0|intcomma }} 円{% else %}0 円{% endif %}</span>
               </div>
             </div>
 
-            {# 想定利益（楽天/松井） #}
             <div class="it">
               <div class="lb">想定利益</div>
-              <div class="brokers">
-                <div class="b-line">
-                  <span class="b-tag">楽天</span>
-                  <span class="b-val pos">
-                    {% if item.est_pl_rakuten %}
-                      +{{ item.est_pl_rakuten|floatformat:0|intcomma }} 円
-                    {% else %}
-                      0 円
-                    {% endif %}
-                  </span>
-                </div>
-                <div class="b-line">
-                  <span class="b-tag">松井</span>
-                  <span class="b-val pos">
-                    {% if item.est_pl_matsui %}
-                      +{{ item.est_pl_matsui|floatformat:0|intcomma }} 円
-                    {% else %}
-                      0 円
-                    {% endif %}
-                  </span>
-                </div>
+              <div class="mini-grid">
+                <span class="tag">楽天</span>
+                <span class="pos">
+                  {% if item.est_pl_rakuten %}+{{ item.est_pl_rakuten|floatformat:0|intcomma }} 円{% else %}0 円{% endif %}
+                </span>
+                <span class="tag">松井</span>
+                <span class="pos">
+                  {% if item.est_pl_matsui %}+{{ item.est_pl_matsui|floatformat:0|intcomma }} 円{% else %}0 円{% endif %}
+                </span>
               </div>
             </div>
 
-            {# 想定損失（楽天/松井） #}
             <div class="it">
               <div class="lb">想定損失</div>
-              <div class="brokers">
-                <div class="b-line">
-                  <span class="b-tag">楽天</span>
-                  <span class="b-val neg">
-                    {% if item.est_loss_rakuten %}
-                      -{{ item.est_loss_rakuten|floatformat:0|intcomma }} 円
-                    {% else %}
-                      0 円
-                    {% endif %}
-                  </span>
-                </div>
-                <div class="b-line">
-                  <span class="b-tag">松井</span>
-                  <span class="b-val neg">
-                    {% if item.est_loss_matsui %}
-                      -{{ item.est_loss_matsui|floatformat:0|intcomma }} 円
-                    {% else %}
-                      0 円
-                    {% endif %}
-                  </span>
-                </div>
+              <div class="mini-grid">
+                <span class="tag">楽天</span>
+                <span class="neg">
+                  {% if item.est_loss_rakuten %}-{{ item.est_loss_rakuten|floatformat:0|intcomma }} 円{% else %}0 円{% endif %}
+                </span>
+                <span class="tag">松井</span>
+                <span class="neg">
+                  {% if item.est_loss_matsui %}-{{ item.est_loss_matsui|floatformat:0|intcomma }} 円{% else %}0 円{% endif %}
+                </span>
               </div>
             </div>
           </div>
 
           {% if item.reasons_text %}
+          <div class="reasons-wrap">
+            <div class="reasons-title">AIの判断理由（0株のときの見送り理由も含む）</div>
             <ul class="reasons">
               {% for line in item.reasons_text %}
                 <li>{{ line }}</li>
               {% endfor %}
             </ul>
+          </div>
           {% endif %}
 
           <div class="btns">
