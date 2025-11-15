@@ -13,6 +13,7 @@
   body{background:var(--bg);color:var(--fg)}
   .wrap{max-width:720px;margin:0 auto;padding:10px 12px 80px}
 
+  /* ヘッダー（スクショのやつに戻す） */
   .head{
     display:flex;align-items:center;justify-content:space-between;
     padding:14px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.05);
@@ -38,7 +39,7 @@
   .ttl h3{font-size:16px;margin:0;line-height:1.3}
   .ttl .sub{font-size:12px;color:#9fb1c7;margin-top:2px}
 
-  /* 星＋スコア（デザインは前のまま） */
+  /* 星＋スコア（前に気に入ってくれてた形） */
   .stars{
     display:flex;
     flex-direction:column;
@@ -60,6 +61,7 @@
     margin-top:2px;
   }
 
+  /* KPI 2列 × 3行（現在値 / 数量 / Entry / 必要資金 / 想定利益 / 想定損失） */
   .kpi{
     display:grid;
     gap:8px;
@@ -79,13 +81,7 @@
   .kpi .pos{color:var(--ok)}
   .kpi .neg{color:var(--bad)}
 
-  .entry-box{
-    margin-top:10px;
-    border:1px solid rgba(255,255,255,.1);
-    border-radius:12px;
-    padding:8px 10px;
-  }
-  .entry-box .lb{font-size:12px;color:#9fb1c7;margin-bottom:4px}
+  /* Entry / TP / SL をボックス内に収める（元のデザイン） */
   .entry-row{font-size:14px;display:flex;flex-direction:column;gap:2px}
   .entry-row span{display:flex;align-items:center;gap:6px}
   .dot-entry{width:10px;height:10px;border-radius:999px;background:#22c55e;display:inline-block}
@@ -159,8 +155,9 @@
             </div>
           </div>
 
-          {# ---- 現在値 & 2段KPI ---- #}
+          {# ==== KPI 2列 × 3行 ==== #}
           <div class="kpi">
+            {# 現在値 #}
             <div class="it">
               <div class="lb">現在値</div>
               <div class="vl">
@@ -173,12 +170,13 @@
                 {% else %}
                   —
                 {% endif %}
+                {% if item.price_date %}
+                  <div class="meta">{{ item.price_date }} / {{ item.price_vendor|default:"" }}</div>
+                {% endif %}
               </div>
-              {% if item.price_date %}
-                <div class="meta">{{ item.price_date }} / {{ item.price_vendor|default:"" }}</div>
-              {% endif %}
             </div>
 
+            {# 数量（楽天/松井 2段） #}
             <div class="it">
               <div class="lb">数量（{{ lot_size }}株単元・リスク{{ risk_pct|floatformat:2 }}%）</div>
               <div class="vl">
@@ -187,6 +185,35 @@
               </div>
             </div>
 
+            {# Entry / TP / SL（ボックス内） #}
+            <div class="it">
+              <div class="lb">Entry / TP / SL</div>
+              <div class="entry-row">
+                <span><span class="dot-entry"></span>Entry :
+                  {% if item.is_etf or item.sector_display == 'ETF/ETN' %}
+                    {% if item.entry %}{{ item.entry|floatformat:1|intcomma }} 円{% else %}—{% endif %}
+                  {% else %}
+                    {% if item.entry %}{{ item.entry|floatformat:0|intcomma }} 円{% else %}—{% endif %}
+                  {% endif %}
+                </span>
+                <span><span class="dot-tp"></span>TP :
+                  {% if item.is_etf or item.sector_display == 'ETF/ETN' %}
+                    {% if item.tp %}{{ item.tp|floatformat:1|intcomma }} 円{% else %}—{% endif %}
+                  {% else %}
+                    {% if item.tp %}{{ item.tp|floatformat:0|intcomma }} 円{% else %}—{% endif %}
+                  {% endif %}
+                </span>
+                <span><span class="dot-sl"></span>SL :
+                  {% if item.is_etf or item.sector_display == 'ETF/ETN' %}
+                    {% if item.sl %}{{ item.sl|floatformat:1|intcomma }} 円{% else %}—{% endif %}
+                  {% else %}
+                    {% if item.sl %}{{ item.sl|floatformat:0|intcomma }} 円{% else %}—{% endif %}
+                  {% endif %}
+                </span>
+              </div>
+            </div>
+
+            {# 必要資金（楽天/松井） #}
             <div class="it">
               <div class="lb">必要資金（概算）</div>
               <div class="vl">
@@ -195,6 +222,7 @@
               </div>
             </div>
 
+            {# 想定利益（楽天/松井） #}
             <div class="it">
               <div class="lb">想定利益</div>
               <div class="vl">
@@ -213,6 +241,7 @@
               </div>
             </div>
 
+            {# 想定損失（楽天/松井） #}
             <div class="it">
               <div class="lb">想定損失</div>
               <div class="vl">
@@ -232,49 +261,20 @@
             </div>
           </div>
 
-          {# ---- Entry / TP / SL（前と同じ見た目） ---- #}
-          <div class="entry-box">
-            <div class="lb">Entry / TP / SL</div>
-            <div class="entry-row">
-              <span><span class="dot-entry"></span>Entry : 
-                {% if item.is_etf or item.sector_display == 'ETF/ETN' %}
-                  {% if item.entry %}{{ item.entry|floatformat:1|intcomma }} 円{% else %}—{% endif %}
-                {% else %}
-                  {% if item.entry %}{{ item.entry|floatformat:0|intcomma }} 円{% else %}—{% endif %}
-                {% endif %}
-              </span>
-              <span><span class="dot-tp"></span>TP : 
-                {% if item.is_etf or item.sector_display == 'ETF/ETN' %}
-                  {% if item.tp %}{{ item.tp|floatformat:1|intcomma }} 円{% else %}—{% endif %}
-                {% else %}
-                  {% if item.tp %}{{ item.tp|floatformat:0|intcomma }} 円{% else %}—{% endif %}
-                {% endif %}
-              </span>
-              <span><span class="dot-sl"></span>SL : 
-                {% if item.is_etf or item.sector_display == 'ETF/ETN' %}
-                  {% if item.sl %}{{ item.sl|floatformat:1|intcomma }} 円{% else %}—{% endif %}
-                {% else %}
-                  {% if item.sl %}{{ item.sl|floatformat:0|intcomma }} 円{% else %}—{% endif %}
-                {% endif %}
-              </span>
-            </div>
-          </div>
-
-          {# ---- 0株のときの理由テキスト（ゆるめず理由を表示） ---- #}
+          {# ==== 0株の理由テキスト ==== #}
           <div class="meta">
             {% if not item.qty_rakuten and not item.qty_matsui %}
-              楽天・松井ともに 0株です。現在のリスク％・損切幅・想定利益と
-              手数料/スリッページを合わせて考えると、
-              最小ロットでも「Rが小さい or コスト負け」になる可能性が高いため、
-              短期ルールでは今回は<strong>見送り</strong>と判定しています。
+              楽天・松井ともに 0株です。現在のボラティリティとあなたのリスク％を前提に、
+              「R値」「手数料＋スリッページ」「最低取りたい純利益」をまとめてチェックした結果、
+              最小ロットでも短期ルールの基準を下回るため、今回は<strong>見送り</strong>判定になっています。
             {% else %}
               {% if not item.qty_rakuten %}
-                楽天は、リスク％・損切幅・手数料を加味すると
-                最小ロットでも条件を満たさないため 0株＝見送り判定です。<br>
+                楽天は 0株です。ボラティリティとリスク％を前提にした短期ルールの基準
+                （R値・コスト・最低利益）が十分でないため、楽天口座ではこの銘柄は<strong>見送り</strong>になっています。<br>
               {% endif %}
               {% if not item.qty_matsui %}
-                松井は、リスク％・損切幅・手数料を加味すると
-                最小ロットでも条件を満たさないため 0株＝見送り判定です。
+                松井は 0株です。ボラティリティとリスク％を前提にした短期ルールの基準
+                （R値・コスト・最低利益）が十分でないため、松井口座ではこの銘柄は<strong>見送り</strong>になっています。
               {% endif %}
             {% endif %}
           </div>
