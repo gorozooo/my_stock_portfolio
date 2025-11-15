@@ -12,11 +12,9 @@ from django.shortcuts import render
 from django.utils import timezone
 
 from aiapp.models import StockMaster
-from portfolio.models import UserSetting
 
 PICKS_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "picks"
 
-# JPX 33業種（コード→日本語名）
 JPX_SECTOR_MAP: Dict[str, str] = {
     "005": "水産・農林業", "010": "鉱業", "015": "建設業", "020": "食料品", "025": "繊維製品",
     "030": "パルプ・紙", "035": "化学", "040": "医薬品", "045": "石油・石炭製品", "050": "ゴム製品",
@@ -33,7 +31,6 @@ JPX_SECTOR_MAP: Dict[str, str] = {
 
 
 def _load_latest_path() -> Optional[Path]:
-    """最新ピックJSONの実体ファイルをフォールバック順で解決"""
     for name in ("latest.json", "latest_lite.json", "latest_full.json", "latest_synthetic.json"):
         p = PICKS_DIR / name
         if p.exists() and p.is_file():
@@ -42,9 +39,8 @@ def _load_latest_path() -> Optional[Path]:
 
 
 def _load_picks() -> Dict[str, Any]:
-    """壊れていてもスキーマを崩さず返す"""
     path = _load_latest_path()
-    base = {"meta": {"generated_at": None, "mode": None, "count": 0}, "items": [], "_path": None}
+    base = {"meta": {"generated_at": None}, "items": [], "_path": None}
     if not path:
         return base
     try:
@@ -53,7 +49,6 @@ def _load_picks() -> Dict[str, Any]:
         data = {}
     meta = dict(data.get("meta") or {})
     items = list(data.get("items") or [])
-    # 互換：トップレベルに mode がある旧構造も拾う
     meta.setdefault("mode", data.get("mode"))
     meta.setdefault("count", len(items))
     data = {"meta": meta, "items": items, "_path": str(path)}
@@ -61,7 +56,6 @@ def _load_picks() -> Dict[str, Any]:
 
 
 def _is_etf(code: str) -> bool:
-    """ざっくりETF判定（先頭1xxxが多い）。厳密化は後でOK"""
     try:
         return code and code[0] == "1"
     except Exception:
@@ -71,17 +65,14 @@ def _is_etf(code: str) -> bool:
 def _sector_from_master(sm: Optional[StockMaster]) -> Optional[str]:
     if not sm:
         return None
-    # sector_name が入っていれば最優先
     if sm.sector_name:
         return sm.sector_name
-    # sector_code → 名称へ
     if sm.sector_code and sm.sector_code in JPX_SECTOR_MAP:
         return JPX_SECTOR_MAP[sm.sector_code]
     return None
 
 
 def _enrich_with_master(data: Dict[str, Any]) -> None:
-    """itemsを銘柄名/業種/価格の表示用に正規化"""
     items: List[Dict[str, Any]] = list(data.get("items") or [])
     if not items:
         return
@@ -96,13 +87,11 @@ def _enrich_with_master(data: Dict[str, Any]) -> None:
         code = str(it.get("code", "")).strip()
         sm = masters.get(code)
 
-        # name
         name = it.get("name")
         if not name or name == code:
             it["name"] = (sm.name if sm else code) or code
         it.setdefault("name_norm", it["name"])
 
-        # sector display（フォールバック順）
         sector_json = it.get("sector") or it.get("sector_name")
         sector_mst = _sector_from_master(sm)
         if _is_etf(code):
@@ -111,7 +100,6 @@ def _enrich_with_master(data: Dict[str, Any]) -> None:
             sector_disp = sector_json or sector_mst or "業種不明"
         it["sector_display"] = sector_disp
 
-        # last_close 防御
         val = it.get("last_close")
         try:
             it["last_close"] = float(val) if val is not None else None
@@ -120,26 +108,17 @@ def _enrich_with_master(data: Dict[str, Any]) -> None:
 
 
 def _format_updated_label(meta: Dict[str, Any], path_str: Optional[str], count: int) -> str:
-    """
-    表示用の最終更新ラベル：
-      1) meta.generated_at があればそれを表示
-      2) 無ければ JSONファイルの mtime を表示
-    例: 2025/11/09 01:23　6件 / FORCE_LITE
-    """
     mode = meta.get("mode") or "lite"
     raw_ts = (meta.get("generated_at") or "").strip() if isinstance(meta.get("generated_at"), str) else None
 
     if raw_ts:
         ts_label = raw_ts
     else:
-        # ファイル mtime にフォールバック
         if path_str:
             p = Path(path_str)
             if p.exists():
                 ts_label = timezone.localtime(
-                    timezone.make_aware(
-                        timezone.datetime.fromtimestamp(p.stat().st_mtime)
-                    )
+                    timezone.make_aware(timezone.datetime.fromtimestamp(p.stat().st_mtime))
                 ).strftime("%Y/%m/%d %H:%M")
             else:
                 ts_label = timezone.localtime().strftime("%Y/%m/%d %H:%M")
@@ -148,38 +127,7 @@ def _format_updated_label(meta: Dict[str, Any], path_str: Optional[str], count: 
     return f"{ts_label}　{count}件 / {str(mode).upper()}"
 
 
-def _get_risk_pct(user) -> float:
-    """UserSetting からリスク％を取得（未設定なら 1.0％）"""
-    if not user or not user.is_authenticated:
-        return 1.0
-    try:
-        s = UserSetting.objects.get(user=user)
-        return float(s.risk_pct or 1.0)
-    except UserSetting.DoesNotExist:
-        return 1.0
-
-
-def _mode_tag(meta: Dict[str, Any]) -> str:
-    """
-    style/horizon から表示タグを作成。
-    今は「短期 × 攻め（動的）」をメイン運用。
-    """
-    style = str(meta.get("style") or "").lower()
-    horizon = str(meta.get("horizon") or "").lower()
-
-    if horizon == "short" and style == "aggressive":
-        return "短期 × 攻め（動的）"
-    if horizon == "short" and style:
-        return f"短期 × {style}"
-    if horizon == "middle":
-        return "中期モード"
-    if horizon == "long":
-        return "長期モード"
-    return "AIモード"
-
-
 def picks(request):
-    # LIVE/DEMO 切替（将来ロジック拡張）
     qmode = request.GET.get("mode")
     is_demo = True if qmode == "demo" else False if qmode == "live" else True
 
@@ -189,10 +137,9 @@ def picks(request):
     meta = data.get("meta") or {}
     count = meta.get("count") or len(data.get("items") or [])
     updated_label = _format_updated_label(meta, data.get("_path"), count)
-    mode_tag = _mode_tag(meta)
 
-    risk_pct = _get_risk_pct(request.user)
-    lot_size = 100  # ETF はテンプレ側で1株扱いにするのでここは既定値だけ
+    risk_pct = float(meta.get("risk_pct") or 1.0)
+    lot_size = int(meta.get("lot_size") or 100)
 
     ctx = {
         "items": data.get("items") or [],
@@ -201,7 +148,6 @@ def picks(request):
         "is_demo": is_demo,
         "lot_size": lot_size,
         "risk_pct": risk_pct,
-        "mode_tag": mode_tag,
     }
     return render(request, "aiapp/picks.html", ctx)
 
@@ -211,6 +157,5 @@ def picks_json(request):
     _enrich_with_master(data)
     if not data:
         raise Http404("no picks")
-    # 内部用メタは出さない
     data.pop("_path", None)
     return JsonResponse(data, safe=True, json_dumps_params={"ensure_ascii": False, "indent": 2})
