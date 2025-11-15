@@ -3,7 +3,7 @@
 AI Picks 用 ポジションサイズ計算サービス（短期×攻め・本気版）
 
 - 楽天 / 松井 の 2段出力
-- UserSetting.risk_pct と 各社の倍率 / ヘアカットを利用
+- UserSetting.risk_pct と 各社倍率/ヘアカットを利用
 - broker_summary.compute_broker_summaries() の結果に合わせて
     - 資産ベース: 現金残高 + 現物（特定）評価額
     - 予算ベース: 信用余力（概算）
@@ -36,8 +36,8 @@ AI Picks 用 ポジションサイズ計算サービス（短期×攻め・本�
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Tuple
 
 from django.db import transaction
 from django.contrib.auth import get_user_model
@@ -52,9 +52,6 @@ from aiapp.services.broker_summary import compute_broker_summaries
 
 # 最低純利益（円）…これ未満なら「やっても意味が薄い」と判断
 MIN_NET_PROFIT_YEN = 1000.0
-
-# 純利益 / コスト の最低倍率 … コストの 3倍以上は欲しい
-MIN_PROFIT_COST_RATIO = 3.0
 
 # Reward / Risk (TPまでの幅 / SLまでの幅) の最低 R
 MIN_REWARD_RISK = 1.0
@@ -113,7 +110,6 @@ def _build_broker_envs(user, risk_pct: float) -> Dict[str, BrokerEnv]:
         matsui_haircut,
     ) = _load_user_setting(user)
 
-    # risk_pct は引数優先でよい（UserSetting からも取れるが一応合わせる）
     risk_pct = float(risk_pct or _risk_pct or 1.0)
 
     summaries = compute_broker_summaries(
@@ -127,7 +123,6 @@ def _build_broker_envs(user, risk_pct: float) -> Dict[str, BrokerEnv]:
 
     envs: Dict[str, BrokerEnv] = {}
     for s in summaries:
-        # s は dataclass(BrokerNumbers) 想定
         label = getattr(s, "label", None)
         if not label:
             continue
@@ -217,11 +212,6 @@ def compute_position_sizing(
 ) -> Dict[str, Any]:
     """
     AI Picks 1銘柄分の数量と評価・理由を計算して返す。
-    - user        : Django User（無ければ内部で first() を使用）
-    - code        : 証券コード
-    - last_price  : 現在値
-    - atr         : ATR（14など）
-    - entry / tp / sl : すでに算出済みの短期×攻めルールに基づく価格
     """
     if user is None:
         user = _get_or_default_user()
@@ -264,13 +254,11 @@ def compute_position_sizing(
         "lot_size": lot,
     }
 
-    all_zero = True
-    reasons_lines: List[str] = []
+    any_positive = False  # ★ 最終的にどちらかが >0 かどうかを見る
 
     for broker_label, short_key in (("楽天", "rakuten"), ("松井", "matsui")):
         env = envs.get(broker_label)
         if env is None:
-            # そもそも口座が無い
             qty = 0
             required_cash = 0.0
             est_pl = 0.0
@@ -278,9 +266,7 @@ def compute_position_sizing(
             reason_msg = "該当する証券口座の情報が見つからないため。"
             reason_code = "no_account"
         else:
-            # 資産ベース: 現金 + 現物評価額（ざっくり）
             risk_assets = max(env.cash_yen + env.stock_value, 0.0)
-            # 予算ベース: 信用余力（概算）
             budget = max(env.credit_yoryoku, 0.0)
 
             if risk_assets <= 0 or budget <= 0:
@@ -291,16 +277,13 @@ def compute_position_sizing(
                 reason_msg = "信用余力が 0 円のため。"
                 reason_code = "no_budget"
             else:
-                # 1トレードあたり許容損失（円）
                 risk_value = risk_assets * (risk_pct / 100.0)
 
-                # 損失ベースで取れる最大株数
                 if loss_per_share <= 0:
                     max_by_risk = 0
                 else:
                     max_by_risk = int(risk_value / loss_per_share // lot * lot)
 
-                # 余力ベースで取れる最大株数（entry で評価）
                 max_by_budget = int(budget / max(entry, last_price) // lot * lot)
 
                 qty = min(max_by_risk, max_by_budget)
@@ -309,7 +292,7 @@ def compute_position_sizing(
                     qty = 0
 
                 if qty <= 0:
-                    # R やコスト評価用に「仮に最小ロットで入った場合」を想定
+                    # 「仮に最小ロットで入った場合」で理由を判定
                     test_qty = lot
                     gross_profit_test = reward_per_share * test_qty
                     loss_value_test = loss_per_share * test_qty
@@ -332,15 +315,13 @@ def compute_position_sizing(
                     est_pl = 0.0
                     est_loss = 0.0
                 else:
-                    all_zero = False
-                    # 実際の想定PL/損失
+                    # ここで一旦「プラス候補」として扱い、あとでフィルタ
                     gross_profit = reward_per_share * qty
                     loss_value = loss_per_share * qty
                     cost_round = _estimate_trading_cost(entry, qty) * 2
                     net_profit = gross_profit - cost_round
                     rr = (gross_profit / loss_value) if loss_value > 0 else 0.0
 
-                    # ここからは「数量はあるけど、本気ルールでは弾くか？」の最終チェック
                     if net_profit <= 0:
                         qty = 0
                         required_cash = 0.0
@@ -363,12 +344,13 @@ def compute_position_sizing(
                         reason_code = "rr_too_low"
                         reason_msg = f"利確幅に対して損切幅が大きく、R={rr:.2f} と基準未満のため。"
                     else:
-                        # 採用
+                        # 最終的に採用
                         required_cash = entry * qty
                         est_pl = net_profit
                         est_loss = loss_value
                         reason_code = ""
                         reason_msg = ""
+                        any_positive = True  # ★ ここでだけ True にする
 
         # 結果を flat に格納
         result[f"qty_{short_key}"] = int(qty)
@@ -378,8 +360,9 @@ def compute_position_sizing(
         result[f"reason_{short_key}_code"] = reason_code
         result[f"reason_{short_key}_msg"] = reason_msg
 
-    # 両方ゼロの場合のみ、共通 reasons_text を作る
-    if all_zero:
+    # ★ 最終的な数量を見て「両方 0 なら reasons_text を付ける」
+    reasons_lines: List[str] = []
+    if not any_positive:
         reasons_lines.append("この銘柄は短期ルール上「見送り」です。")
         for broker_label, short_key in (("楽天", "rakuten"), ("松井", "matsui")):
             msg = result.get(f"reason_{short_key}_msg") or ""
