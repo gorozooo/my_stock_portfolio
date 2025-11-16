@@ -77,7 +77,7 @@ def _save_policy_basic_params(risk_pct: float, credit_usage_pct: float) -> None:
     if not isinstance(data, dict):
         data = {}
 
-    # ここで UI からの値を反映
+    # UI からの値を反映
     data["risk_pct"] = float(risk_pct)
     data["credit_usage_pct"] = float(credit_usage_pct)
 
@@ -102,16 +102,15 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         },
     )
 
-    # ポリシー値を読み込み（なければ UserSetting / デフォルトで補完）
+    # ポリシー値を読み込み（credit_usage_pct など表示用）
     policy_ctx = _build_policy_context()
-    risk_pct = float(
-        (policy_ctx.get("risk_pct") is not None and policy_ctx.get("risk_pct"))
-        or (us.risk_pct or 1.0)
-    )
+
+    # ★ risk_pct は UserSetting 優先（なくてポリシー→デフォルト）
+    risk_pct = float(us.risk_pct or policy_ctx.get("risk_pct") or 1.0)
+
+    # credit_usage_pct はポリシーのみで管理（なければ 70%）
     credit_usage_pct = float(
-        (policy_ctx.get("credit_usage_pct") is not None
-         and policy_ctx.get("credit_usage_pct"))
-        or 70.0
+        policy_ctx.get("credit_usage_pct") if policy_ctx.get("credit_usage_pct") is not None else 70.0
     )
 
     # 倍率 / ヘアカットは UserSetting 側を使う
@@ -133,11 +132,11 @@ def settings_view(request: HttpRequest) -> HttpResponse:
             except ValueError:
                 return current
 
-        # 1トレードリスク％（UI → ポリシー＆UserSetting に反映）
+        # 1トレードリスク％（UI → UserSetting & ポリシー）
         risk_pct = parse_float("risk_pct", risk_pct)
         us.risk_pct = risk_pct
 
-        # 信用余力の使用上限（％）もポリシーに反映
+        # 信用余力の使用上限（％）はポリシーだけで保持
         credit_usage_pct = parse_float("credit_usage_pct", credit_usage_pct)
 
         # 倍率 / ヘアカット（UserSetting）
@@ -152,7 +151,7 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         us.haircut_matsui = haircut_matsui
         us.save()
 
-        # ポリシーファイルへ反映（ポリシーを真実ソースに保つ）
+        # ポリシーファイルへ反映（risk_pct / credit_usage_pct）
         _save_policy_basic_params(risk_pct=risk_pct, credit_usage_pct=credit_usage_pct)
 
         messages.success(request, "保存しました")
@@ -161,12 +160,12 @@ def settings_view(request: HttpRequest) -> HttpResponse:
     # ----------------------------------------------------------------- GET
     brokers = compute_broker_summaries(
         user=user,
-        # 証券サマリの概算でも、ポリシー由来のリスク％を使う
+        # 証券サマリの概算でも、UserSetting 由来のリスク％を使う
         risk_pct=risk_pct,
         rakuten_leverage=leverage_rakuten,
         rakuten_haircut=haircut_rakuten,
         matsui_leverage=leverage_matsui,
-        matsui_haircut=haircut_matsui,  # ← ここを修正
+        matsui_haircut=haircut_matsui,
     )
 
     ctx = {
