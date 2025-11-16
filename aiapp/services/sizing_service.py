@@ -14,9 +14,6 @@ AI Picks 用 ポジションサイズ計算サービス（短期×攻め・本�
     - R が低すぎる
   などの理由で「見送り」を返す
 
-将来的には、このファイル内の SizingPolicy を
-YAML/JSON ポリシー読み込みに差し替えても挙動が再現できるようにしてある。
-
 戻り値の dict 例:
 {
   "risk_pct": 1.0,
@@ -49,47 +46,20 @@ from portfolio.models import UserSetting
 from aiapp.services.broker_summary import compute_broker_summaries
 
 
-# =====================================================================
-# ポリシー定義（将来 YAML/JSON に出す前提）
-# =====================================================================
+# ------------------------------
+# 設定系
+# ------------------------------
 
-@dataclass
-class SizingPolicy:
-    """
-    短期×攻め 用のポジションサイズポリシー。
+# 最低純利益（円）…これ未満なら「やっても意味が薄い」と判断
+MIN_NET_PROFIT_YEN = 1000.0
 
-    ※今はコード内にベタ書きだが、将来は YAML/JSON から読み込む想定。
-    """
-    name: str = "short_aggressive"
+# Reward / Risk (TPまでの幅 / SLまでの幅) の最低 R
+MIN_REWARD_RISK = 1.0
 
-    # 最低純利益（円）…これ未満なら「やっても意味が薄い」と判断
-    min_net_profit_yen: float = 1000.0
+# 信用余力のうち実際にサイズ計算に使う割合（追証を避けるため）
+# 例: 0.70 → 信用余力の 70% までを上限として使う
+CREDIT_BUDGET_RATIO = 0.70
 
-    # Reward / Risk (TP までの幅 / SL までの幅) の最低 R
-    min_reward_risk: float = 1.0
-
-    # 手数料・スリッページ係数
-    fee_rate: float = 0.0005       # 約定代金の 0.05%
-    fee_min_yen: float = 100.0     # 最低手数料
-    slippage_rate: float = 0.001   # 約定代金の 0.10%
-
-    # 信用余力をどこまで使うか（1.0 でフル、0.85 で 85% まで）
-    safe_budget_ratio: float = 0.85
-
-
-def get_sizing_policy() -> SizingPolicy:
-    """
-    現在有効なポジションサイズポリシーを返す。
-
-    今は Short × Aggressive 固定だが、
-    将来ここで YAML/JSON 読み込みやモード切り替えを行う想定。
-    """
-    return SizingPolicy()
-
-
-# =====================================================================
-# ブローカー環境・ユーザー設定
-# =====================================================================
 
 @dataclass
 class BrokerEnv:
@@ -125,8 +95,8 @@ def _load_user_setting(user) -> Tuple[float, float, float, float, float]:
     # モデルのフィールド名は portfolio.models.UserSetting に合わせる
     rakuten_leverage = getattr(us, "leverage_rakuten", 2.90)
     rakuten_haircut = getattr(us, "haircut_rakuten", 0.30)
-    matsui_leverage = getattr(us, "leverage_matsui", 3.30)
-    matsui_haircut = getattr(us, "haircut_matsui", 0.10)
+    matsui_leverage = getattr(us, "leverage_matsui", 2.80)
+    matsui_haircut = getattr(us, "haircut_matsui", 0.00)
 
     return risk_pct, rakuten_leverage, rakuten_haircut, matsui_leverage, matsui_haircut
 
@@ -169,10 +139,6 @@ def _build_broker_envs(user, risk_pct: float) -> Dict[str, BrokerEnv]:
     return envs
 
 
-# =====================================================================
-# ロジック共通ユーティリティ
-# =====================================================================
-
 def _lot_size_for(code: str) -> int:
     """
     ETF/ETN (13xx / 15xx) → 1株
@@ -183,18 +149,18 @@ def _lot_size_for(code: str) -> int:
     return 100
 
 
-def _estimate_trading_cost(entry: float, qty: int, policy: SizingPolicy) -> float:
+def _estimate_trading_cost(entry: float, qty: int) -> float:
     """
     信用取引のざっくりコスト見積もり（片道）。
-    - 売買手数料: 約定代金の fee_rate（最低 fee_min_yen）
-    - スリッページ: 約定代金の slippage_rate をざっくり見積もる
+    - 売買手数料: 約定代金の 0.05%（最低 100円）イメージ
+    - スリッページ: 約定代金の 0.10% をざっくり見積もる
     """
     if entry <= 0 or qty <= 0:
         return 0.0
     notionals = entry * qty
-    fee = max(policy.fee_min_yen, notionals * policy.fee_rate)
-    slippage = notionals * policy.slippage_rate
-    return fee + slippage  # 片道（往復で×2想定）
+    fee = max(100.0, notionals * 0.0005)  # 0.05% or 100円
+    slippage = notionals * 0.001          # 0.10%
+    return fee + slippage                 # 片道（往復で×2想定）
 
 
 def _build_reason_for_zero(
@@ -207,7 +173,6 @@ def _build_reason_for_zero(
     budget: float,
     min_lot: int,
     loss_value: float,
-    policy: SizingPolicy,
 ) -> str:
     """
     qty=0 になったときの「なぜゼロなのか」を細かく判定して日本語メッセージを返す。
@@ -225,19 +190,19 @@ def _build_reason_for_zero(
     if net_profit <= 0:
         return "手数料・スリッページを考慮すると純利益がマイナスになるため。"
 
-    if net_profit < policy.min_net_profit_yen:
-        return f"純利益が {int(policy.min_net_profit_yen):,} 円未満と小さすぎるため。"
+    if net_profit < MIN_NET_PROFIT_YEN:
+        return f"純利益が {int(MIN_NET_PROFIT_YEN):,} 円未満と小さすぎるため。"
 
-    if rr < policy.min_reward_risk:
+    if rr < MIN_REWARD_RISK:
         return f"利確幅に対して損切幅が大きく、R={rr:.2f} と基準未満のため。"
 
     # ここまで来て qty=0 はほぼ無いはずだが、念のため
     return "リスク％から計算した必要株数が最小単元に満たないため。"
 
 
-# =====================================================================
+# ------------------------------
 # メイン API
-# =====================================================================
+# ------------------------------
 
 @transaction.atomic
 def compute_position_sizing(
@@ -255,7 +220,6 @@ def compute_position_sizing(
     if user is None:
         user = _get_or_default_user()
 
-    policy = get_sizing_policy()
     risk_pct, _lr, _hr, _lm, _hm = _load_user_setting(user)
     lot = _lot_size_for(code)
 
@@ -292,17 +256,14 @@ def compute_position_sizing(
     envs = _build_broker_envs(user, risk_pct)
 
     # 1株あたりの損失幅 / 利益幅
-    #   - loss_per_share: 「実際の SL 距離」と「ATR×0.6」の大きい方
-    #   - reward_per_share: TP - Entry（マイナスにはしない）
-    loss_per_share = max(entry - sl, atr * 0.6)
-    reward_per_share = max(tp - entry, 0.0)
+    loss_per_share = max(entry - sl, atr * 0.6)   # 損切り距離
+    reward_per_share = max(tp - entry, 0.0)       # 利確距離（マイナスにはしない）
 
     result: Dict[str, Any] = {
         "risk_pct": risk_pct,
         "lot_size": lot,
     }
 
-    # 楽天 / 松井 を同じロジックで処理
     for broker_label, short_key in (("楽天", "rakuten"), ("松井", "matsui")):
         env = envs.get(broker_label)
         if env is None:
@@ -313,12 +274,12 @@ def compute_position_sizing(
             reason_msg = "該当する証券口座の情報が見つからないため。"
             reason_code = "no_account"
         else:
-            # 資産ベース（リスク計算用）と安全マージン付き予算
+            # 資産ベース（現金 + 現物）と、信用余力（70%だけ使用）
             risk_assets = max(env.cash_yen + env.stock_value, 0.0)
-            raw_budget = max(env.credit_yoryoku, 0.0)
-            safe_budget = raw_budget * policy.safe_budget_ratio
+            budget_raw = max(env.credit_yoryoku, 0.0)
+            budget = budget_raw * CREDIT_BUDGET_RATIO
 
-            if risk_assets <= 0 or safe_budget <= 0:
+            if risk_assets <= 0 or budget <= 0:
                 qty = 0
                 required_cash = 0.0
                 est_pl = 0.0
@@ -326,20 +287,22 @@ def compute_position_sizing(
                 reason_msg = "信用余力が 0 円のため。"
                 reason_code = "no_budget"
             else:
-                # 1トレードあたり許容損失（資産×リスク％）
+                # 1トレードあたりの許容損失（資産ベース × リスク％）
                 risk_value = risk_assets * (risk_pct / 100.0)
 
+                # リスク制約からの最大株数
                 if loss_per_share <= 0:
                     max_by_risk = 0
                 else:
                     max_by_risk = int(risk_value / loss_per_share // lot * lot)
 
-                # 信用余力ベース（安全マージン付き）
-                max_by_budget = int(safe_budget / max(entry, last_price) // lot * lot)
+                # 信用余力（70%）からの最大株数
+                max_by_budget = int(budget / max(entry, last_price) // lot * lot)
 
+                # 両方の制約の小さい方を採用
                 qty = min(max_by_risk, max_by_budget)
 
-                # 最小単元に満たないなら 0
+                # 最小単元未満なら 0
                 if qty < lot:
                     qty = 0
 
@@ -348,10 +311,10 @@ def compute_position_sizing(
                     test_qty = lot
                     gross_profit_test = reward_per_share * test_qty
                     loss_value_test = loss_per_share * test_qty
-                    cost_round = _estimate_trading_cost(entry, test_qty, policy) * 2
-                    net_profit_test = gross_profit_test - cost_round
+                    cost_round_test = _estimate_trading_cost(entry, test_qty) * 2
+                    net_profit_test = gross_profit_test - cost_round_test
                     rr_test = (
-                        gross_profit_test / loss_value_test
+                        (gross_profit_test / loss_value_test)
                         if loss_value_test > 0
                         else 0.0
                     )
@@ -362,22 +325,21 @@ def compute_position_sizing(
                         gross_profit=gross_profit_test,
                         net_profit=net_profit_test,
                         rr=rr_test,
-                        budget=safe_budget,
+                        budget=budget,
                         min_lot=lot,
                         loss_value=loss_per_share,
-                        policy=policy,
                     )
                     reason_code = "filtered"
                     required_cash = 0.0
                     est_pl = 0.0
                     est_loss = 0.0
                 else:
-                    # 採用候補 → 最後に R / 純利益 でもう一段ふるいにかける
+                    # ここで一旦「プラス候補」として扱い、あとでフィルタ
                     gross_profit = reward_per_share * qty
                     loss_value = loss_per_share * qty
-                    cost_round = _estimate_trading_cost(entry, qty, policy) * 2
+                    cost_round = _estimate_trading_cost(entry, qty) * 2
                     net_profit = gross_profit - cost_round
-                    rr = gross_profit / loss_value if loss_value > 0 else 0.0
+                    rr = (gross_profit / loss_value) if loss_value > 0 else 0.0
 
                     if net_profit <= 0:
                         qty = 0
@@ -386,24 +348,20 @@ def compute_position_sizing(
                         est_loss = 0.0
                         reason_code = "net_profit_negative"
                         reason_msg = "手数料・スリッページを考慮すると純利益がマイナスになるため。"
-                    elif net_profit < policy.min_net_profit_yen:
+                    elif net_profit < MIN_NET_PROFIT_YEN:
                         qty = 0
                         required_cash = 0.0
                         est_pl = 0.0
                         est_loss = 0.0
                         reason_code = "profit_too_small"
-                        reason_msg = (
-                            f"純利益が {int(policy.min_net_profit_yen):,} 円未満と小さすぎるため。"
-                        )
-                    elif rr < policy.min_reward_risk:
+                        reason_msg = f"純利益が {int(MIN_NET_PROFIT_YEN):,} 円未満と小さすぎるため。"
+                    elif rr < MIN_REWARD_RISK:
                         qty = 0
                         required_cash = 0.0
                         est_pl = 0.0
                         est_loss = 0.0
                         reason_code = "rr_too_low"
-                        reason_msg = (
-                            f"利確幅に対して損切幅が大きく、R={rr:.2f} と基準未満のため。"
-                        )
+                        reason_msg = f"利確幅に対して損切幅が大きく、R={rr:.2f} と基準未満のため。"
                     else:
                         # 最終的に採用
                         required_cash = entry * qty
