@@ -41,12 +41,13 @@ def settings_view(request: HttpRequest) -> HttpResponse:
     haircut_rakuten = us.haircut_rakuten
     leverage_matsui = us.leverage_matsui
     haircut_matsui = us.haircut_matsui
+    credit_usage_pct = getattr(us, "credit_usage_pct", 70.0)
 
     # ------------------------------------------------------------------ POST
     if request.method == "POST":
         tab = _get_tab(request)  # hidden で送っているタブ
 
-        # リスク％
+        # リスク％ / 信用余力使用％のパース
         def parse_float(name: str, current: float) -> float:
             v = request.POST.get(name)
             if v in (None, ""):
@@ -56,7 +57,17 @@ def settings_view(request: HttpRequest) -> HttpResponse:
             except ValueError:
                 return current
 
+        # 1トレードあたりのリスク％
         us.risk_pct = parse_float("risk_pct", us.risk_pct or 1.0)
+
+        # 信用余力の使用上限％
+        credit_usage_pct = parse_float("credit_usage_pct", credit_usage_pct)
+        # 0〜100 の範囲にクリップしておく
+        if credit_usage_pct < 0:
+            credit_usage_pct = 0.0
+        if credit_usage_pct > 100:
+            credit_usage_pct = 100.0
+        us.credit_usage_pct = credit_usage_pct
 
         # 倍率 / ヘアカット（フィールド名に合わせる）
         leverage_rakuten = parse_float("leverage_rakuten", leverage_rakuten)
@@ -89,6 +100,7 @@ def settings_view(request: HttpRequest) -> HttpResponse:
     ctx = {
         "tab": tab,
         "risk_pct": float(us.risk_pct or 1.0),
+        "credit_usage_pct": float(credit_usage_pct),
 
         # 表示用（モデルの名前に合わせる）
         "leverage_rakuten": leverage_rakuten,
