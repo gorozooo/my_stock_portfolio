@@ -247,10 +247,9 @@
             </div>
           </div>
 
-          {# ★サイジングサービス側の reasons_text だけを使って理由表示 #}
+          {# ★ここ：理由は reasons_text に入っている行だけを素直に出す #}
           {% if item.reasons_text %}
             <div class="meta">
-              この銘柄は短期ルール上「見送り」または一部見送りです。<br>
               {% for line in item.reasons_text %}
                 {{ line }}{% if not forloop.last %}<br>{% endif %}
               {% endfor %}
