@@ -94,22 +94,6 @@
           >
         </div>
 
-        <div class="row" style="margin-top:8px;">
-          <label style="font-size:14px;color:var(--sub)">
-            信用余力の使用上限（％）
-          </label>
-          <input
-            class="inp"
-            name="credit_usage_pct"
-            type="number"
-            inputmode="decimal"
-            step="1"
-            min="0"
-            max="100"
-            value="{{ credit_usage_pct|floatformat:0 }}"
-          >
-        </div>
-
         <h2 style="margin-top:14px">倍率 / ヘアカット（概算用）</h2>
 
         <!-- 楽天 -->
@@ -176,8 +160,7 @@
           <button class="btn" type="submit">保存</button>
         </div>
         <div class="note">
-          ※ ここで設定した倍率/ヘアカットは証券サマリの概算にも反映されます。<br>
-          ※ 信用余力の使用上限（％）は AI Picks の数量計算で使われます。
+          ※ ここで設定した倍率/ヘアカットは証券サマリの概算にも反映されます。
         </div>
       </form>
     </div>
@@ -223,10 +206,138 @@
     </div>
 
   {% else %}
-    <!-- 拡張（今は空） -->
+    <!-- 拡張：short_aggressive ポリシーの中身を見える化 -->
     <div class="sec">
-      <h2>拡張</h2>
-      <div class="note">将来のモード・しきい値などをここに追加します。</div>
+      <h2>短期×攻め ポリシー（short_aggressive.yml）</h2>
+
+      {% if policy %}
+        <div class="msg">
+          ポリシーファイルのしきい値をそのまま表示しています。<br>
+          ※ 実際の数量計算では、ここに表示されている値をもとに AI Picks が計算されます。
+        </div>
+
+        <div class="cards" style="margin-top:10px">
+          <!-- 基本 -->
+          <div class="card">
+            <div class="hd">
+              <div class="badge">基本</div>
+              <div style="font-size:12px;color:var(--sub)">
+                mode: {{ policy.mode|default:"short_aggressive" }}
+              </div>
+            </div>
+            <div class="kv">
+              <div class="it">
+                <div class="lb">1トレードのリスク</div>
+                <div class="vl">
+                  {% if policy.risk_pct is not None %}
+                    {{ policy.risk_pct|floatformat:2 }} %
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
+              </div>
+              <div class="it">
+                <div class="lb">信用余力の使用上限</div>
+                <div class="vl">
+                  {% if policy.credit_usage_pct is not None %}
+                    {{ policy.credit_usage_pct|floatformat:1 }} %
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- フィルター -->
+          <div class="card">
+            <div class="hd">
+              <div class="badge">フィルター</div>
+            </div>
+            <div class="kv">
+              <div class="it">
+                <div class="lb">最低純利益</div>
+                <div class="vl">
+                  {% if policy.min_net_profit_yen is not None %}
+                    {{ policy.min_net_profit_yen|floatformat:0|intcomma }} 円
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
+              </div>
+              <div class="it">
+                <div class="lb">最低 Reward / Risk</div>
+                <div class="vl">
+                  {% if policy.min_reward_risk is not None %}
+                    R {{ policy.min_reward_risk|floatformat:2 }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+            <div class="msg">
+              純利益がこの金額未満、または R がこの値を下回るケースは「見送り」候補になります。<br>
+              マイナス許容:
+              {% if policy.allow_negative_pl %}
+                許容する（allow_negative_pl = true）
+              {% else %}
+                許容しない（allow_negative_pl = false）
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- コスト想定 -->
+          <div class="card">
+            <div class="hd">
+              <div class="badge">コスト想定</div>
+            </div>
+            <div class="kv">
+              <div class="it">
+                <div class="lb">売買手数料レート</div>
+                <div class="vl">
+                  {% if policy.commission_rate is not None %}
+                    {{ policy.commission_rate|floatformat:4 }} （約定代金に対する割合）
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
+              </div>
+              <div class="it">
+                <div class="lb">最低手数料</div>
+                <div class="vl">
+                  {% if policy.min_commission is not None %}
+                    {{ policy.min_commission|floatformat:0|intcomma }} 円
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
+              </div>
+              <div class="it">
+                <div class="lb">スリッページレート</div>
+                <div class="vl">
+                  {% if policy.slippage_rate is not None %}
+                    {{ policy.slippage_rate|floatformat:4 }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+            <div class="msg">
+              ここで設定したコスト想定を使って、<br>
+              ・純利益がマイナスにならないか<br>
+              ・利益がショボすぎないか<br>
+              をチェックしています。
+            </div>
+          </div>
+        </div>
+      {% else %}
+        <div class="note">
+          short_aggressive.yml を読み込めませんでした。<br>
+          ファイルのパス: <code>aiapp/policies/short_aggressive.yml</code> を確認してください。
+        </div>
+      {% endif %}
     </div>
   {% endif %}
 </div>
