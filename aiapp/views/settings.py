@@ -10,6 +10,7 @@ from django.shortcuts import render, redirect
 from portfolio.models import UserSetting
 from . import settings as _  # noqa: F401, keep
 from aiapp.services.broker_summary import compute_broker_summaries
+from aiapp.services.policy_loader import load_short_aggressive_policy
 
 
 def _get_tab(request: HttpRequest) -> str:
@@ -19,6 +20,28 @@ def _get_tab(request: HttpRequest) -> str:
     """
     t = (request.GET.get("tab") or request.POST.get("tab") or "basic").lower()
     return "basic" if t not in ("basic", "summary", "advanced") else t
+
+
+def _build_policy_context() -> dict:
+    """
+    short_aggressive.yml の中身を UI 用に薄く整形して返す。
+    """
+    data = load_short_aggressive_policy() or {}
+
+    filters = data.get("filters") or {}
+    fees = data.get("fees") or {}
+
+    return {
+        "mode": data.get("mode") or "",
+        "risk_pct": data.get("risk_pct"),
+        "credit_usage_pct": data.get("credit_usage_pct"),
+        "min_net_profit_yen": filters.get("min_net_profit_yen"),
+        "min_reward_risk": filters.get("min_reward_risk"),
+        "allow_negative_pl": filters.get("allow_negative_pl"),
+        "commission_rate": fees.get("commission_rate"),
+        "min_commission": fees.get("min_commission"),
+        "slippage_rate": fees.get("slippage_rate"),
+    }
 
 
 @login_required
@@ -41,13 +64,12 @@ def settings_view(request: HttpRequest) -> HttpResponse:
     haircut_rakuten = us.haircut_rakuten
     leverage_matsui = us.leverage_matsui
     haircut_matsui = us.haircut_matsui
-    credit_usage_pct = getattr(us, "credit_usage_pct", 70.0)
 
     # ------------------------------------------------------------------ POST
     if request.method == "POST":
         tab = _get_tab(request)  # hidden で送っているタブ
 
-        # リスク％ / 信用余力使用％のパース
+        # リスク％
         def parse_float(name: str, current: float) -> float:
             v = request.POST.get(name)
             if v in (None, ""):
@@ -57,17 +79,7 @@ def settings_view(request: HttpRequest) -> HttpResponse:
             except ValueError:
                 return current
 
-        # 1トレードあたりのリスク％
         us.risk_pct = parse_float("risk_pct", us.risk_pct or 1.0)
-
-        # 信用余力の使用上限％
-        credit_usage_pct = parse_float("credit_usage_pct", credit_usage_pct)
-        # 0〜100 の範囲にクリップしておく
-        if credit_usage_pct < 0:
-            credit_usage_pct = 0.0
-        if credit_usage_pct > 100:
-            credit_usage_pct = 100.0
-        us.credit_usage_pct = credit_usage_pct
 
         # 倍率 / ヘアカット（フィールド名に合わせる）
         leverage_rakuten = parse_float("leverage_rakuten", leverage_rakuten)
@@ -100,7 +112,6 @@ def settings_view(request: HttpRequest) -> HttpResponse:
     ctx = {
         "tab": tab,
         "risk_pct": float(us.risk_pct or 1.0),
-        "credit_usage_pct": float(credit_usage_pct),
 
         # 表示用（モデルの名前に合わせる）
         "leverage_rakuten": leverage_rakuten,
@@ -109,5 +120,7 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         "haircut_matsui": haircut_matsui,
 
         "brokers": brokers,
+        # 拡張タブ用：ポリシーの中身
+        "policy": _build_policy_context(),
     }
     return render(request, "aiapp/settings.html", ctx)
