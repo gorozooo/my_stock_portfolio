@@ -166,7 +166,7 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         rakuten_leverage=leverage_rakuten,
         rakuten_haircut=haircut_rakuten,
         matsui_leverage=leverage_matsui,
-        matsui_haircut=matsui_haircut,
+        haircut_matsui = haircut_matsui,
     )
 
     ctx = {
