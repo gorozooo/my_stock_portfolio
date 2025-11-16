@@ -1,55 +1,51 @@
-# -*- coding: utf-8 -*-
+# aiapp/services/policy_loader.py
 from __future__ import annotations
+
 import os
+from functools import lru_cache
+from typing import Any, Dict
+
 import yaml
-from pathlib import Path
-from typing import Any, Dict, Optional
+from django.conf import settings
 
-DEFAULT_POLICY_PATH = Path("aiapp/policies/scoring.yaml")
 
-class PolicyLoader:
+def _policy_base_dir() -> str:
     """
-    YAMLポリシーの読み込み。profiles(dev/prod)・regime・modeで該当ルールを引く。
+    aiapp/policies ディレクトリへのパスを返す。
     """
-    def __init__(self, path: Optional[Path] = None):
-        self.path = path or DEFAULT_POLICY_PATH
-        self.data: Dict[str, Any] = {}
-        self._load()
+    # settings.BASE_DIR / "aiapp" / "policies"
+    return os.path.join(settings.BASE_DIR, "aiapp", "policies")
 
-    def _load(self) -> None:
-        if not self.path.exists():
-            raise FileNotFoundError(f"Policy file not found: {self.path}")
-        self.data = yaml.safe_load(self.path.read_text(encoding="utf-8")) or {}
 
-    def get_profile(self) -> str:
-        return os.getenv("AIAPP_CONF_PROFILE", self.data.get("default_profile", "dev"))
+@lru_cache
+def load_policy(name: str = "short_aggressive") -> Dict[str, Any]:
+    """
+    任意のポリシーファイル（.yml）を読み込んで dict を返す。
+    例: name="short_aggressive" -> aiapp/policies/short_aggressive.yml
+    """
+    base_dir = _policy_base_dir()
+    filename = f"{name}.yml"
+    path = os.path.join(base_dir, filename)
 
-    def weights(self, regime: str, mode: str, profile: Optional[str] = None) -> Dict[str, float]:
-        profile = profile or self.get_profile()
-        return (
-            self.data.get("profiles", {})
-                .get(profile, {})
-                .get("weights", {})
-                .get(regime, {})
-                .get(mode, {})
-            or {}
-        )
+    if not os.path.exists(path):
+        return {}
 
-    def entry_rule(self, mode: str, profile: Optional[str] = None) -> Dict[str, float]:
-        profile = profile or self.get_profile()
-        return (
-            self.data.get("profiles", {})
-                .get(profile, {})
-                .get("entry_rules", {})
-                .get(mode, {})
-            or {}
-        )
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except Exception:
+        # 何かあってもアプリ全体を落とさない
+        return {}
 
-    def confidence_rule(self, profile: Optional[str] = None) -> Dict[str, Any]:
-        profile = profile or self.get_profile()
-        return (
-            self.data.get("profiles", {})
-                .get(profile, {})
-                .get("confidence", {})
-            or {}
-        )
+    # dict を期待する
+    if not isinstance(data, dict):
+        return {}
+
+    return data
+
+
+def load_short_aggressive_policy() -> Dict[str, Any]:
+    """
+    短期×攻め 用ポリシー（short_aggressive.yml）を読み込むショートカット。
+    """
+    return load_policy("short_aggressive")
