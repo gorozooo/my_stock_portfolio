@@ -9,14 +9,14 @@ AI Picks 用 ポジションサイジングサービス（短期 × 攻め・本
 ・手数料 + スリッページをざっくり見積もり、コスト負け・利益ショボい場合は 0株
 ・証券会社ごとの「安全上限（資産 × レバレッジ上限）」を超える枚数は出さない
 ・0株になった理由は reasons_text に格納（楽天/松井別々の理由を出す）
+
+※ 資産は DB からではなく、呼び出し側から渡される broker_numbers を利用する
 """
 
 from __future__ import annotations
 from typing import Dict, Any, List
 
-from django.db.models import Sum
-
-from portfolio.models import BrokerAccount, CashLedger, Holding, UserSetting
+from portfolio.models import UserSetting
 
 
 # ===== パラメータ（あとでポリシー化予定） ===================================
@@ -61,30 +61,6 @@ def _risk_pct(user) -> float:
         return 1.0
 
 
-def _get_assets(user, broker_name: str) -> float:
-    """
-    その証券会社における「現金 + 保有株評価額」をざっくり資産として使う。
-    信用枠そのものではなく、“追証が出にくい安全側の基準”として利用。
-    """
-    accounts = BrokerAccount.objects.filter(user=user, broker__iexact=broker_name)
-
-    total_cash = 0.0
-    for acc in accounts:
-        ledger_sum = (
-            CashLedger.objects.filter(account=acc).aggregate(Sum("amount"))["amount__sum"] or 0
-        )
-        total_cash += float(acc.opening_balance or 0) + float(ledger_sum)
-
-    holds = Holding.objects.filter(user=user, broker__iexact=broker_name)
-    stock_val = 0.0
-    for h in holds:
-        price = float(h.last_price or 0)
-        qty = float(h.quantity or 0)
-        stock_val += price * qty
-
-    return total_cash + stock_val
-
-
 def _estimate_roundtrip_cost(notional: float) -> float:
     """
     1 回の建て玉（片サイド）の想定約定代金 notional に対して、
@@ -105,6 +81,72 @@ def _estimate_roundtrip_cost(notional: float) -> float:
     return fee_round + slip
 
 
+def _get_assets_from_numbers(broker_label: str, broker_numbers: Any | None) -> float:
+    """
+    AI設定の「証券サマリ」で使っている broker_numbers から、
+    その証券会社の“リスクベース資産”を推定する。
+
+    BrokerNumbers / dict 双方に対応できるよう、代表的なフィールド名を総当たりで見る。
+    見つからなければ 0 を返す（その場合は「資産ゼロ」で 0株判定になる）。
+    """
+    if not broker_numbers:
+        return 0.0
+
+    def _get(obj, name: str):
+        if isinstance(obj, dict):
+            return obj.get(name)
+        if hasattr(obj, name):
+            return getattr(obj, name)
+        return None
+
+    for b in broker_numbers:
+        label = _get(b, "label") or _get(b, "broker_label")
+        if label != broker_label:
+            continue
+
+        # 1. まず「リスク用に計算済みの合計」があればそれを優先
+        for key in [
+            "risk_assets", "risk_asset", "risk_base",
+            "asset_total", "assets", "total_assets",
+        ]:
+            v = _get(b, key)
+            if v is not None:
+                try:
+                    return float(v or 0)
+                except (TypeError, ValueError):
+                    pass
+
+        # 2. 現金 + 現物評価額 からざっくり合計を作る
+        cash = 0.0
+        spot = 0.0
+
+        for key in ["cash_balance", "cash_remain", "cash", "cash_total"]:
+            v = _get(b, key)
+            if v is not None:
+                try:
+                    cash = float(v or 0)
+                except (TypeError, ValueError):
+                    pass
+                break
+
+        for key in ["spot_value", "spot_eval", "spot_equity", "equity", "stock_value"]:
+            v = _get(b, key)
+            if v is not None:
+                try:
+                    spot = float(v or 0)
+                except (TypeError, ValueError):
+                    pass
+                break
+
+        if cash or spot:
+            return cash + spot
+
+        # 3. 何も取れなければ 0
+        return 0.0
+
+    return 0.0
+
+
 # ===== メインロジック =====================================================
 
 
@@ -116,7 +158,7 @@ def compute_position_sizing(
     entry: float,
     tp: float,
     sl: float,
-    broker_numbers: Any | None = None,  # 呼び出し側との互換用（ここでは未使用だが受け取っておく）
+    broker_numbers: Any | None = None,
 ) -> Dict[str, Any]:
     """
     AI Picks 1銘柄分の数量を楽天・松井の2段で返す。
@@ -154,7 +196,8 @@ def compute_position_sizing(
     reasons: Dict[str, str] = {}
 
     # 共有の値
-    loss_per_share = max(entry - sl, atr * 0.6)  # エントリーとSL差をベースに、最低でも ATR×0.6
+    # エントリーと SL の差をベースに、最低でも ATR×0.6 は損切幅として見る
+    loss_per_share = max(entry - sl, atr * 0.6)
     profit_per_share = max(tp - entry, atr * 0.4)
 
     # 最小ロットでも損切幅がゼロ or マイナスなら安全のため見送り
@@ -178,8 +221,9 @@ def compute_position_sizing(
 
     # 楽天 / 松井 の2つを同じロジックで回す
     for broker_label, broker_name in [("rakuten", "楽天"), ("matsui", "松井")]:
-        # その証券会社のざっくり資産
-        assets = _get_assets(user, broker_name)
+        # その証券会社のざっくり資産（AI証券サマリと同じベース）
+        assets = _get_assets_from_numbers(broker_label, broker_numbers)
+
         qty = 0
         est_pl = 0.0
         est_loss = 0.0
@@ -218,8 +262,8 @@ def compute_position_sizing(
                         gross_pl = profit_per_share * qty_candidate
                         loss_amt = loss_per_share * qty_candidate
 
-                        net_pl = gross_pl - cost  # TP到達時に本当に残る利益
-                        net_loss = loss_amt + cost  # SL+コストでどれだけ失うか
+                        net_pl = gross_pl - cost      # TP到達時に本当に残る利益
+                        net_loss = loss_amt + cost    # SL+コストでどれだけ失うか
 
                         # コスト負け / 利益ショボい判定
                         if net_pl <= 0:
@@ -245,7 +289,6 @@ def compute_position_sizing(
 
     reasons_lines: List[str] = []
     if reasons:
-        # 銘柄全体としては「見送り or 一部見送り」
         reasons_lines.append("この銘柄は短期ルール上「見送り」または一部見送りです。")
         if "rakuten" in reasons:
             reasons_lines.append(f"・楽天: {reasons['rakuten']}")
