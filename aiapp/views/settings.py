@@ -137,7 +137,7 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         risk_pct = parse_float("risk_pct", risk_pct)
         us.risk_pct = risk_pct
 
-        # ★信用余力の使用上限（％）もポリシーに反映
+        # 信用余力の使用上限（％）もポリシーに反映
         credit_usage_pct = parse_float("credit_usage_pct", credit_usage_pct)
 
         # 倍率 / ヘアカット（UserSetting）
@@ -166,7 +166,7 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         rakuten_leverage=leverage_rakuten,
         rakuten_haircut=haircut_rakuten,
         matsui_leverage=leverage_matsui,
-        haircut_matsui = haircut_matsui,
+        matsui_haircut=haircut_matsui,  # ← ここを修正
     )
 
     ctx = {
