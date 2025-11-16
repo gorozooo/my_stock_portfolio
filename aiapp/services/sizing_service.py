@@ -1,155 +1,209 @@
 # -*- coding: utf-8 -*-
 """
-AI Picks 用 ポジションサイジングサービス（短期 × 攻め・本気ロジック）
+AI Picks 用 ポジションサイズ計算サービス（短期×攻め・本気版）
 
-・楽天 / 松井 それぞれについて「数量 / 必要資金 / 想定利益 / 想定損失」を計算
-・UserSetting.risk_pct（1トレードあたりのリスク％）を使用
-・ATR から損切幅を算出 → 許容損失から数量を決定
-・ETF(13xx / 15xx) は 1株単位、それ以外は 100株単位
-・手数料 + スリッページをざっくり見積もり、コスト負け・利益ショボい場合は 0株
-・証券会社ごとの「安全上限（資産 × レバレッジ上限）」を超える枚数は出さない
-・0株になった理由は reasons_text に格納（楽天/松井別々の理由を出す）
+- 楽天 / 松井 の 2段出力
+- UserSetting.risk_pct と 各社倍率/ヘアカットを利用
+- broker_summary.compute_broker_summaries() の結果に合わせて
+    - 資産ベース: 現金残高 + 現物（特定）評価額
+    - 予算ベース: 信用余力（概算）
+- ATR / Entry / TP / SL を使って 1トレード許容損失からロットを計算
+- 手数料・スリッページを見積もって
+    - コスト負け
+    - 利益がショボい
+    - R が低すぎる
+  などの理由で「見送り」を返す
 
-※ 資産は DB からではなく、呼び出し側から渡される broker_numbers を利用する
+戻り値の dict 例:
+{
+  "risk_pct": 1.0,
+  "lot_size": 100,
+  "qty_rakuten": 100,
+  "required_cash_rakuten": 123400,
+  "est_pl_rakuten": 5400,
+  "est_loss_rakuten": 3200,
+  "reason_rakuten_code": "",
+  "reason_rakuten": "",
+  "qty_matsui": 0,
+  "required_cash_matsui": 0,
+  "est_pl_matsui": 0,
+  "est_loss_matsui": 0,
+  "reason_matsui_code": "profit_too_small",
+  "reason_matsui": "純利益が 1,000 円未満と小さすぎるため。",
+  "reasons_text": ["・楽天: ...", "・松井: ..."],
+}
 """
 
 from __future__ import annotations
-from typing import Dict, Any, List
+
+from dataclasses import dataclass
+from typing import Any, Dict, List, Tuple
+
+from django.db import transaction
+from django.contrib.auth import get_user_model
 
 from portfolio.models import UserSetting
+from aiapp.services.broker_summary import compute_broker_summaries
 
 
-# ===== パラメータ（あとでポリシー化予定） ===================================
+# ------------------------------
+# 設定系
+# ------------------------------
 
-# ETF / ETN のコードプレフィックス
-ETF_PREFIXES = ("13", "15")
+# 最低純利益（円）…これ未満なら「やっても意味が薄い」と判断
+MIN_NET_PROFIT_YEN = 1000.0
 
-# 信用も含めた「1銘柄あたりの安全レバレッジ上限」
-# 例: 資産 300万なら 300万 × 1.5 = 450万 まで
-MAX_LEVERAGE_PER_TRADE = 1.5
+# Reward / Risk (TPまでの幅 / SLまでの幅) の最低 R
+MIN_REWARD_RISK = 1.0
 
-# 手数料・スリッページ見積り
-FEE_PCT = 0.0005          # 片道 0.05% 想定
-FEE_MIN = 110.0           # 片道最低 110 円
-SLIPPAGE_PCT = 0.001      # 0.1% をスリッページとして見る（往復分はコストに含める）
-
-# 「利益ショボい」とみなす純利益（コスト控除後）のしきい値
-MIN_NET_PROFIT = 3000.0   # 3,000 円未満は見送り
+# 1トレードで使ってよい信用余力の割合（追証を避けるため 70% 上限）
+PER_TRADE_BUDGET_RATIO = 0.7
 
 
-# ===== 内部ヘルパ =========================================================
+@dataclass
+class BrokerEnv:
+    label: str
+    cash_yen: float
+    stock_value: float
+    credit_yoryoku: float
+
+
+def _get_or_default_user() -> Any:
+    """
+    cron など「ログインユーザーがいない」状況用に、
+    とりあえず最初のユーザーを返すユーティリティ。
+    （このアプリは実質 1ユーザー運用前提）
+    """
+    User = get_user_model()
+    return User.objects.first()
+
+
+def _load_user_setting(user) -> Tuple[float, float, float, float, float]:
+    """
+    UserSetting を取得し、リスク％と各社倍率/ヘアカットを返す。
+    """
+    us, _created = UserSetting.objects.get_or_create(
+        user=user,
+        defaults={
+            "account_equity": 1_000_000,
+            "risk_pct": 1.0,
+        },
+    )
+    risk_pct = float(us.risk_pct or 1.0)
+
+    # モデルのフィールド名は portfolio.models.UserSetting に合わせる
+    rakuten_leverage = getattr(us, "leverage_rakuten", 2.90)
+    rakuten_haircut = getattr(us, "haircut_rakuten", 0.30)
+    matsui_leverage = getattr(us, "leverage_matsui", 2.80)
+    matsui_haircut = getattr(us, "haircut_matsui", 0.00)
+
+    return risk_pct, rakuten_leverage, rakuten_haircut, matsui_leverage, matsui_haircut
+
+
+def _build_broker_envs(user, risk_pct: float) -> Dict[str, BrokerEnv]:
+    """
+    broker_summary.compute_broker_summaries() から
+    楽天 / 松井 の現金・現物評価額・信用余力を引き出して、扱いやすい dict へ。
+    """
+    (
+        _risk_pct,
+        rakuten_leverage,
+        rakuten_haircut,
+        matsui_leverage,
+        matsui_haircut,
+    ) = _load_user_setting(user)
+
+    risk_pct = float(risk_pct or _risk_pct or 1.0)
+
+    summaries = compute_broker_summaries(
+        user=user,
+        risk_pct=risk_pct,
+        rakuten_leverage=rakuten_leverage,
+        rakuten_haircut=rakuten_haircut,
+        matsui_leverage=matsui_leverage,
+        matsui_haircut=matsui_haircut,
+    )
+
+    envs: Dict[str, BrokerEnv] = {}
+    for s in summaries:
+        label = getattr(s, "label", None)
+        if not label:
+            continue
+        envs[label] = BrokerEnv(
+            label=label,
+            cash_yen=float(getattr(s, "cash_yen", 0) or 0),
+            stock_value=float(getattr(s, "stock_acq_value", 0) or 0),
+            credit_yoryoku=float(getattr(s, "credit_yoryoku", 0) or 0),
+        )
+    return envs
 
 
 def _lot_size_for(code: str) -> int:
     """
     ETF/ETN (13xx / 15xx) → 1株
-    その他日本株 → 100株
+    それ以外 → 100株
     """
-    if code.startswith(ETF_PREFIXES):
+    if code.startswith("13") or code.startswith("15"):
         return 1
     return 100
 
 
-def _risk_pct(user) -> float:
+def _estimate_trading_cost(entry: float, qty: int) -> float:
     """
-    UserSetting.risk_pct を取得（無ければ 1%）
+    信用取引のざっくりコスト見積もり（片道）。
+    - 売買手数料: 約定代金の 0.05%（最低 100円）イメージ
+    - スリッページ: 約定代金の 0.10% をざっくり見積もる
     """
-    try:
-        s = UserSetting.objects.get(user=user)
-        return float(s.risk_pct or 1.0)
-    except UserSetting.DoesNotExist:
-        return 1.0
-
-
-def _estimate_roundtrip_cost(notional: float) -> float:
-    """
-    1 回の建て玉（片サイド）の想定約定代金 notional に対して、
-    ・売買手数料（往復）
-    ・スリッページ
-    をざっくり見積もる。
-    """
-    if notional <= 0:
+    if entry <= 0 or qty <= 0:
         return 0.0
-
-    # 手数料（往復分）
-    fee_one_way = max(FEE_MIN, notional * FEE_PCT)
-    fee_round = fee_one_way * 2.0
-
-    # スリッページ（約定代金に対して 0.1% 分をコストとみなす）
-    slip = notional * SLIPPAGE_PCT
-
-    return fee_round + slip
+    notionals = entry * qty
+    fee = max(100.0, notionals * 0.0005)  # 0.05% or 100円
+    slippage = notionals * 0.001          # 0.10%
+    return fee + slippage                 # 片道（往復で×2想定）
 
 
-def _get_assets_from_numbers(broker_label: str, broker_numbers: Any | None) -> float:
+def _build_reason_for_zero(
+    label: str,
+    *,
+    qty: int,
+    gross_profit: float,
+    net_profit: float,
+    rr: float,
+    budget: float,
+    min_lot: int,
+    loss_value: float,
+) -> str:
     """
-    AI設定の「証券サマリ」で使っている broker_numbers から、
-    その証券会社の“リスクベース資産”を推定する。
-
-    BrokerNumbers / dict 双方に対応できるよう、代表的なフィールド名を総当たりで見る。
-    見つからなければ 0 を返す（その場合は「資産ゼロ」で 0株判定になる）。
+    qty=0 になったときの「なぜゼロなのか」を細かく判定して日本語メッセージを返す。
+    label: "楽天" / "松井"
     """
-    if not broker_numbers:
-        return 0.0
+    if budget <= 0:
+        return "信用余力が 0 円のため。"
 
-    def _get(obj, name: str):
-        if isinstance(obj, dict):
-            return obj.get(name)
-        if hasattr(obj, name):
-            return getattr(obj, name)
-        return None
+    if budget < min_lot * loss_value:
+        return "信用余力が最小単元に対しても不足しているため。"
 
-    for b in broker_numbers:
-        label = _get(b, "label") or _get(b, "broker_label")
-        if label != broker_label:
-            continue
+    if gross_profit <= 0:
+        return "TPまで到達しても想定利益がプラスにならないため。"
 
-        # 1. まず「リスク用に計算済みの合計」があればそれを優先
-        for key in [
-            "risk_assets", "risk_asset", "risk_base",
-            "asset_total", "assets", "total_assets",
-        ]:
-            v = _get(b, key)
-            if v is not None:
-                try:
-                    return float(v or 0)
-                except (TypeError, ValueError):
-                    pass
+    if net_profit <= 0:
+        return "手数料・スリッページを考慮すると純利益がマイナスになるため。"
 
-        # 2. 現金 + 現物評価額 からざっくり合計を作る
-        cash = 0.0
-        spot = 0.0
+    if net_profit < MIN_NET_PROFIT_YEN:
+        return f"純利益が {int(MIN_NET_PROFIT_YEN):,} 円未満と小さすぎるため。"
 
-        for key in ["cash_balance", "cash_remain", "cash", "cash_total"]:
-            v = _get(b, key)
-            if v is not None:
-                try:
-                    cash = float(v or 0)
-                except (TypeError, ValueError):
-                    pass
-                break
+    if rr < MIN_REWARD_RISK:
+        return f"利確幅に対して損切幅が大きく、R={rr:.2f} と基準未満のため。"
 
-        for key in ["spot_value", "spot_eval", "spot_equity", "equity", "stock_value"]:
-            v = _get(b, key)
-            if v is not None:
-                try:
-                    spot = float(v or 0)
-                except (TypeError, ValueError):
-                    pass
-                break
-
-        if cash or spot:
-            return cash + spot
-
-        # 3. 何も取れなければ 0
-        return 0.0
-
-    return 0.0
+    # ここまで来て qty=0 はほぼ無いはずだが、念のため
+    return "リスク％から計算した必要株数が最小単元に満たないため。"
 
 
-# ===== メインロジック =====================================================
+# ------------------------------
+# メイン API
+# ------------------------------
 
-
+@transaction.atomic
 def compute_position_sizing(
     user,
     code: str,
@@ -158,145 +212,162 @@ def compute_position_sizing(
     entry: float,
     tp: float,
     sl: float,
-    broker_numbers: Any | None = None,
 ) -> Dict[str, Any]:
     """
-    AI Picks 1銘柄分の数量を楽天・松井の2段で返す。
-
-    戻り値のキー:
-        qty_rakuten, qty_matsui
-        required_cash_rakuten, required_cash_matsui
-        est_pl_rakuten, est_pl_matsui
-        est_loss_rakuten, est_loss_matsui
-        risk_pct, lot_size, reasons_text
+    AI Picks 1銘柄分の数量と評価・理由を計算して返す。
     """
+    if user is None:
+        user = _get_or_default_user()
+
+    risk_pct, _lr, _hr, _lm, _hm = _load_user_setting(user)
     lot = _lot_size_for(code)
-    risk_pct = _risk_pct(user)
 
-    # ATR や価格が変な場合は即見送り
-    if not atr or atr <= 0 or last_price <= 0 or entry <= 0 or tp <= 0 or sl <= 0:
+    # ATR や価格が無効なら全て 0 で理由も「データ不足」
+    if atr is None or atr <= 0 or last_price <= 0 or entry is None or tp is None or sl is None:
         return dict(
             qty_rakuten=0,
-            qty_matsui=0,
             required_cash_rakuten=0,
-            required_cash_matsui=0,
             est_pl_rakuten=0,
-            est_pl_matsui=0,
             est_loss_rakuten=0,
+            reason_rakuten_code="invalid_data",
+            reason_rakuten="価格またはボラティリティ指標が不足しているため。",
+            qty_matsui=0,
+            required_cash_matsui=0,
+            est_pl_matsui=0,
             est_loss_matsui=0,
+            reason_matsui_code="invalid_data",
+            reason_matsui="価格またはボラティリティ指標が不足しているため。",
             risk_pct=risk_pct,
             lot_size=lot,
             reasons_text=[
-                "この銘柄は短期ルール上「見送り」です。",
-                "・ATR または価格情報が不足/異常のため。",
+                "・楽天: 価格またはボラティリティ指標が不足しているため。",
+                "・松井: 価格またはボラティリティ指標が不足しているため。",
             ],
         )
 
-    out: Dict[str, Any] = {}
-    reasons: Dict[str, str] = {}
+    envs = _build_broker_envs(user, risk_pct)
 
-    # 共有の値
-    # エントリーと SL の差をベースに、最低でも ATR×0.6 は損切幅として見る
-    loss_per_share = max(entry - sl, atr * 0.6)
-    profit_per_share = max(tp - entry, atr * 0.4)
+    # 1株あたりの損失幅 / 利益幅
+    loss_per_share = max(entry - sl, atr * 0.6)   # 損切り距離
+    reward_per_share = max(tp - entry, 0.0)       # 利確距離（マイナスにはしない）
 
-    # 最小ロットでも損切幅がゼロ or マイナスなら安全のため見送り
-    if loss_per_share <= 0:
-        return dict(
-            qty_rakuten=0,
-            qty_matsui=0,
-            required_cash_rakuten=0,
-            required_cash_matsui=0,
-            est_pl_rakuten=0,
-            est_pl_matsui=0,
-            est_loss_rakuten=0,
-            est_loss_matsui=0,
-            risk_pct=risk_pct,
-            lot_size=lot,
-            reasons_text=[
-                "この銘柄は短期ルール上「見送り」です。",
-                "・損切幅がほとんど無く、リスクリワードが成立しないため。",
-            ],
-        )
+    result: Dict[str, Any] = {
+        "risk_pct": risk_pct,
+        "lot_size": lot,
+    }
 
-    # 楽天 / 松井 の2つを同じロジックで回す
-    for broker_label, broker_name in [("rakuten", "楽天"), ("matsui", "松井")]:
-        # その証券会社のざっくり資産（AI証券サマリと同じベース）
-        assets = _get_assets_from_numbers(broker_label, broker_numbers)
-
-        qty = 0
-        est_pl = 0.0
-        est_loss = 0.0
-        reason: str | None = None
-
-        if assets <= 0:
-            reason = "口座残高・保有株が無く、トレード資産がゼロのため。"
+    for broker_label, short_key in (("楽天", "rakuten"), ("松井", "matsui")):
+        env = envs.get(broker_label)
+        if env is None:
+            qty = 0
+            required_cash = 0.0
+            est_pl = 0.0
+            est_loss = 0.0
+            reason_msg = "該当する証券口座の情報が見つからないため。"
+            reason_code = "no_account"
         else:
-            # 1トレードあたりの許容損失（円）
-            risk_value = assets * (risk_pct / 100.0)
+            risk_assets = max(env.cash_yen + env.stock_value, 0.0)
 
-            # 許容損失ベースの枚数
-            qty_risk = int((risk_value / loss_per_share) // lot * lot)
+            # ★ 信用余力は 70% までしか使わない（追証回避のための安全マージン）
+            budget = max(env.credit_yoryoku * PER_TRADE_BUDGET_RATIO, 0.0)
 
-            if qty_risk < lot:
-                # 許容リスクが小さすぎて最小ロットでも建てられない
-                reason = "許容損失に対して最小ロットが大きすぎるため。"
+            if risk_assets <= 0 or budget <= 0:
+                qty = 0
+                required_cash = 0.0
+                est_pl = 0.0
+                est_loss = 0.0
+                reason_msg = "信用余力が 0 円のため。"
+                reason_code = "no_budget"
             else:
-                # 安全上限（資産 × レバレッジ上限）から見た最大枚数
-                max_notional = assets * MAX_LEVERAGE_PER_TRADE
-                max_qty_by_budget = int((max_notional / entry) // lot * lot)
+                risk_value = risk_assets * (risk_pct / 100.0)
 
-                if max_qty_by_budget < lot:
-                    reason = "安全上限（資産×レバレッジ上限）内では最小ロットも建てられないため。"
+                if loss_per_share <= 0:
+                    max_by_risk = 0
                 else:
-                    # リスクと安全上限の両方を満たす範囲での枚数
-                    qty_candidate = min(qty_risk, max_qty_by_budget)
+                    max_by_risk = int(risk_value / loss_per_share // lot * lot)
 
-                    if qty_candidate < lot:
-                        # 理論上ほぼ起きないが、保険として
-                        reason = "リスク制約と安全上限の両方を考慮すると、建てられるロットが無いため。"
+                max_by_budget = int(budget / max(entry, last_price) // lot * lot)
+
+                qty = min(max_by_risk, max_by_budget)
+
+                if qty < lot:
+                    qty = 0
+
+                if qty <= 0:
+                    # 「仮に最小ロットで入った場合」で理由を判定
+                    test_qty = lot
+                    gross_profit_test = reward_per_share * test_qty
+                    loss_value_test = loss_per_share * test_qty
+                    cost_round = _estimate_trading_cost(entry, test_qty) * 2
+                    net_profit_test = gross_profit_test - cost_round
+                    rr_test = (gross_profit_test / loss_value_test) if loss_value_test > 0 else 0.0
+
+                    reason_msg = _build_reason_for_zero(
+                        broker_label,
+                        qty=qty,
+                        gross_profit=gross_profit_test,
+                        net_profit=net_profit_test,
+                        rr=rr_test,
+                        budget=budget,
+                        min_lot=lot,
+                        loss_value=loss_per_share,
+                    )
+                    reason_code = "filtered"
+                    required_cash = 0.0
+                    est_pl = 0.0
+                    est_loss = 0.0
+                else:
+                    # ここで一旦「プラス候補」として扱い、あとでフィルタ
+                    gross_profit = reward_per_share * qty
+                    loss_value = loss_per_share * qty
+                    cost_round = _estimate_trading_cost(entry, qty) * 2
+                    net_profit = gross_profit - cost_round
+                    rr = (gross_profit / loss_value) if loss_value > 0 else 0.0
+
+                    if net_profit <= 0:
+                        qty = 0
+                        required_cash = 0.0
+                        est_pl = 0.0
+                        est_loss = 0.0
+                        reason_code = "net_profit_negative"
+                        reason_msg = "手数料・スリッページを考慮すると純利益がマイナスになるため。"
+                    elif net_profit < MIN_NET_PROFIT_YEN:
+                        qty = 0
+                        required_cash = 0.0
+                        est_pl = 0.0
+                        est_loss = 0.0
+                        reason_code = "profit_too_small"
+                        reason_msg = f"純利益が {int(MIN_NET_PROFIT_YEN):,} 円未満と小さすぎるため。"
+                    elif rr < MIN_REWARD_RISK:
+                        qty = 0
+                        required_cash = 0.0
+                        est_pl = 0.0
+                        est_loss = 0.0
+                        reason_code = "rr_too_low"
+                        reason_msg = f"利確幅に対して損切幅が大きく、R={rr:.2f} と基準未満のため。"
                     else:
-                        notional = entry * qty_candidate
-                        cost = _estimate_roundtrip_cost(notional)
+                        # 最終的に採用
+                        required_cash = entry * qty
+                        est_pl = net_profit
+                        est_loss = loss_value
+                        reason_code = ""
+                        reason_msg = ""
 
-                        gross_pl = profit_per_share * qty_candidate
-                        loss_amt = loss_per_share * qty_candidate
+        # 結果を flat に格納（テンプレ側に合わせて reason_{short_key} もセット）
+        result[f"qty_{short_key}"] = int(qty)
+        result[f"required_cash_{short_key}"] = round(float(required_cash or 0.0), 0)
+        result[f"est_pl_{short_key}"] = round(float(est_pl or 0.0), 0)
+        result[f"est_loss_{short_key}"] = round(float(est_loss or 0.0), 0)
+        result[f"reason_{short_key}_code"] = reason_code
+        result[f"reason_{short_key}"] = reason_msg
 
-                        net_pl = gross_pl - cost      # TP到達時に本当に残る利益
-                        net_loss = loss_amt + cost    # SL+コストでどれだけ失うか
-
-                        # コスト負け / 利益ショボい判定
-                        if net_pl <= 0:
-                            reason = "TP到達時でも手数料・スリッページを差し引くと利益が残らないため。"
-                        elif net_pl < MIN_NET_PROFIT:
-                            reason = "TP到達時の純利益が小さく、手間に見合うリターンにならないため。"
-                        else:
-                            # OK: この枚数で採用
-                            qty = qty_candidate
-                            est_pl = net_pl
-                            est_loss = net_loss
-
-        # 結果を out に詰める
-        out[f"qty_{broker_label}"] = qty
-        out[f"required_cash_{broker_label}"] = int(round(entry * qty, 0)) if qty > 0 else 0
-        out[f"est_pl_{broker_label}"] = int(round(est_pl, 0)) if qty > 0 else 0
-        out[f"est_loss_{broker_label}"] = int(round(est_loss, 0)) if qty > 0 else 0
-
-        if reason:
-            reasons[broker_label] = reason
-
-    # ===== 理由テキストまとめ（楽天/松井別々の理由を出す） ===================
-
+    # ★ どちらか一方でも 0株なら、その証券会社分の理由を bullets としてまとめる
     reasons_lines: List[str] = []
-    if reasons:
-        reasons_lines.append("この銘柄は短期ルール上「見送り」または一部見送りです。")
-        if "rakuten" in reasons:
-            reasons_lines.append(f"・楽天: {reasons['rakuten']}")
-        if "matsui" in reasons:
-            reasons_lines.append(f"・松井: {reasons['matsui']}")
+    for broker_label, short_key in (("楽天", "rakuten"), ("松井", "matsui")):
+        msg = result.get(f"reason_{short_key}") or ""
+        qty = result.get(f"qty_{short_key}", 0)
+        if qty == 0 and msg:
+            reasons_lines.append(f"・{broker_label}: {msg}")
 
-    out["risk_pct"] = risk_pct
-    out["lot_size"] = lot
-    out["reasons_text"] = reasons_lines or None
-
-    return out
+    result["reasons_text"] = reasons_lines or None
+    return result
