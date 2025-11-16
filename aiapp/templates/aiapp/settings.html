@@ -94,6 +94,23 @@
           >
         </div>
 
+        <!-- ★ 追加：信用余力の使用上限（％） -->
+        <div class="row" style="margin-top:8px;">
+          <label style="font-size:14px;color:var(--sub)">
+            信用余力の使用上限（％）
+          </label>
+          <input
+            class="inp"
+            name="credit_usage_pct"
+            type="number"
+            inputmode="decimal"
+            step="1"
+            min="0"
+            max="100"
+            value="{{ credit_usage_pct|floatformat:1 }}"
+          >
+        </div>
+
         <h2 style="margin-top:14px">倍率 / ヘアカット（概算用）</h2>
 
         <!-- 楽天 -->
@@ -160,7 +177,8 @@
           <button class="btn" type="submit">保存</button>
         </div>
         <div class="note">
-          ※ ここで設定した倍率/ヘアカットは証券サマリの概算にも反映されます。
+          ※ ここで設定した倍率/ヘアカットは証券サマリの概算にも反映されます。<br>
+          ※ 1トレードのリスク％・信用余力の使用上限はポリシーファイルにも反映されます。
         </div>
       </form>
     </div>
