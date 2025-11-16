@@ -5,17 +5,16 @@ import os
 from typing import Any, Dict
 
 import yaml
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 
-from aiapp.services.broker_summary import compute_broker_summaries
-from aiapp.services.policy_loader import load_short_aggressive_policy
 from portfolio.models import UserSetting
 from . import settings as _  # noqa: F401, keep
+from aiapp.services.broker_summary import compute_broker_summaries
+from aiapp.services.policy_loader import load_short_aggressive_policy
 
 
 def _get_tab(request: HttpRequest) -> str:
@@ -49,14 +48,25 @@ def _build_policy_context() -> Dict[str, Any]:
     }
 
 
+def _policy_file_path() -> str:
+    """
+    short_aggressive.yml のフルパスを、ファイル構成から逆算して求める。
+
+    views.py  … aiapp/views/settings.py
+    aiapp_dir … aiapp/
+    policy    … aiapp/policies/short_aggressive.yml
+    """
+    here = os.path.abspath(os.path.dirname(__file__))         # aiapp/views
+    aiapp_dir = os.path.dirname(here)                         # aiapp
+    return os.path.join(aiapp_dir, "policies", "short_aggressive.yml")
+
+
 def _save_policy_basic_params(risk_pct: float, credit_usage_pct: float) -> None:
     """
     ポリシーファイル short_aggressive.yml の
     risk_pct / credit_usage_pct だけを上書き保存する。
     """
-    policy_path = os.path.join(
-        settings.BASE_DIR, "aiapp", "policies", "short_aggressive.yml"
-    )
+    policy_path = _policy_file_path()
 
     try:
         with open(policy_path, "r", encoding="utf-8") as f:
@@ -72,6 +82,7 @@ def _save_policy_basic_params(risk_pct: float, credit_usage_pct: float) -> None:
     data["credit_usage_pct"] = float(credit_usage_pct)
 
     # 既存の filters / fees などはそのまま残す
+    os.makedirs(os.path.dirname(policy_path), exist_ok=True)
     with open(policy_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
 
@@ -141,7 +152,7 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         us.haircut_matsui = haircut_matsui
         us.save()
 
-        # ポリシーファイルへ反映（後戻りではなくポリシーを真実ソースに保つ）
+        # ポリシーファイルへ反映（ポリシーを真実ソースに保つ）
         _save_policy_basic_params(risk_pct=risk_pct, credit_usage_pct=credit_usage_pct)
 
         messages.success(request, "保存しました")
@@ -155,7 +166,7 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         rakuten_leverage=leverage_rakuten,
         rakuten_haircut=haircut_rakuten,
         matsui_leverage=leverage_matsui,
-        matsui_haircut=haircut_matsui,
+        matsui_haircut=matsui_haircut,
     )
 
     ctx = {
