@@ -18,6 +18,10 @@ class UserSetting(models.Model):
     account_equity = models.BigIntegerField("口座残高(円)", default=1_000_000)
     risk_pct = models.FloatField("1トレードのリスク％", default=1.0)
 
+    # 追加：信用余力の使用上限（％）
+    # 例: 70.0 なら「信用余力の 70% までを数量計算に使う」
+    credit_usage_pct = models.FloatField("信用余力の使用上限％", default=70.0)
+
     # 追加：証券会社ごとの倍率/ヘアカット率（既定はあなたの運用に合わせて設定）
     leverage_rakuten = models.FloatField("楽天 倍率", default=2.90)
     haircut_rakuten  = models.FloatField("楽天 ヘアカット率", default=0.30)  # 30%
