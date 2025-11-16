@@ -14,9 +14,11 @@ from django.shortcuts import redirect, render
 from portfolio.models import UserSetting
 from . import settings as _  # noqa: F401, keep
 from aiapp.services.broker_summary import compute_broker_summaries
-from aiapp.services.policy_loader import load_short_aggressive_policy
 
 
+# ============================
+# タブ判定
+# ============================
 def _get_tab(request: HttpRequest) -> str:
     """
     ?tab=basic / summary / advanced を取得。
@@ -26,11 +28,47 @@ def _get_tab(request: HttpRequest) -> str:
     return "basic" if t not in ("basic", "summary", "advanced") else t
 
 
+# ============================
+# ポリシーファイル関連
+# ============================
+def _policy_file_path() -> str:
+    """
+    short_aggressive.yml のフルパスを、ファイル構成から逆算して求める。
+
+    views.py  … aiapp/views/settings.py
+    aiapp_dir … aiapp/
+    policy    … aiapp/policies/short_aggressive.yml
+    """
+    here = os.path.abspath(os.path.dirname(__file__))  # aiapp/views
+    aiapp_dir = os.path.dirname(here)                  # aiapp
+    return os.path.join(aiapp_dir, "policies", "short_aggressive.yml")
+
+
+def _load_policy_raw() -> Dict[str, Any]:
+    """
+    short_aggressive.yml を**直接**読み込んで dict を返す。
+    見つからない/壊れている場合は {}。
+    """
+    path = _policy_file_path()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        data = {}
+    except Exception:
+        data = {}
+
+    if not isinstance(data, dict):
+        data = {}
+    return data
+
+
 def _build_policy_context() -> Dict[str, Any]:
     """
-    short_aggressive.yml の中身を UI 用に薄く整形して返す。
+    ポリシーファイルの中身を UI 用に薄く整形して返す。
+    （risk_pct / credit_usage_pct もここから直接読む）
     """
-    data = load_short_aggressive_policy() or {}
+    data = _load_policy_raw()
 
     filters = data.get("filters") or {}
     fees = data.get("fees") or {}
@@ -48,45 +86,27 @@ def _build_policy_context() -> Dict[str, Any]:
     }
 
 
-def _policy_file_path() -> str:
-    """
-    short_aggressive.yml のフルパスを、ファイル構成から逆算して求める。
-
-    views.py  … aiapp/views/settings.py
-    aiapp_dir … aiapp/
-    policy    … aiapp/policies/short_aggressive.yml
-    """
-    here = os.path.abspath(os.path.dirname(__file__))         # aiapp/views
-    aiapp_dir = os.path.dirname(here)                         # aiapp
-    return os.path.join(aiapp_dir, "policies", "short_aggressive.yml")
-
-
 def _save_policy_basic_params(risk_pct: float, credit_usage_pct: float) -> None:
     """
     ポリシーファイル short_aggressive.yml の
     risk_pct / credit_usage_pct だけを上書き保存する。
+    それ以外(filters/feesなど)はそのまま残す。
     """
     policy_path = _policy_file_path()
-
-    try:
-        with open(policy_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-    except FileNotFoundError:
-        data = {}
-
-    if not isinstance(data, dict):
-        data = {}
+    data = _load_policy_raw()
 
     # UI からの値を反映
     data["risk_pct"] = float(risk_pct)
     data["credit_usage_pct"] = float(credit_usage_pct)
 
-    # 既存の filters / fees などはそのまま残す
     os.makedirs(os.path.dirname(policy_path), exist_ok=True)
     with open(policy_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
 
 
+# ============================
+# メインビュー
+# ============================
 @login_required
 @transaction.atomic
 def settings_view(request: HttpRequest) -> HttpResponse:
@@ -102,16 +122,13 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         },
     )
 
-    # ポリシー値を読み込み（credit_usage_pct など表示用）
+    # ポリシー値を読み込み（なければ UserSetting / デフォルトで補完）
     policy_ctx = _build_policy_context()
+    policy_risk = policy_ctx.get("risk_pct")
+    policy_credit = policy_ctx.get("credit_usage_pct")
 
-    # ★ risk_pct は UserSetting 優先（なくてポリシー→デフォルト）
-    risk_pct = float(us.risk_pct or policy_ctx.get("risk_pct") or 1.0)
-
-    # credit_usage_pct はポリシーのみで管理（なければ 70%）
-    credit_usage_pct = float(
-        policy_ctx.get("credit_usage_pct") if policy_ctx.get("credit_usage_pct") is not None else 70.0
-    )
+    risk_pct = float(policy_risk if policy_risk is not None else (us.risk_pct or 1.0))
+    credit_usage_pct = float(policy_credit if policy_credit is not None else 70.0)
 
     # 倍率 / ヘアカットは UserSetting 側を使う
     leverage_rakuten = us.leverage_rakuten
@@ -132,11 +149,11 @@ def settings_view(request: HttpRequest) -> HttpResponse:
             except ValueError:
                 return current
 
-        # 1トレードリスク％（UI → UserSetting & ポリシー）
+        # 1トレードリスク％（UI → ポリシー＆UserSetting に反映）
         risk_pct = parse_float("risk_pct", risk_pct)
         us.risk_pct = risk_pct
 
-        # 信用余力の使用上限（％）はポリシーだけで保持
+        # 信用余力の使用上限（％）もポリシーに反映
         credit_usage_pct = parse_float("credit_usage_pct", credit_usage_pct)
 
         # 倍率 / ヘアカット（UserSetting）
@@ -151,8 +168,11 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         us.haircut_matsui = haircut_matsui
         us.save()
 
-        # ポリシーファイルへ反映（risk_pct / credit_usage_pct）
-        _save_policy_basic_params(risk_pct=risk_pct, credit_usage_pct=credit_usage_pct)
+        # ポリシーファイルへ反映（ポリシーを真実ソースに保つ）
+        _save_policy_basic_params(
+            risk_pct=risk_pct,
+            credit_usage_pct=credit_usage_pct,
+        )
 
         messages.success(request, "保存しました")
         return redirect(f"{request.path}?tab={tab}")
@@ -160,13 +180,16 @@ def settings_view(request: HttpRequest) -> HttpResponse:
     # ----------------------------------------------------------------- GET
     brokers = compute_broker_summaries(
         user=user,
-        # 証券サマリの概算でも、UserSetting 由来のリスク％を使う
+        # 証券サマリの概算でも、ポリシー由来のリスク％を使う
         risk_pct=risk_pct,
         rakuten_leverage=leverage_rakuten,
         rakuten_haircut=haircut_rakuten,
         matsui_leverage=leverage_matsui,
         matsui_haircut=haircut_matsui,
     )
+
+    # 再度ポリシーを読み直して、拡張タブに最新値を出す
+    policy_ctx = _build_policy_context()
 
     ctx = {
         "tab": tab,
