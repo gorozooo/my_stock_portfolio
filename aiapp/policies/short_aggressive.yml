@@ -18,7 +18,7 @@ lot_rule:
 
 filters:
   # 最低純利益（円）…これ未満なら「やっても意味が薄い」と判断
-  min_net_profit_yen: 3000.0
+  min_net_profit_yen: 2000.0
 
   # 最低 Reward / Risk（TPまでの幅 / SLまでの幅）
   min_reward_risk: 1.0
