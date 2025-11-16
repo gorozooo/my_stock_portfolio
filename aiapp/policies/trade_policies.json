@@ -1,7 +1,7 @@
 {
   "short_aggressive": {
     "label": "短期×攻め",
-    "min_net_profit_yen": 1000,
+    "min_net_profit_yen": 3000,
     "min_reward_risk": 1.0,
     "fee_rate": 0.0005,
     "min_fee": 100,
@@ -12,7 +12,7 @@
 
   "short_normal": {
     "label": "短期×標準",
-    "min_net_profit_yen": 1500,
+    "min_net_profit_yen": 3000,
     "min_reward_risk": 1.2,
     "fee_rate": 0.0005,
     "min_fee": 100,
@@ -23,7 +23,7 @@
 
   "short_defensive": {
     "label": "短期×守り",
-    "min_net_profit_yen": 2000,
+    "min_net_profit_yen": 3000,
     "min_reward_risk": 1.5,
     "fee_rate": 0.0005,
     "min_fee": 100,
