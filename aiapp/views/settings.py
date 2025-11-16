@@ -1,16 +1,21 @@
 # aiapp/views/settings.py
 from __future__ import annotations
 
-from django.contrib.auth.decorators import login_required
+import os
+from typing import Any, Dict
+
+import yaml
+from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import render, redirect
+from django.shortcuts import redirect, render
 
-from portfolio.models import UserSetting
-from . import settings as _  # noqa: F401, keep
 from aiapp.services.broker_summary import compute_broker_summaries
 from aiapp.services.policy_loader import load_short_aggressive_policy
+from portfolio.models import UserSetting
+from . import settings as _  # noqa: F401, keep
 
 
 def _get_tab(request: HttpRequest) -> str:
@@ -22,7 +27,7 @@ def _get_tab(request: HttpRequest) -> str:
     return "basic" if t not in ("basic", "summary", "advanced") else t
 
 
-def _build_policy_context() -> dict:
+def _build_policy_context() -> Dict[str, Any]:
     """
     short_aggressive.yml の中身を UI 用に薄く整形して返す。
     """
@@ -44,6 +49,33 @@ def _build_policy_context() -> dict:
     }
 
 
+def _save_policy_basic_params(risk_pct: float, credit_usage_pct: float) -> None:
+    """
+    ポリシーファイル short_aggressive.yml の
+    risk_pct / credit_usage_pct だけを上書き保存する。
+    """
+    policy_path = os.path.join(
+        settings.BASE_DIR, "aiapp", "policies", "short_aggressive.yml"
+    )
+
+    try:
+        with open(policy_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        data = {}
+
+    if not isinstance(data, dict):
+        data = {}
+
+    # ここで UI からの値を反映
+    data["risk_pct"] = float(risk_pct)
+    data["credit_usage_pct"] = float(credit_usage_pct)
+
+    # 既存の filters / fees などはそのまま残す
+    with open(policy_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+
+
 @login_required
 @transaction.atomic
 def settings_view(request: HttpRequest) -> HttpResponse:
@@ -59,7 +91,19 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         },
     )
 
-    # モデルに定義されているフィールド名に統一
+    # ポリシー値を読み込み（なければ UserSetting / デフォルトで補完）
+    policy_ctx = _build_policy_context()
+    risk_pct = float(
+        (policy_ctx.get("risk_pct") is not None and policy_ctx.get("risk_pct"))
+        or (us.risk_pct or 1.0)
+    )
+    credit_usage_pct = float(
+        (policy_ctx.get("credit_usage_pct") is not None
+         and policy_ctx.get("credit_usage_pct"))
+        or 70.0
+    )
+
+    # 倍率 / ヘアカットは UserSetting 側を使う
     leverage_rakuten = us.leverage_rakuten
     haircut_rakuten = us.haircut_rakuten
     leverage_matsui = us.leverage_matsui
@@ -69,7 +113,6 @@ def settings_view(request: HttpRequest) -> HttpResponse:
     if request.method == "POST":
         tab = _get_tab(request)  # hidden で送っているタブ
 
-        # リスク％
         def parse_float(name: str, current: float) -> float:
             v = request.POST.get(name)
             if v in (None, ""):
@@ -79,9 +122,14 @@ def settings_view(request: HttpRequest) -> HttpResponse:
             except ValueError:
                 return current
 
-        us.risk_pct = parse_float("risk_pct", us.risk_pct or 1.0)
+        # 1トレードリスク％（UI → ポリシー＆UserSetting に反映）
+        risk_pct = parse_float("risk_pct", risk_pct)
+        us.risk_pct = risk_pct
 
-        # 倍率 / ヘアカット（フィールド名に合わせる）
+        # ★信用余力の使用上限（％）もポリシーに反映
+        credit_usage_pct = parse_float("credit_usage_pct", credit_usage_pct)
+
+        # 倍率 / ヘアカット（UserSetting）
         leverage_rakuten = parse_float("leverage_rakuten", leverage_rakuten)
         haircut_rakuten = parse_float("haircut_rakuten", haircut_rakuten)
         leverage_matsui = parse_float("leverage_matsui", leverage_matsui)
@@ -91,18 +139,19 @@ def settings_view(request: HttpRequest) -> HttpResponse:
         us.haircut_rakuten = haircut_rakuten
         us.leverage_matsui = leverage_matsui
         us.haircut_matsui = haircut_matsui
-
         us.save()
-        messages.success(request, "保存しました")
 
-        # 同じタブに戻る
+        # ポリシーファイルへ反映（後戻りではなくポリシーを真実ソースに保つ）
+        _save_policy_basic_params(risk_pct=risk_pct, credit_usage_pct=credit_usage_pct)
+
+        messages.success(request, "保存しました")
         return redirect(f"{request.path}?tab={tab}")
 
     # ----------------------------------------------------------------- GET
     brokers = compute_broker_summaries(
         user=user,
-        risk_pct=float(us.risk_pct or 1.0),
-        # services 側は引数名どうでもいいので、そのまま渡す
+        # 証券サマリの概算でも、ポリシー由来のリスク％を使う
+        risk_pct=risk_pct,
         rakuten_leverage=leverage_rakuten,
         rakuten_haircut=haircut_rakuten,
         matsui_leverage=leverage_matsui,
@@ -111,9 +160,9 @@ def settings_view(request: HttpRequest) -> HttpResponse:
 
     ctx = {
         "tab": tab,
-        "risk_pct": float(us.risk_pct or 1.0),
+        "risk_pct": risk_pct,
+        "credit_usage_pct": credit_usage_pct,
 
-        # 表示用（モデルの名前に合わせる）
         "leverage_rakuten": leverage_rakuten,
         "haircut_rakuten": haircut_rakuten,
         "leverage_matsui": leverage_matsui,
@@ -121,6 +170,6 @@ def settings_view(request: HttpRequest) -> HttpResponse:
 
         "brokers": brokers,
         # 拡張タブ用：ポリシーの中身
-        "policy": _build_policy_context(),
+        "policy": policy_ctx,
     }
     return render(request, "aiapp/settings.html", ctx)
