@@ -84,9 +84,6 @@
   .dot-tp{width:10px;height:10px;border-radius:999px;background:#60a5fa;display:inline-block}
   .dot-sl{width:10px;height:10px;border-radius:999px;background:#f97373;display:inline-block}
 
-  .reasons{margin:10px 0 0 0;padding-left:16px}
-  .reasons li{margin:2px 0;font-size:13px}
-
   .btns{
     display:flex;gap:8px;margin-top:12px;
   }
@@ -250,29 +247,14 @@
             </div>
           </div>
 
-          {# 0株の理由を明示 #}
-          <div class="meta">
-            {% if not item.qty_rakuten and not item.qty_matsui %}
-              この銘柄は短期ルール上「見送り」です。<br>
-              ・楽天: {{ item.reason_rakuten|default:"短期ルールの基準を満たさないため。" }}<br>
-              ・松井: {{ item.reason_matsui|default:"短期ルールの基準を満たさないため。" }}
-            {% else %}
-              {% if not item.qty_rakuten and item.reason_rakuten %}
-                楽天は 0株（見送り）です。理由: {{ item.reason_rakuten }}
-              {% endif %}
-              {% if not item.qty_matsui and item.reason_matsui %}
-                {% if not item.qty_rakuten and item.reason_rakuten %}<br>{% endif %}
-                松井は 0株（見送り）です。理由: {{ item.reason_matsui }}
-              {% endif %}
-            {% endif %}
-          </div>
-
+          {# ★サイジングサービス側の reasons_text だけを使って理由表示 #}
           {% if item.reasons_text %}
-            <ul class="reasons">
+            <div class="meta">
+              この銘柄は短期ルール上「見送り」または一部見送りです。<br>
               {% for line in item.reasons_text %}
-                <li>{{ line }}</li>
+                {{ line }}{% if not forloop.last %}<br>{% endif %}
               {% endfor %}
-            </ul>
+            </div>
           {% endif %}
 
           <div class="btns">
