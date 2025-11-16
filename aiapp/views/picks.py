@@ -223,14 +223,21 @@ def picks(request):
     count = meta.get("count") or len(data.get("items") or [])
     updated_label = _format_updated_label(meta, data.get("_path"), count)
 
+    # ★ sizing / ポリシーから渡ってきた meta をそのまま使う
+    lot_size = int(meta.get("lot_size") or 100)
+    try:
+        risk_pct = float(meta.get("risk_pct")) if meta.get("risk_pct") is not None else 1.0
+    except Exception:
+        risk_pct = 1.0
+
     ctx = {
         "items": data.get("items") or [],
         "updated_label": updated_label,
         "mode_label": "LIVE/DEMO",
         "is_demo": is_demo,
-        # 既定表示値（lot_size / risk_pct は sizing 側の実値とは別に“ラベル用”）
-        "lot_size": 100,
-        "risk_pct": 2.0,
+        # ラベル用の lot_size / risk_pct は JSON の meta に合わせる
+        "lot_size": lot_size,
+        "risk_pct": risk_pct,
     }
     return render(request, "aiapp/picks.html", ctx)
 
