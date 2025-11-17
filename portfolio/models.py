@@ -92,10 +92,36 @@ class RealizedTrade(models.Model):
     SIDE_CHOICES = (("SELL", "SELL"), ("BUY", "BUY"))
 
     user      = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+
+    # 取引日（クローズ日）
     trade_at  = models.DateField(db_index=True)
+
+    # 🔸 新規：保有開始日（エントリー日）
+    opened_at = models.DateField(
+        null=True, blank=True,
+        help_text="このポジションの保有開始日（エントリー日）"
+    )
+
     side      = models.CharField(max_length=4, choices=SIDE_CHOICES, db_index=True)
+
+    # ティッカー / 銘柄名
     ticker    = models.CharField(max_length=20, db_index=True)
     name      = models.CharField(max_length=120, blank=True, default="")
+
+    # 🔸 新規：33業種（コード＋名前）
+    sector33_code = models.CharField(
+        max_length=8,
+        blank=True,
+        default="",
+        help_text="33業種コード（例: 6050）"
+    )
+    sector33_name = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="33業種名（例: 情報・通信業）"
+    )
+
     qty       = models.IntegerField()
     price     = models.DecimalField(max_digits=14, decimal_places=2)
     basis     = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
@@ -110,6 +136,25 @@ class RealizedTrade(models.Model):
         help_text="口座区分（特定/信用/NISA）"
     )
 
+    # 🔸 新規：国・通貨・為替
+    country = models.CharField(
+        max_length=8,
+        blank=True,
+        default="JP",
+        help_text="上場国コード（JP / US など）"
+    )
+    currency = models.CharField(
+        max_length=8,
+        blank=True,
+        default="JPY",
+        help_text="取引通貨（JPY, USD など）"
+    )
+    fx_rate = models.DecimalField(
+        max_digits=12, decimal_places=6,
+        null=True, blank=True,
+        help_text="基準通貨(JPY)への為替レート。1通貨あたり何円か（例: 1USD=150.250000）"
+    )
+
     cashflow  = models.DecimalField(
         max_digits=16, decimal_places=2, null=True, blank=True,
         help_text="受渡金額（現金フロー）。SELL=＋/BUY=−。未入力なら自動推定。"
@@ -117,6 +162,30 @@ class RealizedTrade(models.Model):
 
     # クローズ時に保存する保有日数（平均集計用）
     hold_days = models.IntegerField(null=True, blank=True, help_text="保有日数（未入力は平均集計から除外）")
+
+    # 🔸 新規：戦略 / ポリシー / AIフラグ / ポジションキー
+    strategy_label = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="手動入力用のざっくり戦略ラベル（例: スイング, デイトレ, NISA長期など）"
+    )
+    policy_key = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="AdvisorPolicy等と紐づけるためのキー（例: core_v1, swing_breakout_v2 など）"
+    )
+    is_ai_signal = models.BooleanField(
+        default=False,
+        help_text="AIアドバイザーのシグナルに基づくトレードかどうか"
+    )
+    position_key = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="同一ポジション（分割エントリー・分割決済）を識別するためのキー"
+    )
 
     memo      = models.TextField(blank=True, default="")
     created_at= models.DateTimeField(auto_now_add=True)
@@ -126,6 +195,9 @@ class RealizedTrade(models.Model):
         indexes = [
             models.Index(fields=["trade_at", "side"]),
             models.Index(fields=["ticker", "trade_at"]),
+            # 🔸 将来の集計用に軽くインデックス追加（任意）
+            models.Index(fields=["sector33_code", "trade_at"]),
+            models.Index(fields=["country", "trade_at"]),
         ]
 
     # --------- Helpers ---------
@@ -169,11 +241,33 @@ class RealizedTrade(models.Model):
         signed = self.amount if self.is_sell else -self.amount
         return signed - float(self.fee) - float(self.tax)
 
+    # 🔸 追加：JPY換算PnL（US株で使える・DBには保存しない）
+    @property
+    def pnl_jpy(self):
+        """
+        通貨がJPY以外で fx_rate があれば、JPY換算したPnL。
+        なければ通常の pnl をそのまま返す。
+        """
+        if (self.currency or "").upper() == "JPY" or not self.fx_rate:
+            return self.pnl
+        return float(self.pnl) * float(self.fx_rate)
+
+    @property
+    def cashflow_effective_jpy(self):
+        """
+        通貨がJPY以外で fx_rate があれば、JPY換算した実現キャッシュフロー。
+        """
+        cf = self.cashflow_effective
+        if (self.currency or "").upper() == "JPY" or not self.fx_rate:
+            return cf
+        return float(cf) * float(self.fx_rate)
+
     # --------- Normalize / Defaults ---------
     def save(self, *args, **kwargs):
         """
         - BUY で basis 未入力なら、分析の整合性のため basis=price を自動補完
         - ティッカーは大文字に正規化
+        - country / currency のデフォルト補正
         """
         # 正規化
         if self.ticker:
@@ -182,6 +276,12 @@ class RealizedTrade(models.Model):
         # BUY のとき basis を price で補完（None のままでも壊れないが指標計算が楽）
         if self.is_buy and self.basis is None:
             self.basis = self.price
+
+        # 国 / 通貨が空ならデフォルト補完
+        if not self.country:
+            self.country = "JP"
+        if not self.currency:
+            self.currency = "JPY"
 
         super().save(*args, **kwargs)
         
