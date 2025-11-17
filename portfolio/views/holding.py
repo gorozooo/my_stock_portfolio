@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple, Union
 from decimal import Decimal
-from dataclasses import dataclass 
+from dataclasses import dataclass
 import random
 import time
 
@@ -450,11 +450,24 @@ def api_ticker_name(request):
     norm = svc_trend._normalize_ticker(raw)
     code = (norm.split(".", 1)[0] if norm else raw).upper()
 
-    # 銘柄名（ローカル表・Webの順で取得）
+    name = ""
+    sector_hint = None
+
+    # ① 上書き辞書
     override = getattr(settings, "TSE_NAME_OVERRIDES", {}).get(code)
     if override:
         name = override
-    else:
+
+    # ② JPXマスタ連携（日本株コードのとき）
+    if code.isdigit():
+        m_name, m_sector = svc_trend.lookup_master_name_and_sector(norm)
+        if m_name and not name:
+            name = m_name
+        if m_sector:
+            sector_hint = m_sector
+
+    # ③ まだ名前が空なら、従来のリスト / yfinance で補完
+    if not name:
         name = svc_trend._lookup_name_jp_from_list(norm) or ""
         if not name:
             try:
@@ -469,18 +482,23 @@ def api_ticker_name(request):
         sector = cached
     else:
         sector = None
-        # 1) まず既存の prefer_jp（高品質）
-        try:
-            sector = svc_trend._fetch_sector_prefer_jp(norm) or None
-        except Exception:
-            sector = None
 
-        # 2) 失敗時フォールバック：yfinance の info から英語Sector/Industryを取得
+        # 1) まず JPXマスタから取れたセクターヒント
+        if sector_hint:
+            sector = sector_hint
+
+        # 2) それでも無ければ、既存の prefer_jp（高品質）
+        if not sector:
+            try:
+                sector = svc_trend._fetch_sector_prefer_jp(norm) or None
+            except Exception:
+                sector = None
+
+        # 3) さらにダメなら yfinance の info から英語Sector/Industryを取得して簡易マッピング
         if not sector:
             try:
                 info = yf.Ticker(norm).get_info()
                 sec_en = (info or {}).get("sector") or (info or {}).get("industry") or ""
-                # 簡易マッピング（代表的なものだけ）
                 map_en2jp = {
                     "Technology": "情報・通信業",
                     "Communication Services": "情報・通信業",
@@ -498,7 +516,7 @@ def api_ticker_name(request):
             except Exception:
                 sector = None
 
-        # 3) 最後にキャッシュ
+        # 4) 取れたものをキャッシュ
         if sector:
             _sector_cache_put(norm, sector)
 
@@ -516,13 +534,13 @@ def _apply_filters(qs, request):
         if s == "" or s.upper() == "ALL" or s == "すべて":
             return None
 
-        import unicodedata
-        key = unicodedata.normalize("NFKC", s).strip()
+        import unicodedata as _ud
+        key = _ud.normalize("NFKC", s).strip()
 
         field = Holding._meta.get_field(field_name)
         for value, label in (field.choices or []):
             v = str(value)
-            l = unicodedata.normalize("NFKC", str(label)).strip()
+            l = _ud.normalize("NFKC", str(label)).strip()
             if key == v or key == l:
                 return value
         return s
