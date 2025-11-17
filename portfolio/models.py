@@ -37,19 +37,34 @@ class UserSetting(models.Model):
 class Holding(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
 
+    # === 銘柄基本情報 ===
     ticker = models.CharField(max_length=16)
     name   = models.CharField(max_length=128, blank=True)
-    sector = models.CharField(max_length=64, blank=True, default="")  # ★追加：セクター33業種
+    sector = models.CharField(max_length=64, blank=True, default="")  # 33業種
 
+    # === 市場・通貨（★追加） ===
+    MARKET_CHOICES = (
+        ("JP", "日本株"),
+        ("US", "米国株"),
+    )
+    CURRENCY_CHOICES = (
+        ("JPY", "JPY"),
+        ("USD", "USD"),
+    )
+    market   = models.CharField(max_length=4, choices=MARKET_CHOICES, default="JP")   # ★追加
+    currency = models.CharField(max_length=4, choices=CURRENCY_CHOICES, default="JPY")  # ★追加
+
+    # === 保有データ ===
     quantity = models.IntegerField(default=0)
     avg_cost = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    
+
     last_price = models.DecimalField(
         max_digits=14, decimal_places=2, null=True, blank=True,
         help_text="最終終値（1株・自動更新）"
     )
     last_price_updated = models.DateTimeField(null=True, blank=True)
-    
+
+    # === 口座・属性 ===
     BROKER_CHOICES = (
         ("RAKUTEN", "楽天証券"),
         ("SBI",     "SBI証券"),
@@ -57,15 +72,23 @@ class Holding(models.Model):
         ("OTHER",   "その他"),
     )
     SIDE_CHOICES = (("BUY", "BUY"), ("SELL", "SELL"))
-    ACCOUNT_CHOICES = (("SPEC", "特定"), ("MARGIN", "信用"), ("NISA", "NISA"))
+    ACCOUNT_CHOICES = (
+        ("SPEC", "特定"),
+        ("MARGIN", "信用"),
+        ("NISA", "NISA"),
+    )
 
     broker  = models.CharField(max_length=16, choices=BROKER_CHOICES, default="OTHER")
     side    = models.CharField(max_length=4,  choices=SIDE_CHOICES,   default="BUY")
     account = models.CharField(max_length=10, choices=ACCOUNT_CHOICES, default="SPEC")
 
+    # === 日付系 ===
     opened_at  = models.DateField(null=True, blank=True)
+
+    # === メモ ===
     memo = models.TextField(blank=True, default="")
-    
+
+    # === タイムスタンプ ===
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
