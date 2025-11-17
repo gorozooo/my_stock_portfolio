@@ -60,7 +60,9 @@ def _to_float(x) -> Optional[float]:
 
 
 def _norm_ticker(raw: str) -> str:
-    """'8591' / '167A' → yfinance用（例: '8591.T' / '167A.T'）"""
+    """
+    '8591' / '186A' / 'AAPL' を trend._normalize_ticker に丸投げ。
+    """
     return svc_trend._normalize_ticker(str(raw or ""))
 
 
