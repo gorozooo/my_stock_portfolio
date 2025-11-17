@@ -30,9 +30,11 @@ _INDEX_TICKER = os.environ.get("INDEX_TICKER", "^N225")  # 例: ^N225, ^GSPC な
 _TSE_MAP: Dict[str, str] = {}
 _TSE_MTIME: Tuple[float, float] = (0.0, 0.0)  # (json_mtime, csv_mtime)
 
+
 def _d(msg: str) -> None:
     if _TSE_DEBUG:
         print(f"[TSE] {msg}")
+
 
 # =========================================================
 # テキストクレンジング
@@ -48,6 +50,7 @@ def _clean_text(s: str) -> str:
     s = s.replace("\u3000", " ")
     s = re.sub(r"\s+", " ", s)
     return s.strip()
+
 
 # =========================================================
 # 日本語銘柄名ローダ（JSON優先、なければCSV）
@@ -116,6 +119,7 @@ def _load_tse_map_if_needed() -> None:
     _TSE_MAP = {row["code"]: row["name"] for _, row in df.iterrows()}
     _TSE_MTIME = (json_m, csv_m)
 
+
 def _lookup_name_jp_from_list(ticker: str) -> Optional[str]:
     _load_tse_map_if_needed()
     if not _TSE_MAP or not ticker:
@@ -126,10 +130,12 @@ def _lookup_name_jp_from_list(ticker: str) -> Optional[str]:
         _d(f"lookup {head} -> {repr(name)}")
     return name
 
+
 # =========================================================
-# ティッカー正規化 / 名前取得
+# ティッカー正規化 / JPXマスタ連携 / 名前取得
 # =========================================================
 _JP_ALNUM = re.compile(r"^[0-9A-Z]{4,5}$")
+
 
 def _normalize_ticker(raw: str) -> str:
     t = (raw or "").strip().upper()
@@ -141,10 +147,57 @@ def _normalize_ticker(raw: str) -> str:
         return f"{t}.T"
     return t
 
+
+def lookup_master_name_and_sector(ticker: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    aiapp.StockMaster から銘柄名と33業種名を取得する。
+
+    - ticker は '7203' / '7203.T' などを想定
+    - 日本株以外（コードが数字でないもの）は (None, None)
+    - aiapp が無い or クエリ失敗時も (None, None)
+    """
+    norm = _normalize_ticker(str(ticker or ""))
+    if not norm:
+        return (None, None)
+    head = norm.split(".", 1)[0]
+    if not head.isdigit():
+        return (None, None)
+
+    try:
+        from aiapp.models import StockMaster  # 遅延 import で循環回避
+    except Exception:
+        return (None, None)
+
+    try:
+        m = (
+            StockMaster.objects
+            .filter(code=head)
+            .only("name", "sector_name")
+            .first()
+        )
+    except Exception:
+        return (None, None)
+
+    if not m:
+        return (None, None)
+
+    name = _clean_text(m.name) if getattr(m, "name", None) else None
+    sector = _clean_text(m.sector_name) if getattr(m, "sector_name", None) else None
+    return (name or None, sector or None)
+
+
 def _fetch_name_prefer_jp(ticker: str) -> str:
+    # ① まず JPXマスタ（あれば最優先）
+    m_name, _ = lookup_master_name_and_sector(ticker)
+    if isinstance(m_name, str) and m_name.strip():
+        return m_name.strip()
+
+    # ② 旧来の tse_list.json / csv
     name = _lookup_name_jp_from_list(ticker)
     if isinstance(name, str) and name.strip():
         return name.strip()
+
+    # ③ yfinance の shortName / longName
     try:
         info = getattr(yf.Ticker(str(ticker)), "info", {}) or {}
         name = info.get("shortName") or info.get("longName") or info.get("name")
@@ -152,8 +205,11 @@ def _fetch_name_prefer_jp(ticker: str) -> str:
             return _clean_text(name)
     except Exception:
         pass
+
+    # ④ 最後のフォールバック：コードそのもの
     head = ticker.upper().split(".", 1)[0]
     return head or ticker
+
 
 # =========================================================
 # セクター（33業種）推定：英語→日本語へ強制丸め
@@ -226,6 +282,7 @@ _JA_NORMALIZE = {
     "卸売": "卸売業",
 }
 
+
 def _map_to_tse33(label: str) -> Optional[str]:
     if not label:
         return None
@@ -256,6 +313,7 @@ def _map_to_tse33(label: str) -> Optional[str]:
     }
     return FALLBACK.get(s, None)
 
+
 def _fetch_sector_prefer_jp(ticker: str) -> Optional[str]:
     """
     yfinance.info の 'industry' / 'sector' を元に、
@@ -275,6 +333,7 @@ def _fetch_sector_prefer_jp(ticker: str) -> Optional[str]:
     except Exception:
         return None
 
+
 # =========================================================
 # テクニカル（ADX/ATRなど）
 # =========================================================
@@ -287,18 +346,20 @@ def _true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
     ], axis=1).max(axis=1)
     return tr
 
+
 def _wilder_smooth(series: pd.Series, n: int) -> pd.Series:
     """長さ<n のときも落ちない簡易Wilder平滑"""
     s = pd.to_numeric(series, errors="coerce")
     if len(s) == 0:
-      return s
+        return s
     if len(s) < n:
-      return s.ewm(alpha=1/max(n,1), adjust=False).mean()
+        return s.ewm(alpha=1 / max(n, 1), adjust=False).mean()
     out = pd.Series(index=s.index, dtype=float)
-    out.iloc[n-1] = s.iloc[:n].mean()
+    out.iloc[n - 1] = s.iloc[:n].mean()
     for i in range(n, len(s)):
-        out.iloc[i] = (out.iloc[i-1] * (n - 1) + s.iloc[i]) / n
+        out.iloc[i] = (out.iloc[i - 1] * (n - 1) + s.iloc[i]) / n
     return out
+
 
 def _adx(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> Optional[float]:
     try:
@@ -319,6 +380,7 @@ def _adx(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> Opti
     except Exception:
         return None
 
+
 def _annualized_vol(p: pd.Series, win: int) -> Optional[float]:
     try:
         r = pd.to_numeric(p, errors="coerce").pct_change().dropna()
@@ -328,6 +390,7 @@ def _annualized_vol(p: pd.Series, win: int) -> Optional[float]:
     except Exception:
         return None
 
+
 def _atr(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> Optional[float]:
     try:
         tr = _true_range(high, low, close)
@@ -335,6 +398,7 @@ def _atr(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> Opti
         return float(atr.dropna().iloc[-1])
     except Exception:
         return None
+
 
 # ---------- yfinance DF から特定フィールドの Series を安全に取り出す ----------
 def _pick_field(df: pd.DataFrame, field: str, *, required: bool = True) -> pd.Series:
@@ -368,6 +432,7 @@ def _pick_field(df: pd.DataFrame, field: str, *, required: bool = True) -> pd.Se
         return pd.Series(dtype=float)
     return pd.to_numeric(df[use], errors="coerce")
 
+
 # =========================================================
 # 結果スキーマ
 # =========================================================
@@ -397,6 +462,7 @@ class TrendResult:
     atr14: Optional[float]
     adv20: Optional[float]           # 20日売買代金平均（Close*Volume）
 
+
 # =========================================================
 # メイン判定
 # =========================================================
@@ -409,6 +475,7 @@ def _to_float_or_none(v) -> Optional[float]:
         return float(v)
     except Exception:
         return None
+
 
 def detect_trend(
     ticker: str,
@@ -477,10 +544,10 @@ def detect_trend(
     ma50  = float(close_s.tail(50).mean())   if len(close_s) >= 50   else None
     ma200 = float(close_s.tail(200).mean())  if len(close_s) >= 200  else None
 
-    def _ma_order_str(a,b,c):
-        if None in (a,b,c):
+    def _ma_order_str(a, b, c):
+        if None in (a, b, c):
             return None
-        order = sorted([("20",a),("50",b),("200",c)], key=lambda t: t[1], reverse=True)
+        order = sorted([("20", a), ("50", b), ("200", c)], key=lambda t: t[1], reverse=True)
         return ">".join([t[0] for t in order])  # e.g. "20>50>200"
 
     ma_order = _ma_order_str(ma20, ma50, ma200)
@@ -519,7 +586,7 @@ def detect_trend(
             r_stock = close_s.pct_change().dropna().tail(130)  # ≒6か月
             r_bench = bclose.pct_change().dropna().tail(130)
             joined = pd.concat([r_stock, r_bench], axis=1, join="inner")
-            joined.columns = ["s","b"]
+            joined.columns = ["s", "b"]
             if not joined.empty:
                 cum_s = (1 + joined["s"]).prod() - 1.0
                 cum_b = (1 + joined["b"]).prod() - 1.0
@@ -563,7 +630,8 @@ def detect_trend(
         atr14=atr14,
         adv20=adv20,
     )
-    
+
+
 def update_all_sector_strength(days: int = 90) -> dict:
     """
     保有銘柄(Holding)をセクターで束ね、各セクターのRSを算出して
@@ -643,4 +711,3 @@ def update_all_sector_strength(days: int = 90) -> dict:
     path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[OK] sector_strength.json updated ({len(out)} sectors)")
     return out
-    
