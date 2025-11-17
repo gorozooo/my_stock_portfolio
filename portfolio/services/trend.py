@@ -134,17 +134,28 @@ def _lookup_name_jp_from_list(ticker: str) -> Optional[str]:
 # =========================================================
 # ティッカー正規化 / JPXマスタ連携 / 名前取得
 # =========================================================
-_JP_ALNUM = re.compile(r"^[0-9A-Z]{4,5}$")
-
+# ▼ 日本株コード判定（4〜5桁数字 or 3桁数字＋英字1文字）
+_JP_NUMERIC = re.compile(r"^[0-9]{4,5}$")      # 例: 7203, 1570
+_JP_ALNUM   = re.compile(r"^[0-9]{3}[A-Z]$")   # 例: 186A, 147A
 
 def _normalize_ticker(raw: str) -> str:
+    """
+    日本株コードだけ .T を付ける。
+    米国株（AAPL, MSFT, V など）はそのまま。
+    """
     t = (raw or "").strip().upper()
     if not t:
         return t
+
+    # すでに .T/.US/... など付いている場合はそのまま
     if "." in t:
         return t
-    if _JP_ALNUM.match(t):
+
+    # 日本株パターン（7203, 1570, 186A など）
+    if _JP_NUMERIC.fullmatch(t) or _JP_ALNUM.fullmatch(t):
         return f"{t}.T"
+
+    # それ以外 → 海外株
     return t
 
 
