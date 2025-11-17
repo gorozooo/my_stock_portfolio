@@ -12,7 +12,6 @@ from django.shortcuts import render
 from django.utils import timezone
 
 from aiapp.models import StockMaster
-from aiapp.services.policy_loader import load_short_aggressive_policy  # ★追加
 
 PICKS_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "picks"
 
@@ -148,72 +147,31 @@ def _format_updated_label(meta: Dict[str, Any], path_str: Optional[str], count: 
     return f"{ts_label}　{count}件 / {str(mode).upper()}"
 
 
-# =========================
-# ポリシーのフィルタしきい値
-# =========================
-def _load_filter_thresholds() -> Dict[str, Any]:
-    """
-    short_aggressive.yml から
-      - min_net_profit_yen
-      - min_reward_risk
-      - allow_negative_pl
-    を取り出して返す。見つからない場合は安全な既定値。
-    """
-    data = load_short_aggressive_policy() or {}
-    filters = data.get("filters") or {}
-
-    try:
-        min_net_profit_yen = float(filters.get("min_net_profit_yen"))
-    except Exception:
-        min_net_profit_yen = 2000.0
-
-    try:
-        min_reward_risk = float(filters.get("min_reward_risk"))
-    except Exception:
-        min_reward_risk = 1.0
-
-    allow_negative_pl = bool(filters.get("allow_negative_pl") or False)
-
-    return {
-        "min_net_profit_yen": min_net_profit_yen,
-        "min_reward_risk": min_reward_risk,
-        "allow_negative_pl": allow_negative_pl,
-    }
-
-
-def _build_zero_reason(
-    est_pl: float,
-    est_loss: float,
-    *,
-    min_net_profit_yen: float,
-    min_reward_risk: float,
-    allow_negative_pl: bool,
-) -> str:
+def _build_zero_reason(est_pl: float, est_loss: float) -> str:
     """
     0株になったときの“理由テキスト”を生成する。
-    ポリシー（YAML）のフィルタ条件と説明を完全に同期させる。
+    数式そのものは出さないけど、
+      - R値
+      - 想定利益の大きさ
+      - 利益がマイナス/ゼロ
+    を見て、どこがNGなのかをはっきりさせる。
     """
     reasons: List[str] = []
 
-    # 想定利益がマイナス / 0（マイナス許容フラグも考慮）
+    # 想定利益がマイナス or 0
     if est_pl <= 0:
-        if not allow_negative_pl:
-            reasons.append("TPまで到達しても想定利益がプラスにならないため。")
-        else:
-            reasons.append("TPまで到達しても利益がほとんど出ない、もしくはマイナスに近いため。")
+        reasons.append("TPまで到達しても想定利益がプラスにならないため。")
 
-    # R値（利益/損失）チェック
+    # R値（利益/損失）
     if est_pl > 0 and est_loss > 0:
         r = est_pl / est_loss
-        if r < min_reward_risk:
-            reasons.append(
-                f"R値（利益÷損失）が {r:.2f} で、短期ルールの下限 {min_reward_risk:.2f} を下回るため。"
-            )
+        if r < 1.0:
+            reasons.append(f"R値（利益÷損失）が {r:.2f} で、短期ルールの下限 1.0 を下回るため。")
 
-    # 利益の絶対額が小さすぎる（min_net_profit_yen を使用）
-    if est_pl > 0 and est_pl < min_net_profit_yen:
+    # 利益の絶対額が小さすぎる
+    if est_pl > 0 and est_pl < 2000:
         reasons.append(
-            f"想定利益が {int(round(est_pl)):,} 円と、ポリシーの最低純利益 {int(min_net_profit_yen):,} 円を下回るため。"
+            f"想定利益が {int(round(est_pl)):,} 円と小さく、手数料やスリッページを考えると短期トレードとして狙う価値が低いため。"
         )
 
     if not reasons:
@@ -231,12 +189,6 @@ def _attach_zero_reasons(data: Dict[str, Any]) -> None:
     if not items:
         return
 
-    # ★ ポリシーからしきい値を一度だけ読み込む
-    th = _load_filter_thresholds()
-    min_net_profit_yen = th["min_net_profit_yen"]
-    min_reward_risk = th["min_reward_risk"]
-    allow_negative_pl = th["allow_negative_pl"]
-
     for it in items:
         # 無い場合は 0 扱い
         qty_r = float(it.get("qty_rakuten") or 0)
@@ -250,21 +202,9 @@ def _attach_zero_reasons(data: Dict[str, Any]) -> None:
         reason_m = ""
 
         if qty_r <= 0:
-            reason_r = _build_zero_reason(
-                est_pl_r,
-                est_loss_r,
-                min_net_profit_yen=min_net_profit_yen,
-                min_reward_risk=min_reward_risk,
-                allow_negative_pl=allow_negative_pl,
-            )
+            reason_r = _build_zero_reason(est_pl_r, est_loss_r)
         if qty_m <= 0:
-            reason_m = _build_zero_reason(
-                est_pl_m,
-                est_loss_m,
-                min_net_profit_yen=min_net_profit_yen,
-                min_reward_risk=min_reward_risk,
-                allow_negative_pl=allow_negative_pl,
-            )
+            reason_m = _build_zero_reason(est_pl_m, est_loss_m)
 
         it["reason_rakuten"] = reason_r
         it["reason_matsui"] = reason_m
@@ -283,20 +223,19 @@ def picks(request):
     count = meta.get("count") or len(data.get("items") or [])
     updated_label = _format_updated_label(meta, data.get("_path"), count)
 
-    # ★ sizing 側から渡された risk_pct / lot_size をラベルにも反映
-    lot_size = meta.get("lot_size")
-    if lot_size is None:
-        lot_size = 100
-
-    risk_pct = meta.get("risk_pct")
-    if risk_pct is None:
-        risk_pct = 2.0  # フォールバック
+    # ★ sizing / ポリシーから渡ってきた meta をそのまま使う
+    lot_size = int(meta.get("lot_size") or 100)
+    try:
+        risk_pct = float(meta.get("risk_pct")) if meta.get("risk_pct") is not None else 1.0
+    except Exception:
+        risk_pct = 1.0
 
     ctx = {
         "items": data.get("items") or [],
         "updated_label": updated_label,
         "mode_label": "LIVE/DEMO",
         "is_demo": is_demo,
+        # ラベル用の lot_size / risk_pct は JSON の meta に合わせる
         "lot_size": lot_size,
         "risk_pct": risk_pct,
     }
