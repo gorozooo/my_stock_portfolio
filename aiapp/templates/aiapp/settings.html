@@ -94,7 +94,6 @@
           >
         </div>
 
-        <!-- ★ 追加：信用余力の使用上限（％） -->
         <div class="row" style="margin-top:8px;">
           <label style="font-size:14px;color:var(--sub)">
             信用余力の使用上限（％）
@@ -177,8 +176,8 @@
           <button class="btn" type="submit">保存</button>
         </div>
         <div class="note">
-          ※ ここで設定した倍率/ヘアカットは証券サマリの概算にも反映されます。<br>
-          ※ 1トレードのリスク％・信用余力の使用上限はポリシーファイルにも反映されます。
+          ※ ここで設定したリスク％・信用余力の使用上限はポリシーファイルにも反映されます。<br>
+          ※ 倍率/ヘアカットは証券サマリの概算に使われます。
         </div>
       </form>
     </div>
@@ -224,7 +223,7 @@
     </div>
 
   {% else %}
-    <!-- 拡張：short_aggressive ポリシーの中身を見える化 -->
+    <!-- 拡張：short_aggressive ポリシーの中身を見える化 + 編集 -->
     <div class="sec">
       <h2>短期×攻め ポリシー（short_aggressive.yml）</h2>
 
@@ -350,6 +349,97 @@
             </div>
           </div>
         </div>
+
+        {# ▼ ポリシーしきい値編集フォーム ▼ #}
+        <form method="post" style="margin-top:18px;">
+          {% csrf_token %}
+          <input type="hidden" name="tab" value="advanced">
+
+          <h2>ポリシーしきい値の編集</h2>
+
+          <div class="row">
+            <label style="font-size:14px;color:var(--sub)">最低純利益（円）</label>
+            <input
+              class="inp"
+              name="min_net_profit_yen"
+              type="number"
+              inputmode="decimal"
+              step="100"
+              min="0"
+              value="{% if policy.min_net_profit_yen is not None %}{{ policy.min_net_profit_yen|floatformat:0 }}{% endif %}"
+            >
+          </div>
+
+          <div class="row" style="margin-top:8px;">
+            <label style="font-size:14px;color:var(--sub)">最低 Reward / Risk（R）</label>
+            <input
+              class="inp"
+              name="min_reward_risk"
+              type="number"
+              inputmode="decimal"
+              step="0.1"
+              min="0"
+              value="{% if policy.min_reward_risk is not None %}{{ policy.min_reward_risk|floatformat:2 }}{% endif %}"
+            >
+          </div>
+
+          <div class="row" style="margin-top:8px;">
+            <label style="font-size:14px;color:var(--sub)">マイナス許容</label>
+            <select name="allow_negative_pl" class="inp" style="text-align:left;">
+              <option value="false" {% if not policy.allow_negative_pl %}selected{% endif %}>許容しない</option>
+              <option value="true" {% if policy.allow_negative_pl %}selected{% endif %}>許容する</option>
+            </select>
+          </div>
+
+          <h2 style="margin-top:14px;">コスト想定の編集</h2>
+
+          <div class="row">
+            <label style="font-size:14px;color:var(--sub)">売買手数料レート</label>
+            <input
+              class="inp"
+              name="commission_rate"
+              type="number"
+              inputmode="decimal"
+              step="0.0001"
+              min="0"
+              value="{% if policy.commission_rate is not None %}{{ policy.commission_rate|floatformat:4 }}{% endif %}"
+            >
+          </div>
+
+          <div class="row" style="margin-top:8px;">
+            <label style="font-size:14px;color:var(--sub)">最低手数料（円）</label>
+            <input
+              class="inp"
+              name="min_commission"
+              type="number"
+              inputmode="decimal"
+              step="10"
+              min="0"
+              value="{% if policy.min_commission is not None %}{{ policy.min_commission|floatformat:0 }}{% endif %}"
+            >
+          </div>
+
+          <div class="row" style="margin-top:8px;">
+            <label style="font-size:14px;color:var(--sub)">スリッページレート</label>
+            <input
+              class="inp"
+              name="slippage_rate"
+              type="number"
+              inputmode="decimal"
+              step="0.0001"
+              min="0"
+              value="{% if policy.slippage_rate is not None %}{{ policy.slippage_rate|floatformat:4 }}{% endif %}"
+            >
+          </div>
+
+          <div style="margin-top:12px;text-align:right">
+            <button class="btn" type="submit">保存</button>
+          </div>
+          <div class="note">
+            ※ ここで編集した値は short_aggressive.yml に保存され、次回以降の AI Picks 計算に反映されます。
+          </div>
+        </form>
+
       {% else %}
         <div class="note">
           short_aggressive.yml を読み込めませんでした。<br>
