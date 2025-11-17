@@ -1,3 +1,4 @@
+# aiapp/views/settings.py
 from __future__ import annotations
 
 import os
@@ -13,23 +14,61 @@ from django.shortcuts import redirect, render
 from portfolio.models import UserSetting
 from . import settings as _  # noqa: F401, keep
 from aiapp.services.broker_summary import compute_broker_summaries
-from aiapp.services.policy_loader import load_short_aggressive_policy
+# 将来ほかの場所で使うかもしれないので import 自体は残しておく
+from aiapp.services.policy_loader import load_short_aggressive_policy  # noqa: F401
 
 
-def _get_tab(request: HttpRequest) -> str:
+# ----------------------------------------------------------------------
+# ポリシーファイルへのパス & 読み書き共通ヘルパ
+# ----------------------------------------------------------------------
+def _policy_file_path() -> str:
     """
-    ?tab=basic / summary / advanced を取得。
-    想定外の値が来たときは basic にフォールバック。
+    short_aggressive.yml のフルパスを、ファイル構成から逆算して求める。
+
+    views/settings.py  … aiapp/views
+    aiapp_dir          … aiapp/
+    policy             … aiapp/policies/short_aggressive.yml
     """
-    t = (request.GET.get("tab") or request.POST.get("tab") or "basic").lower()
-    return "basic" if t not in ("basic", "summary", "advanced") else t
+    here = os.path.abspath(os.path.dirname(__file__))  # aiapp/views
+    aiapp_dir = os.path.dirname(here)                  # aiapp
+    return os.path.join(aiapp_dir, "policies", "short_aggressive.yml")
 
 
+def _load_policy_dict() -> Dict[str, Any]:
+    """
+    short_aggressive.yml を毎回読み直して dict で返す。
+    （キャッシュは持たない。常に最新ファイルを見る）
+    """
+    path = _policy_file_path()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    return data
+
+
+def _write_policy_dict(data: Dict[str, Any]) -> None:
+    """
+    dict をそのまま short_aggressive.yml に書き戻す。
+    """
+    path = _policy_file_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+
+
+# ----------------------------------------------------------------------
+# UI 表示用のポリシーコンテキスト
+# ----------------------------------------------------------------------
 def _build_policy_context() -> Dict[str, Any]:
     """
     short_aggressive.yml の中身を UI 用に薄く整形して返す。
+    読み込みも _load_policy_dict() で YAML を毎回読み直す。
     """
-    data = load_short_aggressive_policy() or {}
+    data = _load_policy_dict()
 
     filters = data.get("filters") or {}
     fees = data.get("fees") or {}
@@ -45,38 +84,6 @@ def _build_policy_context() -> Dict[str, Any]:
         "min_commission": fees.get("min_commission"),
         "slippage_rate": fees.get("slippage_rate"),
     }
-
-
-def _policy_file_path() -> str:
-    """
-    short_aggressive.yml のフルパスを、ファイル構成から逆算して求める。
-
-    views/settings.py  … aiapp/views
-    aiapp_dir          … aiapp/
-    policy             … aiapp/policies/short_aggressive.yml
-    """
-    here = os.path.abspath(os.path.dirname(__file__))  # aiapp/views
-    aiapp_dir = os.path.dirname(here)                  # aiapp
-    return os.path.join(aiapp_dir, "policies", "short_aggressive.yml")
-
-
-def _load_policy_dict() -> Dict[str, Any]:
-    path = _policy_file_path()
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-    except FileNotFoundError:
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
-    return data
-
-
-def _write_policy_dict(data: Dict[str, Any]) -> None:
-    path = _policy_file_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
 
 
 def _save_policy_basic_params(risk_pct: float, credit_usage_pct: float) -> None:
@@ -146,6 +153,21 @@ def _save_policy_advanced_params(
     _write_policy_dict(data)
 
 
+# ----------------------------------------------------------------------
+# タブ判定
+# ----------------------------------------------------------------------
+def _get_tab(request: HttpRequest) -> str:
+    """
+    ?tab=basic / summary / advanced を取得。
+    想定外の値が来たときは basic にフォールバック。
+    """
+    t = (request.GET.get("tab") or request.POST.get("tab") or "basic").lower()
+    return "basic" if t not in ("basic", "summary", "advanced") else t
+
+
+# ----------------------------------------------------------------------
+# メインビュー
+# ----------------------------------------------------------------------
 @login_required
 @transaction.atomic
 def settings_view(request: HttpRequest) -> HttpResponse:
