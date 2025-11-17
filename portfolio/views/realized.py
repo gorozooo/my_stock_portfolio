@@ -1066,6 +1066,31 @@ def create(request):
     pnl_input  = _to_dec(request.POST.get("pnl_input"))
     memo       = (request.POST.get("memo") or "").strip()
 
+    # 🔸 追加：解析用の付加情報（POSTに無ければデフォルトでOK）
+    opened_raw     = (request.POST.get("opened_at") or "").strip()
+    sector33_code  = (request.POST.get("sector33_code") or "").strip()
+    sector33_name  = (request.POST.get("sector33_name") or "").strip()
+    country_in     = (request.POST.get("country") or "").strip().upper()
+    currency_in    = (request.POST.get("currency") or "").strip().upper()
+    fx_rate_raw    = (request.POST.get("fx_rate") or "").strip()
+    strategy_label = (request.POST.get("strategy_label") or "").strip()
+    policy_key     = (request.POST.get("policy_key") or "").strip()
+    is_ai_raw      = (request.POST.get("is_ai_signal") or "").strip().lower()
+    position_key   = (request.POST.get("position_key") or "").strip()
+
+    # デフォルト補正
+    country  = country_in or "JP"
+    currency = currency_in or "JPY"
+
+    fx_rate = None
+    if fx_rate_raw not in ("", None):
+        try:
+            fx_rate = _to_dec(fx_rate_raw)
+        except Exception:
+            fx_rate = None
+
+    is_ai_signal = is_ai_raw in ["1", "true", "on", "yes"]
+
     if not ticker or qty <= 0 or price <= 0:
         return JsonResponse({"ok": False, "error": "入力が不足しています"}, status=400)
     if side not in ("SELL", "BUY"):
@@ -1082,19 +1107,28 @@ def create(request):
     elif side == "BUY":
         basis = price  # ← 購入時の単価をそのまま保存
 
-    # 保有日数（オプション）
+    # 保有開始日 / 保有日数
+    opened_at = None
     hold_days = None
     try:
         hd_raw = (request.POST.get("hold_days") or "").strip()
         if hd_raw != "":
             hold_days = max(int(hd_raw), 0)
-        else:
-            opened_raw = (request.POST.get("opened_at") or "").strip()
-            if opened_raw:
-                opened_date = timezone.datetime.fromisoformat(opened_raw).date()
-                hold_days = max((trade_at - opened_date).days, 0)
+
+        if opened_raw:
+            opened_at = timezone.datetime.fromisoformat(opened_raw).date()
+            if hold_days is None:
+                hold_days = max((trade_at - opened_at).days, 0)
     except Exception:
-        hold_days = None
+        opened_at = None
+        hold_days = hold_days if hold_days is not None else None
+
+    # ポジションキー（未指定なら簡易自動生成）
+    if not position_key:
+        if opened_at:
+            position_key = f"{ticker}-{opened_at.isoformat()}-{account}"
+        else:
+            position_key = f"{ticker}-{trade_at.isoformat()}-{account}"
 
     RealizedTrade.objects.create(
         user=request.user,
@@ -1112,6 +1146,18 @@ def create(request):
         basis=basis,          # ★ BUYはprice、SELLは逆算
         hold_days=hold_days,
         memo=memo,
+
+        # 🔸 追加フィールド
+        opened_at=opened_at,
+        sector33_code=sector33_code,
+        sector33_name=sector33_name,
+        country=country,
+        currency=currency,
+        fx_rate=fx_rate,
+        strategy_label=strategy_label,
+        policy_key=policy_key,
+        is_ai_signal=is_ai_signal,
+        position_key=position_key,
     )
 
     q  = (request.POST.get("q") or "").strip()
@@ -1161,15 +1207,53 @@ def export_csv(request):
     resp = HttpResponse(content_type="text/csv; charset=utf-8")
     resp["Content-Disposition"] = 'attachment; filename="realized_trades.csv"'
     w = csv.writer(resp)
-    w.writerow(["trade_at", "ticker", "name", "side", "qty", "price",
-                "fee", "cashflow_calc(現金)", "pnl_display(実損)", "broker", "account", "memo"])
+    w.writerow([
+        "trade_at",
+        "opened_at",
+        "ticker",
+        "name",
+        "sector33_code",
+        "sector33_name",
+        "side",
+        "qty",
+        "price",
+        "fee",
+        "tax",
+        "cashflow_calc(現金)",
+        "pnl_display(実損)",
+        "country",
+        "currency",
+        "fx_rate",
+        "strategy_label",
+        "policy_key",
+        "is_ai_signal",
+        "position_key",
+        "broker",
+        "account",
+        "memo",
+    ])
     for t in qs:
         w.writerow([
-            t.trade_at, t.ticker, smart_str(getattr(t, "name", "") or ""),
-            t.side, t.qty, t.price,
+            t.trade_at,
+            getattr(t, "opened_at", None) or "",
+            t.ticker,
+            smart_str(getattr(t, "name", "") or ""),
+            smart_str(getattr(t, "sector33_code", "") or ""),
+            smart_str(getattr(t, "sector33_name", "") or ""),
+            t.side,
+            t.qty,
+            t.price,
             t.fee,
+            t.tax,
             getattr(t, "cashflow_calc", Decimal("0.00")),
             getattr(t, "pnl_display",  Decimal("0.00")),
+            smart_str(getattr(t, "country", "") or ""),
+            smart_str(getattr(t, "currency", "") or ""),
+            getattr(t, "fx_rate", "") or "",
+            smart_str(getattr(t, "strategy_label", "") or ""),
+            smart_str(getattr(t, "policy_key", "") or ""),
+            "1" if getattr(t, "is_ai_signal", False) else "0",
+            smart_str(getattr(t, "position_key", "") or ""),
             smart_str(getattr(t, "broker", "") or ""),
             smart_str(getattr(t, "account", "") or ""),
             smart_str(t.memo or ""),
@@ -1395,6 +1479,9 @@ def close_submit(request, pk: int):
             filters["user"] = request.user
         h = Holding.objects.select_for_update().get(**filters)
 
+        def h_get(name, default=None):
+            return getattr(h, name, default)
+
         # --- 入力 ---
         date_raw = (request.POST.get("date") or "").strip()
         try:
@@ -1422,18 +1509,29 @@ def close_submit(request, pk: int):
         broker  = (request.POST.get("broker")  or "OTHER").upper()
         account = (request.POST.get("account") or "SPEC").upper()
         memo    = (request.POST.get("memo")    or "").strip()
-        name    = (request.POST.get("name")    or "").strip() or getattr(h, "name", "") or ""
+        name    = (request.POST.get("name")    or "").strip() or h_get("name", "") or ""
+
+        # 🔸 追加：POST優先・無ければ Holding から引く
+        sector33_code_in  = (request.POST.get("sector33_code") or "").strip()
+        sector33_name_in  = (request.POST.get("sector33_name") or "").strip()
+        country_in        = (request.POST.get("country") or "").strip().upper()
+        currency_in       = (request.POST.get("currency") or "").strip().upper()
+        fx_rate_raw       = (request.POST.get("fx_rate") or "").strip()
+        strategy_label_in = (request.POST.get("strategy_label") or "").strip()
+        policy_key_in     = (request.POST.get("policy_key") or "").strip()
+        is_ai_raw         = (request.POST.get("is_ai_signal") or "").strip().lower()
+        position_key_in   = (request.POST.get("position_key") or "").strip()
 
         # --- 保有数量 ---
-        held_qty = getattr(h, "quantity", None)
+        held_qty = h_get("quantity", None)
         if held_qty is None:
-            held_qty = getattr(h, "qty", 0)
+            held_qty = h_get("qty", 0)
 
         # --- バリデーション ---
         if qty_in <= 0 or price <= 0:
             return JsonResponse({"ok": False, "error": "数量/価格を確認してください"}, status=400)
 
-        holding_side = (getattr(h, "side", "BUY") or "BUY").upper()
+        holding_side = (h_get("side", "BUY") or "BUY").upper()
         is_opposite = (
             (holding_side == "BUY"  and side_in == "SELL") or
             (holding_side == "SELL" and side_in == "BUY")
@@ -1451,7 +1549,7 @@ def close_submit(request, pk: int):
             "basis","cost_price","cost_per_share","avg","average",
             "avg_unit_cost","avg_purchase_price",
         ]:
-            v = getattr(h, fname, None)
+            v = h_get(fname, None)
             if v not in (None, ""):
                 try:
                     basis = Decimal(str(v)); break
@@ -1475,22 +1573,65 @@ def close_submit(request, pk: int):
             else:
                 fee = Decimal("0")
 
-        # --- 保有日数算出 ---
+        # --- 保有開始日 / 保有日数算出 ---
+        opened_date = None
         days_held = None
         try:
-            opened_date = getattr(h, "opened_at", None) or (
-                getattr(h, "created_at", None).date() if getattr(h, "created_at", None) else None
-            )
+            opened_date = h_get("opened_at", None)
+            if opened_date is None:
+                created = h_get("created_at", None)
+                if created:
+                    opened_date = created.date() if hasattr(created, "date") else created
             if opened_date:
                 days_held = max((trade_at - opened_date).days, 0)
         except Exception:
-            pass
+            opened_date = None
+            days_held = None
+
+        # --- 33業種 / 国・通貨 / FX / 戦略まわりを最終決定 ---
+        sector33_code = sector33_code_in or h_get("sector33_code", "") or ""
+        sector33_name = sector33_name_in or h_get("sector33_name", "") or ""
+
+        country  = country_in  or (h_get("country", "")  or "JP")
+        currency = currency_in or (h_get("currency", "") or "JPY")
+
+        fx_rate = None
+        if fx_rate_raw not in ("", None):
+            try:
+                fx_rate = _to_dec(fx_rate_raw)
+            except Exception:
+                fx_rate = None
+        else:
+            fx_attr = h_get("fx_rate", None)
+            if fx_attr not in (None, ""):
+                try:
+                    fx_rate = Decimal(str(fx_attr))
+                except Exception:
+                    fx_rate = None
+
+        strategy_label = strategy_label_in or h_get("strategy_label", "") or ""
+        policy_key     = policy_key_in     or h_get("policy_key", "")     or ""
+
+        if is_ai_raw in ["1", "true", "on", "yes"]:
+            is_ai_signal = True
+        elif is_ai_raw in ["0", "false", "off", "no"]:
+            is_ai_signal = False
+        else:
+            is_ai_signal = bool(h_get("is_ai_signal", False))
+
+        ticker_val   = h_get("ticker", "")
+        position_key = position_key_in or h_get("position_key", "") or ""
+        if not position_key:
+            if opened_date:
+                position_key = f"{ticker_val}-{opened_date.isoformat()}-{account}"
+            else:
+                position_key = f"{ticker_val}-{account}"
 
         # --- RealizedTrade 作成 ---
         rt_kwargs = dict(
             trade_at=trade_at,
             side=side_in,
-            ticker=getattr(h, "ticker", ""),
+            ticker=ticker_val,
             name=name,
             broker=broker,
             account=account,
@@ -1502,6 +1643,18 @@ def close_submit(request, pk: int):
             basis=basis,
             hold_days=days_held,
             memo=memo,
+
+            # 🔸 追加フィールド
+            opened_at=opened_date,
+            sector33_code=sector33_code,
+            sector33_name=sector33_name,
+            country=country,
+            currency=currency,
+            fx_rate=fx_rate,
+            strategy_label=strategy_label,
+            policy_key=policy_key,
+            is_ai_signal=is_ai_signal,
+            position_key=position_key,
         )
         if any(f.name == "user" for f in RealizedTrade._meta.fields):
             rt_kwargs["user"] = request.user
