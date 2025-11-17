@@ -101,6 +101,34 @@
   }
 
   .meta{font-size:11px;color:#7f8da3;margin-top:4px;line-height:1.5}
+
+  /* ルール通過チェック（B用） */
+  .rule-pass{
+    margin-top:8px;
+    padding-top:6px;
+    border-top:1px dashed rgba(148,163,184,0.4);
+    font-size:11px;
+    color:#9ca3af;
+  }
+  .rule-pass-title{
+    font-size:11px;
+    font-weight:600;
+    margin-bottom:2px;
+    color:#e5e7eb;
+  }
+  .rule-pass-broker{
+    margin-top:4px;
+    font-weight:600;
+  }
+  .rule-pass-list{
+    margin:2px 0 0 0;
+    padding-left:1em;
+    list-style:none;
+  }
+  .rule-pass-list li::before{
+    content:"・";
+    margin-right:2px;
+  }
 </style>
 {% endblock %}
 
@@ -247,12 +275,37 @@
             </div>
           </div>
 
-          {# ★ここ：理由は reasons_text に入っている行だけを素直に出す #}
+          {# sizing_service 側の共通 reasons_text（両方0株のときなど） #}
           {% if item.reasons_text %}
             <div class="meta">
               {% for line in item.reasons_text %}
                 {{ line }}{% if not forloop.last %}<br>{% endif %}
               {% endfor %}
+            </div>
+          {% endif %}
+
+          {# B: ルール通過の内訳（数量 > 0 の証券だけ） #}
+          {% if item.pass_checks_rakuten or item.pass_checks_matsui %}
+            <div class="rule-pass">
+              <div class="rule-pass-title">ルール通過の内訳</div>
+
+              {% if item.pass_checks_rakuten %}
+                <div class="rule-pass-broker">楽天</div>
+                <ul class="rule-pass-list">
+                  {% for line in item.pass_checks_rakuten %}
+                    <li>{{ line }}</li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+
+              {% if item.pass_checks_matsui %}
+                <div class="rule-pass-broker">松井</div>
+                <ul class="rule-pass-list">
+                  {% for line in item.pass_checks_matsui %}
+                    <li>{{ line }}</li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
             </div>
           {% endif %}
 
