@@ -293,7 +293,7 @@
                 <div class="rule-pass-broker">楽天</div>
                 <ul class="rule-pass-list">
                   {% for line in item.pass_checks_rakuten %}
-                    <li>{{ line }}</li>
+                    <li>{{ line|safe }}</li>
                   {% endfor %}
                 </ul>
               {% endif %}
@@ -302,7 +302,7 @@
                 <div class="rule-pass-broker">松井</div>
                 <ul class="rule-pass-list">
                   {% for line in item.pass_checks_matsui %}
-                    <li>{{ line }}</li>
+                    <li>{{ line|safe }}</li>
                   {% endfor %}
                 </ul>
               {% endif %}
