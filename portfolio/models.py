@@ -42,7 +42,7 @@ class Holding(models.Model):
     name   = models.CharField(max_length=128, blank=True)
     sector = models.CharField(max_length=64, blank=True, default="")  # 33業種
 
-    # === 市場・通貨（★追加） ===
+    # === 市場・通貨（★追加済） ===
     MARKET_CHOICES = (
         ("JP", "日本株"),
         ("US", "米国株"),
@@ -51,8 +51,17 @@ class Holding(models.Model):
         ("JPY", "JPY"),
         ("USD", "USD"),
     )
-    market   = models.CharField(max_length=4, choices=MARKET_CHOICES, default="JP")   # ★追加
-    currency = models.CharField(max_length=4, choices=CURRENCY_CHOICES, default="JPY")  # ★追加
+    market   = models.CharField(max_length=4, choices=MARKET_CHOICES, default="JP")
+    currency = models.CharField(max_length=4, choices=CURRENCY_CHOICES, default="JPY")
+
+    # ★ ここを追加：取得時の為替レート（証券会社の約定レートをそのまま入れる）
+    fx_rate = models.DecimalField(
+        max_digits=12,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="1通貨あたりの円レート（例: 155.250000）"
+    )
 
     # === 保有データ ===
     quantity = models.IntegerField(default=0)
