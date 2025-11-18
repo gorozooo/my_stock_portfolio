@@ -7,6 +7,8 @@ from datetime import timedelta
 import csv
 import logging
 import traceback
+import time
+import yfinance as yf
 from datetime import date
 
 from django.contrib.auth.decorators import login_required
@@ -1066,7 +1068,7 @@ def create(request):
     pnl_input  = _to_dec(request.POST.get("pnl_input"))
     memo       = (request.POST.get("memo") or "").strip()
 
-    # 🔸 追加：解析用の付加情報（POSTに無ければデフォルトでOK）
+    # 🔸 解析用の付加情報（POSTに無ければデフォルトでOK）
     opened_raw     = (request.POST.get("opened_at") or "").strip()
     sector33_code  = (request.POST.get("sector33_code") or "").strip()
     sector33_name  = (request.POST.get("sector33_name") or "").strip()
@@ -1088,6 +1090,7 @@ def create(request):
             fx_rate = _to_dec(fx_rate_raw)
         except Exception:
             fx_rate = None
+    # ⚠️ ここでは自動取得しない：証券会社レートと合わせるため「完全手入力」
 
     is_ai_signal = is_ai_raw in ["1", "true", "on", "yes"]
 
@@ -1096,7 +1099,7 @@ def create(request):
     if side not in ("SELL", "BUY"):
         return JsonResponse({"ok": False, "error": "Sideが不正です"}, status=400)
 
-    # ★ ここを変更：BUYは basis=price を保存（SELLは逆算）
+    # BUYは basis=price を保存（SELLは逆算）
     basis = None
     if side == "SELL" and qty > 0:
         try:
@@ -1105,7 +1108,7 @@ def create(request):
         except Exception:
             basis = None
     elif side == "BUY":
-        basis = price  # ← 購入時の単価をそのまま保存
+        basis = price
 
     # 保有開始日 / 保有日数
     opened_at = None
@@ -1143,17 +1146,17 @@ def create(request):
         fee=fee,
         tax=tax,
         cashflow=pnl_input,
-        basis=basis,          # ★ BUYはprice、SELLは逆算
+        basis=basis,
         hold_days=hold_days,
         memo=memo,
 
-        # 🔸 追加フィールド
+        # 追加フィールド
         opened_at=opened_at,
         sector33_code=sector33_code,
         sector33_name=sector33_name,
         country=country,
         currency=currency,
-        fx_rate=fx_rate,
+        fx_rate=fx_rate,  # ← ここは「入力されたものだけ」保存
         strategy_label=strategy_label,
         policy_key=policy_key,
         is_ai_signal=is_ai_signal,
@@ -1395,14 +1398,16 @@ def close_sheet(request, pk: int):
         def g(obj, name, default=""):
             return getattr(obj, name, default) if obj is not None else default
 
-        # quantity / qty 両対応（新 Holding は quantity 想定）
+        # quantity / qty 両対応
         h_qty = g(h, "quantity", None)
         if h_qty in (None, ""):
             h_qty = g(h, "qty", 0)
 
-        # プリセット：Holding の broker / account を優先
-        pre_broker  = (g(h, "broker", "") or "OTHER")
-        pre_account = (g(h, "account", "") or "SPEC")
+        # プリセット：broker / account / 国・通貨
+        pre_broker   = (g(h, "broker", "")  or "OTHER")
+        pre_account  = (g(h, "account", "") or "SPEC")
+        pre_country  = (g(h, "market", "") or g(h, "country", "") or "JP").upper()
+        pre_currency = (g(h, "currency", "") or "JPY").upper()
 
         # 1) ?side= があればそれを最優先
         side_qs = (request.GET.get("side") or "").upper()
@@ -1417,13 +1422,13 @@ def close_sheet(request, pk: int):
             elif holding_side == "SELL":
                 initial_side = "BUY"
             else:
-                initial_side = "SELL"  # 不明時はSELL既定
+                initial_side = "SELL"
         else:
             initial_side = side_qs
 
         ctx = {
             "h": h,
-            "h_qty": h_qty,  # ← テンプレから常にこれを参照
+            "h_qty": h_qty,
             "prefill": {
                 "date": timezone.localdate().isoformat(),
                 "ticker": g(h, "ticker", ""),
@@ -1431,11 +1436,14 @@ def close_sheet(request, pk: int):
                 "broker": pre_broker,
                 "account": pre_account,
             },
-            "initial_side": initial_side,  # ← テンプレのタブ初期表示用（SELL/BUY）
+            "initial_side": initial_side,
+            # 通貨情報だけテンプレに渡す（FXレートは完全手入力）
+            "currency": pre_currency,
+            "country": pre_country,
         }
 
         html = render_to_string("realized/_close_sheet.html", ctx, request=request)
-        return HttpResponse(html)  # ★ HTML をそのまま返す
+        return HttpResponse(html)
 
     except Exception as e:
         logger.exception("close_sheet error (pk=%s): %s", pk, e)
@@ -1511,7 +1519,7 @@ def close_submit(request, pk: int):
         memo    = (request.POST.get("memo")    or "").strip()
         name    = (request.POST.get("name")    or "").strip() or h_get("name", "") or ""
 
-        # 🔸 追加：POST優先・無ければ Holding から引く
+        # 追加情報
         sector33_code_in  = (request.POST.get("sector33_code") or "").strip()
         sector33_name_in  = (request.POST.get("sector33_name") or "").strip()
         country_in        = (request.POST.get("country") or "").strip().upper()
@@ -1565,10 +1573,8 @@ def close_submit(request, pk: int):
             fee = Decimal("0")
         else:
             if holding_side == "BUY" and side_in == "SELL":
-                # ロングの利確/損切り
                 fee = (price - basis) * Decimal(qty_in) - pnl_input - tax_in
             elif holding_side == "SELL" and side_in == "BUY":
-                # ショートの買い戻し
                 fee = (basis - price) * Decimal(qty_in) - pnl_input - tax_in
             else:
                 fee = Decimal("0")
@@ -1592,7 +1598,7 @@ def close_submit(request, pk: int):
         sector33_code = sector33_code_in or h_get("sector33_code", "") or ""
         sector33_name = sector33_name_in or h_get("sector33_name", "") or ""
 
-        country  = country_in  or (h_get("country", "")  or "JP")
+        country  = country_in  or (h_get("country", "")  or h_get("market", "") or "JP")
         currency = currency_in or (h_get("currency", "") or "JPY")
 
         fx_rate = None
@@ -1608,6 +1614,7 @@ def close_submit(request, pk: int):
                     fx_rate = Decimal(str(fx_attr))
                 except Exception:
                     fx_rate = None
+        # ⚠️ ここでも自動取得はしない：入力 or 保有にあるものだけ
 
         strategy_label = strategy_label_in or h_get("strategy_label", "") or ""
         policy_key     = policy_key_in     or h_get("policy_key", "")     or ""
@@ -1639,18 +1646,17 @@ def close_submit(request, pk: int):
             price=price,
             fee=fee,
             tax=tax_in,
-            cashflow=pnl_input,   # 投資家PnL（±）
+            cashflow=pnl_input,
             basis=basis,
             hold_days=days_held,
             memo=memo,
 
-            # 🔸 追加フィールド
             opened_at=opened_date,
             sector33_code=sector33_code,
             sector33_name=sector33_name,
             country=country,
             currency=currency,
-            fx_rate=fx_rate,
+            fx_rate=fx_rate,  # ← 証券会社レートを手入力したもの / 保有からの引継ぎのみ
             strategy_label=strategy_label,
             policy_key=policy_key,
             is_ai_signal=is_ai_signal,
@@ -1660,7 +1666,7 @@ def close_submit(request, pk: int):
             rt_kwargs["user"] = request.user
         RealizedTrade.objects.create(**rt_kwargs)
 
-        # --- 保有数量の更新（反対売買 → 減算。0で削除） ---
+        # --- 保有数量の更新 ---
         if hasattr(h, "quantity"):
             h.quantity = F("quantity") - qty_in
             h.save(update_fields=["quantity"])
