@@ -1,0 +1,98 @@
+/* 保有フォーム専用スタイル（他ページに影響しないようクラス名のみを対象にする） */
+
+.form-card {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 16px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.fi label {
+  display: block;
+  font-size: 13px;
+  color: #9aa4b2;
+  margin-bottom: 4px;
+}
+
+.fi input,
+.fi select,
+.fi textarea {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 15px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.16);
+  background: rgba(255,255,255,.06);
+  color: #e6ebff;
+  outline: none;
+}
+
+.fi textarea {
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.grid-fields {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.btn-bar {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.btn-bar button,
+.btn-bar a {
+  flex: 1;
+  text-align: center;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.16);
+  background: rgba(255,255,255,.06);
+  color: #e6ebff;
+  text-decoration: none;
+}
+
+.btn-bar button:hover,
+.btn-bar a:hover {
+  background: rgba(255,255,255,.12);
+}
+
+.error-box {
+  padding: 10px;
+  border: 1px solid #ff9aa9;
+  background: #2b1f24;
+  color: #ffd1d1;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.hint {
+  font-size: 12px;
+  color: #888;
+}
+
+.loading-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #9aa4b2;
+  margin-left: 6px;
+  animation: bl 1s infinite;
+  vertical-align: middle;
+}
+
+@keyframes bl {
+  0%   { opacity: .2; }
+  50%  { opacity: 1; }
+  100% { opacity: .2; }
+}
