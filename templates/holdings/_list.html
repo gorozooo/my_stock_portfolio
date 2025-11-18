@@ -14,6 +14,7 @@
   .chip.code{color:#a8c6ff}
   .chip.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.30)}
   .chip.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.30)}
+  .chip.fx{background:rgba(56,189,248,.10);border-color:rgba(56,189,248,.45);color:#e0f2fe}
   .head__spark{width:64px !important;height:18px !important;flex:0 0 64px !important}
   .head__spark svg{width:100% !important;height:100% !important}
 
@@ -84,6 +85,9 @@
                 <span class="chip">{{ h.get_broker_display }}</span>
                 <span class="chip">{{ h.get_account_display }}</span>
                 <span class="chip {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
+                {% if h.currency == "USD" %}
+                  <span class="chip fx">USD 💲</span>
+                {% endif %}
               </div>
             </div>
             <div class="head__spark">
@@ -104,11 +108,25 @@
             <div class="stats-col">
               <div class="kv2 small">
                 <div class="k">現在値</div>
-                <div class="v">{% if r.price_now is not None %}¥{{ r.price_now|floatformat:1|intcomma }}{% else %}—{% endif %}</div>
+                <div class="v">
+                  {% if r.price_now is not None %}
+                    {% if h.currency == "USD" %}
+                      ${{ r.price_now|floatformat:2|intcomma }}
+                    {% else %}
+                      ¥{{ r.price_now|floatformat:1|intcomma }}
+                    {% endif %}
+                  {% else %}—{% endif %}
+                </div>
               </div>
               <div class="kv2 small">
                 <div class="k">取得単価</div>
-                <div class="v">¥{{ h.avg_cost|floatformat:2|intcomma }}</div>
+                <div class="v">
+                  {% if h.currency == "USD" %}
+                    ${{ h.avg_cost|floatformat:2|intcomma }}
+                  {% else %}
+                    ¥{{ h.avg_cost|floatformat:2|intcomma }}
+                  {% endif %}
+                </div>
               </div>
               <div class="kv2 small">
                 <div class="k">現在利回り</div>
@@ -130,7 +148,11 @@
                 <div class="k">含み損益</div>
                 <div class="v {% if r.pnl is not None %}{% if r.pnl < 0 %}neg{% else %}pos{% endif %}{% endif %}">
                   {% if r.pnl is not None %}
-                    ¥{% if r.pnl < 0 %}{{ r.pnl|mul:-1|floatformat:0|intcomma }}{% else %}{{ r.pnl|floatformat:0|intcomma }}{% endif %}
+                    {% if h.currency == "USD" %}
+                      {% if r.pnl < 0 %}${{ r.pnl|mul:-1|floatformat:0|intcomma }}{% else %}${{ r.pnl|floatformat:0|intcomma }}{% endif %}
+                    {% else %}
+                      ¥{% if r.pnl < 0 %}{{ r.pnl|mul:-1|floatformat:0|intcomma }}{% else %}{{ r.pnl|floatformat:0|intcomma }}{% endif %}
+                    {% endif %}
                   {% else %}—{% endif %}
                 </div>
               </div>
@@ -144,11 +166,27 @@
               </div>
               <div class="kv2">
                 <div class="k">累計配当</div>
-                <div class="v">{% if r.div_received is not None %}¥{{ r.div_received|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
+                <div class="v">
+                  {% if r.div_received is not None %}
+                    {% if h.currency == "USD" %}
+                      ${{ r.div_received|floatformat:0|intcomma }}
+                    {% else %}
+                      ¥{{ r.div_received|floatformat:0|intcomma }}
+                    {% endif %}
+                  {% else %}—{% endif %}
+                </div>
               </div>
               <div class="kv2">
                 <div class="k">年間配当</div>
-                <div class="v">{% if r.div_annual is not None %}¥{{ r.div_annual|floatformat:0|intcomma }}{% else %}—{% endif %}</div>
+                <div class="v">
+                  {% if r.div_annual is not None %}
+                    {% if h.currency == "USD" %}
+                      ${{ r.div_annual|floatformat:0|intcomma }}
+                    {% else %}
+                      ¥{{ r.div_annual|floatformat:0|intcomma }}
+                    {% endif %}
+                  {% else %}—{% endif %}
+                </div>
               </div>
             </div>
           </section>
@@ -157,8 +195,28 @@
           <section class="more">
             {% with opened=h.opened_at days=r.days updated=h.updated_at %}
             <div class="moregrid">
-              <div class="kv2"><div class="k">取得額</div><div class="v">¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}</div></div>
-              <div class="kv2"><div class="k">評価額</div><div class="v">{% if r.valuation is not None %}¥{{ r.valuation|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+              <div class="kv2">
+                <div class="k">取得額</div>
+                <div class="v">
+                  {% if h.currency == "USD" %}
+                    ${{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}
+                  {% else %}
+                    ¥{{ h.quantity|mul:h.avg_cost|floatformat:0|intcomma }}
+                  {% endif %}
+                </div>
+              </div>
+              <div class="kv2">
+                <div class="k">評価額</div>
+                <div class="v">
+                  {% if r.valuation is not None %}
+                    {% if h.currency == "USD" %}
+                      ${{ r.valuation|floatformat:0|intcomma }}
+                    {% else %}
+                      ¥{{ r.valuation|floatformat:0|intcomma }}
+                    {% endif %}
+                  {% else %}—{% endif %}
+                </div>
+              </div>
               <div class="kv2"><div class="k">保有開始</div><div class="v">{% if opened %}{{ opened|date:"Y-m-d" }}{% else %}—{% endif %}</div></div>
               <div class="kv2"><div class="k">保有日数</div><div class="v">{% if days is not None %}{{ days|months_from_days }}{% else %}—{% endif %}</div></div>
               <div class="kv2"><div class="k">更新</div><div class="v">{% if updated %}{{ updated|date:"Y-m-d" }}{% else %}—{% endif %}</div></div>
