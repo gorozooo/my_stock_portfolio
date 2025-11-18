@@ -23,14 +23,6 @@
 .chip.code{color:#c7d2fe;border-color:rgba(110,168,255,.35);background:rgba(110,168,255,.10)}
 .chip.buy{background:rgba(16,185,129,.15);border-color:rgba(16,185,129,.35)}
 .chip.sell{background:rgba(244,63,94,.15);border-color:rgba(244,63,94,.35)}
-
-/* ★ USD など FX バッジ */
-.chip.fx{
-  background:rgba(56,189,248,.10);
-  border-color:rgba(56,189,248,.45);
-  color:#e0f2fe;
-}
-
 .head__spark{flex:0 0 auto;margin-left:auto}
 .spark{width:56px;height:16px;opacity:.9;filter:drop-shadow(0 0 1px rgba(0,0,0,.18))}
 
@@ -51,10 +43,6 @@
 }
 .kv2.small .v{font-size:13px}
 .unit{opacity:.7;font-size:10.5px;margin-left:4px}
-
-/* ★ 汎用のプラス/マイナス色（含み損益・損益率など） */
-.v.pos{color:#22c55e}
-.v.neg{color:#ef4444}
 
 /* 損益率（小型表示） */
 .pct{font-size:10.5px;margin-left:6px;opacity:.9;white-space:nowrap}
