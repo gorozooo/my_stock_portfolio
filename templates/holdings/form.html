@@ -75,10 +75,16 @@
       </div>
     </div>
 
-    <!-- 為替レート -->
+    <!-- 為替レート（テンキー＋小数点） -->
     <div class="fi">
       <label>為替レート <span class="hint">米国株などJPY以外のとき必須。例: 155.250000（1通貨あたりの円）</span></label>
-      {{ form.fx_rate }}
+      <input
+        type="text"
+        name="fx_rate"
+        inputmode="decimal"
+        autocomplete="off"
+        placeholder="155.250000"
+        value="{{ form.fx_rate.value|default_if_none:'' }}">
     </div>
 
     <!-- メモ -->
