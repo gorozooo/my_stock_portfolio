@@ -784,6 +784,18 @@ def holding_create(request):
         if form.is_valid():
             obj = form.save(commit=False)
             obj.user = request.user
+
+            # ★ ここでティッカーから market / currency を自動判定
+            head = (obj.ticker or "").upper()
+            if head.isalpha():
+                # 英字だけ → 米国株 / USD
+                obj.market = "US"
+                obj.currency = "USD"
+            else:
+                # 数字のみ or 数字＋英字(186Aなど) → 日本株 / JPY
+                obj.market = "JP"
+                obj.currency = "JPY"
+
             obj.save()
             messages.success(request, "保有を登録しました。")
             return redirect("holding_list")
@@ -798,7 +810,18 @@ def holding_edit(request, pk):
     if request.method == "POST":
         form = HoldingForm(request.POST, instance=obj)
         if form.is_valid():
-            form.save()
+            obj = form.save(commit=False)
+
+            # ★ 編集時もティッカー基準で毎回 market / currency を再セット
+            head = (obj.ticker or "").upper()
+            if head.isalpha():
+                obj.market = "US"
+                obj.currency = "USD"
+            else:
+                obj.market = "JP"
+                obj.currency = "JPY"
+
+            obj.save()
             messages.success(request, "保有を更新しました。")
             return redirect("holding_list")
     else:
