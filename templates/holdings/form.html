@@ -26,6 +26,7 @@
         inputmode="latin"
         autocomplete="off"
         autocorrect="off"
+        autocapitalize="none"
         spellcheck="false"
         style="text-transform:uppercase"
         placeholder="7203 / AAPL"
@@ -114,12 +115,28 @@
   // 競合対策：最新のリクエストだけ有効にする
   let ac = null; // AbortController
 
-  // 🔠 入力中に大文字化 & セクターはコード変更のたびに一旦クリア
+  // 全角英数字 → 半角英数字
+  function toHalfWidth(str){
+    return (str || "").replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(ch){
+      return String.fromCharCode(ch.charCodeAt(0) - 0xFEE0);
+    });
+  }
+
+  // 🔠 入力中に半角英数字だけを許可 & 大文字化
   $ticker.addEventListener('input', ()=>{
-    const v = ($ticker.value || '').toUpperCase();
+    // 1) 全角を半角へ
+    let v = toHalfWidth($ticker.value);
+    // 2) 英数字以外は全部削除（日本語はここで消える）
+    v = v.replace(/[^0-9A-Za-z]/g, '');
+    // 3) 大文字化
+    v = v.toUpperCase();
+
     const changed = v !== lastResolved.code;
     $ticker.value = v;
+
+    // コードが変わったらセクターはいったんクリア
     if (changed && $sector) $sector.value = "";
+
     debLookup();
   });
 
@@ -204,6 +221,9 @@
 
   // 初期値が入ってるときはページロード時に自動解決
   if (($ticker.value || '').trim()) {
+    // ここもフィルタを通してから実行
+    let v = toHalfWidth($ticker.value).replace(/[^0-9A-Za-z]/g,'').toUpperCase();
+    $ticker.value = v;
     lookup(0);
   }
 })();
