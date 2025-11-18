@@ -59,6 +59,43 @@ def _to_float(x) -> Optional[float]:
         return None
 
 
+def _get_fx_usd_jpy(ttl: int = 15 * 60) -> Optional[float]:
+    """
+    USD/JPY 為替レート（1USD あたり何円か）を yfinance から取得。
+    簡易キャッシュ付き（デフォルト 15分）。
+    """
+    now = time.time()
+    cache = getattr(_get_fx_usd_jpy, "_cache", None)
+    if cache:
+        ts, rate = cache
+        if now - ts < ttl and rate is not None:
+            return rate  # キャッシュ有効
+
+    try:
+        df = yf.download(
+            "JPY=X",
+            period="5d",
+            interval="1d",
+            auto_adjust=False,
+            progress=False,
+        )
+        if df is None or df.empty:
+            return cache[1] if cache else None  # 前回値があればそれを返す
+
+        close = df["Close"].dropna()
+        if close.empty:
+            return cache[1] if cache else None
+
+        rate = float(close.iloc[-1])  # 1USD = rate JPY
+        _get_fx_usd_jpy._cache = (now, rate)  # type: ignore[attr-defined]
+        return rate
+    except Exception:
+        # 失敗したら前回値があればそれを返す
+        if cache:
+            return cache[1]
+        return None
+
+
 def _norm_ticker(raw: str) -> str:
     """
     '8591' / '186A' / 'AAPL' を trend._normalize_ticker に丸投げ。
