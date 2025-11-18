@@ -111,8 +111,6 @@
   let userEditedName = false;
   let nameAutofilled = false;
   let lastResolved   = { code: "", name: "", sector: "" };
-
-  // 競合対策：最新のリクエストだけ有効にする
   let ac = null; // AbortController
 
   // 全角英数字 → 半角英数字
@@ -122,32 +120,19 @@
     });
   }
 
-  // 🔠 入力中に半角英数字だけを許可 & 大文字化
-  $ticker.addEventListener('input', ()=>{
-    // 1) 全角を半角へ
+  // 入力値を正規化（半角・英数字のみ・大文字）
+  function normalizeTicker(){
     let v = toHalfWidth($ticker.value);
-    // 2) 英数字以外は全部削除（日本語はここで消える）
     v = v.replace(/[^0-9A-Za-z]/g, '');
-    // 3) 大文字化
     v = v.toUpperCase();
-
-    const changed = v !== lastResolved.code;
     $ticker.value = v;
-
-    // コードが変わったらセクターはいったんクリア
-    if (changed && $sector) $sector.value = "";
-
-    debLookup();
-  });
+    return v;
+  }
 
   $name.addEventListener('input', ()=>{
     userEditedName = true;
     nameAutofilled = false;
   });
-
-  function debounce(fn, ms){
-    let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn.apply(null,args), ms); };
-  }
 
   function applyData(data){
     if (!data) return;
@@ -155,10 +140,13 @@
     const curCode = ($ticker.value || '').trim();
     const codeChanged = !!data.code && data.code !== lastResolved.code;
 
-    if (data.code) $ticker.value = String(data.code).toUpperCase();
+    if (data.code) {
+      $ticker.value = String(data.code).toUpperCase();
+    }
 
     const safeToOverwriteName =
       !userEditedName || nameAutofilled || !$name.value || $name.value === lastResolved.name;
+
     if ((codeChanged || safeToOverwriteName) && data.name) {
       $name.value = data.name;
       nameAutofilled = true;
@@ -166,7 +154,6 @@
     }
 
     if ($sector && data.sector !== undefined) {
-      // 常に上書き（空文字も明示的に反映）
       $sector.value = data.sector || "";
     }
 
@@ -182,10 +169,9 @@
   }
 
   function lookup(tryCount=0){
-    const v = ($ticker.value || '').trim();
+    const v = normalizeTicker();
     if (!v) return;
 
-    // 既存リクエストをキャンセル
     if (ac) ac.abort();
     ac = new AbortController();
 
@@ -199,31 +185,24 @@
         setLoading(false);
         applyData(data);
 
-        // セクターが空なら軽くリトライ（API側がフォールバックで埋まるまでの猶予）
         if ((!data || !data.sector) && tryCount < 2) {
           setTimeout(()=>lookup(tryCount+1), 600);
         }
       })
       .catch(err => {
         setLoading(false);
-        // キャンセル以外は控えめに1回だけ再試行
         if (tryCount < 1 && (!err || err.name !== 'AbortError')) {
           setTimeout(()=>lookup(tryCount+1), 600);
         }
       });
   }
 
-  const debLookup = debounce(lookup, 300);
-
-  // 入力確定系でも呼ぶ
+  // 「確定」タイミングだけで実行（入力中はいじらない）
   $ticker.addEventListener('change', ()=>lookup(0));
   $ticker.addEventListener('blur',   ()=>lookup(0));
 
-  // 初期値が入ってるときはページロード時に自動解決
+  // 初期値がある場合はページロード時に一度だけ解決
   if (($ticker.value || '').trim()) {
-    // ここもフィルタを通してから実行
-    let v = toHalfWidth($ticker.value).replace(/[^0-9A-Za-z]/g,'').toUpperCase();
-    $ticker.value = v;
     lookup(0);
   }
 })();
