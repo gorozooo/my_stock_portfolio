@@ -68,8 +68,9 @@ class HoldingForm(forms.ModelForm):
             "avg_cost",
             "opened_at",
             "memo",
-            "market",     # ★追加
-            "currency",   # ★追加
+            "market",     # ★ 自動判定（Hidden）
+            "currency",   # ★ 自動判定（Hidden）
+            "fx_rate",    # ★ 追加：取得時の為替レート（手入力）
         ]
         widgets = {
             "ticker": forms.TextInput(attrs={
@@ -88,15 +89,22 @@ class HoldingForm(forms.ModelForm):
             "quantity": forms.NumberInput(attrs={"min": "1", "step": "1"}),
             "avg_cost": forms.NumberInput(attrs={"min": "0", "step": "0.01"}),
             "memo":     forms.Textarea(attrs={"rows": 4, "style": "resize:vertical;", "placeholder": "売買理由など"}),
-            # ★ market / currency はフォームUIから隠す
+            # ★ market / currency はフォームUIから隠す（コードから自動判定）
             "market":   forms.HiddenInput(),
             "currency": forms.HiddenInput(),
+            # ★ fx_rate はユーザーが入力する（例: 155.250000）
+            "fx_rate":  forms.NumberInput(attrs={
+                "min": "0",
+                "step": "0.000001",
+                "placeholder": "例: 155.250000（1USDあたりの円レート）",
+            }),
         }
 
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
+        # 基本必須（opened_at / memo / sector / market / currency / fx_rate は任意）
         for k, f in self.fields.items():
-            if k not in ("opened_at", "memo", "sector", "market", "currency"):
+            if k not in ("opened_at", "memo", "sector", "market", "currency", "fx_rate"):
                 f.required = True
                 f.widget.attrs["required"] = "required"
 
@@ -142,6 +150,7 @@ class HoldingForm(forms.ModelForm):
         req = ["ticker", "name", "broker", "account", "side", "quantity", "avg_cost"]
         missing = [k for k in req if not str(cd.get(k) or "").strip()]
         if "name" in missing:
+            # 銘柄名はあとで補完を試みるので一旦外す
             missing.remove("name")
 
         # ---- 数量 ----
@@ -177,6 +186,30 @@ class HoldingForm(forms.ModelForm):
         cd["market"] = market
         cd["currency"] = currency
 
+        # ==================================================================
+        # ★ 追加：fx_rate のバリデーション
+        #   - 入力があれば > 0 の数値チェック
+        #   - currency != JPY のときは必須（証券会社の約定レートを入れる）
+        # ==================================================================
+        fx = cd.get("fx_rate")
+        cur = cd.get("currency")
+
+        # 入力されている場合の数値チェック
+        if fx not in (None, ""):
+            try:
+                fx_val = float(fx)
+                if fx_val <= 0:
+                    self.add_error("fx_rate", "0より大きい数値を入力してください。")
+            except Exception:
+                self.add_error("fx_rate", "数値で入力してください。")
+
+        # 通貨が JPY 以外なら FX レート必須
+        if cur and cur != "JPY" and not fx:
+            self.add_error("fx_rate", "JPY以外の通貨のときは、約定時の為替レートを入力してください。")
+
+        # ==================================================================
+        # 最終チェック
+        # ==================================================================
         if missing:
             raise ValidationError("必須項目が入力されていません。")
         if self.errors:
