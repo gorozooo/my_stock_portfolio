@@ -1,112 +1,63 @@
 {% load humanize num %}
 
+<style>
+  /* ===== カード ===== */
+  .row{border:1px solid rgba(255,255,255,.11);border-radius:11px;background:rgba(255,255,255,.03);overflow:hidden}
+  .row + .row{margin-top:8px}
+  .track{padding:4px 8px}
+
+  .head{display:grid;grid-template-columns:1fr auto;align-items:flex-start;gap:8px;padding:8px 2px 10px;border-bottom:1px dashed rgba(255,255,255,.10)}
+  .head__left{min-width:0}
+  .name{font-weight:780;font-size:16px;line-height:1.18;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+  .chip{font-size:10.5px;border:1px solid rgba(255,255,255,.14);border-radius:9999px;padding:3px 7px;color:#cfe1ff;background:rgba(255,255,255,.05)}
+  .chip.code{color:#a8c6ff}
+  .chip.buy{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.30)}
+  .chip.sell{background:rgba(244,63,94,.12);border-color:rgba(244,63,94,.30)}
+  .chip.fx{background:rgba(56,189,248,.10);border-color:rgba(56,189,248,.45);color:#e0f2fe}
+  .head__spark{width:64px !important;height:18px !important;flex:0 0 64px !important}
+  .head__spark svg{width:100% !important;height:100% !important}
+
+  .stats-compact{display:grid !important;grid-template-columns:1fr 1fr !important;gap:2px;margin-top:2px;padding-top:2px;border-top:1px dashed rgba(255,255,255,.08)}
+  .stats-col{display:grid;row-gap:1px}
+  .kv2{display:flex;align-items:baseline;justify-content:space-between;gap:2px}
+  .kv2 .k{font-size:10px;color:#9fb0c8;letter-spacing:.01em;line-height:1}
+  .kv2 .k::after{content:"：";opacity:.5}
+  .kv2 .v{font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1}
+  .kv2.small .v{font-size:12px}
+  .unit{opacity:.7;font-size:10px;margin-left:2px;line-height:1}
+  .v.pos{color:#22c55e}.v.neg{color:#ef4444}
+
+  .more{display:none;margin-top:2px;padding-top:2px;border-top:1px dashed rgba(255,255,255,.08)}
+  .row.show-detail .more{display:block}
+  .moregrid{display:grid;grid-template-columns:1fr 1fr;gap:2px}
+  .moregrid .kv2 .v{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .moregrid .kv2.memo{grid-column:1 / -1}
+
+  .actions{position:absolute;inset:0 0 0 auto;width:max(56vw,220px);transform:translateX(100%)}
+  .action-panel{height:100%;display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:0 10px;background:linear-gradient(90deg,rgba(13,17,23,0),rgba(13,17,23,.92))}
+  .item{display:flex;gap:6px;align-items:center;border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:8px 10px;background:rgba(255,255,255,.06);font-size:12px}
+  .item.delete{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.45)}
+
+  /* ▼ KPI（ここでは“ソース”として出すだけ。画面には非表示） */
+  #kpiStickyInner{ display:none; }
+</style>
+
 <!-- ★ KPIの“ソース”。list.html の JS が #kpiMount に移植して表示します -->
-<div id="kpiStickyInner" aria-hidden="true" style="display:none">
+<div id="kpiStickyInner" aria-hidden="true">
   <div class="kpi-grid">
-    <div class="kpi">
-      <div class="kpi-k">件数</div>
-      <div class="kpi-v">{{ summary.count|default:"0" }}</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-k">勝率</div>
-      <div class="kpi-v">
-        {% if summary.win_rate is not None %}
-          {{ summary.win_rate|floatformat:1 }}%
-        {% else %}
-          —
-        {% endif %}
-      </div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-k">取得額合計</div>
-      <div class="kpi-v">¥{{ summary.acq|floatformat:0|intcomma }}</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-k">評価額合計</div>
-      <div class="kpi-v">
-        {% if summary.val is not None %}
-          ¥{{ summary.val|floatformat:0|intcomma }}
-        {% else %}
-          —
-        {% endif %}
-      </div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-k">含み損益</div>
-      <div class="kpi-v {% if summary.pnl and summary.pnl < 0 %}neg{% else %}pos{% endif %}">
-        {% if summary.pnl is not None %}
-          ¥{{ summary.pnl|floatformat:0|intcomma }}
-        {% else %}
-          —
-        {% endif %}
-      </div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-k">損益率</div>
-      <div class="kpi-v {% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">
-        {% if summary.pnl_pct is not None %}
-          {{ summary.pnl_pct|floatformat:2 }}%
-        {% else %}
-          —
-        {% endif %}
-      </div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-k">勝ち件数 / 負け件数</div>
-      <div class="kpi-v">
-        {{ summary.winners|default:"0" }} / {{ summary.losers|default:"0" }}
-      </div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-k">平均保有日数</div>
-      <div class="kpi-v">
-        {% if summary.avg_days is not None %}
-          {{ summary.avg_days|floatformat:0 }}日
-        {% else %}
-          —
-        {% endif %}
-      </div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-k">中央値</div>
-      <div class="kpi-v">
-        {% if summary.med_days is not None %}
-          {{ summary.med_days|floatformat:0 }}日
-        {% else %}
-          —
-        {% endif %}
-      </div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-k">平均ポジション</div>
-      <div class="kpi-v">
-        {% if summary.avg_pos_size is not None %}
-          ¥{{ summary.avg_pos_size|floatformat:0|intcomma }}
-        {% else %}
-          —
-        {% endif %}
-      </div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-k">最大益</div>
-      <div class="kpi-v {% if summary.top_gain_pnl and summary.top_gain_pnl < 0 %}neg{% else %}pos{% endif %}">
-        {% if summary.top_gain_pnl is not None %}
-          ¥{{ summary.top_gain_pnl|floatformat:0|intcomma }}
-        {% else %}
-          —
-        {% endif %}
-      </div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-k">最大損</div>
-      <div class="kpi-v {% if summary.top_loss_pnl and summary.top_loss_pnl < 0 %}neg{% else %}pos{% endif %}">
-        {% if summary.top_loss_pnl is not None %}
-          ¥{{ summary.top_loss_pnl|floatformat:0|intcomma }}
-        {% else %}
-          —
-        {% endif %}
-      </div>
-    </div>
+    <div class="kpi"><div class="kpi-k">件数</div><div class="kpi-v">{{ summary.count|default:"0" }}</div></div>
+    <div class="kpi"><div class="kpi-k">勝率</div><div class="kpi-v">{% if summary.win_rate is not None %}{{ summary.win_rate|floatformat:1 }}%{% else %}—{% endif %}</div></div>
+    <div class="kpi"><div class="kpi-k">取得額合計</div><div class="kpi-v">¥{{ summary.acq|floatformat:0|intcomma }}</div></div>
+    <div class="kpi"><div class="kpi-k">評価額合計</div><div class="kpi-v">{% if summary.val is not None %}¥{{ summary.val|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+    <div class="kpi"><div class="kpi-k">含み損益</div><div class="kpi-v {% if summary.pnl and summary.pnl < 0 %}neg{% else %}pos{% endif %}">{% if summary.pnl is not None %}¥{{ summary.pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+    <div class="kpi"><div class="kpi-k">損益率</div><div class="kpi-v {% if summary.pnl_pct and summary.pnl_pct < 0 %}neg{% else %}pos{% endif %}">{% if summary.pnl_pct is not None %}{{ summary.pnl_pct|floatformat:2 }}%{% else %}—{% endif %}</div></div>
+    <div class="kpi"><div class="kpi-k">勝ち件数 / 負け件数</div><div class="kpi-v">{{ summary.winners|default:"0" }} / {{ summary.losers|default:"0" }}</div></div>
+    <div class="kpi"><div class="kpi-k">平均保有日数</div><div class="kpi-v">{% if summary.avg_days is not None %}{{ summary.avg_days|floatformat:0 }}日{% else %}—{% endif %}</div></div>
+    <div class="kpi"><div class="kpi-k">中央値</div><div class="kpi-v">{% if summary.med_days is not None %}{{ summary.med_days|floatformat:0 }}日{% else %}—{% endif %}</div></div>
+    <div class="kpi"><div class="kpi-k">平均ポジション</div><div class="kpi-v">{% if summary.avg_pos_size is not None %}¥{{ summary.avg_pos_size|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+    <div class="kpi"><div class="kpi-k">最大益</div><div class="kpi-v {% if summary.top_gain_pnl and summary.top_gain_pnl < 0 %}neg{% else %}pos{% endif %}">{% if summary.top_gain_pnl is not None %}¥{{ summary.top_gain_pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
+    <div class="kpi"><div class="kpi-k">最大損</div><div class="kpi-v {% if summary.top_loss_pnl and summary.top_loss_pnl < 0 %}neg{% else %}pos{% endif %}">{% if summary.top_loss_pnl is not None %}¥{{ summary.top_loss_pnl|floatformat:0|intcomma }}{% else %}—{% endif %}</div></div>
   </div>
 </div>
 
@@ -117,24 +68,10 @@
       <article class="card row" data-swipe>
         <div class="actions">
           <div class="action-panel" onclick="event.stopPropagation()">
-            <button type="button" class="item detail" data-action="detail">
-              <span class="ico">📄</span><span>詳細</span>
-            </button>
-            <a class="item edit" href="{% url 'holding_edit' h.id %}">
-              <span class="ico">✏️</span><span>編集</span>
-            </a>
-            <a class="item sell" href="{% url 'holding_close_sheet' h.id %}">
-              <span class="ico">💱</span><span>手仕舞い</span>
-            </a>
-            <button
-              class="item delete"
-              hx-post="{% url 'holding_delete' h.id %}"
-              hx-confirm="削除しますか？"
-              hx-target="closest [data-swipe]"
-              hx-swap="outerHTML swap:15ms"
-            >
-              <span class="ico">🗑️</span><span>削除</span>
-            </button>
+            <button type="button" class="item detail" data-action="detail"><span class="ico">📄</span><span>詳細</span></button>
+            <a class="item edit" href="{% url 'holding_edit' h.id %}"><span class="ico">✏️</span><span>編集</span></a>
+            <a class="item sell" href="{% url 'holding_close_sheet' h.id %}"><span class="ico">💱</span><span>手仕舞い</span></a>
+            <button class="item delete" hx-post="{% url 'holding_delete' h.id %}" hx-confirm="削除しますか？" hx-target="closest [data-swipe]" hx-swap="outerHTML swap:15ms"><span class="ico">🗑️</span><span>削除</span></button>
           </div>
         </div>
 
@@ -142,34 +79,26 @@
           <!-- 見出し -->
           <header class="head">
             <div class="head__left">
-              <div class="name" title="{{ h.name|default:'-' }}">
-                {{ h.name|default:"-" }}
-              </div>
+              <div class="name" title="{{ h.name|default:'-' }}">{{ h.name|default:"-" }}</div>
               <div class="chips">
                 <span class="chip code">{{ h.ticker }}</span>
                 <span class="chip">{{ h.get_broker_display }}</span>
                 <span class="chip">{{ h.get_account_display }}</span>
-                <span class="chip {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">
-                  {{ h.side }}
-                </span>
+                <span class="chip {% if h.side == 'SELL' %}sell{% else %}buy{% endif %}">{{ h.side }}</span>
                 {% if h.currency == "USD" %}
                   <span class="chip fx">USD 💲</span>
                 {% endif %}
               </div>
             </div>
             <div class="head__spark">
-              <svg
-                class="spark"
-                viewBox="0 0 96 24"
-                preserveAspectRatio="none"
-                data-rate="{{ r.pnl_pct|default:0 }}"
-                data-s7i='{{ r.s7_idx|default:"[]"|safe }}'
-                data-s30i='{{ r.s30_idx|default:"[]"|safe }}'
-                data-s90i='{{ r.s90_idx|default:"[]"|safe }}'
-                data-s7r='{{ r.s7_raw|default:"[]"|safe }}'
-                data-s30r='{{ r.s30_raw|default:"[]"|safe }}'
-                data-s90r='{{ r.s90_raw|default:"[]"|safe }}'
-              ></svg>
+              <svg class="spark" viewBox="0 0 96 24" preserveAspectRatio="none"
+                   data-rate="{{ r.pnl_pct|default:0 }}"
+                   data-s7i='{{ r.s7_idx|default:"[]"|safe }}'
+                   data-s30i='{{ r.s30_idx|default:"[]"|safe }}'
+                   data-s90i='{{ r.s90_idx|default:"[]"|safe }}'
+                   data-s7r='{{ r.s7_raw|default:"[]"|safe }}'
+                   data-s30r='{{ r.s30_raw|default:"[]"|safe }}'
+                   data-s90r='{{ r.s90_raw|default:"[]"|safe }}'></svg>
             </div>
           </header>
 
@@ -186,9 +115,7 @@
                     {% else %}
                       ¥{{ r.price_now|floatformat:1|intcomma }}
                     {% endif %}
-                  {% else %}
-                    —
-                  {% endif %}
+                  {% else %}—{% endif %}
                 </div>
               </div>
               <div class="kv2 small">
@@ -203,23 +130,11 @@
               </div>
               <div class="kv2 small">
                 <div class="k">現在利回り</div>
-                <div class="v">
-                  {% if r.yield_now is not None %}
-                    {{ r.yield_now|floatformat:2 }}%
-                  {% else %}
-                    —
-                  {% endif %}
-                </div>
+                <div class="v">{% if r.yield_now is not None %}{{ r.yield_now|floatformat:2 }}%{% else %}—{% endif %}</div>
               </div>
               <div class="kv2 small">
                 <div class="k">取得利回り</div>
-                <div class="v">
-                  {% if r.yield_cost is not None %}
-                    {{ r.yield_cost|floatformat:2 }}%
-                  {% else %}
-                    —
-                  {% endif %}
-                </div>
+                <div class="v">{% if r.yield_cost is not None %}{{ r.yield_cost|floatformat:2 }}%{% else %}—{% endif %}</div>
               </div>
             </div>
 
@@ -227,45 +142,26 @@
             <div class="stats-col">
               <div class="kv2">
                 <div class="k">保有数</div>
-                <div class="v">
-                  {{ h.quantity|intcomma }}<span class="unit">株</span>
-                </div>
+                <div class="v">{{ h.quantity|intcomma }}<span class="unit">株</span></div>
               </div>
               <div class="kv2">
                 <div class="k">含み損益</div>
                 <div class="v {% if r.pnl is not None %}{% if r.pnl < 0 %}neg{% else %}pos{% endif %}{% endif %}">
                   {% if r.pnl is not None %}
                     {% if h.currency == "USD" %}
-                      {% if r.pnl < 0 %}
-                        ${{ r.pnl|mul:-1|floatformat:0|intcomma }}
-                      {% else %}
-                        ${{ r.pnl|floatformat:0|intcomma }}
-                      {% endif %}
+                      {% if r.pnl < 0 %}${{ r.pnl|mul:-1|floatformat:0|intcomma }}{% else %}${{ r.pnl|floatformat:0|intcomma }}{% endif %}
                     {% else %}
-                      ¥{% if r.pnl < 0 %}
-                        {{ r.pnl|mul:-1|floatformat:0|intcomma }}
-                      {% else %}
-                        {{ r.pnl|floatformat:0|intcomma }}
-                      {% endif %}
+                      ¥{% if r.pnl < 0 %}{{ r.pnl|mul:-1|floatformat:0|intcomma }}{% else %}{{ r.pnl|floatformat:0|intcomma }}{% endif %}
                     {% endif %}
-                  {% else %}
-                    —
-                  {% endif %}
+                  {% else %}—{% endif %}
                 </div>
               </div>
               <div class="kv2">
                 <div class="k">損益率</div>
                 <div class="v {% if r.pnl_pct is not None %}{% if r.pnl_pct < 0 %}neg{% else %}pos{% endif %}{% endif %}">
                   {% if r.pnl_pct is not None %}
-                    {% if r.pnl_pct < 0 %}
-                      {{ r.pnl_pct|mul:-1|floatformat:2 }}
-                    {% else %}
-                      {{ r.pnl_pct|floatformat:2 }}
-                    {% endif %}
-                    %
-                  {% else %}
-                    —
-                  {% endif %}
+                    {% if r.pnl_pct < 0 %}{{ r.pnl_pct|mul:-1|floatformat:2 }}{% else %}{{ r.pnl_pct|floatformat:2 }}{% endif %} %
+                  {% else %}—{% endif %}
                 </div>
               </div>
               <div class="kv2">
@@ -277,9 +173,7 @@
                     {% else %}
                       ¥{{ r.div_received|floatformat:0|intcomma }}
                     {% endif %}
-                  {% else %}
-                    —
-                  {% endif %}
+                  {% else %}—{% endif %}
                 </div>
               </div>
               <div class="kv2">
@@ -291,9 +185,7 @@
                     {% else %}
                       ¥{{ r.div_annual|floatformat:0|intcomma }}
                     {% endif %}
-                  {% else %}
-                    —
-                  {% endif %}
+                  {% else %}—{% endif %}
                 </div>
               </div>
             </div>
@@ -322,47 +214,13 @@
                     {% else %}
                       ¥{{ r.valuation|floatformat:0|intcomma }}
                     {% endif %}
-                  {% else %}
-                    —
-                  {% endif %}
+                  {% else %}—{% endif %}
                 </div>
               </div>
-              <div class="kv2">
-                <div class="k">保有開始</div>
-                <div class="v">
-                  {% if opened %}
-                    {{ opened|date:"Y-m-d" }}
-                  {% else %}
-                    —
-                  {% endif %}
-                </div>
-              </div>
-              <div class="kv2">
-                <div class="k">保有日数</div>
-                <div class="v">
-                  {% if days is not None %}
-                    {{ days|months_from_days }}
-                  {% else %}
-                    —
-                  {% endif %}
-                </div>
-              </div>
-              <div class="kv2">
-                <div class="k">更新</div>
-                <div class="v">
-                  {% if updated %}
-                    {{ updated|date:"Y-m-d" }}
-                  {% else %}
-                    —
-                  {% endif %}
-                </div>
-              </div>
-              {% if h.memo %}
-                <div class="kv2 memo">
-                  <div class="k">メモ</div>
-                  <div class="v">{{ h.memo }}</div>
-                </div>
-              {% endif %}
+              <div class="kv2"><div class="k">保有開始</div><div class="v">{% if opened %}{{ opened|date:"Y-m-d" }}{% else %}—{% endif %}</div></div>
+              <div class="kv2"><div class="k">保有日数</div><div class="v">{% if days is not None %}{{ days|months_from_days }}{% else %}—{% endif %}</div></div>
+              <div class="kv2"><div class="k">更新</div><div class="v">{% if updated %}{{ updated|date:"Y-m-d" }}{% else %}—{% endif %}</div></div>
+              {% if h.memo %}<div class="kv2 memo"><div class="k">メモ</div><div class="v">{{ h.memo }}</div></div>{% endif %}
             </div>
             {% endwith %}
           </section>
@@ -375,23 +233,13 @@
   {% if page.paginator.num_pages > 1 %}
     <div style="display:flex;gap:8px;justify-content:center;margin-top:14px">
       {% if page.has_previous %}
-        <a
-          hx-get="{% url 'holding_list_partial' %}?page={{page.previous_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
-          hx-target="#holdingsBody"
-          hx-swap="innerHTML"
-          class="btn-ghost"
-        >前へ</a>
+        <a hx-get="{% url 'holding_list_partial' %}?page={{page.previous_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
+           hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">前へ</a>
       {% endif %}
-      <div style="opacity:.75;padding:8px 12px">
-        Page {{page.number}} / {{page.paginator.num_pages}}
-      </div>
+      <div style="opacity:.75;padding:8px 12px">Page {{page.number}} / {{page.paginator.num_pages}}</div>
       {% if page.has_next %}
-        <a
-          hx-get="{% url 'holding_list_partial' %}?page={{page.next_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
-          hx-target="#holdingsBody"
-          hx-swap="innerHTML"
-          class="btn-ghost"
-        >次へ</a>
+        <a hx-get="{% url 'holding_list_partial' %}?page={{page.next_page_number}}&sort={{sort}}&order={{order}}&broker={{filters.broker}}&account={{filters.account}}&ticker={{filters.ticker}}&side={{filters.side}}&pnl={{filters.pnl}}"
+           hx-target="#holdingsBody" hx-swap="innerHTML" class="btn-ghost">次へ</a>
       {% endif %}
     </div>
   {% endif %}
