@@ -15,7 +15,7 @@
     border-radius:12px; border:1px solid rgba(255,255,255,.16);
     background:rgba(255,255,255,.06); color:#e6ebff; outline:none;
   }
-  .fi textarea{ min_height:96px; resize:vertical; line-height:1.5; }
+  .fi textarea{ min-height:96px; resize:vertical; line-height:1.5; }
   .grid-fields{ display:grid; gap:12px; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); }
   .btn-bar{ display:flex; gap:12px; margin-top:4px; }
   .btn-bar button, .btn-bar a{
@@ -37,6 +37,10 @@
 
   <form method="post" class="form-card">
     {% csrf_token %}
+
+    {# 市場・通貨（Hidden）#}
+    {{ form.market }}
+    {{ form.currency }}
 
     <!-- コード -->
     <div class="fi">
