@@ -50,7 +50,6 @@
       </label>
       <label class="flex flex-col gap-1">
         <span class="label">数量</span>
-        <!-- ▼ 数字専用キーパッド（iOS/Android対応） -->
         <input
           name="qty"
           type="text"
@@ -80,7 +79,31 @@
       </label>
     </div>
 
-    <!-- ±入力（どちらのサイドでも任意。SELL=投資家PnL、BUY=通常0） -->
+    <!-- 🔸 通貨・FX（JPY以外のときだけ表示。レートは証券会社レートを手入力） -->
+    {% if currency != "JPY" %}
+      <div class="sheet-row mt-3">
+        <label class="flex flex-col gap-1">
+          <span class="label">通貨</span>
+          <input class="in" value="{{ currency }}" disabled>
+        </label>
+        <label class="flex flex-col gap-1">
+          <span class="label">為替レート（1{{ currency }} あたりの円・証券会社レートを入力）</span>
+          <input
+            name="fx_rate"
+            inputmode="decimal"
+            placeholder="約定レートを入力（例: 155.250）"
+            class="in"
+            value="">
+        </label>
+      </div>
+      <input type="hidden" name="currency" value="{{ currency }}">
+      <input type="hidden" name="country" value="{{ country|default:'JP' }}">
+    {% else %}
+      <input type="hidden" name="currency" value="JPY">
+      <input type="hidden" name="country" value="{{ country|default:'JP' }}">
+    {% endif %}
+
+    <!-- 実損 / キャッシュフロー -->
     <label class="flex flex-col gap-1 mt-3">
       <span class="label">実損 / キャッシュフロー（±・任意）</span>
       <div class="sign-wrap">
@@ -139,10 +162,8 @@
   const priceLabel = root.querySelector('[data-price-label]');
   const submitBtn= root.querySelector('[data-submit-label]');
 
-  // --- 数量の入力を数字だけに制限（即時クレンジング & 先頭0除去）
   function sanitizeQty() {
-    let v = (qtyInput.value || '').replace(/\D/g, ''); // 非数字を除去
-    // 先頭の 0 を1つにまとめる（例: 0005 -> 5）
+    let v = (qtyInput.value || '').replace(/\D/g, '');
     v = v.replace(/^0+(\d)/, '$1');
     qtyInput.value = v;
   }
@@ -175,15 +196,12 @@
     }
   }
 
-  // 初期化
   setSide(initial);
 
-  // タブクリック
   root.querySelectorAll('.tab').forEach(btn=>{
     btn.addEventListener('click', ()=> setSide(btn.dataset.side));
   });
 
-  // ±トグル
   root.querySelectorAll('.sign-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const input = root.querySelector('input[name="cashflow"]');
