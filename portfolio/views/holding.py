@@ -496,62 +496,83 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
     """
     RowVM からポートフォリオ全体のサマリーを作る。
 
-    注意:
-      - RowVM.valuation / RowVM.pnl は、_build_row 内ですでに JPY 換算済み
-        （USD のときは fx を掛けている）ので、ここでは二重に為替を掛けない。
-      - 取得額だけは avg_cost * quantity に通貨ごとの fx を掛けて JPY に変換する。
+    - RowVM.valuation / RowVM.pnl は _build_row で JPY 換算済みと仮定。
+    - 取得額は BUY/SELL を見て「valuation と pnl から逆算」することで、
+      通貨や為替レートの扱いを _build_row と完全に一致させる。
     """
     n = 0
     acq_sum_jpy = 0.0      # 取得額合計（JPY）
     val_sum_jpy = 0.0      # 評価額合計（JPY）
-    have_val = 0
+
+    pnl_sum_acc_jpy = 0.0  # 含み損益合計（JPY）
+    have_pnl = False
+
     winners = losers = 0
     days_list: List[int] = []
     top_gain: Optional[Tuple[float, Holding]] = None
     top_loss: Optional[Tuple[float, Holding]] = None
 
-    pnl_sum_acc_jpy = 0.0  # 含み損益合計（JPY）
-    have_pnl = False
-
     for r in rows:
         h = r.obj
         n += 1
 
-        # --- 取得額（avg_cost * quantity）を JPY に変換 ---
-        cur = getattr(h, "currency", "JPY") or "JPY"
-        fx = _get_fx_to_jpy(cur) or 1.0  # 1通貨 = fx JPY
-
-        q = int(h.quantity or 0)
-        cost = _to_float(h.avg_cost or 0) or 0.0
-        acq_i_native = q * cost
-        acq_sum_jpy += acq_i_native * fx
-
-        # --- 評価額: RowVM.valuation はすでに JPY 換算済み ---
+        # --- 評価額合計（RowVM.valuation は JPY 換算済み） ---
         if r.valuation is not None:
-            val_sum_jpy += float(r.valuation)
-            have_val += 1
+            val_jpy = float(r.valuation)
+            val_sum_jpy += val_jpy
+        else:
+            val_jpy = None
 
-        # --- 含み損益: RowVM.pnl も JPY 換算済み ---
+        # --- 含み損益（RowVM.pnl も JPY 換算済み） ---
+        pnl_jpy: Optional[float]
         if r.pnl is not None:
             pnl_jpy = float(r.pnl)
             pnl_sum_acc_jpy += pnl_jpy
             have_pnl = True
 
+            # 勝ち / 負け 件数
             if pnl_jpy > 0:
                 winners += 1
             elif pnl_jpy < 0:
                 losers += 1
 
+            # 最大益 / 最大損
             if top_gain is None or pnl_jpy > top_gain[0]:
                 top_gain = (pnl_jpy, h)
             if top_loss is None or pnl_jpy < top_loss[0]:
                 top_loss = (pnl_jpy, h)
+        else:
+            pnl_jpy = None
+
+        # --- 取得額：valuation と pnl から逆算（基本パス） ---
+        acq_row = None
+        if val_jpy is not None and pnl_jpy is not None:
+            side = (getattr(h, "side", "BUY") or "BUY").upper()
+            if side == "SELL":
+                # 空売り: pnl = (cost - price) * q なので cost*q = val + pnl
+                acq_row = val_jpy + pnl_jpy
+            else:
+                # 買い: pnl = (price - cost) * q なので cost*q = val - pnl
+                acq_row = val_jpy - pnl_jpy
+
+        # --- 逆算できない場合のフォールバック（価格が取れない銘柄など） ---
+        if acq_row is None:
+            q = int(h.quantity or 0)
+            cost = _to_float(h.avg_cost or 0) or 0.0
+            if q > 0 and cost > 0:
+                cur = getattr(h, "currency", "JPY") or "JPY"
+                fx = _get_fx_to_jpy(cur) or 1.0  # 1通貨 = fx JPY
+                acq_row = q * cost * fx
+            else:
+                acq_row = 0.0
+
+        acq_sum_jpy += acq_row
 
         # --- 保有日数 ---
         if r.days is not None:
             days_list.append(int(r.days))
 
-    # ★ ポートフォリオ含み損益は JPY の合計を使用
+    # ★ ポートフォリオ含み損益・損益率など
     pnl_sum: Optional[float] = pnl_sum_acc_jpy if have_pnl else None
     pnl_pct: Optional[float] = (
         pnl_sum / acq_sum_jpy * 100.0
@@ -572,7 +593,7 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
     summary: Dict[str, Optional[float]] = dict(
         count=n,
         acq=acq_sum_jpy,
-        val=val_sum_jpy if have_val else None,
+        val=val_sum_jpy if val_sum_jpy > 0 else None,
         pnl=pnl_sum,
         pnl_pct=pnl_pct,
         winners=winners,
