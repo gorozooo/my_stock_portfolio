@@ -104,14 +104,20 @@ def _parse_ymd(s: str):
 def _with_metrics(qs):
     """
     現金・PnL・比率計算に必要な注釈を付与
+    - cashflow_calc      : 通貨建ての受渡キャッシュフロー
+    - pnl_display        : 通貨建ての投資家PnL（= cashflow フィールド）
+    - fx_to_jpy          : その行をJPYに直す係数（USDなら fx_rate、それ以外は1）
+    - pnl_jpy            : 円換算した投資家PnL
+    - cashflow_calc_jpy  : 円換算した受渡キャッシュフロー
     """
     dec0 = Value(Decimal("0"), output_field=DEC2)
+    one  = Value(Decimal("1"), output_field=DEC4)
 
     gross = ExpressionWrapper(F("qty") * F("price"), output_field=DEC2)
     fee   = Coalesce(F("fee"), dec0)
     tax   = Coalesce(F("tax"), dec0)
 
-    # 現金フロー（受渡ベース）
+    # 現金フロー（受渡ベース / 通貨建て）
     cashflow_calc = Case(
         When(side="SELL", then=gross - fee - tax),
         When(side="BUY",  then=-(gross + fee + tax)),
@@ -119,7 +125,7 @@ def _with_metrics(qs):
         output_field=DEC2,
     )
 
-    # 表示用PnL
+    # 表示用PnL（通貨建ての「投資家PnL」）
     pnl_display = Coalesce(F("cashflow"), Value(Decimal("0"), output_field=DEC2))
 
     # 分母: basis * qty
@@ -131,14 +137,17 @@ def _with_metrics(qs):
         output_field=DEC2,
     )
 
-    # Float にキャストして割り算
+    # Float にキャストして割り算（通貨建て％）
     pnl_pct = Case(
-        When(side="SELL", basis__gt=0,
-             then=ExpressionWrapper(
-                 Cast(trade_pnl, FloatField()) * Value(100.0, output_field=FloatField()) /
-                 Cast(basis_amount, FloatField()),
-                 output_field=FloatField()
-             )),
+        When(
+            side="SELL",
+            basis__gt=0,
+            then=ExpressionWrapper(
+                Cast(trade_pnl, FloatField()) * Value(100.0, output_field=FloatField())
+                / Cast(basis_amount, FloatField()),
+                output_field=FloatField(),
+            ),
+        ),
         default=None,
         output_field=FloatField(),
     )
@@ -149,8 +158,29 @@ def _with_metrics(qs):
     # 保有日数
     hold_days_f = Case(
         When(hold_days__isnull=False, then=Cast(F("hold_days"), FloatField())),
-        default=None, output_field=FloatField()
+        default=None,
+        output_field=FloatField(),
     )
+
+    # --- ここから円換算 ------------------------------------------------
+    # fx_to_jpy: 1通貨あたり何円か
+    fx_to_jpy = Case(
+        # USD で fx_rate が入っている行 → その値を採用
+        When(
+            currency__iexact="USD",
+            fx_rate__isnull=False,
+            fx_rate__gt=0,
+            then=F("fx_rate"),
+        ),
+        # JPY または fx_rate 未設定 → そのまま1倍
+        When(currency__iexact="JPY", then=one),
+        default=one,
+        output_field=DEC4,
+    )
+
+    # 円換算PnL / 現金
+    pnl_jpy = ExpressionWrapper(pnl_display * fx_to_jpy, output_field=DEC2)
+    cashflow_calc_jpy = ExpressionWrapper(cashflow_calc * fx_to_jpy, output_field=DEC2)
 
     return qs.annotate(
         cashflow_calc=ExpressionWrapper(cashflow_calc, output_field=DEC2),
@@ -158,6 +188,9 @@ def _with_metrics(qs):
         pnl_pct=pnl_pct,
         is_win=is_win,
         hold_days_f=hold_days_f,
+        fx_to_jpy=fx_to_jpy,
+        pnl_jpy=pnl_jpy,
+        cashflow_calc_jpy=cashflow_calc_jpy,
     )
     
 
@@ -172,18 +205,20 @@ def _with_metrics(qs):
 def _aggregate(qs):
     """
     画面上部（大元）サマリー。
-    ※ Avg は使わず、平均は Sum/件数 を Python 後計算。
+    すべて「円換算されたPnL / 現金」をベースに集計する。
     """
     qs = _with_metrics(qs)
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
     # “平均の対象” を数えるフラグ
-    pnl_cnt  = Case(
+    pnl_cnt = Case(
         When(
-            Q(side="SELL") & Q(qty__gt=0) &
-            Q(basis__isnull=False) & ~Q(basis=0) &
-            Q(pnl_pct__isnull=False),
-            then=1
+            Q(side="SELL")
+            & Q(qty__gt=0)
+            & Q(basis__isnull=False)
+            & ~Q(basis=0)
+            & Q(pnl_pct__isnull=False),
+            then=1,
         ),
         default=0,
         output_field=IntegerField(),
@@ -191,44 +226,89 @@ def _aggregate(qs):
     hold_cnt = Case(When(hold_days_f__gt=0, then=1), default=0, output_field=IntegerField())
 
     agg = qs.aggregate(
-        # 件数/手数料
-        n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
-        fee = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
+        # 件数/手数料（手数料はそのまま通貨建ての合計だが、金額としては小さいのでそのまま）
+        n=Coalesce(Count("id"), Value(0), output_field=IntegerField()),
+        fee=Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
 
-        # 勝率用
-        wins = Coalesce(Sum("is_win", output_field=IntegerField()), Value(0), output_field=IntegerField()),
+        # 勝率用（pnl_display の符号で判定だが、円換算でも符号は同じ）
+        wins=Coalesce(Sum("is_win", output_field=IntegerField()), Value(0), output_field=IntegerField()),
 
-        # PnL 累計（表示用 = 手入力PnL）
-        pnl = Coalesce(Sum("pnl_display", output_field=DEC2), dec0),
+        # 📈PnL 累計（円ベース）
+        pnl=Coalesce(Sum("pnl_jpy", output_field=DEC2), dec0),
 
-        # 利益合計・損失合計
-        profit_sum = Coalesce(
-            Sum(Case(When(pnl_display__gt=0, then=F("pnl_display")), default=dec0, output_field=DEC2)), dec0
+        # 利益合計・損失合計（円ベース）
+        profit_sum=Coalesce(
+            Sum(
+                Case(
+                    When(pnl_jpy__gt=0, then=F("pnl_jpy")),
+                    default=dec0,
+                    output_field=DEC2,
+                )
+            ),
+            dec0,
         ),
-        loss_sum   = Coalesce(
-            Sum(Case(When(pnl_display__lt=0, then=F("pnl_display")), default=dec0, output_field=DEC2)), dec0
+        loss_sum=Coalesce(
+            Sum(
+                Case(
+                    When(pnl_jpy__lt=0, then=F("pnl_jpy")),
+                    default=dec0,
+                    output_field=DEC2,
+                )
+            ),
+            dec0,
         ),
 
-        # 平均PnL% 用（分子=PnL%合計、分母=対象件数）
-        pnl_pct_sum = Coalesce(
-            Sum(Case(When(pnl_pct__isnull=False, then=F("pnl_pct")), default=None, output_field=FloatField())),
-            Value(0.0, output_field=FloatField())
+        # 平均PnL% 用（％そのものは通貨に依存しないので、従来ロジックのまま）
+        pnl_pct_sum=Coalesce(
+            Sum(
+                Case(
+                    When(pnl_pct__isnull=False, then=F("pnl_pct")),
+                    default=None,
+                    output_field=FloatField(),
+                )
+            ),
+            Value(0.0, output_field=FloatField()),
         ),
-        pnl_pct_cnt = Coalesce(Sum(pnl_cnt), Value(0), output_field=IntegerField()),
+        pnl_pct_cnt=Coalesce(Sum(pnl_cnt), Value(0), output_field=IntegerField()),
 
-        # 平均保有日数 用（分子=日数合計、分母=対象件数）※0日は除外
-        hold_days_sum = Coalesce(
-            Sum(Case(When(hold_days_f__gt=0, then=F("hold_days_f")), default=None, output_field=FloatField())),
-            Value(0.0, output_field=FloatField())
+        # 平均保有日数
+        hold_days_sum=Coalesce(
+            Sum(
+                Case(
+                    When(hold_days_f__gt=0, then=F("hold_days_f")),
+                    default=None,
+                    output_field=FloatField(),
+                )
+            ),
+            Value(0.0, output_field=FloatField()),
         ),
-        hold_days_cnt = Coalesce(Sum(hold_cnt), Value(0), output_field=IntegerField()),
+        hold_days_cnt=Coalesce(Sum(hold_cnt), Value(0), output_field=IntegerField()),
 
-        # 現金（現物/NISA は受渡、信用は手入力PnL）
-        cash_spec   = Coalesce(
-            Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")), default=dec0, output_field=DEC2)), dec0
+        # 💰現金（円ベース）
+        #  現物/NISA: 受渡キャッシュフローの円換算
+        #  信用     : 投資家PnL（pnl_jpy）をそのまま現金相当として扱う
+        cash_spec=Coalesce(
+            Sum(
+                Case(
+                    When(
+                        account__in=["SPEC", "NISA"],
+                        then=F("cashflow_calc_jpy"),
+                    ),
+                    default=dec0,
+                    output_field=DEC2,
+                )
+            ),
+            dec0,
         ),
-        cash_margin = Coalesce(
-            Sum(Case(When(account="MARGIN", then=F("pnl_display")), default=dec0, output_field=DEC2)), dec0
+        cash_margin=Coalesce(
+            Sum(
+                Case(
+                    When(account="MARGIN", then=F("pnl_jpy")),
+                    default=dec0,
+                    output_field=DEC2,
+                )
+            ),
+            dec0,
         ),
     )
 
@@ -239,7 +319,7 @@ def _aggregate(qs):
 
     # PF（損失は負なので絶対値で割る）
     profit = Decimal(agg.get("profit_sum") or 0)
-    loss   = Decimal(agg.get("loss_sum") or 0)
+    loss = Decimal(agg.get("loss_sum") or 0)
     loss_abs = abs(loss)
     agg["pf"] = (profit / loss_abs) if loss_abs else (Decimal("Infinity") if profit > 0 else None)
 
@@ -252,7 +332,7 @@ def _aggregate(qs):
     h_cnt = int(agg.get("hold_days_cnt") or 0)
     agg["avg_hold_days"] = (h_sum / h_cnt) if h_cnt else None
 
-    # 現金合計
+    # 💰現金合計（円ベース）
     agg["cash_total"] = (agg.get("cash_spec") or Decimal("0")) + (agg.get("cash_margin") or Decimal("0"))
     return agg
 
@@ -260,17 +340,19 @@ def _aggregate(qs):
 def _aggregate_by_broker(qs):
     """
     証券会社別サマリー。
-    ※ Avg は使わず Sum/件数で手計算。
+    すべて円換算（pnl_jpy / cashflow_calc_jpy）で集計。
     """
     qs = _with_metrics(qs)
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
-    pnl_cnt  = Case(
+    pnl_cnt = Case(
         When(
-            Q(side="SELL") & Q(qty__gt=0) &
-            Q(basis__isnull=False) & ~Q(basis=0) &
-            Q(pnl_pct__isnull=False),
-            then=1
+            Q(side="SELL")
+            & Q(qty__gt=0)
+            & Q(basis__isnull=False)
+            & ~Q(basis=0)
+            & Q(pnl_pct__isnull=False),
+            then=1,
         ),
         default=0,
         output_field=IntegerField(),
@@ -279,41 +361,85 @@ def _aggregate_by_broker(qs):
 
     rows = (
         qs.values("broker")
-          .annotate(
-              n    = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
-              wins = Coalesce(Sum("is_win", output_field=IntegerField()), Value(0), output_field=IntegerField()),
+        .annotate(
+            n=Coalesce(Count("id"), Value(0), output_field=IntegerField()),
+            wins=Coalesce(Sum("is_win", output_field=IntegerField()), Value(0), output_field=IntegerField()),
 
-              pnl  = Coalesce(Sum("pnl_display", output_field=DEC2), dec0),
-              fee  = Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
+            # 円換算PnL
+            pnl=Coalesce(Sum("pnl_jpy", output_field=DEC2), dec0),
+            fee=Coalesce(Sum(Coalesce(F("fee"), dec0)), dec0),
 
-              cash_spec   = Coalesce(
-                  Sum(Case(When(account__in=["SPEC","NISA"], then=F("cashflow_calc")), default=dec0, output_field=DEC2)), dec0
-              ),
-              cash_margin = Coalesce(
-                  Sum(Case(When(account="MARGIN", then=F("pnl_display")),   default=dec0, output_field=DEC2)), dec0
-              ),
+            cash_spec=Coalesce(
+                Sum(
+                    Case(
+                        When(
+                            account__in=["SPEC", "NISA"],
+                            then=F("cashflow_calc_jpy"),
+                        ),
+                        default=dec0,
+                        output_field=DEC2,
+                    )
+                ),
+                dec0,
+            ),
+            cash_margin=Coalesce(
+                Sum(
+                    Case(
+                        When(account="MARGIN", then=F("pnl_jpy")),
+                        default=dec0,
+                        output_field=DEC2,
+                    )
+                ),
+                dec0,
+            ),
 
-              profit_sum = Coalesce(
-                  Sum(Case(When(pnl_display__gt=0, then=F("pnl_display")), default=dec0, output_field=DEC2)), dec0
-              ),
-              loss_sum   = Coalesce(
-                  Sum(Case(When(pnl_display__lt=0, then=F("pnl_display")), default=dec0, output_field=DEC2)), dec0
-              ),
+            profit_sum=Coalesce(
+                Sum(
+                    Case(
+                        When(pnl_jpy__gt=0, then=F("pnl_jpy")),
+                        default=dec0,
+                        output_field=DEC2,
+                    )
+                ),
+                dec0,
+            ),
+            loss_sum=Coalesce(
+                Sum(
+                    Case(
+                        When(pnl_jpy__lt=0, then=F("pnl_jpy")),
+                        default=dec0,
+                        output_field=DEC2,
+                    )
+                ),
+                dec0,
+            ),
 
-              # 平均用の分子/分母（Avgは使わない）
-              pnl_pct_sum = Coalesce(
-                  Sum(Case(When(pnl_pct__isnull=False, then=F("pnl_pct")), default=None, output_field=FloatField())),
-                  Value(0.0, output_field=FloatField())
-              ),
-              pnl_pct_cnt = Coalesce(Sum(pnl_cnt), Value(0), output_field=IntegerField()),
+            # 平均用の分子/分母
+            pnl_pct_sum=Coalesce(
+                Sum(
+                    Case(
+                        When(pnl_pct__isnull=False, then=F("pnl_pct")),
+                        default=None,
+                        output_field=FloatField(),
+                    )
+                ),
+                Value(0.0, output_field=FloatField()),
+            ),
+            pnl_pct_cnt=Coalesce(Sum(pnl_cnt), Value(0), output_field=IntegerField()),
 
-              hold_days_sum = Coalesce(
-                  Sum(Case(When(hold_days_f__gt=0, then=F("hold_days_f")), default=None, output_field=FloatField())),
-                  Value(0.0, output_field=FloatField())
-              ),
-              hold_days_cnt = Coalesce(Sum(hold_cnt), Value(0), output_field=IntegerField()),
-          )
-          .order_by("broker")
+            hold_days_sum=Coalesce(
+                Sum(
+                    Case(
+                        When(hold_days_f__gt=0, then=F("hold_days_f")),
+                        default=None,
+                        output_field=FloatField(),
+                    )
+                ),
+                Value(0.0, output_field=FloatField()),
+            ),
+            hold_days_cnt=Coalesce(Sum(hold_cnt), Value(0), output_field=IntegerField()),
+        )
+        .order_by("broker")
     )
 
     out = []
@@ -330,9 +456,9 @@ def _aggregate_by_broker(qs):
         hs, hc = float(d.get("hold_days_sum") or 0.0), int(d.get("hold_days_cnt") or 0)
         d["avg_hold_days"] = (hs / hc) if hc else None
 
-        # PF / 現金合計
+        # PF / 現金合計（円ベース）
         profit = Decimal(d.get("profit_sum") or 0)
-        loss   = Decimal(d.get("loss_sum") or 0)
+        loss = Decimal(d.get("loss_sum") or 0)
         loss_abs = abs(loss)
         d["pf"] = (profit / loss_abs) if loss_abs else (Decimal("Infinity") if profit > 0 else None)
         d["cash_total"] = (d.get("cash_spec") or Decimal("0")) + (d.get("cash_margin") or Decimal("0"))
@@ -391,7 +517,7 @@ def monthly_kpis_partial(request):
     """
     月別のKPI（平均実現損益(%) / 勝率 / PF / 平均保有日数）を返す。
     ※ BUY/SELL 両方あってもフィルタ期間内の SELL を対象に集計。
-    ※ %の平均はトレードごとの％の単純平均（basis×qty が妥当なもののみ）。
+    ※ PnL・PF は「円換算済みPnL」で計算する。
     """
     q = (request.GET.get("q") or "").strip()
     start, end = _parse_period_from_request(request)
@@ -403,7 +529,9 @@ def monthly_kpis_partial(request):
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-    # 集計
+    # 為替・PnL注釈
+    qs = _with_metrics(qs)
+
     total = 0
     win   = 0
     pnl_pos = Decimal("0")
@@ -412,24 +540,26 @@ def monthly_kpis_partial(request):
     hold_list = []
 
     for t in qs:
-        # 勝率/PF は cashflow（あなたの“投資家PnL”）を使用
-        cf = Decimal(str(t.cashflow or 0))
-        if cf > 0:
-            pnl_pos += cf
-        elif cf < 0:
-            pnl_neg += cf  # 負のまま
+        # 円換算済みPnL
+        cf_jpy = Decimal(str(getattr(t, "pnl_jpy", Decimal("0")) or 0))
 
-        # 勝率は SELL のみカウント（BUY は仕込段階想定）
+        if cf_jpy > 0:
+            pnl_pos += cf_jpy
+        elif cf_jpy < 0:
+            pnl_neg += cf_jpy  # 負のまま
+
+        # 勝率は SELL のみカウント
         if t.side == "SELL":
             total += 1
-            if cf > 0:
+            if cf_jpy > 0:
                 win += 1
-            # %: basis×qty が正なら計算
+
+            # %: basis×qty が正なら計算（％なので通貨に依存しない）
             try:
                 if t.basis is not None and t.qty and Decimal(str(t.qty)) > 0:
                     denom = Decimal(str(t.basis)) * Decimal(str(t.qty))
                     if denom > 0:
-                        pct_list.append((cf / denom) * Decimal("100"))
+                        pct_list.append((cf_jpy / denom) * Decimal("100"))
             except Exception:
                 pass
 
@@ -462,6 +592,7 @@ def monthly_kpis_partial(request):
 def monthly_breakdown_partial(request):
     """
     期間内のブローカー別 / 口座区分別のブレークダウン。
+    PnL は円換算済みPnL（pnl_jpy）の合計。
     """
     q = (request.GET.get("q") or "").strip()
     start, end = _parse_period_from_request(request)
@@ -473,19 +604,19 @@ def monthly_breakdown_partial(request):
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-    # ブローカー表示名マップ
+    qs = _with_metrics(qs)
+
     broker_label = dict(RealizedTrade.BROKER_CHOICES)
     acct_label   = dict(RealizedTrade.ACCOUNT_CHOICES)
 
-    # values で集計（PnL=cashflow の合計、件数）
     brokers = (
         qs.values("broker")
-          .annotate(n=Count("id"), pnl=Sum("cashflow"))
+          .annotate(n=Count("id"), pnl=Sum("pnl_jpy"))
           .order_by("broker")
     )
     accounts = (
         qs.values("account")
-          .annotate(n=Count("id"), pnl=Sum("cashflow"))
+          .annotate(n=Count("id"), pnl=Sum("pnl_jpy"))
           .order_by("account")
     )
 
@@ -510,7 +641,7 @@ def monthly_breakdown_partial(request):
 def monthly_topworst_partial(request):
     """
     月別 PnL の Top3 / Worst3 を返す部分テンプレ。
-    - PnL は cashflow 合計
+    - PnL は 円換算済みPnL（pnl_jpy）の合計
     - 期間は preset/start/end（_summary_period と同じ名前）を優先
     - 期間指定が無ければ直近365日
     """
@@ -539,7 +670,6 @@ def monthly_topworst_partial(request):
     today = timezone.localdate()
 
     if not (start and end):
-        # preset が来ていればそれを解釈
         if preset == "THIS_MONTH":
             start = today.replace(day=1)
             end   = today
@@ -547,7 +677,6 @@ def monthly_topworst_partial(request):
             start = today.replace(month=1, day=1)
             end   = today
         elif preset == "LAST_12M":
-            # 直近365日で代用（カバー範囲は十分）
             start = today - timedelta(days=365)
             end   = today
         else:
@@ -555,13 +684,14 @@ def monthly_topworst_partial(request):
             end   = today
 
     qs = qs.filter(trade_at__gte=start, trade_at__lte=end)
+    qs = _with_metrics(qs)
 
     dec0 = Value(0, output_field=DEC2)
 
     monthly = (
         qs.annotate(m=TruncMonth("trade_at"))
           .values("m")
-          .annotate(pnl=Coalesce(Sum("cashflow", output_field=DEC2), dec0))
+          .annotate(pnl=Coalesce(Sum("pnl_jpy", output_field=DEC2), dec0))
           .order_by("m")
     )
 
@@ -571,7 +701,6 @@ def monthly_topworst_partial(request):
         label = dt.strftime("%Y-%m") if dt else ""
         items.append({"label": label, "pnl": float(r.get("pnl") or 0)})
 
-    # 値が0のみのときはそのまま使う（Topだけでも出す）
     top   = sorted(items, key=lambda x: x["pnl"], reverse=True)[:3]
     worst = sorted(items, key=lambda x: x["pnl"])[:3]
 
@@ -582,17 +711,15 @@ def monthly_topworst_partial(request):
 def chart_daily_heat_json(request, year: int, month: int):
     """
     指定の year/month の日次ヒートマップ用 JSON を返す。
-    - pnl: その日の “投資家PnL”（= pnl_display）の合計
-    - cash_spec: 現物/NISA の現金フロー合計（cashflow_calc）
-    - cash_margin: 信用の現金相当（pnl_display）合計
+    - pnl: その日の “投資家PnL”（= pnl_jpy）の合計（円）
+    - cash_spec: 現物/NISA の現金フロー合計（cashflow_calc_jpy）
+    - cash_margin: 信用の現金相当（pnl_jpy）
     """
     q = (request.GET.get("q") or "").strip()
 
-    # 期間境界 (start <= trade_at < next_first)
     try:
         start = _date(int(year), int(month), 1)
     except Exception:
-        # 不正な月は今月を返す
         start = timezone.localdate().replace(day=1)
 
     if start.month == 12:
@@ -600,35 +727,45 @@ def chart_daily_heat_json(request, year: int, month: int):
     else:
         next_first = _date(start.year, start.month + 1, 1)
 
-    # ベースQS
-    qs = RealizedTrade.objects.filter(user=request.user,
-                                      trade_at__gte=start,
-                                      trade_at__lt=next_first)
+    qs = RealizedTrade.objects.filter(
+        user=request.user,
+        trade_at__gte=start,
+        trade_at__lt=next_first,
+    )
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-    # 必要注釈を付与
     qs = _with_metrics(qs)
 
-    # 日付ごとに集計
     daily = (
         qs.values("trade_at")
           .annotate(
-              pnl = Coalesce(Sum("pnl_display", output_field=DEC2),
-                             Value(Decimal("0"), output_field=DEC2)),
-              cash_spec = Coalesce(
-                  Sum("cashflow_calc", filter=Q(account__in=["SPEC","NISA"]), output_field=DEC2),
-                  Value(Decimal("0"), output_field=DEC2)
+              pnl=Coalesce(Sum("pnl_jpy", output_field=DEC2),
+                           Value(Decimal("0"), output_field=DEC2)),
+              cash_spec=Coalesce(
+                  Sum(
+                      Case(
+                          When(account__in=["SPEC", "NISA"], then=F("cashflow_calc_jpy")),
+                          default=Value(Decimal("0"), output_field=DEC2),
+                          output_field=DEC2,
+                      )
+                  ),
+                  Value(Decimal("0"), output_field=DEC2),
               ),
-              cash_margin = Coalesce(
-                  Sum("pnl_display", filter=Q(account="MARGIN"), output_field=DEC2),
-                  Value(Decimal("0"), output_field=DEC2)
+              cash_margin=Coalesce(
+                  Sum(
+                      Case(
+                          When(account="MARGIN", then=F("pnl_jpy")),
+                          default=Value(Decimal("0"), output_field=DEC2),
+                          output_field=DEC2,
+                      )
+                  ),
+                  Value(Decimal("0"), output_field=DEC2),
               ),
           )
           .order_by("trade_at")
     )
 
-    # JSON 形式へ
     labels, pnl, cash_spec, cash_margin = [], [], [], []
     vmin = vmax = None
     for r in daily:
@@ -641,7 +778,7 @@ def chart_daily_heat_json(request, year: int, month: int):
         cm = r["cash_margin"] or Decimal("0")
 
         pf = float(p)
-        labels and pnl.append(pf)
+        pnl.append(pf)
         cash_spec.append(float(cs))
         cash_margin.append(float(cm))
 
@@ -651,10 +788,10 @@ def chart_daily_heat_json(request, year: int, month: int):
     return JsonResponse({
         "year": start.year,
         "month": start.month,
-        "labels": labels,        # ["2025-09-01", ...]
-        "pnl": pnl,              # 日次PnL（表示用）
-        "cash_spec": cash_spec,  # 現物/NISA
-        "cash_margin": cash_margin,  # 信用
+        "labels": labels,
+        "pnl": pnl,
+        "cash_spec": cash_spec,
+        "cash_margin": cash_margin,
         "min": vmin if vmin is not None else 0.0,
         "max": vmax if vmax is not None else 0.0,
     })
@@ -801,11 +938,8 @@ def realized_summary_partial(request):
 def chart_monthly_json(request):
     """
     月次で集計して JSON 返却。
-    - pnl:    各月の “投資家PnL”（= cashflow フィールド合計）
-    - cash:   各月の “現金フロー”
-              ＊現物/NISA: cashflow_calc（受け渡しベース）
-              ＊信用      : pnl_display（手入力PnL）
-    ついでにデバッグ用に cash_spec / cash_margin も返す。
+    - pnl:    各月の “投資家PnL”（= pnl_jpy 合計）
+    - cash:   各月の “現金フロー”（現物/NISA=受渡円、信用=円換算PnL）
     """
     q = (request.GET.get("q") or "").strip()
 
@@ -813,27 +947,35 @@ def chart_monthly_json(request):
     if q:
         qs = qs.filter(Q(ticker__icontains=q) | Q(name__icontains=q))
 
-    # cashflow_calc / pnl_display を注入
     qs = _with_metrics(qs)
 
     monthly = (
         qs.annotate(m=TruncMonth("trade_at"))
           .values("m")
           .annotate(
-              # 投資家PnL（月次）
-              pnl = Coalesce(
-                  Sum("pnl_display", output_field=DEC2),
-                  Value(Decimal("0"), output_field=DEC2)
+              pnl=Coalesce(
+                  Sum("pnl_jpy", output_field=DEC2),
+                  Value(Decimal("0"), output_field=DEC2),
               ),
-              # 現物/NISA は実受渡（cashflow_calc）
-              cash_spec = Coalesce(
-                  Sum("cashflow_calc", filter=Q(account__in=["SPEC", "NISA"]), output_field=DEC2),
-                  Value(Decimal("0"), output_field=DEC2)
+              cash_spec=Coalesce(
+                  Sum(
+                      Case(
+                          When(account__in=["SPEC", "NISA"], then=F("cashflow_calc_jpy")),
+                          default=Value(Decimal("0"), output_field=DEC2),
+                          output_field=DEC2,
+                      )
+                  ),
+                  Value(Decimal("0"), output_field=DEC2),
               ),
-              # 信用は手入力PnLを現金相当として扱う
-              cash_margin = Coalesce(
-                  Sum("pnl_display", filter=Q(account="MARGIN"), output_field=DEC2),
-                  Value(Decimal("0"), output_field=DEC2)
+              cash_margin=Coalesce(
+                  Sum(
+                      Case(
+                          When(account="MARGIN", then=F("pnl_jpy")),
+                          default=Value(Decimal("0"), output_field=DEC2),
+                          output_field=DEC2,
+                      )
+                  ),
+                  Value(Decimal("0"), output_field=DEC2),
               ),
           )
           .order_by("m")
@@ -861,13 +1003,11 @@ def chart_monthly_json(request):
     return JsonResponse({
         "labels": labels,
         "pnl": pnl,
-        "pnl_cum": pnl_cum,        # 右軸の累積PnL
-        "cash": cash,              # 棒グラフ用（現物=受渡, 信用=PnL）
-        "cash_spec": cash_spec,    # 任意（デバッグ用）
-        "cash_margin": cash_margin # 任意（デバッグ用）
+        "pnl_cum": pnl_cum,
+        "cash": cash,
+        "cash_spec": cash_spec,
+        "cash_margin": cash_margin,
     })
-
-from decimal import Decimal
 
 
 @login_required
@@ -875,10 +1015,10 @@ from decimal import Decimal
 def realized_ranking_partial(request):
     """
     銘柄別ランキング（期間連動）
-    - 今月/指定期間で0件なら、自動で「直近12か月」にフォールバックして表示
+    - PnL は円換算済みPnL（pnl_jpy）の合計
+    - 今月/指定期間で0件なら、自動で「直近12か月」にフォールバック
     """
     q = (request.GET.get("q") or "").strip()
-    # 期間（デフォルト: THIS_MONTH）
     start, end, preset = _parse_period(request)
     freq = (request.GET.get("freq") or "month").lower()
 
@@ -900,10 +1040,10 @@ def realized_ranking_partial(request):
               .annotate(
                   n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
                   qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
-                  pnl = Coalesce(Sum("pnl_display", output_field=DEC2),
+                  pnl = Coalesce(Sum("pnl_jpy", output_field=DEC2),
                                  Value(Decimal("0"), output_field=DEC2)),
                   wins = Coalesce(
-                      Sum(Case(When(pnl_display__gt=0, then=1),
+                      Sum(Case(When(pnl_jpy__gt=0, then=1),
                                default=0, output_field=IntegerField())),
                       Value(0), output_field=IntegerField()
                   ),
@@ -913,22 +1053,21 @@ def realized_ranking_partial(request):
         for r in grouped:
             n = int(r["n"] or 0)
             wins = int(r["wins"] or 0)
+            pnl_val = r["pnl"] or Decimal("0")
             rows.append({
                 "ticker": r["ticker"],
                 "name":   r["name"],
                 "n":      n,
                 "qty":    int(r["qty"] or 0),
-                "pnl":    r["pnl"] or Decimal("0"),
-                "avg":    (r["pnl"] / n) if n else Decimal("0"),
+                "pnl":    pnl_val,
+                "avg":    (pnl_val / n) if n else Decimal("0"),
                 "win_rate": (wins * 100.0 / n) if n else 0.0,
             })
         return rows
 
-    # まずは指定期間（通常は今月）
     rows = build_rows(apply_period(base, start, end))
     used_preset = preset
 
-    # 0件なら直近12か月にフォールバック
     if not rows:
         today = timezone.localdate()
         start_fb = (today.replace(day=1) - timezone.timedelta(days=365)).replace(day=1)
@@ -936,14 +1075,12 @@ def realized_ranking_partial(request):
         rows = build_rows(apply_period(base, start_fb, end_fb))
         used_preset = "LAST_12M"
 
-    # TOP/WORST
     top5   = sorted(rows, key=lambda x: (x["pnl"], x["win_rate"]), reverse=True)[:5]
     worst5 = sorted(rows, key=lambda x: (x["pnl"], -x["win_rate"]))[:5]
 
     ctx = {
         "top5": top5,
         "worst5": worst5,
-        # テンプレ側のUI維持用
         "preset": used_preset, "freq": freq,
         "start": start, "end": end, "q": q,
     }
@@ -957,6 +1094,7 @@ def realized_ranking_detail_partial(request):
     銘柄ドリルダウン（期間連動）
     GET: ticker, q, preset/freq/start/end
     返却: _ranking_detail.html
+    PnL は円換算済みPnL（pnl_jpy）で集計。
     """
     ticker = (request.GET.get("ticker") or "").strip()
     q = (request.GET.get("q") or "").strip()
@@ -976,24 +1114,22 @@ def realized_ranking_detail_partial(request):
 
     qs = _with_metrics(qs).order_by("-trade_at", "-id")
 
-    # ここがポイント：dec0 は Value(...) で output_field を DEC2 に
     dec0 = Value(Decimal("0"), output_field=DEC2)
 
     agg = qs.aggregate(
         n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
         qty = Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
 
-        # 型混在を避けるため Sum/Avg にも output_field=DEC2 を明示
         pnl = Coalesce(
-            Sum(Coalesce(F("pnl_display"), dec0), output_field=DEC2),
+            Sum(Coalesce(F("pnl_jpy"), dec0), output_field=DEC2),
             dec0
         ),
         avg = Coalesce(
-            Avg(Coalesce(F("pnl_display"), dec0), output_field=DEC2),
+            Avg(Coalesce(F("pnl_jpy"), dec0), output_field=DEC2),
             dec0
         ),
         wins = Coalesce(
-            Sum(Case(When(pnl_display__gt=0, then=1), default=0,
+            Sum(Case(When(pnl_jpy__gt=0, then=1), default=0,
                      output_field=IntegerField())),
             Value(0), output_field=IntegerField()
         ),
@@ -1003,7 +1139,7 @@ def realized_ranking_detail_partial(request):
     wins = agg.get("wins") or 0
     agg["win_rate"] = (wins * 100.0 / n) if n else 0.0
 
-    rows = list(qs[:5])  # 直近5件
+    rows = list(qs[:5])  # 直近5件（rows側はテンプレで pnl_jpy を見にいける）
 
     return render(request, "realized/_ranking_detail.html", {
         "ticker": ticker,
