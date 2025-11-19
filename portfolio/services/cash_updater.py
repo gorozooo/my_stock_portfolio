@@ -112,6 +112,44 @@ def _holding_source_type_and_id(holding_id: int):
 
 
 # =============================
+# 実損キャッシュフロー → 円換算
+# =============================
+def _realized_cash_delta_jpy(r: RealizedTrade) -> int:
+    """
+    RealizedTrade 1件ぶんの「現金キャッシュフロー」を円換算して返す。
+
+    - ベース: r.cashflow_effective
+      （SELL=＋ / BUY=− / 手数料込み、税引き後など“投資家目線のキャッシュ”）
+    - 通貨: r.currency が JPY 以外なら fx_rate_effective 等で円換算
+    """
+    # ベース金額（取引通貨建て）
+    amount_raw = getattr(r, "cashflow_effective", None)
+    if amount_raw is None:
+        return 0
+
+    # 通貨判定（無指定/空文字は JPY とみなす）
+    cur = getattr(r, "currency", "JPY") or "JPY"
+    cur = str(cur).upper()
+
+    # 円建てはそのまま
+    if cur == "JPY":
+        return _as_int(amount_raw)
+
+    # 為替レート（優先: fx_rate_effective, 次点: fx_rate）
+    fx = getattr(r, "fx_rate_effective", None) or getattr(r, "fx_rate", None)
+    try:
+        fx_val = float(fx or 0)
+    except Exception:
+        fx_val = 0.0
+
+    if fx_val > 0:
+        return _as_int(float(amount_raw) * fx_val)
+
+    # 為替が取れない場合の保険：そのまま（※本来はログ出したいがここでは割愛）
+    return _as_int(amount_raw)
+
+
+# =============================
 # 同期ロジック：配当
 # =============================
 def sync_from_dividends() -> dict:
@@ -134,7 +172,11 @@ def sync_from_dividends() -> dict:
         if amount <= 0:
             continue
 
-        holding = getattr(d, "holding", None) or _find_holding(d.broker, d.ticker, desired_account=getattr(d, "account", None))
+        holding = getattr(d, "holding", None) or _find_holding(
+            d.broker,
+            d.ticker,
+            desired_account=getattr(d, "account", None),
+        )
 
         created_now = _upsert_ledger(
             account=acc,
@@ -162,7 +204,8 @@ def sync_from_realized() -> dict:
     実損（売買・受渡）：
       - 対象: SPEC/NISA/MARGIN すべて
       - 日付: r.trade_at（取引日）
-      - 金額: r.cashflow_effective（SELL=＋ / BUY=− / 手数料・税込み）
+      - 金額: r.cashflow_effective を **円換算** した値
+              （USDなど外貨のときは fx_rate_effective 等で JPY に変換）
       - 種別: 正なら DEPOSIT, 負なら WITHDRAW
       - Holding: broker/ticker/口座でできるだけ一致を探す
     """
@@ -174,12 +217,17 @@ def sync_from_realized() -> dict:
         if not acc:
             continue
 
-        delta = _as_int(r.cashflow_effective)
+        # ★ ここで円換算した delta を使う
+        delta = _realized_cash_delta_jpy(r)
         if delta == 0:
             continue
 
         kind = CashLedger.Kind.DEPOSIT if delta > 0 else CashLedger.Kind.WITHDRAW
-        holding = _find_holding(r.broker, r.ticker, desired_account=getattr(r, "account", None))
+        holding = _find_holding(
+            r.broker,
+            r.ticker,
+            desired_account=getattr(r, "account", None),
+        )
 
         created_now = _upsert_ledger(
             account=acc,
@@ -267,7 +315,7 @@ def sync_all() -> dict:
     """
     - 現物保有（SPEC/NISA）：opened_at/created_at で『初回出金』を upsert
     - 配当：支払日で upsert（税引後net）＋ Holding 紐付け
-    - 実損：取引日で upsert（現物/信用すべて）＋ Holding 紐付け
+    - 実損：取引日で upsert（現物/信用すべて、**円換算済みキャッシュフロー**）＋ Holding 紐付け
     - すべて source_type + source_id で完全 upsert（重複なし、毎回上書き）
     """
     svc.ensure_default_accounts()
