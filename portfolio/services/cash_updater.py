@@ -160,6 +160,16 @@ def sync_from_dividends() -> dict:
 # 同期ロジック：実損（現物・信用 含む）
 # =============================
 def sync_from_realized() -> dict:
+    """
+    実損（売買・受渡）：
+      - 対象: SPEC/NISA/MARGIN すべて
+      - 日付: r.trade_at（取引日）
+      - 金額:
+          現物/NISA : r.cashflow_effective_jpy（受渡キャッシュフロー JPY）
+          信用(MARGIN): r.pnl_jpy（投資家PnL JPY）
+      - 種別: 正なら DEPOSIT, 負なら WITHDRAW
+      - Holding: broker/ticker/口座でできるだけ一致を探す
+    """
     created = 0
     updated = 0
 
@@ -168,23 +178,26 @@ def sync_from_realized() -> dict:
         if not acc:
             continue
 
-        # --- 現物/NISA と 信用(MARGIN) で分岐 ---
-        if r.account == "MARGIN":
-            # 信用：投資家の損益だけ
+        # --- 現物/NISAと信用で、Ledger に載せる金額の定義を変える ---
+        account = (r.account or "").upper()
+        if account == "MARGIN":
+            # 信用：口座に最終的に残るのは損益のみ
             delta = _as_int(r.pnl_jpy)
         else:
-            # 現物/NISA：受渡キャッシュフロー（JPY）
-            delta = _as_int(r.cashflow_calc_jpy)
+            # 現物 / NISA：受渡キャッシュフロー（売却代金ベース）
+            delta = _as_int(r.cashflow_effective_jpy)
 
         if delta == 0:
             continue
 
         kind = CashLedger.Kind.DEPOSIT if delta > 0 else CashLedger.Kind.WITHDRAW
-        holding = _find_holding(r.broker, r.ticker, desired_account=getattr(r, "account", None))
+        holding = _find_holding(
+            r.broker, r.ticker, desired_account=getattr(r, "account", None)
+        )
 
         created_now = _upsert_ledger(
             account=acc,
-            at=r.trade_at,
+            at=r.trade_at,  # 取引日
             amount=delta,
             kind=kind,
             memo=f"実現損益 {r.ticker}".strip(),
@@ -192,7 +205,6 @@ def sync_from_realized() -> dict:
             source_id=r.id,
             holding=holding,
         )
-
         if created_now:
             created += 1
         else:
@@ -267,7 +279,7 @@ def sync_all() -> dict:
     """
     - 現物保有（SPEC/NISA）：opened_at/created_at で『初回出金』を upsert
     - 配当：支払日で upsert（税引後net）＋ Holding 紐付け
-    - 実損：取引日で upsert（現物/NISA=受渡キャッシュフロー / 信用=PnL）＋ Holding 紐付け
+    - 実損：取引日で upsert（現物/信用すべて）＋ Holding 紐付け
     - すべて source_type + source_id で完全 upsert（重複なし、毎回上書き）
     """
     svc.ensure_default_accounts()
