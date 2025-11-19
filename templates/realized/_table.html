@@ -87,34 +87,52 @@
           ¥{{ t.price|floatformat:0|intcomma }}
         </td>
 
-        {# 💰実損(現金) ＊信用(MARGIN)はPnLを表示 #}
+        {# 💰実損(現金)
+           - 現物/NISA: 受渡キャッシュフローの円換算 (cashflow_calc_jpy)
+           - 信用     : 投資家PnLの円換算 (pnl_jpy)
+        #}
         <td class="px-3 py-2 text-right font-mono"
             style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
           {% if t.account == 'MARGIN' %}
-            {% with v=t.pnl_display %}
+            {% with v=t.pnl_jpy %}
               <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}"
                     style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
                 ¥{{ v|floatformat:0|intcomma }}
               </span>
+              {% if t.currency and t.currency != "JPY" %}
+                <div class="text-[11px] opacity-70">
+                  ({{ t.pnl_display|floatformat:2|intcomma }} {{ t.currency }})
+                </div>
+              {% endif %}
             {% endwith %}
           {% else %}
-            {% with v=t.cashflow_calc %}
+            {% with v=t.cashflow_calc_jpy %}
               <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}"
                     style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
                 ¥{{ v|floatformat:0|intcomma }}
               </span>
+              {% if t.currency and t.currency != "JPY" %}
+                <div class="text-[11px] opacity-70">
+                  ({{ t.cashflow_calc|floatformat:2|intcomma }} {{ t.currency }})
+                </div>
+              {% endif %}
             {% endwith %}
           {% endif %}
         </td>
 
-        {# 📈実現損益（常に PnL） #}
+        {# 📈実現損益（常に「投資家PnL」の円換算 = pnl_jpy） #}
         <td class="px-3 py-2 text-right font-mono"
             style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
-          {% with v=t.pnl_display %}
+          {% with v=t.pnl_jpy %}
             <span class="{% if v >= 0 %}text-emerald-300{% else %}text-rose-300{% endif %}"
                   style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
               ¥{{ v|floatformat:0|intcomma }}
             </span>
+            {% if t.currency and t.currency != "JPY" %}
+              <div class="text-[11px] opacity-70">
+                ({{ t.pnl_display|floatformat:2|intcomma }} {{ t.currency }})
+              </div>
+            {% endif %}
           {% endwith %}
         </td>
 
