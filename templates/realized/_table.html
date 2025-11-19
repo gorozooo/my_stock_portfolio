@@ -1,16 +1,15 @@
-{# templates/realized/_table.html #}
 {% load humanize %}
 <table class="w-full border-separate border-spacing-0 rounded-2xl overflow-hidden">
   <colgroup>
-    <col class="w-28">  {# 日付 #}
-    <col class="w-48">  {# 銘柄（バッジ含む） #}
-    <col class="w-20">  {# Side #}
-    <col class="w-24">  {# 数量 #}
-    <col class="w-28">  {# 価格 #}
-    <col class="w-28">  {# 💰実損(キャッシュ) #}
-    <col class="w-28">  {# 📈実現損益(PnL) #}
-    <col class="w-24">  {# 手数料 #}
-    <col class="w-20">  {# 操作 #}
+    <col class="w-28">
+    <col class="w-48">
+    <col class="w-20">
+    <col class="w-24">
+    <col class="w-28">
+    <col class="w-28">
+    <col class="w-28">
+    <col class="w-24">
+    <col class="w-20">
   </colgroup>
 
   <thead class="bg-white/5 text-slate-300 text-xs">
@@ -30,13 +29,11 @@
   <tbody class="text-[15px]">
     {% for t in trades %}
       <tr class="border-b border-white/10">
-        {# 日付 #}
         <td class="px-3 py-2 text-slate-200"
             style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
           {{ t.trade_at|date:"Y-m-d" }}
         </td>
 
-        {# 銘柄＋バッジ #}
         <td class="px-3 py-2">
           <div class="leading-tight">
             <div class="text-slate-400 text-xs tracking-wide" style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
@@ -67,7 +64,6 @@
           </div>
         </td>
 
-        {# Side #}
         <td class="px-3 py-2 text-center">
           <span class="inline-block rounded-md px-2 py-0.5 text-xs"
                 style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;
@@ -77,7 +73,6 @@
           </span>
         </td>
 
-        {# 数値列 #}
         <td class="px-3 py-2 text-right font-mono"
             style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
           {{ t.qty|intcomma }}
@@ -87,10 +82,7 @@
           ¥{{ t.price|floatformat:0|intcomma }}
         </td>
 
-        {# 💰実損(現金)
-           - 現物/NISA: 受渡キャッシュフローの円換算 (cashflow_calc_jpy)
-           - 信用     : 投資家PnLの円換算 (pnl_jpy)
-        #}
+        {# 💰実損(現金) #}
         <td class="px-3 py-2 text-right font-mono"
             style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
           {% if t.account == 'MARGIN' %}
@@ -120,7 +112,7 @@
           {% endif %}
         </td>
 
-        {# 📈実現損益（常に「投資家PnL」の円換算 = pnl_jpy） #}
+        {# 📈実現損益 #}
         <td class="px-3 py-2 text-right font-mono"
             style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
           {% with v=t.pnl_jpy %}
@@ -136,13 +128,11 @@
           {% endwith %}
         </td>
 
-        {# 手数料 #}
         <td class="px-3 py-2 text-right font-mono"
             style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
           ¥{{ t.fee|floatformat:0|intcomma }}
         </td>
 
-        {# 削除 #}
         <td class="px-3 py-2 text-right"
             style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal;">
           <form
