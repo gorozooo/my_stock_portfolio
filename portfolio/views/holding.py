@@ -167,13 +167,16 @@ def _today_jst() -> date:
 @dataclass
 class RowVM:
     obj: Holding
-    valuation: Optional[float] = None
-    pnl: Optional[float] = None
+    valuation: Optional[float] = None     # ★ 評価額（JPY）
+    pnl: Optional[float] = None           # ★ 含み損益（JPY）
     pnl_pct: Optional[float] = None
     days: Optional[int] = None
 
+    # 取得額（JPYベース）
+    acq_jpy: Optional[float] = None       # ★ 追加：ポジション取得額（JPY）
+
     # ▼ 追加（配当・利回り表示用）
-    price_now: Optional[float] = None
+    price_now: Optional[float] = None     # 現在値（現地通貨）
     yield_now: Optional[float] = None
     yield_cost: Optional[float] = None
     div_annual: Optional[float] = None
@@ -371,55 +374,63 @@ def _build_row(h: Holding) -> RowVM:
     # 通貨判定（デフォルトは JPY）
     cur = (getattr(h, "currency", "JPY") or "JPY").upper()
     is_usd = (cur == "USD")
-    fx = _get_fx_usd_jpy() if is_usd else 1.0  # USD のときだけ為替取得
+
+    # 為替レート（USDのみ取得）※取得できなければ 1.0
+    fx = _get_fx_usd_jpy() if is_usd else 1.0
+    if fx is None:
+        fx = 1.0
+
+    # コスト(1株)を JPY に換算
+    if is_usd:
+        cost_unit_jpy = cost_unit * fx
+    else:
+        cost_unit_jpy = cost_unit
+
+    # 取得額（JPY）
+    acq_jpy = cost_unit_jpy * q if q > 0 else 0.0
 
     n = _norm_ticker(h.ticker)
     raw7 = _preload_closes([h.ticker], 7).get(n, [])
     raw30 = _preload_closes([h.ticker], 30).get(n, [])
     raw90 = _preload_closes([h.ticker], 90).get(n, [])
 
-    price_now: Optional[float] = None
-    val_now: Optional[float] = None
+    price_now: Optional[float] = None       # 現地通貨
+    price_now_jpy: Optional[float] = None   # JPY換算
+    val_now_jpy: Optional[float] = None
 
     if raw30 or raw7 or raw90:
         last = (raw30 or raw7 or raw90)[-1]
-        # ★ price_now は常に「現地通貨」のまま（A案）
-        price_now = float(last)
+        price_local = float(last)
 
-        # ★ 評価額は JPY 換算（USD のときだけ為替を掛ける）
-        if q > 0:
-            if is_usd and fx:
-                val_now = price_now * fx * q
-            else:
-                val_now = price_now * q
+        # 現在値（現地通貨）はそのまま保存
+        price_now = price_local
+
+        # 現在値を JPY に換算
+        if is_usd:
+            price_now_jpy = price_local * fx
+        else:
+            price_now_jpy = price_local
+
+        # 評価額（JPY）
+        if q > 0 and price_now_jpy is not None:
+            val_now_jpy = price_now_jpy * q
 
     # ===== 含み損益（BUY/SELL 両対応, JPYベース）=====
     pnl: Optional[float] = None
     pnl_pct: Optional[float] = None
-    if val_now is not None and cost_unit > 0 and q > 0:
-        # コスト(1株)を円換算
-        if is_usd and fx:
-            cost_unit_jpy = cost_unit * fx
+    if val_now_jpy is not None and cost_unit_jpy > 0 and q > 0:
+        side = (getattr(h, "side", "BUY") or "BUY").upper()
+
+        if side == "SELL":
+            # 空売り：価格が下がるとプラス
+            pnl = (cost_unit_jpy - price_now_jpy) * q if price_now_jpy is not None else None
         else:
-            cost_unit_jpy = cost_unit
+            # 買い：価格が上がるとプラス
+            pnl = (price_now_jpy - cost_unit_jpy) * q if price_now_jpy is not None else None
 
-        # 現在値も円換算しておく（評価額と整合させる）
-        if is_usd and fx and price_now is not None:
-            price_now_jpy = price_now * fx
-        else:
-            price_now_jpy = price_now
-
-        if price_now_jpy is not None:
-            if (getattr(h, "side", "BUY") or "BUY").upper() == "SELL":
-                # 空売り：価格が下がるとプラス（JPYベース）
-                pnl = (cost_unit_jpy - price_now_jpy) * q
-            else:
-                # 買い：価格が上がるとプラス（JPYベース）
-                pnl = (price_now_jpy - cost_unit_jpy) * q
-
-            acq_jpy = cost_unit_jpy * q
-            if acq_jpy > 0:
-                pnl_pct = (pnl / acq_jpy) * 100.0
+        acq_total_jpy = cost_unit_jpy * q
+        if pnl is not None and acq_total_jpy > 0:
+            pnl_pct = (pnl / acq_total_jpy) * 100.0
 
     # ===== 配当系は従来どおり =====
     div_annual = _calc_div_annual_net(h)
@@ -474,11 +485,13 @@ def _build_row(h: Holding) -> RowVM:
 
     return RowVM(
         obj=h,
-        valuation=val_now,
-        pnl=pnl,
+        valuation=val_now_jpy,      # ★ 評価額（JPY）
+        pnl=pnl,                    # ★ 含み損益（JPY）
         pnl_pct=pnl_pct,
         days=days,
-        price_now=price_now,      # ★ 現地通貨
+        acq_jpy=acq_jpy,            # ★ 取得額（JPY）
+
+        price_now=price_now,        # 現地通貨の現在値
         yield_now=y_now,
         yield_cost=y_cost,
         div_annual=div_annual,
@@ -493,93 +506,59 @@ def _build_row(h: Holding) -> RowVM:
 
 
 def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
-    """
-    RowVM からポートフォリオ全体のサマリーを作る。
-
-    - RowVM.valuation / RowVM.pnl は _build_row で JPY 換算済みと仮定。
-    - 取得額は BUY/SELL を見て「valuation と pnl から逆算」することで、
-      通貨や為替レートの扱いを _build_row と完全に一致させる。
-    """
     n = 0
-    acq_sum_jpy = 0.0      # 取得額合計（JPY）
-    val_sum_jpy = 0.0      # 評価額合計（JPY）
-
-    pnl_sum_acc_jpy = 0.0  # 含み損益合計（JPY）
-    have_pnl = False
-
+    acq_sum_jpy = 0.0      # ★ 取得額合計（JPY）
+    val_sum_jpy = 0.0      # ★ 評価額合計（JPY）
+    have_val = 0
     winners = losers = 0
     days_list: List[int] = []
     top_gain: Optional[Tuple[float, Holding]] = None
     top_loss: Optional[Tuple[float, Holding]] = None
 
+    pnl_sum_acc_jpy = 0.0  # ★ 含み損益合計（JPY）
+    have_pnl = False
+
     for r in rows:
         h = r.obj
         n += 1
 
-        # --- 評価額合計（RowVM.valuation は JPY 換算済み） ---
-        if r.valuation is not None:
-            val_jpy = float(r.valuation)
-            val_sum_jpy += val_jpy
-        else:
-            val_jpy = None
+        # 取得額（JPY）
+        if r.acq_jpy is not None:
+            acq_sum_jpy += float(r.acq_jpy)
 
-        # --- 含み損益（RowVM.pnl も JPY 換算済み） ---
-        pnl_jpy: Optional[float]
+        # 評価額（JPY）
+        if r.valuation is not None:
+            val = float(r.valuation)
+            val_sum_jpy += val
+            have_val += 1
+
+        # 含み損益（JPY）
         if r.pnl is not None:
             pnl_jpy = float(r.pnl)
             pnl_sum_acc_jpy += pnl_jpy
             have_pnl = True
 
-            # 勝ち / 負け 件数
             if pnl_jpy > 0:
                 winners += 1
             elif pnl_jpy < 0:
                 losers += 1
 
-            # 最大益 / 最大損
             if top_gain is None or pnl_jpy > top_gain[0]:
                 top_gain = (pnl_jpy, h)
             if top_loss is None or pnl_jpy < top_loss[0]:
                 top_loss = (pnl_jpy, h)
-        else:
-            pnl_jpy = None
 
-        # --- 取得額：valuation と pnl から逆算（基本パス） ---
-        acq_row = None
-        if val_jpy is not None and pnl_jpy is not None:
-            side = (getattr(h, "side", "BUY") or "BUY").upper()
-            if side == "SELL":
-                # 空売り: pnl = (cost - price) * q なので cost*q = val + pnl
-                acq_row = val_jpy + pnl_jpy
-            else:
-                # 買い: pnl = (price - cost) * q なので cost*q = val - pnl
-                acq_row = val_jpy - pnl_jpy
-
-        # --- 逆算できない場合のフォールバック（価格が取れない銘柄など） ---
-        if acq_row is None:
-            q = int(h.quantity or 0)
-            cost = _to_float(h.avg_cost or 0) or 0.0
-            if q > 0 and cost > 0:
-                cur = getattr(h, "currency", "JPY") or "JPY"
-                fx = _get_fx_to_jpy(cur) or 1.0  # 1通貨 = fx JPY
-                acq_row = q * cost * fx
-            else:
-                acq_row = 0.0
-
-        acq_sum_jpy += acq_row
-
-        # --- 保有日数 ---
+        # 保有日数
         if r.days is not None:
             days_list.append(int(r.days))
 
-    # ★ ポートフォリオ含み損益・損益率など
+    # ★ ポートフォリオ含み損益は JPY 換算した合計を使用
     pnl_sum: Optional[float] = pnl_sum_acc_jpy if have_pnl else None
     pnl_pct: Optional[float] = (
         pnl_sum / acq_sum_jpy * 100.0
         if (pnl_sum is not None and acq_sum_jpy > 0)
         else None
     )
-
     win_rate: Optional[float] = (
         winners / (winners + losers) * 100.0
         if (winners + losers) > 0
@@ -592,9 +571,9 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
 
     summary: Dict[str, Optional[float]] = dict(
         count=n,
-        acq=acq_sum_jpy,
-        val=val_sum_jpy if val_sum_jpy > 0 else None,
-        pnl=pnl_sum,
+        acq=acq_sum_jpy,                 # ★ 取得額合計（JPY）
+        val=val_sum_jpy if have_val else None,  # ★ 評価額合計（JPY）
+        pnl=pnl_sum,                     # ★ 含み損益合計（JPY）
         pnl_pct=pnl_pct,
         winners=winners,
         losers=losers,
