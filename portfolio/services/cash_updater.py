@@ -112,44 +112,6 @@ def _holding_source_type_and_id(holding_id: int):
 
 
 # =============================
-# 実損キャッシュフロー → 円換算
-# =============================
-def _realized_cash_delta_jpy(r: RealizedTrade) -> int:
-    """
-    RealizedTrade 1件ぶんの「現金キャッシュフロー」を円換算して返す。
-
-    - ベース: r.cashflow_effective
-      （SELL=＋ / BUY=− / 手数料込み、税引き後など“投資家目線のキャッシュ”）
-    - 通貨: r.currency が JPY 以外なら fx_rate_effective 等で円換算
-    """
-    # ベース金額（取引通貨建て）
-    amount_raw = getattr(r, "cashflow_effective", None)
-    if amount_raw is None:
-        return 0
-
-    # 通貨判定（無指定/空文字は JPY とみなす）
-    cur = getattr(r, "currency", "JPY") or "JPY"
-    cur = str(cur).upper()
-
-    # 円建てはそのまま
-    if cur == "JPY":
-        return _as_int(amount_raw)
-
-    # 為替レート（優先: fx_rate_effective, 次点: fx_rate）
-    fx = getattr(r, "fx_rate_effective", None) or getattr(r, "fx_rate", None)
-    try:
-        fx_val = float(fx or 0)
-    except Exception:
-        fx_val = 0.0
-
-    if fx_val > 0:
-        return _as_int(float(amount_raw) * fx_val)
-
-    # 為替が取れない場合の保険：そのまま（※本来はログ出したいがここでは割愛）
-    return _as_int(amount_raw)
-
-
-# =============================
 # 同期ロジック：配当
 # =============================
 def sync_from_dividends() -> dict:
@@ -204,8 +166,9 @@ def sync_from_realized() -> dict:
     実損（売買・受渡）：
       - 対象: SPEC/NISA/MARGIN すべて
       - 日付: r.trade_at（取引日）
-      - 金額: r.cashflow_effective を **円換算** した値
-              （USDなど外貨のときは fx_rate_effective 等で JPY に変換）
+      - 金額:
+          * 現物(SPEC/NISA): 受渡キャッシュフローの円換算（cashflow_calc_jpy）
+          * 信用(MARGIN): 投資家PnLの円換算（pnl_jpy）だけを現金増減に反映
       - 種別: 正なら DEPOSIT, 負なら WITHDRAW
       - Holding: broker/ticker/口座でできるだけ一致を探す
     """
@@ -217,8 +180,25 @@ def sync_from_realized() -> dict:
         if not acc:
             continue
 
-        # ★ ここで円換算した delta を使う
-        delta = _realized_cash_delta_jpy(r)
+        # --- ここを口座種別で分岐させる ---
+        acct = (getattr(r, "account", None) or "").upper()
+
+        if acct == "MARGIN":
+            # 信用：損益分だけ（返済元本は証拠金口座内の話なので現金は動かない想定）
+            raw = getattr(r, "pnl_jpy", None)
+            if raw is None:
+                raw = getattr(r, "pnl_display", None)
+            if raw is None:
+                raw = getattr(r, "cashflow_effective", None)
+        else:
+            # 現物 / NISA：受渡キャッシュフロー全額
+            raw = getattr(r, "cashflow_calc_jpy", None)
+            if raw is None:
+                raw = getattr(r, "cashflow_calc", None)
+            if raw is None:
+                raw = getattr(r, "cashflow_effective", None)
+
+        delta = _as_int(raw)
         if delta == 0:
             continue
 
@@ -280,11 +260,9 @@ def sync_from_holdings() -> dict:
         # 日付：opened_at 優先、無ければ created_at.date()
         at_date = getattr(h, "opened_at", None)
         if not at_date:
-            # created_at は DateTimeField なので date() に落とす
             created_dt = getattr(h, "created_at", None)
             at_date = created_dt.date() if created_dt else None
         if not at_date:
-            # どうしても無ければスキップ（不正な保有）
             continue
 
         st, sid = _holding_source_type_and_id(h.id)
@@ -315,7 +293,10 @@ def sync_all() -> dict:
     """
     - 現物保有（SPEC/NISA）：opened_at/created_at で『初回出金』を upsert
     - 配当：支払日で upsert（税引後net）＋ Holding 紐付け
-    - 実損：取引日で upsert（現物/信用すべて、**円換算済みキャッシュフロー**）＋ Holding 紐付け
+    - 実損：取引日で upsert
+        * 現物/NISA → 受渡キャッシュフロー全額（cashflow_calc_jpy）
+        * 信用       → 損益分のみ（pnl_jpy）
+      ＋ Holding 紐付け
     - すべて source_type + source_id で完全 upsert（重複なし、毎回上書き）
     """
     svc.ensure_default_accounts()
