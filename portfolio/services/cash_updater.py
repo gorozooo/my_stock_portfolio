@@ -135,9 +135,7 @@ def sync_from_dividends() -> dict:
             continue
 
         holding = getattr(d, "holding", None) or _find_holding(
-            d.broker,
-            d.ticker,
-            desired_account=getattr(d, "account", None),
+            d.broker, d.ticker, desired_account=getattr(d, "account", None)
         )
 
         created_now = _upsert_ledger(
@@ -165,10 +163,9 @@ def sync_from_realized() -> dict:
     """
     実損（売買・受渡）：
       - 対象: SPEC/NISA/MARGIN すべて
+      - 現物/NISA: 受渡キャッシュフローの円換算（cashflow_calc_jpy）を Ledger に記録
+      - 信用: 投資家PnLの円換算（pnl_jpy）だけを Ledger に記録
       - 日付: r.trade_at（取引日）
-      - 金額:
-          * 現物(SPEC/NISA): 受渡キャッシュフローの円換算（cashflow_calc_jpy）
-          * 信用(MARGIN): 投資家PnLの円換算（pnl_jpy）だけを現金増減に反映
       - 種別: 正なら DEPOSIT, 負なら WITHDRAW
       - Holding: broker/ticker/口座でできるだけ一致を探す
     """
@@ -180,34 +177,23 @@ def sync_from_realized() -> dict:
         if not acc:
             continue
 
-        # --- ここを口座種別で分岐させる ---
-        acct = (getattr(r, "account", None) or "").upper()
-
-        if acct == "MARGIN":
-            # 信用：損益分だけ（返済元本は証拠金口座内の話なので現金は動かない想定）
-            raw = getattr(r, "pnl_jpy", None)
-            if raw is None:
-                raw = getattr(r, "pnl_display", None)
-            if raw is None:
-                raw = getattr(r, "cashflow_effective", None)
+        # ---- 金額の決定ロジック ----
+        # 現物/NISA → 受渡キャッシュフロー（円換算）
+        # 信用      → PnL（円換算）
+        if getattr(r, "account", None) == "MARGIN":
+            base_val = getattr(r, "pnl_jpy", None)
         else:
-            # 現物 / NISA：受渡キャッシュフロー全額
-            raw = getattr(r, "cashflow_calc_jpy", None)
-            if raw is None:
-                raw = getattr(r, "cashflow_calc", None)
-            if raw is None:
-                raw = getattr(r, "cashflow_effective", None)
+            # cashflow_calc_jpy が無ければ cashflow_calc をそのまま使う保険
+            base_val = getattr(r, "cashflow_calc_jpy", None)
+            if base_val is None:
+                base_val = getattr(r, "cashflow_calc", None)
 
-        delta = _as_int(raw)
+        delta = _as_int(base_val)
         if delta == 0:
             continue
 
         kind = CashLedger.Kind.DEPOSIT if delta > 0 else CashLedger.Kind.WITHDRAW
-        holding = _find_holding(
-            r.broker,
-            r.ticker,
-            desired_account=getattr(r, "account", None),
-        )
+        holding = _find_holding(r.broker, r.ticker, desired_account=getattr(r, "account", None))
 
         created_now = _upsert_ledger(
             account=acc,
@@ -293,10 +279,7 @@ def sync_all() -> dict:
     """
     - 現物保有（SPEC/NISA）：opened_at/created_at で『初回出金』を upsert
     - 配当：支払日で upsert（税引後net）＋ Holding 紐付け
-    - 実損：取引日で upsert
-        * 現物/NISA → 受渡キャッシュフロー全額（cashflow_calc_jpy）
-        * 信用       → 損益分のみ（pnl_jpy）
-      ＋ Holding 紐付け
+    - 実損：取引日で upsert（現物/NISA=受渡キャッシュフロー / 信用=PnL）＋ Holding 紐付け
     - すべて source_type + source_id で完全 upsert（重複なし、毎回上書き）
     """
     svc.ensure_default_accounts()
