@@ -848,16 +848,17 @@ def summary_period_partial(request):
       - freq=month|year（既定: month）
       - focus=YYYY-MM または YYYY（行ハイライト用ラベル）
       - keep=all のときは focus しても全体表は維持（単独絞り込みしない）
-    ※ この表は通貨建て（pnl_display/cashflow_calc）ベースのまま。
+
+    ※ ここでは「円換算済み」の値（pnl_jpy / cashflow_calc_jpy）だけを使う。
     """
     from django.db.models.functions import TruncMonth, TruncYear
     from django.db.models import Count, Sum, Value, IntegerField, Q, F
     from decimal import Decimal
 
-    q = (request.GET.get("q") or "").strip()
-    freq = (request.GET.get("freq") or "month").lower()
+    q     = (request.GET.get("q") or "").strip()
+    freq  = (request.GET.get("freq") or "month").lower()
     focus = (request.GET.get("focus") or "").strip()
-    keep = (request.GET.get("keep") or "").lower()
+    keep  = (request.GET.get("keep") or "").lower()
 
     # 期間の解釈
     start, end, preset = _parse_period(request)
@@ -871,6 +872,7 @@ def summary_period_partial(request):
     if end:
         qs = qs.filter(trade_at__lte=end)
 
+    # ★ここで pnl_jpy / cashflow_calc_jpy を付与
     qs = _with_metrics(qs)
 
     # バケット
@@ -883,42 +885,46 @@ def summary_period_partial(request):
 
     grouped = (
         qs.annotate(period=bucket)
-        .values("period")
-        .annotate(
-            n=Coalesce(Count("id"), Value(0), output_field=IntegerField()),
-            qty=Coalesce(Sum("qty"), Value(0), output_field=IntegerField()),
-            fee=Coalesce(
-                Sum(
-                    Coalesce(
-                        F("fee"),
-                        Value(Decimal("0"), output_field=DEC2),
-                    )
-                ),
-                Value(Decimal("0"), output_field=DEC2),
-            ),
-            cash_spec=Coalesce(
-                Sum(
-                    "cashflow_calc",
-                    filter=Q(account__in=["SPEC", "NISA"]),
-                    output_field=DEC2,
-                ),
-                Value(Decimal("0"), output_field=DEC2),
-            ),
-            # 信用は“現金相当”として pnl_display を使う
-            cash_margin=Coalesce(
-                Sum(
-                    "pnl_display",
-                    filter=Q(account="MARGIN"),
-                    output_field=DEC2,
-                ),
-                Value(Decimal("0"), output_field=DEC2),
-            ),
-            pnl=Coalesce(
-                Sum("pnl_display", output_field=DEC2),
-                Value(Decimal("0"), output_field=DEC2),
-            ),
-        )
-        .order_by("period")
+          .values("period")
+          .annotate(
+              n   = Coalesce(Count("id"), Value(0), output_field=IntegerField()),
+              qty = Coalesce(Sum("qty"),  Value(0), output_field=IntegerField()),
+              fee = Coalesce(
+                  Sum(
+                      Coalesce(
+                          F("fee"),
+                          Value(Decimal("0"), output_field=DEC2)
+                      )
+                  ),
+                  Value(Decimal("0"), output_field=DEC2),
+              ),
+
+              # 💰現物/NISA = 受渡キャッシュフロー（円換算）
+              cash_spec = Coalesce(
+                  Sum(
+                      "cashflow_calc_jpy",
+                      filter=Q(account__in=["SPEC", "NISA"]),
+                      output_field=DEC2,
+                  ),
+                  Value(Decimal("0"), output_field=DEC2),
+              ),
+              # 💰信用 = 投資家PnL（円換算）
+              cash_margin = Coalesce(
+                  Sum(
+                      "pnl_jpy",
+                      filter=Q(account="MARGIN"),
+                      output_field=DEC2,
+                  ),
+                  Value(Decimal("0"), output_field=DEC2),
+              ),
+
+              # 📈PnLも円換算済み
+              pnl = Coalesce(
+                  Sum("pnl_jpy", output_field=DEC2),
+                  Value(Decimal("0"), output_field=DEC2),
+              ),
+          )
+          .order_by("period")
     )
 
     rows = []
@@ -928,14 +934,14 @@ def summary_period_partial(request):
         cash_total = (r["cash_spec"] or Decimal("0")) + (r["cash_margin"] or Decimal("0"))
         row = {
             "period": r["period"],
-            "label": label,
-            "n": r["n"],
-            "qty": r["qty"],
-            "fee": r["fee"],
-            "cash_spec": r["cash_spec"],
+            "label":  label,
+            "n":      r["n"],
+            "qty":    r["qty"],
+            "fee":    r["fee"],
+            "cash_spec":   r["cash_spec"],
             "cash_margin": r["cash_margin"],
-            "cash_total": cash_total,
-            "pnl": r["pnl"],
+            "cash_total":  cash_total,
+            "pnl":    r["pnl"],
         }
         rows.append(row)
         if focus and label == focus:
