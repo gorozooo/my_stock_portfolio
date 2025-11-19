@@ -493,40 +493,47 @@ def _build_row(h: Holding) -> RowVM:
 
 
 def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
+    """
+    RowVM からポートフォリオ全体のサマリーを作る。
+
+    注意:
+      - RowVM.valuation / RowVM.pnl は、_build_row 内ですでに JPY 換算済み
+        （USD のときは fx を掛けている）ので、ここでは二重に為替を掛けない。
+      - 取得額だけは avg_cost * quantity に通貨ごとの fx を掛けて JPY に変換する。
+    """
     n = 0
-    acq_sum_jpy = 0.0
-    val_sum_jpy = 0.0
+    acq_sum_jpy = 0.0      # 取得額合計（JPY）
+    val_sum_jpy = 0.0      # 評価額合計（JPY）
     have_val = 0
     winners = losers = 0
     days_list: List[int] = []
     top_gain: Optional[Tuple[float, Holding]] = None
     top_loss: Optional[Tuple[float, Holding]] = None
 
-    pnl_sum_acc_jpy = 0.0
+    pnl_sum_acc_jpy = 0.0  # 含み損益合計（JPY）
     have_pnl = False
 
     for r in rows:
         h = r.obj
         n += 1
 
-        # 通貨判定（デフォルト JPY）
+        # --- 取得額（avg_cost * quantity）を JPY に変換 ---
         cur = getattr(h, "currency", "JPY") or "JPY"
         fx = _get_fx_to_jpy(cur) or 1.0  # 1通貨 = fx JPY
 
-        # 取得金額（その通貨建て）→ JPY へ
         q = int(h.quantity or 0)
         cost = _to_float(h.avg_cost or 0) or 0.0
         acq_i_native = q * cost
         acq_sum_jpy += acq_i_native * fx
 
-        # 評価額（RowVM.valuation は通貨建て）→ JPY へ
+        # --- 評価額: RowVM.valuation はすでに JPY 換算済み ---
         if r.valuation is not None:
-            val_sum_jpy += float(r.valuation) * fx
+            val_sum_jpy += float(r.valuation)
             have_val += 1
 
-        # 含み損益（RowVM.pnl は通貨建て）→ JPY へ
+        # --- 含み損益: RowVM.pnl も JPY 換算済み ---
         if r.pnl is not None:
-            pnl_jpy = float(r.pnl) * fx
+            pnl_jpy = float(r.pnl)
             pnl_sum_acc_jpy += pnl_jpy
             have_pnl = True
 
@@ -540,17 +547,18 @@ def _aggregate(rows: List[RowVM]) -> Dict[str, Optional[float]]:
             if top_loss is None or pnl_jpy < top_loss[0]:
                 top_loss = (pnl_jpy, h)
 
-        # 保有日数
+        # --- 保有日数 ---
         if r.days is not None:
             days_list.append(int(r.days))
 
-    # ★ ポートフォリオ含み損益は JPY 換算した合計を使用
+    # ★ ポートフォリオ含み損益は JPY の合計を使用
     pnl_sum: Optional[float] = pnl_sum_acc_jpy if have_pnl else None
     pnl_pct: Optional[float] = (
         pnl_sum / acq_sum_jpy * 100.0
         if (pnl_sum is not None and acq_sum_jpy > 0)
         else None
     )
+
     win_rate: Optional[float] = (
         winners / (winners + losers) * 100.0
         if (winners + losers) > 0
