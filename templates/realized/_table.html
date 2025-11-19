@@ -77,7 +77,7 @@
             style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
           {{ t.qty|intcomma }}
         </td>
-        <<td class="px-3 py-2 text-right font-mono"
+        <td class="px-3 py-2 text-right font-mono"
             style="white-space:nowrap;word-break:keep-all;overflow-wrap:normal; font-variant-numeric:tabular-nums;">
           {% if t.currency and t.currency != "JPY" %}
             {{ t.price|floatformat:2|intcomma }} {{ t.currency }}
