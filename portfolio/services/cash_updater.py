@@ -160,15 +160,6 @@ def sync_from_dividends() -> dict:
 # 同期ロジック：実損（現物・信用 含む）
 # =============================
 def sync_from_realized() -> dict:
-    """
-    実損（売買・受渡）：
-      - 対象: SPEC/NISA/MARGIN すべて
-      - 現物/NISA: 受渡キャッシュフローの円換算（cashflow_calc_jpy）を Ledger に記録
-      - 信用: 投資家PnLの円換算（pnl_jpy）だけを Ledger に記録
-      - 日付: r.trade_at（取引日）
-      - 種別: 正なら DEPOSIT, 負なら WITHDRAW
-      - Holding: broker/ticker/口座でできるだけ一致を探す
-    """
     created = 0
     updated = 0
 
@@ -177,18 +168,14 @@ def sync_from_realized() -> dict:
         if not acc:
             continue
 
-        # ---- 金額の決定ロジック ----
-        # 現物/NISA → 受渡キャッシュフロー（円換算）
-        # 信用      → PnL（円換算）
-        if getattr(r, "account", None) == "MARGIN":
-            base_val = getattr(r, "pnl_jpy", None)
+        # --- 現物/NISA と 信用(MARGIN) で分岐 ---
+        if r.account == "MARGIN":
+            # 信用：投資家の損益だけ
+            delta = _as_int(r.pnl_jpy)
         else:
-            # cashflow_calc_jpy が無ければ cashflow_calc をそのまま使う保険
-            base_val = getattr(r, "cashflow_calc_jpy", None)
-            if base_val is None:
-                base_val = getattr(r, "cashflow_calc", None)
+            # 現物/NISA：受渡キャッシュフロー（JPY）
+            delta = _as_int(r.cashflow_calc_jpy)
 
-        delta = _as_int(base_val)
         if delta == 0:
             continue
 
@@ -197,7 +184,7 @@ def sync_from_realized() -> dict:
 
         created_now = _upsert_ledger(
             account=acc,
-            at=r.trade_at,  # 取引日
+            at=r.trade_at,
             amount=delta,
             kind=kind,
             memo=f"実現損益 {r.ticker}".strip(),
@@ -205,6 +192,7 @@ def sync_from_realized() -> dict:
             source_id=r.id,
             holding=holding,
         )
+
         if created_now:
             created += 1
         else:
