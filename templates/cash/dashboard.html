@@ -4,42 +4,25 @@
 
 {% block content %}
 <style>
-/* ===== Global ===== */
-*,
-*::before,
-*::after{
-  box-sizing:border-box;
-}
-html,body{
-  max-width:100%;
-  overflow-x:hidden;
-}
-
 /* ===== Layout ===== */
 .cash-wrap{
-  max-width:980px;
+  max-width: 680px;
   margin:12px auto 0;
-  padding:12px 10px 140px;
+  padding:12px 12px 140px;
+  box-sizing:border-box;
 }
 
 /* ===== Broker Card ===== */
-.grid-broker{
-  display:grid;
-  grid-template-columns:1fr;
-  gap:16px;
-}
+.grid-broker{display:grid;grid-template-columns:1fr;gap:16px}
 .card{
-  padding:10px 12px 12px;
+  padding:10px 12px;
   border-radius:14px;
   background:rgba(255,255,255,.04);
   border:1px solid rgba(255,255,255,.08);
   backdrop-filter:blur(8px);
-  overflow:hidden;
+  box-sizing:border-box;
 }
-.card h3{
-  font-size:15px;
-  margin:0 0 8px;
-}
+.card h3{font-size:15px;margin:0 0 8px}
 
 /* ===== KPI ===== */
 .kpi-row{
@@ -48,20 +31,21 @@ html,body{
   gap:8px;
 }
 .kpi{
-  padding:8px 8px;
+  padding:8px 10px;
   border-radius:10px;
   background:rgba(255,255,255,.05);
   border:1px solid rgba(255,255,255,.08);
+  box-sizing:border-box;
 }
 .kpi .head{
   display:flex;
   align-items:center;
-  gap:4px;
+  gap:6px;
   margin-bottom:2px;
   min-height:18px;
 }
 .kpi .label{
-  font-size:10px;
+  font-size:11px;
   color:#9aa4b2;
   letter-spacing:.03em;
   white-space:nowrap;
@@ -73,23 +57,23 @@ html,body{
   gap:3px;
 }
 .kpi .num{
-  font-size:13px;
+  font-size:14px;
   font-weight:700;
   letter-spacing:.01em;
 }
-.kpi .unit{
-  font-size:11px;
-  opacity:.75;
-}
+.kpi .unit{font-size:11px;opacity:.75}
 
 /* 余力のヒーロー表示＋メーター */
 .hero-kpi{
-  padding:10px 10px;
+  padding:10px 12px;
   border-radius:12px;
   background:linear-gradient(135deg,rgba(45,212,191,.15),rgba(56,189,248,.10));
   border:1px solid rgba(45,212,191,.45);
   box-shadow:0 0 0 1px rgba(15,118,110,.35) inset;
   margin-bottom:8px;
+  max-width:100%;
+  box-sizing:border-box;
+  overflow:hidden;
 }
 .hero-kpi.warn{
   background:linear-gradient(135deg,rgba(234,179,8,.18),rgba(248,250,252,.03));
@@ -106,32 +90,42 @@ html,body{
   justify-content:space-between;
   align-items:flex-end;
   gap:8px;
+  max-width:100%;
 }
 .hero-main-label{
   font-size:12px;
   color:#cbd5f5;
   letter-spacing:.05em;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
 }
 .hero-main-value{
   display:flex;
   align-items:baseline;
   gap:4px;
+  flex-shrink:0;
 }
 .hero-main-num{
   font-size:18px;
   font-weight:800;
   letter-spacing:.03em;
 }
-.hero-main-unit{
-  font-size:11px;
-  opacity:.8;
-}
+.hero-main-unit{font-size:11px;opacity:.8}
 .hero-pct{
   font-size:11px;
   color:#e5e7eb;
   opacity:.8;
   white-space:nowrap;
   flex-shrink:0;
+}
+.hero-sub{
+  margin-top:4px;
+  font-size:11px;
+  color:#a1a8c4;
+  line-height:1.4;
+  max-width:100%;
+  overflow:hidden;
 }
 
 /* メーター */
@@ -149,18 +143,6 @@ html,body{
   transform-origin:left center;
 }
 
-/* 内訳の式（3行に分割） */
-.hero-sub{
-  margin-top:6px;
-  font-size:11px;
-  color:#a1a8c4;
-  line-height:1.4;
-}
-.hero-sub-label{
-  display:inline-block;
-  margin-right:4px;
-}
-
 /* 小KPI枠色 */
 .kpi.cash{
   border-color:rgba(125,160,255,.24);
@@ -175,11 +157,7 @@ html,body{
   box-shadow:0 0 0 1px rgba(255,255,255,.12) inset;
 }
 
-.small{
-  font-size:11px;
-  margin-top:8px;
-  color:#a1a8c4;
-}
+.small{font-size:11px;margin-top:8px;color:#a1a8c4}
 
 /* ===== Bottom Action Dock ===== */
 .cash-dock{
@@ -187,12 +165,12 @@ html,body{
   left:0;
   right:0;
   bottom:0;
-  z-index:100;
+  z-index:110;
   pointer-events:none;
 }
 .cash-dock .inner{
   pointer-events:auto;
-  max-width:980px;
+  max-width:680px;
   margin:0 auto;
   padding:8px 12px calc(8px + env(safe-area-inset-bottom));
   background:rgba(13,16,24,.84);
@@ -200,6 +178,7 @@ html,body{
   -webkit-backdrop-filter:blur(12px);
   border-top:1px solid rgba(255,255,255,.08);
   border-radius:16px 16px 0 0;
+  box-sizing:border-box;
 }
 .cash-dock .bar{
   display:grid;
@@ -270,31 +249,7 @@ html,body{
   color:#e6ebff;
 }
 .btn.primary{border-color:rgba(0,255,209,.45)}
-.form-note{
-  font-size:11px;
-  color:#9aa4b2;
-  margin-top:6px;
-}
-
-/* ===== Responsive (スマホ幅) ===== */
-@media (max-width:480px){
-  .cash-wrap{
-    padding:12px 8px 140px;
-  }
-  .hero-top{
-    flex-direction:column;
-    align-items:flex-start;
-  }
-  .hero-main-num{
-    font-size:16px;
-  }
-  .hero-pct{
-    margin-top:2px;
-  }
-  .kpi-row{
-    grid-template-columns:1fr;
-  }
-}
+.form-note{font-size:11px;color:#9aa4b2;margin-top:6px}
 </style>
 
 <div class="cash-wrap">
@@ -342,33 +297,38 @@ html,body{
           {% endif %}
 
           <div class="hero-sub">
-            <span class="hero-sub-label">＝ 余力の内訳</span><br>
-            ・預り金 {{ b.cash|intcomma }} 円<br>
-            ・取得原価残 {{ b.invested_cost|intcomma }} 円<br>
-            ・拘束 {{ b.restricted|intcomma }} 円
+            = 預り金 {{ b.cash|intcomma }} 円
+            − 取得原価残 {{ b.invested_cost|intcomma }} 円
+            − 拘束 {{ b.restricted|intcomma }} 円
           </div>
         </div>
 
         {# ===== 内訳3ボックス ===== #}
         <div class="kpi-row">
+          <!-- 預り金 -->
           <div class="kpi cash">
             <div class="head"><div class="label">🏦 預り金（口座の現金）</div></div>
             <div class="value">
-              <span class="num">{{ b.cash|intcomma }}</span><span class="unit">円</span>
+              <span class="num">{{ b.cash|intcomma }}</span>
+              <span class="unit">円</span>
             </div>
           </div>
 
+          <!-- 取得原価残 -->
           <div class="kpi invested">
             <div class="head"><div class="label">📉 取得原価残（買付済み元本）</div></div>
             <div class="value">
-              <span class="num">{{ b.invested_cost|intcomma }}</span><span class="unit">円</span>
+              <span class="num">{{ b.invested_cost|intcomma }}</span>
+              <span class="unit">円</span>
             </div>
           </div>
 
+          <!-- 拘束 -->
           <div class="kpi restricted">
             <div class="head"><div class="label">🔒 拘束金</div></div>
             <div class="value">
-              <span class="num">{{ b.restricted|intcomma }}</span><span class="unit">円</span>
+              <span class="num">{{ b.restricted|intcomma }}</span>
+              <span class="unit">円</span>
             </div>
           </div>
         </div>
@@ -460,6 +420,7 @@ html,body{
   </div>
 </div>
 
+<!-- 拘束金 -->
 <div class="modal" id="modal-restrict" aria-hidden="true">
   <div class="box">
     <h3>⛔ 拘束金を設定</h3>
@@ -489,6 +450,7 @@ html,body{
   </div>
 </div>
 
+<!-- 税金 -->
 <div class="modal" id="modal-tax" aria-hidden="true">
   <div class="box">
     <h3>🧾 税金（源泉徴収）を月次で記録</h3>
@@ -537,8 +499,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-open]").forEach(b=>{
     b.addEventListener("click", ()=> show(modals[b.dataset.open]));
   });
-  document.querySelectorAll("[data-close]").forEach(b=>{
-    b.addEventListener("click", closeAll));
+  document.querySelectorAll("[data-close]").forEach(b=> b.addEventListener("click", closeAll));
 
   const act = new URLSearchParams(location.search).get("action");
   if (act && modals[act]) show(modals[act]);
@@ -559,10 +520,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const dock = document.querySelector(".cash-dock");
   const inner = document.querySelector(".cash-dock .inner");
   const bottomTab = document.getElementById("bottomTabRoot");
+
   const adjust = ()=>{
     const dockH = inner ? inner.getBoundingClientRect().height : 0;
     const tabH  = bottomTab ? bottomTab.getBoundingClientRect().height : 0;
-    dock.style.bottom = (tabH) + "px";
+    dock.style.bottom = tabH + "px";
     wrap.style.paddingBottom = (dockH + tabH + 24) + "px";
   };
   adjust();
