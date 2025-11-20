@@ -25,6 +25,7 @@ urlpatterns = [
     path("settings/", settings_view, name="settings"),
     
     # シミュレ
-    path("picks/simulate/", picks.picks_simulate, name="ai_picks_simulate")
-    
+    path("picks/simulate/", picks.picks_simulate, name="ai_picks_simulate"),
+
+
 ]
