@@ -101,6 +101,39 @@
   }
 
   .meta{font-size:11px;color:#7f8da3;margin-top:4px;line-height:1.5}
+
+  /* ルール通過チェック（B用） */
+  .rule-pass{
+    margin-top:8px;
+    padding-top:6px;
+    border-top:1px dashed rgba(148,163,184,0.4);
+    font-size:11px;
+    color:#9ca3af;
+  }
+  .rule-pass-title{
+    font-size:11px;
+    font-weight:600;
+    margin-bottom:2px;
+    color:#e5e7eb;
+  }
+  .rule-pass-broker{
+    margin-top:4px;
+    font-weight:600;
+  }
+  .rule-pass-list{
+    margin:2px 0 0 0;
+    padding-left:1em;
+    list-style:none;
+  }
+  .rule-pass-list li::before{
+    content:"・";
+    margin-right:2px;
+  }
+
+  /* シミュレボタン用の簡易フィードバック */
+  .btn-sim-disabled{
+    opacity:0.5;
+  }
 </style>
 {% endblock %}
 
@@ -127,7 +160,16 @@
   {% if items and items|length > 0 %}
     <div class="grid">
       {% for item in items %}
-        <div class="card">
+        <div class="card"
+             data-code="{{ item.code }}"
+             data-name="{{ item.name_norm|default:item.name }}"
+             data-entry="{{ item.entry|default:'' }}"
+             data-tp="{{ item.tp|default:'' }}"
+             data-sl="{{ item.sl|default:'' }}"
+             data-qty-rakuten="{{ item.qty_rakuten|default:0 }}"
+             data-qty-matsui="{{ item.qty_matsui|default:0 }}"
+             data-price="{{ item.last_close|default:'' }}"
+             data-score="{{ item.score_100|default:0 }}">
           <div class="ttl">
             <div>
               <h3>{{ item.name_norm|default:item.name }}</h3>
@@ -247,7 +289,7 @@
             </div>
           </div>
 
-          {# 0株になったときの理由など（既存） #}
+          {# sizing_service 側の共通 reasons_text（両方0株のときなど） #}
           {% if item.reasons_text %}
             <div class="meta">
               {% for line in item.reasons_text %}
@@ -256,21 +298,35 @@
             </div>
           {% endif %}
 
+          {# B: ルール通過の内訳（数量 > 0 の証券だけ） #}
+          {% if item.pass_checks_rakuten or item.pass_checks_matsui %}
+            <div class="rule-pass">
+              <div class="rule-pass-title">ルール通過の内訳</div>
+
+              {% if item.pass_checks_rakuten %}
+                <div class="rule-pass-broker">楽天</div>
+                <ul class="rule-pass-list">
+                  {% for line in item.pass_checks_rakuten %}
+                    <li>{{ line|safe }}</li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+
+              {% if item.pass_checks_matsui %}
+                <div class="rule-pass-broker">松井</div>
+                <ul class="rule-pass-list">
+                  {% for line in item.pass_checks_matsui %}
+                    <li>{{ line|safe }}</li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+            </div>
+          {% endif %}
+
           <div class="btns">
-            <a href="#" class="btn-watch">ウォッチ</a>
-            <a href="#"
-               class="btn-sim"
-               data-code="{{ item.code }}"
-               data-name="{{ item.name_norm|default:item.name }}"
-               data-entry="{{ item.entry|default_if_none:'' }}"
-               data-tp="{{ item.tp|default_if_none:'' }}"
-               data-sl="{{ item.sl|default_if_none:'' }}"
-               data-qty-rakuten="{{ item.qty_rakuten|default:0 }}"
-               data-qty-matsui="{{ item.qty_matsui|default:0 }}"
-               data-price="{{ item.last_close|default_if_none:'' }}"
-               data-score="{{ item.score_100|default_if_none:'' }}"
-            >シミュレ</a>
-            <a href="#" class="btn-now">今すぐで</a>
+            <a href="#">ウォッチ</a>
+            <a href="#" class="btn-sim">シミュレ</a>
+            <a href="#">今すぐで</a>
           </div>
         </div>
       {% endfor %}
@@ -285,64 +341,82 @@
 
 <script>
 (function(){
+  // Django公式ドキュメント方式で csrftoken を取得
   function getCookie(name){
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; ${name}=`);
-    if(parts.length === 2) return parts.pop().split(';').shift();
-    return null;
+    var cookieValue = null;
+    if (document.cookie && document.cookie !== ''){
+      var cookies = document.cookie.split(';');
+      for (var i = 0; i < cookies.length; i++){
+        var cookie = cookies[i].trim();
+        if (cookie.substring(0, name.length + 1) === (name + '=')){
+          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+          break;
+        }
+      }
+    }
+    return cookieValue;
+  }
+  var csrftoken = getCookie('csrftoken');
+
+  function handleSimClick(ev){
+    ev.preventDefault();
+    var btn = ev.currentTarget;
+    if (btn.classList.contains('btn-sim-disabled')){
+      return; // 連打防止
+    }
+    var card = btn.closest('.card');
+    if (!card){
+      return;
+    }
+
+    var payload = {
+      code: card.getAttribute('data-code') || '',
+      name: card.getAttribute('data-name') || '',
+      entry: card.getAttribute('data-entry') || '',
+      tp: card.getAttribute('data-tp') || '',
+      sl: card.getAttribute('data-sl') || '',
+      qty_rakuten: card.getAttribute('data-qty-rakuten') || 0,
+      qty_matsui: card.getAttribute('data-qty-matsui') || 0,
+      price: card.getAttribute('data-price') || '',
+      score_100: card.getAttribute('data-score') || '',
+      // mode / universe は今はなくてもOK（後で拡張）
+      mode: '{{ "demo" if is_demo else "live" }}'
+    };
+
+    btn.textContent = '保存中…';
+
+    fetch(window.location.pathname + window.location.search, {
+      method: 'POST',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrftoken || ''
+      },
+      body: JSON.stringify(payload)
+    })
+    .then(function(res){
+      if(!res.ok){ throw new Error('HTTP ' + res.status); }
+      return res.json();
+    })
+    .then(function(json){
+      if (json && json.ok){
+        btn.textContent = 'シミュレ済';
+        btn.classList.add('btn-sim-disabled');
+      } else {
+        btn.textContent = 'エラー';
+        setTimeout(function(){ btn.textContent = 'シミュレ'; }, 1500);
+      }
+    })
+    .catch(function(){
+      btn.textContent = 'エラー';
+      setTimeout(function(){ btn.textContent = 'シミュレ'; }, 1500);
+    });
   }
 
-  const csrftoken = getCookie('csrftoken');
-  const path = window.location.pathname;
-
-  document.querySelectorAll('.btn-sim').forEach(function(btn){
-    btn.addEventListener('click', function(ev){
-      ev.preventDefault();
-
-      const payload = {
-        code: this.dataset.code || null,
-        name: this.dataset.name || null,
-        entry: this.dataset.entry || null,
-        tp: this.dataset.tp || null,
-        sl: this.dataset.sl || null,
-        qty_rakuten: this.dataset.qtyRakuten || this.dataset.qty_rakuten || 0,
-        qty_matsui: this.dataset.qtyMatsui || this.dataset.qty_matsui || 0,
-        price: this.dataset.price || null,
-        score_100: this.dataset.score || null
-      };
-
-      fetch(path, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRFToken': csrftoken || '',
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: JSON.stringify(payload)
-      })
-      .then(function(res){ return res.json(); })
-      .then(function(data){
-        if(data && data.ok){
-          if (window.showToast) {
-            window.showToast('シミュレに登録しました', 'success');
-          } else {
-            alert('シミュレに登録しました');
-          }
-        } else {
-          if (window.showToast) {
-            window.showToast('シミュレ登録に失敗しました', 'error');
-          } else {
-            alert('シミュレ登録に失敗しました');
-          }
-        }
-      })
-      .catch(function(){
-        if (window.showToast) {
-          window.showToast('通信エラーが発生しました', 'error');
-        } else {
-          alert('通信エラーが発生しました');
-        }
-      });
+  document.addEventListener('DOMContentLoaded', function(){
+    var sims = document.querySelectorAll('.btn-sim');
+    sims.forEach(function(btn){
+      btn.addEventListener('click', handleSimClick);
     });
   });
 })();
