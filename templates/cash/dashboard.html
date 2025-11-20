@@ -21,7 +21,7 @@
 .kpi .num{font-size:14px;font-weight:700;letter-spacing:.01em}
 .kpi .unit{font-size:11px;opacity:.75}
 
-/* 余力のヒーロー表示 */
+/* 余力のヒーロー表示＋メーター */
 .hero-kpi{
   padding:10px 12px;
   border-radius:12px;
@@ -47,6 +47,15 @@
 .hero-main-unit{font-size:11px;opacity:.8}
 .hero-pct{font-size:11px;color:#e5e7eb;opacity:.8;white-space:nowrap}
 .hero-sub{margin-top:4px;font-size:11px;color:#a1a8c4;line-height:1.4}
+
+/* メーター */
+.meter{height:6px;border-radius:999px;background:rgba(148,163,184,.35);overflow:hidden;margin-top:6px}
+.meter-inner{
+  height:100%;
+  border-radius:inherit;
+  background:linear-gradient(90deg,#22c55e,#eab308,#ef4444);
+  transform-origin:left center;
+}
 
 /* 小KPI枠色 */
 .kpi.cash{border-color:rgba(125,160,255,.24);box-shadow:0 0 0 1px rgba(125,160,255,.10) inset}
@@ -84,7 +93,7 @@
       <div class="card">
         <h3>{{ b.broker }} 証券</h3>
 
-        {# ===== 余力（使えるお金）ヒーロー表示 ===== #}
+        {# ===== 余力ヒーロー＋メーター ===== #}
         <div class="hero-kpi
           {% if b.available < 0 %}danger{% elif pct and pct <= 30 and b.available >= 0 %}warn{% endif %}">
           <div class="hero-top">
@@ -99,6 +108,26 @@
               <div class="hero-pct">{{ pct|floatformat:1 }}%</div>
             {% endif %}
           </div>
+
+          {% if pct is not None %}
+          <div class="meter">
+            {# 0〜100% の範囲にクリップ #}
+            {% with raw=pct %}
+              {% if raw < 0 %}
+                {% with w=0 %}
+                  <div class="meter-inner" style="width:{{ w }}%;"></div>
+                {% endwith %}
+              {% elif raw > 100 %}
+                {% with w=100 %}
+                  <div class="meter-inner" style="width:{{ w }}%;"></div>
+                {% endwith %}
+              {% else %}
+                <div class="meter-inner" style="width:{{ raw|floatformat:0 }}%;"></div>
+              {% endif %}
+            {% endwith %}
+          </div>
+          {% endif %}
+
           <div class="hero-sub">
             = 預り金 {{ b.cash|intcomma }} 円
             − 取得原価残 {{ b.invested_cost|intcomma }} 円
