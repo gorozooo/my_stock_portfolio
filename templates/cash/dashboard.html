@@ -4,11 +4,22 @@
 
 {% block content %}
 <style>
+/* ===== Global ===== */
+*,
+*::before,
+*::after{
+  box-sizing:border-box;
+}
+html,body{
+  max-width:100%;
+  overflow-x:hidden;
+}
+
 /* ===== Layout ===== */
 .cash-wrap{
   max-width:980px;
   margin:12px auto 0;
-  padding:12px 12px 140px;  /* 下はアクションバー分を確保 */
+  padding:12px 10px 140px;
 }
 
 /* ===== Broker Card ===== */
@@ -18,11 +29,12 @@
   gap:16px;
 }
 .card{
-  padding:10px 12px;
+  padding:10px 12px 12px;
   border-radius:14px;
   background:rgba(255,255,255,.04);
   border:1px solid rgba(255,255,255,.08);
   backdrop-filter:blur(8px);
+  overflow:hidden;
 }
 .card h3{
   font-size:15px;
@@ -36,7 +48,7 @@
   gap:8px;
 }
 .kpi{
-  padding:8px 10px;
+  padding:8px 8px;
   border-radius:10px;
   background:rgba(255,255,255,.05);
   border:1px solid rgba(255,255,255,.08);
@@ -44,12 +56,12 @@
 .kpi .head{
   display:flex;
   align-items:center;
-  gap:6px;
+  gap:4px;
   margin-bottom:2px;
   min-height:18px;
 }
 .kpi .label{
-  font-size:11px;
+  font-size:10px;
   color:#9aa4b2;
   letter-spacing:.03em;
   white-space:nowrap;
@@ -61,7 +73,7 @@
   gap:3px;
 }
 .kpi .num{
-  font-size:14px;
+  font-size:13px;
   font-weight:700;
   letter-spacing:.01em;
 }
@@ -72,7 +84,7 @@
 
 /* 余力のヒーロー表示＋メーター */
 .hero-kpi{
-  padding:10px 12px;
+  padding:10px 10px;
   border-radius:12px;
   background:linear-gradient(135deg,rgba(45,212,191,.15),rgba(56,189,248,.10));
   border:1px solid rgba(45,212,191,.45);
@@ -119,13 +131,7 @@
   color:#e5e7eb;
   opacity:.8;
   white-space:nowrap;
-}
-.hero-sub{
-  margin-top:4px;
-  font-size:11px;
-  color:#a1a8c4;
-  line-height:1.4;
-  word-break:keep-all;
+  flex-shrink:0;
 }
 
 /* メーター */
@@ -141,6 +147,18 @@
   border-radius:inherit;
   background:linear-gradient(90deg,#22c55e,#eab308,#ef4444);
   transform-origin:left center;
+}
+
+/* 内訳の式（3行に分割） */
+.hero-sub{
+  margin-top:6px;
+  font-size:11px;
+  color:#a1a8c4;
+  line-height:1.4;
+}
+.hero-sub-label{
+  display:inline-block;
+  margin-right:4px;
 }
 
 /* 小KPI枠色 */
@@ -163,13 +181,13 @@
   color:#a1a8c4;
 }
 
-/* ===== Bottom Action Dock（入金・出金…） ===== */
+/* ===== Bottom Action Dock ===== */
 .cash-dock{
   position:fixed;
   left:0;
   right:0;
   bottom:0;
-  z-index:100;
+  z-index:2000;      /* ★ ボトムタブより前面に出す */
   pointer-events:none;
 }
 .cash-dock .inner{
@@ -251,13 +269,31 @@
   background:rgba(255,255,255,.05);
   color:#e6ebff;
 }
-.btn.primary{
-  border-color:rgba(0,255,209,.45);
-}
+.btn.primary{border-color:rgba(0,255,209,.45)}
 .form-note{
   font-size:11px;
   color:#9aa4b2;
   margin-top:6px;
+}
+
+/* ===== Responsive (スマホ幅) ===== */
+@media (max-width:480px){
+  .cash-wrap{
+    padding:12px 8px 140px;
+  }
+  .hero-top{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+  .hero-main-num{
+    font-size:16px;
+  }
+  .hero-pct{
+    margin-top:2px;
+  }
+  .kpi-row{
+    grid-template-columns:1fr;
+  }
 }
 </style>
 
@@ -306,44 +342,33 @@
           {% endif %}
 
           <div class="hero-sub">
-            = 預り金 {{ b.cash|intcomma }} 円
-            − 取得原価残 {{ b.invested_cost|intcomma }} 円
-            − 拘束 {{ b.restricted|intcomma }} 円
+            <span class="hero-sub-label">＝ 余力の内訳</span><br>
+            ・預り金 {{ b.cash|intcomma }} 円<br>
+            ・取得原価残 {{ b.invested_cost|intcomma }} 円<br>
+            ・拘束 {{ b.restricted|intcomma }} 円
           </div>
         </div>
 
         {# ===== 内訳3ボックス ===== #}
         <div class="kpi-row">
-          <!-- 預り金 -->
           <div class="kpi cash">
-            <div class="head">
-              <div class="label">🏦 預り金（口座の現金）</div>
-            </div>
+            <div class="head"><div class="label">🏦 預り金（口座の現金）</div></div>
             <div class="value">
-              <span class="num">{{ b.cash|intcomma }}</span>
-              <span class="unit">円</span>
+              <span class="num">{{ b.cash|intcomma }}</span><span class="unit">円</span>
             </div>
           </div>
 
-          <!-- 取得原価残 -->
           <div class="kpi invested">
-            <div class="head">
-              <div class="label">📉 取得原価残（買付済み元本）</div>
-            </div>
+            <div class="head"><div class="label">📉 取得原価残（買付済み元本）</div></div>
             <div class="value">
-              <span class="num">{{ b.invested_cost|intcomma }}</span>
-              <span class="unit">円</span>
+              <span class="num">{{ b.invested_cost|intcomma }}</span><span class="unit">円</span>
             </div>
           </div>
 
-          <!-- 拘束 -->
           <div class="kpi restricted">
-            <div class="head">
-              <div class="label">🔒 拘束金</div>
-            </div>
+            <div class="head"><div class="label">🔒 拘束金</div></div>
             <div class="value">
-              <span class="num">{{ b.restricted|intcomma }}</span>
-              <span class="unit">円</span>
+              <span class="num">{{ b.restricted|intcomma }}</span><span class="unit">円</span>
             </div>
           </div>
         </div>
@@ -354,9 +379,7 @@
       {% endfor %}
     </div>
   {% else %}
-    <div class="card">
-      まずは管理画面で「BrokerAccount」を作成してね（楽天/松井/SBIのどれかでOK）。
-    </div>
+    <div class="card">まずは管理画面で「BrokerAccount」を作成してね（楽天/松井/SBIのどれかでOK）。</div>
   {% endif %}
 </div>
 
@@ -437,7 +460,6 @@
   </div>
 </div>
 
-<!-- 拘束金 -->
 <div class="modal" id="modal-restrict" aria-hidden="true">
   <div class="box">
     <h3>⛔ 拘束金を設定</h3>
@@ -458,9 +480,7 @@
           <input type="number" name="amount" inputmode="numeric" min="0" required>
         </div>
       </div>
-      <div class="form-note">
-        ※保存すると当日の拘束金を<strong>上書き</strong>します（過去分は変更しません）。
-      </div>
+      <div class="form-note">※保存すると当日の拘束金を<strong>上書き</strong>します（過去分は変更しません）。</div>
       <div class="form-actions">
         <button type="button" class="btn" data-close>閉じる</button>
         <button class="btn primary" type="submit">保存</button>
@@ -469,7 +489,6 @@
   </div>
 </div>
 
-<!-- 税金 -->
 <div class="modal" id="modal-tax" aria-hidden="true">
   <div class="box">
     <h3>🧾 税金（源泉徴収）を月次で記録</h3>
@@ -498,9 +517,7 @@
           <input type="text" name="memo" placeholder="任意（例：所得＋住民の合算）">
         </div>
       </div>
-      <div class="form-note">
-        ※対象月の<strong>月末日</strong>で「出金」として記帳します。同月・同社は再保存で上書き。
-      </div>
+      <div class="form-note">※対象月の<strong>月末日</strong>で「出金」として記帳します。同月・同社は再保存で上書き。</div>
       <div class="form-actions">
         <button type="button" class="btn" data-close>閉じる</button>
         <button class="btn primary" type="submit">保存</button>
@@ -521,7 +538,8 @@ document.addEventListener("DOMContentLoaded", () => {
     b.addEventListener("click", ()=> show(modals[b.dataset.open]));
   });
   document.querySelectorAll("[data-close]").forEach(b=>{
-    b.addEventListener("click", closeAll));
+    b.addEventListener("click", closeAll);
+  });
 
   const act = new URLSearchParams(location.search).get("action");
   if (act && modals[act]) show(modals[act]);
