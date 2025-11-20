@@ -3,35 +3,58 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from django.conf import settings
+from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, Http404
 from django.shortcuts import render
 from django.utils import timezone
-from django.views.decorators.http import require_http_methods
+from django.views.decorators.http import require_POST
 
 from aiapp.models import StockMaster
 from aiapp.services.policy_loader import load_short_aggressive_policy
 
-# ---------- パス定義 ----------
+logger = logging.getLogger(__name__)
 
 PICKS_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "picks"
-SIM_LOG_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "simulate"
-SIM_LOG_FILE = SIM_LOG_DIR / "sim_trades.jsonl"
+SIM_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "sim"
 
 # JPX 33業種（コード→日本語名）
 JPX_SECTOR_MAP: Dict[str, str] = {
-    "005": "水産・農林業", "010": "鉱業", "015": "建設業", "020": "食料品", "025": "繊維製品",
-    "030": "パルプ・紙", "035": "化学", "040": "医薬品", "045": "石油・石炭製品", "050": "ゴム製品",
-    "055": "ガラス・土石製品", "060": "鉄鋼", "065": "非鉄金属", "070": "金属製品", "075": "機械",
-    "080": "電気機器", "085": "輸送用機器", "090": "精密機器", "095": "その他製品",
+    "005": "水産・農林業",
+    "010": "鉱業",
+    "015": "建設業",
+    "020": "食料品",
+    "025": "繊維製品",
+    "030": "パルプ・紙",
+    "035": "化学",
+    "040": "医薬品",
+    "045": "石油・石炭製品",
+    "050": "ゴム製品",
+    "055": "ガラス・土石製品",
+    "060": "鉄鋼",
+    "065": "非鉄金属",
+    "070": "金属製品",
+    "075": "機械",
+    "080": "電気機器",
+    "085": "輸送用機器",
+    "090": "精密機器",
+    "095": "その他製品",
     "100": "電気・ガス業",
-    "105": "陸運業", "110": "海運業", "115": "空運業", "120": "倉庫・運輸関連業",
+    "105": "陸運業",
+    "110": "海運業",
+    "115": "空運業",
+    "120": "倉庫・運輸関連業",
     "125": "情報・通信業",
-    "130": "卸売業", "135": "小売業",
-    "140": "銀行業", "145": "証券・商品先物取引業", "150": "保険業", "155": "その他金融業",
+    "130": "卸売業",
+    "135": "小売業",
+    "140": "銀行業",
+    "145": "証券・商品先物取引業",
+    "150": "保険業",
+    "155": "その他金融業",
     "160": "不動産業",
     "165": "サービス業",
 }
@@ -112,10 +135,8 @@ def _enrich_with_master(data: Dict[str, Any]) -> None:
         sector_mst = _sector_from_master(sm)
         if _is_etf(code):
             sector_disp = "ETF/ETN"
-            it["is_etf"] = True
         else:
             sector_disp = sector_json or sector_mst or "業種不明"
-            it["is_etf"] = False
         it["sector_display"] = sector_disp
 
         # last_close 防御
@@ -279,7 +300,6 @@ def _attach_pass_checks(data: Dict[str, Any]) -> None:
                     f"✅ 純利益マイナス {int(round(est_pl)):,} 円だが、ポリシーでマイナス許容ON"
                 )
             else:
-                # ここに来るケースはほぼ無い想定だが、一応文言だけ。
                 checks.append("✅ 純利益が0円近辺（コスト込みでギリギリ許容）")
 
         # 2) 想定利益 >= 最低純利益
@@ -310,72 +330,8 @@ def _attach_pass_checks(data: Dict[str, Any]) -> None:
 # ===== ここまで B用 =====
 
 
-# ===== ここから C用：シミュレ（紙トレ）記録 =====
-
-def _append_sim_log(row: Dict[str, Any]) -> None:
-    """シミュレ用の仮想ポジションを JSONL に1行追記"""
-    try:
-        SIM_LOG_DIR.mkdir(parents=True, exist_ok=True)
-        line = json.dumps(row, ensure_ascii=False)
-        with SIM_LOG_FILE.open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
-    except Exception:
-        # ログ失敗はアプリ動作には影響させない
-        pass
-
-
-def _handle_simulate_post(request):
-    """
-    AI Picksカードからのシミュレ登録（AJAX専用）。
-    テンプレ側から送られてきた情報を、そのまま1行JSONとして保存する。
-    """
-    try:
-        if request.content_type and request.content_type.startswith("application/json"):
-            payload = json.loads(request.body.decode("utf-8") or "{}")
-        else:
-            payload = request.POST.dict()
-    except Exception:
-        payload = {}
-
-    code = str(payload.get("code") or "").strip()
-    if not code:
-        return JsonResponse({"ok": False, "error": "code required"}, status=400)
-
-    now = timezone.now().isoformat()
-    user_id = None
-    if getattr(request, "user", None) is not None and request.user.is_authenticated:
-        user_id = request.user.id
-
-    sim = {
-        "ts": now,
-        "user_id": user_id,
-        "code": code,
-        "name": payload.get("name"),
-        "entry": payload.get("entry"),
-        "tp": payload.get("tp"),
-        "sl": payload.get("sl"),
-        "qty_rakuten": payload.get("qty_rakuten"),
-        "qty_matsui": payload.get("qty_matsui"),
-        "last_price": payload.get("price"),
-        "score_100": payload.get("score_100"),
-        "mode": payload.get("mode"),
-        "universe": payload.get("universe"),
-        "source": "ai_picks_card",
-    }
-
-    _append_sim_log(sim)
-    return JsonResponse({"ok": True})
-
-
-# ===== ここまで C用 =====
-
-
-@require_http_methods(["GET", "POST"])
+@login_required
 def picks(request):
-    # シミュレ登録（AJAX POST）の場合は早期リターン
-    if request.method == "POST" and request.headers.get("X-Requested-With") == "XMLHttpRequest":
-        return _handle_simulate_post(request)
-
     # LIVE/DEMO 切替（将来ロジック拡張）
     qmode = request.GET.get("mode")
     is_demo = True if qmode == "demo" else False if qmode == "live" else True
@@ -408,6 +364,7 @@ def picks(request):
     return render(request, "aiapp/picks.html", ctx)
 
 
+@login_required
 def picks_json(request):
     data = _load_picks()
     _enrich_with_master(data)
@@ -418,3 +375,71 @@ def picks_json(request):
     # 内部用メタは出さない
     data.pop("_path", None)
     return JsonResponse(data, safe=True, json_dumps_params={"ensure_ascii": False, "indent": 2})
+
+
+# ===== ここから C: シミュレ（紙トレ）保存 =====
+
+
+def _sim_log_path() -> Path:
+    """
+    シミュレ用の JSONL ログファイルパスを返す。
+    とりあえず 1ファイル固定（将来は日付別に分けてもOK）。
+    """
+    SIM_DIR.mkdir(parents=True, exist_ok=True)
+    return SIM_DIR / "ai_sim_positions.jsonl"
+
+
+@login_required
+@require_POST
+def picks_simulate(request):
+    """
+    「シミュレ」ボタンからの POST を受け取り、
+    仮想エントリー情報を JSONL に 1 行追記するだけのシンプル実装。
+    """
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        logger.exception("picks_simulate: invalid json")
+        return JsonResponse({"ok": False, "message": "リクエスト形式が不正です。"}, status=400)
+
+    code = (payload.get("code") or "").strip()
+    name = (payload.get("name") or "").strip()
+
+    if not code:
+        return JsonResponse({"ok": False, "message": "銘柄コードが空です。"}, status=400)
+
+    now = timezone.now()
+
+    record = {
+        "ts": now.isoformat(),
+        "user_id": request.user.id if request.user.is_authenticated else None,
+        "username": request.user.get_username() if request.user.is_authenticated else None,
+        "mode": payload.get("mode") or "demo",
+        "code": code,
+        "name": name or None,
+        "entry": payload.get("entry"),
+        "tp": payload.get("tp"),
+        "sl": payload.get("sl"),
+        "qty_rakuten": payload.get("qty_rakuten"),
+        "qty_matsui": payload.get("qty_matsui"),
+        "price": payload.get("price"),
+        "score_100": payload.get("score_100"),
+        # 将来の集計用のフラグ（実際に約定したか等）は後で追加
+        "status": "open",  # 仮想ポジションとして OPEN した状態
+        "source": "ai_picks",
+    }
+
+    log_path = _sim_log_path()
+    try:
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:
+        logger.exception("picks_simulate: failed to append log")
+        return JsonResponse({"ok": False, "message": "保存に失敗しました。"}, status=500)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "message": f"シミュレに保存しました（{code}）",
+        }
+    )
