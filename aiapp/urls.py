@@ -23,4 +23,8 @@ urlpatterns = [
 
     # AI設定画面（リスク％・将来拡張用）
     path("settings/", settings_view, name="settings"),
+    
+    # シミュレ
+    path("picks/simulate/", picks.picks_simulate, name="ai_picks_simulate")
+    
 ]
