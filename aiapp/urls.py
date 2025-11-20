@@ -1,9 +1,10 @@
 # aiapp/urls.py
 from django.urls import path
+
 from .views.dashboard import dashboard, toggle_mode
-from .views.picks import picks, picks_json
-from .views.api import picks_rebuild  # ← 新規追加
-from .views.settings import settings_view  # ← 追加：AI設定画面
+from .views.picks import picks, picks_json, picks_simulate
+from .views.api import picks_rebuild  # ← LIVE/DEMO再生成API
+from .views.settings import settings_view  # ← AI設定画面
 
 app_name = "aiapp"
 
@@ -23,9 +24,7 @@ urlpatterns = [
 
     # AI設定画面（リスク％・将来拡張用）
     path("settings/", settings_view, name="settings"),
-    
-    # シミュレ
-    path("picks/simulate/", picks.picks_simulate, name="ai_picks_simulate"),
 
-
+    # シミュレ（紙トレ保存）
+    path("picks/simulate/", picks_simulate, name="ai_picks_simulate"),
 ]
