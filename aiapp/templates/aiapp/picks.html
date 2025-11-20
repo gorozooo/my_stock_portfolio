@@ -130,9 +130,30 @@
     margin-right:2px;
   }
 
-  /* シミュレボタン用の簡易フィードバック */
-  .btn-sim-disabled{
-    opacity:0.5;
+  /* シミュレ用トースト */
+  .sim-toast{
+    position:fixed;
+    left:50%;
+    bottom:80px;
+    transform:translateX(-50%);
+    background:rgba(34,197,94,0.95);
+    color:#0b1120;
+    padding:10px 16px;
+    border-radius:999px;
+    font-size:13px;
+    box-shadow:0 10px 25px rgba(15,23,42,0.6);
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .2s ease-out, transform .2s ease-out;
+    z-index:60;
+  }
+  .sim-toast.error{
+    background:rgba(248,113,113,0.95);
+    color:#0b1120;
+  }
+  .sim-toast.show{
+    opacity:1;
+    transform:translate(-50%, -4px);
   }
 </style>
 {% endblock %}
@@ -163,13 +184,13 @@
         <div class="card"
              data-code="{{ item.code }}"
              data-name="{{ item.name_norm|default:item.name }}"
-             data-entry="{{ item.entry|default:'' }}"
-             data-tp="{{ item.tp|default:'' }}"
-             data-sl="{{ item.sl|default:'' }}"
+             data-entry="{{ item.entry }}"
+             data-tp="{{ item.tp }}"
+             data-sl="{{ item.sl }}"
              data-qty-rakuten="{{ item.qty_rakuten|default:0 }}"
              data-qty-matsui="{{ item.qty_matsui|default:0 }}"
-             data-price="{{ item.last_close|default:'' }}"
-             data-score="{{ item.score_100|default:0 }}">
+             data-price="{{ item.last_close }}"
+             data-score="{{ item.score_100 }}">
           <div class="ttl">
             <div>
               <h3>{{ item.name_norm|default:item.name }}</h3>
@@ -324,9 +345,9 @@
           {% endif %}
 
           <div class="btns">
-            <a href="#">ウォッチ</a>
-            <a href="#" class="btn-sim">シミュレ</a>
-            <a href="#">今すぐで</a>
+            <a href="#" data-action="watch">ウォッチ</a>
+            <a href="#" data-action="simulate">シミュレ</a>
+            <a href="#" data-action="now">今すぐで</a>
           </div>
         </div>
       {% endfor %}
@@ -337,88 +358,85 @@
     </div>
   {% endif %}
 
+  <div id="sim-toast" class="sim-toast">
+    <span id="sim-toast-text">シミュレに追加しました</span>
+  </div>
+
 </div>
 
 <script>
-(function(){
-  // Django公式ドキュメント方式で csrftoken を取得
+  // Django側の is_demo を JS の文字列にしておく
+  const AI_MODE = "{% if is_demo %}demo{% else %}live{% endif %}";
+
   function getCookie(name){
-    var cookieValue = null;
-    if (document.cookie && document.cookie !== ''){
-      var cookies = document.cookie.split(';');
-      for (var i = 0; i < cookies.length; i++){
-        var cookie = cookies[i].trim();
-        if (cookie.substring(0, name.length + 1) === (name + '=')){
-          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-          break;
-        }
+    const v = document.cookie.split(';').map(c => c.trim());
+    for (let i=0;i<v.length;i++){
+      if (v[i].startsWith(name + '=')){
+        return decodeURIComponent(v[i].substring(name.length + 1));
       }
     }
-    return cookieValue;
+    return null;
   }
-  var csrftoken = getCookie('csrftoken');
 
-  function handleSimClick(ev){
-    ev.preventDefault();
-    var btn = ev.currentTarget;
-    if (btn.classList.contains('btn-sim-disabled')){
-      return; // 連打防止
-    }
-    var card = btn.closest('.card');
-    if (!card){
-      return;
-    }
-
-    var payload = {
-      code: card.getAttribute('data-code') || '',
-      name: card.getAttribute('data-name') || '',
-      entry: card.getAttribute('data-entry') || '',
-      tp: card.getAttribute('data-tp') || '',
-      sl: card.getAttribute('data-sl') || '',
-      qty_rakuten: card.getAttribute('data-qty-rakuten') || 0,
-      qty_matsui: card.getAttribute('data-qty-matsui') || 0,
-      price: card.getAttribute('data-price') || '',
-      score_100: card.getAttribute('data-score') || '',
-      // mode / universe は今はなくてもOK（後で拡張）
-      mode: '{{ "demo" if is_demo else "live" }}'
-    };
-
-    btn.textContent = '保存中…';
-
-    fetch(window.location.pathname + window.location.search, {
-      method: 'POST',
-      headers: {
-        'X-Requested-With': 'XMLHttpRequest',
-        'Content-Type': 'application/json',
-        'X-CSRFToken': csrftoken || ''
-      },
-      body: JSON.stringify(payload)
-    })
-    .then(function(res){
-      if(!res.ok){ throw new Error('HTTP ' + res.status); }
-      return res.json();
-    })
-    .then(function(json){
-      if (json && json.ok){
-        btn.textContent = 'シミュレ済';
-        btn.classList.add('btn-sim-disabled');
-      } else {
-        btn.textContent = 'エラー';
-        setTimeout(function(){ btn.textContent = 'シミュレ'; }, 1500);
-      }
-    })
-    .catch(function(){
-      btn.textContent = 'エラー';
-      setTimeout(function(){ btn.textContent = 'シミュレ'; }, 1500);
-    });
+  function showToast(message, isError){
+    const toast = document.getElementById('sim-toast');
+    const text = document.getElementById('sim-toast-text');
+    if (!toast || !text) return;
+    text.textContent = message || '';
+    toast.classList.remove('error');
+    if (isError){ toast.classList.add('error'); }
+    toast.classList.add('show');
+    setTimeout(() => { toast.classList.remove('show'); }, 2000);
   }
 
   document.addEventListener('DOMContentLoaded', function(){
-    var sims = document.querySelectorAll('.btn-sim');
-    sims.forEach(function(btn){
-      btn.addEventListener('click', handleSimClick);
+    const cards = document.querySelectorAll('.card');
+    if (!cards.length) return;
+
+    cards.forEach((card) => {
+      const btnSim = card.querySelector('[data-action="simulate"]');
+      if (!btnSim) return;
+
+      btnSim.addEventListener('click', function(ev){
+        ev.preventDefault();
+
+        const payload = {
+          code: card.getAttribute('data-code') || '',
+          name: card.getAttribute('data-name') || '',
+          entry: card.getAttribute('data-entry') || '',
+          tp: card.getAttribute('data-tp') || '',
+          sl: card.getAttribute('data-sl') || '',
+          qty_rakuten: card.getAttribute('data-qty-rakuten') || 0,
+          qty_matsui: card.getAttribute('data-qty-matsui') || 0,
+          price: card.getAttribute('data-price') || '',
+          score_100: card.getAttribute('data-score') || '',
+          // mode / universe は今はなくてもOK（後で拡張）
+          mode: AI_MODE
+        };
+
+        const csrftoken = getCookie('csrftoken') || '';
+
+        fetch(window.location.pathname.replace(/\/$/, '') + '/simulate/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRFToken': csrftoken
+          },
+          body: JSON.stringify(payload)
+        }).then((res) => {
+          if (!res.ok){
+            throw new Error('status ' + res.status);
+          }
+          return res.json();
+        }).then((data) => {
+          showToast(data.message || 'シミュレに追加しました', false);
+        }).catch((err) => {
+          console.error(err);
+          showToast('保存に失敗しました', true);
+        });
+      });
     });
   });
-})();
 </script>
 {% endblock %}
