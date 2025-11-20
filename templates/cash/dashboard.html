@@ -6,23 +6,28 @@
 <style>
 /* ===== Layout ===== */
 .cash-wrap{
-  max-width: 680px;
+  max-width:980px;
   margin:12px auto 0;
-  padding:12px 12px 140px;
-  box-sizing:border-box;
+  padding:12px 12px 140px;  /* 下はアクションバー分を確保 */
 }
 
 /* ===== Broker Card ===== */
-.grid-broker{display:grid;grid-template-columns:1fr;gap:16px}
+.grid-broker{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:16px;
+}
 .card{
   padding:10px 12px;
   border-radius:14px;
   background:rgba(255,255,255,.04);
   border:1px solid rgba(255,255,255,.08);
   backdrop-filter:blur(8px);
-  box-sizing:border-box;
 }
-.card h3{font-size:15px;margin:0 0 8px}
+.card h3{
+  font-size:15px;
+  margin:0 0 8px;
+}
 
 /* ===== KPI ===== */
 .kpi-row{
@@ -35,7 +40,6 @@
   border-radius:10px;
   background:rgba(255,255,255,.05);
   border:1px solid rgba(255,255,255,.08);
-  box-sizing:border-box;
 }
 .kpi .head{
   display:flex;
@@ -61,7 +65,10 @@
   font-weight:700;
   letter-spacing:.01em;
 }
-.kpi .unit{font-size:11px;opacity:.75}
+.kpi .unit{
+  font-size:11px;
+  opacity:.75;
+}
 
 /* 余力のヒーロー表示＋メーター */
 .hero-kpi{
@@ -71,9 +78,6 @@
   border:1px solid rgba(45,212,191,.45);
   box-shadow:0 0 0 1px rgba(15,118,110,.35) inset;
   margin-bottom:8px;
-  max-width:100%;
-  box-sizing:border-box;
-  overflow:hidden;
 }
 .hero-kpi.warn{
   background:linear-gradient(135deg,rgba(234,179,8,.18),rgba(248,250,252,.03));
@@ -90,42 +94,38 @@
   justify-content:space-between;
   align-items:flex-end;
   gap:8px;
-  max-width:100%;
 }
 .hero-main-label{
   font-size:12px;
   color:#cbd5f5;
   letter-spacing:.05em;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
 }
 .hero-main-value{
   display:flex;
   align-items:baseline;
   gap:4px;
-  flex-shrink:0;
 }
 .hero-main-num{
   font-size:18px;
   font-weight:800;
   letter-spacing:.03em;
 }
-.hero-main-unit{font-size:11px;opacity:.8}
+.hero-main-unit{
+  font-size:11px;
+  opacity:.8;
+}
 .hero-pct{
   font-size:11px;
   color:#e5e7eb;
   opacity:.8;
   white-space:nowrap;
-  flex-shrink:0;
 }
 .hero-sub{
   margin-top:4px;
   font-size:11px;
   color:#a1a8c4;
   line-height:1.4;
-  max-width:100%;
-  overflow:hidden;
+  word-break:keep-all;
 }
 
 /* メーター */
@@ -157,20 +157,24 @@
   box-shadow:0 0 0 1px rgba(255,255,255,.12) inset;
 }
 
-.small{font-size:11px;margin-top:8px;color:#a1a8c4}
+.small{
+  font-size:11px;
+  margin-top:8px;
+  color:#a1a8c4;
+}
 
-/* ===== Bottom Action Dock ===== */
+/* ===== Bottom Action Dock（入金・出金…） ===== */
 .cash-dock{
   position:fixed;
   left:0;
   right:0;
   bottom:0;
-  z-index:110;
+  z-index:100;
   pointer-events:none;
 }
 .cash-dock .inner{
   pointer-events:auto;
-  max-width:680px;
+  max-width:980px;
   margin:0 auto;
   padding:8px 12px calc(8px + env(safe-area-inset-bottom));
   background:rgba(13,16,24,.84);
@@ -178,7 +182,6 @@
   -webkit-backdrop-filter:blur(12px);
   border-top:1px solid rgba(255,255,255,.08);
   border-radius:16px 16px 0 0;
-  box-sizing:border-box;
 }
 .cash-dock .bar{
   display:grid;
@@ -248,8 +251,14 @@
   background:rgba(255,255,255,.05);
   color:#e6ebff;
 }
-.btn.primary{border-color:rgba(0,255,209,.45)}
-.form-note{font-size:11px;color:#9aa4b2;margin-top:6px}
+.btn.primary{
+  border-color:rgba(0,255,209,.45);
+}
+.form-note{
+  font-size:11px;
+  color:#9aa4b2;
+  margin-top:6px;
+}
 </style>
 
 <div class="cash-wrap">
@@ -307,7 +316,9 @@
         <div class="kpi-row">
           <!-- 預り金 -->
           <div class="kpi cash">
-            <div class="head"><div class="label">🏦 預り金（口座の現金）</div></div>
+            <div class="head">
+              <div class="label">🏦 預り金（口座の現金）</div>
+            </div>
             <div class="value">
               <span class="num">{{ b.cash|intcomma }}</span>
               <span class="unit">円</span>
@@ -316,7 +327,9 @@
 
           <!-- 取得原価残 -->
           <div class="kpi invested">
-            <div class="head"><div class="label">📉 取得原価残（買付済み元本）</div></div>
+            <div class="head">
+              <div class="label">📉 取得原価残（買付済み元本）</div>
+            </div>
             <div class="value">
               <span class="num">{{ b.invested_cost|intcomma }}</span>
               <span class="unit">円</span>
@@ -325,7 +338,9 @@
 
           <!-- 拘束 -->
           <div class="kpi restricted">
-            <div class="head"><div class="label">🔒 拘束金</div></div>
+            <div class="head">
+              <div class="label">🔒 拘束金</div>
+            </div>
             <div class="value">
               <span class="num">{{ b.restricted|intcomma }}</span>
               <span class="unit">円</span>
@@ -339,7 +354,9 @@
       {% endfor %}
     </div>
   {% else %}
-    <div class="card">まずは管理画面で「BrokerAccount」を作成してね（楽天/松井/SBIのどれかでOK）。</div>
+    <div class="card">
+      まずは管理画面で「BrokerAccount」を作成してね（楽天/松井/SBIのどれかでOK）。
+    </div>
   {% endif %}
 </div>
 
@@ -441,7 +458,9 @@
           <input type="number" name="amount" inputmode="numeric" min="0" required>
         </div>
       </div>
-      <div class="form-note">※保存すると当日の拘束金を<strong>上書き</strong>します（過去分は変更しません）。</div>
+      <div class="form-note">
+        ※保存すると当日の拘束金を<strong>上書き</strong>します（過去分は変更しません）。
+      </div>
       <div class="form-actions">
         <button type="button" class="btn" data-close>閉じる</button>
         <button class="btn primary" type="submit">保存</button>
@@ -479,7 +498,9 @@
           <input type="text" name="memo" placeholder="任意（例：所得＋住民の合算）">
         </div>
       </div>
-      <div class="form-note">※対象月の<strong>月末日</strong>で「出金」として記帳します。同月・同社は再保存で上書き。</div>
+      <div class="form-note">
+        ※対象月の<strong>月末日</strong>で「出金」として記帳します。同月・同社は再保存で上書き。
+      </div>
       <div class="form-actions">
         <button type="button" class="btn" data-close>閉じる</button>
         <button class="btn primary" type="submit">保存</button>
@@ -499,7 +520,8 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-open]").forEach(b=>{
     b.addEventListener("click", ()=> show(modals[b.dataset.open]));
   });
-  document.querySelectorAll("[data-close]").forEach(b=> b.addEventListener("click", closeAll));
+  document.querySelectorAll("[data-close]").forEach(b=>{
+    b.addEventListener("click", closeAll));
 
   const act = new URLSearchParams(location.search).get("action");
   if (act && modals[act]) show(modals[act]);
@@ -520,12 +542,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const dock = document.querySelector(".cash-dock");
   const inner = document.querySelector(".cash-dock .inner");
   const bottomTab = document.getElementById("bottomTabRoot");
-
   const adjust = ()=>{
     const dockH = inner ? inner.getBoundingClientRect().height : 0;
     const tabH  = bottomTab ? bottomTab.getBoundingClientRect().height : 0;
-    dock.style.bottom = tabH + "px";
-    wrap.style.paddingBottom = (dockH + tabH + 24) + "px";
+    if(dock){
+      dock.style.bottom = tabH + "px";
+    }
+    if(wrap){
+      wrap.style.paddingBottom = (dockH + tabH + 24) + "px";
+    }
   };
   adjust();
   window.addEventListener("resize", adjust);
