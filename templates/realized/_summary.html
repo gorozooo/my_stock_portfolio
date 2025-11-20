@@ -239,30 +239,7 @@
       </div>
     </div>
 
-    <div class="section-title">🏦 証券会社別サマリ</div>
-    {% if agg_brokers %}
-      <div class="broker-grid">
-        {% for b in agg_brokers %}
-          <div class="sum-card">
-            <div class="bname">
-              {% if b.broker == 'RAKUTEN' %}楽天証券
-              {% elif b.broker == 'SBI' %}SBI証券
-              {% elif b.broker == 'MATSUI' %}松井証券
-              {% elif b.broker %}{{ b.broker }}
-              {% else %}その他{% endif %}
-            </div>
-
-            <div class="k">件数</div>
-            <div class="v mono">{{ b.n|intcomma }}</div>
-
-            <div class="k" style="margin-top:6px">勝率</div>
-            <div class="v mono">{{ b.win_rate|floatformat:1 }}%</div>
-
-            <div class="k" style="margin-top:6px">📈実現損益</div>
-            {% with v=b.pnl %}
-              <div class="v mono {% if v >= 0 %}pos{% else %}neg{% endif %}">
-                ¥{{ v|floatformat:0|intcomma }}
-              </div>
+    
             {% endwith %}
           </div>
         {% endfor %}
