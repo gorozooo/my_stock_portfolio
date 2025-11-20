@@ -122,7 +122,7 @@
                 <div class="k">取得単価</div>
                 <div class="v">
                   {% if h.currency == "USD" %}
-                    ${{ h.avg_cost|floatformat:2|intcomma }}
+                    ${{ h.avg_cost|floatformat:4|intcomma }}
                   {% else %}
                     ¥{{ h.avg_cost|floatformat:2|intcomma }}
                   {% endif %}
