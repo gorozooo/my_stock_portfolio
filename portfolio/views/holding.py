@@ -153,6 +153,93 @@ def _get_fx_to_jpy(currency: str, ttl: int = 15 * 60) -> Optional[float]:
         return cache[1] if cache else 1.0
 
 
+# ------- Holding を「同じ銘柄・同じ口座」でまとめるロジック -------
+def _merge_existing_holding(new_obj: Holding) -> Optional[Holding]:
+    """
+    new_obj（まだ save していない 1トレード分の保有）を、
+    すでに存在する Holding にまとめて平均取得単価＆平均FXを更新する。
+
+    まとめるキー:
+      user / broker / account / ticker / market / currency / side
+
+    戻り値:
+      統合先の Holding （見つからなければ None）
+    """
+    key = dict(
+        user=new_obj.user,
+        broker=new_obj.broker,
+        account=new_obj.account,
+        ticker=new_obj.ticker,
+        market=new_obj.market,
+        currency=new_obj.currency,
+        side=new_obj.side,
+    )
+    existing = (
+        Holding.objects.filter(**key)
+        .order_by("opened_at", "id")
+        .first()
+    )
+    if not existing:
+        return None
+
+    # 既存・新規の数量
+    q_old = int(existing.quantity or 0)
+    q_new = int(new_obj.quantity or 0)
+    if q_new <= 0:
+        return existing
+    q_total = q_old + q_new
+    if q_total <= 0:
+        return existing
+
+    # 単価（通貨建て）の加重平均
+    p_old = Decimal(existing.avg_cost or 0)
+    p_new = Decimal(new_obj.avg_cost or 0)
+    total_cost_ccy = p_old * q_old + p_new * q_new
+    existing.avg_cost = total_cost_ccy / Decimal(q_total)
+
+    # FXレート（USDなど）の加重平均
+    cur = (existing.currency or new_obj.currency or "JPY").upper()
+    if cur != "JPY":
+        def _fx_to_dec(v) -> Decimal:
+            if v:
+                try:
+                    return Decimal(v)
+                except Exception:
+                    pass
+            # 未入力なら現在レートで補完（最後の手段）
+            rate = _get_fx_to_jpy(cur) or 0.0
+            return Decimal(str(rate))
+
+        fx_old = _fx_to_dec(existing.fx_rate)
+        fx_new = _fx_to_dec(new_obj.fx_rate)
+
+        total_cost_jpy = (p_old * fx_old * q_old) + (p_new * fx_new * q_new)
+        if total_cost_ccy > 0:
+            existing.fx_rate = total_cost_jpy / total_cost_ccy
+    else:
+        # 日本株は fx_rate を特に持たなくてOK
+        existing.fx_rate = None
+
+    # 数量と開始日
+    existing.quantity = q_total
+    op_old = existing.opened_at
+    op_new = new_obj.opened_at
+    if op_old and op_new:
+        existing.opened_at = min(op_old, op_new)
+    else:
+        existing.opened_at = op_old or op_new
+
+    # メモは簡単に連結
+    if new_obj.memo:
+        if existing.memo:
+            existing.memo = f"{existing.memo}\n{new_obj.memo}"
+        else:
+            existing.memo = new_obj.memo
+
+    existing.save()
+    return existing
+
+
 def _norm_ticker(raw: str) -> str:
     """
     '8591' / '186A' / 'AAPL' を trend._normalize_ticker に丸投げ。
@@ -854,8 +941,16 @@ def holding_create(request):
                 obj.market = "JP"
                 obj.currency = "JPY"
 
-            obj.save()
-            messages.success(request, "保有を登録しました。")
+            # ★ 同じ銘柄＋同じ口座の既存保有があればまとめる
+            merged = _merge_existing_holding(obj)
+            if merged:
+                messages.success(
+                    request,
+                    "同じ銘柄の既存保有に買い足しとして反映し、平均取得を更新しました。",
+                )
+            else:
+                obj.save()
+                messages.success(request, "保有を登録しました。")
             return redirect("holding_list")
     else:
         form = HoldingForm()
