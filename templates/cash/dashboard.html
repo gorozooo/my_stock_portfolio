@@ -76,7 +76,12 @@ html,body{
 .hero-main-num{font-size:18px;font-weight:800;letter-spacing:.03em}
 .hero-main-unit{font-size:11px;opacity:.8}
 .hero-pct{font-size:11px;color:#e5e7eb;opacity:.8;white-space:nowrap}
-.hero-sub{margin-top:4px;font-size:11px;color:#a1a8c4;line-height:1.4}
+.hero-sub{
+  margin-top:4px;
+  font-size:11px;
+  color:#a1a8c4;
+  line-height:1.4;
+}
 
 /* メーター */
 .meter{
@@ -218,8 +223,8 @@ html,body{
           {% endif %}
 
           <div class="hero-sub">
-            = 預り金 {{ b.cash|intcomma }} 円
-            − 取得原価残 {{ b.invested_cost|intcomma }} 円
+            = 預り金 {{ b.cash|intcomma }} 円<br>
+            − 取得原価残 {{ b.invested_cost|intcomma }} 円<br>
             − 拘束 {{ b.restricted|intcomma }} 円
           </div>
         </div>
