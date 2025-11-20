@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from aiapp.models import StockMaster
+from aiapp.services.policy_loader import load_short_aggressive_policy
 
 # ---------- パス定義 ----------
 
@@ -217,7 +218,99 @@ def _attach_zero_reasons(data: Dict[str, Any]) -> None:
         it["reason_matsui"] = reason_m
 
 
-# ---------- シミュレ記録 ----------
+# ===== ここから B用の「ルール通過チェック」 =====
+
+def _load_policy_thresholds() -> Dict[str, Any]:
+    """
+    short_aggressive.yml から、フィルター系のしきい値だけを取り出す。
+    値が無い場合はデフォルト（2000円 / R=1.0 / マイナス許容しない）。
+    """
+    data = load_short_aggressive_policy() or {}
+    filters = data.get("filters") or {}
+
+    min_net_profit = filters.get("min_net_profit_yen", 2000)
+    min_reward_risk = filters.get("min_reward_risk", 1.0)
+    allow_negative_pl = filters.get("allow_negative_pl", False)
+
+    try:
+        min_net_profit = float(min_net_profit)
+    except Exception:
+        min_net_profit = 2000.0
+
+    try:
+        min_reward_risk = float(min_reward_risk)
+    except Exception:
+        min_reward_risk = 1.0
+
+    allow_negative_pl = bool(allow_negative_pl)
+
+    return {
+        "min_net_profit_yen": min_net_profit,
+        "min_reward_risk": min_reward_risk,
+        "allow_negative_pl": allow_negative_pl,
+    }
+
+
+def _attach_pass_checks(data: Dict[str, Any]) -> None:
+    """
+    数量が > 0 の銘柄について、「なぜルールを通過しているか」の
+    チェックリストを pass_checks_rakuten / pass_checks_matsui に埋め込む。
+    """
+    items: List[Dict[str, Any]] = list(data.get("items") or [])
+    if not items:
+        return
+
+    thresholds = _load_policy_thresholds()
+    min_net_profit = thresholds["min_net_profit_yen"]
+    min_rr = thresholds["min_reward_risk"]
+    allow_negative_pl = thresholds["allow_negative_pl"]
+
+    def build_checks(qty: float, est_pl: float, est_loss: float) -> List[str]:
+        checks: List[str] = []
+        if qty <= 0:
+            return checks
+
+        # 1) 純利益プラス or マイナス許容
+        if est_pl > 0:
+            checks.append(f"✅ 純利益プラス（約 {int(round(est_pl)):,} 円）")
+        else:
+            if allow_negative_pl:
+                checks.append(
+                    f"✅ 純利益マイナス {int(round(est_pl)):,} 円だが、ポリシーでマイナス許容ON"
+                )
+            else:
+                # ここに来るケースはほぼ無い想定だが、一応文言だけ。
+                checks.append("✅ 純利益が0円近辺（コスト込みでギリギリ許容）")
+
+        # 2) 想定利益 >= 最低純利益
+        if est_pl > 0:
+            checks.append(
+                f"✅ 想定利益 {int(round(est_pl)):,} 円 ≥ 最低純利益 {int(min_net_profit):,} 円"
+            )
+
+        # 3) R値 >= 最低R
+        if est_pl > 0 and est_loss > 0:
+            r = est_pl / est_loss
+            checks.append(f"✅ R値 {r:.2f} ≥ 最低R {min_rr:.2f}")
+
+        return checks
+
+    for it in items:
+        qty_r = float(it.get("qty_rakuten") or 0)
+        qty_m = float(it.get("qty_matsui") or 0)
+        est_pl_r = float(it.get("est_pl_rakuten") or 0)
+        est_pl_m = float(it.get("est_pl_matsui") or 0)
+        est_loss_r = float(it.get("est_loss_rakuten") or 0)
+        est_loss_m = float(it.get("est_loss_matsui") or 0)
+
+        it["pass_checks_rakuten"] = build_checks(qty_r, est_pl_r, est_loss_r)
+        it["pass_checks_matsui"] = build_checks(qty_m, est_pl_m, est_loss_m)
+
+
+# ===== ここまで B用 =====
+
+
+# ===== ここから C用：シミュレ（紙トレ）記録 =====
 
 def _append_sim_log(row: Dict[str, Any]) -> None:
     """シミュレ用の仮想ポジションを JSONL に1行追記"""
@@ -232,7 +325,10 @@ def _append_sim_log(row: Dict[str, Any]) -> None:
 
 
 def _handle_simulate_post(request):
-    """AI Picksカードからのシミュレ登録（AJAX専用）"""
+    """
+    AI Picksカードからのシミュレ登録（AJAX専用）。
+    テンプレ側から送られてきた情報を、そのまま1行JSONとして保存する。
+    """
     try:
         if request.content_type and request.content_type.startswith("application/json"):
             payload = json.loads(request.body.decode("utf-8") or "{}")
@@ -271,7 +367,8 @@ def _handle_simulate_post(request):
     return JsonResponse({"ok": True})
 
 
-# ---------- ビュー ----------
+# ===== ここまで C用 =====
+
 
 @require_http_methods(["GET", "POST"])
 def picks(request):
@@ -286,6 +383,7 @@ def picks(request):
     data = _load_picks()
     _enrich_with_master(data)
     _attach_zero_reasons(data)
+    _attach_pass_checks(data)  # ★ルール通過の内訳を付与
 
     meta = data.get("meta") or {}
     count = meta.get("count") or len(data.get("items") or [])
@@ -314,6 +412,7 @@ def picks_json(request):
     data = _load_picks()
     _enrich_with_master(data)
     _attach_zero_reasons(data)
+    _attach_pass_checks(data)  # JSON側にも載せておく
     if not data:
         raise Http404("no picks")
     # 内部用メタは出さない
