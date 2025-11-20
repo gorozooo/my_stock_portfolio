@@ -125,9 +125,7 @@
     <button type="button" class="real-tab"        data-tab="sbi"     role="tab"><span>SBI</span></button>
   </div>
 
-  {# =========================================================
-     総合タブ
-     ========================================================= #}
+  {# =======総合タブ========= #}
   <div class="real-panel active" data-panel="total">
     <div class="section-title">📊 パフォーマンス</div>
     <div class="summary-grid">
@@ -232,9 +230,7 @@
     </div>
   </div>
 
-  {# =========================================================
-     楽天タブ
-     ========================================================= #}
+  {# =======楽天タブ========= #}
   <div class="real-panel" data-panel="rakuten">
     {% for b in agg_brokers %}
       {% if b.broker == 'RAKUTEN' %}
