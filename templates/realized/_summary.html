@@ -97,7 +97,6 @@
   .pos{color:#4ade80}
   .neg{color:#fb7171}
   .muted{color:#9ca3af}
-  .sub{font-size:11px;color:#9ca3af;margin-top:4px}
 
   /* タブの表示制御＋フェード */
   .real-panel{display:none;animation:panelFade .18s ease-out}
@@ -154,10 +153,10 @@
       <div class="sum-card">
         <div class="k">PF（利益 / |損失|）</div>
         {% with pf=agg.pf ps=agg.profit_sum ls=agg.loss_sum %}
-          {% if ps and (ls == 0 or ls is None) %}
-            <div class="v mono">∞</div>
-          {% elif pf %}
+          {% if pf %}
             <div class="v mono">{{ pf|floatformat:2 }}</div>
+          {% elif ps and not ls %}
+            <div class="v mono">∞</div>
           {% else %}
             <div class="v mono muted">—</div>
           {% endif %}
@@ -234,7 +233,7 @@
   </div>
 
   {# =========================================================
-     楽天タブ  （総合と同じ構成で、b=RAKUTEN を使う）
+     楽天タブ
      ========================================================= #}
   <div class="real-panel" data-panel="rakuten">
     {% for b in agg_brokers %}
@@ -263,10 +262,10 @@
           <div class="sum-card">
             <div class="k">PF（利益 / |損失|）</div>
             {% with pf=b.pf ps=b.profit_sum ls=b.loss_sum %}
-              {% if ps and (ls == 0 or ls is None) %}
-                <div class="v mono">∞</div>
-              {% elif pf %}
+              {% if pf %}
                 <div class="v mono">{{ pf|floatformat:2 }}</div>
+              {% elif ps and not ls %}
+                <div class="v mono">∞</div>
               {% else %}
                 <div class="v mono muted">—</div>
               {% endif %}
@@ -378,10 +377,10 @@
           <div class="sum-card">
             <div class="k">PF（利益 / |損失|）</div>
             {% with pf=b.pf ps=b.profit_sum ls=b.loss_sum %}
-              {% if ps and (ls == 0 or ls is None) %}
-                <div class="v mono">∞</div>
-              {% elif pf %}
+              {% if pf %}
                 <div class="v mono">{{ pf|floatformat:2 }}</div>
+              {% elif ps and not ls %}
+                <div class="v mono">∞</div>
               {% else %}
                 <div class="v mono muted">—</div>
               {% endif %}
@@ -493,10 +492,10 @@
           <div class="sum-card">
             <div class="k">PF（利益 / |損失|）</div>
             {% with pf=b.pf ps=b.profit_sum ls=b.loss_sum %}
-              {% if ps and (ls == 0 or ls is None) %}
-                <div class="v mono">∞</div>
-              {% elif pf %}
+              {% if pf %}
                 <div class="v mono">{{ pf|floatformat:2 }}</div>
+              {% elif ps and not ls %}
+                <div class="v mono">∞</div>
               {% else %}
                 <div class="v mono muted">—</div>
               {% endif %}
