@@ -5,6 +5,11 @@
 {% block content %}
 <style>
 /* ===== Global ===== */
+*,
+*::before,
+*::after{
+  box-sizing:border-box;
+}
 html,body{
   max-width:100%;
   overflow-x:hidden;
@@ -15,45 +20,76 @@ html,body{
   max-width:980px;
   margin:12px auto 0;
   padding:12px 10px 140px;
-  box-sizing:border-box;
 }
 
 /* ===== Broker Card ===== */
-.grid-broker{display:grid;grid-template-columns:1fr;gap:16px}
+.grid-broker{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:16px;
+}
 .card{
-  padding:10px 12px;
+  padding:10px 12px 12px;
   border-radius:14px;
   background:rgba(255,255,255,.04);
   border:1px solid rgba(255,255,255,.08);
   backdrop-filter:blur(8px);
-  box-sizing:border-box;
+  overflow:hidden;
 }
-.card h3{font-size:15px;margin:0 0 8px}
+.card h3{
+  font-size:15px;
+  margin:0 0 8px;
+}
 
 /* ===== KPI ===== */
-.kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.kpi-row{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:8px;
+}
 .kpi{
-  padding:8px 10px;
+  padding:8px 8px;
   border-radius:10px;
   background:rgba(255,255,255,.05);
   border:1px solid rgba(255,255,255,.08);
-  box-sizing:border-box;
 }
-.kpi .head{display:flex;align-items:center;gap:6px;margin-bottom:2px;min-height:18px}
-.kpi .label{font-size:11px;color:#9aa4b2;letter-spacing:.03em;white-space:nowrap}
-.kpi .value{line-height:1.1;display:flex;align-items:baseline;gap:3px}
-.kpi .num{font-size:14px;font-weight:700;letter-spacing:.01em}
-.kpi .unit{font-size:11px;opacity:.75}
+.kpi .head{
+  display:flex;
+  align-items:center;
+  gap:4px;
+  margin-bottom:2px;
+  min-height:18px;
+}
+.kpi .label{
+  font-size:10px;
+  color:#9aa4b2;
+  letter-spacing:.03em;
+  white-space:nowrap;
+}
+.kpi .value{
+  line-height:1.1;
+  display:flex;
+  align-items:baseline;
+  gap:3px;
+}
+.kpi .num{
+  font-size:13px;
+  font-weight:700;
+  letter-spacing:.01em;
+}
+.kpi .unit{
+  font-size:11px;
+  opacity:.75;
+}
 
 /* 余力のヒーロー表示＋メーター */
 .hero-kpi{
-  padding:10px 12px;
+  padding:10px 10px;
   border-radius:12px;
   background:linear-gradient(135deg,rgba(45,212,191,.15),rgba(56,189,248,.10));
   border:1px solid rgba(45,212,191,.45);
   box-shadow:0 0 0 1px rgba(15,118,110,.35) inset;
   margin-bottom:8px;
-  box-sizing:border-box;
 }
 .hero-kpi.warn{
   background:linear-gradient(135deg,rgba(234,179,8,.18),rgba(248,250,252,.03));
@@ -71,16 +107,31 @@ html,body{
   align-items:flex-end;
   gap:8px;
 }
-.hero-main-label{font-size:12px;color:#cbd5f5;letter-spacing:.05em}
-.hero-main-value{display:flex;align-items:baseline;gap:4px}
-.hero-main-num{font-size:18px;font-weight:800;letter-spacing:.03em}
-.hero-main-unit{font-size:11px;opacity:.8}
-.hero-pct{font-size:11px;color:#e5e7eb;opacity:.8;white-space:nowrap}
-.hero-sub{
-  margin-top:4px;
+.hero-main-label{
+  font-size:12px;
+  color:#cbd5f5;
+  letter-spacing:.05em;
+}
+.hero-main-value{
+  display:flex;
+  align-items:baseline;
+  gap:4px;
+}
+.hero-main-num{
+  font-size:18px;
+  font-weight:800;
+  letter-spacing:.03em;
+}
+.hero-main-unit{
   font-size:11px;
-  color:#a1a8c4;
-  line-height:1.4;
+  opacity:.8;
+}
+.hero-pct{
+  font-size:11px;
+  color:#e5e7eb;
+  opacity:.8;
+  white-space:nowrap;
+  flex-shrink:0;
 }
 
 /* メーター */
@@ -98,15 +149,47 @@ html,body{
   transform-origin:left center;
 }
 
-/* 小KPI枠色 */
-.kpi.cash{border-color:rgba(125,160,255,.24);box-shadow:0 0 0 1px rgba(125,160,255,.10) inset}
-.kpi.invested{border-color:rgba(168,85,247,.32);box-shadow:0 0 0 1px rgba(168,85,247,.14) inset}
-.kpi.restricted{border-color:rgba(255,90,90,.26);box-shadow:0 0 0 1px rgba(255,255,255,.12) inset}
+/* 内訳の式（3行に分割） */
+.hero-sub{
+  margin-top:6px;
+  font-size:11px;
+  color:#a1a8c4;
+  line-height:1.4;
+}
+.hero-sub-label{
+  display:inline-block;
+  margin-right:4px;
+}
 
-.small{font-size:11px;margin-top:8px;color:#a1a8c4}
+/* 小KPI枠色 */
+.kpi.cash{
+  border-color:rgba(125,160,255,.24);
+  box-shadow:0 0 0 1px rgba(125,160,255,.10) inset;
+}
+.kpi.invested{
+  border-color:rgba(168,85,247,.32);
+  box-shadow:0 0 0 1px rgba(168,85,247,.14) inset;
+}
+.kpi.restricted{
+  border-color:rgba(255,90,90,.26);
+  box-shadow:0 0 0 1px rgba(255,255,255,.12) inset;
+}
+
+.small{
+  font-size:11px;
+  margin-top:8px;
+  color:#a1a8c4;
+}
 
 /* ===== Bottom Action Dock ===== */
-.cash-dock{position:fixed;left:0;right:0;bottom:0;z-index:100;pointer-events:none}
+.cash-dock{
+  position:fixed;
+  left:0;
+  right:0;
+  bottom:0;
+  z-index:100;
+  pointer-events:none;
+}
 .cash-dock .inner{
   pointer-events:auto;
   max-width:980px;
@@ -117,9 +200,12 @@ html,body{
   -webkit-backdrop-filter:blur(12px);
   border-top:1px solid rgba(255,255,255,.08);
   border-radius:16px 16px 0 0;
-  box-sizing:border-box;
 }
-.cash-dock .bar{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.cash-dock .bar{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:8px;
+}
 .cash-dock .bar button{
   padding:10px;
   font-size:14px;
@@ -131,7 +217,15 @@ html,body{
 }
 
 /* ===== Modal ===== */
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:100300}
+.modal{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.5);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  z-index:100300;
+}
 .modal.show{display:flex}
 .modal .box{
   width:min(520px,92vw);
@@ -140,23 +234,47 @@ html,body{
   border-radius:16px;
   padding:16px;
   backdrop-filter:blur(12px);
-  box-sizing:border-box;
 }
-.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
-.form-grid label{font-size:12px;color:#9aa4b2;display:block;margin-bottom:4px}
-.form-grid select,.form-grid input{
+.form-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin-top:10px;
+}
+.form-grid label{
+  font-size:12px;
+  color:#9aa4b2;
+  display:block;
+  margin-bottom:4px;
+}
+.form-grid select,
+.form-grid input{
   width:100%;
   padding:10px;
   border-radius:12px;
   border:1px solid rgba(255,255,255,.18);
   background:rgba(255,255,255,.06);
   color:#e6ebff;
-  box-sizing:border-box;
 }
-.form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
-.btn{padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#e6ebff}
+.form-actions{
+  display:flex;
+  gap:8px;
+  justify-content:flex-end;
+  margin-top:12px;
+}
+.btn{
+  padding:10px 14px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.16);
+  background:rgba(255,255,255,.05);
+  color:#e6ebff;
+}
 .btn.primary{border-color:rgba(0,255,209,.45)}
-.form-note{font-size:11px;color:#9aa4b2;margin-top:6px}
+.form-note{
+  font-size:11px;
+  color:#9aa4b2;
+  margin-top:6px;
+}
 
 /* ===== Responsive (スマホ幅) ===== */
 @media (max-width:480px){
@@ -171,8 +289,10 @@ html,body{
     font-size:16px;
   }
   .hero-pct{
-    align-self:flex-end;
     margin-top:2px;
+  }
+  .kpi-row{
+    grid-template-columns:1fr;
   }
 }
 </style>
@@ -205,7 +325,6 @@ html,body{
 
           {% if pct is not None %}
           <div class="meter">
-            {# 0〜100% の範囲にクリップ #}
             {% with raw=pct %}
               {% if raw < 0 %}
                 {% with w=0 %}
@@ -223,30 +342,34 @@ html,body{
           {% endif %}
 
           <div class="hero-sub">
-            = 預り金 {{ b.cash|intcomma }} 円<br>
-            − 取得原価残 {{ b.invested_cost|intcomma }} 円<br>
-            − 拘束 {{ b.restricted|intcomma }} 円
+            <span class="hero-sub-label">＝ 余力の内訳</span><br>
+            ・預り金 {{ b.cash|intcomma }} 円<br>
+            ・取得原価残 {{ b.invested_cost|intcomma }} 円<br>
+            ・拘束 {{ b.restricted|intcomma }} 円
           </div>
         </div>
 
         {# ===== 内訳3ボックス ===== #}
         <div class="kpi-row">
-          <!-- 預り金 -->
           <div class="kpi cash">
             <div class="head"><div class="label">🏦 預り金（口座の現金）</div></div>
-            <div class="value"><span class="num">{{ b.cash|intcomma }}</span><span class="unit">円</span></div>
+            <div class="value">
+              <span class="num">{{ b.cash|intcomma }}</span><span class="unit">円</span>
+            </div>
           </div>
 
-          <!-- 取得原価残 -->
           <div class="kpi invested">
             <div class="head"><div class="label">📉 取得原価残（買付済み元本）</div></div>
-            <div class="value"><span class="num">{{ b.invested_cost|intcomma }}</span><span class="unit">円</span></div>
+            <div class="value">
+              <span class="num">{{ b.invested_cost|intcomma }}</span><span class="unit">円</span>
+            </div>
           </div>
 
-          <!-- 拘束 -->
           <div class="kpi restricted">
             <div class="head"><div class="label">🔒 拘束金</div></div>
-            <div class="value"><span class="num">{{ b.restricted|intcomma }}</span><span class="unit">円</span></div>
+            <div class="value">
+              <span class="num">{{ b.restricted|intcomma }}</span><span class="unit">円</span>
+            </div>
           </div>
         </div>
 
@@ -337,7 +460,6 @@ html,body{
   </div>
 </div>
 
-<!-- 拘束金 -->
 <div class="modal" id="modal-restrict" aria-hidden="true">
   <div class="box">
     <h3>⛔ 拘束金を設定</h3>
@@ -367,7 +489,6 @@ html,body{
   </div>
 </div>
 
-<!-- 税金 -->
 <div class="modal" id="modal-tax" aria-hidden="true">
   <div class="box">
     <h3>🧾 税金（源泉徴収）を月次で記録</h3>
@@ -416,13 +537,23 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("[data-open]").forEach(b=>{
     b.addEventListener("click", ()=> show(modals[b.dataset.open]));
   });
-  document.querySelectorAll("[data-close]").forEach(b=> b.addEventListener("click", closeAll));
+  document.querySelectorAll("[data-close]").forEach(b=>{
+    b.addEventListener("click", closeAll));
 
   const act = new URLSearchParams(location.search).get("action");
   if (act && modals[act]) show(modals[act]);
 
-  function show(el){ if(!el) return; el.classList.add("show"); el.setAttribute("aria-hidden","false"); }
-  function closeAll(){ document.querySelectorAll(".modal.show").forEach(m=>{ m.classList.remove("show"); m.setAttribute("aria-hidden","true"); }); }
+  function show(el){
+    if(!el) return;
+    el.classList.add("show");
+    el.setAttribute("aria-hidden","false");
+  }
+  function closeAll(){
+    document.querySelectorAll(".modal.show").forEach(m=>{
+      m.classList.remove("show");
+      m.setAttribute("aria-hidden","true");
+    });
+  }
 
   const wrap = document.querySelector(".cash-wrap");
   const dock = document.querySelector(".cash-dock");
