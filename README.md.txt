@@ -29,6 +29,8 @@ nano ~/.bashrc
 
 python manage.py picks_build --universe quick_30 --nbars 180 --topk 10
 
+tail -n 3 media/aiapp/simulate/sim_trades.jsonl
+
 : > /home/gorozooo/my_stock_portfolio/media/logs/brief.log
 
 env -i SHELL=/bin/bash PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/home/gorozooo LANG=ja_JP.UTF-8 LC_ALL=ja_JP.UTF-8 \
