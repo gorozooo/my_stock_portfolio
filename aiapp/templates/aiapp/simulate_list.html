@@ -195,6 +195,70 @@
   .kpi-val.pos{color:var(--ok);}
   .kpi-val.neg{color:var(--bad);}
 
+  /* ===== 結果入力エリア ===== */
+  .result-block{
+    margin-top:8px;
+    padding-top:6px;
+    border-top:1px dashed rgba(148,163,184,0.5);
+  }
+  .result-row-top{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:4px;
+  }
+  .result-label{
+    font-size:11px;
+    color:var(--sub);
+  }
+  .result-status{
+    font-size:11px;
+    padding:2px 8px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.6);
+    background:rgba(15,23,42,0.9);
+  }
+  .result-status.win{
+    border-color:rgba(34,197,94,0.9);
+    color:#bbf7d0;
+    background:rgba(22,163,74,0.18);
+  }
+  .result-status.lose{
+    border-color:rgba(248,113,113,0.9);
+    color:#fecaca;
+    background:rgba(248,113,113,0.14);
+  }
+  .result-status.skip{
+    border-color:rgba(148,163,184,0.9);
+    color:#e5e7eb;
+    background:rgba(15,23,42,0.95);
+  }
+
+  .result-form-row{
+    display:flex;
+    gap:6px;
+    margin-top:4px;
+  }
+  .result-form-row select,
+  .result-form-row input[type="number"]{
+    flex:1;
+    padding:5px 7px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.7);
+    background:rgba(15,23,42,0.95);
+    color:var(--fg);
+    font-size:11px;
+  }
+  .result-form-row button{
+    padding:5px 9px;
+    border-radius:999px;
+    border:1px solid rgba(56,189,248,0.8);
+    background:rgba(56,189,248,0.15);
+    color:#e0f2fe;
+    font-size:11px;
+    white-space:nowrap;
+  }
+
   .card-footer{
     margin-top:8px;
     display:flex;
@@ -389,6 +453,47 @@
                 </div>
               </div>
             </div>
+          </div>
+
+          {# ===== 結果入力エリア ===== #}
+          <div class="result-block">
+            <div class="result-row-top">
+              <div class="result-label">結果</div>
+              <div class="result-status
+                          {% if e.result == 'win' %}win{% elif e.result == 'lose' %}lose{% elif e.result == 'skip' %}skip{% endif %}">
+                {% if e.result == 'win' %}
+                  勝ち
+                {% elif e.result == 'lose' %}
+                  負け
+                {% elif e.result == 'skip' %}
+                  見送り
+                {% else %}
+                  未入力
+                {% endif %}
+                {% if e.exit_price %}
+                  （終値 {{ e.exit_price|floatformat:0|intcomma }} 円）
+                {% endif %}
+              </div>
+            </div>
+
+            <form method="post"
+                  action="{% url 'aiapp:simulate_result' e.id %}">
+              {% csrf_token %}
+              <div class="result-form-row">
+                <select name="result">
+                  <option value="" {% if not e.result %}selected{% endif %}>未選択</option>
+                  <option value="win" {% if e.result == 'win' %}selected{% endif %}>勝ち</option>
+                  <option value="lose" {% if e.result == 'lose' %}selected{% endif %}>負け</option>
+                  <option value="skip" {% if e.result == 'skip' %}selected{% endif %}>見送り</option>
+                </select>
+                <input type="number"
+                       name="exit_price"
+                       step="0.1"
+                       placeholder="終値"
+                       value="{% if e.exit_price %}{{ e.exit_price }}{% endif %}">
+                <button type="submit">保存</button>
+              </div>
+            </form>
           </div>
 
           <div class="card-footer">
