@@ -9,23 +9,42 @@
   .tbl{width:100%;border-collapse:separate;border-spacing:0}
   .tbl th,.tbl td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.08)}
   .tbl thead th{font-size:12px;color:#a7b1d8;text-align:right;white-space:nowrap}
-  .tbl thead th:first-child,.tbl tbody td:first-child{ text-align:left; white-space:nowrap }
-  .tbl .num{ text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums }
-  .pos{color:#86efac} .neg{color:#fca5a5}
-  .tbl tbody tr.is-focus > td{ background:rgba(59,130,246,.10) }
+  .tbl thead th:first-child,
+  .tbl tbody td:first-child{
+    text-align:left;
+    white-space:nowrap;
+  }
+  .tbl .num{
+    text-align:right;
+    white-space:nowrap;
+    font-variant-numeric:tabular-nums;
+  }
+  .pos{color:#86efac}
+  .neg{color:#fca5a5}
+  .tbl tbody tr.is-focus > td{
+    background:rgba(59,130,246,.10);
+  }
 
-  /* 追加：横スクロール用ラッパと最小幅 */
-  .h-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
-  .tbl-wide{ min-width: 880px; } /* 列数に応じて調整OK */
+  /* 横スクロール用ラッパと最小幅 */
+  .h-scroll{
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+  }
+  .tbl-wide{
+    min-width:880px;
+  }
 </style>
 
-<div id="pnlPeriodWrap" class="period-wrap" data-preset="{{ preset }}" data-freq="{{ freq }}">
+<div id="pnlPeriodWrap" class="period-wrap"
+     data-preset="{{ preset }}" data-freq="{{ freq }}">
 
   {# ランキング等が hx-include で拾うための隠しフィールド #}
   <input type="hidden" name="preset" id="periodPreset" value="{{ preset }}">
   <input type="hidden" name="freq"   id="periodFreq"   value="{{ freq }}">
-  <input type="hidden" name="start"  id="periodStart"  value="{% if start %}{{ start|date:'Y-m-d' }}{% endif %}">
-  <input type="hidden" name="end"    id="periodEnd"    value="{% if end %}{{ end|date:'Y-m-d' }}{% endif %}">
+  <input type="hidden" name="start"  id="periodStart"
+         value="{% if start %}{{ start|date:'Y-m-d' }}{% endif %}">
+  <input type="hidden" name="end"    id="periodEnd"
+         value="{% if end %}{{ end|date:'Y-m-d' }}{% endif %}">
 
   <div class="period-head">
     <div style="font-size:12px;color:#a7b1d8">期間まとめ</div>
@@ -33,26 +52,37 @@
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=THIS_MONTH&freq={{ freq }}&q={{ q|urlencode }}"
             hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
-            aria-current="{% if preset == 'THIS_MONTH' %}true{% else %}false{% endif %}">今月</button>
+            aria-current="{% if preset == 'THIS_MONTH' %}true{% else %}false{% endif %}">
+      今月
+    </button>
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=THIS_YEAR&freq={{ freq }}&q={{ q|urlencode }}"
             hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
-            aria-current="{% if preset == 'THIS_YEAR' %}true{% else %}false{% endif %}">今年</button>
+            aria-current="{% if preset == 'THIS_YEAR' %}true{% else %}false{% endif %}">
+      今年
+    </button>
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset=LAST_12M&freq={{ freq }}&q={{ q|urlencode }}"
             hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
-            aria-current="{% if preset == 'LAST_12M' %}true{% else %}false{% endif %}">過去12ヶ月</button>
+            aria-current="{% if preset == 'LAST_12M' %}true{% else %}false{% endif %}">
+      過去12ヶ月
+    </button>
 
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=month&q={{ q|urlencode }}"
             hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
-            aria-current="{% if freq == 'month' %}true{% else %}false{% endif %}">月次</button>
+            aria-current="{% if freq == 'month' %}true{% else %}false{% endif %}">
+      月次
+    </button>
     <button class="btn"
             hx-get="{% url 'realized_summary_period' %}?preset={{ preset }}&freq=year&q={{ q|urlencode }}"
             hx-target="#pnlPeriodWrap" hx-swap="outerHTML"
-            aria-current="{% if freq == 'year' %}true{% else %}false{% endif %}">年次</button>
+            aria-current="{% if freq == 'year' %}true{% else %}false{% endif %}">
+      年次
+    </button>
 
-    <button id="btnClearFocus" class="btn" type="button" style="display:{% if focus %}block{% else %}none{% endif %}">
+    <button id="btnClearFocus" class="btn" type="button"
+            style="display:{% if focus %}block{% else %}none{% endif %}">
       全体に戻る
     </button>
   </div>
@@ -60,23 +90,34 @@
   {# ─ 選択サマリー ─ #}
   <div id="periodSelectedBox">
     {% if selected %}
-      <div class="rounded-xl p-3 mb-2" style="border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)">
-        <div class="text-xs text-slate-400 mb-1">選択: {{ selected.label }}</div>
+      <div class="rounded-xl p-3 mb-2"
+           style="border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)">
+        <div class="text-xs text-slate-400 mb-1">
+          選択: {{ selected.label }}
+        </div>
         <div class="grid grid-cols-2 gap-2 text-[14px]">
           <div>件数: {{ selected.n|intcomma }}</div>
           <div>数量: {{ selected.qty|intcomma }}</div>
           <div>手数料: ¥{{ selected.fee|floatformat:0|intcomma }}</div>
           <div>📈PnL:
-            <span class="{% if selected.pnl >= 0 %}pos{% else %}neg{% endif %}">¥{{ selected.pnl|floatformat:0|intcomma }}</span>
+            <span class="{% if selected.pnl >= 0 %}pos{% else %}neg{% endif %}">
+              ¥{{ selected.pnl|floatformat:0|intcomma }}
+            </span>
           </div>
           <div>💰現金(現物):
-            <span class="{% if selected.cash_spec >= 0 %}pos{% else %}neg{% endif %}">¥{{ selected.cash_spec|floatformat:0|intcomma }}</span>
+            <span class="{% if selected.cash_spec >= 0 %}pos{% else %}neg{% endif %}">
+              ¥{{ selected.cash_spec|floatformat:0|intcomma }}
+            </span>
           </div>
           <div>💰現金(信用):
-            <span class="{% if selected.cash_margin >= 0 %}pos{% else %}neg{% endif %}">¥{{ selected.cash_margin|floatformat:0|intcomma }}</span>
+            <span class="{% if selected.cash_margin >= 0 %}pos{% else %}neg{% endif %}">
+              ¥{{ selected.cash_margin|floatformat:0|intcomma }}
+            </span>
           </div>
           <div class="col-span-2">💰現金(合計):
-            <span class="{% if selected.cash_total >= 0 %}pos{% else %}neg{% endif %}">¥{{ selected.cash_total|floatformat:0|intcomma }}</span>
+            <span class="{% if selected.cash_total >= 0 %}pos{% else %}neg{% endif %}">
+              ¥{{ selected.cash_total|floatformat:0|intcomma }}
+            </span>
           </div>
         </div>
       </div>
@@ -115,14 +156,40 @@
               <td class="num">{{ r.n|intcomma }}</td>
               <td class="num">{{ r.qty|intcomma }}</td>
               <td class="num">¥{{ r.fee|floatformat:0|intcomma }}</td>
-              <td class="num">{% with v=r.cash_spec %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}</td>
-              <td class="num">{% with v=r.cash_margin %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}</td>
-              <td class="num">{% with v=r.cash_total %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}</td>
-              <td class="num">{% with v=r.pnl %}<span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">¥{{ v|floatformat:0|intcomma }}</span>{% endwith %}</td>
+              <td class="num">
+                {% with v=r.cash_spec %}
+                  <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">
+                    ¥{{ v|floatformat:0|intcomma }}
+                  </span>
+                {% endwith %}
+              </td>
+              <td class="num">
+                {% with v=r.cash_margin %}
+                  <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">
+                    ¥{{ v|floatformat:0|intcomma }}
+                  </span>
+                {% endwith %}
+              </td>
+              <td class="num">
+                {% with v=r.cash_total %}
+                  <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">
+                    ¥{{ v|floatformat:0|intcomma }}
+                  </span>
+                {% endwith %}
+              </td>
+              <td class="num">
+                {% with v=r.pnl %}
+                  <span class="{% if v >= 0 %}pos{% else %}neg{% endif %}">
+                    ¥{{ v|floatformat:0|intcomma }}
+                  </span>
+                {% endwith %}
+              </td>
             </tr>
           {% endfor %}
         {% else %}
-          <tr><td colspan="8" style="color:#94a3b8">データなし</td></tr>
+          <tr>
+            <td colspan="8" style="color:#94a3b8">データなし</td>
+          </tr>
         {% endif %}
       </tbody>
     </table>
@@ -134,24 +201,26 @@
   const wrap = document.getElementById('pnlPeriodWrap');
   if (!wrap) return;
 
-  const selBox = document.getElementById('periodSelectedBox');
+  const selBox  = document.getElementById('periodSelectedBox');
   const btnClear = document.getElementById('btnClearFocus');
 
-  const yen = v => '¥' + Number(v||0).toLocaleString();
+  const yen = v => '¥' + Number(v || 0).toLocaleString();
 
   function buildSelectedHTML(row){
     const d = row.dataset;
-    const pnl = Number(d.pnl||0),
-          cs  = Number(d.cashSpec||d['cash-spec']||0),
-          cm  = Number(d.cashMargin||d['cash-margin']||0),
-          ct  = Number(d.cashTotal||d['cash-total']||(cs+cm));
-    const cls = v => (Number(v)>=0 ? 'pos' : 'neg');
+    const pnl = Number(d.pnl || 0);
+    const cs  = Number(d.cashSpec || d['cash-spec'] || 0);
+    const cm  = Number(d.cashMargin || d['cash-margin'] || 0);
+    const ct  = Number(d.cashTotal || d['cash-total'] || (cs + cm));
+    const cls = v => (Number(v) >= 0 ? 'pos' : 'neg');
+
     return `
-      <div class="rounded-xl p-3 mb-2" style="border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)">
-        <div class="text-xs text-slate-400 mb-1">選択: ${d.period||''}</div>
+      <div class="rounded-xl p-3 mb-2"
+           style="border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)">
+        <div class="text-xs text-slate-400 mb-1">選択: ${d.period || ''}</div>
         <div class="grid grid-cols-2 gap-2 text-[14px]">
-          <div>件数: ${Number(d.n||0).toLocaleString()}</div>
-          <div>数量: ${Number(d.qty||0).toLocaleString()}</div>
+          <div>件数: ${Number(d.n || 0).toLocaleString()}</div>
+          <div>数量: ${Number(d.qty || 0).toLocaleString()}</div>
           <div>手数料: ${yen(d.fee)}</div>
           <div>📈PnL: <span class="${cls(pnl)}">${yen(pnl)}</span></div>
           <div>💰現金(現物): <span class="${cls(cs)}">${yen(cs)}</span></div>
@@ -163,22 +232,26 @@
   }
 
   function clearFocus(){
-    wrap.querySelectorAll('tbody tr').forEach(tr => tr.classList.remove('is-focus'));
+    wrap.querySelectorAll('tbody tr').forEach(tr =>
+      tr.classList.remove('is-focus')
+    );
     selBox.innerHTML = '';
     if (btnClear) btnClear.style.display = 'none';
   }
 
   function focusLabel(label){
     let target = null;
-    wrap.querySelectorAll('tbody tr[data-period]').forEach(tr=>{
+    wrap.querySelectorAll('tbody tr[data-period]').forEach(tr => {
       const hit = (tr.dataset.period === label);
       tr.classList.toggle('is-focus', hit);
       if (hit) target = tr;
     });
     if (target){
       selBox.innerHTML = buildSelectedHTML(target);
-      btnClear.style.display = '';
-      target.scrollIntoView({behavior:'smooth', block:'center'});
+      if (btnClear) btnClear.style.display = '';
+      try{
+        target.scrollIntoView({behavior:'smooth', block:'center'});
+      }catch(e){}
     }
   }
 
@@ -191,17 +264,24 @@
 
   // チャートからの通知でフォーカス
   document.addEventListener('pnl:focus-period', (e)=>{
-    if (e.detail && e.detail.label) focusLabel(e.detail.label);
+    if (e.detail && e.detail.label){
+      focusLabel(e.detail.label);
+    }
   });
 
   // 全体に戻る
   btnClear?.addEventListener('click', clearFocus);
 
-  // ランキング等更新の発火
-  document.body.dispatchEvent(new Event('pnl:refresh', { bubbles: true }));
-  document.addEventListener('htmx:afterSwap', (ev) => {
-    if (ev.target && ev.target.id === 'pnlPeriodWrap') {
-      document.body.dispatchEvent(new Event('pnl:refresh', { bubbles: true }));
+  // ランキング等更新のトリガー（総合タブ内のランキングコンポーネントが拾う）
+  const fireRefresh = () => {
+    const ev = new Event('pnl:refresh');
+    document.body.dispatchEvent(ev);
+  };
+  fireRefresh();
+
+  document.addEventListener('htmx:afterSwap', ev => {
+    if (ev.target && ev.target.id === 'pnlPeriodWrap'){
+      fireRefresh();
     }
   });
 })();
