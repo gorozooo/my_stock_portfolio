@@ -7,6 +7,7 @@ from .views.api import picks_rebuild  # AIピック再生成API
 from .views.settings import settings_view  # AI設定画面
 from .views.simulate import simulate_list  # シミュレ一覧
 from .views.sim_delete import simulate_delete  # シミュレ削除
+from .views.sim_result import simulate_result  # ★ シミュレ結果保存
 
 app_name = "aiapp"
 
@@ -35,4 +36,7 @@ urlpatterns = [
 
     # シミュレ削除
     path("simulate/<int:pk>/delete/", simulate_delete, name="simulate_delete"),
+
+    # ★ シミュレ結果保存
+    path("simulate/<int:pk>/result/", simulate_result, name="simulate_result"),
 ]
