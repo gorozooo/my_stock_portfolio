@@ -3,9 +3,10 @@ from django.urls import path
 
 from .views.dashboard import dashboard, toggle_mode
 from .views.picks import picks, picks_json, picks_simulate
-from .views.api import picks_rebuild
-from .views.settings import settings_view
-from .views.simulate import simulate_list, simulate_delete
+from .views.api import picks_rebuild  # AIピック再生成API
+from .views.settings import settings_view  # AI設定画面
+from .views.simulate import simulate_list  # シミュレ一覧
+from .views.sim_delete import simulate_delete  # シミュレ削除
 
 app_name = "aiapp"
 
@@ -23,13 +24,15 @@ urlpatterns = [
     # ピックデータJSON
     path("picks.json", picks_json, name="picks_json"),
 
-    # AI設定画面
+    # AI設定画面（リスク％・将来拡張用）
     path("settings/", settings_view, name="settings"),
 
-    # AI Picks からのシミュレ登録
+    # シミュレ登録（AI Picks のカードから）
     path("picks/simulate/", picks_simulate, name="ai_picks_simulate"),
 
-    # シミュレ一覧・削除
+    # シミュレ一覧
     path("simulate/", simulate_list, name="simulate_list"),
+
+    # シミュレ削除
     path("simulate/<int:pk>/delete/", simulate_delete, name="simulate_delete"),
 ]
