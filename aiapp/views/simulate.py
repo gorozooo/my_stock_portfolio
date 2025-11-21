@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-from datetime import timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -13,37 +12,56 @@ from django.shortcuts import render
 from django.utils import timezone
 
 
+def _parse_ts(ts_str: Optional[str]) -> Optional[timezone.datetime]:
+    """
+    JSONL の ts(ISO文字列) を timezone-aware datetime に変換する。
+    失敗した場合は None を返す。
+    """
+    if not isinstance(ts_str, str) or not ts_str:
+        return None
+    try:
+        dt = timezone.datetime.fromisoformat(ts_str)
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, timezone.get_default_timezone())
+        return timezone.localtime(dt)
+    except Exception:
+        return None
+
+
 @login_required
 def simulate_list(request: HttpRequest) -> HttpResponse:
     """
     AI Picks の「シミュレ」で登録した紙トレを一覧表示するビュー。
 
-    - /media/aiapp/simulate/YYYYMMDD.jsonl を全部読む
+    - /media/aiapp/simulate/*.jsonl を全部読む
     - ログインユーザーの分だけ抽出
-    - フィルタ（mode / 期間 / コード検索）を適用
-    - ts 降順で最大100件まで表示
+    - ts 降順でソート
+    - mode / 期間 / 銘柄コード・名称でフィルタ
+    - 最大100件まで表示
     """
+
     user = request.user
     sim_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "simulate"
 
-    # ---- フィルタパラメータ（GET） ----------------------------------------
+    # ---- フィルタ値（クエリパラメータ） ------------------------------
     # mode: all / live / demo
     mode = (request.GET.get("mode") or "all").lower()
     if mode not in ("all", "live", "demo"):
         mode = "all"
 
-    # period: 30d / today / week
+    # period: today / 7d / 30d
     period = (request.GET.get("period") or "30d").lower()
-    if period not in ("30d", "today", "week"):
+    if period not in ("today", "7d", "30d"):
         period = "30d"
 
-    # 検索クエリ（銘柄コード / 名称）
-    query = (request.GET.get("q") or "").strip()
+    # q: 銘柄コード or 名称の部分一致
+    q = (request.GET.get("q") or "").strip()
 
-    entries: List[Dict[str, Any]] = []
+    # ---- JSONL 読み込み ------------------------------------------------
+    entries_all: List[Dict[str, Any]] = []
 
     if sim_dir.exists():
-        # 日付順に並び替えた上で全ファイルを読む（新しいファイルほど後になる）
+        # ファイル名順に読み込む（古い順）→ 後で ts でまとめてソート
         for path in sorted(sim_dir.glob("*.jsonl")):
             try:
                 text = path.read_text(encoding="utf-8")
@@ -63,34 +81,31 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
                 if rec.get("user_id") != user.id:
                     continue
 
-                entries.append(rec)
+                # ts を datetime + 表示ラベルに整形
+                ts_str = rec.get("ts")
+                dt = _parse_ts(ts_str)
+                if dt is not None:
+                    rec["_dt"] = dt
+                    rec["ts_label"] = dt.strftime("%Y/%m/%d %H:%M")
+                else:
+                    rec["_dt"] = None
+                    rec["ts_label"] = ts_str or ""
 
-    # ts を aware datetime & ラベルに変換 ------------------------------------
-    now = timezone.localtime()
-    for e in entries:
-        ts_str = e.get("ts")
-        label = ""
-        dt: Optional[timezone.datetime] = None
+                entries_all.append(rec)
 
-        if isinstance(ts_str, str) and ts_str:
-            try:
-                # ISO文字列 → datetime
-                dt = timezone.datetime.fromisoformat(ts_str)
-                if timezone.is_naive(dt):
-                    dt = timezone.make_aware(dt, timezone.get_default_timezone())
-                dt = timezone.localtime(dt)
-                label = dt.strftime("%Y/%m/%d %H:%M")
-            except Exception:
-                label = ts_str
-                dt = None
+    # ---- ts 降順でソート（従来通り）-----------------------------------
+    def _sort_key(r: Dict[str, Any]):
+        # _dt があればそれを優先、無ければ ts の文字列
+        dt = r.get("_dt")
+        if isinstance(dt, timezone.datetime):
+            return dt
+        return str(r.get("ts") or "")
 
-        e["ts_label"] = label
-        e["_ts_dt"] = dt  # フィルタ・ソート用に保持
+    entries_all.sort(key=_sort_key, reverse=True)
 
-    # ---- id 正規化（URL で必ず int を使えるようにする） -------------------
-    # 古いログなどで id が入っていない場合があるので、
-    # 既に int の id があればそれを優先し、それ以外は連番で補完する。
-    for idx, e in enumerate(entries):
+    # ---- id の付与（削除用の安定したインデックス） ------------------
+    # 既に int の id があればそのまま使い、無ければ 0,1,2,… を振る。
+    for idx, e in enumerate(entries_all):
         eid = e.get("id")
         if isinstance(eid, int):
             continue
@@ -102,67 +117,54 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
             pass
         e["id"] = idx
 
-    # ---- フィルタ適用 -----------------------------------------------------
+    # ---- フィルタ適用 --------------------------------------------------
+    now = timezone.localtime()
     filtered: List[Dict[str, Any]] = []
 
-    # 期間フィルタの境界
-    if period == "today":
-        # 今日 0:00 〜
-        start_dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    elif period == "week":
-        # 今週（月曜 0:00 〜）
-        weekday = now.weekday()  # 月曜=0
-        start_dt = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=weekday)
-    else:  # "30d"
-        start_dt = now - timedelta(days=30)
-
-    q_lower = query.lower()
-
-    for e in entries:
-        dt = e.get("_ts_dt")
-        if dt is None:
-            # ts がパースできないものは一応通しておく（期間条件は緩め）
-            dt_ok = True
-        else:
-            dt_ok = dt >= start_dt
-
-        # mode フィルタ
+    for e in entries_all:
+        # 1) mode フィルタ
         rec_mode = (e.get("mode") or "").lower()
         if mode == "live" and rec_mode != "live":
             continue
         if mode == "demo" and rec_mode != "demo":
             continue
-        # mode="all" はすべて通す
+        # mode == "all" のときはスルー
 
-        # 期間フィルタ
-        if not dt_ok:
-            continue
+        # 2) 期間フィルタ
+        dt: Optional[timezone.datetime] = e.get("_dt")
+        if period == "today":
+            if not isinstance(dt, timezone.datetime):
+                continue
+            if dt.date() != now.date():
+                continue
+        elif period == "7d":
+            if not isinstance(dt, timezone.datetime):
+                continue
+            if dt < now - timezone.timedelta(days=7):
+                continue
+        elif period == "30d":
+            if not isinstance(dt, timezone.datetime):
+                continue
+            if dt < now - timezone.timedelta(days=30):
+                continue
+        # ※ 将来 "all" を作る場合はここに分岐追加
 
-        # コード / 名称検索（部分一致・小文字で比較）
-        if q_lower:
-            code_str = str(e.get("code") or "").lower()
-            name_str = str(e.get("name") or "").lower()
-            if q_lower not in code_str and q_lower not in name_str:
+        # 3) 銘柄コード / 名称フィルタ
+        if q:
+            code = str(e.get("code") or "")
+            name = str(e.get("name") or "")
+            if q not in code and q not in name:
                 continue
 
         filtered.append(e)
 
-    # ---- 並び替え＆件数制限 ----------------------------------------------
-    def _sort_key(r: Dict[str, Any]):
-        dt = r.get("_ts_dt")
-        if dt is not None:
-            return dt
-        # dt が無い場合は ts 文字列でフォールバック
-        return str(r.get("ts") or "")
-
-    filtered.sort(key=_sort_key, reverse=True)
-    filtered = filtered[:100]
+    # 最大100件に制限
+    entries = filtered[:100]
 
     ctx = {
-        "entries": filtered,
-        # フィルタ状態（テンプレ側でチップの選択状態/フォーム初期値に使う）
-        "filter_mode": mode,      # all / live / demo
-        "filter_period": period,  # 30d / today / week
-        "query": query,
+        "entries": entries,
+        "mode": mode,
+        "period": period,
+        "q": q,
     }
     return render(request, "aiapp/simulate_list.html", ctx)
