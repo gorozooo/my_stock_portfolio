@@ -17,7 +17,7 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
     """
     AI Picks の「シミュレ」で登録した紙トレを一覧表示するビュー。
 
-    - /media/aiapp/simulate/*.jsonl を全部読む
+    - /media/aiapp/simulate/YYYYMMDD.jsonl を全部読む
     - ログインユーザーの分だけ抽出
     - ts 降順で最大100件まで表示
     """
@@ -73,14 +73,66 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
                 label = ts_str
         e["ts_label"] = label
 
-    # ---- 削除用に「必ず整数の id を振る」 --------------------------
-    # 一覧ページの並び順（ts 降順）に対して 1,2,3,... と連番を振る。
-    # テンプレートの e.id と、削除ビューの pk はこの番号を使う前提。
-    for idx, e in enumerate(entries, start=1):
+    # ---- URL に使う id を必ず持たせる ---------------------------------
+    for idx, e in enumerate(entries):
+        eid = e.get("id")
+        if isinstance(eid, int):
+            continue
+        try:
+            if isinstance(eid, str) and eid.strip() != "":
+                e["id"] = int(eid)
+                continue
+        except Exception:
+            pass
         e["id"] = idx
-    # --------------------------------------------------------------
+    # -----------------------------------------------------------------
+
+    # ---- 一覧上部に出すサマリー値を計算 --------------------------------
+    total_count = len(entries)
+    live_count = 0
+    demo_count = 0
+    total_est_pl = 0.0        # 想定利益（楽天＋松井）
+    total_est_loss = 0.0      # 想定損失（楽天＋松井の絶対値合計）
+
+    for e in entries:
+        mode = e.get("mode")
+        if mode == "live":
+            live_count += 1
+        elif mode == "demo":
+            demo_count += 1
+
+        try:
+            est_pl_r = float(e.get("est_pl_rakuten") or 0)
+        except Exception:
+            est_pl_r = 0.0
+        try:
+            est_pl_m = float(e.get("est_pl_matsui") or 0)
+        except Exception:
+            est_pl_m = 0.0
+        try:
+            est_loss_r = float(e.get("est_loss_rakuten") or 0)
+        except Exception:
+            est_loss_r = 0.0
+        try:
+            est_loss_m = float(e.get("est_loss_matsui") or 0)
+        except Exception:
+            est_loss_m = 0.0
+
+        total_est_pl += est_pl_r + est_pl_m
+        # 損失側は絶対値で合計しておく
+        total_est_loss += abs(est_loss_r) + abs(est_loss_m)
+
+    summary = {
+        "total_count": total_count,
+        "live_count": live_count,
+        "demo_count": demo_count,
+        "total_est_pl": total_est_pl,
+        "total_est_loss": total_est_loss,
+    }
+    # -----------------------------------------------------------------
 
     ctx = {
         "entries": entries,
+        "summary": summary,
     }
     return render(request, "aiapp/simulate_list.html", ctx)
