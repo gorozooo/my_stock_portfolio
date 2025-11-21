@@ -37,72 +37,78 @@
     color:#cbd5f5;
   }
 
-  /* ===== フィルタエリア ===== */
+  /* ===== フィルタ部 ===== */
   .filters{
-    margin:0 0 12px 0;
+    margin:0 0 10px 0;
     padding:10px 12px;
     border-radius:14px;
     border:1px solid rgba(148,163,184,0.35);
-    background:rgba(15,23,42,0.95);
+    background:rgba(15,23,42,0.9);
     backdrop-filter:blur(10px);
     font-size:12px;
   }
   .filter-row{
     display:flex;
-    flex-wrap:wrap;
     align-items:center;
+    justify-content:space-between;
     gap:8px;
-    margin-bottom:8px;
+    margin-bottom:6px;
+    flex-wrap:wrap;
   }
   .filter-label{
     font-size:11px;
     color:var(--sub);
-    min-width:52px;
+    min-width:64px;
   }
-  .filter-search{
-    flex:1;
+  .chip-row{
     display:flex;
     gap:6px;
-  }
-  .filter-search input[type="text"]{
-    flex:1;
-    padding:6px 8px;
-    border-radius:999px;
-    border:1px solid rgba(148,163,184,0.7);
-    background:rgba(15,23,42,0.95);
-    color:var(--fg);
-    font-size:12px;
-  }
-  .filter-search button{
-    padding:6px 10px;
-    border-radius:999px;
-    border:1px solid rgba(56,189,248,0.8);
-    background:rgba(56,189,248,0.15);
-    color:#e0f2fe;
-    font-size:12px;
-  }
-
-  .chips{
-    display:flex;
     flex-wrap:wrap;
-    gap:6px;
   }
-  .chip{
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    padding:4px 10px;
+  .chip-form{
+    margin:0;
+  }
+  .chip-btn{
     border-radius:999px;
     border:1px solid rgba(148,163,184,0.6);
-    font-size:11px;
-    color:var(--sub);
-    text-decoration:none;
+    padding:4px 10px;
     background:rgba(15,23,42,0.9);
+    color:#e5e7eb;
+    font-size:11px;
+    line-height:1.2;
   }
-  .chip.active{
+  .chip-btn.active{
+    background:rgba(56,189,248,0.18);
     border-color:rgba(56,189,248,0.9);
     color:#e0f2fe;
-    background:radial-gradient(circle at top left,rgba(56,189,248,0.28),rgba(15,23,42,1));
+    font-weight:600;
+  }
+
+  .search-row{
+    display:flex;
+    gap:6px;
+    margin-top:4px;
+  }
+  .search-input{
+    flex:1;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.6);
+    background:rgba(15,23,42,0.9);
+    color:#e5e7eb;
+    font-size:12px;
+    padding:6px 10px;
+  }
+  .search-input::placeholder{
+    color:rgba(148,163,184,0.9);
+  }
+  .search-btn{
+    border-radius:999px;
+    border:1px solid rgba(56,189,248,0.8);
+    background:rgba(56,189,248,0.18);
+    color:#e0f2fe;
+    font-size:12px;
+    padding:6px 10px;
+    white-space:nowrap;
   }
 
   .grid{display:grid;gap:10px;}
@@ -144,7 +150,6 @@
     border-radius:999px;
     padding:4px 8px;
     border:1px solid rgba(148,163,184,0.6);
-    white-space:nowrap;
   }
 
   .mode-badge{
@@ -195,84 +200,6 @@
   .kpi-val.pos{color:var(--ok);}
   .kpi-val.neg{color:var(--bad);}
 
-  /* ===== 結果入力エリア ===== */
-  .result-block{
-    margin-top:8px;
-    padding-top:6px;
-    border-top:1px dashed rgba(148,163,184,0.5);
-  }
-  .result-row-top{
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    margin-bottom:4px;
-  }
-  .result-label{
-    font-size:11px;
-    color:var(--sub);
-  }
-  .result-status{
-    font-size:11px;
-    padding:2px 8px;
-    border-radius:999px;
-    border:1px solid rgba(148,163,184,0.6);
-    background:rgba(15,23,42,0.9);
-  }
-  .result-status.win{
-    border-color:rgba(34,197,94,0.9);
-    color:#bbf7d0;
-    background:rgba(22,163,74,0.18);
-  }
-  .result-status.lose{
-    border-color:rgba(248,113,113,0.9);
-    color:#fecaca;
-    background:rgba(248,113,113,0.14);
-  }
-  .result-status.skip{
-    border-color:rgba(148,163,184,0.9);
-    color:#e5e7eb;
-    background:rgba(15,23,42,0.95);
-  }
-
-  .result-form-row{
-    display:flex;
-    gap:6px;
-    margin-top:4px;
-  }
-  .result-form-row select,
-  .result-form-row input[type="number"]{
-    flex:1;
-    padding:5px 7px;
-    border-radius:999px;
-    border:1px solid rgba(148,163,184,0.7);
-    background:rgba(15,23,42,0.95);
-    color:var(--fg);
-    font-size:11px;
-  }
-  .result-form-row button{
-    padding:5px 9px;
-    border-radius:999px;
-    border:1px solid rgba(56,189,248,0.8);
-    background:rgba(56,189,248,0.15);
-    color:#e0f2fe;
-    font-size:11px;
-    white-space:nowrap;
-  }
-
-  .card-footer{
-    margin-top:8px;
-    display:flex;
-    justify-content:flex-end;
-  }
-  .btn-delete{
-    padding:4px 10px;
-    border-radius:999px;
-    border:1px solid rgba(248,113,113,0.8);
-    background:rgba(248,113,113,0.1);
-    color:#fecaca;
-    font-size:11px;
-  }
-
   .empty{
     margin-top:16px;
     padding:16px;
@@ -280,6 +207,16 @@
     border:1px dashed rgba(148,163,184,0.6);
     font-size:13px;
     color:#cbd5f5;
+  }
+
+  .delete-row{
+    margin-top:6px;
+    text-align:right;
+  }
+  .delete-link{
+    font-size:11px;
+    color:#fca5a5;
+    text-decoration:none;
   }
 </style>
 {% endblock %}
@@ -291,63 +228,84 @@
     <div class="head-title">AIシミュレ一覧</div>
     <div class="head-sub">
       AI Picks の「シミュレ」で登録した紙トレのログです。<br>
-      直近100件まで表示しています。
+      フィルタで絞り込みつつ、直近100件まで表示しています。
     </div>
   </div>
 
-  {# ===== フィルタエリア ===== #}
   <div class="filters">
-    {# 検索フォーム（銘柄コード / 名称） #}
-    <form method="get" class="filter-row">
-      <div class="filter-label">検索</div>
-      <div class="filter-search">
-        <input type="text"
-               name="q"
-               placeholder="銘柄コード・名称で絞り込み"
-               value="{{ query }}">
-        <input type="hidden" name="mode" value="{{ filter_mode }}">
-        <input type="hidden" name="period" value="{{ filter_period }}">
-        <button type="submit">検索</button>
-      </div>
-    </form>
-
-    {# mode チップ（ALL / LIVE / DEMO） #}
+    <!-- モードフィルタ -->
     <div class="filter-row">
       <div class="filter-label">モード</div>
-      <div class="chips">
-        <a class="chip {% if filter_mode == 'all' %}active{% endif %}"
-           href="?mode=all&period={{ filter_period }}&q={{ query|urlencode }}">
-          ALL
-        </a>
-        <a class="chip {% if filter_mode == 'live' %}active{% endif %}"
-           href="?mode=live&period={{ filter_period }}&q={{ query|urlencode }}">
-          LIVE
-        </a>
-        <a class="chip {% if filter_mode == 'demo' %}active{% endif %}"
-           href="?mode=demo&period={{ filter_period }}&q={{ query|urlencode }}">
-          DEMO
-        </a>
+      <div class="chip-row">
+        <form method="get" class="chip-form">
+          <input type="hidden" name="period" value="{{ period }}">
+          <input type="hidden" name="q" value="{{ q }}">
+          <button type="submit" name="mode" value="all"
+                  class="chip-btn {% if mode == 'all' %}active{% endif %}">
+            ALL
+          </button>
+        </form>
+        <form method="get" class="chip-form">
+          <input type="hidden" name="period" value="{{ period }}">
+          <input type="hidden" name="q" value="{{ q }}">
+          <button type="submit" name="mode" value="live"
+                  class="chip-btn {% if mode == 'live' %}active{% endif %}">
+            LIVE
+          </button>
+        </form>
+        <form method="get" class="chip-form">
+          <input type="hidden" name="period" value="{{ period }}">
+          <input type="hidden" name="q" value="{{ q }}">
+          <button type="submit" name="mode" value="demo"
+                  class="chip-btn {% if mode == 'demo' %}active{% endif %}">
+            DEMO
+          </button>
+        </form>
       </div>
     </div>
 
-    {# 期間チップ（今日 / 今週 / 30日） #}
+    <!-- 期間フィルタ -->
     <div class="filter-row">
       <div class="filter-label">期間</div>
-      <div class="chips">
-        <a class="chip {% if filter_period == 'today' %}active{% endif %}"
-           href="?mode={{ filter_mode }}&period=today&q={{ query|urlencode }}">
-          今日
-        </a>
-        <a class="chip {% if filter_period == 'week' %}active{% endif %}"
-           href="?mode={{ filter_mode }}&period=week&q={{ query|urlencode }}">
-          今週
-        </a>
-        <a class="chip {% if filter_period == '30d' %}active{% endif %}"
-           href="?mode={{ filter_mode }}&period=30d&q={{ query|urlencode }}">
-          過去30日
-        </a>
+      <div class="chip-row">
+        <form method="get" class="chip-form">
+          <input type="hidden" name="mode" value="{{ mode }}">
+          <input type="hidden" name="q" value="{{ q }}">
+          <button type="submit" name="period" value="today"
+                  class="chip-btn {% if period == 'today' %}active{% endif %}">
+            今日
+          </button>
+        </form>
+        <form method="get" class="chip-form">
+          <input type="hidden" name="mode" value="{{ mode }}">
+          <input type="hidden" name="q" value="{{ q }}">
+          <button type="submit" name="period" value="7d"
+                  class="chip-btn {% if period == '7d' %}active{% endif %}">
+            7日
+          </button>
+        </form>
+        <form method="get" class="chip-form">
+          <input type="hidden" name="mode" value="{{ mode }}">
+          <input type="hidden" name="q" value="{{ q }}">
+          <button type="submit" name="period" value="30d"
+                  class="chip-btn {% if period == '30d' %}active{% endif %}">
+            30日
+          </button>
+        </form>
       </div>
     </div>
+
+    <!-- 銘柄検索 -->
+    <form method="get" class="search-row">
+      <input type="hidden" name="mode" value="{{ mode }}">
+      <input type="hidden" name="period" value="{{ period }}">
+      <input type="text"
+             name="q"
+             value="{{ q }}"
+             class="search-input"
+             placeholder="銘柄コード or 名称で検索">
+      <button type="submit" class="search-btn">検索</button>
+    </form>
   </div>
 
   {% if entries %}
@@ -455,54 +413,12 @@
             </div>
           </div>
 
-          {# ===== 結果入力エリア ===== #}
-          <div class="result-block">
-            <div class="result-row-top">
-              <div class="result-label">結果</div>
-              <div class="result-status
-                          {% if e.result == 'win' %}win{% elif e.result == 'lose' %}lose{% elif e.result == 'skip' %}skip{% endif %}">
-                {% if e.result == 'win' %}
-                  勝ち
-                {% elif e.result == 'lose' %}
-                  負け
-                {% elif e.result == 'skip' %}
-                  見送り
-                {% else %}
-                  未入力
-                {% endif %}
-                {% if e.exit_price %}
-                  （終値 {{ e.exit_price|floatformat:0|intcomma }} 円）
-                {% endif %}
-              </div>
-            </div>
-
-            <form method="post"
-                  action="{% url 'aiapp:simulate_result' e.id %}">
-              {% csrf_token %}
-              <div class="result-form-row">
-                <select name="result">
-                  <option value="" {% if not e.result %}selected{% endif %}>未選択</option>
-                  <option value="win" {% if e.result == 'win' %}selected{% endif %}>勝ち</option>
-                  <option value="lose" {% if e.result == 'lose' %}selected{% endif %}>負け</option>
-                  <option value="skip" {% if e.result == 'skip' %}selected{% endif %}>見送り</option>
-                </select>
-                <input type="number"
-                       name="exit_price"
-                       step="0.1"
-                       placeholder="終値"
-                       value="{% if e.exit_price %}{{ e.exit_price }}{% endif %}">
-                <button type="submit">保存</button>
-              </div>
-            </form>
-          </div>
-
-          <div class="card-footer">
-            <form method="post"
-                  action="{% url 'aiapp:simulate_delete' e.id %}"
-                  onsubmit="return confirm('このシミュレを削除しますか？');">
-              {% csrf_token %}
-              <button type="submit" class="btn-delete">削除</button>
-            </form>
+          <div class="delete-row">
+            <a class="delete-link"
+               href="{% url 'aiapp:simulate_delete' e.id %}"
+               onclick="return confirm('このシミュレ記録を削除しますか？');">
+              このシミュレを削除
+            </a>
           </div>
 
         </div>
@@ -510,8 +426,8 @@
     </div>
   {% else %}
     <div class="empty">
-      まだシミュレ登録がありません。<br>
-      AI Picks 画面から「シミュレ」ボタンを押すと、ここに紙トレが溜まっていきます。
+      条件に一致するシミュレ登録がありません。<br>
+      フィルタ（モード・期間・銘柄）を少しゆるめてみてください。
     </div>
   {% endif %}
 
