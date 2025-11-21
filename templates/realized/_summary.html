@@ -6,8 +6,7 @@
     margin-top:8px;
     padding:12px;
     border-radius:20px;
-    background:
-      radial-gradient(circle at top,#1f2937 0,#020617 60%);
+    background:radial-gradient(circle at top,#1f2937 0,#020617 60%);
     border:1px solid rgba(148,163,184,.38);
     box-shadow:0 18px 40px rgba(15,23,42,.9);
   }
@@ -43,8 +42,7 @@
     position:absolute;
     inset:0;
     border-radius:inherit;
-    background:
-      radial-gradient(circle at top,#4f46e5,#111827);
+    background:radial-gradient(circle at top,#4f46e5,#111827);
     opacity:0;
     transform:scale(.94);
     transition:opacity .16s ease-out, transform .16s ease-out;
@@ -58,7 +56,7 @@
     transform:scale(1);
   }
 
-  /* ==== コンテンツ共通レイアウト ==== */
+  /* ==== セクション見出し ==== */
   .section-title{
     margin-top:4px;
     margin-bottom:6px;
@@ -79,6 +77,7 @@
     opacity:.9;
   }
 
+  /* ==== グリッド & カード ==== */
   .summary-grid{
     display:grid;
     gap:12px;
@@ -98,13 +97,29 @@
   .neg{color:#fb7171}
   .muted{color:#9ca3af}
 
-  /* タブの表示制御＋フェード */
+  /* ==== タブの中身表示制御 ==== */
   .real-panel{display:none;animation:panelFade .18s ease-out}
   .real-panel.active{display:block}
 
   @keyframes panelFade{
     from{opacity:0;transform:translateY(4px)}
     to{opacity:1;transform:translateY(0)}
+  }
+
+  /* ==== 総合タブ内の追加ブロック ==== */
+  .real-period-block{
+    margin-top:18px;
+    border-radius:18px;
+    border:1px solid rgba(148,163,184,.35);
+    background:radial-gradient(circle at top,#020617 0,#020617 55%,#0b1120 100%);
+    padding:10px 10px 2px;
+  }
+  .real-ranking-block{
+    margin-top:16px;
+    border-radius:18px;
+    border:1px solid rgba(148,163,184,.35);
+    background:radial-gradient(circle at top,#020617 0,#020617 55%,#020617 100%);
+    padding:10px 10px 4px;
   }
 
   @media (max-width:1024px){
@@ -125,7 +140,7 @@
     <button type="button" class="real-tab"        data-tab="sbi"     role="tab"><span>SBI</span></button>
   </div>
 
-  {# =======総合タブ========= #}
+  {# ====総合タブ：KPI ＋ 期間サマリ ＋ ランキング========== #}
   <div class="real-panel active" data-panel="total">
     <div class="section-title">📊 パフォーマンス</div>
     <div class="summary-grid">
@@ -228,9 +243,31 @@
         <div class="v mono">¥{{ agg.fee|default_if_none:0|floatformat:0|intcomma }}</div>
       </div>
     </div>
+
+    {# ---- 期間サマリ（既存のテンプレをそのまま埋め込み） ---- #}
+    <div class="real-period-block" id="real-period-block-total">
+      <div class="section-title">📆 期間サマリ</div>
+      {# 期間まとめ（プリセットボタン＋集計） #}
+      {% include "realized/_summary_period.html" %}
+      {# 月次グラフ＆分析グラフ #}
+      {% include "realized/_monthly_chart.html" %}
+      {% include "realized/_analysis_charts.html" %}
+    </div>
+
+    {# ---- ランキング（TOP画面版） ---- #}
+    <div class="real-ranking-block" id="real-ranking-block-total">
+      <div class="section-title">🏅 ランキング</div>
+      <div id="pnlRankingInTotal"
+           hx-get="{% url 'realized_ranking_partial' %}?preset=LAST_12M&freq=month"
+           hx-include="[name=q],[name=preset],[name=freq],[name=start],[name=end]"
+           hx-trigger="load, pnl:refresh from:body"
+           hx-swap="outerHTML">
+        <div style="color:#94a3b8;padding:8px 0">ランキングを読み込み中…</div>
+      </div>
+    </div>
   </div>
 
-  {# =======楽天タブ========= #}
+  {# ====楽天タブ======== #}
   <div class="real-panel" data-panel="rakuten">
     {% for b in agg_brokers %}
       {% if b.broker == 'RAKUTEN' %}
@@ -343,7 +380,9 @@
     {% endfor %}
   </div>
 
-  {# =======松井タブ========= #}
+  {# =========================================================
+     松井タブ
+     ========================================================= #}
   <div class="real-panel" data-panel="matsui">
     {% for b in agg_brokers %}
       {% if b.broker == 'MATSUI' %}
@@ -456,7 +495,9 @@
     {% endfor %}
   </div>
 
-  {#{# =======SBIタブ========= #}
+  {# =========================================================
+     SBIタブ
+     ========================================================= #}
   <div class="real-panel" data-panel="sbi">
     {% for b in agg_brokers %}
       {% if b.broker == 'SBI' %}
