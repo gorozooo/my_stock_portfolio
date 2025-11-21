@@ -18,11 +18,40 @@
     padding:14px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.05);
     border-radius:16px;margin:6px 0 12px 0;backdrop-filter:blur(10px)
   }
+  .head-left-top{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    margin-bottom:2px;
+  }
   .head .ts{font-size:13px;color:#bac5d6}
   .head .meta{font-size:11px;color:#7f8da3;margin-top:2px}
+
+  .mode-pill{
+    padding:2px 8px;
+    border-radius:999px;
+    font-size:10px;
+    font-weight:600;
+    border:1px solid rgba(255,255,255,.18);
+  }
+  .mode-live{
+    background:rgba(34,197,94,0.18);
+    color:#bbf7d0;
+    border-color:rgba(34,197,94,0.45);
+  }
+  .mode-demo{
+    background:rgba(239,68,68,0.18);
+    color:#fecaca;
+    border-color:rgba(239,68,68,0.45);
+  }
+
   .head .btn{
     padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.12);
     background:rgba(255,255,255,.07);color:#eaf0ff;text-decoration:none;font-size:13px;
+  }
+  .head .btn-demo{
+    border-color:rgba(248,113,113,.6);
+    background:rgba(127,29,29,0.7);
   }
 
   .grid{display:grid;gap:10px}
@@ -150,7 +179,12 @@
 
   <div class="head">
     <div>
-      <div class="ts">最終更新</div>
+      <div class="head-left-top">
+        <div class="ts">最終更新</div>
+        <div class="mode-pill {% if is_demo %}mode-demo{% else %}mode-live{% endif %}">
+          {% if is_demo %}DEMOモード{% else %}LIVEモード{% endif %}
+        </div>
+      </div>
       <div style="font-weight:600;font-size:14px">{{ updated_label }}</div>
       {% if items and items|length > 0 and items.0.price_date %}
         <div class="meta">価格基準: {{ items.0.price_date }} / {{ items.0.price_vendor|default:"" }}</div>
@@ -158,9 +192,9 @@
     </div>
     <div>
       {% if is_demo %}
-        <a class="btn" href="?mode=live&reset=1">LIVE/DEMO</a>
+        <a class="btn btn-demo" href="?mode=live&reset=1">DEMO解除</a>
       {% else %}
-        <a class="btn" href="?mode=demo&reset=1">LIVE/DEMO</a>
+        <a class="btn" href="?mode=demo&reset=1">DEMOで検証</a>
       {% endif %}
     </div>
   </div>
@@ -350,7 +384,7 @@
     </div>
   {% else %}
     <div class="empty">
-      候補が0件です。条件が厳しすぎる可能性があります。右上のLIVE/DEMO切替や、スタイル・ユニバース設定を確認してください。
+      候補が0件です。条件が厳しすぎる可能性があります。右上のDEMOボタンや、スタイル・ユニバース設定を確認してください。
     </div>
   {% endif %}
 
