@@ -849,7 +849,7 @@ def summary_period_partial(request):
       - focus=YYYY-MM または YYYY（行ハイライト用ラベル）
       - keep=all のときは focus しても全体表は維持（単独絞り込みしない）
 
-    ※ ここでは「円換算済み」の値（pnl_jpy / cashflow_calc_jpy）だけを使う。
+    ※ ここでは「円換算済み」の値（pnl_jpy_calc / cashflow_calc_jpy）だけを使う。
     """
     from django.db.models.functions import TruncMonth, TruncYear
     from django.db.models import Count, Sum, Value, IntegerField, Q, F
@@ -872,7 +872,7 @@ def summary_period_partial(request):
     if end:
         qs = qs.filter(trade_at__lte=end)
 
-    # ★ここで pnl_jpy / cashflow_calc_jpy を付与
+    # ★ 円換算用メトリクスを付与（pnl_jpy_calc / cashflow_calc_jpy など）
     qs = _with_metrics(qs)
 
     # バケット
@@ -911,16 +911,16 @@ def summary_period_partial(request):
               # 💰信用 = 投資家PnL（円換算）
               cash_margin = Coalesce(
                   Sum(
-                      "pnl_jpy",
+                      "pnl_jpy_calc",              # ★ ここを pnl_jpy → pnl_jpy_calc に修正
                       filter=Q(account="MARGIN"),
                       output_field=DEC2,
                   ),
                   Value(Decimal("0"), output_field=DEC2),
               ),
 
-              # 📈PnLも円換算済み
+              # 📈PnL も円換算済み（全口座合計）
               pnl = Coalesce(
-                  Sum("pnl_jpy", output_field=DEC2),
+                  Sum("pnl_jpy_calc", output_field=DEC2),  # ★ ここも pnl_jpy → pnl_jpy_calc
                   Value(Decimal("0"), output_field=DEC2),
               ),
           )
