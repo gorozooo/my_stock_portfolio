@@ -3,58 +3,33 @@
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from django.conf import settings
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse, Http404
-from django.shortcuts import render
+from django.http import JsonResponse, Http404, HttpRequest, HttpResponse
+from django.shortcuts import render, redirect
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from aiapp.models import StockMaster
 from aiapp.services.policy_loader import load_short_aggressive_policy
 
-logger = logging.getLogger(__name__)
-
 PICKS_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "picks"
-SIM_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "sim"
 
 # JPX 33業種（コード→日本語名）
 JPX_SECTOR_MAP: Dict[str, str] = {
-    "005": "水産・農林業",
-    "010": "鉱業",
-    "015": "建設業",
-    "020": "食料品",
-    "025": "繊維製品",
-    "030": "パルプ・紙",
-    "035": "化学",
-    "040": "医薬品",
-    "045": "石油・石炭製品",
-    "050": "ゴム製品",
-    "055": "ガラス・土石製品",
-    "060": "鉄鋼",
-    "065": "非鉄金属",
-    "070": "金属製品",
-    "075": "機械",
-    "080": "電気機器",
-    "085": "輸送用機器",
-    "090": "精密機器",
-    "095": "その他製品",
+    "005": "水産・農林業", "010": "鉱業", "015": "建設業", "020": "食料品", "025": "繊維製品",
+    "030": "パルプ・紙", "035": "化学", "040": "医薬品", "045": "石油・石炭製品", "050": "ゴム製品",
+    "055": "ガラス・土石製品", "060": "鉄鋼", "065": "非鉄金属", "070": "金属製品", "075": "機械",
+    "080": "電気機器", "085": "輸送用機器", "090": "精密機器", "095": "その他製品",
     "100": "電気・ガス業",
-    "105": "陸運業",
-    "110": "海運業",
-    "115": "空運業",
-    "120": "倉庫・運輸関連業",
+    "105": "陸運業", "110": "海運業", "115": "空運業", "120": "倉庫・運輸関連業",
     "125": "情報・通信業",
-    "130": "卸売業",
-    "135": "小売業",
-    "140": "銀行業",
-    "145": "証券・商品先物取引業",
-    "150": "保険業",
-    "155": "その他金融業",
+    "130": "卸売業", "135": "小売業",
+    "140": "銀行業", "145": "証券・商品先物取引業", "150": "保険業", "155": "その他金融業",
     "160": "不動産業",
     "165": "サービス業",
 }
@@ -241,6 +216,7 @@ def _attach_zero_reasons(data: Dict[str, Any]) -> None:
 
 # ===== ここから B用の「ルール通過チェック」 =====
 
+
 def _load_policy_thresholds() -> Dict[str, Any]:
     """
     short_aggressive.yml から、フィルター系のしきい値だけを取り出す。
@@ -300,6 +276,7 @@ def _attach_pass_checks(data: Dict[str, Any]) -> None:
                     f"✅ 純利益マイナス {int(round(est_pl)):,} 円だが、ポリシーでマイナス許容ON"
                 )
             else:
+                # ここに来るケースはほぼ無い想定だが、一応文言だけ。
                 checks.append("✅ 純利益が0円近辺（コスト込みでギリギリ許容）")
 
         # 2) 想定利益 >= 最低純利益
@@ -330,8 +307,7 @@ def _attach_pass_checks(data: Dict[str, Any]) -> None:
 # ===== ここまで B用 =====
 
 
-@login_required
-def picks(request):
+def picks(request: HttpRequest) -> HttpResponse:
     # LIVE/DEMO 切替（将来ロジック拡張）
     qmode = request.GET.get("mode")
     is_demo = True if qmode == "demo" else False if qmode == "live" else True
@@ -364,8 +340,7 @@ def picks(request):
     return render(request, "aiapp/picks.html", ctx)
 
 
-@login_required
-def picks_json(request):
+def picks_json(request: HttpRequest) -> HttpResponse:
     data = _load_picks()
     _enrich_with_master(data)
     _attach_zero_reasons(data)
@@ -377,69 +352,75 @@ def picks_json(request):
     return JsonResponse(data, safe=True, json_dumps_params={"ensure_ascii": False, "indent": 2})
 
 
-# ===== ここから C: シミュレ（紙トレ）保存 =====
+# ===== ここから C：シミュレ（紙トレ）保存 =====
 
 
-def _sim_log_path() -> Path:
-    """
-    シミュレ用の JSONL ログファイルパスを返す。
-    とりあえず 1ファイル固定（将来は日付別に分けてもOK）。
-    """
-    SIM_DIR.mkdir(parents=True, exist_ok=True)
-    return SIM_DIR / "ai_sim_positions.jsonl"
+def _parse_float(value: Optional[str]) -> Optional[float]:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 @login_required
 @require_POST
-def picks_simulate(request):
+def picks_simulate(request: HttpRequest) -> HttpResponse:
     """
-    「シミュレ」ボタンからの POST を受け取り、
-    仮想エントリー情報を JSONL に 1 行追記するだけのシンプル実装。
+    AI Picks のカードから「シミュレ」ボタンで送られてきた内容を
+    /media/aiapp/simulate/YYYYMMDD.jsonl に 1行追記するだけのシンプル紙トレ。
     """
-    try:
-        payload = json.loads(request.body.decode("utf-8"))
-    except Exception:
-        logger.exception("picks_simulate: invalid json")
-        return JsonResponse({"ok": False, "message": "リクエスト形式が不正です。"}, status=400)
+    user = request.user
 
-    code = (payload.get("code") or "").strip()
-    name = (payload.get("name") or "").strip()
+    code = (request.POST.get("code") or "").strip()
+    name = (request.POST.get("name") or "").strip()
+    mode = (request.POST.get("mode") or "demo").strip()  # demo / live
 
-    if not code:
-        return JsonResponse({"ok": False, "message": "銘柄コードが空です。"}, status=400)
+    entry = _parse_float(request.POST.get("entry"))
+    qty_rakuten = _parse_float(request.POST.get("qty_rakuten"))
+    qty_matsui = _parse_float(request.POST.get("qty_matsui"))
+    required_cash_rakuten = _parse_float(request.POST.get("required_cash_rakuten"))
+    required_cash_matsui = _parse_float(request.POST.get("required_cash_matsui"))
+    est_pl_rakuten = _parse_float(request.POST.get("est_pl_rakuten"))
+    est_pl_matsui = _parse_float(request.POST.get("est_pl_matsui"))
+    est_loss_rakuten = _parse_float(request.POST.get("est_loss_rakuten"))
+    est_loss_matsui = _parse_float(request.POST.get("est_loss_matsui"))
+    price_date = (request.POST.get("price_date") or "").strip() or None
 
-    now = timezone.now()
+    now_jst = timezone.localtime()
+    day = now_jst.strftime("%Y%m%d")
 
     record = {
-        "ts": now.isoformat(),
-        "user_id": request.user.id if request.user.is_authenticated else None,
-        "username": request.user.get_username() if request.user.is_authenticated else None,
-        "mode": payload.get("mode") or "demo",
+        "ts": now_jst.isoformat(),
+        "user_id": user.id,
+        "username": user.get_username(),
+        "mode": mode,
         "code": code,
-        "name": name or None,
-        "entry": payload.get("entry"),
-        "tp": payload.get("tp"),
-        "sl": payload.get("sl"),
-        "qty_rakuten": payload.get("qty_rakuten"),
-        "qty_matsui": payload.get("qty_matsui"),
-        "price": payload.get("price"),
-        "score_100": payload.get("score_100"),
-        # 将来の集計用のフラグ（実際に約定したか等）は後で追加
-        "status": "open",  # 仮想ポジションとして OPEN した状態
+        "name": name,
+        "entry": entry,
+        "qty_rakuten": qty_rakuten,
+        "qty_matsui": qty_matsui,
+        "required_cash_rakuten": required_cash_rakuten,
+        "required_cash_matsui": required_cash_matsui,
+        "est_pl_rakuten": est_pl_rakuten,
+        "est_loss_rakuten": est_loss_rakuten,
+        "est_pl_matsui": est_pl_matsui,
+        "est_loss_matsui": est_loss_matsui,
+        "price_date": price_date,
         "source": "ai_picks",
     }
 
-    log_path = _sim_log_path()
-    try:
-        with log_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    except Exception:
-        logger.exception("picks_simulate: failed to append log")
-        return JsonResponse({"ok": False, "message": "保存に失敗しました。"}, status=500)
+    sim_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "simulate"
+    sim_dir.mkdir(parents=True, exist_ok=True)
+    out_path = sim_dir / f"{day}.jsonl"
 
-    return JsonResponse(
-        {
-            "ok": True,
-            "message": f"シミュレに保存しました（{code}）",
-        }
-    )
+    try:
+        with out_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        messages.success(request, f"シミュレに登録しました：{code} {name}")
+    except Exception as e:
+        messages.error(request, f"シミュレ保存に失敗しました：{e}")
+
+    # ひとまず picks に戻す（モードはURLクエリで切り替え）
+    return redirect("aiapp:picks")
