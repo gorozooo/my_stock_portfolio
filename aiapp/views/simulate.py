@@ -17,7 +17,7 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
     """
     AI Picks の「シミュレ」で登録した紙トレを一覧表示するビュー。
 
-    - /media/aiapp/simulate/YYYYMMDD.jsonl を全部読む
+    - /media/aiapp/simulate/*.jsonl を全部読む
     - ログインユーザーの分だけ抽出
     - ts 降順で最大100件まで表示
     """
@@ -73,25 +73,12 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
                 label = ts_str
         e["ts_label"] = label
 
-    # ---- ここが今回のポイント ---------------------------------
-    # 古いログなどで id が入っていない場合があるので、
-    # URL で使えるように「必ず整数の id を持たせる」。
-    # 既に int 型の id があればそれを優先し、それ以外は連番で補完する。
-    for idx, e in enumerate(entries):
-        eid = e.get("id")
-        if isinstance(eid, int):
-            # そのまま利用
-            continue
-        try:
-            # 数値文字列なら int にキャスト
-            if isinstance(eid, str) and eid.strip() != "":
-                e["id"] = int(eid)
-                continue
-        except Exception:
-            pass
-        # それ以外（None, 空, 型不明）は連番で代用
+    # ---- 削除用に「必ず整数の id を振る」 --------------------------
+    # 一覧ページの並び順（ts 降順）に対して 1,2,3,... と連番を振る。
+    # テンプレートの e.id と、削除ビューの pk はこの番号を使う前提。
+    for idx, e in enumerate(entries, start=1):
         e["id"] = idx
-    # -------------------------------------------------------
+    # --------------------------------------------------------------
 
     ctx = {
         "entries": entries,
