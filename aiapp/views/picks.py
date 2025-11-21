@@ -308,9 +308,15 @@ def _attach_pass_checks(data: Dict[str, Any]) -> None:
 
 
 def picks(request: HttpRequest) -> HttpResponse:
-    # LIVE/DEMO 切替（将来ロジック拡張）
+    # LIVE/DEMO 状態（基本は常に LIVE、?mode=demo のときだけ DEMO 扱い）
     qmode = request.GET.get("mode")
-    is_demo = True if qmode == "demo" else False if qmode == "live" else True
+    if qmode == "demo":
+        is_demo = True
+    elif qmode == "live":
+        is_demo = False
+    else:
+        # パラメータ指定なし → 常に LIVE
+        is_demo = False
 
     data = _load_picks()
     _enrich_with_master(data)
