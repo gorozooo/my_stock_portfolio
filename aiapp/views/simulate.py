@@ -73,6 +73,26 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
                 label = ts_str
         e["ts_label"] = label
 
+    # ---- ここが今回のポイント ---------------------------------
+    # 古いログなどで id が入っていない場合があるので、
+    # URL で使えるように「必ず整数の id を持たせる」。
+    # 既に int 型の id があればそれを優先し、それ以外は連番で補完する。
+    for idx, e in enumerate(entries):
+        eid = e.get("id")
+        if isinstance(eid, int):
+            # そのまま利用
+            continue
+        try:
+            # 数値文字列なら int にキャスト
+            if isinstance(eid, str) and eid.strip() != "":
+                e["id"] = int(eid)
+                continue
+        except Exception:
+            pass
+        # それ以外（None, 空, 型不明）は連番で代用
+        e["id"] = idx
+    # -------------------------------------------------------
+
     ctx = {
         "entries": entries,
     }
