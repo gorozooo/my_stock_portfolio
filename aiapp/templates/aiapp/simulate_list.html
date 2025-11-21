@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}AIシミュレ一覧{% endblock %}
+
+{% block head %}
+<style>
+  :root{
+    --bg:#020617;
+    --card:rgba(15,23,42,0.95);
+    --sub:#94a3b8;
+    --fg:#e5e7eb;
+    --accent:#38bdf8;
+    --ok:#22c55e;
+    --bad:#f97373;
+    --muted:#64748b;
+  }
+  body{background:var(--bg);color:var(--fg);}
+  .wrap{max-width:720px;margin:0 auto;padding:10px 12px 80px;}
+
+  .head{
+    padding:14px;
+    border-radius:16px;
+    border:1px solid rgba(148,163,184,0.3);
+    background:linear-gradient(135deg,rgba(15,23,42,0.95),rgba(30,64,175,0.8));
+    color:#e5e7eb;
+    margin:6px 0 12px 0;
+    backdrop-filter:blur(12px);
+  }
+  .head-title{
+    font-size:16px;
+    font-weight:700;
+    margin-bottom:4px;
+  }
+  .head-sub{
+    font-size:12px;
+    color:#cbd5f5;
+  }
+
+  .grid{display:grid;gap:10px;}
+
+  .card{
+    border-radius:14px;
+    border:1px solid rgba(148,163,184,0.35);
+    background:radial-gradient(circle at top left,rgba(56,189,248,0.10),rgba(15,23,42,0.95));
+    padding:10px 12px;
+    backdrop-filter:blur(10px);
+  }
+
+  .row-top{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:8px;
+    margin-bottom:4px;
+  }
+  .code-name{
+    min-width:0;
+  }
+  .code{
+    font-size:13px;
+    color:var(--sub);
+    margin-bottom:2px;
+  }
+  .name{
+    font-size:15px;
+    font-weight:600;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .ts-badge{
+    font-size:11px;
+    color:#e5e7eb;
+    background:rgba(15,23,42,0.9);
+    border-radius:999px;
+    padding:4px 8px;
+    border:1px solid rgba(148,163,184,0.6);
+  }
+
+  .mode-badge{
+    display:inline-block;
+    font-size:11px;
+    padding:2px 8px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.8);
+    margin-top:4px;
+  }
+  .mode-demo{
+    background:rgba(59,130,246,0.18);
+    color:#bfdbfe;
+  }
+  .mode-live{
+    background:rgba(22,163,74,0.18);
+    color:#bbf7d0;
+  }
+
+  .kpi{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:6px;
+    margin-top:6px;
+  }
+  .kpi-it{
+    padding:6px 7px;
+    border-radius:10px;
+    background:rgba(15,23,42,0.9);
+    border:1px solid rgba(30,64,175,0.5);
+  }
+  .kpi-label{
+    font-size:11px;
+    color:var(--sub);
+    margin-bottom:2px;
+  }
+  .kpi-row{
+    display:flex;
+    justify-content:space-between;
+    font-size:12px;
+  }
+  .kpi-name{
+    color:var(--muted);
+  }
+  .kpi-val{
+    font-variant-numeric:tabular-nums;
+  }
+  .kpi-val.pos{color:var(--ok);}
+  .kpi-val.neg{color:var(--bad);}
+
+  .empty{
+    margin-top:16px;
+    padding:16px;
+    border-radius:12px;
+    border:1px dashed rgba(148,163,184,0.6);
+    font-size:13px;
+    color:#cbd5f5;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="wrap">
+
+  <div class="head">
+    <div class="head-title">AIシミュレ一覧</div>
+    <div class="head-sub">
+      AI Picks の「シミュレ」で登録した紙トレのログです。<br>
+      直近100件まで表示しています。
+    </div>
+  </div>
+
+  {% if entries %}
+    <div class="grid">
+      {% for e in entries %}
+        <div class="card">
+          <div class="row-top">
+            <div class="code-name">
+              <div class="code">
+                {{ e.code }}{% if e.price_date %}・{{ e.price_date }}{% endif %}
+              </div>
+              <div class="name">
+                {{ e.name|default:"(名称不明)" }}
+              </div>
+              {% if e.mode %}
+                {% if e.mode == "live" %}
+                  <div class="mode-badge mode-live">LIVE シミュレ</div>
+                {% else %}
+                  <div class="mode-badge mode-demo">DEMO シミュレ</div>
+                {% endif %}
+              {% endif %}
+            </div>
+            <div class="ts-badge">
+              {{ e.ts_label|default:e.ts }}
+            </div>
+          </div>
+
+          <div class="kpi">
+            <div class="kpi-it">
+              <div class="kpi-label">エントリー</div>
+              <div class="kpi-row">
+                <div class="kpi-name">価格</div>
+                <div class="kpi-val">
+                  {% if e.entry %}
+                    {{ e.entry|floatformat:0|intcomma }} 円
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
+            <div class="kpi-it">
+              <div class="kpi-label">数量</div>
+              <div class="kpi-row">
+                <div class="kpi-name">楽天</div>
+                <div class="kpi-val">
+                  {% if e.qty_rakuten %}{{ e.qty_rakuten|floatformat:0|intcomma }} 株{% else %}0 株{% endif %}
+                </div>
+              </div>
+              <div class="kpi-row">
+                <div class="kpi-name">松井</div>
+                <div class="kpi-val">
+                  {% if e.qty_matsui %}{{ e.qty_matsui|floatformat:0|intcomma }} 株{% else %}0 株{% endif %}
+                </div>
+              </div>
+            </div>
+
+            <div class="kpi-it">
+              <div class="kpi-label">想定利益</div>
+              <div class="kpi-row">
+                <div class="kpi-name">楽天</div>
+                <div class="kpi-val pos">
+                  {% if e.est_pl_rakuten %}
+                    +{{ e.est_pl_rakuten|floatformat:0|intcomma }} 円
+                  {% else %}
+                    0 円
+                  {% endif %}
+                </div>
+              </div>
+              <div class="kpi-row">
+                <div class="kpi-name">松井</div>
+                <div class="kpi-val pos">
+                  {% if e.est_pl_matsui %}
+                    +{{ e.est_pl_matsui|floatformat:0|intcomma }} 円
+                  {% else %}
+                    0 円
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
+            <div class="kpi-it">
+              <div class="kpi-label">想定損失</div>
+              <div class="kpi-row">
+                <div class="kpi-name">楽天</div>
+                <div class="kpi-val neg">
+                  {% if e.est_loss_rakuten %}
+                    -{{ e.est_loss_rakuten|floatformat:0|intcomma }} 円
+                  {% else %}
+                    0 円
+                  {% endif %}
+                </div>
+              </div>
+              <div class="kpi-row">
+                <div class="kpi-name">松井</div>
+                <div class="kpi-val neg">
+                  {% if e.est_loss_matsui %}
+                    -{{ e.est_loss_matsui|floatformat:0|intcomma }} 円
+                  {% else %}
+                    0 円
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">
+      まだシミュレ登録がありません。<br>
+      AI Picks 画面から「シミュレ」ボタンを押すと、ここに紙トレが溜まっていきます。
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}
