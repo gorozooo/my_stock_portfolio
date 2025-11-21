@@ -14,17 +14,6 @@
 <div class="pnl">
   <h1>実現損益</h1>
 
-  {# ── 検索 ─────────────────────────────── #}
-  <div class="fi fi-full mt-4">
-    <input type="search" name="q" value="{{ q|default:'' }}" id="q"
-           placeholder="ティッカー/名称で検索"
-           hx-get="{% url 'realized_table_partial' %}"
-           hx-target="#pnlTableWrap"
-           hx-trigger="keyup changed delay:300ms, search"
-           hx-include="#q"
-           class="w-full">
-  </div>
-
   {# ── Section 1: 上部サマリー（証券会社別まで） ─── #}
   <section id="realized-top">
     <div id="pnlSummaryWrap">
