@@ -37,31 +37,73 @@
     color:#cbd5f5;
   }
 
-  /* サマリーカード */
-  .summary{
-    display:grid;
-    grid-template-columns:repeat(3,minmax(0,1fr));
-    gap:8px;
+  /* ===== フィルタエリア ===== */
+  .filters{
     margin:0 0 12px 0;
-  }
-  .summary-card{
-    padding:8px 10px;
-    border-radius:12px;
+    padding:10px 12px;
+    border-radius:14px;
     border:1px solid rgba(148,163,184,0.35);
     background:rgba(15,23,42,0.95);
+    backdrop-filter:blur(10px);
+    font-size:12px;
   }
-  .summary-label{
+  .filter-row{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:8px;
+    margin-bottom:8px;
+  }
+  .filter-label{
     font-size:11px;
     color:var(--sub);
-    margin-bottom:2px;
+    min-width:52px;
   }
-  .summary-value{
-    font-size:14px;
-    font-weight:600;
-    font-variant-numeric:tabular-nums;
+  .filter-search{
+    flex:1;
+    display:flex;
+    gap:6px;
   }
-  .summary-value.pos{color:var(--ok);}
-  .summary-value.neg{color:var(--bad);}
+  .filter-search input[type="text"]{
+    flex:1;
+    padding:6px 8px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.7);
+    background:rgba(15,23,42,0.95);
+    color:var(--fg);
+    font-size:12px;
+  }
+  .filter-search button{
+    padding:6px 10px;
+    border-radius:999px;
+    border:1px solid rgba(56,189,248,0.8);
+    background:rgba(56,189,248,0.15);
+    color:#e0f2fe;
+    font-size:12px;
+  }
+
+  .chips{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+  }
+  .chip{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    padding:4px 10px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.6);
+    font-size:11px;
+    color:var(--sub);
+    text-decoration:none;
+    background:rgba(15,23,42,0.9);
+  }
+  .chip.active{
+    border-color:rgba(56,189,248,0.9);
+    color:#e0f2fe;
+    background:radial-gradient(circle at top left,rgba(56,189,248,0.28),rgba(15,23,42,1));
+  }
 
   .grid{display:grid;gap:10px;}
 
@@ -102,6 +144,7 @@
     border-radius:999px;
     padding:4px 8px;
     border:1px solid rgba(148,163,184,0.6);
+    white-space:nowrap;
   }
 
   .mode-badge{
@@ -152,19 +195,18 @@
   .kpi-val.pos{color:var(--ok);}
   .kpi-val.neg{color:var(--bad);}
 
-  /* 削除ボタン */
-  .sim-actions{
+  .card-footer{
     margin-top:8px;
     display:flex;
     justify-content:flex-end;
   }
-  .btn-delete-sim{
-    padding:6px 10px;
-    font-size:11px;
+  .btn-delete{
+    padding:4px 10px;
     border-radius:999px;
-    border:1px solid rgba(248,113,113,0.6);
-    background:rgba(248,113,113,0.12);
+    border:1px solid rgba(248,113,113,0.8);
+    background:rgba(248,113,113,0.1);
     color:#fecaca;
+    font-size:11px;
   }
 
   .empty{
@@ -189,30 +231,60 @@
     </div>
   </div>
 
-  {% if summary %}
-    <div class="summary">
-      <div class="summary-card">
-        <div class="summary-label">件数（合計 / LIVE / DEMO）</div>
-        <div class="summary-value">
-          {{ summary.total_count|intcomma }} 件 /
-          {{ summary.live_count|intcomma }} /
-          {{ summary.demo_count|intcomma }}
-        </div>
+  {# ===== フィルタエリア ===== #}
+  <div class="filters">
+    {# 検索フォーム（銘柄コード / 名称） #}
+    <form method="get" class="filter-row">
+      <div class="filter-label">検索</div>
+      <div class="filter-search">
+        <input type="text"
+               name="q"
+               placeholder="銘柄コード・名称で絞り込み"
+               value="{{ query }}">
+        <input type="hidden" name="mode" value="{{ filter_mode }}">
+        <input type="hidden" name="period" value="{{ filter_period }}">
+        <button type="submit">検索</button>
       </div>
-      <div class="summary-card">
-        <div class="summary-label">想定利益 合計</div>
-        <div class="summary-value pos">
-          {{ summary.total_est_pl|floatformat:0|intcomma }} 円
-        </div>
-      </div>
-      <div class="summary-card">
-        <div class="summary-label">想定損失 合計（絶対値）</div>
-        <div class="summary-value neg">
-          {{ summary.total_est_loss|floatformat:0|intcomma }} 円
-        </div>
+    </form>
+
+    {# mode チップ（ALL / LIVE / DEMO） #}
+    <div class="filter-row">
+      <div class="filter-label">モード</div>
+      <div class="chips">
+        <a class="chip {% if filter_mode == 'all' %}active{% endif %}"
+           href="?mode=all&period={{ filter_period }}&q={{ query|urlencode }}">
+          ALL
+        </a>
+        <a class="chip {% if filter_mode == 'live' %}active{% endif %}"
+           href="?mode=live&period={{ filter_period }}&q={{ query|urlencode }}">
+          LIVE
+        </a>
+        <a class="chip {% if filter_mode == 'demo' %}active{% endif %}"
+           href="?mode=demo&period={{ filter_period }}&q={{ query|urlencode }}">
+          DEMO
+        </a>
       </div>
     </div>
-  {% endif %}
+
+    {# 期間チップ（今日 / 今週 / 30日） #}
+    <div class="filter-row">
+      <div class="filter-label">期間</div>
+      <div class="chips">
+        <a class="chip {% if filter_period == 'today' %}active{% endif %}"
+           href="?mode={{ filter_mode }}&period=today&q={{ query|urlencode }}">
+          今日
+        </a>
+        <a class="chip {% if filter_period == 'week' %}active{% endif %}"
+           href="?mode={{ filter_mode }}&period=week&q={{ query|urlencode }}">
+          今週
+        </a>
+        <a class="chip {% if filter_period == '30d' %}active{% endif %}"
+           href="?mode={{ filter_mode }}&period=30d&q={{ query|urlencode }}">
+          過去30日
+        </a>
+      </div>
+    </div>
+  </div>
 
   {% if entries %}
     <div class="grid">
@@ -319,14 +391,12 @@
             </div>
           </div>
 
-          {# 削除ボタン #}
-          <div class="sim-actions">
+          <div class="card-footer">
             <form method="post"
                   action="{% url 'aiapp:simulate_delete' e.id %}"
-                  onsubmit="return confirm('このシミュレログを削除しますか？');">
+                  onsubmit="return confirm('このシミュレを削除しますか？');">
               {% csrf_token %}
-              <input type="hidden" name="next" value="{% url 'aiapp:simulate_list' %}">
-              <button type="submit" class="btn-delete-sim">削除</button>
+              <button type="submit" class="btn-delete">削除</button>
             </form>
           </div>
 
