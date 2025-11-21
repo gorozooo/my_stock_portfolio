@@ -3,83 +3,147 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Dict, List, Optional
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, Http404
 from django.shortcuts import redirect
+from django.urls import reverse
+from django.utils import timezone
+
+
+def _parse_ts(ts_str: Optional[str]) -> Optional[timezone.datetime]:
+    """
+    JSONL の ts(ISO 文字列) を timezone-aware datetime に変換。
+    失敗した場合は None。
+    """
+    if not isinstance(ts_str, str) or not ts_str:
+        return None
+    try:
+        dt = timezone.datetime.fromisoformat(ts_str)
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, timezone.get_default_timezone())
+        return timezone.localtime(dt)
+    except Exception:
+        return None
+
+
+def _sort_key(rec: Dict[str, Any]):
+    """
+    シミュレ一覧と同じ並び順になるようにソートキーを定義。
+    """
+    dt = rec.get("_dt")
+    if isinstance(dt, timezone.datetime):
+        return dt
+    return str(rec.get("ts") or "")
 
 
 @login_required
 def simulate_delete(request: HttpRequest, pk: int) -> HttpResponse:
     """
-    シミュレ一覧から 1 件削除する。
+    シミュレ記録を 1 件だけ削除する。
 
-    simulate_list で付けている「ユーザーごとの連番 id」
-    （最新を 1, 2, 3, ...）を pk として受け取り、
-    対応する JSONL の 1 行を物理的に削除する。
+    – /media/aiapp/simulate/*.jsonl からログインユーザーのレコードを全部集める
+    – ts 降順でソート
+    – pk 番目の 1 件を「削除対象」として特定
+    – 対象と一致する JSON レコード 1 行だけを JSONL から除去
     """
-    if request.method != "POST":
-        return redirect("aiapp:simulate_list")
-
     user = request.user
     sim_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "simulate"
 
     if not sim_dir.exists():
-        return redirect("aiapp:simulate_list")
+        # そもそも何も無ければ削除対象がない
+        raise Http404("no simulate logs")
 
-    # ── simulate_list と同じ順番で走査して「ユーザーのレコードだけ」連番を振る ──
-    current_index: int = 1
-    target: Tuple[Path, int] | None = None  # (ファイルパス, 行インデックス)
+    # 全レコードを読み込み（ログインユーザーの分だけ）
+    user_records: List[Dict[str, Any]] = []
 
+    # このあと削除時に使うので「どのファイルに書かれていたか」も持たせる
     for path in sorted(sim_dir.glob("*.jsonl")):
         try:
-            lines_plain = path.read_text(encoding="utf-8").splitlines()
+            text = path.read_text(encoding="utf-8")
         except Exception:
             continue
 
-        for line_idx, line in enumerate(lines_plain):
-            s = line.strip()
-            if not s:
+        for line in text.splitlines():
+            raw_line = line.strip()
+            if not raw_line:
                 continue
             try:
-                rec = json.loads(s)
+                rec = json.loads(raw_line)
             except Exception:
                 continue
 
-            # 自分以外のユーザーのログは番号も付けない（simulate_list と同じ）
             if rec.get("user_id") != user.id:
                 continue
 
-            if current_index == pk:
-                target = (path, line_idx)
-                break
+            # 一覧と同じように ts を datetime 化
+            dt = _parse_ts(rec.get("ts"))
+            rec["_dt"] = dt
+            rec["_file"] = path  # どのファイルに書かれていたかを覚えておく
+            user_records.append(rec)
 
-            current_index += 1
+    if not user_records:
+        raise Http404("no simulate records for this user")
 
-        if target is not None:
-            break
+    # ts 降順でソート（一覧と同じ）
+    user_records.sort(key=_sort_key, reverse=True)
 
-    # 対象が見つからなければそのまま一覧へ（古いIDを踏んだなど）
-    if target is None:
-        return redirect("aiapp:simulate_list")
+    # pk が範囲外なら 404
+    if pk < 0 or pk >= len(user_records):
+        raise Http404("simulate record index out of range")
 
-    file_path, remove_idx = target
+    target = user_records[pk]
+    target_file: Path = target.get("_file")
+    if not isinstance(target_file, Path) or not target_file.exists():
+        # ファイル自体が無い場合は 404 扱い
+        raise Http404("target file not found")
 
-    # 実際にその行を削除して書き戻す
+    # 同一判定に使うキー（完全一致しなくてもよいが、絞り込み用にいくつか見る）
+    target_user_id = target.get("user_id")
+    target_ts = target.get("ts")
+    target_code = target.get("code")
+    target_entry = target.get("entry")
+
+    # 実際にファイルを書き換え：該当 1 行だけスキップして再保存
     try:
-        # 改行を保持したまま読む
-        lines_with_nl = file_path.read_text(encoding="utf-8").splitlines(True)
+        text = target_file.read_text(encoding="utf-8")
     except Exception:
-        return redirect("aiapp:simulate_list")
+        raise Http404("failed to read target file")
 
-    new_lines = [l for i, l in enumerate(lines_with_nl) if i != remove_idx]
+    new_lines: List[str] = []
+    deleted = False
 
-    try:
-        file_path.write_text("".join(new_lines), encoding="utf-8")
-    except Exception:
-        # 書き込み失敗時も、とりあえず一覧に戻す
-        return redirect("aiapp:simulate_list")
+    for line in text.splitlines():
+        raw_line = line.strip()
+        if not raw_line:
+            # 空行はそのまま捨てるか、必要なら保持しても良いがここではスキップ
+            continue
 
-    return redirect("aiapp:simulate_list")
+        try:
+            rec = json.loads(raw_line)
+        except Exception:
+            # 壊れた行はそのまま残しておく
+            new_lines.append(line)
+            continue
+
+        if (
+            not deleted and
+            rec.get("user_id") == target_user_id and
+            rec.get("ts") == target_ts and
+            rec.get("code") == target_code and
+            rec.get("entry") == target_entry
+        ):
+            # この 1 件だけ削除（スキップ）する
+            deleted = True
+            continue
+
+        # それ以外の行はそのまま残す
+        new_lines.append(line)
+
+    # 実際に1件も消していない場合でも、そのまま書き戻しておけば整合は取れる
+    target_file.write_text("\n".join(new_lines) + ("\n" if new_lines else ""), encoding="utf-8")
+
+    # 削除後は一覧へ戻す（フィルタは一旦リセット）
+    return redirect(reverse("aiapp:simulate_list"))
