@@ -37,6 +37,32 @@
     color:#cbd5f5;
   }
 
+  /* サマリーカード */
+  .summary{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:8px;
+    margin:0 0 12px 0;
+  }
+  .summary-card{
+    padding:8px 10px;
+    border-radius:12px;
+    border:1px solid rgba(148,163,184,0.35);
+    background:rgba(15,23,42,0.95);
+  }
+  .summary-label{
+    font-size:11px;
+    color:var(--sub);
+    margin-bottom:2px;
+  }
+  .summary-value{
+    font-size:14px;
+    font-weight:600;
+    font-variant-numeric:tabular-nums;
+  }
+  .summary-value.pos{color:var(--ok);}
+  .summary-value.neg{color:var(--bad);}
+
   .grid{display:grid;gap:10px;}
 
   .card{
@@ -126,6 +152,21 @@
   .kpi-val.pos{color:var(--ok);}
   .kpi-val.neg{color:var(--bad);}
 
+  /* 削除ボタン */
+  .sim-actions{
+    margin-top:8px;
+    display:flex;
+    justify-content:flex-end;
+  }
+  .btn-delete-sim{
+    padding:6px 10px;
+    font-size:11px;
+    border-radius:999px;
+    border:1px solid rgba(248,113,113,0.6);
+    background:rgba(248,113,113,0.12);
+    color:#fecaca;
+  }
+
   .empty{
     margin-top:16px;
     padding:16px;
@@ -133,24 +174,6 @@
     border:1px dashed rgba(148,163,184,0.6);
     font-size:13px;
     color:#cbd5f5;
-  }
-
-  /* 削除ボタン周り */
-  .sim-actions{
-    margin-top:10px;
-    display:flex;
-    justify-content:flex-end;
-  }
-  .btn-delete-sim{
-    font-size:11px;
-    padding:6px 12px;
-    border-radius:999px;
-    border:1px solid rgba(248,113,113,0.85);
-    background:rgba(239,68,68,0.10);
-    color:#fecaca;
-  }
-  .btn-delete-sim:active{
-    opacity:.85;
   }
 </style>
 {% endblock %}
@@ -165,6 +188,31 @@
       直近100件まで表示しています。
     </div>
   </div>
+
+  {% if summary %}
+    <div class="summary">
+      <div class="summary-card">
+        <div class="summary-label">件数（合計 / LIVE / DEMO）</div>
+        <div class="summary-value">
+          {{ summary.total_count|intcomma }} 件 /
+          {{ summary.live_count|intcomma }} /
+          {{ summary.demo_count|intcomma }}
+        </div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">想定利益 合計</div>
+        <div class="summary-value pos">
+          {{ summary.total_est_pl|floatformat:0|intcomma }} 円
+        </div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">想定損失 合計（絶対値）</div>
+        <div class="summary-value neg">
+          {{ summary.total_est_loss|floatformat:0|intcomma }} 円
+        </div>
+      </div>
+    </div>
+  {% endif %}
 
   {% if entries %}
     <div class="grid">
