@@ -10,6 +10,11 @@ AIピック生成（FULL/LITE/SNAPSHOT対応の堅牢版 + TopK 厳選出力 + �
 - 出力は「全件(JSON)」と「TopK(JSON=UI用)」の二系統
   - 全件: latest_full_all.json（監査/検証用）
   - TopK: latest_full.json（UIが読む/上位K件のみ）
+
+【ユニバース】
+- --universe all_jpx : StockMaster から日本株全銘柄を取得（本番想定）
+- --universe nk225   : aiapp/data/universe/nk225.txt を読む（テスト用）
+- それ以外           : aiapp/data/universe/<name>.txt を読む
 """
 
 from __future__ import annotations
@@ -328,19 +333,67 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
 
 # ---------- ユニバース読み ----------
 
-def _load_universe(name: str) -> List[str]:
+def _load_universe_from_txt(name: str) -> List[str]:
     base = Path("aiapp/data/universe")
     txt = base / (name if name.endswith(".txt") else f"{name}.txt")
     if not txt.exists():
         print(f"[picks_build] universe file not found: {txt}")
         return []
-    codes = []
+    codes: List[str] = []
     for line in txt.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         codes.append(line.split(",")[0].strip())
     return codes
+
+
+def _load_universe_all_jpx() -> List[str]:
+    """
+    ALL-JPX 用ユニバース：
+    StockMaster から日本株全銘柄コードを取得する（本番用）。
+    """
+    if StockMaster is None:
+        print("[picks_build] StockMaster not available; ALL-JPX universe is empty")
+        return []
+    try:
+        # 必要に応じて is_listed フラグなどで絞り込む想定
+        codes = list(
+            StockMaster.objects.values_list("code", flat=True).order_by("code")
+        )
+        codes = [str(c).strip() for c in codes if c]
+        print(f"[picks_build] ALL-JPX universe from StockMaster: {len(codes)} codes")
+        return codes
+    except Exception as e:
+        print(f"[picks_build] failed to load ALL-JPX from StockMaster: {e}")
+        return []
+
+
+def _load_universe(name: str) -> List[str]:
+    """
+    ユニバース名に応じてコード一覧を返す。
+
+    - all_jpx / all / jpx_all → StockMaster から日本株全銘柄
+    - nk225 / nikkei225       → テスト用：aiapp/data/universe/nk225.txt
+    - その他                   → aiapp/data/universe/<name>.txt
+    """
+    key = (name or "").lower().strip()
+
+    # 本番想定：全JPX銘柄
+    if key in ("all_jpx", "all", "jpx_all"):
+        codes = _load_universe_all_jpx()
+        if codes:
+            return codes
+        # 落ちた場合は txt にフォールバック
+        print("[picks_build] ALL-JPX fallback to txt universe")
+        return _load_universe_from_txt(name)
+
+    # テスト用：日経225（txtで管理）
+    if key in ("nk225", "nikkei225"):
+        return _load_universe_from_txt("nk225")
+
+    # 従来通り：任意の txt
+    return _load_universe_from_txt(name)
 
 
 # ---------- メタ補完（銘柄名・33業種） ----------
@@ -376,7 +429,13 @@ class Command(BaseCommand):
     help = "AIピック生成（完全版/ライト・スナップショット対応 + TopK 厳選 + Sizing 連携）"
 
     def add_arguments(self, parser):
-        parser.add_argument("--universe", type=str, default="quick_30", help="all / nk225 / quick_100 / <file name>")
+        # デフォルトはテストしやすい nk225 にしておく
+        parser.add_argument(
+            "--universe",
+            type=str,
+            default="nk225",
+            help="all_jpx / nk225 / quick_100 / <file name> など",
+        )
         parser.add_argument("--sample", type=int, default=None)
         parser.add_argument("--head", type=int, default=None)
         parser.add_argument("--budget", type=int, default=None, help="秒")
@@ -388,11 +447,16 @@ class Command(BaseCommand):
         # 仕様上追加
         parser.add_argument("--style", type=str, default="aggressive")
         parser.add_argument("--horizon", type=str, default="short")
-        # TopK 追加（UIは厳選のみを読む）
-        parser.add_argument("--topk", type=int, default=int(os.getenv("AIAPP_TOPK", "10")))
+        # TopK 追加（UIは厳選のみを読む）※基本は 10 固定運用
+        parser.add_argument(
+            "--topk",
+            type=int,
+            default=int(os.getenv("AIAPP_TOPK", "10")),
+            help="上位何銘柄を latest_full.json に出すか",
+        )
 
     def handle(self, *args, **opts):
-        universe = opts.get("universe") or "quick_30"
+        universe = opts.get("universe") or "nk225"
         nbars = int(opts.get("nbars") or 180)
         style = (opts.get("style") or "aggressive").lower()
         horizon = (opts.get("horizon") or "short").lower()
@@ -405,7 +469,7 @@ class Command(BaseCommand):
             return
 
         if BUILD_LOG:
-            print(f"[picks_build] start FULL universe={len(codes)}")
+            print(f"[picks_build] start FULL universe={universe} codes={len(codes)}")
 
         User = get_user_model()
         user = User.objects.first()
