@@ -8,6 +8,7 @@ from .views.settings import settings_view  # AI設定画面
 from .views.simulate import simulate_list  # シミュレ一覧
 from .views.sim_delete import simulate_delete  # シミュレ削除
 from .views.sim_result import simulate_result  # ★ シミュレ結果保存
+from .views.behavior import behavior_dashboard
 
 app_name = "aiapp"
 
