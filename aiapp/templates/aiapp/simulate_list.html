@@ -15,21 +15,28 @@
     --bad:#f97373;
     --muted:#64748b;
   }
-  /* ★ 横スクロール防止 + 余白リセット */
-  body{
+
+  /* ★ このページだけは絶対横スクロールさせないガード */
+  html, body{
+    margin:0;
+    padding:0;
+    width:100%;
+    max-width:100%;
+    overflow-x:hidden;
     background:var(--bg);
     color:var(--fg);
-    margin:0;
-    overflow-x:hidden;
   }
 
-  /* ★ 幅を100%に収めて box-sizing を指定 */
+  /* ★ ボックス計算を全部 border-box にして微妙なはみ出しを防止 */
+  *, *::before, *::after{
+    box-sizing:border-box;
+  }
+
   .wrap{
     max-width:720px;
     width:100%;
     margin:0 auto;
     padding:10px 12px 80px;
-    box-sizing:border-box;
   }
 
   .head{
@@ -40,7 +47,6 @@
     color:#e5e7eb;
     margin:6px 0 12px 0;
     backdrop-filter:blur(12px);
-    box-sizing:border-box;
   }
   .head-title{
     font-size:16px;
@@ -61,7 +67,6 @@
     background:rgba(15,23,42,0.9);
     backdrop-filter:blur(10px);
     font-size:12px;
-    box-sizing:border-box;
   }
   .filter-row{
     display:flex;
@@ -127,17 +132,19 @@
     white-space:nowrap;
   }
 
-  .grid{display:grid;gap:10px;}
+  .grid{
+    display:grid;
+    gap:10px;
+    width:100%;
+  }
 
-  /* ★ カードも max-width:100% ＋ box-sizing で横はみ出し防止 */
   .card{
     border-radius:14px;
     border:1px solid rgba(148,163,184,0.35);
     background:radial-gradient(circle at top left,rgba(56,189,248,0.10),rgba(15,23,42,0.95));
     padding:10px 12px;
     backdrop-filter:blur(10px);
-    max-width:100%;
-    box-sizing:border-box;
+    width:100%;
   }
 
   .row-top{
@@ -200,7 +207,6 @@
     border-radius:10px;
     background:rgba(15,23,42,0.9);
     border:1px solid rgba(30,64,175,0.5);
-    box-sizing:border-box;
   }
   .kpi-label{
     font-size:11px;
@@ -221,7 +227,7 @@
   .kpi-val.pos{color:var(--ok);}
   .kpi-val.neg{color:var(--bad);}
 
-  /* ===== 結果ブロック（C案） ===== */
+  /* ===== 結果ブロック ===== */
   .result{
     margin-top:8px;
     padding:6px 8px;
@@ -229,7 +235,6 @@
     background:rgba(15,23,42,0.9);
     border:1px dashed rgba(148,163,184,0.6);
     font-size:12px;
-    box-sizing:border-box;
   }
   .result-head{
     display:flex;
@@ -303,7 +308,6 @@
     border:1px dashed rgba(148,163,184,0.6);
     font-size:13px;
     color:#cbd5f5;
-    box-sizing:border-box;
   }
 
   .delete-row{
@@ -510,7 +514,6 @@
             </div>
           </div>
 
-          {# 結果（C案：カード下部の結果ブロック） #}
           {% if e.eval_label_rakuten or e.eval_label_matsui or e.eval_close_px %}
             <div class="result">
               <div class="result-head">
