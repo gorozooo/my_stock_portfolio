@@ -130,7 +130,7 @@
   }
 
   .code-name{
-    min-width:0;     /* ← 銘柄名を縮めるために必須 */
+    min-width:0;   /* ← 子要素のellipsisを有効にするSafari対策 */
     flex:1;
   }
 
@@ -147,9 +147,10 @@
   .name{
     font-size:15px;
     font-weight:600;
-    white-space:nowrap;        /* ← 1行で表示 */
-    overflow:hidden;
-    text-overflow:ellipsis;    /* ← …で省略 */
+    white-space:nowrap;        /* ← 1行固定 */
+    overflow:hidden;           /* ← はみ出しを隠す */
+    text-overflow:ellipsis;    /* ← ... を付ける */
+    max-width:100%;            /* ← カードより広がるのを防止 */
   }
 
   .mode-badge{
