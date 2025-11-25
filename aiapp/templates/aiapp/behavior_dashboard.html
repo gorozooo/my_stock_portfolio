@@ -19,18 +19,25 @@
 body{background:var(--bg);color:var(--fg);}
 .wrap{max-width:720px;margin:0 auto;padding:14px 14px 80px;}
 
+/* 共通セクション */
 .section{
   margin-top:14px;
   padding:14px;
   border-radius:18px;
   border:1px solid var(--border);
   background:
-    radial-gradient(circle at top left,rgba(56,189,248,0.22),transparent 55%),
-    radial-gradient(circle at bottom right,rgba(15,23,42,0.9),rgba(15,23,42,0.9));
+    radial-gradient(circle at top left,rgba(56,189,248,0.18),transparent 55%),
+    radial-gradient(circle at bottom right,rgba(15,23,42,0.98),rgba(15,23,42,0.98));
   backdrop-filter:blur(16px);
 }
 
-/* ヘッダー */
+/* ヘッダー周り */
+.head-main{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:8px;
+}
 .head-title{
   font-size:18px;
   font-weight:750;
@@ -41,24 +48,51 @@ body{background:var(--bg);color:var(--fg);}
   color:#cbd5f5;
   line-height:1.5;
 }
+.head-badge{
+  font-size:10px;
+  padding:3px 8px;
+  border-radius:999px;
+  border:1px solid rgba(148,163,184,0.7);
+  background:rgba(15,23,42,0.9);
+  color:#e5e7eb;
+  white-space:nowrap;
+}
 
-/* key-value */
+/* KPI ピル */
+.kpi-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-top:10px;
+}
+.kpi-pill{
+  flex:1 1 45%;
+  min-width:120px;
+  padding:8px 10px;
+  border-radius:999px;
+  border:1px solid rgba(148,163,184,0.55);
+  background:rgba(15,23,42,0.96);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  font-size:12px;
+}
+.kpi-label{color:var(--sub);}
+.kpi-val{font-variant-numeric:tabular-nums;}
+
+/* 一般 key-value */
 .kv-grid{
   display:grid;
   grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:8px 12px;
+  gap:6px 12px;
 }
 .kv-row{
   display:flex;
   justify-content:space-between;
   font-size:13px;
 }
-.kv-key{
-  color:var(--sub);
-}
-.kv-val{
-  font-variant-numeric:tabular-nums;
-}
+.kv-key{color:var(--sub);}
+.kv-val{font-variant-numeric:tabular-nums;}
 
 /* バッジ類 */
 .badge{
@@ -73,7 +107,7 @@ body{background:var(--bg);color:var(--fg);}
 
 /* インサイト（箇条書き） */
 .insight-list{
-  margin:4px 0 0 0;
+  margin:6px 0 0 0;
   padding-left:18px;
   font-size:12px;
   color:#e5e7eb;
@@ -89,11 +123,9 @@ body{background:var(--bg);color:var(--fg);}
   padding:6px 0;
   border-bottom:1px dashed rgba(148,163,184,0.35);
 }
-.sector-row:last-child{
-  border-bottom:none;
-}
+.sector-row:last-child{border-bottom:none;}
 .sector-name{
-  max-width:48%;
+  max-width:52%;
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
@@ -103,21 +135,20 @@ body{background:var(--bg);color:var(--fg);}
   text-align:right;
   font-variant-numeric:tabular-nums;
 }
-.sector-meta span{
-  display:block;
-}
+.sector-meta span{display:block;}
 
 /* 分布（trend / time / ATR / slope） */
 .dist-grid{
   display:grid;
   grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:6px 12px;
+  gap:6px 8px;
+  margin-top:6px;
 }
 .dist-item{
   border-radius:10px;
   border:1px solid rgba(148,163,184,0.4);
   padding:6px 8px;
-  background:rgba(15,23,42,0.95);
+  background:rgba(15,23,42,0.97);
   font-size:11px;
 }
 .dist-label{
@@ -128,13 +159,13 @@ body{background:var(--bg);color:var(--fg);}
   font-variant-numeric:tabular-nums;
 }
 
-/* TOP勝ち/負けリスト */
+/* TOP勝ち/負けリスト（縦カード） */
 .list-item{
   margin-top:8px;
   padding:10px 10px;
   border-radius:14px;
   border:1px solid rgba(148,163,184,0.45);
-  background:rgba(15,23,42,0.96);
+  background:rgba(15,23,42,0.97);
 }
 .code-name{
   font-size:13px;
@@ -162,9 +193,23 @@ body{background:var(--bg);color:var(--fg);}
   padding:16px;
   border-radius:14px;
   border:1px dashed rgba(148,163,184,0.6);
-  background:rgba(15,23,42,0.9);
+  background:rgba(15,23,42,0.96);
   font-size:13px;
   color:#cbd5f5;
+}
+
+/* セクション見出し */
+.section-title{
+  font-size:14px;
+  font-weight:700;
+  margin-bottom:8px;
+}
+
+/* 小さいラベル行 */
+.small-note{
+  margin-top:4px;
+  font-size:11px;
+  color:var(--muted);
 }
 </style>
 {% endblock %}
@@ -180,95 +225,111 @@ body{background:var(--bg);color:var(--fg);}
     </div>
   {% else %}
 
-    <!-- ヘッダー（全体サマリ） -->
-    <div class="section">
-      <div class="head-title">AI 行動ダッシュボード</div>
-      <div class="head-sub">
-        AI Picks の「シミュレ」ログと、市場の実際の値動きを組み合わせて、
-        あなたのトレード傾向を分析しています。
-      </div>
-
-      <div style="margin-top:10px;" class="kv-grid">
-        <div class="kv-row">
-          <div class="kv-key">総レコード</div>
-          <div class="kv-val">{{ total|intcomma }} 件</div>
-        </div>
-        <div class="kv-row">
-          <div class="kv-key">LIVE</div>
-          <div class="kv-val">{{ mode_counts.live|default:0 }}</div>
-        </div>
-        <div class="kv-row">
-          <div class="kv-key">DEMO</div>
-          <div class="kv-val">{{ mode_counts.demo|default:0 }}</div>
-        </div>
-        <div class="kv-row">
-          <div class="kv-key">その他</div>
-          <div class="kv-val">{{ mode_counts.other|default:0 }}</div>
+  <!-- ヘッダー（KPI まとめ） -->
+  <div class="section">
+    <div class="head-main">
+      <div>
+        <div class="head-title">AI 行動ダッシュボード</div>
+        <div class="head-sub">
+          AI Picks の「シミュレ」ログと、市場の実際の値動きを組み合わせて、
+          あなたのトレード傾向を分析しています。
         </div>
       </div>
+      <div class="head-badge">行動学習ビュー</div>
     </div>
 
-    <!-- AI インサイト -->
-    <div class="section">
-      <div class="section-title">AI インサイト</div>
-      {% if insights %}
-        <ul class="insight-list">
-          {% for msg in insights %}
-            <li>{{ msg }}</li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <div style="font-size:12px;color:var(--sub);">
-          まだ十分なデータが無いため、詳細なインサイトは生成していません。
+    <div class="kpi-row">
+      <div class="kpi-pill">
+        <div class="kpi-label">総レコード</div>
+        <div class="kpi-val">{{ total|intcomma }} 件</div>
+      </div>
+      <div class="kpi-pill">
+        <div class="kpi-label">楽天 勝率</div>
+        <div class="kpi-val">
+          {% if total > 0 %}
+            {% widthratio pl_counts_r.win total 100 %} %
+          {% else %}
+            0 %
+          {% endif %}
         </div>
-      {% endif %}
-    </div>
-
-    <!-- 勝敗サマリ -->
-    <div class="section">
-      <div class="section-title">勝敗サマリ</div>
-      <div class="kv-grid">
-        <div>
-          <div class="badge">楽天</div>
-          <div class="kv-row"><div class="kv-key">勝ち</div><div class="kv-val">{{ pl_counts_r.win|default:0 }}</div></div>
-          <div class="kv-row"><div class="kv-key">負け</div><div class="kv-val">{{ pl_counts_r.lose|default:0 }}</div></div>
-          <div class="kv-row"><div class="kv-key">引き分け</div><div class="kv-val">{{ pl_counts_r.flat|default:0 }}</div></div>
-          <div class="kv-row"><div class="kv-key">ポジションなし</div><div class="kv-val">{{ pl_counts_r.no_position|default:0 }}</div></div>
-        </div>
-        <div>
-          <div class="badge">松井</div>
-          <div class="kv-row"><div class="kv-key">勝ち</div><div class="kv-val">{{ pl_counts_m.win|default:0 }}</div></div>
-          <div class="kv-row"><div class="kv-key">負け</div><div class="kv-val">{{ pl_counts_m.lose|default:0 }}</div></div>
-          <div class="kv-row"><div class="kv-key">引き分け</div><div class="kv-val">{{ pl_counts_m.flat|default:0 }}</div></div>
-          <div class="kv-row"><div class="kv-key">ポジションなし</div><div class="kv-val">{{ pl_counts_m.no_position|default:0 }}</div></div>
-        </div>
+      </div>
+      <div class="kpi-pill">
+        <div class="kpi-label">LIVE</div>
+        <div class="kpi-val">{{ mode_counts.live|default:0 }}</div>
+      </div>
+      <div class="kpi-pill">
+        <div class="kpi-label">DEMO</div>
+        <div class="kpi-val">{{ mode_counts.demo|default:0 }}</div>
       </div>
     </div>
 
-    <!-- セクター別勝率 -->
-    <div class="section">
-      <div class="section-title">セクター別勝率（楽天）</div>
-      {% if sector_stats %}
-        {% for s in sector_stats %}
-          <div class="sector-row">
-            <div class="sector-name">{{ s.name }}</div>
-            <div class="sector-meta">
-              <span>{{ s.wins }}/{{ s.trials }} 件</span>
-              <span>{{ s.win_rate|floatformat:1 }} %</span>
-            </div>
-          </div>
+    <div class="small-note">
+      ※ 勝率は「楽天口座でポジションを持ったトレードのみ」を対象としています。
+    </div>
+  </div>
+
+  <!-- AI インサイト -->
+  <div class="section">
+    <div class="section-title">AI インサイト</div>
+    {% if insights %}
+      <ul class="insight-list">
+        {% for msg in insights %}
+          <li>{{ msg }}</li>
         {% endfor %}
-      {% else %}
-        <div style="font-size:12px;color:var(--sub);">
-          勝敗が付いているトレードがまだありません。
-        </div>
-      {% endif %}
+      </ul>
+    {% else %}
+      <div style="font-size:12px;color:var(--sub);">
+        まだ十分なデータが無いため、詳細なインサイトは生成していません。
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- 勝敗サマリ -->
+  <div class="section">
+    <div class="section-title">勝敗サマリ</div>
+    <div class="kv-grid">
+      <div>
+        <div class="badge">楽天</div>
+        <div class="kv-row"><div class="kv-key">勝ち</div><div class="kv-val">{{ pl_counts_r.win|default:0 }}</div></div>
+        <div class="kv-row"><div class="kv-key">負け</div><div class="kv-val">{{ pl_counts_r.lose|default:0 }}</div></div>
+        <div class="kv-row"><div class="kv-key">引き分け</div><div class="kv-val">{{ pl_counts_r.flat|default:0 }}</div></div>
+        <div class="kv-row"><div class="kv-key">ポジションなし</div><div class="kv-val">{{ pl_counts_r.no_position|default:0 }}</div></div>
+      </div>
+      <div>
+        <div class="badge">松井</div>
+        <div class="kv-row"><div class="kv-key">勝ち</div><div class="kv-val">{{ pl_counts_m.win|default:0 }}</div></div>
+        <div class="kv-row"><div class="kv-key">負け</div><div class="kv-val">{{ pl_counts_m.lose|default:0 }}</div></div>
+        <div class="kv-row"><div class="kv-key">引き分け</div><div class="kv-val">{{ pl_counts_m.flat|default:0 }}</div></div>
+        <div class="kv-row"><div class="kv-key">ポジションなし</div><div class="kv-val">{{ pl_counts_m.no_position|default:0 }}</div></div>
+      </div>
     </div>
+  </div>
 
-    <!-- 相性マップ（trend / time / ATR / slope） -->
-    <div class="section">
-      <div class="section-title">相性マップ</div>
+  <!-- セクター別勝率 -->
+  <div class="section">
+    <div class="section-title">セクター別勝率（楽天）</div>
+    {% if sector_stats %}
+      {% for s in sector_stats %}
+        <div class="sector-row">
+          <div class="sector-name">{{ s.name }}</div>
+          <div class="sector-meta">
+            <span>{{ s.wins }}/{{ s.trials }} 件</span>
+            <span>{{ s.win_rate|floatformat:1 }} %</span>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div style="font-size:12px;color:var(--sub);">
+        勝敗が付いているトレードがまだありません。
+      </div>
+    {% endif %}
+  </div>
 
+  <!-- 相性マップ（trend / time / ATR / slope） -->
+  <div class="section">
+    <div class="section-title">相性マップ</div>
+
+    {% if trend_stats %}
       <div class="dist-grid">
         {% for t in trend_stats %}
           <div class="dist-item">
@@ -277,9 +338,9 @@ body{background:var(--bg);color:var(--fg);}
           </div>
         {% endfor %}
       </div>
+    {% endif %}
 
-      <div style="height:8px;"></div>
-
+    {% if time_stats %}
       <div class="dist-grid">
         {% for t in time_stats %}
           <div class="dist-item">
@@ -288,9 +349,9 @@ body{background:var(--bg);color:var(--fg);}
           </div>
         {% endfor %}
       </div>
+    {% endif %}
 
-      <div style="height:8px;"></div>
-
+    {% if atr_stats %}
       <div class="dist-grid">
         {% for t in atr_stats %}
           <div class="dist-item">
@@ -299,9 +360,9 @@ body{background:var(--bg);color:var(--fg);}
           </div>
         {% endfor %}
       </div>
+    {% endif %}
 
-      <div style="height:8px;"></div>
-
+    {% if slope_stats %}
       <div class="dist-grid">
         {% for t in slope_stats %}
           <div class="dist-item">
@@ -310,61 +371,61 @@ body{background:var(--bg);color:var(--fg);}
           </div>
         {% endfor %}
       </div>
-    </div>
+    {% endif %}
+  </div>
 
-    <!-- TOP 勝ち -->
-    <div class="section">
-      <div class="section-title">TOP 勝ち（楽天）</div>
-      {% if top_win %}
-        {% for r in top_win %}
-          <div class="list-item">
-            <div class="code-name">{{ r.code }} {{ r.name }}</div>
-            <div class="sub-line">
-              <div class="sub-left">
-                <span class="pl-pos">
-                  +{{ r.pl|floatformat:0|intcomma }} 円
-                </span>
-              </div>
-              <div class="sub-right">
-                {{ r.mode }} ／ {{ r.ts_label }}
-              </div>
+  <!-- TOP 勝ち -->
+  <div class="section">
+    <div class="section-title">TOP 勝ち（楽天）</div>
+    {% if top_win %}
+      {% for r in top_win %}
+        <div class="list-item">
+          <div class="code-name">{{ r.code }} {{ r.name }}</div>
+          <div class="sub-line">
+            <div class="sub-left">
+              <span class="pl-pos">
+                +{{ r.pl|floatformat:0|intcomma }} 円
+              </span>
+            </div>
+            <div class="sub-right">
+              {{ r.mode }} ／ {{ r.ts_label }}
             </div>
           </div>
-        {% endfor %}
-      {% else %}
-        <div style="font-size:12px;color:var(--sub);">
-          勝ちトレードがまだありません。
         </div>
-      {% endif %}
-    </div>
+      {% endfor %}
+    {% else %}
+      <div style="font-size:12px;color:var(--sub);">
+        勝ちトレードがまだありません。
+      </div>
+    {% endif %}
+  </div>
 
-    <!-- TOP 負け -->
-    <div class="section">
-      <div class="section-title">TOP 負け（楽天）</div>
-      {% if top_lose %}
-        {% for r in top_lose %}
-          <div class="list-item">
-            <div class="code-name">{{ r.code }} {{ r.name }}</div>
-            <div class="sub-line">
-              <div class="sub-left">
-                <span class="pl-neg">
-                  {{ r.pl|floatformat:0|intcomma }} 円
-                </span>
-              </div>
-              <div class="sub-right">
-                {{ r.mode }} ／ {{ r.ts_label }}
-              </div>
+  <!-- TOP 負け -->
+  <div class="section">
+    <div class="section-title">TOP 負け（楽天）</div>
+    {% if top_lose %}
+      {% for r in top_lose %}
+        <div class="list-item">
+          <div class="code-name">{{ r.code }} {{ r.name }}</div>
+          <div class="sub-line">
+            <div class="sub-left">
+              <span class="pl-neg">
+                {{ r.pl|floatformat:0|intcomma }} 円
+              </span>
+            </div>
+            <div class="sub-right">
+              {{ r.mode }} ／ {{ r.ts_label }}
             </div>
           </div>
-        {% endfor %}
-      {% else %}
-        <div style="font-size:12px;color:var(--sub);">
-          負けトレードがまだありません。
         </div>
-      {% endif %}
-    </div>
+      {% endfor %}
+    {% else %}
+      <div style="font-size:12px;color:var(--sub);">
+        負けトレードがまだありません。
+      </div>
+    {% endif %}
+  </div>
 
   {% endif %}
-
 </div>
 {% endblock %}
