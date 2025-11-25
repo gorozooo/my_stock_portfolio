@@ -7,6 +7,11 @@ behavior_stats
 
 latest_behavior.jsonl を読み込んで、行動 × 結果 データのサマリを表示する。
 
+ポイント:
+- 同じ日付・同じ銘柄・同じエントリー条件（entry, qty_rakuten, qty_matsui, mode）が
+  完全に同じレコードは「重複」とみなし、1件として扱う。
+  → これで、同じシミュレを何度か打った場合でも、統計上は1カウントになる。
+
 使い方:
     python manage.py behavior_stats
     python manage.py behavior_stats --user 1
@@ -30,6 +35,7 @@ class BehaviorRec:
     code: Optional[str]
     name: Optional[str]
     sector: Optional[str]
+    price_date: Optional[str]
     entry: Optional[float]
     qty_rakuten: Optional[float]
     qty_matsui: Optional[float]
@@ -66,11 +72,16 @@ def _load_latest_behavior(
 ) -> List[BehaviorRec]:
     """
     /media/aiapp/behavior/latest_behavior.jsonl を読み込んで BehaviorRec のリストを返す。
+
+    ここで「重複レコードの除外」も行う:
+      - key = (mode, code, price_date, round(entry,2), round(qty_rakuten,0), round(qty_matsui,0))
+      が同じものは 1件にまとめる。
     """
     behavior_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "behavior"
     latest_path = behavior_dir / "latest_behavior.jsonl"
 
     recs: List[BehaviorRec] = []
+    seen_keys: set[tuple] = set()
 
     if not latest_path.exists():
         return recs
@@ -93,16 +104,39 @@ def _load_latest_behavior(
         if user_filter is not None and uid != user_filter:
             continue
 
+        mode = (d.get("mode") or "").lower() if isinstance(d.get("mode"), str) else None
+        code = str(d.get("code") or "") if d.get("code") is not None else None
+        price_date = str(d.get("price_date") or "") if d.get("price_date") is not None else None
+        entry = _safe_float(d.get("entry"))
+        qty_r = _safe_float(d.get("qty_rakuten"))
+        qty_m = _safe_float(d.get("qty_matsui"))
+
+        # 重複判定キー
+        key = (
+            mode or "",
+            code or "",
+            price_date or "",
+            round(entry if entry is not None else 0.0, 2),
+            round(qty_r if qty_r is not None else 0.0, 0),
+            round(qty_m if qty_m is not None else 0.0, 0),
+        )
+
+        # すでに同じ条件があればスキップ
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+
         rec = BehaviorRec(
             ts=d.get("ts"),
             user_id=uid,
-            mode=(d.get("mode") or "").lower() if isinstance(d.get("mode"), str) else None,
-            code=str(d.get("code") or "") if d.get("code") is not None else None,
+            mode=mode,
+            code=code,
             name=str(d.get("name") or "") if d.get("name") is not None else None,
             sector=str(d.get("sector") or "") if d.get("sector") is not None else None,
-            entry=_safe_float(d.get("entry")),
-            qty_rakuten=_safe_float(d.get("qty_rakuten")),
-            qty_matsui=_safe_float(d.get("qty_matsui")),
+            price_date=price_date or None,
+            entry=entry,
+            qty_rakuten=qty_r,
+            qty_matsui=qty_m,
             eval_label_rakuten=str(d.get("eval_label_rakuten")) if d.get("eval_label_rakuten") is not None else None,
             eval_pl_rakuten=_safe_float(d.get("eval_pl_rakuten")),
             eval_label_matsui=str(d.get("eval_label_matsui")) if d.get("eval_label_matsui") is not None else None,
@@ -164,7 +198,7 @@ class Command(BaseCommand):
     行動データセット（latest_behavior.jsonl）のサマリを表示するコマンド。
     """
 
-    help = "AI行動データセットの勝率・PL・sector別サマリを表示する"
+    help = "AI行動データセットの勝率・PL・sector別サマリを表示する（重複レコードは自動で間引く）"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
@@ -198,7 +232,7 @@ class Command(BaseCommand):
         # 全体サマリ
         # ==========================
         self.stdout.write("")
-        self.stdout.write(self.style.SUCCESS("===== 行動データセット サマリ ====="))
+        self.stdout.write(self.style.SUCCESS("===== 行動データセット サマリ（重複除外後） ====="))
         if user_filter is not None:
             self.stdout.write(f"  ユーザーID: {user_filter}")
         self.stdout.write(f"  レコード数: {total} 件")
