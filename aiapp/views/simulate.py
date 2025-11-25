@@ -11,7 +11,6 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils import timezone
 
-
 def _parse_ts(ts_str: Optional[str]) -> Optional[timezone.datetime]:
     """
     JSONL の ts(ISO文字列) を timezone-aware datetime に変換する。
@@ -26,7 +25,6 @@ def _parse_ts(ts_str: Optional[str]) -> Optional[timezone.datetime]:
         return timezone.localtime(dt)
     except Exception:
         return None
-
 
 @login_required
 def simulate_list(request: HttpRequest) -> HttpResponse:
