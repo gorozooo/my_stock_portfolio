@@ -15,38 +15,8 @@
     --bad:#f97373;
     --muted:#64748b;
   }
-
-  html, body{
-    margin:0;
-    padding:0;
-    width:100%;
-    max-width:100%;
-    overflow-x:hidden;
-    background:var(--bg);
-    color:var(--fg);
-  }
-
-  *, *::before, *::after{
-    box-sizing:border-box;
-  }
-
-  /* 画面幅より少しだけ内側に寄せる */
-  .wrap{
-    max-width:720px;
-    width:100%;
-    margin:0 auto;
-    padding:10px 4px 80px;   /* ← 左右の余白を少し減らして、下はそのまま */
-  }
-
-  /* すべてのカード系コンポーネントに左右マージンを付けて
-     画面の端から 4px だけ内側に収める */
-  .head,
-  .filters,
-  .card,
-  .empty{
-    margin-left:4px;
-    margin-right:4px;
-  }
+  body{background:var(--bg);color:var(--fg);}
+  .wrap{max-width:720px;margin:0 auto;padding:10px 12px 80px;}
 
   .head{
     padding:14px;
@@ -54,8 +24,7 @@
     border:1px solid rgba(148,163,184,0.3);
     background:linear-gradient(135deg,rgba(15,23,42,0.95),rgba(30,64,175,0.8));
     color:#e5e7eb;
-    margin-top:6px;
-    margin-bottom:12px;
+    margin:6px 0 12px 0;
     backdrop-filter:blur(12px);
   }
   .head-title{
@@ -70,13 +39,13 @@
 
   /* ===== フィルタ部 ===== */
   .filters{
+    margin:0 0 10px 0;
     padding:10px 12px;
     border-radius:14px;
     border:1px solid rgba(148,163,184,0.35);
     background:rgba(15,23,42,0.9);
     backdrop-filter:blur(10px);
     font-size:12px;
-    margin-bottom:10px;
   }
   .filter-row{
     display:flex;
@@ -142,11 +111,7 @@
     white-space:nowrap;
   }
 
-  .grid{
-    display:grid;
-    gap:10px;
-    width:100%;
-  }
+  .grid{display:grid;gap:10px;}
 
   .card{
     border-radius:14px;
@@ -154,7 +119,6 @@
     background:radial-gradient(circle at top left,rgba(56,189,248,0.10),rgba(15,23,42,0.95));
     padding:10px 12px;
     backdrop-filter:blur(10px);
-    width:auto;    /* 親の幅 - margin に自然に収まるようにする */
   }
 
   .row-top{
@@ -186,7 +150,6 @@
     border-radius:999px;
     padding:4px 8px;
     border:1px solid rgba(148,163,184,0.6);
-    white-space:nowrap;
   }
 
   .mode-badge{
@@ -237,6 +200,7 @@
   .kpi-val.pos{color:var(--ok);}
   .kpi-val.neg{color:var(--bad);}
 
+  /* ===== 結果ブロック（C案） ===== */
   .result{
     margin-top:8px;
     padding:6px 8px;
@@ -523,6 +487,7 @@
             </div>
           </div>
 
+          {# 結果（C案：カード下部の結果ブロック） #}
           {% if e.eval_label_rakuten or e.eval_label_matsui or e.eval_close_px %}
             <div class="result">
               <div class="result-head">
