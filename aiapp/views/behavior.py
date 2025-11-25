@@ -2,27 +2,22 @@
 from __future__ import annotations
 
 import json
-from collections import Counter, defaultdict
+import statistics
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils import timezone
 
 
-Number = Optional[float]
+Number = float | int
 
 
-# =========================================================
-# 内部ユーティリティ
-# =========================================================
-
-def _parse_float(v: Any) -> Optional[float]:
-    if v in (None, ""):
+def _to_float(v: Any) -> Optional[float]:
+    if v in (None, "", "null"):
         return None
     try:
         return float(v)
@@ -30,12 +25,30 @@ def _parse_float(v: Any) -> Optional[float]:
         return None
 
 
-def _parse_ts(ts_str: Optional[str]) -> Optional[timezone.datetime]:
-    """
-    ISO文字列 ts を timezone-aware datetime に。
-    失敗したら None。
-    """
-    if not isinstance(ts_str, str) or not ts_str:
+@dataclass
+class Record:
+    raw: Dict[str, Any]
+    ts: timezone.datetime
+    ts_label: str
+    mode: str
+    code: str
+    name: str
+    sector: str | None
+    qty_rakuten: float
+    eval_pl_rakuten: Optional[float]
+    eval_r_rakuten: Optional[float]
+    eval_label_rakuten: str | None
+    qty_matsui: float
+    eval_pl_matsui: Optional[float]
+    eval_label_matsui: str | None
+    last_close: Optional[float]
+    atr_14: Optional[float]
+    slope_20: Optional[float]
+    trend_daily: str | None
+
+
+def _parse_ts(ts_str: str) -> Optional[timezone.datetime]:
+    if not ts_str:
         return None
     try:
         dt = timezone.datetime.fromisoformat(ts_str)
@@ -46,332 +59,366 @@ def _parse_ts(ts_str: Optional[str]) -> Optional[timezone.datetime]:
         return None
 
 
-def _dedupe_records(raw_records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _load_behavior_records(user_id: int) -> List[Record]:
     """
-    同一銘柄・同一モード・同一エントリー価格の重複を 1 件にまとめる。
-    キー：
-        (code, price_date, mode, round(entry, 3))
-    後から来たレコードで上書き（＝最新の評価を採用）。
+    /media/aiapp/behavior/latest_behavior.jsonl を読み込んで
+    ログインユーザー分だけ Record リストにして返す。
     """
-    dedup: Dict[Tuple[str, str, str, float], Dict[str, Any]] = {}
-
-    # ts が古い順にしてから上書きすると、最終的に「最新」が残る
-    ordered = sorted(
-        raw_records,
-        key=lambda r: (_parse_ts(r.get("ts")) or timezone.datetime.min.replace(tzinfo=timezone.utc))
-    )
-
-    for rec in ordered:
-        code = str(rec.get("code") or "").strip()
-        mode = str(rec.get("mode") or "").lower()
-        price_date = str(rec.get("price_date") or "")
-        entry = _parse_float(rec.get("entry")) or 0.0
-        key = (code, price_date, mode, round(entry, 3))
-        dedup[key] = rec
-
-    return list(dedup.values())
-
-
-def _time_bucket(dt: Optional[timezone.datetime]) -> str:
-    """
-    時刻をざっくりバケツ分け。
-    """
-    if dt is None:
-        return "不明"
-    h = dt.hour
-    if 6 <= h < 9:
-        return "朝 6-9時"
-    if 9 <= h < 12:
-        return "午前 9-12時"
-    if 12 <= h < 15:
-        return "午後 12-15時"
-    if 15 <= h < 18:
-        return "夕方 15-18時"
-    return "夜間"
-
-
-@dataclass
-class SectorStat:
-    name: str
-    trials: int = 0
-    wins: int = 0
-
-    @property
-    def win_rate(self) -> float:
-        if self.trials <= 0:
-            return 0.0
-        return 100.0 * self.wins / self.trials
-
-
-# =========================================================
-# メインビュー
-# =========================================================
-
-@login_required
-def behavior_dashboard(request: HttpRequest) -> HttpResponse:
-    """
-    AI 自動シミュレ × 市場結果 × 特徴量 を統合した
-    「行動学習ダッシュボード」画面。
-    """
-    user = request.user
-    media_root = Path(settings.MEDIA_ROOT)
-    behavior_dir = media_root / "aiapp" / "behavior"
+    behavior_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "behavior"
     latest_path = behavior_dir / "latest_behavior.jsonl"
 
-    records: List[Dict[str, Any]] = []
+    records: List[Record] = []
+    if not latest_path.exists():
+        return records
 
-    if latest_path.exists():
+    try:
+        text = latest_path.read_text(encoding="utf-8")
+    except Exception:
+        return records
+
+    for line in text.splitlines():
+        raw_line = line.strip()
+        if not raw_line:
+            continue
         try:
-            text = latest_path.read_text(encoding="utf-8")
+            rec = json.loads(raw_line)
         except Exception:
-            text = ""
+            continue
 
-        for line in text.splitlines():
-            raw = line.strip()
-            if not raw:
-                continue
-            try:
-                rec = json.loads(raw)
-            except Exception:
-                continue
+        if rec.get("user_id") != user_id:
+            continue
 
-            # ログインユーザーの分だけ
-            if rec.get("user_id") != user.id:
-                continue
+        ts = _parse_ts(rec.get("ts") or "")
+        if ts is None:
+            continue
 
-            dt = _parse_ts(rec.get("ts"))
-            rec["_dt"] = dt
-            rec["ts_label"] = dt.strftime("%Y-%m-%d %H:%M") if dt else str(rec.get("ts") or "")
-            records.append(rec)
+        ts_label = ts.strftime("%Y-%m-%d %H:%M:%S%z")
+        mode = str(rec.get("mode") or "").lower()
+        code = str(rec.get("code") or "")
+        name = str(rec.get("name") or "")
+        sector = rec.get("sector")
+        if isinstance(sector, str) and sector.strip() == "":
+            sector = None
 
-    # データが無ければ空画面
+        qty_rakuten = _to_float(rec.get("qty_rakuten")) or 0.0
+        qty_matsui = _to_float(rec.get("qty_matsui")) or 0.0
+
+        eval_pl_r = _to_float(rec.get("eval_pl_rakuten"))
+        eval_pl_m = _to_float(rec.get("eval_pl_matsui"))
+        eval_r_r = _to_float(rec.get("eval_r_rakuten"))
+        eval_label_r = rec.get("eval_label_rakuten")
+        eval_label_m = rec.get("eval_label_matsui")
+
+        last_close = _to_float(rec.get("last_close"))
+        atr_14 = _to_float(rec.get("atr_14"))
+        slope_20 = _to_float(rec.get("slope_20"))
+        trend_daily = rec.get("trend_daily")
+
+        records.append(
+            Record(
+                raw=rec,
+                ts=ts,
+                ts_label=ts.strftime("%Y-%m-%d %H:%M"),
+                mode=mode,
+                code=code,
+                name=name,
+                sector=sector,
+                qty_rakuten=qty_rakuten,
+                eval_pl_rakuten=eval_pl_r,
+                eval_r_rakuten=eval_r_r,
+                eval_label_rakuten=eval_label_r,
+                qty_matsui=qty_matsui,
+                eval_pl_matsui=eval_pl_m,
+                eval_label_matsui=eval_label_m,
+                last_close=last_close,
+                atr_14=atr_14,
+                slope_20=slope_20,
+                trend_daily=trend_daily,
+            )
+        )
+
+    # ts 降順
+    records.sort(key=lambda r: r.ts, reverse=True)
+    return records
+
+
+def _mode_counts(records: List[Record]) -> Dict[str, int]:
+    out = {"live": 0, "demo": 0, "other": 0}
+    for r in records:
+        if r.mode == "live":
+            out["live"] += 1
+        elif r.mode == "demo":
+            out["demo"] += 1
+        else:
+            out["other"] += 1
+    return out
+
+
+def _pl_counts(records: List[Record], broker: str) -> Dict[str, int]:
+    out = {"win": 0, "lose": 0, "flat": 0, "no_position": 0, "none": 0}
+    for r in records:
+        if broker == "rakuten":
+            label = r.eval_label_rakuten
+            qty = r.qty_rakuten
+        else:
+            label = r.eval_label_matsui
+            qty = r.qty_matsui
+
+        if qty == 0:
+            out["no_position"] += 1
+            continue
+
+        if not label:
+            out["none"] += 1
+        elif label == "win":
+            out["win"] += 1
+        elif label == "lose":
+            out["lose"] += 1
+        elif label == "flat":
+            out["flat"] += 1
+        else:
+            out["none"] += 1
+    return out
+
+
+def _sector_stats(records: List[Record]) -> List[Dict[str, Any]]:
+    stat_map: Dict[str, Dict[str, Any]] = {}
+
+    for r in records:
+        if r.qty_rakuten <= 0:
+            continue
+        label = r.eval_label_rakuten
+        if label not in ("win", "lose", "flat"):
+            continue
+
+        name = r.sector or "(未分類)"
+        s = stat_map.setdefault(name, {"name": name, "wins": 0, "trials": 0})
+        s["trials"] += 1
+        if label == "win":
+            s["wins"] += 1
+
+    stats = list(stat_map.values())
+    for s in stats:
+        trials = s["trials"]
+        if trials > 0:
+            s["win_rate"] = s["wins"] * 100.0 / trials
+        else:
+            s["win_rate"] = 0.0
+
+    # 試行数→勝率の順でソート
+    stats.sort(key=lambda x: (-x["trials"], -x["win_rate"], x["name"]))
+    return stats
+
+
+def _make_distribution(
+    records: List[Record],
+    bucket_func,
+) -> List[Dict[str, Any]]:
+    buckets: Dict[str, int] = {}
+    total = 0
+    for r in records:
+        if r.qty_rakuten <= 0:
+            continue
+        label = r.eval_label_rakuten
+        if label not in ("win", "lose", "flat"):
+            continue
+
+        name = bucket_func(r)
+        buckets[name] = buckets.get(name, 0) + 1
+        total += 1
+
+    result: List[Dict[str, Any]] = []
+    for name, count in buckets.items():
+        pct = (count * 100.0 / total) if total > 0 else 0.0
+        result.append({"name": name, "count": count, "pct": pct})
+
+    result.sort(key=lambda x: -x["count"])
+    return result
+
+
+def _trend_bucket(r: Record) -> str:
+    t = (r.trend_daily or "").lower()
+    if t == "up":
+        return "上昇トレンド"
+    if t == "down":
+        return "下降トレンド"
+    if t in ("flat", "range"):
+        return "レンジ"
+    return "不明"
+
+
+def _time_bucket(r: Record) -> str:
+    h = r.ts.hour
+    m = r.ts.minute
+    total_min = h * 60 + m
+    # 日本株用ざっくりバケット
+    if total_min < 9 * 60 + 30:
+        return "寄り前〜寄り"
+    if total_min < 11 * 60:
+        return "前場"
+    if total_min < 13 * 60:
+        return "昼休み〜後場寄り"
+    if total_min < 15 * 60:
+        return "後場"
+    return "引け前〜引け後"
+
+
+def _atr_bucket(r: Record) -> str:
+    if r.atr_14 is None or r.last_close in (None, 0):
+        return "不明"
+    atr_pct = abs(r.atr_14) * 100.0 / r.last_close
+    if atr_pct < 1:
+        return "〜1％"
+    if atr_pct < 2:
+        return "1〜2％"
+    if atr_pct < 3:
+        return "2〜3％"
+    return "3％以上"
+
+
+def _slope_bucket(r: Record) -> str:
+    if r.slope_20 is None:
+        return "不明"
+    s = r.slope_20
+    if s <= -3:
+        return "強い下落"
+    if s < 0:
+        return "弱い下落"
+    if s < 3:
+        return "弱い上昇"
+    return "強い上昇"
+
+
+def _top_trades(records: List[Record], n: int = 5) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    valid = [r for r in records if r.qty_rakuten > 0 and r.eval_pl_rakuten is not None]
+    wins = [r for r in valid if r.eval_pl_rakuten > 0]
+    loses = [r for r in valid if r.eval_pl_rakuten < 0]
+
+    wins.sort(key=lambda r: r.eval_pl_rakuten, reverse=True)
+    loses.sort(key=lambda r: r.eval_pl_rakuten)
+
+    def _serialize(r: Record) -> Dict[str, Any]:
+        return {
+            "code": r.code,
+            "name": r.name,
+            "pl": r.eval_pl_rakuten or 0.0,
+            "mode": "LIVE" if r.mode == "live" else "DEMO",
+            "ts_label": r.ts_label,
+        }
+
+    top_win = [_serialize(r) for r in wins[:n]]
+    top_lose = [_serialize(r) for r in loses[:n]]
+    return top_win, top_lose
+
+
+def _kpi_metrics(records: List[Record]) -> Dict[str, Optional[float]]:
+    """
+    勝率・平均R・平均利益・平均損失（すべて楽天ベース）
+    """
+    trades = [
+        r for r in records
+        if r.qty_rakuten > 0 and r.eval_label_rakuten in ("win", "lose", "flat")
+    ]
+    if not trades:
+        return {
+            "kpi_win_rate": None,
+            "kpi_avg_r": None,
+            "kpi_avg_pl_win": None,
+            "kpi_avg_pl_lose": None,
+        }
+
+    wins = [r for r in trades if r.eval_label_rakuten == "win"]
+    loses = [r for r in trades if r.eval_label_rakuten == "lose"]
+
+    # 勝率
+    win_rate = (len(wins) * 100.0 / len(trades)) if trades else None
+
+    # 平均R
+    r_values: List[float] = []
+    for r in trades:
+        if r.eval_r_rakuten is not None:
+            r_values.append(float(r.eval_r_rakuten))
+        else:
+            # eval_r が無ければ PL / 想定損失 で代用
+            est_loss = _to_float(r.raw.get("est_loss_rakuten"))
+            if est_loss and est_loss != 0 and r.eval_pl_rakuten is not None:
+                r_values.append(r.eval_pl_rakuten / est_loss)
+    avg_r = statistics.mean(r_values) if r_values else None
+
+    # 平均利益 / 損失（円）
+    win_pls = [r.eval_pl_rakuten for r in wins if r.eval_pl_rakuten is not None]
+    lose_pls = [r.eval_pl_rakuten for r in loses if r.eval_pl_rakuten is not None]
+
+    avg_pl_win = statistics.mean(win_pls) if win_pls else None
+    avg_pl_lose = statistics.mean(lose_pls) if lose_pls else None
+
+    return {
+        "kpi_win_rate": win_rate,
+        "kpi_avg_r": avg_r,
+        "kpi_avg_pl_win": avg_pl_win,
+        "kpi_avg_pl_lose": avg_pl_lose,
+    }
+
+
+def _build_insights(records: List[Record], sector_stats: List[Dict[str, Any]]) -> List[str]:
+    insights: List[str] = []
+    if not records:
+        return insights
+
+    kpi = _kpi_metrics(records)
+    win_rate = kpi["kpi_win_rate"]
+    if win_rate is not None:
+        insights.append(f"直近のトレード勝率はおよそ {win_rate:.1f}％ です。")
+
+    if sector_stats:
+        best = max(sector_stats, key=lambda s: s["win_rate"])
+        insights.append(
+            f"現時点では「{best['name']}」が比較的得意なセクターです（勝率 {best['win_rate']:.1f}％）。"
+        )
+
+    # トレンド傾向
+    t_stats = _make_distribution(records, _trend_bucket)
+    up = next((x for x in t_stats if x["name"] == "上昇トレンド"), None)
+    if up and up["pct"] >= 60:
+        insights.append("上昇トレンド銘柄へのエントリー比率が高めです。")
+
+    # ATR（ボラティリティ）
+    a_stats = _make_distribution(records, _atr_bucket)
+    mid = next((x for x in a_stats if x["name"] == "1〜2％"), None)
+    if mid and mid["pct"] >= 40:
+        insights.append("ATR 1〜2％帯の中程度ボラ銘柄を中心に取引しています。")
+
+    if not insights:
+        insights.append("まだデータが少ないため、今後のトレードが増えるとより詳しい傾向を表示できます。")
+
+    return insights
+
+
+@login_required
+def behavior_dashboard(request):
+    user = request.user
+    records = _load_behavior_records(user.id)
+
     if not records:
         ctx = {
             "has_data": False,
-            "total": 0,
         }
         return render(request, "aiapp/behavior_dashboard.html", ctx)
 
-    # 重複排除
-    records = _dedupe_records(records)
-
-    # ts 降順にソート（新しい順）
-    records.sort(
-        key=lambda r: (r.get("_dt") or timezone.datetime.min.replace(tzinfo=timezone.utc)),
-        reverse=True,
-    )
-
     total = len(records)
+    mode_counts = _mode_counts(records)
+    pl_counts_r = _pl_counts(records, "rakuten")
+    pl_counts_m = _pl_counts(records, "matsui")
 
-    # -----------------------------------------------------
-    # モード内訳
-    # -----------------------------------------------------
-    mode_counts = Counter(str(r.get("mode") or "").lower() for r in records)
-    mode_counts = {
-        "live": mode_counts.get("live", 0),
-        "demo": mode_counts.get("demo", 0),
-        "other": total - mode_counts.get("live", 0) - mode_counts.get("demo", 0),
-    }
+    sector_stats = _sector_stats(records)
+    trend_stats = _make_distribution(records, _trend_bucket)
+    time_stats = _make_distribution(records, _time_bucket)
+    atr_stats = _make_distribution(records, _atr_bucket)
+    slope_stats = _make_distribution(records, _slope_bucket)
 
-    # -----------------------------------------------------
-    # 勝敗サマリ（楽天 / 松井）
-    # -----------------------------------------------------
-    def _pl_summary(broker: str) -> Dict[str, int]:
-        labels = Counter()
-        for r in records:
-            label = r.get(f"eval_label_{broker}")
-            if label in ("win", "lose", "flat", "no_position"):
-                labels[label] += 1
-            else:
-                labels["none"] += 1
-        return {
-            "win": labels.get("win", 0),
-            "lose": labels.get("lose", 0),
-            "flat": labels.get("flat", 0),
-            "no_position": labels.get("no_position", 0),
-            "none": labels.get("none", 0),
-        }
-
-    pl_counts_r = _pl_summary("rakuten")
-    pl_counts_m = _pl_summary("matsui")
-
-    # -----------------------------------------------------
-    # セクター別勝率（楽天）
-    # -----------------------------------------------------
-    sector_map: Dict[str, SectorStat] = {}
-
-    for r in records:
-        sec = str(r.get("sector") or "(未分類)")
-        label = r.get("eval_label_rakuten")
-        if sec not in sector_map:
-            sector_map[sec] = SectorStat(name=sec)
-        st = sector_map[sec]
-
-        if label in ("win", "lose", "flat"):
-            st.trials += 1
-            if label == "win":
-                st.wins += 1
-
-    sector_stats: List[SectorStat] = sorted(
-        sector_map.values(),
-        key=lambda s: (-s.trials, s.name),
-    )
-
-    # -----------------------------------------------------
-    # トレンド / 時間帯 / ATR / slope の簡易集計
-    # -----------------------------------------------------
-    trend_counter = Counter()
-    time_counter = Counter()
-    atr_counter = Counter()
-    slope_counter = Counter()
-
-    r_values: List[float] = []  # 全トレードの R（楽天）
-
-    for r in records:
-        # trend_daily
-        trend = str(r.get("trend_daily") or "").lower()
-        if trend in ("up", "down", "flat"):
-            if trend == "up":
-                trend_counter["上昇トレンド"] += 1
-            elif trend == "down":
-                trend_counter["下降トレンド"] += 1
-            else:
-                trend_counter["レンジ"] += 1
-        else:
-            trend_counter["不明"] += 1
-
-        # 時間帯
-        dt = r.get("_dt")
-        time_bucket = _time_bucket(dt)
-        time_counter[time_bucket] += 1
-
-        # ATR 帯（ATR / entry の比率）
-        entry = _parse_float(r.get("entry"))
-        atr = _parse_float(r.get("atr_14") or r.get("atr"))
-        if entry and atr:
-            atr_pct = 100.0 * atr / entry
-            if atr_pct < 1.0:
-                atr_counter["〜1%"] += 1
-            elif atr_pct < 2.0:
-                atr_counter["1〜2%"] += 1
-            elif atr_pct < 3.0:
-                atr_counter["2〜3%"] += 1
-            else:
-                atr_counter["3%以上"] += 1
-        else:
-            atr_counter["不明"] += 1
-
-        # slope 帯
-        slope = _parse_float(r.get("slope_20"))
-        if slope is None:
-            slope_counter["不明"] += 1
-        else:
-            if slope < 0:
-                slope_counter["マイナス傾き"] += 1
-            elif slope < 3:
-                slope_counter["なだらか"] += 1
-            elif slope < 7:
-                slope_counter["適度に強い"] += 1
-            else:
-                slope_counter["かなり強い"] += 1
-
-        # R 値
-        r_val = _parse_float(r.get("eval_r_rakuten"))
-        if r_val is not None:
-            r_values.append(r_val)
-
-    def _counter_to_list(c: Counter) -> List[Dict[str, Any]]:
-        total_c = sum(c.values())
-        result: List[Dict[str, Any]] = []
-        for name, cnt in c.most_common():
-            pct = (100.0 * cnt / total_c) if total_c > 0 else 0.0
-            result.append({"name": name, "count": cnt, "pct": pct})
-        return result
-
-    trend_stats = _counter_to_list(trend_counter)
-    time_stats = _counter_to_list(time_counter)
-    atr_stats = _counter_to_list(atr_counter)
-    slope_stats = _counter_to_list(slope_counter)
-
-    # -----------------------------------------------------
-    # TOP 勝ち / 負け（楽天PLベース）
-    # -----------------------------------------------------
-    def _top_pl(label: str, limit: int = 5) -> List[Dict[str, Any]]:
-        items: List[Dict[str, Any]] = []
-        for r in records:
-            if r.get("eval_label_rakuten") != label:
-                continue
-            pl = _parse_float(r.get("eval_pl_rakuten"))
-            if pl is None:
-                continue
-            items.append(
-                {
-                    "code": r.get("code"),
-                    "name": r.get("name"),
-                    "mode": r.get("mode"),
-                    "pl": pl,
-                    "ts": r.get("ts"),
-                    "ts_label": r.get("ts_label"),
-                }
-            )
-        # 勝ちは PL 降順、負けは昇順
-        reverse = label == "win"
-        items.sort(key=lambda x: x["pl"], reverse=reverse)
-        return items[:limit]
-
-    top_win = _top_pl("win", limit=5)
-    top_lose = _top_pl("lose", limit=5)
-
-    # -----------------------------------------------------
-    # AI インサイト（自然言語メモ）
-    # -----------------------------------------------------
-    insights: List[str] = []
-
-    # 勝率ベースの短いまとめ
-    trials_r = pl_counts_r["win"] + pl_counts_r["lose"] + pl_counts_r["flat"]
-    if trials_r > 0:
-        win_rate_total = 100.0 * pl_counts_r["win"] / trials_r
-        insights.append(
-            f"紙トレ全体の勝率はおよそ {win_rate_total:.1f}% です（対象 {trials_r} トレード）。"
-        )
-
-    # セクターの得意・不得意
-    sectors_with_trials = [s for s in sector_stats if s.trials >= 2]
-    if sectors_with_trials:
-        best = max(sectors_with_trials, key=lambda s: s.win_rate)
-        worst = min(sectors_with_trials, key=lambda s: s.win_rate)
-        insights.append(
-            f"現時点では「{best.name}」が最も好成績で、勝率 {best.win_rate:.1f}%（{best.wins}/{best.trials}）です。"
-        )
-        if worst.name != best.name:
-            insights.append(
-                f"一方で「{worst.name}」は勝率 {worst.win_rate:.1f}% と伸び悩んでいます。ロットを抑えるか、条件を絞ると良さそうです。"
-            )
-
-    # 時間帯の得意・不得意
-    if time_stats:
-        best_time = max(time_stats, key=lambda x: x["pct"])
-        insights.append(
-            f"エントリー時刻は「{best_time['name']}」の比率が最も高く、全体の {best_time['pct']:.1f}% を占めています。"
-        )
-
-    # R 値の傾向
-    if r_values:
-        avg_r = sum(r_values) / len(r_values)
-        if avg_r > 0:
-            insights.append(
-                f"R ベースの平均成績は {avg_r:.2f}R とプラス傾向です。利確幅に対して損切り幅が適切にコントロールできています。"
-            )
-        else:
-            insights.append(
-                f"R ベースの平均成績は {avg_r:.2f}R とマイナス寄りです。損切りまでの距離を広げすぎていないか、または利確が早すぎないかを見直す余地があります。"
-            )
-
-    # データ件数が少ないときの注意
-    if total < 20:
-        insights.append(
-            "まだサンプル数が少ないため、傾向は暫定です。紙トレを重ねるほど、あなた専用のAIアドバイザーが賢くなります。"
-        )
+    top_win, top_lose = _top_trades(records, n=5)
+    kpi = _kpi_metrics(records)
+    insights = _build_insights(records, sector_stats)
 
     ctx = {
         "has_data": True,
@@ -387,5 +434,10 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         "top_win": top_win,
         "top_lose": top_lose,
         "insights": insights,
+        # KPI 4つ
+        "kpi_win_rate": kpi["kpi_win_rate"],
+        "kpi_avg_r": kpi["kpi_avg_r"],
+        "kpi_avg_pl_win": kpi["kpi_avg_pl_win"],
+        "kpi_avg_pl_lose": kpi["kpi_avg_pl_lose"],
     }
     return render(request, "aiapp/behavior_dashboard.html", ctx)
