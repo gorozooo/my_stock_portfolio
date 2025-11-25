@@ -42,6 +42,6 @@ urlpatterns = [
     path("simulate/<int:pk>/result/", simulate_result, name="simulate_result"),
     
     # ★ シミュレ結果ダッシュボード
-    path("behavior/", views.behavior_dashboard, name="behavior_dashboard"),
+    path("behavior/", behavior_dashboard, name="behavior_dashboard"),
     
 ]
