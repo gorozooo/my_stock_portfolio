@@ -30,21 +30,22 @@
     box-sizing:border-box;
   }
 
+  /* 画面幅より少しだけ内側に寄せる */
   .wrap{
     max-width:720px;
     width:100%;
     margin:0 auto;
-    padding:10px 12px 80px;
+    padding:10px 4px 80px;   /* ← 左右の余白を少し減らして、下はそのまま */
   }
 
-  /* ★ スマホ幅のときは少しだけ縮めて中央寄せ（右はみ出し防止） */
-  @media (max-width: 480px){
-    .wrap{
-      width:94vw;          /* 画面幅より少し狭くする */
-      max-width:94vw;
-      padding:10px 3vw 80px;
-      margin:0 auto;
-    }
+  /* すべてのカード系コンポーネントに左右マージンを付けて
+     画面の端から 4px だけ内側に収める */
+  .head,
+  .filters,
+  .card,
+  .empty{
+    margin-left:4px;
+    margin-right:4px;
   }
 
   .head{
@@ -53,7 +54,8 @@
     border:1px solid rgba(148,163,184,0.3);
     background:linear-gradient(135deg,rgba(15,23,42,0.95),rgba(30,64,175,0.8));
     color:#e5e7eb;
-    margin:6px 0 12px 0;
+    margin-top:6px;
+    margin-bottom:12px;
     backdrop-filter:blur(12px);
   }
   .head-title{
@@ -68,13 +70,13 @@
 
   /* ===== フィルタ部 ===== */
   .filters{
-    margin:0 0 10px 0;
     padding:10px 12px;
     border-radius:14px;
     border:1px solid rgba(148,163,184,0.35);
     background:rgba(15,23,42,0.9);
     backdrop-filter:blur(10px);
     font-size:12px;
+    margin-bottom:10px;
   }
   .filter-row{
     display:flex;
@@ -152,7 +154,7 @@
     background:radial-gradient(circle at top left,rgba(56,189,248,0.10),rgba(15,23,42,0.95));
     padding:10px 12px;
     backdrop-filter:blur(10px);
-    width:100%;
+    width:auto;    /* 親の幅 - margin に自然に収まるようにする */
   }
 
   .row-top{
@@ -268,7 +270,7 @@
   }
   .result-name{
     font-size:11px;
-    color:#var(--muted);
+    color:var(--muted);
   }
   .result-right{
     display:flex;
