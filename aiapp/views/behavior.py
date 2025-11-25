@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+from collections import Counter, defaultdict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
@@ -12,453 +14,469 @@ from django.shortcuts import render
 from django.utils import timezone
 
 
-Number = float | int
+Number = Optional[float]
 
 
-# ------------------------------------------------------------
-# ユーティリティ
-# ------------------------------------------------------------
-def _to_float(v: Any) -> float | None:
+@dataclass
+class TradeSide:
+    broker: str          # "楽天" or "松井"
+    pl: float            # 損益
+    r: Optional[float]   # R
+    label: str           # "win" / "lose" / "flat" / "no_position" / "none"
+    ts: str              # 元の ts 文字列
+    ts_label: str        # 表示用 ts
+    code: str
+    name: str
+    mode: str            # live / demo / other
+
+
+def _safe_float(v: Any) -> Optional[float]:
     if v in (None, "", "null"):
         return None
     try:
-        return float(v)
+            return float(v)
     except Exception:
         return None
 
 
-def _load_behavior_rows(user_id: int) -> List[Dict[str, Any]]:
-    """
-    latest_behavior.jsonl から、ログインユーザーの行だけ読み込む。
-    """
-    behavior_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "behavior"
-    path = behavior_dir / "latest_behavior.jsonl"
-
-    if not path.exists():
-        return []
-
-    rows: List[Dict[str, Any]] = []
+def _parse_dt(ts_str: str) -> Optional[timezone.datetime]:
+    if not ts_str:
+        return None
     try:
-        text = path.read_text(encoding="utf-8")
+        dt = timezone.datetime.fromisoformat(ts_str)
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, timezone.get_default_timezone())
+        return timezone.localtime(dt)
     except Exception:
-        return []
-
-    for line in text.splitlines():
-        raw = line.strip()
-        if not raw:
-            continue
-        try:
-            rec = json.loads(raw)
-        except Exception:
-            continue
-
-        if rec.get("user_id") != user_id:
-            continue
-
-        # ts → ラベル
-        ts_str = rec.get("ts")
-        ts_label = ""
-        if isinstance(ts_str, str) and ts_str:
-            try:
-                dt = timezone.datetime.fromisoformat(ts_str)
-                if timezone.is_naive(dt):
-                    dt = timezone.make_aware(dt, timezone.get_default_timezone())
-                dt = timezone.localtime(dt)
-                ts_label = dt.strftime("%Y-%m-%d %H:%M")
-            except Exception:
-                ts_label = ts_str
-        rec["ts_label"] = ts_label
-
-        rows.append(rec)
-
-    return rows
+        return None
 
 
-def _dedupe_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _dedup_records(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    同じ銘柄・モード・日付・エントリー・数量の完全重複を除外する。
-    （同じ日に同じ銘柄を何度もテストしても、1件として扱う）
+    行動データ latest_behavior.jsonl から読み込んだレコードを
+    「同日・同コード・同モード・同エントリー・同数量」で重複除外する。
+
+    同じシミュレを 2回・3回 build しても、ここで 1件にまとめる。
     """
     seen: set[Tuple[Any, ...]] = set()
-    unique: List[Dict[str, Any]] = []
+    deduped: List[Dict[str, Any]] = []
 
-    for r in rows:
-        code = r.get("code")
-        mode = r.get("mode")
-        price_date = r.get("price_date")
-        entry = _to_float(r.get("entry"))
-        qty_r = _to_float(r.get("qty_rakuten")) or 0.0
-        qty_m = _to_float(r.get("qty_matsui")) or 0.0
-
-        # entry は小数点2桁で丸めてキーにする
-        entry_key = round(entry, 2) if entry is not None else None
-
-        key = (code, mode, price_date, entry_key, qty_r, qty_m)
+    for r in raw_rows:
+        entry = _safe_float(r.get("entry")) or 0.0
+        key = (
+            r.get("user_id"),
+            r.get("mode"),
+            r.get("code"),
+            r.get("price_date"),
+            round(entry, 3),
+            _safe_float(r.get("qty_rakuten")) or 0.0,
+            _safe_float(r.get("qty_matsui")) or 0.0,
+        )
         if key in seen:
             continue
         seen.add(key)
-        unique.append(r)
+        deduped.append(r)
 
-    return unique
+    return deduped
 
 
-def _count_pl_label(rec: Dict[str, Any], broker: str) -> str:
+def _make_ts_label(ts_str: str) -> str:
+    dt = _parse_dt(ts_str)
+    if dt is None:
+        return ts_str or ""
+    return dt.strftime("%Y-%m-%d %H:%M")
+
+
+def _bucket_time_of_day(ts_str: str) -> str:
+    dt = _parse_dt(ts_str)
+    if dt is None:
+        return "その他"
+    h = dt.hour * 60 + dt.minute
+    # 09:00-11:30 / 11:30-13:00 / 13:00-15:00
+    if 9 * 60 <= h < 11 * 60 + 30:
+        return "前場寄り〜11:30"
+    if 11 * 60 + 30 <= h < 13 * 60:
+        return "お昼〜後場寄り"
+    if 13 * 60 <= h <= 15 * 60:
+        return "後場〜大引け"
+    return "時間外/その他"
+
+
+def _bucket_atr(atr: Optional[float]) -> str:
+    if atr is None:
+        return "不明"
+    if atr < 1.0:
+        return "ATR 〜1%"
+    if atr < 2.0:
+        return "ATR 1〜2%"
+    if atr < 3.0:
+        return "ATR 2〜3%"
+    return "ATR 3%以上"
+
+
+def _bucket_slope(slope: Optional[float]) -> str:
+    if slope is None:
+        return "不明"
+    if slope < 0:
+        return "下向き"
+    if slope < 5:
+        return "緩やかな上向き"
+    if slope < 10:
+        return "強めの上向き"
+    return "急騰寄り"
+
+
+def _build_insights(
+    total_trades: int,
+    win_rate_all: Optional[float],
+    sector_stats: List[Dict[str, Any]],
+    kpi_avg_win: Optional[float],
+    kpi_avg_loss: Optional[float],
+    dist_trend: Dict[str, int],
+) -> List[str]:
     """
-    eval_label_{broker} を win/lose/flat/no_position/none のいずれかに正規化。
+    インサイト文（テキスト）の生成。
+    濃度C：3〜5行くらいの簡易コメント。
     """
-    label = rec.get(f"eval_label_{broker}")
-    if label in ("win", "lose", "flat", "no_position"):
-        return label
-    # qty が 0 なら no_position 扱い
-    qty = _to_float(rec.get(f"qty_{broker}")) or 0.0
-    if qty == 0:
-        return "no_position"
-    return "none"
+    msgs: List[str] = []
+
+    # 1) 勝率コメント
+    if total_trades >= 5 and win_rate_all is not None:
+        msgs.append(
+            f"直近のトレード勝率はおよそ {win_rate_all:.1f}% です（対象 {total_trades} トレード）。"
+        )
+
+    # 2) セクターの得意・不得意
+    best_sector: Optional[Tuple[str, float, int]] = None  # (name, win_rate, trials)
+    worst_sector: Optional[Tuple[str, float, int]] = None
+
+    for s in sector_stats:
+        trials = s["trials"]
+        wins = s["wins"]
+        if trials < 2:
+            continue
+        rate = (wins / trials) * 100 if trials > 0 else 0.0
+
+        if best_sector is None or rate > best_sector[1]:
+            best_sector = (s["name"], rate, trials)
+        if worst_sector is None or rate < worst_sector[1]:
+            worst_sector = (s["name"], rate, trials)
+
+    if best_sector is not None:
+        name, rate, trials = best_sector
+        msgs.append(
+            f"現状では「{name}」が比較的得意で、勝率は {rate:.1f}%（{trials} 件）になっています。"
+        )
+
+    if worst_sector is not None and worst_sector != best_sector:
+        name, rate, trials = worst_sector
+        msgs.append(
+            f"一方で「{name}」はまだサンプルが少ないか、やや相性が悪い傾向があります（勝率 {rate:.1f}%／{trials} 件）。"
+        )
+
+    # 3) 平均利益・損失のバランス
+    if kpi_avg_win is not None and kpi_avg_loss is not None:
+        loss_abs = abs(kpi_avg_loss)
+        msgs.append(
+            f"1トレードあたりの平均利益は約 {kpi_avg_win:,.0f} 円、平均損失は約 {loss_abs:,.0f} 円です。"
+            " いまは損失側の方がやや大きいため、損切り幅の見直しやロット調整の余地があります。"
+        )
+
+    # 4) トレンド方向の偏り
+    if dist_trend:
+        up_count = dist_trend.get("up", 0)
+        dn_count = dist_trend.get("down", 0)
+        total = sum(dist_trend.values())
+        if total > 0:
+            up_pct = up_count / total * 100
+            if up_pct >= 70:
+                msgs.append(
+                    "上昇トレンド銘柄へのエントリーが中心になっており、"
+                    "押し目〜順張りパターンに強みが集まりつつあります。"
+                )
+
+    if not msgs:
+        msgs.append(
+            "まだデータ量が少ないため、はっきりしたクセは出ていません。"
+            " AI Picks のシミュレを継続して貯めると、勝ちパターンと負けパターンがより明確になります。"
+        )
+
+    return msgs
 
 
-def _make_dist(items: List[Tuple[str, int]], total: int) -> List[Dict[str, Any]]:
-    """
-    [("上昇トレンド", 10), ...] から
-    [{"name": "...", "count": 10, "pct": 76.9}, ...] を生成。
-    """
-    if total <= 0:
-        total = 1
-    out: List[Dict[str, Any]] = []
-    for name, cnt in items:
-        pct = (cnt / total) * 100.0
-        out.append({"name": name, "count": cnt, "pct": pct})
-    return out
-
-
-# ------------------------------------------------------------
-# メインビュー
-# ------------------------------------------------------------
 @login_required
 def behavior_dashboard(request: HttpRequest) -> HttpResponse:
+    """
+    latest_behavior.jsonl を読み込んで、
+    - 重複シミュレを除外
+    - 楽天 + 松井 をまとめて集計
+    - KPI / セクター / 相性マップ / TOP トレード / インサイト
+    を表示するダッシュボード。
+    """
     user = request.user
+    behavior_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "behavior"
+    latest_path = behavior_dir / "latest_behavior.jsonl"
 
-    # 1) 行動データ読み込み ＋ 重複除去
-    rows_raw = _load_behavior_rows(user.id)
-    rows = _dedupe_rows(rows_raw)
-
-    has_data = len(rows) > 0
+    has_data = latest_path.exists()
     if not has_data:
+        ctx = {"has_data": False}
+        return render(request, "aiapp/behavior_dashboard.html", ctx)
+
+    # ---------- JSONL 読み込み ----------
+    raw_rows: List[Dict[str, Any]] = []
+    try:
+        text = latest_path.read_text(encoding="utf-8")
+    except Exception:
+        text = ""
+
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except Exception:
+            continue
+        if rec.get("user_id") != user.id:
+            continue
+        raw_rows.append(rec)
+
+    # ユーザー分だけになった状態から重複除外
+    rows = _dedup_records(raw_rows)
+
+    if not rows:
         ctx = {"has_data": False}
         return render(request, "aiapp/behavior_dashboard.html", ctx)
 
     total = len(rows)
 
-    # --------------------------------------------------------
-    # モード内訳
-    # --------------------------------------------------------
-    mode_counts = {"live": 0, "demo": 0, "other": 0}
+    # ---------- モード別件数 ----------
+    mode_counts = Counter()
     for r in rows:
-        m = (r.get("mode") or "").lower()
-        if m == "live":
-            mode_counts["live"] += 1
-        elif m == "demo":
-            mode_counts["demo"] += 1
+        mode = (r.get("mode") or "").lower()
+        if mode not in ("live", "demo"):
+            mode = "other"
+        mode_counts[mode] += 1
+
+    # ---------- 楽天 / 松井ごとの勝敗カウント & 全体KPI ----------
+    pl_counts_r = Counter()
+    pl_counts_m = Counter()
+
+    all_trades: List[TradeSide] = []
+
+    def add_side(broker: str, r: Dict[str, Any]) -> None:
+        # キー名をブローカーごとにマッピング
+        if broker == "楽天":
+            label_key = "eval_label_rakuten"
+            pl_key = "eval_pl_rakuten"
+            r_key = "eval_r_rakuten"
+            qty_key = "qty_rakuten"
+            est_loss_key = "est_loss_rakuten"
         else:
-            mode_counts["other"] += 1
+            label_key = "eval_label_matsui"
+            pl_key = "eval_pl_matsui"
+            r_key = "eval_r_matsui"
+            qty_key = "qty_matsui"
+            est_loss_key = "est_loss_matsui"
 
-    # --------------------------------------------------------
-    # 勝敗カウント（楽天 / 松井 それぞれ）
-    # --------------------------------------------------------
-    def _init_pl_counts() -> Dict[str, int]:
-        return {"win": 0, "lose": 0, "flat": 0, "no_position": 0, "none": 0}
+        label = (r.get(label_key) or "none").lower()
+        pl_val = _safe_float(r.get(pl_key))
+        r_val = _safe_float(r.get(r_key))
+        qty = _safe_float(r.get(qty_key)) or 0.0
 
-    pl_counts_r = _init_pl_counts()
-    pl_counts_m = _init_pl_counts()
-
-    for r in rows:
-        lbl_r = _count_pl_label(r, "rakuten")
-        pl_counts_r[lbl_r] += 1
-        lbl_m = _count_pl_label(r, "matsui")
-        pl_counts_m[lbl_m] += 1
-
-    # --------------------------------------------------------
-    # KPI 用：勝率（全体）・平均R・平均利益・平均損失
-    # --------------------------------------------------------
-    win_trades = 0
-    lose_trades = 0
-    flat_trades = 0
-
-    win_pl_list: List[float] = []
-    lose_pl_list: List[float] = []
-    r_trade_list: List[float] = []
-
-    for r in rows:
-        # 1トレードの「合算PL」
-        pl_r = _to_float(r.get("eval_pl_rakuten")) or 0.0
-        pl_m = _to_float(r.get("eval_pl_matsui")) or 0.0
-        qty_r = _to_float(r.get("qty_rakuten")) or 0.0
-        qty_m = _to_float(r.get("qty_matsui")) or 0.0
-
-        if qty_r == 0 and qty_m == 0:
-            # どちらの口座でもポジションを取っていない
-            continue
-
-        total_pl = pl_r + pl_m
-
-        if total_pl > 0:
-            win_trades += 1
-            win_pl_list.append(total_pl)
-        elif total_pl < 0:
-            lose_trades += 1
-            lose_pl_list.append(total_pl)
+        # 数量0なら実質 no_position 扱い
+        if qty == 0:
+            label = "no_position"
+            if pl_val is None:
+                pl_val = 0.0
+            r_val = None
         else:
-            flat_trades += 1
+            # Rがファイルに無ければ PL / est_loss から逆算
+            if r_val is None:
+                loss_val = _safe_float(r.get(est_loss_key))
+                if pl_val is None:
+                    pl_val = 0.0
+                if loss_val and loss_val != 0:
+                    r_val = float(pl_val) / float(loss_val)
 
-        # R 値（1トレード分）
-        r_parts: List[float] = []
-        for broker in ("rakuten", "matsui"):
-            qty = _to_float(r.get(f"qty_{broker}")) or 0.0
-            if qty == 0:
-                continue
-            rv = _to_float(r.get(f"eval_r_{broker}"))
-            if rv is None:
-                continue
-            r_parts.append(rv)
+        # カウンタ更新
+        if broker == "楽天":
+            pl_counts_r[label] += 1
+        else:
+            pl_counts_m[label] += 1
 
-        if r_parts:
-            r_trade = sum(r_parts) / len(r_parts)
-            r_trade_list.append(r_trade)
-
-    # 勝率（win / (win+lose)）
-    denom = win_trades + lose_trades
-    if denom > 0:
-        win_rate_overall = (win_trades / denom) * 100.0
-    else:
-        win_rate_overall = None
-
-    # 平均R
-    if r_trade_list:
-        avg_r = sum(r_trade_list) / len(r_trade_list)
-    else:
-        avg_r = None
-
-    # 平均利益（勝ちのみ）
-    if win_pl_list:
-        avg_profit = sum(win_pl_list) / len(win_pl_list)
-    else:
-        avg_profit = None
-
-    # 平均損失（負けのみ）
-    if lose_pl_list:
-        avg_loss = sum(lose_pl_list) / len(lose_pl_list)
-    else:
-        avg_loss = None
-
-    # --------------------------------------------------------
-    # セクター別勝率（楽天）
-    # --------------------------------------------------------
-    sector_map: Dict[str, Dict[str, Any]] = {}
+        # 実トレード（勝/負/引き分け）のみ全体 KPI / TOP 用に追加
+        if label in ("win", "lose", "flat"):
+            if pl_val is None:
+                pl_val = 0.0
+            trade = TradeSide(
+                broker=broker,
+                pl=float(pl_val),
+                r=r_val,
+                label=label,
+                ts=str(r.get("ts") or ""),
+                ts_label=_make_ts_label(str(r.get("ts") or "")),
+                code=str(r.get("code") or ""),
+                name=str(r.get("name") or ""),
+                mode=str(r.get("mode") or ""),
+            )
+            all_trades.append(trade)
 
     for r in rows:
-        sector = r.get("sector") or "(未分類)"
-        s = sector_map.setdefault(sector, {"name": sector, "wins": 0, "trials": 0})
-        lbl = _count_pl_label(r, "rakuten")
-        if lbl in ("win", "lose"):
-            s["trials"] += 1
-            if lbl == "win":
-                s["wins"] += 1
+        add_side("楽天", r)
+        add_side("松井", r)
+
+    # 勝率・平均R・平均利益/損失（楽天＋松井 全体）
+    win_trades = [t for t in all_trades if t.label == "win"]
+    lose_trades = [t for t in all_trades if t.label == "lose"]
+
+    total_win_lose = len(win_trades) + len(lose_trades)
+    win_rate_all: Optional[float] = None
+    if total_win_lose > 0:
+        win_rate_all = len(win_trades) / total_win_lose * 100.0
+
+    r_values = [t.r for t in all_trades if t.r is not None]
+    avg_r: Optional[float] = None
+    if r_values:
+        avg_r = sum(r_values) / len(r_values)
+
+    avg_win: Optional[float] = None
+    if win_trades:
+        avg_win = sum(t.pl for t in win_trades) / len(win_trades)
+
+    avg_loss: Optional[float] = None
+    if lose_trades:
+        avg_loss = sum(t.pl for t in lose_trades) / len(lose_trades)
+
+    # ---------- セクター別勝率（楽天のみ） ----------
+    sector_counter_trials: Dict[str, int] = defaultdict(int)
+    sector_counter_win: Dict[str, int] = defaultdict(int)
+
+    for r in rows:
+        label = (r.get("eval_label_rakuten") or "none").lower()
+        sector = str(r.get("sector") or "(未分類)")
+        if label in ("win", "lose", "flat"):
+            sector_counter_trials[sector] += 1
+            if label == "win":
+                sector_counter_win[sector] += 1
 
     sector_stats: List[Dict[str, Any]] = []
-    for sec, s in sector_map.items():
-        trials = s["trials"]
-        wins = s["wins"]
-        if trials > 0:
-            win_rate = (wins / trials) * 100.0
-        else:
-            win_rate = 0.0
+    for sec, trials in sector_counter_trials.items():
+        wins = sector_counter_win.get(sec, 0)
+        win_rate = (wins / trials * 100.0) if trials > 0 else 0.0
         sector_stats.append(
-            {"name": sec, "wins": wins, "trials": trials, "win_rate": win_rate}
+            {"name": sec, "trials": trials, "wins": wins, "win_rate": win_rate}
         )
 
-    # 表示順：試行数 ↓
-    sector_stats.sort(key=lambda x: x["trials"], reverse=True)
+    sector_stats.sort(key=lambda x: (-x["trials"], -x["win_rate"]))
 
-    # --------------------------------------------------------
-    # 相性マップ用の分布
-    #  trend_daily / 時間帯 / ATR / slope などを簡易集計
-    # --------------------------------------------------------
-    # トレンド
-    trend_counter = {"up": 0, "flat": 0, "down": 0, "other": 0}
+    # ---------- 相性マップ ----------
+    trend_counter: Dict[str, int] = defaultdict(int)
+    time_counter: Dict[str, int] = defaultdict(int)
+    atr_counter: Dict[str, int] = defaultdict(int)
+    slope_counter: Dict[str, int] = defaultdict(int)
+
     for r in rows:
-        t = (r.get("trend_daily") or "").lower()
-        if t in trend_counter:
-            trend_counter[t] += 1
-        else:
-            trend_counter["other"] += 1
-    trend_stats = _make_dist(
-        [
-            ("上昇トレンド", trend_counter["up"]),
-            ("もみ合い", trend_counter["flat"]),
-            ("下降トレンド", trend_counter["down"]),
-        ],
-        total=sum(trend_counter.values()),
-    )
+        trend = str(r.get("trend_daily") or "不明")
+        trend_counter[trend] += 1
 
-    # 時間帯（ざっくり：寄り〜11時 / 11〜14時 / 14時〜）
-    time_counter = {"am_open": 0, "mid": 0, "pm": 0}
-    for r in rows:
-        ts_str = r.get("ts")
-        if not isinstance(ts_str, str) or not ts_str:
-            continue
-        try:
-            dt = timezone.datetime.fromisoformat(ts_str)
-            if timezone.is_naive(dt):
-                dt = timezone.make_aware(dt, timezone.get_default_timezone())
-            dt = timezone.localtime(dt)
-            h = dt.hour
-        except Exception:
-            continue
-        if 9 <= h < 11:
-            time_counter["am_open"] += 1
-        elif 11 <= h < 14:
-            time_counter["mid"] += 1
-        else:
-            time_counter["pm"] += 1
-    time_stats = _make_dist(
-        [
-            ("寄り〜11時", time_counter["am_open"]),
-            ("11〜14時", time_counter["mid"]),
-            ("14時以降", time_counter["pm"]),
-        ],
-        total=sum(time_counter.values()) or 1,
-    )
+        time_bucket = _bucket_time_of_day(str(r.get("ts") or ""))
+        time_counter[time_bucket] += 1
 
-    # ATR 分布（1〜2%, 2〜3%, 3%以上）
-    atr_counter = {"1_2": 0, "2_3": 0, "over3": 0}
-    for r in rows:
-        atr = _to_float(r.get("atr_14"))
-        last_close = _to_float(r.get("last_close"))
-        if atr is None or last_close in (None, 0):
-            continue
-        atr_pct = (atr / last_close) * 100.0
-        if atr_pct < 2:
-            atr_counter["1_2"] += 1
-        elif atr_pct < 3:
-            atr_counter["2_3"] += 1
-        else:
-            atr_counter["over3"] += 1
-    atr_stats = _make_dist(
-        [
-            ("ATR 〜2%", atr_counter["1_2"]),
-            ("ATR 2〜3%", atr_counter["2_3"]),
-            ("ATR 3%以上", atr_counter["over3"]),
-        ],
-        total=sum(atr_counter.values()) or 1,
-    )
+        atr = _safe_float(r.get("atr_14"))
+        atr_bucket = _bucket_atr(atr)
+        atr_counter[atr_bucket] += 1
 
-    # slope 分布（弱め / 普通 / 強め）
-    slope_counter = {"weak": 0, "mid": 0, "strong": 0}
-    for r in rows:
-        slope = _to_float(r.get("slope_20"))
-        if slope is None:
-            continue
-        abs_s = abs(slope)
-        if abs_s < 3:
-            slope_counter["weak"] += 1
-        elif abs_s < 8:
-            slope_counter["mid"] += 1
-        else:
-            slope_counter["strong"] += 1
-    slope_stats = _make_dist(
-        [
-            ("傾き 小さめ", slope_counter["weak"]),
-            ("傾き 普通", slope_counter["mid"]),
-            ("傾き 大きめ", slope_counter["strong"]),
-        ],
-        total=sum(slope_counter.values()) or 1,
-    )
+        slope = _safe_float(r.get("slope_20"))
+        slope_bucket = _bucket_slope(slope)
+        slope_counter[slope_bucket] += 1
 
-    # --------------------------------------------------------
-    # TOP 勝ち / 負け（楽天ベース）
-    # --------------------------------------------------------
-    def _collect_top(kind: str, limit: int = 5) -> List[Dict[str, Any]]:
-        tmp: List[Dict[str, Any]] = []
-        for r in rows:
-            pl = _to_float(r.get("eval_pl_rakuten"))
-            if pl is None:
-                continue
-            if kind == "win" and pl <= 0:
-                continue
-            if kind == "lose" and pl >= 0:
-                continue
-            tmp.append({"code": r.get("code"), "name": r.get("name"), "pl": pl,
-                        "mode": r.get("mode"), "ts_label": r.get("ts_label")})
-        reverse = True if kind == "win" else False
-        tmp.sort(key=lambda x: x["pl"], reverse=reverse)
-        return tmp[:limit]
-
-    top_win = _collect_top("win")
-    top_lose = _collect_top("lose")
-
-    # --------------------------------------------------------
-    # AI インサイトテキスト（C 濃度：そこそこ丁寧）
-    # --------------------------------------------------------
-    # 勝率テキスト
-    if win_rate_overall is not None:
-        win_rate_txt = f"直近のトレード勝率はおおよそ {win_rate_overall:.1f}% です（対象 {win_trades + lose_trades} トレード）。"
-    else:
-        win_rate_txt = "まだ勝敗の付いたトレードが少ないため、勝率の傾向ははっきりしていません。"
-
-    # セクターで目立つところ
-    sector_insights: List[str] = []
-    if sector_stats:
-        # 試行数が多い順に並んでいる
-        sec_best = max(sector_stats, key=lambda x: x["win_rate"])  # type: ignore[arg-type]
-        sec_worst = min(sector_stats, key=lambda x: x["win_rate"])  # type: ignore[arg-type]
-        if sec_best["trials"] >= 2:
-            sector_insights.append(
-                f"現状では「{sec_best['name']}」が比較的得意で、勝率は {sec_best['win_rate']:.1f}% "
-                f"（{sec_best['trials']} 件中 {sec_best['wins']} 件勝ち）になっています。"
+    def _build_dist_list(counter: Dict[str, int]) -> List[Dict[str, Any]]:
+        total_count = sum(counter.values()) or 1
+        items: List[Dict[str, Any]] = []
+        for name, c in counter.items():
+            items.append(
+                {
+                    "name": name,
+                    "count": c,
+                    "pct": c / total_count * 100.0,
+                }
             )
-        if sec_worst["trials"] >= 2 and sec_worst["win_rate"] < sec_best["win_rate"]:
-            sector_insights.append(
-                f"一方で「{sec_worst['name']}」はサンプルが少ないか、やや相性が悪い傾向がありそうです "
-                f"（勝率 {sec_worst['win_rate']:.1f}% / {sec_worst['trials']} 件）。"
-            )
+        items.sort(key=lambda x: -x["count"])
+        return items
 
-    # 利益・損失テキスト
-    pl_txt_parts: List[str] = []
-    if avg_profit is not None:
-        pl_txt_parts.append(f"1トレードあたりの平均利益は約 {avg_profit:,.0f} 円")
-    if avg_loss is not None:
-        pl_txt_parts.append(f"平均損失は約 {avg_loss:,.0f} 円")
-    pl_txt = "、".join(pl_txt_parts) if pl_txt_parts else ""
+    trend_stats = _build_dist_list(trend_counter)
+    time_stats = _build_dist_list(time_counter)
+    atr_stats = _build_dist_list(atr_counter)
+    slope_stats = _build_dist_list(slope_counter)
 
-    insights_lines: List[str] = [win_rate_txt]
-    insights_lines.extend(sector_insights)
-    if pl_txt:
-        insights_lines.append(
-            pl_txt + " いまは損失側の方がやや大きいように見えるため、損切り幅やロット調整の余地がありそうです。"
+    # ---------- TOP 勝ち / 負け（楽天＋松井 混在） ----------
+    top_win: List[Dict[str, Any]] = []
+    for t in sorted(win_trades, key=lambda x: x.pl, reverse=True)[:5]:
+        top_win.append(
+            {
+                "code": t.code,
+                "name": t.name,
+                "broker": t.broker,
+                "pl": t.pl,
+                "mode": t.mode,
+                "ts_label": t.ts_label,
+            }
         )
 
-    insight_text = "\n".join(insights_lines)
+    top_lose: List[Dict[str, Any]] = []
+    for t in sorted(lose_trades, key=lambda x: x.pl)[:5]:
+        top_lose.append(
+            {
+                "code": t.code,
+                "name": t.name,
+                "broker": t.broker,
+                "pl": t.pl,
+                "mode": t.mode,
+                "ts_label": t.ts_label,
+            }
+        )
 
-    # --------------------------------------------------------
-    # コンテキスト
-    # --------------------------------------------------------
+    # ---------- インサイト ----------
+    total_trades_for_insight = len(win_trades) + len(lose_trades) + len(
+        [t for t in all_trades if t.label == "flat"]
+    )
+    insights = _build_insights(
+        total_trades=total_trades_for_insight,
+        win_rate_all=win_rate_all,
+        sector_stats=sector_stats,
+        kpi_avg_win=avg_win,
+        kpi_avg_loss=avg_loss,
+        dist_trend={k: v for k, v in trend_counter.items()},
+    )
+
+    # ---------- コンテキスト ----------
     ctx = {
         "has_data": True,
         "total": total,
-        "mode_counts": mode_counts,
+        "mode_counts": {
+            "live": mode_counts.get("live", 0),
+            "demo": mode_counts.get("demo", 0),
+            "other": mode_counts.get("other", 0),
+        },
+        # KPI（楽天＋松井 全体）
+        "kpi_win_rate": win_rate_all,
+        "kpi_avg_r": avg_r,
+        "kpi_avg_win": avg_win,
+        "kpi_avg_loss": avg_loss,
+        # 勝敗サマリ（楽天 / 松井）
         "pl_counts_r": pl_counts_r,
         "pl_counts_m": pl_counts_m,
-        "win_rate_overall": win_rate_overall,
-        "avg_r": avg_r,
-        "avg_profit": avg_profit,
-        "avg_loss": avg_loss,
+        # セクター・相性マップ
         "sector_stats": sector_stats,
         "trend_stats": trend_stats,
         "time_stats": time_stats,
         "atr_stats": atr_stats,
         "slope_stats": slope_stats,
+        # TOP トレード
         "top_win": top_win,
         "top_lose": top_lose,
-        "insight_text": insight_text,
+        # インサイト文
+        "insights": insights,
     }
-
     return render(request, "aiapp/behavior_dashboard.html", ctx)
