@@ -16,7 +16,6 @@
     --muted:#64748b;
   }
 
-  /* ★ このページだけは絶対横スクロールさせないガード */
   html, body{
     margin:0;
     padding:0;
@@ -27,7 +26,6 @@
     color:var(--fg);
   }
 
-  /* ★ ボックス計算を全部 border-box にして微妙なはみ出しを防止 */
   *, *::before, *::after{
     box-sizing:border-box;
   }
@@ -37,6 +35,16 @@
     width:100%;
     margin:0 auto;
     padding:10px 12px 80px;
+  }
+
+  /* ★ スマホ幅のときは少しだけ縮めて中央寄せ（右はみ出し防止） */
+  @media (max-width: 480px){
+    .wrap{
+      width:94vw;          /* 画面幅より少し狭くする */
+      max-width:94vw;
+      padding:10px 3vw 80px;
+      margin:0 auto;
+    }
   }
 
   .head{
@@ -227,7 +235,6 @@
   .kpi-val.pos{color:var(--ok);}
   .kpi-val.neg{color:var(--bad);}
 
-  /* ===== 結果ブロック ===== */
   .result{
     margin-top:8px;
     padding:6px 8px;
@@ -261,7 +268,7 @@
   }
   .result-name{
     font-size:11px;
-    color:var(--muted);
+    color:#var(--muted);
   }
   .result-right{
     display:flex;
