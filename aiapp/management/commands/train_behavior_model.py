@@ -16,19 +16,24 @@ Number = Optional[float]
 
 
 @dataclass
-class Sample:
-    """
-    学習用の 1 レコード（片側：楽天 or 松井）
-    """
-    user_id: Optional[int]
-    mode: str           # "live" / "demo" / "other"
-    broker: str         # "rakuten" / "matsui" など
-    sector: str         # 33業種 or "(未分類)"
-    trend: str          # "up" / "flat" / "down" / "不明"
-    time_bucket: str    # 時間帯バケット
-    atr_bucket: str     # ATR バケット
-    slope_bucket: str   # 傾きバケット
-    y: int              # 1 = win, 0 = lose
+class AggStat:
+    trials: int = 0
+    wins: int = 0
+    sum_pl: float = 0.0
+    sum_r: float = 0.0
+    cnt_r: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        win_rate = (self.wins / self.trials * 100.0) if self.trials > 0 else 0.0
+        avg_pl = (self.sum_pl / self.trials) if self.trials > 0 else 0.0
+        avg_r = (self.sum_r / self.cnt_r) if self.cnt_r > 0 else 0.0
+        return {
+            "trials": self.trials,
+            "wins": self.wins,
+            "win_rate": win_rate,
+            "avg_pl": avg_pl,
+            "avg_r": avg_r,
+        }
 
 
 def _safe_float(v: Any) -> Optional[float]:
@@ -40,21 +45,25 @@ def _safe_float(v: Any) -> Optional[float]:
         return None
 
 
-def _bucket_time_of_day(ts_str: str) -> str:
-    """
-    ts 文字列から「時間帯バケット」を作る。
-    behavior_dashboard 側と同じロジック。
-    """
+def _parse_dt(ts_str: str) -> Optional[timezone.datetime]:
     if not ts_str:
-        return "時間外/その他"
+        return None
     try:
         dt = timezone.datetime.fromisoformat(ts_str)
         if timezone.is_naive(dt):
             dt = timezone.make_aware(dt, timezone.get_default_timezone())
-        dt = timezone.localtime(dt)
+        return timezone.localtime(dt)
     except Exception:
-        return "時間外/その他"
+        return None
 
+
+def _bucket_time_of_day(ts_str: str) -> str:
+    """
+    時間帯をざっくり3区分＋その他に分ける。
+    """
+    dt = _parse_dt(ts_str)
+    if dt is None:
+        return "時間外/その他"
     h = dt.hour * 60 + dt.minute
     if 9 * 60 <= h < 11 * 60 + 30:
         return "前場寄り〜11:30"
@@ -89,51 +98,33 @@ def _bucket_slope(slope: Optional[float]) -> str:
     return "急騰寄り"
 
 
-def _sigmoid(x: float) -> float:
-    # 数値発散を避けるための簡易クリップ
-    if x < -50:
-        return 0.0
-    if x > 50:
-        return 1.0
-    import math
-    return 1.0 / (1.0 + math.exp(-x))
-
-
-def _logit(p: float) -> float:
-    # p は (0,1) にクリップ
-    eps = 1e-6
-    if p <= 0:
-        p = eps
-    elif p >= 1:
-        p = 1 - eps
-    import math
-    return math.log(p / (1.0 - p))
-
-
 class Command(BaseCommand):
     """
-    latest_behavior_side.jsonl から
-    「クセ学習用メタモデル（ロジット足し合わせ型）」を学習し、
-    JSON に保存するコマンド。
+    latest_behavior_side.jsonl を読み込み、
+    win / lose のトレードを使って
+    ・ブローカー別
+    ・セクター別
+    ・トレンド別
+    ・時間帯別
+    ・ATR帯別
+    ・傾き帯別
+    の統計モデルを JSON で保存する簡易学習コマンド。
 
     使い方:
       python manage.py train_behavior_model
       python manage.py train_behavior_model --user 1
     """
 
-    help = "AI 行動データから、クセ学習用メタモデルを学習し JSON 保存する"
+    help = "AI 行動データ（side形式）から簡易な統計モデルを学習して JSON に保存する"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
             "--user",
             type=int,
             default=None,
-            help="対象ユーザーID（省略時は全ユーザーのデータで学習）",
+            help="対象ユーザーID（省略時は全ユーザー）",
         )
 
-    # --------------------------------------------------
-    # メイン処理
-    # --------------------------------------------------
     def handle(self, *args, **options) -> None:
         user_id: Optional[int] = options.get("user")
 
@@ -141,222 +132,229 @@ class Command(BaseCommand):
         behavior_dir = media_root / "aiapp" / "behavior"
         side_path = behavior_dir / "latest_behavior_side.jsonl"
 
+        self.stdout.write(
+            f"[train_behavior_model] MEDIA_ROOT={media_root} user={user_id}"
+        )
+        self.stdout.write(
+            f"[train_behavior_model] 読み込み元: {side_path}"
+        )
+
         if not side_path.exists():
-            self.stdout.write(self.style.ERROR(
-                f"[train_behavior_model] 学習データがありません: {side_path}"
-            ))
+            self.stdout.write(
+                self.style.WARNING("[train_behavior_model] latest_behavior_side.jsonl が見つかりません。先に build_behavior_dataset を実行してください。")
+            )
             return
 
-        self.stdout.write(
-            f"[train_behavior_model] MEDIA_ROOT={media_root} user={user_id!r}"
-        )
-        self.stdout.write(f"[train_behavior_model] 読み込み元: {side_path}")
-
-        # ---------- JSONL 読み込み ----------
-        samples: List[Sample] = []
-        total_lines = 0
-
+        # --------------------------------------------------
+        # JSONL 読み込み & フィルタ
+        # --------------------------------------------------
+        samples: List[Dict[str, Any]] = []
         try:
             text = side_path.read_text(encoding="utf-8")
         except Exception as e:
-            self.stdout.write(self.style.ERROR(
-                f"[train_behavior_model] 読み込み失敗: {e}"
-            ))
+            self.stdout.write(self.style.ERROR(f"[train_behavior_model] 読み込み失敗: {e}"))
             return
 
         for line in text.splitlines():
             line = line.strip()
             if not line:
                 continue
-            total_lines += 1
             try:
                 rec = json.loads(line)
             except Exception:
                 continue
 
             # user フィルタ
-            uid = rec.get("user_id")
-            if user_id is not None and uid != user_id:
+            if user_id is not None and rec.get("user_id") != user_id:
                 continue
 
-            label = (rec.get("label") or "").lower()
-            # win / lose のみ学習対象（flat / no_position / none は除外）
+            qty = _safe_float(rec.get("qty")) or 0.0
+            label = str(rec.get("eval_label") or "").lower()
+
+            # 数量0 or 勝敗なしは学習対象外
+            if qty <= 0:
+                continue
             if label not in ("win", "lose"):
                 continue
 
-            y = 1 if label == "win" else 0
+            samples.append(rec)
 
-            mode = (rec.get("mode") or "").lower()
-            if mode not in ("live", "demo"):
-                mode = "other"
+        if not samples:
+            self.stdout.write(
+                self.style.WARNING("[train_behavior_model] 学習対象となる win/lose データがありません。")
+            )
+            return
 
-            broker = (rec.get("broker") or "").lower() or "unknown"
+        # --------------------------------------------------
+        # 統計集計
+        # --------------------------------------------------
+        total_trades = 0
+        total_wins = 0
+        sum_pl_global = 0.0
+        sum_r_global = 0.0
+        cnt_r_global = 0
 
+        broker_stats: Dict[str, AggStat] = defaultdict(AggStat)
+        sector_stats: Dict[str, AggStat] = defaultdict(AggStat)
+        trend_stats: Dict[str, AggStat] = defaultdict(AggStat)
+        time_stats: Dict[str, AggStat] = defaultdict(AggStat)
+        atr_stats: Dict[str, AggStat] = defaultdict(AggStat)
+        slope_stats: Dict[str, AggStat] = defaultdict(AggStat)
+
+        for rec in samples:
+            label = str(rec.get("eval_label") or "").lower()
+            pl = _safe_float(rec.get("eval_pl")) or 0.0
+            r_val = _safe_float(rec.get("eval_r"))
+            broker = str(rec.get("broker") or "unknown")
             sector = str(rec.get("sector") or "(未分類)")
-
             trend = str(rec.get("trend_daily") or "不明")
-
             ts_str = str(rec.get("ts") or "")
             time_bucket = _bucket_time_of_day(ts_str)
-
             atr = _safe_float(rec.get("atr_14"))
             atr_bucket = _bucket_atr(atr)
-
             slope = _safe_float(rec.get("slope_20"))
             slope_bucket = _bucket_slope(slope)
 
-            samples.append(
-                Sample(
-                    user_id=uid,
-                    mode=mode,
-                    broker=broker,
-                    sector=sector,
-                    trend=trend,
-                    time_bucket=time_bucket,
-                    atr_bucket=atr_bucket,
-                    slope_bucket=slope_bucket,
-                    y=y,
-                )
-            )
+            is_win = (label == "win")
 
-        if not samples:
-            self.stdout.write(self.style.WARNING(
-                "[train_behavior_model] 学習対象となる win/lose データがありません。"
-            ))
-            return
+            total_trades += 1
+            if is_win:
+                total_wins += 1
 
-        self.stdout.write(
-            f"[train_behavior_model] 行読み込み: {total_lines} 行 / "
-            f"学習サンプル: {len(samples)} 件"
-        )
+            sum_pl_global += pl
+            if r_val is not None:
+                sum_r_global += r_val
+                cnt_r_global += 1
 
-        # ---------- 統計集計（グローバル + 各ファクター） ----------
-        # グローバル
-        global_wins = 0
-        global_trials = 0
+            # ブローカー別
+            bs = broker_stats[broker]
+            bs.trials += 1
+            if is_win:
+                bs.wins += 1
+            bs.sum_pl += pl
+            if r_val is not None:
+                bs.sum_r += r_val
+                bs.cnt_r += 1
 
-        # factor -> value -> (wins, trials)
-        factor_stats: Dict[str, Dict[str, Dict[str, float]]] = {
-            "broker": defaultdict(lambda: {"wins": 0.0, "trials": 0.0}),
-            "mode": defaultdict(lambda: {"wins": 0.0, "trials": 0.0}),
-            "sector": defaultdict(lambda: {"wins": 0.0, "trials": 0.0}),
-            "trend": defaultdict(lambda: {"wins": 0.0, "trials": 0.0}),
-            "time_bucket": defaultdict(lambda: {"wins": 0.0, "trials": 0.0}),
-            "atr_bucket": defaultdict(lambda: {"wins": 0.0, "trials": 0.0}),
-            "slope_bucket": defaultdict(lambda: {"wins": 0.0, "trials": 0.0}),
-        }
+            # セクター別
+            ss = sector_stats[sector]
+            ss.trials += 1
+            if is_win:
+                ss.wins += 1
+            ss.sum_pl += pl
+            if r_val is not None:
+                ss.sum_r += r_val
+                ss.cnt_r += 1
 
-        for s in samples:
-            global_trials += 1
-            if s.y == 1:
-                global_wins += 1
+            # トレンド別
+            ts = trend_stats[trend]
+            ts.trials += 1
+            if is_win:
+                ts.wins += 1
+            ts.sum_pl += pl
+            if r_val is not None:
+                ts.sum_r += r_val
+                ts.cnt_r += 1
 
-            for fname, val in (
-                ("broker", s.broker),
-                ("mode", s.mode),
-                ("sector", s.sector),
-                ("trend", s.trend),
-                ("time_bucket", s.time_bucket),
-                ("atr_bucket", s.atr_bucket),
-                ("slope_bucket", s.slope_bucket),
-            ):
-                st = factor_stats[fname][val]
-                st["trials"] += 1.0
-                if s.y == 1:
-                    st["wins"] += 1.0
+            # 時間帯別
+            tms = time_stats[time_bucket]
+            tms.trials += 1
+            if is_win:
+                tms.wins += 1
+            tms.sum_pl += pl
+            if r_val is not None:
+                tms.sum_r += r_val
+                tms.cnt_r += 1
 
-        # ---------- ロジット重み計算 ----------
-        # ラプラス平滑用
-        alpha = 1.0
+            # ATR帯別
+            ats = atr_stats[atr_bucket]
+            ats.trials += 1
+            if is_win:
+                ats.wins += 1
+            ats.sum_pl += pl
+            if r_val is not None:
+                ats.sum_r += r_val
+                ats.cnt_r += 1
 
-        # グローバル勝率 → バイアス
-        p_global = (global_wins + alpha) / (global_trials + 2 * alpha)
-        bias = _logit(p_global)
+            # 傾き帯別
+            sls = slope_stats[slope_bucket]
+            sls.trials += 1
+            if is_win:
+                sls.wins += 1
+            sls.sum_pl += pl
+            if r_val is not None:
+                sls.sum_r += r_val
+                sls.cnt_r += 1
 
-        self.stdout.write(
-            f"[train_behavior_model] 全体勝率: {p_global * 100:.1f}% "
-            f"(wins={global_wins} / trials={global_trials})"
-        )
+        # グローバルKPI
+        win_rate_global = (total_wins / total_trades * 100.0) if total_trades > 0 else 0.0
+        avg_pl_global = (sum_pl_global / total_trades) if total_trades > 0 else 0.0
+        avg_r_global = (sum_r_global / cnt_r_global) if cnt_r_global > 0 else 0.0
 
-        # 各ファクターごとに value ごとの weight (= logit(p_c) - bias) を計算
-        factors_out: Dict[str, Any] = {}
-
-        for fname, vdict in factor_stats.items():
-            f_info: Dict[str, Any] = {
-                "weights": {},
-                "stats": {},
-            }
-            for val, st in vdict.items():
-                trials = st["trials"]
-                wins = st["wins"]
-                if trials <= 0:
-                    continue
-                p_c = (wins + alpha) / (trials + 2 * alpha)
-                weight = _logit(p_c) - bias
-
-                f_info["weights"][val] = weight
-                f_info["stats"][val] = {
-                    "wins": wins,
-                    "trials": trials,
-                    "win_rate": p_c,
-                }
-
-            factors_out[fname] = f_info
-
-        # ---------- モデル JSON を構築 ----------
+        # --------------------------------------------------
+        # モデルJSON構築
+        # --------------------------------------------------
         now = timezone.now()
-        date_str = now.strftime("%Y%m%d")
+        date_tag = now.strftime("%Y%m%d")
+        user_tag = f"u{user_id}" if user_id is not None else "uall"
 
-        model: Dict[str, Any] = {
-            "version": "v1",
-            "user_id": user_id,
-            "updated_at": now.isoformat(),
-            "n_samples": global_trials,
-            "global": {
-                "wins": global_wins,
-                "trials": global_trials,
-                "win_rate": p_global,
-                "bias": bias,
-            },
-            "factors": factors_out,
-        }
-
-        # ---------- 保存 ----------
         model_dir = behavior_dir / "model"
         model_dir.mkdir(parents=True, exist_ok=True)
 
-        uid_tag = f"u{user_id}" if user_id is not None else "uall"
+        model_body: Dict[str, Any] = {
+            "user_id": user_id,
+            "total_trades": total_trades,
+            "wins": total_wins,
+            "win_rate": win_rate_global,
+            "avg_pl": avg_pl_global,
+            "avg_r": avg_r_global,
+            "updated_at": now.isoformat(),
+            "by_feature": {
+                "broker": {k: v.to_dict() for k, v in broker_stats.items()},
+                "sector": {k: v.to_dict() for k, v in sector_stats.items()},
+                "trend_daily": {k: v.to_dict() for k, v in trend_stats.items()},
+                "time_bucket": {k: v.to_dict() for k, v in time_stats.items()},
+                "atr_bucket": {k: v.to_dict() for k, v in atr_stats.items()},
+                "slope_bucket": {k: v.to_dict() for k, v in slope_stats.items()},
+            },
+        }
 
-        dated_path = model_dir / f"{date_str}_behavior_model_{uid_tag}.json"
-        latest_path = model_dir / f"latest_behavior_model_{uid_tag}.json"
+        # 日付付きファイル & latest シンボリック的ファイル
+        out_path = model_dir / f"{date_tag}_behavior_model_{user_tag}.json"
+        latest_path = model_dir / f"latest_behavior_model_{user_tag}.json"
 
         try:
-            dated_path.write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding="utf-8")
-            latest_path.write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding="utf-8")
+            out_path.write_text(
+                json.dumps(model_body, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            latest_path.write_text(
+                json.dumps(model_body, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
         except Exception as e:
-            self.stdout.write(self.style.ERROR(
-                f"[train_behavior_model] モデル保存に失敗: {e}"
-            ))
+            self.stdout.write(self.style.ERROR(f"[train_behavior_model] 書き込み失敗: {e}"))
             return
 
-        # ---------- サマリ表示 ----------
+        # --------------------------------------------------
+        # サマリ出力
+        # --------------------------------------------------
         self.stdout.write("")
-        self.stdout.write("===== クセ学習メタモデル サマリ =====")
+        self.stdout.write("===== 行動モデル 学習サマリ =====")
         self.stdout.write(f"  user_id      : {user_id}")
-        self.stdout.write(f"  n_samples    : {global_trials}")
-        self.stdout.write(f"  global_win   : {p_global * 100:.1f}%")
+        self.stdout.write(f"  total_trades : {total_trades}")
+        self.stdout.write(f"  wins         : {total_wins}")
+        self.stdout.write(f"  win_rate     : {win_rate_global:.1f}%")
+        self.stdout.write(f"  avg_pl       : {avg_pl_global:,.0f}")
+        self.stdout.write(f"  avg_r        : {avg_r_global:.3f}")
         self.stdout.write("")
         self.stdout.write("  broker:")
-        for val, st in factor_stats["broker"].items():
-            if st["trials"] <= 0:
-                continue
-            rate = st["wins"] / st["trials"] * 100.0
+        for broker, s in broker_stats.items():
+            d = s.to_dict()
             self.stdout.write(
-                f"    - {val}: trials={int(st['trials'])} wins={int(st['wins'])} "
-                f"win_rate={rate:.1f}%"
+                f"    - {broker}: trials={d['trials']} wins={d['wins']} win_rate={d['win_rate']:.1f}% avg_r={d['avg_r']:.3f}"
             )
-
         self.stdout.write("")
-        self.stdout.write(f"  → 保存先: {dated_path}")
-        self.stdout.write(f"     latest  : {latest_path}")
+        self.stdout.write(f"  → 保存先: {out_path}")
+        self.stdout.write(f"  → latest: {latest_path}")
         self.stdout.write(self.style.SUCCESS("[train_behavior_model] 完了"))
