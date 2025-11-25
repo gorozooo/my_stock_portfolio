@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}AI 行動データサマリ{% endblock %}
+
+{% block head %}
+<style>
+:root{
+  --bg:#0b0f1a;
+  --card:rgba(255,255,255,0.06);
+  --sub:#94a3b8;
+  --fg:#f1f5f9;
+  --accent:#38bdf8;
+  --ok:#22c55e;
+  --bad:#f87171;
+  --muted:#64748b;
+}
+body{background:var(--bg);color:var(--fg);}
+.wrap{max-width:720px;margin:0 auto;padding:14px 14px 80px;}
+
+.section{
+  margin-top:18px;
+  padding:14px;
+  border-radius:16px;
+  border:1px solid rgba(255,255,255,0.08);
+  background:var(--card);
+  backdrop-filter:blur(12px);
+}
+
+.section-title{
+  font-size:15px;
+  font-weight:700;
+  margin-bottom:10px;
+}
+
+.kv-row{
+  display:flex;justify-content:space-between;
+  font-size:14px;margin-bottom:6px;
+}
+.kv-key{color:var(--sub);}
+.kv-val{font-variant-numeric:tabular-nums;}
+
+.badge{
+  display:inline-block;
+  padding:2px 8px;
+  border-radius:999px;
+  font-size:11px;
+  border:1px solid rgba(255,255,255,0.25);
+  margin-left:4px;
+}
+
+.pl-pos{color:var(--ok);}
+.pl-neg{color:var(--bad);}
+
+.list-item{
+  margin-top:8px;
+  padding:10px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,0.08);
+  background:rgba(255,255,255,0.03);
+}
+
+.code-name{font-size:14px;font-weight:600;margin-bottom:6px;}
+.sub-line{font-size:11px;color:var(--sub);}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="wrap">
+
+  <div class="section">
+    <div class="section-title">全体サマリ</div>
+    <div class="kv-row"><div class="kv-key">総レコード</div><div class="kv-val">{{ total }}</div></div>
+    <div class="kv-row"><div class="kv-key">LIVE</div><div class="kv-val">{{ mode_counts.live|default:0 }}</div></div>
+    <div class="kv-row"><div class="kv-key">DEMO</div><div class="kv-val">{{ mode_counts.demo|default:0 }}</div></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">勝敗サマリ（楽天）</div>
+    <div class="kv-row"><div class="kv-key">勝ち</div><div class="kv-val">{{ pl_counts_r.win|default:0 }}</div></div>
+    <div class="kv-row"><div class="kv-key">負け</div><div class="kv-val">{{ pl_counts_r.lose|default:0 }}</div></div>
+    <div class="kv-row"><div class="kv-key">引き分け</div><div class="kv-val">{{ pl_counts_r.flat|default:0 }}</div></div>
+    <div class="kv-row"><div class="kv-key">ポジションなし</div><div class="kv-val">{{ pl_counts_r.no_position|default:0 }}</div></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">セクター別勝率（楽天）</div>
+    {% for sec, s in sector_stats.items %}
+      <div class="kv-row">
+        <div class="kv-key">{{ sec }}</div>
+        <div class="kv-val">
+          {{ s.wins }}/{{ s.trials }} 
+          {% if s.trials > 0 %}
+            （{{ (s.wins|floatformat:2|floatformat:1) }}）
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="section">
+    <div class="section-title">TOP 勝ち（楽天）</div>
+    {% for r in top_win %}
+      <div class="list-item">
+        <div class="code-name">{{ r.code }} {{ r.name }}</div>
+        <div class="sub-line">
+          PL:
+          <span class="pl-pos">+{{ r.eval_pl_rakuten|floatformat:0|intcomma }}円</span>
+          ／ {{ r.mode }} ／ {{ r.ts }}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="section">
+    <div class="section-title">TOP 負け（楽天）</div>
+    {% for r in top_lose %}
+      <div class="list-item">
+        <div class="code-name">{{ r.code }} {{ r.name }}</div>
+        <div class="sub-line">
+          PL:
+          <span class="pl-neg">{{ r.eval_pl_rakuten|floatformat:0|intcomma }}円</span>
+          ／ {{ r.mode }} ／ {{ r.ts }}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+</div>
+{% endblock %}
