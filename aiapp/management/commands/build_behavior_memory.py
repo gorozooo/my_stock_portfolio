@@ -38,8 +38,8 @@ class Command(BaseCommand):
             f"[build_behavior_memory] MEDIA_ROOT={settings.MEDIA_ROOT} user={user_id}"
         )
 
+        # JSON 保存 & メモリ内容取得
         latest_path: Path = svc_memory.save_behavior_memory(user_id=user_id)
-
         mem = svc_memory.build_behavior_memory(user_id=user_id)
 
         self.stdout.write("")
@@ -48,12 +48,22 @@ class Command(BaseCommand):
         self.stdout.write(f"  total_trades   : {mem.get('total_trades')}")
         self.stdout.write(f"  updated_at     : {mem.get('updated_at')}")
         self.stdout.write("")
+
+        # broker 別の簡易サマリ
         self.stdout.write("  broker:")
-        for broker, s in (mem.get("broker") or {}).items():
+        broker_map = mem.get("broker") or {}
+        for broker, s in broker_map.items():
+            trials = s.get("trials", 0)
+            wins = s.get("wins", 0)
+            win_rate = s.get("win_rate")
+            if win_rate is None:
+                win_rate_str = "-"
+            else:
+                win_rate_str = f"{win_rate:.1f}%"
             self.stdout.write(
-                f"    - {broker}: trials={s['trials']} wins={s['wins']} "
-                f"win_rate={s['win_rate']:.1f if s['win_rate'] is not None else 0.0}%"
+                f"    - {broker}: trials={trials} wins={wins} win_rate={win_rate_str}"
             )
+
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS(f"  → 保存先: {latest_path}"))
         self.stdout.write(self.style.SUCCESS("[build_behavior_memory] 完了"))
