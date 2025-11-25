@@ -11,6 +11,7 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils import timezone
 
+
 def _parse_ts(ts_str: Optional[str]) -> Optional[timezone.datetime]:
     """
     JSONL の ts(ISO文字列) を timezone-aware datetime に変換する。
@@ -26,6 +27,7 @@ def _parse_ts(ts_str: Optional[str]) -> Optional[timezone.datetime]:
     except Exception:
         return None
 
+
 @login_required
 def simulate_list(request: HttpRequest) -> HttpResponse:
     """
@@ -36,6 +38,11 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
     - ts 降順でソート
     - mode / 期間 / 銘柄コード・名称でフィルタ
     - 最大100件まで表示
+
+    ★ 追加仕様
+      「同じ銘柄・同じ内容のシミュレは、同じ日付内で重複させない」
+      → 同じ日・同じ code・同じ mode・同じエントリー/数量/想定PL・想定損失は
+         最初の1件だけ残し、以降は一覧から除外する。
     """
 
     user = request.user
@@ -100,6 +107,39 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         return str(r.get("ts") or "")
 
     entries_all.sort(key=_sort_key, reverse=True)
+
+    # ---- ★ 同じ日・同じ内容の重複をまとめる --------------------------
+    #   「同じ銘柄の同じ内容は同日で重複しないようにする」
+    #   → key: (日付, code, mode, entry, qty_rakuten, qty_matsui,
+    #           est_pl_rakuten, est_pl_matsui, est_loss_rakuten, est_loss_matsui)
+    deduped: List[Dict[str, Any]] = []
+    seen_keys = set()
+
+    for e in entries_all:
+        dt = e.get("_dt")
+        day = dt.date() if isinstance(dt, timezone.datetime) else None
+
+        key = (
+            day,
+            e.get("code"),
+            (e.get("mode") or "").lower() if e.get("mode") else None,
+            e.get("entry"),
+            e.get("qty_rakuten"),
+            e.get("qty_matsui"),
+            e.get("est_pl_rakuten"),
+            e.get("est_pl_matsui"),
+            e.get("est_loss_rakuten"),
+            e.get("est_loss_matsui"),
+        )
+
+        if key in seen_keys:
+            # 同じ日・同じ内容が既にあれば後ろの分は捨てる
+            continue
+
+        seen_keys.add(key)
+        deduped.append(e)
+
+    entries_all = deduped
 
     # ---- id の付与（削除用の安定したインデックス） ------------------
     # 既に int の id があればそのまま使い、無ければ 0,1,2,… を振る。
