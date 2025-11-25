@@ -6,15 +6,17 @@ ai_simulate_auto
 
 役割:
 - 04:30 の picks_build が出力した media/aiapp/picks/latest_full.json を読み込む
-- TopK 銘柄すべてに対して「AUTOエントリー注文（紙トレ）」を起票する
-- 結果を JSON Lines 形式で media/aiapp/sim/sim_orders_YYYYMMDD.jsonl に保存
-  → 16:00 の ai_sim_eval がこのファイルを使って勝敗評価する想定
+- TopK 銘柄すべてに対して「DEMOモードの紙トレ注文」を JSONL に起票する
+- 出力先は /media/aiapp/simulate/*.jsonl
+  → aiapp.views.simulate.simulate_list / sim_delete が読む前提のフォーマット
 
-形式（1行1レコード）:
+1行の例:
 {
-  "run_id": "20251125_070000_auto",
+  "user_id": 1,
+  "mode": "demo",
   "ts": "2025-11-25T07:00:01+09:00",
   "run_date": "2025-11-25",
+  "run_id": "20251125_070001_auto",
   "code": "7203",
   "name": "トヨタ自動車",
   "sector": "輸送用機器",
@@ -23,22 +25,21 @@ ai_simulate_auto
   "tp": 1300.0,
   "sl": 1180.0,
   "last_close": 1220.0,
-  "stars": 4,
-  "score": 0.73,
-  "score_100": 73,
   "qty_rakuten": 100,
   "qty_matsui": 100,
-  "required_cash_rakuten": 123450.0,
-  "required_cash_matsui": 123450.0,
   "est_pl_rakuten": 6500.0,
   "est_pl_matsui": 6500.0,
   "est_loss_rakuten": -4500.0,
   "est_loss_matsui": -4500.0,
+  "required_cash_rakuten": 123450.0,
+  "required_cash_matsui": 123450.0,
+  "score": 0.73,
+  "score_100": 73,
+  "stars": 4,
   "style": "aggressive",
   "horizon": "short",
   "universe": "all_jpx",
   "topk": 10,
-  "mode": "AUTO",
   "source": "ai_simulate_auto"
 }
 """
@@ -47,13 +48,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
+from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 
 
-PICKS_DIR = Path("media/aiapp/picks")
-SIM_DIR = Path("media/aiapp/sim")
+# ========= パス定義（MEDIA_ROOT ベース） =========
+
+PICKS_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "picks"
+SIM_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "simulate"
 
 
 # ========= 時刻ユーティリティ（JST固定） =========
@@ -85,27 +90,28 @@ def dt_now_run_id(prefix: str = "auto") -> str:
 # ========= コマンド本体 =========
 
 class Command(BaseCommand):
-    help = "AIフル自動シミュレ用：AUTO紙トレ注文を JSONL に起票（07:00バッチ想定）"
+    help = "AIフル自動シミュレ用：DEMO紙トレ注文を JSONL に起票（07:00バッチ想定）"
 
     def add_arguments(self, parser):
-        # 将来用：任意の日付で再生成したいときに --date を使う
+        # 任意の日付で再生成したいとき用（デフォルトはJSTでの今日）
         parser.add_argument(
             "--date",
             type=str,
             default=None,
-            help="シミュレーション日（YYYY-MM-DD）。指定がなければ JST の今日。",
+            help="シミュレーション日（YYYY-MM-DD）。指定がなければJSTの今日。",
         )
-        # 将来用：既存ファイルを上書きしたい場合
+        # 既存ファイルを上書きしたい場合に使う（通常は追記でOK）
         parser.add_argument(
             "--overwrite",
             action="store_true",
-            help="同じ日付の sim_orders_YYYYMMDD.jsonl を上書きする（通常は追記）。",
+            help="同じ日付の jsonl を上書きして作り直す（通常は追記）。",
         )
 
     def handle(self, *args, **options):
         run_date = options.get("date") or today_jst_str()
         overwrite: bool = bool(options.get("overwrite"))
 
+        # -------- picks 読み込み --------
         picks_path = PICKS_DIR / "latest_full.json"
         if not picks_path.exists():
             self.stdout.write(
@@ -115,7 +121,6 @@ class Command(BaseCommand):
             )
             return
 
-        # -------- picks 読み込み --------
         try:
             raw = picks_path.read_text(encoding="utf-8")
             data = json.loads(raw)
@@ -138,17 +143,27 @@ class Command(BaseCommand):
             )
             return
 
+        # -------- ユーザー決定（単ユーザー前提で最初のユーザーを使う） --------
+        User = get_user_model()
+        user = User.objects.order_by("id").first()
+        if not user:
+            self.stdout.write(
+                self.style.ERROR("[ai_simulate_auto] no user found")
+            )
+            return
+        user_id = user.id
+
+        # meta からスタイル情報を継承
         style = (meta.get("style") or "aggressive")
         horizon = (meta.get("horizon") or "short")
         universe = (meta.get("universe") or "unknown")
         topk = meta.get("topk")
 
-        run_id = dt_now_run_id(prefix="auto")
+        run_id = dt_now_run_id(prefix="auto_demo")
 
         SIM_DIR.mkdir(parents=True, exist_ok=True)
         out_path = SIM_DIR / f"sim_orders_{run_date}.jsonl"
 
-        # 上書き or 追記
         mode = "w" if overwrite else "a"
 
         written = 0
@@ -158,59 +173,67 @@ class Command(BaseCommand):
                 if not code:
                     continue
 
-                # picks_build 側のフィールドをそのまま利用
                 name = it.get("name")
                 sector = it.get("sector_display")
 
-                # 方向は現状「買い」前提
+                # DEMO紙トレなので side=BUY / mode=demo 固定
                 side = "BUY"
+                rec_mode = "demo"
 
                 entry = it.get("entry", it.get("last_close"))
                 tp = it.get("tp")
                 sl = it.get("sl")
                 last_close = it.get("last_close")
 
+                qty_rakuten = it.get("qty_rakuten")
+                qty_matsui = it.get("qty_matsui")
+                est_pl_rakuten = it.get("est_pl_rakuten")
+                est_pl_matsui = it.get("est_pl_matsui")
+                est_loss_rakuten = it.get("est_loss_rakuten")
+                est_loss_matsui = it.get("est_loss_matsui")
+                required_cash_rakuten = it.get("required_cash_rakuten")
+                required_cash_matsui = it.get("required_cash_matsui")
+
                 score = it.get("score")
                 score_100 = it.get("score_100")
                 stars = it.get("stars")
 
-                qty_rakuten = it.get("qty_rakuten")
-                qty_matsui = it.get("qty_matsui")
-                required_cash_rakuten = it.get("required_cash_rakuten")
-                required_cash_matsui = it.get("required_cash_matsui")
-                est_pl_rakuten = it.get("est_pl_rakuten")
-                est_pl_matsui = it.get("est_pl_matsui")
-                est_loss_rakuten = it.get("est_loss_raketen") if False else it.get("est_loss_rakuten")
-                est_loss_matsui = it.get("est_loss_matsui")
-
                 rec: Dict[str, Any] = {
-                    "run_id": run_id,
-                    "ts": dt_now_jst_iso(),
+                    # simulate_list / sim_delete が見るキー
+                    "user_id": user_id,
+                    "mode": rec_mode,               # "all"/"live"/"demo" フィルタ用
+                    "ts": dt_now_jst_iso(),         # 一覧表示・期間フィルタ用
+                    # 識別用メタ
                     "run_date": run_date,
+                    "run_id": run_id,
+                    # 銘柄情報
                     "code": code,
                     "name": name,
                     "sector": sector,
                     "side": side,
+                    # エントリー条件
                     "entry": entry,
                     "tp": tp,
                     "sl": sl,
                     "last_close": last_close,
-                    "stars": stars,
-                    "score": score,
-                    "score_100": score_100,
+                    # 数量・損益想定
                     "qty_rakuten": qty_rakuten,
                     "qty_matsui": qty_matsui,
-                    "required_cash_rakuten": required_cash_rakuten,
-                    "required_cash_matsui": required_cash_matsui,
                     "est_pl_rakuten": est_pl_rakuten,
                     "est_pl_matsui": est_pl_matsui,
                     "est_loss_rakuten": est_loss_rakuten,
                     "est_loss_matsui": est_loss_matsui,
+                    "required_cash_rakuten": required_cash_rakuten,
+                    "required_cash_matsui": required_cash_matsui,
+                    # スコア情報
+                    "score": score,
+                    "score_100": score_100,
+                    "stars": stars,
+                    # picks のメタ
                     "style": style,
                     "horizon": horizon,
                     "universe": universe,
                     "topk": topk,
-                    "mode": "AUTO",
                     "source": "ai_simulate_auto",
                 }
 
@@ -220,6 +243,6 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"[ai_simulate_auto] run_id={run_id} date={run_date} "
-                f"written={written} -> {out_path}"
+                f"user_id={user_id} written={written} -> {out_path}"
             )
         )
