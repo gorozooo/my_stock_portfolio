@@ -89,9 +89,9 @@ body{background:var(--bg);color:var(--fg);}
       <div class="kv-row">
         <div class="kv-key">{{ sec }}</div>
         <div class="kv-val">
-          {{ s.wins }}/{{ s.trials }} 
+          {{ s.wins }}/{{ s.trials }}
           {% if s.trials > 0 %}
-            （{{ (s.wins|floatformat:2|floatformat:1) }}）
+            （{{ s.win_rate_pct|floatformat:1 }}%）
           {% endif %}
         </div>
       </div>
