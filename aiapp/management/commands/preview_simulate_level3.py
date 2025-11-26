@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandParser
 from django.utils import timezone
@@ -170,8 +168,20 @@ def _preview_one_record(
         return
 
     # ---------- 指値が一度でもタッチしたか？ ----------
-    #   条件: Low <= entry <= High
-    hit_mask = (bars_active["Low"] <= entry_f) & (entry_f <= bars_active["High"])
+    # yfinance の 5分足が MultiIndex 列になっている場合があるので、
+    # "Low" / "High" が DataFrame なら 1列目を抜き出して Series 化してから判定する。
+    low = bars_active["Low"]
+    high = bars_active["High"]
+
+    if isinstance(low, pd.DataFrame):
+        low = low.iloc[:, 0]
+    if isinstance(high, pd.DataFrame):
+        high = high.iloc[:, 0]
+
+    # ここまでで low / high は必ず Series のはず
+    hit_mask = (low <= entry_f) & (entry_f <= high)
+
+    # Series.any() は bool を返すので、そのまま使える
     touched = bool(hit_mask.any())
 
     if not touched:
@@ -182,12 +192,22 @@ def _preview_one_record(
     hit_idx_list = list(bars_active.index[hit_mask])
     hit_dt = hit_idx_list[0]
     hit_row = bars_active.loc[hit_dt]
-    exec_px = float(hit_row["Open"])
+
+    # 約定価格は、そのバーの Open としておく（成行で一発目に入った想定）
+    if isinstance(hit_row, pd.Series):
+        exec_px = float(hit_row["Open"])
+    else:
+        # 万一 DataFrame になっていた場合のフォールバック（1列目）
+        exec_px = float(hit_row["Open"].iloc[0])
 
     print(f"  → 指値にヒット: {hit_dt} で約定扱い（exec_entry={exec_px:.2f} 円）")
 
     # いまは簡易版として、その日の最後の5分足 Close を決済価格とみなす
-    close_px = float(bars_active["Close"].iloc[-1])
+    last_row = bars_active.iloc[-1]
+    if isinstance(last_row, pd.Series):
+        close_px = float(last_row["Close"])
+    else:
+        close_px = float(last_row["Close"].iloc[0])
 
     qty_r = float(rec.get("qty_rakuten") or 0)
     qty_m = float(rec.get("qty_matsui") or 0)
