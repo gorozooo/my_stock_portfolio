@@ -55,8 +55,6 @@ def _dedup_records(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     行動データ latest_behavior.jsonl から読み込んだレコードを
     「同日・同コード・同モード・同エントリー・同数量」で重複除外する。
-
-    同じシミュレを 2回・3回 build しても、ここで 1件にまとめる。
     """
     seen: set[Tuple[Any, ...]] = set()
     deduped: List[Dict[str, Any]] = []
@@ -230,7 +228,6 @@ def _build_insights(
         rak_r = _get_avg_r(rak)
         mat_r = _get_avg_r(matsui)
 
-        # 両方それなりにサンプルがあるときだけコメント
         if rak and matsui and rak.get("trials", 0) >= 1 and matsui.get("trials", 0) >= 1:
             if rak_r is not None and mat_r is not None:
                 diff = rak_r - mat_r
@@ -284,18 +281,13 @@ def _build_insights(
             " AI Picks のシミュレを継続して貯めると、勝ちパターンと負けパターンがより明確になります。"
         )
 
-    # 濃度Cなので、長くなりすぎないよう最大5行に抑える
-    return msgs[:5]
+    return msgs[:5]  # 濃度Cなので最大5行まで
 
 
 @login_required
 def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     """
-    latest_behavior.jsonl を読み込んで、
-    - 重複シミュレを除外
-    - 楽天 + 松井 をまとめて集計
-    - KPI / セクター / 相性マップ / TOP トレード / インサイト
-    を表示するダッシュボード。
+    行動データを読み込んでダッシュボードを描画。
     """
     user = request.user
     behavior_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "behavior"
@@ -487,6 +479,50 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     # ---------- 行動モデル（学習結果）読み込み ----------
     behavior_model = _load_behavior_model(user.id, behavior_dir)
 
+    # テンプレ表示用にサマリを整形（behavior_model_ctx）
+    behavior_model_ctx: Optional[Dict[str, Any]] = None
+    if behavior_model:
+        bm = behavior_model
+        by_feature = bm.get("by_feature") or {}
+        broker_stats = by_feature.get("broker", {}) or {}
+        sector_stats_model = by_feature.get("sector", {}) or {}
+
+        # セクターは上位2〜3件だけ抜き出し
+        sector_list: List[Dict[str, Any]] = []
+        for name, info in sector_stats_model.items():
+            trials = info.get("trials", 0)
+            wins = info.get("wins", 0)
+            win_rate = info.get("win_rate", 0.0)
+            avg_r_s = info.get("avg_r")
+            try:
+                avg_r_val = float(avg_r_s) if avg_r_s is not None else None
+            except Exception:
+                avg_r_val = None
+            sector_list.append(
+                {
+                    "name": name,
+                    "trials": trials,
+                    "wins": wins,
+                    "win_rate": win_rate,
+                    "avg_r": avg_r_val,
+                }
+            )
+        sector_list.sort(key=lambda x: (-x["trials"], -x["win_rate"]))
+        sector_list = sector_list[:3]
+
+        behavior_model_ctx = {
+            "total_trades": bm.get("total_trades", 0),
+            "wins": bm.get("wins", 0),
+            "win_rate": bm.get("win_rate"),
+            "avg_pl": bm.get("avg_pl"),
+            "avg_r": bm.get("avg_r"),
+            "broker": {
+                "rakuten": broker_stats.get("rakuten"),
+                "matsui": broker_stats.get("matsui"),
+            },
+            "sector_top": sector_list,
+        }
+
     # ---------- インサイト（モデルも加味） ----------
     total_trades_for_insight = len(win_trades) + len(lose_trades) + len(
         [t for t in all_trades if t.label == "flat"]
@@ -524,7 +560,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         "time_stats": time_stats,
         "atr_stats": atr_stats,
         "slope_stats": slope_stats,
-        # TOP トレード
+        # TOP トレード（楽天＋松井 混在）
         "top_win": [
             {
                 "code": t.code,
@@ -547,8 +583,9 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
             }
             for t in sorted(lose_trades, key=lambda x: x.pl)[:5]
         ],
-        # 行動モデル（カード表示用）
-        "behavior_model": behavior_model,
+        # 行動モデル
+        "behavior_model": behavior_model,          # インサイト用の生データ
+        "behavior_model_ctx": behavior_model_ctx,  # カード表示用
         # インサイト文
         "insights": insights,
     }
