@@ -133,46 +133,35 @@ def _build_insights(
     kpi_avg_win: Optional[float],
     kpi_avg_loss: Optional[float],
     dist_trend: Dict[str, int],
-    model_avg_r: Optional[float] = None,
-    model_brokers: Optional[List[Dict[str, Any]]] = None,
-    model_sectors: Optional[List[Dict[str, Any]]] = None,
 ) -> List[str]:
     """
     インサイト文（テキスト）の生成。
     濃度C：3〜5行くらいの簡易コメント。
-    - 生ログの集計
-    - 行動モデル（avg_r / broker / sector 別 win_rate）の要約
-    を軽くミックスする。
+    （ここは「生ログベース」のまま、行動モデル分はあとから足す）
     """
     msgs: List[str] = []
 
-    model_brokers = model_brokers or []
-    model_sectors = model_sectors or []
-
-    # 1) 勝率コメント（全体）
+    # 1) 勝率コメント
     if total_trades >= 5 and win_rate_all is not None:
         msgs.append(
             f"直近のトレード勝率はおよそ {win_rate_all:.1f}% です（対象 {total_trades} トレード）。"
         )
 
     # 2) セクターの得意・不得意
-    #    行動モデルに sector 情報があればそちらを優先
-    sectors_source: List[Dict[str, Any]] = model_sectors if model_sectors else sector_stats
-
     best_sector: Optional[Tuple[str, float, int]] = None  # (name, win_rate, trials)
     worst_sector: Optional[Tuple[str, float, int]] = None
 
-    for s in sectors_source:
-        trials = s.get("trials", 0)
-        wins = s.get("wins", 0)
+    for s in sector_stats:
+        trials = s["trials"]
+        wins = s["wins"]
         if trials < 2:
             continue
         rate = (wins / trials) * 100 if trials > 0 else 0.0
 
         if best_sector is None or rate > best_sector[1]:
-            best_sector = (s.get("name", ""), rate, trials)
+            best_sector = (s["name"], rate, trials)
         if worst_sector is None or rate < worst_sector[1]:
-            worst_sector = (s.get("name", ""), rate, trials)
+            worst_sector = (s["name"], rate, trials)
 
     if best_sector is not None:
         name, rate, trials = best_sector
@@ -186,7 +175,7 @@ def _build_insights(
             f"一方で「{name}」はまだサンプルが少ないか、やや相性が悪い傾向があります（勝率 {rate:.1f}%／{trials} 件）。"
         )
 
-    # 3) 平均利益・損失のバランス（生ログベース）
+    # 3) 平均利益・損失のバランス
     if kpi_avg_win is not None and kpi_avg_loss is not None:
         loss_abs = abs(kpi_avg_loss)
         msgs.append(
@@ -194,56 +183,25 @@ def _build_insights(
             " いまは損失側の方がやや大きいため、損切り幅の見直しやロット調整の余地があります。"
         )
 
-    # 4) 行動モデル側の平均R
-    if model_avg_r is not None:
-        if model_avg_r >= 0:
-            msgs.append(
-                f"行動モデル全体で見ると、リスク1単位あたりの平均Rは {model_avg_r:.2f} とおおむねフラット〜ややプラス圏です。"
-                " 勝ちパターンのRを伸ばしつつ、この水準を安定して維持できると期待値はかなり良くなります。"
-            )
-        else:
-            msgs.append(
-                f"行動モデル全体の平均Rは {model_avg_r:.2f} とマイナス寄りです。"
-                " 今は『負けのRを小さく抑える』ことを優先テーマにすると、カーブの傾きが改善しやすくなります。"
-            )
-
-    # 5) 口座別の傾向（broker別 win_rate / avg_r）
-    if model_brokers:
-        valid_brokers = [b for b in model_brokers if b.get("trials", 0) >= 1]
-        if valid_brokers:
-            best = max(
-                valid_brokers,
-                key=lambda x: (x.get("win_rate") is not None, x.get("win_rate") or 0.0),
-            )
-            label = best.get("label", "")
-            win_rate = best.get("win_rate") or 0.0
-            msgs.append(
-                f"口座別では「{label}」の勝率が {win_rate:.1f}% と相対的に安定しています。"
-                " 当面はこの口座側のルールやサイズ感をベースに、他口座も揃えていくのがおすすめです。"
-            )
-
-    # 6) トレンド方向の偏り（up/flat/down）
+    # 4) トレンド方向の偏り
     if dist_trend:
         up_count = dist_trend.get("up", 0)
-        total_t = sum(dist_trend.values())
-        if total_t > 0:
-            up_pct = up_count / total_t * 100
+        dn_count = dist_trend.get("down", 0)
+        total = sum(dist_trend.values())
+        if total > 0:
+            up_pct = up_count / total * 100
             if up_pct >= 70:
                 msgs.append(
                     "上昇トレンド銘柄へのエントリーが中心になっており、"
                     "押し目〜順張りパターンに強みが集まりつつあります。"
                 )
 
-    # 7) データが少ないとき
+    # 5) データが少ないとき
     if not msgs:
         msgs.append(
             "まだデータ量が少ないため、はっきりしたクセは出ていません。"
             " AI Picks のシミュレを継続して貯めると、勝ちパターンと負けパターンがより明確になります。"
         )
-
-    # 濃度C：最大5行くらいに抑える
-    if len(msgs) > 5:
-        msgs = msgs[:5]
 
     return msgs
 
@@ -578,7 +536,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
             ],
         }
 
-    # ---------- インサイト（モデル情報も混ぜる） ----------
+    # ---------- インサイト（元のロジック＋行動モデルを“あと乗せ”） ----------
     total_trades_for_insight = len(win_trades) + len(lose_trades) + len(
         [t for t in all_trades if t.label == "flat"]
     )
@@ -589,10 +547,42 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         kpi_avg_win=avg_win,
         kpi_avg_loss=avg_loss,
         dist_trend={k: v for k, v in trend_counter.items()},
-        model_avg_r=behavior_model.get("avg_r"),
-        model_brokers=behavior_model.get("brokers"),
-        model_sectors=behavior_model.get("sectors"),
     )
+
+    # 行動モデルから 1〜2行だけ追加（濃度Cを超えない程度）
+    extra_insights: List[str] = []
+    if behavior_model_ctx:
+        avg_r_model = behavior_model_ctx.get("avg_r")
+        if isinstance(avg_r_model, (int, float)):
+            if avg_r_model >= 0:
+                extra_insights.append(
+                    f"行動モデル全体で見ると、リスク1単位あたりの平均Rは {avg_r_model:.2f} とおおむねフラット〜ややプラス圏です。"
+                    " 勝ちパターンのRを伸ばしつつ、この水準を安定して維持できると期待値はかなり良くなります。"
+                )
+            else:
+                extra_insights.append(
+                    f"行動モデル全体の平均Rは {avg_r_model:.2f} とマイナス寄りです。"
+                    " いまは「負けのRを小さく抑える」ことを優先テーマにすると、カーブの傾きが改善しやすくなります。"
+                )
+
+        brokers_ctx = behavior_model_ctx.get("brokers") or []
+        valid_brokers = [b for b in brokers_ctx if (b.get("trials") or 0) >= 1]
+        if valid_brokers:
+            best = max(
+                valid_brokers,
+                key=lambda x: (x.get("win_rate") is not None, x.get("win_rate") or 0.0),
+            )
+            label = best.get("label", "")
+            win_rate_b = best.get("win_rate") or 0.0
+            extra_insights.append(
+                f"口座別では「{label}」の勝率が {win_rate_b:.1f}% と相対的に安定しています。"
+                " 当面はこの口座側のルールやサイズ感をベースに、他口座も揃えていくのがおすすめです。"
+            )
+
+    # もとのメッセージの後ろに追加して、最大5行に制限
+    insights = (insights or []) + extra_insights
+    if len(insights) > 5:
+        insights = insights[:5]
 
     # ---------- コンテキスト ----------
     ctx = {
