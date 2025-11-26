@@ -90,7 +90,7 @@ def _make_ts_label(ts_str: str) -> str:
 def _bucket_time_of_day(ts_str: str) -> str:
     dt = _parse_dt(ts_str)
     if dt is None:
-        return "その他"
+        return "時間外/その他"
     h = dt.hour * 60 + dt.minute
     # 09:00-11:30 / 11:30-13:00 / 13:00-15:00 くらい
     if 9 * 60 <= h < 11 * 60 + 30:
@@ -126,6 +126,27 @@ def _bucket_slope(slope: Optional[float]) -> str:
     return "急騰寄り"
 
 
+def _load_behavior_model(user_id: Optional[int], behavior_dir: Path) -> Optional[Dict[str, Any]]:
+    """
+    train_behavior_model で出力した行動モデル（latest_behavior_model_uX.json）
+    を読み込む。なければ uall をフォールバック。
+    """
+    model_dir = behavior_dir / "model"
+
+    cand_paths: List[Path] = []
+    if user_id is not None:
+        cand_paths.append(model_dir / f"latest_behavior_model_u{user_id}.json")
+    cand_paths.append(model_dir / "latest_behavior_model_uall.json")
+
+    for p in cand_paths:
+        if p.exists():
+            try:
+                return json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+    return None
+
+
 def _build_insights(
     total_trades: int,
     win_rate_all: Optional[float],
@@ -133,20 +154,39 @@ def _build_insights(
     kpi_avg_win: Optional[float],
     kpi_avg_loss: Optional[float],
     dist_trend: Dict[str, int],
+    behavior_model: Optional[Dict[str, Any]] = None,
 ) -> List[str]:
     """
     インサイト文（テキスト）の生成。
     濃度C：3〜5行くらいの簡易コメント。
+    行動モデル（latest_behavior_model_*.json）の情報もあれば併用する。
     """
     msgs: List[str] = []
 
-    # 1) 勝率コメント
-    if total_trades >= 5 and win_rate_all is not None:
+    # 行動モデル側の集約値
+    model_win_rate: Optional[float] = None
+    model_avg_r: Optional[float] = None
+    model_broker_stats: Dict[str, Any] = {}
+
+    if behavior_model:
+        try:
+            model_win_rate = float(behavior_model.get("win_rate"))
+        except Exception:
+            model_win_rate = None
+        try:
+            model_avg_r = float(behavior_model.get("avg_r"))
+        except Exception:
+            model_avg_r = None
+        model_broker_stats = (behavior_model.get("by_feature") or {}).get("broker", {}) or {}
+
+    # 1) 勝率コメント（モデルがあればモデル値を優先）
+    base_win_rate = model_win_rate if model_win_rate is not None else win_rate_all
+    if total_trades >= 5 and base_win_rate is not None:
         msgs.append(
-            f"直近のトレード勝率はおよそ {win_rate_all:.1f}% です（対象 {total_trades} トレード）。"
+            f"直近のトレード勝率はおよそ {base_win_rate:.1f}% です（対象 {total_trades} トレード）。"
         )
 
-    # 2) セクターの得意・不得意
+    # 2) セクターの得意・不得意（楽天ベース）
     best_sector: Optional[Tuple[str, float, int]] = None  # (name, win_rate, trials)
     worst_sector: Optional[Tuple[str, float, int]] = None
 
@@ -174,7 +214,43 @@ def _build_insights(
             f"一方で「{name}」はまだサンプルが少ないか、やや相性が悪い傾向があります（勝率 {rate:.1f}%／{trials} 件）。"
         )
 
-    # 3) 平均利益・損失のバランス
+    # 3) ブローカー別の傾向（行動モデルの avg_r を利用）
+    if model_broker_stats:
+        rak = model_broker_stats.get("rakuten")
+        matsui = model_broker_stats.get("matsui")
+
+        def _get_avg_r(d: Any) -> Optional[float]:
+            if not isinstance(d, dict):
+                return None
+            try:
+                return float(d.get("avg_r"))
+            except Exception:
+                return None
+
+        rak_r = _get_avg_r(rak)
+        mat_r = _get_avg_r(matsui)
+
+        # 両方それなりにサンプルがあるときだけコメント
+        if rak and matsui and rak.get("trials", 0) >= 1 and matsui.get("trials", 0) >= 1:
+            if rak_r is not None and mat_r is not None:
+                diff = rak_r - mat_r
+                if diff > 0.05:
+                    msgs.append(
+                        f"ブローカー別では、楽天の平均Rが {rak_r:.2f}、松井が {mat_r:.2f} と、"
+                        "楽天側の方がややリスク効率が良い傾向です。"
+                    )
+                elif diff < -0.05:
+                    msgs.append(
+                        f"ブローカー別では、楽天の平均Rが {rak_r:.2f}、松井が {mat_r:.2f} と、"
+                        "松井側の方がややリスク効率が良い傾向です。"
+                    )
+                else:
+                    msgs.append(
+                        f"ブローカー別の平均Rは、楽天 {rak_r:.2f}／松井 {mat_r:.2f} と大きな差はなく、"
+                        "どちらも似たようなパフォーマンスになっています。"
+                    )
+
+    # 4) 平均利益・損失のバランス
     if kpi_avg_win is not None and kpi_avg_loss is not None:
         loss_abs = abs(kpi_avg_loss)
         msgs.append(
@@ -182,27 +258,34 @@ def _build_insights(
             " いまは損失側の方がやや大きいため、損切り幅の見直しやロット調整の余地があります。"
         )
 
-    # 4) トレンド方向の偏り
+    # 5) トレンド方向の偏り
     if dist_trend:
         up_count = dist_trend.get("up", 0)
         dn_count = dist_trend.get("down", 0)
         total = sum(dist_trend.values())
         if total > 0:
             up_pct = up_count / total * 100
+            dn_pct = dn_count / total * 100
             if up_pct >= 70:
                 msgs.append(
                     "上昇トレンド銘柄へのエントリーが中心になっており、"
                     "押し目〜順張りパターンに強みが集まりつつあります。"
                 )
+            elif dn_pct >= 70:
+                msgs.append(
+                    "下降トレンド銘柄へのエントリー比率が高めで、"
+                    "逆張り・リバウンド狙いの比重が大きくなっています。"
+                )
 
-    # 5) データが少ないとき
+    # 6) それでも足りないときの補足
     if not msgs:
         msgs.append(
             "まだデータ量が少ないため、はっきりしたクセは出ていません。"
             " AI Picks のシミュレを継続して貯めると、勝ちパターンと負けパターンがより明確になります。"
         )
 
-    return msgs
+    # 濃度Cなので、長くなりすぎないよう最大5行に抑える
+    return msgs[:5]
 
 
 @login_required
@@ -213,9 +296,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     - 楽天 + 松井 をまとめて集計
     - KPI / セクター / 相性マップ / TOP トレード / インサイト
     を表示するダッシュボード。
-
-    さらに latest_behavior_model_uX.json（行動モデル）も読み込んで、
-    「AI がどう学習したか」の要約も表示する。
     """
     user = request.user
     behavior_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "behavior"
@@ -396,7 +476,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                     "pct": c / total_count * 100.0,
                 }
             )
-        # 多い順
         items.sort(key=lambda x: -x["count"])
         return items
 
@@ -405,108 +484,10 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     atr_stats = _build_dist_list(atr_counter)
     slope_stats = _build_dist_list(slope_counter)
 
-    # ---------- TOP 勝ち / 負け（楽天＋松井 混在） ----------
-    top_win: List[Dict[str, Any]] = []
-    for t in sorted(win_trades, key=lambda x: x.pl, reverse=True)[:5]:
-        top_win.append(
-            {
-                "code": t.code,
-                "name": t.name,
-                "broker": t.broker,
-                "pl": t.pl,
-                "mode": t.mode,
-                "ts_label": t.ts_label,
-            }
-        )
+    # ---------- 行動モデル（学習結果）読み込み ----------
+    behavior_model = _load_behavior_model(user.id, behavior_dir)
 
-    top_lose: List[Dict[str, Any]] = []
-    for t in sorted(lose_trades, key=lambda x: x.pl)[:5]:
-        top_lose.append(
-            {
-                "code": t.code,
-                "name": t.name,
-                "broker": t.broker,
-                "pl": t.pl,
-                "mode": t.mode,
-                "ts_label": t.ts_label,
-            }
-        )
-
-    # ---------- 行動モデル（latest_behavior_model_uX.json）読み込み ----------
-    behavior_model = {
-        "has_model": False,
-        "total_trades": None,
-        "wins": None,
-        "win_rate": None,
-        "avg_pl": None,
-        "avg_r": None,
-        "brokers": [],
-        "sectors": [],
-    }
-
-    model_dir = behavior_dir / "model"
-    model_path_user = model_dir / f"latest_behavior_model_u{user.id}.json"
-    model_path_all = model_dir / "latest_behavior_model_uall.json"
-
-    model_path: Optional[Path] = None
-    if model_path_user.exists():
-        model_path = model_path_user
-    elif model_path_all.exists():
-        model_path = model_path_all
-
-    if model_path is not None:
-        try:
-            j = json.loads(model_path.read_text(encoding="utf-8"))
-            behavior_model["has_model"] = True
-            behavior_model["total_trades"] = j.get("total_trades")
-            behavior_model["wins"] = j.get("wins")
-            behavior_model["win_rate"] = j.get("win_rate")
-            behavior_model["avg_pl"] = j.get("avg_pl")
-            behavior_model["avg_r"] = j.get("avg_r")
-
-            by_feature = j.get("by_feature", {}) or {}
-
-            # broker 別
-            brokers: List[Dict[str, Any]] = []
-            broker_map = by_feature.get("broker", {}) or {}
-            label_map = {"rakuten": "楽天", "matsui": "松井"}
-            for key, val in broker_map.items():
-                brokers.append(
-                    {
-                        "key": key,
-                        "label": label_map.get(key, key),
-                        "trials": val.get("trials", 0),
-                        "wins": val.get("wins", 0),
-                        "win_rate": val.get("win_rate", 0.0),
-                        "avg_pl": val.get("avg_pl"),
-                        "avg_r": val.get("avg_r"),
-                    }
-                )
-            brokers.sort(key=lambda x: -x["trials"])
-            behavior_model["brokers"] = brokers
-
-            # sector 別（上位5件くらいまで）
-            sectors: List[Dict[str, Any]] = []
-            sector_map = by_feature.get("sector", {}) or {}
-            for name, val in sector_map.items():
-                sectors.append(
-                    {
-                        "name": name,
-                        "trials": val.get("trials", 0),
-                        "wins": val.get("wins", 0),
-                        "win_rate": val.get("win_rate", 0.0),
-                        "avg_pl": val.get("avg_pl"),
-                        "avg_r": val.get("avg_r"),
-                    }
-                )
-            sectors.sort(key=lambda x: -x["trials"])
-            behavior_model["sectors"] = sectors[:5]
-
-        except Exception:
-            # 壊れていても画面は落とさない
-            behavior_model["has_model"] = False
-
-    # ---------- インサイト（前のテイストに戻す） ----------
+    # ---------- インサイト（モデルも加味） ----------
     total_trades_for_insight = len(win_trades) + len(lose_trades) + len(
         [t for t in all_trades if t.label == "flat"]
     )
@@ -517,6 +498,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         kpi_avg_win=avg_win,
         kpi_avg_loss=avg_loss,
         dist_trend={k: v for k, v in trend_counter.items()},
+        behavior_model=behavior_model,
     )
 
     # ---------- コンテキスト ----------
@@ -543,11 +525,31 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         "atr_stats": atr_stats,
         "slope_stats": slope_stats,
         # TOP トレード
-        "top_win": top_win,
-        "top_lose": top_lose,
+        "top_win": [
+            {
+                "code": t.code,
+                "name": t.name,
+                "broker": t.broker,
+                "pl": t.pl,
+                "mode": t.mode,
+                "ts_label": t.ts_label,
+            }
+            for t in sorted(win_trades, key=lambda x: x.pl, reverse=True)[:5]
+        ],
+        "top_lose": [
+            {
+                "code": t.code,
+                "name": t.name,
+                "broker": t.broker,
+                "pl": t.pl,
+                "mode": t.mode,
+                "ts_label": t.ts_label,
+            }
+            for t in sorted(lose_trades, key=lambda x: x.pl)[:5]
+        ],
+        # 行動モデル（カード表示用）
+        "behavior_model": behavior_model,
         # インサイト文
         "insights": insights,
-        # 行動モデル（学習結果）
-        "behavior_model": behavior_model,
     }
     return render(request, "aiapp/behavior_dashboard.html", ctx)
