@@ -1,49 +1,53 @@
 # aiapp/services/sim_snapshot.py
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, asdict
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional
+
+from django.conf import settings
 
 
 SNAPSHOT_VERSION = 1
-ENGINE_VERSION = "L3-2025-11"  # レベル3評価エンジンのバージョン名（お好みで）
+ENGINE_VERSION = "L3-2025-11"  # レベル3評価エンジン側と揃える用
 
 
 @dataclass
 class SimSnapshot:
-    # メタ情報
+    # メタ
     version: int
     engine_version: str
-    created_at: str          # ISO文字列（保存時刻＝シミュレ登録時）
+    created_at: str      # 保存タイムスタンプ（UTC）
     user_id: int
 
     # 銘柄・モード
     code: str
     name: str
-    side: str                # "buy" / "sell" （今は "buy" 固定でOK）
-    mode: str                # "live" / "demo"
+    side: str            # "buy" / "sell"
+    mode: str            # "live" / "demo"
 
-    # 注文条件
-    entry_price: float       # 指値（AIが出したエントリー価格）
-    tp_price: Optional[float]  # 利確指値（なければ None）
-    sl_price: Optional[float]  # 損切指値（なければ None）
-    qty_rakuten: float       # 楽天の数量（0なら注文なし）
-    qty_matsui: float        # 松井の数量（0なら注文なし）
+    # 注文条件（AIが出した時点の“世界線”）
+    entry_price: float
+    tp_price: Optional[float]
+    sl_price: Optional[float]
+    qty_rakuten: float
+    qty_matsui: float
 
     # 評価ルール
-    horizon_days: int        # 何営業日追うか
-    time_in_force: str       # "DAY" / "GTC" など（当日限り 等）
-    placed_at: str           # 実際の注文時刻（ts）
+    horizon_days: int    # 5営業日など
+    time_in_force: str   # "DAY" など
+    placed_at: str       # シミュレ登録時刻（ローカルISO）
 
-    # 将来拡張用（余白）
-    extra: Dict[str, Any]    # 追加情報（ルールの名前 等）
+    # 余白
+    extra: Dict[str, Any]
 
 
-def build_sim_snapshot(
+def build_snapshot(
     *,
     user_id: int,
-    ts: datetime,
+    ts_local: datetime,
     code: str,
     name: str,
     side: str,
@@ -57,17 +61,12 @@ def build_sim_snapshot(
     time_in_force: str = "DAY",
     extra: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """
-    シミュレ1件ぶんの「注文スナップショット」を dict で作る。
-
-    - ts         : シミュレ登録時刻（timezone aware の datetime 推奨）
-    - entry/tp/sl: 画面に出している価格そのまま
-    """
+    """シミュレ1件分のスナップショット dict を作成"""
     if extra is None:
         extra = {}
 
     created_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
-    placed_at = ts.isoformat()
+    placed_at = ts_local.isoformat()
 
     snap = SimSnapshot(
         version=SNAPSHOT_VERSION,
@@ -89,3 +88,42 @@ def build_sim_snapshot(
         extra=extra,
     )
     return asdict(snap)
+
+
+def get_snapshot_base_dir(user_id: int) -> Path:
+    """ユーザー別スナップショット保存ディレクトリ"""
+    base = Path(settings.MEDIA_ROOT) / "aiapp" / "simulate_snapshots" / f"u{user_id}"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def save_snapshot(user_id: int, snapshot: Dict[str, Any]) -> str:
+    """
+    スナップショットを JSON として保存し、ファイルパス(str) を返す。
+    """
+    base = get_snapshot_base_dir(user_id)
+    code = snapshot.get("code", "unknown")
+    placed_at = snapshot.get("placed_at", "").replace(":", "").replace("-", "")
+    if not placed_at:
+        placed_at = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+    filename = f"{code}_{placed_at}.json"
+    path = base / filename
+
+    path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+    return str(path)
+
+
+def load_snapshot(path_str: str) -> Optional[Dict[str, Any]]:
+    """
+    保存済みスナップショット JSON を読み込む。
+    """
+    if not path_str:
+        return None
+    path = Path(path_str)
+    if not path.exists():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+        return json.loads(text)
+    except Exception:
+        return None
