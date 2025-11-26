@@ -33,20 +33,22 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
     """
     AI Picks の「シミュレ」で登録した紙トレを一覧表示するビュー。
 
-    ストレージ構成（現状）:
-      - /media/aiapp/simulate/*.jsonl を全部読む
-      - 1行 = シミュレ1件のスナップショット
-        * entry / tp / sl / qty_xxx / est_pl_xxx / est_loss_xxx ...
-        * 5営業日後の eval_xxx 系も同じレコードに入っている想定
+    - /media/aiapp/simulate/*.jsonl を全部読む
+    - ログインユーザーの分だけ抽出
+    - ts 降順でソート
+    - mode / 期間 / 銘柄コード・名称でフィルタ
+    - 最大100件まで表示
 
-    処理の流れ:
-      - ログインユーザーの分だけ抽出
-      - ts 降順でソート
-      - 「同じ銘柄・同じ内容のシミュレは、同じ日付内で重複させない」
-        → key: (日付, code, mode, entry, tp, sl, qty_rakuten, qty_matsui,
-                 est_pl_rakuten, est_pl_matsui, est_loss_rakuten, est_loss_matsui)
-      - mode / 期間 / 銘柄コード・名称でフィルタ
-      - 最大100件まで表示
+    ★ 追加仕様
+      「同じ銘柄・同じ内容のシミュレは、同じ日付内で重複させない」
+      → 同じ日・同じ code・同じ mode・同じエントリー/数量/想定PL・想定損失・TP・SL は
+         最初の1件だけ残し、以降は一覧から除外する。
+
+    ★ スナップショット仕様（レベル3前提）
+      - entry / tp / sl をその時点の値で固定保存
+      - qty_rakuten / qty_matsui
+      - est_pl_rakuten / est_loss_rakuten / est_pl_matsui / est_loss_matsui
+      - price_date / ts など
     """
 
     user = request.user
@@ -114,8 +116,10 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
 
     # ---- ★ 同じ日・同じ内容の重複をまとめる --------------------------
     #   「同じ銘柄の同じ内容は同日で重複しないようにする」
-    #   → key: (日付, code, mode, entry, tp, sl, qty_rakuten, qty_matsui,
-    #           est_pl_rakuten, est_pl_matsui, est_loss_rakuten, est_loss_matsui)
+    #   → key: (日付, code, mode, entry, tp, sl,
+    #           qty_rakuten, qty_matsui,
+    #           est_pl_rakuten, est_pl_matsui,
+    #           est_loss_rakuten, est_loss_matsui)
     deduped: List[Dict[str, Any]] = []
     seen_keys = set()
 
@@ -128,8 +132,8 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
             e.get("code"),
             (e.get("mode") or "").lower() if e.get("mode") else None,
             e.get("entry"),
-            e.get("tp"),               # ★ TP も同一判定に含める
-            e.get("sl"),               # ★ SL も同一判定に含める
+            e.get("tp"),
+            e.get("sl"),
             e.get("qty_rakuten"),
             e.get("qty_matsui"),
             e.get("est_pl_rakuten"),
