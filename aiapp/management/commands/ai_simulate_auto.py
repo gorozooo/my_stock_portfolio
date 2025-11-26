@@ -7,8 +7,8 @@ ai_simulate_auto
 役割:
 - 04:30 の picks_build が出力した media/aiapp/picks/latest_full.json を読み込む
 - TopK 銘柄すべてに対して「DEMOモードの紙トレ注文」を JSONL に起票する
-- 出力先は /media/aiapp/simulate/*.jsonl
-  → aiapp.views.simulate.simulate_list / sim_delete が読む前提のフォーマット
+- 出力先は /media/aiapp/simulate/sim_orders_YYYY-MM-DD.jsonl
+  → レベル3判定・行動データセット・行動モデルが読む前提のフォーマット
 
 1行の例:
 {
@@ -16,7 +16,8 @@ ai_simulate_auto
   "mode": "demo",
   "ts": "2025-11-25T07:00:01+09:00",
   "run_date": "2025-11-25",
-  "run_id": "20251125_070001_auto",
+  "trade_date": "2025-11-25",
+  "run_id": "20251125_070001_auto_demo",
   "code": "7203",
   "name": "トヨタ自動車",
   "sector": "輸送用機器",
@@ -108,8 +109,15 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # run_date: 「このシミュレが有効になる営業日」のベース
+        # 07:00 バッチでは run_date = 今日（その日の寄り〜大引け分を想定）
         run_date = options.get("date") or today_jst_str()
         overwrite: bool = bool(options.get("overwrite"))
+
+        # trade_date:
+        #   ai_simulate_auto の世界では「run_date = trade_date」として扱う。
+        #   （15:00以降や寄り前の扱いは、run_date の指定側でコントロールする）
+        trade_date = run_date
 
         # -------- picks 読み込み --------
         picks_path = PICKS_DIR / "latest_full.json"
@@ -199,13 +207,13 @@ class Command(BaseCommand):
                 stars = it.get("stars")
 
                 rec: Dict[str, Any] = {
-                    # simulate_list / sim_delete が見るキー
+                    # レベル3評価・行動分析が見るキー
                     "user_id": user_id,
                     "mode": rec_mode,               # "all"/"live"/"demo" フィルタ用
-                    "ts": dt_now_jst_iso(),         # 一覧表示・期間フィルタ用
-                    # 識別用メタ
-                    "run_date": run_date,
-                    "run_id": run_id,
+                    "ts": dt_now_jst_iso(),         # 実際にシミュレを起票した時刻
+                    "run_date": run_date,           # バッチの対象日
+                    "trade_date": trade_date,       # 「指値が有効になる日」（5分足評価もこの日付ベース）
+                    "run_id": run_id,               # 同一バッチの識別子
                     # 銘柄情報
                     "code": code,
                     "name": name,
