@@ -21,8 +21,8 @@
         <div class="ico">🏠</div><span>ホーム</span>
       </button>
 
-      <!-- 🧠 AI（advisor）: link は /advisor/ 基点にして配下でアクティブ判定、タップ遷移は board へ -->
-      <button class="tab-btn" data-link="/advisor/"          data-menu="advisor"  aria-label="AI">
+      <!-- 🧠 AI（aiapp）: link は aiapp:dashboard を基点にして配下でアクティブ判定、タップ遷移も aiapp へ -->
+      <button class="tab-btn" data-link="{% url 'aiapp:dashboard' %}" data-menu="advisor"  aria-label="AI">
         <div class="ico">🧠</div><span>AI</span>
       </button>
 
@@ -56,9 +56,17 @@
     home_panel_cash     : "{% url 'home' %}?panel=cash",
     home_panel_trend    : "{% url 'home' %}?panel=trend",
 
-    // Advisor (AI)
-    advisor_board       : "{% url 'advisor_board_page' %}",   // ← ここに遷移させる
-    advisor_root        : "/advisor/",                         // アクティブ判定用（必要なら調整）
+    // AI (aiapp)
+    aiapp_dashboard     : "{% url 'aiapp:dashboard' %}",       // メインダッシュボード
+    aiapp_root          : "{% url 'aiapp:dashboard' %}",       // アクティブ判定用
+    aiapp_picks         : "{% url 'aiapp:picks' %}",
+    aiapp_behavior      : "{% url 'aiapp:behavior_dashboard' %}",
+    aiapp_settings      : "{% url 'aiapp:settings' %}",
+    aiapp_simulate_list : "{% url 'aiapp:simulate_list' %}",
+
+    // legacy Advisor (既存AI) – HOMEメニューから到達
+    advisor_board       : "{% url 'advisor_board_page' %}",
+    advisor_root        : "/advisor/",
 
     // Holdings / Realized
     holdings_base       : "{% url 'holding_list' %}",
@@ -90,4 +98,4 @@
     root.style.setProperty('--tab-cols', String(count));
   })();
 </script>
-<script src="{% static 'js/bottom_tab.js' %}?v=351" defer></script>
+<script src="{% static 'js/bottom_tab.js' %}?v=352" defer></script>
