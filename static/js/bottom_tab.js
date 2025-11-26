@@ -136,6 +136,9 @@ document.addEventListener("DOMContentLoaded", () => {
       { section:"ホーム" },
       { label:"トレンド",        href: URLS.trend_base,           icon:"📈", tone:"info" },
       { label:"設定を開く",      href:"/settings/trade",          icon:"⚙️", tone:"info" },
+      { label:"通知ダッシュボード", href:"/advisor/notify-dashboard", icon:"🔔", tone:"info" },
+      { label:"ABテスト",        href:"/advisor/ab",              icon:"🧪", tone:"info" },
+      { label:"運用履歴",        href:"/advisor/policy",
     ],
     // 🧠 advisor メニュー
     advisor: [
@@ -143,9 +146,6 @@ document.addEventListener("DOMContentLoaded", () => {
       { label:"AIボード",        href: URLS.advisor_board,        icon:"🧠", tone:"info" },
       { label:"ウォッチリスト",    href: "/advisor/watch",          icon:"📝", tone:"info" },
       { label:"ルール",          href: "/advisor/policy1",         icon:"🚓", tone:"info" },
-      { label:"通知ダッシュボード", href:"/advisor/notify-dashboard", icon:"🔔", tone:"info" },
-      { label:"ABテスト",        href:"/advisor/ab",              icon:"🧪", tone:"info" },
-      { label:"運用履歴",        href:"/advisor/policy",          icon:"📊", tone:"info" },
     ],
     holdings: [
       { section:"保有" },
