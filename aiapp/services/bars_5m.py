@@ -1,215 +1,136 @@
 # aiapp/services/bars_5m.py
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from datetime import date
+from typing import Optional
 
+import logging
+
+import pandas as pd
 import yfinance as yf
-from django.conf import settings
-from django.utils import timezone
+import pytz
 
-# キャッシュ保存先: MEDIA_ROOT/aiapp/bars_5m
-BARS_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "bars_5m"
-BARS_DIR.mkdir(parents=True, exist_ok=True)
+logger = logging.getLogger(__name__)
+
+JST = pytz.timezone("Asia/Tokyo")
 
 
 @dataclass
-class Bar5m:
-    ts: timezone.datetime
-    open: float
-    high: float
-    low: float
-    close: float
-
-
-def _safe_float(v: Any) -> Optional[float]:
-    if v in (None, "", "null"):
-        return None
-    try:
-        return float(v)
-    except Exception:
-        return None
-
-
-def _parse_ts(ts_str: str) -> Optional[timezone.datetime]:
-    if not isinstance(ts_str, str) or not ts_str:
-        return None
-    try:
-        dt = timezone.datetime.fromisoformat(ts_str)
-        if timezone.is_naive(dt):
-            dt = timezone.make_aware(dt, timezone.get_default_timezone())
-        return timezone.localtime(dt)
-    except Exception:
-        return None
-
-
-def _coerce_bar_from_json(d: Dict[str, Any]) -> Optional[Bar5m]:
-    ts = _parse_ts(str(d.get("ts") or ""))
-    if ts is None:
-        return None
-
-    o = _safe_float(d.get("open"))
-    h = _safe_float(d.get("high"))
-    l = _safe_float(d.get("low"))
-    c = _safe_float(d.get("close"))
-    if o is None or h is None or l is None or c is None:
-        return None
-
-    return Bar5m(ts=ts, open=o, high=h, low=l, close=c)
-
-
-def _cache_path_for_code(code: str) -> Path:
+class Bars5mResult:
     """
-    各銘柄ごとに 1ファイル: <MEDIA_ROOT>/aiapp/bars_5m/{code}_5m.jsonl
-    例: 7508 -> 7508_5m.jsonl
+    5分足取得の結果ラッパー（今後拡張したくなったとき用）
+    """
+    code: str
+    trade_date: date
+    df: pd.DataFrame
+
+
+def _to_yf_symbol(code: str) -> str:
+    """
+    JPX銘柄コードを yfinance 用のシンボルに変換する。
+    例:
+      "7508"  -> "7508.T"
+      "7508.T" -> "7508.T"（そのまま）
     """
     code = str(code).strip()
-    return BARS_DIR / f"{code}_5m.jsonl"
+    if not code:
+        return ""
+    if "." in code:
+        return code
+    return f"{code}.T"
 
 
-def _load_from_cache(code: str) -> List[Bar5m]:
+def _normalize_index_to_jst(df: pd.DataFrame) -> pd.DataFrame:
     """
-    キャッシュファイルを読み込んで Bar5m のリストにして返す。
-    ファイルが無ければ空リスト。
+    yfinance の DataFrame の index（DatetimeIndex）を JST にそろえる。
+    JPX銘柄はたいてい最初から JST になっているが、
+    念のため tz naive の場合もローカライズしておく。
     """
-    path = _cache_path_for_code(code)
-    if not path.exists():
-        return []
+    if df.empty:
+        return df
 
-    bars: List[Bar5m] = []
-    try:
-        text = path.read_text(encoding="utf-8")
-    except Exception:
-        return []
+    idx = df.index
 
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            d = json.loads(line)
-        except Exception:
-            continue
-        bar = _coerce_bar_from_json(d)
-        if bar is not None:
-            bars.append(bar)
+    # DatetimeIndex でない場合はそのまま返す
+    if not isinstance(idx, pd.DatetimeIndex):
+        return df
 
-    # 念のため時刻順にソート
-    bars.sort(key=lambda b: b.ts)
-    return bars
+    if idx.tz is None:
+        # タイムゾーン情報なし → JST とみなしてローカライズ
+        df = df.copy()
+        df.index = df.index.tz_localize(JST)
+        return df
+
+    # すでに tz 付きなら JST に変換
+    df = df.tz_convert(JST)
+    return df
 
 
-def _save_to_cache(code: str, bars: List[Bar5m]) -> None:
+def get_5m_bars_range(code: str, center_date: date, horizon_days: int = 5) -> pd.DataFrame:
     """
-    Bar5m のリストを丸ごとキャッシュファイルに書き出す。
-    （後から追記するよりも、毎回全体を上書きする運用）
+    レベル3用の「5分足取得」メイン関数。
+
+    仕様（今回の実装）:
+      - yfinance から interval=5m で period=10d ぶん取得
+      - その中から「center_date 当日(JST)の分だけ」を抽出
+      - 返り値: 当日分の 5分足 DataFrame（Open/High/Low/Close/Volume）
+
+    ※ horizon_days は将来の拡張用で、今は使っていません。
     """
-    path = _cache_path_for_code(code)
-    lines: List[str] = []
+    if not isinstance(center_date, date):
+        raise ValueError("center_date には date 型を渡してください")
 
-    for b in sorted(bars, key=lambda x: x.ts):
-        d = {
-            "ts": b.ts.isoformat(),
-            "open": b.open,
-            "high": b.high,
-            "low": b.low,
-            "close": b.close,
-        }
-        lines.append(json.dumps(d, ensure_ascii=False))
+    yf_symbol = _to_yf_symbol(code)
+    if not yf_symbol:
+        logger.warning("get_5m_bars_range: 空のコードが渡されました")
+        return pd.DataFrame()
 
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    except Exception:
-        # キャッシュ失敗しても致命的ではないので握りつぶす
-        pass
-
-
-def _fetch_5m_from_yf(code: str, days: int = 60) -> List[Bar5m]:
-    """
-    yfinance を使って最大60日分の5分足を取得し、Bar5m のリストで返す。
-    - JPX銘柄は "7508.T" のように .T を付けて取得
-    - days は 1〜60 の範囲で使うイメージ
-    """
-    ticker = f"{str(code).strip()}.T"
+    # いきなり start/end を絞ると取り逃しやタイムゾーンのズレで 0件になりやすいので、
+    # いったん period=10d くらいでざっくり取ってから JST 日付でフィルタする。
+    period_days = max(5, min(10, horizon_days + 2))
+    period_str = f"{period_days}d"
 
     try:
-        # 60日分まとめて取り、あとで日付でフィルタする
         df = yf.download(
-            ticker,
-            period=f"{days}d",
+            yf_symbol,
             interval="5m",
+            period=period_str,
+            auto_adjust=False,   # ★ FutureWarning 回避のため明示
             progress=False,
         )
-    except Exception:
-        return []
+    except Exception as e:
+        logger.exception("get_5m_bars_range: yfinance 取得で例外が発生: %s", e)
+        return pd.DataFrame()
 
-    bars: List[Bar5m] = []
     if df is None or df.empty:
-        return bars
+        logger.warning(
+            "get_5m_bars_range: yfinance からデータが取得できませんでした code=%s period=%s",
+            yf_symbol,
+            period_str,
+        )
+        return pd.DataFrame()
 
-    # df.index は DatetimeIndex
-    for ts, row in df.iterrows():
-        # ts は pandas.Timestamp
-        ts_py = ts.to_pydatetime()
-        if timezone.is_naive(ts_py):
-            ts_py = timezone.make_aware(ts_py, timezone.get_default_timezone())
-        ts_py = timezone.localtime(ts_py)
+    # JST にそろえてから、center_date 当日だけに絞り込む
+    df = _normalize_index_to_jst(df)
 
-        o = _safe_float(row.get("Open"))
-        h = _safe_float(row.get("High"))
-        l = _safe_float(row.get("Low"))
-        c = _safe_float(row.get("Close"))
-        if o is None or h is None or l is None or c is None:
-            continue
+    # DatetimeIndex ではない場合はそのまま返してしまう（念のため）
+    if not isinstance(df.index, pd.DatetimeIndex):
+        logger.warning(
+            "get_5m_bars_range: index が DatetimeIndex ではありません code=%s", yf_symbol
+        )
+        return df
 
-        bars.append(Bar5m(ts=ts_py, open=o, high=h, low=l, close=c))
+    mask = df.index.date == center_date
+    df_day = df.loc[mask].copy()
 
-    bars.sort(key=lambda b: b.ts)
-    return bars
+    logger.info(
+        "get_5m_bars_range: code=%s center_date=%s period=%s -> total=%d, day=%d",
+        yf_symbol,
+        center_date,
+        period_str,
+        len(df),
+        len(df_day),
+    )
 
-
-def get_5m_bars_range(code: str, start_date, horizon_days: int = 5) -> List[Bar5m]:
-    """
-    外部公開API:
-
-      get_5m_bars_range(code, start_date, horizon_days)
-
-    - まずローカルキャッシュから全5分足を読み込む
-    - キャッシュが無かったり極端に少ない場合は yfinance から取得してキャッシュ
-    - その上で start_date〜horizon_days 営業日ぶんだけをフィルタして返す
-
-    ※ horizon_days は「exit評価用の期間」で、実際には日付ベースで
-       start_date <= ts.date() < start_date + horizon_days
-       のものを返す。
-    """
-    if horizon_days <= 0:
-        return []
-
-    # 1. まずキャッシュから読む
-    bars_all = _load_from_cache(code)
-
-    # 2. キャッシュが無い or 少なすぎる場合は yfinance から取得してキャッシュ更新
-    if len(bars_all) < 10:
-        fetched = _fetch_5m_from_yf(code, days=max(horizon_days * 2, 7))
-        if fetched:
-            bars_all = fetched
-            _save_to_cache(code, bars_all)
-
-    if not bars_all:
-        return []
-
-    # 3. start_date〜horizon_days分だけフィルタ
-    start = start_date
-    end = start_date + timezone.timedelta(days=horizon_days)
-
-    filtered: List[Bar5m] = []
-    for b in bars_all:
-        d = b.ts.date()
-        if start <= d < end:
-            filtered.append(b)
-
-    filtered.sort(key=lambda b: b.ts)
-    return filtered
+    return df_day
