@@ -39,6 +39,46 @@ def _sort_key(rec: Dict[str, Any]):
     return str(rec.get("ts") or "")
 
 
+def _dedup_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    simulate_list と同じロジックで「同じ日・同じ内容の重複」をまとめる。
+
+    key:
+      (日付, code, mode, entry,
+       qty_rakuten, qty_matsui,
+       est_pl_rakuten, est_pl_matsui,
+       est_loss_rakuten, est_loss_matsui)
+    """
+    seen = set()
+    deduped: List[Dict[str, Any]] = []
+
+    for e in records:
+        dt = e.get("_dt")
+        day = dt.date() if isinstance(dt, timezone.datetime) else None
+
+        key = (
+            day,
+            e.get("code"),
+            (e.get("mode") or "").lower() if e.get("mode") else None,
+            e.get("entry"),
+            e.get("qty_rakuten"),
+            e.get("qty_matsui"),
+            e.get("est_pl_rakuten"),
+            e.get("est_pl_matsui"),
+            e.get("est_loss_rakuten"),
+            e.get("est_loss_matsui"),
+        )
+
+        if key in seen:
+            # 同じ日・同じ内容が既にあれば後ろの分は捨てる
+            continue
+
+        seen.add(key)
+        deduped.append(e)
+
+    return deduped
+
+
 @login_required
 def simulate_delete(request: HttpRequest, pk: int) -> HttpResponse:
     """
@@ -46,8 +86,9 @@ def simulate_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
     – /media/aiapp/simulate/*.jsonl からログインユーザーのレコードを全部集める
     – ts 降順でソート
-    – pk 番目の 1 件を「削除対象」として特定
-    – 対象と一致する JSON レコード 1 行だけを JSONL から除去
+    – 「同じ日・同じ内容の重複」を simulate_list と同じルールでまとめる
+    – そこから simulate_list と同じ要領で id(=インデックス) を振る
+    – その id が pk のレコード 1 件だけを JSONL から除去する
     """
     user = request.user
     sim_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "simulate"
@@ -90,17 +131,49 @@ def simulate_delete(request: HttpRequest, pk: int) -> HttpResponse:
     # ts 降順でソート（一覧と同じ）
     user_records.sort(key=_sort_key, reverse=True)
 
-    # pk が範囲外なら 404
-    if pk < 0 or pk >= len(user_records):
-        raise Http404("simulate record index out of range")
+    # ★ simulate_list と同じ「同じ日・同じ内容の重複まとめ」を適用
+    entries_all = _dedup_records(user_records)
 
-    target = user_records[pk]
+    if not entries_all:
+        raise Http404("no simulate records after dedup")
+
+    # ★ simulate_list と同じ要領で id を決定
+    #   既存の id が int ならそれを優先、無ければ 0,1,2,… を振る
+    for idx, e in enumerate(entries_all):
+        eid = e.get("id")
+        disp_id: Optional[int] = None
+
+        if isinstance(eid, int):
+            disp_id = eid
+        else:
+            try:
+                if isinstance(eid, str) and eid.strip() != "":
+                    disp_id = int(eid)
+            except Exception:
+                disp_id = None
+
+        if disp_id is None:
+            disp_id = idx
+
+        e["_display_id"] = disp_id
+
+    # pk に一致する display_id を探す
+    target: Optional[Dict[str, Any]] = None
+    for e in entries_all:
+        if e.get("_display_id") == pk:
+            target = e
+            break
+
+    if target is None:
+        # 一覧と delete でズレたときは 404 扱い
+        raise Http404("simulate record index not found")
+
     target_file: Path = target.get("_file")
     if not isinstance(target_file, Path) or not target_file.exists():
         # ファイル自体が無い場合は 404 扱い
         raise Http404("target file not found")
 
-    # 同一判定に使うキー（完全一致しなくてもよいが、絞り込み用にいくつか見る）
+    # 同一判定に使うキー
     target_user_id = target.get("user_id")
     target_ts = target.get("ts")
     target_code = target.get("code")
@@ -118,7 +191,7 @@ def simulate_delete(request: HttpRequest, pk: int) -> HttpResponse:
     for line in text.splitlines():
         raw_line = line.strip()
         if not raw_line:
-            # 空行はそのまま捨てるか、必要なら保持しても良いがここではスキップ
+            # 空行は捨てる
             continue
 
         try:
@@ -129,11 +202,11 @@ def simulate_delete(request: HttpRequest, pk: int) -> HttpResponse:
             continue
 
         if (
-            not deleted and
-            rec.get("user_id") == target_user_id and
-            rec.get("ts") == target_ts and
-            rec.get("code") == target_code and
-            rec.get("entry") == target_entry
+            not deleted
+            and rec.get("user_id") == target_user_id
+            and rec.get("ts") == target_ts
+            and rec.get("code") == target_code
+            and rec.get("entry") == target_entry
         ):
             # この 1 件だけ削除（スキップ）する
             deleted = True
@@ -143,7 +216,10 @@ def simulate_delete(request: HttpRequest, pk: int) -> HttpResponse:
         new_lines.append(line)
 
     # 実際に1件も消していない場合でも、そのまま書き戻しておけば整合は取れる
-    target_file.write_text("\n".join(new_lines) + ("\n" if new_lines else ""), encoding="utf-8")
+    target_file.write_text(
+        "\n".join(new_lines) + ("\n" if new_lines else ""),
+        encoding="utf-8",
+    )
 
     # 削除後は一覧へ戻す（フィルタは一旦リセット）
     return redirect(reverse("aiapp:simulate_list"))
