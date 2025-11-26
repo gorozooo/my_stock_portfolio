@@ -138,7 +138,7 @@ document.addEventListener("DOMContentLoaded", () => {
       { label:"設定を開く",      href:"/settings/trade",          icon:"⚙️", tone:"info" },
       { label:"通知ダッシュボード", href:"/advisor/notify-dashboard", icon:"🔔", tone:"info" },
       { label:"ABテスト",        href:"/advisor/ab",              icon:"🧪", tone:"info" },
-      { label:"運用履歴",        href:"/advisor/policy",
+      { label:"運用履歴",        href:"/advisor/policy",         icon:"🧪", tone:"info" },
     ],
     // 🧠 advisor メニュー
     advisor: [
