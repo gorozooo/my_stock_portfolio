@@ -1,5 +1,5 @@
 // bottom_tab.js – Tab nav / Long-press sheet / Drag-to-close / Toast / Bounce
-// 🧠 advisor タブ対応版
+// 🧠 advisor タブ → aiapp タブ対応版
 
 // 固定バーを <body> 直下へ移動して transform/backdrop-filter の影響を遮断
 document.addEventListener("DOMContentLoaded", () => {
@@ -66,9 +66,19 @@ document.addEventListener("DOMContentLoaded", () => {
       home_panel_cash  : "/?panel=cash",
       home_panel_trend : "/?panel=trend",
 
-      // Advisor (AI)
+      // AI (aiapp)
+      aiapp_dashboard     : "/aiapp/",
+      aiapp_root          : "/aiapp/",
+      aiapp_picks         : "/aiapp/picks/",
+      aiapp_behavior      : "/aiapp/behavior/",
+      aiapp_settings      : "/aiapp/settings/",
+      aiapp_simulate_list : "/aiapp/simulate/",
+
+      // legacy Advisor (旧AI) – HOMEメニューからアクセスさせる
       advisor_board    : "/advisor/board/",
-      advisor_root     : "/advisor/",
+      advisor_notify   : "/advisor/notify-dashboard",
+      advisor_ab       : "/advisor/ab",
+      advisor_history  : "/advisor/policy",
 
       // Holdings / Realized
       holdings_base  : "/holdings/",
@@ -136,16 +146,23 @@ document.addEventListener("DOMContentLoaded", () => {
       { section:"ホーム" },
       { label:"トレンド",        href: URLS.trend_base,           icon:"📈", tone:"info" },
       { label:"設定を開く",      href:"/settings/trade",          icon:"⚙️", tone:"info" },
-      { label:"通知ダッシュボード", href:"/advisor/notify-dashboard", icon:"🔔", tone:"info" },
-      { label:"ABテスト",        href:"/advisor/ab",              icon:"🧪", tone:"info" },
-      { label:"運用履歴",        href:"/advisor/policy",         icon:"🧪", tone:"info" },
+
+      { section:"AI（従来advisor）" },
+      { label:"AIボード",        href: URLS.advisor_board,        icon:"🧠", tone:"info" },
+      { label:"ウォッチリスト",    href:"/advisor/watch",          icon:"📝", tone:"info" },
+      { label:"ルール",          href:"/advisor/policy1",         icon:"🚓", tone:"info" },
+      { label:"通知ダッシュボード", href: URLS.advisor_notify,    icon:"🔔", tone:"info" },
+      { label:"ABテスト",        href: URLS.advisor_ab,           icon:"🧪", tone:"info" },
+      { label:"運用履歴",        href: URLS.advisor_history,      icon:"📜", tone:"info" },
     ],
-    // 🧠 advisor メニュー
+    // 🧠 AIタブ → aiapp メニュー
     advisor: [
       { section:"AI" },
-      { label:"AIボード",        href: URLS.advisor_board,        icon:"🧠", tone:"info" },
-      { label:"ウォッチリスト",    href: "/advisor/watch",          icon:"📝", tone:"info" },
-      { label:"ルール",          href: "/advisor/policy1",         icon:"🚓", tone:"info" },
+      { label:"AIダッシュボード", href: URLS.aiapp_dashboard,     icon:"🧠", tone:"info" },
+      { label:"AIピック",         href: URLS.aiapp_picks,         icon:"🎯", tone:"info" },
+      { label:"行動分析",         href: URLS.aiapp_behavior,      icon:"📊", tone:"info" },
+      { label:"シミュレ一覧",     href: URLS.aiapp_simulate_list, icon:"🧪", tone:"info" },
+      { label:"AI設定",           href: URLS.aiapp_settings,      icon:"⚙️", tone:"info" },
     ],
     holdings: [
       { section:"保有" },
@@ -331,10 +348,10 @@ document.addEventListener("DOMContentLoaded", () => {
         navigateTo(URLS.dividends_dashboard); return;
       }
 
-      // 🧠 advisor：シングルタップで board へ
+      // 🧠 AI（aiapp）：シングルタップで dashboard へ
       if (type === "advisor"){
         e.preventDefault(); triggerBounce(btn);
-        navigateTo(URLS.advisor_board); return;
+        navigateTo(URLS.aiapp_dashboard); return;
       }
 
       // 既にそのタブ配下にいる → メニューを開く
@@ -363,7 +380,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }else if (type === "dividends"){
         navigateTo(URLS.dividends_dashboard);
       }else if (type === "advisor"){
-        navigateTo(URLS.advisor_board);
+        navigateTo(URLS.aiapp_dashboard);
       }else if (link){
         navigateTo(link);
       }
@@ -373,17 +390,17 @@ document.addEventListener("DOMContentLoaded", () => {
   /* --- 初期アクティブ --- */
   (function markActive(){
     const here = normPath(location.pathname);
-    const advisorRoot = (window.APP_URLS && window.APP_URLS.advisor_root) || "/advisor/";
+    const aiappRoot = (window.APP_URLS && window.APP_URLS.aiapp_root) || "/aiapp/";
     tabs.forEach(b=>{
       const link = normPath(b.dataset.link||"/");
       const isHome = link === "/";
-      const isAdvisor = link === normPath(advisorRoot);
+      const isAdvisor = link === normPath(aiappRoot);
       let hit;
       if (isHome){
         hit = (here === "/");
       }else if (isAdvisor){
-        // /advisor/ 以下はすべて AI タブをアクティブ扱い
-        hit = here.startsWith(normPath(advisorRoot));
+        // /aiapp/ 以下はすべて AI タブをアクティブ扱い
+        hit = here.startsWith(normPath(aiappRoot));
       }else{
         hit = here.startsWith(link);
       }
