@@ -34,7 +34,7 @@ def _safe_float(v: Any) -> Optional[float]:
     if v in (None, "", "null"):
         return None
     try:
-            return float(v)
+        return float(v)
     except Exception:
         return None
 
@@ -92,7 +92,7 @@ def _bucket_time_of_day(ts_str: str) -> str:
     if dt is None:
         return "その他"
     h = dt.hour * 60 + dt.minute
-    # 09:00-11:30 / 11:30-13:00 / 13:00-15:00
+    # 09:00-11:30 / 11:30-13:00 / 13:00-15:00 くらい
     if 9 * 60 <= h < 11 * 60 + 30:
         return "前場寄り〜11:30"
     if 11 * 60 + 30 <= h < 13 * 60:
@@ -195,6 +195,7 @@ def _build_insights(
                     "押し目〜順張りパターンに強みが集まりつつあります。"
                 )
 
+    # 5) データが少ないとき
     if not msgs:
         msgs.append(
             "まだデータ量が少ないため、はっきりしたクセは出ていません。"
@@ -212,6 +213,9 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     - 楽天 + 松井 をまとめて集計
     - KPI / セクター / 相性マップ / TOP トレード / インサイト
     を表示するダッシュボード。
+
+    さらに latest_behavior_model_uX.json（行動モデル）も読み込んで、
+    「AI がどう学習したか」の要約も表示する。
     """
     user = request.user
     behavior_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "behavior"
@@ -265,19 +269,16 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     all_trades: List[TradeSide] = []
 
     def add_side(broker: str, r: Dict[str, Any]) -> None:
-        # キー名をブローカーごとにマッピング
         if broker == "楽天":
             label_key = "eval_label_rakuten"
             pl_key = "eval_pl_rakuten"
             r_key = "eval_r_rakuten"
             qty_key = "qty_rakuten"
-            est_loss_key = "est_loss_rakuten"
         else:
             label_key = "eval_label_matsui"
             pl_key = "eval_pl_matsui"
             r_key = "eval_r_matsui"
             qty_key = "qty_matsui"
-            est_loss_key = "est_loss_matsui"
 
         label = (r.get(label_key) or "none").lower()
         pl_val = _safe_float(r.get(pl_key))
@@ -289,15 +290,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
             label = "no_position"
             if pl_val is None:
                 pl_val = 0.0
-            r_val = None
-        else:
-            # Rがファイルに無ければ PL / est_loss から逆算
-            if r_val is None:
-                loss_val = _safe_float(r.get(est_loss_key))
-                if pl_val is None:
-                    pl_val = 0.0
-                if loss_val and loss_val != 0:
-                    r_val = float(pl_val) / float(loss_val)
 
         # カウンタ更新
         if broker == "楽天":
@@ -355,6 +347,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     for r in rows:
         label = (r.get("eval_label_rakuten") or "none").lower()
         sector = str(r.get("sector") or "(未分類)")
+        # 実トレードのみカウント
         if label in ("win", "lose", "flat"):
             sector_counter_trials[sector] += 1
             if label == "win":
@@ -368,6 +361,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
             {"name": sec, "trials": trials, "wins": wins, "win_rate": win_rate}
         )
 
+    # 試行回数の多い順でソート
     sector_stats.sort(key=lambda x: (-x["trials"], -x["win_rate"]))
 
     # ---------- 相性マップ ----------
@@ -402,6 +396,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                     "pct": c / total_count * 100.0,
                 }
             )
+        # 多い順
         items.sort(key=lambda x: -x["count"])
         return items
 
@@ -437,7 +432,81 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
             }
         )
 
-    # ---------- インサイト ----------
+    # ---------- 行動モデル（latest_behavior_model_uX.json）読み込み ----------
+    behavior_model = {
+        "has_model": False,
+        "total_trades": None,
+        "wins": None,
+        "win_rate": None,
+        "avg_pl": None,
+        "avg_r": None,
+        "brokers": [],
+        "sectors": [],
+    }
+
+    model_dir = behavior_dir / "model"
+    model_path_user = model_dir / f"latest_behavior_model_u{user.id}.json"
+    model_path_all = model_dir / "latest_behavior_model_uall.json"
+
+    model_path: Optional[Path] = None
+    if model_path_user.exists():
+        model_path = model_path_user
+    elif model_path_all.exists():
+        model_path = model_path_all
+
+    if model_path is not None:
+        try:
+            j = json.loads(model_path.read_text(encoding="utf-8"))
+            behavior_model["has_model"] = True
+            behavior_model["total_trades"] = j.get("total_trades")
+            behavior_model["wins"] = j.get("wins")
+            behavior_model["win_rate"] = j.get("win_rate")
+            behavior_model["avg_pl"] = j.get("avg_pl")
+            behavior_model["avg_r"] = j.get("avg_r")
+
+            by_feature = j.get("by_feature", {}) or {}
+
+            # broker 別
+            brokers: List[Dict[str, Any]] = []
+            broker_map = by_feature.get("broker", {}) or {}
+            label_map = {"rakuten": "楽天", "matsui": "松井"}
+            for key, val in broker_map.items():
+                brokers.append(
+                    {
+                        "key": key,
+                        "label": label_map.get(key, key),
+                        "trials": val.get("trials", 0),
+                        "wins": val.get("wins", 0),
+                        "win_rate": val.get("win_rate", 0.0),
+                        "avg_pl": val.get("avg_pl"),
+                        "avg_r": val.get("avg_r"),
+                    }
+                )
+            brokers.sort(key=lambda x: -x["trials"])
+            behavior_model["brokers"] = brokers
+
+            # sector 別（上位5件くらいまで）
+            sectors: List[Dict[str, Any]] = []
+            sector_map = by_feature.get("sector", {}) or {}
+            for name, val in sector_map.items():
+                sectors.append(
+                    {
+                        "name": name,
+                        "trials": val.get("trials", 0),
+                        "wins": val.get("wins", 0),
+                        "win_rate": val.get("win_rate", 0.0),
+                        "avg_pl": val.get("avg_pl"),
+                        "avg_r": val.get("avg_r"),
+                    }
+                )
+            sectors.sort(key=lambda x: -x["trials"])
+            behavior_model["sectors"] = sectors[:5]
+
+        except Exception:
+            # 壊れていても画面は落とさない
+            behavior_model["has_model"] = False
+
+    # ---------- インサイト（前のテイストに戻す） ----------
     total_trades_for_insight = len(win_trades) + len(lose_trades) + len(
         [t for t in all_trades if t.label == "flat"]
     )
@@ -478,5 +547,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         "top_lose": top_lose,
         # インサイト文
         "insights": insights,
+        # 行動モデル（学習結果）
+        "behavior_model": behavior_model,
     }
     return render(request, "aiapp/behavior_dashboard.html", ctx)
