@@ -55,8 +55,6 @@ def _dedup_records(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     行動データ latest_behavior.jsonl から読み込んだレコードを
     「同日・同コード・同モード・同エントリー・同数量」で重複除外する。
-
-    同じシミュレを 2回・3回 build しても、ここで 1件にまとめる。
     """
     seen: set[Tuple[Any, ...]] = set()
     deduped: List[Dict[str, Any]] = []
@@ -92,7 +90,6 @@ def _bucket_time_of_day(ts_str: str) -> str:
     if dt is None:
         return "その他"
     h = dt.hour * 60 + dt.minute
-    # 09:00-11:30 / 11:30-13:00 / 13:00-15:00 くらい
     if 9 * 60 <= h < 11 * 60 + 30:
         return "前場寄り〜11:30"
     if 11 * 60 + 30 <= h < 13 * 60:
@@ -137,7 +134,7 @@ def _build_insights(
     """
     インサイト文（テキスト）の生成。
     濃度C：3〜5行くらいの簡易コメント。
-    （ここは「生ログベース」のまま、行動モデル分はあとから足す）
+    （ここは生ログベース。行動モデルの分はあとから足す）
     """
     msgs: List[str] = []
 
@@ -148,7 +145,7 @@ def _build_insights(
         )
 
     # 2) セクターの得意・不得意
-    best_sector: Optional[Tuple[str, float, int]] = None  # (name, win_rate, trials)
+    best_sector: Optional[Tuple[str, float, int]] = None
     worst_sector: Optional[Tuple[str, float, int]] = None
 
     for s in sector_stats:
@@ -186,7 +183,6 @@ def _build_insights(
     # 4) トレンド方向の偏り
     if dist_trend:
         up_count = dist_trend.get("up", 0)
-        dn_count = dist_trend.get("down", 0)
         total = sum(dist_trend.values())
         if total > 0:
             up_pct = up_count / total * 100
@@ -348,7 +344,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
     for r in rows:
         label = (r.get("eval_label_rakuten") or "none").lower()
         sector = str(r.get("sector") or "(未分類)")
-        # 実トレードのみカウント
         if label in ("win", "lose", "flat"):
             sector_counter_trials[sector] += 1
             if label == "win":
@@ -362,7 +357,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
             {"name": sec, "trials": trials, "wins": wins, "win_rate": win_rate}
         )
 
-    # 試行回数の多い順でソート
     sector_stats.sort(key=lambda x: (-x["trials"], -x["win_rate"]))
 
     # ---------- 相性マップ ----------
@@ -397,7 +391,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                     "pct": c / total_count * 100.0,
                 }
             )
-        # 多い順
         items.sort(key=lambda x: -x["count"])
         return items
 
@@ -434,7 +427,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         )
 
     # ---------- 行動モデル（latest_behavior_model_uX.json）読み込み ----------
-    behavior_model = {
+    behavior_model: Dict[str, Any] = {
         "has_model": False,
         "total_trades": None,
         "wins": None,
@@ -486,7 +479,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
             brokers.sort(key=lambda x: -x["trials"])
             behavior_model["brokers"] = brokers
 
-            # sector 別（上位5件くらいまで）
+            # sector 別（上位5件まで）
             sectors: List[Dict[str, Any]] = []
             sector_map = by_feature.get("sector", {}) or {}
             for name, val in sector_map.items():
@@ -504,39 +497,9 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
             behavior_model["sectors"] = sectors[:5]
 
         except Exception:
-            # 壊れていても画面は落とさない
             behavior_model["has_model"] = False
 
-    # テンプレ用：表示しやすい形に整形したカード用コンテキスト
-    behavior_model_ctx: Optional[Dict[str, Any]] = None
-    if behavior_model.get("has_model"):
-        behavior_model_ctx = {
-            "total_trades": behavior_model.get("total_trades"),
-            "wins": behavior_model.get("wins"),
-            "win_rate": behavior_model.get("win_rate"),
-            "avg_pl": behavior_model.get("avg_pl"),
-            "avg_r": behavior_model.get("avg_r"),
-            "brokers": [
-                {
-                    "label": b.get("label"),
-                    "trials": b.get("trials"),
-                    "win_rate": b.get("win_rate"),
-                    "avg_r": b.get("avg_r"),
-                }
-                for b in behavior_model.get("brokers", [])
-            ],
-            "sectors": [
-                {
-                    "name": s.get("name"),
-                    "trials": s.get("trials"),
-                    "win_rate": s.get("win_rate"),
-                    "avg_r": s.get("avg_r"),
-                }
-                for s in behavior_model.get("sectors", [])
-            ],
-        }
-
-    # ---------- インサイト（元のロジック＋行動モデルを“あと乗せ”） ----------
+    # ---------- インサイト（元ロジック＋行動モデルをあと乗せ） ----------
     total_trades_for_insight = len(win_trades) + len(lose_trades) + len(
         [t for t in all_trades if t.label == "flat"]
     )
@@ -549,10 +512,9 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         dist_trend={k: v for k, v in trend_counter.items()},
     )
 
-    # 行動モデルから 1〜2行だけ追加（濃度Cを超えない程度）
     extra_insights: List[str] = []
-    if behavior_model_ctx:
-        avg_r_model = behavior_model_ctx.get("avg_r")
+    if behavior_model.get("has_model"):
+        avg_r_model = behavior_model.get("avg_r")
         if isinstance(avg_r_model, (int, float)):
             if avg_r_model >= 0:
                 extra_insights.append(
@@ -565,7 +527,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                     " いまは「負けのRを小さく抑える」ことを優先テーマにすると、カーブの傾きが改善しやすくなります。"
                 )
 
-        brokers_ctx = behavior_model_ctx.get("brokers") or []
+        brokers_ctx = behavior_model.get("brokers") or []
         valid_brokers = [b for b in brokers_ctx if (b.get("trials") or 0) >= 1]
         if valid_brokers:
             best = max(
@@ -579,7 +541,6 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
                 " 当面はこの口座側のルールやサイズ感をベースに、他口座も揃えていくのがおすすめです。"
             )
 
-    # もとのメッセージの後ろに追加して、最大5行に制限
     insights = (insights or []) + extra_insights
     if len(insights) > 5:
         insights = insights[:5]
@@ -612,7 +573,7 @@ def behavior_dashboard(request: HttpRequest) -> HttpResponse:
         "top_lose": top_lose,
         # インサイト文
         "insights": insights,
-        # 行動モデル（学習結果カード用）
-        "behavior_model_ctx": behavior_model_ctx,
+        # 行動モデル（テンプレ用そのまま）
+        "behavior_model": behavior_model,
     }
     return render(request, "aiapp/behavior_dashboard.html", ctx)
