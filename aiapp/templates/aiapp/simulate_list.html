@@ -408,7 +408,7 @@
           </div>
 
           <div class="kpi">
-            <!-- ★ エントリー / TP / SL -->
+            <!-- エントリー / TP / SL スナップショット -->
             <div class="kpi-it">
               <div class="kpi-label">エントリー / TP / SL</div>
               <div class="kpi-row">
@@ -427,7 +427,7 @@
                   {% if e.tp %}
                     {{ e.tp|floatformat:0|intcomma }} 円
                   {% else %}
-                    ―
+                    —
                   {% endif %}
                 </div>
               </div>
@@ -437,7 +437,7 @@
                   {% if e.sl %}
                     {{ e.sl|floatformat:0|intcomma }} 円
                   {% else %}
-                    ―
+                    —
                   {% endif %}
                 </div>
               </div>
