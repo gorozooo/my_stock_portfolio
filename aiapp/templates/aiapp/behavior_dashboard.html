@@ -26,7 +26,7 @@ body{background:var(--bg);color:var(--fg);}
   border:1px solid var(--border);
   background:
     radial-gradient(circle at top left,rgba(56,189,248,0.22),transparent 55%),
-    radial-gradient(circle at bottom right,rgba(15,23,42,0.9),rgba(15,23,42,0.9));
+    radial-gradient(circle at bottom right,rgba(15,23,42,0.95),rgba(15,23,42,0.98));
   backdrop-filter:blur(16px);
 }
 
@@ -42,7 +42,7 @@ body{background:var(--bg);color:var(--fg);}
   line-height:1.5;
 }
 
-/* KPI カード */
+/* メインKPI */
 .kpi-grid{
   display:grid;
   grid-template-columns:repeat(2,minmax(0,1fr));
@@ -50,25 +50,24 @@ body{background:var(--bg);color:var(--fg);}
   margin-top:10px;
 }
 .kpi-card{
+  border-radius:14px;
+  border:1px solid rgba(148,163,184,0.6);
+  background:rgba(15,23,42,0.98);
   padding:8px 10px;
-  border-radius:12px;
-  border:1px solid rgba(148,163,184,0.55);
-  background:rgba(15,23,42,0.96);
   font-size:11px;
 }
 .kpi-label{
-  color:var(--sub);
+  color:var(--muted);
   margin-bottom:4px;
 }
-.kpi-val{
-  font-size:15px;
-  font-weight:650;
+.kpi-value{
+  font-size:16px;
+  font-weight:700;
   font-variant-numeric:tabular-nums;
 }
 .kpi-sub{
-  font-size:10px;
-  color:var(--muted);
-  margin-top:2px;
+  font-size:11px;
+  color:var(--sub);
 }
 
 /* key-value */
@@ -82,8 +81,12 @@ body{background:var(--bg);color:var(--fg);}
   justify-content:space-between;
   font-size:13px;
 }
-.kv-key{color:var(--sub);}
-.kv-val{font-variant-numeric:tabular-nums;}
+.kv-key{
+  color:var(--sub);
+}
+.kv-val{
+  font-variant-numeric:tabular-nums;
+}
 
 /* バッジ類 */
 .badge{
@@ -138,14 +141,16 @@ body{background:var(--bg);color:var(--fg);}
   border-radius:10px;
   border:1px solid rgba(148,163,184,0.4);
   padding:6px 8px;
-  background:rgba(15,23,42,0.95);
+  background:rgba(15,23,42,0.98);
   font-size:11px;
 }
 .dist-label{
   color:var(--muted);
   margin-bottom:2px;
 }
-.dist-val{font-variant-numeric:tabular-nums;}
+.dist-val{
+  font-variant-numeric:tabular-nums;
+}
 
 /* TOP勝ち/負けリスト */
 .list-item{
@@ -153,7 +158,7 @@ body{background:var(--bg);color:var(--fg);}
   padding:10px 10px;
   border-radius:14px;
   border:1px solid rgba(148,163,184,0.45);
-  background:rgba(15,23,42,0.96);
+  background:rgba(15,23,42,0.98);
 }
 .code-name{
   font-size:13px;
@@ -174,6 +179,32 @@ body{background:var(--bg);color:var(--fg);}
 .sub-right{text-align:right;white-space:nowrap;}
 .pl-pos{color:var(--ok);}
 .pl-neg{color:var(--bad);}
+
+/* 行動モデル用 */
+.model-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px 10px;
+}
+.model-block{
+  border-radius:12px;
+  border:1px solid rgba(148,163,184,0.5);
+  padding:8px 9px;
+  background:rgba(15,23,42,0.98);
+  font-size:11px;
+}
+.model-title{
+  font-size:12px;
+  font-weight:600;
+  margin-bottom:3px;
+}
+.model-row{
+  display:flex;
+  justify-content:space-between;
+  margin-bottom:2px;
+}
+.model-key{color:var(--muted);}
+.model-val{font-variant-numeric:tabular-nums;}
 
 /* 空状態 */
 .empty{
@@ -199,235 +230,336 @@ body{background:var(--bg);color:var(--fg);}
     </div>
   {% else %}
 
-  <!-- ヘッダー + KPI -->
-  <div class="section">
-    <div class="head-title">AI 行動ダッシュボード</div>
-    <div class="head-sub">
-      AI Picks の「シミュレ」ログと、市場の実際の値動きを組み合わせて、
-      あなたのトレード傾向を分析しています。
+    <!-- ヘッダー -->
+    <div class="section">
+      <div class="head-title">AI 行動ダッシュボード</div>
+      <div class="head-sub">
+        AI Picks の「シミュレ」ログと、市場の実際の値動きを組み合わせて、
+        あなたのトレード傾向を分析しています。
+      </div>
+
+      <!-- メインKPI 4つ -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">勝率（win / lose）</div>
+          <div class="kpi-value">
+            {% if kpi_win_rate %}
+              {{ kpi_win_rate|floatformat:1 }}%
+            {% else %}
+              -
+            {% endif %}
+          </div>
+          <div class="kpi-sub">楽天＋松井 合算</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">平均R</div>
+          <div class="kpi-value">
+            {% if kpi_avg_r %}
+              {{ kpi_avg_r|floatformat:2 }}
+            {% else %}
+              -
+            {% endif %}
+          </div>
+          <div class="kpi-sub">1トレードあたり</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">平均利益（勝ち）</div>
+          <div class="kpi-value">
+            {% if kpi_avg_win %}
+              +{{ kpi_avg_win|floatformat:0|intcomma }}円
+            {% else %}
+              -
+            {% endif %}
+          </div>
+          <div class="kpi-sub">楽・松 合算の平均</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">平均損失（負け）</div>
+          <div class="kpi-value">
+            {% if kpi_avg_loss %}
+              {{ kpi_avg_loss|floatformat:0|intcomma }}円
+            {% else %}
+              -
+            {% endif %}
+          </div>
+          <div class="kpi-sub">マイナス側の平均</div>
+        </div>
+      </div>
+
+      <!-- 件数サマリ -->
+      <div style="margin-top:12px;" class="kv-grid">
+        <div class="kv-row">
+          <div class="kv-key">総レコード</div>
+          <div class="kv-val">{{ total|intcomma }} 件</div>
+        </div>
+        <div class="kv-row">
+          <div class="kv-key">LIVE</div>
+          <div class="kv-val">{{ mode_counts.live|default:0 }}</div>
+        </div>
+        <div class="kv-row">
+          <div class="kv-key">DEMO</div>
+          <div class="kv-val">{{ mode_counts.demo|default:0 }}</div>
+        </div>
+        <div class="kv-row">
+          <div class="kv-key">その他</div>
+          <div class="kv-val">{{ mode_counts.other|default:0 }}</div>
+        </div>
+      </div>
     </div>
 
-    <div class="kpi-grid">
-      <div class="kpi-card">
-        <div class="kpi-label">勝率（全体）</div>
-        <div class="kpi-val">
-          {% if kpi_win_rate is not None %}
-            {{ kpi_win_rate|floatformat:1 }} %
-          {% else %}
-            --
-          {% endif %}
-        </div>
-        <div class="kpi-sub">勝ちトレード ÷ 勝ち+負け トレード</div>
+    <!-- 行動モデル（学習結果） -->
+    <div class="section">
+      <div class="head-title">AI 行動モデル（学習結果）</div>
+      <div class="head-sub">
+        latest_behavior_model_u*.json をもとに、
+        AI が「あなたのクセ」をどう学習しているかを要約しています。
       </div>
-      <div class="kpi-card">
-        <div class="kpi-label">平均R</div>
-        <div class="kpi-val">
-          {% if kpi_avg_r is not None %}
-            {{ kpi_avg_r|floatformat:2 }}
-          {% else %}
-            --
-          {% endif %}
+
+      {% if behavior_model.has_model %}
+        <div class="kpi-grid" style="margin-top:10px;">
+          <div class="kpi-card">
+            <div class="kpi-label">学習対象トレード数</div>
+            <div class="kpi-value">
+              {% if behavior_model.total_trades %}
+                {{ behavior_model.total_trades|intcomma }} 件
+              {% else %}
+                -
+              {% endif %}
+            </div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">学習上の勝率</div>
+            <div class="kpi-value">
+              {% if behavior_model.win_rate %}
+                {{ behavior_model.win_rate|floatformat:1 }}%
+              {% else %}
+                -
+              {% endif %}
+            </div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">平均PL</div>
+            <div class="kpi-value">
+              {% if behavior_model.avg_pl %}
+                {{ behavior_model.avg_pl|floatformat:0|intcomma }}円
+              {% else %}
+                -
+              {% endif %}
+            </div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">平均R</div>
+            <div class="kpi-value">
+              {% if behavior_model.avg_r %}
+                {{ behavior_model.avg_r|floatformat:2 }}
+              {% else %}
+                -
+              {% endif %}
+            </div>
+          </div>
         </div>
-        <div class="kpi-sub">実質リスク1単位あたりの平均PL</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">平均利益</div>
-        <div class="kpi-val">
-          {% if kpi_avg_win is not None %}
-            +{{ kpi_avg_win|floatformat:0|intcomma }} 円
-          {% else %}
-            --
-          {% endif %}
+
+        <div style="height:10px;"></div>
+
+        <div class="model-grid">
+          <div class="model-block">
+            <div class="model-title">ブローカー別</div>
+            {% for b in behavior_model.brokers %}
+              <div class="model-row">
+                <div class="model-key">{{ b.label }}</div>
+                <div class="model-val">
+                  {{ b.trials }}件 / {{ b.win_rate|floatformat:1 }}% / R={{ b.avg_r|default_if_none:"-"|floatformat:2 }}
+                </div>
+              </div>
+            {% empty %}
+              <div style="font-size:11px;color:var(--sub);">
+                ブローカー別の学習データがまだありません。
+              </div>
+            {% endfor %}
+          </div>
+
+          <div class="model-block">
+            <div class="model-title">セクター別（上位）</div>
+            {% for s in behavior_model.sectors %}
+              <div class="model-row">
+                <div class="model-key" style="max-width:48%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                  {{ s.name }}
+                </div>
+                <div class="model-val">
+                  {{ s.trials }}件 / {{ s.win_rate|floatformat:1 }}% / R={{ s.avg_r|default_if_none:"-"|floatformat:2 }}
+                </div>
+              </div>
+            {% empty %}
+              <div style="font-size:11px;color:var(--sub);">
+                セクター別の学習データがまだありません。
+              </div>
+            {% endfor %}
+          </div>
         </div>
-        <div class="kpi-sub">勝ちトレードの平均PL（楽天＋松井）</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">平均損失</div>
-        <div class="kpi-val">
-          {% if kpi_avg_loss is not None %}
-            {{ kpi_avg_loss|floatformat:0|intcomma }} 円
-          {% else %}
-            --
-          {% endif %}
+      {% else %}
+        <div style="font-size:12px;color:var(--sub);margin-top:8px;">
+          まだ行動モデルの学習結果ファイルがありません。<br>
+          <code>build_behavior_memory</code> と <code>train_behavior_model</code> を実行すると、
+          ここに AI の学習サマリが表示されます。
         </div>
-        <div class="kpi-sub">負けトレードの平均PL（楽天＋松井）</div>
+      {% endif %}
+    </div>
+
+    <!-- AI インサイト -->
+    <div class="section">
+      <div class="head-title">AI インサイト</div>
+      {% if insights %}
+        <ul class="insight-list">
+          {% for msg in insights %}
+            <li>{{ msg }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div style="font-size:12px;color:var(--sub);">
+          まだ十分なデータが無いため、詳細なインサイトは生成していません。
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- 勝敗サマリ（楽天 / 松井） -->
+    <div class="section">
+      <div class="head-title">勝敗サマリ</div>
+      <div class="kv-grid">
+        <div>
+          <div class="badge">楽天</div>
+          <div class="kv-row"><div class="kv-key">勝ち</div><div class="kv-val">{{ pl_counts_r.win|default:0 }}</div></div>
+          <div class="kv-row"><div class="kv-key">負け</div><div class="kv-val">{{ pl_counts_r.lose|default:0 }}</div></div>
+          <div class="kv-row"><div class="kv-key">引き分け</div><div class="kv-val">{{ pl_counts_r.flat|default:0 }}</div></div>
+          <div class="kv-row"><div class="kv-key">ポジションなし</div><div class="kv-val">{{ pl_counts_r.no_position|default:0 }}</div></div>
+        </div>
+        <div>
+          <div class="badge">松井</div>
+          <div class="kv-row"><div class="kv-key">勝ち</div><div class="kv-val">{{ pl_counts_m.win|default:0 }}</div></div>
+          <div class="kv-row"><div class="kv-key">負け</div><div class="kv-val">{{ pl_counts_m.lose|default:0 }}</div></div>
+          <div class="kv-row"><div class="kv-key">引き分け</div><div class="kv-val">{{ pl_counts_m.flat|default:0 }}</div></div>
+          <div class="kv-row"><div class="kv-key">ポジションなし</div><div class="kv-val">{{ pl_counts_m.no_position|default:0 }}</div></div>
+        </div>
       </div>
     </div>
 
-    <div style="margin-top:10px;" class="kv-grid">
-      <div class="kv-row">
-        <div class="kv-key">総レコード</div>
-        <div class="kv-val">{{ total|intcomma }} 件</div>
-      </div>
-      <div class="kv-row">
-        <div class="kv-key">LIVE</div>
-        <div class="kv-val">{{ mode_counts.live|default:0 }}</div>
-      </div>
-      <div class="kv-row">
-        <div class="kv-key">DEMO</div>
-        <div class="kv-val">{{ mode_counts.demo|default:0 }}</div>
-      </div>
-      <div class="kv-row">
-        <div class="kv-key">その他</div>
-        <div class="kv-val">{{ mode_counts.other|default:0 }}</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- AI インサイト（前のテイスト） -->
-  <div class="section">
-    <div class="section-title">AI インサイト</div>
-    {% if insights %}
-      <ul class="insight-list">
-        {% for msg in insights %}
-          <li>{{ msg }}</li>
+    <!-- セクター別勝率（楽天） -->
+    <div class="section">
+      <div class="head-title">セクター別勝率（楽天）</div>
+      {% if sector_stats %}
+        {% for s in sector_stats %}
+          <div class="sector-row">
+            <div class="sector-name">{{ s.name }}</div>
+            <div class="sector-meta">
+              <span>{{ s.wins }}/{{ s.trials }} 件</span>
+              <span>{{ s.win_rate|floatformat:1 }} %</span>
+            </div>
+          </div>
         {% endfor %}
-      </ul>
-    {% else %}
-      <div style="font-size:12px;color:var(--sub);">
-        まだ十分なデータが無いため、詳細なインサイトは生成していません。
-      </div>
-    {% endif %}
-  </div>
-
-  <!-- 勝敗サマリ -->
-  <div class="section">
-    <div class="section-title">勝敗サマリ</div>
-    <div class="kv-grid">
-      <div>
-        <div class="badge">楽天</div>
-        <div class="kv-row"><div class="kv-key">勝ち</div><div class="kv-val">{{ pl_counts_r.win|default:0 }}</div></div>
-        <div class="kv-row"><div class="kv-key">負け</div><div class="kv-val">{{ pl_counts_r.lose|default:0 }}</div></div>
-        <div class="kv-row"><div class="kv-key">引き分け</div><div class="kv-val">{{ pl_counts_r.flat|default:0 }}</div></div>
-        <div class="kv-row"><div class="kv-key">ポジションなし</div><div class="kv-val">{{ pl_counts_r.no_position|default:0 }}</div></div>
-      </div>
-      <div>
-        <div class="badge">松井</div>
-        <div class="kv-row"><div class="kv-key">勝ち</div><div class="kv-val">{{ pl_counts_m.win|default:0 }}</div></div>
-        <div class="kv-row"><div class="kv-key">負け</div><div class="kv-val">{{ pl_counts_m.lose|default:0 }}</div></div>
-        <div class="kv-row"><div class="kv-key">引き分け</div><div class="kv-val">{{ pl_counts_m.flat|default:0 }}</div></div>
-        <div class="kv-row"><div class="kv-key">ポジションなし</div><div class="kv-val">{{ pl_counts_m.no_position|default:0 }}</div></div>
-      </div>
+      {% else %}
+        <div style="font-size:12px;color:var(--sub);">
+          勝敗が付いているトレードがまだありません。
+        </div>
+      {% endif %}
     </div>
-  </div>
 
-  <!-- セクター別勝率（楽天ベース） -->
-  <div class="section">
-    <div class="section-title">セクター別勝率（楽天ベース）</div>
-    {% if sector_stats %}
-      {% for s in sector_stats %}
-        <div class="sector-row">
-          <div class="sector-name">{{ s.name }}</div>
-          <div class="sector-meta">
-            <span>{{ s.wins }}/{{ s.trials }} 件</span>
-            <span>{{ s.win_rate|floatformat:1 }} %</span>
+    <!-- 相性マップ -->
+    <div class="section">
+      <div class="head-title">相性マップ</div>
+
+      <div class="dist-grid">
+        {% for t in trend_stats %}
+          <div class="dist-item">
+            <div class="dist-label">トレンド：{{ t.name }}</div>
+            <div class="dist-val">{{ t.count }} 件（{{ t.pct|floatformat:1 }} %）</div>
           </div>
-        </div>
-      {% endfor %}
-    {% else %}
-      <div style="font-size:12px;color:var(--sub);">
-        勝敗が付いているトレードがまだありません。
+        {% endfor %}
       </div>
-    {% endif %}
-  </div>
 
-  <!-- 相性マップ -->
-  <div class="section">
-    <div class="section-title">相性マップ</div>
-    <div class="dist-grid">
-      {% for t in trend_stats %}
-        <div class="dist-item">
-          <div class="dist-label">トレンド：{{ t.name }}</div>
-          <div class="dist-val">{{ t.count }} 件（{{ t.pct|floatformat:1 }} %）</div>
-        </div>
-      {% endfor %}
+      <div style="height:8px;"></div>
+
+      <div class="dist-grid">
+        {% for t in time_stats %}
+          <div class="dist-item">
+            <div class="dist-label">時間帯：{{ t.name }}</div>
+            <div class="dist-val">{{ t.count }} 件（{{ t.pct|floatformat:1 }} %）</div>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div style="height:8px;"></div>
+
+      <div class="dist-grid">
+        {% for t in atr_stats %}
+          <div class="dist-item">
+            <div class="dist-label">ATRボラ：{{ t.name }}</div>
+            <div class="dist-val">{{ t.count }} 件（{{ t.pct|floatformat:1 }} %）</div>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div style="height:8px;"></div>
+
+      <div class="dist-grid">
+        {% for t in slope_stats %}
+          <div class="dist-item">
+            <div class="dist-label">傾き：{{ t.name }}</div>
+            <div class="dist-val">{{ t.count }} 件（{{ t.pct|floatformat:1 }} %）</div>
+          </div>
+        {% endfor %}
+      </div>
     </div>
 
-    <div style="height:8px;"></div>
-
-    <div class="dist-grid">
-      {% for t in time_stats %}
-        <div class="dist-item">
-          <div class="dist-label">時間帯：{{ t.name }}</div>
-          <div class="dist-val">{{ t.count }} 件（{{ t.pct|floatformat:1 }} %）</div>
-        </div>
-      {% endfor %}
-    </div>
-
-    <div style="height:8px;"></div>
-
-    <div class="dist-grid">
-      {% for t in atr_stats %}
-        <div class="dist-item">
-          <div class="dist-label">ATRボラ：{{ t.name }}</div>
-          <div class="dist-val">{{ t.count }} 件（{{ t.pct|floatformat:1 }} %）</div>
-        </div>
-      {% endfor %}
-    </div>
-
-    <div style="height:8px;"></div>
-
-    <div class="dist-grid">
-      {% for t in slope_stats %}
-        <div class="dist-item">
-          <div class="dist-label">傾き：{{ t.name }}</div>
-          <div class="dist-val">{{ t.count }} 件（{{ t.pct|floatformat:1 }} %）</div>
-        </div>
-      {% endfor %}
-    </div>
-  </div>
-
-  <!-- TOP 勝ち（楽天＋松井） -->
-  <div class="section">
-    <div class="section-title">TOP 勝ち</div>
-    {% if top_win %}
-      {% for r in top_win %}
-        <div class="list-item">
-          <div class="code-name">{{ r.code }} {{ r.name }}</div>
-          <div class="sub-line">
-            <div class="sub-left">
-              <span class="pl-pos">
-                +{{ r.pl|floatformat:0|intcomma }} 円
-              </span>
-            </div>
-            <div class="sub-right">
-              {{ r.broker }} ／ {{ r.mode }} ／ {{ r.ts_label }}
+    <!-- TOP 勝ち -->
+    <div class="section">
+      <div class="head-title">TOP 勝ちトレード（楽天＋松井）</div>
+      {% if top_win %}
+        {% for r in top_win %}
+          <div class="list-item">
+            <div class="code-name">{{ r.code }} {{ r.name }}</div>
+            <div class="sub-line">
+              <div class="sub-left">
+                <span class="pl-pos">
+                  +{{ r.pl|floatformat:0|intcomma }} 円
+                </span>
+              </div>
+              <div class="sub-right">
+                {{ r.broker }} ／ {{ r.mode }} ／ {{ r.ts_label }}
+              </div>
             </div>
           </div>
+        {% endfor %}
+      {% else %}
+        <div style="font-size:12px;color:var(--sub);">
+          勝ちトレードがまだありません。
         </div>
-      {% endfor %}
-    {% else %}
-      <div style="font-size:12px;color:var(--sub);">
-        勝ちトレードがまだありません。
-      </div>
-    {% endif %}
-  </div>
+      {% endif %}
+    </div>
 
-  <!-- TOP 負け（楽天＋松井） -->
-  <div class="section">
-    <div class="section-title">TOP 負け</div>
-    {% if top_lose %}
-      {% for r in top_lose %}
-        <div class="list-item">
-          <div class="code-name">{{ r.code }} {{ r.name }}</div>
-          <div class="sub-line">
-            <div class="sub-left">
-              <span class="pl-neg">
-                {{ r.pl|floatformat:0|intcomma }} 円
-              </span>
-            </div>
-            <div class="sub-right">
-              {{ r.broker }} ／ {{ r.mode }} ／ {{ r.ts_label }}
+    <!-- TOP 負け -->
+    <div class="section">
+      <div class="head-title">TOP 負けトレード（楽天＋松井）</div>
+      {% if top_lose %}
+        {% for r in top_lose %}
+          <div class="list-item">
+            <div class="code-name">{{ r.code }} {{ r.name }}</div>
+            <div class="sub-line">
+              <div class="sub-left">
+                <span class="pl-neg">
+                  {{ r.pl|floatformat:0|intcomma }} 円
+                </span>
+              </div>
+              <div class="sub-right">
+                {{ r.broker }} ／ {{ r.mode }} ／ {{ r.ts_label }}
+              </div>
             </div>
           </div>
+        {% endfor %}
+      {% else %}
+        <div style="font-size:12px;color:var(--sub);">
+          負けトレードがまだありません。
         </div>
-      {% endfor %}
-    {% else %}
-      <div style="font-size:12px;color:var(--sub);">
-        負けトレードがまだありません。
-      </div>
-    {% endif %}
-  </div>
+      {% endif %}
+    </div>
 
   {% endif %}
 
