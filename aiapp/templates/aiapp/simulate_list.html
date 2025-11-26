@@ -408,15 +408,36 @@
           </div>
 
           <div class="kpi">
+            <!-- ★ エントリー / TP / SL -->
             <div class="kpi-it">
-              <div class="kpi-label">エントリー</div>
+              <div class="kpi-label">エントリー / TP / SL</div>
               <div class="kpi-row">
-                <div class="kpi-name">価格</div>
+                <div class="kpi-name">エントリー</div>
                 <div class="kpi-val">
                   {% if e.entry %}
                     {{ e.entry|floatformat:0|intcomma }} 円
                   {% else %}
                     —
+                  {% endif %}
+                </div>
+              </div>
+              <div class="kpi-row">
+                <div class="kpi-name">TP</div>
+                <div class="kpi-val">
+                  {% if e.tp %}
+                    {{ e.tp|floatformat:0|intcomma }} 円
+                  {% else %}
+                    ―
+                  {% endif %}
+                </div>
+              </div>
+              <div class="kpi-row">
+                <div class="kpi-name">SL</div>
+                <div class="kpi-val">
+                  {% if e.sl %}
+                    {{ e.sl|floatformat:0|intcomma }} 円
+                  {% else %}
+                    ―
                   {% endif %}
                 </div>
               </div>
