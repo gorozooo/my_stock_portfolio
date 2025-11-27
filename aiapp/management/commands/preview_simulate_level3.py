@@ -195,6 +195,9 @@ def _preview_one_record(
             stdout.write("  ※ ts カラムが無いため、判定不可")
             return
 
+    # ts を datetime に強制（念のため）
+    df["ts"] = pd.to_datetime(df["ts"])
+
     df = df[(df["ts"] >= active_start) & (df["ts"] <= session_end)]
     n_eff = len(df)
     stdout.write(f"  有効判定バー数: {n_eff} 本")
@@ -229,7 +232,8 @@ def _preview_one_record(
 
     # -------- エントリー判定（指値） --------
     hit_mask = (df["low"] <= entry_f) & (df["high"] >= entry_f)
-    # Series/DataFrame どちらでも安全に判定
+
+    # Series / DataFrame どちらでも安全に判定
     if not hit_mask.to_numpy().any():
         stdout.write(
             f"  → 指値 {entry_f:.2f} 円 はこの日の5分足で一度もタッチせず → no_position 扱い"
@@ -237,8 +241,14 @@ def _preview_one_record(
         return
 
     hit_df = df[hit_mask]
+
+    # ★ ここがポイント：必ず「スカラーの Timestamp」に潰す
     first_hit = hit_df.iloc[0]
-    entry_ts = first_hit["ts"]
+    entry_ts_val = first_hit["ts"]
+    if isinstance(entry_ts_val, pd.Series):
+        entry_ts_val = entry_ts_val.iloc[0]
+    entry_ts = pd.to_datetime(entry_ts_val)
+
     exec_entry_px = entry_f  # 指値約定として扱う
 
     # -------- エグジット判定（TP / SL / horizon_close） --------
