@@ -67,10 +67,13 @@ def _ensure_aware(dt: _dt) -> _dt:
 def _load_5m_bars(code: str, trade_date: _date, horizon_days: int) -> pd.DataFrame:
     """
     5分足を bars_5m サービス経由で取得して正規化。
-    svc_bars_5m.load_5m_bars は df or (df, meta) を返す想定。
+
+    ※ bars_5m.load_5m_bars は (code, trade_date) の 2 引数だけを
+       受け取るので、horizon_days はここでは使わない。
+       評価の営業日数は df の長さで吸収する。
     """
-    # ★ 修正ポイント：キーワードではなく位置引数で渡す
-    raw = svc_bars_5m.load_5m_bars(code, trade_date, horizon_days)
+    # ★ ここを 2 引数に戻す（エラーの原因箇所）
+    raw = svc_bars_5m.load_5m_bars(code, trade_date)
 
     if raw is None:
         return pd.DataFrame()
