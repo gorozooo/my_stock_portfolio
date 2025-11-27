@@ -37,6 +37,57 @@
     color:#cbd5f5;
   }
 
+  /* ===== サマリーバー ===== */
+  .summary-bar{
+    margin:0 0 10px 0;
+    padding:10px 12px;
+    border-radius:14px;
+    border:1px solid rgba(148,163,184,0.35);
+    background:linear-gradient(135deg,rgba(15,23,42,0.96),rgba(17,94,163,0.85));
+    backdrop-filter:blur(10px);
+    font-size:12px;
+  }
+  .summary-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    gap:8px;
+    margin-bottom:4px;
+  }
+  .summary-title{
+    font-size:12px;
+    font-weight:600;
+    color:#e5e7eb;
+  }
+  .summary-mode{
+    font-size:11px;
+    color:#cbd5f5;
+  }
+  .summary-counts{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-bottom:4px;
+  }
+  .summary-count{
+    font-size:12px;
+  }
+  .summary-count span.label{
+    color:var(--sub);
+    margin-right:2px;
+  }
+  .summary-pl{
+    font-size:12px;
+    color:#cbd5f5;
+  }
+  .summary-pl-val{
+    font-variant-numeric:tabular-nums;
+    font-weight:600;
+    margin-left:4px;
+  }
+  .summary-pl-val.pos{color:var(--ok);}
+  .summary-pl-val.neg{color:var(--bad);}
+
   /* ===== フィルタ部 ===== */
   .filters{
     margin:0 0 10px 0;
@@ -136,6 +187,8 @@
 
   .ts-badge{
     flex-shrink:0;   /* ← 日時バッジが潰されない */
+    font-size:11px;
+    color:var(--sub);
   }
 
   .code{
@@ -151,6 +204,12 @@
     overflow:hidden;      /* はみ出した分は見せない */
     text-overflow:clip;   /* 「…」も出さないでバッサリ切る */
     max-width:22ch;       /* 2620 の銘柄名（約18文字）ぶんの幅で制限 */
+  }
+
+  .entry-info{
+    margin-top:4px;
+    font-size:11px;
+    color:var(--sub);
   }
 
   .mode-badge{
@@ -225,6 +284,11 @@
     font-size:11px;
     color:var(--sub);
     text-align:right;
+  }
+  .result-exit{
+    margin-bottom:4px;
+    font-size:11px;
+    color:var(--sub);
   }
   .result-row{
     display:flex;
@@ -305,6 +369,42 @@
       フィルタで絞り込みつつ、直近100件まで表示しています。
     </div>
   </div>
+
+  {% if summary.has_data %}
+    <div class="summary-bar">
+      <div class="summary-header">
+        <div class="summary-title">
+          本日の{% if mode == "demo" %}DEMO{% elif mode == "live" %}LIVE{% else %}ALL{% endif %}成績
+        </div>
+        <div class="summary-mode">
+          表示中のフィルタ: モード={{ mode|upper }} / 期間=
+          {% if period == "today" %}今日{% elif period == "7d" %}7日{% else %}30日{% endif %}
+        </div>
+      </div>
+      <div class="summary-counts">
+        <div class="summary-count">
+          <span class="label">勝ち</span>{{ summary.win }}件
+        </div>
+        <div class="summary-count">
+          <span class="label">負け</span>{{ summary.lose }}件
+        </div>
+        <div class="summary-count">
+          <span class="label">見送り</span>{{ summary.skip }}件
+        </div>
+        {% if summary.flat %}
+          <div class="summary-count">
+            <span class="label">引き分け</span>{{ summary.flat }}件
+          </div>
+        {% endif %}
+      </div>
+      <div class="summary-pl">
+        合計
+        <span class="summary-pl-val {% if summary.total_pl >= 0 %}pos{% else %}neg{% endif %}">
+          {{ summary.total_pl|floatformat:0|intcomma }} 円
+        </span>
+      </div>
+    </div>
+  {% endif %}
 
   <div class="filters">
     <!-- モードフィルタ -->
@@ -394,6 +494,16 @@
               <div class="name">
                 {{ e.name|default:"(名称不明)" }}
               </div>
+
+              {% if e.entry %}
+                <div class="entry-info">
+                  エントリー {{ e.entry|floatformat:0|intcomma }} 円
+                  {% if e.entry_label %}
+                    ({{ e.entry_label }})
+                  {% endif %}
+                </div>
+              {% endif %}
+
               {% if e.mode %}
                 {% if e.mode == "live" %}
                   <div class="mode-badge mode-live">LIVE シミュレ</div>
@@ -524,6 +634,31 @@
                 {% endif %}
               </div>
 
+              <div class="result-exit">
+                {% if e._combined_label == "skip" %}
+                  指値に一度も触れなかった
+                {% else %}
+                  評価結果：
+                  {% if e.exit_reason_label %}
+                    {{ e.exit_reason_label }}
+                  {% else %}
+                    {# フォールバック（exit_reason 無しの場合） #}
+                    {% if e.eval_label_rakuten == "win" or e.eval_label_matsui == "win" %}
+                      利確
+                    {% elif e.eval_label_rakuten == "lose" or e.eval_label_matsui == "lose" %}
+                      損切
+                    {% elif e.eval_label_rakuten == "flat" or e.eval_label_matsui == "flat" %}
+                      タイムアップ
+                    {% else %}
+                      -
+                    {% endif %}
+                  {% endif %}
+                  {% if e.exit_label %}
+                    ({{ e.exit_label }})
+                  {% endif %}
+                {% endif %}
+              </div>
+
               <div class="result-row">
                 <div class="result-name">楽天</div>
                 <div class="result-right">
@@ -552,6 +687,8 @@
                         負け
                       {% elif e.eval_label_rakuten == 'flat' %}
                         引き分け
+                      {% elif e.eval_label_rakuten == 'no_position' %}
+                        ポジションなし
                       {% else %}
                         ポジションなし
                       {% endif %}
@@ -588,6 +725,8 @@
                         負け
                       {% elif e.eval_label_matsui == 'flat' %}
                         引き分け
+                      {% elif e.eval_label_matsui == 'no_position' %}
+                        ポジションなし
                       {% else %}
                         ポジションなし
                       {% endif %}
