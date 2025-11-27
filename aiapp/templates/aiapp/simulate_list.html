@@ -172,7 +172,7 @@
     backdrop-filter:blur(10px);
   }
 
-  /* ===== はみ出し修正ポイント ===== */
+  /* ===== 上部レイアウト ===== */
   .row-top{
     display:flex;
     justify-content:space-between;
@@ -181,12 +181,12 @@
   }
 
   .code-name{
-    min-width:0;   /* ← 子要素のellipsisを有効にするSafari対策 */
+    min-width:0;
     flex:1;
   }
 
   .ts-badge{
-    flex-shrink:0;   /* ← 日時バッジが潰されない */
+    flex-shrink:0;
     font-size:11px;
     color:var(--sub);
   }
@@ -200,10 +200,10 @@
   .name{
     font-size:15px;
     font-weight:600;
-    white-space:nowrap;   /* 1行固定 */
-    overflow:hidden;      /* はみ出した分は見せない */
-    text-overflow:clip;   /* 「…」も出さないでバッサリ切る */
-    max-width:22ch;       /* 2620 の銘柄名（約18文字）ぶんの幅で制限 */
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:clip;
+    max-width:22ch;
   }
 
   .entry-info{
@@ -635,14 +635,13 @@
               </div>
 
               <div class="result-exit">
-                {% if e._combined_label == "skip" %}
+                {% if e.combined_label == "skip" %}
                   指値に一度も触れなかった
                 {% else %}
                   評価結果：
                   {% if e.exit_reason_label %}
                     {{ e.exit_reason_label }}
                   {% else %}
-                    {# フォールバック（exit_reason 無しの場合） #}
                     {% if e.eval_label_rakuten == "win" or e.eval_label_matsui == "win" %}
                       利確
                     {% elif e.eval_label_rakuten == "lose" or e.eval_label_matsui == "lose" %}
