@@ -123,7 +123,6 @@ def _load_sim_records(user_id: int, code: Optional[str], limit: int) -> List[Sim
 def _jst_session_range(d: _date) -> Tuple[_dt, _dt]:
     """
     その営業日のザラ場時間（仮）：9:00〜15:00 JST
-    ※ 正確な前場/後場分割まではやりすぎなので、今は1本で。
     """
     tz = timezone.get_default_timezone()
     start = timezone.make_aware(_dt.combine(d, _time(9, 0)), tz)
@@ -230,7 +229,8 @@ def _preview_one_record(
 
     # -------- エントリー判定（指値） --------
     hit_mask = (df["low"] <= entry_f) & (df["high"] >= entry_f)
-    if not bool(hit_mask.any()):
+    # Series/DataFrame どちらでも安全に判定
+    if not hit_mask.to_numpy().any():
         stdout.write(
             f"  → 指値 {entry_f:.2f} 円 はこの日の5分足で一度もタッチせず → no_position 扱い"
         )
@@ -239,7 +239,7 @@ def _preview_one_record(
     hit_df = df[hit_mask]
     first_hit = hit_df.iloc[0]
     entry_ts = first_hit["ts"]
-    exec_entry_px = entry_f  # ここは「指値で約定した」とみなす
+    exec_entry_px = entry_f  # 指値約定として扱う
 
     # -------- エグジット判定（TP / SL / horizon_close） --------
     #   ・エントリーバー以降のバーを対象
@@ -252,18 +252,17 @@ def _preview_one_record(
         exit_px = exec_entry_px
     else:
         # TP / SL ヒットの有無をチェック
-        # どちらも指定されていない場合は最後のバー終値でクローズ
         hit_tp_idx = None
         hit_sl_idx = None
 
         if tp_f is not None:
             tp_mask = eval_df["high"] >= tp_f
-            if bool(tp_mask.any()):
+            if tp_mask.to_numpy().any():
                 hit_tp_idx = eval_df[tp_mask].index[0]
 
         if sl_f is not None:
             sl_mask = eval_df["low"] <= sl_f
-            if bool(sl_mask.any()):
+            if sl_mask.to_numpy().any():
                 hit_sl_idx = eval_df[sl_mask].index[0]
 
         exit_reason = "horizon_close"
@@ -271,7 +270,6 @@ def _preview_one_record(
         if hit_tp_idx is not None or hit_sl_idx is not None:
             # どちらかヒットしていれば、時間が早い方を優先
             if hit_tp_idx is not None and hit_sl_idx is not None:
-                # index は DatetimeIndex なので、そのまま比較でOK
                 if hit_tp_idx <= hit_sl_idx:
                     row = eval_df.loc[hit_tp_idx]
                     exit_ts = row["ts"]
