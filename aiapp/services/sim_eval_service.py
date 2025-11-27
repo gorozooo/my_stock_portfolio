@@ -72,7 +72,7 @@ def _load_5m_bars(code: str, trade_date: _date, horizon_days: int) -> pd.DataFra
        受け取るので、horizon_days はここでは使わない。
        評価の営業日数は df の長さで吸収する。
     """
-    # ★ ここを 2 引数に戻す（エラーの原因箇所）
+    # ★ bars_5m 側は (code, trade_date) の 2 引数
     raw = svc_bars_5m.load_5m_bars(code, trade_date)
 
     if raw is None:
@@ -88,10 +88,24 @@ def _load_5m_bars(code: str, trade_date: _date, horizon_days: int) -> pd.DataFra
 
     df = df.copy()
 
-    cols_lower = {str(c).lower(): c for c in df.columns}
+    # ---- 列マッピング（MultiIndex 対応）------------------------------
+    # c が ('Open', 'JPY') みたいなタプルでも、先頭要素だけ見て
+    # "open" / "high" / "low" / "close" を判定する
+    base_map: Dict[str, Any] = {}
+    for c in df.columns:
+        if isinstance(c, tuple) and len(c) > 0:
+            key = str(c[0]).lower()
+        else:
+            key = str(c).lower()
+        # 同じ key が複数あっても最初の1つだけ使う
+        if key not in base_map:
+            base_map[key] = c
+
+    cols_lower = base_map
     for need in ("open", "high", "low", "close"):
         if need not in cols_lower:
             raise ValueError(f"5m bars missing column '{need}' for code={code}")
+
     c_open = cols_lower["open"]
     c_high = cols_lower["high"]
     c_low = cols_lower["low"]
