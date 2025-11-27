@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import date, time, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -371,47 +370,12 @@ def _parse_float(value: Optional[str]) -> Optional[float]:
         return None
 
 
-def _next_business_day(d: date) -> date:
-    """土日を飛ばして翌営業日を返す（祝日は一旦無視）。"""
-    cur = d
-    while True:
-        cur = cur + timedelta(days=1)
-        # weekday: 0=Mon ... 6=Sun
-        if cur.weekday() < 5:
-            return cur
-
-
-def _calc_trade_date(now_jst: timezone.datetime) -> date:
-    """
-    シミュレ登録時刻から「有効になる取引日(trade_date)」を決める。
-
-      - 09:00〜15:00 に登録 → 当日
-      - それ以外（寄り前 / 15:00以降） → 翌営業日
-    """
-    d = now_jst.date()
-    t = now_jst.timetz() if hasattr(now_jst, "timetz") else now_jst.time()
-
-    start = time(9, 0)
-    end = time(15, 0)
-
-    if start <= t < end:
-        # 場中 → その日の足で判定
-        return d
-    # 寄り前 or 15:00以降 → 翌営業日扱い
-    return _next_business_day(d)
-
-
 @login_required
 @require_POST
 def picks_simulate(request: HttpRequest) -> HttpResponse:
     """
     AI Picks のカードから「シミュレ」ボタンで送られてきた内容を
     /media/aiapp/simulate/YYYYMMDD.jsonl に 1行追記するだけのシンプル紙トレ。
-
-    ★追加仕様
-      - 登録時刻から「有効になる取引日 trade_date」を決定して保存する。
-        ・09:00〜15:00 → 当日
-        ・それ以外     → 翌営業日
     """
     user = request.user
 
@@ -433,9 +397,6 @@ def picks_simulate(request: HttpRequest) -> HttpResponse:
     now_jst = timezone.localtime()
     day = now_jst.strftime("%Y%m%d")
 
-    # ★ ここで「有効取引日」を決定して保存する
-    trade_date = _calc_trade_date(now_jst)
-
     record = {
         "ts": now_jst.isoformat(),
         "user_id": user.id,
@@ -453,8 +414,6 @@ def picks_simulate(request: HttpRequest) -> HttpResponse:
         "est_pl_matsui": est_pl_matsui,
         "est_loss_matsui": est_loss_matsui,
         "price_date": price_date,
-        # 新フィールド：このシミュレの「有効になる取引日」
-        "trade_date": trade_date.isoformat(),  # "2025-11-27" 形式
         "source": "ai_picks",
     }
 
