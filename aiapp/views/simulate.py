@@ -299,8 +299,8 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
                 combined = "skip"
                 skip_count += 1
 
-            # テンプレ側でも使えるように保持
-            e["_combined_label"] = combined
+            # テンプレ側でも使えるように保持（先頭に _ を付けない）
+            e["combined_label"] = combined
 
         summary = {
             "win": win_count,
