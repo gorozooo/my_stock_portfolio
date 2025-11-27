@@ -1,38 +1,38 @@
 # aiapp/management/commands/preview_simulate_level3.py
+# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, time
+from datetime import date as _date, datetime as _dt, time as _time, timedelta as _td
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 from django.conf import settings
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand, CommandParser
 from django.utils import timezone
 
-from aiapp.services import bars_5m
+from aiapp.services.bars_5m import load_5m_bars
+
+SIM_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "simulate"
 
 
 @dataclass
 class SimRecord:
     raw: Dict[str, Any]
-    ts: datetime
-    trade_date: date
+    ts: Optional[_dt]
+    trade_date: Optional[_date]
     code: str
     name: str
     mode: str
-    entry: Optional[float]
-    tp: Optional[float]
-    sl: Optional[float]
 
 
-def _parse_ts(ts_str: str) -> Optional[datetime]:
-    if not ts_str:
+def _parse_ts(ts_str: Optional[str]) -> Optional[_dt]:
+    if not isinstance(ts_str, str) or not ts_str:
         return None
     try:
-        dt = datetime.fromisoformat(ts_str)
+        dt = _dt.fromisoformat(ts_str)
         if timezone.is_naive(dt):
             dt = timezone.make_aware(dt, timezone.get_default_timezone())
         return timezone.localtime(dt)
@@ -40,72 +40,44 @@ def _parse_ts(ts_str: str) -> Optional[datetime]:
         return None
 
 
-def _next_business_day(d: date) -> date:
-    """
-    かなりラフな「翌営業日」判定。
-    - 土日を飛ばす
-    - 祝日は考慮しない（実運用では別途カレンダーを噛ませる）
-    """
-    nd = d + timedelta(days=1)
-    while nd.weekday() >= 5:  # 5=土, 6=日
-        nd += timedelta(days=1)
-    return nd
+def _parse_date(s: Optional[str]) -> Optional[_date]:
+    if not isinstance(s, str) or not s:
+        return None
+    try:
+        return _dt.fromisoformat(s).date()
+    except Exception:
+        return None
 
 
-def _resolve_trade_date(rec: Dict[str, Any]) -> (datetime, date):
+def _detect_trade_date(rec: Dict[str, Any], ts: Optional[_dt]) -> Optional[_date]:
     """
-    ts と trade_date の両方を見て「いつの5分足で判定するか」を決める。
-    優先順位:
+    trade_date を決める優先順位:
       1) rec["trade_date"] があればそれを使う
-      2) 無ければ ts から決める
-         - ts.time >= 15:00 → 翌営業日
-         - それ以外 → 当日扱い
+      2) rec["run_date"] (ai_simulate_auto の日付)
+      3) rec["price_date"]
+      4) ts.date()（最後の手段）
     """
-    ts_str = str(rec.get("ts") or "")
-    ts = _parse_ts(ts_str)
-    if ts is None:
-        # どうしようもない場合は「今日」
-        now = timezone.localtime()
-        return now, now.date()
-
-    # すでに trade_date が保存されていればそれを優先
-    td_str = rec.get("trade_date")
-    if td_str:
-        try:
-            td = datetime.fromisoformat(td_str).date()
-            return ts, td
-        except Exception:
-            pass
-
-    # ts だけから決める
-    t: time = ts.time()
-    if t >= time(15, 0):
-        td = _next_business_day(ts.date())
-    else:
-        td = ts.date()
-
-    return ts, td
+    for key in ("trade_date", "run_date", "price_date"):
+        v = rec.get(key)
+        d = _parse_date(v) if isinstance(v, str) else None
+        if d is not None:
+            return d
+    if isinstance(ts, _dt):
+        return ts.date()
+    return None
 
 
-def _load_sim_records(
-    root: Path,
-    user_id: int,
-    code: Optional[str] = None,
-    limit: Optional[int] = None,
-) -> List[SimRecord]:
+def _load_sim_records(user_id: int, code: Optional[str], limit: int) -> List[SimRecord]:
     """
-    /media/aiapp/simulate/sim_orders_*.jsonl を読み込んで
-    指定ユーザー＆銘柄コードの最新レコードから順に返す。
+    /media/aiapp/simulate/*.jsonl から対象ユーザー＆銘柄のシミュレレコードを読み込む
+    ts 降順にソートして limit 件まで返す
     """
-    sim_dir = root / "aiapp" / "simulate"
-    if not sim_dir.exists():
-        raise CommandError(f"simulate dir not found: {sim_dir}")
-
     records: List[SimRecord] = []
 
-    # sim_orders_YYYY-MM-DD.jsonl だけを見る
-    paths = sorted(sim_dir.glob("sim_orders_*.jsonl"))
-    for path in paths:
+    if not SIM_DIR.exists():
+        return []
+
+    for path in sorted(SIM_DIR.glob("*.jsonl")):
         try:
             text = path.read_text(encoding="utf-8")
         except Exception:
@@ -123,28 +95,11 @@ def _load_sim_records(
             if rec.get("user_id") != user_id:
                 continue
 
-            if code and str(rec.get("code")) != str(code):
+            if code and str(rec.get("code") or "").strip() != str(code).strip():
                 continue
 
-            ts, trade_date = _resolve_trade_date(rec)
-            name = str(rec.get("name") or "")
-            mode = str(rec.get("mode") or "demo")
-            entry = rec.get("entry")
-            tp = rec.get("tp")
-            sl = rec.get("sl")
-
-            try:
-                entry_f = float(entry) if entry is not None else None
-            except Exception:
-                entry_f = None
-            try:
-                tp_f = float(tp) if tp is not None else None
-            except Exception:
-                tp_f = None
-            try:
-                sl_f = float(sl) if sl is not None else None
-            except Exception:
-                sl_f = None
+            ts = _parse_ts(rec.get("ts"))
+            trade_date = _detect_trade_date(rec, ts)
 
             records.append(
                 SimRecord(
@@ -152,185 +107,273 @@ def _load_sim_records(
                     ts=ts,
                     trade_date=trade_date,
                     code=str(rec.get("code") or ""),
-                    name=name,
-                    mode=mode,
-                    entry=entry_f,
-                    tp=tp_f,
-                    sl=sl_f,
+                    name=str(rec.get("name") or ""),
+                    mode=str(rec.get("mode") or "").lower() or "demo",
                 )
             )
 
-    # ts 降順（新しい順）
-    records.sort(key=lambda r: r.ts, reverse=True)
+    # ts 降順（None は一番後ろ）
+    def _sort_key(r: SimRecord):
+        return r.ts or _dt.min.replace(tzinfo=timezone.get_default_timezone())
 
-    if limit is not None and limit > 0:
-        records = records[:limit]
-
-    return records
+    records.sort(key=_sort_key, reverse=True)
+    return records[:limit]
 
 
-def _print_header(idx: int, r: SimRecord, out):
-    out.write(
-        f"===== #{idx} {r.code} {r.name}  ts={r.ts.isoformat()} mode={r.mode} trade_date={r.trade_date.isoformat()} =====\n"
-    )
+def _jst_session_range(d: _date) -> Tuple[_dt, _dt]:
+    """
+    その営業日のザラ場時間（仮）：9:00〜15:00 JST
+    ※ 正確な前場/後場分割まではやりすぎなので、今は1本で。
+    """
+    tz = timezone.get_default_timezone()
+    start = timezone.make_aware(_dt.combine(d, _time(9, 0)), tz)
+    end = timezone.make_aware(_dt.combine(d, _time(15, 0)), tz)
+    return start, end
+
+
+def _label_for_side_pl(qty: float, pl_per_share: float) -> str:
+    """
+    ざっくりラベル:
+      - 数量0 or None → "no_position"
+      - pl_per_share > 0  → "win"
+      - pl_per_share < 0  → "lose"
+      - それ以外         → "flat"
+    """
+    if qty is None or qty <= 0:
+        return "no_position"
+    if pl_per_share > 0:
+        return "win"
+    if pl_per_share < 0:
+        return "lose"
+    return "flat"
 
 
 def _preview_one_record(
     idx: int,
     rec: SimRecord,
     horizon_days: int,
-    out,
-):
-    _print_header(idx, rec, out)
+    stdout,
+) -> None:
+    raw = rec.raw
+    code = rec.code
+    name = rec.name
+    ts = rec.ts
+    trade_date = rec.trade_date
+    mode = rec.mode
 
-    # 5分足取得（キャッシュサービス経由）
-    bars_result = bars_5m.load_5m_bars(rec.code, rec.trade_date, horizon_days=horizon_days)
-    df = bars_result.df
+    stdout.write(
+        f"===== #{idx} {code} {name}  ts={ts} mode={mode} trade_date={trade_date} ====="
+    )
 
-    total_bars = 0 if df is None else len(df)
-    out.write(f"  5分足取得: {total_bars} 本\n")
-
-    if df is None or df.empty:
-        out.write("  ※ 5分足が取得できなかったため、両サイドとも判定不可\n")
+    # trade_date が決まらないとどうしようもない
+    if not trade_date:
+        stdout.write("  trade_date が特定できないため、判定不可")
         return
 
-    # ts 以降のバーを有効とするか、trade_date全体を有効とするか
-    # ルール:
-    #  - trade_date が ts.date() と同じなら「ts以降のみ」
-    #  - 違う場合（15:00以降の注文 → 翌営業日など）は trade_date の全バー
-    if rec.trade_date == rec.ts.date():
-        valid_mask = df.index >= rec.ts
-        df_valid = df.loc[valid_mask].copy()
+    # 5分足読み込み（キャッシュ経由）
+    bars = load_5m_bars(code, trade_date)
+    n_bars = len(bars)
+    stdout.write(f"  5分足取得: {n_bars} 本")
+
+    if n_bars == 0:
+        stdout.write("  ※ 5分足が取得できなかったため、両サイドとも判定不可")
+        return
+
+    # ザラ場時間と、実際にオーダーが有効になる時間
+    session_start, session_end = _jst_session_range(trade_date)
+    if ts and ts > session_start:
+        active_start = ts
     else:
-        df_valid = df[df.index.date == rec.trade_date].copy()
+        active_start = session_start
 
-    valid_bars = len(df_valid)
-    out.write(f"  有効判定バー数: {valid_bars} 本\n")
+    # 有効バーに絞る（エントリー可能時間帯）
+    df = bars.copy()
+    if "ts" not in df.columns:
+        # 念のため ts を index から復元するパス
+        if isinstance(df.index, pd.DatetimeIndex):
+            df = df.reset_index().rename(columns={df.index.name or "index": "ts"})
+        else:
+            stdout.write("  ※ ts カラムが無いため、判定不可")
+            return
 
-    if valid_bars == 0 or rec.entry is None:
-        out.write("  ※ ts 以降の5分足（または trade_date の5分足）が存在しないため、判定不可\n")
+    df = df[(df["ts"] >= active_start) & (df["ts"] <= session_end)]
+    n_eff = len(df)
+    stdout.write(f"  有効判定バー数: {n_eff} 本")
+
+    if n_eff == 0:
+        stdout.write("  ※ ts 以降の5分足が無いため、判定不可（場外で登録された等）")
         return
 
-    # ===== 1) エントリー判定（entry がタッチされたか） =====
-    # 指値: Low <= entry <= High のどこかで一度でもタッチしたか？
-    touched_mask = (df_valid["Low"] <= rec.entry) & (df_valid["High"] >= rec.entry)
-    if not bool(touched_mask.any()):
-        out.write(
-            f"  → 指値 {rec.entry:.2f} 円 はこの日の5分足で一度もタッチせず → no_position 扱い\n"
+    # 必要なパラメータ
+    entry = raw.get("entry")
+    tp = raw.get("tp")
+    sl = raw.get("sl")
+
+    try:
+        entry_f = float(entry) if entry is not None else None
+    except Exception:
+        entry_f = None
+
+    try:
+        tp_f = float(tp) if tp is not None else None
+    except Exception:
+        tp_f = None
+
+    try:
+        sl_f = float(sl) if sl is not None else None
+    except Exception:
+        sl_f = None
+
+    if entry_f is None:
+        stdout.write("  ※ entry が無いため、判定不可")
+        return
+
+    # -------- エントリー判定（指値） --------
+    hit_mask = (df["low"] <= entry_f) & (df["high"] >= entry_f)
+    if not bool(hit_mask.any()):
+        stdout.write(
+            f"  → 指値 {entry_f:.2f} 円 はこの日の5分足で一度もタッチせず → no_position 扱い"
         )
         return
 
-    # 最初にタッチしたバー
-    first_touch_idx = df_valid.index[touched_mask.to_numpy().argmax()]
-    out.write(f"  → 指値 {rec.entry:.2f} 円 が最初にタッチしたバー: {first_touch_idx.isoformat()}\n")
+    hit_df = df[hit_mask]
+    first_hit = hit_df.iloc[0]
+    entry_ts = first_hit["ts"]
+    exec_entry_px = entry_f  # ここは「指値で約定した」とみなす
 
-    # ===== 2) エグジット判定（TP/SL or ホールド） =====
-    # エントリー以降、horizon_days 日分のバーを対象に TP / SL 判定
-    horizon_end = rec.trade_date + timedelta(days=horizon_days)
-    df_after = df[df.index >= first_touch_idx].copy()
-    df_after = df_after[df_after.index.date < horizon_end].copy()
+    # -------- エグジット判定（TP / SL / horizon_close） --------
+    #   ・エントリーバー以降のバーを対象
+    eval_df = df[df["ts"] >= entry_ts].copy()
+    if eval_df.empty:
+        stdout.write(
+            f"  → エントリー {exec_entry_px:.2f} 円 (ts={entry_ts}) 以降のバー無し → horizon_close=entry 扱い"
+        )
+        exit_ts = entry_ts
+        exit_px = exec_entry_px
+    else:
+        # TP / SL ヒットの有無をチェック
+        # どちらも指定されていない場合は最後のバー終値でクローズ
+        hit_tp_idx = None
+        hit_sl_idx = None
 
-    if df_after.empty:
-        out.write("  ※ エントリー後の5分足が存在しないため、判定不可（rare case）\n")
-        return
+        if tp_f is not None:
+            tp_mask = eval_df["high"] >= tp_f
+            if bool(tp_mask.any()):
+                hit_tp_idx = eval_df[tp_mask].index[0]
 
-    exit_price: Optional[float] = None
-    exit_dt: Optional[datetime] = None
-    exit_reason: str = "horizon"
+        if sl_f is not None:
+            sl_mask = eval_df["low"] <= sl_f
+            if bool(sl_mask.any()):
+                hit_sl_idx = eval_df[sl_mask].index[0]
 
-    for dt_idx, row in df_after.iterrows():
-        low = float(row["Low"])
-        high = float(row["High"])
-        close = float(row["Close"])
-
-        # まず SL（損切り）判定 → 次に TP（利確）判定
-        if rec.sl is not None and low <= rec.sl:
-            exit_price = rec.sl
-            exit_dt = dt_idx
-            exit_reason = "hit_sl"
-            break
-
-        if rec.tp is not None and high >= rec.tp:
-            exit_price = rec.tp
-            exit_dt = dt_idx
-            exit_reason = "hit_tp"
-            break
-
-        # どちらも触れていなければ次のバーへ
-
-    if exit_price is None:
-        # TP/SL どちらも触れず → 期間末の Close で評価
-        last_row = df_after.iloc[-1]
-        exit_price = float(last_row["Close"])
-        exit_dt = df_after.index[-1]
         exit_reason = "horizon_close"
 
-    out.write(
-        f"  → エントリー {rec.entry:.2f} 円 → exit {exit_price:.2f} 円 ({exit_reason}) @ {exit_dt.isoformat()}\n"
+        if hit_tp_idx is not None or hit_sl_idx is not None:
+            # どちらかヒットしていれば、時間が早い方を優先
+            if hit_tp_idx is not None and hit_sl_idx is not None:
+                # index は DatetimeIndex なので、そのまま比較でOK
+                if hit_tp_idx <= hit_sl_idx:
+                    row = eval_df.loc[hit_tp_idx]
+                    exit_ts = row["ts"]
+                    exit_px = float(tp_f)
+                    exit_reason = "hit_tp"
+                else:
+                    row = eval_df.loc[hit_sl_idx]
+                    exit_ts = row["ts"]
+                    exit_px = float(sl_f)
+                    exit_reason = "hit_sl"
+            elif hit_tp_idx is not None:
+                row = eval_df.loc[hit_tp_idx]
+                exit_ts = row["ts"]
+                exit_px = float(tp_f)
+                exit_reason = "hit_tp"
+            else:
+                row = eval_df.loc[hit_sl_idx]
+                exit_ts = row["ts"]
+                exit_px = float(sl_f)
+                exit_reason = "hit_sl"
+        else:
+            # どちらもタッチしなかった → 終値クローズ
+            last_row = eval_df.iloc[-1]
+            exit_ts = last_row["ts"]
+            exit_px = float(last_row["close"])
+            exit_reason = "horizon_close"
+
+    pl_per_share = float(exit_px) - float(exec_entry_px)
+
+    qty_r = raw.get("qty_rakuten") or 0
+    qty_m = raw.get("qty_matsui") or 0
+    try:
+        qty_r = float(qty_r or 0)
+    except Exception:
+        qty_r = 0.0
+    try:
+        qty_m = float(qty_m or 0)
+    except Exception:
+        qty_m = 0.0
+
+    label_r = _label_for_side_pl(qty_r, pl_per_share)
+    label_m = _label_for_side_pl(qty_m, pl_per_share)
+
+    stdout.write(
+        f"  → エントリー {exec_entry_px:.2f} 円 → exit {exit_px:.2f} 円 ({exit_reason}) @ {exit_ts}"
     )
-
-    # ===== 3) ラベル（win/lose/flat）判定（楽天/松井共通） =====
-    if exit_price > rec.entry:
-        label = "win"
-    elif exit_price < rec.entry:
-        label = "lose"
-        # exit_price == entry なら flat
-    else:
-        label = "flat"
-
-    out.write(f"    label_rakuten={label} / label_matsui={label}\n")
+    stdout.write(f"    label_rakuten={label_r} / label_matsui={label_m}")
 
 
 class Command(BaseCommand):
-    help = "AIシミュレ Level3 プレビュー: 5分足ベースでエントリー/エグジット判定の結果を表示する"
+    help = "AIシミュレ Level3 の挙動を、1ユーザー・1銘柄単位でプレビューするための開発用コマンド。"
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
             "--user",
             type=int,
             required=True,
-            help="対象ユーザーID",
+            help="対象ユーザーID（必須）",
         )
         parser.add_argument(
             "--code",
             type=str,
             default=None,
-            help="銘柄コード（例: 7508）。指定がなければ全銘柄",
+            help="銘柄コード（例: 7508。指定なしなら全銘柄から最新順で）",
         )
         parser.add_argument(
             "--limit",
             type=int,
             default=5,
-            help="最新から何件プレビューするか",
+            help="プレビューする最大件数（デフォルト5件）",
         )
         parser.add_argument(
-            "--horizon_days",
+            "--horizon-days",
             type=int,
             default=5,
-            help="判定対象の営業日数（デフォルト5）",
+            help="評価期間（日数）。今は同日5分足のみを使うが、将来マルチデイ対応時のために保持。",
         )
 
-    def handle(self, *args, **options):
+    def handle(self, *args, **options) -> None:
         user_id: int = options["user"]
-        code: Optional[str] = options.get("code")
-        limit: int = options.get("limit") or 5
-        horizon_days: int = options.get("horizon_days") or 5
+        code: Optional[str] = options.get("code") or None
+        limit: int = int(options.get("limit") or 5)
+        horizon_days: int = int(options.get("horizon_days") or 5)
 
-        media_root = Path(settings.MEDIA_ROOT)
         self.stdout.write(
-            f"[preview_simulate_level3] MEDIA_ROOT={media_root} user={user_id} limit={limit}\n"
+            f"[preview_simulate_level3] MEDIA_ROOT={settings.MEDIA_ROOT} user={user_id} limit={limit}"
         )
 
-        records = _load_sim_records(media_root, user_id=user_id, code=code, limit=limit)
+        records = _load_sim_records(user_id=user_id, code=code, limit=limit)
         self.stdout.write(
-            f"  対象レコード数: {len(records)} 件（limit={limit}, code={code or 'ALL'}）\n"
+            f"  対象レコード数: {len(records)} 件（limit={limit}, code={code or 'ALL'}）"
         )
 
         if not records:
-            self.stdout.write("[preview_simulate_level3] 対象レコードがありません。\n")
             return
 
-        for idx, rec in enumerate(records, start=1):
-            _preview_one_record(idx, rec, horizon_days=horizon_days, out=self.stdout)
+        for i, rec in enumerate(records, start=1):
+            _preview_one_record(
+                idx=i,
+                rec=rec,
+                horizon_days=horizon_days,
+                stdout=self.stdout,
+            )
 
-        self.stdout.write("[preview_simulate_level3] 完了\n")
+        self.stdout.write("[preview_simulate_level3] 完了")
