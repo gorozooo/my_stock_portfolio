@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date as _date, datetime as _dt
+from datetime import date as _date, datetime as _dt, time as _time, timedelta as _td
 from typing import Any, Dict, Optional
 
 import pandas as pd
+import yfinance as yf
 from django.utils import timezone
 
 # 5分足キャッシュサービス
 from aiapp.services import bars_5m as svc_bars_5m
-
 
 Number = float | int
 
@@ -67,12 +67,7 @@ def _ensure_aware(dt: _dt) -> _dt:
 def _load_5m_bars(code: str, trade_date: _date, horizon_days: int) -> pd.DataFrame:
     """
     5分足を bars_5m サービス経由で取得して正規化。
-
-    ※ bars_5m.load_5m_bars は (code, trade_date) の 2 引数だけを
-       受け取るので、horizon_days はここでは使わない。
-       評価の営業日数は df の長さで吸収する。
     """
-    # ★ bars_5m 側は (code, trade_date) の 2 引数
     raw = svc_bars_5m.load_5m_bars(code, trade_date)
 
     if raw is None:
@@ -88,28 +83,24 @@ def _load_5m_bars(code: str, trade_date: _date, horizon_days: int) -> pd.DataFra
 
     df = df.copy()
 
-    # ---- 列マッピング（MultiIndex 対応）------------------------------
-    # c が ('Open', 'JPY') みたいなタプルでも、先頭要素だけ見て
-    # "open" / "high" / "low" / "close" を判定する
+    # ---- 列マッピング（MultiIndex 対応） -----------------------------
     base_map: Dict[str, Any] = {}
     for c in df.columns:
         if isinstance(c, tuple) and len(c) > 0:
             key = str(c[0]).lower()
         else:
             key = str(c).lower()
-        # 同じ key が複数あっても最初の1つだけ使う
         if key not in base_map:
             base_map[key] = c
 
-    cols_lower = base_map
     for need in ("open", "high", "low", "close"):
-        if need not in cols_lower:
+        if need not in base_map:
             raise ValueError(f"5m bars missing column '{need}' for code={code}")
 
-    c_open = cols_lower["open"]
-    c_high = cols_lower["high"]
-    c_low = cols_lower["low"]
-    c_close = cols_lower["close"]
+    c_open = base_map["open"]
+    c_high = base_map["high"]
+    c_low = base_map["low"]
+    c_close = base_map["close"]
 
     # ts 列
     if "ts" in df.columns:
@@ -135,13 +126,37 @@ def _load_5m_bars(code: str, trade_date: _date, horizon_days: int) -> pd.DataFra
     return out.reset_index(drop=True)
 
 
+def _load_daily_open(code: str, trade_date: _date) -> Optional[float]:
+    """
+    yfinance の 1日足から「本当の始値」を取る。
+    取得できなければ None。
+    """
+    try:
+        symbol = f"{code}.T"
+        start = trade_date
+        end = trade_date + _td(days=1)
+        df = yf.download(
+            symbol,
+            start=start.isoformat(),
+            end=end.isoformat(),
+            interval="1d",
+            progress=False,
+        )
+        if df is None or df.empty:
+            return None
+        if "Open" not in df.columns:
+            return None
+        return float(df["Open"].iloc[0])
+    except Exception:
+        return None
+
+
 def _calc_pl(side: str, entry_px: Number, exit_px: Number, qty: Number) -> float:
     if qty is None or qty == 0:
         return 0.0
     if side.upper() == "BUY":
         return float(exit_px - entry_px) * float(qty)
     else:
-        # 将来 SELL にも対応できるよう反転
         return float(entry_px - exit_px) * float(qty)
 
 
@@ -162,24 +177,6 @@ def _label_from_pl(pl: Optional[Number], qty: Optional[Number]) -> Optional[str]
 # =====================================================================
 
 def _eval_one(rec: Dict[str, Any], horizon_days: int = 5) -> SimEvalResult:
-    """
-    1件分のシミュレを評価する。
-
-    ルール（BUY想定）:
-      - trade_date の寄り付きで始値が指値以下なら「寄りで約定」
-        → entry_px = 始値, entry_ts = 9:00バー
-      - そうでなければ、5分足の中で「Low <= 指値 <= High」となる
-        最初のバーで指値約定
-        → entry_px = 指値, entry_ts = そのバーの時刻
-      - どのバーでも指値に一度も触れなければ「no_position / skip」
-      - 約定した場合は、
-          そこから horizon_days 営業日ぶんの 5分足で TP / SL を監視
-        * 先に SL に触れたら SL でクローズ (hit_sl)
-        * 先に TP に触れたら TP でクローズ (hit_tp)
-        * どちらも触れなければ、配列の最後のバー終値でクローズ
-          (horizon_close)
-    """
-
     code = str(rec.get("code") or "").strip()
     side = (rec.get("side") or "BUY").upper()
 
@@ -190,14 +187,12 @@ def _eval_one(rec: Dict[str, Any], horizon_days: int = 5) -> SimEvalResult:
     qty_rakuten = rec.get("qty_rakuten") or 0
     qty_matsui = rec.get("qty_matsui") or 0
 
-    # trade_date 決定
     trade_date = (
         _parse_iso_date(rec.get("trade_date"))
         or _parse_iso_date(rec.get("run_date"))
         or _parse_iso_date(rec.get("price_date"))
     )
     if trade_date is None:
-        # 日付が取れない場合は評価不能として no_position 扱い
         return SimEvalResult(
             entry_ts=None,
             entry_px=None,
@@ -212,11 +207,10 @@ def _eval_one(rec: Dict[str, Any], horizon_days: int = 5) -> SimEvalResult:
             horizon_days=horizon_days,
         )
 
-    # 5分足ロード
     df = _load_5m_bars(code, trade_date, horizon_days=horizon_days)
     if df.empty or entry_limit is None:
         last_close = rec.get("last_close") or entry_limit
-        close_date = trade_date.isoformat()
+        close_date = trade_date.isoformat() if trade_date else None
         return SimEvalResult(
             entry_ts=None,
             entry_px=None,
@@ -232,10 +226,7 @@ def _eval_one(rec: Dict[str, Any], horizon_days: int = 5) -> SimEvalResult:
         )
 
     df = df.copy()
-    # trade_date 以降だけを対象にする
-    df = df[df["ts"].dt.date >= trade_date]
-    df = df.reset_index(drop=True)
-
+    df = df[df["ts"].dt.date >= trade_date].reset_index(drop=True)
     if df.empty:
         last_close = rec.get("last_close") or entry_limit
         close_date = trade_date.isoformat()
@@ -253,48 +244,65 @@ def _eval_one(rec: Dict[str, Any], horizon_days: int = 5) -> SimEvalResult:
             horizon_days=horizon_days,
         )
 
-    # ------------------------------------------------------------
-    # 1. エントリー判定
-    # ------------------------------------------------------------
+    limit = float(entry_limit)
+
     entry_ts: Optional[_dt] = None
     entry_px: Optional[Number] = None
     entry_idx: Optional[int] = None
 
-    first = df.iloc[0]
-    first_open = float(first["Open"])
-    first_ts = _ensure_aware(first["ts"])
-    limit = float(entry_limit)
+    # ------------------------------------------------------------
+    # 0. 日足の始値で「寄り約定」チェック
+    # ------------------------------------------------------------
+    daily_open = _load_daily_open(code, trade_date)
 
-    if side == "BUY":
-        # 寄りが指値以下 → 寄りで有利約定
-        if first_open <= limit:
-            entry_ts = first_ts
-            entry_px = first_open
-            entry_idx = 0
-        else:
-            # 寄りで刺さらなかった場合、Low/High のレンジヒットを探す
-            mask = (df["Low"] <= limit) & (df["High"] >= limit)
-            if mask.any():
-                idx = int(mask.idxmax())
-                bar = df.loc[idx]
-                entry_ts = _ensure_aware(bar["ts"])
-                entry_px = limit
-                entry_idx = idx
-    else:  # SELL（将来用）
-        if first_open >= limit:
-            entry_ts = first_ts
-            entry_px = first_open
-            entry_idx = 0
-        else:
-            mask = (df["Low"] <= limit) & (df["High"] >= limit)
-            if mask.any():
-                idx = int(mask.idxmax())
-                bar = df.loc[idx]
-                entry_ts = _ensure_aware(bar["ts"])
-                entry_px = limit
-                entry_idx = idx
+    if side == "BUY" and daily_open is not None and daily_open <= limit:
+        # 09:00 寄りで約定（価格は始値）
+        raw_ts = _dt.combine(trade_date, _time(9, 0))
+        entry_ts = _ensure_aware(raw_ts)
+        entry_px = float(daily_open)
 
-    # 指値に一度も触れなかった → no_position
+        # 評価開始用の index：09:00 以降最初のバー
+        mask_after = df["ts"] >= entry_ts
+        if mask_after.any():
+            entry_idx = int(mask_after.idxmax())
+        else:
+            entry_idx = 0
+    else:
+        # --------------------------------------------------------
+        # 1. 5分足ベースでのエントリー判定
+        # --------------------------------------------------------
+        first = df.iloc[0]
+        first_open = float(first["Open"])
+        first_ts = _ensure_aware(first["ts"])
+
+        if side == "BUY":
+            if first_open <= limit:
+                entry_ts = first_ts
+                entry_px = first_open
+                entry_idx = 0
+            else:
+                mask = (df["Low"] <= limit) & (df["High"] >= limit)
+                if mask.any():
+                    idx = int(mask.idxmax())
+                    bar = df.loc[idx]
+                    entry_ts = _ensure_aware(bar["ts"])
+                    entry_px = limit
+                    entry_idx = idx
+        else:
+            if first_open >= limit:
+                entry_ts = first_ts
+                entry_px = first_open
+                entry_idx = 0
+            else:
+                mask = (df["Low"] <= limit) & (df["High"] >= limit)
+                if mask.any():
+                    idx = int(mask.idxmax())
+                    bar = df.loc[idx]
+                    entry_ts = _ensure_aware(bar["ts"])
+                    entry_px = limit
+                    entry_idx = idx
+
+    # 指値に一度も触れなかった
     if entry_ts is None or entry_idx is None:
         last = df.iloc[-1]
         last_close = float(last["Close"])
@@ -314,18 +322,16 @@ def _eval_one(rec: Dict[str, Any], horizon_days: int = 5) -> SimEvalResult:
         )
 
     # ------------------------------------------------------------
-    # 2. TP / SL 判定（エントリー後のバーのみを見る）
+    # 2. TP / SL 判定
     # ------------------------------------------------------------
-    exit_ts: Optional[_dt] = None
-    exit_px: Optional[Number] = None
-    exit_reason: Optional[str] = None
-
-    # エントリー以降のバー
-    eval_df = df.iloc[entry_idx:]
-    eval_df = eval_df.reset_index(drop=True)
+    eval_df = df.iloc[entry_idx:].reset_index(drop=True)
 
     limit_tp = float(tp) if tp is not None else None
     limit_sl = float(sl) if sl is not None else None
+
+    exit_ts: Optional[_dt] = None
+    exit_px: Optional[Number] = None
+    exit_reason: Optional[str] = None
 
     for i in range(1, len(eval_df)):
         row = eval_df.iloc[i]
@@ -334,7 +340,6 @@ def _eval_one(rec: Dict[str, Any], horizon_days: int = 5) -> SimEvalResult:
         high = float(row["High"])
 
         if side == "BUY":
-            # 先に SL を優先
             if limit_sl is not None and low <= limit_sl:
                 exit_ts = row_ts
                 exit_px = limit_sl
@@ -346,7 +351,6 @@ def _eval_one(rec: Dict[str, Any], horizon_days: int = 5) -> SimEvalResult:
                 exit_reason = "hit_tp"
                 break
         else:
-            # SELL の場合は逆方向（必要になったら詳細調整）
             if limit_tp is not None and high >= limit_tp:
                 exit_ts = row_ts
                 exit_px = limit_tp
@@ -358,7 +362,6 @@ def _eval_one(rec: Dict[str, Any], horizon_days: int = 5) -> SimEvalResult:
                 exit_reason = "hit_sl"
                 break
 
-    # TP/SL どちらもヒットしなかった → horizon_close
     if exit_ts is None or exit_px is None:
         last = df.iloc[-1]
         exit_ts = _ensure_aware(last["ts"])
@@ -367,9 +370,6 @@ def _eval_one(rec: Dict[str, Any], horizon_days: int = 5) -> SimEvalResult:
 
     close_date = exit_ts.date().isoformat()
 
-    # ------------------------------------------------------------
-    # 3. PL / ラベル計算
-    # ------------------------------------------------------------
     pl_rakuten = _calc_pl(side, entry_px, exit_px, qty_rakuten)
     pl_matsui = _calc_pl(side, entry_px, exit_px, qty_matsui)
 
@@ -396,19 +396,11 @@ def _eval_one(rec: Dict[str, Any], horizon_days: int = 5) -> SimEvalResult:
 # =====================================================================
 
 def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any]:
-    """
-    ai_sim_eval コマンドから呼ばれるエントリポイント。
-
-    - 受け取った rec を壊さずコピー
-    - 評価結果を eval_* フィールドとして付与
-    - 約定した場合は entry を「実際に約定した価格」に上書き
-      （例：指値 3,449 円 / 始値 3,445 円 → entry=3,445）
-    """
     result = _eval_one(rec, horizon_days=horizon_days)
 
     out = dict(rec)
 
-    # 約定価格を entry に反映（no_position のときはそのまま）
+    # エントリー価格を「実際に約定した価格」で上書き
     if result.entry_px is not None:
         out["entry"] = result.entry_px
 
