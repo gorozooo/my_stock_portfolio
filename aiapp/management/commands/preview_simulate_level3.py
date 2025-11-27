@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date as _date, datetime as _dt, time as _time, timedelta as _td
+from datetime import date as _date, datetime as _dt, time as _time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -43,6 +43,7 @@ def _parse_ts(ts_str: Optional[str]) -> Optional[_dt]:
 def _parse_date(s: Optional[str]) -> Optional[_date]:
     if not isinstance(s, str) or not s:
         return None
+    # "2025-11-27" 形式だけ想定
     try:
         return _dt.fromisoformat(s).date()
     except Exception:
@@ -112,7 +113,7 @@ def _load_sim_records(user_id: int, code: Optional[str], limit: int) -> List[Sim
                 )
             )
 
-    # ts 降順（None は一番後ろ）
+    # ts 降順（None は一番後ろへ）
     def _sort_key(r: SimRecord):
         return r.ts or _dt.min.replace(tzinfo=timezone.get_default_timezone())
 
@@ -145,6 +146,30 @@ def _label_for_side_pl(qty: float, pl_per_share: float) -> str:
     if pl_per_share < 0:
         return "lose"
     return "flat"
+
+
+def _coerce_ts_scalar(val: Any, fallback: _dt) -> _dt:
+    """
+    row["ts"] から安全に Timestamp を取り出すための小ヘルパー。
+    Series だったり Python datetime だったりしても必ず1つの Timestamp に潰す。
+    NaT の場合は fallback を返す。
+    """
+    # Series なら 先頭要素を使う
+    if isinstance(val, pd.Series):
+        if not val.empty:
+            val = val.iloc[0]
+        else:
+            return fallback
+
+    # すでに Timestamp / datetime の場合
+    if isinstance(val, (pd.Timestamp, _dt)):
+        ts = pd.Timestamp(val)
+    else:
+        ts = pd.to_datetime(val, errors="coerce")
+
+    if pd.isna(ts):
+        return fallback
+    return ts
 
 
 def _preview_one_record(
@@ -185,19 +210,28 @@ def _preview_one_record(
     else:
         active_start = session_start
 
-    # 有効バーに絞る（エントリー可能時間帯）
+    # DataFrame 正規化
     df = bars.copy()
+
+    # ts カラムが無ければ index から復元
     if "ts" not in df.columns:
-        # 念のため ts を index から復元するパス
         if isinstance(df.index, pd.DatetimeIndex):
             df = df.reset_index().rename(columns={df.index.name or "index": "ts"})
         else:
             stdout.write("  ※ ts カラムが無いため、判定不可")
             return
 
-    # ts を datetime に強制（念のため）
+    # カラム名（low/high/close）を小文字に統一しておく
+    cols_lower = {c.lower(): c for c in df.columns}
+    for need in ("low", "high", "close"):
+        if need not in cols_lower:
+            stdout.write(f"  ※ {need} カラムが無いため、判定不可")
+            return
+
+    # ts を datetime に強制（tz情報付きでもOK）
     df["ts"] = pd.to_datetime(df["ts"])
 
+    # 有効バーに絞る（エントリー可能時間帯）
     df = df[(df["ts"] >= active_start) & (df["ts"] <= session_end)]
     n_eff = len(df)
     stdout.write(f"  有効判定バー数: {n_eff} 本")
@@ -231,9 +265,12 @@ def _preview_one_record(
         return
 
     # -------- エントリー判定（指値） --------
-    hit_mask = (df["low"] <= entry_f) & (df["high"] >= entry_f)
+    low_col = cols_lower["low"]
+    high_col = cols_lower["high"]
+    close_col = cols_lower["close"]
 
-    # Series / DataFrame どちらでも安全に判定
+    hit_mask = (df[low_col] <= entry_f) & (df[high_col] >= entry_f)
+
     if not hit_mask.to_numpy().any():
         stdout.write(
             f"  → 指値 {entry_f:.2f} 円 はこの日の5分足で一度もタッチせず → no_position 扱い"
@@ -241,14 +278,14 @@ def _preview_one_record(
         return
 
     hit_df = df[hit_mask]
+    if hit_df.empty:
+        stdout.write(
+            f"  → 指値 {entry_f:.2f} 円 はこの日の5分足で一度もタッチせず（hit_df empty） → no_position 扱い"
+        )
+        return
 
-    # ★ ここがポイント：必ず「スカラーの Timestamp」に潰す
     first_hit = hit_df.iloc[0]
-    entry_ts_val = first_hit["ts"]
-    if isinstance(entry_ts_val, pd.Series):
-        entry_ts_val = entry_ts_val.iloc[0]
-    entry_ts = pd.to_datetime(entry_ts_val)
-
+    entry_ts = _coerce_ts_scalar(first_hit["ts"], fallback=active_start)
     exec_entry_px = entry_f  # 指値約定として扱う
 
     # -------- エグジット判定（TP / SL / horizon_close） --------
@@ -260,51 +297,50 @@ def _preview_one_record(
         )
         exit_ts = entry_ts
         exit_px = exec_entry_px
+        exit_reason = "horizon_close"
     else:
         # TP / SL ヒットの有無をチェック
         hit_tp_idx = None
         hit_sl_idx = None
 
         if tp_f is not None:
-            tp_mask = eval_df["high"] >= tp_f
+            tp_mask = eval_df[high_col] >= tp_f
             if tp_mask.to_numpy().any():
                 hit_tp_idx = eval_df[tp_mask].index[0]
 
         if sl_f is not None:
-            sl_mask = eval_df["low"] <= sl_f
+            sl_mask = eval_df[low_col] <= sl_f
             if sl_mask.to_numpy().any():
                 hit_sl_idx = eval_df[sl_mask].index[0]
-
-        exit_reason = "horizon_close"
 
         if hit_tp_idx is not None or hit_sl_idx is not None:
             # どちらかヒットしていれば、時間が早い方を優先
             if hit_tp_idx is not None and hit_sl_idx is not None:
                 if hit_tp_idx <= hit_sl_idx:
                     row = eval_df.loc[hit_tp_idx]
-                    exit_ts = row["ts"]
+                    exit_ts = _coerce_ts_scalar(row["ts"], fallback=entry_ts)
                     exit_px = float(tp_f)
                     exit_reason = "hit_tp"
                 else:
                     row = eval_df.loc[hit_sl_idx]
-                    exit_ts = row["ts"]
+                    exit_ts = _coerce_ts_scalar(row["ts"], fallback=entry_ts)
                     exit_px = float(sl_f)
                     exit_reason = "hit_sl"
             elif hit_tp_idx is not None:
                 row = eval_df.loc[hit_tp_idx]
-                exit_ts = row["ts"]
+                exit_ts = _coerce_ts_scalar(row["ts"], fallback=entry_ts)
                 exit_px = float(tp_f)
                 exit_reason = "hit_tp"
             else:
                 row = eval_df.loc[hit_sl_idx]
-                exit_ts = row["ts"]
+                exit_ts = _coerce_ts_scalar(row["ts"], fallback=entry_ts)
                 exit_px = float(sl_f)
                 exit_reason = "hit_sl"
         else:
             # どちらもタッチしなかった → 終値クローズ
             last_row = eval_df.iloc[-1]
-            exit_ts = last_row["ts"]
-            exit_px = float(last_row["close"])
+            exit_ts = _coerce_ts_scalar(last_row["ts"], fallback=entry_ts)
+            exit_px = float(last_row[close_col])
             exit_reason = "horizon_close"
 
     pl_per_share = float(exit_px) - float(exec_entry_px)
