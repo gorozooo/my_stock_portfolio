@@ -495,9 +495,15 @@
                 {{ e.name|default:"(名称不明)" }}
               </div>
 
-              {% if e.entry %}
+              {# ==== エントリー行：eval_entry_px 優先（なければ entry） ==== #}
+              {% if e.eval_entry_px or e.entry %}
                 <div class="entry-info">
-                  エントリー {{ e.entry|floatformat:0|intcomma }} 円
+                  エントリー
+                  {% if e.eval_entry_px %}
+                    {{ e.eval_entry_px|floatformat:0|intcomma }} 円
+                  {% else %}
+                    {{ e.entry|floatformat:0|intcomma }} 円
+                  {% endif %}
                   {% if e.entry_label %}
                     ({{ e.entry_label }})
                   {% endif %}
@@ -524,7 +530,9 @@
               <div class="kpi-row">
                 <div class="kpi-name">エントリー</div>
                 <div class="kpi-val">
-                  {% if e.entry %}
+                  {% if e.eval_entry_px %}
+                    {{ e.eval_entry_px|floatformat:0|intcomma }} 円
+                  {% elif e.entry %}
                     {{ e.entry|floatformat:0|intcomma }} 円
                   {% else %}
                     —
@@ -635,7 +643,7 @@
               </div>
 
               <div class="result-exit">
-                {% if e.combined_label == "skip" %}
+                {% if e.combined_label == "skip" or e._combined_label == "skip" %}
                   指値に一度も触れなかった
                 {% else %}
                   評価結果：
