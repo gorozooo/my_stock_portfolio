@@ -102,6 +102,39 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
                     rec["_dt"] = None
                     rec["ts_label"] = ts_str or ""
 
+                # エントリー時刻 / エグジット時刻（sim_eval_service で付与）
+                entry_dt = _parse_ts(rec.get("eval_entry_ts"))
+                exit_dt = _parse_ts(rec.get("eval_exit_ts"))
+
+                if entry_dt is not None:
+                    rec["entry_dt"] = entry_dt
+                    rec["entry_label"] = entry_dt.strftime("%Y/%m/%d %H:%M")
+                else:
+                    rec["entry_dt"] = None
+                    rec["entry_label"] = ""
+
+                if exit_dt is not None:
+                    rec["exit_dt"] = exit_dt
+                    rec["exit_label"] = exit_dt.strftime("%Y/%m/%d %H:%M")
+                else:
+                    rec["exit_dt"] = None
+                    rec["exit_label"] = ""
+
+                # exit_reason のラベル（評価結果テキスト用）
+                exit_reason = rec.get("eval_exit_reason") or ""
+                exit_reason_label = ""
+                if exit_reason == "hit_tp":
+                    exit_reason_label = "利確"
+                elif exit_reason == "hit_sl":
+                    exit_reason_label = "損切"
+                elif exit_reason == "horizon_close":
+                    exit_reason_label = "タイムアップ"
+                elif exit_reason == "no_touch":
+                    exit_reason_label = "指値に一度も触れなかった"
+
+                rec["exit_reason"] = exit_reason
+                rec["exit_reason_label"] = exit_reason_label
+
                 entries_all.append(rec)
 
     # ---- ts 降順でソート（従来通り）-----------------------------------
@@ -209,10 +242,89 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
     # 最大100件に制限
     entries = filtered[:100]
 
+    # ---- サマリー集計（その日の AI 成績バー用） -----------------------
+    summary: Dict[str, Any] = {}
+    if entries:
+        win_count = 0
+        lose_count = 0
+        flat_count = 0
+        skip_count = 0  # 見送り（ポジションなし）
+        total_pl = 0.0
+
+        for e in entries:
+            # 合計PL（楽天＋松井）
+            for key in ("eval_pl_rakuten", "eval_pl_matsui"):
+                val = e.get(key)
+                try:
+                    if val is not None:
+                        total_pl += float(val)
+                except (TypeError, ValueError):
+                    pass
+
+            # 合計株数（0 の場合は完全に見送り）
+            qty_total = 0.0
+            for key in ("qty_rakuten", "qty_matsui"):
+                v = e.get(key)
+                try:
+                    if v is not None:
+                        qty_total += float(v)
+                except (TypeError, ValueError):
+                    pass
+
+            label_r = e.get("eval_label_rakuten")
+            label_m = e.get("eval_label_matsui")
+
+            labels = set()
+            for lb in (label_r, label_m):
+                if isinstance(lb, str) and lb:
+                    labels.add(lb)
+
+            # カード全体の判定ラベル
+            combined = "skip"
+
+            # 完全見送り（数量0 or ラベルなし／no_positionのみ）
+            if qty_total == 0 or not labels or labels.issubset({"no_position"}):
+                combined = "skip"
+                skip_count += 1
+            elif "win" in labels:
+                combined = "win"
+                win_count += 1
+            elif "lose" in labels:
+                combined = "lose"
+                lose_count += 1
+            elif "flat" in labels:
+                combined = "flat"
+                flat_count += 1
+            else:
+                combined = "skip"
+                skip_count += 1
+
+            # テンプレ側でも使えるように保持
+            e["_combined_label"] = combined
+
+        summary = {
+            "win": win_count,
+            "lose": lose_count,
+            "flat": flat_count,
+            "skip": skip_count,
+            "total_pl": total_pl,
+            "has_data": True,
+        }
+    else:
+        summary = {
+            "win": 0,
+            "lose": 0,
+            "flat": 0,
+            "skip": 0,
+            "total_pl": 0.0,
+            "has_data": False,
+        }
+
     ctx = {
         "entries": entries,
         "mode": mode,
         "period": period,
         "q": q,
+        "summary": summary,
     }
     return render(request, "aiapp/simulate_list.html", ctx)
