@@ -43,7 +43,6 @@ def _parse_ts(ts_str: Optional[str]) -> Optional[_dt]:
 def _parse_date(s: Optional[str]) -> Optional[_date]:
     if not isinstance(s, str) or not s:
         return None
-    # "2025-11-27" 形式だけ想定
     try:
         return _dt.fromisoformat(s).date()
     except Exception:
@@ -172,6 +171,32 @@ def _coerce_ts_scalar(val: Any, fallback: _dt) -> _dt:
     return ts
 
 
+def _find_ohlc_columns(df: pd.DataFrame) -> Tuple[Optional[Any], Optional[Any], Optional[Any]]:
+    """
+    df.columns が str でも MultiIndex でも、
+    'Low' / 'High' / 'Close' (or 'Adj Close') をうまく拾う。
+    戻り値は (low_col, high_col, close_col) で、
+    それぞれ df[...] のキーとしてそのまま使える実カラム値。
+    """
+    low_col = high_col = close_col = None
+
+    for col in df.columns:
+        # col がタプル (MultiIndex) の場合は要素を全部文字列化して見る
+        if isinstance(col, tuple):
+            parts = [str(p).lower() for p in col if p is not None]
+        else:
+            parts = [str(col).lower()]
+
+        if low_col is None and any(p == "low" for p in parts):
+            low_col = col
+        if high_col is None and any(p == "high" for p in parts):
+            high_col = col
+        if close_col is None and any(p in ("close", "adj close") for p in parts):
+            close_col = col
+
+    return low_col, high_col, close_col
+
+
 def _preview_one_record(
     idx: int,
     rec: SimRecord,
@@ -221,15 +246,14 @@ def _preview_one_record(
             stdout.write("  ※ ts カラムが無いため、判定不可")
             return
 
-    # カラム名（low/high/close）を小文字に統一しておく
-    cols_lower = {c.lower(): c for c in df.columns}
-    for need in ("low", "high", "close"):
-        if need not in cols_lower:
-            stdout.write(f"  ※ {need} カラムが無いため、判定不可")
-            return
-
     # ts を datetime に強制（tz情報付きでもOK）
     df["ts"] = pd.to_datetime(df["ts"])
+
+    # OHLC カラムを特定（MultiIndex 対応）
+    low_col, high_col, close_col = _find_ohlc_columns(df)
+    if low_col is None or high_col is None or close_col is None:
+        stdout.write("  ※ Low/High/Close カラムを検出できなかったため、判定不可")
+        return
 
     # 有効バーに絞る（エントリー可能時間帯）
     df = df[(df["ts"] >= active_start) & (df["ts"] <= session_end)]
@@ -265,10 +289,6 @@ def _preview_one_record(
         return
 
     # -------- エントリー判定（指値） --------
-    low_col = cols_lower["low"]
-    high_col = cols_lower["high"]
-    close_col = cols_lower["close"]
-
     hit_mask = (df[low_col] <= entry_f) & (df[high_col] >= entry_f)
 
     if not hit_mask.to_numpy().any():
