@@ -157,6 +157,8 @@ def _load_5m_bars_yf(code: str, trade_date: _date) -> Optional[FiveMinBars]:
     - シンボルは「XXXX.T」として扱う
     - 取得範囲: [trade_date, trade_date+1日)（JST想定だが、細かいTZは今回は気にしない）
     - auto_adjust=False を指定して FutureWarning を回避
+    - 一部のケースで df.columns が MultiIndex (("Open","7508.T"),…) になるので、
+      その場合は「最初のレベル(Open/High/Low/Close)」を見てマッピングする。
     """
     symbol = f"{code.strip()}.T"
     start_str = trade_date.strftime("%Y-%m-%d")
@@ -177,12 +179,24 @@ def _load_5m_bars_yf(code: str, trade_date: _date) -> Optional[FiveMinBars]:
     if df is None or df.empty:
         return None
 
-    # yfinance の戻りは index=datetime, columns=["Open","High","Low","Close", ...] を想定
-    cols = {c.lower(): c for c in df.columns}
-    open_col = cols.get("open")
-    high_col = cols.get("high")
-    low_col = cols.get("low")
-    close_col = cols.get("close")
+    # yfinance の戻りは index=datetime,
+    # columns が通常 Index(["Open","High","Low","Close",...])
+    # だが、環境によっては MultiIndex([("Open","7508.T"), ...]) になることもある。
+    # → カラムオブジェクトそのものを value として保持しつつ、
+    #    key には「最初のレベル(Open/High/Low/Close)の小文字」を使う。
+    cols_map: Dict[str, Any] = {}
+    for c in df.columns:
+        if isinstance(c, tuple) and c:
+            base = c[0]
+        else:
+            base = c
+        key = str(base).lower()
+        cols_map[key] = c
+
+    open_col = cols_map.get("open")
+    high_col = cols_map.get("high")
+    low_col = cols_map.get("low")
+    close_col = cols_map.get("close")
 
     if not all([open_col, high_col, low_col, close_col]):
         return None
@@ -244,8 +258,6 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
     ※ rec 自体を書き換える仕様だが、呼び出し側から見ると
        「eval_* が増えた dict」が返ってくると考えてOK。
     """
-    # shallow copy してから上書きしてもよいが、
-    # ここでは元 dict を素直に更新する。
     side = (rec.get("side") or "BUY").upper()
     code = (rec.get("code") or "").strip()
 
@@ -289,7 +301,7 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
     entry_index: Optional[int] = None
     entry_ts: Optional[_datetime] = None
 
-    for idx, (ts, o, h, l, c) in enumerate(rows):
+    for idx, (ts, _o, h, l, _c) in enumerate(rows):
         if side == "SELL":
             # SELL でも「指値をタッチしたか」は同じ条件でOK
             touched = (l <= entry <= h)
@@ -307,13 +319,12 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
         label_m = "no_position" if qty_m > 0 else None
 
         rec["eval_label_rakuten"] = label_r
-        rec["eval_pl_rakuten"] = 0.0 if qty_r > 0 else None
+        rec["eval_pl_rakuten"] = 0.0 if label_r is not None else None
         rec["eval_label_matsui"] = label_m
-        rec["eval_pl_matsui"] = 0.0 if qty_m > 0 else None
+        rec["eval_pl_matsui"] = 0.0 if label_m is not None else None
         rec["eval_close_px"] = entry
         rec["eval_close_date"] = trade_date.isoformat()
         rec["eval_horizon_days"] = horizon_days
-        # オプションで entry_ts を残してもよいが、ここでは省略
         return rec
 
     # -----------------------------------------------------
@@ -321,16 +332,12 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
     #    - エントリー成立バーを含めて走査
     #    - SL を優先、その次に TP
     # -----------------------------------------------------
-    exit_px: float
-    exit_ts: Optional[_datetime]
-    exit_reason: str
-
-    exit_px = entry
-    exit_ts = entry_ts
-    exit_reason = "entry_only"
+    exit_px: float = entry
+    exit_ts: Optional[_datetime] = entry_ts
+    exit_reason: str = "entry_only"
 
     # エントリー以降のバーだけ見る
-    for ts, o, h, l, c in rows[entry_index:]:
+    for ts, _o, h, l, c in rows[entry_index:]:
         # SL / TP のタッチ判定
         sl_hit = False
         tp_hit = False
@@ -343,8 +350,7 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
             if l <= tp <= h:
                 tp_hit = True
 
-        # BUY の場合は「SL優先で判定」して保守的に
-        # SELL の場合も同様に、損失側を優先するイメージで SL優先とする
+        # BUY / SELL 共通で「損側(SL)優先」で保守的に判定
         if sl_hit:
             exit_px = sl
             exit_ts = ts
@@ -356,9 +362,12 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
             exit_reason = "hit_tp"
             break
 
+        # どちらもヒットしていなければ継続（c は最後に horizon_close で使う可能性があるが、
+        # ここでは for を抜けたあとに rows[-1] を見るので何もしない）
+
     else:
         # for ループが break せずに終わった → TP/SL に掛からず引け決済
-        last_ts, _o, _h, _l, last_c = rows[-1]
+        last_ts, _o2, _h2, _l2, last_c = rows[-1]
         exit_px = last_c
         exit_ts = last_ts
         exit_reason = "horizon_close"
@@ -388,7 +397,9 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
 
     # 共通メタ
     rec["eval_close_px"] = exit_px
-    rec["eval_close_date"] = (exit_ts.date().isoformat() if isinstance(exit_ts, _datetime) else trade_date.isoformat())
+    rec["eval_close_date"] = (
+        exit_ts.date().isoformat() if isinstance(exit_ts, _datetime) else trade_date.isoformat()
+    )
     rec["eval_horizon_days"] = horizon_days
 
     # 将来的に UI で使うかもしれないので、理由も一応残しておく
