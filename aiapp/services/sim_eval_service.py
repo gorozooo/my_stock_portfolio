@@ -1,363 +1,399 @@
 # aiapp/services/sim_eval_service.py
 # -*- coding: utf-8 -*-
 """
-AIシミュレ評価ロジック（TP/SL/何R・勝敗ラベル計算）
+sim_eval_service
 
-目的
-------
-- 自動シミュレ（JSONL の 1 レコード）に対して、
-  「その後の値動きがどうなったか」を計算して
-  eval_ 系のフィールドを埋めるための純粋ロジックをまとめる。
-- 管理コマンド ai_sim_eval から呼び出されることを想定。
-- ここでは「1銘柄・1シミュレ記録」単位の計算だけを担当し、
-  ファイル I/O や JSONL の読み書きは一切行わない。
+AIシミュレ（紙トレ）1件ぶんの結果評価ロジック（Level 3 / 5分足版）。
 
-前提
-------
-- ロング想定（買い方向）のみをサポート。
-- 価格データは aiapp.services.fetch_price.get_prices を通じて取得する。
-- DataFrame の index は DatetimeIndex を想定し、日足の High / Low / Close を使用する。
+前提:
+- 対象レコードは /media/aiapp/simulate/*.jsonl の1行(dict)。
+- 以下のキーが最低限入っている想定:
+    code: str          ... 証券コード（例: "7508"）
+    entry: float       ... エントリー指値（円）。無い場合は last_close を代入して評価。
+    tp: float | None   ... 利確指値（円）
+    sl: float | None   ... 損切指値（円）
+    side: "BUY" | "SELL" ... 現状はほぼ "BUY" 前提
+    ts: str            ... シミュレ登録時刻 (ISO 文字列, JST 推奨)
+    trade_date: str | None ... 「この注文が有効になる日」。なければ ts から推定。
+
+出力:
+- eval_label_rakuten: "win" / "lose" / "flat" / "no_position"
+- eval_pl_rakuten: float | None
+- eval_label_matsui: 同上
+- eval_pl_matsui: float | None
+- eval_close_px: float | None
+- eval_close_date: "YYYY-MM-DD" | None
+- eval_horizon_days: int (引数で指定された値)
+
+評価アルゴリズム (Level 3 簡約版):
+1. trade_date を決定
+   - rec["trade_date"] があればそれを使用
+   - 無ければ ts を見て:
+       - ts の時刻 < 15:00 → 当日を trade_date
+       - ts の時刻 >= 15:00 → 翌営業日（土日スキップ）を trade_date
+
+2. trade_date の 5分足を yfinance から取得（[trade_date, trade_date+1日)）
+   - 1本も取れなければ「データ無し」とみなして no_position 評価（PL=0）にする
+
+3. 5分足で「指値が一度でもタッチしたか？」を判定
+   - side="BUY" の場合: low <= entry <= high を満たす最初のバーを探す
+   - 見つからなければ no_position（エントリ不成立 / PL=0）
+
+4. エントリ成立後の TP / SL 判定
+   - エントリーが成立したバー以降の 5分足で:
+       - まず sl をチェック（low <= sl <= high）→ 当たれば即 exit=sl / hit_sl
+       - その次に tp をチェック（low <= tp <= high）→ 当たれば exit=tp / hit_tp
+       ※ 同じバーで TP/SL 両方タッチした場合、SL優先（保守的）
+
+5. TP / SL どちらも当たらなかった場合
+   - 当日の最後の 5分足 Close で決済 (horizon_close)
+
+6. PL / ラベル付け
+   - BUY の場合: PL = (exit_px - entry) * qty
+   - SELL の場合: PL = (entry - exit_px) * qty
+   - qty <= 0 → "no_position" / PL=0
+   - qty > 0:
+       - PL > 0 → "win"
+       - PL < 0 → "lose"
+       - PL = 0 → "flat"
+
+注意:
+- ここでは「同じ exit_px / exit_ts」を楽天・松井で共通利用する。
+- 将来的にブローカーごとに別 TP/SL を持つなら拡張可能。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from datetime import date as _date, datetime as _dt
+from dataclasses import dataclass
+from datetime import date as _date, datetime as _datetime, time as _time, timedelta
 from typing import Any, Dict, Optional, Tuple
 
-import numpy as np
-import pandas as pd
-from django.utils import timezone
-
-# 価格取得（picks_build と同じサービスを優先して使う）
-try:
-    from aiapp.services.fetch_price import get_prices  # type: ignore
-except Exception:  # pragma: no cover - フォールバック用
-    def get_prices(code: str, nbars: int = 120, period: str = "1y") -> pd.DataFrame:  # type: ignore
-        """
-        フォールバック版：本番環境で fetch_price が無い場合でも
-        例外で落とさないようにするためのダミー実装。
-        """
-        return pd.DataFrame()
-
-
-Number = float
-
-
-@dataclass
-class SimEvalResult:
-    """
-    シミュレ結果評価の出力。
-
-    - eval_label_xxx: "win" / "lose" / "flat"（引き分け） など
-    - eval_pl_xxx   : 損益（円）
-    - eval_close_px : 評価に使った終値
-    - eval_close_date: 終値の日付（"YYYY-MM-DD" の文字列）
-    - eval_horizon_days: 何営業日後までを評価対象としたか
-    """
-
-    eval_label_rakuten: Optional[str] = None
-    eval_pl_rakuten: Optional[Number] = None
-
-    eval_label_matsui: Optional[str] = None
-    eval_pl_matsui: Optional[Number] = None
-
-    eval_close_px: Optional[Number] = None
-    eval_close_date: Optional[str] = None
-    eval_horizon_days: Optional[int] = None
+import yfinance as yf
 
 
 # =========================================================
-# 内部ユーティリティ
+# 日付ユーティリティ
 # =========================================================
 
-def _to_naive_date(d: Any) -> Optional[_date]:
-    """
-    任意の値から date 型を安全に取り出す。
-    - "2025-11-25" / "2025/11/25" / datetime / date などに対応。
-    """
-    if isinstance(d, _date) and not isinstance(d, _dt):
-        return d
-    if isinstance(d, _dt):
-        return d.date()
-    if isinstance(d, str):
-        s = d.strip()
-        if not s:
-            return None
-        # 区切りを統一
-        s = s.replace("/", "-")
-        try:
-            parts = s.split("-")
-            if len(parts) == 3:
-                y = int(parts[0])
-                m = int(parts[1])
-                day = int(parts[2])
-                return _date(y, m, day)
-        except Exception:
-            return None
-    return None
-
-
-def _safe_float(x: Any) -> Optional[float]:
-    if x is None:
+def _to_date(s: str) -> Optional[_date]:
+    if not s:
         return None
     try:
-        v = float(x)
-        if not np.isfinite(v):
-            return None
-        return v
+        return _date.fromisoformat(s)
     except Exception:
         return None
 
 
-def _get_entry_date(rec: Dict[str, Any]) -> Optional[_date]:
+def _parse_ts(ts: Optional[str]) -> Optional[_datetime]:
+    if not ts or not isinstance(ts, str):
+        return None
+    try:
+        # fromisoformat は tz 情報付きでもOK
+        dt = _datetime.fromisoformat(ts)
+        return dt
+    except Exception:
+        return None
+
+
+def _next_business_day(d: _date) -> _date:
     """
-    シミュレ記録から「評価開始日」を推定する。
-    - 優先: price_date（"YYYY-MM-DD" など）
-    - 無ければ ts（ISO文字列）の日付部分
+    非厳密版の「翌営業日」。
+    - 土日をスキップ
+    - 祝日は考慮しない（将来必要なら JPX カレンダー連携）
     """
-    if "price_date" in rec and rec["price_date"]:
-        d = _to_naive_date(rec["price_date"])
+    nd = d + timedelta(days=1)
+    while nd.weekday() >= 5:  # 5=土, 6=日
+        nd += timedelta(days=1)
+    return nd
+
+
+def _decide_trade_date(rec: Dict[str, Any]) -> _date:
+    """
+    trade_date を決定する。
+
+    優先度:
+      1) rec["trade_date"] があればそれをそのまま採用
+      2) 無ければ ts から決める:
+         - ts 時刻 < 15:00 → ts.date()
+         - ts 時刻 >=15:00 → _next_business_day(ts.date())
+      3) それも失敗したら「今日」にフォールバック
+    """
+    # 1) trade_date 明示指定があればそれを使う
+    td_raw = rec.get("trade_date")
+    if isinstance(td_raw, str):
+        d = _to_date(td_raw)
         if d:
             return d
 
-    ts_str = rec.get("ts")
-    if isinstance(ts_str, str) and ts_str:
-        try:
-            dt = _dt.fromisoformat(ts_str)
-        except Exception:
-            # タイムゾーン付きで失敗した場合など
-            try:
-                # 末尾のZやオフセットを雑に削って再トライ
-                base = ts_str.split("+")[0].split("Z")[0]
-                dt = _dt.fromisoformat(base)
-            except Exception:
-                dt = None
-        if dt is not None:
-            return dt.date()
+    # 2) ts から決める
+    ts = _parse_ts(rec.get("ts"))
+    if ts:
+        base = ts.date()
+        # 15:00 以降は「翌営業日」扱い
+        if ts.timetz() >= _time(15, 0):
+            return _next_business_day(base)
+        return base
 
-    return None
+    # 3) フォールバック：今日
+    return _datetime.now().date()
 
 
-def _get_price_window(
-    code: str,
-    entry_date: _date,
-    horizon_days: int,
-    buffer_days: int = 3,
-) -> pd.DataFrame:
+# =========================================================
+# 5分足取得（yfinance）
+# =========================================================
+
+@dataclass
+class FiveMinBars:
     """
-    指定銘柄の「エントリー日以降の価格データ」を取得する。
-
-    - horizon_days: 評価したい営業日数（5営業日など）
-    - buffer_days : 余裕を持って少し多めに取得する日数（例：+3）
-
-    戻り値:
-        - index: DatetimeIndex（日足）
-        - columns: ["Open", "High", "Low", "Close", ...] を想定
+    5分足データを簡単に扱うためのラッパ。
+    rows: List[Tuple[ts(datetime|None), open, high, low, close]]
     """
-    # horizon_days + buffer_days 分くらいの日足があれば十分
-    nbars = max(10, horizon_days + buffer_days)
-    df = get_prices(code, nbars=nbars, period="6mo")
-    if df is None or len(df) == 0:
-        return pd.DataFrame()
-
-    # index を date に変換してフィルタ
-    idx_dates = df.index
-    if not isinstance(idx_dates, pd.DatetimeIndex):
-        try:
-            idx_dates = pd.to_datetime(idx_dates)
-            df.index = idx_dates
-        except Exception:
-            return pd.DataFrame()
-
-    # entry_date 当日以降の行だけに絞る
-    mask = idx_dates.date >= entry_date
-    df2 = df.loc[mask].copy()
-    if df2.empty:
-        return pd.DataFrame()
-
-    # horizon_days 分だけ先まで（足数ベースで切る）
-    df2 = df2.iloc[:horizon_days]
-
-    return df2
+    rows: Tuple[Tuple[Optional[_datetime], float, float, float, float], ...]
 
 
-def _eval_path_long(
-    entry: float,
-    tp: Optional[float],
-    sl: Optional[float],
-    df: pd.DataFrame,
-) -> Tuple[Optional[str], Optional[float], Optional[_date], Optional[float]]:
+def _load_5m_bars_yf(code: str, trade_date: _date) -> Optional[FiveMinBars]:
     """
-    ロング想定の TP/SL 判定。
-
-    引数:
-        entry: エントリー価格
-        tp   : 利確ライン（None の場合は TP なし）
-        sl   : 損切りライン（None の場合は SL なし）
-        df   : 評価対象の期間の日足 DataFrame
-               必須列: "High", "Low", "Close"
-
-    戻り値:
-        (label, exit_price, exit_date, eval_close_px)
-
-        label:
-          - "win"  : TP に先に到達
-          - "lose" : SL に先に到達
-          - "flat" : 期間内で TP/SL どちらも付かず、最終日の Close で評価
-          - None   : データ不足など評価不能
-
-        exit_price:
-          実際に決済したとみなす価格（TP/SL か最終 Close）
-
-        exit_date:
-          決済日
-
-        eval_close_px:
-          ラベル表示用の「評価に使った終値」
-          - TP/SL 決済の場合も、「その日の終値」を入れておくとラベルに使える。
+    yfinance から 5分足を1営業日分取得する。
+    - シンボルは「XXXX.T」として扱う
+    - 取得範囲: [trade_date, trade_date+1日)（JST想定だが、細かいTZは今回は気にしない）
+    - auto_adjust=False を指定して FutureWarning を回避
     """
+    symbol = f"{code.strip()}.T"
+    start_str = trade_date.strftime("%Y-%m-%d")
+    end_str = (trade_date + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    try:
+        df = yf.download(
+            symbol,
+            interval="5m",
+            start=start_str,
+            end=end_str,
+            auto_adjust=False,
+            progress=False,
+        )
+    except Exception:
+        return None
+
     if df is None or df.empty:
-        return None, None, None, None
+        return None
 
-    if "High" not in df.columns or "Low" not in df.columns or "Close" not in df.columns:
-        return None, None, None, None
+    # yfinance の戻りは index=datetime, columns=["Open","High","Low","Close", ...] を想定
+    cols = {c.lower(): c for c in df.columns}
+    open_col = cols.get("open")
+    high_col = cols.get("high")
+    low_col = cols.get("low")
+    close_col = cols.get("close")
 
-    # 日ごとに TP/SL 到達判定
-    for dt, row in df.iterrows():
+    if not all([open_col, high_col, low_col, close_col]):
+        return None
+
+    rows = []
+    for idx, row in df.iterrows():
+        ts = None
+        if isinstance(idx, _datetime):
+            ts = idx
         try:
-            high = float(row["High"])
-            low = float(row["Low"])
-            close = float(row["Close"])
+            o = float(row[open_col])
+            h = float(row[high_col])
+            l = float(row[low_col])
+            c = float(row[close_col])
         except Exception:
             continue
+        # 価格が NaN などはスキップ
+        if any(x != x for x in (o, h, l, c)):  # NaN チェック
+            continue
+        rows.append((ts, o, h, l, c))
 
-        # まず TP 判定
-        if tp is not None and high >= tp:
-            # TP 到達 → 勝ち
-            exit_price = tp
-            return "win", exit_price, dt.date(), close
+    if not rows:
+        return None
 
-        # 次に SL 判定
-        if sl is not None and low <= sl:
-            # SL 到達 → 負け
-            exit_price = sl
-            return "lose", exit_price, dt.date(), close
-
-    # 期間内に TP/SL どちらも到達しなかった場合：
-    # 最後の終値で評価
-    last_dt = df.index[-1]
-    last_close = float(df["Close"].iloc[-1])
-    # エントリーとの差で勝ち負け判定
-    diff = last_close - entry
-    if diff > 0:
-        label = "win"
-    elif diff < 0:
-        label = "lose"
-    else:
-        label = "flat"
-
-    return label, last_close, last_dt.date(), last_close
+    return FiveMinBars(rows=tuple(rows))
 
 
 # =========================================================
-# パブリックAPI
+# メイン評価ロジック
 # =========================================================
 
-def eval_sim_record(
-    rec: Dict[str, Any],
-    *,
-    horizon_days: int = 5,
-) -> Dict[str, Any]:
-    """
-    シミュレ JSON レコード 1件に対して「勝敗評価 + 損益」を付与する。
-
-    引数:
-        rec          : JSONL の 1 行分（dict）
-        horizon_days : 何営業日後までの値動きを評価するか（例: 5）
-
-    戻り値:
-        - 元の rec をコピーし、以下のキーを追加した dict を返す：
-            eval_label_rakuten
-            eval_pl_rakuten
-            eval_label_matsui
-            eval_pl_matsui
-            eval_close_px
-            eval_close_date
-            eval_horizon_days
-    """
-
-    # まずは rec をコピーして編集
-    out = dict(rec)
-
-    # すでに評価済みの場合は、そのまま上書きしてもOKだが、
-    # ここでは毎回計算し直す前提で上書きする。
-    out["eval_label_rakuten"] = None
-    out["eval_pl_rakuten"] = None
-    out["eval_label_matsui"] = None
-    out["eval_pl_matsui"] = None
-    out["eval_close_px"] = None
-    out["eval_close_date"] = None
-    out["eval_horizon_days"] = horizon_days
-
-    # 必須情報が無ければ何もせず返す
-    code = rec.get("code")
-    entry = _safe_float(rec.get("entry"))
-    if not code or entry is None:
-        return out
-
-    tp = _safe_float(rec.get("tp"))
-    sl = _safe_float(rec.get("sl"))
-
-    # エントリー日を決める
-    entry_date = _get_entry_date(rec)
-    if entry_date is None:
-        return out
-
-    # 価格データ取得
+def _as_float(v: Any) -> Optional[float]:
+    if v is None:
+        return None
     try:
-        df = _get_price_window(str(code), entry_date, horizon_days=horizon_days)
+        return float(v)
     except Exception:
-        df = pd.DataFrame()
+        return None
 
-    if df is None or df.empty:
-        # データ取得に失敗した場合は何も付与できない
-        return out
 
-    # ロング想定で評価
-    label, exit_price, exit_date, eval_close_px = _eval_path_long(
-        entry=entry,
-        tp=tp,
-        sl=sl,
-        df=df,
-    )
+def _calc_pl(side: str, entry: float, exit_px: float, qty: float) -> float:
+    """
+    side と entry / exit から PL を計算する。
+    """
+    if qty <= 0:
+        return 0.0
+    if side.upper() == "SELL":
+        per_share = entry - exit_px
+    else:
+        # デフォルト BUY
+        per_share = exit_px - entry
+    return per_share * qty
 
-    if label is None or exit_price is None or exit_date is None:
-        return out
 
-    # 損益計算（単純に entry→exit の差 × 数量）
-    qty_rakuten = rec.get("qty_rakuten")
-    qty_matsui = rec.get("qty_matsui")
+def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any]:
+    """
+    シミュレ1件分を Level3 ルールで評価し、eval_* を付けた dict を返す。
 
-    pl_rakuten: Optional[float] = None
-    pl_matsui: Optional[float] = None
+    ※ rec 自体を書き換える仕様だが、呼び出し側から見ると
+       「eval_* が増えた dict」が返ってくると考えてOK。
+    """
+    # shallow copy してから上書きしてもよいが、
+    # ここでは元 dict を素直に更新する。
+    side = (rec.get("side") or "BUY").upper()
+    code = (rec.get("code") or "").strip()
 
-    if isinstance(qty_rakuten, (int, float)) and qty_rakuten:
-        pl_rakuten = (exit_price - entry) * float(qty_rakuten)
+    # コード or entry が無い場合は評価不能 → eval_* を None にして返す
+    entry = _as_float(rec.get("entry") or rec.get("last_close"))
+    if not code or entry is None:
+        rec["eval_label_rakuten"] = None
+        rec["eval_pl_rakuten"] = None
+        rec["eval_label_matsui"] = None
+        rec["eval_pl_matsui"] = None
+        rec["eval_close_px"] = None
+        rec["eval_close_date"] = None
+        rec["eval_horizon_days"] = horizon_days
+        return rec
 
-    if isinstance(qty_matsui, (int, float)) and qty_matsui:
-        pl_matsui = (exit_price - entry) * float(qty_matsui)
+    tp = _as_float(rec.get("tp"))
+    sl = _as_float(rec.get("sl"))
 
-    # ラベルと損益を反映
-    # 数量が 0 / None の場合は PL だけ None のままでもOK
-    out["eval_label_rakuten"] = label if pl_rakuten is not None else None
-    out["eval_pl_rakuten"] = pl_rakuten
+    qty_r = _as_float(rec.get("qty_rakuten")) or 0.0
+    qty_m = _as_float(rec.get("qty_matsui")) or 0.0
 
-    out["eval_label_matsui"] = label if pl_matsui is not None else None
-    out["eval_pl_matsui"] = pl_matsui
+    trade_date = _decide_trade_date(rec)
 
-    # 終値情報（ラベル脇に表示する用）
-    out["eval_close_px"] = eval_close_px
-    out["eval_close_date"] = exit_date.strftime("%Y-%m-%d")
+    bars = _load_5m_bars_yf(code, trade_date)
+    if bars is None or not bars.rows:
+        # 5分足が取れなかった場合:
+        # → 「エントリ不成立」とみなして no_position / PL=0 にしておく
+        rec["eval_label_rakuten"] = "no_position" if qty_r > 0 else None
+        rec["eval_pl_rakuten"] = 0.0 if qty_r > 0 else None
+        rec["eval_label_matsui"] = "no_position" if qty_m > 0 else None
+        rec["eval_pl_matsui"] = 0.0 if qty_m > 0 else None
+        rec["eval_close_px"] = entry
+        rec["eval_close_date"] = trade_date.isoformat()
+        rec["eval_horizon_days"] = horizon_days
+        return rec
 
-    return out
+    # -----------------------------------------------------
+    # 1) 「エントリー指値がタッチしたか？」を判定
+    # -----------------------------------------------------
+    rows = bars.rows
+    entry_index: Optional[int] = None
+    entry_ts: Optional[_datetime] = None
+
+    for idx, (ts, o, h, l, c) in enumerate(rows):
+        if side == "SELL":
+            # SELL でも「指値をタッチしたか」は同じ条件でOK
+            touched = (l <= entry <= h)
+        else:
+            touched = (l <= entry <= h)
+
+        if touched:
+            entry_index = idx
+            entry_ts = ts
+            break
+
+    if entry_index is None:
+        # 一度もタッチしていない → no_position
+        label_r = "no_position" if qty_r > 0 else None
+        label_m = "no_position" if qty_m > 0 else None
+
+        rec["eval_label_rakuten"] = label_r
+        rec["eval_pl_rakuten"] = 0.0 if qty_r > 0 else None
+        rec["eval_label_matsui"] = label_m
+        rec["eval_pl_matsui"] = 0.0 if qty_m > 0 else None
+        rec["eval_close_px"] = entry
+        rec["eval_close_date"] = trade_date.isoformat()
+        rec["eval_horizon_days"] = horizon_days
+        # オプションで entry_ts を残してもよいが、ここでは省略
+        return rec
+
+    # -----------------------------------------------------
+    # 2) TP / SL 判定
+    #    - エントリー成立バーを含めて走査
+    #    - SL を優先、その次に TP
+    # -----------------------------------------------------
+    exit_px: float
+    exit_ts: Optional[_datetime]
+    exit_reason: str
+
+    exit_px = entry
+    exit_ts = entry_ts
+    exit_reason = "entry_only"
+
+    # エントリー以降のバーだけ見る
+    for ts, o, h, l, c in rows[entry_index:]:
+        # SL / TP のタッチ判定
+        sl_hit = False
+        tp_hit = False
+
+        if sl is not None:
+            if l <= sl <= h:
+                sl_hit = True
+
+        if tp is not None:
+            if l <= tp <= h:
+                tp_hit = True
+
+        # BUY の場合は「SL優先で判定」して保守的に
+        # SELL の場合も同様に、損失側を優先するイメージで SL優先とする
+        if sl_hit:
+            exit_px = sl
+            exit_ts = ts
+            exit_reason = "hit_sl"
+            break
+        if tp_hit:
+            exit_px = tp
+            exit_ts = ts
+            exit_reason = "hit_tp"
+            break
+
+    else:
+        # for ループが break せずに終わった → TP/SL に掛からず引け決済
+        last_ts, _o, _h, _l, last_c = rows[-1]
+        exit_px = last_c
+        exit_ts = last_ts
+        exit_reason = "horizon_close"
+
+    # -----------------------------------------------------
+    # 3) PL & ラベルを計算（楽天 / 松井 共通 exit を使用）
+    # -----------------------------------------------------
+    pl_r = _calc_pl(side, entry, exit_px, qty_r) if qty_r > 0 else 0.0
+    pl_m = _calc_pl(side, entry, exit_px, qty_m) if qty_m > 0 else 0.0
+
+    def label_for(qty: float, pl: float) -> Optional[str]:
+        if qty <= 0:
+            return None
+        if pl > 0:
+            return "win"
+        if pl < 0:
+            return "lose"
+        return "flat"
+
+    label_r = label_for(qty_r, pl_r)
+    label_m = label_for(qty_m, pl_m)
+
+    rec["eval_label_rakuten"] = label_r
+    rec["eval_pl_rakuten"] = pl_r if label_r is not None else None
+    rec["eval_label_matsui"] = label_m
+    rec["eval_pl_matsui"] = pl_m if label_m is not None else None
+
+    # 共通メタ
+    rec["eval_close_px"] = exit_px
+    rec["eval_close_date"] = (exit_ts.date().isoformat() if isinstance(exit_ts, _datetime) else trade_date.isoformat())
+    rec["eval_horizon_days"] = horizon_days
+
+    # 将来的に UI で使うかもしれないので、理由も一応残しておく
+    rec["eval_exit_reason"] = exit_reason
+    rec["eval_entry_ts"] = entry_ts.isoformat() if isinstance(entry_ts, _datetime) else None
+    rec["eval_exit_ts"] = exit_ts.isoformat() if isinstance(exit_ts, _datetime) else None
+
+    return rec
