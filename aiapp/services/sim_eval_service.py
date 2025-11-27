@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date as _date, datetime as _dt, time as _time
+from datetime import date as _date, datetime as _dt
 from typing import Any, Dict, Optional
 
 import pandas as pd
@@ -69,7 +69,8 @@ def _load_5m_bars(code: str, trade_date: _date, horizon_days: int) -> pd.DataFra
     5分足を bars_5m サービス経由で取得して正規化。
     svc_bars_5m.load_5m_bars は df or (df, meta) を返す想定。
     """
-    raw = svc_bars_5m.load_5m_bars(code, trade_date, horizon_days=horizon_days)
+    # ★ 修正ポイント：キーワードではなく位置引数で渡す
+    raw = svc_bars_5m.load_5m_bars(code, trade_date, horizon_days)
 
     if raw is None:
         return pd.DataFrame()
@@ -172,8 +173,7 @@ def _eval_one(rec: Dict[str, Any], horizon_days: int = 5) -> SimEvalResult:
     qty_rakuten = rec.get("qty_rakuten") or 0
     qty_matsui = rec.get("qty_matsui") or 0
 
-    # trade_date 決定：trade_date > run_date のケースは既に
-    # ai_simulate_auto 側で持たせている前提
+    # trade_date 決定
     trade_date = (
         _parse_iso_date(rec.get("trade_date"))
         or _parse_iso_date(rec.get("run_date"))
@@ -198,7 +198,6 @@ def _eval_one(rec: Dict[str, Any], horizon_days: int = 5) -> SimEvalResult:
     # 5分足ロード
     df = _load_5m_bars(code, trade_date, horizon_days=horizon_days)
     if df.empty or entry_limit is None:
-        # データが無い or 指値無し → 評価不能
         last_close = rec.get("last_close") or entry_limit
         close_date = trade_date.isoformat()
         return SimEvalResult(
