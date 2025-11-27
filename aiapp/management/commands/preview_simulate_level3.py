@@ -15,9 +15,6 @@ from django.utils import timezone
 from aiapp.services import bars_5m
 
 
-JST = timezone.tzinfo(timezone(timedelta(hours=9))) if hasattr(timezone, "tzinfo") else timezone.get_default_timezone()
-
-
 @dataclass
 class SimRecord:
     raw: Dict[str, Any]
@@ -277,6 +274,7 @@ def _preview_one_record(
         label = "win"
     elif exit_price < rec.entry:
         label = "lose"
+        # exit_price == entry なら flat
     else:
         label = "flat"
 
