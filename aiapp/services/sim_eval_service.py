@@ -396,13 +396,19 @@ def _eval_one(rec: Dict[str, Any], horizon_days: int = 5) -> SimEvalResult:
 # =====================================================================
 
 def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any]:
+    """
+    1レコードを評価して、eval_* 系フィールドを付けて返す。
+    ※ entry / tp / sl など元のスナップショットは書き換えない。
+    """
     result = _eval_one(rec, horizon_days=horizon_days)
 
     out = dict(rec)
 
-    # エントリー価格を「実際に約定した価格」で上書き
-    if result.entry_px is not None:
-        out["entry"] = result.entry_px
+    # 実際の約定情報（評価用）だけ別フィールドに保存
+    out["eval_entry_px"] = result.entry_px
+    out["eval_entry_ts"] = (
+        result.entry_ts.isoformat() if result.entry_ts is not None else None
+    )
 
     out["eval_label_rakuten"] = result.label_rakuten
     out["eval_pl_rakuten"] = result.pl_rakuten
@@ -414,9 +420,6 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
     out["eval_horizon_days"] = result.horizon_days
 
     out["eval_exit_reason"] = result.exit_reason
-    out["eval_entry_ts"] = (
-        result.entry_ts.isoformat() if result.entry_ts is not None else None
-    )
     out["eval_exit_ts"] = (
         result.exit_ts.isoformat() if result.exit_ts is not None else None
     )
