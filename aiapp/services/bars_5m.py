@@ -2,135 +2,191 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import datetime, date, timedelta, timezone
+from pathlib import Path
 from typing import Optional
-
-import logging
 
 import pandas as pd
 import yfinance as yf
-import pytz
+from django.conf import settings
 
-logger = logging.getLogger(__name__)
 
-JST = pytz.timezone("Asia/Tokyo")
+JST = timezone(timedelta(hours=9))
+
+# キャッシュ保存先: MEDIA_ROOT/aiapp/bars_5m/
+BARS_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "bars_5m"
+BARS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @dataclass
 class Bars5mResult:
-    """
-    5分足取得の結果ラッパー（今後拡張したくなったとき用）
-    """
     code: str
-    trade_date: date
-    df: pd.DataFrame
+    start_date: date
+    end_date: date
+    df: pd.DataFrame  # index: Datetime(JST), columns: [Open, High, Low, Close, Volume]
 
 
-def _to_yf_symbol(code: str) -> str:
+def _normalize_code(code: str) -> str:
     """
-    JPX銘柄コードを yfinance 用のシンボルに変換する。
-    例:
-      "7508"  -> "7508.T"
-      "7508.T" -> "7508.T"（そのまま）
+    JPX銘柄コード → yfinance 用シンボルに変換。
+    すでに ".T" が付いていればそのまま。
     """
     code = str(code).strip()
     if not code:
-        return ""
-    if "." in code:
+        return code
+    if code.endswith(".T"):
         return code
     return f"{code}.T"
 
 
-def _normalize_index_to_jst(df: pd.DataFrame) -> pd.DataFrame:
+def _day_range(start_date: date, end_date: date):
     """
-    yfinance の DataFrame の index（DatetimeIndex）を JST にそろえる。
-    JPX銘柄はたいてい最初から JST になっているが、
-    念のため tz naive の場合もローカライズしておく。
+    start_date 〜 end_date-1 まで 1日ずつ yield。
     """
-    if df.empty:
-        return df
+    cur = start_date
+    while cur < end_date:
+        yield cur
+        cur += timedelta(days=1)
 
-    idx = df.index
 
-    # DatetimeIndex でない場合はそのまま返す
-    if not isinstance(idx, pd.DatetimeIndex):
-        return df
+def _cache_path_day(code: str, day: date) -> Path:
+    """
+    1営業日分の 5分足キャッシュファイルパス。
+    例: 7508_2025-11-26_5m.csv
+    """
+    fname = f"{code}_{day.isoformat()}_5m.csv"
+    return BARS_DIR / fname
 
-    if idx.tz is None:
-        # タイムゾーン情報なし → JST とみなしてローカライズ
-        df = df.copy()
+
+def _download_5m_one_day(code: str, day: date) -> pd.DataFrame:
+    """
+    指定日の 5分足を yfinance から取得して DataFrame で返す。
+    - インデックス: Datetime(JST)
+    - カラム: ["Open", "High", "Low", "Close", "Volume"]
+    """
+    symbol = _normalize_code(code)
+    if not symbol:
+        return pd.DataFrame()
+
+    start_dt = datetime(day.year, day.month, day.day, 0, 0, tzinfo=JST)
+    end_dt = start_dt + timedelta(days=1)
+
+    # FutureWarning 対応: auto_adjust を明示的に False にする
+    df = yf.download(
+        symbol,
+        start=start_dt,
+        end=end_dt,
+        interval="5m",
+        auto_adjust=False,   # ← これで FutureWarning を潰す
+        progress=False,
+        threads=False,
+    )
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    # yfinance の仕様で MultiIndex になる場合があるので平坦化
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+    # 必要なカラムだけに絞る（足りない場合はそのまま）
+    cols = ["Open", "High", "Low", "Close", "Volume"]
+    df = df[[c for c in cols if c in df.columns]].copy()
+
+    # インデックスを JST に統一（すでに tz-aware のはずだが念のため）
+    if df.index.tz is None:
         df.index = df.index.tz_localize(JST)
-        return df
+    else:
+        df.index = df.index.tz_convert(JST)
 
-    # すでに tz 付きなら JST に変換
-    df = df.tz_convert(JST)
     return df
 
 
-def get_5m_bars_range(code: str, center_date: date, horizon_days: int = 5) -> pd.DataFrame:
+def _load_5m_one_day_from_cache(code: str, day: date) -> pd.DataFrame:
     """
-    レベル3用の「5分足取得」メイン関数。
-
-    仕様（今回の実装）:
-      - yfinance から interval=5m で period=10d ぶん取得
-      - その中から「center_date 当日(JST)の分だけ」を抽出
-      - 返り値: 当日分の 5分足 DataFrame（Open/High/Low/Close/Volume）
-
-    ※ horizon_days は将来の拡張用で、今は使っていません。
+    1日分のキャッシュを CSV から読み込む。
+    無ければ空 DataFrame。
     """
-    if not isinstance(center_date, date):
-        raise ValueError("center_date には date 型を渡してください")
-
-    yf_symbol = _to_yf_symbol(code)
-    if not yf_symbol:
-        logger.warning("get_5m_bars_range: 空のコードが渡されました")
+    path = _cache_path_day(code, day)
+    if not path.exists():
         return pd.DataFrame()
-
-    # いきなり start/end を絞ると取り逃しやタイムゾーンのズレで 0件になりやすいので、
-    # いったん period=10d くらいでざっくり取ってから JST 日付でフィルタする。
-    period_days = max(5, min(10, horizon_days + 2))
-    period_str = f"{period_days}d"
 
     try:
-        df = yf.download(
-            yf_symbol,
-            interval="5m",
-            period=period_str,
-            auto_adjust=False,   # ★ FutureWarning 回避のため明示
-            progress=False,
-        )
-    except Exception as e:
-        logger.exception("get_5m_bars_range: yfinance 取得で例外が発生: %s", e)
+        df = pd.read_csv(path, parse_dates=["Datetime"])
+    except Exception:
         return pd.DataFrame()
 
+    df.set_index("Datetime", inplace=True)
+
+    # tz 情報が落ちている場合は JST を付与
+    if df.index.tz is None:
+        df.index = df.index.tz_localize(JST)
+    else:
+        df.index = df.index.tz_convert(JST)
+
+    return df
+
+
+def _save_5m_one_day_to_cache(code: str, day: date, df: pd.DataFrame) -> None:
+    """
+    1日分の5分足を CSV でキャッシュする。
+    """
     if df is None or df.empty:
-        logger.warning(
-            "get_5m_bars_range: yfinance からデータが取得できませんでした code=%s period=%s",
-            yf_symbol,
-            period_str,
-        )
-        return pd.DataFrame()
+        return
 
-    # JST にそろえてから、center_date 当日だけに絞り込む
-    df = _normalize_index_to_jst(df)
+    path = _cache_path_day(code, day)
+    tmp_path = path.with_suffix(".tmp")
 
-    # DatetimeIndex ではない場合はそのまま返してしまう（念のため）
-    if not isinstance(df.index, pd.DatetimeIndex):
-        logger.warning(
-            "get_5m_bars_range: index が DatetimeIndex ではありません code=%s", yf_symbol
-        )
-        return df
+    to_save = df.copy()
+    to_save = to_save.copy()
+    to_save = to_save.reset_index()
+    to_save.rename(columns={"index": "Datetime"}, inplace=True)
 
-    mask = df.index.date == center_date
-    df_day = df.loc[mask].copy()
+    try:
+        tmp_path.parent.mkdir(parents=True, exist_ok=True)
+        to_save.to_csv(tmp_path, index=False)
+        tmp_path.replace(path)
+    except Exception:
+        # キャッシュ失敗しても動作自体は続行したいので握りつぶす
+        pass
 
-    logger.info(
-        "get_5m_bars_range: code=%s center_date=%s period=%s -> total=%d, day=%d",
-        yf_symbol,
-        center_date,
-        period_str,
-        len(df),
-        len(df_day),
-    )
 
-    return df_day
+def load_5m_bars(code: str, start_date: date, horizon_days: int = 1) -> Bars5mResult:
+    """
+    公開API:
+      指定銘柄・start_date から horizon_days 日ぶんの 5分足を返す。
+
+    - まず日別キャッシュ（CSV）を探す
+    - 無ければ yfinance で取ってきて保存
+    - 全日分を結合して返す
+    """
+    if horizon_days < 1:
+        horizon_days = 1
+
+    end_date = start_date + timedelta(days=horizon_days)
+    frames: list[pd.DataFrame] = []
+
+    for day in _day_range(start_date, end_date):
+        cached = _load_5m_one_day_from_cache(code, day)
+        if cached.empty:
+            df = _download_5m_one_day(code, day)
+            if not df.empty:
+                _save_5m_one_day_to_cache(code, day, df)
+                frames.append(df)
+        else:
+            frames.append(cached)
+
+    if frames:
+        df_all = pd.concat(frames).sort_index()
+    else:
+        df_all = pd.DataFrame()
+
+    return Bars5mResult(code=code, start_date=start_date, end_date=end_date, df=df_all)
+
+
+# 互換API（旧コードから使いやすいようにショートカットを用意）
+def get_5m_bars(code: str, start_date: date, horizon_days: int = 1) -> pd.DataFrame:
+    """
+    load_5m_bars の df だけ返すラッパ。
+    """
+    return load_5m_bars(code, start_date, horizon_days).df
