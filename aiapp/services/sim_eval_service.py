@@ -1,427 +1,375 @@
 # aiapp/services/sim_eval_service.py
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date as _date, datetime as _dt, time as _time, timedelta as _td
-from typing import Any, Dict, Optional
+from datetime import date, datetime, timedelta, time
+from typing import Any, Dict, Optional, Tuple
+
+from decimal import Decimal
+import logging
 
 import pandas as pd
 import yfinance as yf
 from django.utils import timezone
 
-# 5分足キャッシュサービス
-from aiapp.services import bars_5m as svc_bars_5m
+logger = logging.getLogger(__name__)
 
-Number = float | int
+TZ_JP = timezone.get_default_timezone()
+
+
+# =========================================================
+# 補助データ構造
+# =========================================================
+@dataclass
+class EntryResult:
+    has_position: bool          # エントリー成立したか
+    entry_px: Optional[float]   # 実際に入った価格（寄り or 指値）
+    entry_ts: Optional[datetime]  # 実際に入った日時（JST）
 
 
 @dataclass
-class SimEvalResult:
-    # 約定
-    entry_ts: Optional[_dt]
-    entry_px: Optional[Number]
-
-    # クローズ
-    exit_ts: Optional[_dt]
-    exit_px: Optional[Number]
-    exit_reason: Optional[str]  # "hit_tp" / "hit_sl" / "horizon_close" / "skip"
-
-    # 楽天
-    pl_rakuten: Optional[Number]
-    label_rakuten: Optional[str]
-
-    # 松井
-    pl_matsui: Optional[Number]
-    label_matsui: Optional[str]
-
-    # 表示用
-    close_date: Optional[str]
-    horizon_days: int
+class ExitResult:
+    exit_px: float
+    exit_ts: datetime
+    exit_reason: str  # "hit_tp" / "hit_sl" / "horizon_close" / "no_touch"
 
 
-# =====================================================================
-# 共通ユーティリティ
-# =====================================================================
-
-def _parse_iso_date(s: Optional[str]) -> Optional[_date]:
-    if not isinstance(s, str) or not s:
-        return None
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
-        try:
-            return _dt.strptime(s, fmt).date()
-        except Exception:
-            continue
-    try:
-        return _dt.fromisoformat(s).date()
-    except Exception:
-        return None
-
-
-def _ensure_aware(dt: _dt) -> _dt:
-    if timezone.is_naive(dt):
-        dt = timezone.make_aware(dt, timezone.get_default_timezone())
-    return timezone.localtime(dt)
-
-
-def _load_5m_bars(code: str, trade_date: _date, horizon_days: int) -> pd.DataFrame:
+# =========================================================
+# 5分足ロード
+# =========================================================
+def _normalize_ohlc_df(df: pd.DataFrame) -> pd.DataFrame:
     """
-    5分足を bars_5m サービス経由で取得して正規化。
+    yfinance の戻り値を:
+        index: DatetimeIndex (JST)
+        columns: open/high/low/close
+    に揃える。
     """
-    raw = svc_bars_5m.load_5m_bars(code, trade_date)
+    if df is None or len(df) == 0:
+        raise ValueError("empty dataframe from yfinance")
 
-    if raw is None:
-        return pd.DataFrame()
-
-    if isinstance(raw, tuple):
-        df = raw[0]
+    # MultiIndex 対策
+    if isinstance(df.columns, pd.MultiIndex):
+        new_cols = [str(c[0]).lower() for c in df.columns]
+        df = df.copy()
+        df.columns = new_cols
     else:
-        df = raw
+        df = df.copy()
+        df.columns = [str(c).lower() for c in df.columns]
+
+    if "open" not in df.columns or "high" not in df.columns or "low" not in df.columns or "close" not in df.columns:
+        raise ValueError("5m bars missing required columns 'open', 'high', 'low', 'close'")
+
+    idx = df.index
+    if timezone.is_naive(idx[0]):
+        idx = idx.tz_localize("UTC")
+    idx = idx.tz_convert(TZ_JP)
+    df.index = idx
+
+    out = df[["open", "high", "low", "close"]].copy()
+    out["ts"] = out.index
+    return out
+
+
+def load_5m_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame:
+    """
+    code（"9793"）の 5分足を、trade_date から horizon_days 営業日ぶん取得する。
+    """
+    symbol = f"{code}.T"
+
+    # yfinance は土日なども混ざるので、シンプルに日数範囲で取る
+    start_dt = datetime.combine(trade_date, time(0, 0))
+    end_dt = start_dt + timedelta(days=horizon_days)
+    start_utc = timezone.make_aware(start_dt, TZ_JP).astimezone(timezone.utc)
+    end_utc = timezone.make_aware(end_dt, TZ_JP).astimezone(timezone.utc)
+
+    df = yf.download(
+        symbol,
+        interval="5m",
+        start=start_utc,
+        end=end_utc,
+        progress=False,
+        auto_adjust=False,
+        actions=False,
+    )
 
     if df is None or len(df) == 0:
-        return pd.DataFrame()
+        raise ValueError(f"no 5m data downloaded for {code}")
 
-    df = df.copy()
+    df_norm = _normalize_ohlc_df(df)
 
-    # ---- 列マッピング（MultiIndex 対応） -----------------------------
-    base_map: Dict[str, Any] = {}
-    for c in df.columns:
-        if isinstance(c, tuple) and len(c) > 0:
-            key = str(c[0]).lower()
-        else:
-            key = str(c).lower()
-        if key not in base_map:
-            base_map[key] = c
+    # ちゃんと trade_date 〜 horizon_days 日目までだけに絞る
+    mask = (df_norm["ts"].dt.date >= trade_date) & (
+        df_norm["ts"].dt.date < trade_date + timedelta(days=horizon_days)
+    )
+    df_norm = df_norm.loc[mask].copy()
 
-    for need in ("open", "high", "low", "close"):
-        if need not in base_map:
-            raise ValueError(f"5m bars missing column '{need}' for code={code}")
+    if len(df_norm) == 0:
+        raise ValueError(f"no 5m data in horizon for {code}")
 
-    c_open = base_map["open"]
-    c_high = base_map["high"]
-    c_low = base_map["low"]
-    c_close = base_map["close"]
-
-    # ts 列
-    if "ts" in df.columns:
-        ts = pd.to_datetime(df["ts"])
-    else:
-        ts = pd.to_datetime(df.index)
-
-    if ts.dt.tz is None:
-        ts = ts.dt.tz_localize(timezone.get_default_timezone())
-    else:
-        ts = ts.dt.tz_convert(timezone.get_default_timezone())
-
-    out = pd.DataFrame(
-        {
-            "ts": ts,
-            "Open": df[c_open].astype(float),
-            "High": df[c_high].astype(float),
-            "Low": df[c_low].astype(float),
-            "Close": df[c_close].astype(float),
-        }
-    ).sort_values("ts")
-
-    return out.reset_index(drop=True)
+    return df_norm
 
 
-def _load_daily_open(code: str, trade_date: _date) -> Optional[float]:
-    """
-    yfinance の 1日足から「本当の始値」を取る。
-    取得できなければ None。
-    """
+# =========================================================
+# ロジック本体
+# =========================================================
+def _parse_trade_date(rec: Dict[str, Any]) -> date:
+    s = rec.get("trade_date") or rec.get("run_date")
+    if not s:
+        # safety: 今日扱い
+        return timezone.localdate()
     try:
-        symbol = f"{code}.T"
-        start = trade_date
-        end = trade_date + _td(days=1)
-        df = yf.download(
-            symbol,
-            start=start.isoformat(),
-            end=end.isoformat(),
-            interval="1d",
-            progress=False,
-        )
-        if df is None or df.empty:
-            return None
-        if "Open" not in df.columns:
-            return None
-        return float(df["Open"].iloc[0])
+        return date.fromisoformat(str(s))
     except Exception:
-        return None
+        return timezone.localdate()
 
 
-def _calc_pl(side: str, entry_px: Number, exit_px: Number, qty: Number) -> float:
-    if qty is None or qty == 0:
-        return 0.0
+def _detect_entry(
+    side: str,
+    limit_px: float,
+    bars: pd.DataFrame,
+    trade_date: date,
+) -> EntryResult:
+    """
+    エントリー成立判定
+    - 指値 <= 初日寄り → 寄り成行 (open)
+    - そうでなければ、5分足の中で high/low が指値を跨いだ最初のバーで成立
+    - どこでも触れなければ has_position=False
+    """
+    if limit_px <= 0:
+        return EntryResult(False, None, None)
+
+    # 初日セッションだけを寄り判定に使う（9:00〜15:00）
+    day1 = bars[bars["ts"].dt.date == trade_date].copy()
+    if len(day1) == 0:
+        return EntryResult(False, None, None)
+
+    # 9:00 以降だけ
+    day1 = day1[day1["ts"].dt.time >= time(9, 0)]
+    if len(day1) == 0:
+        return EntryResult(False, None, None)
+
+    first_bar = day1.iloc[0]
+    open_px = float(first_bar["open"])
+
+    # ロング想定
     if side.upper() == "BUY":
-        return float(exit_px - entry_px) * float(qty)
-    else:
-        return float(entry_px - exit_px) * float(qty)
+        # 寄りで指値以上なら寄り成行
+        if limit_px <= open_px:
+            return EntryResult(True, open_px, first_bar["ts"])
+
+    # 寄りで入らなかった場合 → 全期間のバーで指値レンジを検索
+    hit_mask = (bars["low"] <= limit_px) & (bars["high"] >= limit_px)
+    if not bool(hit_mask.any()):
+        return EntryResult(False, None, None)
+
+    first_hit = bars.loc[hit_mask].iloc[0]
+    return EntryResult(True, limit_px, first_hit["ts"])
 
 
-def _label_from_pl(pl: Optional[Number], qty: Optional[Number]) -> Optional[str]:
-    if qty is None or qty == 0:
-        return "no_position"
-    if pl is None:
-        return None
-    if pl > 0:
-        return "win"
-    if pl < 0:
-        return "lose"
-    return "flat"
+def _detect_exit(
+    side: str,
+    entry_px: float,
+    bars: pd.DataFrame,
+    entry_ts: datetime,
+    tp_px: Optional[float],
+    sl_px: Optional[float],
+    trade_date: date,
+    horizon_days: int,
+) -> ExitResult:
+    """
+    TP / SL / タイムアップ判定
+    - entry_ts 以降のバーを見て、最初に SL または TP に達したところでクローズ
+    - どちらも触れなければ horizon_days 営業日目の終値でクローズ
+    """
+    # 評価対象期間: entry_ts 以降
+    window = bars[bars["ts"] >= entry_ts].copy()
+    if len(window) == 0:
+        # 安全フォールバック: 最後のバー
+        last_bar = bars.iloc[-1]
+        return ExitResult(float(last_bar["close"]), last_bar["ts"], "horizon_close")
 
-
-# =====================================================================
-# コア評価ロジック
-# =====================================================================
-
-def _eval_one(rec: Dict[str, Any], horizon_days: int = 5) -> SimEvalResult:
-    code = str(rec.get("code") or "").strip()
-    side = (rec.get("side") or "BUY").upper()
-
-    entry_limit = rec.get("entry")
-    tp = rec.get("tp")
-    sl = rec.get("sl")
-
-    qty_rakuten = rec.get("qty_rakuten") or 0
-    qty_matsui = rec.get("qty_matsui") or 0
-
-    trade_date = (
-        _parse_iso_date(rec.get("trade_date"))
-        or _parse_iso_date(rec.get("run_date"))
-        or _parse_iso_date(rec.get("price_date"))
-    )
-    if trade_date is None:
-        return SimEvalResult(
-            entry_ts=None,
-            entry_px=None,
-            exit_ts=None,
-            exit_px=None,
-            exit_reason="skip",
-            pl_rakuten=0.0,
-            label_rakuten="no_position",
-            pl_matsui=0.0,
-            label_matsui="no_position",
-            close_date=None,
-            horizon_days=horizon_days,
-        )
-
-    df = _load_5m_bars(code, trade_date, horizon_days=horizon_days)
-    if df.empty or entry_limit is None:
-        last_close = rec.get("last_close") or entry_limit
-        close_date = trade_date.isoformat() if trade_date else None
-        return SimEvalResult(
-            entry_ts=None,
-            entry_px=None,
-            exit_ts=None,
-            exit_px=last_close,
-            exit_reason="skip",
-            pl_rakuten=0.0,
-            label_rakuten="no_position",
-            pl_matsui=0.0,
-            label_matsui="no_position",
-            close_date=close_date,
-            horizon_days=horizon_days,
-        )
-
-    df = df.copy()
-    df = df[df["ts"].dt.date >= trade_date].reset_index(drop=True)
-    if df.empty:
-        last_close = rec.get("last_close") or entry_limit
-        close_date = trade_date.isoformat()
-        return SimEvalResult(
-            entry_ts=None,
-            entry_px=None,
-            exit_ts=None,
-            exit_px=last_close,
-            exit_reason="skip",
-            pl_rakuten=0.0,
-            label_rakuten="no_position",
-            pl_matsui=0.0,
-            label_matsui="no_position",
-            close_date=close_date,
-            horizon_days=horizon_days,
-        )
-
-    limit = float(entry_limit)
-
-    entry_ts: Optional[_dt] = None
-    entry_px: Optional[Number] = None
-    entry_idx: Optional[int] = None
-
-    # ------------------------------------------------------------
-    # 0. 日足の始値で「寄り約定」チェック
-    # ------------------------------------------------------------
-    daily_open = _load_daily_open(code, trade_date)
-
-    if side == "BUY" and daily_open is not None and daily_open <= limit:
-        # 09:00 寄りで約定（価格は始値）
-        raw_ts = _dt.combine(trade_date, _time(9, 0))
-        entry_ts = _ensure_aware(raw_ts)
-        entry_px = float(daily_open)
-
-        # 評価開始用の index：09:00 以降最初のバー
-        mask_after = df["ts"] >= entry_ts
-        if mask_after.any():
-            entry_idx = int(mask_after.idxmax())
-        else:
-            entry_idx = 0
-    else:
-        # --------------------------------------------------------
-        # 1. 5分足ベースでのエントリー判定
-        # --------------------------------------------------------
-        first = df.iloc[0]
-        first_open = float(first["Open"])
-        first_ts = _ensure_aware(first["ts"])
+    # まず TP / SL 判定（時間順）
+    side = side.upper()
+    for _, row in window.iterrows():
+        low = float(row["low"])
+        high = float(row["high"])
 
         if side == "BUY":
-            if first_open <= limit:
-                entry_ts = first_ts
-                entry_px = first_open
-                entry_idx = 0
-            else:
-                mask = (df["Low"] <= limit) & (df["High"] >= limit)
-                if mask.any():
-                    idx = int(mask.idxmax())
-                    bar = df.loc[idx]
-                    entry_ts = _ensure_aware(bar["ts"])
-                    entry_px = limit
-                    entry_idx = idx
+            # 先に SL 判定 → そのあと TP 判定（順番は好みだが、ここでは SL 優先）
+            if sl_px is not None and low <= sl_px:
+                return ExitResult(sl_px, row["ts"], "hit_sl")
+            if tp_px is not None and high >= tp_px:
+                return ExitResult(tp_px, row["ts"], "hit_tp")
         else:
-            if first_open >= limit:
-                entry_ts = first_ts
-                entry_px = first_open
-                entry_idx = 0
-            else:
-                mask = (df["Low"] <= limit) & (df["High"] >= limit)
-                if mask.any():
-                    idx = int(mask.idxmax())
-                    bar = df.loc[idx]
-                    entry_ts = _ensure_aware(bar["ts"])
-                    entry_px = limit
-                    entry_idx = idx
+            # SELL の場合は逆（今回は BUY しか想定していないはずだが念のため）
+            if tp_px is not None and low <= tp_px:
+                return ExitResult(tp_px, row["ts"], "hit_tp")
+            if sl_px is not None and high >= sl_px:
+                return ExitResult(sl_px, row["ts"], "hit_sl")
 
-    # 指値に一度も触れなかった
-    if entry_ts is None or entry_idx is None:
-        last = df.iloc[-1]
-        last_close = float(last["Close"])
-        close_date = last["ts"].date().isoformat()
-        return SimEvalResult(
-            entry_ts=None,
-            entry_px=None,
-            exit_ts=None,
-            exit_px=last_close,
-            exit_reason="skip",
-            pl_rakuten=0.0,
-            label_rakuten="no_position",
-            pl_matsui=0.0,
-            label_matsui="no_position",
-            close_date=close_date,
-            horizon_days=horizon_days,
-        )
+    # どこでも TP/SL に触れなかった → horizon_days 営業日目の終値
+    horizon_end = trade_date + timedelta(days=horizon_days - 1)
+    horizon_bars = bars[bars["ts"].dt.date <= horizon_end].copy()
+    if len(horizon_bars) == 0:
+        horizon_bars = bars
 
-    # ------------------------------------------------------------
-    # 2. TP / SL 判定
-    # ------------------------------------------------------------
-    eval_df = df.iloc[entry_idx:].reset_index(drop=True)
-
-    limit_tp = float(tp) if tp is not None else None
-    limit_sl = float(sl) if sl is not None else None
-
-    exit_ts: Optional[_dt] = None
-    exit_px: Optional[Number] = None
-    exit_reason: Optional[str] = None
-
-    for i in range(1, len(eval_df)):
-        row = eval_df.iloc[i]
-        row_ts = _ensure_aware(row["ts"])
-        low = float(row["Low"])
-        high = float(row["High"])
-
-        if side == "BUY":
-            if limit_sl is not None and low <= limit_sl:
-                exit_ts = row_ts
-                exit_px = limit_sl
-                exit_reason = "hit_sl"
-                break
-            if limit_tp is not None and high >= limit_tp:
-                exit_ts = row_ts
-                exit_px = limit_tp
-                exit_reason = "hit_tp"
-                break
-        else:
-            if limit_tp is not None and high >= limit_tp:
-                exit_ts = row_ts
-                exit_px = limit_tp
-                exit_reason = "hit_tp"
-                break
-            if limit_sl is not None and low <= limit_sl:
-                exit_ts = row_ts
-                exit_px = limit_sl
-                exit_reason = "hit_sl"
-                break
-
-    if exit_ts is None or exit_px is None:
-        last = df.iloc[-1]
-        exit_ts = _ensure_aware(last["ts"])
-        exit_px = float(last["Close"])
-        exit_reason = "horizon_close"
-
-    close_date = exit_ts.date().isoformat()
-
-    pl_rakuten = _calc_pl(side, entry_px, exit_px, qty_rakuten)
-    pl_matsui = _calc_pl(side, entry_px, exit_px, qty_matsui)
-
-    label_rakuten = _label_from_pl(pl_rakuten, qty_rakuten)
-    label_matsui = _label_from_pl(pl_matsui, qty_matsui)
-
-    return SimEvalResult(
-        entry_ts=entry_ts,
-        entry_px=entry_px,
-        exit_ts=exit_ts,
-        exit_px=exit_px,
-        exit_reason=exit_reason,
-        pl_rakuten=pl_rakuten,
-        label_rakuten=label_rakuten,
-        pl_matsui=pl_matsui,
-        label_matsui=label_matsui,
-        close_date=close_date,
-        horizon_days=horizon_days,
-    )
+    last_bar = horizon_bars.iloc[-1]
+    return ExitResult(float(last_bar["close"]), last_bar["ts"], "horizon_close")
 
 
-# =====================================================================
-# 公開 API
-# =====================================================================
-
+# =========================================================
+# 公開関数: 1レコード評価
+# =========================================================
 def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any]:
     """
-    1レコードを評価して、eval_* 系フィールドを付けて返す。
-    ※ entry / tp / sl など元のスナップショットは書き換えない。
+    1件のシミュレ記録 dict に対して、
+    - eval_label_rakuten / eval_pl_rakuten
+    - eval_label_matsui / eval_pl_matsui
+    - eval_close_px / eval_close_date / eval_horizon_days
+    - eval_exit_reason
+    - eval_entry_px / eval_entry_ts
+    を付与して返す。
+
+    ★重要:
+      entry / tp / sl は「AIが出したスナップショット」として一切書き換えない。
+      実際に約定した価格・時間は eval_entry_* にのみ保存する。
     """
-    result = _eval_one(rec, horizon_days=horizon_days)
+    # 元の値を絶対に壊さないように退避
+    orig_entry = rec.get("entry")
+    orig_tp = rec.get("tp")
+    orig_sl = rec.get("sl")
 
-    out = dict(rec)
+    try:
+        side = (rec.get("side") or "BUY").upper()
+        trade_dt = _parse_trade_date(rec)
 
-    # 実際の約定情報（評価用）だけ別フィールドに保存
-    out["eval_entry_px"] = result.entry_px
-    out["eval_entry_ts"] = (
-        result.entry_ts.isoformat() if result.entry_ts is not None else None
-    )
+        # 数値取り出し（Decimal/str 対応）
+        def _to_float(x: Any) -> Optional[float]:
+            if x is None:
+                return None
+            try:
+                return float(Decimal(str(x)))
+            except Exception:
+                return None
 
-    out["eval_label_rakuten"] = result.label_rakuten
-    out["eval_pl_rakuten"] = result.pl_rakuten
-    out["eval_label_matsui"] = result.label_matsui
-    out["eval_pl_matsui"] = result.pl_matsui
+        limit_entry = _to_float(rec.get("entry"))
+        tp_px = _to_float(rec.get("tp"))
+        sl_px = _to_float(rec.get("sl"))
 
-    out["eval_close_px"] = result.exit_px
-    out["eval_close_date"] = result.close_date
-    out["eval_horizon_days"] = result.horizon_days
+        qty_rakuten = _to_float(rec.get("qty_rakuten")) or 0.0
+        qty_matsui = _to_float(rec.get("qty_matsui")) or 0.0
 
-    out["eval_exit_reason"] = result.exit_reason
-    out["eval_exit_ts"] = (
-        result.exit_ts.isoformat() if result.exit_ts is not None else None
-    )
+        # どちらの口座も 0株なら、そもそも「見送り」扱い
+        if qty_rakuten == 0 and qty_matsui == 0:
+            rec["eval_label_rakuten"] = "no_position"
+            rec["eval_pl_rakuten"] = 0.0
+            rec["eval_label_matsui"] = "no_position"
+            rec["eval_pl_matsui"] = 0.0
+            rec["eval_close_px"] = None
+            rec["eval_close_date"] = None
+            rec["eval_horizon_days"] = horizon_days
+            rec["eval_exit_reason"] = "no_shares"
+            rec["eval_entry_px"] = None
+            rec["eval_entry_ts"] = None
+            return rec
 
-    return out
+        # 5分足ロード
+        try:
+            bars = load_5m_bars(str(rec.get("code") or ""), trade_dt, horizon_days)
+        except Exception as e:
+            logger.exception("load_5m_bars failed: %s", e)
+            # 落とさずに「評価不能」として残す
+            rec["eval_label_rakuten"] = None
+            rec["eval_pl_rakuten"] = None
+            rec["eval_label_matsui"] = None
+            rec["eval_pl_matsui"] = None
+            rec["eval_close_px"] = None
+            rec["eval_close_date"] = None
+            rec["eval_horizon_days"] = horizon_days
+            rec["eval_exit_reason"] = f"error:{e}"
+            rec["eval_entry_px"] = None
+            rec["eval_entry_ts"] = None
+            return rec
+
+        # エントリー成立判定
+        entry_res = _detect_entry(side, limit_entry or 0.0, bars, trade_dt)
+
+        if not entry_res.has_position:
+            # 一度も指値に触れなかった → 全口座 no_position/PL=0
+            rec["eval_label_rakuten"] = "no_position" if qty_rakuten > 0 else "no_position"
+            rec["eval_pl_rakuten"] = 0.0
+            rec["eval_label_matsui"] = "no_position" if qty_matsui > 0 else "no_position"
+            rec["eval_pl_matsui"] = 0.0
+
+            # 情報としては horizon 終値だけ載せておく
+            horizon_end = trade_dt + timedelta(days=horizon_days - 1)
+            horizon_bars = bars[bars["ts"].dt.date <= horizon_end].copy()
+            if len(horizon_bars) == 0:
+                horizon_bars = bars
+            last_bar = horizon_bars.iloc[-1]
+
+            rec["eval_close_px"] = float(last_bar["close"])
+            rec["eval_close_date"] = last_bar["ts"].date().isoformat()
+            rec["eval_horizon_days"] = horizon_days
+            rec["eval_exit_reason"] = "no_touch"
+            rec["eval_entry_px"] = None
+            rec["eval_entry_ts"] = None
+            return rec
+
+        # TP/SL/タイムアップ判定
+        exit_res = _detect_exit(
+            side=side,
+            entry_px=entry_res.entry_px,
+            bars=bars,
+            entry_ts=entry_res.entry_ts,
+            tp_px=tp_px,
+            sl_px=sl_px,
+            trade_date=trade_dt,
+            horizon_days=horizon_days,
+        )
+
+        # PL 計算
+        def _calc_pl(qty: float) -> float:
+            if qty == 0:
+                return 0.0
+            if side == "BUY":
+                return float(qty) * (exit_res.exit_px - entry_res.entry_px)
+            else:
+                return float(qty) * (entry_res.entry_px - exit_res.exit_px)
+
+        pl_rakuten = _calc_pl(qty_rakuten)
+        pl_matsui = _calc_pl(qty_matsui)
+
+        def _label_from_pl(qty: float, pl: float) -> str:
+            if qty == 0:
+                return "no_position"
+            if pl > 0:
+                return "win"
+            if pl < 0:
+                return "lose"
+            return "flat"
+
+        rec["eval_label_rakuten"] = _label_from_pl(qty_rakuten, pl_rakuten)
+        rec["eval_pl_rakuten"] = pl_rakuten
+        rec["eval_label_matsui"] = _label_from_pl(qty_matsui, pl_matsui)
+        rec["eval_pl_matsui"] = pl_matsui
+
+        rec["eval_close_px"] = exit_res.exit_px
+        rec["eval_close_date"] = exit_res.exit_ts.date().isoformat()
+        rec["eval_horizon_days"] = horizon_days
+        rec["eval_exit_reason"] = exit_res.exit_reason
+
+        rec["eval_entry_px"] = entry_res.entry_px
+        rec["eval_entry_ts"] = entry_res.entry_ts.isoformat() if entry_res.entry_ts else None
+
+        return rec
+
+    finally:
+        # ★ここが今回一番大事なガード★
+        # どんなロジックになっても、entry/tp/sl は必ず元の値を維持する
+        if orig_entry is not None:
+            rec["entry"] = orig_entry
+        if orig_tp is not None:
+            rec["tp"] = orig_tp
+        if orig_sl is not None:
+            rec["sl"] = orig_sl
