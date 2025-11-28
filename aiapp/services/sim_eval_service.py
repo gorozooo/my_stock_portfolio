@@ -75,7 +75,7 @@ def load_5m_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame
         start=start_dt,
         end=end_dt,
         progress=False,
-        auto_adjust=False,  # ★ 生のOHLCに固定
+        auto_adjust=False,  # ★ 絶対に調整後にしない
     )
     if df is None or df.empty:
         raise ValueError(f"no 5m data for {code}")
@@ -122,7 +122,7 @@ def load_1d_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame
         start=start_dt,
         end=end_dt,
         progress=False,
-        auto_adjust=False,  # ★ 日足も同様に調整なし
+        auto_adjust=False,  # ★ こちらも調整無し
     )
     if df is None or df.empty:
         raise ValueError(f"no 1d data for {code}")
@@ -154,8 +154,8 @@ def _pick_horizon_close_daily(
     df = load_1d_bars(code, trade_date, horizon_days)
 
     # trade_date 以降の営業日だけに絞る
-    dates = []
-    closes = []
+    dates: list[date] = []
+    closes: list[float] = []
 
     for idx, row in df.iterrows():
         # idx が tz-aware / naive どちらでも date に落とす
@@ -237,25 +237,26 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
     """
     1つのシミュレレコードを評価して、eval_ 系の情報を付与して返す。
 
-    ★重要★
+    ルール（あなたの指定どおり）:
       - rec["entry"] / "tp" / "sl" は「AIが出した指値スナップショット」
         → ここでは **絶対に書き換えない**
       - 実際の約定価格・時間は eval_entry_px / eval_entry_ts に入れる。
       - TP/SL にかからなければ「5営業日目の日足終値」でクローズ。
     """
-    out = dict(rec)
+    # 元レコードは壊さないようにコピー
+    out: Dict[str, Any] = dict(rec)
 
     code = str(rec.get("code"))
     side = (rec.get("side") or "BUY").upper()
 
     # AI が出した指値（スナップショット）
-    ai_entry_px = rec.get("entry")
-    tp = rec.get("tp")
-    sl = rec.get("sl")
+    ai_entry_px_raw = rec.get("entry")
+    tp_raw = rec.get("tp")
+    sl_raw = rec.get("sl")
 
-    ai_entry_px = float(ai_entry_px) if ai_entry_px is not None else None
-    tp = float(tp) if tp is not None else None
-    sl = float(sl) if sl is not None else None
+    ai_entry_px = float(ai_entry_px_raw) if ai_entry_px_raw is not None else None
+    tp = float(tp_raw) if tp_raw is not None else None
+    sl = float(sl_raw) if sl_raw is not None else None
 
     trade_d = _parse_trade_date(rec)
 
@@ -264,10 +265,17 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
         df_5m = load_5m_bars(code, trade_d, horizon_days)
     except Exception:
         out["eval_horizon_days"] = horizon_days
+        # 念のためスナップショットを保持
+        out["entry"] = ai_entry_px_raw
+        out["tp"] = tp_raw
+        out["sl"] = sl_raw
         return out
 
     if df_5m.empty:
         out["eval_horizon_days"] = horizon_days
+        out["entry"] = ai_entry_px_raw
+        out["tp"] = tp_raw
+        out["sl"] = sl_raw
         return out
 
     # ============================================
@@ -330,8 +338,7 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
 
     if entry_ts is None or entry_px is None:
         # 一度も指値に触れなかったケース
-        # → ルール上は「5営業日目の日足終値でタイムアップ」だが、
-        #    PL は no_position（0）になる。
+        # → 5営業日目の日足終値でタイムアップ（ただし PL は no_position）
         exit_ts, exit_px, eff_days = _horizon_close_with_daily()
         exit_reason = "no_fill"
         out["eval_horizon_days"] = eff_days
@@ -425,5 +432,10 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
         combined = "flat"
 
     out["_combined_label"] = combined
+
+    # ★ ここが重要：AIスナップショットを必ず保持（上書き防止用のセーフティネット）
+    out["entry"] = ai_entry_px_raw
+    out["tp"] = tp_raw
+    out["sl"] = sl_raw
 
     return out
