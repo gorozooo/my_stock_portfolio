@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, time
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
@@ -50,7 +50,7 @@ def _pick_price_col(df: pd.DataFrame, name: str) -> pd.Series:
             target = c
             break
     if target is None:
-        raise ValueError(f"5m bars missing column '{name}'")
+        raise ValueError(f"bars missing column '{name}'")
     return df[target]
 
 
@@ -64,8 +64,8 @@ def load_5m_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame
     """
     symbol = _yf_symbol(code)
 
-    # yfinance の start/end は「そのまま解釈されて UTC 日付で扱われる」ので、
-    # ここでは単純に日付範囲だけ与える。
+    # yfinance の start/end は UTCベースで扱われるので、
+    # 日付だけを渡して幅広めに取得しておく。
     start_dt = datetime.combine(trade_date, datetime.min.time())
     end_dt = start_dt + timedelta(days=horizon_days + 1)
 
@@ -84,10 +84,8 @@ def load_5m_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame
     low_s = _pick_price_col(df, "low")
     close_s = _pick_price_col(df, "close")
 
-    # index は UTC のはずなので東京時間に変換
     idx = df.index
     if idx.tz is None:
-        # 念のため。yfinance 側で naive のことはほぼ無いが保険。
         idx = idx.tz_localize("UTC")
     ts_jst = idx.tz_convert("Asia/Tokyo")
 
@@ -104,23 +102,18 @@ def load_5m_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame
     return out
 
 
-def _load_daily_close_for_horizon(
-    code: str,
-    trade_date: date,
-    horizon_days: int,
-) -> Tuple[float, date]:
+def load_1d_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame:
     """
-    5営業日目の日足終値を取得する。
+    指定コードの日足を trade_date から取得する。
 
-    - trade_date 当日を 1 営業日目としてカウント
-    - その日以降の「日足バー」を順番に数えて horizon_days 番目を採用
-    - 取得できるバーが少ない場合は「最後のバー」を採用（フォールバック）
+    horizon_days=5 の場合でも、祝日などを考慮して少し長めに取り、
+    実際に使うのは「trade_date 以降の営業日を上から数えて N 本目」だけ。
     """
     symbol = _yf_symbol(code)
 
-    start_dt = datetime.combine(trade_date, datetime.min.time())
-    # 祝日などを考えて少し余裕をもって取る
-    end_dt = start_dt + timedelta(days=horizon_days * 2)
+    # 祝日・休場日を含めて余裕を持って取得
+    start_dt = trade_date - timedelta(days=1)
+    end_dt = trade_date + timedelta(days=horizon_days * 3)
 
     df = yf.download(
         symbol,
@@ -134,22 +127,68 @@ def _load_daily_close_for_horizon(
 
     close_s = _pick_price_col(df, "close")
 
-    rows = []
-    for idx, val in close_s.items():
-        d = idx.date()
-        if d >= trade_date:
-            rows.append((d, float(val)))
+    out = pd.DataFrame(
+        {
+            "close": close_s.astype(float),
+        }
+    )
+    out.index = close_s.index  # DatetimeIndex (tz付き or なし) のまま
 
-    if not rows:
-        raise ValueError(f"no daily bars on/after trade_date for {code}")
+    return out
 
-    if len(rows) >= horizon_days:
-        exit_date, exit_px = rows[horizon_days - 1]
+
+def _pick_horizon_close_daily(
+    code: str,
+    trade_date: date,
+    horizon_days: int,
+) -> Tuple[datetime, float, int]:
+    """
+    「trade_date から数えて horizon_days 営業日目」の
+    日足終値と日付を返す。
+
+    戻り値:
+      (終値の日付の 15:20 JST datetime, 終値, 実際に何営業日目まで進んだか)
+    """
+    df = load_1d_bars(code, trade_date, horizon_days)
+
+    # trade_date 以降の営業日だけに絞る
+    dates = []
+    closes = []
+
+    for idx, row in df.iterrows():
+        # idx が tz-aware / naive どちらでも date に落とす
+        if isinstance(idx, (datetime, pd.Timestamp)):
+            d = idx.date()
+        else:
+            continue
+
+        if d < trade_date:
+            continue
+
+        dates.append(d)
+        closes.append(float(row["close"]))
+
+    if not dates:
+        raise ValueError(f"no 1d data on or after trade_date for {code}")
+
+    # 「horizon_days 本目」があればそれ、なければ最後の本を使う
+    if len(dates) >= horizon_days:
+        idx = horizon_days - 1
     else:
-        # データ不足時は最後のバーを使用（フォールバック）
-        exit_date, exit_px = rows[-1]
+        idx = len(dates) - 1
 
-    return exit_px, exit_date
+    d_target = dates[idx]
+    close_px = closes[idx]
+    effective_days = idx + 1  # 実際の営業日数
+
+    # 表示・ログ用の 15:20 JST
+    tz = timezone.get_default_timezone()
+    exit_ts = timezone.make_aware(
+        datetime.combine(d_target, datetime.min.time()) + timedelta(hours=15, minutes=20),
+        tz,
+    )
+
+    return exit_ts, close_px, effective_days
 
 
 def _label_and_pl(
@@ -184,7 +223,6 @@ def _to_iso(dt: Optional[datetime]) -> Optional[str]:
         return None
     if timezone.is_naive(dt):
         dt = timezone.make_aware(dt, timezone.utc)
-    # JST で統一
     dt_jst = dt.astimezone(timezone.get_default_timezone())
     return dt_jst.isoformat()
 
@@ -201,8 +239,8 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
       - rec["entry"] / "tp" / "sl" は「AIが出した指値スナップショット」
         → ここでは **絶対に書き換えない**
       - 実際の約定価格・時間は eval_entry_px / eval_entry_ts に入れる。
+      - TP/SL にかからなければ「5営業日目の日足終値」でクローズ。
     """
-    # もとの dict を壊さないようにコピーしてから更新
     out = dict(rec)
 
     code = str(rec.get("code"))
@@ -219,14 +257,14 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
 
     trade_d = _parse_trade_date(rec)
 
+    # まず 5分足を取得（TP/SL 判定用）
     try:
-        df = load_5m_bars(code, trade_d, horizon_days)
+        df_5m = load_5m_bars(code, trade_d, horizon_days)
     except Exception:
-        # データ取得に失敗した場合は eval_horizon_days だけ付与して何もしない。
         out["eval_horizon_days"] = horizon_days
         return out
 
-    if df.empty:
+    if df_5m.empty:
         out["eval_horizon_days"] = horizon_days
         return out
 
@@ -237,36 +275,33 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
     entry_px: Optional[float] = None
 
     if ai_entry_px is None:
-        # 指値自体が無いならそもそもエントリー無し
+        # 指値自体が無い
         entry_ts = None
         entry_px = None
     else:
-        # 寄り（その日の最初のバー）
-        first = df.iloc[0]
+        first = df_5m.iloc[0]
         open_px = float(first["open"])
         open_ts = first["ts"].to_pydatetime()
 
-        # BUY 指値の基本ルール
-        #   - 指値 >= 寄り → 寄り成約（オープンで約定）
-        #   - それ以外 → 5分足の高値安値レンジで指値を通過したバーを探す
         if side == "BUY":
+            # BUY 指値
             if ai_entry_px >= open_px:
+                # 指値 >= 寄り → 寄り成約（オープンで約定）
                 entry_ts = open_ts
                 entry_px = open_px
             else:
-                hit = df[(df["low"] <= ai_entry_px) & (df["high"] >= ai_entry_px)]
+                hit = df_5m[(df_5m["low"] <= ai_entry_px) & (df_5m["high"] >= ai_entry_px)]
                 if not hit.empty:
                     bar = hit.iloc[0]
                     entry_ts = bar["ts"].to_pydatetime()
-                    # 指値で約定したとみなす
                     entry_px = ai_entry_px
         else:
-            # SELL（将来用。今は使っていないが一応実装）
+            # SELL（将来用）
             if ai_entry_px <= open_px:
                 entry_ts = open_ts
                 entry_px = open_px
             else:
-                hit = df[(df["high"] >= ai_entry_px) & (df["low"] <= ai_entry_px)]
+                hit = df_5m[(df_5m["high"] >= ai_entry_px) & (df_5m["low"] <= ai_entry_px)]
                 if not hit.empty:
                     bar = hit.iloc[0]
                     entry_ts = bar["ts"].to_pydatetime()
@@ -275,20 +310,32 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
     # ============================================
     # 2) エグジット判定（TP / SL / タイムアップ）
     # ============================================
-    exit_reason = None
+    exit_reason: Optional[str] = None
     exit_ts: Optional[datetime] = None
     exit_px: Optional[float] = None
 
+    # helper: 5営業日目の日足終値を使った horizon close
+    def _horizon_close_with_daily() -> Tuple[Optional[datetime], Optional[float], int]:
+        try:
+            dts, px, eff_days = _pick_horizon_close_daily(code, trade_d, horizon_days)
+            return dts, px, eff_days
+        except Exception:
+            # 日足取得に失敗したら、最後の 5分足クローズで代用
+            last_bar = df_5m.iloc[-1]
+            ts = last_bar["ts"].to_pydatetime()
+            px = float(last_bar["close"])
+            return ts, px, horizon_days
+
     if entry_ts is None or entry_px is None:
-        # 1度も指値に触れなかったケース
-        # → タイムアップ扱い + no_position
-        last_bar = df.iloc[-1]
-        exit_ts = last_bar["ts"].to_pydatetime()
-        exit_px = float(last_bar["close"])
+        # 一度も指値に触れなかったケース
+        # → ルール上は「5営業日目の日足終値でタイムアップ」だが、
+        #    PL は no_position（0）になる。
+        exit_ts, exit_px, eff_days = _horizon_close_with_daily()
         exit_reason = "no_fill"
+        out["eval_horizon_days"] = eff_days
     else:
         # エントリー以降のバーで TP / SL をチェック
-        df_after = df[df["ts"] >= entry_ts]
+        df_after = df_5m[df_5m["ts"] >= entry_ts]
 
         hit_index: Optional[int] = None
         hit_kind: Optional[str] = None
@@ -302,8 +349,6 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
                 bar_ts = row["ts"].to_pydatetime()
 
                 if side == "BUY":
-                    # 先に SL → その後 TP だと「先に当たった方」で決めるので、
-                    # TP/SL の優先順序はここで調整可能（今は TP 優先）
                     if tp is not None and high >= tp:
                         hit_index = i
                         hit_kind = "hit_tp"
@@ -317,7 +362,6 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
                         hit_ts = bar_ts
                         break
                 else:
-                    # SELL の場合（将来用）
                     if tp is not None and low <= tp:
                         hit_index = i
                         hit_kind = "hit_tp"
@@ -332,36 +376,16 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
                         break
 
         if hit_index is not None:
-            # TP / SL 決着
+            # TP / SL どちらかヒット
             exit_reason = hit_kind
             exit_px = hit_px
             exit_ts = hit_ts
+            out["eval_horizon_days"] = horizon_days
         else:
-            # TP / SL どちらも当たらず
-            # → ルール通り「5営業日目の日足終値」でクローズ
-            try:
-                daily_close_px, daily_close_date = _load_daily_close_for_horizon(
-                    code=code,
-                    trade_date=trade_d,
-                    horizon_days=horizon_days,
-                )
-                exit_reason = "horizon_close"
-                exit_px = daily_close_px
-
-                # 表示用の時刻は 15:20 固定（JST）
-                jst = timezone.get_default_timezone()
-                raw_dt = datetime.combine(daily_close_date, time(15, 20))
-                if timezone.is_naive(raw_dt):
-                    exit_ts = jst.localize(raw_dt)
-                else:
-                    exit_ts = raw_dt.astimezone(jst)
-            except Exception:
-                # 日足が何らかの理由で取れない場合は、従来どおり
-                # 「最後の 5分足クローズ」をフォールバックとして使用
-                last_bar = df_after.iloc[-1]
-                exit_reason = "horizon_close"
-                exit_px = float(last_bar["close"])
-                exit_ts = last_bar["ts"].to_pydatetime()
+            # TP / SL どちらも当たらず → 5営業日目「日足終値」で決済
+            exit_ts, exit_px, eff_days = _horizon_close_with_daily()
+            exit_reason = "horizon_close"
+            out["eval_horizon_days"] = eff_days
 
     # ============================================
     # 3) PL / ラベル計算
@@ -377,20 +401,14 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
     out["eval_label_matsui"] = label_m
     out["eval_pl_matsui"] = pl_m
 
-    # 共通の情報
     out["eval_close_px"] = exit_px
     out["eval_close_date"] = exit_ts.date().isoformat() if exit_ts else None
-    out["eval_horizon_days"] = horizon_days
     out["eval_exit_reason"] = exit_reason
     out["eval_entry_px"] = entry_px
     out["eval_entry_ts"] = _to_iso(entry_ts)
     out["eval_exit_ts"] = _to_iso(exit_ts)
 
-    # UI 用に「楽天／松井をまとめたラベル」を作っておくと便利
-    # - 両方 no_position         → "skip"（指値未ヒット）
-    # - どちらか win どちらか負け → "mixed"
-    # - どちらかでも win         → "win"
-    # - 両方負け                  → "lose"
+    # UI 用まとめラベル
     combined = "unknown"
     labels = {label_r, label_m}
     if labels <= {"no_position"}:
