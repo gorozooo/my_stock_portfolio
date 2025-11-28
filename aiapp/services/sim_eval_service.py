@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, time
 from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
@@ -37,7 +37,7 @@ def _yf_symbol(code: str) -> str:
 
 def _pick_price_col(df: pd.DataFrame, name: str) -> pd.Series:
     """
-    yfinance の 5分足 DataFrame から open/high/low/close を取り出す。
+    yfinance の DataFrame から open/high/low/close を取り出す。
     MultiIndex 列 (('Open', 'xxx'), ...) にも対応する。
     """
     target = None
@@ -102,6 +102,54 @@ def load_5m_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame
     ).reset_index(drop=True)
 
     return out
+
+
+def _load_daily_close_for_horizon(
+    code: str,
+    trade_date: date,
+    horizon_days: int,
+) -> Tuple[float, date]:
+    """
+    5営業日目の日足終値を取得する。
+
+    - trade_date 当日を 1 営業日目としてカウント
+    - その日以降の「日足バー」を順番に数えて horizon_days 番目を採用
+    - 取得できるバーが少ない場合は「最後のバー」を採用（フォールバック）
+    """
+    symbol = _yf_symbol(code)
+
+    start_dt = datetime.combine(trade_date, datetime.min.time())
+    # 祝日などを考えて少し余裕をもって取る
+    end_dt = start_dt + timedelta(days=horizon_days * 2)
+
+    df = yf.download(
+        symbol,
+        interval="1d",
+        start=start_dt,
+        end=end_dt,
+        progress=False,
+    )
+    if df is None or df.empty:
+        raise ValueError(f"no 1d data for {code}")
+
+    close_s = _pick_price_col(df, "close")
+
+    rows = []
+    for idx, val in close_s.items():
+        d = idx.date()
+        if d >= trade_date:
+            rows.append((d, float(val)))
+
+    if not rows:
+        raise ValueError(f"no daily bars on/after trade_date for {code}")
+
+    if len(rows) >= horizon_days:
+        exit_date, exit_px = rows[horizon_days - 1]
+    else:
+        # データ不足時は最後のバーを使用（フォールバック）
+        exit_date, exit_px = rows[-1]
+
+    return exit_px, exit_date
 
 
 def _label_and_pl(
@@ -284,15 +332,36 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
                         break
 
         if hit_index is not None:
+            # TP / SL 決着
             exit_reason = hit_kind
             exit_px = hit_px
             exit_ts = hit_ts
         else:
-            # TP / SL どちらも当たらず → horizon_close
-            last_bar = df_after.iloc[-1]
-            exit_reason = "horizon_close"
-            exit_px = float(last_bar["close"])
-            exit_ts = last_bar["ts"].to_pydatetime()
+            # TP / SL どちらも当たらず
+            # → ルール通り「5営業日目の日足終値」でクローズ
+            try:
+                daily_close_px, daily_close_date = _load_daily_close_for_horizon(
+                    code=code,
+                    trade_date=trade_d,
+                    horizon_days=horizon_days,
+                )
+                exit_reason = "horizon_close"
+                exit_px = daily_close_px
+
+                # 表示用の時刻は 15:20 固定（JST）
+                jst = timezone.get_default_timezone()
+                raw_dt = datetime.combine(daily_close_date, time(15, 20))
+                if timezone.is_naive(raw_dt):
+                    exit_ts = jst.localize(raw_dt)
+                else:
+                    exit_ts = raw_dt.astimezone(jst)
+            except Exception:
+                # 日足が何らかの理由で取れない場合は、従来どおり
+                # 「最後の 5分足クローズ」をフォールバックとして使用
+                last_bar = df_after.iloc[-1]
+                exit_reason = "horizon_close"
+                exit_px = float(last_bar["close"])
+                exit_ts = last_bar["ts"].to_pydatetime()
 
     # ============================================
     # 3) PL / ラベル計算
