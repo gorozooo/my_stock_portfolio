@@ -75,6 +75,7 @@ def load_5m_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame
         start=start_dt,
         end=end_dt,
         progress=False,
+        auto_adjust=False,  # ★ 生のOHLCに固定
     )
     if df is None or df.empty:
         raise ValueError(f"no 5m data for {code}")
@@ -121,6 +122,7 @@ def load_1d_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame
         start=start_dt,
         end=end_dt,
         progress=False,
+        auto_adjust=False,  # ★ 日足も同様に調整なし
     )
     if df is None or df.empty:
         raise ValueError(f"no 1d data for {code}")
