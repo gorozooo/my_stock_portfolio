@@ -172,31 +172,19 @@
     backdrop-filter:blur(10px);
   }
 
-  /* ===== ヘッダー部分 ===== */
+  /* ===== 上部レイアウト ===== */
   .row-top{
     display:flex;
     justify-content:space-between;
     align-items:flex-start;
     gap:8px;
-    margin-bottom:6px;
   }
+
   .code-name{
     min-width:0;
     flex:1;
   }
-  .code{
-    font-size:13px;
-    color:var(--sub);
-    margin-bottom:2px;
-  }
-  .name{
-    font-size:15px;
-    font-weight:600;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-    max-width:22ch;
-  }
+
   .ts-badge{
     flex-shrink:0;
     font-size:11px;
@@ -204,19 +192,34 @@
     text-align:right;
   }
 
-  .mode-row{
-    display:flex;
-    flex-wrap:wrap;
-    align-items:center;
-    gap:6px;
-    margin-top:4px;
+  .code{
+    font-size:13px;
+    color:var(--sub);
+    margin-bottom:2px;
   }
+
+  .name{
+    font-size:15px;
+    font-weight:600;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:clip;
+    max-width:22ch;
+  }
+
+  .entry-info{
+    margin-top:4px;
+    font-size:11px;
+    color:var(--sub);
+  }
+
   .mode-badge{
     display:inline-block;
     font-size:11px;
     padding:2px 8px;
     border-radius:999px;
     border:1px solid rgba(148,163,184,0.8);
+    margin-top:4px;
   }
   .mode-demo{
     background:rgba(59,130,246,0.18);
@@ -226,79 +229,148 @@
     background:rgba(22,163,74,0.18);
     color:#bbf7d0;
   }
-  .pill-status{
-    font-size:11px;
-    padding:2px 8px;
-    border-radius:999px;
-    border:1px solid rgba(148,163,184,0.7);
-  }
-  .pill-win{background:rgba(34,197,94,0.18);border-color:rgba(34,197,94,0.8);color:#bbf7d0;}
-  .pill-lose{background:rgba(248,113,113,0.18);border-color:rgba(248,113,113,0.9);color:#fecaca;}
-  .pill-flat{background:rgba(148,163,184,0.18);border-color:rgba(148,163,184,0.9);color:#e5e7eb;}
-  .pill-skip{background:rgba(15,23,42,0.9);border-color:rgba(148,163,184,0.7);color:#9ca3af;}
 
-  /* ===== 本体 2カラム ===== */
-  .panels{
-    margin-top:8px;
+  /* ===== メイン2カラム（左：AIスナップ / 右：シミュ結果） ===== */
+  .body-cols{
     display:grid;
-    grid-template-columns:repeat(2,minmax(0,1fr));
+    grid-template-columns:minmax(0,1.05fr) minmax(0,1.1fr);
     gap:8px;
+    margin-top:8px;
   }
-  @media (max-width: 480px){
-    .panels{grid-template-columns:1fr;}
-  }
-  .panel{
+
+  .ai-box,
+  .real-box{
+    padding:8px 8px 7px;
     border-radius:10px;
-    background:rgba(15,23,42,0.95);
+    background:rgba(15,23,42,0.96);
     border:1px solid rgba(30,64,175,0.6);
-    padding:8px 9px;
-    font-size:12px;
+    font-size:11px;
   }
-  .panel-title{
+
+  .ai-title,
+  .real-title{
     font-size:11px;
     font-weight:600;
-    margin-bottom:2px;
+    margin-bottom:4px;
+    color:#e5e7eb;
   }
-  .panel-sub{
+  .ai-title-sub{
     font-size:10px;
     color:var(--sub);
-    margin-bottom:6px;
+    margin-bottom:4px;
   }
-  .row{
+
+  .ai-row,
+  .real-row{
     display:flex;
     justify-content:space-between;
+    align-items:flex-start;
+    gap:4px;
     margin-top:2px;
   }
-  .row-label{
-    font-size:11px;
+  .ai-label,
+  .real-label{
     color:var(--muted);
+    font-size:11px;
   }
-  .row-val{
-    font-size:12px;
+  .ai-val,
+  .real-val{
     font-variant-numeric:tabular-nums;
+    font-size:11px;
+    text-align:right;
   }
-  .row-val.pos{color:var(--ok);}
-  .row-val.neg{color:var(--bad);}
 
-  .panel-section{
-    margin-top:6px;
+  .ai-section{
+    margin-top:4px;
     padding-top:4px;
     border-top:1px dashed rgba(148,163,184,0.4);
   }
-  .panel-section-title{
-    font-size:11px;
-    color:var(--sub);
+
+  /* 想定PL */
+  .ai-val.pos{color:var(--ok);}
+  .ai-val.neg{color:var(--bad);}
+
+  /* シミュ結果 内部 */
+  .real-head{
+    display:flex;
+    justify-content:space-between;
+    gap:4px;
+    align-items:flex-start;
     margin-bottom:2px;
   }
-
-  .result-summary{
-    margin-top:8px;
-    padding:6px 8px;
-    border-radius:10px;
-    background:rgba(15,23,42,0.9);
-    border:1px dashed rgba(148,163,184,0.6);
-    font-size:11px;
+  .real-meta{
+    font-size:10px;
     color:var(--sub);
+    text-align:right;
+  }
+
+  .real-section{
+    margin-top:4px;
+    padding-top:4px;
+    border-top:1px dashed rgba(148,163,184,0.5);
+  }
+
+  .real-note{
+    font-size:10px;
+    color:var(--sub);
+    margin-top:2px;
+  }
+
+  .real-pl-wrap{
+    margin-top:4px;
+  }
+  .real-pl-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-top:2px;
+  }
+  .result-pl{
+    font-variant-numeric:tabular-nums;
+    font-size:12px;
+  }
+  .result-pl.pos{color:var(--ok);}
+  .result-pl.neg{color:var(--bad);}
+
+  .result-badge{
+    font-size:10px;
+    padding:2px 6px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.6);
+  }
+  .result-badge-win{
+    background:rgba(34,197,94,0.2);
+    border-color:rgba(34,197,94,0.8);
+    color:#bbf7d0;
+  }
+  .result-badge-lose{
+    background:rgba(248,113,113,0.18);
+    border-color:rgba(248,113,113,0.9);
+    color:#fecaca;
+  }
+  .result-badge-flat{
+    background:rgba(148,163,184,0.2);
+    border-color:rgba(148,163,184,0.9);
+    color:#e5e7eb;
+  }
+  .result-badge-none{
+    background:rgba(15,23,42,0.9);
+    border-color:rgba(148,163,184,0.6);
+    color:#9ca3af;
+  }
+
+  /* ヘッダー側の成績バッジ */
+  .head-result-chip{
+    margin-top:4px;
+  }
+
+  .empty{
+    margin-top:16px;
+    padding:16px;
+    border-radius:12px;
+    border:1px dashed rgba(148,163,184,0.6);
+    font-size:13px;
+    color:#cbd5f5;
   }
 
   .delete-row{
@@ -309,15 +381,6 @@
     font-size:11px;
     color:#fca5a5;
     text-decoration:none;
-  }
-
-  .empty{
-    margin-top:16px;
-    padding:16px;
-    border-radius:12px;
-    border:1px dashed rgba(148,163,184,0.6);
-    font-size:13px;
-    color:#cbd5f5;
   }
 </style>
 {% endblock %}
@@ -345,11 +408,19 @@
         </div>
       </div>
       <div class="summary-counts">
-        <div class="summary-count"><span class="label">勝ち</span>{{ summary.win }}件</div>
-        <div class="summary-count"><span class="label">負け</span>{{ summary.lose }}件</div>
-        <div class="summary-count"><span class="label">見送り</span>{{ summary.skip }}件</div>
+        <div class="summary-count">
+          <span class="label">勝ち</span>{{ summary.win }}件
+        </div>
+        <div class="summary-count">
+          <span class="label">負け</span>{{ summary.lose }}件
+        </div>
+        <div class="summary-count">
+          <span class="label">見送り</span>{{ summary.skip }}件
+        </div>
         {% if summary.flat %}
-          <div class="summary-count"><span class="label">引き分け</span>{{ summary.flat }}件</div>
+          <div class="summary-count">
+            <span class="label">引き分け</span>{{ summary.flat }}件
+          </div>
         {% endif %}
       </div>
       <div class="summary-pl">
@@ -370,19 +441,25 @@
           <input type="hidden" name="period" value="{{ period }}">
           <input type="hidden" name="q" value="{{ q }}">
           <button type="submit" name="mode" value="all"
-                  class="chip-btn {% if mode == 'all' %}active{% endif %}">ALL</button>
+                  class="chip-btn {% if mode == 'all' %}active{% endif %}">
+            ALL
+          </button>
         </form>
         <form method="get" class="chip-form">
           <input type="hidden" name="period" value="{{ period }}">
           <input type="hidden" name="q" value="{{ q }}">
           <button type="submit" name="mode" value="live"
-                  class="chip-btn {% if mode == 'live' %}active{% endif %}">LIVE</button>
+                  class="chip-btn {% if mode == 'live' %}active{% endif %}">
+            LIVE
+          </button>
         </form>
         <form method="get" class="chip-form">
           <input type="hidden" name="period" value="{{ period }}">
           <input type="hidden" name="q" value="{{ q }}">
           <button type="submit" name="mode" value="demo"
-                  class="chip-btn {% if mode == 'demo' %}active{% endif %}">DEMO</button>
+                  class="chip-btn {% if mode == 'demo' %}active{% endif %}">
+            DEMO
+          </button>
         </form>
       </div>
     </div>
@@ -395,19 +472,25 @@
           <input type="hidden" name="mode" value="{{ mode }}">
           <input type="hidden" name="q" value="{{ q }}">
           <button type="submit" name="period" value="today"
-                  class="chip-btn {% if period == 'today' %}active{% endif %}">今日</button>
+                  class="chip-btn {% if period == 'today' %}active{% endif %}">
+            今日
+          </button>
         </form>
         <form method="get" class="chip-form">
           <input type="hidden" name="mode" value="{{ mode }}">
           <input type="hidden" name="q" value="{{ q }}">
           <button type="submit" name="period" value="7d"
-                  class="chip-btn {% if period == '7d' %}active{% endif %}">7日</button>
+                  class="chip-btn {% if period == '7d' %}active{% endif %}">
+            7日
+          </button>
         </form>
         <form method="get" class="chip-form">
           <input type="hidden" name="mode" value="{{ mode }}">
           <input type="hidden" name="q" value="{{ q }}">
           <button type="submit" name="period" value="30d"
-                  class="chip-btn {% if period == '30d' %}active{% endif %}">30日</button>
+                  class="chip-btn {% if period == '30d' %}active{% endif %}">
+            30日
+          </button>
         </form>
       </div>
     </div>
@@ -437,74 +520,94 @@
               <div class="name">
                 {{ e.name|default:"(名称不明)" }}
               </div>
-              <div class="mode-row">
-                {% if e.mode %}
-                  {% if e.mode == "live" %}
-                    <span class="mode-badge mode-live">LIVE シミュレ</span>
-                  {% else %}
-                    <span class="mode-badge mode-demo">DEMO シミュレ</span>
-                  {% endif %}
-                {% endif %}
 
-                {# ステータスピル（タイムアップは専用） #}
-                {% if e.exit_reason == "horizon_close" %}
-                  <span class="pill-status pill-flat">タイムアップ</span>
+              {# ★ 上段のエントリー行は削除：詳細はボックス内で表示 #}
+
+              {% if e.mode %}
+                {% if e.mode == "live" %}
+                  <div class="mode-badge mode-live">LIVE シミュレ</div>
                 {% else %}
-                  {% if e.combined_label == "win" %}
-                    <span class="pill-status pill-win">勝ち</span>
-                  {% elif e.combined_label == "lose" %}
-                    <span class="pill-status pill-lose">負け</span>
-                  {% elif e.combined_label == "flat" %}
-                    <span class="pill-status pill-flat">引き分け</span>
-                  {% elif e.combined_label == "skip" %}
-                    <span class="pill-status pill-skip">見送り</span>
-                  {% endif %}
+                  <div class="mode-badge mode-demo">DEMO シミュレ</div>
                 {% endif %}
-              </div>
+              {% endif %}
+
+              {% if e.combined_label %}
+                <div class="head-result-chip">
+                  <span class="result-badge
+                    {% if e.combined_label == 'win' %}
+                      result-badge-win
+                    {% elif e.combined_label == 'lose' %}
+                      result-badge-lose
+                    {% elif e.combined_label == 'flat' %}
+                      result-badge-flat
+                    {% else %}
+                      result-badge-none
+                    {% endif %}
+                  ">
+                    {% if e.combined_label == 'win' %}
+                      勝ち
+                    {% elif e.combined_label == 'lose' %}
+                      負け
+                    {% elif e.combined_label == 'flat' %}
+                      引き分け
+                    {% elif e.combined_label == 'skip' %}
+                      見送り
+                    {% else %}
+                      -
+                    {% endif %}
+                  </span>
+                </div>
+              {% endif %}
             </div>
+
             <div class="ts-badge">
               {{ e.ts_label|default:e.ts }}
             </div>
           </div>
 
-          <div class="panels">
-            <!-- 左：AIスナップ -->
-            <div class="panel">
-              <div class="panel-title">AIスナップ（注文イメージ）</div>
-              <div class="panel-sub">
+          <div class="body-cols">
+            <!-- ===== 左：AIスナップ（注文イメージ） ===== -->
+            <div class="ai-box">
+              <div class="ai-title">AIスナップ（注文イメージ）</div>
+              <div class="ai-title-sub">
                 シミュレ登録時点の AI 提案値（固定スナップショット）
               </div>
 
-              <div class="row">
-                <div class="row-label">エントリー指値</div>
-                <div class="row-val">
+              <div class="ai-row">
+                <div class="ai-label">エントリー指値</div>
+                <div class="ai-val">
                   {% if e.entry %}
                     {{ e.entry|floatformat:0|intcomma }} 円
-                  {% else %}—{% endif %}
+                  {% else %}
+                    —
+                  {% endif %}
                 </div>
               </div>
-              <div class="row">
-                <div class="row-label">TP</div>
-                <div class="row-val">
+              <div class="ai-row">
+                <div class="ai-label">TP</div>
+                <div class="ai-val">
                   {% if e.tp %}
                     {{ e.tp|floatformat:0|intcomma }} 円
-                  {% else %}—{% endif %}
+                  {% else %}
+                    —
+                  {% endif %}
                 </div>
               </div>
-              <div class="row">
-                <div class="row-label">SL</div>
-                <div class="row-val">
+              <div class="ai-row">
+                <div class="ai-label">SL</div>
+                <div class="ai-val">
                   {% if e.sl %}
                     {{ e.sl|floatformat:0|intcomma }} 円
-                  {% else %}—{% endif %}
+                  {% else %}
+                    —
+                  {% endif %}
                 </div>
               </div>
 
-              <div class="panel-section">
-                <div class="panel-section-title">数量（AI 想定）</div>
-                <div class="row">
-                  <div class="row-label">楽天</div>
-                  <div class="row-val">
+              <div class="ai-section">
+                <div class="ai-row">
+                  <div class="ai-label">数量（AI想定・楽天）</div>
+                  <div class="ai-val">
                     {% if e.qty_rakuten %}
                       {{ e.qty_rakuten|floatformat:0|intcomma }} 株
                     {% else %}
@@ -512,9 +615,9 @@
                     {% endif %}
                   </div>
                 </div>
-                <div class="row">
-                  <div class="row-label">松井</div>
-                  <div class="row-val">
+                <div class="ai-row">
+                  <div class="ai-label">数量（AI想定・松井）</div>
+                  <div class="ai-val">
                     {% if e.qty_matsui %}
                       {{ e.qty_matsui|floatformat:0|intcomma }} 株
                     {% else %}
@@ -524,11 +627,10 @@
                 </div>
               </div>
 
-              <div class="panel-section">
-                <div class="panel-section-title">想定利益 / 損失</div>
-                <div class="row">
-                  <div class="row-label">想定利益（楽天）</div>
-                  <div class="row-val pos">
+              <div class="ai-section">
+                <div class="ai-row">
+                  <div class="ai-label">想定利益（楽天）</div>
+                  <div class="ai-val pos">
                     {% if e.est_pl_rakuten %}
                       +{{ e.est_pl_rakuten|floatformat:0|intcomma }} 円
                     {% else %}
@@ -536,19 +638,9 @@
                     {% endif %}
                   </div>
                 </div>
-                <div class="row">
-                  <div class="row-label">想定損失（楽天）</div>
-                  <div class="row-val neg">
-                    {% if e.est_loss_rakuten %}
-                      -{{ e.est_loss_rakuten|floatformat:0|intcomma }} 円
-                    {% else %}
-                      0 円
-                    {% endif %}
-                  </div>
-                </div>
-                <div class="row">
-                  <div class="row-label">想定利益（松井）</div>
-                  <div class="row-val pos">
+                <div class="ai-row">
+                  <div class="ai-label">想定利益（松井）</div>
+                  <div class="ai-val pos">
                     {% if e.est_pl_matsui %}
                       +{{ e.est_pl_matsui|floatformat:0|intcomma }} 円
                     {% else %}
@@ -556,9 +648,19 @@
                     {% endif %}
                   </div>
                 </div>
-                <div class="row">
-                  <div class="row-label">想定損失（松井）</div>
-                  <div class="row-val neg">
+                <div class="ai-row">
+                  <div class="ai-label">想定損失（楽天）</div>
+                  <div class="ai-val neg">
+                    {% if e.est_loss_rakuten %}
+                      -{{ e.est_loss_rakuten|floatformat:0|intcomma }} 円
+                    {% else %}
+                      0 円
+                    {% endif %}
+                  </div>
+                </div>
+                <div class="ai-row">
+                  <div class="ai-label">想定損失（松井）</div>
+                  <div class="ai-val neg">
                     {% if e.est_loss_matsui %}
                       -{{ e.est_loss_matsui|floatformat:0|intcomma }} 円
                     {% else %}
@@ -569,130 +671,177 @@
               </div>
             </div>
 
-            <!-- 右：シミュ結果 -->
-            <div class="panel">
-              <div class="panel-title">
-                シミュ結果（{{ e.eval_horizon_days|default:"?" }}営業日後）
-              </div>
-              <div class="panel-sub">
-                {% if e.eval_close_date %}
-                  {{ e.eval_close_date }}・決済価格
+            <!-- ===== 右：シミュ結果（実際の約定＆PL） ===== -->
+            <div class="real-box">
+              <div class="real-head">
+                <div class="real-title">
+                  シミュ結果{% if e.eval_horizon_days %}（{{ e.eval_horizon_days }}営業日後）{% endif %}
+                </div>
+                <div class="real-meta">
+                  {% if e.eval_close_date %}
+                    {{ e.eval_close_date }}
+                  {% endif %}
                   {% if e.eval_close_px %}
-                    {{ e.eval_close_px|floatformat:0|intcomma }} 円
-                  {% else %}—{% endif %}
+                    ・決済価格 {{ e.eval_close_px|floatformat:0|intcomma }} 円
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="real-section">
+                <div class="real-label">エントリー（実際）</div>
+                {% if e.eval_entry_px %}
+                  <div class="real-row">
+                    <div class="real-label">約定価格</div>
+                    <div class="real-val">
+                      {{ e.eval_entry_px|floatformat:0|intcomma }} 円
+                    </div>
+                  </div>
+                  <div class="real-row">
+                    <div class="real-label">約定数量</div>
+                    <div class="real-val">
+                      楽天
+                      {% if e.eval_label_rakuten and e.eval_label_rakuten != 'no_position' %}
+                        {{ e.qty_rakuten|default:0|floatformat:0|intcomma }} 株
+                      {% else %}
+                        0 株
+                      {% endif %}
+                      ／ 松井
+                      {% if e.eval_label_matsui and e.eval_label_matsui != 'no_position' %}
+                        {{ e.qty_matsui|default:0|floatformat:0|intcomma }} 株
+                      {% else %}
+                        0 株
+                      {% endif %}
+                    </div>
+                  </div>
+                  {% if e.entry_label %}
+                    <div class="real-note">約定時刻：{{ e.entry_label }}</div>
+                  {% endif %}
+                {% else %}
+                  <div class="real-note">
+                    未約定（指値に一度も触れず / ポジションなし）
+                  </div>
                 {% endif %}
               </div>
 
-              <div class="panel-section">
-                <div class="panel-section-title">エントリー（実際）</div>
-                <div class="row">
-                  <div class="row-label">約定価格</div>
-                  <div class="row-val">
-                    {% if e.eval_entry_px %}
-                      {{ e.eval_entry_px|floatformat:0|intcomma }} 円
-                    {% elif e.entry %}
-                      {{ e.entry|floatformat:0|intcomma }} 円
-                    {% else %}
-                      —
-                    {% endif %}
+              <div class="real-section">
+                <div class="real-label">決済</div>
+                {% if e.exit_reason_label %}
+                  <div class="real-note">
+                    評価結果：{{ e.exit_reason_label }}
+                    {% if e.exit_label %}（{{ e.exit_label }}）{% endif %}
                   </div>
-                </div>
-                <div class="row">
-                  <div class="row-label">楽天数量</div>
-                  <div class="row-val">
-                    {% if e.qty_rakuten %}
-                      {{ e.qty_rakuten|floatformat:0|intcomma }} 株
-                    {% else %}0 株{% endif %}
+                {% elif e.eval_exit_reason %}
+                  <div class="real-note">
+                    評価結果：{{ e.eval_exit_reason }}
                   </div>
-                </div>
-                <div class="row">
-                  <div class="row-label">松井数量</div>
-                  <div class="row-val">
-                    {% if e.qty_matsui %}
-                      {{ e.qty_matsui|floatformat:0|intcomma }} 株
-                    {% else %}0 株{% endif %}
+                {% else %}
+                  <div class="real-note">
+                    まだ評価が実行されていません（ai_sim_eval 未実行）
                   </div>
-                </div>
-                <div class="row">
-                  <div class="row-label">約定時刻</div>
-                  <div class="row-val">
-                    {% if e.entry_label %}
-                      {{ e.entry_label }}
-                    {% else %}
-                      —
-                    {% endif %}
+                {% endif %}
+
+                {% if e.eval_close_px %}
+                  <div class="real-row">
+                    <div class="real-label">決済価格</div>
+                    <div class="real-val">
+                      {{ e.eval_close_px|floatformat:0|intcomma }} 円
+                    </div>
                   </div>
-                </div>
+                {% endif %}
+
+                {% if e.exit_label %}
+                  <div class="real-note">
+                    決済時刻：{{ e.exit_label }}
+                  </div>
+                {% endif %}
               </div>
 
-              <div class="panel-section">
-                <div class="panel-section-title">決済</div>
-                <div class="row">
-                  <div class="row-label">評価結果</div>
-                  <div class="row-val">
-                    {% if e.combined_label == "skip" %}
-                      指値に一度も触れなかった
-                    {% else %}
-                      {% if e.exit_reason == "horizon_close" %}
-                        タイムアップ
-                      {% elif e.exit_reason == "hit_tp" %}
-                        利確
-                      {% elif e.exit_reason == "hit_sl" %}
-                        損切
-                      {% elif e.exit_reason_label %}
-                        {{ e.exit_reason_label }}
+              <div class="real-pl-wrap">
+                <div class="real-pl-row">
+                  <div class="real-label">楽天</div>
+                  <div>
+                    <span class="result-pl
+                      {% if e.eval_label_rakuten == 'win' %}pos{% elif e.eval_label_rakuten == 'lose' %}neg{% endif %}">
+                      {% if e.eval_pl_rakuten or e.eval_pl_rakuten == 0 %}
+                        {{ e.eval_pl_rakuten|floatformat:0|intcomma }} 円
                       {% else %}
-                        -
+                        0 円
                       {% endif %}
-                      {% if e.exit_label %}（{{ e.exit_label }}）{% endif %}
-                    {% endif %}
-                  </div>
-                </div>
-                <div class="row">
-                  <div class="row-label">決済時刻</div>
-                  <div class="row-val">
-                    {% if e.exit_label %}
-                      {{ e.exit_label }}
+                    </span>
+                    {% if e.eval_exit_reason == 'horizon_close' %}
+                      <span class="result-badge result-badge-flat">
+                        タイムアップ
+                      </span>
                     {% else %}
-                      —
+                      <span class="result-badge
+                        {% if e.eval_label_rakuten == 'win' %}
+                          result-badge-win
+                        {% elif e.eval_label_rakuten == 'lose' %}
+                          result-badge-lose
+                        {% elif e.eval_label_rakuten == 'flat' %}
+                          result-badge-flat
+                        {% else %}
+                          result-badge-none
+                        {% endif %}">
+                        {% if e.eval_label_rakuten == 'win' %}
+                          勝ち
+                        {% elif e.eval_label_rakuten == 'lose' %}
+                          負け
+                        {% elif e.eval_label_rakuten == 'flat' %}
+                          引き分け
+                        {% elif e.eval_label_rakuten == 'no_position' %}
+                          ポジションなし
+                        {% else %}
+                          ポジションなし
+                        {% endif %}
+                      </span>
                     {% endif %}
                   </div>
                 </div>
-              </div>
 
-              <div class="panel-section">
-                <div class="panel-section-title">損益（実際）</div>
-                <div class="row">
-                  <div class="row-label">楽天</div>
-                  <div class="row-val
-                    {% if e.eval_pl_rakuten > 0 %}pos{% elif e.eval_pl_rakuten < 0 %}neg{% endif %}">
-                    {% if e.eval_pl_rakuten or e.eval_pl_rakuten == 0 %}
-                      {{ e.eval_pl_rakuten|floatformat:0|intcomma }} 円
+                <div class="real-pl-row">
+                  <div class="real-label">松井</div>
+                  <div>
+                    <span class="result-pl
+                      {% if e.eval_label_matsui == 'win' %}pos{% elif e.eval_label_matsui == 'lose' %}neg{% endif %}">
+                      {% if e.eval_pl_matsui or e.eval_pl_matsui == 0 %}
+                        {{ e.eval_pl_matsui|floatformat:0|intcomma }} 円
+                      {% else %}
+                        0 円
+                      {% endif %}
+                    </span>
+                    {% if e.eval_exit_reason == 'horizon_close' %}
+                      <span class="result-badge result-badge-flat">
+                        タイムアップ
+                      </span>
                     {% else %}
-                      0 円
-                    {% endif %}
-                  </div>
-                </div>
-                <div class="row">
-                  <div class="row-label">松井</div>
-                  <div class="row-val
-                    {% if e.eval_pl_matsui > 0 %}pos{% elif e.eval_pl_matsui < 0 %}neg{% endif %}">
-                    {% if e.eval_pl_matsui or e.eval_pl_matsui == 0 %}
-                      {{ e.eval_pl_matsui|floatformat:0|intcomma }} 円
-                    {% else %}
-                      0 円
+                      <span class="result-badge
+                        {% if e.eval_label_matsui == 'win' %}
+                          result-badge-win
+                        {% elif e.eval_label_matsui == 'lose' %}
+                          result-badge-lose
+                        {% elif e.eval_label_matsui == 'flat' %}
+                          result-badge-flat
+                        {% else %}
+                          result-badge-none
+                        {% endif %}">
+                        {% if e.eval_label_matsui == 'win' %}
+                          勝ち
+                        {% elif e.eval_label_matsui == 'lose' %}
+                          負け
+                        {% elif e.eval_label_matsui == 'flat' %}
+                          引き分け
+                        {% elif e.eval_label_matsui == 'no_position' %}
+                          ポジションなし
+                        {% else %}
+                          ポジションなし
+                        {% endif %}
+                      </span>
                     {% endif %}
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-
-          <div class="result-summary">
-            想定と実績のズレは、<br>
-            ・想定 = 「指値 / TP / SL で理論どおり約定した場合」<br>
-            ・実績 = 「5分足ベースで実際に約定した価格」<br>
-            なので、ギャップアップ・ダウンなどで差が出ることがあります。
           </div>
 
           <div class="delete-row">
