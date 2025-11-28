@@ -36,36 +36,38 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
     - /media/aiapp/simulate/*.jsonl を全部読む
     - ログインユーザーの分だけ抽出
     - ts 降順でソート
-    - mode / 期間 / 銘柄コード・名称でフィルタ
-    - 最大100件まで表示
+    - モード / 日付 / 銘柄コード・名称でフィルタ
+    - 1日分だけ表示（最大100件）
 
-    ★ 追加仕様
+    ★ 重複除外仕様
       「同じ銘柄・同じ内容のシミュレは、同じ日付内で重複させない」
       → 同じ日・同じ code・同じ mode・同じエントリー/数量/想定PL・想定損失・TP・SL は
          最初の1件だけ残し、以降は一覧から除外する。
 
-    ★ スナップショット仕様（レベル3前提）
+    ★ スナップショット仕様
       - entry / tp / sl をその時点の値で固定保存
       - qty_rakuten / qty_matsui
       - est_pl_rakuten / est_loss_rakuten / est_pl_matsui / est_loss_matsui
       - price_date / ts など
+
+    ★ KPI
+      - summary_today: 今日の全ログベース（モードや画面フィルタとは無関係）
+      - summary_total: 全期間の全ログベース（通算成績）
     """
 
     user = request.user
     sim_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "simulate"
 
     # ---- フィルタ値（クエリパラメータ） ------------------------------
-    # mode: all / live / demo
+    # mode: all / live / demo （一覧表示用のフィルタ）
     mode = (request.GET.get("mode") or "all").lower()
     if mode not in ("all", "live", "demo"):
         mode = "all"
 
-    # period: today / 7d / 30d
-    period = (request.GET.get("period") or "30d").lower()
-    if period not in ("today", "7d", "30d"):
-        period = "30d"
+    # 日付フィルタ: YYYY-MM-DD （一覧表示用）
+    date_str_param = (request.GET.get("date") or "").strip()
 
-    # q: 銘柄コード or 名称の部分一致
+    # q: 銘柄コード or 名称の部分一致（一覧表示用）
     q = (request.GET.get("q") or "").strip()
 
     # ---- JSONL 読み込み ------------------------------------------------
@@ -128,8 +130,9 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
                 elif exit_reason == "hit_sl":
                     exit_reason_label = "損切"
                 elif exit_reason == "horizon_close":
-                    exit_reason_label = "タイムアップ"
-                elif exit_reason == "no_touch":
+                    # タイムアップ → 持ち越し に変更
+                    exit_reason_label = "持ち越し"
+                elif exit_reason in ("no_touch", "no_fill"):
                     exit_reason_label = "指値に一度も触れなかった"
 
                 rec["exit_reason"] = exit_reason
@@ -137,7 +140,7 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
 
                 entries_all.append(rec)
 
-    # ---- ts 降順でソート（従来通り）-----------------------------------
+    # ---- ts 降順でソート ----------------------------------------------
     def _sort_key(r: Dict[str, Any]):
         # _dt があればそれを優先、無ければ ts の文字列
         dt = r.get("_dt")
@@ -147,12 +150,7 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
 
     entries_all.sort(key=_sort_key, reverse=True)
 
-    # ---- ★ 同じ日・同じ内容の重複をまとめる --------------------------
-    #   「同じ銘柄の同じ内容は同日で重複しないようにする」
-    #   → key: (日付, code, mode, entry, tp, sl,
-    #           qty_rakuten, qty_matsui,
-    #           est_pl_rakuten, est_pl_matsui,
-    #           est_loss_rakuten, est_loss_matsui)
+    # ---- 同じ日・同じ内容の重複をまとめる ----------------------------
     deduped: List[Dict[str, Any]] = []
     seen_keys = set()
 
@@ -176,7 +174,6 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         )
 
         if key in seen_keys:
-            # 同じ日・同じ内容が既にあれば後ろの分は捨てる
             continue
 
         seen_keys.add(key)
@@ -185,7 +182,6 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
     entries_all = deduped
 
     # ---- id の付与（削除用の安定したインデックス） ------------------
-    # 既に int の id があればそのまま使い、無ければ 0,1,2,… を振る。
     for idx, e in enumerate(entries_all):
         eid = e.get("id")
         if isinstance(eid, int):
@@ -198,12 +194,147 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
             pass
         e["id"] = idx
 
-    # ---- フィルタ適用 --------------------------------------------------
+    # ---- combined_label を付与（勝ち/負け/引き分け/見送り） ----------
+    for e in entries_all:
+        # 合計株数（0 の場合は完全に見送り）
+        qty_total = 0.0
+        for key in ("qty_rakuten", "qty_matsui"):
+            v = e.get(key)
+            try:
+                if v is not None:
+                    qty_total += float(v)
+            except (TypeError, ValueError):
+                pass
+
+        label_r = e.get("eval_label_rakuten")
+        label_m = e.get("eval_label_matsui")
+
+        labels = set()
+        for lb in (label_r, label_m):
+            if isinstance(lb, str) and lb:
+                labels.add(lb)
+
+        combined = "skip"
+
+        # 完全見送り（数量0 or ラベルなし／no_positionのみ）
+        if qty_total == 0 or not labels or labels.issubset({"no_position"}):
+            combined = "skip"
+        elif "win" in labels:
+            combined = "win"
+        elif "lose" in labels:
+            combined = "lose"
+        elif "flat" in labels:
+            combined = "flat"
+        else:
+            combined = "skip"
+
+        e["combined_label"] = combined
+
     now = timezone.localtime()
+    today_date = now.date()
+
+    # ---- 日付候補リスト（トグル用） -----------------------------------
+    date_set = set()
+    for e in entries_all:
+        dt = e.get("_dt")
+        if isinstance(dt, timezone.datetime):
+            date_set.add(dt.date())
+
+    date_list = sorted(date_set, reverse=True)  # 新しい日付が先頭
+
+    # 選択日付の決定
+    selected_date: Optional[timezone.datetime.date] = None
+    parsed_date: Optional[timezone.datetime.date] = None
+
+    if date_str_param:
+        try:
+            parsed_date = timezone.datetime.strptime(date_str_param, "%Y-%m-%d").date()
+        except Exception:
+            parsed_date = None
+
+    if parsed_date and parsed_date in date_set:
+        selected_date = parsed_date
+    else:
+        if today_date in date_set:
+            selected_date = today_date
+        elif date_list:
+            selected_date = date_list[0]
+        else:
+            selected_date = None
+
+    selected_date_str = selected_date.isoformat() if selected_date else ""
+
+    # テンプレ用の日付トグル候補（最大30日分）
+    date_options: List[Dict[str, str]] = []
+    for d in date_list[:30]:
+        label = d.strftime("%Y-%m-%d")
+        date_options.append({
+            "value": d.isoformat(),
+            "label": label,
+        })
+
+    # ---- KPI集計：今日 & 通算（フィルタとは無関係） -------------------
+    def _accumulate(summary: Dict[str, Any], e: Dict[str, Any]) -> None:
+        total_pl = summary.get("total_pl", 0.0)
+
+        # 合計PL（楽天＋松井）
+        for key in ("eval_pl_rakuten", "eval_pl_matsui"):
+            val = e.get(key)
+            try:
+                if val is not None:
+                    total_pl += float(val)
+            except (TypeError, ValueError):
+                pass
+
+        summary["total_pl"] = total_pl
+
+        combined = e.get("combined_label")
+        if combined == "win":
+            summary["win"] = summary.get("win", 0) + 1
+        elif combined == "lose":
+            summary["lose"] = summary.get("lose", 0) + 1
+        elif combined == "flat":
+            summary["flat"] = summary.get("flat", 0) + 1
+        else:
+            summary["skip"] = summary.get("skip", 0) + 1
+
+    summary_today: Dict[str, Any] = {
+        "win": 0,
+        "lose": 0,
+        "flat": 0,
+        "skip": 0,
+        "total_pl": 0.0,
+        "has_data": False,
+    }
+    summary_total: Dict[str, Any] = {
+        "win": 0,
+        "lose": 0,
+        "flat": 0,
+        "skip": 0,
+        "total_pl": 0.0,
+        "has_data": False,
+    }
+
+    for e in entries_all:
+        dt = e.get("_dt")
+        if isinstance(dt, timezone.datetime) and dt.date() == today_date:
+            _accumulate(summary_today, e)
+        _accumulate(summary_total, e)
+
+    summary_today["has_data"] = (summary_today["win"] +
+                                 summary_today["lose"] +
+                                 summary_today["flat"] +
+                                 summary_today["skip"]) > 0
+    summary_total["has_data"] = (summary_total["win"] +
+                                 summary_total["lose"] +
+                                 summary_total["flat"] +
+                                 summary_total["skip"]) > 0
+
+    # ---- 一覧表示用フィルタ（モード / 日付 / 検索） -------------------
     filtered: List[Dict[str, Any]] = []
 
     for e in entries_all:
-        # 1) mode フィルタ
+        # 1) mode フィルタ（all / live / demo）
         rec_mode = (e.get("mode") or "").lower()
         if mode == "live" and rec_mode != "live":
             continue
@@ -211,24 +342,13 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
             continue
         # mode == "all" のときはスルー
 
-        # 2) 期間フィルタ
+        # 2) 日付フィルタ（選択日と _dt.date が一致するものだけ）
         dt: Optional[timezone.datetime] = e.get("_dt")
-        if period == "today":
+        if selected_date:
             if not isinstance(dt, timezone.datetime):
                 continue
-            if dt.date() != now.date():
+            if dt.date() != selected_date:
                 continue
-        elif period == "7d":
-            if not isinstance(dt, timezone.datetime):
-                continue
-            if dt < now - timezone.timedelta(days=7):
-                continue
-        elif period == "30d":
-            if not isinstance(dt, timezone.datetime):
-                continue
-            if dt < now - timezone.timedelta(days=30):
-                continue
-        # ※ 将来 "all" を作る場合はここに分岐追加
 
         # 3) 銘柄コード / 名称フィルタ
         if q:
@@ -239,92 +359,16 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
 
         filtered.append(e)
 
-    # 最大100件に制限
+    # 最大100件に制限（1日20件程度想定だが安全のため）
     entries = filtered[:100]
-
-    # ---- サマリー集計（その日の AI 成績バー用） -----------------------
-    summary: Dict[str, Any] = {}
-    if entries:
-        win_count = 0
-        lose_count = 0
-        flat_count = 0
-        skip_count = 0  # 見送り（ポジションなし）
-        total_pl = 0.0
-
-        for e in entries:
-            # 合計PL（楽天＋松井）
-            for key in ("eval_pl_rakuten", "eval_pl_matsui"):
-                val = e.get(key)
-                try:
-                    if val is not None:
-                        total_pl += float(val)
-                except (TypeError, ValueError):
-                    pass
-
-            # 合計株数（0 の場合は完全に見送り）
-            qty_total = 0.0
-            for key in ("qty_rakuten", "qty_matsui"):
-                v = e.get(key)
-                try:
-                    if v is not None:
-                        qty_total += float(v)
-                except (TypeError, ValueError):
-                    pass
-
-            label_r = e.get("eval_label_rakuten")
-            label_m = e.get("eval_label_matsui")
-
-            labels = set()
-            for lb in (label_r, label_m):
-                if isinstance(lb, str) and lb:
-                    labels.add(lb)
-
-            # カード全体の判定ラベル
-            combined = "skip"
-
-            # 完全見送り（数量0 or ラベルなし／no_positionのみ）
-            if qty_total == 0 or not labels or labels.issubset({"no_position"}):
-                combined = "skip"
-                skip_count += 1
-            elif "win" in labels:
-                combined = "win"
-                win_count += 1
-            elif "lose" in labels:
-                combined = "lose"
-                lose_count += 1
-            elif "flat" in labels:
-                combined = "flat"
-                flat_count += 1
-            else:
-                combined = "skip"
-                skip_count += 1
-
-            # テンプレ側でも使えるように保持（先頭に _ を付けない）
-            e["combined_label"] = combined
-
-        summary = {
-            "win": win_count,
-            "lose": lose_count,
-            "flat": flat_count,
-            "skip": skip_count,
-            "total_pl": total_pl,
-            "has_data": True,
-        }
-    else:
-        summary = {
-            "win": 0,
-            "lose": 0,
-            "flat": 0,
-            "skip": 0,
-            "total_pl": 0.0,
-            "has_data": False,
-        }
 
     ctx = {
         "entries": entries,
         "mode": mode,
-        "period": period,
         "q": q,
-        "summary": summary,
+        "selected_date": selected_date_str,
+        "date_options": date_options,
+        "summary_today": summary_today,
+        "summary_total": summary_total,
     }
     return render(request, "aiapp/simulate_list.html", ctx)
