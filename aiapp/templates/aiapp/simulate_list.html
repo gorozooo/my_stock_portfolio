@@ -521,8 +521,6 @@
                 {{ e.name|default:"(名称不明)" }}
               </div>
 
-              {# ★ 上段のエントリー行は削除：詳細はボックス内で表示 #}
-
               {% if e.mode %}
                 {% if e.mode == "live" %}
                   <div class="mode-badge mode-live">LIVE シミュレ</div>
@@ -531,33 +529,25 @@
                 {% endif %}
               {% endif %}
 
-              {% if e.combined_label %}
-                <div class="head-result-chip">
-                  <span class="result-badge
-                    {% if e.combined_label == 'win' %}
-                      result-badge-win
-                    {% elif e.combined_label == 'lose' %}
-                      result-badge-lose
-                    {% elif e.combined_label == 'flat' %}
-                      result-badge-flat
-                    {% else %}
-                      result-badge-none
-                    {% endif %}
-                  ">
-                    {% if e.combined_label == 'win' %}
-                      勝ち
-                    {% elif e.combined_label == 'lose' %}
-                      負け
-                    {% elif e.combined_label == 'flat' %}
-                      引き分け
-                    {% elif e.combined_label == 'skip' %}
-                      見送り
-                    {% else %}
-                      -
-                    {% endif %}
-                  </span>
-                </div>
-              {% endif %}
+              <div class="head-result-chip">
+                {% if e.exit_reason == 'hit_tp' %}
+                  <span class="result-badge result-badge-win">勝ち</span>
+                {% elif e.exit_reason == 'hit_sl' %}
+                  <span class="result-badge result-badge-lose">負け</span>
+                {% elif e.exit_reason == 'horizon_close' %}
+                  <span class="result-badge result-badge-flat">持ち越し</span>
+                {% elif e.exit_reason == 'no_touch' or e.combined_label == 'skip' %}
+                  <span class="result-badge result-badge-none">見送り</span>
+                {% elif e.combined_label == 'win' %}
+                  <span class="result-badge result-badge-win">勝ち</span>
+                {% elif e.combined_label == 'lose' %}
+                  <span class="result-badge result-badge-lose">負け</span>
+                {% elif e.combined_label == 'flat' %}
+                  <span class="result-badge result-badge-flat">引き分け</span>
+                {% elif e.combined_label == 'skip' %}
+                  <span class="result-badge result-badge-none">見送り</span>
+                {% endif %}
+              </div>
             </div>
 
             <div class="ts-badge">
@@ -677,14 +667,6 @@
                 <div class="real-title">
                   シミュ結果{% if e.eval_horizon_days %}（{{ e.eval_horizon_days }}営業日後）{% endif %}
                 </div>
-                <div class="real-meta">
-                  {% if e.eval_close_date %}
-                    {{ e.eval_close_date }}
-                  {% endif %}
-                  {% if e.eval_close_px %}
-                    ・決済価格 {{ e.eval_close_px|floatformat:0|intcomma }} 円
-                  {% endif %}
-                </div>
               </div>
 
               <div class="real-section">
@@ -725,14 +707,19 @@
 
               <div class="real-section">
                 <div class="real-label">決済</div>
-                {% if e.exit_reason_label %}
+                {% if e.exit_reason %}
                   <div class="real-note">
-                    評価結果：{{ e.exit_reason_label }}
-                    {% if e.exit_label %}（{{ e.exit_label }}）{% endif %}
-                  </div>
-                {% elif e.eval_exit_reason %}
-                  <div class="real-note">
-                    評価結果：{{ e.eval_exit_reason }}
+                    {% if e.exit_reason == 'hit_tp' %}
+                      利確
+                    {% elif e.exit_reason == 'hit_sl' %}
+                      損切
+                    {% elif e.exit_reason == 'horizon_close' %}
+                      持ち越し
+                    {% elif e.exit_reason == 'no_touch' %}
+                      見送り
+                    {% else %}
+                      {{ e.exit_reason }}
+                    {% endif %}
                   </div>
                 {% else %}
                   <div class="real-note">
@@ -761,41 +748,13 @@
                   <div class="real-label">楽天</div>
                   <div>
                     <span class="result-pl
-                      {% if e.eval_label_rakuten == 'win' %}pos{% elif e.eval_label_rakuten == 'lose' %}neg{% endif %}">
+                      {% if e.eval_pl_rakuten and e.eval_pl_rakuten > 0 %}pos{% elif e.eval_pl_rakuten and e.eval_pl_rakuten < 0 %}neg{% endif %}">
                       {% if e.eval_pl_rakuten or e.eval_pl_rakuten == 0 %}
                         {{ e.eval_pl_rakuten|floatformat:0|intcomma }} 円
                       {% else %}
                         0 円
                       {% endif %}
                     </span>
-                    {% if e.eval_exit_reason == 'horizon_close' %}
-                      <span class="result-badge result-badge-flat">
-                        タイムアップ
-                      </span>
-                    {% else %}
-                      <span class="result-badge
-                        {% if e.eval_label_rakuten == 'win' %}
-                          result-badge-win
-                        {% elif e.eval_label_rakuten == 'lose' %}
-                          result-badge-lose
-                        {% elif e.eval_label_rakuten == 'flat' %}
-                          result-badge-flat
-                        {% else %}
-                          result-badge-none
-                        {% endif %}">
-                        {% if e.eval_label_rakuten == 'win' %}
-                          勝ち
-                        {% elif e.eval_label_rakuten == 'lose' %}
-                          負け
-                        {% elif e.eval_label_rakuten == 'flat' %}
-                          引き分け
-                        {% elif e.eval_label_rakuten == 'no_position' %}
-                          ポジションなし
-                        {% else %}
-                          ポジションなし
-                        {% endif %}
-                      </span>
-                    {% endif %}
                   </div>
                 </div>
 
@@ -803,41 +762,13 @@
                   <div class="real-label">松井</div>
                   <div>
                     <span class="result-pl
-                      {% if e.eval_label_matsui == 'win' %}pos{% elif e.eval_label_matsui == 'lose' %}neg{% endif %}">
+                      {% if e.eval_pl_matsui and e.eval_pl_matsui > 0 %}pos{% elif e.eval_pl_matsui and e.eval_pl_matsui < 0 %}neg{% endif %}">
                       {% if e.eval_pl_matsui or e.eval_pl_matsui == 0 %}
                         {{ e.eval_pl_matsui|floatformat:0|intcomma }} 円
                       {% else %}
                         0 円
                       {% endif %}
                     </span>
-                    {% if e.eval_exit_reason == 'horizon_close' %}
-                      <span class="result-badge result-badge-flat">
-                        タイムアップ
-                      </span>
-                    {% else %}
-                      <span class="result-badge
-                        {% if e.eval_label_matsui == 'win' %}
-                          result-badge-win
-                        {% elif e.eval_label_matsui == 'lose' %}
-                          result-badge-lose
-                        {% elif e.eval_label_matsui == 'flat' %}
-                          result-badge-flat
-                        {% else %}
-                          result-badge-none
-                        {% endif %}">
-                        {% if e.eval_label_matsui == 'win' %}
-                          勝ち
-                        {% elif e.eval_label_matsui == 'lose' %}
-                          負け
-                        {% elif e.eval_label_matsui == 'flat' %}
-                          引き分け
-                        {% elif e.eval_label_matsui == 'no_position' %}
-                          ポジションなし
-                        {% else %}
-                          ポジションなし
-                        {% endif %}
-                      </span>
-                    {% endif %}
                   </div>
                 </div>
               </div>
