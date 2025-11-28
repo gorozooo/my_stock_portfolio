@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as _time, timedelta
 from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
@@ -17,6 +17,7 @@ from django.utils import timezone
 def _parse_trade_date(rec: Dict[str, Any]) -> date:
     """
     rec["trade_date"] (または run_date) を date に変換する。
+    ※ 古いデータ用のフォールバック。
     """
     v = rec.get("trade_date") or rec.get("run_date")
     if isinstance(v, date):
@@ -24,6 +25,107 @@ def _parse_trade_date(rec: Dict[str, Any]) -> date:
     if isinstance(v, str) and v:
         return date.fromisoformat(v)
     raise ValueError(f"invalid trade_date: {v!r}")
+
+
+def _parse_ts_local(ts_str: Optional[str]) -> Optional[datetime]:
+    """
+    JSONL の ts(ISO文字列) を Asia/Tokyo の tz-aware datetime に変換。
+    エラー時は None。
+    """
+    if not isinstance(ts_str, str) or not ts_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts_str)
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, timezone.get_default_timezone())
+        return timezone.localtime(dt)
+    except Exception:
+        return None
+
+
+def _next_weekday(d: date) -> date:
+    """
+    単純な翌営業日（祝日考慮なし、土日だけ飛ばす）。
+    """
+    d = d + timedelta(days=1)
+    while d.weekday() >= 5:  # 5=土, 6=日
+        d = d + timedelta(days=1)
+    return d
+
+
+def _decide_trade_date(rec: Dict[str, Any]) -> date:
+    """
+    どの日付の足から見始めるか（trade_date）を決定。
+
+    ルール:
+      - ts が 9:00 未満 → その日
+      - ts が 9:00〜15:20 → その日
+      - ts が 15:20 超え → 翌営業日
+      - ts が無い旧データ → trade_date / run_date をそのまま使用
+    """
+    base = _parse_trade_date(rec)
+    ts_local = _parse_ts_local(rec.get("ts"))
+    if ts_local is None:
+        return base
+
+    d = ts_local.date()
+    t = ts_local.time()
+
+    # ts と trade_date がズレている場合、未来側を優先
+    base_d = max(d, base)
+
+    if t < _time(9, 0):
+        return base_d
+    if t <= _time(15, 20):
+        return base_d
+    # 引け後は翌営業日
+    return _next_weekday(base_d)
+
+
+def _decide_entry_start_ts(trade_d: date, rec: Dict[str, Any]) -> datetime:
+    """
+    エントリー判定を開始する最初の時刻。
+
+    ルール:
+      - ts が trade_d より前 → trade_d 09:00
+      - ts が trade_d と同じ日:
+          * 9:00 未満 → 09:00
+          * 9:00〜15:20 → ts の直後の 5分足
+      - それ以外 → trade_d 09:00
+    """
+    tz = timezone.get_default_timezone()
+    open_ts = timezone.make_aware(
+        datetime.combine(trade_d, _time(9, 0)), tz
+    )
+
+    ts_local = _parse_ts_local(rec.get("ts"))
+    if ts_local is None:
+        return open_ts
+
+    # 日付が違う場合
+    if ts_local.date() != trade_d:
+        # 基本的に trade_d の 09:00 からで良い
+        return open_ts
+
+    # 同じ日
+    t = ts_local.time()
+    if t < _time(9, 0):
+        return open_ts
+    if t > _time(15, 20):
+        return open_ts
+
+    # 場中 → 直後の 5分足に切り上げ
+    if ts_local.second != 0 or ts_local.microsecond != 0 or (ts_local.minute % 5 != 0):
+        minute_block = (ts_local.minute // 5 + 1) * 5
+        hour = ts_local.hour
+        if minute_block >= 60:
+            hour += 1
+            minute_block -= 60
+        start_naive = datetime.combine(trade_d, _time(hour, minute_block))
+        return timezone.make_aware(start_naive, tz)
+
+    # ちょうど 5分足の境目ならそのまま
+    return ts_local
 
 
 def _yf_symbol(code: str) -> str:
@@ -38,7 +140,7 @@ def _yf_symbol(code: str) -> str:
 def _pick_price_col(df: pd.DataFrame, name: str) -> pd.Series:
     """
     yfinance の DataFrame から open/high/low/close を取り出す。
-    MultiIndex 列 (('Open', 'xxx'), ...) にも対応する。
+    MultiIndex 列 (('Open', 'xxx'), ...) にも対応。
     """
     target = None
     for c in df.columns:
@@ -57,15 +159,12 @@ def _pick_price_col(df: pd.DataFrame, name: str) -> pd.Series:
 def load_5m_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame:
     """
     指定コードの 5分足を trade_date から horizon_days 営業日ぶん取得。
-    （ざっくり日数で取り、実際には利用する範囲だけを見る）
 
-    戻り値: columns = ["ts", "open", "high", "low", "close"]
-    ts は Asia/Tokyo の tz-aware datetime。
+    戻り値: ["ts", "open", "high", "low", "close"]
+      ts は Asia/Tokyo の tz-aware datetime。
     """
     symbol = _yf_symbol(code)
 
-    # yfinance の start/end は UTCベースで扱われるので、
-    # 日付だけを渡して幅広めに取得しておく。
     start_dt = datetime.combine(trade_date, datetime.min.time())
     end_dt = start_dt + timedelta(days=horizon_days + 1)
 
@@ -75,7 +174,7 @@ def load_5m_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame
         start=start_dt,
         end=end_dt,
         progress=False,
-        auto_adjust=False,  # ★ 絶対に調整後にしない
+        auto_adjust=False,  # ★ 生の価格を使う
     )
     if df is None or df.empty:
         raise ValueError(f"no 5m data for {code}")
@@ -105,14 +204,13 @@ def load_5m_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame
 
 def load_1d_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame:
     """
-    指定コードの日足を trade_date から取得する。
+    指定コードの日足を trade_date から取得。
 
-    horizon_days=5 の場合でも、祝日などを考慮して少し長めに取り、
+    horizon_days=5 でも、祝日などを考慮して少し長めに取り、
     実際に使うのは「trade_date 以降の営業日を上から数えて N 本目」だけ。
     """
     symbol = _yf_symbol(code)
 
-    # 祝日・休場日を含めて余裕を持って取得
     start_dt = trade_date - timedelta(days=1)
     end_dt = trade_date + timedelta(days=horizon_days * 3)
 
@@ -122,7 +220,7 @@ def load_1d_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame
         start=start_dt,
         end=end_dt,
         progress=False,
-        auto_adjust=False,  # ★ こちらも調整無し
+        auto_adjust=False,
     )
     if df is None or df.empty:
         raise ValueError(f"no 1d data for {code}")
@@ -134,7 +232,7 @@ def load_1d_bars(code: str, trade_date: date, horizon_days: int) -> pd.DataFrame
             "close": close_s.astype(float),
         }
     )
-    out.index = close_s.index  # DatetimeIndex (tz付き or なし) のまま
+    out.index = close_s.index
 
     return out
 
@@ -149,16 +247,14 @@ def _pick_horizon_close_daily(
     日足終値と日付を返す。
 
     戻り値:
-      (終値の日付の 15:20 JST datetime, 終値, 実際に何営業日目まで進んだか)
+      (終値の日付の 15:20 JST datetime, 終値, 実際営業日数)
     """
     df = load_1d_bars(code, trade_date, horizon_days)
 
-    # trade_date 以降の営業日だけに絞る
     dates: list[date] = []
     closes: list[float] = []
 
     for idx, row in df.iterrows():
-        # idx が tz-aware / naive どちらでも date に落とす
         if isinstance(idx, (datetime, pd.Timestamp)):
             d = idx.date()
         else:
@@ -173,7 +269,6 @@ def _pick_horizon_close_daily(
     if not dates:
         raise ValueError(f"no 1d data on or after trade_date for {code}")
 
-    # 「horizon_days 本目」があればそれ、なければ最後の本を使う
     if len(dates) >= horizon_days:
         idx = horizon_days - 1
     else:
@@ -181,9 +276,8 @@ def _pick_horizon_close_daily(
 
     d_target = dates[idx]
     close_px = closes[idx]
-    effective_days = idx + 1  # 実際の営業日数
+    effective_days = idx + 1
 
-    # 表示・ログ用の 15:20 JST
     tz = timezone.get_default_timezone()
     exit_ts = timezone.make_aware(
         datetime.combine(d_target, datetime.min.time()) + timedelta(hours=15, minutes=20),
@@ -208,7 +302,7 @@ def _label_and_pl(
     side = (side or "BUY").upper()
     if side == "BUY":
         pl = (exit_px - entry_px) * qty
-    else:  # SELL（将来対応用。今は基本 BUY 想定）
+    else:
         pl = (entry_px - exit_px) * qty
 
     if pl > 0:
@@ -237,45 +331,37 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
     """
     1つのシミュレレコードを評価して、eval_ 系の情報を付与して返す。
 
-    ルール（あなたの指定どおり）:
-      - rec["entry"] / "tp" / "sl" は「AIが出した指値スナップショット」
-        → ここでは **絶対に書き換えない**
-      - 実際の約定価格・時間は eval_entry_px / eval_entry_ts に入れる。
-      - TP/SL にかからなければ「5営業日目の日足終値」でクローズ。
+      - entry/tp/sl は「AI 指値スナップショット」 → 改変しない
+      - 実際の約定価格・時間は eval_entry_px / eval_entry_ts
+      - TP/SL にかからなければ horizon_days 営業日目の日足終値でクローズ
+      - ts が場中なら、その時刻以降の 5分足だけを見てエントリーを判定
     """
-    # 元レコードは壊さないようにコピー
-    out: Dict[str, Any] = dict(rec)
+    out = dict(rec)
 
     code = str(rec.get("code"))
     side = (rec.get("side") or "BUY").upper()
 
-    # AI が出した指値（スナップショット）
-    ai_entry_px_raw = rec.get("entry")
-    tp_raw = rec.get("tp")
-    sl_raw = rec.get("sl")
+    ai_entry_px = rec.get("entry")
+    tp = rec.get("tp")
+    sl = rec.get("sl")
 
-    ai_entry_px = float(ai_entry_px_raw) if ai_entry_px_raw is not None else None
-    tp = float(tp_raw) if tp_raw is not None else None
-    sl = float(sl_raw) if sl_raw is not None else None
+    ai_entry_px = float(ai_entry_px) if ai_entry_px is not None else None
+    tp = float(tp) if tp is not None else None
+    sl = float(sl) if sl is not None else None
 
-    trade_d = _parse_trade_date(rec)
+    # トレード開始日と、エントリー判定開始時刻
+    trade_d = _decide_trade_date(rec)
+    start_ts_for_entry = _decide_entry_start_ts(trade_d, rec)
 
-    # まず 5分足を取得（TP/SL 判定用）
+    # 5分足取得
     try:
         df_5m = load_5m_bars(code, trade_d, horizon_days)
     except Exception:
         out["eval_horizon_days"] = horizon_days
-        # 念のためスナップショットを保持
-        out["entry"] = ai_entry_px_raw
-        out["tp"] = tp_raw
-        out["sl"] = sl_raw
         return out
 
     if df_5m.empty:
         out["eval_horizon_days"] = horizon_days
-        out["entry"] = ai_entry_px_raw
-        out["tp"] = tp_raw
-        out["sl"] = sl_raw
         return out
 
     # ============================================
@@ -285,37 +371,46 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
     entry_px: Optional[float] = None
 
     if ai_entry_px is None:
-        # 指値自体が無い
         entry_ts = None
         entry_px = None
     else:
-        first = df_5m.iloc[0]
-        open_px = float(first["open"])
-        open_ts = first["ts"].to_pydatetime()
+        df_for_entry = df_5m[df_5m["ts"] >= start_ts_for_entry]
 
-        if side == "BUY":
-            # BUY 指値
-            if ai_entry_px >= open_px:
-                # 指値 >= 寄り → 寄り成約（オープンで約定）
-                entry_ts = open_ts
-                entry_px = open_px
-            else:
-                hit = df_5m[(df_5m["low"] <= ai_entry_px) & (df_5m["high"] >= ai_entry_px)]
-                if not hit.empty:
-                    bar = hit.iloc[0]
-                    entry_ts = bar["ts"].to_pydatetime()
-                    entry_px = ai_entry_px
+        if df_for_entry.empty:
+            entry_ts = None
+            entry_px = None
         else:
-            # SELL（将来用）
-            if ai_entry_px <= open_px:
-                entry_ts = open_ts
-                entry_px = open_px
+            first = df_for_entry.iloc[0]
+            open_px = float(first["open"])
+            open_ts = first["ts"].to_pydatetime()
+
+            if side == "BUY":
+                # 指値 >= 最初のバーの始値 → そのバーの始値で即約定
+                if ai_entry_px >= open_px:
+                    entry_ts = open_ts
+                    entry_px = open_px
+                else:
+                    hit = df_for_entry[
+                        (df_for_entry["low"] <= ai_entry_px)
+                        & (df_for_entry["high"] >= ai_entry_px)
+                    ]
+                    if not hit.empty:
+                        bar = hit.iloc[0]
+                        entry_ts = bar["ts"].to_pydatetime()
+                        entry_px = ai_entry_px
             else:
-                hit = df_5m[(df_5m["high"] >= ai_entry_px) & (df_5m["low"] <= ai_entry_px)]
-                if not hit.empty:
-                    bar = hit.iloc[0]
-                    entry_ts = bar["ts"].to_pydatetime()
-                    entry_px = ai_entry_px
+                if ai_entry_px <= open_px:
+                    entry_ts = open_ts
+                    entry_px = open_px
+                else:
+                    hit = df_for_entry[
+                        (df_for_entry["high"] >= ai_entry_px)
+                        & (df_for_entry["low"] <= ai_entry_px)
+                    ]
+                    if not hit.empty:
+                        bar = hit.iloc[0]
+                        entry_ts = bar["ts"].to_pydatetime()
+                        entry_px = ai_entry_px
 
     # ============================================
     # 2) エグジット判定（TP / SL / タイムアップ）
@@ -324,26 +419,22 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
     exit_ts: Optional[datetime] = None
     exit_px: Optional[float] = None
 
-    # helper: 5営業日目の日足終値を使った horizon close
     def _horizon_close_with_daily() -> Tuple[Optional[datetime], Optional[float], int]:
         try:
             dts, px, eff_days = _pick_horizon_close_daily(code, trade_d, horizon_days)
             return dts, px, eff_days
         except Exception:
-            # 日足取得に失敗したら、最後の 5分足クローズで代用
             last_bar = df_5m.iloc[-1]
             ts = last_bar["ts"].to_pydatetime()
             px = float(last_bar["close"])
             return ts, px, horizon_days
 
     if entry_ts is None or entry_px is None:
-        # 一度も指値に触れなかったケース
-        # → 5営業日目の日足終値でタイムアップ（ただし PL は no_position）
+        # 指値未ヒット
         exit_ts, exit_px, eff_days = _horizon_close_with_daily()
         exit_reason = "no_fill"
         out["eval_horizon_days"] = eff_days
     else:
-        # エントリー以降のバーで TP / SL をチェック
         df_after = df_5m[df_5m["ts"] >= entry_ts]
 
         hit_index: Optional[int] = None
@@ -385,13 +476,11 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
                         break
 
         if hit_index is not None:
-            # TP / SL どちらかヒット
             exit_reason = hit_kind
             exit_px = hit_px
             exit_ts = hit_ts
             out["eval_horizon_days"] = horizon_days
         else:
-            # TP / SL どちらも当たらず → 5営業日目「日足終値」で決済
             exit_ts, exit_px, eff_days = _horizon_close_with_daily()
             exit_reason = "horizon_close"
             out["eval_horizon_days"] = eff_days
@@ -432,10 +521,5 @@ def eval_sim_record(rec: Dict[str, Any], horizon_days: int = 5) -> Dict[str, Any
         combined = "flat"
 
     out["_combined_label"] = combined
-
-    # ★ ここが重要：AIスナップショットを必ず保持（上書き防止用のセーフティネット）
-    out["entry"] = ai_entry_px_raw
-    out["tp"] = tp_raw
-    out["sl"] = sl_raw
 
     return out
