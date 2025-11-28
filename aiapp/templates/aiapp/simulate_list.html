@@ -37,9 +37,14 @@
     color:#cbd5f5;
   }
 
-  /* ===== サマリーバー ===== */
-  .summary-bar{
+  /* ===== KPIカード（今日 / 通算） ===== */
+  .summary-grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px;
     margin:0 0 10px 0;
+  }
+  .summary-card{
     padding:10px 12px;
     border-radius:14px;
     border:1px solid rgba(148,163,184,0.35);
@@ -47,37 +52,32 @@
     backdrop-filter:blur(10px);
     font-size:12px;
   }
-  .summary-header{
-    display:flex;
-    justify-content:space-between;
-    align-items:flex-end;
-    gap:8px;
-    margin-bottom:4px;
-  }
   .summary-title{
     font-size:12px;
     font-weight:600;
     color:#e5e7eb;
+    margin-bottom:4px;
   }
-  .summary-mode{
-    font-size:11px;
+  .summary-caption{
+    font-size:10px;
     color:#cbd5f5;
+    margin-bottom:4px;
   }
   .summary-counts{
     display:flex;
     flex-wrap:wrap;
-    gap:8px;
+    gap:6px;
     margin-bottom:4px;
   }
   .summary-count{
-    font-size:12px;
+    font-size:11px;
   }
   .summary-count span.label{
     color:var(--sub);
     margin-right:2px;
   }
   .summary-pl{
-    font-size:12px;
+    font-size:11px;
     color:#cbd5f5;
   }
   .summary-pl-val{
@@ -230,6 +230,37 @@
     color:#bbf7d0;
   }
 
+  /* ヘッダー側の成績バッジ */
+  .head-result-chip{
+    margin-top:4px;
+  }
+  .result-badge{
+    font-size:10px;
+    padding:2px 6px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.6);
+  }
+  .result-badge-win{
+    background:rgba(34,197,94,0.2);
+    border-color:rgba(34,197,94,0.8);
+    color:#bbf7d0;
+  }
+  .result-badge-lose{
+    background:rgba(248,113,113,0.18);
+    border-color:rgba(248,113,113,0.9);
+    color:#fecaca;
+  }
+  .result-badge-flat{
+    background:rgba(148,163,184,0.2);
+    border-color:rgba(148,163,184,0.9);
+    color:#e5e7eb;
+  }
+  .result-badge-none{
+    background:rgba(15,23,42,0.9);
+    border-color:rgba(148,163,184,0.6);
+    color:#9ca3af;
+  }
+
   /* ===== メイン2カラム（左：AIスナップ / 右：シミュ結果） ===== */
   .body-cols{
     display:grid;
@@ -332,38 +363,6 @@
   .result-pl.pos{color:var(--ok);}
   .result-pl.neg{color:var(--bad);}
 
-  .result-badge{
-    font-size:10px;
-    padding:2px 6px;
-    border-radius:999px;
-    border:1px solid rgba(148,163,184,0.6);
-  }
-  .result-badge-win{
-    background:rgba(34,197,94,0.2);
-    border-color:rgba(34,197,94,0.8);
-    color:#bbf7d0;
-  }
-  .result-badge-lose{
-    background:rgba(248,113,113,0.18);
-    border-color:rgba(248,113,113,0.9);
-    color:#fecaca;
-  }
-  .result-badge-flat{
-    background:rgba(148,163,184,0.2);
-    border-color:rgba(148,163,184,0.9);
-    color:#e5e7eb;
-  }
-  .result-badge-none{
-    background:rgba(15,23,42,0.9);
-    border-color:rgba(148,163,184,0.6);
-    color:#9ca3af;
-  }
-
-  /* ヘッダー側の成績バッジ */
-  .head-result-chip{
-    margin-top:4px;
-  }
-
   .empty{
     margin-top:16px;
     padding:16px;
@@ -392,53 +391,83 @@
     <div class="head-title">AIシミュレ一覧</div>
     <div class="head-sub">
       AI Picks の「シミュレ」で登録した紙トレのログです。<br>
-      フィルタで絞り込みつつ、直近100件まで表示しています。
+      上部に「今日 / 通算」のKPI、下で日付トグル＋モード＋検索で1日分を確認できます。
     </div>
   </div>
 
-  {% if summary.has_data %}
-    <div class="summary-bar">
-      <div class="summary-header">
-        <div class="summary-title">
-          本日の{% if mode == "demo" %}DEMO{% elif mode == "live" %}LIVE{% else %}ALL{% endif %}成績
-        </div>
-        <div class="summary-mode">
-          表示中のフィルタ: モード={{ mode|upper }} / 期間=
-          {% if period == "today" %}今日{% elif period == "7d" %}7日{% else %}30日{% endif %}
-        </div>
-      </div>
-      <div class="summary-counts">
-        <div class="summary-count">
-          <span class="label">勝ち</span>{{ summary.win }}件
-        </div>
-        <div class="summary-count">
-          <span class="label">負け</span>{{ summary.lose }}件
-        </div>
-        <div class="summary-count">
-          <span class="label">見送り</span>{{ summary.skip }}件
-        </div>
-        {% if summary.flat %}
+  {# ===== KPIカード：今日 / 通算 ===== #}
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="summary-title">今日の成績</div>
+      <div class="summary-caption">※ 今日発生したシミュレ全体（フィルタと無関係）</div>
+      {% if summary_today.has_data %}
+        <div class="summary-counts">
           <div class="summary-count">
-            <span class="label">引き分け</span>{{ summary.flat }}件
+            <span class="label">勝ち</span>{{ summary_today.win }}件
           </div>
-        {% endif %}
-      </div>
-      <div class="summary-pl">
-        合計
-        <span class="summary-pl-val {% if summary.total_pl >= 0 %}pos{% else %}neg{% endif %}">
-          {{ summary.total_pl|floatformat:0|intcomma }} 円
-        </span>
-      </div>
+          <div class="summary-count">
+            <span class="label">負け</span>{{ summary_today.lose }}件
+          </div>
+          <div class="summary-count">
+            <span class="label">見送り/持ち越し</span>{{ summary_today.skip }}件
+          </div>
+          {% if summary_today.flat %}
+            <div class="summary-count">
+              <span class="label">引き分け</span>{{ summary_today.flat }}件
+            </div>
+          {% endif %}
+        </div>
+        <div class="summary-pl">
+          合計
+          <span class="summary-pl-val {% if summary_today.total_pl >= 0 %}pos{% else %}neg{% endif %}">
+            {{ summary_today.total_pl|floatformat:0|intcomma }} 円
+          </span>
+        </div>
+      {% else %}
+        <div class="summary-caption">今日のシミュレはまだありません。</div>
+      {% endif %}
     </div>
-  {% endif %}
 
+    <div class="summary-card">
+      <div class="summary-title">通算成績（全期間）</div>
+      <div class="summary-caption">※ 全ログベース（フィルタと無関係）</div>
+      {% if summary_total.has_data %}
+        <div class="summary-counts">
+          <div class="summary-count">
+            <span class="label">勝ち</span>{{ summary_total.win }}件
+          </div>
+          <div class="summary-count">
+            <span class="label">負け</span>{{ summary_total.lose }}件
+          </div>
+          <div class="summary-count">
+            <span class="label">見送り/持ち越し</span>{{ summary_total.skip }}件
+          </div>
+          {% if summary_total.flat %}
+            <div class="summary-count">
+              <span class="label">引き分け</span>{{ summary_total.flat }}件
+            </div>
+          {% endif %}
+        </div>
+        <div class="summary-pl">
+          合計
+          <span class="summary-pl-val {% if summary_total.total_pl >= 0 %}pos{% else %}neg{% endif %}">
+            {{ summary_total.total_pl|floatformat:0|intcomma }} 円
+          </span>
+        </div>
+      {% else %}
+        <div class="summary-caption">シミュレの履歴がまだありません。</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ===== フィルタ：モード / 日付トグル / 検索 ===== #}
   <div class="filters">
     <!-- モードフィルタ -->
     <div class="filter-row">
       <div class="filter-label">モード</div>
       <div class="chip-row">
         <form method="get" class="chip-form">
-          <input type="hidden" name="period" value="{{ period }}">
+          <input type="hidden" name="date" value="{{ selected_date }}">
           <input type="hidden" name="q" value="{{ q }}">
           <button type="submit" name="mode" value="all"
                   class="chip-btn {% if mode == 'all' %}active{% endif %}">
@@ -446,7 +475,7 @@
           </button>
         </form>
         <form method="get" class="chip-form">
-          <input type="hidden" name="period" value="{{ period }}">
+          <input type="hidden" name="date" value="{{ selected_date }}">
           <input type="hidden" name="q" value="{{ q }}">
           <button type="submit" name="mode" value="live"
                   class="chip-btn {% if mode == 'live' %}active{% endif %}">
@@ -454,7 +483,7 @@
           </button>
         </form>
         <form method="get" class="chip-form">
-          <input type="hidden" name="period" value="{{ period }}">
+          <input type="hidden" name="date" value="{{ selected_date }}">
           <input type="hidden" name="q" value="{{ q }}">
           <button type="submit" name="mode" value="demo"
                   class="chip-btn {% if mode == 'demo' %}active{% endif %}">
@@ -464,41 +493,31 @@
       </div>
     </div>
 
-    <!-- 期間フィルタ -->
+    <!-- 日付トグル（年月日） -->
     <div class="filter-row">
-      <div class="filter-label">期間</div>
+      <div class="filter-label">日付</div>
       <div class="chip-row">
-        <form method="get" class="chip-form">
-          <input type="hidden" name="mode" value="{{ mode }}">
-          <input type="hidden" name="q" value="{{ q }}">
-          <button type="submit" name="period" value="today"
-                  class="chip-btn {% if period == 'today' %}active{% endif %}">
-            今日
-          </button>
-        </form>
-        <form method="get" class="chip-form">
-          <input type="hidden" name="mode" value="{{ mode }}">
-          <input type="hidden" name="q" value="{{ q }}">
-          <button type="submit" name="period" value="7d"
-                  class="chip-btn {% if period == '7d' %}active{% endif %}">
-            7日
-          </button>
-        </form>
-        <form method="get" class="chip-form">
-          <input type="hidden" name="mode" value="{{ mode }}">
-          <input type="hidden" name="q" value="{{ q }}">
-          <button type="submit" name="period" value="30d"
-                  class="chip-btn {% if period == '30d' %}active{% endif %}">
-            30日
-          </button>
-        </form>
+        {% if date_options %}
+          {% for d in date_options %}
+            <form method="get" class="chip-form">
+              <input type="hidden" name="mode" value="{{ mode }}">
+              <input type="hidden" name="q" value="{{ q }}">
+              <button type="submit" name="date" value="{{ d.value }}"
+                      class="chip-btn {% if d.value == selected_date %}active{% endif %}">
+                {{ d.label }}
+              </button>
+            </form>
+          {% endfor %}
+        {% else %}
+          <span style="font-size:11px;color:var(--sub);">履歴がまだありません</span>
+        {% endif %}
       </div>
     </div>
 
     <!-- 銘柄検索 -->
     <form method="get" class="search-row">
       <input type="hidden" name="mode" value="{{ mode }}">
-      <input type="hidden" name="period" value="{{ period }}">
+      <input type="hidden" name="date" value="{{ selected_date }}">
       <input type="text"
              name="q"
              value="{{ q }}"
@@ -521,6 +540,21 @@
                 {{ e.name|default:"(名称不明)" }}
               </div>
 
+              {# 上段のエントリー行は「実際の約定」を表示（なければスナップショット） #}
+              {% if e.eval_entry_px or e.entry %}
+                <div class="entry-info">
+                  エントリー
+                  {% if e.eval_entry_px %}
+                    {{ e.eval_entry_px|floatformat:0|intcomma }} 円
+                  {% elif e.entry %}
+                    {{ e.entry|floatformat:0|intcomma }} 円
+                  {% endif %}
+                  {% if e.entry_label %}
+                    ({{ e.entry_label }})
+                  {% endif %}
+                </div>
+              {% endif %}
+
               {% if e.mode %}
                 {% if e.mode == "live" %}
                   <div class="mode-badge mode-live">LIVE シミュレ</div>
@@ -529,25 +563,33 @@
                 {% endif %}
               {% endif %}
 
-              <div class="head-result-chip">
-                {% if e.exit_reason == 'hit_tp' %}
-                  <span class="result-badge result-badge-win">勝ち</span>
-                {% elif e.exit_reason == 'hit_sl' %}
-                  <span class="result-badge result-badge-lose">負け</span>
-                {% elif e.exit_reason == 'horizon_close' %}
-                  <span class="result-badge result-badge-flat">持ち越し</span>
-                {% elif e.exit_reason == 'no_touch' or e.combined_label == 'skip' %}
-                  <span class="result-badge result-badge-none">見送り</span>
-                {% elif e.combined_label == 'win' %}
-                  <span class="result-badge result-badge-win">勝ち</span>
-                {% elif e.combined_label == 'lose' %}
-                  <span class="result-badge result-badge-lose">負け</span>
-                {% elif e.combined_label == 'flat' %}
-                  <span class="result-badge result-badge-flat">引き分け</span>
-                {% elif e.combined_label == 'skip' %}
-                  <span class="result-badge result-badge-none">見送り</span>
-                {% endif %}
-              </div>
+              {% if e.combined_label %}
+                <div class="head-result-chip">
+                  <span class="result-badge
+                    {% if e.combined_label == 'win' %}
+                      result-badge-win
+                    {% elif e.combined_label == 'lose' %}
+                      result-badge-lose
+                    {% elif e.combined_label == 'flat' %}
+                      result-badge-flat
+                    {% else %}
+                      result-badge-none
+                    {% endif %}
+                  ">
+                    {% if e.combined_label == 'win' %}
+                      勝ち
+                    {% elif e.combined_label == 'lose' %}
+                      負け
+                    {% elif e.combined_label == 'flat' %}
+                      引き分け
+                    {% elif e.combined_label == 'skip' %}
+                      見送り/持ち越し
+                    {% else %}
+                      -
+                    {% endif %}
+                  </span>
+                </div>
+              {% endif %}
             </div>
 
             <div class="ts-badge">
@@ -667,6 +709,14 @@
                 <div class="real-title">
                   シミュ結果{% if e.eval_horizon_days %}（{{ e.eval_horizon_days }}営業日後）{% endif %}
                 </div>
+                <div class="real-meta">
+                  {% if e.eval_close_date %}
+                    {{ e.eval_close_date }}
+                  {% endif %}
+                  {% if e.eval_close_px %}
+                    ・終値 {{ e.eval_close_px|floatformat:0|intcomma }} 円
+                  {% endif %}
+                </div>
               </div>
 
               <div class="real-section">
@@ -707,26 +757,24 @@
 
               <div class="real-section">
                 <div class="real-label">決済</div>
-                {% if e.exit_reason %}
-                  <div class="real-note">
-                    {% if e.exit_reason == 'hit_tp' %}
-                      利確
-                    {% elif e.exit_reason == 'hit_sl' %}
-                      損切
-                    {% elif e.exit_reason == 'horizon_close' %}
-                      持ち越し
-                    {% elif e.exit_reason == 'no_touch' %}
+                <div class="real-note">
+                  結果：
+                  {% if e.combined_label == 'win' %}
+                    利確
+                  {% elif e.combined_label == 'lose' %}
+                    損切
+                  {% elif e.combined_label == 'flat' %}
+                    引き分け
+                  {% elif e.combined_label == 'skip' %}
+                    {% if e.exit_reason == 'no_touch' or e.exit_reason == 'no_fill' %}
                       見送り
                     {% else %}
-                      {{ e.exit_reason }}
+                      持ち越し
                     {% endif %}
-                  </div>
-                {% else %}
-                  <div class="real-note">
-                    まだ評価が実行されていません（ai_sim_eval 未実行）
-                  </div>
-                {% endif %}
-
+                  {% else %}
+                    -
+                  {% endif %}
+                </div>
                 {% if e.eval_close_px %}
                   <div class="real-row">
                     <div class="real-label">決済価格</div>
@@ -735,10 +783,9 @@
                     </div>
                   </div>
                 {% endif %}
-
-                {% if e.exit_label %}
+                {% if e.eval_close_date %}
                   <div class="real-note">
-                    決済時刻：{{ e.exit_label }}
+                    決済日：{{ e.eval_close_date }}
                   </div>
                 {% endif %}
               </div>
@@ -748,7 +795,7 @@
                   <div class="real-label">楽天</div>
                   <div>
                     <span class="result-pl
-                      {% if e.eval_pl_rakuten and e.eval_pl_rakuten > 0 %}pos{% elif e.eval_pl_rakuten and e.eval_pl_rakuten < 0 %}neg{% endif %}">
+                      {% if e.eval_label_rakuten == 'win' %}pos{% elif e.eval_label_rakuten == 'lose' %}neg{% endif %}">
                       {% if e.eval_pl_rakuten or e.eval_pl_rakuten == 0 %}
                         {{ e.eval_pl_rakuten|floatformat:0|intcomma }} 円
                       {% else %}
@@ -762,7 +809,7 @@
                   <div class="real-label">松井</div>
                   <div>
                     <span class="result-pl
-                      {% if e.eval_pl_matsui and e.eval_pl_matsui > 0 %}pos{% elif e.eval_pl_matsui and e.eval_pl_matsui < 0 %}neg{% endif %}">
+                      {% if e.eval_label_matsui == 'win' %}pos{% elif e.eval_label_matsui == 'lose' %}neg{% endif %}">
                       {% if e.eval_pl_matsui or e.eval_pl_matsui == 0 %}
                         {{ e.eval_pl_matsui|floatformat:0|intcomma }} 円
                       {% else %}
@@ -789,7 +836,7 @@
   {% else %}
     <div class="empty">
       条件に一致するシミュレ登録がありません。<br>
-      フィルタ（モード・期間・銘柄）を少しゆるめてみてください。
+      日付トグルやモード・銘柄検索を調整してみてください。
     </div>
   {% endif %}
 
