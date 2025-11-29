@@ -689,17 +689,20 @@
 
               <div class="real-section">
                 <div class>約定</div>
-                {% if e.entry_label %}
-                    <div class="real-note">約定時刻：{{ e.entry_label }}</div>
-                  {% endif %}
                 
-                  {% if e.eval_entry_px %}
+                {% if e.eval_entry_px %}
                   <div class="real-row">
                     <div class="real-label">価格</div>
                     <div class="real-val">
                       {{ e.eval_entry_px|floatformat:0|intcomma }} 円
                     </div>
                   </div>
+                
+                {% if e.entry_label %}
+                    <div class="real-note">約定時刻：{{ e.entry_label }}</div>
+                  {% endif %}
+                
+                  
                   <div>数量</div>
                   <div class="real-row">
                     <div class="real-label">楽天</div>
