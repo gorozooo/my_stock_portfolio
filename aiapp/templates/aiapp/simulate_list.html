@@ -657,7 +657,7 @@
               <div class="ai-section">
                 <div>想定利益</div>
                 <div class="ai-row">
-                  <div class="ai-label">想定利益（楽天）</div>
+                  <div class="ai-label">楽天</div>
                   <div class="ai-val pos">
                     {% if e.est_pl_rakuten %}
                       +{{ e.est_pl_rakuten|floatformat:0|intcomma }} 円
@@ -665,15 +665,16 @@
                   </div>
                 </div>
                 <div class="ai-row">
-                  <div class="ai-label">想定利益（松井）</div>
+                  <div class="ai-label">松井</div>
                   <div class="ai-val pos">
                     {% if e.est_pl_matsui %}
                       +{{ e.est_pl_matsui|floatformat:0|intcomma }} 円
                     {% else %}0 円{% endif %}
                   </div>
                 </div>
+                <div>想定損失</div>
                 <div class="ai-row">
-                  <div class="ai-label">想定損失（楽天）</div>
+                  <div class="ai-label">楽天</div>
                   <div class="ai-val neg">
                     {% if e.est_loss_rakuten %}
                       -{{ e.est_loss_rakuten|floatformat:0|intcomma }} 円
@@ -681,7 +682,7 @@
                   </div>
                 </div>
                 <div class="ai-row">
-                  <div class="ai-label">想定損失（松井）</div>
+                  <div class="ai-label">松井</div>
                   <div class="ai-val neg">
                     {% if e.est_loss_matsui %}
                       -{{ e.est_loss_matsui|floatformat:0|intcomma }} 円
