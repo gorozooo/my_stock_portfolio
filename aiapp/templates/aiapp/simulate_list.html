@@ -689,7 +689,6 @@
 
               <div class="real-section">
                 <div class>約定</div>
-                
                 {% if e.eval_entry_px %}
                   <div class="real-row">
                     <div class="real-label">価格</div>
@@ -699,9 +698,13 @@
                   </div>
                 
                 {% if e.entry_label %}
-                    <div class="real-note">約定時刻：{{ e.entry_label }}</div>
+                  <div class="real-row">
+                    <div class="real-label">時刻</div>
+                    <div class="real-val">
+                      {{ e.entry_label }}
                   {% endif %}
-                
+                    </div>
+                  </div>
                   
                   <div>数量</div>
                   <div class="real-row">
