@@ -679,63 +679,69 @@
               </div>
             </div>
 
-            <!-- ===== 右：シミュ結果（実際の約定＆PL） ===== -->
-            <div class="real-box">
-              <div class="real-head">
-                <div class="real-title">
-                  シミュ結果{% if e.eval_horizon_days %}（{{ e.eval_horizon_days }}営業日後）{% endif %}
-                </div>
+          <!-- ===== 右：シミュ結果（実際の約定＆PL） ===== -->
+          <div class="real-box">
+            <div class="real-head">
+              <div class="real-title">
+                シミュ結果{% if e.eval_horizon_days %}（{{ e.eval_horizon_days }}営業日後）{% endif %}
               </div>
+            </div>
 
-              <div class="real-section">
-                <div class>約定</div>
-                {% if e.eval_entry_px %}
-                  <div class="real-row">
-                    <div class="real-label">価格</div>
-                    <div class="real-val">
-                      {{ e.eval_entry_px|floatformat:0|intcomma }} 円
-                    </div>
+            {# === 約定ブロック === #}
+            <div class="real-section">
+              <div class="real-label">約定</div>
+              {% if e.eval_entry_px %}
+                <div class="real-row">
+                  <div class="real-label">価格</div>
+                  <div class="real-val">
+                    {{ e.eval_entry_px|floatformat:0|intcomma }} 円
                   </div>
+                </div>
                 {% if e.entry_label %}
                   <div class="real-row">
                     <div class="real-label">時刻</div>
                     <div class="real-val">
                       {{ e.entry_label }}
-                  {% endif %}
                     </div>
                   </div>
-                  {% else %}
-                  <div class="real-note">
-                    約定できず
-                  </div>
                 {% endif %}
-              </div>
+              {% else %}
+                <div class="real-note">
+                  約定できず
+                </div>
+              {% endif %}
+            </div>
 
-              <div class="real-section">
-                <div>決済</div>
-                {% if e.exit_reason_label %}
-                  <div class="real-row">
-                    <div class="real-label">結果</div>
-                    <div class="real-val">
+            {# === 決済ブロック === #}
+            <div class="real-section">
+              <div class="real-label">決済</div>
+
+              {# 結果テキスト（利確 / 損切 / 持ち越し / 指値に刺さらなかった 等） #}
+              {% if e.exit_reason_label %}
+                <div class="real-row">
+                  <div class="real-label">結果</div>
+                  <div class="real-val">
                     {{ e.exit_reason_label }}
-                    </div>
                   </div>
-                {% elif e.eval_exit_reason %}
-                  <div class="real-row">
-                    <div class="real-label">結果</div>
-                    <div class="real-val">
+                </div>
+              {% elif e.eval_exit_reason %}
+                <div class="real-row">
+                  <div class="real-label">結果</div>
+                  <div class="real-val">
                     {{ e.eval_exit_reason }}
-                    </div>
                   </div>
-                {% else %}
-                  <div class="real-note">
-                    まだ評価が実行されていません（ai_sim_eval 未実行）
-                  </div>
-                {% endif %}
-                
+                </div>
+              {% else %}
+                <div class="real-note">
+                  まだ評価が実行されていません（ai_sim_eval 未実行）
+                </div>
+              {% endif %}
+
+              {# ★ 利確 / 損切 のときだけ 決済価格・時刻 を表示 #}
+              {% if e.exit_reason == 'hit_tp' or e.exit_reason == 'hit_sl' %}
                 {% if e.eval_close_px %}
                   <div class="real-row">
-                    <div class="real-label">決済価格</div>
+                    <div class="real-label">価格</div>
                     <div class="real-val">
                       {{ e.eval_close_px|floatformat:0|intcomma }} 円
                     </div>
@@ -746,15 +752,18 @@
                   <div class="real-row">
                     <div class="real-label">時刻</div>
                     <div class="real-val">
-                    {{ e.exit_label }}
+                      {{ e.exit_label }}
                     </div>
                   </div>
                 {% endif %}
-              </div>
-              
-              <div class="real-section">
+              {% endif %}
+            </div>
+
+            {# === 損益ブロック === #}
+            <div class="real-section">
               <div class="real-pl-wrap">
-                <div>損益</div>
+                <div class="real-label">損益</div>
+
                 <div class="real-pl-row">
                   <div class="real-label">楽天</div>
                   <div>
@@ -778,7 +787,7 @@
                     </span>
                   </div>
                 </div>
-                </div>
+
               </div>
             </div>
           </div>
