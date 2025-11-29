@@ -688,6 +688,16 @@
               </div>
 
               <div class="real-section">
+                
+                {% if e.entry_label %}
+                    <div class="real-note">約定時刻：{{ e.entry_label }}</div>
+                  {% endif %}
+                {% else %}
+                  <div class="real-note">
+                    未約定（指値に一度も触れず / ポジションなし）
+                  </div>
+                {% endif %}
+                
                   {% if e.eval_entry_px %}
                   <div class="real-row">
                     <div class="real-label">価格</div>
@@ -712,14 +722,7 @@
                       {% else %}0 株{% endif %}
                     </div>
                   </div>
-                  {% if e.entry_label %}
-                    <div class="real-note">約定時刻：{{ e.entry_label }}</div>
-                  {% endif %}
-                {% else %}
-                  <div class="real-note">
-                    未約定（指値に一度も触れず / ポジションなし）
-                  </div>
-                {% endif %}
+                  
               </div>
 
               <div class="real-section">
