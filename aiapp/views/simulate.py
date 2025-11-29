@@ -141,7 +141,7 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
                     # タイムアップ → 持ち越し扱い
                     exit_reason_label = "持ち越し"
                 elif exit_reason in ("no_touch", "no_fill"):
-                    exit_reason_label = "指値に一度も触れなかった"
+                    exit_reason_label = "指値に刺さらなかった"
 
                 rec["exit_reason"] = exit_reason
                 rec["exit_reason_label"] = exit_reason_label
