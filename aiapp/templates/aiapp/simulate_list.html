@@ -688,16 +688,16 @@
               </div>
 
               <div class="real-section">
-                <div class="real-label">エントリー（実際）</div>
+                <div>約定</div>
                 {% if e.eval_entry_px %}
                   <div class="real-row">
-                    <div class="real-label">約定価格</div>
+                    <div class="real-label">価格</div>
                     <div class="real-val">
                       {{ e.eval_entry_px|floatformat:0|intcomma }} 円
                     </div>
                   </div>
                   <div class="real-row">
-                    <div class="real-label">約定数量</div>
+                    <div class="real-label">数量</div>
                     <div class="real-val">
                       楽天
                       {% if e.eval_label_rakuten and e.eval_label_rakuten != 'no_position' %}
