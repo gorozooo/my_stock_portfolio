@@ -716,21 +716,32 @@
               <div class="real-section">
                 <div>決済</div>
                 {% if e.exit_reason_label %}
-                  <div class="real-note">
-                    結果：{{ e.exit_reason_label }}
+                  <div class="real-row">
+                    <div class="real-label">結果</div>
+                    <div class="real-val">
+                    {{ e.exit_reason_label }}
+                    </div>
                   </div>
+                  
                 {% elif e.eval_exit_reason %}
-                  <div class="real-note">
-                    結果：{{ e.eval_exit_reason }}
+                  <div class="real-row">
+                    <div class="real-label">結果</div>
+                    <div class="real-val">
+                    {{ e.eval_exit_reason }}
                   </div>
+                  </div>
+                  
                 {% else %}
                   <div class="real-note">
                     まだ評価が実行されていません（ai_sim_eval 未実行）
                   </div>
                 {% endif %}
                 {% if e.exit_label %}
-                  <div class="real-note">
-                    決済時刻：{{ e.exit_label }}
+                  <div class="real-row">
+                    <div class="real-label">時刻</div>
+                    <div class="real-val">
+                    {{ e.exit_label }}
+                    </div>
                   </div>
                 {% endif %}
               </div>
