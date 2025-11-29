@@ -38,7 +38,7 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
     - /media/aiapp/simulate/*.jsonl を全部読む
     - ログインユーザーの分だけ抽出
     - ts 降順でソート
-    - モード / 年月日トグル / 銘柄コード・名称でフィルタ
+    - モード / 年月日トグル or date パラメータ / 銘柄コード・名称でフィルタ
     - 1日分だけ表示（最大100件）
 
     ★ 重複除外仕様
@@ -305,6 +305,13 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         if selected_year and selected_month and selected_day:
             selected_date = _date(selected_year, selected_month, selected_day)
 
+    # ★ 日付ピッカー用の文字列（input type="date" の value に使う）
+    if selected_date is not None:
+        selected_date_str = selected_date.isoformat()
+    else:
+        # ログがまったく無い場合などは空文字にしておく
+        selected_date_str = ""
+
     # ---- KPI集計：今日 & 通算（フィルタとは無関係） -------------------
     def _accumulate(summary: Dict[str, Any], e: Dict[str, Any]) -> None:
         total_pl = summary.get("total_pl", 0.0)
@@ -402,5 +409,8 @@ def simulate_list(request: HttpRequest) -> HttpResponse:
         "selected_year": selected_year,
         "selected_month": selected_month,
         "selected_day": selected_day,
+        # 日付ピッカー用
+        "selected_date": selected_date,
+        "selected_date_str": selected_date_str,
     }
     return render(request, "aiapp/simulate_list.html", ctx)
