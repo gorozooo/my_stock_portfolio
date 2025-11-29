@@ -613,11 +613,7 @@
           <div class="body-cols">
             <!-- ===== 左：AIスナップ（注文イメージ） ===== -->
             <div class="ai-box">
-              <div class="ai-title">AIスナップ（注文イメージ）</div>
-              <div class="ai-title-sub">
-                シミュレ登録時点の AI 提案値（固定スナップショット）
-              </div>
-
+              <div class="ai-title">AIスナップ（注文）</div>
               <div class="ai-row">
                 <div class="ai-label">エントリー指値</div>
                 <div class="ai-val">
@@ -641,7 +637,7 @@
 
               <div class="ai-section">
                 <div class="ai-row">
-                  <div class="ai-label">数量（AI想定・楽天）</div>
+                  <div class="ai-label">数量（楽天）</div>
                   <div class="ai-val">
                     {% if e.qty_rakuten %}
                       {{ e.qty_rakuten|floatformat:0|intcomma }} 株
@@ -649,7 +645,7 @@
                   </div>
                 </div>
                 <div class="ai-row">
-                  <div class="ai-label">数量（AI想定・松井）</div>
+                  <div class="ai-label">数量（松井）</div>
                   <div class="ai-val">
                     {% if e.qty_matsui %}
                       {{ e.qty_matsui|floatformat:0|intcomma }} 株
