@@ -44,7 +44,7 @@
     gap:8px;
     margin:0 0 10px 0;
   }
-  .summary-card{
+  .summary-bar{
     padding:10px 12px;
     border-radius:14px;
     border:1px solid rgba(148,163,184,0.35);
@@ -52,16 +52,25 @@
     backdrop-filter:blur(10px);
     font-size:12px;
   }
+  .summary-bar-total{
+    background:linear-gradient(135deg,rgba(15,23,42,0.96),rgba(30,64,175,0.9));
+  }
+  .summary-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    gap:8px;
+    margin-bottom:4px;
+  }
   .summary-title{
     font-size:12px;
     font-weight:600;
     color:#e5e7eb;
-    margin-bottom:4px;
   }
-  .summary-caption{
+  .summary-mode{
     font-size:10px;
     color:#cbd5f5;
-    margin-bottom:4px;
+    text-align:right;
   }
   .summary-counts{
     display:flex;
@@ -77,7 +86,7 @@
     margin-right:2px;
   }
   .summary-pl{
-    font-size:11px;
+    font-size:12px;
     color:#cbd5f5;
   }
   .summary-pl-val{
@@ -135,22 +144,6 @@
     font-weight:600;
   }
 
-  /* 年月日トグル横並び */
-  .date-chip-row{
-    display:flex;
-    flex-wrap:wrap;
-    gap:10px;
-  }
-  .date-group{
-    display:flex;
-    flex-direction:column;
-    gap:4px;
-  }
-  .date-group-label{
-    font-size:10px;
-    color:var(--sub);
-  }
-
   .search-row{
     display:flex;
     gap:6px;
@@ -176,6 +169,26 @@
     font-size:12px;
     padding:6px 10px;
     white-space:nowrap;
+  }
+
+  /* 日付表示ボタン */
+  .date-display{
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,0.7);
+    background:rgba(15,23,42,0.95);
+    color:#e5e7eb;
+    font-size:12px;
+    padding:6px 12px;
+    min-width:140px;
+    text-align:center;
+  }
+  .date-display span.main{
+    font-variant-numeric:tabular-nums;
+  }
+  .date-display span.sub{
+    font-size:10px;
+    color:var(--sub);
+    margin-left:4px;
   }
 
   .grid{display:grid;gap:10px;}
@@ -223,6 +236,12 @@
     max-width:22ch;
   }
 
+  .entry-info{
+    margin-top:4px;
+    font-size:11px;
+    color:var(--sub);
+  }
+
   .mode-badge{
     display:inline-block;
     font-size:11px;
@@ -244,6 +263,7 @@
   .head-result-chip{
     margin-top:4px;
   }
+
   .result-badge{
     font-size:10px;
     padding:2px 6px;
@@ -330,6 +350,19 @@
   .ai-val.pos{color:var(--ok);}
   .ai-val.neg{color:var(--bad);}
 
+  .real-head{
+    display:flex;
+    justify-content:space-between;
+    gap:4px;
+    align-items:flex-start;
+    margin-bottom:2px;
+  }
+  .real-meta{
+    font-size:10px;
+    color:var(--sub);
+    text-align:right;
+  }
+
   .real-section{
     margin-top:4px;
     padding-top:4px;
@@ -376,6 +409,95 @@
     color:#fca5a5;
     text-decoration:none;
   }
+
+  /* ====== iOS風 日付ピッカー ====== */
+  .dp-backdrop{
+    position:fixed;
+    inset:0;
+    background:rgba(15,23,42,0.55);
+    backdrop-filter:blur(10px);
+    display:flex;
+    align-items:flex-end;
+    justify-content:center;
+    z-index:60;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .18s ease-out;
+  }
+  .dp-backdrop.dp-open{
+    opacity:1;
+    pointer-events:auto;
+  }
+  .dp-sheet{
+    width:100%;
+    max-width:720px;
+    background:#020617;
+    border-radius:18px 18px 0 0;
+    border-top:1px solid rgba(148,163,184,0.5);
+    box-shadow:0 -12px 40px rgba(0,0,0,0.6);
+    padding:8px 12px 14px;
+  }
+  .dp-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:4px;
+  }
+  .dp-btn{
+    border:none;
+    background:none;
+    font-size:13px;
+    padding:6px 4px;
+    color:#93c5fd;
+  }
+  .dp-btn.dp-ok{
+    font-weight:600;
+    color:#38bdf8;
+  }
+  .dp-title{
+    font-size:12px;
+    color:#cbd5f5;
+  }
+  .dp-body{
+    position:relative;
+    display:flex;
+    gap:4px;
+    padding:6px 2px 8px;
+  }
+  .dp-col{
+    flex:1;
+    max-height:168px;
+    overflow-y:auto;
+    scrollbar-width:none;
+    -ms-overflow-style:none;
+    scroll-snap-type:y mandatory;
+  }
+  .dp-col::-webkit-scrollbar{display:none;}
+  .dp-item{
+    height:32px;
+    line-height:32px;
+    text-align:center;
+    font-size:15px;
+    color:#64748b;
+    scroll-snap-align:center;
+    font-variant-numeric:tabular-nums;
+  }
+  .dp-item.dp-active{
+    color:#e5e7eb;
+    font-weight:600;
+  }
+  .dp-center-line{
+    position:absolute;
+    left:8px;
+    right:8px;
+    top:50%;
+    margin-top:-16px;
+    height:32px;
+    pointer-events:none;
+    border-radius:10px;
+    border:1px solid rgba(148,163,184,0.7);
+    box-shadow:0 0 0 999px rgba(15,23,42,0.65);
+  }
 </style>
 {% endblock %}
 
@@ -386,85 +508,110 @@
     <div class="head-title">AIシミュレ一覧</div>
     <div class="head-sub">
       AI Picks の「シミュレ」で登録した紙トレのログです。<br>
-      上部に「今日 / 通算」のKPI、下でモード＋年月日トグル＋検索で1日分を確認できます。
+      フィルタで絞り込みつつ、直近100件まで表示しています。
     </div>
   </div>
 
-  {# ===== KPIカード：今日 / 通算 ===== #}
-  <div class="summary-grid">
-    <div class="summary-card">
-      <div class="summary-title">今日の成績</div>
-      <div class="summary-caption">※ 今日発生したシミュレ全体（フィルタと無関係）</div>
-      {% if summary_today.has_data %}
+  {# ===== 今日 / 通算 KPIカード ===== #}
+  {% if summary_today or summary_total %}
+    <div class="summary-grid">
+      <div class="summary-bar">
+        <div class="summary-header">
+          <div class="summary-title">今日の成績</div>
+          <div class="summary-mode">
+            モード={{ mode|upper }} /
+            日付={{ selected_date_label|default:selected_date_str|default:"-" }}
+          </div>
+        </div>
+        {% if summary_today %}
+          <div class="summary-counts">
+            <div class="summary-count"><span class="label">勝ち</span>{{ summary_today.win }}件</div>
+            <div class="summary-count"><span class="label">負け</span>{{ summary_today.lose }}件</div>
+            <div class="summary-count"><span class="label">見送り</span>{{ summary_today.skip }}件</div>
+            {% if summary_today.flat %}
+              <div class="summary-count"><span class="label">引き分け</span>{{ summary_today.flat }}件</div>
+            {% endif %}
+          </div>
+          <div class="summary-pl">
+            合計
+            <span class="summary-pl-val {% if summary_today.total_pl >= 0 %}pos{% else %}neg{% endif %}">
+              {{ summary_today.total_pl|floatformat:0|intcomma }} 円
+            </span>
+          </div>
+        {% else %}
+          <div class="summary-pl">本日のデータはありません。</div>
+        {% endif %}
+      </div>
+
+      <div class="summary-bar summary-bar-total">
+        <div class="summary-header">
+          <div class="summary-title">通算成績</div>
+          <div class="summary-mode">
+            全期間 / モード={{ mode|upper }}
+          </div>
+        </div>
+        {% if summary_total %}
+          <div class="summary-counts">
+            <div class="summary-count"><span class="label">勝ち</span>{{ summary_total.win }}件</div>
+            <div class="summary-count"><span class="label">負け</span>{{ summary_total.lose }}件</div>
+            <div class="summary-count"><span class="label">見送り</span>{{ summary_total.skip }}件</div>
+            {% if summary_total.flat %}
+              <div class="summary-count"><span class="label">引き分け</span>{{ summary_total.flat }}件</div>
+            {% endif %}
+          </div>
+          <div class="summary-pl">
+            合計
+            <span class="summary-pl-val {% if summary_total.total_pl >= 0 %}pos{% else %}neg{% endif %}">
+              {{ summary_total.total_pl|floatformat:0|intcomma }} 円
+            </span>
+          </div>
+        {% else %}
+          <div class="summary-pl">通算データはまだありません。</div>
+        {% endif %}
+      </div>
+    </div>
+  {% elif summary.has_data %}
+    {# 後方互換：古い summary だけある場合 #}
+    <div class="summary-grid">
+      <div class="summary-bar">
+        <div class="summary-header">
+          <div class="summary-title">本日の成績</div>
+          <div class="summary-mode">
+            モード={{ mode|upper }}
+          </div>
+        </div>
         <div class="summary-counts">
-          <div class="summary-count">
-            <span class="label">勝ち</span>{{ summary_today.win }}件
-          </div>
-          <div class="summary-count">
-            <span class="label">負け</span>{{ summary_today.lose }}件
-          </div>
-          <div class="summary-count">
-            <span class="label">見送り/持ち越し</span>{{ summary_today.skip }}件
-          </div>
-          {% if summary_today.flat %}
-            <div class="summary-count">
-              <span class="label">引き分け</span>{{ summary_today.flat }}件
-            </div>
+          <div class="summary-count"><span class="label">勝ち</span>{{ summary.win }}件</div>
+          <div class="summary-count"><span class="label">負け</span>{{ summary.lose }}件</div>
+          <div class="summary-count"><span class="label">見送り</span>{{ summary.skip }}件</div>
+          {% if summary.flat %}
+            <div class="summary-count"><span class="label">引き分け</span>{{ summary.flat }}件</div>
           {% endif %}
         </div>
         <div class="summary-pl">
           合計
-          <span class="summary-pl-val {% if summary_today.total_pl >= 0 %}pos{% else %}neg{% endif %}">
-            {{ summary_today.total_pl|floatformat:0|intcomma }} 円
+          <span class="summary-pl-val {% if summary.total_pl >= 0 %}pos{% else %}neg{% endif %}">
+            {{ summary.total_pl|floatformat:0|intcomma }} 円
           </span>
         </div>
-      {% else %}
-        <div class="summary-caption">今日のシミュレはまだありません。</div>
-      {% endif %}
-    </div>
-
-    <div class="summary-card">
-      <div class="summary-title">通算成績（全期間）</div>
-      <div class="summary-caption">※ 全ログベース（フィルタと無関係）</div>
-      {% if summary_total.has_data %}
-        <div class="summary-counts">
-          <div class="summary-count">
-            <span class="label">勝ち</span>{{ summary_total.win }}件
-          </div>
-          <div class="summary-count">
-            <span class="label">負け</span>{{ summary_total.lose }}件
-          </div>
-          <div class="summary-count">
-            <span class="label">見送り/持ち越し</span>{{ summary_total.skip }}件
-          </div>
-          {% if summary_total.flat %}
-            <div class="summary-count">
-              <span class="label">引き分け</span>{{ summary_total.flat }}件
-            </div>
-          {% endif %}
+      </div>
+      <div class="summary-bar summary-bar-total">
+        <div class="summary-header">
+          <div class="summary-title">通算成績</div>
+          <div class="summary-mode">（準備中）</div>
         </div>
-        <div class="summary-pl">
-          合計
-          <span class="summary-pl-val {% if summary_total.total_pl >= 0 %}pos{% else %}neg{% endif %}">
-            {{ summary_total.total_pl|floatformat:0|intcomma }} 円
-          </span>
-        </div>
-      {% else %}
-        <div class="summary-caption">シミュレの履歴がまだありません。</div>
-      {% endif %}
+        <div class="summary-pl">今後ここに通算成績を表示します。</div>
+      </div>
     </div>
-  </div>
+  {% endif %}
 
-  {# ===== フィルタ：モード / 年月日トグル / 検索 ===== #}
   <div class="filters">
     <!-- モードフィルタ -->
     <div class="filter-row">
       <div class="filter-label">モード</div>
       <div class="chip-row">
         <form method="get" class="chip-form">
-          <input type="hidden" name="y" value="{{ selected_year }}">
-          <input type="hidden" name="m" value="{{ selected_month }}">
-          <input type="hidden" name="d" value="{{ selected_day }}">
+          <input type="hidden" name="date" value="{{ selected_date_str }}">
           <input type="hidden" name="q" value="{{ q }}">
           <button type="submit" name="mode" value="all"
                   class="chip-btn {% if mode == 'all' %}active{% endif %}">
@@ -472,9 +619,7 @@
           </button>
         </form>
         <form method="get" class="chip-form">
-          <input type="hidden" name="y" value="{{ selected_year }}">
-          <input type="hidden" name="m" value="{{ selected_month }}">
-          <input type="hidden" name="d" value="{{ selected_day }}">
+          <input type="hidden" name="date" value="{{ selected_date_str }}">
           <input type="hidden" name="q" value="{{ q }}">
           <button type="submit" name="mode" value="live"
                   class="chip-btn {% if mode == 'live' %}active{% endif %}">
@@ -482,9 +627,7 @@
           </button>
         </form>
         <form method="get" class="chip-form">
-          <input type="hidden" name="y" value="{{ selected_year }}">
-          <input type="hidden" name="m" value="{{ selected_month }}">
-          <input type="hidden" name="d" value="{{ selected_day }}">
+          <input type="hidden" name="date" value="{{ selected_date_str }}">
           <input type="hidden" name="q" value="{{ q }}">
           <button type="submit" name="mode" value="demo"
                   class="chip-btn {% if mode == 'demo' %}active{% endif %}">
@@ -494,84 +637,25 @@
       </div>
     </div>
 
-    <!-- 年月日トグル（横並び） -->
+    <!-- 日付ピッカー起動ボタン -->
     <div class="filter-row">
       <div class="filter-label">日付</div>
-      <div class="date-chip-row">
-        <div class="date-group">
-          <div class="date-group-label">年</div>
-          <div class="chip-row">
-            {% if year_options %}
-              {% for y in year_options %}
-                <form method="get" class="chip-form">
-                  <input type="hidden" name="mode" value="{{ mode }}">
-                  <input type="hidden" name="m" value="{{ selected_month }}">
-                  <input type="hidden" name="d" value="{{ selected_day }}">
-                  <input type="hidden" name="q" value="{{ q }}">
-                  <button type="submit" name="y" value="{{ y.value }}"
-                          class="chip-btn {% if y.value == selected_year %}active{% endif %}">
-                    {{ y.label }}
-                  </button>
-                </form>
-              {% endfor %}
-            {% else %}
-              <span style="font-size:11px;color:var(--sub);">履歴がまだありません</span>
-            {% endif %}
-          </div>
-        </div>
-
-        <div class="date-group">
-          <div class="date-group-label">月</div>
-          <div class="chip-row">
-            {% if month_options %}
-              {% for m in month_options %}
-                <form method="get" class="chip-form">
-                  <input type="hidden" name="mode" value="{{ mode }}">
-                  <input type="hidden" name="y" value="{{ selected_year }}">
-                  <input type="hidden" name="d" value="{{ selected_day }}">
-                  <input type="hidden" name="q" value="{{ q }}">
-                  <button type="submit" name="m" value="{{ m.value }}"
-                          class="chip-btn {% if m.value == selected_month %}active{% endif %}">
-                    {{ m.label }}
-                  </button>
-                </form>
-              {% endfor %}
-            {% else %}
-              <span style="font-size:11px;color:var(--sub);">この年のデータはありません</span>
-            {% endif %}
-          </div>
-        </div>
-
-        <div class="date-group">
-          <div class="date-group-label">日</div>
-          <div class="chip-row">
-            {% if day_options %}
-              {% for d in day_options %}
-                <form method="get" class="chip-form">
-                  <input type="hidden" name="mode" value="{{ mode }}">
-                  <input type="hidden" name="y" value="{{ selected_year }}">
-                  <input type="hidden" name="m" value="{{ selected_month }}">
-                  <input type="hidden" name="q" value="{{ q }}">
-                  <button type="submit" name="d" value="{{ d.value }}"
-                          class="chip-btn {% if d.value == selected_day %}active{% endif %}">
-                    {{ d.label }}
-                  </button>
-                </form>
-              {% endfor %}
-            {% else %}
-              <span style="font-size:11px;color:var(--sub);">この年・月のデータはありません</span>
-            {% endif %}
-          </div>
-        </div>
-      </div>
+      <button type="button"
+              id="datePickerOpen"
+              class="date-display"
+              data-current="{{ selected_date_str|default:'' }}">
+        <span class="main">
+          {{ selected_date_label|default:selected_date_str|default:"日付を選択" }}
+        </span>
+        <span class="sub">タップして変更</span>
+      </button>
     </div>
 
     <!-- 銘柄検索 -->
     <form method="get" class="search-row">
       <input type="hidden" name="mode" value="{{ mode }}">
-      <input type="hidden" name="y" value="{{ selected_year }}">
-      <input type="hidden" name="m" value="{{ selected_month }}">
-      <input type="hidden" name="d" value="{{ selected_day }}">
+      <input type="hidden" name="date" id="filterDateInput"
+             value="{{ selected_date_str }}">
       <input type="text"
              name="q"
              value="{{ q }}"
@@ -593,6 +677,21 @@
               <div class="name">
                 {{ e.name|default:"(名称不明)" }}
               </div>
+
+              {# 上段のエントリー行：実際の約定（なければAIスナップ） #}
+              {% if e.eval_entry_px or e.entry %}
+                <div class="entry-info">
+                  エントリー
+                  {% if e.eval_entry_px %}
+                    {{ e.eval_entry_px|floatformat:0|intcomma }} 円
+                  {% elif e.entry %}
+                    {{ e.entry|floatformat:0|intcomma }} 円
+                  {% endif %}
+                  {% if e.entry_label %}
+                    ({{ e.entry_label }})
+                  {% endif %}
+                </div>
+              {% endif %}
 
               {% if e.mode %}
                 {% if e.mode == "live" %}
@@ -621,10 +720,10 @@
                       負け
                     {% elif e.combined_label == 'flat' %}
                       引き分け
-                    {% elif e.combined_label == 'carry' %}
-                      持ち越し
                     {% elif e.combined_label == 'skip' %}
                       見送り
+                    {% elif e.combined_label == 'carry' %}
+                      持ち越し
                     {% else %}
                       -
                     {% endif %}
@@ -746,8 +845,18 @@
 
             <!-- ===== 右：シミュ結果（実際の約定＆PL） ===== -->
             <div class="real-box">
-              <div class="real-title">
-                シミュ結果{% if e.eval_horizon_days %}（{{ e.eval_horizon_days }}営業日後）{% endif %}
+              <div class="real-head">
+                <div class="real-title">
+                  シミュ結果{% if e.eval_horizon_days %}（{{ e.eval_horizon_days }}営業日後）{% endif %}
+                </div>
+                <div class="real-meta">
+                  {% if e.eval_close_date %}
+                    {{ e.eval_close_date }}
+                  {% endif %}
+                  {% if e.eval_close_px %}
+                    ・終値 {{ e.eval_close_px|floatformat:0|intcomma }} 円
+                  {% endif %}
+                </div>
               </div>
 
               <div class="real-section">
@@ -763,14 +872,14 @@
                     <div class="real-label">約定数量</div>
                     <div class="real-val">
                       楽天
-                      {% if e.qty_rakuten %}
-                        {{ e.qty_rakuten|floatformat:0|intcomma }} 株
+                      {% if e.eval_label_rakuten and e.eval_label_rakuten != 'no_position' %}
+                        {{ e.qty_rakuten|default:0|floatformat:0|intcomma }} 株
                       {% else %}
                         0 株
                       {% endif %}
                       ／ 松井
-                      {% if e.qty_matsui %}
-                        {{ e.qty_matsui|floatformat:0|intcomma }} 株
+                      {% if e.eval_label_matsui and e.eval_label_matsui != 'no_position' %}
+                        {{ e.qty_matsui|default:0|floatformat:0|intcomma }} 株
                       {% else %}
                         0 株
                       {% endif %}
@@ -788,31 +897,20 @@
 
               <div class="real-section">
                 <div class="real-label">決済</div>
-                <div class="real-note">
-                  結果：
-                  {% if e.combined_label == 'win' %}
-                    利確
-                  {% elif e.combined_label == 'lose' %}
-                    損切
-                  {% elif e.combined_label == 'flat' %}
-                    引き分け
-                  {% elif e.combined_label == 'carry' %}
-                    持ち越し
-                  {% elif e.combined_label == 'skip' %}
-                    見送り
-                  {% else %}
-                    -
-                  {% endif %}
-                </div>
-                {% if e.eval_close_px %}
-                  <div class="real-row">
-                    <div class="real-label">決済価格</div>
-                    <div class="real-val">
-                      {{ e.eval_close_px|floatformat:0|intcomma }} 円
-                    </div>
+                {% if e.exit_reason_label %}
+                  <div class="real-note">
+                    結果：{{ e.exit_reason_label }}
+                  </div>
+                {% elif e.eval_exit_reason %}
+                  <div class="real-note">
+                    結果：{{ e.eval_exit_reason }}
+                  </div>
+                {% else %}
+                  <div class="real-note">
+                    まだ評価が実行されていません（ai_sim_eval 未実行）
                   </div>
                 {% endif %}
-                {% if e.exit_label %}
+                {% if e.exit_dt and e.exit_label %}
                   <div class="real-note">
                     決済時刻：{{ e.exit_label }}
                   </div>
@@ -824,7 +922,7 @@
                   <div class="real-label">楽天</div>
                   <div>
                     <span class="result-pl
-                      {% if e.eval_pl_rakuten and e.eval_pl_rakuten > 0 %}pos{% elif e.eval_pl_rakuten and e.eval_pl_rakuten < 0 %}neg{% endif %}">
+                      {% if e.eval_label_rakuten == 'win' %}pos{% elif e.eval_label_rakuten == 'lose' %}neg{% endif %}">
                       {% if e.eval_pl_rakuten or e.eval_pl_rakuten == 0 %}
                         {{ e.eval_pl_rakuten|floatformat:0|intcomma }} 円
                       {% else %}
@@ -838,7 +936,7 @@
                   <div class="real-label">松井</div>
                   <div>
                     <span class="result-pl
-                      {% if e.eval_pl_matsui and e.eval_pl_matsui > 0 %}pos{% elif e.eval_pl_matsui and e.eval_pl_matsui < 0 %}neg{% endif %}">
+                      {% if e.eval_label_matsui == 'win' %}pos{% elif e.eval_label_matsui == 'lose' %}neg{% endif %}">
                       {% if e.eval_pl_matsui or e.eval_pl_matsui == 0 %}
                         {{ e.eval_pl_matsui|floatformat:0|intcomma }} 円
                       {% else %}
@@ -865,9 +963,186 @@
   {% else %}
     <div class="empty">
       条件に一致するシミュレ登録がありません。<br>
-      年月日トグルやモード・銘柄検索を調整してみてください。
+      日付やモード・銘柄フィルタを少しゆるめてみてください。
     </div>
   {% endif %}
 
 </div>
+
+{# ===== 日付ピッカーモーダル ===== #}
+<div class="dp-backdrop" id="dpBackdrop">
+  <div class="dp-sheet">
+    <div class="dp-header">
+      <button class="dp-btn" type="button" id="dpCancel">キャンセル</button>
+      <div class="dp-title">日付を選択</div>
+      <button class="dp-btn dp-ok" type="button" id="dpOk">決定</button>
+    </div>
+    <div class="dp-body">
+      <div class="dp-col" id="dpYearCol"></div>
+      <div class="dp-col" id="dpMonthCol"></div>
+      <div class="dp-col" id="dpDayCol"></div>
+      <div class="dp-center-line"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const openBtn = document.getElementById('datePickerOpen');
+  const backdrop = document.getElementById('dpBackdrop');
+  const yearCol = document.getElementById('dpYearCol');
+  const monthCol = document.getElementById('dpMonthCol');
+  const dayCol = document.getElementById('dpDayCol');
+  const btnOk = document.getElementById('dpOk');
+  const btnCancel = document.getElementById('dpCancel');
+  const hiddenDateInput = document.getElementById('filterDateInput');
+
+  if (!openBtn || !backdrop || !yearCol || !monthCol || !dayCol) {
+    return;
+  }
+
+  function pad(n){return n < 10 ? "0"+n : ""+n;}
+
+  // 現在の選択日
+  function parseCurrentDate(){
+    const s = openBtn.getAttribute('data-current') || hiddenDateInput?.value;
+    if (s && /^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const [y,m,d] = s.split("-").map(v => parseInt(v,10));
+      return new Date(y, m-1, d);
+    }
+    return new Date();
+  }
+
+  const today = parseCurrentDate();
+  const baseYear = today.getFullYear();
+  const years = [];
+  for (let y = baseYear - 3; y <= baseYear + 1; y++){
+    years.push(y);
+  }
+  const months = [];
+  for (let m=1;m<=12;m++){months.push(m);}
+
+  let yearVal = today.getFullYear();
+  let monthVal = today.getMonth()+1;
+  let dayVal = today.getDate();
+
+  function buildCol(colEl, values, fmt, current){
+    colEl.innerHTML = "";
+    const frag = document.createDocumentFragment();
+    values.forEach(v => {
+      const div = document.createElement("div");
+      div.className = "dp-item";
+      div.dataset.value = String(v);
+      div.textContent = fmt(v);
+      frag.appendChild(div);
+    });
+    colEl.appendChild(frag);
+
+    const items = colEl.querySelectorAll(".dp-item");
+    if (!items.length) return;
+
+    const itemHeight = items[0].offsetHeight || 32;
+    let idx = values.indexOf(current);
+    if (idx < 0) idx = 0;
+    colEl.scrollTop = idx * itemHeight;
+    setActive(colEl, idx);
+
+    colEl.dataset.itemHeight = String(itemHeight);
+    colEl.dataset.values = JSON.stringify(values);
+
+    colEl.addEventListener("scroll", function(){
+      const h = parseFloat(colEl.dataset.itemHeight || "32");
+      const raw = colEl.scrollTop / h;
+      const nearest = Math.round(raw);
+      const maxIdx = values.length - 1;
+      const idx2 = Math.max(0, Math.min(maxIdx, nearest));
+      setActive(colEl, idx2);
+    }, {passive:true});
+  }
+
+  function setActive(colEl, idx){
+    const items = colEl.querySelectorAll(".dp-item");
+    items.forEach((el,i)=>{
+      el.classList.toggle("dp-active", i === idx);
+      if (i === idx){
+        colEl.dataset.selected = el.dataset.value || "";
+      }
+    });
+  }
+
+  function buildDays(y,m){
+    const last = new Date(y, m, 0).getDate();
+    const vals = [];
+    for (let d=1; d<=last; d++){vals.push(d);}
+    if (dayVal > last) dayVal = last;
+    buildCol(dayCol, vals, v => pad(v)+"日", dayVal);
+  }
+
+  function openPicker(){
+    const d = parseCurrentDate();
+    yearVal = d.getFullYear();
+    monthVal = d.getMonth()+1;
+    dayVal = d.getDate();
+
+    buildCol(yearCol, years, v => v+"年", yearVal);
+    buildCol(monthCol, months, v => v+"月", monthVal);
+    buildDays(yearVal, monthVal);
+
+    backdrop.classList.add("dp-open");
+  }
+
+  function closePicker(){
+    backdrop.classList.remove("dp-open");
+  }
+
+  yearCol.addEventListener("scroll", function(){
+    const values = JSON.parse(yearCol.dataset.values || "[]");
+    const sel = parseInt(yearCol.dataset.selected || String(yearVal),10);
+    if (values.includes(sel)){
+      yearVal = sel;
+      buildDays(yearVal, monthVal);
+    }
+  }, {passive:true});
+
+  monthCol.addEventListener("scroll", function(){
+    const values = JSON.parse(monthCol.dataset.values || "[]");
+    const sel = parseInt(monthCol.dataset.selected || String(monthVal),10);
+    if (values.includes(sel)){
+      monthVal = sel;
+      buildDays(yearVal, monthVal);
+    }
+  }, {passive:true});
+
+  btnOk.addEventListener("click", function(){
+    const y = parseInt(yearCol.dataset.selected || String(yearVal),10);
+    const m = parseInt(monthCol.dataset.selected || String(monthVal),10);
+    const d = parseInt(dayCol.dataset.selected || String(dayVal),10);
+
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+      closePicker();
+      return;
+    }
+    const dateStr = y + "-" + pad(m) + "-" + pad(d);
+
+    if (hiddenDateInput){
+      hiddenDateInput.value = dateStr;
+    }
+    openBtn.setAttribute("data-current", dateStr);
+    openBtn.querySelector(".main").textContent = dateStr;
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("date", dateStr);
+    window.location.href = url.toString();
+  });
+
+  btnCancel.addEventListener("click", closePicker);
+  backdrop.addEventListener("click", function(ev){
+    if (ev.target === backdrop){
+      closePicker();
+    }
+  });
+
+  openBtn.addEventListener("click", openPicker);
+})();
+</script>
 {% endblock %}
