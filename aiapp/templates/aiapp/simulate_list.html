@@ -732,6 +732,16 @@
                     まだ評価が実行されていません（ai_sim_eval 未実行）
                   </div>
                 {% endif %}
+                
+                {% if e.eval_close_px %}
+                  <div class="real-row">
+                    <div class="real-label">決済価格</div>
+                    <div class="real-val">
+                      {{ e.eval_close_px|floatformat:0|intcomma }} 円
+                    </div>
+                  </div>
+                {% endif %}
+
                 {% if e.exit_label %}
                   <div class="real-row">
                     <div class="real-label">時刻</div>
