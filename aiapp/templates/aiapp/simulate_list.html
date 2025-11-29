@@ -706,23 +706,7 @@
                     </div>
                   </div>
                   
-                  <div>数量</div>
-                  <div class="real-row">
-                    <div class="real-label">楽天</div>
-                    <div class="real-val">
-                      {% if e.eval_label_rakuten and e.eval_label_rakuten != 'no_position' %}
-                        {{ e.qty_rakuten|default:0|floatformat:0|intcomma }} 株
-                      {% else %}0 株{% endif %}
-                    </div>
-                  </div>
-                  <div class="real-row">
-                    <div class="real-label">松井</div>
-                    <div class="real-val">
-                      {% if e.eval_label_matsui and e.eval_label_matsui != 'no_position' %}
-                        {{ e.qty_matsui|default:0|floatformat:0|intcomma }} 株
-                      {% else %}0 株{% endif %}
-                    </div>
-                  </div>
+                  
                   
                   {% else %}
                   <div class="real-note">
