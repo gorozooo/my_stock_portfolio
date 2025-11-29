@@ -692,11 +692,6 @@
                 {% if e.entry_label %}
                     <div class="real-note">約定時刻：{{ e.entry_label }}</div>
                   {% endif %}
-                {% else %}
-                  <div class="real-note">
-                    未約定（指値に一度も触れず / ポジションなし）
-                  </div>
-                {% endif %}
                 
                   {% if e.eval_entry_px %}
                   <div class="real-row">
@@ -723,6 +718,12 @@
                     </div>
                   </div>
                   
+                  {% else %}
+                  <div class="real-note">
+                    未約定（指値に一度も触れず / ポジションなし）
+                  </div>
+                {% endif %}
+                
               </div>
 
               <div class="real-section">
