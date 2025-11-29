@@ -688,7 +688,7 @@
               </div>
 
               <div class="real-section">
-                {% if e.eval_entry_px %}
+    
                   </div>
                   {% if e.entry_label %}
                     <div class="real-note">約定時刻：{{ e.entry_label }}</div>
@@ -697,6 +697,7 @@
                   <div class="real-note">
                     未約定（指値に一度も触れず / ポジションなし）
                   </div>
+                  {% if e.eval_entry_px %}
                   <div class="real-row">
                     <div class="real-label">価格</div>
                     <div class="real-val">
