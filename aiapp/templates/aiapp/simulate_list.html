@@ -696,7 +696,6 @@
                       {{ e.eval_entry_px|floatformat:0|intcomma }} 円
                     </div>
                   </div>
-                
                 {% if e.entry_label %}
                   <div class="real-row">
                     <div class="real-label">時刻</div>
@@ -705,7 +704,6 @@
                   {% endif %}
                     </div>
                   </div>
-                  
                   {% else %}
                   <div class="real-note">
                     約定できず
@@ -722,15 +720,13 @@
                     {{ e.exit_reason_label }}
                     </div>
                   </div>
-                  
                 {% elif e.eval_exit_reason %}
                   <div class="real-row">
                     <div class="real-label">結果</div>
                     <div class="real-val">
                     {{ e.eval_exit_reason }}
+                    </div>
                   </div>
-                  </div>
-                  
                 {% else %}
                   <div class="real-note">
                     まだ評価が実行されていません（ai_sim_eval 未実行）
@@ -747,6 +743,7 @@
               </div>
 
               <div class="real-pl-wrap">
+                <div>損益</div>
                 <div class="real-pl-row">
                   <div class="real-label">楽天</div>
                   <div>
