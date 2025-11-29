@@ -551,21 +551,7 @@
                 {{ e.name|default:"(名称不明)" }}
               </div>
 
-              {# 上段のエントリー行：eval_entry_px（実際）を優先 #}
-              {% if e.eval_entry_px or e.entry %}
-                <div class="entry-info">
-                  エントリー
-                  {% if e.eval_entry_px %}
-                    {{ e.eval_entry_px|floatformat:0|intcomma }} 円
-                  {% elif e.entry %}
-                    {{ e.entry|floatformat:0|intcomma }} 円
-                  {% endif %}
-                  {% if e.entry_label %}
-                    ({{ e.entry_label }})
-                  {% endif %}
-                </div>
-              {% endif %}
-
+              
               {% if e.mode %}
                 {% if e.mode == "live" %}
                   <div class="mode-badge mode-live">LIVE シミュレ</div>
