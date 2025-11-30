@@ -180,6 +180,18 @@
     font-size:11px;
     color:#e5e7eb;
   }
+  .affinity-title{
+    font-size:11px;
+    font-weight:600;
+    margin-bottom:2px;
+    color:#e5e7eb;
+  }
+  .affinity-legend{
+    font-size:10px;
+    color:#9ca3af;
+    line-height:1.4;
+    margin-bottom:4px;
+  }
   .affinity-row{
     display:flex;
     justify-content:space-between;
@@ -382,13 +394,17 @@
           {# C: 行動メモリからの「相性」 #}
           {% if item.affinity %}
             <div class="affinity">
-              <div class="rule-pass-title">あなたとの相性（行動ログベース）</div>
+              <div class="affinity-title">あなたとの相性（行動ログベース）</div>
+              <div class="affinity-legend">
+                ◎: 相性かなり良い ／ ○: やや良い ／ △: ふつう ／ ×: 要注意 ／ ？: データ不足<br>
+                数値 = 過去の勝率（%） ／ カッコ内 = 対象トレード数
+              </div>
 
               {% if item.affinity.sector %}
                 <div class="affinity-row">
                   <div class="affinity-key">セクター相性</div>
                   <div class="affinity-val">
-                    {{ item.affinity.sector.symbol }} {{ item.affinity.sector.label }}
+                    {{ item.affinity.sector.label }}
                   </div>
                 </div>
               {% endif %}
@@ -397,7 +413,7 @@
                 <div class="affinity-row">
                   <div class="affinity-key">ATRボラ相性</div>
                   <div class="affinity-val">
-                    {{ item.affinity.atr.symbol }} {{ item.affinity.atr.label }}
+                    {{ item.affinity.atr.label }}
                   </div>
                 </div>
               {% endif %}
@@ -406,7 +422,7 @@
                 <div class="affinity-row">
                   <div class="affinity-key">傾き（トレンド強度）</div>
                   <div class="affinity-val">
-                    {{ item.affinity.slope.symbol }} {{ item.affinity.slope.label }}
+                    {{ item.affinity.slope.label }}
                   </div>
                 </div>
               {% endif %}
@@ -415,7 +431,7 @@
                 <div class="affinity-row">
                   <div class="affinity-key">トレンド方向</div>
                   <div class="affinity-val">
-                    {{ item.affinity.trend.symbol }} {{ item.affinity.trend.label }}
+                    {{ item.affinity.trend.label }}
                   </div>
                 </div>
               {% endif %}
