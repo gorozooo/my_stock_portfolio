@@ -307,6 +307,184 @@ def _attach_pass_checks(data: Dict[str, Any]) -> None:
 # ===== ここまで B用 =====
 
 
+# ===== ここから C：行動メモリとの「相性」連携 =====
+
+def _safe_float(v: Any) -> Optional[float]:
+    if v in (None, "", "null"):
+        return None
+    try:
+        return float(v)
+    except Exception:
+        return None
+
+
+def _bucket_atr_pct(atr: Optional[float]) -> str:
+    if atr is None:
+        return "ATR:不明"
+    if atr < 1.0:
+        return "ATR:〜1%"
+    if atr < 2.0:
+        return "ATR:1〜2%"
+    if atr < 3.0:
+        return "ATR:2〜3%"
+    return "ATR:3%以上"
+
+
+def _bucket_slope(slope: Optional[float]) -> str:
+    if slope is None:
+        return "傾き:不明"
+    if slope < 0:
+        return "傾き:下向き"
+    if slope < 5:
+        return "傾き:緩やかな上向き"
+    if slope < 10:
+        return "傾き:強めの上向き"
+    return "傾き:急騰寄り"
+
+
+def _load_behavior_memory_json(user_id: Optional[int]) -> Optional[Dict[str, Any]]:
+    """
+    行動メモリ（latest_behavior_memory_u{user}.json）を読み込む。
+    見つからなければ None。
+    """
+    behavior_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "behavior" / "memory"
+
+    # ユーザー別 → なければ all
+    candidates: List[Path] = []
+    if user_id:
+        candidates.append(behavior_dir / f"latest_behavior_memory_u{user_id}.json")
+    candidates.append(behavior_dir / "latest_behavior_memory_uall.json")
+
+    target: Optional[Path] = None
+    for p in candidates:
+        if p.exists() and p.is_file():
+            target = p
+            break
+
+    if not target:
+        return None
+
+    try:
+        text = target.read_text(encoding="utf-8")
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        return None
+    return None
+
+
+def _build_affinity_label(stats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    StatBucket.to_dict() 相当の dict から
+    「◎/○/△/×/？」＋ラベル文字列を作る。
+    """
+    if not stats:
+        return {
+            "symbol": "？",
+            "trials": 0,
+            "win_rate": None,
+            "label": "？ データなし",
+        }
+
+    trials = int(stats.get("trials") or 0)
+    win_rate = stats.get("win_rate")
+    if win_rate is None:
+        symbol = "？"
+        label = "？ データなし"
+    else:
+        try:
+            win_rate_f = float(win_rate)
+        except Exception:
+            win_rate_f = 0.0
+
+        # ランク判定
+        if trials >= 5 and win_rate_f >= 60.0:
+            symbol = "◎"
+        elif trials >= 3 and win_rate_f >= 50.0:
+            symbol = "○"
+        elif trials >= 3:
+            symbol = "△"
+        elif trials >= 1 and win_rate_f < 30.0:
+            symbol = "×"
+        elif trials >= 1:
+            symbol = "△"
+        else:
+            symbol = "？"
+
+        if trials > 0:
+            label = f"{symbol} {win_rate_f:.1f}%（{trials}戦）"
+        else:
+            label = "？ データなし"
+
+        win_rate = win_rate_f
+
+    return {
+        "symbol": symbol,
+        "trials": trials,
+        "win_rate": win_rate,
+        "label": label,
+    }
+
+
+def _attach_behavior_affinity(data: Dict[str, Any], user_id: Optional[int]) -> None:
+    """
+    行動メモリから「相性」情報を item.affinity に付与する。
+
+    affinity = {
+      "sector": {...},
+      "atr": {...},
+      "slope": {...},
+      "trend": {...},
+    }
+    """
+    items: List[Dict[str, Any]] = list(data.get("items") or [])
+    if not items:
+        return
+
+    memory = _load_behavior_memory_json(user_id=user_id)
+    if not memory:
+        return
+
+    total_trades = int(memory.get("total_trades") or 0)
+    if total_trades <= 0:
+        return
+
+    sector_stats = memory.get("sector") or {}
+    atr_stats = memory.get("atr_bucket") or {}
+    slope_stats = memory.get("slope_bucket") or {}
+    trend_stats = memory.get("trend_daily") or {}
+
+    for it in items:
+        # セクターキー
+        sec_key = str(it.get("sector_display") or "(未分類)")
+        sec_aff = _build_affinity_label(sector_stats.get(sec_key))
+
+        # ATRバケット
+        atr_raw = _safe_float(it.get("atr_14") or it.get("atr_pct"))
+        atr_bucket = _bucket_atr_pct(atr_raw)
+        atr_aff = _build_affinity_label(atr_stats.get(atr_bucket))
+
+        # 傾きバケット
+        slope_raw = _safe_float(it.get("slope_20") or it.get("slope"))
+        slope_bucket = _bucket_slope(slope_raw)
+        slope_aff = _build_affinity_label(slope_stats.get(slope_bucket))
+
+        # トレンド方向
+        trend_key = str(it.get("trend_daily") or "不明")
+        trend_aff = _build_affinity_label(trend_stats.get(trend_key))
+
+        it["affinity"] = {
+            "sector": sec_aff,
+            "atr": atr_aff,
+            "slope": slope_aff,
+            "trend": trend_aff,
+        }
+
+
+# ===== ここまで C =====
+
+
 def picks(request: HttpRequest) -> HttpResponse:
     # LIVE/DEMO 状態（基本は常に LIVE、?mode=demo のときだけ DEMO 扱い）
     qmode = request.GET.get("mode")
@@ -322,6 +500,12 @@ def picks(request: HttpRequest) -> HttpResponse:
     _enrich_with_master(data)
     _attach_zero_reasons(data)
     _attach_pass_checks(data)  # ★ルール通過の内訳を付与
+
+    # ★ 行動メモリから「相性」情報を付与（ログイン時のみ）
+    user_id: Optional[int] = None
+    if request.user and request.user.is_authenticated:
+        user_id = request.user.id
+    _attach_behavior_affinity(data, user_id=user_id)
 
     meta = data.get("meta") or {}
     count = meta.get("count") or len(data.get("items") or [])
@@ -351,6 +535,13 @@ def picks_json(request: HttpRequest) -> HttpResponse:
     _enrich_with_master(data)
     _attach_zero_reasons(data)
     _attach_pass_checks(data)  # JSON側にも載せておく
+
+    # JSON側にも相性を載せる（必要ならフロントで使える）
+    user_id: Optional[int] = None
+    if request.user and request.user.is_authenticated:
+        user_id = request.user.id
+    _attach_behavior_affinity(data, user_id=user_id)
+
     if not data:
         raise Http404("no picks")
     # 内部用メタは出さない
