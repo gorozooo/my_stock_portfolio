@@ -172,39 +172,31 @@
     margin-right:2px;
   }
 
-  /* 行動メモリ由来の「相性」表示（C用） */
-  .affinity{
-    margin-top:8px;
-    padding-top:6px;
-    border-top:1px dashed rgba(148,163,184,0.4);
-    font-size:11px;
+  /* 理由×5＋懸念表示 */
+  .reasons-block{
+    margin-top:10px;
+    padding-top:8px;
+    border-top:1px dashed rgba(148,163,184,0.6);
+    font-size:12px;
     color:#e5e7eb;
   }
-  .affinity-title{
-    font-size:11px;
+  .reasons-title{
+    font-size:12px;
     font-weight:600;
-    margin-bottom:2px;
-    color:#e5e7eb;
-  }
-  .affinity-legend{
-    font-size:10px;
-    color:#9ca3af;
-    line-height:1.4;
     margin-bottom:4px;
   }
-  .affinity-row{
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    gap:6px;
-    margin-top:2px;
+  .reasons-list{
+    margin:0;
+    padding-left:1.2em;
   }
-  .affinity-key{
-    color:#9ca3af;
+  .reasons-list li{
+    margin-bottom:2px;
+    line-height:1.5;
   }
-  .affinity-val{
-    font-variant-numeric:tabular-nums;
-    text-align:right;
+  .reason-concern{
+    margin-top:4px;
+    font-size:11px;
+    color:#fbbf24;
   }
 </style>
 {% endblock %}
@@ -357,6 +349,7 @@
             </div>
           </div>
 
+          {# sizing_service 側の共通 reasons_text（両方0株のときなど） #}
           {% if item.reasons_text %}
             <div class="meta">
               {% for line in item.reasons_text %}
@@ -365,6 +358,22 @@
             </div>
           {% endif %}
 
+          {# C1: 銘柄ごとの理由×5＋懸念 #}
+          {% if item.reason_lines %}
+            <div class="reasons-block">
+              <div class="reasons-title">AIがこの銘柄を選んだ主なポイント</div>
+              <ol class="reasons-list">
+                {% for line in item.reason_lines %}
+                  <li>{{ line }}</li>
+                {% endfor %}
+              </ol>
+              {% if item.reason_concern %}
+                <div class="reason-concern">懸念: {{ item.reason_concern }}</div>
+              {% endif %}
+            </div>
+          {% endif %}
+
+          {# B: ルール通過の内訳（数量 > 0 の証券だけ） #}
           {% if item.pass_checks_rakuten or item.pass_checks_matsui %}
             <div class="rule-pass">
               <div class="rule-pass-title">ルール通過の内訳</div>
@@ -386,23 +395,6 @@
                   {% endfor %}
                 </ul>
               {% endif %}
-            </div>
-          {% endif %}
-
-          {# C: 行動メモリからの「相性」 → いまはセクター相性だけ表示 #}
-          {% if item.affinity and item.affinity.sector %}
-            <div class="affinity">
-              <div class="affinity-title">あなたとの相性（行動ログベース）</div>
-              <div class="affinity-legend">
-                ◎: 相性かなり良い ／ ○: やや良い ／ △: ふつう ／ ×: 要注意 ／ ？: データ不足<br>
-                数値 = 過去の勝率（%） ／ カッコ内 = 対象トレード数
-              </div>
-              <div class="affinity-row">
-                <div class="affinity-key">セクター相性</div>
-                <div class="affinity-val">
-                  {{ item.affinity.sector.label }}
-                </div>
-              </div>
             </div>
           {% endif %}
 
