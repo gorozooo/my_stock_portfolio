@@ -40,6 +40,12 @@ try:
 except Exception:
     StockMaster = None  # 環境により未定義でも動くように
 
+# 理由×5＋懸念のサービス
+try:
+    from aiapp.services.reasons import make_reasons as make_ai_reasons
+except Exception:
+    make_ai_reasons = None  # type: ignore
+
 # 任意：外部サービス化されていれば使い、無ければ内蔵フォールバック
 try:
     from aiapp.services.scoring_service import (
@@ -222,12 +228,16 @@ class PickItem:
     est_pl_matsui: Optional[float] = None
     est_loss_matsui: Optional[float] = None
 
-    # 証券会社ごとの「見送り理由」（sizing_service から直接持ってくる）
+    # sizing_service 共通メッセージ（両方0株など）
+    reasons_text: Optional[List[str]] = None
+
+    # AI理由×5＋懸念
+    reason_lines: Optional[List[str]] = None
+    reason_concern: Optional[str] = None
+
+    # 証券会社ごとの「見送り理由」（qty=0 のときだけ使う）
     reason_rakuten: Optional[str] = None
     reason_matsui: Optional[str] = None
-
-    # 共通 reasons_text（両方0株などのときのまとめコメント）
-    reasons_text: Optional[List[str]] = None
 
 
 def _score_to_0_100(s01: float) -> int:
@@ -245,6 +255,7 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
     - スコア / 星
     - Entry / TP / SL
     - Sizing（数量・必要資金・想定PL/損失 + 理由）
+    - AI理由×5 ＋ 懸念
     までを一気に計算して PickItem と sizing_meta を返す。
     sizing_meta には risk_pct / lot_size を含める。
     """
@@ -282,6 +293,22 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
         else:
             e, t, s = _fallback_entry_tp_sl(last, atr)
 
+        # ---- AI理由×5 + 懸念（特徴量ベース） ----
+        reason_lines: Optional[List[str]] = None
+        reason_concern: Optional[str] = None
+        if make_ai_reasons is not None:
+            try:
+                # 特徴量の「直近1本」を dict で渡す
+                last_feat = feat.iloc[-1].to_dict()
+                rs, concern = make_ai_reasons(last_feat)
+                if rs:
+                    reason_lines = list(rs[:5])
+                if concern:
+                    reason_concern = str(concern)
+            except Exception as re:
+                if BUILD_LOG:
+                    print(f"[picks_build] reasons error for {code}: {re}")
+
         if BUILD_LOG:
             print(f"[picks_build] {code}: last={last} atr={atr} score={s01} score100={score100}")
 
@@ -295,6 +322,8 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
             score=_nan_to_none(s01),
             score_100=int(score100),
             stars=int(stars),
+            reason_lines=reason_lines,
+            reason_concern=reason_concern,
         )
 
         # 数量・必要資金・PL/損失 & 理由
@@ -319,13 +348,13 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
         item.est_pl_matsui = sizing.get("est_pl_matsui")
         item.est_loss_matsui = sizing.get("est_loss_matsui")
 
-        # 証券会社ごとの見送り理由（sizing_service からそのまま）
-        item.reason_rakuten = sizing.get("reason_rakuten_msg") or None
-        item.reason_matsui = sizing.get("reason_matsui_msg") or None
-
-        # 共通 reasons_text（両方 0 のときだけメッセージが入る）
+        # sizing_service 側の共通 reasons_text（両方 0 のときなど）
         reasons_text = sizing.get("reasons_text")
         item.reasons_text = reasons_text if reasons_text else None
+
+        # 証券会社別の見送り理由（qty=0 のときだけ使う）
+        item.reason_rakuten = sizing.get("reason_rakuten_msg") or ""
+        item.reason_matsui = sizing.get("reason_matsui_msg") or ""
 
         # meta 用
         sizing_meta = {
@@ -344,7 +373,7 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
 
 def _load_universe_from_txt(name: str) -> List[str]:
     base = Path("aiapp/data/universe")
-    txt = base / (name if name.endswith(".txt") else f"{name}.txt")
+    txt = base / (name if name.endswith(".txt") else f"{name}.txt}")
     if not txt.exists():
         print(f"[picks_build] universe file not found: {txt}")
         return []
