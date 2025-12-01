@@ -57,12 +57,6 @@ try:
 except Exception:
     ext_entry_tp_sl = None
 
-# 理由5つ＋懸念（特徴量→日本語理由）
-try:
-    from aiapp.services.reasons import make_reasons as ext_make_reasons
-except Exception:
-    ext_make_reasons = None
-
 
 # ---------- 環境・入出力 ----------
 
@@ -228,10 +222,12 @@ class PickItem:
     est_pl_matsui: Optional[float] = None
     est_loss_matsui: Optional[float] = None
 
-    # 選定理由（5つ）※ sizing の理由ではなく「この銘柄を候補に選んだ理由」
+    # 証券会社ごとの「見送り理由」（sizing_service から直接持ってくる）
+    reason_rakuten: Optional[str] = None
+    reason_matsui: Optional[str] = None
+
+    # 共通 reasons_text（両方0株などのときのまとめコメント）
     reasons_text: Optional[List[str]] = None
-    # あれば懸念 1 行
-    concern_text: Optional[str] = None
 
 
 def _score_to_0_100(s01: float) -> int:
@@ -249,7 +245,6 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
     - スコア / 星
     - Entry / TP / SL
     - Sizing（数量・必要資金・想定PL/損失 + 理由）
-    - 選定理由 ×5 ＋ 懸念（ext_make_reasons があれば）
     までを一気に計算して PickItem と sizing_meta を返す。
     sizing_meta には risk_pct / lot_size を含める。
     """
@@ -302,7 +297,7 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
             stars=int(stars),
         )
 
-        # 数量・必要資金・PL/損失 & 理由（0株理由など）※ここは内部用扱い
+        # 数量・必要資金・PL/損失 & 理由
         sizing = compute_position_sizing(
             user=user,
             code=str(code),
@@ -324,78 +319,13 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
         item.est_pl_matsui = sizing.get("est_pl_matsui")
         item.est_loss_matsui = sizing.get("est_loss_matsui")
 
-        # ※ sizing の reasons_text は「0株理由」なので、UI の“選定理由5枠”とは切り離す
-        # sizing_reasons = sizing.get("reasons_text")  # 必要なら別フィールドで持つ
+        # 証券会社ごとの見送り理由（sizing_service からそのまま）
+        item.reason_rakuten = sizing.get("reason_rakuten_msg") or None
+        item.reason_matsui = sizing.get("reason_matsui_msg") or None
 
-        # --- ここから「選定理由 ×5 ＋ 懸念」を特徴量から生成 ---
-        reasons: List[str] = []
-        concern: Optional[str] = None
-
-        if ext_make_reasons is not None:
-            try:
-                # 最終バーの値を取り出す小ヘルパ
-                def last_val(col: str) -> Optional[float]:
-                    if col not in feat.columns:
-                        return None
-                    s = _safe_series(feat.get(col))
-                    if len(s) == 0:
-                        return None
-                    return _nan_to_none(_safe_float(s.iloc[-1]))
-
-                ema_slope = last_val("SLOPE_20")
-                # 相対強度（列が無ければ None）
-                rel10 = None
-                for cand in ("REL_STRENGTH_10", "RS_10", "RS10"):
-                    if cand in feat.columns:
-                        rel10 = last_val(cand)
-                        break
-
-                rsi14 = last_val("RSI14")
-
-                vol = last_val("Volume")
-                ma20 = last_val("MA20")
-                vol_ratio = None
-                if vol is not None and ma20 not in (None, 0):
-                    try:
-                        vol_ratio = float(vol) / float(ma20)
-                    except Exception:
-                        vol_ratio = None
-
-                # ブレイクフラグ（候補列を順にチェック）
-                breakout_flag = 0
-                for cand in ("BREAKOUT_FLAG", "BREAKOUT", "BRK_FLAG"):
-                    v = last_val(cand)
-                    if v is not None and float(v) > 0:
-                        breakout_flag = 1
-                        break
-
-                atr14 = last_val("ATR14")
-                vwap_gap = last_val("VWAP_GAP_PCT")
-
-                feat_dict = {
-                    "ema_slope": ema_slope,
-                    "rel_strength_10": rel10,
-                    "rsi14": rsi14,
-                    "vol_ma20_ratio": vol_ratio,
-                    "breakout_flag": breakout_flag,
-                    "atr14": atr14,
-                    "vwap_proximity": vwap_gap,
-                }
-
-                reasons, concern = ext_make_reasons(feat_dict)
-            except Exception as e:
-                if BUILD_LOG:
-                    print(f"[picks_build] make_reasons error for {code}: {e}")
-                reasons = []
-                concern = None
-
-        # 理由5つ（あれば）を優先的に UI に載せる
-        if reasons:
-            item.reasons_text = reasons[:5]
-        else:
-            item.reasons_text = None
-
-        item.concern_text = concern
+        # 共通 reasons_text（両方 0 のときだけメッセージが入る）
+        reasons_text = sizing.get("reasons_text")
+        item.reasons_text = reasons_text if reasons_text else None
 
         # meta 用
         sizing_meta = {
