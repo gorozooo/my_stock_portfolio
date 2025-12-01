@@ -244,8 +244,8 @@
                 <div class="star-wrap">
                   <span class="star-base">★★★★★</span>
                   <span class="star-fill" style="width: {{ p }}%;">★★★★★</span>
-                  <div class="score-text">{{ p|floatformat:0 }}点</div>
                 </div>
+                <div class="score-text">{{ p|floatformat:0 }}点</div>
               {% endwith %}
             </div>
           </div>
@@ -349,8 +349,9 @@
             </div>
           </div>
 
-          {# sizing_service 側の共通 reasons_text（両方0株のときなど） #}
-          {% if item.reasons_text %}
+          {# sizing_service 側の共通 reasons_text（見送り理由専用）
+             → reason_lines があるときは表示しない #}
+          {% if item.reasons_text and not item.reason_lines %}
             <div class="meta">
               {% for line in item.reasons_text %}
                 {{ line }}{% if not forloop.last %}<br>{% endif %}
@@ -358,7 +359,7 @@
             </div>
           {% endif %}
 
-          {# C1: 銘柄ごとの理由×5＋懸念（JSON の reason_lines / reason_concern を表示） #}
+          {# C1: 銘柄ごとの理由×5＋懸念（services.reasons から） #}
           {% if item.reason_lines %}
             <div class="reasons-block">
               <div class="reasons-title">AIがこの銘柄を選んだ主なポイント</div>
