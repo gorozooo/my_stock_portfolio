@@ -244,8 +244,8 @@
                 <div class="star-wrap">
                   <span class="star-base">★★★★★</span>
                   <span class="star-fill" style="width: {{ p }}%;">★★★★★</span>
+                  <div class="score-text">{{ p|floatformat:0 }}点</div>
                 </div>
-                <div class="score-text">{{ p|floatformat:0 }}点</div>
               {% endwith %}
             </div>
           </div>
@@ -358,7 +358,7 @@
             </div>
           {% endif %}
 
-          {# C1: 銘柄ごとの理由×5＋懸念 #}
+          {# C1: 銘柄ごとの理由×5＋懸念（JSON の reason_lines / reason_concern を表示） #}
           {% if item.reason_lines %}
             <div class="reasons-block">
               <div class="reasons-title">AIがこの銘柄を選んだ主なポイント</div>
