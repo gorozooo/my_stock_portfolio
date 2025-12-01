@@ -307,9 +307,8 @@ def _attach_pass_checks(data: Dict[str, Any]) -> None:
 # ===== ここまで B用 =====
 
 
-# ===== ここから C：行動メモリとの「相性」連携 =====
-
-def _safe_float(v: Any) -> Optional[float]:
+def _safe_float_any(v: Any) -> Optional[float]:
+    """item内の値をfloatに変換（失敗時はNone）。"""
     if v in (None, "", "null"):
         return None
     try:
@@ -318,171 +317,104 @@ def _safe_float(v: Any) -> Optional[float]:
         return None
 
 
-def _bucket_atr_pct(atr: Optional[float]) -> str:
-    if atr is None:
-        return "ATR:不明"
-    if atr < 1.0:
-        return "ATR:〜1%"
-    if atr < 2.0:
-        return "ATR:1〜2%"
-    if atr < 3.0:
-        return "ATR:2〜3%"
-    return "ATR:3%以上"
-
-
-def _bucket_slope(slope: Optional[float]) -> str:
-    if slope is None:
-        return "傾き:不明"
-    if slope < 0:
-        return "傾き:下向き"
-    if slope < 5:
-        return "傾き:緩やかな上向き"
-    if slope < 10:
-        return "傾き:強めの上向き"
-    return "傾き:急騰寄り"
-
-
-def _load_behavior_memory_json(user_id: Optional[int]) -> Optional[Dict[str, Any]]:
-    """
-    行動メモリ（latest_behavior_memory_u{user}.json）を読み込む。
-    見つからなければ None。
-    """
-    behavior_dir = Path(settings.MEDIA_ROOT) / "aiapp" / "behavior" / "memory"
-
-    # ユーザー別 → なければ all
-    candidates: List[Path] = []
-    if user_id:
-        candidates.append(behavior_dir / f"latest_behavior_memory_u{user_id}.json")
-    candidates.append(behavior_dir / "latest_behavior_memory_uall.json")
-
-    target: Optional[Path] = None
-    for p in candidates:
-        if p.exists() and p.is_file():
-            target = p
-            break
-
-    if not target:
-        return None
-
-    try:
-        text = target.read_text(encoding="utf-8")
-        data = json.loads(text)
-        if isinstance(data, dict):
-            return data
-    except Exception:
-        return None
-    return None
-
-
-def _build_affinity_label(stats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    StatBucket.to_dict() 相当の dict から
-    「◎/○/△/×/？」＋ラベル文字列を作る。
-    """
-    if not stats:
-        return {
-            "symbol": "？",
-            "trials": 0,
-            "win_rate": None,
-            "label": "？ データなし",
-        }
-
-    trials = int(stats.get("trials") or 0)
-    win_rate = stats.get("win_rate")
-    if win_rate is None:
-        symbol = "？"
-        label = "？ データなし"
-    else:
-        try:
-            win_rate_f = float(win_rate)
-        except Exception:
-            win_rate_f = 0.0
-
-        # ランク判定
-        if trials >= 5 and win_rate_f >= 60.0:
-            symbol = "◎"
-        elif trials >= 3 and win_rate_f >= 50.0:
-            symbol = "○"
-        elif trials >= 3:
-            symbol = "△"
-        elif trials >= 1 and win_rate_f < 30.0:
-            symbol = "×"
-        elif trials >= 1:
-            symbol = "△"
-        else:
-            symbol = "？"
-
-        if trials > 0:
-            label = f"{symbol} {win_rate_f:.1f}%（{trials}戦）"
-        else:
-            label = "？ データなし"
-
-        win_rate = win_rate_f
-
-    return {
-        "symbol": symbol,
-        "trials": trials,
-        "win_rate": win_rate,
-        "label": label,
-    }
-
-
-def _attach_behavior_affinity(data: Dict[str, Any], user_id: Optional[int]) -> None:
-    """
-    行動メモリから「相性」情報を item.affinity に付与する。
-
-    affinity = {
-      "sector": {...},
-      "atr": {...},
-      "slope": {...},
-      "trend": {...},
-    }
-    """
+def _attach_reason_lines(data: Dict[str, Any]) -> None:
+    """銘柄ごとの「理由×5＋懸念」を簡易生成して item に埋め込む。"""
     items: List[Dict[str, Any]] = list(data.get("items") or [])
     if not items:
         return
 
-    memory = _load_behavior_memory_json(user_id=user_id)
-    if not memory:
-        return
-
-    total_trades = int(memory.get("total_trades") or 0)
-    if total_trades <= 0:
-        return
-
-    sector_stats = memory.get("sector") or {}
-    atr_stats = memory.get("atr_bucket") or {}
-    slope_stats = memory.get("slope_bucket") or {}
-    trend_stats = memory.get("trend_daily") or {}
-
     for it in items:
-        # セクターキー
-        sec_key = str(it.get("sector_display") or "(未分類)")
-        sec_aff = _build_affinity_label(sector_stats.get(sec_key))
+        reasons: List[str] = []
 
-        # ATRバケット
-        atr_raw = _safe_float(it.get("atr_14") or it.get("atr_pct"))
-        atr_bucket = _bucket_atr_pct(atr_raw)
-        atr_aff = _build_affinity_label(atr_stats.get(atr_bucket))
+        name = it.get("name_norm") or it.get("name") or ""
+        sector = it.get("sector_display") or "業種不明"
+        score = _safe_float_any(it.get("score_100"))
+        trend = (it.get("trend_daily") or "").strip()
+        slope = _safe_float_any(it.get("slope_20"))
+        atr_pct = _safe_float_any(it.get("atr_14")) or _safe_float_any(it.get("atr_pct"))
+        vol_ratio = _safe_float_any(it.get("vol_ratio_20d")) or _safe_float_any(it.get("volume_ratio"))
+        rel_rank = _safe_float_any(it.get("rel_strength_rank"))
 
-        # 傾きバケット
-        slope_raw = _safe_float(it.get("slope_20") or it.get("slope"))
-        slope_bucket = _bucket_slope(slope_raw)
-        slope_aff = _build_affinity_label(slope_stats.get(slope_bucket))
+        entry = _safe_float_any(it.get("entry"))
+        tp = _safe_float_any(it.get("tp"))
+        sl = _safe_float_any(it.get("sl"))
 
-        # トレンド方向
-        trend_key = str(it.get("trend_daily") or "不明")
-        trend_aff = _build_affinity_label(trend_stats.get(trend_key))
+        # 1) スコア + 業種
+        if score is not None:
+            reasons.append(
+                f"総合スコアは {score:.0f} 点で、現状の候補の中でも上位クラスと判定されています（業種: {sector}）。"
+            )
+        else:
+            reasons.append(f"{sector} セクターの中から、トレンドとリスク条件を満たした銘柄として抽出されています。")
 
-        it["affinity"] = {
-            "sector": sec_aff,
-            "atr": atr_aff,
-            "slope": slope_aff,
-            "trend": trend_aff,
-        }
+        # 2) トレンド方向
+        if trend:
+            t_low = trend.lower()
+            if t_low in ("up", "uptrend", "bull"):
+                reasons.append("日足ベースで上昇トレンドと判定されており、押し目〜順張り向きの流れになっています。")
+            elif t_low in ("down", "downtrend", "bear"):
+                reasons.append("日足ベースでは下落トレンド寄りですが、リバウンド候補としてスコア上位に入っています。")
+            elif t_low in ("flat", "range"):
+                reasons.append("日足はレンジ〜もみ合い気味ですが、ブレイクが出た場合の伸びしろが期待できる位置です。")
+            else:
+                reasons.append(f"日足トレンド指標（{trend}）が極端に崩れておらず、方向性の整合性は保たれています。")
 
+        # 3) 傾き（slope）
+        if slope is not None:
+            if slope >= 10:
+                reasons.append("直近の価格の傾きがかなり強く上向きで、短期的なモメンタムがはっきり出ています。")
+            elif slope >= 5:
+                reasons.append("価格の傾きは緩やかな上向きで、無理のないペースでトレンドが続いている状態です。")
+            elif slope > 0:
+                reasons.append("価格の傾きはわずかに上向きで、崩れてはいない素直な上昇トレンドです。")
+            elif slope <= -10:
+                reasons.append("足元では急な下落トレンドですが、行き過ぎからの戻り候補としてピックされています。")
+            else:
+                reasons.append("直近の傾きは強くはないものの、急激なトレンド転換は出ていない状態です。")
 
-# ===== ここまで C =====
+        # 4) ATR（ボラティリティ）
+        if atr_pct is not None:
+            if atr_pct < 1.0:
+                reasons.append("ATRベースの日次ボラティリティが1％未満で、値動きは比較的おだやかです。")
+            elif atr_pct < 3.0:
+                reasons.append("ATRベースのボラティリティが1〜3％程度で、短期トレードにちょうど良い値動きの大きさです。")
+            else:
+                reasons.append("ATRベースで3％を超えるボラティリティがあり、大きく動きやすい銘柄として扱われています。")
+
+        # 5) 出来高（ボリューム）
+        if vol_ratio is not None:
+            if vol_ratio >= 3.0:
+                reasons.append("直近出来高が20日平均の3倍以上と非常に多く、短期的な資金流入が強く出ています。")
+            elif vol_ratio >= 1.5:
+                reasons.append("出来高が平常時の1.5倍以上に増えており、マーケットの注目度が高まっている状態です。")
+            elif vol_ratio > 0:
+                reasons.append("出来高は平均付近ですが、極端な薄商いではなく売買が成立しやすい水準です。")
+
+        # 6) Risk/Reward（Entry/TP/SL）
+        if entry is not None and tp is not None and sl is not None and sl != entry:
+            risk = abs(entry - sl)
+            reward = abs(tp - entry)
+            if risk > 0:
+                r = reward / risk
+                reasons.append(
+                    f"Entry〜SLの損切り幅に対して、TPまでの利幅はおよそ {r:.2f} R 程度を狙える設計になっています。"
+                )
+
+        # 5つにトリミング（足りない場合はそのまま）
+        if len(reasons) > 5:
+            reason_lines = reasons[:5]
+        else:
+            reason_lines = reasons
+
+        # 懸念（atrが高い / volが急増 など簡易）
+        concern = ""
+        if atr_pct is not None and atr_pct >= 3.0:
+            concern = "ボラティリティが高く、逆方向に振れた際の振れ幅も大きくなりやすい点には注意が必要です。"
+        elif vol_ratio is not None and vol_ratio >= 3.0:
+            concern = "直近の出来高急増が一時的なイベント要因の可能性もあり、出来高が細った後の反動には注意が必要です。"
+
+        it["reason_lines"] = reason_lines
+        it["reason_concern"] = concern
 
 
 def picks(request: HttpRequest) -> HttpResponse:
@@ -500,12 +432,7 @@ def picks(request: HttpRequest) -> HttpResponse:
     _enrich_with_master(data)
     _attach_zero_reasons(data)
     _attach_pass_checks(data)  # ★ルール通過の内訳を付与
-
-    # ★ 行動メモリから「相性」情報を付与（ログイン時のみ）
-    user_id: Optional[int] = None
-    if request.user and request.user.is_authenticated:
-        user_id = request.user.id
-    _attach_behavior_affinity(data, user_id=user_id)
+    _attach_reason_lines(data)  # ★銘柄ごとの理由×5＋懸念
 
     meta = data.get("meta") or {}
     count = meta.get("count") or len(data.get("items") or [])
@@ -535,13 +462,7 @@ def picks_json(request: HttpRequest) -> HttpResponse:
     _enrich_with_master(data)
     _attach_zero_reasons(data)
     _attach_pass_checks(data)  # JSON側にも載せておく
-
-    # JSON側にも相性を載せる（必要ならフロントで使える）
-    user_id: Optional[int] = None
-    if request.user and request.user.is_authenticated:
-        user_id = request.user.id
-    _attach_behavior_affinity(data, user_id=user_id)
-
+    _attach_reason_lines(data)
     if not data:
         raise Http404("no picks")
     # 内部用メタは出さない
