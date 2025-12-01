@@ -415,7 +415,7 @@ def _parse_float(value: Optional[str]) -> Optional[float]:
 
 
 @login_required
-@require_POST]
+@require_POST
 def picks_simulate(request: HttpRequest) -> HttpResponse:
     """
     AI Picks のカードから「シミュレ」ボタンで送られてきた内容を
