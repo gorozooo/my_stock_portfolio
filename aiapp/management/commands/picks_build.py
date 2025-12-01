@@ -1,20 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-AIピック生成（FULL/LITE/SNAPSHOT対応の堅牢版 + TopK 厳選出力 + 数量/理由連携）
+AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
 
-- fetch_price.get_prices を通して必ず整形済みOHLCVを受け取る
-- 特徴量作成は models.features.make_features
-- スコア/信頼度/Entry-TP-SL は services があれば使用、無ければフォールバック
-- Sizing（数量・必要資金・想定PL/損失）は sizing_service.compute_position_sizing を使用
-- すべての計算前に Series/np.ndarray を保証し、「arg must be a list, tuple, 1-d array, or Series」を根絶
-- 出力は「全件(JSON)」と「TopK(JSON=UI用)」の二系統
-  - 全件: latest_full_all.json（監査/検証用）
-  - TopK: latest_full.json（UIが読む/上位K件のみ）
+・価格: aiapp.services.fetch_price.get_prices
+・特徴量: aiapp.models.features.make_features
+・スコア/星: aiapp.services.scoring_service（無ければフォールバック）
+・Entry/TP/SL: aiapp.services.entry_service（無ければフォールバック）
+・数量/必要資金/想定PL/損失/見送り理由: aiapp.services.sizing_service.compute_position_sizing
+・理由5つ＋懸念: aiapp.services.reasons.make_reasons
 
-【ユニバース】
-- --universe all_jpx : StockMaster から日本株全銘柄を取得（本番想定）
-- --universe nk225   : aiapp/data/universe/nk225.txt を読む（テスト用）
-- それ以外           : aiapp/data/universe/<name>.txt を読む
+出力:
+  - media/aiapp/picks/latest_full_all.json  … 全銘柄
+  - media/aiapp/picks/latest_full.json      … 上位 TopK（UI はこちらを読む）
 """
 
 from __future__ import annotations
@@ -22,52 +19,57 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, asdict
+from datetime import datetime, timedelta, timezone as dt_timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
+from django.core.management.base import BaseCommand
 
 from aiapp.services.fetch_price import get_prices
 from aiapp.models.features import make_features, FeatureConfig
 from aiapp.services.sizing_service import compute_position_sizing
 
-# 銘柄名・業種の補完（StockMaster から）
+# オプション扱いのサービス群（無くても動くように）
 try:
     from aiapp.models import StockMaster
-except Exception:
-    StockMaster = None  # 環境により未定義でも動くように
+except Exception:  # pragma: no cover
+    StockMaster = None  # type: ignore
 
-# 理由×5＋懸念のサービス
 try:
     from aiapp.services.reasons import make_reasons as make_ai_reasons
-except Exception:
+except Exception:  # pragma: no cover
     make_ai_reasons = None  # type: ignore
 
-# 任意：外部サービス化されていれば使い、無ければ内蔵フォールバック
 try:
     from aiapp.services.scoring_service import (
         score_sample as ext_score_sample,
         stars_from_score as ext_stars_from_score,
     )
-except Exception:
-    ext_score_sample = None
-    ext_stars_from_score = None
+except Exception:  # pragma: no cover
+    ext_score_sample = None  # type: ignore
+    ext_stars_from_score = None  # type: ignore
 
 try:
-    from aiapp.services.entry_service import (
-        compute_entry_tp_sl as ext_entry_tp_sl,
-    )
-except Exception:
-    ext_entry_tp_sl = None
+    from aiapp.services.entry_service import compute_entry_tp_sl as ext_entry_tp_sl
+except Exception:  # pragma: no cover
+    ext_entry_tp_sl = None  # type: ignore
 
 
-# ---------- 環境・入出力 ----------
+# =========================================================
+# 共通設定
+# =========================================================
 
 PICKS_DIR = Path("media/aiapp/picks")
 PICKS_DIR.mkdir(parents=True, exist_ok=True)
+
+JST = dt_timezone(timedelta(hours=9))
+
+
+def dt_now_stamp() -> str:
+    return datetime.now(JST).strftime("%Y%m%d_%H%M%S")
 
 
 def _env_bool(key: str, default: bool = False) -> bool:
@@ -80,22 +82,22 @@ def _env_bool(key: str, default: bool = False) -> bool:
 BUILD_LOG = _env_bool("AIAPP_BUILD_LOG", False)
 
 
-# ---------- 安全ヘルパ ----------
+# =========================================================
+# ヘルパ
+# =========================================================
 
 def _safe_series(x) -> pd.Series:
     """
-    入力 x を必ず pd.Series[float] にする。
-    - None/NaN → 空Series
-    - スカラ/配列/Index 等を Series 化
+    どんな形で来ても 1D pd.Series[float] に正規化する。
     """
     if x is None:
         return pd.Series(dtype="float64")
     if isinstance(x, pd.Series):
         return x.astype("float64")
     if isinstance(x, pd.DataFrame):
-        if x.shape[1] >= 1:
-            return x.iloc[:, -1].astype("float64")
-        return pd.Series(dtype="float64")
+        if x.shape[1] == 0:
+            return pd.Series(dtype="float64")
+        return x.iloc[:, -1].astype("float64")
     try:
         arr = np.asarray(x, dtype="float64")
         if arr.ndim == 0:
@@ -106,36 +108,44 @@ def _safe_series(x) -> pd.Series:
 
 
 def _safe_float(x) -> float:
+    """
+    スカラ/Series/DataFrame/Index などから float を1つ取り出す。
+    失敗時は NaN。
+    """
     try:
         if x is None:
             return float("nan")
-        if isinstance(x, (pd.Series, pd.DataFrame, pd.Index)):
+        if isinstance(x, (pd.Series, pd.Index)):
             if len(x) == 0:
                 return float("nan")
-            if isinstance(x, pd.DataFrame):
-                x = x.iloc[:, -1]
             return float(pd.to_numeric(pd.Series(x).iloc[-1], errors="coerce"))
+        if isinstance(x, pd.DataFrame):
+            if x.shape[1] == 0 or len(x) == 0:
+                return float("nan")
+            col = x.columns[-1]
+            return float(pd.to_numeric(x[col].iloc[-1], errors="coerce"))
         return float(x)
     except Exception:
         return float("nan")
 
 
 def _nan_to_none(x):
-    if isinstance(x, (float, int)) and (x != x):  # NaN 判定
+    if isinstance(x, (float, int)) and x != x:  # NaN
         return None
     return x
 
 
-# ---------- 内蔵フォールバック（servicesが未実装でも動く） ----------
+# =========================================================
+# フォールバック実装（サービスが無い場合）
+# =========================================================
 
 def _fallback_score_sample(feat: pd.DataFrame) -> float:
     """
-    0.0〜1.0のサンプルスコア。
-    - 傾き、RSI、直近リターン等を標準化→シグモイド→加重和
-    - 0.227固定など単調な値にならないようにする
+    0.0〜1.0 のスコアに正規化する簡易ロジック（テスト用）。
     """
     if feat is None or len(feat) == 0:
         return 0.0
+
     f = feat.copy()
     for c in ["RSI14", "RET_5", "RET_20", "SLOPE_5", "SLOPE_20"]:
         if c not in f.columns:
@@ -145,22 +155,23 @@ def _fallback_score_sample(feat: pd.DataFrame) -> float:
         s = _safe_series(s)
         if s.empty:
             return s
-        m, sd = float(s.mean()), float(s.std(ddof=0))
+        m = float(s.mean())
+        sd = float(s.std(ddof=0))
         if not np.isfinite(sd) or sd == 0:
             return pd.Series(np.zeros(len(s)), index=s.index)
         return (s - m) / sd
 
-    def sig(x):
+    def sig(v: float) -> float:
         try:
-            return 1.0 / (1.0 + np.exp(-float(x)))
+            return float(1.0 / (1.0 + np.exp(-float(v))))
         except Exception:
             return 0.5
 
-    rsi = _safe_float((nz(f["RSI14"])).iloc[-1]) if "RSI14" in f else float("nan")
-    mom5 = _safe_float((nz(f["RET_5"])).iloc[-1]) if "RET_5" in f else float("nan")
-    mom20 = _safe_float((nz(f["RET_20"])).iloc[-1]) if "RET_20" in f else float("nan")
-    sl5 = _safe_float((nz(f["SLOPE_5"])).iloc[-1]) if "SLOPE_5" in f else float("nan")
-    sl20 = _safe_float((nz(f["SLOPE_20"])).iloc[-1]) if "SLOPE_20" in f else float("nan")
+    rsi = _safe_float(nz(f["RSI14"]).iloc[-1])
+    mom5 = _safe_float(nz(f["RET_5"]).iloc[-1])
+    mom20 = _safe_float(nz(f["RET_20"]).iloc[-1])
+    sl5 = _safe_float(nz(f["SLOPE_5"]).iloc[-1])
+    sl20 = _safe_float(nz(f["SLOPE_20"]).iloc[-1])
 
     comp = (
         0.30 * sig(rsi)
@@ -189,10 +200,7 @@ def _fallback_stars(score01: float) -> int:
 
 def _fallback_entry_tp_sl(last: float, atr: float) -> Tuple[Optional[float], Optional[float], Optional[float]]:
     """
-    短期×攻め（暫定本番）：高値掴み緩和
-      entry = last + 0.05*ATR
-      TP    = entry + 0.80*ATR
-      SL    = entry - 0.60*ATR
+    暫定・短期×攻め用の Entry / TP / SL。
     """
     if not np.isfinite(last) or not np.isfinite(atr) or atr <= 0:
         return None, None, None
@@ -202,21 +210,32 @@ def _fallback_entry_tp_sl(last: float, atr: float) -> Tuple[Optional[float], Opt
     return float(entry), float(tp), float(sl)
 
 
-# ---------- モデル ----------
+def _score_to_0_100(s01: float) -> int:
+    if not np.isfinite(s01):
+        return 0
+    return int(round(max(0.0, min(1.0, s01)) * 100))
+
+
+# =========================================================
+# 出力アイテム
+# =========================================================
 
 @dataclass
 class PickItem:
     code: str
     name: Optional[str] = None
     sector_display: Optional[str] = None
+
     last_close: Optional[float] = None
     atr: Optional[float] = None
+
     entry: Optional[float] = None
     tp: Optional[float] = None
     sl: Optional[float] = None
-    score: Optional[float] = None        # 0..1
-    score_100: Optional[int] = None      # 0..100
-    stars: Optional[int] = None          # 1..5
+
+    score: Optional[float] = None          # 0..1
+    score_100: Optional[int] = None        # 0..100
+    stars: Optional[int] = None            # 1..5
 
     qty_rakuten: Optional[int] = None
     required_cash_rakuten: Optional[float] = None
@@ -228,36 +247,26 @@ class PickItem:
     est_pl_matsui: Optional[float] = None
     est_loss_matsui: Optional[float] = None
 
-    # sizing_service 共通メッセージ（両方0株など）
+    # sizing_service 側で組んだ共通メッセージ（両方0株など）
     reasons_text: Optional[List[str]] = None
 
-    # AI理由×5＋懸念
+    # 理由5つ＋懸念（reasons サービス）
     reason_lines: Optional[List[str]] = None
     reason_concern: Optional[str] = None
 
-    # 証券会社ごとの「見送り理由」（qty=0 のときだけ使う）
+    # 証券会社別の見送り理由（qty=0 のときだけ使用）
     reason_rakuten: Optional[str] = None
     reason_matsui: Optional[str] = None
 
 
-def _score_to_0_100(s01: float) -> int:
-    if not np.isfinite(s01):
-        return 0
-    return int(round(max(0.0, min(1.0, s01)) * 100))
-
-
-# ---------- 1銘柄処理 ----------
+# =========================================================
+# 1銘柄処理
+# =========================================================
 
 def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str, Any]]]:
     """
-    単銘柄の計算。
-    - 価格 / 特徴量
-    - スコア / 星
-    - Entry / TP / SL
-    - Sizing（数量・必要資金・想定PL/損失 + 理由）
-    - AI理由×5 ＋ 懸念
-    までを一気に計算して PickItem と sizing_meta を返す。
-    sizing_meta には risk_pct / lot_size を含める。
+    単一銘柄について、価格→特徴量→スコア→Entry/TP/SL→Sizing→理由 まで全部まとめて計算。
+    sizing_meta には risk_pct / lot_size を入れて返す。
     """
     try:
         raw = get_prices(code, nbars=nbars, period="3y")
@@ -278,39 +287,40 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
         last = _safe_float(close_s.iloc[-1] if len(close_s) else np.nan)
         atr = _safe_float(atr_s.iloc[-1] if len(atr_s) else np.nan)
 
-        # スコア
+        # --- スコア ---
         if ext_score_sample:
             s01 = float(ext_score_sample(feat))
         else:
             s01 = _fallback_score_sample(feat)
-
         score100 = _score_to_0_100(s01)
         stars = int(ext_stars_from_score(s01)) if ext_stars_from_score else _fallback_stars(s01)
 
-        # Entry/TP/SL
+        # --- Entry / TP / SL ---
         if ext_entry_tp_sl:
             e, t, s = ext_entry_tp_sl(last, atr, mode="aggressive", horizon="short")
         else:
             e, t, s = _fallback_entry_tp_sl(last, atr)
 
-        # ---- AI理由×5 + 懸念（特徴量ベース） ----
+        # --- 理由5つ＋懸念（特徴量ベース） ---
         reason_lines: Optional[List[str]] = None
         reason_concern: Optional[str] = None
         if make_ai_reasons is not None:
             try:
-                # 特徴量の「直近1本」を dict で渡す
                 last_feat = feat.iloc[-1].to_dict()
                 rs, concern = make_ai_reasons(last_feat)
                 if rs:
                     reason_lines = list(rs[:5])
                 if concern:
                     reason_concern = str(concern)
-            except Exception as re:
+            except Exception as ex:
                 if BUILD_LOG:
-                    print(f"[picks_build] reasons error for {code}: {re}")
+                    print(f"[picks_build] reasons error for {code}: {ex}")
 
         if BUILD_LOG:
-            print(f"[picks_build] {code}: last={last} atr={atr} score={s01} score100={score100}")
+            print(
+                f"[picks_build] {code} last={last} atr={atr} "
+                f"score01={s01:.3f} score100={score100}"
+            )
 
         item = PickItem(
             code=str(code),
@@ -326,7 +336,7 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
             reason_concern=reason_concern,
         )
 
-        # 数量・必要資金・PL/損失 & 理由
+        # --- Sizing（数量・必要資金・想定PL/損失 + 見送り理由） ---
         sizing = compute_position_sizing(
             user=user,
             code=str(code),
@@ -337,7 +347,6 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
             sl=s,
         )
 
-        # flat な結果を PickItem に詰め込む
         item.qty_rakuten = sizing.get("qty_rakuten")
         item.required_cash_rakuten = sizing.get("required_cash_rakuten")
         item.est_pl_rakuten = sizing.get("est_pl_rakuten")
@@ -348,20 +357,18 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
         item.est_pl_matsui = sizing.get("est_pl_matsui")
         item.est_loss_matsui = sizing.get("est_loss_matsui")
 
-        # sizing_service 側の共通 reasons_text（両方 0 のときなど）
+        # 共通メッセージ
         reasons_text = sizing.get("reasons_text")
         item.reasons_text = reasons_text if reasons_text else None
 
-        # 証券会社別の見送り理由（qty=0 のときだけ使う）
+        # 証券会社別の見送り理由（0株のときにテンプレートが表示）
         item.reason_rakuten = sizing.get("reason_rakuten_msg") or ""
         item.reason_matsui = sizing.get("reason_matsui_msg") or ""
 
-        # meta 用
         sizing_meta = {
             "risk_pct": sizing.get("risk_pct"),
             "lot_size": sizing.get("lot_size"),
         }
-
         return item, sizing_meta
 
     except Exception as e:
@@ -369,11 +376,16 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
         return None
 
 
-# ---------- ユニバース読み ----------
+# =========================================================
+# ユニバース読み込み
+# =========================================================
 
 def _load_universe_from_txt(name: str) -> List[str]:
     base = Path("aiapp/data/universe")
-    txt = base / (name if name.endswith(".txt") else f"{name}.txt}")
+    filename = name
+    if not filename.endswith(".txt"):
+        filename = f"{filename}.txt"
+    txt = base / filename
     if not txt.exists():
         print(f"[picks_build] universe file not found: {txt}")
         return []
@@ -388,56 +400,48 @@ def _load_universe_from_txt(name: str) -> List[str]:
 
 def _load_universe_all_jpx() -> List[str]:
     """
-    ALL-JPX 用ユニバース：
-    StockMaster から日本株全銘柄コードを取得する（本番用）。
+    StockMaster から日本株全銘柄コードを取る ALL-JPX 用。
     """
     if StockMaster is None:
-        print("[picks_build] StockMaster not available; ALL-JPX universe is empty")
+        print("[picks_build] StockMaster not available; ALL-JPX empty")
         return []
     try:
-        # 必要に応じて is_listed フラグなどで絞り込む想定
-        codes = list(
-            StockMaster.objects.values_list("code", flat=True).order_by("code")
-        )
-        codes = [str(c).strip() for c in codes if c]
-        print(f"[picks_build] ALL-JPX universe from StockMaster: {len(codes)} codes")
+        qs = StockMaster.objects.values_list("code", flat=True).order_by("code")
+        codes = [str(c).strip() for c in qs if c]
+        print(f"[picks_build] ALL-JPX from StockMaster: {len(codes)} codes")
         return codes
     except Exception as e:
-        print(f"[picks_build] failed to load ALL-JPX from StockMaster: {e}")
+        print(f"[picks_build] ALL-JPX load error: {e}")
         return []
 
 
 def _load_universe(name: str) -> List[str]:
     """
-    ユニバース名に応じてコード一覧を返す。
-
-    - all_jpx / all / jpx_all → StockMaster から日本株全銘柄
-    - nk225 / nikkei225       → テスト用：aiapp/data/universe/nk225.txt
-    - その他                   → aiapp/data/universe/<name>.txt
+    ユニバース名 → 銘柄コード一覧。
+      all_jpx / all / jpx_all         → StockMaster から全件
+      nk225 / nikkei225 / nikkei_225  → data/universe/nk225.txt
+      それ以外                          → data/universe/<name>.txt
     """
-    key = (name or "").lower().strip()
+    key = (name or "").strip().lower()
 
-    # 本番想定：全JPX銘柄
     if key in ("all_jpx", "all", "jpx_all"):
         codes = _load_universe_all_jpx()
         if codes:
             return codes
-        # 落ちた場合は txt にフォールバック
-        print("[picks_build] ALL-JPX fallback to txt universe")
-        return _load_universe_from_txt(name)
+        print("[picks_build] ALL-JPX fallback to txt")
+        return _load_universe_from_txt("all_jpx")
 
-    # テスト用：日経225（txtで管理）
-    if key in ("nk225", "nikkei225"):
+    if key in ("nk225", "nikkei225", "nikkei_225"):
         return _load_universe_from_txt("nk225")
 
-    # 従来通り：任意の txt
-    return _load_universe_from_txt(name)
+    return _load_universe_from_txt(key)
 
 
-# ---------- メタ補完（銘柄名・33業種） ----------
+# =========================================================
+# 銘柄名・業種補完
+# =========================================================
 
 def _enrich_meta(items: List[PickItem]) -> None:
-    """StockMaster があれば name / sector_display を付与。"""
     if not items or StockMaster is None:
         return
     codes = [it.code for it in items if it and it.code]
@@ -457,35 +461,33 @@ def _enrich_meta(items: List[PickItem]) -> None:
                 if not it.sector_display:
                     it.sector_display = sec or None
     except Exception:
-        # 補完失敗は無視
         pass
 
 
-# ---------- Django command ----------
+# =========================================================
+# Django management command
+# =========================================================
 
 class Command(BaseCommand):
-    help = "AIピック生成（完全版/ライト・スナップショット対応 + TopK 厳選 + Sizing 連携）"
+    help = "AIピック生成（FULL + TopK + Sizing + 理由テキスト）"
 
     def add_arguments(self, parser):
-        # デフォルトはテストしやすい nk225 にしておく
         parser.add_argument(
             "--universe",
             type=str,
             default="nk225",
-            help="all_jpx / nk225 / quick_100 / <file name> など",
+            help="all_jpx / nk225 / nikkei_225 / <file name> など",
         )
         parser.add_argument("--sample", type=int, default=None)
         parser.add_argument("--head", type=int, default=None)
-        parser.add_argument("--budget", type=int, default=None, help="秒")
+        parser.add_argument("--budget", type=int, default=None)
         parser.add_argument("--nbars", type=int, default=180)
-        parser.add_argument("--nbars-lite", type=int, default=45, help="ライトモード時の足本数")
+        parser.add_argument("--nbars-lite", type=int, default=45)
         parser.add_argument("--use-snapshot", action="store_true")
         parser.add_argument("--lite-only", action="store_true")
         parser.add_argument("--force", action="store_true")
-        # 仕様上追加
         parser.add_argument("--style", type=str, default="aggressive")
         parser.add_argument("--horizon", type=str, default="short")
-        # TopK 追加（UIは厳選のみを読む）※基本は 10 固定運用
         parser.add_argument(
             "--topk",
             type=int,
@@ -502,7 +504,7 @@ class Command(BaseCommand):
 
         codes = _load_universe(universe)
         if not codes:
-            print("[picks_build] items=0 (empty json emitted)")
+            print("[picks_build] universe empty → 空JSON出力")
             self._emit([], [], mode="full", style=style, horizon=horizon, universe=universe, topk=topk, meta_extra={})
             return
 
@@ -522,17 +524,16 @@ class Command(BaseCommand):
             item, sizing_meta = res
             items.append(item)
 
-            # meta は最初に取れた値を使う（単ユーザー想定）
+            # meta（risk_pct / lot_size）は最初に取得できた値を採用
             if sizing_meta:
-                if "risk_pct" in sizing_meta and sizing_meta["risk_pct"] is not None:
-                    meta_extra.setdefault("risk_pct", float(sizing_meta["risk_pct"]))
-                if "lot_size" in sizing_meta and sizing_meta["lot_size"] is not None:
-                    meta_extra.setdefault("lot_size", int(sizing_meta["lot_size"]))
+                if sizing_meta.get("risk_pct") is not None and "risk_pct" not in meta_extra:
+                    meta_extra["risk_pct"] = float(sizing_meta["risk_pct"])
+                if sizing_meta.get("lot_size") is not None and "lot_size" not in meta_extra:
+                    meta_extra["lot_size"] = int(sizing_meta["lot_size"])
 
-        # メタ（銘柄名・業種）補完
         _enrich_meta(items)
 
-        # 並び：score_100 desc → last_close desc（見栄え調整）
+        # 並び: score_100 desc → last_close desc
         items.sort(
             key=lambda x: (
                 x.score_100 if x.score_100 is not None else -1,
@@ -541,7 +542,6 @@ class Command(BaseCommand):
             reverse=True,
         )
 
-        # TopK 厳選（UI が読むのはこっち）
         top_items = items[: max(0, topk)]
 
         if BUILD_LOG:
@@ -558,7 +558,8 @@ class Command(BaseCommand):
             meta_extra=meta_extra,
         )
 
-    # ------ 出力 ------
+    # -------------------- 出力 --------------------
+
     def _emit(
         self,
         all_items: List[PickItem],
@@ -570,8 +571,8 @@ class Command(BaseCommand):
         universe: str,
         topk: int,
         meta_extra: Dict[str, Any],
-    ):
-        meta = {
+    ) -> None:
+        meta: Dict[str, Any] = {
             "mode": mode,
             "style": style,
             "horizon": horizon,
@@ -579,29 +580,21 @@ class Command(BaseCommand):
             "total": len(all_items),
             "topk": topk,
         }
-        # risk_pct / lot_size などを追加
         meta.update({k: v for k, v in (meta_extra or {}).items() if v is not None})
 
-        data_all = dict(meta=meta, items=[asdict(x) for x in all_items])
-        data_top = dict(meta=meta, items=[asdict(x) for x in top_items])
+        data_all = {"meta": meta, "items": [asdict(x) for x in all_items]}
+        data_top = {"meta": meta, "items": [asdict(x) for x in top_items]}
 
         PICKS_DIR.mkdir(parents=True, exist_ok=True)
 
-        # 監査/検証用：全件
+        # 全件（検証用）
         out_all_latest = PICKS_DIR / "latest_full_all.json"
         out_all_stamp = PICKS_DIR / f"{dt_now_stamp()}_{horizon}_{style}_full_all.json"
         out_all_latest.write_text(json.dumps(data_all, ensure_ascii=False, separators=(",", ":")))
         out_all_stamp.write_text(json.dumps(data_all, ensure_ascii=False, separators=(",", ":")))
 
-        # UI用：TopK
+        # TopK（UI用）
         out_top_latest = PICKS_DIR / "latest_full.json"
         out_top_stamp = PICKS_DIR / f"{dt_now_stamp()}_{horizon}_{style}_full.json"
         out_top_latest.write_text(json.dumps(data_top, ensure_ascii=False, separators=(",", ":")))
         out_top_stamp.write_text(json.dumps(data_top, ensure_ascii=False, separators=(",", ":")))
-
-
-def dt_now_stamp() -> str:
-    from datetime import datetime, timezone, timedelta
-
-    JST = timezone(timedelta(hours=9))
-    return datetime.now(JST).strftime("%Y%m%d_%H%M%S")
