@@ -349,8 +349,6 @@
             </div>
           </div>
 
-          {# sizing_service 側の共通 reasons_text（見送り理由専用）
-             → reason_lines があるときは表示しない #}
           {% if item.reasons_text and not item.reason_lines %}
             <div class="meta">
               {% for line in item.reasons_text %}
