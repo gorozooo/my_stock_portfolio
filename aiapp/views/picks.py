@@ -304,7 +304,39 @@ def _attach_pass_checks(data: Dict[str, Any]) -> None:
         it["pass_checks_matsui"] = build_checks(qty_m, est_pl_m, est_loss_m)
 
 
-# ===== ここまで B用 =====
+# ===== 理由×5＋懸念（services側で作ったものをそのまま使う） =====
+
+
+def _normalize_reason_fields(data: Dict[str, Any]) -> None:
+    """
+    JSON 側に入っている理由フィールドをテンプレ用に正規化する。
+
+    想定フォーマット（picks_build 側）:
+      - items[].reason_lines : List[str]  … 理由×5
+      - items[].reason_concern : str|None … 懸念
+
+    互換性のため:
+      - items[].reasons / items[].reasons_text / items[].concern / items[].concern_text
+        があれば、reason_lines / reason_concern にコピーする。
+    """
+    items: List[Dict[str, Any]] = list(data.get("items") or [])
+    if not items:
+        return
+
+    for it in items:
+        # 理由リスト
+        if not it.get("reason_lines"):
+            if it.get("reasons"):
+                it["reason_lines"] = it.get("reasons")
+            elif it.get("reasons_text") and isinstance(it.get("reasons_text"), list):
+                it["reason_lines"] = it.get("reasons_text")
+
+        # 懸念
+        if not it.get("reason_concern"):
+            if it.get("concern_text"):
+                it["reason_concern"] = it.get("concern_text")
+            elif it.get("concern"):
+                it["reason_concern"] = it.get("concern")
 
 
 def _safe_float_any(v: Any) -> Optional[float]:
@@ -315,139 +347,6 @@ def _safe_float_any(v: Any) -> Optional[float]:
         return float(v)
     except Exception:
         return None
-
-
-def _attach_reason_lines(data: Dict[str, Any]) -> None:
-    """
-    銘柄ごとの「理由×5＋懸念」を、いまある数値だけで組み立てる。
-      - スコア
-      - 想定利益・損失
-      - R値
-      - 必要資金
-      - 数量
-    をベースに、最大5行の理由 + 1行の懸念を作る。
-    """
-    items: List[Dict[str, Any]] = list(data.get("items") or [])
-    if not items:
-        return
-
-    thresholds = _load_policy_thresholds()
-    min_net_profit = thresholds["min_net_profit_yen"]
-    min_rr = thresholds["min_reward_risk"]
-
-    for it in items:
-        reasons: List[str] = []
-
-        sector = it.get("sector_display") or "業種不明"
-        score = _safe_float_any(it.get("score_100"))
-
-        # --- 利益・損失まわりの値をまとめて取得 ---
-        est_pl_r = _safe_float_any(it.get("est_pl_rakuten"))
-        est_pl_m = _safe_float_any(it.get("est_pl_matsui"))
-        est_loss_r = _safe_float_any(it.get("est_loss_rakuten"))
-        est_loss_m = _safe_float_any(it.get("est_loss_matsui"))
-        qty_r = _safe_float_any(it.get("qty_rakuten")) or 0.0
-        qty_m = _safe_float_any(it.get("qty_matsui")) or 0.0
-        cash_r = _safe_float_any(it.get("required_cash_rakuten"))
-        cash_m = _safe_float_any(it.get("required_cash_matsui"))
-
-        # 「一番使う口座」をざっくり決める（数量が大きい方）
-        if qty_r >= qty_m:
-            best_pl = est_pl_r
-            best_loss = est_loss_r
-            best_cash = cash_r
-            best_label = "楽天"
-        else:
-            best_pl = est_pl_m
-            best_loss = est_loss_m
-            best_cash = cash_m
-            best_label = "松井"
-
-        # 1) スコア＋業種
-        if score is not None:
-            reasons.append(
-                f"総合スコアは {score:.0f} 点で、同じタイミングの候補の中でも上位クラスと判定されています（業種: {sector}）。"
-            )
-        else:
-            reasons.append(
-                f"{sector} セクターの中から、トレンドとリスク条件を満たした候補として抽出されています。"
-            )
-
-        # 2) 想定利益・損失のサイズ感
-        if best_pl is not None and best_loss is not None:
-            reasons.append(
-                f"{best_label}口座ベースで、想定利益は約 {int(round(best_pl)):,} 円、想定損失は約 {int(round(abs(best_loss))):,} 円を見込んでいます。"
-            )
-        elif best_pl is not None:
-            reasons.append(
-                f"{best_label}口座ベースで、利確まで到達した場合の想定利益は約 {int(round(best_pl)):,} 円です。"
-            )
-
-        # 3) R値（Reward / Risk）
-        r_val: Optional[float] = None
-        if best_pl is not None and best_loss is not None and best_loss != 0:
-            r_val = best_pl / abs(best_loss)
-            reasons.append(
-                f"Entry〜SLの損切り幅に対して、TPまでの利幅はおよそ {r_val:.2f} R 程度を狙える設計になっています。"
-            )
-
-        # 4) 必要資金の重さ
-        if best_cash is not None and best_cash > 0:
-            if best_cash <= 300_000:
-                reasons.append(
-                    f"必要資金は概算で {int(best_cash):,} 円程度と、比較的エントリーしやすい水準です。"
-                )
-            elif best_cash <= 1_000_000:
-                reasons.append(
-                    f"必要資金は概算で {int(best_cash):,} 円程度で、1トレードとしてほど良い重さになっています。"
-                )
-            else:
-                reasons.append(
-                    f"必要資金は概算で {int(best_cash):,} 円とやや重めですが、その分リターンも取りにいく設計です。"
-                )
-
-        # 5) ロット・分散の観点
-        total_qty = (qty_r or 0) + (qty_m or 0)
-        if total_qty > 0:
-            if total_qty <= 200:
-                reasons.append(
-                    f"ロットは合計 {int(total_qty):,} 株と控えめで、他銘柄との分散を保ちやすいサイズです。"
-                )
-            elif total_qty <= 1000:
-                reasons.append(
-                    f"ロットは合計 {int(total_qty):,} 株で、リスクを取りつつも過度に偏らないバランスになっています。"
-                )
-            else:
-                reasons.append(
-                    f"ロットは合計 {int(total_qty):,} 株と大きめで、その分ポジション管理の重要度も高い銘柄です。"
-                )
-
-        # 最大5行まで
-        if len(reasons) > 5:
-            reasons = reasons[:5]
-
-        # --- 懸念ポイント ---
-        concern = ""
-        # ① 想定利益 < 最低純利益
-        if best_pl is not None and best_pl < min_net_profit:
-            concern = (
-                f"現状の想定利益 {int(round(best_pl)):,} 円は、短期ルールで想定している最低純利益 {int(min_net_profit):,} 円を下回っており、"
-                "コストやブレを考えると妙味がやや物足りない点には注意が必要です。"
-            )
-        # ② R値 < 最低R
-        elif r_val is not None and r_val < min_rr:
-            concern = (
-                f"リスクに対するリターン指標R値が {r_val:.2f} と、ポリシーの基準値 {min_rr:.2f} を下回っていて、"
-                "損切りに対して利幅がやや物足りない形になっています。"
-            )
-        # ③ 損失額が大きい
-        elif best_loss is not None and abs(best_loss) > 30_000:
-            concern = (
-                f"想定損失が約 {int(round(abs(best_loss))):,} 円と大きめなため、他のポジションとの合計リスクには注意が必要です。"
-            )
-
-        it["reason_lines"] = reasons
-        it["reason_concern"] = concern
 
 
 def picks(request: HttpRequest) -> HttpResponse:
@@ -464,8 +363,8 @@ def picks(request: HttpRequest) -> HttpResponse:
     data = _load_picks()
     _enrich_with_master(data)
     _attach_zero_reasons(data)
-    _attach_pass_checks(data)  # ★ルール通過の内訳を付与
-    _attach_reason_lines(data)  # ★銘柄ごとの理由×5＋懸念
+    _attach_pass_checks(data)     # ★ルール通過の内訳を付与
+    _normalize_reason_fields(data)  # ★services側で作った理由×5＋懸念をそのまま使う
 
     meta = data.get("meta") or {}
     count = meta.get("count") or len(data.get("items") or [])
@@ -494,8 +393,8 @@ def picks_json(request: HttpRequest) -> HttpResponse:
     data = _load_picks()
     _enrich_with_master(data)
     _attach_zero_reasons(data)
-    _attach_pass_checks(data)  # JSON側にも載せておく
-    _attach_reason_lines(data)
+    _attach_pass_checks(data)      # JSON側にも載せておく
+    _normalize_reason_fields(data) # 理由×5＋懸念を揃える
     if not data:
         raise Http404("no picks")
     # 内部用メタは出さない
@@ -516,7 +415,7 @@ def _parse_float(value: Optional[str]) -> Optional[float]:
 
 
 @login_required
-@require_POST
+@require_POST]
 def picks_simulate(request: HttpRequest) -> HttpResponse:
     """
     AI Picks のカードから「シミュレ」ボタンで送られてきた内容を
