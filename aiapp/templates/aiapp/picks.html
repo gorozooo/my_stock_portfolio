@@ -244,7 +244,7 @@
                 <div class="star-wrap">
                   <span class="star-base">★★★★★</span>
                   <span class="star-fill" style="width: {{ p }}%;">★★★★★</span>
-                  </div>
+                </div>
                 <div class="score-text">{{ p|floatformat:0 }}点</div>
               {% endwith %}
             </div>
@@ -349,7 +349,7 @@
             </div>
           </div>
 
-          {# C1: 銘柄ごとの理由×5＋懸念 #}
+          {# C1: 銘柄ごとの理由×5＋懸念（reasons.py から来たものだけを表示） #}
           {% if item.reason_lines %}
             <div class="reasons-block">
               <div class="reasons-title">AIがこの銘柄を選んだ主なポイント</div>
@@ -362,23 +362,22 @@
                 <div class="reason-concern">懸念: {{ item.reason_concern }}</div>
               {% endif %}
 
-              {# 見送り理由（0株の証券だけ） #}
-              {% if item.qty_rakuten == 0 and item.reason_rakuten %}
+              {# 見送り理由（数量0の口座だけ） #}
+              {% if (item.qty_rakuten == 0 and item.reason_rakuten) or (item.qty_matsui == 0 and item.reason_matsui) %}
                 <div class="meta">
-                  楽天では見送り: {{ item.reason_rakuten }}
-                  {% if item.qty_matsui == 0 and item.reason_matsui %}
-                    <br>松井では見送り: {{ item.reason_matsui }}
+                  {% if item.qty_rakuten == 0 and item.reason_rakuten %}
+                    楽天では見送り: {{ item.reason_rakuten }}
+                    {% if item.qty_matsui == 0 and item.reason_matsui %}<br>{% endif %}
                   {% endif %}
-                </div>
-              {% elif item.qty_matsui == 0 and item.reason_matsui %}
-                <div class="meta">
-                  松井では見送り: {{ item.reason_matsui }}
+                  {% if item.qty_matsui == 0 and item.reason_matsui %}
+                    松井では見送り: {{ item.reason_matsui }}
+                  {% endif %}
                 </div>
               {% endif %}
             </div>
           {% endif %}
 
-          {# B: ルール通過の内訳（数量 > 0 の証券だけ） #}
+          {# B: ルール通過の内訳 #}
           {% if item.pass_checks_rakuten or item.pass_checks_matsui %}
             <div class="rule-pass">
               <div class="rule-pass-title">ルール通過の内訳</div>
