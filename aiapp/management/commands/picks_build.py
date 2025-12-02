@@ -304,14 +304,52 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
         # --- 理由5つ＋懸念（特徴量ベース） ---
         reason_lines: Optional[List[str]] = None
         reason_concern: Optional[str] = None
+
         if make_ai_reasons is not None:
             try:
-                last_feat = feat.iloc[-1].to_dict()
-                rs, concern = make_ai_reasons(last_feat)
+                last_row = feat.iloc[-1]
+
+                # reasons.py が期待しているキー名にマッピングして渡す
+                def _val(col: str) -> Optional[float]:
+                    if col not in last_row.index:
+                        return None
+                    v = float(last_row[col])
+                    if v != v:  # NaN
+                        return None
+                    return v
+
+                feat_for_reason: Dict[str, Any] = {
+                    # トレンドの傾き → SLOPE_20 をそのまま
+                    "ema_slope": _val("SLOPE_20"),
+
+                    # 相対強度（％） → RET_20 を％に変換して渡す（0.10 → 10.0）
+                    "rel_strength_10": (
+                        _val("RET_20") * 100.0 if _val("RET_20") is not None else None
+                    ),
+
+                    # RSI → RSI14
+                    "rsi14": _val("RSI14"),
+
+                    # 出来高倍率（あればそのまま、無ければ None）
+                    "vol_ma20_ratio": _val("VOL_MA20_RATIO")
+                    if "VOL_MA20_RATIO" in last_row.index
+                    else None,
+
+                    # ブレイクフラグ → ひとまず GCROSS を 1/0 で渡す
+                    "breakout_flag": int(last_row.get("GCROSS") or 0),
+
+                    # ATR / VWAP / 終値
+                    "atr14": _val("ATR14"),
+                    "vwap_proximity": _val("VWAP_GAP_PCT"),
+                    "last_price": _val("Close"),
+                }
+
+                rs, concern = make_ai_reasons(feat_for_reason)
                 if rs:
                     reason_lines = list(rs[:5])
                 if concern:
                     reason_concern = str(concern)
+
             except Exception as ex:
                 if BUILD_LOG:
                     print(f"[picks_build] reasons error for {code}: {ex}")
@@ -361,7 +399,7 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
         reasons_text = sizing.get("reasons_text")
         item.reasons_text = reasons_text if reasons_text else None
 
-        # 証券会社別の見送り理由
+        # 証券会社別の見送り理由（0株のときにテンプレートが表示）
         item.reason_rakuten = sizing.get("reason_rakuten_msg") or ""
         item.reason_matsui = sizing.get("reason_matsui_msg") or ""
 
@@ -369,13 +407,6 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
             "risk_pct": sizing.get("risk_pct"),
             "lot_size": sizing.get("lot_size"),
         }
-
-        # 🔥 追加：特徴量（最終行）を print
-        try:
-            print(code, feat.iloc[-1].to_dict())
-        except Exception:
-            print(code, "feat-print-error")
-
         return item, sizing_meta
 
     except Exception as e:
