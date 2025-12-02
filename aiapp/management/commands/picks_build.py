@@ -57,6 +57,18 @@ try:
 except Exception:  # pragma: no cover
     ext_entry_tp_sl = None  # type: ignore
 
+# 追加: フィルタ層 & バイアス層
+try:
+    from aiapp.services.picks_filters import FilterContext, check_all as picks_check_all
+except Exception:  # pragma: no cover
+    FilterContext = None  # type: ignore
+    picks_check_all = None  # type: ignore
+
+try:
+    from aiapp.services.picks_bias import apply_all as apply_bias_all
+except Exception:  # pragma: no cover
+    apply_bias_all = None  # type: ignore
+
 
 # =========================================================
 # 共通設定
@@ -133,6 +145,75 @@ def _nan_to_none(x):
     if isinstance(x, (float, int)) and x != x:  # NaN
         return None
     return x
+
+
+def _build_reasons_features(feat: pd.DataFrame, last: float, atr: float) -> Dict[str, Any]:
+    """
+    reasons.make_reasons 用に、features DataFrame から必要な指標だけ抜き出して
+    名前を合わせた dict を組み立てる。
+    """
+    if feat is None or len(feat) == 0:
+        return {}
+
+    row = feat.iloc[-1]
+
+    def g(key: str) -> Optional[float]:
+        try:
+            v = row.get(key)
+        except Exception:
+            v = None
+        if v is None:
+            return None
+        try:
+            f = float(v)
+        except Exception:
+            return None
+        if not np.isfinite(f):
+            return None
+        return f
+
+    ema_slope = g("SLOPE_20")
+    # 相対強度は「20日リターン」を簡易的に％換算して使う
+    rel_strength_10 = None
+    r20 = g("RET_20")
+    if r20 is not None:
+        rel_strength_10 = r20 * 100.0  # 例: 0.12 → 12%
+
+    rsi14 = g("RSI14")
+
+    vol = g("Volume")
+    ma20 = g("MA20")
+    vol_ma20_ratio = None
+    if vol is not None and ma20 is not None and ma20 > 0:
+        # 仕様上は「出来高 / 20日平均出来高」を想定しているが、
+        # 現状 MA20 は価格ベースなので「目安」として扱う。
+        vol_ma20_ratio = vol / ma20
+
+    breakout_flag = 0
+    gcross = g("GCROSS")
+    if gcross is not None and gcross > 0:
+        breakout_flag = 1
+
+    vwap_proximity = g("VWAP_GAP_PCT")
+
+    last_price = None
+    if np.isfinite(last):
+        last_price = float(last)
+
+    atr14 = None
+    if np.isfinite(atr):
+        atr14 = float(atr)
+
+    return {
+        "ema_slope": ema_slope,
+        "rel_strength_10": rel_strength_10,
+        "rsi14": rsi14,
+        "vol_ma20_ratio": vol_ma20_ratio,
+        "breakout_flag": breakout_flag,
+        "atr14": atr14,
+        "vwap_proximity": vwap_proximity,
+        "last_price": last_price,
+    }
 
 
 # =========================================================
@@ -287,6 +368,26 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
         last = _safe_float(close_s.iloc[-1] if len(close_s) else np.nan)
         atr = _safe_float(atr_s.iloc[-1] if len(atr_s) else np.nan)
 
+        # --- 仕手株・流動性などのフィルタリング層 ---
+        if picks_check_all is not None and FilterContext is not None:
+            try:
+                ctx = FilterContext(
+                    code=str(code),
+                    feat=feat.iloc[-1].to_dict(),
+                    last=last,
+                    atr=atr,
+                )
+                decision = picks_check_all(ctx)
+                if decision and getattr(decision, "skip", False):
+                    if BUILD_LOG:
+                        rc = getattr(decision, "reason_code", None)
+                        rt = getattr(decision, "reason_text", None)
+                        print(f"[picks_build] {code}: filtered out ({rc}) {rt}")
+                    return None
+            except Exception as ex:
+                if BUILD_LOG:
+                    print(f"[picks_build] {code}: filter error {ex}")
+
         # --- スコア ---
         if ext_score_sample:
             s01 = float(ext_score_sample(feat))
@@ -304,59 +405,14 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
         # --- 理由5つ＋懸念（特徴量ベース） ---
         reason_lines: Optional[List[str]] = None
         reason_concern: Optional[str] = None
-
         if make_ai_reasons is not None:
             try:
-                last_row = feat.iloc[-1]
-
-                def _val(col: str) -> Optional[float]:
-                    if col not in last_row.index:
-                        return None
-                    v = float(last_row[col])
-                    if v != v:  # NaN
-                        return None
-                    return v
-
-                # 出来高倍率をここで自前計算
-                vol_ratio: Optional[float] = None
-                vol = _val("Volume")
-                vol_ma20 = _val("VOL_MA20") if "VOL_MA20" in last_row.index else None
-                if vol is not None and vol_ma20 not in (None, 0):
-                    vol_ratio = vol / vol_ma20
-                else:
-                    # 列が無い場合は「ほぼ平均」とみなす（=1.0）
-                    vol_ratio = 1.0
-
-                feat_for_reason: Dict[str, Any] = {
-                    # トレンドの傾き → SLOPE_20
-                    "ema_slope": _val("SLOPE_20"),
-
-                    # 相対強度（％） → RET_20 を 0.xx → xx% に
-                    "rel_strength_10": (
-                        _val("RET_20") * 100.0 if _val("RET_20") is not None else None
-                    ),
-
-                    # RSI
-                    "rsi14": _val("RSI14"),
-
-                    # 出来高 / 20日平均出来高
-                    "vol_ma20_ratio": vol_ratio,
-
-                    # ブレイクフラグ（一旦 GCROSS ベース）
-                    "breakout_flag": int(last_row.get("GCROSS") or 0),
-
-                    # ATR / VWAP 乖離 / 終値
-                    "atr14": _val("ATR14"),
-                    "vwap_proximity": _val("VWAP_GAP_PCT"),
-                    "last_price": _val("Close"),
-                }
-
-                rs, concern = make_ai_reasons(feat_for_reason)
+                reasons_feat = _build_reasons_features(feat, last, atr)
+                rs, concern = make_ai_reasons(reasons_feat)
                 if rs:
                     reason_lines = list(rs[:5])
                 if concern:
                     reason_concern = str(concern)
-
             except Exception as ex:
                 if BUILD_LOG:
                     print(f"[picks_build] reasons error for {code}: {ex}")
@@ -577,6 +633,14 @@ class Command(BaseCommand):
                     meta_extra["lot_size"] = int(sizing_meta["lot_size"])
 
         _enrich_meta(items)
+
+        # ---- セクターバイアス・サイズバイアス適用（あれば） ----
+        if apply_bias_all is not None and items:
+            try:
+                apply_bias_all(items)
+            except Exception as ex:
+                if BUILD_LOG:
+                    print(f"[picks_build] bias error: {ex}")
 
         # 並び: score_100 desc → last_close desc
         items.sort(
