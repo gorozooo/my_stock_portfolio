@@ -349,7 +349,7 @@
             </div>
           </div>
 
-          {# C1: 銘柄ごとの理由×5＋懸念（reasons.py から来たものだけを表示） #}
+          {# C1: 銘柄ごとの理由×5＋懸念（reasons.py から来たものだけ） #}
           {% if item.reason_lines %}
             <div class="reasons-block">
               <div class="reasons-title">AIがこの銘柄を選んだ主なポイント</div>
@@ -363,7 +363,7 @@
               {% endif %}
 
               {# 見送り理由（数量0の口座だけ） #}
-              {% if (item.qty_rakuten == 0 and item.reason_rakuten) or (item.qty_matsui == 0 and item.reason_matsui) %}
+              {% if item.qty_rakuten == 0 and item.reason_rakuten or item.qty_matsui == 0 and item.reason_matsui %}
                 <div class="meta">
                   {% if item.qty_rakuten == 0 and item.reason_rakuten %}
                     楽天では見送り: {{ item.reason_rakuten }}
