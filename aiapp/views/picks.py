@@ -21,15 +21,37 @@ PICKS_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "picks"
 
 # JPX 33業種（コード→日本語名）
 JPX_SECTOR_MAP: Dict[str, str] = {
-    "005": "水産・農林業", "010": "鉱業", "015": "建設業", "020": "食料品", "025": "繊維製品",
-    "030": "パルプ・紙", "035": "化学", "040": "医薬品", "045": "石油・石炭製品", "050": "ゴム製品",
-    "055": "ガラス・土石製品", "060": "鉄鋼", "065": "非鉄金属", "070": "金属製品", "075": "機械",
-    "080": "電気機器", "085": "輸送用機器", "090": "精密機器", "095": "その他製品",
+    "005": "水産・農林業",
+    "010": "鉱業",
+    "015": "建設業",
+    "020": "食料品",
+    "025": "繊維製品",
+    "030": "パルプ・紙",
+    "035": "化学",
+    "040": "医薬品",
+    "045": "石油・石炭製品",
+    "050": "ゴム製品",
+    "055": "ガラス・土石製品",
+    "060": "鉄鋼",
+    "065": "非鉄金属",
+    "070": "金属製品",
+    "075": "機械",
+    "080": "電気機器",
+    "085": "輸送用機器",
+    "090": "精密機器",
+    "095": "その他製品",
     "100": "電気・ガス業",
-    "105": "陸運業", "110": "海運業", "115": "空運業", "120": "倉庫・運輸関連業",
+    "105": "陸運業",
+    "110": "海運業",
+    "115": "空運業",
+    "120": "倉庫・運輸関連業",
     "125": "情報・通信業",
-    "130": "卸売業", "135": "小売業",
-    "140": "銀行業", "145": "証券・商品先物取引業", "150": "保険業", "155": "その他金融業",
+    "130": "卸売業",
+    "135": "小売業",
+    "140": "銀行業",
+    "145": "証券・商品先物取引業",
+    "150": "保険業",
+    "155": "その他金融業",
     "160": "不動産業",
     "165": "サービス業",
 }
@@ -92,7 +114,12 @@ def _enrich_with_master(data: Dict[str, Any]) -> None:
     codes = {str(x.get("code", "")).strip() for x in items if x.get("code")}
     masters = {
         sm.code: sm
-        for sm in StockMaster.objects.filter(code__in=codes).only("code", "name", "sector_name", "sector_code")
+        for sm in StockMaster.objects.filter(code__in=codes).only(
+            "code",
+            "name",
+            "sector_name",
+            "sector_code",
+        )
     }
 
     for it in items:
@@ -110,8 +137,10 @@ def _enrich_with_master(data: Dict[str, Any]) -> None:
         sector_mst = _sector_from_master(sm)
         if _is_etf(code):
             sector_disp = "ETF/ETN"
+            it["is_etf"] = True
         else:
             sector_disp = sector_json or sector_mst or "業種不明"
+            it["is_etf"] = False
         it["sector_display"] = sector_disp
 
         # last_close 防御
@@ -149,6 +178,71 @@ def _format_updated_label(meta: Dict[str, Any], path_str: Optional[str], count: 
         else:
             ts_label = timezone.localtime().strftime("%Y/%m/%d %H:%M")
     return f"{ts_label}　{count}件 / {str(mode).upper()}"
+
+
+def _build_zero_reason(est_pl: float, est_loss: float) -> str:
+    """
+    0株になったときの“理由テキスト”を生成する。
+    数式そのものは出さないけど、
+      - R値
+      - 想定利益の大きさ
+      - 利益がマイナス/ゼロ
+    を見て、どこがNGなのかをはっきりさせる。
+    """
+    reasons: List[str] = []
+
+    # 想定利益がマイナス or 0
+    if est_pl <= 0:
+        reasons.append("TPまで到達しても想定利益がプラスにならないため。")
+
+    # R値（利益/損失）
+    if est_pl > 0 and est_loss > 0:
+        r = est_pl / est_loss
+        if r < 1.0:
+            reasons.append(
+                f"R値（利益÷損失）が {r:.2f} で、短期ルールの下限 1.0 を下回るため。"
+            )
+
+    # 利益の絶対額が小さすぎる
+    if est_pl > 0 and est_pl < 2000:
+        reasons.append(
+            f"想定利益が {int(round(est_pl)):,} 円と小さく、手数料やスリッページを考えると短期トレードとして狙う価値が低いため。"
+        )
+
+    if not reasons:
+        # どの条件も“ギリギリ”で落ちているケースなど
+        return "短期ルール（R値・コスト・最低利益）のいずれかが基準を満たしていないため。"
+    return " ".join(reasons)
+
+
+def _attach_zero_reasons(data: Dict[str, Any]) -> None:
+    """
+    item ごとに「楽天/松井が0株になっている理由」を計算して
+    reason_rakuten / reason_matsui として埋め込む。
+    """
+    items: List[Dict[str, Any]] = list(data.get("items") or [])
+    if not items:
+        return
+
+    for it in items:
+        # 無い場合は 0 扱い
+        qty_r = float(it.get("qty_rakuten") or 0)
+        qty_m = float(it.get("qty_matsui") or 0)
+        est_pl_r = float(it.get("est_pl_rakuten") or 0)
+        est_pl_m = float(it.get("est_pl_matsui") or 0)
+        est_loss_r = float(it.get("est_loss_rakuten") or 0)
+        est_loss_m = float(it.get("est_loss_matsui") or 0)
+
+        reason_r = ""
+        reason_m = ""
+
+        if qty_r <= 0:
+            reason_r = _build_zero_reason(est_pl_r, est_loss_r)
+        if qty_m <= 0:
+            reason_m = _build_zero_reason(est_pl_m, est_loss_m)
+
+        it["reason_rakuten"] = reason_r
+        it["reason_matsui"] = reason_m
 
 
 # ===== ここから B用の「ルール通過チェック」 =====
@@ -244,6 +338,143 @@ def _attach_pass_checks(data: Dict[str, Any]) -> None:
 # ===== ここまで B用 =====
 
 
+def _safe_float_any(v: Any) -> Optional[float]:
+    """item内の値をfloatに変換（失敗時はNone）。"""
+    if v in (None, "", "null"):
+        return None
+    try:
+        return float(v)
+    except Exception:
+        return None
+
+
+def _attach_reason_lines(data: Dict[str, Any]) -> None:
+    """
+    銘柄ごとの「理由×5」と「懸念」を組み立てる。
+      - 理由5つ: スコア / 利益・損失 / R値 / 必要資金 / ロット
+      - 懸念   : ATRベース（値動きの振れやすさ）を必ず1本出す方針
+    """
+    items: List[Dict[str, Any]] = list(data.get("items") or [])
+    if not items:
+        return
+
+    for it in items:
+        reasons: List[str] = []
+
+        sector = it.get("sector_display") or "業種不明"
+        score = _safe_float_any(it.get("score_100"))
+
+        # --- 利益・損失まわりの値をまとめて取得 ---
+        est_pl_r = _safe_float_any(it.get("est_pl_rakuten"))
+        est_pl_m = _safe_float_any(it.get("est_pl_matsui"))
+        est_loss_r = _safe_float_any(it.get("est_loss_rakuten"))
+        est_loss_m = _safe_float_any(it.get("est_loss_matsui"))
+        qty_r = _safe_float_any(it.get("qty_rakuten")) or 0.0
+        qty_m = _safe_float_any(it.get("qty_matsui")) or 0.0
+        cash_r = _safe_float_any(it.get("required_cash_rakuten"))
+        cash_m = _safe_float_any(it.get("required_cash_matsui"))
+
+        # 「一番使う口座」をざっくり決める（数量が大きい方）
+        if qty_r >= qty_m:
+            best_pl = est_pl_r
+            best_loss = est_loss_r
+            best_cash = cash_r
+            best_label = "楽天"
+        else:
+            best_pl = est_pl_m
+            best_loss = est_loss_m
+            best_cash = cash_m
+            best_label = "松井"
+
+        # 1) スコア＋業種
+        if score is not None:
+            reasons.append(
+                f"総合スコアは {score:.0f} 点で、同じタイミングの候補の中でも上位クラスと判定されています（業種: {sector}）。"
+            )
+        else:
+            reasons.append(
+                f"{sector} セクターの中から、トレンドとリスク条件を満たした候補として抽出されています。"
+            )
+
+        # 2) 想定利益・損失のサイズ感
+        if best_pl is not None and best_loss is not None:
+            reasons.append(
+                f"{best_label}口座ベースで、想定利益は約 {int(round(best_pl)):,} 円、想定損失は約 {int(round(abs(best_loss))):,} 円を見込んでいます。"
+            )
+        elif best_pl is not None:
+            reasons.append(
+                f"{best_label}口座ベースで、利確まで到達した場合の想定利益は約 {int(round(best_pl)):,} 円です。"
+            )
+
+        # 3) R値（Reward / Risk）
+        r_val: Optional[float] = None
+        if best_pl is not None and best_loss is not None and best_loss != 0:
+            r_val = best_pl / abs(best_loss)
+            reasons.append(
+                f"Entry〜SLの損切り幅に対して、TPまでの利幅はおよそ {r_val:.2f} R 程度を狙える設計になっています。"
+            )
+
+        # 4) 必要資金の重さ
+        if best_cash is not None and best_cash > 0:
+            if best_cash <= 300_000:
+                reasons.append(
+                    f"必要資金は概算で {int(best_cash):,} 円程度と、比較的エントリーしやすい水準です。"
+                )
+            elif best_cash <= 1_000_000:
+                reasons.append(
+                    f"必要資金は概算で {int(best_cash):,} 円程度で、1トレードとしてほど良い重さになっています。"
+                )
+            else:
+                reasons.append(
+                    f"必要資金は概算で {int(best_cash):,} 円とやや重めですが、その分リターンも取りにいく設計です。"
+                )
+
+        # 5) ロット・分散の観点
+        total_qty = (qty_r or 0) + (qty_m or 0)
+        if total_qty > 0:
+            if total_qty <= 200:
+                reasons.append(
+                    f"ロットは合計 {int(total_qty):,} 株と控えめで、他銘柄との分散を保ちやすいサイズです。"
+                )
+            elif total_qty <= 1000:
+                reasons.append(
+                    f"ロットは合計 {int(total_qty):,} 株で、リスクを取りつつも過度に偏らないバランスになっています。"
+                )
+            else:
+                reasons.append(
+                    f"ロットは合計 {int(total_qty):,} 株と大きめで、その分ポジション管理の重要度も高い銘柄です。"
+                )
+
+        # 最大5行まで
+        if len(reasons) > 5:
+            reasons = reasons[:5]
+
+        # --- 懸念ポイント（ATRベースで必ず1本出す） ---
+        atr = _safe_float_any(it.get("atr"))
+        concern = ""
+
+        if atr is not None and atr > 0:
+            # ざっくり3段階評価（絶対値ベース）
+            if atr < 5:
+                concern = (
+                    "値動きの幅（ATR）は比較的落ち着いていますが、短期のブレによるノイズで振らされないように、"
+                    "ロットと損切りラインは事前に決めておく必要があります。"
+                )
+            elif atr < 15:
+                concern = (
+                    "値動きの幅（ATR）がやや大きめで、短期的に上下へ振られやすい銘柄です。"
+                    "ロット管理と損切り位置には少し余裕を持たせる必要があります。"
+                )
+            else:
+                concern = (
+                    "値動きの幅（ATR）が比較的大きく、短期的な上下のブレが出やすい銘柄です。"
+                    "ロットを抑えめにする・建玉を分割するなど、ポジション管理に特に注意が必要です。"
+                )
+
+        it["reason_lines"] = reasons
+        it["reason_concern"] = concern
+
+
 def picks(request: HttpRequest) -> HttpResponse:
     # LIVE/DEMO 状態（基本は常に LIVE、?mode=demo のときだけ DEMO 扱い）
     qmode = request.GET.get("mode")
@@ -257,7 +488,9 @@ def picks(request: HttpRequest) -> HttpResponse:
 
     data = _load_picks()
     _enrich_with_master(data)
-    _attach_pass_checks(data)  # ルール通過の内訳だけビュー側で付与
+    _attach_zero_reasons(data)
+    _attach_pass_checks(data)  # ★ルール通過の内訳を付与
+    _attach_reason_lines(data)  # ★銘柄ごとの理由×5＋懸念
 
     meta = data.get("meta") or {}
     count = meta.get("count") or len(data.get("items") or [])
@@ -285,7 +518,9 @@ def picks(request: HttpRequest) -> HttpResponse:
 def picks_json(request: HttpRequest) -> HttpResponse:
     data = _load_picks()
     _enrich_with_master(data)
-    _attach_pass_checks(data)
+    _attach_zero_reasons(data)
+    _attach_pass_checks(data)  # JSON側にも載せておく
+    _attach_reason_lines(data)
     if not data:
         raise Http404("no picks")
     # 内部用メタは出さない
