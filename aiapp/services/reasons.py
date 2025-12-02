@@ -11,6 +11,7 @@ feat には少なくとも以下の key が入っている想定（どれか欠�
   - rel_strength_10  : 10日間の相対強度（ベンチマーク比％）
   - rsi14            : RSI14
   - vol_ma20_ratio   : 出来高 / 20日平均出来高
+                       （無ければ Volume と MA20 から内部で計算）
   - breakout_flag    : ブレイクしていれば 1
   - atr14            : ATR14
   - vwap_proximity   : VWAP からの乖離率（％）
@@ -55,7 +56,22 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
     ema_slope: Optional[float] = feat.get("ema_slope")
     rel10: Optional[float] = feat.get("rel_strength_10")
     rsi: Optional[float] = feat.get("rsi14")
+
+    # --- 出来高は vol_ma20_ratio があればそれを使い、無ければ Volume / MA20 から計算 ---
     vol_ratio: Optional[float] = feat.get("vol_ma20_ratio")
+    if vol_ratio is None:
+        vol = feat.get("Volume")
+        if vol is None:
+            vol = feat.get("volume")
+        ma20 = feat.get("MA20")
+        if ma20 is None:
+            ma20 = feat.get("ma20")
+        try:
+            if vol is not None and ma20 not in (None, 0):
+                vol_ratio = float(vol) / float(ma20)
+        except Exception:
+            vol_ratio = None
+
     breakout_flag: int = int(feat.get("breakout_flag", 0) or 0)
     atr: Optional[float] = feat.get("atr14")
     vwap_gap: Optional[float] = feat.get("vwap_proximity")
@@ -113,9 +129,9 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
         else:
             reasons.append(f"RSI14が {val:.0f} と極端な売られすぎゾーンにあり、反発が入った際の戻り幅に期待できる局面です。")
 
-    # 4) 出来高（資金の集まり具合）
+    # 4) 出来高（資金の集まり具合） Volume × MA20 ベース
     if vol_ratio is not None and vol_ratio > 0:
-        vr = vol_ratio
+        vr = float(vol_ratio)
         if vr >= 3.0:
             reasons.append(f"出来高が最近の平均の {_fmt_x(vr)} と非常に多く、短期的に強い資金流入が確認できる銘柄です。")
         elif vr >= 1.5:
