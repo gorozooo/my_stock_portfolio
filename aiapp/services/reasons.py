@@ -45,6 +45,11 @@ def _clamp(v: Optional[float], lo: float, hi: float) -> Optional[float]:
 
 
 def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
+    """
+    「この銘柄を候補に入れている理由」を最大5行、
+    「気をつけたいポイント」を1行だけ返す。
+    データが無い指標については、無理にコメントを入れない。
+    """
     reasons: List[str] = []
 
     ema_slope: Optional[float] = feat.get("ema_slope")
@@ -57,93 +62,88 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
     last_price: Optional[float] = feat.get("last_price")
 
     # 1) トレンドの向き（EMA傾き）
-    if ema_slope is None:
-        reasons.append("今のトレンドははっきりしませんが、大きく傾いている状態ではありません。")
-    else:
-        if ema_slope > 0:
-            # 強さで少し言い回しを変える
-            if ema_slope > 0.8:
-                reasons.append("短期と中期の平均線がそろって右肩上がりで、力強い上昇トレンドに乗りやすい形です。")
-            elif ema_slope > 0.3:
-                reasons.append("平均線がゆるやかに右肩上がりで、コツコツと上昇している流れに乗りやすい状態です。")
-            else:
-                reasons.append("平均線はわずかに上向きで、上昇に転じつつあるタイミングとみなしています。")
+    if ema_slope is not None:
+        if ema_slope > 0.8:
+            reasons.append("短期と中期の平均線がそろって力強い右肩上がりで、はっきりした上昇トレンドに乗りやすい形です。")
+        elif ema_slope > 0.3:
+            reasons.append("平均線が素直な右肩上がりで、押し目を拾いながらトレンドに沿ったエントリーを狙いやすい状態です。")
+        elif ema_slope > 0.05:
+            reasons.append("平均線が徐々に上向きに変化しており、本格的な上昇トレンドへの立ち上がりを拾いにいく形です。")
+        elif ema_slope > -0.1:
+            reasons.append("大きな方向感は出ていませんが、下げ止まりからの持ち直しを狙える位置と判断しています。")
         else:
-            if ema_slope < -0.5:
-                reasons.append("平均線は下向きですが、戻り売りのポイントとして候補に入っています。")
-            else:
-                reasons.append("トレンドは横ばい〜やや弱めですが、下げ止まりを確認しつつの候補としています。")
+            # しっかり下向きだが、あえて拾うケース
+            reasons.append("中期ではまだ下向きのトレンドですが、直近で下げ止まりの兆しが出ているため、反発候補としてピックアップしています。")
 
     # 2) 相対強度（指数との比較）
-    if rel10 is None:
-        reasons.append("指数との細かい比較はできていませんが、単体の動きとしてはバランスを見ています。")
-    else:
+    if rel10 is not None:
         r = rel10
-        if r > 3:
+        if r > 5:
             reasons.append(
-                f"直近10日間は、日経平均などの指数よりもしっかり強い動き（約 {_fmt_pct(r)} 上回り）になっています。"
+                f"直近10日間で、日経平均などの指数を大きく上回る強さ（約 {_fmt_pct(r)} 上回り）が続いており、資金の集まりが明確な銘柄です。"
+            )
+        elif r > 2:
+            reasons.append(
+                f"直近10日間で、市場平均よりもしっかり強い動き（約 {_fmt_pct(r)} 上回り）になっていて、相対的な強さが際立っています。"
             )
         elif r > 0.5:
             reasons.append(
-                f"直近10日間は、市場平均よりもやや強い動き（約 {_fmt_pct(r)} 上回り）が続いています。"
+                f"直近10日間で、市場平均をわずかに上回るペース（約 {_fmt_pct(r)} 上回り）で推移しており、堅実な強さが続いています。"
             )
-        elif r > -0.5:
+        elif r > -1.0:
             reasons.append(
-                "直近10日間は、市場平均とほぼ同じペースで動いており、極端に置いていかれてはいません。"
-            )
-        elif r > -3:
-            reasons.append(
-                f"直近10日間は少し出遅れ気味（約 {_fmt_pct(r)} 下回り）ですが、巻き返し狙いの候補としています。"
+                "直近10日間で、市場平均とほぼ同じペースで推移しており、極端な出遅れや先走りのないバランスの良い位置です。"
             )
         else:
             reasons.append(
-                f"直近10日間は市場平均よりもかなり弱い動き（約 {_fmt_pct(r)} 下回り）ですが、反発余地に注目した候補です。"
+                f"直近10日間ではやや出遅れ気味（約 {_fmt_pct(r)} 下回り）ですが、巻き返し狙いのリバウンド候補として位置付けています。"
             )
 
     # 3) RSI（買われすぎ/売られすぎ）
-    if rsi is None:
-        reasons.append("売られすぎ・買われすぎを示すRSIはデータ不足のため、中立扱いとしています。")
-    else:
+    if rsi is not None:
         val = _clamp(rsi, 0, 100) or rsi
-        if val >= 70:
-            reasons.append(f"短期的にはかなり買われやすい水準（RSI14={val:.0f}）で、勢いが強い一方で伸び切りにも注意が必要です。")
+        if val >= 75:
+            reasons.append(f"RSI14が {val:.0f} とかなり強いゾーンにあり、短期的な勢いが乗っている局面です。")
         elif val >= 60:
-            reasons.append(f"やや買いが優勢な水準（RSI14={val:.0f}）で、素直な上昇トレンドに乗りやすい状態です。")
-        elif val >= 40:
-            reasons.append(f"買いと売りのバランスが良い、落ち着いた水準（RSI14={val:.0f}）です。")
+            reasons.append(f"RSI14が {val:.0f} と買いが優勢な水準で、素直な上昇トレンドに乗りやすい状態です。")
+        elif val >= 45:
+            reasons.append(f"RSI14が {val:.0f} 付近と、中立〜やや強めのバランスで落ち着いており、無理なくエントリーしやすい水準です。")
         elif val >= 30:
-            reasons.append(f"やや売られ気味の水準（RSI14={val:.0f}）で、リバウンド狙いの候補としています。")
+            reasons.append(f"RSI14が {val:.0f} とやや売られ気味のゾーンにあり、反発を狙いやすい位置と見ています。")
         else:
-            reasons.append(f"かなり売られすぎゾーン（RSI14={val:.0f}）で、反発が入れば戻り幅が狙いやすいと見ています。")
+            reasons.append(f"RSI14が {val:.0f} と極端な売られすぎゾーンにあり、反発が入った際の戻り幅に期待できる局面です。")
 
     # 4) 出来高（資金の集まり具合）
-    if vol_ratio is None or vol_ratio <= 0:
-        reasons.append("出来高は平均並みとみなし、過度な過熱感や閑散さは今のところ出ていません。")
-    else:
+    if vol_ratio is not None and vol_ratio > 0:
         vr = vol_ratio
-        if vr >= 2.0:
-            reasons.append(f"出来高がここ最近の平均の {_fmt_x(vr)} と多く、資金が本格的に集まりつつある状況です。")
-        elif vr >= 1.2:
-            reasons.append(f"出来高が平均より少し多く、静かに買いが入ってきている形です（約 {_fmt_x(vr)}）。")
+        if vr >= 3.0:
+            reasons.append(f"出来高が最近の平均の {_fmt_x(vr)} と非常に多く、短期的に強い資金流入が確認できる銘柄です。")
+        elif vr >= 1.5:
+            reasons.append(f"出来高が20日平均の {_fmt_x(vr)} 程度と増えてきており、静かに買いが集まりつつある状況です。")
         elif vr >= 0.8:
-            reasons.append("出来高はほぼ平均的で、落ち着いた流れの中でトレンドを追いやすい状態です。")
+            reasons.append("出来高はおおむね平均並みで、過度な仕手化や極端な閑散感がなく、素直な値動きが期待しやすい環境です。")
         else:
-            reasons.append("出来高はやや少なめで、無理な急騰ではなく落ち着いた値動きが続いています。")
+            reasons.append("出来高はやや控えめですが、その分、急な乱高下が出にくい落ち着いた値動きになっています。")
 
-    # 5) ブレイク or レンジ
+    # 5) ブレイク or 位置取り（VWAPとの関係）
     if breakout_flag == 1:
         reasons.append(
-            "直近の高値ゾーンを終値でしっかり上抜けていて、「上に走り始めた後半」よりも「走り出しの段階」を狙う設計です。"
+            "直近の高値ゾーンを明確に上抜けており、「上昇の走り出し」を狙うブレイクアウト型のエントリー候補です。"
         )
     else:
-        if vwap_gap is not None and abs(vwap_gap) <= 1.0:
-            reasons.append(
-                "直近の取引の中心価格（VWAP）付近で落ち着いて推移しており、無理に高値を追わずにエントリーしやすい位置です。"
-            )
-        else:
-            reasons.append(
-                "はっきりした高値ブレイクは出ていませんが、直近の価格帯の中でじわじわと方向を出しつつある状態です。"
-            )
+        if vwap_gap is not None:
+            if abs(vwap_gap) <= 1.0:
+                reasons.append(
+                    "現在値が直近の取引の中心価格（VWAP）付近に位置しており、極端に高値掴みになりにくい落ち着いたエントリーポイントです。"
+                )
+            elif vwap_gap < -1.0:
+                reasons.append(
+                    f"現在値がVWAPよりやや下側（乖離 {_fmt_pct(vwap_gap)} 前後）に位置しており、押し目を拾いにいく形のエントリーが狙えます。"
+                )
+            else:
+                reasons.append(
+                    f"現在値がVWAPよりやや上側（乖離 {_fmt_pct(vwap_gap)} 前後）に位置しており、勢いに乗りつつもまだ伸びしろが期待できる水準です。"
+                )
 
     # ---------------------------
     # 懸念（あれば 1行）
@@ -152,34 +152,45 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
 
     # ATR の大きさ（値動きの荒さ）
     if atr is not None:
-        # last_price があれば「何％くらい動くか」のイメージにする
         if last_price and last_price > 0:
             atr_pct = (atr / last_price) * 100.0
-            if atr_pct >= 5.0:
-                concerns.append(f"1日の値動きの幅がやや大きめ（目安で株価の約 {_fmt_pct(atr_pct)} 程度）で、ロットを持ちすぎるとブレに振り回されやすい点には注意が必要です。")
+            if atr_pct >= 6.0:
+                concerns.append(
+                    f"1日の値動きの幅が比較的大きく（目安で株価の約 {_fmt_pct(atr_pct)} 程度）、ロットを持ちすぎるとブレに振り回されやすい点には注意が必要です。"
+                )
             elif atr_pct >= 3.0:
-                concerns.append(f"値動きの幅がやや広め（株価の約 {_fmt_pct(atr_pct)} 程度）なので、損切りラインは少し余裕を持っておく必要があります。")
+                concerns.append(
+                    f"値動きの幅がやや広め（株価の約 {_fmt_pct(atr_pct)} 程度）なので、損切りラインは少し余裕を持って置いておく必要があります。"
+                )
         else:
             if atr >= 10:
-                concerns.append("値動きの幅（ATR）が比較的大きく、短期的な上下に振られやすい銘柄です。ロット管理に注意が必要です。")
+                concerns.append(
+                    "値動きの幅（ATR）が比較的大きく、短期的な上下に振られやすい銘柄です。ロット管理と損切り位置には注意が必要です。"
+                )
 
     # 相対強度がかなり弱い
     if rel10 is not None and rel10 <= -5.0:
-        concerns.append(f"直近10日間は市場平均よりもかなり弱い動き（約 {_fmt_pct(rel10)} 下回り）が続いており、反発まで時間がかかる可能性があります。")
+        concerns.append(
+            f"直近10日間は市場平均よりもかなり弱い動き（約 {_fmt_pct(rel10)} 下回り）が続いており、反発まで時間がかかる可能性があります。"
+        )
 
-    # RSI が高すぎ / 低すぎ
+    # RSI が極端
     if rsi is not None:
-        if rsi >= 75:
-            concerns.append("短期的にはかなり買われすぎのゾーンに入っており、いつ調整が入ってもおかしくない点には注意が必要です。")
-        elif rsi <= 25:
-            concerns.append("売られすぎの状態が長く続いており、さらに下を試す動きになった場合の割り切りも意識する必要があります。")
+        if rsi >= 80:
+            concerns.append("短期的にはかなり買われすぎのゾーンに入っており、いつ調整が入ってもおかしくない局面です。")
+        elif rsi <= 20:
+            concerns.append("売られすぎの状態が長く続いており、さらに下を試す展開になった場合の割り切りも意識する必要があります。")
 
     # VWAP からの乖離が大きい
-    if vwap_gap is not None and abs(vwap_gap) >= 3.0:
+    if vwap_gap is not None and abs(vwap_gap) >= 5.0:
         if vwap_gap > 0:
-            concerns.append(f"現在値が直近の取引の中心価格（VWAP）よりもやや上に離れており、短期的に伸び切りからの押し目になる可能性があります（乖離 {_fmt_pct(vwap_gap)} 前後）。")
+            concerns.append(
+                f"現在値が直近の取引の中心価格（VWAP）からやや上に離れており（乖離 {_fmt_pct(vwap_gap)} 前後）、短期的な伸び切りからの押し目に注意が必要です。"
+            )
         else:
-            concerns.append(f"現在値がVWAPよりも下側に離れていて、戻り待ちの動きになる可能性があります（乖離 {_fmt_pct(vwap_gap)} 前後）。")
+            concerns.append(
+                f"現在値がVWAPよりも下側に大きく離れていて（乖離 {_fmt_pct(vwap_gap)} 前後）、戻り待ちの時間が長くなる可能性があります。"
+            )
 
     # 1つにまとめる
     concern_text: Optional[str] = None
