@@ -308,7 +308,7 @@ def _attach_pass_checks(data: Dict[str, Any]) -> None:
 
 
 def picks(request: HttpRequest) -> HttpResponse:
-    # LIVE/DEMO 状態（基本は常に LIVE、?mode=demo のときだけ DEMO 扱い）
+    # LIVE/DEMO 状態（基本は常に LIVE、?mode=demo のときだけ DEMO扱い）
     qmode = request.GET.get("mode")
     if qmode == "demo":
         is_demo = True
@@ -321,10 +321,7 @@ def picks(request: HttpRequest) -> HttpResponse:
     data = _load_picks()
     _enrich_with_master(data)
     _attach_zero_reasons(data)
-    _attach_pass_checks(data)  # ★ルール通過の内訳を付与
-    # 理由×5＋懸念（reason_lines / reason_concern）は
-    # picks_build + aiapp/services/reasons.py 側で JSON に入ってくる想定。
-    # ビュー側では一切生成しない。
+    _attach_pass_checks(data)  # ルール通過の内訳（B）
 
     meta = data.get("meta") or {}
     count = meta.get("count") or len(data.get("items") or [])
@@ -354,7 +351,6 @@ def picks_json(request: HttpRequest) -> HttpResponse:
     _enrich_with_master(data)
     _attach_zero_reasons(data)
     _attach_pass_checks(data)  # JSON側にも載せておく
-    # 理由×5＋懸念（reason_lines / reason_concern）は JSON そのまま。
     if not data:
         raise Http404("no picks")
     # 内部用メタは出さない
