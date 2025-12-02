@@ -306,8 +306,43 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
         reason_concern: Optional[str] = None
         if make_ai_reasons is not None:
             try:
-                last_feat = feat.iloc[-1].to_dict()
-                rs, concern = make_ai_reasons(last_feat)
+                # 最終バーの特徴量
+                last_row = feat.iloc[-1]
+                d = last_row.to_dict()
+
+                # reasons.py が想定している key へマッピング
+                def pick(*keys) -> Optional[float]:
+                    for k in keys:
+                        if k in d and d[k] is not None:
+                            try:
+                                v = float(d[k])
+                            except Exception:
+                                continue
+                            if np.isnan(v):
+                                continue
+                            return v
+                    return None
+
+                feat_for_reason: Dict[str, Any] = {
+                    # トレンドの傾き（EMA 系 or SLOPE 系から拝借）
+                    "ema_slope": pick("EMA_SLOPE_20", "SLOPE_20", "EMA_SLOPE"),
+                    # 10日相対強度（名称候補を全部なめる）
+                    "rel_strength_10": pick("REL_STRENGTH_10", "REL_10D", "REL10"),
+                    # RSI14
+                    "rsi14": pick("RSI14", "RSI_14"),
+                    # 出来高/平均の倍率
+                    "vol_ma20_ratio": pick("VOL_MA20_RATIO", "VOL_RATIO_20", "VOL_RATIO"),
+                    # ブレイクフラグ
+                    "breakout_flag": int(pick("BREAKOUT_FLAG", "BREAKOUT_20") or 0),
+                    # ATR14
+                    "atr14": pick("ATR14", "ATR"),
+                    # VWAP からの乖離
+                    "vwap_proximity": pick("VWAP_PROXIMITY", "VWAP_GAP"),
+                    # 現在値（終値）
+                    "last_price": last,
+                }
+
+                rs, concern = make_ai_reasons(feat_for_reason)
                 if rs:
                     reason_lines = list(rs[:5])
                 if concern:
