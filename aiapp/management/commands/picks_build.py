@@ -309,7 +309,6 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
             try:
                 last_row = feat.iloc[-1]
 
-                # reasons.py が期待しているキー名にマッピングして渡す
                 def _val(col: str) -> Optional[float]:
                     if col not in last_row.index:
                         return None
@@ -318,27 +317,35 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
                         return None
                     return v
 
+                # 出来高倍率をここで自前計算
+                vol_ratio: Optional[float] = None
+                vol = _val("Volume")
+                vol_ma20 = _val("VOL_MA20") if "VOL_MA20" in last_row.index else None
+                if vol is not None and vol_ma20 not in (None, 0):
+                    vol_ratio = vol / vol_ma20
+                else:
+                    # 列が無い場合は「ほぼ平均」とみなす（=1.0）
+                    vol_ratio = 1.0
+
                 feat_for_reason: Dict[str, Any] = {
-                    # トレンドの傾き → SLOPE_20 をそのまま
+                    # トレンドの傾き → SLOPE_20
                     "ema_slope": _val("SLOPE_20"),
 
-                    # 相対強度（％） → RET_20 を％に変換して渡す（0.10 → 10.0）
+                    # 相対強度（％） → RET_20 を 0.xx → xx% に
                     "rel_strength_10": (
                         _val("RET_20") * 100.0 if _val("RET_20") is not None else None
                     ),
 
-                    # RSI → RSI14
+                    # RSI
                     "rsi14": _val("RSI14"),
 
-                    # 出来高倍率（あればそのまま、無ければ None）
-                    "vol_ma20_ratio": _val("VOL_MA20_RATIO")
-                    if "VOL_MA20_RATIO" in last_row.index
-                    else None,
+                    # 出来高 / 20日平均出来高
+                    "vol_ma20_ratio": vol_ratio,
 
-                    # ブレイクフラグ → ひとまず GCROSS を 1/0 で渡す
+                    # ブレイクフラグ（一旦 GCROSS ベース）
                     "breakout_flag": int(last_row.get("GCROSS") or 0),
 
-                    # ATR / VWAP / 終値
+                    # ATR / VWAP 乖離 / 終値
                     "atr14": _val("ATR14"),
                     "vwap_proximity": _val("VWAP_GAP_PCT"),
                     "last_price": _val("Close"),
