@@ -17,47 +17,19 @@ from django.views.decorators.http import require_POST
 from aiapp.models import StockMaster
 from aiapp.services.policy_loader import load_short_aggressive_policy
 
-# ★ 銘柄ごとの「理由×5」＋「懸念」は services/reasons.py に全面委譲
-try:
-    from aiapp.services.reasons import attach_reasons as svc_attach_reasons
-except Exception:
-    svc_attach_reasons = None
-
 PICKS_DIR = Path(settings.MEDIA_ROOT) / "aiapp" / "picks"
 
 # JPX 33業種（コード→日本語名）
 JPX_SECTOR_MAP: Dict[str, str] = {
-    "005": "水産・農林業",
-    "010": "鉱業",
-    "015": "建設業",
-    "020": "食料品",
-    "025": "繊維製品",
-    "030": "パルプ・紙",
-    "035": "化学",
-    "040": "医薬品",
-    "045": "石油・石炭製品",
-    "050": "ゴム製品",
-    "055": "ガラス・土石製品",
-    "060": "鉄鋼",
-    "065": "非鉄金属",
-    "070": "金属製品",
-    "075": "機械",
-    "080": "電気機器",
-    "085": "輸送用機器",
-    "090": "精密機器",
-    "095": "その他製品",
+    "005": "水産・農林業", "010": "鉱業", "015": "建設業", "020": "食料品", "025": "繊維製品",
+    "030": "パルプ・紙", "035": "化学", "040": "医薬品", "045": "石油・石炭製品", "050": "ゴム製品",
+    "055": "ガラス・土石製品", "060": "鉄鋼", "065": "非鉄金属", "070": "金属製品", "075": "機械",
+    "080": "電気機器", "085": "輸送用機器", "090": "精密機器", "095": "その他製品",
     "100": "電気・ガス業",
-    "105": "陸運業",
-    "110": "海運業",
-    "115": "空運業",
-    "120": "倉庫・運輸関連業",
+    "105": "陸運業", "110": "海運業", "115": "空運業", "120": "倉庫・運輸関連業",
     "125": "情報・通信業",
-    "130": "卸売業",
-    "135": "小売業",
-    "140": "銀行業",
-    "145": "証券・商品先物取引業",
-    "150": "保険業",
-    "155": "その他金融業",
+    "130": "卸売業", "135": "小売業",
+    "140": "銀行業", "145": "証券・商品先物取引業", "150": "保険業", "155": "その他金融業",
     "160": "不動産業",
     "165": "サービス業",
 }
@@ -112,10 +84,7 @@ def _sector_from_master(sm: Optional[StockMaster]) -> Optional[str]:
 
 
 def _enrich_with_master(data: Dict[str, Any]) -> None:
-    """
-    itemsを銘柄名/業種/価格の表示用に正規化。
-    ※ 理由×5・懸念・見送り理由には一切手を出さない。
-    """
+    """itemsを銘柄名/業種/価格の表示用に正規化"""
     items: List[Dict[str, Any]] = list(data.get("items") or [])
     if not items:
         return
@@ -123,12 +92,7 @@ def _enrich_with_master(data: Dict[str, Any]) -> None:
     codes = {str(x.get("code", "")).strip() for x in items if x.get("code")}
     masters = {
         sm.code: sm
-        for sm in StockMaster.objects.filter(code__in=codes).only(
-            "code",
-            "name",
-            "sector_name",
-            "sector_code",
-        )
+        for sm in StockMaster.objects.filter(code__in=codes).only("code", "name", "sector_name", "sector_code")
     }
 
     for it in items:
@@ -146,10 +110,8 @@ def _enrich_with_master(data: Dict[str, Any]) -> None:
         sector_mst = _sector_from_master(sm)
         if _is_etf(code):
             sector_disp = "ETF/ETN"
-            it["is_etf"] = True
         else:
             sector_disp = sector_json or sector_mst or "業種不明"
-            it["is_etf"] = False
         it["sector_display"] = sector_disp
 
         # last_close 防御
@@ -189,8 +151,71 @@ def _format_updated_label(meta: Dict[str, Any], path_str: Optional[str], count: 
     return f"{ts_label}　{count}件 / {str(mode).upper()}"
 
 
+def _build_zero_reason(est_pl: float, est_loss: float) -> str:
+    """
+    0株になったときの“理由テキスト”を生成する。
+    数式そのものは出さないけど、
+      - R値
+      - 想定利益の大きさ
+      - 利益がマイナス/ゼロ
+    を見て、どこがNGなのかをはっきりさせる。
+    """
+    reasons: List[str] = []
+
+    # 想定利益がマイナス or 0
+    if est_pl <= 0:
+        reasons.append("TPまで到達しても想定利益がプラスにならないため。")
+
+    # R値（利益/損失）
+    if est_pl > 0 and est_loss > 0:
+        r = est_pl / est_loss
+        if r < 1.0:
+            reasons.append(f"R値（利益÷損失）が {r:.2f} で、短期ルールの下限 1.0 を下回るため。")
+
+    # 利益の絶対額が小さすぎる
+    if est_pl > 0 and est_pl < 2000:
+        reasons.append(
+            f"想定利益が {int(round(est_pl)):,} 円と小さく、手数料やスリッページを考えると短期トレードとして狙う価値が低いため。"
+        )
+
+    if not reasons:
+        # どの条件も“ギリギリ”で落ちているケースなど
+        return "短期ルール（R値・コスト・最低利益）のいずれかが基準を満たしていないため。"
+    return " ".join(reasons)
+
+
+def _attach_zero_reasons(data: Dict[str, Any]) -> None:
+    """
+    item ごとに「楽天/松井が0株になっている理由」を計算して
+    reason_rakuten / reason_matsui として埋め込む。
+    """
+    items: List[Dict[str, Any]] = list(data.get("items") or [])
+    if not items:
+        return
+
+    for it in items:
+        # 無い場合は 0 扱い
+        qty_r = float(it.get("qty_rakuten") or 0)
+        qty_m = float(it.get("qty_matsui") or 0)
+        est_pl_r = float(it.get("est_pl_rakuten") or 0)
+        est_pl_m = float(it.get("est_pl_matsui") or 0)
+        est_loss_r = float(it.get("est_loss_rakuten") or 0)
+        est_loss_m = float(it.get("est_loss_matsui") or 0)
+
+        reason_r = ""
+        reason_m = ""
+
+        if qty_r <= 0:
+            reason_r = _build_zero_reason(est_pl_r, est_loss_r)
+        if qty_m <= 0:
+            reason_m = _build_zero_reason(est_pl_m, est_loss_m)
+
+        it["reason_rakuten"] = reason_r
+        it["reason_matsui"] = reason_m
+
+
 # ===== ここから B用の「ルール通過チェック」 =====
-# （これは reasons.py とは独立した「B枠」の説明なので残す）
+
 
 def _load_policy_thresholds() -> Dict[str, Any]:
     """
@@ -227,7 +252,6 @@ def _attach_pass_checks(data: Dict[str, Any]) -> None:
     """
     数量が > 0 の銘柄について、「なぜルールを通過しているか」の
     チェックリストを pass_checks_rakuten / pass_checks_matsui に埋め込む。
-    ※ 銘柄の理由5行や懸念とは別枠。
     """
     items: List[Dict[str, Any]] = list(data.get("items") or [])
     if not items:
@@ -283,23 +307,8 @@ def _attach_pass_checks(data: Dict[str, Any]) -> None:
 # ===== ここまで B用 =====
 
 
-def _apply_reasons_service(data: Dict[str, Any]) -> None:
-    """
-    銘柄ごとの「理由×5」と「懸念」、見送り理由などは
-    aiapp/services/reasons.py に完全委譲する。
-    """
-    if not svc_attach_reasons:
-        return
-    try:
-        # reasons.py 側の attach_reasons(data) が全て面倒を見る想定
-        svc_attach_reasons(data)
-    except Exception:
-        # 本番で画面が落ちるのを防ぐため、ここは握りつぶしておく
-        pass
-
-
 def picks(request: HttpRequest) -> HttpResponse:
-    # LIVE/DEMO 状態（基本は常に LIVE、?mode=demo のときだけ DEMO 扱い）
+    # LIVE/DEMO 状態（基本は常に LIVE、?mode=demo のときだけ DEMO扱い）
     qmode = request.GET.get("mode")
     if qmode == "demo":
         is_demo = True
@@ -311,8 +320,8 @@ def picks(request: HttpRequest) -> HttpResponse:
 
     data = _load_picks()
     _enrich_with_master(data)
-    _apply_reasons_service(data)   # ★ 理由×5・懸念・見送り理由はここでだけ付与
-    _attach_pass_checks(data)      # ★ ルール通過の内訳（B枠）
+    _attach_zero_reasons(data)
+    _attach_pass_checks(data)  # ルール通過の内訳（B）
 
     meta = data.get("meta") or {}
     count = meta.get("count") or len(data.get("items") or [])
@@ -340,8 +349,8 @@ def picks(request: HttpRequest) -> HttpResponse:
 def picks_json(request: HttpRequest) -> HttpResponse:
     data = _load_picks()
     _enrich_with_master(data)
-    _apply_reasons_service(data)
-    _attach_pass_checks(data)
+    _attach_zero_reasons(data)
+    _attach_pass_checks(data)  # JSON側にも載せておく
     if not data:
         raise Http404("no picks")
     # 内部用メタは出さない
