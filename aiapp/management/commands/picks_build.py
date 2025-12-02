@@ -8,9 +8,12 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
 ・Entry/TP/SL: aiapp.services.entry_service（無ければフォールバック）
 ・数量/必要資金/想定PL/損失/見送り理由: aiapp.services.sizing_service.compute_position_sizing
 ・理由5つ＋懸念: aiapp.services.reasons.make_reasons
+・フィルタ:
+    - ユニバースフィルタ: aiapp.services.picks_filter.filter_universe_codes
+    - ポストフィルタ: aiapp.services.picks_filter.post_filter_pick
 
 出力:
-  - media/aiapp/picks/latest_full_all.json  … 全銘柄
+  - media/aiapp/picks/latest_full_all.json  … 全銘柄（フィルタ後）
   - media/aiapp/picks/latest_full.json      … 上位 TopK（UI はこちらを読む）
 """
 
@@ -57,17 +60,21 @@ try:
 except Exception:  # pragma: no cover
     ext_entry_tp_sl = None  # type: ignore
 
-# 追加: フィルタ層 & バイアス層
+# 新しく追加したフィルタ層
 try:
-    from aiapp.services.picks_filters import FilterContext, check_all as picks_check_all
+    from aiapp.services.picks_filter import (
+        UniverseFilterConfig,
+        PostFilterConfig,
+        filter_universe_codes,
+        post_filter_pick,
+        filter_universe_and_log,
+    )
 except Exception:  # pragma: no cover
-    FilterContext = None  # type: ignore
-    picks_check_all = None  # type: ignore
-
-try:
-    from aiapp.services.picks_bias import apply_all as apply_bias_all
-except Exception:  # pragma: no cover
-    apply_bias_all = None  # type: ignore
+    UniverseFilterConfig = None  # type: ignore
+    PostFilterConfig = None  # type: ignore
+    filter_universe_codes = None  # type: ignore
+    post_filter_pick = None  # type: ignore
+    filter_universe_and_log = None  # type: ignore
 
 
 # =========================================================
@@ -92,6 +99,28 @@ def _env_bool(key: str, default: bool = False) -> bool:
 
 
 BUILD_LOG = _env_bool("AIAPP_BUILD_LOG", False)
+
+# ---- フィルタ設定（必要になったらここでパラメータ調整） ----
+if UniverseFilterConfig is not None:
+    UNIVERSE_FILTER_CFG = UniverseFilterConfig(
+        # 必要ならここで min_market_cap / min_avg_trading_value などを調整
+        # 例）
+        # min_market_cap=30_000_000_000.0,
+        # min_avg_trading_value=100_000_000.0,
+    )
+else:
+    UNIVERSE_FILTER_CFG = None
+
+if PostFilterConfig is not None:
+    POST_FILTER_CFG = PostFilterConfig(
+        # 仕手株避け（ATR % と出来高倍率の上限）
+        # max_atr_pct=15.0,
+        # max_volume_ma20_ratio=50.0,
+        # min_price=300.0,
+        # min_score_100=0,
+    )
+else:
+    POST_FILTER_CFG = None
 
 
 # =========================================================
@@ -145,75 +174,6 @@ def _nan_to_none(x):
     if isinstance(x, (float, int)) and x != x:  # NaN
         return None
     return x
-
-
-def _build_reasons_features(feat: pd.DataFrame, last: float, atr: float) -> Dict[str, Any]:
-    """
-    reasons.make_reasons 用に、features DataFrame から必要な指標だけ抜き出して
-    名前を合わせた dict を組み立てる。
-    """
-    if feat is None or len(feat) == 0:
-        return {}
-
-    row = feat.iloc[-1]
-
-    def g(key: str) -> Optional[float]:
-        try:
-            v = row.get(key)
-        except Exception:
-            v = None
-        if v is None:
-            return None
-        try:
-            f = float(v)
-        except Exception:
-            return None
-        if not np.isfinite(f):
-            return None
-        return f
-
-    ema_slope = g("SLOPE_20")
-    # 相対強度は「20日リターン」を簡易的に％換算して使う
-    rel_strength_10 = None
-    r20 = g("RET_20")
-    if r20 is not None:
-        rel_strength_10 = r20 * 100.0  # 例: 0.12 → 12%
-
-    rsi14 = g("RSI14")
-
-    vol = g("Volume")
-    ma20 = g("MA20")
-    vol_ma20_ratio = None
-    if vol is not None and ma20 is not None and ma20 > 0:
-        # 仕様上は「出来高 / 20日平均出来高」を想定しているが、
-        # 現状 MA20 は価格ベースなので「目安」として扱う。
-        vol_ma20_ratio = vol / ma20
-
-    breakout_flag = 0
-    gcross = g("GCROSS")
-    if gcross is not None and gcross > 0:
-        breakout_flag = 1
-
-    vwap_proximity = g("VWAP_GAP_PCT")
-
-    last_price = None
-    if np.isfinite(last):
-        last_price = float(last)
-
-    atr14 = None
-    if np.isfinite(atr):
-        atr14 = float(atr)
-
-    return {
-        "ema_slope": ema_slope,
-        "rel_strength_10": rel_strength_10,
-        "rsi14": rsi14,
-        "vol_ma20_ratio": vol_ma20_ratio,
-        "breakout_flag": breakout_flag,
-        "atr14": atr14,
-        "vwap_proximity": vwap_proximity,
-        "last_price": last_price,
-    }
 
 
 # =========================================================
@@ -362,31 +322,14 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
                 print(f"[picks_build] {code}: empty features")
             return None
 
+        # 特徴量の最終行（reasons と post_filter で共用）
+        last_feat = feat.iloc[-1].to_dict()
+
         close_s = _safe_series(feat.get("Close"))
         atr_s = _safe_series(feat.get("ATR14") if "ATR14" in feat else feat.get("ATR", None))
 
         last = _safe_float(close_s.iloc[-1] if len(close_s) else np.nan)
         atr = _safe_float(atr_s.iloc[-1] if len(atr_s) else np.nan)
-
-        # --- 仕手株・流動性などのフィルタリング層 ---
-        if picks_check_all is not None and FilterContext is not None:
-            try:
-                ctx = FilterContext(
-                    code=str(code),
-                    feat=feat.iloc[-1].to_dict(),
-                    last=last,
-                    atr=atr,
-                )
-                decision = picks_check_all(ctx)
-                if decision and getattr(decision, "skip", False):
-                    if BUILD_LOG:
-                        rc = getattr(decision, "reason_code", None)
-                        rt = getattr(decision, "reason_text", None)
-                        print(f"[picks_build] {code}: filtered out ({rc}) {rt}")
-                    return None
-            except Exception as ex:
-                if BUILD_LOG:
-                    print(f"[picks_build] {code}: filter error {ex}")
 
         # --- スコア ---
         if ext_score_sample:
@@ -402,13 +345,27 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
         else:
             e, t, s = _fallback_entry_tp_sl(last, atr)
 
+        # --- ポストフィルタ（仕手株などの極端な銘柄を除外） ---
+        if post_filter_pick is not None and POST_FILTER_CFG is not None:
+            pf = post_filter_pick(
+                code=str(code),
+                feat_last=last_feat,
+                last_close=last,
+                atr=atr,
+                score_100=score100,
+                cfg=POST_FILTER_CFG,
+            )
+            if not pf.accept:
+                if BUILD_LOG and pf.reason:
+                    print(f"[picks_filter] drop {code}: {pf.reason}")
+                return None
+
         # --- 理由5つ＋懸念（特徴量ベース） ---
         reason_lines: Optional[List[str]] = None
         reason_concern: Optional[str] = None
         if make_ai_reasons is not None:
             try:
-                reasons_feat = _build_reasons_features(feat, last, atr)
-                rs, concern = make_ai_reasons(reasons_feat)
+                rs, concern = make_ai_reasons(last_feat)
                 if rs:
                     reason_lines = list(rs[:5])
                 if concern:
@@ -604,6 +561,21 @@ class Command(BaseCommand):
         topk = int(opts.get("topk") or 10)
 
         codes = _load_universe(universe)
+
+        # ---- ユニバースフィルタ（超低位株・極端に小さい銘柄・流動性不足などを除外） ----
+        if codes and filter_universe_codes is not None and UNIVERSE_FILTER_CFG is not None:
+            try:
+                if filter_universe_and_log is not None and BUILD_LOG:
+                    kept, dropped_logs = filter_universe_and_log(codes, UNIVERSE_FILTER_CFG)
+                    for msg in dropped_logs:
+                        print(f"[picks_filter] {msg}")
+                    codes = kept
+                else:
+                    codes = filter_universe_codes(codes, UNIVERSE_FILTER_CFG)
+            except Exception as ex:
+                if BUILD_LOG:
+                    print(f"[picks_filter] universe filter error: {ex}")
+
         if not codes:
             print("[picks_build] universe empty → 空JSON出力")
             self._emit([], [], mode="full", style=style, horizon=horizon, universe=universe, topk=topk, meta_extra={})
@@ -634,15 +606,7 @@ class Command(BaseCommand):
 
         _enrich_meta(items)
 
-        # ---- セクターバイアス・サイズバイアス適用（あれば） ----
-        if apply_bias_all is not None and items:
-            try:
-                apply_bias_all(items)
-            except Exception as ex:
-                if BUILD_LOG:
-                    print(f"[picks_build] bias error: {ex}")
-
-        # 並び: score_100 desc → last_close desc
+        # 並び: score_100 desc → last_close desc（おすすめ順）
         items.sort(
             key=lambda x: (
                 x.score_100 if x.score_100 is not None else -1,
