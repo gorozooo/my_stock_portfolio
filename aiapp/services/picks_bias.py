@@ -60,10 +60,12 @@ def _load_meta_for_items(items: Iterable[Any]) -> Dict[str, Dict[str, Any]]:
 def _size_bias(market_cap: Optional[float]) -> float:
     """
     時価総額に応じてごく小さなバイアスを返す。
-    - 超大型（~1兆円以上）: +0.03
-    - 大型（~3,000億〜1兆円）: +0.015
-    - 小型（~300億未満）: -0.02
-    - それ以外: 0
+
+    ※単位は「円」想定
+      - 超大型（~1兆円以上）: +0.03
+      - 大型（~3,000億〜1兆円）: +0.015
+      - 小型（~300億未満）: -0.02
+      - それ以外: 0
     """
     if market_cap is None:
         return 0.0
