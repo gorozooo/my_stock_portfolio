@@ -4,7 +4,7 @@ aiapp.models.features
 特徴量を計算するモジュール（個別銘柄1本の終値/高安/出来高系列から算出）。
 
 提供関数:
-- make_features(df, benchmark_df=None) -> DataFrame
+- compute_features(df, benchmark_df=None) -> DataFrame
   df: 必須。index=DatetimeIndex, columns=["Open","High","Low","Close","Volume"]
   benchmark_df: 任意。ベンチマーク指数（日経/Topix等）。同形式を想定。
 
@@ -234,8 +234,10 @@ class FeatureConfig:
     ma_long: int = 50
     slope_short: int = 5
     slope_mid: int = 20
-    # ★ どこかから enable_rel_strength_10=... が渡されても落ちないように追加
+    # 相対強度ON/OFF用フラグ（今はまだ未使用でもOK）
     enable_rel_strength_10: bool = False
+    # どこかから benchmark_df=... が渡されても受け取れるようにするための器
+    benchmark_df: object | None = None
 
 
 def make_features(raw: pd.DataFrame, cfg: Optional[FeatureConfig] = None) -> pd.DataFrame:
