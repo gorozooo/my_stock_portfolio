@@ -4,7 +4,7 @@ aiapp.models.features
 特徴量を計算するモジュール（個別銘柄1本の終値/高安/出来高系列から算出）。
 
 提供関数:
-- compute_features(df, benchmark_df=None) -> DataFrame
+- make_features(df, benchmark_df=None) -> DataFrame
   df: 必須。index=DatetimeIndex, columns=["Open","High","Low","Close","Volume"]
   benchmark_df: 任意。ベンチマーク指数（日経/Topix等）。同形式を想定。
 
@@ -16,14 +16,6 @@ aiapp.models.features
 - RET_1, RET_5, RET_20
 - SLOPE_5, SLOPE_20
 - GCROSS, DCROSS
-- rel_strength_10         … 銘柄の10日リターン − 日経平均10日リターン（％）
-- ema_slope               … 中期トレンド傾き（SLOPE_20 を流用）
-- rsi14                   … RSI14（別名）
-- vol_ma20_ratio          … Volume / MA20
-- vwap_proximity          … VWAP_GAP_PCT の別名
-- atr14                   … ATR14
-- last_price              … Close の別名
-- breakout_flag           … 直近高値ブレイクっぽいとき 1
 """
 
 from dataclasses import dataclass
@@ -95,11 +87,11 @@ def _normalize_ohlcv_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     out = pd.DataFrame(index=df.index.copy())
     # 各列をコピー（無ければ NaN 列）
-    out["Open"]   = pd.to_numeric(df[col_open], errors="coerce") if col_open  is not None else np.nan
-    out["High"]   = pd.to_numeric(df[col_high], errors="coorce") if col_high  is not None else np.nan
-    out["Low"]    = pd.to_numeric(df[col_low], errors="coerce")  if col_low   is not None else np.nan
-    out["Close"]  = pd.to_numeric(df[col_close], errors="coerce")if col_close is not None else np.nan
-    out["Volume"] = pd.to_numeric(df[col_vol], errors="coerce")  if col_vol   is not None else np.nan
+    out["Open"]   = pd.to_numeric(df[col_open], errors="coerce")  if col_open  is not None else np.nan
+    out["High"]   = pd.to_numeric(df[col_high], errors="coerce")  if col_high  is not None else np.nan
+    out["Low"]    = pd.to_numeric(df[col_low], errors="coerce")   if col_low   is not None else np.nan
+    out["Close"]  = pd.to_numeric(df[col_close], errors="coerce") if col_close is not None else np.nan
+    out["Volume"] = pd.to_numeric(df[col_vol], errors="coerce")   if col_vol   is not None else np.nan
 
     # Index を Datetime に
     idx = pd.to_datetime(out.index, errors="coerce")
@@ -211,7 +203,9 @@ def _slope(s: pd.Series, window: int = 5) -> pd.Series:
         # 傾き = 相関係数（x,y）に等しい
         return float(np.dot(x, y) / (n - 1))
 
-    return s.rolling(window=n, min_periods=n).apply(lambda arr: _fit(np.asarray(arr, dtype="float64")), raw=True)
+    return s.rolling(window=n, min_periods=n).apply(
+        lambda arr: _fit(np.asarray(arr, dtype="float64")), raw=True
+    )
 
 
 def _vwap(df: pd.DataFrame) -> pd.Series:
@@ -240,10 +234,6 @@ class FeatureConfig:
     ma_long: int = 50
     slope_short: int = 5
     slope_mid: int = 20
-    # ==== 追加: 相対強度用 ====
-    enable_rel_strength_10: bool = True
-    rel_window: int = 10
-    benchmark_df: Optional[pd.DataFrame] = None
 
 
 def make_features(raw: pd.DataFrame, cfg: Optional[FeatureConfig] = None) -> pd.DataFrame:
@@ -295,50 +285,6 @@ def make_features(raw: pd.DataFrame, cfg: Optional[FeatureConfig] = None) -> pd.
     df["GCROSS"] = (cross == 1).astype(int)
     df["DCROSS"] = (cross == -1).astype(int)
 
-    # =====================================================
-    # 相対強度: rel_strength_10（銘柄10日リターン − ベンチマーク10日リターン）
-    # =====================================================
-    if cfg.enable_rel_strength_10 and cfg.benchmark_df is not None:
-        try:
-            bench = _ensure_ohlcv(cfg.benchmark_df)
-            bench_close = bench["Close"].astype("float64")
-
-            ret_stock = _safe_pct_change(df["Close"], cfg.rel_window)
-            ret_index = _safe_pct_change(bench_close, cfg.rel_window)
-            # index を揃えて差分を取る
-            ret_index_aligned = ret_index.reindex(df.index, method="pad")
-            rel = (ret_stock - ret_index_aligned) * 100.0
-            df["rel_strength_10"] = rel
-        except Exception as e:
-            print(f"[make_features] rel_strength_10 error: {e}")
-            df["rel_strength_10"] = np.nan
-    else:
-        if "rel_strength_10" not in df.columns:
-            df["rel_strength_10"] = np.nan
-
-    # --- AI reasons / scoring 用の派生列（別名・補助） ---
-    # トレンド傾き（中期）
-    df["ema_slope"] = df.get(f"SLOPE_{cfg.slope_mid}")
-
-    # RSI / ATR / VWAP 乖離
-    df["rsi14"] = df.get(f"RSI{cfg.rsi_period}")
-    df["atr14"] = df.get(f"ATR{cfg.atr_period}")
-    df["vwap_proximity"] = df["VWAP_GAP_PCT"]
-    df["last_price"] = df["Close"]
-
-    # 出来高 / MA20
-    ma20 = df.get(f"MA{cfg.ma_mid}")
-    with np.errstate(divide="ignore", invalid="ignore"):
-        vol_ratio = df["Volume"] / ma20.replace(0, np.nan)
-    df["vol_ma20_ratio"] = vol_ratio.replace([np.inf, -np.inf], np.nan)
-
-    # ブレイクアウトっぽいかどうか（直近20日高値を上抜け）
-    try:
-        rolling_max = df["High"].rolling(window=20, min_periods=20).max().shift(1)
-        df["breakout_flag"] = ((df["Close"] > rolling_max) & (df["Close"] > df["Close"].shift(1))).astype(int)
-    except Exception:
-        df["breakout_flag"] = 0
-
     # --- 最終の軽い欠損処理 ---
     price_cols = ["Open", "High", "Low", "Close", "VWAP", "BBU", "BBM", "BBL"]
     for c in price_cols:
@@ -351,9 +297,7 @@ def make_features(raw: pd.DataFrame, cfg: Optional[FeatureConfig] = None) -> pd.
         "MACD", "MACD_SIGNAL", "MACD_HIST",
         "BB_Z", f"SLOPE_{cfg.slope_short}", f"SLOPE_{cfg.slope_mid}",
         "VWAP_GAP_PCT", "RET_1", "RET_5", "RET_20",
-        "GCROSS", "DCROSS",
-        "rel_strength_10", "ema_slope", "rsi14", "vol_ma20_ratio",
-        "vwap_proximity", "atr14", "last_price", "breakout_flag",
+        "GCROSS", "DCROSS"
     ]
     for c in indi_cols:
         if c in df.columns:
@@ -385,16 +329,10 @@ def macd_series(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 
 def compute_features(df: pd.DataFrame, benchmark_df=None, cfg: Optional[FeatureConfig] = None) -> pd.DataFrame:
     """
     旧仕様互換ラッパー。
-    benchmark_df が渡されていれば、その Close を使って rel_strength_10 を計算する。
+    benchmark_df は現在未使用（将来的に日経平均やTOPIXとの相対指標用）。
     """
     try:
-        if cfg is None:
-            cfg_local = FeatureConfig(benchmark_df=benchmark_df)
-        else:
-            d = dict(cfg.__dict__)
-            d["benchmark_df"] = benchmark_df
-            cfg_local = FeatureConfig(**d)
-        return make_features(df, cfg=cfg_local)
+        return make_features(df, cfg=cfg)
     except Exception as e:
         print(f"[compute_features] fallback error: {e}")
         return make_features(df)
