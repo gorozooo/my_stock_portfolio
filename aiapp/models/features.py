@@ -87,11 +87,11 @@ def _normalize_ohlcv_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     out = pd.DataFrame(index=df.index.copy())
     # 各列をコピー（無ければ NaN 列）
-    out["Open"]   = pd.to_numeric(df[col_open], errors="coerce")  if col_open  is not None else np.nan
-    out["High"]   = pd.to_numeric(df[col_high], errors="coerce")  if col_high  is not None else np.nan
-    out["Low"]    = pd.to_numeric(df[col_low], errors="coerce")   if col_low   is not None else np.nan
+    out["Open"]   = pd.to_numeric(df[col_open],  errors="coerce") if col_open  is not None else np.nan
+    out["High"]   = pd.to_numeric(df[col_high],  errors="coerce") if col_high  is not None else np.nan
+    out["Low"]    = pd.to_numeric(df[col_low],   errors="coerce") if col_low   is not None else np.nan
     out["Close"]  = pd.to_numeric(df[col_close], errors="coerce") if col_close is not None else np.nan
-    out["Volume"] = pd.to_numeric(df[col_vol], errors="coerce")   if col_vol   is not None else np.nan
+    out["Volume"] = pd.to_numeric(df[col_vol],   errors="coerce") if col_vol   is not None else np.nan
 
     # Index を Datetime に
     idx = pd.to_datetime(out.index, errors="coerce")
@@ -234,6 +234,8 @@ class FeatureConfig:
     ma_long: int = 50
     slope_short: int = 5
     slope_mid: int = 20
+    # ★ どこかから enable_rel_strength_10=... が渡されても落ちないように追加
+    enable_rel_strength_10: bool = False
 
 
 def make_features(raw: pd.DataFrame, cfg: Optional[FeatureConfig] = None) -> pd.DataFrame:
