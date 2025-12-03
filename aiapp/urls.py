@@ -10,6 +10,9 @@ from .views.sim_delete import simulate_delete  # シミュレ削除
 from .views.sim_result import simulate_result  # ★ シミュレ結果保存
 from .views.behavior import behavior_dashboard
 
+# ★ 追加：デバッグビュー
+from .views import picks_debug
+
 app_name = "aiapp"
 
 urlpatterns = [
@@ -40,8 +43,19 @@ urlpatterns = [
 
     # ★ シミュレ結果保存
     path("simulate/<int:pk>/result/", simulate_result, name="simulate_result"),
-    
+
     # ★ シミュレ結果ダッシュボード
     path("behavior/", behavior_dashboard, name="behavior_dashboard"),
-    
+
+    # ========================================================
+    # 🔍 AI Picks デバッグ（最新JSONの中身を可視化）
+    # 例:
+    #   /ai/debug/picks/        → latest_full_all.json
+    #   /ai/debug/picks/?kind=top → latest_full.json（TopK）
+    # ========================================================
+    path(
+        "debug/picks/",
+        picks_debug.picks_debug_view,
+        name="picks_debug",
+    ),
 ]
