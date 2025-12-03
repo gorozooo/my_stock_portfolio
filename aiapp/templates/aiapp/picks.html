@@ -81,16 +81,11 @@
     color:#ffd166;overflow:hidden;white-space:nowrap;letter-spacing:1px;font-size:16px;
   }
   .stars .score-text{
-    font-size:12px;
+    font-size:15px;
     font-weight:600;
     color:#fff;
     text-align:center;
     margin-top:2px;
-  }
-  .stars .score-sub{
-    font-size:10px;
-    color:#9fb1c7;
-    margin-top:1px;
   }
 
   .kpi{
@@ -203,11 +198,6 @@
     font-size:11px;
     color:#fbbf24;
   }
-  .reasons-sizing{
-    margin-top:6px;
-    font-size:11px;
-    color:#9fb1c7;
-  }
 </style>
 {% endblock %}
 
@@ -250,17 +240,12 @@
             <div class="stars"
                  aria-label="レーティング"
                  title="{% if item.score_100 is not None %}{{ item.score_100|floatformat:0 }} / 100{% else %}N/A{% endif %}">
-              {% with p=item.score_100|default:0 s=item.stars|default:0 %}
+              {% with p=item.score_100|default:0 %}
                 <div class="star-wrap">
                   <span class="star-base">★★★★★</span>
                   <span class="star-fill" style="width: {{ p }}%;">★★★★★</span>
                 </div>
-                <div class="score-text">
-                  {{ p|floatformat:0 }}点
-                </div>
-                <div class="score-sub">
-                  信頼度: {% if s %}⭐{{ s }}{% else %}—{% endif %}
-                </div>
+                <div class="score-text">{{ p|floatformat:0 }}点</div>
               {% endwith %}
             </div>
           </div>
@@ -364,7 +349,7 @@
             </div>
           </div>
 
-          {# C1: 銘柄ごとの理由×5＋懸念（reasons.py から来たもの） #}
+          {# C1: 銘柄ごとの理由×5＋懸念（reasons.py から来たものだけ） #}
           {% if item.reason_lines %}
             <div class="reasons-block">
               <div class="reasons-title">AIがこの銘柄を選んだ主なポイント</div>
@@ -375,15 +360,6 @@
               </ol>
               {% if item.reason_concern %}
                 <div class="reason-concern">懸念: {{ item.reason_concern }}</div>
-              {% endif %}
-
-              {# sizing_service 側の共通メッセージ（あれば） #}
-              {% if item.reasons_text %}
-                <div class="reasons-sizing">
-                  {% for line in item.reasons_text %}
-                    ・{{ line }}{% if not forloop.last %}<br>{% endif %}
-                  {% endfor %}
-                </div>
               {% endif %}
 
               {# 見送り理由（数量0の口座だけ） #}
@@ -401,7 +377,7 @@
             </div>
           {% endif %}
 
-          {# B: ルール通過の内訳（pass_checks_* があれば表示） #}
+          {# B: ルール通過の内訳 #}
           {% if item.pass_checks_rakuten or item.pass_checks_matsui %}
             <div class="rule-pass">
               <div class="rule-pass-title">ルール通過の内訳</div>
