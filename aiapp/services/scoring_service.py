@@ -27,6 +27,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+
 # ====== 安全ユーティリティ ======
 
 def _safe_series(x) -> pd.Series:
@@ -44,9 +45,11 @@ def _safe_series(x) -> pd.Series:
     except Exception:
         return pd.Series(dtype="float64")
 
+
 def _last(s: pd.Series) -> float:
     s = _safe_series(s).dropna()
     return float(s.iloc[-1]) if len(s) else float("nan")
+
 
 def _zscore_last(s: pd.Series) -> float:
     s = _safe_series(s).dropna()
@@ -58,40 +61,46 @@ def _zscore_last(s: pd.Series) -> float:
         return 0.0
     return float((s.iloc[-1] - m) / sd)
 
+
 def _sig(x: float) -> float:
     try:
         return 1.0 / (1.0 + np.exp(-float(x)))
     except Exception:
         return 0.5
 
+
 def _nz(x: float, default: float = 0.0) -> float:
     return default if (x is None or not np.isfinite(x)) else float(x)
+
 
 # ====== コア指標の取り出し（ある分だけ使う） ======
 
 def _block_trend(feat: pd.DataFrame) -> float:
-    s5  = _zscore_last(feat.get("SLOPE_5"))
+    s5 = _zscore_last(feat.get("SLOPE_5"))
     s20 = _zscore_last(feat.get("SLOPE_20"))
     # 短期をやや重め
     comp = 0.6 * _sig(_nz(s5)) + 0.4 * _sig(_nz(s20))
     return comp  # 0..1
 
+
 def _block_momentum(feat: pd.DataFrame) -> float:
-    r5   = _zscore_last(feat.get("RET_5"))
-    r20  = _zscore_last(feat.get("RET_20"))
-    rsi  = _last(feat.get("RSI14"))
+    r5 = _zscore_last(feat.get("RET_5"))
+    r20 = _zscore_last(feat.get("RET_20"))
+    rsi = _last(feat.get("RSI14"))
     # RSIは 50 を中立にしてスケール
     rsi_c = np.nan if not np.isfinite(rsi) else (rsi - 50.0) / 10.0
     comp = 0.45 * _sig(_nz(r5)) + 0.35 * _sig(_nz(r20)) + 0.20 * _sig(_nz(rsi_c))
     return comp  # 0..1
+
 
 def _block_volume(feat: pd.DataFrame) -> float:
     vol = _last(feat.get("Volume"))
     ma20 = _last(feat.get("MA20"))
     if not np.isfinite(vol) or not np.isfinite(ma20) or ma20 <= 0:
         return 0.5  # 情報なし=中立
-    ratio = (vol / ma20) - 1.0       # 0 近辺が中立
+    ratio = (vol / ma20) - 1.0       # 0 近辺が中立（※MA20は価格ベースなので“目安”扱い）
     return _sig(ratio)               # 0..1（~1で出来高相対強）
+
 
 def _block_vol_control(feat: pd.DataFrame) -> float:
     atr = _last(feat.get("ATR14"))
@@ -101,6 +110,7 @@ def _block_vol_control(feat: pd.DataFrame) -> float:
     # ここでは ATR を対数正規化してから符号反転してシグモイド
     s = _zscore_last(np.log(_safe_series(feat.get("ATR14")).replace(0, np.nan)))
     return _sig(-_nz(s))  # 低ボラをやや優遇
+
 
 def _block_supply_demand(feat: pd.DataFrame) -> float:
     vgap = _last(feat.get("VWAP_GAP_PCT"))
@@ -113,6 +123,7 @@ def _block_supply_demand(feat: pd.DataFrame) -> float:
         return 0.52
     return 0.5
 
+
 def _event_adj(feat: pd.DataFrame) -> float:
     # 直近GCROSS/DCROSSで微調整（±0.02程度）
     g = _last(feat.get("GCROSS"))
@@ -124,6 +135,7 @@ def _event_adj(feat: pd.DataFrame) -> float:
         adj -= 0.02
     return adj
 
+
 # ====== 公開API ======
 
 def score_sample(feat: pd.DataFrame) -> float:
@@ -133,12 +145,12 @@ def score_sample(feat: pd.DataFrame) -> float:
     if feat is None or len(feat) == 0:
         return 0.0
 
-    trend  = _block_trend(feat)         # 0..1
-    mom    = _block_momentum(feat)      # 0..1
-    volu   = _block_volume(feat)        # 0..1
-    vctrl  = _block_vol_control(feat)   # 0..1
-    sd     = _block_supply_demand(feat) # 0..1
-    adj    = _event_adj(feat)           # -0.02..+0.02
+    trend = _block_trend(feat)          # 0..1
+    mom = _block_momentum(feat)         # 0..1
+    volu = _block_volume(feat)          # 0..1
+    vctrl = _block_vol_control(feat)    # 0..1
+    sd = _block_supply_demand(feat)     # 0..1
+    adj = _event_adj(feat)              # -0.02..+0.02
 
     # 重みは短期×攻めの仮本番（FULL）
     score = (
@@ -151,13 +163,18 @@ def score_sample(feat: pd.DataFrame) -> float:
     score = max(0.0, min(1.0, score + adj))
     return float(score)
 
+
 def stars_from_score(score01: float) -> int:
     """
     ⭐️は固定し、毎回同じスコア→同じ⭐️になる（ぶれない）。
     """
     s = _nz(score01, 0.0)
-    if s < 0.20: return 1
-    if s < 0.40: return 2
-    if s < 0.60: return 3
-    if s < 0.80: return 4
+    if s < 0.20:
+        return 1
+    if s < 0.40:
+        return 2
+    if s < 0.60:
+        return 3
+    if s < 0.80:
+        return 4
     return 5
