@@ -2,16 +2,70 @@
 """
 AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
 
-・価格: aiapp.services.fetch_price.get_prices
-・特徴量: aiapp.models.features.make_features
-・スコア/星: aiapp.services.scoring_service（無ければフォールバック）
-・Entry/TP/SL: aiapp.services.entry_service（無ければフォールバック）
-・数量/必要資金/想定PL/損失/見送り理由: aiapp.services.sizing_service.compute_position_sizing
-・理由5つ＋懸念: aiapp.services.reasons.make_reasons
+========================================
+▼ 全体フロー（1銘柄あたり）
+========================================
+  1. 価格取得（OHLCV）
+  2. 特徴量生成（テクニカル指標など）
+  3. フィルタリング層（仕手株・流動性・異常値などで土台から除外）
+  4. スコアリング / ⭐️算出
+  5. Entry / TP / SL の計算
+  6. Sizing（数量・必要資金・想定PL/損失・見送り理由）
+  7. 理由テキスト生成（選定理由×最大5行 + 懸念1行）
+  8. バイアス層（セクター波 / 大型・小型バランスの微調整）
+  9. ランキング（score_100 降順 → 株価降順）→ JSON 出力
 
-出力:
-  - media/aiapp/picks/latest_full_all.json  … 全銘柄
-  - media/aiapp/picks/latest_full.json      … 上位 TopK（UI はこちらを読む）
+========================================
+▼ 利用サービス / モジュール
+========================================
+  ・価格取得:
+      aiapp.services.fetch_price.get_prices
+
+  ・特徴量生成:
+      aiapp.models.features.make_features
+    （OHLCV から MA, ボリンジャー, RSI, MACD, ATR, VWAP,
+      RET_x, SLOPE_x, GCROSS/DCROSS などを計算）
+
+  ・スコア / ⭐️:
+      aiapp.services.scoring_service.score_sample
+      aiapp.services.scoring_service.stars_from_score
+    ※ モジュールが無い場合は、picks_build 内のフォールバックで算出。
+
+  ・Entry / TP / SL:
+      aiapp.services.entry_service.compute_entry_tp_sl
+    ※ 無い場合は ATR ベースのフォールバックを使用。
+
+  ・数量 / 必要資金 / 想定PL / 想定損失 / 見送り理由:
+      aiapp.services.sizing_service.compute_position_sizing
+
+  ・理由5つ + 懸念（日本語テキスト）:
+      aiapp.services.reasons.make_reasons
+    （内部では picks_build 側の _build_reasons_features で
+      ema_slope / rel_strength_10 / rsi14 / vol_ma20_ratio /
+      breakout_flag / atr14 / vwap_proximity / last_price を渡す）
+
+  ・銘柄フィルタ層（どの銘柄を土台から落とすか）:
+      aiapp.services.picks_filters.FilterContext
+      aiapp.services.picks_filters.check_all
+    （仕手株っぽい銘柄 / 出来高極端 / 価格・ATR異常 などを除外）
+
+  ・セクター波 / 大型・小型バランス調整:
+      aiapp.services.picks_bias.apply_all
+    （PickItem の score を軽く上下させて、全体の並びをチューニング）
+
+========================================
+▼ 出力ファイル
+========================================
+  - media/aiapp/picks/latest_full_all.json
+      → 全評価銘柄（検証・バックテスト・ログ用途）
+
+  - media/aiapp/picks/latest_full.json
+      → 上位 TopK 銘柄のみ（UI / LINE などが読むメインのJSON）
+
+※ この management command（picks_build）は、
+   上記サービス群をオーケストレーションして JSON を生成する役割に徹し、
+   個々の「評価ロジック」は scoring_service / reasons / filters / bias
+   などの専用モジュール側で管理する。
 """
 
 from __future__ import annotations
