@@ -13,6 +13,7 @@ aiapp.services.picks_filters
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
@@ -36,16 +37,27 @@ class FilterDecision:
     reason_text: Optional[str] = None
 
 
-# ====== 閾値（暫定） ======
+# ====== 閾値（暫定 / 環境変数で微調整可能） ======
+
+def _env_float(key: str, default: float) -> float:
+    v = os.getenv(key)
+    if v is None:
+        return float(default)
+    try:
+        return float(v)
+    except Exception:
+        return float(default)
+
+
 # 1日の売買代金が 3 億円未満は「薄い」とみなして除外候補
-MIN_TURNOVER_YEN: float = float(3e8)
+MIN_TURNOVER_YEN: float = _env_float("AIAPP_MIN_TURNOVER_YEN", 3e8)
 
 # ATR が株価に対して 12% を超える銘柄は、短期トレードにはやや荒すぎるとみなす
-MAX_ATR_PCT: float = 12.0
+MAX_ATR_PCT: float = _env_float("AIAPP_MAX_ATR_PCT", 12.0)
 
 # 直近のリターンがあまりにも大きいものは「仕手ムーブ」の可能性として除外候補
-PUMP_RET5: float = 0.25   # 5日で +25% 以上
-PUMP_RET20: float = 0.60  # 20日で +60% 以上
+PUMP_RET5: float = _env_float("AIAPP_PUMP_RET5", 0.25)   # 5日で +25% 以上
+PUMP_RET20: float = _env_float("AIAPP_PUMP_RET20", 0.60)  # 20日で +60% 以上
 
 
 def _get_float(d: Dict[str, Any], key: str) -> Optional[float]:
