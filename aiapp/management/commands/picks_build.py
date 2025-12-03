@@ -27,9 +27,10 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
       RET_x, SLOPE_x, GCROSS/DCROSS などを計算）
 
   ・スコア / ⭐️:
-      aiapp.services.scoring_service.score_sample
-      aiapp.services.scoring_service.stars_from_score
-    ※ モジュールが無い場合は、picks_build 内のフォールバックで算出。
+      aiapp.services.scoring_service.score_sample     （生スコア 0..1）
+      aiapp.services.confidence_service.ConfidenceService
+        → score_100(0..100) から ⭐️信頼度(1..5) を割り当て
+    ※ scoring_service.stars_from_score はフォールバックとして使用。
 
   ・Entry / TP / SL:
       aiapp.services.entry_service.compute_entry_tp_sl
@@ -64,8 +65,8 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
 
 ※ この management command（picks_build）は、
    上記サービス群をオーケストレーションして JSON を生成する役割に徹し、
-   個々の「評価ロジック」は scoring_service / reasons / filters / bias
-   などの専用モジュール側で管理する。
+   個々の「評価ロジック」は scoring_service / reasons / filters / bias /
+   confidence_service などの専用モジュール側で管理する。
 """
 
 from __future__ import annotations
@@ -122,6 +123,12 @@ try:
     from aiapp.services.picks_bias import apply_all as apply_bias_all
 except Exception:  # pragma: no cover
     apply_bias_all = None  # type: ignore
+
+# 追加: AI信頼度レイヤー
+try:
+    from aiapp.services.confidence_service import ConfidenceService
+except Exception:  # pragma: no cover
+    ConfidenceService = None  # type: ignore
 
 
 # =========================================================
@@ -370,7 +377,7 @@ class PickItem:
 
     score: Optional[float] = None          # 0..1
     score_100: Optional[int] = None        # 0..100
-    stars: Optional[int] = None            # 1..5
+    stars: Optional[int] = None            # 1..5（ConfidenceService で後から埋める）
 
     qty_rakuten: Optional[int] = None
     required_cash_rakuten: Optional[float] = None
@@ -448,7 +455,6 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
         else:
             s01 = _fallback_score_sample(feat)
         score100 = _score_to_0_100(s01)
-        stars = int(ext_stars_from_score(s01)) if ext_stars_from_score else _fallback_stars(s01)
 
         # --- Entry / TP / SL ---
         if ext_entry_tp_sl:
@@ -486,7 +492,8 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
             sl=_nan_to_none(s),
             score=_nan_to_none(s01),
             score_100=int(score100),
-            stars=int(stars),
+            # stars は後で ConfidenceService から一括付与
+            stars=None,
             reason_lines=reason_lines,
             reason_concern=reason_concern,
         )
@@ -695,6 +702,32 @@ class Command(BaseCommand):
             except Exception as ex:
                 if BUILD_LOG:
                     print(f"[picks_build] bias error: {ex}")
+
+        # ---- AI信頼度（⭐️）割り当て ----
+        if items:
+            if ConfidenceService is not None:
+                try:
+                    svc_conf = ConfidenceService()
+                    score_list = [int(it.score_100 or 0) for it in items]
+                    stars_list = svc_conf.batch_assign(score_list)
+                    for it, st in zip(items, stars_list):
+                        it.stars = int(st)
+                except Exception as ex:
+                    if BUILD_LOG:
+                        print(f"[picks_build] confidence error: {ex}")
+            else:
+                # フォールバック: scoring_service / 内蔵ロジックから直接⭐️を計算
+                if ext_stars_from_score is not None:
+                    for it in items:
+                        try:
+                            if it.score is not None:
+                                it.stars = int(ext_stars_from_score(it.score))
+                        except Exception:
+                            pass
+                else:
+                    for it in items:
+                        if it.score is not None:
+                            it.stars = _fallback_stars(float(it.score))
 
         # 並び: score_100 desc → last_close desc
         items.sort(
