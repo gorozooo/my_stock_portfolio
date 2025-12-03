@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 aiapp.services.reasons
 
@@ -7,18 +8,19 @@ aiapp.services.reasons
 make_reasons(feat: dict) -> (reasons: list[str], concern: str | None)
 
 feat には少なくとも以下の key が入っている想定（どれか欠けてもOK）:
-  - ema_slope        : トレンドの傾き（SLOPE_20 など）
-  - rel_strength_10  : 10日間の相対強度（ベンチマーク比％）
-  - rsi14            : RSI14
-  - vol_ma20_ratio   : 出来高 / 20日平均出来高
-                       （無ければ Volume と MA20 から内部で計算）
-  - breakout_flag    : ブレイクしていれば 1
-  - atr14            : ATR14
-  - vwap_proximity   : VWAP からの乖離率（％）
-  - last_price       : 終値（あれば、ATRの大きさ判断に利用）
+  - SLOPE_20 / ema_slope      : トレンドの傾き
+  - REL_STRENGTH_10           : 10日間の相対強度（あれば）
+  - RSI14 / rsi14             : RSI14
+  - VOL_MA20_RATIO            : 出来高 / 20日平均出来高（無ければ Volume＋MA20 から算出）
+  - BREAKOUT_FLAG / breakout_flag : ブレイクしていれば 1
+  - ATR14 / atr14             : ATR14
+  - VWAP_GAP_PCT / vwap_proximity : VWAP からの乖離率（％）
+  - Close / last_price        : 終値（ATRの大きさ判断に利用）
 """
 
 from __future__ import annotations
+
+import math
 from typing import List, Tuple, Dict, Any, Optional
 
 
@@ -45,6 +47,19 @@ def _clamp(v: Optional[float], lo: float, hi: float) -> Optional[float]:
     return v
 
 
+def _as_float(x: Any) -> Optional[float]:
+    """NaN や変換失敗は None に揃える"""
+    try:
+        if x is None:
+            return None
+        v = float(x)
+        if math.isnan(v):
+            return None
+        return v
+    except Exception:
+        return None
+
+
 def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
     """
     「この銘柄を候補に入れている理由」を最大5行、
@@ -53,31 +68,61 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
     """
     reasons: List[str] = []
 
-    ema_slope: Optional[float] = feat.get("ema_slope")
-    rel10: Optional[float] = feat.get("rel_strength_10")
-    rsi: Optional[float] = feat.get("rsi14")
+    # ---------------------------
+    # 入力マッピング（features の列名 → 内部変数）
+    # ---------------------------
+    ema_slope: Optional[float] = _as_float(
+        feat.get("ema_slope")
+        or feat.get("SLOPE_20")
+    )
 
-    # --- 出来高は vol_ma20_ratio があればそれを使い、無ければ Volume / MA20 から計算 ---
-    vol_ratio: Optional[float] = feat.get("vol_ma20_ratio")
+    rel10: Optional[float] = _as_float(
+        feat.get("rel_strength_10")
+        or feat.get("REL_STRENGTH_10")
+    )
+
+    rsi: Optional[float] = _as_float(
+        feat.get("rsi14")
+        or feat.get("RSI14")
+    )
+
+    vol_ratio: Optional[float] = _as_float(
+        feat.get("vol_ma20_ratio")
+        or feat.get("VOL_MA20_RATIO")
+    )
+
+    breakout_flag_raw = feat.get("breakout_flag", 0) or feat.get("BREAKOUT_FLAG", 0) or 0
+    try:
+        breakout_flag: int = int(breakout_flag_raw)
+    except Exception:
+        breakout_flag = 0
+
+    atr: Optional[float] = _as_float(
+        feat.get("atr14")
+        or feat.get("ATR14")
+    )
+
+    vwap_gap: Optional[float] = _as_float(
+        feat.get("vwap_proximity")
+        or feat.get("VWAP_GAP_PCT")
+    )
+
+    last_price: Optional[float] = _as_float(
+        feat.get("last_price")
+        or feat.get("Close")
+        or feat.get("LAST")
+    )
+
+    # 出来高倍率が無い場合は Volume / MA20 から算出
     if vol_ratio is None:
-        vol = feat.get("Volume")
-        if vol is None:
-            vol = feat.get("volume")
-        ma20 = feat.get("MA20")
-        if ma20 is None:
-            ma20 = feat.get("ma20")
-        try:
-            if vol is not None and ma20 not in (None, 0):
-                vol_ratio = float(vol) / float(ma20)
-        except Exception:
-            vol_ratio = None
+        vol = _as_float(feat.get("Volume"))
+        ma20 = _as_float(feat.get("MA20"))
+        if vol is not None and ma20 is not None and ma20 > 0:
+            vol_ratio = vol / ma20
 
-    breakout_flag: int = int(feat.get("breakout_flag", 0) or 0)
-    atr: Optional[float] = feat.get("atr14")
-    vwap_gap: Optional[float] = feat.get("vwap_proximity")
-    last_price: Optional[float] = feat.get("last_price")
-
+    # ---------------------------
     # 1) トレンドの向き（EMA傾き）
+    # ---------------------------
     if ema_slope is not None:
         if ema_slope > 0.8:
             reasons.append("短期と中期の平均線がそろって力強い右肩上がりで、はっきりした上昇トレンドに乗りやすい形です。")
@@ -91,7 +136,9 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
             # しっかり下向きだが、あえて拾うケース
             reasons.append("中期ではまだ下向きのトレンドですが、直近で下げ止まりの兆しが出ているため、反発候補としてピックアップしています。")
 
+    # ---------------------------
     # 2) 相対強度（指数との比較）
+    # ---------------------------
     if rel10 is not None:
         r = rel10
         if r > 5:
@@ -115,7 +162,9 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
                 f"直近10日間ではやや出遅れ気味（約 {_fmt_pct(r)} 下回り）ですが、巻き返し狙いのリバウンド候補として位置付けています。"
             )
 
+    # ---------------------------
     # 3) RSI（買われすぎ/売られすぎ）
+    # ---------------------------
     if rsi is not None:
         val = _clamp(rsi, 0, 100) or rsi
         if val >= 75:
@@ -129,9 +178,11 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
         else:
             reasons.append(f"RSI14が {val:.0f} と極端な売られすぎゾーンにあり、反発が入った際の戻り幅に期待できる局面です。")
 
-    # 4) 出来高（資金の集まり具合） Volume × MA20 ベース
+    # ---------------------------
+    # 4) 出来高（資金の集まり具合） Volume＋MA20 起点
+    # ---------------------------
     if vol_ratio is not None and vol_ratio > 0:
-        vr = float(vol_ratio)
+        vr = vol_ratio
         if vr >= 3.0:
             reasons.append(f"出来高が最近の平均の {_fmt_x(vr)} と非常に多く、短期的に強い資金流入が確認できる銘柄です。")
         elif vr >= 1.5:
@@ -141,7 +192,9 @@ def make_reasons(feat: Dict[str, Any]) -> Tuple[List[str], str | None]:
         else:
             reasons.append("出来高はやや控えめですが、その分、急な乱高下が出にくい落ち着いた値動きになっています。")
 
+    # ---------------------------
     # 5) ブレイク or 位置取り（VWAPとの関係）
+    # ---------------------------
     if breakout_flag == 1:
         reasons.append(
             "直近の高値ゾーンを明確に上抜けており、「上昇の走り出し」を狙うブレイクアウト型のエントリー候補です。"
