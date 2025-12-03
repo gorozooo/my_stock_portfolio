@@ -8,12 +8,9 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
 ・Entry/TP/SL: aiapp.services.entry_service（無ければフォールバック）
 ・数量/必要資金/想定PL/損失/見送り理由: aiapp.services.sizing_service.compute_position_sizing
 ・理由5つ＋懸念: aiapp.services.reasons.make_reasons
-・フィルタ:
-    - ユニバースフィルタ: aiapp.services.picks_filter.filter_universe_codes
-    - ポストフィルタ: aiapp.services.picks_filter.post_filter_pick
 
 出力:
-  - media/aiapp/picks/latest_full_all.json  … 全銘柄（フィルタ後）
+  - media/aiapp/picks/latest_full_all.json  … 全銘柄
   - media/aiapp/picks/latest_full.json      … 上位 TopK（UI はこちらを読む）
 """
 
@@ -60,22 +57,6 @@ try:
 except Exception:  # pragma: no cover
     ext_entry_tp_sl = None  # type: ignore
 
-# 新しく追加したフィルタ層
-try:
-    from aiapp.services.picks_filter import (
-        UniverseFilterConfig,
-        PostFilterConfig,
-        filter_universe_codes,
-        post_filter_pick,
-        filter_universe_and_log,
-    )
-except Exception:  # pragma: no cover
-    UniverseFilterConfig = None  # type: ignore
-    PostFilterConfig = None  # type: ignore
-    filter_universe_codes = None  # type: ignore
-    post_filter_pick = None  # type: ignore
-    filter_universe_and_log = None  # type: ignore
-
 
 # =========================================================
 # 共通設定
@@ -99,28 +80,6 @@ def _env_bool(key: str, default: bool = False) -> bool:
 
 
 BUILD_LOG = _env_bool("AIAPP_BUILD_LOG", False)
-
-# ---- フィルタ設定（必要になったらここでパラメータ調整） ----
-if UniverseFilterConfig is not None:
-    UNIVERSE_FILTER_CFG = UniverseFilterConfig(
-        # 必要ならここで min_market_cap / min_avg_trading_value などを調整
-        # 例）
-        # min_market_cap=30_000_000_000.0,
-        # min_avg_trading_value=100_000_000.0,
-    )
-else:
-    UNIVERSE_FILTER_CFG = None
-
-if PostFilterConfig is not None:
-    POST_FILTER_CFG = PostFilterConfig(
-        # 仕手株避け（ATR % と出来高倍率の上限）
-        # max_atr_pct=15.0,
-        # max_volume_ma20_ratio=50.0,
-        # min_price=300.0,
-        # min_score_100=0,
-    )
-else:
-    POST_FILTER_CFG = None
 
 
 # =========================================================
@@ -304,10 +263,19 @@ class PickItem:
 # 1銘柄処理
 # =========================================================
 
-def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str, Any]]]:
+def _work_one(
+    user,
+    code: str,
+    nbars: int,
+    benchmark_df: Optional[pd.DataFrame] = None,
+) -> Optional[Tuple[PickItem, Dict[str, Any]]]:
     """
     単一銘柄について、価格→特徴量→スコア→Entry/TP/SL→Sizing→理由 まで全部まとめて計算。
     sizing_meta には risk_pct / lot_size を入れて返す。
+
+    benchmark_df:
+        日経平均などのベンチマーク価格 DataFrame。
+        rel_strength_10 の計算のために FeatureConfig に渡す。
     """
     try:
         raw = get_prices(code, nbars=nbars, period="3y")
@@ -316,14 +284,16 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
                 print(f"[picks_build] {code}: empty price")
             return None
 
-        feat = make_features(raw, cfg=FeatureConfig())
+        # --- 特徴量 ---
+        feat_cfg = FeatureConfig(
+            enable_rel_strength_10=True,
+            benchmark_df=benchmark_df,
+        )
+        feat = make_features(raw, cfg=feat_cfg)
         if feat is None or len(feat) == 0:
             if BUILD_LOG:
                 print(f"[picks_build] {code}: empty features")
             return None
-
-        # 特徴量の最終行（reasons と post_filter で共用）
-        last_feat = feat.iloc[-1].to_dict()
 
         close_s = _safe_series(feat.get("Close"))
         atr_s = _safe_series(feat.get("ATR14") if "ATR14" in feat else feat.get("ATR", None))
@@ -345,26 +315,12 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
         else:
             e, t, s = _fallback_entry_tp_sl(last, atr)
 
-        # --- ポストフィルタ（仕手株などの極端な銘柄を除外） ---
-        if post_filter_pick is not None and POST_FILTER_CFG is not None:
-            pf = post_filter_pick(
-                code=str(code),
-                feat_last=last_feat,
-                last_close=last,
-                atr=atr,
-                score_100=score100,
-                cfg=POST_FILTER_CFG,
-            )
-            if not pf.accept:
-                if BUILD_LOG and pf.reason:
-                    print(f"[picks_filter] drop {code}: {pf.reason}")
-                return None
-
         # --- 理由5つ＋懸念（特徴量ベース） ---
         reason_lines: Optional[List[str]] = None
         reason_concern: Optional[str] = None
         if make_ai_reasons is not None:
             try:
+                last_feat = feat.iloc[-1].to_dict()
                 rs, concern = make_ai_reasons(last_feat)
                 if rs:
                     reason_lines = list(rs[:5])
@@ -375,9 +331,13 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
                     print(f"[picks_build] reasons error for {code}: {ex}")
 
         if BUILD_LOG:
+            rel10_dbg = None
+            if "rel_strength_10" in feat.columns:
+                val = _safe_float(feat["rel_strength_10"].iloc[-1])
+                rel10_dbg = f"{val:.2f}" if np.isfinite(val) else "nan"
             print(
                 f"[picks_build] {code} last={last} atr={atr} "
-                f"score01={s01:.3f} score100={score100}"
+                f"score01={s01:.3f} score100={score100} rel10={rel10_dbg}"
             )
 
         item = PickItem(
@@ -561,21 +521,6 @@ class Command(BaseCommand):
         topk = int(opts.get("topk") or 10)
 
         codes = _load_universe(universe)
-
-        # ---- ユニバースフィルタ（超低位株・極端に小さい銘柄・流動性不足などを除外） ----
-        if codes and filter_universe_codes is not None and UNIVERSE_FILTER_CFG is not None:
-            try:
-                if filter_universe_and_log is not None and BUILD_LOG:
-                    kept, dropped_logs = filter_universe_and_log(codes, UNIVERSE_FILTER_CFG)
-                    for msg in dropped_logs:
-                        print(f"[picks_filter] {msg}")
-                    codes = kept
-                else:
-                    codes = filter_universe_codes(codes, UNIVERSE_FILTER_CFG)
-            except Exception as ex:
-                if BUILD_LOG:
-                    print(f"[picks_filter] universe filter error: {ex}")
-
         if not codes:
             print("[picks_build] universe empty → 空JSON出力")
             self._emit([], [], mode="full", style=style, horizon=horizon, universe=universe, topk=topk, meta_extra={})
@@ -584,6 +529,15 @@ class Command(BaseCommand):
         if BUILD_LOG:
             print(f"[picks_build] start FULL universe={universe} codes={len(codes)}")
 
+        # ベンチマーク（日経平均）の価格を一度だけ取っておき、
+        # 各銘柄の make_features から再利用する
+        benchmark_df: Optional[pd.DataFrame] = None
+        try:
+            benchmark_df = get_prices("^N225", nbars=nbars, period="3y")
+        except Exception as e:
+            print(f"[picks_build] benchmark load error: {e}")
+            benchmark_df = None
+
         User = get_user_model()
         user = User.objects.first()
 
@@ -591,7 +545,7 @@ class Command(BaseCommand):
         meta_extra: Dict[str, Any] = {}
 
         for code in codes:
-            res = _work_one(user, code, nbars=nbars)
+            res = _work_one(user, code, nbars=nbars, benchmark_df=benchmark_df)
             if res is None:
                 continue
             item, sizing_meta = res
@@ -606,7 +560,7 @@ class Command(BaseCommand):
 
         _enrich_meta(items)
 
-        # 並び: score_100 desc → last_close desc（おすすめ順）
+        # 並び: score_100 desc → last_close desc
         items.sort(
             key=lambda x: (
                 x.score_100 if x.score_100 is not None else -1,
