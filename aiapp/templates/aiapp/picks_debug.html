@@ -155,10 +155,10 @@
       <div>
         <div class="title">AI Picks 診断ビュー</div>
         <div class="meta">
-          <span>モード: {{ meta.style }}/{{ meta.horizon }}</span>
-          <span>ユニバース: {{ meta.universe }}</span>
-          <span>銘柄数: {{ meta.total|intcomma }} 件</span>
-          <span>TopK: {{ meta.topk }}</span>
+          <span>モード: {{ meta.style|default:"aggressive" }}/{{ meta.horizon|default:"short" }}</span>
+          <span>ユニバース: {{ meta.universe|default:"(不明)" }}</span>
+          <span>銘柄数: {{ meta.total|default:0|intcomma }} 件</span>
+          <span>TopK: {{ meta.topk|default:0 }}</span>
         </div>
         {% if updated_at_label %}
           <div class="meta">最終更新: {{ updated_at_label }}</div>
@@ -207,11 +207,6 @@
         <tbody>
 
         {% for it in items %}
-          {% with
-            qty_total=it.qty_rakuten|default_if_none:0|add:it.qty_matsui|default_if_none:0
-            pl_total=it.est_pl_rakuten|default_if_none:0|add:it.est_pl_matsui|default_if_none:0
-            loss_total=it.est_loss_rakuten|default_if_none:0|add:it.est_loss_matsui|default_if_none:0
-          %}
           <tr>
             <td class="code">{{ it.code }}</td>
 
@@ -221,10 +216,14 @@
             </td>
 
             <td class="score
-              {% if it.score_100 >= 80 %}score-high
-              {% elif it.score_100 >= 60 %}score-mid
+              {% if it.score_100 and it.score_100|floatformat:0 >= 80 %}score-high
+              {% elif it.score_100 and it.score_100|floatformat:0 >= 60 %}score-mid
               {% else %}score-low{% endif %}">
-              {{ it.score_100|default:"–" }}
+              {% if it.score_100 is not None %}
+                {{ it.score_100|floatformat:0 }}
+              {% else %}
+                –
+              {% endif %}
             </td>
 
             <td class="stars">
@@ -238,17 +237,17 @@
             <td>{% if it.sl %}{{ it.sl|floatformat:0|intcomma }}{% else %}—{% endif %}</td>
 
             <td>
-              {% if qty_total %}
-                {{ qty_total|intcomma }}
+              {% if it.qty_total %}
+                {{ it.qty_total|floatformat:0|intcomma }}
               {% else %}
                 <span class="zero">0</span>
               {% endif %}
             </td>
 
             <td>
-              {% if pl_total %}
-                <span class="{% if pl_total > 0 %}pos{% else %}neg{% endif %}">
-                  {{ pl_total|floatformat:0|intcomma }}
+              {% if it.pl_total and it.pl_total != 0 %}
+                <span class="{% if it.pl_total > 0 %}pos{% else %}neg{% endif %}">
+                  {{ it.pl_total|floatformat:0|intcomma }}
                 </span>
               {% else %}
                 <span class="zero">0</span>
@@ -256,16 +255,15 @@
             </td>
 
             <td>
-              {% if loss_total %}
-                <span class="{% if loss_total < 0 %}neg{% else %}pos{% endif %}">
-                  {{ loss_total|floatformat:0|intcomma }}
+              {% if it.loss_total and it.loss_total != 0 %}
+                <span class="{% if it.loss_total < 0 %}neg{% else %}pos{% endif %}">
+                  {{ it.loss_total|floatformat:0|intcomma }}
                 </span>
               {% else %}
                 <span class="zero">0</span>
               {% endif %}
             </td>
           </tr>
-          {% endwith %}
         {% empty %}
           <tr>
             <td colspan="12" style="text-align:center;color:#9ca3af;padding:16px 8px;">
