@@ -27,10 +27,9 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
       RET_x, SLOPE_x, GCROSS/DCROSS などを計算）
 
   ・スコア / ⭐️:
-      aiapp.services.scoring_service.score_sample     （生スコア 0..1）
-      aiapp.services.confidence_service.ConfidenceService
-        → score_100(0..100) から ⭐️信頼度(1..5) を割り当て
-    ※ scoring_service.stars_from_score はフォールバックとして使用。
+      aiapp.services.scoring_service.score_sample
+      aiapp.services.scoring_service.stars_from_score
+    ※ モジュールが無い場合は、picks_build 内のフォールバックで算出。
 
   ・Entry / TP / SL:
       aiapp.services.entry_service.compute_entry_tp_sl
@@ -65,8 +64,8 @@ AIピック生成コマンド（FULL + TopK + Sizing + 理由テキスト）
 
 ※ この management command（picks_build）は、
    上記サービス群をオーケストレーションして JSON を生成する役割に徹し、
-   個々の「評価ロジック」は scoring_service / reasons / filters / bias /
-   confidence_service などの専用モジュール側で管理する。
+   個々の「評価ロジック」は scoring_service / reasons / filters / bias
+   などの専用モジュール側で管理する。
 """
 
 from __future__ import annotations
@@ -123,12 +122,6 @@ try:
     from aiapp.services.picks_bias import apply_all as apply_bias_all
 except Exception:  # pragma: no cover
     apply_bias_all = None  # type: ignore
-
-# 追加: AI信頼度レイヤー
-try:
-    from aiapp.services.confidence_service import ConfidenceService
-except Exception:  # pragma: no cover
-    ConfidenceService = None  # type: ignore
 
 
 # =========================================================
@@ -377,7 +370,7 @@ class PickItem:
 
     score: Optional[float] = None          # 0..1
     score_100: Optional[int] = None        # 0..100
-    stars: Optional[int] = None            # 1..5（ConfidenceService で後から埋める）
+    stars: Optional[int] = None            # 1..5
 
     qty_rakuten: Optional[int] = None
     required_cash_rakuten: Optional[float] = None
@@ -405,10 +398,16 @@ class PickItem:
 # 1銘柄処理
 # =========================================================
 
-def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str, Any]]]:
+def _work_one(
+    user,
+    code: str,
+    nbars: int,
+    filter_stats: Optional[Dict[str, int]] = None,
+) -> Optional[Tuple[PickItem, Dict[str, Any]]]:
     """
     単一銘柄について、価格→特徴量→スコア→Entry/TP/SL→Sizing→理由 まで全部まとめて計算。
     sizing_meta には risk_pct / lot_size を入れて返す。
+    filter_stats が渡されていれば、picks_filters によるスキップ理由ごとの件数を集計する。
     """
     try:
         raw = get_prices(code, nbars=nbars, period="3y")
@@ -440,12 +439,19 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
                 )
                 decision = picks_check_all(ctx)
                 if decision and getattr(decision, "skip", False):
+                    # フィルタ理由ごとの件数カウント
+                    if filter_stats is not None:
+                        reason = getattr(decision, "reason_code", None) or "SKIP"
+                        filter_stats[reason] = filter_stats.get(reason, 0) + 1
+
                     if BUILD_LOG:
                         rc = getattr(decision, "reason_code", None)
                         rt = getattr(decision, "reason_text", None)
                         print(f"[picks_build] {code}: filtered out ({rc}) {rt}")
                     return None
             except Exception as ex:
+                if filter_stats is not None:
+                    filter_stats["filter_error"] = filter_stats.get("filter_error", 0) + 1
                 if BUILD_LOG:
                     print(f"[picks_build] {code}: filter error {ex}")
 
@@ -455,6 +461,7 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
         else:
             s01 = _fallback_score_sample(feat)
         score100 = _score_to_0_100(s01)
+        stars = int(ext_stars_from_score(s01)) if ext_stars_from_score else _fallback_stars(s01)
 
         # --- Entry / TP / SL ---
         if ext_entry_tp_sl:
@@ -492,8 +499,7 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
             sl=_nan_to_none(s),
             score=_nan_to_none(s01),
             score_100=int(score100),
-            # stars は後で ConfidenceService から一括付与
-            stars=None,
+            stars=int(stars),
             reason_lines=reason_lines,
             reason_concern=reason_concern,
         )
@@ -535,6 +541,8 @@ def _work_one(user, code: str, nbars: int) -> Optional[Tuple[PickItem, Dict[str,
 
     except Exception as e:
         print(f"[picks_build] work error for {code}: {e}")
+        if filter_stats is not None:
+            filter_stats["work_error"] = filter_stats.get("work_error", 0) + 1
         return None
 
 
@@ -665,13 +673,27 @@ class Command(BaseCommand):
         topk = int(opts.get("topk") or 10)
 
         codes = _load_universe(universe)
+        master_total = len(codes)
+
         if not codes:
             print("[picks_build] universe empty → 空JSON出力")
-            self._emit([], [], mode="full", style=style, horizon=horizon, universe=universe, topk=topk, meta_extra={})
+            self._emit(
+                [],
+                [],
+                mode="full",
+                style=style,
+                horizon=horizon,
+                universe=universe,
+                topk=topk,
+                meta_extra={
+                    "universe_count": master_total,
+                    "filter_stats": {},
+                },
+            )
             return
 
         if BUILD_LOG:
-            print(f"[picks_build] start FULL universe={universe} codes={len(codes)}")
+            print(f"[picks_build] start FULL universe={universe} codes={master_total}")
 
         User = get_user_model()
         user = User.objects.first()
@@ -679,8 +701,11 @@ class Command(BaseCommand):
         items: List[PickItem] = []
         meta_extra: Dict[str, Any] = {}
 
+        # フィルタ理由ごとの削除件数カウンタ
+        filter_stats: Dict[str, int] = {}
+
         for code in codes:
-            res = _work_one(user, code, nbars=nbars)
+            res = _work_one(user, code, nbars=nbars, filter_stats=filter_stats)
             if res is None:
                 continue
             item, sizing_meta = res
@@ -703,32 +728,6 @@ class Command(BaseCommand):
                 if BUILD_LOG:
                     print(f"[picks_build] bias error: {ex}")
 
-        # ---- AI信頼度（⭐️）割り当て ----
-        if items:
-            if ConfidenceService is not None:
-                try:
-                    svc_conf = ConfidenceService()
-                    score_list = [int(it.score_100 or 0) for it in items]
-                    stars_list = svc_conf.batch_assign(score_list)
-                    for it, st in zip(items, stars_list):
-                        it.stars = int(st)
-                except Exception as ex:
-                    if BUILD_LOG:
-                        print(f"[picks_build] confidence error: {ex}")
-            else:
-                # フォールバック: scoring_service / 内蔵ロジックから直接⭐️を計算
-                if ext_stars_from_score is not None:
-                    for it in items:
-                        try:
-                            if it.score is not None:
-                                it.stars = int(ext_stars_from_score(it.score))
-                        except Exception:
-                            pass
-                else:
-                    for it in items:
-                        if it.score is not None:
-                            it.stars = _fallback_stars(float(it.score))
-
         # 並び: score_100 desc → last_close desc
         items.sort(
             key=lambda x: (
@@ -741,7 +740,14 @@ class Command(BaseCommand):
         top_items = items[: max(0, topk)]
 
         if BUILD_LOG:
-            print(f"[picks_build] done total={len(items)} topk={len(top_items)}")
+            print(
+                f"[picks_build] done master_total={master_total} "
+                f"total={len(items)} topk={len(top_items)}"
+            )
+
+        # 追加メタ（総StockMaster件数 & フィルタ別削除件数）
+        meta_extra["universe_count"] = master_total
+        meta_extra["filter_stats"] = filter_stats
 
         self._emit(
             items,
