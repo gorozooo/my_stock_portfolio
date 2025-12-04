@@ -190,9 +190,9 @@
 
         <!-- 件数まわり（総件数 / 対象件数 / TopK） -->
         <div class="meta">
-          {% if meta.stockmaster_total %}
-            <span>総件数（StockMaster）: {{ meta.stockmaster_total|intcomma }} 件</span>
-          {% endif %}
+          {% with total_all=meta.stockmaster_total|default:meta.total %}
+            <span>総件数（ユニバース内）: {{ total_all|default:0|intcomma }} 件</span>
+          {% endwith %}
           <span>対象件数（フィルタ後）: {{ meta.total|default:0|intcomma }} 件</span>
           <span>TopK: {{ meta.topk|default:0 }}</span>
         </div>
