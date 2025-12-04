@@ -191,11 +191,13 @@
         <!-- 件数まわり（総件数 / 対象件数 / TopK） -->
         <div class="meta">
           {% with total_all=meta.stockmaster_total|default:meta.total %}
-            <span>総件数（ユニバース内）: {{ total_all|default:0|intcomma }} 件</span>
+            <span>総件数（ユニバース内）: {{ total_all|default:0|intcomma }} 件
           {% endwith %}
-          <span>対象件数（フィルタ後）: {{ meta.total|default:0|intcomma }} 件</span>
-          <span>TopK: {{ meta.topk|default:0 }}</span>
         </div>
+        
+        <div class="meta">対象件数（フィルタ後）: {{ meta.total|default:0|intcomma }} 件</div>
+        
+        <div class="meta">TopK: {{ meta.topk|default:0 }}</div>
 
         <!-- フィルタ削除件数（日本語ラベル） -->
         {% if filter_stats %}
