@@ -673,7 +673,7 @@ class Command(BaseCommand):
         topk = int(opts.get("topk") or 10)
 
         codes = _load_universe(universe)
-        master_total = len(codes)
+        stockmaster_total = len(codes)
 
         if not codes:
             print("[picks_build] universe empty → 空JSON出力")
@@ -686,14 +686,14 @@ class Command(BaseCommand):
                 universe=universe,
                 topk=topk,
                 meta_extra={
-                    "universe_count": master_total,
+                    "stockmaster_total": stockmaster_total,
                     "filter_stats": {},
                 },
             )
             return
 
         if BUILD_LOG:
-            print(f"[picks_build] start FULL universe={universe} codes={master_total}")
+            print(f"[picks_build] start FULL universe={universe} codes={stockmaster_total}")
 
         User = get_user_model()
         user = User.objects.first()
@@ -741,12 +741,12 @@ class Command(BaseCommand):
 
         if BUILD_LOG:
             print(
-                f"[picks_build] done master_total={master_total} "
+                f"[picks_build] done stockmaster_total={stockmaster_total} "
                 f"total={len(items)} topk={len(top_items)}"
             )
 
         # 追加メタ（総StockMaster件数 & フィルタ別削除件数）
-        meta_extra["universe_count"] = master_total
+        meta_extra["stockmaster_total"] = stockmaster_total
         meta_extra["filter_stats"] = filter_stats
 
         self._emit(
