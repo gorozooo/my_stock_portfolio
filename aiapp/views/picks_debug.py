@@ -149,6 +149,8 @@ def picks_debug_view(request: HttpRequest) -> HttpResponse:
     # 理由コード → 日本語ラベル
     LABELS: Dict[str, str] = {
         "LOW_TURNOVER": "出来高が少なく除外",
+        "TOO_VOLATILE": "価格変動が激しすぎて除外",
+        "PUMP_STYLE": "急騰銘柄（仕手株疑い）で除外",
         "PRICE_ANOMALY": "価格が異常と判定され除外",
         "NO_PRICE": "価格データが取得できず除外",
         "SKIP": "その他の条件で除外",
