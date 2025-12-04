@@ -180,7 +180,9 @@
   <div class="head-card">
     <div class="head-top">
       <div>
-        <div class="title">AI Picks 診断ビュー</div>
+        {% if updated_at_label %}
+          <div class="title">最終更新: {{ updated_at_label }}</div>
+        {% endif %}
 
         <!-- モード / ユニバース -->
         <div class="meta">
@@ -220,9 +222,7 @@
           </div>
         {% endif %}
 
-        {% if updated_at_label %}
-          <div class="meta">最終更新: {{ updated_at_label }}</div>
-        {% endif %}
+        
         {% if source_file %}
           <div class="meta">ソース: <code style="font-size:11px">{{ source_file }}</code></div>
         {% endif %}
